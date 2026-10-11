@@ -91,7 +91,11 @@ impl<'a> VM<'a> {
                         sync_frames.extend(newer.into_iter().rev());
                         break 'drive Ok(val);
                     }
-                    Ok(val) => { pending_ret = Some(val); }
+                    // A finished helper drops the loops a return left open, as run_call does.
+                    Ok(val) => {
+                        self.iter_stack.truncate(frame_iter_base);
+                        pending_ret = Some(val);
+                    }
                 }
             } else {
                 let body: &SSAChunk = match outer_body {
