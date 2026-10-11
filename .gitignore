@@ -39,3 +39,4 @@ _micropython/
 
 /backlog.json
 /BACKLOG.md
+/miri/

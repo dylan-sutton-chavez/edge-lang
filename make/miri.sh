@@ -2,60 +2,62 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
-WORKER="${WORKER:-local}"
-LONG="${LONG:-false}"
-report=make/report.sh
-# Cases are claimed only while MARGIN seconds remain before the job ends.
+# One suite walked a test at a time, what ran kept in a table under miri/ that the Actions cache carries to the next run.
+SUITE="${SUITE:?pass SUITE, one of vm snapshot modules parser lexer abi}"
+table="miri/$SUITE.tsv"
+# Tests start only while MARGIN seconds remain before the job ends.
 deadline=$(( ${STARTED:-$(date +%s)} + ${MINUTES:-355} * 60 - ${MARGIN:-600} ))
-# How long a worker with nothing to take waits before it asks again.
-WAIT="${WAIT:-300}"
+MODES=("" "-Zmiri-tree-borrows" "-Zmiri-strict-provenance -Zmiri-symbolic-alignment-check")
+NAMES=("Stacked Borrows" "Tree Borrows" "Strict provenance")
+summary="${GITHUB_STEP_SUMMARY:-/dev/stdout}"
 log="$(mktemp)"
-trap 'rm -f "$log"' EXIT
-# A cancelled job lets go of what this run held, so another run takes its cases and the page stops counting it as going.
-trap 'echo "{}" | bash "$report" /api/testing/miri/stop >/dev/null; exit 130' INT TERM
+listed="$(mktemp)"
+trap 'rm -f "$log" "$listed"' EXIT
 
-# Every test of every suite, so new tests join the queue and removed ones leave.
-list() { for suite in vm snapshot modules parser lexer abi; do make -s miri-list SUITE="$suite" | jq -R --arg suite "$suite" '{suite: $suite, name: .}' || return 1; done; }
-listed="$(list | jq -s '{cases: .}')" || { echo "::error::could not list the Miri tests"; exit 1; }
-round="$(bash "$report" /api/testing/miri/cases <<< "$listed")" || { echo "::error::the testing api took no cases, so this worker has nothing to claim"; exit 1; }
-echo "round $(jq -r '"\(.round), \(.mode), \(.done) of \(.total) cases done"' <<< "$round")"
+mkdir -p miri && touch "$table"
+make -s miri-list SUITE="$SUITE" > "$listed" || { echo "::error::could not list the $SUITE tests"; exit 1; }
+
+# The table holds a test, the round it last ran in, how it ended and its seconds, a test the suite no longer holds left out.
+awk -F'\t' 'FILENAME == ARGV[1] { keep[$0] = 1; next } $1 in keep' "$listed" "$table" > "$table.next" && mv "$table.next" "$table"
+round="$(cat "miri/$SUITE.round" 2>/dev/null)"
+round="${round:-1}"
+pending() { awk -F'\t' -v round="$1" 'FILENAME == ARGV[1] { if ($2 >= round) done[$1] = 1; next } !($0 in done)' "$table" "$listed"; }
+# Every test ran in this round, so the next one starts in the next mode under its own seed.
+[ -n "$(pending "$round")" ] || round=$(( round + 1 ))
+echo "$round" > "miri/$SUITE.round"
+mode=$(( (round - 1) % 3 ))
+flags="-Zmiri-seed=$round ${MODES[$mode]}"
 
 failed=0
-while :; do
-  budget=$(( (deadline - $(date +%s)) * 1000 ))
-  (( budget > 0 )) || break
-  claim="$(jq -n --arg worker "$WORKER" --argjson long "$LONG" --argjson budget "$budget" '{worker: $worker, long: $long, budget_ms: $budget}' | bash "$report" /api/testing/miri/claim)" || { echo "::error::the testing api answered no claim"; failed=1; break; }
-  suite="$(jq -r '.case.suite // empty' <<< "$claim")"
-  # Nothing fits now, but a long case or a new round may still come before the deadline.
-  if [ -z "$suite" ]; then
-    (( budget > WAIT * 1000 )) || break
-    sleep "$WAIT"
-    continue
-  fi
-  name="$(jq -r .case.name <<< "$claim")"
-  flags="$(jq -r .flags <<< "$claim")"
-  limit=$(( $(jq -r .limit_ms <<< "$claim") / 1000 ))
-  (( limit > 0 )) || break
-
-  # One case with its round's flags, cut at its limit.
-  echo "::group::$name, round $(jq -r .round <<< "$claim") in $(jq -r .mode <<< "$claim"), up to ${limit}s"
+rows=""
+for test in $(pending "$round"); do
+  left=$(( deadline - $(date +%s) ))
+  (( left > 0 )) || break
   began=$(date +%s)
-  MIRIFLAGS="$flags" timeout --kill-after=30 "$limit" make -s miri SUITE="$suite" CASE="$name" 2>&1 | tee "$log"
+  echo "::group::$test"
+  MIRIFLAGS="$flags" timeout --kill-after=30 "$left" make -s miri SUITE="$SUITE" CASE="$test" 2>&1 | tee "$log"
   status=${PIPESTATUS[0]}
-  ms=$(( ($(date +%s) - began) * 1000 ))
   echo "::endgroup::"
-
   case "$status" in
-    0) outcome=passed ;;
-    124 | 137) outcome=timeout ;;
-    *) outcome=failed; failed=1; echo "::error::$name failed under Miri" ;;
+    0) result=passed ;;
+    124 | 137) result=timeout ;;
+    *) result=failed; failed=1; echo "::error::$test failed under Miri" ;;
   esac
-  [ "$outcome" = passed ] && message="" || message="$(tail -c 2000 "$log")"
-  jq -n --arg worker "$WORKER" --arg suite "$suite" --arg name "$name" --arg outcome "$outcome" --argjson ms "$ms" --arg message "$message" \
-    '{worker: $worker, suite: $suite, name: $name, outcome: $outcome, ms: $ms} + (if $message == "" then {} else {message: $message} end)' \
-    | bash "$report" /api/testing/miri/result >/dev/null
-  # A 409 means the case is no longer ours.
-  [ $? -eq 1 ] && echo "::warning::the result of $name did not reach the testing api"
+  seconds=$(( $(date +%s) - began ))
+  { awk -F'\t' -v test="$test" '$1 != test' "$table"; printf '%s\t%s\t%s\t%s\n' "$test" "$round" "$result" "$seconds"; } > "$table.next" && mv "$table.next" "$table"
+  rows+="| \`$test\` | $result | ${seconds}s |"$'\n'
 done
+
+done_now="$(awk -F'\t' -v round="$round" '$2 >= round' "$table" | wc -l | tr -d ' ')"
+total="$(wc -l < "$listed" | tr -d ' ')"
+{
+  echo "### Miri, $SUITE, round $round in ${NAMES[$mode]}"
+  echo
+  echo "$done_now of $total tests done in this round."
+  echo
+  echo "| Test | Result | Time |"
+  echo "|---|---|---|"
+  printf '%s' "$rows"
+} >> "$summary"
 
 exit "$failed"

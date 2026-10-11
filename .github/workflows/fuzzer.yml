@@ -7,7 +7,8 @@ on:
 
 permissions:
   contents: read
-  id-token: write
+  # Each run starts the next one, so the blocks follow each other however late the schedule is.
+  actions: write
 
 # A late block waits instead of cancelling the running one.
 concurrency:
@@ -47,14 +48,8 @@ jobs:
       - name: Strategy
         run: bash fuzz/strategy.sh | tee -a "$GITHUB_ENV"
 
-      # Stats reach the testing page every 15 minutes, and a failed post never stops the run.
       - name: Fuzz
-        run: |
-          mkdir -p fuzz/logs
-          bash fuzz/stats.sh running | bash make/report.sh /api/testing/fuzz >/dev/null || true
-          ( while sleep 900; do bash fuzz/stats.sh running | bash make/report.sh /api/testing/fuzz >/dev/null || true; done ) >fuzz/logs/beat.log 2>&1 &
-          trap 'kill $!' EXIT
-          make fuzz
+        run: make fuzz
 
       - name: Carry corpus
         if: always()
@@ -66,11 +61,6 @@ jobs:
         with:
           path: fuzz/corpus
           key: fuzz-corpus-${{ github.run_id }}
-
-      # A cancelled job says so, so the page tells it from one that ended.
-      - name: Report
-        if: always()
-        run: bash fuzz/stats.sh ${{ job.status == 'cancelled' && 'cancelled' || 'done' }} | bash make/report.sh /api/testing/fuzz >/dev/null || true
 
       - name: Triage
         if: always()
@@ -106,3 +96,10 @@ jobs:
           name: fuzz-findings
           path: findings.tar.gz
           retention-days: 14
+
+      # The next block, which waits for this one to end. A cancelled run starts none, and the schedule picks the chain up again.
+      - name: Next
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run fuzzer.yml --ref main -R ${{ github.repository }}

@@ -7,28 +7,23 @@ on:
 
 permissions:
   contents: read
-  id-token: write
+  # Each run starts the next one, so the blocks follow each other however late the schedule is.
+  actions: write
 
-# A late block waits instead of cancelling the running one.
+# A late run waits instead of cancelling the running one.
 concurrency:
   group: miri
   cancel-in-progress: false
 
 jobs:
   miri:
-    name: Miri / ${{ matrix.worker }}
+    name: Miri / ${{ matrix.suite }}
     runs-on: ubuntu-26.04
     timeout-minutes: 355
     strategy:
       fail-fast: false
       matrix:
-        include:
-          # Four workers for cases under an hour, one for the longer ones.
-          - { worker: w1, long: false }
-          - { worker: w2, long: false }
-          - { worker: w3, long: false }
-          - { worker: w4, long: false }
-          - { worker: long, long: true }
+        suite: [vm, snapshot, modules, parser, lexer, abi]
     steps:
       # The deadline counts from the job's start.
       - name: Start
@@ -36,10 +31,18 @@ jobs:
 
       - uses: actions/checkout@v7
 
+      # The table of what the last runs of this suite interpreted, so this one picks up where they stopped.
+      - name: Restore table
+        uses: actions/cache/restore@v6
+        with:
+          path: miri
+          key: miri-table-${{ matrix.suite }}-${{ github.run_id }}
+          restore-keys: miri-table-${{ matrix.suite }}-
+
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
         with:
-          key: miri
+          key: miri-${{ matrix.suite }}
 
       # Miri ships on nightly only, and it stays in this workflow so the rest of CI keeps to stable.
       - name: Toolchain (nightly)
@@ -53,6 +56,22 @@ jobs:
 
       - name: Interpret
         env:
-          WORKER: ${{ matrix.worker }}
-          LONG: ${{ matrix.long }}
+          SUITE: ${{ matrix.suite }}
         run: bash make/miri.sh
+
+      - name: Save table
+        if: always()
+        uses: actions/cache/save@v6
+        with:
+          path: miri
+          key: miri-table-${{ matrix.suite }}-${{ github.run_id }}
+
+  # The next run once every suite of this one ends, which waits for it. A cancelled run starts none, and the schedule picks the chain up again.
+  next:
+    needs: miri
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-26.04
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run miri.yml --ref main -R ${{ github.repository }}

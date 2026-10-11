@@ -9,8 +9,8 @@ Five checks run beside the test suites. Each one has a `make` target at the root
 
 | Check | Command | In CI |
 |---|---|---|
-| Fuzzing | `make fuzz` | Every 6 hours, about 5 hours |
-| Miri | `make miri SUITE=vm` | Every 6 hours, five workers |
+| Fuzzing | `make fuzz` | Back to back, about 5 hours a run |
+| Miri | `make miri SUITE=vm` | Back to back, one runner per suite |
 | Bench | `make bench` | Every push and pull request to `main` |
 | Consistency | `make test-cli SUITE=consistency` | Every push and pull request to `main` |
 | Std packages | `make test-cli SUITE=std` | Every push and pull request to `main` |
@@ -30,7 +30,7 @@ A campaign runs one instance per logical core until stopped. It needs Linux or m
 
 > [!COPY] make fuzz
 
-CI runs it every six hours from the corpus the last run kept, on other power schedules each day. A saved crash fails the run.
+CI runs it back to back, each run starting the next and a schedule every six hours picking the chain up when it breaks, from the corpus the last run kept and on other power schedules each day. A saved crash fails the run.
 
 The crashes and hangs are uploaded as the `fuzz-findings` artifact and kept for 14 days. A local campaign writes them under `fuzz/out/`, one folder per instance.
 
@@ -42,7 +42,7 @@ The [fuzzing manual](https://github.com/dylan-sutton-chavez/edge-python/blob/mai
 
 > [!COPY] make miri SUITE=vm
 
-`SUITE` is one of `vm`, `snapshot`, `modules`, `parser`, `lexer` and `abi`, and `CASE` runs one test of it. CI runs every six hours, five workers taking the tests from a queue, each round in another mode and seed.
+`SUITE` is one of `vm`, `snapshot`, `modules`, `parser`, `lexer` and `abi`, and `CASE` runs one test of it. CI runs every suite back to back on a runner of its own, a test at a time, picking up where the last run stopped from a table the Actions cache carries. Once every test has run, a new round starts in the next mode under a seed of its own, and each run lists what it interpreted in its summary on GitHub.
 
 ## Bench
 
@@ -64,4 +64,3 @@ The tests of every [edge-python-std](https://github.com/dylan-sutton-chavez/edge
 > - `bug` [Fuzzing manual](https://github.com/dylan-sutton-chavez/edge-python/blob/main/fuzz/README.md) Campaigns, resuming, reproducing and triage.
 > - `git-pull-request` [Contributing](https://github.com/dylan-sutton-chavez/edge-python/blob/main/CONTRIBUTING.md) Builds, tests and what a pull request runs.
 > - `workflow` [CI workflows](https://github.com/dylan-sutton-chavez/edge-python/tree/main/.github/workflows) The main, fuzz and Miri jobs.
-> - `activity` [Testing](https://edgepython.com/testing) Every fuzzing and Miri run.
