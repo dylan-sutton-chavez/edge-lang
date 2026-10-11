@@ -2,28 +2,30 @@ name: Fuzz
 
 on:
   schedule:
-    - cron: "0 3 * * *" # 03:00 UTC daily
+    - cron: "0 */6 * * *" # every six hours
   workflow_dispatch:
     inputs:
       duration:
         description: Seconds to fuzz (-V)
         required: false
-        default: "1200"
+        default: "19200"
 
 permissions:
   contents: read
+  id-token: write
 
+# A late block waits instead of cancelling the running one.
 concurrency:
   group: fuzz
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   fuzz:
     name: American Fuzzy Lop (fuzzer)
     runs-on: ubuntu-26.04
-    timeout-minutes: 45
+    timeout-minutes: 355
     env:
-      DURATION: ${{ github.event.inputs.duration || '1200' }}
+      DURATION: ${{ github.event.inputs.duration || '19200' }}
       AFL_NO_AFFINITY: "1"
     steps:
       - uses: actions/checkout@v7
@@ -36,10 +38,43 @@ jobs:
       - name: Install cargo-afl
         run: cargo install cargo-afl
 
+      # The newest corpus a block saved.
+      - name: Restore corpus
+        uses: actions/cache/restore@v6
+        with:
+          path: fuzz/corpus
+          key: fuzz-corpus-${{ github.run_id }}
+          restore-keys: fuzz-corpus-
+
+      - name: Strategy
+        run: bash fuzz/strategy.sh | tee -a "$GITHUB_ENV"
+
+      # Stats reach the testing page every 15 minutes, and a failed post never stops the run.
       - name: Fuzz
-        run: make fuzz
+        run: |
+          mkdir -p fuzz/logs
+          bash fuzz/stats.sh running | bash make/report.sh /api/testing/fuzz >/dev/null || true
+          ( while sleep 900; do bash fuzz/stats.sh running | bash make/report.sh /api/testing/fuzz >/dev/null || true; done ) >fuzz/logs/beat.log 2>&1 &
+          trap 'kill $!' EXIT
+          make fuzz
+
+      - name: Carry corpus
+        if: always()
+        run: make fuzz-carry
+
+      - name: Save corpus
+        if: always()
+        uses: actions/cache/save@v6
+        with:
+          path: fuzz/corpus
+          key: fuzz-corpus-${{ github.run_id }}
+
+      - name: Report
+        if: always()
+        run: bash fuzz/stats.sh done | bash make/report.sh /api/testing/fuzz >/dev/null || true
 
       - name: Triage
+        if: always()
         working-directory: fuzz
         run: |
           shopt -s nullglob

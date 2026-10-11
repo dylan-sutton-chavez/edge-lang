@@ -30,6 +30,7 @@ tmp/
 fuzz/in/
 fuzz/out/
 fuzz/logs/
+fuzz/corpus/
 fuzz/edge.dict
 
 _micropython/

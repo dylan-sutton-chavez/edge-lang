@@ -181,7 +181,7 @@ Inline caches and memoisation tables start empty and warm lazily. `Extern` handl
 
 Host-side resources such as in-flight host calls and DOM handles are not part of the snapshot. `state_globals` and `state_stack` inspect a parked run without resuming it. The feature as a program sees it is in [Snapshots](/docs/edge-python/language/snapshots).
 
-A coverage-guided fuzzer drives the lexer, the parser, the VM and this snapshot round trip every day, see [Runbook](/docs/edge-python/internals/runbook).
+A coverage-guided fuzzer drives the lexer, the parser, the VM and this snapshot round trip around the clock, see [Runbook](/docs/edge-python/internals/runbook).
 
 ## What the compiler intentionally does not do
 

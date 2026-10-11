@@ -17,16 +17,17 @@ CLI_NEEDS_ := plugin
 CLI_NEEDS_skill := test-skill
 CLI_NEEDS_std := test-std
 
-MIRI_vm := -p edge-python --test tests vm::
-MIRI_snapshot := -p edge-python --test tests snapshot::
-MIRI_modules := -p edge-python --test tests modules::
-MIRI_parser := -p edge-python --test tests parser::
-MIRI_lexer := -p edge-python --test tests lexer::
-MIRI_abi := -p edge-python --test tests abi::
+MIRI_TESTS := -p edge-python --test tests
+MIRI_vm := vm::
+MIRI_snapshot := snapshot::
+MIRI_modules := modules::
+MIRI_parser := parser::
+MIRI_lexer := lexer::
+MIRI_abi := abi::
 
 unix_only = $(if $(filter Windows_NT,$(OS)),$(error AFL runs on Linux and macOS only))
 
-.PHONY: wasm wasm-cli wasm-ship wasm-small wasm-cli-opt size js lint lint-rust lint-js lint-cli test bench bench-update plugin cli cli-release stage serve browsers test-js test-cli test-skill test-std miri miri-setup fuzz fuzz-status fuzz-triage fuzz-replay fuzz-container fuzz-stop seeds lucide version check
+.PHONY: wasm wasm-cli wasm-ship wasm-small wasm-cli-opt size js lint lint-rust lint-js lint-cli test bench bench-update plugin cli cli-release stage serve browsers test-js test-cli test-skill test-std miri miri-list miri-setup fuzz fuzz-status fuzz-triage fuzz-replay fuzz-carry fuzz-container fuzz-stop seeds lucide version check
 
 wasm:
 	cargo rustc --locked --release $(RUNTIME)
@@ -138,9 +139,15 @@ test-std: $(CLI_INPUTS)
 miri-setup:
 	cargo +nightly miri setup
 
+# One suite, or with CASE one test of it by its exact name.
 miri: miri-setup
 	$(if $(MIRI_$(SUITE)),,$(error SUITE is one of vm snapshot modules parser lexer abi))
-	cargo +nightly miri test --locked $(MIRI_$(SUITE))
+	cargo +nightly miri test --locked $(MIRI_TESTS) $(if $(CASE),-- --exact $(CASE),$(MIRI_$(SUITE)))
+
+# The tests of a suite, one name per line.
+miri-list: miri-setup
+	$(if $(MIRI_$(SUITE)),,$(error SUITE is one of vm snapshot modules parser lexer abi))
+	@cargo +nightly miri test --locked -q $(MIRI_TESTS) $(MIRI_$(SUITE)) -- --list --format=terse 2>/dev/null | sed -n 's/: test$$//p'
 
 # One AFL instance per core, JOBS, DURATION, FRESH and TIMEOUT_MS tune the campaign.
 fuzz:
@@ -160,6 +167,11 @@ fuzz-replay:
 	$(unix_only)
 	$(if $(CASE),,$(error pass CASE, a saved input such as out/m0/crashes/id))
 	cd fuzz && ./target/release/afl-pipeline < $(CASE)
+
+# Minimizes the queues and the old corpus into corpus/.
+fuzz-carry:
+	$(unix_only)
+	cd fuzz && bash ./carry.sh
 
 # The same campaign detached in Docker, surviving reboots with its findings in a volume.
 fuzz-container:

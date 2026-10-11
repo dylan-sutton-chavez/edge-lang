@@ -59,7 +59,7 @@ make browsers   # once
 make test-js test-cli test-skill
 ```
 
-`make fuzz` runs a fuzzing campaign, and `make miri SUITE=vm` runs one module under Miri, as CI does every day.
+`make fuzz` runs a fuzzing campaign, and `make miri SUITE=vm` runs one module under Miri, as CI does every six hours.
 
 ## Docs
 
@@ -67,4 +67,4 @@ make test-js test-cli test-skill
 
 ## CI
 
-[`main.yml`](.github/workflows/main.yml) runs each part as a composite action that calls the same `make` targets, against the CDN tree it stages. Nothing in it holds a secret, so a pull request from a fork runs it whole.
+[`main.yml`](.github/workflows/main.yml) runs each part as a composite action that calls the same `make` targets, against the CDN tree it stages. Nothing in it holds a secret, so a pull request from a fork runs it whole, and the fuzz and Miri jobs report with the OIDC token of their job.

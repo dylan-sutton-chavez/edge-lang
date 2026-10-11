@@ -2,39 +2,44 @@ name: Miri
 
 on:
   schedule:
-    - cron: "0 4 * * *" # 04:00 UTC daily
+    - cron: "0 */6 * * *" # every six hours
   workflow_dispatch:
 
 permissions:
   contents: read
+  id-token: write
 
+# A late block waits instead of cancelling the running one.
 concurrency:
   group: miri
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   miri:
-    name: Miri / ${{ matrix.entry }}
+    name: Miri / ${{ matrix.worker }}
     runs-on: ubuntu-26.04
-    timeout-minutes: 45
+    timeout-minutes: 355
     strategy:
       fail-fast: false
       matrix:
         include:
-          # vm and snapshot each walk the whole vm corpus, so they get a runner apiece.
-          - entry: vm
-          - entry: snapshot
-          - entry: modules
-          - entry: parser
-          - entry: lexer
-          - entry: abi
+          # Four workers for cases under an hour, one for the longer ones.
+          - { worker: w1, long: false }
+          - { worker: w2, long: false }
+          - { worker: w3, long: false }
+          - { worker: w4, long: false }
+          - { worker: long, long: true }
     steps:
+      # The deadline counts from the job's start.
+      - name: Start
+        run: echo "STARTED=$(date +%s)" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@v7
 
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
         with:
-          key: miri-${{ matrix.entry }}
+          key: miri
 
       # Miri ships on nightly only, and it stays in this workflow so the rest of CI keeps to stable.
       - name: Toolchain (nightly)
@@ -47,4 +52,7 @@ jobs:
         run: make miri-setup
 
       - name: Interpret
-        run: make miri SUITE=${{ matrix.entry }}
+        env:
+          WORKER: ${{ matrix.worker }}
+          LONG: ${{ matrix.long }}
+        run: bash make/miri.sh
