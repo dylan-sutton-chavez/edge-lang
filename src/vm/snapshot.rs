@@ -11,11 +11,13 @@ use super::{Pending, VM};
 use super::types::*;
 
 const MAGIC: u32 = 0x4E53_5045;
-const FORMAT: u32 = 10;
+const FORMAT: u32 = 11;
 
 pub type SnapErr = String;
 
 type ExternMap = FxHashMap<String, ExternFn>;
+// The cell a heap list keeps its items in, shared with every iterator walking it.
+type ListCell = Rc<RefCell<Vec<Val>>>;
 
 fn s_err(what: &str, detail: &str) -> SnapErr {
     crate::s!("snapshot: ", str what, " '", str detail, "'")
@@ -23,10 +25,12 @@ fn s_err(what: &str, detail: &str) -> SnapErr {
 
 struct W {
     b: Vec<u8>,
+    // The slot of each heap list, by its cell, so an iterator names the list it walks.
+    lists: FxHashMap<usize, Val>,
 }
 
 impl W {
-    fn new() -> Self { Self { b: Vec::with_capacity(4096) } }
+    fn new() -> Self { Self { b: Vec::with_capacity(4096), lists: FxHashMap::default() } }
     fn u8(&mut self, v: u8) { self.b.push(v); }
     fn u16(&mut self, v: u16) { self.b.extend_from_slice(&v.to_le_bytes()); }
     fn u32(&mut self, v: u32) { self.b.extend_from_slice(&v.to_le_bytes()); }
@@ -58,10 +62,12 @@ struct R<'a> {
     p: usize,
     // Which heap slots hold an object, known once the heap is decoded.
     live: Option<Vec<bool>>,
+    // One cell per list an iterator walks, swapped in for that list once the heap is back.
+    lists: FxHashMap<u64, ListCell>,
 }
 
 impl<'a> R<'a> {
-    fn new(b: &'a [u8]) -> Self { Self { b, p: 0, live: None } }
+    fn new(b: &'a [u8]) -> Self { Self { b, p: 0, live: None, lists: FxHashMap::default() } }
     fn take(&mut self, n: usize) -> Result<&'a [u8], SnapErr> {
         let end = self.p.checked_add(n).ok_or_else(|| "snapshot truncated".to_string())?;
         if end > self.b.len() { return Err("snapshot truncated".to_string()); }
@@ -184,15 +190,22 @@ codec!(enum BlockKind, put_block_kind, get_block_kind { 0 Except, 1 Finally });
 
 codec!(enum BodyRef, put_body_ref, get_body_ref { 0 Fn(fi: usz), 1 Module });
 
-/* A live list frame is stored as its current items, the view ends with the snapshot. */
+/* A list frame names its list by slot, so it reads the list live after a restore, one nothing else holds keeps its items. */
 fn put_iter_frame(w: &mut W, x: &IterFrame) {
+    let walks = |w: &W, rc: &ListCell| w.lists.get(&(Rc::as_ptr(rc) as usize)).copied();
     match x {
         IterFrame::Seq { items, idx } => { w.u8(0); w.vals(items); w.usz(*idx); }
-        IterFrame::List { rc, idx } => { w.u8(0); w.vals(&rc.borrow()); w.usz(*idx); }
+        IterFrame::List { rc, idx } => match walks(w, rc) {
+            Some(of) => { w.u8(11); w.val(of); w.usz(*idx); }
+            None => { w.u8(0); w.vals(&rc.borrow()); w.usz(*idx); }
+        },
         IterFrame::Range { cur, end, step } => { w.u8(1); w.i64(*cur); w.i64(*end); w.i64(*step); }
         IterFrame::Coroutine(v) => { w.u8(2); w.val(*v); }
         IterFrame::UserDefined(v) => { w.u8(3); w.val(*v); }
-        IterFrame::ListRev { rc, idx } => { w.u8(0); w.vals(&rc.borrow()[..(*idx).min(rc.borrow().len())].iter().rev().copied().collect::<Vec<_>>()); w.usz(0); }
+        IterFrame::ListRev { rc, idx } => match walks(w, rc) {
+            Some(of) => { w.u8(12); w.val(of); w.usz(*idx); }
+            None => { w.u8(0); w.vals(&rc.borrow()[..(*idx).min(rc.borrow().len())].iter().rev().copied().collect::<Vec<_>>()); w.usz(0); }
+        },
         IterFrame::Map { f, its } => { w.u8(4); w.val(*f); w.vals(its); }
         IterFrame::Filter { f, it } => { w.u8(5); w.val(*f); w.val(*it); }
         IterFrame::Zip { its } => { w.u8(6); w.vals(its); }
@@ -219,8 +232,16 @@ fn get_iter_frame(r: &mut R) -> Result<IterFrame, SnapErr> {
             let kind = *[View::Keys, View::Values, View::Items].get(r.u8()? as usize).ok_or("snapshot names an unknown dict view")?;
             IterFrame::DictWalk { of, idx, left, len, kind }
         }
+        11 => { let (rc, idx) = list_cell(r)?; IterFrame::List { rc, idx } }
+        12 => { let (rc, idx) = list_cell(r)?; IterFrame::ListRev { rc, idx } }
         t => return Err(s_err("unknown tag", itoa::Buffer::new().format(t))),
     })
+}
+
+/* The cell every iterator over one list shares, filled from that list once the heap is restored. */
+fn list_cell(r: &mut R) -> Result<(ListCell, usize), SnapErr> {
+    let (of, idx) = (r.val()?, r.usz()?);
+    Ok((r.lists.entry(of.0).or_insert_with(|| Rc::new(RefCell::new(Vec::new()))).clone(), idx))
 }
 
 codec!(struct ExceptionFrame, put_exc_frame, get_exc_frame {
@@ -573,6 +594,9 @@ pub fn save(vm: &VM, source: &str) -> Vec<u8> {
     w.usz(vm.budget);
     w.usz(vm.heap.limit());
     w.boolean(vm.strict_input);
+    for (slot, obj) in vm.heap.snapshot_objs().enumerate() {
+        if let Some(HeapObj::List(rc)) = obj { w.lists.insert(Rc::as_ptr(rc) as usize, Val::heap(slot as u32)); }
+    }
     w.usz(vm.heap.snapshot_objs().count());
     for obj in vm.heap.snapshot_objs() {
         match obj {
@@ -707,6 +731,12 @@ pub fn restore(vm: &mut VM, blob: &[u8]) -> Result<(), SnapErr> {
     })?;
 
     if r.p != r.b.len() { return Err("snapshot has trailing bytes".to_string()); }
+    // The list takes the cell its iterators hold, so they walk it and not a copy.
+    for (of, cell) in core::mem::take(&mut r.lists) {
+        let Some(HeapObj::List(list)) = vm.heap.try_get_mut(Val(of)) else { return Err("snapshot walks a list that is not there".to_string()) };
+        *cell.borrow_mut() = core::mem::take(&mut *list.borrow_mut());
+        *list = cell;
+    }
     // Derived flag, not serialized, recompute from the restored module bindings.
     vm.builtins_rebound = vm.scopes.iter().any(|g| g.iter().any(|(k, _)| NativeFnId::from_name(k).is_some()));
     rehash(vm, fills)?;
