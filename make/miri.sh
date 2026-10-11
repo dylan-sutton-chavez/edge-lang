@@ -11,6 +11,8 @@ deadline=$(( ${STARTED:-$(date +%s)} + ${MINUTES:-355} * 60 - ${MARGIN:-600} ))
 WAIT="${WAIT:-300}"
 log="$(mktemp)"
 trap 'rm -f "$log"' EXIT
+# A cancelled job lets go of what this run held, so another run takes its cases and the page stops counting it as going.
+trap 'echo "{}" | bash "$report" /api/testing/miri/stop >/dev/null; exit 130' INT TERM
 
 # Every test of every suite, so new tests join the queue and removed ones leave.
 list() { for suite in vm snapshot modules parser lexer abi; do make -s miri-list SUITE="$suite" | jq -R --arg suite "$suite" '{suite: $suite, name: .}' || return 1; done; }

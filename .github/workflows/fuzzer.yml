@@ -67,9 +67,10 @@ jobs:
           path: fuzz/corpus
           key: fuzz-corpus-${{ github.run_id }}
 
+      # A cancelled job says so, so the page tells it from one that ended.
       - name: Report
         if: always()
-        run: bash fuzz/stats.sh done | bash make/report.sh /api/testing/fuzz >/dev/null || true
+        run: bash fuzz/stats.sh ${{ job.status == 'cancelled' && 'cancelled' || 'done' }} | bash make/report.sh /api/testing/fuzz >/dev/null || true
 
       - name: Triage
         if: always()
