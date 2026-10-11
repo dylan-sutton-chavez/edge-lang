@@ -12,17 +12,21 @@ const PAIRS: u64 = 2;
 const CALLS: u64 = 8;
 // Locals besides the list and the string, all ints kept under 10007.
 const VARS: u64 = 4;
+// What a function returns, at its end or from inside a loop, every local in it.
+const RESULT: &str = "(v0, v1, v2, v3, len(xs), xs[-1], s)";
 
 /* Seeded so every failure replays from the number it reports. */
 struct Gen {
     state: u64,
     depth: u32,
     loops: u32,
+    // Loops the statement being written sits in, where an early return may leave them.
+    open: u32,
 }
 
 impl Gen {
     fn new(seed: u64) -> Self {
-        Gen { state: seed.wrapping_add(1).wrapping_mul(0x9E37_79B9_7F4A_7C15), depth: 0, loops: 0 }
+        Gen { state: seed.wrapping_add(1).wrapping_mul(0x9E37_79B9_7F4A_7C15), depth: 0, loops: 0, open: 0 }
     }
 
     fn next(&mut self) -> u64 {
@@ -89,6 +93,11 @@ impl Gen {
 
     fn stmt(&mut self, pad: &str, out: &mut String) {
         let inner = format!("{pad}    ");
+        // Inside a loop, sometimes leave the function from there, the way a search returns its find.
+        if self.open > 0 && self.chance(12) {
+            out.push_str(&format!("{pad}if {}:\n{inner}return {RESULT}\n", self.cond()));
+            return;
+        }
         let kinds = if self.depth < 2 { 11 } else { 6 };
         match self.below(kinds) {
             0..=2 => out.push_str(&format!("{pad}{} = {} % 10007\n", self.var(), self.int(3))),
@@ -113,6 +122,7 @@ impl Gen {
             7 => {
                 let i = self.next_loop();
                 self.depth += 1;
+                self.open += 1;
                 out.push_str(&format!("{pad}for i{i} in range({}):\n", self.below(7)));
                 out.push_str(&format!("{inner}{v} = ({v} + i{i}) % 10007\n", v = self.var()));
                 if self.chance(20) {
@@ -120,11 +130,13 @@ impl Gen {
                 }
                 let n = 1 + self.below(3);
                 self.block(&inner, n, out);
+                self.open -= 1;
                 self.depth -= 1;
             }
             8 => {
                 let i = self.next_loop();
                 self.depth += 1;
+                self.open += 1;
                 out.push_str(&format!("{pad}for y{i} in list(xs):\n"));
                 out.push_str(&format!("{inner}{v} = ({v} + y{i}) % 10007\n", v = self.var()));
                 if self.chance(20) {
@@ -132,14 +144,17 @@ impl Gen {
                 }
                 let n = 1 + self.below(2);
                 self.block(&inner, n, out);
+                self.open -= 1;
                 self.depth -= 1;
             }
             9 => {
                 let i = self.next_loop();
                 self.depth += 1;
+                self.open += 1;
                 out.push_str(&format!("{pad}w{i} = 0\n{pad}while w{i} < {}:\n{inner}w{i} += 1\n", self.below(6)));
                 let n = 1 + self.below(3);
                 self.block(&inner, n, out);
+                self.open -= 1;
                 self.depth -= 1;
             }
             _ => {
@@ -160,7 +175,7 @@ impl Gen {
         let mut body = format!("{inner}v0 = a % 10007\n{inner}v1 = b % 10007\n{inner}v2 = 0\n{inner}v3 = 1\n{inner}xs = [a, b]\n{inner}s = ''\n");
         let n = 3 + self.below(4);
         self.block(&inner, n, &mut body);
-        body.push_str(&format!("{inner}return (v0, v1, v2, v3, len(xs), xs[-1], s)\n"));
+        body.push_str(&format!("{inner}return {RESULT}\n"));
         body
     }
 }

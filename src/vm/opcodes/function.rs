@@ -389,8 +389,11 @@ impl<'a> VM<'a> {
         let callee_impure = self.leave_body(fi, entry, exec_result.is_ok(), chunk);
         self.depth -= 1;
 
-        // A body that suspended keeps its frame for the coroutine, any other drops it here.
-        if exec_result.is_err() || !self.yielded { self.regs.truncate(base); }
+        // A body that suspended keeps its frame for the coroutine, any other drops it here, and the loops a return left with it.
+        if exec_result.is_err() || !self.yielded {
+            self.regs.truncate(base);
+            self.iter_stack.truncate(iter_base);
+        }
         let result = exec_result?;
         if callee_impure {
             self.mark_impure();
