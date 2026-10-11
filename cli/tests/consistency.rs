@@ -1,8 +1,12 @@
 use std::collections::BTreeMap;
+use std::fs::File;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 const BIN: &str = env!("CARGO_BIN_EXE_edge");
+// Each program runs well under a second, so one still going after this has hung.
+const DEADLINE: Duration = Duration::from_secs(30);
 // Programs a run checks, raised through EDGE_CONSISTENCY_PROGRAMS for a longer sweep.
 const PROGRAMS: u64 = 500;
 // Functions in each program, and the argument pairs each one is called with.
@@ -208,11 +212,26 @@ fn program(seed: u64) -> (String, String) {
 
 /* Runs one program through the CLI, returning its stdout or why it failed. */
 fn run(dir: &PathBuf) -> Result<String, String> {
-    let out = Command::new(BIN).current_dir(dir).args(["run", "main.py"]).env("XDG_CACHE_HOME", dir).stdin(Stdio::null()).output().unwrap();
-    if !out.status.success() {
-        return Err(String::from_utf8_lossy(&out.stderr).into_owned());
+    // Output goes to files, so a full pipe never stalls a program the deadline then blames.
+    let (out, err) = (dir.join("stdout.txt"), dir.join("stderr.txt"));
+    let mut child = Command::new(BIN).current_dir(dir).args(["run", "main.py"]).env("XDG_CACHE_HOME", dir)
+        .stdin(Stdio::null()).stdout(File::create(&out).unwrap()).stderr(File::create(&err).unwrap()).spawn().unwrap();
+    let start = Instant::now();
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        if start.elapsed() > DEADLINE {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!("still running after {} seconds", DEADLINE.as_secs()));
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    };
+    if !status.success() {
+        return Err(std::fs::read_to_string(&err).unwrap_or_default());
     }
-    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    Ok(std::fs::read_to_string(&out).unwrap_or_default())
 }
 
 /* The same function with the same arguments answers the same, however often it ran and wherever it was defined. */
