@@ -2,7 +2,7 @@ name: Fuzz
 
 on:
   schedule:
-    - cron: "0 */6 * * *" # every six hours
+    - cron: "17 */6 * * *" # every six hours
   workflow_dispatch:
 
 permissions:
