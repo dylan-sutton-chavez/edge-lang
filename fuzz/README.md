@@ -23,6 +23,7 @@ Run them from the repo root. They need Linux or macOS and `cargo install cargo-a
 |---|---|---|
 | `JOBS` | one per core | AFL instances |
 | `DURATION` | `0` | Seconds to run, `0` runs until stopped |
+| `UNTIL` | `0` | A Unix time to stop at once the build is done, which CI sets 30 minutes before its job ends |
 | `FRESH` | `0` | `1` wipes `out/` first |
 | `TIMEOUT_MS` | `5000` | Time one input may take before it counts as a hang |
 | `SEEDS` | `corpus`, or `in` before it holds inputs | Where a fresh campaign starts, `in` for a clean one |

@@ -5,6 +5,7 @@ cd "$(dirname "$0")"
 
 JOBS="${JOBS:-$(getconf _NPROCESSORS_ONLN)}" # One instance per logical core.
 DURATION="${DURATION:-0}"
+UNTIL="${UNTIL:-0}" # A Unix time to stop at, which wins over DURATION once the build is done.
 FRESH="${FRESH:-0}"
 TIMEOUT_MS="${TIMEOUT_MS:-5000}" # > max bounded run, so slow-but-terminating inputs aren't false hangs
 SCHEDULES="${SCHEDULES:-}" # Power schedules handed to the instances in turn.
@@ -31,6 +32,12 @@ echo "seeds: $SEEDS"
 # `out` is a mounted volume in the container; clear its contents, not the mount point itself.
 [ "$FRESH" = "1" ] && { find out -mindepth 1 -delete 2>/dev/null || true; }
 mkdir -p out logs
+
+# The build and the seeds took what they took, so a stop time leaves AFL whatever is left of it.
+if (( UNTIL > 0 )); then
+  DURATION=$(( UNTIL - $(date +%s) ))
+  (( DURATION > 0 )) || { echo "no time left to fuzz before $UNTIL"; exit 1; }
+fi
 
 # -V time-box only when DURATION > 0.
 vflag=()

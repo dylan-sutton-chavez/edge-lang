@@ -4,11 +4,6 @@ on:
   schedule:
     - cron: "0 */6 * * *" # every six hours
   workflow_dispatch:
-    inputs:
-      duration:
-        description: Seconds to fuzz (-V)
-        required: false
-        default: "19200"
 
 permissions:
   contents: read
@@ -25,9 +20,12 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 355
     env:
-      DURATION: ${{ github.event.inputs.duration || '19200' }}
       AFL_NO_AFFINITY: "1"
     steps:
+      # AFL stops 30 minutes before the job's 355, so the corpus, the report and the crashes always get saved.
+      - name: Start
+        run: echo "UNTIL=$(( $(date +%s) + (355 - 30) * 60 ))" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@v7
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:

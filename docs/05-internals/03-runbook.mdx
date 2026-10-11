@@ -9,7 +9,7 @@ Five checks run beside the test suites. Each one has a `make` target at the root
 
 | Check | Command | In CI |
 |---|---|---|
-| Fuzzing | `make fuzz` | Every 6 hours, 5h20m |
+| Fuzzing | `make fuzz` | Every 6 hours, about 5 hours |
 | Miri | `make miri SUITE=vm` | Every 6 hours, five workers |
 | Bench | `make bench` | Every push and pull request to `main` |
 | Consistency | `make test-cli SUITE=consistency` | Every push and pull request to `main` |

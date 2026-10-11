@@ -7,6 +7,8 @@ LONG="${LONG:-false}"
 report=make/report.sh
 # Cases are claimed only while MARGIN seconds remain before the job ends.
 deadline=$(( ${STARTED:-$(date +%s)} + ${MINUTES:-355} * 60 - ${MARGIN:-600} ))
+# How long a worker with nothing to take waits before it asks again.
+WAIT="${WAIT:-300}"
 log="$(mktemp)"
 trap 'rm -f "$log"' EXIT
 
@@ -22,7 +24,12 @@ while :; do
   (( budget > 0 )) || break
   claim="$(jq -n --arg worker "$WORKER" --argjson long "$LONG" --argjson budget "$budget" '{worker: $worker, long: $long, budget_ms: $budget}' | bash "$report" /api/testing/miri/claim)" || { echo "::error::the testing api answered no claim"; failed=1; break; }
   suite="$(jq -r '.case.suite // empty' <<< "$claim")"
-  [ -n "$suite" ] || break
+  # Nothing fits now, but a long case or a new round may still come before the deadline.
+  if [ -z "$suite" ]; then
+    (( budget > WAIT * 1000 )) || break
+    sleep "$WAIT"
+    continue
+  fi
   name="$(jq -r .case.name <<< "$claim")"
   flags="$(jq -r .flags <<< "$claim")"
   limit=$(( $(jq -r .limit_ms <<< "$claim") / 1000 ))
