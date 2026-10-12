@@ -22,10 +22,13 @@ jobs:
     timeout-minutes: 355
     env:
       AFL_NO_AFFINITY: "1"
+      # The restored corpus loads faster and skips the cmplog it already had.
+      AFL_FAST_CAL: "1"
+      AFL_CMPLOG_ONLY_NEW: "1"
     steps:
-      # AFL stops 30 minutes before the job's 355, so the corpus, the report and the crashes always get saved.
+      # AFL stops 40 minutes before the job's 355, and each later step has a timeout of its own, so the job never reaches its timeout.
       - name: Start
-        run: echo "UNTIL=$(( $(date +%s) + (355 - 30) * 60 ))" >> "$GITHUB_ENV"
+        run: echo "UNTIL=$(( $(date +%s) + (355 - 40) * 60 ))" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@v7
       - uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -42,28 +45,41 @@ jobs:
         uses: actions/cache/restore@v6
         with:
           path: fuzz/corpus
-          key: fuzz-corpus-${{ github.run_id }}
+          key: fuzz-corpus-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: fuzz-corpus-
 
       - name: Strategy
         run: bash fuzz/strategy.sh | tee -a "$GITHUB_ENV"
 
+      # A step timeout fails the step and the steps below still run, where the job timeout would cancel them.
       - name: Fuzz
+        timeout-minutes: 318
         run: make fuzz
+
+      # The runner kills only the step's shell, so an AFL it left behind is stopped here.
+      - name: Stop AFL
+        if: always()
+        timeout-minutes: 1
+        run: |
+          pkill -INT -x afl-fuzz && sleep 20
+          pkill -KILL -x afl-fuzz || true
 
       - name: Carry corpus
         if: always()
+        timeout-minutes: 13
         run: make fuzz-carry
 
       - name: Save corpus
         if: always()
+        timeout-minutes: 5
         uses: actions/cache/save@v6
         with:
           path: fuzz/corpus
-          key: fuzz-corpus-${{ github.run_id }}
+          key: fuzz-corpus-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Triage
         if: always()
+        timeout-minutes: 3
         working-directory: fuzz
         run: |
           shopt -s nullglob
@@ -79,6 +95,7 @@ jobs:
       # AFL findings use colons in names (rejected by upload-artifact), so tar them; create an empty archive if out/ doesn't exist yet.
       - name: Package findings
         if: always()
+        timeout-minutes: 2
         run: |
           shopt -s nullglob
           dirs=(fuzz/out/*/crashes* fuzz/out/*/hangs*)
@@ -91,6 +108,7 @@ jobs:
 
       - name: Upload findings
         if: always()
+        timeout-minutes: 5
         uses: actions/upload-artifact@v7
         with:
           name: fuzz-findings
@@ -100,6 +118,7 @@ jobs:
       # The next block, which waits for this one to end. A cancelled run starts none, and the schedule picks the chain up again.
       - name: Next
         if: ${{ !cancelled() }}
+        timeout-minutes: 2
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run fuzzer.yml --ref main -R ${{ github.repository }}

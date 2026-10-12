@@ -6,12 +6,14 @@ services:
       context: ..
       dockerfile: fuzz/Dockerfile
     restart: unless-stopped
+    stop_grace_period: 90s # longer than GRACE, so AFL gets to write its stats
     volumes:
       - findings:/app/fuzz/out
 
     environment:
       - JOBS
       - DURATION
+      - GRACE
       - FRESH
       - TIMEOUT_MS
       - SEEDS

@@ -3,20 +3,37 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 TIMEOUT_MS="${TIMEOUT_MS:-5000}"
+CMIN_SECS="${CMIN_SECS:-600}" # afl-cmin gets this long, then the new-coverage inputs are carried unminimized.
 bin=target/release/afl-pipeline
 
-# The old corpus and every queue, deduplicated by hash.
-rm -rf union && mkdir -p union corpus logs
+mkdir -p corpus logs
 shopt -s nullglob
-for input in corpus/* out/*/queue/id:*; do
-  [ -f "$input" ] && cp "$input" "union/$(shasum "$input" | cut -c1-16)"
-done
-[ -n "$(ls -A union)" ] || { echo "nothing to carry"; rm -rf union; exit 0; }
+inputs=(corpus/* out/*/queue/id:*)
+(( ${#inputs[@]} )) || { echo "nothing to carry"; exit 0; }
 [ -x "$bin" ] || cargo afl build --release
 
+# afl-cmin reads every directory itself and drops duplicates by hash.
+dirs=(-i corpus)
+for q in out/*/queue; do dirs+=(-i "$q"); done
+# The bound needs timeout, which macOS has only as gtimeout from coreutils.
+bounded() {
+  local t
+  t="$(command -v timeout || command -v gtimeout || true)"
+  if [ -n "$t" ]; then "$t" -k 30 "$CMIN_SECS" "$@"; else "$@"; fi
+}
+
 rm -rf corpus.next
-cargo afl cmin -t "$TIMEOUT_MS" -i union -o corpus.next -- "$bin" >logs/cmin.log 2>&1 || { tail -20 logs/cmin.log; rm -rf union corpus.next; exit 1; }
-# An empty result saw no coverage, so the union is kept whole.
-[ -n "$(ls -A corpus.next)" ] || { echo "afl-cmin kept nothing, carrying every input instead"; rm -rf corpus.next; mv union corpus.next; }
-rm -rf corpus union && mv corpus.next corpus
-echo "corpus: $(ls corpus | wc -l | tr -d ' ') inputs"
+if ! bounded cargo afl cmin -T all -t "$TIMEOUT_MS" "${dirs[@]}" -o corpus.next -- "$bin" >logs/cmin.log 2>&1; then
+  tail -5 logs/cmin.log
+  echo "afl-cmin did not finish, carrying the old corpus and the new coverage instead"
+  rm -rf corpus.next && mkdir corpus.next
+  cp corpus/* corpus.next/ 2>/dev/null || true
+  for q in out/*/queue; do
+    n="$(basename "$(dirname "$q")")"
+    for f in "$q"/id:*+cov*; do cp "$f" "corpus.next/$n-$(basename "$f")"; done
+  done
+fi
+# An empty result saw no coverage, so the old corpus stays.
+[ -n "$(ls -A corpus.next)" ] || { echo "nothing carried, keeping the old corpus"; rm -rf corpus.next; exit 0; }
+rm -rf corpus && mv corpus.next corpus
+echo "corpus: $(find corpus -type f | wc -l | tr -d ' ') inputs"

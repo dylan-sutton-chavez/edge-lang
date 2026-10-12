@@ -10,7 +10,7 @@ Run them from the repo root. They need Linux or macOS and `cargo install cargo-a
 |---|---|
 | `make seeds` | Rebuilds `in/` from `tests/cases/vm.json` and `edge.dict` from `dict.txt` |
 | `make fuzz` | Builds the target and runs one instance per core |
-| `make fuzz-carry` | Minimizes the queues into `corpus/`, which the next campaign starts from |
+| `make fuzz-carry` | Minimizes the queues into `corpus/` for the next campaign, carrying the new coverage unminimized if afl-cmin takes over `CMIN_SECS` (600) |
 | `make fuzz-status` | Shows a running campaign |
 | `make fuzz-triage` | Counts the saved crashes by panic site |
 | `make fuzz-replay CASE=out/m0/crashes/<id>` | Replays one input with a backtrace |
@@ -22,8 +22,9 @@ Run them from the repo root. They need Linux or macOS and `cargo install cargo-a
 | Variable | Default | Meaning |
 |---|---|---|
 | `JOBS` | one per core | AFL instances |
-| `DURATION` | `0` | Seconds to run, `0` runs until stopped |
-| `UNTIL` | `0` | A Unix time to stop at once the build is done, which CI sets 30 minutes before its job ends |
+| `DURATION` | `0` | Seconds to run by the wall clock, `0` runs until stopped |
+| `UNTIL` | `0` | A Unix time to stop at once the build is done, which CI sets 40 minutes before its job ends |
+| `GRACE` | `60` | Seconds a stopped instance gets to write its stats before it is killed |
 | `FRESH` | `0` | `1` wipes `out/` first |
 | `TIMEOUT_MS` | `5000` | Time one input may take before it counts as a hang |
 | `SEEDS` | `corpus`, or `in` before it holds inputs | Where a fresh campaign starts, `in` for a clean one |

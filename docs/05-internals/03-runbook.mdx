@@ -30,7 +30,7 @@ A campaign runs one instance per logical core until stopped. It needs Linux or m
 
 > [!COPY] make fuzz
 
-CI runs it back to back, each run starting the next and a schedule every six hours picking the chain up when it breaks, from the corpus the last run kept and on other power schedules each day. A saved crash fails the run.
+CI runs it back to back, each run starting the next and a schedule every six hours picking the chain up when it breaks, from the corpus the last run kept and on other power schedules each day. A run stops fuzzing 40 minutes before its job's limit by the wall clock, so the minimized corpus and the findings are always saved. A saved crash fails the run.
 
 The crashes and hangs are uploaded as the `fuzz-findings` artifact and kept for 14 days. A local campaign writes them under `fuzz/out/`, one folder per instance.
 
