@@ -119,7 +119,7 @@ impl<I: Iterator<Item = Token>> Tokens<I> {
     }
 
     /* Moves past a target list, returns its length, starred item and comma, None if invalid. */
-    pub(super) fn target_list(&mut self) -> Option<(usize, Option<usize>, bool)> {
+    pub(super) fn target_list(&mut self) -> Option<Shape> {
         let (mut n, mut star, mut comma) = (0, None, false);
         // An empty group, as in `() = []`.
         if matches!(self.ahead(), TokenType::Rpar | TokenType::Rsqb) { return Some((n, star, comma)); }
@@ -152,9 +152,12 @@ impl<I: Iterator<Item = Token>> Tokens<I> {
     }
 }
 
-/* Whether `k` ends an assignment target, `=`, a comma, an annotation colon or a closer. */
+/* A target list as its item count, starred item and whether a comma showed up. */
+pub(super) type Shape = (usize, Option<usize>, bool);
+
+/* Whether `k` ends an assignment or `for` target, `=`, `in`, a comma, an annotation colon or a closer. */
 pub(super) fn ends_target(k: TokenType) -> bool {
-    matches!(k, TokenType::Equal | TokenType::Comma | TokenType::Colon | TokenType::Rpar | TokenType::Rsqb)
+    matches!(k, TokenType::Equal | TokenType::In | TokenType::Comma | TokenType::Colon | TokenType::Rpar | TokenType::Rsqb)
 }
 
 /* Cursor and diagnostics state, so a statement compiles its tokens out of source order. */
@@ -300,18 +303,6 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         let ver = self.increment_version(&name);
         let i = self.push_ssa_name(&name, ver);
         self.chunk.emit(OpCode::StoreName, i);
-    }
-
-    /* Emit UnpackEx (starred) or UnpackSequence then store each target, a leading `*` on a starred name is stripped. */
-    pub(super) fn emit_unpack_stores(&mut self, targets: &[String], star_pos: Option<usize>) {
-        if let Some(sp) = star_pos {
-            let before = sp as u16;
-            let after = (targets.len() - sp - 1) as u16;
-            self.chunk.emit(OpCode::UnpackEx, (before << 8) | after);
-        } else {
-            self.chunk.emit(OpCode::UnpackSequence, targets.len() as u16);
-        }
-        for target in targets { self.store_name(target.trim_start_matches('*').to_string()); }
     }
 
     /* Propagate the body's free names to the parent chunk, register the function, and emit its make-op. `fname` is None for lambdas (anonymous, sentinel slot), Some(name) registers a store slot for a def. Order matches the historic def path of free-name propagation, then slot, then push. */

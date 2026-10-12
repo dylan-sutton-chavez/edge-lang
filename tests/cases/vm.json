@@ -5615,5 +5615,15 @@
   {"src": "l = [1, 2]\nl[0], l[1] = l[1], l[0]\nprint(l)", "output": ["[2, 1]"]},
   {"src": "def p(v):\n    print(v)\n    return v\ndef f():\n    d = {}\n    for i in range(2):\n        d[p(i)] = p(i * 10)\n    return d\nprint(f())", "output": ["0", "0", "10", "1", "{0: 0, 1: 10}"]},
   {"src": "x = y = []\nx.append(1)\nprint(y)", "output": ["[1]"]},
-  {"src": "class O:\n    pass\no = O()\no.a, o.b = 1, 2\nn = o.a + o.b\nprint(n)", "output": ["3"]}
+  {"src": "class O:\n    pass\no = O()\no.a, o.b = 1, 2\nn = o.a + o.b\nprint(n)", "output": ["3"]},
+  {"src": "x = 5\nprint(f'{x:=^9}')", "output": ["====5===="]},
+  {"src": "print(f'{(y := 4)} {y}')", "output": ["4 4"]},
+  {"src": "print(f'{\"a\"!r:=^7}')", "output": ["=='a'=="]},
+  {"src": "class O:\n    pass\no = O()\nfor o.a in [1, 2]:\n    pass\nprint(o.a)", "output": ["2"]},
+  {"src": "class O:\n    pass\no = O()\nprint([o.b * 2 for o.b in [1, 2]], o.b)", "output": ["[2, 4] 2"]},
+  {"src": "d = {}\nfor d['h'], *d['t'] in [[1, 2, 3]]:\n    pass\nprint(d)", "output": ["{'h': 1, 't': [2, 3]}"]},
+  {"src": "for x, in [(1,), (2,)]:\n    print(x)", "output": ["1", "2"]},
+  {"src": "class O:\n    pass\no = O()\nprint([(i, o.c) for i in range(2) for o.c in 'ab'])", "output": ["[(0, 'a'), (0, 'b'), (1, 'a'), (1, 'b')]"]},
+  {"src": "def p(v):\n    print(v)\n    return v\nl = [0, 0]\nfor l[p(1)] in [7, 8]:\n    pass\nprint(l)", "output": ["1", "1", "[0, 8]"]},
+  {"src": "def f():\n    d = {}\n    for i, d[i] in enumerate('xy'):\n        pass\n    return d\nprint(f())", "output": ["{0: 'x', 1: 'y'}"]}
 ]

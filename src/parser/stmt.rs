@@ -1,16 +1,10 @@
-use super::Parser;
+use super::{Mark, Parser, Shape};
 use super::expr::Tail;
 use super::types::OpCode;
 
 use crate::lexer::{Token, TokenType};
 
-use alloc::{string::{String, ToString}, vec::Vec};
-
-/* A `for` target, a name or a nested group of them. */
-pub(super) enum UnpackTarget {
-    Name(String),
-    Nested(Vec<UnpackTarget>),
-}
+use alloc::{string::ToString, vec::Vec};
 
 impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
 
@@ -363,34 +357,12 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         matches!(self.peek_same_line(), Some(TokenType::Equal))
     }
 
-    /* Unpacks the value into the `for` targets, a starred list stores plain names only. */
-    pub(super) fn store_targets(&mut self, targets: &[UnpackTarget], star: Option<usize>, comma: bool) {
-        if let Some(sp) = star {
-            let names: Option<Vec<String>> = targets.iter().map(|t| match t {
-                UnpackTarget::Name(n) => Some(n.clone()),
-                UnpackTarget::Nested(_) => None,
-            }).collect();
-            match names {
-                Some(ns) => self.emit_unpack_stores(&ns, Some(sp)),
-                None => self.error("starred assignment supports only plain name targets"),
-            }
-            return;
-        }
-        if comma { self.chunk.emit(OpCode::UnpackSequence, targets.len() as u16); }
-        self.emit_target_stores(targets);
-    }
-
-    /* One store per target, values arrive top-first. */
-    fn emit_target_stores(&mut self, targets: &[UnpackTarget]) {
-        for t in targets {
-            match t {
-                UnpackTarget::Name(n) => self.store_name(n.clone()),
-                UnpackTarget::Nested(ts) => {
-                    self.chunk.emit(OpCode::UnpackSequence, ts.len() as u16);
-                    self.emit_target_stores(ts);
-                }
-            }
-        }
+    /* Stores the value on the stack into the target list at `at`, the cursor back where it stood. */
+    pub(super) fn store_back(&mut self, at: Mark, (n, star, comma): Shape) {
+        let back = self.mark();
+        self.seek(at);
+        self.store_list(n, star, comma);
+        self.seek(back);
     }
 
     /* `t1 = t2 = value` in Python order, the value first, then targets left to right. */

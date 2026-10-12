@@ -482,6 +482,8 @@ impl<'a> Scanner<'a> {
                 b"*=" => Some(TokenType::StarEqual), b"+=" => Some(TokenType::PlusEqual),
                 b"-=" => Some(TokenType::MinEqual), b"->" => Some(TokenType::Rarrow),
                 b"//" => Some(TokenType::DoubleSlash), b"/=" => Some(TokenType::SlashEqual),
+                // At the top of an f-string field a colon opens the spec, so `f"{x:=^9}"` fills with `=`.
+                b":=" if self.fstring_stack.last().is_some_and(|f| f.3 == self.nesting) => None,
                 b":=" => Some(TokenType::ColonEqual), b"<<" => Some(TokenType::LeftShift),
                 b"<=" => Some(TokenType::LessEqual), b"==" => Some(TokenType::EqEqual),
                 b">=" => Some(TokenType::GreaterEqual), b">>" => Some(TokenType::RightShift),

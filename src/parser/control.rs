@@ -1,7 +1,6 @@
 use crate::s;
 
 use super::Parser;
-use super::stmt::UnpackTarget;
 use super::types::OpCode;
 
 use crate::lexer::{Token, TokenType};
@@ -444,7 +443,9 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
     pub(super) fn for_stmt_inner(&mut self, is_async: bool) {
         self.advance();
 
-        let (targets, star, comma) = self.target_list(|s| matches!(s.peek(), Some(TokenType::In)));
+        // The targets store inside the loop, so the cursor skips them and comes back on each item.
+        let at = self.mark();
+        let Some(shape) = self.tokens.target_list() else { return self.error("cannot assign to this expression") };
         self.eat(TokenType::In);
         // Unparenthesized tuple iterable, `for x in 1, 2:` iterates the tuple.
         self.expr_or_tuple(|s| matches!(s.peek(), Some(TokenType::Colon) | None));
@@ -456,7 +457,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
 
         let fi = self.emit_jump(OpCode::ForIter);
 
-        self.store_targets(&targets, star, comma);
+        self.store_back(at, shape);
 
         self.eat(TokenType::Colon);
         self.compile_block();
@@ -476,34 +477,6 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         for pos in breaks { self.patch(pos); }
 
         self.commit_block();
-    }
-
-    /* `for` targets until `end`, returns them, the starred index, and whether a comma was seen. */
-    pub(super) fn target_list(&mut self, end: impl Fn(&mut Self) -> bool) -> (Vec<UnpackTarget>, Option<usize>, bool) {
-        let (mut targets, mut star, mut comma) = (Vec::new(), None, false);
-        loop {
-            if self.eat_if(TokenType::Star) { star = Some(targets.len()); }
-            targets.push(self.for_target());
-            if !self.eat_if(TokenType::Comma) { break; }
-            comma = true;
-            if end(self) { break; }
-        }
-        (targets, star, comma)
-    }
-
-    /* A name, or a parenthesized or bracketed target list, `(a)` stays the bare name. */
-    fn for_target(&mut self) -> UnpackTarget {
-        let close = match self.peek() {
-            Some(TokenType::Lpar) => TokenType::Rpar,
-            Some(TokenType::Lsqb) => TokenType::Rsqb,
-            _ => return UnpackTarget::Name(self.advance_text()),
-        };
-        self.advance();
-        let (mut targets, star, comma) = self.target_list(|s| s.peek() == Some(close));
-        self.eat(close);
-        if star.is_some() { self.error("starred target must be at the top level"); }
-        if close == TokenType::Rpar && !comma && targets.len() == 1 { return targets.pop().unwrap(); }
-        UnpackTarget::Nested(targets)
     }
 
     /* try / except / else / finally with exception arm chaining. */

@@ -125,13 +125,14 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
                 continue;
             }
             if !self.eat_if(TokenType::For) { break; }
-            let (targets, star, comma) = self.target_list(|s| matches!(s.peek(), Some(TokenType::In)));
+            let at = self.mark();
+            let Some(shape) = self.tokens.target_list() else { return self.error("cannot assign to this expression") };
             self.eat(TokenType::In);
             self.expr_bp(1);
             self.chunk.emit(OpCode::GetIter, 0);
             loop_starts.push(self.chunk.instructions.len() as u16);
             for_iters.push(self.emit_jump(OpCode::ForIter));
-            self.store_targets(&targets, star, comma);
+            self.store_back(at, shape);
         }
     }
 
@@ -167,7 +168,9 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             Comp::Brace => (Some(OpCode::BuildSet), OpCode::SetAdd, "<setcomp>"),
         };
         self.eat(TokenType::For);
-        let (targets, star, comma) = self.target_list(|s| matches!(s.peek(), Some(TokenType::In)));
+        let at = self.mark();
+        let shape = self.tokens.target_list();
+        if shape.is_none() { self.error("cannot assign to this expression"); }
         self.eat(TokenType::In);
         self.expr_bp(1);
         self.chunk.emit(OpCode::GetIter, super::ITER_VALUE);
@@ -185,7 +188,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             s.chunk.emit(OpCode::GetIter, super::ITER_AS_IS);
             let mut loop_starts = alloc::vec![s.chunk.instructions.len() as u16];
             let mut for_iters = alloc::vec![s.emit_jump(OpCode::ForIter)];
-            s.store_targets(&targets, star, comma);
+            if let Some(shape) = shape { s.store_back(at, shape); }
             s.mark_stmt();
             s.comp_clauses(&mut loop_starts, &mut for_iters);
             let rest = s.tokens.pos;

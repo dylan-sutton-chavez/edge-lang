@@ -400,7 +400,7 @@ Name     -> assignment, else name_stmt (augmented, indexed, attribute, call)
 
 Each statement returns whether it left a value on the stack. The driver emits `PopTop` after expression statements such as `x.method()`. It emits nothing after assignments and control flow.
 
-- The lexer counts on the first token of a statement the `=` that end its targets. An assignment moves the cursor past those targets without compiling them, compiles the value, then comes back to store into each target from left to right. The value of `d[k()] = v()` runs first, and `a = b = v` duplicates it once per extra target.
+- The lexer counts on the first token of a statement the `=` that end its targets. An assignment moves the cursor past those targets without compiling them, compiles the value, then comes back to store into each target from left to right, and a `for` or comprehension stores its targets the same way on each item. The value of `d[k()] = v()` runs first, and `a = b = v` duplicates it once per extra target.
 - Decorators apply to `def` and `class`. The `@` arm peeks for `class` after the decorator list. Each decorator wraps through `Call,1` between `MakeFunction` or `MakeClass` and the final `StoreName`.
 - `raise X from Y` lowers to `RaiseFrom`. It pops the cause and then the exception, and `Y` becomes the `__cause__` of `X`. A bare `raise` raises the current exception again.
 - `except` matching walks the [exception hierarchy](/docs/edge-python/reference/limits-and-errors#exception-hierarchy), the same table `isinstance` uses.
