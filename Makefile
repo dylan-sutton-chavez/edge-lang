@@ -17,8 +17,12 @@ CLI_NEEDS_ := plugin
 CLI_NEEDS_skill := test-skill
 CLI_NEEDS_std := test-std
 
-MIRI_TESTS := -p edge-python --test tests
-MIRI_vm := vm::
+# The nightly Miri runs on, bumped by hand so a new check of Miri lands in a commit of its own.
+MIRI_NIGHTLY := nightly-2026-10-11
+# make/miri.sh sets Miri up once and passes MIRI_SETUP= to the runs it starts side by side.
+MIRI_SETUP := miri-setup
+MIRI_TESTS := -p edge-python --lib --test tests
+MIRI_vm := vm:: embed::
 MIRI_snapshot := snapshot::
 MIRI_modules := modules::
 MIRI_parser := parser::
@@ -137,17 +141,19 @@ test-std: $(CLI_INPUTS)
 	for package in target/std/edge/*/; do (cd "$$package" && "$$EDGE" lock && "$$EDGE" test) || exit 1; done
 
 miri-setup:
-	cargo +nightly miri setup
+	rustup toolchain install $(MIRI_NIGHTLY) --profile minimal --component miri
+	cargo +$(MIRI_NIGHTLY) miri setup
 
-# One suite, or with CASE one test of it by its exact name.
-miri: miri-setup
+# One suite, or with CASE one test of it by its exact name, and EDGE_SLICE=k/n reaching the test as it does natively.
+miri: export MIRIFLAGS += -Zmiri-env-forward=EDGE_SLICE
+miri: $(MIRI_SETUP)
 	$(if $(MIRI_$(SUITE)),,$(error SUITE is one of vm snapshot modules parser lexer abi))
-	cargo +nightly miri test --locked $(MIRI_TESTS) $(if $(CASE),-- --exact $(CASE),$(MIRI_$(SUITE)))
+	cargo +$(MIRI_NIGHTLY) miri test --locked $(MIRI_TESTS) -- $(if $(CASE),--exact $(CASE),$(MIRI_$(SUITE)))
 
 # The tests of a suite, one name per line.
-miri-list: miri-setup
+miri-list: $(MIRI_SETUP)
 	$(if $(MIRI_$(SUITE)),,$(error SUITE is one of vm snapshot modules parser lexer abi))
-	@cargo +nightly miri test --locked -q $(MIRI_TESTS) $(MIRI_$(SUITE)) -- --list --format=terse 2>/dev/null | sed -n 's/: test$$//p'
+	@cargo +$(MIRI_NIGHTLY) miri test --locked -q $(MIRI_TESTS) -- --list --format=terse $(MIRI_$(SUITE)) 2>/dev/null | sed -n 's/: test$$//p'
 
 # One AFL instance per core, JOBS, DURATION, FRESH and TIMEOUT_MS tune the campaign.
 fuzz:

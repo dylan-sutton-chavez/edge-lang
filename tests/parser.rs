@@ -85,6 +85,7 @@ mod test {
 
     // Overflow past MAX_INSTRUCTIONS + a trailing `with` must error, not panic on a stale jump index.
     #[test]
+    #[cfg_attr(miri, ignore = "lexing 160 KB under Miri's borrow tracking takes longer than a job")]
     fn instruction_overflow_does_not_panic() {
         let mut src = String::with_capacity(180_000);
         for _ in 0..40_000 { src.push_str("a=1\n"); }
@@ -123,11 +124,13 @@ mod test {
                 diagnostics.iter().map(|d| &d.msg).collect::<Vec<_>>()
             );
         };
-        check(format!("x = {}1", "-".repeat(200_000)), "unary minus");
-        check(format!("x = {}1", "+".repeat(200_000)), "unary plus");
-        check(format!("x = {}1", "~".repeat(200_000)), "bitwise not");
-        check(format!("x = {}True", "not ".repeat(100_000)), "logical not");
-        check(format!("x = 2{}", "**2".repeat(100_000)), "right-assoc pow");
-        check(format!("async def f():\n    return {}g()", "await ".repeat(100_000)), "await");
+        // Borrow tracking makes lexing quadratic under Miri, so there a chain stops a few times past the guard.
+        let scale = if cfg!(miri) { 1 } else { 100 };
+        check(format!("x = {}1", "-".repeat(2_000 * scale)), "unary minus");
+        check(format!("x = {}1", "+".repeat(2_000 * scale)), "unary plus");
+        check(format!("x = {}1", "~".repeat(2_000 * scale)), "bitwise not");
+        check(format!("x = {}True", "not ".repeat(1_000 * scale)), "logical not");
+        check(format!("x = 2{}", "**2".repeat(1_000 * scale)), "right-assoc pow");
+        check(format!("async def f():\n    return {}g()", "await ".repeat(1_000 * scale)), "await");
     }
 }

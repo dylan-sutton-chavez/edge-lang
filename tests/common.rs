@@ -8,7 +8,7 @@ use compiler::modules::{
     NativeBinding, Resolved, Resolver, partition_bindings,
     Manifest, walk_up_dirs, dir_of, join_relative,
 };
-use compiler::vm::types::{HeapObj, HeapPool, Val, VmErr};
+use compiler::vm::types::{HeapObj, HeapPool, Limits, Val, VmErr};
 use compiler::vm::VM;
 
 /* Answers deferred call `id` with text, as the wasm host does through `set_host_result_by_id`. */
@@ -20,6 +20,28 @@ pub fn answer(vm: &mut VM, id: u64, text: &str) -> bool {
 /* Raises `message` into deferred call `id`, as the wasm host does through `set_host_error_by_id`. */
 pub fn fail(vm: &mut VM, id: u64, message: &str) -> bool {
     vm.inject_host_error_by_id(id, VmErr::Raised(message.into()))
+}
+
+/* With EDGE_SLICE=k/n only every n-th case from the k-th, so Miri walks a long corpus a slice per run. */
+pub fn slice<I: IntoIterator>(cases: I) -> impl Iterator<Item = I::Item> {
+    let (k, n) = match std::env::var("EDGE_SLICE") {
+        Ok(s) => s.split_once('/')
+            .and_then(|(k, n)| Some((k.parse::<usize>().ok()?, n.parse::<usize>().ok()?)))
+            .filter(|(k, n)| k < n)
+            .unwrap_or_else(|| panic!("EDGE_SLICE is k/n with k below n, not {s:?}")),
+        Err(_) => (0, 1),
+    };
+    cases.into_iter().enumerate().filter(move |(i, _)| i % n == k).map(|(_, case)| case)
+}
+
+/* The budget of a corpus case, which Miri cuts short so a long case checks its code paths and not its result. */
+pub fn corpus_limits() -> Limits {
+    if cfg!(miri) { Limits { ops: 5_000, ..Limits::sandbox() } } else { Limits::sandbox() }
+}
+
+/* A run Miri cut short at the corpus budget, whose result the native run checks. */
+pub fn cut_short<T>(run: &Result<T, VmErr>) -> bool {
+    cfg!(miri) && matches!(run, Err(VmErr::Budget))
 }
 
 // TestResolver, modules and nested manifests with walk-up parity against the host resolver.

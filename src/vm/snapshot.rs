@@ -101,7 +101,7 @@ impl<'a> R<'a> {
     }
     /* Static-str decode leaks, stored errors are rare. */
     fn leakstr(&mut self) -> Result<&'static str, SnapErr> {
-        Ok(alloc::boxed::Box::leak(self.str()?.into_boxed_str()))
+        Ok(crate::util::leak(self.str()?.into_boxed_str()))
     }
     /* A blob is untrusted, a value must be well formed and past the heap name a live slot. */
     fn val(&mut self) -> Result<Val, SnapErr> {

@@ -38,11 +38,11 @@ The [fuzzing manual](https://github.com/dylan-sutton-chavez/edge-python/blob/mai
 
 ## Miri
 
-[Miri](https://github.com/rust-lang/miri) interprets the test suites and reports undefined behavior. It needs the nightly toolchain with the `miri` component. `make miri` builds the Miri sysroot first.
+[Miri](https://github.com/rust-lang/miri) interprets the test suites and reports undefined behavior and leaks. It runs on the nightly the Makefile pins as `MIRI_NIGHTLY`, which `make miri` installs with the `miri` component before it builds the Miri sysroot.
 
 > [!COPY] make miri SUITE=vm
 
-`SUITE` is one of `vm`, `snapshot`, `modules`, `parser`, `lexer` and `abi`, and `CASE` runs one test of it. CI runs every suite back to back on a runner of its own, a test at a time, picking up where the last run stopped from a table the Actions cache carries. Once every test has run, a new round starts in the next mode under a seed of its own, and each run lists what it interpreted in its summary on GitHub.
+`SUITE` is one of `vm`, `snapshot`, `modules`, `parser`, `lexer` and `abi`, and `CASE` runs one test of it. CI runs every suite back to back on a runner of its own, a test per core at a time, picking up where the last run stopped from a table the Actions cache carries. A long corpus runs in slices, `EDGE_SLICE=k/n` keeping every n-th case from the k-th, and under Miri a `tests/cases/vm.json` case stops after 5,000 operations, so Miri checks its code paths while the native run checks its result. A failed test runs first in every run until it passes. Once every test has passed, a new round starts in the next mode under a seed of its own, and each run lists what it interpreted in its summary on GitHub.
 
 ## Bench
 

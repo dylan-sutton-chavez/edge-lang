@@ -18,6 +18,20 @@ pub mod util {
     pub mod jesc;
     pub mod sha256;
     pub mod uni;
+
+    /* `Box::leak` for memory kept until exit, which Miri then holds as a static root instead of reporting it. */
+    pub fn leak<T: ?Sized>(boxed: alloc::boxed::Box<T>) -> &'static mut T {
+        let leaked = alloc::boxed::Box::leak(boxed);
+        // A zero-sized value owns no allocation to root.
+        #[cfg(miri)]
+        if core::mem::size_of_val(leaked) != 0 {
+            unsafe extern "Rust" {
+                fn miri_static_root(ptr: *const ());
+            }
+            unsafe { miri_static_root(core::ptr::from_ref(leaked).cast()) };
+        }
+        leaked
+    }
 }
 
 /* NaN-boxed values and the mark-and-sweep heap, the layer both the frontend and the VM build on. */

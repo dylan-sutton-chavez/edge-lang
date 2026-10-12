@@ -4,7 +4,6 @@ mod test {
     use compiler::lexer::lex;
     use compiler::parser::Parser;
     use compiler::vm::VM;
-    use compiler::vm::types::Limits;
     use compiler::vm::types::{SchedulerStatus, VmErr};
 
     #[derive(serde::Deserialize)]
@@ -101,7 +100,7 @@ mod test {
         let cases: Vec<Case> = serde_json::from_str(include_str!("cases/vm.json")).expect("invalid JSON");
 
         let mut failures: Vec<String> = Vec::new();
-        for case in cases {
+        for case in crate::common::slice(cases) {
             let (tokens, lex_errs) = lex(&case.src);
             // Skip cases whose expected error is already raised by the lexer.
             if !lex_errs.is_empty()
@@ -113,11 +112,12 @@ mod test {
             let (mut chunk, _errors) = Parser::new(&case.src, tokens.into_iter()).parse();
             // Run the same fold pass production does (exports.rs), so fold-path bugs surface here.
             compiler::vm::optimizer::constant_fold(&mut chunk);
-            let mut vm = VM::with_limits(&chunk, Limits::sandbox());
+            let mut vm = VM::with_limits(&chunk, crate::common::corpus_limits());
             vm.input_buffer = case.input.clone();
             hook_sends(&mut vm, &case);
             for evt in &case.events { vm.push_event(evt).expect("push_event"); }
             let result = drive(&mut vm, &case.interactive_events);
+            if crate::common::cut_short(&result) { continue; }
 
             // Collect every mismatch (not panic-on-first) so one run lists all regressions.
             match result {
@@ -159,7 +159,7 @@ mod test {
     fn strict_cases() {
         let cases: Vec<Case> = serde_json::from_str(include_str!("cases/vm.json")).expect("invalid JSON");
 
-        for case in cases {
+        for case in crate::common::slice(cases) {
             let (tokens, lex_errs) = lex(&case.src);
             // Lex errors are surfaced as diagnostics, match against the expected error and move on.
             if !lex_errs.is_empty() {
@@ -194,13 +194,15 @@ mod test {
             // Match production and fold before running.
             compiler::vm::optimizer::constant_fold(&mut chunk);
 
-            let mut vm = VM::with_limits(&chunk, Limits::sandbox());
+            let mut vm = VM::with_limits(&chunk, crate::common::corpus_limits());
             vm.input_buffer = case.input.clone();
             hook_sends(&mut vm, &case);
             for evt in &case.events { vm.push_event(evt).expect("push_event"); }
             let expects_input_error = case.input.is_empty() && (case.src.contains("input(") || case.src.contains("input ("));
 
-            match drive(&mut vm, &case.interactive_events) {
+            let run = drive(&mut vm, &case.interactive_events);
+            if crate::common::cut_short(&run) { continue; }
+            match run {
                 Ok(_) => {
                     assert!(!expects_input_error, "expected input() to error under strict mode for: {:?}", case.src);
                     assert_eq!(normalize(&vm.output), normalize(&case.output), "output mismatch on: {:?}", case.src);

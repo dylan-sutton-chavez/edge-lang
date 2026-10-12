@@ -36,22 +36,18 @@ jobs:
         uses: actions/cache/restore@v6
         with:
           path: miri
-          key: miri-table-${{ matrix.suite }}-${{ github.run_id }}
+          key: miri-table-${{ matrix.suite }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: miri-table-${{ matrix.suite }}-
 
+      # Every suite builds the same tests, and the Makefile pins the nightly, so a bump starts a fresh cache.
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
         with:
-          key: miri-${{ matrix.suite }}
+          shared-key: miri
+          key: ${{ hashFiles('Makefile') }}
 
-      # Miri ships on nightly only, and it stays in this workflow so the rest of CI keeps to stable.
-      - name: Toolchain (nightly)
-        uses: dtolnay/rust-toolchain@nightly
-        with:
-          components: miri
-
-      # Building the sysroot is its own step, so its minutes never read as interpreting time.
-      - name: Sysroot
+      # Miri ships on nightly only, so the Makefile pins one for this workflow alone, set up in a step of its own so its minutes never read as interpreting time.
+      - name: Toolchain and sysroot
         run: make miri-setup
 
       - name: Interpret
@@ -64,12 +60,11 @@ jobs:
         uses: actions/cache/save@v6
         with:
           path: miri
-          key: miri-table-${{ matrix.suite }}-${{ github.run_id }}
+          key: miri-table-${{ matrix.suite }}-${{ github.run_id }}-${{ github.run_attempt }}
 
-  # The next run once every suite of this one ends, which waits for it. A cancelled run starts none, and the schedule picks the chain up again.
+  # The next run once every suite of this one passes, which waits for it. A failed test runs again first, so a red run starts none and the schedule retries it.
   next:
     needs: miri
-    if: ${{ !cancelled() }}
     runs-on: ubuntu-26.04
     steps:
       - env:

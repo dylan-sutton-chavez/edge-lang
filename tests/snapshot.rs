@@ -45,6 +45,9 @@ mod test {
         // The line the vm suite checks an error at, which a replay leaves alone.
         #[serde(default, rename = "error_line")]
         _error_line: Option<usize>,
+        // A vm.json case, which runs on the corpus budget.
+        #[serde(skip)]
+        corpus: bool,
     }
 
     fn accept_send(_group: &str, _body: &str) -> bool {
@@ -63,11 +66,17 @@ mod test {
         let (mut chunk, errs) = Parser::new(src, tokens.into_iter()).parse();
         assert!(errs.is_empty(), "parse error in {:?}: {:?}", src, errs.iter().map(|e| &e.msg).collect::<Vec<_>>());
         compiler::vm::optimizer::constant_fold(&mut chunk);
-        Box::leak(Box::new(chunk))
+        compiler::util::leak(Box::new(chunk))
     }
 
     fn limits_for(case: &Case) -> Limits {
-        if case.unmetered { Limits { ops: usize::MAX, memory: 4 << 30 } } else { Limits::sandbox() }
+        if case.unmetered { Limits { ops: usize::MAX, memory: 4 << 30 } } else if case.corpus { crate::common::corpus_limits() } else { Limits::sandbox() }
+    }
+
+    fn corpus() -> Vec<Case> {
+        let mut cases: Vec<Case> = serde_json::from_str(include_str!("cases/vm.json")).expect("invalid JSON");
+        for case in &mut cases { case.corpus = true; }
+        cases
     }
 
     /* Restore target is a bare VM, state arrives from the blob. */
@@ -208,11 +217,12 @@ mod test {
     /* Property, every interactive vm.json case survives a save/restore at each pause. */
     #[test]
     fn vm_corpus_roundtrip() {
-        let cases: Vec<Case> = serde_json::from_str(include_str!("cases/vm.json")).expect("invalid JSON");
+        let cases = corpus();
         let mut failures = Vec::new();
         for case in cases.iter().filter(|c| !c.interactive_events.is_empty() && c.error.is_none()) {
             let direct = run_case(case, 0, 0, 0).output;
             let cycled = run_case(case, 0, 1, 0).output;
+            if crate::common::cut_short(&direct) || crate::common::cut_short(&cycled) { continue; }
             match (direct, cycled) {
                 (Ok(a), Ok(b)) if a == b => {}
                 (Err(a), Err(b)) if a.to_string() == b.to_string() => {}
@@ -225,11 +235,12 @@ mod test {
     /* Property, preempting at every back-edge changes no corpus result. */
     #[test]
     fn vm_corpus_preempt_equivalence() {
-        let cases: Vec<Case> = serde_json::from_str(include_str!("cases/vm.json")).expect("invalid JSON");
+        let cases = corpus();
         let mut failures = Vec::new();
-        for case in cases.iter().filter(|c| c.interactive_events.is_empty() && c.events.is_empty() && c.error.is_none()) {
+        for case in crate::common::slice(cases.iter().filter(|c| c.interactive_events.is_empty() && c.events.is_empty() && c.error.is_none())) {
             let direct = run_case(case, 0, 0, 0).output;
             let preempted = run_case(case, 1, 0, 0).output;
+            if crate::common::cut_short(&direct) || crate::common::cut_short(&preempted) { continue; }
             match (direct, preempted) {
                 (Ok(a), Ok(b)) if a == b => {}
                 (Err(a), Err(b)) if a.to_string() == b.to_string() => {}
