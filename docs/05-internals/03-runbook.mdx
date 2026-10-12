@@ -42,7 +42,7 @@ The [fuzzing manual](https://github.com/dylan-sutton-chavez/edge-python/blob/mai
 
 > [!COPY] make miri SUITE=vm
 
-`SUITE` is one of `vm`, `snapshot`, `modules`, `parser`, `lexer` and `abi`, and `CASE` runs one test of it. CI runs every suite back to back on a runner of its own, a test per core at a time, picking up where the last run stopped from a table the Actions cache carries. A long corpus runs in slices, `EDGE_SLICE=k/n` keeping every n-th case from the k-th, and under Miri a `tests/cases/vm.json` case stops after 5,000 operations, so Miri checks its code paths while the native run checks its result. A failed test runs first in every run until it passes. Once every test has passed, a new round starts in the next mode under a seed of its own, and each run lists what it interpreted in its summary on GitHub.
+`SUITE` is one of `vm`, `snapshot`, `modules`, `parser`, `lexer` and `abi`, and `CASE` runs one test of it. CI runs each suite on a runner of its own, a test per core, picking up where the last run stopped. Long corpora run in slices with each case stopped at 5,000 ops, a failed test runs first until it passes, and once every test passes a new round starts in the next mode under a new seed.
 
 ## Bench
 
