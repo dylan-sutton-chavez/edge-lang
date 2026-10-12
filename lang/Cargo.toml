@@ -1,0 +1,28 @@
+[workspace]
+# an empty table makes this crate its own workspace root
+
+[package]
+name = "lang"
+version = "0.9.2"
+edition = "2024"
+license-file = "../LICENSE.md"
+publish = false
+description = "Embedding API over the Edge Python engine for building your own scripting language."
+
+[lib]
+name = "lang"
+crate-type = ["rlib"]
+test = false
+doctest = false
+
+[[test]]
+name = "tests"
+path = "tests.rs"
+
+[features]
+default = ["std"]
+std = ["compiler/std"]
+
+[dependencies]
+# the edge python release this repo pins, the same one site and infra name
+compiler = { package = "edge-python", git = "https://github.com/dylan-sutton-chavez/edge-python", tag = "v0.9.6", default-features = false }
