@@ -198,7 +198,7 @@ Operands, the constant pool, the name table and the instruction stream of each c
 `parse_atom` advances one token and routes by kind.
 
 ```text
-Name                     -> name() (handles assignment, walrus, calls)
+Name                     -> name() (handles walrus, calls)
 String / FstringStart    -> string_group() (adjacent str and f-string literals concatenate)
 Int / Float              -> emit numeric constant (ints widen i64 -> i128, beyond ±2^127 is a parse error)
 True/False/None/Ellipsis -> emit dedicated load opcode
@@ -208,7 +208,7 @@ Lpar                     -> grouped expr, tuple, generator, or empty tuple
 Lambda                   -> parse_lambda()
 ```
 
-After an atom, `postfix_tail()` handles subscripts, attributes and calls until none apply. It also handles store tails on the last trailer, such as `xs[0].v = 7` and `xs[0][1] += 1`. `fns[0](-3)`, `obj.method()`, `(lambda x: x)(3)` and `compose(f, g)(x)` all parse the same way.
+After an atom, `postfix_tail()` handles subscripts, attributes and calls until none apply. It also ends a chain in its store, the `xs[0].v` of an assignment target or a statement such as `xs[0][1] += 1`. `fns[0](-3)`, `obj.method()`, `(lambda x: x)(3)` and `compose(f, g)(x)` all parse the same way.
 
 `*args` and `**kwargs` are accepted in call position.
 
@@ -394,11 +394,13 @@ break    -> emits Jump, back-patched to the loop exit
 continue -> jump to current loop start
 del / global / nonlocal / pass -> direct emit
 assert   -> Assert opcode (the ", msg" form lowers to a conditional raise of AssertionError(msg))
-Name     -> name_stmt (assignment, augmented, indexed, attribute, call)
+Name     -> assignment, else name_stmt (augmented, indexed, attribute, call)
+( [ *    -> assignment, else an expression statement
 ```
 
 Each statement returns whether it left a value on the stack. The driver emits `PopTop` after expression statements such as `x.method()`. It emits nothing after assignments and control flow.
 
+- The lexer counts on the first token of a statement the `=` that end its targets. An assignment moves the cursor past those targets without compiling them, compiles the value, then comes back to store into each target from left to right. The value of `d[k()] = v()` runs first, and `a = b = v` duplicates it once per extra target.
 - Decorators apply to `def` and `class`. The `@` arm peeks for `class` after the decorator list. Each decorator wraps through `Call,1` between `MakeFunction` or `MakeClass` and the final `StoreName`.
 - `raise X from Y` lowers to `RaiseFrom`. It pops the cause and then the exception, and `Y` becomes the `__cause__` of `X`. A bare `raise` raises the current exception again.
 - `except` matching walks the [exception hierarchy](/docs/edge-python/reference/limits-and-errors#exception-hierarchy), the same table `isinstance` uses.

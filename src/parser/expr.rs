@@ -7,6 +7,10 @@ use crate::lexer::{Token, TokenType};
 
 use alloc::{string::ToString, vec::Vec, string::String};
 
+/* What ends a trailer chain, in an expression, a statement or an assignment target. */
+#[derive(Clone, Copy)]
+pub(super) enum Tail { Expr, Stmt, Target }
+
 /* The comparison operators, all at one precedence and all chaining, `not` here only opens `not in`. */
 fn is_comparison(tok: TokenType) -> bool {
     matches!(tok, TokenType::EqEqual | TokenType::NotEqual | TokenType::Less | TokenType::Greater
@@ -64,7 +68,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
     }
 
     pub(super) fn expr_tails(&mut self, start: usize) {
-        if self.postfix_tail(false) { self.chunk.emit(OpCode::LoadNone, 0); }
+        self.postfix_tail(Tail::Expr);
         self.infix_bp(0, start);
         self.ternary_tail(start);
     }
@@ -237,23 +241,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             TokenType::Ellipsis => self.chunk.emit(OpCode::LoadEllipsis, 0),
             TokenType::Lbrace => self.brace_literal(),
             TokenType::Lsqb => self.list_literal(),
-            TokenType::Lpar => {
-                if matches!(self.peek(), Some(TokenType::Rpar)) {
-                    self.advance();
-                    self.chunk.emit(OpCode::BuildTuple, 0);
-                } else if self.at_comp() {
-                    self.comprehension(super::literals::Comp::Gen);
-                    self.eat(TokenType::Rpar);
-                } else {
-                    // A leading `*it` starts a tuple.
-                    let star = matches!(self.peek(), Some(TokenType::Star));
-                    if !star { self.expr(); }
-                    if star || matches!(self.peek(), Some(TokenType::Comma)) {
-                        self.tuple_rest(!star as u16, |s| matches!(s.peek(), Some(TokenType::Rpar) | None));
-                    }
-                    self.eat(TokenType::Rpar);
-                }
-            }
+            TokenType::Lpar => self.paren_atom(),
             // `yield` / `yield from` as an expression value (keyword already consumed).
             TokenType::Yield => self.emit_yield(),
             TokenType::Lambda => self.parse_lambda(),
@@ -264,7 +252,26 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
                 }
             }
         }
-        if self.postfix_tail(false) { self.chunk.emit(OpCode::LoadNone, 0); }
+        self.postfix_tail(Tail::Expr);
+    }
+
+    /* After `(`, an empty tuple, a generator expression, a tuple or a parenthesized expression. */
+    pub(super) fn paren_atom(&mut self) {
+        if matches!(self.peek(), Some(TokenType::Rpar)) {
+            self.advance();
+            self.chunk.emit(OpCode::BuildTuple, 0);
+        } else if self.at_comp() {
+            self.comprehension(super::literals::Comp::Gen);
+            self.eat(TokenType::Rpar);
+        } else {
+            // A leading `*it` starts a tuple.
+            let star = matches!(self.peek(), Some(TokenType::Star));
+            if !star { self.expr(); }
+            if star || matches!(self.peek(), Some(TokenType::Comma)) {
+                self.tuple_rest(!star as u16, |s| matches!(s.peek(), Some(TokenType::Rpar) | None));
+            }
+            self.eat(TokenType::Rpar);
+        }
     }
 
     /* Adjacent str/f-string literals concat into one value. */
@@ -309,18 +316,13 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
     /* A name-led operand with its trailers, for callers that took the name token themselves. */
     pub(super) fn name_operand(&mut self, t: Token) {
         self.name(t);
-        if self.postfix_tail(false) { self.chunk.emit(OpCode::LoadNone, 0); }
+        self.postfix_tail(Tail::Expr);
     }
 
-    /* Name, assignment, walrus `:=`, call, or plain load. */
+    /* Name, walrus `:=`, call, or plain load. */
     pub(super) fn name(&mut self, t: Token) {
         let name = self.lexeme(&t).to_string();
         match self.peek_same_line() {
-            // In f-string context, `=` is the debug marker `f"{x=}"`, not assignment.
-            Some(TokenType::Equal) if !self.in_fstring_expr && !self.in_target_list => {
-                self.assign(name.clone());
-                self.emit_load_ssa(name);
-            }
             // Walrus stores like an assignment, an enclosing `global` included, and leaves the value.
             Some(TokenType::ColonEqual) => {
                 self.advance();
@@ -414,13 +416,13 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
     }
 
     /* Same-line `.attr`, `[i]` and `(args)` trailers, true when the chain ends in a store. */
-    pub(super) fn postfix_tail(&mut self, stmt: bool) -> bool {
+    pub(super) fn postfix_tail(&mut self, tail: Tail) -> bool {
         loop {
             match self.peek_same_line() {
                 Some(TokenType::Lsqb) => {
                     self.advance();
                     self.parse_subscript();
-                    if self.store_trailer(stmt, None) { return true; }
+                    if self.store_trailer(tail, None) { return true; }
                     self.chunk.emit(OpCode::GetItem, 0);
                 }
                 Some(TokenType::Dot) => {
@@ -428,7 +430,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
                     let t = self.advance();
                     let source = self.source;
                     let name = &source[t.start..t.end];
-                    if self.store_trailer(stmt, Some(name)) { return true; }
+                    if self.store_trailer(tail, Some(name)) { return true; }
                     // LoadAttr adjacent to Call lets `fuse_method_calls` collapse them.
                     let idx = self.chunk.push_name(name);
                     self.chunk.emit(OpCode::LoadAttr, idx);
@@ -444,25 +446,26 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         }
     }
 
-    /* Ends a trailer in `= v`, `op= v` or a statement annotation, f-strings keep `=` as debug. */
-    fn store_trailer(&mut self, stmt: bool, attr: Option<&str>) -> bool {
-        if self.in_fstring_expr || self.in_target_list { return false; }
-        if stmt && matches!(self.peek_same_line(), Some(TokenType::Colon)) {
-            self.advance();
-            // A bare annotation evaluates the target and stores nothing.
-            if !self.skip_annotation() {
+    /* Ends a trailer in a store, at a target end or by a statement `op=` or annotation. */
+    fn store_trailer(&mut self, tail: Tail, attr: Option<&str>) -> bool {
+        let (load, store) = if attr.is_some() { (OpCode::LoadAttr, OpCode::StoreAttr) } else { (OpCode::GetItem, OpCode::StoreItem) };
+        match tail {
+            Tail::Expr => return false,
+            Tail::Target => {
+                if !self.at_target_end() { return false; }
+                // The value compiled first, so it moves above the object and key.
+                self.chunk.emit(if attr.is_some() { OpCode::Swap } else { OpCode::Rot3 }, 0);
+            }
+            Tail::Stmt if matches!(self.peek_same_line(), Some(TokenType::Colon)) => {
+                self.advance();
+                // A bare annotation evaluates the target and stores nothing.
+                self.skip_annotation();
                 self.chunk.emit(OpCode::PopTop, 0);
                 if attr.is_none() { self.chunk.emit(OpCode::PopTop, 0); }
                 return true;
             }
-        }
-        let (load, store) = if attr.is_some() { (OpCode::LoadAttr, OpCode::StoreAttr) } else { (OpCode::GetItem, OpCode::StoreItem) };
-        match self.peek_same_line() {
-            Some(TokenType::Equal) => {
-                self.advance();
-                self.rhs_tuple();
-            }
-            Some(t) if let Some(op) = Self::augmented_op(&t) => {
+            Tail::Stmt => {
+                let Some(op) = self.peek_same_line().and_then(|t| Self::augmented_op(&t)) else { return false };
                 self.advance();
                 let idx = attr.map_or(0, |a| self.chunk.push_name(a));
                 self.chunk.emit(if attr.is_some() { OpCode::Dup } else { OpCode::Dup2 }, 0);
@@ -470,7 +473,6 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
                 self.rhs_tuple();
                 self.emit_inplace(op);
             }
-            _ => return false,
         }
         let idx = attr.map_or(0, |a| self.chunk.push_name(a));
         self.chunk.emit(store, idx);

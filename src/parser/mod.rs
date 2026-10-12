@@ -72,6 +72,101 @@ impl<I: Iterator<Item = Token>> Tokens<I> {
         self.pos += t.is_some() as usize;
         t
     }
+
+    /* Kind of the next token, moving past bracket line breaks and comments. */
+    fn ahead(&mut self) -> TokenType {
+        while self.peek().is_some_and(|t| matches!(t.kind, TokenType::Nl | TokenType::Comment)) { self.pos += 1; }
+        self.peek().map_or(TokenType::Endmarker, |t| t.kind)
+    }
+
+    /* Kind of the token after the one at the cursor. */
+    pub(super) fn after_head(&self) -> TokenType {
+        self.toks.get(self.pos + 1).map_or(TokenType::Endmarker, |t| t.kind)
+    }
+
+    /* Moves past the bracket group the cursor opens. */
+    fn skip_group(&mut self) {
+        let mut depth = 0usize;
+        while let Some(t) = self.next() {
+            match t.kind {
+                TokenType::Lpar | TokenType::Lsqb | TokenType::Lbrace => depth += 1,
+                TokenType::Rpar | TokenType::Rsqb | TokenType::Rbrace if depth > 1 => depth -= 1,
+                TokenType::Rpar | TokenType::Rsqb | TokenType::Rbrace | TokenType::Newline | TokenType::Endmarker => return,
+                _ => {}
+            }
+        }
+    }
+
+    /* Moves past one target such as `*a`, `b.c[i]` or `(d, e)` uncompiled, false if invalid. */
+    fn skip_target(&mut self) -> bool {
+        if self.ahead() == TokenType::Star { self.pos += 1; }
+        match self.ahead() {
+            TokenType::Name | TokenType::Underscore => self.pos += 1,
+            TokenType::Lpar | TokenType::Lsqb => self.skip_group(),
+            _ => return false,
+        }
+        loop {
+            match self.ahead() {
+                TokenType::Dot => {
+                    self.pos += 1;
+                    if !matches!(self.ahead(), TokenType::Name | TokenType::Underscore) { return false; }
+                    self.pos += 1;
+                }
+                TokenType::Lpar | TokenType::Lsqb => self.skip_group(),
+                _ => return true,
+            }
+        }
+    }
+
+    /* Moves past a target list, returns its length, starred item and comma, None if invalid. */
+    pub(super) fn target_list(&mut self) -> Option<(usize, Option<usize>, bool)> {
+        let (mut n, mut star, mut comma) = (0, None, false);
+        // An empty group, as in `() = []`.
+        if matches!(self.ahead(), TokenType::Rpar | TokenType::Rsqb) { return Some((n, star, comma)); }
+        loop {
+            if self.ahead() == TokenType::Star {
+                if star.is_some() { return None; }
+                star = Some(n);
+            }
+            if !self.skip_target() { return None; }
+            n += 1;
+            if self.ahead() != TokenType::Comma { return Some((n, star, comma)); }
+            self.pos += 1;
+            comma = true;
+            // A trailing comma ends the list only where a target may end.
+            let next = self.ahead();
+            if !matches!(next, TokenType::Star | TokenType::Name | TokenType::Underscore | TokenType::Lpar | TokenType::Lsqb) {
+                return ends_target(next).then_some((n, star, comma));
+            }
+        }
+    }
+
+    /* Where the bracket group opening at `open` closes, and whether a target ends right after it. */
+    pub(super) fn group_target(&mut self, open: usize) -> (usize, bool) {
+        let at = core::mem::replace(&mut self.pos, open);
+        self.skip_group();
+        let close = self.pos - 1;
+        let ends = ends_target(self.ahead());
+        self.pos = at;
+        (close, ends)
+    }
+}
+
+/* Whether `k` ends an assignment target, `=`, a comma, an annotation colon or a closer. */
+pub(super) fn ends_target(k: TokenType) -> bool {
+    matches!(k, TokenType::Equal | TokenType::Comma | TokenType::Colon | TokenType::Rpar | TokenType::Rsqb)
+}
+
+/* Cursor and diagnostics state, so a statement compiles its tokens out of source order. */
+#[derive(Clone, Copy)]
+pub(super) struct Mark {
+    pos: usize,
+    errors: usize,
+    removed: usize,
+    line: usize,
+    end: usize,
+    closed: bool,
+    newline: bool,
 }
 
 pub struct Parser<'src, I: Iterator<Item = Token>> {
@@ -92,10 +187,6 @@ pub struct Parser<'src, I: Iterator<Item = Token>> {
     pub(super) cleanup_count: usize,
     pub(super) expr_depth: usize,
     pub(super) saw_newline: bool,
-    /* True inside f-string brace expr, disables `=` assignment so `f"{x=}"` parses as debug form. */
-    pub(super) in_fstring_expr: bool,
-    /* True while parsing unpack-target elements, disables `=` assignment inside expressions. */
-    pub(super) in_target_list: bool,
     /* Unclosed brackets with error count at open, anchors "never closed" and drops cascade errors. */
     pub(super) bracket_stack: Vec<(TokenType, usize, usize, usize)>,
     /* True while the statements of a class body compile, not those of its methods. */
@@ -342,7 +433,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
     pub(super) fn advance_raw(&mut self) -> Token {
         let tok = self.tokens.next().unwrap_or(Token {
             kind: TokenType::Endmarker,
-            line: 0, start: 0, end: 0, comp: false,
+            line: 0, start: 0, end: 0, comp: false, assigns: 0,
         });
         self.last_line = tok.line;
         if tok.end > 0 { self.last_end = tok.end; }
@@ -352,7 +443,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
     pub(super) fn advance(&mut self) -> Token {
         let tok = self.tokens.next().unwrap_or(Token {
             kind: TokenType::Endmarker,
-            line: 0, start: 0, end: 0, comp: false,
+            line: 0, start: 0, end: 0, comp: false, assigns: 0,
         });
         self.last_line = tok.line;
         if tok.end > 0 { self.last_end = tok.end; }
@@ -437,6 +528,29 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             }
         }
     }
+
+    pub(super) fn mark(&self) -> Mark {
+        Mark {
+            pos: self.tokens.pos, errors: self.errors.len(), removed: self.removed_uses.len(),
+            line: self.last_line, end: self.last_end, closed: self.block_closed, newline: self.saw_newline,
+        }
+    }
+
+    /* Puts the cursor back at `m`, keeping what compiled since. */
+    pub(super) fn seek(&mut self, m: Mark) {
+        self.tokens.pos = m.pos;
+        (self.last_line, self.last_end, self.block_closed, self.saw_newline) = (m.line, m.end, m.closed, m.newline);
+    }
+
+    /* Puts the cursor back at `m` and drops the diagnostics raised since. */
+    pub(super) fn rewind(&mut self, m: Mark) {
+        self.seek(m);
+        self.errors.truncate(m.errors);
+        self.removed_uses.truncate(m.removed);
+    }
+
+    /* Whether the cursor sits where an assignment target ends. */
+    pub(super) fn at_target_end(&mut self) -> bool { self.peek_same_line().is_some_and(ends_target) }
 
     pub(super) fn at_end(&mut self) -> bool { self.peek().is_none() }
 
@@ -600,8 +714,6 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             loops: Vec::new(),
             cleanup_count: 0,
             saw_newline: false,
-            in_fstring_expr: false,
-            in_target_list: false,
             expr_depth: 0,
             last_line: 0,
             last_end: 0,

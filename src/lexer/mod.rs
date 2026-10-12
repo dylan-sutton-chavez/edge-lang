@@ -16,6 +16,8 @@ pub struct Token {
     pub end: usize,
     /* Starts the element of a comprehension, so the parser compiles its clauses first. */
     pub comp: bool,
+    /* On the first token of a statement, the `=` that end its assignment targets, so the parser compiles the value first. */
+    pub assigns: u8,
 }
 
 /* Lex-time diagnostic. Static message since errors are a fixed set, parser boundary upgrades it to a richer Diagnostic. */
@@ -67,7 +69,7 @@ pub fn lex(source: &str) -> (Vec<Token>, Vec<LexError>) {
             msg: "source file exceeds maximum size (10 MiB)",
         });
         return (
-            alloc::vec![Token { kind: TokenType::Endmarker, line: 0, start: len, end: len, comp: false }],
+            alloc::vec![Token { kind: TokenType::Endmarker, line: 0, start: len, end: len, comp: false, assigns: 0 }],
             scanner.errors,
         );
     }
@@ -96,7 +98,8 @@ pub fn lex(source: &str) -> (Vec<Token>, Vec<LexError>) {
             _ => tok,
         };
         if kind == TokenType::For && let Some(first) = comp_start(&tokens) { tokens[first].comp = true; }
-        tokens.push(Token { kind, line, start, end, comp: false });
+        if kind == TokenType::Equal && let Some(head) = assign_head(&tokens) { tokens[head].assigns = tokens[head].assigns.saturating_add(1); }
+        tokens.push(Token { kind, line, start, end, comp: false, assigns: 0 });
     }
     (tokens, scanner.errors)
 }
@@ -119,6 +122,37 @@ fn comp_start(tokens: &[Token]) -> Option<usize> {
         if i == 0 { return None; }
     }
     (item?..tokens.len()).find(|&j| !matches!(tokens[j].kind, TokenType::Nl | TokenType::Comment))
+}
+
+/* The first token of the statement whose target list an `=` ends, None for a keyword argument or a lambda default. */
+fn assign_head(tokens: &[Token]) -> Option<usize> {
+    // The first colon outside brackets, a header colon when a compound keyword leads the line.
+    let (mut depth, mut colon) = (0usize, None);
+    let mut at = 0;
+    for (i, t) in tokens.iter().enumerate().rev() {
+        match t.kind {
+            TokenType::Rpar | TokenType::Rsqb | TokenType::Rbrace => depth += 1,
+            TokenType::Lpar | TokenType::Lsqb | TokenType::Lbrace if depth == 0 => return None,
+            TokenType::Lpar | TokenType::Lsqb | TokenType::Lbrace => depth -= 1,
+            TokenType::Lambda if depth == 0 => return None,
+            TokenType::Colon if depth == 0 => colon = Some(i),
+            TokenType::Newline | TokenType::Semi | TokenType::Indent | TokenType::Dedent => { at = i + 1; break; }
+            _ => {}
+        }
+    }
+    let first = |from: usize| (from..tokens.len()).find(|&j| !matches!(tokens[j].kind, TokenType::Nl | TokenType::Comment));
+    let head = first(at)?;
+    match colon {
+        Some(c) if opens_body(tokens[head].kind) => first(c + 1),
+        _ => Some(head),
+    }
+}
+
+/* Whether a statement led by `kind` ends its header in a colon a body follows. */
+fn opens_body(kind: TokenType) -> bool {
+    matches!(kind, TokenType::If | TokenType::Elif | TokenType::Else | TokenType::While | TokenType::For | TokenType::With
+        | TokenType::Try | TokenType::Except | TokenType::Finally | TokenType::Def | TokenType::Class | TokenType::Async
+        | TokenType::Match | TokenType::Case)
 }
 
 fn starts_stmt(raw: &[(TokenType, usize, usize, usize)], i: usize) -> bool {

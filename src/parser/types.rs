@@ -250,12 +250,6 @@ impl SSAChunk {
         self.instructions.push(Instruction { opcode: op, operand });
     }
 
-    /* Truncate instructions and drop call positions past the cut, keeps `call_byte_pos` sorted. */
-    pub(super) fn truncate_to(&mut self, start: usize) {
-        self.instructions.truncate(start);
-        self.call_byte_pos.retain(|&(ip, _)| (ip as usize) < start);
-    }
-
     /* Records (ip, `byte_pos`) for the last emitted call so traceback caret lands on it. */
     pub(super) fn record_call_pos(&mut self, byte_pos: u32) {
         if self.instructions.is_empty() { return; }

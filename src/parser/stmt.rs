@@ -1,24 +1,15 @@
-use crate::s;
-
 use super::Parser;
-use super::types::{Instruction, OpCode};
+use super::expr::Tail;
+use super::types::OpCode;
 
 use crate::lexer::{Token, TokenType};
 
-use alloc::{string::{String, ToString}, vec, vec::Vec};
+use alloc::{string::{String, ToString}, vec::Vec};
 
-/* Assignment-target shapes for sequence unpacking, complex ones carry their captured load prefix plus its original offset for jump-shifted replay. */
+/* A `for` target, a name or a nested group of them. */
 pub(super) enum UnpackTarget {
     Name(String),
-    Attr(Vec<Instruction>, usize, u16),
-    Item(Vec<Instruction>, usize),
     Nested(Vec<UnpackTarget>),
-}
-
-/* One element of a comma-led statement, plain names defer their load until proven expression. */
-enum TupleElem {
-    Named(String, bool),
-    Range(usize, usize),
 }
 
 impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
@@ -216,20 +207,6 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
                 }
                 false
             }
-            Some(TokenType::Star) => {
-                self.advance();
-                let head = self.advance_text();
-                let mut targets = vec![s!("*", str &head)];
-                while self.eat_if(TokenType::Comma) {
-                    if !matches!(self.peek(), Some(TokenType::Name | TokenType::Underscore)) { break; }
-                    targets.push(self.advance_text());
-                }
-                self.eat(TokenType::Equal);
-                self.rhs_tuple();
-                // Leading star, equivalent to star at position 0.
-                self.emit_unpack_stores(&targets, Some(0));
-                false
-            }
             Some(TokenType::Return) => {
                 self.advance();
                 // A bare `return` ends at the line, the next statement is never its value.
@@ -242,6 +219,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
                 false
             }
             Some(TokenType::Name | TokenType::Underscore) => {
+                if self.assignment() { return false; }
                 let t = self.advance();
                 self.name_stmt(t)
             }
@@ -265,22 +243,9 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
                 false
             }
             _ => {
-                // `(a, b) = rhs` / `[a, b] = rhs`, a display followed by `=` is a sequence-unpack target.
-                let start = self.chunk.instructions.len();
+                if self.assignment() { return false; }
                 self.expr();
-                if matches!(self.peek(), Some(TokenType::Equal))
-                    && let Some(targets) = self.display_targets(start) {
-                    self.advance();
-                    self.chunk.truncate_to(start);
-                    self.rhs_tuple();
-                    self.chunk.emit(OpCode::UnpackSequence, targets.len() as u16);
-                    self.emit_target_stores(&targets);
-                    return false;
-                }
-                // `(a, b), c = rhs`, a display opens a comma target list.
-                if matches!(self.peek_same_line(), Some(TokenType::Comma)) {
-                    return self.unpack_or_tuple(start, None);
-                }
+                if matches!(self.peek_same_line(), Some(TokenType::Comma)) { self.tuple_rest(1, |s| s.peek_same_line().is_none()); }
                 self.diag_stray_colon();
                 true
             }
@@ -398,87 +363,12 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         matches!(self.peek_same_line(), Some(TokenType::Equal))
     }
 
-    /* Per-opcode stack effect for target segmentation, None = shape unknown, caller bails. */
-    fn stack_delta(op: OpCode, operand: u16) -> Option<i32> {
-        use OpCode::*;
-        Some(match op {
-            LoadConst | LoadName | LoadGlobal | LoadTrue | LoadFalse | LoadNone | LoadEllipsis => 1,
-            LoadAttr | Minus | Not | BitNot | Pos => 0,
-            Add | Sub | Mul | Div | Mod | Pow | FloorDiv | MatMul | Eq | NotEq | Lt | Gt | LtEq | GtEq
-            | BitAnd | BitOr | BitXor | Shl | Shr | In | NotIn | Is | IsNot | GetItem => -1,
-            BuildTuple | BuildList | BuildSet | BuildString | BuildSlice => 1 - operand as i32,
-            BuildDict => 1 - 2 * (operand as i32),
-            _ => return None,
-        })
-    }
-
-    /* Split an n-element display body into per-element ranges. Scans backward, each element is the minimal suffix with net stack effect +1, which is unambiguous even for nested displays. */
-    fn split_display(&self, lo: usize, hi: usize, n: usize) -> Option<Vec<(usize, usize)>> {
-        let mut ranges = vec![(0usize, 0usize); n];
-        let mut end = hi;
-        for k in (0..n).rev() {
-            let mut need = 1i32;
-            let mut i = end;
-            while need > 0 {
-                if i == lo { return None; }
-                i -= 1;
-                let ins = self.chunk.instructions[i];
-                need -= Self::stack_delta(ins.opcode, ins.operand)?;
-            }
-            ranges[k] = (i, end);
-            end = i;
-        }
-        (end == lo).then_some(ranges)
-    }
-
-    /* Reinterpret emitted load instructions as one assignment target, None if not assignable. */
-    fn range_target(&self, lo: usize, hi: usize) -> Option<UnpackTarget> {
-        if hi <= lo || hi > self.chunk.instructions.len() { return None; }
-        let (last, prefix) = self.chunk.instructions[lo..hi].split_last()?;
-        // Jumps relocate via `push_shifted`, Phi cannot move, it is anchored by `phi_map`.
-        let relocatable = !prefix.iter().any(|i| matches!(i.opcode, OpCode::Phi));
-        match last.opcode {
-            OpCode::LoadName if prefix.is_empty() => {
-                let raw = self.chunk.names.get(last.operand as usize)?;
-                Some(UnpackTarget::Name(super::types::ssa_strip(raw).to_string()))
-            }
-            OpCode::LoadGlobal if prefix.is_empty() => {
-                Some(UnpackTarget::Name(self.chunk.names.get(last.operand as usize)?.clone()))
-            }
-            OpCode::LoadAttr if relocatable => Some(UnpackTarget::Attr(prefix.to_vec(), lo, last.operand)),
-            OpCode::GetItem if relocatable => Some(UnpackTarget::Item(prefix.to_vec(), lo)),
-            OpCode::BuildTuple | OpCode::BuildList => {
-                let n = last.operand as usize;
-                if n == 0 { return None; }
-                let ranges = self.split_display(lo, hi - 1, n)?;
-                let ts: Option<Vec<UnpackTarget>> = ranges.iter()
-                    .map(|&(a, b)| self.range_target(a, b)).collect();
-                Some(UnpackTarget::Nested(ts?))
-            }
-            _ => None,
-        }
-    }
-
-    /* Decodes a just-emitted `(a, b)` / `[a, b]` display into unpack targets. */
-    fn display_targets(&self, start: usize) -> Option<Vec<UnpackTarget>> {
-        match self.range_target(start, self.chunk.instructions.len())? {
-            UnpackTarget::Nested(ts) => Some(ts),
-            _ => None,
-        }
-    }
-
-    /* Re-emit a captured target prefix at the current position, shifting its jumps. */
-    fn replay_prefix(&mut self, prefix: &[Instruction], lo: usize) {
-        let delta = self.chunk.instructions.len() as i64 - lo as i64;
-        self.push_shifted(prefix.to_vec(), delta);
-    }
-
-    /* Unpacks the value into `targets`, a starred list stores plain names only. */
+    /* Unpacks the value into the `for` targets, a starred list stores plain names only. */
     pub(super) fn store_targets(&mut self, targets: &[UnpackTarget], star: Option<usize>, comma: bool) {
         if let Some(sp) = star {
             let names: Option<Vec<String>> = targets.iter().map(|t| match t {
                 UnpackTarget::Name(n) => Some(n.clone()),
-                _ => None,
+                UnpackTarget::Nested(_) => None,
             }).collect();
             match names {
                 Some(ns) => self.emit_unpack_stores(&ns, Some(sp)),
@@ -490,21 +380,11 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         self.emit_target_stores(targets);
     }
 
-    /* One store per target, values arrive top-first, complex targets replay their captured loads. */
+    /* One store per target, values arrive top-first. */
     fn emit_target_stores(&mut self, targets: &[UnpackTarget]) {
         for t in targets {
             match t {
                 UnpackTarget::Name(n) => self.store_name(n.clone()),
-                UnpackTarget::Attr(prefix, lo, attr_idx) => {
-                    self.replay_prefix(prefix, *lo);
-                    self.chunk.emit(OpCode::Swap, 0);
-                    self.chunk.emit(OpCode::StoreAttr, *attr_idx);
-                }
-                UnpackTarget::Item(prefix, lo) => {
-                    self.replay_prefix(prefix, *lo);
-                    self.chunk.emit(OpCode::Rot3, 0);
-                    self.chunk.emit(OpCode::StoreItem, 0);
-                }
                 UnpackTarget::Nested(ts) => {
                     self.chunk.emit(OpCode::UnpackSequence, ts.len() as u16);
                     self.emit_target_stores(ts);
@@ -513,82 +393,114 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         }
     }
 
-    /* Emit deferred loads for plain-name elements still pending, keeps tuple element order. */
-    fn flush_named(&mut self, elems: &mut [TupleElem]) {
-        for e in elems.iter_mut() {
-            if let TupleElem::Named(n, emitted) = e
-                && !*emitted {
-                    self.emit_load_ssa(n.clone());
-                    *emitted = true;
-                }
-        }
-    }
-
-    /* Comma after one element, unpack assignment or tuple expression. `first` carries a plain leading name whose load is deferred, None means the element is already emitted at `start`. */
-    pub(super) fn unpack_or_tuple(&mut self, start: usize, first: Option<String>) -> bool {
-        let mut elems: Vec<TupleElem> = Vec::new();
-        match first {
-            Some(n) => elems.push(TupleElem::Named(n, false)),
-            None => elems.push(TupleElem::Range(start, self.chunk.instructions.len())),
-        }
-        let mut star_pos: Option<usize> = None;
-        // Elements may be targets, `=` must not parse as embedded assignment.
-        self.in_target_list = true;
-        while self.eat_if(TokenType::Comma) {
-            if matches!(self.peek(), Some(TokenType::Newline | TokenType::Endmarker | TokenType::Equal) | None) { break; }
-            if self.eat_if(TokenType::Star) {
-                star_pos = Some(elems.len());
-                let nm = self.advance_text();
-                if matches!(self.peek(), Some(TokenType::Dot | TokenType::Lsqb)) {
-                    self.error("starred assignment target must be a name");
-                }
-                elems.push(TupleElem::Named(nm, false));
-                continue;
-            }
-            if matches!(self.peek(), Some(TokenType::Name | TokenType::Underscore)) {
-                let t = self.advance();
-                let nm = self.lexeme(&t).to_string();
-                if matches!(self.peek(), Some(TokenType::Comma | TokenType::Equal | TokenType::Newline | TokenType::Endmarker) | None) {
-                    // Plain name element, defer the load, no phantom SSA slot on assignment.
-                    elems.push(TupleElem::Named(nm, false));
-                    continue;
-                }
-                // Name-led complex element, flush deferred loads, then continue its expression.
-                self.flush_named(&mut elems);
-                let lo = self.chunk.instructions.len();
-                self.emit_load_ssa(nm);
-                self.expr_tails(lo);
-                elems.push(TupleElem::Range(lo, self.chunk.instructions.len()));
-                continue;
-            }
-            self.flush_named(&mut elems);
-            let lo = self.chunk.instructions.len();
-            self.expr();
-            elems.push(TupleElem::Range(lo, self.chunk.instructions.len()));
-        }
-        self.in_target_list = false;
-        if !matches!(self.peek(), Some(TokenType::Equal)) {
-            if star_pos.is_some() { self.error("cannot use starred expression here"); }
-            self.flush_named(&mut elems);
-            self.chunk.emit(OpCode::BuildTuple, elems.len() as u16);
+    /* `t1 = t2 = value` in Python order, the value first, then targets left to right. */
+    fn assignment(&mut self) -> bool {
+        let Some(&head) = self.tokens.peek() else { return false };
+        // A lone name stores nothing it must evaluate, so it compiles in source order.
+        if head.assigns <= 1 && matches!(head.kind, TokenType::Name | TokenType::Underscore) && self.tokens.after_head() == TokenType::Equal {
+            let name = self.advance_text();
+            self.check_member(&name, head.end);
+            self.advance();
+            self.rhs_tuple();
+            self.store_name(name);
             return true;
         }
-        let targets: Option<Vec<UnpackTarget>> = elems.iter().map(|e| match e {
-            TupleElem::Named(n, _) => Some(UnpackTarget::Name(n.clone())),
-            TupleElem::Range(lo, hi) => self.range_target(*lo, *hi),
-        }).collect();
-        let eq = self.advance();
-        self.chunk.truncate_to(start);
+        if head.assigns == 0 { return false; }
+        let count = head.assigns;
+        let start = self.mark();
+        // A chain keeps its later targets in `more`, so a lone target allocates nothing.
+        let (mut first, mut more) = (None, Vec::new());
+        for _ in 0..count {
+            let at = self.tokens.pos;
+            let shape = self.tokens.target_list();
+            if let Some(shape) = shape && matches!(self.peek_same_line(), Some(TokenType::Colon)) {
+                if count > 1 || shape != (1, None, false) {
+                    self.error("only a single target can be annotated");
+                    return true;
+                }
+                self.advance();
+                self.skip_annotation();
+            }
+            let Some(shape) = shape.filter(|_| matches!(self.peek_same_line(), Some(TokenType::Equal))) else {
+                if first.is_none() {
+                    self.error("cannot assign to this expression");
+                    return true;
+                }
+                // What follows is the value, and the statement end reports the `=` left in it.
+                self.tokens.pos = at;
+                break;
+            };
+            let target = (self.tokens.pos, shape);
+            if first.is_none() { first = Some(target); } else { more.push(target); }
+            self.advance();
+        }
+        let Some(first) = first else { return false };
         self.rhs_tuple();
-        let Some(targets) = targets else {
-            self.error_at(eq.start, eq.end, "cannot assign to this expression");
-            return true;
-        };
-        self.store_targets(&targets, star_pos, true);
-        false
+        let end = self.mark();
+        self.seek(start);
+        let last = more.len();
+        for (i, (eq, (n, star, comma))) in core::iter::once(first).chain(more).enumerate() {
+            if i < last { self.chunk.emit(OpCode::Dup, 0); }
+            self.store_list(n, star, comma);
+            self.tokens.pos = eq + 1;
+        }
+        self.seek(end);
+        true
     }
 
-    /* Name-led statement, assign, augmented-op, attr, index, call, or tuple unpack. */
+    /* Stores the stacked value into `n` targets from the cursor, unpacked first when `unpack`. */
+    fn store_list(&mut self, n: usize, star: Option<usize>, unpack: bool) {
+        match star {
+            Some(i) if unpack => self.chunk.emit(OpCode::UnpackEx, ((i as u16) << 8) | (n - i - 1) as u16),
+            Some(_) => self.diag_at_peek("starred assignment target must be in a list or tuple"),
+            None if unpack => self.chunk.emit(OpCode::UnpackSequence, n as u16),
+            None => {}
+        }
+        for _ in 0..n {
+            self.store_target();
+            self.eat_if(TokenType::Comma);
+        }
+    }
+
+    /* Stores the stacked value into the target at the cursor, a name, `a.b[i]` chain or group. */
+    fn store_target(&mut self) {
+        self.eat_if(TokenType::Star);
+        self.peek_same_line();
+        let open = self.tokens.pos;
+        let t = self.advance();
+        match t.kind {
+            TokenType::Name | TokenType::Underscore if self.at_target_end() => {
+                let name = self.lexeme(&t).to_string();
+                self.check_member(&name, t.end);
+                return self.store_name(name);
+            }
+            TokenType::Name | TokenType::Underscore => self.name(t),
+            _ => match self.tokens.group_target(open) {
+                (close, true) => return self.store_group(t.kind, close),
+                _ if t.kind == TokenType::Lpar => self.paren_atom(),
+                _ => self.list_literal(),
+            },
+        }
+        if !self.postfix_tail(Tail::Target) {
+            self.reject(t.start, self.last_end, "cannot assign to this expression");
+        }
+    }
+
+    /* A bracketed target list closing at `close`, `[a]` and `()` unpack, `(a)` stays bare. */
+    fn store_group(&mut self, open: TokenType, close: usize) {
+        let at = self.tokens.pos;
+        let shape = self.tokens.target_list();
+        self.tokens.pos = at;
+        match shape {
+            Some((1, None, false)) if open == TokenType::Lpar => self.store_target(),
+            Some((n, star, comma)) => self.store_list(n, star, comma || n == 0 || open == TokenType::Lsqb),
+            None => self.diag_at_peek("cannot assign to this expression"),
+        }
+        self.tokens.pos = close;
+        self.eat(if open == TokenType::Lpar { TokenType::Rpar } else { TokenType::Rsqb });
+    }
+
+    /* Name-led statement besides assignment, a bare annotation, augmented op, trailer, call or tuple. */
     pub(super) fn name_stmt(&mut self, t: Token) -> bool {
         let name = self.lexeme(&t).to_string();
         let start = self.chunk.instructions.len();
@@ -598,15 +510,11 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         if matches!(self.peek_same_line(), Some(TokenType::Colon)) {
             self.check_member(&name, t.end);
             self.advance();
-            if !self.skip_annotation() { return false; }
+            self.skip_annotation();
+            return false;
         }
 
         match self.peek_same_line() {
-            Some(TokenType::Equal) => {
-                self.check_member(&name, t.end);
-                self.assign(name);
-                false
-            }
             Some(t) if Self::augmented_op(&t).is_some() => {
                 let op = Self::augmented_op(&t).unwrap();
                 self.advance();
@@ -621,7 +529,9 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
                 self.stmt_tails(start)
             }
             Some(TokenType::Comma) => {
-                self.unpack_or_tuple(start, Some(name))
+                self.emit_load_ssa(name);
+                self.tuple_rest(1, |s| s.peek_same_line().is_none());
+                true
             }
             // `name(...)` at statement level, allow postfix chains like `super().__init__(x)`.
             Some(TokenType::Lpar) => self.call(name) && self.stmt_tails(start),
@@ -636,12 +546,10 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
 
     /* Trailers and operators after a statement head, true when a value is left on the stack. */
     fn stmt_tails(&mut self, start: usize) -> bool {
-        if self.postfix_tail(true) { return false; }
+        if self.postfix_tail(Tail::Stmt) { return false; }
         self.infix_bp(0, start);
         self.ternary_tail(start);
-        if matches!(self.peek_same_line(), Some(TokenType::Comma)) {
-            return self.unpack_or_tuple(start, None);
-        }
+        if matches!(self.peek_same_line(), Some(TokenType::Comma)) { self.tuple_rest(1, |s| s.peek_same_line().is_none()); }
         true
     }
 
@@ -743,10 +651,4 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         }
     }
 
-    pub(super) fn assign(&mut self, name: String) {
-        self.advance();
-        // `x = 1,` / `x = 1, 2`, a comma builds a tuple and a line boundary ends it.
-        self.expr_or_tuple(|s| s.peek_same_line().is_none());
-        self.store_name(name);
-    }
 }

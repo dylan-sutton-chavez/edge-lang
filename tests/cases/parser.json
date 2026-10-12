@@ -410,8 +410,8 @@
   {
     "src": "self.name = value", 
     "constants": [], 
-    "names": ["self_0", "value_0", "name"], 
-    "instructions": [["LoadName",0], ["LoadName",1], ["StoreAttr",2], ["ReturnValue",0]]
+    "names": ["value_0", "self_0", "name"], 
+    "instructions": [["LoadName",0], ["LoadName",1], ["Swap",0], ["StoreAttr",2], ["ReturnValue",0]]
   },
   {
     "src": "x = a[1:3]", 
@@ -1370,15 +1370,15 @@
   },
   {
     "src": "a[0] = 1", 
-    "constants": ["0","1"], 
+    "constants": ["1","0"], 
     "names": ["a_0"], 
-    "instructions": [["LoadName",0],["LoadConst",0],["LoadConst",1],["StoreItem",0],["ReturnValue",0]]
+    "instructions": [["LoadConst",0],["LoadName",0],["LoadConst",1],["Rot3",0],["StoreItem",0],["ReturnValue",0]]
   },
   {
     "src": "d['key'] = True", 
     "constants": ["key"], 
     "names": ["d_0"], 
-    "instructions": [["LoadName",0],["LoadConst",0],["LoadTrue",0],["StoreItem",0],["ReturnValue",0]]
+    "instructions": [["LoadTrue",0],["LoadName",0],["LoadConst",0],["Rot3",0],["StoreItem",0],["ReturnValue",0]]
   },
   {
     "src": "a.x += 1", 
@@ -1395,14 +1395,14 @@
   {
     "src": "a = b = 1", 
     "constants": ["1"], 
-    "names": ["b_1","a_1"], 
-    "instructions": [["LoadConst",0],["StoreName",0],["LoadName",0],["StoreName",1],["ReturnValue",0]]
+    "names": ["a_1","b_1"], 
+    "instructions": [["LoadConst",0],["Dup",0],["StoreName",0],["StoreName",1],["ReturnValue",0]]
   },
   {
     "src": "a = b = c = 1", 
     "constants": ["1"], 
-    "names": ["c_1","b_1","a_1"], 
-    "instructions": [["LoadConst",0],["StoreName",0],["LoadName",0],["StoreName",1],["LoadName",1],["StoreName",2],["ReturnValue",0]]
+    "names": ["a_1","b_1","c_1"], 
+    "instructions": [["LoadConst",0],["Dup",0],["StoreName",0],["Dup",0],["StoreName",1],["StoreName",2],["ReturnValue",0]]
   },
   {
     "src": "break\nx = 1", 
@@ -1460,5 +1460,33 @@
     "names": ["i_1", "<genexpr>_1"],
     "instructions": [["LoadConst",0], ["CallRange",1], ["GetIter",2], ["MakeFunction",0], ["Swap",0], ["Call",1], ["CallSum",1], ["PopTop",0], ["ReturnValue",0]],
     "functions": 1
+  },
+  {
+    "src": "f() = 1",
+    "constants": [],
+    "names": [],
+    "instructions": [["ReturnValue",0]],
+    "errors": ["cannot assign to this expression"]
+  },
+  {
+    "src": "*a = [1]",
+    "constants": [],
+    "names": [],
+    "instructions": [["ReturnValue",0]],
+    "errors": ["starred assignment target must be in a list or tuple"]
+  },
+  {
+    "src": "(a, 1) = x",
+    "constants": [],
+    "names": [],
+    "instructions": [["ReturnValue",0]],
+    "errors": ["cannot assign to this expression"]
+  },
+  {
+    "src": "if x = 1:\n    pass",
+    "constants": [],
+    "names": [],
+    "instructions": [["ReturnValue",0]],
+    "errors": ["expected ':', got '='"]
   }
 ]

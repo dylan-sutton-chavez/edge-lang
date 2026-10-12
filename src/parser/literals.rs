@@ -250,12 +250,9 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
                     // Capture span for `f"{expr=}"` debug prefix.
                     let expr_start_byte = self.tokens.peek().map(|t| t.start).unwrap_or(0);
                     let insn_start = self.chunk.instructions.len();
-                    let saved_in_fstring = self.in_fstring_expr;
-                    self.in_fstring_expr = true;
                     self.expr();
                     // Bare tuple in a replacement field, `f"{1,}"` builds (1,).
                     self.tuple_rest(1, |s| matches!(s.peek(), Some(TokenType::Rbrace | TokenType::Colon | TokenType::Exclamation | TokenType::Equal) | None));
-                    self.in_fstring_expr = saved_in_fstring;
                     let expr_end_byte = self.last_end;
                     /* FormatValue operand, bit0=has-spec, bits1-2=conversion (0=none,1=!r,2=!s,3=!a). */
                     let mut flags = 0u16;
@@ -330,9 +327,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             match kind {
                 Some(TokenType::Lbrace) => {
                     self.advance();
-                    let saved_in_fstring = core::mem::replace(&mut self.in_fstring_expr, true);
                     self.expr();
-                    self.in_fstring_expr = saved_in_fstring;
                     self.chunk.emit(OpCode::FormatValue, 0);
                     pieces += 1;
                     self.eat(TokenType::Rbrace);
@@ -743,15 +738,12 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
     }
 
     pub(super) fn compile_body(&mut self, params: &[String]) -> SSAChunk {
-        let restart = (self.tokens.pos, self.errors.len(), self.removed_uses.len(), (self.last_line, self.last_end, self.block_closed, self.saw_newline));
+        let restart = self.mark();
         let mut late = Vec::new();
         let mut body = self.with_fresh_chunk(|s| { s.body_of(params); late = s.called_then_bound(); });
         // A builtin called before the body binds it is a local all along, so the body compiles again calling the local.
         if !late.is_empty() {
-            self.tokens.pos = restart.0;
-            (self.last_line, self.last_end, self.block_closed, self.saw_newline) = restart.3;
-            self.errors.truncate(restart.1);
-            self.removed_uses.truncate(restart.2);
+            self.rewind(restart);
             body = self.with_fresh_chunk(|s| { s.unfused = late; s.body_of(params); });
         }
         body.is_pure = !body.instructions.iter().any(|i| matches!(

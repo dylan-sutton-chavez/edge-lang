@@ -304,6 +304,12 @@ impl Lower<'_> {
                 let k = self.pending.len();
                 self.pending[k - 3..].rotate_left(1);
             }
+            // A value a call left on the stack moves into a temporary, so the store after takes registers.
+            OpCode::Swap | OpCode::Rot3 if regs && self.pending.len() + 1 == if ins.opcode == OpCode::Swap { 2 } else { 3 } => {
+                let t = self.temp();
+                self.emit(Ins { op: OpCode::StoreTopR, x: 0, a: t, b: 0, c: 0 });
+                self.pending.push(Entry::reg(t));
+            }
             OpCode::Dup2 if self.pending.len() >= 2 => {
                 let k = self.pending.len();
                 let (a, b) = (self.pending[k - 2], self.pending[k - 1]);

@@ -73,7 +73,7 @@ print(x, y)
 10 20
 ```
 
-Targets can also be attributes, subscripts, parenthesized lists or nested patterns.
+Targets can also be attributes, subscripts, parenthesized lists or nested patterns, and they store from left to right after the value runs.
 
 ```edge-python
 class Point:
@@ -95,7 +95,7 @@ print(a, b, h, i, j)
 3 4 5 6 7
 ```
 
-`for` loops and comprehensions take the same nested targets, as in `for i, (k, v) in enumerate(d.items())`. A starred target such as `*middle` must be a plain name.
+`for` loops and comprehensions take only names, nested or starred, as in `for i, (k, v) in enumerate(d.items())`.
 
 ### Walrus operator
 
