@@ -149,7 +149,7 @@ fn assign_head(tokens: &[Token]) -> Option<usize> {
 }
 
 /* Whether a statement led by `kind` ends its header in a colon a body follows. */
-fn opens_body(kind: TokenType) -> bool {
+pub(crate) fn opens_body(kind: TokenType) -> bool {
     matches!(kind, TokenType::If | TokenType::Elif | TokenType::Else | TokenType::While | TokenType::For | TokenType::With
         | TokenType::Try | TokenType::Except | TokenType::Finally | TokenType::Def | TokenType::Class | TokenType::Async
         | TokenType::Match | TokenType::Case)

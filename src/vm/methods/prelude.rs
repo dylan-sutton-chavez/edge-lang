@@ -1,6 +1,6 @@
 pub(super) use crate::vm::{VM, Val, VmErr, HeapObj, DictMap};
 pub(super) use super::recv::{
-    recv_str, recv_str_ref, recv_bytes, val_to_str,
+    recv_str, recv_str_ref, recv_bytes, recv_bytes_ref, val_to_str,
     list_clone, list_mut, dict_entries, dict_mut, set_clone, set_mut, set_ref,
     iter_to_vec, capitalize_first, title_case,
 };

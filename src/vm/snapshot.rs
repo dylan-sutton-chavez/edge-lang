@@ -673,6 +673,7 @@ fn source_index<'c>(chunk: &'c SSAChunk, out: &mut Vec<&'c SSAChunk>) {
 
 /* Overlay saved state onto a freshly booted VM. */
 pub fn restore(vm: &mut VM, blob: &[u8]) -> Result<(), SnapErr> {
+    let _paying = crate::value::meter::Paying::to(vm.heap.meter());
     let h = header(blob)?;
     if h.fingerprint != fingerprint(vm.chunk) {
         return Err("snapshot does not match this program or compiler version".to_string());

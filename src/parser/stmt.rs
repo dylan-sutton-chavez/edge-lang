@@ -335,9 +335,12 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
                 break;
             }
             self.block_closed = false;
-            let errors_before = self.errors.len();
-            let produced_value = self.stmt();
+            self.bracket_stack.clear();
+            let (errors_before, at) = (self.errors.len(), self.tokens.pos);
+            // A compound statement never shares the line of the colon that opens a body.
+            let produced_value = if !indented && self.peek().is_some_and(crate::lexer::opens_body) { self.error("a compound statement must start its own line"); false } else { self.stmt() };
             self.end_statement(errors_before);
+            if self.tokens.pos == at { self.tokens.next(); }
             if produced_value {
                 self.chunk.emit(OpCode::PopTop, 0);
             }
@@ -448,7 +451,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             }
             TokenType::Name | TokenType::Underscore => self.name(t),
             _ => match self.tokens.group_target(open) {
-                (close, true) => return self.store_group(t.kind, close),
+                (close, true) => return self.nested(|s| s.store_group(t.kind, close)),
                 _ if t.kind == TokenType::Lpar => self.paren_atom(),
                 _ => self.list_literal(),
             },
@@ -596,6 +599,8 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
 
     /* Emit `yield` / `yield from` / bare `yield`, leaving the produced value on the stack so it works in both statement and expression position. Assumes the `yield` keyword was already consumed. */
     pub(super) fn emit_yield(&mut self) {
+        // A comprehension runs as a scope of its own, which has no frame a `yield` could suspend.
+        if self.in_comp { return self.error("'yield' inside a comprehension"); }
         // No value when a line boundary or a closing token follows (`(yield)`, `f(yield)`).
         let bare = matches!(
             self.peek_same_line(),

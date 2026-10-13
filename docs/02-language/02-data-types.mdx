@@ -40,7 +40,7 @@ Use [`isinstance`](/docs/edge-python/reference/builtins#isinstance) to test whet
 
 There is one `int` type with a signed 128-bit range, from `-(2**127)` to `2**127 - 1`. Going out of range raises `OverflowError`. [Limits and errors](/docs/edge-python/reference/limits-and-errors#integer-width) has the details.
 
-There is no complex type.
+There is no complex type, so a negative number raised to a fractional power raises `ValueError` until complex numbers exist.
 
 ```edge-python
 big = (2**126 - 1) * 2 + 1

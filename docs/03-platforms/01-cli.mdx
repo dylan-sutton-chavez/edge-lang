@@ -14,7 +14,6 @@ edge run app.py        # run a script, a .edge, or stdin (--web)
 edge build             # pack a portable .edge (--app, --web)
 edge actor actor.yml   # run a pool of cooperative actors
 edge serve             # dev server with live reload
-edge repl              # interactive shell
 edge test              # run *_test.py files
 edge init my-app       # scaffold a project
 edge publish app.edge  # send a packed .edge to the registry
@@ -86,7 +85,7 @@ error: ZeroDivisionError: division by zero
 | `--web` | Run on the browser host in headless Chrome instead of the native engine. |
 
 - Without `--save-state`, a script parked on a wait the engine cannot serve prints an error and exits 1.
-- `edge test` and `edge repl` take `--memory` and `--ops` too.
+- `edge test` takes `--memory` and `--ops` too.
 
 ### Run on the browser host
 
@@ -144,24 +143,6 @@ $ edge serve
 | `--port <n>` | `5173` | Port to listen on |
 | `--host <addr>` | `127.0.0.1` | Bind address. With `0.0.0.0` the banner adds your LAN URL for a phone on the same network. |
 | `--open` | off | Open the app in a browser once the server is up |
-
-## edge repl
-
-```text
-$ edge repl
-Edge Python 0.9.6  ·  .reset to start fresh  ·  .exit, Ctrl+C or Ctrl+D to quit
->>> from math import sqrt
->>> print(sqrt(2))
-1.4142135623730951
-```
-
-One interpreter stays alive across prompts.
-
-- Imports, definitions and mutations persist. An input that raises keeps the effects it made before the error.
-- Each line is one input. A compound statement goes on a single line, such as `def double(n): return n * 2`.
-- Expression results are not printed. Use `print()`.
-- Arrow-key history works within the session and is not saved to disk.
-- `.reset` wipes the session state. `.exit`, `Ctrl+C` and `Ctrl+D` quit.
 
 ## edge test
 

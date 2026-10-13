@@ -247,9 +247,10 @@ fn int_pow(a: i64, b: i64) -> Option<Val> {
     Val::int_checked(result)
 }
 
-/* `a ** b` for floats, None for a zero base under a negative power. */
+/* `a ** b` for floats, None for a zero base under a negative power, a complex result or an overflow. */
 fn float_pow(a: f64, b: f64) -> Option<Val> {
-    (a != 0.0 || b >= 0.0).then(|| Val::float(crate::value::math::fpowf(a, b)))
+    if a == 0.0 && b < 0.0 || crate::value::math::complex_power(a, b) { return None; }
+    crate::value::math::fpowf(a, b).map(Val::float)
 }
 
 /* `x op y` for two numbers as the register forms compute it, else None. */

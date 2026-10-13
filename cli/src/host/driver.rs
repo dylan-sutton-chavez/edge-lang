@@ -223,7 +223,7 @@ fn next_event(reader: &mut Option<std::io::BufReader<std::fs::File>>, path: &str
     }
 }
 
-/* A persistent interpreter for repl and test, each input runs exactly once. */
+/* A persistent interpreter for edge test, each input runs exactly once. */
 pub struct Session {
     vm: Vm,
 }

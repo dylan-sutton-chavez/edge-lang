@@ -1,111 +1,81 @@
-use std::alloc::{GlobalAlloc, Layout, System};
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Mutex, MutexGuard};
+/* What the meter reads for a program, every byte the allocator handed its run and took back. */
+mod test {
+    use compiler::lexer::lex;
+    use compiler::parser::Parser;
+    use compiler::parser::SSAChunk;
+    use compiler::value::meter::{Meter, set_budget};
+    use compiler::vm::{Limits, VM};
 
-use compiler::lexer::lex;
-use compiler::parser::Parser;
-use compiler::vm::VM;
-use compiler::vm::types::Limits;
-
-/* Counts the bytes alive, so a test reads what a program really holds. */
-struct Counting;
-
-static LIVE: AtomicUsize = AtomicUsize::new(0);
-
-unsafe impl GlobalAlloc for Counting {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        LIVE.fetch_add(layout.size(), Ordering::Relaxed);
-        unsafe { System.alloc(layout) }
-    }
-    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        LIVE.fetch_sub(layout.size(), Ordering::Relaxed);
-        unsafe { System.dealloc(ptr, layout) }
-    }
-    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, size: usize) -> *mut u8 {
-        LIVE.fetch_add(size, Ordering::Relaxed);
-        LIVE.fetch_sub(layout.size(), Ordering::Relaxed);
-        unsafe { System.realloc(ptr, layout, size) }
-    }
-}
-
-#[global_allocator]
-static COUNTING: Counting = Counting;
-
-/* The allocator counts every thread and the tests run side by side, so their runs take turns and none reads another's bytes. */
-static TURN: Mutex<()> = Mutex::new(());
-
-fn turn() -> MutexGuard<'static, ()> {
-    TURN.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
-}
-
-/* What `build` holds once it ran, by the model and for real, both past an empty program of the same shape. */
-fn held(build: &str) -> (usize, usize) {
-    let _turn = turn();
-    let run = |src: &str| {
+    fn compiled(src: &str) -> SSAChunk {
         let (tokens, _) = lex(src);
         let (chunk, errs) = Parser::new(src, tokens.into_iter()).parse();
         assert!(errs.is_empty(), "{src}");
-        let before = LIVE.load(Ordering::Relaxed);
+        chunk
+    }
+
+    /* What `src` holds once it ran, the most it held at once, and the meter its run paid with. */
+    fn ran(src: &str) -> (usize, usize, &'static Meter) {
+        let chunk = compiled(src);
         let mut vm = VM::with_limits(&chunk, Limits::sandbox());
         vm.run().unwrap();
-        (vm.memory(), LIVE.load(Ordering::Relaxed).saturating_sub(before))
-    };
-    let (model, real) = run(&build.replace("N", "100000"));
-    let (model0, real0) = run(&build.replace("N", "0"));
-    (model - model0, real.saturating_sub(real0))
-}
-
-#[test]
-fn the_memory_model_never_counts_less_than_what_a_program_holds() {
-    let shapes = [
-        ("tuples of 4 floats", "xs = [(float(i), 1.0, 2.0, 3.0) for i in range(N)]"),
-        ("dicts of 4 keys", "xs = [{'o': float(i), 'h': 1.0, 'l': 2.0, 'c': 3.0} for i in range(N)]"),
-        ("columns of floats", "o = [float(i) for i in range(N)]\nh = [float(i) for i in range(N)]"),
-        ("strings of 20 chars", "xs = [str(i).rjust(20, 'x') for i in range(N)]"),
-        ("instances of 3 attributes", "class B:\n    def __init__(self, i):\n        self.a = i\n        self.b = 1.0\n        self.c = 'x'\nxs = [B(i) for i in range(N)]"),
-        ("lists of one item", "xs = [[i] for i in range(N)]"),
-        ("a dict of int keys", "d = {i: i for i in range(N)}"),
-        ("a set of ints", "s = {i for i in range(N)}"),
-    ];
-    let mut short = Vec::new();
-    for (name, src) in shapes {
-        let (model, real) = held(src);
-        println!("{name:28} model {model:>10} real {real:>10} ratio {:.2}", model as f64 / real.max(1) as f64);
-        // A list counts exactly its capacity, so a byte of rounding is all the slack it gets.
-        if model.saturating_mul(100) < real.saturating_mul(99) { short.push(format!("{name}: model {model} < real {real}")); }
+        (vm.memory(), vm.memory_peak(), vm.heap().meter())
     }
-    assert!(short.is_empty(), "{}", short.join("\n"));
-}
 
-/* What `src` holds once it ran and the most it held at once, both by the memory model. */
-fn peaked(src: &str) -> (usize, usize) {
-    let _turn = turn();
-    let (tokens, _) = lex(src);
-    let (chunk, errs) = Parser::new(src, tokens.into_iter()).parse();
-    assert!(errs.is_empty(), "{src}");
-    let mut vm = VM::with_limits(&chunk, Limits::sandbox());
-    vm.run().unwrap();
-    (vm.memory(), vm.memory_peak())
-}
+    const MIXED: &str = "class P:\n    def __init__(self, x):\n        self.x = x\ndef squares(n):\n    for i in range(n):\n        yield i * i\nd = {str(i): [i, (i, i + 1.5), {i}] for i in range(300)}\ns = ''.join(f'{k}:{v[0]!r}' for k, v in d.items())\nps = sorted([P(i) for i in range(200)], key=lambda p: -p.x)\nt = list(squares(500))\ntry:\n    raise ValueError('x' * 100)\nexcept ValueError as e:\n    msg = str(e)\nb = bytes(range(256)) * 10\nprint(len(s), ps[0].x, sum(t), len(msg), len(b.hex()))\n";
 
-#[test]
-fn the_peak_keeps_what_a_program_held_after_a_collection_let_it_go() {
+    // Once its VM drops a run has given back every byte it took, so the count never drifts.
+    #[test]
+    fn a_run_gives_back_every_byte_once_its_vm_drops() {
+        for _ in 0..2 {
+            let (held, peak, meter) = ran(MIXED);
+            assert!(held > 0 && peak >= held, "held {held} peak {peak}");
+            assert_eq!(meter.held(), 0);
+        }
+    }
+
+    #[test]
+    fn a_list_of_numbers_holds_eight_bytes_each() {
+        let (held, _, _) = ran("xs = [0] * 1000000\n");
+        assert!((8_000_000..8_500_000).contains(&held), "{held}");
+    }
+
     // The list goes before the loop starts collecting, so only the peak still remembers it.
-    let (held, peak) = peaked("xs = [0] * 1000000\nxs = None\nn = 0\nfor i in range(100000):\n    n += len([i])\n");
-    assert!(peak >= 8_000_000 && held < 4_000_000, "peak {peak} held {held}");
-}
+    #[test]
+    fn the_peak_keeps_what_a_program_held_after_a_collection_let_it_go() {
+        let (held, peak, _) = ran("xs = [0] * 1000000\nxs = None\nn = 0\nfor i in range(100000):\n    n += len([i])\n");
+        assert!(peak >= 8_000_000 && held < 4_000_000, "peak {peak} held {held}");
+    }
 
-#[test]
-fn a_set_keeps_its_slots_after_its_items_go() {
-    // Removing items frees no slots, so the count stays where the full set put it.
-    let (full, _) = peaked("s = set(range(100000))\n");
-    let (held, peak) = peaked("s = set(range(100000))\ns.difference_update(range(100000))\n");
-    assert!(held >= full && held == peak, "full {full} held {held} peak {peak}");
-}
+    // An in-place intersection swaps in a smaller table, so only the peak keeps the big one.
+    #[test]
+    fn the_peak_keeps_what_a_set_held_before_it_shrank() {
+        let (held, peak, _) = ran("s = set(range(100000))\ns &= {0}\n");
+        assert!(peak >= 2_000_000 && held < peak / 2, "peak {peak} held {held}");
+    }
 
-#[test]
-fn the_peak_keeps_what_a_set_held_before_it_shrank() {
-    // An in-place intersection swaps in a smaller table, so only the shrink records it.
-    let (held, peak) = peaked("s = set(range(100000))\ns &= {0}\n");
-    assert!(peak >= 2_000_000 && held < peak / 2, "peak {peak} held {held}");
+    /* Gives the thread back its whole budget when a test ends, however it ends. */
+    struct Restore;
+
+    impl Drop for Restore {
+        fn drop(&mut self) { set_budget(usize::MAX); }
+    }
+
+    // Programs in one instance share its budget, the one that passes it raises and the others keep running.
+    #[test]
+    fn the_program_that_passes_the_instance_budget_raises_alone() {
+        let _restore = Restore;
+        set_budget(64 << 20);
+        let holder = compiled("xs = [0] * 5000000\ndef total():\n    return len(xs)\n");
+        let mut a = VM::with_limits(&holder, Limits::sandbox());
+        a.run().unwrap();
+        // Each stops far below its own limit of 256 MB, the instance budget is what refused it.
+        for src in ["ys = [0] * 5000000\n", "ys = []\nwhile True:\n    ys.append(0)\n"] {
+            let chunk = compiled(src);
+            let mut b = VM::with_limits(&chunk, Limits::sandbox());
+            let err = b.run().map(|_| ()).unwrap_err();
+            assert!(err.to_string().contains("MemoryError") && b.memory_peak() < 64 << 20, "{src:?}: {err}, peak {}", b.memory_peak());
+        }
+        let total = a.call_export("total", &[]).unwrap();
+        assert_eq!(a.display(total), "5000000");
+    }
 }

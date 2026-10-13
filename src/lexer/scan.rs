@@ -255,6 +255,10 @@ impl<'a> Scanner<'a> {
                 b'}' if self.src.get(pos + 1) == Some(&b'}') => {
                     pos += 2;
                 }
+                b'}' => {
+                    self.report(pos, pos + 1, "f-string: single '}' is not allowed");
+                    pos += 1;
+                }
                 b'{' => {
                     if self.fstring_stack.len() >= MAX_FSTRING_DEPTH {
                         self.report(pos, pos + 1, "f-string nesting depth exceeds maximum (200)");

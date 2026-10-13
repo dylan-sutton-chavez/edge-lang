@@ -23,12 +23,17 @@ A release asset is immutable and the CDN path is not. A checksum is the only thi
 
 ### As a crate
 
-The crate builds no wasm of its own and fetches nothing at build time. `cargo build` stays offline and reproducible. Its library is named `compiler`.
+The crate builds no wasm of its own and fetches nothing at build time. `cargo build` stays offline and reproducible. Its library is named `compiler`. A host that runs the VM in its own process installs the allocator the memory limit reads, or a run under a memory limit refuses to start.
 
 ```toml
 # Downstream Cargo.toml
 [dependencies]
 edge-python = { git = "https://github.com/dylan-sutton-chavez/edge-python", tag = "v0.9.6" }
+```
+
+```rust
+#[global_allocator]
+static METERED: compiler::value::meter::Metered<std::alloc::System> = compiler::value::meter::Metered(std::alloc::System);
 ```
 
 The `runtime` feature is the wrapper that makes `compiler.wasm`, with its exports, host imports, allocator and panic handler. It is off by default and `make wasm` turns it on.
@@ -85,7 +90,7 @@ Every result lands in one output buffer that grows as needed. It holds `out_len(
 | `last_yield_deadline_ns` | `() -> u64` | The deadline of a `PENDING_TIMER` yield, in nanoseconds |
 | `set_host_result_by_id` | `(id: u32, handle: u32) -> i32` | Wakes the coroutine waiting on call `id` with `handle` |
 | `set_host_error_by_id` | `(id: u32, kind: u32, msg_handle: u32) -> i32` | Raises an error of `kind` in that coroutine, `msg_handle` a `str` |
-| `memory_peak` | `() -> u64` | The most the last run held at once, in bytes, by the memory model the limit counts. A run that fails to compile reads 0 |
+| `memory_peak` | `() -> u64` | The most the last run held at once, in bytes, as the allocator counted it for the limit. A run that fails to compile reads 0 |
 
 `set_host_result_by_id` and `set_host_error_by_id` return `0`, `1` for a stale handle, `2` when no coroutine waits on `id`, or `3` when no run is parked.
 

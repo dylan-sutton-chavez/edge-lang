@@ -160,6 +160,12 @@ pub(super) fn ends_target(k: TokenType) -> bool {
     matches!(k, TokenType::Equal | TokenType::In | TokenType::Comma | TokenType::Colon | TokenType::Rpar | TokenType::Rsqb)
 }
 
+/* `text` in quotes, cut after 40 chars, so a huge token never fills a message. */
+fn quoted(text: &str) -> String {
+    let cut = text.char_indices().nth(40).map_or(text.len(), |(i, _)| i);
+    s!("'", str &text[..cut], str if cut < text.len() { "...'" } else { "'" })
+}
+
 /* Cursor and diagnostics state, so a statement compiles its tokens out of source order. */
 #[derive(Clone, Copy)]
 pub(super) struct Mark {
@@ -199,8 +205,10 @@ pub struct Parser<'src, I: Iterator<Item = Token>> {
     /* Fused builtin calls of the body, one bit per opcode, and the native imports it called by index. */
     pub(super) fused: u128,
     pub(super) fused_externs: Vec<u16>,
-    /* Names the body binds after calling them, compiled as its locals when the body compiles again. */
+    /* Builtin names this body or an enclosing function binds, so their calls load the binding. */
     pub(super) unfused: Vec<String>,
+    /* The builtins each body calls before binding them, by the token it starts at, so no body compiles more than twice. */
+    pub(super) late: HashMap<usize, Vec<String>>,
     /* One bit per entry of `REMOVED_BUILTINS` the module binds in any scope, so that name stays its own. */
     pub(super) bound: u8,
     /* Spans that use a removed builtin, by its index in `REMOVED_BUILTINS`, reported at the end unless the module binds the name. */
@@ -339,7 +347,8 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         let saved_loops = (core::mem::take(&mut self.loops), core::mem::replace(&mut self.cleanup_count, 0));
         let saved_class = core::mem::replace(&mut self.in_class_body, false);
         let saved_comp = core::mem::replace(&mut self.in_comp, false);
-        let saved_fused = (core::mem::take(&mut self.fused), core::mem::take(&mut self.fused_externs), core::mem::take(&mut self.unfused));
+        // A nested body keeps what the enclosing scopes left unfused, and hands up the builtins it fused.
+        let saved_fused = (core::mem::take(&mut self.fused), core::mem::take(&mut self.fused_externs), self.unfused.len());
         // Copy parent externs so nested def bodies can call imported natives, extras don't leak up.
         self.chunk.extern_table = saved_chunk.extern_table.clone();
         self.chunk.extern_index = saved_chunk.extern_index.clone();
@@ -354,7 +363,11 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         (self.loops, self.cleanup_count) = saved_loops;
         self.in_class_body = saved_class;
         self.in_comp = saved_comp;
-        (self.fused, self.fused_externs, self.unfused) = saved_fused;
+        let outer = self.chunk.extern_table.len();
+        let inner = core::mem::replace(&mut self.fused_externs, saved_fused.1);
+        self.fused_externs.extend(inner.into_iter().filter(|&i| (i as usize) < outer));
+        self.fused |= saved_fused.0;
+        self.unfused.truncate(saved_fused.2);
         body
     }
 }
@@ -496,6 +509,18 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         self.error_at(start, end, msg);
     }
 
+    /* Runs `f` one nesting level deeper, or reports the limit so no input can exhaust the stack. */
+    pub(super) fn nested<T: Default>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
+        if self.expr_depth >= types::MAX_EXPR_DEPTH {
+            self.error("expression too deeply nested");
+            return T::default();
+        }
+        self.expr_depth += 1;
+        let out = f(self);
+        self.expr_depth -= 1;
+        out
+    }
+
     /* Diagnostic at caller span + panic-mode sync, stops at statement boundary or bracket close. */
     pub(super) fn error_at(&mut self, start: usize, end: usize, msg: &str) {
         self.errors.push(Diagnostic { start, end, msg: msg.to_string() });
@@ -623,10 +648,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             Some(t) if t.kind == TokenType::Indent => "indent".to_string(),
             Some(t) if t.kind == TokenType::Dedent => "dedent".to_string(),
             Some(t) if t.start == t.end => t.kind.as_str().to_string(),
-            Some(t) => {
-                let mut s = alloc::string::String::with_capacity(t.end - t.start + 2);
-                s.push('\''); s.push_str(&self.source[t.start..t.end]); s.push('\''); s
-            }
+            Some(t) => quoted(&self.source[t.start..t.end]),
             None => "EOF".to_string(),
         };
         let msg = s!("expected ", str kind.as_str(), ", got ", str &label);
@@ -659,7 +681,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         if t.line != self.last_line || matches!(t.kind, TokenType::Semi | TokenType::Newline | TokenType::Nl | TokenType::Comment | TokenType::Dedent | TokenType::Endmarker) { return; }
         // Reported without skipping, so the rest of the line still reports its own errors.
         let (start, end) = (t.start, t.end);
-        let msg = s!("expected newline, got '", str &self.source[start..end], "'");
+        let msg = s!("expected newline, got ", str &quoted(&self.source[start..end]));
         self.errors.push(Diagnostic { start, end, msg });
     }
 
@@ -714,6 +736,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             fused: 0,
             fused_externs: Vec::new(),
             unfused: Vec::new(),
+            late: HashMap::default(),
             bound: 0,
             removed_uses: Vec::new(),
             errors: Vec::new(),
@@ -728,9 +751,13 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             if self.at_end() { break; }
 
             self.block_closed = false;
-            let errors_before = self.errors.len();
+            // A statement starts outside every bracket, whatever a failed one left open.
+            self.bracket_stack.clear();
+            let (errors_before, at) = (self.errors.len(), self.tokens.pos);
             let produced_value = self.stmt();
             self.end_statement(errors_before);
+            // A statement that failed without consuming anything skips a token, so the loop always ends.
+            if self.tokens.pos == at { self.tokens.next(); }
             // Pop expression-statement results, chunk's implicit ReturnValue expects empty stack.
             if produced_value { self.chunk.emit(OpCode::PopTop, 0); }
         }

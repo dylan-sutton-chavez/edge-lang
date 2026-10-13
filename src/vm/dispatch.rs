@@ -168,6 +168,8 @@ impl<'a> VM<'a> {
                             }
                         }
                     };
+                    // An instruction pays for the native work it did, loop or not.
+                    let step = if self.heap.has_work() && let Err(e) = self.pay_work() { Err(e) } else { step };
                     match step {
                         Ok(None) => {
                             if self.yielded {
@@ -753,9 +755,9 @@ impl<'a> VM<'a> {
         if value.is_undef() { return false; }
         let plain = self.plain_key(key);
         match (ins.op, self.heap.try_get(acc)) {
-            (OpCode::ListAppendR, Some(HeapObj::List(rc))) => self.heap.growing(&mut *rc.borrow_mut(), |l| l.push(value)),
-            (OpCode::SetAddR, Some(HeapObj::Set(rc))) if plain => { self.heap.growing(&mut *rc.borrow_mut(), |t| t.insert(key, &self.heap)); }
-            (OpCode::MapAddR, Some(HeapObj::Dict(rc))) if plain => self.heap.growing(&mut *rc.borrow_mut(), |d| d.insert(key, value, &self.heap)),
+            (OpCode::ListAppendR, Some(HeapObj::List(rc))) => rc.borrow_mut().push(value),
+            (OpCode::SetAddR, Some(HeapObj::Set(rc))) if plain => { rc.borrow_mut().insert(key, &self.heap); }
+            (OpCode::MapAddR, Some(HeapObj::Dict(rc))) if plain => rc.borrow_mut().insert(key, value, &self.heap),
             _ => return false,
         }
         true
@@ -1442,12 +1444,17 @@ impl<'a> VM<'a> {
         self.get_item(rip, chunk, cache)
     }
 
-    /* Charge one unit against the op budget for native loops (custom-iterator drain, generator collect) that bypass the dispatch back-edge counter. */
+    /* One unit and the native work the heap counted, for native loops that bypass the back-edge counter. */
     #[inline]
     pub(crate) fn charge_step(&mut self) -> Result<(), VmErr> {
-        if self.budget == 0 { return Err(cold_budget()); }
-        self.budget -= 1;
-        Ok(())
+        self.charge_steps(1 + self.heap.take_work())
+    }
+
+    /* The native work counted since the last charge, paid before the next instruction runs. */
+    #[inline]
+    pub(crate) fn pay_work(&mut self) -> Result<(), VmErr> {
+        let w = self.heap.take_work();
+        if w == 0 { Ok(()) } else { self.charge_steps(w) }
     }
 
     /* Charge `n` units at once for native builtins (sort, materialise) whose cost scales with input size. */
@@ -1483,15 +1490,15 @@ impl<'a> VM<'a> {
                 if core::mem::take(&mut self.yielded) { Ok(result) } else { Err(result) }
             }
             // A user iterator steps `__next__`, `StopIteration` ends the loop and `raise StopIteration(v)` carries `v`.
-            Some(&IterFrame::UserDefined(iter)) => match self.iter_next_proto(iter, chunk) {
-                Ok(Some(item)) => Ok(item),
-                Ok(None) => Err(Val::none()),
-                Err(VmErr::Raised(m)) if m == "StopIteration" || m.starts_with("StopIteration:") => Err(match self.pending.exc_val.and_then(|e| self.heap.try_get(e)) {
-                    Some(HeapObj::ExcInstance(_, args, _)) if m.starts_with("StopIteration:") => args.first().copied().unwrap_or(Val::none()),
-                    _ => Val::none(),
-                }),
-                Err(e) => return Err(e),
-            },
+            Some(&IterFrame::UserDefined(iter)) => {
+                let before = self.pending.exc_val;
+                match self.iter_next_proto(iter, chunk) {
+                    Ok(Some(item)) => Ok(item),
+                    Ok(None) => Err(Val::none()),
+                    Err(VmErr::Raised(m)) if m == "StopIteration" || m.starts_with("StopIteration:") => Err(self.swallow_stop(before)),
+                    Err(e) => return Err(e),
+                }
+            }
             // Split-borrow heap so the Range step can promote to LongInt.
             _ => match self.iter_stack.last_mut() {
                 Some(f) => f.next_item(&mut self.heap)?.ok_or(Val::none()),
@@ -1638,12 +1645,12 @@ impl<'a> VM<'a> {
         }
         // Class attribute, insert or replace in the mutable members store.
         if let HeapObj::Class(_, _, members) = self.heap.get(obj) {
-            set_member(members, name, value, &self.heap);
+            set_member(members, name, value);
             self.class_epoch = self.class_epoch.wrapping_add(1);
             return Ok(());
         }
         if let HeapObj::Func(_, _, _, attrs) = self.heap.get(obj) {
-            set_member(attrs, name, value, &self.heap);
+            set_member(attrs, name, value);
             // A cached result may have read the old attribute.
             self.templates.clear();
             return Ok(());
@@ -1651,7 +1658,7 @@ impl<'a> VM<'a> {
         let key = self.heap.intern_str(name)?;
         match self.heap.get(obj) {
             HeapObj::Instance(_, attrs) => {
-                self.heap.growing(&mut *attrs.borrow_mut(), |a| a.insert(key, value, &self.heap));
+                attrs.borrow_mut().insert(key, value, &self.heap);
             }
             _ => return Err(cold_type("cannot set attribute on this type")),
         }

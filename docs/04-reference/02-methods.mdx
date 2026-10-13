@@ -202,7 +202,7 @@ Not provided are `translate`, `maketrans`, and `format_map`.
 
 The `%` operator does printf-style formatting.
 
-- The verbs are `%s %r %d %i %u %x %X %o %f %F %e %E %g %G %c %%`.
+- The verbs are `%s %r %d %i %u %x %X %o %f %F %e %E %g %G %c %%`. `%d`, `%i` and `%u` truncate a float like `int()`, and `%x`, `%X` and `%o` refuse one.
 - Flags, width, and `.precision` apply.
 - `*` reads the width or precision from the next argument.
 - A tuple on the right spreads into the fields. Any other value is a single argument.

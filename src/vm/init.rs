@@ -107,14 +107,22 @@ impl<'a> VM<'a> {
         self.preempt_left = n;
     }
 
+    /* Charges what runs next to this program, refusing a memory limit no `Metered` allocator counts. */
+    pub(crate) fn paying(&self) -> Result<crate::value::meter::Paying, VmErr> {
+        if self.heap.unmetered() { return Err(VmErr::Runtime("a memory limit needs compiler::value::meter::Metered as the global allocator")); }
+        Ok(crate::value::meter::Paying::to(self.heap.meter()))
+    }
+
     /* Push a string event onto the event queue, consumed by the next `receive()` call. Mirrors what `run_push_event` does for WASM hosts. */
     pub fn push_event(&mut self, message: &str) -> Result<(), VmErr> {
+        let _paying = crate::value::meter::Paying::to(self.heap.meter());
         let val = self.heap.alloc(HeapObj::Str(message.into()))?;
         self.inject_event(val);
         Ok(())
     }
 
     pub fn run(&mut self) -> Result<Val, VmErr> {
+        let _paying = self.paying()?;
         self.error_byte_pos = None;
         // Resume path, scheduler non-empty means a prior `run()` yielded, so it drains what is ready.
         let fresh_entry = self.scheduler.is_empty();

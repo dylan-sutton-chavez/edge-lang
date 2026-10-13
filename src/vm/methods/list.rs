@@ -60,9 +60,10 @@ pub fn clear(vm: &mut VM, recv: Val, _pos: &[Val]) -> Result<(), VmErr> {
 }
 
 pub fn reverse(vm: &mut VM, recv: Val, _pos: &[Val]) -> Result<(), VmErr> {
-    list_mut(vm, recv, "reverse: receiver is not a list", |list| {
-        list.reverse(); Ok(())
+    let moved = list_mut(vm, recv, "reverse: receiver is not a list", |list| {
+        list.reverse(); Ok(list.len())
     })?;
+    vm.heap.spend(moved);
     vm.push(Val::none()); Ok(())
 }
 
@@ -76,7 +77,7 @@ pub fn extend(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
 
 pub fn insert(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
     if !pos[0].is_int() { return Err(cold_type("list indices must be integers")); }
-    list_mut(vm, recv, "insert: receiver is not a list", |list| {
+    let moved = list_mut(vm, recv, "insert: receiver is not a list", |list| {
         let i = pos[0].as_int();
         let ui = if i < 0 {
             (list.len() as i64).saturating_add(i).max(0) as usize
@@ -84,8 +85,10 @@ pub fn insert(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
             (i as usize).min(list.len())
         };
         list.insert(ui, pos[1]);
-        Ok(())
+        Ok(list.len() - ui)
     })?;
+    // The items after the slot shift, counted as native work.
+    vm.heap.spend(moved);
     vm.push(Val::none()); Ok(())
 }
 
@@ -94,9 +97,9 @@ pub fn remove(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
 }
 
 pub fn pop(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
-    let popped = list_mut(vm, recv, "pop: receiver is not a list", |list| {
+    let (popped, moved) = list_mut(vm, recv, "pop: receiver is not a list", |list| {
         if list.is_empty() { return Err(cold_index("pop from empty list")); }
-        if pos.is_empty() { return Ok(list.pop().unwrap()); }
+        if pos.is_empty() { return Ok((list.pop().unwrap(), 0)); }
         if !pos[0].is_int() { return Err(cold_type("list indices must be integers")); }
         let i = pos[0].as_int();
         let ui = if i < 0 {
@@ -105,8 +108,9 @@ pub fn pop(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
             adj as usize
         } else { i as usize };
         if ui >= list.len() { return Err(cold_index("pop index out of range")); }
-        Ok(list.remove(ui))
+        Ok((list.remove(ui), list.len() - ui))
     })?;
+    vm.heap.spend(moved);
     vm.push(popped); Ok(())
 }
 

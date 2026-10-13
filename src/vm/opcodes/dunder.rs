@@ -160,6 +160,12 @@ impl<'a> VM<'a> {
     }
 
     /* Steps an iterator once, None once spent or when the value has no `__next__`. */
+    /* What a swallowed StopIteration carries, the pending exception set back to `before` the step raised it. */
+    pub(crate) fn swallow_stop(&mut self, before: Option<Val>) -> Val {
+        let raised = core::mem::replace(&mut self.pending.exc_val, before).filter(|e| before.is_none_or(|b| b.0 != e.0));
+        match raised.and_then(|e| self.heap.try_get(e)) { Some(HeapObj::ExcInstance(_, args, _)) => args.first().copied().unwrap_or(Val::none()), _ => Val::none() }
+    }
+
     pub(crate) fn iter_next_proto(&mut self, iter: Val, chunk: &SSAChunk) -> Result<Option<Val>, VmErr> {
         if matches!(self.heap.try_get(iter), Some(HeapObj::Iter(..))) { return self.iter_step(iter); }
         self.try_call_dunder(iter, "__next__", &[], chunk)
@@ -212,13 +218,14 @@ impl<'a> VM<'a> {
             }
             return self.with_roots([container, item, iter], |vm| loop {
                 vm.charge_step()?;
+                let before = vm.pending.exc_val;
                 match vm.iter_next_proto(iter, chunk) {
                     Ok(Some(v)) => {
                         vm.temp_roots.push(v);
                         if vm.eq_op(item, v, chunk)? { return Ok(true); }
                     }
                     Ok(None) => return Ok(false),
-                    Err(VmErr::Raised(ref m)) if m == "StopIteration" || m.starts_with("StopIteration:") => return Ok(false),
+                    Err(VmErr::Raised(ref m)) if m == "StopIteration" || m.starts_with("StopIteration:") => { vm.swallow_stop(before); return Ok(false) }
                     Err(e) => return Err(e),
                 }
             });
@@ -255,10 +262,12 @@ impl<'a> VM<'a> {
 
     /* `x in seq` read live, identity and content first, a user `__eq__` only where content cannot settle. */
     fn seq_contains(&mut self, seq: Val, item: Val, chunk: &SSAChunk) -> Result<bool, VmErr> {
+        // The scan counts the items it may read as native work.
         let scan = |items: &[Val], heap: &HeapPool| -> Result<bool, usize> {
+            heap.spend(items.len());
             for (j, &x) in items.iter().enumerate() {
                 if x.0 == item.0 { return Ok(true); }
-                match eq_checked(x, item, heap) { Some(true) => return Ok(true), Some(false) => {}, None => return Err(j) }
+                match eq_checked(x, item, heap, 0) { Some(true) => return Ok(true), Some(false) => {}, None => return Err(j) }
             }
             Ok(false)
         };
@@ -291,12 +300,13 @@ impl<'a> VM<'a> {
             let mut out = Vec::new();
             loop {
                 vm.charge_step()?;
+                let before = vm.pending.exc_val;
                 match vm.iter_next_proto(iter, chunk) {
                     // Inline ints take no slot, so the list they fill is capped by the memory left.
                     Ok(Some(_)) if out.len().saturating_mul(VAL_BYTES) >= vm.heap.room() => return Err(crate::vm::cold_heap()),
                     Ok(Some(v)) => { vm.temp_roots.push(v); out.push(v); }
                     Ok(None) => return Ok(Some(out)),
-                    Err(VmErr::Raised(ref m)) if m == "StopIteration" || m.starts_with("StopIteration:") => return Ok(Some(out)),
+                    Err(VmErr::Raised(ref m)) if m == "StopIteration" || m.starts_with("StopIteration:") => { vm.swallow_stop(before); return Ok(Some(out)) }
                     Err(e) => return Err(e),
                 }
             }

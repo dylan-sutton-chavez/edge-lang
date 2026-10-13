@@ -38,7 +38,7 @@ cargo build --release   # the .rlib Rust embedders link
 
 ## Testing
 
-`make test` runs `tests/cases/vm.json` under `Limits::sandbox()`, so a budget, memory, or call-depth regression fails instead of hanging. Its memcheck run recounts every slot at each collection, and `tests/memory.rs` checks the model never counts less than the allocator hands out.
+`make test` runs `tests/cases/vm.json` under `Limits::sandbox()`, so a budget, memory, or call-depth regression fails instead of hanging. The tests count memory through the same metering allocator as `compiler.wasm`, and `tests/memory.rs` checks that a run gives back every byte it took once its VM drops.
 
 `make bench` prices each WebAssembly instruction at 0.82 ns, the `wasm_regular_op_cost` of nearcore, so `bench/.snapshot` keeps the same `[seconds, MB]` per case on every machine. It fails when the snapshot was taken with another Rust, a case and its entry do not pair, or the mean or a single case moves past its threshold. `make bench-update` takes the snapshot again.
 

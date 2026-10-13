@@ -83,11 +83,10 @@ lint-cli: $(CLI_INPUTS)
 	cd cli && cargo clippy --locked --all-targets -- -D warnings
 	cd cli && cargo check --locked
 
-# Coverage leaves method calls unfused and memcheck recounts every slot, so each runs apart.
+# Coverage leaves method calls unfused, so it runs apart.
 test:
 	cargo test --locked -p edge-python
 	cargo test --locked -p edge-python --features coverage coverage
-	cargo test --locked --release -p edge-python --features memcheck --test tests vm::test::test_cases
 
 bench: wasm-cli
 	cargo run --locked -p bench --profile cli

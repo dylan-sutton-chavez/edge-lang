@@ -42,9 +42,9 @@ pub(super) fn send_host(group: &str, body: &str) -> bool {
     unsafe { host_send(group.as_ptr(), group.len() as u32, body.as_ptr(), body.len() as u32) == 0 }
 }
 
-/* dlmalloc keeps alloc and free O(1), the old free-list allocator degraded linearly on large live heaps. */
+/* dlmalloc keeps alloc and free O(1), the pool keeps freed small blocks, the meter tags each block with its payer. */
 #[global_allocator]
-static A: dlmalloc::GlobalDlmalloc = dlmalloc::GlobalDlmalloc;
+static A: crate::value::meter::Metered<crate::value::pool::Pooled<dlmalloc::GlobalDlmalloc>> = crate::value::meter::Metered(crate::value::pool::Pooled::new(dlmalloc::GlobalDlmalloc));
 
 /* Best-effort panic-to-stash so the host gets a typed message, re-entry during the format still traps. */
 #[panic_handler]

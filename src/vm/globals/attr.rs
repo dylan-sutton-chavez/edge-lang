@@ -65,11 +65,10 @@ impl<'a> VM<'a> {
         if matches!(self.heap.try_get(obj), Some(HeapObj::Class(..))) { self.class_epoch = self.class_epoch.wrapping_add(1); }
         let removed = match self.heap.try_get(obj) {
             Some(HeapObj::Class(_, _, members) | HeapObj::Func(_, _, _, members)) => {
-                self.heap.growing(&mut *members.borrow_mut(), |m| {
-                    let before = m.len();
-                    m.retain(|(n, _)| n != name);
-                    m.len() < before
-                })
+                let mut m = members.borrow_mut();
+                let before = m.len();
+                m.retain(|(n, _)| n != name);
+                m.len() < before
             }
             Some(HeapObj::Instance(_, attrs)) => {
                 let key = attrs.borrow().iter().find(|(k, _)| matches!(self.heap.try_get(*k), Some(HeapObj::Str(s)) if s == name)).map(|(k, _)| k);

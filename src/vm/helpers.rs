@@ -48,6 +48,7 @@ impl<'a> VM<'a> {
 
     /* Calls a top-level function by name with positional args, run() must have bound it first. */
     pub fn call_export(&mut self, name: &str, args: &[Val]) -> Result<Val, VmErr> {
+        let _paying = self.paying()?;
         if args.len() > 255 {
             return Err(VmErr::TypeMsg(s!("call '", str name, "': too many arguments (max 255, got ", int args.len() as i64, ")")));
         }

@@ -2,7 +2,7 @@ use crate::s;
 
 use super::Parser;
 use super::types::builtin;
-use super::types::{OpCode, Value, SSAChunk, Instruction, class_dunder, ssa_strip, COMP_ARG};
+use super::types::{OpCode, Value, SSAChunk, class_dunder, ssa_strip, COMP_ARG};
 
 use crate::lexer::{Token, TokenType};
 
@@ -250,21 +250,19 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             }
                 Some(TokenType::Lbrace) => {
                     self.advance();
-                    // Capture span for `f"{expr=}"` debug prefix.
-                    let expr_start_byte = self.tokens.peek().map(|t| t.start).unwrap_or(0);
-                    let insn_start = self.chunk.instructions.len();
+                    // The `f"{expr=}"` prefix keeps the field text as written, its spaces included.
+                    let field_start = self.last_end;
                     self.expr();
                     // Bare tuple in a replacement field, `f"{1,}"` builds (1,).
                     self.tuple_rest(1, |s| matches!(s.peek(), Some(TokenType::Rbrace | TokenType::Colon | TokenType::Exclamation | TokenType::Equal) | None));
-                    let expr_end_byte = self.last_end;
                     /* FormatValue operand, bit0=has-spec, bits1-2=conversion (0=none,1=!r,2=!s,3=!a). */
                     let mut flags = 0u16;
                     // `=` debug emits "expr=" prefix, defaults to !r when no conv/spec given.
                     let mut debug_prefix: Option<String> = None;
                     if matches!(self.peek(), Some(TokenType::Equal)) {
                         self.advance();
-                        let raw = &self.source[expr_start_byte..expr_end_byte];
-                        debug_prefix = Some(s!(str raw, "="));
+                        let field_end = self.tokens.peek().map_or(self.last_end, |t| t.start);
+                        debug_prefix = Some(self.source[field_start..field_end].to_string());
                     }
                     if matches!(self.peek(), Some(TokenType::Exclamation)) {
                         let bang = self.advance();
@@ -284,14 +282,11 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
                     if debug_prefix.is_some() && (flags & 0b110) == 0 && !matches!(self.peek(), Some(TokenType::Colon)) {
                         flags |= 1 << 1; // default !r when `=` has no explicit conv/spec
                     }
-                    // Drain expr bytecode, emit prefix const, re-emit expr so `stack=[prefix, value]`.
+                    // The prefix slides under the value, so the field code keeps its jumps and call positions.
                     if let Some(prefix) = debug_prefix.take() {
-                        let drained: Vec<Instruction> = self.chunk.instructions
-                            .drain(insn_start..)
-                            .collect();
                         self.emit_const(Value::Str(prefix));
+                        self.chunk.emit(OpCode::Swap, 0);
                         parts += 1;
-                        self.chunk.instructions.extend(drained);
                     }
                     if matches!(self.peek(), Some(TokenType::Colon)) {
                         self.advance();
@@ -742,12 +737,14 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
 
     pub(super) fn compile_body(&mut self, params: &[String]) -> SSAChunk {
         let restart = self.mark();
+        let known = if self.late.is_empty() { None } else { self.late.get(&restart.pos).cloned() };
         let mut late = Vec::new();
-        let mut body = self.with_fresh_chunk(|s| { s.body_of(params); late = s.called_then_bound(); });
-        // A builtin called before the body binds it is a local all along, so the body compiles again calling the local.
-        if !late.is_empty() {
+        let mut body = self.with_fresh_chunk(|s| { s.unfused.extend(known.iter().flatten().cloned()); s.body_of(params); late = s.called_then_bound(); });
+        // A builtin the body calls before binding it is a local all along, so the body compiles once more and remembers that.
+        if known.is_none() && !late.is_empty() {
             self.rewind(restart);
-            body = self.with_fresh_chunk(|s| { s.unfused = late; s.body_of(params); });
+            body = self.with_fresh_chunk(|s| { s.unfused.extend(late.iter().cloned()); s.body_of(params); });
+            self.late.insert(restart.pos, late);
         }
         body.is_pure = !body.instructions.iter().any(|i| matches!(
             i.opcode,

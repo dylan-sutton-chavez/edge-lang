@@ -79,10 +79,6 @@ Run flags.
 
 `--web` serves the JS host and the engine from the binary on a loopback port, so only the modules a manifest declares by URL leave the machine. It drives a Chrome the system already has, or one it offers to download once into `~/.local/share/edge/chromium`, which `edge uninstall` offers to remove. `EDGE_CHROME_PATH` names a browser directly and skips the search.
 
-### edge repl
-
-A persistent interpreter across prompts. Imports, definitions and mutations survive between lines, and an input that raises keeps the effects made before the error. One line is one eval, so compound statements go on a single line. Expression results are not auto-printed, use `print()`. Dot commands are `.reset` to wipe state and `.exit` to quit. History lives for the session only.
-
 ### edge test
 
 `edge test [path]` discovers `*_test.py` recursively, skipping hidden dirs, `node_modules`, `target` and `dist`. A file argument runs exactly that file. Each file executes in a fresh interpreter and state never leaks between files. The project must declare `test`, otherwise the runner stops with `declare test in edge.json (edge add test)`. Exit code is 0 when everything passes, 1 when a file fails or no tests are found, 2 when the engine cannot start. See the test package section for the API.
@@ -837,7 +833,7 @@ got hello
 
 ### The untrusted model
 
-`eval: true` groups compile each message as its own program in a fresh wasm instance with its own memory, capped by the group's `memory` limit and by twice that plus 64 MiB of linear memory, and cut off by a deadline the host enforces from outside after `limits: timeout:` seconds of wall-clock time, waits included, ten unless set and at most 300. No state survives between messages. A bundle that carries its own `edge.json` resolves through it, any other message through the pool's manifest. Either way `.wasm` plugins are refused, remote modules load only from `https://cdn.edgepython.com/` and `send()` has no scheduler, so untrusted code cannot send or load modules from disk. A bundle grants its own permissions in its own `edge.json` as any root does, but only within what the pool grants `eval`, so an entry past it refuses the run before it compiles, and a snippet holds nothing. A `code` or `run` group is trusted instead, it keeps state, can send and can use `fs`, `net`, `time` and `secret` under the pool's grants, so reach for `eval` when the code is not yours.
+`eval: true` groups compile each message as its own program in a fresh wasm instance with its own memory, capped by the `memory` limit of the group and by three times that plus 64 MiB of linear memory, and cut off by a deadline the host enforces from outside after `limits: timeout:` seconds of wall-clock time, waits included, ten unless set and at most 300. No state survives between messages. A bundle that carries its own `edge.json` resolves through it, any other message through the manifest of the pool. Either way `.wasm` plugins are refused, remote modules load only from `https://cdn.edgepython.com/` and `send()` has no scheduler, so untrusted code cannot send or load modules from disk. A bundle grants its own permissions in its own `edge.json` as any root does, but only within what the pool grants `eval`, so an entry past it refuses the run before it compiles, and a snippet holds nothing. A `code` or `run` group is trusted instead, it keeps state, can send and can use `fs`, `net`, `time` and `secret` under the grants of the pool, so reach for `eval` when the code is not yours.
 
 ```yml untrusted
 groups:
@@ -854,15 +850,16 @@ With `listen:` the actor accepts one `<group> <body>` line per TCP message and e
 
 ## Sandbox limits
 
-Programs run under a fixed budget. Exceeding one raises the matching exception, catchable except the op-limit `RuntimeError` whose handler re-raises on its first operation because the budget is still exhausted. Memory and operations can be raised, with `--memory <MB>` and `--ops <n>` on `edge run`, `edge test` and `edge repl`, `limits` on `createWorker` and `limits:` on an actor group. Memory counts 224 bytes per object, 8 per value a container holds and the bytes of each string, so a list of numbers is far cheaper than an object per row.
+Programs run under a fixed budget. Exceeding one raises the matching exception, catchable except the op-limit `RuntimeError` whose handler re-raises on its first operation because the budget is still exhausted. Memory and operations can be raised, with `--memory <MB>` and `--ops <n>` on `edge run` and `edge test`, `limits` on `createWorker` and `limits:` on an actor group. Memory counts every byte the allocator hands the program, frames and caches included, and a number in a container takes only 8 bytes, so a list of numbers is far cheaper than an object per row.
 
 | Limit | Value | Raised |
 |---|---|---|
 | Call depth | 256 frames, fixed | `RecursionError` |
+| Comparison depth of nested containers, for `==`, `!=` and `in` | 100 | `RecursionError` |
 | Operations | 100 million | `RuntimeError` |
 | Memory | 256 MB | `MemoryError` |
 | Source size | 10 MiB | Compile error |
-| Expression nesting | 200 | Compile error |
+| Nesting of expressions, targets and patterns | 200 | Compile error |
 | Indentation depth | 100 | Compile error |
 | Instructions per chunk | 65535 | Compile error |
 | `repr` output | 1M chars | Truncated |

@@ -171,7 +171,7 @@ pub struct Instruction {
 }
 ```
 
-About 35 specialised `Call*` opcodes, such as `CallLen` and `CallPrint`, cover hot builtins. The operand meaning depends on the opcode.
+About 35 specialised `Call*` opcodes, such as `CallLen` and `CallPrint`, cover hot builtins, unless the calling body or an enclosing function binds the name, where the call loads the binding. The operand meaning depends on the opcode.
 
 | OpCode | Operand |
 |---|---|
@@ -305,7 +305,7 @@ The `FormatValue` operand is a small flags field.
 
 The VM applies the conversion first, then the [format spec](/docs/edge-python/language/syntax#f-strings). A spec that fails to parse raises `ValueError` at run time.
 
-The `{expr=}` form emits a literal `expr=` prefix. Adjacent string literals concatenate at parse time.
+The `{expr=}` form emits the field text as written, spaces around the `=` included, as a constant after the value and swaps the two, so the field code never moves. Adjacent string literals concatenate at parse time.
 
 ## SSA and phi nodes
 
@@ -372,7 +372,7 @@ At run time `Phi` copies the first defined source slot into the target. Exactly 
 
 ## Statements
 
-`stmt()` peeks the leading token and routes.
+`stmt()` peeks the leading token and routes. Every statement starts with an empty bracket stack, and one that fails without consuming a token skips it, so broken input always ends.
 
 ```text
 if       -> if_stmt (elif chain, optional else)
@@ -454,7 +454,7 @@ Async comprehensions such as `[x async for x in y]` are not supported. Starred u
 The caps and their messages are listed in [Source and token limits](/docs/edge-python/reference/limits-and-errors#source-and-token-limits). Each stage stops in its own way.
 
 - A lexer cap halts lexing with `Endmarker`.
-- `MAX_EXPR_DEPTH` (200) bounds every recursive descent of the expression parser. Deep chains raise `expression too deeply nested` instead of overflowing the native or WASM stack.
+- `MAX_EXPR_DEPTH` (200) bounds every recursive descent of the parser, through expressions, assignment targets and match patterns. A comparison chain compiles in a loop, so its length has no cap. Deep input raises `expression too deeply nested` instead of overflowing the native or WASM stack.
 - Past 65,535 instructions, names or constants, `emit` stops adding and sets `chunk.overflow`. The parser reports the overflow once parsing ends, and the instruction stream never runs.
 
 ## References

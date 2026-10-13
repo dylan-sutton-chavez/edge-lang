@@ -112,14 +112,6 @@ fn snapshot_saves_and_restores_across_processes() {
 }
 
 #[test]
-fn repl_keeps_state_between_lines() {
-    let dir = scratch("repl");
-    let (out, _, code) = run_in(&dir, &["repl"], Some("x = 40\nprint(x + 2)\n.exit\n"));
-    assert!(out.contains("42"), "stdout was: {out}");
-    assert_eq!(code, 0);
-}
-
-#[test]
 fn test_runner_verdicts_come_from_system_exit() {
     let dir = scratch("testrun");
     // A local runner stands in for the published one, the verdict comes from the file either way.

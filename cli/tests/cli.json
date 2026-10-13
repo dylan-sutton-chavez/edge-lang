@@ -113,22 +113,6 @@
     "creates": ["dist/index.html", "dist/main.py", "dist/compiler.wasm"]
   },
   {
-    "run": ["repl"],
-    "stdin": "def double(n): return n * 2\nprint(double(2.0))\n.exit\n",
-    "stdout": ["4.0"]
-  },
-  {
-    "run": ["repl"],
-    "stdin": "x = 42\n.reset\nprint(x)\n.exit\n",
-    "stderr": ["NameError"]
-  },
-  {
-    "run": ["repl"],
-    "stdin": "x = 1\nx = 2; 1 / 0\nprint(x)\n.exit\n",
-    "stdout": ["2"],
-    "stderr": ["ZeroDivisionError"]
-  },
-  {
     "given": { "edge.json": "{}\n" },
     "run": ["add", "test=https://example.com/test.py"],
     "stdout": ["+ test       https://example.com/test.py"],

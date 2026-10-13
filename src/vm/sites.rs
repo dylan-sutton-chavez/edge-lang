@@ -11,8 +11,8 @@ use super::types::*;
 pub(crate) enum Site {
     #[default]
     Empty,
-    /* An instance's own attribute at entry `idx`, under its interned name. */
-    Field { key: Val, idx: u32 },
+    /* The own attribute of an instance at entry `idx`, under its interned name and its hash. */
+    Field { key: Val, idx: u32, hash: u64 },
     /* A store over an instance's own attribute, safe while no class changed since `epoch`. */
     SetField { class: Val, key: Val, idx: u32, epoch: u32 },
     /* A store adding the attribute to an instance of `class` holding `len` attributes. */
@@ -46,10 +46,11 @@ impl<'a> VM<'a> {
     #[inline]
     pub(crate) fn site_get(&self, site: Site, obj: Val) -> Option<Val> {
         match site {
-            Site::Field { key, idx } => match self.heap.try_get(obj) {
+            Site::Field { key, idx, hash } => match self.heap.try_get(obj) {
                 Some(HeapObj::Instance(_, attrs)) => {
                     let a = attrs.borrow();
-                    (a.key_at(idx as usize).0 == key.0).then(|| a.value_at(idx as usize))
+                    // A swept name may lend its slot to another, whose hash tells them apart.
+                    (a.key_at(idx as usize).0 == key.0 && a.hash_at(idx as usize) == hash).then(|| a.value_at(idx as usize))
                 }
                 _ => None,
             },
@@ -64,7 +65,7 @@ impl<'a> VM<'a> {
             Some(HeapObj::Instance(_, attrs)) => {
                 let a = attrs.borrow();
                 match a.position_str(name, hash_str(name), &self.heap) {
-                    Some(i) => Site::Field { key: a.key_at(i), idx: i as u32 },
+                    Some(i) => Site::Field { key: a.key_at(i), idx: i as u32, hash: a.hash_at(i) },
                     None => Site::Empty,
                 }
             }
@@ -92,7 +93,7 @@ impl<'a> VM<'a> {
                     let a = attrs.borrow();
                     if a.len() != len as usize || a.entry_count() != len as usize || a.position_str(self.heap_str(key), hash, &self.heap).is_some() { return false; }
                 }
-                self.heap.growing(&mut *attrs.borrow_mut(), |a| a.push_hashed(key, value, hash));
+                attrs.borrow_mut().push_hashed(key, value, hash);
                 true
             }
             _ => false,

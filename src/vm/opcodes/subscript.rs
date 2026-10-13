@@ -341,7 +341,7 @@ impl<'a> VM<'a> {
                 if ui >= b.len() { return Err(cold_index("list assignment index out of range")); }
                 b[ui] = value;
             }
-            HeapObj::Dict(p) => self.heap.growing(&mut *p.borrow_mut(), |d| d.insert(idx_val, value, &self.heap)),
+            HeapObj::Dict(p) => p.borrow_mut().insert(idx_val, value, &self.heap),
             HeapObj::Tuple(_) => return Err(cold_type("tuple does not support item assignment")),
             _ => return Err(cold_type("object does not support item assignment")),
         }
@@ -390,7 +390,7 @@ impl<'a> VM<'a> {
         let mut b = rc.borrow_mut();
         let (s, e, st) = slice_bounds(start, stop, step, b.len() as i64)?;
         if st == 1 {
-            self.heap.growing(&mut *b, |b| { b.splice(s as usize..e.max(s) as usize, items.unwrap_or_default()); });
+            b.splice(s as usize..e.max(s) as usize, items.unwrap_or_default());
             return Ok(());
         }
         // Selected positions sit `st` apart from `s`, strictly before `e`.

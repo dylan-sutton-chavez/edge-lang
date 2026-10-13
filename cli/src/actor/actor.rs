@@ -12,7 +12,7 @@ use super::config::{Message, Out, Reply};
 
 // The reply when host-side waits would outlast the deadline, worded like the epoch trap.
 const EVAL_TIME_LIMIT: &str = "error: RuntimeError: run exceeded its time limit";
-// Linear memory past twice the memory limit, room for garbage and the engine itself.
+// Linear memory past three times the limit, for garbage, a doubling container and the engine.
 const EVAL_OVERHEAD: usize = 64 << 20;
 
 // How an actor runs, a fixed program looping over receive(), or an untrusted per-message evaluator.
@@ -318,7 +318,7 @@ fn start_eval(ctx: &Context, body: &str, limits: Limits, preempt: usize, timeout
         true => project.ceiling = Some(ctx.ceiling.clone()),
         false => project.manifest = Some(ctx.manifest.clone()),
     }
-    let memory = limits.memory.saturating_mul(2).saturating_add(EVAL_OVERHEAD);
+    let memory = limits.memory.saturating_mul(3).saturating_add(EVAL_OVERHEAD);
     // The epoch ticker advances once per TICK_NS, so the timeout becomes that many of its ticks.
     let ticks = timeout * 1_000_000_000 / TICK_NS;
     let mut vm = ctx.host.vm(sink, project, Some(ticks), Some(memory)).map_err(|e| format!("error: {e}"))?;

@@ -450,6 +450,11 @@ fn display_width(s: &str) -> usize {
     s.chars().map(char_width).sum()
 }
 
+// A long line shows SHOWN chars, LEAD before its error, and a report shows MAX_SHOWN errors.
+const SHOWN: usize = 80;
+const LEAD: usize = 40;
+const MAX_SHOWN: usize = 20;
+
 impl Diagnostic {
     /* Byte offset -> (line, col), 1-indexed, col counts display cells for wide-char alignment. */
     fn line_col(src: &str, byte: usize) -> (usize, usize) {
@@ -469,22 +474,41 @@ impl Diagnostic {
         let line_start = src[..s_off].rfind('\n').map_or(0, |p| p + 1);
         let line_end = src[s_off..].find('\n').map_or(src.len(), |p| s_off + p);
         let line_txt = &src[line_start..line_end];
-        let mark = display_width(&src[s_off..e_off]).max(1);
+        let at = s_off - line_start;
+        let (from, to) = if line_txt.len() <= SHOWN { (0, line_txt.len()) } else {
+            let from = line_txt[..at].char_indices().rev().nth(LEAD - 1).map_or(0, |(i, _)| i);
+            (from, line_txt[from..].char_indices().nth(SHOWN).map_or(line_txt.len(), |(i, _)| from + i))
+        };
+        let (head, tail) = (if from > 0 { "..." } else { "" }, if to < line_txt.len() { "..." } else { "" });
+        let mark = display_width(&src[s_off..e_off.min(line_start + to)]).max(1);
         let mut buf = itoa::Buffer::new();
         let pad_len = buf.format(line_no).len();
         let pad: String = " ".repeat(pad_len);
-        let mut o = alloc::string::String::with_capacity(line_txt.len() + 96);
+        let mut o = alloc::string::String::with_capacity(to - from + 96);
         o.push_str("error: "); o.push_str(&self.msg); o.push('\n');
         o.push_str(&pad); o.push_str(" --> ");
         o.push_str(path); o.push(':');
         o.push_str(buf.format(line_no)); o.push(':'); o.push_str(buf.format(col)); o.push('\n');
         o.push_str(&pad); o.push_str(" |\n");
-        o.push_str(buf.format(line_no)); o.push_str(" | "); o.push_str(line_txt); o.push('\n');
+        o.push_str(buf.format(line_no)); o.push_str(" | "); o.push_str(head); o.push_str(&line_txt[from..to]); o.push_str(tail); o.push('\n');
         o.push_str(&pad); o.push_str(" | ");
-        for _ in 1..col { o.push(' '); }
+        let caret = if from == 0 { col - 1 } else { head.len() + display_width(&line_txt[from..at]) };
+        for _ in 0..caret { o.push(' '); }
         for _ in 0..mark { o.push('^'); }
         o.push('\n');
         o
+    }
+
+    /* A whole report, its first MAX_SHOWN diagnostics and then how many more there are. */
+    pub fn render_all(errs: &[Diagnostic], src: &str, path: Option<&str>) -> String {
+        let mut out = String::new();
+        for (i, e) in errs.iter().take(MAX_SHOWN).enumerate() {
+            if i > 0 { out.push('\n'); }
+            out.push_str(&e.render(src, path));
+        }
+        let more = errs.len().saturating_sub(MAX_SHOWN);
+        if more > 0 { out.push_str(&s!("\nand ", int more, str if more == 1 { " more error\n" } else { " more errors\n" })); }
+        out
     }
 }
 

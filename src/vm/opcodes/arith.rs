@@ -30,7 +30,7 @@ impl<'a> VM<'a> {
             if a_is_list {
                 // Snapshot rhs first so `xs += xs` doubles correctly, TypeError if rhs isn't iterable.
                 let rhs = self.extract_iter(b)?;
-                if let HeapObj::List(la) = self.heap.get(a) { self.heap.growing(&mut *la.borrow_mut(), |v| v.extend_from_slice(&rhs)); }
+                if let HeapObj::List(la) = self.heap.get(a) { la.borrow_mut().extend_from_slice(&rhs); }
                 self.push(a);
                 return Ok(());
             }
@@ -174,7 +174,13 @@ impl<'a> VM<'a> {
                 's' => { let s = self.display_op(val, chunk)?; (self.heap.alloc(HeapObj::Str(s))?, None, false) }
                 'r' => { let s = self.repr_op(val, chunk)?; (self.heap.alloc(HeapObj::Str(s))?, None, false) }
                 'a' => { let s = crate::vm::format_spec::ascii_escape(&self.repr_op(val, chunk)?); (self.heap.alloc(HeapObj::Str(s))?, None, false) }
-                'd' | 'i' | 'u' => (self.coerce_format_int(val, chunk)?, Some('d'), true),
+                // A float truncates the way `int()` does, an integer verb refuses it.
+                'd' | 'i' | 'u' => {
+                    let v = self.coerce_format_int(val, chunk)?;
+                    let v = if v.is_float() { self.heap.int(crate::vm::globals::numeric::finite_f64_to_i128(v.as_float(), libm::trunc)?)? } else { v };
+                    (v, Some('d'), true)
+                }
+                'x' | 'X' | 'o' if val.is_float() => return Err(VmErr::TypeMsg(crate::s!("%", char conv, " format: an integer is required, not float"))),
                 'x' => (self.coerce_format_int(val, chunk)?, Some('x'), true),
                 'X' => (self.coerce_format_int(val, chunk)?, Some('X'), true),
                 'o' => (self.coerce_format_int(val, chunk)?, Some('o'), true),
@@ -329,20 +335,15 @@ impl<'a> VM<'a> {
     }
 
     fn exec_shl(&mut self, a: Val, b: Val) -> Result<Val, VmErr> {
-        if !b.is_int() { return Err(cold_type("shift count must be an integer")); }
-        let shift = b.as_int();
+        let (Some(ai), Some(shift)) = (self.as_i128(a), self.as_i128(b)) else { return Err(self.unsupported("<<", a, b)) };
         if shift < 0 { return Err(cold_value("negative shift count")); }
-        if shift >= 128 { return Err(cold_overflow()); }
-        let ai = self.as_i128(a).ok_or_else(|| cold_type("<< requires an integer"))?;
-        // Bits shifted past the top overflow, which `checked_shl` alone lets through.
-        self.int_to_val(ai.checked_shl(shift as u32).filter(|r| r >> shift == ai))
+        // Bits shifted past the top overflow, which `checked_shl` alone lets through, and zero never does.
+        self.int_to_val(if shift < 128 { ai.checked_shl(shift as u32).filter(|r| r >> shift == ai) } else { (ai == 0).then_some(0) })
     }
 
     fn exec_shr(&mut self, a: Val, b: Val) -> Result<Val, VmErr> {
-        if !b.is_int() { return Err(cold_type("shift count must be an integer")); }
-        let shift = b.as_int();
+        let (Some(ai), Some(shift)) = (self.as_i128(a), self.as_i128(b)) else { return Err(self.unsupported(">>", a, b)) };
         if shift < 0 { return Err(cold_value("negative shift count")); }
-        let ai = self.as_i128(a).ok_or_else(|| cold_type(">> requires an integer"))?;
         // i128 >> is arithmetic (floor on negatives), and `.min(127)` dodges shift-count UB.
         self.int_to_val(Some(ai >> shift.min(127)))
     }

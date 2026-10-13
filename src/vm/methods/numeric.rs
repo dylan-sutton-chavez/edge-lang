@@ -35,13 +35,13 @@ pub fn to_bytes(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
 
 // `int.from_bytes(bytes, byteorder='big')` classmethod, unsigned.
 pub fn from_bytes(vm: &mut VM, _recv: Val, pos: &[Val]) -> Result<(), VmErr> {
-    let buf = recv_bytes(vm, pos[0])?;
+    let buf = recv_bytes_ref(vm, pos[0])?;
     let big = byteorder_is_big(vm, pos.get(1))?;
     let mut acc: i128 = 0;
     // Checked accumulation so inputs wider than i128 raise instead of silently dropping high bits.
     let step = |acc: i128, b: u8| acc.checked_mul(256).and_then(|a| a.checked_add(b as i128)).ok_or_else(cold_overflow);
     if big {
-        for &b in &buf { acc = step(acc, b)?; }
+        for &b in buf { acc = step(acc, b)?; }
     } else {
         for &b in buf.iter().rev() { acc = step(acc, b)?; }
     }

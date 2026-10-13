@@ -7,6 +7,8 @@ pub mod eq;
 pub mod err;
 pub mod math;
 pub mod scheduler;
+pub mod meter;
+pub mod pool;
 
 pub use frames::*;
 pub use eq::*;
@@ -25,64 +27,10 @@ impl Limits {
 // The call depth every execution runs under, below where either host runs out of wasm stack.
 pub const MAX_CALLS: usize = 256;
 
-// The memory model the limit counts, 8 bytes per value by NaN-boxing on every architecture.
-pub const OBJ_BYTES: usize = 224;
+// What a value takes in a container, 8 bytes by NaN-boxing on every architecture.
 pub const VAL_BYTES: usize = 8;
-// The shared box a mutable container lives in, and the copy an interned short string keeps.
-const BOX_BYTES: usize = 64;
-const INTERN_BYTES: usize = 96;
-const DICT_ENTRY_BYTES: usize = 56;
-const SET_ENTRY_BYTES: usize = 24;
-const NAMED_BYTES: usize = 32;
-const COROUTINE_BYTES: usize = 256;
-
-/* What a mutable container holds by the memory model, read before and after it changes. */
-pub trait Footprint {
-    fn bytes(&self) -> usize;
-}
-
-impl Footprint for Vec<Val> {
-    fn bytes(&self) -> usize { self.capacity() * VAL_BYTES }
-}
-
-impl Footprint for DictMap {
-    fn bytes(&self) -> usize { self.entries.capacity() * DICT_ENTRY_BYTES }
-}
-
-impl Footprint for ValSet {
-    // Allocated slots, which a removal never gives back, the same on every target.
-    fn bytes(&self) -> usize { self.t.allocation_size() / (core::mem::size_of::<(u64, Val)>() + 1) * SET_ENTRY_BYTES }
-}
-
-impl Footprint for Vec<(usize, Val)> {
-    fn bytes(&self) -> usize { self.capacity() * 2 * VAL_BYTES }
-}
-
-impl Footprint for Vec<(String, Val)> {
-    fn bytes(&self) -> usize { self.capacity() * NAMED_BYTES + self.iter().map(|(name, _)| name.capacity()).sum::<usize>() }
-}
-
-/* What one heap object holds by the memory model, its slot and what it carries. */
-#[inline]
-pub fn footprint(obj: &HeapObj) -> usize {
-    let interned = |len: usize| if len <= 128 { INTERN_BYTES + len } else { 0 };
-    OBJ_BYTES + match obj {
-        HeapObj::Str(s) => s.capacity() + interned(s.len()),
-        HeapObj::Type(s) => s.capacity(),
-        HeapObj::Bytes(b) => b.capacity() + interned(b.len()),
-        HeapObj::List(rc) => BOX_BYTES + rc.borrow().bytes(),
-        HeapObj::Tuple(v) => v.bytes(),
-        HeapObj::Dict(rc) | HeapObj::Instance(_, rc) => BOX_BYTES + rc.borrow().bytes(),
-        HeapObj::Set(rc) => BOX_BYTES + rc.borrow().bytes(),
-        HeapObj::FrozenSet(s) => BOX_BYTES + s.bytes(),
-        HeapObj::ExcInstance(name, args, _) => name.capacity() + args.bytes(),
-        HeapObj::Func(_, defaults, cells, attrs) => defaults.bytes() + cells.bytes() + attrs.borrow().bytes(),
-        HeapObj::Class(name, bases, members) => name.capacity() + bases.bytes() + members.borrow().bytes(),
-        HeapObj::Module(name, entries) => name.capacity() + entries.bytes(),
-        HeapObj::Coroutine(..) => COROUTINE_BYTES,
-        _ => 0,
-    }
-}
+/* Native work a step lets pile up before the loop leaves its fast path to charge it. */
+const WORK_SLICE: usize = 1 << 16;
 
 /* Host-provided callable, resolved at compile time and dispatched by `CallExtern`. `Arc<dyn Fn>` lets loaders capture stateful handles, `pure` enables memoization. Third arg is the kwargs slot, `None` for plain positional calls, `Some(dict_val)` when the caller used `name=value` syntax. */
 pub type ExternCallable =
@@ -533,12 +481,13 @@ impl Default for DictMap {
     fn default() -> Self { Self::new() }
 }
 
-/* Insert-or-replace in a named-member list, shared by Class members and Func attrs, charging what it grew. */
-pub(crate) fn set_member(members: &Rc<RefCell<Vec<(String, Val)>>>, name: &str, value: Val, heap: &HeapPool) {
-    heap.growing(&mut *members.borrow_mut(), |m| match m.iter_mut().find(|(n, _)| n == name) {
+/* Insert-or-replace in a named-member list, shared by Class members and Func attrs. */
+pub(crate) fn set_member(members: &Rc<RefCell<Vec<(String, Val)>>>, name: &str, value: Val) {
+    let mut m = members.borrow_mut();
+    match m.iter_mut().find(|(n, _)| n == name) {
         Some(slot) => slot.1 = value,
         None => m.push((String::from(name), value)),
-    });
+    }
 }
 
 /* Visits every reachable `Val` once, single source of truth for GC traversal. */
@@ -618,16 +567,12 @@ pub struct HeapPool {
     free_list: Vec<u32>,
     live: usize,
     pub gc_threshold: usize,
-    // Saturated once memory passes the limit, so the check a loop already makes asks for a collection.
     alloc_count: Cell<usize>,
-    // What the slots hold by the memory model, garbage since the last sweep included.
-    bytes: Cell<usize>,
-    // The highest count, kept at each place it goes down, so no high point is missed.
-    peak: Cell<usize>,
+    // What the allocator handed out while this program ran, garbage since the last sweep included.
+    meter: &'static meter::Meter,
+    // Native work since the last step, scans and copies the op budget charges at the next one.
+    work: Cell<usize>,
     limit: usize,
-    // The first collection whose running count missed the recount, as the two totals.
-    #[cfg(feature = "memcheck")]
-    drift: Option<(usize, usize)>,
     /* Interns short strings by content, each entry the slot holding one. */
     strings: hashbrown::HashTable<u32>,
     /* Interns short bytes literals so equal `b"..."` share a Val (Hash uses raw bits). */
@@ -650,6 +595,11 @@ pub struct HeapPool {
     mark_worklist: Vec<u32>,
 }
 
+// A program gone leaves the shared instance total.
+impl Drop for HeapPool {
+    fn drop(&mut self) { self.meter.retire(); }
+}
+
 impl HeapPool {
     /* `i` as the narrowest int, inline when it fits 48 bits, else a LongInt. */
     #[inline]
@@ -667,11 +617,9 @@ impl HeapPool {
             live: 0,
             gc_threshold: 512,
             alloc_count: Cell::new(0),
-            bytes: Cell::new(0),
-            peak: Cell::new(0),
+            meter: crate::util::leak(Box::new(meter::Meter::new(limit))),
+            work: Cell::new(0),
             limit,
-            #[cfg(feature = "memcheck")]
-            drift: None,
             strings: hashbrown::HashTable::new(),
             bytes_intern: HashMap::default(),
             longints: HashMap::default(),
@@ -780,9 +728,8 @@ impl HeapPool {
     #[inline(always)]
     fn admit(&mut self, obj: HeapObj, soft: bool) -> Result<Val, VmErr> {
         if let Some(idx) = self.intern_lookup(&obj) { return Ok(Val::heap(idx)); }
-        if soft && self.bytes.get() > self.limit.saturating_mul(2) { return Err(cold_heap()); }
+        if soft && self.meter.held() > self.limit.saturating_mul(2) { return Err(cold_heap()); }
         if self.slots.len() >= (1 << 28) { return Err(VmErr::Heap); }
-        self.charge(footprint(&obj));
         let idx = self.place(obj);
         self.intern_insert(idx);
         self.live += 1;
@@ -792,7 +739,7 @@ impl HeapPool {
 
     /* What a result may still take, the limit or what twice the limit leaves, garbage included. */
     pub fn room(&self) -> usize {
-        self.limit.min(self.limit.saturating_mul(2).saturating_sub(self.bytes.get()))
+        self.limit.min(self.limit.saturating_mul(2).saturating_sub(self.meter.held())).min(self.meter.instance_room())
     }
 
     /* Refuses a result of `extra` bytes before it is built, so it never reaches the allocator. */
@@ -801,56 +748,21 @@ impl HeapPool {
         if extra > self.room() { Err(cold_heap()) } else { Ok(()) }
     }
 
-    /* Charges what a heap container grew by in `f`, or credits what it gave back. */
+    /* Whether the program holds more than its limit or took the instance past its budget, garbage included. */
     #[inline]
-    pub fn growing<C: Footprint + ?Sized, R>(&self, c: &mut C, f: impl FnOnce(&mut C) -> R) -> R {
-        let before = c.bytes();
-        let out = f(c);
-        let after = c.bytes();
-        if after != before {
-            if after < before { self.keep_peak(); }
-            self.bytes.set(self.bytes.get().saturating_sub(before));
-            self.charge(after);
-        }
-        out
-    }
+    pub fn over(&self) -> bool { self.meter.over() }
 
-    // Remembers the count before it goes down.
-    fn keep_peak(&self) { self.peak.set(self.peak.get().max(self.bytes.get())); }
+    /* What the allocator holds for the program, garbage since the last sweep included. */
+    pub fn bytes(&self) -> usize { self.meter.held() }
 
-    /* Charges what an object took, past the limit the next safe point collects. */
-    #[inline]
-    pub fn charge(&self, bytes: usize) {
-        self.bytes.set(self.bytes.get() + bytes);
-        if self.bytes.get() > self.limit { self.alloc_count.set(usize::MAX); }
-    }
+    /* The most the allocator held for the program at once. */
+    pub fn peak(&self) -> usize { self.meter.peak() }
 
-    /* Whether the program holds more than its limit, which only a collection can tell from garbage. */
-    pub fn over(&self) -> bool { self.bytes.get() > self.limit }
+    /* The meter this program charges, which its runs make the payer. */
+    pub fn meter(&self) -> &'static meter::Meter { self.meter }
 
-    /* What the slots hold by the memory model, garbage since the last sweep included. */
-    pub fn bytes(&self) -> usize { self.bytes.get() }
-
-    /* The most the slots held at once, garbage included, the count now or the highest it fell from. */
-    pub fn peak(&self) -> usize { self.peak.get().max(self.bytes.get()) }
-
-    /* The same total counted again from every occupied slot, which the running count must always equal. */
-    fn recount(&self) -> usize {
-        self.slots.iter().filter_map(|s| s.obj.as_ref()).map(footprint).sum()
-    }
-
-    /* Keeps the first time the running count and a recount disagree, before a sweep hides it. */
-    #[cfg(feature = "memcheck")]
-    pub fn check_count(&mut self) {
-        let (counted, recounted) = (self.bytes.get(), self.recount());
-        if counted != recounted && self.drift.is_none() { self.drift = Some((counted, recounted)); }
-    }
-
-    /* The first disagreement a collection kept, else the running count and a recount right now. */
-    #[cfg(feature = "memcheck")]
-    pub fn drift(&self) -> Option<(usize, usize)> {
-        self.drift.or_else(|| Some((self.bytes.get(), self.recount())).filter(|(a, b)| a != b))
-    }
+    /* Whether a memory limit is set that no metering allocator counts. */
+    pub(crate) fn unmetered(&self) -> bool { self.limit != usize::MAX && !meter::installed() }
 
     pub fn mark(&mut self, v: Val) {
         if !v.is_heap() { return; }
@@ -869,19 +781,15 @@ impl HeapPool {
     }
 
     pub fn sweep(&mut self) {
-        self.keep_peak();
-        // The survivors are counted again, so a sweep leaves the running count exact.
-        let mut kept = 0;
         for idx in 0..self.slots.len() {
             let slot = &mut self.slots[idx];
-            let Some(obj) = slot.obj.as_ref() else { continue };
-            if slot.marked { slot.marked = false; kept += footprint(obj); continue; }
+            if slot.obj.is_none() { continue; }
+            if slot.marked { slot.marked = false; continue; }
             self.intern_remove(idx as u32);
             self.slots[idx].obj = None;
             self.free_list.push(idx as u32);
             self.live -= 1;
         }
-        self.bytes.set(kept);
 
         // Both triggers scale with the volume the last mark walked.
         self.gc_threshold = (self.live * 2).max(512).max(self.marked_vals / 4);
@@ -919,8 +827,6 @@ impl HeapPool {
             self.live += 1;
             self.intern_insert(idx as u32);
         }
-        self.keep_peak();
-        self.bytes.set(self.recount());
         self.gc_threshold = (self.live * 2).max(512);
         self.alloc_limit = 4096;
         self.marked_vals = 0;
@@ -929,15 +835,29 @@ impl HeapPool {
 
     /* Swap a live slot's object during restore. */
     pub(crate) fn replace_obj(&mut self, idx: u32, obj: HeapObj) {
-        let before = self.slots[idx as usize].obj.as_ref().map_or(0, footprint);
-        self.keep_peak();
-        self.bytes.set((self.bytes.get() + footprint(&obj)).saturating_sub(before));
         self.slots[idx as usize] = HeapSlot::new(Some(obj));
     }
 
+    /* Whether the next step leaves the fast path, for a collection or for a slice of native work to charge. */
     pub fn needs_gc(&self) -> bool {
         let alloc_limit = (self.live / 4).max(self.alloc_limit);
-        self.live >= self.gc_threshold || self.alloc_count.get() >= alloc_limit
+        self.live >= self.gc_threshold || self.alloc_count.get() >= alloc_limit || self.work.get() > WORK_SLICE || self.over()
+    }
+
+    /* Counts `n` units of native work, the next step charges them to the op budget. */
+    #[inline]
+    pub fn spend(&self, n: usize) { self.work.set(self.work.get().saturating_add(n)); }
+
+    /* Whether native work waits to be charged. */
+    #[inline]
+    pub fn has_work(&self) -> bool { self.work.get() != 0 }
+
+    /* The native work counted since the last step, which starts again from zero. */
+    #[inline]
+    pub fn take_work(&self) -> usize {
+        let w = self.work.get();
+        if w != 0 { self.work.set(0); }
+        w
     }
 
     /* ASCII-only Str, scanned once per slot. */

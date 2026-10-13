@@ -7,7 +7,7 @@ use crate::vm::types::{ValSet, HeapPool, cold_type};
 #[inline]
 pub(super) fn recv_str(vm: &VM, recv: Val) -> Result<String, VmErr> {
     match vm.heap.try_get(recv) {
-        Some(HeapObj::Str(s)) => Ok(s.clone()),
+        Some(HeapObj::Str(s)) => { vm.heap.spend(s.len()); Ok(s.clone()) }
         _ => Err(cold_type("method requires a string receiver")),
     }
 }
@@ -16,15 +16,24 @@ pub(super) fn recv_str(vm: &VM, recv: Val) -> Result<String, VmErr> {
 #[inline]
 pub(super) fn recv_str_ref<'v>(vm: &'v VM, recv: Val) -> Result<&'v str, VmErr> {
     match vm.heap.try_get(recv) {
-        Some(HeapObj::Str(s)) => Ok(s),
+        Some(HeapObj::Str(s)) => { vm.heap.spend(s.len()); Ok(s) }
         _ => Err(cold_type("method requires a string receiver")),
+    }
+}
+
+/* The receiver bytes borrowed in place, for methods that only read them. */
+#[inline]
+pub(super) fn recv_bytes_ref<'v>(vm: &'v VM, recv: Val) -> Result<&'v [u8], VmErr> {
+    match vm.heap.try_get(recv) {
+        Some(HeapObj::Bytes(b)) => { vm.heap.spend(b.len()); Ok(b) }
+        _ => Err(cold_type("method requires a bytes receiver")),
     }
 }
 
 #[inline]
 pub(super) fn recv_bytes(vm: &VM, recv: Val) -> Result<Vec<u8>, VmErr> {
     match vm.heap.try_get(recv) {
-        Some(HeapObj::Bytes(b)) => Ok(b.clone()),
+        Some(HeapObj::Bytes(b)) => { vm.heap.spend(b.len()); Ok(b.clone()) }
         _ => Err(cold_type("method requires a bytes receiver")),
     }
 }
@@ -32,7 +41,7 @@ pub(super) fn recv_bytes(vm: &VM, recv: Val) -> Result<Vec<u8>, VmErr> {
 #[inline]
 pub(super) fn val_to_str(vm: &VM, v: Val) -> Result<String, VmErr> {
     match vm.heap.try_get(v) {
-        Some(HeapObj::Str(s)) => Ok(s.clone()),
+        Some(HeapObj::Str(s)) => { vm.heap.spend(s.len()); Ok(s.clone()) }
         _ => Err(cold_type("argument must be a string")),
     }
 }
@@ -40,7 +49,7 @@ pub(super) fn val_to_str(vm: &VM, v: Val) -> Result<String, VmErr> {
 #[inline]
 pub(super) fn list_clone(vm: &VM, recv: Val) -> Result<Vec<Val>, VmErr> {
     match vm.heap.try_get(recv) {
-        Some(HeapObj::List(rc)) => Ok(rc.borrow().clone()),
+        Some(HeapObj::List(rc)) => { vm.heap.spend(rc.borrow().len()); Ok(rc.borrow().clone()) }
         _ => Err(cold_type("method requires a list receiver")),
     }
 }
@@ -48,18 +57,18 @@ pub(super) fn list_clone(vm: &VM, recv: Val) -> Result<Vec<Val>, VmErr> {
 #[inline]
 pub(super) fn dict_entries(vm: &VM, recv: Val) -> Result<Vec<(Val, Val)>, VmErr> {
     match vm.heap.try_get(recv) {
-        Some(HeapObj::Dict(rc)) => Ok(rc.borrow().iter().collect()),
+        Some(HeapObj::Dict(rc)) => { vm.heap.spend(rc.borrow().len()); Ok(rc.borrow().iter().collect()) }
         _ => Err(cold_type("method requires a dict receiver")),
     }
 }
 
-/* Borrow the list of `recv` for `f`, charging its growth, the closure cannot touch `vm`. */
+/* Borrow the list of `recv` for `f`, the closure cannot touch `vm`. */
 #[inline]
 pub(super) fn list_mut<F, R>(vm: &mut VM, recv: Val, err: &'static str, f: F) -> Result<R, VmErr>
 where F: FnOnce(&mut Vec<Val>) -> Result<R, VmErr>
 {
     match vm.heap.try_get(recv) {
-        Some(HeapObj::List(rc)) => vm.heap.growing(&mut *rc.borrow_mut(), f),
+        Some(HeapObj::List(rc)) => f(&mut rc.borrow_mut()),
         _ => Err(cold_type(err)),
     }
 }
@@ -73,14 +82,14 @@ where F: FnOnce(&mut DictMap, &HeapPool) -> Result<R, VmErr>
         Some(HeapObj::Dict(rc)) => rc.clone(),
         _ => return Err(cold_type(err)),
     };
-    vm.heap.growing(&mut *rc.borrow_mut(), |d| f(d, &vm.heap))
+    f(&mut rc.borrow_mut(), &vm.heap)
 }
 
 // Snapshot a set as Vec so the heap stays free for subsequent allocations.
 #[inline]
 pub(super) fn set_clone(vm: &VM, recv: Val) -> Result<Vec<Val>, VmErr> {
     match vm.heap.get(recv) {
-        HeapObj::Set(rc) => Ok(rc.borrow().iter().copied().collect()),
+        HeapObj::Set(rc) => { vm.heap.spend(rc.borrow().len()); Ok(rc.borrow().iter().copied().collect()) }
         _ => Err(cold_type("method requires a set receiver")),
     }
 }
@@ -103,7 +112,7 @@ where F: FnOnce(&mut ValSet, &HeapPool) -> Result<R, VmErr>
         Some(HeapObj::Set(rc)) => rc.clone(),
         _ => return Err(cold_type(err)),
     };
-    vm.heap.growing(&mut *rc.borrow_mut(), |t| f(t, &vm.heap))
+    f(&mut rc.borrow_mut(), &vm.heap)
 }
 
 // `Vec<Val>` from any iterable (str/range/dict/bytes/frozenset/list/tuple/set), for set ops and dict keys, so every item must hash.

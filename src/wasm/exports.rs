@@ -41,14 +41,7 @@ fn parse_source(src: &str) -> Result<SSAChunk, String> {
         p.errors.push(Diagnostic { start: e.start, end: e.end, msg: e.msg.into() });
     }
     let (mut chunk, errs) = p.parse();
-    if !errs.is_empty() {
-        let (mut buf, name) = (String::new(), source_name());
-        for (i, e) in errs.iter().enumerate() {
-            if i > 0 { buf.push('\n'); }
-            buf.push_str(&e.render(src, name.as_deref()));
-        }
-        return Err(buf);
-    }
+    if !errs.is_empty() { return Err(Diagnostic::render_all(&errs, src, source_name().as_deref())); }
     crate::vm::optimizer::constant_fold(&mut chunk);
     Ok(chunk)
 }
@@ -461,7 +454,7 @@ pub unsafe extern "C" fn set_host_error_by_id(id: u32, kind: u32, msg_handle: u3
     })
 }
 
-/* The most the last run held at once by the memory model the limit counts, in bytes. */
+/* The most the last run held at once, as the allocator counted it for the limit, in bytes. */
 #[unsafe(no_mangle)]
 pub extern "C" fn memory_peak() -> u64 {
     with_slot(|s| s.memory_peak as u64)

@@ -54,8 +54,8 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         let jmp = self.emit_jump(OpCode::Jump);
         self.patch(jf);
         self.eat(TokenType::Else);
-        // Recurse so a chained conditional in the else-branch parses (right-associative).
-        self.expr();
+        // A conditional chained in the else-branch nests one level deeper.
+        self.nested(Self::expr);
         self.patch(jmp);
     }
 
@@ -95,7 +95,9 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
     }
 
     // An operator never continues past the logical line, so `@deco` on the next line stays a decorator, `left` is where the first operand starts.
-    pub(super) fn infix_bp(&mut self, min_bp: u8, left: usize) {
+    pub(super) fn infix_bp(&mut self, min_bp: u8, mut left: usize) {
+        // The open jumps of a comparison chain, each operand pointing at the jump before, as a patch list.
+        let mut chain = u16::MAX;
         while let Some(tok) = self.peek_same_line() {
             if is_comparison(tok) {
                 if 7 < min_bp { break; }
@@ -114,12 +116,17 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
                     self.chunk.emit(OpCode::LoadName, tmp);
                     self.chunk.emit(op, 0);
                     let jmp = self.emit_jump(OpCode::JumpIfFalseOrPop);
-                    let again = self.chunk.instructions.len();
+                    if let Some(i) = self.chunk.instructions.get_mut(jmp) { i.operand = chain; }
+                    chain = jmp as u16;
+                    left = self.chunk.instructions.len();
                     self.chunk.emit(OpCode::LoadName, tmp);
-                    self.infix_bp(7, again);
-                    self.patch(jmp);
                 } else {
                     self.chunk.emit(op, 0);
+                    while chain != u16::MAX {
+                        let jmp = chain as usize;
+                        chain = self.chunk.instructions.get(jmp).map_or(u16::MAX, |i| i.operand);
+                        self.patch(jmp);
+                    }
                 }
                 continue;
             }

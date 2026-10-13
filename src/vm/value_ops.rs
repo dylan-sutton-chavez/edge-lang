@@ -187,7 +187,7 @@ impl<'a> VM<'a> {
         }
         let items = self.set_binop_items(a, b, op)?;
         let s = ValSet::from_vals(&items, &self.heap);
-        if let HeapObj::Set(rc) = self.heap.get(a) { self.heap.growing(&mut *rc.borrow_mut(), |t| *t = s); }
+        if let HeapObj::Set(rc) = self.heap.get(a) { *rc.borrow_mut() = s; }
         self.push(a); Ok(())
     }
 
@@ -199,8 +199,8 @@ impl<'a> VM<'a> {
         };
         // Content-based so distinct-handle equal elements (tuples, long strings) compare correctly.
         let eq = eq_set(&sa, &sb, |a, b| eq_member(a, b, &self.heap));
-        let subset = |x: &ValSet, y: &ValSet|
-            x.iter().all(|&v| y.iter().any(|&w| eq_member(v, w, &self.heap)));
+        // Each member is looked up under its stored hash, so a subset test stays linear.
+        let subset = |x: &ValSet, y: &ValSet| x.len() <= y.len() && x.iter().all(|&v| y.contains(v, &self.heap));
         let result = match op {
             OpCode::Eq => eq,
             OpCode::NotEq => !eq,
@@ -528,18 +528,20 @@ impl<'a> VM<'a> {
     pub fn contains(&self, container: Val, item: Val) -> Result<bool, VmErr> {
         if container.is_heap() {
             match self.heap.get(container) {
-                HeapObj::List(v) => return Ok(v.borrow().iter().any(|x| eq_member(*x, item, &self.heap))),
-                HeapObj::Tuple(v) => return Ok(v.iter().any(|x| eq_member(*x, item, &self.heap))),
+                // A scan counts what it may read as native work.
+                HeapObj::List(v) => { self.heap.spend(v.borrow().len()); return Ok(v.borrow().iter().any(|x| eq_member(*x, item, &self.heap))) }
+                HeapObj::Tuple(v) => { self.heap.spend(v.len()); return Ok(v.iter().any(|x| eq_member(*x, item, &self.heap))) }
                 // Only a miss checks the item, an unhashable one is never inside so a hit needs no check.
                 HeapObj::Dict(p) => { let hit = p.borrow().contains_key(&item, &self.heap); if !hit { self.require_hashable(item)?; } return Ok(hit); }
                 HeapObj::Set(s) => { let hit = s.borrow().contains(item, &self.heap); if !hit { self.require_set_probe(item)?; } return Ok(hit); }
                 HeapObj::FrozenSet(s) => { let hit = s.contains(item, &self.heap); if !hit { self.require_set_probe(item)?; } return Ok(hit); }
                 HeapObj::Str(s) => {
-                    if let Some(HeapObj::Str(sub)) = self.heap.try_get(item) { return Ok(s.contains(sub.as_str())); }
+                    if let Some(HeapObj::Str(sub)) = self.heap.try_get(item) { self.heap.spend(s.len()); return Ok(s.contains(sub.as_str())); }
                     return Err(VmErr::TypeMsg(s!("'in <string>' requires string as left operand, not ", str self.type_name(item))));
                 }
                 HeapObj::Bytes(b) => {
                     if let Some(HeapObj::Bytes(sub)) = self.heap.try_get(item) {
+                        self.heap.spend(b.len());
                         return Ok(sub.is_empty() || b.windows(sub.len()).any(|w| w == sub.as_slice()));
                     }
                     let n = match item { i if i.is_int() => i.as_int(), i if i.is_bool() => i.as_bool() as i64, _ => return Err(cold_type("a bytes-like object is required")) };
@@ -707,9 +709,8 @@ impl<'a> VM<'a> {
     }
 
     pub fn div_vals(&mut self, a: Val, b: Val) -> Result<Val, VmErr> {
-        let bv = self.to_f64_coerce(b).map_err(|_| cold_type("'/' requires numeric operands"))?;
+        let (Ok(av), Ok(bv)) = (self.to_f64_coerce(a), self.to_f64_coerce(b)) else { return Err(self.unsupported("/", a, b)) };
         if bv == 0.0 { return Err(VmErr::ZeroDiv); }
-        let av = self.to_f64_coerce(a).map_err(|_| cold_type("'/' requires numeric operands"))?;
         Ok(Val::float(av / bv))
     }
 

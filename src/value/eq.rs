@@ -25,15 +25,22 @@ pub fn eq_vals_with_heap(a: Val, b: Val, heap: &HeapPool) -> bool {
 pub fn eq_member(a: Val, b: Val, heap: &HeapPool) -> bool {
     if a.0 == b.0 { return true; }
     // Two strings, the common dict and set key, compare their text straight away.
-    if let (Some(HeapObj::Str(x)), Some(HeapObj::Str(y))) = (heap.try_get(a), heap.try_get(b)) { return x == y; }
+    if let (Some(HeapObj::Str(x)), Some(HeapObj::Str(y))) = (heap.try_get(a), heap.try_get(b)) { return eq_text(x.as_bytes(), y.as_bytes(), heap); }
     eq_vals_depth(a, b, heap, 0, &mut false)
 }
 
-/* Content equality, None when a `False` came from a pair only a user `__eq__` can settle. */
+/* Text or bytes equality, a long pair counting the bytes it reads as native work. */
 #[inline]
-pub fn eq_checked(a: Val, b: Val, heap: &HeapPool) -> Option<bool> {
+fn eq_text(x: &[u8], y: &[u8], heap: &HeapPool) -> bool {
+    if x.len() == y.len() && x.len() > 64 { heap.spend(x.len()); }
+    x == y
+}
+
+/* Content equality from `depth` levels in, None when only a user `__eq__` or the cap can settle it. */
+#[inline]
+pub fn eq_checked(a: Val, b: Val, heap: &HeapPool, depth: usize) -> Option<bool> {
     let mut rich = false;
-    let r = eq_vals_depth(a, b, heap, 0, &mut rich);
+    let r = eq_vals_depth(a, b, heap, depth, &mut rich);
     if !r && rich { None } else { Some(r) }
 }
 
@@ -101,9 +108,10 @@ fn hash_depth(v: Val, heap: &HeapPool, depth: usize) -> u64 {
     if !v.is_heap() || depth > EQ_DEPTH_MAX { h.write_u64(v.0); return h.finish(); }
     match heap.get(v) {
         HeapObj::LongInt(i) => write_i128(&mut h, i.get()),
-        HeapObj::Str(s) => { h.write_u8(1); h.write(s.as_bytes()); }
-        HeapObj::Bytes(b) => { h.write_u8(2); h.write(b); }
-        HeapObj::Tuple(t) => return hash_tuple_parts(&t.iter().map(|&e| hash_depth(e, heap, depth + 1)).collect::<alloc::vec::Vec<_>>()),
+        // A long text and every tuple count what they hash as native work.
+        HeapObj::Str(s) => { if s.len() > 64 { heap.spend(s.len()); } h.write_u8(1); h.write(s.as_bytes()); }
+        HeapObj::Bytes(b) => { if b.len() > 64 { heap.spend(b.len()); } h.write_u8(2); h.write(b); }
+        HeapObj::Tuple(t) => { heap.spend(t.len()); return hash_tuple_parts(&t.iter().map(|&e| hash_depth(e, heap, depth + 1)).collect::<alloc::vec::Vec<_>>()) }
         // A frozenset sums the hashes it stored, and a set probes like the frozenset it equals.
         HeapObj::FrozenSet(s) => return hash_set_parts(s.iter_hashed().map(|(h, _)| h)),
         HeapObj::Set(s) => return hash_set_parts(s.borrow().iter_hashed().map(|(h, _)| h)),
@@ -152,8 +160,8 @@ pub(crate) fn num_as_f64(v: Val, heap: &HeapPool) -> Option<f64> {
 }
 
 fn eq_vals_depth(a: Val, b: Val, heap: &HeapPool, depth: usize, rich: &mut bool) -> bool {
-    // Past the cap fall back to identity, cyclic structures terminate.
-    if depth > EQ_DEPTH_MAX { return a.0 == b.0; }
+    // Past the cap only identity answers, and a distinct pair goes to a caller that can raise.
+    if depth > EQ_DEPTH_MAX { *rich |= a.0 != b.0; return a.0 == b.0; }
     // An element equals itself, so a NaN inside `[n] == [n]` matches.
     if depth > 0 && a.0 == b.0 { return true; }
 
@@ -185,17 +193,19 @@ fn eq_vals_depth(a: Val, b: Val, heap: &HeapPool, depth: usize, rich: &mut bool)
     if a.0 == b.0 { return true; }
 
     let d = depth + 1;
+    // Each walk over elements counts their number as native work.
     match (heap.get(a), heap.get(b)) {
-        (HeapObj::Str(x), HeapObj::Str(y)) => x == y,
-        (HeapObj::Bytes(x), HeapObj::Bytes(y)) => x == y,
-        (HeapObj::Tuple(x), HeapObj::Tuple(y)) => eq_seq(x, y, |a,b| eq_vals_depth(a, b, heap, d, rich)),
-        (HeapObj::List(x), HeapObj::List(y)) => eq_seq(&x.borrow(), &y.borrow(), |a,b| eq_vals_depth(a, b, heap, d, rich)),
+        (HeapObj::Str(x), HeapObj::Str(y)) => eq_text(x.as_bytes(), y.as_bytes(), heap),
+        (HeapObj::Bytes(x), HeapObj::Bytes(y)) => eq_text(x, y, heap),
+        (HeapObj::Tuple(x), HeapObj::Tuple(y)) => { heap.spend(x.len()); eq_seq(x, y, |a,b| eq_vals_depth(a, b, heap, d, rich)) }
+        (HeapObj::List(x), HeapObj::List(y)) => { heap.spend(x.borrow().len()); eq_seq(&x.borrow(), &y.borrow(), |a,b| eq_vals_depth(a, b, heap, d, rich)) }
         (HeapObj::Set(x), HeapObj::Set(y)) => eq_tables(&x.borrow(), &y.borrow(), heap, d, rich),
         (HeapObj::FrozenSet(x), HeapObj::FrozenSet(y)) => eq_tables(x, y, heap, d, rich),
         (HeapObj::Set(x), HeapObj::FrozenSet(y)) => eq_tables(&x.borrow(), y, heap, d, rich),
         (HeapObj::FrozenSet(x), HeapObj::Set(y)) => eq_tables(x, &y.borrow(), heap, d, rich),
         (HeapObj::Dict(x), HeapObj::Dict(y)) => {
             let (x, y) = (x.borrow(), y.borrow());
+            heap.spend(x.len());
             x.len() == y.len() && x.iter().all(|(k, v)| y.get(&k, heap).is_some_and(|&v2| v.0 == v2.0 || eq_vals_depth(v, v2, heap, d, rich)))
         }
         // An instance with its own `__eq__` decides in user code, the VM asks it.
@@ -227,6 +237,7 @@ fn eq_vals_depth(a: Val, b: Val, heap: &HeapPool, depth: usize, rich: &mut bool)
 
 /* Set equality, each item matched under the hash it stored. */
 fn eq_tables(x: &ValSet, y: &ValSet, heap: &HeapPool, d: usize, rich: &mut bool) -> bool {
+    heap.spend(x.len());
     eq_set(x, y, |a, b| a.0 == b.0 || eq_vals_depth(a, b, heap, d, rich))
 }
 

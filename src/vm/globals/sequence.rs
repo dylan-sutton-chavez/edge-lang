@@ -72,12 +72,15 @@ impl<'a> VM<'a> {
                 let v = self.with_roots([it], |vm| vm.resume_coroutine(it))?;
                 Ok(core::mem::take(&mut self.yielded).then_some(v))
             }
-            _ => match self.try_call_dunder(it, "__next__", &[], chunk) {
-                Ok(Some(v)) => Ok(Some(v)),
-                Ok(None) => Err(VmErr::TypeMsg(s!("'", str self.type_name(it), "' object is not an iterator"))),
-                Err(VmErr::Raised(m)) if m == "StopIteration" || m.starts_with("StopIteration:") => Ok(None),
-                Err(e) => Err(e),
-            },
+            _ => {
+                let before = self.pending.exc_val;
+                match self.try_call_dunder(it, "__next__", &[], chunk) {
+                    Ok(Some(v)) => Ok(Some(v)),
+                    Ok(None) => Err(VmErr::TypeMsg(s!("'", str self.type_name(it), "' object is not an iterator"))),
+                    Err(VmErr::Raised(m)) if m == "StopIteration" || m.starts_with("StopIteration:") => { self.swallow_stop(before); Ok(None) }
+                    Err(e) => Err(e),
+                }
+            }
         }
     }
 
@@ -232,7 +235,7 @@ impl<'a> VM<'a> {
             HeapObj::List(rc) => rc.clone(),
             _ => return Err(cold_type("sort: receiver is not a list")),
         };
-        self.heap.growing(&mut *rc.borrow_mut(), |v| *v = result);
+        *rc.borrow_mut() = result;
         self.mark_impure();
         self.push(Val::none());
         Ok(())
@@ -499,10 +502,12 @@ impl<'a> VM<'a> {
         if !o.is_heap() { return Err(cold_type("next() requires an iterator")); }
         // For a user iterator, dispatch __next__, mapping StopIteration to the optional default.
         if matches!(self.heap.get(o), HeapObj::Instance(..)) {
+            let before = self.pending.exc_val;
             return match self.try_call_dunder(o, "__next__", &[], chunk) {
                 Ok(Some(v)) => { self.push(v); Ok(()) }
                 Ok(None) => Err(cold_type("next() requires an iterator")),
                 Err(VmErr::Raised(m)) if default.is_some() && (m == "StopIteration" || m.starts_with("StopIteration")) => {
+                    self.swallow_stop(before);
                     self.push(default.unwrap()); Ok(())
                 }
                 Err(e) => Err(e),

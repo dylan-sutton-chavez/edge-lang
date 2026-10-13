@@ -21,12 +21,18 @@ pub fn fround(x: f64) -> f64 {
     else { fl + 1.0 }
 }
 
+/* Whether `base ** exp` has only a complex result, a finite negative base under a fractional power. */
 #[inline]
-pub fn fpowf(base: f64, exp: f64) -> f64 {
-    let ei = exp as i32;
-    // Exact integer exponents stay on the squaring path, everything else uses libm `pow`.
-    if (ei as f64) == exp && exp.abs() < 1024.0 { return fpowi(base, ei); }
-    libm::pow(base, exp)
+pub fn complex_power(base: f64, exp: f64) -> bool {
+    base < 0.0 && base > f64::NEG_INFINITY && exp.is_finite() && libm::floor(exp) != exp
+}
+
+/* `base ** exp` as libm `pow` rounds it, None when finite operands overflow to an infinity. */
+#[inline]
+pub fn fpowf(base: f64, exp: f64) -> Option<f64> {
+    // These exponents take one correctly rounded operation, which is what `pow` returns for them.
+    let r = if exp == 2.0 { base * base } else if exp == 1.0 { base } else if exp == 0.0 { 1.0 } else if exp == -1.0 { 1.0 / base } else { libm::pow(base, exp) };
+    (!r.is_infinite() || !base.is_finite() || !exp.is_finite()).then_some(r)
 }
 
 /* Floor quotient and remainder of ints, None for a zero divisor or `i128::MIN / -1`. */

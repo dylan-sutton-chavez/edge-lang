@@ -21,12 +21,12 @@ pub fn encode(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
     vm.push(v); Ok(())
 }
 
-// str zero-arg transforms `recv_str -> f -> push`.
+// str zero-arg transforms, the receiver read in place and the result pushed.
 macro_rules! str_transform {
     ($name:ident, $f:expr) => {
         pub fn $name(vm: &mut VM, recv: Val, _pos: &[Val]) -> Result<(), VmErr> {
-            let s = recv_str(vm, recv)?;
-            vm.alloc_and_push_str($f(s.as_str()))
+            let out = $f(recv_str_ref(vm, recv)?);
+            vm.alloc_and_push_str(out)
         }
     };
 }
@@ -38,7 +38,7 @@ str_transform!(title, title_case);
 // str.strip / lstrip / rstrip trim whitespace, or any char in the optional arg.
 enum Trim { Both, Start, End }
 fn strip_impl(vm: &mut VM, recv: Val, pos: &[Val], mode: Trim) -> Result<(), VmErr> {
-    let s = recv_str(vm, recv)?;
+    let s = recv_str_ref(vm, recv)?;
     let out = if pos.is_empty() {
         match mode { Trim::Both => s.trim_matches(uni::is_space), Trim::Start => s.trim_start_matches(uni::is_space), Trim::End => s.trim_end_matches(uni::is_space) }.to_string()
     } else {
@@ -160,7 +160,7 @@ fn split_ws_max(s: &str, m: usize, rev: bool) -> Vec<String> {
 
 // `str.split`/`rsplit([sep[, maxsplit]])`, `from_right` counts from the right and reverses sep-mode results.
 fn split_impl(vm: &mut VM, recv: Val, pos: &[Val], from_right: bool) -> Result<(), VmErr> {
-    let s = recv_str(vm, recv)?;
+    let s = recv_str_ref(vm, recv)?;
     // Optional second arg is maxsplit (<0 means unlimited).
     let maxsplit: Option<usize> = match pos.get(1) {
         Some(n) if n.is_int() => { let m = n.as_int(); if m < 0 { None } else { Some(m as usize) } }
@@ -170,7 +170,7 @@ fn split_impl(vm: &mut VM, recv: Val, pos: &[Val], from_right: bool) -> Result<(
     let strs: Vec<String> = if pos.is_empty() || pos[0].is_none() {
         // No separator, split on runs of whitespace, dropping empties.
         match maxsplit {
-            Some(m) => split_ws_max(&s, m, from_right),
+            Some(m) => split_ws_max(s, m, from_right),
             None => s.split(uni::is_space).filter(|w| !w.is_empty()).map(String::from).collect(),
         }
     } else {
@@ -189,15 +189,26 @@ fn split_impl(vm: &mut VM, recv: Val, pos: &[Val], from_right: bool) -> Result<(
 pub fn split(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { split_impl(vm, recv, pos, false) }
 
 pub fn join(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
-    let sep = recv_str(vm, recv)?;
     let items = vm.extract_iter(pos[0]).map_err(|e| if matches!(e, VmErr::TypeMsg(_)) { cold_type("join() argument must be iterable") } else { e })?;
-    let mut parts: Vec<String> = Vec::with_capacity(items.len());
-    for v in items { parts.push(val_to_str(vm, v)?); }
-    vm.alloc_and_push_str(parts.join(sep.as_str()))
+    let sep = recv_str_ref(vm, recv)?;
+    // The joined length is known before any copy, so a text past the memory limit fails first.
+    let mut total = sep.len().saturating_mul(items.len().saturating_sub(1));
+    for &v in &items {
+        let Some(HeapObj::Str(s)) = vm.heap.try_get(v) else { return Err(cold_type("argument must be a string")) };
+        total = total.saturating_add(s.len());
+    }
+    vm.heap.reserve(total)?;
+    vm.heap.spend(total);
+    let mut out = String::with_capacity(total);
+    for (i, &v) in items.iter().enumerate() {
+        if i > 0 { out.push_str(sep); }
+        if let Some(HeapObj::Str(s)) = vm.heap.try_get(v) { out.push_str(s); }
+    }
+    vm.alloc_and_push_str(out)
 }
 
 pub fn replace(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
-    let s = recv_str(vm, recv)?;
+    let s = recv_str_ref(vm, recv)?;
     let old = val_to_str(vm, pos[0])?;
     let new = val_to_str(vm, pos[1])?;
     // A result past the memory limit fails before it allocates.
@@ -212,6 +223,7 @@ pub fn replace(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
         Some(n) if !n.is_int() => return Err(cold_type("replace count must be an integer")),
         _ => s.replace(old.as_str(), new.as_str()),
     };
+    vm.heap.spend(out.len());
     vm.alloc_and_push_str(out)
 }
 
@@ -299,6 +311,7 @@ fn width_and_fill(vm: &mut VM, pos: &[Val], width_err: &'static str) -> Result<(
     let width = pos[0].as_int().max(0) as usize;
     // User-controlled width drives the output size, cap it so a huge value errors instead of aborting in the allocator.
     vm.heap.reserve(width)?;
+    vm.heap.spend(width);
     let fill = if pos.len() > 1 {
         let f = val_to_str(vm, pos[1])?;
         let mut cs = f.chars();
@@ -309,8 +322,8 @@ fn width_and_fill(vm: &mut VM, pos: &[Val], width_err: &'static str) -> Result<(
 
 // `str.ljust`/`rjust`/`center(width[, fill])` pad to width in code points, an odd centre pad leans left on an odd width.
 fn justify(vm: &mut VM, recv: Val, pos: &[Val], align: u8) -> Result<(), VmErr> {
-    let s = recv_str(vm, recv)?;
     let (width, fill) = width_and_fill(vm, pos, "width must be an integer")?;
+    let s = recv_str_ref(vm, recv)?;
     let pad = width.saturating_sub(s.chars().count());
     let left = match align { b'<' => 0, b'>' => pad, _ => pad / 2 + (pad & width & 1) };
     let out: String = iter::repeat_n(fill, left).chain(s.chars()).chain(iter::repeat_n(fill, pad - left)).collect();
@@ -321,7 +334,7 @@ pub fn rjust(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { justify
 pub fn center(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { justify(vm, recv, pos, b'^') }
 
 pub fn expandtabs(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
-    let s = recv_str(vm, recv)?;
+    let s = recv_str_ref(vm, recv)?;
     // Holds tabsize in a C int, out-of-range is an OverflowError before any expansion.
     let ts = match pos.first() {
         Some(n) if n.is_int() => {
@@ -347,11 +360,12 @@ pub fn expandtabs(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
             _ => { if col >= limit { return Err(cold_heap()); } out.push(c); col += 1; }
         }
     }
+    vm.heap.spend(out.len());
     vm.alloc_and_push_str(out)
 }
 
 pub fn istitle(vm: &mut VM, recv: Val, _pos: &[Val]) -> Result<(), VmErr> {
-    let s = recv_str(vm, recv)?;
+    let s = recv_str_ref(vm, recv)?;
     // Titlecased means every cased run starts uppercase and continues lowercase, needs >=1 cased char.
     let mut prev_cased = false;
     let mut any_cased = false;
@@ -373,56 +387,51 @@ pub fn istitle(vm: &mut VM, recv: Val, _pos: &[Val]) -> Result<(), VmErr> {
 
 // `str.removeprefix` / `removesuffix`, strip if present, else return unchanged.
 pub fn removeprefix(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
-    let s = recv_str(vm, recv)?;
     let p = val_to_str(vm, pos[0])?;
-    let out = s.strip_prefix(p.as_str()).map(|t| t.to_string()).unwrap_or(s);
-    vm.alloc_and_push_str(out)
+    // A string without the prefix is its own result.
+    match recv_str_ref(vm, recv)?.strip_prefix(p.as_str()).map(String::from) { Some(out) => vm.alloc_and_push_str(out), None => { vm.push(recv); Ok(()) } }
 }
 
 pub fn removesuffix(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
-    let s = recv_str(vm, recv)?;
     let suf = val_to_str(vm, pos[0])?;
-    let out = s.strip_suffix(suf.as_str()).map(|t| t.to_string()).unwrap_or(s);
-    vm.alloc_and_push_str(out)
+    match recv_str_ref(vm, recv)?.strip_suffix(suf.as_str()).map(String::from) { Some(out) => vm.alloc_and_push_str(out), None => { vm.push(recv); Ok(()) } }
 }
 
 // `str.splitlines()`, split on \n / \r / \r\n, dropping the separator (keepends=False).
 pub fn splitlines(vm: &mut VM, recv: Val, _pos: &[Val]) -> Result<(), VmErr> {
-    let s = recv_str(vm, recv)?;
     // line boundaries \n \r \r\n \v \f \x1c \x1d \x1e \x85.
     const BREAKS: &[char] = &['\n', '\r', '\u{0b}', '\u{0c}', '\u{1c}', '\u{1d}', '\u{1e}', '\u{85}', '\u{2028}', '\u{2029}'];
-    let mut parts: Vec<Val> = Vec::new();
+    let mut lines: Vec<String> = Vec::new();
     let mut cur = String::new();
-    let mut chars = s.chars().peekable();
+    let mut chars = recv_str_ref(vm, recv)?.chars().peekable();
     while let Some(c) = chars.next() {
         if BREAKS.contains(&c) {
             // \r\n counts as a single boundary.
             if c == '\r' && chars.peek() == Some(&'\n') { chars.next(); }
-            parts.push(vm.heap.alloc(HeapObj::Str(core::mem::take(&mut cur)))?);
+            lines.push(core::mem::take(&mut cur));
         } else {
             cur.push(c);
         }
     }
-    if !cur.is_empty() {
-        parts.push(vm.heap.alloc(HeapObj::Str(cur))?);
-    }
+    if !cur.is_empty() { lines.push(cur); }
+    let parts = lines.into_iter().map(|l| vm.heap.alloc(HeapObj::Str(l))).collect::<Result<Vec<_>, _>>()?;
     vm.alloc_and_push_list(parts)
 }
 
 // `str.partition` / `rpartition`, (head, sep, tail), on miss returns (s,"","") / ("","",s).
 fn partition_impl(vm: &mut VM, recv: Val, pos: &[Val], from_right: bool) -> Result<(), VmErr> {
-    let s = recv_str(vm, recv)?;
     let sep = val_to_str(vm, pos[0])?;
     if sep.is_empty() { return Err(cold_value("empty separator")); }
+    let s = recv_str_ref(vm, recv)?;
     let hit = if from_right { s.rfind(sep.as_str()) } else { s.find(sep.as_str()) };
-    let (a, b, c): (String, String, String) = match hit {
-        Some(i) => (s[..i].to_string(), sep.clone(), s[i + sep.len()..].to_string()),
-        None if from_right => (String::new(), String::new(), s), // miss, original at the tail
-        None => (s, String::new(), String::new()), // miss, original at the head
+    let pieces = hit.map(|i| (s[..i].to_string(), s[i + sep.len()..].to_string()));
+    let empty = |vm: &mut VM| vm.heap.alloc(HeapObj::Str(String::new()));
+    let (av, bv, cv) = match pieces {
+        Some((a, c)) => (vm.heap.alloc(HeapObj::Str(a))?, vm.heap.alloc(HeapObj::Str(sep))?, vm.heap.alloc(HeapObj::Str(c))?),
+        // A miss keeps the original string whole on its side.
+        None if from_right => (empty(vm)?, empty(vm)?, recv),
+        None => (recv, empty(vm)?, empty(vm)?),
     };
-    let av = vm.heap.alloc(HeapObj::Str(a))?;
-    let bv = vm.heap.alloc(HeapObj::Str(b))?;
-    let cv = vm.heap.alloc(HeapObj::Str(c))?;
     vm.alloc_and_push_tuple(vec![av, bv, cv])
 }
 pub fn partition(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { partition_impl(vm, recv, pos, false) }
@@ -431,20 +440,14 @@ pub fn rpartition(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { pa
 // str padding.
 pub fn zfill(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
     if !pos[0].is_int() { return Err(cold_type("zfill() requires an integer argument")); }
-    let s = recv_str(vm, recv)?;
     let width = pos[0].as_int().max(0) as usize;
     // User-controlled width drives the output size, cap it so a huge value errors instead of aborting in the allocator.
     vm.heap.reserve(width)?;
+    vm.heap.spend(width);
+    let s = recv_str_ref(vm, recv)?;
     let nchars = s.chars().count();
-    let out = if nchars >= width {
-        s
-    } else {
-        let pad = "0".repeat(width - nchars);
-        if s.starts_with('+') || s.starts_with('-') {
-            s[..1].to_string() + &pad + &s[1..]
-        } else {
-            pad + &s
-        }
-    };
+    if nchars >= width { vm.push(recv); return Ok(()); }
+    let pad = "0".repeat(width - nchars);
+    let out = if s.starts_with('+') || s.starts_with('-') { s[..1].to_string() + &pad + &s[1..] } else { pad + s };
     vm.alloc_and_push_str(out)
 }

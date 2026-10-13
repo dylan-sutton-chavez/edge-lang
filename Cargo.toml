@@ -18,18 +18,16 @@ doctest = false
 name = "tests"
 path = "tests/main.rs"
 
-# Its own binary, since it counts every allocation through a global allocator.
+# Its own binary, since it runs without the metering allocator.
 [[test]]
-name = "memory"
-path = "tests/memory.rs"
+name = "unmetered"
+path = "tests/unmetered.rs"
 
 [features]
 default = ["std"]
 std = []
 # Records each instruction a run executes for `VM::ran`, method calls left unfused so every ip is the compiler's own.
 coverage = []
-# Recounts every slot at each collection and fails a vm.json case whose running memory count drifted.
-memcheck = []
 # The wrapper that makes compiler.wasm, its exports, host imports, allocator and panic handler.
 runtime = []
 

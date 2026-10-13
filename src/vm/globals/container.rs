@@ -98,7 +98,7 @@ impl<'a> VM<'a> {
 
     /* Entries of a mapping, or of an iterable of two-item iterables, as `dict()` takes them. */
     pub(crate) fn pairs_of(&mut self, src: Val) -> Result<Vec<(Val, Val)>, VmErr> {
-        if let Some(HeapObj::Dict(rc)) = self.heap.try_get(src) { return Ok(rc.borrow().iter().collect()); }
+        if let Some(HeapObj::Dict(rc)) = self.heap.try_get(src) { self.heap.spend(rc.borrow().len()); return Ok(rc.borrow().iter().collect()); }
         let mut pairs = Vec::new();
         for item in self.extract_iter(src)? {
             let item = self.extract_iter(item).map_err(|e| match e {

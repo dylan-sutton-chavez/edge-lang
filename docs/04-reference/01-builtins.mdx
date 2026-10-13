@@ -135,7 +135,7 @@ print(sum(x * x for x in range(5)))
 
 ### pow
 
-`pow(base, exp)` matches the `**` operator. `pow(base, exp, mod)` does modular exponentiation on integers.
+`pow(base, exp)` matches the `**` operator. `pow(base, exp, mod)` does modular exponentiation on integers, and a negative `exp` raises the inverse of `base` modulo `mod`.
 
 - The exponent must be non-negative, else `ValueError`.
 - The modulus must stay below 2^63 in absolute value, else `ValueError`.

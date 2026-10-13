@@ -7,33 +7,26 @@ description: "Sandbox limits, integer width, error types, and runtime guarantees
 
 ## Sandboxed execution
 
-Every execution is metered. There is no unmetered mode. The JS host and the CLI both run every script under these limits.
+Every execution is metered, builtins included, since a builtin that scans or copies pays the op budget for the items or bytes it reads. There is no unmetered mode. The JS host and the CLI both run every script under these limits.
 
 | Limit | Value | What hitting it raises |
 |---|---|---|
 | Max call depth | 256 | `RecursionError` |
+| Comparison depth of nested containers | 100 | `RecursionError` |
 | Max operations | 100,000,000 | `RuntimeError` |
 | Max memory | 256 MiB | `MemoryError` |
+
+Past the comparison depth `==`, `!=` and `in` raise, while dict and set keys and `list.index`, `count` and `remove` compare the deeper values by identity.
 
 Memory and operations can be raised in three places.
 
 - The `limits` option of `createWorker`, see [JavaScript](/docs/edge-python/platforms/javascript).
 - The `limits` of a group under `edge actor`, see [Actors](/docs/edge-python/platforms/actors).
-- The `--memory` and `--ops` flags of `edge run`, `edge test` and `edge repl`.
+- The `--memory` and `--ops` flags of `edge run` and `edge test`.
 
 The call depth stays fixed. It sits below the depth where the wasm stack of either host runs out.
 
-The memory limit counts what the program holds by one byte model, the same on every architecture.
-
-| Held item | Bytes |
-|---|---|
-| Each object | 224 |
-| Each value a list, tuple or attribute keeps | 8 |
-| Each dict entry | 56 |
-| Each set entry | 24 |
-| Each string | Its length in bytes |
-
-A number held in a container costs only its 8 bytes. Garbage is collected before the limit applies.
+The memory limit counts every byte the allocator hands the program while it runs, its objects along with the frames, caches and buffers the engine keeps for it. Nothing is estimated, though a 64-bit host counts wider pointers than `compiler.wasm` does. A number held in a container costs only its 8 bytes, so a list of numbers is far cheaper than an object per row. Garbage counts until a collection frees it, and a run that still holds more than the limit after one raises `MemoryError`. Programs sharing one wasm instance, like the actors of a pool, also share a budget of half its address space, 2 GB, and the one whose allocation passes it raises `MemoryError` while the others keep running.
 
 Only what the program still holds counts. A result too large for the limit, such as `'x' * 10**10`, raises before it is built.
 
@@ -93,7 +86,7 @@ These caps stop asymmetric inputs. Those are small sources that would produce hu
 | Source size | 10 MiB | `source file exceeds maximum size (10 MiB)` |
 | Indent depth | 100 | `indentation depth exceeds maximum (100)` |
 | F-string nesting depth | 200 | `f-string nesting depth exceeds maximum (200)` |
-| Expression nesting depth | 200 | `expression too deeply nested` |
+| Nesting depth of expressions, targets and patterns | 200 | `expression too deeply nested` |
 | Instructions, names, or constants per chunk | 65,535 | `program too large: exceeded the 65535 instruction, name, or constant limit` |
 | Call arguments | 255 positional, 255 keyword | `too many arguments in call (max 255 positional and 255 keyword)` |
 | Native imports per module | 256 | `too many native imports (max 256 per module)` |
@@ -107,7 +100,7 @@ The lexer checks the source size before it scans anything. [Compiler](/docs/edge
 
 Syntax and resolution errors are reported as diagnostics with byte offsets into the source.
 
-The CLI renders them with line, column, and a caret preview. They are caught before any code runs. `try` and `except` cannot catch them.
+They render with line, column, and a caret preview. A report shows the first 20 and then how many more there are. A long line shows only the 80 characters around its error, and a message quotes at most 40 characters of a token. They are caught before any code runs. `try` and `except` cannot catch them.
 
 | Diagnostic | Cause |
 |---|---|
@@ -119,10 +112,13 @@ The CLI renders them with line, column, and a caret preview. They are caught bef
 | `unterminated triple-quoted string literal` | Triple-quoted string hit the end of the source |
 | `unterminated f-string literal` | F-string text hit the end of the source |
 | `f-string was never closed` | An interpolation hit the end of the source before the f-string closed |
+| `f-string: single '}' is not allowed` | A lone `}` in f-string text, write `}}` for a brace |
 | `inconsistent indentation: mixing tabs and spaces` | Indent mixes both whitespace kinds |
 | `unindent does not match any outer indentation level` | Dedent lands between two outer levels |
 | `integer literal too large to represent (max ±2^127)` | Literal past the 128-bit cap |
 | `'break' outside loop` and `'continue' outside loop` | Misplaced control keyword |
+| `a compound statement must start its own line` | An `if`, `for`, `def` or other compound statement after the colon of another on the same line |
+| `'yield' inside a comprehension` | A `yield` in the element or clauses of a comprehension or generator expression |
 | `default 'except:' must be last` | Bare `except` not at the end |
 | `Generator expression must be parenthesized` | A bare generator expression beside another argument or before a trailing comma |
 | `'is' compares only with None, True, False, ... or NotImplemented` | `is` against any other operand, compare it with `==` |
@@ -155,8 +151,8 @@ Runtime errors raise as typed exceptions, catchable with `try` and `except`.
 | `TimeoutError` | `with_timeout` deadline expired |
 | `CancelledError` | Coroutine cancelled by `cancel()`. The cancelled coroutine cannot catch it |
 | `SystemExit` | `raise SystemExit(code)`. Uncaught, the host exits with that code |
-| `RecursionError` | Past the call-depth limit |
-| `MemoryError` | Past the memory limit of the byte model |
+| `RecursionError` | Past the call-depth limit, or a comparison nested deeper than 100 levels |
+| `MemoryError` | Past the memory limit |
 | `RuntimeError` | Past the op limit, an import cycle, `input()` without host data, or an internal invariant |
 
 These errors fire from ordinary code.

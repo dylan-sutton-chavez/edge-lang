@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 impl<'a> VM<'a> {
     /* `a == b`, the content compare first and the user dunders only where it cannot settle. */
     pub(crate) fn values_eq(&mut self, a: Val, b: Val, chunk: &SSAChunk) -> Result<bool, VmErr> {
-        match eq_checked(a, b, &self.heap) {
+        match eq_checked(a, b, &self.heap, 0) {
             Some(r) => Ok(r),
             None => self.with_roots([a, b], |vm| vm.rich_eq(a, b, chunk, 0)),
         }
@@ -21,7 +21,8 @@ impl<'a> VM<'a> {
     }
 
     fn rich_eq(&mut self, a: Val, b: Val, chunk: &SSAChunk, depth: usize) -> Result<bool, VmErr> {
-        if depth > EQ_DEPTH_MAX { return Ok(a.0 == b.0); }
+        // A distinct pair past the cap is a comparison too deep to finish.
+        if depth > EQ_DEPTH_MAX { return if a.0 == b.0 { Ok(true) } else { Err(cold_depth()) }; }
         let inst = |vm: &Self, v: Val| matches!(vm.heap.try_get(v), Some(HeapObj::Instance(..)));
         if inst(self, a) || inst(self, b) {
             return Ok(match self.try_compare_dunder(OpCode::Eq, a, b, chunk)? { Some(r) => self.truthy(r), None => a.0 == b.0 });
@@ -64,7 +65,7 @@ impl<'a> VM<'a> {
 
     fn member_eq_d(&mut self, a: Val, b: Val, chunk: &SSAChunk, depth: usize) -> Result<bool, VmErr> {
         if a.0 == b.0 { return Ok(true); }
-        match eq_checked(a, b, &self.heap) { Some(r) => Ok(r), None => self.rich_eq(a, b, chunk, depth) }
+        match eq_checked(a, b, &self.heap, depth) { Some(r) => Ok(r), None => self.rich_eq(a, b, chunk, depth) }
     }
 
     /* `a < b`, sequences holding instances compare their items through the user dunders. */
@@ -116,7 +117,7 @@ impl<'a> VM<'a> {
             _ => self.iterable_items(src, chunk)?,
         };
         for &v in items.iter().filter(|v| v.is_heap()) { self.require_hashable(v)?; }
-        if let Some(HeapObj::Set(rc)) = self.heap.try_get(acc) { self.heap.growing(&mut *rc.borrow_mut(), |s| for v in items { s.insert(v, &self.heap); }); }
+        if let Some(HeapObj::Set(rc)) = self.heap.try_get(acc) { let mut s = rc.borrow_mut(); for v in items { s.insert(v, &self.heap); } }
         Ok(())
     }
 
@@ -126,7 +127,7 @@ impl<'a> VM<'a> {
             Some(HeapObj::Dict(rc)) => rc.borrow().iter().collect(),
             _ => return Err(cold_type("argument after ** must be a mapping")),
         };
-        if let Some(HeapObj::Dict(rc)) = self.heap.try_get(acc) { self.heap.growing(&mut *rc.borrow_mut(), |d| for (k, v) in entries { d.insert(k, v, &self.heap); }); }
+        if let Some(HeapObj::Dict(rc)) = self.heap.try_get(acc) { let mut d = rc.borrow_mut(); for (k, v) in entries { d.insert(k, v, &self.heap); } }
         Ok(())
     }
 }

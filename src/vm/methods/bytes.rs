@@ -3,7 +3,7 @@ use crate::vm::opcodes::subscript::slice_bounds;
 
 // `bytes.decode([encoding[, errors]])`. 'strict' raises on invalid UTF-8, 'ignore'/'replace' recover.
 pub fn decode(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
-    let buf = recv_bytes(vm, recv)?;
+    let buf = recv_bytes_ref(vm, recv)?;
     if let Some(arg) = pos.first() {
         let enc = val_to_str(vm, *arg)?;
         if !matches!(enc.as_str(), "utf-8" | "utf8" | "ascii") {
@@ -15,10 +15,10 @@ pub fn decode(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
         None => alloc::string::String::from("strict"),
     };
     let text = match errors.as_str() {
-        "strict" => alloc::string::String::from_utf8(buf)
-            .map_err(|_| VmErr::Raised("UnicodeDecodeError: invalid UTF-8 in bytes.decode()".into()))?,
-        "ignore" => decode_recover(&buf, false),
-        "replace" => decode_recover(&buf, true),
+        "strict" => core::str::from_utf8(buf)
+            .map_err(|_| VmErr::Raised("UnicodeDecodeError: invalid UTF-8 in bytes.decode()".into()))?.to_string(),
+        "ignore" => decode_recover(buf, false),
+        "replace" => decode_recover(buf, true),
         _ => return Err(cold_value("unknown error handler (expected 'strict', 'ignore', or 'replace')")),
     };
     let v = vm.heap.alloc(HeapObj::Str(text))?;
@@ -48,10 +48,10 @@ fn decode_recover(buf: &[u8], replace: bool) -> alloc::string::String {
 
 // `bytes.hex()`, lowercase hex of every byte. No separator.
 pub fn hex(vm: &mut VM, recv: Val, _pos: &[Val]) -> Result<(), VmErr> {
-    let buf = recv_bytes(vm, recv)?;
+    let buf = recv_bytes_ref(vm, recv)?;
     let mut out = alloc::string::String::with_capacity(buf.len() * 2);
     const HEX: &[u8; 16] = b"0123456789abcdef";
-    for &b in &buf {
+    for &b in buf {
         out.push(HEX[(b >> 4) as usize] as char);
         out.push(HEX[(b & 0x0F) as usize] as char);
     }
@@ -61,16 +61,14 @@ pub fn hex(vm: &mut VM, recv: Val, _pos: &[Val]) -> Result<(), VmErr> {
 
 // bytes-only, strings go through `string::startswith`.
 pub fn startswith(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
-    let buf = recv_bytes(vm, recv)?;
-    let prefix = recv_bytes(vm, pos[0])?;
-    vm.push(Val::bool(buf.starts_with(&prefix)));
+    let starts = recv_bytes_ref(vm, recv)?.starts_with(recv_bytes_ref(vm, pos[0])?);
+    vm.push(Val::bool(starts));
     Ok(())
 }
 
 pub fn endswith(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
-    let buf = recv_bytes(vm, recv)?;
-    let suffix = recv_bytes(vm, pos[0])?;
-    vm.push(Val::bool(buf.ends_with(&suffix)));
+    let ends = recv_bytes_ref(vm, recv)?.ends_with(recv_bytes_ref(vm, pos[0])?);
+    vm.push(Val::bool(ends));
     Ok(())
 }
 
@@ -110,27 +108,28 @@ pub fn upper(vm: &mut VM, recv: Val, _pos: &[Val]) -> Result<(), VmErr> {
 
 // bytes strip, ASCII whitespace, or any byte in the optional argument.
 fn bstrip(vm: &mut VM, recv: Val, pos: &[Val], left: bool, right: bool) -> Result<(), VmErr> {
-    let buf = recv_bytes(vm, recv)?;
-    let chars = match pos.first() { Some(&a) => Some(recv_bytes(vm, a)?), None => None };
+    let buf = recv_bytes_ref(vm, recv)?;
+    let chars = match pos.first() { Some(&a) => Some(recv_bytes_ref(vm, a)?), None => None };
     // Python's bytes whitespace set includes the vertical tab (0x0b), which Rust omits.
     let strip = |b: u8| -> bool { match &chars { Some(set) => set.contains(&b), None => b.is_ascii_whitespace() || b == 0x0b } };
     let mut s = 0usize;
     let mut e = buf.len();
     if left { while s < e && strip(buf[s]) { s += 1; } }
     if right { while e > s && strip(buf[e - 1]) { e -= 1; } }
-    let v = vm.heap.alloc(HeapObj::Bytes(buf[s..e].to_vec()))?; vm.push(v); Ok(())
+    let out = buf[s..e].to_vec();
+    let v = vm.heap.alloc(HeapObj::Bytes(out))?; vm.push(v); Ok(())
 }
 pub fn strip(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { bstrip(vm, recv, pos, true, true) }
 pub fn lstrip(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { bstrip(vm, recv, pos, true, false) }
 pub fn rstrip(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { bstrip(vm, recv, pos, false, true) }
 
 pub fn join(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
-    let sep = recv_bytes(vm, recv)?;
     let items = vm.extract_iter(pos[0]).map_err(|e| if matches!(e, VmErr::TypeMsg(_)) { cold_type("can only join an iterable of bytes") } else { e })?;
+    let sep = recv_bytes_ref(vm, recv)?;
     let mut out: Vec<u8> = Vec::new();
     for (i, it) in items.iter().enumerate() {
-        if i > 0 { out.extend_from_slice(&sep); }
-        out.extend_from_slice(&recv_bytes(vm, *it)?);
+        if i > 0 { out.extend_from_slice(sep); }
+        out.extend_from_slice(recv_bytes_ref(vm, *it)?);
     }
     let v = vm.heap.alloc(HeapObj::Bytes(out))?; vm.push(v); Ok(())
 }
@@ -149,10 +148,9 @@ fn window(buf: &[u8], pos: &[Val]) -> Result<(usize, usize), VmErr> {
 }
 
 fn find_impl(vm: &mut VM, recv: Val, pos: &[Val], raise: bool) -> Result<(), VmErr> {
-    let buf = recv_bytes(vm, recv)?;
-    let sub = recv_bytes(vm, pos[0])?;
-    let (s, e) = window(&buf, pos)?;
-    let idx = match find_from(&buf[..e], &sub, s) {
+    let (buf, sub) = (recv_bytes_ref(vm, recv)?, recv_bytes_ref(vm, pos[0])?);
+    let (s, e) = window(buf, pos)?;
+    let idx = match find_from(&buf[..e], sub, s) {
         Some(i) => i as i64,
         None if raise => return Err(cold_value("subsection not found")),
         None => -1,
@@ -162,13 +160,12 @@ fn find_impl(vm: &mut VM, recv: Val, pos: &[Val], raise: bool) -> Result<(), VmE
 }
 
 pub fn count(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
-    let buf = recv_bytes(vm, recv)?;
-    let sub = recv_bytes(vm, pos[0])?;
-    let (s, e) = window(&buf, pos)?;
+    let (buf, sub) = (recv_bytes_ref(vm, recv)?, recv_bytes_ref(vm, pos[0])?);
+    let (s, e) = window(buf, pos)?;
     let hay = &buf[s..e];
     let n = if sub.is_empty() { hay.len() + 1 } else {
         let (mut n, mut i) = (0, 0);
-        while let Some(j) = find_from(hay, &sub, i) { n += 1; i = j + sub.len(); }
+        while let Some(j) = find_from(hay, sub, i) { n += 1; i = j + sub.len(); }
         n
     };
     vm.push(Val::int(n as i64));
@@ -177,14 +174,12 @@ pub fn count(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
 
 // `bytes.replace(old, new[, count])`, a result past the memory limit fails before it allocates.
 pub fn replace(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
-    let buf = recv_bytes(vm, recv)?;
-    let old = recv_bytes(vm, pos[0])?;
-    let new = recv_bytes(vm, pos[1])?;
+    let (buf, old, new) = (recv_bytes_ref(vm, recv)?, recv_bytes_ref(vm, pos[0])?, recv_bytes_ref(vm, pos[1])?);
     let max = match pos.get(2) { Some(n) if n.is_int() && n.as_int() >= 0 => n.as_int() as usize, _ => usize::MAX };
     let mut hits = Vec::new();
     let mut i = 0;
     // An empty `old` matches before every byte and once at the end.
-    while hits.len() < max && let Some(j) = find_from(&buf, &old, i) {
+    while hits.len() < max && let Some(j) = find_from(buf, old, i) {
         hits.push(j);
         i = j + old.len().max(1);
     }
@@ -195,7 +190,7 @@ pub fn replace(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
     let mut at = 0;
     for j in hits {
         out.extend_from_slice(&buf[at..j]);
-        out.extend_from_slice(&new);
+        out.extend_from_slice(new);
         at = j + old.len();
     }
     out.extend_from_slice(&buf[at..]);
@@ -205,15 +200,15 @@ pub fn replace(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
 
 // `bytes.split([sep[, maxsplit]])`, no separator splits on runs of ASCII whitespace.
 pub fn split(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
-    let buf = recv_bytes(vm, recv)?;
+    let buf = recv_bytes_ref(vm, recv)?;
     let max = match pos.get(1) { Some(n) if n.is_int() && n.as_int() >= 0 => n.as_int() as usize, _ => usize::MAX };
     let mut pieces: Vec<&[u8]> = Vec::new();
     match pos.first().filter(|v| !v.is_none()) {
         Some(&sep) => {
-            let sep = recv_bytes(vm, sep)?;
+            let sep = recv_bytes_ref(vm, sep)?;
             if sep.is_empty() { return Err(cold_value("empty separator")); }
             let mut at = 0;
-            while pieces.len() < max && let Some(j) = find_from(&buf, &sep, at) {
+            while pieces.len() < max && let Some(j) = find_from(buf, sep, at) {
                 pieces.push(&buf[at..j]);
                 at = j + sep.len();
             }
@@ -230,7 +225,8 @@ pub fn split(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
             }
         }
     }
-    let mut parts = Vec::with_capacity(pieces.len());
-    for p in pieces { parts.push(vm.heap.alloc(HeapObj::Bytes(p.to_vec()))?); }
+    let owned: Vec<Vec<u8>> = pieces.into_iter().map(<[u8]>::to_vec).collect();
+    let mut parts = Vec::with_capacity(owned.len());
+    for p in owned { parts.push(vm.heap.alloc(HeapObj::Bytes(p))?); }
     vm.alloc_and_push_list(parts)
 }

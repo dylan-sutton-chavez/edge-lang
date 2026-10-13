@@ -48,7 +48,7 @@ impl<'a> VM<'a> {
         let t = self.heap.alloc(HeapObj::Tuple(vec![c.cause, at_val(c.cause_at), c.context, at_val(c.context_at), Val::bool(c.suppress)]))?;
         if let Some(HeapObj::ExcInstance(_, _, slot)) = self.heap.try_get_mut(e) { *slot = t; return Ok(()); }
         let key = self.heap.intern_str(CHAIN_KEY)?;
-        if let Some(HeapObj::Instance(_, attrs)) = self.heap.try_get(e) { self.heap.growing(&mut *attrs.borrow_mut(), |a| a.insert(key, t, &self.heap)); }
+        if let Some(HeapObj::Instance(_, attrs)) = self.heap.try_get(e) { attrs.borrow_mut().insert(key, t, &self.heap); }
         Ok(())
     }
 

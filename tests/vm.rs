@@ -142,11 +142,6 @@ mod test {
                     None => failures.push(format!("RAISED {:?}: {}", case.src, e)),
                 }
             }
-            // With memcheck, the running memory count must equal a recount at each collection and the end.
-            #[cfg(feature = "memcheck")]
-            if let Some((counted, recounted)) = vm.memory_drift() {
-                failures.push(format!("MEMORY {:?}\n   counted {counted}, recounted {recounted}", case.src));
-            }
         }
         if !failures.is_empty() {
             let shown = failures.len().min(80);
@@ -396,6 +391,35 @@ mod test {
             assert_eq!(out, vec!["caught"]);
             let tb = tb.expect("the later ZeroDivisionError escapes");
             assert!(tb.contains("--> main.py:8:1"), "{tb}");
+        }
+    }
+    // Builtins that scan or copy pay the op budget for what they read, so looping one cannot outrun it.
+    #[test]
+    fn native_work_pays_the_budget() {
+        use compiler::vm::types::Limits;
+        for src in [
+            "s = 'ab' * 5000\nfor i in range(1000):\n    n = s.count('b')",
+            "l = list(range(10000))\nfor i in range(1000):\n    t = -1 in l",
+            "a = [list(range(10000))]\nb = [list(range(10000))]\nfor i in range(1000):\n    t = a == b",
+            "a = 'x' * 10000\nb = 'x' * 10000\nfor i in range(1000):\n    t = a == b",
+            "l = list(range(10000))\nfor i in range(1000):\n    t = sum(l)",
+            "d = dict.fromkeys(range(10000))\nfor i in range(1000):\n    e = d.copy()",
+            "k = 'x' * 10000\nd = {}\nfor i in range(1000):\n    d[k] = i",
+            "s = 'x'\nfor i in range(1000):\n    t = s.rjust(10000)",
+            "l = list(range(10000))\nfor i in range(1000):\n    l.insert(0, i)\n    l.pop(0)",
+        ] {
+            let (tokens, _) = lex(src);
+            let (chunk, _) = Parser::new(src, tokens.into_iter()).parse();
+            let mut vm = VM::with_limits(&chunk, Limits { ops: 200_000, ..Limits::sandbox() });
+            assert!(matches!(vm.run(), Err(VmErr::Budget)), "{src}");
+        }
+        // The same work written without a loop pays line by line.
+        for (setup, line) in [("s = 'ab' * 5000", "n = s.count('b')"), ("a = 'x' * 10000\nb = 'x' * 10000", "t = a == b"), ("l = list(range(10000))", "t = -1 in l"), ("k = 'x' * 10000\nd = {}", "d[k] = 1")] {
+            let src = format!("{setup}\n{}", format!("{line}\n").repeat(1000));
+            let (tokens, _) = lex(&src);
+            let (chunk, _) = Parser::new(&src, tokens.into_iter()).parse();
+            let mut vm = VM::with_limits(&chunk, Limits { ops: 200_000, ..Limits::sandbox() });
+            assert!(matches!(vm.run(), Err(VmErr::Budget)), "{line}");
         }
     }
 }

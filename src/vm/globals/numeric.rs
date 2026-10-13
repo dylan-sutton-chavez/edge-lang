@@ -4,7 +4,7 @@ use super::super::VM;
 use super::super::types::*;
 
 /* Convert a float to i128 for int()/round(), NaN and infinity raise, and the value is rejected before the saturating cast overflows. `transform` truncates or rounds. */
-fn finite_f64_to_i128(f: f64, transform: impl Fn(f64) -> f64) -> Result<i128, VmErr> {
+pub(crate) fn finite_f64_to_i128(f: f64, transform: impl Fn(f64) -> f64) -> Result<i128, VmErr> {
     if f.is_nan() { return Err(cold_value("cannot convert float NaN to integer")); }
     if f.is_infinite() { return Err(VmErr::Raised(String::from("OverflowError: cannot convert float infinity to integer"))); }
     let v = transform(f);
@@ -37,11 +37,34 @@ fn i128_to_radix(n: i128, radix: u32, prefix: &str) -> String {
     s
 }
 
+/* A compensated sum, its compensation added only when nonzero and finite, so overflow stays infinite. */
+fn settle((sum, comp): (f64, f64)) -> f64 { if comp != 0.0 && comp.is_finite() { sum + comp } else { sum } }
+
 /* One Neumaier (improved Kahan) compensated-summation step returning (sum, comp). */
 fn neumaier(sum: f64, comp: f64, x: f64) -> (f64, f64) {
     let t = sum + x;
     let c = if libm::fabs(sum) >= libm::fabs(x) { (sum - t) + x } else { (x - t) + sum };
     (t, comp + c)
+}
+
+/* `x` rounded half to even to a multiple of 10^k, reading every digit `{:.0}` prints. */
+fn round_float_tens(x: f64, k: usize) -> f64 {
+    let t = libm::trunc(x);
+    let mut d = alloc::format!("{:0>w$.0}", libm::fabs(t), w = k + 1).into_bytes();
+    let cut = d.len() - k;
+    let up = match d[cut..].cmp(alloc::format!("5{:0<w$}", "", w = k - 1).as_bytes()) {
+        core::cmp::Ordering::Greater => true,
+        core::cmp::Ordering::Less => false,
+        core::cmp::Ordering::Equal => x != t || d[cut - 1] % 2 == 1,
+    };
+    d.truncate(cut);
+    if up {
+        let carried = d.iter().rposition(|&c| c != b'9').map_or(0, |i| { d[i] += 1; i + 1 });
+        d[carried..].fill(b'0');
+        if carried == 0 { d.insert(0, b'1'); }
+    }
+    let r = core::str::from_utf8(&d).ok().and_then(|h| alloc::format!("{h}e{k}").parse().ok()).unwrap_or(0.0);
+    libm::copysign(r, x)
 }
 
 // Rounds an integer to -k decimal digits using banker's rounding, matching Python.
@@ -214,8 +237,8 @@ impl<'a> VM<'a> {
 
     pub fn call_chr(&mut self) -> Result<(), VmErr> {
         let o = self.pop()?;
-        if !o.is_int() { return Err(cold_type("chr() requires an integer")); }
-        let c = char::from_u32(o.as_int() as u32).ok_or_else(|| cold_value("chr() arg out of range"))?;
+        let i = self.as_i128(o).ok_or_else(|| cold_type("chr() requires an integer"))?;
+        let c = u32::try_from(i).ok().and_then(char::from_u32).ok_or_else(|| cold_value("chr() arg out of range"))?;
         let mut s = String::with_capacity(4);
         s.push(c);
         self.alloc_and_push_str(s)
@@ -251,8 +274,9 @@ impl<'a> VM<'a> {
                     let s = alloc::format!("{:.*}", (nd as usize).min(323), x);
                     Val::float(s.parse().unwrap_or(x))
                 } else {
-                    let factor = fpowi(10.0, (-nd) as i32);
-                    Val::float(fround(x / factor) * factor)
+                    let r = round_float_tens(x, nd.unsigned_abs().min(309) as usize);
+                    if r.is_infinite() { return Err(VmErr::Raised(String::from("OverflowError: rounded value too large to represent"))); }
+                    Val::float(r)
                 }
             }
             (Some(o), None) if o.is_float() => {
@@ -324,11 +348,12 @@ impl<'a> VM<'a> {
         // Once a float enters, switch to Neumaier compensated summation (Python 3.12+).
         let mut fstate: Option<(f64, f64)> = if start.is_float() { Some((start.as_float(), 0.0)) } else { None };
         while let Some(item) = cur.next_item(&mut self.heap)? {
+            self.charge_step()?;
             match fstate {
                 Some((s, c)) => match self.to_f64_coerce(item) {
                     Ok(x) => fstate = Some(neumaier(s, c, x)),
                     // Non-numeric after floats, let add_vals raise the proper TypeError.
-                    Err(_) => { acc = self.add_vals(Val::float(s + c), item)?; fstate = None; }
+                    Err(_) => { acc = self.add_vals(Val::float(settle((s, c))), item)?; fstate = None; }
                 },
                 None if (item.is_float() || acc.is_float())
                     && self.to_f64_coerce(acc).is_ok() && self.to_f64_coerce(item).is_ok() => {
@@ -339,7 +364,7 @@ impl<'a> VM<'a> {
                 None => { acc = self.add_vals(acc, item)?; }
             }
         }
-        let result = match fstate { Some((s, c)) => Val::float(s + c), None => acc };
+        let result = match fstate { Some(state) => Val::float(settle(state)), None => acc };
         self.push(result); Ok(())
     }
 
@@ -397,8 +422,7 @@ impl<'a> VM<'a> {
                 let (Some(base), Some(modulus)) = (self.as_i128(args[0]), self.as_i128(args[2]))
                 else { return Err(cold_type("pow() with 3 args requires integers")); };
                 let exp = self.as_i128(args[1]).ok_or_else(|| cold_type("pow() with 3 args requires integer exponent"))?;
-                if exp < 0 { return Err(cold_value("pow() exponent must be non-negative")); }
-                if modulus == 0 { return Err(VmErr::ZeroDiv); }
+                if modulus == 0 { return Err(cold_value("pow() 3rd argument cannot be 0")); }
 
                 let m = modulus.unsigned_abs();
                 // Cap |m| < 2^63 so m*m fits in i128, larger moduli would overflow silently.
@@ -407,7 +431,14 @@ impl<'a> VM<'a> {
                 // Seed with 1 % m so pow(x, 0, 1) yields 0, not 1.
                 let mut result = 1i128.rem_euclid(m);
                 let mut b = base.rem_euclid(m);
-                let mut e = exp;
+                // A negative exponent raises the inverse of the base, which needs it coprime to the modulus.
+                if exp < 0 {
+                    let (mut r, mut r1, mut t, mut t1) = (m, b, 0i128, 1i128);
+                    while r1 != 0 { let q = r / r1; (r, r1, t, t1) = (r1, r - q * r1, t1, t - q * t1); }
+                    if r != 1 { return Err(cold_value("base is not invertible for the given modulus")); }
+                    b = t.rem_euclid(m);
+                }
+                let mut e = exp.unsigned_abs();
                 while e > 0 {
                     if e & 1 == 1 {
                         result = (result * b).rem_euclid(m);
@@ -452,12 +483,14 @@ impl<'a> VM<'a> {
             let r = match ai {
                 1 => 1.0,
                 -1 => if exp % 2 == 0 { 1.0 } else { -1.0 },
-                _ => fpowi(ai as f64, exp.clamp(i32::MIN as i64, -1) as i32),
+                _ => libm::pow(ai as f64, exp as f64),
             };
             return Ok(Val::float(r));
         }
         let (Some(fa), Some(fb)) = (num_as_f64(a, &self.heap), num_as_f64(b, &self.heap)) else { return Err(cold_type(err_msg)); };
         if fa == 0.0 && fb < 0.0 { return Err(VmErr::Raised(String::from("ZeroDivisionError: 0.0 cannot be raised to a negative power"))); }
-        Ok(Val::float(fpowf(fa, fb)))
+        // Without a complex type, a negative base under a fractional power has no real result.
+        if crate::value::math::complex_power(fa, fb) { return Err(cold_value("negative number cannot be raised to a fractional power")); }
+        fpowf(fa, fb).map(Val::float).ok_or_else(|| VmErr::Raised(String::from("OverflowError: (34, 'Numerical result out of range')")))
     }
 }

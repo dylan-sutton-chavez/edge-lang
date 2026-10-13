@@ -125,7 +125,7 @@ impl<'a> VM<'a> {
     /* A builtin method call, `sort`, `str.format` and user iterables run user code so they take the frame here. */
     pub(crate) fn exec_bound_method(&mut self, recv: Val, id: crate::vm::methods::BuiltinMethodId, pos: &[Val], kw: &[Val], chunk: &SSAChunk) -> Result<(), VmErr> {
         use crate::vm::methods::MethodKind;
-        match id.kind() {
+        let done = match id.kind() {
             MethodKind::Sort => self.exec_sort(recv, pos, kw, chunk),
             MethodKind::Format if kw.is_empty() => crate::vm::methods::string::format(self, recv, pos, chunk),
             MethodKind::Search if id.ty() == "list" && kw.is_empty() => {
@@ -145,7 +145,9 @@ impl<'a> VM<'a> {
                 })
             }
             _ => crate::vm::methods::dispatch_method(self, id, recv, pos, kw),
-        }
+        };
+        done?;
+        self.pay_work()
     }
 
 
@@ -807,7 +809,7 @@ impl<'a> VM<'a> {
         } else { argc };
         if iterates(id) { self.lift_builtin_args(id, argc as usize, kw_remaining.len() / 2, chunk)?; }
         match id {
-            Sorted => self.call_sorted_with_key(sort_key, sort_reverse, chunk),
+            Sorted => { self.call_sorted_with_key(sort_key, sort_reverse, chunk)?; self.pay_work() }
             // CallPrint is statement-shaped, reached through Call its result is popped, so it leaves None.
             Print => { self.run_native(id, operand, chunk)?; self.push(Val::none()); Ok(()) }
             _ => self.run_native(id, operand, chunk),
@@ -817,7 +819,7 @@ impl<'a> VM<'a> {
     /* Runs a builtin on stacked args, `operand` a count or packed counts for keyword-aware ones. */
     fn run_native(&mut self, id: super::super::types::NativeFnId, operand: u16, chunk: &SSAChunk) -> Result<(), VmErr> {
         use super::super::types::NativeFnId::*;
-        match id {
+        let done = match id {
             // Variadic
             Print => { self.mark_impure(); self.call_print(operand, chunk) }
             Range => self.call_range(operand),
@@ -884,6 +886,8 @@ impl<'a> VM<'a> {
             Property => self.call_property(operand),
             StaticMethod => self.call_staticmethod(operand),
             ClassMethod => self.call_classmethod(operand),
-        }
+        };
+        done?;
+        self.pay_work()
     }
 }

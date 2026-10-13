@@ -150,7 +150,7 @@ groups:
     retry: 2           # three attempts, then the message is dropped dead
 ```
 
-The actors of a group share a few wasm instances. A fault in the engine itself retires every actor of the instance it hit the same way. Their queued messages move on to other actors.
+The actors of a group share a few wasm instances, and the actors of one instance share a budget of half its address space, 2 GB. The actor whose allocation passes it raises `MemoryError` while the others keep running. A fault in the engine itself retires every actor of the instance it hit the same way, and their queued messages move on to other actors.
 
 ## Untrusted code
 
@@ -164,7 +164,7 @@ groups:
 
 | Guard | Rule |
 |---|---|
-| Memory | The `memory` limit of the group inside the interpreter. Outside it, twice that limit plus 64 MiB, room for garbage and the engine. |
+| Memory | The `memory` limit of the group inside the interpreter. Outside it, three times that limit plus 64 MiB, room for garbage, a container that doubles and the engine. |
 | Time | A deadline the host enforces from outside the instance ends the run after `timeout` seconds of wall-clock time, waits included, even inside a long native operation. |
 | State | Nothing survives between messages. The instance is dropped when the run ends. |
 | Modules | `.wasm` plugins are refused. Remote modules load only from `https://cdn.edgepython.com/`. Nothing loads from disk. |

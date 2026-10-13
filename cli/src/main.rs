@@ -33,7 +33,6 @@ Commands
   build              Pack a portable .edge  (--app, --web)
   actor <file>       Run an actor pool from actor.yml
   serve              Dev server with live reload
-  repl               Interactive shell
   test [path]        Run *_test.py files  (--web)
   init <name>        Scaffold a new project
   publish <file>     Send a packed .edge to the registry
@@ -82,11 +81,6 @@ enum Cmd {
         /// Run on the browser host in headless Chrome instead of the native engine.
         #[arg(long)]
         web: bool,
-        #[command(flatten)]
-        limits: host::RunLimits,
-    },
-    /// Interactive shell. Ctrl+C, Ctrl+D, or .exit to quit.
-    Repl {
         #[command(flatten)]
         limits: host::RunLimits,
     },
@@ -185,7 +179,7 @@ fn main() {
     let manifest_path = cli.manifest.clone().unwrap_or_else(|| PathBuf::from("edge.json"));
 
     // Every command that compiles the project reads what engine it asks for first, so an old binary says so.
-    let compiles = matches!(cli.cmd, Cmd::Run { .. } | Cmd::Test { .. } | Cmd::Build { .. } | Cmd::Repl { .. } | Cmd::Actor { .. });
+    let compiles = matches!(cli.cmd, Cmd::Run { .. } | Cmd::Test { .. } | Cmd::Build { .. } | Cmd::Actor { .. });
     let checked = || -> Result<()> {
         manifest::Manifest::check_engine(&manifest_path)?;
         // The tree is held to what edge lock checked, so a later edit cannot slip past.
@@ -197,7 +191,7 @@ fn main() {
         ui::error(&e);
         std::process::exit(1);
     }
-    if let Cmd::Run { limits, .. } | Cmd::Test { limits, .. } | Cmd::Repl { limits } = &cli.cmd {
+    if let Cmd::Run { limits, .. } | Cmd::Test { limits, .. } = &cli.cmd {
         limits.set();
     }
 
@@ -229,7 +223,6 @@ fn main() {
                 }
             })
         }
-        Cmd::Repl { .. } => cmd::repl::run(cli.manifest.as_deref()),
         Cmd::Build { out, web, app } => {
             if web {
                 cmd::build::run(&manifest_path, out.unwrap_or_else(|| PathBuf::from("dist")))

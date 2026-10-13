@@ -23,8 +23,6 @@ serde_json = "1"
 # Parses the actor.yml manifest, the maintained fork of serde_yaml.
 serde_yaml_ng = "0.10"
 anyhow = "1"
-# Line editor + history for `edge repl`.
-rustyline = "17.0.0"
 # HTTPS for URL imports and `edge build` vendoring.
 ureq = { version = "3", features = ["brotli"] }
 # Signs a publish with the token secret, on the ring and base64 ureq already brings.

@@ -198,8 +198,12 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         if group { self.sub_pattern(inner, subj, fail_jumps); } else { self.sequence_items(inner, subj, fail_jumps); }
     }
 
-    /* One buffered pattern against `subj`, an `as` capture, an OR, a nested sequence, a wildcard, a capture, or a literal. */
     fn sub_pattern(&mut self, toks: &[crate::lexer::Token], subj: u16, fail_jumps: &mut Vec<usize>) {
+        self.nested(|s| s.one_pattern(toks, subj, fail_jumps));
+    }
+
+    /* One buffered pattern against `subj`, an `as` capture, an OR, a nested sequence, a wildcard, a capture, or a literal. */
+    fn one_pattern(&mut self, toks: &[crate::lexer::Token], subj: u16, fail_jumps: &mut Vec<usize>) {
         // `p as name` binds the subject once `p`, OR included, matched.
         if let Some(&at) = depth0(toks, TokenType::As).last() {
             let [t] = &toks[at + 1..] else { return self.error_at(toks[at].start, toks.last().unwrap().end, "invalid pattern target") };

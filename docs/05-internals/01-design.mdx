@@ -18,7 +18,7 @@ The shipped `compiler.wasm` is about 250 KB served as brotli, 722 KB raw. It bui
 
 - The core is about 25,000 lines of Rust.
 - Production dependencies are `hashbrown`, `itoa` and `libm`, plus the in-repo `wasm-abi` crate. SHA-256 is implemented in-tree.
-- The WASM build adds `dlmalloc` as the global allocator. Allocation cost stays flat as live blocks grow.
+- The WASM build adds `dlmalloc` as the global allocator, behind a pool that reuses freed small blocks. Allocation cost stays flat as live blocks grow.
 
 This page covers the parts that span the pipeline. Tokens, parsing and bytecode emission live in [Compiler](/docs/edge-python/internals/compiler).
 
@@ -26,7 +26,7 @@ This page covers the parts that span the pipeline. Tokens, parsing and bytecode 
 
 - **Register dispatch.** Each chunk lowers to instructions that name frame slots directly. The hot loop is a flat `match` that Rust lowers to a jump table. Opcodes without a register form run as stack opcodes.
 - **One register stack.** Every running frame is a window of one stack, from its base to the next frame. A call opens its callee on top, and an error builds the traceback frames only as it unwinds.
-- **Inline tag checks and caches.** Register arithmetic and comparisons test the NaN-box tags of both operands inline and take the generic handler for any other type. Attribute loads, stores, method calls and operator dunders cache the field index, method or builtin they last resolved. A class change invalidates them. Caching is per instruction. Each monomorphic site stabilises on its own.
+- **Inline tag checks and caches.** Register arithmetic and comparisons test the NaN-box tags of both operands inline and take the generic handler for any other type. Attribute loads, stores, method calls and operator dunders cache the field index, method or builtin they last resolved. A class change or a collection invalidates them, while a field load checks that the entry still holds its name and its hash. Caching is per instruction. Each monomorphic site stabilises on its own.
 - **Template memoisation.** A pure user function caches `args -> result`. The rules are in [Template memoisation](#template-memoisation).
 - **Static scopes.** The names of each function resolve once before anything runs. A name an enclosing function binds becomes a shared `HeapObj::Cell`. The cell is wrapped when that function is called and captured by the definition. Closures observe the `nonlocal` writes of each other. Every other free name reads the binding table of its module by a fixed index. The builtins answer while that binding is unbound.
 - **NaN-boxed values.** `Val` is a 64-bit union. It holds 48-bit signed ints inline, IEEE-754 floats, bools, None, an undef sentinel, and 28-bit heap indices. See [Memory model](#memory-model).
@@ -111,13 +111,13 @@ An inline value has no address, so two equal numbers are one value. That is why 
 
 A NaN payload could read as a tagged value, so every NaN is stored as `0x7FF8...` with its sign kept, and two NaNs are one value. A container matches by identity before `==`, so a list holding a NaN contains any other and a set keeps one, as `SameValueZero` does in JavaScript. `n == n` stays `False`.
 
-The heap counts what it holds against the memory limit of the run, see [Sandboxed execution](/docs/edge-python/reference/limits-and-errors#sandboxed-execution).
+The allocator counts what each run holds against its memory limit, with a tag on every block naming the run that paid for it, see [Sandboxed execution](/docs/edge-python/reference/limits-and-errors#sandboxed-execution).
 
 The main `HeapObj` variants are `Str`, `Bytes`, `LongInt`, `List`, `Dict` (insertion-ordered), `Set`, `FrozenSet`, `Tuple`, `Func`, `Range`, `Slice`, `Type`, `ExcInstance`, `BoundMethod`, `NativeFn`, `Class`, `Instance`, `BoundUserMethod`, `Super`, `Property`, `StaticMethod`, `ClassMethod`, `Coroutine`, `Module`, `Iter`, `DictView`, `Cell`, and `Extern`.
 
 ## Garbage collection
 
-Collection triggers when `live >= gc_threshold` or `alloc_count >= max(live / 4, alloc_limit)`. After each sweep the thresholds reset, with `marked` the values the last mark visited.
+Collection triggers when `live >= gc_threshold`, when `alloc_count >= max(live / 4, alloc_limit)`, or when the run holds more than its memory limit. After each sweep the thresholds reset, with `marked` the values the last mark visited.
 
 ```text
 gc_threshold = max(live * 2, 512, marked / 4)

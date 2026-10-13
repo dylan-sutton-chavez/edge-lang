@@ -6,6 +6,10 @@ use compiler::vm::snapshot;
 use compiler::vm::types::{SchedulerStatus, VmErr};
 use compiler::vm::{Limits, VM};
 
+// Every run meters what it allocates, as compiler.wasm does.
+#[global_allocator]
+static METERED: compiler::value::meter::Metered<std::alloc::System> = compiler::value::meter::Metered(std::alloc::System);
+
 // Tight so fuzzed loops preempt and unwind.
 const PREEMPT_EVERY: usize = 7;
 // Caps wake-ups so receive loops terminate.
