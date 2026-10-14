@@ -588,7 +588,7 @@ impl<'a> VM<'a> {
     /* list.sort() parses key/reverse kwargs and sorts in place. Intercepted from both call paths since it needs the chunk for __lt__. */
     pub(crate) fn exec_sort(&mut self, recv: Val, positional: &[Val], kw_flat: &[Val], chunk: &SSAChunk) -> Result<(), VmErr> {
         if !positional.is_empty() {
-            return Err(cold_type("list.sort() takes no positional arguments"));
+            return Err(cold_type("sort() takes no positional arguments"));
         }
         let mut sort_key: Option<Val> = None;
         let mut sort_reverse = false;

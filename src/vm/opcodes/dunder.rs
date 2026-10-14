@@ -184,7 +184,7 @@ impl<'a> VM<'a> {
                 let Some(HeapObj::Tuple(kv)) = self.heap.try_get(item) else { return Ok(false) };
                 let &[k, v] = kv.as_slice() else { return Ok(false) };
                 let found = match self.heap.get(d) { HeapObj::Dict(m) => m.borrow().get(&k, &self.heap).copied(), _ => None };
-                let Some(x) = found else { self.require_hashable(k)?; return Ok(false) };
+                let Some(x) = found else { self.require_key(k)?; return Ok(false) };
                 return self.with_roots([x, v], |vm| vm.member_eq(x, v, chunk));
             }
             _ => {}
@@ -201,7 +201,7 @@ impl<'a> VM<'a> {
         };
         // A miss still rejects an unhashable probe, a set probing as the frozenset it equals.
         if let Some((hit, set)) = probe {
-            if !hit { if set { self.require_set_probe(item)?; } else { self.require_hashable(item)?; } }
+            if !hit { if set { self.require_set_probe(item)?; } else { self.require_key(item)?; } }
             return Ok(hit);
         }
 

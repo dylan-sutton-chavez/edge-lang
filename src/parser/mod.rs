@@ -172,6 +172,7 @@ pub(super) struct Mark {
     pos: usize,
     errors: usize,
     removed: usize,
+    unbound: usize,
     line: usize,
     end: usize,
     closed: bool,
@@ -217,6 +218,8 @@ pub struct Parser<'src, I: Iterator<Item = Token>> {
     pub(super) bound: u8,
     /* Spans that use a removed builtin, by its index in `REMOVED_BUILTINS`, reported at the end unless the module binds the name. */
     pub(super) removed_uses: Vec<(usize, usize, usize)>,
+    /* Names declared `nonlocal` in this scope or one inside it that no function up to here binds, with their spans. */
+    pub(super) unbound_nonlocals: Vec<(String, usize, usize)>,
     pub errors: Vec<Diagnostic>,
     /* Host resolver defaulting to NoopResolver so import-free call sites work unchanged. */
     pub(super) resolver: Box<dyn Resolver>,
@@ -352,6 +355,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         let saved_class = core::mem::replace(&mut self.in_class_body, false);
         let saved_comp = core::mem::replace(&mut self.in_comp, false);
         let saved_function = core::mem::replace(&mut self.in_function, false);
+        let saved_unbound = core::mem::take(&mut self.unbound_nonlocals);
         // A nested body keeps what the enclosing scopes left unfused, and hands up the builtins it fused.
         let saved_fused = (core::mem::take(&mut self.fused), core::mem::take(&mut self.fused_externs), self.unfused.len());
         // Copy parent externs so nested def bodies can call imported natives, extras don't leak up.
@@ -361,6 +365,12 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         self.chunk.source = saved_chunk.source.clone();
         self.chunk.path = saved_chunk.path.clone();
         f(self);
+        // A function binds what its locals hold, unless it declared that name nonlocal itself.
+        let mut unbound = core::mem::replace(&mut self.unbound_nonlocals, saved_unbound);
+        if self.in_function {
+            unbound.retain(|(name, ..)| !self.ssa_versions.contains(name) || self.chunk.nonlocals.contains(name));
+        }
+        self.unbound_nonlocals.append(&mut unbound);
         let body = core::mem::take(&mut self.chunk);
         self.chunk = saved_chunk;
         self.ssa_versions = saved_ver;
@@ -545,7 +555,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
 
     pub(super) fn mark(&self) -> Mark {
         Mark {
-            pos: self.tokens.pos, errors: self.errors.len(), removed: self.removed_uses.len(),
+            pos: self.tokens.pos, errors: self.errors.len(), removed: self.removed_uses.len(), unbound: self.unbound_nonlocals.len(),
             line: self.last_line, end: self.last_end, closed: self.block_closed, newline: self.saw_newline,
         }
     }
@@ -561,6 +571,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         self.seek(m);
         self.errors.truncate(m.errors);
         self.removed_uses.truncate(m.removed);
+        self.unbound_nonlocals.truncate(m.unbound);
     }
 
     /* Whether the cursor sits where an assignment target ends. */
@@ -755,6 +766,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             late: HashMap::default(),
             bound: 0,
             removed_uses: Vec::new(),
+            unbound_nonlocals: Vec::new(),
             errors: Vec::new(),
             resolver,
             module_cache,
@@ -792,6 +804,9 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         }
         if body == Body::Exec { self.emit_const(Value::None); }
 
+        for (name, start, end) in core::mem::take(&mut self.unbound_nonlocals) {
+            self.errors.push(Diagnostic { start, end, msg: s!("no binding for nonlocal '", str &name, "' found") });
+        }
         for (start, end, i) in core::mem::take(&mut self.removed_uses) {
             if self.bound & 1 << i == 0 { self.errors.push(Diagnostic { start, end, msg: REMOVED_BUILTINS[i].1.to_string() }); }
         }

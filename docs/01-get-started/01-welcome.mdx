@@ -46,7 +46,7 @@ Its `edge.json` declares the `json` package and grants the network for `api.gith
 ## Questions
 
 > [!QUESTION] Is it full Python?
-> A program that compiles behaves as it does in CPython, apart from the choices below. What Edge Python leaves out is missing for the sandbox, like the standard library and `exec`, or for the design of the engine, like `id`, `hash` and metaclasses. It fails with an error instead, at compile time whenever the compiler can see it. [Limits and errors](/docs/edge-python/reference/limits-and-errors#compile-time-errors) lists those errors and [Design](/docs/edge-python/internals/design#memory-model) explains the memory model behind them.
+> A program that compiles behaves as it does in CPython, apart from the choices below. What Edge Python leaves out is missing for the sandbox, like the standard library and `open`, or for the design of the engine, like `id`, `hash` and metaclasses. It fails with an error instead, at compile time whenever the compiler can see it. [Limits and errors](/docs/edge-python/reference/limits-and-errors#compile-time-errors) lists those errors and [Design](/docs/edge-python/internals/design#memory-model) explains the memory model behind them.
 
 > [!QUESTION] Where does it behave differently on purpose?
 > In three places. [Ints](/docs/edge-python/reference/limits-and-errors#integer-width) stop at 2^127. Sets iterate in [insertion order](/docs/edge-python/language/data-types#behavioral-notes). Every NaN is [one value](/docs/edge-python/internals/design#memory-model).

@@ -99,13 +99,13 @@ impl<'a> VM<'a> {
 
     /* A set of `items`, each one hashable. */
     pub(crate) fn valset_of(&self, items: &[Val]) -> Result<ValSet, VmErr> {
-        for &v in items.iter().filter(|v| v.is_heap()) { self.require_hashable(v)?; }
+        for &v in items.iter().filter(|v| v.is_heap()) { self.require_element(v)?; }
         Ok(ValSet::from_vals(items, &self.heap))
     }
 
     /* A dict of `pairs` in order, a later equal key overwriting the value and keeping the first key. */
     pub(crate) fn dictmap_of(&self, pairs: Vec<(Val, Val)>) -> Result<DictMap, VmErr> {
-        for &(k, _) in pairs.iter().filter(|p| p.0.is_heap()) { self.require_hashable(k)?; }
+        for &(k, _) in pairs.iter().filter(|p| p.0.is_heap()) { self.require_key(k)?; }
         Ok(DictMap::from_pairs(pairs, &self.heap))
     }
 
@@ -116,7 +116,7 @@ impl<'a> VM<'a> {
             Some(HeapObj::FrozenSet(rc)) => rc.iter().copied().collect(),
             _ => self.iterable_items(src, chunk)?,
         };
-        for &v in items.iter().filter(|v| v.is_heap()) { self.require_hashable(v)?; }
+        for &v in items.iter().filter(|v| v.is_heap()) { self.require_element(v)?; }
         if let Some(HeapObj::Set(rc)) = self.heap.try_get(acc) { let mut s = rc.borrow_mut(); for v in items { s.insert(v, &self.heap); } }
         Ok(())
     }

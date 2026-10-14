@@ -62,7 +62,7 @@ impl<'a> VM<'a> {
                 self.push(v);
                 return Ok(());
             }
-            let Some(v) = found else { self.require_hashable(idx)?; return Err(self.key_error(idx)) };
+            let Some(v) = found else { self.require_key(idx)?; return Err(self.key_error(idx)) };
             self.push(v);
             return Ok(());
         }
@@ -247,7 +247,7 @@ impl<'a> VM<'a> {
                 let hit = p.borrow().get(&idx, &self.heap).copied();
                 match hit {
                     Some(v) => Ok(v),
-                    None => { self.require_hashable(idx)?; Err(self.key_error(idx)) }
+                    None => { self.require_key(idx)?; Err(self.key_error(idx)) }
                 }
             }
             HeapObj::Str(_) => Err(bad(self, "string")),
@@ -278,7 +278,18 @@ impl<'a> VM<'a> {
     /* A set probe of a set looks up as the frozenset it equals, so only other values must hash. */
     pub(in crate::vm) fn require_set_probe(&self, v: Val) -> Result<(), VmErr> {
         if v.is_heap() && matches!(self.heap.get(v), HeapObj::Set(_)) { return Ok(()); }
-        self.require_hashable(v)
+        self.require_element(v)
+    }
+
+    /* `v` as a dict key, an unhashable one named for that use as well as for its type. */
+    pub(in crate::vm) fn require_key(&self, v: Val) -> Result<(), VmErr> { self.require_hashable(v).map_err(|e| self.unhashable_as(v, &e, "a dict key")) }
+
+    /* `v` as a set element, an unhashable one named for that use as well as for its type. */
+    pub(in crate::vm) fn require_element(&self, v: Val) -> Result<(), VmErr> { self.require_hashable(v).map_err(|e| self.unhashable_as(v, &e, "a set element")) }
+
+    #[cold]
+    fn unhashable_as(&self, v: Val, e: &VmErr, what: &str) -> VmErr {
+        VmErr::TypeMsg(crate::s!("cannot use '", str self.type_name(v), "' as ", str what, " (", str &e.message(), ")"))
     }
 
     fn require_hashable_at(&self, v: Val, depth: usize) -> Result<(), VmErr> {
@@ -291,7 +302,7 @@ impl<'a> VM<'a> {
                 // A tuple hashes through its items as deep as the hash looks, so each must be hashable too.
                 HeapObj::Tuple(items) => for &item in items { self.require_hashable_at(item, depth + 1)?; },
                 // A user `__eq__` would let two equal keys hash apart.
-                HeapObj::Instance(cls, _) if self.lookup_class_member(*cls, "__eq__").is_some() => return Err(cold_type("unhashable type: instance defines __eq__")),
+                HeapObj::Instance(cls, _) if self.lookup_class_member(*cls, "__eq__").is_some() => return Err(VmErr::TypeMsg(crate::s!("unhashable type: '", str self.type_name(v), "'"))),
                 _ => {}
             }
         }
@@ -335,7 +346,7 @@ impl<'a> VM<'a> {
         }
         // Reject mutable keys before borrowing the container mutably below.
         if matches!(self.heap.get(cont), HeapObj::Dict(_)) {
-            self.require_hashable(idx_val)?;
+            self.require_key(idx_val)?;
         }
         match self.heap.get(cont) {
             HeapObj::List(v) => {
@@ -377,7 +388,7 @@ impl<'a> VM<'a> {
             }
             HeapObj::Dict(p) => {
                 if p.borrow_mut().remove(&idx_val, &self.heap).is_none() {
-                    self.require_hashable(idx_val)?;
+                    self.require_key(idx_val)?;
                     return Err(self.key_error(idx_val));
                 }
             }

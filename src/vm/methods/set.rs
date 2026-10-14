@@ -8,7 +8,7 @@ fn probes(vm: &VM, recv: Val, v: Val) -> Result<bool, VmErr> {
 }
 
 pub fn add(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
-    vm.require_hashable(pos[0])?;
+    vm.require_element(pos[0])?;
     set_mut(vm, recv, "add: receiver is not a set", |set, heap| {
         set.insert(pos[0], heap); Ok(())
     })?;

@@ -1,6 +1,7 @@
 use super::{Mark, Parser, Shape};
 use super::expr::Tail;
-use super::types::OpCode;
+use super::types::{Diagnostic, OpCode};
+use crate::s;
 
 use crate::lexer::{Token, TokenType};
 
@@ -265,11 +266,26 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             self.chunk.emit(op, idx);
             match op {
                 OpCode::Global => { self.globals_decl.insert(name.to_string()); }
-                OpCode::Nonlocal if !self.chunk.nonlocals.iter().any(|n| n == name) => self.chunk.nonlocals.push(name.to_string()),
+                OpCode::Nonlocal => self.declare_nonlocal(name),
                 _ => {}
             }
             if !self.eat_if(TokenType::Comma) { break; }
         }
+    }
+
+    /* Records a nonlocal name, which some enclosing function must bind by the end of the module. */
+    fn declare_nonlocal(&mut self, name: &str) {
+        let (start, end) = (self.last_end - name.len(), self.last_end);
+        let msg = if !self.in_function && !self.in_class_body {
+            s!("nonlocal declaration not allowed at module level")
+        } else if self.ssa_versions.get(name) == Some(0) {
+            s!("name '", str name, "' is parameter and nonlocal")
+        } else {
+            if !self.chunk.nonlocals.iter().any(|n| n == name) { self.chunk.nonlocals.push(name.to_string()); }
+            self.unbound_nonlocals.push((name.to_string(), start, end));
+            return;
+        };
+        self.errors.push(Diagnostic { start, end, msg });
     }
 
     /* Assignment RHS, one expression or a comma tuple, ends at the line boundary. */

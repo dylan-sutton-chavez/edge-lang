@@ -397,17 +397,22 @@ pub fn removesuffix(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
     match recv_str_ref(vm, recv)?.strip_suffix(suf.as_str()).map(String::from) { Some(out) => vm.alloc_and_push_str(out), None => { vm.push(recv); Ok(()) } }
 }
 
-// `str.splitlines()`, split on \n / \r / \r\n, dropping the separator (keepends=False).
-pub fn splitlines(vm: &mut VM, recv: Val, _pos: &[Val]) -> Result<(), VmErr> {
+// `str.splitlines(keepends=False)`, split on \n / \r / \r\n and the other line breaks, each kept on its line when `keepends` holds.
+pub fn splitlines(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
     // line boundaries \n \r \r\n \v \f \x1c \x1d \x1e \x85.
     const BREAKS: &[char] = &['\n', '\r', '\u{0b}', '\u{0c}', '\u{1c}', '\u{1d}', '\u{1e}', '\u{85}', '\u{2028}', '\u{2029}'];
+    let keep = pos.first().is_some_and(|&k| vm.truthy(k));
     let mut lines: Vec<String> = Vec::new();
     let mut cur = String::new();
     let mut chars = recv_str_ref(vm, recv)?.chars().peekable();
     while let Some(c) = chars.next() {
         if BREAKS.contains(&c) {
+            if keep { cur.push(c); }
             // \r\n counts as a single boundary.
-            if c == '\r' && chars.peek() == Some(&'\n') { chars.next(); }
+            if c == '\r' && chars.peek() == Some(&'\n') {
+                chars.next();
+                if keep { cur.push('\n'); }
+            }
             lines.push(core::mem::take(&mut cur));
         } else {
             cur.push(c);

@@ -49,14 +49,14 @@ impl<'a> VM<'a> {
     // Build a set Val from items, rejecting unhashable elements first.
     #[cfg(all(target_arch = "wasm32", feature = "runtime"))]
     pub(crate) fn set_from_items(&mut self, items: Vec<Val>) -> Result<Val, VmErr> {
-        for &v in items.iter().filter(|v| v.is_heap()) { self.require_hashable(v)?; }
+        for &v in items.iter().filter(|v| v.is_heap()) { self.require_element(v)?; }
         self.alloc_set_result(items, false)
     }
 
     // Build a frozenset Val from items, rejecting unhashable elements first.
     #[cfg(all(target_arch = "wasm32", feature = "runtime"))]
     pub(crate) fn frozenset_from_items(&mut self, items: Vec<Val>) -> Result<Val, VmErr> {
-        for &v in items.iter().filter(|v| v.is_heap()) { self.require_hashable(v)?; }
+        for &v in items.iter().filter(|v| v.is_heap()) { self.require_element(v)?; }
         self.alloc_set_result(items, true)
     }
 
@@ -108,7 +108,7 @@ impl<'a> VM<'a> {
             let [k, v] = item[..] else {
                 return Err(cold_value("dictionary update sequence element must have length 2"));
             };
-            self.require_hashable(k)?;
+            self.require_key(k)?;
             pairs.push((k, v));
         }
         Ok(pairs)

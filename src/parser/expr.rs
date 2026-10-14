@@ -397,7 +397,8 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
                 Some(w) => wide = Some(w.checked_mul(base as u128).and_then(|v| v.checked_add(d as u128)).ok_or(TOO_LARGE)?),
             }
         }
-        if !any { return Err(TOO_LARGE); }
+        // The lexer already reported a literal without digits, so a zero stands in.
+        if !any { return Ok(Value::Int(0)); }
         match wide {
             None if narrow <= i64::MAX as u64 => Ok(Value::Int(narrow as i64)),
             None => Ok(Value::LongInt(narrow as i128)),

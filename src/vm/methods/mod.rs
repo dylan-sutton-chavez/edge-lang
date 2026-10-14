@@ -95,7 +95,7 @@ const METHODS: &[MethodDesc] = methods! {
         "replace" => string::replace, ro, 2..3;
         "removeprefix" => string::removeprefix, ro, 1..1;
         "removesuffix" => string::removesuffix, ro, 1..1;
-        "splitlines" => string::splitlines, ro, 0..0;
+        "splitlines" => string::splitlines, ro, 0..1;
         "partition" => string::partition, ro, 1..1;
         "rpartition" => string::rpartition, ro, 1..1;
         "center" => string::center, ro, 1..2;
@@ -118,8 +118,8 @@ const METHODS: &[MethodDesc] = methods! {
     "bytes" {
         "decode" => bytes::decode, ro, 0..2;
         "hex" => bytes::hex, ro, 0..0;
-        "startswith" => bytes::startswith, ro, 1..1;
-        "endswith" => bytes::endswith, ro, 1..1;
+        "startswith" => bytes::startswith, ro, 1..3;
+        "endswith" => bytes::endswith, ro, 1..3;
         "find" => bytes::find, ro, 1..3;
         "index" => bytes::index, ro, 1..3;
         "count" => bytes::count, ro, 1..3;
@@ -161,7 +161,7 @@ const METHODS: &[MethodDesc] = methods! {
         "copy" => dict::copy, ro, 0..0;
         "popitem" => dict::popitem, rw, 0..0;
         "get" => dict::get, ro, 1..2;
-        "update" => dict::update, rw, 1..1;
+        "update" => dict::update, rw, 0..1;
         "pop" => dict::pop, rw, 1..2;
         "setdefault" => dict::setdefault, rw, 1..2;
         "fromkeys" => dict::fromkeys, ro, 1..2;
@@ -281,11 +281,11 @@ pub(in crate::vm) fn dispatch_method(vm: &mut VM, id: BuiltinMethodId, recv: Val
                 return result;
             }
 
-        return Err(cold_type("builtin method takes no keyword arguments"));
+        return Err(VmErr::TypeMsg(s!(str m.ty, ".", str m.name, "() takes no keyword arguments")));
     }
     let n = pos.len();
     if n < m.min_args as usize || (m.max_args != 255 && n > m.max_args as usize) {
-        return Err(arity_error(m.name, m.min_args, m.max_args, n));
+        return Err(arity_error(m, n));
     }
     let result = (m.func)(vm, recv, pos);
     if m.mutating && result.is_ok() {
@@ -298,7 +298,7 @@ pub(in crate::vm) fn dispatch_method(vm: &mut VM, id: BuiltinMethodId, recv: Val
 pub(crate) fn method_frame(vm: &mut VM, id: BuiltinMethodId, n: usize) -> Result<(), VmErr> {
     let m = &ALL_METHODS[id.0 as usize];
     if n < m.min_args as usize || (m.max_args != 255 && n > m.max_args as usize) {
-        return Err(arity_error(m.name, m.min_args, m.max_args, n));
+        return Err(arity_error(m, n));
     }
     if m.mutating { vm.mark_impure(); }
     Ok(())
@@ -311,14 +311,26 @@ pub fn lookup_method(ty: &str, attr: &str) -> Option<BuiltinMethodId> {
     (m.ty == ty && m.name == attr).then_some(BuiltinMethodId(id))
 }
 
+// Search and split methods of text, whose count errors read `name() takes at most N arguments (M given)`.
+const PARSED: &[&str] = &["startswith", "endswith", "find", "rfind", "index", "rindex", "count", "split", "rsplit", "expandtabs", "decode"];
+
+/* The error a call of `m` with `got` positionals raises, worded the way each kind of method words it. */
 #[cold]
-fn arity_error(name: &str, min: u8, max: u8, got: usize) -> VmErr {
-    let msg: String = if min == max {
-        s!(str name, "() takes ", int min as i64, " arg(s), got ", int got as i64)
-    } else if max == 255 {
-        s!(str name, "() takes at least ", int min as i64, ", got ", int got as i64)
+fn arity_error(m: &MethodDesc, got: usize) -> VmErr {
+    let (min, max, n) = (m.min_args as i64, m.max_args as i64, got as i64);
+    let args = |k: i64| if k == 1 { "argument" } else { "arguments" };
+    let bound = if n < min { ("at least ", min) } else { ("at most ", max) };
+    let msg: String = if m.name.starts_with("__") && m.name != "__init__" && min == max && min != 1 {
+        s!("expected ", int min, " arguments, got ", int n)
+    } else if min == max && min <= 1 {
+        let takes = if min == 0 { "() takes no arguments (" } else { "() takes exactly one argument (" };
+        s!(str m.ty, ".", str m.name, str takes, int n, " given)")
+    } else if matches!(m.ty, "str" | "bytes") && PARSED.contains(&m.name) {
+        s!(str m.name, "() takes ", str bound.0, int bound.1, " ", str args(bound.1), " (", int n, " given)")
     } else {
-        s!(str name, "() takes ", int min as i64, "..", int max as i64, " args, got ", int got as i64)
+        let name = if m.name == "__init__" { m.ty } else { m.name };
+        let (word, k) = if min == max { ("", min) } else { bound };
+        s!(str name, " expected ", str word, int k, " ", str args(k), ", got ", int n)
     };
     VmErr::TypeMsg(msg)
 }

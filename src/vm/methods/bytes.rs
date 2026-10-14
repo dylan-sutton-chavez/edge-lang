@@ -60,15 +60,25 @@ pub fn hex(vm: &mut VM, recv: Val, _pos: &[Val]) -> Result<(), VmErr> {
 }
 
 // bytes-only, strings go through `string::startswith`.
-pub fn startswith(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
-    let starts = recv_bytes_ref(vm, recv)?.starts_with(recv_bytes_ref(vm, pos[0])?);
-    vm.push(Val::bool(starts));
-    Ok(())
-}
+pub fn startswith(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { affix_impl(vm, recv, pos, false) }
+pub fn endswith(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { affix_impl(vm, recv, pos, true) }
 
-pub fn endswith(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
-    let ends = recv_bytes_ref(vm, recv)?.ends_with(recv_bytes_ref(vm, pos[0])?);
-    vm.push(Val::bool(ends));
+/* `startswith` and `endswith`, of one affix or a tuple of them, within the optional start and end. */
+fn affix_impl(vm: &mut VM, recv: Val, pos: &[Val], end: bool) -> Result<(), VmErr> {
+    let affixes = match vm.heap.try_get(pos[0]) { Some(HeapObj::Tuple(items)) => items.to_vec(), _ => alloc::vec![pos[0]] };
+    let buf = recv_bytes_ref(vm, recv)?;
+    // A start past the end matches nothing, not even an empty affix.
+    let past = pos.get(1).is_some_and(|v| v.is_int() && v.as_int() > buf.len() as i64);
+    let (s, e) = window(buf, pos)?;
+    let mut hit = false;
+    for affix in affixes {
+        let Ok(p) = recv_bytes_ref(vm, affix) else {
+            let which = if end { "endswith" } else { "startswith" };
+            return Err(VmErr::TypeMsg(crate::s!(str which, " first arg must be bytes or a tuple of bytes, not ", str vm.type_name(affix))));
+        };
+        hit |= !past && if end { buf[s..e].ends_with(p) } else { buf[s..e].starts_with(p) };
+    }
+    vm.push(Val::bool(hit));
     Ok(())
 }
 

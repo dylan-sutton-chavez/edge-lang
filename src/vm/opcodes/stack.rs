@@ -89,8 +89,8 @@ impl<'a> VM<'a> {
         let Some(&acc) = self.stack.last() else { return Err(VmErr::Runtime("stack underflow")) };
         match (op, key, self.heap.try_get(acc)) {
             (OpCode::ListAppend, _, Some(HeapObj::List(rc))) => rc.borrow_mut().push(value),
-            (OpCode::SetAdd, _, Some(HeapObj::Set(rc))) => { self.require_hashable(value)?; rc.borrow_mut().insert(value, &self.heap); }
-            (OpCode::MapAdd, Some(k), Some(HeapObj::Dict(rc))) => { self.require_hashable(k)?; rc.borrow_mut().insert(k, value, &self.heap); }
+            (OpCode::SetAdd, _, Some(HeapObj::Set(rc))) => { self.require_element(value)?; rc.borrow_mut().insert(value, &self.heap); }
+            (OpCode::MapAdd, Some(k), Some(HeapObj::Dict(rc))) => { self.require_key(k)?; rc.borrow_mut().insert(k, value, &self.heap); }
             _ => return Err(cold_runtime("comprehension accumulator corrupted")),
         }
         Ok(())

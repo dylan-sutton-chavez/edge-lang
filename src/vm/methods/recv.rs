@@ -115,11 +115,11 @@ where F: FnOnce(&mut ValSet, &HeapPool) -> Result<R, VmErr>
     f(&mut rc.borrow_mut(), &vm.heap)
 }
 
-// `Vec<Val>` from any iterable (str/range/dict/bytes/frozenset/list/tuple/set), for set ops and dict keys, so every item must hash.
+// `Vec<Val>` from any iterable (str/range/dict/bytes/frozenset/list/tuple/set) for set ops, so every item must hash as a set element.
 #[inline]
 pub(super) fn iter_to_vec(vm: &mut VM, v: Val) -> Result<Vec<Val>, VmErr> {
     let items = vm.extract_iter(v)?;
-    for &x in &items { vm.require_hashable(x)?; }
+    for &x in &items { vm.require_element(x)?; }
     Ok(items)
 }
 

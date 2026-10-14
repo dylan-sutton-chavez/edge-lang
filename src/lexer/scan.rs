@@ -84,6 +84,11 @@ impl<'a> Scanner<'a> {
             self.report(start, end, "consecutive '_' in numeric literal");
         }
     }
+    // One underscore may follow the base prefix, as in `0x_FF`.
+    fn check_prefixed(&mut self, b: usize) {
+        let skip = usize::from(self.src.get(b) == Some(&b'_') && b + 1 < self.pos);
+        self.check_digits(b + skip, self.pos, false);
+    }
     fn scan_hex_digits(&mut self) {
         self.scan_while(|b| b.is_ascii_hexdigit() || b == b'_');
     }
@@ -121,9 +126,9 @@ impl<'a> Scanner<'a> {
     fn scan_number(&mut self, start: usize) -> TokenType {
         if self.src[start] == b'0' && self.pos < self.src.len() {
             match self.src[self.pos] {
-                b'x' | b'X' => { self.pos += 1; let b = self.pos; self.scan_hex_digits(); self.check_digits(b, self.pos, false); return TokenType::Int; }
-                b'o' | b'O' => { self.pos += 1; let b = self.pos; self.scan_oct_digits(); self.check_digits(b, self.pos, false); return TokenType::Int; }
-                b'b' | b'B' => { self.pos += 1; let b = self.pos; self.scan_bin_digits(); self.check_digits(b, self.pos, false); return TokenType::Int; }
+                b'x' | b'X' => { self.pos += 1; self.scan_hex_digits(); self.check_prefixed(start + 2); return TokenType::Int; }
+                b'o' | b'O' => { self.pos += 1; self.scan_oct_digits(); self.check_prefixed(start + 2); return TokenType::Int; }
+                b'b' | b'B' => { self.pos += 1; self.scan_bin_digits(); self.check_prefixed(start + 2); return TokenType::Int; }
                 _ => {}
             }
         }

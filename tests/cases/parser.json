@@ -692,14 +692,16 @@
   {
     "src": "nonlocal x", 
     "constants": [], 
-    "names": ["x"], 
-    "instructions": [["Nonlocal",0], ["ReturnValue",0]]
+    "names": [], 
+    "instructions": [["ReturnValue",0]],
+    "errors": ["nonlocal declaration not allowed at module level"]
   },
   {
     "src": "nonlocal x, y", 
     "constants": [], 
-    "names": ["x", "y"], 
-    "instructions": [["Nonlocal",0], ["Nonlocal",1], ["ReturnValue",0]]
+    "names": [], 
+    "instructions": [["ReturnValue",0]],
+    "errors": ["nonlocal declaration not allowed at module level", "nonlocal declaration not allowed at module level"]
   },
   {
     "src": "@dec\ndef f():\n    pass", 

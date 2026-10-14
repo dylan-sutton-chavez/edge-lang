@@ -27,7 +27,7 @@ pub fn container_getitem(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmEr
         HeapObj::Dict(rc) => rc.borrow().get(&pos[0], &vm.heap).copied(),
         _ => return vm.get_item_builtin(recv, pos[0]),
     };
-    let Some(v) = found else { vm.require_hashable(pos[0])?; return Err(vm.key_error(pos[0])) };
+    let Some(v) = found else { vm.require_key(pos[0])?; return Err(vm.key_error(pos[0])) };
     vm.push(v);
     Ok(())
 }
