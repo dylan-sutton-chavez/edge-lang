@@ -135,8 +135,8 @@ A program that compiles behaves as it does in CPython, apart from the three desi
 ### Left out for the sandbox
 
 - No stdlib. Every module is an external package, so `import os`, `import sys` and `import asyncio` fail at compile time.
-- No dynamic code. `exec`, `eval`, `compile` and `__import__` do not exist.
-- No `open`. `input()` reads from a host fed buffer with no prompt argument.
+- No dynamic code. `exec`, `eval`, `compile` and `__import__` are compile errors that name the builtin.
+- No `open`, a compile error as well. `input()` reads from a host fed buffer with no prompt argument.
 - No clock, randomness or OS access without a grant, so the same source and input give the same output on every run.
 
 ```python
@@ -144,7 +144,7 @@ open("data.txt")
 ```
 
 ```text Error
-NameError
+'open' is not supported
 ```
 
 ### Left out by design
