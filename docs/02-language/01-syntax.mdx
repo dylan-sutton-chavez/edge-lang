@@ -241,6 +241,7 @@ The format spec follows these rules.
 - Type characters are `b c d e E f F g G n o s x X %`.
 - `,` and `_` group digits every three for decimal output.
 - `_` with `b`, `o`, `x` or `X` groups every four digits.
+- A string refuses a sign, `#`, a separator and `=` alignment with `ValueError`, while `0` still pads it with zeros.
 
 ## Operators
 

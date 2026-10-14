@@ -29,6 +29,7 @@ struct Spec {
     sep: u8, // 0, b',' or b'_' digit-group separator
     precision: Option<usize>,
     ty: u8, // 0 means default
+    eq: bool, // `=` written in the spec, unlike the one a leading `0` implies
 }
 
 fn parse_spec(spec: &str) -> Result<Spec, &'static str> {
@@ -45,6 +46,7 @@ fn parse_spec(spec: &str) -> Result<Spec, &'static str> {
         s.align = Some(bytes[0]);
         i = 1;
     }
+    s.eq = s.align == Some(b'=');
 
     if i < bytes.len() && matches!(bytes[i], b'+' | b'-' | b' ') {
         s.sign = bytes[i];
@@ -100,6 +102,11 @@ fn apply(v: Val, s: &Spec, heap: &HeapPool) -> Result<String, &'static str> {
     match s.ty {
         0 | b's' => {
             if let Some(HeapObj::Str(raw)) = heap.try_get(v) {
+                // A separator, a sign, `#` and `=` belong to numbers only.
+                match s.sep { b',' => return Err("Cannot specify ',' with 's'."), b'_' => return Err("Cannot specify '_' with 's'."), _ => {} }
+                match s.sign { b' ' => return Err("Space not allowed in string format specifier"), 0 => {} _ => return Err("Sign not allowed in string format specifier") }
+                if s.alt { return Err("Alternate form (#) not allowed in string format specifier"); }
+                if s.eq { return Err("'=' alignment not allowed in string format specifier"); }
                 let text: String = match s.precision { Some(p) => raw.chars().take(p).collect(), None => raw.clone() };
                 return Ok(pad_string(s, &text));
             }

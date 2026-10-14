@@ -5727,5 +5727,15 @@
   {"src": "print(repr('a\\tb'.expandtabs(4)), 'Hello World'.istitle(), 'hello World'.istitle(), 'x\\ny\\r\\nz'.splitlines())\n", "output": ["'a   b' True False ['x', 'y', 'z']"]},
   {"src": "b = b'\\x00\\xffhi'\nprint(b.hex(), b[2:].decode(), b.startswith(b'\\x00'), b.endswith(b'hi'), b.endswith(b'x'), b)\n", "output": ["00ff6869 hi True True False b'\\x00\\xffhi'"]},
   {"src": "b = b'  a-b-a  '\nprint(b.strip(), b.find(b'b'), b.count(b'a'), b.replace(b'a', b'x'), b.strip().split(b'-'), b'+'.join([b'1', b'2']))\n", "output": ["b'a-b-a' 4 2 b'  x-b-x  ' [b'a', b'b', b'a'] b'1+2'"]},
-  {"src": "print(int.from_bytes(b'\\x01\\x00', 'big'), int.from_bytes(b'\\x01\\x00', 'little'), int.from_bytes(b'', 'big'))\n", "output": ["256 1 0"]}
+  {"src": "print(int.from_bytes(b'\\x01\\x00', 'big'), int.from_bytes(b'\\x01\\x00', 'little'), int.from_bytes(b'', 'big'))\n", "output": ["256 1 0"]},
+  {"src": "print(format('ab', ','))\n", "output": [], "error": "Cannot specify ',' with 's'."},
+  {"src": "print(format('ab', '_'))\n", "output": [], "error": "Cannot specify '_' with 's'."},
+  {"src": "print(format('ab', '+'))\n", "output": [], "error": "Sign not allowed in string format specifier"},
+  {"src": "print(f\"{'ab': }\")\n", "output": [], "error": "Space not allowed in string format specifier"},
+  {"src": "print(format('ab', '#'))\n", "output": [], "error": "Alternate form (#) not allowed in string format specifier"},
+  {"src": "print(format('ab', '=5'))\n", "output": [], "error": "'=' alignment not allowed in string format specifier"},
+  {"src": "print(format('ab', '*=5'))\n", "output": [], "error": "'=' alignment not allowed in string format specifier"},
+  {"src": "print(format('ab', '05'), format('ab', '>5'), format('ab', '*^6'), f\"{'ab':<4}|\", format('abc', '.2'))\n", "output": ["ab000    ab **ab** ab  | ab"]},
+  {"src": "print(format(1234567, ','), format(5, '+'), format(255, '#x'), format(-5, '=5'), format(-5, '05'), f\"{3.5:+.1f}\")\n", "output": ["1,234,567 +5 0xff -   5 -0005 +3.5"]},
+  {"src": "for spec in [',', '+', '#', '=3']:\n    try:\n        print(('{:' + spec + '}').format('x'))\n    except ValueError:\n        print('ValueError')\n", "output": ["ValueError", "ValueError", "ValueError", "ValueError"]}
 ]
