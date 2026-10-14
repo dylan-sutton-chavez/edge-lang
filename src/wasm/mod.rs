@@ -141,6 +141,8 @@ pub(super) struct WasmRuntime {
     /* The resolution walk the host is driving, and the plugin bytes its last step named. */
     pub walk: Option<crate::modules::walk::Walk>,
     pub walk_plugin: Vec<u8>,
+    /* The package dir each source file belongs to, found once per file. */
+    pub packages: Vec<(String, Option<String>)>,
 }
 
 impl WasmRuntime {
@@ -155,6 +157,7 @@ impl WasmRuntime {
             current: 0,
             walk: None,
             walk_plugin: Vec::new(),
+            packages: Vec::new(),
         }
     }
 

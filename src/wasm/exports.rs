@@ -232,6 +232,7 @@ pub unsafe extern "C" fn reset_modules() {
     with_runtime(|rt| {
         rt.registry.clear();
         rt.manifests.clear();
+        rt.packages.clear();
         rt.refusals.clear();
         rt.walk = None;
         rt.registry_changed();

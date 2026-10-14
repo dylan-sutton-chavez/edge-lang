@@ -260,5 +260,115 @@
     },
     "run": ["run", "--ops", "1000", "main.py"],
     "fails": ["RuntimeError: budget exceeded"]
+  },
+  {
+    "given": {
+      "edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.py\" }, \"permissions\": { \"pepito\": [\"time:wall\"] } }\n",
+      "pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"time:wall\"] } }\n",
+      "pepito/main.py": "import time\nnow_fn = time.now\n\ndef now():\n    return time.now() > 0\n\ndef call(f):\n    return f() > 0\n",
+      "main.py": "import pepito\nprint(pepito.now())\n"
+    },
+    "run": ["run", "main.py"],
+    "stdout": ["True"]
+  },
+  {
+    "given": {
+      "edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.py\" }, \"permissions\": { \"pepito\": [\"time:wall\"] } }\n",
+      "pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"time:wall\"] } }\n",
+      "pepito/main.py": "import time\nnow_fn = time.now\n\ndef now():\n    return time.now() > 0\n\ndef call(f):\n    return f() > 0\n",
+      "main.py": "import pepito\npepito.time.now()\n"
+    },
+    "run": ["run", "main.py"],
+    "fails": ["PermissionError: this time module was imported by another package"]
+  },
+  {
+    "given": {
+      "edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.py\" }, \"permissions\": { \"pepito\": [\"time:wall\"] } }\n",
+      "pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"time:wall\"] } }\n",
+      "pepito/main.py": "import time\nnow_fn = time.now\n\ndef now():\n    return time.now() > 0\n\ndef call(f):\n    return f() > 0\n",
+      "main.py": "from pepito import time\ntime.now()\n"
+    },
+    "run": ["run", "main.py"],
+    "fails": ["PermissionError: this time module was imported by another package"]
+  },
+  {
+    "given": {
+      "edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.py\" }, \"permissions\": { \"pepito\": [\"time:wall\"] } }\n",
+      "pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"time:wall\"] } }\n",
+      "pepito/main.py": "import time\nnow_fn = time.now\n\ndef now():\n    return time.now() > 0\n\ndef call(f):\n    return f() > 0\n",
+      "main.py": "import pepito\npepito.now_fn()\n"
+    },
+    "run": ["run", "main.py"],
+    "fails": ["PermissionError: this time module was imported by another package"]
+  },
+  {
+    "given": {
+      "edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.py\" }, \"permissions\": { \"pepito\": [\"time:wall\"] } }\n",
+      "pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"time:wall\"] } }\n",
+      "pepito/main.py": "import time\nnow_fn = time.now\n\ndef now():\n    return time.now() > 0\n\ndef call(f):\n    return f() > 0\n",
+      "main.py": "import pepito\ngetattr(pepito, 'time').now()\n"
+    },
+    "run": ["run", "main.py"],
+    "fails": ["PermissionError: this time module was imported by another package"]
+  },
+  {
+    "given": {
+      "edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.py\" }, \"permissions\": { \"pepito\": [\"time:wall\"] } }\n",
+      "pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"time:wall\"] } }\n",
+      "pepito/main.py": "import time\nnow_fn = time.now\n\ndef now():\n    return time.now() > 0\n\ndef call(f):\n    return f() > 0\n",
+      "main.py": "import pepito\nprint(pepito.call(pepito.time.now))\n"
+    },
+    "run": ["run", "main.py"],
+    "stdout": ["True"]
+  },
+  {
+    "given": {
+      "edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.py\" }, \"permissions\": { \"main\": [\"time:wall\"], \"pepito\": [\"time:wall\"] } }\n",
+      "pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"time:wall\"] } }\n",
+      "pepito/main.py": "import time\nnow_fn = time.now\n\ndef now():\n    return time.now() > 0\n\ndef call(f):\n    return f() > 0\n",
+      "main.py": "import time\nimport pepito\nprint(time.now() > 0, pepito.now())\n"
+    },
+    "run": ["run", "main.py"],
+    "stdout": ["True True"]
+  },
+  {
+    "given": {
+      "edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.py\" }, \"permissions\": { \"main\": [\"time:wall\"], \"pepito\": [\"time:wall\"] } }\n",
+      "pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"time:wall\"] } }\n",
+      "pepito/main.py": "import time\nnow_fn = time.now\n\ndef now():\n    return time.now() > 0\n\ndef call(f):\n    return f() > 0\n",
+      "main.py": "import time\nimport pepito\ntry:\n    pepito.time.now()\nexcept PermissionError:\n    print('refused')\nprint(time.now() > 0)\n"
+    },
+    "run": ["run", "main.py"],
+    "stdout": ["refused\nTrue"]
+  },
+  {
+    "given": {
+      "edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.py\" }, \"permissions\": { \"pepito\": [\"time:wall\"] } }\n",
+      "pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"time:wall\"] } }\n",
+      "pepito/main.py": "import time\nnow_fn = time.now\n\ndef now():\n    return time.now() > 0\n\ndef call(f):\n    return f() > 0\n",
+      "main.py": "import pepito\nprint([f() > 0 for f in [pepito.time.now]])\n"
+    },
+    "run": ["run", "main.py"],
+    "fails": ["PermissionError: this time module was imported by another package"]
+  },
+  {
+    "given": {
+      "edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.py\" }, \"permissions\": { \"pepito\": [\"time:wall\"] } }\n",
+      "pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"time:wall\"] } }\n",
+      "pepito/main.py": "import time\nnow_fn = time.now\n\ndef now():\n    return time.now() > 0\n\ndef call(f):\n    return f() > 0\n",
+      "main.py": "import pepito\nf = lambda: pepito.time.now()\ntry:\n    f()\nexcept PermissionError:\n    print('lambda refused')\n"
+    },
+    "run": ["run", "main.py"],
+    "stdout": ["lambda refused"]
+  },
+  {
+    "given": {
+      "edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.py\" }, \"permissions\": { \"pepito\": [\"net:127.0.0.1\"] } }\n",
+      "pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+      "pepito/main.py": "import net\n",
+      "main.py": "import pepito\npepito.net.request('GET', 'http://127.0.0.1:1/', [], None)\n"
+    },
+    "run": ["run", "main.py"],
+    "fails": ["PermissionError: this net module was imported by another package"]
   }
 ]

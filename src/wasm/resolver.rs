@@ -214,11 +214,30 @@ impl WasmHostResolver {
 /* Builds a NativeBinding that marshals handles around `host_call_native`. Lives here so the bridge stays host-import-free. */
 fn make_native_binding(name: String, id: u32, module: Arc<str>) -> NativeBinding {
     let closure = move |_: &mut crate::vm::types::HeapPool, args: &[Val], kwargs: Option<Val>| -> Result<Val, VmErr> {
+        if module.starts_with("system:") { answers_caller(&module)?; }
         // call_id is what call_extern will park with on defer, lets the host route the result back.
         let call_id = with_vm(|vm| vm.next_host_call_id as u32).unwrap_or(0);
         call_host(id, call_id, &module, args, kwargs)
     };
     NativeBinding { name, func: Arc::new(closure), pure: false }
+}
+
+/* A system module answers only code of the package that imported it, whoever else holds the object. */
+fn answers_caller(spec: &str) -> Result<(), VmErr> {
+    let caller = with_vm(|vm| vm.extern_caller.clone()).flatten().unwrap_or_default();
+    let name = spec.strip_prefix("system:").and_then(|s| s.split_once('@')).map_or("", |(n, _)| n);
+    if package_of(&caller).is_some_and(|dir| system_spec(name, &dir) == spec) { return Ok(()); }
+    Err(VmErr::Raised(s!("PermissionError: this ", str name, " module was imported by another package and answers only it, import ", str name, " here instead")))
+}
+
+/* The dir of the nearest edge.json above `path`, the package the code in it belongs to. */
+fn package_of(path: &str) -> Option<String> {
+    if let Some(found) = with_runtime(|rt| rt.packages.iter().find(|(p, _)| p == path).map(|(_, d)| d.clone())) { return found; }
+    let mut resolver = WasmHostResolver { dir: dir_of(path) };
+    let start = resolver.dir.clone();
+    let found = walk_up_dirs(&start).find(|dir| matches!(resolver.lookup_in_manifest(&s!(str dir, "edge.json"), ""), Ok(Some(_))));
+    with_runtime(|rt| rt.packages.push((path.to_string(), found.clone())));
+    found
 }
 
 /* One host_call_native, remembered by its call id until it answers, for the system calls inside. */

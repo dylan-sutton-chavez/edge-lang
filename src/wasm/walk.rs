@@ -85,6 +85,8 @@ fn drive() -> u32 {
             Step::Manifest { spec, manifest } => with_runtime(|rt| {
                 rt.manifests.retain(|(s, _)| *s != spec);
                 rt.manifests.push((spec, manifest));
+                // A manifest found anew can move the package a file belongs to.
+                rt.packages.clear();
             }),
             Step::Fetch(spec) => {
                 out.push_str("{\"fetch\":");

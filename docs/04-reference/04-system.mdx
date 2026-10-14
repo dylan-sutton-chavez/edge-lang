@@ -128,7 +128,7 @@ except PermissionError as e:
     print(e)  # 'main' has no net:evil.example, edge.json grants it net:api.example.com
 ```
 
-A request or socket belongs to the package that opened it. Another package cannot read it. A malformed section stops the run before anything compiles, naming the holder and the entry.
+A system module, and every request or socket it opens, answers only code of the package that imported it. Another package that reaches the object, as `pepito.time` or a function passed along, gets `PermissionError` and imports the module itself to use its own grants. A malformed section stops the run before anything compiles, naming the holder and the entry.
 
 ## time
 

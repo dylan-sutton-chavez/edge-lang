@@ -484,7 +484,7 @@ impl<'a> VM<'a> {
             // Park on host-deferral like `call_extern` (e.g. `time.sleep` via module attr).
             Some(HeapObj::Extern(extern_fn)) => {
                 let (func, pure) = (extern_fn.func.clone(), extern_fn.pure);
-                self.invoke_extern(&func, pure, positional, kw_flat)?;
+                self.invoke_extern(&func, pure, positional, kw_flat, &chunk.path)?;
             }
             Some(HeapObj::Type(name)) => {
                 let name = name.clone();
@@ -745,12 +745,13 @@ impl<'a> VM<'a> {
         let pure = extern_fn.pure;
         let kw_flat = if kw > 0 { self.pop_n(kw * 2)? } else { Vec::new() };
         let positional = self.pop_n(pos)?;
-        self.invoke_extern(&func, pure, &positional, &kw_flat)
+        self.invoke_extern(&func, pure, &positional, &kw_flat, &chunk.path)
     }
 
     /* Runs a native binding with its args rooted, a plugin can call back into code that collects. */
-    fn invoke_extern(&mut self, func: &crate::vm::types::ExternCallable, pure: bool, positional: &[Val], kw_flat: &[Val]) -> Result<(), VmErr> {
+    fn invoke_extern(&mut self, func: &crate::vm::types::ExternCallable, pure: bool, positional: &[Val], kw_flat: &[Val], caller: &alloc::sync::Arc<String>) -> Result<(), VmErr> {
         if !pure { self.mark_impure(); }
+        self.extern_caller = Some(caller.clone());
         let kwargs = Self::pack_kw_dict(&mut self.heap, kw_flat)?;
         let roots = positional.iter().chain(kw_flat).copied().chain(kwargs);
         match self.with_roots(roots, |vm| func(&mut vm.heap, positional, kwargs)) {

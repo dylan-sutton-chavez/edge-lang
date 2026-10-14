@@ -166,6 +166,8 @@ pub struct VM<'a> {
     pub(crate) pending: Pending,
     /* Monotonic correlation id handed to each deferred host call, matched by `set_host_result_by_id`. */
     pub(crate) next_host_call_id: u64,
+    /* The file of the code making the native call in progress, which package the host answers. */
+    pub(crate) extern_caller: Option<alloc::sync::Arc<String>>,
     /* Sync helpers that suspended during the current resume, drained into the active Coroutine on yield-save. Lives at VM scope (not `Pending`) because it propagates across dispatch frames, not within one. */
     pub(crate) pending_sync_frames: Vec<types::SyncFrame>,
     /* Overrides `exec`'s captured `exc_base`. Set by `resume_coroutine` to the level *before* restored exception frames so dispatch's handler search includes them, consumed once at exec entry. */
@@ -262,6 +264,7 @@ impl<'a> VM<'a> {
             temp_roots: Vec::new(),
             pending: Pending::new(),
             next_host_call_id: 0,
+            extern_caller: None,
             pending_sync_frames: Vec::new(),
             pending_exec_exc_base: None,
             preempt_left: 0,
