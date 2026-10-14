@@ -1,5 +1,5 @@
 name: Bench
-description: Counts the instructions compiler.wasm runs for every vm.json case and holds their reference seconds to bench/.snapshot.
+description: Counts the instructions compiler.wasm runs for every vm.json case and holds them to bench/.snapshot.
 
 runs:
   using: composite

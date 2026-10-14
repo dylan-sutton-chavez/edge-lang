@@ -370,5 +370,89 @@
     },
     "run": ["run", "main.py"],
     "fails": ["PermissionError: this net module was imported by another package"]
+  },
+  {
+    "given": {
+      "edge.json": "{}\n",
+      "sub/edge.json": "{ \"permissions\": { \"main\": [\"time:wall\"] } }\n",
+      "sub/main.py": "import time\nprint(time.now() > 0)\n"
+    },
+    "run": ["run", "sub/main.py"],
+    "stdout": ["True"]
+  },
+  {
+    "given": {
+      "edge.json": "{}\n",
+      "sub/edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.py\" }, \"permissions\": { \"pepito\": [\"time:wall\"] } }\n",
+      "sub/pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"time:wall\"] } }\n",
+      "sub/pepito/main.py": "import time\n\ndef now():\n    return time.now() > 0\n",
+      "sub/main.py": "import pepito\nprint(pepito.now())\npepito.time.now()\n"
+    },
+    "run": ["run", "sub/main.py"],
+    "stdout": ["True"],
+    "fails": ["PermissionError: this time module was imported by another package"]
+  },
+  {
+    "given": {
+      "edge.json": "{ \"permissions\": { \"main\": [\"time:wall\"] } }\n",
+      "main.py": "import time\nexec('import time\\nprint(time.now() > 0)')\n"
+    },
+    "run": ["run", "main.py"],
+    "stdout": ["True"]
+  },
+  {
+    "given": {
+      "edge.json": "{ \"imports\": { \"helper\": \"./helper.py\" } }\n",
+      "helper.py": "x = 1\n",
+      "main.py": "exec('import helper')\n"
+    },
+    "run": ["run", "main.py"],
+    "fails": ["SyntaxError: module './helper.py' is not one the program imports, and code that eval or exec compiles imports only those (<string>, line 1)"]
+  },
+  {
+    "given": {
+      "edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.py\" }, \"permissions\": { \"pepito\": [\"time:wall\"] } }\n",
+      "pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"time:wall\"] } }\n",
+      "pepito/main.py": "import time\n\ndef now():\n    return eval('time.now() > 0')\n",
+      "main.py": "import pepito\nprint(pepito.now())\nexec('pepito.time.now()')\n"
+    },
+    "run": ["run", "main.py"],
+    "stdout": ["True"],
+    "fails": ["PermissionError: this time module was imported by another package", "--> main.py:3:1"]
+  },
+  {
+    "given": {
+      "edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.py\" }, \"permissions\": { \"pepito\": [\"time:wall\"] } }\n",
+      "pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"time:wall\"] } }\n",
+      "pepito/main.py": "import time\n\ndef now():\n    return eval('time.now() > 0')\n",
+      "main.py": "import pepito\nexec('import time')\n"
+    },
+    "run": ["run", "main.py"],
+    "fails": ["'main' imports time, which edge.json does not grant it"]
+  },
+  {
+    "given": {
+      "edge.json": "{}\n",
+      "main.py": "exec('def boom():\\n    return 1 / 0')\nprint('ok')\nboom()\n"
+    },
+    "run": ["run", "main.py"],
+    "stdout": ["ok"],
+    "fails": ["ZeroDivisionError: division by zero", "--> main.py:3:1"]
+  },
+  {
+    "given": {
+      "edge.json": "{}\n",
+      "main.py": "def f(n):\n    if n == 0:\n        raise ValueError('bottom')\n    return f(n - 1)\n\nf(2000)\n"
+    },
+    "run": ["run", "main.py"],
+    "fails": ["ValueError: bottom", "--> main.py:3:9", "note: the same call 1999 more times", "--> main.py:6:2"]
+  },
+  {
+    "given": {
+      "edge.json": "{ \"permissions\": { \"main\": [\"time:wall\"] } }\n",
+      "main.py": "exec('import time\\nprint(time.now() > 0)')\n"
+    },
+    "run": ["run", "main.py"],
+    "stdout": ["True"]
   }
 ]

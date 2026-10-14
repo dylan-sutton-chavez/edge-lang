@@ -110,6 +110,9 @@ pub fn parse_integrity(spec: &str) -> Result<(&str, Option<[u8; 32]>), String> {
     Ok((url, Some(hash)))
 }
 
+/* Makes the resolver for code compiled at run time, given the dir of the file that compiled it. */
+pub type ResolverHook = &'static dyn Fn(&str) -> Box<dyn Resolver>;
+
 /* Default resolver rejecting all specs with a diagnostic, used when no resolver is configured. */
 pub struct NoopResolver;
 
@@ -177,8 +180,12 @@ fn read_spec(src: &str, tokens: &[Token], j: usize) -> Option<(ImportSpec, usize
 }
 
 /* Every import spec, classified Bare vs path, via the lexer so a `from`/`import` inside a comment or string is never a false hit. */
-pub fn scan_imports(src: &str) -> Vec<ImportSpec> {
+pub fn scan_imports(src: &str) -> Vec<ImportSpec> { scan(src).0 }
+
+/* The import specs of `src`, and whether it names `eval`, `exec` or `compile`, whose text may import what the program never did. */
+pub fn scan(src: &str) -> (Vec<ImportSpec>, bool) {
     let (tokens, _errs) = lex(src);
+    let runs_text = tokens.iter().any(|t| t.kind == TokenType::Name && matches!(&src[t.start..t.end], "eval" | "exec" | "compile"));
     let mut out = Vec::new();
     let mut i = 0;
     while i < tokens.len() {
@@ -209,5 +216,5 @@ pub fn scan_imports(src: &str) -> Vec<ImportSpec> {
             _ => i += 1,
         }
     }
-    out
+    (out, runs_text)
 }

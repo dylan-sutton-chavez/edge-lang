@@ -5,7 +5,7 @@ description: "The global functions available in every Edge Python program."
 
 # Built-in functions
 
-Edge Python provides 65 built-in functions. They are first-class values. You can pass them as arguments, store them in containers, and alias them.
+Edge Python provides 68 built-in functions. They are first-class values. You can pass them as arguments, store them in containers, and alias them.
 
 ```edge-python
 fns = [abs, hex, str]
@@ -20,8 +20,8 @@ p("aliased")
 aliased
 ```
 
-> [!QUESTION] Why is there no eval, exec or open?
-> Every module a program can reach is resolved and verified at compile time. The sandbox holds no file handles. `eval`, `exec`, `compile`, `open` and `__import__` would break both rules, so a use of any of them is a compile error that names the builtin.
+> [!QUESTION] Why is there no open or __import__?
+> Every module a program can reach is resolved and verified at compile time. The sandbox holds no file handles. `open` and `__import__` would break both rules, so a use of either is a compile error that names the builtin. [Dynamic code](#dynamic-code) keeps both rules.
 
 ## Output
 
@@ -804,7 +804,7 @@ print(vars(P()))
 
 `globals()` returns a fresh dict of the module-level bindings. It holds user names only. Built-ins live in a separate namespace.
 
-It is a copy. Mutating it does not change any binding.
+It is a copy, so writing to it changes no binding. The one way back is `exec` given the newest dict `globals()` returned in a module, which binds what it runs into that module.
 
 ```edge-python
 x = 100
@@ -849,6 +849,74 @@ True
 ```
 
 Dynamic loading through `importlib` or `__import__` does not exist. Static imports plus `import_module` replace it.
+
+## Dynamic code
+
+### eval, exec
+
+`eval(source, globals=None, locals=None)` returns the value of one expression. `exec(source, globals=None, locals=None)` runs statements and returns `None`. The source is a string, UTF-8 bytes or a code object from `compile`.
+
+- The text compiles with the compiler of the program and runs in the same VM, under the same operation budget and memory limit.
+- Without dicts, code at module level binds into the module. Inside a function it gets a copy of the locals, so its own bindings never change them, as [PEP 667](https://peps.python.org/pep-0667/) defines.
+- A `globals` dict supplies the names and takes back every binding once the run ends. A `locals` dict takes the bindings that changed.
+- A function the text defines in a dict reads and writes that dict. Each call takes what the dict holds then and hands its bindings back when it returns.
+- A dict of its own under `__builtins__` holds the only builtins the text finds. A globals dict without the key gets the shared `builtins` module, as `__main__` holds in Python.
+- An import finds the packages the program resolved and pinned in its lock, and the system modules the package of the calling file is granted. Every system call checks those grants.
+- The text cannot suspend. `receive()`, `sleep()` or a host call that waits raises `RuntimeError`.
+- A syntax error raises `SyntaxError` with the line, in `<string>` or the file name given to `compile`.
+
+```edge-python
+x = 5
+print(eval("x * 2"))
+
+exec("def square(n):\n    return n * n")
+print(square(4))
+
+ns = {"base": 10}
+exec("total = base + 5", ns)
+print(ns["total"])
+
+def f():
+    count = 1
+    exec("count = 2")
+    return count
+
+print(f())
+
+try:
+    eval("(1 +")
+except SyntaxError as e:
+    print(e)
+```
+
+```output
+10
+16
+15
+1
+'(' was never closed (<string>, line 1)
+```
+
+### compile
+
+`compile(source, filename, mode)` parses the source and returns a code object that `eval` and `exec` run.
+
+- `mode` is `"exec"` for statements, `"eval"` for one expression, or `"single"` for one statement that prints the value of an expression.
+- A syntax error raises at once and names `filename`.
+- The flag asking for a syntax tree raises `ValueError`. `dont_inherit` and `optimize` are accepted and ignored.
+
+```edge-python
+code = compile("n * 2", "double.py", "eval")
+print(eval(code, {"n": 4}))
+print(eval(code, {"n": 5}))
+exec(compile("1 + 1", "<shell>", "single"))
+```
+
+```output
+8
+10
+2
+```
 
 ## Classes
 

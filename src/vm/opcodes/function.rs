@@ -1,6 +1,7 @@
 use crate::s;
 use super::*;
 use super::super::{Ctor, ParamKind};
+use super::super::frame::CallFacts;
 use crate::parser::fused_native;
 
 
@@ -23,7 +24,7 @@ fn native_is_impure(id: super::super::types::NativeFnId) -> bool {
         Print | Input | Receive | SendMsg | Sleep // I/O + scheduler
         | SetAttr | DelAttr // mutation
         | GetAttr | HasAttr // attr access can run getters
-        | Run | ImportModule // arbitrary execution / import
+        | Run | ImportModule | Eval | Exec | Compile // arbitrary execution / import
         | Cancel | WithTimeout | Gather // async effects
         | Globals | Vars | Super // reflection of mutable state
     )
@@ -67,6 +68,13 @@ impl Args {
         inline[..vals.len()].copy_from_slice(vals);
         Self::Inline(vals.len() as u8, inline)
     }
+}
+
+/* Where the positionals of a call a loop opens lie, on the stack from `first` until it drops to `to`, or read out of registers. */
+#[derive(Clone, Copy)]
+pub(crate) enum Passed {
+    Stack { first: usize, to: usize },
+    Regs([Val; 3]),
 }
 
 impl core::ops::Deref for Args {
@@ -262,7 +270,7 @@ impl<'a> VM<'a> {
     }
 
     /* Caches `result` on the second run of its key, or turns `fi` off when it never can. */
-    fn memo_keep(&mut self, fi: usize, callee: Val, args: &[Val], defaults: &[Val], owner: Val, result: Val) {
+    pub(crate) fn memo_keep(&mut self, fi: usize, callee: Val, args: &[Val], defaults: &[Val], owner: Val, result: Val) {
         let immutable = |v: &Val| !v.is_heap() || cache::deeply_immutable(*v, &self.heap, 0);
         if !immutable(&result) || !args.iter().chain(defaults).all(immutable) {
             // A body that sees a mutable value before any entry likely always does.
@@ -293,26 +301,21 @@ impl<'a> VM<'a> {
     pub(crate) fn exec_call_n(&mut self, num_pos: usize, num_kw: usize, chunk: &SSAChunk) -> Result<(), VmErr> {
         // Taken so nested native calls see false.
         let call_safe = core::mem::take(&mut self.pending_exec_safe);
+        let inline = core::mem::take(&mut self.inline_call);
+        let looked = core::mem::take(&mut self.memo_looked);
         if self.depth >= self.max_calls { return Err(cold_depth()); }
         // A function taking exactly these positionals binds them straight off the stack.
         if num_kw == 0
             && let Some(at) = self.stack.len().checked_sub(num_pos + 1)
             && let Some(&HeapObj::Func(fi, ref defaults, ref captures, _)) = self.heap.try_get(self.stack[at])
-            && self.simple_arity[fi] == Some(num_pos)
+            && self.call_facts[fi].arity == Some(num_pos)
             && !self.memo_ok[fi]
         {
             let callee = self.stack[at];
             let captures = (!captures.is_empty()).then(|| captures.clone());
             let owner = if defaults.is_empty() { Val::none() } else { callee };
             self.charge_step()?;
-            // The callee frame opens on top of the register stack, its arguments copied in from the operand stack.
-            let base = self.regs.len();
-            self.regs.extend_from_slice(&self.slot_templates[fi]);
-            let size = self.regs.len() - base;
-            for (k, &(_, slot)) in self.param_slots[fi].iter().enumerate() {
-                if slot < size { self.regs[base + slot] = self.stack[at + 1 + k]; }
-            }
-            self.stack.truncate(at);
+            let base = self.bind_plain(fi, &Passed::Stack { first: at + 1, to: at }, num_pos);
             // Most bodies share no variable, so there is no cell to make.
             if (captures.is_some() || !self.fn_scope[fi].cellvars.is_empty())
                 && let Err(e) = self.enter_scope(fi, captures.as_deref().unwrap_or(&[]), base)
@@ -320,7 +323,7 @@ impl<'a> VM<'a> {
                 self.regs.truncate(base);
                 return Err(e);
             }
-            return self.run_call(fi, callee, base, call_safe, false, &[], &[], owner, chunk);
+            return self.run_call(fi, callee, base, call_safe, inline, false, &[], &[], owner, chunk);
         }
         let at = self.stack.len().checked_sub(num_pos + 2 * num_kw).ok_or_else(|| cold_runtime("stack underflow"))?;
         let (positional, kw_flat) = (Args::of(&self.stack[at..at + num_pos]), Args::of(&self.stack[at + num_pos..]));
@@ -336,9 +339,10 @@ impl<'a> VM<'a> {
         let (fi, defaults, captures) = match self.heap.get(callee) {
             HeapObj::Func(i, d, c, _) => (*i, (!d.is_empty()).then(|| d.clone()), (!c.is_empty()).then(|| c.clone())),
             _ => {
-                // Bound methods re-dispatch as tail calls.
-                if matches!(self.heap.get(callee), HeapObj::BoundUserMethod(..)) {
+                // Bound methods, constructors and callable instances end in a call of their own, which may run in the loop.
+                if matches!(self.heap.get(callee), HeapObj::BoundUserMethod(..) | HeapObj::Class(..) | HeapObj::Instance(..)) {
                     self.pending_exec_safe = call_safe;
+                    self.inline_call = inline;
                 }
                 let dispatched = self.try_dispatch_non_func_callable(callee, &positional, &kw_flat, chunk);
                 self.pending_exec_safe = false;
@@ -351,7 +355,7 @@ impl<'a> VM<'a> {
         let memo_ok = num_kw == 0 && captures.is_none() && self.memo_ok.get(fi).copied().unwrap_or(false);
         let owner = if defaults.is_none() { Val::none() } else { callee };
         let (defaults, captures) = (defaults.as_deref().unwrap_or(&[]), captures.as_deref().unwrap_or(&[]));
-        if memo_ok && let Some(cached) = self.templates.lookup(fi, &positional, owner, &self.heap) {
+        if memo_ok && !looked && let Some(cached) = self.templates.lookup(fi, &positional, owner, &self.heap) {
             self.push(cached);
             return Ok(());
         }
@@ -362,13 +366,137 @@ impl<'a> VM<'a> {
             self.regs.truncate(base);
             return Err(e);
         }
-        self.run_call(fi, callee, base, call_safe, memo_ok, &positional, defaults, owner, chunk)
+        self.run_call(fi, callee, base, call_safe, inline, memo_ok, &positional, defaults, owner, chunk)
+    }
+
+    /* Opens the frame of a call whose `n` positionals are exactly its parameters, copied in from where they were passed, its base. */
+    #[inline(always)]
+    fn bind_plain(&mut self, fi: usize, passed: &Passed, n: usize) -> usize {
+        // The callee frame opens on top of the register stack.
+        let base = self.regs.len();
+        self.regs.extend_from_slice(&self.slot_templates[fi]);
+        let size = self.regs.len() - base;
+        let args = match passed {
+            Passed::Stack { first, .. } => &self.stack[*first..*first + n],
+            Passed::Regs(vals) => &vals[..n],
+        };
+        match self.call_facts[fi] {
+            // Positionals that fill the first slots copy in at once.
+            CallFacts { in_loop: true, arity: Some(k), .. } if k <= size => self.regs[base..base + k].copy_from_slice(&args[..k]),
+            _ => for (k, &(_, slot)) in self.param_slots[fi].iter().enumerate() {
+                if slot < size { self.regs[base + slot] = args[k]; }
+            },
+        }
+        if let Passed::Stack { to, .. } = *passed { self.stack.truncate(to); }
+        base
+    }
+
+    /* Opens a plain call as the next frame of the loop that made it, `operand` its counts, false when the callee takes the general path. */
+    #[inline(always)]
+    pub(crate) fn call_in_loop(&mut self, operand: u16) -> Result<bool, VmErr> {
+        if operand >> 8 != 0 { return Ok(false); }
+        let num_pos = operand as usize;
+        let Some(at) = self.stack.len().checked_sub(num_pos + 1) else { return Ok(false) };
+        self.open_in_loop(self.stack[at], Passed::Stack { first: at + 1, to: at }, num_pos)
+    }
+
+    /* Opens `callee` as the next frame of the loop with its `n` positionals, false when it takes the general path. */
+    #[inline(always)]
+    pub(crate) fn open_in_loop(&mut self, callee: Val, passed: Passed, n: usize) -> Result<bool, VmErr> {
+        let (fi, captured, owner) = match self.heap.try_get(callee) {
+            Some(&HeapObj::Func(fi, ref defaults, ref captures, _)) => (fi, captures.len(), if defaults.is_empty() { Val::none() } else { callee }),
+            Some(HeapObj::Class(..)) => return self.construct_in_loop(callee, passed, n),
+            _ => return Ok(false),
+        };
+        if captured == 0 && self.memo_ok[fi] { return self.memo_in_loop(fi, owner, &passed, n); }
+        if !self.opens_in_loop(fi, n) { return Ok(false); }
+        self.open_frame(fi, callee, &passed, n, captured)?;
+        Ok(true)
+    }
+
+    /* Opens the plain function `fi` as the next frame of the loop, its checks already passed. */
+    #[inline(always)]
+    pub(crate) fn open_frame(&mut self, fi: usize, callee: Val, passed: &Passed, n: usize, captured: usize) -> Result<(), VmErr> {
+        self.charge_step()?;
+        let base = self.bind_plain(fi, passed, n);
+        // A closure takes the cells it captured, read off the function each time so none is copied.
+        for k in 0..captured {
+            let Some(HeapObj::Func(_, _, captures, _)) = self.heap.try_get(callee) else { break };
+            let (slot, cell) = captures[k];
+            if let Some(r) = self.regs.get_mut(base + slot) { *r = cell; }
+        }
+        self.enter_frame(fi, callee, base, None)
+    }
+
+    /* Whether a call of `fi` with `n` positionals can open as a frame of the loop, memoized bodies, coroutines and code not lowered yet taking the general path. */
+    #[inline(always)]
+    fn opens_in_loop(&self, fi: usize, n: usize) -> bool {
+        let facts = &self.call_facts[fi];
+        facts.in_loop && facts.arity == Some(n) && !self.memo_ok[fi] && !self.is_async.get(fi).copied().unwrap_or(false)
+            && self.pools[facts.pool].code.is_some() && self.pools[facts.pool].consts.is_some()
+    }
+
+    /* Builds an instance of `class` and opens its `__init__` with the `n` positionals as the next frame of the loop, false when the constructor takes the general path. */
+    #[inline(never)]
+    fn construct_in_loop(&mut self, class: Val, passed: Passed, n: usize) -> Result<bool, VmErr> {
+        // The instance goes first, in the slot of its class on the stack, so it and the arguments lie in parameter order.
+        let (at, instance_first) = match passed {
+            Passed::Stack { first, to } if first == to + 1 => (to, true),
+            Passed::Regs(_) if n < 3 => (0, false),
+            _ => return Ok(false),
+        };
+        // Only a constructor the general path already ran knows its `__init__`.
+        let Some(&Ctor { epoch, init, exception: false, attrs, native: None }) = self.ctors.get(&class.0) else { return Ok(false) };
+        if epoch != self.class_epoch { return Ok(false); }
+        let Some((init, defining)) = init else {
+            // A class without `__init__` takes no arguments, and its instance is the whole call.
+            if n != 0 { return Ok(false); }
+            self.charge_step()?;
+            let instance = self.new_instance(class, attrs)?;
+            if instance_first { self.stack[at] = instance; } else { self.push(instance); }
+            return Ok(true);
+        };
+        let Some(&HeapObj::Func(fi, _, ref captures, _)) = self.heap.try_get(init) else { return Ok(false) };
+        if !captures.is_empty() || !self.opens_in_loop(fi, n + 1) { return Ok(false); }
+        self.charge_step()?;
+        let instance = self.new_instance(class, attrs)?;
+        (self.pending.method_binding, self.pending_instance) = (Some((defining, instance)), instance);
+        let passed = match passed {
+            Passed::Regs(v) => Passed::Regs([instance, v[0], v[1]]),
+            Passed::Stack { .. } => { self.stack[at] = instance; Passed::Stack { first: at, to: at } }
+        };
+        let base = self.bind_plain(fi, &passed, n + 1);
+        self.enter_frame(fi, init, base, None)?;
+        Ok(true)
+    }
+
+    /* A fresh instance of `class`, its dict sized for the `attrs` fields the last one ended with so they never regrow it. */
+    fn new_instance(&mut self, class: Val, attrs: usize) -> Result<Val, VmErr> {
+        self.heap.alloc(HeapObj::Instance(class, Rc::new(RefCell::new(DictMap::with_capacity(attrs)))))
+    }
+
+    /* Answers a memoized call with the result its key kept, false when none is kept and the general path runs it. */
+    #[inline(never)]
+    fn memo_in_loop(&mut self, fi: usize, owner: Val, passed: &Passed, n: usize) -> Result<bool, VmErr> {
+        let args = match passed {
+            Passed::Stack { first, .. } => &self.stack[*first..*first + n],
+            Passed::Regs(vals) => &vals[..n],
+        };
+        let Some(cached) = self.templates.lookup(fi, args, owner, &self.heap) else {
+            self.memo_looked = true;
+            return Ok(false);
+        };
+        self.charge_step()?;
+        if let Passed::Stack { to, .. } = *passed { self.stack.truncate(to); }
+        self.pending.method_binding = None;
+        self.push(cached);
+        Ok(true)
     }
 
     /* Runs a bound call's body, its result left on the stack. */
     #[inline(always)]
     #[allow(clippy::too_many_arguments)]
-    fn run_call(&mut self, fi: usize, callee: Val, base: usize, call_safe: bool, memo_ok: bool, positional: &[Val], defaults: &[Val], owner: Val, chunk: &SSAChunk) -> Result<(), VmErr> {
+    fn run_call(&mut self, fi: usize, callee: Val, base: usize, call_safe: bool, inline: bool, memo_ok: bool, positional: &[Val], defaults: &[Val], owner: Val, chunk: &SSAChunk) -> Result<(), VmErr> {
         let (_params, body, _, _) = self.functions[fi];
         // Generator/coroutine, return a suspended Coroutine instead of running. Both flags are O(1).
         let is_async_fn = self.is_async.get(fi).copied().unwrap_or(false);
@@ -378,18 +506,27 @@ impl<'a> VM<'a> {
             self.push(coro);
             return Ok(());
         }
+        // Only the call a constructor makes of `__init__` may take the instance it builds.
+        let instance = core::mem::replace(&mut self.pending_instance, Val::undef());
+        // A function exec defined in a dict reads and writes it, so its call nests and syncs with the dict around the body.
+        let link = self.link_of(fi);
+        // A plain call the instruction loop made runs as a frame of that loop instead of a nested one, a memoized call only once deep since nesting costs it less.
+        if inline && link.is_none() && (!memo_ok || self.depth >= crate::vm::frame::MEMO_NESTS) && self.runs_in_loop(fi, call_safe) {
+            self.pending_instance = instance;
+            return self.enter_frame(fi, callee, base, memo_ok.then_some(positional));
+        }
 
         // Snapshot caller-visible depths so we can split the helper's stack/iter/exception contributions out if it suspends mid-body via a yielding builtin.
         let stack_base = self.stack.len();
         let iter_base = self.iter_stack.len();
         let exc_base = self.exception_stack.len();
         let yields_before = self.yields.len();
-        self.depth += 1;
         self.pending_exec_safe = call_safe;
         let entry = self.enter_body(fi);
-        let exec_result = self.exec_in(body, base, self.fn_pool[fi]);
+        if let Some(at) = link { self.enter_link(at); }
+        let mut exec_result = self.exec_in(body, base, self.fn_pool[fi]);
+        if let Some(at) = link && let Err(e) = self.leave_link(at) { exec_result = Err(e); }
         let callee_impure = self.leave_body(fi, entry, exec_result.is_ok(), chunk);
-        self.depth -= 1;
 
         // A body that suspended keeps its frame for the coroutine, any other drops it here, and the loops a return left with it.
         if exec_result.is_err() || !self.yielded {
@@ -397,11 +534,7 @@ impl<'a> VM<'a> {
             self.iter_stack.truncate(iter_base);
         }
         let result = exec_result?;
-        if callee_impure {
-            self.mark_impure();
-            // A body that showed an effect keeps no result, so its calls stop trying.
-            if let Some(m) = self.memo_ok.get_mut(fi) { *m = false; }
-        }
+        if callee_impure { self.showed_effect(fi); }
 
         if self.yielded {
             // Sync helper suspended mid-execution (e.g. `sleep(0)` from inside a sync fn called by an async coro). Stage its frame on the VM-level buffer. `resume_coroutine` drains it onto the enclosing coro so the helper is re-entered from the right ip. Without this, the outer's resume_ip would skip past the unfinished helper and the next StoreName would underflow. A nested sync call inside this helper would already have pushed its own frame first, so the buffer ends up innermost-last.
@@ -410,7 +543,7 @@ impl<'a> VM<'a> {
             let (mut stack_delta, mut iter_delta, mut exception_delta) = (Vec::new(), Vec::new(), Vec::new());
             self.save_frames(stack_base, iter_base, exc_base, &mut stack_delta, &mut iter_delta, &mut exception_delta);
             let slots = self.regs.split_off(base);
-            self.pending_sync_frames.push(SyncFrame { ip: helper_resume_ip, fi, func: callee, slots, stack_delta, iter_delta, exception_delta });
+            self.pending_sync_frames.push(SyncFrame { ip: helper_resume_ip, fi, func: callee, slots, stack_delta, iter_delta, exception_delta, instance });
             return Ok(());
         }
 
@@ -512,24 +645,22 @@ impl<'a> VM<'a> {
                         c
                     }
                 };
+                let inline = core::mem::take(&mut self.inline_call);
                 if let Some(native) = ctor.native {
                     self.new_classed(callee, native, ctor.init, positional, kw_flat, chunk)?;
                     return Ok(true);
                 }
-                if ctor.init.is_none() && !kw_flat.is_empty() {
-                    return Err(cold_type("class constructor takes no keyword arguments"));
+                // Without `__init__` a class takes no arguments, and an exception only positional ones.
+                if ctor.init.is_none() && (!kw_flat.is_empty() || !ctor.exception && !positional.is_empty()) {
+                    let HeapObj::Class(name, ..) = self.heap.get(callee) else { return Err(cold_type("class constructor takes no arguments")) };
+                    let what = if ctor.exception { "() takes no keyword arguments" } else { "() takes no arguments" };
+                    return Err(VmErr::TypeMsg(s!(str name, str what)));
                 }
-                // Sized as the last instance ended, so its fields never regrow the dict.
-                let instance = self.heap.alloc(HeapObj::Instance(callee, Rc::new(RefCell::new(DictMap::with_capacity(ctor.attrs)))))?;
+                let instance = self.new_instance(callee, ctor.attrs)?;
                 // An exception keeps its constructor arguments as `args`, a later `__init__` may reset them.
                 if ctor.exception { self.set_exc_args(instance, positional.to_vec())?; }
-                if let Some((init_fn, defining)) = ctor.init {
-                    // Fail-fast before pushing, the inner check fires only after parse_call_args pops.
-                    if self.depth >= self.max_calls { return Err(cold_depth()); }
-                    self.pending.method_binding = Some((defining, instance));
-                    // Keywords reach `__init__` as they reach any function, its return value is dropped.
-                    self.call_with(init_fn, Some(instance), positional, kw_flat, chunk)?;
-                    self.pop()?;
+                if let Some(init) = ctor.init {
+                    if self.run_init(init, instance, positional, kw_flat, chunk, inline)? { return Ok(true); }
                     if let Some(HeapObj::Instance(_, d)) = self.heap.try_get(instance)
                         && let Some(c) = self.ctors.get_mut(&callee.0) { c.attrs = d.borrow().len(); }
                 }
@@ -555,7 +686,7 @@ impl<'a> VM<'a> {
             }
             // Instance with `__call__`, bind and dispatch through `BoundUserMethod`-style flow.
             Some(&HeapObj::Instance(cls, _)) => {
-                let Some((func, class)) = self.lookup_class_member(cls, "__call__") else { return Ok(false) };
+                let Some((func, class)) = self.lookup_class_member(cls, "__call__") else { self.inline_call = false; return Ok(false) };
                 if self.depth >= self.max_calls { return Err(cold_depth()); }
                 self.pending.method_binding = Some((class, callee));
                 self.call_with(func, Some(callee), positional, kw_flat, chunk)?;
@@ -590,14 +721,24 @@ impl<'a> VM<'a> {
             self.pop()?
         };
         self.heap.set_class(obj, cls, Rc::new(RefCell::new(DictMap::new())));
-        if let Some((init_fn, defining)) = init {
-            if self.depth >= self.max_calls { return Err(cold_depth()); }
-            self.pending.method_binding = Some((defining, obj));
-            self.call_with(init_fn, Some(obj), positional, kw_flat, chunk)?;
-            self.pop()?;
-        }
+        if let Some(init) = init && self.run_init(init, obj, positional, kw_flat, chunk, false)? { return Ok(()); }
         self.push(obj);
         Ok(())
+    }
+
+    /* Calls `__init__` on a fresh `instance`, true when the instance comes back later from a frame that runs or suspended, false once the call is over. */
+    fn run_init(&mut self, (init_fn, defining): (Val, Val), instance: Val, positional: &[Val], kw_flat: &[Val], chunk: &SSAChunk, inline: bool) -> Result<bool, VmErr> {
+        // Fail-fast before pushing, the inner check fires only after parse_call_args pops.
+        if self.depth >= self.max_calls { return Err(cold_depth()); }
+        self.pending.method_binding = Some((defining, instance));
+        // Keywords reach `__init__` as they reach any function, its return value is dropped.
+        (self.inline_call, self.pending_instance) = (inline, instance);
+        let called = self.call_with(init_fn, Some(instance), positional, kw_flat, chunk);
+        self.pending_instance = Val::undef();
+        called?;
+        if self.entered || self.yielded { return Ok(true); }
+        self.pop()?;
+        Ok(false)
     }
 
     /* Bind formal params from positional/kw buffers, then fill remaining undef slots with defaults. */
@@ -708,8 +849,9 @@ impl<'a> VM<'a> {
         let call_ip = self.pending.call_ip.take();
         // Method-call paths set `method_binding` immediately before invoking `exec_call`, plain function calls leave it `None`.
         let bound = match self.pending.method_binding.take() {
-            Some((c, s)) => { self.bindings.push((self.depth, c, s)); true }
-            None => false,
+            // The body runs one level down, in the loop its call nests.
+            Some((c, s)) if self.uses_super(fi) => { self.bindings.push((self.level() + 1, c, s)); true }
+            _ => false,
         };
         // Effects matter only to a memoizable body or to one running under it, so other calls track none.
         let tracked = self.memo_ok[fi] || !self.observed_impure.is_empty();
@@ -721,18 +863,26 @@ impl<'a> VM<'a> {
     pub(crate) fn leave_body(&mut self, fi: usize, entry: Entry, ok: bool, chunk: &SSAChunk) -> bool {
         let impure = entry.tracked && self.observed_impure.pop().unwrap_or(true);
         if entry.bound { self.bindings.pop(); }
-        if !ok {
-            // Frames go in as the error unwinds, the innermost first.
-            let frame = super::super::types::CallFrame {
-                fi,
-                // The frame snapshots its caller's text, so a render never borrows a live chunk.
-                call_byte_pos: entry.call_ip.and_then(|ip| chunk.resolve_call(ip).or_else(|| chunk.resolve(ip))).unwrap_or(0),
-                caller_source: Some(chunk.source.clone()),
-                caller_path: Some(chunk.path.clone()),
-            };
-            self.call_stack.push(frame);
-        }
+        if !ok { self.note_frame(fi, entry.call_ip, chunk); }
         impure
+    }
+
+    /* Notes the frame of `fi` an error unwound, called at `call_ip` of `chunk`. */
+    pub(crate) fn note_frame(&mut self, fi: usize, call_ip: Option<u32>, chunk: &SSAChunk) {
+        // A position in another text would read as a line of this one, so the error points at this call.
+        if !alloc::sync::Arc::ptr_eq(&self.functions[fi].1.source, &chunk.source) { self.error_byte_pos = None; }
+        let call_byte_pos = call_ip.and_then(|ip| chunk.resolve_call(ip).or_else(|| chunk.resolve(ip))).unwrap_or(0);
+        // A recursion unwinds the same call again and again, which the frame below only counts.
+        if let Some(last) = self.call_stack.last_mut()
+            && last.fi == fi && last.call_byte_pos == call_byte_pos && last.caller_path.as_ref().is_some_and(|p| alloc::sync::Arc::ptr_eq(p, &chunk.path))
+        {
+            last.repeats += 1;
+            return;
+        }
+        // The innermost frames are the ones a traceback shows, so a long chain keeps its first few hundred.
+        if self.call_stack.len() >= super::super::types::MAX_CALLS { return; }
+        // Frames go in as the error unwinds, the innermost first, each with its caller's text so a render never borrows a live chunk.
+        self.call_stack.push(super::super::types::CallFrame { fi, call_byte_pos, caller_source: Some(chunk.source.clone()), caller_path: Some(chunk.path.clone()), repeats: 0 });
     }
 
     /* CallExtern's operand packs `(extern_idx<<8)|(kw<<4)|pos`. Pop kw `name,val` pairs then `pos` positional vals, pack pairs into a heap dict via `pack_kw_dict` and hand it off as the explicit `Option<Val>` kwargs slot. Pure externs leave the impurity flag alone, bodies whose only side-effects are pure externs stay memoizable. */
@@ -781,6 +931,8 @@ impl<'a> VM<'a> {
             Pow => &["base", "exp", "mod"],
             Str => &["object", "encoding", "errors"],
             Bytes => &["source", "encoding", "errors"],
+            Eval | Exec => &["", "globals", "locals"],
+            Compile => &["source", "filename", "mode", "flags", "dont_inherit", "optimize"],
             _ => return Err(VmErr::TypeMsg(s!(str id.name(), "() takes no keyword arguments"))),
         };
         let mut args: Vec<Option<Val>> = positional.iter().map(|&v| Some(v)).collect();
@@ -913,6 +1065,9 @@ impl<'a> VM<'a> {
             Property => self.call_property(operand),
             StaticMethod => self.call_staticmethod(operand),
             ClassMethod => self.call_classmethod(operand),
+            Eval => { self.mark_impure(); self.call_eval(operand, chunk) }
+            Exec => { self.mark_impure(); self.call_exec(operand, chunk) }
+            Compile => self.call_compile(operand, chunk),
         };
         done?;
         self.pay_work()

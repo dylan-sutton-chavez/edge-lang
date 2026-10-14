@@ -3,7 +3,7 @@ use crate::util::hash::FxHashSet;
 use alloc::{boxed::Box, string::{String, ToString}, vec::Vec};
 use crate::s;
 
-use super::{ModuleEntry, host_fetch_bytes, with_runtime};
+use super::{ModuleEntry, host_fetch_bytes, with_runtime, with_slot};
 use super::exports::wasm_free;
 use crate::abi::ErrorKind;
 use crate::bridge::{error_from_kind, get_val, put_val, release_handles, take_error, with_bridge, with_vm};
@@ -13,7 +13,11 @@ use alloc::sync::Arc;
 // Cap on edge.json `extends` chain, bounds attacker-crafted loops, 32 dwarfs real workspace depth.
 const MAX_PACKAGES_HOPS: u32 = 32;
 
-pub(super) struct WasmHostResolver { pub(super) dir: String }
+pub(super) struct WasmHostResolver {
+    pub(super) dir: String,
+    // Resolves for code compiled while the program runs, which finds only the modules the host already holds.
+    pub(super) late: bool,
+}
 
 impl Resolver for WasmHostResolver {
     fn resolve(&mut self, spec: &str) -> Result<Resolved, String> {
@@ -50,7 +54,7 @@ impl Resolver for WasmHostResolver {
     }
 
     fn child(&self, spec: &str) -> Box<dyn Resolver> {
-        Box::new(WasmHostResolver { dir: dir_of(spec).to_string() })
+        Box::new(WasmHostResolver { dir: dir_of(spec).to_string(), late: self.late })
     }
 }
 
@@ -102,13 +106,18 @@ impl WasmHostResolver {
 
     /* A name no manifest declares may be a system module, which the host serves or refuses per package. */
     fn resolve_system(&self, name: &str, package: Option<&str>) -> Result<Resolved, String> {
-        let Some(dir) = package else { return Err(undeclared(name)) };
+        let Some(dir) = package else { return Err(self.missing(name)) };
         let spec = system_spec(name, dir);
         let served = refusal(&spec).is_some() || with_runtime(|rt| rt.registry.iter().any(|(s, _)| *s == spec));
         if !served {
-            return Err(undeclared(name));
+            return Err(self.missing(name));
         }
         self.resolve_canonical(&spec)
+    }
+
+    /* A module the host does not hold, which code compiled at run time can never load. */
+    fn missing(&self, name: &str) -> String {
+        if self.late { s!("module '", str name, "' is not one the program imports, and code that eval or exec compiles imports only those") } else { undeclared(name) }
     }
 
     /* Nearest ancestor dir holding an edge.json, probed live like the bare-name walk-up. */
@@ -150,7 +159,7 @@ impl WasmHostResolver {
             return Err(msg);
         }
         let entry = with_runtime(|rt| rt.registry.iter().find(|(s, _)| s == spec).map(|(_, e)| e.clone()))
-            .ok_or_else(|| s!("module '", str spec, "' not registered (host did not pre-fetch / register before run())"))?;
+            .ok_or_else(|| if self.late { self.missing(spec) } else { s!("module '", str spec, "' not registered (host did not pre-fetch / register before run())") })?;
         match entry {
             ModuleEntry::Code(src) => Ok(Resolved::Code {
                 src,
@@ -181,7 +190,7 @@ pub(crate) fn system_call(call_id: u32, name: &str, args: &[Val]) -> Result<Val,
     let (module, function) = name.split_once('.').ok_or_else(|| VmErr::Raised(s!("ValueError: a system call is named module.name, got '", str name, "'")))?;
     let caller = with_bridge(|b| b.calls.iter().rev().find(|(id, _)| *id == call_id).map(|(_, m)| m.clone()))
         .ok_or(VmErr::Runtime("a system call names the plugin call it belongs to, see edge_call_id"))?;
-    let (spec, id) = WasmHostResolver { dir: dir_of(&caller) }.system_fn(module, function)?;
+    let (spec, id) = WasmHostResolver { dir: dir_of(&caller), late: false }.system_fn(module, function)?;
     call_host(id, call_id, &spec, args, None)
 }
 
@@ -226,17 +235,18 @@ fn make_native_binding(name: String, id: u32, module: Arc<str>) -> NativeBinding
 fn answers_caller(spec: &str) -> Result<(), VmErr> {
     let caller = with_vm(|vm| vm.extern_caller.clone()).flatten().unwrap_or_default();
     let name = spec.strip_prefix("system:").and_then(|s| s.split_once('@')).map_or("", |(n, _)| n);
-    if package_of(&caller).is_some_and(|dir| system_spec(name, &dir) == spec) { return Ok(()); }
+    // The entry chunk has no path, its imports resolve from the entry dir and so does its package.
+    let dir = if caller.is_empty() { with_slot(|s| s.entry_dir.clone()) } else { dir_of(&caller) };
+    if package_of(&dir).is_some_and(|package| system_spec(name, &package) == spec) { return Ok(()); }
     Err(VmErr::Raised(s!("PermissionError: this ", str name, " module was imported by another package and answers only it, import ", str name, " here instead")))
 }
 
-/* The dir of the nearest edge.json above `path`, the package the code in it belongs to. */
-fn package_of(path: &str) -> Option<String> {
-    if let Some(found) = with_runtime(|rt| rt.packages.iter().find(|(p, _)| p == path).map(|(_, d)| d.clone())) { return found; }
-    let mut resolver = WasmHostResolver { dir: dir_of(path) };
-    let start = resolver.dir.clone();
-    let found = walk_up_dirs(&start).find(|dir| matches!(resolver.lookup_in_manifest(&s!(str dir, "edge.json"), ""), Ok(Some(_))));
-    with_runtime(|rt| rt.packages.push((path.to_string(), found.clone())));
+/* The dir of the nearest edge.json at or above `dir`, the package the code in it belongs to. */
+fn package_of(dir: &str) -> Option<String> {
+    if let Some(found) = with_runtime(|rt| rt.packages.iter().find(|(d, _)| d == dir).map(|(_, p)| p.clone())) { return found; }
+    let mut resolver = WasmHostResolver { dir: dir.to_string(), late: false };
+    let found = walk_up_dirs(dir).find(|up| matches!(resolver.lookup_in_manifest(&s!(str up, "edge.json"), ""), Ok(Some(_))));
+    with_runtime(|rt| rt.packages.push((dir.to_string(), found.clone())));
     found
 }
 

@@ -60,6 +60,8 @@ pub struct SyncFrame {
     pub stack_delta: Vec<Val>,
     pub iter_delta: Vec<IterFrame>,
     pub exception_delta: Vec<ExceptionFrame>,
+    // The instance an `__init__` hands back in place of what it returns, undef for any other call.
+    pub instance: Val,
 }
 
 /* Block-stack frame role. Except catches exceptions, Finally runs on every exit path. */
@@ -106,6 +108,8 @@ pub struct CallFrame {
     // The caller's source and path, taken only once the frame stays for a traceback.
     pub caller_source: Option<alloc::sync::Arc<alloc::string::String>>,
     pub caller_path: Option<alloc::sync::Arc<alloc::string::String>>,
+    // How many more times the same call unwound right after this one, a recursion kept once.
+    pub repeats: u32,
 }
 
 /* ForIter state, consumed one item per `next_item`. */
@@ -232,6 +236,7 @@ impl SyncFrame {
     /* Visit all Vals across slots, stack delta, and iter frames. */
     pub(crate) fn for_each_val(&self, f: &mut impl FnMut(Val)) {
         f(self.func);
+        f(self.instance);
         for &v in &self.slots { f(v); }
         for &v in &self.stack_delta { f(v); }
         for fr in &self.iter_delta { fr.for_each_val(f); }

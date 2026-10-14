@@ -7,6 +7,8 @@ use crate::vm::methods::lookup_method;
 // `resolve_attr` result, every shape LoadAttr / CallMethod dispatches on. Built-in method bodies live in `vm/methods/`.
 pub(crate) enum AttrLookup {
     ModuleAttr(Val),
+    // A builtin read off the `builtins` module, made the first time it is asked for.
+    Builtin(&'static str),
     ClassMember(Val),
     InstanceField(Val),
     // `class` is where `func` was found, and the called frame needs it so `super()` knows where to resume.
@@ -167,8 +169,10 @@ impl<'a> VM<'a> {
         match self.heap.try_get(obj) {
             // Module attr lookup is a linear scan, the table is sized for around 30 entries.
             Some(HeapObj::Module(mod_name, attrs)) => {
-                return attrs.iter().find(|(n, _)| n == name).map(|&(_, v)| AttrLookup::ModuleAttr(v))
-                    .ok_or_else(|| VmErr::Attribute(s!("module '", str mod_name, "' has no attribute '", str name, "'")));
+                if let Some(&(_, v)) = attrs.iter().find(|(n, _)| n == name) { return Ok(AttrLookup::ModuleAttr(v)); }
+                // The `builtins` module holds every builtin without making them up front.
+                let builtin = (mod_name == "builtins").then(|| crate::parser::builtin_type(name).or_else(|| crate::vm::NativeFnId::from_name(name).map(|id| id.name()))).flatten();
+                return builtin.map(AttrLookup::Builtin).ok_or_else(|| VmErr::Attribute(s!("module '", str mod_name, "' has no attribute '", str name, "'")));
             }
             // ExcInstance attrs, `e.args` and the chain the exception was raised in.
             Some(HeapObj::ExcInstance(n, args, _)) => return match name {
@@ -309,7 +313,7 @@ impl<'a> VM<'a> {
 
     pub(crate) fn handle_load_attr(&mut self, name_idx: u16, chunk: &SSAChunk) -> Result<(), VmErr> {
         // Borrow, don't clone, `chunk` outlives every `&mut self` call below.
-        let name = chunk.names.get(name_idx as usize).ok_or(VmErr::Runtime("LoadAttr: bad name index"))?;
+        let Some(name) = chunk.names.get(name_idx as usize) else { return Err(VmErr::Runtime("LoadAttr: bad name index")) };
         let obj = self.pop()?;
         self.load_attr(obj, name, chunk)
     }
@@ -330,6 +334,7 @@ impl<'a> VM<'a> {
         // Bound values materialise as a heap object, a property or alias value runs its function.
         let made = match lookup {
             AttrLookup::ModuleAttr(v) | AttrLookup::ClassMember(v) | AttrLookup::InstanceField(v) => { self.push(v); return Ok(()); }
+            AttrLookup::Builtin(name) => { let v = self.builtin_value(name)?; self.push(v); return Ok(()); }
             AttrLookup::InstanceMethod { recv, func, class } => HeapObj::BoundUserMethod(recv, func, class),
             AttrLookup::BuiltinMethod(id) => HeapObj::BoundMethod(obj, id),
             AttrLookup::BoundBuiltin(recv, id) => HeapObj::BoundMethod(recv, id),

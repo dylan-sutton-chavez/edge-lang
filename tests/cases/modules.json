@@ -703,5 +703,14 @@
   {"src": "import m\nprint(getattr(m, 'f')())\nprint(hasattr(m, 'f'), hasattr(m, 'nope'))\nprint(getattr(m, 'nope', 'fallback'))", "output": ["7", "True False", "fallback"], "modules": {"m": {"code": "def f():\n    return 7"}}},
   {"src": "import m\nprint(getattr(m, 'add')(2, 3), hasattr(m, 'add'))", "output": ["5 True"], "modules": {"m": {"native": ["add"]}}},
   {"src": "import m\ngetattr(m, 'nope')", "modules": {"m": {"code": "x = 1"}}, "error": "has no attribute 'nope'"},
-  {"src": "from m import go\nprint(go())\nprint(go())\nprint(go())", "output": ["(6, 2)", "(6, 2)", "(6, 2)"], "modules": {"m": {"code": "def go():\n    last = 0\n    n = 0\n    for x in [2, 6]:\n        last = x\n        n += 1\n    return (last, n)"}}}
+  {"src": "from m import go\nprint(go())\nprint(go())\nprint(go())", "output": ["(6, 2)", "(6, 2)", "(6, 2)"], "modules": {"m": {"code": "def go():\n    last = 0\n    n = 0\n    for x in [2, 6]:\n        last = x\n        n += 1\n    return (last, n)"}}},
+  {"src": "import m\nexec('import m\\nprint(m.f(2))')", "output": ["4"], "modules": {"m": {"code": "def f(x):\n    return x * 2"}}},
+  {"src": "exec('from m import f\\nprint(f(3))')", "output": ["6"], "modules": {"m": {"code": "def f(x):\n    return x * 2"}}},
+  {"src": "exec('from n import add\\nprint(add(2, 3))')", "output": ["5"], "modules": {"n": {"native": ["add"]}}},
+  {"src": "import m\nexec('import m')\nprint('end')", "output": ["init", "end"], "modules": {"m": {"code": "print('init')"}}},
+  {"src": "try:\n    exec('import zz')\nexcept SyntaxError as e:\n    print('zz' in str(e))", "output": ["True"]},
+  {"src": "from m import g\nprint(g())", "output": ["7"], "modules": {"m": {"code": "def g():\n    return eval('h()')\ndef h():\n    return 7"}}},
+  {"src": "import m\nprint(m.z)", "output": ["5"], "modules": {"m": {"code": "exec('z = 5')"}}},
+  {"src": "ns = {}\nexec('import m', ns)\nprint(ns['m'].f(5))", "output": ["10"], "modules": {"m": {"code": "def f(x):\n    return x * 2"}}},
+  {"src": "exec('from n import host_defer\\nhost_defer()')", "error": "cannot suspend", "modules": {"n": {"native": ["host_defer"]}}}
 ]

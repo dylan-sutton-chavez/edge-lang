@@ -1,11 +1,11 @@
 use super::types::{Val, HeapObj, HeapPool, VmErr, EQ_DEPTH_MAX};
 use crate::parser::{SSAChunk, Value};
 
-use alloc::{boxed::Box, rc::Rc, vec, vec::Vec};
+use alloc::{boxed::Box, rc::Rc, vec::Vec};
 
 use super::{lower::Code, sites::Site};
 
-/* One chunk's caches, each running frame holds one and returns it here. */
+/* What one chunk keeps between its calls. */
 #[derive(Default)]
 pub struct CachePool {
     /* The chunk's lowered code, which every frame running it shares. */
@@ -16,34 +16,6 @@ pub struct CachePool {
     pub ran: bool,
     /* Back-edges and resumes its unlowered frames took, a resume past `HOT_LOOP` lowers it. */
     pub heat: u32,
-    active: u32,
-    // Boxed, so handing a cache to a frame and back moves one pointer.
-    main: Option<Box<OpcodeCache>>,
-    /* Only a recursion fills it, so a plain call never allocates here. */
-    #[allow(clippy::vec_box)]
-    spare: Vec<Box<OpcodeCache>>,
-}
-
-impl CachePool {
-    pub fn take(&mut self, len: usize) -> Box<OpcodeCache> {
-        self.active += 1;
-        self.main.take().or_else(|| self.spare.pop()).unwrap_or_else(|| Box::new(OpcodeCache::new(len)))
-    }
-
-    /* The outermost frame returning keeps one cache and frees the rest. */
-    pub fn put(&mut self, cache: Box<OpcodeCache>) {
-        self.active -= 1;
-        if self.active == 0 {
-            self.spare.clear();
-            self.main = Some(cache);
-        } else if self.main.is_none() {
-            self.main = Some(cache);
-        } else {
-            self.spare.push(cache);
-        }
-    }
-
-    pub fn caches(&self) -> impl Iterator<Item = &OpcodeCache> { self.main.iter().chain(&self.spare).map(|c| &**c) }
 }
 
 /* A chunk's constants as values, each string interned. */
@@ -66,23 +38,23 @@ pub(crate) fn const_vals(chunk: &SSAChunk, heap: &mut HeapPool) -> Result<Box<[V
 
 pub struct OpcodeCache {
     len: usize,
-    /* Attribute and operator sites by ip, made on the first one learned. */
-    sites: Vec<Site>,
+    /* Attribute and operator sites by ip, made on the first one learned and shared by every frame of the code. */
+    sites: core::cell::OnceCell<Box<[core::cell::Cell<Site>]>>,
 }
 
 impl OpcodeCache {
-    pub fn new(len: usize) -> Self { Self { len, sites: Vec::new() } }
+    pub fn new(len: usize) -> Self { Self { len, sites: core::cell::OnceCell::new() } }
 
     /* The site at `ip`. */
     #[inline]
-    pub(crate) fn site(&self, ip: usize) -> Site { self.sites.get(ip).copied().unwrap_or_default() }
+    pub(crate) fn site(&self, ip: usize) -> Site { self.sites.get().and_then(|s| s.get(ip)).map(core::cell::Cell::get).unwrap_or_default() }
 
-    pub(crate) fn set_site(&mut self, ip: usize, site: Site) {
-        if self.sites.is_empty() { self.sites = vec![Site::Empty; self.len]; }
-        if let Some(s) = self.sites.get_mut(ip) { *s = site; }
+    pub(crate) fn set_site(&self, ip: usize, site: Site) {
+        let sites = self.sites.get_or_init(|| (0..self.len).map(|_| core::cell::Cell::new(Site::Empty)).collect());
+        if let Some(s) = sites.get(ip) { s.set(site); }
     }
 
-    pub(crate) fn site_roots(&self) -> impl Iterator<Item = Val> + '_ { self.sites.iter().flat_map(|s| s.roots()) }
+    pub(crate) fn site_roots(&self) -> impl Iterator<Item = Val> + '_ { self.sites.get().into_iter().flatten().flat_map(|s| s.get().roots()) }
 }
 
 // Template memoization for pure functions.

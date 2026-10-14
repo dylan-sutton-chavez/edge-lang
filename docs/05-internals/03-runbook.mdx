@@ -46,7 +46,7 @@ The [fuzzing manual](https://github.com/dylan-sutton-chavez/edge-python/blob/mai
 
 ## Bench
 
-`make bench` runs every case of `tests/cases/vm.json` on the speed build of `compiler.wasm` and counts the WebAssembly instructions. Each instruction is priced at 0.82 ns. That way `bench/.snapshot` holds the same seconds and MB per case on every machine.
+`make bench` runs every case of `tests/cases/vm.json` on the speed build of `compiler.wasm` and counts the WebAssembly instructions it executes. `bench/.snapshot` keeps those instructions and the memory peak in MB for each case, the same on every machine.
 
 > [!COPY] make bench
 

@@ -61,7 +61,9 @@ The first call of a chunk runs the code the compiler wrote. Its second call, or 
 - `LoadAttr` and `Call` sites fuse into `CallMethod` and `CallMethodArgs` when every argument is a single-push load. That holds up to 8 arguments and never across a jump target.
 - Local loads become slot operands.
 - A compare that feeds a branch becomes one compare-and-jump.
-- Lowering runs once per chunk. A recursion holds one cache per depth.
+- Lowering runs once per chunk, and every frame of the chunk shares its caches.
+
+A plain call, and a constructor whose `__init__` takes plain parameters, opens its frame on the frame stack of the running loop without leaving it, and its return hands the loop back to the caller, so Python recursion never recurses in Rust. A call with up to two arguments in registers reads them there, and its result goes straight to the register that stores it. A memoized call that finds its kept result answers without a frame. A call that a builtin, a dunder or a resumed coroutine makes, or one into code not lowered yet, nests a loop of its own. A frame that suspends becomes a sync frame of its coroutine, which resumes it in place.
 
 Register forms keep int and float math inline. Stack arith and compare opcodes try the same numeric path in `exec_arith_or_compare` before the generic handler.
 

@@ -35,7 +35,7 @@ fn err_status(msg: &str) -> u32 {
 fn parse_source(src: &str) -> Result<SSAChunk, String> {
     let (tokens, lex_errs) = lex(src);
     let dir = with_slot(|s| s.entry_dir.clone());
-    let resolver = Box::new(WasmHostResolver { dir });
+    let resolver = Box::new(WasmHostResolver { dir, late: false });
     let mut p = Parser::with_resolver(src, tokens.into_iter(), resolver);
     for e in lex_errs {
         p.errors.push(Diagnostic { start: e.start, end: e.end, msg: e.msg.into() });
@@ -79,17 +79,25 @@ fn source_name() -> Option<String> {
     with_slot(|s| (!s.source_name.is_empty()).then(|| s.source_name.clone()))
 }
 
-/* Boots on `chunk`, the slot holds it until every VM borrowing it is gone. */
-fn boot_vm(chunk: Rc<SSAChunk>, limits: Limits) -> VM<'static> {
+/* The resolver of code that eval or exec compiles, from the dir of the file that called it. */
+fn late_resolver(dir: &str) -> Box<dyn crate::modules::Resolver> {
+    let dir = if dir.is_empty() { with_slot(|s| s.entry_dir.clone()) } else { dir.into() };
+    Box::new(WasmHostResolver { dir, late: true })
+}
+
+/* Boots on `chunk`, the slot holds it until every VM borrowing it is gone, the VM boxed so the exports pass a pointer. */
+fn boot_vm(chunk: Rc<SSAChunk>, limits: Limits) -> Box<VM<'static>> {
     // SAFETY the slot's Rc outlives the VM, `Slot::clear_run` drops VMs before chunks.
     let chunk_static: &'static SSAChunk = unsafe { &*Rc::as_ptr(&chunk) };
     let (preempt, wall_clock) = with_slot(|s| {
         s.chunks.push(chunk);
         (s.preempt_every, s.wall_clock)
     });
-    let mut vm = VM::with_limits(chunk_static, limits);
+    let mut vm = Box::new(VM::with_limits(chunk_static, limits));
     vm.print_hook = Some(stream_print);
     vm.send_hook = Some(send_host);
+    // Code that eval or exec compiles imports from the package of the file that called it.
+    vm.resolver_hook = Some(&late_resolver);
     if wall_clock {
         vm.set_time_hook(now_ns_host);
     }
@@ -265,7 +273,7 @@ pub unsafe extern "C" fn set_limits(memory: u64, ops: u64) {
 }
 
 /* Drive one segment of execution, on `Pending*` re-stash the VM into the recycled `PausedRun` box. */
-fn step_vm(mut vm: VM<'static>, src: &str, prev_paused: Option<Box<PausedRun>>) -> u32 {
+fn step_vm(mut vm: Box<VM<'static>>, src: &str, prev_paused: Option<Box<PausedRun>>) -> u32 {
     let result = {
         let _guard = VmGuard::new(&mut vm);
         vm.run()
@@ -296,7 +304,7 @@ fn step_vm(mut vm: VM<'static>, src: &str, prev_paused: Option<Box<PausedRun>>) 
                 }),
             };
             // Re-publish `current_vm` to the boxed VM so embedder calls between yields still allocate, its address is stable.
-            let vm_ptr = paused.vm.as_mut().map(|v| NonNull::from(v).cast::<VM<'static>>());
+            let vm_ptr = paused.vm.as_deref_mut().map(|v| NonNull::from(v).cast::<VM<'static>>());
             with_slot(|s| s.paused_run = Some(paused));
             bridge::set_current_vm(vm_ptr);
             kind
@@ -323,12 +331,12 @@ fn step_vm(mut vm: VM<'static>, src: &str, prev_paused: Option<Box<PausedRun>>) 
 }
 
 /* The REPL keeps a finished VM for the next input, one-shot runs free it with its chunks. */
-fn park_repl_or_drop(mut vm: VM<'static>) {
+fn park_repl_or_drop(mut vm: Box<VM<'static>>) {
     let repl_mode = with_slot(|s| s.repl_mode);
     if repl_mode {
         vm.clear_error_state();
         bridge::set_current_vm(None);
-        with_slot(|s| s.repl_vm = Some(Box::new(vm)));
+        with_slot(|s| s.repl_vm = Some(vm));
     } else {
         drop(vm);
         with_slot(|s| if s.paused_run.is_none() { s.chunks.clear(); });
@@ -352,11 +360,10 @@ pub unsafe extern "C" fn repl_eval(ptr: *const u8, len: u32) -> u32 {
         s.repl_vm.take()
     });
     let mut vm = match existing {
-        Some(boxed) => {
+        Some(mut vm) => {
             // SAFETY the REPL slot keeps every input's chunk while its interpreter lives.
             let chunk_static: &'static SSAChunk = unsafe { &*Rc::as_ptr(&chunk) };
             with_slot(|s| s.chunks.push(chunk));
-            let mut vm = *boxed;
             vm.adopt_entry_chunk(chunk_static);
             vm.reset_budget(limits().ops);
             vm
@@ -477,7 +484,7 @@ pub unsafe extern "C" fn set_wall_clock(on: u32) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn save_state() -> i64 {
     let blob = with_slot(|s| {
-        let vm = s.paused_run.as_ref().and_then(|p| p.vm.as_ref())?;
+        let vm = s.paused_run.as_ref().and_then(|p| p.vm.as_deref())?;
         let source = vm.chunk.source.clone();
         Some(snapshot::save(vm, &source))
     });
@@ -518,7 +525,7 @@ pub unsafe extern "C" fn state_globals() -> u32 {
     let json = with_slot(|s| {
         s.paused_run
             .as_ref()
-            .and_then(|p| p.vm.as_ref())
+            .and_then(|p| p.vm.as_deref())
             .or(s.repl_vm.as_deref())
             .map(snapshot::inspect_globals)
     });
@@ -529,7 +536,7 @@ pub unsafe extern "C" fn state_globals() -> u32 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn state_stack() -> u32 {
     let json = with_slot(|s| {
-        s.paused_run.as_ref().and_then(|p| p.vm.as_ref()).map(snapshot::inspect_stack)
+        s.paused_run.as_ref().and_then(|p| p.vm.as_deref()).map(snapshot::inspect_stack)
     });
     write_out(json.as_deref().unwrap_or("[]")) as u32
 }

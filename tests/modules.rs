@@ -6,7 +6,7 @@ mod test {
     use compiler::parser::Parser;
     use compiler::vm::VM;
     use compiler::vm::types::{SchedulerStatus, VmErr};
-    use compiler::modules::NativeBinding;
+    use compiler::modules::{NativeBinding, Resolver};
 
     use crate::common::{answer, fail, TestResolver, test_native};
 
@@ -120,6 +120,9 @@ mod test {
 
         for case in cases {
             let resolver = Box::new(build_resolver(&case.modules, &case.aliases, &case.manifests));
+            // Code that eval or exec compiles resolves from the dir of the file that called it.
+            let root = resolver.child("<eval>");
+            let hook = move |dir: &str| root.child(&if dir.is_empty() { "<eval>".to_string() } else { format!("{dir}/<eval>") });
             let (tokens, _lex_errs) = lex(&case.src);
             let parser = Parser::with_resolver(&case.src, tokens.into_iter(), resolver);
             let (chunk, parse_errs) = parser.parse();
@@ -143,6 +146,7 @@ mod test {
             if let Some(n) = case.expect_functions { assert_eq!(chunk.functions.len(), n, "functions count mismatch on {:?}", case.src); }
 
             let mut vm = VM::new(&chunk);
+            vm.resolver_hook = Some(compiler::util::leak(Box::new(hook)));
             vm.input_buffer = case.input.clone();
             // Drive loop, resume on PendingHostCall by delivering the next host_deliveries entry.
             let mut hr_idx = 0usize;

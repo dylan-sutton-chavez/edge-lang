@@ -11,7 +11,7 @@ Every execution is metered, builtins included, since a builtin that scans or cop
 
 | Limit | Value | What hitting it raises |
 |---|---|---|
-| Max call depth | 256 | `RecursionError` |
+| Max call depth | Frames up to a sixteenth of the memory limit, 192 nested through builtins and dunders | `RecursionError` |
 | Comparison depth of nested containers | 100 | `RecursionError` |
 | Max operations | 100,000,000 | `RuntimeError` |
 | Max memory | 256 MiB | `MemoryError` |
@@ -24,7 +24,7 @@ Memory and operations can be raised in three places.
 - The `limits` of a group under `edge actor`, see [Actors](/docs/edge-python/platforms/actors).
 - The `--memory` and `--ops` flags of `edge run` and `edge test`.
 
-The call depth stays fixed. It sits below the depth where the wasm stack of either host runs out.
+A plain call runs as a frame of the instruction loop that made it, so the depth follows the memory limit. The frames of a run may take a sixteenth of it, about eighty thousand frames of a small function under the default. A call that a builtin, a dunder method, a generator step or `eval` makes nests a loop in Rust instead. Those stop at 192 levels, a fifth below the depth where the wasm stack of either host runs out, and an `eval` level counts as three since its loop takes three times the stack. A coroutine holds at most 768 frames suspended at once.
 
 The memory limit counts every byte the allocator hands the program while it runs, its objects along with the frames, caches and buffers the engine keeps for it. Nothing is estimated, though a 64-bit host counts wider pointers than `compiler.wasm` does. A number held in a container costs only its 8 bytes, so a list of numbers is far cheaper than an object per row. Garbage counts until a collection frees it, and a run that still holds more than the limit after one raises `MemoryError`. Programs sharing one wasm instance, like the actors of a pool, also share a budget of half its address space, 2 GB, and the one whose allocation passes it raises `MemoryError` while the others keep running. A plugin keeps its own memory, which the CLI lets grow to three times the limit plus 64 MB, and a call that needs more traps and raises `RuntimeError`.
 
@@ -117,12 +117,14 @@ They render with line, column, and a caret preview. A report shows the first 20 
 | `unindent does not match any outer indentation level` | Dedent lands between two outer levels |
 | `integer literal too large to represent (max ±2^127)` | Literal past the 128-bit cap |
 | `'break' outside loop` and `'continue' outside loop` | Misplaced control keyword |
+| `'return' outside function` and `'yield' outside function` | A `return` or `yield` in module code or a class body |
+| `expected an indented block` | A body that starts on the line after its colon without an indent |
 | `a compound statement must start its own line` | An `if`, `for`, `def` or other compound statement after the colon of another on the same line |
 | `'yield' inside a comprehension` | A `yield` in the element or clauses of a comprehension or generator expression |
 | `default 'except:' must be last` | Bare `except` not at the end |
 | `Generator expression must be parenthesized` | A bare generator expression beside another argument or before a trailing comma |
 | `'is' compares only with None, True, False, ... or NotImplemented` | `is` against any other operand, compare it with `==` |
-| `'id' is not supported`, and the same for `hash`, `locals`, `eval`, `exec`, `compile`, `open` and `__import__` | A use of a builtin the engine leaves out, unless the module binds the name |
+| `'id' is not supported`, and the same for `hash`, `locals`, `open` and `__import__` | A use of a builtin the engine leaves out, unless the module binds the name |
 | `'__del__' is not supported in a class body` | A dunder the engine never calls, such as `__hash__`, `__new__`, `__slots__`, `__init_subclass__` or a descriptor method |
 | `class keywords such as 'metaclass' are not supported` | A keyword in a class header |
 | `a list, dict or set default is shared by every call` | A mutable default, write `None` and build the value in the body |
@@ -153,7 +155,8 @@ Runtime errors raise as typed exceptions, catchable with `try` and `except`.
 | `SystemExit` | `raise SystemExit(code)`. Uncaught, the host exits with that code |
 | `RecursionError` | Past the call-depth limit, or a comparison nested deeper than 100 levels |
 | `MemoryError` | Past the memory limit |
-| `RuntimeError` | Past the op limit, an import cycle, `input()` without host data, or an internal invariant |
+| `SyntaxError` | Text that `eval`, `exec` or `compile` cannot parse, or an import there of a module the program does not import |
+| `RuntimeError` | Past the op limit, an import cycle, `input()` without host data, a suspension inside `eval` or `exec`, or an internal invariant |
 
 These errors fire from ordinary code.
 

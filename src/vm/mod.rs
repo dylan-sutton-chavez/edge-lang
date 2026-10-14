@@ -19,6 +19,7 @@ pub mod snapshot;
 
 mod chain;
 mod dispatch;
+mod frame;
 mod gc;
 mod helpers;
 mod init;
@@ -82,6 +83,14 @@ impl Pending {
             preempt_request: false,
         }
     }
+
+    /* Forgets what the last suspension waited for. */
+    pub fn clear_waits(&mut self) {
+        self.sleep_until_ns = None;
+        self.event_wait_request = false;
+        self.host_call_request = false;
+        self.waiting_for_children = None;
+    }
 }
 
 /* `bare_name -> [(version, slot), ...]` for one chunk's `chunk.names`. */
@@ -115,8 +124,21 @@ pub struct VM<'a> {
     pub(crate) builtins: HashMap<&'static str, Val>,
     pub(crate) templates: Templates,
     pub(crate) budget: u64,
+    /* Calls nested in Rust, through builtins, dunders and calls the loop cannot run in place, capped at `max_calls`. */
     pub(crate) depth: usize,
     pub(crate) max_calls: usize,
+    /* The plain calls the instruction loops run in place, innermost last, each with the caller it returns to. */
+    pub(crate) frames: Vec<frame::Frame>,
+    /* Set by an instruction loop right before a call it can run in place, taken by that call. */
+    pub(crate) inline_call: bool,
+    /* Set when a loop already looked up the memo of the call it hands on, so the call does not look twice. */
+    pub(crate) memo_looked: bool,
+    /* Set by a call a loop let in, whose frame that loop runs next. */
+    pub(crate) entered: bool,
+    /* The instance a constructor builds, which its `__init__` hands back if it runs as a frame of the loop. */
+    pub(crate) pending_instance: Val,
+    /* The arguments memoized loop frames key their results on, each frame its own run of them. */
+    pub(crate) memo_args: Vec<Val>,
     pub(crate) observed_impure: Vec<bool>,
     // C3 method-resolution order per class, keyed by the class Val's heap bits. Computed once at MakeClass (the class graph is a static DAG). A reused slot is overwritten by its new class, so stale entries are never read (lookup checks HeapObj::Class first). Not a GC root because MRO members stay reachable via the class's own `bases`.
     pub(crate) mro_cache: HashMap<u64, alloc::rc::Rc<Vec<Val>>>,
@@ -132,8 +154,8 @@ pub struct VM<'a> {
     pub(crate) function_parents: Vec<Option<usize>>,
     pub(crate) body_to_fi: HashMap<*const SSAChunk, usize>,
     pub(crate) param_slots: Vec<Vec<(ParamKind, usize)>>,
-    /* A function's positional count when every parameter is plain. */
-    pub(crate) simple_arity: Vec<Option<usize>>,
+    /* What calling each function needs to know of its body, found once. */
+    pub(crate) call_facts: Vec<frame::CallFacts>,
     pub(crate) slot_templates: Vec<Vec<Val>>,
     /* Deduped template values, templates are static after init, so the GC marks this flat list instead of every per-function template. */
     pub(crate) template_roots: Vec<Val>,
@@ -168,6 +190,16 @@ pub struct VM<'a> {
     pub(crate) next_host_call_id: u64,
     /* The file of the code making the native call in progress, which package the host answers. */
     pub(crate) extern_caller: Option<alloc::sync::Arc<String>>,
+    /* The chunks eval, exec and compile built, kept while the VM lives since their functions point into them. */
+    pub(crate) compiled: globals::compile::CompiledSet,
+    /* Where code that eval, exec and compile build resolves its imports. */
+    pub resolver_hook: Option<crate::modules::ResolverHook>,
+    /* The dict the last `globals()` call made for each module, which exec writes through to that module. */
+    pub(crate) globals_dicts: Vec<(usize, Val)>,
+    /* Scratch scopes whose functions exec defined in a dict, which their calls keep in sync with it. */
+    pub(crate) linked: Vec<globals::compile::Linked>,
+    /* The `builtins` module exec puts under `__builtins__`, made on first need. */
+    pub(crate) builtins_module: Val,
     /* Sync helpers that suspended during the current resume, drained into the active Coroutine on yield-save. Lives at VM scope (not `Pending`) because it propagates across dispatch frames, not within one. */
     pub(crate) pending_sync_frames: Vec<types::SyncFrame>,
     /* Overrides `exec`'s captured `exc_base`. Set by `resume_coroutine` to the level *before* restored exception frames so dispatch's handler search includes them, consumed once at exec entry. */
@@ -259,12 +291,23 @@ impl<'a> VM<'a> {
             templates: Templates::new(),
             budget: limits.ops,
             depth: 0,
+            frames: Vec::new(),
+            inline_call: false,
+            memo_looked: false,
+            entered: false,
+            pending_instance: Val::undef(),
+            memo_args: Vec::new(),
             max_calls: MAX_CALLS,
             with_stack: Vec::new(),
             temp_roots: Vec::new(),
             pending: Pending::new(),
             next_host_call_id: 0,
             extern_caller: None,
+            compiled: Default::default(),
+            resolver_hook: None,
+            globals_dicts: Vec::new(),
+            linked: Vec::new(),
+            builtins_module: Val::undef(),
             pending_sync_frames: Vec::new(),
             pending_exec_exc_base: None,
             preempt_left: 0,
@@ -305,7 +348,7 @@ impl<'a> VM<'a> {
             function_parents: Vec::new(),
             body_to_fi: HashMap::default(),
             param_slots: Vec::new(),
-            simple_arity: Vec::new(),
+            call_facts: Vec::new(),
             slot_templates: Vec::new(),
             template_roots: Vec::new(),
             memo_ok: Vec::new(),
@@ -340,6 +383,8 @@ impl<'a> VM<'a> {
     /* Derived per-function tables for functions[start..], the REPL re-invokes this to extend them for each adopted chunk. */
     pub(crate) fn index_functions(&mut self, start: usize) {
         let end = self.functions.len();
+        // A chunk that defines no function has nothing to add.
+        if start == end { return; }
         let new: Vec<Vec<(ParamKind, usize)>> = (start..end).map(|fi| {
             let (params, body, _, _) = self.functions[fi];
             params.iter().map(|p| {
@@ -361,13 +406,6 @@ impl<'a> VM<'a> {
         }).collect();
         self.param_slots.truncate(start);
         self.param_slots.extend(new);
-        let new: Vec<Option<usize>> = (start..end).map(|fi| {
-            let params = &self.param_slots[fi];
-            params.iter().all(|&(k, s)| matches!(k, ParamKind::Normal) && s != usize::MAX).then_some(params.len())
-        }).collect();
-        self.simple_arity.truncate(start);
-        self.simple_arity.extend(new);
-
         // Default-slot table of (slot, placeholder) entries the call path overwrites.
         let new: Vec<Vec<(usize, Val)>> = (start..end).map(|fi| {
             let (params, _, n_defaults, _) = self.functions[fi];
@@ -381,6 +419,15 @@ impl<'a> VM<'a> {
         self.default_slots.truncate(start);
         self.default_slots.extend(new);
         self.analyze_scopes(start);
+        self.call_facts.truncate(start);
+        self.call_facts.reserve(end - start);
+        for fi in start..end {
+            let (body, params) = (&self.functions[fi].1, &self.param_slots[fi]);
+            let arity = params.iter().all(|&(k, s)| matches!(k, ParamKind::Normal) && s != usize::MAX).then_some(params.len());
+            // A body whose positionals fill its first slots and that makes no cell opens as a frame of the loop calling it.
+            let in_loop = arity.is_some() && params.iter().enumerate().all(|(k, &(_, s))| s == k) && self.fn_scope[fi].cellvars.is_empty() && !body.is_generator;
+            self.call_facts.push(frame::CallFacts { arity, in_loop, pool: self.fn_pool[fi], uses_super: None });
+        }
     }
 
     /* Templates read `globals`, so they build after builtin registration, rebuilding the deduped roots is cheap. */
@@ -441,15 +488,26 @@ impl<'a> VM<'a> {
         if let Ok(v) = self.heap.alloc(obj) { self.builtins.insert(name, v); }
     }
 
+    /* The value of builtin `name`, made on first use. */
+    pub(crate) fn builtin_value(&mut self, name: &'static str) -> Result<Val, VmErr> {
+        self.register_builtin(name);
+        match self.builtins.get(name) { Some(&v) => Ok(v), None => Err(VmErr::Heap) }
+    }
+
     /* For the REPL, adopt `chunk` as the new entry module, state persists, only the new chunk executes. */
     pub fn adopt_entry_chunk(&mut self, chunk: &'a SSAChunk) {
-        let start = self.functions.len();
-        self.build_function_table(chunk, None, None);
-        self.index_functions(start);
-        self.index_templates(start);
+        self.adopt_functions(chunk, None);
         // A later input can rebind any name a cached result read.
         self.templates.clear();
         self.chunk = chunk;
+    }
+
+    /* Adds the functions of `chunk` to the table, its names bound into module `spec`. */
+    pub(crate) fn adopt_functions(&mut self, chunk: &'a SSAChunk, spec: Option<&str>) {
+        let start = self.functions.len();
+        self.build_function_table(chunk, None, spec);
+        self.index_functions(start);
+        self.index_templates(start);
     }
 
     /* What the allocator holds for the program, garbage since the last collection included. */

@@ -17,8 +17,16 @@ fn numeric(v: Val) -> bool { v.is_int() || v.is_float() }
 
 impl<'a> VM<'a> {
     /* The code a frame of `chunk` runs, and whether the pool never keeps it. */
+    #[inline]
     pub(crate) fn frame_code(&mut self, chunk: &SSAChunk, pool: usize) -> (Rc<Code>, bool) {
-        if let Some(code) = &self.pools[pool].code { return (code.clone(), false); }
+        match &self.pools[pool].code {
+            Some(code) => (code.clone(), false),
+            None => self.first_code(chunk, pool),
+        }
+    }
+
+    /* The code a chunk without lowered code runs, unlowered until a loop heats. */
+    fn first_code(&mut self, chunk: &SSAChunk, pool: usize) -> (Rc<Code>, bool) {
         let names = chunk.names.len();
         if cfg!(feature = "coverage") {
             let (kinds, module) = self.chunk_kinds(chunk);
@@ -118,6 +126,7 @@ impl<'a> VM<'a> {
     pub(crate) fn unbound(&self, chunk: &SSAChunk, r: u16) -> Result<Val, VmErr> {
         if self.body_to_fi.contains_key(&(chunk as *const SSAChunk)) { return Err(self.unbound_err(chunk, r as usize)); }
         let name = chunk.names.get(r as usize).map(|n| ssa_strip(n)).unwrap_or_default();
+        if self.scopes[self.chunk_module_id(chunk)].closed { return Err(VmErr::Name(name.into())); }
         self.builtin_binding(name).ok_or_else(|| VmErr::Name(name.into()))
     }
 
@@ -135,7 +144,7 @@ impl<'a> VM<'a> {
 
     /* `a = b op c` on numbers inline, anything else through the stack opcode. */
     #[inline(always)]
-    pub(crate) fn reg_binop(&mut self, ins: Ins, rip: usize, cache: &mut OpcodeCache, chunk: &SSAChunk) -> Result<(), VmErr> {
+    pub(crate) fn reg_binop(&mut self, ins: Ins, rip: usize, cache: &OpcodeCache, chunk: &SSAChunk) -> Result<(), VmErr> {
         self.regs[self.base + ins.a as usize] = match numeric_binop(lower::stack_form(ins.op), self.regs[self.base + ins.b as usize], self.regs[self.base + ins.c as usize]) {
             Some(v) => v,
             None => self.reg_stack(ins, rip, cache, chunk)?,
@@ -145,7 +154,7 @@ impl<'a> VM<'a> {
 
     /* Whether `b op c` holds, numbers compared inline. */
     #[inline(always)]
-    pub(crate) fn reg_test(&mut self, ins: Ins, rip: usize, cache: &mut OpcodeCache, chunk: &SSAChunk) -> Result<bool, VmErr> {
+    pub(crate) fn reg_test(&mut self, ins: Ins, rip: usize, cache: &OpcodeCache, chunk: &SSAChunk) -> Result<bool, VmErr> {
         if let Some(v) = numeric_binop(lower::stack_form(ins.op), self.regs[self.base + ins.b as usize], self.regs[self.base + ins.c as usize]) { return Ok(v.as_bool()); }
         let r = self.reg_stack(ins, rip, cache, chunk)?;
         self.truthy_op(r, chunk)
@@ -153,7 +162,7 @@ impl<'a> VM<'a> {
 
     /* A register form run as its stack opcode, its result taken back. */
     #[inline(never)]
-    pub(crate) fn reg_stack(&mut self, ins: Ins, rip: usize, cache: &mut OpcodeCache, chunk: &SSAChunk) -> Result<Val, VmErr> {
+    pub(crate) fn reg_stack(&mut self, ins: Ins, rip: usize, cache: &OpcodeCache, chunk: &SSAChunk) -> Result<Val, VmErr> {
         let op = lower::stack_form(ins.op);
         let x = self.reg(chunk, ins.b)?;
         self.push(x);

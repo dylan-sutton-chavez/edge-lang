@@ -45,6 +45,8 @@ pub(crate) struct Code {
     pub module: usize,
     /* Back-edges an unlowered frame took, its loop lowers once they reach `HOT_LOOP`. */
     pub hot: Cell<u32>,
+    /* The sites its instructions learned, which every frame running it shares. */
+    pub cache: super::cache::OpcodeCache,
 }
 
 /* Back-edges after which an unlowered loop carries on as lowered code. */
@@ -79,7 +81,8 @@ pub(crate) fn identity(src: &[Instruction], names: usize, kinds: Rc<[Kind]>, mod
     for k in 1..ins.len() {
         if ins[k].op == OpCode::CallMethodArgs && ins[k - 1].op == OpCode::CallMethod { ins[k - 1].b = ins[k].a; ins[k - 1].x = 1; }
     }
-    Code { ins, orig: Vec::new(), at: Vec::new(), back: Vec::new(), frame: names, kinds, module, hot: Cell::new(0) }
+    let cache = super::cache::OpcodeCache::new(ins.len());
+    Code { ins, orig: Vec::new(), at: Vec::new(), back: Vec::new(), frame: names, kinds, module, hot: Cell::new(0), cache }
 }
 
 // Past this many pending values the lowering spills them, so temporaries stay few.
@@ -118,7 +121,7 @@ pub(crate) fn lower(src: &[Instruction], chunk: &SSAChunk, facts: &Facts) -> Opt
     let mut l = Lower {
         src, chunk, facts, targets: &targets, deleted, names, cbase, consts, tbase,
         out: Vec::with_capacity(len), orig: Vec::with_capacity(len + 1), at: vec![0; len + 1], back: Vec::with_capacity(len + 1),
-        pending: Vec::with_capacity(MAX_PENDING), patches: Vec::new(), temps: 0, last: None, cur: 0, quiet: 0, bound: Vec::new(),
+        pending: Vec::with_capacity(MAX_PENDING), patches: Vec::new(), temps: 0, last: None, cur: 0, takes: false, quiet: 0, bound: Vec::new(),
     };
     let mut i = 0;
     while i < len {
@@ -133,6 +136,10 @@ pub(crate) fn lower(src: &[Instruction], chunk: &SSAChunk, facts: &Facts) -> Opt
         }
         l.cur = i as u32;
         l.at[i] = l.out.len() as u32;
+        if core::mem::take(&mut l.takes) {
+            let t = l.temp();
+            l.produce(Ins { op: OpCode::StoreTopR, x: 0, a: t, b: 0, c: 0 });
+        }
         let before = l.out.len();
         let step = l.one(i);
         // A fused group's later instructions start where its last instruction does.
@@ -153,7 +160,8 @@ pub(crate) fn lower(src: &[Instruction], chunk: &SSAChunk, facts: &Facts) -> Opt
     if frame >= u16::MAX as usize { return None; }
     l.orig.push(len as u32);
     l.back.push(len as u32);
-    Some(Code { ins: l.out, orig: l.orig, at: l.at, back: l.back, frame, kinds: facts.kinds.clone(), module: facts.module, hot: Cell::new(0) })
+    let cache = super::cache::OpcodeCache::new(l.out.len());
+    Some(Code { ins: l.out, orig: l.orig, at: l.at, back: l.back, frame, kinds: facts.kinds.clone(), module: facts.module, hot: Cell::new(0), cache })
 }
 
 /* Instructions a jump, handler or finished `finally` enters, which no fusion may swallow. */
@@ -260,6 +268,8 @@ struct Lower<'c> {
     // The last instruction, when it wrote a fresh temporary a store may take over.
     last: Option<usize>,
     cur: u32,
+    // A register call left its result on the stack, which the next instruction takes into a register first.
+    takes: bool,
     // The first compiler instruction whose work no emitted instruction has finished.
     quiet: u32,
     bound: Vec<u64>,
@@ -414,6 +424,26 @@ impl Lower<'_> {
                 let t = |k: usize| self.src.get(i + 1 + k).map_or(0, |s| s.operand);
                 self.emit(Ins { op: OpCode::UnpackR, x: op as u8, a: t(0), b: t(1), c: t(2) });
                 return 1 + op as usize;
+            }
+            // A call of up to two positionals, and nothing pending under it, reads its operands from registers.
+            OpCode::Call if regs && op <= 2 && self.pending.len() == op as usize + 1 && i + 1 < self.src.len() && !self.targets[i + 1] => {
+                let r = |k: usize| self.pending.get(k).map_or(0, |e| e.r);
+                let call = Ins { op: OpCode::CallR, x: op as u8, a: r(0), b: r(1), c: r(2) };
+                self.pending.clear();
+                self.settle();
+                self.emit(call);
+                self.takes = true;
+            }
+            // A method call of at most one positional, and nothing pending under it, reads its receiver and argument from registers.
+            OpCode::CallMethod if regs && let Some(args) = self.src.get(i + 1) && args.opcode == OpCode::CallMethodArgs
+                && args.operand <= 1 && self.pending.len() == args.operand as usize + 1 && i + 2 < self.src.len() && !self.targets[i + 2] => {
+                let r = |k: usize| self.pending.get(k).map_or(0, |e| e.r);
+                let call = Ins { op: OpCode::CallMethodR, x: args.operand as u8, a: op, b: r(0), c: r(1) };
+                self.pending.clear();
+                self.settle();
+                self.emit(call);
+                self.takes = true;
+                return 2;
             }
             OpCode::CallMethod if self.src.get(i + 1).is_some_and(|n| n.opcode == OpCode::CallMethodArgs) => {
                 self.settle();

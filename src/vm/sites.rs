@@ -25,6 +25,8 @@ pub(crate) enum Site {
     Module { module: Val, value: Val },
     /* An operator dunder an instance of `class` finds on `owner`, taking `arity` operands. */
     Dunder { class: Val, func: Val, owner: Val, arity: u8, epoch: u32 },
+    /* A plain function a call opened as a frame of the loop, which opens again without its checks. */
+    Call { callee: Val, fi: u32 },
 }
 
 impl Site {
@@ -36,6 +38,7 @@ impl Site {
             Site::SetField { class, key, .. } | Site::Append { class, key, .. } => [class, key, none],
             Site::Method { class, func, owner, .. } | Site::Dunder { class, func, owner, .. } => [class, func, owner],
             Site::Module { module, value } => [module, value, none],
+            Site::Call { callee, .. } => [callee, none, none],
             Site::Empty | Site::Builtin { .. } => [none, none, none],
         }
     }

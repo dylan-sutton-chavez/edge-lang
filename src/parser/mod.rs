@@ -204,6 +204,8 @@ pub struct Parser<'src, I: Iterator<Item = Token>> {
     pub(super) in_class_body: bool,
     /* True while a comprehension body compiles, where a walrus binds in the enclosing scope. */
     pub(super) in_comp: bool,
+    /* True while a def or lambda body compiles, the only place `return` and `yield` belong. */
+    pub(super) in_function: bool,
     /* Fused builtin calls of the body, one bit per opcode, and the native imports it called by index. */
     pub(super) fused: u128,
     pub(super) fused_externs: Vec<u16>,
@@ -349,6 +351,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         let saved_loops = (core::mem::take(&mut self.loops), core::mem::replace(&mut self.cleanup_count, 0));
         let saved_class = core::mem::replace(&mut self.in_class_body, false);
         let saved_comp = core::mem::replace(&mut self.in_comp, false);
+        let saved_function = core::mem::replace(&mut self.in_function, false);
         // A nested body keeps what the enclosing scopes left unfused, and hands up the builtins it fused.
         let saved_fused = (core::mem::take(&mut self.fused), core::mem::take(&mut self.fused_externs), self.unfused.len());
         // Copy parent externs so nested def bodies can call imported natives, extras don't leak up.
@@ -366,6 +369,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         (self.loops, self.cleanup_count) = saved_loops;
         self.in_class_body = saved_class;
         self.in_comp = saved_comp;
+        self.in_function = saved_function;
         let outer = self.chunk.extern_table.len();
         let inner = core::mem::replace(&mut self.fused_externs, saved_fused.1);
         self.fused_externs.extend(inner.into_iter().filter(|&i| (i as usize) < outer));
@@ -693,6 +697,10 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
 
 // Parser constructors and parse entry point.
 
+/* What a source parses as, a program, statements a caller runs, or one expression. */
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Body { Program, Exec, Eval }
+
 impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
     pub fn new(source: &'src str, iter: I) -> Self {
         Self::with_resolver(source, iter, Box::new(NoopResolver))
@@ -702,6 +710,18 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
     pub fn with_resolver(source: &'src str, iter: I, resolver: Box<dyn Resolver>) -> Self {
         Self::with_shared_cache(source, iter, resolver,
             alloc::rc::Rc::new(core::cell::RefCell::new(Vec::new())))
+    }
+
+    /* The parser for code whose calls of these builtins load them by name, never fused. */
+    pub fn unfusing(mut self, names: impl IntoIterator<Item = String>) -> Self {
+        self.unfused.extend(names);
+        self
+    }
+
+    /* The parser for code that runs as if written in the file at `path`. */
+    pub fn at_path(mut self, path: alloc::sync::Arc<String>) -> Self {
+        self.chunk.path = path;
+        self
     }
 
     /* Shared-cache constructor, sub-parsers inherit it so each spec parses once. */
@@ -728,6 +748,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             bracket_stack: Vec::new(),
             in_class_body: false,
             in_comp: false,
+            in_function: false,
             fused: 0,
             fused_externs: Vec::new(),
             unfused: Vec::new(),
@@ -740,8 +761,21 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         }
     }
 
-    pub fn parse(mut self) -> (SSAChunk, Vec<Diagnostic>) {
-        while !self.at_end() {
+    pub fn parse(self) -> (SSAChunk, Vec<Diagnostic>) { self.parse_as(Body::Program) }
+
+    /* Parses statements that run under a caller, so the chunk returns None the way a function does. */
+    pub fn parse_exec(self) -> (SSAChunk, Vec<Diagnostic>) { self.parse_as(Body::Exec) }
+
+    /* Parses one expression whose value the chunk returns, the source `eval` takes. */
+    pub fn parse_eval(self) -> (SSAChunk, Vec<Diagnostic>) { self.parse_as(Body::Eval) }
+
+    /* The chunk of a source parsed as `body`, the last value on the stack its return. */
+    fn parse_as(mut self, body: Body) -> (SSAChunk, Vec<Diagnostic>) {
+        if body == Body::Eval {
+            self.expr();
+            if !self.at_end() { self.diag_at_peek("invalid syntax"); }
+        }
+        while body != Body::Eval && !self.at_end() {
             while self.eat_if(TokenType::Semi) {}
             if self.at_end() { break; }
 
@@ -756,6 +790,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             // Pop expression-statement results, chunk's implicit ReturnValue expects empty stack.
             if produced_value { self.chunk.emit(OpCode::PopTop, 0); }
         }
+        if body == Body::Exec { self.emit_const(Value::None); }
 
         for (start, end, i) in core::mem::take(&mut self.removed_uses) {
             if self.bound & 1 << i == 0 { self.errors.push(Diagnostic { start, end, msg: REMOVED_BUILTINS[i].1.to_string() }); }

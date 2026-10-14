@@ -16,6 +16,8 @@ pub(crate) struct Globals {
     vals: Vec<Val>,
     /* The builtin each name belongs to, and the builtin value a read found while the name was unbound. */
     builtin: Vec<(Option<crate::value::NativeFnId>, core::cell::Cell<Val>)>,
+    /* Set for text run under a `__builtins__` of its own, whose unbound names find no builtin. */
+    pub(crate) closed: bool,
 }
 
 impl Globals {
@@ -64,6 +66,9 @@ impl Globals {
 
     /* Bound names with their values. */
     pub fn iter(&self) -> impl Iterator<Item = (&str, Val)> + '_ { self.entries().filter(|(_, v)| !v.is_undef()) }
+
+    /* Unbinds every name, each keeping its index for the code that reads it. */
+    pub fn unbind_all(&mut self) { self.vals.fill(Val::undef()); }
 
     pub fn from_entries(entries: Vec<(String, Val)>) -> Self {
         let mut g = Self::default();
@@ -124,7 +129,7 @@ fn binds<'c>(params: &'c [String], body: &'c SSAChunk, bare: &[&'c str]) -> Vec<
     set
 }
 
-fn is_comp(params: &[String]) -> bool { matches!(params, [p] if p == crate::parser::COMP_ARG) }
+pub(crate) fn is_comp(params: &[String]) -> bool { matches!(params, [p] if p == crate::parser::COMP_ARG) }
 
 /* The walrus targets of the comprehensions in `body`, which the function holding them binds. */
 fn walrus_names<'c>(body: &'c SSAChunk, out: &mut Vec<&'c str>) {
@@ -248,10 +253,23 @@ impl<'a> VM<'a> {
     fn unbound_global(&self, module: usize, g: u32) -> Result<Val, VmErr> {
         let scope = &self.scopes[module];
         let name = scope.name(g);
+        if scope.closed { return Err(VmErr::Name(name.into())); }
         let v = self.builtins.get(name).copied().ok_or_else(|| VmErr::Name(name.into()))?;
         // A builtin keeps its value for the whole run, so the slot remembers it.
         if let Some(b) = scope.builtin.get(g as usize) { b.1.set(v); }
         Ok(v)
+    }
+
+    /* The bound locals of the frame running `chunk`, cells read through, which eval and exec get a copy of. */
+    pub(crate) fn frame_locals(&self, chunk: &SSAChunk) -> Vec<(String, Val)> {
+        let kinds = self.body_to_fi.get(&(chunk as *const SSAChunk)).map(|&fi| &self.fn_scope[fi].kinds);
+        slots_by_name(chunk).into_iter()
+            .filter(|&(n, slot)| !n.starts_with('#') && !kinds.is_some_and(|k| matches!(k.get(slot), Some(Kind::Global(_)))))
+            .filter_map(|(n, slot)| {
+                let v = self.deref(self.regs.get(self.base + slot).copied()?);
+                (!v.is_undef()).then(|| (String::from(n), v))
+            })
+            .collect()
     }
 
     /* The value a cell holds, or `v` itself when it is not one. */

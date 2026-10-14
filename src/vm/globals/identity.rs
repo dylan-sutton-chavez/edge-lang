@@ -43,7 +43,7 @@ impl<'a> VM<'a> {
     // `super()` zero-arg reads the running method's `(class, self)` off the top frame and returns a Super proxy.
     pub fn call_super(&mut self) -> Result<(), VmErr> {
         // Only the binding of the running frame counts, a plain function a method called has none.
-        let binding = self.bindings.last().filter(|b| b.0 == self.depth).map(|b| (b.1, b.2));
+        let binding = self.bindings.last().filter(|b| b.0 == self.level()).map(|b| (b.1, b.2));
         let Some((class, recv)) = binding else {
             return Err(VmErr::Runtime("super() must be called inside a method"));
         };

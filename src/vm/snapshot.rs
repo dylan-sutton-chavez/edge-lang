@@ -11,7 +11,7 @@ use super::{Pending, VM};
 use super::types::*;
 
 const MAGIC: u32 = 0x4E53_5045;
-const FORMAT: u32 = 13;
+const FORMAT: u32 = 14;
 // A SHA-256 of everything before it closes each blob, so a damaged one never restores.
 const SEAL: usize = 32;
 
@@ -264,6 +264,7 @@ codec!(struct SyncFrame, put_sync_frame, get_sync_frame {
     stack_delta: vals,
     iter_delta: [put_iter_frame, get_iter_frame],
     exception_delta: [put_exc_frame, get_exc_frame],
+    instance: val,
 });
 
 codec!(enum SchedulerStatus, put_sched, get_sched {
@@ -440,6 +441,7 @@ fn put_obj(w: &mut W, obj: &HeapObj) {
         HeapObj::Extern(f) => { w.u8(26); w.str(&f.name); }
         HeapObj::Cell(v) => { w.u8(34); w.val(*v); }
         HeapObj::DictView(d, kind) => { w.u8(35); w.val(*d); w.u8(*kind as u8); }
+        HeapObj::Code(c) => { w.u8(36); w.str(&c.source); w.str(&c.filename); w.u8(c.mode as u8); }
     }
 }
 
@@ -504,6 +506,10 @@ fn get_obj(r: &mut R, externs: &ExternMap, fills: &mut Vec<(u32, SetFill)>, slot
         35 => {
             let d = r.val()?;
             HeapObj::DictView(d, *[View::Keys, View::Values, View::Items].get(r.u8()? as usize).ok_or("snapshot names an unknown dict view")?)
+        }
+        36 => {
+            let (source, filename) = (r.str()?, r.str()?);
+            HeapObj::Code(Rc::new(CodeObj { source, filename, mode: code_mode(r.u8()?)? }))
         }
         t => return Err(s_err("unknown heap tag", itoa::Buffer::new().format(t))),
     })
@@ -571,6 +577,7 @@ vm_state! {
     next_host_call_id: u64,
     yielded: boolean,
     yield_from_value: val,
+    builtins_module: val,
     resume_ip: usz,
     virtual_clock_ns: u64,
     error_byte_pos: opt_u32,
@@ -579,10 +586,25 @@ vm_state! {
     input_buffer: [str],
 }
 
+fn code_mode(b: u8) -> Result<CodeMode, SnapErr> {
+    [CodeMode::Exec, CodeMode::Eval, CodeMode::Single].get(b as usize).copied().ok_or_else(|| "snapshot names an unknown code mode".to_string())
+}
+
+/* A chunk compiled at run time keeps its text, which compiles again on restore, and its fingerprint. */
+fn put_compiled(w: &mut W, c: &super::globals::compile::Compiled) {
+    w.str(&c.source);
+    w.u8(c.form.mode as u8);
+    w.boolean(c.form.closed);
+    w.str(c.spec.as_deref().unwrap_or(""));
+    w.str(&c.chunk().path);
+    w.u64(fingerprint(c.chunk()));
+}
+
 fn put_call_frame(w: &mut W, f: &CallFrame) {
     w.usz(f.fi);
     w.u32(f.call_byte_pos);
     w.str(f.caller_path.as_deref().map_or("", |p| p.as_str()));
+    w.u32(f.repeats);
 }
 
 pub fn save(vm: &VM, source: &str) -> Vec<u8> {
@@ -596,6 +618,12 @@ pub fn save(vm: &VM, source: &str) -> Vec<u8> {
     w.u64(vm.budget);
     w.usz(vm.heap.limit());
     w.boolean(vm.strict_input);
+    w.seq(&vm.compiled, put_compiled);
+    // The module each spec names, in the order the program made them, since compiled code may have made some.
+    let mut specs: Vec<(&String, &usize)> = vm.scope_ids.iter().collect();
+    specs.sort_unstable_by_key(|&(_, &i)| i);
+    w.seq(&specs, |w, &(spec, &i)| { w.str(spec); w.usz(i); });
+    w.seq(&vm.linked, |w, l| { w.val(l.dict); w.usz(l.scope); w.usz(l.fns.start); w.usz(l.fns.end); });
     for (slot, obj) in vm.heap.snapshot_objs().enumerate() {
         if let Some(HeapObj::List(rc)) = obj { w.lists.insert(Rc::as_ptr(rc) as usize, Val::heap(slot as u32)); }
     }
@@ -698,9 +726,20 @@ pub fn restore(vm: &mut VM, blob: &[u8]) -> Result<(), SnapErr> {
     vm.budget = r.u64()?.min(vm.budget);
     let _memory = r.usz()?;
     vm.strict_input = r.boolean()?;
+    // Code compiled at run time parses again now, so the heap finds its natives, and joins the program once the bindings are back.
+    let compiled = r.seq(|r| {
+        let (source, form) = (r.str()?, super::globals::compile::Form { mode: code_mode(r.u8()?)?, closed: r.boolean()? });
+        let (spec, path) = (r.str()?, alloc::sync::Arc::new(r.str()?));
+        let chunk = vm.parse_compiled(&source, form, "<string>", &path).map_err(|e| e.render())?;
+        if fingerprint(&chunk) != r.u64()? { return Err("snapshot does not match the code this program compiled".to_string()); }
+        Ok((source, form, (!spec.is_empty()).then_some(spec), chunk))
+    })?;
+    let specs = r.seq(|r| Ok((r.str()?, r.usz()?)))?;
+    let linked = r.seq(|r| Ok((r.val()?, r.usz()?, r.usz()?..r.usz()?)))?;
 
     let mut externs = ExternMap::default();
     collect_externs(vm.chunk, &mut externs);
+    for (.., chunk) in &compiled { collect_externs(chunk, &mut externs); }
     let nslots = r.count()?;
     let mut objs: Vec<Option<HeapObj>> = Vec::with_capacity(nslots);
     let mut fills: Vec<(u32, SetFill)> = Vec::new();
@@ -712,7 +751,6 @@ pub fn restore(vm: &mut VM, blob: &[u8]) -> Result<(), SnapErr> {
     }
     r.live = Some(objs.iter().map(Option::is_some).collect());
     vm.heap.restore_objs(objs);
-    check_objs(vm, &fills)?;
     for _ in 0..r.count()? {
         let (obj, cls, attrs) = (r.val()?, r.val()?, get_dict(&mut r)?);
         let fits = matches!(vm.heap.try_get(obj), Some(HeapObj::Dict(_) | HeapObj::List(_))) && matches!(vm.heap.try_get(cls), Some(HeapObj::Class(..)));
@@ -723,6 +761,15 @@ pub fn restore(vm: &mut VM, blob: &[u8]) -> Result<(), SnapErr> {
     }
 
     get_vm_state(&mut r, vm)?;
+    if specs.iter().any(|&(_, i)| i >= vm.scopes.len()) { return Err("snapshot names a missing module".to_string()); }
+    vm.scope_ids.extend(specs);
+    // In the order the program compiled them, so their functions take the indices the heap names.
+    for (source, form, spec, chunk) in compiled { vm.adopt(&source, form, spec, chunk); }
+    for (dict, scope, fns) in linked {
+        if !matches!(vm.heap.try_get(dict), Some(HeapObj::Dict(_))) || scope >= vm.scopes.len() || fns.end > vm.functions.len() { return Err("snapshot links a missing dict or scope".to_string()); }
+        vm.link_scope(super::globals::compile::Linked::new(dict, scope, fns));
+    }
+    check_objs(vm, &fills)?;
     // Each handle resumes a distinct coroutine, anything else would trap the scheduler.
     let mut coros: Vec<u64> = vm.scheduler.iter().map(|h| h.coro.0).collect();
     coros.sort_unstable();
@@ -737,6 +784,7 @@ pub fn restore(vm: &mut VM, blob: &[u8]) -> Result<(), SnapErr> {
     let chunk = vm.chunk;
     let mut sources: Vec<&SSAChunk> = Vec::new();
     source_index(chunk, &mut sources);
+    for c in vm.compiled.iter() { source_index(c.chunk(), &mut sources); }
     let nfn = vm.functions.len();
     vm.call_stack = r.seq(|r| {
         let fi = r.usz()?;
@@ -749,6 +797,7 @@ pub fn restore(vm: &mut VM, blob: &[u8]) -> Result<(), SnapErr> {
             call_byte_pos,
             caller_source: Some(owner.source.clone()),
             caller_path: Some(owner.path.clone()),
+            repeats: r.u32()?,
         })
     })?;
 

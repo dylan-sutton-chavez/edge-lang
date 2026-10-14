@@ -44,6 +44,11 @@ impl<'a> VM<'a> {
         for &v in &self.template_roots { self.heap.mark(v); }
         for &v in self.builtins.values() { self.heap.mark(v); }
         for scope in &self.scopes { for (_, v) in scope.iter() { self.heap.mark(v); } }
+        for &(_, d) in &self.globals_dicts { self.heap.mark(d); }
+        for l in &self.linked { self.heap.mark(l.dict); }
+        self.heap.mark(self.builtins_module);
+        for f in &self.frames { self.heap.mark(f.callee); self.heap.mark(f.instance); }
+        for &v in &self.memo_args { self.heap.mark(v); }
         // A class body's methods may still close over the cells around it.
         for cells in &self.class_cells { for &(_, c) in cells { self.heap.mark(c); } }
         // A `from x import` binds no name to the module, yet its functions still read their globals through this table.
@@ -52,12 +57,13 @@ impl<'a> VM<'a> {
         for frame in &self.iter_stack { frame.for_each_val(&mut |v| heap.mark(v)); }
         for sf in &self.pending_sync_frames { sf.for_each_val(&mut |v| heap.mark(v)); }
         for pool in &self.pools { for &v in pool.consts.iter().flatten() { self.heap.mark(v); } }
-        for cache in self.pools.iter().flat_map(|p| p.caches()) {
-            for v in cache.site_roots() { self.heap.mark(v); }
+        // Lowered code keeps its sites in its pool, an unlowered frame keeps its own until it ends.
+        for code in self.pools.iter().filter_map(|p| p.code.as_deref()) {
+            for v in code.cache.site_roots() { self.heap.mark(v); }
         }
         self.templates.mark_all(&mut self.heap);
         self.heap.sweep();
-        // Running frames hold their sites unmarked, so every site keyed on the epoch learns again.
+        // An unlowered frame holds its sites unmarked, so every site keyed on the epoch learns again.
         self.class_epoch = self.class_epoch.wrapping_add(1);
     }
 }

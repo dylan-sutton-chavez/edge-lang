@@ -108,7 +108,7 @@ jobs:
           mode: test
           suite: ${{ matrix.cli }}
 
-  # Holds the engine to the reference seconds of bench/.snapshot once its tests pass.
+  # Holds the engine to the instructions of bench/.snapshot once its tests pass.
   bench:
     name: Bench
     needs: [compiler]

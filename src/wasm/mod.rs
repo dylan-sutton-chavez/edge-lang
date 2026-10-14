@@ -66,7 +66,7 @@ pub(super) enum ModuleEntry {
 /* VM suspended on `VmErr::HostYield`, kept across `run_start` -> `run_resume` for cooperative resume. */
 pub(super) struct PausedRun {
     /* Option so `step_vm` can `take()` for re-entry and stash back without a dummy VM. */
-    pub vm: Option<VM<'static>>,
+    pub vm: Option<Box<VM<'static>>>,
     /* Earliest wake-up deadline (ns) from the last yield, zero for `PendingEvent`. */
     pub last_yield_deadline_ns: u64,
 }
@@ -141,7 +141,7 @@ pub(super) struct WasmRuntime {
     /* The resolution walk the host is driving, and the plugin bytes its last step named. */
     pub walk: Option<crate::modules::walk::Walk>,
     pub walk_plugin: Vec<u8>,
-    /* The package dir each source file belongs to, found once per file. */
+    /* The package dir each source dir belongs to, found once per dir. */
     pub packages: Vec<(String, Option<String>)>,
 }
 

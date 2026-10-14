@@ -87,7 +87,7 @@ Run flags.
 
 ### edge init, edge add, edge remove, edge lock
 
-`edge init [name]` scaffolds `main.py`, an empty `edge.json` and `index.html`, with `--bare` skipping the HTML. `edge add json` looks each name up in the registry at its newest version, or at the one `json@0.1.0` names, writes one `imports` entry holding that version alone, and prints it with what the package asks the root to grant. `edge add foo=<url>` registers a custom URL verbatim, also under `imports`, since each host tells a `.py` and a `.wasm` module apart by the artifact, and a `.js` or `.mjs` URL is refused before anything is written. `edge add` keeps `extends` and any other key already there. `edge remove` deletes entries. Unknown names abort the whole command before any write, and neither command touches `edge.lock`. The same registry answers over HTTP, where `GET https://edgepython.com/api/search?q=<term>` finds a package and every address it names answers as data under `/api`, so `/package/<name>` reads at `/api/package/<name>` without taking it. A question in any language goes to `POST https://chat.edgepython.com` as `{"question": "..."}`, which answers out of these same pages and comes back as `{"text", "sources", "session"}`, where sending `session` back carries the conversation on.
+`edge init [name]` scaffolds `main.py`, an empty `edge.json` and `index.html`, with `--bare` skipping the HTML. `edge add json` looks each name up in the registry at its newest version, or at the one `json@0.1.0` names, writes one `imports` entry holding that version alone, and prints it with what the package asks the root to grant. `edge add foo=<url>` registers a custom URL verbatim, also under `imports`, since each host tells a `.py` and a `.wasm` module apart by the artifact, and a `.js` or `.mjs` URL is refused before anything is written. `edge add` keeps `extends` and any other key already there. `edge remove` deletes entries. Unknown names abort the whole command before any write, and neither command touches `edge.lock`. The same registry answers over HTTP, where `GET https://edgepython.com/api/search?q=<term>` finds a package and every address it names answers as data under `/api`, so `/package/<name>` reads at `/api/package/<name>` without taking it.
 
 `edge lock` turns each declared version into the URL and digest of that release and writes `edge.lock` beside the manifest, rebuilding the whole file each time. It is the only command that asks the registry where a name points, so `edge run`, `edge test` and `edge build` read the lock and resolve nothing themselves. A version with no entry, or one whose entry holds another release, fails with `'json' is not locked, run edge lock`. It also walks every package in the tree, each through its own `edge.lock`, and writes nothing while a package lacks what it lists from its importer, a check `edge run`, `edge test` and `edge build` repeat before compiling.
 
@@ -135,7 +135,7 @@ A program that compiles behaves as it does in CPython, apart from the three desi
 ### Left out for the sandbox
 
 - No stdlib. Every module is an external package, so `import os`, `import sys` and `import asyncio` fail at compile time.
-- No dynamic code. `exec`, `eval`, `compile` and `__import__` are compile errors that name the builtin.
+- No dynamic imports. `__import__` is a compile error that names the builtin. `eval`, `exec` and `compile` work, under the same budget and grants, but their text imports only packages the program resolved and system modules its package is granted, cannot suspend, and inside a function it gets a copy of the locals.
 - No `open`, a compile error as well. `input()` reads from a host fed buffer with no prompt argument.
 - No clock, randomness or OS access without a grant, so the same source and input give the same output on every run.
 
@@ -195,7 +195,7 @@ OverflowError
 
 ### Order and NaN
 
-- Sets iterate and print in hash order. Present them through `sorted`.
+- Sets iterate and print in insertion order, not hash order. Present them through `sorted` to match CPython.
 - Every NaN is one value. A NaN is found in a list holding another NaN, and a set keeps a single one.
 
 ### Reduced pattern matching
@@ -236,7 +236,7 @@ There is no `asyncio` and no event loop object. The async primitives are top-lev
 
 ### Compile time versus run time
 
-Import failures and syntax errors are compile-time diagnostics and can never be caught with `try`. Everything else raises normal catchable exceptions at run time.
+Import failures and syntax errors in the program are compile-time diagnostics and can never be caught with `try`. In text that `eval`, `exec` or `compile` parse they raise `SyntaxError`, and everything else raises normal catchable exceptions at run time.
 
 ## Imports
 
@@ -854,7 +854,7 @@ Programs run under a fixed budget. Exceeding one raises the matching exception, 
 
 | Limit | Value | Raised |
 |---|---|---|
-| Call depth | 256 frames, fixed | `RecursionError` |
+| Call depth | Frames up to a sixteenth of the memory limit, 192 nested through builtins, dunders and generators, an `eval` counting three | `RecursionError` |
 | Comparison depth of nested containers, for `==`, `!=` and `in` | 100 | `RecursionError` |
 | Operations | 100 million | `RuntimeError` |
 | Memory | 256 MB | `MemoryError` |

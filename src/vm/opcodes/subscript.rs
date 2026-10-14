@@ -31,7 +31,7 @@ pub(crate) fn slice_bounds(start: Val, stop: Val, step: Val, len: i64) -> Result
 
 impl<'a> VM<'a> {
 
-    pub fn get_item(&mut self, ip: usize, chunk: &crate::parser::SSAChunk, cache: &mut crate::vm::cache::OpcodeCache) -> Result<(), VmErr> {
+    pub fn get_item(&mut self, ip: usize, chunk: &crate::parser::SSAChunk, cache: &crate::vm::cache::OpcodeCache) -> Result<(), VmErr> {
         // An in-range int index on a list or tuple needs no dunder or coercion.
         let n = self.stack.len();
         if n >= 2 && self.stack[n - 1].is_int() && self.stack[n - 2].is_heap() {

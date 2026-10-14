@@ -10,8 +10,25 @@ use super::cache::OpcodeCache;
 use super::sites::Site;
 use super::lower::{Code, Ins, STORE_NOTES_BUILTIN, STORE_VOIDS_CACHE};
 use super::scope::Kind;
-use super::opcodes::{attr_lookup::AttrLookup, function::Args};
+use super::opcodes::{attr_lookup::AttrLookup, function::{Args, Passed}};
 use super::registers::{int_add, int_sub, int_mul, int_mod, int_div, int_floordiv, float_div, int_bits, numeric_binop};
+
+/* The frame an instruction loop began with, which the frames it opens return to last. */
+struct Floor {
+    depth: usize,
+    code: *const Code,
+    chunk: *const SSAChunk,
+    base: usize,
+}
+
+/* What a step of the loop leaves it to do with its frames. */
+enum Turn {
+    Enter,
+    Lower,
+    Yield(Val),
+    Return(Val),
+    Raise(VmErr),
+}
 
 /* Index `i` into `len` items, negatives from the end, None out of range. */
 #[inline(always)]
@@ -97,7 +114,7 @@ impl<'a> VM<'a> {
     }
 
     /* Learns the operator dunder an instance resolved at `ip`, nothing for any other receiver. */
-    pub(crate) fn record_dunder_hit(&self, ip: usize, cache: &mut OpcodeCache, recv: Val, name: &str, arity: u8) {
+    pub(crate) fn record_dunder_hit(&self, ip: usize, cache: &OpcodeCache, recv: Val, name: &str, arity: u8) {
         let Some(&HeapObj::Instance(class, _)) = self.heap.try_get(recv) else { return };
         let Some((func, owner)) = self.lookup_class_member(class, name) else { return };
         cache.set_site(ip, Site::Dunder { class, func, owner, arity, epoch: self.class_epoch });
@@ -124,13 +141,17 @@ impl<'a> VM<'a> {
 
     /* Runs the frame at `base` of the register stack, its registers the top of it. */
     pub(crate) fn exec_in(&mut self, chunk: &SSAChunk, base: usize, pool: usize) -> Result<Val, VmErr> {
+        // Each loop nests in Rust, so the host stack bounds how many run at once, whatever started them.
+        if self.depth >= self.max_calls { return Err(cold_depth()); }
         let outer_base = core::mem::replace(&mut self.base, base);
+        self.depth += 1;
         let result = self.exec_frame(chunk, pool);
+        self.depth -= 1;
         self.base = outer_base;
         result
     }
 
-    /* Runs the chunk's lowered code, register forms and stack opcodes alike. */
+    /* Runs the chunk's lowered code, register forms and stack opcodes alike, and each plain call it makes as a frame of this same loop. */
     fn exec_frame(&mut self, chunk: &SSAChunk, pool: usize) -> Result<Val, VmErr> {
         // `resume_coroutine` pre-pushes restored exception frames before calling us. Honor its override so dispatch's handler search includes them.
         let exc_base = self.pending_exec_exc_base.take().unwrap_or(self.exception_stack.len());
@@ -140,7 +161,7 @@ impl<'a> VM<'a> {
         // Drop spread-delta frames leaked by an aborted arg list on unwind.
         let delta_base = self.pending.delta_save.len();
 
-        let (mut code_rc, mut once) = self.frame_code(chunk, pool);
+        let (mut floor_code, mut once) = self.frame_code(chunk, pool);
         // Constants become values on the chunk's first run, strings in the live heap.
         if self.pools[pool].consts.is_none() {
             match super::cache::const_vals(chunk, &mut self.heap) {
@@ -148,22 +169,58 @@ impl<'a> VM<'a> {
                 Err(e) => { self.frame_safe = outer_safe; return Err(e); }
             }
         }
-        loop {
-            let code: &Code = &code_rc;
-            let mut cache = if once { alloc::boxed::Box::new(OpcodeCache::new(code.ins.len())) } else { self.pools[pool].take(code.ins.len()) };
-            if self.regs.len() - self.base < code.frame { self.grow_frame(chunk, code, pool); }
-            let result: Result<Val, VmErr> = (|| {
-                let n = code.ins.len();
-                let mut ip = code.lowered(self.resume_ip);
-                self.resume_ip = 0;
-                // One-shot raise at the coroutine's park point, a cancellation or an error delivered while parked.
-                let mut raised = self.resume_raise.take();
-
+        if self.regs.len() - self.base < floor_code.frame { self.grow_frame(chunk, &floor_code, pool); }
+        // The frames this loop opens sit above `floor`, and the running one is the innermost of them or the frame it began with.
+        let (floor, floor_base, floor_chunk) = (self.frames.len(), self.base, chunk as *const SSAChunk);
+        let (mut cur, mut at, mut now, mut exc, mut unwind, mut delta) = (Rc::as_ptr(&floor_code), floor_chunk, pool, exc_base, unwind_base, delta_base);
+        // Takes the running frame from the top of the frames, or this loop's own once none is left.
+        macro_rules! load {
+            () => {
+                match self.frames.last() {
+                    Some(f) if self.frames.len() > floor => {
+                        (cur, at, now, exc, unwind, delta) = (f.code, &self.functions[f.fi].1 as *const SSAChunk, self.fn_pool[f.fi], f.exc_base, f.unwind_base, f.delta_base);
+                        self.base = f.base;
+                    }
+                    _ => {
+                        (cur, at, now, exc, unwind, delta) = (Rc::as_ptr(&floor_code), floor_chunk, pool, exc_base, unwind_base, delta_base);
+                        self.base = floor_base;
+                    }
+                }
+            };
+        }
+        // SAFETY the running code is held by `floor_code` or by its frame, which outlive every use below.
+        let mut ip = unsafe { &*cur }.lowered(self.resume_ip);
+        self.resume_ip = 0;
+        // One-shot raise at the coroutine's park point, a cancellation or an error delivered while parked.
+        let mut raised = self.resume_raise.take();
+        // The call a raise came back from, where it meets the frame that made it.
+        let mut raised_at = None;
+        // A callee that suspended suspends its caller too, at the instruction after the call.
+        let mut parking = false;
+        // Where the frames this loop opens return to last, made once since only a lowering changes it.
+        let mut floor_at = Floor { depth: floor, code: Rc::as_ptr(&floor_code), chunk: floor_chunk, base: floor_base };
+        let result = loop {
+            let turn = {
+                // SAFETY as above, and a frame's chunk outlives this loop, the first is its caller's and every callee lives as long as the VM.
+                let (mut code, mut chunk): (&Code, &SSAChunk) = unsafe { (&*cur, &*at) };
+                let (mut exc_base, mut pool) = (exc, now);
+                let mut cache = &code.cache;
+                let mut n = code.ins.len();
+                // What the turn before left to finish, a suspension to pass on or an error to raise here.
+                let mut carried = if parking { Some(Ok(None)) } else { raised.take().map(Err) };
                 loop {
                     let mut rip = ip;
-                    let step = if let Some(e) = raised.take() { Err(e) } else {
-                        // Only what the register loop runs enters it, a stack opcode leaves at once.
-                        if code.ins.get(ip).is_some_and(|i| in_regs(i.op)) { self.run_regs(code, &mut cache, chunk, &mut ip); }
+                    let step = if let Some(step) = carried.take() {
+                        if step.is_err() && let Some(r) = raised_at.take() { rip = r; }
+                        step
+                    } else {
+                        // Only what the register loop runs enters it, and a call or return it ran in place can leave another frame running.
+                        if code.ins.get(ip).is_some_and(|i| in_regs(i.op)) && self.run_frames(code, cache, chunk, &mut ip, &floor_at) {
+                            load!();
+                            // SAFETY as above.
+                            (code, chunk) = unsafe { (&*cur, &*at) };
+                            (cache, n, exc_base, pool) = (&code.cache, code.ins.len(), exc, now);
+                        }
                         rip = ip;
                         // A call the loop made can fail or leave its callee parked.
                         if let Some(e) = self.reg_error.take() { Err(e) } else if self.yielded { Ok(None) } else if ip >= n { Ok(Some(Val::none())) } else {
@@ -175,65 +232,109 @@ impl<'a> VM<'a> {
                                 // A return with no cleanup to run leaves at once.
                                 OpCode::ReturnR if self.exception_stack.len() <= exc_base && !self.regs[self.base + ins.b as usize].is_undef() => Ok(Some(self.regs[self.base + ins.b as usize])),
                                 // A plain call skips the fused-builtin checks, its operand is only counts.
-                                OpCode::Call => {
-                                    self.pending.call_ip = Some(code.orig(rip));
-                                    self.pending_exec_safe = self.frame_safe;
-                                    let called = self.exec_call(ins.a, chunk);
-                                    self.pending_exec_safe = false;
-                                    called.map(|()| None)
-                                }
-                                op if op.is_register() => self.exec_reg(ins, rip, chunk, &mut cache, code, &mut ip, exc_base),
-                                _ => self.dispatch(ins, rip, chunk, &mut cache, code, pool, &mut ip, exc_base),
+                                OpCode::Call => self.call_stacked(ins.a, code.orig(rip), chunk).map(|()| None),
+                                op if op.is_register() => self.exec_reg(ins, rip, chunk, cache, code, &mut ip, exc_base),
+                                _ => self.dispatch(ins, rip, chunk, cache, code, pool, &mut ip, exc_base),
                             }
                         }
                     };
                     // An instruction pays for the native work it did, loop or not.
                     let step = if self.heap.has_work() && let Err(e) = self.pay_work() { Err(e) } else { step };
                     match step {
-                        Ok(None) => {
-                            if self.yielded {
-                                // A hot loop hands its frame over at the loop head.
-                                if self.tier_up {
-                                    self.yielded = false;
-                                    self.resume_ip = ip;
-                                    return Ok(Val::none());
-                                }
-                                // Event yields keep the None placeholder (overwritten by `run_push_event` before resume). Sync sub-call yields pushed nothing, the helper's return lands on the stack when its frame completes, so don't pop and don't skip the next PopTop. Child-wait yields keep the placeholder (wake-loop overwrites it with the target's result). Host-call yields keep the placeholder (overwritten by `set_host_result_by_id`).
-                                let event_yield = self.pending.event_wait_request;
-                                let sub_call_yield = !self.pending_sync_frames.is_empty();
-                                let child_yield = self.pending.waiting_for_children.is_some();
-                                let host_yield = self.pending.host_call_request;
-                                let preempt_yield = self.pending.preempt_request;
-                                let regular_yield = !event_yield && !sub_call_yield && !child_yield && !host_yield && !preempt_yield;
-                                let val = if regular_yield { self.pop().unwrap_or(Val::none()) } else { Val::none() };
-                                let next_is_pop = ip < n && code.ins[ip].op == OpCode::PopTop;
-                                self.resume_ip = code.resume(if regular_yield && next_is_pop { ip + 1 } else { ip });
-                                // Value-position yield, leave the sent value (None for next()) for the consumer on resume.
-                                if regular_yield && !next_is_pop { self.push(Val::none()); }
-                                // DON'T truncate exception_stack here, frames pushed in this exec belong to active try/except blocks. The enclosing `resume_coroutine` drains them into the coroutine's saved state so `try` survives the yield.
-                                return Ok(val);
-                            }
-                        }
+                        Ok(None) if !self.yielded => continue,
+                        Ok(None) if core::mem::take(&mut self.entered) => { self.yielded = false; break Turn::Enter }
+                        // A hot loop hands its frame over at the loop head.
+                        Ok(None) if self.tier_up => { self.yielded = false; self.tier_up = false; break Turn::Lower }
+                        Ok(None) => { parking = false; break Turn::Yield(self.yield_out(code, ip)) }
                         Ok(Some(v)) => {
                             self.exception_stack.truncate(exc_base);
-                            self.unwind_stack.truncate(unwind_base);
-                            return Ok(v);
+                            self.unwind_stack.truncate(unwind);
+                            break Turn::Return(v)
                         }
-                        Err(e) => self.catch(code, chunk, &mut ip, exc_base, delta_base, e, rip)?,
+                        Err(e) => match self.catch(code, chunk, &mut ip, exc_base, delta, e, rip) {
+                            Ok(()) => continue,
+                            Err(e) => break Turn::Raise(e),
+                        },
                     }
                 }
-            })();
-
-            if once { self.pools[pool].heat += code.hot.get(); } else { self.pools[pool].put(cache); }
-            // A hot loop left unlowered carries on in the lowered code from its head.
-            if core::mem::take(&mut self.tier_up) && result.is_ok() {
-                code_rc = self.lowered_code(chunk, pool);
-                once = false;
-                continue;
+            };
+            match turn {
+                Turn::Enter => {
+                    if let Some(f) = self.frames.last_mut() { f.ret = ip; }
+                    load!();
+                    // SAFETY as above.
+                    let (code_ref, chunk): (&Code, &SSAChunk) = unsafe { (&*cur, &*at) };
+                    if self.regs.len() - self.base < code_ref.frame { self.grow_frame(chunk, code_ref, now); }
+                    ip = code_ref.lowered(0);
+                }
+                Turn::Lower => {
+                    // A hot loop left unlowered carries on in the lowered code from its head, in the frame running now.
+                    // SAFETY as above.
+                    let (chunk, pool): (&SSAChunk, usize) = (unsafe { &*at }, now);
+                    let lowered = self.lowered_code(chunk, pool);
+                    let in_frame = floor < self.frames.len();
+                    match self.frames.last_mut() {
+                        Some(f) if in_frame => f.code = Rc::as_ptr(&lowered),
+                        _ => {
+                            if once { self.pools[pool].heat += floor_code.hot.get(); }
+                            (floor_code, once) = (lowered, false);
+                            floor_at.code = Rc::as_ptr(&floor_code);
+                        }
+                    }
+                    load!();
+                    // SAFETY as above.
+                    let code_ref: &Code = unsafe { &*cur };
+                    if self.regs.len() - self.base < code_ref.frame { self.grow_frame(chunk, code_ref, now); }
+                    ip = code_ref.lowered(ip);
+                }
+                Turn::Return(v) => {
+                    if self.frames.len() == floor { break Ok(v); }
+                    let (ret, _, v) = self.return_frame(v);
+                    self.push(v);
+                    ip = ret;
+                    load!();
+                }
+                Turn::Yield(v) => {
+                    if self.frames.len() == floor { break Ok(v); }
+                    ip = self.park_frame();
+                    load!();
+                    parking = true;
+                }
+                Turn::Raise(e) => {
+                    let Some(f) = self.frames.last().filter(|_| self.frames.len() > floor) else { break Err(e) };
+                    let (fi, call_ip) = (f.fi, f.call_ip);
+                    ip = f.ret;
+                    self.leave_frame();
+                    load!();
+                    // SAFETY as above.
+                    let (code_ref, caller): (&Code, &SSAChunk) = unsafe { (&*cur, &*at) };
+                    self.note_frame(fi, call_ip, caller);
+                    raised = Some(e);
+                    raised_at = Some(call_ip.map_or(ip, |o| code_ref.lowered(o as usize)));
+                }
             }
-            self.frame_safe = outer_safe;
-            return result;
-        }
+        };
+        if once { self.pools[pool].heat += floor_code.hot.get(); }
+        self.frame_safe = outer_safe;
+        result
+    }
+
+    /* What a suspending frame hands out, its resume point noted. */
+    fn yield_out(&mut self, code: &Code, ip: usize) -> Val {
+        // Event yields keep the None placeholder (overwritten by `run_push_event` before resume). Sync sub-call yields pushed nothing, the helper's return lands on the stack when its frame completes, so don't pop and don't skip the next PopTop. Child-wait yields keep the placeholder (wake-loop overwrites it with the target's result). Host-call yields keep the placeholder (overwritten by `set_host_result_by_id`).
+        let event_yield = self.pending.event_wait_request;
+        let sub_call_yield = !self.pending_sync_frames.is_empty();
+        let child_yield = self.pending.waiting_for_children.is_some();
+        let host_yield = self.pending.host_call_request;
+        let preempt_yield = self.pending.preempt_request;
+        let regular_yield = !event_yield && !sub_call_yield && !child_yield && !host_yield && !preempt_yield;
+        let val = if regular_yield { self.pop().unwrap_or(Val::none()) } else { Val::none() };
+        let next_is_pop = ip < code.ins.len() && code.ins[ip].op == OpCode::PopTop;
+        self.resume_ip = code.resume(if regular_yield && next_is_pop { ip + 1 } else { ip });
+        // Value-position yield, leave the sent value (None for next()) for the consumer on resume.
+        if regular_yield && !next_is_pop { self.push(Val::none()); }
+        // DON'T truncate exception_stack here, frames pushed in this exec belong to active try/except blocks. The enclosing `resume_coroutine` drains them into the coroutine's saved state so `try` survives the yield.
+        val
     }
 
     /* Jumps to this frame's handler for `e`, or hands `e` back when none. */
@@ -310,7 +411,8 @@ impl<'a> VM<'a> {
 
     /* Resolve the receiver's method and call directly, args come from CallMethodArgs. */
     #[allow(clippy::too_many_arguments)]
-    fn exec_call_method(&mut self, attr_idx: u16, call_op: u16, rip: usize, cache: &mut OpcodeCache, chunk: &SSAChunk) -> Result<(), VmErr> {
+    fn exec_call_method(&mut self, attr_idx: u16, call_op: u16, rip: usize, code: &Code, chunk: &SSAChunk) -> Result<(), VmErr> {
+        let cache = &code.cache;
         let raw = call_op as usize;
         let num_kw = (raw >> 8) & 0xFF;
         let num_pos = raw & 0xFF;
@@ -319,7 +421,7 @@ impl<'a> VM<'a> {
         let at = self.stack.len().checked_sub(total).ok_or_else(|| cold_runtime("stack underflow"))?;
         let obj = *self.stack.get(at.wrapping_sub(1)).ok_or_else(|| cold_runtime("stack underflow"))?;
         // Borrow, don't clone, `chunk` outlives every `&mut self` call below.
-        let name = chunk.names.get(attr_idx as usize).ok_or(VmErr::Runtime("CallMethod: bad name index"))?;
+        let Some(name) = chunk.names.get(attr_idx as usize) else { return Err(VmErr::Runtime("CallMethod: bad name index")) };
         let site = cache.site(rip);
         // A known builtin method with a few positionals copies them once and takes no keyword slot.
         if num_kw == 0 && num_pos <= 3 && let Some(id) = self.site_builtin(site, obj) {
@@ -328,17 +430,23 @@ impl<'a> VM<'a> {
             self.stack.truncate(at - 1);
             return self.exec_bound_method(obj, id, &args[..num_pos], &[], chunk);
         }
+        // Any call past a builtin one may run Python, whose frame points back here.
+        self.pending.call_ip = Some(code.orig(rip));
         // A known method calls with the receiver slotted in as its first argument.
         if let Some((func, owner)) = self.site_method(site, obj, name) {
-            self.stack.insert(at - 1, func);
             self.pending.method_binding = Some((owner, obj));
+            // The receiver and the arguments already lie in parameter order, so a plain method opens with no shift.
+            if num_kw == 0 && self.open_in_loop(func, Passed::Stack { first: at - 1, to: at - 1 }, num_pos + 1)? { return Ok(()); }
+            self.stack.insert(at - 1, func);
             self.pending_exec_safe = self.frame_safe;
+            self.inline_call = true;
             let called = self.exec_call_n(num_pos + 1, num_kw, chunk);
             self.pending_exec_safe = false;
             return called;
         }
         if let Some(value) = self.site_get(site, obj) {
             self.stack[at - 1] = value;
+            self.inline_call = true;
             return self.exec_call_n(num_pos, num_kw, chunk);
         }
         let (positional, kw_flat) = (Args::of(&self.stack[at..at + num_pos]), Args::of(&self.stack[at + num_pos..]));
@@ -361,6 +469,10 @@ impl<'a> VM<'a> {
                 cache.set_site(rip, self.learn_get(obj, name));
                 self.call_with(callee, None, &positional, &kw_flat, chunk)
             }
+            AttrLookup::Builtin(name) => {
+                let callee = self.builtin_value(name)?;
+                self.call_with(callee, None, &positional, &kw_flat, chunk)
+            }
             AttrLookup::ClassMember(callee)
             // An instance-attribute callable gets no `self`, only class-level functions bind.
             | AttrLookup::InstanceField(callee) => self.call_with(callee, None, &positional, &kw_flat, chunk),
@@ -369,6 +481,7 @@ impl<'a> VM<'a> {
                 // Prepend `self`, `super()` reads the binding off `pending`, and method bodies stage like plain calls.
                 self.pending.method_binding = Some((class, recv));
                 self.pending_exec_safe = self.frame_safe;
+                self.inline_call = true;
                 let called = self.call_with(func, Some(recv), &positional, &kw_flat, chunk);
                 self.pending_exec_safe = false;
                 called
@@ -407,9 +520,9 @@ impl<'a> VM<'a> {
         }
     }
 
-    /* Runs register forms from `ip` until one needs its handler. */
-    #[inline(never)]
-    fn run_regs(&mut self, code: &Code, cache: &mut OpcodeCache, chunk: &SSAChunk, ip: &mut usize) {
+    /* Runs register forms of one frame from `ip` until one needs its handler or a call or return changes the frame. */
+    #[inline(always)]
+    fn run_regs(&mut self, code: &Code, cache: &OpcodeCache, chunk: &SSAChunk, ip: &mut usize) {
         let n = code.ins.len();
         let mut i = *ip;
         let base = self.base;
@@ -634,7 +747,7 @@ impl<'a> VM<'a> {
                     i += 1;
                 }
                 // Calls stay in this loop, leaving when one fails or parks its callee.
-                OpCode::Call | OpCode::CallMethod => match self.call_aside(ins, i, code, cache, chunk) {
+                OpCode::Call | OpCode::CallMethod | OpCode::CallR | OpCode::CallMethodR => match self.call_aside(ins, i, code, chunk) {
                     Some(next) => { i = next; if self.yielded { break; } r = &mut self.regs[base..]; }
                     None => break,
                 },
@@ -648,21 +761,139 @@ impl<'a> VM<'a> {
         *ip = i;
     }
 
+    /* Runs register forms from `ip`, entering and leaving the frames plain calls open above `floor`, true when another frame runs after. */
+    #[inline(never)]
+    fn run_frames(&mut self, code: &Code, cache: &OpcodeCache, chunk: &SSAChunk, ip: &mut usize, floor: &Floor) -> bool {
+        let (mut code, mut cache, mut chunk, mut switched) = (code, cache, chunk, false);
+        loop {
+            self.run_regs(code, cache, chunk, ip);
+            let i = *ip;
+            if self.entered && self.reg_error.is_none() {
+                // A call it let in runs next, in the frame it opened.
+                (self.entered, self.yielded) = (false, false);
+                // A result the next instruction would store goes straight to its register.
+                let dest = match code.ins.get(i) { Some(n) if n.op == OpCode::StoreTopR && n.x == 0 => n.a, _ => super::frame::NO_DEST };
+                let (c, k) = self.regs_enter(i, dest);
+                // SAFETY the frame just opened runs code its pool keeps, and its chunk lives as long as the VM.
+                (code, chunk) = unsafe { (&*c, &*k) };
+                *ip = code.lowered(0);
+            } else if self.frames.len() > floor.depth && let Some(&ins) = code.ins.get(i) && matches!(ins.op, OpCode::ReturnR | OpCode::ReturnValue) && let Some((ret, c, k)) = self.regs_return(ins, floor) {
+                // SAFETY the caller runs code its pool or the floor keeps, and every chunk outlives the run.
+                (code, chunk) = unsafe { (&*c, &*k) };
+                *ip = ret;
+            } else {
+                return switched;
+            }
+            cache = &code.cache;
+            switched = true;
+        }
+    }
+
+    /* Makes the frame a call from the register loop just opened the running one, its code and chunk. */
+    #[inline(always)]
+    fn regs_enter(&mut self, ret: usize, dest: u16) -> (*const Code, *const SSAChunk) {
+        let Some(f) = self.frames.last_mut() else { return (core::ptr::null(), core::ptr::null()) };
+        (f.ret, f.dest) = (ret, dest);
+        let (code, chunk, pool) = (f.code, &self.functions[f.fi].1 as *const SSAChunk, self.fn_pool[f.fi]);
+        self.base = f.base;
+        // SAFETY the frame just pushed holds its code, and its chunk lives as long as the VM.
+        let (c, k): (&Code, &SSAChunk) = unsafe { (&*code, &*chunk) };
+        if self.regs.len() - self.base < c.frame { self.grow_frame(k, c, pool); }
+        (code, chunk)
+    }
+
+    /* Ends the innermost frame on a plain return of a register or the stack top, where its caller carries on and the code and chunk it runs, None when the return needs its handler. */
+    #[inline(always)]
+    fn regs_return(&mut self, ins: Ins, floor: &Floor) -> Option<(usize, *const Code, *const SSAChunk)> {
+        let f = self.frames.last()?;
+        let v = match ins.op {
+            OpCode::ReturnR => self.regs[f.base + ins.b as usize],
+            _ if self.stack.len() > f.stack_base => self.stack[self.stack.len() - 1],
+            _ => return None,
+        };
+        // A return under a handler runs its cleanup first, which the slow path does.
+        if v.is_undef() || self.exception_stack.len() > f.exc_base { return None; }
+        if ins.op == OpCode::ReturnValue { self.stack.pop(); }
+        if self.unwind_stack.len() > f.unwind_base { let unwind = f.unwind_base; self.unwind_stack.truncate(unwind); }
+        let (ret, dest, v) = self.return_frame(v);
+        let (code, chunk) = match self.frames.last() {
+            Some(f) if self.frames.len() > floor.depth => { self.base = f.base; (f.code, &self.functions[f.fi].1 as *const SSAChunk) }
+            _ => { self.base = floor.base; (floor.code, floor.chunk) }
+        };
+        if dest == super::frame::NO_DEST { self.push(v); return Some((ret, code, chunk)); }
+        self.regs[self.base + dest as usize] = v;
+        Some((ret + 1, code, chunk))
+    }
+
     /* A call from the register loop, its next index or None, the error kept. */
     #[inline(never)]
-    fn call_aside(&mut self, ins: Ins, i: usize, code: &Code, cache: &mut OpcodeCache, chunk: &SSAChunk) -> Option<usize> {
-        let called = if ins.op == OpCode::Call {
+    fn call_aside(&mut self, ins: Ins, i: usize, code: &Code, chunk: &SSAChunk) -> Option<usize> {
+        let called = if ins.op == OpCode::CallR {
             self.pending.call_ip = Some(code.orig(i));
-            self.pending_exec_safe = self.frame_safe;
-            let called = self.exec_call(ins.a, chunk);
-            self.pending_exec_safe = false;
-            called.map(|()| i + 1)
+            let (r, n) = (&self.regs[self.base..], ins.x as usize);
+            let vals = [r[ins.a as usize], r[ins.b as usize], r[ins.c as usize]];
+            // An unbound operand leaves for the handler, which names it.
+            if vals[..=n].iter().any(|v| v.is_undef()) { return None; }
+            let passed = Passed::Regs([vals[1], vals[2], Val::undef()]);
+            // The function this call opened last opens again unchecked, while its body may still run as a frame.
+            if let Site::Call { callee, fi } = code.cache.site(i) && callee.0 == vals[0].0 && self.call_facts[fi as usize].in_loop {
+                return self.open_frame(fi as usize, callee, &passed, n, 0).map(|()| i + 1).map_err(|e| self.reg_error = Some(e)).ok();
+            }
+            match self.open_in_loop(vals[0], passed, n) {
+                Ok(true) => {
+                    // Only a plain function without cells keeps its site, never a constructor, a memo or a closure.
+                    if self.entered && let Some(f) = self.frames.last() && f.callee.0 == vals[0].0 && f.instance.is_undef() && f.memo.is_none()
+                        && matches!(self.heap.try_get(vals[0]), Some(HeapObj::Func(_, _, captures, _)) if captures.is_empty()) {
+                        code.cache.set_site(i, Site::Call { callee: vals[0], fi: f.fi as u32 });
+                    }
+                    Ok(())
+                }
+                // Any other callee takes them off the stack as a stack call would.
+                Ok(false) => { self.stack.extend_from_slice(&vals[..=n]); self.call_general(n as u16, chunk) }
+                Err(e) => Err(e),
+            }.map(|()| i + 1)
+        } else if ins.op == OpCode::Call {
+            self.call_stacked(ins.a, code.orig(i), chunk).map(|()| i + 1)
+        } else if ins.op == OpCode::CallMethodR {
+            let (r, n) = (&self.regs[self.base..], ins.x as usize);
+            let vals = [r[ins.b as usize], r[ins.c as usize]];
+            if vals[..=n].iter().any(|v| v.is_undef()) { return None; }
+            // A method the site knows opens straight from the registers, the receiver first.
+            if let Some(name) = chunk.names.get(ins.a as usize) && let Some((func, owner)) = self.site_method(code.cache.site(i), vals[0], name) {
+                (self.pending.method_binding, self.pending.call_ip) = (Some((owner, vals[0])), Some(code.orig(i)));
+                match self.open_in_loop(func, Passed::Regs([vals[0], vals[1], Val::undef()]), n + 1) {
+                    Ok(true) => return Some(i + 1),
+                    Ok(false) => self.pending.method_binding = None,
+                    Err(e) => { self.reg_error = Some(e); return None; }
+                }
+            }
+            // Any other receiver and argument go where the method call of the stack finds them.
+            self.stack.extend_from_slice(&vals[..=n]);
+            self.exec_call_method(ins.a, n as u16, i, code, chunk).map(|()| i + 1)
         } else {
             // An unlowered pair steps over its second half.
             let next = i + 1 + (ins.x == 1) as usize;
-            self.exec_call_method(ins.a, ins.b, i, cache, chunk).map(|()| next)
+            self.exec_call_method(ins.a, ins.b, i, code, chunk).map(|()| next)
         };
         called.map_err(|e| self.reg_error = Some(e)).ok()
+    }
+
+    /* A call whose callee and `count` positionals are on the stack, made at compiler instruction `orig`, opening a plain function as a frame of the loop. */
+    #[inline(always)]
+    fn call_stacked(&mut self, count: u16, orig: u32, chunk: &SSAChunk) -> Result<(), VmErr> {
+        self.pending.call_ip = Some(orig);
+        if self.call_in_loop(count)? { return Ok(()); }
+        self.call_general(count, chunk)
+    }
+
+    /* The general call of a callee and `count` positionals on the stack, which may still run in the loop. */
+    #[inline(always)]
+    fn call_general(&mut self, count: u16, chunk: &SSAChunk) -> Result<(), VmErr> {
+        self.pending_exec_safe = self.frame_safe;
+        self.inline_call = true;
+        let called = self.exec_call(count, chunk);
+        self.pending_exec_safe = false;
+        called
     }
 
     /* Register-loop opcodes kept apart from the hot ones, the next index or None. */
@@ -913,7 +1144,7 @@ impl<'a> VM<'a> {
     /* Register forms whose fast path missed, run as their stack opcode. */
     #[inline(never)]
     #[allow(clippy::too_many_arguments)]
-    fn exec_reg(&mut self, ins: Ins, rip: usize, chunk: &SSAChunk, cache: &mut OpcodeCache, code: &Code, ip: &mut usize, exc_base: usize) -> Result<Option<Val>, VmErr> {
+    fn exec_reg(&mut self, ins: Ins, rip: usize, chunk: &SSAChunk, cache: &OpcodeCache, code: &Code, ip: &mut usize, exc_base: usize) -> Result<Option<Val>, VmErr> {
         let n = code.ins.len();
         let op = ins.a;
         match ins.op {
@@ -943,6 +1174,14 @@ impl<'a> VM<'a> {
             }
             OpCode::Move => self.regs[self.base + ins.a as usize] = self.reg(chunk, ins.b)?,
             OpCode::PushRegs => self.push_regs(ins, chunk)?,
+            OpCode::CallR => {
+                self.push_regs(Ins { x: ins.x + 1, ..ins }, chunk)?;
+                self.call_stacked(ins.x as u16, code.orig(rip), chunk)?;
+            }
+            OpCode::CallMethodR => {
+                self.push_regs(Ins { x: ins.x + 1, a: ins.b, b: ins.c, ..ins }, chunk)?;
+                self.exec_call_method(ins.a, ins.x as u16, rip, code, chunk)?;
+            }
             OpCode::StoreItemR => {
                 let (o, k, v) = (self.reg(chunk, ins.a)?, self.reg(chunk, ins.b)?, self.reg(chunk, ins.c)?);
                 self.stack.extend_from_slice(&[o, k, v]);
@@ -951,7 +1190,7 @@ impl<'a> VM<'a> {
             }
             OpCode::GetAttrR => {
                 let o = self.reg(chunk, ins.b)?;
-                let name = chunk.names.get(ins.c as usize).ok_or(VmErr::Runtime("LoadAttr: bad name index"))?;
+                let Some(name) = chunk.names.get(ins.c as usize) else { return Err(VmErr::Runtime("LoadAttr: bad name index")) };
                 self.load_attr(o, name, chunk)?;
                 let v = self.pop()?;
                 self.regs[self.base + ins.a as usize] = v;
@@ -1012,7 +1251,7 @@ impl<'a> VM<'a> {
     /* Stack opcodes, apart from the loop so a frame's entry stays cheap. */
     #[inline(never)]
     #[allow(clippy::too_many_arguments)]
-    fn dispatch(&mut self, ins: Ins, rip: usize, chunk: &SSAChunk, cache: &mut OpcodeCache, code: &Code, pool: usize, ip: &mut usize, exc_base: usize) -> Result<Option<Val>, VmErr> {
+    fn dispatch(&mut self, ins: Ins, rip: usize, chunk: &SSAChunk, cache: &OpcodeCache, code: &Code, pool: usize, ip: &mut usize, exc_base: usize) -> Result<Option<Val>, VmErr> {
         let n = code.ins.len();
         let op = ins.a;
         match ins.op {
@@ -1216,7 +1455,7 @@ impl<'a> VM<'a> {
             // Fused method call, the call's counts in the second operand.
             OpCode::CallMethod => {
                 if ins.x == 1 { *ip += 1; }
-                self.exec_call_method(op, ins.b, rip, cache, chunk)?
+                self.exec_call_method(op, ins.b, rip, code, chunk)?
             }
             OpCode::CallMethodArgs => {
                 // Always folded into CallMethod, reaching here is a bytecode bug.
@@ -1485,7 +1724,7 @@ impl<'a> VM<'a> {
     /* Heavy arms extracted out of `dispatch` so wasm-opt can dedup prologues and the dispatcher itself stays compact. */
 
     #[inline(never)]
-    pub(crate) fn exec_arith_or_compare(&mut self, opcode: OpCode, operand: u16, rip: usize, cache: &mut OpcodeCache, chunk: &SSAChunk) -> Result<(), VmErr> {
+    pub(crate) fn exec_arith_or_compare(&mut self, opcode: OpCode, operand: u16, rip: usize, cache: &OpcodeCache, chunk: &SSAChunk) -> Result<(), VmErr> {
         // The register loop already tried two plain numbers.
         let site = cache.site(rip);
         if matches!(site, Site::Dunder { .. }) {
@@ -1500,7 +1739,7 @@ impl<'a> VM<'a> {
     }
 
     /* `obj[idx]` on the stack, a monomorphic `__getitem__` site skipping the class lookup. */
-    pub(crate) fn get_item_op(&mut self, rip: usize, chunk: &SSAChunk, cache: &mut OpcodeCache) -> Result<(), VmErr> {
+    pub(crate) fn get_item_op(&mut self, rip: usize, chunk: &SSAChunk, cache: &OpcodeCache) -> Result<(), VmErr> {
         let site = cache.site(rip);
         if matches!(site, Site::Dunder { .. }) {
             if self.exec_dunder(site, chunk)? { return Ok(()); }
@@ -1683,7 +1922,7 @@ impl<'a> VM<'a> {
 
     /* `obj.name = value` at a site, which keeps where an instance's attribute went. */
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn store_attr_at(&mut self, obj: Val, name_idx: u16, value: Val, rip: usize, cache: &mut OpcodeCache, chunk: &SSAChunk) -> Result<(), VmErr> {
+    pub(crate) fn store_attr_at(&mut self, obj: Val, name_idx: u16, value: Val, rip: usize, cache: &OpcodeCache, chunk: &SSAChunk) -> Result<(), VmErr> {
         if self.site_store(cache.site(rip), obj, value) { return Ok(()); }
         let name = chunk.names.get(name_idx as usize).ok_or_else(|| cold_runtime("StoreAttr: bad name index"))?;
         let before = match self.heap.try_get(obj) { Some(HeapObj::Instance(_, a)) => { let a = a.borrow(); (a.len(), a.entry_count()) } _ => (0, 0) };

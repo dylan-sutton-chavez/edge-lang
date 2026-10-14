@@ -65,7 +65,7 @@ impl<'a> VM<'a> {
         if self.stack.len() != before + 1 {
             return Err(VmErr::Runtime("call_export: callable left no result"));
         }
-        self.stack.pop().ok_or(VmErr::Runtime("call_export: stack drained"))
+        match self.stack.pop() { Some(v) => Ok(v), None => Err(VmErr::Runtime("call_export: stack drained")) }
     }
 
     /// Host-provided wall clock (ns), without one, `sleep` advances a deterministic virtual clock.

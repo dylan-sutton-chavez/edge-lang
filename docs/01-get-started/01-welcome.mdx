@@ -55,7 +55,7 @@ Its `edge.json` declares the `json` package and grants the network for `api.gith
 > No bundled one. Every module is an external package that `edge.json` declares. [Modules](/docs/edge-python/reference/modules) explains how imports resolve.
 
 > [!QUESTION] Can a program run code it builds at run time?
-> No. `exec`, `eval`, `compile` and `__import__` do not exist. The set of modules is fixed when the program compiles.
+> Yes, through `eval`, `exec` and `compile`. The text runs in the same sandbox under the same budget and grants, and it imports only packages the program resolved, so the set of packages is still fixed when the program compiles. [Dynamic code](/docs/edge-python/reference/builtins#dynamic-code) has the details.
 
 > [!QUESTION] Can a program reach the network or the disk?
 > Only what the root `edge.json` grants. Each grant names a module and a scope, such as one host for `net` or one folder for `fs`. [System](/docs/edge-python/reference/system) lists every scope.

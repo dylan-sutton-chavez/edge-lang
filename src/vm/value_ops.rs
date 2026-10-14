@@ -97,7 +97,7 @@ impl<'a> VM<'a> {
             | HeapObj::StaticMethod(..) | HeapObj::ClassMethod(..) | HeapObj::Instance(..) | HeapObj::Coroutine(..)
             | HeapObj::Module(..) | HeapObj::Extern(_) | HeapObj::ExcInstance(..)
             | HeapObj::Ellipsis | HeapObj::NotImplemented | HeapObj::GenericAlias(..) | HeapObj::TypeAlias(..)
-            | HeapObj::Union(_) | HeapObj::TypeVar(_) | HeapObj::Iter(..) | HeapObj::Cell(_) => true,
+            | HeapObj::Union(_) | HeapObj::TypeVar(_) | HeapObj::Iter(..) | HeapObj::Cell(_) | HeapObj::Code(_) => true,
         }
     }
 
@@ -258,6 +258,7 @@ impl<'a> VM<'a> {
             HeapObj::TypeVar(_) => "TypeVar",
             HeapObj::Iter(_, name) => name,
             HeapObj::Cell(_) => "cell",
+            HeapObj::Code(_) => "code",
             HeapObj::DictView(_, View::Keys) => "dict_keys",
             HeapObj::DictView(_, View::Values) => "dict_values",
             HeapObj::DictView(_, View::Items) => "dict_items",
@@ -430,6 +431,7 @@ impl<'a> VM<'a> {
             HeapObj::Ellipsis => "Ellipsis".into(),
             HeapObj::NotImplemented => "NotImplemented".into(),
             HeapObj::Cell(_) => "<cell>".into(),
+            HeapObj::Code(c) => s!("<code object <module>, file \"", str &c.filename, "\">"),
         }
     }
 

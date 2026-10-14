@@ -523,12 +523,16 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
     /* A body returning one expression, for lambdas and type aliases, the outer names visible and `params` shadowing them. */
     pub(super) fn expr_body(&mut self, params: &[String]) -> super::types::SSAChunk {
         let outer_versions = self.ssa_versions.clone();
-        self.with_fresh_chunk(|s| {
+        let mut body = self.with_fresh_chunk(|s| {
             s.ssa_versions = outer_versions;
             // Base name shadows the enclosing scope, prefix/`=` marker must be stripped.
             for p in params { s.bind_param(p); }
+            s.in_function = true;
             s.expr();
             s.chunk.emit(OpCode::ReturnValue, 0);
-        })
+        });
+        // A lambda that yields is a generator, as a def is.
+        body.is_generator = body.instructions.iter().any(|i| i.opcode == OpCode::Yield);
+        body
     }
 }

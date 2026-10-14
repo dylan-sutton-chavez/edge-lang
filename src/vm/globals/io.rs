@@ -29,12 +29,16 @@ impl<'a> VM<'a> {
             body.push_str(&s);
         }
         body.push_str(&end);
-        // Byte-stream contract, hand over the exact bytes, no newline is added or removed.
-        match self.print_hook {
-            Some(hook) => hook(&body),
-            None => self.emit_buffered_output(&body),
-        }
+        self.write_out(&body);
         Ok(())
+    }
+
+    /* Hands the exact bytes of `text` to the print hook or the buffered output, no newline added or removed. */
+    pub(crate) fn write_out(&mut self, text: &str) {
+        match self.print_hook {
+            Some(hook) => hook(text),
+            None => self.emit_buffered_output(text),
+        }
     }
 
     /* `sep`/`end` accept a string or None (None keeps the default). */

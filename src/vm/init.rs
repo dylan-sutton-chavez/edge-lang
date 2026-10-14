@@ -16,6 +16,10 @@ pub(crate) fn collect_module_attrs(chunk: &SSAChunk, bound: &super::scope::Globa
         if !seen.insert(bare.clone()) { continue; }
         if let Some(v) = bound.get(&bare) { attrs.push((bare, v)); }
     }
+    // Names the code bound another way, through exec or a global statement, follow in binding order.
+    for (name, v) in bound.iter() {
+        if !name.starts_with('#') && name != "__name__" && seen.insert(name.to_string()) { attrs.push((name.to_string(), v)); }
+    }
     attrs
 }
 
@@ -161,7 +165,7 @@ impl<'a> VM<'a> {
     }
 
     /* Init each unique import once, code modules run their top-level, native ones just bind. `in_progress` catches cycles cleanly. */
-    fn init_modules(&mut self, chunk: &SSAChunk, in_progress: &mut crate::util::hash::FxHashSet<String>) -> Result<(), VmErr> {
+    pub(crate) fn init_modules(&mut self, chunk: &SSAChunk, in_progress: &mut crate::util::hash::FxHashSet<String>) -> Result<(), VmErr> {
         for entry in &chunk.imports {
             if self.module_table.contains_key(&entry.spec) { continue; }
             if !in_progress.insert(entry.spec.clone()) {

@@ -10,7 +10,7 @@ fn compare_dunder_name(op: OpCode) -> Option<&'static str> {
 impl<'a> VM<'a> {
 
     /* Add/Sub/Mul/Div with IC, Mod/Pow/FloorDiv on i128 with overflow trap, Minus is unary. */
-    pub(crate) fn handle_arith(&mut self, op: OpCode, operand: u16, rip: usize, cache: &mut OpcodeCache, chunk: &SSAChunk) -> Result<(), VmErr> {
+    pub(crate) fn handle_arith(&mut self, op: OpCode, operand: u16, rip: usize, cache: &OpcodeCache, chunk: &SSAChunk) -> Result<(), VmErr> {
         if op == OpCode::Minus {
             // -i128::MIN overflows, everything else fits.
             return self.exec_unary(rip, cache, chunk, "__neg__", |v| Val::float(-v.as_float()), i128::checked_neg, "unary - requires a number");
@@ -74,7 +74,7 @@ impl<'a> VM<'a> {
 
     /* Unary `-`/`+`, instance dunder takes precedence over numeric coercion. `ffl` maps the float case, `fint` the i128 case. */
     #[allow(clippy::too_many_arguments)]
-    fn exec_unary(&mut self, rip: usize, cache: &mut OpcodeCache, chunk: &SSAChunk,
+    fn exec_unary(&mut self, rip: usize, cache: &OpcodeCache, chunk: &SSAChunk,
                   name: &'static str, ffl: fn(Val) -> Val, fint: fn(i128) -> Option<i128>, err: &'static str) -> Result<(), VmErr> {
         let v = self.pop()?;
         if let Some(r) = self.try_call_dunder(v, name, &[], chunk)? {
@@ -348,7 +348,7 @@ impl<'a> VM<'a> {
         self.int_to_val(Some(ai >> shift.min(127)))
     }
 
-    pub(crate) fn handle_compare(&mut self, op: OpCode, rip: usize, cache: &mut OpcodeCache, chunk: &SSAChunk) -> Result<(), VmErr> {
+    pub(crate) fn handle_compare(&mut self, op: OpCode, rip: usize, cache: &OpcodeCache, chunk: &SSAChunk) -> Result<(), VmErr> {
         let (a, b) = self.pop2()?;
 
         let dunder = self.try_compare_dunder(op, a, b, chunk);

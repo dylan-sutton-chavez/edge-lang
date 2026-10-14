@@ -203,6 +203,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             }
             Some(TokenType::Return) => {
                 self.advance();
+                if !self.in_function { self.error("'return' outside function"); }
                 // A bare `return` ends at the line, the next statement is never its value.
                 if matches!(self.peek_same_line(), None | Some(TokenType::Semi | TokenType::Dedent)) {
                     self.chunk.emit(OpCode::LoadNone, 0);
@@ -325,7 +326,10 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
 
     /* Compiles Indent/Dedent block, is_body=true stops after ReturnValue to skip dead code. */
     fn compile_block_inner(&mut self, is_body: bool) {
+        let next_line = self.peek_same_line().is_none();
         let indented = self.eat_if(TokenType::Indent);
+        // A body that starts on the next line must be indented.
+        if !indented && next_line { return self.error("expected an indented block"); }
         loop {
             while self.eat_if(TokenType::Semi) {}
             if self.at_end() { break; }
@@ -601,6 +605,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
     pub(super) fn emit_yield(&mut self) {
         // A comprehension runs as a scope of its own, which has no frame a `yield` could suspend.
         if self.in_comp { return self.error("'yield' inside a comprehension"); }
+        if !self.in_function { return self.error("'yield' outside function"); }
         // No value when a line boundary or a closing token follows (`(yield)`, `f(yield)`).
         let bare = matches!(
             self.peek_same_line(),

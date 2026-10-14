@@ -104,6 +104,16 @@ impl<'a> VM<'a> {
         if !obj.is_heap() {
             return Err(cold_type("vars() requires an instance or module"));
         }
+        // The `builtins` module makes its builtins on use, so listing them makes them all.
+        if obj.0 == self.builtins_module.0 {
+            let names = crate::parser::BUILTIN_TYPES.iter().copied().chain(NativeFnId::ALL.iter().map(|id| id.name()));
+            let mut dm = DictMap::new();
+            for name in names {
+                let (key, v) = (self.heap.intern_str(name)?, self.builtin_value(name)?);
+                dm.insert(key, v, &self.heap);
+            }
+            return self.alloc_and_push_dict(dm);
+        }
         // Two passes, drop the heap borrow before `alloc()`. Modules materialise names as `Vec<String>` first.
         enum Source { Instance(Vec<(Val, Val)>), Module(Vec<(String, Val)>) }
         let src = match self.heap.get(obj) {
@@ -143,6 +153,10 @@ impl<'a> VM<'a> {
             let key = self.heap.alloc(HeapObj::Str(k))?;
             dm.insert(key, v, &self.heap);
         }
-        self.alloc_and_push_dict(dm)
+        let dict = self.heap.alloc(HeapObj::Dict(alloc::rc::Rc::new(core::cell::RefCell::new(dm))))?;
+        self.globals_dicts.retain(|&(m, _)| m != module);
+        self.globals_dicts.push((module, dict));
+        self.push(dict);
+        Ok(())
     }
 }

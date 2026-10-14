@@ -9,14 +9,12 @@ const ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
 const SNAPSHOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/.snapshot");
 // Only the cases that exhaust the budget reach this many ops, and they end the same way sooner.
 const OPS: i64 = 10_000_000;
-// nearcore prices wasm instructions at 822756 gas and one Tgas at 1 ms, so 0.82 ns.
-const SECONDS_PER_INSTRUCTION: f64 = 822_756.0 * 1e-15;
 // The MB the memory limit counts in.
 const MB: f64 = (1 << 20) as f64;
 // A report names at most this many cases.
 const TOP: usize = 5;
 
-// The reference seconds and the memory peak in MB of each case, the same on every machine and every run.
+// The WebAssembly instructions and the memory peak in MB of each case, the same on every machine and every run.
 #[derive(serde::Deserialize)]
 struct Snapshot {
     rustc: String,
@@ -27,12 +25,14 @@ struct Snapshot {
     cases: BTreeMap<String, (f64, f64)>,
 }
 
-// How a report words one measure, so time and memory are held to the same rules.
+// How a report words one measure, so instructions and memory are held to the same rules.
 struct Measure {
     pick: fn((f64, f64)) -> f64,
     floor: fn(&Snapshot) -> f64,
     unit: &'static str,
+    // Decimals of one case and of a total.
     places: usize,
+    total_places: usize,
     grew: &'static str,
     shrank: &'static str,
     most_grown: &'static str,
@@ -41,8 +41,8 @@ struct Measure {
     total: (&'static str, &'static str),
 }
 
-const TIME: Measure = Measure { pick: |c| c.0, floor: |_| 0.0, unit: "s", places: 9, grew: "got slower", shrank: "got faster", most_grown: "Most slowed", most_shrunk: "Biggest gains", own: "", total: ("runs in", "of reference time") };
-const MEMORY: Measure = Measure { pick: |c| c.1, floor: |s| s.memory_floor, unit: "MB", places: 6, grew: "holds more memory", shrank: "holds less memory", most_grown: "Most grown", most_shrunk: "Biggest drops", own: " in memory", total: ("peaks at", "summed over its cases") };
+const INSTRUCTIONS: Measure = Measure { pick: |c| c.0, floor: |_| 0.0, unit: "instructions", places: 0, total_places: 0, grew: "runs more instructions", shrank: "runs fewer instructions", most_grown: "Most grown", most_shrunk: "Biggest drops", own: "", total: ("runs", "summed over its cases") };
+const MEMORY: Measure = Measure { pick: |c| c.1, floor: |s| s.memory_floor, unit: "MB", places: 6, total_places: 3, grew: "holds more memory", shrank: "holds less memory", most_grown: "Most grown", most_shrunk: "Biggest drops", own: " in memory", total: ("peaks at", "summed over its cases") };
 
 fn main() {
     let update = std::env::args().any(|a| a == "--update");
@@ -61,7 +61,7 @@ fn main() {
     let cases: Vec<serde_json::Value> = serde_json::from_str(CASES).expect("tests/cases/vm.json is not valid JSON");
     println!("vm.json  {} cases", cases.len());
     let ran: Vec<(String, (u64, u64))> = cases.iter().map(|case| (key(case), run(&engine, &module, case))).collect();
-    let measured = ran.iter().map(|(k, (ops, peak))| (k.clone(), ((*ops as f64 * SECONDS_PER_INSTRUCTION * 1e9).round() / 1e9, (*peak as f64 / MB * 1e6).round() / 1e6))).collect();
+    let measured = ran.iter().map(|(k, (ops, peak))| (k.clone(), (*ops as f64, (*peak as f64 / MB * 1e6).round() / 1e6))).collect();
     let rustc = Command::new("rustc").arg("--version").current_dir(ROOT).output().map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_default();
     let now = Snapshot { rustc, threshold: 0.005, case_threshold: 0.05, memory_floor: 0.004, cases: measured };
     let sources: BTreeMap<String, &str> = cases.iter().map(|c| (key(c), c["src"].as_str().unwrap_or(""))).collect();
@@ -94,7 +94,7 @@ fn main() {
 
 /* Every rule a run is held to, one paragraph for each that fails, empty when the run matches the snapshot. */
 fn check(last: &Snapshot, now: &Snapshot, sources: &BTreeMap<String, &str>) -> Vec<String> {
-    // Another rustc compiles another compiler.wasm, whose seconds say nothing about this code.
+    // Another rustc compiles another compiler.wasm, whose instructions say nothing about this code.
     if last.rustc != now.rustc {
         return vec![format!("The snapshot was taken with {}, this is {}, regenerate it with {}.", last.rustc, now.rustc, last.rustc)];
     }
@@ -104,7 +104,7 @@ fn check(last: &Snapshot, now: &Snapshot, sources: &BTreeMap<String, &str>) -> V
     if new + gone > 0 {
         failures.push(format!("{new} cases are missing from the snapshot and {gone} entries have no case, run --update."));
     }
-    failures.extend(compare(&TIME, last, now, sources));
+    failures.extend(compare(&INSTRUCTIONS, last, now, sources));
     failures.extend(compare(&MEMORY, last, now, sources));
     failures
 }
@@ -112,7 +112,7 @@ fn check(last: &Snapshot, now: &Snapshot, sources: &BTreeMap<String, &str>) -> V
 /* One measure against the snapshot, its geometric mean held to the band and each case to its own threshold. */
 fn compare(m: &Measure, last: &Snapshot, now: &Snapshot, sources: &BTreeMap<String, &str>) -> Vec<String> {
     let mut failures = Vec::new();
-    let (unit, floor) = (m.unit, (m.floor)(last));
+    let (unit, floor, p) = (m.unit, (m.floor)(last), m.total_places);
     let all: Vec<(&String, f64, f64)> = now.cases.iter().filter_map(|(k, &n)| last.cases.get(k).map(|&l| (k, (m.pick)(l), (m.pick)(n)))).collect();
     // Every case weighs the same in a geometric mean, so no single long case decides it.
     let paired: Vec<(&String, f64, f64)> = all.iter().copied().filter(|&(_, l, n)| l > 0.0 && n > 0.0).collect();
@@ -128,9 +128,9 @@ fn compare(m: &Measure, last: &Snapshot, now: &Snapshot, sources: &BTreeMap<Stri
         picked.iter().map(|&&(k, l, n)| moved_line(m, sources, k, l, n)).collect::<Vec<_>>()
     };
     if change > last.threshold {
-        failures.push(format!("vm.json {}, {total:.3} {unit} against {before:.3} {unit}, {:+.2}% across {} cases. Fix it, or accept it with --update if it is intended. {}{}", m.grew, change * 100.0, paired.len(), m.most_grown, list(&moved(true))));
+        failures.push(format!("vm.json {}, {} {unit} against {} {unit}, {:+.2}% across {} cases. Fix it, or accept it with --update if it is intended. {}{}", m.grew, amount(total, p), amount(before, p), change * 100.0, paired.len(), m.most_grown, list(&moved(true))));
     } else if change < -last.threshold {
-        failures.push(format!("vm.json {}, {total:.3} {unit} against {before:.3} {unit}, {:+.2}%. The snapshot no longer matches the code, run --update and commit it with the change. {}{}", m.shrank, change * 100.0, m.most_shrunk, list(&moved(false))));
+        failures.push(format!("vm.json {}, {} {unit} against {} {unit}, {:+.2}%. The snapshot no longer matches the code, run --update and commit it with the change. {}{}", m.shrank, amount(total, p), amount(before, p), change * 100.0, m.most_shrunk, list(&moved(false))));
     }
     // A case at 0 has no ratio, so leaving 0 or reaching it moves it on its own, ahead of the rest.
     let by = |&(_, l, n): &(&String, f64, f64)| if l > 0.0 && n > 0.0 { (n / l).ln().abs() } else { f64::INFINITY };
@@ -143,14 +143,26 @@ fn compare(m: &Measure, last: &Snapshot, now: &Snapshot, sources: &BTreeMap<Stri
     }
 
     // Printed even when a finding fails, so adding cases never hides how the existing ones moved.
-    annotate("notice", &format!("vm.json {} {total:.3} {unit} {}, {:+.2}% against the snapshot across {} cases, the band is ±{:.1}%.", m.total.0, m.total.1, change * 100.0, paired.len(), last.threshold * 100.0));
+    annotate("notice", &format!("vm.json {} {} {unit} {}, {:+.2}% against the snapshot across {} cases, the band is ±{:.1}%.", m.total.0, amount(total, p), m.total.1, change * 100.0, paired.len(), last.threshold * 100.0));
     failures
 }
 
 fn moved_line(m: &Measure, sources: &BTreeMap<String, &str>, key: &str, last: f64, now: f64) -> String {
     let (unit, places) = (m.unit, m.places);
     let change = if last > 0.0 { format!("{:+.1}%", (now / last - 1.0) * 100.0) } else { String::from("from 0") };
-    format!("{} {last:.places$} {unit} to {now:.places$} {unit} ({change})", source(sources, key))
+    format!("{} {} {unit} to {} {unit} ({change})", source(sources, key), amount(last, places), amount(now, places))
+}
+
+/* A value with `places` decimals, a whole count in groups of three digits so it reads at a glance. */
+fn amount(value: f64, places: usize) -> String {
+    if places > 0 { return format!("{value:.places$}"); }
+    let digits = format!("{value:.0}");
+    let mut grouped = String::new();
+    for (k, c) in digits.chars().enumerate() {
+        if k > 0 && (digits.len() - k) % 3 == 0 { grouped.push(','); }
+        grouped.push(c);
+    }
+    grouped
 }
 
 fn source(sources: &BTreeMap<String, &str>, key: &str) -> String {
@@ -224,9 +236,9 @@ fn stage(inst: &Instance, store: &mut Store<()>, memory: Memory, text: &str) -> 
     (ptr, text.len() as u32)
 }
 
-/* Writes the snapshot with every case on one line in plain decimal seconds and MB, so each line reads without converting. */
+/* Writes the snapshot with every case on one line in whole instructions and decimal MB, so each line reads without converting. */
 fn write(snapshot: &Snapshot) {
-    let (t, m) = (TIME.places, MEMORY.places);
+    let (t, m) = (INSTRUCTIONS.places, MEMORY.places);
     let cases: Vec<String> = snapshot.cases.iter().map(|(k, (s, mb))| format!("    \"{k}\": [{s:.t$}, {mb:.m$}]")).collect();
     let json = format!(
         "{{\n  \"rustc\": {:?},\n  \"threshold\": {},\n  \"case_threshold\": {},\n  \"memory_floor\": {},\n  \"cases\": {{\n{}\n  }}\n}}\n",

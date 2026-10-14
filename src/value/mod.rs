@@ -24,8 +24,8 @@ impl Limits {
     pub fn sandbox() -> Self { Self { ops: 100_000_000, memory: 256 << 20 } }
 }
 
-// The call depth every execution runs under, below where either host runs out of wasm stack.
-pub const MAX_CALLS: usize = 256;
+// How deep instruction loops nest in Rust, through builtins, dunders and coroutines, a fifth below where either host ran out of wasm stack.
+pub const MAX_CALLS: usize = 192;
 
 // What a value takes in a container, 8 bytes by NaN-boxing on every architecture.
 pub const VAL_BYTES: usize = 8;
@@ -192,6 +192,20 @@ pub enum HeapObj {
     Cell(Val),
     // `d.keys()`, `d.values()` or `d.items()`, reading the dict live.
     DictView(Val, View),
+    // What `compile()` made, compiled again where `eval` or `exec` runs it.
+    Code(Rc<CodeObj>),
+}
+
+/* How compiled source runs, an expression for `eval`, statements for `exec`, one statement echoing an expression for `single`. */
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CodeMode { Exec, Eval, Single }
+
+/* The source of a code object, the file name its errors cite and how it runs. */
+#[derive(Clone, Debug)]
+pub struct CodeObj {
+    pub source: String,
+    pub filename: String,
+    pub mode: CodeMode,
 }
 
 /* The part of a dict a view shows. */
@@ -257,6 +271,8 @@ macro_rules! builtins {
             const ARITY: &'static [(u16, u16)] = &[ $( builtins!(@a $arity) ),* ];
             pub fn arity(self) -> (u16, u16) { Self::ARITY[self as usize] }
             pub fn takes(self, n: u16) -> bool { let (lo, hi) = self.arity(); (lo..=hi).contains(&n) }
+            // Every builtin, in table order.
+            pub const ALL: &'static [NativeFnId] = &[ $( NativeFnId::$variant ),* ];
         }
     };
     (@a var) => { (0, u16::MAX) };
@@ -288,6 +304,9 @@ builtins! {
     StaticMethod => "staticmethod", 1;
     ClassMethod => "classmethod", 1;
     SendMsg => "send", 2;
+    Eval => "eval", (1, 3);
+    Exec => "exec", (1, 3);
+    Compile => "compile", (3, 6);
 }
 
 /* Insertion-ordered set, each item beside its hash and removed ones undef tombstones, so no table layout decides its order. */
@@ -573,7 +592,7 @@ pub(crate) fn for_each_val(obj: &HeapObj, mut f: impl FnMut(Val)) {
         // Variants without Val payloads, terminal, nothing to trace.
         HeapObj::Str(_) | HeapObj::Bytes(_) | HeapObj::LongInt(_)
         | HeapObj::Type(_) | HeapObj::NativeFn(_) | HeapObj::Range(..)
-        | HeapObj::Extern(_) | HeapObj::Ellipsis | HeapObj::NotImplemented | HeapObj::TypeVar(_) => {}
+        | HeapObj::Extern(_) | HeapObj::Ellipsis | HeapObj::NotImplemented | HeapObj::TypeVar(_) | HeapObj::Code(_) => {}
         HeapObj::Iter(frame, _) => frame.borrow().for_each_val(&mut f),
         HeapObj::Cell(v) | HeapObj::DictView(v, _) => f(*v),
     }

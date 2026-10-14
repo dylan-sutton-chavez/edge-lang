@@ -728,6 +728,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
     }
 
     fn body_of(&mut self, params: &[String]) {
+        self.in_function = true;
         for p in params {
             // Base name shadows the enclosing scope, prefix/`=` marker must be stripped.
             self.bind_param(p);

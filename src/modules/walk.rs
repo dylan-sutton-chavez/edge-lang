@@ -7,7 +7,7 @@ use crate::s;
 use crate::util::hash::{FxHashMap, FxHashSet};
 use super::bundle::Bundle;
 use super::lock::{self, Lock};
-use super::{dir_of, join_relative, parent_dir, parse_integrity, parse_manifest, rules, scan_imports, walk_up_dirs, ImportSpec, Manifest};
+use super::{dir_of, join_relative, parent_dir, parse_integrity, parse_manifest, rules, scan, walk_up_dirs, ImportSpec, Manifest};
 
 // How deep importers may nest before a chain of grants is cut, far past any real tree.
 const MAX_DEPTH: usize = 64;
@@ -101,6 +101,8 @@ pub struct Walk {
     // Each copy to the package it copies, both without the closing slash.
     copies: Vec<(String, String)>,
     plugins: bool,
+    // Whether some code runs text through eval or exec, whose imports reach the system modules its package holds.
+    runs_text: bool,
     out: VecDeque<Step>,
     waiting: Option<Waiting>,
     done: bool,
@@ -129,11 +131,14 @@ impl Walk {
             edges: Vec::new(),
             copies: Vec::new(),
             plugins: false,
+            runs_text: false,
             out: VecDeque::new(),
             waiting: None,
             done: false,
         };
-        for imp in scan_imports(root_src) {
+        let (imports, runs_text) = scan(root_src);
+        walk.runs_text = runs_text;
+        for imp in imports {
             walk.enqueue_import(imp, entry_dir, None);
         }
         walk.enqueue_manifest_chain(entry_dir);
@@ -382,7 +387,9 @@ impl Walk {
         let src = String::from_utf8_lossy(&bytes).into_owned();
         let dir = dir_of(&spec);
         let via = self.origins.get(&spec).map(|(name, _)| name.clone());
-        for imp in scan_imports(&src) {
+        let (imports, runs_text) = scan(&src);
+        self.runs_text |= runs_text;
+        for imp in imports {
             self.enqueue_import(imp, &dir, via.as_deref());
         }
         self.enqueue_manifest_chain(&dir);
@@ -413,7 +420,7 @@ impl Walk {
             (dir, name, chain)
         }).collect();
         let permissions = self.grants.get(&root).cloned().unwrap_or_default();
-        Packages { dirs, permissions, needed: !self.pending_bare.is_empty() || self.plugins, root }
+        Packages { dirs, permissions, needed: !self.pending_bare.is_empty() || self.plugins || self.runs_text, root }
     }
 
     /* The name a package dir answers to and the grants reaching it, importer by importer. */

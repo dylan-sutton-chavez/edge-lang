@@ -259,37 +259,37 @@
     "functions": 1
   },
   {
-    "src": "if a:\nx = 1\nelse:\nx = 2", 
+    "src": "if a:\n    x = 1\nelse:\n    x = 2", 
     "constants": ["1", "2"], 
     "names": ["a_0", "x_1", "x_2", "x_3"], 
     "instructions": [["LoadName",0], ["JumpIfFalse",5], ["LoadConst",0], ["StoreName",1], ["Jump",7], ["LoadConst",1], ["StoreName",1], ["Phi",1], ["ReturnValue",0]]
   },
   {
-    "src": "if a:\nx = 1", 
+    "src": "if a:\n    x = 1", 
     "constants": ["1"], 
     "names": ["a_0", "x_1", "x_0", "x_2"],
     "instructions": [["LoadName",0], ["JumpIfFalse",4], ["LoadConst",0], ["StoreName",2], ["Phi",2], ["ReturnValue",0]]
   },
   {
-    "src": "if a:\nx = 1\nelif b:\nx = 2\nelse:\nx = 3", 
+    "src": "if a:\n    x = 1\nelif b:\n    x = 2\nelse:\n    x = 3", 
     "constants": ["1", "2", "3"], 
     "names": ["a_0", "x_1", "b_0", "x_2", "x_3", "x_4"], 
     "instructions": [["LoadName",0], ["JumpIfFalse",5], ["LoadConst",0], ["StoreName",1], ["Jump",12], ["LoadName",2], ["JumpIfFalse",10], ["LoadConst",1], ["StoreName",1], ["Jump",12], ["LoadConst",2], ["StoreName",1], ["Phi",1], ["ReturnValue",0]]
   },
   {
-    "src": "x = 0\nif a:\nx = 1\nelse:\nx = 2\ny = x", 
+    "src": "x = 0\nif a:\n    x = 1\nelse:\n    x = 2\ny = x", 
     "constants": ["0", "1", "2"], 
     "names": ["x_1", "a_0", "x_2", "x_3", "x_4", "y_1"], 
     "instructions": [["LoadConst",0], ["StoreName",0], ["LoadName",1], ["JumpIfFalse",7], ["LoadConst",1], ["StoreName",0], ["Jump",9], ["LoadConst",2], ["StoreName",0], ["Phi",0], ["LoadName",0], ["StoreName",5], ["ReturnValue",0]]
   },
   {
-    "src": "total = 0\nfor i in range(5):\ntotal = total + i", 
+    "src": "total = 0\nfor i in range(5):\n    total = total + i", 
     "constants": ["0", "5"], 
     "names": ["total_1", "i_1", "total_2", "i_0", "i_2", "total_3"], 
     "instructions": [["LoadConst",0], ["StoreName",0], ["LoadConst",1], ["CallRange",1], ["GetIter",0], ["ForIter",12], ["StoreName",3], ["LoadName",0], ["LoadName",3], ["Add",0], ["StoreName",0], ["Jump",5], ["Phi",3], ["Phi",0], ["ReturnValue",0]]
   },
   {
-    "src": "for i in range(3):\nprint(i)", 
+    "src": "for i in range(3):\n    print(i)", 
     "constants": ["3"], 
     "names": ["i_1", "i_0", "i_2"], 
     "instructions": [["LoadConst",0], ["CallRange",1], ["GetIter",0], ["ForIter",8], ["StoreName",1], ["LoadName",1], ["CallPrint",1], ["Jump",3], ["Phi",1], ["ReturnValue",0]]
@@ -313,13 +313,13 @@
     "instructions": [["CallDict",0], ["PopTop",0], ["LoadConst",0], ["LoadConst",1], ["CallDict",256], ["PopTop",0], ["LoadConst",2], ["LoadConst",3], ["BuildDict",1], ["PopTop",0], ["LoadConst",4], ["LoadConst",5], ["BuildDict",1], ["CallDict",1], ["PopTop",0], ["ReturnValue",0]]
   },
   {
-    "src": "x = 10\nif x > 20:\ny = 1\nelif x > 5:\ny = 2\nelse:\ny = 3", 
+    "src": "x = 10\nif x > 20:\n    y = 1\nelif x > 5:\n    y = 2\nelse:\n    y = 3", 
     "constants": ["10", "20", "1", "5", "2", "3"], 
     "names": ["x_1", "y_1", "y_2", "y_3", "y_4"], 
     "instructions": [["LoadConst",0], ["StoreName",0], ["LoadName",0], ["LoadConst",1], ["Gt",0], ["JumpIfFalse",9], ["LoadConst",2], ["StoreName",1], ["Jump",18], ["LoadName",0], ["LoadConst",3], ["Gt",0], ["JumpIfFalse",16], ["LoadConst",4], ["StoreName",1], ["Jump",18], ["LoadConst",5], ["StoreName",1], ["Phi",1], ["ReturnValue",0]]
   },
   {
-    "src": "x = 0\nif a:\nx = 1\nelif b:\nx = 2\nelse:\nx = 3\ny = x", 
+    "src": "x = 0\nif a:\n    x = 1\nelif b:\n    x = 2\nelse:\n    x = 3\ny = x", 
     "constants": ["0", "1", "2", "3"], 
     "names": ["x_1", "a_0", "x_2", "b_0", "x_3", "x_4", "x_5", "y_1"], 
     "instructions": [["LoadConst",0], ["StoreName",0], ["LoadName",1], ["JumpIfFalse",7], ["LoadConst",1], ["StoreName",0], ["Jump",14], ["LoadName",3], ["JumpIfFalse",12], ["LoadConst",2], ["StoreName",0], ["Jump",14], ["LoadConst",3], ["StoreName",0], ["Phi",0], ["LoadName",0], ["StoreName",7], ["ReturnValue",0]]
@@ -331,7 +331,7 @@
     "instructions": [["LoadConst",0], ["StoreName",0], ["LoadConst",1], ["StoreName",1], ["LoadConst",2], ["StoreName",2], ["LoadName",0], ["LoadName",1], ["LoadName",2], ["Mul",0], ["Add",0], ["LoadConst",3], ["Sub",0], ["StoreName",3], ["ReturnValue",0]]
   },
   {
-    "src": "s = 0\nfor i in range(10):\ns += i",
+    "src": "s = 0\nfor i in range(10):\n    s += i",
     "constants": ["0", "10"],
     "names": ["s_1", "i_1", "s_2", "i_0", "i_2", "s_3"],
     "instructions": [["LoadConst",0], ["StoreName",0], ["LoadConst",1], ["CallRange",1], ["GetIter",0], ["ForIter",12], ["StoreName",3], ["LoadName",0], ["LoadName",3], ["InPlaceAdd",0], ["StoreName",0], ["Jump",5], ["Phi",3], ["Phi",0], ["ReturnValue",0]]
@@ -651,18 +651,8 @@
     "names": ["x_0"],
     "instructions": [["LoadName",0], ["WithEnter",0], ["Call",1], ["PopTop",0], ["SetupFinally",7], ["PopExcept",0], ["BeginFinally",0], ["WithExit",0], ["Call",4], ["WithJudge",0], ["EndFinally",0], ["ReturnValue",0]]
   },
-  {
-    "src": "yield 1", 
-    "constants": ["1"], 
-    "names": [], 
-    "instructions": [["LoadConst",0], ["Yield",0], ["PopTop",0], ["ReturnValue",0]]
-  },
-  {
-    "src": "yield", 
-    "constants": [], 
-    "names": [], 
-    "instructions": [["LoadNone",0], ["Yield",0], ["PopTop",0], ["ReturnValue",0]]
-  },
+  {"src": "yield 1", "constants": [], "names": [], "instructions": [["ReturnValue", 0]], "errors": ["'yield' outside function"]},
+  {"src": "yield", "constants": [], "names": [], "instructions": [["ReturnValue", 0]], "errors": ["'yield' outside function"]},
   {
     "src": "del x", 
     "constants": [], 
@@ -1094,18 +1084,8 @@
     "names": ["x_1", "x_2"], 
     "instructions": [["LoadConst",0], ["StoreName",0], ["LoadName",0], ["LoadConst",1], ["Shr",1], ["StoreName",0], ["ReturnValue",0]]
   },
-  {
-    "src": "yield from x", 
-    "constants": [], 
-    "names": ["x_0"], 
-    "instructions": [["LoadName",0], ["GetIter",0], ["ForIter",6], ["Yield",0], ["PopTop",0], ["Jump",2], ["LoadYieldFrom",0], ["PopTop",0], ["ReturnValue",0]]
-  },
-  {
-    "src": "yield from range(3)",
-    "constants": ["3"],
-    "names": [],
-    "instructions": [["LoadConst",0], ["CallRange",1], ["GetIter",0], ["ForIter",7], ["Yield",0], ["PopTop",0], ["Jump",3], ["LoadYieldFrom",0], ["PopTop",0], ["ReturnValue",0]]
-  },
+  {"src": "yield from x", "constants": [], "names": [], "instructions": [["ReturnValue", 0]], "errors": ["'yield' outside function"]},
+  {"src": "yield from range(3)", "constants": [], "names": [], "instructions": [["ReturnValue", 0]], "errors": ["'yield' outside function"]},
   {
     "src": "async for a in x:\n    pass",
     "constants": [], 

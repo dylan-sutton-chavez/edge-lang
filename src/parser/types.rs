@@ -84,6 +84,10 @@ pub enum OpCode {
     ForIterR,
     // Compare two registers and jump when the comparison is false.
     JumpUnlessEq, JumpUnlessNotEq, JumpUnlessLt, JumpUnlessLtEq, JumpUnlessGt, JumpUnlessGtEq,
+    // Calls the function in register a with the `x` arguments in b and c, its result on the stack for the StoreTopR after it.
+    CallR,
+    // Calls method `a` of register b with the `x` arguments in c, its result on the stack for the StoreTopR after it.
+    CallMethodR,
 }
 
 // Each fused builtin opcode and the builtin it runs, with the name that alone picks the opcode.
@@ -117,13 +121,10 @@ fused! {
 }
 
 /* Builtins the language leaves out, each with the error its use compiles to. */
-pub(super) const REMOVED_BUILTINS: [(&str, &str); 8] = [
+pub(super) const REMOVED_BUILTINS: [(&str, &str); 5] = [
     ("id", "'id' is not supported, compare values with '=='"),
     ("hash", "'hash' is not supported, a dict or set hashes its keys by value or identity"),
     ("locals", "'locals' is not supported, pass the values a call needs"),
-    ("eval", "'eval' is not supported, a program runs only code checked when it compiles"),
-    ("exec", "'exec' is not supported, a program runs only code checked when it compiles"),
-    ("compile", "'compile' is not supported, a program runs only code checked when it compiles"),
     ("open", "'open' is not supported, the sandbox holds no files"),
     ("__import__", "'__import__' is not supported, write an import statement"),
 ];
@@ -131,7 +132,7 @@ pub(super) const REMOVED_BUILTINS: [(&str, &str); 8] = [
 /* The index of `name` in `REMOVED_BUILTINS`, the length test keeping every other name to one compare. */
 #[inline]
 pub(super) fn removed_builtin(name: &str) -> Option<usize> {
-    if !matches!(name.len(), 2 | 4 | 6 | 7 | 10) { return None; }
+    if !matches!(name.len(), 2 | 4 | 6 | 10) { return None; }
     REMOVED_BUILTINS.iter().position(|&(n, _)| n == name)
 }
 
@@ -712,6 +713,8 @@ macro_rules! builtin_types {
         pub fn builtin_type(name: &str) -> Option<&'static str> {
             match name { $($name => Some($name),)* _ => None }
         }
+        // Every builtin type name, in table order.
+        pub const BUILTIN_TYPES: &[&str] = &[$($name),*];
     };
 }
 builtin_types! {
@@ -723,7 +726,7 @@ builtin_types! {
     "IndexError", "AttributeError", "RuntimeError",
     "ZeroDivisionError", "OverflowError", "MemoryError",
     "RecursionError", "StopIteration", "NotImplementedError",
-    "OSError", "PermissionError", "IOError", "ImportError", "ModuleNotFoundError",
+    "OSError", "PermissionError", "IOError", "ImportError", "ModuleNotFoundError", "SyntaxError",
     "AssertionError", "ArithmeticError", "LookupError",
     "CancelledError", "TimeoutError", "SystemExit",
 }

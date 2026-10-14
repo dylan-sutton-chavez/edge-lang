@@ -89,7 +89,8 @@ impl VmErr {
         for f in frames {
             let fname = function_names.get(f.fi).map(|s| s.as_str()).unwrap_or("<anonymous>");
             let pos = f.call_byte_pos as usize;
-            let path: Option<&str> = f.caller_path.as_deref().map(|p| p.as_str()).filter(|p| !p.is_empty());
+            // An empty path is the entry file, which the error line names.
+            let path: Option<&str> = f.caller_path.as_deref().map(|p| p.as_str()).filter(|p| !p.is_empty()).or(error_path);
             let note = crate::parser::Diagnostic {
                 start: pos, end: pos,
                 msg: alloc::format!("called from {}()", fname),
@@ -98,6 +99,8 @@ impl VmErr {
             let note = note.replacen("error:", "note:", 1);
             out.push('\n');
             out.push_str(&note);
+            // A recursion shows its call once, with the count of the rest.
+            if f.repeats > 0 { out.push_str(&alloc::format!("\nnote: the same call {} more times\n", f.repeats)); }
         }
         out
     }

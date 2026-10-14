@@ -86,7 +86,7 @@ impl<'a> VM<'a> {
     pub(crate) fn handle_comprehension(&mut self, op: OpCode) -> Result<(), VmErr> {
         let value = self.pop()?;
         let key = if op == OpCode::MapAdd { Some(self.pop()?) } else { None };
-        let acc = *self.stack.last().ok_or(VmErr::Runtime("stack underflow"))?;
+        let Some(&acc) = self.stack.last() else { return Err(VmErr::Runtime("stack underflow")) };
         match (op, key, self.heap.try_get(acc)) {
             (OpCode::ListAppend, _, Some(HeapObj::List(rc))) => rc.borrow_mut().push(value),
             (OpCode::SetAdd, _, Some(HeapObj::Set(rc))) => { self.require_hashable(value)?; rc.borrow_mut().insert(value, &self.heap); }
@@ -99,7 +99,7 @@ impl<'a> VM<'a> {
     /* Merge the source on top of the stack into the container below it for `{**m}`, `{*s}`, `[*it]`. */
     pub(crate) fn handle_spread_merge(&mut self, op: OpCode, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
         let src = self.pop()?;
-        let acc = *self.stack.last().ok_or(VmErr::Runtime("stack underflow"))?;
+        let Some(&acc) = self.stack.last() else { return Err(VmErr::Runtime("stack underflow")) };
         if !acc.is_heap() { return Err(cold_runtime("spread accumulator corrupted")); }
         match op {
             // `**` requires a mapping, and later keys overwrite earlier ones.

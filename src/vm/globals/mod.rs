@@ -3,6 +3,7 @@ use super::VM;
 pub mod async_ops;
 pub mod attr;
 pub mod bytes_helpers;
+pub mod compile;
 pub mod container;
 pub mod conversion;
 pub mod identity;
@@ -15,7 +16,7 @@ fn exc_parent(name: &str) -> Option<&'static str> {
     Some(match name {
         "ValueError" | "TypeError" | "RuntimeError" | "LookupError" | "AttributeError" | "ArithmeticError"
         | "OSError" | "NameError" | "StopIteration" | "StopAsyncIteration" | "AssertionError" | "MemoryError"
-        | "TimeoutError" | "ImportError" => "Exception",
+        | "TimeoutError" | "ImportError" | "SyntaxError" => "Exception",
         "KeyError" | "IndexError" => "LookupError",
         "ZeroDivisionError" | "OverflowError" => "ArithmeticError",
         "PermissionError" => "OSError",

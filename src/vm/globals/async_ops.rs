@@ -20,10 +20,8 @@ impl<'a> VM<'a> {
         };
         if outer_ip == FINISHED { self.yielded = false; return Ok(Val::none()); }
 
-        // Bound depth, sync frames within a coroutine, plus nested resumes from mutual awaits (native-stack recursion).
-        if syncs >= self.max_calls || self.depth >= self.max_calls {
-            return Err(cold_depth());
-        }
+        // Nested resumes from mutual awaits recurse in Rust, and each resume copies every suspended frame, so both stay bounded.
+        if syncs >= crate::vm::frame::SUSPENDED_DEPTH || self.depth >= self.max_calls { return Err(cold_depth()); }
         // Re-entrant resume (`yield from g` inside g, `next(g)` from g's own body).
         if self.executing_coros.contains(&callee.0) {
             return Err(VmErr::Value("generator already executing"));
@@ -51,7 +49,7 @@ impl<'a> VM<'a> {
         let mut pending_ret: Option<Val> = None;
         let result: Result<Val, VmErr> = 'drive: loop {
             if let Some(frame) = sync_frames.pop() {
-                let SyncFrame { ip, fi, func, mut slots, mut stack_delta, mut iter_delta, mut exception_delta } = frame;
+                let SyncFrame { ip, fi, func, mut slots, mut stack_delta, mut iter_delta, mut exception_delta, instance } = frame;
                 let (frame_stack_base, frame_iter_base, frame_exc_base) = self.restore_into(&mut stack_delta, &mut iter_delta, &mut exception_delta);
                 // Inner result lands on this frame's stack.
                 if let Some(v) = pending_ret.take() { self.push(v); }
@@ -66,26 +64,19 @@ impl<'a> VM<'a> {
                         self.stack.truncate(frame_stack_base);
                         self.iter_stack.truncate(frame_iter_base);
                         self.exception_stack.truncate(frame_exc_base);
-                        let (caller, resume_at): (&SSAChunk, usize) = match sync_frames.last() {
+                        let (caller, resume_at): (&'a SSAChunk, usize) = match sync_frames.last() {
                             Some(f) => (&self.functions[f.fi].1, f.ip),
                             None => match outer_body {
                                 BodyRef::Fn(ofi) => (&self.functions[ofi].1, outer_ip),
                                 BodyRef::Module => (self.chunk, outer_ip),
                             },
                         };
-                        let call_ip = resume_at.saturating_sub(1) as u32;
-                        let frame = CallFrame {
-                            fi,
-                            call_byte_pos: caller.resolve_call(call_ip).or_else(|| caller.resolve(call_ip)).unwrap_or(0),
-                            caller_source: Some(caller.source.clone()),
-                            caller_path: Some(caller.path.clone()),
-                        };
-                        self.call_stack.push(frame);
+                        self.note_frame(fi, Some(resume_at.saturating_sub(1) as u32), caller);
                         self.resume_raise = Some(e);
                     }
                     Ok(val) if self.yielded => {
                         self.save_frames(frame_stack_base, frame_iter_base, frame_exc_base, &mut stack_delta, &mut iter_delta, &mut exception_delta);
-                        sync_frames.push(SyncFrame { ip: self.resume_ip, fi, func, slots, stack_delta, iter_delta, exception_delta });
+                        sync_frames.push(SyncFrame { ip: self.resume_ip, fi, func, slots, stack_delta, iter_delta, exception_delta, instance });
                         // Reverse so pop re-enters innermost first.
                         let newer = core::mem::take(&mut self.pending_sync_frames);
                         sync_frames.extend(newer.into_iter().rev());
@@ -94,7 +85,7 @@ impl<'a> VM<'a> {
                     // A finished helper drops the loops a return left open, as run_call does.
                     Ok(val) => {
                         self.iter_stack.truncate(frame_iter_base);
-                        pending_ret = Some(val);
+                        pending_ret = Some(if instance.is_undef() { val } else { instance });
                     }
                 }
             } else {
@@ -399,10 +390,7 @@ impl<'a> VM<'a> {
             return CoroState::Errored(VmErr::Runtime(
                 "cannot cancel a coroutine suspended inside a synchronous helper"));
         }
-        self.pending.sleep_until_ns = None;
-        self.pending.event_wait_request = false;
-        self.pending.host_call_request = false;
-        self.pending.waiting_for_children = None;
+        self.pending.clear_waits();
         self.pending_exec_safe = true;
         self.cancelling = true;
         self.resume_raise = Some(VmErr::Raised("CancelledError".into()));
@@ -427,10 +415,7 @@ impl<'a> VM<'a> {
             return;
         }
         // Snapshot before resume so a yield during sleep / receive / run can read it.
-        self.pending.sleep_until_ns = None;
-        self.pending.event_wait_request = false;
-        self.pending.host_call_request = false;
-        self.pending.waiting_for_children = None;
+        self.pending.clear_waits();
         self.pending_exec_safe = true;
         if let CoroState::Raising(e, exc) = core::mem::replace(&mut self.scheduler[idx].state, CoroState::Ready) {
             self.resume_raise = Some(e);
