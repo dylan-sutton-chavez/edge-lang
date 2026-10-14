@@ -290,45 +290,85 @@ builtins! {
     SendMsg => "send", 2;
 }
 
-/* Content-hashed set, each item stored with its hash so a resize never hashes it again. */
+/* Insertion-ordered set, each item beside its hash and removed ones undef tombstones, so no table layout decides its order. */
 #[derive(Clone, Debug, Default)]
 pub struct ValSet {
-    t: hashbrown::HashTable<(u64, Val)>,
+    entries: Vec<(u64, Val)>,
+    index: hashbrown::HashTable<usize>,
+    live: usize,
 }
 
 impl ValSet {
     pub fn new() -> Self { Self::default() }
-    pub fn with_capacity(cap: usize) -> Self { Self { t: hashbrown::HashTable::with_capacity(cap) } }
+    pub fn with_capacity(cap: usize) -> Self {
+        let index = if cap > SMALL_DICT { hashbrown::HashTable::with_capacity(cap) } else { hashbrown::HashTable::new() };
+        Self { entries: Vec::with_capacity(cap), index, live: 0 }
+    }
     /* Content-deduped set of `items`. */
     pub fn from_vals(items: &[Val], heap: &HeapPool) -> Self {
         let mut s = Self::with_capacity(items.len());
         for &v in items { s.insert(v, heap); }
         s
     }
-    pub fn len(&self) -> usize { self.t.len() }
-    pub fn is_empty(&self) -> bool { self.t.is_empty() }
-    pub fn clear(&mut self) { self.t.clear(); }
-    pub fn iter(&self) -> impl Iterator<Item = &Val> + '_ { self.t.iter().map(|(_, v)| v) }
+    pub fn len(&self) -> usize { self.live }
+    pub fn is_empty(&self) -> bool { self.live == 0 }
+    pub fn clear(&mut self) {
+        self.entries.clear();
+        self.index.clear();
+        self.live = 0;
+    }
+    pub fn iter(&self) -> impl Iterator<Item = &Val> + '_ { self.entries.iter().filter(|e| !e.1.is_undef()).map(|(_, v)| v) }
+
+    /* Whether the index holds every live item, a small set scanning its entries instead. */
+    #[inline]
+    fn indexed(&self) -> bool { self.entries.len() > SMALL_DICT }
+
+    /* The live item under hash `h` that `eq` accepts. */
+    #[inline]
+    pub(crate) fn slot(&self, h: u64, mut eq: impl FnMut(Val) -> bool) -> Option<usize> {
+        let e = &self.entries;
+        if !self.indexed() { return e.iter().position(|x| x.0 == h && !x.1.is_undef() && eq(x.1)); }
+        self.index.find(h, |&i| e[i].0 == h && eq(e[i].1)).copied()
+    }
+
+    fn reindex(&mut self) {
+        if !self.indexed() { self.index = hashbrown::HashTable::new(); return; }
+        self.index.clear();
+        let e = &self.entries;
+        for i in 0..e.len() {
+            if !e[i].1.is_undef() { self.index.insert_unique(e[i].0, i, |&j| e[j].0); }
+        }
+    }
 
     pub fn contains(&self, v: Val, heap: &HeapPool) -> bool {
-        let h = hash_val_with_heap(v, heap);
-        self.t.find(h, |&(kh, k)| kh == h && eq_member(k, v, heap)).is_some()
+        self.slot(hash_val_with_heap(v, heap), |k| eq_member(k, v, heap)).is_some()
     }
     /* Returns true when newly inserted (content-equal value not already present). */
     pub fn insert(&mut self, v: Val, heap: &HeapPool) -> bool {
         let h = hash_val_with_heap(v, heap);
-        if self.t.find(h, |&(kh, k)| kh == h && eq_member(k, v, heap)).is_some() { return false; }
-        self.t.insert_unique(h, (h, v), |&(kh, _)| kh);
+        if self.slot(h, |k| eq_member(k, v, heap)).is_some() { return false; }
+        let i = self.entries.len();
+        self.entries.push((h, v));
+        self.live += 1;
+        // Growing past the scan size builds the index over everything stored.
+        if self.entries.len() == SMALL_DICT + 1 { self.reindex(); }
+        else if self.indexed() { let e = &self.entries; self.index.insert_unique(h, i, |&j| e[j].0); }
         true
     }
+    /* Drops `v`, compacting once tombstones outnumber live items. */
     pub fn remove(&mut self, v: Val, heap: &HeapPool) -> bool {
         let h = hash_val_with_heap(v, heap);
-        match self.t.find_entry(h, |&(kh, k)| kh == h && eq_member(k, v, heap)) {
-            Ok(e) => { e.remove(); true }
-            Err(_) => false,
+        let Some(i) = self.slot(h, |k| eq_member(k, v, heap)) else { return false };
+        if self.indexed() && let Ok(entry) = self.index.find_entry(h, |&j| j == i) { entry.remove(); }
+        self.entries[i] = (0, Val::undef());
+        self.live -= 1;
+        if self.entries.len() > 32 && self.entries.len() > 2 * self.live {
+            self.entries.retain(|e| !e.1.is_undef());
+            self.reindex();
         }
+        true
     }
-    pub(crate) fn iter_hashed(&self) -> impl Iterator<Item = (u64, Val)> + '_ { self.t.iter().copied() }
+    pub(crate) fn iter_hashed(&self) -> impl Iterator<Item = (u64, Val)> + '_ { self.entries.iter().filter(|e| !e.1.is_undef()).copied() }
 }
 
 /* Insertion-ordered dict, each entry keeps its key hash beside it, a HashTable<usize> index gives O(1) get, removed entries become undef tombstones. */

@@ -10,7 +10,7 @@ pub(crate) fn eq_seq(a: &[Val], b: &[Val], mut eq: impl FnMut(Val,Val)->bool) ->
 }
 /* Content set-equality, same size and every item of `a` found in `b` under its stored hash. */
 pub(crate) fn eq_set(a: &ValSet, b: &ValSet, mut eq: impl FnMut(Val,Val)->bool) -> bool {
-    a.len() == b.len() && a.t.iter().all(|&(h, x)| b.t.find(h, |&(kh, y)| kh == h && eq(x, y)).is_some())
+    a.len() == b.len() && a.iter_hashed().all(|(h, x)| b.slot(h, |y| eq(x, y)).is_some())
 }
 
 /* Recursion cap so self-referential containers fall back instead of overflowing the stack. */

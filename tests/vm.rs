@@ -47,26 +47,6 @@ mod test {
         SENT.with(|s| s.borrow().clone())
     }
 
-    /* Sets iterate in hash order, so canonicalize a set/frozenset line by sorting its elements. Assumes scalar elements with no nested ", ". Non-sets pass through. */
-    fn normalize_set(line: &str) -> String {
-        let (prefix, inner, suffix) = if let Some(i) =
-            line.strip_prefix("frozenset({").and_then(|r| r.strip_suffix("})")) {
-            ("frozenset({", i, "})")
-        } else if line.starts_with('{') && line.ends_with('}') && line.len() > 2 && !line.contains(": ") {
-            ("{", &line[1..line.len() - 1], "}")
-        } else {
-            return line.to_string();
-        };
-        let mut elems: Vec<&str> = inner.split(", ").collect();
-        elems.sort_unstable();
-        format!("{}{}{}", prefix, elems.join(", "), suffix)
-    }
-
-    // Apply set normalization line-by-line so both sides compare order-independent.
-    fn normalize(lines: &[String]) -> Vec<String> {
-        lines.iter().map(|l| normalize_set(l)).collect()
-    }
-
     // Resume on each PendingEvent by pushing the next interactive_events entry.
     fn drive(vm: &mut VM, interactive: &[String]) -> Result<(), VmErr> {
         let mut idx = 0;
@@ -122,7 +102,7 @@ mod test {
             // Collect every mismatch (not panic-on-first) so one run lists all regressions.
             match result {
                 Ok(_obj) => {
-                    if normalize(&vm.output) != normalize(&case.output) {
+                    if vm.output != case.output {
                         failures.push(format!("OUTPUT {:?}\n   got {:?}\n   want {:?}", case.src, vm.output, case.output));
                     }
                     if let Some(want) = &case.sends && &sent() != want {
@@ -200,7 +180,7 @@ mod test {
             match run {
                 Ok(_) => {
                     assert!(!expects_input_error, "expected input() to error under strict mode for: {:?}", case.src);
-                    assert_eq!(normalize(&vm.output), normalize(&case.output), "output mismatch on: {:?}", case.src);
+                    assert_eq!(vm.output, case.output, "output mismatch on: {:?}", case.src);
                     if let Some(want) = &case.sends { assert_eq!(&sent(), want, "sends mismatch on: {:?}", case.src); }
                 }
                 Err(e) => match &case.error {

@@ -1488,5 +1488,75 @@
     "names": [],
     "instructions": [["ReturnValue",0]],
     "errors": ["expected ':', got '='"]
+  },
+  {
+    "src": "x = 1j",
+    "constants": [],
+    "names": [],
+    "instructions": [["ReturnValue",0]],
+    "errors": ["complex numbers are not supported"]
+  },
+  {
+    "src": "x = 2.5j",
+    "constants": [],
+    "names": [],
+    "instructions": [["ReturnValue",0]],
+    "errors": ["complex numbers are not supported"]
+  },
+  {
+    "src": "x = 1e3J",
+    "constants": [],
+    "names": [],
+    "instructions": [["ReturnValue",0]],
+    "errors": ["complex numbers are not supported"]
+  },
+  {
+    "src": "x = .5j",
+    "constants": [],
+    "names": [],
+    "instructions": [["ReturnValue",0]],
+    "errors": ["complex numbers are not supported"]
+  },
+  {
+    "src": "x = 0j + 1",
+    "constants": [],
+    "names": [],
+    "instructions": [["ReturnValue",0]],
+    "errors": ["complex numbers are not supported"]
+  },
+  {
+    "src": "x = 1_000j",
+    "constants": [],
+    "names": [],
+    "instructions": [["ReturnValue",0]],
+    "errors": ["complex numbers are not supported"]
+  },
+  {
+    "src": "x = 1J",
+    "constants": [],
+    "names": [],
+    "instructions": [["ReturnValue",0]],
+    "errors": ["complex numbers are not supported"]
+  },
+  {
+    "src": "x = [1j, 2]",
+    "constants": [],
+    "names": [],
+    "instructions": [["ReturnValue",0]],
+    "errors": ["complex numbers are not supported"]
+  },
+  {
+    "src": "print(3j)",
+    "constants": [],
+    "names": [],
+    "instructions": [["ReturnValue",0]],
+    "errors": ["complex numbers are not supported"]
+  },
+  {
+    "src": "x = 10**2j",
+    "constants": [],
+    "names": [],
+    "instructions": [["ReturnValue",0]],
+    "errors": ["complex numbers are not supported"]
   }
 ]

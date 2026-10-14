@@ -305,7 +305,7 @@ unhashable key
 
 ## Set
 
-A set is an unordered collection of unique, hashable values.
+A set is a collection of unique, hashable values, kept in the order they were added.
 
 - `|`, `&`, `-` and `^` build new sets.
 - `|=`, `&=` and `^=` update the set in place. Aliases observe the change.
@@ -462,7 +462,7 @@ True
 
 ## Behavioral notes
 
-- **Set iteration and `repr` order.** Sets store elements in a hash table. Iteration and `repr` follow hash order, not insertion order. Sort a set when the order matters.
+- **Set iteration and `repr` order.** A set keeps its elements in the order they were added, like a dict, so a run and a restored snapshot of it iterate alike. CPython follows hash order instead, so sort a set when code must agree with it.
 - **[Every NaN is one value](/docs/edge-python/internals/design#memory-model).** A NaN is found in a list holding another NaN, and a set keeps a single one, where CPython keeps one per object.
 
 ```edge-python

@@ -354,6 +354,8 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
     }
 
     pub(super) fn parse_number(&mut self, raw: &str, kind: TokenType) {
+        // The lexer already refused a `j` suffix, so the digits before it parse without a second error.
+        let raw = raw.trim_end_matches(['j', 'J']);
         if kind == TokenType::Float {
             // A malformed float (e.g. empty exponent `1e`) is a syntax error, not 0.0.
             match raw.replace('_', "").parse() {
