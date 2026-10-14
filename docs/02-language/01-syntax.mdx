@@ -131,7 +131,7 @@ print(1_000_000)
 1000000
 ```
 
-An underscore must sit between two digits. `1_`, `1__2` and `0x_1` are rejected.
+An underscore must sit between two digits or right after a base prefix, as in `0x_FF`. `1_`, `1__2` and `0x_` are rejected.
 
 Float literals are IEEE-754 doubles.
 
@@ -406,7 +406,7 @@ Both mix freely with regular elements. In a dict, later keys win.
 ```edge-python
 xs = [1, 2]
 print([*xs, 3, *xs])  # list spread
-print(sorted({*xs, 2, 3}))  # set spread, deduped
+print({*xs, 2, 3})  # set spread, deduped
 
 a = {"x": 1}
 print({**a, "y": 2, **{"x": 9}})  # dict spread, later key wins
@@ -414,7 +414,7 @@ print({**a, "y": 2, **{"x": 9}})  # dict spread, later key wins
 
 ```output
 [1, 2, 3, 1, 2]
-[1, 2, 3]
+{1, 2, 3}
 {'x': 9, 'y': 2}
 ```
 
@@ -451,7 +451,7 @@ print([x for x in range(10) if x % 2 == 0])
 print([(i, j) for i in range(2) for j in range(2)])
 print([[x for x in range(y)] for y in range(3)])
 print({x: x * x for x in range(4)})
-print(sorted({x % 3 for x in range(10)}))  # set order is arbitrary, sort to compare
+print({x % 3 for x in range(10)})  # a set keeps insertion order
 ```
 
 ```output
@@ -460,7 +460,7 @@ print(sorted({x % 3 for x in range(10)}))  # set order is arbitrary, sort to com
 [(0, 0), (0, 1), (1, 0), (1, 1)]
 [[], [0], [0, 1]]
 {0: 0, 1: 1, 2: 4, 3: 9}
-[0, 1, 2]
+{0, 1, 2}
 ```
 
 [Functions](/docs/edge-python/language/functions#generator-expressions) covers generator expressions.

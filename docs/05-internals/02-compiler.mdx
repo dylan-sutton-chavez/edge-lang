@@ -16,7 +16,7 @@ This page covers token-level and bytecode-level mechanics. The surface forms of 
 
 ## Tokens
 
-The lexer produces `Token { kind, line, start, end }` values. Tokens carry byte offsets, never copies of the text.
+The lexer produces `Token` values of a kind, a line and two byte offsets, never copies of the text, plus two flags the parser reads, as [Offset tokens](#offset-tokens) shows.
 
 | Category | Kinds |
 |---|---|
@@ -59,14 +59,14 @@ None
 
 ### Numbers and strings
 
-`Int` and `Float` are the only numeric token kinds. There is no `Complex` token, and `1j` lexes as `Int(1)` followed by `Name("j")`.
+`Int` and `Float` are the only numeric token kinds. There is no `Complex` token, and a `j` suffix as in `1j` raises `complex numbers are not supported`.
 
-- A misplaced or doubled `_` raises `invalid '_' in numeric literal` or `consecutive '_' in numeric literal`.
+- A misplaced or doubled `_` raises `invalid '_' in numeric literal` or `consecutive '_' in numeric literal`. One `_` may follow a radix prefix, as in `0x_FF`.
 - An empty radix body such as `0x` raises `missing digits in numeric literal`.
 - A trailing dot such as `5.` is valid.
 - An empty exponent such as `1e` is left to the float parser. That avoids false positives inside format specs.
 
-The identifier scanner recognises a string prefix before the opening quote. It checks the prefix with `is_string_prefix`, `is_fstring_prefix` and `is_bytes_prefix`. A `b` prefix yields a separate `Bytes` token.
+The identifier scanner recognises a string prefix right before the opening quote. `string_prefix` maps it to the literal it opens, an f-string, a string or bytes, and a `b` prefix yields a separate `Bytes` token.
 
 Backslash escapes are consumed at lex time and decoded by the parser. `\N{NAME}` is not implemented, because the Unicode name database would add about 200 KB to the WASM artifact.
 
@@ -142,7 +142,7 @@ At the end of the source the lexer pops every open level as a `Dedent`, then emi
 
 ## Offset tokens
 
-A `Token` carries a kind tag, a line and two byte offsets.
+A `Token` carries a kind tag, a line, two byte offsets and two flags the pass over the token buffer sets.
 
 ```rust
 pub struct Token {
@@ -150,6 +150,8 @@ pub struct Token {
     pub line: usize,
     pub start: usize,
     pub end: usize,
+    pub comp: bool,  // starts the element of a comprehension
+    pub assigns: u8, // on the first token of a statement, the `=` that end its targets
 }
 ```
 
@@ -170,7 +172,7 @@ pub struct Instruction {
 }
 ```
 
-About 35 specialised `Call*` opcodes, such as `CallLen` and `CallPrint`, cover hot builtins, unless the calling body or an enclosing function binds the name, where the call loads the binding. The operand meaning depends on the opcode.
+Thirty-three specialised `Call*` opcodes, such as `CallLen` and `CallPrint`, cover hot builtins, unless the calling body or an enclosing function binds the name, where the call loads the binding. The operand meaning depends on the opcode.
 
 | OpCode | Operand |
 |---|---|
@@ -461,7 +463,7 @@ The caps and their messages are listed in [Source and token limits](/docs/edge-p
 ## References
 
 1. Aho, Sethi & Ullman. *Compilers. Principles, Techniques and Tools* (1986). LUT-driven scanners.
-2. Python language reference. *Lexical analysis* ([docs.python.org](https://docs.python.org/3/reference/lexical_analysis.html)).
+2. Python language reference. *Lexical analysis* ([docs.python.org](https://docs.python.org/3/reference/lexical_analysis.html)). Token grammar.
 3. Pratt. *Top Down Operator Precedence* (POPL 1973). Precedence climbing.
 4. Cytron et al. *Efficiently Computing Static Single Assignment Form* (TOPLAS 1991). SSA and phi nodes.
 5. Nystrom. *Crafting Interpreters* ([craftinginterpreters.com](https://craftinginterpreters.com/)). Single-pass codegen patterns.

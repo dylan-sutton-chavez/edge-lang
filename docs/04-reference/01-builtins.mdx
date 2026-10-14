@@ -77,7 +77,7 @@ print(abs(3.14))
 `round(x)` rounds to the nearest integer and returns an int.
 
 - Ties go to even.
-- `round(x, n)` rounds to `n` decimal digits and returns a float.
+- `round(x, n)` rounds to `n` decimal digits. A float stays a float and an int stays an int.
 - A negative `n` rounds to tens, hundreds, and so on.
 
 ```edge-python
@@ -135,11 +135,12 @@ print(sum(x * x for x in range(5)))
 
 ### pow
 
-`pow(base, exp)` matches the `**` operator. `pow(base, exp, mod)` does modular exponentiation on integers, and a negative `exp` raises the inverse of `base` modulo `mod`.
+`pow(base, exp)` matches the `**` operator. `pow(base, exp, mod)` does modular exponentiation on integers, and the result takes the sign of `mod`.
 
-- The exponent must be non-negative, else `ValueError`.
-- The modulus must stay below 2^63 in absolute value, else `ValueError`.
-- A zero modulus raises `ZeroDivisionError`.
+- A negative `exp` raises the inverse of `base` modulo `mod` to `-exp`. A base with no inverse raises `ValueError`.
+- The modulus must be at most 2^63 in absolute value, else `ValueError`.
+- A zero modulus raises `ValueError`.
+- A float among the three arguments raises `TypeError`.
 
 ```edge-python
 print(pow(2, 10))
@@ -312,8 +313,8 @@ print(frozenset(b"\x01\x02\x03"))
 ```output
 ['a', 'b', 'c']
 (0, 1, 2)
-{'b', 'a'}
-frozenset({3, 2, 1})
+{'a', 'b'}
+frozenset({1, 2, 3})
 ```
 
 ### dict
@@ -473,9 +474,10 @@ print(list(zip([1, 2], [3, 4], [5, 6])))
 
 `iter(x)` returns an iterator over any iterable.
 
-- Over a list it reads the list as it goes.
+- Over a list, a dict or a dict view it reads the container as it goes.
 - Over a `range` it computes each step.
-- Over anything else it takes the items up front.
+- An iterator or a generator returns itself, and an instance returns what its `__iter__` gives.
+- Over a tuple, string, set or bytes it takes the items up front.
 - `iter(callable, sentinel)` calls `callable()` until it returns `sentinel`.
 
 `next(it)` returns the next item in constant time and raises `StopIteration` when the iterator is exhausted. `next(it, default)` returns `default` instead of raising.
@@ -825,10 +827,10 @@ print(globals()["add"](3, 4))
 
 ### import_module
 
-`import_module(name)` returns a module that the program imports statically somewhere. It is a lookup, not a load.
+`import_module(name)` returns the module that a plain `import` bound under `name` in the current module. It is a lookup, not a load.
 
 - Every reachable module is still resolved and verified at compile time.
-- An unknown name raises `NameError`.
+- A name with no such binding raises `NameError`.
 - A name bound to a global that is not a module, such as a function, raises `TypeError`.
 
 ```edge-manifest

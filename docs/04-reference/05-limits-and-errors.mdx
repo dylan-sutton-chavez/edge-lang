@@ -118,6 +118,7 @@ They render with line, column, and a caret preview. A report shows the first 20 
 | `integer literal too large to represent (max ±2^127)` | Literal past the 128-bit cap |
 | `'break' outside loop` and `'continue' outside loop` | Misplaced control keyword |
 | `'return' outside function` and `'yield' outside function` | A `return` or `yield` in module code or a class body |
+| `no binding for nonlocal 'x' found` | A `nonlocal` name that no enclosing function binds |
 | `expected an indented block` | A body that starts on the line after its colon without an indent |
 | `a compound statement must start its own line` | An `if`, `for`, `def` or other compound statement after the colon of another on the same line |
 | `'yield' inside a comprehension` | A `yield` in the element or clauses of a comprehension or generator expression |

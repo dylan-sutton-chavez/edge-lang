@@ -16,7 +16,7 @@ The compiler is a single pass with no AST and no IR. Bytecode is the only interm
 
 The shipped `compiler.wasm` is about 250 KB served as brotli, 722 KB raw. It builds for `wasm32-unknown-unknown` with `opt-level = "z"`, `lto`, one codegen unit and `panic = "abort"`, then goes through `wasm-opt`.
 
-- The core is about 25,000 lines of Rust.
+- The core is about 27,000 lines of Rust.
 - Production dependencies are `hashbrown`, `itoa` and `libm`, plus the in-repo `wasm-abi` crate. SHA-256 is implemented in-tree.
 - The WASM build adds `dlmalloc` as the global allocator, behind a pool that reuses freed small blocks. Allocation cost stays flat as live blocks grow.
 
@@ -26,7 +26,7 @@ This page covers the parts that span the pipeline. Tokens, parsing and bytecode 
 
 - **Register dispatch.** Each chunk lowers to instructions that name frame slots directly. The hot loop is a flat `match` that Rust lowers to a jump table. Opcodes without a register form run as stack opcodes.
 - **One register stack.** Every running frame is a window of one stack, from its base to the next frame. A call opens its callee on top, and an error builds the traceback frames only as it unwinds.
-- **Inline tag checks and caches.** Register arithmetic and comparisons test the NaN-box tags of both operands inline and take the generic handler for any other type. Attribute loads, stores, method calls and operator dunders cache the field index, method or builtin they last resolved. A class change or a collection invalidates them, while a field load checks that the entry still holds its name and its hash. Caching is per instruction. Each monomorphic site stabilises on its own.
+- **Inline tag checks and caches.** Register arithmetic and comparisons test the NaN-box tags of both operands inline and take the generic handler for any other type. Attribute loads, stores, method calls and operator dunders cache the field index, method or builtin they last resolved, and a plain call caches the function it opened as a frame. A class change or a collection invalidates them, while a field load checks that the entry still holds its name and its hash. Caching is per instruction. Each monomorphic site stabilises on its own.
 - **Template memoisation.** A pure user function caches `args -> result`. The rules are in [Template memoisation](#template-memoisation).
 - **Static scopes.** The names of each function resolve once before anything runs. A name an enclosing function binds becomes a shared `HeapObj::Cell`. The cell is wrapped when that function is called and captured by the definition. Closures observe the `nonlocal` writes of each other. Every other free name reads the binding table of its module by a fixed index. The builtins answer while that binding is unbound.
 - **NaN-boxed values.** `Val` is a 64-bit union. It holds 48-bit signed ints inline, IEEE-754 floats, bools, None, an undef sentinel, and 28-bit heap indices. See [Memory model](#memory-model).
@@ -56,14 +56,14 @@ A pure wrapper over an impure callee, such as `apply(print, x)`, is never cached
 
 ## Dispatch shape
 
-The first call of a chunk runs the code the compiler wrote. Its second call, or a loop past 16 back-edges, lowers it to register code that every frame shares. A hot frame carries on from its loop head.
+The first call of a chunk runs the code the compiler wrote. Its second call, or a loop past 16 back-edges, lowers it to register code that every frame shares. A hot frame carries on from its loop head. A lowered instruction holds an opcode, a flag byte and three 16-bit operands, so one instruction reads two registers and writes a third.
 
 - `LoadAttr` and `Call` sites fuse into `CallMethod` and `CallMethodArgs` when every argument is a single-push load. That holds up to 8 arguments and never across a jump target.
 - Local loads become slot operands.
 - A compare that feeds a branch becomes one compare-and-jump.
 - Lowering runs once per chunk, and every frame of the chunk shares its caches.
 
-A plain call, and a constructor whose `__init__` takes plain parameters, opens its frame on the frame stack of the running loop without leaving it, and its return hands the loop back to the caller, so Python recursion never recurses in Rust. A call with up to two arguments in registers reads them there, and its result goes straight to the register that stores it. A memoized call that finds its kept result answers without a frame. A call that a builtin, a dunder or a resumed coroutine makes, or one into code not lowered yet, nests a loop of its own. A frame that suspends becomes a sync frame of its coroutine, which resumes it in place.
+A plain call, and a constructor whose `__init__` takes plain parameters, opens its frame on the frame stack of the running loop without leaving it, and its return hands the loop back to the caller, so Python recursion never recurses in Rust. Its site remembers the function, and the next call of that function there opens the frame without the checks. `CallR` reads a callee and up to two positionals from registers, `CallMethodR` a receiver and at most one, and the result goes straight to the register that stores it. A memoized call that finds its kept result answers without a frame. A call that a builtin, a dunder or a resumed coroutine makes, or one into code not lowered yet, nests a loop of its own. A frame that suspends becomes a sync frame of its coroutine, which resumes it in place.
 
 Register forms keep int and float math inline. Stack arith and compare opcodes try the same numeric path in `exec_arith_or_compare` before the generic handler.
 
@@ -113,9 +113,9 @@ An inline value has no address, so two equal numbers are one value. That is why 
 
 A NaN payload could read as a tagged value, so every NaN is stored as `0x7FF8...` with its sign kept, and two NaNs are one value. A container matches by identity before `==`, so a list holding a NaN contains any other and a set keeps one, as `SameValueZero` does in JavaScript. `n == n` stays `False`.
 
-The allocator counts what each run holds against its memory limit, with a tag on every block naming the run that paid for it, see [Sandboxed execution](/docs/edge-python/reference/limits-and-errors#sandboxed-execution).
+The allocator counts what each run holds against its memory limit, with a tag on every block naming the run that paid for it, and the runs of one instance share one budget, see [Sandboxed execution](/docs/edge-python/reference/limits-and-errors#sandboxed-execution).
 
-The main `HeapObj` variants are `Str`, `Bytes`, `LongInt`, `List`, `Dict`, `Set`, `FrozenSet` (these three keep insertion order), `Tuple`, `Func`, `Range`, `Slice`, `Type`, `ExcInstance`, `BoundMethod`, `NativeFn`, `Class`, `Instance`, `BoundUserMethod`, `Super`, `Property`, `StaticMethod`, `ClassMethod`, `Coroutine`, `Module`, `Iter`, `DictView`, `Cell`, and `Extern`. A dict or list made by a class deriving from it stays that variant, and its class and attributes sit in a side table of the heap keyed by its slot, so every builtin handles it as the container it is.
+The main `HeapObj` variants are `Str`, `Bytes`, `LongInt`, `List`, `Dict`, `Set`, `FrozenSet` (these three keep insertion order), `Tuple`, `Func`, `Range`, `Slice`, `Type`, `ExcInstance`, `BoundMethod`, `NativeFn`, `Class`, `Instance`, `BoundUserMethod`, `Super`, `Property`, `StaticMethod`, `ClassMethod`, `Coroutine`, `Module`, `Iter`, `DictView`, `Cell`, `Code`, and `Extern`. A dict or list made by a class deriving from it stays that variant, and its class and attributes sit in a side table of the heap keyed by its slot, so every builtin handles it as the container it is.
 
 ## Garbage collection
 
@@ -172,7 +172,7 @@ A snapshot holds only the dynamic state of a parked VM. The blob format is in [B
 
 Preemption supplies the parked state when a program never suspends on its own. `set_preempt_interval(n)` makes the dispatch loop sample a counter at loop back-edges. Every `n` hits it takes the ordinary yield path, the coroutine stays ready, and `top_loop` returns `Preempted`.
 
-Sampling is gated on a `frame_safe` flag per frame. Only the dispatch `Call` path and the scheduler step ever set it. Native re-entry cannot be preempted by default, and a new re-entrant path inherits that default instead of corrupting a blob.
+Sampling is gated on a `frame_safe` flag per frame. The scheduler step sets it, and a call or method call that an instruction makes passes it to its callee, a frame the loop opens included. A call from a builtin or a dunder passes nothing, so native re-entry cannot be preempted by default, and a new re-entrant path inherits that default instead of corrupting a blob.
 
 Restore runs in two passes, because hashing reads the heap.
 
@@ -196,12 +196,11 @@ A coverage-guided fuzzer drives the lexer, the parser, the VM and this snapshot 
 
 ## References
 
-1. Aho, Sethi & Ullman. *Compilers. Principles, Techniques and Tools* (1986). LUT-based lexer.
-2. Pratt. *Top Down Operator Precedence* (POPL 1973).
-3. Cytron et al. *Efficiently Computing Static Single Assignment Form* (TOPLAS 1991).
-4. Gudeman. *Representing Type Information in Dynamically Typed Languages* (1993). NaN-boxing.
-5. Deutsch & Schiffman. *Efficient Implementation of the Smalltalk-80 System* (POPL 1984). Inline caching.
-6. Shi et al. *Virtual Machine Showdown. Stack Versus Registers* (VEE 2005). Register lowering.
-7. Casey et al. *Towards Superinstructions for Java Interpreters* (SCOPES 2003). LoadAttr+Call fusion.
-8. Michie. *Memo Functions and Machine Learning* (Nature 1968). Pure-function memoization.
-9. McCarthy. *Recursive Functions of Symbolic Expressions* (CACM 1960). Mark-sweep GC.
+1. Gudeman. *Representing Type Information in Dynamically Typed Languages* (1993). NaN-boxing.
+2. Deutsch & Schiffman. *Efficient Implementation of the Smalltalk-80 System* (POPL 1984). Inline caching.
+3. Shi et al. *Virtual Machine Showdown. Stack Versus Registers* (VEE 2005). Register lowering.
+4. Ierusalimschy, de Figueiredo & Celes. *The Implementation of Lua 5.0* (Journal of Universal Computer Science 2005). Register frames on one stack.
+5. Casey et al. *Towards Superinstructions for Java Interpreters* (SCOPES 2003). LoadAttr+Call fusion.
+6. McKeeman. *Peephole Optimization* (CACM 1965). Constant folding.
+7. Michie. *Memo Functions and Machine Learning* (Nature 1968). Pure-function memoization.
+8. McCarthy. *Recursive Functions of Symbolic Expressions* (CACM 1960). Mark-sweep GC.

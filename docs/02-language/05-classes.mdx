@@ -496,7 +496,7 @@ True
 
 ### Hashing
 
-An instance hashes by identity, so it can be a dict key or a set item. A class that defines `__eq__` is unhashable, and `{x: 1}` raises `TypeError`, since two equal instances could hash apart.
+An instance hashes by identity, so it can be a dict key or a set item. A class that defines `__eq__` is unhashable, since two equal instances could hash apart, so `{x: 1}` raises `TypeError` with `cannot use 'K' as a dict key (unhashable type: 'K')`.
 
 ```edge-python
 class K:

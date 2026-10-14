@@ -457,7 +457,7 @@ print({1: "x", True: "y"})
 
 ### set
 
-`add`, `remove`, `discard`, `pop`, `clear`, `update`, `copy`, `union`, `intersection`, `difference`, `symmetric_difference`, `intersection_update`, `difference_update`, `symmetric_difference_update`, `issubset`, `issuperset`, `isdisjoint`. Named methods accept any iterable while the operators require sets on both sides. Iteration order is hash based, never rely on it and print through `sorted`.
+`add`, `remove`, `discard`, `pop`, `clear`, `update`, `copy`, `union`, `intersection`, `difference`, `symmetric_difference`, `intersection_update`, `difference_update`, `symmetric_difference_update`, `issubset`, `issuperset`, `isdisjoint`. Named methods accept any iterable while the operators require sets on both sides. A set iterates and prints in insertion order, which CPython does not, so print through `sorted` when the output must match it.
 
 ```python
 print(sorted({1, 2, 3} & {2, 3, 4}))

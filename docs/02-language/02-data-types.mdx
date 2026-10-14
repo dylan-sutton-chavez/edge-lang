@@ -40,7 +40,7 @@ Use [`isinstance`](/docs/edge-python/reference/builtins#isinstance) to test whet
 
 There is one `int` type with a signed 128-bit range, from `-(2**127)` to `2**127 - 1`. Going out of range raises `OverflowError`. [Limits and errors](/docs/edge-python/reference/limits-and-errors#integer-width) has the details.
 
-There is no complex type, so a negative number raised to a fractional power raises `ValueError` until complex numbers exist.
+There is no complex type, so a negative number raised to a fractional power raises `ValueError`.
 
 ```edge-python
 big = (2**126 - 1) * 2 + 1
@@ -263,7 +263,7 @@ key
 A dict is a mapping that keeps insertion order.
 
 - Keys must be hashable. Numbers, strings, bytes, bools, `None`, frozensets and tuples of hashables qualify.
-- An unhashable key raises `TypeError`.
+- An unhashable key raises `TypeError`, as in `cannot use 'list' as a dict key (unhashable type: 'list')`.
 - Numerically equal keys collapse. `1`, `1.0` and `True` are one key, and the latest assignment wins.
 - Iteration yields keys.
 
@@ -315,26 +315,26 @@ A set is a collection of unique, hashable values, kept in the order they were ad
 s = {1, 2, 2, 3}
 s.add(4)
 print(len(s))
-print(sorted(s))  # set order is arbitrary, sort to compare
+print(s)
 
 # Algebra
-print(sorted({1, 2, 3} | {3, 4}))
-print(sorted({1, 2, 3} & {2, 3, 4}))
+print({1, 2, 3} | {3, 4})
+print({1, 2, 3} & {2, 3, 4})
 print({1, 2} <= {1, 2, 3})
 
 # Augmented forms mutate in place
 t = s
 s |= {5}
-print(sorted(t))
+print(t)
 ```
 
 ```output
 4
-[1, 2, 3, 4]
-[1, 2, 3, 4]
-[2, 3]
+{1, 2, 3, 4}
+{1, 2, 3, 4}
+{2, 3}
 True
-[1, 2, 3, 4, 5]
+{1, 2, 3, 4, 5}
 ```
 
 [Syntax](/docs/edge-python/language/syntax#containers) shows how to write an empty set. [Methods](/docs/edge-python/reference/methods#set-methods) covers named operations such as `union` and `issubset`.
@@ -472,7 +472,7 @@ print(n in [float('nan')], len({n, float('nan')}), n == n)
 ```
 
 ```output
-{3, 2, 1}
+{3, 1, 2}
 True 1 False
 ```
 

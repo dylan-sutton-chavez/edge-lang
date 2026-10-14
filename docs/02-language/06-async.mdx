@@ -260,7 +260,7 @@ When every coroutine waits, the run suspends to the host. The host resumes it on
 
 - Each iteration resumes the source to its next yield.
 - Over lists, tuples and dicts it behaves like a regular `for`.
-- There is no `__aiter__` or `__anext__` dispatch on user classes. Write an `async def` generator instead.
+- A class body that binds `__aiter__` or `__anext__` fails at compile time. Write an `async def` generator instead.
 
 ```edge-python
 async def gen():
@@ -284,7 +284,7 @@ run(main())
 20
 ```
 
-`async with` reuses the sync dispatch through `__enter__` and `__exit__`. `__aenter__` and `__aexit__` are not consulted. For async setup and teardown, use `try` and `finally` with an explicit `await`.
+`async with` reuses the sync dispatch through `__enter__` and `__exit__`. A class body that binds `__aenter__` or `__aexit__` fails at compile time. For async setup and teardown, use `try` and `finally` with an explicit `await`.
 
 ## Limitations
 
