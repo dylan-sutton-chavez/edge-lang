@@ -289,7 +289,7 @@ mod test {
         assert_eq!(vm.output, vec!["[1, 2, {'k': 3}]"]);
     }
 
-    /* A blob is untrusted, any single corrupted byte must fail the restore or run cleanly, never trap. */
+    /* A blob is untrusted, any single corrupted byte must fail the restore, never run or trap. */
     #[test]
     fn flipped_bytes_never_panic() {
         let src = "r = range(3, 30, 4)\nx = [r, {'k': (1, 2.5)}, 'text']\nreceive()\nprint(x, len(r), r[1])";
@@ -302,11 +302,9 @@ mod test {
             bad[at] ^= 0xFF;
             let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 let mut vm = VM::with_limits(parse_static(src), Limits::sandbox());
-                if snapshot::restore(&mut vm, &bad).is_ok() && vm.push_event("go").is_ok() {
-                    let _ = vm.run();
-                }
+                snapshot::restore(&mut vm, &bad).is_err()
             }));
-            assert!(outcome.is_ok(), "flipping byte {at} of {} panicked", blob.len());
+            assert!(matches!(outcome, Ok(true)), "flipping byte {at} of {} restored or panicked", blob.len());
         }
     }
 

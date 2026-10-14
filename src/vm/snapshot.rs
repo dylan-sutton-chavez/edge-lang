@@ -11,7 +11,9 @@ use super::{Pending, VM};
 use super::types::*;
 
 const MAGIC: u32 = 0x4E53_5045;
-const FORMAT: u32 = 12;
+const FORMAT: u32 = 13;
+// A SHA-256 of everything before it closes each blob, so a damaged one never restores.
+const SEAL: usize = 32;
 
 pub type SnapErr = String;
 
@@ -611,6 +613,8 @@ pub fn save(vm: &VM, source: &str) -> Vec<u8> {
     for (&idx, (cls, attrs)) in classed { w.val(Val::heap(idx)); w.val(*cls); put_dict(&mut w, &attrs.borrow()); }
     put_vm_state(&mut w, vm);
     w.seq(&vm.call_stack, put_call_frame);
+    let seal = crate::util::sha256::sha256(&w.b);
+    w.b.extend_from_slice(&seal);
     w.b
 }
 
@@ -618,17 +622,21 @@ struct Header<'a> {
     source: &'a str,
     fingerprint: u64,
     body: usize,
+    // The blob without its seal, which every reader starts from.
+    data: &'a [u8],
 }
 
 fn header(blob: &[u8]) -> Result<Header<'_>, SnapErr> {
-    let mut r = R::new(blob);
+    let (data, seal) = blob.split_at(blob.len().saturating_sub(SEAL));
+    let mut r = R::new(data);
     if r.u32()? != MAGIC { return Err("not an edge-python snapshot".to_string()); }
     if r.u32()? != FORMAT { return Err("unsupported snapshot format".to_string()); }
+    if crate::util::sha256::sha256(data) != seal { return Err("snapshot is damaged".to_string()); }
     let fp = r.u64()?;
     let n = r.count()?;
     let start = r.p;
     let source = core::str::from_utf8(r.take(n)?).map_err(|_| "snapshot source not utf-8".to_string())?;
-    Ok(Header { source, fingerprint: fp, body: start + source.len() })
+    Ok(Header { source, fingerprint: fp, body: start + source.len(), data })
 }
 
 /* Host re-parses the embedded source before restoring. */
@@ -639,7 +647,7 @@ pub fn source_of(blob: &[u8]) -> Result<&str, SnapErr> {
 /* Sandbox profile recorded at save time, ops is the remaining budget. */
 pub fn limits_of(blob: &[u8]) -> Result<Limits, SnapErr> {
     let h = header(blob)?;
-    let mut r = R::new(blob);
+    let mut r = R::new(h.data);
     r.p = h.body;
     let ops = r.usz()?;
     let memory = r.usz()?;
@@ -683,7 +691,7 @@ pub fn restore(vm: &mut VM, blob: &[u8]) -> Result<(), SnapErr> {
     if h.fingerprint != fingerprint(vm.chunk) {
         return Err("snapshot does not match this program or compiler version".to_string());
     }
-    let mut r = R::new(blob);
+    let mut r = R::new(h.data);
     r.p = h.body;
 
     // A blob may spend what it saved but never past the boot limits, the memory cap included.

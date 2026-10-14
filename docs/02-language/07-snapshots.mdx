@@ -14,7 +14,7 @@ A blob holds everything the program needs to go on.
 - The scheduler and the events queued for it.
 - The source and a structural fingerprint of the compiled bytecode.
 
-`restoreState` parses the source again and checks both. It rejects a blob that belongs to another program, another compiler build or another snapshot format. One blob restores any number of times, each restore an independent copy.
+`restoreState` parses the source again and checks both. It rejects a blob that belongs to another program, another compiler build or another snapshot format, and a damaged one, since a SHA-256 seal closes every blob. The seal catches damage, not forgery, so a host that hands a blob to someone it does not trust signs it itself. One blob restores any number of times, each restore an independent copy.
 
 > [!WARNING]
 > A blob is pinned to one program and one compiler build by its fingerprint. An engine upgrade invalidates every saved blob.

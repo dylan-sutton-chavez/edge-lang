@@ -220,15 +220,16 @@ A blob is little-endian, self-contained and versioned.
 | Offset | Size | Field |
 |---|---|---|
 | 0 | 4 | Magic, `0x4E535045` |
-| 4 | 4 | Format version, currently `9` |
+| 4 | 4 | Format version, currently `13` |
 | 8 | 8 | Fingerprint, a structural hash of the bytecode |
 | 16 | 8 | Source length in bytes, `N` |
 | 24 | N | Source, UTF-8 |
 | 24+N | 8 | The op budget left at save time |
 | 32+N | 8 | The memory limit in bytes |
 | 40+N | rest | Serialized VM state, the heap, stacks, scheduler and pending calls |
+| end-32 | 32 | Seal, the SHA-256 of every byte before it |
 
-`restore_state` parses the embedded source again and recomputes the fingerprint. It rejects any blob whose fingerprint does not match the freshly compiled chunk, and any other format version.
+`restore_state` rejects any other format version, and a blob whose seal does not match, so a damaged blob never runs. It then parses the embedded source again and rejects a blob whose fingerprint does not match the freshly compiled chunk. The seal catches damage, not forgery, since anyone can compute it, so a host that hands a blob to someone it does not trust signs it with a key of its own.
 
 > [!WARNING]
 > The fingerprint pins each blob to one program and one compiler build. An engine upgrade invalidates every saved blob.

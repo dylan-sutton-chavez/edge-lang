@@ -595,7 +595,7 @@ edge run --restore-state state.bin         # resumes from the blob
 edge run app.py --preempt 500              # makes even while-True snapshottable
 ```
 
-A snapshot is taken when the script parks on a wait the engine cannot serve, for example `receive()` with no events left. Without `--save-state` such a park is an error. The blob embeds a bytecode fingerprint and only restores into the same program, and a damaged or forged blob fails to restore instead of running. A restored run keeps the op budget it saved, capped by the limits it boots with. Feed a resumed run with `--events file`, one `receive()` line per call.
+A snapshot is taken when the script parks on a wait the engine cannot serve, for example `receive()` with no events left. Without `--save-state` such a park is an error. The blob embeds a bytecode fingerprint and only restores into the same program, and a SHA-256 seal makes a damaged blob fail to restore instead of running. The seal stops damage, not forgery, so a blob that passes through untrusted hands needs a signature of the host. A restored run keeps the op budget it saved, capped by the limits it boots with. Feed a resumed run with `--events file`, one `receive()` line per call.
 
 ## Std packages
 
