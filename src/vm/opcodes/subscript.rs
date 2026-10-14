@@ -407,7 +407,7 @@ impl<'a> VM<'a> {
         };
         let span = if st > 0 { (e - s + st - 1) / st } else { (s - e - st - 1) / -st };
         if items.len() as i64 != span.max(0) {
-            return Err(cold_value("attempt to assign sequence of one size to extended slice of another"));
+            return Err(VmErr::Raised(crate::s!("ValueError: attempt to assign sequence of size ", int items.len() as i64, " to extended slice of size ", int span.max(0))));
         }
         for (k, v) in items.into_iter().enumerate() { b[(s + k as i64 * st) as usize] = v; }
         Ok(())

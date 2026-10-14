@@ -32,6 +32,21 @@ struct Spec {
     eq: bool, // `=` written in the spec, unlike the one a leading `0` implies
 }
 
+/* `format(v, spec)` for `format`, f-strings and `str.format`, a code `v` has no meaning for named like Python. */
+pub fn format_typed(v: Val, spec: &str, type_name: &str, heap: &HeapPool) -> Result<String, VmErr> {
+    let ty = parse_spec(spec).map_err(fmt_err)?.ty;
+    let int_like = v.is_int() || v.is_bool() || matches!(heap.try_get(v), Some(HeapObj::LongInt(_)));
+    let fits = match ty {
+        0 => true,
+        b's' => matches!(heap.try_get(v), Some(HeapObj::Str(_))),
+        b'd' | b'b' | b'o' | b'x' | b'X' | b'c' => int_like,
+        b'n' | b'f' | b'F' | b'e' | b'E' | b'g' | b'G' | b'%' => int_like || v.is_float(),
+        _ => false,
+    };
+    if !fits { return Err(VmErr::Raised(alloc::format!("ValueError: Unknown format code '{}' for object of type '{}'", ty as char, type_name))); }
+    format_value(v, spec, heap).map_err(fmt_err)
+}
+
 fn parse_spec(spec: &str) -> Result<Spec, &'static str> {
     let bytes = spec.as_bytes();
     let mut s = Spec { fill: ' ', ..Spec::default() };

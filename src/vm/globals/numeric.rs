@@ -163,10 +163,10 @@ impl<'a> VM<'a> {
             let base = base_v.as_int();
             let s = match self.heap.try_get(o) {
                 Some(HeapObj::Str(s)) => s.clone(),
-                Some(HeapObj::Bytes(b)) => core::str::from_utf8(b).map_err(|_| cold_value("int() bytes not valid utf-8"))?.into(),
+                Some(HeapObj::Bytes(b)) => core::str::from_utf8(b).map_err(|_| self.invalid_int(cold_value("invalid literal"), o, base))?.into(),
                 _ => return Err(cold_type("int() can't convert non-string with explicit base")),
             };
-            let i = parse_int_radix(&s, base)?;
+            let i = parse_int_radix(&s, base).map_err(|e| self.invalid_int(e, o, base))?;
             let v = self.int_to_val(Some(i))?;
             self.push(v); return Ok(());
         }
@@ -184,10 +184,11 @@ impl<'a> VM<'a> {
             else if o.is_bool() { o.as_bool() as i128 }
             else if o.is_heap() && let HeapObj::Str(s) = self.heap.get(o) {
                 let s = s.clone();
-                parse_int_radix(&s, 10)?
+                parse_int_radix(&s, 10).map_err(|e| self.invalid_int(e, o, 10))?
             }
             else if o.is_heap() && let HeapObj::Bytes(b) = self.heap.get(o) {
-                parse_int_radix(core::str::from_utf8(b).map_err(|_| cold_value("int() bytes not valid utf-8"))?, 10)?
+                let text = core::str::from_utf8(b).map_err(|_| cold_value("invalid literal"));
+                text.and_then(|t| parse_int_radix(t, 10)).map_err(|e| self.invalid_int(e, o, 10))?
             }
             else if o.is_heap() && matches!(self.heap.get(o), HeapObj::Instance(..)) {
                 // Honor a user `__int__` method.
@@ -202,6 +203,14 @@ impl<'a> VM<'a> {
         self.push(v); Ok(())
     }
 
+    /* An invalid literal error that quotes `o` and names `base` like Python, any other error as it is. */
+    fn invalid_int(&self, e: VmErr, o: Val, base: i64) -> VmErr {
+        match e {
+            VmErr::Value(m) if m.contains("invalid literal") => VmErr::Raised(crate::s!("ValueError: invalid literal for int() with base ", int base, ": ", str &self.repr(o))),
+            e => e,
+        }
+    }
+
     /* Converts int or parseable string to floating point. */
     pub fn call_float(&mut self, argc: u16, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
         if argc == 0 { self.push(Val::float(0.0)); return Ok(()); } // `float()` is 0.0.
@@ -214,10 +223,10 @@ impl<'a> VM<'a> {
                 let t = t.as_ref();
                 // Accept `_` digit separators, strip then parse.
                 let cleaned = if t.contains('_') {
-                    if t.starts_with('_') || t.ends_with('_') || t.contains("__") { return Err(cold_value("float(): invalid literal")); }
+                    if t.starts_with('_') || t.ends_with('_') || t.contains("__") { return Err(self.no_float(o)); }
                     t.chars().filter(|&c| c != '_').collect::<alloc::string::String>()
                 } else { alloc::string::String::from(t) };
-                cleaned.parse().map_err(|_| cold_value("float(): invalid literal"))?
+                cleaned.parse().map_err(|_| self.no_float(o))?
             }
             else if o.is_heap() && matches!(self.heap.get(o), HeapObj::Instance(..)) {
                 // Honor a user `__float__` and fall back to `__index__` like CPython.
@@ -235,10 +244,14 @@ impl<'a> VM<'a> {
         self.push(Val::float(f)); Ok(())
     }
 
+    fn no_float(&self, o: Val) -> VmErr {
+        VmErr::Raised(crate::s!("ValueError: could not convert string to float: ", str &self.repr(o)))
+    }
+
     pub fn call_chr(&mut self) -> Result<(), VmErr> {
         let o = self.pop()?;
         let i = self.as_i128(o).ok_or_else(|| cold_type("chr() requires an integer"))?;
-        let c = u32::try_from(i).ok().and_then(char::from_u32).ok_or_else(|| cold_value("chr() arg out of range"))?;
+        let c = u32::try_from(i).ok().and_then(char::from_u32).ok_or_else(|| cold_value("chr() arg not in range(0x110000)"))?;
         let mut s = String::with_capacity(4);
         s.push(c);
         self.alloc_and_push_str(s)
@@ -443,8 +456,8 @@ impl<'a> VM<'a> {
             3 => {
                 // Modular exponentiation (a ** b) % c on i128.
                 let (Some(base), Some(modulus)) = (self.as_i128(args[0]), self.as_i128(args[2]))
-                else { return Err(cold_type("pow() with 3 args requires integers")); };
-                let exp = self.as_i128(args[1]).ok_or_else(|| cold_type("pow() with 3 args requires integer exponent"))?;
+                else { return Err(cold_type("pow() 3rd argument not allowed unless all arguments are integers")); };
+                let exp = self.as_i128(args[1]).ok_or_else(|| cold_type("pow() 3rd argument not allowed unless all arguments are integers"))?;
                 if modulus == 0 { return Err(cold_value("pow() 3rd argument cannot be 0")); }
 
                 let m = modulus.unsigned_abs();

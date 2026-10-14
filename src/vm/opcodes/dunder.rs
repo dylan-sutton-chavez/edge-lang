@@ -468,7 +468,7 @@ impl<'a> VM<'a> {
         // Only numbers and strings read a spec, `f"{x!s:>9}"` pads anything else.
         let own = v.is_int() || v.is_float() || v.is_bool() || matches!(self.heap.try_get(v), Some(HeapObj::Str(_) | HeapObj::LongInt(_)));
         if !own { return Err(VmErr::TypeMsg(crate::s!("unsupported format string passed to ", str &self.type_repr_name(v), ".__format__"))); }
-        crate::vm::format_spec::format_value(v, spec, &self.heap).map_err(crate::vm::format_spec::fmt_err)
+        crate::vm::format_spec::format_typed(v, spec, self.type_name(v), &self.heap)
     }
 
     /* Coerce a `__len__` / `__length_hint__` return value to bool semantics and reject negatives. */

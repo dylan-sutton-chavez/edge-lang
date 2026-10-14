@@ -225,7 +225,7 @@ list of 3
 
 ### Missing pieces by type
 
-- `tuple` and `frozenset` have no methods at all. `(1, 2).count(1)` raises `AttributeError`, use operators or convert to list or set first.
+- `tuple` and `frozenset` have no methods at all. `(1, 2).count(1)` raises `AttributeError`, use operators or convert to list or set first. A `range` has only `index` and `count`, and the dunders of the built-in types are no methods, so `'ab'.__len__()` raises `AttributeError` while `dict` and `list` take `__init__`, `__getitem__`, `__setitem__` and `__len__`.
 - `str` lacks `translate`, `maketrans`, `format_map`, `isascii`, `isidentifier`, `isnumeric`, `isdecimal` and `isprintable`. `str.format` accepts positional fields only, no `{name}` keyword fields.
 - `bytes.split` requires an explicit separator, `bytes.replace` has no count, and codecs are limited to `utf-8` and `ascii` with `strict`, `ignore` and `replace` error handling.
 - `zip` has no `strict` flag. `round` uses ties-to-even and always returns int for one argument, float for two.

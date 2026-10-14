@@ -380,6 +380,7 @@ print(len(range(100)))
 - A zero step raises `ValueError`.
 - Non-integer arguments raise `TypeError`.
 - Two ranges compare equal when they produce the same sequence of values.
+- `index(x)` and `count(x)` answer by arithmetic, without walking the range.
 
 ```edge-python
 print(list(range(5)))

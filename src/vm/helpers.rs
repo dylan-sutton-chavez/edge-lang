@@ -257,14 +257,21 @@ impl<'a> VM<'a> {
     /* `a, b = it`, or `a, *b, c = it` with `after` targets past the star. */
     pub(crate) fn unpack_iterable(&mut self, n: usize, after: Option<usize>, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
         let obj = self.pop()?;
-        let items = match self.heap.try_get(obj) {
-            Some(HeapObj::Tuple(t)) => t.clone(),
-            Some(HeapObj::List(l)) => l.borrow().clone(),
-            _ => self.iterable_items(obj, chunk)?,
+        let (items, sized) = match self.heap.try_get(obj) {
+            Some(HeapObj::Tuple(t)) => (t.clone(), true),
+            Some(HeapObj::List(l)) => (l.borrow().clone(), true),
+            _ => (self.iterable_items(obj, chunk)?, false),
         };
         let tail = after.unwrap_or(0);
-        if items.len() < n + tail { return Err(cold_value("not enough values to unpack")); }
-        if after.is_none() && items.len() > n { return Err(cold_value("too many values to unpack")); }
+        if items.len() < n + tail {
+            let least = if after.is_some() { "at least " } else { "" };
+            return Err(VmErr::Raised(s!("ValueError: not enough values to unpack (expected ", str least, int (n + tail) as i64, ", got ", int items.len() as i64, ")")));
+        }
+        // Only a list or tuple tells how many it had, like Python.
+        if after.is_none() && items.len() > n {
+            let got = if sized { s!(", got ", int items.len() as i64) } else { String::new() };
+            return Err(VmErr::Raised(s!("ValueError: too many values to unpack (expected ", int n as i64, str &got, ")")));
+        }
         let mid = items.len() - tail;
         for &v in items[mid..].iter().rev() { self.push(v); }
         if after.is_some() {

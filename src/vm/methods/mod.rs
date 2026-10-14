@@ -201,6 +201,10 @@ const METHODS: &[MethodDesc] = methods! {
     "slice" {
         "indices" => slice::indices, ro, 1..1;
     }
+    "range" {
+        "index" => object::range_index, ro, 1..1;
+        "count" => object::range_count, ro, 1..1;
+    }
     "BaseException" {
         "__init__" => object::exc_init, rw, 0..255;
         "__str__" => object::exc_str, ro, 0..0;
