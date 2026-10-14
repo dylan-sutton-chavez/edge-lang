@@ -259,7 +259,7 @@ pub unsafe extern "C" fn set_limits(memory: u64, ops: u64) {
     let sandbox = Limits::sandbox();
     let pick = |v: u64, fallback: usize| if v == 0 { fallback } else { usize::try_from(v).unwrap_or(usize::MAX) };
     // Half the address space at most, since garbage may take as much again before a collection.
-    let limits = Limits { memory: pick(memory, sandbox.memory).min(usize::MAX / 2), ops: pick(ops, sandbox.ops) };
+    let limits = Limits { memory: pick(memory, sandbox.memory).min(usize::MAX / 2), ops: if ops == 0 { sandbox.ops } else { ops } };
     with_slot(|s| s.limits = Some(limits));
 }
 

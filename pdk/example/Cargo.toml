@@ -12,4 +12,3 @@ doctest = false
 
 [dependencies]
 wasm-pdk = { path = ".." }
-lol_alloc = { workspace = true }

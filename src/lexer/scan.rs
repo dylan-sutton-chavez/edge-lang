@@ -248,6 +248,8 @@ impl<'a> Scanner<'a> {
                     self.report(pos, pos + 3, NAMED_ESCAPE);
                     pos = self.src[pos..].iter().position(|&c| c == b'}').map_or(self.src.len(), |n| pos + n + 1);
                 }
+                // A raw backslash stays text and shields only a quote or a backslash, so a brace after it still counts.
+                b'\\' if !decodes && !matches!(self.src.get(pos + 1), Some(&c) if c == quote || c == b'\\') => pos += 1,
                 b'\\' => pos = (pos + 2).min(self.src.len()),
                 b'{' if self.src.get(pos + 1) == Some(&b'{') => {
                     pos += 2;

@@ -18,7 +18,7 @@ pub use scheduler::*;
 
 /* Per-execution caps for the op budget and the bytes a program holds, every execution is metered. */
 #[derive(Clone, Copy)]
-pub struct Limits { pub ops: usize, pub memory: usize }
+pub struct Limits { pub ops: u64, pub memory: usize }
 
 impl Limits {
     pub fn sandbox() -> Self { Self { ops: 100_000_000, memory: 256 << 20 } }

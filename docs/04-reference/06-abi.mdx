@@ -262,7 +262,7 @@ fn sum_ints(items: Handle) -> Result<i64> {
 
 Two macros set up the module.
 
-- `module!()` expands to `#[global_allocator]` and `#[panic_handler]`.
+- `module!()` expands to `#[global_allocator]` and `#[panic_handler]`, and its allocator is a free list that reuses what the plugin frees and grows memory only when none fits.
 - `module_fixed_pool!()`, or `module_fixed_pool!(bytes)`, does the same on a fixed static pool, 4 MiB by default, that never calls `memory.grow`. The bundled `std` packages use it.
 
 The `Cargo.toml` of the module follows.
@@ -423,7 +423,8 @@ extern crate alloc;
 use alloc::{boxed::Box, vec};
 
 #[global_allocator]
-static A: lol_alloc::LeakingPageAllocator = lol_alloc::LeakingPageAllocator;
+static A: lol_alloc::AssumeSingleThreaded<lol_alloc::FreeListAllocator> =
+  unsafe { lol_alloc::AssumeSingleThreaded::new(lol_alloc::FreeListAllocator::new()) };
 #[panic_handler]
 fn panic(_: &core::panic::PanicInfo) -> ! { core::arch::wasm32::unreachable() }
 

@@ -64,7 +64,7 @@ const EVAL_TIMEOUT_MAX: u64 = 300;
 #[derive(Deserialize, Default)]
 struct LimitSpec {
     memory: Option<usize>,
-    ops: Option<usize>,
+    ops: Option<u64>,
     preempt: Option<usize>,
     // Seconds an eval run may last, its waits included.
     timeout: Option<u64>,

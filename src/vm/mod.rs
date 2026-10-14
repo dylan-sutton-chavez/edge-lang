@@ -114,7 +114,7 @@ pub struct VM<'a> {
     /* The builtins under the globals, keyed by their static names and never rebound. */
     pub(crate) builtins: HashMap<&'static str, Val>,
     pub(crate) templates: Templates,
-    pub(crate) budget: usize,
+    pub(crate) budget: u64,
     pub(crate) depth: usize,
     pub(crate) max_calls: usize,
     pub(crate) observed_impure: Vec<bool>,
@@ -149,8 +149,8 @@ pub struct VM<'a> {
     pub(crate) reg_error: Option<VmErr>,
     /* What calling each class needs, valid while the class epoch holds. */
     pub(crate) ctors: crate::util::hash::FxHashMap<u64, Ctor>,
-    /* True once a builtin name is rebound, fused calls then check module bindings first. */
-    pub(crate) builtins_rebound: bool,
+    /* One bit per builtin whose name was rebound, its fused calls then check module bindings first. */
+    pub(crate) builtins_rebound: u128,
     pub(crate) is_async: Vec<bool>,
     pub(crate) default_slots: Vec<Vec<(usize, Val)>>,
     /* Each chunk's code and caches, indexed through `pool_ids` or `fn_pool`. */
@@ -311,7 +311,7 @@ impl<'a> VM<'a> {
             tier_up: false,
             reg_error: None,
             ctors: Default::default(),
-            builtins_rebound: false,
+            builtins_rebound: 0,
             is_async: Vec::new(),
             default_slots: Vec::new(),
             pools: Vec::new(),
@@ -403,13 +403,19 @@ impl<'a> VM<'a> {
 
     /* A builtin name the program binds or deletes voids every result memoized under the old binding. */
     pub(crate) fn note_builtin_binding(&mut self, bare: &str) {
-        if NativeFnId::from_name(bare).is_some() { self.rebind_builtin(); }
+        if let Some(id) = NativeFnId::from_name(bare) { self.rebind_builtin(id); }
     }
 
-    /* A builtin's name holds a program value, fused calls check bindings, memos clear. */
-    pub(crate) fn rebind_builtin(&mut self) {
-        self.builtins_rebound = true;
+    /* The name of `id` holds a program value, its fused calls check bindings, memos clear. */
+    pub(crate) fn rebind_builtin(&mut self, id: NativeFnId) {
+        self.builtins_rebound |= 1 << id as u32;
         self.templates.clear();
+    }
+
+    /* Whether the builtin fused into `op` was rebound, so the call must run the binding. */
+    #[inline]
+    pub(crate) fn fused_rebound(&self, op: crate::parser::OpCode) -> bool {
+        self.builtins_rebound != 0 && crate::parser::fused_native(op).is_some_and(|id| self.builtins_rebound & (1 << id as u32) != 0)
     }
 
     /* Gives `bare` a heap slot when it names a builtin, so a program pays only for the builtins it uses. */
@@ -450,7 +456,7 @@ impl<'a> VM<'a> {
     pub fn memory_peak(&self) -> usize { self.heap.peak() }
 
     /* Fresh op budget for the next REPL input. */
-    pub fn reset_budget(&mut self, ops: usize) {
+    pub fn reset_budget(&mut self, ops: u64) {
         self.budget = ops;
     }
 

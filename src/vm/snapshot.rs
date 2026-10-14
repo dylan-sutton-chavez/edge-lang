@@ -593,7 +593,7 @@ pub fn save(vm: &VM, source: &str) -> Vec<u8> {
     w.u32(FORMAT);
     w.u64(fingerprint(vm.chunk));
     w.str(source);
-    w.usz(vm.budget);
+    w.u64(vm.budget);
     w.usz(vm.heap.limit());
     w.boolean(vm.strict_input);
     for (slot, obj) in vm.heap.snapshot_objs().enumerate() {
@@ -649,7 +649,7 @@ pub fn limits_of(blob: &[u8]) -> Result<Limits, SnapErr> {
     let h = header(blob)?;
     let mut r = R::new(h.data);
     r.p = h.body;
-    let ops = r.usz()?;
+    let ops = r.u64()?;
     let memory = r.usz()?;
     Ok(Limits { ops, memory })
 }
@@ -695,7 +695,7 @@ pub fn restore(vm: &mut VM, blob: &[u8]) -> Result<(), SnapErr> {
     r.p = h.body;
 
     // A blob may spend what it saved but never past the boot limits, the memory cap included.
-    vm.budget = r.usz()?.min(vm.budget);
+    vm.budget = r.u64()?.min(vm.budget);
     let _memory = r.usz()?;
     vm.strict_input = r.boolean()?;
 
@@ -760,7 +760,7 @@ pub fn restore(vm: &mut VM, blob: &[u8]) -> Result<(), SnapErr> {
         *list = cell;
     }
     // Derived flag, not serialized, recompute from the restored module bindings.
-    vm.builtins_rebound = vm.scopes.iter().any(|g| g.iter().any(|(k, _)| NativeFnId::from_name(k).is_some()));
+    vm.builtins_rebound = vm.scopes.iter().flat_map(|g| g.iter()).filter_map(|(k, _)| NativeFnId::from_name(k)).fold(0, |bits, id| bits | 1 << id as u32);
     rehash(vm, fills)?;
     rebuild_mro(vm)
 }

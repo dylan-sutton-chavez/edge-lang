@@ -295,16 +295,17 @@ impl SSAChunk {
             }
         }
 
-        // Coalesce by walking each version chain to its root.
+        // Coalesce each version chain to its root, an earlier slot already holds its own.
         let mut canonical: Vec<u16> = (0..n as u16).collect();
-        for (i, item) in canonical.iter_mut().enumerate().take(n) {
+        for i in 0..n {
             let mut root = i;
-            while let Some(Some(p)) = ps.get(root) {
-                let p = *p as usize;
+            while let Some(&Some(p)) = ps.get(root) {
+                let p = p as usize;
                 if p == root { break; }
+                if p < i { root = canonical[p] as usize; break; }
                 root = p;
             }
-            *item = root as u16;
+            canonical[i] = root as u16;
         }
 
         for ins in &mut self.instructions {

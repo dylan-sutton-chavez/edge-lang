@@ -14,8 +14,8 @@ pub(crate) struct Globals {
     index: hashbrown::HashTable<u32>,
     names: Vec<String>,
     vals: Vec<Val>,
-    /* Whether each name is a builtin's, rebinding it redirects fused calls. */
-    builtin: Vec<bool>,
+    /* The builtin each name belongs to, rebinding it redirects the fused calls of that builtin. */
+    builtin: Vec<Option<crate::value::NativeFnId>>,
 }
 
 impl Globals {
@@ -29,7 +29,7 @@ impl Globals {
         let i = self.vals.len() as u32;
         self.names.push(name.into());
         self.vals.push(Val::undef());
-        self.builtin.push(crate::value::NativeFnId::from_name(name).is_some());
+        self.builtin.push(crate::value::NativeFnId::from_name(name));
         let names = &self.names;
         self.index.insert_unique(hash_key(name), i, |&j| hash_key(&names[j as usize]));
         i
@@ -53,7 +53,7 @@ impl Globals {
     pub fn name(&self, i: u32) -> &str { self.names.get(i as usize).map_or("", |n| n.as_str()) }
 
     #[inline]
-    pub fn names_builtin(&self, i: u32) -> bool { self.builtin.get(i as usize).is_some_and(|&b| b) }
+    pub fn names_builtin(&self, i: u32) -> Option<crate::value::NativeFnId> { self.builtin.get(i as usize).copied().flatten() }
 
     /* Every name with its value, unbound ones undef, in first-named order. */
     pub fn entries(&self) -> impl Iterator<Item = (&str, Val)> + '_ { self.names.iter().map(String::as_str).zip(self.vals.iter().copied()) }

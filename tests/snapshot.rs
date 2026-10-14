@@ -70,7 +70,7 @@ mod test {
     }
 
     fn limits_for(case: &Case) -> Limits {
-        if case.unmetered { Limits { ops: usize::MAX, memory: 4 << 30 } } else if case.corpus { crate::common::corpus_limits() } else { Limits::sandbox() }
+        if case.unmetered { Limits { ops: u64::MAX, memory: 4 << 30 } } else if case.corpus { crate::common::corpus_limits() } else { Limits::sandbox() }
     }
 
     fn corpus() -> Vec<Case> {
@@ -324,6 +324,9 @@ mod test {
         assert_eq!((l.ops, l.memory), (5, 9));
         let l = snapshot::limits_of(&saved(Limits { ops: 0, memory: 0 })).unwrap();
         assert_eq!((l.ops, l.memory), (0, 0));
+        // A budget past four billion stays whole on a 32-bit engine too.
+        let l = snapshot::limits_of(&saved(Limits { ops: 6_000_000_000, memory: 9 })).unwrap();
+        assert_eq!(l.ops, 6_000_000_000);
 
         // A partially spent budget records the remainder, never the old ops 1 placeholder.
         let src = "x = 1 + 2\n";

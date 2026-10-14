@@ -94,7 +94,7 @@ impl<'a> VM<'a> {
         }
         // A module-scope rebind of a builtin name must win over call sites fused before it existed. Plain fused operands are a bare count, so counts past one byte fall back to the native (they cannot round-trip through `exec_call`'s packing).
         let packed_operand = matches!(op, OpCode::CallPrint | OpCode::CallDict | OpCode::CallMin | OpCode::CallMax | OpCode::CallEnumerate);
-        if self.builtins_rebound
+        if self.fused_rebound(op)
             && (packed_operand || operand <= 0xFF)
             && let Some(name) = fused_native(op).map(|id| id.name())
             && let Some(bound) = self.scopes[self.chunk_module_id(chunk)].get(name)

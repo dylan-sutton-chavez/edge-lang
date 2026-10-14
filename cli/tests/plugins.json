@@ -112,5 +112,14 @@
     "copy": { "slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm" },
     "run": ["run", "main.py"],
     "stdout": ["'main' imports time, which edge.json does not grant it"]
+  },
+  {
+    "given": {
+      "edge.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n",
+      "main.py": "from slugify_mod import Slugger\ns = Slugger()\ns.add('ab')\nn = 0\nfor i in range(450):\n    n += len(s.repeat(5000000))\nprint(n)\n"
+    },
+    "copy": { "slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm" },
+    "run": ["run", "main.py"],
+    "stdout": ["4500000000"]
   }
 ]

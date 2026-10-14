@@ -31,9 +31,11 @@ pub use lol_alloc as __lol_alloc;
 #[macro_export]
 macro_rules! module {
     () => {
+        // A plugin runs on one thread, so the free list needs no lock and reuses what it frees.
         #[cfg(target_arch = "wasm32")]
         #[global_allocator]
-        static __WASM_PDK_ALLOC: $crate::__lol_alloc::LeakingPageAllocator = $crate::__lol_alloc::LeakingPageAllocator;
+        static __WASM_PDK_ALLOC: $crate::__lol_alloc::AssumeSingleThreaded<$crate::__lol_alloc::FreeListAllocator> =
+            unsafe { $crate::__lol_alloc::AssumeSingleThreaded::new($crate::__lol_alloc::FreeListAllocator::new()) };
 
         #[cfg(target_arch = "wasm32")]
         #[panic_handler]

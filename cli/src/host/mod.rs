@@ -211,7 +211,7 @@ pub struct RunLimits {
     /// Operations a run may spend [default: 100000000]
     #[arg(long)]
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ops: Option<usize>,
+    pub ops: Option<u64>,
 }
 
 static RUN_LIMITS: OnceLock<RunLimits> = OnceLock::new();

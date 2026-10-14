@@ -487,7 +487,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
                 // High bits carry preceding kw-pair count so the VM keeps positionals contiguous.
                 s.chunk.emit(OpCode::UnpackArgs, (kw << 2) | kind);
                 pos = pos.saturating_add(1);
-            } else if matches!(s.peek(), Some(TokenType::Name)) {
+            } else if matches!(s.peek(), Some(TokenType::Name | TokenType::Underscore)) {
                 let at = s.tokens.pos;
                 let t = s.advance();
                 if matches!(s.peek(), Some(TokenType::Equal)) {
@@ -522,7 +522,8 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
 
     /* Consume the next Name, or emit a non-syncing diagnostic and return a synthetic name so parsing continues. */
     fn ident_or_missing(&mut self, msg: &str) -> String {
-        if matches!(self.peek(), Some(TokenType::Name)) {
+        // `_` lexes as the wildcard of `match`, yet names a function or class like any identifier.
+        if matches!(self.peek(), Some(TokenType::Name | TokenType::Underscore)) {
             self.advance_text()
         } else {
             self.diag_at_peek(msg);

@@ -5,14 +5,8 @@ extern crate alloc;
 use alloc::{string::{String, ToString}, vec::Vec};
 use wasm_pdk::*;
 
-// Host builds link std for the workspace checks, wasm stays no_std with its own allocator.
-#[cfg(target_arch = "wasm32")]
-#[global_allocator]
-static A: lol_alloc::LeakingPageAllocator = lol_alloc::LeakingPageAllocator;
-
-#[cfg(target_arch = "wasm32")]
-#[panic_handler]
-fn panic(_: &core::panic::PanicInfo) -> ! { core::arch::wasm32::unreachable() }
+// Host builds link std for the workspace checks, wasm stays no_std with the allocator of the kit.
+module!();
 
 /// Module constant materialised once at import. Showcases #[plugin_const]. Build the module with `cargo build --release --target wasm32-unknown-unknown -p slugify-mod`.
 #[plugin_const]

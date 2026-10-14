@@ -583,7 +583,7 @@ impl<'a> VM<'a> {
                 OpCode::Jump if (ins.a as usize) <= n
                     && self.budget >= 2
                     && ((ins.a as usize) > i || (self.preempt_left == 0 && !self.heap.needs_gc() && !code.unchanged())) => {
-                    self.budget -= 1 + ((ins.a as usize) <= i) as usize;
+                    self.budget -= 1 + ((ins.a as usize) <= i) as u64;
                     i = ins.a as usize;
                 }
                 OpCode::MinusR | OpCode::NotR => {
@@ -737,7 +737,7 @@ impl<'a> VM<'a> {
             OpCode::FormatValue | OpCode::CallStr | OpCode::CallInt | OpCode::CallFloat | OpCode::CallBool
             | OpCode::CallAbs | OpCode::CallChr | OpCode::CallOrd | OpCode::CallLen => {
                 // A fused builtin takes one bare argument, a rebound name runs the binding.
-                let unary = if ins.op == OpCode::FormatValue { n == 0 } else { n == 1 && !self.builtins_rebound };
+                let unary = if ins.op == OpCode::FormatValue { n == 0 } else { n == 1 && !self.fused_rebound(ins.op) };
                 let Some(&x) = self.stack.last().filter(|_| unary) else { return false };
                 let Some(v) = self.unary_fast(ins.op, x) else { return false };
                 self.stack.pop();
@@ -827,7 +827,7 @@ impl<'a> VM<'a> {
                 self.regs[self.base + ins.a as usize] = Val::bool(hit == (ins.op == OpCode::InR));
             }
             OpCode::LenR => {
-                if self.builtins_rebound { return false; }
+                if self.builtins_rebound & (1 << NativeFnId::Len as u32) != 0 { return false; }
                 let Some(n) = self.plain_len(self.regs[self.base + ins.b as usize]) else { return false };
                 self.regs[self.base + ins.a as usize] = Val::int(n as i64);
             }
@@ -909,7 +909,7 @@ impl<'a> VM<'a> {
                 let v = self.reg(chunk, ins.b)?;
                 self.scopes[code.module].set_at(ins.a as u32, v);
                 if ins.x & STORE_VOIDS_CACHE != 0 { self.templates.clear(); }
-                if ins.x & STORE_NOTES_BUILTIN != 0 { self.rebind_builtin(); }
+                if ins.x & STORE_NOTES_BUILTIN != 0 && let Some(id) = self.scopes[code.module].names_builtin(ins.a as u32) { self.rebind_builtin(id); }
             }
             OpCode::LoadCellR => {
                 let v = self.deref(self.regs[self.base + ins.b as usize]);
@@ -984,7 +984,7 @@ impl<'a> VM<'a> {
                 Some(&Kind::Global(g)) => {
                     let v = self.pop()?;
                     self.scopes[code.module].set_at(g, v);
-                    if self.scopes[code.module].names_builtin(g) { self.rebind_builtin(); }
+                    if let Some(id) = self.scopes[code.module].names_builtin(g) { self.rebind_builtin(id); }
                 }
                 Some(Kind::Cell) => {
                     let v = self.pop()?;
@@ -1460,6 +1460,7 @@ impl<'a> VM<'a> {
     /* Charge `n` units at once for native builtins (sort, materialise) whose cost scales with input size. */
     #[inline]
     pub(crate) fn charge_steps(&mut self, n: usize) -> Result<(), VmErr> {
+        let n = n as u64;
         if self.budget < n { self.budget = 0; return Err(cold_budget()); }
         self.budget -= n;
         Ok(())
