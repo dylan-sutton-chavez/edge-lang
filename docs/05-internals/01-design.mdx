@@ -113,7 +113,7 @@ A NaN payload could read as a tagged value, so every NaN is stored as `0x7FF8...
 
 The allocator counts what each run holds against its memory limit, with a tag on every block naming the run that paid for it, see [Sandboxed execution](/docs/edge-python/reference/limits-and-errors#sandboxed-execution).
 
-The main `HeapObj` variants are `Str`, `Bytes`, `LongInt`, `List`, `Dict` (insertion-ordered), `Set`, `FrozenSet`, `Tuple`, `Func`, `Range`, `Slice`, `Type`, `ExcInstance`, `BoundMethod`, `NativeFn`, `Class`, `Instance`, `BoundUserMethod`, `Super`, `Property`, `StaticMethod`, `ClassMethod`, `Coroutine`, `Module`, `Iter`, `DictView`, `Cell`, and `Extern`.
+The main `HeapObj` variants are `Str`, `Bytes`, `LongInt`, `List`, `Dict` (insertion-ordered), `Set`, `FrozenSet`, `Tuple`, `Func`, `Range`, `Slice`, `Type`, `ExcInstance`, `BoundMethod`, `NativeFn`, `Class`, `Instance`, `BoundUserMethod`, `Super`, `Property`, `StaticMethod`, `ClassMethod`, `Coroutine`, `Module`, `Iter`, `DictView`, `Cell`, and `Extern`. A dict or list made by a class deriving from it stays that variant, and its class and attributes sit in a side table of the heap keyed by its slot, so every builtin handles it as the container it is.
 
 ## Garbage collection
 

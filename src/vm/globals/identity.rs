@@ -89,7 +89,7 @@ impl<'a> VM<'a> {
         // A user instance is named "object" so a class named like a builtin never matches.
         let (obj_ty, obj_class) = match self.heap.try_get(obj) {
             Some(&HeapObj::Instance(cls, _)) => ("object", Some(cls)),
-            _ => (self.type_name(obj), None),
+            _ => (self.type_name(obj), self.heap.classed(obj).map(|e| e.0)),
         };
         // An exception instance or a type object also matches through the exception tree by its own name.
         let exc_name = match self.heap.try_get(obj) { Some(HeapObj::Type(n) | HeapObj::ExcInstance(n, ..)) => Some(n.as_str()), _ => None };
@@ -126,8 +126,9 @@ impl<'a> VM<'a> {
             _ => return Err(VmErr::Type("issubclass() arg 1 must be a class")),
         };
         let result = self.check_classinfo(arg2, |t| match self.heap.try_get(t) {
-            // A user class reaches a builtin type only through an exception base.
-            Some(HeapObj::Type(name)) => Ok(sub_name.or_else(|| self.exc_base(sub)).is_some_and(|n| matches_exc_class(n, name) || (n == "bool" && name == "int"))),
+            // A user class reaches a builtin type only through an exception, dict or list base.
+            Some(HeapObj::Type(name)) => Ok(sub_name.or_else(|| self.exc_base(sub)).is_some_and(|n| matches_exc_class(n, name) || (n == "bool" && name == "int"))
+                || sub_name.is_none() && self.container_base(sub).is_some_and(|c| matches!(self.heap.get(c), HeapObj::Type(n) if n == name))),
             Some(HeapObj::Class(..)) => Ok(sub_name.is_none() && self.heap.is_subclass(sub, t)),
             _ => Err(VmErr::Type("issubclass() arg 2 must be a class or tuple of classes")),
         })?;

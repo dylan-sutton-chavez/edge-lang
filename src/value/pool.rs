@@ -12,7 +12,8 @@ pub struct Pooled<A> {
     lists: UnsafeCell<([*mut u8; CLASSES], [u16; CLASSES])>,
 }
 
-// Only compiler.wasm installs it, and that runs on one thread.
+// Only a wasm module without threads may share it, compiler.wasm installs it there.
+#[cfg(all(target_arch = "wasm32", not(target_feature = "atomics")))]
 unsafe impl<A: Sync> Sync for Pooled<A> {}
 
 impl<A> Pooled<A> {

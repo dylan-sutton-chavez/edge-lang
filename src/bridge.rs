@@ -87,7 +87,10 @@ impl Drop for VmGuard {
 pub(crate) fn with_vm<R>(f: impl FnOnce(&mut VM<'static>) -> R) -> Option<R> {
     // Drop the bridge borrow before `f`, VM dispatch re-enters `with_bridge`.
     let ptr = with_bridge(|b| b.current_vm)?;
-    Some(f(unsafe { &mut *ptr.as_ptr() }))
+    let vm = unsafe { &mut *ptr.as_ptr() };
+    // A value the host builds between runs counts as memory of the program.
+    let _paying = crate::value::meter::Paying::to(vm.heap.meter());
+    Some(f(vm))
 }
 
 /* Builds a `&[u8]` from an FFI `(ptr, len)`, empty on null or zero length, `from_raw_parts` would UB on either. */

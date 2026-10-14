@@ -11,7 +11,7 @@ use super::{Pending, VM};
 use super::types::*;
 
 const MAGIC: u32 = 0x4E53_5045;
-const FORMAT: u32 = 11;
+const FORMAT: u32 = 12;
 
 pub type SnapErr = String;
 
@@ -604,6 +604,11 @@ pub fn save(vm: &VM, source: &str) -> Vec<u8> {
             Some(o) => { w.u8(1); put_obj(&mut w, o); }
         }
     }
+    // The dicts and lists user classes made, in slot order so a blob stays the same.
+    let mut classed: Vec<_> = vm.heap.classed_slots().collect();
+    classed.sort_unstable_by_key(|(idx, _)| **idx);
+    w.usz(classed.len());
+    for (&idx, (cls, attrs)) in classed { w.val(Val::heap(idx)); w.val(*cls); put_dict(&mut w, &attrs.borrow()); }
     put_vm_state(&mut w, vm);
     w.seq(&vm.call_stack, put_call_frame);
     w.b
@@ -700,6 +705,14 @@ pub fn restore(vm: &mut VM, blob: &[u8]) -> Result<(), SnapErr> {
     r.live = Some(objs.iter().map(Option::is_some).collect());
     vm.heap.restore_objs(objs);
     check_objs(vm, &fills)?;
+    for _ in 0..r.count()? {
+        let (obj, cls, attrs) = (r.val()?, r.val()?, get_dict(&mut r)?);
+        let fits = matches!(vm.heap.try_get(obj), Some(HeapObj::Dict(_) | HeapObj::List(_))) && matches!(vm.heap.try_get(cls), Some(HeapObj::Class(..)));
+        if !fits || attrs.iter().any(|(k, v)| [k, v].iter().any(|x| x.is_heap() && vm.heap.try_get(*x).is_none())) {
+            return Err("snapshot classes a missing object".to_string());
+        }
+        vm.heap.set_class(obj, cls, Rc::new(RefCell::new(attrs)));
+    }
 
     get_vm_state(&mut r, vm)?;
     // Each handle resumes a distinct coroutine, anything else would trap the scheduler.
@@ -806,11 +819,12 @@ fn rehash(vm: &mut VM, fills: Vec<(u32, SetFill)>) -> Result<(), SnapErr> {
     let nslots = vm.heap.snapshot_objs().count();
     for idx in 0..nslots {
         let v = Val::heap(idx as u32);
-        let dicts: Vec<Rc<RefCell<DictMap>>> = match vm.heap.try_get(v) {
+        let mut dicts: Vec<Rc<RefCell<DictMap>>> = match vm.heap.try_get(v) {
             Some(HeapObj::Dict(rc)) => alloc::vec![rc.clone()],
             Some(HeapObj::Instance(_, rc)) => alloc::vec![rc.clone()],
-            _ => continue,
+            _ => Vec::new(),
         };
+        if let Some((_, attrs)) = vm.heap.classed(v) { dicts.push(attrs.clone()); }
         for rc in dicts { rc.borrow_mut().rebuild_index(&vm.heap); }
     }
     Ok(())

@@ -65,8 +65,8 @@ impl Meter {
     }
 }
 
-// Pays for what is allocated outside every interpreter run.
-static HOST: Meter = Meter::new(usize::MAX);
+// Pays for what is allocated outside every interpreter run, which the instance budget leaves out.
+static HOST: Meter = Meter { mark: AtomicUsize::new(usize::MAX), ..Meter::new(usize::MAX) };
 
 // An instance is the wasm module, or the thread on a std host, and its programs share one budget.
 #[cfg(feature = "std")]

@@ -119,7 +119,7 @@ bb
 
 ### sum
 
-`sum(iterable)` or `sum(iterable, start)`. An empty iterable sums to `start`. It defaults to `0`.
+`sum(iterable)` or `sum(iterable, start)`. An empty iterable sums to `start`, which defaults to `0`. Items add as `+` does, so instances with `__add__` or `__radd__` sum too.
 
 ```edge-python
 print(sum([1, 2, 3]))

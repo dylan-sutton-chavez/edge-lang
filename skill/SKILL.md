@@ -510,9 +510,9 @@ print(greet("edge", punct="?"))
 hi edge?
 ```
 
-Classes support single and multiple inheritance with C3 linearization, zero-argument `super()`, `property` with setters, `staticmethod` and `classmethod`, and class decorators. There is no two-argument `super()` form. Dunders are looked up on the class, assigning one on an instance has no effect.
+Classes support single and multiple inheritance with C3 linearization, zero-argument `super()`, `property` with setters, `staticmethod` and `classmethod`, and class decorators. A class may derive from `dict` or `list`, and its instances are real dicts or lists with the methods and attributes of the class, where `super()` reaches the builtin methods and a dict subclass answers missing keys with `__missing__`. There is no two-argument `super()` form. Dunders are looked up on the class, assigning one on an instance has no effect.
 
-The supported dunders are `__init__`, `__call__`, `__repr__`, `__str__`, `__format__`, `__bool__`, `__len__`, `__iter__`, `__next__`, `__getitem__`, `__setitem__`, `__delitem__`, `__contains__`, `__getattr__`, `__enter__`, `__exit__`, `__index__`, `__int__`, `__float__`, `__abs__`, `__neg__`, `__pos__`, `__invert__`, `__class_getitem__`, `__match_args__`, the arithmetic and bitwise operators with their reflected and in-place forms including `@` through `__matmul__`, and the six comparisons. A class body that binds any other dunder fails at compile time. Returning `NotImplemented` from an arithmetic dunder triggers the reflected fallback.
+The supported dunders are `__init__`, `__call__`, `__repr__`, `__str__`, `__format__`, `__bool__`, `__len__`, `__iter__`, `__next__`, `__getitem__`, `__setitem__`, `__delitem__`, `__missing__`, `__contains__`, `__getattr__`, `__enter__`, `__exit__`, `__index__`, `__int__`, `__float__`, `__abs__`, `__neg__`, `__pos__`, `__invert__`, `__class_getitem__`, `__match_args__`, the arithmetic and bitwise operators with their reflected and in-place forms including `@` through `__matmul__`, and the six comparisons. A class body that binds any other dunder fails at compile time. Returning `NotImplemented` from an arithmetic dunder triggers the reflected fallback.
 
 ```python
 class Vector:

@@ -507,11 +507,15 @@ impl<'a> VM<'a> {
                 let ctor = match self.ctors.get(&callee.0) {
                     Some(c) if c.epoch == self.class_epoch => *c,
                     _ => {
-                        let c = Ctor { epoch: self.class_epoch, init: self.lookup_class_member(callee, "__init__"), exception: self.exc_base(callee).is_some(), attrs: 0 };
+                        let c = Ctor { epoch: self.class_epoch, init: self.lookup_class_member(callee, "__init__"), exception: self.exc_base(callee).is_some(), attrs: 0, native: self.container_base(callee) };
                         self.ctors.insert(callee.0, c);
                         c
                     }
                 };
+                if let Some(native) = ctor.native {
+                    self.new_classed(callee, native, ctor.init, positional, kw_flat, chunk)?;
+                    return Ok(true);
+                }
                 if ctor.init.is_none() && !kw_flat.is_empty() {
                     return Err(cold_type("class constructor takes no keyword arguments"));
                 }
@@ -572,6 +576,28 @@ impl<'a> VM<'a> {
             _ => return Ok(false),
         }
         Ok(true)
+    }
+
+    /* An instance of `cls`, a class over the `native` dict or list, the container itself marked with the class. */
+    fn new_classed(&mut self, cls: Val, native: Val, init: Option<(Val, Val)>, positional: &[Val], kw_flat: &[Val], chunk: &SSAChunk) -> Result<(), VmErr> {
+        let obj = if init.is_some() {
+            // `__init__` fills it, through `super().__init__` or writes of its own.
+            let dict = matches!(self.heap.get(native), HeapObj::Type(n) if n == "dict");
+            self.heap.alloc(if dict { HeapObj::Dict(Rc::new(RefCell::new(DictMap::new()))) } else { HeapObj::List(Rc::new(RefCell::new(Vec::new()))) })?
+        } else {
+            // Without one it builds from the arguments as the builtin does.
+            self.call_with(native, None, positional, kw_flat, chunk)?;
+            self.pop()?
+        };
+        self.heap.set_class(obj, cls, Rc::new(RefCell::new(DictMap::new())));
+        if let Some((init_fn, defining)) = init {
+            if self.depth >= self.max_calls { return Err(cold_depth()); }
+            self.pending.method_binding = Some((defining, obj));
+            self.call_with(init_fn, Some(obj), positional, kw_flat, chunk)?;
+            self.pop()?;
+        }
+        self.push(obj);
+        Ok(())
     }
 
     /* Bind formal params from positional/kw buffers, then fill remaining undef slots with defaults. */
@@ -826,7 +852,7 @@ impl<'a> VM<'a> {
             Round => self.call_round(operand),
             Min => self.call_min(operand, chunk),
             Max => self.call_max(operand, chunk),
-            Sum => self.call_sum(operand),
+            Sum => self.call_sum(operand, chunk),
             Zip => self.call_zip(operand, chunk),
             Dict => self.call_dict(operand),
             Set => self.call_set(operand),

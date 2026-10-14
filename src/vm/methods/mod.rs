@@ -134,6 +134,10 @@ const METHODS: &[MethodDesc] = methods! {
         "fromhex" => bytes::fromhex, ro, 1..1;
     }
     "list" {
+        "__init__" => list::init, rw, 0..1;
+        "__getitem__" => object::container_getitem, ro, 1..1;
+        "__setitem__" => object::container_setitem, rw, 2..2;
+        "__len__" => object::container_len, ro, 0..0;
         "index" => list::index, ro, 1..3;
         "count" => list::count, ro, 1..1;
         "copy" => list::copy, ro, 0..0;
@@ -147,6 +151,10 @@ const METHODS: &[MethodDesc] = methods! {
         "sort" => framed, rw, 0..0;
     }
     "dict" {
+        "__init__" => dict::update, rw, 0..1;
+        "__getitem__" => object::container_getitem, ro, 1..1;
+        "__setitem__" => object::container_setitem, rw, 2..2;
+        "__len__" => object::container_len, ro, 0..0;
         "keys" => dict::keys, ro, 0..0;
         "values" => dict::values, ro, 0..0;
         "items" => dict::items, ro, 0..0;
@@ -254,8 +262,8 @@ fn framed(_: &mut VM, _: Val, _: &[Val]) -> Result<(), VmErr> { Err(cold_type("m
 pub(in crate::vm) fn dispatch_method(vm: &mut VM, id: BuiltinMethodId, recv: Val, pos: &[Val], kw: &[Val]) -> Result<(), VmErr> {
     let m = &ALL_METHODS[id.0 as usize];
     if !kw.is_empty() {
-        // Only `dict.update(**kwargs)` reaches the dispatcher with keywords (`list.sort` keywords are intercepted before dispatch), pack them into a dict and append as a positional, which `dict::update` already merges.
-        if m.ty == "dict" && m.name == "update" 
+        // Only `dict.update(**kwargs)` and `dict.__init__` reach the dispatcher with keywords (`list.sort` keywords are intercepted before dispatch), pack them into a dict and append as a positional, which `dict::update` already merges.
+        if m.ty == "dict" && matches!(m.name, "update" | "__init__") 
             && let Some(kwd) = VM::pack_kw_dict(&mut vm.heap, kw)? {
                 let mut p = alloc::vec::Vec::with_capacity(pos.len() + 1);
                 p.extend_from_slice(pos);

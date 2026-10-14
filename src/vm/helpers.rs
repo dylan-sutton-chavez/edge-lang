@@ -221,7 +221,7 @@ impl<'a> VM<'a> {
             return Err(VmErr::TypeMsg(s!("'", str self.type_name(obj), "' object is not iterable")));
         }
         // Instance `__iter__` gives a user iterator stepped by `__next__`, or a generator or builtin iterator looped as itself.
-        if matches!(self.heap.get(obj), HeapObj::Instance(..))
+        if self.instance_class(obj).is_some()
             && let Some(iter) = self.try_call_dunder(obj, "__iter__", &[], chunk)? {
             if matches!(self.heap.try_get(iter), Some(HeapObj::Instance(..))) { return Ok(IterFrame::UserDefined(iter)); }
             return self.make_iter_frame(iter, chunk);

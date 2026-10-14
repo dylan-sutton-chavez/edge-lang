@@ -507,9 +507,9 @@ impl<'a> VM<'a> {
                 OpCode::GetItemR => {
                     let (o, k) = (r[ins.b as usize], r[ins.c as usize]);
                     if !o.is_heap() || !k.is_int() { break; }
-                    let hit = match self.heap.get(o) {
-                        HeapObj::List(v) => { let b = v.borrow(); index_of(k.as_int(), b.len()).map(|j| b[j]) }
-                        HeapObj::Tuple(v) => index_of(k.as_int(), v.len()).map(|j| v[j]),
+                    let hit = match self.heap.plain(o) {
+                        Some(HeapObj::List(v)) => { let b = v.borrow(); index_of(k.as_int(), b.len()).map(|j| b[j]) }
+                        Some(HeapObj::Tuple(v)) => index_of(k.as_int(), v.len()).map(|j| v[j]),
                         _ => None,
                     };
                     let Some(v) = hit else { break };
@@ -519,7 +519,7 @@ impl<'a> VM<'a> {
                 OpCode::StoreItemR => {
                     let (o, k) = (r[ins.a as usize], r[ins.b as usize]);
                     if !o.is_heap() || !k.is_int() { break; }
-                    let HeapObj::List(v) = self.heap.get(o) else { break };
+                    let Some(HeapObj::List(v)) = self.heap.plain(o) else { break };
                     let mut b = v.borrow_mut();
                     let Some(j) = index_of(k.as_int(), b.len()) else { break };
                     b[j] = r[ins.c as usize];
@@ -800,7 +800,7 @@ impl<'a> VM<'a> {
     /* A builtin container's length or an ASCII string's, None when a dunder may decide. */
     #[inline(always)]
     fn plain_len(&self, v: Val) -> Option<usize> {
-        Some(match self.heap.try_get(v)? {
+        Some(match self.heap.plain(v)? {
             HeapObj::List(v) => v.borrow().len(),
             HeapObj::Tuple(v) => v.len(),
             HeapObj::Dict(d) => d.borrow().len(),
@@ -1116,7 +1116,7 @@ impl<'a> VM<'a> {
             OpCode::GetIter if op == crate::parser::ITER_VALUE => {
                 let o = *self.stack.last().ok_or_else(|| cold_runtime("stack underflow"))?;
                 // A list reads live and the others cannot change, so each iterates the same handed over as is.
-                if !matches!(self.heap.try_get(o), Some(HeapObj::List(_) | HeapObj::Range(..) | HeapObj::Tuple(_) | HeapObj::Str(_) | HeapObj::Bytes(_) | HeapObj::FrozenSet(_))) {
+                if !matches!(self.heap.plain(o), Some(HeapObj::List(_) | HeapObj::Range(..) | HeapObj::Tuple(_) | HeapObj::Str(_) | HeapObj::Bytes(_) | HeapObj::FrozenSet(_))) {
                     let it = self.iter_of(o, chunk)?;
                     if let Some(top) = self.stack.last_mut() { *top = it; }
                 }
@@ -1532,15 +1532,19 @@ impl<'a> VM<'a> {
         let mut bases = self.pop_n(num_bases)?;
         // An `object` base is a no-op.
         bases.retain(|&b| !(b.is_heap() && matches!(self.heap.get(b), HeapObj::Type(n) if n == "object")));
-        // A builtin exception joins as a base, so the class enters its tree.
+        // A builtin exception joins as a base, so the class enters its tree, and so do `dict` and `list`.
         for &b in &bases {
             let ok = match self.heap.try_get(b) {
                 Some(HeapObj::Class(..)) => true,
-                Some(HeapObj::Type(n)) => crate::vm::globals::matches_exc_class(n, "BaseException"),
+                Some(HeapObj::Type(n)) => crate::vm::globals::matches_exc_class(n, "BaseException") || matches!(n.as_str(), "dict" | "list"),
                 _ => false,
             };
             if !ok { return Err(cold_type("base class must be a class object")); }
         }
+        // An instance takes one builtin layout at most, an exception, a dict or a list.
+        let mut layouts: Vec<Val> = bases.iter().filter_map(|&b| if self.exc_base(b).is_some() { Some(Val::none()) } else { self.container_base(b) }).collect();
+        layouts.dedup_by_key(|v| v.0);
+        if layouts.len() > 1 { return Err(cold_type("multiple bases have instance lay-out conflict")); }
         let Some(body) = chunk.classes.get(class_idx) else {
             return Err(cold_runtime("class index out of range"));
         };
@@ -1625,23 +1629,21 @@ impl<'a> VM<'a> {
     /* `obj.name = value`, shared by StoreAttr and `setattr()`. */
     pub(crate) fn store_attr(&mut self, obj: Val, name: &str, value: Val, chunk: &SSAChunk) -> Result<(), VmErr> {
         if !obj.is_heap() { return Err(cold_type("cannot set attribute")); }
-        if let HeapObj::Instance(cls_val, _) = self.heap.get(obj) {
-            let cls_val = *cls_val;
-            if let Some((member, _)) = self.lookup_class_member(cls_val, name)
-                && member.is_heap()
-                && let HeapObj::Property(_, setter) = self.heap.get(member) {
-                let setter = *setter;
-                if setter.is_none() {
-                    return Err(VmErr::Attribute(s!("can't set attribute '", str name, "'")));
-                }
-                if self.depth >= self.max_calls { return Err(cold_depth()); }
-                self.push(setter);
-                self.push(obj);
-                self.push(value);
-                self.exec_call(2, chunk)?;
-                self.pop()?;
-                return Ok(());
+        if let Some(cls_val) = self.instance_class(obj)
+            && let Some((member, _)) = self.lookup_class_member(cls_val, name)
+            && member.is_heap()
+            && let HeapObj::Property(_, setter) = self.heap.get(member) {
+            let setter = *setter;
+            if setter.is_none() {
+                return Err(VmErr::Attribute(s!("can't set attribute '", str name, "'")));
             }
+            if self.depth >= self.max_calls { return Err(cold_depth()); }
+            self.push(setter);
+            self.push(obj);
+            self.push(value);
+            self.exec_call(2, chunk)?;
+            self.pop()?;
+            return Ok(());
         }
         // Class attribute, insert or replace in the mutable members store.
         if let HeapObj::Class(_, _, members) = self.heap.get(obj) {
@@ -1656,12 +1658,11 @@ impl<'a> VM<'a> {
             return Ok(());
         }
         let key = self.heap.intern_str(name)?;
-        match self.heap.get(obj) {
-            HeapObj::Instance(_, attrs) => {
-                attrs.borrow_mut().insert(key, value, &self.heap);
-            }
-            _ => return Err(cold_type("cannot set attribute on this type")),
-        }
+        let attrs = match self.heap.get(obj) {
+            HeapObj::Instance(_, attrs) => attrs,
+            _ => match self.heap.classed(obj) { Some((_, attrs)) => attrs, None => return Err(cold_type("cannot set attribute on this type")) },
+        };
+        attrs.borrow_mut().insert(key, value, &self.heap);
         Ok(())
     }
 }

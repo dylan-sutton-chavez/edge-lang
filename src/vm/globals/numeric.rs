@@ -339,21 +339,36 @@ impl<'a> VM<'a> {
         Ok(best)
     }
 
-    pub fn call_sum(&mut self, op: u16) -> Result<(), VmErr> {
+    pub fn call_sum(&mut self, op: u16, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
         let args = self.pop_n(op as usize)?;
         if args.is_empty() { return Err(cold_type("sum() requires at least 1 argument")); }
         let start = if args.len() > 1 { args[1] } else { Val::int(0) };
         let mut cur = self.iter_cursor(args[0])?;
+        let base = self.temp_roots.len();
+        let result = self.sum_cursor(&args, &mut cur, start, chunk);
+        self.temp_roots.truncate(base);
+        let result = result?;
+        self.push(result); Ok(())
+    }
+
+    fn sum_cursor(&mut self, args: &[Val], cur: &mut IterFrame, start: Val, chunk: &crate::parser::SSAChunk) -> Result<Val, VmErr> {
+        let base = self.temp_roots.len();
         let mut acc = start;
         // Once a float enters, switch to Neumaier compensated summation (Python 3.12+).
         let mut fstate: Option<(f64, f64)> = if start.is_float() { Some((start.as_float(), 0.0)) } else { None };
         while let Some(item) = cur.next_item(&mut self.heap)? {
             self.charge_step()?;
+            let user = self.instance_class(acc).is_some() || self.instance_class(item).is_some();
+            // A user `__add__` can collect, so from the first instance on the iterable and its items stay rooted.
+            if user && self.temp_roots.len() == base {
+                self.temp_roots.extend_from_slice(args);
+                if let IterFrame::Seq { items, .. } = &*cur { self.temp_roots.extend(items.iter().copied()); }
+            }
             match fstate {
                 Some((s, c)) => match self.to_f64_coerce(item) {
                     Ok(x) => fstate = Some(neumaier(s, c, x)),
-                    // Non-numeric after floats, let add_vals raise the proper TypeError.
-                    Err(_) => { acc = self.add_vals(Val::float(settle((s, c))), item)?; fstate = None; }
+                    // Non-numeric after floats, the plain addition raises the proper TypeError.
+                    Err(_) => { acc = self.sum_add(Val::float(settle((s, c))), item, chunk)?; fstate = None; }
                 },
                 None if (item.is_float() || acc.is_float())
                     && self.to_f64_coerce(acc).is_ok() && self.to_f64_coerce(item).is_ok() => {
@@ -361,11 +376,19 @@ impl<'a> VM<'a> {
                     let x = self.to_f64_coerce(item).unwrap();
                     fstate = Some(neumaier(base, 0.0, x));
                 }
+                None if user => { acc = self.sum_add(acc, item, chunk)?; }
                 None => { acc = self.add_vals(acc, item)?; }
             }
         }
-        let result = match fstate { Some(state) => Val::float(settle(state)), None => acc };
-        self.push(result); Ok(())
+        Ok(match fstate { Some(state) => Val::float(settle(state)), None => acc })
+    }
+
+    /* One step of `sum`, through a user `__add__` or `__radd__` when either side defines one. */
+    fn sum_add(&mut self, a: Val, b: Val, chunk: &crate::parser::SSAChunk) -> Result<Val, VmErr> {
+        match self.try_binary_dunder(crate::parser::types::OpCode::Add, a, b, false, chunk)? {
+            Some(v) => Ok(v),
+            None => self.add_vals(a, b),
+        }
     }
 
     pub fn call_range(&mut self, op: u16) -> Result<(), VmErr> {

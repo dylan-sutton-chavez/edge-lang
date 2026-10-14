@@ -114,3 +114,10 @@ pub fn pop(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
     vm.push(popped); Ok(())
 }
 
+/* `list.__init__(self, iterable)`, the list takes the items of `iterable` in place of its own. */
+pub fn init(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
+    let items = match pos.first() { Some(&src) => vm.extract_iter(src)?, None => Vec::new() };
+    list_mut(vm, recv, "__init__: receiver is not a list", |list| { *list = items; Ok(()) })?;
+    vm.push(Val::none());
+    Ok(())
+}

@@ -65,9 +65,13 @@ mod test {
     fn the_program_that_passes_the_instance_budget_raises_alone() {
         let _restore = Restore;
         set_budget(64 << 20);
+        // Host memory stays out of the budget, an event handed to a program counts as its own.
+        drop(std::hint::black_box(vec![0u8; 32 << 20]));
         let holder = compiled("xs = [0] * 5000000\ndef total():\n    return len(xs)\n");
         let mut a = VM::with_limits(&holder, Limits::sandbox());
         a.run().unwrap();
+        a.push_event(&"e".repeat(8 << 20)).unwrap();
+        assert!(a.memory() >= 40_000_000 + (8 << 20), "{}", a.memory());
         // Each stops far below its own limit of 256 MB, the instance budget is what refused it.
         for src in ["ys = [0] * 5000000\n", "ys = []\nwhile True:\n    ys.append(0)\n"] {
             let chunk = compiled(src);

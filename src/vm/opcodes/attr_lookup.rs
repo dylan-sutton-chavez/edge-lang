@@ -73,7 +73,7 @@ impl<'a> VM<'a> {
                 HeapObj::Extern(_) => return AttrLookup::InstanceMethod { recv, func: mv, class: defining },
                 HeapObj::ClassMethod(func) => {
                     // Bind the receiver's class, not the instance.
-                    let cls = if recv.is_heap() && let HeapObj::Instance(c, _) = self.heap.get(recv) { *c } else { recv };
+                    let cls = self.instance_class(recv).unwrap_or(recv);
                     return AttrLookup::InstanceMethod { recv: cls, func: *func, class: defining };
                 }
                 HeapObj::Func(..) => return AttrLookup::InstanceMethod { recv, func: mv, class: defining },
@@ -112,6 +112,15 @@ impl<'a> VM<'a> {
         }
     }
 
+    /* The builtin `dict` or `list` a class derives from through its bases, None for a plain class. */
+    pub(crate) fn container_base(&self, cls: Val) -> Option<Val> {
+        match self.heap.try_get(cls)? {
+            HeapObj::Type(n) if matches!(n.as_str(), "dict" | "list") => Some(cls),
+            HeapObj::Class(_, bases, _) => bases.iter().find_map(|&b| self.container_base(b)),
+            _ => None,
+        }
+    }
+
     /* Sets the `args` of exception instance `inst`, what its constructor and `__init__` received. */
     pub(crate) fn set_exc_args(&mut self, inst: Val, args: Vec<Val>) -> Result<(), VmErr> {
         let tuple = self.heap.alloc(HeapObj::Tuple(args))?;
@@ -146,6 +155,15 @@ impl<'a> VM<'a> {
     // `obj.<name>` for LoadAttr and CallMethod, other kinds fall through to builtin methods.
     pub(crate) fn resolve_attr(&self, obj: Val, name: &str) -> Result<AttrLookup, VmErr> {
         let missing = || VmErr::Attribute(s!("'", str self.type_name(obj), "' object has no attribute '", str name, "'"));
+        // A dict or list a user class made reads its own attributes and class first, then the builtin methods.
+        if let Some((cls, attrs)) = self.heap.classed(obj) {
+            let found = attrs.borrow().iter().find(|(k, _)| matches!(self.heap.try_get(*k), Some(HeapObj::Str(s)) if s == name)).map(|(_, v)| v);
+            if let Some(v) = found { return Ok(AttrLookup::InstanceField(v)); }
+            if let Some((mv, defining)) = self.lookup_class_member(*cls, name) { return Ok(self.bind_member(mv, obj, defining)); }
+            if name == "__class__" { return Ok(AttrLookup::ClassMember(*cls)); }
+            return lookup_method(self.type_name(obj), name).map(AttrLookup::BuiltinMethod)
+                .ok_or_else(|| VmErr::Attribute(s!("'", str &self.type_repr_name(obj), "' object has no attribute '", str name, "'")));
+        }
         match self.heap.try_get(obj) {
             // Module attr lookup is a linear scan, the table is sized for around 30 entries.
             Some(HeapObj::Module(mod_name, attrs)) => {
@@ -197,8 +215,10 @@ impl<'a> VM<'a> {
             // `super().<name>` searches strictly above the proxy's stored class, and methods bind to the proxy's `recv`.
             Some(&HeapObj::Super(cls_val, recv)) => {
                 // C3 super walks the *instance type*'s MRO past the defining class, not just the defining class's bases.
-                let derived = match self.heap.try_get(recv) { Some(&HeapObj::Instance(c, _)) => c, _ => cls_val };
+                let derived = self.instance_class(recv).unwrap_or(cls_val);
                 if let Some((mv, defining)) = self.lookup_class_member_after(derived, cls_val, name) { return Ok(self.bind_member(mv, recv, defining)); }
+                // Past the user classes of a dict or list sit its builtin methods.
+                if self.heap.classed(recv).is_some() && let Some(id) = lookup_method(self.type_name(recv), name) { return Ok(AttrLookup::BoundBuiltin(recv, id)); }
                 // Past the user classes of an exception sits `BaseException`.
                 if self.exc_base(derived).is_some() && let Some(id) = lookup_method("BaseException", name) { return Ok(AttrLookup::BoundBuiltin(recv, id)); }
                 return Err(VmErr::Attribute(s!("'super' object has no attribute '", str name, "'")));
@@ -282,7 +302,7 @@ impl<'a> VM<'a> {
 
     /* instance fallback via `__getattr__(name)`. Called by `LoadAttr` / `CallMethod` after the normal lookup raises `AttributeError`. */
     pub(crate) fn try_getattr_fallback(&mut self, obj: Val, name: &str, chunk: &SSAChunk) -> Result<Option<Val>, VmErr> {
-        if !obj.is_heap() || !matches!(self.heap.get(obj), HeapObj::Instance(..)) { return Ok(None); }
+        if self.instance_class(obj).is_none() { return Ok(None); }
         let name_val = self.heap.intern_str(name)?;
         self.try_call_dunder(obj, "__getattr__", &[name_val], chunk)
     }

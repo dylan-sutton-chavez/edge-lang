@@ -134,7 +134,7 @@ pub(super) fn removed_builtin(name: &str) -> Option<usize> {
 pub(super) fn class_dunder(name: &str) -> bool {
     matches!(name,
         "__init__" | "__repr__" | "__str__" | "__format__" | "__bool__" | "__len__" | "__iter__" | "__next__" |
-        "__contains__" | "__getitem__" | "__setitem__" | "__delitem__" | "__getattr__" | "__call__" | "__enter__" |
+        "__contains__" | "__getitem__" | "__setitem__" | "__delitem__" | "__missing__" | "__getattr__" | "__call__" | "__enter__" |
         "__exit__" | "__eq__" | "__ne__" | "__lt__" | "__le__" | "__gt__" | "__ge__" | "__int__" | "__float__" |
         "__index__" | "__abs__" | "__neg__" | "__pos__" | "__invert__" | "__class_getitem__" | "__match_args__" |
         "__add__" | "__sub__" | "__mul__" | "__truediv__" | "__floordiv__" | "__matmul__" | "__mod__" | "__pow__" |

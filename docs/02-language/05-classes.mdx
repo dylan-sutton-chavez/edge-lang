@@ -12,7 +12,7 @@ Classes are state containers and namespaces, not the primary abstraction. This i
 
 The class model supports these features.
 
-- Single and multiple inheritance (C3 MRO) with `super()`.
+- Single and multiple inheritance (C3 MRO) with `super()`, from user classes and from `dict` and `list`.
 - `@property` and `@x.setter`.
 - `@staticmethod` and `@classmethod`.
 - A curated dunder protocol for operators, indexing, iteration, hashing, context managers and attribute fallback. See [Operator overloading and protocols](#operator-overloading-and-protocols).
@@ -73,11 +73,12 @@ print(Math.cube(3))
 
 ## Inheritance and super()
 
-A class takes one base or several, as in `class Sub(Base):` and `class C(A, B):`.
+A class takes one base or several, as in `class Sub(Base):` and `class C(A, B):`. A base may also be `dict` or `list`.
 
 - Methods missing on the subclass resolve along the C3 linearization, the MRO.
-- An inconsistent hierarchy raises `TypeError` at class creation.
+- An inconsistent hierarchy raises `TypeError` at class creation, and so do bases that need two builtin layouts, such as `dict` and `list`.
 - `isinstance(x, Base)` walks the ancestor chain. A `Sub` instance is an instance of every ancestor.
+- An instance of a class over `dict` or `list` is a real dict or list that every builtin takes, with the methods and attributes of its class on top. Its overrides of the container dunders win, `super()` reaches the builtin methods, and a dict answers a missing key through `__missing__`.
 
 `super()` with no arguments delegates to the next class up the chain, bound to the current `self`. It is most common in `__init__` to extend a base constructor.
 
@@ -130,6 +131,22 @@ except TypeError:
 ```output
 B
 inconsistent hierarchy
+```
+
+```edge-python
+class Tally(dict):
+  def __missing__(self, key):
+    return 0
+
+t = Tally()
+for word in "a b a".split():
+  t[word] += 1
+t.total = 3
+print(t, t.total, isinstance(t, dict))
+```
+
+```output
+{'a': 2, 'b': 1} 3 True
 ```
 
 ## Attribute access on classes vs instances
@@ -397,6 +414,7 @@ False True
 | `obj[i] = v` | `__setitem__` | `(self, i, value)` |
 | `del obj[i]` | `__delitem__` | `(self, i)` |
 | `v in obj` | `__contains__` | `(self, value)` |
+| `d[k]` on a missing key of a dict subclass | `__missing__` | `(self, key)` |
 
 - Slices pass as a `slice` object. `obj[1:3]` calls `__getitem__(self, slice(1, 3, None))`.
 - Indexes on builtin sequences coerce through `__index__`, slice bounds included. Dict keys never coerce.

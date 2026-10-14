@@ -102,6 +102,7 @@ fn take_input(vm: &mut VM) {
     let inp = with_slot(|s| core::mem::take(&mut s.input));
     let inp_text = core::str::from_utf8(&inp).unwrap_or("");
     if !inp_text.is_empty() {
+        let _paying = crate::value::meter::Paying::to(vm.heap.meter());
         // One line per `input()` call, any trailing CR dropped.
         vm.input_buffer = inp_text.split('\n').map(|l| String::from(l.strip_suffix('\r').unwrap_or(l))).collect();
     }
@@ -405,20 +406,11 @@ pub unsafe extern "C" fn run_resume() -> u32 {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn run_push_event(ptr: *const u8, len: u32) -> i32 {
-    let bytes = unsafe { safe_bytes(ptr, len) };
-    let s = match core::str::from_utf8(bytes) {
-        Ok(s) => s.to_string(),
-        Err(_) => return 1,
-    };
+    let Ok(s) = core::str::from_utf8(unsafe { safe_bytes(ptr, len) }) else { return 1 };
     with_slot(|slot| {
         let Some(paused) = slot.paused_run.as_mut() else { return 1; };
         let Some(vm) = paused.vm.as_mut() else { return 1; };
-        let val = match vm.heap.alloc(HeapObj::Str(s)) {
-            Ok(v) => v,
-            Err(_) => return 2,
-        };
-        vm.inject_event(val);
-        0
+        if vm.push_event(s).is_ok() { 0 } else { 2 }
     })
 }
 
@@ -429,6 +421,7 @@ fn with_paused_vm(handle: u32, f: impl FnOnce(&mut VM<'static>, crate::vm::types
     with_slot(|slot| {
         let Some(paused) = slot.paused_run.as_mut() else { return 3; };
         let Some(vm) = paused.vm.as_mut() else { return 3; };
+        let _paying = crate::value::meter::Paying::to(vm.heap.meter());
         f(vm, val)
     })
 }

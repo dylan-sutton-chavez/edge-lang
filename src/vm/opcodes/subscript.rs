@@ -36,9 +36,9 @@ impl<'a> VM<'a> {
         let n = self.stack.len();
         if n >= 2 && self.stack[n - 1].is_int() && self.stack[n - 2].is_heap() {
             let i = self.stack[n - 1].as_int();
-            let hit = match self.heap.get(self.stack[n - 2]) {
-                HeapObj::List(v) => { let b = v.borrow(); b.get(normalize_index(i, b.len())).copied() }
-                HeapObj::Tuple(v) => v.get(normalize_index(i, v.len())).copied(),
+            let hit = match self.heap.plain(self.stack[n - 2]) {
+                Some(HeapObj::List(v)) => { let b = v.borrow(); b.get(normalize_index(i, b.len())).copied() }
+                Some(HeapObj::Tuple(v)) => v.get(normalize_index(i, v.len())).copied(),
                 _ => None,
             };
             if let Some(v) = hit { self.stack.truncate(n - 2); self.push(v); return Ok(()); }
@@ -57,6 +57,11 @@ impl<'a> VM<'a> {
         let idx = self.coerce_index(obj, idx, chunk)?;
         if obj.is_heap() && let HeapObj::Dict(p) = self.heap.get(obj) {
             let found = p.borrow().get(&idx, &self.heap).copied();
+            // A class over dict answers a missing key through its `__missing__`.
+            if found.is_none() && self.heap.classed(obj).is_some() && let Some(v) = self.try_call_dunder(obj, "__missing__", &[idx], chunk)? {
+                self.push(v);
+                return Ok(());
+            }
             let Some(v) = found else { self.require_hashable(idx)?; return Err(self.key_error(idx)) };
             self.push(v);
             return Ok(());
@@ -296,7 +301,7 @@ impl<'a> VM<'a> {
     pub fn store_item(&mut self, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
         let n = self.stack.len();
         if n >= 3 && self.stack[n - 2].is_int() && self.stack[n - 3].is_heap()
-            && let HeapObj::List(v) = self.heap.get(self.stack[n - 3]) {
+            && let Some(HeapObj::List(v)) = self.heap.plain(self.stack[n - 3]) {
             let mut b = v.borrow_mut();
             let ui = normalize_index(self.stack[n - 2].as_int(), b.len());
             if ui < b.len() {

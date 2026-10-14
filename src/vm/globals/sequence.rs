@@ -34,6 +34,7 @@ impl<'a> VM<'a> {
     /* An iterator over `o`, the one `iter(o)` gives. */
     pub(crate) fn iter_of(&mut self, o: Val, chunk: &SSAChunk) -> Result<Val, VmErr> {
         let ascii = self.heap.str_is_ascii(o);
+        if self.heap.classed(o).is_some() && let Some(it) = self.try_call_dunder(o, "__iter__", &[], chunk)? { return Ok(it); }
         let name = match self.heap.try_get(o) {
             Some(HeapObj::Iter(..) | HeapObj::Coroutine(..)) => return Ok(o),
             Some(HeapObj::Instance(..)) => return self.try_call_dunder(o, "__iter__", &[], chunk)?.ok_or_else(|| self.not_iterable(o)),

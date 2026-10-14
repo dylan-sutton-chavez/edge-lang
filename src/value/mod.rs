@@ -556,11 +556,16 @@ struct HeapSlot {
     ascii: u8,
     /* Whether `strings` holds this slot, a name, constant or one-character string. */
     interned: bool,
+    /* Whether `classes` holds this slot, a dict or list a user class made. */
+    classed: bool,
 }
 
 impl HeapSlot {
-    fn new(obj: Option<HeapObj>) -> Self { Self { obj, marked: false, ascii: 0, interned: false } }
+    fn new(obj: Option<HeapObj>) -> Self { Self { obj, marked: false, ascii: 0, interned: false, classed: false } }
 }
+
+/* The user class of a dict or list made by a class deriving from it, and the attributes it got. */
+pub type ClassedEntry = (Val, Rc<RefCell<DictMap>>);
 
 pub struct HeapPool {
     slots: Vec<HeapSlot>,
@@ -593,6 +598,8 @@ pub struct HeapPool {
     alloc_limit: usize,
     /* Reused across mark() calls, cleared not freed, so GC never re-allocates under pressure. */
     mark_worklist: Vec<u32>,
+    /* The class and attributes of each classed slot, which stays a real dict or list for the builtins. */
+    classes: HashMap<u32, ClassedEntry>,
 }
 
 // A program gone leaves the shared instance total.
@@ -631,6 +638,7 @@ impl HeapPool {
             marked_vals: 0,
             alloc_limit: 4096,
             mark_worklist: Vec::with_capacity(64),
+            classes: HashMap::default(),
         }
     }
 
@@ -767,13 +775,18 @@ impl HeapPool {
     pub fn mark(&mut self, v: Val) {
         if !v.is_heap() { return; }
         /* Split borrow, closure needs &mut mark_worklist while we read slots. */
-        let HeapPool { slots, mark_worklist, marked_vals, .. } = self;
+        let HeapPool { slots, mark_worklist, marked_vals, classes, .. } = self;
         mark_worklist.push(v.as_heap());
         while let Some(idx) = mark_worklist.pop() {
             let idx = idx as usize;
             if slots[idx].marked { continue; }
             slots[idx].marked = true;
             *marked_vals += 1;
+            if slots[idx].classed && let Some((cls, attrs)) = classes.get(&(idx as u32)) {
+                for v in core::iter::once(*cls).chain(attrs.borrow().iter().flat_map(|(k, v)| [k, v])) {
+                    if v.is_heap() { mark_worklist.push(v.as_heap()); }
+                }
+            }
             if let Some(obj) = &slots[idx].obj {
                 for_each_val(obj, |val| { *marked_vals += 1; if val.is_heap() { mark_worklist.push(val.as_heap()); } });
             }
@@ -785,6 +798,7 @@ impl HeapPool {
             let slot = &mut self.slots[idx];
             if slot.obj.is_none() { continue; }
             if slot.marked { slot.marked = false; continue; }
+            if slot.classed { slot.classed = false; self.classes.remove(&(idx as u32)); }
             self.intern_remove(idx as u32);
             self.slots[idx].obj = None;
             self.free_list.push(idx as u32);
@@ -812,6 +826,7 @@ impl HeapPool {
     /* Replace the pool, rebuild free and intern tables. */
     pub(crate) fn restore_objs(&mut self, objs: Vec<Option<HeapObj>>) {
         self.slots = objs.into_iter().map(HeapSlot::new).collect();
+        self.classes.clear();
         self.free_list.clear();
         self.strings.clear();
         self.bytes_intern.clear();
@@ -892,6 +907,23 @@ impl HeapPool {
         if !v.is_heap() { return None; }
         self.slots.get(v.as_heap() as usize).and_then(|s| s.obj.as_ref())
     }
+    /* The object at `v` unless a user class made it, so a fast path never skips that class. */
+    #[inline] pub fn plain(&self, v: Val) -> Option<&HeapObj> {
+        if !v.is_heap() { return None; }
+        self.slots.get(v.as_heap() as usize).filter(|s| !s.classed).and_then(|s| s.obj.as_ref())
+    }
+    /* The class and attributes of `v`, a dict or list some user class made. */
+    #[inline] pub fn classed(&self, v: Val) -> Option<&ClassedEntry> {
+        if !v.is_heap() || !self.slots.get(v.as_heap() as usize).is_some_and(|s| s.classed) { return None; }
+        self.classes.get(&v.as_heap())
+    }
+    /* Marks `v`, a fresh dict or list, as made by user class `cls` with `attrs`. */
+    pub(crate) fn set_class(&mut self, v: Val, cls: Val, attrs: Rc<RefCell<DictMap>>) {
+        self.slots[v.as_heap() as usize].classed = true;
+        self.classes.insert(v.as_heap(), (cls, attrs));
+    }
+    /* Every classed slot with its class and attributes, for snapshots. */
+    pub(crate) fn classed_slots(&self) -> impl Iterator<Item = (&u32, &ClassedEntry)> { self.classes.iter() }
     #[inline] pub fn try_get_mut(&mut self, v: Val) -> Option<&mut HeapObj> {
         if !v.is_heap() { return None; }
         self.slots.get_mut(v.as_heap() as usize).and_then(|s| s.obj.as_mut())

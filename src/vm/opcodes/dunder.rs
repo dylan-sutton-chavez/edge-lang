@@ -51,9 +51,7 @@ impl<'a> VM<'a> {
     /* `recv.<name>(*args)` probes the instance method and invokes it with `self` prepended. `Some(v)` on return, `None` on miss / `NotImplemented` (triggers reflected/fallback dispatch), `Err` only on a raised dunder. */
     pub(crate) fn try_call_dunder(&mut self, recv: Val, name: &str, args: &[Val], chunk: &SSAChunk) -> Result<Option<Val>, VmErr> {
         // Built-in types route through their native handlers, and dunder dispatch only fires on user instances.
-        if !recv.is_heap() { return Ok(None); }
-        let HeapObj::Instance(cls_val, _) = self.heap.get(recv) else { return Ok(None); };
-        let cls_val = *cls_val;
+        let Some(cls_val) = self.instance_class(recv) else { return Ok(None); };
 
         // Special methods resolve on the type's MRO, bypassing the instance __dict__, like Python.
         let Some((func, class)) = self.lookup_class_member(cls_val, name) else { return Ok(None); };
@@ -75,11 +73,11 @@ impl<'a> VM<'a> {
         Ok(Some(result))
     }
 
-    /* Class of an Instance, or `None` for built-in operands. Powers the subclass-first ordering rule. */
+    /* Class of an Instance or of a dict or list a user class made, `None` for built-in operands. */
     #[inline]
-    fn instance_class(&self, v: Val) -> Option<Val> {
+    pub(crate) fn instance_class(&self, v: Val) -> Option<Val> {
         if !v.is_heap() { return None; }
-        match self.heap.get(v) { HeapObj::Instance(c, _) => Some(*c), _ => None }
+        match self.heap.get(v) { HeapObj::Instance(c, _) => Some(*c), _ => self.heap.classed(v).map(|e| e.0) }
     }
 
     /* Ordered forward/reflected dunder dispatch, reflected (`b.rname(a)`) runs first when `type(b)` strictly subclasses `type(a)` so overrides win. Returns the first non-None result. */
@@ -144,9 +142,7 @@ impl<'a> VM<'a> {
 
     /* Python `bool()` semantics, try `__bool__`, then `__len__` (0 = False), else default True for instances. Pass-through for built-in types. */
     pub(crate) fn truthy_op(&mut self, v: Val, chunk: &SSAChunk) -> Result<bool, VmErr> {
-        if !v.is_heap() || !matches!(self.heap.get(v), HeapObj::Instance(..)) {
-            return Ok(self.truthy(v));
-        }
+        if self.instance_class(v).is_none() { return Ok(self.truthy(v)); }
         if let Some(r) = self.try_call_dunder(v, "__bool__", &[], chunk)? {
             if !matches!(r, x if x.is_bool()) {
                 return Err(cold_type("__bool__ should return bool"));
@@ -156,7 +152,7 @@ impl<'a> VM<'a> {
         if let Some(r) = self.try_call_dunder(v, "__len__", &[], chunk)? {
             return self.len_to_bool(r);
         }
-        Ok(true)
+        Ok(self.truthy(v))
     }
 
     /* Steps an iterator once, None once spent or when the value has no `__next__`. */
@@ -291,7 +287,7 @@ impl<'a> VM<'a> {
 
     /* Drive a user instance's `__iter__` result to a Vec, stepping a user `__next__` or draining a builtin-iterator list. Treats a missing `__iter__` as "no protocol" by returning `None`. Used by `list(custom)`, `tuple(custom)`, etc. */
     pub(crate) fn iter_to_vec_op(&mut self, obj: Val, chunk: &SSAChunk) -> Result<Option<Vec<Val>>, VmErr> {
-        if !obj.is_heap() || !matches!(self.heap.get(obj), HeapObj::Instance(..)) { return Ok(None); }
+        if self.instance_class(obj).is_none() { return Ok(None); }
         let Some(iter) = self.try_call_dunder(obj, "__iter__", &[], chunk)? else { return Ok(None); };
         // A builtin iterator or generator drains as itself, a user iterator steps `__next__`.
         if !matches!(self.heap.try_get(iter), Some(HeapObj::Instance(..))) { return self.extract_iter(iter).map(Some); }
@@ -321,7 +317,7 @@ impl<'a> VM<'a> {
 
     /* `str(v)` semantics, instance `__str__` wins, then `__repr__`, else the built-in display. */
     pub(crate) fn display_op(&mut self, v: Val, chunk: &SSAChunk) -> Result<String, VmErr> {
-        if v.is_heap() && matches!(self.heap.get(v), HeapObj::Instance(..)) {
+        if self.instance_class(v).is_some() {
             if let Some(r) = self.try_call_dunder(v, "__str__", &[], chunk)? {
                 return self.require_str(r, "__str__");
             }
@@ -354,6 +350,9 @@ impl<'a> VM<'a> {
     /* Container-aware repr dispatches `__repr__` on nested instances. Elements always use repr, with `seen` tracking heap ids for cycle detection. */
     pub(crate) fn repr_deep(&mut self, v: Val, chunk: &SSAChunk, seen: &mut Vec<u32>) -> Result<String, VmErr> {
         if !v.is_heap() { return Ok(self.repr(v)); }
+        if self.heap.classed(v).is_some() && let Some(r) = self.try_call_dunder(v, "__repr__", &[], chunk)? {
+            return self.require_str(r, "__repr__");
+        }
         if !self.is_container_val(v) {
             if matches!(self.heap.get(v), HeapObj::Instance(..))
                 && let Some(r) = self.try_call_dunder(v, "__repr__", &[], chunk)? {

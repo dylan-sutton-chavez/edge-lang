@@ -30,8 +30,7 @@ impl<'a> VM<'a> {
     pub fn call_type(&mut self) -> Result<(), VmErr> {
         let o = self.pop()?;
         // A user instance's type is its own class object, so `type(x) is Cls` holds.
-        if o.is_heap() && let HeapObj::Instance(cls, _) = self.heap.get(o) {
-            let cls = *cls;
+        if let Some(cls) = self.instance_class(o) {
             self.push(cls);
             return Ok(());
         }
@@ -47,13 +46,9 @@ impl<'a> VM<'a> {
             match self.heap.get(o) {
                 // Exception instances report their concrete class (e.g. `ZeroDivisionError`).
                 HeapObj::ExcInstance(n, ..) => return n.clone(),
-                HeapObj::Instance(cls, _) => {
-                    let cls = *cls;
-                    if cls.is_heap() && let HeapObj::Class(n, _, _) = self.heap.get(cls) {
-                        return n.clone();
-                    }
-                }
-                _ => {}
+                _ => if let Some(cls) = self.instance_class(o) && let HeapObj::Class(n, _, _) = self.heap.get(cls) {
+                    return n.clone();
+                },
             }
         }
         self.type_name(o).to_string() // interned, so shares the `set`/`int` singleton

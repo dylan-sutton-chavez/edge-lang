@@ -129,7 +129,7 @@ impl<'a> VM<'a> {
     #[inline]
     pub(crate) fn site_builtin(&self, site: Site, obj: Val) -> Option<BuiltinMethodId> {
         let Site::Builtin { kind, id } = site else { return None };
-        (self.heap.try_get(obj).map(core::mem::discriminant) == Some(kind)).then_some(id)
+        (self.heap.plain(obj).map(core::mem::discriminant) == Some(kind)).then_some(id)
     }
 
     /* The site a method call keeps once the slow lookup bound `func`. */

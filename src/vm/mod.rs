@@ -224,6 +224,8 @@ pub(crate) struct Ctor {
     pub init: Option<(Val, Val)>,
     pub exception: bool,
     pub attrs: usize,
+    // The builtin `dict` or `list` the class derives from, which then builds its instances.
+    pub native: Option<Val>,
 }
 
 impl<'a> VM<'a> {
