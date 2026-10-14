@@ -182,10 +182,12 @@ pub struct Parser<'src, I: Iterator<Item = Token>> {
     pub(super) source: &'src str,
     pub(super) tokens: Tokens<I>,
     pub(super) chunk: SSAChunk,
-    pub(super) ssa_versions: HashMap<String, u32>,
+    pub(super) ssa_versions: Versions,
     /* Names declared `global` in the current function body, redirects load/store to `self.globals`. */
     pub(super) globals_decl: crate::util::hash::FxHashSet<String>,
     pub(super) join_stack: Vec<JoinNode>,
+    /* Each store inside an open block as the slot and the version it replaced, read by the joins. */
+    pub(super) trail: Vec<(u32, u32)>,
     /* Set once a block takes its dedent, the statement it closed is complete. */
     pub(super) block_closed: bool,
     pub(super) last_line: usize,
@@ -224,7 +226,7 @@ pub struct Parser<'src, I: Iterator<Item = Token>> {
 
 impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
     pub(super) fn current_version(&self, name: &str) -> u32 {
-        self.ssa_versions.get(name).copied().unwrap_or(0)
+        self.ssa_versions.get(name).unwrap_or(0)
     }
 
     /* Allocates only when `name_ver` overflows `buf`. */
@@ -243,17 +245,16 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
     }
 
     pub(super) fn increment_version(&mut self, name: &str) -> u32 {
-        let cur = self.current_version(name);
-        let new = cur + 1;
-        self.ssa_versions.insert(name.to_string(), new);
+        let (slot, old) = self.ssa_versions.bump(name);
+        if !self.join_stack.is_empty() { self.trail.push((slot, old)); }
         self.note_bound(name);
-        new
+        old + 1
     }
 
-    /* Binds a parameter at version zero, so the body reads it before any store. */
+    /* Binds a parameter at version zero before any block opens, so the body reads it before any store. */
     pub(super) fn bind_param(&mut self, p: &str) {
         let name = types::param_base_name(p);
-        self.ssa_versions.insert(name.to_string(), 0);
+        self.ssa_versions.set(name, 0);
         self.note_bound(name);
     }
 
@@ -270,7 +271,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
 
     #[cold]
     fn note_removed_at(&mut self, name: &str, i: usize) {
-        if self.ssa_versions.contains_key(name) || self.globals_decl.contains(name) || self.chunk.extern_index.contains_key(name) { return; }
+        if self.ssa_versions.contains(name) || self.globals_decl.contains(name) || self.chunk.extern_index.contains_key(name) { return; }
         self.removed_uses.push((self.last_end.saturating_sub(name.len()), self.last_end, i));
     }
 
@@ -279,14 +280,14 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         self.chunk.push_name(&Self::ssa_name(name, ver, &mut buf))
     }
 
-    pub(super) fn emit_load_ssa(&mut self, name: String) {
-        self.note_removed(&name);
-        if self.globals_decl.contains(&name) {
-            let i = self.chunk.push_name(&name);
+    pub(super) fn emit_load_ssa(&mut self, name: &str) {
+        self.note_removed(name);
+        if self.globals_decl.contains(name) {
+            let i = self.chunk.push_name(name);
             self.chunk.emit(OpCode::LoadGlobal, i);
             return;
         }
-        let i = self.push_ssa_name(&name, self.current_version(&name));
+        let i = self.push_ssa_name(name, self.current_version(name));
         self.chunk.emit(OpCode::LoadName, i);
     }
 
@@ -301,24 +302,24 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         self.chunk.instructions.len() - 1
     }
 
-    pub(super) fn store_name(&mut self, name: String) {
-        if self.globals_decl.contains(&name) {
-            self.note_bound(&name);
-            let i = self.chunk.push_name(&name);
+    pub(super) fn store_name(&mut self, name: &str) {
+        if self.globals_decl.contains(name) {
+            self.note_bound(name);
+            let i = self.chunk.push_name(name);
             self.chunk.emit(OpCode::StoreGlobal, i);
             return;
         }
-        let ver = self.increment_version(&name);
-        let i = self.push_ssa_name(&name, ver);
+        let ver = self.increment_version(name);
+        let i = self.push_ssa_name(name, ver);
         self.chunk.emit(OpCode::StoreName, i);
     }
 
     /* Propagate the body's free names to the parent chunk, register the function, and emit its make-op. `fname` is None for lambdas (anonymous, sentinel slot), Some(name) registers a store slot for a def. Order matches the historic def path of free-name propagation, then slot, then push. */
     pub(super) fn push_function(&mut self, params: Vec<String>, body: SSAChunk, defaults: u16, fname: Option<&str>, op: OpCode) {
-        let param_slots: crate::util::hash::FxHashSet<String> = params.iter()
-            .map(|p| s!(str types::param_base_name(p), "_0")).collect();
+        // A parameter slot is its base name at version zero.
+        let param_slot = |name: &str| name.strip_suffix("_0").is_some_and(|bare| params.iter().any(|p| types::param_base_name(p) == bare));
         for (name, attr) in body.names.iter().zip(body.attr_only_names()) {
-            if !attr && !param_slots.contains(name.as_str()) {
+            if !attr && !param_slot(name) {
                 self.chunk.push_name(name);
             }
         }
@@ -343,6 +344,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         let saved_chunk = core::mem::take(&mut self.chunk);
         let saved_ver = core::mem::take(&mut self.ssa_versions);
         let saved_globals = core::mem::take(&mut self.globals_decl);
+        let saved_joins = (core::mem::take(&mut self.join_stack), core::mem::take(&mut self.trail));
         // Nested body owns its loops and block stack, isolate, then restore the enclosing ones.
         let saved_loops = (core::mem::take(&mut self.loops), core::mem::replace(&mut self.cleanup_count, 0));
         let saved_class = core::mem::replace(&mut self.in_class_body, false);
@@ -360,6 +362,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         self.chunk = saved_chunk;
         self.ssa_versions = saved_ver;
         self.globals_decl = saved_globals;
+        (self.join_stack, self.trail) = saved_joins;
         (self.loops, self.cleanup_count) = saved_loops;
         self.in_class_body = saved_class;
         self.in_comp = saved_comp;
@@ -376,57 +379,48 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
 
 impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
     pub(super) fn enter_block(&mut self) {
-        self.join_stack.push(JoinNode {
-            backup: self.ssa_versions.clone(),
-            then: None,
-        });
+        self.join_stack.push(JoinNode { start: self.trail.len(), mid: None });
     }
 
+    /* Versions only grow, so the next branch starts from the current ones and only the split moves. */
     pub(super) fn mid_block(&mut self) {
-        let Some(j) = self.join_stack.last_mut() else { return };
-        // Save then-branch versions before restoring else baseline.
-        j.then = Some(self.ssa_versions.clone());
-        let mut restored = j.backup.clone();
-        for (name, &v) in &self.ssa_versions {
-            let e = restored.entry(name.clone()).or_insert(0);
-            *e = (*e).max(v);
-        }
-        self.ssa_versions = restored;
+        if let Some(j) = self.join_stack.last_mut() { j.mid = Some(self.trail.len()); }
     }
 
     pub(super) fn commit_block(&mut self) {
         let Some(j) = self.join_stack.pop() else { return };
-        let post = self.ssa_versions.clone();
+        // The names stored since the split in name order, each once with the version it had there.
+        let from = j.mid.unwrap_or(j.start);
+        let versions = &self.ssa_versions;
+        self.trail[from..].sort_by(|a, b| versions.name(a.0).cmp(versions.name(b.0)));
+        let mut end = from;
+        for i in from..self.trail.len() {
+            if end == from || self.trail[end - 1].0 != self.trail[i].0 {
+                self.trail[end] = self.trail[i];
+                end += 1;
+            }
+        }
+        self.trail.truncate(end);
 
-        let (a, b) = match j.then {
-            Some(t) => (t, post),
-            None => (post, j.backup.clone()),
-        };
-
-        let mut divergent: Vec<&String> = a
-            .keys()
-            .chain(b.keys())
-            .filter(|name| a.get(*name).unwrap_or(&0) != b.get(*name).unwrap_or(&0))
-            .collect();
-
-        // Sort for deterministic Phi order, dedup chain() duplicates from shared vars.
-        divergent.sort();
-        divergent.dedup();
-
-        for name in divergent {
-            let va = *a.get(name).unwrap_or(&0);
-            let vb = *b.get(name).unwrap_or(&0);
+        // Each entry keeps the version before the split, so an enclosing join needs none for the Phi.
+        for i in from..end {
+            let (slot, old) = self.trail[i];
+            let now = self.ssa_versions.at(slot);
+            if old == now { continue; }
+            let (va, vb) = if j.mid.is_some() { (old, now) } else { (now, old) };
+            let name = self.ssa_versions.name(slot);
             let mut ba = [0u8; 128];
             let mut bb = [0u8; 128];
             let mut bx = [0u8; 128];
             let ia = self.chunk.push_name(&Self::ssa_name(name, va, &mut ba));
             let ib = self.chunk.push_name(&Self::ssa_name(name, vb, &mut bb));
-            let v = self.increment_version(name);
-            let ix = self.chunk.push_name(&Self::ssa_name(name, v, &mut bx));
+            let ix = self.chunk.push_name(&Self::ssa_name(name, now + 1, &mut bx));
+            self.ssa_versions.set_at(slot, now + 1);
 
             self.chunk.phi_sources.push((ia, ib));
             self.chunk.emit(OpCode::Phi, ix);
         }
+        if self.join_stack.is_empty() { self.trail.clear(); }
     }
 }
 
@@ -572,10 +566,10 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
 
     pub(super) fn lexeme(&self, t: &Token) -> &'src str { &self.source[t.start..t.end] }
 
-    /* Consume the next token and return its source text as a String. */
-    pub(super) fn advance_text(&mut self) -> String {
+    /* Consume the next token and return its source text. */
+    pub(super) fn advance_text(&mut self) -> &'src str {
         let t = self.advance();
-        self.lexeme(&t).to_string()
+        self.lexeme(&t)
     }
 
     /* Skips Newline/Nl/Comment, maps Endmarker->None, latches saw_newline for ternary detection. */
@@ -720,9 +714,10 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             source,
             tokens: Tokens { toks: iter.collect(), pos: 0, from: PhantomData },
             chunk,
-            ssa_versions: HashMap::default(),
+            ssa_versions: Versions::default(),
             globals_decl: crate::util::hash::FxHashSet::default(),
             join_stack: Vec::new(),
+            trail: Vec::new(),
             block_closed: false,
             loops: Vec::new(),
             cleanup_count: 0,

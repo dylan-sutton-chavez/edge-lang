@@ -5,7 +5,7 @@ use super::types::OpCode;
 
 use crate::lexer::{Token, TokenType};
 
-use alloc::{vec::Vec, string::{String, ToString}};
+use alloc::{vec::Vec, string::ToString};
 
 /* Positions of `kind` outside any bracket in `toks`. */
 fn depth0(toks: &[Token], kind: TokenType) -> Vec<usize> {
@@ -209,9 +209,9 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             let [t] = &toks[at + 1..] else { return self.error_at(toks[at].start, toks.last().unwrap().end, "invalid pattern target") };
             if t.kind != TokenType::Name { return self.error_at(t.start, t.end, "invalid pattern target"); }
             self.sub_pattern(&toks[..at], subj, fail_jumps);
-            let name = self.source[t.start..t.end].to_string();
+            let name = &self.source[t.start..t.end];
             self.chunk.emit(OpCode::LoadName, subj);
-            self.emit_store_new(&name);
+            self.emit_store_new(name);
             return;
         }
         // Each alternative of `p | q` sends its failure on to the next one.
@@ -239,9 +239,9 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         }
         if toks.is_empty() || (toks.len() == 1 && toks[0].kind == TokenType::Underscore) { return; }
         if toks.len() == 1 && toks[0].kind == TokenType::Name {
-            let name = self.source[toks[0].start..toks[0].end].to_string();
+            let name = &self.source[toks[0].start..toks[0].end];
             self.chunk.emit(OpCode::LoadName, subj);
-            self.emit_store_new(&name);
+            self.emit_store_new(name);
             return;
         }
         // `a.b.c` is a value pattern, `a.b(...)` a class pattern.
@@ -289,7 +289,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
                 v => v,
             },
             (TokenType::Float, _) => {
-                let f = text(t).replace('_', "").parse::<f64>().ok()?;
+                let f = Self::float_literal(text(t))?;
                 Value::Float(if neg { -f } else { f })
             }
             (TokenType::True, false) => Value::Bool(true),
@@ -301,7 +301,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
 
     /* Loads a dotted name such as `Color.RED` from its tokens. */
     fn emit_dotted(&mut self, path: &[crate::lexer::Token]) {
-        self.emit_load_ssa(self.source[path[0].start..path[0].end].to_string());
+        self.emit_load_ssa(&self.source[path[0].start..path[0].end]);
         for t in path.iter().skip(2).step_by(2) {
             let idx = self.chunk.push_name(&self.source[t.start..t.end]);
             self.chunk.emit(OpCode::LoadAttr, idx);
@@ -519,7 +519,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
 
             // The header runs code of its own, so an error in its type reports its line.
             self.mark_stmt();
-            let mut as_name: Option<String> = None;
+            let mut as_name: Option<&str> = None;
             if matches!(self.peek(), Some(TokenType::Colon)) {
                 had_bare = true;
                 self.chunk.emit(OpCode::PopTop, 0);
@@ -533,7 +533,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
 
                 if self.eat_if(TokenType::As) {
                     let n = self.advance_text();
-                    self.store_name(n.clone());
+                    self.store_name(n);
                     as_name = Some(n);
                 } else { self.chunk.emit(OpCode::PopTop, 0); }
             }
@@ -541,7 +541,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             self.compile_block();
             // Python implicitly unbinds the `except ... as e` name after the block.
             if let Some(n) = as_name {
-                let idx = self.push_ssa_name(&n, self.current_version(&n));
+                let idx = self.push_ssa_name(n, self.current_version(n));
                 self.chunk.emit(OpCode::Del, idx);
             }
 

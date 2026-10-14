@@ -24,37 +24,25 @@ pub static BYTE_CLASS: [u8; 256] = {
     t
 };
 
-/* Single-char operator dispatch, byte -> index into SINGLE_MAP. */
-pub static SINGLE_TOK: [u8; 128] = {
-    let mut t = [0u8; 128];
-    t[b'(' as usize] = 1; t[b')' as usize] = 2;
-    t[b'[' as usize] = 3; t[b']' as usize] = 4;
-    t[b'{' as usize] = 5;
-    t[b'!' as usize] = 6; t[b'%' as usize] = 7;
-    t[b'&' as usize] = 8; t[b'*' as usize] = 9;
-    t[b'+' as usize] = 10; t[b'-' as usize] = 11;
-    t[b'.' as usize] = 12; t[b'/' as usize] = 13;
-    t[b'<' as usize] = 14; t[b'=' as usize] = 15;
-    t[b'>' as usize] = 16; t[b'@' as usize] = 17;
-    t[b'^' as usize] = 18; t[b'|' as usize] = 19;
-    t[b'~' as usize] = 20; t[b',' as usize] = 21;
-    t[b':' as usize] = 22; t[b';' as usize] = 23;
+/* Operators by first byte, alone, followed by `=`, doubled, and doubled then `=`, Endmarker for none. */
+pub static OPERATORS: [[TokenType; 4]; 128] = {
+    use TokenType::*;
+    const N: TokenType = Endmarker;
+    let mut t = [[N; 4]; 128];
+    t[b'(' as usize] = [Lpar, N, N, N]; t[b')' as usize] = [Rpar, N, N, N];
+    t[b'[' as usize] = [Lsqb, N, N, N]; t[b']' as usize] = [Rsqb, N, N, N];
+    t[b'{' as usize] = [Lbrace, N, N, N];
+    t[b'!' as usize] = [Exclamation, NotEqual, N, N]; t[b'%' as usize] = [Percent, PercentEqual, N, N];
+    t[b'&' as usize] = [Amper, AmperEqual, N, N]; t[b'*' as usize] = [Star, StarEqual, DoubleStar, DoubleStarEqual];
+    t[b'+' as usize] = [Plus, PlusEqual, N, N]; t[b'-' as usize] = [Minus, MinEqual, N, N];
+    t[b'.' as usize] = [Dot, N, N, N]; t[b'/' as usize] = [Slash, SlashEqual, DoubleSlash, DoubleSlashEqual];
+    t[b'<' as usize] = [Less, LessEqual, LeftShift, LeftShiftEqual]; t[b'=' as usize] = [Equal, EqEqual, N, N];
+    t[b'>' as usize] = [Greater, GreaterEqual, RightShift, RightShiftEqual]; t[b'@' as usize] = [At, AtEqual, N, N];
+    t[b'^' as usize] = [Circumflex, CircumflexEqual, N, N]; t[b'|' as usize] = [Vbar, VbarEqual, N, N];
+    t[b'~' as usize] = [Tilde, N, N, N]; t[b',' as usize] = [Comma, N, N, N];
+    t[b':' as usize] = [Colon, ColonEqual, N, N]; t[b';' as usize] = [Semi, N, N, N];
     t
 };
-
-/* SINGLE_TOK index -> TokenType. Index 0 = not an operator. */
-pub const SINGLE_MAP: [TokenType; 24] = [
-    TokenType::Endmarker, // 0 = not found
-    TokenType::Lpar, TokenType::Rpar, TokenType::Lsqb, // 1-3
-    TokenType::Rsqb, TokenType::Lbrace, // 4-5
-    TokenType::Exclamation, TokenType::Percent, // 6-7
-    TokenType::Amper, TokenType::Star, TokenType::Plus, // 8-10
-    TokenType::Minus, TokenType::Dot, TokenType::Slash, // 11-13
-    TokenType::Less, TokenType::Equal, TokenType::Greater, // 14-16
-    TokenType::At, TokenType::Circumflex, TokenType::Vbar, // 17-19
-    TokenType::Tilde, TokenType::Comma, TokenType::Colon, // 20-22
-    TokenType::Semi, // 23
-];
 
 /* Routes by (length, first byte) to skip most memcmps. */
 pub fn keyword(s: &[u8]) -> Option<TokenType> {

@@ -17,7 +17,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         loop {
             let Some((spec, alias_hint, span)) = self.read_module_spec() else { return; };
             let alias = if self.eat_if(TokenType::As) {
-                self.advance_text()
+                self.advance_text().to_string()
             } else {
                 alias_hint
             };
@@ -44,8 +44,8 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             // Peek flushes Nl/Comment inside parens and lets a trailing `,` end the list.
             if parens && matches!(self.peek(), Some(TokenType::Rpar)) { break; }
             let name = self.advance_text();
-            let alias = if self.eat_if(TokenType::As) { self.advance_text() } else { name.clone() };
-            names.push((name, alias));
+            let alias = if self.eat_if(TokenType::As) { self.advance_text() } else { name };
+            names.push((name.to_string(), alias.to_string()));
             if !self.eat_if(TokenType::Comma) { break; }
         }
 

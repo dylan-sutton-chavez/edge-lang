@@ -343,13 +343,13 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
     }
 
     /* Dispatches call, print/range opcodes, imported natives (shadow builtins), builtins table, else LoadName+Call. */
-    pub(super) fn call(&mut self, name: String) -> bool {
+    pub(super) fn call(&mut self, name: &str) -> bool {
         let call_pos = self.last_end as u32;
         // A builtin name the scope binds, a parameter included, must call the binding, not the fused opcode.
-        if self.ssa_versions.contains_key(&name) || self.globals_decl.contains(&name) || self.unfused.contains(&name) {
-            let i = self.push_ssa_name(&name, self.current_version(&name));
-            if self.globals_decl.contains(&name) {
-                let gi = self.chunk.push_name(&name);
+        if self.ssa_versions.contains(name) || self.globals_decl.contains(name) || self.unfused.iter().any(|u| u == name) {
+            let i = self.push_ssa_name(name, self.current_version(name));
+            if self.globals_decl.contains(name) {
+                let gi = self.chunk.push_name(name);
                 self.chunk.emit(OpCode::LoadGlobal, gi);
             } else {
                 self.chunk.emit(OpCode::LoadName, i);
@@ -358,10 +358,10 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             self.call_rest(call_pos);
             return true;
         }
-        self.note_removed(&name);
+        self.note_removed(name);
         if name == "print" {
             // Same packed layout as Call so the VM can split sep/end kwargs from positionals.
-            let operand = self.fused_args(&name, true);
+            let operand = self.fused_args(name, true);
             self.note_fused(OpCode::CallPrint);
             self.chunk.emit(OpCode::CallPrint, operand);
             self.chunk.record_call_pos(call_pos);
@@ -369,7 +369,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         }
 
         if name == "range" {
-            let operand = self.fused_args(&name, false);
+            let operand = self.fused_args(name, false);
             if operand & super::KEYWORDS != 0 && (operand >> 8) & 0x3F != 0 { self.error("range() takes no keyword arguments"); }
             self.note_fused(OpCode::CallRange);
             self.chunk.emit(OpCode::CallRange, operand);
@@ -378,7 +378,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         }
 
         // Imported natives shadow builtins, matching Python `from x import *` rebinding.
-        if let Some(&extern_idx) = self.chunk.extern_index.get(&name) {
+        if let Some(&extern_idx) = self.chunk.extern_index.get(name) {
             // A native call always opens its spread frame, the operand has no room for a flag.
             self.chunk.emit(OpCode::BeginArgs, 0);
             self.advance();
@@ -393,29 +393,29 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         }
 
         // dict()/min()/max()/enumerate() take keywords (`default=`/`key=`/`start=`), so keep positional and keyword counts distinct via the packed operand.
-        if let Some(op) = match name.as_str() {
+        if let Some(op) = match name {
             "dict" => Some(OpCode::CallDict),
             "min" => Some(OpCode::CallMin),
             "max" => Some(OpCode::CallMax),
             "enumerate" => Some(OpCode::CallEnumerate),
             _ => None,
         } {
-            let operand = self.fused_args(&name, true);
+            let operand = self.fused_args(name, true);
             self.note_fused(op);
             self.chunk.emit(op, operand);
             self.chunk.record_call_pos(call_pos);
             return true;
         }
 
-        if let Some(op) = builtin(name.as_str()) {
-            let operand = self.fused_args(&name, false);
+        if let Some(op) = builtin(name) {
+            let operand = self.fused_args(name, false);
             self.note_fused(op);
             self.chunk.emit(op, operand);
             self.chunk.record_call_pos(call_pos);
             return true;
         }
 
-        let i = self.push_ssa_name(&name, self.current_version(&name));
+        let i = self.push_ssa_name(name, self.current_version(name));
         self.chunk.emit(OpCode::LoadName, i);
         self.advance();
         self.call_rest(call_pos);
@@ -435,7 +435,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             Some(super::types::FUSED.iter().find(|&&op| op as u8 == bit).and_then(|&op| super::types::fused_native(op)).map(|id| id.name()))
         }).flatten();
         let externs = self.fused_externs.iter().filter_map(|&i| self.chunk.extern_table.get(i as usize)).map(|f| f.name.as_str());
-        let mut late: Vec<String> = fused.chain(externs).filter(|n| self.ssa_versions.contains_key(*n)).map(String::from).collect();
+        let mut late: Vec<String> = fused.chain(externs).filter(|n| self.ssa_versions.contains(n)).map(String::from).collect();
         late.dedup();
         late
     }
@@ -521,13 +521,13 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
     }
 
     /* Consume the next Name, or emit a non-syncing diagnostic and return a synthetic name so parsing continues. */
-    fn ident_or_missing(&mut self, msg: &str) -> String {
+    fn ident_or_missing(&mut self, msg: &str) -> &'src str {
         // `_` lexes as the wildcard of `match`, yet names a function or class like any identifier.
         if matches!(self.peek(), Some(TokenType::Name | TokenType::Underscore)) {
             self.advance_text()
         } else {
             self.diag_at_peek(msg);
-            "<missing>".to_string()
+            "<missing>"
         }
     }
 
@@ -582,7 +582,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
                     s.chunk.emit(OpCode::MakeTypeVar, idx);
                 }
                 s.chunk.emit(OpCode::BuildTuple, params.len() as u16);
-                s.store_name("__type_params__".into());
+                s.store_name("__type_params__");
             }
             s.compile_block();
         });
@@ -597,24 +597,24 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         // Each decorator Calls with the previous result, same as for functions.
         self.emit_decorator_calls(decorators);
 
-        self.emit_store_new(&cname);
+        self.emit_store_new(cname);
     }
 
     /* def/async def parses signature, compiles body, emits MakeFunction/MakeCoroutine+decorators+StoreName. */
     pub(super) fn func_def_inner(&mut self, decorators: u16, is_async: bool) {
         // Missing name, non-syncing diagnostic + synthetic name so signature+body still parse.
         let fname = self.ident_or_missing("expected function name");
-        self.check_member(&fname, self.last_end);
+        self.check_member(fname, self.last_end);
         self.type_params();
         let (params, defaults) = self.parse_params();
         let body = self.compile_body(&params);
 
         // Propagate free names to parent chunk so nested defs capture grandparent vars.
-        self.push_function(params, body, defaults, Some(&fname), if is_async { OpCode::MakeCoroutine } else { OpCode::MakeFunction });
+        self.push_function(params, body, defaults, Some(fname), if is_async { OpCode::MakeCoroutine } else { OpCode::MakeFunction });
 
         self.emit_decorator_calls(decorators);
 
-        self.emit_store_new(&fname);
+        self.emit_store_new(fname);
     }
 
     /* Rejects a dunder a class body binds that the engine never calls, `end` closing its name. */
@@ -635,7 +635,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
     }
 
     /* Names of a `[T, *Ts, **P]` type parameter list, bounds and defaults skipped since the engine is dynamically typed. */
-    pub(super) fn type_params(&mut self) -> Vec<String> {
+    pub(super) fn type_params(&mut self) -> Vec<&'src str> {
         let mut names = Vec::new();
         if !self.eat_if(TokenType::Lsqb) { return names; }
         let (mut depth, mut expect_name) = (1, true);

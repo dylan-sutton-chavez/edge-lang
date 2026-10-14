@@ -14,8 +14,8 @@ pub(crate) struct Globals {
     index: hashbrown::HashTable<u32>,
     names: Vec<String>,
     vals: Vec<Val>,
-    /* The builtin each name belongs to, rebinding it redirects the fused calls of that builtin. */
-    builtin: Vec<Option<crate::value::NativeFnId>>,
+    /* The builtin each name belongs to, and the builtin value a read found while the name was unbound. */
+    builtin: Vec<(Option<crate::value::NativeFnId>, core::cell::Cell<Val>)>,
 }
 
 impl Globals {
@@ -29,7 +29,7 @@ impl Globals {
         let i = self.vals.len() as u32;
         self.names.push(name.into());
         self.vals.push(Val::undef());
-        self.builtin.push(crate::value::NativeFnId::from_name(name));
+        self.builtin.push((crate::value::NativeFnId::from_name(name), core::cell::Cell::new(Val::undef())));
         let names = &self.names;
         self.index.insert_unique(hash_key(name), i, |&j| hash_key(&names[j as usize]));
         i
@@ -52,8 +52,12 @@ impl Globals {
 
     pub fn name(&self, i: u32) -> &str { self.names.get(i as usize).map_or("", |n| n.as_str()) }
 
+    /* The builtin last read under index `i` while it was unbound, undef before the first read. */
     #[inline]
-    pub fn names_builtin(&self, i: u32) -> Option<crate::value::NativeFnId> { self.builtin.get(i as usize).copied().flatten() }
+    pub fn fallback(&self, i: u32) -> Val { self.builtin.get(i as usize).map_or(Val::undef(), |b| b.1.get()) }
+
+    #[inline]
+    pub fn names_builtin(&self, i: u32) -> Option<crate::value::NativeFnId> { self.builtin.get(i as usize).and_then(|b| b.0) }
 
     /* Every name with its value, unbound ones undef, in first-named order. */
     pub fn entries(&self) -> impl Iterator<Item = (&str, Val)> + '_ { self.names.iter().map(String::as_str).zip(self.vals.iter().copied()) }
@@ -242,8 +246,12 @@ impl<'a> VM<'a> {
     #[cold]
     #[inline(never)]
     fn unbound_global(&self, module: usize, g: u32) -> Result<Val, VmErr> {
-        let name = self.scopes[module].name(g);
-        self.builtins.get(name).copied().ok_or_else(|| VmErr::Name(name.into()))
+        let scope = &self.scopes[module];
+        let name = scope.name(g);
+        let v = self.builtins.get(name).copied().ok_or_else(|| VmErr::Name(name.into()))?;
+        // A builtin keeps its value for the whole run, so the slot remembers it.
+        if let Some(b) = scope.builtin.get(g as usize) { b.1.set(v); }
+        Ok(v)
     }
 
     /* The value a cell holds, or `v` itself when it is not one. */

@@ -20,6 +20,25 @@ fn index_of(i: i64, len: usize) -> Option<usize> {
     (0..len as i64).contains(&j).then_some(j as usize)
 }
 
+/* Whether `k` hashes without user code, an inline value or a str. */
+#[inline(always)]
+fn plain_key_in(heap: &HeapPool, k: Val) -> bool { !k.is_heap() && !k.is_undef() || matches!(heap.try_get(k), Some(HeapObj::Str(_))) }
+
+/* The value a plain dict holds under a plain key, None on a miss so the slow path raises. */
+#[inline(never)]
+fn dict_get(heap: &HeapPool, d: &RefCell<DictMap>, k: Val) -> Option<Val> {
+    if !plain_key_in(heap, k) { return None; }
+    d.borrow().get(&k, heap).copied()
+}
+
+/* Stores under a plain key of a plain dict, false when the key needs the slow path. */
+#[inline(never)]
+fn dict_set(heap: &HeapPool, d: &RefCell<DictMap>, k: Val, v: Val) -> bool {
+    if !plain_key_in(heap, k) { return false; }
+    d.borrow_mut().insert(k, v, heap);
+    true
+}
+
 /* Opcodes the register loop hands to `regs_aside`, done there when common. */
 #[inline(always)]
 fn aside_op(op: OpCode) -> bool {
@@ -302,6 +321,13 @@ impl<'a> VM<'a> {
         // Borrow, don't clone, `chunk` outlives every `&mut self` call below.
         let name = chunk.names.get(attr_idx as usize).ok_or(VmErr::Runtime("CallMethod: bad name index"))?;
         let site = cache.site(rip);
+        // A known builtin method with a few positionals copies them once and takes no keyword slot.
+        if num_kw == 0 && num_pos <= 3 && let Some(id) = self.site_builtin(site, obj) {
+            let mut args = [Val::undef(); 3];
+            args[..num_pos].copy_from_slice(&self.stack[at..at + num_pos]);
+            self.stack.truncate(at - 1);
+            return self.exec_bound_method(obj, id, &args[..num_pos], &[], chunk);
+        }
         // A known method calls with the receiver slotted in as its first argument.
         if let Some((func, owner)) = self.site_method(site, obj, name) {
             self.stack.insert(at - 1, func);
@@ -493,7 +519,8 @@ impl<'a> VM<'a> {
                     i += 1;
                 }
                 OpCode::LoadGlobalR => {
-                    let v = self.scopes[code.module].at(ins.b as u32);
+                    let scope = &self.scopes[code.module];
+                    let v = match scope.at(ins.b as u32) { v if v.is_undef() => scope.fallback(ins.b as u32), v => v };
                     if v.is_undef() { break; }
                     r[ins.a as usize] = v;
                     i += 1;
@@ -696,8 +723,12 @@ impl<'a> VM<'a> {
                     _ => {
                         let mut s = String::new();
                         for &p in items {
-                            let Some(HeapObj::Str(part)) = self.heap.try_get(p) else { return false };
-                            s.push_str(part);
+                            match self.heap.try_get(p) {
+                                Some(HeapObj::Str(part)) => s.push_str(part),
+                                // A bare field leaves an inline value, rendered only here.
+                                None if !p.is_undef() => s.push_str(&self.display(p)),
+                                _ => return false,
+                            }
                         }
                         HeapObj::Str(s)
                     }
@@ -771,6 +802,8 @@ impl<'a> VM<'a> {
             _ => None,
         };
         match op {
+            // A bare field keeps an inline value, the string that holds it renders it.
+            OpCode::FormatValue if !x.is_heap() && !x.is_undef() => Some(x),
             OpCode::FormatValue | OpCode::CallStr => text(self, x),
             OpCode::CallInt if x.is_int() => Some(x),
             OpCode::CallInt if x.is_bool() => Some(Val::int(x.as_bool() as i64)),
@@ -795,7 +828,7 @@ impl<'a> VM<'a> {
 
     /* A key that is hashable by its kind alone, so a fast path skips the hashability check. */
     #[inline(always)]
-    fn plain_key(&self, k: Val) -> bool { !k.is_heap() && !k.is_undef() || matches!(self.heap.try_get(k), Some(HeapObj::Str(_))) }
+    fn plain_key(&self, k: Val) -> bool { plain_key_in(&self.heap, k) }
 
     /* A builtin container's length or an ASCII string's, None when a dunder may decide. */
     #[inline(always)]
@@ -808,6 +841,36 @@ impl<'a> VM<'a> {
             HeapObj::Str(s) if s.is_ascii() => s.len(),
             _ => return None,
         })
+    }
+
+    /* The fast path for a subscript of a plain list, tuple or dict, false when it misses. */
+    #[inline(never)]
+    fn item_fast(&mut self, ins: Ins) -> bool {
+        let r = &self.regs[self.base..];
+        if ins.op == OpCode::GetItemR {
+            let (o, k) = (r[ins.b as usize], r[ins.c as usize]);
+            let hit = match self.heap.plain(o) {
+                Some(HeapObj::List(v)) if k.is_int() => { let b = v.borrow(); index_of(k.as_int(), b.len()).map(|j| b[j]) }
+                Some(HeapObj::Tuple(v)) if k.is_int() => index_of(k.as_int(), v.len()).map(|j| v[j]),
+                Some(HeapObj::Dict(d)) => dict_get(&self.heap, d, k),
+                _ => None,
+            };
+            let Some(v) = hit else { return false };
+            self.regs[self.base + ins.a as usize] = v;
+            return true;
+        }
+        let (o, k, v) = (r[ins.a as usize], r[ins.b as usize], r[ins.c as usize]);
+        match self.heap.plain(o) {
+            Some(HeapObj::List(l)) if k.is_int() => {
+                let mut b = l.borrow_mut();
+                let Some(j) = index_of(k.as_int(), b.len()) else { return false };
+                b[j] = v;
+            }
+            Some(HeapObj::Dict(d)) => if !dict_set(&self.heap, d, k, v) { return false },
+            _ => return false,
+        }
+        self.mark_impure();
+        true
     }
 
     /* The fast path for a key, length or cell probe, false when it misses. */
@@ -860,6 +923,8 @@ impl<'a> VM<'a> {
             OpCode::JumpUnlessEq | OpCode::JumpUnlessNotEq | OpCode::JumpUnlessLt | OpCode::JumpUnlessLtEq | OpCode::JumpUnlessGt | OpCode::JumpUnlessGtEq
                 => if !self.reg_test(ins, rip, cache, chunk)? { *ip = self.checked_jump(op as usize, n)?; },
             OpCode::JumpIfFalseR => if self.reg_truthy(chunk, ins.b)? == (ins.x != 0) { *ip = self.checked_jump(op as usize, n)?; },
+            // A dict subscript the register loop left skips the generic protocol.
+            OpCode::GetItemR | OpCode::StoreItemR if self.item_fast(ins) => {}
             OpCode::LenR | OpCode::MinusR | OpCode::NotR | OpCode::GetItemR | OpCode::InR | OpCode::NotInR | OpCode::IsR | OpCode::IsNotR
             | OpCode::BitAndR | OpCode::BitOrR | OpCode::BitXorR | OpCode::ShlR | OpCode::ShrR => {
                 if ins.op == OpCode::LenR { self.pending.call_ip = Some(code.orig(rip)); }

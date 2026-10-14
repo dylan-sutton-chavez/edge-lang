@@ -667,5 +667,37 @@
   {
     "src": "﻿x",
     "tokens": ["Name", "Endmarker"]
+  },
+  {
+    "src": "a**=b//=c<<=d>>=e",
+    "tokens": ["Name", "DoubleStarEqual", "Name", "DoubleSlashEqual", "Name", "LeftShiftEqual", "Name", "RightShiftEqual", "Name", "Endmarker"]
+  },
+  {
+    "src": "x===y!==z",
+    "tokens": ["Name", "EqEqual", "Equal", "Name", "NotEqual", "Equal", "Name", "Endmarker"]
+  },
+  {
+    "src": "def f(a)->b<>c: ...",
+    "tokens": ["Def", "Name", "Lpar", "Name", "Rpar", "Rarrow", "Name", "Less", "Greater", "Name", "Colon", "Ellipsis", "Endmarker"]
+  },
+  {
+    "src": "f(**k, *a, ***b)",
+    "tokens": ["Name", "Lpar", "DoubleStar", "Name", "Comma", "Star", "Name", "Comma", "DoubleStar", "Star", "Name", "Rpar", "Endmarker"]
+  },
+  {
+    "src": "x !=y !z ~= w",
+    "tokens": ["Name", "NotEqual", "Name", "Exclamation", "Name", "Tilde", "Equal", "Name", "Endmarker"]
+  },
+  {
+    "src": "s = f\"{x:=^9}{y!r:>{w}}{z=}\"",
+    "tokens": ["Name", "Equal", "FstringStart", "Lbrace", "Name", "Colon", "Equal", "Circumflex", "Int", "Rbrace", "Lbrace", "Name", "Exclamation", "Name", "Colon", "Greater", "Lbrace", "Name", "Rbrace", "Rbrace", "Lbrace", "Name", "Equal", "Rbrace", "FstringEnd", "Endmarker"]
+  },
+  {
+    "src": "x[...]..y .5. 5..e",
+    "tokens": ["Name", "Lsqb", "Ellipsis", "Rsqb", "Dot", "Dot", "Name", "Float", "Dot", "Int", "Dot", "Dot", "Name", "Endmarker"]
+  },
+  {
+    "src": "a<=b>=c==d<<e>>f%=g&=h|=i^=j@=k-=l+=m*=n/=o",
+    "tokens": ["Name", "LessEqual", "Name", "GreaterEqual", "Name", "EqEqual", "Name", "LeftShift", "Name", "RightShift", "Name", "PercentEqual", "Name", "AmperEqual", "Name", "VbarEqual", "Name", "CircumflexEqual", "Name", "AtEqual", "Name", "MinEqual", "Name", "PlusEqual", "Name", "StarEqual", "Name", "SlashEqual", "Name", "Endmarker"]
   }
 ]

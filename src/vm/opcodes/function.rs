@@ -128,7 +128,7 @@ impl<'a> VM<'a> {
         let done = match id.kind() {
             MethodKind::Sort => self.exec_sort(recv, pos, kw, chunk),
             MethodKind::Format if kw.is_empty() => crate::vm::methods::string::format(self, recv, pos, chunk),
-            MethodKind::Search if id.ty() == "list" && kw.is_empty() => {
+            MethodKind::Search if matches!(id.ty(), "list" | "tuple") && kw.is_empty() => {
                 crate::vm::methods::method_frame(self, id, pos.len())?;
                 self.with_roots(pos.iter().copied().chain([recv]), |vm| {
                     crate::vm::methods::list::search(vm, recv, id.name(), pos, |vm, a, b| vm.member_eq(a, b, chunk))

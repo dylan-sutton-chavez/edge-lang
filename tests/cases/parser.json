@@ -1558,5 +1558,30 @@
     "names": [],
     "instructions": [["ReturnValue",0]],
     "errors": ["complex numbers are not supported"]
+  },
+  {
+    "src": "x = 0xF_F + 0o7_7 + 0b1_1 + 1_000 + 0\ny = 1_2.5e1_0 + 0xFFFF_FFFF_FFFF_FFFF",
+    "constants": ["255", "63", "3", "1000", "0", "125000000000", "18446744073709551615"],
+    "names": ["x_1", "y_1"],
+    "instructions": [["LoadConst",0], ["LoadConst",1], ["Add",0], ["LoadConst",2], ["Add",0], ["LoadConst",3], ["Add",0], ["LoadConst",4], ["Add",0], ["StoreName",0], ["LoadConst",5], ["LoadConst",6], ["Add",0], ["StoreName",1], ["ReturnValue",0]]
+  },
+  {
+    "src": "def f(a, *b, c=1, **d):\n    return a + len(d) + e + b\nn = f(1_0)",
+    "constants": ["1", "10"],
+    "names": ["e_0", "f_1", "n_1"],
+    "instructions": [["LoadConst",0], ["MakeFunction",0], ["StoreName",1], ["LoadName",1], ["LoadConst",1], ["Call",1], ["StoreName",2], ["ReturnValue",0]],
+    "functions": 1
+  },
+  {
+    "src": "if c:\n    b = 1\n    a = 2\nelif d:\n    a = 3\nelse:\n    c = 4\nprint(a, b, c)",
+    "constants": ["1", "2", "3", "4"],
+    "names": ["c_0", "b_1", "a_1", "d_0", "a_2", "c_1", "c_2"],
+    "instructions": [["LoadName",0], ["JumpIfFalse",7], ["LoadConst",0], ["StoreName",1], ["LoadConst",1], ["StoreName",2], ["Jump",14], ["LoadName",3], ["JumpIfFalse",12], ["LoadConst",2], ["StoreName",2], ["Jump",14], ["LoadConst",3], ["StoreName",0], ["Phi",0], ["LoadName",2], ["LoadName",1], ["LoadName",0], ["CallPrint",3], ["ReturnValue",0]]
+  },
+  {
+    "src": "while c:\n    if d:\n        x = 1\n    else:\n        z = 2\n    x = 3\nfor i in r:\n    try:\n        x = i\n    except E:\n        z = i\nprint(x, z)",
+    "constants": ["1", "2", "3"],
+    "names": ["c_0", "d_0", "x_1", "z_1", "z_0", "z_2", "x_2", "x_0", "x_3", "z_3", "r_0", "i_1", "x_4", "E_0", "z_4", "z_5", "i_0", "i_2", "x_5", "z_6"],
+    "instructions": [["LoadName",0], ["JumpIfFalse",13], ["LoadName",1], ["JumpIfFalse",7], ["LoadConst",0], ["StoreName",7], ["Jump",9], ["LoadConst",1], ["StoreName",4], ["Phi",4], ["LoadConst",2], ["StoreName",7], ["Jump",0], ["Phi",7], ["Phi",4], ["LoadName",10], ["GetIter",0], ["ForIter",39], ["StoreName",16], ["SetupFinally",36], ["SetupExcept",25], ["LoadName",16], ["StoreName",7], ["PopExcept",0], ["Jump",34], ["Dup",0], ["LoadName",13], ["CallIsInstance",2], ["JumpIfFalse",33], ["PopTop",0], ["LoadName",16], ["StoreName",4], ["Jump",34], ["Raise",0], ["PopExcept",0], ["BeginFinally",0], ["EndFinally",0], ["Phi",4], ["Jump",17], ["Phi",16], ["Phi",7], ["Phi",4], ["LoadName",7], ["LoadName",4], ["CallPrint",2], ["ReturnValue",0]]
   }
 ]

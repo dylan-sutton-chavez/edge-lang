@@ -2,7 +2,13 @@ use super::prelude::*;
 
 /* `list.index`, `count` or `remove` named `name`, `eq` matches an item, the VM passes one that runs `__eq__`. */
 pub(crate) fn search(vm: &mut VM, recv: Val, name: &str, pos: &[Val], mut eq: impl FnMut(&mut VM, Val, Val) -> Result<bool, VmErr>) -> Result<(), VmErr> {
-    let len = list_clone(vm, recv)?.len() as i64;
+    let (len, ty) = match vm.heap.try_get(recv) {
+        Some(HeapObj::List(rc)) => (rc.borrow().len(), "list"),
+        Some(HeapObj::Tuple(t)) => (t.len(), "tuple"),
+        _ => return Err(cold_type("method requires a list receiver")),
+    };
+    vm.heap.spend(len);
+    let len = len as i64;
     // Optional start/end clamp like Python, negatives count from the end. Bools count as ints.
     let as_i = |v: Val| -> i64 { if v.is_bool() { v.as_bool() as i64 } else { v.as_int() } };
     let norm = |v: Val| (if as_i(v) < 0 { len + as_i(v) } else { as_i(v) }).clamp(0, len) as usize;
@@ -13,7 +19,11 @@ pub(crate) fn search(vm: &mut VM, recv: Val, name: &str, pos: &[Val], mut eq: im
     let mut hits = 0;
     // Each item is read live, a `__eq__` that shrinks the list ends the walk early.
     for i in start..stop {
-        let Some(v) = (match vm.heap.try_get(recv) { Some(HeapObj::List(rc)) => rc.borrow().get(i).copied(), _ => None }) else { break };
+        let Some(v) = (match vm.heap.try_get(recv) {
+            Some(HeapObj::List(rc)) => rc.borrow().get(i).copied(),
+            Some(HeapObj::Tuple(t)) => t.get(i).copied(),
+            _ => None,
+        }) else { break };
         if !eq(vm, v, pos[0])? { continue; }
         match name {
             "count" => hits += 1,
@@ -27,8 +37,9 @@ pub(crate) fn search(vm: &mut VM, recv: Val, name: &str, pos: &[Val], mut eq: im
     }
     match name {
         "count" => { vm.push(Val::int(hits)); Ok(()) }
-        "index" => Err(cold_value("value not found in list")),
-        _ => Err(cold_value("list.remove: value not found")),
+        "index" if ty == "tuple" => Err(cold_value("tuple.index(x): x not in tuple")),
+        "index" => Err(cold_value("list.index(x): x not in list")),
+        _ => Err(cold_value("list.remove(x): x not in list")),
     }
 }
 

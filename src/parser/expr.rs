@@ -328,14 +328,14 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
 
     /* Name, walrus `:=`, call, or plain load. */
     pub(super) fn name(&mut self, t: Token) {
-        let name = self.lexeme(&t).to_string();
+        let name = self.lexeme(&t);
         match self.peek_same_line() {
             // Walrus stores like an assignment, an enclosing `global` included, and leaves the value.
             Some(TokenType::ColonEqual) => {
                 self.advance();
                 self.expr();
-                if self.in_comp && !self.globals_decl.contains(&name) && !self.chunk.nonlocals.contains(&name) { self.chunk.nonlocals.push(name.clone()); }
-                self.store_name(name.clone());
+                if self.in_comp && !self.globals_decl.contains(name) && !self.chunk.nonlocals.iter().any(|n| n == name) { self.chunk.nonlocals.push(name.to_string()); }
+                self.store_name(name);
                 self.emit_load_ssa(name);
             }
             Some(TokenType::Lpar) => {
@@ -358,9 +358,9 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         let raw = raw.trim_end_matches(['j', 'J']);
         if kind == TokenType::Float {
             // A malformed float (e.g. empty exponent `1e`) is a syntax error, not 0.0.
-            match raw.replace('_', "").parse() {
-                Ok(f) => self.emit_const(Value::Float(f)),
-                Err(_) => self.error("invalid float literal"),
+            match Self::float_literal(raw) {
+                Some(f) => self.emit_const(Value::Float(f)),
+                None => self.error("invalid float literal"),
             }
             return;
         }
@@ -370,17 +370,39 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         }
     }
 
+    /* A float literal with `_` separators, copied only when it has one. */
+    pub(super) fn float_literal(raw: &str) -> Option<f64> {
+        if raw.contains('_') { raw.replace('_', "").parse().ok() } else { raw.parse().ok() }
+    }
+
     /* An int literal in any base with `_` separators, the value or the syntax error it raises. */
     pub(super) fn int_literal(raw: &str) -> Result<Value, &'static str> {
-        let s = raw.replace('_', "");
-        let (digits, base) = Self::parse_int_prefix(&s);
+        const TOO_LARGE: &str = "integer literal too large to represent (max ±2^127)";
+        let (digits, base) = Self::parse_int_prefix(raw);
+        let mut digits = digits.bytes().filter(|&b| b != b'_').peekable();
         // No leading zeros, all-zero runs still valid.
-        if base == 10 && digits.len() > 1 && digits.starts_with('0') && digits.bytes().any(|b| b != b'0') {
+        if base == 10 && digits.peek() == Some(&b'0') && digits.clone().any(|b| b != b'0') {
             return Err("leading zeros in decimal integer literals are not permitted");
         }
-        // i64 first, wasm emulates the i128 parse the wide-int path needs.
-        if let Ok(v) = i64::from_str_radix(digits, base) { return Ok(Value::Int(v)); }
-        i128::from_str_radix(digits, base).map(Value::LongInt).map_err(|_| "integer literal too large to represent (max ±2^127)")
+        // u64 first, wasm emulates the u128 arithmetic only past it.
+        let (mut narrow, mut wide, mut any) = (0u64, None::<u128>, false);
+        for b in digits {
+            let d = (b as char).to_digit(base).ok_or(TOO_LARGE)?;
+            any = true;
+            match wide {
+                None => match narrow.checked_mul(base as u64).and_then(|v| v.checked_add(d as u64)) {
+                    Some(v) => narrow = v,
+                    None => wide = Some(narrow as u128 * base as u128 + d as u128),
+                },
+                Some(w) => wide = Some(w.checked_mul(base as u128).and_then(|v| v.checked_add(d as u128)).ok_or(TOO_LARGE)?),
+            }
+        }
+        if !any { return Err(TOO_LARGE); }
+        match wide {
+            None if narrow <= i64::MAX as u64 => Ok(Value::Int(narrow as i64)),
+            None => Ok(Value::LongInt(narrow as i128)),
+            Some(w) => i128::try_from(w).map(Value::LongInt).map_err(|_| TOO_LARGE),
+        }
     }
 
     /* Subscript after `[`, comma-separated items build one tuple key. Eats the closing `]`, returns true for a lone slice. */

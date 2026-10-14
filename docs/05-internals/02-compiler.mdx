@@ -33,7 +33,7 @@ A leading UTF-8 BOM (`EF BB BF`) is skipped before scanning. Without that the ma
 
 ### Soft keywords
 
-`match`, `case` and `type` collide with builtins and ordinary names. A pass after scanning decides what each one is.
+`match`, `case` and `type` collide with builtins and ordinary names. The scanner fills one token buffer, sized from the source length, and a pass over that buffer then decides what each one is in place.
 
 - `match` and `case` stay keywords only when they start a statement and a header colon follows. The colon must sit outside brackets and before any `=`, newline or `;`.
 - `type` stays a keyword only when it starts a statement and a name follows, as in a type alias.
@@ -86,13 +86,12 @@ Two compile-time tables in `lexer/tables.rs` drive the scanner.
 // Bit flags per byte: ID_START, ID_CONT, DIGIT, SPACE.
 pub static BYTE_CLASS: [u8; 256] = { /* ... */ };
 
-// Single-char operator dispatch.
-pub static SINGLE_TOK: [u8; 128] = { /* ... */ };
-pub const SINGLE_MAP: [TokenType; 24] = { /* ... */ };
+// Operators by first byte: alone, followed by `=`, doubled, doubled then `=`.
+pub static OPERATORS: [[TokenType; 4]; 128] = { /* ... */ };
 ```
 
 - Identifiers, digits and whitespace use a `scan_while(pred)` driver that loops over `BYTE_CLASS[b] & FLAG`.
-- A single-char operator takes two indexed loads, `b -> SINGLE_TOK[b] -> SINGLE_MAP[i]`.
+- An operator takes one indexed load, `OPERATORS[b]`. The next byte then picks the doubled form, such as `**`, or the `=` form, such as `*=`, and a third byte picks `**=`.
 - Keyword lookup routes by `(length, first_byte)` and skips most `memcmp` calls.
 
 ASCII bytes with no operator slot, such as `$`, `?` and `` ` ``, raise `unexpected character` and are skipped.
@@ -309,7 +308,7 @@ The `{expr=}` form emits the field text as written, spaces around the `=` includ
 
 ## SSA and phi nodes
 
-Each binding emits a fresh slot with a higher version. The parser keeps a `HashMap<String, u32>` from name to current version. Names in `chunk.names` are stored as `name_version`.
+Each binding emits a fresh slot with a higher version. The parser keeps the current version of each name in a table that allocates the text of a name once, when it first binds, and finds it by hash after that. Names in `chunk.names` are stored as `name_version`.
 
 ```python
 x = 1  # x_1
@@ -330,13 +329,15 @@ chunk.instructions:
 
 A name read before any binding in its chunk targets version 0, such as `x_0`. At run time an unbound `_0` name falls back to the builtins. A name that is still unbound raises `NameError`.
 
-At each control-flow boundary the parser pushes a `JoinNode { backup, then }` onto a stack.
+Inside a block every store pushes its name and the version it replaced onto a trail. At each control-flow boundary the parser pushes a `JoinNode { start, mid }` of trail positions onto a stack.
 
 ```text
-enter_block()  -> snapshot current versions into JoinNode.backup
-mid_block()    -> snapshot post-then versions into JoinNode.then, restore baseline for else
-commit_block() -> diff (then u post) against backup, emit Phi for each name that diverged
+enter_block()  -> start = where the trail ends now
+mid_block()    -> mid = where the trail ends now, the next branch keeps the current versions
+commit_block() -> sort the trail after the split by name, emit Phi for each name stored there
 ```
+
+A join reads only the names its blocks stored, so its cost follows those stores and not every name in scope. Versions only grow inside a chunk, which is why a branch never restores the versions before it.
 
 Each `Phi` carries the target slot, the version after the join, in its operand. The source slots live in `chunk.phi_sources`, indexed at run time by `chunk.phi_map[ip]`. That keeps `Instruction` at 4 bytes.
 
@@ -412,8 +413,8 @@ Lambdas and `def` both compile their body into a fresh `SSAChunk`.
 
 ```rust
 self.with_fresh_chunk(|s| {
-    s.ssa_versions = outer_versions.clone();
-    for p in &params { s.ssa_versions.insert(param_base_name(p).to_string(), 0); }
+    s.ssa_versions = outer_versions;
+    for p in params { s.bind_param(p); } // each base name at version 0
     s.expr(); // or compile_block_body for def
     s.chunk.emit(OpCode::ReturnValue, 0);
 });

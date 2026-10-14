@@ -74,33 +74,35 @@ pub fn lex(source: &str) -> (Vec<Token>, Vec<LexError>) {
         );
     }
 
-    let mut raw: Vec<(TokenType, usize, usize, usize)> = Vec::new();
+    // About two bytes of source per token, so most sources never grow the buffer.
+    let mut tokens: Vec<Token> = Vec::with_capacity(len / 2 + 8);
+    let token = |(kind, line, start, end)| Token { kind, line, start, end, comp: false, assigns: 0 };
     while let Some(t) = scanner.next_token() {
-        raw.push(t);
+        tokens.push(token(t));
     }
     // Drain dangling indents at EOF so blocks always close cleanly.
     while scanner.indent_stack.pop().is_some() {
-        raw.push((TokenType::Dedent, scanner.line, len, len));
+        tokens.push(token((TokenType::Dedent, scanner.line, len, len)));
     }
-    raw.push((TokenType::Endmarker, scanner.line, len, len));
+    tokens.push(token((TokenType::Endmarker, scanner.line, len, len)));
 
-    let mut tokens: Vec<Token> = Vec::with_capacity(raw.len());
-    let mut ended = false;
-    for i in 0..raw.len() {
-        let (tok, line, start, end) = raw[i];
-        if ended { break; }
-        if tok == TokenType::Endmarker { ended = true; }
-
+    // Resolves in place, the tokens before `i` final and those after it as scanned.
+    let mut i = 0;
+    while i < tokens.len() {
+        let tok = tokens[i].kind;
         /* `match` and `case` stay keywords only in a header, `type` only in an alias. */
         let kind = match tok {
-            TokenType::Match | TokenType::Case if !(starts_stmt(&raw, i) && opens_header(&raw, i)) => TokenType::Name,
-            TokenType::Type if !(starts_stmt(&raw, i) && matches!(raw.get(i + 1), Some(&(TokenType::Name, ..)))) => TokenType::Name,
+            TokenType::Match | TokenType::Case if !(starts_stmt(&tokens, i) && opens_header(&tokens, i)) => TokenType::Name,
+            TokenType::Type if !(starts_stmt(&tokens, i) && tokens.get(i + 1).is_some_and(|t| t.kind == TokenType::Name)) => TokenType::Name,
             _ => tok,
         };
-        if kind == TokenType::For && let Some(first) = comp_start(&tokens) { tokens[first].comp = true; }
-        if kind == TokenType::Equal && let Some(head) = assign_head(&tokens) { tokens[head].assigns = tokens[head].assigns.saturating_add(1); }
-        tokens.push(Token { kind, line, start, end, comp: false, assigns: 0 });
+        if kind == TokenType::For && let Some(first) = comp_start(&tokens[..i]) { tokens[first].comp = true; }
+        if kind == TokenType::Equal && let Some(head) = assign_head(&tokens[..i]) { tokens[head].assigns = tokens[head].assigns.saturating_add(1); }
+        tokens[i].kind = kind;
+        i += 1;
+        if tok == TokenType::Endmarker { break; }
     }
+    tokens.truncate(i);
     (tokens, scanner.errors)
 }
 
@@ -155,15 +157,15 @@ pub(crate) fn opens_body(kind: TokenType) -> bool {
         | TokenType::Match | TokenType::Case)
 }
 
-fn starts_stmt(raw: &[(TokenType, usize, usize, usize)], i: usize) -> bool {
-    i == 0 || matches!(raw[i - 1].0, TokenType::Newline | TokenType::Indent | TokenType::Dedent | TokenType::Semi)
+fn starts_stmt(tokens: &[Token], i: usize) -> bool {
+    i == 0 || matches!(tokens[i - 1].kind, TokenType::Newline | TokenType::Indent | TokenType::Dedent | TokenType::Semi)
 }
 
 /* A header colon sits outside brackets and before any `=`, so a body may follow it. */
-fn opens_header(raw: &[(TokenType, usize, usize, usize)], i: usize) -> bool {
+fn opens_header(tokens: &[Token], i: usize) -> bool {
     let mut depth = 0usize;
-    for (j, &(tok, ..)) in raw.iter().enumerate().skip(i + 1) {
-        match tok {
+    for (j, t) in tokens.iter().enumerate().skip(i + 1) {
+        match t.kind {
             TokenType::Lpar | TokenType::Lsqb | TokenType::Lbrace => depth += 1,
             TokenType::Rpar | TokenType::Rsqb | TokenType::Rbrace => depth = depth.saturating_sub(1),
             TokenType::Colon if depth == 0 => return j > i + 1,

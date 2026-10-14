@@ -104,7 +104,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
                 self.eat(TokenType::Equal);
                 let body = self.expr_body(&[]);
                 self.push_function(Vec::new(), body, 0, None, OpCode::MakeFunction);
-                let idx = self.chunk.push_name(&name);
+                let idx = self.chunk.push_name(name);
                 self.chunk.emit(OpCode::MakeTypeAlias, idx);
                 self.store_name(name);
                 false
@@ -260,11 +260,11 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         self.advance();
         loop {
             let name = self.advance_text();
-            let idx = self.chunk.push_name(&name);
+            let idx = self.chunk.push_name(name);
             self.chunk.emit(op, idx);
             match op {
-                OpCode::Global => { self.globals_decl.insert(name); }
-                OpCode::Nonlocal if !self.chunk.nonlocals.contains(&name) => self.chunk.nonlocals.push(name),
+                OpCode::Global => { self.globals_decl.insert(name.to_string()); }
+                OpCode::Nonlocal if !self.chunk.nonlocals.iter().any(|n| n == name) => self.chunk.nonlocals.push(name.to_string()),
                 _ => {}
             }
             if !self.eat_if(TokenType::Comma) { break; }
@@ -374,7 +374,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         // A lone name stores nothing it must evaluate, so it compiles in source order.
         if head.assigns <= 1 && matches!(head.kind, TokenType::Name | TokenType::Underscore) && self.tokens.after_head() == TokenType::Equal {
             let name = self.advance_text();
-            self.check_member(&name, head.end);
+            self.check_member(name, head.end);
             self.advance();
             self.rhs_tuple();
             self.store_name(name);
@@ -445,8 +445,8 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         let t = self.advance();
         match t.kind {
             TokenType::Name | TokenType::Underscore if self.at_target_end() => {
-                let name = self.lexeme(&t).to_string();
-                self.check_member(&name, t.end);
+                let name = self.lexeme(&t);
+                self.check_member(name, t.end);
                 return self.store_name(name);
             }
             TokenType::Name | TokenType::Underscore => self.name(t),
@@ -477,13 +477,13 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
 
     /* Name-led statement besides assignment, a bare annotation, augmented op, trailer, call or tuple. */
     pub(super) fn name_stmt(&mut self, t: Token) -> bool {
-        let name = self.lexeme(&t).to_string();
+        let name = self.lexeme(&t);
         let start = self.chunk.instructions.len();
         self.saw_newline = false;
 
         // `x: T` annotates, a colon on the next line belongs to another statement.
         if matches!(self.peek_same_line(), Some(TokenType::Colon)) {
-            self.check_member(&name, t.end);
+            self.check_member(name, t.end);
             self.advance();
             self.skip_annotation();
             return false;
@@ -493,7 +493,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             Some(t) if Self::augmented_op(&t).is_some() => {
                 let op = Self::augmented_op(&t).unwrap();
                 self.advance();
-                self.emit_load_ssa(name.clone());
+                self.emit_load_ssa(name);
                 self.expr();
                 self.emit_inplace(op);
                 self.store_name(name);
@@ -566,8 +566,8 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         if matches!(self.peek(), Some(TokenType::Name)) {
             let t = self.advance();
             if !matches!(self.peek_same_line(), Some(TokenType::Dot | TokenType::Lsqb | TokenType::Lpar)) {
-                let name = self.lexeme(&t).to_string();
-                let idx = self.push_ssa_name(&name, self.current_version(&name));
+                let name = self.lexeme(&t);
+                let idx = self.push_ssa_name(name, self.current_version(name));
                 self.chunk.emit(OpCode::Del, idx);
                 return;
             }

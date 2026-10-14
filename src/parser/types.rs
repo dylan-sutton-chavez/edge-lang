@@ -1,8 +1,8 @@
 use crate::s;
 use crate::util::hash::FxHashMap as HashMap;
-use crate::value::{ExternFn, NativeFnId as F};
+use crate::value::{ExternFn, NativeFnId as F, hash_key};
 
-use alloc::{string::{String, ToString}, vec, vec::Vec};
+use alloc::{boxed::Box, string::{String, ToString}, vec, vec::Vec};
 
 pub(crate) const MAX_EXPR_DEPTH: usize = 200;
 pub(crate) const MAX_INSTRUCTIONS: usize = 65_535;
@@ -216,7 +216,8 @@ pub struct SSAChunk {
     pub alias_groups: Vec<Vec<u16>>,
     pub phi_map: Vec<usize>,
     pub nonlocals: Vec<String>,
-    pub(super) name_index: HashMap<String, u16>,
+    /* Each slot of `names` by the hash of its text. */
+    pub(super) name_index: hashbrown::HashTable<u16>,
     /* stmt ip->byte_offset map, binary-searched on error path, hot dispatch never touches it. */
     pub stmt_pos: Vec<(u32, u32)>,
     /* Call ip->byte_offset map, finer than stmt_pos, traceback caret lands under the call. */
@@ -271,15 +272,21 @@ impl SSAChunk {
         (self.constants.len() - 1) as u16
     }
 
+    fn find_name(&self, n: &str, hash: u64) -> Option<u16> {
+        self.name_index.find(hash, |&i| self.names[i as usize] == n).copied()
+    }
+
     pub(super) fn push_name(&mut self, n: &str) -> u16 {
-        if let Some(&i) = self.name_index.get(n) { return i; }
+        let hash = hash_key(n);
+        if let Some(i) = self.find_name(n, hash) { return i; }
         if self.names.len() >= u16::MAX as usize {
             self.overflow = true;
             return 0;
         }
         let i = self.names.len() as u16;
         self.names.push(n.to_string());
-        self.name_index.insert(n.to_string(), i);
+        let names = &self.names;
+        self.name_index.insert_unique(hash, i, |&j| hash_key(&names[j as usize]));
         i
     }
 
@@ -294,7 +301,7 @@ impl SSAChunk {
                 && parsed.version > 0
             {
                 let prev = s!(str parsed.bare, "_", int parsed.version as i64 - 1);
-                if let Some(&j) = self.name_index.get(&prev) {
+                if let Some(j) = self.find_name(&prev, hash_key(&prev)) {
                     ps[i] = Some(j);
                 }
             }
@@ -371,10 +378,54 @@ pub(crate) struct LoopCtx {
     pub(super) cleanup_base: usize,
 }
 
-// SSA version snapshots for branch join, `then` is None until mid_block runs.
+// A branch join as trail positions, where its block opened and where its last branch began.
 pub(crate) struct JoinNode {
-    pub(super) backup: HashMap<String, u32>,
-    pub(super) then: Option<HashMap<String, u32>>,
+    pub(super) start: usize,
+    pub(super) mid: Option<usize>,
+}
+
+/* The current version of each name a chunk binds, its text allocated once and found by hash. */
+#[derive(Default, Clone)]
+pub(crate) struct Versions {
+    index: hashbrown::HashTable<u32>,
+    entries: Vec<(Box<str>, u32)>,
+}
+
+impl Versions {
+    fn find(&self, name: &str, hash: u64) -> Option<usize> {
+        self.index.find(hash, |&i| &*self.entries[i as usize].0 == name).map(|&i| i as usize)
+    }
+
+    pub(super) fn get(&self, name: &str) -> Option<u32> {
+        self.find(name, hash_key(name)).map(|i| self.entries[i].1)
+    }
+
+    pub(super) fn name(&self, slot: u32) -> &str { &self.entries[slot as usize].0 }
+
+    pub(super) fn at(&self, slot: u32) -> u32 { self.entries[slot as usize].1 }
+
+    pub(super) fn set_at(&mut self, slot: u32, ver: u32) { self.entries[slot as usize].1 = ver; }
+
+    pub(super) fn contains(&self, name: &str) -> bool { self.get(name).is_some() }
+
+    /* Sets the version of `name`, returning its slot and the version it replaces, zero for a new name. */
+    pub(super) fn set(&mut self, name: &str, ver: u32) -> (u32, u32) {
+        let hash = hash_key(name);
+        if let Some(i) = self.find(name, hash) { return (i as u32, core::mem::replace(&mut self.entries[i].1, ver)); }
+        let i = self.entries.len() as u32;
+        self.entries.push((name.into(), ver));
+        let entries = &self.entries;
+        self.index.insert_unique(hash, i, |&j| hash_key(&entries[j as usize].0));
+        (i, 0)
+    }
+
+    /* Moves `name` one version up, returning its slot and the version it had. */
+    pub(super) fn bump(&mut self, name: &str) -> (u32, u32) {
+        match self.find(name, hash_key(name)) {
+            Some(i) => { self.entries[i].1 += 1; (i as u32, self.entries[i].1 - 1) }
+            None => self.set(name, 1),
+        }
+    }
 }
 
 /* Synthetic SSA temps for multi-step desugarings. Leading `#` hides them from `globals()`, centralised so a typo becomes a compile error, not a misnamed slot. */

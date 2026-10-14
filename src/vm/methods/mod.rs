@@ -219,6 +219,10 @@ const METHODS: &[MethodDesc] = methods! {
     "dict_items" {
         "isdisjoint" => dict::view_isdisjoint, ro, 1..1;
     }
+    "tuple" {
+        "index" => list::index, ro, 1..3;
+        "count" => list::count, ro, 1..1;
+    }
 };
 pub static ALL_METHODS: &[MethodDesc] = METHODS;
 

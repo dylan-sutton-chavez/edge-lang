@@ -66,9 +66,11 @@ impl<'a> VM<'a> {
                     vm.heap.alloc(HeapObj::Str(s))
                 })?;
 
-                let spec = match spec_val.map(|sv| self.heap.try_get(sv)) {
+                let spec = match spec_val.map(|sv| (sv, self.heap.try_get(sv))) {
                     None => String::new(),
-                    Some(Some(HeapObj::Str(s))) => s.clone(),
+                    Some((_, Some(HeapObj::Str(s)))) => s.clone(),
+                    // A spec of one bare field arrives as the inline value it named.
+                    Some((sv, None)) if !sv.is_undef() => self.display(sv),
                     Some(_) => return Err(cold_type("format spec must be a string")),
                 };
                 let result = self.format_op(converted, &spec, chunk)?;

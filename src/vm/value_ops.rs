@@ -596,28 +596,38 @@ impl<'a> VM<'a> {
             if let Some(n) = copy_cost { self.charge_steps(n)?; }
             match (self.heap.get(a), self.heap.get(b)) {
                 (HeapObj::Str(sa), HeapObj::Str(sb)) => {
-                    let sa = sa.clone();
-                    let sb = sb.clone();
                     let mut r = String::with_capacity(sa.len() + sb.len());
-                    r.push_str(&sa); r.push_str(&sb);
+                    r.push_str(sa); r.push_str(sb);
                     return self.heap.alloc(HeapObj::Str(r));
                 }
+                // Each result is sized once, so no operand is copied twice.
                 (HeapObj::List(va), HeapObj::List(vb)) => {
-                    let mut lst = va.borrow().clone(); lst.extend_from_slice(&vb.borrow());
+                    let lst = [&va.borrow()[..], &vb.borrow()[..]].concat();
                     return self.heap.alloc(HeapObj::List(Rc::new(RefCell::new(lst))));
                 }
                 (HeapObj::Tuple(va), HeapObj::Tuple(vb)) => {
-                    let mut tup = va.clone(); tup.extend_from_slice(vb);
+                    let tup = [&va[..], &vb[..]].concat();
                     return self.heap.alloc(HeapObj::Tuple(tup));
                 }
                 (HeapObj::Bytes(ba), HeapObj::Bytes(bb)) => {
-                    let mut r = ba.clone(); r.extend_from_slice(bb);
+                    let r = [&ba[..], &bb[..]].concat();
                     return self.heap.alloc(HeapObj::Bytes(r));
                 }
                 _ => {}
             }
         }
-        Err(self.unsupported("+", a, b))
+        Err(self.concat_err(a, b).unwrap_or_else(|| self.unsupported("+", a, b)))
+    }
+
+    /* The error a sequence on the left of `+` raises for a right side of another type. */
+    #[cold]
+    fn concat_err(&self, a: Val, b: Val) -> Option<VmErr> {
+        let (left, right) = (self.type_name(a), self.type_name(b));
+        match self.heap.try_get(a)? {
+            HeapObj::Str(_) | HeapObj::List(_) | HeapObj::Tuple(_) => Some(VmErr::TypeMsg(s!("can only concatenate ", str left, " (not \"", str right, "\") to ", str left))),
+            HeapObj::Bytes(_) => Some(VmErr::TypeMsg(s!("can't concat ", str right, " to ", str left))),
+            _ => None,
+        }
     }
 
     pub fn sub_vals(&mut self, a: Val, b: Val) -> Result<Val, VmErr> {

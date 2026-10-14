@@ -374,7 +374,7 @@ impl<'a> Scanner<'a> {
         self.pos = end;
     }
 
-    /* Main dispatch, drains pending queue, then routes each byte via BYTE_CLASS / SINGLE_TOK lookups. */
+    /* Main dispatch, drains pending queue, then routes each byte via BYTE_CLASS / OPERATORS lookups. */
     pub fn next_token(&mut self) -> Option<(TokenType, usize, usize, usize)> {
         if let Some(tok) = self.pending.pop() {
             return Some(tok);
@@ -465,53 +465,26 @@ impl<'a> Scanner<'a> {
             return self.pending.pop();
         }
 
-        // Multi-char operators, 3 characters
-        if self.pos + 2 < self.src.len() {
-            let kind = match &self.src[self.pos..self.pos + 3] {
-                b"**=" => Some(TokenType::DoubleStarEqual),
-                b"//=" => Some(TokenType::DoubleSlashEqual),
-                b"<<=" => Some(TokenType::LeftShiftEqual),
-                b">>=" => Some(TokenType::RightShiftEqual),
-                _ => None,
-            };
-            if let Some(k) = kind {
-                self.pos += 3;
-                return Some((k, line_at_start, start, self.pos));
-            }
-        }
-
-        // Multi-char operators, 2 characters
-        if self.pos + 1 < self.src.len() {
-            let kind = match &self.src[self.pos..self.pos + 2] {
-                b"!=" => Some(TokenType::NotEqual), b"%=" => Some(TokenType::PercentEqual),
-                b"&=" => Some(TokenType::AmperEqual), b"**" => Some(TokenType::DoubleStar),
-                b"*=" => Some(TokenType::StarEqual), b"+=" => Some(TokenType::PlusEqual),
-                b"-=" => Some(TokenType::MinEqual), b"->" => Some(TokenType::Rarrow),
-                b"//" => Some(TokenType::DoubleSlash), b"/=" => Some(TokenType::SlashEqual),
-                // At the top of an f-string field a colon opens the spec, so `f"{x:=^9}"` fills with `=`.
-                b":=" if self.fstring_stack.last().is_some_and(|f| f.3 == self.nesting) => None,
-                b":=" => Some(TokenType::ColonEqual), b"<<" => Some(TokenType::LeftShift),
-                b"<=" => Some(TokenType::LessEqual), b"==" => Some(TokenType::EqEqual),
-                b">=" => Some(TokenType::GreaterEqual), b">>" => Some(TokenType::RightShift),
-                b"@=" => Some(TokenType::AtEqual), b"^=" => Some(TokenType::CircumflexEqual),
-                b"|=" => Some(TokenType::VbarEqual),
-                _ => None,
-            };
-            if let Some(k) = kind {
-                self.pos += 2;
-                return Some((k, line_at_start, start, self.pos));
-            }
-        }
-
-        // Single character, table dispatch
-        self.pos += 1;
-        let idx = if b < 128 { SINGLE_TOK[b as usize] } else { 0 };
-        /* Index 0 means no operator slot, report and skip instead of emitting a stray Endmarker that truncates the stream. */
-        if idx == 0 {
+        // Operators by first byte, a doubled byte and a trailing `=` picking the longer forms.
+        let [alone, with_eq, doubled, doubled_eq] = OPERATORS[b as usize & 127];
+        let next = self.at(1);
+        // At the top of an f-string field a colon opens the spec, so `f"{x:=^9}"` fills with `=`.
+        let spec = b == b':' && self.fstring_stack.last().is_some_and(|f| f.3 == self.nesting);
+        let (kind, len) = if next == Some(b) && doubled != TokenType::Endmarker {
+            if self.at(2) == Some(b'=') { (doubled_eq, 3) } else { (doubled, 2) }
+        } else if next == Some(b'=') && with_eq != TokenType::Endmarker && !spec {
+            (with_eq, 2)
+        } else if b == b'-' && next == Some(b'>') {
+            (TokenType::Rarrow, 2)
+        } else {
+            (alone, 1)
+        };
+        self.pos += len;
+        /* Endmarker means no operator, report and skip instead of emitting a stray Endmarker that truncates the stream. */
+        if kind == TokenType::Endmarker {
             self.report(start, self.pos, "unexpected character");
             return self.next_token();
         }
-        let kind = SINGLE_MAP[idx as usize];
 
         match kind {
             | TokenType::Lpar
