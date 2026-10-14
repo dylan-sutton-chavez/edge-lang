@@ -117,16 +117,21 @@ fused! {
 }
 
 /* Builtins the language leaves out, each with the error its use compiles to. */
-pub(super) const REMOVED_BUILTINS: [(&str, &str); 3] = [
+pub(super) const REMOVED_BUILTINS: [(&str, &str); 8] = [
     ("id", "'id' is not supported, compare values with '=='"),
     ("hash", "'hash' is not supported, a dict or set hashes its keys by value or identity"),
     ("locals", "'locals' is not supported, pass the values a call needs"),
+    ("eval", "'eval' is not supported, a program runs only code checked when it compiles"),
+    ("exec", "'exec' is not supported, a program runs only code checked when it compiles"),
+    ("compile", "'compile' is not supported, a program runs only code checked when it compiles"),
+    ("open", "'open' is not supported, the sandbox holds no files"),
+    ("__import__", "'__import__' is not supported, write an import statement"),
 ];
 
 /* The index of `name` in `REMOVED_BUILTINS`, the length test keeping every other name to one compare. */
 #[inline]
 pub(super) fn removed_builtin(name: &str) -> Option<usize> {
-    if !matches!(name.len(), 2 | 4 | 6) { return None; }
+    if !matches!(name.len(), 2 | 4 | 6 | 7 | 10) { return None; }
     REMOVED_BUILTINS.iter().position(|&(n, _)| n == name)
 }
 

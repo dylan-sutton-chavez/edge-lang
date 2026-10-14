@@ -322,7 +322,7 @@ fn an_eval_group_timeout_ends_a_spin_and_a_sleep_alike() {
     let scratch = std::env::temp_dir().join(format!("edge-actor-timeout-{}", std::process::id()));
     let _ = std::fs::create_dir_all(&scratch);
     let manifest = scratch.join("actor.yml");
-    std::fs::write(&manifest, "runtime:\n  listen: tcp://127.0.0.1:7815\n  control: tcp://127.0.0.1:9815\ngroups:\n  runners:\n    eval: true\n    limits:\n      timeout: 1\n").unwrap();
+    std::fs::write(&manifest, "runtime:\n  listen: tcp://127.0.0.1:7815\n  control: tcp://127.0.0.1:9815\ngroups:\n  runners:\n    eval: true\n    limits:\n      timeout: 1\n      ops: 1000000000000\n").unwrap();
     std::fs::write(scratch.join("edge.json"), r#"{ "permissions": { "eval": ["time:monotonic"] } }"#).unwrap();
     let payload = bundle("main.py", &[("main.py", "import time\nsleep(2)\nprint('slept')\n"), ("edge.json", r#"{ "permissions": { "main": ["time:monotonic"] } }"#)]);
 
@@ -330,7 +330,7 @@ fn an_eval_group_timeout_ends_a_spin_and_a_sleep_alike() {
     // The first post waits out the boot, so only the spin is timed.
     let slept = post_eval("127.0.0.1:9815", "/eval/runners", &format!("EDGEPKG:{}", base64_encode(&payload)));
     let start = Instant::now();
-    // Each pass is one builtin call, so the op budget stays far off while the clock runs.
+    // The op budget sits far off, so only the clock can end the spin.
     let spun = post_eval("127.0.0.1:9815", "/eval/runners", "while True:\n    n = sum(range(1000000))");
     let spun_for = start.elapsed().as_secs_f64();
     let _ = child.kill();

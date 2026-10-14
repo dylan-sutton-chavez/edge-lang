@@ -434,6 +434,8 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
                 }
                 Some(TokenType::Dot) => {
                     self.advance();
+                    // Inside brackets the name may sit on the line after the dot, a statement end leaves none.
+                    if self.peek_same_line().is_none() { self.diag_at_peek("expected an attribute name after '.'"); return false; }
                     let t = self.advance();
                     let source = self.source;
                     let name = &source[t.start..t.end];

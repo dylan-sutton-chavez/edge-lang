@@ -26,7 +26,7 @@ Memory and operations can be raised in three places.
 
 The call depth stays fixed. It sits below the depth where the wasm stack of either host runs out.
 
-The memory limit counts every byte the allocator hands the program while it runs, its objects along with the frames, caches and buffers the engine keeps for it. Nothing is estimated, though a 64-bit host counts wider pointers than `compiler.wasm` does. A number held in a container costs only its 8 bytes, so a list of numbers is far cheaper than an object per row. Garbage counts until a collection frees it, and a run that still holds more than the limit after one raises `MemoryError`. Programs sharing one wasm instance, like the actors of a pool, also share a budget of half its address space, 2 GB, and the one whose allocation passes it raises `MemoryError` while the others keep running.
+The memory limit counts every byte the allocator hands the program while it runs, its objects along with the frames, caches and buffers the engine keeps for it. Nothing is estimated, though a 64-bit host counts wider pointers than `compiler.wasm` does. A number held in a container costs only its 8 bytes, so a list of numbers is far cheaper than an object per row. Garbage counts until a collection frees it, and a run that still holds more than the limit after one raises `MemoryError`. Programs sharing one wasm instance, like the actors of a pool, also share a budget of half its address space, 2 GB, and the one whose allocation passes it raises `MemoryError` while the others keep running. A plugin keeps its own memory, which the CLI lets grow to three times the limit plus 64 MB, and a call that needs more traps and raises `RuntimeError`.
 
 Only what the program still holds counts. A result too large for the limit, such as `'x' * 10**10`, raises before it is built.
 
@@ -122,7 +122,7 @@ They render with line, column, and a caret preview. A report shows the first 20 
 | `default 'except:' must be last` | Bare `except` not at the end |
 | `Generator expression must be parenthesized` | A bare generator expression beside another argument or before a trailing comma |
 | `'is' compares only with None, True, False, ... or NotImplemented` | `is` against any other operand, compare it with `==` |
-| `'id' is not supported`, `'hash' is not supported`, `'locals' is not supported` | A use of a builtin the engine leaves out, unless the module binds the name |
+| `'id' is not supported`, and the same for `hash`, `locals`, `eval`, `exec`, `compile`, `open` and `__import__` | A use of a builtin the engine leaves out, unless the module binds the name |
 | `'__del__' is not supported in a class body` | A dunder the engine never calls, such as `__hash__`, `__new__`, `__slots__`, `__init_subclass__` or a descriptor method |
 | `class keywords such as 'metaclass' are not supported` | A keyword in a class header |
 | `a list, dict or set default is shared by every call` | A mutable default, write `None` and build the value in the body |

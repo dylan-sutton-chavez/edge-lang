@@ -44,8 +44,8 @@ pub struct Instance {
 }
 
 impl Host {
-    /* A fresh compiler instance, `deadline` in epoch ticks and `memory` in bytes bound an untrusted run. */
-    pub fn instance(self: &Rc<Self>, sink: Sink, project: Project, deadline: Option<u64>, memory: Option<usize>) -> Result<Rc<RefCell<Instance>>> {
+    /* A fresh compiler instance, `deadline` in epoch ticks and `memory` in bytes bound every memory of its store, plugins included. */
+    pub fn instance(self: &Rc<Self>, sink: Sink, project: Project, deadline: Option<u64>, memory: usize) -> Result<Rc<RefCell<Instance>>> {
         let state = State {
             exports: None,
             print: Arc::new(Mutex::new(sink)),
@@ -55,7 +55,7 @@ impl Host {
             running: Vec::new(),
             waiting: HashMap::new(),
             outbox: None,
-            limiter: MemoryCap { max: memory.unwrap_or(usize::MAX) },
+            limiter: MemoryCap { max: memory },
             slot: 0,
             events: None,
             run: super::system::run_id(),
@@ -73,9 +73,12 @@ impl Host {
 
     /* One interpreter on an instance of its own, the shape of every one-shot run. */
     pub fn vm(self: &Rc<Self>, sink: Sink, project: Project, deadline: Option<u64>, memory: Option<usize>) -> Result<Vm> {
+        let asked = super::RunLimits::get().engine();
+        // Without a cap of its own the run grows only as far as the limit of the command line allows.
+        let memory = memory.unwrap_or_else(|| super::linear_cap(asked.unwrap_or_else(Limits::sandbox).memory));
         let mut vm = Vm::on(self.instance(sink, project, deadline, memory)?, 0);
         // What the command line asked for, before a group sets its own.
-        if let Some(limits) = super::RunLimits::get().engine() {
+        if let Some(limits) = asked {
             vm.set_limits(&limits)?;
         }
         Ok(vm)

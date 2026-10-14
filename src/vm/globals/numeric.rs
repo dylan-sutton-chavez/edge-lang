@@ -324,9 +324,20 @@ impl<'a> VM<'a> {
                 _ => return Err(cold_type("min()/max() got an unexpected keyword argument")),
             }
         }
+        let label = if is_min { "min() iterable argument is empty" } else { "max() iterable argument is empty" };
+        // Without a key one iterable streams, so a range never becomes a list.
+        if positional.len() == 1 && key.is_none() {
+            let mut cur = self.iter_cursor(positional[0])?;
+            let base = self.temp_roots.len();
+            let best = self.extreme_cursor(positional[0], &mut cur, is_min, chunk);
+            self.temp_roots.truncate(base);
+            return match (best?, default) {
+                (Some(v), _) | (None, Some(v)) => { self.push(v); Ok(()) }
+                (None, None) => Err(cold_value(label)),
+            };
+        }
         // One arg iterable, many args are values.
         let items = if positional.len() == 1 { self.extract_iter(positional[0])? } else { positional };
-        let label = if is_min { "min() arg is an empty sequence" } else { "max() arg is an empty sequence" };
         if items.is_empty() {
             return match default { Some(d) => { self.push(d); Ok(()) }, None => Err(cold_value(label)) };
         }
@@ -340,6 +351,33 @@ impl<'a> VM<'a> {
         let roots = if self.any_instance(keys) { items.len() + keys.len() } else { 0 };
         let best = self.with_roots(items.iter().chain(keys).copied().take(roots), |vm| vm.extreme_index(keys, is_min, chunk))?;
         self.push(items[best]); Ok(())
+    }
+
+    /* The least item of `cur`, or with `!is_min` the greatest, the first one on a tie. */
+    fn extreme_cursor(&mut self, of: Val, cur: &mut IterFrame, is_min: bool, chunk: &crate::parser::SSAChunk) -> Result<Option<Val>, VmErr> {
+        let Some(mut best) = cur.next_item(&mut self.heap)? else { return Ok(None) };
+        let base = self.temp_roots.len();
+        while let Some(item) = cur.next_item(&mut self.heap)? {
+            self.charge_step()?;
+            // A user `__lt__` can collect, so from the first instance on the iterable, its items and the best stay rooted.
+            if self.temp_roots.len() == base && (self.instance_class(item).is_some() || self.instance_class(best).is_some()) {
+                self.temp_roots.push(of);
+                if let IterFrame::Seq { items, .. } = &*cur { self.temp_roots.extend(items.iter().copied()); }
+            }
+            if self.beats(item, best, is_min, chunk)? { best = item; }
+        }
+        Ok(Some(best))
+    }
+
+    /* Whether `item < best` for min or `item > best` for max, raising with the operator that ran. */
+    fn beats(&mut self, item: Val, best: Val, is_min: bool, chunk: &crate::parser::SSAChunk) -> Result<bool, VmErr> {
+        if item.is_int() && best.is_int() { return Ok(if is_min { item.as_int() < best.as_int() } else { item.as_int() > best.as_int() }); }
+        if is_min { return self.sort_lt(item, best, chunk); }
+        if let Some(r) = self.try_compare_dunder(crate::parser::OpCode::Gt, item, best, chunk)? { return Ok(self.truthy(r)); }
+        match self.values_lt(best, item, chunk) {
+            Err(VmErr::TypeMsg(_)) => Err(VmErr::TypeMsg(crate::s!("'>' not supported between instances of '", str self.type_name(item), "' and '", str self.type_name(best), "'"))),
+            r => r,
+        }
     }
 
     /* Index of the least key, or with `!is_min` the greatest, the first one on a tie. */
@@ -369,8 +407,16 @@ impl<'a> VM<'a> {
         let mut acc = start;
         // Once a float enters, switch to Neumaier compensated summation (Python 3.12+).
         let mut fstate: Option<(f64, f64)> = if start.is_float() { Some((start.as_float(), 0.0)) } else { None };
+        // Plain ints add in an i128 that boxes once at the end, so a long sum leaves no garbage.
+        let mut wide: Option<i128> = None;
         while let Some(item) = cur.next_item(&mut self.heap)? {
             self.charge_step()?;
+            if fstate.is_none() && item.is_int() && (wide.is_some() || acc.is_int())
+                && let Some(w) = wide.unwrap_or(acc.as_int() as i128).checked_add(item.as_int() as i128) {
+                wide = Some(w);
+                continue;
+            }
+            if let Some(w) = wide.take() { acc = self.int_to_val(Some(w))?; }
             let user = self.instance_class(acc).is_some() || self.instance_class(item).is_some();
             // A user `__add__` can collect, so from the first instance on the iterable and its items stay rooted.
             if user && self.temp_roots.len() == base {
@@ -393,6 +439,7 @@ impl<'a> VM<'a> {
                 None => { acc = self.add_vals(acc, item)?; }
             }
         }
+        if let Some(w) = wide { acc = self.int_to_val(Some(w))?; }
         Ok(match fstate { Some(state) => Val::float(settle(state)), None => acc })
     }
 

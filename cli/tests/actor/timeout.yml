@@ -7,10 +7,12 @@ runtime:
 groups:
   runners:
     eval: true
+    limits:
+      ops: 1000000000000
 
 expect: []
 
-# Each pass is one builtin call, so the op budget stays far off while the clock runs.
+# The op budget sits far off, so only the clock can end the spin.
 post:
   - path: "/eval/runners"
     body: "while True:\n    n = sum(range(1000000))"

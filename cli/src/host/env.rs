@@ -75,7 +75,7 @@ fn call_native(caller: &mut Caller<'_, State>, id: i32, call_id: i32, argv_ptr: 
             let mut status = match called {
                 Ok(status) => status,
                 Err(e) => {
-                    throw(caller, &ex, &format!("native module trapped: {e}"));
+                    throw(caller, &ex, &trapped(&e));
                     return Ok(1);
                 }
             };
@@ -163,7 +163,7 @@ pub(super) fn resume(cx: &mut impl AsContextMut<Data = State>, ex: &Exports, id:
     let called = resume.call(&mut *cx, (id as i32, answer, out));
     cx.as_context_mut().data_mut().running.pop();
     let status = called.unwrap_or_else(|e| {
-        throw(cx, ex, &format!("native module trapped: {e}"));
+        throw(cx, ex, &trapped(&e));
         1
     });
     let handle = read_u32(cx, plugin.memory, out);
@@ -215,6 +215,14 @@ pub(super) fn kind_of(msg: &str) -> (i32, &str) {
 }
 
 /* Stashes the error the compiler raises once the call returns 1, a class prefix picks its kind. */
+/* What a plugin trap tells the program, the trap itself without the wasm backtrace. */
+fn trapped(e: &wasmtime::Error) -> String {
+    match e.downcast_ref::<wasmtime::Trap>() {
+        Some(trap) => format!("native module trapped: {trap}"),
+        None => format!("native module trapped: {e}"),
+    }
+}
+
 pub(super) fn throw(caller: &mut impl AsContextMut<Data = State>, ex: &Exports, msg: &str) {
     let (kind, msg) = kind_of(msg);
     if let Ok(ptr) = stage(caller, ex, msg.as_bytes()) {

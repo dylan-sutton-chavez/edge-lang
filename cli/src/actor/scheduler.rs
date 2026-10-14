@@ -426,7 +426,9 @@ impl GroupState {
             return Instance::slot(inst);
         }
         let project = Project::disk(&self.dir, self.manifest.as_deref());
-        let inst = self.ctx.host.instance(sink_for(&self.ctx.out), project, None, None)?;
+        // Every slot of the instance may hold its limit, the linear memory caps them together.
+        let memory = crate::host::linear_cap(self.limits.memory.saturating_mul(SLOTS_PER_INSTANCE));
+        let inst = self.ctx.host.instance(sink_for(&self.ctx.out), project, None, memory)?;
         inst.borrow_mut().accept_sends();
         let vm = Instance::slot(&inst)?;
         self.instances.push(inst);

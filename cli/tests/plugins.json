@@ -121,5 +121,32 @@
     "copy": { "slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm" },
     "run": ["run", "main.py"],
     "stdout": ["4500000000"]
+  },
+  {
+    "given": {
+      "edge.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n",
+      "main.py": "from slugify_mod import Slugger\ns = Slugger()\ns.add('ab')\ntry:\n    s.repeat(10 ** 12)\nexcept RuntimeError as e:\n    print(str(e).startswith('native module trapped'), 'backtrace' in str(e))\nprint(s.build())\n"
+    },
+    "copy": { "slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm" },
+    "run": ["run", "main.py"],
+    "stdout": ["True False\nab\n"]
+  },
+  {
+    "given": {
+      "edge.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n",
+      "main.py": "from slugify_mod import Slugger\ns = Slugger()\ns.add('ab')\ns.repeat(10 ** 12)\n"
+    },
+    "copy": { "slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm" },
+    "run": ["run", "main.py"],
+    "fails": ["RuntimeError: native module trapped: wasm trap", "--> main.py:4:1"]
+  },
+  {
+    "given": {
+      "edge.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n",
+      "main.py": "from slugify_mod import Slugger\ns = Slugger()\ns.add('ab')\ntry:\n    s.repeat(100000000)\nexcept RuntimeError:\n    print('RuntimeError')\nexcept MemoryError:\n    print('MemoryError')\nprint(s.build())\n"
+    },
+    "copy": { "slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm" },
+    "run": ["run", "--memory", "32", "main.py"],
+    "stdout": ["RuntimeError\nab\n"]
   }
 ]

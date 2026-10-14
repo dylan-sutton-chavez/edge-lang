@@ -21,7 +21,7 @@ aliased
 ```
 
 > [!QUESTION] Why is there no eval, exec or open?
-> Every module a program can reach is resolved and verified at compile time. The sandbox holds no file handles. `eval`, `exec`, `compile`, `open` and `__import__` would break both rules, and none of them exists.
+> Every module a program can reach is resolved and verified at compile time. The sandbox holds no file handles. `eval`, `exec`, `compile`, `open` and `__import__` would break both rules, so a use of any of them is a compile error that names the builtin.
 
 ## Output
 

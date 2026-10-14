@@ -236,6 +236,11 @@ impl RunLimits {
     }
 }
 
+/* Linear memory a run may grow to, room past its limit for garbage, a doubling container and the engine. */
+pub fn linear_cap(memory: usize) -> usize {
+    memory.saturating_mul(3).saturating_add(64 << 20)
+}
+
 // Refuses linear memory growth past the cap, an untrusted run cannot outgrow its slot.
 pub struct MemoryCap {
     pub max: usize,
