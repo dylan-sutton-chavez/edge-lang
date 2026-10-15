@@ -183,7 +183,7 @@ impl<'a> VM<'a> {
 
     /* `await coro` and calling a coroutine `c()` parks the current coro on `target` (single-driver, like `run(target)`) and yields. The driving top loop resolves `target` and the wake-loop overwrites the placeholder with its value (or raises its error). Non-coroutine awaitables pass through unchanged at the call site. */
     pub(crate) fn await_coroutine(&mut self, target: Val) -> Result<(), VmErr> {
-        if self.scheduler_active() >= self.max_calls {
+        if self.scheduler_active() >= MAX_CALLS {
             return Err(cold_depth());
         }
         self.schedule(&[target]);
@@ -194,7 +194,7 @@ impl<'a> VM<'a> {
     /* `run(*coros)`, single-driver model, pushes the targets into the global scheduler, parks the outer in `WaitingForChildren` with `WaitKind::Run(target)`, and yields. The top loop drains the children and wakes the outer when all are terminal. */
     pub fn call_run(&mut self, argc: u16) -> Result<(), VmErr> {
         // Cap live concurrency like call depth, unbounded task spawning is recursion-shaped.
-        if self.scheduler_active() >= self.max_calls {
+        if self.scheduler_active() >= MAX_CALLS {
             return Err(cold_depth());
         }
         let raw_tasks = self.pop_n(argc as usize)?;
@@ -463,7 +463,7 @@ impl<'a> VM<'a> {
     /* `gather(*coros)`, single-driver, pushes all targets, parks the outer in `WaitingForChildren` with `WaitKind::Gather`, and yields. Wake-loop builds the result list (or raises the first child error). */
     pub fn call_gather(&mut self, argc: u16) -> Result<(), VmErr> {
         // Cap live concurrency like call depth, unbounded task spawning is recursion-shaped.
-        if self.scheduler_active() >= self.max_calls {
+        if self.scheduler_active() >= MAX_CALLS {
             return Err(cold_depth());
         }
         let tasks = self.pop_n(argc as usize)?;

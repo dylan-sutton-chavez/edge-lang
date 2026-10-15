@@ -52,7 +52,7 @@ const FRAME_SHARE: usize = 16;
 // How many frames a coroutine may hold suspended, each resume copying them all, about as deep as Python recurses by default.
 pub(crate) const SUSPENDED_DEPTH: usize = 4 * MAX_CALLS;
 // How deep memoized calls nest in Rust before they too run as loop frames.
-pub(crate) const MEMO_NESTS: usize = MAX_CALLS / 2;
+pub(crate) const MEMO_NESTS: usize = MAX_NESTED / 2;
 
 impl<'a> VM<'a> {
     /* Opens the body of a plain call as the next frame of the loop that made it, the frame at `base` already bound. */

@@ -299,7 +299,7 @@ impl<'a> VM<'a> {
             entered: false,
             pending_instance: Val::undef(),
             memo_args: Vec::new(),
-            max_calls: MAX_CALLS,
+            max_calls: MAX_NESTED,
             with_stack: Vec::new(),
             temp_roots: Vec::new(),
             pending: Pending::new(),

@@ -9,5 +9,7 @@ pub fn base() -> Config {
     cfg.memory_reservation(4 << 30);
     cfg.memory_guard_size(32 << 20);
     cfg.memory_init_cow(true);
+    // MAX_NESTED loops of the engine take up to about 620 KiB of native stack on x86.
+    cfg.max_wasm_stack(1 << 20);
     cfg
 }

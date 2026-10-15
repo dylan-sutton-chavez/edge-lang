@@ -6107,7 +6107,7 @@
   {"src": "d = {'a': 1}\nprint(eval('a', d), list(d.keys()))", "output": ["1 ['a', '__builtins__']"]},
   {"src": "print(eval('len', {'__builtins__': {}}))", "output": [], "error": "NameError: name 'len' is not defined"},
   {"src": "class R:\n    def __init__(self, n):\n        self.n = n\n    def __add__(self, o):\n        return 0 if self.n == 0 else (R(self.n - 1) + o) + 1\ntry:\n    R(5000) + 0\nexcept RecursionError:\n    print('RecursionError')\nprint(R(100) + 0)", "output": ["RecursionError", "100"]},
-  {"src": "def ev(n):\n    return 0 if n == 0 else eval('ev(n - 1)') + 1\ntry:\n    ev(5000)\nexcept RecursionError:\n    print('RecursionError')\nprint(ev(40))", "output": ["RecursionError", "40"]},
+  {"src": "def ev(n):\n    return 0 if n == 0 else eval('ev(n - 1)') + 1\ntry:\n    ev(5000)\nexcept RecursionError:\n    print('RecursionError')\nprint(ev(30))", "output": ["RecursionError", "30"]},
   {"src": "def g(n):\n    if n:\n        yield next(g(n - 1)) + 1\n    else:\n        yield 0\ntry:\n    next(g(5000))\nexcept RecursionError:\n    print('RecursionError')\nprint(next(g(50)))", "output": ["RecursionError", "50"]},
   {"src": "class P:\n    def __init__(self, n):\n        self.n = n\n    @property\n    def d(self):\n        return 0 if self.n == 0 else P(self.n - 1).d + 1\ntry:\n    P(5000).d\nexcept RecursionError:\n    print('RecursionError')\nprint(P(100).d)", "output": ["RecursionError", "100"]},
   {"src": "class N:\n    def __init__(self, n):\n        self.c = N(n - 1) if n else None\n        self.n = n\nprint(N(3000).c.n)", "output": ["2999"]},

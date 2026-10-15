@@ -55,6 +55,8 @@ fn main() {
     let bytes = std::fs::read(&wasm).expect("reading compiler.wasm");
     let mut config = Config::new();
     config.consume_fuel(true);
+    // The stack the CLI gives the engine, so the deepest nesting runs alike on every host.
+    config.max_wasm_stack(1 << 20);
     let engine = Engine::new(&config).expect("wasmtime engine");
     let module = Module::new(&engine, &bytes).expect("compiling compiler.wasm");
 

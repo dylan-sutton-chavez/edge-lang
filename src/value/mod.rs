@@ -24,8 +24,11 @@ impl Limits {
     pub fn sandbox() -> Self { Self { ops: 100_000_000, memory: 256 << 20 } }
 }
 
-// How deep instruction loops nest in Rust, through builtins, dunders and coroutines, a fifth below where either host ran out of wasm stack.
+// How many coroutines run at once, and how many frames a traceback keeps.
 pub const MAX_CALLS: usize = 192;
+
+// How deep instruction loops nest in Rust, so a builtin calling back through a dunder fits 1 MiB of wasm stack on x86 and a browser stack.
+pub const MAX_NESTED: usize = 128;
 
 // What a value takes in a container, 8 bytes by NaN-boxing on every architecture.
 pub const VAL_BYTES: usize = 8;
