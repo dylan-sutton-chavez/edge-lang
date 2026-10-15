@@ -2,6 +2,7 @@
 use super::super::VM;
 use super::super::types::*;
 use super::matches_exc_class;
+use alloc::vec::Vec;
 
 impl<'a> VM<'a> {
 
@@ -135,4 +136,110 @@ impl<'a> VM<'a> {
         self.push(Val::bool(result));
         Ok(())
     }
+}
+
+// Numbers hash by their value modulo this prime, so equal ints, floats and bools hash alike.
+const MODULUS: u64 = (1 << 61) - 1;
+
+/* The hash of `n`, its value modulo the prime with its sign, -1 kept for errors. */
+fn hash_int(n: i128) -> i64 {
+    let h = (n.unsigned_abs() % MODULUS as u128) as i64;
+    let h = if n < 0 { -h } else { h };
+    if h == -1 { -2 } else { h }
+}
+
+/* The hash of a finite float, equal to the hash of an int of the same value. */
+fn hash_float(v: f64) -> i64 {
+    if v.is_infinite() { return if v > 0.0 { 314_159 } else { -314_159 }; }
+    let (mut m, mut e) = frexp(v.abs());
+    let mut x: u64 = 0;
+    while m != 0.0 {
+        x = ((x << 28) & MODULUS) | x >> (61 - 28);
+        m *= 268_435_456.0;
+        e -= 28;
+        let y = m as u64;
+        m -= y as f64;
+        x += y;
+        if x >= MODULUS { x -= MODULUS; }
+    }
+    let e = if e >= 0 { e % 61 } else { 61 - 1 - ((-1 - e) % 61) } as u32;
+    x = ((x << e) & MODULUS) | x >> (61 - e);
+    let h = if v < 0.0 { x.wrapping_neg() } else { x } as i64;
+    if h == -1 { -2 } else { h }
+}
+
+/* The mantissa in [0.5, 1) and the exponent of a positive float. */
+fn frexp(x: f64) -> (f64, i32) {
+    if x == 0.0 { return (0.0, 0); }
+    let exp = ((x.to_bits() >> 52) & 0x7ff) as i32;
+    if exp == 0 { let (m, e) = frexp(x * 18_014_398_509_481_984.0); return (m, e - 54); }
+    (f64::from_bits((x.to_bits() & !(0x7ff << 52)) | (1022 << 52)), exp - 1022)
+}
+
+impl<'a> VM<'a> {
+    /* `id(x)`, the boxed word itself, unique while the object lives and kept across a snapshot. */
+    pub fn call_id(&mut self) -> Result<(), VmErr> {
+        let v = self.pop()?;
+        let id = self.int_to_val(Some(v.0 as i128))?;
+        self.push(id);
+        Ok(())
+    }
+
+    /* `hash(x)`, by value for numbers, strings and tuples and by identity for the rest. */
+    pub fn call_hash(&mut self) -> Result<(), VmErr> {
+        let v = self.pop()?;
+        self.require_hashable(v)?;
+        let h = self.py_hash(v, 0)?;
+        let h = self.int_to_val(Some(h as i128))?;
+        self.push(h);
+        Ok(())
+    }
+
+    pub(crate) fn py_hash(&self, v: Val, depth: usize) -> Result<i64, VmErr> {
+        if depth > 200 { return Err(VmErr::CallDepth); }
+        if v.is_bool() { return Ok(v.as_bool() as i64); }
+        if v.is_float() { let f = v.as_float(); return Ok(if f.is_nan() { identity_hash(v) } else { hash_float(f) }); }
+        if let Some(n) = self.as_i128(v) { return Ok(hash_int(n)); }
+        Ok(match self.heap.try_get(v) {
+            // A tuple mixes the hashes of its items in order.
+            Some(HeapObj::Tuple(items)) => {
+                let lanes: Result<Vec<i64>, VmErr> = items.iter().map(|&item| self.py_hash(item, depth + 1)).collect();
+                tuple_hash(&lanes?)
+            }
+            // A range hashes as its length, start and step, the parts that tell two ranges apart.
+            Some(&HeapObj::Range(start, stop, step)) => {
+                let (len, none) = (crate::value::eq::range_len(start, stop, step), self.py_hash(Val::none(), depth + 1)?);
+                let (start, step) = (if len == 0 { none } else { hash_int(start as i128) }, if len <= 1 { none } else { hash_int(step as i128) });
+                tuple_hash(&[hash_int(len), start, step])
+            }
+            // A frozenset mixes the hashes of its items in no order.
+            Some(HeapObj::FrozenSet(items)) => {
+                let mut acc = (items.len() as u64 + 1).wrapping_mul(1_927_868_237);
+                for &item in items.iter() { let h = self.py_hash(item, depth + 1)? as u64; acc ^= (h ^ 89_869_747 ^ (h << 16)).wrapping_mul(3_644_798_167); }
+                let acc = (acc ^ (acc >> 11) ^ (acc >> 25)).wrapping_mul(69_069).wrapping_add(907_133_923);
+                if acc == u64::MAX { 590_923_713 } else { acc as i64 }
+            }
+            Some(HeapObj::Str(_) | HeapObj::Bytes(_) | HeapObj::Slice(..)) | None => {
+                let h = hash_val_with_heap(v, &self.heap) as i64;
+                if h == -1 { -2 } else { h }
+            }
+            Some(_) => identity_hash(v),
+        })
+    }
+}
+
+/* The hash of a tuple from the hashes of its items. */
+fn tuple_hash(lanes: &[i64]) -> i64 {
+    const P1: u64 = 11_400_714_785_074_694_791;
+    const P2: u64 = 14_029_467_366_897_019_727;
+    const P5: u64 = 2_870_177_450_012_600_261;
+    let acc = lanes.iter().fold(P5, |acc, &lane| acc.wrapping_add((lane as u64).wrapping_mul(P2)).rotate_left(31).wrapping_mul(P1));
+    let acc = acc.wrapping_add(lanes.len() as u64 ^ (P5 ^ 3_527_539));
+    if acc == u64::MAX { 1_546_275_796 } else { acc as i64 }
+}
+
+/* The hash of an object compared by identity, its word with the fixed low bits rotated away. */
+fn identity_hash(v: Val) -> i64 {
+    let h = v.0.rotate_right(4) as i64;
+    if h == -1 { -2 } else { h }
 }

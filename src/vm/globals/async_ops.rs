@@ -6,7 +6,7 @@ use super::super::VM;
 use super::super::types::*;
 
 /* An ip no chunk reaches, the same on 32 and 64 bits so a snapshot keeps it. */
-const FINISHED: usize = u32::MAX as usize;
+pub(crate) const FINISHED: usize = u32::MAX as usize;
 
 impl<'a> VM<'a> {
 
@@ -524,5 +524,69 @@ impl<'a> VM<'a> {
             }
             _ => Err(VmErr::Runtime("send() needs an actor scheduler, missing in this runtime")),
         }
+    }
+
+    /* `send`, `throw` and `close` of a generator, resumed with a value or an exception. */
+    pub(crate) fn generator_method(&mut self, g: Val, name: &str, args: &[Val], chunk: &SSAChunk) -> Result<(), VmErr> {
+        let (ip, at_yield) = match self.heap.get(g) {
+            HeapObj::Coroutine(c) => {
+                // A value-position `yield` leaves a placeholder on the saved stack that the sent value takes.
+                let code = match c.body { BodyRef::Fn(fi) => &self.functions[fi].1.instructions, BodyRef::Module => &self.chunk.instructions };
+                (c.ip, c.syncs.is_empty() && c.ip != FINISHED && c.ip > 0 && code.get(c.ip - 1).is_some_and(|i| i.opcode == crate::parser::types::OpCode::Yield))
+            }
+            _ => return Err(cold_type("not a generator")),
+        };
+        let fresh = ip == 0 || ip == FINISHED;
+        match name {
+            "__next__" => self.resume_generator(g, None),
+            "__iter__" => { self.push(g); Ok(()) }
+            "send" => {
+                if ip == 0 && !args[0].is_none() { return Err(cold_type("can't send non-None value to a just-started generator")); }
+                if at_yield && let HeapObj::Coroutine(c) = self.heap.get_mut(g) && let Some(top) = c.stack.last_mut() { *top = args[0]; }
+                self.resume_generator(g, None)
+            }
+            "throw" => {
+                // `throw(type, value)` builds the exception from the value.
+                let exc = if args.len() > 1 && matches!(self.heap.try_get(args[0]), Some(HeapObj::Type(_) | HeapObj::Class(..))) {
+                    self.call_with(args[0], None, &args[1..2], &[], chunk)?;
+                    self.pop()?
+                } else { args[0] };
+                let derives = match self.heap.try_get(exc) {
+                    Some(&HeapObj::Instance(c, _)) => self.exc_base(c).is_some(),
+                    Some(HeapObj::ExcInstance(..)) => true,
+                    Some(HeapObj::Type(_) | HeapObj::Class(..)) => self.exc_base(exc).is_some(),
+                    _ => false,
+                };
+                if !derives { return Err(VmErr::TypeMsg(crate::s!("exceptions must be classes or instances deriving from BaseException, not ", str self.type_name(exc)))); }
+                let err = self.with_roots([exc], |vm| vm.raise_value(exc, chunk));
+                if fresh { self.finish_generator(g); return Err(err); }
+                self.resume_raise = Some(err);
+                let r = self.resume_generator(g, None);
+                self.resume_raise = None;
+                r
+            }
+            _ => {
+                if fresh { self.finish_generator(g); self.push(Val::none()); return Ok(()); }
+                let before = self.pending.exc_val;
+                let exit = self.builtin_value("GeneratorExit")?;
+                self.resume_raise = Some(self.raise_value(exit, chunk));
+                let r = self.resume_generator(g, None);
+                self.resume_raise = None;
+                match r {
+                    Ok(()) => { self.pop()?; Err(VmErr::Raised("RuntimeError: generator ignored GeneratorExit".into())) }
+                    Err(VmErr::Raised(m)) if m.starts_with("GeneratorExit") || m.starts_with("StopIteration") => {
+                        self.swallow_stop(before);
+                        self.push(Val::none());
+                        Ok(())
+                    }
+                    Err(e) => Err(e),
+                }
+            }
+        }
+    }
+
+    /* Marks generator `g` finished, so it never runs again. */
+    fn finish_generator(&mut self, g: Val) {
+        if let Some(HeapObj::Coroutine(c)) = self.heap.try_get_mut(g) { c.ip = FINISHED; }
     }
 }

@@ -283,6 +283,13 @@ impl<'a> VM<'a> {
             if let HeapObj::Dict(d) = self.heap.get(b) { for (k, v) in d.borrow().iter() { merged.insert(k, v, &self.heap); } }
             return self.alloc_and_push_dict(merged);
         }
+        // Two bools keep a bool for `&`, `|` and `^`.
+        if a.is_bool() && b.is_bool() && let Some(v) = match op {
+            OpCode::BitAnd => Some(a.as_bool() & b.as_bool()), OpCode::BitOr => Some(a.as_bool() | b.as_bool()), OpCode::BitXor => Some(a.as_bool() ^ b.as_bool()), _ => None,
+        } {
+            self.push(Val::bool(v));
+            return Ok(());
+        }
         let result = match op {
             OpCode::BitAnd => self.bitwise_op(a, b, |x, y| x & y)?,
             OpCode::BitOr => match self.bitwise_op(a, b, |x, y| x | y) {

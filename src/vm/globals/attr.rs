@@ -102,7 +102,7 @@ impl<'a> VM<'a> {
         use alloc::vec::Vec;
         let obj = self.pop()?;
         if !obj.is_heap() {
-            return Err(cold_type("vars() requires an instance or module"));
+            return Err(cold_type("vars() argument must have __dict__ attribute"));
         }
         // The `builtins` module makes its builtins on use, so listing them makes them all.
         if obj.0 == self.builtins_module.0 {
@@ -114,6 +114,14 @@ impl<'a> VM<'a> {
             }
             return self.alloc_and_push_dict(dm);
         }
+        // An instance answers its attributes as a shared dict, an exception keeps its fields apart.
+        if let &HeapObj::Instance(cls, ref attrs) = self.heap.get(obj) && self.exc_base(cls).is_none() {
+            let attrs = attrs.clone();
+            self.shadowed = true;
+            let d = self.heap.alloc(HeapObj::Dict(attrs))?;
+            self.push(d);
+            return Ok(());
+        }
         // Two passes, drop the heap borrow before `alloc()`. Modules materialise names as `Vec<String>` first.
         enum Source { Instance(Vec<(Val, Val)>), Module(Vec<(String, Val)>) }
         let src = match self.heap.get(obj) {
@@ -123,7 +131,7 @@ impl<'a> VM<'a> {
                 Source::Instance(attrs.borrow().iter().filter(|&(k, _)| !matches!(self.heap.try_get(k), Some(HeapObj::Str(n)) if n.starts_with('#') || exc && n == "args")).collect())
             }
             HeapObj::Module(_, attrs) => Source::Module(attrs.clone()),
-            _ => return Err(cold_type("vars() requires an instance or module")),
+            _ => return Err(cold_type("vars() argument must have __dict__ attribute")),
         };
         let entries: Vec<(Val, Val)> = match src {
             Source::Instance(e) => e,

@@ -25,8 +25,8 @@ fn exc_parent(name: &str) -> Option<&'static str> {
         "UnicodeEncodeError" | "UnicodeDecodeError" => "UnicodeError",
         "ModuleNotFoundError" => "ImportError",
         "UnboundLocalError" => "NameError",
-        // `SystemExit` and `CancelledError` sit under `BaseException`, so `except Exception` swallows neither.
-        "SystemExit" | "CancelledError" | "Exception" => "BaseException",
+        // `SystemExit`, `CancelledError` and `GeneratorExit` sit under `BaseException`, outside `except Exception`.
+        "SystemExit" | "CancelledError" | "GeneratorExit" | "Exception" => "BaseException",
         _ => return None,
     })
 }

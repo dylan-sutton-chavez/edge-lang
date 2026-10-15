@@ -65,7 +65,8 @@ impl<'a> VM<'a> {
     /* What a site keeps after a slow `obj.name`, an own field or module attribute. */
     pub(crate) fn learn_get(&self, obj: Val, name: &str) -> Site {
         match self.heap.try_get(obj) {
-            Some(HeapObj::Instance(_, attrs)) => {
+            Some(&HeapObj::Instance(class, ref attrs)) => {
+                if self.shadowed && self.class_property(class, name) { return Site::Empty; }
                 let a = attrs.borrow();
                 match a.position_str(name, hash_str(name), &self.heap) {
                     Some(i) => Site::Field { key: a.key_at(i), idx: i as u32, hash: a.hash_at(i) },

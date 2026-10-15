@@ -165,7 +165,7 @@ pub struct VM<'a> {
     pub(crate) executing_coros: Vec<u64>,
     /* Bumped by any class member change, voiding every site keyed on a class. */
     pub(crate) class_epoch: u32,
-    /* Set once an instance may hold an attribute named like a member of its class, so method sites check the instance. */
+    /* Set once an instance may hide a method or property of its class with an attribute. */
     pub(crate) shadowed: bool,
     /* Set by a hot loop in unlowered code, its frame then carries on lowered. */
     pub(crate) tier_up: bool,

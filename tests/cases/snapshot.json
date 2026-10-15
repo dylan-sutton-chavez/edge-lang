@@ -125,5 +125,9 @@
   {"src": "xs = [1, 2]\nseen = []\nfor x in xs:\n    receive()\n    seen.append(x)\n    if x == 1:\n        xs.append(3)\nprint(seen)", "interactive_events": ["a", "b", "c"], "output": ["[1, 2, 3]"]},
   {"src": "xs = [1]\nit = iter(xs)\nreceive()\nxs.append(2)\nprint(list(it))", "interactive_events": ["go"], "output": ["[1, 2]"]},
   {"src": "xs = [1, 2, 3]\nr = reversed(xs)\nreceive()\nxs[0] = 9\nprint(list(r))", "interactive_events": ["go"], "output": ["[3, 2, 9]"]},
-  {"src": "class A:\n    def m(self):\n        return 'class'\ndef call(o):\n    return o.m()\na, b = A(), A()\nb.m = lambda: 'own'\nprint(call(a))\nreceive()\nfor _ in range(3):\n    call(a)\nprint(call(a), call(b))", "interactive_events": ["go"], "output": ["class", "class own"]}
+  {"src": "class A:\n    def m(self):\n        return 'class'\ndef call(o):\n    return o.m()\na, b = A(), A()\nb.m = lambda: 'own'\nprint(call(a))\nreceive()\nfor _ in range(3):\n    call(a)\nprint(call(a), call(b))", "interactive_events": ["go"], "output": ["class", "class own"]},
+  {"src": "class A: pass\na = A()\nd = vars(a)\nreceive()\nd['x'] = 1\na.y = 2\nprint(a.x, d['y'])", "interactive_events": ["go"], "output": ["1 2"]},
+  {"src": "def g():\n    total = 0\n    while True:\n        v = yield total\n        total += v\nit = g()\nnext(it)\nit.send(5)\nreceive()\nprint(it.send(3))", "interactive_events": ["go"], "output": ["8"]},
+  {"src": "e = ValueError('x')\ne.add_note('before')\nreceive()\ne.add_note('after')\nprint(e.__notes__)", "interactive_events": ["go"], "output": ["['before', 'after']"]},
+  {"src": "x = [1]\nk = id(x)\nreceive()\nprint(k == id(x), hash((1, 2.0)) == hash((1.0, 2)))", "interactive_events": ["go"], "output": ["True True"]}
 ]

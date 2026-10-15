@@ -27,7 +27,7 @@ impl Limits {
 // How many coroutines run at once, and how many frames a traceback keeps.
 pub const MAX_CALLS: usize = 192;
 
-// How deep instruction loops nest in Rust, so a builtin calling back through a dunder fits 1 MiB of wasm stack on x86 and a browser stack.
+// How deep loops nest in Rust, so the deepest builtin callback fits the wasm stack.
 pub const MAX_NESTED: usize = 128;
 
 // What a value takes in a container, 8 bytes by NaN-boxing on every architecture.
@@ -310,6 +310,8 @@ builtins! {
     Eval => "eval", (1, 3);
     Exec => "exec", (1, 3);
     Compile => "compile", (3, 6);
+    Id => "id", 1;
+    Hash => "hash", 1;
 }
 
 /* Insertion-ordered set, each item beside its hash and removed ones undef tombstones, so no table layout decides its order. */

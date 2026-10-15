@@ -145,13 +145,10 @@ impl<'a> VM<'a> {
                 self.mark_impure();
                 // Bare `raise` (operand 1) re-raises the exception currently being handled.
                 if op == OpCode::Raise && operand == 1 {
-                    let Some(&(exc, at)) = self.handling.last() else {
+                    let Some(&(exc, _)) = self.handling.last() else {
                         return Err(VmErr::Runtime("No active exception to reraise"));
                     };
-                    let name = self.exc_type_name(exc);
-                    self.pending.exc_val = Some(exc);
-                    self.error_byte_pos = at;
-                    return Err(VmErr::Raised(name));
+                    return Err(self.raise_value(exc, chunk));
                 }
                 // RaiseFrom emits both `expr` then `from expr`, the topmost value is the cause, but the exception to raise is the LHS.
                 let cause = if op == OpCode::RaiseFrom { self.pop()? } else { Val::undef() };
@@ -179,7 +176,7 @@ impl<'a> VM<'a> {
     }
 
     /* The error `raise exc` raises, a class made into its instance, the instance kept for `except as`. */
-    fn raise_value(&mut self, mut exc: Val, chunk: &SSAChunk) -> VmErr {
+    pub(crate) fn raise_value(&mut self, mut exc: Val, chunk: &SSAChunk) -> VmErr {
         // The exception being handled raised again keeps the line it was first raised at.
         if let Some(&(handled, at)) = self.handling.last() && handled.0 == exc.0 {
             self.error_byte_pos = at;
@@ -195,7 +192,8 @@ impl<'a> VM<'a> {
             let name = self.exc_type_name(exc);
             let text = match self.with_roots([exc], |vm| vm.display_op(exc, chunk)) { Ok(t) => t, Err(e) => return e };
             self.pending.exc_val = Some(exc);
-            return VmErr::Raised(if text.is_empty() { name } else { crate::s!(str &name, ": ", str &text) });
+            let notes = self.notes_text(exc);
+            return VmErr::Raised(if text.is_empty() { crate::s!(str &name, str &notes) } else { crate::s!(str &name, ": ", str &text, str &notes) });
         }
         // Stash the Val for `except as e` binding, with non-Exc values using `display()`.
         self.pending.exc_val = None;
@@ -219,9 +217,10 @@ impl<'a> VM<'a> {
             None
         };
         // Append the str of the instance so an uncaught traceback reads "Class: message".
+        let notes = self.pending.exc_val.map(|e| self.notes_text(e)).unwrap_or_default();
         let msg = match info {
-            Some((n, Some(arg))) => { let detail = self.display(arg); crate::s!(str &n, ": ", str &detail) }
-            Some((n, None)) => n,
+            Some((n, Some(arg))) => { let detail = self.display(arg); crate::s!(str &n, ": ", str &detail, str &notes) }
+            Some((n, None)) => crate::s!(str &n, str &notes),
             // Non-exception value (str, int, ...) raises TypeError, catchable by `except Exception`.
             None => crate::s!("TypeError: exceptions must derive from BaseException"),
         };

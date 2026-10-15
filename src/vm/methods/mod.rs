@@ -5,6 +5,7 @@ pub mod dict;
 pub mod list;
 pub mod numeric;
 pub mod object;
+pub mod operator;
 pub mod set;
 pub mod slice;
 pub mod string;
@@ -62,7 +63,7 @@ macro_rules! methods {
     };
     (@m ro) => { false };
     (@m rw) => { true };
-    (@k "sort") => { MethodKind::Sort }; (@k "format") => { MethodKind::Format };
+    (@k "sort") => { MethodKind::Sort }; (@k "format") => { MethodKind::Format }; (@k "format_map") => { MethodKind::Format };
     (@k "index") => { MethodKind::Search }; (@k "count") => { MethodKind::Search }; (@k "remove") => { MethodKind::Search };
     (@k "join") => { MethodKind::Iterates }; (@k "extend") => { MethodKind::Iterates }; (@k "update") => { MethodKind::Iterates };
     (@k "fromkeys") => { MethodKind::Iterates }; (@k "union") => { MethodKind::Iterates }; (@k "intersection") => { MethodKind::Iterates };
@@ -223,6 +224,38 @@ const METHODS: &[MethodDesc] = methods! {
         "index" => list::index, ro, 1..3;
         "count" => list::count, ro, 1..1;
     }
+    "str" {
+        "format_map" => framed, ro, 1..1;
+    }
+    "BaseException" {
+        "add_note" => object::exc_add_note, rw, 1..1;
+    }
+    "generator" {
+        "send" => framed, rw, 1..1;
+        "throw" => framed, rw, 1..3;
+        "close" => framed, rw, 0..0;
+        "__next__" => framed, rw, 0..0;
+        "__iter__" => framed, ro, 0..0;
+    }
+    // Dunders of builtin values, which `operator::applies` allows by the type of the receiver.
+    "op" {
+        "__add__" => framed, ro, 1..1; "__radd__" => framed, ro, 1..1; "__sub__" => framed, ro, 1..1; "__rsub__" => framed, ro, 1..1;
+        "__mul__" => framed, ro, 1..1; "__rmul__" => framed, ro, 1..1; "__truediv__" => framed, ro, 1..1; "__rtruediv__" => framed, ro, 1..1;
+        "__floordiv__" => framed, ro, 1..1; "__rfloordiv__" => framed, ro, 1..1; "__mod__" => framed, ro, 1..1; "__rmod__" => framed, ro, 1..1;
+        "__rpow__" => framed, ro, 1..1; "__and__" => framed, ro, 1..1; "__rand__" => framed, ro, 1..1; "__or__" => framed, ro, 1..1;
+        "__ror__" => framed, ro, 1..1; "__xor__" => framed, ro, 1..1; "__rxor__" => framed, ro, 1..1; "__lshift__" => framed, ro, 1..1;
+        "__rlshift__" => framed, ro, 1..1; "__rshift__" => framed, ro, 1..1; "__rrshift__" => framed, ro, 1..1; "__divmod__" => framed, ro, 1..1;
+        "__rdivmod__" => framed, ro, 1..1; "__eq__" => framed, ro, 1..1; "__ne__" => framed, ro, 1..1; "__lt__" => framed, ro, 1..1;
+        "__le__" => framed, ro, 1..1; "__gt__" => framed, ro, 1..1; "__ge__" => framed, ro, 1..1; "__contains__" => framed, ro, 1..1;
+        "__getitem__" => framed, ro, 1..1; "__format__" => framed, ro, 1..1;
+        "__pow__" => framed, ro, 1..2;
+        "__round__" => framed, ro, 0..1;
+        "__neg__" => framed, ro, 0..0; "__pos__" => framed, ro, 0..0; "__abs__" => framed, ro, 0..0; "__invert__" => framed, ro, 0..0;
+        "__bool__" => framed, ro, 0..0; "__int__" => framed, ro, 0..0; "__float__" => framed, ro, 0..0; "__index__" => framed, ro, 0..0;
+        "__hash__" => framed, ro, 0..0; "__repr__" => framed, ro, 0..0; "__str__" => framed, ro, 0..0; "__len__" => framed, ro, 0..0;
+        "__iter__" => framed, ro, 0..0; "__trunc__" => framed, ro, 0..0; "__floor__" => framed, ro, 0..0; "__ceil__" => framed, ro, 0..0;
+        "conjugate" => framed, ro, 0..0;
+    }
 };
 pub static ALL_METHODS: &[MethodDesc] = METHODS;
 
@@ -320,7 +353,13 @@ fn arity_error(m: &MethodDesc, got: usize) -> VmErr {
     let (min, max, n) = (m.min_args as i64, m.max_args as i64, got as i64);
     let args = |k: i64| if k == 1 { "argument" } else { "arguments" };
     let bound = if n < min { ("at least ", min) } else { ("at most ", max) };
-    let msg: String = if m.name.starts_with("__") && m.name != "__init__" && min == max && min != 1 {
+    let msg: String = if m.ty == "op" {
+        // A dunder of a builtin value counts its arguments the way a slot wrapper does.
+        let (word, k) = if min == max { ("", min) } else { bound };
+        let name = if min == max { "" } else { m.name };
+        let gap = if name.is_empty() { "" } else { " " };
+        s!(str name, str gap, "expected ", str word, int k, " ", str args(k), ", got ", int n)
+    } else if m.name.starts_with("__") && m.name != "__init__" && min == max && min != 1 {
         s!("expected ", int min, " arguments, got ", int n)
     } else if min == max && min <= 1 {
         let takes = if min == 0 { "() takes no arguments (" } else { "() takes exactly one argument (" };

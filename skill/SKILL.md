@@ -149,9 +149,9 @@ open("data.txt")
 
 ### Left out by design
 
-Values are NaN-boxed and frames keep their locals in registers, so what CPython builds on object addresses does not exist. Each of these fails at compile time with a message naming what to use instead.
+Values are NaN-boxed and frames keep their locals in registers, so two equal numbers are one value and a frame has no dict. Each of these fails at compile time with a message naming what to use instead.
 
-- `id`, `hash` and `locals`.
+- `locals`.
 - `is` against anything but `None`, `True`, `False`, `...` or `NotImplemented`. Compare with `==`, which on an instance without `__eq__` already compares identity.
 - Metaclasses and other class keywords, `__slots__`, `__new__`, `__del__`, `__hash__`, descriptors, `__init_subclass__`, `__set_name__` and any dunder outside the supported list.
 - A list, dict or set as a default argument. Default to `None` and build the value in the body.
@@ -167,7 +167,7 @@ print(a is b)
 'is' compares only with None, True, False, ... or NotImplemented
 ```
 
-An instance hashes by identity, and a class that defines `__eq__` is unhashable. `bytearray`, `memoryview`, `gen.send`, `gen.throw` and `gen.close` do not exist either, and using one fails at run time.
+`id(x)` is unique while `x` lives and survives a snapshot, and two equal numbers share one. An instance hashes by identity, and a class that defines `__eq__` is unhashable. `bytearray` and `memoryview` do not exist either, and using one fails at run time.
 
 The three behaviors that differ by design follow.
 
@@ -225,8 +225,8 @@ list of 3
 
 ### Missing pieces by type
 
-- `tuple` and `frozenset` have no methods at all. `(1, 2).count(1)` raises `AttributeError`, use operators or convert to list or set first. A `range` has only `index` and `count`, and the dunders of the built-in types are no methods, so `'ab'.__len__()` raises `AttributeError` while `dict` and `list` take `__init__`, `__getitem__`, `__setitem__` and `__len__`.
-- `str` lacks `translate`, `maketrans`, `format_map`, `isascii`, `isidentifier`, `isnumeric`, `isdecimal` and `isprintable`. `str.format` accepts positional fields only, no `{name}` keyword fields.
+- `tuple` and `range` have only `index` and `count`, and `frozenset` has no named methods, so `frozenset({1}).union({2})` raises `AttributeError`, use operators or convert to a set first. The dunders of the operators and builtins a value answers are methods, so `'ab'.__len__()` and `int.__add__(1, 2)` work, and an operand of another type answers `NotImplemented`.
+- `str` lacks `translate`, `maketrans`, `isascii`, `isidentifier`, `isnumeric`, `isdecimal` and `isprintable`.
 - `bytes.split` requires an explicit separator, `bytes.replace` has no count, and codecs are limited to `utf-8` and `ascii` with `strict`, `ignore` and `replace` error handling.
 - `zip` has no `strict` flag. `round` uses ties-to-even and always returns int for one argument, float for two.
 
@@ -280,7 +280,7 @@ The official names `json`, `re`, `math`, `struct` and `test` resolve only when d
 
 ## Builtins
 
-The global namespace holds exactly 68 builtin functions, the type objects, the exception classes, `NotImplemented`, `__name__` and the async primitives. Nothing else exists, and names like `dir`, `help` or `exit` are simply undefined.
+The global namespace holds exactly 70 builtin functions, the type objects, the exception classes, `NotImplemented`, `__name__` and the async primitives. Nothing else exists, and names like `dir`, `help` or `exit` are simply undefined.
 
 ### Output and input
 
@@ -342,7 +342,7 @@ print(sorted([3, 1, 2], reverse=True), any([0, "", 3]))
 
 ### Types and attributes
 
-`type`, `object`, `isinstance`, `issubclass`, `callable`, `repr`, `format`, `getattr`, `hasattr`, `setattr`, `delattr`, `vars`, `globals`, `import_module`, `super`, `property`, `staticmethod`, `classmethod`. `isinstance` accepts a tuple of types and `bool` is a subclass of `int`. `x.__class__` is the same object as `type(x)`. `getattr`, `hasattr` and `setattr` behave like `obj.name`, properties and `__getattr__` included, and a `getattr` default answers only an `AttributeError`. `format(x, spec)` with a spec on a value that has no format of its own, a list or an instance without `__format__`, raises `TypeError`, and `f"{x!s:>10}"` pads its `str()`. `vars(x)` returns a snapshot of instance attributes, and `globals()` returns a copy whose mutation binds nothing.
+`type`, `object`, `isinstance`, `issubclass`, `callable`, `id`, `hash`, `repr`, `format`, `getattr`, `hasattr`, `setattr`, `delattr`, `vars`, `globals`, `import_module`, `super`, `property`, `staticmethod`, `classmethod`. `isinstance` accepts a tuple of types and `bool` is a subclass of `int`. `x.__class__` is the same object as `type(x)`. `getattr`, `hasattr` and `setattr` behave like `obj.name`, properties and `__getattr__` included, and a `getattr` default answers only an `AttributeError`. `format(x, spec)` with a spec on a value that has no format of its own, a list or an instance without `__format__`, raises `TypeError`, and `f"{x!s:>10}"` pads its `str()`. `hash(x)` agrees for equal values, `hash(1) == hash(1.0)`, and raises `TypeError` for a list, dict or set. `vars(x)` and `x.__dict__` return the live attribute dict of an instance, so writes show on both sides, while `globals()` returns a copy whose mutation binds nothing.
 
 ```python
 print(isinstance(True, int), callable(len))
@@ -368,9 +368,9 @@ b'\xff\x00' 1
 
 ### Exceptions
 
-The catchable tree under `Exception` is `ArithmeticError` with `OverflowError` and `ZeroDivisionError`, `LookupError` with `IndexError` and `KeyError`, `RuntimeError` with `RecursionError` and `NotImplementedError`, `OSError`, also named `IOError`, with `PermissionError`, `ValueError` with `UnicodeError` and its `UnicodeEncodeError` and `UnicodeDecodeError`, `ImportError` with `ModuleNotFoundError`, `NameError` with `UnboundLocalError`, plus `TypeError`, `AttributeError`, `StopIteration`, `StopAsyncIteration`, `AssertionError`, `MemoryError` and `TimeoutError`. Under `BaseException` sit `SystemExit` and `CancelledError`, which `except Exception` does not catch.
+The catchable tree under `Exception` is `ArithmeticError` with `OverflowError` and `ZeroDivisionError`, `LookupError` with `IndexError` and `KeyError`, `RuntimeError` with `RecursionError` and `NotImplementedError`, `OSError`, also named `IOError`, with `PermissionError`, `ValueError` with `UnicodeError` and its `UnicodeEncodeError` and `UnicodeDecodeError`, `ImportError` with `ModuleNotFoundError`, `NameError` with `UnboundLocalError`, plus `TypeError`, `AttributeError`, `StopIteration`, `StopAsyncIteration`, `AssertionError`, `MemoryError` and `TimeoutError`. Under `BaseException` sit `SystemExit`, `CancelledError` and `GeneratorExit`, which `except Exception` does not catch.
 
-Handlers name one class, a tuple or nothing, and a bare `except` must come last. `except X as e` binds the exception and `e.args` is its argument tuple. `finally` runs on every exit path including `return`, `break` and `continue`. `raise X from Y` sets `__cause__`, an exception raised while another is handled keeps it as `__context__`, and an uncaught chain prints each exception in turn.
+Handlers name one class, a tuple or nothing, and a bare `except` must come last. `except X as e` binds the exception, `e.args` is its argument tuple and `e.add_note(text)` adds to `e.__notes__`. `finally` runs on every exit path including `return`, `break` and `continue`. `raise X from Y` sets `__cause__`, an exception raised while another is handled keeps it as `__context__`, and an uncaught chain prints each exception in turn with its notes after the message.
 
 ```python
 try:
@@ -854,7 +854,7 @@ Programs run under a fixed budget. Exceeding one raises the matching exception, 
 
 | Limit | Value | Raised |
 |---|---|---|
-| Call depth | Frames up to a sixteenth of the memory limit, 192 nested through builtins, dunders and generators, an `eval` counting three | `RecursionError` |
+| Call depth | Frames up to a sixteenth of the memory limit, 128 nested through builtins, dunders and generators, an `eval` counting three | `RecursionError` |
 | Comparison depth of nested containers, for `==`, `!=` and `in` | 100 | `RecursionError` |
 | Operations | 100 million | `RuntimeError` |
 | Memory | 256 MB | `MemoryError` |

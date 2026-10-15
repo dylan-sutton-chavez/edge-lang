@@ -30,6 +30,8 @@ pub(crate) enum AttrLookup {
     TypeOf(String),
     // `X.__value__` of a type alias, `LoadAttr` calls the zero-argument function that evaluates it.
     Thunk(Val),
+    // `obj.__dict__`, the attributes of the instance as a dict that shares them.
+    Dict(Rc<RefCell<DictMap>>),
 }
 
 impl<'a> VM<'a> {
@@ -66,6 +68,16 @@ impl<'a> VM<'a> {
     }
 
     /* Bind a resolved MRO member `mv` to `recv`, mapping Property to getter, staticmethod to unbound, function to descriptor-bound. Plain data is returned as-is. Guards is_heap before heap.get so a non-heap data member is never read as a pointer. */
+    /* Whether a class member is a method or property, which an instance attribute could hide. */
+    pub(crate) fn hides(&self, member: Val) -> bool {
+        matches!(self.heap.try_get(member), Some(HeapObj::Func(..) | HeapObj::Property(..)))
+    }
+
+    /* Whether `class` reaches a property named `name`. */
+    pub(crate) fn class_property(&self, class: Val, name: &str) -> bool {
+        self.lookup_class_member(class, name).is_some_and(|(m, _)| matches!(self.heap.try_get(m), Some(HeapObj::Property(..))))
+    }
+
     fn bind_member(&self, mv: Val, recv: Val, defining: Val) -> AttrLookup {
         if mv.is_heap() {
             match self.heap.get(mv) {
@@ -127,9 +139,7 @@ impl<'a> VM<'a> {
     pub(crate) fn set_exc_args(&mut self, inst: Val, args: Vec<Val>) -> Result<(), VmErr> {
         let tuple = self.heap.alloc(HeapObj::Tuple(args))?;
         let key = self.heap.alloc(HeapObj::Str("args".into()))?;
-        let Some(HeapObj::Instance(class, attrs)) = self.heap.try_get(inst) else { return Ok(()) };
-        self.shadowed |= self.lookup_class_member(*class, "args").is_some();
-        attrs.borrow_mut().insert(key, tuple, &self.heap);
+        if let Some(HeapObj::Instance(_, attrs)) = self.heap.try_get(inst) { attrs.borrow_mut().insert(key, tuple, &self.heap); }
         Ok(())
     }
 
@@ -179,8 +189,10 @@ impl<'a> VM<'a> {
             // ExcInstance attrs, `e.args` and the chain the exception was raised in.
             Some(HeapObj::ExcInstance(n, args, _)) => return match name {
                 "args" => Ok(AttrLookup::ExcArgs(args.clone())),
+                "value" if n == "StopIteration" => Ok(AttrLookup::ClassMember(args.first().copied().unwrap_or(Val::none()))),
                 "__class__" => Ok(AttrLookup::TypeOf(n.clone())),
-                _ => self.chain_attr(obj, name).map(AttrLookup::ClassMember).ok_or_else(missing),
+                _ => self.chain_attr(obj, name).map(AttrLookup::ClassMember)
+                    .or_else(|| lookup_method("BaseException", name).map(AttrLookup::BuiltinMethod)).ok_or_else(missing),
             },
             // Bound methods expose their receiver, user methods also their function.
             Some(&HeapObj::BoundUserMethod(recv, _, _)) if name == "__self__" => return Ok(AttrLookup::ClassMember(recv)),
@@ -210,7 +222,10 @@ impl<'a> VM<'a> {
                 let found = attrs.borrow().iter()
                     .find(|(k, _)| matches!(self.heap.try_get(*k), Some(HeapObj::Str(s)) if s == name))
                     .map(|(_, v)| v);
-                if let Some(v) = found { return Ok(AttrLookup::InstanceField(v)); }
+                // A property, or a class `args` of an exception, outranks a field of the same name.
+                let hidden = || (self.shadowed && self.class_property(*cls_val, name)) || (name == "args" && self.exc_base(*cls_val).is_some() && self.lookup_class_member(*cls_val, name).is_some());
+                if let Some(v) = found && !hidden() { return Ok(AttrLookup::InstanceField(v)); }
+                if name == "__dict__" && self.exc_base(*cls_val).is_none() { return Ok(AttrLookup::Dict(attrs.clone())); }
                 if let Some((mv, defining)) = self.lookup_class_member(*cls_val, name) { return Ok(self.bind_member(mv, obj, defining)); }
                 // An exception falls back to the `BaseException` methods.
                 if self.exc_base(*cls_val).is_some() && let Some(id) = lookup_method("BaseException", name) { return Ok(AttrLookup::BuiltinMethod(id)); }
@@ -238,7 +253,8 @@ impl<'a> VM<'a> {
                 if name == "__name__" { return Ok(AttrLookup::Name(n.clone())); }
                 // `Exception.__init__(self, msg)` reaches the shared exception methods.
                 let owner = if crate::vm::globals::matches_exc_class(n, "BaseException") { "BaseException" } else { n.as_str() };
-                if let Some(id) = lookup_method(owner, name) {
+                let op = || crate::vm::methods::operator::applies(n, name).then(|| lookup_method("op", name)).flatten();
+                if let Some(id) = lookup_method(owner, name).or_else(op) {
                     let classmethod = matches!(name, "fromkeys" | "fromhex" | "from_bytes");
                     return Ok(if classmethod { AttrLookup::BuiltinMethod(id) } else { AttrLookup::UnboundMethod(id) });
                 }
@@ -254,8 +270,13 @@ impl<'a> VM<'a> {
             _ => {}
         }
         if name == "__class__" { return Ok(AttrLookup::TypeOf(self.type_name(obj).into())); }
-        // Builtin type method.
-        lookup_method(self.type_name(obj), name).map(AttrLookup::BuiltinMethod).ok_or_else(missing)
+        if let Some(v) = crate::vm::methods::operator::number_attr(self, obj, name) { return Ok(AttrLookup::ClassMember(v)); }
+        // A mutable container has no hash, its `__hash__` is None.
+        if name == "__hash__" && matches!(self.type_name(obj), "list" | "dict" | "set") { return Ok(AttrLookup::ClassMember(Val::none())); }
+        // Builtin type method, then the dunders its operators answer.
+        let ty = self.type_name(obj);
+        lookup_method(ty, name).or_else(|| crate::vm::methods::operator::applies(ty, name).then(|| lookup_method("op", name)).flatten())
+            .map(AttrLookup::BuiltinMethod).ok_or_else(missing)
     }
 
     /* `case C(p, k=q)` checks `isinstance(subj, C)`, then pushes a tuple of the values its sub-patterns match, or None on a miss. */
@@ -345,6 +366,8 @@ impl<'a> VM<'a> {
             AttrLookup::PropertySetterRef(prop) => HeapObj::PropertySetter(prop),
             AttrLookup::Name(s) => HeapObj::Str(s),
             AttrLookup::TypeOf(s) => HeapObj::Type(s),
+            // Writes through the dict skip the stores that note hidden methods, so sites check again.
+            AttrLookup::Dict(attrs) => { self.shadowed = true; HeapObj::Dict(attrs) }
             AttrLookup::PropertyGet { recv, getter } => {
                 // Inline getter call, matches `BoundUserMethod` dispatch (push func, push self, call).
                 if self.depth >= self.max_calls { return Err(cold_depth()); }

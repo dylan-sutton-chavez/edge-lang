@@ -401,8 +401,38 @@ returned done
 [1, 2]
 ```
 
-> [!NOTE]
-> Generators are one-way producers. `gen.send(value)`, `gen.throw(exc)` and `gen.close()` are not exposed. For flow in both directions, use the [cooperative scheduler](/docs/edge-python/language/async) and pass values through arguments and return values.
+### send, throw and close
+
+A generator also takes values back. `gen.send(value)` resumes it with `value` as the result of the paused `yield` and returns the next value it yields, and a generator that has not started takes only `send(None)` or `next`. `gen.throw(exc)` raises `exc` at the paused `yield`. `gen.close()` raises `GeneratorExit` there so its `finally` blocks run, and a generator that yields again instead raises `RuntimeError`. The value of a `return` rides on the `StopIteration` that ends the generator, as `e.value`.
+
+```edge-python
+def running():
+  total = 0
+  while True:
+    total += yield total
+
+acc = running()
+next(acc)
+print(acc.send(5))
+print(acc.send(10))
+
+def worker():
+  try:
+    yield "busy"
+  finally:
+    print("cleaned up")
+
+w = worker()
+print(next(w))
+w.close()
+```
+
+```output
+5
+15
+busy
+cleaned up
+```
 
 ## Generator expressions
 

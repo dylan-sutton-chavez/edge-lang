@@ -11,7 +11,7 @@ use super::{Pending, VM};
 use super::types::*;
 
 const MAGIC: u32 = 0x4E53_5045;
-const FORMAT: u32 = 14;
+const FORMAT: u32 = 15;
 // A SHA-256 of everything before it closes each blob, so a damaged one never restores.
 const SEAL: usize = 32;
 
@@ -634,6 +634,15 @@ pub fn save(vm: &VM, source: &str) -> Vec<u8> {
             Some(o) => { w.u8(1); put_obj(&mut w, o); }
         }
     }
+    // A dict that `vars` gave shares its instance attributes, so the restore links them.
+    let mut owners: FxHashMap<usize, usize> = FxHashMap::default();
+    for (slot, obj) in vm.heap.snapshot_objs().enumerate() {
+        if let Some(HeapObj::Instance(_, rc)) = obj { owners.insert(Rc::as_ptr(rc) as usize, slot); }
+    }
+    let shared: Vec<(usize, usize)> = vm.heap.snapshot_objs().enumerate()
+        .filter_map(|(slot, obj)| match obj { Some(HeapObj::Dict(rc)) => owners.get(&(Rc::as_ptr(rc) as usize)).map(|&inst| (slot, inst)), _ => None })
+        .collect();
+    w.seq(&shared, |w, &(dict, inst)| { w.usz(dict); w.usz(inst); });
     // The dicts and lists user classes made, in slot order so a blob stays the same.
     let mut classed: Vec<_> = vm.heap.classed_slots().collect();
     classed.sort_unstable_by_key(|(idx, _)| **idx);
@@ -751,6 +760,13 @@ pub fn restore(vm: &mut VM, blob: &[u8]) -> Result<(), SnapErr> {
     }
     r.live = Some(objs.iter().map(Option::is_some).collect());
     vm.heap.restore_objs(objs);
+    for _ in 0..r.count()? {
+        let mut slot = || r.usz().and_then(|n| u32::try_from(n).map(Val::heap).map_err(|_| "snapshot slot out of range".to_string()));
+        let (dict, inst) = (slot()?, slot()?);
+        let Some(HeapObj::Instance(_, rc)) = vm.heap.try_get(inst) else { return Err("snapshot shares the dict of a missing instance".to_string()) };
+        let rc = rc.clone();
+        match vm.heap.try_get_mut(dict) { Some(slot @ HeapObj::Dict(_)) => *slot = HeapObj::Dict(rc), _ => return Err("snapshot shares a missing dict".to_string()) }
+    }
     for _ in 0..r.count()? {
         let (obj, cls, attrs) = (r.val()?, r.val()?, get_dict(&mut r)?);
         let fits = matches!(vm.heap.try_get(obj), Some(HeapObj::Dict(_) | HeapObj::List(_))) && matches!(vm.heap.try_get(cls), Some(HeapObj::Class(..)));
@@ -879,8 +895,8 @@ fn rehash(vm: &mut VM, fills: Vec<(u32, SetFill)>) -> Result<(), SnapErr> {
         let mut dicts: Vec<Rc<RefCell<DictMap>>> = match vm.heap.try_get(v) {
             Some(HeapObj::Dict(rc)) => alloc::vec![rc.clone()],
             Some(HeapObj::Instance(class, rc)) => {
-                // An attribute named like a member of its class keeps method sites checking the instance.
-                vm.shadowed |= rc.borrow().iter().any(|(k, _)| matches!(vm.heap.try_get(k), Some(HeapObj::Str(n)) if vm.lookup_class_member(*class, n).is_some()));
+                // An attribute hiding a method or property keeps method sites checking the instance.
+                vm.shadowed |= rc.borrow().iter().any(|(k, _)| matches!(vm.heap.try_get(k), Some(HeapObj::Str(n)) if vm.lookup_class_member(*class, n).is_some_and(|(m, _)| vm.hides(m))));
                 alloc::vec![rc.clone()]
             }
             _ => Vec::new(),

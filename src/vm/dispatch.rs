@@ -506,6 +506,7 @@ impl<'a> VM<'a> {
                 let value = self.pop()?;
                 self.call_with(value, None, &positional, &kw_flat, chunk)
             }
+            AttrLookup::Dict(_) => Err(cold_type("'dict' object is not callable")),
             AttrLookup::Thunk(f) => {
                 // `X.__value__(...)` evaluates the value, then calls it.
                 self.push(f);
@@ -1964,8 +1965,8 @@ impl<'a> VM<'a> {
         }
         // Class attribute, insert or replace in the mutable members store.
         if let HeapObj::Class(_, _, members) = self.heap.get(obj) {
-            // A new member may share its name with an attribute an instance already holds.
-            self.shadowed |= !members.borrow().iter().any(|(n, _)| n == name);
+            // A method or property set on a class may share a name with an instance attribute.
+            self.shadowed |= self.hides(value);
             set_member(members, name, value);
             self.class_epoch = self.class_epoch.wrapping_add(1);
             return Ok(());
@@ -1981,7 +1982,7 @@ impl<'a> VM<'a> {
             HeapObj::Instance(_, attrs) => attrs,
             _ => match self.heap.classed(obj) { Some((_, attrs)) => attrs, None => return Err(cold_type("cannot set attribute on this type")) },
         };
-        self.shadowed |= member.is_some();
+        self.shadowed |= member.is_some_and(|(m, _)| self.hides(m));
         attrs.borrow_mut().insert(key, value, &self.heap);
         Ok(())
     }

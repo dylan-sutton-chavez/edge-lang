@@ -121,9 +121,7 @@ fused! {
 }
 
 /* Builtins the language leaves out, each with the error its use compiles to. */
-pub(super) const REMOVED_BUILTINS: [(&str, &str); 5] = [
-    ("id", "'id' is not supported, compare values with '=='"),
-    ("hash", "'hash' is not supported, a dict or set hashes its keys by value or identity"),
+pub(super) const REMOVED_BUILTINS: [(&str, &str); 3] = [
     ("locals", "'locals' is not supported, pass the values a call needs"),
     ("open", "'open' is not supported, the sandbox holds no files"),
     ("__import__", "'__import__' is not supported, write an import statement"),
@@ -132,7 +130,7 @@ pub(super) const REMOVED_BUILTINS: [(&str, &str); 5] = [
 /* The index of `name` in `REMOVED_BUILTINS`, the length test keeping every other name to one compare. */
 #[inline]
 pub(super) fn removed_builtin(name: &str) -> Option<usize> {
-    if !matches!(name.len(), 2 | 4 | 6 | 10) { return None; }
+    if !matches!(name.len(), 4 | 6 | 10) { return None; }
     REMOVED_BUILTINS.iter().position(|&(n, _)| n == name)
 }
 
@@ -728,5 +726,5 @@ builtin_types! {
     "RecursionError", "StopIteration", "NotImplementedError",
     "OSError", "PermissionError", "IOError", "ImportError", "ModuleNotFoundError", "SyntaxError",
     "AssertionError", "ArithmeticError", "LookupError",
-    "CancelledError", "TimeoutError", "SystemExit",
+    "CancelledError", "TimeoutError", "SystemExit", "GeneratorExit",
 }

@@ -5,7 +5,7 @@ description: "The global functions available in every Edge Python program."
 
 # Built-in functions
 
-Edge Python provides 68 built-in functions. They are first-class values. You can pass them as arguments, store them in containers, and alias them.
+Edge Python provides 70 built-in functions. They are first-class values. You can pass them as arguments, store them in containers, and alias them.
 
 ```edge-python
 fns = [abs, hex, str]
@@ -711,6 +711,50 @@ True
 False
 ```
 
+## Identity and hashing
+
+### id
+
+`id(x)` returns an int that tells `x` apart from every other object alive at the same time. It stays the same across a snapshot and restore. Two equal inline numbers share one value, so they share one `id`.
+
+```edge-python
+a = [1, 2]
+b = a
+print(id(a) == id(b))
+print(id(a) == id([1, 2]))
+```
+
+```output
+True
+False
+```
+
+### hash
+
+`hash(x)` returns an int that agrees for any two values that compare equal.
+
+- Equal numbers hash alike, so `hash(1)`, `hash(1.0)` and `hash(True)` agree. An int hashes as its value modulo 2^61 - 1, `-1` hashes as `-2`, and infinity as `314159`.
+- Strings and bytes hash by content, tuples by the hashes of their items, and ranges and frozensets by value.
+- Any other object hashes by identity.
+- A list, dict or set raises `TypeError` with `unhashable type: 'list'`, as does an instance whose class defines `__eq__`.
+
+```edge-python
+print(hash(1) == hash(1.0) == hash(True))
+print(hash(-1))
+print(hash((1, "a")) == hash((1, "a")))
+try:
+  hash([1])
+except TypeError as e:
+  print(e)
+```
+
+```output
+True
+-2
+True
+unhashable type: 'list'
+```
+
 ## Representation
 
 ### repr
@@ -753,7 +797,7 @@ print(format(255, "#x"))
 
 `getattr(obj, name)` reads an attribute. It looks in this order.
 
-1. The instance `__dict__`.
+1. The instance `__dict__`, unless a property of the class has the same name.
 2. The class chain.
 3. The built-in method table.
 4. The `__getattr__` of the class, when it defines one.
@@ -787,19 +831,22 @@ False
 
 ### vars
 
-`vars(x)` returns a snapshot of the attribute dict of an instance or module. There is no form without an argument.
+`vars(x)` and `x.__dict__` return the attribute dict of an instance itself, so a write to either side shows on the other, and a snapshot keeps them linked. A property outranks a dict entry of the same name. A module and an exception answer a copy, which leaves out the internal fields of an exception. A value with no attributes raises `TypeError` with `vars() argument must have __dict__ attribute`, and there is no form without an argument.
 
 ```edge-python
 class P:
   def __init__(self):
     self.x = 1
-    self.y = 2
 
-print(vars(P()))
+p = P()
+d = vars(p)
+d["y"] = 2
+p.z = 3
+print(p.y, vars(p))
 ```
 
 ```output
-{'x': 1, 'y': 2}
+2 {'x': 1, 'y': 2, 'z': 3}
 ```
 
 ### globals

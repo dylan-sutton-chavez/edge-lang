@@ -523,6 +523,11 @@ impl<'a> VM<'a> {
         if !matches!(self.heap.get(o), HeapObj::Coroutine(..)) {
             return Err(VmErr::TypeMsg(s!("'", str self.type_name(o), "' object is not an iterator")));
         }
+        self.resume_generator(o, default)
+    }
+
+    /* Resumes generator `o`, its next value pushed, or `default` or StopIteration once it ends. */
+    pub(crate) fn resume_generator(&mut self, o: Val, default: Option<Val>) -> Result<(), VmErr> {
         self.push(o); // root across resume's GC
         let result = self.resume_coroutine(o)?;
         if self.yielded {
@@ -531,7 +536,12 @@ impl<'a> VM<'a> {
             Ok(())
         } else {
             self.pop()?; // drop the rooted coroutine
-            match default { Some(d) => { self.push(d); Ok(()) }, None => Err(VmErr::Raised(s!("StopIteration"))) }
+            if let Some(d) = default { self.push(d); return Ok(()); }
+            // The value a generator returned rides on its StopIteration.
+            if result.is_none() { return Err(VmErr::Raised(s!("StopIteration"))); }
+            let exc = self.heap.alloc(HeapObj::ExcInstance("StopIteration".into(), alloc::vec![result], Val::undef()))?;
+            self.pending.exc_val = Some(exc);
+            Err(VmErr::Raised(s!("StopIteration: ", str &self.display(result))))
         }
     }
 

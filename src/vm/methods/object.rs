@@ -15,6 +15,12 @@ pub fn exc_init(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
     vm.push(Val::none()); Ok(())
 }
 
+// `BaseException.add_note(note)`, a line the traceback prints after the message.
+pub fn exc_add_note(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
+    vm.add_note(recv, pos[0])?;
+    vm.push(Val::none()); Ok(())
+}
+
 // `BaseException.__str__(self)`, the message `args` gives.
 pub fn exc_str(vm: &mut VM, recv: Val, _pos: &[Val]) -> Result<(), VmErr> {
     let text = vm.display(recv);

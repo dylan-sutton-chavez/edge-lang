@@ -155,7 +155,7 @@ print(t, t.total, isinstance(t, dict))
 |---------------------|-------------------------------------------|
 | `MyClass.attr` | class member, returned as-is (no binding) |
 | `MyClass.method()` | method called directly, no `self` |
-| `instance.attr` | instance `__dict__` first, then class |
+| `instance.attr` | a class property first, then instance `__dict__`, then class |
 | `instance.method()` | bound method, `self` prepended |
 
 `setattr` and `delattr` work on instances and on class objects. On a class object they change the members of the class.

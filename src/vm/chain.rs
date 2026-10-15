@@ -1,4 +1,5 @@
-use alloc::{string::String, vec, vec::Vec};
+use alloc::{rc::Rc, string::String, vec, vec::Vec};
+use core::cell::RefCell;
 
 use crate::parser::SSAChunk;
 use super::VM;
@@ -19,10 +20,12 @@ pub(crate) struct Chain {
     pub context_at: Option<u32>,
     // Set by a `from` clause, which hides the context.
     pub suppress: bool,
+    // The list `add_note` fills, None until the first note.
+    pub notes: Val,
 }
 
 impl Chain {
-    fn none() -> Self { Self { cause: Val::none(), cause_at: None, context: Val::none(), context_at: None, suppress: false } }
+    fn none() -> Self { Self { cause: Val::none(), cause_at: None, context: Val::none(), context_at: None, suppress: false, notes: Val::none() } }
 }
 
 fn at_val(at: Option<u32>) -> Val { at.map_or(Val::none(), |p| Val::int(p as i64)) }
@@ -39,13 +42,13 @@ impl<'a> VM<'a> {
             _ => Val::undef(),
         };
         match self.heap.try_get(stored) {
-            Some(HeapObj::Tuple(t)) if t.len() == 5 => Chain { cause: t[0], cause_at: val_at(t[1]), context: t[2], context_at: val_at(t[3]), suppress: t[4].is_true() },
+            Some(HeapObj::Tuple(t)) if t.len() == 6 => Chain { cause: t[0], cause_at: val_at(t[1]), context: t[2], context_at: val_at(t[3]), suppress: t[4].is_true(), notes: t[5] },
             _ => Chain::none(),
         }
     }
 
     fn set_exc_chain(&mut self, e: Val, c: Chain) -> Result<(), VmErr> {
-        let t = self.heap.alloc(HeapObj::Tuple(vec![c.cause, at_val(c.cause_at), c.context, at_val(c.context_at), Val::bool(c.suppress)]))?;
+        let t = self.heap.alloc(HeapObj::Tuple(vec![c.cause, at_val(c.cause_at), c.context, at_val(c.context_at), Val::bool(c.suppress), c.notes]))?;
         if let Some(HeapObj::ExcInstance(_, _, slot)) = self.heap.try_get_mut(e) { *slot = t; return Ok(()); }
         let key = self.heap.intern_str(CHAIN_KEY)?;
         if let Some(HeapObj::Instance(_, attrs)) = self.heap.try_get(e) { attrs.borrow_mut().insert(key, t, &self.heap); }
@@ -92,8 +95,29 @@ impl<'a> VM<'a> {
             "__cause__" => Some(c.cause),
             "__context__" => Some(c.context),
             "__suppress_context__" => Some(Val::bool(c.suppress)),
+            "__notes__" if !c.notes.is_none() => Some(c.notes),
             _ => None,
         }
+    }
+
+    /* `e.add_note(note)`, appended to the list `__notes__` reads, made on the first note. */
+    pub(crate) fn add_note(&mut self, e: Val, note: Val) -> Result<(), VmErr> {
+        if !matches!(self.heap.try_get(note), Some(HeapObj::Str(_))) {
+            return Err(VmErr::TypeMsg(crate::s!("note must be a str, not '", str self.type_name(note), "'")));
+        }
+        let c = self.exc_chain(e);
+        if let Some(HeapObj::List(l)) = self.heap.try_get(c.notes) { l.borrow_mut().push(note); return Ok(()); }
+        let notes = self.heap.alloc(HeapObj::List(Rc::new(RefCell::new(vec![note]))))?;
+        self.with_roots([notes], |vm| vm.set_exc_chain(e, Chain { notes, ..c }))
+    }
+
+    /* The notes of `e`, each on a line of its own after its message. */
+    pub(crate) fn notes_text(&self, e: Val) -> String {
+        let mut out = String::new();
+        if let Some(HeapObj::List(l)) = self.heap.try_get(self.exc_chain(e).notes) {
+            for &n in l.borrow().iter() { out.push('\n'); out.push_str(&self.display(n)); }
+        }
+        out
     }
 
     /* The exceptions the uncaught one was raised from, oldest first, each with how the next came. */
@@ -112,7 +136,8 @@ impl<'a> VM<'a> {
         for &(exc, at, how) in links.iter().rev() {
             let name = self.exc_type_name(exc);
             let text = self.display(exc);
-            let msg = if text.is_empty() { name } else { crate::s!(str &name, ": ", str &text) };
+            let notes = self.notes_text(exc);
+            let msg = if text.is_empty() { crate::s!(str &name, str &notes) } else { crate::s!(str &name, ": ", str &text, str &notes) };
             match at {
                 Some(p) => out.push_str(&crate::parser::Diagnostic { start: p as usize, end: p as usize, msg }.render(src, path)),
                 None => { out.push_str("error: "); out.push_str(&msg); out.push('\n'); }

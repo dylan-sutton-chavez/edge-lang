@@ -109,7 +109,7 @@ The heap is a `Vec<HeapSlot>` arena. Its free list is capped at 524,288 entries 
 - Equal interned values share one slot.
 - Strings built at run time are not interned.
 
-An inline value has no address, so two equal numbers are one value. That is why the language has no `id`, no user `__hash__`, and no `is` beyond `None`, `True`, `False`, `...` and `NotImplemented`, since each would answer differently from CPython. Frames keep their locals in registers rather than in a dict, so there is no `locals()` either.
+An inline value has no address, so two equal numbers are one value and share one `id`, the boxed word. An `is` built on that would answer differently from CPython, so `is` compares only with `None`, `True`, `False`, `...` and `NotImplemented`. Frames keep their locals in registers rather than in a dict, so there is no `locals()`.
 
 A NaN payload could read as a tagged value, so every NaN is stored as `0x7FF8...` with its sign kept, and two NaNs are one value. A container matches by identity before `==`, so a list holding a NaN contains any other and a set keeps one, as `SameValueZero` does in JavaScript. `n == n` stays `False`.
 
@@ -192,7 +192,7 @@ A coverage-guided fuzzer drives the lexer, the parser, the VM and this snapshot 
 - No JIT. A method JIT needs stencils per architecture, and a tracing JIT duplicates the execution model and complicates the GC.
 - No runtime module system. Imports resolve at parse time through a resolver the host injects. See [Modules](/docs/edge-python/reference/modules).
 - No bigints, complex numbers, `bytearray`, `memoryview`, `Decimal`, or `Fraction`.
-- No `gen.send`, `throw` or `close`, and no `asyncio` module. The concurrency primitives are top-level builtins, see [Async](/docs/edge-python/language/async).
+- No `asyncio` module. The concurrency primitives are top-level builtins, see [Async](/docs/edge-python/language/async).
 
 ## References
 

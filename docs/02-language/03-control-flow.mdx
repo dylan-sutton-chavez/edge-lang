@@ -385,7 +385,7 @@ logging
 outer bad
 ```
 
-`raise X from Y` raises `X` with `Y` as its `__cause__`. An exception raised while another is handled keeps that one as its `__context__`, and `from None` hides it. An uncaught chain prints each exception in turn.
+`raise X from Y` raises `X` with `Y` as its `__cause__`. An exception raised while another is handled keeps that one as its `__context__`, and `from None` hides it. An uncaught chain prints each exception in turn, each followed by the notes `e.add_note(text)` attached to it.
 
 ```edge-python
 try:

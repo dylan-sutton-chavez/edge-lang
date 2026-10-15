@@ -1,4 +1,5 @@
 use super::prelude::*;
+use crate::s;
 use crate::util::uni;
 
 use core::iter;
@@ -231,20 +232,72 @@ pub fn replace(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
 pub fn rsplit(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { split_impl(vm, recv, pos, true) }
 
 // `str.format(*args)` fills `{[idx][!r|!s|!a][:spec]}` fields, a spec may hold fields one level deep, keyword fields are not supported.
-pub(crate) fn format(vm: &mut VM, recv: Val, pos: &[Val], chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
+/* Where named fields come from, the keywords of `format` or the mapping of `format_map`. */
+#[derive(Clone, Copy)]
+pub(crate) enum Names<'a> { Kw(&'a [Val]), Map(Val) }
+
+pub(crate) fn format(vm: &mut VM, recv: Val, pos: &[Val], names: Names, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
     let tmpl = recv_str(vm, recv)?;
+    let (kw, map) = match names { Names::Kw(kw) => (kw, None), Names::Map(m) => (&[][..], Some(m)) };
     // Fields run user dunders, so the arguments stay rooted until the text is built.
-    let out = vm.with_roots(pos.iter().copied(), |vm| format_fields(vm, &tmpl, pos, chunk))?;
+    let out = vm.with_roots(pos.iter().chain(kw).copied().chain(map), |vm| expand_fields(vm, &tmpl, pos, names, &mut (0, None), 0, chunk))?;
     vm.alloc_and_push_str(out)
 }
 
-fn format_fields(vm: &mut VM, tmpl: &str, pos: &[Val], chunk: &crate::parser::SSAChunk) -> Result<String, VmErr> {
-    // The next auto index and the numbering mode, Some(true)=manual, shared with the fields nested in a spec.
-    expand_fields(vm, tmpl, pos, &mut (0, None), 0, chunk)
+/* The value a field name reaches, a position or a name, then each `.attr` and `[key]`. */
+fn field_value(vm: &mut VM, name: &str, pos: &[Val], names: Names, numbering: &mut (usize, Option<bool>), chunk: &crate::parser::SSAChunk) -> Result<Val, VmErr> {
+    let head_end = name.find(['.', '[']).unwrap_or(name.len());
+    let (head, mut rest) = name.split_at(head_end);
+    let (auto, manual) = (&mut numbering.0, &mut numbering.1);
+    let index = if head.is_empty() {
+        if *manual == Some(true) { return Err(cold_value("cannot switch from manual field specification to automatic field numbering")); }
+        *manual = Some(false);
+        *auto += 1;
+        Some(*auto - 1)
+    } else if let Ok(i) = head.parse::<usize>() {
+        if *manual == Some(false) { return Err(cold_value("cannot switch from automatic field numbering to manual field specification")); }
+        *manual = Some(true);
+        Some(i)
+    } else { None };
+    let mut v = match (index, names) {
+        (Some(i), _) => *pos.get(i).ok_or_else(|| VmErr::Raised(s!("IndexError: Replacement index ", int i as i64, " out of range for positional args tuple")))?,
+        (None, Names::Kw(kw)) => match kw.chunks(2).find(|p| matches!(vm.heap.try_get(p[0]), Some(HeapObj::Str(k)) if k == head)) {
+            Some(p) => p[1],
+            None => { let k = vm.heap.alloc(HeapObj::Str(head.into()))?; return Err(vm.key_error(k)); }
+        },
+        (None, Names::Map(m)) => { let k = vm.heap.alloc(HeapObj::Str(head.into()))?; item_of(vm, m, k, chunk)? }
+    };
+    while !rest.is_empty() {
+        if let Some(r) = rest.strip_prefix('.') {
+            let end = r.find(['.', '[']).unwrap_or(r.len());
+            if end == 0 { return Err(cold_value("Empty attribute in format string")); }
+            v = vm.with_roots([v], |vm| { vm.load_attr(v, &r[..end], chunk)?; vm.pop() })?;
+            rest = &r[end..];
+        } else {
+            let close = rest.find(']').ok_or_else(|| cold_value("expected '}' before end of string"))?;
+            let key = &rest[1..close];
+            if key.is_empty() { return Err(cold_value("Empty attribute in format string")); }
+            let k = match key.parse::<i64>() { Ok(i) if !key.starts_with(['-', '+']) => Val::int(i), _ => vm.heap.alloc(HeapObj::Str(key.into()))? };
+            v = item_of(vm, v, k, chunk)?;
+            rest = &rest[close + 1..];
+            if !rest.is_empty() && !rest.starts_with(['.', '[']) { return Err(cold_value("Only '.' or '[' may follow ']' in format field specifier")); }
+        }
+    }
+    Ok(v)
+}
+
+/* `obj[key]` with a user `__getitem__` first, the way a subscript reads it. */
+fn item_of(vm: &mut VM, obj: Val, key: Val, chunk: &crate::parser::SSAChunk) -> Result<Val, VmErr> {
+    if let Some(v) = vm.try_call_dunder(obj, "__getitem__", &[key], chunk)? { return Ok(v); }
+    // A class over dict answers a missing key through its `__missing__`.
+    if vm.heap.classed(obj).is_some() && let HeapObj::Dict(d) = vm.heap.get(obj) && d.borrow().get(&key, &vm.heap).is_none()
+        && let Some(v) = vm.try_call_dunder(obj, "__missing__", &[key], chunk)? { return Ok(v); }
+    vm.get_item_builtin(obj, key)?;
+    vm.pop()
 }
 
 /* Fills the fields of `tmpl`, where `depth` 1 is a spec and a field nested past it is refused as Python refuses it. */
-fn expand_fields(vm: &mut VM, tmpl: &str, pos: &[Val], numbering: &mut (usize, Option<bool>), depth: u8, chunk: &crate::parser::SSAChunk) -> Result<String, VmErr> {
+fn expand_fields(vm: &mut VM, tmpl: &str, pos: &[Val], names: Names, numbering: &mut (usize, Option<bool>), depth: u8, chunk: &crate::parser::SSAChunk) -> Result<String, VmErr> {
     if depth > 1 { return Err(cold_value("Max string recursion exceeded")); }
     let chars: Vec<char> = tmpl.chars().collect();
     let mut out = String::with_capacity(tmpl.len());
@@ -263,30 +316,24 @@ fn expand_fields(vm: &mut VM, tmpl: &str, pos: &[Val], numbering: &mut (usize, O
             }
             if j >= chars.len() { return Err(cold_value("Single '{' encountered in format string")); }
             ci = j + 1;
-            let (name_conv, spec) = match field.split_once(':') { Some((a, b)) => (a, b.to_string()), None => (field.as_str(), String::new()) };
-            let (name, conv) = match name_conv.split_once('!') { Some((a, b)) => (a, Some(b)), None => (name_conv, None) };
-            let (auto, manual) = (&mut numbering.0, &mut numbering.1);
-            let val = if name.is_empty() {
-                if *manual == Some(true) { return Err(cold_value("cannot switch from manual field specification to automatic field numbering")); }
-                *manual = Some(false);
-                let v = *pos.get(*auto).ok_or_else(|| cold_index("Replacement index out of range"))?;
-                *auto += 1; v
-            } else if let Ok(idx) = name.parse::<usize>() {
-                if *manual == Some(false) { return Err(cold_value("cannot switch from automatic field numbering to manual field specification")); }
-                *manual = Some(true);
-                *pos.get(idx).ok_or_else(|| cold_index("Replacement index out of range"))?
-            } else {
-                return Err(cold_type("str.format() does not support keyword fields"));
+            // The name ends at the first `!` or `:` outside its brackets.
+            let mut depth_br = 0i32;
+            let cut = field.char_indices().find(|&(_, ch)| { match ch { '[' => depth_br += 1, ']' => depth_br -= 1, _ => {} } depth_br == 0 && matches!(ch, '!' | ':') }).map_or(field.len(), |(i, _)| i);
+            let (name, tail) = field.split_at(cut);
+            let (conv, spec) = match tail.strip_prefix('!') {
+                Some(t) => match t.split_once(':') { Some((c, sp)) => (Some(c), sp.to_string()), None => (Some(t), String::new()) },
+                None => (None, tail.strip_prefix(':').unwrap_or("").to_string()),
             };
+            let val = field_value(vm, name, pos, names, numbering, chunk)?;
             // The fields of a spec fill after the field that holds it, numbered on from it.
-            let spec = if spec.contains('{') { expand_fields(vm, &spec, pos, numbering, depth + 1, chunk)? } else { spec };
+            let spec = if spec.contains('{') { vm.with_roots([val], |vm| expand_fields(vm, &spec, pos, names, numbering, depth + 1, chunk))? } else { spec };
             // A conversion renders to a string first, then the spec applies to that.
             let text = match conv {
                 None => None,
                 Some("r") => Some(vm.repr_op(val, chunk)?),
                 Some("s") => Some(vm.display_op(val, chunk)?),
                 Some("a") => Some(crate::vm::format_spec::ascii_escape(&vm.repr_op(val, chunk)?)),
-                Some(_) => return Err(cold_value("unknown conversion specifier")),
+                Some(c) => return Err(VmErr::Raised(s!("ValueError: Unknown conversion specifier ", str c))),
             };
             let target = match text { Some(t) => vm.heap.alloc(HeapObj::Str(t))?, None => val };
             let rendered = vm.format_op(target, &spec, chunk)?;

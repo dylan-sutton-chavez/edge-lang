@@ -41,7 +41,13 @@ fn iterates(id: super::super::types::NativeFnId) -> bool {
 #[cold]
 fn arity_err(id: super::super::types::NativeFnId, n: u16) -> VmErr {
     let (lo, hi) = id.arity();
-    if lo == hi { return cold_type("wrong number of arguments to builtin"); }
+    let name = id.name();
+    match (lo == hi, lo) {
+        (true, 0) => return VmErr::TypeMsg(crate::s!(str name, "() takes no arguments (", int n, " given)")),
+        (true, 1) => return VmErr::TypeMsg(crate::s!(str name, "() takes exactly one argument (", int n, " given)")),
+        (true, k) => return VmErr::TypeMsg(crate::s!(str name, " expected ", int k, " arguments, got ", int n)),
+        _ => {}
+    }
     let (word, bound) = if n < lo { ("least", lo) } else { ("most", hi) };
     VmErr::TypeMsg(crate::s!(str id.name(), " expected at ", str word, " ", int bound, " argument", str if bound == 1 { "" } else { "s" }, ", got ", int n))
 }
@@ -134,8 +140,22 @@ impl<'a> VM<'a> {
     pub(crate) fn exec_bound_method(&mut self, recv: Val, id: crate::vm::methods::BuiltinMethodId, pos: &[Val], kw: &[Val], chunk: &SSAChunk) -> Result<(), VmErr> {
         use crate::vm::methods::MethodKind;
         let done = match id.kind() {
+            _ if id.ty() == "generator" => {
+                crate::vm::methods::method_frame(self, id, pos.len())?;
+                self.generator_method(recv, id.name(), pos, chunk)
+            }
+            // A dunder of a builtin value runs the operator it names.
+            _ if id.ty() == "op" => {
+                if !kw.is_empty() { return Err(VmErr::TypeMsg(crate::s!(str id.name(), "() takes no keyword arguments"))); }
+                crate::vm::methods::method_frame(self, id, pos.len())?;
+                crate::vm::methods::operator::call(self, recv, id.name(), pos, chunk)
+            }
             MethodKind::Sort => self.exec_sort(recv, pos, kw, chunk),
-            MethodKind::Format if kw.is_empty() => crate::vm::methods::string::format(self, recv, pos, chunk),
+            MethodKind::Format if id.name() == "format_map" && kw.is_empty() => {
+                crate::vm::methods::method_frame(self, id, pos.len())?;
+                crate::vm::methods::string::format(self, recv, &[], crate::vm::methods::string::Names::Map(pos[0]), chunk)
+            }
+            MethodKind::Format => crate::vm::methods::string::format(self, recv, pos, crate::vm::methods::string::Names::Kw(kw), chunk),
             MethodKind::Search if matches!(id.ty(), "list" | "tuple") && kw.is_empty() => {
                 crate::vm::methods::method_frame(self, id, pos.len())?;
                 self.with_roots(pos.iter().copied().chain([recv]), |vm| {
@@ -165,8 +185,8 @@ impl<'a> VM<'a> {
             return Err(VmErr::TypeMsg(crate::s!("unbound method ", str id.ty(), ".", str id.name(), "() needs an argument")));
         };
         // An exception instance takes the `BaseException` methods its builtin base gives it.
-        let fits = self.type_name(recv) == id.ty()
-            || (id.ty() == "BaseException" && matches!(self.heap.try_get(recv), Some(&HeapObj::Instance(c, _)) if self.exc_base(c).is_some()));
+        let fits = self.type_name(recv) == id.ty() || (id.ty() == "op" && crate::vm::methods::operator::applies(self.type_name(recv), id.name()))
+            || (id.ty() == "BaseException" && match self.heap.try_get(recv) { Some(&HeapObj::Instance(c, _)) => self.exc_base(c).is_some(), Some(HeapObj::ExcInstance(..)) => true, _ => false });
         if !fits {
             return Err(VmErr::TypeMsg(crate::s!("descriptor '", str id.name(), "' for '", str id.ty(), "' objects doesn't apply to a '", str self.type_name(recv), "' object")));
         }
@@ -333,7 +353,8 @@ impl<'a> VM<'a> {
         self.charge_step()?;
 
         let callee = self.pop()?;
-        if !callee.is_heap() { return Err(cold_type("object is not callable")); }
+        let not_callable = |vm: &Self| VmErr::TypeMsg(crate::s!("'", str vm.type_name(callee), "' object is not callable"));
+        if !callee.is_heap() { return Err(not_callable(self)); }
 
         // Most functions have no defaults or captures, so those clone only when present.
         let (fi, defaults, captures) = match self.heap.get(callee) {
@@ -347,7 +368,7 @@ impl<'a> VM<'a> {
                 let dispatched = self.try_dispatch_non_func_callable(callee, &positional, &kw_flat, chunk);
                 self.pending_exec_safe = false;
                 if dispatched? { return Ok(()); }
-                return Err(cold_type("object is not callable"));
+                return Err(not_callable(self));
             }
         };
 
@@ -1068,6 +1089,8 @@ impl<'a> VM<'a> {
             Eval => { self.mark_impure(); self.call_eval(operand, chunk) }
             Exec => { self.mark_impure(); self.call_exec(operand, chunk) }
             Compile => self.call_compile(operand, chunk),
+            Id => self.call_id(),
+            Hash => self.call_hash(),
         };
         done?;
         self.pay_work()
