@@ -67,7 +67,7 @@ impl VmErr {
             // `Raised` carries "Class" or "Class: message". The message is the part after the class (empty for a bare class), so re-wrapping into an ExcInstance doesn't double the class prefix.
             Self::Raised(m) => m.split_once(": ").map_or(String::new(), |(_, msg)| String::from(msg)),
             Self::ZeroDiv => String::from("division by zero"),
-            Self::Overflow => String::from("integer too large for 128-bit int range"),
+            Self::Overflow => String::from("Python int too large to convert to C ssize_t"),
             Self::CallDepth => String::from("max depth"),
             Self::Heap => String::from("memory limit"),
             Self::Budget => String::from("budget exceeded"),

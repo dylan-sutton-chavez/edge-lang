@@ -323,7 +323,7 @@ pub unsafe extern "C" fn host_edge_encode(tag: u32, ptr: *const u8, len: u32) ->
         EncodeRequest::Direct(bits) => put_val(Val(bits)),
         EncodeRequest::AllocStr(s) => alloc_and_put(HeapObj::Str(s.to_string())),
         EncodeRequest::AllocBytes(b) => alloc_and_put(HeapObj::Bytes(b.to_vec())),
-        EncodeRequest::AllocLongInt(i) => alloc_and_put(HeapObj::LongInt(i.into())),
+        EncodeRequest::AllocInt(i) => match with_vm(|vm| vm.heap.int(i).ok()).flatten() { Some(val) => put_val(val), None => 0 },
         EncodeRequest::Composite(w) => {
             match with_vm(|vm| wire_to_val(vm, &w).ok()).flatten() {
                 Some(val) => put_val(val),
@@ -365,6 +365,12 @@ fn wire_to_val(vm: &mut crate::vm::VM, w: &crate::abi::WireValue) -> Result<Val,
     })
 }
 
+/* A FOREIGN value as a wire int, None past i128 or for a kind that never crosses. */
+fn foreign_int(vm: &crate::vm::VM, v: Val) -> Option<i128> {
+    vm.heap.foreign_kind(v).filter(|k| k.transfer == crate::value::foreign::Transfer::Copy)?;
+    vm.heap.foreign_i128(v)
+}
+
 /* Heap value to wire tree. `None` on cycles, depth past the cap, or non-transit members. */
 fn val_to_wire(vm: &crate::vm::VM, v: Val, depth: u32, seen: &mut Vec<u64>) -> Option<crate::abi::WireValue> {
     use crate::abi::{DecodeBits as DB, PrimitiveBytes as PB, WireValue, MAX_WIRE_DEPTH};
@@ -385,10 +391,10 @@ fn val_to_wire(vm: &crate::vm::VM, v: Val, depth: u32, seen: &mut Vec<u64>) -> O
                 items.iter().map(|it| val_to_wire(vm, *it, depth + 1, seen)).collect()
             };
             if seen.contains(&v.0) { return None; }
+            if v.is_foreign() { return foreign_int(vm, v).map(WireValue::Int); }
             match vm.heap.get(v) {
                 HeapObj::Str(s) => Some(WireValue::Bytes(s.as_bytes().to_vec())),
                 HeapObj::Bytes(b) => Some(WireValue::Raw(b.clone())),
-                HeapObj::LongInt(i) => Some(WireValue::Int(i.get())),
                 HeapObj::List(rc) => {
                     seen.push(v.0);
                     let items = guard(vm, seen, &rc.borrow())?;
@@ -448,12 +454,11 @@ pub unsafe extern "C" fn host_edge_decode(h: u32, out_tag: *mut u32, dst: *mut u
             PrimitiveBytes::Sixteen(a) => copy_into(tag, &a),
         },
         DecodeBits::Heap => {
-            // Str, Bytes, LongInt and TLV composites decode, sets, instances and other non-transit values go through `edge_op`.
-            enum Decoded { Str(alloc::string::String), Bytes(Vec<u8>), LongInt(i128), Wire(u32, Vec<u8>), Other }
-            let decoded = with_vm(|vm| match vm.heap.get(v) {
+            // Str, Bytes, ints and TLV composites decode, sets, instances and other non-transit values go through `edge_op`.
+            enum Decoded { Str(alloc::string::String), Bytes(Vec<u8>), Int(i128), Wire(u32, Vec<u8>), Other }
+            let decoded = with_vm(|vm| if v.is_foreign() { foreign_int(vm, v).map_or(Decoded::Other, Decoded::Int) } else { match vm.heap.get(v) {
                 HeapObj::Str(s) => Decoded::Str(s.clone()),
                 HeapObj::Bytes(b) => Decoded::Bytes(b.clone()),
-                HeapObj::LongInt(i) => Decoded::LongInt(i.get()),
                 HeapObj::List(_) | HeapObj::Tuple(_) | HeapObj::Dict(_) => {
                     match val_to_wire(vm, v, 0, &mut Vec::new()) {
                         Some(w) => {
@@ -465,11 +470,11 @@ pub unsafe extern "C" fn host_edge_decode(h: u32, out_tag: *mut u32, dst: *mut u
                     }
                 }
                 _ => Decoded::Other,
-            }).unwrap_or(Decoded::Other);
+            } }).unwrap_or(Decoded::Other);
             match decoded {
                 Decoded::Str(s) => copy_into(crate::abi::Tag::Bytes as u32, s.as_bytes()),
                 Decoded::Bytes(b) => copy_into(crate::abi::Tag::Raw as u32, &b),
-                Decoded::LongInt(i) => copy_into(crate::abi::Tag::Int as u32, &i.to_le_bytes()),
+                Decoded::Int(i) => copy_into(crate::abi::Tag::Int as u32, &i.to_le_bytes()),
                 Decoded::Wire(tag, buf) => copy_into(tag, &buf),
                 Decoded::Other => { unsafe { *out_tag = TAG_INVALID; } 0 }
             }

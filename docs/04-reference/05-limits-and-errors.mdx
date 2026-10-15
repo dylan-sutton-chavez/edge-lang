@@ -52,30 +52,33 @@ hit max depth
 Integers are two-tier.
 
 - **Inline (fast).** 48-bit signed, packed into the NaN-boxed value. The range is `-140_737_488_355_328` to `140_737_488_355_327` (`-2^47` to `2^47 - 1`). One ALU op per arithmetic, no allocation.
-- **Wide (slow).** 128-bit, heap-allocated. Used automatically when a literal exceeds the inline range or inline arithmetic overflows.
+- **Wide (slow).** Any size, boxed on the heap, in one allocation up to 128 bits. Used automatically when a literal exceeds the inline range or inline arithmetic overflows, and a result that fits again comes back inline.
 
-Promotion is automatic and invisible. Past ±2^127, arithmetic raises `OverflowError`.
+Promotion is automatic and invisible, and arithmetic never overflows. Two limits remain.
 
-Integers are not unbounded. Anything wider than 128 bits is out of scope by design.
+- Text conversion in decimal, or any base that is not a power of two, refuses more than 4,300 digits with `ValueError`, both in `str` and `int` and in a literal. `hex`, `oct`, `bin` and their bases have no limit.
+- Every operation checks its result against the memory limit and its work against the op budget before it starts, so `2 ** (2 ** 64)` raises `MemoryError` and `2 ** 1000000000` runs out of budget at once instead of running for hours.
 
 ```edge-python
 print(140737488355327)   # inline, fast path
 print(2 ** 47)           # auto-promotes to the wide path
-print(2 ** 100)
+print(2 ** 200 // 3 ** 100)
+print(len(hex(10 ** 5000)))
 try:
-  print(2 ** 127)        # past the 128-bit cap
-except OverflowError:
-  print("overflow")
+  print(str(10 ** 5000))
+except ValueError:
+  print("too many digits")
 ```
 
 ```output
 140737488355327
 140737488355328
-1267650600228229401496703205376
-overflow
+3117982410207
+4155
+too many digits
 ```
 
-`pow(a, b, m)` with a modulus is supported, but the modulus must stay below `2^63`. A larger one raises `ValueError`, because the intermediate multiply would overflow 128 bits.
+`pow(a, b, m)` takes ints of any size, and a negative `b` raises the inverse of `a` modulo `m`.
 
 ## Source and token limits
 
@@ -115,7 +118,7 @@ They render with line, column, and a caret preview. A report shows the first 20 
 | `f-string: single '}' is not allowed` | A lone `}` in f-string text, write `}}` for a brace |
 | `inconsistent indentation: mixing tabs and spaces` | Indent mixes both whitespace kinds |
 | `unindent does not match any outer indentation level` | Dedent lands between two outer levels |
-| `integer literal too large to represent (max ±2^127)` | Literal past the 128-bit cap |
+| `Exceeds the limit (4300 digits) for integer string conversion` | A decimal literal of more than 4,300 digits |
 | `'break' outside loop` and `'continue' outside loop` | Misplaced control keyword |
 | `'return' outside function` and `'yield' outside function` | A `return` or `yield` in module code or a class body |
 | `no binding for nonlocal 'x' found` | A `nonlocal` name that no enclosing function binds |

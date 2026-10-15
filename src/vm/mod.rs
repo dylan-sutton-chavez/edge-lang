@@ -368,6 +368,9 @@ impl<'a> VM<'a> {
             fn_pool: Vec::new(),
             chunk_name_versions: HashMap::default(),
         };
+        // Python registers its wide ints before any constant boxes one.
+        vm.heap.set_wide_int(&crate::frontend::int::KIND);
+        vm.heap.set_budget(vm.budget);
         vm.build_function_table(chunk, None, None);
         vm.index_functions(0);
         // Entry chunk's `__name__` is "__main__", inserted before slot_templates is built.
@@ -522,6 +525,7 @@ impl<'a> VM<'a> {
     /* Fresh op budget for the next REPL input. */
     pub fn reset_budget(&mut self, ops: u64) {
         self.budget = ops;
+        self.heap.set_budget(ops);
     }
 
     /* Mirror compile-time extern bindings by name, runs pre-exec so user rebinds win. */

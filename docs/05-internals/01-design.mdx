@@ -70,8 +70,8 @@ Register forms keep int and float math inline. Stack arith and compare opcodes t
 Constants become values once per chunk. Lowered code reads them from slots after the names.
 
 - Inline-range ints stay inline.
-- Ints from 2⁴⁷ to 2¹²⁷ allocate a `HeapObj::LongInt` slot.
-- Literals beyond ±2¹²⁷ are rejected at parse time.
+- Wider ints box as `python.bigint` values, see [Wide ints](#wide-ints).
+- A decimal literal past 4,300 digits is rejected at parse time.
 
 The instruction format is in [Bytecode model](/docs/edge-python/internals/compiler#bytecode-model).
 
@@ -82,30 +82,47 @@ The instruction format is in [Bytecode model](/docs/edge-python/internals/compil
 | Tag | Pattern | Notes |
 |---|---|---|
 | Float | Any non-canonical IEEE-754 | Every NaN is `0x7FF8...`, its sign kept |
-| Int | `QNAN \| SIGN \| i48` | 48-bit signed inline, promotes to `HeapObj::LongInt` (i128) on overflow |
+| Int | `QNAN \| SIGN \| i48` | 48-bit signed inline, boxed as a FOREIGN value on overflow |
 | Undef | `QNAN` | Unbound-local sentinel |
 | None | `QNAN \| 1` | |
 | True | `QNAN \| 2` | |
 | False | `QNAN \| 3` | |
 | Heap | `QNAN \| 4 \| (i28 << 4)` | 28-bit index into the heap arena, at most `1 << 28` slots |
+| FOREIGN | `QNAN \| 1 << 48 \| gen16 << 32 \| i32` | An entry of the FOREIGN table, its generation and index |
 
 `INT_MAX = 140_737_488_355_327` and `INT_MIN = -140_737_488_355_328`. Inline ints cost one ALU op per arithmetic.
 
-- Overflow promotes to `HeapObj::LongInt(i128)`. Results demote back inline when they fit.
-- LongInts are interned by value. Equal values share a heap index, so they agree as dict keys and under `==`.
-- The hard cap is ±2¹²⁷. Wider results raise `OverflowError`.
-
-Arbitrary-precision bigints would need a limb vector with a heap allocation per op, or dropping NaN-boxing. Both regress the WASM size and the inner loop.
+Overflow boxes the result, and a result that fits again comes back inline, so every int has one form and the inner loop never sees a box.
 
 Dicts and sets key by content through `hash_val_with_heap`. Value-equal numbers collapse to one key. `1 == 1.0` and `10**16 == 1e16` hit the same slot.
 
-- An inline int, and any integral float in range, hashes as its `i64` value.
-- Only non-integral floats hash their `f64` bits. Hashing float bits directly would funnel small integers, whose low mantissa bits are zero, into one `FxHasher` bucket. Int-keyed lookups would degrade to O(n²).
+- Every number hashes by its value modulo the prime 2⁶¹ − 1, so an int, a bool, a float and a wide int that are equal hash alike. An inline int is already below the prime and hashes as itself.
+- A NaN hashes its bits.
 - `FxBuildHasher` uses a fixed seed. Iteration order is reproducible across runs.
+
+### FOREIGN values
+
+A FOREIGN value is an object the engine holds without knowing its insides, owned by the kind that made it. Its `Val` names an entry of a table in the heap by index and generation, and the entry names the kind, so a freed entry takes the next generation and a stale or forged `Val` finds nothing. A slot whose generation runs out retires instead of being reused.
+
+- A kind registers once by name and gets a token. Only the token reads a payload, everything else passes the `Val` around and calls the operations of the kind.
+- Operations a kind lacks are absent, and one that does not apply to an operand answers `NotImplemented`.
+- Two kinds of different families are never equal, and the family decides the hash, so `a == b` keeps implying equal hashes. Equality and hashing never run user code.
+- The collector marks an entry, then the values its kind traces, and sweeps all entries before dropping any payload.
+- A snapshot saves a kind that serializes, and fails with an error naming any kind that does not. A kind either copies across the plugin wire or never crosses it.
+- Only slow paths check for a FOREIGN value, so the inline int and float paths pay nothing for it.
+
+### Wide ints
+
+`python.bigint` is the FOREIGN kind of the ints an inline `Val` cannot hold, registered by the Python frontend. A value that fits i128 boxes as an i128 in one allocation, and a wider one as 32-bit limbs.
+
+- Multiplication is schoolbook up to 40 limbs and Karatsuba past that.
+- Division is Knuth's Algorithm D. Int to float and true division round correctly, subnormals included.
+- Text conversion in a base that is not a power of two refuses more than 4,300 digits, both ways, so a conversion never takes quadratic time on a huge int. Hex, octal and binary have no limit.
+- Every operation reserves the memory of its result and checks its work, n^1.585 limbs for a Karatsuba product, against the op budget the VM left on the heap before it starts. A huge `**` or `<<` fails at once instead of running away.
 
 The heap is a `Vec<HeapSlot>` arena. Its free list is capped at 524,288 entries and sorted to prefer low indices.
 
-- Side hashes intern names and string constants up to 128 bytes, one-character strings, bytes up to 128 bytes, all LongInts, and bound methods.
+- Side hashes intern names and string constants up to 128 bytes, one-character strings, bytes up to 128 bytes, and bound methods.
 - Equal interned values share one slot.
 - Strings built at run time are not interned.
 
@@ -115,7 +132,7 @@ A NaN payload could read as a tagged value, so every NaN is stored as `0x7FF8...
 
 The allocator counts what each run holds against its memory limit, with a tag on every block naming the run that paid for it, and the runs of one instance share one budget, see [Sandboxed execution](/docs/edge-python/reference/limits-and-errors#sandboxed-execution).
 
-The main `HeapObj` variants are `Str`, `Bytes`, `LongInt`, `List`, `Dict`, `Set`, `FrozenSet` (these three keep insertion order), `Tuple`, `Func`, `Range`, `Slice`, `Type`, `ExcInstance`, `BoundMethod`, `NativeFn`, `Class`, `Instance`, `BoundUserMethod`, `Super`, `Property`, `StaticMethod`, `ClassMethod`, `Coroutine`, `Module`, `Iter`, `DictView`, `Cell`, `Code`, and `Extern`. A dict or list made by a class deriving from it stays that variant, and its class and attributes sit in a side table of the heap keyed by its slot, so every builtin handles it as the container it is.
+The main `HeapObj` variants are `Str`, `Bytes`, `List`, `Dict`, `Set`, `FrozenSet` (these three keep insertion order), `Tuple`, `Func`, `Range` (with `BigRange` for bounds past i64), `Slice`, `Type`, `ExcInstance`, `BoundMethod`, `NativeFn`, `Class`, `Instance`, `BoundUserMethod`, `Super`, `Property`, `StaticMethod`, `ClassMethod`, `Coroutine`, `Module`, `Iter`, `DictView`, `Cell`, `Code`, and `Extern`. A dict or list made by a class deriving from it stays that variant, and its class and attributes sit in a side table of the heap keyed by its slot, so every builtin handles it as the container it is.
 
 ## Garbage collection
 
@@ -166,7 +183,8 @@ On a yield they are renormalised and saved. That is how `try: run(coro) except E
 
 A snapshot holds only the dynamic state of a parked VM. The blob format is in [Blob layout](/docs/edge-python/platforms/rust#blob-layout).
 
-- `save_state` writes `Val` bits verbatim. Heap slots come back at identical indices. References, cycles and interning survive with no remapping.
+- `save_state` writes `Val` bits verbatim. Heap slots and FOREIGN entries come back at identical indices and generations. References, cycles and interning survive with no remapping.
+- A FOREIGN value restores only under a kind registered with the same name and version, and a `Val` naming an entry the blob did not restore fails the restore.
 - `restore_state` replays the blob onto a VM booted fresh from the source the blob embeds.
 - Chunk-derived tables such as the bytecode, the name pools and the extern table are not stored. They come from the re-parse.
 
@@ -191,7 +209,7 @@ A coverage-guided fuzzer drives the lexer, the parser, the VM and this snapshot 
 - No CSE, GVN, LICM, inlining, branch DCE, or loop folding. The optimiser does constant folding, phi-noop elimination, and dead-instruction compaction with jump-operand remap.
 - No JIT. A method JIT needs stencils per architecture, and a tracing JIT duplicates the execution model and complicates the GC.
 - No runtime module system. Imports resolve at parse time through a resolver the host injects. See [Modules](/docs/edge-python/reference/modules).
-- No bigints, complex numbers, `bytearray`, `memoryview`, `Decimal`, or `Fraction`.
+- No complex numbers, `bytearray`, `memoryview`, `Decimal`, or `Fraction`.
 - No `asyncio` module. The concurrency primitives are top-level builtins, see [Async](/docs/edge-python/language/async).
 
 ## References
@@ -204,3 +222,5 @@ A coverage-guided fuzzer drives the lexer, the parser, the VM and this snapshot 
 6. McKeeman. *Peephole Optimization* (CACM 1965). Constant folding.
 7. Michie. *Memo Functions and Machine Learning* (Nature 1968). Pure-function memoization.
 8. McCarthy. *Recursive Functions of Symbolic Expressions* (CACM 1960). Mark-sweep GC.
+9. Karatsuba & Ofman. *Multiplication of Many-Digital Numbers by Automatic Computers* (Doklady Akademii Nauk SSSR 1962). Wide int multiplication.
+10. Knuth. *The Art of Computer Programming, Volume 2: Seminumerical Algorithms* (3rd ed. 1997), §4.3.1 Algorithm D. Wide int division.

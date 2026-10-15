@@ -1,5 +1,10 @@
 use lang::{Engine, Error, Limits, Value};
 
+// an engine past the pin counts memory only through its own allocator
+#[cfg(feature = "metered")]
+#[global_allocator]
+static METERED: compiler::value::meter::Metered<std::alloc::System> = compiler::value::meter::Metered(std::alloc::System);
+
 // a syntax error surfaces as a compile error with a rendered caret
 #[test]
 fn compile_error() {

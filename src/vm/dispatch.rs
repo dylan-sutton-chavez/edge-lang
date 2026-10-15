@@ -1042,12 +1042,12 @@ impl<'a> VM<'a> {
     fn unary_fast(&mut self, op: OpCode, x: Val) -> Option<Val> {
         let text = |vm: &mut Self, x: Val| match vm.heap.try_get(x) {
             Some(HeapObj::Str(_)) => Some(x),
-            None if !x.is_undef() => { let s = vm.display(x); vm.heap.alloc(HeapObj::Str(s)).ok() }
+            None if !x.is_undef() && !x.is_foreign() => { let s = vm.display(x); vm.heap.alloc(HeapObj::Str(s)).ok() }
             _ => None,
         };
         match op {
             // A bare field keeps an inline value, the string that holds it renders it.
-            OpCode::FormatValue if !x.is_heap() && !x.is_undef() => Some(x),
+            OpCode::FormatValue if !x.is_heap() && !x.is_undef() && !x.is_foreign() => Some(x),
             OpCode::FormatValue | OpCode::CallStr => text(self, x),
             OpCode::CallInt if x.is_int() => Some(x),
             OpCode::CallInt if x.is_bool() => Some(Val::int(x.as_bool() as i64)),
@@ -1171,6 +1171,11 @@ impl<'a> VM<'a> {
             OpCode::GetItemR | OpCode::StoreItemR if self.item_fast(ins) => {}
             OpCode::LenR | OpCode::MinusR | OpCode::NotR | OpCode::GetItemR | OpCode::InR | OpCode::NotInR | OpCode::IsR | OpCode::IsNotR
             | OpCode::BitAndR | OpCode::BitOrR | OpCode::BitXorR | OpCode::ShlR | OpCode::ShrR => {
+                let (b, c) = (self.regs[self.base + ins.b as usize], self.regs[self.base + ins.c as usize]);
+                if matches!(ins.op, OpCode::BitAndR | OpCode::BitOrR | OpCode::BitXorR | OpCode::ShrR) && let Some(v) = self.wide_fast(super::lower::stack_form(ins.op), b, c)? {
+                    self.regs[self.base + ins.a as usize] = v;
+                    return Ok(None);
+                }
                 if ins.op == OpCode::LenR { self.pending.call_ip = Some(code.orig(rip)); }
                 self.regs[self.base + ins.a as usize] = self.reg_stack(ins, rip, cache, chunk)?;
             }
@@ -1738,6 +1743,12 @@ impl<'a> VM<'a> {
 
     #[inline(never)]
     pub(crate) fn exec_arith_or_compare(&mut self, opcode: OpCode, operand: u16, rip: usize, cache: &OpcodeCache, chunk: &SSAChunk) -> Result<(), VmErr> {
+        let n = self.stack.len();
+        if n >= 2 && let Some(v) = self.wide_fast(opcode, self.stack[n - 2], self.stack[n - 1])? {
+            self.stack.truncate(n - 2);
+            self.stack.push(v);
+            return Ok(());
+        }
         // The register loop already tried two plain numbers.
         let site = cache.site(rip);
         if matches!(site, Site::Dunder { .. }) {
@@ -1749,6 +1760,30 @@ impl<'a> VM<'a> {
         } else {
             self.handle_arith(opcode, operand, rip, cache, chunk)
         }
+    }
+
+    /* `a op b` for two ints, one boxed and both within i128, without the generic handler, None to fall back. */
+    #[inline]
+    pub(crate) fn wide_fast(&mut self, op: OpCode, a: Val, b: Val) -> Result<Option<Val>, VmErr> {
+        if !(a.is_foreign() || b.is_foreign()) { return Ok(None); }
+        let int = |v: Val| if v.is_int() { Some(v.as_int() as i128) } else { self.heap.foreign.wide_value(v) };
+        let (Some(x), Some(y)) = (int(a), int(b)) else { return Ok(None) };
+        let r = match op {
+            OpCode::Add | OpCode::InPlaceAdd => x.checked_add(y),
+            OpCode::Sub | OpCode::InPlaceSub => x.checked_sub(y),
+            OpCode::Mul => x.checked_mul(y),
+            OpCode::FloorDiv if y != 0 => int_divmod(x, y).map(|(q, _)| q),
+            OpCode::Mod if y != 0 => int_divmod(x, y).map(|(_, r)| r),
+            OpCode::BitAnd => Some(x & y),
+            OpCode::BitOr => Some(x | y),
+            OpCode::BitXor => Some(x ^ y),
+            OpCode::Shr if y >= 0 => Some(x >> y.min(127)),
+            OpCode::Eq | OpCode::NotEq | OpCode::Lt | OpCode::LtEq | OpCode::Gt | OpCode::GtEq => {
+                return Ok(Some(Val::bool(match op { OpCode::Eq => x == y, OpCode::NotEq => x != y, OpCode::Lt => x < y, OpCode::LtEq => x <= y, OpCode::Gt => x > y, _ => x >= y })));
+            }
+            _ => None,
+        };
+        r.map(|r| self.heap.int(r)).transpose()
     }
 
     /* `obj[idx]` on the stack, a monomorphic `__getitem__` site skipping the class lookup. */
@@ -1780,6 +1815,7 @@ impl<'a> VM<'a> {
         let n = n as u64;
         if self.budget < n { self.budget = 0; return Err(cold_budget()); }
         self.budget -= n;
+        self.heap.set_budget(self.budget);
         Ok(())
     }
 
@@ -1817,7 +1853,7 @@ impl<'a> VM<'a> {
                     Err(e) => return Err(e),
                 }
             }
-            // Split-borrow heap so the Range step can promote to LongInt.
+            // Split-borrow heap so the Range step can box a wide int.
             _ => match self.iter_stack.last_mut() {
                 Some(f) => f.next_item(&mut self.heap)?.ok_or(Val::none()),
                 None => Err(Val::none()),

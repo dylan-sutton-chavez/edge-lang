@@ -129,5 +129,7 @@
   {"src": "class A: pass\na = A()\nd = vars(a)\nreceive()\nd['x'] = 1\na.y = 2\nprint(a.x, d['y'])", "interactive_events": ["go"], "output": ["1 2"]},
   {"src": "def g():\n    total = 0\n    while True:\n        v = yield total\n        total += v\nit = g()\nnext(it)\nit.send(5)\nreceive()\nprint(it.send(3))", "interactive_events": ["go"], "output": ["8"]},
   {"src": "e = ValueError('x')\ne.add_note('before')\nreceive()\ne.add_note('after')\nprint(e.__notes__)", "interactive_events": ["go"], "output": ["['before', 'after']"]},
-  {"src": "x = [1]\nk = id(x)\nreceive()\nprint(k == id(x), hash((1, 2.0)) == hash((1.0, 2)))", "interactive_events": ["go"], "output": ["True True"]}
+  {"src": "x = [1]\nk = id(x)\nreceive()\nprint(k == id(x), hash((1, 2.0)) == hash((1.0, 2)))", "interactive_events": ["go"], "output": ["True True"]},
+  {"src": "r = range(2 ** 64, 2 ** 64 + 5)\nit = iter(r)\nnext(it)\nreceive()\nprint(list(it), r, len(r))", "interactive_events": ["go"], "output": ["[18446744073709551617, 18446744073709551618, 18446744073709551619, 18446744073709551620] range(18446744073709551616, 18446744073709551621) 5"]},
+  {"src": "d = {range(2 ** 70): 1, 2 ** 90: 'x'}\nreceive()\nprint(d[range(2 ** 70)], d[2 ** 90], range(3) in {range(0, 3)})", "interactive_events": ["go"], "output": ["1 x True"]}
 ]

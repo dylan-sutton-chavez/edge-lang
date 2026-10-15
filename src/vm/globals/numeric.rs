@@ -3,38 +3,11 @@ use alloc::string::String;
 use super::super::VM;
 use super::super::types::*;
 
-/* Convert a float to i128 for int()/round(), NaN and infinity raise, and the value is rejected before the saturating cast overflows. `transform` truncates or rounds. */
-pub(crate) fn finite_f64_to_i128(f: f64, transform: impl Fn(f64) -> f64) -> Result<i128, VmErr> {
+/* The int a float holds after `transform` truncates or rounds it, NaN and infinity raise. */
+pub(crate) fn float_to_int(heap: &mut HeapPool, f: f64, transform: impl Fn(f64) -> f64) -> Result<Val, VmErr> {
     if f.is_nan() { return Err(cold_value("cannot convert float NaN to integer")); }
     if f.is_infinite() { return Err(VmErr::Raised(String::from("OverflowError: cannot convert float infinity to integer"))); }
-    let v = transform(f);
-    // i128::MAX as f64 rounds up past the true max, so reject before the saturating cast.
-    if !(-1.7014118346046923e38..=1.7014118346046921e38).contains(&v) { return Err(cold_overflow()); }
-    Ok(v as i128)
-}
-
-fn i128_to_radix(n: i128, radix: u32, prefix: &str) -> String {
-    if n == 0 {
-        let mut s = String::with_capacity(prefix.len() + 1);
-        s.push_str(prefix); s.push('0'); return s;
-    }
-    let neg = n < 0;
-    // unsigned_abs handles i128::MIN safely, returning 2^127 in u128.
-    let mut abs = n.unsigned_abs();
-    // Max length is i128 in base 2, 128 digits + sign + prefix. 144 fits all.
-    let mut buf = [0u8; 144];
-    let mut i = buf.len();
-    while abs > 0 {
-        i -= 1;
-        let d = (abs % radix as u128) as u8;
-        buf[i] = if d < 10 { b'0' + d } else { b'a' + d - 10 };
-        abs /= radix as u128;
-    }
-    let mut s = String::with_capacity(prefix.len() + buf.len() - i + 1);
-    if neg { s.push('-'); }
-    s.push_str(prefix);
-    s.push_str(unsafe { core::str::from_utf8_unchecked(&buf[i..]) });
-    s
+    crate::frontend::int::from_f64(heap, transform(f))
 }
 
 /* A compensated sum, its compensation added only when nonzero and finite, so overflow stays infinite. */
@@ -67,18 +40,8 @@ fn round_float_tens(x: f64, k: usize) -> f64 {
     libm::copysign(r, x)
 }
 
-// Rounds an integer to -k decimal digits using banker's rounding, matching Python.
-fn round_int_banker(n: i128, k: u32) -> i128 {
-    let factor = 10i128.checked_pow(k.min(38)).unwrap_or(i128::MAX);
-    let q = n.div_euclid(factor);
-    let r = n.rem_euclid(factor);
-    let half = factor / 2;
-    let up = r > half || (r == half && q % 2 != 0);
-    if up { q + 1 } else { q }.saturating_mul(factor)
-}
-
 /* `int(s, base)` parsing, optional sign, optional 0x/0o/0b prefix (matching the base, or inferred when base==0), `_` digit separators, radix 0 or 2..=36. */
-fn parse_int_radix(s: &str, base: i64) -> Result<i128, VmErr> {
+fn parse_int_radix(heap: &mut HeapPool, s: &str, base: i64) -> Result<Val, VmErr> {
     if base != 0 && !(2..=36).contains(&base) {
         return Err(cold_value("int() base must be >= 2 and <= 36, or 0"));
     }
@@ -124,14 +87,9 @@ fn parse_int_radix(s: &str, base: i64) -> Result<i128, VmErr> {
         alloc::string::String::from(body)
     };
     if cleaned.is_empty() { return Err(cold_value("int(): invalid literal")); }
-    // Parse the magnitude unsigned so i128::MIN fits, then apply the sign.
-    let mag = u128::from_str_radix(&cleaned, radix).map_err(|_| cold_value("int(): invalid literal"))?;
-    if neg {
-        if mag > (1u128 << 127) { return Err(cold_value("int(): invalid literal")); }
-        Ok((mag as i128).wrapping_neg())
-    } else {
-        i128::try_from(mag).map_err(|_| cold_value("int(): invalid literal"))
-    }
+    if let Ok(n) = i64::from_str_radix(&cleaned, radix) { return heap.int(if neg { -(n as i128) } else { n as i128 }); }
+    let digits: Option<alloc::vec::Vec<u8>> = cleaned.chars().map(|c| c.to_digit(radix).map(|d| d as u8)).collect();
+    crate::frontend::int::from_digits(heap, neg, &digits.ok_or_else(|| cold_value("int(): invalid literal"))?, radix)
 }
 
 impl<'a> VM<'a> {
@@ -145,9 +103,10 @@ impl<'a> VM<'a> {
         }
         let v = if o.is_float() {
             Val::float(o.as_float().abs())
-        } else if let Some(i) = self.as_i128(o) {
-            // i128::MIN.checked_abs() is None, trap as OverflowError.
-            self.int_to_val(i.checked_abs())?
+        } else if o.is_int() || o.is_bool() {
+            Val::int(self.as_i128(o).unwrap_or(0).abs() as i64)
+        } else if let Some(r) = self.heap.foreign_unop(UnOp::Abs, o)? {
+            r
         } else {
             return Err(cold_type("abs() requires a number"));
         };
@@ -166,40 +125,34 @@ impl<'a> VM<'a> {
                 Some(HeapObj::Bytes(b)) => core::str::from_utf8(b).map_err(|_| self.invalid_int(cold_value("invalid literal"), o, base))?.into(),
                 _ => return Err(cold_type("int() can't convert non-string with explicit base")),
             };
-            let i = parse_int_radix(&s, base).map_err(|e| self.invalid_int(e, o, base))?;
-            let v = self.int_to_val(Some(i))?;
+            let v = parse_int_radix(&mut self.heap, &s, base).map_err(|e| self.invalid_int(e, o, base))?;
             self.push(v); return Ok(());
         }
         if argc == 0 { self.push(Val::int(0)); return Ok(()); }
         if argc > 2 { for _ in 0..argc { let _ = self.pop(); } return Err(cold_type("int() takes at most 2 arguments")); }
         let o = self.pop()?;
-        // Already an int (inline or LongInt), pass through unchanged.
-        if o.is_int() { self.push(o); return Ok(()); }
-        if o.is_heap() && matches!(self.heap.get(o), HeapObj::LongInt(_)) {
-            self.push(o); return Ok(());
-        }
-        let i: i128 = if o.is_float() {
-            finite_f64_to_i128(o.as_float(), ftrunc)?
-        }
-            else if o.is_bool() { o.as_bool() as i128 }
+        // An int passes through unchanged.
+        if o.is_int() || crate::frontend::int::is_big(&self.heap, o) { self.push(o); return Ok(()); }
+        let v = if o.is_float() { float_to_int(&mut self.heap, o.as_float(), ftrunc)? }
+            else if o.is_bool() { Val::int(o.as_bool() as i64) }
             else if o.is_heap() && let HeapObj::Str(s) = self.heap.get(o) {
                 let s = s.clone();
-                parse_int_radix(&s, 10).map_err(|e| self.invalid_int(e, o, 10))?
+                parse_int_radix(&mut self.heap, &s, 10).map_err(|e| self.invalid_int(e, o, 10))?
             }
             else if o.is_heap() && let HeapObj::Bytes(b) = self.heap.get(o) {
-                let text = core::str::from_utf8(b).map_err(|_| cold_value("invalid literal"));
-                text.and_then(|t| parse_int_radix(t, 10)).map_err(|e| self.invalid_int(e, o, 10))?
+                let text = core::str::from_utf8(b).map(String::from).map_err(|_| cold_value("invalid literal"));
+                text.and_then(|t| parse_int_radix(&mut self.heap, &t, 10)).map_err(|e| self.invalid_int(e, o, 10))?
             }
             else if o.is_heap() && matches!(self.heap.get(o), HeapObj::Instance(..)) {
                 // Honor a user `__int__` method.
                 match self.try_call_dunder(o, "__int__", &[], chunk)? {
-                    Some(r) if r.is_int() || r.is_bool() => self.as_i128(r).unwrap_or(r.as_bool() as i128),
+                    Some(r) if r.is_bool() => Val::int(r.as_bool() as i64),
+                    Some(r) if r.is_int() || crate::frontend::int::is_big(&self.heap, r) => r,
                     Some(_) => return Err(cold_type("__int__ returned non-int")),
                     None => return Err(cold_type("int() requires a number or string")),
                 }
             }
             else { return Err(cold_type("int() requires a number or string")); };
-        let v = self.int_to_val(Some(i))?;
         self.push(v); Ok(())
     }
 
@@ -217,7 +170,7 @@ impl<'a> VM<'a> {
         let o = self.pop()?;
         // A float comes back as the same object.
         if o.is_float() { self.push(o); return Ok(()); }
-        let f = if let Some(f) = num_as_f64(o, &self.heap) { f }
+        let f = if let Some(f) = num_f64(o, &self.heap) { f? }
             else if o.is_heap() && let HeapObj::Str(s) = self.heap.get(o) {
                 let t = crate::util::uni::number_text(s);
                 let t = t.as_ref();
@@ -234,7 +187,7 @@ impl<'a> VM<'a> {
                     Some(r) if r.is_float() => { self.push(r); return Ok(()); }
                     Some(_) => return Err(cold_type("__float__ returned non-float")),
                     None => match self.try_call_dunder(o, "__index__", &[], chunk)? {
-                        Some(r) if r.is_int() || r.is_bool() => self.as_i128(r).unwrap_or(r.as_bool() as i128) as f64,
+                        Some(r) if r.is_int() || r.is_bool() || crate::frontend::int::is_big(&self.heap, r) => num_f64(r, &self.heap).unwrap_or(Ok(0.0))?,
                         Some(_) => return Err(cold_type("__index__ returned non-int")),
                         None => return Err(cold_type("float() requires a number or string")),
                     },
@@ -250,7 +203,8 @@ impl<'a> VM<'a> {
 
     pub fn call_chr(&mut self) -> Result<(), VmErr> {
         let o = self.pop()?;
-        let i = self.as_i128(o).ok_or_else(|| cold_type("chr() requires an integer"))?;
+        if !(o.is_int() || o.is_bool() || crate::frontend::int::is_big(&self.heap, o)) { return Err(cold_type("chr() requires an integer")); }
+        let i = self.as_i128(o).filter(|i| i32::try_from(*i).is_ok()).ok_or_else(|| VmErr::Raised(String::from("OverflowError: Python int too large to convert to C int")))?;
         let c = u32::try_from(i).ok().and_then(char::from_u32).ok_or_else(|| cold_value("chr() arg not in range(0x110000)"))?;
         let mut s = String::with_capacity(4);
         s.push(c);
@@ -294,15 +248,21 @@ impl<'a> VM<'a> {
             }
             (Some(o), None) if o.is_float() => {
                 // 1-arg round returns an int, promote via int_to_val so large results don't wrap.
-                let i = finite_f64_to_i128(o.as_float(), fround)?;
-                self.int_to_val(Some(i))?
+                float_to_int(&mut self.heap, o.as_float(), fround)?
             }
             // Ints/bools round to themselves, negative ndigits round to tens/hundreds.
-            (Some(o), n) if o.is_bool() || o.is_int() || (o.is_heap() && matches!(self.heap.get(o), HeapObj::LongInt(_))) => {
-                let i = if o.is_bool() { o.as_bool() as i128 } else { self.as_i128(o).ok_or_else(|| cold_type("round() requires a number"))? };
-                let nd = match n { Some(n) if n.is_int() => n.as_int(), _ => 0 };
-                let r = if nd < 0 { round_int_banker(i, (-nd) as u32) } else { i };
-                self.int_to_val(Some(r))?
+            (Some(o), n) if o.is_bool() || o.is_int() || crate::frontend::int::is_big(&self.heap, o) => {
+                let o = if o.is_bool() { Val::int(o.as_bool() as i64) } else { o };
+                match n {
+                    // An inline int and at most 18 dropped digits stay in i64, half to even.
+                    Some(n) if o.is_int() && (-18..0).contains(&n.as_int()) => {
+                        let (x, f) = (o.as_int(), 10i64.pow(n.as_int().unsigned_abs() as u32));
+                        let (q, r) = (x.div_euclid(f), x.rem_euclid(f));
+                        self.heap.int(((q + (2 * r > f || (2 * r == f && q % 2 != 0)) as i64) * f) as i128)?
+                    }
+                    Some(n) if n.is_int() && n.as_int() < 0 => crate::frontend::int::round_tens(&mut self.heap, o, n.as_int().unsigned_abs()).unwrap_or(Ok(o))?,
+                    _ => o,
+                }
             }
             _ => return Err(cold_type("round() requires a number")),
         };
@@ -453,7 +413,10 @@ impl<'a> VM<'a> {
 
     pub fn call_range(&mut self, op: u16) -> Result<(), VmErr> {
         let args = self.pop_n(op as usize)?;
-        // Accept any integer (incl. LongInt/bool) that fits the i64 range bounds.
+        // A bound past i64 makes a wide range.
+        let (s, e, st) = match args[..] { [e] => (Val::int(0), e, Val::int(1)), [s, e] => (s, e, Val::int(1)), [s, e, st] => (s, e, st), _ => return Err(cold_type("range() takes 1 to 3 arguments")) };
+        if let Some(r) = crate::frontend::int::new_range(&mut self.heap, s, e, st) { let r = r?; self.push(r); return Ok(()); }
+        // Accept any integer, bools included, that fits the i64 range bounds.
         let gi = |i: Option<i128>| -> Result<i64, VmErr> {
             match i {
                 Some(n) if (i64::MIN as i128..=i64::MAX as i128).contains(&n) => Ok(n as i64),
@@ -467,7 +430,7 @@ impl<'a> VM<'a> {
             3 => (gi(self.as_i128(args[0]))?, gi(self.as_i128(args[1]))?, gi(self.as_i128(args[2]))?),
             _ => return Err(cold_type("range() takes 1 to 3 arguments")),
         };
-        if st == 0 { return Err(cold_value("range() step cannot be zero")); }
+        if st == 0 { return Err(cold_value("range() arg 3 must not be zero")); }
         let val = self.heap.alloc(HeapObj::Range(s, e, st))?;
         self.push(val); Ok(())
     }
@@ -481,14 +444,16 @@ impl<'a> VM<'a> {
     /* Push int as "<prefix><digits>" with optional sign. */
     fn call_radix(&mut self, radix: u32, prefix: &str) -> Result<(), VmErr> {
         let o = self.pop()?;
-        let Some(i) = self.as_i128(o) else { return Err(cold_type("integer required")); };
-        self.alloc_and_push_str(i128_to_radix(i, radix, prefix))
+        let Some(d) = crate::frontend::int::radix_digits(&self.heap, o, radix) else { return Err(cold_type("integer required")); };
+        let (neg, digits) = d?;
+        self.alloc_and_push_str(crate::s!(str if neg { "-" } else { "" }, str prefix, str &digits))
     }
 
     pub fn call_divmod(&mut self) -> Result<(), VmErr> {
         let b = self.pop()?;
         let a = self.pop()?;
-        let (q, r) = self.divmod_vals(a, b, "divmod() requires numeric operands")?;
+        let q = self.floor_op(BinOp::FloorDiv, a, b, "divmod() requires numeric operands")?;
+        let r = self.floor_op(BinOp::Mod, a, b, "divmod() requires numeric operands")?;
         self.alloc_and_push_tuple(alloc::vec![q, r])
     }
 
@@ -501,39 +466,26 @@ impl<'a> VM<'a> {
                 Ok(())
             }
             3 => {
-                // Modular exponentiation (a ** b) % c on i128.
-                let (Some(base), Some(modulus)) = (self.as_i128(args[0]), self.as_i128(args[2]))
-                else { return Err(cold_type("pow() 3rd argument not allowed unless all arguments are integers")); };
-                let exp = self.as_i128(args[1]).ok_or_else(|| cold_type("pow() 3rd argument not allowed unless all arguments are integers"))?;
-                if modulus == 0 { return Err(cold_value("pow() 3rd argument cannot be 0")); }
-
-                let m = modulus.unsigned_abs();
-                // Cap |m| < 2^63 so m*m fits in i128, larger moduli would overflow silently.
-                if m > (1u128 << 63) { return Err(cold_value("pow() modulus too large; must be < 2^63 (no arbitrary precision)")); }
-                let m = m as i128;
-                // Seed with 1 % m so pow(x, 0, 1) yields 0, not 1.
-                let mut result = 1i128.rem_euclid(m);
-                let mut b = base.rem_euclid(m);
-                // A negative exponent raises the inverse of the base, which needs it coprime to the modulus.
-                if exp < 0 {
-                    let (mut r, mut r1, mut t, mut t1) = (m, b, 0i128, 1i128);
-                    while r1 != 0 { let q = r / r1; (r, r1, t, t1) = (r1, r - q * r1, t1, t - q * t1); }
-                    if r != 1 { return Err(cold_value("base is not invertible for the given modulus")); }
-                    b = t.rem_euclid(m);
-                }
-                let mut e = exp.unsigned_abs();
-                while e > 0 {
-                    if e & 1 == 1 {
-                        result = (result * b).rem_euclid(m);
+                // A modulus under 2^63 keeps every product in i128, so small operands skip the boxed ints.
+                if let (Some(b), Some(e), Some(m)) = (self.as_i128(args[0]), self.as_i128(args[1]), self.as_i128(args[2]))
+                    && m != 0 && m.unsigned_abs() < 1 << 63 {
+                    let (am, mut acc, mut b, mut e) = (m.abs(), 1i128, b, e);
+                    b = b.rem_euclid(am);
+                    // A negative exponent raises the inverse of the base, which needs it coprime to the modulus.
+                    if e < 0 {
+                        let (mut r, mut r1, mut t, mut t1) = (am, b, 0i128, 1i128);
+                        while r1 != 0 { let q = r / r1; (r, r1, t, t1) = (r1, r - q * r1, t1, t - q * t1); }
+                        if r != 1 { return Err(cold_value("base is not invertible for the given modulus")); }
+                        (b, e) = (t.rem_euclid(am), -e);
                     }
-                    e >>= 1;
-                    if e > 0 {
-                        b = (b * b).rem_euclid(m);
-                    }
+                    while e > 0 { if e & 1 == 1 { acc = acc * b % am; } b = b * b % am; e >>= 1; }
+                    let r = acc % am;
+                    let r = self.heap.int(if m < 0 && r != 0 { r - am } else { r })?;
+                    self.push(r);
+                    return Ok(());
                 }
-                // Result takes the sign of the modulus, matching Python.
-                if modulus < 0 && result != 0 { result -= m; }
-                let r = self.int_to_val(Some(result))?;
+                let r = crate::frontend::int::pow_mod(&mut self.heap, args[0], args[1], args[2])
+                    .ok_or_else(|| cold_type("pow() 3rd argument not allowed unless all arguments are integers"))??;
                 self.push(r);
                 Ok(())
             }
@@ -541,25 +493,12 @@ impl<'a> VM<'a> {
         }
     }
 
-
-    /* Two-arg power for `pow()` and `**`. int**non-neg int stays i128 (overflow trap), floats or negative exponents promote to f64. */
+    /* Two-arg power for `pow()` and `**`, exact for ints and a float for floats or negative exponents. */
     pub(crate) fn pow_vals(&mut self, a: Val, b: Val, err_msg: &'static str) -> Result<Val, VmErr> {
         if let (Some(ai), Some(exp)) = (self.as_i128(a), self.as_i128(b).and_then(|e| i64::try_from(e).ok())) {
             if exp >= 0 {
-                // i128 exp-by-squaring, overflow at any step -> OverflowError. Bases +/- 1/0 never overflow regardless of exp size.
-                let mut result: i128 = 1;
-                let mut base = ai;
-                let mut e = exp;
-                while e > 0 {
-                    if e & 1 == 1 {
-                        result = result.checked_mul(base).ok_or_else(cold_overflow)?;
-                    }
-                    e >>= 1;
-                    if e > 0 {
-                        base = base.checked_mul(base).ok_or_else(cold_overflow)?;
-                    }
-                }
-                return self.int_to_val(Some(result));
+                if let Some(r) = checked_pow(ai, exp as u64) { return self.heap.int(r); }
+                return self.heap.foreign_binop(BinOp::Pow, a, b)?.ok_or_else(cold_overflow);
             }
             if ai == 0 { return Err(VmErr::Raised(String::from("ZeroDivisionError: 0.0 cannot be raised to a negative power"))); }
             // Clamp instead of wrapping so a huge negative exponent underflows to 0.0, base ±1 keeps its parity.
@@ -570,10 +509,23 @@ impl<'a> VM<'a> {
             };
             return Ok(Val::float(r));
         }
-        let (Some(fa), Some(fb)) = (num_as_f64(a, &self.heap), num_as_f64(b, &self.heap)) else { return Err(cold_type(err_msg)); };
+        if !a.is_float() && !b.is_float() && let Some(r) = self.wide_op(BinOp::Pow, a, b)? { return Ok(r); }
+        let (Some(fa), Some(fb)) = (num_f64(a, &self.heap), num_f64(b, &self.heap)) else { return Err(cold_type(err_msg)); };
+        let (fa, fb) = (fa?, fb?);
         if fa == 0.0 && fb < 0.0 { return Err(VmErr::Raised(String::from("ZeroDivisionError: 0.0 cannot be raised to a negative power"))); }
         // Without a complex type, a negative base under a fractional power has no real result.
         if crate::value::math::complex_power(fa, fb) { return Err(cold_value("negative number cannot be raised to a fractional power")); }
         fpowf(fa, fb).map(Val::float).ok_or_else(|| VmErr::Raised(String::from("OverflowError: (34, 'Numerical result out of range')")))
     }
+}
+
+/* `base ** e` by squaring, None once a step leaves i128. */
+fn checked_pow(mut base: i128, mut e: u64) -> Option<i128> {
+    let mut acc: i128 = 1;
+    while e > 0 {
+        if e & 1 == 1 { acc = acc.checked_mul(base)?; }
+        e >>= 1;
+        if e > 0 { base = base.checked_mul(base)?; }
+    }
+    Some(acc)
 }

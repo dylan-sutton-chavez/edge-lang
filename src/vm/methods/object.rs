@@ -66,16 +66,24 @@ fn range_pos(vm: &VM, recv: Val, x: Val) -> (Option<i128>, bool) {
     ((inside && (k - s) % st == 0).then(|| (k - s) / st), int.is_some())
 }
 
+/* The error `range.index` raises for a value it lacks, which quotes the value. */
+fn not_in_range(vm: &VM, x: Val) -> VmErr { VmErr::Raised(crate::s!("ValueError: ", str &vm.repr(x), " is not in range")) }
+
 pub fn range_index(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
+    if let Some(r) = crate::frontend::int::range_index(&mut vm.heap, recv, pos[0]) {
+        let i = r?.ok_or_else(|| not_in_range(vm, pos[0]))?;
+        vm.push(i);
+        return Ok(());
+    }
     match range_pos(vm, recv, pos[0]) {
         (Some(i), _) => { let v = vm.int_to_val(Some(i))?; vm.push(v); Ok(()) }
-        (None, true) => Err(cold_value("range.index(x): x not in range")),
+        (None, true) => Err(not_in_range(vm, pos[0])),
         (None, false) => Err(cold_value("sequence.index(x): x not in sequence")),
     }
 }
 
 pub fn range_count(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
-    let n = range_pos(vm, recv, pos[0]).0.is_some() as i64;
+    let n = crate::frontend::int::range_has(&vm.heap, recv, pos[0]).unwrap_or_else(|| range_pos(vm, recv, pos[0]).0.is_some()) as i64;
     vm.push(Val::int(n));
     Ok(())
 }

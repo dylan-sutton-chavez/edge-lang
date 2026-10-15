@@ -96,11 +96,11 @@ mod test {
 
     /* Save, chain `hops` cycles, restore twice, return the last VM. */
     fn hop(vm: &VM, case: &Case, interval: usize, hops: u32, blob_len: &mut usize) -> VM<'static> {
-        let mut blob = snapshot::save(vm, &case.src);
+        let mut blob = snapshot::save(vm, &case.src).expect("save");
         for _ in 1..hops {
             let mut mid = fresh(case, interval);
             snapshot::restore(&mut mid, &blob).expect("restore hop");
-            blob = snapshot::save(&mid, &case.src);
+            blob = snapshot::save(&mid, &case.src).expect("save hop");
         }
         assert_eq!(snapshot::source_of(&blob).expect("source_of"), case.src);
         *blob_len = blob.len();
@@ -256,7 +256,7 @@ mod test {
         let src = "x = [1, 2, {'k': 3}]\nreceive()\nprint(x)";
         let mut vm = VM::with_limits(parse_static(src), Limits::sandbox());
         assert!(matches!(vm.run(), Err(VmErr::HostYield(SchedulerStatus::PendingEvent))));
-        let blob = snapshot::save(&vm, src);
+        let blob = snapshot::save(&vm, src).expect("save");
         drop(vm);
 
         let restore_fails = |blob: &[u8]| {
@@ -295,7 +295,7 @@ mod test {
         let src = "r = range(3, 30, 4)\nx = [r, {'k': (1, 2.5)}, 'text']\nreceive()\nprint(x, len(r), r[1])";
         let mut vm = VM::with_limits(parse_static(src), Limits::sandbox());
         assert!(matches!(vm.run(), Err(VmErr::HostYield(SchedulerStatus::PendingEvent))));
-        let blob = snapshot::save(&vm, src);
+        let blob = snapshot::save(&vm, src).expect("save");
         drop(vm);
         for at in 0..blob.len() {
             let mut bad = blob.clone();
@@ -308,13 +308,37 @@ mod test {
         }
     }
 
+    /* A resealed blob naming a FOREIGN value it never saved, by a stale generation or a missing index, fails to restore. */
+    #[test]
+    fn forged_foreign_handles_fail() {
+        let src = "x = 2 ** 100\nreceive()\nprint(x)";
+        let mut vm = VM::with_limits(parse_static(src), Limits::sandbox());
+        assert!(matches!(vm.run(), Err(VmErr::HostYield(SchedulerStatus::PendingEvent))));
+        let blob = snapshot::save(&vm, src).expect("save");
+        drop(vm);
+        // A FOREIGN Val is the tag 0x7FFD, then 16 bits of generation and 32 of index.
+        let handle = |generation: u64, index: u64| (0x7FFD_0000_0000_0000 | generation << 32 | index).to_le_bytes();
+        let real = handle(0, 0);
+        let body = &blob[..blob.len() - 32];
+        assert!(body.windows(8).any(|w| w == real), "the blob names no FOREIGN value");
+        for forged in [handle(1, 0), handle(0, 7)] {
+            let mut bad = body.to_vec();
+            for at in 0..bad.len() - 7 { if bad[at..at + 8] == real { bad[at..at + 8].copy_from_slice(&forged); } }
+            let seal = compiler::util::sha256::sha256(&bad);
+            bad.extend_from_slice(&seal);
+            let mut vm = VM::with_limits(parse_static(src), Limits::sandbox());
+            let err = snapshot::restore(&mut vm, &bad).unwrap_err();
+            assert!(err.contains("missing object"), "unexpected error: {err}");
+        }
+    }
+
     /* limits_of reports the profile recorded at save time, remaining budget included. */
     #[test]
     fn limits_of_reports_recorded_budget() {
         let src = "x = 1\n";
         let saved = |limits: Limits| {
             let vm = VM::with_limits(parse_static(src), limits);
-            snapshot::save(&vm, src)
+            snapshot::save(&vm, src).expect("save")
         };
         let l = snapshot::limits_of(&saved(Limits { ops: 1_234_567, memory: 42_000 })).unwrap();
         assert_eq!((l.ops, l.memory), (1_234_567, 42_000));
@@ -332,7 +356,7 @@ mod test {
         let src = "x = 1 + 2\n";
         let mut vm = VM::with_limits(parse_static(src), Limits::sandbox());
         vm.run().expect("run");
-        let l = snapshot::limits_of(&snapshot::save(&vm, src)).unwrap();
+        let l = snapshot::limits_of(&snapshot::save(&vm, src).expect("save")).unwrap();
         assert!(l.ops > 1 && l.ops < 100_000_000, "unexpected ops {}", l.ops);
     }
 }

@@ -176,16 +176,13 @@ impl<'a> VM<'a> {
             HeapObj::Tuple(v) => v.len() as i64,
             HeapObj::Str(s) => if ascii { s.len() as i64 } else { s.chars().count() as i64 },
             HeapObj::Bytes(b) => b.len() as i64,
-            // A range slices into another range.
-            &HeapObj::Range(rs, re, rst) => {
-                let (a, b, c) = slice_bounds(start, stop, step, range_len(rs, re, rst) as i64)?;
-                let at = |k: i64| i64::try_from(rs as i128 + k as i128 * rst as i128).map_err(|_| cold_overflow());
-                let r = HeapObj::Range(at(a)?, at(b)?, rst.checked_mul(c).ok_or_else(cold_overflow)?);
-                return self.heap.alloc(r);
-            }
+            // A range slices into another range, its bounds resolved at any width.
+            HeapObj::Range(..) | HeapObj::BigRange(..) => return crate::frontend::int::range_slice(&mut self.heap, obj, start, stop, step).unwrap_or(Err(VmErr::Overflow)),
             _ => return Err(cold_type("object is not sliceable")),
         };
-        let (s, e, st) = slice_bounds(start, stop, step, len)?;
+        // A boxed index lies past either end of any sequence, so it clamps like the inline extreme.
+        let clip = |v: Val| crate::frontend::int::clip_index(&self.heap, v);
+        let (s, e, st) = slice_bounds(clip(start), clip(stop), clip(step), len)?;
 
         // Step 1 copies one contiguous range.
         let contiguous = st == 1;
@@ -229,7 +226,8 @@ impl<'a> VM<'a> {
 
     pub fn getitem_val(&mut self, obj: Val, idx: Val) -> Result<Val, VmErr> {
         if !obj.is_heap() { return Err(VmErr::TypeMsg(crate::s!("'", str self.type_name(obj), "' object is not subscriptable"))); }
-        let bad = |vm: &Self, kind: &str| VmErr::TypeMsg(crate::s!(str kind, " indices must be integers or slices, not ", str vm.type_name(idx)));
+        let bad = |vm: &Self, kind: &str| if crate::frontend::int::is_big(&vm.heap, idx) { cold_index("cannot fit 'int' into an index-sized integer") }
+            else { VmErr::TypeMsg(crate::s!(str kind, " indices must be integers or slices, not ", str vm.type_name(idx))) };
         match self.heap.get(obj) {
             HeapObj::List(v) => {
                 if !idx.is_int() { return Err(bad(self, "list")); }
@@ -252,6 +250,8 @@ impl<'a> VM<'a> {
             }
             HeapObj::Str(_) => Err(bad(self, "string")),
             HeapObj::Bytes(_) => Err(bad(self, "byte")),
+            &HeapObj::BigRange(..) if idx.is_int() || crate::frontend::int::is_big(&self.heap, idx) => crate::frontend::int::range_item(&mut self.heap, obj, idx).unwrap_or(Err(VmErr::Overflow)),
+            HeapObj::BigRange(..) => Err(bad(self, "range")),
             // `range(n)[i]` is computed, never materialised.
             &HeapObj::Range(s, e, st) => {
                 if !idx.is_int() { return Err(bad(self, "range")); }
@@ -404,7 +404,8 @@ impl<'a> VM<'a> {
             return Err(cold_type("object does not support slice assignment"));
         };
         let mut b = rc.borrow_mut();
-        let (s, e, st) = slice_bounds(start, stop, step, b.len() as i64)?;
+        let clip = |v: Val| crate::frontend::int::clip_index(&self.heap, v);
+        let (s, e, st) = slice_bounds(clip(start), clip(stop), clip(step), b.len() as i64)?;
         if st == 1 {
             b.splice(s as usize..e.max(s) as usize, items.unwrap_or_default());
             return Ok(());

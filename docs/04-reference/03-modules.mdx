@@ -196,7 +196,7 @@ error: module 'json' has no export 'badname'
 
 A module of your own ships as a `.py`, or as a `.wasm` plugin. A plugin sees transit values and reaches the outside only through the [system calls](/docs/edge-python/reference/abi#system-calls) its package is granted.
 
-Transit values are `None`, `bool`, `int` (128-bit), `float`, `str`, `bytes`, and nested `list` and `dict`. A plugin follows the sealed, language-agnostic [ABI](/docs/edge-python/reference/abi), written in Rust with `wasm-pdk` or in Zig, C or AssemblyScript. A script imports it through a manifest alias like any other module.
+Transit values are `None`, `bool`, `int` up to 128 bits, `float`, `str`, `bytes`, and nested `list` and `dict`. A plugin follows the sealed, language-agnostic [ABI](/docs/edge-python/reference/abi), written in Rust with `wasm-pdk` or in Zig, C or AssemblyScript. A script imports it through a manifest alias like any other module.
 
 ## See also
 

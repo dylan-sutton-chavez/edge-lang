@@ -7,7 +7,7 @@ use alloc::{boxed::Box, format, string::{String, ToString}, sync::Arc, vec::Vec}
 use compiler::lexer::{lex, TokenType};
 use compiler::modules::{NativeBinding, Resolved, Resolver};
 use compiler::parser::{Diagnostic, Parser, SSAChunk};
-use compiler::value::{HeapObj, HeapPool, Val, VmErr};
+use compiler::value::{HeapObj, HeapPool, Val, VmErr, as_i128};
 use compiler::vm::VM;
 
 pub use compiler::vm::Limits;
@@ -56,15 +56,12 @@ impl Value {
     fn read(v: Val, heap: &HeapPool, render: impl FnOnce(Val) -> String) -> Value {
         if v.is_none() { Value::None }
         else if v.is_bool() { Value::Bool(v.as_bool()) }
-        else if v.is_int() { Value::Int(v.as_int()) }
         else if v.is_float() { Value::Float(v.as_float()) }
+        // an int of any width the engine boxes, wider than i64 surfacing as its digits
+        else if let Some(i) = as_i128(v, heap) { i64::try_from(i).map_or_else(|_| Value::Object(i.to_string()), Value::Int) }
         else if v.is_heap() {
             match heap.get(v) {
                 HeapObj::Str(s) => Value::Str(s.clone()),
-                HeapObj::LongInt(i) => match i64::try_from(i.get()) {
-                    Ok(n) => Value::Int(n),
-                    Err(_) => Value::Object(i.get().to_string()),
-                },
                 _ => Value::Object(render(v)),
             }
         } else { Value::None }
@@ -72,7 +69,7 @@ impl Value {
 
     // a composite has no owned form here, so it is refused rather than passed blank
     fn read_arg(v: Val, heap: &HeapPool) -> Result<Value, VmErr> {
-        if v.is_heap() && !matches!(heap.get(v), HeapObj::Str(_) | HeapObj::LongInt(_)) {
+        if v.is_heap() && as_i128(v, heap).is_none() && !matches!(heap.get(v), HeapObj::Str(_)) {
             return Err(VmErr::TypeMsg(String::from("host function argument must be a scalar or a str")));
         }
         Ok(Self::read(v, heap, |_| String::new()))
@@ -83,10 +80,7 @@ impl Value {
         Ok(match self {
             Value::None => Val::none(),
             Value::Bool(b) => Val::bool(*b),
-            Value::Int(i) => match Val::int_checked(*i) {
-                Some(v) => v,
-                None => heap.alloc(HeapObj::LongInt((*i as i128).into()))?,
-            },
+            Value::Int(i) => heap.int(*i as i128)?,
             Value::Float(f) => Val::float(*f),
             Value::Str(s) | Value::Object(s) => heap.alloc(HeapObj::Str(s.clone()))?,
         })

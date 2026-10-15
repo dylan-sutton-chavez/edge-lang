@@ -366,7 +366,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         }
         match Self::int_literal(raw) {
             Ok(v) => self.emit_const(v),
-            Err(m) => self.error(m),
+            Err(m) => self.error(&m),
         }
     }
 
@@ -376,34 +376,33 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
     }
 
     /* An int literal in any base with `_` separators, the value or the syntax error it raises. */
-    pub(super) fn int_literal(raw: &str) -> Result<Value, &'static str> {
-        const TOO_LARGE: &str = "integer literal too large to represent (max ±2^127)";
+    pub(super) fn int_literal(raw: &str) -> Result<Value, String> {
         let (digits, base) = Self::parse_int_prefix(raw);
-        let mut digits = digits.bytes().filter(|&b| b != b'_').peekable();
+        let digits = digits.bytes().filter(|&b| b != b'_');
         // No leading zeros, all-zero runs still valid.
-        if base == 10 && digits.peek() == Some(&b'0') && digits.clone().any(|b| b != b'0') {
-            return Err("leading zeros in decimal integer literals are not permitted");
+        if base == 10 && digits.clone().next() == Some(b'0') && digits.clone().any(|b| b != b'0') {
+            return Err("leading zeros in decimal integer literals are not permitted".into());
         }
-        // u64 first, wasm emulates the u128 arithmetic only past it.
-        let (mut narrow, mut wide, mut any) = (0u64, None::<u128>, false);
-        for b in digits {
-            let d = (b as char).to_digit(base).ok_or(TOO_LARGE)?;
-            any = true;
-            match wide {
-                None => match narrow.checked_mul(base as u64).and_then(|v| v.checked_add(d as u64)) {
-                    Some(v) => narrow = v,
-                    None => wide = Some(narrow as u128 * base as u128 + d as u128),
-                },
-                Some(w) => wide = Some(w.checked_mul(base as u128).and_then(|v| v.checked_add(d as u128)).ok_or(TOO_LARGE)?),
+        let mut narrow = 0u64;
+        for b in digits.clone() {
+            let d = (b as char).to_digit(base).ok_or("invalid digit in integer literal")?;
+            match narrow.checked_mul(base as u64).and_then(|v| v.checked_add(d as u64)) {
+                Some(v) => narrow = v,
+                None => return Self::big_literal(digits, base),
             }
         }
         // The lexer already reported a literal without digits, so a zero stands in.
-        if !any { return Ok(Value::Int(0)); }
-        match wide {
-            None if narrow <= i64::MAX as u64 => Ok(Value::Int(narrow as i64)),
-            None => Ok(Value::LongInt(narrow as i128)),
-            Some(w) => i128::try_from(w).map(Value::LongInt).map_err(|_| TOO_LARGE),
+        if narrow <= i64::MAX as u64 { Ok(Value::Int(narrow as i64)) } else { Self::big_literal(digits, base) }
+    }
+
+    /* A literal past i64, refused past the decimal digit limit like `int()`. */
+    #[cold]
+    fn big_literal(digits: impl Iterator<Item = u8>, base: u32) -> Result<Value, String> {
+        let d: alloc::vec::Vec<u8> = digits.map(|b| (b as char).to_digit(base).unwrap_or(0) as u8).collect();
+        if base == 10 && d.len() > crate::frontend::int::MAX_STR_DIGITS {
+            return Err(crate::s!("Exceeds the limit (4300 digits) for integer string conversion: value has ", int d.len() as i64, " digits; use sys.set_int_max_str_digits() to increase the limit - Consider hexadecimal for huge integer literals to avoid decimal conversion limits."));
         }
+        Ok(Value::BigInt(crate::frontend::bigint::BigInt::from_digits(false, &d, base)))
     }
 
     /* Subscript after `[`, comma-separated items build one tuple key. Eats the closing `]`, returns true for a lone slice. */

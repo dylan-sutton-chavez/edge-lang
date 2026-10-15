@@ -9,6 +9,8 @@ pub mod math;
 pub mod scheduler;
 pub mod meter;
 pub mod pool;
+pub mod foreign;
+pub use foreign::{BinOp, UnOp};
 
 pub use frames::*;
 pub use eq::*;
@@ -54,7 +56,7 @@ impl core::fmt::Debug for ExternFn {
 
 /* NaN-boxed 8-byte value (48-bit int, float, bool, None, undef, heap idx), layout in `abi::nan_box`. */
 use crate::abi::nan_box::{
-    QNAN, SIGN, TAG_UNDEF, TAG_NONE, TAG_TRUE, TAG_FALSE, TAG_INT, TAG_HEAP,
+    QNAN, SIGN, TAG_UNDEF, TAG_NONE, TAG_TRUE, TAG_FALSE, TAG_INT, TAG_HEAP, TAG_FOREIGN,
     INT_PAYLOAD_MASK,
 };
 
@@ -114,9 +116,12 @@ impl Val {
     #[inline(always)] pub fn is_false(&self) -> bool { self.0 == TAG_FALSE }
     #[inline(always)] pub fn is_bool(&self) -> bool { self.0 == TAG_TRUE || self.0 == TAG_FALSE }
     #[inline(always)] pub fn is_undef(&self) -> bool { self.0 == TAG_UNDEF }
-    #[inline(always)] pub fn is_heap(&self) -> bool {
-        (self.0 & QNAN) == QNAN && (self.0 & SIGN) == 0 && (self.0 & 0xF) >= 4
-    }
+    /* The exact prefix and low nibble, so no other tag passes for a heap index. */
+    #[inline(always)] pub fn is_heap(&self) -> bool { (self.0 & 0xFFFF_0000_0000_000F) == TAG_HEAP }
+    #[inline(always)] pub fn foreign(generation: u16, index: u32) -> Self { Self(TAG_FOREIGN | (generation as u64) << 32 | index as u64) }
+    #[inline(always)] pub fn is_foreign(&self) -> bool { (self.0 & 0xFFFF_0000_0000_0000) == TAG_FOREIGN }
+    /* The generation and index of a FOREIGN Val. */
+    #[inline] pub fn foreign_parts(&self) -> Option<(u16, u32)> { self.is_foreign().then_some(((self.0 >> 32) as u16, self.0 as u32)) }
 
     #[inline(always)] pub fn as_float(&self) -> f64 { f64::from_bits(self.0) }
     /* Wire-format accessors (FFI / WASM loader / SDK). */
@@ -148,14 +153,14 @@ pub enum HeapObj {
     // (fi, defaults, captures, attrs), attrs share the Class member shape.
     Func(usize, Vec<Val>, Vec<(usize, Val)>, Rc<RefCell<Vec<(String, Val)>>>),
     Range(i64, i64, i64),
+    /* A range with a bound past i64, its start, stop and step as ints. */
+    BigRange(Val, Val, Val),
     Slice(Val, Val, Val),
     // True `...` singleton, distinct from any string.
     Ellipsis,
     Type(String),
     // `NotImplemented` singleton, dunder return sentinel that triggers the reflected operator fallback.
     NotImplemented,
-    /* Wide-int slow path (i128), `int_to_val` canonicalises so 48-bit values stay inline. */
-    LongInt(Wide),
     /* Exception instance, type name + ctor args (exposed via `.args`) + its chain, undef until it has one. */
     ExcInstance(String, Vec<Val>, Val),
     BoundMethod(Val, BuiltinMethodId),
@@ -234,20 +239,6 @@ impl Coro {
     }
 }
 
-/* An i128 at eight-byte alignment, so it does not widen every heap object. */
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-#[repr(Rust, packed(8))]
-pub struct Wide(i128);
-
-impl Wide {
-    #[inline]
-    pub fn get(self) -> i128 { self.0 }
-}
-
-impl From<i128> for Wide {
-    #[inline]
-    fn from(i: i128) -> Self { Self(i) }
-}
 
 /* Type names a builtin iterator can carry, the index is how a snapshot stores one. */
 pub const ITER_KINDS: [&str; 20] = [
@@ -558,7 +549,7 @@ pub(crate) fn set_member(members: &Rc<RefCell<Vec<(String, Val)>>>, name: &str, 
 pub(crate) fn for_each_val(obj: &HeapObj, mut f: impl FnMut(Val)) {
     match obj {
         HeapObj::Tuple(items) => for &v in items { f(v); },
-        HeapObj::Slice(a, b, c) => { f(*a); f(*b); f(*c); }
+        HeapObj::Slice(a, b, c) | HeapObj::BigRange(a, b, c) => { f(*a); f(*b); f(*c); }
         HeapObj::List(rc) => for &v in rc.borrow().iter() { f(v); },
         HeapObj::Dict(rc) => for (k, v) in rc.borrow().iter() { f(k); f(v); },
         HeapObj::Set(rc) => for &v in rc.borrow().iter() { f(v); },
@@ -595,7 +586,7 @@ pub(crate) fn for_each_val(obj: &HeapObj, mut f: impl FnMut(Val)) {
         HeapObj::TypeAlias(_, value) => f(*value),
         HeapObj::Union(args) => f(*args),
         // Variants without Val payloads, terminal, nothing to trace.
-        HeapObj::Str(_) | HeapObj::Bytes(_) | HeapObj::LongInt(_)
+        HeapObj::Str(_) | HeapObj::Bytes(_)
         | HeapObj::Type(_) | HeapObj::NativeFn(_) | HeapObj::Range(..)
         | HeapObj::Extern(_) | HeapObj::Ellipsis | HeapObj::NotImplemented | HeapObj::TypeVar(_) | HeapObj::Code(_) => {}
         HeapObj::Iter(frame, _) => frame.borrow().for_each_val(&mut f),
@@ -641,13 +632,13 @@ pub struct HeapPool {
     meter: &'static meter::Meter,
     // Native work since the last step, scans and copies the op budget charges at the next one.
     work: Cell<usize>,
+    // The op budget left when the VM last charged, so a native operation refuses work it could never pay for.
+    budget: Cell<u64>,
     limit: usize,
     /* Interns short strings by content, each entry the slot holding one. */
     strings: hashbrown::HashTable<u32>,
     /* Interns short bytes literals so equal `b"..."` share a Val (Hash uses raw bits). */
     bytes_intern: HashMap<Vec<u8>, u32>,
-    /* Interns LongInt by value so equal i128s share a Val and stay hash/eq consistent. */
-    longints: HashMap<i128, u32>,
     /* Interns Type objects by name so `type(x) is set` and `type(None) is type(None)` hold. */
     types: HashMap<String, u32>,
     // Cached Ellipsis slot index so `... is ...` is True (singleton parity).
@@ -664,6 +655,8 @@ pub struct HeapPool {
     mark_worklist: Vec<u32>,
     /* The class and attributes of each classed slot, which stays a real dict or list for the builtins. */
     classes: HashMap<u32, ClassedEntry>,
+    /* The entries FOREIGN Vals name, marked and swept with the slots. */
+    pub(crate) foreign: alloc::boxed::Box<foreign::ForeignTable>,
 }
 
 // A program gone leaves the shared instance total.
@@ -672,14 +665,23 @@ impl Drop for HeapPool {
 }
 
 impl HeapPool {
-    /* `i` as the narrowest int, inline when it fits 48 bits, else a LongInt. */
+    /* `i` as the narrowest int, inline when it fits 48 bits, else boxed by the kind of the wide ints. */
     #[inline]
     pub fn int(&mut self, i: i128) -> Result<Val, VmErr> {
-        match i64::try_from(i).ok().and_then(Val::int_checked) {
+        match i64::try_from(i).ok().and_then(Val::int_checked) { Some(v) => Ok(v), None => self.box_int(i) }
+    }
+
+    /* Boxes an int past the inline range, kept out of `int` so the inline case stays small enough to inline. */
+    #[inline(never)]
+    fn box_int(&mut self, i: i128) -> Result<Val, VmErr> {
+        match self.wide_box(i) {
             Some(v) => Ok(v),
-            None => self.alloc(HeapObj::LongInt(i.into())),
+            None => match self.foreign.wide_int().and_then(|k| k.from_i128) { Some(f) => f(self, i), None => Err(cold_overflow()) },
         }
     }
+
+    /* Counts an allocation toward the next collection. */
+    pub(crate) fn note_alloc(&self) { self.alloc_count.set(self.alloc_count.get().saturating_add(1)); }
 
     pub fn new(limit: usize) -> Self {
         Self {
@@ -690,10 +692,10 @@ impl HeapPool {
             alloc_count: Cell::new(0),
             meter: crate::util::leak(Box::new(meter::Meter::new(limit))),
             work: Cell::new(0),
+            budget: Cell::new(u64::MAX),
             limit,
             strings: hashbrown::HashTable::new(),
             bytes_intern: HashMap::default(),
-            longints: HashMap::default(),
             types: HashMap::default(),
             ellipsis_idx: None,
             notimpl_idx: None,
@@ -703,6 +705,7 @@ impl HeapPool {
             alloc_limit: 4096,
             mark_worklist: Vec::with_capacity(64),
             classes: HashMap::default(),
+            foreign: alloc::boxed::Box::default(),
         }
     }
 
@@ -713,7 +716,6 @@ impl HeapPool {
             // Every one-character and empty string shares one slot.
             HeapObj::Str(s) if s.len() <= 1 => self.string_slot(s),
             HeapObj::Bytes(b) if b.len() <= 128 => self.bytes_intern.get(b).copied(),
-            HeapObj::LongInt(i) => self.longints.get(&i.get()).copied(),
             HeapObj::Type(name) => self.types.get(name).copied(),
             HeapObj::Ellipsis => self.ellipsis_idx,
             HeapObj::NotImplemented => self.notimpl_idx,
@@ -735,7 +737,6 @@ impl HeapPool {
         match self.slots[idx as usize].obj.as_ref() {
             Some(HeapObj::Str(s)) if s.len() <= 1 => self.intern_text(idx, eq::hash_key(s)),
             Some(HeapObj::Bytes(b)) if b.len() <= 128 => { self.bytes_intern.insert(b.clone(), idx); }
-            Some(HeapObj::LongInt(i)) => { self.longints.insert(i.get(), idx); }
             Some(HeapObj::Type(name)) => { self.types.insert(name.clone(), idx); }
             Some(HeapObj::Ellipsis) => { self.ellipsis_idx = Some(idx); }
             Some(HeapObj::NotImplemented) => { self.notimpl_idx = Some(idx); }
@@ -752,7 +753,6 @@ impl HeapPool {
                 if let Ok(e) = self.strings.find_entry(eq::hash_key(s), |&i| i == idx) { e.remove(); }
             }
             Some(HeapObj::Bytes(b)) if b.len() <= 128 => unintern(&mut self.bytes_intern, b, idx),
-            Some(HeapObj::LongInt(i)) => unintern(&mut self.longints, &i.get(), idx),
             Some(HeapObj::Type(name)) => unintern(&mut self.types, name, idx),
             Some(HeapObj::Ellipsis) if self.ellipsis_idx == Some(idx) => { self.ellipsis_idx = None; }
             Some(HeapObj::NotImplemented) if self.notimpl_idx == Some(idx) => { self.notimpl_idx = None; }
@@ -805,7 +805,7 @@ impl HeapPool {
         let idx = self.place(obj);
         self.intern_insert(idx);
         self.live += 1;
-        self.alloc_count.set(self.alloc_count.get().saturating_add(1));
+        self.note_alloc();
         Ok(Val::heap(idx))
     }
 
@@ -837,23 +837,30 @@ impl HeapPool {
     pub(crate) fn unmetered(&self) -> bool { self.limit != usize::MAX && !meter::installed() }
 
     pub fn mark(&mut self, v: Val) {
-        if !v.is_heap() { return; }
-        /* Split borrow, closure needs &mut mark_worklist while we read slots. */
-        let HeapPool { slots, mark_worklist, marked_vals, classes, .. } = self;
-        mark_worklist.push(v.as_heap());
-        while let Some(idx) = mark_worklist.pop() {
-            let idx = idx as usize;
-            if slots[idx].marked { continue; }
-            slots[idx].marked = true;
-            *marked_vals += 1;
-            if slots[idx].classed && let Some((cls, attrs)) = classes.get(&(idx as u32)) {
-                for v in core::iter::once(*cls).chain(attrs.borrow().iter().flat_map(|(k, v)| [k, v])) {
-                    if v.is_heap() { mark_worklist.push(v.as_heap()); }
+        let mut foreign = Vec::new();
+        if v.is_foreign() { foreign.push(v); }
+        if v.is_heap() { self.mark_worklist.push(v.as_heap()); }
+        // Slots and FOREIGN entries reach each other, so both sides drain until neither grows.
+        loop {
+            /* Split borrow, closure needs &mut mark_worklist while we read slots. */
+            let HeapPool { slots, mark_worklist, marked_vals, classes, .. } = self;
+            while let Some(idx) = mark_worklist.pop() {
+                let idx = idx as usize;
+                if slots[idx].marked { continue; }
+                slots[idx].marked = true;
+                *marked_vals += 1;
+                let mut visit = |val: Val| { if val.is_heap() { mark_worklist.push(val.as_heap()); } else if val.is_foreign() { foreign.push(val); } };
+                if slots[idx].classed && let Some((cls, attrs)) = classes.get(&(idx as u32)) {
+                    for v in core::iter::once(*cls).chain(attrs.borrow().iter().flat_map(|(k, v)| [k, v])) { visit(v); }
+                }
+                if let Some(obj) = &slots[idx].obj {
+                    for_each_val(obj, |val| { *marked_vals += 1; visit(val); });
                 }
             }
-            if let Some(obj) = &slots[idx].obj {
-                for_each_val(obj, |val| { *marked_vals += 1; if val.is_heap() { mark_worklist.push(val.as_heap()); } });
-            }
+            let Some(f) = foreign.pop() else { break };
+            let mut kept = Vec::new();
+            self.mark_foreign(f, &mut kept);
+            for c in kept { if c.is_heap() { self.mark_worklist.push(c.as_heap()); } else if c.is_foreign() { foreign.push(c); } }
         }
     }
 
@@ -869,6 +876,7 @@ impl HeapPool {
             self.live -= 1;
         }
 
+        self.foreign.sweep();
         // Both triggers scale with the volume the last mark walked.
         self.gc_threshold = (self.live * 2).max(512).max(self.marked_vals / 4);
         self.alloc_limit = (self.marked_vals / 4).max(4096);
@@ -894,7 +902,6 @@ impl HeapPool {
         self.free_list.clear();
         self.strings.clear();
         self.bytes_intern.clear();
-        self.longints.clear();
         self.types.clear();
         self.ellipsis_idx = None;
         self.notimpl_idx = None;
@@ -926,6 +933,13 @@ impl HeapPool {
     /* Counts `n` units of native work, the next step charges them to the op budget. */
     #[inline]
     pub fn spend(&self, n: usize) { self.work.set(self.work.get().saturating_add(n)); }
+
+    /* Records the op budget left, which `afford` holds native work to. */
+    #[inline]
+    pub fn set_budget(&self, ops: u64) { self.budget.set(ops); }
+
+    /* Refuses native work past the op budget before it starts. */
+    pub fn afford(&self, work: usize) -> Result<(), VmErr> { if work as u64 > self.budget.get() { Err(cold_budget()) } else { Ok(()) } }
 
     /* Whether native work waits to be charged. */
     #[inline]
@@ -1010,22 +1024,11 @@ impl HeapPool {
     }
 }
 
-/* Widens int/bool/LongInt to i128 for the slow path, None on non-integer operands. */
+/* Widens int/bool and the wide ints to i128 for the slow path, None on non-integers and on ints past i128. */
 #[inline]
 pub fn as_i128(v: Val, heap: &HeapPool) -> Option<i128> {
     if v.is_int() { Some(v.as_int() as i128) }
     else if v.is_bool() { Some(v.as_bool() as i128) }
-    else if v.is_heap() {
-        match heap.get(v) {
-            HeapObj::LongInt(i) => Some(i.get()),
-            _ => None,
-        }
-    }
+    else if v.is_foreign() { heap.foreign_i128(v) }
     else { None }
-}
-
-/* Wide-int payload only, skips inline ints and bools unlike as_i128. */
-#[inline]
-pub fn as_long_int(v: Val, heap: &HeapPool) -> Option<i128> {
-    if v.is_heap() && let HeapObj::LongInt(i) = heap.get(v) { Some(i.get()) } else { None }
 }

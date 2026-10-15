@@ -199,7 +199,7 @@ print(hex(-256))
 - `int(s, base)` parses a string in radix 2 to 36. Radix 0 detects a `0x`, `0o`, or `0b` prefix.
 - A bad string raises `ValueError`.
 - `int(inf)` raises `OverflowError` and `int(nan)` raises `ValueError`.
-- Results are bounded by the [integer width](/docs/edge-python/reference/limits-and-errors#integer-width).
+- A decimal string of more than 4,300 digits raises `ValueError`, see [integer width](/docs/edge-python/reference/limits-and-errors#integer-width).
 
 ```edge-python
 print(int(3.9))
@@ -380,8 +380,9 @@ print(len(range(100)))
 - Indexing and slicing compute without materialising. `range(10)[2:8:2]` is `range(2, 8, 2)`.
 - A zero step raises `ValueError`.
 - Non-integer arguments raise `TypeError`.
-- Two ranges compare equal when they produce the same sequence of values.
+- Two ranges compare equal, and hash alike, when they produce the same sequence of values.
 - `index(x)` and `count(x)` answer by arithmetic, without walking the range.
+- Bounds may be ints of any size. `len` of a range longer than 2^63 − 1 raises `OverflowError`, while indexing, slicing and iteration still work.
 
 ```edge-python
 print(list(range(5)))

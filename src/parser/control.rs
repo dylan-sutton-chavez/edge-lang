@@ -284,8 +284,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         Some(match (t.kind, neg) {
             (TokenType::Int, _) => match Self::int_literal(text(t)).ok()? {
                 Value::Int(i) if neg => Value::Int(-i),
-                // i128::MIN.neg() overflows, the literal keeps its magnitude.
-                Value::LongInt(i) if neg => Value::LongInt(i.checked_neg().unwrap_or(i)),
+                Value::BigInt(b) if neg => Value::BigInt(b.neg()),
                 v => v,
             },
             (TokenType::Float, _) => {

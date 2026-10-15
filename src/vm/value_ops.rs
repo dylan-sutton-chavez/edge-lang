@@ -3,7 +3,7 @@ use crate::s;
 use super::types::*;
 use crate::parser::types::OpCode;
 
-use alloc::{string::{String, ToString}, vec::Vec, rc::Rc};
+use alloc::{string::String, vec::Vec, rc::Rc};
 use core::cell::RefCell;
 use core::cmp::Ordering;
 
@@ -67,9 +67,10 @@ fn repr_str(s: &str) -> String {
 }
 
 /* Coerce a numeric pair to f64, returns None if neither operand is a float. */
-fn coerce_floats(a: Val, b: Val, heap: &HeapPool) -> Option<(f64, f64)> {
+fn coerce_floats(a: Val, b: Val, heap: &HeapPool) -> Option<Result<(f64, f64), VmErr>> {
     if !a.is_float() && !b.is_float() { return None; }
-    Some((num_as_f64(a, heap)?, num_as_f64(b, heap)?))
+    let (x, y) = (num_f64(a, heap)?, num_f64(b, heap)?);
+    Some(x.and_then(|x| Ok((x, y?))))
 }
 
 use super::VM;
@@ -80,16 +81,17 @@ impl<'a> VM<'a> {
         if v.is_true() { return true; }
         if v.is_int() { return v.as_int() != 0; }
         if v.is_float() { return v.as_float() != 0.0; }
+        if v.is_foreign() { return self.heap.foreign_truthy(v).unwrap_or(true); }
         match self.heap.get(v) {
             HeapObj::Str(s) => !s.is_empty(),
             HeapObj::Bytes(b) => !b.is_empty(),
-            HeapObj::LongInt(i) => i.get() != 0,
             HeapObj::List(l) => !l.borrow().is_empty(),
             HeapObj::Tuple(t) => !t.is_empty(),
             HeapObj::Dict(d) => !d.borrow().is_empty(),
             HeapObj::Set(s) => !s.borrow().is_empty(),
             HeapObj::FrozenSet(s) => !s.is_empty(),
             HeapObj::Range(s,e,st) => if *st > 0 { s < e } else { s > e },
+            HeapObj::BigRange(..) => crate::frontend::int::range_empty(&self.heap, v) == Some(false),
             HeapObj::DictView(d, _) => self.truthy(*d),
             HeapObj::Type(_) | HeapObj::Func(..) | HeapObj::Slice(..) | HeapObj::BoundMethod(..)
             | HeapObj::NativeFn(_) | HeapObj::Class(..) | HeapObj::BoundUserMethod(..)
@@ -99,13 +101,6 @@ impl<'a> VM<'a> {
             | HeapObj::Ellipsis | HeapObj::NotImplemented | HeapObj::GenericAlias(..) | HeapObj::TypeAlias(..)
             | HeapObj::Union(_) | HeapObj::TypeVar(_) | HeapObj::Iter(..) | HeapObj::Cell(_) | HeapObj::Code(_) => true,
         }
-    }
-
-    pub fn bitwise_op(&mut self, a: Val, b: Val, op: impl Fn(i128, i128) -> i128) -> Result<Val, VmErr> {
-        let ai = as_i128(a, &self.heap).ok_or_else(|| cold_type("bitwise op requires integer operands"))?;
-        let bi = as_i128(b, &self.heap).ok_or_else(|| cold_type("bitwise op requires integer operands"))?;
-        let r = op(ai, bi);
-        self.int_to_val(Some(r))
     }
 
     /* Clone the element set out of a `set` or `frozenset`, None for any other type. */
@@ -219,10 +214,10 @@ impl<'a> VM<'a> {
         else if v.is_int() { "int" }
         else if v.is_float() { "float" }
         else if v.is_none() { "NoneType" }
+        else if v.is_foreign() { self.heap.foreign_kind(v).map_or("object", |k| k.type_name) }
         else { match self.heap.get(v) {
             HeapObj::Str(_) => "str",
             HeapObj::Bytes(_) => "bytes",
-            HeapObj::LongInt(_) => "int",
             HeapObj::List(_) => "list",
             HeapObj::Dict(_) => "dict",
             HeapObj::Set(_) => "set",
@@ -230,7 +225,7 @@ impl<'a> VM<'a> {
             HeapObj::Tuple(_) => "tuple",
             HeapObj::Func(..) => "function",
             HeapObj::Type(_) | HeapObj::Class(..) => "type",
-            HeapObj::Range(..) => "range",
+            HeapObj::Range(..) | HeapObj::BigRange(..) => "range",
             HeapObj::Slice(..) => "slice",
             HeapObj::BoundMethod(..) | HeapObj::NativeFn(_) | HeapObj::Extern(_) => "builtin_function_or_method",
             HeapObj::BoundUserMethod(..) => "<bound method>",
@@ -323,6 +318,11 @@ impl<'a> VM<'a> {
 
     pub fn display(&self, v: Val) -> String { self.display_d(v, &mut Vec::new()) }
 
+    /* The text of a FOREIGN value where no error can surface, its type when the kind refuses. */
+    fn foreign_text(&self, v: Val) -> String {
+        match self.heap.foreign_repr(v) { Some(Ok(s)) => s, _ => s!("<", str self.type_name(v), " object>") }
+    }
+
     /* Cycle-aware display, `seen` tracks containers on the current path, so self-referential structures emit "..." instead of recursing forever (and its length bounds raw nesting depth). */
     fn display_d(&self, v: Val, seen: &mut Vec<u32>) -> String {
         if seen.len() > RENDER_DEPTH_MAX { return "...".into(); }
@@ -334,10 +334,10 @@ impl<'a> VM<'a> {
         if v.is_true() { return "True".into(); }
         if v.is_false() { return "False".into(); }
         if v.is_none() { return "None".into(); }
+        if v.is_foreign() { return self.foreign_text(v); }
         match self.heap.get(v) {
             HeapObj::Str(s) => s.clone(),
             HeapObj::Bytes(b) => format_bytes(b),
-            HeapObj::LongInt(i) => i128_to_dec(i.get()),
             HeapObj::Type(name) => s!("<class '", str name, "'>"),
             HeapObj::Func(i, ..) => {
                 // Empty name means lambda, same convention as the snapshot restore.
@@ -346,6 +346,7 @@ impl<'a> VM<'a> {
             }
             HeapObj::Slice(s,e,st) => s!("slice(", str &self.display_d(*s, seen), ", ", str &self.display_d(*e, seen), ", ", str &self.display_d(*st, seen), ")"),
             HeapObj::Range(s,e,st) => if *st == 1 { s!("range(", int *s, ", ", int *e, ")") } else { s!("range(", int *s, ", ", int *e, ", ", int *st, ")") },
+            HeapObj::BigRange(..) => crate::frontend::int::range_repr(&self.heap, v).and_then(Result::ok).unwrap_or_else(|| "range(...)".into()),
             HeapObj::List(l) => { let id = v.as_heap(); if seen.contains(&id) { return "[...]".into(); } seen.push(id); let mut o = s!(cap: 32; "["); self.append_reprs(&mut o, l.borrow().iter(), seen); o.push(']'); seen.pop(); o },
             HeapObj::Tuple(t) => { let id = v.as_heap(); if seen.contains(&id) { return "(...)".into(); } seen.push(id); let o = if t.len() == 1 { s!("(", str &self.repr_d(t[0], seen), ",)") } else { let mut o = s!(cap: 32; "("); self.append_reprs(&mut o, t.iter(), seen); o.push(')'); o }; seen.pop(); o },
             HeapObj::Dict(d) => { let id = v.as_heap(); if seen.contains(&id) { return "{...}".into(); } seen.push(id); let mut o = s!(cap: 32; "{"); for (i,(k,val)) in d.borrow().iter().enumerate() { if i>0 { if o.len() > MAX_REPR_LEN { o.push_str(", ..."); break; } o.push_str(", "); } o.push_str(&self.repr_d(k, seen)); o.push_str(": "); o.push_str(&self.repr_d(val, seen)); } o.push('}'); seen.pop(); o },
@@ -488,15 +489,8 @@ impl<'a> VM<'a> {
         let a = if a.is_bool() { Val::int(a.as_bool() as i64) } else { a };
         let b = if b.is_bool() { Val::int(b.as_bool() as i64) } else { b };
         if a.is_int() && b.is_int() { return Ok(a.as_int() < b.as_int()); }
-        if a.is_float() && let Some(bi) = as_long_int(b, &self.heap) {
-            return Ok(float_cmp_int(a.as_float(), bi) == Some(Ordering::Less));
-        }
-        if b.is_float() && let Some(ai) = as_long_int(a, &self.heap) {
-            return Ok(float_cmp_int(b.as_float(), ai) == Some(Ordering::Greater));
-        }
-        if let Some((af, bf)) = coerce_floats(a, b, &self.heap) { return Ok(af < bf); }
-        // Wide-int compare in i128, falls through when either side isn't int-like.
-        if let (Some(ai), Some(bi)) = (as_i128(a, &self.heap), as_i128(b, &self.heap)) { return Ok(ai < bi); }
+        if (a.is_foreign() || b.is_foreign()) && let Some(o) = self.heap.foreign_cmp(a, b) { return Ok(o == Ordering::Less); }
+        if let Some(Ok((af, bf))) = coerce_floats(a, b, &self.heap) { return Ok(af < bf); }
         if a.is_heap() && b.is_heap() {
             match (self.heap.get(a), self.heap.get(b)) {
                 (HeapObj::Str(x), HeapObj::Str(y)) => return Ok(x < y),
@@ -550,6 +544,7 @@ impl<'a> VM<'a> {
                     if !(0..=255).contains(&n) { return Err(cold_value("byte must be in range(0, 256)")); }
                     return Ok(b.contains(&(n as u8)));
                 }
+                HeapObj::BigRange(..) => return Ok(crate::frontend::int::range_has(&self.heap, container, item).unwrap_or(false)),
                 HeapObj::Range(s, e, st) => {
                     let (s, e, st) = (*s as i128, *e as i128, *st as i128);
                     // O(1) range membership via bounds + step, integral floats match too.
@@ -581,11 +576,9 @@ impl<'a> VM<'a> {
             && (Val::INT_MIN..=Val::INT_MAX).contains(&r) {
             return Ok(Val::int(r));
         }
-        if let Some((af, bf)) = coerce_floats(a, b, &self.heap) { return Ok(Val::float(af + bf)); }
-        // Wide-int slow path, int_to_val picks the narrowest storage class.
-        if let (Some(ai), Some(bi)) = (as_i128(a, &self.heap), as_i128(b, &self.heap)) {
-            return self.int_to_val(ai.checked_add(bi));
-        }
+        if let Some(p) = coerce_floats(a, b, &self.heap) { let (af, bf) = p?; return Ok(Val::float(af + bf)); }
+        if let (Some(ai), Some(bi)) = (as_i128(a, &self.heap), as_i128(b, &self.heap)) && let Some(r) = ai.checked_add(bi) { return self.heap.int(r); }
+        if let Some(r) = self.wide_op(BinOp::Add, a, b)? { return Ok(r); }
         if a.is_heap() && b.is_heap() {
             // Charge the copy cost so growing concatenation in a loop stays bounded (avoids O(n^2)).
             let copy_cost = match (self.heap.get(a), self.heap.get(b)) {
@@ -638,10 +631,9 @@ impl<'a> VM<'a> {
             && (Val::INT_MIN..=Val::INT_MAX).contains(&r) {
             return Ok(Val::int(r));
         }
-        if let Some((af, bf)) = coerce_floats(a, b, &self.heap) { return Ok(Val::float(af - bf)); }
-        if let (Some(ai), Some(bi)) = (as_i128(a, &self.heap), as_i128(b, &self.heap)) {
-            return self.int_to_val(ai.checked_sub(bi));
-        }
+        if let Some(p) = coerce_floats(a, b, &self.heap) { let (af, bf) = p?; return Ok(Val::float(af - bf)); }
+        if let (Some(ai), Some(bi)) = (as_i128(a, &self.heap), as_i128(b, &self.heap)) && let Some(r) = ai.checked_sub(bi) { return self.heap.int(r); }
+        if let Some(r) = self.wide_op(BinOp::Sub, a, b)? { return Ok(r); }
         // Set / frozenset difference makes a fresh set of `a` elements not in `b`.
         if let (Some(sa), Some(sb)) = (self.clone_set_items(a), self.clone_set_items(b)) {
             let items: Vec<Val> = sa.iter().filter(|&&v| !sb.contains(v, &self.heap)).copied().collect();
@@ -657,18 +649,19 @@ impl<'a> VM<'a> {
             && (Val::INT_MIN..=Val::INT_MAX).contains(&r) {
             return Ok(Val::int(r));
         }
-        if let Some((af, bf)) = coerce_floats(a, b, &self.heap) { return Ok(Val::float(af * bf)); }
-        // Numeric multiply wins over sequence repetition when both sides are int-like.
-        if let (Some(ai), Some(bi)) = (as_i128(a, &self.heap), as_i128(b, &self.heap)) {
-            return self.int_to_val(ai.checked_mul(bi));
-        }
+        if let Some(p) = coerce_floats(a, b, &self.heap) { let (af, bf) = p?; return Ok(Val::float(af * bf)); }
+        // Numeric multiply wins over sequence repetition when either side is a boxed int.
+        if let (Some(ai), Some(bi)) = (as_i128(a, &self.heap), as_i128(b, &self.heap)) && let Some(r) = ai.checked_mul(bi) { return self.heap.int(r); }
+        if let Some(r) = self.wide_op(BinOp::Mul, a, b)? { return Ok(r); }
         // Sequence repetition, str/bytes/list/tuple * int, bool counts as 0/1 (count clamped to i64).
         let rep_count = |v: Val| if v.is_int() { Some(v.as_int()) } else if v.is_bool() { Some(v.as_bool() as i64) } else { None };
-        let (seq_val, count) = if a.is_heap() && !matches!(self.heap.get(a), HeapObj::LongInt(_)) && let Some(n) = rep_count(b) {
+        let (seq_val, count) = if a.is_heap() && let Some(n) = rep_count(b) {
             (a, n)
-        } else if b.is_heap() && !matches!(self.heap.get(b), HeapObj::LongInt(_)) && let Some(n) = rep_count(a) {
+        } else if b.is_heap() && let Some(n) = rep_count(a) {
             (b, n)
         } else {
+            let seq = |v: Val| matches!(self.heap.try_get(v), Some(HeapObj::Str(_) | HeapObj::Bytes(_) | HeapObj::List(_) | HeapObj::Tuple(_)));
+            if (seq(a) && b.is_foreign()) || (seq(b) && a.is_foreign()) { return Err(VmErr::Raised(String::from("OverflowError: cannot fit 'int' into an index-sized integer"))); }
             return Err(self.unsupported("*", a, b));
         };
         let n = count.max(0) as usize;
@@ -721,9 +714,21 @@ impl<'a> VM<'a> {
     }
 
     pub fn div_vals(&mut self, a: Val, b: Val) -> Result<Val, VmErr> {
-        let (Ok(av), Ok(bv)) = (self.to_f64_coerce(a), self.to_f64_coerce(b)) else { return Err(self.unsupported("/", a, b)) };
+        // Boxed ints that fit i128 divide without limbs, rounded the same way.
+        if (a.is_foreign() || b.is_foreign()) && let (Some(x), Some(y)) = (as_i128(a, &self.heap), as_i128(b, &self.heap)) && y != 0 {
+            return Ok(Val::float(crate::frontend::bigint::BigInt::div_i128(x, y)));
+        }
+        if let Some(r) = self.wide_op(BinOp::TrueDiv, a, b)? { return Ok(r); }
+        let (Some(av), Some(bv)) = (num_f64(a, &self.heap), num_f64(b, &self.heap)) else { return Err(self.unsupported("/", a, b)) };
+        let (av, bv) = (av?, bv?);
         if bv == 0.0 { return Err(VmErr::ZeroDiv); }
         Ok(Val::float(av / bv))
+    }
+
+    /* `op` through the kind of a FOREIGN operand, None when nothing takes it. */
+    pub(crate) fn wide_op(&mut self, op: BinOp, a: Val, b: Val) -> Result<Option<Val>, VmErr> {
+        if !a.is_foreign() && !b.is_foreign() { return Ok(None); }
+        self.heap.foreign_binop(op, a, b)
     }
 
     /* Method wrapper around the free `as_i128` for borrow-checker ergonomics. */
@@ -736,15 +741,9 @@ impl<'a> VM<'a> {
         num_as_f64(v, &self.heap).ok_or_else(|| cold_type("numeric operand required"))
     }
 
-    /* Wrap an i128 into the narrowest Val, None->Overflow, 48-bit->inline, else LongInt. */
+    /* Wrap an i128 into the narrowest Val, None->Overflow, 48-bit->inline, else boxed. */
     #[inline]
     pub(crate) fn int_to_val(&mut self, r: Option<i128>) -> Result<Val, VmErr> {
         self.heap.int(r.ok_or_else(cold_overflow)?)
     }
-}
-
-/* i128 decimal render via itoa to avoid the heavier `format!` machinery on the hot path. */
-fn i128_to_dec(n: i128) -> String {
-    let mut buf = itoa::Buffer::new();
-    buf.format(n).to_string()
 }

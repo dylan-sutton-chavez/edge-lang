@@ -38,22 +38,19 @@ Use [`isinstance`](/docs/edge-python/reference/builtins#isinstance) to test whet
 
 ## Integer
 
-There is one `int` type with a signed 128-bit range, from `-(2**127)` to `2**127 - 1`. Going out of range raises `OverflowError`. [Limits and errors](/docs/edge-python/reference/limits-and-errors#integer-width) has the details.
+There is one `int` type and it has no fixed width. Small ints stay inline and wider ones grow as needed, so arithmetic never overflows. Turning an int of more than 4,300 decimal digits into text, or such text into an int, raises `ValueError`. [Limits and errors](/docs/edge-python/reference/limits-and-errors#integer-width) has the details.
 
 There is no complex type, so a negative number raised to a fractional power raises `ValueError`.
 
 ```edge-python
-big = (2**126 - 1) * 2 + 1
-print(big)
-try:
-  big + 1
-except OverflowError:
-  print("overflow")
+big = 2**200
+print(big % 1000, big.bit_length())
+print(big * big // big == big)
 ```
 
 ```output
-170141183460469231731687303715884105727
-overflow
+376 201
+True
 ```
 
 ## Float

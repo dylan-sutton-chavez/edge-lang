@@ -25,7 +25,7 @@ pub(crate) fn const_vals(chunk: &SSAChunk, heap: &mut HeapPool) -> Result<Box<[V
         out.push(match c {
             // A wide literal that fits inline demotes so hash and eq stay in sync with the short form.
             Value::Int(i) => heap.int(*i as i128)?,
-            Value::LongInt(i) => heap.int(*i)?,
+            Value::BigInt(b) => crate::frontend::int::val(heap, b.clone())?,
             Value::Float(f) => Val::float(*f),
             Value::Bool(b) => Val::bool(*b),
             Value::None => Val::none(),
@@ -103,10 +103,11 @@ fn key_eq(a: Val, b: Val, heap: &HeapPool, depth: usize) -> bool {
 
 /* Immutable all the way down, so nothing can change behind a cached result. */
 pub(crate) fn deeply_immutable(v: Val, heap: &HeapPool, depth: usize) -> bool {
+    if v.is_foreign() { return heap.foreign_kind(v).is_some_and(|k| k.immutable); }
     if !v.is_heap() { return true; }
     // Post-call args aren't rooted, so the body may have freed one, a freed slot (None) is not memoizable.
     match heap.try_get(v) {
-        Some(HeapObj::Str(_) | HeapObj::Bytes(_) | HeapObj::LongInt(_) | HeapObj::Range(..) | HeapObj::NativeFn(_) | HeapObj::Type(_)) => true,
+        Some(HeapObj::Str(_) | HeapObj::Bytes(_) | HeapObj::Range(..) | HeapObj::BigRange(..) | HeapObj::NativeFn(_) | HeapObj::Type(_)) => true,
         Some(HeapObj::Tuple(items)) => depth < EQ_DEPTH_MAX && items.iter().all(|&x| deeply_immutable(x, heap, depth + 1)),
         Some(HeapObj::FrozenSet(items)) => depth < EQ_DEPTH_MAX && items.iter().all(|&x| deeply_immutable(x, heap, depth + 1)),
         _ => false,

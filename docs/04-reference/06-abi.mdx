@@ -317,7 +317,7 @@ except ValueError as e:
 | Type | Crosses as |
 |---|---|
 | `i64` | `int`. An out-of-range value raises `ValueError` |
-| `i128` | `int`, the full range |
+| `i128` | `int` up to 128 bits. A wider int is not a transit value |
 | `f64` | `float` |
 | `bool` | `bool` |
 | `String`, `&str` | `str` |

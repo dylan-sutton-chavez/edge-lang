@@ -156,7 +156,7 @@ pub enum Value {
     Str(String),
     Bytes(alloc::vec::Vec<u8>),
     Int(i64),
-    LongInt(i128), // Wide integer literal, value outside ±2^47 but inside ±2^127. Materialised as `HeapObj::LongInt` at constant-pool construction.
+    BigInt(crate::frontend::bigint::BigInt), // An int literal past i64, boxed when the constant pool is built.
     Float(f64),
     Bool(bool),
     None,

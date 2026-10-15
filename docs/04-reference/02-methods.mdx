@@ -543,7 +543,7 @@ True
 - `bit_length()` gives the bits needed for the absolute value, `0` for zero.
 - `bit_count()` gives the number of set bits.
 - `to_bytes([length[, byteorder]])` writes the value unsigned, with `length` 1 and `byteorder` `"big"` by default. A negative value or one that does not fit raises `OverflowError`.
-- `int.from_bytes(bytes[, byteorder])` is called on the type. It reads the bytes unsigned, `"big"` by default. A value past the signed 128-bit range raises `OverflowError`.
+- `int.from_bytes(bytes[, byteorder])` is called on the type. It reads the bytes unsigned, `"big"` by default, into an int of any size.
 
 `float` carries `is_integer()`. Every int, bool and float has `conjugate()` and the attributes `real` and `imag`, and an int or bool also `numerator` and `denominator`.
 

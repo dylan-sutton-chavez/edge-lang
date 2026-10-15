@@ -22,6 +22,8 @@ path = "tests.rs"
 [features]
 default = ["std"]
 std = ["compiler/std"]
+# tests install the metered allocator a local engine past the pin requires
+metered = []
 
 [dependencies]
 # the edge python release this repo pins, the same one site and infra name

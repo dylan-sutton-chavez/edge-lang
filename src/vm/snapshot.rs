@@ -11,7 +11,7 @@ use super::{Pending, VM};
 use super::types::*;
 
 const MAGIC: u32 = 0x4E53_5045;
-const FORMAT: u32 = 15;
+const FORMAT: u32 = 16;
 // A SHA-256 of everything before it closes each blob, so a damaged one never restores.
 const SEAL: usize = 32;
 
@@ -39,7 +39,6 @@ impl W {
     fn u64(&mut self, v: u64) { self.b.extend_from_slice(&v.to_le_bytes()); }
     fn i64(&mut self, v: i64) { self.u64(v as u64); }
     fn i32v(&mut self, v: i32) { self.u32(v as u32); }
-    fn i128v(&mut self, v: i128) { self.b.extend_from_slice(&v.to_le_bytes()); }
     fn usz(&mut self, v: usize) { self.u64(v as u64); }
     fn boolean(&mut self, v: bool) { self.u8(v as u8); }
     fn bytes(&mut self, v: &[u8]) { self.usz(v.len()); self.b.extend_from_slice(v); }
@@ -66,10 +65,12 @@ struct R<'a> {
     live: Option<Vec<bool>>,
     // One cell per list an iterator walks, swapped in for that list once the heap is back.
     lists: FxHashMap<u64, ListCell>,
+    // The FOREIGN values the blob restored, the only ones a value may name.
+    foreign: FxHashSet<u64>,
 }
 
 impl<'a> R<'a> {
-    fn new(b: &'a [u8]) -> Self { Self { b, p: 0, live: None, lists: FxHashMap::default() } }
+    fn new(b: &'a [u8]) -> Self { Self { b, p: 0, live: None, lists: FxHashMap::default(), foreign: FxHashSet::default() } }
     fn take(&mut self, n: usize) -> Result<&'a [u8], SnapErr> {
         let end = self.p.checked_add(n).ok_or_else(|| "snapshot truncated".to_string())?;
         if end > self.b.len() { return Err("snapshot truncated".to_string()); }
@@ -83,7 +84,6 @@ impl<'a> R<'a> {
     fn u64(&mut self) -> Result<u64, SnapErr> { Ok(u64::from_le_bytes(self.take(8)?.try_into().unwrap())) }
     fn i64(&mut self) -> Result<i64, SnapErr> { Ok(self.u64()? as i64) }
     fn i32v(&mut self) -> Result<i32, SnapErr> { Ok(self.u32()? as i32) }
-    fn i128v(&mut self) -> Result<i128, SnapErr> { Ok(i128::from_le_bytes(self.take(16)?.try_into().unwrap())) }
     fn usz(&mut self) -> Result<usize, SnapErr> {
         usize::try_from(self.u64()?).map_err(|_| "snapshot value out of range".to_string())
     }
@@ -109,7 +109,8 @@ impl<'a> R<'a> {
     fn val(&mut self) -> Result<Val, SnapErr> {
         let v = Val(self.u64()?);
         let known = v.is_float() || v.is_int() || v.is_none() || v.is_bool() || v.is_undef();
-        if !known && !(v.is_heap() && Val::heap(v.as_heap()).0 == v.0) {
+        if v.is_foreign() && !self.foreign.contains(&v.0) { return Err("snapshot references a missing object".to_string()); }
+        if !known && !v.is_foreign() && !(v.is_heap() && Val::heap(v.as_heap()).0 == v.0) {
             return Err("snapshot holds a malformed value".to_string());
         }
         if v.is_heap() && let Some(live) = &self.live && !live.get(v.as_heap() as usize).copied().unwrap_or(false) {
@@ -202,6 +203,7 @@ fn put_iter_frame(w: &mut W, x: &IterFrame) {
             None => { w.u8(0); w.vals(&rc.borrow()); w.usz(*idx); }
         },
         IterFrame::Range { cur, end, step } => { w.u8(1); w.i64(*cur); w.i64(*end); w.i64(*step); }
+        IterFrame::BigRange { cur, end, step } => { w.u8(13); w.val(*cur); w.val(*end); w.val(*step); }
         IterFrame::Coroutine(v) => { w.u8(2); w.val(*v); }
         IterFrame::UserDefined(v) => { w.u8(3); w.val(*v); }
         IterFrame::ListRev { rc, idx } => match walks(w, rc) {
@@ -221,6 +223,7 @@ fn get_iter_frame(r: &mut R) -> Result<IterFrame, SnapErr> {
     Ok(match r.u8()? {
         0 => IterFrame::Seq { items: r.vals()?.into(), idx: r.usz()? },
         1 => IterFrame::Range { cur: r.i64()?, end: r.i64()?, step: r.i64()? },
+        13 => IterFrame::BigRange { cur: r.val()?, end: r.val()?, step: r.val()? },
         2 => IterFrame::Coroutine(r.val()?),
         3 => IterFrame::UserDefined(r.val()?),
         4 => IterFrame::Map { f: r.val()?, its: r.vals()?.into() },
@@ -406,11 +409,11 @@ fn put_obj(w: &mut W, obj: &HeapObj) {
             w.u8(7); w.usz(*fi); w.vals(captures); w.seq(defaults, put_slot_val); w.seq(&attrs.borrow(), put_name_val);
         }
         HeapObj::Range(s, e, st) => { w.u8(8); w.i64(*s); w.i64(*e); w.i64(*st); }
+        HeapObj::BigRange(s, e, st) => { w.u8(13); w.val(*s); w.val(*e); w.val(*st); }
         HeapObj::Slice(a, b, c) => { w.u8(9); w.val(*a); w.val(*b); w.val(*c); }
         HeapObj::Ellipsis => w.u8(10),
         HeapObj::Type(n) => { w.u8(11); w.str(n); }
         HeapObj::NotImplemented => w.u8(12),
-        HeapObj::LongInt(i) => { w.u8(13); w.i128v(i.get()); }
         HeapObj::ExcInstance(n, args, chain) => { w.u8(14); w.str(n); w.vals(args); w.val(*chain); }
         HeapObj::BoundMethod(recv, id) => { w.u8(15); w.val(*recv); w.u8(id.raw()); }
         HeapObj::NativeFn(id) => { w.u8(16); w.str(id.name()); }
@@ -462,11 +465,11 @@ fn get_obj(r: &mut R, externs: &ExternMap, fills: &mut Vec<(u32, SetFill)>, slot
         6 => HeapObj::Tuple(r.vals()?),
         7 => HeapObj::Func(r.usz()?, r.vals()?, r.seq(get_slot_val)?, Rc::new(RefCell::new(r.seq(get_name_val)?))),
         8 => HeapObj::Range(r.i64()?, r.i64()?, r.i64()?),
+        13 => HeapObj::BigRange(r.val()?, r.val()?, r.val()?),
         9 => HeapObj::Slice(r.val()?, r.val()?, r.val()?),
         10 => HeapObj::Ellipsis,
         11 => HeapObj::Type(r.str()?),
         12 => HeapObj::NotImplemented,
-        13 => HeapObj::LongInt(r.i128v()?.into()),
         14 => HeapObj::ExcInstance(r.str()?, r.vals()?, r.val()?),
         15 => {
             let recv = r.val()?;
@@ -607,7 +610,7 @@ fn put_call_frame(w: &mut W, f: &CallFrame) {
     w.u32(f.repeats);
 }
 
-pub fn save(vm: &VM, source: &str) -> Vec<u8> {
+pub fn save(vm: &VM, source: &str) -> Result<Vec<u8>, SnapErr> {
     // A pause leaves every frame saved in its coroutine, so the register stack holds nothing to keep.
     debug_assert!(vm.regs.is_empty() && vm.bindings.is_empty(), "a snapshot is taken only at a pause");
     let mut w = W::new();
@@ -623,6 +626,7 @@ pub fn save(vm: &VM, source: &str) -> Vec<u8> {
     let mut specs: Vec<(&String, &usize)> = vm.scope_ids.iter().collect();
     specs.sort_unstable_by_key(|&(_, &i)| i);
     w.seq(&specs, |w, &(spec, &i)| { w.str(spec); w.usz(i); });
+    put_foreign(&mut w, vm)?;
     w.seq(&vm.linked, |w, l| { w.val(l.dict); w.usz(l.scope); w.usz(l.fns.start); w.usz(l.fns.end); });
     for (slot, obj) in vm.heap.snapshot_objs().enumerate() {
         if let Some(HeapObj::List(rc)) = obj { w.lists.insert(Rc::as_ptr(rc) as usize, Val::heap(slot as u32)); }
@@ -652,7 +656,39 @@ pub fn save(vm: &VM, source: &str) -> Vec<u8> {
     w.seq(&vm.call_stack, put_call_frame);
     let seal = crate::util::sha256::sha256(&w.b);
     w.b.extend_from_slice(&seal);
-    w.b
+    Ok(w.b)
+}
+
+/* Each live FOREIGN entry by kind name, version, generation and index, its payload as the kind encodes it. */
+fn put_foreign(w: &mut W, vm: &VM) -> Result<(), SnapErr> {
+    w.usz(vm.heap.foreign.len());
+    let entries: Vec<_> = vm.heap.foreign.live_entries().collect();
+    w.usz(entries.len());
+    for (kind, generation, index, payload) in entries {
+        let crate::value::foreign::Snapshot::Serialize { save, .. } = kind.snapshot else { return Err(s_err("cannot save a value of the kind", kind.name)) };
+        let mut body = Vec::new();
+        save(payload, &mut body);
+        w.str(kind.name); w.u32(kind.version); w.u16(generation); w.u32(index); w.bytes(&body);
+    }
+    Ok(())
+}
+
+/* Puts back the FOREIGN entries, each under a kind this VM registered with the same version. */
+fn get_foreign(r: &mut R, vm: &mut VM) -> Result<(), SnapErr> {
+    let len = r.count()?;
+    vm.heap.foreign.clear();
+    for _ in 0..r.count()? {
+        let (name, version, generation, index, body) = (r.str()?, r.u32()?, r.u16()?, r.u32()?, r.bytes()?);
+        let kind = vm.heap.foreign.kind_named(&name).ok_or_else(|| s_err("unknown kind", &name))?;
+        let k = vm.heap.foreign.kind_at(kind);
+        let crate::value::foreign::Snapshot::Serialize { load, .. } = k.snapshot else { return Err(s_err("cannot restore a value of the kind", &name)) };
+        if k.version != version { return Err(s_err("saved by another version of the kind", &name)); }
+        let payload = load(&body).ok_or_else(|| s_err("malformed value of the kind", &name))?;
+        if index as usize >= len || vm.heap.foreign.restore(kind, generation, index, crate::value::foreign::Payload::decoded(payload)).is_none() { return Err("snapshot holds a malformed value".to_string()); }
+        r.foreign.insert(Val::foreign(generation, index).0);
+    }
+    vm.heap.foreign.settle(len);
+    Ok(())
 }
 
 struct Header<'a> {
@@ -733,6 +769,7 @@ pub fn restore(vm: &mut VM, blob: &[u8]) -> Result<(), SnapErr> {
 
     // A blob may spend what it saved but never past the boot limits, the memory cap included.
     vm.budget = r.u64()?.min(vm.budget);
+    vm.heap.set_budget(vm.budget);
     let _memory = r.usz()?;
     vm.strict_input = r.boolean()?;
     // Code compiled at run time parses again now, so the heap finds its natives, and joins the program once the bindings are back.
@@ -744,6 +781,7 @@ pub fn restore(vm: &mut VM, blob: &[u8]) -> Result<(), SnapErr> {
         Ok((source, form, (!spec.is_empty()).then_some(spec), chunk))
     })?;
     let specs = r.seq(|r| Ok((r.str()?, r.usz()?)))?;
+    get_foreign(&mut r, vm)?;
     let linked = r.seq(|r| Ok((r.val()?, r.usz()?, r.usz()?..r.usz()?)))?;
 
     let mut externs = ExternMap::default();
@@ -841,6 +879,8 @@ fn check_objs(vm: &VM, fills: &[(u32, SetFill)]) -> Result<(), SnapErr> {
             &HeapObj::Func(fi, ..) => fi < nfn,
             HeapObj::Coroutine(c) => !matches!(c.body, BodyRef::Fn(fi) if fi >= nfn),
             &HeapObj::Range(_, _, step) => step != 0,
+            // A wide range keeps ints, its step never zero.
+            &HeapObj::BigRange(s, e, st) => [s, e, st].iter().all(|&x| x.is_int() || crate::frontend::int::is_big(&vm.heap, x)) && st != Val::int(0),
             &HeapObj::DictView(d, _) => matches!(vm.heap.try_get(d), Some(HeapObj::Dict(_))),
             _ => true,
         };

@@ -262,7 +262,9 @@ impl<'a> VM<'a> {
         let scan = |items: &[Val], heap: &HeapPool| -> Result<bool, usize> {
             heap.spend(items.len());
             for (j, &x) in items.iter().enumerate() {
+                // Distinct bits of two inline ints are distinct values.
                 if x.0 == item.0 { return Ok(true); }
+                if x.is_int() && item.is_int() { continue; }
                 match eq_checked(x, item, heap, 0) { Some(true) => return Ok(true), Some(false) => {}, None => return Err(j) }
             }
             Ok(false)
@@ -327,7 +329,7 @@ impl<'a> VM<'a> {
         }
         // Containers render their elements with repr, dispatching user __repr__ on instances.
         if self.is_container_val(v) { return self.repr_op(v, chunk); }
-        let s = self.display(v);
+        let s = match self.heap.foreign_repr(v) { Some(r) => r?, None => self.display(v) };
         // Render is O(size). Charge it so reprinting growing data can't outrun the budget.
         self.charge_steps(s.len())?;
         Ok(s)
@@ -349,6 +351,7 @@ impl<'a> VM<'a> {
 
     /* Container-aware repr dispatches `__repr__` on nested instances. Elements always use repr, with `seen` tracking heap ids for cycle detection. */
     pub(crate) fn repr_deep(&mut self, v: Val, chunk: &SSAChunk, seen: &mut Vec<u32>) -> Result<String, VmErr> {
+        if let Some(r) = self.heap.foreign_repr(v) { return r; }
         if !v.is_heap() { return Ok(self.repr(v)); }
         if self.heap.classed(v).is_some() && let Some(r) = self.try_call_dunder(v, "__repr__", &[], chunk)? {
             return self.require_str(r, "__repr__");
@@ -466,7 +469,7 @@ impl<'a> VM<'a> {
         }
         if spec.is_empty() { return self.display_op(v, chunk); }
         // Only numbers and strings read a spec, `f"{x!s:>9}"` pads anything else.
-        let own = v.is_int() || v.is_float() || v.is_bool() || matches!(self.heap.try_get(v), Some(HeapObj::Str(_) | HeapObj::LongInt(_)));
+        let own = v.is_int() || v.is_float() || v.is_bool() || crate::frontend::int::is_big(&self.heap, v) || matches!(self.heap.try_get(v), Some(HeapObj::Str(_)));
         if !own { return Err(VmErr::TypeMsg(crate::s!("unsupported format string passed to ", str &self.type_repr_name(v), ".__format__"))); }
         crate::vm::format_spec::format_typed(v, spec, self.type_name(v), &self.heap)
     }

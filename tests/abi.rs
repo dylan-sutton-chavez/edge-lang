@@ -52,7 +52,7 @@ mod test {
             (EncodeRequest::Direct(b), e) if e.get("nan").is_some() => assert!(f64::from_bits(b).is_nan() && (b & 0x7FFC_0000_0000_0000) != 0x7FFC_0000_0000_0000, "nan mismatch on: {case}"),
             (EncodeRequest::AllocStr(s), e) if e.get("str").is_some() => assert_eq!(s, e["str"].as_str().unwrap(), "str mismatch on: {case}"),
             (EncodeRequest::AllocBytes(b), e) if e.get("bytes").is_some() => assert_eq!(b, unhex(e["bytes"].as_str().unwrap()), "bytes mismatch on: {case}"),
-            (EncodeRequest::AllocLongInt(i), e) if e.get("longint").is_some() => assert_eq!(i, e["longint"].as_str().unwrap().parse::<i128>().unwrap(), "longint mismatch on: {case}"),
+            (EncodeRequest::AllocInt(i), e) if e.get("boxed").is_some() => assert_eq!(i, e["boxed"].as_str().unwrap().parse::<i128>().unwrap(), "boxed int mismatch on: {case}"),
             (EncodeRequest::Composite(w), e) if e.get("composite").is_some() => assert_eq!(w, wire_value(&e["composite"]), "composite mismatch on: {case}"),
             _ => panic!("encode outcome kind mismatch on: {case}"),
         }

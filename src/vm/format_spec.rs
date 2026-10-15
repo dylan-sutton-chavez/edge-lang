@@ -3,9 +3,11 @@ use crate::vm::types::{Val, HeapObj, HeapPool, VmErr, cold_value, fabs, ftrunc, 
 
 // `%c`/`{:c}` out-of-range raises OverflowError, other format errors are ValueError.
 pub const C_RANGE_ERR: &str = "%c arg not in range(0x110000)";
+const C_LONG_ERR: &str = "Python int too large to convert to C long";
+const DIGITS_ERR: &str = "Exceeds the limit (4300 digits) for integer string conversion; use sys.set_int_max_str_digits() to increase the limit";
 
 pub fn fmt_err(m: &'static str) -> VmErr {
-    if m == C_RANGE_ERR { VmErr::Raised(crate::s!("OverflowError: ", str m)) } else { cold_value(m) }
+    if m == C_RANGE_ERR || m == C_LONG_ERR { VmErr::Raised(crate::s!("OverflowError: ", str m)) } else { cold_value(m) }
 }
 
 /* f-string format spec, PEP 3101 subset, `[[fill]align][sign][#][0][width][,][.precision][type]`. Types are d/b/o/x/X (ints), f/F/e/E/g/G (floats), % (percent), s (str), c (codepoint). Returns Err(msg), the caller raises ValueError. */
@@ -35,7 +37,7 @@ struct Spec {
 /* `format(v, spec)` for `format`, f-strings and `str.format`, a code `v` has no meaning for named like Python. */
 pub fn format_typed(v: Val, spec: &str, type_name: &str, heap: &HeapPool) -> Result<String, VmErr> {
     let ty = parse_spec(spec).map_err(fmt_err)?.ty;
-    let int_like = v.is_int() || v.is_bool() || matches!(heap.try_get(v), Some(HeapObj::LongInt(_)));
+    let int_like = v.is_int() || v.is_bool() || crate::frontend::int::is_big(heap, v);
     let fits = match ty {
         0 => true,
         b's' => matches!(heap.try_get(v), Some(HeapObj::Str(_))),
@@ -111,8 +113,7 @@ fn parse_spec(spec: &str) -> Result<Spec, &'static str> {
 }
 
 fn apply(v: Val, s: &Spec, heap: &HeapPool) -> Result<String, &'static str> {
-    let is_long = v.is_heap() && matches!(heap.get(v), HeapObj::LongInt(_));
-    let is_int_like = v.is_int() || v.is_bool() || is_long;
+    let is_int_like = v.is_int() || v.is_bool() || crate::frontend::int::is_big(heap, v);
     // Dispatch by type char, int types -> int formatter, float types coerce ints up, `s` only strings.
     match s.ty {
         0 | b's' => {
@@ -145,7 +146,7 @@ fn apply(v: Val, s: &Spec, heap: &HeapPool) -> Result<String, &'static str> {
         b'f' | b'F' => format_float(v, s, s.ty, heap),
         b'e' | b'E' | b'g' | b'G' => format_float(v, s, s.ty, heap),
         b'%' => format_percent(v, s, heap),
-        b'c' => format_char(v, s),
+        b'c' => format_char(v, s, heap),
         _ => Err("unknown format type"),
     }
 }
@@ -159,7 +160,8 @@ fn format_percent(v: Val, s: &Spec, heap: &HeapPool) -> Result<String, &'static 
     Ok(signed_pad(s, f.is_sign_negative() && !f.is_nan(), "", &alloc::format!("{body}%")))
 }
 
-fn format_char(v: Val, s: &Spec) -> Result<String, &'static str> {
+fn format_char(v: Val, s: &Spec, heap: &HeapPool) -> Result<String, &'static str> {
+    if crate::frontend::int::is_big(heap, v) { return Err(C_LONG_ERR); }
     if !v.is_int() { return Err("'c' format spec requires an integer"); }
     let i = v.as_int();
     if !(0..=0x10FFFF).contains(&i) { return Err(C_RANGE_ERR); }
@@ -169,15 +171,10 @@ fn format_char(v: Val, s: &Spec) -> Result<String, &'static str> {
 }
 
 fn format_int(v: Val, s: &Spec, heap: &HeapPool) -> Result<String, &'static str> {
-    let (neg, mag) = int_to_decimal_parts(v, heap)?;
-    let (digits, prefix): (String, &'static str) = match s.ty {
-        b'd' => (mag, ""),
-        b'b' => (decimal_to_radix(&mag, 2), if s.alt { "0b" } else { "" }),
-        b'o' => (decimal_to_radix(&mag, 8), if s.alt { "0o" } else { "" }),
-        b'x' => (decimal_to_radix(&mag, 16), if s.alt { "0x" } else { "" }),
-        b'X' => (decimal_to_radix(&mag, 16).to_uppercase(), if s.alt { "0X" } else { "" }),
-        _ => unreachable!(),
-    };
+    let radix = match s.ty { b'b' => 2, b'o' => 8, b'x' | b'X' => 16, _ => 10 };
+    let (neg, digits) = int_digits(v, radix, heap)?;
+    let prefix = if !s.alt { "" } else { match s.ty { b'b' => "0b", b'o' => "0o", b'x' => "0x", b'X' => "0X", _ => "" } };
+    let digits = if s.ty == b'X' { digits.to_uppercase() } else { digits };
     let body = if s.sep != 0 { add_grouped(&digits, group_size(s.ty, s.sep), s.sep) } else { digits };
     Ok(signed_pad(s, neg, prefix, &body))
 }
@@ -255,37 +252,20 @@ fn require_float(v: Val, heap: &HeapPool) -> Result<f64, &'static str> {
     num_as_f64(v, heap).ok_or("format spec requires a number")
 }
 
-fn int_to_decimal_parts(v: Val, heap: &HeapPool) -> Result<(bool, String), &'static str> {
-    if v.is_int() {
-        let i = v.as_int();
-        let neg = i < 0;
-        let mut b = itoa::Buffer::new();
-        let mag = b.format(i.unsigned_abs()).to_string();
-        return Ok((neg, mag));
+/* The sign and magnitude digits of an int in `radix`. */
+fn int_digits(v: Val, radix: u32, heap: &HeapPool) -> Result<(bool, String), &'static str> {
+    if v.is_int() || v.is_bool() {
+        let i = if v.is_int() { v.as_int() } else { v.as_bool() as i64 };
+        let (mut n, mut out) = (i.unsigned_abs(), alloc::vec::Vec::new());
+        loop { out.push(core::char::from_digit((n % radix as u64) as u32, radix).unwrap_or('0') as u8); n /= radix as u64; if n == 0 { break; } }
+        out.reverse();
+        return Ok((i < 0, String::from_utf8(out).unwrap_or_default()));
     }
-    if v.is_bool() { return Ok((false, itoa_str(v.as_bool() as i64))); }
-    if v.is_heap() && let HeapObj::LongInt(i) = heap.get(v) {
-        let i = i.get();
-        let neg = i < 0;
-        let mut b = itoa::Buffer::new();
-        // unsigned_abs handles i128::MIN by returning 2^127 in u128.
-        let mag = b.format(i.unsigned_abs()).to_string();
-        return Ok((neg, mag));
+    match crate::frontend::int::radix_digits(heap, v, radix) {
+        Some(Ok(d)) => Ok(d),
+        Some(Err(_)) => Err(DIGITS_ERR),
+        None => Err("format spec requires an integer"),
     }
-    Err("format spec requires an integer")
-}
-
-fn decimal_to_radix(mag: &str, radix: u32) -> String {
-    // Non-neg decimal string -> `radix`. Parses into u128 to cover LongInt magnitudes (up to 2^127). Bool/inline-int values still fit trivially.
-    if mag == "0" { return String::from("0"); }
-    let mut n: u128 = mag.parse().unwrap_or(0);
-    let mut out = String::new();
-    while n > 0 {
-        let d = (n % radix as u128) as u32;
-        out.push(core::char::from_digit(d, radix).unwrap());
-        n /= radix as u128;
-    }
-    out.chars().rev().collect()
 }
 
 // '_' groups binary/octal/hex every four digits, decimal and ',' every three.

@@ -12,7 +12,7 @@ Run them from the repo root. They need Linux or macOS and `cargo install cargo-a
 | `make fuzz` | Builds the target and runs one instance per core |
 | `make fuzz-carry` | Minimizes the queues into `corpus/` for the next campaign, carrying the new coverage unminimized if afl-cmin takes over `CMIN_SECS` (600) |
 | `make fuzz-status` | Shows a running campaign |
-| `make fuzz-triage` | Counts the saved crashes by panic site |
+| `make fuzz-triage` | Counts the saved crashes by panic site and replays the saved hangs |
 | `make fuzz-replay CASE=out/m0/crashes/<id>` | Replays one input with a backtrace |
 | `make fuzz-container` | Runs the campaign detached in Docker |
 | `make fuzz-stop` | Stops the Docker campaign |
@@ -37,7 +37,7 @@ Run them from the repo root. They need Linux or macOS and `cargo install cargo-a
 - One bug saves many inputs. `make fuzz-triage` groups them by the `file:line` they panic at.
 - A resumed campaign archives older findings as `crashes.<date>/`, and triage reads those too.
 - An arithmetic overflow panic comes from the overflow checks cargo-afl forces. The release VM runs without them.
-- A hang is usually an input that ends but runs past `TIMEOUT_MS`.
+- A hang is usually an input that ends but runs past `TIMEOUT_MS`. On macOS persistent mode also saves a few stalls of AFL itself, which a target that does nothing shows too, so `make fuzz-triage` replays each hang alone and lists only those still slow.
 
 ## Resuming
 

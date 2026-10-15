@@ -160,17 +160,17 @@ impl ErrorStash {
 
 /* Primitive codec helpers */
 
-// edge_encode outcome, Direct (Val bits), AllocStr / AllocBytes / AllocLongInt (host alloc), Composite (host builds recursively), or Invalid.
+// edge_encode outcome, Direct (Val bits), AllocStr / AllocBytes / AllocInt (host alloc), Composite (host builds recursively), or Invalid.
 pub enum EncodeRequest<'a> {
     Direct(u64),
     AllocStr(&'a str),
     AllocBytes(&'a [u8]),
-    AllocLongInt(i128),
+    AllocInt(i128),
     Composite(WireValue),
     Invalid,
 }
 
-// Val bits for an inline int, `None` when the value needs a LongInt.
+// Val bits for an inline int, `None` when the value needs a box.
 pub fn inline_int_bits(i: i128) -> Option<u64> {
     i64::try_from(i).ok().and_then(crate::value::Val::int_checked).map(|v| v.0)
 }
@@ -191,10 +191,10 @@ pub fn classify_encode(tag: u32, bytes: &[u8]) -> EncodeRequest<'_> {
             let mut buf = [0u8; 16];
             buf.copy_from_slice(bytes);
             let i = i128::from_le_bytes(buf);
-            // Fits in 48-bit inline range -> emit as Val::int directly, else heap-alloc LongInt.
+            // Fits in 48-bit inline range -> emit as Val::int directly, else box it.
             match inline_int_bits(i) {
                 Some(bits) => EncodeRequest::Direct(bits),
-                None => EncodeRequest::AllocLongInt(i),
+                None => EncodeRequest::AllocInt(i),
             }
         }
         Some(Tag::Float) => {
@@ -240,7 +240,7 @@ pub fn classify_decode(val_bits: u64) -> DecodeBits {
         else if v.is_int() { (Tag::Int, PrimitiveBytes::Sixteen((v.as_int() as i128).to_le_bytes())) }
         else if v.is_none() { (Tag::None, PrimitiveBytes::None) }
         else if v.is_bool() { (Tag::Bool, PrimitiveBytes::Bool(v.as_bool() as u8)) }
-        else if v.is_heap() { return DecodeBits::Heap; }
+        else if v.is_heap() || v.is_foreign() { return DecodeBits::Heap; }
         else { return DecodeBits::Invalid; };
     DecodeBits::Primitive { tag: tag as u32, bytes }
 }

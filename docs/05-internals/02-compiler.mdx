@@ -201,7 +201,7 @@ Operands, the constant pool, the name table and the instruction stream of each c
 ```text
 Name                     -> name() (handles walrus, calls)
 String / FstringStart    -> string_group() (adjacent str and f-string literals concatenate)
-Int / Float              -> emit numeric constant (ints widen i64 -> i128, beyond ±2^127 is a parse error)
+Int / Float              -> emit numeric constant (ints past i64 become wide constants, past 4,300 decimal digits a parse error)
 True/False/None/Ellipsis -> emit dedicated load opcode
 Lbrace                   -> brace_literal() (dict, set, comprehension)
 Lsqb                     -> list_literal() (list, comprehension)

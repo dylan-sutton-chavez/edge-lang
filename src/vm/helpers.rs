@@ -228,6 +228,7 @@ impl<'a> VM<'a> {
         }
         Ok(match self.heap.get(obj) {
             HeapObj::Range(s, e, st) => IterFrame::Range { cur: *s, end: *e, step: *st },
+            &HeapObj::BigRange(cur, end, step) => IterFrame::BigRange { cur, end, step },
             HeapObj::List(v) => IterFrame::List { rc: v.clone(), idx: 0 },
             HeapObj::Tuple(v) => IterFrame::Seq { items: v.as_slice().into(), idx: 0 },
             HeapObj::Dict(_) => self.dict_walk(obj, View::Keys),

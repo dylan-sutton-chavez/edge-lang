@@ -480,7 +480,7 @@ pub unsafe extern "C" fn set_wall_clock(on: u32) {
     with_slot(|s| s.wall_clock = on != 0);
 }
 
-/* Serialize the parked run into the out buffer, its length, -1 when none. */
+/* Serialize the parked run into the out buffer, its length, -1 when none, -2 with the reason when it cannot be saved. */
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn save_state() -> i64 {
     let blob = with_slot(|s| {
@@ -489,7 +489,8 @@ pub unsafe extern "C" fn save_state() -> i64 {
         Some(snapshot::save(vm, &source))
     });
     match blob {
-        Some(b) => write_out_bytes(b) as i64,
+        Some(Ok(b)) => write_out_bytes(b) as i64,
+        Some(Err(e)) => { write_out(&e); -2 }
         None => -1,
     }
 }

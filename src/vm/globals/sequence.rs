@@ -40,6 +40,7 @@ impl<'a> VM<'a> {
             Some(HeapObj::Instance(..)) => return self.try_call_dunder(o, "__iter__", &[], chunk)?.ok_or_else(|| self.not_iterable(o)),
             Some(HeapObj::List(rc)) => { let rc = rc.clone(); return self.alloc_iterator(IterFrame::List { rc, idx: 0 }, "list_iterator"); }
             Some(&HeapObj::Range(cur, end, step)) => return self.alloc_iterator(IterFrame::Range { cur, end, step }, "range_iterator"),
+            Some(&HeapObj::BigRange(cur, end, step)) => return self.alloc_iterator(IterFrame::BigRange { cur, end, step }, "range_iterator"),
             Some(HeapObj::Dict(_)) => return self.alloc_iterator(self.dict_walk(o, View::Keys), "dict_keyiterator"),
             Some(&HeapObj::DictView(d, kind)) => {
                 let name = match kind { View::Keys => "dict_keyiterator", View::Values => "dict_valueiterator", View::Items => "dict_itemiterator" };
@@ -194,8 +195,9 @@ impl<'a> VM<'a> {
             Some(&HeapObj::DictView(d, _)) => return self.builtin_len(d),
             Some(HeapObj::Set(v)) => v.borrow().len() as i128,
             Some(HeapObj::FrozenSet(v)) => v.len() as i128,
-            Some(&HeapObj::Range(_, _, 0)) => return Err(cold_value("range() step cannot be zero")),
+            Some(&HeapObj::Range(_, _, 0)) => return Err(cold_value("range() arg 3 must not be zero")),
             Some(&HeapObj::Range(s, e, st)) => crate::vm::eq::range_len(s, e, st),
+            Some(HeapObj::BigRange(..)) => crate::frontend::int::range_len(&self.heap, o).unwrap_or(Ok(0))?,
             _ => return Err(cold_type("object has no len()")),
         })
     }
@@ -347,6 +349,10 @@ impl<'a> VM<'a> {
                 }
                 "range_iterator"
             }
+            Some(HeapObj::BigRange(..)) => {
+                let (cur, end, step) = crate::frontend::int::range_reversed(&mut self.heap, o).unwrap_or(Err(VmErr::Overflow))?;
+                return self.push_iterator(IterFrame::BigRange { cur, end, step }, "range_iterator");
+            }
             Some(HeapObj::Str(_) | HeapObj::Tuple(_) | HeapObj::Bytes(_)) => "reversed",
             Some(HeapObj::Dict(_) | HeapObj::DictView(_, View::Keys)) => "dict_reversekeyiterator",
             Some(HeapObj::DictView(_, View::Values)) => "dict_reversevalueiterator",
@@ -394,6 +400,7 @@ impl<'a> VM<'a> {
     pub(in crate::vm) fn iter_cursor(&mut self, o: Val) -> Result<IterFrame, VmErr> {
         Ok(match self.heap.try_get(o) {
             Some(&HeapObj::Range(cur, end, step)) => IterFrame::Range { cur, end, step },
+            Some(&HeapObj::BigRange(cur, end, step)) => IterFrame::BigRange { cur, end, step },
             Some(HeapObj::List(rc)) => IterFrame::List { rc: rc.clone(), idx: 0 },
             _ => IterFrame::Seq { items: self.extract_iter(o)?.into(), idx: 0 },
         })
@@ -436,6 +443,15 @@ impl<'a> VM<'a> {
             let items = self.view_items(d, kind)?;
             self.charge_steps(items.len())?;
             return Ok(items);
+        }
+        // A wide range steps its cursor, the count it would hold checked against the memory left.
+        if let Some(&HeapObj::BigRange(cur, end, step)) = self.heap.try_get(o) {
+            let n = crate::frontend::int::range_len(&self.heap, o).unwrap_or(Ok(0))?;
+            if (n as u128).saturating_mul(VAL_BYTES as u128) > self.heap.room() as u128 { return Err(cold_heap()); }
+            let (mut walk, mut out) = (IterFrame::BigRange { cur, end, step }, Vec::new());
+            while let Some(x) = walk.next_item(&mut self.heap)? { out.push(x); }
+            self.charge_steps(out.len())?;
+            return Ok(out);
         }
         // Snapshot the variant out so the &self borrow ends before any allocation.
         let snapshot = match self.heap.get(o) {

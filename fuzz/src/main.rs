@@ -36,21 +36,19 @@ fn main() {
         // Drive every park kind, snapshot the first.
         let mut hopped = false;
         let mut wakeups = 0;
-        loop {
-            let park = match vm.run() {
-                Err(VmErr::HostYield(s)) => s,
-                _ => break,
-            };
+        while let Err(VmErr::HostYield(park)) = vm.run() {
             let drivable = matches!(park, SchedulerStatus::Preempted | SchedulerStatus::PendingEvent);
             if !drivable { break; }
 
             if !hopped {
                 hopped = true;
-                let blob = snapshot::save(&vm, src);
-                let mut fresh = VM::with_limits(&chunk, Limits { ops: 100_000, ..Limits::sandbox() });
-                fresh.set_preempt_interval(PREEMPT_EVERY);
-                if snapshot::restore(&mut fresh, &blob).is_ok() {
-                    vm = fresh;
+                // Every kind Python registers saves, a kind that refuses leaves the run where it is.
+                if let Ok(blob) = snapshot::save(&vm, src) {
+                    let mut fresh = VM::with_limits(&chunk, Limits { ops: 100_000, ..Limits::sandbox() });
+                    fresh.set_preempt_interval(PREEMPT_EVERY);
+                    if snapshot::restore(&mut fresh, &blob).is_ok() {
+                        vm = fresh;
+                    }
                 }
             }
 

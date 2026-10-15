@@ -42,4 +42,6 @@ pub mod parser;
 /* Post-SSA passes, run between parse and boot, touches no VM state. */
 pub mod optimizer;
 pub mod vm;
+/* The kinds Edge Python registers on the engine, the wide ints first. */
+pub mod frontend;
 pub mod modules;

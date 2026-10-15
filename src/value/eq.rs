@@ -1,9 +1,5 @@
-use core::cmp::Ordering;
 
-use super::{HeapObj, HeapPool, Val, ValSet, View, as_i128, as_long_int};
-
-/* 2^127 exactly, the saturation guard for f64-to-i128 casts. */
-const TWO_POW_127: f64 = 170141183460469231731687303715884105728.0;
+use super::{HeapObj, HeapPool, Val, ValSet, View, VmErr, as_i128};
 
 pub(crate) fn eq_seq(a: &[Val], b: &[Val], mut eq: impl FnMut(Val,Val)->bool) -> bool {
     a.len() == b.len() && a.iter().zip(b).all(|(x,y)| eq(*x,*y))
@@ -93,21 +89,17 @@ pub fn hash_key(s: &str) -> u64 {
 fn hash_depth(v: Val, heap: &HeapPool, depth: usize) -> u64 {
     use core::hash::Hasher;
     let mut h = crate::util::hash::FxHasher::default();
-    // Numeric unification, int / bool / integral-float / in-range LongInt all hash as the same i64.
-    if v.is_int() { h.write_i64(v.as_int()); return h.finish(); }
+    // Every number hashes by its value modulo the prime, so equal ints, bools, floats and wide ints probe alike.
+    if v.is_int() { h.write_i64(hash_small(v.as_int())); return h.finish(); }
     if v.is_bool() { h.write_i64(v.as_bool() as i64); return h.finish(); }
     if v.is_float() {
         let f = v.as_float();
-        // Integral floats hash exactly as the equal int or LongInt, so equal keys probe identically.
-        match float_exact_i128(f) {
-            Some(i) => write_i128(&mut h, i),
-            None => h.write_u64(f.to_bits()),
-        }
+        if f.is_nan() { h.write_u64(f.to_bits()); } else { h.write_i64(hash_float(f)); }
         return h.finish();
     }
+    if let Some(k) = heap.foreign_hash(v) { h.write_u64(k); return h.finish(); }
     if !v.is_heap() || depth > EQ_DEPTH_MAX { h.write_u64(v.0); return h.finish(); }
     match heap.get(v) {
-        HeapObj::LongInt(i) => write_i128(&mut h, i.get()),
         // A long text and every tuple count what they hash as native work.
         HeapObj::Str(s) => { if s.len() > 64 { heap.spend(s.len()); } h.write_u8(1); h.write(s.as_bytes()); }
         HeapObj::Bytes(b) => { if b.len() > 64 { heap.spend(b.len()); } h.write_u8(2); h.write(b); }
@@ -118,46 +110,70 @@ fn hash_depth(v: Val, heap: &HeapPool, depth: usize) -> u64 {
         HeapObj::GenericAlias(o, a) => { h.write_u8(5); h.write_u64(hash_depth(*o, heap, depth + 1)); h.write_u64(hash_depth(*a, heap, depth + 1)); }
         // Order-independent, `int | str` and `str | int` are one union.
         HeapObj::Union(a) => if let HeapObj::Tuple(t) = heap.get(*a) { h.write_u8(6); h.write_u64(t.iter().fold(0u64, |acc, &e| acc.wrapping_add(hash_depth(e, heap, depth + 1)))); },
+        // A range hashes its length, then the start and step its length shows, so equal ranges probe alike.
+        &HeapObj::Range(s, e, st) => {
+            let n = range_len(s, e, st);
+            h.write_u8(7);
+            for x in [hash_int(n), if n == 0 { 0 } else { hash_int(s as i128) }, if n <= 1 { 0 } else { hash_int(st as i128) }] { h.write_i64(x); }
+        }
+        HeapObj::BigRange(..) => { h.write_u8(7); for x in crate::frontend::int::range_hashes(heap, v, 0).unwrap_or_default() { h.write_i64(x); } }
         _ => h.write_u64(v.0),
     }
     h.finish()
 }
 
-/* i64-range values hash like the equal inline int, wider values hash their two halves. */
-fn write_i128(h: &mut crate::util::hash::FxHasher, i: i128) {
-    use core::hash::Hasher;
-    match i64::try_from(i) {
-        Ok(n) => h.write_i64(n),
-        Err(_) => { h.write_u64(i as u64); h.write_u64((i >> 64) as u64); }
+// Numbers hash by their value modulo this prime, so equal ints, floats and bools hash alike.
+const MODULUS: u64 = (1 << 61) - 1;
+
+/* The hash of `n`, its value modulo the prime with its sign, -1 kept for errors. */
+pub(crate) fn hash_int(n: i128) -> i64 {
+    if n.unsigned_abs() < MODULUS as u128 { return hash_small(n as i64); }
+    let h = (n.unsigned_abs() % MODULUS as u128) as i64;
+    hash_small(if n < 0 { -h } else { h })
+}
+
+/* The hash of an int below the prime, itself unless it is the -1 kept for errors. */
+#[inline(always)]
+pub(crate) fn hash_small(n: i64) -> i64 { if n == -1 { -2 } else { n } }
+
+/* The hash of a finite float, equal to the hash of an int of the same value. */
+pub(crate) fn hash_float(v: f64) -> i64 {
+    if v.is_infinite() { return if v > 0.0 { 314_159 } else { -314_159 }; }
+    let (mut m, mut e) = frexp(v.abs());
+    let mut x: u64 = 0;
+    while m != 0.0 {
+        x = ((x << 28) & MODULUS) | x >> (61 - 28);
+        m *= 268_435_456.0;
+        e -= 28;
+        let y = m as u64;
+        m -= y as f64;
+        x += y;
+        if x >= MODULUS { x -= MODULUS; }
     }
+    let e = if e >= 0 { e % 61 } else { 61 - 1 - ((-1 - e) % 61) } as u32;
+    x = ((x << e) & MODULUS) | x >> (61 - e);
+    let h = if v < 0.0 { x.wrapping_neg() } else { x } as i64;
+    if h == -1 { -2 } else { h }
 }
 
-/* Exact i128 view of an integral in-range f64, `as` saturates so the 2^127 bound is mandatory. */
-pub(crate) fn float_exact_i128(f: f64) -> Option<i128> {
-    if f.abs() < TWO_POW_127 && libm::trunc(f) == f { Some(f as i128) } else { None }
+/* The mantissa in [0.5, 1) and the exponent of a positive float. */
+fn frexp(x: f64) -> (f64, i32) {
+    if x == 0.0 { return (0.0, 0); }
+    let exp = ((x.to_bits() >> 52) & 0x7ff) as i32;
+    if exp == 0 { let (m, e) = frexp(x * 18_014_398_509_481_984.0); return (m, e - 54); }
+    (f64::from_bits((x.to_bits() & !(0x7ff << 52)) | (1022 << 52)), exp - 1022)
 }
 
-/* Exact float vs wide-int ordering, None on NaN. The float converts to i128 since the wide int would round in f64. */
-pub(crate) fn float_cmp_int(f: f64, i: i128) -> Option<Ordering> {
-    if f.is_nan() { return None; }
-    if let Some(fi) = float_exact_i128(f) { return Some(fi.cmp(&i)); }
-    // Out-of-range floats exceed any i128, fractional in-range floats break a truncation tie by sign.
-    if f.abs() >= TWO_POW_127 { return Some(if f > 0.0 { Ordering::Greater } else { Ordering::Less }); }
-    let t = libm::trunc(f) as i128;
-    Some(match t.cmp(&i) {
-        Ordering::Equal => if f > 0.0 { Ordering::Greater } else { Ordering::Less },
-        o => o,
-    })
+/* f64 view of any number, None for anything else and an error for an int too large for a float. */
+pub(crate) fn num_f64(v: Val, heap: &HeapPool) -> Option<Result<f64, VmErr>> {
+    if v.is_float() { Some(Ok(v.as_float())) }
+    else if v.is_int() { Some(Ok(v.as_int() as f64)) }
+    else if v.is_bool() { Some(Ok(v.as_bool() as i64 as f64)) }
+    else { heap.foreign_f64(v) }
 }
 
-/* f64 view of any numeric Val (int/bool/float/LongInt), None for non-numerics. */
-pub(crate) fn num_as_f64(v: Val, heap: &HeapPool) -> Option<f64> {
-    if v.is_float() { Some(v.as_float()) }
-    else if v.is_int() { Some(v.as_int() as f64) }
-    else if v.is_bool() { Some(v.as_bool() as i64 as f64) }
-    else if v.is_heap() { if let HeapObj::LongInt(i) = heap.get(v) { Some(i.get() as f64) } else { None } }
-    else { None }
-}
+/* f64 view of any number, None for anything else and for an int too large for a float. */
+pub(crate) fn num_as_f64(v: Val, heap: &HeapPool) -> Option<f64> { num_f64(v, heap)?.ok() }
 
 fn eq_vals_depth(a: Val, b: Val, heap: &HeapPool, depth: usize, rich: &mut bool) -> bool {
     // Past the cap only identity answers, and a distinct pair goes to a caller that can raise.
@@ -165,16 +181,14 @@ fn eq_vals_depth(a: Val, b: Val, heap: &HeapPool, depth: usize, rich: &mut bool)
     // An element equals itself, so a NaN inside `[n] == [n]` matches.
     if depth > 0 && a.0 == b.0 { return true; }
 
-    // Unify all int-flavoured pairs through i128 (LongInt, inline int, bool).
+    // Two inline ints, the common scan, compare their bits since each value has one encoding.
+    if a.is_int() && b.is_int() { return a.0 == b.0; }
+    // A FOREIGN value answers through its kind, false across families.
+    if (a.is_foreign() || b.is_foreign()) && !a.is_heap() && !b.is_heap() && let Some(e) = heap.foreign_eq(a, b) { return e; }
+
+    // Inline ints and bools compare by value.
     if let (Some(ai), Some(bi)) = (as_i128(a, heap), as_i128(b, heap)) {
         return ai == bi;
-    }
-
-    if a.is_float() && let Some(bi) = as_long_int(b, heap) {
-        return float_cmp_int(a.as_float(), bi) == Some(Ordering::Equal);
-    }
-    if b.is_float() && let Some(ai) = as_long_int(a, heap) {
-        return float_cmp_int(b.as_float(), ai) == Some(Ordering::Equal);
     }
 
     // One side is a float here (all-integer handled above), compare numerically so float unifies with int/bool, e.g. `1.0 == True`.
@@ -219,6 +233,7 @@ fn eq_vals_depth(a: Val, b: Val, heap: &HeapPool, depth: usize, rich: &mut bool)
             (HeapObj::Tuple(x), HeapObj::Tuple(y)) => x.len() == y.len() && x.iter().all(|&m| y.iter().any(|&n| eq_vals_depth(m, n, heap, d, rich))),
             _ => false,
         },
+        (HeapObj::BigRange(..), HeapObj::Range(..) | HeapObj::BigRange(..)) | (HeapObj::Range(..), HeapObj::BigRange(..)) => crate::frontend::int::range_eq(heap, a, b).unwrap_or(false),
         (HeapObj::Range(s1,e1,t1), HeapObj::Range(s2,e2,t2)) => {
             // Python semantics, equal length, then matching start/step only when non-empty.
             let (l1, l2) = (range_len(*s1,*e1,*t1), range_len(*s2,*e2,*t2));

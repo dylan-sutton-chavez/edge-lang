@@ -147,7 +147,10 @@ impl<'a> VM<'a> {
     pub(crate) fn reg_binop(&mut self, ins: Ins, rip: usize, cache: &OpcodeCache, chunk: &SSAChunk) -> Result<(), VmErr> {
         self.regs[self.base + ins.a as usize] = match numeric_binop(lower::stack_form(ins.op), self.regs[self.base + ins.b as usize], self.regs[self.base + ins.c as usize]) {
             Some(v) => v,
-            None => self.reg_stack(ins, rip, cache, chunk)?,
+            None => {
+                let (b, c) = (self.regs[self.base + ins.b as usize], self.regs[self.base + ins.c as usize]);
+                match self.wide_fast(lower::stack_form(ins.op), b, c)? { Some(v) => v, None => self.reg_stack(ins, rip, cache, chunk)? }
+            }
         };
         Ok(())
     }
@@ -156,6 +159,14 @@ impl<'a> VM<'a> {
     #[inline(always)]
     pub(crate) fn reg_test(&mut self, ins: Ins, rip: usize, cache: &OpcodeCache, chunk: &SSAChunk) -> Result<bool, VmErr> {
         if let Some(v) = numeric_binop(lower::stack_form(ins.op), self.regs[self.base + ins.b as usize], self.regs[self.base + ins.c as usize]) { return Ok(v.as_bool()); }
+        self.reg_test_slow(ins, rip, cache, chunk)
+    }
+
+    /* The comparison the inline numbers did not settle, wide ints first and then the stack opcode, kept out of the loop. */
+    #[inline(never)]
+    fn reg_test_slow(&mut self, ins: Ins, rip: usize, cache: &OpcodeCache, chunk: &SSAChunk) -> Result<bool, VmErr> {
+        let (b, c) = (self.regs[self.base + ins.b as usize], self.regs[self.base + ins.c as usize]);
+        if let Some(v) = self.wide_fast(lower::stack_form(ins.op), b, c)? && v.is_bool() { return Ok(v.as_bool()); }
         let r = self.reg_stack(ins, rip, cache, chunk)?;
         self.truthy_op(r, chunk)
     }

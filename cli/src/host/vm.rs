@@ -427,10 +427,11 @@ impl Vm {
             let Instance { store, ex, .. } = &mut *inst;
             ex.save_state.call(&mut *store, ())
         };
-        if inst.checked(raw)? < 0 {
-            return Ok(None);
+        match inst.checked(raw)? {
+            -2 => bail!("{}", String::from_utf8_lossy(&inst.read_out())),
+            n if n < 0 => Ok(None),
+            _ => Ok(Some(inst.read_out())),
         }
-        Ok(Some(inst.read_out()))
     }
 
     /* Boots from the blob's embedded source, its imports must resolve again. */

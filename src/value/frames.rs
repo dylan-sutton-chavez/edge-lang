@@ -120,6 +120,8 @@ pub enum IterFrame {
     // Live list view, items appended during the loop are visited.
     List { rc: alloc::rc::Rc<core::cell::RefCell<Vec<Val>>>, idx: usize },
     Range { cur: i64, end: i64, step: i64 },
+    // A range with a bound past i64, stepped through the wide int kind.
+    BigRange { cur: Val, end: Val, step: Val },
     Coroutine(Val),
     // User-defined iterator, holds the value returned by `__iter__`, each step calls its `__next__`.
     UserDefined(Val),
@@ -148,6 +150,17 @@ pub(crate) fn watched_len(heap: &HeapPool, of: Val) -> usize {
         Some(HeapObj::Set(s)) => s.borrow().len(),
         _ => 0,
     }
+}
+
+/* One step of a range with a bound past i64, kept apart so the plain range step stays small enough to inline. */
+#[inline(never)]
+fn big_range_step(heap: &mut HeapPool, cur: &mut Val, end: Val, step: Val) -> Result<Option<Val>, VmErr> {
+    let order = |a: Val, b: Val| if a.is_int() && b.is_int() { a.as_int().cmp(&b.as_int()) } else { heap.foreign_cmp(a, b).unwrap_or(core::cmp::Ordering::Equal) };
+    let ahead = if order(step, Val::int(0)).is_gt() { core::cmp::Ordering::Less } else { core::cmp::Ordering::Greater };
+    if order(*cur, end) != ahead { return Ok(None); }
+    let v = *cur;
+    *cur = heap.foreign_binop(super::BinOp::Add, v, step)?.unwrap_or(end);
+    Ok(Some(v))
 }
 
 impl IterFrame {
@@ -207,14 +220,15 @@ impl IterFrame {
                     let v = *cur;
                     // Clamp past the i64 edge so the next `done` check ends the range, never overflows.
                     *cur = cur.checked_add(*step).unwrap_or(if *step > 0 { i64::MAX } else { i64::MIN });
-                    // Promote magnitudes beyond the 48-bit inline range to LongInt.
+                    // Box magnitudes beyond the 48-bit inline range.
                     Ok(Some(heap.int(v as i128)?))
                 }
             }
+            Self::BigRange { cur, end, step } => big_range_step(heap, cur, *end, *step),
         }
     }
 
-    /* Visit each Val in this frame, Range holds none. */
+    /* Visit each Val in this frame, an i64 Range holds none. */
     pub(crate) fn for_each_val(&self, f: &mut impl FnMut(Val)) {
         match self {
             IterFrame::Seq { items, .. } => for &v in items.iter() { f(v); },
@@ -228,6 +242,7 @@ impl IterFrame {
             IterFrame::Enumerate { it, n } => { f(*it); f(*n); }
             IterFrame::Call { f: g, sentinel } => { f(*g); f(*sentinel); }
             IterFrame::Range { .. } => {}
+            IterFrame::BigRange { cur, end, step } => { f(*cur); f(*end); f(*step); }
         }
     }
 }

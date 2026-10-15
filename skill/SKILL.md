@@ -169,29 +169,7 @@ print(a is b)
 
 `id(x)` is unique while `x` lives and survives a snapshot, and two equal numbers share one. An instance hashes by identity, and a class that defines `__eq__` is unhashable. `bytearray` and `memoryview` do not exist either, and using one fails at run time.
 
-The three behaviors that differ by design follow.
-
-### Numbers are bounded
-
-Integers are 48-bit inline with automatic promotion to 128-bit. Past ±2^127 the run raises `OverflowError`.
-
-```python
-print(2**126)
-```
-
-```text Output
-85070591730234615865843651857942052864
-```
-
-```python
-print(2**127)
-```
-
-```text Error
-OverflowError
-```
-
-`pow(a, b, m)` requires a modulus below 2^63, and the `int_to_bytes` and `int_from_bytes` builtins cap at 8 bytes while the `int.to_bytes` and `int.from_bytes` methods do not.
+The two behaviors that differ by design follow.
 
 ### Order and NaN
 
@@ -229,6 +207,7 @@ list of 3
 - `str` lacks `translate`, `maketrans`, `isascii`, `isidentifier`, `isnumeric`, `isdecimal` and `isprintable`.
 - `bytes.split` requires an explicit separator, `bytes.replace` has no count, and codecs are limited to `utf-8` and `ascii` with `strict`, `ignore` and `replace` error handling.
 - `zip` has no `strict` flag. `round` uses ties-to-even and always returns int for one argument, float for two.
+- The `int_to_bytes` and `int_from_bytes` builtins cap at 8 bytes, while the `int.to_bytes` and `int.from_bytes` methods take ints of any size.
 
 ### Async without asyncio
 
@@ -471,7 +450,7 @@ True True
 
 ### int and float
 
-`int` has `bit_length`, `bit_count`, `to_bytes` and the classmethod `from_bytes`. `float` has `is_integer`.
+`int` has no fixed width, and decimal text of more than 4,300 digits raises `ValueError` both ways. It has `bit_length`, `bit_count`, `to_bytes` and the classmethod `from_bytes`. `float` has `is_integer`.
 
 ```python
 print((255).bit_length(), (5).bit_count(), (258).to_bytes(2).hex())

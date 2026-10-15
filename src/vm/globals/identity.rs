@@ -3,6 +3,7 @@ use super::super::VM;
 use super::super::types::*;
 use super::matches_exc_class;
 use alloc::vec::Vec;
+use crate::value::eq::{hash_float, hash_int};
 
 impl<'a> VM<'a> {
 
@@ -138,44 +139,6 @@ impl<'a> VM<'a> {
     }
 }
 
-// Numbers hash by their value modulo this prime, so equal ints, floats and bools hash alike.
-const MODULUS: u64 = (1 << 61) - 1;
-
-/* The hash of `n`, its value modulo the prime with its sign, -1 kept for errors. */
-fn hash_int(n: i128) -> i64 {
-    let h = (n.unsigned_abs() % MODULUS as u128) as i64;
-    let h = if n < 0 { -h } else { h };
-    if h == -1 { -2 } else { h }
-}
-
-/* The hash of a finite float, equal to the hash of an int of the same value. */
-fn hash_float(v: f64) -> i64 {
-    if v.is_infinite() { return if v > 0.0 { 314_159 } else { -314_159 }; }
-    let (mut m, mut e) = frexp(v.abs());
-    let mut x: u64 = 0;
-    while m != 0.0 {
-        x = ((x << 28) & MODULUS) | x >> (61 - 28);
-        m *= 268_435_456.0;
-        e -= 28;
-        let y = m as u64;
-        m -= y as f64;
-        x += y;
-        if x >= MODULUS { x -= MODULUS; }
-    }
-    let e = if e >= 0 { e % 61 } else { 61 - 1 - ((-1 - e) % 61) } as u32;
-    x = ((x << e) & MODULUS) | x >> (61 - e);
-    let h = if v < 0.0 { x.wrapping_neg() } else { x } as i64;
-    if h == -1 { -2 } else { h }
-}
-
-/* The mantissa in [0.5, 1) and the exponent of a positive float. */
-fn frexp(x: f64) -> (f64, i32) {
-    if x == 0.0 { return (0.0, 0); }
-    let exp = ((x.to_bits() >> 52) & 0x7ff) as i32;
-    if exp == 0 { let (m, e) = frexp(x * 18_014_398_509_481_984.0); return (m, e - 54); }
-    (f64::from_bits((x.to_bits() & !(0x7ff << 52)) | (1022 << 52)), exp - 1022)
-}
-
 impl<'a> VM<'a> {
     /* `id(x)`, the boxed word itself, unique while the object lives and kept across a snapshot. */
     pub fn call_id(&mut self) -> Result<(), VmErr> {
@@ -200,6 +163,7 @@ impl<'a> VM<'a> {
         if v.is_bool() { return Ok(v.as_bool() as i64); }
         if v.is_float() { let f = v.as_float(); return Ok(if f.is_nan() { identity_hash(v) } else { hash_float(f) }); }
         if let Some(n) = self.as_i128(v) { return Ok(hash_int(n)); }
+        if let Some(h) = self.heap.foreign_hash(v) { return Ok(h as i64); }
         Ok(match self.heap.try_get(v) {
             // A tuple mixes the hashes of its items in order.
             Some(HeapObj::Tuple(items)) => {
@@ -212,6 +176,7 @@ impl<'a> VM<'a> {
                 let (start, step) = (if len == 0 { none } else { hash_int(start as i128) }, if len <= 1 { none } else { hash_int(step as i128) });
                 tuple_hash(&[hash_int(len), start, step])
             }
+            Some(HeapObj::BigRange(..)) => tuple_hash(&crate::frontend::int::range_hashes(&self.heap, v, self.py_hash(Val::none(), depth + 1)?).unwrap_or_default()),
             // A frozenset mixes the hashes of its items in no order.
             Some(HeapObj::FrozenSet(items)) => {
                 let mut acc = (items.len() as u64 + 1).wrapping_mul(1_927_868_237);

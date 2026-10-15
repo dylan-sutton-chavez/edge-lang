@@ -417,6 +417,7 @@ export function resume(): void {
 export function saveState(): Uint8Array {
     if (!compilerExports) throw new Error('nothing to save: no run has started');
     const len = Number(compilerExports.save_state());
+    if (len === -2) throw new Error(new TextDecoder().decode(new Uint8Array(compilerExports.memory.buffer, compilerExports.out_ptr(), compilerExports.out_len())));
     if (len < 0) throw new Error('nothing to save: the program is not paused');
     return new Uint8Array(compilerExports.memory.buffer, compilerExports.out_ptr(), len).slice();
 }

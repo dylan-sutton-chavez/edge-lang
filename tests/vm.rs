@@ -319,7 +319,7 @@ mod test {
             let mut vm = VM::with_limits(&chunk, Limits::sandbox());
             assert!(matches!(vm.run(), Err(VmErr::HostYield(SchedulerStatus::PendingHostCall))));
             assert!(fail(&mut vm, 0, "RuntimeError: boom"));
-            let blob = snapshot::save(&vm, src);
+            let blob = snapshot::save(&vm, src).expect("save");
             let mut restored = VM::with_limits(&chunk, Limits::sandbox());
             snapshot::restore(&mut restored, &blob).expect("restore");
             let e = restored.run().expect_err("the delivered error escapes after restore");
