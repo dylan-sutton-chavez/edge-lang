@@ -165,6 +165,8 @@ pub struct VM<'a> {
     pub(crate) executing_coros: Vec<u64>,
     /* Bumped by any class member change, voiding every site keyed on a class. */
     pub(crate) class_epoch: u32,
+    /* Set once an instance may hold an attribute named like a member of its class, so method sites check the instance. */
+    pub(crate) shadowed: bool,
     /* Set by a hot loop in unlowered code, its frame then carries on lowered. */
     pub(crate) tier_up: bool,
     /* A call the register loop made that failed, raised at that call. */
@@ -354,6 +356,7 @@ impl<'a> VM<'a> {
             memo_ok: Vec::new(),
             executing_coros: Vec::new(),
             class_epoch: 0,
+            shadowed: false,
             tier_up: false,
             reg_error: None,
             ctors: Default::default(),

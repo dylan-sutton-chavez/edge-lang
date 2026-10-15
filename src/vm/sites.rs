@@ -123,8 +123,7 @@ impl<'a> VM<'a> {
         let Some(HeapObj::Instance(c, attrs)) = self.heap.try_get(obj) else { return None };
         // An attribute of the instance by the same name shadows the method.
         if c.0 != class.0 { return None; }
-        let a = attrs.borrow();
-        if !a.is_empty() && a.position_str(name, hash, &self.heap).is_some() { return None; }
+        if self.shadowed && attrs.borrow().position_str(name, hash, &self.heap).is_some() { return None; }
         Some((func, owner))
     }
 

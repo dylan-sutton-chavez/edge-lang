@@ -781,6 +781,10 @@ impl<'a> VM<'a> {
                 // SAFETY the caller runs code its pool or the floor keeps, and every chunk outlives the run.
                 (code, chunk) = unsafe { (&*c, &*k) };
                 *ip = ret;
+            } else if i >= code.ins.len() && self.frames.len() > floor.depth && let Some((ret, c, k)) = self.regs_end(floor) {
+                // SAFETY as above.
+                (code, chunk) = unsafe { (&*c, &*k) };
+                *ip = ret;
             } else {
                 return switched;
             }
@@ -823,6 +827,14 @@ impl<'a> VM<'a> {
         if dest == super::frame::NO_DEST { self.push(v); return Some((ret, code, chunk)); }
         self.regs[self.base + dest as usize] = v;
         Some((ret + 1, code, chunk))
+    }
+
+    /* Ends the innermost frame once it runs past its last instruction, a return of None. */
+    #[inline(always)]
+    fn regs_end(&mut self, floor: &Floor) -> Option<(usize, *const Code, *const SSAChunk)> {
+        if self.exception_stack.len() > self.frames.last()?.exc_base { return None; }
+        self.push(Val::none());
+        self.regs_return(Ins { op: OpCode::ReturnValue, x: 0, a: 0, b: 0, c: 0 }, floor)
     }
 
     /* A call from the register loop, its next index or None, the error kept. */
@@ -1934,8 +1946,8 @@ impl<'a> VM<'a> {
     /* `obj.name = value`, shared by StoreAttr and `setattr()`. */
     pub(crate) fn store_attr(&mut self, obj: Val, name: &str, value: Val, chunk: &SSAChunk) -> Result<(), VmErr> {
         if !obj.is_heap() { return Err(cold_type("cannot set attribute")); }
-        if let Some(cls_val) = self.instance_class(obj)
-            && let Some((member, _)) = self.lookup_class_member(cls_val, name)
+        let member = self.instance_class(obj).and_then(|c| self.lookup_class_member(c, name));
+        if let Some((member, _)) = member
             && member.is_heap()
             && let HeapObj::Property(_, setter) = self.heap.get(member) {
             let setter = *setter;
@@ -1952,6 +1964,8 @@ impl<'a> VM<'a> {
         }
         // Class attribute, insert or replace in the mutable members store.
         if let HeapObj::Class(_, _, members) = self.heap.get(obj) {
+            // A new member may share its name with an attribute an instance already holds.
+            self.shadowed |= !members.borrow().iter().any(|(n, _)| n == name);
             set_member(members, name, value);
             self.class_epoch = self.class_epoch.wrapping_add(1);
             return Ok(());
@@ -1967,6 +1981,7 @@ impl<'a> VM<'a> {
             HeapObj::Instance(_, attrs) => attrs,
             _ => match self.heap.classed(obj) { Some((_, attrs)) => attrs, None => return Err(cold_type("cannot set attribute on this type")) },
         };
+        self.shadowed |= member.is_some();
         attrs.borrow_mut().insert(key, value, &self.heap);
         Ok(())
     }

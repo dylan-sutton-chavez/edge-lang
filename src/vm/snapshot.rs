@@ -878,7 +878,11 @@ fn rehash(vm: &mut VM, fills: Vec<(u32, SetFill)>) -> Result<(), SnapErr> {
         let v = Val::heap(idx as u32);
         let mut dicts: Vec<Rc<RefCell<DictMap>>> = match vm.heap.try_get(v) {
             Some(HeapObj::Dict(rc)) => alloc::vec![rc.clone()],
-            Some(HeapObj::Instance(_, rc)) => alloc::vec![rc.clone()],
+            Some(HeapObj::Instance(class, rc)) => {
+                // An attribute named like a member of its class keeps method sites checking the instance.
+                vm.shadowed |= rc.borrow().iter().any(|(k, _)| matches!(vm.heap.try_get(k), Some(HeapObj::Str(n)) if vm.lookup_class_member(*class, n).is_some()));
+                alloc::vec![rc.clone()]
+            }
             _ => Vec::new(),
         };
         if let Some((_, attrs)) = vm.heap.classed(v) { dicts.push(attrs.clone()); }

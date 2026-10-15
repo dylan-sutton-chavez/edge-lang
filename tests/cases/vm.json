@@ -6168,5 +6168,21 @@
   {"src": "def f(q):\n    nonlocal q\n", "output": [], "error": "name 'q' is parameter and nonlocal"},
   {"src": "def f():\n    def g():\n        nonlocal q\n        q = 2\n    q = 1\n    g()\n    return q\nprint(f())", "output": ["2"]},
   {"src": "def f():\n    q = 1\n    class A:\n        def g(self):\n            nonlocal q\n            q = 2\n    A().g()\n    return q\nprint(f())", "output": ["2"]},
-  {"src": "def f():\n    q = 1\n    def g():\n        def h():\n            nonlocal q\n            q = 5\n        h()\n    g()\n    return q\nprint(f())", "output": ["5"]}
+  {"src": "def f():\n    q = 1\n    def g():\n        def h():\n            nonlocal q\n            q = 5\n        h()\n    g()\n    return q\nprint(f())", "output": ["5"]},
+  {"src": "def f(x):\n    if x:\n        return 1\nprint(f(0), f(1))", "output": ["None 1"]},
+  {"src": "def f(xs):\n    for x in xs:\n        pass\nprint(f([1, 2]))", "output": ["None"]},
+  {"src": "def f():\n    try:\n        pass\n    finally:\n        print('fin')\nprint(f())", "output": ["fin", "None"]},
+  {"src": "def f(d):\n    d['k'] = 1\nd = {}\nprint(f(d), d)", "output": ["None {'k': 1}"]},
+  {"src": "class P:\n    def __init__(self, x):\n        self.x = x\n    def set(self, x):\n        self.x = x\np = P(1)\nprint(p.set(2), p.x)", "output": ["None 2"]},
+  {"src": "def walk(n, out):\n    if n:\n        out.append(n)\n        walk(n - 1, out)\nout = []\nprint(walk(3, out), out)", "output": ["None [3, 2, 1]"]},
+  {"src": "def g():\n    yield 1\nprint(list(g()))", "output": ["[1]"]},
+  {"src": "def f():\n    x = 1\nr = [f() for _ in range(3)]\nprint(r)", "output": ["[None, None, None]"]},
+  {"src": "def f(n):\n    while n:\n        n -= 1\nprint(f(3))", "output": ["None"]},
+  {"src": "def f():\n    with open_ctx() as c:\n        pass\nclass open_ctx:\n    def __enter__(self):\n        return self\n    def __exit__(self, *a):\n        print('exit')\nprint(f())", "output": ["exit", "None"]},
+  {"src": "class A:\n    def m(self):\n        return 'method'\n    def __init__(self, own):\n        if own:\n            self.m = lambda: 'own'\ndef call(o):\n    return o.m()\nprint([call(A(k)) for k in (False, True, False)])", "output": ["['method', 'own', 'method']"]},
+  {"src": "class A:\n    def m(self):\n        return 1\na, b = A(), A()\ndef call(o):\n    return o.m()\nfor _ in range(3):\n    call(a)\nb.m = lambda: 2\nprint(call(a), call(b))", "output": ["1 2"]},
+  {"src": "class A:\n    def m(self):\n        return 1\na = A()\nsetattr(a, 'm', lambda: 3)\nprint(a.m())", "output": ["3"]},
+  {"src": "class A:\n    pass\na = A()\na.m = lambda: 'own'\ndef m(self):\n    return 'class'\nA.m = m\nprint(a.m(), A().m())", "output": ["own class"]},
+  {"src": "class B:\n    def m(self):\n        return 'base'\nclass C(B):\n    pass\nc = C()\ndef call(o):\n    return o.m()\nprint(call(c))\nc.m = lambda: 'own'\nprint(call(c))", "output": ["base", "own"]},
+  {"src": "class A:\n    def m(self):\n        return 1\na = A()\na.m = lambda: 2\ndef call(o):\n    return o.m()\nprint(call(a))\ndel a.m\nprint(call(a))", "output": ["2", "1"]}
 ]

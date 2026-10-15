@@ -127,7 +127,9 @@ impl<'a> VM<'a> {
     pub(crate) fn set_exc_args(&mut self, inst: Val, args: Vec<Val>) -> Result<(), VmErr> {
         let tuple = self.heap.alloc(HeapObj::Tuple(args))?;
         let key = self.heap.alloc(HeapObj::Str("args".into()))?;
-        if let Some(HeapObj::Instance(_, attrs)) = self.heap.try_get(inst) { attrs.borrow_mut().insert(key, tuple, &self.heap); }
+        let Some(HeapObj::Instance(class, attrs)) = self.heap.try_get(inst) else { return Ok(()) };
+        self.shadowed |= self.lookup_class_member(*class, "args").is_some();
+        attrs.borrow_mut().insert(key, tuple, &self.heap);
         Ok(())
     }
 
