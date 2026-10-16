@@ -92,6 +92,30 @@ fn parse_int_radix(heap: &mut HeapPool, s: &str, base: i64) -> Result<Val, VmErr
     crate::frontend::int::from_digits(heap, neg, &digits.ok_or_else(|| cold_value("int(): invalid literal"))?, radix)
 }
 
+/* Where `sum`, `min` and `max` take their items, a cursor over a container or an iterator stepped one item at a time. */
+trait Source {
+    // Whether each step runs user code, so what the caller holds must stay rooted.
+    const LAZY: bool;
+    fn step(&mut self, vm: &mut VM, chunk: &crate::parser::SSAChunk) -> Result<Option<Val>, VmErr>;
+    // The items a cursor already holds, which a user dunder may outlive.
+    fn held(&self) -> &[Val] { &[] }
+}
+
+impl Source for IterFrame {
+    const LAZY: bool = false;
+    #[inline(always)]
+    fn step(&mut self, vm: &mut VM, _: &crate::parser::SSAChunk) -> Result<Option<Val>, VmErr> { self.next_item(&mut vm.heap) }
+    fn held(&self) -> &[Val] { if let IterFrame::Seq { items, .. } = self { items } else { &[] } }
+}
+
+/* An iterator or generator `sum`, `min` and `max` step one item at a time. */
+struct Lazy(Val);
+
+impl Source for Lazy {
+    const LAZY: bool = true;
+    fn step(&mut self, vm: &mut VM, chunk: &crate::parser::SSAChunk) -> Result<Option<Val>, VmErr> { vm.next_of(self.0, chunk) }
+}
+
 impl<'a> VM<'a> {
 
     pub fn call_abs(&mut self, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
@@ -287,17 +311,34 @@ impl<'a> VM<'a> {
         let label = if is_min { "min() iterable argument is empty" } else { "max() iterable argument is empty" };
         // Without a key one iterable streams, so a range never becomes a list.
         if positional.len() == 1 && key.is_none() {
-            let mut cur = self.iter_cursor(positional[0])?;
+            let o = positional[0];
             let base = self.temp_roots.len();
-            let best = self.extreme_cursor(positional[0], &mut cur, is_min, chunk);
+            let best = if self.steps_lazily(o) { self.extreme_cursor(o, &mut Lazy(o), is_min, chunk) } else {
+                let mut cur = self.iter_cursor(o)?;
+                self.extreme_cursor(o, &mut cur, is_min, chunk)
+            };
             self.temp_roots.truncate(base);
             return match (best?, default) {
                 (Some(v), _) | (None, Some(v)) => { self.push(v); Ok(()) }
                 (None, None) => Err(cold_value(label)),
             };
         }
-        // One arg iterable, many args are values.
-        let items = if positional.len() == 1 { self.extract_iter(positional[0])? } else { positional };
+        // One iterable with a key streams too, each item's key taken as it arrives.
+        if positional.len() == 1 && let Some(k) = key {
+            let o = positional[0];
+            let base = self.temp_roots.len();
+            let best = if self.steps_lazily(o) { self.extreme_keyed(o, k, &mut Lazy(o), is_min, chunk) } else {
+                let mut cur = self.iter_cursor(o)?;
+                self.extreme_keyed(o, k, &mut cur, is_min, chunk)
+            };
+            self.temp_roots.truncate(base);
+            return match (best?, default) {
+                (Some(v), _) | (None, Some(v)) => { self.push(v); Ok(()) }
+                (None, None) => Err(cold_value(label)),
+            };
+        }
+        // Many args are values.
+        let items = positional;
         if items.is_empty() {
             return match default { Some(d) => { self.push(d); Ok(()) }, None => Err(cold_value(label)) };
         }
@@ -314,22 +355,63 @@ impl<'a> VM<'a> {
     }
 
     /* The least item of `cur`, or with `!is_min` the greatest, the first one on a tie. */
-    fn extreme_cursor(&mut self, of: Val, cur: &mut IterFrame, is_min: bool, chunk: &crate::parser::SSAChunk) -> Result<Option<Val>, VmErr> {
-        let Some(mut best) = cur.next_item(&mut self.heap)? else { return Ok(None) };
+    fn extreme_cursor<S: Source>(&mut self, of: Val, cur: &mut S, is_min: bool, chunk: &crate::parser::SSAChunk) -> Result<Option<Val>, VmErr> {
+        // An iterator runs user code for each item, so it and the best so far stay rooted throughout.
+        if S::LAZY { self.temp_roots.push(of); }
+        let Some(mut best) = cur.step(self, chunk)? else { return Ok(None) };
+        let slot = self.temp_roots.len();
+        if S::LAZY { self.temp_roots.extend([best, best]); }
         let base = self.temp_roots.len();
-        while let Some(item) = cur.next_item(&mut self.heap)? {
+        while let Some(item) = cur.step(self, chunk)? {
             self.charge_step()?;
+            if S::LAZY { self.temp_roots[slot + 1] = item; }
             // A user `__lt__` can collect, so from the first instance on the iterable, its items and the best stay rooted.
-            if self.temp_roots.len() == base && (self.instance_class(item).is_some() || self.instance_class(best).is_some()) {
+            if self.temp_roots.len() == base && (item.is_heap() || best.is_heap()) && (self.instance_class(item).is_some() || self.instance_class(best).is_some()) {
                 self.temp_roots.push(of);
-                if let IterFrame::Seq { items, .. } = &*cur { self.temp_roots.extend(items.iter().copied()); }
+                self.temp_roots.extend_from_slice(cur.held());
             }
             if self.beats(item, best, is_min, chunk)? { best = item; }
+            if S::LAZY { self.temp_roots[slot] = best; }
         }
         Ok(Some(best))
     }
 
+    /* The item of `cur` with the least `key(item)`, or with `!is_min` the greatest, the first one on a tie. */
+    fn extreme_keyed<S: Source>(&mut self, of: Val, key: Val, cur: &mut S, is_min: bool, chunk: &crate::parser::SSAChunk) -> Result<Option<Val>, VmErr> {
+        // The key runs user code, so the iterable, the key, the best pair and the current pair stay rooted.
+        let slot = self.temp_roots.len();
+        self.temp_roots.extend([of, key, Val::none(), Val::none(), Val::none(), Val::none()]);
+        self.temp_roots.extend_from_slice(cur.held());
+        let Some(mut best) = cur.step(self, chunk)? else { return Ok(None) };
+        self.temp_roots[slot + 2] = best;
+        let mut best_key = self.key_of(key, best, chunk)?;
+        self.temp_roots[slot + 3] = best_key;
+        while let Some(item) = cur.step(self, chunk)? {
+            self.charge_step()?;
+            self.temp_roots[slot + 4] = item;
+            let k = self.key_of(key, item, chunk)?;
+            self.temp_roots[slot + 5] = k;
+            if self.beats(k, best_key, is_min, chunk)? {
+                (best, best_key) = (item, k);
+                (self.temp_roots[slot + 2], self.temp_roots[slot + 3]) = (best, best_key);
+            }
+        }
+        Ok(Some(best))
+    }
+
+    /* `key(item)`. */
+    fn key_of(&mut self, key: Val, item: Val, chunk: &crate::parser::SSAChunk) -> Result<Val, VmErr> {
+        self.push(key);
+        self.push(item);
+        self.exec_call(1, chunk)?;
+        self.pop()
+    }
+
+    /* Whether `sum`, `min` or `max` step `o` one item at a time, an iterator or a generator, rather than through its cursor. */
+    fn steps_lazily(&self, o: Val) -> bool { matches!(self.heap.try_get(o), Some(HeapObj::Iter(..) | HeapObj::Coroutine(..))) }
+
     /* Whether `item < best` for min or `item > best` for max, raising with the operator that ran. */
+    #[inline]
     fn beats(&mut self, item: Val, best: Val, is_min: bool, chunk: &crate::parser::SSAChunk) -> Result<bool, VmErr> {
         if item.is_int() && best.is_int() { return Ok(if is_min { item.as_int() < best.as_int() } else { item.as_int() > best.as_int() }); }
         if is_min { return self.sort_lt(item, best, chunk); }
@@ -354,22 +436,30 @@ impl<'a> VM<'a> {
         let args = self.pop_n(op as usize)?;
         if args.is_empty() { return Err(cold_type("sum() requires at least 1 argument")); }
         let start = if args.len() > 1 { args[1] } else { Val::int(0) };
-        let mut cur = self.iter_cursor(args[0])?;
         let base = self.temp_roots.len();
-        let result = self.sum_cursor(&args, &mut cur, start, chunk);
+        let result = if self.steps_lazily(args[0]) { self.sum_cursor(&args, &mut Lazy(args[0]), start, chunk) } else {
+            let mut cur = self.iter_cursor(args[0])?;
+            self.sum_cursor(&args, &mut cur, start, chunk)
+        };
         self.temp_roots.truncate(base);
         let result = result?;
         self.push(result); Ok(())
     }
 
-    fn sum_cursor(&mut self, args: &[Val], cur: &mut IterFrame, start: Val, chunk: &crate::parser::SSAChunk) -> Result<Val, VmErr> {
+    fn sum_cursor<S: Source>(&mut self, args: &[Val], cur: &mut S, start: Val, chunk: &crate::parser::SSAChunk) -> Result<Val, VmErr> {
+        // An iterator runs user code for each item, so it and the running total stay rooted throughout.
+        let slot = self.temp_roots.len();
+        if S::LAZY { self.temp_roots.extend_from_slice(args); self.temp_roots.extend([start, start]); }
         let base = self.temp_roots.len();
         let mut acc = start;
         // Once a float enters, switch to Neumaier compensated summation (Python 3.12+).
         let mut fstate: Option<(f64, f64)> = if start.is_float() { Some((start.as_float(), 0.0)) } else { None };
         // Plain ints add in an i128 that boxes once at the end, so a long sum leaves no garbage.
         let mut wide: Option<i128> = None;
-        while let Some(item) = cur.next_item(&mut self.heap)? {
+        loop {
+            if S::LAZY { self.temp_roots[slot + args.len()] = acc; }
+            let Some(item) = cur.step(self, chunk)? else { break };
+            if S::LAZY { self.temp_roots[slot + args.len() + 1] = item; }
             self.charge_step()?;
             if fstate.is_none() && item.is_int() && (wide.is_some() || acc.is_int())
                 && let Some(w) = wide.unwrap_or(acc.as_int() as i128).checked_add(item.as_int() as i128) {
@@ -381,7 +471,7 @@ impl<'a> VM<'a> {
             // A user `__add__` can collect, so from the first instance on the iterable and its items stay rooted.
             if user && self.temp_roots.len() == base {
                 self.temp_roots.extend_from_slice(args);
-                if let IterFrame::Seq { items, .. } = &*cur { self.temp_roots.extend(items.iter().copied()); }
+                self.temp_roots.extend_from_slice(cur.held());
             }
             match fstate {
                 Some((s, c)) => match self.to_f64_coerce(item) {

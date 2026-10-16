@@ -198,6 +198,10 @@ impl<'a> VM<'a> {
             Some(&HeapObj::BoundUserMethod(recv, _, _)) if name == "__self__" => return Ok(AttrLookup::ClassMember(recv)),
             Some(&HeapObj::BoundUserMethod(_, func, _)) if name == "__func__" => return Ok(AttrLookup::ClassMember(func)),
             Some(&HeapObj::BoundMethod(recv, _)) if name == "__self__" && !recv.is_undef() => return Ok(AttrLookup::ClassMember(recv)),
+            // A builtin function or method is named by its id.
+            Some(&HeapObj::NativeFn(id)) if matches!(name, "__name__" | "__qualname__") => return Ok(AttrLookup::Name(id.name().into())),
+            Some(&HeapObj::BoundMethod(_, id)) if name == "__name__" => return Ok(AttrLookup::Name(id.name().into())),
+            Some(&HeapObj::BoundMethod(_, id)) if name == "__qualname__" => return Ok(AttrLookup::Name(crate::s!(str id.ty(), ".", str id.name()))),
             // Function attributes, a stored attr wins over the derived `__name__`.
             Some(HeapObj::Func(fi, _, _, attrs)) => {
                 if let Some(&(_, v)) = attrs.borrow().iter().find(|(n, _)| n == name) { return Ok(AttrLookup::ClassMember(v)); }

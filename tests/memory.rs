@@ -67,6 +67,15 @@ mod test {
         }
     }
 
+    // `sum`, `min` and `max` take a generator one item at a time, so its items never pile up.
+    #[test]
+    fn reducing_a_generator_holds_one_item_at_a_time() {
+        for src in ["print(sum(i * 2 for i in range(2000000)))\n", "print(max(i % 1000 for i in range(2000000)))\n", "print(min(-i for i in range(2000000)))\n"] {
+            let (_, peak, _) = ran(src);
+            assert!(peak < 4 << 20, "{src}: peak {peak}");
+        }
+    }
+
     /* Gives the thread back its whole budget when a test ends, however it ends. */
     struct Restore;
 
