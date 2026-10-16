@@ -132,7 +132,7 @@ impl<'a> VM<'a> {
         } else if let Some(r) = self.heap.foreign_unop(UnOp::Abs, o)? {
             r
         } else {
-            return Err(cold_type("abs() requires a number"));
+            return Err(self.bad_operand("abs()", o));
         };
         self.push(v); Ok(())
     }
@@ -146,7 +146,7 @@ impl<'a> VM<'a> {
             let base = base_v.as_int();
             let s = match self.heap.try_get(o) {
                 Some(HeapObj::Str(s)) => s.clone(),
-                Some(HeapObj::Bytes(b)) => core::str::from_utf8(b).map_err(|_| self.invalid_int(cold_value("invalid literal"), o, base))?.into(),
+                Some(HeapObj::Bytes(b) | HeapObj::ByteArray(b)) => core::str::from_utf8(b).map_err(|_| self.invalid_int(cold_value("invalid literal"), o, base))?.into(),
                 _ => return Err(cold_type("int() can't convert non-string with explicit base")),
             };
             let v = parse_int_radix(&mut self.heap, &s, base).map_err(|e| self.invalid_int(e, o, base))?;
@@ -155,6 +155,7 @@ impl<'a> VM<'a> {
         if argc == 0 { self.push(Val::int(0)); return Ok(()); }
         if argc > 2 { for _ in 0..argc { let _ = self.pop(); } return Err(cold_type("int() takes at most 2 arguments")); }
         let o = self.pop()?;
+        let o = self.plain_number(o, "__int__", chunk)?;
         // An int passes through unchanged.
         if o.is_int() || crate::frontend::int::is_big(&self.heap, o) { self.push(o); return Ok(()); }
         let v = if o.is_float() { float_to_int(&mut self.heap, o.as_float(), ftrunc)? }
@@ -163,7 +164,7 @@ impl<'a> VM<'a> {
                 let s = s.clone();
                 parse_int_radix(&mut self.heap, &s, 10).map_err(|e| self.invalid_int(e, o, 10))?
             }
-            else if o.is_heap() && let HeapObj::Bytes(b) = self.heap.get(o) {
+            else if let Some(b) = self.heap.bytes_of(o) {
                 let text = core::str::from_utf8(b).map(String::from).map_err(|_| cold_value("invalid literal"));
                 text.and_then(|t| parse_int_radix(&mut self.heap, &t, 10)).map_err(|e| self.invalid_int(e, o, 10))?
             }
@@ -180,6 +181,12 @@ impl<'a> VM<'a> {
         self.push(v); Ok(())
     }
 
+    /* The number in `o`, a value of a class over int or float, through the class `hook` when it defines one. */
+    fn plain_number(&mut self, o: Val, hook: &str, chunk: &crate::parser::SSAChunk) -> Result<Val, VmErr> {
+        let Some(&HeapObj::Boxed(n)) = self.heap.try_get(o) else { return Ok(o) };
+        Ok(self.try_call_dunder(o, hook, &[], chunk)?.map_or(n, |r| crate::value::unboxed(r, &self.heap)))
+    }
+
     /* An invalid literal error that quotes `o` and names `base` like Python, any other error as it is. */
     fn invalid_int(&self, e: VmErr, o: Val, base: i64) -> VmErr {
         match e {
@@ -192,11 +199,16 @@ impl<'a> VM<'a> {
     pub fn call_float(&mut self, argc: u16, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
         if argc == 0 { self.push(Val::float(0.0)); return Ok(()); } // `float()` is 0.0.
         let o = self.pop()?;
+        let o = self.plain_number(o, "__float__", chunk)?;
         // A float comes back as the same object.
         if o.is_float() { self.push(o); return Ok(()); }
+        let text = match self.heap.try_get(o) {
+            Some(HeapObj::Str(s)) => Some(s.clone()),
+            _ => self.heap.bytes_of(o).map(|b| String::from_utf8_lossy(b).into_owned()),
+        };
         let f = if let Some(f) = num_f64(o, &self.heap) { f? }
-            else if o.is_heap() && let HeapObj::Str(s) = self.heap.get(o) {
-                let t = crate::util::uni::number_text(s);
+            else if let Some(s) = text {
+                let t = crate::util::uni::number_text(&s);
                 let t = t.as_ref();
                 // Accept `_` digit separators, strip then parse.
                 let cleaned = if t.contains('_') {
@@ -209,16 +221,46 @@ impl<'a> VM<'a> {
                 // Honor a user `__float__` and fall back to `__index__` like CPython.
                 match self.try_call_dunder(o, "__float__", &[], chunk)? {
                     Some(r) if r.is_float() => { self.push(r); return Ok(()); }
-                    Some(_) => return Err(cold_type("__float__ returned non-float")),
+                    Some(r) => return Err(self.returned_wrong(o, "__float__", "a float", r)),
                     None => match self.try_call_dunder(o, "__index__", &[], chunk)? {
                         Some(r) if r.is_int() || r.is_bool() || crate::frontend::int::is_big(&self.heap, r) => num_f64(r, &self.heap).unwrap_or(Ok(0.0))?,
-                        Some(_) => return Err(cold_type("__index__ returned non-int")),
+                        Some(r) => return Err(self.returned_wrong(o, "__index__", "an int", r)),
                         None => return Err(cold_type("float() requires a number or string")),
                     },
                 }
             }
             else { return Err(cold_type("float() requires a number or string")); };
         self.push(Val::float(f)); Ok(())
+    }
+
+    /* `complex(real, imag)` from numbers or one string, a value whose class defines `__complex__` asked first. */
+    pub fn call_complex(&mut self, argc: u16, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
+        use crate::frontend::complex::{Complex, parse, parts, val};
+        let args = self.pop_n(argc as usize)?;
+        let num = |vm: &mut Self, v: Val, which: &str| -> Result<Complex, VmErr> {
+            if let Some(z) = parts(&vm.heap, crate::value::unboxed(v, &vm.heap)) { return Ok(z); }
+            for hook in ["__complex__", "__float__", "__index__"] {
+                if let Some(r) = vm.try_call_dunder(v, hook, &[], chunk)? && let Some(z) = parts(&vm.heap, r) { return Ok(z); }
+            }
+            Err(VmErr::TypeMsg(match which {
+                "" => crate::s!("complex() argument must be a string or a number, not ", str vm.type_name(v)),
+                part => crate::s!("complex() argument '", str part, "' must be a real number, not ", str vm.type_name(v)),
+            }))
+        };
+        let text = |vm: &Self, v: Val| match vm.heap.try_get(v) { Some(HeapObj::Str(s)) => Some(s.clone()), _ => None };
+        let z = match args.as_slice() {
+            [] => Complex { re: 0.0, im: 0.0 },
+            [s] if text(self, *s).is_some() => parse(&text(self, *s).unwrap_or_default()).ok_or_else(|| cold_value("complex() arg is a malformed string"))?,
+            [a] => num(self, *a, "")?,
+            [a, b] => {
+                let (x, y) = (num(self, *a, "real")?, num(self, *b, "imag")?);
+                Complex { re: x.re - y.im, im: x.im + y.re }
+            }
+            _ => return Err(cold_type("complex() takes at most 2 arguments")),
+        };
+        let v = val(&mut self.heap, z.re, z.im)?;
+        self.push(v);
+        Ok(())
     }
 
     fn no_float(&self, o: Val) -> VmErr {
@@ -228,8 +270,7 @@ impl<'a> VM<'a> {
     pub fn call_chr(&mut self) -> Result<(), VmErr> {
         let o = self.pop()?;
         if !(o.is_int() || o.is_bool() || crate::frontend::int::is_big(&self.heap, o)) { return Err(cold_type("chr() requires an integer")); }
-        let i = self.as_i128(o).filter(|i| i32::try_from(*i).is_ok()).ok_or_else(|| VmErr::Raised(String::from("OverflowError: Python int too large to convert to C int")))?;
-        let c = u32::try_from(i).ok().and_then(char::from_u32).ok_or_else(|| cold_value("chr() arg not in range(0x110000)"))?;
+        let c = self.as_i128(o).and_then(|i| u32::try_from(i).ok()).and_then(char::from_u32).ok_or_else(|| cold_value("chr() arg not in range(0x110000)"))?;
         let mut s = String::with_capacity(4);
         s.push(c);
         self.alloc_and_push_str(s)
@@ -245,11 +286,15 @@ impl<'a> VM<'a> {
                 }
         }
         // ord() of a one-byte bytes returns the byte value.
-        if o.is_heap() && let HeapObj::Bytes(b) = self.heap.get(o) && b.len() == 1 {
+        if let Some(b) = self.heap.bytes_of(o) && b.len() == 1 {
             let v = b[0] as i64;
             self.push(Val::int(v)); return Ok(());
         }
-        Err(cold_type("ord() requires string of length 1"))
+        let found = match self.heap.try_get(o) {
+            Some(HeapObj::Str(s)) => s.chars().count(),
+            _ => match self.heap.bytes_of(o) { Some(b) => b.len(), None => return Err(VmErr::TypeMsg(crate::s!("ord() expected string of length 1, but ", str self.type_name(o), " found"))) },
+        };
+        Err(VmErr::TypeMsg(crate::s!("ord() expected a character, but string of length ", int found as i64, " found")))
     }
 
     pub fn call_round(&mut self, op: u16) -> Result<(), VmErr> {
@@ -497,7 +542,7 @@ impl<'a> VM<'a> {
     fn sum_add(&mut self, a: Val, b: Val, chunk: &crate::parser::SSAChunk) -> Result<Val, VmErr> {
         match self.try_binary_dunder(crate::parser::types::OpCode::Add, a, b, false, chunk)? {
             Some(v) => Ok(v),
-            None => self.add_vals(a, b),
+            None => self.add_vals(crate::value::unboxed(a, &self.heap), crate::value::unboxed(b, &self.heap)),
         }
     }
 
@@ -542,8 +587,8 @@ impl<'a> VM<'a> {
     pub fn call_divmod(&mut self) -> Result<(), VmErr> {
         let b = self.pop()?;
         let a = self.pop()?;
-        let q = self.floor_op(BinOp::FloorDiv, a, b, "divmod() requires numeric operands")?;
-        let r = self.floor_op(BinOp::Mod, a, b, "divmod() requires numeric operands")?;
+        let q = self.floor_op(BinOp::FloorDiv, a, b, "divmod()")?;
+        let r = self.floor_op(BinOp::Mod, a, b, "divmod()")?;
         self.alloc_and_push_tuple(alloc::vec![q, r])
     }
 
@@ -590,7 +635,7 @@ impl<'a> VM<'a> {
                 if let Some(r) = checked_pow(ai, exp as u64) { return self.heap.int(r); }
                 return self.heap.foreign_binop(BinOp::Pow, a, b)?.ok_or_else(cold_overflow);
             }
-            if ai == 0 { return Err(VmErr::Raised(String::from("ZeroDivisionError: 0.0 cannot be raised to a negative power"))); }
+            if ai == 0 { return Err(VmErr::Raised(String::from("ZeroDivisionError: zero to a negative power"))); }
             // Clamp instead of wrapping so a huge negative exponent underflows to 0.0, base ±1 keeps its parity.
             let r = match ai {
                 1 => 1.0,
@@ -599,12 +644,12 @@ impl<'a> VM<'a> {
             };
             return Ok(Val::float(r));
         }
-        if !a.is_float() && !b.is_float() && let Some(r) = self.wide_op(BinOp::Pow, a, b)? { return Ok(r); }
+        if let Some(r) = self.wide_op(BinOp::Pow, a, b)? { return Ok(r); }
         let (Some(fa), Some(fb)) = (num_f64(a, &self.heap), num_f64(b, &self.heap)) else { return Err(cold_type(err_msg)); };
         let (fa, fb) = (fa?, fb?);
-        if fa == 0.0 && fb < 0.0 { return Err(VmErr::Raised(String::from("ZeroDivisionError: 0.0 cannot be raised to a negative power"))); }
-        // Without a complex type, a negative base under a fractional power has no real result.
-        if crate::value::math::complex_power(fa, fb) { return Err(cold_value("negative number cannot be raised to a fractional power")); }
+        if fa == 0.0 && fb < 0.0 { return Err(VmErr::Raised(String::from("ZeroDivisionError: zero to a negative power"))); }
+        // A negative base under a fractional power has only a complex result.
+        if crate::value::math::complex_power(fa, fb) { return crate::frontend::complex::power(&mut self.heap, fa, fb); }
         fpowf(fa, fb).map(Val::float).ok_or_else(|| VmErr::Raised(String::from("OverflowError: (34, 'Numerical result out of range')")))
     }
 }

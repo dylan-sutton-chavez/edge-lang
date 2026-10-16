@@ -49,6 +49,32 @@ pub fn format_typed(v: Val, spec: &str, type_name: &str, heap: &HeapPool) -> Res
     format_value(v, spec, heap).map_err(fmt_err)
 }
 
+/* `format(z, spec)` of a complex number, each part formatted alone, the imaginary one signed, then padded whole. */
+pub fn format_complex(re: f64, im: f64, spec: &str, heap: &HeapPool) -> Result<String, VmErr> {
+    let s = parse_spec(spec).map_err(fmt_err)?;
+    if s.zero_pad { return Err(fmt_err("Zero padding is not allowed in complex format specifier")); }
+    if s.eq { return Err(fmt_err("'=' alignment flag is not allowed in complex format specifier")); }
+    if !matches!(s.ty, 0 | b'e' | b'E' | b'f' | b'F' | b'g' | b'G' | b'n') {
+        return Err(VmErr::Raised(alloc::format!("ValueError: Unknown format code '{}' for object of type 'complex'", s.ty as char)));
+    }
+    // A spec without a type keeps the parentheses and the repr of each part, its precision read as `g`.
+    let bare = s.ty == 0;
+    let part = Spec { fill: ' ', align: None, width: 0, ty: if bare && s.precision.is_some() { b'g' } else { s.ty }, ..s.clone() };
+    let text = |f: f64, sign: u8| -> Result<String, VmErr> {
+        let p = Spec { sign: if sign == 0 { part.sign } else { sign }, ..part.clone() };
+        if bare && p.precision.is_none() {
+            let t = crate::util::fstr::format_f64(f);
+            let t = match t.strip_suffix(".0") { Some(x) => String::from(x), None => t };
+            return Ok(if p.sign == b'+' && !t.starts_with('-') { alloc::format!("+{t}") } else { t });
+        }
+        apply(Val::float(f), &p, heap).map_err(fmt_err)
+    };
+    let (r, i) = (text(re, 0)?, text(im, b'+')?);
+    let body = if bare && re == 0.0 && re.is_sign_positive() { alloc::format!("{}j", i.trim_start_matches('+')) }
+        else if bare { alloc::format!("({r}{i}j)") } else { alloc::format!("{r}{i}j") };
+    Ok(pad_aligned(&Spec { sign: 0, ..s }, &body, 0))
+}
+
 fn parse_spec(spec: &str) -> Result<Spec, &'static str> {
     let bytes = spec.as_bytes();
     let mut s = Spec { fill: ' ', ..Spec::default() };
@@ -131,14 +157,14 @@ fn apply(v: Val, s: &Spec, heap: &HeapPool) -> Result<String, &'static str> {
             if v.is_float() {
                 return if s.precision.is_some() { format_float(v, s, 0, heap) } else { Ok(format_float_str(v.as_float(), s)) };
             }
-            if s.precision.is_some() { return Err("precision not allowed in integer format spec"); }
+            if s.precision.is_some() { return Err("Precision not allowed in integer format specifier"); }
             format_int(v, &Spec { ty: b'd', ..s.clone() }, heap)
         }
-        // `n` is locale-aware decimal, paradigm has no locale, so alias to `d`.
+        // `n` is `g` for a float and `d` for an int in the C locale, the only one there is, and takes no separator.
+        b'n' if s.sep != 0 => Err(if s.sep == b',' { "Cannot specify ',' with 'n'." } else { "Cannot specify '_' with 'n'." }),
+        b'n' if v.is_float() => format_float(v, s, b'g', heap),
         b'd' | b'b' | b'o' | b'x' | b'X' | b'n' => {
-            if s.precision.is_some() { return Err("precision not allowed in integer format spec"); }
-            // `n` takes floats too, plain str() digits like the int alias.
-            if s.ty == b'n' && v.is_float() { return Ok(format_float_str(v.as_float(), s)); }
+            if s.precision.is_some() { return Err("Precision not allowed in integer format specifier"); }
             let mut s2 = s.clone();
             if s2.ty == b'n' { s2.ty = b'd'; }
             format_int(v, &s2, heap)

@@ -46,6 +46,9 @@ pub const ITER_VALUE: u16 = 2;
 // GetIter operand that loops over an iterator without asking it for one again.
 pub const ITER_AS_IS: u16 = 3;
 
+// GetIter operand of `async for`, which also steps coroutines and async generators.
+pub const ITER_ASYNC: u16 = 1;
+
 // Marks a fused builtin call given `*` or `**`, whose packed operand the VM runs as a plain call.
 pub const SPREAD_ARGS: u16 = 0x8000;
 
@@ -79,6 +82,9 @@ impl<I: Iterator<Item = Token>> Tokens<I> {
         self.peek().map_or(TokenType::Endmarker, |t| t.kind)
     }
 
+    /* The token at index `i`. */
+    pub(super) fn at(&self, i: usize) -> Option<&Token> { self.toks.get(i) }
+
     /* Kind of the token after the one at the cursor. */
     pub(super) fn after_head(&self) -> TokenType {
         self.toks.get(self.pos + 1).map_or(TokenType::Endmarker, |t| t.kind)
@@ -95,6 +101,15 @@ impl<I: Iterator<Item = Token>> Tokens<I> {
                 _ => {}
             }
         }
+    }
+
+    /* Whether `k` follows the bracket group at the cursor, which stays where it was. */
+    pub(super) fn group_then(&mut self, k: TokenType) -> bool {
+        let at = self.pos;
+        self.skip_group();
+        let then = self.ahead() == k;
+        self.pos = at;
+        then
     }
 
     /* Moves past one target such as `*a`, `b.c[i]` or `(d, e)` uncompiled, false if invalid. */
@@ -203,6 +218,18 @@ pub struct Parser<'src, I: Iterator<Item = Token>> {
     pub(super) bracket_stack: Vec<(TokenType, usize, usize, usize)>,
     /* True while the statements of a class body compile, not those of its methods. */
     pub(super) in_class_body: bool,
+    /* The classes and functions around the code being compiled, `A.f.<locals>`, which name its definitions in full. */
+    pub(super) qual: String,
+    /* The loop depth an `except*` body opened at, where `break`, `continue` and `return` may not leave it. */
+    pub(super) star_loops: Option<usize>,
+    /* `except*` statements compiled so far, which number the hidden names of each. */
+    pub(super) star_count: u32,
+    /* The annotations of the parameters just parsed, and of the class body being compiled, each name with where its expression starts. */
+    pub(super) param_anns: Vec<(String, Mark)>,
+    /* The parameters before a `/` in the list just parsed, and the line the `@` of a decorated definition sits on. */
+    pub(super) posonly: u16,
+    pub(super) decorated_at: Option<usize>,
+    pub(super) class_anns: Vec<(String, Mark)>,
     /* True while a comprehension body compiles, where a walrus binds in the enclosing scope. */
     pub(super) in_comp: bool,
     /* True while a def or lambda body compiles, the only place `return` and `yield` belong. */
@@ -320,7 +347,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
     }
 
     /* Propagate the body's free names to the parent chunk, register the function, and emit its make-op. `fname` is None for lambdas (anonymous, sentinel slot), Some(name) registers a store slot for a def. Order matches the historic def path of free-name propagation, then slot, then push. */
-    pub(super) fn push_function(&mut self, params: Vec<String>, body: SSAChunk, defaults: u16, fname: Option<&str>, op: OpCode) {
+    pub(super) fn push_function(&mut self, params: Vec<String>, mut body: SSAChunk, defaults: u16, fname: Option<&str>, op: OpCode) {
         // A parameter slot is its base name at version zero.
         let param_slot = |name: &str| name.strip_suffix("_0").is_some_and(|bare| params.iter().any(|p| types::param_base_name(p) == bare));
         for (name, attr) in body.names.iter().zip(body.attr_only_names()) {
@@ -329,12 +356,28 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             }
         }
         let fi = self.chunk.functions.len() as u16;
+        body.qualname = self.qualified(fname.unwrap_or("<lambda>"));
         let name_slot = match fname {
             Some(f) => self.push_ssa_name(f, self.current_version(f) + 1),
             None => u16::MAX,
         };
         self.chunk.functions.push((params, body, defaults, name_slot));
         self.chunk.emit(op, fi);
+    }
+
+    /* `name` with the classes and functions around it, `A.f` or `f.<locals>.g`. */
+    pub(super) fn qualified(&self, name: &str) -> String {
+        if self.qual.is_empty() { return name.into(); }
+        crate::s!(str &self.qual, ".", str name)
+    }
+
+    /* Enters the body of class or function `name`, a function body naming its definitions under `name.<locals>`, and returns where to cut back to. */
+    pub(super) fn enter_qual(&mut self, name: &str, function: bool) -> usize {
+        let len = self.qual.len();
+        if len > 0 { self.qual.push('.'); }
+        self.qual.push_str(name);
+        if function { self.qual.push_str(".<locals>"); }
+        len
     }
 
     /* Raw version-bump + StoreName, returns the slot. NOT `store_name` since it deliberately skips `globals_decl` routing. */
@@ -353,6 +396,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         // Nested body owns its loops and block stack, isolate, then restore the enclosing ones.
         let saved_loops = (core::mem::take(&mut self.loops), core::mem::replace(&mut self.cleanup_count, 0));
         let saved_class = core::mem::replace(&mut self.in_class_body, false);
+        let saved_star = self.star_loops.take();
         let saved_comp = core::mem::replace(&mut self.in_comp, false);
         let saved_function = core::mem::replace(&mut self.in_function, false);
         let saved_unbound = core::mem::take(&mut self.unbound_nonlocals);
@@ -377,6 +421,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         self.globals_decl = saved_globals;
         (self.join_stack, self.trail) = saved_joins;
         (self.loops, self.cleanup_count) = saved_loops;
+        self.star_loops = saved_star;
         self.in_class_body = saved_class;
         self.in_comp = saved_comp;
         self.in_function = saved_function;
@@ -758,6 +803,13 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             last_end: 0,
             bracket_stack: Vec::new(),
             in_class_body: false,
+            qual: String::new(),
+            star_loops: None,
+            star_count: 0,
+            param_anns: Vec::new(),
+            posonly: 0,
+            decorated_at: None,
+            class_anns: Vec::new(),
             in_comp: false,
             in_function: false,
             fused: 0,

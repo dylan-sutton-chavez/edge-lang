@@ -963,16 +963,16 @@
   {
     "src": "def f(x: int, y: str = 'a') -> bool:\n    pass", 
     "constants": ["a"], 
-    "names": ["f_1"], 
-    "instructions": [["LoadConst",0], ["MakeFunction",0], ["StoreName",0], ["ReturnValue",0]], 
-    "functions": 1
+    "names": ["f_1", "int_0", "str_0", "bool_0", "__annotate___1", "__annotate__"], 
+    "instructions": [["LoadConst",0], ["MakeFunction",0], ["Dup",0], ["MakeFunction",1], ["StoreAttr",5], ["StoreName",0], ["ReturnValue",0]], 
+    "functions": 2
   },
   {
     "src": "def f() -> int:\n    pass", 
     "constants": [], 
-    "names": ["f_1"], 
-    "instructions": [["MakeFunction",0], ["StoreName",0], ["ReturnValue",0]], 
-    "functions": 1
+    "names": ["f_1", "int_0", "__annotate___1", "__annotate__"], 
+    "instructions": [["MakeFunction",0], ["Dup",0], ["MakeFunction",1], ["StoreAttr",3], ["StoreName",0], ["ReturnValue",0]], 
+    "functions": 2
   },
   {
     "src": "for a, b in x:\n    pass", 
@@ -1473,73 +1473,63 @@
   },
   {
     "src": "x = 1j",
-    "constants": [],
-    "names": [],
-    "instructions": [["ReturnValue",0]],
-    "errors": ["complex numbers are not supported"]
+    "constants": ["1j"],
+    "names": ["x_1"],
+    "instructions": [["LoadConst",0], ["StoreName",0], ["ReturnValue",0]]
   },
   {
     "src": "x = 2.5j",
-    "constants": [],
-    "names": [],
-    "instructions": [["ReturnValue",0]],
-    "errors": ["complex numbers are not supported"]
+    "constants": ["2.5j"],
+    "names": ["x_1"],
+    "instructions": [["LoadConst",0], ["StoreName",0], ["ReturnValue",0]]
   },
   {
     "src": "x = 1e3J",
-    "constants": [],
-    "names": [],
-    "instructions": [["ReturnValue",0]],
-    "errors": ["complex numbers are not supported"]
+    "constants": ["1000j"],
+    "names": ["x_1"],
+    "instructions": [["LoadConst",0], ["StoreName",0], ["ReturnValue",0]]
   },
   {
     "src": "x = .5j",
-    "constants": [],
-    "names": [],
-    "instructions": [["ReturnValue",0]],
-    "errors": ["complex numbers are not supported"]
+    "constants": ["0.5j"],
+    "names": ["x_1"],
+    "instructions": [["LoadConst",0], ["StoreName",0], ["ReturnValue",0]]
   },
   {
     "src": "x = 0j + 1",
-    "constants": [],
-    "names": [],
-    "instructions": [["ReturnValue",0]],
-    "errors": ["complex numbers are not supported"]
+    "constants": ["0j", "1"],
+    "names": ["x_1"],
+    "instructions": [["LoadConst",0], ["LoadConst",1], ["Add",0], ["StoreName",0], ["ReturnValue",0]]
   },
   {
     "src": "x = 1_000j",
-    "constants": [],
-    "names": [],
-    "instructions": [["ReturnValue",0]],
-    "errors": ["complex numbers are not supported"]
+    "constants": ["1000j"],
+    "names": ["x_1"],
+    "instructions": [["LoadConst",0], ["StoreName",0], ["ReturnValue",0]]
   },
   {
     "src": "x = 1J",
-    "constants": [],
-    "names": [],
-    "instructions": [["ReturnValue",0]],
-    "errors": ["complex numbers are not supported"]
+    "constants": ["1j"],
+    "names": ["x_1"],
+    "instructions": [["LoadConst",0], ["StoreName",0], ["ReturnValue",0]]
   },
   {
     "src": "x = [1j, 2]",
-    "constants": [],
-    "names": [],
-    "instructions": [["ReturnValue",0]],
-    "errors": ["complex numbers are not supported"]
+    "constants": ["1j", "2"],
+    "names": ["x_1"],
+    "instructions": [["LoadConst",0], ["LoadConst",1], ["BuildList",2], ["StoreName",0], ["ReturnValue",0]]
   },
   {
     "src": "print(3j)",
-    "constants": [],
+    "constants": ["3j"],
     "names": [],
-    "instructions": [["ReturnValue",0]],
-    "errors": ["complex numbers are not supported"]
+    "instructions": [["LoadConst",0], ["CallPrint",1], ["ReturnValue",0]]
   },
   {
     "src": "x = 10**2j",
-    "constants": [],
-    "names": [],
-    "instructions": [["ReturnValue",0]],
-    "errors": ["complex numbers are not supported"]
+    "constants": ["10", "2j"],
+    "names": ["x_1"],
+    "instructions": [["LoadConst",0], ["LoadConst",1], ["Pow",0], ["StoreName",0], ["ReturnValue",0]]
   },
   {
     "src": "x = 0xF_F + 0o7_7 + 0b1_1 + 1_000 + 0\ny = 1_2.5e1_0 + 0xFFFF_FFFF_FFFF_FFFF",

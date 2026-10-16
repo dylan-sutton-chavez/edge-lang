@@ -16,6 +16,7 @@ pub(crate) fn applies(ty: &str, name: &str) -> bool {
         "__trunc__", "__floor__", "__ceil__", "__round__", "conjugate", "__hash__"];
     const BITS: &[&str] = &["__and__", "__rand__", "__or__", "__ror__", "__xor__", "__rxor__", "__lshift__", "__rlshift__", "__rshift__", "__rrshift__", "__invert__", "__index__"];
     const SEQ: &[&str] = &["__add__", "__mul__", "__rmul__", "__contains__", "__getitem__", "__len__", "__iter__"];
+    const MUTABLE: &[&str] = &["__setitem__", "__delitem__"];
     const SETS: &[&str] = &["__contains__", "__len__", "__iter__", "__or__", "__ror__", "__and__", "__rand__", "__xor__", "__rxor__", "__sub__", "__rsub__"];
     let has = |list: &[&str]| list.contains(&name);
     has(ANY) || match ty {
@@ -23,10 +24,13 @@ pub(crate) fn applies(ty: &str, name: &str) -> bool {
         "float" => has(ARITH) || has(ORDER),
         "str" | "bytes" => has(SEQ) || has(ORDER) || matches!(name, "__mod__" | "__rmod__" | "__hash__"),
         "tuple" => has(SEQ) || has(ORDER) || name == "__hash__",
-        "list" => has(SEQ) || has(ORDER),
-        "dict" => matches!(name, "__contains__" | "__getitem__" | "__len__" | "__iter__" | "__or__" | "__ror__"),
+        "list" | "bytearray" => has(SEQ) || has(ORDER) || has(MUTABLE),
+        "memoryview" => matches!(name, "__getitem__" | "__setitem__" | "__len__" | "__iter__" | "__hash__"),
+        "dict" => matches!(name, "__contains__" | "__getitem__" | "__len__" | "__iter__" | "__or__" | "__ror__") || has(MUTABLE),
         "set" => has(SETS) || has(ORDER),
         "frozenset" => has(SETS) || has(ORDER) || name == "__hash__",
+        "complex" => matches!(name, "__add__" | "__radd__" | "__sub__" | "__rsub__" | "__mul__" | "__rmul__" | "__truediv__" | "__rtruediv__"
+            | "__pow__" | "__rpow__" | "__neg__" | "__pos__" | "__abs__" | "__bool__" | "__hash__" | "conjugate"),
         _ => name == "__hash__",
     }
 }
@@ -39,23 +43,35 @@ fn takes(vm: &VM, a: Val, b: Val, name: &str) -> bool {
     // An int takes ints, a float takes ints and floats, and a sequence joins or repeats by its own rules.
     ta == tb || (int(ta) && int(tb)) || (ta == "float" && int(tb)) || (set(ta) && set(tb)) || concat(ta, name)
         || (matches!(ta, "str" | "bytes") && name == "__mod__")
-        || matches!(name, "__contains__" | "__getitem__" | "__format__")
+        || matches!(name, "__contains__" | "__getitem__" | "__format__" | "__setitem__" | "__delitem__")
 }
 
 /* Whether `name` joins or repeats a sequence of type `ty`, which raises on a wrong operand instead of NotImplemented. */
 fn concat(ty: &str, name: &str) -> bool {
-    matches!(ty, "str" | "bytes" | "list" | "tuple") && matches!(name, "__add__" | "__mul__" | "__rmul__")
+    matches!(ty, "str" | "bytes" | "bytearray" | "list" | "tuple") && matches!(name, "__add__" | "__mul__" | "__rmul__")
 }
 
 /* The number attributes `real`, `imag`, `numerator` and `denominator` of an int, a bool or a float. */
 pub(crate) fn number_attr(vm: &VM, v: Val, name: &str) -> Option<Val> {
     if v.is_float() { return match name { "real" => Some(v), "imag" => Some(Val::float(0.0)), _ => None }; }
-    let int = if v.is_bool() { Val::int(v.as_bool() as i64) } else if vm.as_i128(v).is_some() { v } else { return None };
+    if let Some(z) = crate::frontend::complex::parts(&vm.heap, v).filter(|_| crate::frontend::complex::is_complex(&vm.heap, v)) {
+        return match name { "real" => Some(Val::float(z.re)), "imag" => Some(Val::float(z.im)), _ => None };
+    }
+    let int = if v.is_bool() { Val::int(v.as_bool() as i64) } else if vm.as_i128(v).is_some() || crate::frontend::int::is_big(&vm.heap, v) { v } else { return None };
     match name { "real" | "numerator" => Some(int), "imag" => Some(Val::int(0)), "denominator" => Some(Val::int(1)), _ => None }
 }
 
 /* Runs dunder `name` of the builtin value `recv` with `args`, through the operator or builtin it stands for. */
 pub(crate) fn call(vm: &mut VM, recv: Val, name: &str, args: &[Val], chunk: &SSAChunk) -> Result<(), VmErr> {
+    // A value a user class made runs the operator of its type, not the dunders of the class.
+    let recv = crate::value::unboxed(recv, &vm.heap);
+    let saved = core::mem::replace(&mut vm.plain_recv, recv);
+    let done = call_plain(vm, recv, name, args, chunk);
+    vm.plain_recv = saved;
+    done
+}
+
+fn call_plain(vm: &mut VM, recv: Val, name: &str, args: &[Val], chunk: &SSAChunk) -> Result<(), VmErr> {
     let arg = args.first().copied();
     if let Some(b) = arg && !takes(vm, recv, b, name) {
         let ni = vm.builtin_value("NotImplemented")?;
@@ -94,12 +110,20 @@ pub(crate) fn call(vm: &mut VM, recv: Val, name: &str, args: &[Val], chunk: &SSA
             "__rdivmod__" => builtin(vm, "divmod", &[args[0], recv], chunk),
             "__contains__" => { let found = vm.contains_op(recv, args[0], chunk)?; vm.push(Val::bool(found)); Ok(()) }
             "__getitem__" => { vm.push(recv); vm.push(args[0]); vm.get_item(0, chunk, &cache) }
+            "__setitem__" => { vm.store_item_builtin(recv, args[0], args[1])?; vm.push(Val::none()); Ok(()) }
+            "__delitem__" => { vm.push(recv); vm.push(args[0]); vm.del_item(chunk)?; vm.push(Val::none()); Ok(()) }
             "__floor__" | "__ceil__" if recv.is_float() => {
                 let f = recv.as_float();
                 let r = if name == "__floor__" { libm::floor(f) } else { libm::ceil(f) };
                 builtin(vm, "int", &[Val::float(r)], chunk)
             }
             "conjugate" if recv.is_float() => { vm.push(recv); Ok(()) }
+            "conjugate" if crate::frontend::complex::is_complex(&vm.heap, recv) => {
+                let z = crate::frontend::complex::parts(&vm.heap, recv).unwrap_or(crate::frontend::complex::Complex { re: 0.0, im: 0.0 });
+                let c = crate::frontend::complex::val(&mut vm.heap, z.re, -z.im)?;
+                vm.push(c);
+                Ok(())
+            }
             "__trunc__" | "__floor__" | "__ceil__" | "__index__" | "conjugate" | "__int__" => builtin(vm, "int", &[recv], chunk),
             _ => {
                 let callee = match name {

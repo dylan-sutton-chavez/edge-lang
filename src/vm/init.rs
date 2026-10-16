@@ -41,6 +41,7 @@ impl<'a> VM<'a> {
             self.body_to_fi.insert(&desc.1 as *const _, global as usize);
             // Bare function name (SSA suffix stripped) for tracebacks.
             let name = chunk.names.get(desc.3 as usize).map(|n| ssa_strip(n).to_string()).unwrap_or_default();
+            self.function_qualnames.push(if desc.1.qualname.is_empty() { name.clone() } else { desc.1.qualname.clone() });
             self.function_names.push(name);
             indices.push(global);
             self.build_function_table(&desc.1, Some(global as usize), module_spec);
@@ -80,9 +81,7 @@ impl<'a> VM<'a> {
     fn deliver_host_result(&mut self, idx: usize, val: Val) {
         let coro = self.scheduler[idx].coro;
         if let HeapObj::Coroutine(c) = self.heap.get_mut(coro) {
-            let c = &mut **c;
-            let target_stack = if let Some(frame) = c.syncs.last_mut() { &mut frame.stack_delta } else { &mut c.stack };
-            if let Some(top) = target_stack.last_mut() { *top = val; } else { target_stack.push(val); }
+            match c.wait_slot() { Some(top) => *top = val, None => c.stack.push(val) }
         }
         self.scheduler[idx].state = CoroState::Ready;
     }

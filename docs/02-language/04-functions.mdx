@@ -83,9 +83,9 @@ print(opts(host="api", port=443))
 [('host', 'api'), ('port', 443)]
 ```
 
-### Keyword-only parameters
+### Keyword-only and positional-only parameters
 
-A bare `*` marks the following parameters as keyword-only. They must be passed by name. A positional argument that would reach them raises `TypeError`.
+A bare `*`, or `*args`, marks the following parameters as keyword-only. They must be passed by name, and a positional argument that would reach them raises `TypeError`. A `/` marks the parameters before it as positional-only, which a keyword never fills, and such a keyword goes to `**kwargs` when there is one.
 
 ```edge-python
 def connect(host, *, port=80, secure=False):

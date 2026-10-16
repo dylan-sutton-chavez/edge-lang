@@ -3,6 +3,7 @@ use core::ops::Range;
 
 use crate::lexer::lex;
 use crate::parser::{Diagnostic, Parser, SSAChunk};
+use crate::value::CallFrame;
 use crate::s;
 use crate::util::hash::{FxHashMap, FxHasher};
 use core::hash::Hasher;
@@ -151,6 +152,7 @@ impl<'a> VM<'a> {
 
     /* Runs the source in `args` the way `eval` or `exec` asks, the value an expression gave back. */
     fn run_source(&mut self, args: &[Val], asked: CodeMode, name: &str, caller: &SSAChunk) -> Result<Val, VmErr> {
+        let call_ip = self.pending.call_ip;
         let (source, mode, filename) = match self.heap.try_get(args[0]) {
             Some(HeapObj::Code(c)) => (c.source.clone(), c.mode, c.filename.clone()),
             _ => {
@@ -210,10 +212,14 @@ impl<'a> VM<'a> {
         let depths = [self.stack.len(), self.iter_stack.len(), self.exception_stack.len(), self.unwind_stack.len(), self.with_stack.len(), self.pending_sync_frames.len(), self.bindings.len()];
         let frames = self.call_stack.len();
         let mut ran = self.run_compiled(chunk);
-        // An error in the text points at the call that ran it, whose source the traceback shows.
+        // An error in the text keeps the frames inside it, then the call that ran it, which the error now points at.
         if ran.is_err() {
             self.error_byte_pos = None;
-            self.call_stack.truncate(frames);
+            let call_byte_pos = call_ip.and_then(|ip| caller.resolve_call(ip).or_else(|| caller.resolve(ip))).unwrap_or(0);
+            let fi = if name == "eval" { crate::value::EVAL_FRAME } else { crate::value::EXEC_FRAME };
+            if self.call_stack.len() >= frames {
+                self.call_stack.push(CallFrame { fi, call_byte_pos, caller_source: Some(caller.source.clone()), caller_path: Some(caller.path.clone()), repeats: 0 });
+            }
         }
         // A native call holds the run, so a suspension inside it has nowhere to resume and its frames end here.
         if core::mem::take(&mut self.yielded) {
@@ -243,7 +249,7 @@ impl<'a> VM<'a> {
     }
 
     /* The compiled chunk for `source` bound into `module`, or into a scratch scope no run uses when `module` is none. */
-    fn compiled_for(&mut self, source: &str, form: Form, filename: &str, module: Option<usize>, path: &Arc<String>) -> Result<usize, VmErr> {
+    pub(crate) fn compiled_for(&mut self, source: &str, form: Form, filename: &str, module: Option<usize>, path: &Arc<String>) -> Result<usize, VmErr> {
         let fits = |c: &Compiled| c.form == form && c.chunk.path == *path
             && match module { Some(m) => c.scope == m, None => !c.busy && c.spec.as_ref().is_some_and(|s| s.starts_with('\u{0}')) && leaves_nothing(&c.chunk) };
         if let Some(at) = self.compiled.find(source, fits) { return Ok(at); }
@@ -293,7 +299,7 @@ impl<'a> VM<'a> {
     }
 
     /* Runs a compiled chunk as module code, its imports first, the value its last expression left. */
-    fn run_compiled(&mut self, chunk: &'a SSAChunk) -> Result<Val, VmErr> {
+    pub(crate) fn run_compiled(&mut self, chunk: &'a SSAChunk) -> Result<Val, VmErr> {
         if self.depth + EVAL_NESTING >= self.max_calls { return Err(cold_depth()); }
         self.depth += EVAL_NESTING;
         let mut in_progress = crate::util::hash::FxHashSet::default();

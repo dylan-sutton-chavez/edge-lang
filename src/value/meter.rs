@@ -194,6 +194,7 @@ fn block(l: Layout) -> (Layout, usize) {
     (unsafe { Layout::from_size_align_unchecked(l.size() + head, head) }, head)
 }
 
+#[cfg(not(miri))]
 impl<A: GlobalAlloc> Metered<A> {
     #[inline]
     unsafe fn place(&self, base: *mut u8, inner: Layout, head: usize) -> *mut u8 {
@@ -208,6 +209,7 @@ impl<A: GlobalAlloc> Metered<A> {
     }
 }
 
+#[cfg(not(miri))]
 unsafe impl<A: GlobalAlloc> GlobalAlloc for Metered<A> {
     #[inline]
     unsafe fn alloc(&self, l: Layout) -> *mut u8 {
@@ -246,5 +248,110 @@ unsafe impl<A: GlobalAlloc> GlobalAlloc for Metered<A> {
             q.sub(TAG).cast::<*const Meter>().write(m);
             q
         }
+    }
+}
+
+/* Under Miri a block carries no tag, a table keyed by its address holds the meter, so a block is freed through the
+   pointer that owns it, the only way Stacked Borrows lets a box go. */
+#[cfg(miri)]
+mod owners {
+    use super::{GlobalAlloc, Layout, Meter};
+    use core::sync::atomic::{AtomicBool, Ordering::{Acquire, Relaxed, Release}};
+
+    struct Table { slots: *mut (usize, *const Meter), cap: usize, len: usize }
+
+    static LOCK: AtomicBool = AtomicBool::new(false);
+    static mut TABLE: Table = Table { slots: core::ptr::null_mut(), cap: 0, len: 0 };
+
+    /* Runs `f` on the table alone, its slots taken from `inner` so the table never meters itself. */
+    fn with<R>(f: impl FnOnce(&mut Table) -> R) -> R {
+        while LOCK.compare_exchange_weak(false, true, Acquire, Relaxed).is_err() { core::hint::spin_loop(); }
+        let r = f(unsafe { &mut *core::ptr::addr_of_mut!(TABLE) });
+        LOCK.store(false, Release);
+        r
+    }
+
+    fn layout(cap: usize) -> Layout { Layout::array::<(usize, *const Meter)>(cap).expect("owner table size") }
+
+    impl Table {
+        fn home(&self, addr: usize) -> usize { (addr.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 7) & (self.cap - 1) }
+
+        fn key(&self, i: usize) -> usize { unsafe { (*self.slots.add(i)).0 } }
+
+        /* The slot of `addr`, or the empty slot where it would go. */
+        fn find(&self, addr: usize) -> usize {
+            let mut i = self.home(addr);
+            while self.key(i) != addr && self.key(i) != 0 { i = (i + 1) & (self.cap - 1); }
+            i
+        }
+
+        fn put(&mut self, inner: &impl GlobalAlloc, addr: usize, m: *const Meter) {
+            if (self.len + 1) * 2 > self.cap {
+                let (old, cap) = (self.slots, self.cap);
+                self.cap = (cap * 2).max(1024);
+                self.slots = unsafe { inner.alloc_zeroed(layout(self.cap)) }.cast();
+                assert!(!self.slots.is_null(), "owner table out of memory");
+                self.len = 0;
+                for i in 0..cap { let (a, m) = unsafe { *old.add(i) }; if a != 0 { self.put(inner, a, m); } }
+                if !old.is_null() { unsafe { inner.dealloc(old.cast(), layout(cap)) }; }
+            }
+            let i = self.find(addr);
+            if self.key(i) == 0 { self.len += 1; }
+            unsafe { *self.slots.add(i) = (addr, m) };
+        }
+
+        /* Takes the meter of `addr` out, shifting the run behind it back so every lookup still ends at an empty slot. */
+        fn take(&mut self, addr: usize) -> *const Meter {
+            let mut i = self.find(addr);
+            assert!(self.key(i) == addr, "a block the meter never handed out");
+            let m = unsafe { (*self.slots.add(i)).1 };
+            self.len -= 1;
+            let mut j = i;
+            loop {
+                unsafe { *self.slots.add(i) = (0, core::ptr::null()) };
+                loop {
+                    j = (j + 1) & (self.cap - 1);
+                    let a = self.key(j);
+                    if a == 0 { return m; }
+                    let home = self.home(a);
+                    // An entry stays when its home lies cyclically in (i, j].
+                    if if i <= j { i < home && home <= j } else { i < home || home <= j } { continue; }
+                    unsafe { *self.slots.add(i) = *self.slots.add(j) };
+                    i = j;
+                    break;
+                }
+            }
+        }
+    }
+
+    pub(super) fn put(inner: &impl GlobalAlloc, addr: usize, m: &Meter) { with(|t| t.put(inner, addr, m)) }
+    pub(super) fn take(addr: usize) -> &'static Meter { unsafe { &*with(|t| t.take(addr)) } }
+}
+
+#[cfg(miri)]
+unsafe impl<A: GlobalAlloc> GlobalAlloc for Metered<A> {
+    unsafe fn alloc(&self, l: Layout) -> *mut u8 {
+        let Some((inner, _)) = tagged(l) else { return core::ptr::null_mut() };
+        let p = unsafe { self.0.alloc(l) };
+        if !p.is_null() { let m = payer(); m.grew(inner.size()); owners::put(&self.0, p.addr(), m); }
+        p
+    }
+
+    unsafe fn dealloc(&self, p: *mut u8, l: Layout) {
+        owners::take(p.addr()).shrank(block(l).0.size());
+        unsafe { self.0.dealloc(p, l) }
+    }
+
+    unsafe fn realloc(&self, p: *mut u8, l: Layout, size: usize) -> *mut u8 {
+        let (inner, head) = block(l);
+        let Some(grown) = size.checked_add(head) else { return core::ptr::null_mut() };
+        let owner = owners::take(p.addr());
+        let q = unsafe { self.0.realloc(p, l, size) };
+        if q.is_null() { owners::put(&self.0, p.addr(), owner); return q; }
+        owner.shrank(inner.size());
+        let m = payer();
+        m.grew(grown);
+        owners::put(&self.0, q.addr(), m);
+        q
     }
 }

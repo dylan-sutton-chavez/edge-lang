@@ -9,11 +9,15 @@ pub(crate) fn eq_set(a: &ValSet, b: &ValSet, mut eq: impl FnMut(Val,Val)->bool) 
     a.len() == b.len() && a.iter_hashed().all(|(h, x)| b.slot(h, |y| eq(x, y)).is_some())
 }
 
+/* What an equality walk learned, whether only a user `__eq__` could settle it, and whether it matches table keys. */
+#[derive(Default)]
+struct EqCx { rich: bool, keys: bool }
+
 /* Recursion cap so self-referential containers fall back instead of overflowing the stack. */
 pub(crate) const EQ_DEPTH_MAX: usize = 100;
 
 pub fn eq_vals_with_heap(a: Val, b: Val, heap: &HeapPool) -> bool {
-    eq_vals_depth(a, b, heap, 0, &mut false)
+    eq_vals_depth(a, b, heap, 0, &mut EqCx::default())
 }
 
 /* Equality of a container member, identity first as in `x is e or x == e`. */
@@ -22,7 +26,7 @@ pub fn eq_member(a: Val, b: Val, heap: &HeapPool) -> bool {
     if a.0 == b.0 { return true; }
     // Two strings, the common dict and set key, compare their text straight away.
     if let (Some(HeapObj::Str(x)), Some(HeapObj::Str(y))) = (heap.try_get(a), heap.try_get(b)) { return eq_text(x.as_bytes(), y.as_bytes(), heap); }
-    eq_vals_depth(a, b, heap, 0, &mut false)
+    eq_vals_depth(a, b, heap, 0, &mut EqCx { rich: false, keys: true })
 }
 
 /* Text or bytes equality, a long pair counting the bytes it reads as native work. */
@@ -35,9 +39,9 @@ pub(crate) fn eq_text(x: &[u8], y: &[u8], heap: &HeapPool) -> bool {
 /* Content equality from `depth` levels in, None when only a user `__eq__` or the cap can settle it. */
 #[inline]
 pub fn eq_checked(a: Val, b: Val, heap: &HeapPool, depth: usize) -> Option<bool> {
-    let mut rich = false;
-    let r = eq_vals_depth(a, b, heap, depth, &mut rich);
-    if !r && rich { None } else { Some(r) }
+    let mut cx = EqCx::default();
+    let r = eq_vals_depth(a, b, heap, depth, &mut cx);
+    if !r && cx.rich { None } else { Some(r) }
 }
 
 /* The class or a base defines `__eq__`. */
@@ -100,13 +104,19 @@ fn hash_depth(v: Val, heap: &HeapPool, depth: usize) -> u64 {
     if let Some(k) = heap.foreign_hash(v) { h.write_u64(k); return h.finish(); }
     if !v.is_heap() || depth > EQ_DEPTH_MAX { h.write_u64(v.0); return h.finish(); }
     match heap.get(v) {
+        // A boxed number hashes as the number.
+        &HeapObj::Boxed(n) => return hash_depth(n, heap, depth),
         // A long text and every tuple count what they hash as native work.
         HeapObj::Str(s) => { if s.len() > 64 { heap.spend(s.len()); } h.write_u8(1); h.write(s.as_bytes()); }
         HeapObj::Bytes(b) => { if b.len() > 64 { heap.spend(b.len()); } h.write_u8(2); h.write(b); }
+        // A read-only view hashes as the bytes it shows.
+        HeapObj::MemoryView(_) => { let b = heap.octets(v).unwrap_or_default(); h.write_u8(2); h.write(&b); }
         HeapObj::Tuple(t) => { heap.spend(t.len()); return hash_tuple_parts(&t.iter().map(|&e| hash_depth(e, heap, depth + 1)).collect::<alloc::vec::Vec<_>>()) }
         // A frozenset sums the hashes it stored, and a set probes like the frozenset it equals.
         HeapObj::FrozenSet(s) => return hash_set_parts(s.iter_hashed().map(|(h, _)| h)),
         HeapObj::Set(s) => return hash_set_parts(s.borrow().iter_hashed().map(|(h, _)| h)),
+        // A frozendict hashes as the set of its items would.
+        HeapObj::FrozenDict(d) => return hash_set_parts(d.borrow().iter().map(|(k, v)| hash_tuple_parts(&[hash_depth(k, heap, depth + 1), hash_depth(v, heap, depth + 1)]))),
         HeapObj::GenericAlias(o, a) => { h.write_u8(5); h.write_u64(hash_depth(*o, heap, depth + 1)); h.write_u64(hash_depth(*a, heap, depth + 1)); }
         // Order-independent, `int | str` and `str | int` are one union.
         HeapObj::Union(a) => if let HeapObj::Tuple(t) = heap.get(*a) { h.write_u8(6); h.write_u64(t.iter().fold(0u64, |acc, &e| acc.wrapping_add(hash_depth(e, heap, depth + 1)))); },
@@ -117,6 +127,8 @@ fn hash_depth(v: Val, heap: &HeapPool, depth: usize) -> u64 {
             for x in [hash_int(n), if n == 0 { 0 } else { hash_int(s as i128) }, if n <= 1 { 0 } else { hash_int(st as i128) }] { h.write_i64(x); }
         }
         HeapObj::BigRange(..) => { h.write_u8(7); for x in crate::frontend::int::range_hashes(heap, v, 0).unwrap_or_default() { h.write_i64(x); } }
+        // An instance a user `__hash__` keyed probes like the int it returned.
+        HeapObj::Instance(..) if let Some(k) = heap.user_key(v) => return k.dict,
         _ => h.write_u64(v.0),
     }
     h.finish()
@@ -175,9 +187,9 @@ pub(crate) fn num_f64(v: Val, heap: &HeapPool) -> Option<Result<f64, VmErr>> {
 /* f64 view of any number, None for anything else and for an int too large for a float. */
 pub(crate) fn num_as_f64(v: Val, heap: &HeapPool) -> Option<f64> { num_f64(v, heap)?.ok() }
 
-fn eq_vals_depth(a: Val, b: Val, heap: &HeapPool, depth: usize, rich: &mut bool) -> bool {
+fn eq_vals_depth(a: Val, b: Val, heap: &HeapPool, depth: usize, cx: &mut EqCx) -> bool {
     // Past the cap only identity answers, and a distinct pair goes to a caller that can raise.
-    if depth > EQ_DEPTH_MAX { *rich |= a.0 != b.0; return a.0 == b.0; }
+    if depth > EQ_DEPTH_MAX { cx.rich |= a.0 != b.0; return a.0 == b.0; }
     // An element equals itself, so a NaN inside `[n] == [n]` matches.
     if depth > 0 && a.0 == b.0 { return true; }
 
@@ -199,7 +211,9 @@ fn eq_vals_depth(a: Val, b: Val, heap: &HeapPool, depth: usize, rich: &mut bool)
     if !a.is_heap() || !b.is_heap() {
         // An instance against an immediate still answers through its own `__eq__`.
         let other = if a.is_heap() { a } else if b.is_heap() { b } else { return a.0 == b.0 };
-        *rich |= matches!(heap.get(other), HeapObj::Instance(c, _) if class_defines_eq(*c, heap, 0));
+        // A number of a class over int or float compares as the number.
+        if let &HeapObj::Boxed(n) = heap.get(other) { return eq_vals_depth(if a.is_heap() { n } else { a }, if b.is_heap() { n } else { b }, heap, depth, cx); }
+        cx.rich |= matches!(heap.get(other), HeapObj::Instance(c, _) if class_defines_eq(*c, heap, 0));
         return false;
     }
 
@@ -210,27 +224,30 @@ fn eq_vals_depth(a: Val, b: Val, heap: &HeapPool, depth: usize, rich: &mut bool)
     // Each walk over elements counts their number as native work.
     match (heap.get(a), heap.get(b)) {
         (HeapObj::Str(x), HeapObj::Str(y)) => eq_text(x.as_bytes(), y.as_bytes(), heap),
-        (HeapObj::Bytes(x), HeapObj::Bytes(y)) => eq_text(x, y, heap),
-        (HeapObj::Tuple(x), HeapObj::Tuple(y)) => { heap.spend(x.len()); eq_seq(x, y, |a,b| eq_vals_depth(a, b, heap, d, rich)) }
-        (HeapObj::List(x), HeapObj::List(y)) => { heap.spend(x.borrow().len()); eq_seq(&x.borrow(), &y.borrow(), |a,b| eq_vals_depth(a, b, heap, d, rich)) }
-        (HeapObj::Set(x), HeapObj::Set(y)) => eq_tables(&x.borrow(), &y.borrow(), heap, d, rich),
-        (HeapObj::FrozenSet(x), HeapObj::FrozenSet(y)) => eq_tables(x, y, heap, d, rich),
-        (HeapObj::Set(x), HeapObj::FrozenSet(y)) => eq_tables(&x.borrow(), y, heap, d, rich),
-        (HeapObj::FrozenSet(x), HeapObj::Set(y)) => eq_tables(x, &y.borrow(), heap, d, rich),
-        (HeapObj::Dict(x), HeapObj::Dict(y)) => {
+        (HeapObj::Bytes(x) | HeapObj::ByteArray(x), HeapObj::Bytes(y) | HeapObj::ByteArray(y)) => eq_text(x, y, heap),
+        (HeapObj::Tuple(x), HeapObj::Tuple(y)) => { heap.spend(x.len()); eq_seq(x, y, |a,b| eq_vals_depth(a, b, heap, d, cx)) }
+        (HeapObj::List(x), HeapObj::List(y)) => { heap.spend(x.borrow().len()); eq_seq(&x.borrow(), &y.borrow(), |a,b| eq_vals_depth(a, b, heap, d, cx)) }
+        (HeapObj::Set(x), HeapObj::Set(y)) => eq_tables(&x.borrow(), &y.borrow(), heap, d, cx),
+        (HeapObj::FrozenSet(x), HeapObj::FrozenSet(y)) => eq_tables(x, y, heap, d, cx),
+        (HeapObj::Set(x), HeapObj::FrozenSet(y)) => eq_tables(&x.borrow(), y, heap, d, cx),
+        (HeapObj::FrozenSet(x), HeapObj::Set(y)) => eq_tables(x, &y.borrow(), heap, d, cx),
+        // A frozendict equals the dict with the same entries.
+        (HeapObj::Dict(x) | HeapObj::FrozenDict(x), HeapObj::Dict(y) | HeapObj::FrozenDict(y)) => {
             let (x, y) = (x.borrow(), y.borrow());
             heap.spend(x.len());
-            x.len() == y.len() && x.iter().all(|(k, v)| y.get(&k, heap).is_some_and(|&v2| v.0 == v2.0 || eq_vals_depth(v, v2, heap, d, rich)))
+            x.len() == y.len() && x.iter().all(|(k, v)| y.get(&k, heap).is_some_and(|&v2| v.0 == v2.0 || eq_vals_depth(v, v2, heap, d, cx)))
         }
+        // Two keys a user `__hash__` registered match by the class of equals they joined.
+        (HeapObj::Instance(..), HeapObj::Instance(..)) if cx.keys && let (Some(x), Some(y)) = (heap.user_key(a), heap.user_key(b)) => x.class == y.class,
         // An instance with its own `__eq__` decides in user code, the VM asks it.
         (HeapObj::Instance(..), _) | (_, HeapObj::Instance(..)) => {
-            *rich |= [a, b].iter().any(|&v| matches!(heap.get(v), HeapObj::Instance(c, _) if class_defines_eq(*c, heap, 0)));
+            cx.rich |= [a, b].iter().any(|&v| matches!(heap.get(v), HeapObj::Instance(c, _) if class_defines_eq(*c, heap, 0)));
             false
         }
         (HeapObj::Type(x), HeapObj::Type(y)) => x == y, // by name, interning also makes `is` hold
-        (HeapObj::GenericAlias(o1, a1), HeapObj::GenericAlias(o2, a2)) => eq_vals_depth(*o1, *o2, heap, d, rich) && eq_vals_depth(*a1, *a2, heap, d, rich),
+        (HeapObj::GenericAlias(o1, a1), HeapObj::GenericAlias(o2, a2)) => eq_vals_depth(*o1, *o2, heap, d, cx) && eq_vals_depth(*a1, *a2, heap, d, cx),
         (HeapObj::Union(a1), HeapObj::Union(a2)) => match (heap.get(*a1), heap.get(*a2)) {
-            (HeapObj::Tuple(x), HeapObj::Tuple(y)) => x.len() == y.len() && x.iter().all(|&m| y.iter().any(|&n| eq_vals_depth(m, n, heap, d, rich))),
+            (HeapObj::Tuple(x), HeapObj::Tuple(y)) => x.len() == y.len() && x.iter().all(|&m| y.iter().any(|&n| eq_vals_depth(m, n, heap, d, cx))),
             _ => false,
         },
         (HeapObj::BigRange(..), HeapObj::Range(..) | HeapObj::BigRange(..)) | (HeapObj::Range(..), HeapObj::BigRange(..)) => crate::frontend::int::range_eq(heap, a, b).unwrap_or(false),
@@ -241,19 +258,23 @@ fn eq_vals_depth(a: Val, b: Val, heap: &HeapPool, depth: usize, rich: &mut bool)
         }
         // Keys views compare as key sets and items views as dicts, a values view only to itself.
         (HeapObj::DictView(x, View::Keys), HeapObj::DictView(y, View::Keys)) => match (heap.get(*x), heap.get(*y)) {
-            (HeapObj::Dict(x), HeapObj::Dict(y)) => { let (x, y) = (x.borrow(), y.borrow()); x.len() == y.len() && x.keys().all(|k| y.contains_key(&k, heap)) }
+            (HeapObj::Dict(x) | HeapObj::FrozenDict(x), HeapObj::Dict(y) | HeapObj::FrozenDict(y)) => { let (x, y) = (x.borrow(), y.borrow()); x.len() == y.len() && x.keys().all(|k| y.contains_key(&k, heap)) }
             _ => false,
         },
-        (HeapObj::DictView(x, View::Items), HeapObj::DictView(y, View::Items)) => eq_vals_depth(*x, *y, heap, d, rich),
+        (HeapObj::DictView(x, View::Items), HeapObj::DictView(y, View::Items)) => eq_vals_depth(*x, *y, heap, d, cx),
+        // A memoryview equals any bytes-like value with the same bytes.
+        (HeapObj::MemoryView(_), _) | (_, HeapObj::MemoryView(_)) => matches!((heap.octets(a), heap.octets(b)), (Some(x), Some(y)) if x == y),
+        // A number of a class over int or float compares as the number.
+        (HeapObj::Boxed(_), _) | (_, HeapObj::Boxed(_)) => eq_vals_depth(crate::value::unboxed(a, heap), crate::value::unboxed(b, heap), heap, depth, cx),
         // Cross-type comparisons fall through to false. Notably `bytes == str` is False, even when the bytes are valid UTF-8 of the str.
         _ => false,
     }
 }
 
 /* Set equality, each item matched under the hash it stored. */
-fn eq_tables(x: &ValSet, y: &ValSet, heap: &HeapPool, d: usize, rich: &mut bool) -> bool {
+fn eq_tables(x: &ValSet, y: &ValSet, heap: &HeapPool, d: usize, cx: &mut EqCx) -> bool {
     heap.spend(x.len());
-    eq_set(x, y, |a, b| a.0 == b.0 || eq_vals_depth(a, b, heap, d, rich))
+    eq_set(x, y, |a, b| a.0 == b.0 || eq_vals_depth(a, b, heap, d, cx))
 }
 
 /* Count of values range(start, stop, step) yields, step is never zero. */

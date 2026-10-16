@@ -27,6 +27,7 @@ pub(crate) fn const_vals(chunk: &SSAChunk, heap: &mut HeapPool) -> Result<Box<[V
             Value::Int(i) => heap.int(*i as i128)?,
             Value::BigInt(b) => crate::frontend::int::val(heap, b.clone())?,
             Value::Float(f) => Val::float(*f),
+            Value::Imag(f) => crate::frontend::complex::val(heap, 0.0, *f)?,
             Value::Bool(b) => Val::bool(*b),
             Value::None => Val::none(),
             Value::Str(s) => heap.intern_str(s)?,

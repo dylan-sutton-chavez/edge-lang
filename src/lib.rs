@@ -18,6 +18,7 @@ pub mod util {
     pub mod jesc;
     pub mod sha256;
     pub mod uni;
+    pub mod suggest;
 
     /* `Box::leak` for memory kept until exit, which Miri then holds as a static root instead of reporting it. */
     pub fn leak<T: ?Sized>(boxed: alloc::boxed::Box<T>) -> &'static mut T {

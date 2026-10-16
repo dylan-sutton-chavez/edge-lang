@@ -310,8 +310,22 @@ impl<'a> VM<'a> {
                     if self.frames.len() == floor { break Ok(v); }
                     if self.frames.last().is_some_and(|f| !f.generator.is_undef()) {
                         self.yielded = false;
-                        // A generator only hands values to its `for`, waiting for an event inside it is an error there.
-                        if self.waits() { raised = Some(self.suspended_in_generator()); parking = false; continue; }
+                        if self.waits() {
+                            // Each generator parks where it waits or steps the one inside, down to the first frame that is no generator.
+                            loop {
+                                let step = self.park_gen();
+                                let stepping = match self.frames.last() { Some(f) if self.frames.len() > floor => f.code, _ => Rc::as_ptr(&floor_code) };
+                                // SAFETY as above.
+                                self.resume_ip = unsafe { &*stepping }.resume(step);
+                                if !(self.frames.len() > floor && self.frames.last().is_some_and(|f| !f.generator.is_undef())) { break; }
+                            }
+                            self.yielded = true;
+                            if self.frames.len() == floor { self.base = floor_base; break Ok(Val::none()); }
+                            ip = self.park_frame();
+                            load!();
+                            parking = true;
+                            continue;
+                        }
                         let resume = core::mem::take(&mut self.resume_ip);
                         let at = self.yield_gen(resume);
                         load!();
@@ -347,13 +361,15 @@ impl<'a> VM<'a> {
 
     /* What a suspending frame hands out, its resume point noted. */
     fn yield_out(&mut self, code: &Code, ip: usize) -> Val {
-        // Event yields keep the None placeholder (overwritten by `run_push_event` before resume). Sync sub-call yields pushed nothing, the helper's return lands on the stack when its frame completes, so don't pop and don't skip the next PopTop. Child-wait yields keep the placeholder (wake-loop overwrites it with the target's result). Host-call yields keep the placeholder (overwritten by `set_host_result_by_id`).
+        // A wait keeps its None placeholder for what wakes it, a helper that parked pushed nothing.
         let event_yield = self.pending.event_wait_request;
         let sub_call_yield = !self.pending_sync_frames.is_empty();
         let child_yield = self.pending.waiting_for_children.is_some();
         let host_yield = self.pending.host_call_request;
         let preempt_yield = self.pending.preempt_request;
-        let regular_yield = !event_yield && !sub_call_yield && !child_yield && !host_yield && !preempt_yield;
+        // A sleep keeps its None as a placeholder the way an event wait does.
+        let sleep_yield = self.pending.sleep_until_ns.is_some();
+        let regular_yield = !event_yield && !sub_call_yield && !child_yield && !host_yield && !preempt_yield && !sleep_yield;
         let val = if regular_yield { self.pop().unwrap_or(Val::none()) } else { Val::none() };
         let next_is_pop = ip < code.ins.len() && code.ins[ip].op == OpCode::PopTop;
         self.resume_ip = code.resume(if regular_yield && next_is_pop { ip + 1 } else { ip });
@@ -382,9 +398,15 @@ impl<'a> VM<'a> {
                 None => Err(e),
             };
         }
+        // A missing name is measured against the frame it is missing from, which is still alive here.
+        if let VmErr::Name(n) = &e { self.note_missing_name(n, chunk); }
         // Innermost frame wins, cleared below on swallow so later errors re-anchor.
         if self.error_byte_pos.is_none() {
             self.error_byte_pos = chunk.resolve(code.orig(rip));
+            // Another text, run by `exec` or imported, keeps where in it the error rose, for the line its traceback starts at.
+            if self.error_inner.is_none() && !alloc::sync::Arc::ptr_eq(&chunk.source, &self.chunk.source) && let Some(p) = self.error_byte_pos {
+                self.error_inner = Some((chunk.source.clone(), chunk.path.clone(), p));
+            }
         }
         if self.exception_stack.len() <= exc_base { return Err(e); }
         let frame = self.exception_stack.pop().unwrap();
@@ -409,8 +431,10 @@ impl<'a> VM<'a> {
         };
         // Kept so raising the exception again reports where it was first raised.
         let at = self.error_byte_pos.take();
+        (self.error_inner, self.missed) = (None, None);
         // An exception rising while another is handled takes it as its context.
-        if let Some(&(handled, handled_at)) = self.handling.last() {
+        let no_context = core::mem::take(&mut self.pending.no_context);
+        if let Some(&(handled, handled_at)) = self.handling.last() && !no_context {
             self.with_roots([exc], |vm| vm.link_context(exc, handled, handled_at))?;
         }
         // Drop reasons from finally bodies this exception unwinds past.
@@ -486,6 +510,7 @@ impl<'a> VM<'a> {
                 if let Some(v) = self.try_getattr_fallback(obj, name, chunk)? {
                     return self.call_with(v, None, &positional, &kw_flat, chunk);
                 }
+                self.note_missing_attr(obj, name);
                 return Err(VmErr::Attribute(msg));
             }
             Err(other) => return Err(other),
@@ -518,7 +543,11 @@ impl<'a> VM<'a> {
             }
             AttrLookup::BoundBuiltin(recv, id) => self.exec_bound_method(recv, id, &positional, &kw_flat, chunk),
             AttrLookup::UnboundMethod(id) => self.exec_unbound_method(id, &positional, &kw_flat, chunk),
-            AttrLookup::ExcArgs(_) | AttrLookup::Name(_) | AttrLookup::TypeOf(_) | AttrLookup::Classes(..) => {
+            AttrLookup::DescGet { desc, recv, owner } => {
+                let value = self.call_hook(desc, "__get__", &[recv, owner], chunk)?;
+                self.call_with(value, None, &positional, &kw_flat, chunk)
+            }
+            AttrLookup::ExcArgs(_) | AttrLookup::Name(_) | AttrLookup::TypeOf(_) | AttrLookup::Mro(_) | AttrLookup::Bases(_) | AttrLookup::Members(_) | AttrLookup::Annotations(_) | AttrLookup::Code(_) | AttrLookup::Names(_) => {
                 // `e.args()` / `f.__name__()`, the value isn't callable, reports as missing attribute.
                 let ty = self.type_name(obj);
                 Err(VmErr::Attribute(s!("'", str ty, "' object has no attribute '", str &name, "'")))
@@ -540,8 +569,8 @@ impl<'a> VM<'a> {
                 let value = self.pop()?;
                 self.call_with(value, None, &positional, &kw_flat, chunk)
             }
-            AttrLookup::PropertySetterRef(prop) => {
-                let v = self.heap.alloc(HeapObj::PropertySetter(prop))?;
+            AttrLookup::PropertyPart(prop, slot) => {
+                let v = self.heap.alloc(HeapObj::PropertyPart(prop, slot))?;
                 self.call_with(v, None, &positional, &kw_flat, chunk)
             }
         }
@@ -981,6 +1010,8 @@ impl<'a> VM<'a> {
             }
             match self.open_in_loop(vals[0], passed, n) {
                 Ok(true) => { self.learn_call(i, code, vals[0]); Ok(()) }
+                // A bound builtin method, `xs.append` looked up before its argument ran, takes the registers as they are.
+                Ok(false) if let Some(&HeapObj::BoundMethod(recv, id)) = self.heap.try_get(vals[0]) && !recv.is_undef() => self.exec_bound_method(recv, id, &vals[1..=n], &[], chunk),
                 // Any other callee takes them off the stack as a stack call would.
                 Ok(false) => { self.stack.extend_from_slice(&vals[..=n]); self.call_general(n as u16, chunk) }
                 Err(e) => Err(e),
@@ -1047,7 +1078,7 @@ impl<'a> VM<'a> {
         let Some(f) = self.frames.last().filter(|_| self.entered) else { return };
         if f.callee.0 == callee.0 && f.instance.is_undef() && matches!(self.heap.try_get(callee), Some(HeapObj::Func(..))) {
             code.cache.set_site(i, Site::Call { callee, fi: f.fi as u32 });
-        } else if !f.instance.is_undef() && let Some(&super::Ctor { epoch, init: Some((init, owner)), exception: false, attrs, native: None }) = self.ctors.get(&callee.0)
+        } else if !f.instance.is_undef() && let Some(&super::Ctor { epoch, init: Some((init, owner)), exception: false, attrs, native: None, special: false }) = self.ctors.get(&callee.0)
             && init.0 == f.callee.0 && epoch == self.class_epoch {
             code.cache.set_site(i, Site::Ctor { class: callee, init, owner, fi: f.fi as u32, attrs: attrs as u32, epoch });
         }
@@ -1242,7 +1273,7 @@ impl<'a> VM<'a> {
         Some(match self.heap.plain(v)? {
             HeapObj::List(v) => v.borrow().len(),
             HeapObj::Tuple(v) => v.len(),
-            HeapObj::Dict(d) => d.borrow().len(),
+            HeapObj::Dict(d) | HeapObj::FrozenDict(d) => d.borrow().len(),
             HeapObj::Set(s) => s.borrow().len(),
             HeapObj::Str(s) if s.is_ascii() => s.len(),
             _ => return None,
@@ -1258,7 +1289,7 @@ impl<'a> VM<'a> {
             let hit = match self.heap.plain(o) {
                 Some(HeapObj::List(v)) if k.is_int() => { let b = v.borrow(); index_of(k.as_int(), b.len()).map(|j| b[j]) }
                 Some(HeapObj::Tuple(v)) if k.is_int() => index_of(k.as_int(), v.len()).map(|j| v[j]),
-                Some(HeapObj::Dict(d)) => dict_get(&self.heap, d, k),
+                Some(HeapObj::Dict(d) | HeapObj::FrozenDict(d)) => dict_get(&self.heap, d, k),
                 _ => None,
             };
             let Some(v) = hit else { return false };
@@ -1288,7 +1319,7 @@ impl<'a> VM<'a> {
                 if !self.plain_key(item) { return false; }
                 let hit = match self.heap.try_get(container) {
                     Some(HeapObj::Set(rc)) => rc.borrow().contains(item, &self.heap),
-                    Some(HeapObj::Dict(rc)) => rc.borrow().contains_key(&item, &self.heap),
+                    Some(HeapObj::Dict(rc) | HeapObj::FrozenDict(rc)) => rc.borrow().contains_key(&item, &self.heap),
                     Some(HeapObj::FrozenSet(s)) => s.contains(item, &self.heap),
                     _ => return false,
                 };
@@ -1415,6 +1446,7 @@ impl<'a> VM<'a> {
                 if !self.set_cell(self.regs[self.base + ins.a as usize], v) { self.regs[self.base + ins.a as usize] = v; }
             }
             OpCode::ForIterR => match self.for_step(chunk)? {
+                Some(item) if item.is_undef() => *ip = rip,
                 Some(item) if ins.x == 0 => self.regs[self.base + ins.b as usize] = item,
                 Some(item) => self.scopes[code.module].set_at(ins.b as u32, item),
                 None => {
@@ -1621,8 +1653,12 @@ impl<'a> VM<'a> {
             }
             OpCode::GetIter => {
                 let obj = self.pop()?;
-                let user = op == crate::parser::ITER_AS_IS && matches!(self.heap.try_get(obj), Some(HeapObj::Instance(..)));
-                let frame = if user { IterFrame::UserDefined(obj) } else { self.make_iter_frame(obj, chunk)? };
+                let frame = match self.heap.try_get(obj) {
+                    Some(HeapObj::Instance(..)) if op == crate::parser::ITER_AS_IS => IterFrame::UserDefined(obj),
+                    // `async for` steps a coroutine or an async generator, which a plain `for` refuses.
+                    Some(HeapObj::Coroutine(..)) if op == crate::parser::ITER_ASYNC => IterFrame::Coroutine(obj),
+                    _ => self.make_iter_frame(obj, chunk)?,
+                };
                 self.iter_stack.push(frame);
             }
             OpCode::LoadTrue => self.push(Val::bool(true)),
@@ -1694,8 +1730,8 @@ impl<'a> VM<'a> {
                 self.push(alias);
             }
             OpCode::MakeTypeVar => {
-                let name = chunk.names.get(operand as usize).ok_or_else(|| cold_runtime("MakeTypeVar: bad name index"))?.clone();
-                let v = self.heap.alloc(HeapObj::TypeVar(name))?;
+                let name = chunk.names.get(operand as usize).ok_or_else(|| cold_runtime("MakeTypeVar: bad name index"))?;
+                let v = self.heap.alloc(HeapObj::TypeVar(name.trim_start_matches('#').into()))?;
                 self.push(v);
             }
             OpCode::In | OpCode::NotIn | OpCode::Is | OpCode::IsNot => self.handle_identity(opcode, chunk)?,
@@ -1731,7 +1767,7 @@ impl<'a> VM<'a> {
             OpCode::MatchClass => self.match_class(operand as usize, chunk)?,
             OpCode::MatchMap => {
                 let v = self.pop()?;
-                let is_map = v.is_heap() && matches!(self.heap.get(v), HeapObj::Dict(_));
+                let is_map = self.heap.dict_cell(v).is_some();
                 self.push(Val::bool(is_map));
             }
             OpCode::Dup2 => {
@@ -1888,19 +1924,18 @@ impl<'a> VM<'a> {
         None
     }
 
+    /* The function a context manager binds to `name` and the class holding it. */
+    fn with_member(&self, cm: Val, name: &str) -> Option<(Val, Val)> {
+        let Some(&HeapObj::Instance(cls, _)) = self.heap.try_get(cm) else { return None };
+        self.lookup_class_member(cls, name).filter(|&(func, _)| matches!(self.heap.try_get(func), Some(HeapObj::Func(..))))
+    }
+
     /* MRO-bound dunder pair for a context manager, Err when unmet. */
     fn with_dunder(&mut self, cm: Val, name: &str) -> Result<(Val, Val), VmErr> {
-        if cm.is_heap()
-            && let HeapObj::Instance(cls_val, _) = self.heap.get(cm) {
-            let cls = *cls_val;
-            if let Some((func, class)) = self.lookup_class_member(cls, name)
-                && func.is_heap()
-                && matches!(self.heap.get(func), HeapObj::Func(..))
-            {
-                return Ok((func, class));
-            }
-        }
-        Err(VmErr::TypeMsg(s!("'", str self.type_name(cm), "' object does not support the context manager protocol")))
+        if let Some(found) = self.with_member(cm, name) { return Ok(found); }
+        // The missing half is named, `__exit__` when both are.
+        let missed = if name == "__enter__" && self.with_member(cm, "__exit__").is_some() { "__enter__" } else { "__exit__" };
+        Err(VmErr::TypeMsg(s!("'", str self.type_name(cm), "' object does not support the context manager protocol (missed ", str missed, " method)")))
     }
 
     /* Exception class name for a raised value, defaults to "Exception" for non-instances. */
@@ -1998,6 +2033,8 @@ impl<'a> VM<'a> {
     #[inline(never)]
     fn exec_for_iter(&mut self, op: u16, ip: &mut usize, n: usize, chunk: &SSAChunk) -> Result<(), VmErr> {
         match self.for_step(chunk)? {
+            // Parked with its generator, the `for` runs again on resume.
+            Some(item) if item.is_undef() => *ip -= 1,
             Some(item) => self.push(item),
             None => {
                 if op as usize > n { return Err(cold_runtime("jump target out of bounds")); }
@@ -2007,7 +2044,7 @@ impl<'a> VM<'a> {
         Ok(())
     }
 
-    /* The innermost iterator's next item, None once it ended and left the iterator stack. */
+    /* The next item of the innermost iterator, None once it ended and left the iterator stack, undef while it waits with its generator. */
     #[inline(never)]
     fn for_step(&mut self, chunk: &SSAChunk) -> Result<Option<Val>, VmErr> {
         self.charge_step()?;
@@ -2016,7 +2053,13 @@ impl<'a> VM<'a> {
         let step = match self.iter_stack.last() {
             // Resume directly so `yielded` distinguishes a yielded value (even None) from exhaustion.
             Some(&IterFrame::Coroutine(cv)) => {
+                self.for_steps = true;
                 let result = self.resume_coroutine(cv)?;
+                // A generator parked on a wait leaves the `for` waiting in its place, a placeholder taking what wakes it.
+                if self.yielded && self.waits() {
+                    if !self.pending.preempt_request { self.push(Val::none()); }
+                    return Ok(Some(Val::undef()));
+                }
                 if core::mem::take(&mut self.yielded) { Ok(result) } else { Err(result) }
             }
             // A user iterator steps `__next__`, `StopIteration` ends the loop and `raise StopIteration(v)` carries `v`.
@@ -2057,24 +2100,14 @@ impl<'a> VM<'a> {
     fn exec_make_class(&mut self, op: u16, ip: usize, chunk: &SSAChunk) -> Result<(), VmErr> {
         // The operand is the class chunk index, the body keeps its base count.
         let class_idx = op as usize;
-        let num_bases = chunk.classes.get(class_idx).map_or(0, |b| b.bases as usize);
-        // Pop bases first so a misencoded operand fails before we touch the body.
-        let mut bases = self.pop_n(num_bases)?;
-        // An `object` base is a no-op.
-        bases.retain(|&b| !(b.is_heap() && matches!(self.heap.get(b), HeapObj::Type(n) if n == "object")));
-        // A builtin exception joins as a base, so the class enters its tree, and so do `dict` and `list`.
-        for &b in &bases {
-            let ok = match self.heap.try_get(b) {
-                Some(HeapObj::Class(..)) => true,
-                Some(HeapObj::Type(n)) => crate::vm::globals::matches_exc_class(n, "BaseException") || matches!(n.as_str(), "dict" | "list"),
-                _ => false,
-            };
-            if !ok { return Err(cold_type("base class must be a class object")); }
-        }
-        // An instance takes one builtin layout at most, an exception, a dict or a list.
-        let mut layouts: Vec<Val> = bases.iter().filter_map(|&b| if self.exc_base(b).is_some() { Some(Val::none()) } else { self.container_base(b) }).collect();
-        layouts.dedup_by_key(|v| v.0);
-        if layouts.len() > 1 { return Err(cold_type("multiple bases have instance lay-out conflict")); }
+        let (num_bases, num_kw) = chunk.classes.get(class_idx).map_or((0, 0), |b| (b.bases as usize, b.class_kw as usize));
+        // Pop keywords and bases first so a misencoded operand fails before we touch the body.
+        let keywords = self.pop_n(2 * num_kw)?;
+        let mut bases = if num_bases == crate::parser::SPREAD_BASES as usize {
+            let list = self.pop()?;
+            match self.heap.try_get(list) { Some(HeapObj::List(l)) => l.borrow().clone(), _ => return Err(cold_runtime("spread bases corrupted")) }
+        } else { self.pop_n(num_bases)? };
+        self.check_bases(&mut bases)?;
         let Some(body) = chunk.classes.get(class_idx) else {
             return Err(cold_runtime("class index out of range"));
         };
@@ -2140,18 +2173,84 @@ impl<'a> VM<'a> {
             .filter(|i| i.opcode == OpCode::StoreName)
             .and_then(|i| chunk.names.get(i.operand as usize))
             .map(|n| ssa_strip(n))
-            .unwrap_or("?")
+            // A generic class returns from the scope of its parameters, so its qualified name gives the name.
+            .unwrap_or_else(|| body.qualname.rsplit('.').next().unwrap_or("?"))
             .to_string();
-        // C3 linearize before allocating, an inconsistent hierarchy raises here (Python parity), so no half-built class escapes.
+        let qualname = (body.qualname != name_str).then(|| body.qualname.clone());
+        let cls = self.finish_class(name_str, qualname, bases, methods, &keywords, chunk)?;
+        self.push(cls);
+        Ok(())
+    }
+
+    /* Refuses a base no class can derive from or two builtin layouts at once, an `object` base staying where it was listed. */
+    pub(crate) fn check_bases(&self, bases: &mut [Val]) -> Result<(), VmErr> {
+        // An alias base, `Box[int]` or `list[int]`, derives from the class it parametrizes.
+        for b in bases.iter_mut() { if let Some(&HeapObj::GenericAlias(origin, _)) = self.heap.try_get(*b) { *b = origin; } }
+        // A builtin exception joins as a base, so the class enters its tree, and so do the types in `NATIVE_BASES`.
+        for &b in bases.iter() {
+            let ok = match self.heap.try_get(b) {
+                Some(HeapObj::Class(..)) => true,
+                Some(HeapObj::Type(n)) if n == "object" || crate::vm::globals::is_exc_type(n) || super::opcodes::attr_lookup::NATIVE_BASES.contains(&n.as_str()) => true,
+                Some(HeapObj::Type(n)) => return Err(VmErr::TypeMsg(s!("type '", str n, "' is not an acceptable base type"))),
+                _ => false,
+            };
+            if !ok { return Err(cold_type("base class must be a class object")); }
+        }
+        // An instance takes one builtin layout at most, an exception or one builtin type.
+        let mut layouts: Vec<Val> = bases.iter().filter_map(|&b| if self.exc_base(b).is_some() { Some(Val::none()) } else { self.native_base(b) }).collect();
+        layouts.dedup_by_key(|v| v.0);
+        if layouts.len() > 1 { return Err(cold_type("multiple bases have instance lay-out conflict")); }
+        Ok(())
+    }
+
+    /* Allocates the class from its checked bases and members, caches its order and runs the hooks of a new class. */
+    #[inline(never)]
+    pub(crate) fn finish_class(&mut self, name: String, qualname: Option<String>, bases: Vec<Val>, members: Vec<(String, Val)>, keywords: &[Val], chunk: &SSAChunk) -> Result<Val, VmErr> {
+        // C3 linearize before allocating, an inconsistent hierarchy raises here, so no half-built class escapes.
         let mro_tail = self.c3_merge(&bases)?;
-        let cls = self.heap.alloc(HeapObj::Class(name_str, bases, alloc::rc::Rc::new(core::cell::RefCell::new(methods))))?;
-        // A site keyed on a swept class's slot must not match its successor.
+        let cls = self.heap.alloc(HeapObj::Class(name, bases, alloc::rc::Rc::new(core::cell::RefCell::new(members))))?;
+        // A site keyed on the slot of a swept class must not match its successor, nor its qualified name.
         self.class_epoch = self.class_epoch.wrapping_add(1);
+        match qualname { Some(q) => { self.class_qualnames.insert(cls.0, q); } None => { self.class_qualnames.remove(&cls.0); } }
         let mut mro = Vec::with_capacity(mro_tail.len() + 1);
         mro.push(cls);
         mro.extend(mro_tail);
         self.mro_cache.insert(cls.0, alloc::rc::Rc::new(mro));
-        self.push(cls);
+        self.with_roots(keywords.iter().copied().chain([cls]), |vm| vm.class_created(cls, keywords, chunk))?;
+        Ok(cls)
+    }
+
+    /* A new class tells each member of it with `__set_name__` its name, then its bases run `__init_subclass__` with the class keywords. */
+    #[inline(never)]
+    pub(crate) fn class_created(&mut self, cls: Val, keywords: &[Val], chunk: &SSAChunk) -> Result<(), VmErr> {
+        let members = match self.heap.get(cls) { HeapObj::Class(_, _, m) => m.borrow().clone(), _ => Vec::new() };
+        self.user_hash |= members.iter().any(|(n, _)| n == "__hash__");
+        self.attr_hooks |= members.iter().any(|(n, _)| n == "__setattr__" || n == "__delattr__");
+        // A slot name may not also be a class variable.
+        if let Some(&(_, slots)) = members.iter().find(|(n, _)| n == "__slots__") {
+            self.slotted = true;
+            if let Some(n) = self.slot_names(slots).into_iter().find(|n| members.iter().any(|(m, _)| m == n)) {
+                return Err(VmErr::Raised(s!("ValueError: '", str &n, "' in __slots__ conflicts with class variable")));
+            }
+        }
+        for (name, member) in members {
+            let Some(owner) = self.instance_class(member) else { continue };
+            if self.lookup_class_member(owner, "__set_name__").is_none() { continue; }
+            let name = self.heap.alloc(HeapObj::Str(name))?;
+            self.try_call_dunder(member, "__set_name__", &[cls, name], chunk)?;
+        }
+        // The hook comes from above the class, and a base without one takes no keywords.
+        let found = self.lookup_class_member_after(cls, cls, "__init_subclass__");
+        let Some((hook, defining)) = found else {
+            if keywords.is_empty() { return Ok(()); }
+            let HeapObj::Class(name, ..) = self.heap.get(cls) else { return Ok(()) };
+            return Err(VmErr::TypeMsg(s!(str name, ".__init_subclass__() takes no keyword arguments")));
+        };
+        let hook = match self.heap.try_get(hook) { Some(&HeapObj::ClassMethod(f)) => f, _ => hook };
+        if self.depth >= self.max_calls { return Err(cold_depth()); }
+        self.pending.method_binding = Some((defining, cls));
+        self.call_with(hook, Some(cls), &[], keywords, chunk)?;
+        self.pop()?;
         Ok(())
     }
 
@@ -2166,29 +2265,27 @@ impl<'a> VM<'a> {
         Ok(())
     }
 
-    /* `obj.name = value`, shared by StoreAttr and `setattr()`. */
+    /* `obj.name = value`, shared by StoreAttr and `setattr()`, through a `__setattr__` the class defines. */
     pub(crate) fn store_attr(&mut self, obj: Val, name: &str, value: Val, chunk: &SSAChunk) -> Result<(), VmErr> {
-        if !obj.is_heap() { return Err(cold_type("cannot set attribute")); }
-        let member = self.instance_class(obj).and_then(|c| self.lookup_class_member(c, name));
-        if let Some((member, _)) = member
-            && member.is_heap()
-            && let HeapObj::Property(_, setter) = self.heap.get(member) {
-            let setter = *setter;
-            if setter.is_none() {
-                return Err(VmErr::Attribute(s!("can't set attribute '", str name, "'")));
-            }
-            if self.depth >= self.max_calls { return Err(cold_depth()); }
-            self.push(setter);
-            self.push(obj);
-            self.push(value);
-            self.exec_call(2, chunk)?;
-            self.pop()?;
+        if self.attr_hooks && self.has_hook(obj, "__setattr__") {
+            let attr = self.heap.intern_str(name)?;
+            self.call_hook(obj, "__setattr__", &[attr, value], chunk)?;
             return Ok(());
         }
+        self.store_attr_raw(obj, name, value, chunk)
+    }
+
+    /* `object.__setattr__`, the store past any `__setattr__` hook. */
+    pub(crate) fn store_attr_raw(&mut self, obj: Val, name: &str, value: Val, chunk: &SSAChunk) -> Result<(), VmErr> {
+        if !obj.is_heap() { return Err(cold_type("cannot set attribute")); }
+        let member = self.instance_class(obj).and_then(|c| self.lookup_class_member(c, name));
+        if let Some((m, _)) = member && self.store_through_class(obj, m, name, value, chunk)? { return Ok(()); }
         // Class attribute, insert or replace in the mutable members store.
         if let HeapObj::Class(_, _, members) = self.heap.get(obj) {
             // A method or property set on a class may share a name with an instance attribute.
             self.shadowed |= self.hides(value);
+            self.user_hash |= name == "__hash__";
+            self.attr_hooks |= name == "__setattr__" || name == "__delattr__";
             set_member(members, name, value);
             self.class_epoch = self.class_epoch.wrapping_add(1);
             return Ok(());
@@ -2197,6 +2294,7 @@ impl<'a> VM<'a> {
             set_member(attrs, name, value);
             return Ok(());
         }
+        self.check_slot(obj, name)?;
         let key = self.heap.intern_str(name)?;
         let attrs = match self.heap.get(obj) {
             HeapObj::Instance(_, attrs) => attrs,

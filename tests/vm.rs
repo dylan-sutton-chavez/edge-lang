@@ -186,8 +186,8 @@ mod test {
                 Err(e) => match &case.error {
                     Some(expected) => assert!(e.to_string().contains(expected.as_str()), "wrong error on {:?}: got '{}', expected '{}'", case.src, e, expected),
                     None if expects_input_error => assert!(
-                        e.to_string().contains("input"),
-                        "expected input RuntimeError under strict mode for: {:?}, got: {}",
+                        e.to_string().contains("EOFError"),
+                        "expected input EOFError under strict mode for: {:?}, got: {}",
                         case.src, e
                     ),
                     None => panic!("VM error on {:?}: {}", case.src, e),
@@ -217,7 +217,7 @@ mod test {
         }
 
         fn render(vm: &VM, e: &VmErr, src: &str) -> String {
-            vm.render_chain(src, Some("main.py")) + &e.render_traceback(src, vm.error_pos(), Some("main.py"), vm.call_stack_frames(), vm.function_names_ref())
+            vm.render_error(e, src, Some("main.py"))
         }
 
         // Runs `src`, answering every deferred call with `error`, returns the output and any rendered traceback.
@@ -261,6 +261,17 @@ mod test {
             assert!(tb.contains("--> main.py:4:5"), "{tb}");
             assert!(tb.contains("note: called from helper()"), "{tb}");
             assert!(tb.contains(":5:7"), "{tb}");
+        }
+
+        #[test]
+        fn an_error_in_exec_text_points_inside_the_text_then_at_the_call() {
+            let src = "def g():\n    exec('def h():\\n    return 1 / 0\\nh()')\ng()\n";
+            let (_, tb) = run(src, "");
+            let tb = tb.expect("the ZeroDivisionError escapes");
+            assert!(tb.contains("--> <string>:2:5"), "{tb}");
+            assert!(tb.contains("--> <string>:3:2"), "{tb}");
+            assert!(tb.contains("note: called from exec()\n  --> main.py:2:9"), "{tb}");
+            assert!(tb.contains("note: called from g()\n  --> main.py:3:2"), "{tb}");
         }
 
         #[test]

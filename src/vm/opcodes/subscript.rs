@@ -9,6 +9,27 @@ fn normalize_index(i: i64, len: usize) -> usize {
     (if i < 0 { len as i64 + i } else { i }) as usize
 }
 
+/* `xs[a:b] = items`, or `del xs[a:b]` without items, on a vector of any item, an extended slice needing an exact count. */
+fn splice<T>(b: &mut Vec<T>, (s, e, st): (i64, i64, i64), items: Option<Vec<T>>) -> Result<(), VmErr> {
+    if st == 1 {
+        b.splice(s as usize..e.max(s) as usize, items.unwrap_or_default());
+        return Ok(());
+    }
+    // Selected positions sit `st` apart from `s`, strictly before `e`.
+    let picked = |k: i64| (if st > 0 { k < e && k >= s } else { k > e && k <= s }) && (k - s) % st == 0;
+    let Some(items) = items else {
+        let mut k = -1;
+        b.retain(|_| { k += 1; !picked(k) });
+        return Ok(());
+    };
+    let span = if st > 0 { (e - s + st - 1) / st } else { (s - e - st - 1) / -st };
+    if items.len() as i64 != span.max(0) {
+        return Err(VmErr::Raised(crate::s!("ValueError: attempt to assign sequence of size ", int items.len() as i64, " to extended slice of size ", int span.max(0))));
+    }
+    for (k, v) in items.into_iter().enumerate() { b[(s + k as i64 * st) as usize] = v; }
+    Ok(())
+}
+
 /* Slice bounds clamped to a sequence of `len` items, the triple `slice.indices(len)` returns. */
 pub(crate) fn slice_bounds(start: Val, stop: Val, step: Val, len: i64) -> Result<(i64, i64, i64), VmErr> {
     let st = if step.is_none() { 1 } else if step.is_int() { step.as_int() } else {
@@ -55,7 +76,8 @@ impl<'a> VM<'a> {
         }
 
         let idx = self.coerce_index(obj, idx, chunk)?;
-        if obj.is_heap() && let HeapObj::Dict(p) = self.heap.get(obj) {
+        if self.heap.dict_cell(obj).is_some() { self.keyed(idx)?; }
+        if let Some(p) = self.heap.dict_cell(obj) {
             let found = p.borrow().get(&idx, &self.heap).copied();
             // A class over dict answers a missing key through its `__missing__`.
             if found.is_none() && self.heap.classed(obj).is_some() && let Some(v) = self.try_call_dunder(obj, "__missing__", &[idx], chunk)? {
@@ -97,12 +119,19 @@ impl<'a> VM<'a> {
         }
     }
 
+    /* KeyError carrying the text `msg`, as the methods that find nothing to remove raise. */
+    pub(crate) fn text_key_error(&mut self, msg: &str) -> VmErr {
+        match self.heap.alloc(HeapObj::Str(msg.into())) { Ok(k) => self.key_error(k), Err(e) => e }
+    }
+
     /* Instance indexes coerce via `__index__`, including slice bounds. Dict keys never coerce, they look up by hash and eq. */
     fn coerce_index(&mut self, cont: Val, idx: Val, chunk: &crate::parser::SSAChunk) -> Result<Val, VmErr> {
         // `xs[True]` indexes like `xs[1]`, a dict keeps the bool key.
-        if idx.is_bool() && !(cont.is_heap() && matches!(self.heap.get(cont), HeapObj::Dict(_))) { return Ok(Val::int(idx.as_bool() as i64)); }
-        if !idx.is_heap() { return Ok(idx); }
-        if cont.is_heap() && matches!(self.heap.get(cont), HeapObj::Dict(_)) { return Ok(idx); }
+        let keyed = self.heap.dict_cell(cont).is_some();
+        if idx.is_bool() && !keyed { return Ok(Val::int(idx.as_bool() as i64)); }
+        if !idx.is_heap() || keyed { return Ok(idx); }
+        // An int of a class deriving from int indexes as the int.
+        if let &HeapObj::Boxed(n) = self.heap.get(idx) && (n.is_int() || n.is_foreign()) { return Ok(n); }
         match *self.heap.get(idx) {
             HeapObj::Instance(..) => match self.try_call_dunder(idx, "__index__", &[], chunk)? {
                 Some(r) if r.is_int() || r.is_bool() => {
@@ -110,7 +139,7 @@ impl<'a> VM<'a> {
                     let i = self.as_i128(r).unwrap_or(r.as_bool() as i128);
                     self.int_to_val(Some(i))
                 }
-                Some(_) => Err(cold_type("__index__ returned non-int")),
+                Some(r) => Err(self.returned_wrong(idx, "__index__", "an int", r)),
                 None => Ok(idx),
             },
             HeapObj::Slice(start, stop, step) => {
@@ -153,10 +182,11 @@ impl<'a> VM<'a> {
 
         // `bytes[i]` returns the byte as int (`0..=255`), unlike `str[i]` (length-1 str).
         if obj.is_heap() && idx.is_int()
-            && let HeapObj::Bytes(b) = self.heap.get(obj) {
+            && let HeapObj::Bytes(b) | HeapObj::ByteArray(b) = self.heap.get(obj) {
                 let i = idx.as_int();
                 let ui = normalize_index(i, b.len());
-                let byte = *b.get(ui).ok_or_else(|| cold_index("bytes index out of range"))?;
+                let what = if matches!(self.heap.get(obj), HeapObj::ByteArray(_)) { "bytearray index out of range" } else { "index out of range" };
+                let byte = *b.get(ui).ok_or_else(|| cold_index(what))?;
                 self.push(Val::int(byte as i64));
                 return Ok(());
         }
@@ -168,6 +198,7 @@ impl<'a> VM<'a> {
 
     fn slice_val(&mut self, obj: Val, start: Val, stop: Val, step: Val) -> Result<Val, VmErr> {
         if !obj.is_heap() { return Err(cold_type("slice requires a sequence")); }
+        if let Some(m) = self.view(obj) { return self.view_slice(m?, start, stop, step); }
 
         // Item count without materialising the source.
         let ascii = self.heap.str_is_ascii(obj);
@@ -175,7 +206,7 @@ impl<'a> VM<'a> {
             HeapObj::List(v) => v.borrow().len() as i64,
             HeapObj::Tuple(v) => v.len() as i64,
             HeapObj::Str(s) => if ascii { s.len() as i64 } else { s.chars().count() as i64 },
-            HeapObj::Bytes(b) => b.len() as i64,
+            HeapObj::Bytes(b) | HeapObj::ByteArray(b) => b.len() as i64,
             // A range slices into another range, its bounds resolved at any width.
             HeapObj::Range(..) | HeapObj::BigRange(..) => return crate::frontend::int::range_slice(&mut self.heap, obj, start, stop, step).unwrap_or(Err(VmErr::Overflow)),
             _ => return Err(cold_type("object is not sliceable")),
@@ -203,7 +234,7 @@ impl<'a> VM<'a> {
         };
 
         // Pick while borrowing the source, allocate after.
-        enum Out { List(Vec<Val>), Tuple(Vec<Val>), Str(String), Bytes(Vec<u8>) }
+        enum Out { List(Vec<Val>), Tuple(Vec<Val>), Str(String), Bytes(Vec<u8>), ByteArray(Vec<u8>) }
         let out = match self.heap.get(obj) {
             HeapObj::List(v) => Out::List(pick(&v.borrow())),
             HeapObj::Tuple(v) => Out::Tuple(pick(v)),
@@ -214,6 +245,7 @@ impl<'a> VM<'a> {
                     else { indices.iter().filter_map(|&i| chars.get(i)).collect() })
             }
             HeapObj::Bytes(buf) => Out::Bytes(pick_bytes(buf)),
+            HeapObj::ByteArray(buf) => Out::ByteArray(pick_bytes(buf)),
             _ => return Err(cold_type("object is not sliceable")),
         };
         match out {
@@ -221,6 +253,7 @@ impl<'a> VM<'a> {
             Out::Tuple(v) => self.heap.alloc(HeapObj::Tuple(v)),
             Out::Str(s) => self.heap.alloc(HeapObj::Str(s)),
             Out::Bytes(b) => self.heap.alloc(HeapObj::Bytes(b)),
+            Out::ByteArray(b) => self.heap.alloc(HeapObj::ByteArray(b)),
         }
     }
 
@@ -228,6 +261,7 @@ impl<'a> VM<'a> {
         if !obj.is_heap() { return Err(VmErr::TypeMsg(crate::s!("'", str self.type_name(obj), "' object is not subscriptable"))); }
         let bad = |vm: &Self, kind: &str| if crate::frontend::int::is_big(&vm.heap, idx) { cold_index("cannot fit 'int' into an index-sized integer") }
             else { VmErr::TypeMsg(crate::s!(str kind, " indices must be integers or slices, not ", str vm.type_name(idx))) };
+        if self.heap.dict_cell(obj).is_some() { self.keyed(idx)?; }
         match self.heap.get(obj) {
             HeapObj::List(v) => {
                 if !idx.is_int() { return Err(bad(self, "list")); }
@@ -241,7 +275,7 @@ impl<'a> VM<'a> {
                 let ui = normalize_index(i, v.len());
                 v.get(ui).copied().ok_or_else(|| cold_index("tuple index out of range"))
             }
-            HeapObj::Dict(p) => {
+            HeapObj::Dict(p) | HeapObj::FrozenDict(p) => {
                 let hit = p.borrow().get(&idx, &self.heap).copied();
                 match hit {
                     Some(v) => Ok(v),
@@ -250,6 +284,8 @@ impl<'a> VM<'a> {
             }
             HeapObj::Str(_) => Err(bad(self, "string")),
             HeapObj::Bytes(_) => Err(bad(self, "byte")),
+            HeapObj::ByteArray(_) => Err(bad(self, "bytearray")),
+            HeapObj::MemoryView(_) => { let m = self.view(obj).unwrap_or(Err(cold_heap()))?; self.view_item(m, idx) }
             &HeapObj::BigRange(..) if idx.is_int() || crate::frontend::int::is_big(&self.heap, idx) => crate::frontend::int::range_item(&mut self.heap, obj, idx).unwrap_or(Err(VmErr::Overflow)),
             HeapObj::BigRange(..) => Err(bad(self, "range")),
             // `range(n)[i]` is computed, never materialised.
@@ -296,13 +332,18 @@ impl<'a> VM<'a> {
         if v.is_heap() && depth <= EQ_DEPTH_MAX {
             match self.heap.get(v) {
                 HeapObj::List(_) => return Err(cold_type("unhashable type: 'list'")),
+                HeapObj::ByteArray(_) => return Err(cold_type("unhashable type: 'bytearray'")),
+                HeapObj::MemoryView(m) if m.released => return Err(cold_value("operation forbidden on released memoryview object")),
+                HeapObj::MemoryView(m) if matches!(self.heap.try_get(m.obj), Some(HeapObj::ByteArray(_))) => return Err(cold_value("cannot hash writable memoryview object")),
                 HeapObj::Dict(_) => return Err(cold_type("unhashable type: 'dict'")),
                 HeapObj::Set(_) => return Err(cold_type("unhashable type: 'set'")),
                 HeapObj::DictView(..) => return Err(VmErr::TypeMsg(crate::s!("unhashable type: '", str self.type_name(v), "'"))),
                 // A tuple hashes through its items as deep as the hash looks, so each must be hashable too.
                 HeapObj::Tuple(items) => for &item in items { self.require_hashable_at(item, depth + 1)?; },
-                // A user `__eq__` would let two equal keys hash apart.
-                HeapObj::Instance(cls, _) if self.lookup_class_member(*cls, "__eq__").is_some() => return Err(VmErr::TypeMsg(crate::s!("unhashable type: '", str self.type_name(v), "'"))),
+                // A frozendict hashes through its values too, its keys hashable already.
+                HeapObj::FrozenDict(d) => for (_, item) in d.borrow().iter() { self.require_hashable_at(item, depth + 1)?; },
+                // A `__eq__` without `__hash__` would let two equal keys hash apart.
+                HeapObj::Instance(cls, _) if self.hash_hook(*cls) == Some(None) => return Err(VmErr::TypeMsg(crate::s!("unhashable type: '", str self.type_name(v), "'"))),
                 _ => {}
             }
         }
@@ -337,6 +378,7 @@ impl<'a> VM<'a> {
     /* No-dunder item-assignment path. Used by callers without a bytecode frame (FFI re-entry) and as the post-dunder fallback inside `store_item`. */
     pub fn store_item_builtin(&mut self, cont: Val, idx_val: Val, value: Val) -> Result<(), VmErr> {
         if !cont.is_heap() { return Err(cold_type("object does not support item assignment")); }
+        if let Some(m) = self.view(cont) { return self.view_store(m?, idx_val, value); }
         // Slice assignment `xs[a:b] = iterable` materialises the RHS and splices it in place.
         if idx_val.is_heap()
             && let &HeapObj::Slice(start, stop, step) = self.heap.get(idx_val)
@@ -347,6 +389,7 @@ impl<'a> VM<'a> {
         // Reject mutable keys before borrowing the container mutably below.
         if matches!(self.heap.get(cont), HeapObj::Dict(_)) {
             self.require_key(idx_val)?;
+            self.keyed(idx_val)?;
         }
         match self.heap.get(cont) {
             HeapObj::List(v) => {
@@ -358,8 +401,15 @@ impl<'a> VM<'a> {
                 b[ui] = value;
             }
             HeapObj::Dict(p) => p.borrow_mut().insert(idx_val, value, &self.heap),
-            HeapObj::Tuple(_) => return Err(cold_type("tuple does not support item assignment")),
-            _ => return Err(cold_type("object does not support item assignment")),
+            HeapObj::ByteArray(_) => {
+                if !idx_val.is_int() { return Err(VmErr::TypeMsg(crate::s!("bytearray indices must be integers or slices, not ", str self.type_name(idx_val)))); }
+                let byte = self.byte_value(value)?;
+                let Some(HeapObj::ByteArray(b)) = self.heap.try_get_mut(cont) else { return Ok(()) };
+                let ui = normalize_index(idx_val.as_int(), b.len());
+                if ui >= b.len() { return Err(cold_index("bytearray index out of range")); }
+                b[ui] = byte;
+            }
+            _ => return Err(VmErr::TypeMsg(crate::s!("'", str self.type_name(cont), "' object does not support item assignment"))),
         }
         Ok(())
     }
@@ -378,12 +428,13 @@ impl<'a> VM<'a> {
         {
             return self.store_slice(cont, start, stop, step, None);
         }
+        if matches!(self.heap.get(cont), HeapObj::Dict(_)) { self.keyed(idx_val)?; }
         match self.heap.get(cont) {
             HeapObj::List(v) => {
                 if !idx_val.is_int() { return Err(cold_type("list indices must be integers")); }
                 let mut b = v.borrow_mut();
                 let ui = normalize_index(idx_val.as_int(), b.len());
-                if ui >= b.len() { return Err(cold_index("list index out of range")); }
+                if ui >= b.len() { return Err(cold_index("list assignment index out of range")); }
                 b.remove(ui);
             }
             HeapObj::Dict(p) => {
@@ -392,37 +443,44 @@ impl<'a> VM<'a> {
                     return Err(self.key_error(idx_val));
                 }
             }
+            HeapObj::ByteArray(_) => {
+                if !idx_val.is_int() { return Err(VmErr::TypeMsg(crate::s!("bytearray indices must be integers or slices, not ", str self.type_name(idx_val)))); }
+                let Some(HeapObj::ByteArray(b)) = self.heap.try_get_mut(cont) else { return Ok(()) };
+                let ui = normalize_index(idx_val.as_int(), b.len());
+                if ui >= b.len() { return Err(cold_index("bytearray index out of range")); }
+                b.remove(ui);
+            }
             HeapObj::Tuple(_) => return Err(cold_type("tuple does not support item deletion")),
-            _ => return Err(cold_type("object does not support item deletion")),
+            _ => return Err(VmErr::TypeMsg(crate::s!("'", str self.type_name(cont), "' object does not support item deletion"))),
         }
         Ok(())
     }
 
     /* `xs[a:b] = items` or, without items, `del xs[a:b]`, an extended slice needs an exact count. */
     fn store_slice(&mut self, cont: Val, start: Val, stop: Val, step: Val, items: Option<Vec<Val>>) -> Result<(), VmErr> {
+        let clip = |v: Val| crate::frontend::int::clip_index(&self.heap, v);
+        let (start, stop, step) = (clip(start), clip(stop), clip(step));
+        if matches!(self.heap.get(cont), HeapObj::ByteArray(_)) {
+            let bytes = match items { Some(items) => Some(items.into_iter().map(|v| self.byte_value(v)).collect::<Result<Vec<u8>, VmErr>>()?), None => None };
+            let Some(HeapObj::ByteArray(b)) = self.heap.try_get_mut(cont) else { return Ok(()) };
+            let bounds = slice_bounds(start, stop, step, b.len() as i64)?;
+            return splice(b, bounds, bytes);
+        }
         let HeapObj::List(rc) = self.heap.get(cont) else {
-            return Err(cold_type("object does not support slice assignment"));
+            return Err(VmErr::TypeMsg(crate::s!("'", str self.type_name(cont), "' object does not support slice assignment")));
         };
         let mut b = rc.borrow_mut();
-        let clip = |v: Val| crate::frontend::int::clip_index(&self.heap, v);
-        let (s, e, st) = slice_bounds(clip(start), clip(stop), clip(step), b.len() as i64)?;
-        if st == 1 {
-            b.splice(s as usize..e.max(s) as usize, items.unwrap_or_default());
-            return Ok(());
-        }
-        // Selected positions sit `st` apart from `s`, strictly before `e`.
-        let picked = |k: i64| (if st > 0 { k < e && k >= s } else { k > e && k <= s }) && (k - s) % st == 0;
-        let Some(items) = items else {
-            let mut k = -1;
-            b.retain(|_| { k += 1; !picked(k) });
-            return Ok(());
+        let bounds = slice_bounds(start, stop, step, b.len() as i64)?;
+        splice(&mut b, bounds, items)
+    }
+
+    /* `v` as one byte, the int `bytearray` items must be. */
+    pub(crate) fn byte_value(&self, v: Val) -> Result<u8, VmErr> {
+        let v = crate::value::unboxed(v, &self.heap);
+        let Some(n) = self.as_i128(v).filter(|_| !v.is_float()) else {
+            return Err(VmErr::TypeMsg(crate::s!("'", str self.type_name(v), "' object cannot be interpreted as an integer")));
         };
-        let span = if st > 0 { (e - s + st - 1) / st } else { (s - e - st - 1) / -st };
-        if items.len() as i64 != span.max(0) {
-            return Err(VmErr::Raised(crate::s!("ValueError: attempt to assign sequence of size ", int items.len() as i64, " to extended slice of size ", int span.max(0))));
-        }
-        for (k, v) in items.into_iter().enumerate() { b[(s + k as i64 * st) as usize] = v; }
-        Ok(())
+        u8::try_from(n).map_err(|_| cold_value("byte must be in range(0, 256)"))
     }
 
     // `slice(stop)` | `slice(start, stop)` | `slice(start, stop, step)`, builtin, usable as a sequence index.

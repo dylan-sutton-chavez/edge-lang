@@ -9,7 +9,7 @@ impl<'a> VM<'a> {
         if argc >= 2 {
             // `str(bytes, encoding[, errors])` decodes, mirroring `bytes.decode`.
             let args = self.pop_n(argc as usize)?;
-            if args[0].is_heap() && matches!(self.heap.get(args[0]), HeapObj::Bytes(_)) {
+            if self.heap.bytes_of(args[0]).is_some() {
                 return crate::vm::methods::bytes::decode(self, args[0], &args[1..]);
             }
             return Err(cold_type("decoding to str: need a bytes-like object"));
@@ -27,7 +27,9 @@ impl<'a> VM<'a> {
         Ok(())
     }
 
-    pub fn call_type(&mut self) -> Result<(), VmErr> {
+    pub fn call_type(&mut self, argc: u16, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
+        if argc == 3 { return self.call_type_new(chunk); }
+        if argc != 1 { return Err(cold_type("type() takes 1 or 3 arguments")); }
         let o = self.pop()?;
         // A user instance's type is its own class object, so `type(x) is Cls` holds.
         if let Some(cls) = self.instance_class(o) {
@@ -37,6 +39,25 @@ impl<'a> VM<'a> {
         let name = self.type_repr_name(o);
         let t = self.heap.alloc(HeapObj::Type(name))?;
         self.push(t);
+        Ok(())
+    }
+
+    /* `type(name, bases, dict)`, a class built from its parts as a class statement builds one. */
+    fn call_type_new(&mut self, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
+        let (ns, bases, name) = (self.pop()?, self.pop()?, self.pop()?);
+        let name = match self.heap.try_get(name) { Some(HeapObj::Str(s)) => s.clone(), _ => return Err(VmErr::TypeMsg(crate::s!("type.__new__() argument 1 must be str, not ", str self.type_name(name)))) };
+        let wrong = |vm: &Self, n: &str, want: &str, v: Val| VmErr::TypeMsg(crate::s!("type.__new__() argument ", str n, " must be ", str want, ", not ", str vm.type_name(v)));
+        let Some(HeapObj::Tuple(items)) = self.heap.try_get(bases) else { return Err(wrong(self, "2", "tuple", bases)) };
+        let mut bases = items.clone();
+        let Some(HeapObj::Dict(ns)) = self.heap.try_get(ns) else { return Err(wrong(self, "3", "dict", ns)) };
+        let pairs: alloc::vec::Vec<(Val, Val)> = ns.borrow().iter().collect();
+        let mut members = alloc::vec::Vec::with_capacity(pairs.len());
+        for (k, v) in pairs {
+            members.push((self.str_of(k, "type() dict keys must be strings")?, v));
+        }
+        self.check_bases(&mut bases)?;
+        let cls = self.finish_class(name, None, bases, members, &[], chunk)?;
+        self.push(cls);
         Ok(())
     }
 

@@ -68,7 +68,7 @@ impl VmErr {
             Self::Raised(m) => m.split_once(": ").map_or(String::new(), |(_, msg)| String::from(msg)),
             Self::ZeroDiv => String::from("division by zero"),
             Self::Overflow => String::from("Python int too large to convert to C ssize_t"),
-            Self::CallDepth => String::from("max depth"),
+            Self::CallDepth => String::from("maximum recursion depth exceeded"),
             Self::Heap => String::from("memory limit"),
             Self::Budget => String::from("budget exceeded"),
             Self::HostYield(_) => String::from("scheduler suspended; embedder must drive run_start / run_resume"),
@@ -77,32 +77,50 @@ impl VmErr {
     }
 
     /* `render()` anchored at a byte offset for rustc-style caret preview, falls back when absent. */
-    pub fn render_at(&self, src: &str, byte_pos: Option<usize>, path: Option<&str>) -> alloc::string::String {
-        let Some(pos) = byte_pos else { return self.render(); };
-        crate::parser::Diagnostic { start: pos, end: pos, msg: self.render() }.render(src, path)
-    }
+    pub fn render_at(&self, src: &str, byte_pos: Option<usize>, path: Option<&str>) -> alloc::string::String { render_text_at(self.render(), src, byte_pos, path) }
 
     /* Multi-frame traceback, `error:` at the site, then `note: called from ...` outward. */
     pub fn render_traceback(&self, error_src: &str, error_byte_pos: Option<usize>, error_path: Option<&str>, frames: &[CallFrame], function_names: &[alloc::string::String]) -> alloc::string::String {
         let mut out = self.render_at(error_src, error_byte_pos, error_path);
-        // Frames come innermost first, the order an error unwinds them.
-        for f in frames {
-            let fname = function_names.get(f.fi).map(|s| s.as_str()).unwrap_or("<anonymous>");
-            let pos = f.call_byte_pos as usize;
-            // An empty path is the entry file, which the error line names.
-            let path: Option<&str> = f.caller_path.as_deref().map(|p| p.as_str()).filter(|p| !p.is_empty()).or(error_path);
-            let note = crate::parser::Diagnostic {
-                start: pos, end: pos,
-                msg: alloc::format!("called from {}()", fname),
-            }.render(f.caller_source.as_deref().map_or("", |s| s.as_str()), path);
-            // Demote chained-frame prefix so only the top line reads as `error:`.
-            let note = note.replacen("error:", "note:", 1);
-            out.push('\n');
-            out.push_str(&note);
-            // A recursion shows its call once, with the count of the rest.
-            if f.repeats > 0 { out.push_str(&alloc::format!("\nnote: the same call {} more times\n", f.repeats)); }
-        }
+        render_calls(&mut out, frames, function_names, error_path, None);
         out
+    }
+}
+
+/* A report headed by `msg`, anchored at a byte offset for the caret preview when there is one. */
+pub fn render_text_at(msg: alloc::string::String, src: &str, byte_pos: Option<usize>, path: Option<&str>) -> alloc::string::String {
+    let Some(pos) = byte_pos else { return msg };
+    crate::parser::Diagnostic { start: pos, end: pos, msg }.render(src, path)
+}
+
+/* The `note: called from ...` lines of `frames` after a report, `entry_path` naming frames of the entry file, whose
+   text, when known, tells it from a text `exec` ran there. */
+pub fn render_calls(out: &mut alloc::string::String, frames: &[CallFrame], function_names: &[alloc::string::String], entry_path: Option<&str>, entry_src: Option<&str>) {
+    // The lines of the source the last frame named, found once for the frames that share it.
+    let mut lines: Option<crate::parser::Lines> = None;
+    // Frames come innermost first, the order an error unwinds them.
+    for f in frames {
+        let fname = match f.fi {
+            super::EXEC_FRAME => "exec",
+            super::EVAL_FRAME => "eval",
+            fi => function_names.get(fi).map(|s| s.as_str()).unwrap_or("<anonymous>"),
+        };
+        let pos = f.call_byte_pos as usize;
+        // An empty path is the entry file, which the error line names.
+        let src = f.caller_source.as_deref().map_or("", |s| s.as_str());
+        let ran = entry_src.is_some_and(|e| !core::ptr::eq(e, src));
+        let path: Option<&str> = f.caller_path.as_deref().map(|p| p.as_str()).filter(|p| !p.is_empty()).or(if ran { Some("<string>") } else { entry_path });
+        if !lines.as_ref().is_some_and(|l| core::ptr::eq(l.source(), src)) { lines = Some(crate::parser::Lines::new(src)); }
+        let note = crate::parser::Diagnostic {
+            start: pos, end: pos,
+            msg: alloc::format!("called from {}()", fname),
+        }.render_in(lines.as_ref().unwrap_or(&crate::parser::Lines::new("")), path);
+        // Demote chained-frame prefix so only the top line reads as `error:`.
+        let note = note.replacen("error:", "note:", 1);
+        out.push('\n');
+        out.push_str(&note);
+        // A recursion shows its call once, with the count of the rest.
+        if f.repeats > 0 { out.push_str(&alloc::format!("\nnote: the same call {} more times\n", f.repeats)); }
     }
 }
 
@@ -120,6 +138,5 @@ impl core::fmt::Display for VmErr {
 #[cold] #[inline(never)] pub fn cold_type(m: &'static str) -> VmErr { VmErr::Type(m) }
 #[cold] #[inline(never)] pub fn cold_value(m: &'static str) -> VmErr { VmErr::Value(m) }
 #[cold] #[inline(never)] pub fn cold_index(m: &'static str) -> VmErr { VmErr::Raised(crate::s!("IndexError: ", str m)) }
-#[cold] #[inline(never)] pub fn cold_key(m: &'static str) -> VmErr { VmErr::Raised(crate::s!("KeyError: ", str m)) }
 #[cold] #[inline(never)] pub fn cold_runtime(m: &'static str) -> VmErr { VmErr::Runtime(m) }
 #[cold] #[inline(never)] pub fn cold_overflow() -> VmErr { VmErr::Overflow }

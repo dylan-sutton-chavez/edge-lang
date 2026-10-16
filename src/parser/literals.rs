@@ -1,12 +1,15 @@
 use crate::s;
 
-use super::Parser;
+use super::{Mark, Parser};
 use super::types::builtin;
-use super::types::{OpCode, Value, SSAChunk, class_dunder, ssa_strip, COMP_ARG};
+use super::types::{OpCode, Value, SSAChunk, class_dunder, ssa_strip, COMP_ARG, SPREAD_BASES};
 
 use crate::lexer::{Token, TokenType};
 
 use alloc::{string::{String, ToString}, vec::Vec};
+
+/* A type parameter as the scope binds it, without the stars of its kind. */
+pub(super) fn param_name(p: &str) -> &str { p.trim_start_matches('*') }
 
 // A bare generator expression beside another argument or a trailing comma.
 const GENEXP_BARE: &str = "Generator expression must be parenthesized";
@@ -124,12 +127,17 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
                 self.chunk.emit(OpCode::JumpIfFalse, ls);
                 continue;
             }
-            if !self.eat_if(TokenType::For) { break; }
+            // `async for` steps its iterable the way `for` does.
+            let asynced = self.eat_if(TokenType::Async);
+            if !self.eat_if(TokenType::For) {
+                if asynced { self.diag_at_peek("expected 'for' after 'async'"); }
+                break;
+            }
             let at = self.mark();
             let Some(shape) = self.tokens.target_list() else { return self.error("cannot assign to this expression") };
             self.eat(TokenType::In);
             self.expr_bp(1);
-            self.chunk.emit(OpCode::GetIter, 0);
+            self.chunk.emit(OpCode::GetIter, if asynced { super::ITER_ASYNC } else { 0 });
             loop_starts.push(self.chunk.instructions.len() as u16);
             for_iters.push(self.emit_jump(OpCode::ForIter));
             self.store_back(at, shape);
@@ -151,6 +159,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         while let Some(t) = self.tokens.peek() {
             match t.kind {
                 TokenType::For | TokenType::Rpar | TokenType::Rsqb | TokenType::Rbrace | TokenType::Endmarker if depth == 0 => break,
+                TokenType::Async if depth == 0 && self.tokens.after_head() == TokenType::For => break,
                 TokenType::Lpar | TokenType::Lsqb | TokenType::Lbrace => depth += 1,
                 TokenType::Rpar | TokenType::Rsqb | TokenType::Rbrace => depth -= 1,
                 TokenType::Lambda if depth == 0 => lambdas += 1,
@@ -167,13 +176,15 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             Comp::Brace if pair => (Some(OpCode::BuildDict), OpCode::MapAdd, "<dictcomp>"),
             Comp::Brace => (Some(OpCode::BuildSet), OpCode::SetAdd, "<setcomp>"),
         };
+        let asynced = self.eat_if(TokenType::Async);
         self.eat(TokenType::For);
         let at = self.mark();
         let shape = self.tokens.target_list();
         if shape.is_none() { self.error("cannot assign to this expression"); }
         self.eat(TokenType::In);
         self.expr_bp(1);
-        self.chunk.emit(OpCode::GetIter, super::ITER_VALUE);
+        // An `async for` hands its iterable over as is, the body steps it the way `async for` does.
+        if !asynced { self.chunk.emit(OpCode::GetIter, super::ITER_VALUE); }
         // A walrus binds where the comprehension stands, a `global` there included.
         let globals = self.globals_decl.clone();
         let mut body = self.with_fresh_chunk(|s| {
@@ -185,7 +196,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             if let Some(op) = build { s.chunk.emit(op, 0); }
             let arg = s.push_ssa_name(COMP_ARG, 0);
             s.chunk.emit(OpCode::LoadName, arg);
-            s.chunk.emit(OpCode::GetIter, super::ITER_AS_IS);
+            s.chunk.emit(OpCode::GetIter, if asynced { super::ITER_ASYNC } else { super::ITER_AS_IS });
             let mut loop_starts = alloc::vec![s.chunk.instructions.len() as u16];
             let mut for_iters = alloc::vec![s.emit_jump(OpCode::ForIter)];
             if let Some(shape) = shape { s.store_back(at, shape); }
@@ -542,57 +553,11 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
 
     /* class compiles body into fresh chunk, emits MakeClass+decorators+StoreName. */
     pub(super) fn class_def_with(&mut self, decorators: u16) {
+        self.decorated_at = None;
         // Missing name, non-syncing diagnostic + synthetic name so body still parses.
         let cname = self.ident_or_missing("expected class name");
         let params = self.type_params();
-
-        // Bases are pushed left-to-right, `MakeClass` pops `num_bases` and stores them in the Class.
-        let mut num_bases: u16 = 0;
-        if self.eat_if(TokenType::Lpar) {
-            while !matches!(self.peek(), Some(TokenType::Rpar) | None) {
-                // `metaclass=` and every other class keyword parse and then fail, the class model has none.
-                if matches!(self.peek(), Some(TokenType::Name)) {
-                    let t = self.advance();
-                    if self.eat_if(TokenType::Equal) {
-                        self.reject(t.start, t.end, "class keywords such as 'metaclass' are not supported");
-                        self.expr();
-                    } else {
-                        let start = self.chunk.instructions.len();
-                        self.name_operand(t);
-                        self.expr_tails(start);
-                        num_bases = num_bases.saturating_add(1);
-                    }
-                } else {
-                    self.expr();
-                    num_bases = num_bases.saturating_add(1);
-                }
-                if !self.eat_if(TokenType::Comma) { break; }
-            }
-            self.eat(TokenType::Rpar);
-        }
-
-        self.eat(TokenType::Colon);
-
-        let body = self.with_fresh_chunk(|s| {
-            s.in_class_body = true;
-            // `class Box[T]` keeps its parameters in `__type_params__`, which makes `Box[int]` an alias.
-            if !params.is_empty() {
-                for p in &params {
-                    let idx = s.chunk.push_name(p);
-                    s.chunk.emit(OpCode::MakeTypeVar, idx);
-                }
-                s.chunk.emit(OpCode::BuildTuple, params.len() as u16);
-                s.store_name("__type_params__");
-            }
-            s.compile_block();
-        });
-
-        // The operand is the class index, the body keeps how many bases its MakeClass pops.
-        let Ok(ci) = u16::try_from(self.chunk.classes.len()) else { self.error("too many classes in this scope (limit 65535)"); return; };
-        let mut body = body;
-        body.bases = num_bases;
-        self.chunk.classes.push(body);
-        self.chunk.emit(OpCode::MakeClass, ci);
+        if params.is_empty() { self.class_value(cname, &params); } else { self.generic_scope(&params, cname, |s| s.class_value(cname, &params)); }
 
         // Each decorator Calls with the previous result, same as for functions.
         self.emit_decorator_calls(decorators);
@@ -600,21 +565,127 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         self.emit_store_new(cname);
     }
 
+    /* The class `cname` names on the stack, its bases and body compiled in order. */
+    fn class_value(&mut self, cname: &'src str, params: &[String]) {
+        // Bases are pushed left-to-right, `MakeClass` pops `num_bases` and stores them in the Class.
+        let (mut num_bases, mut num_kw, mut spread) = (0u16, 0u16, false);
+        if self.eat_if(TokenType::Lpar) {
+            while !matches!(self.peek(), Some(TokenType::Rpar) | None) {
+                // A class keyword goes to `__init_subclass__` as a name and value pair, `metaclass=` parses and then fails.
+                if matches!(self.peek(), Some(TokenType::Name)) {
+                    let t = self.advance();
+                    if self.eat_if(TokenType::Equal) {
+                        let name = self.lexeme(&t).to_string();
+                        if name == "metaclass" { self.reject(t.start, t.end, "metaclasses are not supported"); }
+                        self.emit_const(Value::Str(name));
+                        self.expr();
+                        num_kw = num_kw.saturating_add(1);
+                    } else {
+                        if num_kw > 0 { self.reject(t.start, t.end, "positional argument follows keyword argument"); }
+                        let start = self.chunk.instructions.len();
+                        self.name_operand(t);
+                        self.expr_tails(start);
+                        if spread { self.chunk.emit(OpCode::ListAppend, 0); }
+                        num_bases = num_bases.saturating_add(1);
+                    }
+                } else if self.eat_if(TokenType::Star) {
+                    // `class B(*bases)` gathers every base into one list, which MakeClass unpacks.
+                    if num_kw > 0 { self.diag_at_peek("iterable argument unpacking follows keyword argument unpacking"); }
+                    if !spread { self.chunk.emit(OpCode::BuildList, num_bases); spread = true; }
+                    self.expr();
+                    self.chunk.emit(OpCode::ListExtend, 0);
+                } else {
+                    if num_kw > 0 { self.diag_at_peek("positional argument follows keyword argument"); }
+                    self.expr();
+                    if spread { self.chunk.emit(OpCode::ListAppend, 0); }
+                    num_bases = num_bases.saturating_add(1);
+                }
+                if !self.eat_if(TokenType::Comma) { break; }
+            }
+            self.eat(TokenType::Rpar);
+        }
+        if spread { num_bases = SPREAD_BASES; }
+
+        self.eat(TokenType::Colon);
+
+        let cut = self.enter_qual(cname, false);
+        let body = self.with_fresh_chunk(|s| {
+            s.in_class_body = true;
+            let outer = core::mem::take(&mut s.class_anns);
+            // `class Box[T]` keeps its parameters in `__type_params__`, which makes `Box[int]` an alias.
+            if !params.is_empty() {
+                for p in params { s.emit_load_ssa(param_name(p)); }
+                s.chunk.emit(OpCode::BuildTuple, params.len() as u16);
+                s.store_name("__type_params__");
+            }
+            s.compile_block();
+            let anns = core::mem::replace(&mut s.class_anns, outer);
+            if !anns.is_empty() { s.emit_annotate(&anns); s.store_name("__annotate__"); }
+        });
+        self.qual.truncate(cut);
+
+        // The operand is the class index, the body keeps how many bases its MakeClass pops.
+        let Ok(ci) = u16::try_from(self.chunk.classes.len()) else { self.error("too many classes in this scope (limit 65535)"); return; };
+        let mut body = body;
+        // The free names of its methods pass through the class to the function around it, its own members staying behind.
+        let around_function = self.in_function || self.qual.contains("<locals>");
+        let mut stored = alloc::vec![false; body.names.len()];
+        for ins in body.instructions.iter().filter(|i| matches!(i.opcode, OpCode::StoreName | OpCode::Phi)) {
+            if let Some(m) = stored.get_mut(ins.operand as usize) { *m = true; }
+        }
+        for ((name, attr), own) in body.names.iter().zip(body.attr_only_names()).zip(stored) {
+            let inner = body.functions.iter().any(|f| f.1.names.contains(name)) || body.classes.iter().any(|c| c.names.contains(name));
+            if around_function && !attr && !own && !name.starts_with('#') && inner { self.chunk.push_name(name); }
+        }
+        (body.bases, body.class_kw) = (num_bases, num_kw);
+        body.qualname = self.qualified(cname);
+        self.chunk.classes.push(body);
+        self.chunk.emit(OpCode::MakeClass, ci);
+    }
+
     /* def/async def parses signature, compiles body, emits MakeFunction/MakeCoroutine+decorators+StoreName. */
     pub(super) fn func_def_inner(&mut self, decorators: u16, is_async: bool) {
+        // Token lines count from zero.
+        let first_line = self.decorated_at.take().unwrap_or(self.last_line) as u32 + 1;
         // Missing name, non-syncing diagnostic + synthetic name so signature+body still parse.
         let fname = self.ident_or_missing("expected function name");
         self.check_member(fname, self.last_end);
-        self.type_params();
-        let (params, defaults) = self.parse_params();
-        let body = self.compile_body(&params);
-
-        // Propagate free names to parent chunk so nested defs capture grandparent vars.
-        self.push_function(params, body, defaults, Some(fname), if is_async { OpCode::MakeCoroutine } else { OpCode::MakeFunction });
+        let tparams = self.type_params();
+        if tparams.is_empty() { self.func_value(fname, first_line, is_async); } else {
+            self.generic_scope(&tparams, fname, |s| {
+                s.func_value(fname, first_line, is_async);
+                s.chunk.emit(OpCode::Dup, 0);
+                for p in &tparams { s.emit_load_ssa(param_name(p)); }
+                s.chunk.emit(OpCode::BuildTuple, tparams.len() as u16);
+                let i = s.chunk.push_name("__type_params__");
+                s.chunk.emit(OpCode::StoreAttr, i);
+            });
+        }
 
         self.emit_decorator_calls(decorators);
 
         self.emit_store_new(fname);
+    }
+
+    /* The function `fname` names on the stack, its annotations waiting in `__annotate__`. */
+    fn func_value(&mut self, fname: &'src str, first_line: u32, is_async: bool) {
+        let (params, defaults) = self.parse_params();
+        let anns = core::mem::take(&mut self.param_anns);
+        let posonly = self.posonly;
+        let cut = self.enter_qual(fname, true);
+        let mut body = self.compile_body(&params);
+        self.qual.truncate(cut);
+        (body.posonly, body.first_line) = (posonly, first_line);
+
+        // Propagate free names to parent chunk so nested defs capture grandparent vars.
+        self.push_function(params, body, defaults, Some(fname), if is_async { OpCode::MakeCoroutine } else { OpCode::MakeFunction });
+        // Annotations wait in `__annotate__`, which the first read of `__annotations__` calls.
+        if !anns.is_empty() {
+            self.chunk.emit(OpCode::Dup, 0);
+            self.emit_annotate(&anns);
+            let i = self.chunk.push_name("__annotate__");
+            self.chunk.emit(OpCode::StoreAttr, i);
+        }
     }
 
     /* Rejects a dunder a class body binds that the engine never calls, `end` closing its name. */
@@ -634,23 +705,48 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         display || comprehension
     }
 
-    /* Names of a `[T, *Ts, **P]` type parameter list, bounds and defaults skipped since the engine is dynamically typed. */
-    pub(super) fn type_params(&mut self) -> Vec<&'src str> {
+    /* A `[T, *Ts, **P]` type parameter list, each name with the stars of its kind, bounds and defaults skipped since the engine is dynamically typed. */
+    pub(super) fn type_params(&mut self) -> Vec<String> {
         let mut names = Vec::new();
         if !self.eat_if(TokenType::Lsqb) { return names; }
-        let (mut depth, mut expect_name) = (1, true);
+        let (mut depth, mut expect_name, mut stars) = (1, true, "");
         while depth > 0 {
             match self.peek() {
                 Some(TokenType::Lsqb | TokenType::Lpar | TokenType::Lbrace) => depth += 1,
                 Some(TokenType::Rsqb | TokenType::Rpar | TokenType::Rbrace) => depth -= 1,
                 Some(TokenType::Comma) if depth == 1 => expect_name = true,
-                Some(TokenType::Name) if depth == 1 && expect_name => { names.push(self.advance_text()); expect_name = false; continue; }
+                Some(TokenType::Star) if depth == 1 && expect_name => stars = "*",
+                Some(TokenType::DoubleStar) if depth == 1 && expect_name => stars = "**",
+                Some(TokenType::Name) if depth == 1 && expect_name => {
+                    let name = self.advance_text();
+                    names.push(s!(str core::mem::take(&mut stars), str name));
+                    expect_name = false;
+                    continue;
+                }
                 None => return names,
                 _ => {}
             }
             self.advance();
         }
         names
+    }
+
+    /* Compiles `build` inside a scope that binds each type parameter, called at once so the definition it leaves comes back. */
+    pub(super) fn generic_scope(&mut self, params: &[String], name: &str, build: impl FnOnce(&mut Self)) {
+        let body = self.with_fresh_chunk(|s| {
+            s.in_function = true;
+            for p in params {
+                // A hidden name, so the parameter is never read as the variable that binds it.
+                let idx = s.chunk.push_name(&s!("#", str p));
+                s.chunk.emit(OpCode::MakeTypeVar, idx);
+                s.store_name(param_name(p));
+            }
+            build(s);
+            s.chunk.emit(OpCode::ReturnValue, 0);
+        });
+        self.push_function(Vec::new(), body, 0, None, OpCode::MakeFunction);
+        if let Some(f) = self.chunk.functions.last_mut() { f.1.qualname = s!("<generic parameters of ", str name, ">"); }
+        self.chunk.emit(OpCode::Call, 0);
     }
 
     pub(super) fn parse_params(&mut self) -> (Vec<String>, u16) {
@@ -664,6 +760,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         let (params, defaults) = self.param_list(TokenType::Rpar, true);
         self.eat(TokenType::Rpar);
         if self.eat_if(TokenType::Rarrow) {
+            self.param_anns.push(("return".into(), self.mark()));
             while !matches!(self.peek(), Some(TokenType::Colon) | None) { self.advance(); }
         }
         self.eat(TokenType::Colon);
@@ -675,9 +772,10 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         let mut params: Vec<String> = Vec::new();
         let mut defaults = 0u16;
         let mut kw_only = false;
+        self.posonly = 0;
         let at_end = |s: &mut Self| matches!(s.peek(), Some(TokenType::Rarrow) | None) || s.peek() == Some(close);
         while !at_end(self) {
-            let prefix = if self.eat_if(TokenType::Slash) { None }
+            let prefix = if self.eat_if(TokenType::Slash) { self.posonly = params.len() as u16; None }
                 else if self.eat_if(TokenType::DoubleStar) { Some("**") }
                 else if self.eat_if(TokenType::Star) {
                     let bare = matches!(self.peek(), Some(TokenType::Comma)) || at_end(self);
@@ -688,7 +786,9 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             if let Some(prefix) = prefix {
                 let nm = self.advance_text();
                 params.push(s!(str prefix, str &nm));
-                if annotated { self.drain_annotation(); }
+                // What follows `*args` is keyword-only, as after a bare `*`.
+                kw_only |= prefix == "*";
+                if annotated && let Some(at) = self.drain_annotation() { self.param_anns.push((nm.into(), at)); }
                 // Trailing `=` marks a param carrying a default value.
                 if prefix.len() < 2 && self.eat_if(TokenType::Equal) {
                     let (from, at) = (self.chunk.instructions.len(), self.tokens.peek().map_or(self.last_end, |t| t.start));
@@ -703,9 +803,10 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         (params, defaults)
     }
 
-    /* Drains annotation via `advance_raw` (keeps bracket_stack clean), breaks on Rarrow to avoid infinite drain. */
-    pub(super) fn drain_annotation(&mut self) {
-        if self.eat_if(TokenType::Colon) {
+    /* Drains annotation via `advance_raw` (keeps bracket_stack clean), breaks on Rarrow to avoid infinite drain, and returns where it starts. */
+    pub(super) fn drain_annotation(&mut self) -> Option<Mark> {
+        let at = self.eat_if(TokenType::Colon).then(|| self.mark());
+        if at.is_some() {
             let mut depth = 0u32;
             loop {
                 match self.peek() {
@@ -725,6 +826,29 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
                 }
             }
         }
+        at
+    }
+
+    /* `__annotate__`, a function of `format` that evaluates each annotation in order and returns them by name, compiled from where each one starts. */
+    pub(super) fn emit_annotate(&mut self, anns: &[(String, Mark)]) {
+        let back = self.mark();
+        let outer = self.ssa_versions.clone();
+        let params = alloc::vec![String::from("format")];
+        let body = self.with_fresh_chunk(|s| {
+            s.ssa_versions = outer;
+            s.bind_param("format");
+            s.in_function = true;
+            for (name, at) in anns {
+                s.emit_const(Value::Str(name.clone()));
+                s.seek(*at);
+                // `*args: *Ts` takes the one item its annotation unpacks to.
+                if s.eat_if(TokenType::Star) { s.expr(); s.chunk.emit(OpCode::UnpackSequence, 1); } else { s.expr(); }
+            }
+            s.chunk.emit(OpCode::BuildDict, anns.len() as u16);
+            s.chunk.emit(OpCode::ReturnValue, 0);
+        });
+        self.seek(back);
+        self.push_function(params, body, 0, Some("__annotate__"), OpCode::MakeFunction);
     }
 
     fn body_of(&mut self, params: &[String]) {
@@ -734,7 +858,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             self.bind_param(p);
             let _ = self.push_ssa_name(super::types::param_base_name(p), 0);
         }
-        self.compile_block_body();
+        self.compile_block();
     }
 
     pub(super) fn compile_body(&mut self, params: &[String]) -> SSAChunk {

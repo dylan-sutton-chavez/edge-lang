@@ -43,7 +43,7 @@ print(run(coro())) # 1 (run drives it to completion)
 1
 ```
 
-A plain `def` called from a coroutine can still call yielding builtins such as `sleep` and `receive`. The scheduler keeps the frame of the helper and suspends the whole call chain. On resume it re-enters the helper, and its return value lands at the original call site. A generator body is the exception: it hands values only to whoever steps it, so a `sleep`, `receive` or host call that waits inside it raises `RuntimeError`.
+A plain `def` called from a coroutine can still call yielding builtins such as `sleep` and `receive`. The scheduler keeps the frame of the helper and suspends the whole call chain. On resume it re-enters the helper, and its return value lands at the original call site. A generator a `for` loop steps can wait too, directly or through a helper or `yield from`: the generator parks where it waits, the loop parks with it, and the next step after the resume picks up there. Only a generator stepped another way, such as `next(g)` or `sum(g)`, raises `RuntimeError` when it would wait.
 
 The module body runs as an implicit coroutine. Top-level statements suspend the same way.
 
@@ -260,6 +260,7 @@ When every coroutine waits, the run suspends to the host. The host resumes it on
 
 - Each iteration resumes the source to its next yield.
 - Over lists, tuples and dicts it behaves like a regular `for`.
+- A comprehension takes it too, as in `[x async for x in gen()]`.
 - A class body that binds `__aiter__` or `__anext__` fails at compile time. Write an `async def` generator instead.
 
 ```edge-python
@@ -290,7 +291,6 @@ run(main())
 
 - **No preemption between coroutines.** `while True: pass` inside a coroutine blocks the scheduler. The host can still force a pause through the preempt interval, see [Snapshots](/docs/edge-python/language/snapshots).
 - **No suspending in a cancelled `finally`.** A `finally` running from `cancel()` cannot `await` or `sleep`. Doing so raises `RuntimeError`.
-- **No async comprehensions.** `[x async for x in it]` is a parse error.
 - **No `send`, `throw` or `close` on a coroutine.** A coroutine runs only under `run` or `gather`, so pass messages through its arguments and return value. Generators take all three, see [Functions](/docs/edge-python/language/functions#send-throw-and-close).
 - **`receive()` can park indefinitely.** An empty queue with no message from the host leaves the coroutine waiting. Pair it with `with_timeout` for a deadline.
 

@@ -129,11 +129,10 @@ They render with line, column, and a caret preview. A report shows the first 20 
 | `Generator expression must be parenthesized` | A bare generator expression beside another argument or before a trailing comma |
 | `'is' compares only with None, True, False, ... or NotImplemented` | `is` against any other operand, compare it with `==` |
 | `'locals' is not supported`, and the same for `open` and `__import__` | A use of a builtin the engine leaves out, unless the module binds the name |
-| `'__del__' is not supported in a class body` | A dunder the engine never calls, such as `__hash__`, `__new__`, `__slots__`, `__init_subclass__` or a descriptor method |
-| `class keywords such as 'metaclass' are not supported` | A keyword in a class header |
+| `'__del__' is not supported in a class body` | A dunder the engine never calls, such as `__del__`, `__getattribute__` or `__aenter__` |
+| `metaclasses are not supported` | A `metaclass=` keyword in a class header, any other keyword goes to `__init_subclass__` |
 | `a list, dict or set default is shared by every call` | A mutable default, write `None` and build the value in the body |
 | `named escapes are not supported` | `\N{...}` in a string, write the character or `\u03b1` |
-| `complex numbers are not supported` | A `j` suffix on a number |
 
 The diagnostics of the [source and token limits](#source-and-token-limits) belong here too. Import failures are compile-time diagnostics as well, including modules Edge Python does not ship (`os`, `sys`, `asyncio`). See [Modules](/docs/edge-python/reference/modules#resolution-errors) for those message formats.
 
@@ -149,7 +148,7 @@ Runtime errors raise as typed exceptions, catchable with `try` and `except`.
 | `NameError` | Undefined name |
 | `UnboundLocalError` | A local read or deleted before its first assignment |
 | `ZeroDivisionError` | Division or modulo by zero |
-| `OverflowError` | Integer arithmetic past ±2^127 |
+| `OverflowError` | A number too large for where it goes, such as an int turned into a float, a shift count past the size of an index, or an argument past a C int |
 | `KeyError` | Dict or set lookup miss |
 | `IndexError` | Sequence index out of range |
 | `StopIteration` | Iterator exhausted. `e.value` holds what a generator returned |
@@ -161,7 +160,8 @@ Runtime errors raise as typed exceptions, catchable with `try` and `except`.
 | `RecursionError` | Past the call-depth limit, or a comparison nested deeper than 100 levels |
 | `MemoryError` | Past the memory limit |
 | `SyntaxError` | Text that `eval`, `exec` or `compile` cannot parse, or an import there of a module the program does not import |
-| `RuntimeError` | Past the op limit, an import cycle, `input()` without host data, a suspension inside `eval`, `exec` or a generator, or an internal invariant |
+| `EOFError` | `input()` once no line is left to read |
+| `RuntimeError` | Past the op limit, an import cycle, a suspension inside `eval`, `exec` or a generator stepped without a `for`, or an internal invariant |
 
 These errors fire from ordinary code.
 
@@ -221,22 +221,27 @@ A user `raise X` raises whatever class or instance `X` is. Raising a value that 
 
 ### Exception hierarchy
 
-`except` walks parent links in a curated tree rooted at `BaseException`.
+`except` walks parent links in the tree rooted at `BaseException`, the same tree `__mro__` lists.
 
 | Class | Parent |
 |---|---|
-| `Exception`, `SystemExit`, `CancelledError`, `GeneratorExit` | `BaseException` |
-| `TypeError`, `ValueError`, `AttributeError`, `NameError`, `RuntimeError`, `LookupError`, `ArithmeticError`, `OSError`, `ImportError`, `StopIteration`, `StopAsyncIteration`, `AssertionError`, `MemoryError`, `TimeoutError` | `Exception` |
+| `Exception`, `SystemExit`, `KeyboardInterrupt`, `CancelledError`, `GeneratorExit`, `BaseExceptionGroup` | `BaseException` |
+| `TypeError`, `ValueError`, `AttributeError`, `NameError`, `RuntimeError`, `LookupError`, `ArithmeticError`, `OSError`, `ImportError`, `SyntaxError`, `StopIteration`, `StopAsyncIteration`, `AssertionError`, `MemoryError`, `BufferError`, `EOFError`, `ReferenceError`, `SystemError`, `Warning` | `Exception` |
+| `ExceptionGroup` | `BaseExceptionGroup` and `Exception` |
 | `IndexError`, `KeyError` | `LookupError` |
-| `OverflowError`, `ZeroDivisionError` | `ArithmeticError` |
-| `RecursionError`, `NotImplementedError` | `RuntimeError` |
+| `OverflowError`, `ZeroDivisionError`, `FloatingPointError` | `ArithmeticError` |
+| `RecursionError`, `NotImplementedError`, `PythonFinalizationError` | `RuntimeError` |
 | `UnboundLocalError` | `NameError` |
-| `PermissionError` | `OSError` |
+| `PermissionError`, `FileNotFoundError`, `FileExistsError`, `IsADirectoryError`, `NotADirectoryError`, `InterruptedError`, `BlockingIOError`, `ChildProcessError`, `ProcessLookupError`, `ConnectionError`, `TimeoutError` | `OSError` |
+| `BrokenPipeError`, `ConnectionAbortedError`, `ConnectionRefusedError`, `ConnectionResetError` | `ConnectionError` |
 | `UnicodeError` | `ValueError` |
-| `UnicodeEncodeError`, `UnicodeDecodeError` | `UnicodeError` |
+| `UnicodeEncodeError`, `UnicodeDecodeError`, `UnicodeTranslateError` | `UnicodeError` |
 | `ModuleNotFoundError` | `ImportError` |
+| `IndentationError` | `SyntaxError` |
+| `TabError` | `IndentationError` |
+| `UserWarning`, `DeprecationWarning`, `PendingDeprecationWarning`, `SyntaxWarning`, `RuntimeWarning`, `FutureWarning`, `ImportWarning`, `UnicodeWarning`, `BytesWarning`, `ResourceWarning`, `EncodingWarning` | `Warning` |
 
-`IOError` is another name for `OSError`. A system call raises `PermissionError` outside the grant of its package.
+`IOError` and `EnvironmentError` are other names for `OSError`. A system call raises `PermissionError` outside the grant of its package. The warning classes are plain exceptions, raised and caught like any other, since there is no `warnings` module.
 
 > [!IMPORTANT]
 > `except Exception` does not catch `SystemExit`, `CancelledError` or `GeneratorExit`. Catch them by name, through `BaseException`, or with a bare `except`. A cancelled coroutine cannot catch its own `CancelledError` at all, though its `finally` blocks still run.

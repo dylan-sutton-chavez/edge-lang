@@ -21,11 +21,51 @@ pub(super) fn recv_str_ref<'v>(vm: &'v VM, recv: Val) -> Result<&'v str, VmErr> 
     }
 }
 
+/* An integer argument such as a width, refused the way an index is when it is none. */
+pub(super) fn index_arg(vm: &VM, v: Val) -> Result<i64, VmErr> {
+    if v.is_int() || v.is_bool() { return Ok(vm.as_i128(v).unwrap_or(0) as i64); }
+    Err(VmErr::TypeMsg(crate::s!("'", str vm.type_name(v), "' object cannot be interpreted as an integer")))
+}
+
+/* A width the caller grows its result to, charged before the result is made so a huge one fails cleanly. */
+pub(super) fn width_arg(vm: &VM, v: Val) -> Result<usize, VmErr> {
+    let width = index_arg(vm, v)?.max(0) as usize;
+    vm.heap.reserve(width)?;
+    vm.heap.spend(width);
+    Ok(width)
+}
+
+/* The tab size `expandtabs` takes, 8 when not given, held in a C int. */
+pub(super) fn tab_size(vm: &VM, pos: &[Val]) -> Result<usize, VmErr> {
+    let Some(&v) = pos.first() else { return Ok(8) };
+    let n = index_arg(vm, v)?;
+    if i32::try_from(n).is_err() { return Err(VmErr::Raised(String::from("OverflowError: Python int too large to convert to C int"))); }
+    Ok(n.max(0) as usize)
+}
+
+/* `expandtabs` over the units of a text or of bytes, each tab padded to the next stop and a line break resetting the column, refused past `limit`. */
+pub(super) fn expand_tabs<T: Copy + PartialEq>(units: impl IntoIterator<Item = T>, [tab, nl, cr, space]: [T; 4], ts: usize, limit: usize) -> Result<Vec<T>, VmErr> {
+    let (mut out, mut col) = (Vec::new(), 0usize);
+    for u in units {
+        if u == tab {
+            let n = if ts == 0 { 0 } else { ts - col % ts };
+            if col.saturating_add(n) > limit { return Err(crate::vm::types::cold_heap()); }
+            out.extend(core::iter::repeat_n(space, n));
+            col += n;
+        } else {
+            if col >= limit { return Err(crate::vm::types::cold_heap()); }
+            out.push(u);
+            col = if u == nl || u == cr { 0 } else { col + 1 };
+        }
+    }
+    Ok(out)
+}
+
 /* The receiver bytes borrowed in place, for methods that only read them. */
 #[inline]
 pub(super) fn recv_bytes_ref<'v>(vm: &'v VM, recv: Val) -> Result<&'v [u8], VmErr> {
     match vm.heap.try_get(recv) {
-        Some(HeapObj::Bytes(b)) => { vm.heap.spend(b.len()); Ok(b) }
+        Some(HeapObj::Bytes(b) | HeapObj::ByteArray(b)) => { vm.heap.spend(b.len()); Ok(b) }
         _ => Err(cold_type("method requires a bytes receiver")),
     }
 }
@@ -33,16 +73,16 @@ pub(super) fn recv_bytes_ref<'v>(vm: &'v VM, recv: Val) -> Result<&'v [u8], VmEr
 #[inline]
 pub(super) fn recv_bytes(vm: &VM, recv: Val) -> Result<Vec<u8>, VmErr> {
     match vm.heap.try_get(recv) {
-        Some(HeapObj::Bytes(b)) => { vm.heap.spend(b.len()); Ok(b.clone()) }
+        Some(HeapObj::Bytes(b) | HeapObj::ByteArray(b)) => { vm.heap.spend(b.len()); Ok(b.clone()) }
         _ => Err(cold_type("method requires a bytes receiver")),
     }
 }
 
 #[inline]
-pub(super) fn val_to_str(vm: &VM, v: Val) -> Result<String, VmErr> {
+pub(super) fn val_to_str(vm: &VM, v: Val, what: &str) -> Result<String, VmErr> {
     match vm.heap.try_get(v) {
         Some(HeapObj::Str(s)) => { vm.heap.spend(s.len()); Ok(s.clone()) }
-        _ => Err(cold_type("argument must be a string")),
+        _ => Err(VmErr::TypeMsg(crate::s!(str what, ", not ", str vm.type_name(v)))),
     }
 }
 
@@ -57,7 +97,7 @@ pub(super) fn list_clone(vm: &VM, recv: Val) -> Result<Vec<Val>, VmErr> {
 #[inline]
 pub(super) fn dict_entries(vm: &VM, recv: Val) -> Result<Vec<(Val, Val)>, VmErr> {
     match vm.heap.try_get(recv) {
-        Some(HeapObj::Dict(rc)) => { vm.heap.spend(rc.borrow().len()); Ok(rc.borrow().iter().collect()) }
+        Some(HeapObj::Dict(rc) | HeapObj::FrozenDict(rc)) => { vm.heap.spend(rc.borrow().len()); Ok(rc.borrow().iter().collect()) }
         _ => Err(cold_type("method requires a dict receiver")),
     }
 }
@@ -90,6 +130,7 @@ where F: FnOnce(&mut DictMap, &HeapPool) -> Result<R, VmErr>
 pub(super) fn set_clone(vm: &VM, recv: Val) -> Result<Vec<Val>, VmErr> {
     match vm.heap.get(recv) {
         HeapObj::Set(rc) => { vm.heap.spend(rc.borrow().len()); Ok(rc.borrow().iter().copied().collect()) }
+        HeapObj::FrozenSet(s) => { vm.heap.spend(s.len()); Ok(s.iter().copied().collect()) }
         _ => Err(cold_type("method requires a set receiver")),
     }
 }
@@ -99,6 +140,7 @@ pub(super) fn set_clone(vm: &VM, recv: Val) -> Result<Vec<Val>, VmErr> {
 pub(super) fn set_ref<R>(vm: &VM, recv: Val, f: impl FnOnce(&ValSet, &HeapPool) -> R) -> Result<R, VmErr> {
     match vm.heap.try_get(recv) {
         Some(HeapObj::Set(rc)) => Ok(f(&rc.borrow(), &vm.heap)),
+        Some(HeapObj::FrozenSet(s)) => Ok(f(s, &vm.heap)),
         _ => Err(cold_type("method requires a set receiver")),
     }
 }
@@ -117,9 +159,15 @@ where F: FnOnce(&mut ValSet, &HeapPool) -> Result<R, VmErr>
 
 // `Vec<Val>` from any iterable (str/range/dict/bytes/frozenset/list/tuple/set) for set ops, so every item must hash as a set element.
 #[inline]
-pub(super) fn iter_to_vec(vm: &mut VM, v: Val) -> Result<Vec<Val>, VmErr> {
+pub(super) fn iter_to_vec(vm: &mut VM, v: Val) -> Result<Vec<Val>, VmErr> { set_operand(vm, v, false) }
+
+// The items of a set operand, an unhashable one named as a set element, or only by its type for an operation that only looks them up.
+pub(super) fn set_operand(vm: &mut VM, v: Val, lookup: bool) -> Result<Vec<Val>, VmErr> {
     let items = vm.extract_iter(v)?;
-    for &x in &items { vm.require_element(x)?; }
+    for &x in &items {
+        if lookup { vm.require_hashable(x)?; } else { vm.require_element(x)?; }
+        vm.keyed(x)?;
+    }
     Ok(items)
 }
 

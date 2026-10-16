@@ -317,11 +317,7 @@ fn step_vm(mut vm: Box<VM<'static>>, src: &str, prev_paused: Option<Box<PausedRu
                 return STATUS_EXIT | ((code as u32) & 0xFF);
             }
             let name = source_name();
-            let mut traceback = vm.render_chain(src, name.as_deref());
-            traceback.push_str(&e.render_traceback(
-                src, vm.error_pos(), name.as_deref(),
-                vm.call_stack_frames(), vm.function_names_ref(),
-            ));
+            let traceback = vm.render_error(&e, src, name.as_deref());
             // A failed input keeps its partial effects.
             park_repl_or_drop(vm);
             drop(prev_paused);
@@ -373,7 +369,7 @@ pub unsafe extern "C" fn repl_eval(ptr: *const u8, len: u32) -> u32 {
     // Named native imports live only in the chunk's extern table, mirror them so later inputs resolve them.
     if let Err(e) = vm.bind_chunk_externs() {
         let name = source_name();
-        let traceback = e.render_traceback(&src, vm.error_pos(), name.as_deref(), vm.call_stack_frames(), vm.function_names_ref());
+        let traceback = vm.render_error(&e, &src, name.as_deref());
         park_repl_or_drop(vm);
         return err_status(&traceback);
     }

@@ -18,7 +18,7 @@ impl<'a> VM<'a> {
                 "end" => end = self.print_str_kwarg(pair[1], "\n", "end")?,
                 // No file/stdout selection or buffering in the sandbox, accept and ignore.
                 "file" | "flush" => {}
-                _ => return Err(VmErr::TypeMsg(crate::s!("'", str &kname, "' is an invalid keyword argument for print()"))),
+                _ => return Err(VmErr::TypeMsg(crate::s!("print() got an unexpected keyword argument '", str &kname, "'"))),
             }
         }
         let mut body = String::new();
@@ -82,19 +82,19 @@ impl<'a> VM<'a> {
         let s = if !self.input_buffer.is_empty() {
             self.input_buffer.remove(0)
         } else if self.strict_input {
-            // Host-driven mode, no blocking stdin read (also keeps headless/fuzz runs from hanging).
-            return Err(VmErr::Runtime("input() has no host data"));
+            // Host-driven mode, no blocking stdin read (also keeps headless/fuzz runs from hanging), so the input has ended.
+            return Err(eof());
         } else {
             #[cfg(feature = "std")]
             {
                 let mut line = String::new();
-                let _ = std::io::stdin().read_line(&mut line);
+                if std::io::stdin().read_line(&mut line).unwrap_or(0) == 0 { return Err(eof()); }
                 while line.ends_with('\n') || line.ends_with('\r') { line.pop(); }
                 line
             }
             #[cfg(not(feature = "std"))]
             {
-                return Err(VmErr::Runtime("input() has no host data"));
+                return Err(eof());
             }
         };
         let val = self.heap.alloc(HeapObj::Str(s))?;
@@ -111,9 +111,13 @@ impl<'a> VM<'a> {
         let spec = match spec_val.map(|sv| self.heap.try_get(sv)) {
             None => String::new(),
             Some(Some(HeapObj::Str(s))) => s.clone(),
-            Some(_) => return Err(cold_type("format() spec must be a string")),
+            Some(_) => return Err(VmErr::TypeMsg(crate::s!("format() argument 2 must be str, not ", str self.type_name(spec_val.unwrap_or_else(Val::none))))),
         };
         let result = self.format_op(val, &spec, chunk)?;
         self.alloc_and_push_str(result)
     }
 }
+
+/* What `input()` raises once no line is left to read. */
+#[cold]
+fn eof() -> VmErr { VmErr::Raised(String::from("EOFError: EOF when reading a line")) }

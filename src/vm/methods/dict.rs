@@ -2,7 +2,7 @@ use super::prelude::*;
 
 // A view that reads `recv` live, so later changes to the dict show through it.
 fn push_view(vm: &mut VM, recv: Val, kind: View) -> Result<(), VmErr> {
-    if !matches!(vm.heap.try_get(recv), Some(HeapObj::Dict(_))) { return Err(cold_type("method requires a dict receiver")); }
+    if vm.heap.dict_cell(recv).is_none() { return Err(cold_type("method requires a dict receiver")); }
     let v = vm.heap.alloc(HeapObj::DictView(recv, kind))?;
     vm.push(v);
     Ok(())
@@ -26,6 +26,8 @@ pub fn view_isdisjoint(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr>
 }
 
 // `dict.copy()`, shallow copy, mutations don't affect the original.
+pub fn frozen_copy(vm: &mut VM, recv: Val, _pos: &[Val]) -> Result<(), VmErr> { vm.push(recv); Ok(()) }
+
 pub fn copy(vm: &mut VM, recv: Val, _pos: &[Val]) -> Result<(), VmErr> {
     let entries = dict_entries(vm, recv)?;
     let mut dm = DictMap::with_capacity(entries.len());
@@ -44,17 +46,16 @@ pub fn clear(vm: &mut VM, recv: Val, _pos: &[Val]) -> Result<(), VmErr> {
 // `dict.popitem()`, pop the last (k, v), KeyError on empty dict.
 pub fn popitem(vm: &mut VM, recv: Val, _pos: &[Val]) -> Result<(), VmErr> {
     let pair = dict_mut(vm, recv, "popitem: receiver is not a dict", |dict, heap| {
-        let (k, v) = dict.last().ok_or_else(|| cold_key("popitem(): dictionary is empty"))?;
-        dict.remove(&k, heap);
-        Ok((k, v))
+        Ok(dict.last().inspect(|(k, _)| { dict.remove(k, heap); }))
     })?;
-    vm.alloc_and_push_tuple(vec![pair.0, pair.1])
+    let Some((k, v)) = pair else { return Err(vm.text_key_error("popitem(): dictionary is empty")) };
+    vm.alloc_and_push_tuple(vec![k, v])
 }
 
 // `dict.fromkeys(iterable, value=None)` classmethod, new dict mapping each key to `value`.
 pub fn fromkeys(vm: &mut VM, _recv: Val, pos: &[Val]) -> Result<(), VmErr> {
     let keys = vm.extract_iter(pos[0])?;
-    for &k in &keys { vm.require_key(k)?; }
+    for &k in &keys { vm.require_key(k)?; vm.keyed(k)?; }
     let value = pos.get(1).copied().unwrap_or(Val::none());
     let mut dm = DictMap::with_capacity(keys.len());
     for k in keys { dm.insert(k, value, &vm.heap); }
@@ -62,11 +63,10 @@ pub fn fromkeys(vm: &mut VM, _recv: Val, pos: &[Val]) -> Result<(), VmErr> {
 }
 
 pub fn get(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
+    vm.keyed(pos[0])?;
     let default = if pos.len() == 2 { pos[1] } else { Val::none() };
-    let found = match vm.heap.get(recv) {
-        HeapObj::Dict(rc) => rc.borrow().get(&pos[0], &vm.heap).copied(),
-        _ => return Err(cold_type("get: receiver is not a dict")),
-    };
+    let Some(rc) = vm.heap.dict_cell(recv) else { return Err(cold_type("get: receiver is not a dict")) };
+    let found = rc.borrow().get(&pos[0], &vm.heap).copied();
     if found.is_none() { vm.require_key(pos[0])?; }
     vm.push(found.unwrap_or(default)); Ok(())
 }
@@ -83,6 +83,7 @@ pub fn update(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
 }
 
 pub fn pop(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
+    vm.keyed(pos[0])?;
     let default = if pos.len() == 2 { Some(pos[1]) } else { None };
     let removed = dict_mut(vm, recv, "pop: receiver is not a dict", |dict, heap| Ok(dict.remove(&pos[0], heap)))?;
     if removed.is_none() { vm.require_key(pos[0])?; }
@@ -91,7 +92,7 @@ pub fn pop(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
         None => match default {
             Some(d) => d,
             // raises KeyError whose str is the missing key's repr.
-            None => return Err(VmErr::Raised(crate::s!("KeyError: ", str &vm.repr(pos[0])))),
+            None => return Err(vm.key_error(pos[0])),
         },
     };
     vm.push(result); Ok(())
@@ -100,6 +101,7 @@ pub fn pop(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
 pub fn setdefault(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
     let default = if pos.len() > 1 { pos[1] } else { Val::none() };
     vm.require_key(pos[0])?;
+    vm.keyed(pos[0])?;
     let result = dict_mut(vm, recv, "setdefault: receiver is not a dict", |dict, heap| {
         if let Some(v) = dict.get(&pos[0], heap).copied() { Ok(v) }
         else { dict.insert(pos[0], default, heap); Ok(default) }

@@ -72,6 +72,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             }
             Some(TokenType::At) => {
                 let mut count = 0u16;
+                self.decorated_at = self.tokens.peek().map(|t| t.line);
                 while self.eat_if(TokenType::At) {
                     self.expr();
                     count += 1;
@@ -101,12 +102,17 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             Some(TokenType::Type) => {
                 self.advance();
                 let name = self.advance_text();
-                self.type_params();
-                self.eat(TokenType::Equal);
-                let body = self.expr_body(&[]);
-                self.push_function(Vec::new(), body, 0, None, OpCode::MakeFunction);
-                let idx = self.chunk.push_name(name);
-                self.chunk.emit(OpCode::MakeTypeAlias, idx);
+                let params = self.type_params();
+                let alias = |s: &mut Self| {
+                    s.eat(TokenType::Equal);
+                    let body = s.expr_body(&[]);
+                    s.push_function(Vec::new(), body, 0, None, OpCode::MakeFunction);
+                    // The alias keeps its qualified name, its `__name__` the last part.
+                    let idx = s.chunk.push_name(&s.qualified(name));
+                    s.chunk.emit(OpCode::MakeTypeAlias, idx);
+                };
+                // `type A[T] = list[T]` reads its parameters when `__value__` runs.
+                if params.is_empty() { alias(self); } else { self.generic_scope(&params, name, alias); }
                 self.store_name(name);
                 false
             }
@@ -179,6 +185,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             }
             Some(TokenType::Break) => {
                 self.advance();
+                self.leaves_star();
                 match self.loops.last() {
                     None => self.error("'break' outside loop"),
                     Some(l) => {
@@ -194,6 +201,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             }
             Some(TokenType::Continue) => {
                 self.advance();
+                self.leaves_star();
                 if let Some(start) = self.loops.last().map(|l| l.start) {
                     self.emit_loop_unwind();
                     self.chunk.emit(OpCode::Jump, start);
@@ -205,6 +213,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             Some(TokenType::Return) => {
                 self.advance();
                 if !self.in_function { self.error("'return' outside function"); }
+                if self.star_loops.is_some() { self.error("'break', 'continue' and 'return' cannot appear in an except* block"); }
                 // A bare `return` ends at the line, the next statement is never its value.
                 if matches!(self.peek_same_line(), None | Some(TokenType::Semi | TokenType::Dedent)) {
                     self.chunk.emit(OpCode::LoadNone, 0);
@@ -337,11 +346,8 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         }
     }
 
-    pub(super) fn compile_block(&mut self) { self.compile_block_inner(false); }
-    pub(super) fn compile_block_body(&mut self) { self.compile_block_inner(true); }
-
-    /* Compiles Indent/Dedent block, is_body=true stops after ReturnValue to skip dead code. */
-    fn compile_block_inner(&mut self, is_body: bool) {
+    /* Compiles an Indent/Dedent block, or the statements on the line of its colon. */
+    pub(super) fn compile_block(&mut self) {
         let next_line = self.peek_same_line().is_none();
         let indented = self.eat_if(TokenType::Indent);
         // A body that starts on the next line must be indented.
@@ -364,12 +370,15 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             if produced_value {
                 self.chunk.emit(OpCode::PopTop, 0);
             }
-            if indented { continue; }
-            if is_body {
-                let just_returned = self.chunk.instructions.last().is_some_and(|i| i.opcode == OpCode::ReturnValue);
-                if just_returned || !matches!(self.peek(), Some(TokenType::Semi)) { break; }
-            } else if !matches!(self.peek(), Some(TokenType::Semi)) { break; }
+            // A body on the line of its colon runs to the end of that line, past a `return` too.
+            if !indented && !matches!(self.peek(), Some(TokenType::Semi)) { break; }
         }
+    }
+
+    /* The name an annotated target at token `at` is, None for an attribute or item target, which a class records nothing for. */
+    fn single_name_at(&self, at: usize) -> Option<&'src str> {
+        let t = *self.tokens.at(at)?;
+        (t.kind == TokenType::Name && self.tokens.at(at + 1).is_some_and(|n| n.kind == TokenType::Colon)).then(|| self.lexeme(&t))
     }
 
     /* Annotation discards tokens up to `=`, Edge Python is dynamically typed. Returns true when an assignment follows. */
@@ -414,6 +423,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
                     return true;
                 }
                 self.advance();
+                if self.in_class_body && let Some(name) = self.single_name_at(at) { self.class_anns.push((name.into(), self.mark())); }
                 self.skip_annotation();
             }
             let Some(shape) = shape.filter(|_| matches!(self.peek_same_line(), Some(TokenType::Equal))) else {
@@ -458,7 +468,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
     }
 
     /* Stores the stacked value into the target at the cursor, a name, `a.b[i]` chain or group. */
-    fn store_target(&mut self) {
+    pub(super) fn store_target(&mut self) {
         self.eat_if(TokenType::Star);
         self.peek_same_line();
         let open = self.tokens.pos;
@@ -505,6 +515,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         if matches!(self.peek_same_line(), Some(TokenType::Colon)) {
             self.check_member(name, t.end);
             self.advance();
+            if self.in_class_body { self.class_anns.push((name.into(), self.mark())); }
             self.skip_annotation();
             return false;
         }

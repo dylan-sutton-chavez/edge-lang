@@ -59,7 +59,7 @@ None
 
 ### Numbers and strings
 
-`Int` and `Float` are the only numeric token kinds. There is no `Complex` token, and a `j` suffix as in `1j` raises `complex numbers are not supported`.
+`Int` and `Float` are the only numeric token kinds. A `j` suffix as in `1j` lexes as a `Float`, and the parser makes it an imaginary constant, which the VM boxes as a complex number.
 
 - A misplaced or doubled `_` raises `invalid '_' in numeric literal` or `consecutive '_' in numeric literal`. One `_` may follow a radix prefix, as in `0x_FF`.
 - An empty radix body such as `0x` raises `missing digits in numeric literal`.
@@ -430,7 +430,7 @@ A free variable is a name that is neither a parameter nor bound locally. It is l
 
 Parameters are stored as names with markers. `*` marks `*args`, `**` marks `**kwargs`, `~` marks a keyword-only parameter, and a trailing `=` marks one with a default. Defaults live in `HeapObj::Func.defaults` and bind to the marked parameters in source order.
 
-Annotations such as `x: T` and `-> T` are parsed and skipped. No code is emitted for them, and `f.__annotations__` does not exist at run time.
+A function or class whose definition has annotations gets an `__annotate__` function, compiled from the annotation expressions where they stand, which builds the dict when `__annotations__` is first read. The annotations of local variables and of the module emit no code. The body chunk keeps how many parameters come before a `/`, which keyword binding refuses to fill, and the line the definition starts on, which `__code__` reports.
 
 ## Comprehensions and generators
 

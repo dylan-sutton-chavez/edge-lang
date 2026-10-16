@@ -24,6 +24,11 @@ mod gc;
 mod helpers;
 mod init;
 mod keys;
+mod object_model;
+mod groups;
+pub(crate) mod codecs;
+mod memview;
+mod hints;
 
 use crate::parser::{SSAChunk, builtin_type};
 use crate::util::hash::FxHashMap as HashMap;
@@ -64,6 +69,8 @@ pub(crate) struct Pending {
     pub method_binding: Option<(Val, Val)>,
     /* Set at preempt, `top_loop` yields `Preempted`. */
     pub preempt_request: bool,
+    /* Set by the raise that ends an `except*`, whose exception takes no context from the one handled. */
+    pub no_context: bool,
 }
 
 impl Pending {
@@ -81,6 +88,7 @@ impl Pending {
             exc_val: None,
             method_binding: None,
             preempt_request: false,
+            no_context: false,
         }
     }
 
@@ -156,6 +164,17 @@ pub struct VM<'a> {
     pub(crate) class_epoch: u32,
     /* Set once an instance may hide a method or property of its class with an attribute. */
     pub(crate) shadowed: bool,
+    /* Set once some class lists `__slots__`, so stores check the names a class allows. */
+    pub(crate) slotted: bool,
+    /* Set once some class defines `__hash__`, so keys ask it before a table probes. */
+    pub(crate) user_hash: bool,
+    /* Set once some class defines `__setattr__` or `__delattr__`, so stores and deletes look for them. */
+    pub(crate) attr_hooks: bool,
+    /* The receiver a builtin dunder of its own type runs on, whose class dunders that run skips. */
+    pub(crate) plain_recv: Val,
+    /* Per table hash, one instance of each class of equal keys a user `__hash__` made, the last class number given. */
+    pub(crate) key_reps: HashMap<u64, Vec<Val>>,
+    pub(crate) key_classes: u32,
     /* The shapes instance dicts take, each the shape every next key leads to, made on the first attribute stored. */
     pub(crate) shapes: Vec<Vec<(Val, u32)>>,
     /* Set by a hot loop in unlowered code, its frame then carries on lowered. */
@@ -212,6 +231,8 @@ pub struct VM<'a> {
     pub(crate) cancelling: bool,
     pub(crate) resume_raise: Option<VmErr>,
     pub(crate) yielded: bool,
+    /* Set by a `for` stepping a generator, which may then park on a wait with it. */
+    pub(crate) for_steps: bool,
     /* Return value of the most recently exhausted iterator, read by `LoadYieldFrom` so `x = yield from it` evaluates to the subiterator's StopIteration value. */
     pub(crate) yield_from_value: Val,
     pub(crate) resume_ip: usize,
@@ -226,12 +247,20 @@ pub struct VM<'a> {
     pub strict_input: bool,
     /* Byte offset of the deepest propagating error in the last run(). */
     pub(crate) error_byte_pos: Option<u32>,
+    /* Where the error rose inside a text `exec` or `eval` ran, its source, path and byte, so the traceback starts there. */
+    pub(crate) error_inner: Option<(alloc::sync::Arc<String>, alloc::sync::Arc<String>, u32)>,
+    /* The name or attribute the last error missed, for the hint its traceback adds if it goes uncaught. */
+    pub(crate) missed: Option<hints::Missed>,
     /* spec -> Module Val, populated by `init_modules`, read by LoadModule / import_module(). */
     pub(crate) module_table: HashMap<String, Val>,
     /* `fi -> module spec`, scopes the free-load fallback to the fn's own module. */
     pub(crate) fn_module: Vec<Option<String>>,
     /* Function names parallel to `functions`, consumed by traceback render. Empty = lambda. */
     pub(crate) function_names: Vec<String>,
+    /* Each function by its qualified name, `A.f`, which call errors and `__qualname__` give. */
+    pub(crate) function_qualnames: Vec<String>,
+    /* The qualified name of a class nested in another class or a function, by the class Val. */
+    pub(crate) class_qualnames: HashMap<u64, String>,
     /* The frames an error unwound through, innermost first, built only as it unwinds and read by the traceback renderer. */
     pub(crate) call_stack: Vec<CallFrame>,
     /* `(depth, class, self)` of each running method, which zero-argument `super()` reads. */
@@ -258,6 +287,8 @@ pub(crate) struct Ctor {
     pub attrs: usize,
     // The builtin `dict` or `list` the class derives from, which then builds its instances.
     pub native: Option<Val>,
+    // A class with its own `__new__` or `__slots__`, which only the general path builds.
+    pub special: bool,
 }
 
 impl<'a> VM<'a> {
@@ -316,6 +347,7 @@ impl<'a> VM<'a> {
             cancelling: false,
             resume_raise: None,
             yielded: false,
+            for_steps: false,
             yield_from_value: Val::none(),
             resume_ip: 0,
             strict_input: true,
@@ -330,9 +362,13 @@ impl<'a> VM<'a> {
             unwind_stack: Vec::new(),
             handling: Vec::new(),
             error_byte_pos: None,
+            error_inner: None,
+            missed: None,
             module_table: HashMap::default(),
             fn_module: Vec::new(),
             function_names: Vec::new(),
+            function_qualnames: Vec::new(),
+            class_qualnames: HashMap::default(),
             call_stack: Vec::new(),
             bindings: Vec::new(),
             scheduler: Vec::new(),
@@ -352,6 +388,12 @@ impl<'a> VM<'a> {
             executing_coros: Vec::new(),
             class_epoch: 0,
             shadowed: false,
+            slotted: false,
+            user_hash: false,
+            attr_hooks: false,
+            plain_recv: Val::undef(),
+            key_reps: HashMap::default(),
+            key_classes: 0,
             shapes: Vec::new(),
             tier_up: false,
             reg_error: None,
@@ -365,6 +407,8 @@ impl<'a> VM<'a> {
         };
         // Python registers its wide ints before any constant boxes one.
         vm.heap.set_wide_int(&crate::frontend::int::KIND);
+        vm.heap.know_kind(&crate::frontend::complex::KIND);
+        vm.heap.know_kind(&crate::frontend::sentinel::KIND);
         vm.heap.set_budget(vm.budget);
         vm.build_function_table(chunk, None, None);
         vm.index_functions(0);
@@ -467,8 +511,8 @@ impl<'a> VM<'a> {
         if self.builtins.contains_key(bare) { return; }
         // Type names stay Type objects even when a NativeFn shares them.
         let (name, obj) = if let Some(name) = builtin_type(bare) {
-            // `IOError` is the `OSError` class under a second name.
-            if name == "IOError" {
+            // `IOError` and `EnvironmentError` are the `OSError` class under other names.
+            if matches!(name, "IOError" | "EnvironmentError") {
                 self.register_builtin("OSError");
                 if let Some(&v) = self.builtins.get("OSError") { self.builtins.insert(name, v); }
                 return;

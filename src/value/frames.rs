@@ -100,6 +100,10 @@ pub enum BodyRef {
     Module,
 }
 
+/* The `fi` of a frame for the call of `exec` or `eval` that ran a text, which names no function. */
+pub const EXEC_FRAME: usize = usize::MAX;
+pub const EVAL_FRAME: usize = usize::MAX - 1;
+
 /* Call-site snapshot for traceback rendering, built only as an error unwinds through the call. */
 #[derive(Clone, Debug)]
 pub struct CallFrame {
@@ -146,7 +150,7 @@ pub enum IterFrame {
 #[inline]
 pub(crate) fn watched_len(heap: &HeapPool, of: Val) -> usize {
     match heap.try_get(of) {
-        Some(HeapObj::Dict(d)) => d.borrow().len(),
+        Some(HeapObj::Dict(d) | HeapObj::FrozenDict(d)) => d.borrow().len(),
         Some(HeapObj::Set(s)) => s.borrow().len(),
         _ => 0,
     }
@@ -182,7 +186,7 @@ impl IterFrame {
             }
             // Both failures stick, so every later step fails the same way.
             Self::DictWalk { of, idx, left, len, kind } => {
-                let Some(HeapObj::Dict(d)) = heap.try_get(*of) else { return Ok(None) };
+                let Some(d) = heap.dict_cell(*of) else { return Ok(None) };
                 let d = d.clone();
                 let m = d.borrow();
                 if m.len() != *len {

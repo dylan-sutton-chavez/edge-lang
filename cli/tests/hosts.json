@@ -418,7 +418,7 @@
     },
     "run": ["run", "main.py"],
     "stdout": ["True"],
-    "fails": ["PermissionError: this time module was imported by another package", "--> main.py:3:1"]
+    "fails": ["PermissionError: this time module was imported by another package", "--> <string>:1:1", "note: called from exec()", "--> main.py:3:5"]
   },
   {
     "given": {
@@ -437,7 +437,7 @@
     },
     "run": ["run", "main.py"],
     "stdout": ["ok"],
-    "fails": ["ZeroDivisionError: division by zero", "--> main.py:3:1"]
+    "fails": ["ZeroDivisionError: division by zero", "--> <string>:2:5", "note: called from boom()", "--> main.py:3:5"]
   },
   {
     "given": {

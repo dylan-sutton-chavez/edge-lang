@@ -40,8 +40,6 @@ Use [`isinstance`](/docs/edge-python/reference/builtins#isinstance) to test whet
 
 There is one `int` type and it has no fixed width. Small ints stay inline and wider ones grow as needed, so arithmetic never overflows. Turning an int of more than 4,300 decimal digits into text, or such text into an int, raises `ValueError`. [Limits and errors](/docs/edge-python/reference/limits-and-errors#integer-width) has the details.
 
-There is no complex type, so a negative number raised to a fractional power raises `ValueError`.
-
 ```edge-python
 big = 2**200
 print(big % 1000, big.bit_length())
@@ -70,6 +68,23 @@ True
 ```
 
 `round` rounds ties to even, see [Builtins](/docs/edge-python/reference/builtins#round).
+
+## Complex
+
+A `complex` holds a real and an imaginary part, both floats. A literal ends in `j`, and `complex(re, im)` or `complex("1+2j")` builds one. It takes `+`, `-`, `*`, `/` and `**` with ints, floats and other complex numbers, `abs` gives its magnitude, and `real`, `imag` and `conjugate()` read it. A real operand takes part as a real number alone. A complex number equals and hashes like the int or float it holds when its imaginary part is zero, and has no order. A negative number raised to a fractional power gives a complex result.
+
+```edge-python
+z = 3 + 4j
+print(z * 1j, abs(z), z.conjugate())
+print(z == complex("3+4j"), (-8) ** (1 / 3))
+print(f"{z:.1f}")
+```
+
+```output
+(-4+3j) 5.0 (3-4j)
+True (1.0000000000000002+1.7320508075688772j)
+3.0+4.0j
+```
 
 ## Boolean
 
@@ -163,6 +178,23 @@ b'Edge Python' Edge Python
 ```
 
 [Builtins](/docs/edge-python/reference/builtins) lists the constructor forms, such as `bytes(n)` and `bytes` from an int iterable. [Methods](/docs/edge-python/reference/methods#bytes-methods) covers `hex`, `split`, `fromhex` and the rest.
+
+## Bytearray and memoryview
+
+`bytearray` is the mutable `bytes`. Its items change through indexes, slices and methods such as `append` and `extend`, and it equals a `bytes` with the same octets. A `memoryview` shows the bytes of a bytes or bytearray value without copying them, a slice of it shows a part, and a write through a view of a bytearray changes the bytearray.
+
+```edge-python
+buf = bytearray(b"hello")
+buf[0] = ord("H")
+buf.extend(b"!")
+view = memoryview(buf)[1:3]
+view[0] = ord("E")
+print(buf, view.tobytes(), buf == b"HEllo!")
+```
+
+```output
+bytearray(b'HEllo!') b'El' True
+```
 
 ## List
 
@@ -259,7 +291,7 @@ key
 
 A dict is a mapping that keeps insertion order.
 
-- Keys must be hashable. Numbers, strings, bytes, bools, `None`, frozensets and tuples of hashables qualify.
+- Keys must be hashable. Numbers, strings, bytes, bools, `None`, frozensets, frozendicts of hashables and tuples of hashables qualify.
 - An unhashable key raises `TypeError`, as in `cannot use 'list' as a dict key (unhashable type: 'list')`.
 - Numerically equal keys collapse. `1`, `1.0` and `True` are one key, and the latest assignment wins.
 - Iteration yields keys.
@@ -342,7 +374,7 @@ A frozenset is an immutable, hashable set built with `frozenset(iterable)`.
 
 - It supports `len`, iteration, membership, unpacking, the algebra operators and the subset comparisons.
 - In mixed `set` and `frozenset` algebra the result takes the type of the left operand.
-- It has no named methods. `frozenset({1}).union({2})` raises `AttributeError`. Convert with `set(fs)` for the method API.
+- It has the set methods that change nothing, `union`, `intersection`, `difference`, `symmetric_difference`, `issubset`, `issuperset`, `isdisjoint` and `copy`, and those that build a set build a frozenset.
 
 ```edge-python
 fs = frozenset({1, 2, 3})
@@ -370,6 +402,28 @@ True
 [1, 2, 3, 4]
 True
 ok
+```
+
+## Frozendict
+
+A frozendict is a dict nothing changes once made, built like one with `frozendict(...)`.
+
+- It reads like a dict: indexing, `get`, `keys`, `values`, `items`, `len`, iteration, membership, `**` unpacking and mapping patterns.
+- It has no method that changes it, and an item assignment or deletion raises `TypeError`.
+- It equals the dict with the same entries, and hashes when its values do, as the frozenset of its items would.
+- `|` merges into the type of the left operand, and `fd |= other` rebinds `fd` to a new frozendict.
+
+```edge-python
+fd = frozendict(a=1, b=2)
+print(fd, fd["a"], fd == {"a": 1, "b": 2})
+print({fd: "key"}[frozendict(b=2, a=1)])
+print(fd | {"c": 3}, type({"z": 0} | fd).__name__)
+```
+
+```output
+frozendict({'a': 1, 'b': 2}) 1 True
+key
+frozendict({'a': 1, 'b': 2, 'c': 3}) dict
 ```
 
 ## Range
@@ -401,9 +455,9 @@ False
 Type parameters, aliases and unions exist at runtime as small values. None of them checks a type.
 
 - `list[int]` is a generic alias. It prints as `list[int]` and calling it builds a plain `list`.
-- `class Box[T]` keeps its parameters in `__type_params__`, and `Box[int]` is a generic alias.
+- `class Box[T]`, `def f[T]` and `type X[T] = v` bind their parameters in a scope of their own. The body, the annotations and `__type_params__` all see the same `T`. `*Ts` makes a `TypeVarTuple` and `**P` a `ParamSpec`.
+- `Box[int]` is a generic alias, and a class can derive from it as from `Box`.
 - On a class that defines `__class_getitem__`, `C[x]` calls it.
-- `def f[T]` parses its type parameters and discards them.
 - `type X = v` binds a lazy alias. `X.__value__` evaluates `v` when read.
 - `int | None` is a union that `isinstance` accepts.
 
@@ -412,8 +466,11 @@ class Box[T]:
   def __init__(self, v):
     self.v = v
 
-print(Box.__type_params__)
-print(Box[int](3).v)
+def first[T](xs: list[T]) -> T:
+  return xs[0]
+
+print(Box.__type_params__, first.__type_params__)
+print(Box[int](3).v, first([7]))
 print(list[int], list[int]("ab"))
 
 type Pair = tuple[int, int]
@@ -422,8 +479,8 @@ print(isinstance(None, int | None))
 ```
 
 ```output
-(T,)
-3
+(T,) (T,)
+3 7
 list[int] ['a', 'b']
 tuple[int, int]
 True

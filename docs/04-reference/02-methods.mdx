@@ -76,11 +76,12 @@ hello
 
 ### Predicates
 
-`isdigit`, `isalpha`, `isalnum`, `isspace`, `isupper`, `islower`, `istitle`.
+`isdigit`, `isdecimal`, `isnumeric`, `isalpha`, `isalnum`, `isspace`, `isupper`, `islower`, `istitle`, `isidentifier`, `isascii`, `isprintable`.
 
-- All return `False` on an empty string.
+- All return `False` on an empty string, except `isascii` and `isprintable`, which return `True`.
 - The cased predicates also require at least one cased character.
-- Every predicate follows the Unicode 15 character tables. `"٣".isdigit()` is `True` and `"½".isdigit()` is `False`.
+- Every predicate follows the Unicode 17 character tables. `"٣".isdigit()` is `True`, `"½".isdigit()` is `False` and `"½".isnumeric()` is `True`.
+- `isprintable` is what `repr` decides by, so `repr` escapes a zero-width space or a line separator.
 
 ```edge-python
 print("123".isdigit())
@@ -101,8 +102,6 @@ True
 True
 True
 ```
-
-Not provided are `isascii`, `isidentifier`, `isnumeric`, `isdecimal`, and `isprintable`.
 
 ### Search and count
 
@@ -196,7 +195,7 @@ a   bc
 **ñ**
 ```
 
-Not provided are `translate` and `maketrans`.
+`str.maketrans(x[, y[, z]])` builds the table `translate` takes, from a dict of characters or code points, or from two strings of equal length and a third of characters to drop. `s.translate(table)` looks each code point up in the table, a dict or a sequence: a missing one stays, `None` drops it, and an int or a string replaces it.
 
 ### Formatting
 
@@ -239,46 +238,63 @@ Ada is 36
 
 ### Encoding
 
-`s.encode([encoding])` returns bytes. The encodings are `"utf-8"` (the default), `"utf8"`, and `"ascii"`.
+`s.encode(encoding="utf-8", errors="strict")` returns bytes. The encodings are UTF-8, ASCII and Latin-1, under their usual names such as `"utf8"`, `"latin-1"` or `"iso-8859-1"`, and any other name raises `LookupError`. A character the encoding cannot hold raises `UnicodeEncodeError`, a `ValueError` naming the character and its position, unless `errors` handles it.
 
-- ASCII raises `UnicodeEncodeError` on non-ASCII input. It is a subclass of `ValueError`.
-- Any other encoding name raises `ValueError`.
+| `errors` | An unencodable character becomes |
+|---|---|
+| `"strict"` | `UnicodeEncodeError` |
+| `"ignore"` | nothing |
+| `"replace"` | `?` |
+| `"backslashreplace"` | an escape such as `\xe9` |
+| `"xmlcharrefreplace"` | a reference such as `&#233;` |
 
 ```edge-python
 print("café".encode())
-print("hi".encode("ascii"))
+print("café".encode("ascii", "replace"), "café".encode("latin-1"))
 ```
 
 ```output
 b'caf\xc3\xa9'
-b'hi'
+b'caf?' b'caf\xe9'
 ```
 
 ## Bytes methods
 
-`bytes` carries the methods below. `bytearray` and `memoryview` do not exist.
+`bytes` carries the methods below, and `bytearray` the same ones with bytearray results. Whitespace is the six ASCII bytes space, `\t`, `\n`, `\r`, `\x0b` and `\x0c`, and case is ASCII only.
 
 | Method | Behavior |
 |---|---|
 | `decode([encoding[, errors]])` | Returns a string. The encodings match `str.encode` |
-| `hex()` | Lowercase hex with no separator option |
+| `hex([sep[, bytes_per_sep]])` | Lowercase hex, `sep` between groups of `bytes_per_sep` bytes counted from the right, or from the left when negative |
 | `startswith`, `endswith` | Take one bytes value or a tuple of them |
-| `find`, `index` | A byte offset. `find` gives `-1` on a miss and `index` raises `ValueError` |
+| `find`, `rfind`, `index`, `rindex` | A byte offset. The `find` forms give `-1` on a miss and the `index` forms raise `ValueError` |
 | `count` | Non-overlapping occurrences |
 | `replace(old, new[, count])` | Replaces every occurrence, or the first `count` |
-| `split([sep[, maxsplit]])` | Splits on whitespace runs, or on every `sep` |
-| `lower`, `upper` | Change the case of ASCII bytes only |
-| `strip`, `lstrip`, `rstrip` | Trim ASCII whitespace, or any byte in the optional argument |
+| `split`, `rsplit([sep[, maxsplit]])` | Split on whitespace runs, or on every `sep`, from the left or the right |
+| `splitlines([keepends])` | Splits at `\n`, `\r` and `\r\n` only |
+| `partition`, `rpartition(sep)` | The three parts around the first or the last `sep` |
+| `removeprefix`, `removesuffix` | Drop the affix when it is there |
+| `lower`, `upper`, `swapcase`, `capitalize`, `title` | Change the case of letters |
+| `isalnum`, `isalpha`, `isdigit`, `isspace`, `islower`, `isupper`, `istitle`, `isascii` | The predicates of `str` over bytes |
+| `strip`, `lstrip`, `rstrip` | Trim whitespace, or any byte in the optional argument |
+| `center`, `ljust`, `rjust(width[, fill])`, `zfill(width)` | Pad to `width`, `fill` one byte |
+| `expandtabs([tabsize])` | Tabs to spaces, columns of 8 by default |
 | `join(iterable)` | Concatenates an iterable of bytes |
+| `translate(table[, delete])` | Each byte through a table of 256 bytes, or kept with `None`, the bytes in `delete` dropped |
+| `bytes.maketrans(from, to)` | The table `translate` takes |
 | `bytes.fromhex(s)` | Parses a hex string, see [fromhex](#fromhex) |
 
-`startswith`, `endswith`, `find`, `index` and `count` take optional `start` and `end` byte bounds.
+The search methods take an int byte or a bytes value, and optional `start` and `end` byte bounds.
 
-The `errors` handler of `decode` takes three values.
+`decode(encoding="utf-8", errors="strict")` reads the encodings `str.encode` writes. A byte the encoding cannot read raises `UnicodeDecodeError`, a `ValueError` naming the byte, its position and why, unless `errors` is `"ignore"`, which drops it, `"replace"`, which writes U+FFFD, or `"backslashreplace"`, which writes `\xff`.
 
-- `"strict"` is the default. It raises `UnicodeDecodeError`, a `ValueError`, on invalid UTF-8.
-- `"ignore"` drops the bad bytes.
-- `"replace"` substitutes U+FFFD.
+### Bytearray methods
+
+A `bytearray` also changes in place. `append(x)`, `extend(iterable)`, `insert(i, x)`, `pop([i])`, `remove(x)`, `clear()`, `reverse()` and `copy()` work as on a list, with ints in range(256) as items, and index and slice assignment and `del` work too. `resize(size)` cuts it or grows it with zero bytes, and `take_bytes([n])` takes the first `n` bytes out as bytes, all of them by default.
+
+### Memoryview methods
+
+A `memoryview` has `tobytes()`, `tolist()`, `hex([sep[, bytes_per_sep]])` and `release()`, and the attributes `obj`, `nbytes`, `readonly`, `format`, `itemsize`, `ndim`, `shape`, `strides` and `contiguous`.
 
 ```edge-python
 b = b"\x48\x65\x6c\x6c\x6f"
@@ -396,6 +412,8 @@ print(xs.pop(0), xs)
 
 ## Dict methods
 
+A `frozendict` has `keys`, `values`, `items`, `get`, `fromkeys` and `copy()`, which gives itself back, and none that change it.
+
 ### Views
 
 `keys`, `values`, `items` return views that read the dict live. A view taken earlier shows later changes. The `keys` and `items` views take the set operators and `isdisjoint`.
@@ -512,6 +530,7 @@ set()
 - `union`, `intersection`, `difference` return fresh sets and accept any number of iterable arguments.
 - `symmetric_difference` takes exactly one.
 - `intersection_update`, `difference_update`, `symmetric_difference_update` mutate the receiver.
+- A `frozenset` has the ones that change nothing, with frozenset results, and its `copy()` is itself.
 - `issubset`, `issuperset`, `isdisjoint` test relations.
 
 The named methods accept any iterable. The operator forms are in [Set](/docs/edge-python/language/data-types#set).
@@ -538,14 +557,15 @@ True
 
 ## int and float methods
 
-`int` carries these methods. Arguments pass by position only.
+`int` carries these methods, and `bool` with it. Arguments pass by position only.
 
 - `bit_length()` gives the bits needed for the absolute value, `0` for zero.
 - `bit_count()` gives the number of set bits.
+- `as_integer_ratio()` gives the int over one, and `is_integer()` is always `True`.
 - `to_bytes([length[, byteorder]])` writes the value unsigned, with `length` 1 and `byteorder` `"big"` by default. A negative value or one that does not fit raises `OverflowError`.
 - `int.from_bytes(bytes[, byteorder])` is called on the type. It reads the bytes unsigned, `"big"` by default, into an int of any size.
 
-`float` carries `is_integer()`. Every int, bool and float has `conjugate()` and the attributes `real` and `imag`, and an int or bool also `numerator` and `denominator`.
+`float` carries `is_integer()`, `as_integer_ratio()`, the exact fraction in lowest terms, and `hex()`, the value in hexadecimal. `float.fromhex(s)` reads that form back, rounded half to even, and `float.from_number(x)` makes any number a float. Every int, bool and float has `conjugate()` and the attributes `real` and `imag`, and an int or bool also `numerator` and `denominator`.
 
 ```edge-python
 print((255).bit_length())
@@ -555,6 +575,7 @@ print((1000).to_bytes(2, "little"))
 print(int.from_bytes(b"\x03\xe8", "big"))
 print((3.0).is_integer())
 print((3.5).is_integer())
+print((0.75).as_integer_ratio(), (1.5).hex(), float.fromhex("0x1.8p1"))
 ```
 
 ```output
@@ -565,6 +586,7 @@ b'\xe8\x03'
 1000
 True
 False
+(3, 4) 0x1.8000000000000p+0 3.0
 ```
 
 The builtins [`int_to_bytes` and `int_from_bytes`](/docs/edge-python/reference/builtins#bytes-helpers) are the same methods as functions, with every argument required.

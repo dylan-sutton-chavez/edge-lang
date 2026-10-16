@@ -148,7 +148,7 @@ fn compute(heap: &HeapPool, op: BinOp, a: Val, b: Val) -> Result<Option<Out>, Vm
         BinOp::Mul => { admit(heap, lx + ly, mul_work(lx, ly))?; x.mul(&y) }
         BinOp::FloorDiv | BinOp::Mod => {
             admit(heap, lx + 1, lx * ly / 8)?;
-            let Some((q, r)) = x.divmod(&y) else { return Err(raised(if op == BinOp::Mod { "ZeroDivisionError: integer modulo by zero" } else { "ZeroDivisionError: integer division or modulo by zero" })) };
+            let Some((q, r)) = x.divmod(&y) else { return Err(VmErr::ZeroDiv) };
             if op == BinOp::Mod { r } else { q }
         }
         BinOp::TrueDiv => {
@@ -162,12 +162,13 @@ fn compute(heap: &HeapPool, op: BinOp, a: Val, b: Val) -> Result<Option<Out>, Vm
         BinOp::Xor => { admit(heap, lx.max(ly) + 1, lx + ly)?; x.bitwise(&y, |p, q| p ^ q) }
         BinOp::Shl | BinOp::Shr => {
             if y.is_neg() { return Err(cold_value("negative shift count")); }
-            let n = y.to_i128().and_then(|n| u64::try_from(n).ok());
+            // A count past what an index holds is too many digits, one that fits fails on memory if at all.
+            let n = y.to_i128().and_then(|n| i64::try_from(n).ok()).map(|n| n as u64);
             match (op, n) {
                 _ if x.is_zero() => BigInt::zero(),
                 (BinOp::Shr, None) => BigInt::from_i128(if x.is_neg() { -1 } else { 0 }),
                 (BinOp::Shr, Some(n)) => x.shr(n),
-                (_, None) => return Err(cold_heap()),
+                (_, None) => return Err(raised("OverflowError: too many digits in integer")),
                 (_, Some(n)) => { admit(heap, lx + n / 32 + 1, lx + n / 32)?; x.shl(n) }
             }
         }
@@ -180,7 +181,7 @@ fn pow(heap: &HeapPool, x: &BigInt, y: &BigInt) -> Result<Out, VmErr> {
     if y.is_neg() {
         let (fx, fy) = (x.to_f64(), y.to_f64());
         let fx = fx.ok_or_else(|| raised("OverflowError: int too large to convert to float"))?;
-        if fx == 0.0 { return Err(raised("ZeroDivisionError: 0.0 cannot be raised to a negative power")); }
+        if fx == 0.0 { return Err(raised("ZeroDivisionError: zero to a negative power")); }
         return Ok(Out::Float(libm::pow(fx, fy.unwrap_or(f64::NEG_INFINITY))));
     }
     match x.to_i128() {
@@ -399,6 +400,7 @@ pub fn range_slice(heap: &mut HeapPool, v: Val, start: Val, stop: Val, step: Val
 
 /* A slice index with a boxed int clamped to the inline extreme of its sign, which no sequence length reaches. */
 pub fn clip_index(heap: &HeapPool, v: Val) -> Val {
+    let v = crate::value::unboxed(v, heap);
     if !is_big(heap, v) { return v; }
     Val::int(if view(heap, v).is_some_and(|b| b.is_neg()) { Val::INT_MIN } else { Val::INT_MAX })
 }

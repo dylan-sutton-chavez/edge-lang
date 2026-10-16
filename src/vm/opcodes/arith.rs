@@ -1,5 +1,5 @@
 use super::*;
-use crate::value::{BinOp, UnOp};
+use crate::value::{BinOp, UnOp, unboxed};
 
 use cache::OpcodeCache;
 
@@ -13,11 +13,11 @@ impl<'a> VM<'a> {
     /* Add/Sub/Mul/Div with IC, Mod/Pow/FloorDiv exact for ints of any size, Minus is unary. */
     pub(crate) fn handle_arith(&mut self, op: OpCode, operand: u16, rip: usize, cache: &OpcodeCache, chunk: &SSAChunk) -> Result<(), VmErr> {
         if op == OpCode::Minus {
-            return self.exec_unary(rip, cache, chunk, "__neg__", |v| Val::float(-v.as_float()), UnOp::Neg, "unary - requires a number");
+            return self.exec_unary(rip, cache, chunk, "__neg__", |v| Val::float(-v.as_float()), UnOp::Neg, "-");
         }
         if op == OpCode::Pos {
             // +float returns the value unchanged, bool drops its tag to int.
-            return self.exec_unary(rip, cache, chunk, "__pos__", |v| v, UnOp::Pos, "unary + requires a number");
+            return self.exec_unary(rip, cache, chunk, "__pos__", |v| v, UnOp::Pos, "+");
         }
 
         let (a, b) = self.pop2()?;
@@ -31,6 +31,13 @@ impl<'a> VM<'a> {
                 // Snapshot rhs first so `xs += xs` doubles correctly, TypeError if rhs isn't iterable.
                 let rhs = self.extract_iter(b)?;
                 if let HeapObj::List(la) = self.heap.get(a) { la.borrow_mut().extend_from_slice(&rhs); }
+                self.push(a);
+                return Ok(());
+            }
+            // A bytearray grows in place by any bytes-like value.
+            if a.is_heap() && matches!(self.heap.get(a), HeapObj::ByteArray(_)) && let Some(more) = self.heap.bytes_of(b).map(<[u8]>::to_vec) {
+                self.heap.reserve(more.len())?;
+                if let Some(HeapObj::ByteArray(buf)) = self.heap.try_get_mut(a) { buf.extend_from_slice(&more); }
                 self.push(a);
                 return Ok(());
             }
@@ -58,16 +65,19 @@ impl<'a> VM<'a> {
         if op == OpCode::Sub && let Some((x, y)) = self.view_set_operands(a, b, true, chunk)? {
             return self.set_binop_and_push(x, y, op);
         }
+        // A number of a class deriving from int or float computes as the number.
+        let (a, b) = (unboxed(a, &self.heap), unboxed(b, &self.heap));
         let result = match op {
-            OpCode::Add => self.add_vals(a, b)?,
-            OpCode::Sub => self.sub_vals(a, b)?,
-            OpCode::Mul => self.mul_vals(a, b)?,
-            OpCode::Div => self.div_vals(a, b)?,
-            OpCode::Mod => self.exec_mod(a, b, chunk)?,
-            OpCode::Pow => self.exec_pow(a, b)?,
-            OpCode::FloorDiv => self.exec_floordiv(a, b)?,
+            OpCode::Add => self.add_vals(a, b),
+            OpCode::Sub => self.sub_vals(a, b),
+            OpCode::Mul => self.mul_vals(a, b),
+            OpCode::Div => self.div_vals(a, b),
+            OpCode::Mod => self.exec_mod(a, b, chunk),
+            OpCode::Pow => self.exec_pow(a, b),
+            OpCode::FloorDiv => self.exec_floordiv(a, b),
             _ => return Err(cold_runtime("non-arith opcode in handle_arith")),
         };
+        let result = if inplace { result.map_err(inplace_err)? } else { result? };
         self.push(result);
         Ok(())
     }
@@ -75,7 +85,7 @@ impl<'a> VM<'a> {
     /* Unary `-`/`+`, instance dunder takes precedence over numeric coercion. `ffl` maps the float case. */
     #[allow(clippy::too_many_arguments)]
     fn exec_unary(&mut self, rip: usize, cache: &OpcodeCache, chunk: &SSAChunk,
-                  name: &'static str, ffl: fn(Val) -> Val, op: UnOp, err: &'static str) -> Result<(), VmErr> {
+                  name: &'static str, ffl: fn(Val) -> Val, op: UnOp, sym: &'static str) -> Result<(), VmErr> {
         let v = self.pop()?;
         if let Some(r) = self.try_call_dunder(v, name, &[], chunk)? {
             // monomorphic unary-instance sites promote like binary ops.
@@ -83,13 +93,14 @@ impl<'a> VM<'a> {
             self.push(r);
             return Ok(());
         }
+        let v = unboxed(v, &self.heap);
         let result = if v.is_float() {
             ffl(v)
         } else if v.is_int() || v.is_bool() {
             let i = self.as_i128(v).unwrap_or(0);
             self.heap.int(if op == UnOp::Neg { -i } else { i })?
         } else {
-            self.heap.foreign_unop(op, v)?.ok_or_else(|| cold_type(err))?
+            match self.heap.foreign_unop(op, v)? { Some(r) => r, None => return Err(self.bad_operand(&crate::s!("unary ", str sym), v)) }
         };
         self.push(result);
         Ok(())
@@ -100,31 +111,31 @@ impl<'a> VM<'a> {
         if a.is_heap() && matches!(self.heap.get(a), HeapObj::Str(_)) {
             return self.str_percent_format(a, b, chunk);
         }
-        self.floor_op(BinOp::Mod, a, b, "% requires numeric operands")
+        self.floor_op(BinOp::Mod, a, b, "%")
     }
 
     /* `a // b` or `a % b`, floats when either side is one, signed like the divisor. */
-    pub(crate) fn floor_op(&mut self, op: BinOp, a: Val, b: Val, err: &'static str) -> Result<Val, VmErr> {
+    pub(crate) fn floor_op(&mut self, op: BinOp, a: Val, b: Val, sym: &str) -> Result<Val, VmErr> {
         let modulo = op == BinOp::Mod;
         if a.is_float() || b.is_float() {
-            let (Some(af), Some(bf)) = (crate::vm::num_f64(a, &self.heap), crate::vm::num_f64(b, &self.heap)) else { return Err(cold_type(err)); };
+            let (Some(af), Some(bf)) = (crate::vm::num_f64(a, &self.heap), crate::vm::num_f64(b, &self.heap)) else { return Err(self.unsupported(sym, a, b)); };
             let (af, bf) = (af?, bf?);
-            if bf == 0.0 { return Err(VmErr::Raised(String::from(if modulo { "ZeroDivisionError: float modulo" } else { "ZeroDivisionError: float floor division by zero" }))); }
+            if bf == 0.0 { return Err(VmErr::ZeroDiv); }
             let (q, r) = float_divmod(af, bf);
             return Ok(Val::float(if modulo { r } else { q }));
         }
         if let (Some(x), Some(y)) = (self.as_i128(a), self.as_i128(b)) && y != 0 && let Some((q, r)) = crate::vm::int_divmod(x, y) {
             return self.heap.int(if modulo { r } else { q });
         }
-        self.heap.foreign_binop(op, a, b)?.ok_or_else(|| cold_type(err))
+        self.heap.foreign_binop(op, a, b)?.ok_or_else(|| self.unsupported(sym, a, b))
     }
 
     /* printf-style `str % args` translates each `%[flags][width][.prec]conv` into the `{:spec}` mini-language and reuses `format_value`. A tuple spreads, else one value. */
     fn str_percent_format(&mut self, fmt_val: Val, arg: Val, chunk: &SSAChunk) -> Result<Val, VmErr> {
         let fmt = match self.heap.get(fmt_val) { HeapObj::Str(s) => s.clone(), _ => return Err(cold_type("% requires a string")) };
-        let args: alloc::vec::Vec<Val> = match self.heap.try_get(arg) {
-            Some(HeapObj::Tuple(t)) => t.clone(),
-            _ => alloc::vec![arg],
+        let (args, spread): (alloc::vec::Vec<Val>, bool) = match self.heap.try_get(arg) {
+            Some(HeapObj::Tuple(t)) => (t.clone(), true),
+            _ => (alloc::vec![arg], false),
         };
         let chars: alloc::vec::Vec<char> = fmt.chars().collect();
         let mut out = String::new();
@@ -170,8 +181,14 @@ impl<'a> VM<'a> {
             }
             if i >= chars.len() { return Err(cold_value("incomplete format")); }
             let conv = chars[i]; i += 1;
-            let val = *args.get(ai).ok_or_else(|| cold_type("not enough arguments for format string"))?;
+            let val = *args.get(ai).ok_or_else(|| short_of(args.len()))?;
             ai += 1;
+            // How an error names the argument, by its place when a tuple spread them.
+            let wrong = |vm: &Self, needs: &str| {
+                let at = if spread { crate::s!("format argument ", int ai as i64) } else { String::from("format argument") };
+                VmErr::TypeMsg(crate::s!(str &at, ": %", char conv, " requires ", str needs, ", not ", str vm.type_name(val)))
+            };
+            let int_like = val.is_int() || val.is_bool() || crate::frontend::int::is_big(&self.heap, val);
             // Map printf conversion -> (format value, spec type char, is-numeric).
             let (fval, ty, numeric): (Val, Option<char>, bool) = match conv {
                 's' => { let s = self.display_op(val, chunk)?; (self.heap.alloc(HeapObj::Str(s))?, None, false) }
@@ -179,14 +196,15 @@ impl<'a> VM<'a> {
                 'a' => { let s = crate::vm::format_spec::ascii_escape(&self.repr_op(val, chunk)?); (self.heap.alloc(HeapObj::Str(s))?, None, false) }
                 // A float truncates the way `int()` does, an integer verb refuses it.
                 'd' | 'i' | 'u' => {
-                    let v = self.coerce_format_int(val, chunk)?;
+                    let v = if int_like || val.is_float() { val } else { self.format_number(val, "__int__", chunk)?.ok_or_else(|| wrong(self, "a real number"))? };
                     let v = if v.is_float() { crate::vm::globals::numeric::float_to_int(&mut self.heap, v.as_float(), libm::trunc)? } else { v };
                     (v, Some('d'), true)
                 }
-                'x' | 'X' | 'o' if val.is_float() => return Err(VmErr::TypeMsg(crate::s!("%", char conv, " format: an integer is required, not float"))),
-                'x' => (self.coerce_format_int(val, chunk)?, Some('x'), true),
-                'X' => (self.coerce_format_int(val, chunk)?, Some('X'), true),
-                'o' => (self.coerce_format_int(val, chunk)?, Some('o'), true),
+                // The integer verbs take an int or what `__index__` makes one.
+                'x' | 'X' | 'o' => {
+                    let v = if int_like { val } else { self.format_number(val, "__index__", chunk)?.ok_or_else(|| wrong(self, "an integer"))? };
+                    (v, Some(conv), true)
+                }
                 'c' => (val, Some('c'), false),
                 'f' | 'F' => (val, Some('f'), true),
                 'e' => (val, Some('e'), true),
@@ -205,19 +223,22 @@ impl<'a> VM<'a> {
             spec.push_str(&width);
             if has_prec { spec.push('.'); spec.push_str(if prec.is_empty() { "0" } else { &prec }); }
             if let Some(t) = ty { spec.push(t); }
-            let rendered = crate::vm::format_spec::format_value(fval, &spec, &self.heap).map_err(crate::vm::format_spec::fmt_err)?;
+            let rendered = crate::vm::format_spec::format_value(fval, &spec, &self.heap).map_err(|m| match m {
+                crate::vm::format_spec::C_RANGE_ERR => VmErr::Raised(String::from("OverflowError: format argument: %c argument not in range(0x110000)")),
+                m => crate::vm::format_spec::fmt_err(m),
+            })?;
             out.push_str(&rendered);
         }
         // Every supplied arg must be consumed, like Python.
         if ai != args.len() {
-            return Err(cold_type("not all arguments converted during string formatting"));
+            return Err(VmErr::TypeMsg(crate::s!("not all arguments converted during string formatting (required ", int ai as i64, ", got ", int args.len() as i64, ")")));
         }
         self.heap.alloc(HeapObj::Str(out))
     }
 
     /* Reads a `*` width/precision argument as an i64, non-integers raise TypeError like Python. */
     fn star_arg_int(args: &[Val], ai: &mut usize) -> Result<i64, VmErr> {
-        let v = *args.get(*ai).ok_or_else(|| cold_type("not enough arguments for format string"))?;
+        let v = *args.get(*ai).ok_or_else(|| short_of(args.len()))?;
         *ai += 1;
         if v.is_bool() { return Ok(v.as_bool() as i64); }
         if v.is_int() { return Ok(v.as_int()); }
@@ -225,17 +246,18 @@ impl<'a> VM<'a> {
     }
 
     /* `%d`/`%x` on a user instance defers to its `__int__`, matching Python. */
-    fn coerce_format_int(&mut self, v: Val, chunk: &SSAChunk) -> Result<Val, VmErr> {
-        if v.is_heap() && matches!(self.heap.get(v), HeapObj::Instance(..))
-            && let Some(r) = self.try_call_dunder(v, "__int__", &[], chunk)? {
-            if r.is_int() || crate::frontend::int::is_big(&self.heap, r) { return Ok(r); }
-            return Err(cold_type("__int__ returned non-int"));
+    /* The int a `%` verb takes from an instance through `dunder`, None when the instance has none. */
+    fn format_number(&mut self, v: Val, dunder: &str, chunk: &SSAChunk) -> Result<Option<Val>, VmErr> {
+        if !matches!(self.heap.try_get(v), Some(HeapObj::Instance(..))) { return Ok(None); }
+        match self.try_call_dunder(v, dunder, &[], chunk)? {
+            Some(r) if r.is_int() || crate::frontend::int::is_big(&self.heap, r) => Ok(Some(r)),
+            Some(r) => Err(self.returned_wrong(v, dunder, "an int", r)),
+            None => Ok(None),
         }
-        Ok(v)
     }
 
     fn exec_floordiv(&mut self, a: Val, b: Val) -> Result<Val, VmErr> {
-        self.floor_op(BinOp::FloorDiv, a, b, "// requires numeric operands")
+        self.floor_op(BinOp::FloorDiv, a, b, "//")
     }
 
     fn exec_pow(&mut self, a: Val, b: Val) -> Result<Val, VmErr> {
@@ -258,8 +280,9 @@ impl<'a> VM<'a> {
                 self.push(r);
                 return Ok(());
             }
+            let v = unboxed(v, &self.heap);
             let out = if v.is_int() || v.is_bool() { self.heap.int(!self.as_i128(v).unwrap_or(0))? }
-                else { self.heap.foreign_unop(UnOp::Invert, v)?.ok_or_else(|| cold_type("~ requires an integer"))? };
+                else { match self.heap.foreign_unop(UnOp::Invert, v)? { Some(r) => r, None => return Err(self.bad_operand("unary ~", v)) } };
             self.push(out);
             return Ok(());
         }
@@ -269,6 +292,7 @@ impl<'a> VM<'a> {
         // User instance operands dispatch __or__/__and__/__xor__ (and reflected) first.
         let dunder = self.try_binary_dunder(op, a, b, inplace || operand == crate::parser::INPLACE, chunk);
         if let Some(r) = dunder? { self.push(r); return Ok(()); }
+        let (a, b) = (unboxed(a, &self.heap), unboxed(b, &self.heap));
 
         if matches!(op, OpCode::BitAnd | OpCode::BitOr | OpCode::BitXor) && let Some((x, y)) = self.view_set_operands(a, b, true, chunk)? {
             return self.set_binop_and_push(x, y, op);
@@ -277,14 +301,21 @@ impl<'a> VM<'a> {
             && matches!(op, OpCode::BitAnd | OpCode::BitOr | OpCode::BitXor) {
             return if inplace { self.set_iop_and_push(a, b, op) } else { self.set_binop_and_push(a, b, op) };
         }
-        // `dict | dict` (and `|=`) merges, right operand winning.
-        if op == OpCode::BitOr && a.is_heap() && b.is_heap()
-            && matches!(self.heap.get(a), HeapObj::Dict(_))
-            && matches!(self.heap.get(b), HeapObj::Dict(_)) {
-            let mut merged = DictMap::with_capacity(0);
-            if let HeapObj::Dict(d) = self.heap.get(a) { for (k, v) in d.borrow().iter() { merged.insert(k, v, &self.heap); } }
-            if let HeapObj::Dict(d) = self.heap.get(b) { for (k, v) in d.borrow().iter() { merged.insert(k, v, &self.heap); } }
-            return self.alloc_and_push_dict(merged);
+        // `dict | dict` merges, right operand winning, into the type of the left, and `|=` on a dict updates it in place.
+        if op == OpCode::BitOr && let (Some(x), Some(y)) = (self.heap.dict_cell(a), self.heap.dict_cell(b)) {
+            let entries: alloc::vec::Vec<(Val, Val)> = y.borrow().iter().collect();
+            let frozen = matches!(self.heap.get(a), HeapObj::FrozenDict(_));
+            if inplace && !frozen {
+                let x = x.clone();
+                for (k, v) in entries { x.borrow_mut().insert(k, v, &self.heap); }
+                self.push(a);
+                return Ok(());
+            }
+            let mut merged = x.borrow().clone();
+            for (k, v) in entries { merged.insert(k, v, &self.heap); }
+            let out = self.heap.alloc(if frozen { HeapObj::FrozenDict(Rc::new(RefCell::new(merged))) } else { HeapObj::Dict(Rc::new(RefCell::new(merged))) })?;
+            self.push(out);
+            return Ok(());
         }
         // Two bools keep a bool for `&`, `|` and `^`.
         if a.is_bool() && b.is_bool() && let Some(v) = match op {
@@ -316,6 +347,8 @@ impl<'a> VM<'a> {
                 members.push(self.global("NoneType").ok_or_else(|| cold_runtime("NoneType is not registered"))?);
                 continue;
             }
+            // A sentinel stands in a union as itself, the way `int | MISSING` marks an optional argument.
+            if crate::frontend::sentinel::get(&self.heap, v).is_some() { members.push(v); continue; }
             if !v.is_heap() { return Ok(None); }
             match self.heap.get(v) {
                 HeapObj::Union(args) => if let HeapObj::Tuple(t) = self.heap.get(*args) { members.extend_from_slice(t) },
@@ -380,14 +413,23 @@ impl<'a> VM<'a> {
         let result = match op {
             OpCode::Eq => self.values_eq(a, b, chunk)?,
             OpCode::NotEq => !self.values_eq(a, b, chunk)?,
-            OpCode::Lt => self.values_lt(a, b, chunk)?,
-            OpCode::Gt => self.values_lt(b, a, chunk)?,
-            OpCode::LtEq => !self.values_lt(b, a, chunk)?,
-            OpCode::GtEq => !self.values_lt(a, b, chunk)?,
+            OpCode::Lt => self.values_lt(a, b, chunk).map_err(|e| self.ordering_err(e, "<", a, b))?,
+            OpCode::Gt => self.values_lt(b, a, chunk).map_err(|e| self.ordering_err(e, ">", a, b))?,
+            OpCode::LtEq => !self.values_lt(b, a, chunk).map_err(|e| self.ordering_err(e, "<=", a, b))?,
+            OpCode::GtEq => !self.values_lt(a, b, chunk).map_err(|e| self.ordering_err(e, ">=", a, b))?,
             _ => return Err(cold_runtime("non-compare opcode in handle_compare")),
         };
         self.push(Val::bool(result));
         Ok(())
+    }
+
+    /* An ordering `a op b` neither operand supports, named with the operator written and the operands in order. */
+    #[cold]
+    fn ordering_err(&self, e: VmErr, op: &str, a: Val, b: Val) -> VmErr {
+        match e {
+            VmErr::TypeMsg(m) if m.starts_with("'<' not supported between instances") => VmErr::TypeMsg(crate::s!("'", str op, "' not supported between instances of '", str self.type_name(a), "' and '", str self.type_name(b), "'")),
+            e => e,
+        }
     }
 
     // Only plain `not`, And/Or are short-circuited by the parser via Jump-If-Or-Pop.
@@ -415,5 +457,21 @@ impl<'a> VM<'a> {
         };
         self.push(Val::bool(result));
         Ok(())
+    }
+}
+
+/* The error of a `%` format that runs out of the `got` arguments it was given. */
+#[cold]
+fn short_of(got: usize) -> VmErr { VmErr::TypeMsg(crate::s!("not enough arguments for format string (got ", int got as i64, ")")) }
+
+/* An operator error of `a op= b`, which names the augmented operator. */
+#[cold]
+fn inplace_err(e: VmErr) -> VmErr {
+    match e {
+        VmErr::TypeMsg(m) if m.starts_with("unsupported operand type(s) for ") => match m.split_once(": ") {
+            Some((head, tail)) => VmErr::TypeMsg(crate::s!(str head, "=: ", str tail)),
+            None => VmErr::TypeMsg(m),
+        },
+        e => e,
     }
 }

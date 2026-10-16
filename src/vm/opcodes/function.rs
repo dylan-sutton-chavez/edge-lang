@@ -9,9 +9,9 @@ use crate::parser::fused_native;
 fn constructor_native(name: &str) -> Option<super::super::types::NativeFnId> {
     use super::super::types::NativeFnId::*;
     Some(match name {
-        "int" => Int, "float" => Float, "str" => Str, "bytes" => Bytes,
+        "int" => Int, "float" => Float, "complex" => Complex, "str" => Str, "bytes" => Bytes, "bytearray" => ByteArray, "memoryview" => MemoryView,
         "bool" => Bool, "list" => List, "tuple" => Tuple, "dict" => Dict,
-        "set" => Set, "frozenset" => FrozenSet, "range" => Range, "type" => Type,
+        "set" => Set, "frozenset" => FrozenSet, "range" => Range, "type" => Type, "frozendict" => FrozenDict, "sentinel" => Sentinel,
         "slice" => Slice,
         _ => return None,
     })
@@ -21,7 +21,7 @@ fn constructor_native(name: &str) -> Option<super::super::types::NativeFnId> {
 #[inline]
 fn iterates(id: super::super::types::NativeFnId) -> bool {
     use super::super::types::NativeFnId::*;
-    matches!(id, Sum | Sorted | Set | FrozenSet | Bytes | Dict | Min | Max)
+    matches!(id, Sum | Sorted | Set | FrozenSet | Bytes | ByteArray | Dict | Min | Max)
 }
 
 /* A count outside a builtin arity, ranged ones name the bound they miss. */
@@ -29,6 +29,10 @@ fn iterates(id: super::super::types::NativeFnId) -> bool {
 fn arity_err(id: super::super::types::NativeFnId, n: u16) -> VmErr {
     let (lo, hi) = id.arity();
     let name = id.name();
+    // The name of a sentinel is its only positional, past two the count with `repr` is what is wrong.
+    if id == super::super::types::NativeFnId::Sentinel {
+        return VmErr::TypeMsg(if n <= 2 { crate::s!("sentinel() takes exactly 1 positional argument (", int n, " given)") } else { crate::s!("sentinel() takes at most 2 arguments (", int n, " given)") });
+    }
     match (lo == hi, lo) {
         (true, 0) => return VmErr::TypeMsg(crate::s!(str name, "() takes no arguments (", int n, " given)")),
         (true, 1) => return VmErr::TypeMsg(crate::s!(str name, "() takes exactly one argument (", int n, " given)")),
@@ -130,9 +134,26 @@ impl<'a> VM<'a> {
                 crate::vm::methods::method_arity(id, pos.len())?;
                 self.generator_method(recv, id.name(), pos, chunk)
             }
+            _ if id.ty() == "memoryview" => {
+                crate::vm::methods::method_arity(id, pos.len())?;
+                self.view_method(recv, id.name(), pos)
+            }
+            _ if id.ty() == "BaseExceptionGroup" => {
+                crate::vm::methods::method_arity(id, pos.len())?;
+                self.group_method(recv, id.name(), pos, chunk)
+            }
+            _ if id.ty() == "object" => {
+                crate::vm::methods::method_arity(id, pos.len())?;
+                self.object_method(recv, id.name(), pos, kw, chunk)
+            }
             // A dunder of a builtin value runs the operator it names.
             _ if id.ty() == "op" => {
                 if !kw.is_empty() { return Err(VmErr::TypeMsg(crate::s!(str id.name(), "() takes no keyword arguments"))); }
+                // A named method of a number counts its arguments under the type of the number.
+                if id.name() == "conjugate" && !pos.is_empty() {
+                    let ty = match self.type_name(recv) { "bool" => "int", ty => ty };
+                    return Err(VmErr::TypeMsg(crate::s!(str ty, ".conjugate() takes no arguments (", int pos.len() as i64, " given)")));
+                }
                 crate::vm::methods::method_arity(id, pos.len())?;
                 crate::vm::methods::operator::call(self, recv, id.name(), pos, chunk)
             }
@@ -142,6 +163,10 @@ impl<'a> VM<'a> {
                 crate::vm::methods::string::format(self, recv, &[], crate::vm::methods::string::Names::Map(pos[0]), chunk)
             }
             MethodKind::Format => crate::vm::methods::string::format(self, recv, pos, crate::vm::methods::string::Names::Kw(kw), chunk),
+            MethodKind::Mapped if id.ty() == "str" && kw.is_empty() && pos.len() == 1
+                && (matches!(self.heap.try_get(pos[0]), Some(HeapObj::Instance(..))) || self.heap.classed(pos[0]).is_some()) => {
+                self.with_roots([recv, pos[0]], |vm| crate::vm::methods::string::translate_mapped(vm, recv, pos[0], chunk))
+            }
             MethodKind::Search if matches!(id.ty(), "list" | "tuple") && kw.is_empty() => {
                 crate::vm::methods::method_arity(id, pos.len())?;
                 self.with_roots(pos.iter().copied().chain([recv]), |vm| {
@@ -161,9 +186,45 @@ impl<'a> VM<'a> {
             _ => crate::vm::methods::dispatch_method(self, id, recv, pos, kw),
         };
         done?;
+        match id.post() {
+            crate::vm::methods::Post::None => {}
+            crate::vm::methods::Post::ByteArray => self.top_as_bytearray()?,
+            // Only the built dict or set turns frozen, never a value the method returns.
+            crate::vm::methods::Post::Freeze => if let Some(&top) = self.stack.last() && let Some(slot) = self.heap.try_get_mut(top) {
+                match slot {
+                    HeapObj::Dict(rc) => *slot = HeapObj::FrozenDict(rc.clone()),
+                    HeapObj::Set(rc) => { let s = rc.borrow().clone(); *slot = HeapObj::FrozenSet(Rc::new(s)); }
+                    _ => {}
+                }
+            },
+        }
         self.pay_work()
     }
 
+
+    /* The value on top of the stack with every bytes in it, itself or the items of a list or tuple, made a bytearray. */
+    #[inline(never)]
+    fn top_as_bytearray(&mut self) -> Result<(), VmErr> {
+        let Some(&top) = self.stack.last() else { return Ok(()) };
+        let items = match self.heap.try_get(top) {
+            Some(HeapObj::Bytes(b)) => { let v = self.heap.alloc(HeapObj::ByteArray(b.clone()))?; *self.stack.last_mut().unwrap() = v; return Ok(()); }
+            Some(HeapObj::List(l)) => l.borrow().clone(),
+            Some(HeapObj::Tuple(t)) => t.clone(),
+            _ => return Ok(()),
+        };
+        let mut out = Vec::with_capacity(items.len());
+        for x in items {
+            out.push(match self.heap.try_get(x) { Some(HeapObj::Bytes(b)) => { let b = b.clone(); self.heap.alloc(HeapObj::ByteArray(b))? } _ => x });
+            self.temp_roots.push(*out.last().unwrap());
+        }
+        self.temp_roots.truncate(self.temp_roots.len() - out.len());
+        match self.heap.try_get_mut(top) {
+            Some(HeapObj::List(l)) => *l.borrow_mut() = out,
+            Some(HeapObj::Tuple(t)) => *t = out,
+            _ => {}
+        }
+        Ok(())
+    }
 
     /* `str.lower(s)`, an unbound builtin method takes a receiver of its own type as the first argument. */
     pub(crate) fn exec_unbound_method(&mut self, id: crate::vm::methods::BuiltinMethodId, args: &[Val], kw: &[Val], chunk: &SSAChunk) -> Result<(), VmErr> {
@@ -171,7 +232,7 @@ impl<'a> VM<'a> {
             return Err(VmErr::TypeMsg(crate::s!("unbound method ", str id.ty(), ".", str id.name(), "() needs an argument")));
         };
         // An exception instance takes the `BaseException` methods its builtin base gives it.
-        let fits = self.type_name(recv) == id.ty() || (id.ty() == "op" && crate::vm::methods::operator::applies(self.type_name(recv), id.name()))
+        let fits = self.type_name(recv) == id.ty() || id.ty() == "object" || (id.ty() == "op" && crate::vm::methods::operator::applies(self.type_name(recv), id.name()))
             || (id.ty() == "BaseException" && match self.heap.try_get(recv) { Some(&HeapObj::Instance(c, _)) => self.exc_base(c).is_some(), Some(HeapObj::ExcInstance(..)) => true, _ => false });
         if !fits {
             return Err(VmErr::TypeMsg(crate::s!("descriptor '", str id.name(), "' for '", str id.ty(), "' objects doesn't apply to a '", str self.type_name(recv), "' object")));
@@ -393,7 +454,7 @@ impl<'a> VM<'a> {
     #[inline(always)]
     fn opens_in_loop(&self, fi: usize, n: usize) -> bool {
         let facts = &self.call_facts[fi];
-        facts.in_loop && facts.arity.is_some_and(|k| n <= k && n >= facts.required) && !self.is_async.get(fi).copied().unwrap_or(false)
+        facts.in_loop && facts.arity.is_some_and(|k| n <= k && n >= facts.required) && !self.is_async_fn(fi)
             && self.pools[facts.pool].code.is_some() && self.pools[facts.pool].consts.is_some()
     }
 
@@ -407,7 +468,7 @@ impl<'a> VM<'a> {
             _ => return Ok(false),
         };
         // Only a constructor the general path already ran knows its `__init__`.
-        let Some(&Ctor { epoch, init, exception: false, attrs, native: None }) = self.ctors.get(&class.0) else { return Ok(false) };
+        let Some(&Ctor { epoch, init, exception: false, attrs, native: None, special: false }) = self.ctors.get(&class.0) else { return Ok(false) };
         if epoch != self.class_epoch { return Ok(false); }
         let Some((init, defining)) = init else {
             // A class without `__init__` takes no arguments, and its instance is the whole call.
@@ -443,7 +504,7 @@ impl<'a> VM<'a> {
     fn run_call(&mut self, fi: usize, callee: Val, base: usize, call_safe: bool, inline: bool, chunk: &SSAChunk) -> Result<(), VmErr> {
         let (_params, body, _, _) = self.functions[fi];
         // Generator/coroutine, return a suspended Coroutine instead of running. Both flags are O(1).
-        let is_async_fn = self.is_async.get(fi).copied().unwrap_or(false);
+        let is_async_fn = self.is_async_fn(fi);
         if is_async_fn || body.is_generator {
             let frame = self.regs.split_off(base);
             let coro = self.heap.alloc(HeapObj::Coroutine(crate::value::Coro::fresh(frame, BodyRef::Fn(fi))))?;
@@ -525,9 +586,9 @@ impl<'a> VM<'a> {
 
     /* list.sort() parses key/reverse kwargs and sorts in place. Intercepted from both call paths since it needs the chunk for __lt__. */
     pub(crate) fn exec_sort(&mut self, recv: Val, positional: &[Val], kw_flat: &[Val], chunk: &SSAChunk) -> Result<(), VmErr> {
-        if !positional.is_empty() {
-            return Err(cold_type("sort() takes no positional arguments"));
-        }
+        // Its two parameters are keyword-only, past two arguments the count is what is wrong.
+        if positional.len() > 2 { return Err(VmErr::TypeMsg(s!("sort() takes at most 2 arguments (", int positional.len() as i64, " given)"))); }
+        if !positional.is_empty() { return Err(cold_type("sort() takes no positional arguments")); }
         let mut sort_key: Option<Val> = None;
         let mut sort_reverse = false;
         for pair in kw_flat.chunks(2) {
@@ -565,7 +626,8 @@ impl<'a> VM<'a> {
                 } else {
                     // Other Type objects are exception classes, build an ExcInstance for `raise X("msg")`.
                     if !kw_flat.is_empty() { return Err(cold_type("exception class takes no keyword arguments")); }
-                    let exc = self.heap.alloc(HeapObj::ExcInstance(name, positional.to_vec(), Val::undef()))?;
+                    let exc = if crate::vm::globals::is_group_type(&name) { self.new_group(&name, positional)? }
+                        else { self.heap.alloc(HeapObj::ExcInstance(name, positional.to_vec(), Val::undef()))? };
                     self.push(exc);
                 }
             }
@@ -574,12 +636,16 @@ impl<'a> VM<'a> {
                 let ctor = match self.ctors.get(&callee.0) {
                     Some(c) if c.epoch == self.class_epoch => *c,
                     _ => {
-                        let c = Ctor { epoch: self.class_epoch, init: self.lookup_class_member(callee, "__init__"), exception: self.exc_base(callee).is_some(), attrs: 0, native: self.container_base(callee) };
+                        let c = Ctor { epoch: self.class_epoch, init: self.lookup_class_member(callee, "__init__"), exception: self.exc_base(callee).is_some(), attrs: 0, native: self.native_base(callee), special: self.special_class(callee) };
                         self.ctors.insert(callee.0, c);
                         c
                     }
                 };
                 let inline = core::mem::take(&mut self.inline_call);
+                if ctor.special {
+                    self.construct_special(callee, ctor.init, positional, kw_flat, chunk)?;
+                    return Ok(true);
+                }
                 if let Some(native) = ctor.native {
                     self.new_classed(callee, native, ctor.init, positional, kw_flat, chunk)?;
                     return Ok(true);
@@ -607,15 +673,17 @@ impl<'a> VM<'a> {
                 self.pending.method_binding = Some((class, recv));
                 self.call_with(func, Some(recv), positional, kw_flat, chunk)?;
             }
-            // `prop.setter(fn)` returns a new `Property` carrying the original getter plus the supplied setter.
-            Some(&HeapObj::PropertySetter(prop_val)) => {
+            // `prop.setter(fn)` returns a copy of the property with `fn` in that slot.
+            Some(&HeapObj::PropertyPart(prop_val, slot)) => {
                 if positional.len() != 1 || !kw_flat.is_empty() {
-                    return Err(cold_type("property.setter takes exactly 1 argument"));
+                    return Err(cold_type("property method takes exactly 1 argument"));
                 }
-                let Some(&HeapObj::Property(getter, _)) = self.heap.try_get(prop_val) else {
-                    return Err(cold_runtime("PropertySetter wraps a non-Property value"));
+                let Some(&HeapObj::Property(g, s, d)) = self.heap.try_get(prop_val) else {
+                    return Err(cold_runtime("PropertyPart wraps a non-Property value"));
                 };
-                let new_prop = self.heap.alloc(HeapObj::Property(getter, positional[0]))?;
+                let mut parts = [g, s, d];
+                parts[slot as usize] = positional[0];
+                let new_prop = self.heap.alloc(HeapObj::Property(parts[0], parts[1], parts[2]))?;
                 self.push(new_prop);
             }
             // Instance with `__call__`, bind and dispatch through `BoundUserMethod`-style flow.
@@ -625,39 +693,46 @@ impl<'a> VM<'a> {
                 self.pending.method_binding = Some((class, callee));
                 self.call_with(func, Some(callee), positional, kw_flat, chunk)?;
             }
-            Some(HeapObj::Coroutine(c)) => {
-                // Plain `async def` (no `yield`) drives to completion via the scheduler (await semantics). Async *generators* fall through to step-wise resume like sync generators.
-                let drive_async = matches!(c.body, super::super::types::BodyRef::Fn(fi)
-                    if self.is_async.get(fi).copied().unwrap_or(false) && !self.functions[fi].1.is_generator);
-                if drive_async {
-                    self.await_coroutine(callee)?;
-                } else {
-                    // Generator stepping (ForIter calls here per `next`) resumes one step, the inner yield must NOT propagate to the caller.
-                    let result = self.resume_coroutine(callee)?;
-                    self.yielded = false;
-                    self.push(result);
-                }
-            }
+            // A generator or coroutine object is no callable, it runs only through `next`, `for` or `await`.
+            Some(HeapObj::Coroutine(_)) => return Err(VmErr::TypeMsg(s!("'", str self.type_name(callee), "' object is not callable"))),
             _ => return Ok(false),
         }
         Ok(true)
     }
 
-    /* An instance of `cls`, a class over the `native` dict or list, the container itself marked with the class. */
-    fn new_classed(&mut self, cls: Val, native: Val, init: Option<(Val, Val)>, positional: &[Val], kw_flat: &[Val], chunk: &SSAChunk) -> Result<(), VmErr> {
-        let obj = if init.is_some() {
-            // `__init__` fills it, through `super().__init__` or writes of its own.
-            let dict = matches!(self.heap.get(native), HeapObj::Type(n) if n == "dict");
-            self.heap.alloc(if dict { HeapObj::Dict(Rc::new(RefCell::new(DictMap::new()))) } else { HeapObj::List(Rc::new(RefCell::new(Vec::new()))) })?
-        } else {
-            // Without one it builds from the arguments as the builtin does.
-            self.call_with(native, None, positional, kw_flat, chunk)?;
-            self.pop()?
+    /* An instance of `cls`, a class over the builtin type `native`, a value of that type marked with the class. */
+    pub(crate) fn new_classed(&mut self, cls: Val, native: Val, init: Option<(Val, Val)>, positional: &[Val], kw_flat: &[Val], chunk: &SSAChunk) -> Result<(), VmErr> {
+        let empty = match self.heap.get(native) {
+            HeapObj::Type(n) if n == "dict" => Some(HeapObj::Dict(Rc::new(RefCell::new(DictMap::new())))),
+            HeapObj::Type(n) if n == "list" => Some(HeapObj::List(Rc::new(RefCell::new(Vec::new())))),
+            HeapObj::Type(n) if n == "set" => Some(HeapObj::Set(Rc::new(RefCell::new(crate::value::ValSet::new())))),
+            _ => None,
+        };
+        let obj = match empty {
+            // `__init__` fills a container, through `super().__init__` or writes of its own.
+            Some(empty) if init.is_some() => self.heap.alloc(empty)?,
+            // A value of any other type comes from the arguments as the builtin makes it.
+            _ => {
+                self.call_with(native, None, positional, kw_flat, chunk)?;
+                let v = self.pop()?;
+                self.own_value(v)?
+            }
         };
         self.heap.set_class(obj, cls, Rc::new(RefCell::new(DictMap::new())));
         if let Some(init) = init && self.run_init(init, obj, positional, kw_flat, chunk, false)? { return Ok(()); }
         self.push(obj);
         Ok(())
+    }
+
+    /* `v` in a slot of its own, so marking it with a class leaves every other holder of the value alone. */
+    pub(crate) fn own_value(&mut self, v: Val) -> Result<Val, VmErr> {
+        let obj = match self.heap.try_get(v) {
+            Some(o @ (HeapObj::Str(_) | HeapObj::Bytes(_) | HeapObj::Tuple(_))) => o.clone(),
+            Some(HeapObj::FrozenSet(s)) => HeapObj::FrozenSet(Rc::new((**s).clone())),
+            Some(_) => return Ok(v),
+            None => HeapObj::Boxed(v),
+        };
+        self.heap.alloc_unshared(obj)
     }
 
     /* Calls `__init__` on a fresh `instance`, true when the instance comes back later from a frame that runs or suspended, false once the call is over. */
@@ -692,10 +767,11 @@ impl<'a> VM<'a> {
             match kind {
                 ParamKind::DoubleStar => {
                     // **kwargs gets only keys not bound to a named param.
-                    let params = &self.functions[fi].0;
+                    let (params, posonly) = (&self.functions[fi].0, self.functions[fi].1.posonly as usize);
+                    // A positional-only name given by keyword lands here too.
                     let pairs: Vec<(Val, Val)> = kw_flat.as_chunks::<2>().0.iter()
                         .filter(|p| match self.heap.try_get(p[0]) {
-                            Some(HeapObj::Str(s)) => !params.iter().any(|pp| !pp.starts_with('*') && crate::parser::types::param_base_name(pp) == s.as_str()),
+                            Some(HeapObj::Str(s)) => !params.iter().enumerate().any(|(i, pp)| i >= posonly && !pp.starts_with('*') && crate::parser::types::param_base_name(pp) == s.as_str()),
                             _ => true,
                         })
                         .map(|p| (p[0], p[1])).collect();
@@ -723,6 +799,7 @@ impl<'a> VM<'a> {
         // Kwargs binding (rare path, not optimised).
         if !kw_flat.is_empty() {
             let params = &self.functions[fi].0;
+            let posonly = self.functions[fi].1.posonly as usize;
             let has_double_star = self.param_slots[fi].iter().any(|(k, _)| matches!(k, ParamKind::DoubleStar));
             for pair in kw_flat.as_chunks::<2>().0 {
                 // Malformed `**`/kwarg bytecode can leave a non-string in the name slot, so guard the heap access.
@@ -731,14 +808,20 @@ impl<'a> VM<'a> {
                     _ => return Err(cold_runtime("malformed kwarg on stack")),
                 };
                 // Star/double-star params are not keyword targets. A kwarg whose name matches `*a`/`**k` goes to **kwargs.
-                if let Some(pi) = params.iter().position(|p| !p.starts_with('*') && crate::parser::types::param_base_name(p) == key.as_str()) {
+                let at = params.iter().position(|p| !p.starts_with('*') && crate::parser::types::param_base_name(p) == key.as_str());
+                // A positional-only name given by keyword goes to `**kwargs`, or is refused without one.
+                if at.is_some_and(|pi| pi < posonly) && !has_double_star {
+                    return Err(VmErr::TypeMsg(s!(str self.callee_name(fi), "() got some positional-only arguments passed as keyword arguments: '", str &key, "'")));
+                }
+                if let Some(pi) = at.filter(|&pi| pi >= posonly) {
                     let s = self.param_slots[fi][pi].1;
                     if s < size {
                         if !self.regs[base + s].is_undef() { return Err(VmErr::TypeMsg(s!(str self.callee_name(fi), "() got multiple values for argument '", str &key, "'"))); }
                         self.regs[base + s] = pair[1];
                     }
                 } else if !has_double_star {
-                    return Err(VmErr::TypeMsg(s!(str self.callee_name(fi), "() got an unexpected keyword argument '", str &key, "'")));
+                    let hint = crate::util::suggest::did_you_mean(&key, params.iter().filter(|p| !p.starts_with('*')).map(|p| crate::parser::types::param_base_name(p)));
+                    return Err(VmErr::TypeMsg(s!(str self.callee_name(fi), "() got an unexpected keyword argument '", str &key, "'", str &hint)));
                 }
             }
         }
@@ -765,7 +848,7 @@ impl<'a> VM<'a> {
 
     /* The name a call error shows for function `fi`. */
     fn callee_name(&self, fi: usize) -> &str {
-        self.function_names.get(fi).map(String::as_str).filter(|n| !n.is_empty()).unwrap_or("<lambda>")
+        self.function_qualnames.get(fi).map(String::as_str).filter(|n| !n.is_empty()).unwrap_or("<lambda>")
     }
 
     /* `f() takes 2 positional arguments but 3 were given`, a range when some have defaults. */
@@ -893,9 +976,11 @@ impl<'a> VM<'a> {
             Sum => &["iterable", "start"],
             Pow => &["base", "exp", "mod"],
             Str => &["object", "encoding", "errors"],
-            Bytes => &["source", "encoding", "errors"],
+            Bytes | ByteArray => &["source", "encoding", "errors"],
             Eval | Exec => &["", "globals", "locals"],
             Compile => &["source", "filename", "mode", "flags", "dont_inherit", "optimize"],
+            Complex => &["real", "imag"],
+            Property => &["fget", "fset", "fdel", "doc"],
             _ => return Err(VmErr::TypeMsg(s!(str id.name(), "() takes no keyword arguments"))),
         };
         let mut args: Vec<Option<Val>> = positional.iter().map(|&v| Some(v)).collect();
@@ -908,6 +993,8 @@ impl<'a> VM<'a> {
             if args.len() <= i { args.resize(i + 1, None); }
             args[i] = Some(pair[1]);
         }
+        // Every parameter of `property` and `complex` is optional.
+        if matches!(id, Property | Complex) { let fill = if id == Complex { Val::int(0) } else { Val::none() }; for a in &mut args { a.get_or_insert(fill); } }
         let args: Option<Vec<Val>> = args.into_iter().collect();
         let args = args.ok_or_else(|| VmErr::TypeMsg(s!(str id.name(), "() is missing a positional argument")))?;
         self.dispatch_native(id, &args, &[], chunk)
@@ -934,7 +1021,7 @@ impl<'a> VM<'a> {
             &leftover_storage
         } else { kw };
 
-        let kw_aware = matches!(id, Print | Min | Max | Enumerate | Dict);
+        let kw_aware = matches!(id, Print | Min | Max | Enumerate | Dict | FrozenDict | Sentinel);
         if !kw_remaining.is_empty() && !kw_aware {
             return self.dispatch_native_named(id, positional, kw_remaining, chunk);
         }
@@ -961,6 +1048,16 @@ impl<'a> VM<'a> {
     /* Runs a builtin on stacked args, `operand` a count or packed counts for keyword-aware ones. */
     fn run_native(&mut self, id: super::super::types::NativeFnId, operand: u16, chunk: &SSAChunk) -> Result<(), VmErr> {
         use super::super::types::NativeFnId::*;
+        // A number of a class over int or float reaches these as the number, unless the class gives the hook they ask.
+        let hook = match id { Abs => Some("__abs__"), Round => Some("__round__"), Chr | Range | Bin | Oct | Hex => Some("__index__"), Divmod => Some("__divmod__"), Pow => Some("__pow__"), _ => None };
+        if let Some(hook) = hook {
+            let n = ((operand & 0xFF) + 2 * ((operand >> 8) & 0xFF)) as usize;
+            let from = self.stack.len().saturating_sub(n);
+            for i in from..self.stack.len() {
+                let v = self.stack[i];
+                if let Some(&HeapObj::Boxed(x)) = self.heap.try_get(v) && !self.has_hook(v, hook) { self.stack[i] = x; }
+            }
+        }
         let done = match id {
             // Variadic
             Print => { self.call_print(operand, chunk) }
@@ -985,7 +1082,7 @@ impl<'a> VM<'a> {
             Int => self.call_int(operand, chunk),
             Float => self.call_float(operand, chunk),
             Bool => self.call_bool(operand, chunk),
-            Type => self.call_type(),
+            Type => self.call_type(operand, chunk),
             Chr => self.call_chr(),
             Ord => self.call_ord(),
             Sorted => self.call_sorted(false, chunk),
@@ -998,6 +1095,13 @@ impl<'a> VM<'a> {
             Repr => self.call_repr(chunk),
             Reversed => self.call_reversed(),
             Callable => self.call_callable(),
+            Complex => self.call_complex(operand, chunk),
+            ByteArray => self.call_bytearray(operand),
+            MemoryView => self.call_memoryview(),
+            StarStart => { let e = self.pop()?; let s = self.star_start(e)?; self.push(s); Ok(()) }
+            StarSplit => { let (s, t) = self.pop2()?; let m = self.star_split(s, t, chunk)?; self.push(m); Ok(()) }
+            StarRaised => { let m = self.pop()?; let (s, x) = self.pop2()?; self.star_raised(s, x, m)?; self.push(Val::none()); Ok(()) }
+            StarEnd => { let s = self.pop()?; let r = self.star_end(s, chunk)?; self.push(r); Ok(()) }
             Divmod => self.call_divmod(),
             IsInstance => self.call_isinstance(),
             IsSubclass => self.call_issubclass(),
@@ -1014,7 +1118,7 @@ impl<'a> VM<'a> {
             Slice => self.call_slice(operand),
             Vars => self.call_vars(),
             SetAttr => self.call_setattr(chunk),
-            DelAttr => self.call_delattr(),
+            DelAttr => self.call_delattr(chunk),
             ImportModule => self.call_import_module(),
             Gather => self.call_gather(operand),
             WithTimeout => self.call_with_timeout(),
@@ -1033,6 +1137,11 @@ impl<'a> VM<'a> {
             Compile => self.call_compile(operand, chunk),
             Id => self.call_id(),
             Hash => self.call_hash(),
+            Ascii => self.call_ascii(chunk),
+            Sentinel => self.call_sentinel(operand),
+            AIter => self.call_aiter(),
+            ANext => self.call_anext(operand, chunk),
+            FrozenDict => self.call_frozendict(operand),
         };
         done?;
         self.pay_work()

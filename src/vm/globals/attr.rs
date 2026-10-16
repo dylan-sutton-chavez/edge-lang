@@ -45,10 +45,10 @@ impl<'a> VM<'a> {
     }
 
     /* `delattr(obj, name)`, remove an attribute from a user instance or class. */
-    pub fn call_delattr(&mut self) -> Result<(), VmErr> {
+    pub fn call_delattr(&mut self, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
         let name = self.expect_str_arg("delattr() name must be a string")?;
         let obj = self.pop()?;
-        self.delete_attr_named(obj, &name)?;
+        self.delete_attr_named(obj, &name, chunk)?;
         self.push(Val::none());
         Ok(())
     }
@@ -57,26 +57,43 @@ impl<'a> VM<'a> {
     pub fn exec_del_attr(&mut self, op: u16, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
         let obj = self.pop()?;
         let name = chunk.names.get(op as usize).ok_or_else(|| cold_runtime("DelAttr: bad name index"))?.clone();
-        self.delete_attr_named(obj, &name)
+        self.delete_attr_named(obj, &name, chunk)
     }
 
     /* Shared attribute removal for `delattr()` and `del obj.attr`, AttributeError when absent. */
-    fn delete_attr_named(&mut self, obj: Val, name: &str) -> Result<(), VmErr> {
+    fn delete_attr_named(&mut self, obj: Val, name: &str, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
+        if self.attr_hooks && self.has_hook(obj, "__delattr__") {
+            let attr = self.heap.intern_str(name)?;
+            self.call_hook(obj, "__delattr__", &[attr], chunk)?;
+            return Ok(());
+        }
+        self.delete_attr_raw(obj, name, chunk)
+    }
+
+    /* `object.__delattr__`, the delete past any `__delattr__` hook. */
+    pub(crate) fn delete_attr_raw(&mut self, obj: Val, name: &str, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
         if matches!(self.heap.try_get(obj), Some(HeapObj::Class(..))) { self.class_epoch = self.class_epoch.wrapping_add(1); }
-        let removed = match self.heap.try_get(obj) {
+        let attrs = match self.heap.try_get(obj) {
             Some(HeapObj::Class(_, _, members) | HeapObj::Func(_, _, _, members)) => {
                 let mut m = members.borrow_mut();
                 let before = m.len();
                 m.retain(|(n, _)| n != name);
-                m.len() < before
+                if m.len() < before { return Ok(()); }
+                None
             }
-            Some(HeapObj::Instance(_, attrs)) => {
-                let key = attrs.borrow().iter().find(|(k, _)| matches!(self.heap.try_get(*k), Some(HeapObj::Str(s)) if s == name)).map(|(k, _)| k);
-                key.is_some_and(|k| attrs.borrow_mut().remove(&k, &self.heap).is_some())
-            }
-            _ => return Err(cold_type("delattr() target must be an instance or class")),
+            Some(HeapObj::Instance(_, attrs)) => Some(attrs.clone()),
+            _ => match self.heap.classed(obj) {
+                Some((_, attrs)) => Some(attrs.clone()),
+                None => return Err(cold_type("delattr() target must be an instance or class")),
+            },
         };
-        if removed { return Ok(()); }
+        // The instance gives up its own attribute, else a property or descriptor of its class takes the delete.
+        if let Some(attrs) = attrs {
+            let key = attrs.borrow().iter().find(|(k, _)| matches!(self.heap.try_get(*k), Some(HeapObj::Str(s)) if s == name)).map(|(k, _)| k);
+            if key.is_some_and(|k| attrs.borrow_mut().remove(&k, &self.heap).is_some()) { return Ok(()); }
+            let member = self.instance_class(obj).and_then(|c| self.lookup_class_member(c, name));
+            if let Some((m, _)) = member && self.delete_through_class(obj, m, name, chunk)? { return Ok(()); }
+        }
         Err(VmErr::Attribute(match self.heap.get(obj) {
             HeapObj::Class(n, ..) => s!("type object '", str n, "' has no attribute '", str name, "'"),
             _ => s!("'", str self.type_name(obj), "' object has no attribute '", str name, "'"),
@@ -95,7 +112,7 @@ impl<'a> VM<'a> {
         self.str_of(v, msg)
     }
 
-    /* `vars(obj)`, an Instance yields a copy of `__dict__`, a Module yields a dict from its attrs. No-arg form is unsupported. */
+    /* `vars(obj)`, an Instance yields its `__dict__`, a module, class or type a dict from its attrs. No-arg form is unsupported. */
     pub fn call_vars(&mut self) -> Result<(), VmErr> {
         use alloc::vec::Vec;
         let obj = self.pop()?;
@@ -104,7 +121,7 @@ impl<'a> VM<'a> {
         }
         // The `builtins` module makes its builtins on use, so listing them makes them all.
         if obj.0 == self.builtins_module.0 {
-            let names = crate::parser::BUILTIN_TYPES.iter().copied().chain(NativeFnId::ALL.iter().map(|id| id.name()));
+            let names = crate::parser::BUILTIN_TYPES.iter().copied().chain(NativeFnId::ALL.iter().map(|id| id.name()).filter(|n| !n.starts_with('%')));
             let mut dm = DictMap::new();
             for name in names {
                 let (key, v) = (self.heap.intern_str(name)?, self.builtin_value(name)?);
@@ -112,7 +129,23 @@ impl<'a> VM<'a> {
             }
             return self.alloc_and_push_dict(dm);
         }
+        if matches!(self.heap.get(obj), HeapObj::Class(..) | HeapObj::Type(_)) {
+            let d = self.members_dict(obj)?;
+            self.push(d);
+            return Ok(());
+        }
         // An instance answers its attributes as a shared dict, an exception keeps its fields apart.
+        // A value a user class made answers the attributes it got.
+        if let Some((_, attrs)) = self.heap.classed(obj) {
+            let attrs = attrs.clone();
+            self.shadowed = true;
+            let d = self.heap.alloc(HeapObj::Dict(attrs))?;
+            self.push(d);
+            return Ok(());
+        }
+        if let &HeapObj::Instance(cls, _) = self.heap.get(obj) && self.class_slots(cls).is_some() {
+            return Err(cold_type("vars() argument must have __dict__ attribute"));
+        }
         if let &HeapObj::Instance(cls, ref attrs) = self.heap.get(obj) && self.exc_base(cls).is_none() {
             let attrs = attrs.clone();
             self.shadowed = true;

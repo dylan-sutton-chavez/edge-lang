@@ -25,7 +25,7 @@ impl<'a> VM<'a> {
             }
             OpCode::BuildDict => {
                 let flat = self.pop_n(operand as usize * 2)?;
-                let dm = self.dictmap_of(flat.chunks(2).map(|c| (c[0], c[1])).collect())?;
+                let dm = self.dictmap_of_flat(&flat)?;
                 let val = self.heap.alloc(HeapObj::Dict(Rc::new(RefCell::new(dm))))?;
                 self.push(val);
             }
@@ -89,8 +89,8 @@ impl<'a> VM<'a> {
         let Some(&acc) = self.stack.last() else { return Err(VmErr::Runtime("stack underflow")) };
         match (op, key, self.heap.try_get(acc)) {
             (OpCode::ListAppend, _, Some(HeapObj::List(rc))) => rc.borrow_mut().push(value),
-            (OpCode::SetAdd, _, Some(HeapObj::Set(rc))) => { self.require_element(value)?; rc.borrow_mut().insert(value, &self.heap); }
-            (OpCode::MapAdd, Some(k), Some(HeapObj::Dict(rc))) => { self.require_key(k)?; rc.borrow_mut().insert(k, value, &self.heap); }
+            (OpCode::SetAdd, _, Some(HeapObj::Set(rc))) => { let rc = rc.clone(); self.require_element(value)?; self.keyed(value)?; rc.borrow_mut().insert(value, &self.heap); }
+            (OpCode::MapAdd, Some(k), Some(HeapObj::Dict(rc))) => { let rc = rc.clone(); self.require_key(k)?; self.keyed(k)?; rc.borrow_mut().insert(k, value, &self.heap); }
             _ => return Err(cold_runtime("comprehension accumulator corrupted")),
         }
         Ok(())
@@ -153,6 +153,8 @@ impl<'a> VM<'a> {
                 let cause = if op == OpCode::RaiseFrom { self.pop()? } else { Val::undef() };
                 let exc = self.pop()?;
                 let err = self.with_roots([cause], |vm| vm.raise_value(exc, chunk));
+                // The raise that ends an `except*` keeps the exception as the clauses left it.
+                self.pending.no_context = op == OpCode::Raise && operand == 2;
                 // A bad cause raises its own TypeError in place of the exception.
                 if op == OpCode::RaiseFrom && let Some(e) = self.pending.exc_val && let Err(bad) = self.with_roots([e], |vm| vm.link_cause(e, cause, chunk)) {
                     self.pending.exc_val = None;
@@ -191,7 +193,7 @@ impl<'a> VM<'a> {
             let name = self.exc_type_name(exc);
             let text = match self.with_roots([exc], |vm| vm.display_op(exc, chunk)) { Ok(t) => t, Err(e) => return e };
             self.pending.exc_val = Some(exc);
-            let notes = self.notes_text(exc);
+            let notes = crate::s!(str &self.notes_text(exc), str &self.group_text(exc));
             return VmErr::Raised(if text.is_empty() { crate::s!(str &name, str &notes) } else { crate::s!(str &name, ": ", str &text, str &notes) });
         }
         // Stash the Val for `except as e` binding, with non-Exc values using `display()`.
@@ -216,7 +218,7 @@ impl<'a> VM<'a> {
             None
         };
         // Append the str of the instance so an uncaught traceback reads "Class: message".
-        let notes = self.pending.exc_val.map(|e| self.notes_text(e)).unwrap_or_default();
+        let notes = self.pending.exc_val.map(|e| crate::s!(str &self.notes_text(e), str &self.group_text(e))).unwrap_or_default();
         let msg = match info {
             Some((n, Some(arg))) => { let detail = self.display(arg); crate::s!(str &n, ": ", str &detail, str &notes) }
             Some((n, None)) => crate::s!(str &n, str &notes),

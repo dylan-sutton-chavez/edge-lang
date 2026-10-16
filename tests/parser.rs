@@ -40,6 +40,7 @@ mod test {
                     Value::Int(i) => i.to_string(),
                     Value::BigInt(b) => format!("{}{}", if b.is_neg() { "-" } else { "" }, b.to_radix(10)),
                     Value::Float(f) => f.to_string(),
+                    Value::Imag(f) => format!("{f}j"),
                     Value::Bool(b) => b.to_string(),
                     Value::None => "None".to_string(),
                 })

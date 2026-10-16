@@ -12,12 +12,13 @@ Classes are state containers and namespaces, not the primary abstraction. This i
 
 The class model supports these features.
 
-- Single and multiple inheritance (C3 MRO) with `super()`, from user classes and from `dict` and `list`.
-- `@property` and `@x.setter`.
+- Single and multiple inheritance (C3 MRO) with `super()`, from user classes and from the builtin types `dict`, `list`, `set`, `frozenset`, `str`, `bytes`, `tuple`, `int` and `float`.
+- `@property` with `@x.setter` and `@x.deleter`, and descriptors through `__get__`, `__set__` and `__delete__`.
 - `@staticmethod` and `@classmethod`.
-- A curated dunder protocol for operators, indexing, iteration, hashing, context managers and attribute fallback. See [Operator overloading and protocols](#operator-overloading-and-protocols).
+- Construction through `__new__`, `__slots__`, the class hooks `__init_subclass__` and `__set_name__`, and the attribute hooks `__setattr__` and `__delattr__`.
+- A dunder protocol for operators, indexing, iteration, hashing, context managers and attribute fallback. See [Operator overloading and protocols](#operator-overloading-and-protocols).
 
-Any other dunder a class body binds, and a class keyword such as `metaclass=`, fails at compile time. [Limits and errors](/docs/edge-python/reference/limits-and-errors#compile-time-errors) lists each one.
+Any other dunder a class body binds fails at compile time, and so do metaclasses. [Limits and errors](/docs/edge-python/reference/limits-and-errors#compile-time-errors) lists each one.
 
 ## State-machine pattern
 
@@ -73,12 +74,12 @@ print(Math.cube(3))
 
 ## Inheritance and super()
 
-A class takes one base or several, as in `class Sub(Base):` and `class C(A, B):`. A base may also be `dict` or `list`.
+A class takes one base or several, as in `class Sub(Base):` and `class C(A, B):`. A base may also be one of the builtin types listed above.
 
-- Methods missing on the subclass resolve along the C3 linearization, the MRO.
-- An inconsistent hierarchy raises `TypeError` at class creation, and so do bases that need two builtin layouts, such as `dict` and `list`.
+- Methods missing on the subclass resolve along the C3 linearization, the MRO, which `__mro__` lists and `__bases__` starts.
+- An inconsistent hierarchy raises `TypeError` at class creation, and so do bases that need two builtin layouts, such as `dict` and `str`. `bool` is no acceptable base.
 - `isinstance(x, Base)` walks the ancestor chain. A `Sub` instance is an instance of every ancestor.
-- An instance of a class over `dict` or `list` is a real dict or list that every builtin takes, with the methods and attributes of its class on top. Its overrides of the container dunders win, `super()` reaches the builtin methods, and a dict answers a missing key through `__missing__`.
+- An instance of a class over a builtin type is a real value of that type that every builtin takes, with the methods and attributes of its class on top. Its overrides of the dunders win, `super()` reaches the builtin methods and operators, and a dict answers a missing key through `__missing__`. Operations such as `I(3) + 1` return the plain builtin type.
 
 `super()` with no arguments delegates to the next class up the chain, bound to the current `self`. It is most common in `__init__` to extend a base constructor.
 
@@ -155,10 +156,10 @@ print(t, t.total, isinstance(t, dict))
 |---------------------|-------------------------------------------|
 | `MyClass.attr` | class member, returned as-is (no binding) |
 | `MyClass.method()` | method called directly, no `self` |
-| `instance.attr` | a class property first, then instance `__dict__`, then class |
+| `instance.attr` | a class property or data descriptor first, then instance `__dict__`, then class |
 | `instance.method()` | bound method, `self` prepended |
 
-`setattr` and `delattr` work on instances and on class objects. On a class object they change the members of the class.
+`setattr` and `delattr` work on instances and on class objects. On a class object they change the members of the class. `Class.__dict__` and `vars(Class)` give a copy of its members.
 
 ## Class decorators
 
@@ -185,7 +186,7 @@ tagged
 
 ## Properties
 
-`@property` turns a method into a read-only attribute. `@x.setter` makes it writable. Properties live on the class, and subclasses inherit and can override either side.
+`@property` turns a method into a read-only attribute. `@x.setter` makes it writable and `@x.deleter` deletable. Properties live on the class, and subclasses inherit and can override any side. A store or delete the property has no function for raises `AttributeError`, as in `property 'x' of 'A' object has no setter`.
 
 ```edge-python
 class Temp:
@@ -268,7 +269,119 @@ print(Color.which(), Bright.which())
 Color Bright
 ```
 
-The three decorators also work as plain calls without decorator syntax. The forms are `property(fget, fset)`, `staticmethod(func)` and `classmethod(func)`.
+The three decorators also work as plain calls without decorator syntax. The forms are `property(fget, fset, fdel, doc)`, every part optional, `staticmethod(func)` and `classmethod(func)`.
+
+## Construction
+
+`cls(...)` calls `__new__(cls, ...)` when the class defines one, then `__init__` on the result if it is an instance of `cls`. `__new__` is static without saying so, and `super().__new__(cls)` or `object.__new__(cls)` makes the bare instance. A class over a builtin type passes the value to `super().__new__(cls, value)`.
+
+```edge-python
+class Positive(int):
+  def __new__(cls, v):
+    return super().__new__(cls, abs(v))
+
+class One:
+  _made = None
+  def __new__(cls):
+    if cls._made is None:
+      cls._made = object.__new__(cls)
+    return cls._made
+
+print(Positive(-4) + 1, id(One()) == id(One()))
+```
+
+```output
+5 True
+```
+
+`type(name, bases, members)` builds a class from its parts, as a class statement would.
+
+## Class hooks
+
+A new class first calls `__set_name__(owner, name)` on each member whose class defines it. Then `__init_subclass__` of its bases runs with the class, and with the keywords of the class header, such as `class A(Base, tag="a")`. The hook is a classmethod without saying so.
+
+```edge-python
+class Plugin:
+  registry = {}
+  def __init_subclass__(cls, name=None, **kw):
+    super().__init_subclass__(**kw)
+    Plugin.registry[name or cls.__name__] = cls
+
+class Csv(Plugin, name="csv"):
+  pass
+
+print(sorted(Plugin.registry))
+```
+
+```output
+['csv']
+```
+
+## Descriptors
+
+A class attribute whose class defines `__get__(self, obj, owner)` computes the value. `obj` is `None` for an access through the class. A descriptor with `__set__` or `__delete__` is a data descriptor, which takes stores and deletes and wins over the instance dict. One with only `__get__` loses to it.
+
+```edge-python
+class Positive:
+  def __set_name__(self, owner, name):
+    self.key = "_" + name
+  def __get__(self, obj, owner):
+    return getattr(obj, self.key)
+  def __set__(self, obj, value):
+    if value <= 0:
+      raise ValueError("must be positive")
+    setattr(obj, self.key, value)
+
+class Box:
+  width = Positive()
+
+b = Box()
+b.width = 3
+print(b.width)
+try:
+  b.width = -1
+except ValueError as e:
+  print(e)
+```
+
+```output
+3
+must be positive
+```
+
+## Attribute hooks and slots
+
+`__setattr__(self, name, value)` and `__delattr__(self, name)` take every store and delete of an instance attribute, and `object.__setattr__` or `super().__setattr__` stores past them. `__getattr__` runs when a lookup finds nothing.
+
+`__slots__` lists the attributes instances may hold, as a string or a sequence of strings. A store of any other name raises `AttributeError`, and the instance has no `__dict__`, unless a base without `__slots__` gives it one or the list names `__dict__`.
+
+```edge-python
+class Frozen:
+  def __init__(self, v):
+    object.__setattr__(self, "v", v)
+  def __setattr__(self, name, value):
+    raise AttributeError("frozen")
+
+class Point:
+  __slots__ = ("x", "y")
+
+f = Frozen(1)
+try:
+  f.v = 2
+except AttributeError as e:
+  print(e, f.v)
+p = Point()
+p.x = 1
+try:
+  p.z = 3
+except AttributeError:
+  print("no slot z")
+```
+
+```output
+frozen 1
+no slot z
+```
 
 ## Operator overloading and protocols
 
@@ -496,20 +609,22 @@ True
 
 ### Hashing
 
-An instance hashes by identity, so it can be a dict key or a set item. A class that defines `__eq__` is unhashable, since two equal instances could hash apart, so `{x: 1}` raises `TypeError` with `cannot use 'K' as a dict key (unhashable type: 'K')`.
+An instance hashes by identity, so it can be a dict key or a set item. A class that defines `__hash__` hashes by what it returns, an int, and equal keys then match through `__eq__`. A class that defines `__eq__` alone is unhashable, since two equal instances could hash apart, so `{x: 1}` raises `TypeError` with `cannot use 'K' as a dict key (unhashable type: 'K')`, and `__hash__ = None` does the same.
+
+A key keeps the hash and the equal keys it matched while it lives, so its `__hash__` and `__eq__` must not change once it is in a table.
 
 ```edge-python
 class K:
   def __init__(self, n): self.n = n
+  def __hash__(self): return hash(self.n)
+  def __eq__(self, o): return isinstance(o, K) and self.n == o.n
 
-k = K(5)
-print({k: 'found'}[k])
-print(K(5) in {k}) # another instance is another key
+d = {K(5): 'found'}
+print(d[K(5)], len({K(1), K(1), K(2)}))
 ```
 
 ```output
-found
-False
+found 2
 ```
 
 ### Representation

@@ -354,8 +354,14 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
     }
 
     pub(super) fn parse_number(&mut self, raw: &str, kind: TokenType) {
-        // The lexer already refused a `j` suffix, so the digits before it parse without a second error.
-        let raw = raw.trim_end_matches(['j', 'J']);
+        // A `j` suffix makes the imaginary part of a complex number.
+        if let Some(digits) = raw.strip_suffix(['j', 'J']) {
+            match Self::float_literal(digits) {
+                Some(f) => self.emit_const(Value::Imag(f)),
+                None => self.error("invalid imaginary literal"),
+            }
+            return;
+        }
         if kind == TokenType::Float {
             // A malformed float (e.g. empty exponent `1e`) is a syntax error, not 0.0.
             match Self::float_literal(raw) {
@@ -407,6 +413,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
 
     /* Subscript after `[`, comma-separated items build one tuple key. Eats the closing `]`, returns true for a lone slice. */
     pub(super) fn parse_subscript(&mut self) -> bool {
+        if matches!(self.peek(), Some(TokenType::Star)) { return self.starred_subscript(0); }
         let slice = self.subscript_item();
         if !matches!(self.peek(), Some(TokenType::Comma)) {
             self.eat(TokenType::Rsqb);
@@ -414,11 +421,30 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         }
         let mut n = 1u16;
         while self.eat_if(TokenType::Comma) && !matches!(self.peek(), Some(TokenType::Rsqb)) {
+            if matches!(self.peek(), Some(TokenType::Star)) { return self.starred_subscript(n); }
             self.subscript_item();
             n += 1;
         }
         self.eat(TokenType::Rsqb);
         self.chunk.emit(OpCode::BuildTuple, n);
+        false
+    }
+
+    /* The rest of a key with a `*it` item, after the `count` emitted ones, unpacked into one tuple as `a[(*it,)]`. */
+    fn starred_subscript(&mut self, count: u16) -> bool {
+        self.chunk.emit(OpCode::BuildList, count);
+        loop {
+            if self.eat_if(TokenType::Star) {
+                self.expr();
+                self.chunk.emit(OpCode::ListExtend, 0);
+            } else {
+                self.subscript_item();
+                self.chunk.emit(OpCode::ListAppend, 0);
+            }
+            if !self.eat_if(TokenType::Comma) || matches!(self.peek(), Some(TokenType::Rsqb)) { break; }
+        }
+        self.eat(TokenType::Rsqb);
+        self.chunk.emit(OpCode::CallTuple, 1);
         false
     }
 
@@ -516,7 +542,9 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
     pub(super) fn parse_lambda(&mut self) {
         let (params, defaults) = self.param_list(TokenType::Colon, false);
         self.eat(TokenType::Colon);
+        let cut = self.enter_qual("<lambda>", true);
         let body = self.expr_body(&params);
+        self.qual.truncate(cut);
         self.push_function(params, body, defaults, None, OpCode::MakeFunction);
     }
 

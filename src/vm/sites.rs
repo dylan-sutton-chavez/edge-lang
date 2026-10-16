@@ -114,7 +114,7 @@ impl<'a> VM<'a> {
     pub(crate) fn learn_get(&self, obj: Val, name: &str) -> Site {
         match self.heap.try_get(obj) {
             Some(&HeapObj::Instance(class, ref attrs)) => {
-                if self.shadowed && self.class_property(class, name) { return Site::Empty; }
+                if self.shadowed && self.class_data_descriptor(class, name) { return Site::Empty; }
                 let a = attrs.borrow();
                 match a.position_str(name, hash_str(name), &self.heap) {
                     Some(i) => Site::Field { key: a.key_at(i), idx: i as u32, hash: a.hash_at(i), shape: a.shape(), epoch: self.class_epoch },
@@ -133,8 +133,8 @@ impl<'a> VM<'a> {
     /* What a site keeps after a slow store, `before` the shape the instance had. */
     pub(crate) fn learn_store(&self, obj: Val, name: &str, before: u32) -> Site {
         let Some(&HeapObj::Instance(class, ref attrs)) = self.heap.try_get(obj) else { return Site::Empty };
-        // A property of the name takes the store, which the site must never skip.
-        if self.lookup_class_member(class, name).is_some_and(|(m, _)| matches!(self.heap.try_get(m), Some(HeapObj::Property(..)))) { return Site::Empty; }
+        // A property, descriptor or `__setattr__` takes the store, which the site must never skip.
+        if self.class_data_descriptor(class, name) || self.attr_hooks && self.lookup_class_member(class, "__setattr__").is_some() { return Site::Empty; }
         let a = attrs.borrow();
         let Some(i) = a.position_str(name, hash_str(name), &self.heap) else { return Site::Empty };
         let (key, epoch) = (a.key_at(i), self.class_epoch);

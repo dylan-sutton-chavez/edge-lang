@@ -467,7 +467,7 @@ print({x % 3 for x in range(10)})  # a set keeps insertion order
 
 ## Type annotations
 
-Annotations parse on variables, parameters and return positions. They have no runtime effect. There is no `__annotations__` and no runtime check.
+Annotations parse on variables, parameters and return positions, and nothing checks them at run time. The annotations of a function or a class wait unevaluated in its `__annotate__`, and the first read of `__annotations__` evaluates them in order and keeps the dict, so a name defined later reads fine. A class has the annotations of its own body only, and the annotations of a local variable or of the module are never kept.
 
 Treat them as documentation for humans and static analyzers. Generic classes, `type` aliases and unions are on [Data types](/docs/edge-python/language/data-types#generic-aliases).
 
@@ -480,11 +480,13 @@ def add(a: int, b: int) -> int:
 
 print(add(3, 4))
 print(add("a", "b"))  # annotations do not enforce
+print(add.__annotations__)
 ```
 
 ```output
 7
 ab
+{'a': <class 'int'>, 'b': <class 'int'>, 'return': <class 'int'>}
 ```
 
 > [!CARDS]

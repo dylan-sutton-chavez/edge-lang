@@ -452,7 +452,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         self.eat(TokenType::In);
         // Unparenthesized tuple iterable, `for x in 1, 2:` iterates the tuple.
         self.expr_or_tuple(|s| matches!(s.peek(), Some(TokenType::Colon) | None));
-        self.chunk.emit(OpCode::GetIter, is_async as u16);
+        self.chunk.emit(OpCode::GetIter, if is_async { super::ITER_ASYNC } else { 0 });
 
         self.enter_block();
 
@@ -509,6 +509,12 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         let mut had_except = false;
 
         while self.eat_if(TokenType::Except) {
+            if self.eat_if(TokenType::Star) {
+                if had_except { self.diag_at_peek("cannot have both 'except' and 'except*' on the same 'try'"); }
+                self.except_star(&mut end_jumps);
+                had_except = true;
+                break;
+            }
             had_except = true;
             if let Some(j) = next_arm_jump.take() { self.patch(j); }
             if had_bare {
@@ -587,26 +593,108 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         self.commit_block();
     }
 
+    /* `break` or `continue` leaving the `except*` body it sits in, which Python refuses. */
+    pub(super) fn leaves_star(&mut self) {
+        if self.star_loops == Some(self.loops.len()) { self.error("'break', 'continue' and 'return' cannot appear in an except* block"); }
+    }
+
+    /* The `except*` clauses of a try, the first `except*` eaten, the caught exception on the stack. Each clause takes the part of the group it matches, its body runs with that part as the exception it handles, and what stays unhandled or was raised is raised at the end. */
+    fn except_star(&mut self, end_jumps: &mut Vec<usize>) {
+        let n = self.star_count;
+        self.star_count += 1;
+        let hidden = |what: &str| crate::s!("#", str what, int n as i64);
+        let (state, part, raised, rest) = (hidden("eg"), hidden("part"), hidden("raised"), hidden("rest"));
+        let call = |s: &mut Self, argc: u16| { let at = s.last_end as u32; s.chunk.emit(OpCode::Call, argc); s.chunk.record_call_pos(at); };
+        self.emit_load_ssa("%star_start");
+        self.chunk.emit(OpCode::Swap, 0);
+        call(self, 1);
+        self.store_name(&state);
+        let mut first = true;
+        while first || self.eat_if(TokenType::Except) {
+            if !first && !self.eat_if(TokenType::Star) { self.diag_at_peek("cannot have both 'except' and 'except*' on the same 'try'"); }
+            first = false;
+            self.mark_stmt();
+            self.emit_load_ssa("%star_split");
+            self.emit_load_ssa(&state);
+            if matches!(self.peek(), Some(TokenType::Colon)) { self.diag_at_peek("expected one or more exception types"); self.chunk.emit(OpCode::LoadNone, 0); }
+            else { self.expr(); }
+            call(self, 2);
+            self.store_name(&part);
+            let as_name = if self.eat_if(TokenType::As) { Some(self.advance_text()) } else { None };
+            self.eat(TokenType::Colon);
+            self.emit_load_ssa(&part);
+            let skip = self.emit_jump(OpCode::JumpIfFalse);
+            // The part is raised and caught, so a bare `raise` in the body raises it again.
+            let outer = self.emit_jump(OpCode::SetupExcept);
+            let catch = self.emit_jump(OpCode::SetupExcept);
+            self.emit_load_ssa(&part);
+            self.chunk.emit(OpCode::Raise, 0);
+            self.patch(catch);
+            match as_name { Some(name) => self.store_name(name), None => self.chunk.emit(OpCode::PopTop, 0) }
+            let guard = self.emit_jump(OpCode::SetupExcept);
+            let saved = self.star_loops.replace(self.loops.len());
+            self.compile_block();
+            self.star_loops = saved;
+            self.chunk.emit(OpCode::PopExcept, 0);
+            let done = self.emit_jump(OpCode::Jump);
+            // What the body raises is kept for the end.
+            self.patch(guard);
+            self.store_name(&raised);
+            self.emit_load_ssa("%star_raised");
+            self.emit_load_ssa(&state);
+            self.emit_load_ssa(&raised);
+            self.emit_load_ssa(&part);
+            call(self, 3);
+            self.chunk.emit(OpCode::PopTop, 0);
+            self.patch(done);
+            self.chunk.emit(OpCode::PopExcept, 0);
+            if let Some(name) = as_name {
+                let idx = self.push_ssa_name(name, self.current_version(name));
+                self.chunk.emit(OpCode::Del, idx);
+            }
+            let over = self.emit_jump(OpCode::Jump);
+            // Bookkeeping that fails leaves through the outer frame.
+            self.patch(outer);
+            self.chunk.emit(OpCode::Raise, 1);
+            self.patch(over);
+            self.patch(skip);
+        }
+        self.emit_load_ssa("%star_end");
+        self.emit_load_ssa(&state);
+        call(self, 1);
+        self.store_name(&rest);
+        self.emit_load_ssa(&rest);
+        let clean = self.emit_jump(OpCode::JumpIfFalse);
+        self.emit_load_ssa(&rest);
+        self.chunk.emit(OpCode::Raise, 2);
+        self.patch(clean);
+        end_jumps.push(self.emit_jump(OpCode::Jump));
+    }
+
     /* with / async with, each CM is a SetupFinally cleanup frame whose handler stages `WithExit`. Dunders run as staged plain Calls so host deferrals can park. */
 
     pub(super) fn with_stmt_inner(&mut self, is_async: bool) {
         self.advance();
         let operand = is_async as u16;
         let mut setups: Vec<usize> = Vec::new();
+        // `with (a as x, b as y):` puts its items in brackets.
+        let grouped = matches!(self.peek_same_line(), Some(TokenType::Lpar)) && self.tokens.group_then(TokenType::Colon);
+        if grouped { self.advance(); }
         loop {
             self.expr();
             self.chunk.emit(OpCode::WithEnter, operand);
             self.chunk.emit(OpCode::Call, 1);
             if self.eat_if(TokenType::As) {
-                let name = self.advance_text();
-                self.store_name(name);
+                self.store_target();
             } else {
                 // Discard the unbound `__enter__` result.
                 self.chunk.emit(OpCode::PopTop, 0);
             }
             setups.push(self.emit_jump(OpCode::SetupFinally));
             self.cleanup_count += 1;
-            if !self.eat_if(TokenType::Comma) { break; }
+            let more = self.eat_if(TokenType::Comma);
+            if grouped && (!more || matches!(self.peek(), Some(TokenType::Rpar))) { self.eat(TokenType::Rpar); break; }
+            if !more { break; }
         }
         self.eat(TokenType::Colon);
         self.compile_block();

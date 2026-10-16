@@ -29,8 +29,9 @@ pub fn exc_str(vm: &mut VM, recv: Val, _pos: &[Val]) -> Result<(), VmErr> {
 
 /* `__getitem__` a class over dict or list reaches through `super()`, the builtin lookup past its overrides. */
 pub fn container_getitem(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
+    vm.keyed(pos[0])?;
     let found = match vm.heap.get(recv) {
-        HeapObj::Dict(rc) => rc.borrow().get(&pos[0], &vm.heap).copied(),
+        HeapObj::Dict(rc) | HeapObj::FrozenDict(rc) => rc.borrow().get(&pos[0], &vm.heap).copied(),
         _ => return vm.get_item_builtin(recv, pos[0]),
     };
     let Some(v) = found else { vm.require_key(pos[0])?; return Err(vm.key_error(pos[0])) };
@@ -67,17 +68,17 @@ fn range_pos(vm: &VM, recv: Val, x: Val) -> (Option<i128>, bool) {
 }
 
 /* The error `range.index` raises for a value it lacks, which quotes the value. */
-fn not_in_range(vm: &VM, x: Val) -> VmErr { VmErr::Raised(crate::s!("ValueError: ", str &vm.repr(x), " is not in range")) }
+fn not_in_range() -> VmErr { VmErr::Raised(alloc::string::String::from("ValueError: range.index(x): x not in range")) }
 
 pub fn range_index(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
     if let Some(r) = crate::frontend::int::range_index(&mut vm.heap, recv, pos[0]) {
-        let i = r?.ok_or_else(|| not_in_range(vm, pos[0]))?;
+        let i = r?.ok_or_else(not_in_range)?;
         vm.push(i);
         return Ok(());
     }
     match range_pos(vm, recv, pos[0]) {
         (Some(i), _) => { let v = vm.int_to_val(Some(i))?; vm.push(v); Ok(()) }
-        (None, true) => Err(not_in_range(vm, pos[0])),
+        (None, true) => Err(not_in_range()),
         (None, false) => Err(cold_value("sequence.index(x): x not in sequence")),
     }
 }

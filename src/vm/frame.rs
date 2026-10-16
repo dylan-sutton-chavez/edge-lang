@@ -258,9 +258,14 @@ impl<'a> VM<'a> {
     #[inline(never)]
     pub(crate) fn enter_gen(&mut self, co: Val, i: usize, code: &Code) -> Option<(*const Code, *const SSAChunk, usize)> {
         let Some(HeapObj::Coroutine(c)) = self.heap.try_get(co) else { return None };
+        // A generator parked on a wait takes what woke it, which its `for` holds on top.
+        if c.syncs.is_empty() && c.stack.last().is_some_and(|v| v.is_undef()) {
+            self.wake_gen(co, true);
+            return self.enter_gen(co, i, code);
+        }
         // A finished body, helper frames waiting inside it or a body not lowered yet take the nested resume.
         let BodyRef::Fn(fi) = c.body else { return None };
-        if c.ip == FINISHED || !c.syncs.is_empty() || !self.functions[fi].1.is_generator || self.is_async.get(fi).copied().unwrap_or(false) { return None; }
+        if c.ip == FINISHED || !c.syncs.is_empty() || !self.functions[fi].1.is_generator || self.is_async_fn(fi) { return None; }
         let facts = self.call_facts[fi];
         let gen_code = Rc::as_ptr(self.pools[facts.pool].code.as_ref()?);
         if self.executing_coros.contains(&co.0) { return None; }
@@ -324,6 +329,33 @@ impl<'a> VM<'a> {
         self.stack.truncate(stack_base);
         self.leave_gen();
         ret
+    }
+
+    /* Hands what woke the parked generator `co` to the place its wait marked, off the stack of the `for` that parked
+       with it, or None when something else steps it. */
+    pub(crate) fn wake_gen(&mut self, co: Val, from_for: bool) {
+        let Some(HeapObj::Coroutine(c)) = self.heap.try_get_mut(co) else { return };
+        let Some(top) = c.wait_slot().filter(|t| t.is_undef()) else { return };
+        *top = if from_for { self.stack.pop().unwrap_or_else(Val::none) } else { Val::none() };
+    }
+
+    /* Parks the generator frame on top where it waits, with the helpers waiting inside it, and gives the `for` that
+       stepped it, which waits in its place and steps it again on resume. */
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn park_gen(&mut self) -> usize {
+        let co = self.frames.last().map_or(Val::undef(), |f| f.generator);
+        let resume = core::mem::take(&mut self.resume_ip);
+        let at = self.yield_gen(resume);
+        let helpers = core::mem::take(&mut self.pending_sync_frames);
+        // A wait for a value leaves a placeholder, marked so the next step takes the value from the `for`.
+        let placeholder = !self.pending.preempt_request;
+        if let Some(HeapObj::Coroutine(c)) = self.heap.try_get_mut(co) {
+            c.syncs.extend(helpers.into_iter().rev());
+            if placeholder && let Some(top) = c.wait_slot() { *top = Val::undef(); }
+        }
+        if placeholder { self.stack.push(Val::none()); }
+        at
     }
 
     /* `yield` of the generator frame on top, its value `v` handed to the `for` that stepped it, the code, chunk and index that carry on, None when it suspends otherwise. */

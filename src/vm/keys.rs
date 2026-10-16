@@ -7,6 +7,7 @@ use alloc::vec::Vec;
 
 impl<'a> VM<'a> {
     /* `a == b`, the content compare first and the user dunders only where it cannot settle. */
+    #[inline]
     pub(crate) fn values_eq(&mut self, a: Val, b: Val, chunk: &SSAChunk) -> Result<bool, VmErr> {
         match eq_checked(a, b, &self.heap, 0) {
             Some(r) => Ok(r),
@@ -44,7 +45,7 @@ impl<'a> VM<'a> {
         }
         // A key finds its pair by hash, so only the values may need a user `__eq__`.
         let dict_pairs = match (self.heap.try_get(a), self.heap.try_get(b)) {
-            (Some(HeapObj::Dict(x)), Some(HeapObj::Dict(y))) => {
+            (Some(HeapObj::Dict(x) | HeapObj::FrozenDict(x)), Some(HeapObj::Dict(y) | HeapObj::FrozenDict(y))) => {
                 let (x, y) = (x.borrow(), y.borrow());
                 if x.len() != y.len() { return Ok(false); }
                 let Some(pairs) = x.iter().map(|(k, v)| y.get(&k, &self.heap).map(|&w| (v, w))).collect::<Option<Vec<_>>>() else { return Ok(false) };
@@ -98,15 +99,25 @@ impl<'a> VM<'a> {
     }
 
     /* A set of `items`, each one hashable. */
-    pub(crate) fn valset_of(&self, items: &[Val]) -> Result<ValSet, VmErr> {
-        for &v in items.iter().filter(|v| v.is_heap()) { self.require_element(v)?; }
+    pub(crate) fn valset_of(&mut self, items: &[Val]) -> Result<ValSet, VmErr> {
+        for &v in items.iter().filter(|v| v.is_heap()) { self.require_element(v)?; self.keyed(v)?; }
         Ok(ValSet::from_vals(items, &self.heap))
     }
 
     /* A dict of `pairs` in order, a later equal key overwriting the value and keeping the first key. */
-    pub(crate) fn dictmap_of(&self, pairs: Vec<(Val, Val)>) -> Result<DictMap, VmErr> {
-        for &(k, _) in pairs.iter().filter(|p| p.0.is_heap()) { self.require_key(k)?; }
+    pub(crate) fn dictmap_of(&mut self, pairs: Vec<(Val, Val)>) -> Result<DictMap, VmErr> {
+        for &(k, _) in pairs.iter().filter(|p| p.0.is_heap()) { self.require_key(k)?; self.keyed(k)?; }
         Ok(DictMap::from_pairs(pairs, &self.heap))
+    }
+
+    /* A dict of the key and value pairs laid flat in `flat`, as a display builds it. */
+    pub(crate) fn dictmap_of_flat(&mut self, flat: &[Val]) -> Result<DictMap, VmErr> {
+        let mut dm = DictMap::with_capacity(flat.len() / 2);
+        for p in flat.as_chunks::<2>().0 {
+            if p[0].is_heap() { self.require_key(p[0])?; self.keyed(p[0])?; }
+            dm.insert(p[0], p[1], &self.heap);
+        }
+        Ok(dm)
     }
 
     /* `{*src}` into set `acc`. */
@@ -116,7 +127,7 @@ impl<'a> VM<'a> {
             Some(HeapObj::FrozenSet(rc)) => rc.iter().copied().collect(),
             _ => self.iterable_items(src, chunk)?,
         };
-        for &v in items.iter().filter(|v| v.is_heap()) { self.require_element(v)?; }
+        for &v in items.iter().filter(|v| v.is_heap()) { self.require_element(v)?; self.keyed(v)?; }
         if let Some(HeapObj::Set(rc)) = self.heap.try_get(acc) { let mut s = rc.borrow_mut(); for v in items { s.insert(v, &self.heap); } }
         Ok(())
     }
@@ -124,8 +135,8 @@ impl<'a> VM<'a> {
     /* `{**src}` merged into dict `acc`, later keys overwriting earlier values. */
     pub(crate) fn dict_spread_into(&mut self, acc: Val, src: Val) -> Result<(), VmErr> {
         let entries: Vec<(Val, Val)> = match self.heap.try_get(src) {
-            Some(HeapObj::Dict(rc)) => rc.borrow().iter().collect(),
-            _ => return Err(cold_type("argument after ** must be a mapping")),
+            Some(HeapObj::Dict(rc) | HeapObj::FrozenDict(rc)) => rc.borrow().iter().collect(),
+            _ => return Err(VmErr::TypeMsg(crate::s!("'", str self.type_name(src), "' object is not a mapping"))),
         };
         if let Some(HeapObj::Dict(rc)) = self.heap.try_get(acc) { let mut d = rc.borrow_mut(); for (k, v) in entries { d.insert(k, v, &self.heap); } }
         Ok(())

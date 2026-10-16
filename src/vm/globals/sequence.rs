@@ -23,7 +23,7 @@ impl<'a> VM<'a> {
 
     /* What a dict view shows now, an items view pairing each key with its value. */
     pub(crate) fn view_items(&mut self, d: Val, kind: View) -> Result<Vec<Val>, VmErr> {
-        let entries: Vec<(Val, Val)> = match self.heap.try_get(d) { Some(HeapObj::Dict(m)) => m.borrow().iter().collect(), _ => Vec::new() };
+        let entries: Vec<(Val, Val)> = self.heap.dict_cell(d).map_or_else(Vec::new, |m| m.borrow().iter().collect());
         match kind {
             View::Keys => Ok(entries.into_iter().map(|(k, _)| k).collect()),
             View::Values => Ok(entries.into_iter().map(|(_, v)| v).collect()),
@@ -36,12 +36,13 @@ impl<'a> VM<'a> {
         let ascii = self.heap.str_is_ascii(o);
         if self.heap.classed(o).is_some() && let Some(it) = self.try_call_dunder(o, "__iter__", &[], chunk)? { return Ok(it); }
         let name = match self.heap.try_get(o) {
+            Some(HeapObj::Coroutine(..)) if self.is_async_object(o) => return Err(self.not_iterable(o)),
             Some(HeapObj::Iter(..) | HeapObj::Coroutine(..)) => return Ok(o),
             Some(HeapObj::Instance(..)) => return self.try_call_dunder(o, "__iter__", &[], chunk)?.ok_or_else(|| self.not_iterable(o)),
             Some(HeapObj::List(rc)) => { let rc = rc.clone(); return self.alloc_iterator(IterFrame::List { rc, idx: 0 }, "list_iterator"); }
             Some(&HeapObj::Range(cur, end, step)) => return self.alloc_iterator(IterFrame::Range { cur, end, step }, "range_iterator"),
             Some(&HeapObj::BigRange(cur, end, step)) => return self.alloc_iterator(IterFrame::BigRange { cur, end, step }, "range_iterator"),
-            Some(HeapObj::Dict(_)) => return self.alloc_iterator(self.dict_walk(o, View::Keys), "dict_keyiterator"),
+            Some(HeapObj::Dict(_) | HeapObj::FrozenDict(_)) => return self.alloc_iterator(self.dict_walk(o, View::Keys), "dict_keyiterator"),
             Some(&HeapObj::DictView(d, kind)) => {
                 let name = match kind { View::Keys => "dict_keyiterator", View::Values => "dict_valueiterator", View::Items => "dict_itemiterator" };
                 return self.alloc_iterator(self.dict_walk(d, kind), name);
@@ -50,6 +51,8 @@ impl<'a> VM<'a> {
             Some(HeapObj::Str(_)) => if ascii { "str_ascii_iterator" } else { "str_iterator" },
             Some(HeapObj::Set(_) | HeapObj::FrozenSet(_)) => "set_iterator",
             Some(HeapObj::Bytes(_)) => "bytes_iterator",
+            Some(HeapObj::ByteArray(_)) => "bytearray_iterator",
+            Some(HeapObj::MemoryView(_)) => "memory_iterator",
             _ => return Err(self.not_iterable(o)),
         };
         let items = self.extract_iter(o)?;
@@ -70,6 +73,7 @@ impl<'a> VM<'a> {
     pub(crate) fn next_of(&mut self, it: Val, chunk: &SSAChunk) -> Result<Option<Val>, VmErr> {
         match self.heap.try_get(it) {
             Some(HeapObj::Iter(..)) => self.iter_step(it),
+            Some(HeapObj::Coroutine(..)) if self.is_async_object(it) => Err(VmErr::TypeMsg(s!("'", str self.type_name(it), "' object is not an iterator"))),
             Some(HeapObj::Coroutine(..)) => {
                 let v = self.with_roots([it], |vm| vm.resume_coroutine(it))?;
                 Ok(core::mem::take(&mut self.yielded).then_some(v))
@@ -188,17 +192,18 @@ impl<'a> VM<'a> {
         let ascii = self.heap.str_is_ascii(o);
         Ok(match self.heap.try_get(o) {
             Some(HeapObj::Str(s)) => (if ascii { s.len() } else { s.chars().count() }) as i128,
-            Some(HeapObj::Bytes(b)) => b.len() as i128,
+            Some(HeapObj::Bytes(b) | HeapObj::ByteArray(b)) => b.len() as i128,
+            Some(HeapObj::MemoryView(m)) => if m.released { return Err(cold_value("operation forbidden on released memoryview object")) } else { m.len as i128 },
             Some(HeapObj::List(v)) => v.borrow().len() as i128,
             Some(HeapObj::Tuple(v)) => v.len() as i128,
-            Some(HeapObj::Dict(v)) => v.borrow().len() as i128,
+            Some(HeapObj::Dict(v) | HeapObj::FrozenDict(v)) => v.borrow().len() as i128,
             Some(&HeapObj::DictView(d, _)) => return self.builtin_len(d),
             Some(HeapObj::Set(v)) => v.borrow().len() as i128,
             Some(HeapObj::FrozenSet(v)) => v.len() as i128,
             Some(&HeapObj::Range(_, _, 0)) => return Err(cold_value("range() arg 3 must not be zero")),
             Some(&HeapObj::Range(s, e, st)) => crate::vm::eq::range_len(s, e, st),
             Some(HeapObj::BigRange(..)) => crate::frontend::int::range_len(&self.heap, o).unwrap_or(Ok(0))?,
-            _ => return Err(cold_type("object has no len()")),
+            _ => return Err(VmErr::TypeMsg(s!("object of type '", str self.type_name(o), "' has no len()"))),
         })
     }
 
@@ -352,8 +357,8 @@ impl<'a> VM<'a> {
                 let (cur, end, step) = crate::frontend::int::range_reversed(&mut self.heap, o).unwrap_or(Err(VmErr::Overflow))?;
                 return self.push_iterator(IterFrame::BigRange { cur, end, step }, "range_iterator");
             }
-            Some(HeapObj::Str(_) | HeapObj::Tuple(_) | HeapObj::Bytes(_)) => "reversed",
-            Some(HeapObj::Dict(_) | HeapObj::DictView(_, View::Keys)) => "dict_reversekeyiterator",
+            Some(HeapObj::Str(_) | HeapObj::Tuple(_) | HeapObj::Bytes(_) | HeapObj::ByteArray(_)) => "reversed",
+            Some(HeapObj::Dict(_) | HeapObj::FrozenDict(_) | HeapObj::DictView(_, View::Keys)) => "dict_reversekeyiterator",
             Some(HeapObj::DictView(_, View::Values)) => "dict_reversevalueiterator",
             Some(HeapObj::DictView(_, View::Items)) => "dict_reverseitemiterator",
             _ => return Err(VmErr::TypeMsg(s!("'", str self.type_name(o), "' object is not reversible"))),
@@ -391,7 +396,7 @@ impl<'a> VM<'a> {
     }
 
     // TypeError for a non-iterable operand.
-    fn not_iterable(&self, o: Val) -> VmErr {
+    pub(crate) fn not_iterable(&self, o: Val) -> VmErr {
         VmErr::TypeMsg(s!("'", str self.type_name(o), "' object is not iterable"))
     }
 
@@ -410,6 +415,12 @@ impl<'a> VM<'a> {
         if !o.is_heap() {
             return Err(self.not_iterable(o));
         }
+        // `*Ts` of a TypeVarTuple unpacks to the one `typing.Unpack[Ts]` it stands for.
+        if matches!(self.heap.get(o), HeapObj::TypeVar(n) if n.starts_with('*') && !n.starts_with("**")) {
+            let origin = self.heap.alloc(HeapObj::Type("typing.Unpack".into()))?;
+            let args = self.with_roots([origin], |vm| vm.heap.alloc(HeapObj::Tuple(alloc::vec![o])))?;
+            return Ok(alloc::vec![self.with_roots([origin, args], |vm| vm.heap.alloc(HeapObj::GenericAlias(origin, args)))?]);
+        }
         // An iterator yields what it has left, its items rooted on the stack as steps run user code.
         if matches!(self.heap.get(o), HeapObj::Iter(..)) {
             self.push(o);
@@ -424,6 +435,7 @@ impl<'a> VM<'a> {
             return Ok(out);
         }
         if matches!(self.heap.get(o), HeapObj::Coroutine(..)) {
+            if self.is_async_object(o) { return Err(self.not_iterable(o)); }
             // Keep the coroutine and its yielded values rooted on the VM stack, each resume can allocate and trigger GC.
             self.push(o);
             let base = self.stack.len();
@@ -478,8 +490,9 @@ impl<'a> VM<'a> {
                 }
                 Some(out)
             }
-            HeapObj::Dict(d) => Some(d.borrow().keys().collect()),
-            HeapObj::Bytes(b) => Some(b.iter().map(|&x| Val::int(x as i64)).collect()),
+            HeapObj::Dict(d) | HeapObj::FrozenDict(d) => Some(d.borrow().keys().collect()),
+            HeapObj::Bytes(b) | HeapObj::ByteArray(b) => Some(b.iter().map(|&x| Val::int(x as i64)).collect()),
+            HeapObj::MemoryView(_) => Some(self.heap.octets(o).unwrap_or_default().iter().map(|&x| Val::int(x as i64)).collect()),
             HeapObj::Str(_) => None, // handled below, needs heap allocation
             _ => return Err(self.not_iterable(o)),
         };
@@ -535,7 +548,7 @@ impl<'a> VM<'a> {
                 (None, None) => Err(VmErr::Raised(s!("StopIteration"))),
             };
         }
-        if !matches!(self.heap.get(o), HeapObj::Coroutine(..)) {
+        if !matches!(self.heap.get(o), HeapObj::Coroutine(..)) || self.is_async_object(o) {
             return Err(VmErr::TypeMsg(s!("'", str self.type_name(o), "' object is not an iterator")));
         }
         self.resume_generator(o, default)

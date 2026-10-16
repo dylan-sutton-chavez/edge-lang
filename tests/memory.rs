@@ -33,6 +33,15 @@ mod test {
         }
     }
 
+    // An `except*` that handles part of a nested group keeps nothing alive once its statement ends.
+    #[test]
+    fn a_partly_handled_exception_group_leaves_nothing_behind() {
+        let src = |n: usize| format!("for _ in range({n}):\n    try:\n        try:\n            raise ExceptionGroup('g', [ValueError(1), ExceptionGroup('h', [TypeError(2), ValueError(3)])])\n        except* TypeError:\n            pass\n    except* ValueError:\n        pass\n");
+        let (few, _, _) = ran(&src(200));
+        let (many, _, _) = ran(&src(4000));
+        assert!(many < few + 200_000, "held {few} after 200 runs and {many} after 4000");
+    }
+
     #[test]
     fn a_list_of_numbers_holds_eight_bytes_each() {
         let (held, _, _) = ran("xs = [0] * 1000000\n");

@@ -28,7 +28,7 @@ mod test {
 
         // A failing call renders a traceback that names the function it failed in.
         let err = vm.call_export("greet", &[compiler::vm::Val::int(7)]).unwrap_err();
-        let traceback = err.render_traceback(SRC, vm.error_pos(), None, vm.call_stack_frames(), vm.function_names_ref());
+        let traceback = vm.render_error(&err, SRC, None);
         assert!(traceback.contains("TypeError") && traceback.contains("greet"), "{traceback}");
     }
 }

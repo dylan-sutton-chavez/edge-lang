@@ -66,8 +66,15 @@ fn call_native(caller: &mut Caller<'_, State>, id: i32, call_id: i32, argv_ptr: 
         Native::Plugin(plugin) => {
             let argv = read(caller, ex.memory, argv_ptr, argc * 4);
             let len = (argc * 4).max(4);
-            let g_argv = plugin.alloc.call(&mut *caller, len)?;
-            let g_out = plugin.alloc.call(&mut *caller, 4)?;
+            // A trap in the allocator of a plugin fails the call like a trap in its method, never the interpreter.
+            let staged = plugin.alloc.call(&mut *caller, len).and_then(|a| Ok((a, plugin.alloc.call(&mut *caller, 4)?)));
+            let (g_argv, g_out) = match staged {
+                Ok(pair) => pair,
+                Err(e) => {
+                    throw(caller, &ex, &trapped(&e));
+                    return Ok(1);
+                }
+            };
             write(caller, plugin.memory, g_argv, &argv);
             caller.data_mut().running.push(call_id as u32);
             let called = plugin.func.call(&mut *caller, (g_argv, argc, g_out));
@@ -158,7 +165,13 @@ pub(super) fn resume(cx: &mut impl AsContextMut<Data = State>, ex: &Exports, id:
             0
         }
     };
-    let out = plugin.alloc.call(&mut *cx, 4)?;
+    let out = match plugin.alloc.call(&mut *cx, 4) {
+        Ok(out) => out,
+        Err(e) => {
+            throw(cx, ex, &trapped(&e));
+            return fail_parked(cx, ex, id);
+        }
+    };
     cx.as_context_mut().data_mut().running.push(id);
     let called = resume.call(&mut *cx, (id as i32, answer, out));
     cx.as_context_mut().data_mut().running.pop();
@@ -177,12 +190,15 @@ pub(super) fn resume(cx: &mut impl AsContextMut<Data = State>, ex: &Exports, id:
             cx.as_context_mut().data_mut().waiting.insert(id, plugin);
             Ok(0)
         }
-        _ => {
-            let (kind, msg) = take_error(cx, ex)?;
-            let handle = rt::encode(cx, ex, &WireValue::Bytes(msg.into_bytes())).map_err(|e| wasmtime::format_err!("{e}"))?;
-            ex.set_host_error_by_id.call(&mut *cx, (id as i32, kind, handle as i32))
-        }
+        _ => fail_parked(cx, ex, id),
     }
+}
+
+/* Raises the error a plugin stashed in the call parked on `id`. */
+fn fail_parked(cx: &mut impl AsContextMut<Data = State>, ex: &Exports, id: u32) -> wasmtime::Result<i32> {
+    let (kind, msg) = take_error(cx, ex)?;
+    let handle = rt::encode(cx, ex, &WireValue::Bytes(msg.into_bytes())).map_err(|e| wasmtime::format_err!("{e}"))?;
+    ex.set_host_error_by_id.call(&mut *cx, (id as i32, kind, handle as i32))
 }
 
 /* The error a plugin stashed, as its kind and message. */
@@ -214,7 +230,6 @@ pub(super) fn kind_of(msg: &str) -> (i32, &str) {
     }
 }
 
-/* Stashes the error the compiler raises once the call returns 1, a class prefix picks its kind. */
 /* What a plugin trap tells the program, the trap itself without the wasm backtrace. */
 fn trapped(e: &wasmtime::Error) -> String {
     match e.downcast_ref::<wasmtime::Trap>() {
@@ -223,6 +238,7 @@ fn trapped(e: &wasmtime::Error) -> String {
     }
 }
 
+/* Stashes the error the compiler raises once the call returns 1, a class prefix picks its kind. */
 pub(super) fn throw(caller: &mut impl AsContextMut<Data = State>, ex: &Exports, msg: &str) {
     let (kind, msg) = kind_of(msg);
     if let Ok(ptr) = stage(caller, ex, msg.as_bytes()) {

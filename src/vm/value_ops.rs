@@ -16,14 +16,19 @@ pub(crate) const MAX_REPR_LEN: usize = 1_000_000;
 /* Same cap for `<` descent, self-referential sequences raise RecursionError. */
 const CMP_DEPTH_MAX: usize = 100;
 
-/* Render `bytes` as `b'...'` (printable ASCII verbatim, rest escaped). */
-fn format_bytes(buf: &[u8]) -> String {
+/* Render `bytes` as `b'...'`, printable ASCII verbatim and the rest escaped, in double quotes when it holds a single quote and no double one. */
+fn format_bytes(buf: &[u8]) -> String { quote_bytes(buf, false) }
+
+/* `format_bytes`, the single quote escaped even inside double quotes when `escape_single` asks, as a bytearray shows. */
+fn quote_bytes(buf: &[u8], escape_single: bool) -> String {
+    let quote = if buf.contains(&b'\'') && !buf.contains(&b'"') { b'"' } else { b'\'' };
     let mut out = String::with_capacity(buf.len() + 3);
-    out.push_str("b'");
+    out.push('b');
+    out.push(quote as char);
     for &b in buf {
         match b {
             b'\\' => out.push_str("\\\\"),
-            b'\'' => out.push_str("\\'"),
+            b'\'' if quote == b'\'' || escape_single => out.push_str("\\'"),
             b'\n' => out.push_str("\\n"),
             b'\r' => out.push_str("\\r"),
             b'\t' => out.push_str("\\t"),
@@ -36,11 +41,11 @@ fn format_bytes(buf: &[u8]) -> String {
             }
         }
     }
-    out.push('\'');
+    out.push(quote as char);
     out
 }
 
-/* `repr` of a str, quote selection (' unless the text has ' but not ") and backslash escapes for control chars, printable text (incl. non-ASCII) is verbatim. */
+/* `repr` of a str, quote selection (' unless the text has ' but not ") and backslash escapes for what is not printable, the rest verbatim. */
 fn repr_str(s: &str) -> String {
     use core::fmt::Write;
     let quote = if s.contains('\'') && !s.contains('"') { '"' } else { '\'' };
@@ -53,7 +58,7 @@ fn repr_str(s: &str) -> String {
             '\r' => out.push_str("\\r"),
             '\t' => out.push_str("\\t"),
             c if c == quote => { out.push('\\'); out.push(c); }
-            c if c.is_control() => {
+            c if !crate::util::uni::is_printable(c) => {
                 let n = c as u32;
                 if n <= 0xff { let _ = write!(out, "\\x{:02x}", n); }
                 else if n <= 0xffff { let _ = write!(out, "\\u{:04x}", n); }
@@ -83,11 +88,14 @@ impl<'a> VM<'a> {
         if v.is_float() { return v.as_float() != 0.0; }
         if v.is_foreign() { return self.heap.foreign_truthy(v).unwrap_or(true); }
         match self.heap.get(v) {
+            &HeapObj::Boxed(n) => self.truthy(n),
             HeapObj::Str(s) => !s.is_empty(),
-            HeapObj::Bytes(b) => !b.is_empty(),
+            HeapObj::Bytes(b) | HeapObj::ByteArray(b) => !b.is_empty(),
+            HeapObj::MemoryView(m) => m.len > 0,
+            HeapObj::FnCode(_) => true,
             HeapObj::List(l) => !l.borrow().is_empty(),
             HeapObj::Tuple(t) => !t.is_empty(),
-            HeapObj::Dict(d) => !d.borrow().is_empty(),
+            HeapObj::Dict(d) | HeapObj::FrozenDict(d) => !d.borrow().is_empty(),
             HeapObj::Set(s) => !s.borrow().is_empty(),
             HeapObj::FrozenSet(s) => !s.is_empty(),
             HeapObj::Range(s,e,st) => if *st > 0 { s < e } else { s > e },
@@ -95,7 +103,7 @@ impl<'a> VM<'a> {
             HeapObj::DictView(d, _) => self.truthy(*d),
             HeapObj::Type(_) | HeapObj::Func(..) | HeapObj::Slice(..) | HeapObj::BoundMethod(..)
             | HeapObj::NativeFn(_) | HeapObj::Class(..) | HeapObj::BoundUserMethod(..)
-            | HeapObj::Super(..) | HeapObj::Property(..) | HeapObj::PropertySetter(..)
+            | HeapObj::Super(..) | HeapObj::Property(..) | HeapObj::PropertyPart(..)
             | HeapObj::StaticMethod(..) | HeapObj::ClassMethod(..) | HeapObj::Instance(..) | HeapObj::Coroutine(..)
             | HeapObj::Module(..) | HeapObj::Extern(_) | HeapObj::ExcInstance(..)
             | HeapObj::Ellipsis | HeapObj::NotImplemented | HeapObj::GenericAlias(..) | HeapObj::TypeAlias(..)
@@ -216,10 +224,15 @@ impl<'a> VM<'a> {
         else if v.is_none() { "NoneType" }
         else if v.is_foreign() { self.heap.foreign_kind(v).map_or("object", |k| k.type_name) }
         else { match self.heap.get(v) {
+            &HeapObj::Boxed(n) => self.type_name(n),
             HeapObj::Str(_) => "str",
             HeapObj::Bytes(_) => "bytes",
+            HeapObj::ByteArray(_) => "bytearray",
+            HeapObj::MemoryView(_) => "memoryview",
+            HeapObj::FnCode(_) => "code",
             HeapObj::List(_) => "list",
             HeapObj::Dict(_) => "dict",
+            HeapObj::FrozenDict(_) => "frozendict",
             HeapObj::Set(_) => "set",
             HeapObj::FrozenSet(_) => "frozenset",
             HeapObj::Tuple(_) => "tuple",
@@ -230,7 +243,7 @@ impl<'a> VM<'a> {
             HeapObj::BoundMethod(..) | HeapObj::NativeFn(_) | HeapObj::Extern(_) => "builtin_function_or_method",
             HeapObj::BoundUserMethod(..) => "<bound method>",
             HeapObj::Super(..) => "super",
-            HeapObj::Property(..) | HeapObj::PropertySetter(..) => "property",
+            HeapObj::Property(..) | HeapObj::PropertyPart(..) => "property",
             HeapObj::StaticMethod(..) => "staticmethod",
             HeapObj::ClassMethod(..) => "classmethod",
             HeapObj::Instance(cls, _) => {
@@ -240,7 +253,9 @@ impl<'a> VM<'a> {
                 "object"
             }
             HeapObj::Coroutine(c) => match c.body {
-                BodyRef::Fn(fi) if !self.is_async.get(fi).copied().unwrap_or(false) => "generator",
+                BodyRef::Fn(fi) if !self.is_async_fn(fi) => "generator",
+                BodyRef::Fn(fi) if self.functions[fi].1.is_generator => "async_generator",
+                BodyRef::Fn(fi) if self.is_anext_step(fi) => "async_generator_asend",
                 _ => "coroutine",
             },
             HeapObj::Module(..) => "module",
@@ -249,7 +264,10 @@ impl<'a> VM<'a> {
             HeapObj::NotImplemented => "NotImplementedType",
             HeapObj::GenericAlias(..) => "GenericAlias",
             HeapObj::TypeAlias(..) => "TypeAliasType",
-            HeapObj::Union(_) => "UnionType",
+            HeapObj::Union(_) => "Union",
+            // The stars a type parameter was declared with name its kind.
+            HeapObj::TypeVar(n) if n.starts_with("**") => "ParamSpec",
+            HeapObj::TypeVar(n) if n.starts_with('*') => "TypeVarTuple",
             HeapObj::TypeVar(_) => "TypeVar",
             HeapObj::Iter(_, name) => name,
             HeapObj::Cell(_) => "cell",
@@ -264,6 +282,12 @@ impl<'a> VM<'a> {
     fn exc_text(&self, name: &str, args: &[Val], seen: &mut Vec<u32>) -> String {
         match args {
             [] => String::new(),
+            // A group reads as its message and how many members it holds.
+            [msg, excs] if super::globals::is_group_type(name) => {
+                let n = match self.heap.try_get(*excs) { Some(HeapObj::List(l)) => l.borrow().len(), Some(HeapObj::Tuple(t)) => t.len(), _ => 0 };
+                let tail = if n == 1 { " sub-exception)" } else { " sub-exceptions)" };
+                s!(str &self.display_d(*msg, seen), " (", int n as i64, str tail)
+            }
             [a] if name == "KeyError" => self.repr_d(*a, seen),
             [a] => self.display_d(*a, seen),
             [no, msg, rest @ ..] if rest.len() <= 1 && super::globals::matches_exc_class(name, "OSError") => {
@@ -287,6 +311,15 @@ impl<'a> VM<'a> {
         let Some(HeapObj::Instance(_, attrs)) = self.heap.try_get(inst) else { return Vec::new() };
         let args = attrs.borrow().iter().find(|(k, _)| matches!(self.heap.try_get(*k), Some(HeapObj::Str(s)) if s == "args")).map(|(_, v)| v);
         match args.and_then(|a| self.heap.try_get(a)) { Some(HeapObj::Tuple(t)) => t.clone(), _ => Vec::new() }
+    }
+
+    /* Whether function `fi` is an `async def`. */
+    #[inline]
+    pub(crate) fn is_async_fn(&self, fi: usize) -> bool { self.is_async.get(fi).copied().unwrap_or(false) }
+
+    /* Whether `v` is a coroutine or an async generator, which only `async for` and `await` step. */
+    pub(crate) fn is_async_object(&self, v: Val) -> bool {
+        matches!(self.heap.try_get(v), Some(HeapObj::Coroutine(c)) if !matches!(c.body, BodyRef::Fn(fi) if !self.is_async_fn(fi)))
     }
 
     /* TypeError for a binary operator no operand type supports. */
@@ -336,8 +369,16 @@ impl<'a> VM<'a> {
         if v.is_none() { return "None".into(); }
         if v.is_foreign() { return self.foreign_text(v); }
         match self.heap.get(v) {
+            &HeapObj::Boxed(n) => self.display_d(n, seen),
             HeapObj::Str(s) => s.clone(),
             HeapObj::Bytes(b) => format_bytes(b),
+            HeapObj::ByteArray(b) => s!("bytearray(", str &quote_bytes(b, true), ")"),
+            HeapObj::MemoryView(m) => s!(str if m.released { "<released memory at 0x" } else { "<memory at 0x" }, str &alloc::format!("{:x}", v.0), ">"),
+            &HeapObj::FnCode(fi) => {
+                let name = self.function_names.get(fi).map_or("<lambda>", |n| if n.is_empty() { "<lambda>" } else { n });
+                let body = self.functions.get(fi).map(|f| &f.1);
+                s!("<code object ", str name, " at 0x", str &alloc::format!("{:x}", v.0), ", file \"", str body.map_or("", |b| b.path.as_str()), "\", line ", int body.map_or(0, |b| b.first_line) as i64, ">")
+            }
             HeapObj::Type(name) => s!("<class '", str name, "'>"),
             HeapObj::Func(i, ..) => {
                 // Empty name means lambda, same convention as the snapshot restore.
@@ -349,12 +390,14 @@ impl<'a> VM<'a> {
             HeapObj::BigRange(..) => crate::frontend::int::range_repr(&self.heap, v).and_then(Result::ok).unwrap_or_else(|| "range(...)".into()),
             HeapObj::List(l) => { let id = v.as_heap(); if seen.contains(&id) { return "[...]".into(); } seen.push(id); let mut o = s!(cap: 32; "["); self.append_reprs(&mut o, l.borrow().iter(), seen); o.push(']'); seen.pop(); o },
             HeapObj::Tuple(t) => { let id = v.as_heap(); if seen.contains(&id) { return "(...)".into(); } seen.push(id); let o = if t.len() == 1 { s!("(", str &self.repr_d(t[0], seen), ",)") } else { let mut o = s!(cap: 32; "("); self.append_reprs(&mut o, t.iter(), seen); o.push(')'); o }; seen.pop(); o },
-            HeapObj::Dict(d) => { let id = v.as_heap(); if seen.contains(&id) { return "{...}".into(); } seen.push(id); let mut o = s!(cap: 32; "{"); for (i,(k,val)) in d.borrow().iter().enumerate() { if i>0 { if o.len() > MAX_REPR_LEN { o.push_str(", ..."); break; } o.push_str(", "); } o.push_str(&self.repr_d(k, seen)); o.push_str(": "); o.push_str(&self.repr_d(val, seen)); } o.push('}'); seen.pop(); o },
+            HeapObj::Dict(d) => self.dict_repr(v, &d.borrow(), seen),
+            HeapObj::FrozenDict(d) if d.borrow().is_empty() => "frozendict()".into(),
+            HeapObj::FrozenDict(d) => s!("frozendict(", str &self.dict_repr(v, &d.borrow(), seen), ")"),
             HeapObj::BoundMethod(recv, id) if recv.is_undef() => s!("<method '", str id.name(), "' of '", str id.ty(), "' objects>"),
             HeapObj::BoundMethod(_, id) => s!("<built-in method ", str id.name(), ">"),
             HeapObj::NativeFn(id) => s!("<built-in function ", str id.name(), ">"),
             // User classes live in `__main__`, Python qualifies the repr with the module.
-            HeapObj::Class(name, _, _) => crate::s!("<class '__main__.", str name, "'>"),
+            HeapObj::Class(name, _, _) => crate::s!("<class '__main__.", str self.class_qualnames.get(&v.0).unwrap_or(name), "'>"),
             HeapObj::Instance(cls, _) => {
                 // An exception reads as its message.
                 if let Some(base) = self.exc_base(*cls) {
@@ -372,9 +415,10 @@ impl<'a> VM<'a> {
             HeapObj::BoundUserMethod(..) => "<bound method>".into(),
             HeapObj::Super(..) => "<super object>".into(),
             HeapObj::Property(..) => "<property object>".into(),
-            HeapObj::PropertySetter(..) => "<property.setter>".into(),
+            HeapObj::PropertyPart(_, slot) => crate::s!("<property.", str ["getter", "setter", "deleter"][*slot as usize], ">"),
             HeapObj::StaticMethod(..) => "<staticmethod object>".into(),
             HeapObj::ClassMethod(..) => "<classmethod object>".into(),
+            HeapObj::Coroutine(c) if matches!(c.body, BodyRef::Fn(fi) if self.is_anext_step(fi)) => "<async_generator_asend object>".into(),
             HeapObj::Coroutine(c) => {
                 let name = match c.body {
                     BodyRef::Fn(fi) => self.function_names.get(fi).map_or("<lambda>", |n| if n.is_empty() { "<lambda>" } else { n }),
@@ -385,7 +429,7 @@ impl<'a> VM<'a> {
             HeapObj::Iter(_, name) => s!("<", str name, " object>"),
             HeapObj::DictView(d, kind) => {
                 let mut o = s!(str self.type_name(v), "([");
-                if let HeapObj::Dict(m) = self.heap.get(*d) {
+                if let Some(m) = self.heap.dict_cell(*d) {
                     for (i, (k, val)) in m.borrow().iter().enumerate() {
                         if i > 0 { if o.len() > MAX_REPR_LEN { o.push_str(", ..."); break; } o.push_str(", "); }
                         match kind {
@@ -413,7 +457,8 @@ impl<'a> VM<'a> {
                 o.push(']');
                 o
             }
-            HeapObj::TypeAlias(name, _) | HeapObj::TypeVar(name) => name.clone(),
+            HeapObj::TypeAlias(name, _) => name.clone(),
+            HeapObj::TypeVar(name) => name.trim_start_matches('*').into(),
             HeapObj::Union(args) => {
                 let mut o = String::new();
                 if let HeapObj::Tuple(t) = self.heap.get(*args) {
@@ -436,14 +481,36 @@ impl<'a> VM<'a> {
         }
     }
 
+    /* `{k: v, ...}` of the entries of dict `v`, `{...}` where it holds itself. */
+    fn dict_repr(&self, v: Val, d: &DictMap, seen: &mut Vec<u32>) -> String {
+        let id = v.as_heap();
+        if seen.contains(&id) { return "{...}".into(); }
+        seen.push(id);
+        let mut o = s!(cap: 32; "{");
+        for (i, (k, val)) in d.iter().enumerate() {
+            if i > 0 {
+                if o.len() > MAX_REPR_LEN { o.push_str(", ..."); break; }
+                o.push_str(", ");
+            }
+            o.push_str(&self.repr_d(k, seen));
+            o.push_str(": ");
+            o.push_str(&self.repr_d(val, seen));
+        }
+        o.push('}');
+        seen.pop();
+        o
+    }
+
     pub fn repr(&self, v: Val) -> String { self.repr_d(v, &mut Vec::new()) }
 
     /* An alias argument as Python spells it, a type by its name and anything else by repr. */
     fn alias_arg(&self, v: Val, seen: &mut Vec<u32>) -> String {
         if v.is_heap() {
             match self.heap.get(v) {
-                HeapObj::Type(n) | HeapObj::TypeAlias(n, _) | HeapObj::TypeVar(n) => return n.clone(),
-                HeapObj::Class(n, ..) => return s!("__main__.", str n),
+                HeapObj::Type(n) => return n.clone(),
+                HeapObj::TypeVar(n) => return n.trim_start_matches('*').into(),
+                HeapObj::TypeAlias(q, _) => return s!("__main__.", str q),
+                HeapObj::Class(n, ..) => return s!("__main__.", str self.class_qualnames.get(&v.0).unwrap_or(n)),
                 HeapObj::Ellipsis => return "...".into(),
                 _ => {}
             }
@@ -494,7 +561,7 @@ impl<'a> VM<'a> {
         if a.is_heap() && b.is_heap() {
             match (self.heap.get(a), self.heap.get(b)) {
                 (HeapObj::Str(x), HeapObj::Str(y)) => return Ok(x < y),
-                (HeapObj::Bytes(x), HeapObj::Bytes(y)) => return Ok(x < y),
+                (HeapObj::Bytes(x) | HeapObj::ByteArray(x), HeapObj::Bytes(y) | HeapObj::ByteArray(y)) => return Ok(x < y),
                 // Sequences compare lexicographically, clone to drop the heap borrow before recursing.
                 (HeapObj::List(x), HeapObj::List(y)) => {
                     let (x, y) = (x.borrow().clone(), y.borrow().clone());
@@ -507,6 +574,9 @@ impl<'a> VM<'a> {
                 _ => {}
             }
         }
+        // A number of a class over int or float orders as the number.
+        let (x, y) = (unboxed(a, &self.heap), unboxed(b, &self.heap));
+        if x.0 != a.0 || y.0 != b.0 { return self.lt_vals_d(x, y, depth); }
         Err(VmErr::TypeMsg(s!("'<' not supported between instances of '", str self.type_name(a), "' and '", str self.type_name(b), "'")))
     }
 
@@ -521,24 +591,25 @@ impl<'a> VM<'a> {
     }
 
     /* Item presence in list/tuple/dict/set, or substring in string. Non-iterable container raises TypeError. */
-    pub fn contains(&self, container: Val, item: Val) -> Result<bool, VmErr> {
+    pub fn contains(&mut self, container: Val, item: Val) -> Result<bool, VmErr> {
+        if container.is_heap() && matches!(self.heap.get(container), HeapObj::Dict(_) | HeapObj::FrozenDict(_) | HeapObj::Set(_) | HeapObj::FrozenSet(_)) { self.keyed(item)?; }
         if container.is_heap() {
             match self.heap.get(container) {
                 // A scan counts what it may read as native work.
                 HeapObj::List(v) => { self.heap.spend(v.borrow().len()); return Ok(v.borrow().iter().any(|x| eq_member(*x, item, &self.heap))) }
                 HeapObj::Tuple(v) => { self.heap.spend(v.len()); return Ok(v.iter().any(|x| eq_member(*x, item, &self.heap))) }
                 // Only a miss checks the item, an unhashable one is never inside so a hit needs no check.
-                HeapObj::Dict(p) => { let hit = p.borrow().contains_key(&item, &self.heap); if !hit { self.require_key(item)?; } return Ok(hit); }
+                HeapObj::Dict(p) | HeapObj::FrozenDict(p) => { let hit = p.borrow().contains_key(&item, &self.heap); if !hit { self.require_key(item)?; } return Ok(hit); }
                 HeapObj::Set(s) => { let hit = s.borrow().contains(item, &self.heap); if !hit { self.require_set_probe(item)?; } return Ok(hit); }
                 HeapObj::FrozenSet(s) => { let hit = s.contains(item, &self.heap); if !hit { self.require_set_probe(item)?; } return Ok(hit); }
                 HeapObj::Str(s) => {
                     if let Some(HeapObj::Str(sub)) = self.heap.try_get(item) { self.heap.spend(s.len()); return Ok(s.contains(sub.as_str())); }
                     return Err(VmErr::TypeMsg(s!("'in <string>' requires string as left operand, not ", str self.type_name(item))));
                 }
-                HeapObj::Bytes(b) => {
-                    if let Some(HeapObj::Bytes(sub)) = self.heap.try_get(item) {
+                HeapObj::Bytes(b) | HeapObj::ByteArray(b) => {
+                    if let Some(sub) = self.heap.bytes_of(item) {
                         self.heap.spend(b.len());
-                        return Ok(sub.is_empty() || b.windows(sub.len()).any(|w| w == sub.as_slice()));
+                        return Ok(sub.is_empty() || b.windows(sub.len()).any(|w| w == sub));
                     }
                     let n = match item { i if i.is_int() => i.as_int(), i if i.is_bool() => i.as_bool() as i64, _ => return Err(cold_type("a bytes-like object is required")) };
                     if !(0..=255).contains(&n) { return Err(cold_value("byte must be in range(0, 256)")); }
@@ -567,7 +638,7 @@ impl<'a> VM<'a> {
                 _ => {}
             }
         }
-        Err(VmErr::TypeMsg(s!("argument of type '", str self.type_name(container), "' is not iterable")))
+        Err(VmErr::TypeMsg(s!("argument of type '", str self.type_name(container), "' is not a container or iterable")))
     }
     pub fn add_vals(&mut self, a: Val, b: Val) -> Result<Val, VmErr> {
         // Inline-int fast path, overflow falls through to the i128 slow path.
@@ -583,7 +654,7 @@ impl<'a> VM<'a> {
             // Charge the copy cost so growing concatenation in a loop stays bounded (avoids O(n^2)).
             let copy_cost = match (self.heap.get(a), self.heap.get(b)) {
                 (HeapObj::Str(sa), HeapObj::Str(sb)) => Some(sa.len() + sb.len()),
-                (HeapObj::Bytes(ba), HeapObj::Bytes(bb)) => Some(ba.len() + bb.len()),
+                (HeapObj::Bytes(ba) | HeapObj::ByteArray(ba), HeapObj::Bytes(bb) | HeapObj::ByteArray(bb)) => Some(ba.len() + bb.len()),
                 (HeapObj::List(va), HeapObj::List(vb)) => Some(va.borrow().len() + vb.borrow().len()),
                 (HeapObj::Tuple(va), HeapObj::Tuple(vb)) => Some(va.len() + vb.len()),
                 _ => None,
@@ -604,9 +675,10 @@ impl<'a> VM<'a> {
                     let tup = [&va[..], &vb[..]].concat();
                     return self.heap.alloc(HeapObj::Tuple(tup));
                 }
-                (HeapObj::Bytes(ba), HeapObj::Bytes(bb)) => {
+                // The result takes the type of the left side.
+                (left @ (HeapObj::Bytes(ba) | HeapObj::ByteArray(ba)), HeapObj::Bytes(bb) | HeapObj::ByteArray(bb)) => {
                     let r = [&ba[..], &bb[..]].concat();
-                    return self.heap.alloc(HeapObj::Bytes(r));
+                    return self.heap.alloc(if matches!(left, HeapObj::ByteArray(_)) { HeapObj::ByteArray(r) } else { HeapObj::Bytes(r) });
                 }
                 _ => {}
             }
@@ -620,7 +692,7 @@ impl<'a> VM<'a> {
         let (left, right) = (self.type_name(a), self.type_name(b));
         match self.heap.try_get(a)? {
             HeapObj::Str(_) | HeapObj::List(_) | HeapObj::Tuple(_) => Some(VmErr::TypeMsg(s!("can only concatenate ", str left, " (not \"", str right, "\") to ", str left))),
-            HeapObj::Bytes(_) => Some(VmErr::TypeMsg(s!("can't concat ", str right, " to ", str left))),
+            HeapObj::Bytes(_) | HeapObj::ByteArray(_) => Some(VmErr::TypeMsg(s!("can't concat ", str right, " to ", str left))),
             _ => None,
         }
     }
@@ -660,15 +732,16 @@ impl<'a> VM<'a> {
         } else if b.is_heap() && let Some(n) = rep_count(a) {
             (b, n)
         } else {
-            let seq = |v: Val| matches!(self.heap.try_get(v), Some(HeapObj::Str(_) | HeapObj::Bytes(_) | HeapObj::List(_) | HeapObj::Tuple(_)));
+            let seq = |v: Val| matches!(self.heap.try_get(v), Some(HeapObj::Str(_) | HeapObj::Bytes(_) | HeapObj::ByteArray(_) | HeapObj::List(_) | HeapObj::Tuple(_)));
             if (seq(a) && b.is_foreign()) || (seq(b) && a.is_foreign()) { return Err(VmErr::Raised(String::from("OverflowError: cannot fit 'int' into an index-sized integer"))); }
-            return Err(self.unsupported("*", a, b));
+            let other = if seq(a) { b } else if seq(b) { a } else { return Err(self.unsupported("*", a, b)) };
+            return Err(VmErr::TypeMsg(s!("can't multiply sequence by non-int of type '", str self.type_name(other), "'")));
         };
         let n = count.max(0) as usize;
         // Charge the fill up front so repeated `[x]*n` is bounded by the op budget, not just heap.
         let fill_cost = match self.heap.get(seq_val) {
             HeapObj::Str(s) => s.len().checked_mul(n),
-            HeapObj::Bytes(b) => b.len().checked_mul(n),
+            HeapObj::Bytes(b) | HeapObj::ByteArray(b) => b.len().checked_mul(n),
             HeapObj::List(rc) => rc.borrow().len().checked_mul(n),
             HeapObj::Tuple(v) => v.len().checked_mul(n),
             _ => None,
@@ -691,11 +764,11 @@ impl<'a> VM<'a> {
                 let out = self.repeat_seq(&src, n)?;
                 return self.heap.alloc(HeapObj::Tuple(out));
             }
-            HeapObj::Bytes(b) => {
+            seq @ (HeapObj::Bytes(b) | HeapObj::ByteArray(b)) => {
                 let bytes = b.len().checked_mul(n).ok_or_else(cold_overflow)?;
                 self.heap.reserve(bytes)?;
                 let r = b.repeat(n);
-                return self.heap.alloc(HeapObj::Bytes(r));
+                return self.heap.alloc(if matches!(seq, HeapObj::ByteArray(_)) { HeapObj::ByteArray(r) } else { HeapObj::Bytes(r) });
             }
             _ => {}
         }

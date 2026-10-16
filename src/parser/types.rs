@@ -147,6 +147,7 @@ pub(super) fn class_dunder(name: &str) -> bool {
         "__contains__" | "__getitem__" | "__setitem__" | "__delitem__" | "__missing__" | "__getattr__" | "__call__" | "__enter__" |
         "__exit__" | "__eq__" | "__ne__" | "__lt__" | "__le__" | "__gt__" | "__ge__" | "__int__" | "__float__" |
         "__index__" | "__abs__" | "__neg__" | "__pos__" | "__invert__" | "__class_getitem__" | "__match_args__" |
+        "__init_subclass__" | "__set_name__" | "__get__" | "__set__" | "__delete__" | "__setattr__" | "__delattr__" | "__new__" | "__slots__" | "__hash__" | "__complex__" |
         "__add__" | "__sub__" | "__mul__" | "__truediv__" | "__floordiv__" | "__matmul__" | "__mod__" | "__pow__" |
         "__and__" | "__or__" | "__xor__" | "__lshift__" | "__rshift__" | "__radd__" | "__rsub__" | "__rmul__" |
         "__rtruediv__" | "__rfloordiv__" | "__rmatmul__" | "__rmod__" | "__rpow__" | "__rand__" | "__ror__" |
@@ -164,6 +165,8 @@ pub enum Value {
     Int(i64),
     BigInt(crate::frontend::bigint::BigInt), // An int literal past i64, boxed when the constant pool is built.
     Float(f64),
+    // An imaginary literal such as `2j`, its value the imaginary part.
+    Imag(f64),
     Bool(bool),
     None,
 }
@@ -216,6 +219,14 @@ pub struct SSAChunk {
     pub classes: Vec<SSAChunk>,
     /* The base classes a class body's MakeClass pops, zero for any other chunk. */
     pub bases: u16,
+    /* The keyword name and value pairs the MakeClass of a class body pops above its bases. */
+    pub class_kw: u16,
+    /* The name of a function or class body with the classes and functions around it. */
+    pub qualname: String,
+    /* The parameters before a `/`, which a call passes only by position. */
+    pub posonly: u16,
+    /* The line a function definition starts on, its first decorator included. */
+    pub first_line: u32,
     pub is_generator: bool,
     pub overflow: bool,
     pub prev_slots: Vec<Option<u16>>,
@@ -441,6 +452,8 @@ pub const SSA_TMP_MATCH_ITEM: &str = "#match_item";
 
 // The parameter a comprehension receives its iterator through.
 pub const COMP_ARG: &str = "#arg";
+// A base count that means the bases arrive gathered in one list, from `class B(*bases)`.
+pub const SPREAD_BASES: u16 = u16::MAX;
 
 // Param name without `*`/`**`/`~` marker prefixes.
 pub fn param_base_name(p: &str) -> &str {
@@ -518,23 +531,39 @@ const SHOWN: usize = 80;
 const LEAD: usize = 40;
 const MAX_SHOWN: usize = 20;
 
-impl Diagnostic {
-    /* Byte offset -> (line, col), 1-indexed, col counts display cells for wide-char alignment. */
-    fn line_col(src: &str, byte: usize) -> (usize, usize) {
-        let byte = byte.min(src.len());
-        let line = src[..byte].matches('\n').count() + 1;
-        let line_start = src[..byte].rfind('\n').map_or(0, |p| p + 1);
-        let col = display_width(&src[line_start..byte]) + 1;
-        (line, col)
-    }
+/* Where each line of a source starts, so many diagnostics on one source find their lines without rescanning it. */
+pub struct Lines<'s> { src: &'s str, starts: core::cell::OnceCell<Vec<usize>>, asked: core::cell::Cell<bool> }
 
+impl<'s> Lines<'s> {
+    pub fn new(src: &'s str) -> Self { Self { src, starts: core::cell::OnceCell::new(), asked: core::cell::Cell::new(false) } }
+
+    pub fn source(&self) -> &'s str { self.src }
+
+    /* The line of `byte`, 1-indexed, and the byte its line starts at. */
+    fn line_of(&self, byte: usize) -> (usize, usize) {
+        // The first line asked costs one scan up to it, the index of every line waits for a second.
+        if self.starts.get().is_none() && !self.asked.replace(true) {
+            let head = &self.src.as_bytes()[..byte.min(self.src.len())];
+            return (head.iter().filter(|&&b| b == b'\n').count() + 1, head.iter().rposition(|&b| b == b'\n').map_or(0, |p| p + 1));
+        }
+        let starts = self.starts.get_or_init(|| core::iter::once(0).chain(self.src.bytes().enumerate().filter(|&(_, b)| b == b'\n').map(|(i, _)| i + 1)).collect());
+        let i = starts.partition_point(|&s| s <= byte).max(1);
+        (i, starts[i - 1])
+    }
+}
+
+impl Diagnostic {
     /* rustc-style render, error+arrow+source line+caret, path defaults to `<input>`. */
-    pub fn render(&self, src: &str, path: Option<&str>) -> alloc::string::String {
+    pub fn render(&self, src: &str, path: Option<&str>) -> alloc::string::String { self.render_in(&Lines::new(src), path) }
+
+    /* `render` on a source whose lines are already found. */
+    pub fn render_in(&self, lines: &Lines, path: Option<&str>) -> alloc::string::String {
+        let src = lines.src;
         let path = path.unwrap_or("<input>");
         let s_off = self.start.min(src.len());
         let e_off = self.end.min(src.len()).max(s_off);
-        let (line_no, col) = Self::line_col(src, s_off);
-        let line_start = src[..s_off].rfind('\n').map_or(0, |p| p + 1);
+        let (line_no, line_start) = lines.line_of(s_off);
+        let col = display_width(&src[line_start..s_off]) + 1;
         let line_end = src[s_off..].find('\n').map_or(src.len(), |p| s_off + p);
         let line_txt = &src[line_start..line_end];
         let at = s_off - line_start;
@@ -565,9 +594,10 @@ impl Diagnostic {
     /* A whole report, its first MAX_SHOWN diagnostics and then how many more there are. */
     pub fn render_all(errs: &[Diagnostic], src: &str, path: Option<&str>) -> String {
         let mut out = String::new();
+        let lines = Lines::new(src);
         for (i, e) in errs.iter().take(MAX_SHOWN).enumerate() {
             if i > 0 { out.push('\n'); }
-            out.push_str(&e.render(src, path));
+            out.push_str(&e.render_in(&lines, path));
         }
         let more = errs.len().saturating_sub(MAX_SHOWN);
         if more > 0 { out.push_str(&s!("\nand ", int more, str if more == 1 { " more error\n" } else { " more errors\n" })); }
@@ -723,15 +753,22 @@ macro_rules! builtin_types {
     };
 }
 builtin_types! {
-    "int", "float", "str", "bytes", "bool", "list",
-    "tuple", "dict", "set", "frozenset", "range", "slice", "type", "NoneType", "object",
-    "Exception", "BaseException",
+    "int", "float", "complex", "str", "bytes", "bytearray", "memoryview", "bool", "list",
+    "tuple", "dict", "frozendict", "set", "frozenset", "range", "slice", "type", "NoneType", "object", "sentinel",
+    "Exception", "BaseException", "BaseExceptionGroup", "ExceptionGroup",
     "ValueError", "TypeError", "NameError", "UnboundLocalError", "KeyError",
-    "UnicodeError", "UnicodeEncodeError", "UnicodeDecodeError",
-    "IndexError", "AttributeError", "RuntimeError",
-    "ZeroDivisionError", "OverflowError", "MemoryError",
-    "RecursionError", "StopIteration", "NotImplementedError",
-    "OSError", "PermissionError", "IOError", "ImportError", "ModuleNotFoundError", "SyntaxError",
-    "AssertionError", "ArithmeticError", "LookupError",
-    "CancelledError", "TimeoutError", "SystemExit", "GeneratorExit",
+    "UnicodeError", "UnicodeEncodeError", "UnicodeDecodeError", "UnicodeTranslateError",
+    "IndexError", "AttributeError", "RuntimeError", "PythonFinalizationError",
+    "ZeroDivisionError", "OverflowError", "FloatingPointError", "MemoryError",
+    "RecursionError", "StopIteration", "StopAsyncIteration", "NotImplementedError",
+    "OSError", "IOError", "EnvironmentError", "PermissionError", "FileNotFoundError", "FileExistsError",
+    "IsADirectoryError", "NotADirectoryError", "InterruptedError", "BlockingIOError", "ChildProcessError",
+    "ProcessLookupError", "ConnectionError", "BrokenPipeError", "ConnectionAbortedError",
+    "ConnectionRefusedError", "ConnectionResetError",
+    "ImportError", "ModuleNotFoundError", "SyntaxError", "IndentationError", "TabError",
+    "AssertionError", "ArithmeticError", "LookupError", "BufferError", "EOFError", "ReferenceError", "SystemError",
+    "CancelledError", "TimeoutError", "SystemExit", "GeneratorExit", "KeyboardInterrupt",
+    "Warning", "UserWarning", "DeprecationWarning", "PendingDeprecationWarning", "SyntaxWarning",
+    "RuntimeWarning", "FutureWarning", "ImportWarning", "UnicodeWarning", "BytesWarning",
+    "ResourceWarning", "EncodingWarning",
 }

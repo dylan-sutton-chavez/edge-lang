@@ -6,20 +6,22 @@ use core::iter;
 
 // `str.encode([encoding])`, UTF-8/ASCII only, other names error to block silent mismatches.
 pub fn encode(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
-    let s = recv_str(vm, recv)?;
-    if let Some(arg) = pos.first() {
-        let enc = val_to_str(vm, *arg)?;
-        match enc.as_str() {
-            "utf-8" | "utf8" => {}
-            "ascii" if !s.is_ascii() => {
-                return Err(VmErr::Raised("UnicodeEncodeError: 'ascii' codec can't encode non-ASCII characters".into()));
-            }
-            "ascii" => {}
-            _ => return Err(cold_value("unsupported encoding (expected 'utf-8' or 'ascii')")),
-        }
-    }
-    let v = vm.heap.alloc(HeapObj::Bytes(s.into_bytes()))?;
+    let (encoding, errors) = codec_args(vm, pos)?;
+    let out = crate::vm::codecs::encode(recv_str_ref(vm, recv)?, encoding, errors)?;
+    let v = vm.heap.alloc(HeapObj::Bytes(out))?;
     vm.push(v); Ok(())
+}
+
+/* The encoding and error handler a call names, UTF-8 and strict where it names none. */
+pub(crate) fn codec_args<'v>(vm: &'v VM, pos: &[Val]) -> Result<(&'v str, &'v str), VmErr> {
+    let arg = |i: usize, dflt: &'static str, what: &str| match pos.get(i) {
+        Some(&v) if !v.is_none() => match vm.heap.try_get(v) {
+            Some(HeapObj::Str(s)) => Ok(s.as_str()),
+            _ => Err(VmErr::TypeMsg(crate::s!(str what, "() argument must be str, not ", str vm.type_name(v)))),
+        },
+        _ => Ok(dflt),
+    };
+    Ok((arg(0, "utf-8", "encoding")?, arg(1, "strict", "errors")?))
 }
 
 // str zero-arg transforms, the receiver read in place and the result pushed.
@@ -43,7 +45,9 @@ fn strip_impl(vm: &mut VM, recv: Val, pos: &[Val], mode: Trim) -> Result<(), VmE
     let out = if pos.is_empty() {
         match mode { Trim::Both => s.trim_matches(uni::is_space), Trim::Start => s.trim_start_matches(uni::is_space), Trim::End => s.trim_end_matches(uni::is_space) }.to_string()
     } else {
-        let p = val_to_str(vm, pos[0])?;
+        let name = match mode { Trim::Both => "strip", Trim::Start => "lstrip", Trim::End => "rstrip" };
+        let Some(HeapObj::Str(p)) = vm.heap.try_get(pos[0]) else { return Err(VmErr::TypeMsg(s!(str name, " arg must be None or str"))) };
+        let p = p.clone();
         let f = |c: char| p.contains(c);
         match mode { Trim::Both => s.trim_matches(f), Trim::Start => s.trim_start_matches(f), Trim::End => s.trim_end_matches(f) }.to_string()
     };
@@ -71,22 +75,41 @@ str_pred!(isalnum, |s: &str| all_chars(s, uni::is_alnum));
 str_pred!(isspace, |s: &str| all_chars(s, uni::is_space));
 str_pred!(isupper, |s: &str| only_case(s, char::is_lowercase));
 str_pred!(islower, |s: &str| only_case(s, char::is_uppercase));
+str_pred!(istitle, title_cased);
+str_pred!(isascii, str::is_ascii);
+str_pred!(isdecimal, |s: &str| all_chars(s, |c| uni::decimal_value(c).is_some()));
+str_pred!(isnumeric, |s: &str| all_chars(s, uni::is_numeric));
+str_pred!(isprintable, |s: &str| s.chars().all(uni::is_printable));
+str_pred!(isidentifier, |s: &str| { let mut cs = s.chars(); cs.next().is_some_and(uni::is_id_start) && cs.all(uni::is_id_continue) });
+
+/* Whether every cased run starts uppercase and goes on lowercase, with one cased character at least. */
+fn title_cased(s: &str) -> bool {
+    let (mut prev_cased, mut any_cased) = (false, false);
+    for c in s.chars() {
+        let (upper, lower) = (c.is_uppercase() || uni::is_titlecase(c), c.is_lowercase());
+        if (upper && prev_cased) || (lower && !prev_cased) { return false; }
+        prev_cased = upper || lower;
+        any_cased |= prev_cased;
+    }
+    any_cased
+}
 
 // Collect the affix argument as one or more strings (str, or a tuple of str).
-fn affixes(vm: &VM, v: Val) -> Result<Vec<String>, VmErr> {
+fn affixes(vm: &VM, v: Val, end: bool) -> Result<Vec<String>, VmErr> {
     if let Some(HeapObj::Tuple(items)) = vm.heap.try_get(v) {
         let items = items.clone();
         let mut out = Vec::with_capacity(items.len());
-        for it in items { out.push(val_to_str(vm, it)?); }
+        let what = if end { "tuple for endswith must only contain str" } else { "tuple for startswith must only contain str" };
+        for it in items { out.push(val_to_str(vm, it, what)?); }
         Ok(out)
     } else {
-        Ok(alloc::vec![val_to_str(vm, v)?])
+        Ok(alloc::vec![val_to_str(vm, v, if end { "endswith first arg must be str or a tuple of str" } else { "startswith first arg must be str or a tuple of str" })?])
     }
 }
 
 // `str.startswith`/`endswith(affix[, start[, stop]])`, the optional window restricts where the affix must sit.
 fn affix_impl(vm: &mut VM, recv: Val, pos: &[Val], end: bool) -> Result<(), VmErr> {
-    let affixes = affixes(vm, pos[0])?;
+    let affixes = affixes(vm, pos[0], end)?;
     let ascii = vm.heap.str_is_ascii(recv);
     let s = recv_str_ref(vm, recv)?;
     let hit = window(s, ascii, pos, 1).is_some_and(|(lo, hi)| affixes.iter().any(|p| if end { s[lo..hi].ends_with(p.as_str()) } else { s[lo..hi].starts_with(p.as_str()) }));
@@ -112,7 +135,13 @@ fn window(s: &str, ascii: bool, pos: &[Val], from: usize) -> Option<(usize, usiz
 }
 
 fn find_impl(vm: &mut VM, recv: Val, pos: &[Val], last: bool, raise: bool) -> Result<(), VmErr> {
-    let sub = val_to_str(vm, pos[0])?;
+    let what = match (last, raise) {
+        (false, false) => "find() argument 1 must be str",
+        (true, false) => "rfind() argument 1 must be str",
+        (false, true) => "index() argument 1 must be str",
+        (true, true) => "rindex() argument 1 must be str",
+    };
+    let sub = val_to_str(vm, pos[0], what)?;
     let ascii = vm.heap.str_is_ascii(recv);
     let s = recv_str_ref(vm, recv)?;
     let idx = window(s, ascii, pos, 1).and_then(|(lo, hi)| {
@@ -130,12 +159,17 @@ pub fn index(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { find_im
 pub fn rindex(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { find_impl(vm, recv, pos, true, true) }
 
 pub fn count(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
-    let sub = val_to_str(vm, pos[0])?;
+    let sub = val_to_str(vm, pos[0], "count() argument 1 must be str")?;
     let ascii = vm.heap.str_is_ascii(recv);
     let s = recv_str_ref(vm, recv)?;
     let c = window(s, ascii, pos, 1).map_or(0, |(lo, hi)| {
         let hay = &s[lo..hi];
-        if sub.is_empty() { hay.chars().count() + 1 } else { hay.matches(sub.as_str()).count() }
+        // One ASCII byte counts as a plain byte scan, which the compiler vectorizes.
+        match sub.as_bytes() {
+            [] => hay.chars().count() + 1,
+            &[c] if c.is_ascii() => hay.bytes().filter(|&b| b == c).count(),
+            _ => hay.matches(sub.as_str()).count(),
+        }
     });
     vm.push(Val::int(c as i64));
     Ok(())
@@ -175,7 +209,7 @@ fn split_impl(vm: &mut VM, recv: Val, pos: &[Val], from_right: bool) -> Result<(
             None => s.split(uni::is_space).filter(|w| !w.is_empty()).map(String::from).collect(),
         }
     } else {
-        let sep = val_to_str(vm, pos[0])?;
+        let sep = val_to_str(vm, pos[0], "must be str or None")?;
         if sep.is_empty() { return Err(cold_value("empty separator")); }
         match maxsplit {
             Some(m) if from_right => { let mut v: Vec<String> = s.rsplitn(m + 1, sep.as_str()).map(String::from).collect(); v.reverse(); v }
@@ -190,12 +224,12 @@ fn split_impl(vm: &mut VM, recv: Val, pos: &[Val], from_right: bool) -> Result<(
 pub fn split(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { split_impl(vm, recv, pos, false) }
 
 pub fn join(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
-    let items = vm.extract_iter(pos[0]).map_err(|e| if matches!(e, VmErr::TypeMsg(_)) { cold_type("join() argument must be iterable") } else { e })?;
+    let items = vm.extract_iter(pos[0]).map_err(|e| if matches!(e, VmErr::TypeMsg(_)) { cold_type("can only join an iterable") } else { e })?;
     let sep = recv_str_ref(vm, recv)?;
     // The joined length is known before any copy, so a text past the memory limit fails first.
     let mut total = sep.len().saturating_mul(items.len().saturating_sub(1));
-    for &v in &items {
-        let Some(HeapObj::Str(s)) = vm.heap.try_get(v) else { return Err(cold_type("argument must be a string")) };
+    for (i, &v) in items.iter().enumerate() {
+        let Some(HeapObj::Str(s)) = vm.heap.try_get(v) else { return Err(VmErr::TypeMsg(crate::s!("sequence item ", int i as i64, ": expected str instance, ", str vm.type_name(v), " found"))) };
         total = total.saturating_add(s.len());
     }
     vm.heap.reserve(total)?;
@@ -210,8 +244,8 @@ pub fn join(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
 
 pub fn replace(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
     let s = recv_str_ref(vm, recv)?;
-    let old = val_to_str(vm, pos[0])?;
-    let new = val_to_str(vm, pos[1])?;
+    let old = val_to_str(vm, pos[0], "replace() argument 1 must be str")?;
+    let new = val_to_str(vm, pos[1], "replace() argument 2 must be str")?;
     // A result past the memory limit fails before it allocates.
     if new.len() > old.len() {
         let hits = if old.is_empty() { s.chars().count() + 1 } else { s.matches(old.as_str()).count() };
@@ -224,7 +258,6 @@ pub fn replace(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
         Some(n) if !n.is_int() => return Err(cold_type("replace count must be an integer")),
         _ => s.replace(old.as_str(), new.as_str()),
     };
-    vm.heap.spend(out.len());
     vm.alloc_and_push_str(out)
 }
 
@@ -353,14 +386,10 @@ str_transform!(casefold, |s: &str| s.to_lowercase());
 str_transform!(swapcase, |s: &str| s.chars().map(|c| if c.is_uppercase() { c.to_lowercase().to_string() } else if c.is_lowercase() { c.to_uppercase().to_string() } else { c.to_string() }).collect::<String>());
 
 /* Parse a pad-method `(width[, fill])` arg pair, `width_err` names the method for the width TypeError. */
-fn width_and_fill(vm: &mut VM, pos: &[Val], width_err: &'static str) -> Result<(usize, char), VmErr> {
-    if !pos[0].is_int() { return Err(cold_type(width_err)); }
-    let width = pos[0].as_int().max(0) as usize;
-    // User-controlled width drives the output size, cap it so a huge value errors instead of aborting in the allocator.
-    vm.heap.reserve(width)?;
-    vm.heap.spend(width);
+fn width_and_fill(vm: &mut VM, pos: &[Val]) -> Result<(usize, char), VmErr> {
+    let width = width_arg(vm, pos[0])?;
     let fill = if pos.len() > 1 {
-        let f = val_to_str(vm, pos[1])?;
+        let f = val_to_str(vm, pos[1], "The fill character must be a unicode character")?;
         let mut cs = f.chars();
         match (cs.next(), cs.next()) { (Some(c), None) => c, _ => return Err(cold_type("The fill character must be exactly one character long")) }
     } else { ' ' };
@@ -369,7 +398,7 @@ fn width_and_fill(vm: &mut VM, pos: &[Val], width_err: &'static str) -> Result<(
 
 // `str.ljust`/`rjust`/`center(width[, fill])` pad to width in code points, an odd centre pad leans left on an odd width.
 fn justify(vm: &mut VM, recv: Val, pos: &[Val], align: u8) -> Result<(), VmErr> {
-    let (width, fill) = width_and_fill(vm, pos, "width must be an integer")?;
+    let (width, fill) = width_and_fill(vm, pos)?;
     let s = recv_str_ref(vm, recv)?;
     let pad = width.saturating_sub(s.chars().count());
     let left = match align { b'<' => 0, b'>' => pad, _ => pad / 2 + (pad & width & 1) };
@@ -381,66 +410,20 @@ pub fn rjust(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { justify
 pub fn center(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { justify(vm, recv, pos, b'^') }
 
 pub fn expandtabs(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
-    let s = recv_str_ref(vm, recv)?;
-    // Holds tabsize in a C int, out-of-range is an OverflowError before any expansion.
-    let ts = match pos.first() {
-        Some(n) if n.is_int() => {
-            let raw = n.as_int();
-            if !(i32::MIN as i64..=i32::MAX as i64).contains(&raw) { return Err(cold_overflow()); }
-            raw.max(0) as usize
-        }
-        _ => 8,
-    };
-    let limit = vm.heap.room();
-    let mut out = String::with_capacity(s.len());
-    let mut col = 0usize;
-    for c in s.chars() {
-        match c {
-            // A large tabsize can blow the column count past the memory left, bail before materialising the spaces.
-            '\t' => {
-                let n = if ts == 0 { 0 } else { ts - (col % ts) };
-                if col.saturating_add(n) > limit { return Err(cold_heap()); }
-                for _ in 0..n { out.push(' '); }
-                col += n;
-            }
-            '\n' | '\r' => { out.push(c); col = 0; }
-            _ => { if col >= limit { return Err(cold_heap()); } out.push(c); col += 1; }
-        }
-    }
-    vm.heap.spend(out.len());
+    let ts = tab_size(vm, pos)?;
+    let out: String = expand_tabs(recv_str_ref(vm, recv)?.chars(), ['\t', '\n', '\r', ' '], ts, vm.heap.room())?.into_iter().collect();
     vm.alloc_and_push_str(out)
-}
-
-pub fn istitle(vm: &mut VM, recv: Val, _pos: &[Val]) -> Result<(), VmErr> {
-    let s = recv_str_ref(vm, recv)?;
-    // Titlecased means every cased run starts uppercase and continues lowercase, needs >=1 cased char.
-    let mut prev_cased = false;
-    let mut any_cased = false;
-    let mut ok = true;
-    for c in s.chars() {
-        if c.is_uppercase() || uni::is_titlecase(c) {
-            if prev_cased { ok = false; break; }
-            prev_cased = true; any_cased = true;
-        } else if c.is_lowercase() {
-            if !prev_cased { ok = false; break; }
-            prev_cased = true; any_cased = true;
-        } else {
-            prev_cased = false;
-        }
-    }
-    vm.push(Val::bool(ok && any_cased));
-    Ok(())
 }
 
 // `str.removeprefix` / `removesuffix`, strip if present, else return unchanged.
 pub fn removeprefix(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
-    let p = val_to_str(vm, pos[0])?;
+    let p = val_to_str(vm, pos[0], "removeprefix() argument must be str")?;
     // A string without the prefix is its own result.
     match recv_str_ref(vm, recv)?.strip_prefix(p.as_str()).map(String::from) { Some(out) => vm.alloc_and_push_str(out), None => { vm.push(recv); Ok(()) } }
 }
 
 pub fn removesuffix(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
-    let suf = val_to_str(vm, pos[0])?;
+    let suf = val_to_str(vm, pos[0], "removesuffix() argument must be str")?;
     match recv_str_ref(vm, recv)?.strip_suffix(suf.as_str()).map(String::from) { Some(out) => vm.alloc_and_push_str(out), None => { vm.push(recv); Ok(()) } }
 }
 
@@ -472,7 +455,7 @@ pub fn splitlines(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
 
 // `str.partition` / `rpartition`, (head, sep, tail), on miss returns (s,"","") / ("","",s).
 fn partition_impl(vm: &mut VM, recv: Val, pos: &[Val], from_right: bool) -> Result<(), VmErr> {
-    let sep = val_to_str(vm, pos[0])?;
+    let sep = val_to_str(vm, pos[0], "must be str")?;
     if sep.is_empty() { return Err(cold_value("empty separator")); }
     let s = recv_str_ref(vm, recv)?;
     let hit = if from_right { s.rfind(sep.as_str()) } else { s.find(sep.as_str()) };
@@ -491,15 +474,83 @@ pub fn rpartition(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { pa
 
 // str padding.
 pub fn zfill(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
-    if !pos[0].is_int() { return Err(cold_type("zfill() requires an integer argument")); }
-    let width = pos[0].as_int().max(0) as usize;
-    // User-controlled width drives the output size, cap it so a huge value errors instead of aborting in the allocator.
-    vm.heap.reserve(width)?;
-    vm.heap.spend(width);
+    let width = width_arg(vm, pos[0])?;
     let s = recv_str_ref(vm, recv)?;
     let nchars = s.chars().count();
     if nchars >= width { vm.push(recv); return Ok(()); }
     let pad = "0".repeat(width - nchars);
     let out = if s.starts_with('+') || s.starts_with('-') { s[..1].to_string() + &pad + &s[1..] } else { pad + s };
+    vm.alloc_and_push_str(out)
+}
+
+// `str.maketrans`, the code point table `translate` takes, from a dict or from strings of what maps to what.
+pub fn maketrans(vm: &mut VM, _recv: Val, pos: &[Val]) -> Result<(), VmErr> {
+    let mut table = DictMap::new();
+    if pos.len() == 1 {
+        let Some(HeapObj::Dict(d)) = vm.heap.try_get(pos[0]) else { return Err(cold_type("if you give only one argument to maketrans it must be a dict")) };
+        let entries: Vec<(Val, Val)> = d.borrow().iter().collect();
+        for (k, v) in entries {
+            let key = match vm.heap.try_get(k) {
+                Some(HeapObj::Str(t)) => match single(t) { Some(c) => Val::int(c as i64), None => return Err(cold_value("string keys in translatetable must be of length 1")) },
+                _ if k.is_int() => k,
+                _ => return Err(cold_type("keys in translate table mustbe strings or integers")),
+            };
+            table.insert(key, v, &vm.heap);
+        }
+        return vm.alloc_and_push_dict(table);
+    }
+    let (Some(HeapObj::Str(from)), Some(HeapObj::Str(to))) = (vm.heap.try_get(pos[0]), vm.heap.try_get(pos[1])) else {
+        return Err(cold_type("first maketrans argument must be a string if there is a second argument"));
+    };
+    if from.chars().count() != to.chars().count() { return Err(cold_value("the first two maketrans arguments must have equal length")); }
+    let pairs: Vec<(char, char)> = from.chars().zip(to.chars()).collect();
+    let gone = match pos.get(2) { Some(&z) => val_to_str(vm, z, "maketrans() argument 3 must be str")?, None => String::new() };
+    for (a, b) in pairs { table.insert(Val::int(a as i64), Val::int(b as i64), &vm.heap); }
+    for c in gone.chars() { table.insert(Val::int(c as i64), Val::none(), &vm.heap); }
+    vm.alloc_and_push_dict(table)
+}
+
+/* The one character of `t`, None for any other length. */
+fn single(t: &str) -> Option<char> { let mut cs = t.chars(); cs.next().filter(|_| cs.next().is_none()) }
+
+// `str.translate(table)`, each character looked up by its code point, kept when missing, dropped for None.
+pub fn translate(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { translate_by(vm, recv, pos[0], None) }
+
+/* `str.translate` over a table with its own `__getitem__`, which runs in the frame. */
+pub fn translate_mapped(vm: &mut VM, recv: Val, table: Val, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> { translate_by(vm, recv, table, Some(chunk)) }
+
+fn translate_by(vm: &mut VM, recv: Val, table: Val, chunk: Option<&crate::parser::SSAChunk>) -> Result<(), VmErr> {
+    let text = recv_str(vm, recv)?;
+    // A plain dict is read in place, any other table through its `__getitem__`, a LookupError keeping the character.
+    let plain = matches!(vm.heap.plain(table), Some(HeapObj::Dict(_)));
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        let key = Val::int(c as i64);
+        let mapped = if plain {
+            match vm.heap.dict_cell(table).and_then(|d| d.borrow().get(&key, &vm.heap).copied()) { Some(v) => v, None => { out.push(c); continue; } }
+        } else {
+            let got = match chunk { Some(chunk) => item_of(vm, table, key, chunk), None => vm.getitem_val(table, key) };
+            match got {
+                Ok(v) => v,
+                Err(e) if vm.raised_as(&e, "LookupError") => { vm.pending.exc_val = None; out.push(c); continue; }
+                Err(e) => return Err(e),
+            }
+        };
+        match vm.heap.try_get(mapped) {
+            _ if mapped.is_none() => {}
+            Some(HeapObj::Str(t)) => {
+                // A growing result fails on the memory limit before it allocates, and doubles only within it.
+                if out.capacity() - out.len() < t.len() {
+                    let need = out.len() + t.len();
+                    vm.heap.reserve(need)?;
+                    let grow = need.max(out.capacity() * 2);
+                    out.reserve_exact(if vm.heap.reserve(grow).is_ok() { grow } else { need } - out.len());
+                }
+                out.push_str(t);
+            }
+            _ if mapped.is_int() => out.push(u32::try_from(mapped.as_int()).ok().and_then(char::from_u32).ok_or_else(|| cold_value("character mapping must be in range(0x110000)"))?),
+            _ => return Err(cold_type("character mapping must return integer, None or str")),
+        }
+    }
     vm.alloc_and_push_str(out)
 }

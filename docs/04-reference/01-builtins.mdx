@@ -235,6 +235,18 @@ print(float("inf"))
 inf
 ```
 
+### complex
+
+`complex(real, imag)` builds a complex number from two numbers, either one complex itself, and `complex(text)` parses a string such as `"1+2j"` or `"(3-4j)"`. Both parts may be named. An instance whose class defines `__complex__`, `__float__` or `__index__` converts through it.
+
+```edge-python
+print(complex(1, 2), complex("-2j"), complex(imag=3))
+```
+
+```output
+(1+2j) -2j 3j
+```
+
 ### str
 
 `str(x)` returns the display form of `x`. No argument gives an empty string. `str(bytes, encoding)` decodes bytes like [`bytes.decode`](/docs/edge-python/reference/methods#bytes-methods).
@@ -279,9 +291,9 @@ False True
 | `bytes(n)` | `n` zero bytes. A negative `n` raises `ValueError` |
 | `bytes(iterable)` | One byte per int. A non-int raises `TypeError` and a value outside 0 to 255 raises `ValueError` |
 | `bytes(b)` | A copy of the bytes `b` |
-| `bytes(s, encoding)` | The string `s` encoded as `"utf-8"`, `"utf8"` or `"ascii"` |
+| `bytes(s, encoding, errors)` | The string `s` encoded like [`str.encode`](/docs/edge-python/reference/methods#encoding) |
 
-The encoding also passes as `encoding=`. A string without an encoding raises `TypeError`. ASCII raises `UnicodeEncodeError` on a non-ASCII character, and any other encoding name raises `ValueError`.
+The encoding and errors also pass as `encoding=` and `errors=`. A string without an encoding raises `TypeError`. `bytearray()` takes the same forms and makes a mutable copy, and `memoryview(b)` a view of the bytes of `b`, a bytes or bytearray value, that slicing narrows and that writes through to a bytearray.
 
 ```edge-python
 print(bytes())
@@ -332,6 +344,10 @@ print(dict({"a": 1}, b=2))
 {'a': 1}
 {'a': 1, 'b': 2}
 ```
+
+### frozendict
+
+`frozendict()` builds the way `dict()` does, a dict that never changes and hashes when its values do. A frozendict passed alone comes back as itself. [Data types](/docs/edge-python/language/data-types#frozendict) has the rules.
 
 ### chr, ord
 
@@ -589,7 +605,7 @@ b'\x00\xff'
 
 `type(x)` returns the type object of `x`. The built-in type names are these same objects.
 
-`type(x) == int` holds, and calling one constructs a value. For a user instance the result is its class object.
+`type(x) == int` holds, and calling one constructs a value. For a user instance the result is its class object. `type(name, bases, members)` builds a new class from a name, a tuple of bases and a dict of members.
 
 ```edge-python
 print(type(42))
@@ -736,8 +752,8 @@ False
 
 - Equal numbers hash alike, so `hash(1)`, `hash(1.0)` and `hash(True)` agree. An int hashes as its value modulo 2^61 - 1, `-1` hashes as `-2`, and infinity as `314159`.
 - Strings and bytes hash by content, tuples by the hashes of their items, and ranges and frozensets by value.
-- Any other object hashes by identity.
-- A list, dict or set raises `TypeError` with `unhashable type: 'list'`, as does an instance whose class defines `__eq__`.
+- An instance whose class defines `__hash__` hashes as the int it returns, and any other object hashes by identity.
+- A list, dict or set raises `TypeError` with `unhashable type: 'list'`, as does an instance whose class defines `__eq__` without `__hash__`.
 
 ```edge-python
 print(hash(1) == hash(1.0) == hash(True))
@@ -760,18 +776,20 @@ unhashable type: 'list'
 
 ### repr
 
-`repr(x)` returns the developer-readable form. Strings are quoted and containers show the `repr` of their elements.
+`repr(x)` returns the developer-readable form. Strings are quoted, what is not printable escaped, and containers show the `repr` of their elements. `ascii(x)` escapes every non-ASCII character of it too.
 
 ```edge-python
 print(repr("hello"))
 print(repr(42))
 print(repr([1, "two", 3]))
+print(ascii("café"))
 ```
 
 ```output
 'hello'
 42
 [1, 'two', 3]
+'caf\xe9'
 ```
 
 ### format
@@ -832,7 +850,7 @@ False
 
 ### vars
 
-`vars(x)` and `x.__dict__` return the attribute dict of an instance itself, so a write to either side shows on the other, and a snapshot keeps them linked. A property outranks a dict entry of the same name. A module and an exception answer a copy, which leaves out the internal fields of an exception. A value with no attributes raises `TypeError` with `vars() argument must have __dict__ attribute`, and there is no form without an argument.
+`vars(x)` and `x.__dict__` return the attribute dict of an instance itself, so a write to either side shows on the other, and a snapshot keeps them linked. A property outranks a dict entry of the same name. A module, a class and an exception answer a copy, which leaves out the internal fields of an exception, and a builtin type answers its own methods, unbound. A value with no attributes raises `TypeError` with `vars() argument must have __dict__ attribute`, and there is no form without an argument.
 
 ```edge-python
 class P:
@@ -977,6 +995,21 @@ These builtins shape class members. [Classes](/docs/edge-python/language/classes
 - `staticmethod(func)` wraps a member so it receives no implicit `self`. See [Static methods](/docs/edge-python/language/classes#static-methods).
 - `classmethod(func)` wraps a member so it receives the class as its first argument. See [Class methods](/docs/edge-python/language/classes#class-methods).
 
+## Sentinels
+
+`sentinel(name, *, repr=None)` makes an object equal only to itself, which reads as `repr`, or as its name. It hashes, keeps its identity through a snapshot, has `__name__`, and joins a union with a type, as in `int | MISSING`.
+
+```edge-python
+MISSING = sentinel("MISSING")
+def get(d, k, default=MISSING):
+  return d[k] if k in d else ("no default" if default == MISSING else default)
+print(MISSING, get({}, "a"), get({}, "a", 0), int | MISSING)
+```
+
+```output
+MISSING no default 0 int | MISSING
+```
+
 ## Async
 
 These builtins drive coroutines and messages. [Async](/docs/edge-python/language/async) owns the model and the examples.
@@ -987,4 +1020,5 @@ These builtins drive coroutines and messages. [Async](/docs/edge-python/language
 - `with_timeout(seconds, coro)` returns the result of the coroutine or raises `TimeoutError` at the deadline.
 - `cancel(coro)` flags a coroutine for cancellation at its next step. Its `finally` blocks run, and it cannot catch the `CancelledError`.
 - `receive()` pops the oldest message the host queued. It parks the coroutine while the queue is empty.
+- `aiter(agen)` gives an async generator back as its own async iterator, and `anext(agen[, default])` a coroutine that steps it once when awaited, giving `default` or raising `StopAsyncIteration` once it ended.
 - `send(group, body)` hands the string `body` to an actor of `group` and returns `None`. Outside an [actor pool](/docs/edge-python/platforms/actors#messages) it raises `RuntimeError`.

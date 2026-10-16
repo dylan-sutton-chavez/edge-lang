@@ -8,12 +8,17 @@ use super::super::types::*;
 /* An ip no chunk reaches, the same on 32 and 64 bits so a snapshot keeps it. */
 pub(crate) const FINISHED: usize = u32::MAX as usize;
 
+// The module `anext` compiles its step into, a name no import can spell.
+const ANEXT_MODULE: &str = "\u{0}anext";
+
 impl<'a> VM<'a> {
 
     // Resume coroutine, persist state on yield, restore caller on return. Suspended sync sub-frames run innermost-first, each pushing its result onto the next frame's stack at the Call site. The coro's `exception_frames` are restored before its body runs and saved back on yield, so `try`/`except` survives suspensions.
     pub fn resume_coroutine(&mut self, callee: Val) -> Result<Val, VmErr> {
         // Scheduler-driven resumes have nothing native above.
         let resume_safe = core::mem::take(&mut self.pending_exec_safe);
+        let for_steps = core::mem::take(&mut self.for_steps);
+        self.wake_gen(callee, for_steps);
         let (outer_ip, outer_body, syncs, held) = match self.heap.get(callee) {
             HeapObj::Coroutine(c) => (c.ip, c.body, c.syncs.len(), c.syncs.len() + c.stack.len() + c.slots.len() + c.iters.len()),
             _ => return Err(cold_type("not a coroutine")),
@@ -112,9 +117,10 @@ impl<'a> VM<'a> {
 
         self.depth -= 1;
         self.executing_coros.retain(|&id| id != callee.0);
-        // A generator only hands values to whoever steps it, waiting for an event inside it is an error there.
+        // A generator waits with the `for` that steps it, anything else that steps one has no way to wait.
+        let parked = result.is_ok() && self.yielded && self.waits() && matches!(outer_body, BodyRef::Fn(fi) if self.functions[fi].1.is_generator);
         let result = match result {
-            Ok(_) if self.yielded && self.waits() && matches!(outer_body, BodyRef::Fn(fi) if self.functions[fi].1.is_generator && !self.is_async.get(fi).copied().unwrap_or(false)) => {
+            Ok(_) if parked && !for_steps => {
                 self.yielded = false;
                 Err(self.suspended_in_generator())
             }
@@ -147,6 +153,8 @@ impl<'a> VM<'a> {
                 c.iters = outer_iters;
                 c.syncs = sync_frames;
                 c.excs = outer_exc;
+                // The placeholder of a wait is marked, so the next step of the `for` hands over what woke it.
+                if parked && !self.pending.preempt_request && let Some(top) = c.wait_slot() { *top = Val::undef(); }
             }
             self.resume_ip = saved_resume_ip; // restore the caller's scratch
             Ok(result)
@@ -160,11 +168,11 @@ impl<'a> VM<'a> {
         }
     }
 
-    /* Whether the yield that just happened waits for something, an event, a host call, children, a preemption or a parked helper. */
+    /* Whether the yield that just happened waits for something, an event, a host call, a sleep, children, a preemption or a parked helper. */
     #[inline]
     pub(crate) fn waits(&self) -> bool {
         let p = &self.pending;
-        p.event_wait_request || p.host_call_request || p.preempt_request || p.waiting_for_children.is_some() || !self.pending_sync_frames.is_empty()
+        p.event_wait_request || p.host_call_request || p.preempt_request || p.sleep_until_ns.is_some() || p.waiting_for_children.is_some() || !self.pending_sync_frames.is_empty()
     }
 
     /* The error a suspension inside a generator raises, its requests dropped. */
@@ -330,15 +338,7 @@ impl<'a> VM<'a> {
     }
 
     fn splice_outer_placeholder(&mut self, outer: Val, value: Val) {
-        if let HeapObj::Coroutine(c) = self.heap.get_mut(outer) {
-            let c = &mut **c;
-            // Parked inside a plain helper, the placeholder sits on the innermost helper's stack.
-            let top = match c.syncs.last_mut() {
-                Some(frame) => frame.stack_delta.last_mut(),
-                None => c.stack.last_mut(),
-            };
-            if let Some(top) = top { *top = value; }
-        }
+        if let HeapObj::Coroutine(c) = self.heap.get_mut(outer) && let Some(top) = c.wait_slot() { *top = value; }
     }
 
     /* Single scheduler driver, picks a Ready coro and steps it. On no Ready, classifies the wait-state and yields to the host (PendingTimer / PendingHostCall / PendingEvent) or returns Ok when nothing alive remains. */
@@ -479,7 +479,7 @@ impl<'a> VM<'a> {
         let secs = num_as_f64(n, &self.heap).ok_or_else(|| cold_type("sleep() requires a number"))?.max(0.0);
         let until = self.now_ns().saturating_add((secs * 1_000_000_000.0) as u64);
         self.pending.sleep_until_ns = Some(until);
-        // Push None as the yield value, the scheduler ignores it.
+        // The None it returns, kept on the stack while it waits.
         self.push(Val::none());
         self.yielded = true;
         Ok(())
@@ -599,9 +599,10 @@ impl<'a> VM<'a> {
                 self.resume_raise = None;
                 match r {
                     Ok(()) => { self.pop()?; Err(VmErr::Raised("RuntimeError: generator ignored GeneratorExit".into())) }
+                    // A body that returns on GeneratorExit hands its value to `close`.
                     Err(VmErr::Raised(m)) if m.starts_with("GeneratorExit") || m.starts_with("StopIteration") => {
-                        self.swallow_stop(before);
-                        self.push(Val::none());
+                        let returned = self.swallow_stop(before);
+                        self.push(if m.starts_with("StopIteration") { returned } else { Val::none() });
                         Ok(())
                     }
                     Err(e) => Err(e),
@@ -613,5 +614,40 @@ impl<'a> VM<'a> {
     /* Marks generator `g` finished, so it never runs again. */
     fn finish_generator(&mut self, g: Val) {
         if let Some(HeapObj::Coroutine(c)) = self.heap.try_get_mut(g) { c.ip = FINISHED; }
+    }
+
+    /* `aiter(x)`, an async generator being its own async iterator. */
+    pub fn call_aiter(&mut self) -> Result<(), VmErr> {
+        let o = self.pop()?;
+        if self.type_name(o) != "async_generator" { return Err(VmErr::TypeMsg(crate::s!("'", str self.type_name(o), "' object is not an async iterable"))); }
+        self.push(o);
+        Ok(())
+    }
+
+    /* `anext(it[, default])`, a coroutine that steps the async generator once when awaited, the default or StopAsyncIteration once it ended. */
+    pub fn call_anext(&mut self, argc: u16, chunk: &SSAChunk) -> Result<(), VmErr> {
+        let args = self.pop_n(argc as usize)?;
+        if self.type_name(args[0]) != "async_generator" { return Err(VmErr::TypeMsg(crate::s!("'", str self.type_name(args[0]), "' object is not an async iterator"))); }
+        let step = self.anext_step()?;
+        let pass = [args[0], args.get(1).copied().unwrap_or_else(Val::none), Val::bool(args.len() == 2)];
+        self.call_with(step, None, &pass, &[], chunk)
+    }
+
+    /* Whether function `fi` is the body `anext` steps through, which shows as Python names what `anext` returns. */
+    pub(crate) fn is_anext_step(&self, fi: usize) -> bool {
+        self.scope_ids.get(ANEXT_MODULE).is_some_and(|&m| self.chunk_module_id(&self.functions[fi].1) == m)
+    }
+
+    /* The `async def` behind `anext`, compiled once into a module no program names, as `exec` compiles text. */
+    fn anext_step(&mut self) -> Result<Val, VmErr> {
+        const SOURCE: &str = "async def step(it, default, has_default):\n    async for item in it:\n        return item\n    if has_default:\n        return default\n    raise StopAsyncIteration\n";
+        let module = self.module_scope(Some(ANEXT_MODULE));
+        if let Some(f) = self.scopes[module].get("step") { return Ok(f); }
+        let path = self.chunk.path.clone();
+        let at = self.compiled_for(SOURCE, super::compile::Form { mode: crate::value::CodeMode::Exec, closed: false }, "<anext>", Some(module), &path)?;
+        // SAFETY the VM keeps every compiled chunk until it drops.
+        let body: &'a SSAChunk = unsafe { &*(self.compiled[at].chunk() as *const SSAChunk) };
+        self.run_compiled(body)?;
+        self.scopes[module].get("step").ok_or_else(|| cold_runtime("anext helper missing"))
     }
 }

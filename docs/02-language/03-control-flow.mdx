@@ -401,17 +401,39 @@ except ValueError as e:
 KeyError True
 ```
 
+### Exception groups and except*
+
+`ExceptionGroup(message, exceptions)` raises several exceptions as one. `e.exceptions` holds them, `e.split(cond)` and `e.subgroup(cond)` take the members an exception type, a tuple of types or a predicate selects, and `e.derive(excs)` makes a group with the same message. `BaseExceptionGroup` takes any exception and becomes an `ExceptionGroup` when every member is an `Exception`.
+
+`except* T` runs its body for the part of the group whose members are `T`, bound by `as` to a group of its own, and every `except*` clause of the `try` gets its chance. What no clause handled, and what the bodies raised, is raised again at the end. A plain exception matches as a group of one. A `try` cannot mix `except` and `except*`, and `break`, `continue` and `return` cannot leave an `except*` body.
+
+```edge-python
+try:
+  raise ExceptionGroup("batch", [ValueError(1), TypeError(2), ValueError(3)])
+except* ValueError as e:
+  print("values", [x.args[0] for x in e.exceptions])
+except* TypeError:
+  print("a type error")
+```
+
+```output
+values [1, 3]
+a type error
+```
+
+An uncaught group prints each member below its message in a box of its own.
+
 ## with
 
 `with` runs the context manager protocol in three steps.
 
 1. Evaluate the expression.
-2. Call `__enter__` and bind its result to the `as` target.
+2. Call `__enter__` and bind its result to the `as` target, any target an assignment takes, such as `(a, b)` or `self.conn`.
 3. On exit, call `__exit__(exc_type, exc_value, traceback)`.
 
 The arguments of `__exit__` are `(None, None, None)` on a clean exit. On an exception they are the exception type and value, and `traceback` is always `None`.
 
-Several managers in one `with` nest. The last one enters last and exits first.
+Several managers in one `with` nest, written in a row or inside parentheses across lines. The last one enters last and exits first.
 
 ```edge-python
 class Tag:

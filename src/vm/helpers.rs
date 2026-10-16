@@ -17,6 +17,31 @@ impl<'a> VM<'a> {
     /* Byte offset of the last propagating error, or None on success / before `run()`. */
     pub fn error_pos(&self) -> Option<usize> { self.error_byte_pos.map(|p| p as usize) }
 
+    /* `bad operand type for <what>: '<type>'`, what an operator or builtin of one operand says of a value it cannot take. */
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn bad_operand(&self, what: &str, v: Val) -> VmErr { VmErr::TypeMsg(crate::s!("bad operand type for ", str what, ": '", str self.type_name(v), "'")) }
+
+    /* `C.__float__() must return a float, not int`, what a conversion dunder of `obj` that returned `got` raises. */
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn returned_wrong(&self, obj: Val, dunder: &str, want: &str, got: Val) -> VmErr {
+        VmErr::TypeMsg(crate::s!(str self.type_name(obj), ".", str dunder, "() must return ", str want, ", not ", str self.type_name(got)))
+    }
+
+    /* The whole report of uncaught `e` in program `src`, its chain, then where it rose, in another text when it rose in one, then the calls it left. */
+    pub fn render_error(&self, e: &VmErr, src: &str, path: Option<&str>) -> String {
+        let mut out = self.render_chain(src, path);
+        let mut head = e.render();
+        if let Some(hint) = self.hint_for(e) { head.push_str(". "); head.push_str(&hint); }
+        out.push_str(&match &self.error_inner {
+            Some((s, p, pos)) => crate::value::err::render_text_at(head, s, Some(*pos as usize), Some(if p.is_empty() { "<string>" } else { p })),
+            None => crate::value::err::render_text_at(head, src, self.error_pos(), path),
+        });
+        crate::value::err::render_calls(&mut out, &self.call_stack, &self.function_names, path, Some(self.chunk.source.as_str()));
+        out
+    }
+
     /* Intended process exit code when the last uncaught error is `SystemExit` with an integer (or absent/None) argument. `None` means "not a plain SystemExit", so the host renders a normal traceback. A non-int argument also yields `None` so its message surfaces as an error. */
     pub fn system_exit_code(&self) -> Option<i64> {
         let exc = self.pending.exc_val?;
@@ -149,11 +174,10 @@ impl<'a> VM<'a> {
 
     /* Materialise a mapping into (key_str, value) pairs for `**kwargs` spread. */
     pub(crate) fn mapping_to_kw_pairs(&self, v: Val) -> Result<Vec<(Val, Val)>, VmErr> {
-        if !v.is_heap() {
-            return Err(VmErr::Type("argument after ** must be a mapping"));
-        }
+        let not_mapping = || VmErr::TypeMsg(crate::s!("Value after ** must be a mapping, not ", str self.type_name(v)));
+        if !v.is_heap() { return Err(not_mapping()); }
         match self.heap.get(v) {
-            HeapObj::Dict(rc) => {
+            HeapObj::Dict(rc) | HeapObj::FrozenDict(rc) => {
                 let entries: Vec<(Val, Val)> = rc.borrow().iter().collect();
                 for (k, _) in &entries {
                     if !k.is_heap() || !matches!(self.heap.get(*k), HeapObj::Str(_)) {
@@ -162,7 +186,7 @@ impl<'a> VM<'a> {
                 }
                 Ok(entries)
             }
-            _ => Err(VmErr::Type("argument after ** must be a mapping")),
+            _ => Err(not_mapping()),
         }
     }
 
@@ -202,14 +226,14 @@ impl<'a> VM<'a> {
 
     /* A live walk over dict `d` showing the part `kind` names. */
     pub(crate) fn dict_walk(&self, d: Val, kind: View) -> IterFrame {
-        let len = match self.heap.try_get(d) { Some(HeapObj::Dict(m)) => m.borrow().len(), _ => 0 };
+        let len = self.heap.dict_cell(d).map_or(0, |m| m.borrow().len());
         IterFrame::DictWalk { of: d, idx: 0, left: len, len, kind }
     }
 
     /* A frame over `items` read from `o`, watching a dict, dict view or set for a change of size. */
     pub(crate) fn watched(&self, o: Val, items: Vec<Val>) -> IterFrame {
         let of = match self.heap.try_get(o) {
-            Some(HeapObj::Dict(_) | HeapObj::Set(_)) => o,
+            Some(HeapObj::Dict(_) | HeapObj::FrozenDict(_) | HeapObj::Set(_)) => o,
             Some(&HeapObj::DictView(d, _)) => d,
             _ => return IterFrame::Seq { items: items.into(), idx: 0 },
         };
@@ -231,7 +255,7 @@ impl<'a> VM<'a> {
             &HeapObj::BigRange(cur, end, step) => IterFrame::BigRange { cur, end, step },
             HeapObj::List(v) => IterFrame::List { rc: v.clone(), idx: 0 },
             HeapObj::Tuple(v) => IterFrame::Seq { items: v.as_slice().into(), idx: 0 },
-            HeapObj::Dict(_) => self.dict_walk(obj, View::Keys),
+            HeapObj::Dict(_) | HeapObj::FrozenDict(_) => self.dict_walk(obj, View::Keys),
             &HeapObj::DictView(d, kind) => self.dict_walk(d, kind),
             HeapObj::Set(s) => { let items = s.borrow().iter().cloned().collect(); self.watched(obj, items) }
             HeapObj::FrozenSet(s) => {
@@ -243,15 +267,20 @@ impl<'a> VM<'a> {
                 let items = self.str_to_char_vals(&s)?;
                 IterFrame::Seq { items: items.into(), idx: 0 }
             },
-            HeapObj::Bytes(b) => {
+            HeapObj::MemoryView(_) => {
+                let items: Vec<Val> = self.heap.octets(obj).unwrap_or_default().iter().map(|&byte| Val::int(byte as i64)).collect();
+                IterFrame::Seq { items: items.into(), idx: 0 }
+            },
+            HeapObj::Bytes(b) | HeapObj::ByteArray(b) => {
                 // Bytes iteration yields ints, matching `iter()` and indexing.
                 let items: Vec<Val> = b.iter().map(|&byte| Val::int(byte as i64)).collect();
                 IterFrame::Seq { items: items.into(), idx: 0 }
             },
-            HeapObj::Coroutine(..) => return Ok(IterFrame::Coroutine(obj)),
+            // A coroutine or async generator steps only under `async for`.
+            HeapObj::Coroutine(..) if !self.is_async_object(obj) => return Ok(IterFrame::Coroutine(obj)),
             // A builtin iterator advances in place, so the loop spends it.
             HeapObj::Iter(..) => return Ok(IterFrame::UserDefined(obj)),
-            _ => return Err(VmErr::TypeMsg(s!("'", str self.type_name(obj), "' object is not iterable"))),
+            _ => return Err(self.not_iterable(obj)),
         })
     }
 

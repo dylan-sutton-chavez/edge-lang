@@ -21,6 +21,7 @@ impl<'a> VM<'a> {
         for &v in &self.event_queue { self.heap.mark(v); }
         // The handled exception and any pending finally return value outlive their stack slots.
         if let Some(v) = self.pending.exc_val { self.heap.mark(v); }
+        if let Some(super::hints::Missed::Attr(v, _)) = &self.missed { self.heap.mark(*v); }
         self.heap.mark(self.yield_from_value);
         for &(v, _) in &self.handling { self.heap.mark(v); }
         for u in &self.unwind_stack { if let Unwind::Return(v) = u { self.heap.mark(*v); } }
@@ -63,6 +64,7 @@ impl<'a> VM<'a> {
             for v in code.cache.site_roots() { self.heap.mark(v); }
         }
         self.heap.sweep();
+        self.prune_key_reps();
         // An unlowered frame holds its sites unmarked, so every site keyed on the epoch learns again.
         self.class_epoch = self.class_epoch.wrapping_add(1);
     }

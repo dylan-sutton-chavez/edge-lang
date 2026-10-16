@@ -407,7 +407,7 @@ fn val_to_wire(vm: &crate::vm::VM, v: Val, depth: u32, seen: &mut Vec<u64>) -> O
                     seen.pop();
                     Some(WireValue::List(items))
                 }
-                HeapObj::Dict(rc) => {
+                HeapObj::Dict(rc) | HeapObj::FrozenDict(rc) => {
                     seen.push(v.0);
                     let mut pairs = Vec::new();
                     for (k, val) in rc.borrow().iter() {
@@ -459,7 +459,7 @@ pub unsafe extern "C" fn host_edge_decode(h: u32, out_tag: *mut u32, dst: *mut u
             let decoded = with_vm(|vm| if v.is_foreign() { foreign_int(vm, v).map_or(Decoded::Other, Decoded::Int) } else { match vm.heap.get(v) {
                 HeapObj::Str(s) => Decoded::Str(s.clone()),
                 HeapObj::Bytes(b) => Decoded::Bytes(b.clone()),
-                HeapObj::List(_) | HeapObj::Tuple(_) | HeapObj::Dict(_) => {
+                HeapObj::List(_) | HeapObj::Tuple(_) | HeapObj::Dict(_) | HeapObj::FrozenDict(_) => {
                     match val_to_wire(vm, v, 0, &mut Vec::new()) {
                         Some(w) => {
                             let mut buf = Vec::new();

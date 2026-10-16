@@ -150,6 +150,8 @@ pub enum HeapObj {
     Set(Rc<RefCell<ValSet>>),
     /* Immutable, hashable counterpart of Set, built via `frozenset(iter)`. */
     FrozenSet(Rc<ValSet>),
+    // A dict nothing changes once made, hashable when its values are.
+    FrozenDict(Rc<RefCell<DictMap>>),
     Tuple(Vec<Val>),
     // (fi, defaults, captures, attrs), attrs share the Class member shape.
     Func(usize, Vec<Val>, Vec<(usize, Val)>, Rc<RefCell<Vec<(String, Val)>>>),
@@ -173,10 +175,10 @@ pub enum HeapObj {
     BoundUserMethod(Val, Val, Val),
     // `super()` proxy, attribute access walks the bases of `cls` (skipping `cls` itself), methods bind to `recv`.
     Super(Val, Val),
-    // `(getter, setter)`, `setter == none()` for getter-only properties, written via `@property` / `@x.setter`.
-    Property(Val, Val),
-    // Intermediate produced by `prop.setter`, a callable that takes a function and returns a new `Property` with the setter attached.
-    PropertySetter(Val),
+    // `(getter, setter, deleter)`, each `none()` when absent, written via `@property`, `@x.setter` and `@x.deleter`.
+    Property(Val, Val, Val),
+    // `prop.getter`, `prop.setter` or `prop.deleter` by slot 0, 1 or 2, a callable returning a copy of `prop` with that function.
+    PropertyPart(Val, u8),
     // `staticmethod(func)` wraps a function so attribute lookup returns it unbound.
     StaticMethod(Val),
     // `classmethod(func)`, attribute lookup binds the class.
@@ -203,6 +205,25 @@ pub enum HeapObj {
     DictView(Val, View),
     // What `compile()` made, compiled again where `eval` or `exec` runs it.
     Code(Rc<CodeObj>),
+    // An int or float a class deriving from one made, on the heap so the side table can give it that class.
+    Boxed(Val),
+    // A mutable sequence of bytes, changed in place through the heap.
+    ByteArray(Vec<u8>),
+    // A view of the bytes of a bytes or bytearray value, reading and writing them in place.
+    MemoryView(MemView),
+    // `f.__code__`, the code of function `fi` described by its `co_` attributes.
+    FnCode(usize),
+}
+
+/* Which bytes of `obj` a memoryview shows, `len` of them from `start`, `step` apart. */
+#[derive(Clone, Copy, Debug)]
+pub struct MemView { pub obj: Val, pub start: usize, pub len: usize, pub step: isize, pub released: bool }
+
+impl MemView {
+    /* The positions in `obj` the view covers, the ones past its end left out. */
+    pub fn positions(&self, size: usize) -> impl Iterator<Item = usize> + '_ {
+        (0..self.len).map(|i| self.start as isize + i as isize * self.step).take_while(move |&p| p >= 0 && (p as usize) < size).map(|p| p as usize)
+    }
 }
 
 /* How compiled source runs, an expression for `eval`, statements for `exec`, one statement echoing an expression for `single`. */
@@ -238,14 +259,20 @@ impl Coro {
     pub fn fresh(slots: Vec<Val>, body: BodyRef) -> Box<Self> {
         Box::new(Self { ip: 0, slots, stack: Vec::new(), body, iters: Vec::new(), syncs: Vec::new(), excs: Vec::new() })
     }
+
+    /* The placeholder a wait left, what wakes it goes there, on the stack of the innermost helper waiting inside. */
+    pub fn wait_slot(&mut self) -> Option<&mut Val> {
+        match self.syncs.last_mut() { Some(f) => f.stack_delta.last_mut(), None => self.stack.last_mut() }
+    }
 }
 
 
 /* Type names a builtin iterator can carry, the index is how a snapshot stores one. */
-pub const ITER_KINDS: [&str; 20] = [
+pub const ITER_KINDS: [&str; 22] = [
     "list_iterator", "range_iterator", "tuple_iterator", "str_ascii_iterator", "str_iterator", "dict_keyiterator", "set_iterator",
     "bytes_iterator", "callable_iterator", "map", "filter", "zip", "enumerate", "list_reverseiterator", "reversed",
     "dict_valueiterator", "dict_itemiterator", "dict_reversekeyiterator", "dict_reversevalueiterator", "dict_reverseitemiterator",
+    "bytearray_iterator", "memory_iterator",
 ];
 
 pub use crate::vm::methods::BuiltinMethodId;
@@ -279,7 +306,7 @@ macro_rules! builtins {
 builtins! {
     Print => "print", var;
     Len => "len", 1; Abs => "abs", 1; Str => "str", (0, 3); Int => "int", (0, 2); Float => "float", (0, 1);
-    Bool => "bool", (0, 1); Type => "type", 1; Chr => "chr", 1; Ord => "ord", 1;
+    Bool => "bool", (0, 1); Type => "type", (1, 3); Chr => "chr", 1; Ord => "ord", 1;
     Range => "range", (1, 3); Round => "round", (1, 2); Min => "min", (1, var); Max => "max", (1, var); Sum => "sum", (1, 2);
     Sorted => "sorted", 1; Enumerate => "enumerate", (1, 2); Zip => "zip", var;
     List => "list", (0, 1); Tuple => "tuple", (0, 1); Dict => "dict", (0, 1); Set => "set", (0, 1);
@@ -304,6 +331,19 @@ builtins! {
     Compile => "compile", (3, 6);
     Id => "id", 1;
     Hash => "hash", 1;
+    Complex => "complex", (0, 2);
+    ByteArray => "bytearray", (0, 3);
+    MemoryView => "memoryview", 1;
+    Ascii => "ascii", 1;
+    Sentinel => "sentinel", 1;
+    AIter => "aiter", 1;
+    ANext => "anext", (1, 2);
+    FrozenDict => "frozendict", (0, 1);
+    // The steps `except*` compiles to, named so no program can spell them.
+    StarStart => "%star_start", 1;
+    StarSplit => "%star_split", 2;
+    StarRaised => "%star_raised", 3;
+    StarEnd => "%star_end", 1;
 }
 
 /* Insertion-ordered set, each item beside its hash and removed ones undef tombstones, so no table layout decides its order. */
@@ -567,9 +607,10 @@ pub(crate) fn set_member(members: &Rc<RefCell<Vec<(String, Val)>>>, name: &str, 
 pub(crate) fn for_each_val(obj: &HeapObj, mut f: impl FnMut(Val)) {
     match obj {
         HeapObj::Tuple(items) => for &v in items { f(v); },
+        HeapObj::Boxed(v) => f(*v),
         HeapObj::Slice(a, b, c) | HeapObj::BigRange(a, b, c) => { f(*a); f(*b); f(*c); }
         HeapObj::List(rc) => for &v in rc.borrow().iter() { f(v); },
-        HeapObj::Dict(rc) => for (k, v) in rc.borrow().iter() { f(k); f(v); },
+        HeapObj::Dict(rc) | HeapObj::FrozenDict(rc) => for (k, v) in rc.borrow().iter() { f(k); f(v); },
         HeapObj::Set(rc) => for &v in rc.borrow().iter() { f(v); },
         HeapObj::FrozenSet(rc) => for &v in rc.iter() { f(v); },
         HeapObj::BoundMethod(recv, _) => f(*recv),
@@ -579,8 +620,8 @@ pub(crate) fn for_each_val(obj: &HeapObj, mut f: impl FnMut(Val)) {
         }
         HeapObj::BoundUserMethod(r, fu, cls) => { f(*r); f(*fu); f(*cls); }
         HeapObj::Super(cls, recv) => { f(*cls); f(*recv); }
-        HeapObj::Property(g, s) => { f(*g); f(*s); }
-        HeapObj::PropertySetter(p) => f(*p),
+        HeapObj::Property(g, s, d) => { f(*g); f(*s); f(*d); }
+        HeapObj::PropertyPart(p, _) => f(*p),
         HeapObj::StaticMethod(func) => f(*func),
         HeapObj::ClassMethod(func) => f(*func),
         HeapObj::Instance(cls, attrs) => {
@@ -604,7 +645,8 @@ pub(crate) fn for_each_val(obj: &HeapObj, mut f: impl FnMut(Val)) {
         HeapObj::TypeAlias(_, value) => f(*value),
         HeapObj::Union(args) => f(*args),
         // Variants without Val payloads, terminal, nothing to trace.
-        HeapObj::Str(_) | HeapObj::Bytes(_)
+        HeapObj::MemoryView(m) => f(m.obj),
+        HeapObj::Str(_) | HeapObj::Bytes(_) | HeapObj::ByteArray(_) | HeapObj::FnCode(_)
         | HeapObj::Type(_) | HeapObj::NativeFn(_) | HeapObj::Range(..)
         | HeapObj::Extern(_) | HeapObj::Ellipsis | HeapObj::NotImplemented | HeapObj::TypeVar(_) | HeapObj::Code(_) => {}
         HeapObj::Iter(frame, _) => frame.borrow().for_each_val(&mut f),
@@ -639,6 +681,10 @@ impl HeapSlot {
 
 /* The user class of a dict or list made by a class deriving from it, and the attributes it got. */
 pub type ClassedEntry = (Val, Rc<RefCell<DictMap>>);
+
+/* What a user `__hash__` gave an instance used as a key, its hash, the hash tables probe with and the class of equals it joined. */
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct UserKey { pub hash: i64, pub dict: u64, pub class: u32 }
 
 pub struct HeapPool {
     slots: Vec<HeapSlot>,
@@ -675,6 +721,8 @@ pub struct HeapPool {
     mark_worklist: Vec<u32>,
     /* The class and attributes of each classed slot, which stays a real dict or list for the builtins. */
     classes: HashMap<u32, ClassedEntry>,
+    /* The instances a user `__hash__` keyed, dropped with their slot. */
+    user_keys: HashMap<u32, UserKey>,
     /* The entries FOREIGN Vals name, marked and swept with the slots. */
     pub(crate) foreign: alloc::boxed::Box<foreign::ForeignTable>,
 }
@@ -726,6 +774,7 @@ impl HeapPool {
             gc_bytes: GC_BYTES_FLOOR,
             mark_worklist: Vec::with_capacity(64),
             classes: HashMap::default(),
+            user_keys: HashMap::default(),
             foreign: alloc::boxed::Box::default(),
         }
     }
@@ -768,6 +817,7 @@ impl HeapPool {
     }
 
     /* Drop `idx` from the tables `intern_insert` filled, long strings and bytes never entered one. */
+    #[inline(always)]
     fn intern_remove(&mut self, idx: u32) {
         match self.slots[idx as usize].obj.as_ref() {
             Some(HeapObj::Str(s)) if self.slots[idx as usize].interned => {
@@ -812,6 +862,16 @@ impl HeapPool {
         self.slots[idx as usize].interned = true;
         let slots = &self.slots;
         self.strings.insert_unique(h, idx, |&i| slot_str_hash(slots, i));
+    }
+
+    /* A slot of its own for `obj`, never an interned twin, so a user class can mark it. */
+    pub(crate) fn alloc_unshared(&mut self, obj: HeapObj) -> Result<Val, VmErr> {
+        if self.meter.held() > self.limit.saturating_mul(2) { return Err(cold_heap()); }
+        if self.slots.len() >= (1 << 28) { return Err(VmErr::Heap); }
+        let idx = self.place(obj);
+        self.live += 1;
+        self.note_alloc();
+        Ok(Val::heap(idx))
     }
 
     /* Reserved for constructing the exception that reports the limit itself, skips the soft limit but not the hard slot cap. */
@@ -891,6 +951,7 @@ impl HeapPool {
             if slot.obj.is_none() { continue; }
             if slot.marked { slot.marked = false; continue; }
             if slot.classed { slot.classed = false; self.classes.remove(&(idx as u32)); }
+            if !self.user_keys.is_empty() { self.user_keys.remove(&(idx as u32)); }
             self.intern_remove(idx as u32);
             self.slots[idx].obj = None;
             self.free_list.push(idx as u32);
@@ -921,6 +982,7 @@ impl HeapPool {
     pub(crate) fn restore_objs(&mut self, objs: Vec<Option<HeapObj>>) {
         self.slots = objs.into_iter().map(HeapSlot::new).collect();
         self.classes.clear();
+        self.user_keys.clear();
         self.free_list.clear();
         self.strings.clear();
         self.bytes_intern.clear();
@@ -1047,6 +1109,31 @@ impl HeapPool {
             .expect("garbage collector invariant violated: live Val references a freed heap slot (mut)")
     }
 
+    /* The octets of a bytes or bytearray value or of a contiguous memoryview, None for anything else. */
+    #[inline] pub fn bytes_of(&self, v: Val) -> Option<&[u8]> {
+        match self.try_get(v)? {
+            HeapObj::Bytes(b) | HeapObj::ByteArray(b) => Some(b),
+            HeapObj::MemoryView(m) if m.step == 1 && !m.released => {
+                let b = self.bytes_of(m.obj)?;
+                Some(&b[m.start.min(b.len())..(m.start + m.len).min(b.len())])
+            }
+            _ => None,
+        }
+    }
+
+    /* The octets any bytes-like value holds, a strided memoryview copied out, None for anything else. */
+    pub fn octets(&self, v: Val) -> Option<alloc::borrow::Cow<'_, [u8]>> {
+        if let Some(b) = self.bytes_of(v) { return Some(alloc::borrow::Cow::Borrowed(b)); }
+        let Some(HeapObj::MemoryView(m)) = self.try_get(v) else { return None };
+        if m.released { return None; }
+        let b = self.bytes_of(m.obj)?;
+        Some(alloc::borrow::Cow::Owned(m.positions(b.len()).map(|p| b[p]).collect()))
+    }
+    /* The entries of a dict or a frozendict, None for anything else. */
+    pub fn dict_cell(&self, v: Val) -> Option<&Rc<RefCell<DictMap>>> {
+        match self.try_get(v)? { HeapObj::Dict(d) | HeapObj::FrozenDict(d) => Some(d), _ => None }
+    }
+
     /* Panic-free access for type checks, None when `v` is not a live heap object. */
     #[inline] pub fn try_get(&self, v: Val) -> Option<&HeapObj> {
         if !v.is_heap() { return None; }
@@ -1064,9 +1151,20 @@ impl HeapPool {
     }
     /* Marks `v`, a fresh dict or list, as made by user class `cls` with `attrs`. */
     pub(crate) fn set_class(&mut self, v: Val, cls: Val, attrs: Rc<RefCell<DictMap>>) {
+        // A restored short string or bytes may have entered the intern tables, which must never hand it out.
+        self.intern_remove(v.as_heap());
+        self.slots[v.as_heap() as usize].interned = false;
         self.slots[v.as_heap() as usize].classed = true;
         self.classes.insert(v.as_heap(), (cls, attrs));
     }
+    /* What a user `__hash__` gave instance `v`, None until it was used as a key. */
+    #[inline] pub fn user_key(&self, v: Val) -> Option<UserKey> {
+        if self.user_keys.is_empty() || !v.is_heap() { return None; }
+        self.user_keys.get(&v.as_heap()).copied()
+    }
+    pub(crate) fn set_user_key(&mut self, v: Val, key: UserKey) { self.user_keys.insert(v.as_heap(), key); }
+    /* Every keyed instance with what its `__hash__` gave, for snapshots. */
+    pub(crate) fn user_keys(&self) -> impl Iterator<Item = (&u32, &UserKey)> { self.user_keys.iter() }
     /* Every classed slot with its class and attributes, for snapshots. */
     pub(crate) fn classed_slots(&self) -> impl Iterator<Item = (&u32, &ClassedEntry)> { self.classes.iter() }
     #[inline] pub fn try_get_mut(&mut self, v: Val) -> Option<&mut HeapObj> {
@@ -1098,4 +1196,11 @@ pub fn as_i128(v: Val, heap: &HeapPool) -> Option<i128> {
     else if v.is_bool() { Some(v.as_bool() as i128) }
     else if v.is_foreign() { heap.foreign_i128(v) }
     else { None }
+}
+
+/* The number a boxed int or float holds, any other value as it is. */
+#[inline(always)]
+pub fn unboxed(v: Val, heap: &HeapPool) -> Val {
+    if !v.is_heap() { return v; }
+    match heap.get(v) { &HeapObj::Boxed(n) => n, _ => v }
 }

@@ -144,7 +144,8 @@ impl<'a> Scanner<'a> {
             self.check_digits(frac_start, self.pos, true);
         }
         is_float |= self.scan_exponent();
-        self.check_imaginary(start);
+        // An imaginary literal reads as a float its parser sees the `j` of.
+        is_float |= self.imaginary();
         if is_float { TokenType::Float } else { TokenType::Int }
     }
 
@@ -153,16 +154,15 @@ impl<'a> Scanner<'a> {
         self.scan_digits();
         self.check_digits(body_start, self.pos, false);
         self.scan_exponent();
-        self.check_imaginary(body_start - 1);
+        self.imaginary();
         TokenType::Float
     }
 
-    /* A `j` suffix makes an imaginary literal, and the engine has no complex numbers. */
-    fn check_imaginary(&mut self, start: usize) {
-        if matches!(self.at(0), Some(b'j' | b'J')) {
-            self.pos += 1;
-            self.report(start, self.pos, "complex numbers are not supported");
-        }
+    /* Eats the `j` suffix of an imaginary literal, true when there was one. */
+    fn imaginary(&mut self) -> bool {
+        let j = matches!(self.at(0), Some(b'j' | b'J'));
+        if j { self.pos += 1; }
+        j
     }
 
     // Strings, single, double, triple-quoted (escape-aware).

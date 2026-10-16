@@ -124,6 +124,8 @@ pub struct ForeignTable {
     wide_int: Option<&'static Kind>,
     // Its index once registered, so a wide int boxes and reads without a call into the kind.
     wide: Option<u16>,
+    // Kinds the frontend makes on first use, which a restore may name before any value made one.
+    known: Vec<&'static Kind>,
 }
 
 const ALIVE: usize = 0;
@@ -147,10 +149,11 @@ impl ForeignTable {
 
     pub(crate) fn wide_int(&self) -> Option<&'static Kind> { self.wide_int }
 
-    /* The index of the kind named `name`, registering the wide int kind a restore names before any box. */
+    /* The index of the kind named `name`, registering a known kind a restore names before any box. */
     pub(crate) fn kind_named(&mut self, name: &str) -> Option<u16> {
         if let Some(i) = self.kinds.iter().position(|k| k.name == name) { return Some(i as u16); }
-        self.wide_int.filter(|w| w.name == name).map(|w| self.register(w).0)
+        let kind = self.wide_int.into_iter().chain(self.known.iter().copied()).find(|k| k.name == name)?;
+        Some(self.register(kind).0)
     }
     pub(crate) fn kind_at(&self, kind: u16) -> &'static Kind { self.kinds[kind as usize] }
 
@@ -316,6 +319,9 @@ impl HeapPool {
         self.foreign.wide_int = Some(kind);
         self.foreign.wide = self.foreign.kinds.iter().position(|&k| core::ptr::eq(k, kind)).map(|i| i as u16);
     }
+
+    /* Names a kind the frontend registers on first use, so a restore can find it by name. */
+    pub fn know_kind(&mut self, kind: &'static Kind) { self.foreign.known.push(kind); }
 
     /* Boxes a wide int without a call into its kind, None until the kind registered on its first box. */
     #[inline]

@@ -21,7 +21,7 @@ This document is self-verifying and its examples follow the cells v1 grammar. A 
 
 Edge Python is sandboxed Python compiled in a single pass to bytecode and executed by a register VM. It is one WebAssembly binary, hosted by the JS host, a JavaScript package built on the browser's sandbox model that runs in browsers and in JavaScript runtimes such as Deno, and by the `edge` CLI. There is no bundled stdlib, every module is an external package declared in `edge.json` and resolved at compile time, the official packages included. Programs are deterministic, there is no file, network or environment access unless a declared module grants it.
 
-Use this skill to write correct Edge Python on the first try. The language is the latest CPython version, minus what the sandbox and the engine leave out, and what is left out fails with an error. Read the delta section before writing non-trivial code.
+Use this skill to write correct Edge Python on the first try. The language is CPython 3.15, its syntax, builtins and error messages, minus what the sandbox and the engine leave out, and what is left out fails with an error. Read the delta section before writing non-trivial code.
 
 ## The working loop
 
@@ -153,9 +153,9 @@ Values are NaN-boxed and frames keep their locals in registers, so two equal num
 
 - `locals`.
 - `is` against anything but `None`, `True`, `False`, `...` or `NotImplemented`. Compare with `==`, which on an instance without `__eq__` already compares identity.
-- Metaclasses and other class keywords, `__slots__`, `__new__`, `__del__`, `__hash__`, descriptors, `__init_subclass__`, `__set_name__` and any dunder outside the supported list.
+- Metaclasses, `__del__`, `__getattribute__` and any dunder outside the supported list.
 - A list, dict or set as a default argument. Default to `None` and build the value in the body.
-- Complex numbers and named escapes such as `\N{BULLET}`.
+- Named escapes such as `\N{BULLET}`.
 
 ```python
 a = [1]
@@ -167,7 +167,7 @@ print(a is b)
 'is' compares only with None, True, False, ... or NotImplemented
 ```
 
-`id(x)` is unique while `x` lives and survives a snapshot, and two equal numbers share one. An instance hashes by identity, and a class that defines `__eq__` is unhashable. `bytearray` and `memoryview` do not exist either, and using one fails at run time.
+`id(x)` is unique while `x` lives and survives a snapshot, and two equal numbers share one. An instance hashes by identity, and a class that defines `__eq__` is unhashable. `bytearray` is a mutable bytes and `memoryview` a view of the bytes of one, which writes through to a bytearray.
 
 The two behaviors that differ by design follow.
 
@@ -203,15 +203,14 @@ list of 3
 
 ### Missing pieces by type
 
-- `tuple` and `range` have only `index` and `count`, and `frozenset` has no named methods, so `frozenset({1}).union({2})` raises `AttributeError`, use operators or convert to a set first. The dunders of the operators and builtins a value answers are methods, so `'ab'.__len__()` and `int.__add__(1, 2)` work, and an operand of another type answers `NotImplemented`.
-- `str` lacks `translate`, `maketrans`, `isascii`, `isidentifier`, `isnumeric`, `isdecimal` and `isprintable`.
-- `bytes.split` requires an explicit separator, `bytes.replace` has no count, and codecs are limited to `utf-8` and `ascii` with `strict`, `ignore` and `replace` error handling.
+- `tuple` and `range` have only `index` and `count`, `frozenset` only the set methods that change nothing, and `frozendict` only the dict ones. The dunders of the operators and builtins a value answers are methods, so `'ab'.__len__()` and `int.__add__(1, 2)` work, and an operand of another type answers `NotImplemented`.
+- Codecs are limited to UTF-8, ASCII and Latin-1, with the `strict`, `ignore`, `replace`, `backslashreplace` and `xmlcharrefreplace` error handlers.
 - `zip` has no `strict` flag. `round` uses ties-to-even and always returns int for one argument, float for two.
 - The `int_to_bytes` and `int_from_bytes` builtins cap at 8 bytes, while the `int.to_bytes` and `int.from_bytes` methods take ints of any size.
 
 ### Async without asyncio
 
-There is no `asyncio` and no event loop object. The async primitives are top-level builtins, `run`, `gather`, `sleep`, `with_timeout`, `cancel`, `frame` and `receive`. There are no async comprehensions, no async dunders and no background tasks, `create_task` does not exist. See the async section.
+There is no `asyncio` and no event loop object. The async primitives are top-level builtins, `run`, `gather`, `sleep`, `with_timeout`, `cancel`, `send` and `receive`, with `aiter` and `anext` over async generators. Async comprehensions work, async dunders do not, and there are no background tasks, `create_task` does not exist. See the async section.
 
 ### Compile time versus run time
 
@@ -259,7 +258,7 @@ The official names `json`, `re`, `math`, `struct` and `test` resolve only when d
 
 ## Builtins
 
-The global namespace holds exactly 70 builtin functions, the type objects, the exception classes, `NotImplemented`, `__name__` and the async primitives. Nothing else exists, and names like `dir`, `help` or `exit` are simply undefined.
+The global namespace holds exactly 77 builtin functions, the type objects, the exception classes, `NotImplemented`, `__name__` and the async primitives. Nothing else exists, and names like `dir`, `help` or `exit` are simply undefined.
 
 ### Output and input
 
@@ -291,7 +290,7 @@ print(pow(2, 10, 100))
 
 ### Conversion
 
-`int`, `float`, `str`, `bool`, `list`, `tuple`, `set`, `frozenset`, `dict`, `bytes`, `chr`, `ord`. `int` truncates toward zero and parses bases 2 to 36 or 0 for auto-detect. `int("nan")` style failures raise `ValueError` and `int(float("inf"))` raises `OverflowError`.
+`int`, `float`, `str`, `bool`, `list`, `tuple`, `set`, `frozenset`, `dict`, `frozendict`, `bytes`, `chr`, `ord`, and `sentinel(name)` for an object equal only to itself. `int` truncates toward zero and parses bases 2 to 36 or 0 for auto-detect. `int("nan")` style failures raise `ValueError` and `int(float("inf"))` raises `OverflowError`.
 
 ```python
 print(int("ff", 16), int("0b101", 0), int(-3.7))
@@ -321,7 +320,7 @@ print(sorted([3, 1, 2], reverse=True), any([0, "", 3]))
 
 ### Types and attributes
 
-`type`, `object`, `isinstance`, `issubclass`, `callable`, `id`, `hash`, `repr`, `format`, `getattr`, `hasattr`, `setattr`, `delattr`, `vars`, `globals`, `import_module`, `super`, `property`, `staticmethod`, `classmethod`. `isinstance` accepts a tuple of types and `bool` is a subclass of `int`. `x.__class__` is the same object as `type(x)`. `getattr`, `hasattr` and `setattr` behave like `obj.name`, properties and `__getattr__` included, and a `getattr` default answers only an `AttributeError`. `format(x, spec)` with a spec on a value that has no format of its own, a list or an instance without `__format__`, raises `TypeError`, and `f"{x!s:>10}"` pads its `str()`. `hash(x)` agrees for equal values, `hash(1) == hash(1.0)`, and raises `TypeError` for a list, dict or set. `vars(x)` and `x.__dict__` return the live attribute dict of an instance, so writes show on both sides, while `globals()` returns a copy whose mutation binds nothing.
+`type`, `object`, `isinstance`, `issubclass`, `callable`, `id`, `hash`, `repr`, `ascii`, `format`, `getattr`, `hasattr`, `setattr`, `delattr`, `vars`, `globals`, `import_module`, `super`, `property`, `staticmethod`, `classmethod`. `isinstance` accepts a tuple of types and `bool` is a subclass of `int`. `x.__class__` is the same object as `type(x)`. `getattr`, `hasattr` and `setattr` behave like `obj.name`, properties and `__getattr__` included, and a `getattr` default answers only an `AttributeError`. `format(x, spec)` with a spec on a value that has no format of its own, a list or an instance without `__format__`, raises `TypeError`, and `f"{x!s:>10}"` pads its `str()`. `hash(x)` agrees for equal values, `hash(1) == hash(1.0)`, and raises `TypeError` for a list, dict or set. `vars(x)` and `x.__dict__` return the live attribute dict of an instance, so writes show on both sides, while `globals()` returns a copy whose mutation binds nothing.
 
 ```python
 print(isinstance(True, int), callable(len))
@@ -347,9 +346,9 @@ b'\xff\x00' 1
 
 ### Exceptions
 
-The catchable tree under `Exception` is `ArithmeticError` with `OverflowError` and `ZeroDivisionError`, `LookupError` with `IndexError` and `KeyError`, `RuntimeError` with `RecursionError` and `NotImplementedError`, `OSError`, also named `IOError`, with `PermissionError`, `ValueError` with `UnicodeError` and its `UnicodeEncodeError` and `UnicodeDecodeError`, `ImportError` with `ModuleNotFoundError`, `NameError` with `UnboundLocalError`, plus `TypeError`, `AttributeError`, `StopIteration`, `StopAsyncIteration`, `AssertionError`, `MemoryError` and `TimeoutError`. Under `BaseException` sit `SystemExit`, `CancelledError` and `GeneratorExit`, which `except Exception` does not catch.
+The catchable tree under `Exception` is `ArithmeticError` with `OverflowError`, `ZeroDivisionError` and `FloatingPointError`, `LookupError` with `IndexError` and `KeyError`, `RuntimeError` with `RecursionError`, `NotImplementedError` and `PythonFinalizationError`, `OSError`, also named `IOError` and `EnvironmentError`, with `PermissionError`, `FileNotFoundError`, `FileExistsError`, `TimeoutError`, `ConnectionError` and its subclasses and the rest of the OS errors, `ValueError` with `UnicodeError` and its `UnicodeEncodeError`, `UnicodeDecodeError` and `UnicodeTranslateError`, `ImportError` with `ModuleNotFoundError`, `SyntaxError` with `IndentationError` and `TabError`, `NameError` with `UnboundLocalError`, `Warning` with `UserWarning`, `DeprecationWarning` and the other warning classes, plus `TypeError`, `AttributeError`, `StopIteration`, `StopAsyncIteration`, `AssertionError`, `MemoryError`, `BufferError`, `EOFError`, `ReferenceError`, `SystemError` and `ExceptionGroup`. Under `BaseException` sit `SystemExit`, `KeyboardInterrupt`, `CancelledError`, `GeneratorExit` and `BaseExceptionGroup`, which `except Exception` does not catch.
 
-Handlers name one class, a tuple or nothing, and a bare `except` must come last. `except X as e` binds the exception, `e.args` is its argument tuple and `e.add_note(text)` adds to `e.__notes__`. `finally` runs on every exit path including `return`, `break` and `continue`. `raise X from Y` sets `__cause__`, an exception raised while another is handled keeps it as `__context__`, and an uncaught chain prints each exception in turn with its notes after the message.
+Handlers name one class, a tuple or nothing, and a bare `except` must come last. `ExceptionGroup(msg, excs)` raises several exceptions as one, with `exceptions`, `split`, `subgroup` and `derive`, and `except* T` handles the part of a group whose members are `T` while the rest is raised again. `except X as e` binds the exception, `e.args` is its argument tuple and `e.add_note(text)` adds to `e.__notes__`. `finally` runs on every exit path including `return`, `break` and `continue`. `raise X from Y` sets `__cause__`, an exception raised while another is handled keeps it as `__context__`, and an uncaught chain prints each exception in turn with its notes after the message.
 
 ```python
 try:
@@ -385,11 +384,11 @@ Bad 7 ('bad code', 7)
 
 ## Type methods
 
-Methods live on the builtin types. `tuple`, `frozenset`, `bool` and `NoneType` have none. Read off the type, a method is unbound and takes its receiver first, so `str.lower("AB")` and `map(str.strip, lines)` work.
+Methods live on the builtin types, `bool` answering those of `int`, and `NoneType` has none. Read off the type, a method is unbound and takes its receiver first, so `str.lower("AB")` and `map(str.strip, lines)` work.
 
 ### str
 
-`encode`, `upper`, `lower`, `strip`, `lstrip`, `rstrip`, `capitalize`, `title`, `casefold`, `swapcase`, `isdigit`, `isalpha`, `isalnum`, `isspace`, `isupper`, `islower`, `istitle`, `startswith`, `endswith`, `find`, `rfind`, `index`, `rindex`, `count`, `split`, `rsplit`, `join`, `replace`, `removeprefix`, `removesuffix`, `splitlines`, `partition`, `rpartition`, `center`, `ljust`, `rjust`, `zfill`, `expandtabs`, `format`. Indices count code points. `startswith` and `endswith` accept a tuple of prefixes. `format` takes positional fields with specs, never keyword fields.
+`encode`, `upper`, `lower`, `strip`, `lstrip`, `rstrip`, `capitalize`, `title`, `casefold`, `swapcase`, `isdigit`, `isalpha`, `isalnum`, `isspace`, `isupper`, `islower`, `istitle`, `isdecimal`, `isnumeric`, `isidentifier`, `isascii`, `isprintable`, `startswith`, `endswith`, `find`, `rfind`, `index`, `rindex`, `count`, `split`, `rsplit`, `join`, `replace`, `removeprefix`, `removesuffix`, `splitlines`, `partition`, `rpartition`, `center`, `ljust`, `rjust`, `zfill`, `expandtabs`, `translate`, `maketrans`, `format`, `format_map`. Indices count code points. `startswith` and `endswith` accept a tuple of prefixes. `format` takes positional and named fields with specs.
 
 ```python
 print(" hello ".strip(), "a,b,c".split(",", 1))
@@ -464,7 +463,7 @@ True 258
 
 ### bytes
 
-`decode`, `encode` via str, `hex`, `fromhex`, `startswith`, `endswith`, `find`, `index`, `count`, `replace`, `split`, `lower`, `upper`, `strip`, `lstrip`, `rstrip`, `join`. Case methods are ASCII only.
+The bytes methods of Python 3.15, from `decode` and `hex(sep)` to `partition`, `translate` and the `is` predicates, with `fromhex` and `maketrans` on the type. Case methods and whitespace are ASCII only, and `bytearray` adds `resize` and `take_bytes` to the list methods it has.
 
 ```python
 print(b"\x00\x01".hex(), b"a,b".split(b","), b"ABC".lower())
@@ -476,7 +475,7 @@ print(b"\x00\x01".hex(), b"a,b".split(b","), b"ABC".lower())
 
 ## Functions and classes
 
-Functions support defaults, keyword arguments, `*args`, `**kwargs` and bare-`*` keyword-only parameters, plus call-site unpacking. The positional-only marker `/` parses but is not enforced, so never rely on it. Lambdas are single expressions. Decorators work on functions and classes, stacked bottom-up. Closures capture variables by reference, see the gotchas section.
+Functions support defaults, keyword arguments, `*args`, `**kwargs`, keyword-only parameters after `*` or `*args`, and positional-only parameters before `/`, plus call-site unpacking. `f.__annotations__` evaluates the annotations on first read, and `f.__code__` describes the parameters and locals. Lambdas are single expressions. Decorators work on functions and classes, stacked bottom-up. Closures capture variables by reference, see the gotchas section.
 
 ```python
 def greet(name, *, punct="!"):
@@ -489,9 +488,9 @@ print(greet("edge", punct="?"))
 hi edge?
 ```
 
-Classes support single and multiple inheritance with C3 linearization, zero-argument `super()`, `property` with setters, `staticmethod` and `classmethod`, and class decorators. A class may derive from `dict` or `list`, and its instances are real dicts or lists with the methods and attributes of the class, where `super()` reaches the builtin methods and a dict subclass answers missing keys with `__missing__`. There is no two-argument `super()` form. Dunders are looked up on the class, assigning one on an instance has no effect.
+Classes support single and multiple inheritance with C3 linearization, zero-argument `super()`, `property` with setters and deleters, descriptors, `staticmethod` and `classmethod`, and class decorators. A class may derive from `dict`, `list`, `set`, `frozenset`, `str`, `bytes`, `tuple`, `int` or `float`, and its instances are real values of that type with the methods and attributes of the class, where `super()` reaches the builtin methods and a dict subclass answers missing keys with `__missing__`. There is no two-argument `super()` form. Dunders are looked up on the class, assigning one on an instance has no effect. `type(name, bases, members)` builds a class, and `__mro__`, `__bases__` and `__dict__` describe one.
 
-The supported dunders are `__init__`, `__call__`, `__repr__`, `__str__`, `__format__`, `__bool__`, `__len__`, `__iter__`, `__next__`, `__getitem__`, `__setitem__`, `__delitem__`, `__missing__`, `__contains__`, `__getattr__`, `__enter__`, `__exit__`, `__index__`, `__int__`, `__float__`, `__abs__`, `__neg__`, `__pos__`, `__invert__`, `__class_getitem__`, `__match_args__`, the arithmetic and bitwise operators with their reflected and in-place forms including `@` through `__matmul__`, and the six comparisons. A class body that binds any other dunder fails at compile time. Returning `NotImplemented` from an arithmetic dunder triggers the reflected fallback.
+The supported dunders are `__init__`, `__new__`, `__init_subclass__`, `__set_name__`, `__slots__`, `__get__`, `__set__`, `__delete__`, `__setattr__`, `__delattr__`, `__getattr__`, `__hash__`, `__call__`, `__repr__`, `__str__`, `__format__`, `__bool__`, `__len__`, `__iter__`, `__next__`, `__getitem__`, `__setitem__`, `__delitem__`, `__missing__`, `__contains__`, `__enter__`, `__exit__`, `__index__`, `__int__`, `__float__`, `__abs__`, `__neg__`, `__pos__`, `__invert__`, `__class_getitem__`, `__match_args__`, the arithmetic and bitwise operators with their reflected and in-place forms including `@` through `__matmul__`, and the six comparisons. A class body that binds any other dunder fails at compile time. Returning `NotImplemented` from an arithmetic dunder triggers the reflected fallback. A user `__hash__` keys dicts and sets with `__eq__` deciding equal keys, and a class defining `__eq__` alone is unhashable.
 
 ```python
 class Vector:

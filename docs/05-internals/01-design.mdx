@@ -188,7 +188,7 @@ A coverage-guided fuzzer drives the lexer, the parser, the VM and this snapshot 
 - No CSE, GVN, LICM, inlining, branch DCE, or loop folding. The optimiser does constant folding, phi-noop elimination, and dead-instruction compaction with jump-operand remap.
 - No JIT. A method JIT needs stencils per architecture, and a tracing JIT duplicates the execution model and complicates the GC.
 - No runtime module system. Imports resolve at parse time through a resolver the host injects. See [Modules](/docs/edge-python/reference/modules).
-- No complex numbers, `bytearray`, `memoryview`, `Decimal`, or `Fraction`.
+- No `Decimal` or `Fraction`, which belong to the standard library.
 - No `asyncio` module. The concurrency primitives are top-level builtins, see [Async](/docs/edge-python/language/async).
 
 ## References

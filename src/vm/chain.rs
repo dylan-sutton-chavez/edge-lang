@@ -47,7 +47,7 @@ impl<'a> VM<'a> {
         }
     }
 
-    fn set_exc_chain(&mut self, e: Val, c: Chain) -> Result<(), VmErr> {
+    pub(crate) fn set_exc_chain(&mut self, e: Val, c: Chain) -> Result<(), VmErr> {
         let t = self.heap.alloc(HeapObj::Tuple(vec![c.cause, at_val(c.cause_at), c.context, at_val(c.context_at), Val::bool(c.suppress), c.notes]))?;
         if let Some(HeapObj::ExcInstance(_, _, slot)) = self.heap.try_get_mut(e) { *slot = t; return Ok(()); }
         let key = self.heap.intern_str(CHAIN_KEY)?;
@@ -103,7 +103,8 @@ impl<'a> VM<'a> {
     /* `e.add_note(note)`, appended to the list `__notes__` reads, made on the first note. */
     pub(crate) fn add_note(&mut self, e: Val, note: Val) -> Result<(), VmErr> {
         if !matches!(self.heap.try_get(note), Some(HeapObj::Str(_))) {
-            return Err(VmErr::TypeMsg(crate::s!("note must be a str, not '", str self.type_name(note), "'")));
+            let ty = if note.is_none() { "None" } else { self.type_name(note) };
+            return Err(VmErr::TypeMsg(crate::s!("add_note() argument must be str, not ", str ty)));
         }
         let c = self.exc_chain(e);
         if let Some(HeapObj::List(l)) = self.heap.try_get(c.notes) { l.borrow_mut().push(note); return Ok(()); }
@@ -133,13 +134,14 @@ impl<'a> VM<'a> {
             cur = next;
         }
         let mut out = String::new();
+        let lines = crate::parser::Lines::new(src);
         for &(exc, at, how) in links.iter().rev() {
             let name = self.exc_type_name(exc);
             let text = self.display(exc);
             let notes = self.notes_text(exc);
             let msg = if text.is_empty() { crate::s!(str &name, str &notes) } else { crate::s!(str &name, ": ", str &text, str &notes) };
             match at {
-                Some(p) => out.push_str(&crate::parser::Diagnostic { start: p as usize, end: p as usize, msg }.render(src, path)),
+                Some(p) => out.push_str(&crate::parser::Diagnostic { start: p as usize, end: p as usize, msg }.render_in(&lines, path)),
                 None => { out.push_str("error: "); out.push_str(&msg); out.push('\n'); }
             }
             out.push('\n');

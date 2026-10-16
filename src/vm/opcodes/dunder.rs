@@ -51,7 +51,7 @@ impl<'a> VM<'a> {
     /* `recv.<name>(*args)` probes the instance method and invokes it with `self` prepended. `Some(v)` on return, `None` on miss / `NotImplemented` (triggers reflected/fallback dispatch), `Err` only on a raised dunder. */
     pub(crate) fn try_call_dunder(&mut self, recv: Val, name: &str, args: &[Val], chunk: &SSAChunk) -> Result<Option<Val>, VmErr> {
         // Built-in types route through their native handlers, and dunder dispatch only fires on user instances.
-        let Some(cls_val) = self.instance_class(recv) else { return Ok(None); };
+        let Some(cls_val) = self.instance_class(recv).filter(|_| recv.0 != self.plain_recv.0) else { return Ok(None); };
 
         // Special methods resolve on the type's MRO, bypassing the instance __dict__, like Python.
         let Some((func, class)) = self.lookup_class_member(cls_val, name) else { return Ok(None); };
@@ -142,7 +142,11 @@ impl<'a> VM<'a> {
 
     /* Python `bool()` semantics, try `__bool__`, then `__len__` (0 = False), else default True for instances. Pass-through for built-in types. */
     pub(crate) fn truthy_op(&mut self, v: Val, chunk: &SSAChunk) -> Result<bool, VmErr> {
-        if self.instance_class(v).is_none() { return Ok(self.truthy(v)); }
+        if self.instance_class(v).is_none() {
+            let t = self.truthy(v);
+            if t && v.is_heap() && self.heap.is_not_implemented(v) { return Err(cold_type("NotImplemented should not be used in a boolean context")); }
+            return Ok(t);
+        }
         if let Some(r) = self.try_call_dunder(v, "__bool__", &[], chunk)? {
             if !matches!(r, x if x.is_bool()) {
                 return Err(cold_type("__bool__ should return bool"));
@@ -183,7 +187,8 @@ impl<'a> VM<'a> {
             Some(&HeapObj::DictView(d, View::Items)) => {
                 let Some(HeapObj::Tuple(kv)) = self.heap.try_get(item) else { return Ok(false) };
                 let &[k, v] = kv.as_slice() else { return Ok(false) };
-                let found = match self.heap.get(d) { HeapObj::Dict(m) => m.borrow().get(&k, &self.heap).copied(), _ => None };
+                self.keyed(k)?;
+                let found = self.heap.dict_cell(d).and_then(|m| m.borrow().get(&k, &self.heap).copied());
                 let Some(x) = found else { self.require_key(k)?; return Ok(false) };
                 return self.with_roots([x, v], |vm| vm.member_eq(x, v, chunk));
             }
@@ -191,9 +196,10 @@ impl<'a> VM<'a> {
         }
 
         // A dict or set probes by hash.
+        if matches!(self.heap.try_get(container), Some(HeapObj::Dict(_) | HeapObj::FrozenDict(_) | HeapObj::DictView(..) | HeapObj::Set(_) | HeapObj::FrozenSet(_))) { self.keyed(item)?; }
         let probe = match self.heap.try_get(container) {
-            Some(HeapObj::Dict(rc)) => Some((rc.borrow().contains_key(&item, &self.heap), false)),
-            Some(&HeapObj::DictView(d, _)) => match self.heap.get(d) { HeapObj::Dict(rc) => Some((rc.borrow().contains_key(&item, &self.heap), false)), _ => None },
+            Some(HeapObj::Dict(rc) | HeapObj::FrozenDict(rc)) => Some((rc.borrow().contains_key(&item, &self.heap), false)),
+            Some(&HeapObj::DictView(d, _)) => self.heap.dict_cell(d).map(|rc| (rc.borrow().contains_key(&item, &self.heap), false)),
             Some(HeapObj::Set(rc)) => Some((rc.borrow().contains(item, &self.heap), true)),
             Some(HeapObj::FrozenSet(s)) => Some((s.contains(item, &self.heap), true)),
             Some(HeapObj::List(_) | HeapObj::Tuple(_)) => return self.seq_contains(container, item, chunk),
@@ -345,7 +351,7 @@ impl<'a> VM<'a> {
     fn is_container_val(&self, v: Val) -> bool {
         v.is_heap() && matches!(
             self.heap.get(v),
-            HeapObj::List(_) | HeapObj::Tuple(_) | HeapObj::Dict(_) | HeapObj::Set(_) | HeapObj::FrozenSet(_)
+            HeapObj::List(_) | HeapObj::Tuple(_) | HeapObj::Dict(_) | HeapObj::FrozenDict(_) | HeapObj::Set(_) | HeapObj::FrozenSet(_)
         )
     }
 
@@ -368,6 +374,7 @@ impl<'a> VM<'a> {
         if seen.contains(&id) {
             return Ok(match self.heap.get(v) {
                 HeapObj::Dict(_) | HeapObj::Set(_) => "{...}".into(),
+                HeapObj::FrozenDict(_) => "frozendict({...})".into(),
                 HeapObj::Tuple(_) => "(...)".into(),
                 HeapObj::FrozenSet(_) => "frozenset({...})".into(),
                 _ => "[...]".into(),
@@ -420,9 +427,11 @@ impl<'a> VM<'a> {
                 out.push_str("})");
                 Ok(out)
             }
-            HeapObj::Dict(d) => {
+            HeapObj::FrozenDict(d) if d.borrow().is_empty() => Ok("frozendict()".into()),
+            HeapObj::Dict(d) | HeapObj::FrozenDict(d) => {
+                let frozen = matches!(self.heap.get(v), HeapObj::FrozenDict(_));
                 let entries: Vec<(Val, Val)> = d.borrow().iter().collect();
-                let mut out = String::from("{");
+                let mut out = String::from(if frozen { "frozendict({" } else { "{" });
                 for (i, (k, val)) in entries.iter().enumerate() {
                     if i > 0 {
                         // The output cap bounds breadth the way the depth cap bounds nesting.
@@ -435,7 +444,7 @@ impl<'a> VM<'a> {
                     let vr = self.repr_deep(*val, chunk, seen)?;
                     out.push_str(&vr);
                 }
-                out.push('}');
+                out.push_str(if frozen { "})" } else { "}" });
                 Ok(out)
             }
             _ => Ok(self.repr(v)),
@@ -461,13 +470,17 @@ impl<'a> VM<'a> {
 
     /* `format(v, spec)`, an instance `__format__(spec)` wins, an empty spec is `str(v)` and the rest runs the spec engine. */
     pub(crate) fn format_op(&mut self, v: Val, spec: &str, chunk: &SSAChunk) -> Result<String, VmErr> {
-        if v.is_heap() && matches!(self.heap.get(v), HeapObj::Instance(..)) {
+        if self.instance_class(v).is_some() {
             let spec_val = self.heap.alloc(HeapObj::Str(spec.to_string()))?;
             if let Some(r) = self.try_call_dunder(v, "__format__", &[spec_val], chunk)? {
                 return self.require_str(r, "__format__");
             }
         }
+        let v = crate::value::unboxed(v, &self.heap);
         if spec.is_empty() { return self.display_op(v, chunk); }
+        if let Some(z) = crate::frontend::complex::parts(&self.heap, v).filter(|_| crate::frontend::complex::is_complex(&self.heap, v)) {
+            return crate::vm::format_spec::format_complex(z.re, z.im, spec, &self.heap);
+        }
         // Only numbers and strings read a spec, `f"{x!s:>9}"` pads anything else.
         let own = v.is_int() || v.is_float() || v.is_bool() || crate::frontend::int::is_big(&self.heap, v) || matches!(self.heap.try_get(v), Some(HeapObj::Str(_)));
         if !own { return Err(VmErr::TypeMsg(crate::s!("unsupported format string passed to ", str &self.type_repr_name(v), ".__format__"))); }

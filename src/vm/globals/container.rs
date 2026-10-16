@@ -67,6 +67,7 @@ impl<'a> VM<'a> {
         self.push(val); Ok(())
     }
 
+    #[inline]
     pub fn build_slice(&mut self, op: u16) -> Result<(), VmErr> {
         let step = if op == 3 { self.pop()? } else { Val::none() };
         let stop = self.pop()?;
@@ -86,7 +87,7 @@ impl<'a> VM<'a> {
         let kw_flat = self.pop_n(kw * 2)?;
         let src = if pos == 1 { Some(self.pop()?) } else { None };
         // A dict source copies with the hashes it stored.
-        if let Some(HeapObj::Dict(rc)) = src.and_then(|s| self.heap.try_get(s)) && kw_flat.is_empty() {
+        if let Some(rc) = src.and_then(|s| self.heap.dict_cell(s)) && kw_flat.is_empty() {
             let dm = rc.borrow().clone();
             return self.alloc_and_push_dict(dm);
         }
@@ -96,19 +97,29 @@ impl<'a> VM<'a> {
         self.alloc_and_push_dict(dm)
     }
 
+    /* `frozendict()` as `dict()` builds it, a frozendict alone given back as itself. */
+    pub fn call_frozendict(&mut self, op: u16) -> Result<(), VmErr> {
+        if op == 1 && let Some(&top) = self.stack.last() && matches!(self.heap.try_get(top), Some(HeapObj::FrozenDict(_))) { return Ok(()); }
+        self.call_dict(op)?;
+        let made = *self.stack.last().ok_or_else(|| cold_runtime("stack underflow"))?;
+        if let Some(slot) = self.heap.try_get_mut(made) && let HeapObj::Dict(rc) = slot { *slot = HeapObj::FrozenDict(rc.clone()); }
+        Ok(())
+    }
+
     /* Entries of a mapping, or of an iterable of two-item iterables, as `dict()` takes them. */
     pub(crate) fn pairs_of(&mut self, src: Val) -> Result<Vec<(Val, Val)>, VmErr> {
-        if let Some(HeapObj::Dict(rc)) = self.heap.try_get(src) { self.heap.spend(rc.borrow().len()); return Ok(rc.borrow().iter().collect()); }
+        if let Some(rc) = self.heap.dict_cell(src) { self.heap.spend(rc.borrow().len()); return Ok(rc.borrow().iter().collect()); }
         let mut pairs = Vec::new();
         for item in self.extract_iter(src)? {
             let item = self.extract_iter(item).map_err(|e| match e {
-                VmErr::TypeMsg(_) => cold_type("cannot convert dictionary update sequence element to a sequence"),
+                VmErr::TypeMsg(_) => VmErr::TypeMsg(crate::s!("cannot convert dictionary update sequence element #", int pairs.len() as i64, " to a sequence")),
                 e => e,
             })?;
             let [k, v] = item[..] else {
                 return Err(cold_value("dictionary update sequence element must have length 2"));
             };
             self.require_key(k)?;
+            self.keyed(k)?;
             pairs.push((k, v));
         }
         Ok(pairs)
@@ -143,64 +154,51 @@ impl<'a> VM<'a> {
         self.push(v); Ok(())
     }
 
-    /* `bytes()`, empty, `n` zero bytes, iter of ints (0..=255), or `(str, encoding)`. Encodings limited to utf-8/utf8/ascii, unknown ones error so mismatches aren't silent. */
+    /* `bytes()`, empty, `n` zero bytes, an iterable of ints in range(256), a bytes-like value or `(str, encoding, errors)`. */
     pub fn call_bytes(&mut self, argc: u16) -> Result<(), VmErr> {
         let args = self.pop_n(argc as usize)?;
-        let buf: Vec<u8> = match args.len() {
-            0 => Vec::new(),
-            1 => {
-                let a = args[0];
-                if a.is_int() {
-                    let n = a.as_int();
-                    if n < 0 { return Err(cold_value("negative count")); }
-                    // Length is user-controlled, cap it against the memory left so a huge count errors instead of aborting.
-                    self.heap.reserve(n as usize)?;
-                    alloc::vec![0u8; n as usize]
-                } else if a.is_heap() {
-                    if let HeapObj::Bytes(b) = self.heap.get(a) {
-                        b.clone()
-                    } else {
-                        let items = self.extract_iter(a)?;
-                        let mut out = Vec::with_capacity(items.len());
-                        for v in items {
-                            if !v.is_int() {
-                                return Err(cold_type("bytes() iterable must contain ints"));
-                            }
-                            let n = v.as_int();
-                            if !(0..=255).contains(&n) {
-                                return Err(cold_value("bytes must be in range(0, 256)"));
-                            }
-                            out.push(n as u8);
-                        }
-                        out
-                    }
-                } else {
-                    return Err(cold_type("bytes() requires an int, an iterable of ints, or (str, encoding)"));
-                }
-            }
-            2 => {
-                // `bytes(s, "utf-8")`, string encoding form.
-                let (s, enc) = (args[0], args[1]);
-                let Some(HeapObj::Str(text)) = self.heap.try_get(s).cloned() else {
-                    return Err(cold_type("bytes() first argument must be a string when encoding is given"));
-                };
-                let Some(HeapObj::Str(encoding)) = self.heap.try_get(enc) else {
-                    return Err(cold_type("bytes() encoding must be a string"));
-                };
-                match encoding.as_str() {
-                    "utf-8" | "utf8" => text.into_bytes(),
-                    "ascii" => {
-                        if !text.is_ascii() {
-                            return Err(VmErr::Raised("UnicodeEncodeError: 'ascii' codec can't encode non-ASCII characters".into()));
-                        }
-                        text.into_bytes()
-                    }
-                    _ => return Err(cold_value("unsupported encoding (expected 'utf-8' or 'ascii')")),
-                }
-            }
-            _ => return Err(cold_type("bytes() takes at most 2 arguments")),
-        };
+        let buf = self.octets_of(&args, "bytes")?;
         let v = self.heap.alloc(HeapObj::Bytes(buf))?;
         self.push(v); Ok(())
+    }
+
+    /* `bytearray(...)`, the arguments `bytes()` takes, a mutable copy. */
+    pub fn call_bytearray(&mut self, argc: u16) -> Result<(), VmErr> {
+        let args = self.pop_n(argc as usize)?;
+        let buf = self.octets_of(&args, "bytearray")?;
+        let v = self.heap.alloc(HeapObj::ByteArray(buf))?;
+        self.push(v); Ok(())
+    }
+
+    /* The octets the arguments of `bytes()` or `bytearray()` name. */
+    fn octets_of(&mut self, args: &[Val], what: &str) -> Result<Vec<u8>, VmErr> {
+        Ok(match *args {
+            [] => Vec::new(),
+            [a] if a.is_int() || a.is_bool() || crate::frontend::int::is_big(&self.heap, a) => {
+                let n = self.as_i128(a).unwrap_or(i128::MAX);
+                if n < 0 { return Err(cold_value("negative count")); }
+                // Length is user-controlled, cap it against the memory left so a huge count errors instead of aborting.
+                let n = usize::try_from(n).map_err(|_| cold_overflow())?;
+                self.heap.reserve(n)?;
+                alloc::vec![0u8; n]
+            }
+            [a] if self.heap.bytes_of(a).is_some() => self.heap.bytes_of(a).unwrap_or_default().to_vec(),
+            [a] if matches!(self.heap.try_get(a), Some(HeapObj::Str(_))) => return Err(VmErr::TypeMsg(crate::s!("string argument without an encoding"))),
+            [a] => {
+                let items = self.extract_iter(a).map_err(|_| VmErr::TypeMsg(crate::s!("cannot convert '", str self.type_name(a), "' object to ", str what)))?;
+                items.into_iter().map(|v| self.byte_value(v)).collect::<Result<Vec<u8>, VmErr>>()?
+            }
+            [text, ref rest @ ..] if rest.len() <= 2 => {
+                for (&a, name) in rest.iter().zip(["encoding", "errors"]) {
+                    if !matches!(self.heap.try_get(a), Some(HeapObj::Str(_))) {
+                        return Err(VmErr::TypeMsg(crate::s!(str what, "() argument '", str name, "' must be str, not ", str self.type_name(a))));
+                    }
+                }
+                let Some(HeapObj::Str(t)) = self.heap.try_get(text) else { return Err(cold_type("encoding without a string argument")) };
+                let (encoding, errors) = crate::vm::methods::string::codec_args(self, rest)?;
+                crate::vm::codecs::encode(t, encoding, errors)?
+            }
+            _ => return Err(VmErr::TypeMsg(crate::s!(str what, "() takes at most 3 arguments"))),
+        })
     }
 }

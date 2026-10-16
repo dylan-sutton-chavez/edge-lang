@@ -11,7 +11,7 @@ use super::{Pending, VM};
 use super::types::*;
 
 const MAGIC: u32 = 0x4E53_5045;
-const FORMAT: u32 = 17;
+const FORMAT: u32 = 21;
 // A SHA-256 of everything before it closes each blob, so a damaged one never restores.
 const SEAL: usize = 32;
 
@@ -343,6 +343,7 @@ codec!(struct Pending, put_pending, get_pending {
     exc_val: opt_val,
     method_binding: (put_binding, get_binding),
     preempt_request: default,
+    no_context: default,
 });
 
 /* Hashes are taken again on restore, so only the entries travel. */
@@ -415,7 +416,7 @@ fn put_obj(w: &mut W, obj: &HeapObj) {
         HeapObj::Type(n) => { w.u8(11); w.str(n); }
         HeapObj::NotImplemented => w.u8(12),
         HeapObj::ExcInstance(n, args, chain) => { w.u8(14); w.str(n); w.vals(args); w.val(*chain); }
-        HeapObj::BoundMethod(recv, id) => { w.u8(15); w.val(*recv); w.u8(id.raw()); }
+        HeapObj::BoundMethod(recv, id) => { w.u8(15); w.val(*recv); w.u16(id.raw()); }
         HeapObj::NativeFn(id) => { w.u8(16); w.str(id.name()); }
         HeapObj::Class(n, bases, members) => {
             w.u8(17); w.str(n); w.vals(bases); w.seq(&members.borrow(), put_name_val);
@@ -423,8 +424,8 @@ fn put_obj(w: &mut W, obj: &HeapObj) {
         HeapObj::Instance(cls, dict) => { w.u8(18); w.val(*cls); put_dict(w, &dict.borrow()); }
         HeapObj::BoundUserMethod(a, b, c) => { w.u8(19); w.val(*a); w.val(*b); w.val(*c); }
         HeapObj::Super(a, b) => { w.u8(20); w.val(*a); w.val(*b); }
-        HeapObj::Property(a, b) => { w.u8(21); w.val(*a); w.val(*b); }
-        HeapObj::PropertySetter(a) => { w.u8(22); w.val(*a); }
+        HeapObj::Property(a, b, c) => { w.u8(21); w.val(*a); w.val(*b); w.val(*c); }
+        HeapObj::PropertyPart(a, slot) => { w.u8(22); w.val(*a); w.u8(*slot); }
         HeapObj::StaticMethod(a) => { w.u8(23); w.val(*a); }
         HeapObj::ClassMethod(a) => { w.u8(27); w.val(*a); }
         HeapObj::Coroutine(c) => {
@@ -445,6 +446,11 @@ fn put_obj(w: &mut W, obj: &HeapObj) {
         HeapObj::Cell(v) => { w.u8(34); w.val(*v); }
         HeapObj::DictView(d, kind) => { w.u8(35); w.val(*d); w.u8(*kind as u8); }
         HeapObj::Code(c) => { w.u8(36); w.str(&c.source); w.str(&c.filename); w.u8(c.mode as u8); }
+        HeapObj::Boxed(n) => { w.u8(37); w.val(*n); }
+        HeapObj::ByteArray(b) => { w.u8(38); w.bytes(b); }
+        HeapObj::FnCode(fi) => { w.u8(40); w.usz(*fi); }
+        HeapObj::FrozenDict(rc) => { w.u8(41); put_dict(w, &rc.borrow()); }
+        HeapObj::MemoryView(m) => { w.u8(39); w.val(m.obj); w.usz(m.start); w.usz(m.len); w.i64(m.step as i64); w.u8(m.released as u8); }
     }
 }
 
@@ -473,7 +479,7 @@ fn get_obj(r: &mut R, externs: &ExternMap, fills: &mut Vec<(u32, SetFill)>, slot
         14 => HeapObj::ExcInstance(r.str()?, r.vals()?, r.val()?),
         15 => {
             let recv = r.val()?;
-            let id = BuiltinMethodId::from_raw(r.u8()?).ok_or_else(|| "unknown builtin method id".to_string())?;
+            let id = BuiltinMethodId::from_raw(r.u16()?).ok_or_else(|| "unknown builtin method id".to_string())?;
             HeapObj::BoundMethod(recv, id)
         }
         16 => {
@@ -484,8 +490,8 @@ fn get_obj(r: &mut R, externs: &ExternMap, fills: &mut Vec<(u32, SetFill)>, slot
         18 => HeapObj::Instance(r.val()?, Rc::new(RefCell::new(get_dict(r)?))),
         19 => HeapObj::BoundUserMethod(r.val()?, r.val()?, r.val()?),
         20 => HeapObj::Super(r.val()?, r.val()?),
-        21 => HeapObj::Property(r.val()?, r.val()?),
-        22 => HeapObj::PropertySetter(r.val()?),
+        21 => HeapObj::Property(r.val()?, r.val()?, r.val()?),
+        22 => HeapObj::PropertyPart(r.val()?, r.u8()?.min(2)),
         23 => HeapObj::StaticMethod(r.val()?),
         24 => HeapObj::Coroutine(Box::new(Coro {
             ip: r.usz()?, slots: r.vals()?, stack: r.vals()?, body: get_body_ref(r)?,
@@ -514,6 +520,15 @@ fn get_obj(r: &mut R, externs: &ExternMap, fills: &mut Vec<(u32, SetFill)>, slot
             let (source, filename) = (r.str()?, r.str()?);
             HeapObj::Code(Rc::new(CodeObj { source, filename, mode: code_mode(r.u8()?)? }))
         }
+        37 => {
+            let n = r.val()?;
+            if n.is_heap() { return Err("snapshot boxes a heap value".to_string()); }
+            HeapObj::Boxed(n)
+        }
+        38 => HeapObj::ByteArray(r.bytes()?),
+        40 => HeapObj::FnCode(r.usz()?),
+        41 => HeapObj::FrozenDict(Rc::new(RefCell::new(get_dict(r)?))),
+        39 => HeapObj::MemoryView(crate::value::MemView { obj: r.val()?, start: r.usz()?, len: r.usz()?, step: r.i64()? as isize, released: r.u8()? != 0 }),
         t => return Err(s_err("unknown heap tag", itoa::Buffer::new().format(t))),
     })
 }
@@ -651,6 +666,16 @@ pub fn save(vm: &VM, source: &str) -> Result<Vec<u8>, SnapErr> {
     classed.sort_unstable_by_key(|(idx, _)| **idx);
     w.usz(classed.len());
     for (&idx, (cls, attrs)) in classed { w.val(Val::heap(idx)); w.val(*cls); put_dict(&mut w, &attrs.borrow()); }
+    // What a user `__hash__` gave each key, which tables probe with and match equal keys by.
+    let mut keys: Vec<_> = vm.heap.user_keys().collect();
+    keys.sort_unstable_by_key(|(idx, _)| **idx);
+    w.usz(keys.len());
+    for (&idx, k) in keys { w.val(Val::heap(idx)); w.i64(k.hash); w.u64(k.dict); w.u32(k.class); }
+    w.u32(vm.key_classes);
+    // The qualified names nested classes were made with, which their repr and `__qualname__` read.
+    let mut quals: Vec<_> = vm.class_qualnames.iter().filter(|&(&id, _)| matches!(vm.heap.try_get(Val(id)), Some(HeapObj::Class(..)))).collect();
+    quals.sort_unstable_by_key(|(id, _)| **id);
+    w.seq(&quals, |w, &(&id, q)| { w.val(Val(id)); w.str(q); });
     put_vm_state(&mut w, vm);
     w.seq(&vm.call_stack, put_call_frame);
     let seal = crate::util::sha256::sha256(&w.b);
@@ -806,11 +831,25 @@ pub fn restore(vm: &mut VM, blob: &[u8]) -> Result<(), SnapErr> {
     }
     for _ in 0..r.count()? {
         let (obj, cls, attrs) = (r.val()?, r.val()?, get_dict(&mut r)?);
-        let fits = matches!(vm.heap.try_get(obj), Some(HeapObj::Dict(_) | HeapObj::List(_))) && matches!(vm.heap.try_get(cls), Some(HeapObj::Class(..)));
+        let fits = matches!(vm.heap.try_get(obj), Some(HeapObj::Dict(_) | HeapObj::List(_) | HeapObj::Set(_) | HeapObj::FrozenSet(_) | HeapObj::Str(_) | HeapObj::Bytes(_) | HeapObj::Tuple(_) | HeapObj::Boxed(_))) && matches!(vm.heap.try_get(cls), Some(HeapObj::Class(..)));
         if !fits || attrs.iter().any(|(k, v)| [k, v].iter().any(|x| x.is_heap() && vm.heap.try_get(*x).is_none())) {
             return Err("snapshot classes a missing object".to_string());
         }
         vm.heap.set_class(obj, cls, Rc::new(RefCell::new(attrs)));
+    }
+    for _ in 0..r.count()? {
+        let (obj, hash, dict, class) = (r.val()?, r.i64()?, r.u64()?, r.u32()?);
+        if !matches!(vm.heap.try_get(obj), Some(HeapObj::Instance(..))) { return Err("snapshot keys a missing instance".to_string()); }
+        vm.heap.set_user_key(obj, crate::value::UserKey { hash, dict, class });
+        // The first key of each class stands for it.
+        let reps = vm.key_reps.entry(dict).or_default();
+        if !reps.iter().any(|&r| vm.heap.user_key(r).is_some_and(|k| k.class == class)) { reps.push(obj); }
+    }
+    vm.key_classes = r.u32()?;
+    for _ in 0..r.count()? {
+        let (class, qual) = (r.val()?, r.str()?);
+        if !matches!(vm.heap.try_get(class), Some(HeapObj::Class(..))) { return Err("snapshot names a missing class".to_string()); }
+        vm.class_qualnames.insert(class.0, qual);
     }
 
     get_vm_state(&mut r, vm)?;
@@ -841,7 +880,7 @@ pub fn restore(vm: &mut VM, blob: &[u8]) -> Result<(), SnapErr> {
     let nfn = vm.functions.len();
     vm.call_stack = r.seq(|r| {
         let fi = r.usz()?;
-        if fi >= nfn { return Err("snapshot names a missing function".to_string()); }
+        if fi >= nfn && fi != crate::value::EXEC_FRAME && fi != crate::value::EVAL_FRAME { return Err("snapshot names a missing function".to_string()); }
         let call_byte_pos = r.u32()?;
         let path = r.str()?;
         let owner = sources.iter().find(|c| c.path.as_str() == path).copied().unwrap_or(chunk);
@@ -875,12 +914,12 @@ fn check_objs(vm: &VM, fills: &[(u32, SetFill)]) -> Result<(), SnapErr> {
     if set_items.any(|&v| dangling(v)) { return Err("snapshot references a missing object or function".to_string()); }
     for obj in vm.heap.snapshot_objs().flatten() {
         let mut ok = match obj {
-            &HeapObj::Func(fi, ..) => fi < nfn,
+            &HeapObj::Func(fi, ..) | &HeapObj::FnCode(fi) => fi < nfn,
             HeapObj::Coroutine(c) => !matches!(c.body, BodyRef::Fn(fi) if fi >= nfn),
             &HeapObj::Range(_, _, step) => step != 0,
             // A wide range keeps ints, its step never zero.
             &HeapObj::BigRange(s, e, st) => [s, e, st].iter().all(|&x| x.is_int() || crate::frontend::int::is_big(&vm.heap, x)) && st != Val::int(0),
-            &HeapObj::DictView(d, _) => matches!(vm.heap.try_get(d), Some(HeapObj::Dict(_))),
+            &HeapObj::DictView(d, _) => vm.heap.dict_cell(d).is_some(),
             _ => true,
         };
         crate::value::for_each_val(obj, |v| ok &= !dangling(v));
@@ -895,7 +934,12 @@ fn rebuild_mro(vm: &mut VM) -> Result<(), SnapErr> {
     for idx in 0..nslots {
         let v = Val::heap(idx as u32);
         let bases = match vm.heap.try_get(v) {
-            Some(HeapObj::Class(_, bases, _)) => bases.clone(),
+            Some(HeapObj::Class(_, bases, members)) => {
+                vm.slotted |= members.borrow().iter().any(|(n, _)| n == "__slots__");
+                vm.user_hash |= members.borrow().iter().any(|(n, _)| n == "__hash__");
+                vm.attr_hooks |= members.borrow().iter().any(|(n, _)| n == "__setattr__" || n == "__delattr__");
+                bases.clone()
+            }
             _ => continue,
         };
         let tail = vm.c3_merge(&bases).map_err(|_| "snapshot class hierarchy is inconsistent".to_string())?;
@@ -932,7 +976,7 @@ fn rehash(vm: &mut VM, fills: Vec<(u32, SetFill)>) -> Result<(), SnapErr> {
     for idx in 0..nslots {
         let v = Val::heap(idx as u32);
         let mut dicts: Vec<Rc<RefCell<DictMap>>> = match vm.heap.try_get(v) {
-            Some(HeapObj::Dict(rc)) => alloc::vec![rc.clone()],
+            Some(HeapObj::Dict(rc) | HeapObj::FrozenDict(rc)) => alloc::vec![rc.clone()],
             Some(HeapObj::Instance(class, rc)) => {
                 // An attribute hiding a method or property keeps method sites checking the instance.
                 vm.shadowed |= rc.borrow().iter().any(|(k, _)| matches!(vm.heap.try_get(k), Some(HeapObj::Str(n)) if vm.lookup_class_member(*class, n).is_some_and(|(m, _)| vm.hides(m))));
