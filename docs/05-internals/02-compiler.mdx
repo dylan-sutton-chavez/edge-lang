@@ -432,15 +432,6 @@ Parameters are stored as names with markers. `*` marks `*args`, `**` marks `**kw
 
 Annotations such as `x: T` and `-> T` are parsed and skipped. No code is emitted for them, and `f.__annotations__` does not exist at run time.
 
-`compile_body` sets `body.is_pure`, the flag that gates template memoisation. A body is pure when it holds none of these opcodes.
-
-- `StoreItem`, `DelItem`, `StoreAttr`, `DelAttr`
-- `CallPrint`, `CallInput`
-- `Global`, `Nonlocal`
-- `Raise`, `RaiseFrom`, `Yield`
-
-The free names a pure body may read are checked at run time, as [Design](/docs/edge-python/internals/design#key-mechanisms) describes.
-
 ## Comprehensions and generators
 
 Every comprehension takes several `for` and `if` clauses and compiles to a function called at once, so its loop variables stay its own. Its first iterable goes through `iter()` where the comprehension stands, so `[x for x in 5]` fails there.

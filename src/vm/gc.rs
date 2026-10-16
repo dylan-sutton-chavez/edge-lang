@@ -48,11 +48,12 @@ impl<'a> VM<'a> {
         for l in &self.linked { self.heap.mark(l.dict); }
         self.heap.mark(self.builtins_module);
         for f in &self.frames { self.heap.mark(f.callee); self.heap.mark(f.instance); }
-        for &v in &self.memo_args { self.heap.mark(v); }
         // A class body's methods may still close over the cells around it.
         for cells in &self.class_cells { for &(_, c) in cells { self.heap.mark(c); } }
         // A `from x import` binds no name to the module, yet its functions still read their globals through this table.
         for &v in self.module_table.values() { self.heap.mark(v); }
+        // A shape names its keys by value, which a sweep must never hand to another string.
+        for edges in &self.shapes { for &(k, _) in edges { self.heap.mark(k); } }
         let heap = &mut self.heap; // split borrow, lets closures take &mut heap while iterating other fields
         for frame in &self.iter_stack { frame.for_each_val(&mut |v| heap.mark(v)); }
         for sf in &self.pending_sync_frames { sf.for_each_val(&mut |v| heap.mark(v)); }
@@ -61,7 +62,6 @@ impl<'a> VM<'a> {
         for code in self.pools.iter().filter_map(|p| p.code.as_deref()) {
             for v in code.cache.site_roots() { self.heap.mark(v); }
         }
-        self.templates.mark_all(&mut self.heap);
         self.heap.sweep();
         // An unlowered frame holds its sites unmarked, so every site keyed on the epoch learns again.
         self.class_epoch = self.class_epoch.wrapping_add(1);

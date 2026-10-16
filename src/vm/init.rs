@@ -47,18 +47,7 @@ impl<'a> VM<'a> {
         }
         self.fn_index.push((chunk as *const _, indices));
 
-        // Bare-name index so the free-load fallback is O(1) instead of re-parsing per miss.
-        let mut name_versions: super::NameVersionIndex = crate::util::hash::FxHashMap::default();
-        for (si, sname) in chunk.names.iter().enumerate() {
-            self.register_builtin(crate::parser::SsaName::parse_or_bare(sname).0);
-            if let Some(parsed) = crate::parser::SsaName::parse(sname) {
-                name_versions
-                    .entry(parsed.bare.to_string())
-                    .or_default()
-                    .push((parsed.version as i64, si));
-            }
-        }
-        self.chunk_name_versions.insert(chunk as *const _, name_versions);
+        for sname in &chunk.names { self.register_builtin(crate::parser::SsaName::parse_or_bare(sname).0); }
         for class_body in chunk.classes.iter() {
             self.class_chunks.insert(class_body as *const _);
             self.build_function_table(class_body, parent_fi, module_spec);

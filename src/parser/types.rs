@@ -88,6 +88,8 @@ pub enum OpCode {
     CallR,
     // Calls method `a` of register b with the `x` arguments in c, its result on the stack for the StoreTopR after it.
     CallMethodR,
+    // The arguments in a, b and c past those a CallR or CallMethodR before it holds, never run alone.
+    ArgsR,
 }
 
 // Each fused builtin opcode and the builtin it runs, with the name that alone picks the opcode.
@@ -208,7 +210,6 @@ pub struct SSAChunk {
     pub functions: Vec<(Vec<String>, SSAChunk, u16, u16)>,
     pub phi_sources: Vec<(u16, u16)>,
     pub classes: Vec<SSAChunk>,
-    pub is_pure: bool,
     pub is_generator: bool,
     pub overflow: bool,
     pub prev_slots: Vec<Option<u16>>,

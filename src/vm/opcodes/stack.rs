@@ -140,9 +140,8 @@ impl<'a> VM<'a> {
                     _ => return Err(self.unbound_err(chunk, slot)),
                 }
             }
-            OpCode::Global | OpCode::Nonlocal => self.mark_impure(),
+            OpCode::Global | OpCode::Nonlocal => {}
             OpCode::Raise | OpCode::RaiseFrom => {
-                self.mark_impure();
                 // Bare `raise` (operand 1) re-raises the exception currently being handled.
                 if op == OpCode::Raise && operand == 1 {
                     let Some(&(exc, _)) = self.handling.last() else {

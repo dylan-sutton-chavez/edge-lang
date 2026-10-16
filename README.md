@@ -8,7 +8,7 @@
 
 <br/>
 
-Single-pass SSA compiler and tiered register VM for sandboxed Python, with NaN-boxed values, inline caches, memoization, mark-sweep GC and snapshots. One WebAssembly module runs in browsers, JavaScript runtimes and the CLI.
+Single-pass SSA compiler and tiered register VM for sandboxed Python, with NaN-boxed values, inline caches, mark-sweep GC and snapshots. One WebAssembly module runs in browsers, JavaScript runtimes and the CLI.
 
 - [Documentation](https://edgepython.com/docs/edge-python)
 - [Quick start](https://edgepython.com/docs/edge-python/get-started/quickstart)

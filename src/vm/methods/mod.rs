@@ -16,12 +16,11 @@ use alloc::string::String;
 
 pub type MethodFn = fn(&mut VM, Val, &[Val]) -> Result<(), VmErr>;
 
-/* Builtin-method descriptor table + dispatcher. Bodies live in per-type files (string/bytes/list/dict/set) as `pub fn`, arity is checked uniformly by the dispatcher and `mutating` calls are marked impure there, so bodies do neither. A descriptor is name + fn ptr + mutating flag + arity range. */
+/* Builtin-method descriptor table + dispatcher. Bodies live in per-type files (string/bytes/list/dict/set) as `pub fn`, arity is checked uniformly by the dispatcher, so bodies never check it. A descriptor is name + fn ptr + arity range. */
 pub struct MethodDesc {
     pub ty: &'static str, // receiver type ("str"/"bytes"/"list"/"dict"/"set"), drives lookup.
     pub name: &'static str,
     pub func: MethodFn,
-    pub mutating: bool,
     pub min_args: u8,
     pub max_args: u8, // 255 = unbounded (variadic).
     pub kind: MethodKind,
@@ -53,16 +52,14 @@ impl BuiltinMethodId {
     }
 }
 
-// Builds `ALL_METHODS` grouped by receiver type. `ro`/`rw` = read-only/mutating, `min..max` is the arity (max 255 = variadic).
+// Builds `ALL_METHODS` grouped by receiver type, `min..max` is the arity (max 255 = variadic).
 macro_rules! methods {
-    ( $( $ty:literal { $( $name:tt => $func:path, $m:ident, $min:literal .. $max:literal );* $(;)? } )* ) => {
+    ( $( $ty:literal { $( $name:tt => $func:path, $min:literal .. $max:literal );* $(;)? } )* ) => {
         &[ $( $( MethodDesc {
             ty: $ty, name: $name, func: $func,
-            mutating: methods!(@m $m), min_args: $min, max_args: $max, kind: methods!(@k $name),
+            min_args: $min, max_args: $max, kind: methods!(@k $name),
         } ),* ),* ]
     };
-    (@m ro) => { false };
-    (@m rw) => { true };
     (@k "sort") => { MethodKind::Sort }; (@k "format") => { MethodKind::Format }; (@k "format_map") => { MethodKind::Format };
     (@k "index") => { MethodKind::Search }; (@k "count") => { MethodKind::Search }; (@k "remove") => { MethodKind::Search };
     (@k "join") => { MethodKind::Iterates }; (@k "extend") => { MethodKind::Iterates }; (@k "update") => { MethodKind::Iterates };
@@ -76,185 +73,185 @@ macro_rules! methods {
 // Lookup keys on (ty, name) when compiled, so group however reads best.
 const METHODS: &[MethodDesc] = methods! {
     "str" {
-        "encode" => string::encode, ro, 0..1;
-        "upper" => string::upper, ro, 0..0;
-        "lower" => string::lower, ro, 0..0;
-        "strip" => string::strip, ro, 0..1;
-        "capitalize" => string::capitalize, ro, 0..0;
-        "title" => string::title, ro, 0..0;
-        "lstrip" => string::lstrip, ro, 0..1;
-        "rstrip" => string::rstrip, ro, 0..1;
-        "isdigit" => string::isdigit, ro, 0..0;
-        "isalpha" => string::isalpha, ro, 0..0;
-        "isalnum" => string::isalnum, ro, 0..0;
-        "startswith" => string::startswith, ro, 1..3;
-        "endswith" => string::endswith, ro, 1..3;
-        "find" => string::find, ro, 1..3;
-        "count" => string::count, ro, 1..3;
-        "split" => string::split, ro, 0..2;
-        "join" => string::join, ro, 1..1;
-        "replace" => string::replace, ro, 2..3;
-        "removeprefix" => string::removeprefix, ro, 1..1;
-        "removesuffix" => string::removesuffix, ro, 1..1;
-        "splitlines" => string::splitlines, ro, 0..1;
-        "partition" => string::partition, ro, 1..1;
-        "rpartition" => string::rpartition, ro, 1..1;
-        "center" => string::center, ro, 1..2;
-        "zfill" => string::zfill, ro, 1..1;
-        "rsplit" => string::rsplit, ro, 0..2;
-        "casefold" => string::casefold, ro, 0..0;
-        "swapcase" => string::swapcase, ro, 0..0;
-        "ljust" => string::ljust, ro, 1..2;
-        "rjust" => string::rjust, ro, 1..2;
-        "expandtabs" => string::expandtabs, ro, 0..1;
-        "rfind" => string::rfind, ro, 1..3;
-        "index" => string::index, ro, 1..3;
-        "rindex" => string::rindex, ro, 1..3;
-        "isspace" => string::isspace, ro, 0..0;
-        "isupper" => string::isupper, ro, 0..0;
-        "islower" => string::islower, ro, 0..0;
-        "istitle" => string::istitle, ro, 0..0;
-        "format" => framed, ro, 0..255;
+        "encode" => string::encode, 0..1;
+        "upper" => string::upper, 0..0;
+        "lower" => string::lower, 0..0;
+        "strip" => string::strip, 0..1;
+        "capitalize" => string::capitalize, 0..0;
+        "title" => string::title, 0..0;
+        "lstrip" => string::lstrip, 0..1;
+        "rstrip" => string::rstrip, 0..1;
+        "isdigit" => string::isdigit, 0..0;
+        "isalpha" => string::isalpha, 0..0;
+        "isalnum" => string::isalnum, 0..0;
+        "startswith" => string::startswith, 1..3;
+        "endswith" => string::endswith, 1..3;
+        "find" => string::find, 1..3;
+        "count" => string::count, 1..3;
+        "split" => string::split, 0..2;
+        "join" => string::join, 1..1;
+        "replace" => string::replace, 2..3;
+        "removeprefix" => string::removeprefix, 1..1;
+        "removesuffix" => string::removesuffix, 1..1;
+        "splitlines" => string::splitlines, 0..1;
+        "partition" => string::partition, 1..1;
+        "rpartition" => string::rpartition, 1..1;
+        "center" => string::center, 1..2;
+        "zfill" => string::zfill, 1..1;
+        "rsplit" => string::rsplit, 0..2;
+        "casefold" => string::casefold, 0..0;
+        "swapcase" => string::swapcase, 0..0;
+        "ljust" => string::ljust, 1..2;
+        "rjust" => string::rjust, 1..2;
+        "expandtabs" => string::expandtabs, 0..1;
+        "rfind" => string::rfind, 1..3;
+        "index" => string::index, 1..3;
+        "rindex" => string::rindex, 1..3;
+        "isspace" => string::isspace, 0..0;
+        "isupper" => string::isupper, 0..0;
+        "islower" => string::islower, 0..0;
+        "istitle" => string::istitle, 0..0;
+        "format" => framed, 0..255;
     }
     "bytes" {
-        "decode" => bytes::decode, ro, 0..2;
-        "hex" => bytes::hex, ro, 0..0;
-        "startswith" => bytes::startswith, ro, 1..3;
-        "endswith" => bytes::endswith, ro, 1..3;
-        "find" => bytes::find, ro, 1..3;
-        "index" => bytes::index, ro, 1..3;
-        "count" => bytes::count, ro, 1..3;
-        "replace" => bytes::replace, ro, 2..3;
-        "split" => bytes::split, ro, 0..2;
-        "lower" => bytes::lower, ro, 0..0;
-        "upper" => bytes::upper, ro, 0..0;
-        "strip" => bytes::strip, ro, 0..1;
-        "lstrip" => bytes::lstrip, ro, 0..1;
-        "rstrip" => bytes::rstrip, ro, 0..1;
-        "join" => bytes::join, ro, 1..1;
-        "fromhex" => bytes::fromhex, ro, 1..1;
+        "decode" => bytes::decode, 0..2;
+        "hex" => bytes::hex, 0..0;
+        "startswith" => bytes::startswith, 1..3;
+        "endswith" => bytes::endswith, 1..3;
+        "find" => bytes::find, 1..3;
+        "index" => bytes::index, 1..3;
+        "count" => bytes::count, 1..3;
+        "replace" => bytes::replace, 2..3;
+        "split" => bytes::split, 0..2;
+        "lower" => bytes::lower, 0..0;
+        "upper" => bytes::upper, 0..0;
+        "strip" => bytes::strip, 0..1;
+        "lstrip" => bytes::lstrip, 0..1;
+        "rstrip" => bytes::rstrip, 0..1;
+        "join" => bytes::join, 1..1;
+        "fromhex" => bytes::fromhex, 1..1;
     }
     "list" {
-        "__init__" => list::init, rw, 0..1;
-        "__getitem__" => object::container_getitem, ro, 1..1;
-        "__setitem__" => object::container_setitem, rw, 2..2;
-        "__len__" => object::container_len, ro, 0..0;
-        "index" => list::index, ro, 1..3;
-        "count" => list::count, ro, 1..1;
-        "copy" => list::copy, ro, 0..0;
-        "append" => list::append, rw, 1..1;
-        "clear" => list::clear, rw, 0..0;
-        "reverse" => list::reverse, rw, 0..0;
-        "extend" => list::extend, rw, 1..1;
-        "insert" => list::insert, rw, 2..2;
-        "remove" => list::remove, rw, 1..1;
-        "pop" => list::pop, rw, 0..1;
-        "sort" => framed, rw, 0..0;
+        "__init__" => list::init, 0..1;
+        "__getitem__" => object::container_getitem, 1..1;
+        "__setitem__" => object::container_setitem, 2..2;
+        "__len__" => object::container_len, 0..0;
+        "index" => list::index, 1..3;
+        "count" => list::count, 1..1;
+        "copy" => list::copy, 0..0;
+        "append" => list::append, 1..1;
+        "clear" => list::clear, 0..0;
+        "reverse" => list::reverse, 0..0;
+        "extend" => list::extend, 1..1;
+        "insert" => list::insert, 2..2;
+        "remove" => list::remove, 1..1;
+        "pop" => list::pop, 0..1;
+        "sort" => framed, 0..0;
     }
     "dict" {
-        "__init__" => dict::update, rw, 0..1;
-        "__getitem__" => object::container_getitem, ro, 1..1;
-        "__setitem__" => object::container_setitem, rw, 2..2;
-        "__len__" => object::container_len, ro, 0..0;
-        "keys" => dict::keys, ro, 0..0;
-        "values" => dict::values, ro, 0..0;
-        "items" => dict::items, ro, 0..0;
-        "copy" => dict::copy, ro, 0..0;
-        "popitem" => dict::popitem, rw, 0..0;
-        "get" => dict::get, ro, 1..2;
-        "update" => dict::update, rw, 0..1;
-        "pop" => dict::pop, rw, 1..2;
-        "setdefault" => dict::setdefault, rw, 1..2;
-        "fromkeys" => dict::fromkeys, ro, 1..2;
+        "__init__" => dict::update, 0..1;
+        "__getitem__" => object::container_getitem, 1..1;
+        "__setitem__" => object::container_setitem, 2..2;
+        "__len__" => object::container_len, 0..0;
+        "keys" => dict::keys, 0..0;
+        "values" => dict::values, 0..0;
+        "items" => dict::items, 0..0;
+        "copy" => dict::copy, 0..0;
+        "popitem" => dict::popitem, 0..0;
+        "get" => dict::get, 1..2;
+        "update" => dict::update, 0..1;
+        "pop" => dict::pop, 1..2;
+        "setdefault" => dict::setdefault, 1..2;
+        "fromkeys" => dict::fromkeys, 1..2;
     }
     "set" {
-        "add" => set::add, rw, 1..1;
-        "remove" => set::remove, rw, 1..1;
-        "discard" => set::discard, rw, 1..1;
-        "pop" => set::pop, rw, 0..0;
-        "clear" => set::clear, rw, 0..0;
-        "update" => set::update, rw, 0..255;
-        "copy" => set::copy, ro, 0..0;
-        "union" => set::union, ro, 0..255;
-        "intersection" => set::intersection, ro, 0..255;
-        "difference" => set::difference, ro, 0..255;
-        "symmetric_difference" => set::symmetric_difference, ro, 1..1;
-        "intersection_update" => set::intersection_update, rw, 0..255;
-        "difference_update" => set::difference_update, rw, 0..255;
-        "symmetric_difference_update" => set::symmetric_difference_update, rw, 1..1;
-        "issubset" => set::issubset, ro, 1..1;
-        "issuperset" => set::issuperset, ro, 1..1;
-        "isdisjoint" => set::isdisjoint, ro, 1..1;
+        "add" => set::add, 1..1;
+        "remove" => set::remove, 1..1;
+        "discard" => set::discard, 1..1;
+        "pop" => set::pop, 0..0;
+        "clear" => set::clear, 0..0;
+        "update" => set::update, 0..255;
+        "copy" => set::copy, 0..0;
+        "union" => set::union, 0..255;
+        "intersection" => set::intersection, 0..255;
+        "difference" => set::difference, 0..255;
+        "symmetric_difference" => set::symmetric_difference, 1..1;
+        "intersection_update" => set::intersection_update, 0..255;
+        "difference_update" => set::difference_update, 0..255;
+        "symmetric_difference_update" => set::symmetric_difference_update, 1..1;
+        "issubset" => set::issubset, 1..1;
+        "issuperset" => set::issuperset, 1..1;
+        "isdisjoint" => set::isdisjoint, 1..1;
     }
     "int" {
-        "bit_length" => numeric::bit_length, ro, 0..0;
-        "bit_count" => numeric::bit_count, ro, 0..0;
-        "to_bytes" => numeric::to_bytes, ro, 0..2;
-        "from_bytes" => numeric::from_bytes, ro, 1..2;
+        "bit_length" => numeric::bit_length, 0..0;
+        "bit_count" => numeric::bit_count, 0..0;
+        "to_bytes" => numeric::to_bytes, 0..2;
+        "from_bytes" => numeric::from_bytes, 1..2;
     }
     "float" {
-        "is_integer" => numeric::is_integer, ro, 0..0;
+        "is_integer" => numeric::is_integer, 0..0;
     }
     // Appended groups, keep snapshot method ids stable.
     "dict" {
-        "clear" => dict::clear, rw, 0..0;
+        "clear" => dict::clear, 0..0;
     }
     "slice" {
-        "indices" => slice::indices, ro, 1..1;
+        "indices" => slice::indices, 1..1;
     }
     "range" {
-        "index" => object::range_index, ro, 1..1;
-        "count" => object::range_count, ro, 1..1;
+        "index" => object::range_index, 1..1;
+        "count" => object::range_count, 1..1;
     }
     "BaseException" {
-        "__init__" => object::exc_init, rw, 0..255;
-        "__str__" => object::exc_str, ro, 0..0;
+        "__init__" => object::exc_init, 0..255;
+        "__str__" => object::exc_str, 0..0;
     }
     "iterator" {
-        "__next__" => object::iter_next, rw, 0..0;
-        "__iter__" => object::iter_self, ro, 0..0;
+        "__next__" => object::iter_next, 0..0;
+        "__iter__" => object::iter_self, 0..0;
     }
     "dict_keys" {
-        "isdisjoint" => dict::view_isdisjoint, ro, 1..1;
+        "isdisjoint" => dict::view_isdisjoint, 1..1;
     }
     "dict_items" {
-        "isdisjoint" => dict::view_isdisjoint, ro, 1..1;
+        "isdisjoint" => dict::view_isdisjoint, 1..1;
     }
     "tuple" {
-        "index" => list::index, ro, 1..3;
-        "count" => list::count, ro, 1..1;
+        "index" => list::index, 1..3;
+        "count" => list::count, 1..1;
     }
     "str" {
-        "format_map" => framed, ro, 1..1;
+        "format_map" => framed, 1..1;
     }
     "BaseException" {
-        "add_note" => object::exc_add_note, rw, 1..1;
+        "add_note" => object::exc_add_note, 1..1;
     }
     "generator" {
-        "send" => framed, rw, 1..1;
-        "throw" => framed, rw, 1..3;
-        "close" => framed, rw, 0..0;
-        "__next__" => framed, rw, 0..0;
-        "__iter__" => framed, ro, 0..0;
+        "send" => framed, 1..1;
+        "throw" => framed, 1..3;
+        "close" => framed, 0..0;
+        "__next__" => framed, 0..0;
+        "__iter__" => framed, 0..0;
     }
     // Dunders of builtin values, which `operator::applies` allows by the type of the receiver.
     "op" {
-        "__add__" => framed, ro, 1..1; "__radd__" => framed, ro, 1..1; "__sub__" => framed, ro, 1..1; "__rsub__" => framed, ro, 1..1;
-        "__mul__" => framed, ro, 1..1; "__rmul__" => framed, ro, 1..1; "__truediv__" => framed, ro, 1..1; "__rtruediv__" => framed, ro, 1..1;
-        "__floordiv__" => framed, ro, 1..1; "__rfloordiv__" => framed, ro, 1..1; "__mod__" => framed, ro, 1..1; "__rmod__" => framed, ro, 1..1;
-        "__rpow__" => framed, ro, 1..1; "__and__" => framed, ro, 1..1; "__rand__" => framed, ro, 1..1; "__or__" => framed, ro, 1..1;
-        "__ror__" => framed, ro, 1..1; "__xor__" => framed, ro, 1..1; "__rxor__" => framed, ro, 1..1; "__lshift__" => framed, ro, 1..1;
-        "__rlshift__" => framed, ro, 1..1; "__rshift__" => framed, ro, 1..1; "__rrshift__" => framed, ro, 1..1; "__divmod__" => framed, ro, 1..1;
-        "__rdivmod__" => framed, ro, 1..1; "__eq__" => framed, ro, 1..1; "__ne__" => framed, ro, 1..1; "__lt__" => framed, ro, 1..1;
-        "__le__" => framed, ro, 1..1; "__gt__" => framed, ro, 1..1; "__ge__" => framed, ro, 1..1; "__contains__" => framed, ro, 1..1;
-        "__getitem__" => framed, ro, 1..1; "__format__" => framed, ro, 1..1;
-        "__pow__" => framed, ro, 1..2;
-        "__round__" => framed, ro, 0..1;
-        "__neg__" => framed, ro, 0..0; "__pos__" => framed, ro, 0..0; "__abs__" => framed, ro, 0..0; "__invert__" => framed, ro, 0..0;
-        "__bool__" => framed, ro, 0..0; "__int__" => framed, ro, 0..0; "__float__" => framed, ro, 0..0; "__index__" => framed, ro, 0..0;
-        "__hash__" => framed, ro, 0..0; "__repr__" => framed, ro, 0..0; "__str__" => framed, ro, 0..0; "__len__" => framed, ro, 0..0;
-        "__iter__" => framed, ro, 0..0; "__trunc__" => framed, ro, 0..0; "__floor__" => framed, ro, 0..0; "__ceil__" => framed, ro, 0..0;
-        "conjugate" => framed, ro, 0..0;
+        "__add__" => framed, 1..1; "__radd__" => framed, 1..1; "__sub__" => framed, 1..1; "__rsub__" => framed, 1..1;
+        "__mul__" => framed, 1..1; "__rmul__" => framed, 1..1; "__truediv__" => framed, 1..1; "__rtruediv__" => framed, 1..1;
+        "__floordiv__" => framed, 1..1; "__rfloordiv__" => framed, 1..1; "__mod__" => framed, 1..1; "__rmod__" => framed, 1..1;
+        "__rpow__" => framed, 1..1; "__and__" => framed, 1..1; "__rand__" => framed, 1..1; "__or__" => framed, 1..1;
+        "__ror__" => framed, 1..1; "__xor__" => framed, 1..1; "__rxor__" => framed, 1..1; "__lshift__" => framed, 1..1;
+        "__rlshift__" => framed, 1..1; "__rshift__" => framed, 1..1; "__rrshift__" => framed, 1..1; "__divmod__" => framed, 1..1;
+        "__rdivmod__" => framed, 1..1; "__eq__" => framed, 1..1; "__ne__" => framed, 1..1; "__lt__" => framed, 1..1;
+        "__le__" => framed, 1..1; "__gt__" => framed, 1..1; "__ge__" => framed, 1..1; "__contains__" => framed, 1..1;
+        "__getitem__" => framed, 1..1; "__format__" => framed, 1..1;
+        "__pow__" => framed, 1..2;
+        "__round__" => framed, 0..1;
+        "__neg__" => framed, 0..0; "__pos__" => framed, 0..0; "__abs__" => framed, 0..0; "__invert__" => framed, 0..0;
+        "__bool__" => framed, 0..0; "__int__" => framed, 0..0; "__float__" => framed, 0..0; "__index__" => framed, 0..0;
+        "__hash__" => framed, 0..0; "__repr__" => framed, 0..0; "__str__" => framed, 0..0; "__len__" => framed, 0..0;
+        "__iter__" => framed, 0..0; "__trunc__" => framed, 0..0; "__floor__" => framed, 0..0; "__ceil__" => framed, 0..0;
+        "conjugate" => framed, 0..0;
     }
 };
 pub static ALL_METHODS: &[MethodDesc] = METHODS;
@@ -309,9 +306,7 @@ pub(in crate::vm) fn dispatch_method(vm: &mut VM, id: BuiltinMethodId, recv: Val
                 let mut p = alloc::vec::Vec::with_capacity(pos.len() + 1);
                 p.extend_from_slice(pos);
                 p.push(kwd);
-                let result = (m.func)(vm, recv, &p);
-                if result.is_ok() { vm.mark_impure(); }
-                return result;
+                return (m.func)(vm, recv, &p);
             }
 
         return Err(VmErr::TypeMsg(s!(str m.ty, ".", str m.name, "() takes no keyword arguments")));
@@ -320,20 +315,15 @@ pub(in crate::vm) fn dispatch_method(vm: &mut VM, id: BuiltinMethodId, recv: Val
     if n < m.min_args as usize || (m.max_args != 255 && n > m.max_args as usize) {
         return Err(arity_error(m, n));
     }
-    let result = (m.func)(vm, recv, pos);
-    if m.mutating && result.is_ok() {
-        vm.mark_impure();
-    }
-    result
+    (m.func)(vm, recv, pos)
 }
 
-/* The arity check and impurity mark `dispatch_method` applies, for a method the VM runs itself. */
-pub(crate) fn method_frame(vm: &mut VM, id: BuiltinMethodId, n: usize) -> Result<(), VmErr> {
+/* The arity check `dispatch_method` applies, for a method the VM runs itself. */
+pub(crate) fn method_arity(id: BuiltinMethodId, n: usize) -> Result<(), VmErr> {
     let m = &ALL_METHODS[id.0 as usize];
     if n < m.min_args as usize || (m.max_args != 255 && n > m.max_args as usize) {
         return Err(arity_error(m, n));
     }
-    if m.mutating { vm.mark_impure(); }
     Ok(())
 }
 

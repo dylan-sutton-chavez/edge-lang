@@ -239,7 +239,6 @@ impl<'a> VM<'a> {
             _ => return Err(cold_type("sort: receiver is not a list")),
         };
         *rc.borrow_mut() = result;
-        self.mark_impure();
         self.push(Val::none());
         Ok(())
     }

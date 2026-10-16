@@ -234,8 +234,6 @@ impl<'a> VM<'a> {
             if ran.is_ok() { self.keep_scratch(at, scratch)?; }
         }
         if let (Some(g), Some(m), true) = (globals, owner, ran.is_ok()) { self.sync_dict(g, m, None)?; }
-        // A run may have rebound any name a cached result read.
-        self.templates.clear();
         let value = ran?;
         if mode == CodeMode::Single && !value.is_none() {
             let shown = self.repr_op(value, caller)?;

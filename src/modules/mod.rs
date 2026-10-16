@@ -18,13 +18,13 @@ pub type ExternFnPlain = fn(&mut HeapPool, &[Val], Option<Val>) -> Result<Val, V
 /* Arc-wrapped callable for EdgePython natives, supports stateful loaders. */
 pub type ExternFnPtr = crate::value::ExternCallable;
 
-/* A native binding is the extern a call site binds, `pure` lets the VM memoize it. */
+/* A native binding is the extern a call site binds. */
 pub type NativeBinding = crate::value::ExternFn;
 
 impl NativeBinding {
     /* Convenience constructor wrapping a plain fn pointer into an Arc for hand-written Rust natives. */
-    pub fn from_fn(name: impl Into<String>, func: ExternFnPlain, pure: bool) -> Self {
-        Self { name: name.into(), func: Arc::new(func), pure }
+    pub fn from_fn(name: impl Into<String>, func: ExternFnPlain) -> Self {
+        Self { name: name.into(), func: Arc::new(func) }
     }
 }
 

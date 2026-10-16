@@ -11,7 +11,7 @@ use super::{Pending, VM};
 use super::types::*;
 
 const MAGIC: u32 = 0x4E53_5045;
-const FORMAT: u32 = 16;
+const FORMAT: u32 = 17;
 // A SHA-256 of everything before it closes each blob, so a damaged one never restores.
 const SEAL: usize = 32;
 
@@ -568,7 +568,6 @@ vm_state! {
     event_queue: vals,
     scopes: [put_globals, get_globals],
     module_table: (put_map, get_map),
-    observed_impure: [boolean],
     is_async: [boolean], // Filled by MakeCoroutine, not chunk-derivable.
     exception_stack: [put_exc_frame, get_exc_frame],
     unwind_stack: [put_unwind, get_unwind],

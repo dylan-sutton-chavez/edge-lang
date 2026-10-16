@@ -67,7 +67,7 @@ pub struct Kind {
     pub type_name: &'static str,
     // Values of different families never compare equal, so their hashes need not agree.
     pub family: &'static str,
-    // An immutable value may be copied, shared or memoized freely, its identity never observed.
+    // An immutable value may be copied or shared freely, its identity never observed.
     pub immutable: bool,
     pub repr: fn(&dyn Any) -> Result<String, VmErr>,
     pub truthy: fn(&dyn Any) -> bool,

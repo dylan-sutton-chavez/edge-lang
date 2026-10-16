@@ -76,8 +76,6 @@ impl<'a> VM<'a> {
             }
             _ => return Err(cold_type("delattr() target must be an instance or class")),
         };
-        // A cached result may have read a function attribute.
-        if matches!(self.heap.get(obj), HeapObj::Func(..)) { self.templates.clear(); }
         if removed { return Ok(()); }
         Err(VmErr::Attribute(match self.heap.get(obj) {
             HeapObj::Class(n, ..) => s!("type object '", str n, "' has no attribute '", str name, "'"),

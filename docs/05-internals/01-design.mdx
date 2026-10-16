@@ -26,33 +26,10 @@ This page covers the parts that span the pipeline. Tokens, parsing and bytecode 
 
 - **Register dispatch.** Each chunk lowers to instructions that name frame slots directly. The hot loop is a flat `match` that Rust lowers to a jump table. Opcodes without a register form run as stack opcodes.
 - **One register stack.** Every running frame is a window of one stack, from its base to the next frame. A call opens its callee on top, and an error builds the traceback frames only as it unwinds.
-- **Inline tag checks and caches.** Register arithmetic and comparisons test the NaN-box tags of both operands inline and take the generic handler for any other type. Attribute loads, stores, method calls and operator dunders cache the field index, method or builtin they last resolved, and a plain call caches the function it opened as a frame. A class change or a collection invalidates them, while a field load checks that the entry still holds its name and its hash. Caching is per instruction. Each monomorphic site stabilises on its own.
-- **Template memoisation.** A pure user function caches `args -> result`. The rules are in [Template memoisation](#template-memoisation).
+- **Inline tag checks and caches.** Register arithmetic and comparisons test the NaN-box tags of both operands inline and take the generic handler for any other type. Attribute loads, stores, method calls and operator dunders cache the field index, method or builtin they last resolved. A call caches the function or the class it opened as a frame. An instance dict carries a shape, an id for its exact keys in order while it only ever gained keys, so a field load or a new attribute checks one number. Any other change to the dict drops its shape, and the sites fall back to checking the name and hash of the entry. A class change or a collection invalidates the caches. Caching is per instruction. Each monomorphic site stabilises on its own.
 - **Static scopes.** The names of each function resolve once before anything runs. A name an enclosing function binds becomes a shared `HeapObj::Cell`. The cell is wrapped when that function is called and captured by the definition. Closures observe the `nonlocal` writes of each other. Every other free name reads the binding table of its module by a fixed index. The builtins answer while that binding is unbound.
 - **NaN-boxed values.** `Val` is a 64-bit union. It holds 48-bit signed ints inline, IEEE-754 floats, bools, None, an undef sentinel, and 28-bit heap indices. See [Memory model](#memory-model).
 - **Mark-and-sweep GC.** Single-colour, with no reference counts. Cycles are reclaimed natively.
-
-### Template memoisation
-
-A pure user function caches `args -> result` from the second run of a key.
-
-- A table holds up to 256 entries. It is dropped after 256 misses in a row.
-- A call qualifies when it has no keywords and no captures.
-- Its arguments, defaults and result must be immutable all the way down. Functions and bound methods count as mutable.
-- Its free names must be unable to change. Such a name is a builtin the program never binds, the function itself, or a top-level name bound once that no class or other module binds. That top-level name must hold an immutable value or a qualifying function.
-- A function with defaults keys on itself.
-
-A function stops memoising in these cases.
-
-- It has attributes.
-- It takes a mutable argument or returns a mutable result before any entry exists.
-- It reads a free name that can change.
-
-A `global` store, a module-level `del`, a function attribute write, or binding a builtin clears every table.
-
-Purity is static, as [Compiler](/docs/edge-python/internals/compiler#functions) describes, plus a runtime check that propagates effects through calls.
-
-A pure wrapper over an impure callee, such as `apply(print, x)`, is never cached. Keys hash strings, bytes and tuples by content and compare strictly. `1`, `1.0` and `True` stay apart.
 
 ## Dispatch shape
 
@@ -63,7 +40,7 @@ The first call of a chunk runs the code the compiler wrote. Its second call, or 
 - A compare that feeds a branch becomes one compare-and-jump.
 - Lowering runs once per chunk, and every frame of the chunk shares its caches.
 
-A plain call, and a constructor whose `__init__` takes plain parameters, opens its frame on the frame stack of the running loop without leaving it, and its return hands the loop back to the caller, so Python recursion never recurses in Rust. Its site remembers the function, and the next call of that function there opens the frame without the checks. `CallR` reads a callee and up to two positionals from registers, `CallMethodR` a receiver and at most one, and the result goes straight to the register that stores it. A memoized call that finds its kept result answers without a frame. A call that a builtin, a dunder or a resumed coroutine makes, or one into code not lowered yet, nests a loop of its own. A frame that suspends becomes a sync frame of its coroutine, which resumes it in place.
+A plain call, a method call and a constructor whose `__init__` takes plain parameters open their frame on the frame stack of the running loop without leaving it, and a return hands the loop back to the caller, so Python recursion never recurses in Rust. The call site remembers the function, method or class, so the next call there copies the arguments into the new frame, fills defaults and captured cells, and runs on in the same loop. A plain return pops the frame in that loop too. `CallR` reads a callee and up to five positionals from registers, `CallMethodR` a receiver and up to four, and past the first two the operands sit in an `ArgsR` after the call. The result goes straight to the register that stores it, and a builtin method takes its arguments straight from the registers. A call that a builtin, a dunder or a resumed coroutine makes, or one into code not lowered yet, nests a loop of its own. A frame that suspends becomes a sync frame of its coroutine, which resumes it in place.
 
 Register forms keep int and float math inline. Stack arith and compare opcodes try the same numeric path in `exec_arith_or_compare` before the generic handler.
 
@@ -150,7 +127,7 @@ The roots are these.
 - The register stack, which holds every running frame, and slot templates.
 - Module binding tables, and cells around class bodies.
 - Parked scheduler coroutines and iterator frames.
-- Chunk constant pools, inline-cache values, and memoisation entries.
+- Chunk constant pools and inline-cache values.
 
 ## Coroutine dispatch
 
@@ -197,7 +174,7 @@ Restore runs in two passes, because hashing reads the heap.
 1. Every slot is materialised. Sets and frozensets land empty.
 2. A rehash pass rebuilds the dict indexes and fills the sets. `rebuild_mro` recomputes the linearization of each class.
 
-Inline caches and memoisation tables start empty and warm lazily. `Extern` handles resolve by name against the extern table of the re-parsed chunk.
+Inline caches start empty and warm lazily. `Extern` handles resolve by name against the extern table of the re-parsed chunk.
 
 Host-side resources such as in-flight host calls and DOM handles are not part of the snapshot. `state_globals` and `state_stack` inspect a parked run without resuming it. The feature as a program sees it is in [Snapshots](/docs/edge-python/language/snapshots).
 
@@ -205,7 +182,7 @@ A coverage-guided fuzzer drives the lexer, the parser, the VM and this snapshot 
 
 ## What the compiler intentionally does not do
 
-- No SSA-wide constant propagation through `LoadName`. The names stay. That keeps the inline cache, fusion and memoisation paths fast.
+- No SSA-wide constant propagation through `LoadName`. The names stay. That keeps the inline cache and fusion paths fast.
 - No CSE, GVN, LICM, inlining, branch DCE, or loop folding. The optimiser does constant folding, phi-noop elimination, and dead-instruction compaction with jump-operand remap.
 - No JIT. A method JIT needs stencils per architecture, and a tracing JIT duplicates the execution model and complicates the GC.
 - No runtime module system. Imports resolve at parse time through a resolver the host injects. See [Modules](/docs/edge-python/reference/modules).
@@ -220,7 +197,6 @@ A coverage-guided fuzzer drives the lexer, the parser, the VM and this snapshot 
 4. Ierusalimschy, de Figueiredo & Celes. *The Implementation of Lua 5.0* (Journal of Universal Computer Science 2005). Register frames on one stack.
 5. Casey et al. *Towards Superinstructions for Java Interpreters* (SCOPES 2003). LoadAttr+Call fusion.
 6. McKeeman. *Peephole Optimization* (CACM 1965). Constant folding.
-7. Michie. *Memo Functions and Machine Learning* (Nature 1968). Pure-function memoization.
-8. McCarthy. *Recursive Functions of Symbolic Expressions* (CACM 1960). Mark-sweep GC.
-9. Karatsuba & Ofman. *Multiplication of Many-Digital Numbers by Automatic Computers* (Doklady Akademii Nauk SSSR 1962). Wide int multiplication.
-10. Knuth. *The Art of Computer Programming, Volume 2: Seminumerical Algorithms* (3rd ed. 1997), §4.3.1 Algorithm D. Wide int division.
+7. McCarthy. *Recursive Functions of Symbolic Expressions* (CACM 1960). Mark-sweep GC.
+8. Karatsuba & Ofman. *Multiplication of Many-Digital Numbers by Automatic Computers* (Doklady Akademii Nauk SSSR 1962). Wide int multiplication.
+9. Knuth. *The Art of Computer Programming, Volume 2: Seminumerical Algorithms* (3rd ed. 1997), §4.3.1 Algorithm D. Wide int division.

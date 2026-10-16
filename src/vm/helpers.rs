@@ -283,13 +283,13 @@ impl<'a> VM<'a> {
         Ok(())
     }
 
-    /* Pick the first defined Phi source, if both are undef fall back to None. */
+    /* Pick the first defined Phi source, the slot stays unbound when neither is. */
     pub(crate) fn exec_phi(&mut self, op: u16, rip: usize, phi_map: &[usize], phi_sources: &[(u16, u16)]) {
         // Parse recovery can leave a Phi indexing past the frame (sized to names.len()), index defensively.
         let Some(&(ia, ib)) = phi_map.get(rip).and_then(|&pi| phi_sources.get(pi)) else { return };
         let a = self.regs.get(self.base + ia as usize).copied().unwrap_or_else(Val::undef);
         let val = if !a.is_undef() { a }
-        else { let b = self.regs.get(self.base + ib as usize).copied().unwrap_or_else(Val::undef); if !b.is_undef() { b } else { Val::none() } };
+        else { self.regs.get(self.base + ib as usize).copied().unwrap_or_else(Val::undef) };
         if let Some(dst) = self.regs.get_mut(self.base + op as usize) { *dst = val; }
     }
 }

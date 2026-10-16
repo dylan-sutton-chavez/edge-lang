@@ -228,7 +228,7 @@ fn make_native_binding(name: String, id: u32, module: Arc<str>) -> NativeBinding
         let call_id = with_vm(|vm| vm.next_host_call_id as u32).unwrap_or(0);
         call_host(id, call_id, &module, args, kwargs)
     };
-    NativeBinding { name, func: Arc::new(closure), pure: false }
+    NativeBinding { name, func: Arc::new(closure) }
 }
 
 /* A system module answers only code of the package that imported it, whoever else holds the object. */

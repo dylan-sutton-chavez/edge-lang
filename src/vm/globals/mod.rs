@@ -1,5 +1,3 @@
-use super::VM;
-
 pub mod async_ops;
 pub mod attr;
 pub mod bytes_helpers;
@@ -38,15 +36,6 @@ pub(in crate::vm) fn matches_exc_class(actual: &str, expected: &str) -> bool {
         match exc_parent(cur) {
             Some(p) => cur = p,
             None => return false,
-        }
-    }
-}
-
-impl<'a> VM<'a> {
-    #[inline]
-    pub(in crate::vm) fn mark_impure(&mut self) {
-        if let Some(top) = self.observed_impure.last_mut() {
-            *top = true;
         }
     }
 }

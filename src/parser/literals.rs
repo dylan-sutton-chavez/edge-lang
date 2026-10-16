@@ -748,20 +748,6 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             body = self.with_fresh_chunk(|s| { s.unfused.extend(late.iter().cloned()); s.body_of(params); });
             self.late.insert(restart.pos, late);
         }
-        body.is_pure = !body.instructions.iter().any(|i| matches!(
-            i.opcode,
-            OpCode::CallPrint
-            | OpCode::StoreItem
-            | OpCode::DelItem
-            | OpCode::DelAttr
-            | OpCode::StoreAttr
-            | OpCode::CallInput
-            | OpCode::Global
-            | OpCode::Nonlocal
-            | OpCode::Raise
-            | OpCode::RaiseFrom
-            | OpCode::Yield
-        ));
         // Pre-compute is_generator to avoid O(n) scan per `exec_call`.
         body.is_generator = body.instructions.iter().any(|i| matches!(
             i.opcode,

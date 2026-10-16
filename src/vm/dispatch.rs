@@ -8,7 +8,7 @@ use super::{ExceptionFrame, VM};
 use super::types::*;
 use super::cache::OpcodeCache;
 use super::sites::Site;
-use super::lower::{Code, Ins, STORE_NOTES_BUILTIN, STORE_VOIDS_CACHE};
+use super::lower::{self, Code, Ins, STORE_NOTES_BUILTIN};
 use super::scope::Kind;
 use super::opcodes::{attr_lookup::AttrLookup, function::{Args, Passed}};
 use super::registers::{int_add, int_sub, int_mul, int_mod, int_div, int_floordiv, float_div, int_bits, numeric_binop};
@@ -215,7 +215,7 @@ impl<'a> VM<'a> {
                         step
                     } else {
                         // Only what the register loop runs enters it, and a call or return it ran in place can leave another frame running.
-                        if code.ins.get(ip).is_some_and(|i| in_regs(i.op)) && self.run_frames(code, cache, chunk, &mut ip, &floor_at) {
+                        if code.ins.get(ip).is_some_and(|i| in_regs(i.op)) && self.run_frames(code, chunk, &mut ip, &floor_at) {
                             load!();
                             // SAFETY as above.
                             (code, chunk) = unsafe { (&*cur, &*at) };
@@ -521,12 +521,16 @@ impl<'a> VM<'a> {
         }
     }
 
-    /* Runs register forms of one frame from `ip` until one needs its handler or a call or return changes the frame. */
+    /* Runs register forms from `ip` until one needs its handler, entering and leaving plain frames in place, true when it switched frames. */
     #[inline(always)]
-    fn run_regs(&mut self, code: &Code, cache: &OpcodeCache, chunk: &SSAChunk, ip: &mut usize) {
-        let n = code.ins.len();
+    fn run_regs<'c>(&mut self, code_at: &mut &'c Code, chunk_at: &mut &'c SSAChunk, ip: &mut usize, floor: &Floor) -> bool {
+        let (mut code, mut chunk, mut switched) = (*code_at, *chunk_at, false);
+        let mut cache = &code.cache;
+        // The running code as a local slice, taken again when a call or return switches frames.
+        let mut prog: &[Ins] = &code.ins;
+        let mut n = prog.len();
         let mut i = *ip;
-        let base = self.base;
+        let mut base = self.base;
         // The frame as a local slice, taken again only after a call that may grow the stack.
         let mut r = &mut self.regs[base..];
         macro_rules! arith {
@@ -567,7 +571,7 @@ impl<'a> VM<'a> {
                 branch!($ins, holds)
             }};
         }
-        while let Some(&ins) = code.ins.get(i) {
+        while let Some(&ins) = prog.get(i) {
             match ins.op {
                 OpCode::AddR | OpCode::InPlaceAddR => arith!(ins, int_add, |a: f64, b: f64| Some(Val::float(a + b))),
                 OpCode::SubR | OpCode::InPlaceSubR => arith!(ins, int_sub, |a: f64, b: f64| Some(Val::float(a - b))),
@@ -665,7 +669,6 @@ impl<'a> VM<'a> {
                     let Some(j) = index_of(k.as_int(), b.len()) else { break };
                     b[j] = r[ins.c as usize];
                     drop(b);
-                    self.mark_impure();
                     r = &mut self.regs[base..];
                     i += 1;
                 }
@@ -702,22 +705,20 @@ impl<'a> VM<'a> {
                 }
                 OpCode::GetAttrR => {
                     let (site, o) = (cache.site(i), r[ins.b as usize]);
-                    let v = match self.site_get(site, o) {
+                    let v = match super::sites::site_value(&self.heap, self.class_epoch, site, o) {
                         Some(v) => v,
                         // A builtin type's method binds its receiver, the same bound object each time.
-                        None => match self.site_builtin(site, o) {
+                        None => match super::sites::site_method_id(&self.heap, site, o) {
                             Some(id) => match self.heap.alloc(HeapObj::BoundMethod(o, id)) { Ok(v) => v, Err(_) => break },
                             None => break,
                         },
                     };
-                    r = &mut self.regs[base..];
                     r[ins.a as usize] = v;
                     i += 1;
                 }
                 OpCode::SetAttrR => {
                     let (o, v) = (r[ins.a as usize], r[ins.b as usize]);
-                    if v.is_undef() || !self.site_store(cache.site(i), o, v) { break; }
-                    r = &mut self.regs[base..];
+                    if v.is_undef() || !super::sites::site_put(&self.heap, self.class_epoch, cache.site(i), o, v) { break; }
                     i += 1;
                 }
                 // A back-edge costs two steps, and only its handler collects or preempts.
@@ -747,8 +748,51 @@ impl<'a> VM<'a> {
                     r = &mut self.regs[base..];
                     i += 1;
                 }
+                // A call its site knows opens its frame and runs on here, any other leaves aside.
+                OpCode::CallR | OpCode::CallMethodR => {
+                    let opened = match cache.site(i) {
+                        Site::Call { callee, fi } if ins.op == OpCode::CallR && r[ins.a as usize].0 == callee.0 => {
+                            if lower::wide(ins) { self.enter_wide(i, code, chunk, fi as usize, callee) }
+                            else { let args = [r[ins.b as usize], r[ins.c as usize]]; self.enter_site(i, code, fi as usize, callee, &args[..ins.x as usize]) }
+                        }
+                        site @ Site::Ctor { class, .. } if ins.op == OpCode::CallR && r[ins.a as usize].0 == class.0 && !lower::wide(ins) => {
+                            let passed = [r[ins.b as usize], r[ins.c as usize]];
+                            self.enter_ctor(i, code, site, passed, ins.x as usize)
+                        }
+                        Site::Method { .. } if ins.op == OpCode::CallMethodR => {
+                            if lower::wide(ins) { self.enter_wide(i, code, chunk, 0, Val::undef()) }
+                            else { let args = [r[ins.b as usize], r[ins.c as usize]]; self.enter_method(i, code, chunk, ins.a, &args[..ins.x as usize + 1]) }
+                        }
+                        _ => None,
+                    };
+                    match opened {
+                        Some((c, k)) => {
+                            // SAFETY the callee code lives in its pool and its chunk as long as the VM.
+                            (code, chunk) = unsafe { (&*c, &*k) };
+                            (cache, prog, base, switched) = (&code.cache, &code.ins, self.base, true);
+                            n = prog.len();
+                            i = code.lowered(0);
+                        }
+                        None => match self.call_aside(ins, i, code, chunk) {
+                            Some(next) => { i = next; if self.yielded { break; } }
+                            None => break,
+                        },
+                    }
+                    r = &mut self.regs[base..];
+                }
+                // A plain return to a frame of this loop carries on in the caller.
+                OpCode::ReturnR if self.frames.len() > floor.depth => {
+                    let v = r[ins.b as usize];
+                    let Some((c, k, next)) = self.leave_site(v, floor.code, floor.chunk, floor.base, floor.depth) else { break };
+                    // SAFETY the caller runs code its pool or the floor keeps, and every chunk outlives the run.
+                    (code, chunk) = unsafe { (&*c, &*k) };
+                    (cache, prog, base, switched) = (&code.cache, &code.ins, self.base, true);
+                    n = prog.len();
+                    r = &mut self.regs[base..];
+                    i = next;
+                }
                 // Calls stay in this loop, leaving when one fails or parks its callee.
-                OpCode::Call | OpCode::CallMethod | OpCode::CallR | OpCode::CallMethodR => match self.call_aside(ins, i, code, chunk) {
+                OpCode::Call | OpCode::CallMethod => match self.call_aside(ins, i, code, chunk) {
                     Some(next) => { i = next; if self.yielded { break; } r = &mut self.regs[base..]; }
                     None => break,
                 },
@@ -759,21 +803,22 @@ impl<'a> VM<'a> {
                 _ => break,
             }
         }
-        *ip = i;
+        (*ip, *code_at, *chunk_at) = (i, code, chunk);
+        switched
     }
 
     /* Runs register forms from `ip`, entering and leaving the frames plain calls open above `floor`, true when another frame runs after. */
     #[inline(never)]
-    fn run_frames(&mut self, code: &Code, cache: &OpcodeCache, chunk: &SSAChunk, ip: &mut usize, floor: &Floor) -> bool {
-        let (mut code, mut cache, mut chunk, mut switched) = (code, cache, chunk, false);
+    fn run_frames(&mut self, code: &Code, chunk: &SSAChunk, ip: &mut usize, floor: &Floor) -> bool {
+        let (mut code, mut chunk, mut switched) = (code, chunk, false);
         loop {
-            self.run_regs(code, cache, chunk, ip);
+            switched |= self.run_regs(&mut code, &mut chunk, ip, floor);
             let i = *ip;
             if self.entered && self.reg_error.is_none() {
                 // A call it let in runs next, in the frame it opened.
                 (self.entered, self.yielded) = (false, false);
                 // A result the next instruction would store goes straight to its register.
-                let dest = match code.ins.get(i) { Some(n) if n.op == OpCode::StoreTopR && n.x == 0 => n.a, _ => super::frame::NO_DEST };
+                let dest = super::frame::dest_of(code.ins.get(i));
                 let (c, k) = self.regs_enter(i, dest);
                 // SAFETY the frame just opened runs code its pool keeps, and its chunk lives as long as the VM.
                 (code, chunk) = unsafe { (&*c, &*k) };
@@ -789,7 +834,6 @@ impl<'a> VM<'a> {
             } else {
                 return switched;
             }
-            cache = &code.cache;
             switched = true;
         }
     }
@@ -825,9 +869,7 @@ impl<'a> VM<'a> {
             Some(f) if self.frames.len() > floor.depth => { self.base = f.base; (f.code, &self.functions[f.fi].1 as *const SSAChunk) }
             _ => { self.base = floor.base; (floor.code, floor.chunk) }
         };
-        if dest == super::frame::NO_DEST { self.push(v); return Some((ret, code, chunk)); }
-        self.regs[self.base + dest as usize] = v;
-        Some((ret + 1, code, chunk))
+        Some((self.deliver(v, ret, dest), code, chunk))
     }
 
     /* Ends the innermost frame once it runs past its last instruction, a return of None. */
@@ -841,6 +883,7 @@ impl<'a> VM<'a> {
     /* A call from the register loop, its next index or None, the error kept. */
     #[inline(never)]
     fn call_aside(&mut self, ins: Ins, i: usize, code: &Code, chunk: &SSAChunk) -> Option<usize> {
+        if (ins.op == OpCode::CallR || ins.op == OpCode::CallMethodR) && lower::wide(ins) { return self.call_wide(ins, i, code, chunk); }
         let called = if ins.op == OpCode::CallR {
             self.pending.call_ip = Some(code.orig(i));
             let (r, n) = (&self.regs[self.base..], ins.x as usize);
@@ -850,17 +893,10 @@ impl<'a> VM<'a> {
             let passed = Passed::Regs([vals[1], vals[2], Val::undef()]);
             // The function this call opened last opens again unchecked, while its body may still run as a frame.
             if let Site::Call { callee, fi } = code.cache.site(i) && callee.0 == vals[0].0 && self.call_facts[fi as usize].in_loop {
-                return self.open_frame(fi as usize, callee, &passed, n, 0).map(|()| i + 1).map_err(|e| self.reg_error = Some(e)).ok();
+                return self.open_frame(fi as usize, callee, &passed, n, self.call_facts[fi as usize].closure as usize).map(|()| i + 1).map_err(|e| self.reg_error = Some(e)).ok();
             }
             match self.open_in_loop(vals[0], passed, n) {
-                Ok(true) => {
-                    // Only a plain function without cells keeps its site, never a constructor, a memo or a closure.
-                    if self.entered && let Some(f) = self.frames.last() && f.callee.0 == vals[0].0 && f.instance.is_undef() && f.memo.is_none()
-                        && matches!(self.heap.try_get(vals[0]), Some(HeapObj::Func(_, _, captures, _)) if captures.is_empty()) {
-                        code.cache.set_site(i, Site::Call { callee: vals[0], fi: f.fi as u32 });
-                    }
-                    Ok(())
-                }
+                Ok(true) => { self.learn_call(i, code, vals[0]); Ok(()) }
                 // Any other callee takes them off the stack as a stack call would.
                 Ok(false) => { self.stack.extend_from_slice(&vals[..=n]); self.call_general(n as u16, chunk) }
                 Err(e) => Err(e),
@@ -871,6 +907,10 @@ impl<'a> VM<'a> {
             let (r, n) = (&self.regs[self.base..], ins.x as usize);
             let vals = [r[ins.b as usize], r[ins.c as usize]];
             if vals[..=n].iter().any(|v| v.is_undef()) { return None; }
+            // A builtin method the site knows takes its argument straight from the registers.
+            if let Some(id) = self.site_builtin(code.cache.site(i), vals[0]) {
+                return self.exec_bound_method(vals[0], id, &vals[1..=n], &[], chunk).map(|()| i + 1).map_err(|e| self.reg_error = Some(e)).ok();
+            }
             // A method the site knows opens straight from the registers, the receiver first.
             if let Some(name) = chunk.names.get(ins.a as usize) && let Some((func, owner)) = self.site_method(code.cache.site(i), vals[0], name) {
                 (self.pending.method_binding, self.pending.call_ip) = (Some((owner, vals[0])), Some(code.orig(i)));
@@ -889,6 +929,44 @@ impl<'a> VM<'a> {
             self.exec_call_method(ins.a, ins.b, i, code, chunk).map(|()| next)
         };
         called.map_err(|e| self.reg_error = Some(e)).ok()
+    }
+
+    /* A register call past two operands, its values put on the stack as a stack call takes them. */
+    #[inline(never)]
+    fn call_wide(&mut self, ins: Ins, i: usize, code: &Code, chunk: &SSAChunk) -> Option<usize> {
+        let (regs, count) = lower::call_regs(ins, *code.ins.get(i + 1)?);
+        // A builtin method the site knows takes its arguments straight from the registers.
+        if ins.op == OpCode::CallMethodR && count <= 4 && let Some(id) = self.site_builtin(code.cache.site(i), self.regs[self.base + regs[0] as usize]) {
+            let r = &self.regs[self.base..];
+            let vals = [r[regs[0] as usize], r[regs[1] as usize], r[regs[2] as usize], r[regs[3] as usize]];
+            if vals[..count].iter().any(|v| v.is_undef()) { return None; }
+            return self.exec_bound_method(vals[0], id, &vals[1..count], &[], chunk).map(|()| i + 2).map_err(|e| self.reg_error = Some(e)).ok();
+        }
+        let (start, r) = (self.stack.len(), &self.regs[self.base..]);
+        for &k in &regs[..count] {
+            // An unbound operand leaves for the handler, which names it.
+            let v = r[k as usize];
+            if v.is_undef() { self.stack.truncate(start); return None; }
+            self.stack.push(v);
+        }
+        let called = if ins.op == OpCode::CallR {
+            let callee = self.stack[start];
+            self.call_stacked(ins.x as u16, code.orig(i), chunk).map(|()| if self.entered { self.learn_call(i, code, callee); })
+        } else {
+            self.exec_call_method(ins.a, ins.x as u16, i, code, chunk)
+        };
+        called.map(|()| i + 2).map_err(|e| self.reg_error = Some(e)).ok()
+    }
+
+    /* Keeps the callee of the frame a call at `i` just opened in its site, a plain function or a class with its `__init__`. */
+    fn learn_call(&self, i: usize, code: &Code, callee: Val) {
+        let Some(f) = self.frames.last().filter(|_| self.entered) else { return };
+        if f.callee.0 == callee.0 && f.instance.is_undef() && matches!(self.heap.try_get(callee), Some(HeapObj::Func(..))) {
+            code.cache.set_site(i, Site::Call { callee, fi: f.fi as u32 });
+        } else if !f.instance.is_undef() && let Some(&super::Ctor { epoch, init: Some((init, owner)), exception: false, attrs, native: None }) = self.ctors.get(&callee.0)
+            && init.0 == f.callee.0 && epoch == self.class_epoch {
+            code.cache.set_site(i, Site::Ctor { class: callee, init, owner, fi: f.fi as u32, attrs: attrs as u32, epoch });
+        }
     }
 
     /* A call whose callee and `count` positionals are on the stack, made at compiler instruction `orig`, opening a plain function as a frame of the loop. */
@@ -1113,7 +1191,6 @@ impl<'a> VM<'a> {
             Some(HeapObj::Dict(d)) => if !dict_set(&self.heap, d, k, v) { return false },
             _ => return false,
         }
-        self.mark_impure();
         true
     }
 
@@ -1192,18 +1269,19 @@ impl<'a> VM<'a> {
             }
             OpCode::Move => self.regs[self.base + ins.a as usize] = self.reg(chunk, ins.b)?,
             OpCode::PushRegs => self.push_regs(ins, chunk)?,
-            OpCode::CallR => {
-                self.push_regs(Ins { x: ins.x + 1, ..ins }, chunk)?;
-                self.call_stacked(ins.x as u16, code.orig(rip), chunk)?;
+            OpCode::CallR | OpCode::CallMethodR => {
+                let wide = lower::wide(ins);
+                let (regs, count) = lower::call_regs(ins, if wide { code.ins[rip + 1] } else { ins });
+                for &r in &regs[..count] { let v = self.reg(chunk, r)?; self.push(v); }
+                *ip += wide as usize;
+                if ins.op == OpCode::CallR { self.call_stacked(ins.x as u16, code.orig(rip), chunk)?; }
+                else { self.exec_call_method(ins.a, ins.x as u16, rip, code, chunk)?; }
             }
-            OpCode::CallMethodR => {
-                self.push_regs(Ins { x: ins.x + 1, a: ins.b, b: ins.c, ..ins }, chunk)?;
-                self.exec_call_method(ins.a, ins.x as u16, rip, code, chunk)?;
-            }
+            // Read by the call before it, never run alone.
+            OpCode::ArgsR => {}
             OpCode::StoreItemR => {
                 let (o, k, v) = (self.reg(chunk, ins.a)?, self.reg(chunk, ins.b)?, self.reg(chunk, ins.c)?);
                 self.stack.extend_from_slice(&[o, k, v]);
-                self.mark_impure();
                 self.store_item(chunk)?;
             }
             OpCode::GetAttrR => {
@@ -1230,7 +1308,6 @@ impl<'a> VM<'a> {
             OpCode::StoreGlobalR => {
                 let v = self.reg(chunk, ins.b)?;
                 self.scopes[code.module].set_at(ins.a as u32, v);
-                if ins.x & STORE_VOIDS_CACHE != 0 { self.templates.clear(); }
                 if ins.x & STORE_NOTES_BUILTIN != 0 && let Some(id) = self.scopes[code.module].names_builtin(ins.a as u32) { self.rebind_builtin(id); }
             }
             OpCode::LoadCellR => {
@@ -1327,8 +1404,6 @@ impl<'a> VM<'a> {
             OpCode::StoreGlobal => {
                 let v = self.pop()?;
                 let name = chunk.names.get(op as usize).ok_or_else(|| cold_runtime("StoreGlobal: name index out of bounds"))?;
-                // A `global` store rebinds a name some cached result may have read.
-                self.templates.clear();
                 self.note_builtin_binding(name);
                 self.scopes[code.module].set(name, v);
             }
@@ -1337,8 +1412,7 @@ impl<'a> VM<'a> {
                     let name = ssa_strip(&chunk.names[op as usize]);
                     if self.scopes[code.module].at(g).is_undef() { return Err(VmErr::Name(name.into())); }
                     self.scopes[code.module].set_at(g, Val::undef());
-                    // A cached result may have read it, and a builtin name falls back.
-                    self.templates.clear();
+                    // A builtin name falls back.
                     self.note_builtin_binding(name);
                 }
                 Some(Kind::Cell) => {
@@ -1527,9 +1601,9 @@ impl<'a> VM<'a> {
             OpCode::BuildList | OpCode::BuildTuple | OpCode::BuildDict
             | OpCode::BuildString | OpCode::BuildSet | OpCode::BuildSlice => self.handle_build(opcode, operand)?,
 
-            OpCode::StoreItem => { self.mark_impure(); self.store_item(chunk)?; }
-            OpCode::DelItem => { self.mark_impure(); self.del_item(chunk)?; }
-            OpCode::DelAttr => { self.mark_impure(); self.exec_del_attr(operand, chunk)?; }
+            OpCode::StoreItem => { self.store_item(chunk)?; }
+            OpCode::DelItem => { self.del_item(chunk)?; }
+            OpCode::DelAttr => { self.exec_del_attr(operand, chunk)?; }
             OpCode::UnpackSequence | OpCode::UnpackEx | OpCode::FormatValue => self.handle_container(opcode, operand, chunk)?,
 
             OpCode::ListAppend | OpCode::SetAdd | OpCode::MapAdd => self.handle_comprehension(opcode)?,
@@ -1911,13 +1985,30 @@ impl<'a> VM<'a> {
             None if self.class_chunks.contains(&(chunk as *const SSAChunk)) => self.class_cells.last().cloned().unwrap_or_default(),
             None => Vec::new(),
         };
+        // Members are exactly the slots the body itself stores, loads of builtins or injected globals never leak into the class namespace.
+        let mut member = alloc::vec![false; body.names.len()];
+        for ins in body.instructions.iter().filter(|i| matches!(i.opcode, OpCode::StoreName | OpCode::Phi)) {
+            if let Some(m) = member.get_mut(ins.operand as usize) { *m = true; }
+        }
+        // A defining function lends its plain locals by value, the body runs before they can change.
+        let lender = self.body_to_fi.get(&(chunk as *const SSAChunk)).copied();
+        let local = |bare: &str| -> Option<Val> {
+            let fi = lender?;
+            chunk.names.iter().enumerate()
+                .filter(|&(i, n)| self.fn_scope[fi].kinds.get(i) == Some(&Kind::Local) && ssa_strip(n) == bare)
+                .find_map(|(i, _)| self.regs.get(self.base + i).copied().filter(|v| !v.is_undef()))
+        };
         // A class body reads enclosing variables first, then its module, then the builtins.
         let module = self.chunk_module_id(body);
         let mut class_slots = self.fill_builtins(&body.names);
         for (i, name) in body.names.iter().enumerate() {
             let bare = ssa_strip(name);
-            if let Some(&(_, c)) = around.iter().find(|(n, _)| n == bare) {
-                class_slots[i] = self.deref(c);
+            // A name the body assigns is its own, read before then it falls to the module.
+            let enclosing = if member[i] { None } else {
+                around.iter().find(|(n, _)| n == bare).map(|&(_, c)| self.deref(c)).or_else(|| local(bare))
+            };
+            if let Some(v) = enclosing {
+                class_slots[i] = v;
             } else if class_slots[i].is_undef() && let Some(gv) = self.scopes[module].get(bare).or_else(|| self.global(bare)) {
                 class_slots[i] = gv;
             }
@@ -1926,16 +2017,9 @@ impl<'a> VM<'a> {
         let exec_result = self.exec(body, &mut class_slots);
         self.class_cells.pop();
         exec_result?;
-        // Members are exactly the slots the body itself stores, loads of builtins or injected globals never leak into the class namespace.
-        let mut member_slots: crate::util::hash::FxHashSet<u16> = crate::util::hash::FxHashSet::default();
-        for ins in &body.instructions {
-            if matches!(ins.opcode, OpCode::StoreName | OpCode::Phi) {
-                member_slots.insert(ins.operand);
-            }
-        }
         let mut methods: Vec<(String, Val)> = Vec::new();
         for (i, name) in body.names.iter().enumerate() {
-            if !member_slots.contains(&(i as u16)) { continue; }
+            if !member[i] { continue; }
             if let Some(&v) = class_slots.get(i)
                 && !v.is_undef() {
                     let base = ssa_strip(name);
@@ -1974,7 +2058,7 @@ impl<'a> VM<'a> {
     pub(crate) fn store_attr_at(&mut self, obj: Val, name_idx: u16, value: Val, rip: usize, cache: &OpcodeCache, chunk: &SSAChunk) -> Result<(), VmErr> {
         if self.site_store(cache.site(rip), obj, value) { return Ok(()); }
         let name = chunk.names.get(name_idx as usize).ok_or_else(|| cold_runtime("StoreAttr: bad name index"))?;
-        let before = match self.heap.try_get(obj) { Some(HeapObj::Instance(_, a)) => { let a = a.borrow(); (a.len(), a.entry_count()) } _ => (0, 0) };
+        let before = match self.heap.try_get(obj) { Some(HeapObj::Instance(_, a)) => a.borrow().shape(), _ => crate::value::NO_SHAPE };
         self.store_attr(obj, name, value, chunk)?;
         cache.set_site(rip, self.learn_store(obj, name, before));
         Ok(())
@@ -2009,8 +2093,6 @@ impl<'a> VM<'a> {
         }
         if let HeapObj::Func(_, _, _, attrs) = self.heap.get(obj) {
             set_member(attrs, name, value);
-            // A cached result may have read the old attribute.
-            self.templates.clear();
             return Ok(());
         }
         let key = self.heap.intern_str(name)?;
@@ -2019,7 +2101,15 @@ impl<'a> VM<'a> {
             _ => match self.heap.classed(obj) { Some((_, attrs)) => attrs, None => return Err(cold_type("cannot set attribute on this type")) },
         };
         self.shadowed |= member.is_some_and(|(m, _)| self.hides(m));
-        attrs.borrow_mut().insert(key, value, &self.heap);
+        let mut a = attrs.borrow_mut();
+        let (shape, count) = (a.shape(), a.entry_count());
+        a.insert(key, value, &self.heap);
+        // A new key moves the dict along its shapes, a replaced value keeps the shape it had.
+        if shape != crate::value::NO_SHAPE && a.entry_count() > count {
+            drop(a);
+            let next = self.shape_after(shape, key);
+            if let Some(HeapObj::Instance(_, attrs)) = self.heap.try_get(obj) { attrs.borrow_mut().set_shape(next); }
+        }
         Ok(())
     }
 }

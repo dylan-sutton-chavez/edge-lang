@@ -95,10 +95,6 @@ pub(crate) struct FnScope {
     pub cellvars: Vec<usize>,
     /* The cells a definition takes, by its slot, the definer's slot and name. */
     pub freevars: Vec<(usize, Option<usize>, String)>,
-    /* Globals the body reads. */
-    pub reads: Vec<String>,
-    /* Whether it declares a global or nonlocal name, which makes every call impure. */
-    pub declares: bool,
 }
 
 fn canon_of(chunk: &SSAChunk, i: usize) -> usize {
@@ -214,8 +210,7 @@ impl<'a> VM<'a> {
                 })
                 .collect();
             freevars.sort_unstable_by_key(|f| f.0);
-            let declares = body.instructions.iter().any(|i| matches!(i.opcode, OpCode::Global | OpCode::Nonlocal));
-            scopes.push(FnScope { kinds: kinds.into(), cellvars, freevars, reads: reads[fi].iter().map(|&n| String::from(n)).collect(), declares });
+            scopes.push(FnScope { kinds: kinds.into(), cellvars, freevars });
         }
         self.fn_scope.truncate(start);
         self.fn_scope.extend(scopes);

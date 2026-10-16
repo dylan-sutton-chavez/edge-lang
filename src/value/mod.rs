@@ -37,7 +37,7 @@ pub const VAL_BYTES: usize = 8;
 /* Native work a step lets pile up before the loop leaves its fast path to charge it. */
 const WORK_SLICE: usize = 1 << 16;
 
-/* Host-provided callable, resolved at compile time and dispatched by `CallExtern`. `Arc<dyn Fn>` lets loaders capture stateful handles, `pure` enables memoization. Third arg is the kwargs slot, `None` for plain positional calls, `Some(dict_val)` when the caller used `name=value` syntax. */
+/* Host-provided callable, resolved at compile time and dispatched by `CallExtern`. `Arc<dyn Fn>` lets loaders capture stateful handles. Third arg is the kwargs slot, `None` for plain positional calls, `Some(dict_val)` when the caller used `name=value` syntax. */
 pub type ExternCallable =
     alloc::sync::Arc<dyn Fn(&mut HeapPool, &[Val], Option<Val>) -> Result<Val, VmErr> + Send + Sync>;
 
@@ -45,12 +45,11 @@ pub type ExternCallable =
 pub struct ExternFn {
     pub name: String,
     pub func: ExternCallable,
-    pub pure: bool,
 }
 
 impl core::fmt::Debug for ExternFn {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("ExternFn").field("name", &self.name).field("pure", &self.pure).finish()
+        f.debug_struct("ExternFn").field("name", &self.name).finish()
     }
 }
 
@@ -392,7 +391,12 @@ pub struct DictMap {
     entries: Vec<(Val, Val, u64)>,
     index: hashbrown::HashTable<usize>,
     live: usize,
+    // The shape naming its exact keys in order while it only ever appended, NO_SHAPE once anything else changed them.
+    shape: u32,
 }
+
+/* A dict whose keys no shape names. */
+pub(crate) const NO_SHAPE: u32 = 0;
 
 /* Entries a dict scans before keeping an index, most instances stay under it. */
 const SMALL_DICT: usize = 8;
@@ -402,13 +406,13 @@ impl DictMap {
 
     pub fn with_capacity(cap: usize) -> Self {
         let index = if cap > SMALL_DICT { hashbrown::HashTable::with_capacity(cap) } else { hashbrown::HashTable::new() };
-        Self { entries: Vec::with_capacity(cap), index, live: 0 }
+        Self { entries: Vec::with_capacity(cap), index, live: 0, shape: NO_SHAPE }
     }
 
     /* Pairs restored before the heap lives, `rebuild_index` hashes them once it does. */
     pub(crate) fn from_unhashed(pairs: Vec<(Val, Val)>) -> Self {
         let live = pairs.len();
-        Self { entries: pairs.into_iter().map(|(k, v)| (k, v, 0)).collect(), index: hashbrown::HashTable::new(), live }
+        Self { entries: pairs.into_iter().map(|(k, v)| (k, v, 0)).collect(), index: hashbrown::HashTable::new(), live, shape: NO_SHAPE }
     }
 
     /* Hashes every entry and indexes them, after a restore. */
@@ -475,8 +479,18 @@ impl DictMap {
     pub(crate) fn value_at(&self, i: usize) -> Val { self.entries[i].1 }
     pub(crate) fn set_value_at(&mut self, i: usize, v: Val) { self.entries[i].1 = v; }
 
+    pub(crate) fn shape(&self) -> u32 { self.shape }
+    pub(crate) fn set_shape(&mut self, shape: u32) { self.shape = shape; }
+
+    /* Appends `key` under hash `h`, the caller checked it is absent, its keys then named by `shape`. */
+    pub(crate) fn push_shaped(&mut self, key: Val, value: Val, h: u64, shape: u32) {
+        self.push_hashed(key, value, h);
+        self.shape = shape;
+    }
+
     /* Appends `key` under hash `h`, the caller checked it is absent. */
     pub(crate) fn push_hashed(&mut self, key: Val, value: Val, h: u64) {
+        self.shape = NO_SHAPE;
         let i = self.entries.len();
         self.entries.push((key, value, h));
         self.live += 1;
@@ -493,6 +507,7 @@ impl DictMap {
 
     /* Marks entry `i`, already out of the index, as removed and returns its value. */
     fn tombstone(&mut self, i: usize) -> Val {
+        self.shape = NO_SHAPE;
         let val = self.entries[i].1;
         self.entries[i] = (Val::undef(), Val::undef(), 0);
         self.live -= 1;
@@ -507,6 +522,7 @@ impl DictMap {
     pub fn is_empty(&self) -> bool { self.live == 0 }
 
     pub fn clear(&mut self) {
+        self.shape = NO_SHAPE;
         self.entries.clear();
         self.index.clear();
         self.live = 0;

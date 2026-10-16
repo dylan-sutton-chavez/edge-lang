@@ -31,12 +31,12 @@ use crate::util::hash::FxHashMap as HashMap;
 pub use types::{Val, HeapObj, HeapPool, VmErr, Limits};
 
 use types::*;
-use cache::{CachePool, Templates};
+use cache::CachePool;
 use alloc::{string::{String, ToString}, vec::Vec};
 
 pub(crate) use types::ExceptionFrame;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub(crate) enum ParamKind { Normal, Star, DoubleStar, KwOnly }
 
 /* Side-channel state passed between opcodes in one dispatch frame, grouped for auditability. */
@@ -93,9 +93,6 @@ impl Pending {
     }
 }
 
-/* `bare_name -> [(version, slot), ...]` for one chunk's `chunk.names`. */
-pub(crate) type NameVersionIndex = crate::util::hash::FxHashMap<String, Vec<(i64, usize)>>;
-
 pub struct VM<'a> {
     pub(crate) stack: Vec<Val>,
     /* The registers of every running frame, each frame a window from its base to the next. */
@@ -122,7 +119,6 @@ pub struct VM<'a> {
     pub(crate) class_cells: Vec<Vec<(String, Val)>>,
     /* The builtins under the globals, keyed by their static names and never rebound. */
     pub(crate) builtins: HashMap<&'static str, Val>,
-    pub(crate) templates: Templates,
     pub(crate) budget: u64,
     /* Calls nested in Rust, through builtins, dunders and calls the loop cannot run in place, capped at `max_calls`. */
     pub(crate) depth: usize,
@@ -131,15 +127,10 @@ pub struct VM<'a> {
     pub(crate) frames: Vec<frame::Frame>,
     /* Set by an instruction loop right before a call it can run in place, taken by that call. */
     pub(crate) inline_call: bool,
-    /* Set when a loop already looked up the memo of the call it hands on, so the call does not look twice. */
-    pub(crate) memo_looked: bool,
     /* Set by a call a loop let in, whose frame that loop runs next. */
     pub(crate) entered: bool,
     /* The instance a constructor builds, which its `__init__` hands back if it runs as a frame of the loop. */
     pub(crate) pending_instance: Val,
-    /* The arguments memoized loop frames key their results on, each frame its own run of them. */
-    pub(crate) memo_args: Vec<Val>,
-    pub(crate) observed_impure: Vec<bool>,
     // C3 method-resolution order per class, keyed by the class Val's heap bits. Computed once at MakeClass (the class graph is a static DAG). A reused slot is overwritten by its new class, so stale entries are never read (lookup checks HeapObj::Class first). Not a GC root because MRO members stay reachable via the class's own `bases`.
     pub(crate) mro_cache: HashMap<u64, alloc::rc::Rc<Vec<Val>>>,
     pub(crate) exception_stack: Vec<ExceptionFrame>,
@@ -159,14 +150,14 @@ pub struct VM<'a> {
     pub(crate) slot_templates: Vec<Vec<Val>>,
     /* Deduped template values, templates are static after init, so the GC marks this flat list instead of every per-function template. */
     pub(crate) template_roots: Vec<Val>,
-    /* Whether `fi` may memoize, a call that shows its result can change turns it off. */
-    pub(crate) memo_ok: Vec<bool>,
     /* Coroutines currently inside `resume_coroutine`, re-entry raises like Python's already-executing guard. Transient, never snapshotted. */
     pub(crate) executing_coros: Vec<u64>,
     /* Bumped by any class member change, voiding every site keyed on a class. */
     pub(crate) class_epoch: u32,
     /* Set once an instance may hide a method or property of its class with an attribute. */
     pub(crate) shadowed: bool,
+    /* The shapes instance dicts take, each the shape every next key leads to, made on the first attribute stored. */
+    pub(crate) shapes: Vec<Vec<(Val, u32)>>,
     /* Set by a hot loop in unlowered code, its frame then carries on lowered. */
     pub(crate) tier_up: bool,
     /* A call the register loop made that failed, raised at that call. */
@@ -181,8 +172,6 @@ pub struct VM<'a> {
     pub(crate) pools: Vec<CachePool>,
     pub(crate) pool_ids: HashMap<*const SSAChunk, usize>,
     pub(crate) fn_pool: Vec<usize>,
-    /* Per-chunk `bare -> [(version, slot)]` index, telling a name bound once from rebound. */
-    pub(crate) chunk_name_versions: HashMap<*const SSAChunk, NameVersionIndex>,
     pub(crate) with_stack: Vec<Val>,
     /* GC roots for operands popped off the stack but still read after a dunder call that can collect. */
     pub(crate) temp_roots: Vec<Val>,
@@ -290,15 +279,12 @@ impl<'a> VM<'a> {
             class_chunks: Default::default(),
             class_cells: Vec::new(),
             builtins: HashMap::default(),
-            templates: Templates::new(),
             budget: limits.ops,
             depth: 0,
             frames: Vec::new(),
             inline_call: false,
-            memo_looked: false,
             entered: false,
             pending_instance: Val::undef(),
-            memo_args: Vec::new(),
             max_calls: MAX_NESTED,
             with_stack: Vec::new(),
             temp_roots: Vec::new(),
@@ -328,7 +314,6 @@ impl<'a> VM<'a> {
             send_hook: None,
             input_buffer: Vec::new(),
             event_queue: Vec::new(),
-            observed_impure: Vec::new(),
             mro_cache: HashMap::default(),
             exception_stack: Vec::new(),
             unwind_stack: Vec::new(),
@@ -353,10 +338,10 @@ impl<'a> VM<'a> {
             call_facts: Vec::new(),
             slot_templates: Vec::new(),
             template_roots: Vec::new(),
-            memo_ok: Vec::new(),
             executing_coros: Vec::new(),
             class_epoch: 0,
             shadowed: false,
+            shapes: Vec::new(),
             tier_up: false,
             reg_error: None,
             ctors: Default::default(),
@@ -366,7 +351,6 @@ impl<'a> VM<'a> {
             pools: Vec::new(),
             pool_ids: HashMap::default(),
             fn_pool: Vec::new(),
-            chunk_name_versions: HashMap::default(),
         };
         // Python registers its wide ints before any constant boxes one.
         vm.heap.set_wide_int(&crate::frontend::int::KIND);
@@ -432,7 +416,9 @@ impl<'a> VM<'a> {
             let arity = params.iter().all(|&(k, s)| matches!(k, ParamKind::Normal) && s != usize::MAX).then_some(params.len());
             // A body whose positionals fill its first slots and that makes no cell opens as a frame of the loop calling it.
             let in_loop = arity.is_some() && params.iter().enumerate().all(|(k, &(_, s))| s == k) && self.fn_scope[fi].cellvars.is_empty() && !body.is_generator;
-            self.call_facts.push(frame::CallFacts { arity, in_loop, pool: self.fn_pool[fi], uses_super: None });
+            let required = self.functions[fi].0.iter().filter(|p| !p.ends_with('=')).count();
+            let closure = !self.fn_scope[fi].freevars.is_empty();
+            self.call_facts.push(frame::CallFacts { arity, required, closure, in_loop, pool: self.fn_pool[fi], uses_super: None });
         }
     }
 
@@ -442,14 +428,6 @@ impl<'a> VM<'a> {
         let new: Vec<Vec<Val>> = (start..self.functions.len()).map(|fi| alloc::vec![Val::undef(); self.functions[fi].1.names.len()]).collect();
         self.slot_templates.truncate(start);
         self.slot_templates.extend(new);
-        // Cells change behind a cached result, and an import reads other globals.
-        let new: Vec<bool> = (start..self.functions.len()).map(|fi| {
-            let scope = &self.fn_scope[fi];
-            self.functions[fi].1.is_pure && scope.freevars.is_empty()
-                && (self.fn_module[fi].is_none() || scope.reads.iter().all(|bare| self.function_names.get(fi).is_some_and(|n| n == bare)))
-        }).collect();
-        self.memo_ok.truncate(start);
-        self.memo_ok.extend(new);
         let mut seen: crate::util::hash::FxHashSet<u64> = crate::util::hash::FxHashSet::default();
         self.template_roots = self.slot_templates.iter().flatten()
             .filter(|v| !v.is_undef() && seen.insert(v.0))
@@ -457,15 +435,14 @@ impl<'a> VM<'a> {
             .collect();
     }
 
-    /* A builtin name the program binds or deletes voids every result memoized under the old binding. */
+    /* A builtin name the program binds or deletes makes its fused calls run the binding. */
     pub(crate) fn note_builtin_binding(&mut self, bare: &str) {
         if let Some(id) = NativeFnId::from_name(bare) { self.rebind_builtin(id); }
     }
 
-    /* The name of `id` holds a program value, its fused calls check bindings, memos clear. */
+    /* The name of `id` holds a program value, its fused calls check bindings. */
     pub(crate) fn rebind_builtin(&mut self, id: NativeFnId) {
         self.builtins_rebound |= 1 << id as u32;
-        self.templates.clear();
     }
 
     /* Whether the builtin fused into `op` was rebound, so the call must run the binding. */
@@ -503,8 +480,6 @@ impl<'a> VM<'a> {
     /* For the REPL, adopt `chunk` as the new entry module, state persists, only the new chunk executes. */
     pub fn adopt_entry_chunk(&mut self, chunk: &'a SSAChunk) {
         self.adopt_functions(chunk, None);
-        // A later input can rebind any name a cached result read.
-        self.templates.clear();
         self.chunk = chunk;
     }
 

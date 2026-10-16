@@ -312,7 +312,7 @@ print(is_even(10), is_odd(10))
 True False
 ```
 
-Recursion has no fixed depth. Its frames may take a share of the memory limit, as [Sandboxed execution](/docs/edge-python/reference/limits-and-errors#sandboxed-execution) describes. A pure function called again with the same immutable positional arguments can return a cached result without running its body. [Design](/docs/edge-python/internals/design#key-mechanisms) lists when the cache applies.
+Recursion has no fixed depth. Its frames may take a share of the memory limit, as [Sandboxed execution](/docs/edge-python/reference/limits-and-errors#sandboxed-execution) describes.
 
 ## Generators
 

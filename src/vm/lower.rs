@@ -115,7 +115,7 @@ pub(crate) fn lower(src: &[Instruction], chunk: &SSAChunk, facts: &Facts) -> Opt
         deleted.resize(names, false);
         if let Some(s) = deleted.get_mut(ins.operand as usize) { *s = true; }
     }
-    let bound_at = facts.regs.then(|| bound_on_entry(src, names, facts, &starts));
+    let bound_at = facts.regs.then(|| bound_on_entry(src, chunk, names, facts, &starts));
     let cbase = names;
     let tbase = names + consts + 3;
     let mut l = Lower {
@@ -144,7 +144,7 @@ pub(crate) fn lower(src: &[Instruction], chunk: &SSAChunk, facts: &Facts) -> Opt
         let step = l.one(i);
         // A fused group's later instructions start where its last instruction does.
         for k in 1..step { l.at[i + k] = before.max(l.out.len().saturating_sub(1)) as u32; }
-        for &ins in &src[i..i + step] { transfer(&mut l.bound, ins); }
+        for (k, &ins) in src[i..i + step].iter().enumerate() { transfer(&mut l.bound, ins, i + k, chunk); }
         i += step;
         if l.pending.is_empty() { l.quiet = i as u32; }
     }
@@ -178,11 +178,13 @@ fn entered(src: &[Instruction]) -> Vec<bool> {
 /* No instruction after it runs from it. */
 fn ends_flow(op: OpCode) -> bool { matches!(op, OpCode::Jump | OpCode::ReturnValue | OpCode::Raise | OpCode::RaiseFrom) }
 
-fn transfer(bound: &mut [u64], ins: Instruction) {
+fn transfer(bound: &mut [u64], ins: Instruction, k: usize, chunk: &SSAChunk) {
     let s = ins.operand as usize;
+    let has = |b: &[u64], r: u16| b.get(r as usize / 64).is_some_and(|w| w & 1 << (r % 64) != 0);
+    // A Phi binds its slot only when one of its sources is bound.
+    if ins.opcode == OpCode::Phi && !chunk.phi_map.get(k).and_then(|&p| chunk.phi_sources.get(p)).is_some_and(|&(a, b)| has(bound, a) || has(bound, b)) { return; }
     let Some(w) = bound.get_mut(s / 64) else { return };
     match ins.opcode {
-        // A Phi binds its slot to a source or None.
         OpCode::StoreName | OpCode::Phi => *w |= 1 << (s % 64),
         OpCode::Del => *w &= !(1 << (s % 64)),
         _ => {}
@@ -221,7 +223,7 @@ impl Bound {
     }
 }
 
-fn bound_on_entry(src: &[Instruction], names: usize, facts: &Facts, starts: &[bool]) -> Bound {
+fn bound_on_entry(src: &[Instruction], chunk: &SSAChunk, names: usize, facts: &Facts, starts: &[bool]) -> Bound {
     let len = src.len();
     let words = names.div_ceil(64);
     let mut rows = vec![u32::MAX; starts.len()];
@@ -237,7 +239,7 @@ fn bound_on_entry(src: &[Instruction], names: usize, facts: &Facts, starts: &[bo
         let mut i = start;
         while i < len {
             let ins = src[i];
-            transfer(&mut s, ins);
+            transfer(&mut s, ins, i, chunk);
             if ins.opcode.is_jump() && (ins.operand as usize) <= len && b.merge(ins.operand as usize, &s) { work.push(ins.operand as usize); }
             if ends_flow(ins.opcode) { break; }
             i += 1;
@@ -301,12 +303,11 @@ impl Lower<'_> {
             }
             OpCode::StoreGlobal if regs && !self.pending.is_empty() && let Some(Kind::Global(g)) = self.kind(op) => {
                 let v = self.pop();
-                // A declared global's store voids cached results, a builtin's also redirects fused calls.
-                let x = STORE_VOIDS_CACHE | self.builtin_flag(op);
-                self.emit(Ins { op: OpCode::StoreGlobalR, x, a: g as u16, b: v.r, c: 0 });
+                // A builtin's store redirects its fused calls.
+                self.emit(Ins { op: OpCode::StoreGlobalR, x: self.builtin_flag(op), a: g as u16, b: v.r, c: 0 });
             }
             OpCode::PopTop if !self.pending.is_empty() => { self.pending.pop(); }
-            // A declaration only marks calls impure, which entering the body already did.
+            // A declaration does nothing at run time.
             OpCode::Global | OpCode::Nonlocal => {}
             OpCode::Dup if !self.pending.is_empty() => { let e = self.pending[self.pending.len() - 1]; self.push(e); }
             OpCode::Swap if self.pending.len() >= 2 => { let k = self.pending.len(); self.pending.swap(k - 1, k - 2); }
@@ -425,23 +426,27 @@ impl Lower<'_> {
                 self.emit(Ins { op: OpCode::UnpackR, x: op as u8, a: t(0), b: t(1), c: t(2) });
                 return 1 + op as usize;
             }
-            // A call of up to two positionals, and nothing pending under it, reads its operands from registers.
-            OpCode::Call if regs && op <= 2 && self.pending.len() == op as usize + 1 && i + 1 < self.src.len() && !self.targets[i + 1] => {
+            // A call of up to five positionals, and nothing pending under it, reads its operands from registers.
+            OpCode::Call if regs && op <= 5 && self.pending.len() == op as usize + 1 && i + 1 < self.src.len() && !self.targets[i + 1] => {
                 let r = |k: usize| self.pending.get(k).map_or(0, |e| e.r);
                 let call = Ins { op: OpCode::CallR, x: op as u8, a: r(0), b: r(1), c: r(2) };
+                let rest = Ins { op: OpCode::ArgsR, x: 0, a: r(3), b: r(4), c: r(5) };
                 self.pending.clear();
                 self.settle();
                 self.emit(call);
+                if wide(call) { self.emit(rest); }
                 self.takes = true;
             }
-            // A method call of at most one positional, and nothing pending under it, reads its receiver and argument from registers.
+            // A method call of up to four positionals, and nothing pending under it, reads its receiver and arguments from registers.
             OpCode::CallMethod if regs && let Some(args) = self.src.get(i + 1) && args.opcode == OpCode::CallMethodArgs
-                && args.operand <= 1 && self.pending.len() == args.operand as usize + 1 && i + 2 < self.src.len() && !self.targets[i + 2] => {
+                && args.operand <= 4 && self.pending.len() == args.operand as usize + 1 && i + 2 < self.src.len() && !self.targets[i + 2] => {
                 let r = |k: usize| self.pending.get(k).map_or(0, |e| e.r);
                 let call = Ins { op: OpCode::CallMethodR, x: args.operand as u8, a: op, b: r(0), c: r(1) };
+                let rest = Ins { op: OpCode::ArgsR, x: 0, a: r(2), b: r(3), c: r(4) };
                 self.pending.clear();
                 self.settle();
                 self.emit(call);
+                if wide(call) { self.emit(rest); }
                 self.takes = true;
                 return 2;
             }
@@ -626,9 +631,19 @@ impl Lower<'_> {
     }
 }
 
-/* StoreGlobalR flags, what a store does past binding the value. */
+/* Whether a register call holds more operands than fit it, the ArgsR after it holding the rest. */
+#[inline(always)]
+pub(crate) fn wide(call: Ins) -> bool { call.x > if call.op == OpCode::CallR { 2 } else { 1 } }
+
+/* The registers of a register call, the callee or receiver first, and how many of them it passes. */
+#[inline(always)]
+pub(crate) fn call_regs(call: Ins, rest: Ins) -> ([u16; 6], usize) {
+    if call.op == OpCode::CallR { ([call.a, call.b, call.c, rest.a, rest.b, rest.c], call.x as usize + 1) }
+    else { ([call.b, call.c, rest.a, rest.b, rest.c, 0], call.x as usize + 1) }
+}
+
+/* The StoreGlobalR flag of a store into a builtin name, which redirects its fused calls. */
 pub(crate) const STORE_NOTES_BUILTIN: u8 = 1;
-pub(crate) const STORE_VOIDS_CACHE: u8 = 2;
 
 /* The register form of a binary opcode. */
 fn binary_form(op: OpCode) -> Option<OpCode> {
