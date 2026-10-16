@@ -448,7 +448,7 @@
     "src": "class Dog(Animal):\n    pass",
     "constants": [],
     "names": ["Animal_0", "Dog_1"],
-    "instructions": [["LoadName",0], ["MakeClass",256], ["StoreName",1], ["ReturnValue",0]],
+    "instructions": [["LoadName",0], ["MakeClass",0], ["StoreName",1], ["ReturnValue",0]],
     "classes": 1
   },
   {
@@ -857,14 +857,14 @@
     "src": "class C(A, B):\n    pass",
     "constants": [],
     "names": ["A_0", "B_0", "C_1"],
-    "instructions": [["LoadName",0], ["LoadName",1], ["MakeClass",512], ["StoreName",2], ["ReturnValue",0]],
+    "instructions": [["LoadName",0], ["LoadName",1], ["MakeClass",0], ["StoreName",2], ["ReturnValue",0]],
     "classes": 1
   },
   {
     "src": "class C(A, B, D):\n    pass",
     "constants": [],
     "names": ["A_0", "B_0", "D_0", "C_1"],
-    "instructions": [["LoadName",0], ["LoadName",1], ["LoadName",2], ["MakeClass",768], ["StoreName",3], ["ReturnValue",0]],
+    "instructions": [["LoadName",0], ["LoadName",1], ["LoadName",2], ["MakeClass",0], ["StoreName",3], ["ReturnValue",0]],
     "classes": 1
   },
   {

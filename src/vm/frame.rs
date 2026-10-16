@@ -263,7 +263,12 @@ impl<'a> VM<'a> {
         if c.ip == FINISHED || !c.syncs.is_empty() || !self.functions[fi].1.is_generator || self.is_async.get(fi).copied().unwrap_or(false) { return None; }
         let facts = self.call_facts[fi];
         let gen_code = Rc::as_ptr(self.pools[facts.pool].code.as_ref()?);
-        if self.frames.len() % DEPTH_CHECK == DEPTH_CHECK - 1 || self.executing_coros.contains(&co.0) { return None; }
+        if self.executing_coros.contains(&co.0) { return None; }
+        // The depth follows the memory limit as a call's does, a nested resume taking only what outgrew it.
+        if self.frames.len() % DEPTH_CHECK == DEPTH_CHECK - 1 {
+            let held = self.regs.len() * core::mem::size_of::<Val>() + self.frames.len() * core::mem::size_of::<Frame>();
+            if held > self.heap.limit() / FRAME_SHARE || self.heap.over() { return None; }
+        }
         // The step pays for the state it moves, as a resume does.
         let cost = 1 + (c.slots.len() + c.stack.len() + c.iters.len()) as u64 + self.heap.take_work() as u64;
         if self.budget < cost { self.budget = 0; return None; }
@@ -329,11 +334,19 @@ impl<'a> VM<'a> {
             Some(f) if self.frames.len() > floor_depth => { self.base = f.base; (f.code, &self.functions[f.fi].1 as *const SSAChunk) }
             _ => { self.base = floor_base; (floor_code, floor_chunk) }
         };
-        // The `for` takes the value as its own step would, into a register or a module binding.
         // SAFETY the caller runs code its pool or the floor keeps.
-        let (step, module) = { let c = unsafe { &*code }; (c.ins[at], c.module) };
-        if step.x == 0 { self.regs[self.base + step.b as usize] = v; } else { self.scopes[module].set_at(step.b as u32, v); }
+        self.hand_to_for(unsafe { &*code }, at, v);
         Some((code, chunk, at + 1))
+    }
+
+    /* The `for` at `at` of `code` takes the value `v` a generator yielded as its own step would, into a register, a module binding or the stack. */
+    pub(crate) fn hand_to_for(&mut self, code: &Code, at: usize, v: Val) {
+        let step = code.ins[at];
+        match step.op {
+            OpCode::ForIterR if step.x == 0 => self.regs[self.base + step.b as usize] = v,
+            OpCode::ForIterR => self.scopes[code.module].set_at(step.b as u32, v),
+            _ => self.stack.push(v),
+        }
     }
 
     /* Ends the innermost frame, a generator that returned or raised, which then stays finished. */

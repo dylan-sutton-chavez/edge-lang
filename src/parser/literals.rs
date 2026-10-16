@@ -587,12 +587,12 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             s.compile_block();
         });
 
-        let ci = self.chunk.classes.len() as u16;
-        // Operand packs `(num_bases << 8) | class_idx`, each field is one byte to keep the dispatch decode cheap.
-        if ci > 0xFF { self.error("too many classes in this scope (limit 255)"); return; }
-        if num_bases > 0xFF { self.error("too many base classes (limit 255)"); return; }
+        // The operand is the class index, the body keeps how many bases its MakeClass pops.
+        let Ok(ci) = u16::try_from(self.chunk.classes.len()) else { self.error("too many classes in this scope (limit 65535)"); return; };
+        let mut body = body;
+        body.bases = num_bases;
         self.chunk.classes.push(body);
-        self.chunk.emit(OpCode::MakeClass, (num_bases << 8) | ci);
+        self.chunk.emit(OpCode::MakeClass, ci);
 
         // Each decorator Calls with the previous result, same as for functions.
         self.emit_decorator_calls(decorators);

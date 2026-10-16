@@ -260,12 +260,14 @@ impl<'a> VM<'a> {
             };
             match turn {
                 Turn::Enter => {
-                    if let Some(f) = self.frames.last_mut() { f.ret = ip; }
+                    // A generator frame returns to the `for` that stepped it and resumes where it last yielded.
+                    let generator = self.frames.last().is_some_and(|f| !f.generator.is_undef());
+                    if let Some(f) = self.frames.last_mut() && !generator { f.ret = ip; }
                     load!();
                     // SAFETY as above.
                     let (code_ref, chunk): (&Code, &SSAChunk) = unsafe { (&*cur, &*at) };
                     if self.regs.len() - self.base < code_ref.frame { self.grow_frame(chunk, code_ref, now); }
-                    ip = code_ref.lowered(0);
+                    ip = if generator { self.gen_entry } else { code_ref.lowered(0) };
                 }
                 Turn::Lower => {
                     // A hot loop left unlowered carries on in the lowered code from its head, in the frame running now.
@@ -313,10 +315,8 @@ impl<'a> VM<'a> {
                         let resume = core::mem::take(&mut self.resume_ip);
                         let at = self.yield_gen(resume);
                         load!();
-                        // The `for` takes the value as its own step would, into a register or a module binding.
                         // SAFETY as above.
-                        let (step, module) = { let c = unsafe { &*cur }; (c.ins[at], c.module) };
-                        if step.x == 0 { self.regs[self.base + step.b as usize] = v; } else { self.scopes[module].set_at(step.b as u32, v); }
+                        self.hand_to_for(unsafe { &*cur }, at, v);
                         ip = at + 1;
                         parking = false;
                         continue;
@@ -1565,7 +1565,14 @@ impl<'a> VM<'a> {
                 let v = self.pop()?;
                 if !self.truthy_op(v, chunk)? { *ip = self.checked_jump(op as usize, n)?; }
             }
-            OpCode::ForIter => self.exec_for_iter(op, ip, n, chunk)?,
+            // A generator a `yield from` or an unlowered `for` steps opens as a frame of this loop too.
+            OpCode::ForIter => {
+                let co = match self.iter_stack.last() { Some(&IterFrame::Coroutine(co)) => Some(co), _ => None };
+                match co.and_then(|co| self.enter_gen(co, rip, code)) {
+                    Some((_, _, at)) => (self.gen_entry, self.entered, self.yielded) = (at, true, true),
+                    None => self.exec_for_iter(op, ip, n, chunk)?,
+                }
+            }
             OpCode::PopTop => { self.pop()?; }
             OpCode::ReturnValue => {
                 let result = if self.stack.is_empty() { Val::none() } else { self.pop()? };
@@ -2048,9 +2055,9 @@ impl<'a> VM<'a> {
 
     #[inline(never)]
     fn exec_make_class(&mut self, op: u16, ip: usize, chunk: &SSAChunk) -> Result<(), VmErr> {
-        // Operand layout mirrors `class_def_with`, low byte = class chunk index, high byte = base count.
-        let class_idx = (op & 0xFF) as usize;
-        let num_bases = (op >> 8) as usize;
+        // The operand is the class chunk index, the body keeps its base count.
+        let class_idx = op as usize;
+        let num_bases = chunk.classes.get(class_idx).map_or(0, |b| b.bases as usize);
         // Pop bases first so a misencoded operand fails before we touch the body.
         let mut bases = self.pop_n(num_bases)?;
         // An `object` base is a no-op.

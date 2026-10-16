@@ -214,6 +214,8 @@ pub struct SSAChunk {
     pub functions: Vec<(Vec<String>, SSAChunk, u16, u16)>,
     pub phi_sources: Vec<(u16, u16)>,
     pub classes: Vec<SSAChunk>,
+    /* The base classes a class body's MakeClass pops, zero for any other chunk. */
+    pub bases: u16,
     pub is_generator: bool,
     pub overflow: bool,
     pub prev_slots: Vec<Option<u16>>,
