@@ -32,6 +32,8 @@ pub(crate) enum AttrLookup {
     Thunk(Val),
     // `obj.__dict__`, the attributes of the instance as a dict that shares them.
     Dict(Rc<RefCell<DictMap>>),
+    // `__mro__` or `__bases__` of a class or type, `LoadAttr` makes the tuple with `object` last when the flag asks.
+    Classes(Vec<Val>, bool),
 }
 
 impl<'a> VM<'a> {
@@ -208,8 +210,11 @@ impl<'a> VM<'a> {
                 if name == "__name__" && let Some(n) = self.function_names.get(*fi) { return Ok(AttrLookup::Name(n.clone())); }
             }
             // Class attr, `MyClass.method` returns the unbound function (no `self` prepended).
-            Some(HeapObj::Class(cls_name, _, _)) => {
+            Some(HeapObj::Class(cls_name, bases, _)) => {
                 if name == "__name__" { return Ok(AttrLookup::Name(cls_name.clone())); }
+                // Every class ends its linearization in `object`, and one listing no base derives from it.
+                if name == "__mro__" { return Ok(AttrLookup::Classes(self.mro_of(obj), true)); }
+                if name == "__bases__" { return Ok(AttrLookup::Classes(bases.clone(), bases.is_empty())); }
                 if let Some((v, defining)) = self.lookup_class_member(obj, name) {
                     return Ok(match self.heap.try_get(v) {
                         // `staticmethod` accessed on the class itself unwraps to the plain function.
@@ -255,6 +260,8 @@ impl<'a> VM<'a> {
             // A method off a builtin type stays unbound, a classmethod like `dict.fromkeys` binds the type.
             Some(HeapObj::Type(n)) => {
                 if name == "__name__" { return Ok(AttrLookup::Name(n.clone())); }
+                if name == "__mro__" { return Ok(AttrLookup::Classes(alloc::vec![obj], n != "object")); }
+                if name == "__bases__" { return Ok(AttrLookup::Classes(alloc::vec::Vec::new(), n != "object")); }
                 // `Exception.__init__(self, msg)` reaches the shared exception methods.
                 let owner = if crate::vm::globals::matches_exc_class(n, "BaseException") { "BaseException" } else { n.as_str() };
                 let op = || crate::vm::methods::operator::applies(n, name).then(|| lookup_method("op", name)).flatten();
@@ -372,6 +379,10 @@ impl<'a> VM<'a> {
             AttrLookup::TypeOf(s) => HeapObj::Type(s),
             // Writes through the dict skip the stores that note hidden methods, so sites check again.
             AttrLookup::Dict(attrs) => { self.shadowed = true; HeapObj::Dict(attrs) }
+            AttrLookup::Classes(mut classes, object) => {
+                if object { classes.push(self.builtin_value("object")?); }
+                HeapObj::Tuple(classes)
+            }
             AttrLookup::PropertyGet { recv, getter } => {
                 // Inline getter call, matches `BoundUserMethod` dispatch (push func, push self, call).
                 if self.depth >= self.max_calls { return Err(cold_depth()); }

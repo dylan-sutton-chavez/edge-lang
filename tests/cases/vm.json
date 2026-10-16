@@ -6938,5 +6938,10 @@
   {"src": "def chain(n):\n    if n == 0:\n        yield 'leaf'\n    else:\n        yield from chain(n - 1)\nprint(list(chain(500)))", "output": ["['leaf']"]},
   {"src": "def chain(n):\n    if n == 0:\n        yield n\n    else:\n        for v in chain(n - 1):\n            yield v + 1\nprint(list(chain(500)), sum(chain(300)))", "output": ["[500] 300"]},
   {"src": "def forever():\n    yield from forever()\ntry:\n    next(forever())\nexcept RecursionError:\n    print('RecursionError')", "output": ["RecursionError"]},
-  {"src": "def inner(n):\n    yield n\n    return n * 10\ndef outer(d):\n    if d == 0:\n        r = yield from inner(7)\n    else:\n        r = yield from outer(d - 1)\n    return r + 1\ndef top():\n    r = yield from outer(300)\n    yield r\nprint(list(top()))", "output": ["[7, 371]"]}
+  {"src": "def inner(n):\n    yield n\n    return n * 10\ndef outer(d):\n    if d == 0:\n        r = yield from inner(7)\n    else:\n        r = yield from outer(d - 1)\n    return r + 1\ndef top():\n    r = yield from outer(300)\n    yield r\nprint(list(top()))", "output": ["[7, 371]"]},
+  {"src": "class A: pass\nclass B(A): pass\nclass C(A): pass\nclass D(B, C): pass\nprint([k.__name__ for k in D.__mro__])\nprint([k.__name__ for k in D.__bases__], A.__bases__[0].__name__, len(A.__mro__))", "output": ["['D', 'B', 'C', 'A', 'object']", "['B', 'C'] object 2"]},
+  {"src": "print(int.__mro__[0].__name__, int.__mro__[-1].__name__, len(int.__mro__), len(object.__mro__), object.__bases__, int.__bases__[0].__name__)", "output": ["int object 2 1 () object"]},
+  {"src": "class A(object): pass\nprint([k.__name__ for k in A.__mro__], [k.__name__ for k in A.__bases__])", "output": ["['A', 'object'] ['object']"]},
+  {"src": "class A: pass\nclass B(A): pass\nm = B.__mro__\nprint(type(m).__name__, A in m, m.index(A), B.__mro__ == B.__mro__)", "output": ["tuple True 1 True"]},
+  {"src": "class A:\n    x = 1\nclass B(A):\n    y = 2\nprint([k.__name__ for k in B.__mro__ if hasattr(k, 'x')], issubclass(B, B.__bases__[0]))", "output": ["['B', 'A'] True"]}
 ]
