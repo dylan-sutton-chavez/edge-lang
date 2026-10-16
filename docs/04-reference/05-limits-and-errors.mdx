@@ -161,7 +161,7 @@ Runtime errors raise as typed exceptions, catchable with `try` and `except`.
 | `RecursionError` | Past the call-depth limit, or a comparison nested deeper than 100 levels |
 | `MemoryError` | Past the memory limit |
 | `SyntaxError` | Text that `eval`, `exec` or `compile` cannot parse, or an import there of a module the program does not import |
-| `RuntimeError` | Past the op limit, an import cycle, `input()` without host data, a suspension inside `eval` or `exec`, or an internal invariant |
+| `RuntimeError` | Past the op limit, an import cycle, `input()` without host data, a suspension inside `eval`, `exec` or a generator, or an internal invariant |
 
 These errors fire from ordinary code.
 

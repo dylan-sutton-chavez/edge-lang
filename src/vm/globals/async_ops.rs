@@ -112,6 +112,14 @@ impl<'a> VM<'a> {
 
         self.depth -= 1;
         self.executing_coros.retain(|&id| id != callee.0);
+        // A generator only hands values to whoever steps it, waiting for an event inside it is an error there.
+        let result = match result {
+            Ok(_) if self.yielded && self.waits() && matches!(outer_body, BodyRef::Fn(fi) if self.functions[fi].1.is_generator && !self.is_async.get(fi).copied().unwrap_or(false)) => {
+                self.yielded = false;
+                Err(self.suspended_in_generator())
+            }
+            r => r,
+        };
         // A body that returned or raised is finished, so a later resume must not run its tail again.
         let finished = match &result { Ok(_) => !self.yielded, Err(e) => !matches!(e, VmErr::HostYield(_)) };
         if finished && let Some(HeapObj::Coroutine(c)) = self.heap.try_get_mut(callee) { c.ip = FINISHED; }
@@ -150,6 +158,23 @@ impl<'a> VM<'a> {
             self.resume_ip = saved_resume_ip; // restore the caller's scratch
             Ok(result)
         }
+    }
+
+    /* Whether the yield that just happened waits for something, an event, a host call, children, a preemption or a parked helper. */
+    #[inline]
+    pub(crate) fn waits(&self) -> bool {
+        let p = &self.pending;
+        p.event_wait_request || p.host_call_request || p.preempt_request || p.waiting_for_children.is_some() || !self.pending_sync_frames.is_empty()
+    }
+
+    /* The error a suspension inside a generator raises, its requests dropped. */
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn suspended_in_generator(&mut self) -> VmErr {
+        let p = &mut self.pending;
+        (p.event_wait_request, p.host_call_request, p.preempt_request, p.waiting_for_children) = (false, false, false, None);
+        self.pending_sync_frames.clear();
+        VmErr::Raised(alloc::string::String::from("RuntimeError: receive(), sleep() and host calls cannot wait inside a generator"))
     }
 
     /* Live (non-terminal) coroutine count, the concurrency that bounds scheduler work. */

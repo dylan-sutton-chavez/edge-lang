@@ -87,6 +87,8 @@ pub(crate) fn identity(src: &[Instruction], names: usize, kinds: Rc<[Kind]>, mod
 
 // Past this many pending values the lowering spills them, so temporaries stay few.
 const MAX_PENDING: usize = 16;
+// Values pending under a register call it copies past itself, more go to the stack with the call as before.
+const MAX_UNDER: usize = 1;
 
 /* A stack value kept in a register until the stack needs it. */
 #[derive(Clone, Copy, PartialEq)]
@@ -116,12 +118,14 @@ pub(crate) fn lower(src: &[Instruction], chunk: &SSAChunk, facts: &Facts) -> Opt
         if let Some(s) = deleted.get_mut(ins.operand as usize) { *s = true; }
     }
     let bound_at = facts.regs.then(|| bound_on_entry(src, chunk, names, facts, &starts));
+    let (appends, resets) = if facts.regs { append_loops(src, facts) } else { (Vec::new(), Vec::new()) };
     let cbase = names;
     let tbase = names + consts + 3;
     let mut l = Lower {
         src, chunk, facts, targets: &targets, deleted, names, cbase, consts, tbase,
         out: Vec::with_capacity(len), orig: Vec::with_capacity(len + 1), at: vec![0; len + 1], back: Vec::with_capacity(len + 1),
-        pending: Vec::with_capacity(MAX_PENDING), patches: Vec::new(), temps: 0, last: None, cur: 0, takes: false, quiet: 0, bound: Vec::new(),
+        pending: Vec::with_capacity(MAX_PENDING), patches: Vec::new(), temps: 0, last: None, cur: 0, takes: false, under: Vec::new(), quiet: 0, bound: Vec::new(),
+        appends,
     };
     let mut i = 0;
     while i < len {
@@ -133,12 +137,20 @@ pub(crate) fn lower(src: &[Instruction], chunk: &SSAChunk, facts: &Facts) -> Opt
                 Some(b) => b.entry(i, &mut l.bound),
                 None => { l.bound.clear(); l.bound.resize(names.div_ceil(64), 0); }
             }
+            // Entering a loop that appends to a local gives up the string it owned, a back-edge skips this.
+            for &(_, slot) in resets.iter().filter(|r| r.0 == i) { l.emit(Ins { op: OpCode::OwnResetR, x: 0, a: slot, b: 0, c: 0 }); }
         }
         l.cur = i as u32;
         l.at[i] = l.out.len() as u32;
         if core::mem::take(&mut l.takes) {
+            // What the call left under it comes back off the stack, into its temporaries since a resume in unlowered code never wrote them.
+            let under = core::mem::take(&mut l.under);
+            l.pending.extend_from_slice(&under);
             let t = l.temp();
             l.produce(Ins { op: OpCode::StoreTopR, x: 0, a: t, b: 0, c: 0 });
+            for e in under.iter().rev() {
+                l.emit(if e.name { Ins { op: OpCode::PopTop, x: 0, a: 0, b: 0, c: 0 } } else { Ins { op: OpCode::StoreTopR, x: 0, a: e.r, b: 0, c: 0 } });
+            }
         }
         let before = l.out.len();
         let step = l.one(i);
@@ -173,6 +185,34 @@ fn entered(src: &[Instruction]) -> Vec<bool> {
         if ins.opcode == OpCode::UnwindFinally { entered[k + 1] = true; }
     }
     entered
+}
+
+/* The InPlaceAdd instructions that append to a local a loop uses for nothing else, and the loop heads with the slots they reset. */
+fn append_loops(src: &[Instruction], facts: &Facts) -> (Vec<bool>, Vec<(usize, u16)>) {
+    let mut appends = vec![false; src.len()];
+    let mut resets = Vec::new();
+    let refers = |ins: &Instruction| matches!(ins.opcode, OpCode::LoadName | OpCode::StoreName | OpCode::Del | OpCode::Phi);
+    for (end, back) in src.iter().enumerate().filter(|(j, b)| b.opcode == OpCode::Jump && (b.operand as usize) <= *j) {
+        let head = back.operand as usize;
+        // A jump from outside into the loop would skip the reset at its head.
+        let outside = |k: usize| k < head || k > end;
+        if src.iter().enumerate().any(|(k, ins)| outside(k) && ins.opcode.is_jump() && (head..=end).contains(&(ins.operand as usize))) { continue; }
+        // Each local an append in the loop stores, looked at once.
+        let mut slots: Vec<u16> = (head..end).filter(|&k| src[k].opcode == OpCode::InPlaceAdd && src[k + 1].opcode == OpCode::StoreName)
+            .map(|k| src[k + 1].operand).filter(|&s| facts.kinds.get(s as usize) == Some(&Kind::Local)).collect();
+        slots.sort_unstable();
+        slots.dedup();
+        for slot in slots {
+            // Every use of the slot in the loop is a load an append adds to and that append's store.
+            let uses: Vec<usize> = (head..=end).filter(|&u| refers(&src[u]) && src[u].operand == slot).collect();
+            let paired = uses.chunks(2).all(|p| matches!(p, [load, st] if src[*load].opcode == OpCode::LoadName && src[*st].opcode == OpCode::StoreName
+                && *st >= 1 && src[*st - 1].opcode == OpCode::InPlaceAdd));
+            if !uses.len().is_multiple_of(2) || !paired { continue; }
+            for p in uses.chunks(2) { appends[p[1] - 1] = true; }
+            resets.push((head, slot));
+        }
+    }
+    (appends, resets)
 }
 
 /* No instruction after it runs from it. */
@@ -272,6 +312,10 @@ struct Lower<'c> {
     cur: u32,
     // A register call left its result on the stack, which the next instruction takes into a register first.
     takes: bool,
+    // The values pending under that call, copied to the stack in case it suspends.
+    under: Vec<Entry>,
+    // The InPlaceAdd instructions that append to a local their loop only ever appends to.
+    appends: Vec<bool>,
     // The first compiler instruction whose work no emitted instruction has finished.
     quiet: u32,
     bound: Vec<u64>,
@@ -326,6 +370,14 @@ impl Lower<'_> {
                 let (a, b) = (self.pending[k - 2], self.pending[k - 1]);
                 self.push(a);
                 self.push(b);
+            }
+            // `s += t` on a local its loop only appends to grows the string it owns.
+            OpCode::InPlaceAdd if self.appends.get(i).copied().unwrap_or(false) && self.pending.len() >= 2
+                && self.pending[self.pending.len() - 2] == (Entry { r: self.src[i + 1].operand, name: true }) => {
+                let (_, t) = self.pop2();
+                self.settle();
+                self.emit(Ins { op: OpCode::AppendR, x: 0, a: self.src[i + 1].operand, b: t.r, c: 0 });
+                return 2;
             }
             code if binary_form(code).is_some() && self.pending.len() >= 2 && op < AUGMENTED as u16 => return self.binary(i, code, op as u8),
             OpCode::Minus | OpCode::Not if !self.pending.is_empty() => {
@@ -426,8 +478,9 @@ impl Lower<'_> {
                 self.emit(Ins { op: OpCode::UnpackR, x: op as u8, a: t(0), b: t(1), c: t(2) });
                 return 1 + op as usize;
             }
-            // A call of up to five positionals, and nothing pending under it, reads its operands from registers.
-            OpCode::Call if regs && op <= 5 && self.pending.len() == op as usize + 1 && i + 1 < self.src.len() && !self.targets[i + 1] => {
+            // A call of up to five positionals reads its operands from registers, what is pending under it goes to the stack first.
+            OpCode::Call if regs && op <= 5 && self.pending.len() > op as usize && self.pending.len() <= op as usize + 1 + MAX_UNDER && i + 1 < self.src.len() && !self.targets[i + 1] => {
+                self.flush_under(op as usize + 1);
                 let r = |k: usize| self.pending.get(k).map_or(0, |e| e.r);
                 let call = Ins { op: OpCode::CallR, x: op as u8, a: r(0), b: r(1), c: r(2) };
                 let rest = Ins { op: OpCode::ArgsR, x: 0, a: r(3), b: r(4), c: r(5) };
@@ -437,9 +490,10 @@ impl Lower<'_> {
                 if wide(call) { self.emit(rest); }
                 self.takes = true;
             }
-            // A method call of up to four positionals, and nothing pending under it, reads its receiver and arguments from registers.
+            // A method call of up to four positionals reads its receiver and arguments from registers, what is pending under it goes to the stack first.
             OpCode::CallMethod if regs && let Some(args) = self.src.get(i + 1) && args.opcode == OpCode::CallMethodArgs
-                && args.operand <= 4 && self.pending.len() == args.operand as usize + 1 && i + 2 < self.src.len() && !self.targets[i + 2] => {
+                && args.operand <= 4 && self.pending.len() > args.operand as usize && self.pending.len() <= args.operand as usize + 1 + MAX_UNDER && i + 2 < self.src.len() && !self.targets[i + 2] => {
+                self.flush_under(args.operand as usize + 1);
                 let r = |k: usize| self.pending.get(k).map_or(0, |e| e.r);
                 let call = Ins { op: OpCode::CallMethodR, x: args.operand as u8, a: op, b: r(0), c: r(1) };
                 let rest = Ins { op: OpCode::ArgsR, x: 0, a: r(2), b: r(3), c: r(4) };
@@ -591,6 +645,16 @@ impl Lower<'_> {
     fn settle(&mut self) {
         self.flush();
         self.quiet = self.cur;
+    }
+
+    /* Copies the pending values under the top `keep` to the stack, deepest first, so a call that suspends resumes at itself. */
+    fn flush_under(&mut self, keep: usize) {
+        let under = self.pending.len() - keep;
+        if under == 0 { return; }
+        self.under = self.pending.drain(..under).collect();
+        let below = core::mem::take(&mut self.under);
+        self.push_regs(&below);
+        self.under = below;
     }
 
     /* Puts every pending value on the stack, deepest first. */

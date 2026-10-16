@@ -90,6 +90,10 @@ pub enum OpCode {
     CallMethodR,
     // The arguments in a, b and c past those a CallR or CallMethodR before it holds, never run alone.
     ArgsR,
+    // `a += b` for a local only ever appended to in its loop, a string it owns grown in place.
+    AppendR,
+    // Gives up the string local `a` owns, on entering a loop that appends to it.
+    OwnResetR,
 }
 
 // Each fused builtin opcode and the builtin it runs, with the name that alone picks the opcode.

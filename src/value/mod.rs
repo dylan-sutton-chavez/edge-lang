@@ -36,6 +36,8 @@ pub const MAX_NESTED: usize = 128;
 pub const VAL_BYTES: usize = 8;
 /* Native work a step lets pile up before the loop leaves its fast path to charge it. */
 const WORK_SLICE: usize = 1 << 16;
+// Bytes a run may hold before the first collection by size, so a small program never collects for it.
+const GC_BYTES_FLOOR: usize = 8 << 20;
 
 /* Host-provided callable, resolved at compile time and dispatched by `CallExtern`. `Arc<dyn Fn>` lets loaders capture stateful handles. Third arg is the kwargs slot, `None` for plain positional calls, `Some(dict_val)` when the caller used `name=value` syntax. */
 pub type ExternCallable =
@@ -667,6 +669,8 @@ pub struct HeapPool {
     /* Vals visited by the last mark, sizes the next collection. */
     marked_vals: usize,
     alloc_limit: usize,
+    /* Bytes held past which a collection runs, four times what the last sweep kept, so few large objects cannot pile up garbage. */
+    gc_bytes: usize,
     /* Reused across mark() calls, cleared not freed, so GC never re-allocates under pressure. */
     mark_worklist: Vec<u32>,
     /* The class and attributes of each classed slot, which stays a real dict or list for the builtins. */
@@ -719,6 +723,7 @@ impl HeapPool {
             bound_user_methods: HashMap::default(),
             marked_vals: 0,
             alloc_limit: 4096,
+            gc_bytes: GC_BYTES_FLOOR,
             mark_worklist: Vec::with_capacity(64),
             classes: HashMap::default(),
             foreign: alloc::boxed::Box::default(),
@@ -896,6 +901,7 @@ impl HeapPool {
         // Both triggers scale with the volume the last mark walked.
         self.gc_threshold = (self.live * 2).max(512).max(self.marked_vals / 4);
         self.alloc_limit = (self.marked_vals / 4).max(4096);
+        self.gc_bytes = self.meter.held().saturating_mul(4).max(GC_BYTES_FLOOR);
         self.marked_vals = 0;
         self.alloc_count.set(0);
 
@@ -931,6 +937,7 @@ impl HeapPool {
         }
         self.gc_threshold = (self.live * 2).max(512);
         self.alloc_limit = 4096;
+        self.gc_bytes = self.meter.held().saturating_mul(4).max(GC_BYTES_FLOOR);
         self.marked_vals = 0;
         self.alloc_count.set(0);
     }
@@ -943,7 +950,7 @@ impl HeapPool {
     /* Whether the next step leaves the fast path, for a collection or for a slice of native work to charge. */
     pub fn needs_gc(&self) -> bool {
         let alloc_limit = (self.live / 4).max(self.alloc_limit);
-        self.live >= self.gc_threshold || self.alloc_count.get() >= alloc_limit || self.work.get() > WORK_SLICE || self.over()
+        self.live >= self.gc_threshold || self.alloc_count.get() >= alloc_limit || self.work.get() > WORK_SLICE || self.meter.held() > self.gc_bytes || self.over()
     }
 
     /* Counts `n` units of native work, the next step charges them to the op budget. */
@@ -967,6 +974,50 @@ impl HeapPool {
         let w = self.work.get();
         if w != 0 { self.work.set(0); }
         w
+    }
+
+    /* `s[i]` of an ASCII string `v` as its interned one-character string, None when the slow path must answer. */
+    #[inline]
+    pub fn str_char(&mut self, v: Val, i: i64) -> Option<Val> {
+        if !self.str_is_ascii(v) { return None; }
+        let Some(HeapObj::Str(s)) = self.plain(v) else { return None };
+        let n = s.len() as i64;
+        let j = if i < 0 { i + n } else { i };
+        if !(0..n).contains(&j) { return None; }
+        let c = s.as_bytes()[j as usize];
+        let one = [c];
+        // SAFETY an ASCII byte is a whole UTF-8 character.
+        self.string_slot(unsafe { core::str::from_utf8_unchecked(&one) }).map(Val::heap)
+    }
+
+    /* Whether `v` is a string a run may grow in place once it owns it, made at run time and never interned. */
+    #[inline]
+    pub fn growable_str(&self, v: Val) -> bool {
+        v.is_heap() && self.slots.get(v.as_heap() as usize).is_some_and(|s| !s.classed && !s.interned && matches!(&s.obj, Some(HeapObj::Str(t)) if t.len() > 1))
+    }
+
+    /* Appends string `t` to the string `s` its owner grows in place, false when either is not a plain string. */
+    pub fn append_str(&mut self, s: Val, t: Val) -> bool {
+        if !self.growable_str(s) || !t.is_heap() || s.0 == t.0 { return false; }
+        let (si, ti) = (s.as_heap() as usize, t.as_heap() as usize);
+        let (lo, hi) = self.slots.split_at_mut(si.max(ti));
+        let (dst, src) = if si < ti { (&mut lo[si], &hi[0]) } else { (&mut hi[0], &lo[ti]) };
+        let (Some(HeapObj::Str(d)), Some(HeapObj::Str(x))) = (&mut dst.obj, &src.obj) else { return false };
+        if src.classed { return false; }
+        if x.len() > 64 { self.work.set(self.work.get().saturating_add(x.len())); }
+        // The cached ASCII answer holds only while both halves are ASCII.
+        if dst.ascii == 1 && !x.is_ascii() { dst.ascii = 0; }
+        d.push_str(x);
+        true
+    }
+
+    /* Whether two plain strings hold the same text, None for any other pair. */
+    #[inline]
+    pub fn str_eq(&self, a: Val, b: Val) -> Option<bool> {
+        match (self.plain(a)?, self.plain(b)?) {
+            (HeapObj::Str(x), HeapObj::Str(y)) => Some(a.0 == b.0 || eq::eq_text(x.as_bytes(), y.as_bytes(), self)),
+            _ => None,
+        }
     }
 
     /* ASCII-only Str, scanned once per slot. */

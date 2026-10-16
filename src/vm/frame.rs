@@ -5,6 +5,8 @@ use super::lower::Code;
 use super::types::*;
 use super::lower::{self, Ins};
 use super::sites::Site;
+use super::globals::async_ops::FINISHED;
+use crate::value::BodyRef;
 use crate::parser::{OpCode, SSAChunk};
 
 /* A plain call the instruction loop runs in place of a nested one, what it runs and what its caller gets back. */
@@ -28,6 +30,8 @@ pub(crate) struct Frame {
     pub(crate) bound: bool,
     // The instance an `__init__` frame hands back in place of what it returns, undef for any other call.
     pub(crate) instance: Val,
+    // The generator a `for` loop runs as this frame, which a yield hands its value back from, undef for a call.
+    pub(crate) generator: Val,
 }
 
 /* What calling a function needs to know of its body, found once. */
@@ -87,7 +91,7 @@ impl<'a> VM<'a> {
             exc_base: self.exception_stack.len(), unwind_base: self.unwind_stack.len(), delta_base: self.pending.delta_save.len(),
             ret: 0, dest: NO_DEST, fi, callee, call_ip: self.pending.call_ip.take(),
             stack_base: self.stack.len(), iter_base: self.iter_stack.len(), bound,
-            instance: core::mem::replace(&mut self.pending_instance, Val::undef()),
+            instance: core::mem::replace(&mut self.pending_instance, Val::undef()), generator: Val::undef(),
         });
         self.entered = true;
         self.yielded = true;
@@ -133,7 +137,7 @@ impl<'a> VM<'a> {
             code: callee_code, base,
             exc_base: self.exception_stack.len(), unwind_base: self.unwind_stack.len(), delta_base: self.pending.delta_save.len(),
             ret: next, dest, fi, callee, call_ip: Some(code.orig(i)),
-            stack_base: self.stack.len(), iter_base: self.iter_stack.len(), bound, instance,
+            stack_base: self.stack.len(), iter_base: self.iter_stack.len(), bound, instance, generator: Val::undef(),
         });
         self.base = base;
         let chunk = &self.functions[fi].1 as *const SSAChunk;
@@ -196,8 +200,8 @@ impl<'a> VM<'a> {
     #[inline(always)]
     pub(crate) fn leave_site(&mut self, v: Val, floor_code: *const Code, floor_chunk: *const SSAChunk, floor_base: usize, floor_depth: usize) -> Option<(*const Code, *const SSAChunk, usize)> {
         let f = self.frames.last()?;
-        // Cleanup takes the full path.
-        if v.is_undef() || self.exception_stack.len() > f.exc_base || self.unwind_stack.len() > f.unwind_base { return None; }
+        // Cleanup and the end of a generator take the full path.
+        if v.is_undef() || !f.generator.is_undef() || self.exception_stack.len() > f.exc_base || self.unwind_stack.len() > f.unwind_base { return None; }
         let (ret, dest, base, iter_base, bound, instance) = (f.ret, f.dest, f.base, f.iter_base, f.bound, f.instance);
         self.frames.truncate(self.frames.len() - 1);
         self.regs.truncate(base);
@@ -248,6 +252,105 @@ impl<'a> VM<'a> {
         let (ret, dest, instance) = (f.ret, f.dest, f.instance);
         self.leave_frame();
         (ret, dest, if instance.is_undef() { v } else { instance })
+    }
+
+    /* Opens the generator `co` a `for` at `i` steps as the next frame of the loop, the code, chunk and index it carries on at, None when its state needs the nested resume. */
+    #[inline(never)]
+    pub(crate) fn enter_gen(&mut self, co: Val, i: usize, code: &Code) -> Option<(*const Code, *const SSAChunk, usize)> {
+        let Some(HeapObj::Coroutine(c)) = self.heap.try_get(co) else { return None };
+        // A finished body, helper frames waiting inside it or a body not lowered yet take the nested resume.
+        let BodyRef::Fn(fi) = c.body else { return None };
+        if c.ip == FINISHED || !c.syncs.is_empty() || !self.functions[fi].1.is_generator || self.is_async.get(fi).copied().unwrap_or(false) { return None; }
+        let facts = self.call_facts[fi];
+        let gen_code = Rc::as_ptr(self.pools[facts.pool].code.as_ref()?);
+        if self.frames.len() % DEPTH_CHECK == DEPTH_CHECK - 1 || self.executing_coros.contains(&co.0) { return None; }
+        // The step pays for the state it moves, as a resume does.
+        let cost = 1 + (c.slots.len() + c.stack.len() + c.iters.len()) as u64 + self.heap.take_work() as u64;
+        if self.budget < cost { self.budget = 0; return None; }
+        self.budget -= cost;
+        self.heap.set_budget(self.budget);
+        let (base, stack_base, iter_base, exc_base) = (self.regs.len(), self.stack.len(), self.iter_stack.len(), self.exception_stack.len());
+        let Some(HeapObj::Coroutine(c)) = self.heap.try_get_mut(co) else { return None };
+        let resume = c.ip;
+        // The saved state moves onto the live stacks, as `restore_into` does, its buffers left empty for the next yield.
+        self.regs.extend_from_slice(&c.slots);
+        c.slots.clear();
+        self.stack.extend_from_slice(&c.stack);
+        c.stack.clear();
+        self.iter_stack.append(&mut c.iters);
+        for f in c.excs.iter_mut() {
+            f.stack_depth += stack_base;
+            f.iter_depth += iter_base;
+        }
+        self.exception_stack.append(&mut c.excs);
+        self.frames.push(Frame {
+            code: gen_code, base, exc_base, unwind_base: self.unwind_stack.len(), delta_base: self.pending.delta_save.len(),
+            ret: i, dest: NO_DEST, fi, callee: co, call_ip: Some(code.orig(i)),
+            stack_base, iter_base, bound: false, instance: Val::undef(), generator: co,
+        });
+        self.executing_coros.push(co.0);
+        self.gen_frames += 1;
+        self.base = base;
+        let chunk = &self.functions[fi].1 as *const SSAChunk;
+        // SAFETY the pool holds the code for as long as the VM lives.
+        let c = unsafe { &*gen_code };
+        // SAFETY the chunk lives as long as the VM.
+        if self.regs.len() - base < c.frame { self.grow_frame(unsafe { &*chunk }, c, facts.pool); }
+        Some((gen_code, chunk, c.lowered(resume)))
+    }
+
+    /* Ends the innermost frame, a generator that yielded at `resume`, back into its object, and gives the `for` that stepped it. */
+    pub(crate) fn yield_gen(&mut self, resume: usize) -> usize {
+        let Some(f) = self.frames.last() else { return 0 };
+        let (co, base, stack_base, iter_base, exc_base, ret) = (f.generator, f.base, f.stack_base, f.iter_base, f.exc_base, f.ret);
+        // The live stacks above the frame go back into the generator, its handler depths made relative, as `save_frames` does.
+        if let Some(HeapObj::Coroutine(c)) = self.heap.try_get_mut(co) {
+            c.ip = resume;
+            c.slots.extend_from_slice(&self.regs[base..]);
+            c.stack.extend_from_slice(&self.stack[stack_base.min(self.stack.len())..]);
+            c.iters.extend(self.iter_stack.drain(iter_base.min(self.iter_stack.len())..));
+            let at = c.excs.len();
+            c.excs.extend(self.exception_stack.drain(exc_base.min(self.exception_stack.len())..));
+            for f in &mut c.excs[at..] {
+                f.stack_depth = f.stack_depth.saturating_sub(stack_base);
+                f.iter_depth = f.iter_depth.saturating_sub(iter_base);
+            }
+        }
+        self.stack.truncate(stack_base);
+        self.leave_gen();
+        ret
+    }
+
+    /* `yield` of the generator frame on top, its value `v` handed to the `for` that stepped it, the code, chunk and index that carry on, None when it suspends otherwise. */
+    #[inline(never)]
+    pub(crate) fn yield_site(&mut self, v: Val, resume: usize, floor_code: *const Code, floor_chunk: *const SSAChunk, floor_base: usize, floor_depth: usize) -> Option<(*const Code, *const SSAChunk, usize)> {
+        let at = self.yield_gen(resume);
+        let (code, chunk) = match self.frames.last() {
+            Some(f) if self.frames.len() > floor_depth => { self.base = f.base; (f.code, &self.functions[f.fi].1 as *const SSAChunk) }
+            _ => { self.base = floor_base; (floor_code, floor_chunk) }
+        };
+        // The `for` takes the value as its own step would, into a register or a module binding.
+        // SAFETY the caller runs code its pool or the floor keeps.
+        let (step, module) = { let c = unsafe { &*code }; (c.ins[at], c.module) };
+        if step.x == 0 { self.regs[self.base + step.b as usize] = v; } else { self.scopes[module].set_at(step.b as u32, v); }
+        Some((code, chunk, at + 1))
+    }
+
+    /* Ends the innermost frame, a generator that returned or raised, which then stays finished. */
+    pub(crate) fn finish_gen(&mut self) -> usize {
+        let Some(f) = self.frames.last() else { return 0 };
+        let (co, ret) = (f.generator, f.ret);
+        if let Some(HeapObj::Coroutine(c)) = self.heap.try_get_mut(co) { c.ip = FINISHED; }
+        self.leave_gen();
+        ret
+    }
+
+    /* Drops the innermost frame, a generator's, and its running mark. */
+    fn leave_gen(&mut self) {
+        let co = self.frames.last().map_or(Val::undef(), |f| f.generator);
+        self.leave_frame();
+        if let Some(k) = self.executing_coros.iter().rposition(|&g| g == co.0) { self.executing_coros.remove(k); }
+        self.gen_frames -= 1;
     }
 
     /* Keeps the innermost loop frame, which suspended, as a sync frame its coroutine runs again on resume, and gives where its caller carries on. */

@@ -200,6 +200,11 @@ pub struct VM<'a> {
     pub(crate) preempt_every: usize,
     /* True while this `exec` frame can unwind. */
     pub(crate) frame_safe: bool,
+    /* Generators a `for` runs as frames of a loop right now, which no preemption may park. */
+    pub(crate) gen_frames: usize,
+    /* The string an `AppendR` made last and the register holding it, the only one that string grows in place in. */
+    pub(crate) owned_str: Val,
+    pub(crate) owned_at: usize,
     pub(crate) pending_exec_safe: bool,
     /* Cancellation drive flag and the one-shot park-point raise, both live within one resume, never snapshotted. */
     pub(crate) cancelling: bool,
@@ -301,6 +306,9 @@ impl<'a> VM<'a> {
             preempt_left: 0,
             preempt_every: 0,
             frame_safe: false,
+            gen_frames: 0,
+            owned_str: Val::undef(),
+            owned_at: usize::MAX,
             pending_exec_safe: false,
             cancelling: false,
             resume_raise: None,

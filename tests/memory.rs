@@ -53,6 +53,20 @@ mod test {
         assert!(peak >= 2_000_000 && held < peak / 2, "peak {peak} held {held}");
     }
 
+    // Few large objects thrown away in a loop are collected by their bytes, so the peak stays near what is live.
+    #[test]
+    fn large_garbage_collects_by_its_bytes() {
+        for src in [
+            "a = set(range(0, 200000, 2))\nb = set(range(0, 200000, 3))\nt = 0\nfor r in range(40):\n    t += len(a & b) + len(a | b)\n",
+            "x = 1\nfor i in range(1, 3000):\n    x = x * i\n",
+            "t = 0\nfor i in range(300):\n    t += len(list(range(20000)))\n",
+            "s = 'y' * 100000\nt = 0\nfor i in range(300):\n    t += len(s + 'z')\n",
+        ] {
+            let (_, peak, _) = ran(src);
+            assert!(peak < 48 << 20, "{src}: peak {peak}");
+        }
+    }
+
     /* Gives the thread back its whole budget when a test ends, however it ends. */
     struct Restore;
 

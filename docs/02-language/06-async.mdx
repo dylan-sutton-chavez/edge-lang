@@ -43,7 +43,7 @@ print(run(coro())) # 1 (run drives it to completion)
 1
 ```
 
-A plain `def` called from a coroutine can still call yielding builtins such as `sleep` and `receive`. The scheduler keeps the frame of the helper and suspends the whole call chain. On resume it re-enters the helper, and its return value lands at the original call site.
+A plain `def` called from a coroutine can still call yielding builtins such as `sleep` and `receive`. The scheduler keeps the frame of the helper and suspends the whole call chain. On resume it re-enters the helper, and its return value lands at the original call site. A generator body is the exception: it hands values only to whoever steps it, so a `sleep`, `receive` or host call that waits inside it raises `RuntimeError`.
 
 The module body runs as an implicit coroutine. Top-level statements suspend the same way.
 

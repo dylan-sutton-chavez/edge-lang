@@ -289,6 +289,16 @@ impl<'a> VM<'a> {
                 }
                 Turn::Return(v) => {
                     if self.frames.len() == floor { break Ok(v); }
+                    // A generator that returned ends the `for` stepping it, its value what a `yield from` takes.
+                    if self.frames.last().is_some_and(|f| !f.generator.is_undef()) {
+                        let at = self.finish_gen();
+                        load!();
+                        self.yield_from_value = v;
+                        self.iter_stack.pop();
+                        // SAFETY as above.
+                        ip = unsafe { &*cur }.ins.get(at).map_or(at, |ins| ins.a as usize);
+                        continue;
+                    }
                     let (ret, _, v) = self.return_frame(v);
                     self.push(v);
                     ip = ret;
@@ -296,15 +306,31 @@ impl<'a> VM<'a> {
                 }
                 Turn::Yield(v) => {
                     if self.frames.len() == floor { break Ok(v); }
+                    if self.frames.last().is_some_and(|f| !f.generator.is_undef()) {
+                        self.yielded = false;
+                        // A generator only hands values to its `for`, waiting for an event inside it is an error there.
+                        if self.waits() { raised = Some(self.suspended_in_generator()); parking = false; continue; }
+                        let resume = core::mem::take(&mut self.resume_ip);
+                        let at = self.yield_gen(resume);
+                        load!();
+                        // The `for` takes the value as its own step would, into a register or a module binding.
+                        // SAFETY as above.
+                        let (step, module) = { let c = unsafe { &*cur }; (c.ins[at], c.module) };
+                        if step.x == 0 { self.regs[self.base + step.b as usize] = v; } else { self.scopes[module].set_at(step.b as u32, v); }
+                        ip = at + 1;
+                        parking = false;
+                        continue;
+                    }
                     ip = self.park_frame();
                     load!();
                     parking = true;
                 }
                 Turn::Raise(e) => {
                     let Some(f) = self.frames.last().filter(|_| self.frames.len() > floor) else { break Err(e) };
-                    let (fi, call_ip) = (f.fi, f.call_ip);
+                    let (fi, call_ip, generator) = (f.fi, f.call_ip, f.generator);
                     ip = f.ret;
-                    self.leave_frame();
+                    // A generator that raised stays finished, the error meeting its `for`.
+                    if generator.is_undef() { self.leave_frame(); } else { self.finish_gen(); }
                     load!();
                     // SAFETY as above.
                     let (code_ref, caller): (&Code, &SSAChunk) = unsafe { (&*cur, &*at) };
@@ -587,14 +613,26 @@ impl<'a> VM<'a> {
                     r[ins.a as usize] = v;
                     i += 1;
                 }
-                OpCode::EqR => compare!(ins, ==),
-                OpCode::NotEqR => compare!(ins, !=),
+                // Two strings compare their text here, any other pair past numbers leaves for the handler.
+                OpCode::EqR | OpCode::NotEqR => {
+                    let (x, y) = (r[ins.b as usize], r[ins.c as usize]);
+                    let eq = if x.is_int() && y.is_int() { x.as_int() == y.as_int() }
+                        else if x.is_float() && y.is_float() { x.as_float() == y.as_float() }
+                        else { match self.heap.str_eq(x, y) { Some(e) => e, None => break } };
+                    r[ins.a as usize] = Val::bool(eq == (ins.op == OpCode::EqR));
+                    i += 1;
+                }
                 OpCode::LtR => compare!(ins, <),
                 OpCode::LtEqR => compare!(ins, <=),
                 OpCode::GtR => compare!(ins, >),
                 OpCode::GtEqR => compare!(ins, >=),
-                OpCode::JumpUnlessEq => test!(ins, ==),
-                OpCode::JumpUnlessNotEq => test!(ins, !=),
+                OpCode::JumpUnlessEq | OpCode::JumpUnlessNotEq => {
+                    let (x, y) = (r[ins.b as usize], r[ins.c as usize]);
+                    let eq = if x.is_int() && y.is_int() { x.as_int() == y.as_int() }
+                        else if x.is_float() && y.is_float() { x.as_float() == y.as_float() }
+                        else { match self.heap.str_eq(x, y) { Some(e) => e, None => break } };
+                    branch!(ins, eq == (ins.op == OpCode::JumpUnlessEq))
+                }
                 OpCode::JumpUnlessLt => test!(ins, <),
                 OpCode::JumpUnlessLtEq => test!(ins, <=),
                 OpCode::JumpUnlessGt => test!(ins, >),
@@ -655,6 +693,7 @@ impl<'a> VM<'a> {
                     let hit = match self.heap.plain(o) {
                         Some(HeapObj::List(v)) => { let b = v.borrow(); index_of(k.as_int(), b.len()).map(|j| b[j]) }
                         Some(HeapObj::Tuple(v)) => index_of(k.as_int(), v.len()).map(|j| v[j]),
+                        Some(HeapObj::Str(_)) => self.heap.str_char(o, k.as_int()),
                         _ => None,
                     };
                     let Some(v) = hit else { break };
@@ -671,6 +710,16 @@ impl<'a> VM<'a> {
                     drop(b);
                     r = &mut self.regs[base..];
                     i += 1;
+                }
+                // A generator a `for` steps runs as the next frame of this loop, its yields handing values straight back.
+                OpCode::ForIterR if let Some(&IterFrame::Coroutine(co)) = self.iter_stack.last() => {
+                    let Some((c, k, at)) = self.enter_gen(co, i, code) else { break };
+                    // SAFETY the generator code lives in its pool and its chunk as long as the VM.
+                    (code, chunk) = unsafe { (&*c, &*k) };
+                    (cache, prog, base, switched) = (&code.cache, &code.ins, self.base, true);
+                    n = prog.len();
+                    r = &mut self.regs[base..];
+                    i = at;
                 }
                 // Ranges and lists step here, the rest and an ended loop in the handler.
                 OpCode::ForIterR if self.budget > 0 && !self.heap.needs_gc() => {
@@ -780,10 +829,44 @@ impl<'a> VM<'a> {
                     }
                     r = &mut self.regs[base..];
                 }
-                // A plain return to a frame of this loop carries on in the caller.
-                OpCode::ReturnR if self.frames.len() > floor.depth => {
-                    let v = r[ins.b as usize];
-                    let Some((c, k, next)) = self.leave_site(v, floor.code, floor.chunk, floor.base, floor.depth) else { break };
+                // A plain return to a frame of this loop carries on in the caller, a stack return taking its value off the stack.
+                OpCode::ReturnR | OpCode::ReturnValue if self.frames.len() > floor.depth => {
+                    let v = if ins.op == OpCode::ReturnR { r[ins.b as usize] } else {
+                        match self.frames.last() { Some(f) if self.stack.len() > f.stack_base => self.stack.pop().unwrap_or_else(Val::undef), _ => break }
+                    };
+                    let Some((c, k, next)) = self.leave_site(v, floor.code, floor.chunk, floor.base, floor.depth) else {
+                        if ins.op == OpCode::ReturnValue { self.stack.push(v); }
+                        break
+                    };
+                    // SAFETY the caller runs code its pool or the floor keeps, and every chunk outlives the run.
+                    (code, chunk) = unsafe { (&*c, &*k) };
+                    (cache, prog, base, switched) = (&code.cache, &code.ins, self.base, true);
+                    n = prog.len();
+                    r = &mut self.regs[base..];
+                    i = next;
+                }
+                // A string the register owns grows in place, anything else takes the handler, which adds and may take ownership.
+                OpCode::AppendR => {
+                    let (sv, tv) = (r[ins.a as usize], r[ins.b as usize]);
+                    // Numbers add here as `InPlaceAddR` does.
+                    let sum = if sv.is_int() && tv.is_int() { int_add(sv.as_int(), tv.as_int()) }
+                        else if sv.is_float() && tv.is_float() { Some(Val::float(sv.as_float() + tv.as_float())) }
+                        else { None };
+                    if let Some(v) = sum { r[ins.a as usize] = v; i += 1; continue; }
+                    if sv.0 != self.owned_str.0 || self.owned_at != base + ins.a as usize || !self.heap.append_str(sv, tv) { break; }
+                    i += 1;
+                }
+                OpCode::OwnResetR => {
+                    if self.owned_at == base + ins.a as usize { self.owned_str = Val::undef(); }
+                    i += 1;
+                }
+                // A generator a `for` runs as a frame hands its value back here, its value position taking None.
+                OpCode::Yield if self.frames.len() > floor.depth && self.frames.last().is_some_and(|f| !f.generator.is_undef() && self.stack.len() > f.stack_base) => {
+                    let v = self.stack.pop().unwrap_or_else(Val::none);
+                    let next_pops = prog.get(i + 1).is_some_and(|n| n.op == OpCode::PopTop);
+                    let resume = code.resume(i + 1 + next_pops as usize);
+                    if !next_pops { self.stack.push(Val::none()); }
+                    let Some((c, k, next)) = self.yield_site(v, resume, floor.code, floor.chunk, floor.base, floor.depth) else { break };
                     // SAFETY the caller runs code its pool or the floor keeps, and every chunk outlives the run.
                     (code, chunk) = unsafe { (&*c, &*k) };
                     (cache, prog, base, switched) = (&code.cache, &code.ins, self.base, true);
@@ -854,7 +937,7 @@ impl<'a> VM<'a> {
     /* Ends the innermost frame on a plain return of a register or the stack top, where its caller carries on and the code and chunk it runs, None when the return needs its handler. */
     #[inline(always)]
     fn regs_return(&mut self, ins: Ins, floor: &Floor) -> Option<(usize, *const Code, *const SSAChunk)> {
-        let f = self.frames.last()?;
+        let f = self.frames.last().filter(|f| f.generator.is_undef())?;
         let v = match ins.op {
             OpCode::ReturnR => self.regs[f.base + ins.b as usize],
             _ if self.stack.len() > f.stack_base => self.stack[self.stack.len() - 1],
@@ -875,7 +958,8 @@ impl<'a> VM<'a> {
     /* Ends the innermost frame once it runs past its last instruction, a return of None. */
     #[inline(always)]
     fn regs_end(&mut self, floor: &Floor) -> Option<(usize, *const Code, *const SSAChunk)> {
-        if self.exception_stack.len() > self.frames.last()?.exc_base { return None; }
+        let f = self.frames.last().filter(|f| f.generator.is_undef())?;
+        if self.exception_stack.len() > f.exc_base { return None; }
         self.push(Val::none());
         self.regs_return(Ins { op: OpCode::ReturnValue, x: 0, a: 0, b: 0, c: 0 }, floor)
     }
@@ -1279,6 +1363,17 @@ impl<'a> VM<'a> {
             }
             // Read by the call before it, never run alone.
             OpCode::ArgsR => {}
+            OpCode::AppendR => {
+                let at = self.base + ins.a as usize;
+                let (sv, tv) = (self.reg(chunk, ins.a)?, self.reg(chunk, ins.b)?);
+                if sv.0 == self.owned_str.0 && self.owned_at == at && self.heap.append_str(sv, tv) { return Ok(None); }
+                self.reg_binop(Ins { op: OpCode::InPlaceAddR, x: 0, a: ins.a, b: ins.a, c: ins.b }, rip, cache, chunk)?;
+                // A string the add just made belongs to this register alone, so the next appends grow it in place.
+                let made = self.regs[at];
+                let strs = matches!(self.heap.plain(sv), Some(HeapObj::Str(_))) && matches!(self.heap.plain(tv), Some(HeapObj::Str(_)));
+                if strs && made.0 != sv.0 && made.0 != tv.0 && self.heap.growable_str(made) { (self.owned_str, self.owned_at) = (made, at); }
+            }
+            OpCode::OwnResetR => if self.owned_at == self.base + ins.a as usize { self.owned_str = Val::undef(); },
             OpCode::StoreItemR => {
                 let (o, k, v) = (self.reg(chunk, ins.a)?, self.reg(chunk, ins.b)?, self.reg(chunk, ins.c)?);
                 self.stack.extend_from_slice(&[o, k, v]);
@@ -1448,7 +1543,7 @@ impl<'a> VM<'a> {
                     if self.preempt_left != 0 {
                         self.preempt_left -= 1;
                         if self.preempt_left == 0 {
-                            if self.frame_safe {
+                            if self.frame_safe && self.gen_frames == 0 {
                                 self.preempt_left = self.preempt_every;
                                 self.pending.preempt_request = true;
                                 self.yielded = true;

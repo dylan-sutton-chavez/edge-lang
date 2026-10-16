@@ -27,7 +27,7 @@ pub fn eq_member(a: Val, b: Val, heap: &HeapPool) -> bool {
 
 /* Text or bytes equality, a long pair counting the bytes it reads as native work. */
 #[inline]
-fn eq_text(x: &[u8], y: &[u8], heap: &HeapPool) -> bool {
+pub(crate) fn eq_text(x: &[u8], y: &[u8], heap: &HeapPool) -> bool {
     if x.len() == y.len() && x.len() > 64 { heap.spend(x.len()); }
     x == y
 }
