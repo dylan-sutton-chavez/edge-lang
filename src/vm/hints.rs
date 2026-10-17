@@ -43,6 +43,12 @@ fn crossed(ty: &str, name: &str) -> Option<String> {
     }
 }
 
+/* The methods of builtin type `ty`, its own and the operator dunders it takes. */
+fn builtin_names(ty: &str) -> impl Iterator<Item = String> + '_ {
+    let ops = super::methods::methods_of("op").filter(move |id| super::methods::operator::applies(ty, id.name()));
+    super::methods::methods_of(ty).chain(ops).map(|id| String::from(id.name()))
+}
+
 /* The candidate nearest to `name` when the candidates are few enough to measure. */
 fn near<'c>(name: &str, candidates: &[&'c str]) -> Option<&'c str> {
     if candidates.len() > MOST || name.len() > LONGEST { return None; }
@@ -73,7 +79,7 @@ impl<'a> VM<'a> {
         near(name, &names).map(|c| s!("Did you mean: '", str c, "'?"))
     }
 
-    /* The names `dir(obj)` would list, which a misspelt attribute is measured against. */
+    /* The names a misspelt attribute is measured against, the attributes and methods without the shared dunders. */
     fn attr_names(&self, obj: Val) -> Vec<String> {
         let members = |vm: &Self, cls: Val, out: &mut Vec<String>| for c in vm.mro_of(cls) {
             if let Some(HeapObj::Class(_, _, m)) = vm.heap.try_get(c) { out.extend(m.borrow().iter().map(|(n, _)| n.clone())); }
@@ -87,6 +93,31 @@ impl<'a> VM<'a> {
             Some(HeapObj::Class(..)) => members(self, obj, &mut out),
             Some(HeapObj::Module(_, attrs)) => out.extend(attrs.iter().map(|(n, _)| n.clone())),
             _ => out.extend(super::methods::methods_of(self.type_name(obj)).map(|id| String::from(id.name()))),
+        }
+        out
+    }
+
+    /* The names `dir(obj)` lists. */
+    pub(crate) fn dir_names(&self, obj: Val) -> Vec<String> {
+        let members = |vm: &Self, cls: Val, out: &mut Vec<String>| for c in vm.mro_of(cls) {
+            match vm.heap.try_get(c) {
+                Some(HeapObj::Class(_, _, m)) => out.extend(m.borrow().iter().map(|(n, _)| n.clone()).filter(|n| !n.starts_with('#'))),
+                Some(HeapObj::Type(t)) => out.extend(builtin_names(t)),
+                _ => {}
+            }
+        };
+        let object = || builtin_names("object").chain(["__class__", "__doc__", "__module__", "__dict__"].map(String::from));
+        let mut out = Vec::new();
+        match self.heap.try_get(obj) {
+            Some(&HeapObj::Instance(cls, ref attrs)) => {
+                out.extend(attrs.borrow().iter().filter_map(|(k, _)| match self.heap.try_get(k) { Some(HeapObj::Str(s)) if !s.starts_with('#') => Some(s.clone()), _ => None }));
+                members(self, cls, &mut out);
+                out.extend(object());
+            }
+            Some(HeapObj::Class(..)) => { members(self, obj, &mut out); out.extend(object()); }
+            Some(HeapObj::Module(_, attrs)) => out.extend(attrs.iter().map(|(n, _)| n.clone()).chain(["__name__"].map(String::from))),
+            Some(HeapObj::Type(t)) => { out.extend(builtin_names(t)); out.extend(builtin_names("object")); out.push("__class__".into()); out.push("__doc__".into()); }
+            _ => { out.extend(builtin_names(self.type_name(obj))); out.extend(builtin_names("object")); out.push("__class__".into()); out.push("__doc__".into()); }
         }
         out
     }

@@ -317,11 +317,11 @@ builtins! {
     Format => "format", (1, 2); GetAttr => "getattr", (2, 3); HasAttr => "hasattr", 2; SetAttr => "setattr", 3; DelAttr => "delattr", 2;
     Next => "next", (1, 2); Run => "run", var; Sleep => "sleep", 1;
     Receive => "receive", 0; Map => "map", (2, var); Filter => "filter", 2; Iter => "iter", (1, 2);
-    Bytes => "bytes", (0, 3); ImportModule => "import_module", 1; Slice => "slice", (1, 3); Vars => "vars", 1;
+    Bytes => "bytes", (0, 3); ImportModule => "import_module", 1; Slice => "slice", (1, 3); Vars => "vars", (0, 1);
     Gather => "gather", var; WithTimeout => "with_timeout", 2; Cancel => "cancel", 1;
     BytesFromHex => "bytes_fromhex", 1; IntFromBytes => "int_from_bytes", 2; IntToBytes => "int_to_bytes", 3; FrozenSet => "frozenset", (0, 1);
-    Globals => "globals", 0;
-    Super => "super", 0;
+    Globals => "globals", 0; Locals => "locals", 0; Dir => "dir", (0, 1);
+    Super => "super", (0, 2);
     Property => "property", var;
     StaticMethod => "staticmethod", 1;
     ClassMethod => "classmethod", 1;

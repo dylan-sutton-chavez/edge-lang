@@ -9,10 +9,15 @@ impl<'a> VM<'a> {
         if argc >= 2 {
             // `str(bytes, encoding[, errors])` decodes, mirroring `bytes.decode`.
             let args = self.pop_n(argc as usize)?;
+            for (&a, name) in args[1..].iter().zip(["encoding", "errors"]) {
+                if !matches!(self.heap.try_get(a), Some(HeapObj::Str(_))) {
+                    return Err(VmErr::TypeMsg(crate::s!("str() argument '", str name, "' must be str, not ", str self.type_name(a))));
+                }
+            }
             if self.heap.bytes_of(args[0]).is_some() {
                 return crate::vm::methods::bytes::decode(self, args[0], &args[1..]);
             }
-            return Err(cold_type("decoding to str: need a bytes-like object"));
+            return Err(VmErr::TypeMsg(crate::s!("decoding to str: need a bytes-like object, ", str self.type_name(args[0]), " found")));
         }
         let o = self.pop()?;
         let s = self.display_op(o, chunk)?;

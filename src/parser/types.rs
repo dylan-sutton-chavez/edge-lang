@@ -127,8 +127,7 @@ fused! {
 }
 
 /* Builtins the language leaves out, each with the error its use compiles to. */
-pub(super) const REMOVED_BUILTINS: [(&str, &str); 3] = [
-    ("locals", "'locals' is not supported, pass the values a call needs"),
+pub(super) const REMOVED_BUILTINS: [(&str, &str); 2] = [
     ("open", "'open' is not supported, the sandbox holds no files"),
     ("__import__", "'__import__' is not supported, write an import statement"),
 ];
@@ -136,7 +135,7 @@ pub(super) const REMOVED_BUILTINS: [(&str, &str); 3] = [
 /* The index of `name` in `REMOVED_BUILTINS`, the length test keeping every other name to one compare. */
 #[inline]
 pub(super) fn removed_builtin(name: &str) -> Option<usize> {
-    if !matches!(name.len(), 4 | 6 | 10) { return None; }
+    if !matches!(name.len(), 4 | 10) { return None; }
     REMOVED_BUILTINS.iter().position(|&(n, _)| n == name)
 }
 
@@ -153,7 +152,7 @@ pub(super) fn class_dunder(name: &str) -> bool {
         "__rtruediv__" | "__rfloordiv__" | "__rmatmul__" | "__rmod__" | "__rpow__" | "__rand__" | "__ror__" |
         "__rxor__" | "__rlshift__" | "__rrshift__" | "__iadd__" | "__isub__" | "__imul__" | "__itruediv__" |
         "__ifloordiv__" | "__imatmul__" | "__imod__" | "__ipow__" | "__iand__" | "__ior__" | "__ixor__" |
-        "__ilshift__" | "__irshift__"
+        "__ilshift__" | "__irshift__" | "__dir__"
     )
 }
 

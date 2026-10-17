@@ -11,7 +11,7 @@ use super::{Pending, VM};
 use super::types::*;
 
 const MAGIC: u32 = 0x4E53_5045;
-const FORMAT: u32 = 21;
+const FORMAT: u32 = 22;
 // A SHA-256 of everything before it closes each blob, so a damaged one never restores.
 const SEAL: usize = 32;
 
@@ -212,7 +212,7 @@ fn put_iter_frame(w: &mut W, x: &IterFrame) {
         },
         IterFrame::Map { f, its } => { w.u8(4); w.val(*f); w.vals(its); }
         IterFrame::Filter { f, it } => { w.u8(5); w.val(*f); w.val(*it); }
-        IterFrame::Zip { its } => { w.u8(6); w.vals(its); }
+        IterFrame::Zip { its, strict } => { w.u8(6); w.vals(its); w.u8(*strict as u8); }
         IterFrame::Enumerate { it, n } => { w.u8(7); w.val(*it); w.val(*n); }
         IterFrame::Call { f, sentinel } => { w.u8(8); w.val(*f); w.val(*sentinel); }
         IterFrame::Watched { items, idx, of, len } => { w.u8(9); w.vals(items); w.usz(*idx); w.val(*of); w.usz(*len); }
@@ -228,7 +228,7 @@ fn get_iter_frame(r: &mut R) -> Result<IterFrame, SnapErr> {
         3 => IterFrame::UserDefined(r.val()?),
         4 => IterFrame::Map { f: r.val()?, its: r.vals()?.into() },
         5 => IterFrame::Filter { f: r.val()?, it: r.val()? },
-        6 => IterFrame::Zip { its: r.vals()?.into() },
+        6 => IterFrame::Zip { its: r.vals()?.into(), strict: r.u8()? != 0 },
         7 => IterFrame::Enumerate { it: r.val()?, n: r.val()? },
         8 => IterFrame::Call { f: r.val()?, sentinel: r.val()? },
         9 => IterFrame::Watched { items: r.vals()?.into(), idx: r.usz()?, of: r.val()?, len: r.usz()? },

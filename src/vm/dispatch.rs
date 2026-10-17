@@ -542,12 +542,12 @@ impl<'a> VM<'a> {
                 self.exec_bound_method(obj, id, &positional, &kw_flat, chunk)
             }
             AttrLookup::BoundBuiltin(recv, id) => self.exec_bound_method(recv, id, &positional, &kw_flat, chunk),
-            AttrLookup::UnboundMethod(id) => self.exec_unbound_method(id, &positional, &kw_flat, chunk),
+            AttrLookup::UnboundMethod(id, _) => self.exec_unbound_method(id, &positional, &kw_flat, chunk),
             AttrLookup::DescGet { desc, recv, owner } => {
                 let value = self.call_hook(desc, "__get__", &[recv, owner], chunk)?;
                 self.call_with(value, None, &positional, &kw_flat, chunk)
             }
-            AttrLookup::ExcArgs(_) | AttrLookup::Name(_) | AttrLookup::TypeOf(_) | AttrLookup::Mro(_) | AttrLookup::Bases(_) | AttrLookup::Members(_) | AttrLookup::Annotations(_) | AttrLookup::Code(_) | AttrLookup::Names(_) => {
+            AttrLookup::ExcArgs(_) | AttrLookup::Name(_) | AttrLookup::TypeOf(_) | AttrLookup::Mro(_) | AttrLookup::Bases(_) | AttrLookup::Members(_) | AttrLookup::Annotations(_) | AttrLookup::Code(_) | AttrLookup::Names(_) | AttrLookup::KwDefaults(_) | AttrLookup::Int(_) => {
                 // `e.args()` / `f.__name__()`, the value isn't callable, reports as missing attribute.
                 let ty = self.type_name(obj);
                 Err(VmErr::Attribute(s!("'", str ty, "' object has no attribute '", str &name, "'")))
@@ -1011,7 +1011,7 @@ impl<'a> VM<'a> {
             match self.open_in_loop(vals[0], passed, n) {
                 Ok(true) => { self.learn_call(i, code, vals[0]); Ok(()) }
                 // A bound builtin method, `xs.append` looked up before its argument ran, takes the registers as they are.
-                Ok(false) if let Some(&HeapObj::BoundMethod(recv, id)) = self.heap.try_get(vals[0]) && !recv.is_undef() => self.exec_bound_method(recv, id, &vals[1..=n], &[], chunk),
+                Ok(false) if let Some(&HeapObj::BoundMethod(recv, id)) = self.heap.try_get(vals[0]) && !self.method_unbound(recv, id) => self.exec_bound_method(recv, id, &vals[1..=n], &[], chunk),
                 // Any other callee takes them off the stack as a stack call would.
                 Ok(false) => { self.stack.extend_from_slice(&vals[..=n]); self.call_general(n as u16, chunk) }
                 Err(e) => Err(e),
@@ -2177,7 +2177,16 @@ impl<'a> VM<'a> {
             .unwrap_or_else(|| body.qualname.rsplit('.').next().unwrap_or("?"))
             .to_string();
         let qualname = (body.qualname != name_str).then(|| body.qualname.clone());
-        let cls = self.finish_class(name_str, qualname, bases, methods, &keywords, chunk)?;
+        // A docstring the body opens with is the `__doc__` of the class.
+        let base = self.temp_roots.len();
+        if !methods.iter().any(|(n, _)| n == "__doc__") && let Some(doc) = super::opcodes::attr_lookup::docstring(body) {
+            let v = self.heap.alloc(HeapObj::Str(doc))?;
+            self.temp_roots.push(v);
+            methods.insert(0, (String::from("__doc__"), v));
+        }
+        let cls = self.finish_class(name_str, qualname, bases, methods, &keywords, chunk);
+        self.temp_roots.truncate(base);
+        let cls = cls?;
         self.push(cls);
         Ok(())
     }
@@ -2275,9 +2284,22 @@ impl<'a> VM<'a> {
         self.store_attr_raw(obj, name, value, chunk)
     }
 
+    /* The error of a store on a value that keeps no attributes, worded by what `name` already is on it. */
+    #[cold]
+    fn no_store(&self, obj: Val, name: &str) -> VmErr {
+        let ty = self.type_name(obj);
+        if let Some(HeapObj::Type(t)) = self.heap.try_get(obj) { return VmErr::TypeMsg(s!("cannot set '", str name, "' attribute of immutable type '", str t, "'")); }
+        match self.resolve_attr(obj, name) {
+            Ok(AttrLookup::BuiltinMethod(_) | AttrLookup::BoundBuiltin(..)) => VmErr::Attribute(s!("'", str ty, "' object attribute '", str name, "' is read-only")),
+            Ok(_) if matches!(self.heap.try_get(obj), Some(HeapObj::Range(..) | HeapObj::BigRange(..) | HeapObj::Slice(..))) => VmErr::Attribute("readonly attribute".into()),
+            Ok(_) => VmErr::Attribute(s!("attribute '", str name, "' of '", str ty, "' objects is not writable")),
+            Err(_) => VmErr::Attribute(s!("'", str ty, "' object has no attribute '", str name, "' and no __dict__ for setting new attributes")),
+        }
+    }
+
     /* `object.__setattr__`, the store past any `__setattr__` hook. */
     pub(crate) fn store_attr_raw(&mut self, obj: Val, name: &str, value: Val, chunk: &SSAChunk) -> Result<(), VmErr> {
-        if !obj.is_heap() { return Err(cold_type("cannot set attribute")); }
+        if !obj.is_heap() { return Err(self.no_store(obj, name)); }
         let member = self.instance_class(obj).and_then(|c| self.lookup_class_member(c, name));
         if let Some((m, _)) = member && self.store_through_class(obj, m, name, value, chunk)? { return Ok(()); }
         // Class attribute, insert or replace in the mutable members store.
@@ -2298,7 +2320,7 @@ impl<'a> VM<'a> {
         let key = self.heap.intern_str(name)?;
         let attrs = match self.heap.get(obj) {
             HeapObj::Instance(_, attrs) => attrs,
-            _ => match self.heap.classed(obj) { Some((_, attrs)) => attrs, None => return Err(cold_type("cannot set attribute on this type")) },
+            _ => match self.heap.classed(obj) { Some((_, attrs)) => attrs, None => return Err(self.no_store(obj, name)) },
         };
         self.shadowed |= member.is_some_and(|(m, _)| self.hides(m));
         let mut a = attrs.borrow_mut();

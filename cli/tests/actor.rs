@@ -432,15 +432,17 @@ fn the_server_serves_every_client_at_once_and_holds_a_flood_back() {
         let lines: String = (0..70_000).map(|i| format!("stuck {i}\n")).collect();
         let _ = flood.write_all(lines.as_bytes());
     });
-    let mut refused = String::new();
-    for _ in 0..100 {
+    // The intake refuses too while the scheduler lags behind it, so the wait is for the backlog itself to fill.
+    let pending_of = |status: &str| status.split("\"pending\":").nth(1).and_then(|s| s.split(|c: char| !c.is_ascii_digit()).next()?.parse::<usize>().ok());
+    let (mut refused, mut backlog) = (String::new(), String::new());
+    for _ in 0..300 {
         refused = post_eval("127.0.0.1:9816", "/pub/echo", "late");
-        if refused.contains("queue is full") {
+        backlog = get_status("127.0.0.1:9816");
+        if refused.contains("queue is full") && pending_of(&backlog).is_some_and(|n| n >= 1 << 16) {
             break;
         }
         std::thread::sleep(Duration::from_millis(100));
     }
-    let backlog = get_status("127.0.0.1:9816");
     let _ = child.kill();
     let _ = child.wait();
     let _ = std::fs::remove_dir_all(&scratch);
@@ -450,8 +452,7 @@ fn the_server_serves_every_client_at_once_and_holds_a_flood_back() {
     assert!(slept.contains(r#""stdout":"slept\n""#), "the eval answered {slept:?}");
     assert!(interim.starts_with(b"HTTP/1.1 100 Continue") && asked.contains("{\"ok\":true}"), "a client that asked first got {:?} then {asked:?}", String::from_utf8_lossy(&interim));
     assert!(cut, "a line past 16 MiB kept its connection open");
-    let pending = backlog.split("\"pending\":").nth(1).and_then(|s| s.split(|c: char| !c.is_ascii_digit()).next()?.parse::<usize>().ok());
-    assert!(refused.contains("queue is full") && pending.is_some_and(|n| n >= 1 << 16), "a flood was not held back, {refused:?} {backlog:?}");
+    assert!(refused.contains("queue is full") && pending_of(&backlog).is_some_and(|n| n >= 1 << 16), "a flood was not held back, {refused:?} {backlog:?}");
 }
 
 /* A server killed mid-run replays at its next start only the messages its actors never finished. */

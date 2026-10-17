@@ -14,7 +14,7 @@ description: "Lexical and grammatical rules of the language."
 x = 1  # A trailing comment
 ```
 
-A string literal as the first statement of a module, function or class body parses and is discarded. There is no `__doc__` at runtime.
+A string literal as the first statement of a module, function or class body is its docstring, which `__doc__` reads, with the indentation its later lines share removed. A class does not pass its docstring on to a subclass.
 
 ## Line joining
 
@@ -262,7 +262,7 @@ print(-5, +5)
 - `/` always yields a float.
 - `//` and `%` use floored division. The result of `%` takes the sign of the divisor.
 - `@` has no meaning on builtin types. A class can give it one, see [Classes](/docs/edge-python/language/classes#arithmetic).
-- With a string on the left, `%` does printf-style formatting, see [Methods](/docs/edge-python/reference/methods#formatting).
+- With a string or bytes on the left, `%` does printf-style formatting, see [Methods](/docs/edge-python/reference/methods#formatting).
 
 ### Comparison and chaining
 

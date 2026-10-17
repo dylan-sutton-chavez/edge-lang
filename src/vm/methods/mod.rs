@@ -327,6 +327,9 @@ const METHODS: &[MethodDesc] = methods! {
         "split" => framed, 1..1; "subgroup" => framed, 1..1; "derive" => framed, 1..1;
     }
     // What every class ends in, reached through `super()`, `object.name(...)` or an instance without its own.
+    "super" {
+        "__get__" => framed, 1..2;
+    }
     "object" {
         "__init_subclass__" => framed, 0..0; "__init__" => framed, 0..255; "__repr__" => framed, 0..0;
         "__str__" => framed, 0..0; "__eq__" => framed, 1..1; "__ne__" => framed, 1..1; "__hash__" => framed, 0..0;

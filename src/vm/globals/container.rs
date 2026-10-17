@@ -112,11 +112,11 @@ impl<'a> VM<'a> {
         let mut pairs = Vec::new();
         for item in self.extract_iter(src)? {
             let item = self.extract_iter(item).map_err(|e| match e {
-                VmErr::TypeMsg(_) => VmErr::TypeMsg(crate::s!("cannot convert dictionary update sequence element #", int pairs.len() as i64, " to a sequence")),
+                VmErr::TypeMsg(_) => VmErr::TypeMsg("object is not iterable".into()),
                 e => e,
             })?;
             let [k, v] = item[..] else {
-                return Err(cold_value("dictionary update sequence element must have length 2"));
+                return Err(VmErr::Raised(crate::s!("ValueError: dictionary update sequence element #", int pairs.len() as i64, " has length ", int item.len() as i64, "; 2 is required")));
             };
             self.require_key(k)?;
             self.keyed(k)?;
@@ -186,7 +186,8 @@ impl<'a> VM<'a> {
             [a] if matches!(self.heap.try_get(a), Some(HeapObj::Str(_))) => return Err(VmErr::TypeMsg(crate::s!("string argument without an encoding"))),
             [a] => {
                 let items = self.extract_iter(a).map_err(|_| VmErr::TypeMsg(crate::s!("cannot convert '", str self.type_name(a), "' object to ", str what)))?;
-                items.into_iter().map(|v| self.byte_value(v)).collect::<Result<Vec<u8>, VmErr>>()?
+                // `bytes` names its range in the plural, `bytearray` in the singular.
+                items.into_iter().map(|v| self.byte_value(v).map_err(|e| if what == "bytes" && matches!(e, VmErr::Value(_)) { cold_value("bytes must be in range(0, 256)") } else { e })).collect::<Result<Vec<u8>, VmErr>>()?
             }
             [text, ref rest @ ..] if rest.len() <= 2 => {
                 for (&a, name) in rest.iter().zip(["encoding", "errors"]) {

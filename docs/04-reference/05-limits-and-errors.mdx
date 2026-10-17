@@ -128,7 +128,7 @@ They render with line, column, and a caret preview. A report shows the first 20 
 | `default 'except:' must be last` | Bare `except` not at the end |
 | `Generator expression must be parenthesized` | A bare generator expression beside another argument or before a trailing comma |
 | `'is' compares only with None, True, False, ... or NotImplemented` | `is` against any other operand, compare it with `==` |
-| `'locals' is not supported`, and the same for `open` and `__import__` | A use of a builtin the engine leaves out, unless the module binds the name |
+| `'open' is not supported`, and the same for `__import__` | A use of a builtin the engine leaves out, unless the module binds the name |
 | `'__del__' is not supported in a class body` | A dunder the engine never calls, such as `__del__`, `__getattribute__` or `__aenter__` |
 | `metaclasses are not supported` | A `metaclass=` keyword in a class header, any other keyword goes to `__init_subclass__` |
 | `a list, dict or set default is shared by every call` | A mutable default, write `None` and build the value in the body |

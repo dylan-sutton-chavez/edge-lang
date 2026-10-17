@@ -135,7 +135,8 @@ pub enum IterFrame {
     Map { f: Val, its: alloc::rc::Rc<[Val]> },
     // `filter(f, it)`, a None `f` keeping the truthy items.
     Filter { f: Val, it: Val },
-    Zip { its: alloc::rc::Rc<[Val]> },
+    // `strict` makes iterables of unequal length raise ValueError.
+    Zip { its: alloc::rc::Rc<[Val]>, strict: bool },
     // `enumerate(it, start)`, `n` the count the next item pairs with.
     Enumerate { it: Val, n: Val },
     // `iter(f, sentinel)`, calling `f` until it returns `sentinel`.
@@ -242,7 +243,7 @@ impl IterFrame {
             Self::Coroutine(v) | Self::UserDefined(v) => f(*v),
             IterFrame::Map { f: g, its } => { f(*g); for &v in its.iter() { f(v); } }
             IterFrame::Filter { f: g, it } => { f(*g); f(*it); }
-            IterFrame::Zip { its } => for &v in its.iter() { f(v); },
+            IterFrame::Zip { its, .. } => for &v in its.iter() { f(v); },
             IterFrame::Enumerate { it, n } => { f(*it); f(*n); }
             IterFrame::Call { f: g, sentinel } => { f(*g); f(*sentinel); }
             IterFrame::Range { .. } => {}

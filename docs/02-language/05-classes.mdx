@@ -631,7 +631,7 @@ found 2
 
 | Function / form | Dunder | Fallback |
 |---------------------|---------------|-----------------------------|
-| `repr(x)` | `__repr__` | `<ClassName instance>` |
+| `repr(x)` | `__repr__` | `<__main__.ClassName object at 0x…>`, the address `hex(id(x))` |
 | `str(x)`, `print(x)`| `__str__` | `__repr__`, then default |
 | `f"{x}"` (no spec) | `__str__` | same as `str(x)` |
 | `f"{x:spec}"` | `__format__` | `TypeError` for a non-empty spec |

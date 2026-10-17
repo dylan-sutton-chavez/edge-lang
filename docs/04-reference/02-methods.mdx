@@ -207,12 +207,14 @@ a   bc
 - `!r`, `!s` and `!a` convert the value before its spec applies, and any other letter, such as `!q`, raises `ValueError` with `Unknown conversion specifier q`.
 - A spec after `:` uses the [format mini-language](/docs/edge-python/language/syntax#f-strings).
 
-The `%` operator does printf-style formatting.
+The `%` operator does printf-style formatting, on `str` and on `bytes`.
 
 - The verbs are `%s %r %a %d %i %u %x %X %o %f %F %e %E %g %G %c %%`. `%d`, `%i` and `%u` truncate a float like `int()`, and `%x`, `%X` and `%o` refuse one.
-- Flags, width, and `.precision` apply.
+- Flags, width, and `.precision` apply, and the length modifiers `h`, `l` and `L` are skipped.
 - `*` reads the width or precision from the next argument.
 - A tuple on the right spreads into the fields. Any other value is a single argument.
+- `%(name)s` reads `name` from a mapping on the right, and then every field must name its key.
+- On `bytes`, `%s` and `%b` take bytes or an object with `__bytes__`, `%r` is `%a`, and `%c` takes an int below 256 or one byte.
 
 ```edge-python
 print("{} and {}".format("a", "b"))
@@ -238,7 +240,7 @@ Ada is 36
 
 ### Encoding
 
-`s.encode(encoding="utf-8", errors="strict")` returns bytes. The encodings are UTF-8, ASCII and Latin-1, under their usual names such as `"utf8"`, `"latin-1"` or `"iso-8859-1"`, and any other name raises `LookupError`. A character the encoding cannot hold raises `UnicodeEncodeError`, a `ValueError` naming the character and its position, unless `errors` handles it.
+`s.encode(encoding="utf-8", errors="strict")` returns bytes. The encodings are UTF-8, UTF-16, UTF-32, ASCII, Latin-1 and cp1252, under their usual names such as `"utf8"`, `"utf-16-le"`, `"latin-1"` or `"windows-1252"`, and any other name raises `LookupError`. A plain `"utf-16"` or `"utf-32"` writes a little-endian byte order mark and reads the order from one. A character the encoding cannot hold raises `UnicodeEncodeError`, a `ValueError` naming the character and its position, unless `errors` handles it.
 
 | `errors` | An unencodable character becomes |
 |---|---|

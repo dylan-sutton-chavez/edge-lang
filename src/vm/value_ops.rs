@@ -240,8 +240,11 @@ impl<'a> VM<'a> {
             HeapObj::Type(_) | HeapObj::Class(..) => "type",
             HeapObj::Range(..) | HeapObj::BigRange(..) => "range",
             HeapObj::Slice(..) => "slice",
+            // A dunder of a builtin type is a slot wrapper, unbound or bound, a named method a descriptor until bound.
+            &HeapObj::BoundMethod(recv, id) if self.method_unbound(recv, id) => if is_dunder(id.name()) { "wrapper_descriptor" } else { "method_descriptor" },
+            HeapObj::BoundMethod(_, id) if is_dunder(id.name()) => "method-wrapper",
             HeapObj::BoundMethod(..) | HeapObj::NativeFn(_) | HeapObj::Extern(_) => "builtin_function_or_method",
-            HeapObj::BoundUserMethod(..) => "<bound method>",
+            HeapObj::BoundUserMethod(..) => "method",
             HeapObj::Super(..) => "super",
             HeapObj::Property(..) | HeapObj::PropertyPart(..) => "property",
             HeapObj::StaticMethod(..) => "staticmethod",
@@ -353,7 +356,23 @@ impl<'a> VM<'a> {
 
     /* The text of a FOREIGN value where no error can surface, its type when the kind refuses. */
     fn foreign_text(&self, v: Val) -> String {
-        match self.heap.foreign_repr(v) { Some(Ok(s)) => s, _ => s!("<", str self.type_name(v), " object>") }
+        match self.heap.foreign_repr(v) { Some(Ok(s)) => s, _ => s!("<", str self.type_name(v), " object", str &at(v), ">") }
+    }
+
+    /* Whether builtin method `id` over `recv` is unbound, read off its type, an operator dunder keeping that type as `recv`. */
+    #[inline]
+    pub(crate) fn method_unbound(&self, recv: Val, id: crate::vm::methods::BuiltinMethodId) -> bool {
+        recv.is_undef() || id.ty() == "op" && matches!(self.heap.try_get(recv), Some(HeapObj::Type(_)))
+    }
+
+    /* The type an unbound builtin method belongs to. */
+    pub(crate) fn method_owner(&self, recv: Val, id: crate::vm::methods::BuiltinMethodId) -> &str {
+        match self.heap.try_get(recv) { Some(HeapObj::Type(n)) if !recv.is_undef() => n, _ => id.ty() }
+    }
+
+    /* The qualified name of function `fi`, `<lambda>` for an anonymous one. */
+    fn fn_qualname(&self, fi: usize) -> &str {
+        match self.function_qualnames.get(fi) { Some(q) if !q.is_empty() => q, _ => match self.function_names.get(fi) { Some(n) if !n.is_empty() => n, _ => "<lambda>" } }
     }
 
     /* Cycle-aware display, `seen` tracks containers on the current path, so self-referential structures emit "..." instead of recursing forever (and its length bounds raw nesting depth). */
@@ -373,18 +392,14 @@ impl<'a> VM<'a> {
             HeapObj::Str(s) => s.clone(),
             HeapObj::Bytes(b) => format_bytes(b),
             HeapObj::ByteArray(b) => s!("bytearray(", str &quote_bytes(b, true), ")"),
-            HeapObj::MemoryView(m) => s!(str if m.released { "<released memory at 0x" } else { "<memory at 0x" }, str &alloc::format!("{:x}", v.0), ">"),
+            HeapObj::MemoryView(m) => s!(str if m.released { "<released memory" } else { "<memory" }, str &at(v), ">"),
             &HeapObj::FnCode(fi) => {
                 let name = self.function_names.get(fi).map_or("<lambda>", |n| if n.is_empty() { "<lambda>" } else { n });
                 let body = self.functions.get(fi).map(|f| &f.1);
-                s!("<code object ", str name, " at 0x", str &alloc::format!("{:x}", v.0), ", file \"", str body.map_or("", |b| b.path.as_str()), "\", line ", int body.map_or(0, |b| b.first_line) as i64, ">")
+                s!("<code object ", str name, str &at(v), ", file \"", str body.map_or("", |b| b.path.as_str()), "\", line ", int body.map_or(0, |b| b.first_line) as i64, ">")
             }
             HeapObj::Type(name) => s!("<class '", str name, "'>"),
-            HeapObj::Func(i, ..) => {
-                // Empty name means lambda, same convention as the snapshot restore.
-                let name = match self.function_names.get(*i) { Some(n) if !n.is_empty() => n.as_str(), _ => "<lambda>" };
-                s!("<function ", str name, ">")
-            }
+            &HeapObj::Func(i, ..) => s!("<function ", str self.fn_qualname(i), str &at(v), ">"),
             HeapObj::Slice(s,e,st) => s!("slice(", str &self.display_d(*s, seen), ", ", str &self.display_d(*e, seen), ", ", str &self.display_d(*st, seen), ")"),
             HeapObj::Range(s,e,st) => if *st == 1 { s!("range(", int *s, ", ", int *e, ")") } else { s!("range(", int *s, ", ", int *e, ", ", int *st, ")") },
             HeapObj::BigRange(..) => crate::frontend::int::range_repr(&self.heap, v).and_then(Result::ok).unwrap_or_else(|| "range(...)".into()),
@@ -393,8 +408,12 @@ impl<'a> VM<'a> {
             HeapObj::Dict(d) => self.dict_repr(v, &d.borrow(), seen),
             HeapObj::FrozenDict(d) if d.borrow().is_empty() => "frozendict()".into(),
             HeapObj::FrozenDict(d) => s!("frozendict(", str &self.dict_repr(v, &d.borrow(), seen), ")"),
-            HeapObj::BoundMethod(recv, id) if recv.is_undef() => s!("<method '", str id.name(), "' of '", str id.ty(), "' objects>"),
-            HeapObj::BoundMethod(_, id) => s!("<built-in method ", str id.name(), ">"),
+            // `object` spells its slot wrappers without the type.
+            &HeapObj::BoundMethod(recv, id) if self.method_unbound(recv, id) && is_dunder(id.name()) && id.ty() == "object" => s!("<slot wrapper '", str id.name(), "'>"),
+            &HeapObj::BoundMethod(recv, id) if self.method_unbound(recv, id) && is_dunder(id.name()) => s!("<slot wrapper '", str id.name(), "' of '", str self.method_owner(recv, id), "' objects>"),
+            &HeapObj::BoundMethod(recv, id) if self.method_unbound(recv, id) => s!("<method '", str id.name(), "' of '", str self.method_owner(recv, id), "' objects>"),
+            &HeapObj::BoundMethod(recv, id) if is_dunder(id.name()) => s!("<method-wrapper '", str id.name(), "' of ", str self.type_name(recv), " object", str &at(recv), ">"),
+            &HeapObj::BoundMethod(recv, id) => s!("<built-in method ", str id.name(), " of ", str self.type_name(recv), " object", str &at(recv), ">"),
             HeapObj::NativeFn(id) => s!("<built-in function ", str id.name(), ">"),
             // User classes live in `__main__`, Python qualifies the repr with the module.
             HeapObj::Class(name, _, _) => crate::s!("<class '__main__.", str self.class_qualnames.get(&v.0).unwrap_or(name), "'>"),
@@ -409,24 +428,34 @@ impl<'a> VM<'a> {
                     if slot.is_some() { seen.pop(); }
                     return text;
                 }
-                if cls.is_heap() && let HeapObj::Class(name, _, _) | HeapObj::Type(name) = self.heap.get(*cls) { return crate::s!("<", str name, " instance>"); }
-                "<instance>".into()
-            }
-            HeapObj::BoundUserMethod(..) => "<bound method>".into(),
-            HeapObj::Super(..) => "<super object>".into(),
-            HeapObj::Property(..) => "<property object>".into(),
-            HeapObj::PropertyPart(_, slot) => crate::s!("<property.", str ["getter", "setter", "deleter"][*slot as usize], ">"),
-            HeapObj::StaticMethod(..) => "<staticmethod object>".into(),
-            HeapObj::ClassMethod(..) => "<classmethod object>".into(),
-            HeapObj::Coroutine(c) if matches!(c.body, BodyRef::Fn(fi) if self.is_anext_step(fi)) => "<async_generator_asend object>".into(),
-            HeapObj::Coroutine(c) => {
-                let name = match c.body {
-                    BodyRef::Fn(fi) => self.function_names.get(fi).map_or("<lambda>", |n| if n.is_empty() { "<lambda>" } else { n }),
-                    BodyRef::Module => "<module>",
+                let name = match self.heap.try_get(*cls) {
+                    Some(HeapObj::Class(name, ..)) => s!("__main__.", str self.class_qualnames.get(&cls.0).unwrap_or(name)),
+                    Some(HeapObj::Type(name)) => name.clone(),
+                    _ => "object".into(),
                 };
-                s!("<", str self.type_name(v), " object ", str name, ">")
+                s!("<", str &name, " object", str &at(v), ">")
             }
-            HeapObj::Iter(_, name) => s!("<", str name, " object>"),
+            &HeapObj::BoundUserMethod(recv, func, _) => {
+                let name = match self.heap.try_get(func) { Some(&HeapObj::Func(i, ..)) => self.fn_qualname(i), _ => "?" };
+                s!("<bound method ", str name, " of ", str &self.repr_d(recv, seen), ">")
+            }
+            &HeapObj::Super(cls, recv) => {
+                let short = |c: Val| match self.heap.try_get(c) { Some(HeapObj::Class(n, ..) | HeapObj::Type(n)) => n.as_str(), _ => "?" };
+                // A class bound reads as an object of that class, as an instance reads by its type.
+                if recv.is_none() { return s!("<super: <class '", str short(cls), "'>, NULL>"); }
+                let of = if matches!(self.heap.try_get(recv), Some(HeapObj::Class(..))) { short(recv) } else { self.type_name(recv) };
+                s!("<super: <class '", str short(cls), "'>, <", str of, " object>>")
+            }
+            HeapObj::Property(..) => s!("<property object", str &at(v), ">"),
+            HeapObj::PropertyPart(_, slot) => crate::s!("<property.", str ["getter", "setter", "deleter"][*slot as usize], ">"),
+            &HeapObj::StaticMethod(f) => s!("<staticmethod(", str &self.repr_d(f, seen), ")>"),
+            &HeapObj::ClassMethod(f) => s!("<classmethod(", str &self.repr_d(f, seen), ")>"),
+            HeapObj::Coroutine(c) if matches!(c.body, BodyRef::Fn(fi) if self.is_anext_step(fi)) => s!("<async_generator_asend object", str &at(v), ">"),
+            HeapObj::Coroutine(c) => {
+                let name = match c.body { BodyRef::Fn(fi) => self.fn_qualname(fi), BodyRef::Module => "<module>" };
+                s!("<", str self.type_name(v), " object ", str name, str &at(v), ">")
+            }
+            HeapObj::Iter(_, name) => s!("<", str name, " object", str &at(v), ">"),
             HeapObj::DictView(d, kind) => {
                 let mut o = s!(str self.type_name(v), "([");
                 if let Some(m) = self.heap.dict_cell(*d) {
@@ -476,8 +505,10 @@ impl<'a> VM<'a> {
             HeapObj::FrozenSet(s) => self.set_repr(v, true, s.len(), s.iter(), seen),
             HeapObj::Ellipsis => "Ellipsis".into(),
             HeapObj::NotImplemented => "NotImplemented".into(),
-            HeapObj::Cell(_) => "<cell>".into(),
-            HeapObj::Code(c) => s!("<code object <module>, file \"", str &c.filename, "\">"),
+            // A cell names what it holds by type, an unfilled one is empty.
+            &HeapObj::Cell(c) if c.is_undef() => s!("<cell", str &at(v), ": empty>"),
+            &HeapObj::Cell(c) => s!("<cell", str &at(v), ": ", str self.type_name(c), " object", str &at(c), ">"),
+            HeapObj::Code(c) => s!("<code object <module>", str &at(v), ", file \"", str &c.filename, "\", line 1>"),
         }
     }
 
@@ -820,3 +851,8 @@ impl<'a> VM<'a> {
         self.heap.int(r.ok_or_else(cold_overflow)?)
     }
 }
+
+/* The ` at 0x...` a repr places an object by, the word `id` gives. */
+fn at(v: Val) -> String { alloc::format!(" at 0x{:x}", v.0) }
+
+fn is_dunder(name: &str) -> bool { name.len() > 4 && name.starts_with("__") && name.ends_with("__") }

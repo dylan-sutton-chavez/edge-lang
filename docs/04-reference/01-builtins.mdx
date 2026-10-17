@@ -421,7 +421,7 @@ True
 - `key=fn` compares by `fn(item)`.
 - `reverse=True` flips the order.
 - Numbers, strings, bytes, and lists or tuples order lexicographically.
-- Objects with `__lt__` sort by it.
+- Objects with `__lt__` sort by it, called once per comparison in the order Python calls it, so a key that is no total order, such as NaN, ends where it ends in Python.
 - Mixing unordered types raises `TypeError`.
 
 ```edge-python
@@ -472,7 +472,7 @@ print(list(enumerate(["a", "b"], start=7)))
 
 ### zip
 
-`zip(a, b, ...)` returns an iterator of tuples pairing the inputs, truncated to the shortest. There is no `strict=` mode.
+`zip(a, b, ...)` returns an iterator of tuples pairing the inputs, truncated to the shortest. With `strict=True` inputs of unequal length raise `ValueError`.
 
 ```edge-python
 for a, b in zip([1, 2, 3], ["x", "y"]):
@@ -850,7 +850,7 @@ False
 
 ### vars
 
-`vars(x)` and `x.__dict__` return the attribute dict of an instance itself, so a write to either side shows on the other, and a snapshot keeps them linked. A property outranks a dict entry of the same name. A module, a class and an exception answer a copy, which leaves out the internal fields of an exception, and a builtin type answers its own methods, unbound. A value with no attributes raises `TypeError` with `vars() argument must have __dict__ attribute`, and there is no form without an argument.
+`vars(x)` and `x.__dict__` return the attribute dict of an instance itself, so a write to either side shows on the other, and a snapshot keeps them linked. A property outranks a dict entry of the same name. A module, a class and an exception answer a copy, which leaves out the internal fields of an exception, and a builtin type answers its own methods, unbound. A value with no attributes raises `TypeError` with `vars() argument must have __dict__ attribute`, and `vars()` with no argument is `locals()`.
 
 ```edge-python
 class P:
@@ -866,6 +866,43 @@ print(p.y, vars(p))
 
 ```output
 2 {'x': 1, 'y': 2, 'z': 3}
+```
+
+### dir
+
+`dir(x)` returns the sorted names an attribute read on `x` can reach: the fields of an instance, the members along its MRO, and the methods of `object` and of a builtin type. A class with `__dir__` decides the list itself, sorted afterwards. `dir()` lists the names bound where it runs.
+
+```edge-python
+class P:
+  def __init__(self):
+    self.x = 1
+
+  def show(self):
+    pass
+
+print([n for n in dir(P()) if not n.startswith("_")])
+print("append" in dir([]), "upper" in dir(""))
+```
+
+```output
+['show', 'x']
+True True
+```
+
+### locals
+
+`locals()` returns a fresh dict of the names a function has bound, in the order they were bound. At module level it is `globals()`.
+
+```edge-python
+def f(a):
+  b = a * 2
+  return locals()
+
+print(f(3))
+```
+
+```output
+{'a': 3, 'b': 6}
 ```
 
 ### globals

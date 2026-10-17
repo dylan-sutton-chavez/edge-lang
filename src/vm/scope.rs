@@ -258,7 +258,10 @@ impl<'a> VM<'a> {
     /* The bound locals of the frame running `chunk`, cells read through, which eval and exec get a copy of. */
     pub(crate) fn frame_locals(&self, chunk: &SSAChunk) -> Vec<(String, Val)> {
         let kinds = self.body_to_fi.get(&(chunk as *const SSAChunk)).map(|&fi| &self.fn_scope[fi].kinds);
-        slots_by_name(chunk).into_iter()
+        // Slot order is the order the names were first bound, parameters first.
+        let mut slots: Vec<(&str, usize)> = slots_by_name(chunk).into_iter().collect();
+        slots.sort_unstable_by_key(|&(_, slot)| slot);
+        slots.into_iter()
             .filter(|&(n, slot)| !n.starts_with('#') && !kinds.is_some_and(|k| matches!(k.get(slot), Some(Kind::Global(_)))))
             .filter_map(|(n, slot)| {
                 let v = self.deref(self.regs.get(self.base + slot).copied()?);

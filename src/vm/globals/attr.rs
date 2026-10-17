@@ -106,13 +106,14 @@ impl<'a> VM<'a> {
         Err(cold_type(msg))
     }
 
-    // Pops TOS and returns its String, or errors with `msg` if it isn't a heap string.
-    fn expect_str_arg(&mut self, msg: &'static str) -> Result<String, VmErr> {
+    // Pops the attribute name a getattr-like builtin takes, which must be a str.
+    fn expect_str_arg(&mut self, _: &'static str) -> Result<String, VmErr> {
         let v = self.pop()?;
-        self.str_of(v, msg)
+        if v.is_heap() && let HeapObj::Str(s) = self.heap.get(v) { return Ok(s.clone()); }
+        Err(VmErr::TypeMsg(crate::s!("attribute name must be string, not '", str self.type_name(v), "'")))
     }
 
-    /* `vars(obj)`, an Instance yields its `__dict__`, a module, class or type a dict from its attrs. No-arg form is unsupported. */
+    /* `vars(obj)`, an Instance yields its `__dict__`, a module, class or type a dict from its attrs, `vars()` the locals. */
     pub fn call_vars(&mut self) -> Result<(), VmErr> {
         use alloc::vec::Vec;
         let obj = self.pop()?;
@@ -178,6 +179,47 @@ impl<'a> VM<'a> {
         let mut dm = DictMap::with_capacity(entries.len());
         for (k, v) in entries { dm.insert(k, v, &self.heap); }
         self.alloc_and_push_dict(dm)
+    }
+
+    /* `locals()`, the module bindings at module level, elsewhere a fresh dict of the bound locals in the order they were made. */
+    pub fn call_locals(&mut self, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
+        let in_body = self.body_to_fi.contains_key(&(chunk as *const crate::parser::SSAChunk)) || self.class_chunks.contains(&(chunk as *const crate::parser::SSAChunk));
+        if !in_body { return self.call_globals(chunk); }
+        let bound = self.frame_locals(chunk);
+        let mut dm = DictMap::with_capacity(bound.len());
+        for (k, v) in bound {
+            let key = self.heap.intern_str(&k)?;
+            dm.insert(key, v, &self.heap);
+        }
+        self.alloc_and_push_dict(dm)
+    }
+
+    /* `dir(obj)`, the sorted names an attribute read can reach, a user `__dir__` deciding when the class has one, `dir()` the local names. */
+    pub fn call_dir(&mut self, argc: u16, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
+        let mut names: alloc::vec::Vec<String> = if argc == 0 {
+            let in_body = self.body_to_fi.contains_key(&(chunk as *const crate::parser::SSAChunk)) || self.class_chunks.contains(&(chunk as *const crate::parser::SSAChunk));
+            if in_body { self.frame_locals(chunk).into_iter().map(|(n, _)| n).collect() }
+            else { self.scopes[self.chunk_module_id(chunk)].iter().map(|(n, _)| String::from(n)).filter(|n| !n.starts_with('#')).chain(["__builtins__", "__name__"].map(String::from)).collect() }
+        } else {
+            let obj = self.pop()?;
+            if self.instance_class(obj).is_some() && let Some(listed) = self.try_call_dunder(obj, "__dir__", &[], chunk)? {
+                let items = self.iterable_items(listed, chunk)?;
+                let mut out = alloc::vec::Vec::with_capacity(items.len());
+                for v in items { out.push(self.str_of(v, "__dir__() must return an iterable of str")?); }
+                out
+            } else {
+                self.dir_names(obj)
+            }
+        };
+        names.sort_unstable();
+        names.dedup();
+        let mut items = alloc::vec::Vec::with_capacity(names.len());
+        let base = self.temp_roots.len();
+        for n in &names { let v = self.heap.alloc(HeapObj::Str(n.clone()))?; self.temp_roots.push(v); items.push(v); }
+        let list = self.heap.alloc(HeapObj::List(alloc::rc::Rc::new(core::cell::RefCell::new(items))));
+        self.temp_roots.truncate(base);
+        self.push(list?);
+        Ok(())
     }
 
     /* `globals()`, a copy of the module's bindings, builtins kept apart. */

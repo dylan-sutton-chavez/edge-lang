@@ -107,9 +107,16 @@ impl<'a> VM<'a> {
     }
 
     fn exec_mod(&mut self, a: Val, b: Val, chunk: &SSAChunk) -> Result<Val, VmErr> {
-        // `str % args` is printf-style formatting, not modulo.
+        // `str % args` is printf-style formatting, not modulo, and so is `bytes % args`.
         if a.is_heap() && matches!(self.heap.get(a), HeapObj::Str(_)) {
             return self.str_percent_format(a, b, chunk);
+        }
+        if a.is_heap() && let HeapObj::Bytes(f) | HeapObj::ByteArray(f) = self.heap.get(a) {
+            let (fmt, array) = (f.iter().map(|&c| c as char).collect::<String>(), matches!(self.heap.get(a), HeapObj::ByteArray(_)));
+            // Every character the bytes form writes is below 0x100, so each goes back as one byte.
+            let text = self.percent_format(fmt, b, true, chunk)?;
+            let out: alloc::vec::Vec<u8> = text.chars().map(|c| c as u8).collect();
+            return self.heap.alloc(if array { HeapObj::ByteArray(out) } else { HeapObj::Bytes(out) });
         }
         self.floor_op(BinOp::Mod, a, b, "%")
     }
@@ -133,6 +140,12 @@ impl<'a> VM<'a> {
     /* printf-style `str % args` translates each `%[flags][width][.prec]conv` into the `{:spec}` mini-language and reuses `format_value`. A tuple spreads, else one value. */
     fn str_percent_format(&mut self, fmt_val: Val, arg: Val, chunk: &SSAChunk) -> Result<Val, VmErr> {
         let fmt = match self.heap.get(fmt_val) { HeapObj::Str(s) => s.clone(), _ => return Err(cold_type("% requires a string")) };
+        let out = self.percent_format(fmt, arg, false, chunk)?;
+        self.heap.alloc(HeapObj::Str(out))
+    }
+
+    /* The text `fmt % arg` makes, `bytes` reading `%s` and `%b` as bytes and `%r` as `%a`, the bytes form of PEP 461. */
+    fn percent_format(&mut self, fmt: String, arg: Val, bytes: bool, chunk: &SSAChunk) -> Result<String, VmErr> {
         let (args, spread): (alloc::vec::Vec<Val>, bool) = match self.heap.try_get(arg) {
             Some(HeapObj::Tuple(t)) => (t.clone(), true),
             _ => (alloc::vec![arg], false),
@@ -141,11 +154,24 @@ impl<'a> VM<'a> {
         let mut out = String::new();
         let mut ai = 0usize;
         let mut i = 0usize;
+        let mut keyed = false;
         while i < chars.len() {
             let c = chars[i];
             if c != '%' { out.push(c); i += 1; continue; }
+            let start = i;
+            let stray = || cold_value_s(crate::s!("stray % at position ", int start as i64));
             i += 1;
             if i < chars.len() && chars[i] == '%' { out.push('%'); i += 1; continue; }
+            // `%(name)s` reads `name` off a mapping, its parentheses nesting.
+            let mut key = None;
+            if i < chars.len() && chars[i] == '(' {
+                let (mut depth, mut j) = (1, i + 1);
+                while j < chars.len() && depth > 0 { match chars[j] { '(' => depth += 1, ')' => depth -= 1, _ => {} } j += 1; }
+                if depth > 0 { return Err(cold_value_s(crate::s!("stray % or incomplete format key at position ", int start as i64))); }
+                key = Some(chars[i + 1..j - 1].iter().collect::<String>());
+                i = j;
+            }
+            let no_star = |at: usize, key: &Option<String>| if key.is_some() && chars.get(at) == Some(&'*') { Err(cold_value_s(crate::s!("* cannot be used with a parenthesised mapping key at position ", int start as i64))) } else { Ok(()) };
             // flags
             let (mut left, mut zero, mut plus, mut space, mut alt) = (false, false, false, false, false);
             while i < chars.len() {
@@ -157,6 +183,7 @@ impl<'a> VM<'a> {
             }
             // width is digits, or `*` reads it (with sign) from the next argument.
             let mut width = String::new();
+            no_star(i, &key)?;
             if i < chars.len() && chars[i] == '*' {
                 i += 1;
                 let w = Self::star_arg_int(&args, &mut ai)?;
@@ -169,6 +196,7 @@ impl<'a> VM<'a> {
             let mut has_prec = false;
             if i < chars.len() && chars[i] == '.' {
                 i += 1;
+                no_star(i, &key)?;
                 if i < chars.len() && chars[i] == '*' {
                     i += 1;
                     let p = Self::star_arg_int(&args, &mut ai)?;
@@ -179,10 +207,18 @@ impl<'a> VM<'a> {
                     while i < chars.len() && chars[i].is_ascii_digit() { prec.push(chars[i]); i += 1; }
                 }
             }
-            if i >= chars.len() { return Err(cold_value("incomplete format")); }
-            let conv = chars[i]; i += 1;
-            let val = *args.get(ai).ok_or_else(|| short_of(args.len()))?;
-            ai += 1;
+            // The C length modifiers `h`, `l` and `L` change nothing.
+            while i < chars.len() && matches!(chars[i], 'h' | 'l' | 'L') { i += 1; }
+            if i >= chars.len() { return Err(stray()); }
+            let (conv, at) = (chars[i], i); i += 1;
+            let val = match key {
+                Some(k) => { keyed = true; self.format_key(arg, k, bytes, chunk)? }
+                None if keyed => return Err(cold_value_s(crate::s!("format requires a parenthesised mapping key at position ", int start as i64))),
+                None => { let v = *args.get(ai).ok_or_else(|| short_of(args.len()))?; ai += 1; v }
+            };
+            // A bad verb right after `%` is unsupported, one after flags or a width may end a stray `%`.
+            let unsupported = || if at == start + 1 { cold_value_s(crate::s!("unsupported format %", char conv, " at position ", int start as i64)) }
+                else { cold_value_s(crate::s!("stray % at position ", int start as i64, " or unexpected format character '", char conv, "' at position ", int at as i64)) };
             // How an error names the argument, by its place when a tuple spread them.
             let wrong = |vm: &Self, needs: &str| {
                 let at = if spread { crate::s!("format argument ", int ai as i64) } else { String::from("format argument") };
@@ -191,6 +227,27 @@ impl<'a> VM<'a> {
             let int_like = val.is_int() || val.is_bool() || crate::frontend::int::is_big(&self.heap, val);
             // Map printf conversion -> (format value, spec type char, is-numeric).
             let (fval, ty, numeric): (Val, Option<char>, bool) = match conv {
+                // The bytes form takes bytes, or what `__bytes__` makes, as their Latin-1 text.
+                's' | 'b' if bytes => {
+                    let raw = self.heap.octets(val).map(|b| b.to_vec());
+                    let raw = match raw { Some(r) => r, None => match self.try_call_dunder(val, "__bytes__", &[], chunk)? {
+                        Some(r) if self.heap.bytes_of(r).is_some() => self.heap.bytes_of(r).unwrap_or_default().to_vec(),
+                        _ => { let w = wrong(self, "a bytes-like object, or an object that implements __bytes__"); return Err(match w { VmErr::TypeMsg(m) => VmErr::TypeMsg(m.replacen("%s", "%b", 1)), e => e }); }
+                    }};
+                    (self.heap.alloc(HeapObj::Str(raw.iter().map(|&c| c as char).collect()))?, None, false)
+                }
+                'r' | 'a' if bytes => { let s = crate::vm::format_spec::ascii_escape(&self.repr_op(val, chunk)?); (self.heap.alloc(HeapObj::Str(s))?, None, false) }
+                'c' if bytes => {
+                    let byte = match self.heap.bytes_of(val) {
+                        Some([b]) => *b,
+                        _ if int_like => match self.as_i128(val).and_then(|n| u8::try_from(n).ok()) {
+                            Some(b) => b,
+                            None => { let at = if spread { crate::s!("format argument ", int ai as i64) } else { String::from("format argument") }; return Err(VmErr::Raised(crate::s!("OverflowError: ", str &at, ": %c argument not in range(256)"))); }
+                        },
+                        _ => return Err(wrong(self, "an integer in range(256) or a single byte")),
+                    };
+                    (self.heap.alloc(HeapObj::Str(String::from(byte as char)))?, None, false)
+                }
                 's' => { let s = self.display_op(val, chunk)?; (self.heap.alloc(HeapObj::Str(s))?, None, false) }
                 'r' => { let s = self.repr_op(val, chunk)?; (self.heap.alloc(HeapObj::Str(s))?, None, false) }
                 'a' => { let s = crate::vm::format_spec::ascii_escape(&self.repr_op(val, chunk)?); (self.heap.alloc(HeapObj::Str(s))?, None, false) }
@@ -211,7 +268,7 @@ impl<'a> VM<'a> {
                 'E' => (val, Some('E'), true),
                 'g' => (val, Some('g'), true),
                 'G' => (val, Some('G'), true),
-                _ => return Err(cold_value("unsupported format character")),
+                _ => return Err(unsupported()),
             };
             // Build the equivalent `{:spec}` string. printf right-aligns by default (incl. strings).
             let mut spec = String::new();
@@ -229,11 +286,23 @@ impl<'a> VM<'a> {
             })?;
             out.push_str(&rendered);
         }
-        // Every supplied arg must be consumed, like Python.
-        if ai != args.len() {
+        // Every supplied arg must be consumed, like Python, unless a mapping gave them by name.
+        if !keyed && ai != args.len() {
             return Err(VmErr::TypeMsg(crate::s!("not all arguments converted during string formatting (required ", int ai as i64, ", got ", int args.len() as i64, ")")));
         }
-        self.heap.alloc(HeapObj::Str(out))
+        Ok(out)
+    }
+
+    /* The value `%(key)s` reads off `arg`, which any subscriptable value but a tuple or a string may be. */
+    fn format_key(&mut self, arg: Val, key: String, bytes: bool, chunk: &SSAChunk) -> Result<Val, VmErr> {
+        let subscriptable = arg.is_heap() && !matches!(self.heap.get(arg), HeapObj::Tuple(_) | HeapObj::Str(_))
+            && (self.heap.dict_cell(arg).is_some() || matches!(self.heap.get(arg), HeapObj::List(_) | HeapObj::Instance(..)));
+        if !subscriptable { return Err(VmErr::TypeMsg(crate::s!("format requires a mapping, not ", str self.type_name(arg)))); }
+        let k = self.heap.alloc(if bytes { HeapObj::Bytes(key.chars().map(|c| c as u8).collect()) } else { HeapObj::Str(key) })?;
+        self.with_roots([k], |vm| match vm.try_call_dunder(arg, "__getitem__", &[k], chunk)? {
+            Some(v) => Ok(v),
+            None => vm.getitem_val(arg, k),
+        })
     }
 
     /* Reads a `*` width/precision argument as an i64, non-integers raise TypeError like Python. */

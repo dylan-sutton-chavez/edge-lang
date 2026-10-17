@@ -116,9 +116,26 @@ impl<'a> VM<'a> {
                 self.exec_call(its.len() as u16, chunk)?;
                 self.pop().map(Some)
             }
-            IterFrame::Zip { its } => {
+            IterFrame::Zip { its, strict } => {
                 let base = self.stack.len();
-                if its.is_empty() || !self.push_next_of(&its, chunk)? { return Ok(None); }
+                if its.is_empty() { return Ok(None); }
+                if !strict {
+                    if !self.push_next_of(&its, chunk)? { return Ok(None); }
+                } else {
+                    // A strict zip ends only when every iterable ends together.
+                    for (k, &it) in its.iter().enumerate() {
+                        match self.next_of(it, chunk)? {
+                            Some(v) => self.push(v),
+                            None if k > 0 => { self.stack.truncate(base); return Err(Self::zip_uneven(k, false)); }
+                            None => {
+                                for (j, &rest) in its.iter().enumerate().skip(1) {
+                                    if let Some(extra) = self.next_of(rest, chunk)? { let _ = extra; return Err(Self::zip_uneven(j, true)); }
+                                }
+                                return Ok(None);
+                            }
+                        }
+                    }
+                }
                 let items = self.stack.split_off(base);
                 self.heap.alloc(HeapObj::Tuple(items)).map(Some)
             }
@@ -256,27 +273,17 @@ impl<'a> VM<'a> {
         Ok(order.into_iter().map(|i| items[i]).collect())
     }
 
-    /* Root the operands (comparators can run GC-triggering user code), stable-sort `keys` via `sort_lt`, and return the index permutation. `extra_roots` keeps caller-only values (e.g. the items in a keyed sort) alive across comparisons. First comparison error wins, later comparisons degrade to Equal. */
+    /* Root the operands (comparators can run GC-triggering user code), sort `keys` the way Python does through `sort_lt`, and return the index permutation. `extra_roots` keeps caller-only values (e.g. the items in a keyed sort) alive across comparisons. The first comparison error ends the sort. */
     fn sorted_order(&mut self, keys: &[Val], extra_roots: &[Val], reverse: bool, chunk: &SSAChunk) -> Result<Vec<usize>, VmErr> {
         if let Some(order) = plain_order(keys, reverse, &self.heap) { return Ok(order); }
         let roots_base = self.temp_roots.len();
         // Only an instance key runs user code that could collect.
         if self.any_instance(keys) { self.temp_roots.extend(keys.iter().chain(extra_roots).copied()); }
-        let mut sort_err: Option<VmErr> = None;
-        let order = Self::stable_sort_indices(keys.len(), |a, b| {
-            if sort_err.is_some() { return core::cmp::Ordering::Equal; }
-            // Descending compares flipped, so equal keys keep their order like an ascending sort.
-            let (a, b) = if reverse { (b, a) } else { (a, b) };
-            match self.sort_lt(keys[a], keys[b], chunk) {
-                Ok(true) => core::cmp::Ordering::Less,
-                Ok(false) => match self.sort_lt(keys[b], keys[a], chunk) {
-                    Ok(true) => core::cmp::Ordering::Greater,
-                    Ok(false) => core::cmp::Ordering::Equal,
-                    Err(e) => { sort_err = Some(e); core::cmp::Ordering::Equal }
-                },
-                Err(e) => { sort_err = Some(e); core::cmp::Ordering::Equal }
-            }
-        });
+        // A descending sort reverses, sorts ascending and reverses back, so equal keys keep their order.
+        let mut order: Vec<usize> = if reverse { (0..keys.len()).rev().collect() } else { (0..keys.len()).collect() };
+        let sorted = crate::vm::timsort::sort(&mut order, &mut |x, y| self.sort_lt(keys[x], keys[y], chunk));
+        if reverse { order.reverse(); }
+        let sort_err = sorted.err();
         self.temp_roots.truncate(roots_base);
         if let Some(e) = sort_err { return Err(e); }
         Ok(order)
@@ -302,38 +309,6 @@ impl<'a> VM<'a> {
         let order = self.sorted_order(&snapshot, &[], reverse, chunk)?;
         for (dst, &src) in order.iter().enumerate() { items[dst] = snapshot[src]; }
         Ok(())
-    }
-
-    /* Stable merge sort over `0..n`, unlike `slice::sort_by` it tolerates a non-total `cmp` (NaN keys) without aborting. */
-    fn stable_sort_indices<F>(n: usize, mut cmp: F) -> Vec<usize>
-    where F: FnMut(usize, usize) -> core::cmp::Ordering {
-        let mut idx: Vec<usize> = (0..n).collect();
-        if n < 2 { return idx; }
-        let mut buf = idx.clone();
-        let mut width = 1;
-        while width < n {
-            let mut lo = 0;
-            while lo < n {
-                let mid = (lo + width).min(n);
-                let hi = (lo + 2 * width).min(n);
-                let (mut a, mut b, mut k) = (lo, mid, lo);
-                while a < mid && b < hi {
-                    // Take the right run only on a strict Less, so equal keys keep input order (stable).
-                    if cmp(idx[b], idx[a]) == core::cmp::Ordering::Less {
-                        buf[k] = idx[b]; b += 1;
-                    } else {
-                        buf[k] = idx[a]; a += 1;
-                    }
-                    k += 1;
-                }
-                while a < mid { buf[k] = idx[a]; a += 1; k += 1; }
-                while b < hi { buf[k] = idx[b]; b += 1; k += 1; }
-                lo += 2 * width;
-            }
-            core::mem::swap(&mut idx, &mut buf);
-            width *= 2;
-        }
-        idx
     }
 
     /* `reversed(seq)`, a list read live from its end, a range stepped backwards, other sequences read up front. */
@@ -389,10 +364,27 @@ impl<'a> VM<'a> {
 
     /* Pairs the items of N iterables into tuples as they are asked for, stopping at the shortest. */
     pub fn call_zip(&mut self, op: u16, chunk: &SSAChunk) -> Result<(), VmErr> {
-        let at = self.stack.len().checked_sub(op as usize).ok_or_else(|| cold_runtime("stack underflow"))?;
+        // `strict=` is the one keyword, its pair above the iterables.
+        let (pos, kw) = ((op & 0xFF) as usize, (op >> 8) as usize);
+        let mut strict = false;
+        for pair in self.pop_n(2 * kw)?.chunks(2) {
+            if self.kw_name(pair[0]) != Some("strict") {
+                return Err(VmErr::TypeMsg(s!("zip() got an unexpected keyword argument '", str self.kw_name(pair[0]).unwrap_or(""), "'")));
+            }
+            strict = self.truthy(pair[1]);
+        }
+        let at = self.stack.len().checked_sub(pos).ok_or_else(|| cold_runtime("stack underflow"))?;
         self.iters_in_place(at, chunk)?;
-        let its = self.pop_n(op as usize)?;
-        self.push_iterator(IterFrame::Zip { its: its.into() }, "zip")
+        let its = self.pop_n(pos)?;
+        self.push_iterator(IterFrame::Zip { its: its.into(), strict }, "zip")
+    }
+
+    /* The error of a strict zip whose argument `k` ran out, or ran on, against those before it. */
+    #[cold]
+    fn zip_uneven(k: usize, longer: bool) -> VmErr {
+        let before = if k == 1 { alloc::string::String::from("argument 1") } else { s!("arguments 1-", int k as i64) };
+        let (n, how) = (k as i64 + 1, if longer { " is longer than " } else { " is shorter than " });
+        cold_value_s(s!("zip() argument ", int n, str how, str &before))
     }
 
     // TypeError for a non-iterable operand.
@@ -528,13 +520,14 @@ impl<'a> VM<'a> {
         // `next(it, default)` returns the 2nd arg instead of raising StopIteration on exhaustion.
         let default = if argc == 2 { Some(self.pop()?) } else { None };
         let o = self.pop()?;
-        if !o.is_heap() { return Err(cold_type("next() requires an iterator")); }
+        let not_iterator = |vm: &Self| VmErr::TypeMsg(crate::s!("'", str vm.type_name(o), "' object is not an iterator"));
+        if !o.is_heap() { return Err(not_iterator(self)); }
         // For a user iterator, dispatch __next__, mapping StopIteration to the optional default.
         if matches!(self.heap.get(o), HeapObj::Instance(..)) {
             let before = self.pending.exc_val;
             return match self.try_call_dunder(o, "__next__", &[], chunk) {
                 Ok(Some(v)) => { self.push(v); Ok(()) }
-                Ok(None) => Err(cold_type("next() requires an iterator")),
+                Ok(None) => Err(not_iterator(self)),
                 Err(VmErr::Raised(m)) if default.is_some() && (m == "StopIteration" || m.starts_with("StopIteration")) => {
                     self.swallow_stop(before);
                     self.push(default.unwrap()); Ok(())

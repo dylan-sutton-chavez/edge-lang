@@ -174,10 +174,10 @@ impl<'a> VM<'a> {
                     Some(r) if r.is_bool() => Val::int(r.as_bool() as i64),
                     Some(r) if r.is_int() || crate::frontend::int::is_big(&self.heap, r) => r,
                     Some(_) => return Err(cold_type("__int__ returned non-int")),
-                    None => return Err(cold_type("int() requires a number or string")),
+                    None => return Err(int_arg(self, o)),
                 }
             }
-            else { return Err(cold_type("int() requires a number or string")); };
+            else { return Err(int_arg(self, o)); };
         self.push(v); Ok(())
     }
 
@@ -225,11 +225,11 @@ impl<'a> VM<'a> {
                     None => match self.try_call_dunder(o, "__index__", &[], chunk)? {
                         Some(r) if r.is_int() || r.is_bool() || crate::frontend::int::is_big(&self.heap, r) => num_f64(r, &self.heap).unwrap_or(Ok(0.0))?,
                         Some(r) => return Err(self.returned_wrong(o, "__index__", "an int", r)),
-                        None => return Err(cold_type("float() requires a number or string")),
+                        None => return Err(float_arg(self, o)),
                     },
                 }
             }
-            else { return Err(cold_type("float() requires a number or string")); };
+            else { return Err(float_arg(self, o)); };
         self.push(Val::float(f)); Ok(())
     }
 
@@ -269,7 +269,7 @@ impl<'a> VM<'a> {
 
     pub fn call_chr(&mut self) -> Result<(), VmErr> {
         let o = self.pop()?;
-        if !(o.is_int() || o.is_bool() || crate::frontend::int::is_big(&self.heap, o)) { return Err(cold_type("chr() requires an integer")); }
+        if !(o.is_int() || o.is_bool() || crate::frontend::int::is_big(&self.heap, o)) { return Err(VmErr::TypeMsg(crate::s!("'", str self.type_name(o), "' object cannot be interpreted as an integer"))); }
         let c = self.as_i128(o).and_then(|i| u32::try_from(i).ok()).and_then(char::from_u32).ok_or_else(|| cold_value("chr() arg not in range(0x110000)"))?;
         let mut s = String::with_capacity(4);
         s.push(c);
@@ -471,8 +471,7 @@ impl<'a> VM<'a> {
     fn extreme_index(&mut self, keys: &[Val], is_min: bool, chunk: &crate::parser::SSAChunk) -> Result<usize, VmErr> {
         let mut best = 0;
         for i in 1..keys.len() {
-            let (l, r) = if is_min { (keys[i], keys[best]) } else { (keys[best], keys[i]) };
-            if self.sort_lt(l, r, chunk)? { best = i; }
+            if self.beats(keys[i], keys[best], is_min, chunk)? { best = i; }
         }
         Ok(best)
     }
@@ -481,6 +480,13 @@ impl<'a> VM<'a> {
         let args = self.pop_n(op as usize)?;
         if args.is_empty() { return Err(cold_type("sum() requires at least 1 argument")); }
         let start = if args.len() > 1 { args[1] } else { Val::int(0) };
+        // Text and bytes join, which sum points to.
+        match self.heap.try_get(start) {
+            Some(HeapObj::Str(_)) => return Err(cold_type("sum() can't sum strings [use ''.join(seq) instead]")),
+            Some(HeapObj::Bytes(_)) => return Err(cold_type("sum() can't sum bytes [use b''.join(seq) instead]")),
+            Some(HeapObj::ByteArray(_)) => return Err(cold_type("sum() can't sum bytearray [use b''.join(seq) instead]")),
+            _ => {}
+        }
         let base = self.temp_roots.len();
         let result = if self.steps_lazily(args[0]) { self.sum_cursor(&args, &mut Lazy(args[0]), start, chunk) } else {
             let mut cur = self.iter_cursor(args[0])?;
@@ -552,6 +558,10 @@ impl<'a> VM<'a> {
         let (s, e, st) = match args[..] { [e] => (Val::int(0), e, Val::int(1)), [s, e] => (s, e, Val::int(1)), [s, e, st] => (s, e, st), _ => return Err(cold_type("range() takes 1 to 3 arguments")) };
         if let Some(r) = crate::frontend::int::new_range(&mut self.heap, s, e, st) { let r = r?; self.push(r); return Ok(()); }
         // Accept any integer, bools included, that fits the i64 range bounds.
+        // The first bound that is no integer names its type.
+        if let Some(&bad) = args.iter().find(|&&a| self.as_i128(a).is_none() || a.is_float()) {
+            return Err(VmErr::TypeMsg(crate::s!("'", str self.type_name(bad), "' object cannot be interpreted as an integer")));
+        }
         let gi = |i: Option<i128>| -> Result<i64, VmErr> {
             match i {
                 Some(n) if (i64::MIN as i128..=i64::MAX as i128).contains(&n) => Ok(n as i64),
@@ -664,3 +674,11 @@ fn checked_pow(mut base: i128, mut e: u64) -> Option<i128> {
     }
     Some(acc)
 }
+
+/* The TypeError of `int(x)` for a value with no integer form. */
+#[cold]
+fn int_arg(vm: &VM, o: Val) -> VmErr { VmErr::TypeMsg(crate::s!("int() argument must be a string, a bytes-like object or a real number, not '", str vm.type_name(o), "'")) }
+
+/* The TypeError of `float(x)` for a value with no float form. */
+#[cold]
+fn float_arg(vm: &VM, o: Val) -> VmErr { VmErr::TypeMsg(crate::s!("float() argument must be a string or a real number, not '", str vm.type_name(o), "'")) }

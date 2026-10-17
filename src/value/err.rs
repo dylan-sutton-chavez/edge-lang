@@ -137,6 +137,8 @@ impl core::fmt::Display for VmErr {
 #[cold] #[inline(never)] pub fn cold_depth() -> VmErr { VmErr::CallDepth }
 #[cold] #[inline(never)] pub fn cold_type(m: &'static str) -> VmErr { VmErr::Type(m) }
 #[cold] #[inline(never)] pub fn cold_value(m: &'static str) -> VmErr { VmErr::Value(m) }
+// A ValueError whose message is built at run time.
+#[cold] #[inline(never)] pub fn cold_value_s(m: alloc::string::String) -> VmErr { VmErr::Raised(alloc::format!("ValueError: {m}")) }
 #[cold] #[inline(never)] pub fn cold_index(m: &'static str) -> VmErr { VmErr::Raised(crate::s!("IndexError: ", str m)) }
 #[cold] #[inline(never)] pub fn cold_runtime(m: &'static str) -> VmErr { VmErr::Runtime(m) }
 #[cold] #[inline(never)] pub fn cold_overflow() -> VmErr { VmErr::Overflow }

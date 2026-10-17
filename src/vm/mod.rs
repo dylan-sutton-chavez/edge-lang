@@ -29,6 +29,7 @@ mod groups;
 pub(crate) mod codecs;
 mod memview;
 mod hints;
+mod timsort;
 
 use crate::parser::{SSAChunk, builtin_type};
 use crate::util::hash::FxHashMap as HashMap;
@@ -520,6 +521,14 @@ impl<'a> VM<'a> {
             (name, HeapObj::Type(name.to_string()))
         } else if let Some(id) = NativeFnId::from_name(bare) {
             (id.name(), HeapObj::NativeFn(id))
+        } else if bare == "Ellipsis" {
+            ("Ellipsis", HeapObj::Ellipsis)
+        } else if bare == "__doc__" {
+            // The docstring of the entry chunk is its `__doc__`, None without one.
+            match crate::vm::opcodes::attr_lookup::docstring(self.chunk) {
+                Some(d) => ("__doc__", HeapObj::Str(d)),
+                None => { self.builtins.insert("__doc__", Val::none()); return; }
+            }
         } else {
             return;
         };

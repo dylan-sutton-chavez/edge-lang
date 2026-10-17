@@ -260,6 +260,8 @@ impl<'a> VM<'a> {
     pub fn getitem_val(&mut self, obj: Val, idx: Val) -> Result<Val, VmErr> {
         if !obj.is_heap() { return Err(VmErr::TypeMsg(crate::s!("'", str self.type_name(obj), "' object is not subscriptable"))); }
         let bad = |vm: &Self, kind: &str| if crate::frontend::int::is_big(&vm.heap, idx) { cold_index("cannot fit 'int' into an index-sized integer") }
+            // A string words it without slices and quotes the type.
+            else if kind == "string" { VmErr::TypeMsg(crate::s!("string indices must be integers, not '", str vm.type_name(idx), "'")) }
             else { VmErr::TypeMsg(crate::s!(str kind, " indices must be integers or slices, not ", str vm.type_name(idx))) };
         if self.heap.dict_cell(obj).is_some() { self.keyed(idx)?; }
         match self.heap.get(obj) {

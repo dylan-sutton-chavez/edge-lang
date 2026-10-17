@@ -192,6 +192,8 @@ impl<'a> VM<'a> {
                     let spec_val = self.heap.alloc(HeapObj::Str(entry.spec.clone()))?;
                     let module = self.chunk_module_id(sub_chunk);
                     self.scopes[module].set("__name__", spec_val);
+                    let doc = match crate::vm::opcodes::attr_lookup::docstring(sub_chunk) { Some(d) => self.heap.alloc(HeapObj::Str(d))?, None => Val::none() };
+                    self.scopes[module].set("__doc__", doc);
                     self.exec(sub_chunk, &mut sub_slots)?;
                     let attrs = collect_module_attrs(sub_chunk, &self.scopes[module]);
                     let val = self.heap.alloc(HeapObj::Module(entry.spec.clone(), attrs))?;

@@ -142,6 +142,10 @@ impl<'a> VM<'a> {
                 crate::vm::methods::method_arity(id, pos.len())?;
                 self.group_method(recv, id.name(), pos, chunk)
             }
+            _ if id.ty() == "super" => {
+                crate::vm::methods::method_arity(id, pos.len())?;
+                self.super_get(recv, pos)
+            }
             _ if id.ty() == "object" => {
                 crate::vm::methods::method_arity(id, pos.len())?;
                 self.object_method(recv, id.name(), pos, kw, chunk)
@@ -606,7 +610,7 @@ impl<'a> VM<'a> {
         match self.heap.try_get(callee) {
             // `list[int](xs)` builds what its origin builds.
             Some(&HeapObj::GenericAlias(origin, _)) => return self.try_dispatch_non_func_callable(origin, positional, kw_flat, chunk),
-            Some(&HeapObj::BoundMethod(recv, id)) if recv.is_undef() => self.exec_unbound_method(id, positional, kw_flat, chunk)?,
+            Some(&HeapObj::BoundMethod(recv, id)) if self.method_unbound(recv, id) => self.exec_unbound_method(id, positional, kw_flat, chunk)?,
             Some(&HeapObj::BoundMethod(recv, id)) => self.exec_bound_method(recv, id, positional, kw_flat, chunk)?,
             Some(&HeapObj::NativeFn(id)) => self.dispatch_native(id, positional, kw_flat, chunk)?,
             // Park on host-deferral like `call_extern` (e.g. `time.sleep` via module attr).
@@ -623,6 +627,13 @@ impl<'a> VM<'a> {
                     if !positional.is_empty() || !kw_flat.is_empty() { return Err(cold_type("object() takes no arguments")); }
                     let inst = self.heap.alloc(HeapObj::Instance(callee, Rc::new(RefCell::new(DictMap::new()))))?;
                     self.push(inst);
+                } else if let Some(single) = match name.as_str() { "NoneType" => Some(None), "ellipsis" => Some(Some("Ellipsis")), "NotImplementedType" => Some(Some("NotImplemented")), _ => None } {
+                    // The type of a singleton gives the singleton back.
+                    if !positional.is_empty() || !kw_flat.is_empty() { return Err(VmErr::TypeMsg(crate::s!(str if name == "ellipsis" { "EllipsisType" } else { &name }, " takes no arguments"))); }
+                    let v = match single { None => Val::none(), Some(b) => self.builtin_value(b)? };
+                    self.push(v);
+                } else if !crate::vm::globals::is_exc_type(&name) {
+                    return Err(VmErr::TypeMsg(crate::s!("cannot create '", str &name, "' instances")));
                 } else {
                     // Other Type objects are exception classes, build an ExcInstance for `raise X("msg")`.
                     if !kw_flat.is_empty() { return Err(cold_type("exception class takes no keyword arguments")); }
@@ -1021,7 +1032,7 @@ impl<'a> VM<'a> {
             &leftover_storage
         } else { kw };
 
-        let kw_aware = matches!(id, Print | Min | Max | Enumerate | Dict | FrozenDict | Sentinel);
+        let kw_aware = matches!(id, Print | Min | Max | Enumerate | Dict | FrozenDict | Sentinel | Zip);
         if !kw_remaining.is_empty() && !kw_aware {
             return self.dispatch_native_named(id, positional, kw_remaining, chunk);
         }
@@ -1116,7 +1127,9 @@ impl<'a> VM<'a> {
             Iter => self.call_iter(operand, chunk),
             Bytes => self.call_bytes(operand),
             Slice => self.call_slice(operand),
-            Vars => self.call_vars(),
+            Vars => if operand == 0 { self.call_locals(chunk) } else { self.call_vars() },
+            Locals => self.call_locals(chunk),
+            Dir => self.call_dir(operand, chunk),
             SetAttr => self.call_setattr(chunk),
             DelAttr => self.call_delattr(chunk),
             ImportModule => self.call_import_module(),
@@ -1128,7 +1141,7 @@ impl<'a> VM<'a> {
             IntToBytes => self.call_int_to_bytes(),
             FrozenSet => self.call_frozenset(operand),
             Globals => self.call_globals(chunk),
-            Super => self.call_super(),
+            Super => self.call_super(operand),
             Property => self.call_property(operand),
             StaticMethod => self.call_staticmethod(operand),
             ClassMethod => self.call_classmethod(operand),

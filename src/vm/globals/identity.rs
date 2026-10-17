@@ -39,16 +39,47 @@ impl<'a> VM<'a> {
         Ok(())
     }
 
-    // `super()` zero-arg reads the running method's `(class, self)` off the top frame and returns a Super proxy.
-    pub fn call_super(&mut self) -> Result<(), VmErr> {
-        // Only the binding of the running frame counts, a plain function a method called has none.
-        let binding = self.bindings.last().filter(|b| b.0 == self.level()).map(|b| (b.1, b.2));
-        let Some((class, recv)) = binding else {
-            return Err(VmErr::Runtime("super(): no arguments"));
+    // `super()` reads the running method's `(class, self)` off the top frame, `super(C, obj)` names both, and either returns a Super proxy.
+    pub fn call_super(&mut self, argc: u16) -> Result<(), VmErr> {
+        let args = self.pop_n(argc as usize)?;
+        let (class, recv) = match *args.as_slice() {
+            [class, recv] => {
+                if !matches!(self.heap.try_get(class), Some(HeapObj::Class(..) | HeapObj::Type(_))) {
+                    return Err(VmErr::TypeMsg(crate::s!("super() argument 1 must be a type, not ", str self.type_name(class))));
+                }
+                // The object is an instance of the class or a class under it.
+                let of = self.instance_class(recv).or_else(|| matches!(self.heap.try_get(recv), Some(HeapObj::Class(..))).then_some(recv));
+                if !of.is_some_and(|c| c.0 == class.0 || self.heap.is_subclass(c, class)) {
+                    return Err(VmErr::TypeMsg(crate::s!("super(type, obj): obj (instance of ", str self.type_name(recv), ") is not an instance or subtype of type (", str match self.heap.get(class) { HeapObj::Class(n, ..) | HeapObj::Type(n) => n.as_str(), _ => "?" }, ").")));
+                }
+                (class, recv)
+            }
+            // `super(C)` is unbound, its object None until `__get__` gives it one.
+            [class] => {
+                if !matches!(self.heap.try_get(class), Some(HeapObj::Class(..) | HeapObj::Type(_))) {
+                    return Err(VmErr::TypeMsg(crate::s!("super() argument 1 must be a type, not ", str self.type_name(class))));
+                }
+                (class, Val::none())
+            }
+            _ => {
+                // Only the binding of the running frame counts, a plain function a method called has none.
+                let binding = self.bindings.last().filter(|b| b.0 == self.level()).map(|b| (b.1, b.2));
+                let Some(found) = binding else { return Err(VmErr::Runtime("super(): no arguments")) };
+                found
+            }
         };
         let proxy = self.heap.alloc(HeapObj::Super(class, recv))?;
         self.push(proxy);
         Ok(())
+    }
+
+    /* `super(C).__get__(obj)` binds an unbound super to `obj`, a bound one or a None object gives it back as it is. */
+    pub(crate) fn super_get(&mut self, sup: Val, pos: &[Val]) -> Result<(), VmErr> {
+        let Some(&HeapObj::Super(class, recv)) = self.heap.try_get(sup) else { return Err(cold_type("descriptor '__get__' requires a 'super' object")) };
+        if !recv.is_none() || pos[0].is_none() { self.push(sup); return Ok(()); }
+        self.push(class);
+        self.push(pos[0]);
+        self.call_super(2)
     }
 
     pub fn call_repr(&mut self, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {

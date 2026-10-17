@@ -204,8 +204,8 @@ list of 3
 ### Missing pieces by type
 
 - `tuple` and `range` have only `index` and `count`, `frozenset` only the set methods that change nothing, and `frozendict` only the dict ones. The dunders of the operators and builtins a value answers are methods, so `'ab'.__len__()` and `int.__add__(1, 2)` work, and an operand of another type answers `NotImplemented`.
-- Codecs are limited to UTF-8, ASCII and Latin-1, with the `strict`, `ignore`, `replace`, `backslashreplace` and `xmlcharrefreplace` error handlers.
-- `zip` has no `strict` flag. `round` uses ties-to-even and always returns int for one argument, float for two.
+- Codecs are UTF-8, UTF-16, UTF-32, ASCII, Latin-1 and cp1252, with the `strict`, `ignore`, `replace`, `backslashreplace` and `xmlcharrefreplace` error handlers.
+- `zip(..., strict=True)` raises `ValueError` on inputs of unequal length. `round` uses ties-to-even and always returns int for one argument, float for two.
 - The `int_to_bytes` and `int_from_bytes` builtins cap at 8 bytes, while the `int.to_bytes` and `int.from_bytes` methods take ints of any size.
 
 ### Async without asyncio
@@ -258,7 +258,7 @@ The official names `json`, `re`, `math`, `struct` and `test` resolve only when d
 
 ## Builtins
 
-The global namespace holds exactly 77 builtin functions, the type objects, the exception classes, `NotImplemented`, `__name__` and the async primitives. Nothing else exists, and names like `dir`, `help` or `exit` are simply undefined.
+The global namespace holds exactly 79 builtin functions, the type objects, the exception classes, `NotImplemented`, `Ellipsis`, `__name__` and the async primitives. Nothing else exists, and names like `help` or `exit` are simply undefined.
 
 ### Output and input
 
@@ -320,7 +320,7 @@ print(sorted([3, 1, 2], reverse=True), any([0, "", 3]))
 
 ### Types and attributes
 
-`type`, `object`, `isinstance`, `issubclass`, `callable`, `id`, `hash`, `repr`, `ascii`, `format`, `getattr`, `hasattr`, `setattr`, `delattr`, `vars`, `globals`, `import_module`, `super`, `property`, `staticmethod`, `classmethod`. `isinstance` accepts a tuple of types and `bool` is a subclass of `int`. `x.__class__` is the same object as `type(x)`. `getattr`, `hasattr` and `setattr` behave like `obj.name`, properties and `__getattr__` included, and a `getattr` default answers only an `AttributeError`. `format(x, spec)` with a spec on a value that has no format of its own, a list or an instance without `__format__`, raises `TypeError`, and `f"{x!s:>10}"` pads its `str()`. `hash(x)` agrees for equal values, `hash(1) == hash(1.0)`, and raises `TypeError` for a list, dict or set. `vars(x)` and `x.__dict__` return the live attribute dict of an instance, so writes show on both sides, while `globals()` returns a copy whose mutation binds nothing.
+`type`, `object`, `isinstance`, `issubclass`, `callable`, `id`, `hash`, `repr`, `ascii`, `format`, `getattr`, `hasattr`, `setattr`, `delattr`, `vars`, `dir`, `globals`, `locals`, `import_module`, `super`, `property`, `staticmethod`, `classmethod`. `isinstance` accepts a tuple of types and `bool` is a subclass of `int`. `x.__class__` is the same object as `type(x)`. `getattr`, `hasattr` and `setattr` behave like `obj.name`, properties and `__getattr__` included, and a `getattr` default answers only an `AttributeError`. `format(x, spec)` with a spec on a value that has no format of its own, a list or an instance without `__format__`, raises `TypeError`, and `f"{x!s:>10}"` pads its `str()`. `hash(x)` agrees for equal values, `hash(1) == hash(1.0)`, and raises `TypeError` for a list, dict or set. `vars(x)` and `x.__dict__` return the live attribute dict of an instance, so writes show on both sides, while `globals()` returns a copy whose mutation binds nothing.
 
 ```python
 print(isinstance(True, int), callable(len))
@@ -588,12 +588,12 @@ import json
 
 data = json.loads('{"n": 21, "xs": [1, 2]}')
 print(json.dumps(data, sort_keys=True))
-print(json.dumps({"bad": object()}, default=str))
+print(json.dumps({"bad": object()}, default=lambda o: type(o).__name__))
 ```
 
 ```text Output
 {"n": 21, "xs": [1, 2]}
-{"bad": "<object instance>"}
+{"bad": "object"}
 ```
 
 ### math

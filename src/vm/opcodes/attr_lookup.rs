@@ -16,8 +16,8 @@ pub(crate) enum AttrLookup {
     BuiltinMethod(BuiltinMethodId),
     // A builtin method bound to a receiver other than the accessed object, `super().__init__` of an exception.
     BoundBuiltin(Val, BuiltinMethodId),
-    // `str.lower` on the type, the call takes its receiver as the first argument.
-    UnboundMethod(BuiltinMethodId),
+    // `str.lower` on the type, the call takes its receiver as the first argument, an operator dunder keeping the type it was read off.
+    UnboundMethod(BuiltinMethodId, Val),
     // `e.args` on ExcInstance, caller picks between LoadAttr materialising the tuple and CallMethod erroring.
     ExcArgs(Vec<Val>),
     // Property descriptor on an instance, `LoadAttr` invokes `getter(recv)`.
@@ -44,6 +44,10 @@ pub(crate) enum AttrLookup {
     Annotations(Val),
     // `f.__code__`, `LoadAttr` makes the code object of function `fi`.
     Code(usize),
+    // `f.__kwdefaults__`, `LoadAttr` makes the dict of each keyword-only name and its default.
+    KwDefaults(Vec<(String, Val)>),
+    // `range.start` and its siblings, `LoadAttr` makes the int.
+    Int(i64),
     // A member whose class defines `__get__`, `LoadAttr` calls it with the instance, None through the class, and the owner.
     DescGet { desc: Val, recv: Val, owner: Val },
 }
@@ -263,11 +267,18 @@ impl<'a> VM<'a> {
             Some(&HeapObj::BoundUserMethod(recv, _, _)) if name == "__self__" => return Ok(AttrLookup::ClassMember(recv)),
             Some(&HeapObj::BoundUserMethod(_, func, _)) if name == "__func__" => return Ok(AttrLookup::ClassMember(func)),
             Some(&HeapObj::StaticMethod(func) | &HeapObj::ClassMethod(func)) if matches!(name, "__func__" | "__wrapped__") => return Ok(AttrLookup::ClassMember(func)),
-            Some(&HeapObj::BoundMethod(recv, _)) if name == "__self__" && !recv.is_undef() => return Ok(AttrLookup::ClassMember(recv)),
+            Some(&HeapObj::BoundMethod(recv, id)) if name == "__self__" && !self.method_unbound(recv, id) => return Ok(AttrLookup::ClassMember(recv)),
             // A builtin function or method is named by its id.
             Some(&HeapObj::NativeFn(id)) if matches!(name, "__name__" | "__qualname__") => return Ok(AttrLookup::Name(id.name().into())),
+            // A builtin function lives in `builtins`, a method of a builtin value in no module.
+            Some(HeapObj::NativeFn(_)) if name == "__module__" => return Ok(AttrLookup::Name("builtins".into())),
+            Some(HeapObj::BoundMethod(..)) if name == "__module__" => return Ok(AttrLookup::ClassMember(Val::none())),
             Some(&HeapObj::BoundMethod(_, id)) if name == "__name__" => return Ok(AttrLookup::Name(id.name().into())),
-            Some(&HeapObj::BoundMethod(_, id)) if name == "__qualname__" => return Ok(AttrLookup::Name(crate::s!(str id.ty(), ".", str id.name()))),
+            // A dunder of a value is named by the type of the value, any other method by its group.
+            Some(&HeapObj::BoundMethod(recv, id)) if name == "__qualname__" => {
+                let owner = if self.method_unbound(recv, id) { self.method_owner(recv, id) } else if id.ty() == "op" { self.type_name(recv) } else { id.ty() };
+                return Ok(AttrLookup::Name(crate::s!(str owner, ".", str id.name())));
+            }
             // Function attributes, a stored attr wins over the derived `__name__`.
             Some(HeapObj::Func(fi, _, _, attrs)) => {
                 if let Some(&(_, v)) = attrs.borrow().iter().find(|(n, _)| n == name) { return Ok(AttrLookup::ClassMember(v)); }
@@ -276,11 +287,16 @@ impl<'a> VM<'a> {
                 if name == "__annotations__" { return Ok(AttrLookup::Annotations(obj)); }
                 if name == "__annotate__" { return Ok(AttrLookup::ClassMember(Val::none())); }
                 if name == "__code__" { return Ok(AttrLookup::Code(*fi)); }
+                if let Some(found) = self.fn_attr(obj, name) { return Ok(found); }
             }
+            // A closure cell holds one value, and reading an unfilled one fails.
+            Some(&HeapObj::Cell(c)) if name == "cell_contents" => return if c.is_undef() { Err(cold_value("Cell is empty")) } else { Ok(AttrLookup::ClassMember(c)) },
             Some(&HeapObj::FnCode(fi)) => return self.code_attr(fi, name).ok_or_else(missing),
             // Class attr, `MyClass.method` returns the unbound function (no `self` prepended).
             Some(HeapObj::Class(cls_name, _, _)) => {
                 if name == "__name__" { return Ok(AttrLookup::Name(cls_name.clone())); }
+                // A docstring belongs to its own class, never inherited.
+                if name == "__doc__" { return Ok(AttrLookup::ClassMember(self.own_member(obj, name).unwrap_or(Val::none()))); }
                 if name == "__mro__" { return Ok(AttrLookup::Mro(obj)); }
                 if name == "__bases__" { return Ok(AttrLookup::Bases(obj)); }
                 if name == "__dict__" { return Ok(AttrLookup::Members(obj)); }
@@ -303,10 +319,9 @@ impl<'a> VM<'a> {
                 // A class defining `__eq__` alone has no hash.
                 if name == "__hash__" && self.hash_hook(obj) == Some(None) { return Ok(AttrLookup::ClassMember(Val::none())); }
                 // A class reads the `object` methods unbound, `__init_subclass__` bound to itself.
-                if name.starts_with("__") && let Some(id) = lookup_method("object", name) { return Ok(if name == "__init_subclass__" { AttrLookup::BoundBuiltin(obj, id) } else { AttrLookup::UnboundMethod(id) }); }
+                if name.starts_with("__") && let Some(id) = lookup_method("object", name) { return Ok(if name == "__init_subclass__" { AttrLookup::BoundBuiltin(obj, id) } else { AttrLookup::UnboundMethod(id, Val::undef()) }); }
                 if name == "__qualname__" { return Ok(AttrLookup::Name(self.class_qualnames.get(&obj.0).unwrap_or(cls_name).clone())); }
                 if name == "__module__" { return Ok(AttrLookup::Name("__main__".into())); }
-                if name == "__doc__" { return Ok(AttrLookup::ClassMember(Val::none())); }
                 if name == "__class__" { return Ok(AttrLookup::TypeOf("type".into())); }
                 return Err(VmErr::Attribute(s!("type object '", str cls_name, "' has no attribute '", str name, "'")));
             }
@@ -319,6 +334,8 @@ impl<'a> VM<'a> {
                 let hidden = || (self.shadowed && self.class_data_descriptor(*cls_val, name)) || (name == "args" && self.exc_base(*cls_val).is_some() && self.lookup_class_member(*cls_val, name).is_some());
                 if let Some(v) = found && !hidden() { return Ok(AttrLookup::InstanceField(v)); }
                 if name == "__dict__" && self.exc_base(*cls_val).is_none() && self.class_slots(*cls_val).is_none() { return Ok(AttrLookup::Dict(attrs.clone())); }
+                // An instance reads the docstring of its own class, which a base never passes on.
+                if name == "__doc__" { return Ok(AttrLookup::ClassMember(self.own_member(*cls_val, name).unwrap_or(Val::none()))); }
                 if let Some((mv, defining)) = self.lookup_class_member(*cls_val, name) { return Ok(self.bind_member(mv, obj, defining)); }
                 // An exception falls back to the `BaseException` methods, a group to its own first.
                 if let Some(l) = self.group_attr(obj, name) { return Ok(l); }
@@ -327,12 +344,21 @@ impl<'a> VM<'a> {
                 if name == "__class__" { return Ok(AttrLookup::ClassMember(*cls_val)); }
                 if name == "__hash__" && self.hash_hook(*cls_val) == Some(None) { return Ok(AttrLookup::ClassMember(Val::none())); }
                 // Last comes `object`, its hooks bound to the instance or for `__init_subclass__` to the class.
-                if name.starts_with("__") && let Some(id) = lookup_method("object", name) { return Ok(match name { "__new__" => AttrLookup::UnboundMethod(id), "__init_subclass__" => AttrLookup::BoundBuiltin(*cls_val, id), _ => AttrLookup::BoundBuiltin(obj, id) }); }
-                if name == "__doc__" { return Ok(AttrLookup::ClassMember(Val::none())); }
+                if name.starts_with("__") && let Some(id) = lookup_method("object", name) { return Ok(match name { "__new__" => AttrLookup::UnboundMethod(id, Val::undef()), "__init_subclass__" => AttrLookup::BoundBuiltin(*cls_val, id), _ => AttrLookup::BoundBuiltin(obj, id) }); }
                 return Err(missing());
             }
             // `super().<name>` searches strictly above the proxy's stored class, and methods bind to the proxy's `recv`.
             Some(&HeapObj::Super(cls_val, recv)) => {
+                // Its own fields, and an unbound super reaches nothing past them.
+                match name {
+                    "__thisclass__" => return Ok(AttrLookup::ClassMember(cls_val)),
+                    "__self__" => return Ok(AttrLookup::ClassMember(recv)),
+                    "__self_class__" if recv.is_none() => return Ok(AttrLookup::ClassMember(Val::none())),
+                    "__self_class__" => return Ok(AttrLookup::ClassMember(self.instance_class(recv).unwrap_or(recv))),
+                    "__get__" => if let Some(id) = lookup_method("super", name) { return Ok(AttrLookup::BuiltinMethod(id)); },
+                    _ => {}
+                }
+                if recv.is_none() { return Err(VmErr::Attribute(s!("'super' object has no attribute '", str name, "'"))); }
                 // C3 super walks the *instance type*'s MRO past the defining class, not just the defining class's bases.
                 let derived = self.instance_class(recv).or_else(|| matches!(self.heap.try_get(recv), Some(HeapObj::Class(..))).then_some(recv)).unwrap_or(cls_val);
                 if let Some((mv, defining)) = self.lookup_class_member_after(derived, cls_val, name) { return Ok(self.bind_member(mv, recv, defining)); }
@@ -345,7 +371,7 @@ impl<'a> VM<'a> {
                 // Past the user classes of an exception sits `BaseException`.
                 if self.exc_base(derived).is_some() && let Some(id) = lookup_method("BaseException", name) { return Ok(AttrLookup::BoundBuiltin(recv, id)); }
                 // Last comes `object`, its `__new__` static so the class goes in explicitly.
-                if name.starts_with("__") && let Some(id) = lookup_method("object", name) { return Ok(if name == "__new__" { AttrLookup::UnboundMethod(id) } else { AttrLookup::BoundBuiltin(recv, id) }); }
+                if name.starts_with("__") && let Some(id) = lookup_method("object", name) { return Ok(if name == "__new__" { AttrLookup::UnboundMethod(id, Val::undef()) } else { AttrLookup::BoundBuiltin(recv, id) }); }
                 return Err(VmErr::Attribute(s!("'super' object has no attribute '", str name, "'")));
             }
             // Every builtin iterator shares `__next__` and `__iter__`.
@@ -362,21 +388,26 @@ impl<'a> VM<'a> {
             },
             // A method off a builtin type stays unbound, a classmethod like `dict.fromkeys` binds the type.
             Some(HeapObj::Type(n)) => {
-                if name == "__name__" { return Ok(AttrLookup::Name(n.clone())); }
+                if matches!(name, "__name__" | "__qualname__") { return Ok(AttrLookup::Name(n.clone())); }
+                if name == "__module__" { return Ok(AttrLookup::Name("builtins".into())); }
                 if name == "__mro__" { return Ok(AttrLookup::Mro(obj)); }
                 if name == "__bases__" { return Ok(AttrLookup::Bases(obj)); }
                 if name == "__dict__" { return Ok(AttrLookup::Members(obj)); }
                 // `int.__new__(cls, v)` builds a value of the type, marked with `cls` when it derives from it.
-                if name == "__new__" && let Some(id) = lookup_method("object", name) { return Ok(AttrLookup::UnboundMethod(id)); }
+                if name == "__new__" && let Some(id) = lookup_method("object", name) { return Ok(AttrLookup::UnboundMethod(id, Val::undef())); }
                 // `Exception.__init__(self, msg)` reaches the shared exception methods.
                 let owner = if crate::vm::globals::is_exc_type(n) { "BaseException" } else { n.as_str() };
                 let op = || crate::vm::methods::operator::applies(n, name).then(|| lookup_method("op", name)).flatten();
                 if let Some(id) = lookup_method(owner, name).or_else(op) {
                     let classmethod = matches!(name, "fromkeys" | "fromhex" | "from_bytes" | "maketrans" | "from_number");
-                    return Ok(if classmethod { AttrLookup::BuiltinMethod(id) } else { AttrLookup::UnboundMethod(id) });
+                    // The operator dunders are shared by every type, so the unbound one keeps the type for its repr.
+                    let of = if id.ty() == "op" { obj } else { Val::undef() };
+                    return Ok(if classmethod { AttrLookup::BuiltinMethod(id) } else { AttrLookup::UnboundMethod(id, of) });
                 }
             }
             // Plain fields, `slice.start`, `.stop` and `.step`, an alias `__origin__` and `__args__`, and the lazy `__value__`.
+            Some(&HeapObj::Range(s, e, st)) if matches!(name, "start" | "stop" | "step") => return Ok(AttrLookup::Int(match name { "start" => s, "stop" => e, _ => st })),
+            Some(&HeapObj::BigRange(s, e, st)) if matches!(name, "start" | "stop" | "step") => return Ok(AttrLookup::ClassMember(match name { "start" => s, "stop" => e, _ => st })),
             Some(&HeapObj::Slice(v, _, _)) if name == "start" => return Ok(AttrLookup::ClassMember(v)),
             Some(&HeapObj::Slice(_, v, _)) if name == "stop" => return Ok(AttrLookup::ClassMember(v)),
             Some(&HeapObj::Slice(_, _, v)) if name == "step" => return Ok(AttrLookup::ClassMember(v)),
@@ -492,7 +523,7 @@ impl<'a> VM<'a> {
             AttrLookup::InstanceMethod { recv, func, class } => HeapObj::BoundUserMethod(recv, func, class),
             AttrLookup::BuiltinMethod(id) => HeapObj::BoundMethod(obj, id),
             AttrLookup::BoundBuiltin(recv, id) => HeapObj::BoundMethod(recv, id),
-            AttrLookup::UnboundMethod(id) => HeapObj::BoundMethod(Val::undef(), id),
+            AttrLookup::UnboundMethod(id, of) => HeapObj::BoundMethod(of, id),
             AttrLookup::ExcArgs(args) => HeapObj::Tuple(args),
             AttrLookup::PropertyPart(prop, slot) => HeapObj::PropertyPart(prop, slot),
             AttrLookup::Name(s) => HeapObj::Str(s),
@@ -509,6 +540,12 @@ impl<'a> VM<'a> {
             AttrLookup::DescGet { desc, recv, owner } => { let v = self.call_hook(desc, "__get__", &[recv, owner], chunk)?; self.push(v); return Ok(()); }
             AttrLookup::Annotations(owner) => { let v = self.annotations(owner, chunk)?; self.push(v); return Ok(()); }
             AttrLookup::Code(fi) => HeapObj::FnCode(fi),
+            AttrLookup::Int(n) => { let v = self.heap.int(n as i128)?; self.push(v); return Ok(()); }
+            AttrLookup::KwDefaults(pairs) => {
+                let mut dm = DictMap::with_capacity(pairs.len());
+                for (n, v) in pairs { let key = self.heap.intern_str(&n)?; dm.insert(key, v, &self.heap); }
+                HeapObj::Dict(Rc::new(RefCell::new(dm)))
+            }
             AttrLookup::Names(names) => {
                 let mut items = alloc::vec::Vec::with_capacity(names.len());
                 for n in names { let v = self.heap.alloc(HeapObj::Str(n))?; self.temp_roots.push(v); items.push(v); }
@@ -531,4 +568,53 @@ impl<'a> VM<'a> {
         self.push(v);
         Ok(())
     }
+}
+
+impl<'a> VM<'a> {
+    /* `__module__`, `__doc__`, `__defaults__`, `__kwdefaults__` and `__closure__` of user function `f`. */
+    fn fn_attr(&self, f: Val, name: &str) -> Option<AttrLookup> {
+        let Some(HeapObj::Func(fi, defaults, captures, _)) = self.heap.try_get(f) else { return None };
+        let params = &self.functions.get(*fi)?.0;
+        // Defaults line up with the parameters marked `=`, keyword-only ones marked `~` too.
+        let with_default = || params.iter().filter(|p| p.ends_with('=')).zip(defaults.iter().copied());
+        Some(match name {
+            "__module__" => match self.fn_module_id(*fi) {
+                0 => AttrLookup::Name("__main__".into()),
+                m => self.scopes[m].get("__name__").map_or_else(|| AttrLookup::Name("__main__".into()), AttrLookup::ClassMember),
+            },
+            "__doc__" => docstring(&self.functions[*fi].1).map_or(AttrLookup::ClassMember(Val::none()), AttrLookup::Name),
+            "__defaults__" => {
+                let pos: Vec<Val> = with_default().filter(|(p, _)| !p.starts_with('~')).map(|(_, v)| v).collect();
+                if pos.is_empty() { AttrLookup::ClassMember(Val::none()) } else { AttrLookup::ExcArgs(pos) }
+            }
+            "__kwdefaults__" => {
+                let kw: Vec<(String, Val)> = with_default().filter(|(p, _)| p.starts_with('~')).map(|(p, v)| (String::from(crate::parser::types::param_base_name(p)), v)).collect();
+                if kw.is_empty() { AttrLookup::ClassMember(Val::none()) } else { AttrLookup::KwDefaults(kw) }
+            }
+            "__closure__" => {
+                let cells: Vec<Val> = captures.iter().map(|&(_, c)| c).filter(|&c| matches!(self.heap.try_get(c), Some(HeapObj::Cell(_)))).collect();
+                if cells.is_empty() { AttrLookup::ClassMember(Val::none()) } else { AttrLookup::ExcArgs(cells) }
+            }
+            _ => return None,
+        })
+    }
+}
+
+/* The docstring a body opens with, its indentation past the first line removed as the compiler removes it. */
+pub(crate) fn docstring(body: &crate::parser::SSAChunk) -> Option<String> {
+    use crate::parser::{OpCode, Value};
+    let [first, second, ..] = body.instructions.as_slice() else { return None };
+    if first.opcode != OpCode::LoadConst || second.opcode != OpCode::PopTop { return None; }
+    let Some(Value::Str(text)) = body.constants.get(first.operand as usize) else { return None };
+    let mut lines = text.split('\n');
+    let blank = [' ', '\t'];
+    let head = lines.next().unwrap_or("").trim_start_matches(blank);
+    let rest: Vec<&str> = lines.collect();
+    let indent = rest.iter().filter(|l| !l.trim().is_empty()).map(|l| l.len() - l.trim_start_matches(blank).len()).min().unwrap_or(0);
+    let mut out = String::from(head);
+    for l in rest {
+        out.push('\n');
+        out.push_str(if l.trim().is_empty() { "" } else { &l[indent.min(l.len())..] });
+    }
+    Some(out)
 }
