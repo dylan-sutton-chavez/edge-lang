@@ -227,7 +227,7 @@ impl Builder {
         self.transform(move |src| rename_word(src, &from, &to))
     }
 
-    // exposed under from host import name, impure so results never memoize
+    // exposed under from host import name
     pub fn define<F>(mut self, name: impl Into<String>, f: F) -> Self
     where F: Fn(&[Value]) -> Result<Value, String> + Send + Sync + 'static
     {
@@ -246,7 +246,6 @@ impl Builder {
                 }
                 f(&args).map_err(VmErr::Raised).and_then(|out| out.write(heap))
             }),
-            pure: false,
         });
         self
     }
@@ -356,15 +355,21 @@ impl core::fmt::Debug for Instance<'_> {
     }
 }
 
-// in memory resolver exposing the engine natives under the host module
+// the async api every language gets, run, sleep, gather, with_timeout and cancel over the coroutine protocol
+const TASKS: &str = include_str!("tasks.py");
+
+// in memory resolver exposing the engine natives under the host module and the async api under tasks
 struct HostResolver {
     natives: Arc<Vec<NativeBinding>>,
 }
 
 impl Resolver for HostResolver {
     fn resolve(&mut self, spec: &str) -> Result<Resolved, String> {
+        if spec == "tasks" {
+            return Ok(Resolved::Code { src: TASKS.to_string(), canonical: "tasks".to_string() });
+        }
         if spec != "host" {
-            return Err(format!("module '{spec}' not found (only 'host' is available)"));
+            return Err(format!("module '{spec}' not found (only 'host' and 'tasks' are available)"));
         }
         // plain functions only, the engine export name conventions stay out of this api
         Ok(Resolved::Native {

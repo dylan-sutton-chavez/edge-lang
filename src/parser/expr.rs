@@ -228,9 +228,10 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
                 self.chunk.emit(OpCode::BitNot, 0);
             }
             Some(TokenType::Await) => {
-                self.advance();
+                let t = self.advance();
+                self.check_await(t.start, t.end);
                 self.expr_bp(21);
-                self.chunk.emit(OpCode::Await, 0);
+                self.emit_await();
             }
             _ => self.parse_atom()
         }

@@ -26,11 +26,18 @@ Python with classes, async/await, pattern matching and imports resolved at compi
 ```python
 import json
 
-async def greet(name):
-    await sleep(0.1)
-    return {"hello": name}
+class Point:
+    def __init__(self, x, y):
+        self.x, self.y = x, y
 
-print(json.dumps(await greet("edge")))
+def describe(p):
+    match p:
+        case Point(x=0, y=0):
+            return "origin"
+        case Point(x=x, y=y):
+            return {"x": x, "y": y}
+
+print(json.dumps(describe(Point(1, 2))))
 ```
 
 Find out more about the language in [Welcome](https://edgepython.com/docs/edge-python/get-started/welcome).

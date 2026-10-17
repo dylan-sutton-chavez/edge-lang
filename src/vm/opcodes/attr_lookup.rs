@@ -292,6 +292,7 @@ impl<'a> VM<'a> {
             // A closure cell holds one value, and reading an unfilled one fails.
             Some(&HeapObj::Cell(c)) if name == "cell_contents" => return if c.is_undef() { Err(cold_value("Cell is empty")) } else { Ok(AttrLookup::ClassMember(c)) },
             Some(&HeapObj::FnCode(fi)) => return self.code_attr(fi, name).ok_or_else(missing),
+            Some(HeapObj::Coroutine(_)) => if let Some(found) = self.coro_attr(obj, name) { return Ok(found); },
             // Class attr, `MyClass.method` returns the unbound function (no `self` prepended).
             Some(HeapObj::Class(cls_name, _, _)) => {
                 if name == "__name__" { return Ok(AttrLookup::Name(cls_name.clone())); }
@@ -374,8 +375,8 @@ impl<'a> VM<'a> {
                 if name.starts_with("__") && let Some(id) = lookup_method("object", name) { return Ok(if name == "__new__" { AttrLookup::UnboundMethod(id, Val::undef()) } else { AttrLookup::BoundBuiltin(recv, id) }); }
                 return Err(VmErr::Attribute(s!("'super' object has no attribute '", str name, "'")));
             }
-            // Every builtin iterator shares `__next__` and `__iter__`.
-            Some(HeapObj::Iter(..)) => return lookup_method("iterator", name).map(AttrLookup::BuiltinMethod).ok_or_else(missing),
+            // An awaitable answers as a generator does, every other builtin iterator shares `__next__` and `__iter__`.
+            Some(HeapObj::Iter(_, ty)) => return lookup_method(ty, name).or_else(|| lookup_method("iterator", name)).map(AttrLookup::BuiltinMethod).ok_or_else(missing),
             // `prop.setter` produces a callable that re-builds the property with a new setter (powers `@x.setter`).
             Some(&HeapObj::Property(g, s, d)) => return match name {
                 "getter" => Ok(AttrLookup::PropertyPart(obj, 0)),

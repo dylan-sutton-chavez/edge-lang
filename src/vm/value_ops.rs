@@ -258,7 +258,6 @@ impl<'a> VM<'a> {
             HeapObj::Coroutine(c) => match c.body {
                 BodyRef::Fn(fi) if !self.is_async_fn(fi) => "generator",
                 BodyRef::Fn(fi) if self.functions[fi].1.is_generator => "async_generator",
-                BodyRef::Fn(fi) if self.is_anext_step(fi) => "async_generator_asend",
                 _ => "coroutine",
             },
             HeapObj::Module(..) => "module",
@@ -450,7 +449,6 @@ impl<'a> VM<'a> {
             HeapObj::PropertyPart(_, slot) => crate::s!("<property.", str ["getter", "setter", "deleter"][*slot as usize], ">"),
             &HeapObj::StaticMethod(f) => s!("<staticmethod(", str &self.repr_d(f, seen), ")>"),
             &HeapObj::ClassMethod(f) => s!("<classmethod(", str &self.repr_d(f, seen), ")>"),
-            HeapObj::Coroutine(c) if matches!(c.body, BodyRef::Fn(fi) if self.is_anext_step(fi)) => s!("<async_generator_asend object", str &at(v), ">"),
             HeapObj::Coroutine(c) => {
                 let name = match c.body { BodyRef::Fn(fi) => self.fn_qualname(fi), BodyRef::Module => "<module>" };
                 s!("<", str self.type_name(v), " object ", str name, str &at(v), ">")

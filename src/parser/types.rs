@@ -23,7 +23,10 @@ pub enum OpCode {
     /* break/continue across N finally/with blocks before its jump, operand is N. */
     UnwindFinally,
     Del, Assert, Global, Nonlocal, UnpackArgs, ListAppend, SetAdd, MapAdd, BuildSet, RaiseFrom,
-    UnpackEx, LoadEllipsis, Await, MakeCoroutine, StoreItem, Dup2,
+    UnpackEx, LoadEllipsis,
+    /* `await`, GetAwaitable turns the value into what Await steps, Await sends the value under it in until it returns. */
+    Await, GetAwaitable,
+    MakeCoroutine, StoreItem, Dup2,
     JumpIfFalseOrPop, JumpIfTrueOrPop, Dup, CallMethod, CallMethodArgs, CallAll, CallAny, CallBin,
     CallOct, CallHex, CallDivmod, CallPow, CallRepr, CallReversed, CallCallable,
     PopIter, DelItem, DelAttr, CallExtern,
@@ -152,7 +155,7 @@ pub(super) fn class_dunder(name: &str) -> bool {
         "__rtruediv__" | "__rfloordiv__" | "__rmatmul__" | "__rmod__" | "__rpow__" | "__rand__" | "__ror__" |
         "__rxor__" | "__rlshift__" | "__rrshift__" | "__iadd__" | "__isub__" | "__imul__" | "__itruediv__" |
         "__ifloordiv__" | "__imatmul__" | "__imod__" | "__ipow__" | "__iand__" | "__ior__" | "__ixor__" |
-        "__ilshift__" | "__irshift__" | "__dir__"
+        "__ilshift__" | "__irshift__" | "__dir__" | "__await__" | "__aiter__" | "__anext__" | "__aenter__" | "__aexit__"
     )
 }
 
@@ -790,7 +793,7 @@ builtin_types! {
     "ConnectionRefusedError", "ConnectionResetError",
     "ImportError", "ModuleNotFoundError", "SyntaxError", "IndentationError", "TabError",
     "AssertionError", "ArithmeticError", "LookupError", "BufferError", "EOFError", "ReferenceError", "SystemError",
-    "CancelledError", "TimeoutError", "SystemExit", "GeneratorExit", "KeyboardInterrupt",
+    "TimeoutError", "SystemExit", "GeneratorExit", "KeyboardInterrupt",
     "Warning", "UserWarning", "DeprecationWarning", "PendingDeprecationWarning", "SyntaxWarning",
     "RuntimeWarning", "FutureWarning", "ImportWarning", "UnicodeWarning", "BytesWarning",
     "ResourceWarning", "EncodingWarning",

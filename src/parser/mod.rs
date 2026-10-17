@@ -48,8 +48,11 @@ pub const ITER_VALUE: u16 = 2;
 // GetIter operand that loops over an iterator without asking it for one again.
 pub const ITER_AS_IS: u16 = 3;
 
-// GetIter operand of `async for`, which also steps coroutines and async generators.
+// GetIter operand of `async for`, which steps what `__aiter__` gives.
 pub const ITER_ASYNC: u16 = 1;
+
+// Yield operand of the loop a `yield from` compiles to.
+pub const YIELD_FROM: u16 = 1;
 
 // Marks a fused builtin call given `*` or `**`, whose packed operand the VM runs as a plain call.
 pub const SPREAD_ARGS: u16 = 0x8000;
@@ -245,6 +248,10 @@ pub struct Parser<'src, I: Iterator<Item = Token>> {
     pub(super) in_comp: bool,
     /* True while a def or lambda body compiles, the only place `return` and `yield` belong. */
     pub(super) in_function: bool,
+    /* True while an `async def` body compiles, the only place `await`, `async for` and `async with` belong. */
+    pub(super) in_async: bool,
+    /* The first `return` with a value in the body compiling, which an async generator refuses. */
+    pub(super) value_return: Option<(usize, usize)>,
     /* Fused builtin calls of the body, one bit per opcode, and the native imports it called by index. */
     pub(super) fused: u128,
     pub(super) fused_externs: Vec<u16>,
@@ -415,6 +422,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         let saved_finally = self.finally_loops.take();
         let saved_comp = core::mem::replace(&mut self.in_comp, false);
         let saved_function = core::mem::replace(&mut self.in_function, false);
+        let saved_async = (core::mem::replace(&mut self.in_async, false), self.value_return.take());
         let saved_unbound = core::mem::take(&mut self.unbound_nonlocals);
         // A nested body keeps what the enclosing scopes left unfused, and hands up the builtins it fused.
         let saved_fused = (core::mem::take(&mut self.fused), core::mem::take(&mut self.fused_externs), self.unfused.len());
@@ -442,6 +450,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         self.in_class_body = saved_class;
         self.in_comp = saved_comp;
         self.in_function = saved_function;
+        (self.in_async, self.value_return) = saved_async;
         let outer = self.chunk.extern_table.len();
         let inner = core::mem::replace(&mut self.fused_externs, saved_fused.1);
         self.fused_externs.extend(inner.into_iter().filter(|&i| (i as usize) < outer));
@@ -864,6 +873,8 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             class_anns: Vec::new(),
             in_comp: false,
             in_function: false,
+            in_async: false,
+            value_return: None,
             fused: 0,
             fused_externs: Vec::new(),
             unfused: Vec::new(),

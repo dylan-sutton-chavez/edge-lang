@@ -95,7 +95,7 @@ pub fn data_root() -> Result<PathBuf, String> {
     Ok(PathBuf::from(home).join(".local").join("share").join("edge"))
 }
 
-// Wall-clock ns, the base every PendingTimer deadline is minted against.
+// Wall-clock ns, the base every actor deadline is minted against.
 pub fn now_ns() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_nanos() as u64)
@@ -304,9 +304,7 @@ pub struct Exports {
     pub run_push_event: TypedFunc<(i32, i32), i32>,
     pub set_host_result_by_id: TypedFunc<(i32, i32), i32>,
     pub set_host_error_by_id: TypedFunc<(i32, i32, i32), i32>,
-    pub last_yield_deadline_ns: TypedFunc<(), i64>,
     pub set_preempt_interval: TypedFunc<i32, ()>,
-    pub set_wall_clock: TypedFunc<i32, ()>,
     pub save_state: TypedFunc<(), i64>,
     pub restore_state: TypedFunc<(i32, i32), i32>,
     pub host_edge_op: EdgeOp,
@@ -354,9 +352,7 @@ impl Exports {
             run_push_event: f!("run_push_event"),
             set_host_result_by_id: f!("set_host_result_by_id"),
             set_host_error_by_id: f!("set_host_error_by_id"),
-            last_yield_deadline_ns: f!("last_yield_deadline_ns"),
             set_preempt_interval: f!("set_preempt_interval"),
-            set_wall_clock: f!("set_wall_clock"),
             save_state: f!("save_state"),
             restore_state: f!("restore_state"),
             host_edge_op: f!("host_edge_op"),

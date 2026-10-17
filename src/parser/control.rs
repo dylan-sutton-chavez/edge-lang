@@ -476,7 +476,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         // Pop loop state before the else so its break/continue target the enclosing loop.
         let breaks = self.exit_loop();
 
-        if !is_async && self.eat_if(TokenType::Else) {
+        if self.eat_if(TokenType::Else) {
             self.eat(TokenType::Colon);
             self.compile_block();
         }
@@ -691,6 +691,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             self.expr();
             self.chunk.emit(OpCode::WithEnter, operand);
             self.chunk.emit(OpCode::Call, 1);
+            if is_async { self.emit_await(); }
             if self.eat_if(TokenType::As) {
                 self.store_target();
             } else {
@@ -715,6 +716,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             self.patch_to(s, h);
             self.chunk.emit(OpCode::WithExit, operand);
             self.chunk.emit(OpCode::Call, 4);
+            if is_async { self.emit_await(); }
             self.chunk.emit(OpCode::WithJudge, 0);
             self.chunk.emit(OpCode::EndFinally, 0);
         }

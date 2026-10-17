@@ -53,7 +53,6 @@ edge-python = { git = "https://github.com/dylan-sutton-chavez/edge-python", tag 
 | `host_print` | `(ptr: *const u8, len: usize)` | Writes text the program prints |
 | `host_call_native` | `(id: u32, call_id: u32, argv_ptr: *const u32, argc: u32, out: *mut u32) -> i32` | Runs native `id` from `register_native_module`. Returns `0` with a handle in `*out`, `1` with an error stashed, or `2` when the call waits under `call_id` |
 | `host_fetch_bytes` | `(spec_ptr: *const u8, spec_len: u32, hash_ptr: *const u8, out_len: *mut u32) -> *mut u8` | Returns the bytes behind a spec. The walk already puts every manifest in the engine, and the CLI answers with none |
-| `host_now_ns` | `() -> u64` | The wall clock in nanoseconds. Read only when `set_wall_clock` turned it on |
 | `host_send` | `(group_ptr: *const u8, group_len: u32, body_ptr: *const u8, body_len: u32) -> i32` | Hands `send(group, body)` to the host scheduler. Non-zero means this host has none |
 
 A plugin declares its own seven imports, listed in the [ABI](/docs/edge-python/reference/abi#host-imports). The host forwards six of them to the `host_edge_*` exports below and answers `edge_call_id` itself.
@@ -82,17 +81,15 @@ Every result lands in one output buffer that grows as needed. It holds `out_len(
 | `set_limits` | `(memory: u64, ops: u64)` | Caps for the next `run_start` or `repl_eval`, memory in bytes. A zero field keeps the sandbox value |
 | `set_input` | `(ptr: *const u8, len: u32)` | Stdin for the next boot, one line per `input()` |
 | `set_preempt_interval` | `(n: u32)` | Yields `PREEMPTED` every `n` loop back-edges. `0` disables and is the default. Applies to the next `run_start` or `restore_state` |
-| `set_wall_clock` | `(on: u32)` | `1` sleeps on the clock of the host, `0` keeps the virtual clock. Defaults to `1`. Applies to the next `run_start` or `restore_state` |
 | `run_start` | `(ptr: *const u8, len: u32) -> u32` | Compiles and runs a source from a fresh state. Returns a status word |
 | `run_resume` | `() -> u32` | Continues the parked run. Returns a status word |
 | `run_push_event` | `(ptr: *const u8, len: u32) -> i32` | Queues a UTF-8 event for `receive()`. Returns `0`, `1` when no run is parked or the text is not UTF-8, or `2` when the heap is full |
 | `repl_eval` | `(ptr: *const u8, len: u32) -> u32` | Evaluates one REPL input on the interpreter the last input left. Returns a status word |
-| `last_yield_deadline_ns` | `() -> u64` | The deadline of a `PENDING_TIMER` yield, in nanoseconds |
-| `set_host_result_by_id` | `(id: u32, handle: u32) -> i32` | Wakes the coroutine waiting on call `id` with `handle` |
-| `set_host_error_by_id` | `(id: u32, kind: u32, msg_handle: u32) -> i32` | Raises an error of `kind` in that coroutine, `msg_handle` a `str` |
+| `set_host_result_by_id` | `(id: u32, handle: u32) -> i32` | Wakes the run waiting on call `id` with `handle` |
+| `set_host_error_by_id` | `(id: u32, kind: u32, msg_handle: u32) -> i32` | Raises an error of `kind` where the run waits, `msg_handle` a `str` |
 | `memory_peak` | `() -> u64` | The most the last run held at once, in bytes, as the allocator counted it for the limit. A run that fails to compile reads 0 |
 
-`set_host_result_by_id` and `set_host_error_by_id` return `0`, `1` for a stale handle, `2` when no coroutine waits on `id`, or `3` when no run is parked.
+`set_host_result_by_id` and `set_host_error_by_id` return `0`, `1` for a stale handle, `2` when nothing waits on `id`, or `3` when no run is parked.
 
 `set_limits` and `set_entry` are read at boot. A host calls them before `run_start`, and `set_entry` before `walk_start` too. The CLI passes the `limits` of each group and the script path through them.
 
@@ -125,7 +122,7 @@ The run, its stdin, limits, entry, preempt interval and value handles belong to 
 | `save_state` | `() -> i64` | Serializes the parked run into the output buffer. Returns the blob length, `-1` when nothing is parked, or `-2` with the reason in the output buffer when a value cannot be saved |
 | `restore_state` | `(ptr: *const u8, len: u32) -> u32` | Boots a VM from the blob and overlays its state. Returns a status word. The run keeps the limits saved in the blob |
 | `state_globals` | `() -> u32` | Writes the module-level bindings of the parked run as JSON. Returns its byte length |
-| `state_stack` | `() -> u32` | Writes the coroutines of the parked run as JSON. Returns its byte length |
+| `state_stack` | `() -> u32` | Writes the suspended module body of the parked run as JSON, its state, function, ip and helper frames. Returns its byte length |
 
 ### Packages
 
@@ -168,14 +165,13 @@ Each takes the arguments of the plugin import it serves, with pointers into the 
 | Kind | Name | The host |
 |---|---|---|
 | 0 | `DONE` | Stops. The program finished |
-| 1 | `PENDING_TIMER` | Waits until `last_yield_deadline_ns()`, then calls `run_resume` |
 | 3 | `PENDING_EVENT` | Waits for an event, passes it to `run_push_event`, then calls `run_resume` |
 | 4 | `ERROR` | Stops. The traceback is in the output buffer |
 | 5 | `PENDING_HOST_CALL` | Settles each waiting call with `set_host_result_by_id` or `set_host_error_by_id`, then calls `run_resume` |
 | 6 | `EXIT` | Stops. An uncaught `SystemExit`, with the exit code in the low 8 bits |
 | 7 | `PREEMPTED` | Calls `run_resume` at once, or `save_state` first |
 
-Kind 2 is retired. The other kinds keep their numbers.
+Kinds 1 and 2 are retired. The other kinds keep their numbers.
 
 ## The run loop
 

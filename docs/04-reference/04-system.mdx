@@ -138,9 +138,7 @@ A system module, and every request or socket it opens, answers only code of the 
 | `now('monotonic')` | `time:monotonic` | Nanoseconds from an arbitrary start, never going back |
 | `zone()` | `time:zone` | `[name, offset]`, the IANA zone and its offset from UTC in seconds |
 
-Without any `time` scope a run uses a virtual clock. `sleep` and `with_timeout` pass at once and in order, and a host call takes no time. What a program prints then never depends on when it runs.
-
-Any `time` scope turns the wall clock on for the whole run.
+A run without any `time` scope reads no clock, so what it prints never depends on when it runs.
 
 ## net
 

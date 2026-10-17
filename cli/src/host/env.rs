@@ -18,9 +18,6 @@ pub fn link(linker: &mut Linker<State>) -> Result<()> {
             }
         })
         .map_err(|e| anyhow!("{e}"))?;
-    linker
-        .func_wrap("env", "host_now_ns", |_: Caller<'_, State>| -> i64 { super::now_ns() as i64 })
-        .map_err(|e| anyhow!("{e}"))?;
     // The walk put every manifest it read in the compiler, so nothing more answers here.
     linker
         .func_wrap("env", "host_fetch_bytes", |mut caller: Caller<'_, State>, _spec_ptr: i32, _spec_len: i32, _hash_ptr: i32, out_len: i32| -> wasmtime::Result<i32> {

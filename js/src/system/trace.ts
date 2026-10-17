@@ -4,8 +4,7 @@ import type { EdgeValue } from '../rt.ts';
 export type TraceEvent =
     | { kind: 'run', at: number, epoch: number }
     | { kind: 'call', at: number, ms: number, pkg: string, call: string, scope: string, outcome: string, id?: number, status?: number, bytes?: number }
-    | { kind: 'print', at: number, text: string }
-    | { kind: 'sleep', at: number, ms: number };
+    | { kind: 'print', at: number, text: string };
 
 // What a print carries into the trace, its line in full stays in the output.
 const PRINT = 120;

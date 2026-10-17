@@ -315,10 +315,9 @@ builtins! {
     Bin => "bin", 1; Oct => "oct", 1; Hex => "hex", 1; Divmod => "divmod", 2; Pow => "pow", (2, 3);
     Repr => "repr", 1; Reversed => "reversed", 1; Callable => "callable", 1;
     Format => "format", (1, 2); GetAttr => "getattr", (2, 3); HasAttr => "hasattr", 2; SetAttr => "setattr", 3; DelAttr => "delattr", 2;
-    Next => "next", (1, 2); Run => "run", var; Sleep => "sleep", 1;
+    Next => "next", (1, 2);
     Receive => "receive", 0; Map => "map", (2, var); Filter => "filter", 2; Iter => "iter", (1, 2);
     Bytes => "bytes", (0, 3); ImportModule => "import_module", 1; Slice => "slice", (1, 3); Vars => "vars", (0, 1);
-    Gather => "gather", var; WithTimeout => "with_timeout", 2; Cancel => "cancel", 1;
     BytesFromHex => "bytes_fromhex", 1; IntFromBytes => "int_from_bytes", 2; IntToBytes => "int_to_bytes", 3; FrozenSet => "frozenset", (0, 1);
     Globals => "globals", 0; Locals => "locals", 0; Dir => "dir", (0, 1);
     Super => "super", (0, 2);

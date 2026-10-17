@@ -23,9 +23,7 @@ export interface CompilerExports {
     run_push_event(ptr: number, len: number): number
     set_host_result_by_id(id: number, handle: number): number
     set_host_error_by_id(id: number, kind: number, msg_handle: number): number
-    last_yield_deadline_ns(): bigint
     set_preempt_interval?(n: number): void
-    set_wall_clock?(on: number): void
     set_limits?(memory: bigint, ops: bigint): void
     save_state(): bigint
     restore_state(ptr: number, len: number): number

@@ -204,7 +204,7 @@ mod test {
         use compiler::vm::snapshot;
         use compiler::vm::types::{Limits, SchedulerStatus, VmErr};
 
-        use crate::common::{answer, fail, test_native, TestResolver};
+        use crate::common::{fail, test_native, TestResolver};
 
         // Compiles `src` against a module `m` whose `host_defer` always defers to the host.
         fn compile(src: &str) -> SSAChunk {
@@ -293,9 +293,11 @@ mod test {
         }
 
         #[test]
-        fn a_gather_child_error_points_at_the_childs_call() {
-            let tb = traceback("from m import host_defer\nasync def child():\n    host_defer()\ngather(child())\n");
-            assert!(tb.contains("--> main.py:3:5"), "{tb}");
+        fn a_host_call_cannot_wait_inside_a_coroutine() {
+            let src = "from m import host_defer\nasync def child():\n    host_defer()\ntry:\n    child().send(None)\nexcept RuntimeError as e:\n    print(e)\n";
+            let (out, tb) = run(src, "RuntimeError: boom");
+            assert_eq!(tb, None);
+            assert_eq!(out, vec!["receive() and host calls cannot wait inside a generator or a coroutine"]);
         }
 
         #[test]
@@ -309,17 +311,18 @@ mod test {
 
         #[test]
         fn an_ordinary_error_after_a_helper_resumed_reaches_the_callers_handler() {
-            let src = "def helper():\n    sleep(0.01)\n    raise ValueError('x')\ntry:\n    helper()\nexcept ValueError:\n    print('caught')\nprint('end')\n";
-            let (out, tb) = run(src, "unused");
+            let src = "from m import host_defer\ndef helper():\n    try:\n        host_defer()\n    except RuntimeError:\n        pass\n    raise ValueError('x')\ntry:\n    helper()\nexcept ValueError:\n    print('caught')\nprint('end')\n";
+            let (out, tb) = run(src, "RuntimeError: boom");
             assert_eq!(tb, None);
             assert_eq!(out, vec!["caught", "end"]);
         }
 
         #[test]
         fn an_ordinary_error_after_a_helper_resumed_keeps_its_line_and_note() {
-            let resumed = traceback("def helper():\n    sleep(0.01)\n    x = 1 / 0\nhelper()\n");
-            let direct = traceback("def helper():\n    pass\n    x = 1 / 0\nhelper()\n");
-            assert!(resumed.contains("--> main.py:3:5"), "{resumed}");
+            let body = |stmt: &str| format!("from m import host_defer\ndef helper():\n    try:\n        {stmt}\n    except RuntimeError:\n        pass\n    x = 1 / 0\nhelper()\n");
+            let resumed = traceback(&body("host_defer()"));
+            let direct = traceback(&body("pass"));
+            assert!(resumed.contains("--> main.py:7:5"), "{resumed}");
             assert_eq!(locations(&resumed), locations(&direct), "\n{resumed}\n{direct}");
         }
 
@@ -337,16 +340,6 @@ mod test {
             let tb = render(&restored, &e, src);
             assert!(tb.contains("RuntimeError: boom") && tb.contains("--> main.py:3:1"), "{tb}");
             assert!(!restored.output.iter().any(|l| l == "after"), "{:?}", restored.output);
-        }
-
-        #[test]
-        fn a_host_call_answers_before_the_virtual_clock_reaches_a_timeout() {
-            let chunk = compile("from m import host_defer\nasync def child():\n    return host_defer()\nprint(with_timeout(5, child()))\n");
-            let mut vm = VM::with_limits(&chunk, Limits::sandbox());
-            assert!(matches!(vm.run(), Err(VmErr::HostYield(SchedulerStatus::PendingHostCall))));
-            assert!(answer(&mut vm, 0, "answered"));
-            vm.run().expect("the call answered inside its timeout");
-            assert_eq!(vm.output, vec!["answered"]);
         }
 
         #[test]
@@ -373,15 +366,6 @@ mod test {
         fn a_handled_error_is_no_context_once_its_handler_ends() {
             let tb = traceback("try:\n    1 / 0\nexcept ZeroDivisionError:\n    pass\nraise KeyError('later')\n");
             assert_eq!(locations(&tb), vec!["error: KeyError: 'later'", "  --> main.py:5:1"], "{tb}");
-        }
-
-        #[test]
-        fn a_caught_gather_child_error_leaves_no_stale_position() {
-            let src = "from m import host_defer\nasync def child():\n    host_defer()\ntry:\n    gather(child())\nexcept RuntimeError:\n    print('caught')\nx = 1 / 0\n";
-            let (out, tb) = run(src, "RuntimeError: boom");
-            assert_eq!(out, vec!["caught"]);
-            let tb = tb.expect("the later ZeroDivisionError escapes");
-            assert!(tb.contains("--> main.py:8:1"), "{tb}");
         }
     }
     // Builtins that scan or copy pay the op budget for what they read, so looping one cannot outrun it.

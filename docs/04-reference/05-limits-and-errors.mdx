@@ -129,7 +129,7 @@ They render with line, column, and a caret preview. A report shows the first 20 
 | `Generator expression must be parenthesized` | A bare generator expression beside another argument or before a trailing comma |
 | `'is' compares only with None, True, False, ... or NotImplemented` | `is` against any other operand, compare it with `==` |
 | `'open' is not supported`, and the same for `__import__` | A use of a builtin the engine leaves out, unless the module binds the name |
-| `'__del__' is not supported in a class body` | A dunder the engine never calls, such as `__del__`, `__getattribute__` or `__aenter__` |
+| `'__del__' is not supported in a class body` | A dunder the engine never calls, such as `__del__` or `__getattribute__` |
 | `metaclasses are not supported` | A `metaclass=` keyword in a class header, any other keyword goes to `__init_subclass__` |
 | `a list, dict or set default is shared by every call` | A mutable default, write `None` and build the value in the body |
 | `named escapes are not supported` | `\N{...}` in a string, write the character or `\u03b1` |
@@ -165,9 +165,8 @@ Runtime errors raise as typed exceptions, catchable with `try` and `except`.
 | `IndexError` | Sequence index out of range |
 | `StopIteration` | Iterator exhausted. `e.value` holds what a generator returned |
 | `AssertionError` | Failed `assert` |
-| `TimeoutError` | `with_timeout` deadline expired |
-| `CancelledError` | Coroutine cancelled by `cancel()`. The cancelled coroutine cannot catch it |
-| `GeneratorExit` | Raised at the paused `yield` of a generator by `close()` |
+| `TimeoutError` | A deadline passed, an `OSError` |
+| `GeneratorExit` | Raised at the paused `yield` of a generator or the paused `await` of a coroutine by `close()` |
 | `SystemExit` | `raise SystemExit(code)`. Uncaught, the host exits with that code |
 | `RecursionError` | Past the call-depth limit, or a comparison nested deeper than 100 levels |
 | `MemoryError` | Past the memory limit |
@@ -207,26 +206,17 @@ ZeroDivisionError: division by zero
 AssertionError: math broke
 ```
 
-`SystemExit` needs its own `except` clause. `TimeoutError` fires when a `with_timeout` deadline expires.
+`SystemExit` needs its own `except` clause, since it derives from `BaseException` and not from `Exception`.
 
 ```edge-python
 try:
   raise SystemExit(3)
 except SystemExit:
   print("caught exit")
-
-async def slow():
-  sleep(1)
-
-try:
-  run(with_timeout(0.01, slow()))
-except TimeoutError:
-  print("timed out")
 ```
 
 ```output
 caught exit
-timed out
 ```
 
 A user `raise X` raises whatever class or instance `X` is. Raising a value that does not derive from `BaseException`, such as a `str` or an `int`, raises `TypeError` with the message `exceptions must derive from BaseException`.
@@ -237,7 +227,7 @@ A user `raise X` raises whatever class or instance `X` is. Raising a value that 
 
 | Class | Parent |
 |---|---|
-| `Exception`, `SystemExit`, `KeyboardInterrupt`, `CancelledError`, `GeneratorExit`, `BaseExceptionGroup` | `BaseException` |
+| `Exception`, `SystemExit`, `KeyboardInterrupt`, `GeneratorExit`, `BaseExceptionGroup` | `BaseException` |
 | `TypeError`, `ValueError`, `AttributeError`, `NameError`, `RuntimeError`, `LookupError`, `ArithmeticError`, `OSError`, `ImportError`, `SyntaxError`, `StopIteration`, `StopAsyncIteration`, `AssertionError`, `MemoryError`, `BufferError`, `EOFError`, `ReferenceError`, `SystemError`, `Warning` | `Exception` |
 | `ExceptionGroup` | `BaseExceptionGroup` and `Exception` |
 | `IndexError`, `KeyError` | `LookupError` |
@@ -256,7 +246,7 @@ A user `raise X` raises whatever class or instance `X` is. Raising a value that 
 `IOError` and `EnvironmentError` are other names for `OSError`. A system call raises `PermissionError` outside the grant of its package. The warning classes are plain exceptions, raised and caught like any other, since there is no `warnings` module.
 
 > [!IMPORTANT]
-> `except Exception` does not catch `SystemExit`, `CancelledError` or `GeneratorExit`. Catch them by name, through `BaseException`, or with a bare `except`. A cancelled coroutine cannot catch its own `CancelledError` at all, though its `finally` blocks still run.
+> `except Exception` does not catch `SystemExit`, `KeyboardInterrupt` or `GeneratorExit`. Catch them by name, through `BaseException`, or with a bare `except`.
 
 ```edge-python
 try:
@@ -344,6 +334,5 @@ The core language has no clock, randomness, threads, or OS access. The same sour
 
 The [system modules](/docs/edge-python/reference/system) are the only way out, and each is held to a grant.
 
-- Without any `time` scope a run uses a virtual clock. `sleep` and `with_timeout` pass at once and in order, and a host call takes no time.
-- Any `time` scope turns the wall clock on for the whole run. Timing then depends on when the program runs.
+- Only a `time` scope reads a clock, and what a program does with the reading then depends on when it runs.
 - `fs`, `net` and `secret` return what the host holds at the moment of the call. Their results are as stable as those files, servers and values.

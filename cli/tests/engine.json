@@ -12,7 +12,7 @@
   {
     "name": "a snapshot past 1 MiB saves and restores",
     "given": {
-      "main.py": "xs = [(\"v\" * 40) + str(i) for i in range(60000)]\nprint(\"built\", len(xs))\nmsg = await receive()\nprint(\"resumed\", msg, len(xs))\n",
+      "main.py": "xs = [(\"v\" * 40) + str(i) for i in range(60000)]\nprint(\"built\", len(xs))\nmsg = receive()\nprint(\"resumed\", msg, len(xs))\n",
       "ev.txt": "later\n"
     },
     "steps": [

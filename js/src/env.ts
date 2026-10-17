@@ -17,7 +17,6 @@ export interface DeferredHostCall {
 interface CompilerEnv {
     host_print(ptr: number, len: number): void
     host_call_native(id: number, call_id: number, argv_ptr: number, argc: number, out_ptr: number): number
-    host_now_ns(): bigint
     host_fetch_bytes(specPtr: number, specLen: number, hashPtr: number, outLenPtr: number): number
     host_send(groupPtr: number, groupLen: number, bodyPtr: number, bodyLen: number): number
 }
@@ -30,7 +29,7 @@ interface MakeCompilerEnvOpts {
     captureHostCall?: (id: number, call: DeferredHostCall) => void
 }
 
-/* The `env.*` imports the compiler declares (host_print, host_call_native, host_fetch_bytes, host_now_ns, host_send), wired to closure-captured engine state. */
+/* The `env.*` imports the compiler declares (host_print, host_call_native, host_fetch_bytes, host_send), wired to closure-captured engine state. */
 export function makeCompilerEnv({ getExports, onLine, fetchedSources, rt, captureHostCall }: MakeCompilerEnvOpts): CompilerEnv {
     const readStr = (ptr: number, len: number) => TD.decode(new Uint8Array(getExports().memory.buffer, ptr, len));
     const setU32 = (ptr: number, v: number) => new DataView(getExports().memory.buffer).setUint32(ptr, v, true);
@@ -106,9 +105,6 @@ export function makeCompilerEnv({ getExports, onLine, fetchedSources, rt, captur
             fn.__edge_free?.(g_out, 4);
             return status;
         },
-
-        /* Wall-clock ns as BigInt, wasm marshals to i64 (JS Numbers lose precision past 2^53 ns). */
-        host_now_ns: () => BigInt(Date.now()) * 1_000_000n,
 
         /* Serves the bytes prefetch already fetched, their `#sha256-...` pin checked when they arrived. */
         host_fetch_bytes: (specPtr, specLen, _hashPtr, outLenPtr) => {

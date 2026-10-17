@@ -21,7 +21,6 @@ const TD = new TextDecoder();
 /* Packed status from `run_start` / `run_resume`, mirrors `src/wasm/exports.rs`. */
 const STATUS_KIND_SHIFT = 29;
 const STATUS_DONE = 0;
-const STATUS_PENDING_TIMER = 1;
 const STATUS_PENDING_EVENT = 3;
 const STATUS_ERROR = 4;
 const STATUS_PENDING_HOST_CALL = 5;
@@ -266,9 +265,6 @@ function serveSystem(exports: CompilerExports, packages: Packages): string[] {
             exports.register_native_module(writeBytes(exports, spec), spec.length, writeBytes(exports, names), names.length, baseId);
         }
     }
-    // A run no package was granted a clock sleeps on the virtual one, so what it prints never depends on when it runs.
-    const clock = Object.values(packages.permissions).some((entries) => entries.some((entry) => entry.startsWith('time:')));
-    exports.set_wall_clock?.(clock ? 1 : 0);
     return [];
 }
 
@@ -311,12 +307,6 @@ async function drive(exports: CompilerExports, rt: Rt, status: number, t0: numbe
         if (kind === STATUS_PREEMPTED) {
             // Macrotask, so queued postMessage events land.
             await new Promise((r) => setTimeout(r, 0));
-        } else if (kind === STATUS_PENDING_TIMER) {
-            const deadlineNs = exports.last_yield_deadline_ns();
-            const nowNs = BigInt(Date.now()) * 1_000_000n;
-            const waitMs = deadlineNs > nowNs ? Number((deadlineNs - nowNs) / 1_000_000n) : 0;
-            emitTrace?.({ kind: 'sleep', at: since(), ms: waitMs });
-            await new Promise(r => setTimeout(r, waitMs));
         } else if (kind === STATUS_PENDING_EVENT) {
             // Drain events buffered before VM was ready. `inject_event` wakes the waiter on the first and queues the rest for later `receive()` calls, no `await` needed.
             let injected = 0;

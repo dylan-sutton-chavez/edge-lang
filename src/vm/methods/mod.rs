@@ -299,6 +299,36 @@ const METHODS: &[MethodDesc] = methods! {
         "__next__" => framed, 0..0;
         "__iter__" => framed, 0..0;
     }
+    "coroutine" {
+        "send" => framed, 1..1;
+        "throw" => framed, 1..3;
+        "close" => framed, 0..0;
+        "__await__" => framed, 0..0;
+    }
+    "async_generator" {
+        "asend" => framed, 1..1;
+        "athrow" => framed, 1..3;
+        "aclose" => framed, 0..0;
+        "__anext__" => framed, 0..0;
+        "__aiter__" => framed, 0..0;
+    }
+    // The awaitables a coroutine and an async generator give, each stepped as a generator is.
+    "async_generator_asend" {
+        "send" => framed, 1..1; "throw" => framed, 1..3; "close" => framed, 0..0;
+        "__next__" => framed, 0..0; "__iter__" => framed, 0..0; "__await__" => framed, 0..0;
+    }
+    "async_generator_athrow" {
+        "send" => framed, 1..1; "throw" => framed, 1..3; "close" => framed, 0..0;
+        "__next__" => framed, 0..0; "__iter__" => framed, 0..0; "__await__" => framed, 0..0;
+    }
+    "anext_awaitable" {
+        "send" => framed, 1..1; "throw" => framed, 1..3; "close" => framed, 0..0;
+        "__next__" => framed, 0..0; "__iter__" => framed, 0..0; "__await__" => framed, 0..0;
+    }
+    "coroutine_wrapper" {
+        "send" => framed, 1..1; "throw" => framed, 1..3; "close" => framed, 0..0;
+        "__next__" => framed, 0..0; "__iter__" => framed, 0..0; "__await__" => framed, 0..0;
+    }
     // A bytearray answers the bytes methods, its results bytearrays again, and the methods that change it.
     "bytearray" {
         "decode" => bytes::decode, 0..2; "hex" => bytes::hex, 0..2; "startswith" => bytes::startswith, 1..3;

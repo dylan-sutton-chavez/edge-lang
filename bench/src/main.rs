@@ -197,7 +197,6 @@ fn run(engine: &Engine, module: &Module, case: &serde_json::Value) -> (u64, u64)
     let inst = linker.instantiate(&mut store, module).expect("instantiating compiler.wasm");
     let memory = inst.get_memory(&mut store, "memory").expect("compiler.wasm exports memory");
     func::<(i64, i64), ()>(&inst, &mut store, "set_limits").call(&mut store, (0, OPS)).ok();
-    func::<u32, ()>(&inst, &mut store, "set_wall_clock").call(&mut store, 0).ok();
     if !input.is_empty() {
         let (ptr, len) = stage(&inst, &mut store, memory, &input.join("\n"));
         func::<(u32, u32), ()>(&inst, &mut store, "set_input").call(&mut store, (ptr, len)).ok();
@@ -208,10 +207,10 @@ fn run(engine: &Engine, module: &Module, case: &serde_json::Value) -> (u64, u64)
 
     let before = store.get_fuel().unwrap_or(0);
     let mut status = func::<(u32, u32), u32>(&inst, &mut store, "run_start").call(&mut store, (ptr, len));
-    // A timer or a preempt resumes at once, a wait for an event takes the next one, anything else ends the run.
+    // A preempt resumes at once, a wait for an event takes the next one, anything else ends the run.
     while let Ok(s) = status {
         status = match s >> 29 {
-            1 | 7 => resume.call(&mut store, ()),
+            7 => resume.call(&mut store, ()),
             3 => match events.next() {
                 Some(event) => {
                     let (ptr, len) = stage(&inst, &mut store, memory, event);

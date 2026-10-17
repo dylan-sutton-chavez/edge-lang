@@ -59,19 +59,6 @@ fn resolves_relative_imports_from_the_script_dir() {
 }
 
 #[test]
-fn sleep_waits_on_the_wall_clock() {
-    let dir = scratch("sleep");
-    // Only a run some package holds a clock for sleeps on the wall clock, the rest pass at once.
-    std::fs::write(dir.join("edge.json"), r#"{ "permissions": { "main": ["time:monotonic"] } }"#).unwrap();
-    std::fs::write(dir.join("main.py"), "await sleep(0.3)\nprint(\"woke\")\n").unwrap();
-    let started = std::time::Instant::now();
-    let (out, _, code) = run_in(&dir, &["run", "main.py"], None);
-    assert!(started.elapsed().as_secs_f64() >= 0.3);
-    assert_eq!(out, "woke\n");
-    assert_eq!(code, 0);
-}
-
-#[test]
 fn system_exit_code_propagates() {
     let dir = scratch("exit");
     std::fs::write(dir.join("main.py"), "raise SystemExit(7)\n").unwrap();
@@ -90,7 +77,7 @@ fn piped_stdin_is_the_script_when_no_path_is_given() {
 #[test]
 fn events_file_feeds_receive() {
     let dir = scratch("events");
-    std::fs::write(dir.join("main.py"), "msg = await receive()\nprint(\"got\", msg)\n").unwrap();
+    std::fs::write(dir.join("main.py"), "msg = receive()\nprint(\"got\", msg)\n").unwrap();
     std::fs::write(dir.join("events.txt"), "ping\n").unwrap();
     let (out, _, code) = run_in(&dir, &["run", "main.py", "--events", "events.txt"], None);
     assert_eq!(out, "got ping\n");
@@ -100,7 +87,7 @@ fn events_file_feeds_receive() {
 #[test]
 fn snapshot_saves_and_restores_across_processes() {
     let dir = scratch("snapshot");
-    std::fs::write(dir.join("main.py"), "print(\"phase1\")\nmsg = await receive()\nprint(\"resumed\", msg)\n").unwrap();
+    std::fs::write(dir.join("main.py"), "print(\"phase1\")\nmsg = receive()\nprint(\"resumed\", msg)\n").unwrap();
     let (out, err, code) = run_in(&dir, &["run", "main.py", "--save-state", "state.bin"], None);
     assert_eq!(out, "phase1\n");
     assert!(err.contains("state saved"), "stderr was: {err}");

@@ -23,7 +23,7 @@ A blob holds everything the program needs to go on.
 
 A run freezes at a suspension point. There are two ways to reach one.
 
-- The program reaches one on its own, at an empty `receive()`, a `sleep(n>0)` or a pending host call. See [Async](/docs/edge-python/language/async).
+- The program reaches one on its own, at an empty `receive()` or a pending host call. See [Async](/docs/edge-python/language/async#host-waits).
 - The host forces one. With a preempt interval of `n` the VM yields every `n` loop back-edges. A bare `while True:` that only counts can then be paused, with no change to the program.
 
 At a suspension point the VM unwinds to a clean state it can serialize. A snapshot is only coherent there. Saving while the run executes fails.
@@ -130,9 +130,7 @@ await worker.stateGlobals();
 // { items: "[10, 25]", total: "35" }   values are reprs
 ```
 
-`state` reads `"waiting_event"` for a parked `receive()` and `"sleeping"` for a `sleep()`.
-
-A run held by `pause()` reads `"ready"`. A preempted coroutine waits on nothing. It is only not being stepped.
+`state` reads `"waiting_event"` for a parked `receive()` and `"waiting_host_call"` for a pending host call. A run held by `pause()` reads `"ready"`, a preempted run waits on nothing and is only not being stepped.
 
 ## Limits
 

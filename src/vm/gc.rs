@@ -25,18 +25,10 @@ impl<'a> VM<'a> {
         self.heap.mark(self.yield_from_value);
         for &(v, _) in &self.handling { self.heap.mark(v); }
         for u in &self.unwind_stack { if let Unwind::Return(v) = u { self.heap.mark(*v); } }
-        // Scheduler holds parked coroutines (and their `WaitingForChildren` task lists) across `top_loop` resumes, mark them so the saved state isn't swept under us.
-        for handle in &self.scheduler {
-            self.heap.mark(handle.coro);
-            if let CoroState::Raising(_, Some(exc)) = &handle.state { self.heap.mark(*exc); }
-            if let CoroState::WaitingForChildren { tasks, kind } = &handle.state {
-                for &t in tasks { self.heap.mark(t); }
-                match kind {
-                    WaitKind::Run(t) => self.heap.mark(*t),
-                    WaitKind::Timeout { target, .. } => self.heap.mark(*target),
-                    WaitKind::Gather => {}
-                }
-            }
+        // The module body suspended to the host keeps its saved state across resumes.
+        if let Some(root) = &self.root {
+            self.heap.mark(root.coro);
+            if let CoroState::Raising(_, Some(exc)) = &root.state { self.heap.mark(*exc); }
         }
         // Every running frame lives in the register stack, the innermost on top.
         for &v in &self.regs { self.heap.mark(v); }

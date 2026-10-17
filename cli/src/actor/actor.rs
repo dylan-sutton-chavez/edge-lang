@@ -55,7 +55,7 @@ pub struct Actor {
     pub runnable: bool,
     // In the ready queue, so a burst of deliveries queues it once.
     pub scheduled: bool,
-    // Wall-clock deadline of a sleep, the scheduler wakes the actor past it.
+    // Wall-clock deadline of a blocked eval run, the scheduler wakes the actor past it.
     pub wake_at: Option<u64>,
     // Parked on a host call, the scheduler polls it for answers while it waits.
     pub blocked: bool,
@@ -73,8 +73,6 @@ pub enum Step {
     Done,
     // Parked in receive(), feed it a message to wake it.
     Waiting,
-    // Parked on a timer until the wall-clock deadline.
-    Sleeping(u64),
     // Parked on a host call a worker thread is answering, woken at the deadline it carries.
     Blocked(Option<u64>),
     // Handed the thread on mid-run, it runs again from the back of the queue.
@@ -196,7 +194,6 @@ impl Actor {
                     self.idle = true;
                     return Step::Waiting;
                 }
-                Status::PendingTimer(deadline) => return Step::Sleeping(deadline),
                 Status::PendingHostCall => {
                     vm.dispatch();
                     if vm.inflight() > 0 {
@@ -250,8 +247,6 @@ impl Actor {
             Ok(Status::Done | Status::Exit(_)) => Ok(current.printed.lock().map(|b| b.clone()).unwrap_or_default()),
             Ok(Status::Error(tb)) => Err(tb),
             Ok(Status::Preempted) => return self.park(current, Step::Yield),
-            Ok(Status::PendingTimer(wake)) if wake <= current.deadline => return self.park(current, Step::Sleeping(wake)),
-            Ok(Status::PendingTimer(_)) => Err(EVAL_TIME_LIMIT.to_string()),
             Ok(Status::PendingHostCall) => {
                 current.vm.dispatch();
                 if current.vm.inflight() > 0 {

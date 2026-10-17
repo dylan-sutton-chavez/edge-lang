@@ -4,50 +4,29 @@ use super::Val;
 use super::{HeapObj, HeapPool, View};
 use super::err::VmErr;
 
-/* Scheduler state per coroutine, stepped round-robin until the target leaves Ready/Sleeping. */
+/* What the module body waits for while it is suspended to the host. */
 #[derive(Clone, Debug)]
 pub enum CoroState {
-    /// Resumable on next tick.
+    /// Resumable at once.
     Ready,
-    /// Suspended until `until_ns`, the scheduler fast-forwards when all are Sleeping.
-    Sleeping(u64),
     /// Parked in `receive()` with an empty queue, resumed when the host pushes a message.
     WaitingEvent,
     /// Parked mid-`CallExtern` with its correlation id, resumed when the host calls `set_host_result_by_id(id)`.
     WaitingHostCall(u64),
-    /// Parked in `run(...)` / `gather(...)` / `with_timeout(...)` until `tasks` all terminate, `kind` selects how to finalize.
-    WaitingForChildren { tasks: Vec<Val>, kind: WaitKind },
-    /// Next resume injects a `CancelledError` raise.
-    CancelPending,
     /// Next resume raises this error at the park point, with the user instance when one exists.
     Raising(VmErr, Option<Val>),
-    /// Returned with this Val.
-    Done(Val),
-    /// Raised, stored verbatim for `gather` / `with_timeout`.
-    Errored(VmErr),
-    /// Cancellation already observed, yields `None` to gather() peers.
-    Cancelled,
 }
 
-impl CoroState {
-    /* Finished for good, by a value, an error or a cancel. */
-    pub fn is_terminal(&self) -> bool { matches!(self, Self::Done(_) | Self::Errored(_) | Self::Cancelled) }
-}
-
-/* How `WaitingForChildren` finalizes when its tasks all reach terminal. `Run` returns target's value (or its error), `Gather` returns a list of all values (or the first error), `Timeout` returns the target's value, or `TimeoutError` if the deadline expired before completion. */
-#[derive(Clone, Debug)]
-pub enum WaitKind {
-    Run(Val),
-    Gather,
-    Timeout { deadline_ns: u64, target: Val },
-}
-
+/* The module body the host drives, and what it waits for. */
 #[derive(Clone, Debug)]
 pub struct CoroutineHandle {
-    /// User-provided Coroutine HeapObj.
     pub coro: Val,
     pub state: CoroState,
 }
+
+/* What the first step of an async generator awaitable does with its argument, or Wrap for an awaitable that steps the one it holds. */
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AwaitMode { Send, Throw, Close, Wrap }
 
 // Suspended sync helper frame, a plain user fn called from a coroutine hit a yielding builtin mid-execution, so its state is snapshotted and parked on the enclosing Coroutine. Frames stack innermost-last, resume walks inside-out so each return value lands on the next frame's stack at the Call site. `exception_delta` carries the helper's try/except frames pushed in its exec so they survive the yield.
 #[derive(Clone, Debug)]
@@ -145,6 +124,10 @@ pub enum IterFrame {
     Watched { items: alloc::rc::Rc<[Val]>, idx: usize, of: Val, len: usize },
     // A dict or its view read live, `left` the items it still owes, failing once the size or the keys change.
     DictWalk { of: Val, idx: usize, left: usize, len: usize, kind: View },
+    // `async for` over `it`, `aw` the `__anext__` awaitable in flight or undef, `out` set once a delegated throw settled the step, 1 with the item in `aw`, 2 for the end.
+    AsyncFor { it: Val, aw: Val, out: u8 },
+    // An awaitable over `target`, `asend` and kin sending or throwing `arg`, `default` what an ended `anext` gives or undef, `stage` fresh, running or spent.
+    Awaitable { target: Val, mode: AwaitMode, arg: Val, default: Val, stage: u8 },
 }
 
 /* The size of the dict or set a watched frame reads. */
@@ -172,7 +155,8 @@ impl IterFrame {
     /* Stateless steps only, the frames that call user code or other iterators step in the VM. */
     pub fn next_item(&mut self, heap: &mut HeapPool) -> Result<Option<Val>, VmErr> {
         match self {
-            Self::Coroutine(_) | Self::UserDefined(_) | Self::Map { .. } | Self::Filter { .. } | Self::Zip { .. } | Self::Enumerate { .. } | Self::Call { .. } => Ok(None),
+            Self::Coroutine(_) | Self::UserDefined(_) | Self::Map { .. } | Self::Filter { .. } | Self::Zip { .. } | Self::Enumerate { .. } | Self::Call { .. }
+            | Self::AsyncFor { .. } | Self::Awaitable { .. } => Ok(None),
             Self::Seq { items, idx } => {
                 if *idx < items.len() { let v = items[*idx]; *idx += 1; Ok(Some(v)) } else { Ok(None) }
             }
@@ -248,6 +232,8 @@ impl IterFrame {
             IterFrame::Call { f: g, sentinel } => { f(*g); f(*sentinel); }
             IterFrame::Range { .. } => {}
             IterFrame::BigRange { cur, end, step } => { f(*cur); f(*end); f(*step); }
+            IterFrame::AsyncFor { it, aw, .. } => { f(*it); f(*aw); }
+            IterFrame::Awaitable { target, arg, default, .. } => { f(*target); f(*arg); f(*default); }
         }
     }
 }

@@ -266,7 +266,6 @@ worker.onTrace((event) => console.log(event));
 | `run` | `at`, `epoch` | First, with `epoch` in milliseconds since the Unix epoch |
 | `call` | `at`, `ms`, `pkg`, `call`, `scope`, `outcome`, and `id`, `status` or `bytes` where they apply | Once each system call settles |
 | `print` | `at`, `text` | For each print, cut at 120 characters |
-| `sleep` | `at`, `ms` | For each wait on the wall clock |
 
 A call names the package, the call, what it reached and how it ended. `outcome` is `ok` or the name of the error.
 

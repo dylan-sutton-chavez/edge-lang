@@ -22,20 +22,12 @@ unsafe extern "C" {
     /* Host-cached bytes for `spec`. Non-null `hash_ptr` is a 32-byte expected sha-256. */
     pub(super) fn host_fetch_bytes(spec_ptr: *const u8, spec_len: u32, hash_ptr: *const u8, out_len: *mut u32) -> *mut u8;
 
-    /* Wall clock in nanoseconds, without it the VM falls back to a deterministic virtual clock for tests. */
-    pub(super) fn host_now_ns() -> u64;
-
     /* Hands `send(group, body)` to the host scheduler, non-zero means this host has none. */
     pub(super) fn host_send(group_ptr: *const u8, group_len: u32, body_ptr: *const u8, body_len: u32) -> i32;
 }
 
 pub(super) fn stream_print(s: &str) {
     unsafe { host_print(s.as_ptr(), s.len()); }
-}
-
-/* `set_time_hook` wants a `fn() -> u64`, so the unsafe import is wrapped like `stream_print`. */
-pub(super) fn now_ns_host() -> u64 {
-    unsafe { host_now_ns() }
 }
 
 pub(super) fn send_host(group: &str, body: &str) -> bool {
@@ -67,8 +59,6 @@ pub(super) enum ModuleEntry {
 pub(super) struct PausedRun {
     /* Option so `step_vm` can `take()` for re-entry and stash back without a dummy VM. */
     pub vm: Option<Box<VM<'static>>>,
-    /* Earliest wake-up deadline (ns) from the last yield, zero for `PendingEvent`. */
-    pub last_yield_deadline_ns: u64,
 }
 
 /* One interpreter the host drives, the exports act on the selected slot. */
@@ -84,8 +74,6 @@ pub(super) struct Slot {
     pub preempt_every: usize,
     /* Caps for the next boot, the sandbox profile until the host sets its own. */
     pub limits: Option<Limits>,
-    /* Whether the next boot sleeps on the host's clock, off keeps the virtual one. */
-    pub wall_clock: bool,
     /* The memory peak of the last run, read through `memory_peak` once the VM is gone. */
     pub memory_peak: usize,
     /* The script `set_entry` named, naming the entry frame in tracebacks, empty renders the anonymous marker. */
@@ -107,7 +95,6 @@ impl Slot {
             input: Vec::new(),
             preempt_every: 0,
             limits: None,
-            wall_clock: true,
             memory_peak: 0,
             source_name: String::new(),
             entry_dir: String::new(),

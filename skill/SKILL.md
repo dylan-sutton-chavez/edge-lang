@@ -207,9 +207,9 @@ list of 3
 - `zip(..., strict=True)` raises `ValueError` on inputs of unequal length. `round` uses ties-to-even and always returns int for one argument, float for two.
 - The `int_to_bytes` and `int_from_bytes` builtins cap at 8 bytes, while the `int.to_bytes` and `int.from_bytes` methods take ints of any size.
 
-### Async without asyncio
+### Async without an event loop
 
-There is no `asyncio` and no event loop object. The async primitives are top-level builtins, `run`, `gather`, `sleep`, `with_timeout`, `cancel`, `send` and `receive`, with `aiter` and `anext` over async generators. Async comprehensions work, async dunders do not, and there are no background tasks, `create_task` does not exist. See the async section.
+Coroutines follow the protocol of Python, `await`, `send`, `throw`, `close`, async generators, `async for`, `async with` and async comprehensions, with the async dunders and `aiter` and `anext`. The engine ships no event loop and no `asyncio`, which comes later with the standard library, so a coroutine runs under a driver that calls `send`. `await` outside an `async def` is a `SyntaxError`, the top of a module included. See the async section.
 
 ### Compile time versus run time
 
@@ -257,7 +257,7 @@ The official names `json`, `re`, `math`, `struct` and `test` resolve only when d
 
 ## Builtins
 
-The global namespace holds exactly 79 builtin functions, the type objects, the exception classes, `NotImplemented`, `Ellipsis`, `__name__` and the async primitives. Nothing else exists, and names like `help` or `exit` are simply undefined.
+The global namespace holds exactly 74 builtin functions, the type objects, the exception classes, `NotImplemented`, `Ellipsis` and `__name__`. Nothing else exists, and names like `help` or `exit` are simply undefined.
 
 ### Output and input
 
@@ -345,7 +345,7 @@ b'\xff\x00' 1
 
 ### Exceptions
 
-The catchable tree under `Exception` is `ArithmeticError` with `OverflowError`, `ZeroDivisionError` and `FloatingPointError`, `LookupError` with `IndexError` and `KeyError`, `RuntimeError` with `RecursionError`, `NotImplementedError` and `PythonFinalizationError`, `OSError`, also named `IOError` and `EnvironmentError`, with `PermissionError`, `FileNotFoundError`, `FileExistsError`, `TimeoutError`, `ConnectionError` and its subclasses and the rest of the OS errors, `ValueError` with `UnicodeError` and its `UnicodeEncodeError`, `UnicodeDecodeError` and `UnicodeTranslateError`, `ImportError` with `ModuleNotFoundError`, `SyntaxError` with `IndentationError` and `TabError`, `NameError` with `UnboundLocalError`, `Warning` with `UserWarning`, `DeprecationWarning` and the other warning classes, plus `TypeError`, `AttributeError`, `StopIteration`, `StopAsyncIteration`, `AssertionError`, `MemoryError`, `BufferError`, `EOFError`, `ReferenceError`, `SystemError` and `ExceptionGroup`. Under `BaseException` sit `SystemExit`, `KeyboardInterrupt`, `CancelledError`, `GeneratorExit` and `BaseExceptionGroup`, which `except Exception` does not catch.
+The catchable tree under `Exception` is `ArithmeticError` with `OverflowError`, `ZeroDivisionError` and `FloatingPointError`, `LookupError` with `IndexError` and `KeyError`, `RuntimeError` with `RecursionError`, `NotImplementedError` and `PythonFinalizationError`, `OSError`, also named `IOError` and `EnvironmentError`, with `PermissionError`, `FileNotFoundError`, `FileExistsError`, `TimeoutError`, `ConnectionError` and its subclasses and the rest of the OS errors, `ValueError` with `UnicodeError` and its `UnicodeEncodeError`, `UnicodeDecodeError` and `UnicodeTranslateError`, `ImportError` with `ModuleNotFoundError`, `SyntaxError` with `IndentationError` and `TabError`, `NameError` with `UnboundLocalError`, `Warning` with `UserWarning`, `DeprecationWarning` and the other warning classes, plus `TypeError`, `AttributeError`, `StopIteration`, `StopAsyncIteration`, `AssertionError`, `MemoryError`, `BufferError`, `EOFError`, `ReferenceError`, `SystemError` and `ExceptionGroup`. Under `BaseException` sit `SystemExit`, `KeyboardInterrupt`, `GeneratorExit` and `BaseExceptionGroup`, which `except Exception` does not catch.
 
 Handlers name one class, a tuple or nothing, and a bare `except` must come last. `ExceptionGroup(msg, excs)` raises several exceptions as one, with `exceptions`, `split`, `subgroup` and `derive`, and `except* T` handles the part of a group whose members are `T` while the rest is raised again. `except X as e` binds the exception, `e.args` is its argument tuple and `e.add_note(text)` adds to `e.__notes__`. `finally` runs on every exit path including `return`, `break` and `continue`. `raise X from Y` sets `__cause__`, an exception raised while another is handled keeps it as `__context__`, and an uncaught chain prints each exception in turn with its notes after the message.
 
@@ -519,52 +519,69 @@ Pure functions are memoized automatically after two identical calls. The VM dete
 
 ## Async
 
-The module body runs as an implicit coroutine, so top-level code can call suspending functions directly. A plain `def` called from a coroutine can also call them.
+A coroutine runs only while something drives it. `await` runs one in place and gives its return value, and what the innermost awaitable yields passes up to whoever calls `send` on the outermost coroutine. A driver of a few lines is the event loop.
 
 ```python
+class Tick:
+    def __await__(self):
+        yield "tick"
+
 async def dbl(n):
-    await sleep(0)
+    await Tick()
     return n * 2
 
-print(gather(dbl(1), dbl(2), dbl(3)))
+def run_all(*coros):
+    results = [None] * len(coros)
+    ready = list(enumerate(coros))
+    while ready:
+        i, coro = ready.pop(0)
+        try:
+            coro.send(None)
+            ready.append((i, coro))
+        except StopIteration as done:
+            results[i] = done.value
+    return results
+
+print(run_all(dbl(1), dbl(2), dbl(3)))
 ```
 
 ```text Output
 [2, 4, 6]
 ```
 
-The primitives are builtins, no import needed.
-
-| Builtin | Behavior |
-|---|---|
-| `run(*coros)` | Drives coroutines to completion, returns the first argument's result |
-| `gather(*coros)` | Runs coroutines concurrently, returns the list of results in order, the first error re-raises |
-| `sleep(s)` | Suspends for `s` seconds, `sleep(0)` yields once, negatives clamp to 0 |
-| `with_timeout(s, coro)` | Runs the coroutine and raises `TimeoutError` when it overruns |
-| `cancel(coro)` | Delivers `CancelledError` at the next tick, uncatchable, runs `finally` |
-| `receive()` | Parks until a host event or actor message arrives |
-| `send(group, body)` | Hands a string to an actor group, raises `RuntimeError` outside an actor pool |
+`throw` raises where the coroutine waits, reaching the awaitable it waits on first, so a cancellation is a `throw` the coroutine may catch, and `close` raises `GeneratorExit` there. `StopIteration` carries the return value.
 
 ```python
-async def slow():
-    await sleep(10)
-    return "done"
+class CancelledError(BaseException):
+    pass
 
+class Tick:
+    def __await__(self):
+        yield "tick"
+
+async def worker():
+    try:
+        await Tick()
+    except CancelledError:
+        return "cleaned up"
+
+w = worker()
+w.send(None)
 try:
-    with_timeout(0.01, slow())
-except TimeoutError:
-    print("timed out")
+    w.throw(CancelledError())
+except StopIteration as done:
+    print(done.value)
 ```
 
 ```text Output
-timed out
+cleaned up
 ```
 
-Scheduling is cooperative. A tight loop without a suspending call cannot be cancelled or preempted unless the engine runs with `--preempt`. There is no `create_task` and no preemption between coroutines.
+The module body itself runs as a coroutine the host drives. `receive()` parks it until a host event or an actor message arrives, and `send(group, body)` hands a string to an actor group, raising `RuntimeError` outside an actor pool. A host call or a `receive()` that waits inside a coroutine or a generator stepped by `send` or `next` raises `RuntimeError`, only the module body, the plain functions it calls and the generators a `for` loop steps can wait.
 
 ### Snapshots
 
-The CLI can serialize the full interpreter state, heap, globals, suspended coroutines and scheduler, and restore it later. This is how long-running or event-driven programs survive process restarts.
+The CLI can serialize the full interpreter state, heap, globals and the suspended module body, and restore it later. This is how long-running or event-driven programs survive process restarts.
 
 ```bash
 edge run app.py --save-state state.bin     # writes the blob when the script parks
@@ -719,16 +736,7 @@ The root grants each package it imports under its import key. A dependency lists
 
 ### time
 
-`now()` returns nanoseconds since the epoch, `now('monotonic')` nanoseconds that never go back, and `zone()` the pair `[name, offset]`, the IANA zone and its offset in seconds. Without a `time` scope anywhere the engine runs on its virtual clock, so a `sleep` passes at once and in order and a host call takes no time.
-
-```python
-sleep(3600)
-print("an hour, at once")
-```
-
-```text Output
-an hour, at once
-```
+`now()` returns nanoseconds since the epoch, `now('monotonic')` nanoseconds that never go back, and `zone()` the pair `[name, offset]`, the IANA zone and its offset in seconds. Without a `time` scope anywhere a program reads no clock.
 
 ### net
 

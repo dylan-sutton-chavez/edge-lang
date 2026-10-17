@@ -1001,16 +1001,18 @@
     "functions": 1
   },
   {
-    "src": "x = await y", 
-    "constants": [], 
-    "names": ["y_0", "x_1"], 
-    "instructions": [["LoadName",0], ["Await",0], ["StoreName",1], ["ReturnValue",0]]
+    "src": "x = await y",
+    "constants": [],
+    "names": [],
+    "instructions": [["ReturnValue",0]],
+    "errors": ["'await' outside function"]
   },
   {
-    "src": "await f()", 
-    "constants": [], 
-    "names": ["f_0"], 
-    "instructions": [["LoadName",0], ["Call",0], ["Await",0], ["PopTop",0], ["ReturnValue",0]]
+    "src": "await f()",
+    "constants": [],
+    "names": [],
+    "instructions": [["ReturnValue",0]],
+    "errors": ["'await' outside function"]
   },
   {
     "src": "def f(a, b, /, c):\n    pass", 
@@ -1090,15 +1092,17 @@
   {"src": "yield from range(3)", "constants": [], "names": [], "instructions": [["ReturnValue", 0]], "errors": ["'yield' outside function"]},
   {
     "src": "async for a in x:\n    pass",
-    "constants": [], 
-    "names": ["x_0", "a_1", "a_0", "a_2"], 
-    "instructions": [["LoadName",0], ["GetIter",1], ["ForIter",5], ["StoreName",2], ["Jump",2], ["Phi",2], ["ReturnValue",0]]
+    "constants": [],
+    "names": [],
+    "instructions": [["ReturnValue",0]],
+    "errors": ["'async for' outside async function"]
   },
   {
     "src": "async with a as x:\n    pass",
     "constants": [],
-    "names": ["a_0", "x_1"],
-    "instructions": [["LoadName",0], ["WithEnter",1], ["Call",1], ["StoreName",1], ["SetupFinally",7], ["PopExcept",0], ["BeginFinally",0], ["WithExit",1], ["Call",4], ["WithJudge",0], ["EndFinally",0], ["ReturnValue",0]]
+    "names": [],
+    "instructions": [["ReturnValue",0]],
+    "errors": ["'async with' outside async function"]
   },
   {
     "src": "break", 

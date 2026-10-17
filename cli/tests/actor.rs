@@ -261,22 +261,15 @@ fn an_eval_bundle_grants_within_what_the_pool_grants_eval() {
     assert!(snippet.contains("'main' imports time, which edge.json does not grant it"), "snippet was {snippet:?}");
 }
 
-/* Evals that sleep or spin and an actor that never stops computing share one thread, and none of them holds up the rest. */
+/* An eval that spins and an actor that never stops computing share one thread, and neither holds up the rest. */
 #[test]
-fn a_waiting_or_busy_actor_never_holds_up_the_rest() {
+fn a_busy_actor_never_holds_up_the_rest() {
     use std::io::BufRead;
     use std::time::Instant;
     let scratch = std::env::temp_dir().join(format!("edge-actor-share-{}", std::process::id()));
     let _ = std::fs::create_dir_all(&scratch);
     let manifest = scratch.join("actor.yml");
     std::fs::write(&manifest, "runtime:\n  listen: tcp://127.0.0.1:7814\n  control: tcp://127.0.0.1:9814\ngroups:\n  runners:\n    eval: true\n    replicas: 3\n  echo:\n    code: print('echo', receive())\n  spin:\n    code: |\n      receive()\n      while True:\n          pass\n").unwrap();
-    // A time scope puts a run on the wall clock, without one every sleep passes at once.
-    std::fs::write(scratch.join("edge.json"), r#"{ "permissions": { "eval": ["time:monotonic"] } }"#).unwrap();
-    let sleeper = |seconds: u32, says: &str| {
-        let source = format!("import time\nsleep({seconds})\nprint('{says}')\n");
-        let payload = bundle("main.py", &[("main.py", &source), ("edge.json", r#"{ "permissions": { "main": ["time:monotonic"] } }"#)]);
-        format!("EDGEPKG:{}", base64_encode(&payload))
-    };
 
     let mut child = edge().args(["actor", manifest.to_str().unwrap()]).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
     let stdout = child.stdout.take().unwrap();
@@ -289,46 +282,29 @@ fn a_waiting_or_busy_actor_never_holds_up_the_rest() {
     let mut sock = connect("127.0.0.1:7814").expect("ingress never came up");
     let sent = Instant::now();
     // A snippet holds no grant, so it can only spin, and it spins until its op budget runs out.
-    let spinning = "runners while True: pass".to_string();
-    for line in [spinning, format!("runners {}", sleeper(3, "first eval")), format!("runners {}", sleeper(3, "second eval")), "spin go".into(), "echo hi".into()] {
+    for line in ["runners while True: pass", "spin go", "echo hi"] {
         let _ = writeln!(sock, "{line}");
     }
     let _ = sock.flush();
-    // Each line with the seconds it took to print, until both evals printed or the wait gives up.
-    let mut seen: Vec<(f64, String)> = Vec::new();
-    while seen.iter().filter(|(_, l)| l.ends_with("eval")).count() < 2 {
-        let Ok((at, line)) = lines.recv_timeout(Duration::from_secs(15)) else { break };
-        seen.push((at.duration_since(sent).as_secs_f64(), line));
-    }
-    let late = Instant::now();
-    let timed_out = post_eval("127.0.0.1:9814", "/eval/runners", &sleeper(20, "never"));
-    let late = late.elapsed().as_secs_f64();
+    let echoed = lines.recv_timeout(Duration::from_secs(15)).map(|(at, line)| (at.duration_since(sent).as_secs_f64(), line));
     let _ = child.kill();
     let _ = child.wait();
     let _ = std::fs::remove_dir_all(&scratch);
-
-    let at = |want: &str| seen.iter().find(|(_, l)| l == want).map(|(t, _)| *t);
-    assert!(at("echo hi").is_some_and(|t| t < 1.5), "an echo waited behind the sleeping evals or the spinning actor, {seen:?}");
-    // Run one after the other the two sleeps would take six seconds.
-    let both = at("first eval").zip(at("second eval")).map(|(a, b)| a.max(b));
-    assert!(both.is_some_and(|t| t < 5.0), "the two evals did not sleep side by side, {seen:?}");
-    assert!(timed_out.contains("run exceeded its time limit") && late < 2.0, "a sleep past the deadline answered {timed_out:?} after {late}s");
+    assert!(echoed.as_ref().is_ok_and(|(t, line)| line == "echo hi" && *t < 1.5), "an echo waited behind the spinning eval or the spinning actor, {echoed:?}");
 }
 
-/* An eval group sets its own timeout, which ends a spin and a sleep alike. */
+/* An eval group sets its own timeout, which ends a spin the op budget would not. */
 #[test]
-fn an_eval_group_timeout_ends_a_spin_and_a_sleep_alike() {
+fn an_eval_group_timeout_ends_a_spin() {
     use std::time::Instant;
     let scratch = std::env::temp_dir().join(format!("edge-actor-timeout-{}", std::process::id()));
     let _ = std::fs::create_dir_all(&scratch);
     let manifest = scratch.join("actor.yml");
     std::fs::write(&manifest, "runtime:\n  listen: tcp://127.0.0.1:7815\n  control: tcp://127.0.0.1:9815\ngroups:\n  runners:\n    eval: true\n    limits:\n      timeout: 1\n      ops: 1000000000000\n").unwrap();
-    std::fs::write(scratch.join("edge.json"), r#"{ "permissions": { "eval": ["time:monotonic"] } }"#).unwrap();
-    let payload = bundle("main.py", &[("main.py", "import time\nsleep(2)\nprint('slept')\n"), ("edge.json", r#"{ "permissions": { "main": ["time:monotonic"] } }"#)]);
 
     let mut child = edge().args(["actor", manifest.to_str().unwrap()]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
     // The first post waits out the boot, so only the spin is timed.
-    let slept = post_eval("127.0.0.1:9815", "/eval/runners", &format!("EDGEPKG:{}", base64_encode(&payload)));
+    let booted = post_eval("127.0.0.1:9815", "/eval/runners", "print('up')");
     let start = Instant::now();
     // The op budget sits far off, so only the clock can end the spin.
     let spun = post_eval("127.0.0.1:9815", "/eval/runners", "while True:\n    n = sum(range(1000000))");
@@ -336,8 +312,8 @@ fn an_eval_group_timeout_ends_a_spin_and_a_sleep_alike() {
     let _ = child.kill();
     let _ = child.wait();
     let _ = std::fs::remove_dir_all(&scratch);
-    // Under the ten-second default the sleep would print and the spin would run ten seconds.
-    assert!(slept.contains("run exceeded its time limit"), "the sleep answered {slept:?}");
+    // Under the ten-second default the spin would run ten seconds.
+    assert!(booted.contains(r#""stdout":"up\n""#), "the first eval answered {booted:?}");
     assert!(spun.contains("time limit") && spun_for < 2.5, "the spin answered {spun:?} after {spun_for}s");
 }
 
@@ -368,9 +344,8 @@ fn the_server_serves_every_client_at_once_and_holds_a_flood_back() {
     let _ = std::fs::create_dir_all(&scratch);
     let manifest = scratch.join("actor.yml");
     std::fs::write(&manifest, "runtime:\n  listen: tcp://127.0.0.1:7816\n  control: tcp://127.0.0.1:9816\ngroups:\n  runners:\n    eval: true\n  echo:\n    code: |\n      while True:\n          print('echo', receive())\n  stuck:\n    code: |\n      receive()\n      while True:\n          pass\n").unwrap();
-    std::fs::write(scratch.join("edge.json"), r#"{ "permissions": { "eval": ["time:monotonic"] } }"#).unwrap();
-    let payload = bundle("main.py", &[("main.py", "import time\nsleep(3)\nprint('slept')\n"), ("edge.json", r#"{ "permissions": { "main": ["time:monotonic"] } }"#)]);
-    let sleeper = format!("EDGEPKG:{}", base64_encode(&payload));
+    // An eval that computes for a while, which takes the actor thread and no control thread.
+    let sleeper = "for _ in range(3000000):\n    pass\nprint('slept')".to_string();
 
     let mut child = edge().args(["actor", manifest.to_str().unwrap()]).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
     let stdout = child.stdout.take().unwrap();
@@ -481,8 +456,7 @@ fn a_sigterm_lets_the_actors_finish_before_the_server_exits() {
     let scratch = std::env::temp_dir().join(format!("edge-actor-drain-{}", std::process::id()));
     let _ = std::fs::create_dir_all(&scratch);
     let manifest = scratch.join("actor.yml");
-    std::fs::write(&manifest, "runtime:\n  listen: tcp://127.0.0.1:7818\ngroups:\n  slow:\n    code: |\n      import time\n      while True:\n          msg = receive()\n          sleep(1)\n          print('slow', msg)\n").unwrap();
-    std::fs::write(scratch.join("edge.json"), r#"{ "permissions": { "main": ["time:monotonic"] } }"#).unwrap();
+    std::fs::write(&manifest, "runtime:\n  listen: tcp://127.0.0.1:7818\ngroups:\n  slow:\n    code: |\n      while True:\n          msg = receive()\n          for _ in range(2000000):\n              pass\n          print('slow', msg)\n").unwrap();
 
     let mut child = edge().args(["actor", manifest.to_str().unwrap()]).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
     let mut sock = connect("127.0.0.1:7818").expect("ingress never came up");

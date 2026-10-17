@@ -11,7 +11,7 @@ use super::{Pending, VM};
 use super::types::*;
 
 const MAGIC: u32 = 0x4E53_5045;
-const FORMAT: u32 = 22;
+const FORMAT: u32 = 23;
 // A SHA-256 of everything before it closes each blob, so a damaged one never restores.
 const SEAL: usize = 32;
 
@@ -54,7 +54,6 @@ impl W {
     }
     fn opt_val(&mut self, v: Option<Val>) { self.opt(v, Self::val); }
     fn opt_u32(&mut self, v: Option<u32>) { self.opt(v, Self::u32); }
-    fn opt_u64(&mut self, v: Option<u64>) { self.opt(v, Self::u64); }
     fn opt_usz(&mut self, v: Option<usize>) { self.opt(v, Self::usz); }
 }
 
@@ -131,7 +130,6 @@ impl<'a> R<'a> {
     }
     fn opt_val(&mut self) -> Result<Option<Val>, SnapErr> { self.opt(Self::val) }
     fn opt_u32(&mut self) -> Result<Option<u32>, SnapErr> { self.opt(Self::u32) }
-    fn opt_u64(&mut self) -> Result<Option<u64>, SnapErr> { self.opt(Self::u64) }
     fn opt_usz(&mut self) -> Result<Option<usize>, SnapErr> { self.opt(Self::usz) }
 }
 
@@ -217,6 +215,8 @@ fn put_iter_frame(w: &mut W, x: &IterFrame) {
         IterFrame::Call { f, sentinel } => { w.u8(8); w.val(*f); w.val(*sentinel); }
         IterFrame::Watched { items, idx, of, len } => { w.u8(9); w.vals(items); w.usz(*idx); w.val(*of); w.usz(*len); }
         IterFrame::DictWalk { of, idx, left, len, kind } => { w.u8(10); w.val(*of); w.usz(*idx); w.usz(*left); w.usz(*len); w.u8(*kind as u8); }
+        IterFrame::AsyncFor { it, aw, out } => { w.u8(14); w.val(*it); w.val(*aw); w.u8(*out); }
+        IterFrame::Awaitable { target, mode, arg, default, stage } => { w.u8(15); w.val(*target); put_await_mode(w, mode); w.val(*arg); w.val(*default); w.u8(*stage); }
     }
 }
 fn get_iter_frame(r: &mut R) -> Result<IterFrame, SnapErr> {
@@ -239,6 +239,8 @@ fn get_iter_frame(r: &mut R) -> Result<IterFrame, SnapErr> {
         }
         11 => { let (rc, idx) = list_cell(r)?; IterFrame::List { rc, idx } }
         12 => { let (rc, idx) = list_cell(r)?; IterFrame::ListRev { rc, idx } }
+        14 => IterFrame::AsyncFor { it: r.val()?, aw: r.val()?, out: r.u8()? },
+        15 => IterFrame::Awaitable { target: r.val()?, mode: get_await_mode(r)?, arg: r.val()?, default: r.val()?, stage: r.u8()? },
         t => return Err(s_err("unknown tag", itoa::Buffer::new().format(t))),
     })
 }
@@ -270,8 +272,14 @@ codec!(struct SyncFrame, put_sync_frame, get_sync_frame {
     instance: val,
 });
 
+codec!(enum AwaitMode, put_await_mode, get_await_mode {
+    0 Send,
+    1 Throw,
+    2 Close,
+    3 Wrap,
+});
+
 codec!(enum SchedulerStatus, put_sched, get_sched {
-    1 PendingTimer(d: u64),
     3 PendingEvent,
     4 PendingHostCall,
     5 Preempted,
@@ -301,22 +309,10 @@ codec!(enum Unwind, put_unwind, get_unwind {
     3 Reraise(e: (put_vm_err, get_vm_err), at: opt_u32),
 });
 
-codec!(enum WaitKind, put_wait_kind, get_wait_kind {
-    0 Run(v: val),
-    1 Gather,
-    2 Timeout { deadline_ns: u64, target: val },
-});
-
 codec!(enum CoroState, put_coro_state, get_coro_state {
     0 Ready,
-    1 Sleeping(d: u64),
     3 WaitingEvent,
     4 WaitingHostCall(id: u64),
-    5 WaitingForChildren { tasks: vals, kind: (put_wait_kind, get_wait_kind) },
-    6 CancelPending,
-    7 Done(v: val),
-    8 Errored(e: (put_vm_err, get_vm_err)),
-    9 Cancelled,
     10 Raising(e: (put_vm_err, get_vm_err), exc: opt_val),
 });
 
@@ -325,8 +321,8 @@ codec!(struct CoroutineHandle, put_handle, get_handle {
     state: (put_coro_state, get_coro_state),
 });
 
-fn put_wfc(w: &mut W, v: &Option<(Vec<Val>, WaitKind)>) { w.opt(v.as_ref(), |w, (tasks, kind)| { w.vals(tasks); put_wait_kind(w, kind); }); }
-fn get_wfc(r: &mut R) -> Result<Option<(Vec<Val>, WaitKind)>, SnapErr> { r.opt(|r| Ok((r.vals()?, get_wait_kind(r)?))) }
+fn put_root(w: &mut W, v: &Option<CoroutineHandle>) { w.opt(v.as_ref(), put_handle); }
+fn get_root(r: &mut R) -> Result<Option<CoroutineHandle>, SnapErr> { r.opt(get_handle) }
 fn put_binding(w: &mut W, v: &Option<(Val, Val)>) { w.opt(*v, |w, (a, b)| { w.val(a); w.val(b); }); }
 fn get_binding(r: &mut R) -> Result<Option<(Val, Val)>, SnapErr> { r.opt(|r| Ok((r.val()?, r.val()?))) }
 
@@ -335,11 +331,9 @@ codec!(struct Pending, put_pending, get_pending {
     kw_delta: i32v,
     delta_save: [put_i32_pair, get_i32_pair],
     call_ip: opt_u32,
-    sleep_until_ns: opt_u64,
     event_wait_request: boolean,
     host_call_request: boolean,
     host_call_id: u64,
-    waiting_for_children: (put_wfc, get_wfc),
     exc_val: opt_val,
     method_binding: (put_binding, get_binding),
     preempt_request: default,
@@ -590,13 +584,12 @@ vm_state! {
     pending_sync_frames: [put_sync_frame, get_sync_frame],
     pending_exec_exc_base: opt_usz,
     pending: (put_pending, get_pending),
-    scheduler: [put_handle, get_handle],
+    root: (put_root, get_root),
     next_host_call_id: u64,
     yielded: boolean,
     yield_from_value: val,
     builtins_module: val,
     resume_ip: usz,
-    virtual_clock_ns: u64,
     error_byte_pos: opt_u32,
     output: [str],
     output_open: boolean,
@@ -862,16 +855,10 @@ pub fn restore(vm: &mut VM, blob: &[u8]) -> Result<(), SnapErr> {
         vm.link_scope(super::globals::compile::Linked::new(dict, scope, fns));
     }
     check_objs(vm, &fills)?;
-    // Each handle resumes a distinct coroutine, anything else would trap the scheduler.
-    let mut coros: Vec<u64> = vm.scheduler.iter().map(|h| h.coro.0).collect();
-    coros.sort_unstable();
-    coros.dedup();
-    if coros.len() != vm.scheduler.len() || vm.scheduler.iter().any(|h| !matches!(vm.heap.try_get(h.coro), Some(HeapObj::Coroutine(..)))) {
-        return Err("snapshot schedules a missing or repeated coroutine".to_string());
+    // The module body it resumes must be a coroutine, anything else would trap the drive.
+    if vm.root.as_ref().is_some_and(|h| !matches!(vm.heap.try_get(h.coro), Some(HeapObj::Coroutine(c)) if matches!(c.body, BodyRef::Module))) {
+        return Err("snapshot resumes a missing module body".to_string());
     }
-    vm.waiting_for_children_count = vm.scheduler.iter()
-        .filter(|h| matches!(h.state, CoroState::WaitingForChildren { .. }))
-        .count();
 
     let chunk = vm.chunk;
     let mut sources: Vec<&SSAChunk> = Vec::new();
@@ -1033,8 +1020,7 @@ fn json_array<T>(out: &mut String, items: impl IntoIterator<Item = T>, mut item:
 /* Module bindings as a {name: repr} JSON object. */
 pub fn inspect_globals(vm: &VM) -> String {
     let mut out = String::from("{");
-    let running = vm.scheduler.iter().any(|h| matches!(vm.heap.try_get(h.coro), Some(HeapObj::Coroutine(c)) if matches!(c.body, BodyRef::Module)));
-    if running {
+    if vm.root.is_some() {
         for (i, (name, v)) in super::init::collect_module_attrs(vm.chunk, &vm.scopes[0]).into_iter().enumerate() {
             if i > 0 { out.push(','); }
             json_str(&mut out, &name);
@@ -1046,7 +1032,7 @@ pub fn inspect_globals(vm: &VM) -> String {
     out
 }
 
-/* Scheduled coroutines as a JSON array. */
+/* The suspended module body as a JSON array, empty between runs. */
 pub fn inspect_stack(vm: &VM) -> String {
     let fn_name = |fi: usize| -> &str {
         match vm.function_names.get(fi) {
@@ -1055,17 +1041,11 @@ pub fn inspect_stack(vm: &VM) -> String {
         }
     };
     let mut out = String::new();
-    json_array(&mut out, &vm.scheduler, |out, h| {
+    json_array(&mut out, &vm.root, |out, h| {
         let state = match &h.state {
             CoroState::Ready => "ready",
-            CoroState::Sleeping(_) => "sleeping",
             CoroState::WaitingEvent => "waiting_event",
             CoroState::WaitingHostCall(_) => "waiting_host_call",
-            CoroState::WaitingForChildren { .. } => "waiting_for_children",
-            CoroState::CancelPending => "cancel_pending",
-            CoroState::Done(_) => "done",
-            CoroState::Errored(_) => "errored",
-            CoroState::Cancelled => "cancelled",
             CoroState::Raising(..) => "raising",
         };
         let (function, ip, frames) = match vm.heap.try_get(h.coro) {

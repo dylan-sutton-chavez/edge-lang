@@ -94,6 +94,11 @@ impl<'a> VM<'a> {
     pub(crate) fn iter_step(&mut self, it: Val) -> Result<Option<Val>, VmErr> {
         let Some(HeapObj::Iter(frame, _)) = self.heap.try_get(it) else { return Ok(None); };
         let frame = frame.clone();
+        // An awaitable steps as a generator, its return value dropped.
+        if matches!(&*frame.borrow(), IterFrame::Awaitable { .. }) {
+            let chunk = self.chunk;
+            return Ok(match self.gen_step(it, super::async_ops::Sent::Value(Val::none()), chunk)? { super::async_ops::Step::Yield(v) => Some(v), super::async_ops::Step::Return(_) => None });
+        }
         if !matches!(&*frame.borrow(), IterFrame::Map { .. } | IterFrame::Filter { .. } | IterFrame::Zip { .. } | IterFrame::Enumerate { .. } | IterFrame::Call { .. }) {
             return frame.borrow_mut().next_item(&mut self.heap);
         }
@@ -535,6 +540,12 @@ impl<'a> VM<'a> {
                 Err(e) => Err(e),
             };
         }
+        if matches!(self.heap.get(o), HeapObj::Iter(frame, _) if matches!(&*frame.borrow(), IterFrame::Awaitable { .. })) {
+            return match (self.gen_step(o, super::async_ops::Sent::Value(Val::none()), chunk)?, default) {
+                (super::async_ops::Step::Yield(v), _) | (_, Some(v)) => { self.push(v); Ok(()) }
+                (super::async_ops::Step::Return(v), None) => Err(self.stop_iteration(v)),
+            };
+        }
         if matches!(self.heap.get(o), HeapObj::Iter(..)) {
             return match (self.iter_step(o)?, default) {
                 (Some(v), _) | (None, Some(v)) => { self.push(v); Ok(()) }
@@ -559,10 +570,7 @@ impl<'a> VM<'a> {
             self.pop()?; // drop the rooted coroutine
             if let Some(d) = default { self.push(d); return Ok(()); }
             // The value a generator returned rides on its StopIteration.
-            if result.is_none() { return Err(VmErr::Raised(s!("StopIteration"))); }
-            let exc = self.heap.alloc(HeapObj::ExcInstance("StopIteration".into(), alloc::vec![result], Val::undef()))?;
-            self.pending.exc_val = Some(exc);
-            Err(VmErr::Raised(s!("StopIteration: ", str &self.display(result))))
+            Err(self.stop_iteration(result))
         }
     }
 

@@ -54,21 +54,17 @@ pub(crate) struct Pending {
     pub delta_save: alloc::vec::Vec<(i32, i32)>,
     /* The current call's ip, turned into a byte offset only for a traceback. */
     pub call_ip: Option<u32>,
-    /* Wakeup deadline set by `sleep()` and consumed by the scheduler. */
-    pub sleep_until_ns: Option<u64>,
     /* Set by `receive()` on empty queue, transitions the coro to `WaitingEvent`. */
     pub event_wait_request: bool,
     /* Set by `call_extern` on deferred native, transitions the coro to `WaitingHostCall`. */
     pub host_call_request: bool,
-    /* Correlation id of the deferred call, read by `scheduler_step` into `WaitingHostCall(id)`. */
+    /* Correlation id of the deferred call, read by `drive_root` into `WaitingHostCall(id)`. */
     pub host_call_id: u64,
-    /* Set by `call_run` / `call_gather` / `call_with_timeout` when they yield, transitions the outer to `WaitingForChildren`. */
-    pub waiting_for_children: Option<(Vec<Val>, types::WaitKind)>,
     /* Lifted ExcInstance from `raise X(...)` so `except X as e` binds the real instance. */
     pub exc_val: Option<Val>,
     /* `(class, self)` for the next user-function call when it's invoked as a method, populated by method-dispatch paths and consumed by `run_body_with_frame`. */
     pub method_binding: Option<(Val, Val)>,
-    /* Set at preempt, `top_loop` yields `Preempted`. */
+    /* Set at preempt, `drive_root` yields `Preempted`. */
     pub preempt_request: bool,
     /* Set by the raise that ends an `except*`, whose exception takes no context from the one handled. */
     pub no_context: bool,
@@ -81,11 +77,9 @@ impl Pending {
             kw_delta: 0,
             delta_save: alloc::vec::Vec::new(),
             call_ip: None,
-            sleep_until_ns: None,
             event_wait_request: false,
             host_call_request: false,
             host_call_id: 0,
-            waiting_for_children: None,
             exc_val: None,
             method_binding: None,
             preempt_request: false,
@@ -95,10 +89,8 @@ impl Pending {
 
     /* Forgets what the last suspension waited for. */
     pub fn clear_waits(&mut self) {
-        self.sleep_until_ns = None;
         self.event_wait_request = false;
         self.host_call_request = false;
-        self.waiting_for_children = None;
     }
 }
 
@@ -228,8 +220,7 @@ pub struct VM<'a> {
     pub(crate) owned_str: Val,
     pub(crate) owned_at: usize,
     pub(crate) pending_exec_safe: bool,
-    /* Cancellation drive flag and the one-shot park-point raise, both live within one resume, never snapshotted. */
-    pub(crate) cancelling: bool,
+    /* The one-shot raise at the park point, live within one resume, never snapshotted. */
     pub(crate) resume_raise: Option<VmErr>,
     pub(crate) yielded: bool,
     /* Set by a `for` stepping a generator, which may then park on a wait with it. */
@@ -266,14 +257,8 @@ pub struct VM<'a> {
     pub(crate) call_stack: Vec<CallFrame>,
     /* `(depth, class, self)` of each running method, which zero-argument `super()` reads. */
     pub(crate) bindings: Vec<(usize, Val, Val)>,
-    /* Cooperative scheduler for `run` / `gather` / `with_timeout`, one handle per coroutine. Single-driver model where only `top_loop` drives this, async builtins yield instead of recursing. */
-    pub(crate) scheduler: Vec<CoroutineHandle>,
-    /* Count of scheduler entries in `WaitingForChildren`, gates the sweep so the common (no-nested-run) tick is one comparison. */
-    pub(crate) waiting_for_children_count: usize,
-    /* Host-installed wall-clock (ns). */
-    pub(crate) time_hook: Option<fn() -> u64>,
-    /* Fallback monotonic counter when `time_hook` is None, reset each `run()`. */
-    pub(crate) virtual_clock_ns: u64,
+    /* The module body while a `run()` is suspended to the host, None between runs. */
+    pub(crate) root: Option<CoroutineHandle>,
     /* Each instruction a chunk executed, one bit per ip, read through `ran`. */
     #[cfg(feature = "coverage")]
     pub(crate) executed: HashMap<*const SSAChunk, Vec<u64>>,
@@ -345,7 +330,6 @@ impl<'a> VM<'a> {
             owned_str: Val::undef(),
             owned_at: usize::MAX,
             pending_exec_safe: false,
-            cancelling: false,
             resume_raise: None,
             yielded: false,
             for_steps: false,
@@ -372,10 +356,7 @@ impl<'a> VM<'a> {
             class_qualnames: HashMap::default(),
             call_stack: Vec::new(),
             bindings: Vec::new(),
-            scheduler: Vec::new(),
-            waiting_for_children_count: 0,
-            time_hook: None,
-            virtual_clock_ns: 0,
+            root: None,
             #[cfg(feature = "coverage")]
             executed: HashMap::default(),
             functions: Vec::new(),
@@ -591,11 +572,10 @@ impl<'a> VM<'a> {
         self.temp_roots.clear();
         self.call_stack.clear();
         self.bindings.clear();
-        self.scheduler.clear();
+        self.root = None;
         self.pending_sync_frames.clear();
         self.executing_coros.clear();
         self.handling.clear();
-        self.cancelling = false;
         self.resume_raise = None;
         self.yielded = false;
         self.resume_ip = 0;

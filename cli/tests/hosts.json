@@ -22,11 +22,6 @@
     "fails": ["ZeroDivisionError", "--> broken.py:2:1"]
   },
   {
-    "given": { "late.py": "await sleep(0.01)\nbefore = 1\nx = 1 / 0\n" },
-    "run": ["run", "late.py"],
-    "fails": ["--> late.py:3:1", "x = 1 / 0"]
-  },
-  {
     "given": {
       "edge.json": "{}\n",
       "sub/util.py": "def add(a, b):\n    return a + b\n",
@@ -146,14 +141,6 @@
     },
     "run": ["run", "main.py"],
     "stdout": ["the header 'Host' belongs to the host, a program cannot set it"]
-  },
-  {
-    "given": {
-      "edge.json": "{}\n",
-      "main.py": "sleep(3600)\nprint('an hour, at once')\n"
-    },
-    "run": ["run", "main.py"],
-    "stdout": ["an hour, at once"]
   },
   {
     "given": {

@@ -99,7 +99,7 @@ error: ZeroDivisionError: division by zero
 
 ### Module resolution
 
-Every run happens under the [sandbox limits](/docs/edge-python/reference/limits-and-errors) with a real wall clock. `sleep()` and timeouts wait in real time.
+Every run happens under the [sandbox limits](/docs/edge-python/reference/limits-and-errors).
 
 - A bare import resolves through [`edge.json`](/docs/edge-python/reference/modules#edgejson). Declare it with `edge add` and resolve it with `edge lock` first.
 - A declared version resolves through the [`edge.lock`](/docs/edge-python/reference/modules#edgelock) beside the manifest that declared it.

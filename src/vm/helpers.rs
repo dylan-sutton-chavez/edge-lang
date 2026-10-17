@@ -93,11 +93,6 @@ impl<'a> VM<'a> {
         match self.stack.pop() { Some(v) => Ok(v), None => Err(VmErr::Runtime("call_export: stack drained")) }
     }
 
-    /// Host-provided wall clock (ns), without one, `sleep` advances a deterministic virtual clock.
-    pub fn set_time_hook(&mut self, hook: fn() -> u64) { self.time_hook = Some(hook); }
-    pub(crate) fn now_ns(&self) -> u64 {
-        match self.time_hook { Some(h) => h(), None => self.virtual_clock_ns }
-    }
 
     // Stack helpers.
 

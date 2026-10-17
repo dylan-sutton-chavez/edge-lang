@@ -364,12 +364,9 @@ impl<'a> VM<'a> {
         // A wait keeps its None placeholder for what wakes it, a helper that parked pushed nothing.
         let event_yield = self.pending.event_wait_request;
         let sub_call_yield = !self.pending_sync_frames.is_empty();
-        let child_yield = self.pending.waiting_for_children.is_some();
         let host_yield = self.pending.host_call_request;
         let preempt_yield = self.pending.preempt_request;
-        // A sleep keeps its None as a placeholder the way an event wait does.
-        let sleep_yield = self.pending.sleep_until_ns.is_some();
-        let regular_yield = !event_yield && !sub_call_yield && !child_yield && !host_yield && !preempt_yield && !sleep_yield;
+        let regular_yield = !event_yield && !sub_call_yield && !host_yield && !preempt_yield;
         let val = if regular_yield { self.pop().unwrap_or(Val::none()) } else { Val::none() };
         let next_is_pop = ip < code.ins.len() && code.ins[ip].op == OpCode::PopTop;
         self.resume_ip = code.resume(if regular_yield && next_is_pop { ip + 1 } else { ip });
@@ -385,19 +382,6 @@ impl<'a> VM<'a> {
     fn catch(&mut self, code: &Code, chunk: &SSAChunk, ip: &mut usize, exc_base: usize, delta_base: usize, e: VmErr, rip: usize) -> Result<(), VmErr> {
         // HostYield is a control-flow signal, not a Python exception, bypass try/except.
         if matches!(e, VmErr::HostYield(_)) { return Err(e); }
-        // Cancellation runs `finally` bodies and skips `except`, propagating out when none remain.
-        if self.cancelling {
-            self.error_byte_pos = None;
-            self.call_stack.clear();
-            return match self.next_cleanup_handler(exc_base) {
-                Some(h) => {
-                    self.unwind_stack.push(Unwind::Reraise(e, None));
-                    *ip = code.lowered(h);
-                    Ok(())
-                }
-                None => Err(e),
-            };
-        }
         // A missing name is measured against the frame it is missing from, which is still alive here.
         if let VmErr::Name(n) = &e { self.note_missing_name(n, chunk); }
         // Innermost frame wins, cleared below on swallow so later errors re-anchor.
@@ -426,8 +410,10 @@ impl<'a> VM<'a> {
             // A MemoryError reports the limit itself, so its objects skip the soft limit.
             let heap_err = matches!(e, VmErr::Heap);
             let alloc = |heap: &mut HeapPool, obj| if heap_err { heap.alloc_emergency(obj) } else { heap.alloc(obj) };
-            let msg_val = alloc(&mut self.heap, HeapObj::Str(e.message()))?;
-            alloc(&mut self.heap, HeapObj::ExcInstance(msg, alloc::vec![msg_val], Val::undef()))?
+            // An error with no message, a bare `StopIteration`, has no args.
+            let text = e.message();
+            let args = if text.is_empty() { alloc::vec![] } else { alloc::vec![alloc(&mut self.heap, HeapObj::Str(text))?] };
+            alloc(&mut self.heap, HeapObj::ExcInstance(msg, args, Val::undef()))?
         };
         // Kept so raising the exception again reports where it was first raised.
         let at = self.error_byte_pos.take();
@@ -1654,9 +1640,9 @@ impl<'a> VM<'a> {
             OpCode::GetIter => {
                 let obj = self.pop()?;
                 let frame = match self.heap.try_get(obj) {
+                    // `async for` steps what `__aiter__` gives through the awaitables of its `__anext__`.
+                    _ if op == crate::parser::ITER_ASYNC => IterFrame::AsyncFor { it: self.with_roots([obj], |vm| vm.aiter_of(obj, true, chunk))?, aw: Val::undef(), out: 0 },
                     Some(HeapObj::Instance(..)) if op == crate::parser::ITER_AS_IS => IterFrame::UserDefined(obj),
-                    // `async for` steps a coroutine or an async generator, which a plain `for` refuses.
-                    Some(HeapObj::Coroutine(..)) if op == crate::parser::ITER_ASYNC => IterFrame::Coroutine(obj),
                     _ => self.make_iter_frame(obj, chunk)?,
                 };
                 self.iter_stack.push(frame);
@@ -1783,8 +1769,27 @@ impl<'a> VM<'a> {
                 self.push(b); self.push(c); self.push(a);
             }
             OpCode::Assert | OpCode::Del | OpCode::Global | OpCode::Nonlocal
-            | OpCode::Raise | OpCode::RaiseFrom | OpCode::Await => {
+            | OpCode::Raise | OpCode::RaiseFrom => {
                 self.handle_side(opcode, operand, chunk)?;
+            }
+            OpCode::GetAwaitable => {
+                let x = *self.stack.last().ok_or_else(|| cold_runtime("stack underflow"))?;
+                let it = self.awaitable_of(x, chunk)?;
+                if let Some(top) = self.stack.last_mut() { *top = it; }
+                self.push(Val::none());
+            }
+            // Sends the value on top into the awaitable under it, a yield passing up through this frame, which runs the step again on resume.
+            OpCode::Await => {
+                let sent = self.pop()?;
+                let at = self.stack.len().checked_sub(1).ok_or_else(|| cold_runtime("stack underflow"))?;
+                match self.gen_step(self.stack[at], super::globals::async_ops::Sent::Value(sent), chunk)? {
+                    super::globals::async_ops::Step::Yield(v) => {
+                        self.push(v);
+                        self.yielded = true;
+                        *ip -= 1;
+                    }
+                    super::globals::async_ops::Step::Return(v) => self.stack[at] = v,
+                }
             }
             // A finally frame runs on every exit path, its handler the finally body or WithExit.
             OpCode::SetupExcept | OpCode::SetupFinally => {
@@ -1800,9 +1805,10 @@ impl<'a> VM<'a> {
             }
             OpCode::WithEnter => {
                 let cm = self.pop()?;
-                // Both dunders resolve up front, like Python.
-                let (enter_fn, class) = self.with_dunder(cm, "__enter__")?;
-                self.with_dunder(cm, "__exit__")?;
+                // Both dunders resolve up front, `async with` taking the awaitable pair.
+                let (enter, exit) = if operand == 1 { ("__aenter__", "__aexit__") } else { ("__enter__", "__exit__") };
+                let (enter_fn, class) = self.with_dunder(cm, enter)?;
+                self.with_dunder(cm, exit)?;
                 self.with_stack.push(cm);
                 self.pending.method_binding = Some((class, cm));
                 self.push(enter_fn);
@@ -1813,7 +1819,7 @@ impl<'a> VM<'a> {
             // Stages `__exit__` for the plain Call behind it, parking-safe.
             OpCode::WithExit => {
                 let cm = self.with_stack.pop().ok_or_else(|| cold_runtime("WithExit without matching WithEnter"))?;
-                let (exit_fn, class) = self.with_dunder(cm, "__exit__")?;
+                let (exit_fn, class) = self.with_dunder(cm, if operand == 1 { "__aexit__" } else { "__exit__" })?;
                 // Reraise selects `__exit__(type, exc, None)`, other exits pass three Nones.
                 let (exc_type, exc) = if matches!(self.unwind_stack.last(), Some(Unwind::Reraise(..))) {
                     let exc = self.pending.exc_val.unwrap_or(Val::none());
@@ -1831,8 +1837,8 @@ impl<'a> VM<'a> {
             }
             OpCode::WithJudge => {
                 let r = self.pop()?;
-                // A truthy `__exit__` suppresses the exception, but never a cancel.
-                if !self.cancelling && matches!(self.unwind_stack.last(), Some(Unwind::Reraise(..))) && self.truthy(r) {
+                // A truthy `__exit__` suppresses the exception.
+                if matches!(self.unwind_stack.last(), Some(Unwind::Reraise(..))) && self.truthy(r) {
                     // Suppress, turn the re-raise into a normal exit and drop the exc identity.
                     if let Some(top) = self.unwind_stack.last_mut() { *top = Unwind::Normal; }
                     if let (Some(&(h, _)), Some(e)) = (self.handling.last(), self.pending.exc_val.take()) && h.0 == e.0 { self.handling.pop(); }
@@ -1933,9 +1939,10 @@ impl<'a> VM<'a> {
     /* MRO-bound dunder pair for a context manager, Err when unmet. */
     fn with_dunder(&mut self, cm: Val, name: &str) -> Result<(Val, Val), VmErr> {
         if let Some(found) = self.with_member(cm, name) { return Ok(found); }
-        // The missing half is named, `__exit__` when both are.
-        let missed = if name == "__enter__" && self.with_member(cm, "__exit__").is_some() { "__enter__" } else { "__exit__" };
-        Err(VmErr::TypeMsg(s!("'", str self.type_name(cm), "' object does not support the context manager protocol (missed ", str missed, " method)")))
+        // The missing half is named, the exit one when both are.
+        let (enter, exit, kind) = if name.starts_with("__a") { ("__aenter__", "__aexit__", "asynchronous context manager") } else { ("__enter__", "__exit__", "context manager") };
+        let missed = if name == enter && self.with_member(cm, exit).is_some() { enter } else { exit };
+        Err(VmErr::TypeMsg(s!("'", str self.type_name(cm), "' object does not support the ", str kind, " protocol (missed ", str missed, " method)")))
     }
 
     /* Exception class name for a raised value, defaults to "Exception" for non-instances. */
@@ -2051,6 +2058,7 @@ impl<'a> VM<'a> {
         if self.heap.needs_gc() { self.collect_point()?; }
         // The next item, or the value a `yield from` over this frame evaluates to once it ends.
         let step = match self.iter_stack.last() {
+            Some(IterFrame::AsyncFor { .. }) => return self.async_for_step(chunk),
             // Resume directly so `yielded` distinguishes a yielded value (even None) from exhaustion.
             Some(&IterFrame::Coroutine(cv)) => {
                 self.for_steps = true;

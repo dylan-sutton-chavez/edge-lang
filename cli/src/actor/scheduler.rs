@@ -16,7 +16,7 @@ use super::config::{ActorConfig, Group, Message};
 use super::pool::Router;
 use super::server::{Intake, Wal};
 
-// How long an idle scheduler naps before re-checking sleeping and blocked actors.
+// How long an idle scheduler naps before re-checking blocked actors.
 const NAP: Duration = Duration::from_millis(2);
 // How long a closing server lets its actors finish, inside the 30 seconds an orchestrator waits before it kills.
 const DRAIN: Duration = Duration::from_secs(25);
@@ -281,10 +281,6 @@ impl Scheduler {
                 self.handle_crash(gi, msg);
                 self.crash_trapped(gi);
             }
-            Step::Sleeping(deadline) => {
-                g.actors[key].wake_at = Some(deadline);
-                g.waiting.push(key);
-            }
             Step::Blocked(until) => {
                 g.actors[key].wake_at = until;
                 g.actors[key].blocked = true;
@@ -450,7 +446,7 @@ impl GroupState {
         self.actors.iter().filter(|(_, n)| !n.done).min_by_key(|(_, n)| n.mailbox.len()).map(|(k, _)| k)
     }
 
-    // Moves sleepers past their deadline and actors whose host calls or streams answered back to ready.
+    // Moves actors past their deadline and those whose host calls or streams answered back to ready.
     fn wake(&mut self, now: u64) {
         let waiting = core::mem::take(&mut self.waiting);
         for key in waiting {

@@ -127,36 +127,25 @@ The roots are these.
 - The pending `yield from` value.
 - The register stack, which holds every running frame, and slot templates.
 - Module binding tables, and cells around class bodies.
-- Parked scheduler coroutines and iterator frames.
+- The suspended module body and iterator frames.
 - Chunk constant pools and inline-cache values.
 
 ## Coroutine dispatch
 
-`async def` and a `def` that holds `yield` both compile to `HeapObj::Coroutine`. The primitives a program sees are in [Async](/docs/edge-python/language/async).
+`async def` and a `def` that holds `yield` both compile to `HeapObj::Coroutine`, one saved frame of `ip`, slots, stack, iterators and `try` frames. What a program sees is in [Async](/docs/edge-python/language/async).
 
-A plain `def` inside a coroutine can call a builtin that yields. Its state (`ip`, slots, stack and iterator deltas) is then saved as a `SyncFrame` on the `sync_frames` of the enclosing coroutine, innermost last.
+- `send`, `next` and `throw` restore the saved frame onto the live stacks, run the body to its next yield or its return, and move the frame back.
+- `await x` compiles to `GetAwaitable` and `Await`. `Await` sends the value under it into the awaitable and either takes the result or yields what the awaitable yielded, running again on the next resume. `async for` steps its `__anext__` awaitable the same way inside `ForIter`.
+- `yield from` keeps its loop of `ForIter` and a marked `Yield`. A `send`, `throw` or `close` of the outer generator finds the mark and reaches the subiterator first.
+- A return of the inner one lands where the outer waits, and an error it raises is raised there, so handlers and the traceback follow the normal path.
 
-- Resume walks this stack from the inside out before it enters the outer body again. The return value of each helper lands at its original `Call` site.
+`vm.run()` runs the module body as a coroutine of its own, the root the host drives. A host call that waits or a `receive()` on an empty queue suspends it, and `drive_root` hands the host a `HostYield` naming the wait.
+
+A plain `def` called from the module body can wait too. Its state is then saved as a `SyncFrame` on the `sync_frames` of the root, innermost last.
+
+- Resume walks this stack from the inside out before it enters the module body again. The return value of each helper lands at its original `Call` site.
 - An error that escapes a helper raises again at that same site. The handlers of the caller and the traceback notes match a run that never suspended.
-- A generator hands values only to whoever steps it, so `receive()`, `sleep()` or a host call that waits inside one raises `RuntimeError` there. Preemption waits until the generator frame yields.
-
-`vm.run()` wraps the module body as an implicit coroutine. Top-level statements suspend like `async def` bodies. Dispatch has a single driver, and `top_loop` is the only place that picks coroutines.
-
-`run`, `gather`, `with_timeout`, `await`, and calling a coroutine value all work the same way. They push targets to the scheduler, park the caller in `CoroState::WaitingForChildren`, and yield. The `WaitKind` picks how the wait finishes.
-
-| WaitKind | Finish |
-|---|---|
-| `Run(target)` | Returns the value of the target |
-| `Gather` | Returns the list of results |
-| `Timeout` | Enforces a deadline |
-
-When the children finish, the result replaces the saved stack placeholder of the outer coroutine and the outer is marked ready.
-
-A child error, a timeout or a failed host call marks it `CoroState::Raising` instead. The next resume raises the error at the park point. Handlers and the traceback position follow the normal path.
-
-Coroutines carry their own `try` and `except` frames across yields. On entry the stored frames are denormalised onto the live exception stack. A resume moves the saved state onto the live stacks and a yield moves it back, reusing the same buffers.
-
-On a yield they are renormalised and saved. That is how `try: run(coro) except E:` catches the raise of a child across several resume cycles.
+- A generator a `for` loop steps parks with the loop. A generator or a coroutine stepped by `next` or `send` hands values only to whoever stepped it, so a wait inside one raises `RuntimeError` there. Preemption waits until the generator frame yields.
 
 ## Snapshots
 
@@ -189,7 +178,7 @@ A coverage-guided fuzzer drives the lexer, the parser, the VM and this snapshot 
 - No JIT. A method JIT needs stencils per architecture, and a tracing JIT duplicates the execution model and complicates the GC.
 - No runtime module system. Imports resolve at parse time through a resolver the host injects. See [Modules](/docs/edge-python/reference/modules).
 - No `Decimal` or `Fraction`, which belong to the standard library.
-- No `asyncio` module. The concurrency primitives are top-level builtins, see [Async](/docs/edge-python/language/async).
+- No event loop in the engine. It implements the coroutine protocol, and `asyncio` comes with the standard library, see [Async](/docs/edge-python/language/async).
 
 ## References
 

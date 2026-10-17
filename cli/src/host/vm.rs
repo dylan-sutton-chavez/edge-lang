@@ -15,7 +15,6 @@ const KIND_SHIFT: u32 = 29;
 /* What a run step left the interpreter waiting on, the packed status of the compiler exports. */
 pub enum Status {
     Done,
-    PendingTimer(u64),
     PendingEvent,
     PendingHostCall,
     Error(String),
@@ -191,10 +190,6 @@ impl Instance {
         };
         Ok(match status >> KIND_SHIFT {
             0 => Status::Done,
-            1 => {
-                let raw = self.ex.last_yield_deadline_ns.call(&mut self.store, ());
-                Status::PendingTimer(self.checked(raw)? as u64)
-            }
             3 => Status::PendingEvent,
             4 => Status::Error(String::from_utf8_lossy(&self.read_out()).into_owned()),
             5 => Status::PendingHostCall,
@@ -277,12 +272,6 @@ impl Instance {
         }
         self.checked(result).map_err(|e| e.to_string())?;
         Ok(self.read_out())
-    }
-
-    /* Sleeps the next boot on the host's clock, or on the virtual one for a run no package holds time. */
-    pub(super) fn set_wall_clock(&mut self, on: bool) -> Result<(), String> {
-        let ex = self.ex.clone();
-        ex.set_wall_clock.call(&mut self.store, on as i32).map_err(|e| e.to_string())
     }
 
     // Stages a spec and a payload for one registration call, both freed once it returns.

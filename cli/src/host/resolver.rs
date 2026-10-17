@@ -170,11 +170,6 @@ fn serve_system(inst: &mut Instance, project: &Project, packages: &Value) -> Vec
             }
         }
     }
-    // A run that reads no clock sleeps on the virtual one, so what it prints never depends on when it runs.
-    let clock = entries.iter().any(|e| e.as_str().is_some_and(|e| e.starts_with("time:")));
-    if let Err(e) = inst.set_wall_clock(clock) {
-        failures.push(e);
-    }
     // SpiderMonkey starts only when a system module is reachable, by an undeclared name or a plugin.
     if !packages["needed"].as_bool().unwrap_or(false) {
         return failures;

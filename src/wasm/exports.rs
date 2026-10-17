@@ -7,7 +7,7 @@ use alloc::{boxed::Box, rc::Rc, string::{String, ToString}};
 use core::ptr::NonNull;
 use crate::s;
 
-use super::{ModuleEntry, PausedRun, CHUNK_CACHE, now_ns_host, send_host, stream_print, with_runtime, with_slot, write_out, write_out_bytes};
+use super::{ModuleEntry, PausedRun, CHUNK_CACHE, send_host, stream_print, with_runtime, with_slot, write_out, write_out_bytes};
 use super::resolver::WasmHostResolver;
 use crate::bridge::{self, BridgeState, VmGuard, safe_bytes, safe_str_owned};
 
@@ -15,8 +15,7 @@ use crate::bridge::{self, BridgeState, VmGuard, safe_bytes, safe_str_owned};
 const STATUS_KIND_SHIFT: u32 = 29;
 const STATUS_PAYLOAD_MASK: u32 = (1 << STATUS_KIND_SHIFT) - 1;
 const STATUS_DONE: u32 = 0 << STATUS_KIND_SHIFT;
-const STATUS_PENDING_TIMER: u32 = 1 << STATUS_KIND_SHIFT;
-// Kind 2 was the render frame yield, retired so the other kinds keep their numbers.
+// Kind 1 was the sleep timer and kind 2 the render frame yield, retired so the other kinds keep their numbers.
 const STATUS_PENDING_EVENT: u32 = 3 << STATUS_KIND_SHIFT;
 const STATUS_ERROR: u32 = 4 << STATUS_KIND_SHIFT;
 const STATUS_PENDING_HOST_CALL: u32 = 5 << STATUS_KIND_SHIFT;
@@ -97,18 +96,15 @@ fn late_resolver(dir: &str) -> Box<dyn crate::modules::Resolver> {
 fn boot_vm(chunk: Rc<SSAChunk>, limits: Limits) -> Box<VM<'static>> {
     // SAFETY the slot's Rc outlives the VM, `Slot::clear_run` drops VMs before chunks.
     let chunk_static: &'static SSAChunk = unsafe { &*Rc::as_ptr(&chunk) };
-    let (preempt, wall_clock) = with_slot(|s| {
+    let preempt = with_slot(|s| {
         s.chunks.push(chunk);
-        (s.preempt_every, s.wall_clock)
+        s.preempt_every
     });
     let mut vm = Box::new(VM::with_limits(chunk_static, limits));
     vm.print_hook = Some(stream_print);
     vm.send_hook = Some(send_host);
     // Code that eval or exec compiles imports from the package of the file that called it.
     vm.resolver_hook = Some(&late_resolver);
-    if wall_clock {
-        vm.set_time_hook(now_ns_host);
-    }
     vm.set_preempt_interval(preempt);
     vm
 }
@@ -294,22 +290,14 @@ fn step_vm(mut vm: Box<VM<'static>>, src: &str, prev_paused: Option<Box<PausedRu
             STATUS_DONE
         }
         Err(VmErr::HostYield(status)) => {
-            let (kind, deadline) = match status {
-                SchedulerStatus::PendingTimer(d) => (STATUS_PENDING_TIMER, d),
-                SchedulerStatus::PendingEvent => (STATUS_PENDING_EVENT, 0),
-                SchedulerStatus::PendingHostCall => (STATUS_PENDING_HOST_CALL, 0),
-                SchedulerStatus::Preempted => (STATUS_PREEMPTED, 0),
+            let kind = match status {
+                SchedulerStatus::PendingEvent => STATUS_PENDING_EVENT,
+                SchedulerStatus::PendingHostCall => STATUS_PENDING_HOST_CALL,
+                SchedulerStatus::Preempted => STATUS_PREEMPTED,
             };
             let mut paused = match prev_paused {
-                Some(mut b) => {
-                    b.vm = Some(vm);
-                    b.last_yield_deadline_ns = deadline;
-                    b
-                }
-                None => Box::new(PausedRun {
-                    vm: Some(vm),
-                    last_yield_deadline_ns: deadline,
-                }),
+                Some(mut b) => { b.vm = Some(vm); b }
+                None => Box::new(PausedRun { vm: Some(vm) }),
             };
             // Re-publish `current_vm` to the boxed VM so embedder calls between yields still allocate, its address is stable.
             let vm_ptr = paused.vm.as_deref_mut().map(|v| NonNull::from(v).cast::<VM<'static>>());
@@ -475,23 +463,12 @@ pub extern "C" fn memory_peak() -> u64 {
     with_slot(|s| s.memory_peak as u64)
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn last_yield_deadline_ns() -> u64 {
-    with_slot(|s| s.paused_run.as_ref().map(|p| p.last_yield_deadline_ns).unwrap_or(0))
-}
-
 use crate::vm::snapshot;
 
 /* Preempt every `n` loop back-edges, 0 disables. */
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn set_preempt_interval(n: u32) {
     with_slot(|s| s.preempt_every = n as usize);
-}
-
-/* Whether the next boot sleeps on the host's clock, 0 keeps the virtual clock for a run nobody granted time. */
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn set_wall_clock(on: u32) {
-    with_slot(|s| s.wall_clock = on != 0);
 }
 
 /* Serialize the parked run into the out buffer, its length, -1 when none, -2 with the reason when it cannot be saved. */

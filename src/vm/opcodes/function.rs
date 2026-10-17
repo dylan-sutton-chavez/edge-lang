@@ -130,9 +130,9 @@ impl<'a> VM<'a> {
     pub(crate) fn exec_bound_method(&mut self, recv: Val, id: crate::vm::methods::BuiltinMethodId, pos: &[Val], kw: &[Val], chunk: &SSAChunk) -> Result<(), VmErr> {
         use crate::vm::methods::MethodKind;
         let done = match id.kind() {
-            _ if id.ty() == "generator" => {
+            _ if matches!(id.ty(), "generator" | "coroutine" | "async_generator" | "async_generator_asend" | "async_generator_athrow" | "anext_awaitable" | "coroutine_wrapper") => {
                 crate::vm::methods::method_arity(id, pos.len())?;
-                self.generator_method(recv, id.name(), pos, chunk)
+                self.coro_method(recv, id.name(), pos, chunk)
             }
             _ if id.ty() == "memoryview" => {
                 crate::vm::methods::method_arity(id, pos.len())?;
@@ -1118,8 +1118,6 @@ impl<'a> VM<'a> {
             IsSubclass => self.call_issubclass(),
             HasAttr => self.call_hasattr(chunk),
             Next => self.call_next(operand, chunk),
-            Run => self.call_run(operand),
-            Sleep => self.call_sleep(),
             Receive => self.call_receive(),
             SendMsg => self.call_send(),
             Map => self.call_map(operand, chunk),
@@ -1133,9 +1131,6 @@ impl<'a> VM<'a> {
             SetAttr => self.call_setattr(chunk),
             DelAttr => self.call_delattr(chunk),
             ImportModule => self.call_import_module(),
-            Gather => self.call_gather(operand),
-            WithTimeout => self.call_with_timeout(),
-            Cancel => self.call_cancel(),
             BytesFromHex => self.call_bytes_fromhex(),
             IntFromBytes => self.call_int_from_bytes(),
             IntToBytes => self.call_int_to_bytes(),
@@ -1152,7 +1147,7 @@ impl<'a> VM<'a> {
             Hash => self.call_hash(),
             Ascii => self.call_ascii(chunk),
             Sentinel => self.call_sentinel(operand),
-            AIter => self.call_aiter(),
+            AIter => self.call_aiter(chunk),
             ANext => self.call_anext(operand, chunk),
             FrozenDict => self.call_frozendict(operand),
         };

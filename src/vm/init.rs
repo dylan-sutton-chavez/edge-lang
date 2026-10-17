@@ -61,36 +61,33 @@ impl<'a> VM<'a> {
         }
     }
 
-    /* Inject `val` into the first `WaitingEvent` waiter's saved stack (innermost sync sub-frame wins) and mark it Ready, queues `val` otherwise. Shared by `push_event` and `run_push_event`. */
+    /* Hands `val` to the module body waiting in `receive()` and readies it, queues `val` otherwise. Shared by `push_event` and `run_push_event`. */
     pub fn inject_event(&mut self, val: Val) {
-        match self.scheduler.iter().position(|h| matches!(h.state, CoroState::WaitingEvent)) {
-            Some(idx) => self.deliver_host_result(idx, val),
-            None => self.event_queue.push(val),
-        }
+        if self.root.as_ref().is_some_and(|h| matches!(h.state, CoroState::WaitingEvent)) { self.deliver_host_result(val); } else { self.event_queue.push(val); }
     }
 
-    /* Inject `val` into the `WaitingHostCall(id)` waiter and mark it Ready, false if no coro is parked on `id`. Lets the host resolve concurrent calls out of order. */
+    /* Hands `val` to the module body waiting on host call `id` and readies it, false when nothing waits on `id`. */
     pub fn inject_host_result_by_id(&mut self, id: u64, val: Val) -> bool {
-        match self.scheduler.iter().position(|h| matches!(h.state, CoroState::WaitingHostCall(w) if w == id)) {
-            Some(idx) => { self.deliver_host_result(idx, val); true }
-            None => false,
-        }
+        let waits = self.root.as_ref().is_some_and(|h| matches!(h.state, CoroState::WaitingHostCall(w) if w == id));
+        if waits { self.deliver_host_result(val); }
+        waits
     }
 
-    /* Writes `val` over the stack top of a parked coroutine and marks it Ready. */
-    fn deliver_host_result(&mut self, idx: usize, val: Val) {
-        let coro = self.scheduler[idx].coro;
-        if let HeapObj::Coroutine(c) = self.heap.get_mut(coro) {
+    /* Writes `val` where the module body waits, the stack top of its innermost helper, and readies it. */
+    fn deliver_host_result(&mut self, val: Val) {
+        let Some(root) = self.root.as_mut() else { return };
+        root.state = CoroState::Ready;
+        if let HeapObj::Coroutine(c) = self.heap.get_mut(root.coro) {
             match c.wait_slot() { Some(top) => *top = val, None => c.stack.push(val) }
         }
-        self.scheduler[idx].state = CoroState::Ready;
     }
 
-    /* Raises `e` where coro `id` parked on its next resume, false when nothing waits on `id`. */
+    /* Raises `e` where the module body waits on host call `id` on its next resume, false when nothing waits on `id`. */
     pub fn inject_host_error_by_id(&mut self, id: u64, e: VmErr) -> bool {
-        let Some(idx) = self.scheduler.iter().position(|h| matches!(h.state, CoroState::WaitingHostCall(w) if w == id)) else { return false; };
-        self.scheduler[idx].state = CoroState::Raising(e, None);
-        true
+        match self.root.as_mut() {
+            Some(root) if matches!(root.state, CoroState::WaitingHostCall(w) if w == id) => { root.state = CoroState::Raising(e, None); true }
+            _ => false,
+        }
     }
 
     /* Yield `Preempted` every `n` back-edges, 0 disables. */
@@ -116,40 +113,17 @@ impl<'a> VM<'a> {
     pub fn run(&mut self) -> Result<Val, VmErr> {
         let _paying = self.paying()?;
         self.error_byte_pos = None;
-        // Resume path, scheduler non-empty means a prior `run()` yielded, so it drains what is ready.
-        let fresh_entry = self.scheduler.is_empty();
-        if fresh_entry {
-            // Fresh entry. Initialise imports before user code, DFS gives topological order naturally.
+        // A run that suspended to the host keeps its module body, so this call resumes it.
+        if self.root.is_none() {
+            // Imports run before user code, the walk giving their topological order.
             let mut in_progress: crate::util::hash::FxHashSet<String> = crate::util::hash::FxHashSet::default();
             self.init_modules(self.chunk, &mut in_progress)?;
-            // Wrap the module body as an implicit coroutine, lets top-level statements suspend on deferred host calls (DOM, sleep, receive) through the same scheduler path as `async def`.
+            // The module body runs as a coroutine, so a top-level statement can wait on the host.
             let slots = self.fill_builtins(&self.chunk.names);
             let coro = self.heap.alloc(HeapObj::Coroutine(Coro::fresh(slots, BodyRef::Module)))?;
-            self.scheduler.push(CoroutineHandle {
-                coro,
-                state: CoroState::Ready,
-            });
+            self.root = Some(CoroutineHandle { coro, state: CoroState::Ready });
         }
-        self.top_loop()?;
-        // Inspect the module body's outcome (BodyRef::Module). Single entry point for both fresh and resume.
-        let module_coro = self.scheduler.iter().find(|h| {
-            matches!(self.heap.get(h.coro), HeapObj::Coroutine(c) if matches!(c.body, BodyRef::Module))
-        }).map(|h| (h.coro, h.state.clone()));
-        if let Some((_coro, state)) = module_coro {
-            // Clear the scheduler only once the module body is terminal, otherwise we're mid-yield and need to keep it for the next resume.
-            let terminal = matches!(state,
-                CoroState::Done(_)
-                | CoroState::Errored(_)
-                | CoroState::Cancelled);
-            if terminal { self.scheduler.clear(); }
-            return match state {
-                CoroState::Done(v) => Ok(v),
-                CoroState::Errored(e) => Err(e),
-                CoroState::Cancelled => Err(VmErr::Raised("CancelledError".into())),
-                _ => Ok(Val::none()),
-            };
-        }
-        Ok(Val::none())
+        self.drive_root()
     }
 
     /* Init each unique import once, code modules run their top-level, native ones just bind. `in_progress` catches cycles cleanly. */

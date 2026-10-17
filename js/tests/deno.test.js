@@ -235,16 +235,6 @@ Deno.test("deno: a plugin reaches system calls and awaits the ones that wait", a
     if (got.out !== "" || got.text !== "True\n201\nOSError\n'main' has no net:evil.example, edge.json grants it net:127.0.0.1") throw new Error(`unexpected ${JSON.stringify(got)}`);
 });
 
-Deno.test("deno: the clock stays virtual until a package holds time", async () => {
-    let t0 = performance.now();
-    const virtual = await output("virtual", "sleep(3600)\nprint('an hour, at once')", baseUrl);
-    if (virtual.text !== "an hour, at once" || performance.now() - t0 > 2000) throw new Error(`unexpected ${JSON.stringify(virtual)}`);
-    const base = await project({ "edge.json": JSON.stringify({ permissions: { main: ["time:monotonic"] } }) });
-    t0 = performance.now();
-    const wall = await output("wall", "sleep(0.05)\nprint('waited')", base);
-    if (wall.text !== "waited" || performance.now() - t0 < 40) throw new Error(`the wall clock did not wait ${JSON.stringify(wall)}`);
-});
-
 Deno.test("deno: a malformed permissions section stops the run", async () => {
     const base = await project({ "edge.json": JSON.stringify({ permissions: { main: "time:wall" } }) });
     const engine = await boot("malformed", {}, base);

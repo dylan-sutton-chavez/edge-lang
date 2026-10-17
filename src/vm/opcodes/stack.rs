@@ -162,15 +162,6 @@ impl<'a> VM<'a> {
                 }
                 return Err(err);
             }
-            OpCode::Await => {
-                // Coroutine parks on it (single-driver) so the top loop runs it to completion, even across suspension. Sync values pass through.
-                let val = self.pop()?;
-                if val.is_heap() && matches!(self.heap.get(val), HeapObj::Coroutine(..)) {
-                    self.await_coroutine(val)?;
-                } else {
-                    self.push(val);
-                }
-            }
             _ => return Err(cold_runtime("non-side opcode in handle_side")),
         }
         Ok(())

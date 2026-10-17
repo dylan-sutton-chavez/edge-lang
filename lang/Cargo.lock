@@ -22,7 +22,6 @@ dependencies = [
 [[package]]
 name = "edge-python"
 version = "0.9.6"
-source = "git+https://github.com/dylan-sutton-chavez/edge-python?tag=v0.9.6#0aae04c0be7dd1dc850b3b48f9f5baaa8214ceb6"
 dependencies = [
  "dlmalloc",
  "hashbrown",
@@ -65,7 +64,6 @@ checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 [[package]]
 name = "wasm-abi"
 version = "0.9.6"
-source = "git+https://github.com/dylan-sutton-chavez/edge-python?tag=v0.9.6#0aae04c0be7dd1dc850b3b48f9f5baaa8214ceb6"
 
 [[package]]
 name = "windows-link"

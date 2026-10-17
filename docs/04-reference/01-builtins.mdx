@@ -5,7 +5,7 @@ description: "The global functions available in every Edge Python program."
 
 # Built-in functions
 
-Edge Python provides 70 built-in functions. They are first-class values. You can pass them as arguments, store them in containers, and alias them.
+Edge Python provides 74 built-in functions. They are first-class values. You can pass them as arguments, store them in containers, and alias them.
 
 ```edge-python
 fns = [abs, hex, str]
@@ -967,7 +967,7 @@ Dynamic loading through `importlib` or `__import__` does not exist. Static impor
 - A function the text defines in a dict reads and writes that dict. Each call takes what the dict holds then and hands its bindings back when it returns.
 - A dict of its own under `__builtins__` holds the only builtins the text finds. A globals dict without the key gets the shared `builtins` module, as `__main__` holds in Python.
 - An import finds the packages the program resolved and pinned in its lock, and the system modules the package of the calling file is granted. Every system call checks those grants.
-- The text cannot suspend. `receive()`, `sleep()` or a host call that waits raises `RuntimeError`.
+- The text cannot suspend. `receive()` or a host call that waits raises `RuntimeError`.
 - A syntax error raises `SyntaxError` with the line, in `<string>` or the file name given to `compile`.
 
 ```edge-python
@@ -1049,13 +1049,9 @@ MISSING no default 0 int | MISSING
 
 ## Async
 
-These builtins drive coroutines and messages. [Async](/docs/edge-python/language/async) owns the model and the examples.
+These builtins step async iterators and take messages from the host. [Async](/docs/edge-python/language/async) owns the model and the examples.
 
-- `run(*coros)` runs every argument to completion and returns the result of the first. Errors from the other coroutines are discarded.
-- `gather(*coros)` runs every argument and returns a list of results in argument order. It waits for every coroutine, then raises the error of the first failing one in argument order.
-- `sleep(seconds)` suspends for the duration. A negative value counts as zero.
-- `with_timeout(seconds, coro)` returns the result of the coroutine or raises `TimeoutError` at the deadline.
-- `cancel(coro)` flags a coroutine for cancellation at its next step. Its `finally` blocks run, and it cannot catch the `CancelledError`.
-- `receive()` pops the oldest message the host queued. It parks the coroutine while the queue is empty.
-- `aiter(agen)` gives an async generator back as its own async iterator, and `anext(agen[, default])` a coroutine that steps it once when awaited, giving `default` or raising `StopAsyncIteration` once it ended.
+- `aiter(x)` gives the async iterator of `x`, an async generator itself or what its `__aiter__` returns.
+- `anext(it[, default])` gives an awaitable of the next item, `default` once the iterator ended, else `StopAsyncIteration`.
+- `receive()` pops the oldest message the host queued. It suspends the run while the queue is empty.
 - `send(group, body)` hands the string `body` to an actor of `group` and returns `None`. Outside an [actor pool](/docs/edge-python/platforms/actors#messages) it raises `RuntimeError`.

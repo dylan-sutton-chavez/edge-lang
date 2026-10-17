@@ -22,9 +22,7 @@ path = "tests.rs"
 [features]
 default = ["std"]
 std = ["compiler/std"]
-# tests install the metered allocator a local engine past the pin requires
-metered = []
 
 [dependencies]
-# the edge python release this repo pins, the same one site and infra name
-compiler = { package = "edge-python", git = "https://github.com/dylan-sutton-chavez/edge-python", tag = "v0.9.6", default-features = false }
+# the engine of this repo, so lang moves with it
+compiler = { package = "edge-python", path = "..", default-features = false }

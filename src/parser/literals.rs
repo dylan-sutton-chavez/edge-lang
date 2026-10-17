@@ -129,11 +129,13 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
                 continue;
             }
             // `async for` steps its iterable the way `for` does.
+            let at = self.tokens.peek().map(|t| (t.start, t.end));
             let asynced = self.eat_if(TokenType::Async);
             if !self.eat_if(TokenType::For) {
                 if asynced { self.diag_at_peek("expected 'for' after 'async'"); }
                 break;
             }
+            if asynced && !self.in_async && let Some((start, end)) = at { self.reject(start, end, "asynchronous comprehension outside of an asynchronous function"); }
             let at = self.mark();
             let Some(shape) = self.tokens.target_list() else { return self.error("cannot assign to this expression") };
             self.eat(TokenType::In);
@@ -177,7 +179,11 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             Comp::Brace if pair => (Some(OpCode::BuildDict), OpCode::MapAdd, "<dictcomp>"),
             Comp::Brace => (Some(OpCode::BuildSet), OpCode::SetAdd, "<setcomp>"),
         };
+        let async_at = self.tokens.peek().map(|t| (t.start, t.end));
         let asynced = self.eat_if(TokenType::Async);
+        // A generator expression may be asynchronous anywhere, the other comprehensions only inside an `async def`.
+        let in_async = self.in_async || kind == Comp::Gen;
+        if asynced && !in_async && let Some((start, end)) = async_at { self.reject(start, end, "asynchronous comprehension outside of an asynchronous function"); }
         self.glued_keyword();
         self.eat(TokenType::For);
         let at = self.mark();
@@ -191,6 +197,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         let globals = self.globals_decl.clone();
         let mut body = self.with_fresh_chunk(|s| {
             s.in_comp = true;
+            s.in_async = in_async;
             s.globals_decl = globals;
             // A body error points at the element until a clause marks its own line.
             s.chunk.stmt_pos.push((0, elem_start));
@@ -220,9 +227,12 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             if build.is_some() { s.chunk.emit(OpCode::ReturnValue, 0); }
         });
         body.is_generator = kind == Comp::Gen;
-        self.push_function(alloc::vec![COMP_ARG.into()], body, 0, Some(name), OpCode::MakeFunction);
+        // A comprehension that awaits or steps `async for` runs as a coroutine the enclosing one awaits, a generator one as an async generator.
+        let asynced = body.instructions.iter().any(|i| i.opcode == OpCode::GetAwaitable || (i.opcode == OpCode::GetIter && i.operand == super::ITER_ASYNC));
+        self.push_function(alloc::vec![COMP_ARG.into()], body, 0, Some(name), if asynced { OpCode::MakeCoroutine } else { OpCode::MakeFunction });
         self.chunk.emit(OpCode::Swap, 0);
         self.chunk.emit(OpCode::Call, 1);
+        if asynced && kind != Comp::Gen { self.emit_await(); }
     }
 
     /* A generator expression passed bare, which must be the only argument of its call. */
@@ -679,7 +689,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         let anns = core::mem::take(&mut self.param_anns);
         let posonly = self.posonly;
         let cut = self.enter_qual(fname, true);
-        let mut body = self.compile_body(&params);
+        let mut body = self.compile_body(&params, is_async);
         self.qual.truncate(cut);
         (body.posonly, body.first_line) = (posonly, first_line);
 
@@ -857,8 +867,9 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         self.push_function(params, body, 0, Some("__annotate__"), OpCode::MakeFunction);
     }
 
-    fn body_of(&mut self, params: &[String]) {
+    fn body_of(&mut self, params: &[String], is_async: bool) {
         self.in_function = true;
+        self.in_async = is_async;
         for p in params {
             // Base name shadows the enclosing scope, prefix/`=` marker must be stripped.
             self.bind_param(p);
@@ -867,15 +878,16 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         self.compile_block();
     }
 
-    pub(super) fn compile_body(&mut self, params: &[String]) -> SSAChunk {
+    pub(super) fn compile_body(&mut self, params: &[String], is_async: bool) -> SSAChunk {
         let restart = self.mark();
         let known = if self.late.is_empty() { None } else { self.late.get(&restart.pos).cloned() };
         let mut late = Vec::new();
-        let mut body = self.with_fresh_chunk(|s| { s.unfused.extend(known.iter().flatten().cloned()); s.body_of(params); late = s.called_then_bound(); });
+        let mut returned = None;
+        let mut body = self.with_fresh_chunk(|s| { s.unfused.extend(known.iter().flatten().cloned()); s.body_of(params, is_async); late = s.called_then_bound(); returned = s.value_return; });
         // A builtin the body calls before binding it is a local all along, so the body compiles once more and remembers that.
         if known.is_none() && !late.is_empty() {
             self.rewind(restart);
-            body = self.with_fresh_chunk(|s| { s.unfused.extend(late.iter().cloned()); s.body_of(params); });
+            body = self.with_fresh_chunk(|s| { s.unfused.extend(late.iter().cloned()); s.body_of(params, is_async); });
             self.late.insert(restart.pos, late);
         }
         // Pre-compute is_generator to avoid O(n) scan per `exec_call`.
@@ -883,6 +895,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             i.opcode,
             OpCode::Yield
         ));
+        if is_async && body.is_generator && let Some((start, end)) = returned { self.reject(start, end, "'return' with value in async generator"); }
         body
     }
 }

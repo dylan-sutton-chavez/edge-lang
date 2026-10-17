@@ -52,22 +52,29 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
                 true
             }
             Some(TokenType::Async) => {
-                self.advance();
+                let t = self.advance();
                 match self.peek() {
                     Some(TokenType::Def) => {
                         self.advance();
                         self.func_def_inner(0, true);
                     }
-                    Some(TokenType::For) => { self.for_stmt_inner(true); }
-                    Some(TokenType::With) => { self.with_stmt_inner(true); }
+                    Some(TokenType::For) => {
+                        if !self.in_async { self.reject(t.start, t.end, "'async for' outside async function"); }
+                        self.for_stmt_inner(true);
+                    }
+                    Some(TokenType::With) => {
+                        if !self.in_async { self.reject(t.start, t.end, "'async with' outside async function"); }
+                        self.with_stmt_inner(true);
+                    }
                     _ => {}
                 }
                 false
             }
             Some(TokenType::Await) => {
-                self.advance();
+                let t = self.advance();
+                self.check_await(t.start, t.end);
                 self.expr();
-                self.chunk.emit(OpCode::Await, 0);
+                self.emit_await();
                 true
             }
             Some(TokenType::At) => {
@@ -218,7 +225,8 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
                 false
             }
             Some(TokenType::Return) => {
-                let at = self.advance().start;
+                let t = self.advance();
+                let at = t.start;
                 if !self.in_function { self.error("'return' outside function"); }
                 if self.finally_loops.is_some() { self.warn(at, "'return' in a 'finally' block".into()); }
                 if self.star_loops.is_some() { self.error("'break', 'continue' and 'return' cannot appear in an except* block"); }
@@ -226,6 +234,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
                 if matches!(self.peek_same_line(), None | Some(TokenType::Semi | TokenType::Dedent)) {
                     self.chunk.emit(OpCode::LoadNone, 0);
                 } else {
+                    if self.value_return.is_none() { self.value_return = Some((t.start, t.end)); }
                     self.expr_or_tuple(|s| s.peek_same_line().is_none());
                 }
                 self.chunk.emit(OpCode::ReturnValue, 0);
@@ -651,12 +660,14 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             self.chunk.emit(OpCode::LoadNone, 0);
             self.chunk.emit(OpCode::Yield, 0);
         } else if self.eat_if(TokenType::From) {
+            if self.in_async { return self.error("'yield from' inside async function"); }
             // `yield from`, GetIter+ForIter+Yield loop, LoadYieldFrom pushes the subiterator's return value.
             self.expr();
             self.chunk.emit(OpCode::GetIter, 0);
             let loop_start = self.chunk.instructions.len() as u16;
             let fi = self.emit_jump(OpCode::ForIter);
-            self.chunk.emit(OpCode::Yield, 0);
+            // The marked yield tells `send`, `throw` and `close` to reach the subiterator first.
+            self.chunk.emit(OpCode::Yield, super::YIELD_FROM);
             self.chunk.emit(OpCode::PopTop, 0);
             self.chunk.emit(OpCode::Jump, loop_start);
             self.patch(fi);
@@ -666,6 +677,19 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             self.expr_or_tuple(|s| matches!(s.peek_same_line(), None | Some(TokenType::Rpar | TokenType::Rsqb | TokenType::Rbrace)));
             self.chunk.emit(OpCode::Yield, 0);
         }
+    }
+
+    /* Refuses the `await` spanning `start..end` outside an `async def`. */
+    pub(super) fn check_await(&mut self, start: usize, end: usize) {
+        if self.in_async { return; }
+        let msg = if self.in_comp { "asynchronous comprehension outside of an asynchronous function" } else if self.in_function { "'await' outside async function" } else { "'await' outside function" };
+        self.reject(start, end, msg);
+    }
+
+    /* `await` of the value on the stack, its awaitable stepped in place until it returns. */
+    pub(super) fn emit_await(&mut self) {
+        self.chunk.emit(OpCode::GetAwaitable, 0);
+        self.chunk.emit(OpCode::Await, 0);
     }
 
 }

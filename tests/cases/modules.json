@@ -574,16 +574,6 @@
     "expect_externs": 2
   },
   {
-    "src": "from m import host_defer\nasync def main():\n    host_defer()\nrun(main())",
-    "modules": { "m": { "native": ["host_defer"] } },
-    "error": "scheduler suspended"
-  },
-  {
-    "src": "from m import host_defer\nasync def a():\n    host_defer()\nasync def b():\n    print('ran')\ngather(a(), b())",
-    "modules": { "m": { "native": ["host_defer"] } },
-    "error": "scheduler suspended"
-  },
-  {
     "src": "from m import host_defer\nv = host_defer()\nprint(f'got:{v}')",
     "modules": { "m": { "native": ["host_defer"] } },
     "host_deliveries": [{"id": 0, "value": "dark"}],
@@ -612,24 +602,6 @@
     "modules": { "m": { "native": ["host_defer"] } },
     "host_deliveries": [{"id": 0, "value": "dark"}],
     "output": ["got:dark"]
-  },
-  {
-    "src": "from m import host_defer\nasync def a():\n    print('a:' + host_defer())\nasync def b():\n    print('b:' + host_defer())\ngather(a(), b())",
-    "modules": { "m": { "native": ["host_defer"] } },
-    "host_deliveries": [{"id": 1, "value": "B"}, {"id": 0, "value": "A"}],
-    "output": ["b:B", "a:A"]
-  },
-  {
-    "src": "from m import host_defer\nasync def a():\n    try:\n        host_defer()\n        print('a: ok')\n    except:\n        print('a: caught')\nasync def b():\n    print('b: ' + host_defer())\ngather(a(), b())",
-    "modules": { "m": { "native": ["host_defer"] } },
-    "host_deliveries": [{"id": 1, "value": "V"}, {"id": 0, "error": "boom"}],
-    "output": ["b: V", "a: caught"]
-  },
-  {
-    "src": "from m import host_defer\nasync def t(name):\n    print(name + ':' + host_defer())\ngather(t('a'), t('b'), t('c'), t('d'))",
-    "modules": { "m": { "native": ["host_defer"] } },
-    "host_deliveries": [{"id": 2, "value": "C"}, {"id": 0, "value": "A"}, {"id": 3, "value": "D"}, {"id": 1, "value": "B"}],
-    "output": ["c:C", "a:A", "d:D", "b:B"]
   },
   {
     "src": "from m import pi\nprint(pi)",

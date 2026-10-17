@@ -1,4 +1,4 @@
-use super::{now_ns, Host, Project, Runtime, Sink, Status, Vm};
+use super::{Host, Project, Runtime, Sink, Status, Vm};
 use anyhow::{anyhow, bail, Result};
 use std::io::{BufRead, IsTerminal, Read, Write};
 use std::path::Path;
@@ -111,7 +111,7 @@ pub fn restore_and_run(file: &str, opts: &RunOpts) -> Result<i32> {
     Ok(drive(&mut vm, status, opts))
 }
 
-/* Serves one run to completion, timers sleep, host calls wait, unservable parks snapshot or fail. */
+/* Serves one run to completion, host calls wait, unservable parks snapshot or fail. */
 pub fn drive(vm: &mut Vm, mut status: Status, opts: &RunOpts) -> i32 {
     let mut events: Option<std::io::BufReader<std::fs::File>> = None;
     loop {
@@ -123,10 +123,6 @@ pub fn drive(vm: &mut Vm, mut status: Status, opts: &RunOpts) -> i32 {
                 return 1;
             }
             Status::Preempted => step(vm),
-            Status::PendingTimer(deadline) => {
-                sleep_until(deadline);
-                step(vm)
-            }
             Status::PendingEvent => {
                 if vm.drain_buffered() > 0 {
                     step(vm)
@@ -162,13 +158,6 @@ fn step(vm: &mut Vm) -> Status {
     match vm.resume() {
         Ok(status) => status,
         Err(e) => Status::Error(format!("error: {e}")),
-    }
-}
-
-pub(super) fn sleep_until(deadline: u64) {
-    let now = now_ns();
-    if deadline > now {
-        std::thread::sleep(std::time::Duration::from_nanos(deadline - now));
     }
 }
 
@@ -245,10 +234,6 @@ impl Session {
                 Status::Exit(code) => return Ok(Outcome { err: None, exit_code: Some(code as i32) }),
                 Status::Error(text) => return Ok(Outcome { err: Some(text), exit_code: None }),
                 Status::Preempted => step(&mut self.vm),
-                Status::PendingTimer(deadline) => {
-                    sleep_until(deadline);
-                    step(&mut self.vm)
-                }
                 Status::PendingHostCall => {
                     self.vm.dispatch();
                     if self.vm.inflight() == 0 {

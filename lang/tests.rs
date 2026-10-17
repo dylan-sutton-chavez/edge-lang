@@ -1,7 +1,6 @@
 use lang::{Engine, Error, Limits, Value};
 
-// an engine past the pin counts memory only through its own allocator
-#[cfg(feature = "metered")]
+// the engine counts memory only through its own allocator
 #[global_allocator]
 static METERED: compiler::value::meter::Metered<std::alloc::System> = compiler::value::meter::Metered(std::alloc::System);
 
@@ -239,3 +238,43 @@ fn call_unknown() {
 }
 
 
+
+// tasks interleave on the virtual clock, by wake time and then by the order they slept
+#[test]
+fn tasks_interleave() {
+    let src = "from tasks import run, sleep, gather\nlog = []\nasync def worker(name, n, step):\n    for i in range(n):\n        await sleep(step)\n        log.append(name + str(i))\n    return name\nprint(run(gather(worker('a', 3, 2), worker('b', 2, 3), worker('c', 1, 0))), log)";
+    let out = Engine::builder().build().compile(src).unwrap().run().unwrap();
+    assert_eq!(out.text(), "['a', 'b', 'c'] ['c0', 'a0', 'b0', 'a1', 'b1', 'a2']\n");
+}
+
+// a timeout cancels the slow task, and a cancel the task catches leaves it running to its return
+#[test]
+fn tasks_timeout_and_cancel() {
+    let src = "from tasks import run, sleep, gather, with_timeout, cancel, CancelledError\nasync def slow():\n    await sleep(5)\nasync def stubborn():\n    try:\n        await sleep(100)\n    except CancelledError:\n        return 'survived'\nasync def killer(t):\n    await sleep(1)\n    cancel(t)\nasync def main():\n    try:\n        await with_timeout(1, slow())\n    except TimeoutError as e:\n        print(e)\n    s = stubborn()\n    print(await gather(s, killer(s)))\nrun(main())";
+    let out = Engine::builder().build().compile(src).unwrap().run().unwrap();
+    assert_eq!(out.text(), "timed out after 1 seconds\n['survived', None]\n");
+}
+
+// an error in a gathered task reaches the awaiting one, and run raises what its first task raised
+#[test]
+fn tasks_errors_propagate() {
+    let src = "from tasks import run, sleep, gather\nasync def bad():\n    await sleep(0)\n    raise ValueError('boom')\nasync def main():\n    try:\n        await gather(bad(), sleep(1))\n    except ValueError as e:\n        print('caught', e)\n    await bad()\nrun(main())";
+    let err = Engine::builder().build().compile(src).unwrap().run().unwrap_err();
+    assert!(err.message().contains("ValueError: boom"), "{}", err.message());
+}
+
+// ten thousand tasks run in one loop, each step taking the ready queue in constant time
+#[test]
+fn tasks_scale() {
+    let src = "from tasks import run, sleep, gather\nasync def tiny(i):\n    await sleep(0)\n    return i\nasync def main():\n    return sum(await gather(*[tiny(i) for i in range(10000)]))\nprint(run(main()))";
+    let out = Engine::builder().build().compile(src).unwrap().run().unwrap();
+    assert_eq!(out.text(), "49995000\n");
+}
+
+// run refuses to start inside a running loop
+#[test]
+fn tasks_run_is_not_reentrant() {
+    let src = "from tasks import run\nasync def main():\n    run(main())\nrun(main())";
+    let err = Engine::builder().build().compile(src).unwrap().run().unwrap_err();
+    assert!(err.message().contains("run() cannot be called from a running loop"), "{}", err.message());
+}
