@@ -136,6 +136,18 @@ They render with line, column, and a caret preview. A report shows the first 20 
 
 The diagnostics of the [source and token limits](#source-and-token-limits) belong here too. Import failures are compile-time diagnostics as well, including modules Edge Python does not ship (`os`, `sys`, `asyncio`). See [Modules](/docs/edge-python/reference/modules#resolution-errors) for those message formats.
 
+### Compile-time warnings
+
+Code that compiles but is likely a slip prints a `SyntaxWarning` to stderr before the program runs, worded as Python words it, and the program then runs as written:
+
+- a literal called or subscripted, `5()` or `[1, 2][1, 2]`, which is often a missing comma;
+- an invalid escape such as `"\d"`, or an octal one past `\377`;
+- a number run into a keyword, `1if x else 0`;
+- `assert (x, "msg")`, a tuple that is always true;
+- `return`, `break` or `continue` leaving a `finally` block.
+
+The CLI writes `file:line: SyntaxWarning: message` with the source line under it, and the browser sends the same text to `console.warn`. There is no `warnings` module, so no filter silences them.
+
 ## Runtime errors
 
 Runtime errors raise as typed exceptions, catchable with `try` and `except`.

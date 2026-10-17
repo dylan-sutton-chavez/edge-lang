@@ -179,6 +179,11 @@ async function execute({ src, payload, start, entry = '', onLine, incremental = 
     pendingHostCalls.clear(); // drop any stale captures from a prior run
     // The compiler copies the source out before the call returns.
     const payloadPtr = writeBytes(exports, payload);
+    // The SyntaxWarnings of the program print before it runs, as Python prints them.
+    if (!incremental && exports.compile_warnings) {
+        const n = exports.compile_warnings(payloadPtr, payload.length);
+        if (n > 0) console.warn(TD.decode(new Uint8Array(exports.memory.buffer, exports.out_ptr(), n)));
+    }
     const status = start(exports, payloadPtr, payload.length);
     exports.wasm_free(payloadPtr, Math.max(1, payload.length));
     let result: ExecResult;

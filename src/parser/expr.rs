@@ -2,7 +2,7 @@
 use super::Parser;
 use super::types::{OpCode, Value, MAX_EXPR_DEPTH, Instruction};
 
-use super::types::{parse_string, parse_bytes_literal};
+use super::types::{parse_string_noting, parse_bytes_noting};
 use crate::lexer::{Token, TokenType};
 
 use alloc::{string::ToString, vec::Vec, string::String};
@@ -11,7 +11,15 @@ use alloc::{string::ToString, vec::Vec, string::String};
 #[derive(Clone, Copy)]
 pub(super) enum Tail { Expr, Stmt, Target }
 
+/* The tokens a literal atom starts with, the only atoms whose call or subscript may warn. */
+#[inline(always)]
+fn literal_token(kind: TokenType) -> bool {
+    matches!(kind, TokenType::Int | TokenType::Float | TokenType::String | TokenType::FstringStart | TokenType::Bytes
+        | TokenType::True | TokenType::False | TokenType::None | TokenType::Ellipsis | TokenType::Lsqb | TokenType::Lbrace | TokenType::Lpar)
+}
+
 /* The comparison operators, all at one precedence and all chaining, `not` here only opens `not in`. */
+#[inline(always)]
 fn is_comparison(tok: TokenType) -> bool {
     matches!(tok, TokenType::EqEqual | TokenType::NotEqual | TokenType::Less | TokenType::Greater
         | TokenType::LessEqual | TokenType::GreaterEqual | TokenType::In | TokenType::Is | TokenType::Not)
@@ -30,6 +38,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
     /* Ternary, value was emitted first (single-pass), so reorder `[value][cond]` into `[cond][JumpIfFalse][value][Jump][else]` for Python evaluation order. */
     pub(super) fn ternary_tail(&mut self, val_start: usize) {
         if self.saw_newline || !matches!(self.peek_same_line(), Some(TokenType::If)) { return; }
+        self.glued_keyword();
         self.advance();
         let cond_start = self.chunk.instructions.len();
         self.expr_bp(0);
@@ -53,6 +62,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
 
         let jmp = self.emit_jump(OpCode::Jump);
         self.patch(jf);
+        self.glued_keyword();
         self.eat(TokenType::Else);
         // A conditional chained in the else-branch nests one level deeper.
         self.nested(Self::expr);
@@ -102,6 +112,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             if is_comparison(tok) {
                 if 7 < min_bp { break; }
                 let op_start = self.tokens.peek().map_or(self.last_end, |t| t.start);
+                self.glued_keyword();
                 let op = self.comparison_op();
                 let right = self.chunk.instructions.len();
                 self.expr_bp(8);
@@ -133,9 +144,11 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
 
             let Some((l_bp, r_bp, op)) = Self::binding_power(&tok) else { break };
             if l_bp < min_bp { break; }
+            let logical = matches!(op, OpCode::And | OpCode::Or);
+            if logical { self.glued_keyword(); }
             self.advance();
 
-            if matches!(op, OpCode::And | OpCode::Or) {
+            if logical {
                 let jump_op = if op == OpCode::And { OpCode::JumpIfFalseOrPop } else { OpCode::JumpIfTrueOrPop };
                 let jmp = self.emit_jump(jump_op);
                 self.expr_bp(r_bp);
@@ -226,16 +239,21 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
     /* Atoms, literals, names, numbers, strings, f-strings, containers. */
     pub(super) fn parse_atom(&mut self) {
         let errs_before = self.errors.len();
+        let from = self.chunk.instructions.len();
         let t = self.advance();
         match t.kind {
             TokenType::Name | TokenType::Underscore => self.name(t),
             TokenType::String | TokenType::FstringStart => self.string_group(t),
             TokenType::Bytes => {
                 // Adjacent bytes literals concat, mixing with str surfaces a diagnostic.
-                let mut buf = parse_bytes_literal(self.lexeme(&t));
+                let mut bad = false;
+                let mut buf = parse_bytes_noting(self.lexeme(&t), &mut bad);
+                if bad { self.escape_at(&self.source[t.start..t.end], t.start, true); }
                 while matches!(self.peek_same_line(), Some(TokenType::Bytes)) {
                     let t = self.advance();
-                    buf.extend_from_slice(&parse_bytes_literal(self.lexeme(&t)));
+                    let mut bad = false;
+                    buf.extend_from_slice(&parse_bytes_noting(self.lexeme(&t), &mut bad));
+                    if bad { self.escape_at(&self.source[t.start..t.end], t.start, true); }
                 }
                 self.emit_const(Value::Bytes(buf));
             }
@@ -259,7 +277,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
                 }
             }
         }
-        self.postfix_tail(Tail::Expr);
+        self.postfix_tail_after(Tail::Expr, Some((from, &t)));
     }
 
     /* After `(`, an empty tuple, a generator expression, a tuple or a parenthesized expression. */
@@ -289,7 +307,9 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         let mut tok = first;
         loop {
             if tok.kind == TokenType::String {
-                lit.push_str(&parse_string(self.lexeme(&tok)));
+                let mut bad = false;
+                lit.push_str(&parse_string_noting(self.lexeme(&tok), &mut bad));
+                if bad { self.escape_at(&self.source[tok.start..tok.end], tok.start, false); }
             } else {
                 // Flush pending literal text so part order holds.
                 if !lit.is_empty() {
@@ -472,17 +492,107 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         }
     }
 
+    /* The warning of a literal atom called or subscripted, and the sequence literal a subscript then checks its index against. */
+    #[cold]
+    #[inline(never)]
+    fn literal_trailer(&mut self, from: usize, t: &Token, next: TokenType) -> Option<(&'static str, usize)> {
+        let ty = self.literal_type(from, t)?;
+        // A literal called or subscripted is likely a missing comma, which Python warns about.
+        if next == TokenType::Lpar { self.warn(t.start, crate::s!("'", str ty, "' object is not callable; perhaps you missed a comma?")); }
+        else if matches!(ty, "str" | "bytes" | "list" | "tuple") { return Some((ty, t.start)); }
+        else if ty != "dict" { self.warn(t.start, crate::s!("'", str ty, "' object is not subscriptable; perhaps you missed a comma?")); }
+        None
+    }
+
+    /* The type of the literal the atom at `t` compiled from `from`, None for a value that is not one. */
+    #[cold]
+    fn literal_type(&self, from: usize, t: &Token) -> Option<&'static str> {
+        let ins = &self.chunk.instructions[from..];
+        let text = self.lexeme(t);
+        Some(match t.kind {
+            TokenType::Int | TokenType::Float if text.ends_with(['j', 'J']) => "complex",
+            TokenType::Int => "int",
+            TokenType::Float => "float",
+            TokenType::String | TokenType::FstringStart => "str",
+            TokenType::Bytes => "bytes",
+            TokenType::True | TokenType::False => "bool",
+            TokenType::None => "NoneType",
+            TokenType::Ellipsis => "ellipsis",
+            TokenType::Lsqb => "list",
+            TokenType::Lbrace => match ins.last()?.opcode {
+                OpCode::BuildSet | OpCode::SetUpdate | OpCode::SetAdd => "set",
+                OpCode::Call if self.comp_name(ins) == Some("<setcomp>") => "set",
+                _ => "dict",
+            },
+            // A parenthesised atom is a literal when it compiled to one constant or a tuple.
+            TokenType::Lpar => match ins {
+                [one] => self.const_type(one)?,
+                [.., last] if last.opcode == OpCode::BuildTuple => "tuple",
+                _ => return None,
+            },
+            _ => return None,
+        })
+    }
+
+    /* The comprehension a trailing call of `ins` runs. */
+    fn comp_name(&self, ins: &[super::types::Instruction]) -> Option<&str> {
+        let [.., make, _, _] = ins else { return None };
+        if make.opcode != OpCode::MakeFunction { return None; }
+        let f = self.chunk.functions.get(make.operand as usize)?;
+        self.chunk.names.get(f.3 as usize).map(|n| super::types::ssa_strip(n))
+    }
+
+    /* The type of one constant load, None for any other instruction. */
+    fn const_type(&self, i: &super::types::Instruction) -> Option<&'static str> {
+        Some(match i.opcode {
+            OpCode::LoadNone => "NoneType",
+            OpCode::LoadTrue | OpCode::LoadFalse => "bool",
+            OpCode::LoadEllipsis => "ellipsis",
+            OpCode::LoadConst => match self.chunk.constants.get(i.operand as usize)? {
+                Value::Int(_) | Value::BigInt(_) => "int",
+                Value::Float(_) => "float",
+                Value::Imag(_) => "complex",
+                Value::Str(_) => "str",
+                Value::Bytes(_) => "bytes",
+                Value::Bool(_) => "bool",
+                Value::None => "NoneType",
+            },
+            _ => return None,
+        })
+    }
+
+    /* The type of a literal index compiled from `from` that no sequence takes, None for an int or anything else. */
+    #[cold]
+    fn index_type(&self, from: usize) -> Option<&'static str> {
+        let ins = &self.chunk.instructions[from..];
+        match ins {
+            [one] => self.const_type(one).filter(|t| !matches!(*t, "int" | "bool")),
+            [.., last] if last.opcode == OpCode::BuildTuple => Some("tuple"),
+            _ => None,
+        }
+    }
+
     /* Same-line `.attr`, `[i]` and `(args)` trailers, true when the chain ends in a store. */
-    pub(super) fn postfix_tail(&mut self, tail: Tail) -> bool {
+    pub(super) fn postfix_tail(&mut self, tail: Tail) -> bool { self.postfix_tail_after(tail, None) }
+
+    /* The trailers after an atom, `atom` the one just compiled from where its code starts, a literal one warning when called or subscripted. */
+    fn postfix_tail_after(&mut self, tail: Tail, mut atom: Option<(usize, &Token)>) -> bool {
         loop {
             match self.peek_same_line() {
                 Some(TokenType::Lsqb) => {
+                    // Only the first trailer follows the atom itself.
+                    let literal = match atom.take() { Some((from, t)) if literal_token(t.kind) => self.literal_trailer(from, t, TokenType::Lsqb), _ => None };
                     self.advance();
+                    let from = self.chunk.instructions.len();
                     self.parse_subscript();
+                    if let Some((ty, at)) = literal && let Some(index) = self.index_type(from) {
+                        self.warn(at, crate::s!(str ty, " indices must be integers or slices, not ", str index, "; perhaps you missed a comma?"));
+                    }
                     if self.store_trailer(tail, None) { return true; }
                     self.chunk.emit(OpCode::GetItem, 0);
                 }
                 Some(TokenType::Dot) => {
+                    atom = None;
                     self.advance();
                     // Inside brackets the name may sit on the line after the dot, a statement end leaves none.
                     if self.peek_same_line().is_none() { self.diag_at_peek("expected an attribute name after '.'"); return false; }
@@ -495,6 +605,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
                     self.chunk.emit(OpCode::LoadAttr, idx);
                 }
                 Some(TokenType::Lpar) => {
+                    if let Some((from, t)) = atom.take() && literal_token(t.kind) { self.literal_trailer(from, t, TokenType::Lpar); }
                     // Call after any trailer.
                     let call_pos = self.last_end as u32;
                     self.advance();

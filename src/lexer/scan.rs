@@ -37,7 +37,10 @@ impl<'a> Scanner<'a> {
     }
 
     #[inline]
+    #[cold]
     fn report(&mut self, start: usize, end: usize, msg: &'static str) {
+        // A backslash inside an f-string field belongs to its format spec, which the parser reads off the source.
+        if self.src.get(start) == Some(&b'\\') && end == start + 1 && !self.fstring_stack.is_empty() { return; }
         self.errors.push(LexError { start, end, msg });
     }
 

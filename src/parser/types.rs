@@ -236,6 +236,8 @@ pub struct SSAChunk {
     pub(super) name_index: hashbrown::HashTable<u16>,
     /* stmt ip->byte_offset map, binary-searched on error path, hot dispatch never touches it. */
     pub stmt_pos: Vec<(u32, u32)>,
+    /* The SyntaxWarnings of the program, which a host prints before it runs. */
+    pub warnings: Vec<Diagnostic>,
     /* Call ip->byte_offset map, finer than stmt_pos, traceback caret lands under the call. */
     pub call_byte_pos: Vec<(u32, u32)>,
     /* Source text, shared via Arc across sub-chunks. Empty for manually constructed chunks. */
@@ -490,6 +492,7 @@ pub fn ssa_strip(name: &str) -> &str {
 }
 
 /* Diagnostic with byte offsets, line/col computed at render time (UTF-8 safe). */
+#[derive(Clone)]
 pub struct Diagnostic {
     pub start: usize,
     pub end: usize,
@@ -590,6 +593,18 @@ impl Diagnostic {
         o
     }
 
+    /* Each warning as Python prints it, `path:line: SyntaxWarning: msg` over its source line. */
+    pub fn render_warnings(warns: &[Diagnostic], src: &str, path: Option<&str>) -> String {
+        let lines = Lines::new(src);
+        let mut out = String::new();
+        for w in warns {
+            let (line, start) = lines.line_of(w.start);
+            let text = src[start..].split('\n').next().unwrap_or("").trim_end_matches('\r');
+            out.push_str(&s!(str path.unwrap_or("<input>"), ":", int line as i64, ": SyntaxWarning: ", str &w.msg, "\n  ", str text.trim(), "\n"));
+        }
+        out
+    }
+
     /* A whole report, its first MAX_SHOWN diagnostics and then how many more there are. */
     pub fn render_all(errs: &[Diagnostic], src: &str, path: Option<&str>) -> String {
         let mut out = String::new();
@@ -613,7 +628,10 @@ pub(super) fn has_raw_prefix(s: &str) -> bool {
 }
 
 // Strip prefix + quotes and unescape (skipped for raw strings).
-pub(super) fn parse_string(s: &str) -> String {
+pub(super) fn parse_string(s: &str) -> String { parse_string_noting(s, &mut false) }
+
+/* `parse_string`, setting `bad` when an escape is one Python warns about. */
+pub(super) fn parse_string_noting(s: &str, bad: &mut bool) -> String {
     let is_raw = has_raw_prefix(s);
     let s = s.trim_start_matches(|c: char| "bBrRuU".contains(c));
     let inner = if s.starts_with("\"\"\"") || s.starts_with("'''") {
@@ -627,11 +645,14 @@ pub(super) fn parse_string(s: &str) -> String {
         owned = inner.replace("\r\n", "\n").replace('\r', "\n");
         &owned
     } else { inner };
-    if is_raw { inner.to_string() } else { unescape(inner) }
+    if is_raw { inner.to_string() } else { unescape(inner, bad) }
 }
 
 /* Parses b"..." to raw bytes, non-ASCII pass through, \xHH and up-to-3-digit \ooo decode to one byte, \u/\U/\N pass through verbatim. */
-pub(super) fn parse_bytes_literal(s: &str) -> alloc::vec::Vec<u8> {
+pub(super) fn parse_bytes_literal(s: &str) -> alloc::vec::Vec<u8> { parse_bytes_noting(s, &mut false) }
+
+/* `parse_bytes_literal`, setting `bad` when an escape is one Python warns about. */
+pub(super) fn parse_bytes_noting(s: &str, bad: &mut bool) -> alloc::vec::Vec<u8> {
     let bytes = s.as_bytes();
     let is_raw = has_raw_prefix(s);
     // Skip b/B/r/R prefix chars.
@@ -672,6 +693,7 @@ pub(super) fn parse_bytes_literal(s: &str) -> alloc::vec::Vec<u8> {
                     v = v * 8 + (body[k] - b'0') as u32;
                     k += 1;
                 }
+                *bad |= v > 0o377;
                 out.push(v as u8);
                 j = k;
             }
@@ -689,17 +711,17 @@ pub(super) fn parse_bytes_literal(s: &str) -> alloc::vec::Vec<u8> {
                 // Malformed \x emits verbatim.
                 out.push(b'\\'); out.push(b'x'); j += 2;
             }
-            other => { out.push(b'\\'); out.push(other); j += 2; }
+            other => { *bad = true; out.push(b'\\'); out.push(other); j += 2; }
         }
     }
     out
 }
 
-fn unescape(s: &str) -> String {
+fn unescape(s: &str, bad: &mut bool) -> String {
     let mut out = String::with_capacity(s.len());
     let mut chars = s.chars().peekable();
     while let Some(c) = chars.next() {
-        if c == '\\' { push_escape(&mut out, &mut chars); } else { out.push(c); }
+        if c == '\\' { *bad |= push_escape(&mut out, &mut chars); } else { out.push(c); }
     }
     out
 }
@@ -713,14 +735,14 @@ fn simple_escape(c: u8) -> Option<u8> {
     })
 }
 
-/* Decodes one backslash escape (cursor already past the `\`) into `out`, unknown escapes keep the backslash. */
-pub(super) fn push_escape(out: &mut String, chars: &mut core::iter::Peekable<core::str::Chars>) {
+/* Decodes one backslash escape (cursor already past the `\`) into `out`, unknown escapes keep the backslash, true for one Python warns about. */
+pub(super) fn push_escape(out: &mut String, chars: &mut core::iter::Peekable<core::str::Chars>) -> bool {
     let take_hex = |chars: &mut core::iter::Peekable<core::str::Chars>, n: usize| -> char {
         let hex: String = chars.by_ref().take(n).collect();
         u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32).unwrap_or('\u{FFFD}')
     };
     let next = chars.next();
-    if let Some(b) = next.and_then(|c| u8::try_from(c).ok()).and_then(simple_escape) { out.push(b as char); return; }
+    if let Some(b) = next.and_then(|c| u8::try_from(c).ok()).and_then(simple_escape) { out.push(b as char); return false; }
     match next {
         // A backslash before a newline joins the lines.
         Some('\n') => {}
@@ -735,10 +757,12 @@ pub(super) fn push_escape(out: &mut String, chars: &mut core::iter::Peekable<cor
             }
             let code = u32::from_str_radix(&digits, 8).unwrap_or(0);
             out.push(char::from_u32(code).unwrap_or('\u{FFFD}'));
+            return code > 0o377;
         }
-        Some(c) => { out.push('\\'); out.push(c); }
+        Some(c) => { out.push('\\'); out.push(c); return true; }
         None => out.push('\\'),
     }
+    false
 }
 
 // Builtin types registered as Type heap objects at VM init, a match so a user name misses without a scan.
@@ -770,4 +794,32 @@ builtin_types! {
     "Warning", "UserWarning", "DeprecationWarning", "PendingDeprecationWarning", "SyntaxWarning",
     "RuntimeWarning", "FutureWarning", "ImportWarning", "UnicodeWarning", "BytesWarning",
     "ResourceWarning", "EncodingWarning",
+}
+
+/* The first escape of `text` Python warns about, where it sits and the warning, past the prefix of a quoted literal. */
+pub(super) fn bad_escape(text: &str, bytes: bool) -> Option<(usize, String)> {
+    let b = text.as_bytes();
+    let mut i = 0;
+    while i + 1 < b.len() {
+        if b[i] != b'\\' { i += 1; continue; }
+        let c = b[i + 1];
+        match c {
+            b'\n' | b'\r' | b'\\' | b'\'' | b'"' | b'a' | b'b' | b'f' | b'n' | b'r' | b't' | b'v' | b'x' => {}
+            b'N' | b'u' | b'U' if !bytes => {}
+            b'0'..=b'7' => {
+                let digits = b[i + 1..].iter().take(3).take_while(|d| (b'0'..=b'7').contains(d)).count();
+                let esc = &text[i..i + 1 + digits];
+                if u32::from_str_radix(&esc[1..], 8).is_ok_and(|n| n > 0o377) {
+                    return Some((i, s!("\"", str esc, "\" is an invalid octal escape sequence. Such sequences will not work in the future. Did you mean \"\\", str esc, "\"? A raw string is also an option.")));
+                }
+                i += digits;
+            }
+            _ => {
+                let ch = text[i + 1..].chars().next().unwrap_or('?');
+                return Some((i, s!("\"\\", char ch, "\" is an invalid escape sequence. Such sequences will not work in the future. Did you mean \"\\\\", char ch, "\"? A raw string is also an option.")));
+            }
+        }
+        i += 2;
+    }
+    None
 }

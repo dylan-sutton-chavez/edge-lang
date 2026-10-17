@@ -41,7 +41,15 @@ fn parse_source(src: &str) -> Result<SSAChunk, String> {
         p.errors.push(Diagnostic { start: e.start, end: e.end, msg: e.msg.into() });
     }
     let (mut chunk, errs) = p.parse();
-    if !errs.is_empty() { return Err(Diagnostic::render_all(&errs, src, source_name().as_deref())); }
+    if !errs.is_empty() {
+        let name = source_name();
+        let report = Diagnostic::render_all(&errs, src, name.as_deref());
+        if chunk.warnings.is_empty() { return Err(report); }
+        // The warnings before the first error print ahead of it, as Python gives them while it compiles.
+        let first = errs.iter().map(|e| e.start).min().unwrap_or(0);
+        chunk.warnings.retain(|w| w.start < first);
+        return Err(s!(str &Diagnostic::render_warnings(&chunk.warnings, src, name.as_deref()), str &report));
+    }
     crate::vm::optimizer::constant_fold(&mut chunk);
     Ok(chunk)
 }
@@ -375,6 +383,16 @@ pub unsafe extern "C" fn repl_eval(ptr: *const u8, len: u32) -> u32 {
     }
     take_input(&mut vm);
     step_vm(vm, &src, None)
+}
+
+/* The SyntaxWarnings of `src` as Python prints them, left in the out buffer for a host to show before `run_start`, which reuses the parse. */
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn compile_warnings(ptr: *const u8, len: u32) -> u32 {
+    let Ok(src) = source_arg(ptr, len) else { return 0 };
+    match entry_chunk(&src) {
+        Ok(chunk) if !chunk.warnings.is_empty() => write_out(&Diagnostic::render_warnings(&chunk.warnings, &src, source_name().as_deref())) as u32,
+        _ => 0,
+    }
 }
 
 #[unsafe(no_mangle)]

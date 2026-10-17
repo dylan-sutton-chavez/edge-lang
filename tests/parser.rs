@@ -84,6 +84,20 @@ mod test {
         }
     }
 
+    // The SyntaxWarnings a program compiles with, the token ones before the compiler ones, as Python prints them.
+    #[test]
+    fn syntax_warnings() {
+        #[derive(serde::Deserialize)]
+        struct Warned { src: String, warnings: Vec<String> }
+        let cases: Vec<Warned> = serde_json::from_str(include_str!("cases/warnings.json")).expect("invalid JSON");
+        for case in cases {
+            let (tokens, _) = lex(&case.src);
+            let (chunk, _) = Parser::new(&case.src, tokens.into_iter()).parse();
+            let got: Vec<String> = chunk.warnings.iter().map(|w| w.msg.clone()).collect();
+            assert_eq!(got, case.warnings, "warnings mismatch on: {:?}", case.src);
+        }
+    }
+
     // Overflow past MAX_INSTRUCTIONS + a trailing `with` must error, not panic on a stale jump index.
     #[test]
     #[cfg_attr(miri, ignore = "lexing 160 KB under Miri's borrow tracking takes longer than a job")]

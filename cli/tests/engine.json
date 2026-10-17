@@ -87,5 +87,6 @@
     "name": "builtins calling back into Python raise RecursionError before the stack runs out",
     "given": { "main.py": "def check(f):\n    try:\n        f()\n    except RecursionError:\n        print('RecursionError')\ndef key(x):\n    return sorted([1, 2], key=key)\nclass G:\n    def __getattr__(self, n):\n        return getattr(G(), n)\nclass I:\n    def __next__(self):\n        return next(I())\nclass L:\n    def __lt__(self, o):\n        return sorted([L(), L()]) is None\nclass R:\n    def __repr__(self):\n        return repr(R())\ncheck(lambda: key(0))\ncheck(lambda: G().zz)\ncheck(lambda: next(I()))\ncheck(lambda: sorted([L(), L()]))\ncheck(lambda: repr(R()))\n" },
     "steps": [{ "run": ["run", "main.py"], "stdout": ["RecursionError\nRecursionError\nRecursionError\nRecursionError\nRecursionError\n"] }]
-  }
+  },
+  {"name": "SyntaxWarnings print to stderr before the program runs, as Python prints them", "given": {"main.py": "print(\"start\")\ntry:\n    5()\nexcept TypeError:\n    print(\"caught\")\nassert (1, \"m\")\n"}, "steps": [{"run": ["run", "main.py"], "stdout": ["start\ncaught\n"], "stderr": ["main.py:3: SyntaxWarning: 'int' object is not callable; perhaps you missed a comma?\n  5()\n", "main.py:6: SyntaxWarning: assertion is always true, perhaps remove parentheses?\n  assert (1, \"m\")\n"]}]}
 ]

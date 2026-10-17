@@ -122,6 +122,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
     /* The `for` and `if` clauses of a comprehension after its first, each `if` filtering the innermost loop. */
     fn comp_clauses(&mut self, loop_starts: &mut Vec<u16>, for_iters: &mut Vec<usize>) {
         loop {
+            self.glued_keyword();
             if let Some(&ls) = loop_starts.last() && self.eat_if(TokenType::If) {
                 self.expr_bp(1);
                 self.chunk.emit(OpCode::JumpIfFalse, ls);
@@ -177,6 +178,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             Comp::Brace => (Some(OpCode::BuildSet), OpCode::SetAdd, "<setcomp>"),
         };
         let asynced = self.eat_if(TokenType::Async);
+        self.glued_keyword();
         self.eat(TokenType::For);
         let at = self.mark();
         let shape = self.tokens.target_list();
@@ -246,16 +248,18 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
                 let t = self.advance();
                 let raw = self.lexeme(&t);
                 let mut unescaped = String::with_capacity(raw.len());
+                let mut bad = false;
                 // Single pass so `{{` is seen in the raw text before any escape can produce a brace.
                 let mut chars = raw.chars().peekable();
                 while let Some(c) = chars.next() {
                     match c {
                         '{' if chars.peek() == Some(&'{') => { chars.next(); unescaped.push('{'); }
                         '}' if chars.peek() == Some(&'}') => { chars.next(); unescaped.push('}'); }
-                        '\\' if !is_raw => super::types::push_escape(&mut unescaped, &mut chars),
+                        '\\' if !is_raw => bad |= super::types::push_escape(&mut unescaped, &mut chars),
                         _ => unescaped.push(c),
                     }
                 }
+                if bad { self.escape_at(&self.source[t.start..t.end], t.start, false); }
                 self.emit_const(Value::Str(unescaped));
                 parts += 1;
             }
@@ -301,7 +305,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
                     }
                     if matches!(self.peek(), Some(TokenType::Colon)) {
                         self.advance();
-                        self.fstring_spec();
+                        self.fstring_spec(is_raw);
                         flags |= 1;
                     }
                     self.chunk.emit(OpCode::FormatValue, flags);
@@ -325,11 +329,13 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
     }
 
     /* A replacement field spec as one string, raw text with nested `{expr}` fields formatted in, `f"{x:{w}}"`. */
-    fn fstring_spec(&mut self) {
+    fn fstring_spec(&mut self, raw: bool) {
         let (mut pieces, mut lit_start) = (0u16, self.last_end);
         loop {
             let (kind, at) = self.tokens.peek().map_or((None, self.source.len()), |t| (Some(t.kind), t.start));
             if at > lit_start && matches!(kind, Some(TokenType::Rbrace | TokenType::Lbrace) | None) {
+                let text = &self.source[lit_start..at];
+                if !raw && text.contains('\\') { self.escape_at(text, lit_start, false); }
                 self.emit_const(Value::Str(self.source[lit_start..at].to_string()));
                 pieces += 1;
             }

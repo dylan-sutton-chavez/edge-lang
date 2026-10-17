@@ -268,6 +268,11 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         fail_jumps.push(self.emit_jump(OpCode::JumpIfFalse));
     }
 
+    /* Warns when `break` or `continue` at `at` leaves the `finally` body it sits in. */
+    pub(super) fn leaves_finally(&mut self, at: usize, word: &str) {
+        if self.finally_loops.is_some_and(|depth| self.loops.len() <= depth as usize) { self.warn(at, crate::s!("'", str word, "' in a 'finally' block")); }
+    }
+
     /* A literal pattern, a number after an optional minus, adjacent strings or bytes, or a singleton. */
     fn pattern_literal(&self, toks: &[crate::lexer::Token]) -> Option<super::types::Value> {
         use super::types::{Value, parse_string, parse_bytes_literal};
@@ -586,7 +591,9 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         self.patch_to(fin_setup, fin_body);
         if self.eat_if(TokenType::Finally) {
             self.eat(TokenType::Colon);
+            let outer = self.finally_loops.replace(self.loops.len() as u16);
             self.compile_block();
+            self.finally_loops = outer;
         }
         self.chunk.emit(OpCode::EndFinally, 0);
 

@@ -149,9 +149,8 @@ open("data.txt")
 
 ### Left out by design
 
-Values are NaN-boxed and frames keep their locals in registers, so two equal numbers are one value and a frame has no dict. Each of these fails at compile time with a message naming what to use instead.
+Values are NaN-boxed and frames keep their locals in registers, so two equal numbers are one value and `locals()` returns a fresh copy instead of the frame itself. Each of these fails at compile time with a message naming what to use instead.
 
-- `locals`.
 - `is` against anything but `None`, `True`, `False`, `...` or `NotImplemented`. Compare with `==`, which on an instance without `__eq__` already compares identity.
 - Metaclasses, `__del__`, `__getattribute__` and any dunder outside the supported list.
 - A list, dict or set as a default argument. Default to `None` and build the value in the body.
@@ -214,7 +213,7 @@ There is no `asyncio` and no event loop object. The async primitives are top-lev
 
 ### Compile time versus run time
 
-Import failures and syntax errors in the program are compile-time diagnostics and can never be caught with `try`. In text that `eval`, `exec` or `compile` parse they raise `SyntaxError`, and everything else raises normal catchable exceptions at run time.
+Import failures and syntax errors in the program are compile-time diagnostics and can never be caught with `try`. Code that compiles but looks like a slip, such as `5()`, an invalid escape like `"\d"` or `assert (x, "msg")`, prints a `SyntaxWarning` to stderr before the program runs, worded as Python words it. In text that `eval`, `exec` or `compile` parse they raise `SyntaxError`, and everything else raises normal catchable exceptions at run time.
 
 ## Imports
 

@@ -7,6 +7,8 @@ mod literals;
 mod imports;
 
 pub use types::*;
+// The end a literal warning carries in place of a span, marking it as one the tokenizer gives.
+const TOKEN_WARNING: usize = usize::MAX;
 
 use crate::s;
 use crate::lexer::{Token, TokenType};
@@ -68,6 +70,15 @@ pub(super) struct Tokens<I: Iterator<Item = Token>> {
 impl<I: Iterator<Item = Token>> Tokens<I> {
     #[inline]
     pub(super) fn peek(&self) -> Option<&Token> { self.toks.get(self.pos) }
+
+    /* The span of a number the next token, a keyword, is run into without a space, `1if`. */
+    #[inline]
+    pub(super) fn glued_number(&self) -> Option<(usize, usize)> {
+        let (prev, next) = (self.toks.get(self.pos.checked_sub(1)?)?, self.toks.get(self.pos)?);
+        (prev.end == next.start && matches!(prev.kind, TokenType::Int | TokenType::Float) && matches!(next.kind,
+            TokenType::And | TokenType::Else | TokenType::For | TokenType::If | TokenType::In | TokenType::Is | TokenType::Not | TokenType::Or))
+            .then_some((prev.start, prev.end))
+    }
 
     #[inline]
     pub(super) fn next(&mut self) -> Option<Token> {
@@ -248,6 +259,10 @@ pub struct Parser<'src, I: Iterator<Item = Token>> {
     /* Names declared `nonlocal` in this scope or one inside it that no function up to here binds, with their spans. */
     pub(super) unbound_nonlocals: Vec<(String, usize, usize)>,
     pub errors: Vec<Diagnostic>,
+    /* The SyntaxWarnings found so far, each span once however often its code compiles. */
+    pub warnings: Vec<Diagnostic>,
+    /* The loop depth a `finally` body opened at, where `break`, `continue` and `return` warn as they leave it. */
+    pub(super) finally_loops: Option<u16>,
     /* Host resolver defaulting to NoopResolver so import-free call sites work unchanged. */
     pub(super) resolver: Box<dyn Resolver>,
     // Shared module cache, sub-parsers inherit the Rc so each spec parses once.
@@ -397,6 +412,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         let saved_loops = (core::mem::take(&mut self.loops), core::mem::replace(&mut self.cleanup_count, 0));
         let saved_class = core::mem::replace(&mut self.in_class_body, false);
         let saved_star = self.star_loops.take();
+        let saved_finally = self.finally_loops.take();
         let saved_comp = core::mem::replace(&mut self.in_comp, false);
         let saved_function = core::mem::replace(&mut self.in_function, false);
         let saved_unbound = core::mem::take(&mut self.unbound_nonlocals);
@@ -422,6 +438,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         (self.join_stack, self.trail) = saved_joins;
         (self.loops, self.cleanup_count) = saved_loops;
         self.star_loops = saved_star;
+        self.finally_loops = saved_finally;
         self.in_class_body = saved_class;
         self.in_comp = saved_comp;
         self.in_function = saved_function;
@@ -537,6 +554,41 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             _ => {}
         }
         tok
+    }
+
+    /* A SyntaxWarning at `start`, kept once when a body compiles twice. */
+    #[cold]
+    pub(super) fn warn(&mut self, start: usize, msg: String) {
+        if !self.warnings.iter().any(|w| w.start == start && w.msg == msg) { self.warnings.push(Diagnostic { start, end: start, msg }); }
+    }
+
+    /* Warns about the first escape of the literal `text` at `start` Python warns about, once its decoder saw one. */
+    #[cold]
+    pub(super) fn escape_at(&mut self, text: &str, start: usize, bytes: bool) {
+        if let Some((at, msg)) = types::bad_escape(text, bytes) { self.token_warn(start + at, msg); }
+    }
+
+    /* Warns when the keyword about to be read is run into the number before it, which reads like a typo. */
+    #[inline]
+    pub(super) fn glued_keyword(&mut self) {
+        if let Some((start, end)) = self.tokens.glued_number() { self.number_warning(start, end); }
+    }
+
+    /* `1if` and its kin, named by the base the literal is written in. */
+    #[cold]
+    pub(super) fn number_warning(&mut self, start: usize, end: usize) {
+        let text = &self.source[start..end];
+        let kind = match text.get(..2).map(str::to_ascii_lowercase).as_deref() {
+            Some("0x") => "hexadecimal", Some("0o") => "octal", Some("0b") => "binary",
+            _ if text.ends_with(['j', 'J']) => "imaginary", _ => "decimal",
+        };
+        self.token_warn(start, s!("invalid ", str kind, " literal"));
+    }
+
+    #[cold]
+    pub(super) fn token_warn(&mut self, start: usize, msg: String) {
+        // A literal warning marks its end, so it sorts ahead of the compiler ones as the tokenizer gives it first.
+        if !self.warnings.iter().any(|w| w.start == start && w.msg == msg) { self.warnings.push(Diagnostic { start, end: TOKEN_WARNING, msg }); }
     }
 
     /* Non-syncing diagnostic over a span that parsed fine but is not allowed. */
@@ -820,6 +872,8 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             removed_uses: Vec::new(),
             unbound_nonlocals: Vec::new(),
             errors: Vec::new(),
+            warnings: Vec::new(),
+            finally_loops: None,
             resolver,
             module_cache,
         }
@@ -888,6 +942,8 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
 
         self.chunk.emit(OpCode::ReturnValue, 0);
         self.chunk.finalize_prev_slots();
+        if !self.warnings.is_empty() { self.warnings.sort_by_key(|w| w.end != TOKEN_WARNING); }
+        self.chunk.warnings = self.warnings;
         (self.chunk, self.errors)
     }
 }

@@ -6,6 +6,9 @@ pub const C_RANGE_ERR: &str = "%c arg not in range(0x110000)";
 const C_LONG_ERR: &str = "Python int too large to convert to C long";
 const DIGITS_ERR: &str = "Exceeds the limit (4300 digits) for integer string conversion; use sys.set_int_max_str_digits() to increase the limit";
 
+// A spec with characters past its type, which `format_typed` words with the spec and the type.
+const INVALID_SPEC: &str = "Invalid format specifier";
+
 pub fn fmt_err(m: &'static str) -> VmErr {
     if m == C_RANGE_ERR || m == C_LONG_ERR { VmErr::Raised(crate::s!("OverflowError: ", str m)) } else { cold_value(m) }
 }
@@ -32,11 +35,16 @@ struct Spec {
     precision: Option<usize>,
     ty: u8, // 0 means default
     eq: bool, // `=` written in the spec, unlike the one a leading `0` implies
+    z: bool, // `z` turns a negative zero, after rounding, positive
 }
 
 /* `format(v, spec)` for `format`, f-strings and `str.format`, a code `v` has no meaning for named like Python. */
 pub fn format_typed(v: Val, spec: &str, type_name: &str, heap: &HeapPool) -> Result<String, VmErr> {
-    let ty = parse_spec(spec).map_err(fmt_err)?.ty;
+    let ty = match parse_spec(spec) {
+        Ok(s) => s.ty,
+        Err(INVALID_SPEC) => return Err(VmErr::Raised(alloc::format!("ValueError: Invalid format specifier '{spec}' for object of type '{type_name}'"))),
+        Err(m) => return Err(fmt_err(m)),
+    };
     let int_like = v.is_int() || v.is_bool() || crate::frontend::int::is_big(heap, v);
     let fits = match ty {
         0 => true,
@@ -95,6 +103,7 @@ fn parse_spec(spec: &str) -> Result<Spec, &'static str> {
         s.sign = bytes[i];
         i += 1;
     }
+    if i < bytes.len() && bytes[i] == b'z' { s.z = true; i += 1; }
 
     // '#' alternate form, opt in to base prefix on b/o/x/X.
     if i < bytes.len() && bytes[i] == b'#' { s.alt = true; i += 1; }
@@ -118,6 +127,13 @@ fn parse_spec(spec: &str) -> Result<Spec, &'static str> {
     if i < bytes.len() && matches!(bytes[i], b',' | b'_') {
         s.sep = bytes[i];
         i += 1;
+        // One separator only, the same twice or the two together refused as Python refuses them.
+        match (s.sep, bytes.get(i)) {
+            (b',', Some(b',')) => return Err("Cannot specify ',' with ','."),
+            (b'_', Some(b'_')) => return Err("Cannot specify '_' with '_'."),
+            (_, Some(b',' | b'_')) => return Err("Cannot specify both ',' and '_'."),
+            _ => {}
+        }
     }
 
     if i < bytes.len() && bytes[i] == b'.' {
@@ -134,12 +150,25 @@ fn parse_spec(spec: &str) -> Result<Spec, &'static str> {
         i += 1;
     }
 
-    if i != bytes.len() { return Err("trailing characters in format spec"); }
+    if i != bytes.len() { return Err(INVALID_SPEC); }
     Ok(s)
 }
 
 fn apply(v: Val, s: &Spec, heap: &HeapPool) -> Result<String, &'static str> {
     let is_int_like = v.is_int() || v.is_bool() || crate::frontend::int::is_big(heap, v);
+    // The flags that mean nothing for a string or an integer code.
+    if s.z && matches!(heap.try_get(v), Some(HeapObj::Str(_))) { return Err("Negative zero coercion (z) not allowed in string format specifier"); }
+    if s.z && is_int_like && matches!(s.ty, 0 | b'd' | b'b' | b'o' | b'x' | b'X' | b'c' | b'n') { return Err("Negative zero coercion (z) not allowed in integer format specifier"); }
+    if s.alt && s.ty == b'c' { return Err("Alternate form (#) not allowed with integer format specifier 'c'"); }
+    match (s.sep, s.ty) {
+        (b',', b'b') => return Err("Cannot specify ',' with 'b'."),
+        (b',', b'o') => return Err("Cannot specify ',' with 'o'."),
+        (b',', b'x') => return Err("Cannot specify ',' with 'x'."),
+        (b',', b'X') => return Err("Cannot specify ',' with 'X'."),
+        (b',', b'c') => return Err("Cannot specify ',' with 'c'."),
+        (b'_', b'c') => return Err("Cannot specify '_' with 'c'."),
+        _ => {}
+    }
     // Dispatch by type char, int types -> int formatter, float types coerce ints up, `s` only strings.
     match s.ty {
         0 | b's' => {
@@ -183,7 +212,8 @@ fn format_percent(v: Val, s: &Spec, heap: &HeapPool) -> Result<String, &'static 
     let body = if f.is_nan() { "nan".to_string() }
     else if f.is_infinite() { if f.is_sign_negative() { "-inf".into() } else { "inf".into() } }
     else { fixed(f.abs(), prec) };
-    Ok(signed_pad(s, f.is_sign_negative() && !f.is_nan(), "", &alloc::format!("{body}%")))
+    let body = alloc::format!("{body}%");
+    Ok(signed_pad(s, f.is_sign_negative() && !f.is_nan() && !(s.z && zero_text(&body)), "", &body))
 }
 
 fn format_char(v: Val, s: &Spec, heap: &HeapPool) -> Result<String, &'static str> {
@@ -239,7 +269,12 @@ fn format_float(v: Val, s: &Spec, ty: u8, heap: &HeapPool) -> Result<String, &'s
         _ => unreachable!(),
     };
     let body = if s.sep != 0 { add_thousands_float(&body, s.sep) } else { body };
-    Ok(signed_pad(s, f.is_sign_negative(), "", &body))
+    Ok(signed_pad(s, f.is_sign_negative() && !(s.z && zero_text(&body)), "", &body))
+}
+
+/* Whether formatted digits read as zero, the mantissa only, which `z` keeps from a minus sign. */
+fn zero_text(body: &str) -> bool {
+    body.split(['e', 'E']).next().unwrap_or("").bytes().all(|b| matches!(b, b'0' | b'.' | b',' | b'_' | b'%'))
 }
 
 /* `g` drops trailing mantissa zeros, and the point once nothing follows it. */
@@ -256,7 +291,7 @@ fn format_float_str(f: f64, s: &Spec) -> String {
     if f.is_infinite() { return signed_pad(s, f.is_sign_negative(), "", "inf"); }
     let body = crate::util::fstr::format_f64(f.abs());
     let body = if s.sep != 0 { add_thousands_float(&body, s.sep) } else { body };
-    signed_pad(s, f.is_sign_negative(), "", &body)
+    signed_pad(s, f.is_sign_negative() && !(s.z && zero_text(&body)), "", &body)
 }
 
 fn format_with_e(mag: f64, prec: usize, upper: bool) -> String {

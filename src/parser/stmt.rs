@@ -137,8 +137,13 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
                 false
             }
             Some(TokenType::Assert) => {
-                self.advance();
+                let at = self.advance().start;
+                let (paren, from) = (matches!(self.peek(), Some(TokenType::Lpar)), self.chunk.instructions.len());
                 self.expr();
+                // A parenthesised tuple is always true, which a misplaced `)` makes of `assert (x, "msg")`.
+                if paren && self.chunk.instructions.len() > from && matches!(self.chunk.instructions.last(), Some(i) if i.opcode == OpCode::BuildTuple && i.operand > 0) {
+                    self.warn(at, "assertion is always true, perhaps remove parentheses?".into());
+                }
                 if self.eat_if(TokenType::Comma) {
                     // `assert cond, msg` desugars to lazy `if not cond: raise AssertionError(msg)`.
                     let to_raise = self.emit_jump(OpCode::JumpIfFalse);
@@ -184,8 +189,9 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
                 false
             }
             Some(TokenType::Break) => {
-                self.advance();
+                let at = self.advance().start;
                 self.leaves_star();
+                self.leaves_finally(at, "break");
                 match self.loops.last() {
                     None => self.error("'break' outside loop"),
                     Some(l) => {
@@ -200,8 +206,9 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
                 false
             }
             Some(TokenType::Continue) => {
-                self.advance();
+                let at = self.advance().start;
                 self.leaves_star();
+                self.leaves_finally(at, "continue");
                 if let Some(start) = self.loops.last().map(|l| l.start) {
                     self.emit_loop_unwind();
                     self.chunk.emit(OpCode::Jump, start);
@@ -211,8 +218,9 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
                 false
             }
             Some(TokenType::Return) => {
-                self.advance();
+                let at = self.advance().start;
                 if !self.in_function { self.error("'return' outside function"); }
+                if self.finally_loops.is_some() { self.warn(at, "'return' in a 'finally' block".into()); }
                 if self.star_loops.is_some() { self.error("'break', 'continue' and 'return' cannot appear in an except* block"); }
                 // A bare `return` ends at the line, the next statement is never its value.
                 if matches!(self.peek_same_line(), None | Some(TokenType::Semi | TokenType::Dedent)) {

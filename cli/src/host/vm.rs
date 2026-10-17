@@ -169,6 +169,9 @@ impl Instance {
             if let Err(e) = resolver::prefetch(self, src) {
                 return Ok(Some(Status::Error(e)));
             }
+            // The SyntaxWarnings of a newly compiled program go to stderr before it runs, as Python prints them.
+            let raw = self.with_bytes(src.as_bytes(), |store, ex, ptr, len| ex.compile_warnings.call(store, (ptr, len)))?;
+            if self.checked(raw)? > 0 { eprint!("{}", String::from_utf8_lossy(&self.read_out())); }
             self.prepared = Some(key);
         }
         if let Some(text) = input {

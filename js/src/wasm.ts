@@ -17,6 +17,7 @@ export interface CompilerExports {
     set_entry(ptr: number, len: number): void
     set_input?(ptr: number, len: number): void
     repl_eval(ptr: number, len: number): number
+    compile_warnings?(ptr: number, len: number): number
     run_start(ptr: number, len: number): number
     run_resume(): number
     run_push_event(ptr: number, len: number): number
