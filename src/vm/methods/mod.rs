@@ -26,6 +26,8 @@ pub struct MethodDesc {
     pub max_args: u8, // 255 = unbounded (variadic).
     pub kind: MethodKind,
     pub post: Post,
+    // Whether a call changes its receiver, what it holds or where it stands.
+    pub mutating: bool,
 }
 
 /* What a call does to the result a method left, settled once for the table so a call only compares a tag. */
@@ -52,6 +54,33 @@ const fn post_of(ty: &str, name: &str) -> Post {
     let builds = (same(ty, "frozendict") && same(name, "fromkeys")) || (same(ty, "frozenset")
         && (same(name, "union") || same(name, "intersection") || same(name, "difference") || same(name, "symmetric_difference")));
     if builds { Post::Freeze } else { Post::None }
+}
+
+const fn mutating_of(ty: &str, name: &str) -> bool {
+    const LIST: &[&str] = &["__init__", "__setitem__", "append", "clear", "reverse", "extend", "insert", "remove", "pop", "sort"];
+    const DICT: &[&str] = &["__init__", "__setitem__", "popitem", "update", "pop", "setdefault", "clear"];
+    const SET: &[&str] = &["add", "remove", "discard", "pop", "clear", "update", "intersection_update", "difference_update", "symmetric_difference_update"];
+    const BYTEARRAY: &[&str] = &["append", "extend", "pop", "insert", "remove", "clear", "reverse", "resize", "take_bytes"];
+    // Stepping a generator, a coroutine or an awaitable moves where it stands.
+    const STEPS: &[&str] = &["send", "throw", "close", "__next__"];
+    const fn any(names: &[&str], name: &str) -> bool {
+        let mut i = 0;
+        while i < names.len() { if same(names[i], name) { return true; } i += 1; }
+        false
+    }
+    if same(ty, "list") { return any(LIST, name); }
+    if same(ty, "dict") { return any(DICT, name); }
+    if same(ty, "set") { return any(SET, name); }
+    if same(ty, "bytearray") { return any(BYTEARRAY, name); }
+    if same(ty, "BaseException") { return same(name, "__init__") || same(name, "add_note"); }
+    if same(ty, "iterator") { return same(name, "__next__"); }
+    if same(ty, "async_generator") { return any(&["asend", "athrow", "aclose"], name); }
+    if same(ty, "generator") || same(ty, "coroutine") || same(ty, "async_generator_asend") || same(ty, "async_generator_athrow")
+        || same(ty, "anext_awaitable") || same(ty, "coroutine_wrapper") { return any(STEPS, name); }
+    if same(ty, "memoryview") { return same(name, "release"); }
+    if same(ty, "object") { return same(name, "__setattr__") || same(name, "__delattr__"); }
+    if same(ty, "op") { return same(name, "__setitem__") || same(name, "__delitem__"); }
+    false
 }
 
 /* How a call reaches a method, plain through the table, or with the frame for user code. */
@@ -88,7 +117,7 @@ macro_rules! methods {
     ( $( $ty:literal { $( $name:tt => $func:path, $min:literal .. $max:literal );* $(;)? } )* ) => {
         &[ $( $( MethodDesc {
             ty: $ty, name: $name, func: $func,
-            min_args: $min, max_args: $max, kind: methods!(@k $name), post: post_of($ty, $name),
+            min_args: $min, max_args: $max, kind: methods!(@k $name), post: post_of($ty, $name), mutating: mutating_of($ty, $name),
         } ),* ),* ]
     };
     (@k "sort") => { MethodKind::Sort }; (@k "translate") => { MethodKind::Mapped }; (@k "format") => { MethodKind::Format }; (@k "format_map") => { MethodKind::Format };

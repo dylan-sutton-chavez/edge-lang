@@ -47,10 +47,15 @@ fn exc_also(name: &str) -> Option<&'static str> {
     (name == "ExceptionGroup").then_some("BaseExceptionGroup")
 }
 
+/* The parents of builtin exception `name`, two for `ExceptionGroup` and none for `BaseException` or a name outside the tree. */
+pub fn exc_parents(name: &str) -> alloc::vec::Vec<&'static str> {
+    exc_also(name).into_iter().chain(exc_parent(name)).collect()
+}
+
 /* The bases of a builtin type in order, the exception tree plus `bool` under `int`. */
 pub(in crate::vm) fn type_parents(name: &str) -> alloc::vec::Vec<&'static str> {
     if name == "bool" { return alloc::vec!["int"]; }
-    exc_also(name).into_iter().chain(exc_parent(name)).collect()
+    exc_parents(name)
 }
 
 pub(in crate::vm) fn matches_exc_class(actual: &str, expected: &str) -> bool {

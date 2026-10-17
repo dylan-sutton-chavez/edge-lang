@@ -35,6 +35,8 @@ use crate::parser::{SSAChunk, builtin_type};
 use crate::util::hash::FxHashMap as HashMap;
 
 pub use types::{Val, HeapObj, HeapPool, VmErr, Limits};
+pub use methods::{ALL_METHODS, BuiltinMethodId, MethodDesc, MethodKind, lookup_method};
+pub use globals::exc_parents;
 
 use types::*;
 use cache::CachePool;

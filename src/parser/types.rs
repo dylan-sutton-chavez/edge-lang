@@ -95,7 +95,7 @@ pub enum OpCode {
     ArgsR,
     // `a += b` for a local only ever appended to in its loop, a string it owns grown in place.
     AppendR,
-    // Gives up the string local `a` owns, on entering a loop that appends to it.
+    // Gives up the string local `a` owns, on entering a loop that appends to it, and stays the last opcode `ALL` ends at.
     OwnResetR,
 }
 
@@ -181,6 +181,18 @@ impl OpCode {
 
     /* One of the register forms only the VM lowering writes. */
     pub const fn is_register(self) -> bool { self as u8 >= Self::Move as u8 }
+
+    /* Every opcode in the order of the enum, each at the index of the byte it encodes to. */
+    pub const ALL: [OpCode; Self::OwnResetR as usize + 1] = {
+        let mut all = [OpCode::LoadConst; Self::OwnResetR as usize + 1];
+        let mut i = 0;
+        while i < all.len() {
+            // SAFETY the enum is repr(u8) with implicit discriminants, so each byte below the count is a variant.
+            all[i] = unsafe { core::mem::transmute::<u8, OpCode>(i as u8) };
+            i += 1;
+        }
+        all
+    };
 }
 
 // One bytecode instruction, opcode + 16-bit operand.

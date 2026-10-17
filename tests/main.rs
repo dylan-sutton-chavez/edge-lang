@@ -13,6 +13,7 @@ mod snapshot;
 mod coverage;
 mod embed;
 mod memory;
+mod tables;
 
 /* cases/pending/asyncio.json holds the cases written for the async builtins the engine used to ship, `run`, `sleep`,
    `gather`, `with_timeout` and `cancel`, grouped by the suite each came from: vm.json, snapshot.json, modules.json
