@@ -46,6 +46,8 @@ const MEMORY: Measure = Measure { pick: |c| c.1, floor: |s| s.memory_floor, unit
 
 fn main() {
     let update = std::env::args().any(|a| a == "--update");
+    // A snapshot that would take a case running slower than before needs it said outright.
+    let accept_slower = std::env::args().any(|a| a == "--accept-slower");
     let wasm = std::env::var_os("EDGE_COMPILER_WASM").map(PathBuf::from).unwrap_or_else(|| Path::new(ROOT).join("target/wasm32-unknown-unknown/cli/compiler.wasm"));
     let built = std::fs::metadata(&wasm).and_then(|m| m.modified()).unwrap_or(SystemTime::UNIX_EPOCH);
     if built < newest(&Path::new(ROOT).join("src")) {
@@ -80,9 +82,13 @@ fn main() {
             }
         },
     };
-    let failures = last.as_ref().map(|l| check(l, &now, &sources)).unwrap_or_default();
+    let (failures, slower) = last.as_ref().map(|l| check(l, &now, &sources)).unwrap_or_default();
     for failure in &failures {
         annotate("error", failure);
+    }
+    if update && slower > 0 && !accept_slower {
+        annotate("error", &format!("{slower} cases grew past their threshold, so --update keeps the snapshot. Fix them, or accept them with make bench-accept-slower if they are meant to."));
+        std::process::exit(1);
     }
     if update || last.is_none() {
         let (threshold, case_threshold, memory_floor) = last.map_or((now.threshold, now.case_threshold, now.memory_floor), |l| (l.threshold, l.case_threshold, l.memory_floor));
@@ -94,11 +100,12 @@ fn main() {
     }
 }
 
-/* Every rule a run is held to, one paragraph for each that fails, empty when the run matches the snapshot. */
-fn check(last: &Snapshot, now: &Snapshot, sources: &BTreeMap<String, &str>) -> Vec<String> {
+/* Every rule a run is held to, one paragraph for each that fails, empty when the run matches the snapshot, and how many cases
+   grew past their threshold. */
+fn check(last: &Snapshot, now: &Snapshot, sources: &BTreeMap<String, &str>) -> (Vec<String>, usize) {
     // Another rustc compiles another compiler.wasm, whose instructions say nothing about this code.
     if last.rustc != now.rustc {
-        return vec![format!("The snapshot was taken with {}, this is {}, regenerate it with {}.", last.rustc, now.rustc, last.rustc)];
+        return (vec![format!("The snapshot was taken with {}, this is {}, regenerate it with {}.", last.rustc, now.rustc, last.rustc)], 0);
     }
     let mut failures = Vec::new();
     let new = now.cases.keys().filter(|k| !last.cases.contains_key(*k)).count();
@@ -106,20 +113,23 @@ fn check(last: &Snapshot, now: &Snapshot, sources: &BTreeMap<String, &str>) -> V
     if new + gone > 0 {
         failures.push(format!("{new} cases are missing from the snapshot and {gone} entries have no case, run --update."));
     }
-    failures.extend(compare(&INSTRUCTIONS, last, now, sources));
-    failures.extend(compare(&MEMORY, last, now, sources));
-    failures
+    let (instructions, grew) = compare(&INSTRUCTIONS, last, now, sources);
+    let (memory, grew_memory) = compare(&MEMORY, last, now, sources);
+    failures.extend(instructions);
+    failures.extend(memory);
+    (failures, grew + grew_memory)
 }
 
-/* One measure against the snapshot, its geometric mean held to the band and each case to its own threshold. */
-fn compare(m: &Measure, last: &Snapshot, now: &Snapshot, sources: &BTreeMap<String, &str>) -> Vec<String> {
+/* One measure against the snapshot, its geometric mean held to the band and each case to its own threshold, and how many
+   cases grew past theirs. */
+fn compare(m: &Measure, last: &Snapshot, now: &Snapshot, sources: &BTreeMap<String, &str>) -> (Vec<String>, usize) {
     let mut failures = Vec::new();
     let (unit, floor, p) = (m.unit, (m.floor)(last), m.total_places);
     let all: Vec<(&String, f64, f64)> = now.cases.iter().filter_map(|(k, &n)| last.cases.get(k).map(|&l| (k, (m.pick)(l), (m.pick)(n)))).collect();
     // Every case weighs the same in a geometric mean, so no single long case decides it.
     let paired: Vec<(&String, f64, f64)> = all.iter().copied().filter(|&(_, l, n)| l > 0.0 && n > 0.0).collect();
     if paired.is_empty() {
-        return failures;
+        return (failures, 0);
     }
     // A move under the floor counts as none, as it does for each case.
     let change = (paired.iter().map(|&(_, l, n)| if (n - l).abs() > floor { (n / l).ln() } else { 0.0 }).sum::<f64>() / paired.len().max(1) as f64).exp() - 1.0;
@@ -138,15 +148,20 @@ fn compare(m: &Measure, last: &Snapshot, now: &Snapshot, sources: &BTreeMap<Stri
     let by = |&(_, l, n): &(&String, f64, f64)| if l > 0.0 && n > 0.0 { (n / l).ln().abs() } else { f64::INFINITY };
     let mut apart: Vec<(&String, f64, f64)> = all.iter().copied().filter(|&(_, l, n)| (n - l).abs() > floor && (l == 0.0 || n == 0.0 || (n / l - 1.0).abs() > last.case_threshold)).collect();
     apart.sort_by(|a, b| by(b).total_cmp(&by(a)));
-    if !apart.is_empty() {
-        let lines: Vec<String> = apart.iter().map(|&(k, l, n)| moved_line(m, sources, k, l, n)).collect();
-        let past = if floor > 0.0 { format!("±{:.0}% and {floor} {unit}", last.case_threshold * 100.0) } else { format!("±{:.0}%", last.case_threshold * 100.0) };
-        failures.push(format!("{} cases moved past {past} on their own{}.{}", apart.len(), m.own, list(&lines)));
+    // The cases that grew come first and apart, so a few slower ones never hide among many faster.
+    let (grew, shrank): (Vec<_>, Vec<_>) = apart.iter().partition(|&&(_, l, n)| n > l);
+    let past = |sign: &str| if floor > 0.0 { format!("{sign}{:.0}% and {floor} {unit}", last.case_threshold * 100.0) } else { format!("{sign}{:.0}%", last.case_threshold * 100.0) };
+    let lines = |cases: &[&(&String, f64, f64)]| cases.iter().map(|&&(k, l, n)| moved_line(m, sources, k, l, n)).collect::<Vec<_>>();
+    if !grew.is_empty() {
+        failures.push(format!("{} cases grew past {} on their own{}. Fix them, they are slower than the snapshot.{}", grew.len(), past("+"), m.own, list(&lines(&grew))));
+    }
+    if !shrank.is_empty() {
+        failures.push(format!("{} cases shrank past {} on their own{}. Accept them with --update.{}", shrank.len(), past("-"), m.own, list(&lines(&shrank))));
     }
 
     // Printed even when a finding fails, so adding cases never hides how the existing ones moved.
     annotate("notice", &format!("vm.json {} {} {unit} {}, {:+.2}% against the snapshot across {} cases, the band is ±{:.1}%.", m.total.0, amount(total, p), m.total.1, change * 100.0, paired.len(), last.threshold * 100.0));
-    failures
+    (failures, grew.len())
 }
 
 fn moved_line(m: &Measure, sources: &BTreeMap<String, &str>, key: &str, last: f64, now: f64) -> String {

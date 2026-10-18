@@ -50,7 +50,7 @@ The [fuzzing manual](https://github.com/dylan-sutton-chavez/edge-python/blob/mai
 
 > [!COPY] make bench
 
-The bench fails when the mean or a single case moves past its threshold. It also fails when the snapshot was taken with another Rust, or when a case and its entry do not pair. `make bench-update` takes the snapshot again.
+The bench fails when the mean or a single case moves past its threshold, the cases that grew listed apart from those that shrank. It also fails when the snapshot was taken with another Rust, or when a case and its entry do not pair. `make bench-update` takes the snapshot again, unless a case grew past its threshold, so a slower case is never taken by accident. `make bench-accept-slower` takes the snapshot with those cases too.
 
 ## Consistency
 
