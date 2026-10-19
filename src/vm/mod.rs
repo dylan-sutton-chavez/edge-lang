@@ -37,6 +37,7 @@ use crate::util::hash::FxHashMap as HashMap;
 pub use types::{Val, HeapObj, HeapPool, VmErr, Limits};
 pub use methods::{ALL_METHODS, BuiltinMethodId, MethodDesc, MethodKind, lookup_method};
 pub use globals::exc_parents;
+pub use scope::{FnScope, Kind};
 
 use types::*;
 use cache::CachePool;
@@ -44,8 +45,8 @@ use alloc::{string::{String, ToString}, vec::Vec};
 
 pub(crate) use types::ExceptionFrame;
 
-#[derive(Clone, Copy, PartialEq)]
-pub(crate) enum ParamKind { Normal, Star, DoubleStar, KwOnly }
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum ParamKind { Normal, Star, DoubleStar, KwOnly }
 
 /* Side-channel state passed between opcodes in one dispatch frame, grouped for auditability. */
 pub(crate) struct Pending {
@@ -539,6 +540,15 @@ impl<'a> VM<'a> {
     }
 
     /* What the allocator holds for the program, garbage since the last collection included. */
+    /* The index and scope of the function whose body is `body`, its names as this VM resolved them. */
+    pub fn scope_of(&self, body: &SSAChunk) -> Option<(usize, &FnScope)> {
+        let fi = *self.body_to_fi.get(&(body as *const SSAChunk))?;
+        Some((fi, &self.fn_scope[fi]))
+    }
+
+    /* The parameters of function `fi`, each with its kind and the slot it binds. */
+    pub fn params_of(&self, fi: usize) -> &[(ParamKind, usize)] { &self.param_slots[fi] }
+
     pub fn memory(&self) -> usize { self.heap.bytes() }
 
     /* The most the allocator held for the program at once, which a bench compares run to run. */
