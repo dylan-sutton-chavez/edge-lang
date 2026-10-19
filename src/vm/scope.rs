@@ -79,7 +79,7 @@ impl Globals {
 
 /* What a frame slot holds, fixed for the chunk before it runs. */
 #[derive(Clone, Copy, PartialEq, Debug)]
-pub(crate) enum Kind {
+pub enum Kind {
     Local,
     // A cell a nested function shares, read and written through it.
     Cell,
@@ -89,7 +89,7 @@ pub(crate) enum Kind {
 
 /* How a function body's names resolve, computed once from the code. */
 #[derive(Default, Clone)]
-pub(crate) struct FnScope {
+pub struct FnScope {
     pub kinds: alloc::rc::Rc<[Kind]>,
     /* Slots that start as a fresh cell holding what the call bound there. */
     pub cellvars: Vec<usize>,
