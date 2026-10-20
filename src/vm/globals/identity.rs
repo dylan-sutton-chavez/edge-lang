@@ -83,7 +83,11 @@ impl<'a> VM<'a> {
     }
 
     pub fn call_repr(&mut self, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
+        let ok = core::mem::take(&mut self.job_ok);
         let o = self.pop()?;
+        // A container of instances whose `__repr__` runs as frames of the loop writes there, as an instance's own does.
+        if ok && o.is_heap() && self.render_job(o, false, chunk)? { return Ok(()); }
+        if ok && self.is_instance(o) && self.check_job(o, crate::vm::jobs::Check::Str(true)) { return Ok(()); }
         let s = self.repr_op(o, chunk)?;
         self.alloc_and_push_str(s)
     }

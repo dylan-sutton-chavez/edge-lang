@@ -109,28 +109,44 @@ impl<'a> VM<'a> {
         Ok(self.stack.split_off(at))
     }
 
-    /* Moves the live stacks above the bases into a suspended frame, handler depths made relative to it. */
-    pub(crate) fn save_frames(&mut self, sb: usize, ib: usize, eb: usize, stack: &mut Vec<Val>, iters: &mut Vec<IterFrame>, excs: &mut Vec<ExceptionFrame>) {
-        stack.extend(self.stack.drain(sb.min(self.stack.len())..));
-        iters.extend(self.iter_stack.drain(ib.min(self.iter_stack.len())..));
+    /* Moves the live stacks above the bases into a suspended frame, handler depths made relative to it and the `with`s it sits inside going with it. */
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn save_frames(&mut self, sb: usize, ib: usize, eb: usize, wb: usize, stack: &mut Vec<Val>, iters: &mut Vec<IterFrame>, excs: &mut Vec<ExceptionFrame>, withs: &mut Vec<Val>) {
+        if self.stack.len() > sb { stack.extend(self.stack.drain(sb..)); }
+        match self.iter_stack.len().saturating_sub(ib) {
+            0 => {}
+            1 => iters.extend(self.iter_stack.pop()),
+            _ => iters.extend(self.iter_stack.drain(ib..)),
+        }
+        if self.exception_stack.len() <= eb { return; }
         let at = excs.len();
-        excs.extend(self.exception_stack.drain(eb.min(self.exception_stack.len())..));
+        excs.extend(self.exception_stack.drain(eb..));
         for f in &mut excs[at..] {
             f.stack_depth = f.stack_depth.saturating_sub(sb);
             f.iter_depth = f.iter_depth.saturating_sub(ib);
+            f.with_depth = f.with_depth.saturating_sub(wb);
         }
+        // A `with` always sits inside the handler that ends it.
+        if self.with_stack.len() > wb { withs.extend(self.with_stack.drain(wb..)); }
     }
 
     /* Puts a suspended frame back on the live stacks and returns their bases, its buffers left empty to reuse. */
-    pub(crate) fn restore_into(&mut self, stack: &mut Vec<Val>, iters: &mut Vec<IterFrame>, excs: &mut Vec<ExceptionFrame>) -> (usize, usize, usize) {
-        let bases = (self.stack.len(), self.iter_stack.len(), self.exception_stack.len());
-        self.stack.append(stack);
-        self.iter_stack.append(iters);
+    pub(crate) fn restore_into(&mut self, stack: &mut Vec<Val>, iters: &mut Vec<IterFrame>, excs: &mut Vec<ExceptionFrame>, withs: &mut Vec<Val>) -> (usize, usize, usize, usize) {
+        let bases = (self.stack.len(), self.iter_stack.len(), self.exception_stack.len(), self.with_stack.len());
+        if !stack.is_empty() { self.stack.append(stack); }
+        match iters.len() {
+            0 => {}
+            1 => self.iter_stack.extend(iters.pop()),
+            _ => self.iter_stack.append(iters),
+        }
+        if excs.is_empty() { return bases; }
         for f in excs.iter_mut() {
             f.stack_depth += bases.0;
             f.iter_depth += bases.1;
+            f.with_depth += bases.3;
         }
         self.exception_stack.append(excs);
+        if !withs.is_empty() { self.with_stack.append(withs); }
         bases
     }
 
@@ -236,13 +252,16 @@ impl<'a> VM<'a> {
     }
 
     pub(crate) fn make_iter_frame(&mut self, obj: Val, chunk: &crate::parser::SSAChunk) -> Result<IterFrame, VmErr> {
+        // A new loop's iterator may sit where a freed one `lazy_over` passed by was.
+        self.lazy_seen = Val::undef();
         if !obj.is_heap() {
             return Err(VmErr::TypeMsg(s!("'", str self.type_name(obj), "' object is not iterable")));
         }
         // Instance `__iter__` gives a user iterator stepped by `__next__`, or a generator or builtin iterator looped as itself.
         if self.instance_class(obj).is_some()
             && let Some(iter) = self.try_call_dunder(obj, "__iter__", &[], chunk)? {
-            if matches!(self.heap.try_get(iter), Some(HeapObj::Instance(..))) { return Ok(IterFrame::UserDefined(iter)); }
+            // A user iterator holds no builtin's step, which `lazy_over` passes by.
+            if matches!(self.heap.try_get(iter), Some(HeapObj::Instance(..))) { self.lazy_seen = iter; return Ok(IterFrame::UserDefined(iter)); }
             return self.make_iter_frame(iter, chunk);
         }
         Ok(match self.heap.get(obj) {
@@ -274,17 +293,43 @@ impl<'a> VM<'a> {
             // A coroutine or async generator steps only under `async for`.
             HeapObj::Coroutine(..) if !self.is_async_object(obj) => return Ok(IterFrame::Coroutine(obj)),
             // A builtin iterator advances in place, so the loop spends it.
-            HeapObj::Iter(..) => return Ok(IterFrame::UserDefined(obj)),
+            HeapObj::Iter(frame, _) => return Ok(match &*frame.borrow() {
+                f @ (IterFrame::Map { .. } | IterFrame::Filter { .. }) => f.clone(),
+                _ => IterFrame::UserDefined(obj),
+            }),
             _ => return Err(self.not_iterable(obj)),
         })
     }
 
+    /* `it` as the op at `rip` takes it, None when its steps run Python and a job of the loop takes its items and runs the op again, else what to step now. */
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn lazy_items(&mut self, it: Val, rip: usize) -> Result<Option<Val>, VmErr> {
+        if !matches!(self.heap.try_get(it), Some(HeapObj::Iter(..))) { return Ok(Some(it)); }
+        self.push(it);
+        if self.list_job(rip)? { return Ok(None); }
+        self.pop().map(Some)
+    }
+
     /* `a, b = it`, or `a, *b, c = it` with `after` targets past the star. */
-    pub(crate) fn unpack_iterable(&mut self, n: usize, after: Option<usize>, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
+    pub(crate) fn unpack_iterable(&mut self, n: usize, after: Option<usize>, rip: Option<usize>, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
+        let open = rip.is_some();
         let obj = self.pop()?;
         let (items, sized) = match self.heap.try_get(obj) {
             Some(HeapObj::Tuple(t)) => (t.clone(), true),
             Some(HeapObj::List(l)) => (l.borrow().clone(), true),
+            // A generator unpacked where a frame may open runs as a frame of the loop, the instruction run again on its items.
+            Some(HeapObj::Coroutine(_) | HeapObj::Instance(..)) if open => {
+                self.push(obj);
+                if self.retry_gen(chunk)? { return Ok(()); }
+                let obj = self.pop()?;
+                (self.iterable_items(obj, chunk)?, false)
+            }
+            // A `map` or `filter` whose steps run Python unpacks as the items a job of the loop takes of it.
+            Some(HeapObj::Iter(..)) if let Some(rip) = rip => match self.lazy_items(obj, rip)? {
+                Some(obj) => (self.iterable_items(obj, chunk)?, false),
+                None => return Ok(()),
+            },
             _ => (self.iterable_items(obj, chunk)?, false),
         };
         let tail = after.unwrap_or(0);

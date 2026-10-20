@@ -71,11 +71,13 @@ impl<'a> VM<'a> {
 
     /* The next item of a builtin iterator, a generator or a `__next__` object, None once spent. */
     pub(crate) fn next_of(&mut self, it: Val, chunk: &SSAChunk) -> Result<Option<Val>, VmErr> {
+        // A job made this step's item already.
+        if let Some(v) = self.pended(it) { return Ok(v); }
         match self.heap.try_get(it) {
             Some(HeapObj::Iter(..)) => self.iter_step(it),
             Some(HeapObj::Coroutine(..)) if self.is_async_object(it) => Err(VmErr::TypeMsg(s!("'", str self.type_name(it), "' object is not an iterator"))),
             Some(HeapObj::Coroutine(..)) => {
-                let v = self.with_roots([it], |vm| vm.resume_coroutine(it))?;
+                let v = self.with_roots([it], |vm| vm.step_coroutine(it))?;
                 Ok(core::mem::take(&mut self.yielded).then_some(v))
             }
             _ => {
@@ -92,6 +94,9 @@ impl<'a> VM<'a> {
 
     /* The next item of builtin iterator `it`, None once it is spent. */
     pub(crate) fn iter_step(&mut self, it: Val) -> Result<Option<Val>, VmErr> {
+        if let Some(v) = self.pended(it) { return Ok(v); }
+        // An op stepping an iterator runs no more again, which would step it twice.
+        (self.redo.on, self.redo.lazy) = (false, false);
         let Some(HeapObj::Iter(frame, _)) = self.heap.try_get(it) else { return Ok(None); };
         let frame = frame.clone();
         // An awaitable steps as a generator, its return value dropped.
@@ -106,19 +111,39 @@ impl<'a> VM<'a> {
         // Nested lazy iterators recurse in Rust, so they count against the call depth.
         if self.depth >= self.max_calls { return Err(cold_depth()); }
         self.depth += 1;
-        let step = self.with_roots([it], |vm| vm.lazy_step(&frame, state));
+        let step = self.with_roots([it], |vm| vm.lazy_step(Some(&frame), state));
         self.depth -= 1;
         step
     }
 
-    /* One step of a frame calling user code, `state` read before a callback can step it again. */
-    fn lazy_step(&mut self, frame: &alloc::rc::Rc<core::cell::RefCell<IterFrame>>, state: IterFrame) -> Result<Option<Val>, VmErr> {
+    /* One step of a `map` or `filter` the iterator stack holds itself, as `iter_step` steps one through its object. */
+    pub(crate) fn called_step(&mut self, state: IterFrame) -> Result<Option<Val>, VmErr> {
+        if self.depth >= self.max_calls { return Err(cold_depth()); }
+        self.depth += 1;
+        let step = self.lazy_step(None, state);
+        self.depth -= 1;
+        step
+    }
+
+    /* What a step whose callback raised `e` gives, the iterator's end for a StopIteration with the stack back at `base`, else the error. */
+    fn stopped(&mut self, e: VmErr, base: usize) -> Result<Option<Val>, VmErr> {
+        if !matches!(&e, VmErr::Raised(m) if m == "StopIteration" || m.starts_with("StopIteration:")) { return Err(e); }
+        self.swallow_stop(None);
+        (self.error_byte_pos, self.call_stack) = (None, alloc::vec::Vec::new());
+        self.stack.truncate(base);
+        Ok(None)
+    }
+
+    /* One step of a frame calling user code, `state` read before a callback can step it again, `frame` the one it lies in. */
+    fn lazy_step(&mut self, frame: Option<&alloc::rc::Rc<core::cell::RefCell<IterFrame>>>, state: IterFrame) -> Result<Option<Val>, VmErr> {
         let chunk = self.chunk;
         match state {
-            IterFrame::Map { f, its } => {
+            // A StopIteration out of the function ends the iterator, as it ends a `for` stepping it.
+            IterFrame::Map { f, its, .. } => {
+                let base = self.stack.len();
                 self.push(f);
                 if !self.push_next_of(&its, chunk)? { self.pop()?; return Ok(None); }
-                self.exec_call(its.len() as u16, chunk)?;
+                if let Err(e) = self.exec_call(its.len() as u16, chunk) { return self.stopped(e, base); }
                 self.pop().map(Some)
             }
             IterFrame::Zip { its, strict } => {
@@ -144,7 +169,12 @@ impl<'a> VM<'a> {
                 let items = self.stack.split_off(base);
                 self.heap.alloc(HeapObj::Tuple(items)).map(Some)
             }
-            IterFrame::Filter { f, it } => loop {
+            IterFrame::Filter { f, it, .. } => { let (soft, mut first) = (core::mem::take(&mut self.step_soft), true); loop {
+                // A driven step leaves a generator's next item to its driver to run as a frame, and one its builtin test would step in Rust.
+                if soft && !first && !matches!(self.heap.try_get(f), Some(HeapObj::Func(..) | HeapObj::Class(..) | HeapObj::Instance(..) | HeapObj::BoundUserMethod(..)))
+                    && (matches!(self.peek(it, 0), crate::vm::jobs::Peek::Gen(_)) || self.steps_whole(f) && self.leaf_ahead(it, 0)) { return Ok(Some(Val::undef())); }
+                first = false;
+                let base = self.stack.len();
                 self.charge_step()?;
                 let Some(item) = self.next_of(it, chunk)? else { return Ok(None) };
                 // The item waits on the stack, rooted while the predicate runs.
@@ -152,18 +182,18 @@ impl<'a> VM<'a> {
                 let verdict = if f.is_none() { item } else {
                     self.push(f);
                     self.push(item);
-                    self.exec_call(1, chunk)?;
+                    if let Err(e) = self.exec_call(1, chunk) { return self.stopped(e, self.stack.len().min(base)); }
                     self.pop()?
                 };
                 let keep = self.truthy_op(verdict, chunk)?;
                 let item = self.pop()?;
                 if keep { return Ok(Some(item)); }
-            },
+            } },
             IterFrame::Enumerate { it, n } => {
                 let Some(item) = self.next_of(it, chunk)? else { return Ok(None) };
                 self.push(item);
                 let next = self.int_to_val(self.as_i128(n).and_then(|i| i.checked_add(1)))?;
-                if let IterFrame::Enumerate { n: count, .. } = &mut *frame.borrow_mut() { *count = next; }
+                if let Some(frame) = frame && let IterFrame::Enumerate { n: count, .. } = &mut *frame.borrow_mut() { *count = next; }
                 let item = self.pop()?;
                 self.heap.alloc(HeapObj::Tuple(vec![n, item])).map(Some)
             }
@@ -173,10 +203,24 @@ impl<'a> VM<'a> {
                 let v = self.pop()?;
                 if !eq_member(v, sentinel, &self.heap) { return Ok(Some(v)); }
                 // A callable iterator stays spent once it meets the sentinel.
-                *frame.borrow_mut() = IterFrame::Seq { items: Vec::new().into(), idx: 0 };
+                if let Some(frame) = frame { *frame.borrow_mut() = IterFrame::Seq { items: Vec::new().into(), idx: 0 }; }
                 Ok(None)
             }
             _ => Ok(None),
+        }
+    }
+
+    /* Whether `o` is a `map` or a `filter`, whose step calls its function, or an iterator over a generator. */
+    #[inline]
+    fn lazy_iter(&self, o: Val) -> bool {
+        let Some(HeapObj::Iter(f, _)) = self.heap.try_get(o) else { return false };
+        match f.try_borrow().as_deref() {
+            // A zip or an enumerate may step one of them, which its job takes as it steps it, as it does a Python function's iterator.
+            Ok(IterFrame::Map { .. } | IterFrame::Filter { .. } | IterFrame::Zip { .. } | IterFrame::Enumerate { .. }) => true,
+            Ok(&IterFrame::Call { f, .. }) => matches!(self.heap.try_get(f), Some(HeapObj::Func(..))),
+            // A container's own iterator steps no generator, the common case looked at no further.
+            Ok(IterFrame::Seq { .. } | IterFrame::List { .. } | IterFrame::Range { .. } | IterFrame::BigRange { .. } | IterFrame::ListRev { .. } | IterFrame::Watched { .. } | IterFrame::DictWalk { .. }) | Err(_) => false,
+            Ok(_) => matches!(self.peek(o, 0), crate::vm::jobs::Peek::Gen(_)),
         }
     }
 
@@ -193,7 +237,10 @@ impl<'a> VM<'a> {
     }
 
     pub fn call_len(&mut self, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
+        let ok = core::mem::take(&mut self.job_ok);
         let o = self.pop()?;
+        // An instance's `__len__` runs as a frame of the loop.
+        if ok && self.is_instance(o) && self.check_job(o, crate::vm::jobs::Check::Len) { return Ok(()); }
         // instance `__len__` takes precedence over built-in length rules.
         if let Some(r) = self.try_call_dunder(o, "__len__", &[], chunk)? {
             let n = if r.is_int() { r.as_int() as i128 }
@@ -229,31 +276,84 @@ impl<'a> VM<'a> {
         })
     }
 
-    pub fn call_sorted(&mut self, reverse: bool, chunk: &SSAChunk) -> Result<(), VmErr> {
+    /* `sorted` with no key, its `__lt__` run as frames of the loop when `ok`, called where one may open. */
+    fn sorted_of(&mut self, reverse: bool, ok: bool, chunk: &SSAChunk) -> Result<(), VmErr> {
         let o = self.pop()?;
-        let mut items = self.extract_iter(o)?;
+        let items = self.extract_iter(o)?;
+        let mut items = if ok { match self.merge_job(items, reverse, Val::undef()) { Ok(()) => return Ok(()), Err(items) => items } } else { items };
         self.sort_by_lt(&mut items, reverse, chunk)?;
         self.alloc_and_push_list(items)
     }
 
-    /* sorted(iterable, key=fn, reverse=False), delegates to call_sorted when key is absent. */
+    /* Whether the generator on top of the stack, or the one the instance there gives, runs as a frame of the loop, gathered into the list `sorted` sorts. */
+    #[cold]
+    #[inline(never)]
+    fn sorted_gen(&mut self, key: Option<Val>, reverse: bool, chunk: &SSAChunk) -> Result<bool, VmErr> {
+        let at = self.stack.len() - 1;
+        let v = self.stack[at];
+        let extra = alloc::vec![key.unwrap_or(Val::undef()), Val::bool(reverse)];
+        // A builtin iterator whose steps run Python is stepped by a job whose calls are frames of the loop.
+        if matches!(self.heap.try_get(v), Some(HeapObj::Iter(..))) { return self.drive_iter(v, crate::vm::jobs::Takes::Collect(NativeFnId::Sorted, 1, at as u32), &extra); }
+        let takes = crate::vm::jobs::Takes::Collect(NativeFnId::Sorted, 1, at as u32);
+        // An instance's `__iter__` and the `__next__` of what it gives run as frames of the loop too.
+        let g = match self.heap.try_get(v) { Some(HeapObj::Coroutine(..)) => v, _ => match self.gen_of_iter(v, chunk)? { Some(g) => { self.stack[at] = g; g } None => return self.pull_job(v, takes, &extra, chunk) } };
+        self.gather_job(g, takes, extra)
+    }
+
+    /* sorted(iterable, key=fn, reverse=False), `sorted_of` when key is absent. */
     pub fn call_sorted_with_key(&mut self, key: Option<Val>, reverse: bool, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
+        let ok = core::mem::take(&mut self.job_ok);
+        // A generator or an instance sorted where a frame may open runs as frames of the loop, its items gathered as the list sorted then takes.
+        if ok && let Some(&o) = self.stack.last() && o.is_heap() && matches!(self.heap.get(o), HeapObj::Coroutine(..) | HeapObj::Instance(..) | HeapObj::Iter(..)) && self.sorted_gen(key, reverse, chunk)? { return Ok(()); }
+        // Any other user iterable gives its items through the nested call.
+        if let Some(&o) = self.stack.last() && let Some(l) = self.lift_iterable(o, chunk)? && let Some(top) = self.stack.last_mut() { *top = l; }
         let key = match key {
             Some(k) if !k.is_none() => k,
-            _ => return self.call_sorted(reverse, chunk),
+            _ => return self.sorted_of(reverse, ok, chunk),
         };
         let o = self.pop()?;
         let items = self.extract_iter(o)?;
+        // A builtin key stepping a generator among the items in Rust runs through a function of the loop, as a job stepping it.
+        let key = if ok && self.steps_whole(key) && items.iter().any(|&v| self.steps_py(v)) { self.through_loop(key, 1)?.unwrap_or(key) } else { key };
+        // A function key runs as frames of the loop that called, the sort done once the last key is back.
+        if ok && let Some(&first) = items.first() && let Some(fi) = self.job_fn(key) {
+            let keys = Vec::with_capacity(items.len());
+            self.key_job(fi, key, first, super::super::jobs::Job::Sorted(alloc::boxed::Box::new(super::super::jobs::Sorted { items, keys, reverse, again: Default::default(), into: Val::undef() })));
+            return Ok(());
+        }
+        // A class key makes each key as frames of the loop, the instance's `__init__` among them.
+        if ok && self.class_keys(key, &items, reverse, Val::undef())? { return Ok(()); }
+        // An `eval` or `exec` key runs each text as a floor of the loop, the sort done once the last is back.
+        if ok && let Some(&first) = items.first() && self.runs_text(key) {
+            let keys = Vec::with_capacity(items.len());
+            return self.key_floor(key, first, super::super::jobs::Job::Sorted(alloc::boxed::Box::new(super::super::jobs::Sorted { items, keys, reverse, again: Default::default(), into: Val::undef() })));
+        }
         let sorted = self.sort_by_key(items, key, reverse, chunk)?;
         self.alloc_and_push_list(sorted)
     }
 
     /* list.sort(key=fn, reverse=False) in-place. Snapshots list before key calls so heap borrow ends before exec_call. */
     pub fn call_list_sort_keyed(&mut self, recv: Val, key: Option<Val>, reverse: bool, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
+        let ok = core::mem::take(&mut self.job_ok);
         let items = match self.heap.get(recv) {
             HeapObj::List(rc) => rc.borrow().clone(),
             _ => return Err(cold_type("sort: receiver is not a list")),
         };
+        // Instances whose `__lt__` runs as frames of the loop sort there, the list taking the order once the sort is done.
+        let items = if ok && key.is_none_or(|k| k.is_none()) { match self.merge_job(items, reverse, recv) { Ok(()) => return Ok(()), Err(items) => items } } else { items };
+        // A builtin key stepping a generator among the items in Rust runs through a function of the loop, as a job stepping it.
+        let key = match key { Some(k) if ok && self.steps_whole(k) && items.iter().any(|&v| self.steps_py(v)) => Some(self.through_loop(k, 1)?.unwrap_or(k)), k => k };
+        // A function key runs as frames of the loop that called, the list taking its order once the last key is back.
+        if ok && let Some(k) = key.filter(|k| !k.is_none()) && let Some(&first) = items.first() && let Some(fi) = self.job_fn(k) {
+            let keys = Vec::with_capacity(items.len());
+            self.key_job(fi, k, first, super::super::jobs::Job::Sorted(alloc::boxed::Box::new(super::super::jobs::Sorted { items, keys, reverse, again: Default::default(), into: recv })));
+            return Ok(());
+        }
+        if ok && let Some(k) = key.filter(|k| !k.is_none()) && self.class_keys(k, &items, reverse, recv)? { return Ok(()); }
+        if ok && let Some(k) = key.filter(|k| self.runs_text(*k)) && let Some(&first) = items.first() {
+            let keys = Vec::with_capacity(items.len());
+            return self.key_floor(k, first, super::super::jobs::Job::Sorted(alloc::boxed::Box::new(super::super::jobs::Sorted { items, keys, reverse, again: Default::default(), into: recv })));
+        }
         let result = if let Some(k) = key.filter(|k| !k.is_none()) {
             self.sort_by_key(items, k, reverse, chunk)?
         } else {
@@ -279,7 +379,7 @@ impl<'a> VM<'a> {
     }
 
     /* Root the operands (comparators can run GC-triggering user code), sort `keys` the way Python does through `sort_lt`, and return the index permutation. `extra_roots` keeps caller-only values (e.g. the items in a keyed sort) alive across comparisons. The first comparison error ends the sort. */
-    fn sorted_order(&mut self, keys: &[Val], extra_roots: &[Val], reverse: bool, chunk: &SSAChunk) -> Result<Vec<usize>, VmErr> {
+    pub(crate) fn sorted_order(&mut self, keys: &[Val], extra_roots: &[Val], reverse: bool, chunk: &SSAChunk) -> Result<Vec<usize>, VmErr> {
         if let Some(order) = plain_order(keys, reverse, &self.heap) { return Ok(order); }
         let roots_base = self.temp_roots.len();
         // Only an instance key runs user code that could collect.
@@ -317,6 +417,7 @@ impl<'a> VM<'a> {
     }
 
     /* `reversed(seq)`, a list read live from its end, a range stepped backwards, other sequences read up front. */
+    #[inline(never)]
     pub fn call_reversed(&mut self) -> Result<(), VmErr> {
         let o = self.pop()?;
         let name = match self.heap.try_get(o) {
@@ -438,7 +539,7 @@ impl<'a> VM<'a> {
             let base = self.stack.len();
             loop {
                 self.charge_step()?;
-                let v = self.resume_coroutine(o)?;
+                let v = self.step_coroutine(o)?;
                 if !self.yielded { break; }
                 self.yielded = false;
                 self.push(v);
@@ -520,7 +621,9 @@ impl<'a> VM<'a> {
         Ok(())
     }
 
+    #[inline(never)]
     pub fn call_next(&mut self, argc: u16, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
+        let ok = core::mem::take(&mut self.job_ok);
         if argc == 0 || argc > 2 { return Err(cold_type("next() takes 1 or 2 arguments")); }
         // `next(it, default)` returns the 2nd arg instead of raising StopIteration on exhaustion.
         let default = if argc == 2 { Some(self.pop()?) } else { None };
@@ -528,6 +631,8 @@ impl<'a> VM<'a> {
         let not_iterator = |vm: &Self| VmErr::TypeMsg(crate::s!("'", str vm.type_name(o), "' object is not an iterator"));
         if !o.is_heap() { return Err(not_iterator(self)); }
         // For a user iterator, dispatch __next__, mapping StopIteration to the optional default.
+        if ok && matches!(self.heap.get(o), HeapObj::Instance(..))
+            && self.check_job(o, crate::vm::jobs::Check::Next(default.unwrap_or(Val::undef()), self.pending.exc_val.unwrap_or(Val::undef()))) { return Ok(()); }
         if matches!(self.heap.get(o), HeapObj::Instance(..)) {
             let before = self.pending.exc_val;
             return match self.try_call_dunder(o, "__next__", &[], chunk) {
@@ -541,12 +646,16 @@ impl<'a> VM<'a> {
             };
         }
         if matches!(self.heap.get(o), HeapObj::Iter(frame, _) if matches!(&*frame.borrow(), IterFrame::Awaitable { .. })) {
+            // Called where a frame may open, its target steps as one.
+            if ok && self.awaitable_next(o, default.unwrap_or(Val::undef()), chunk)? { return Ok(()); }
             return match (self.gen_step(o, super::async_ops::Sent::Value(Val::none()), chunk)?, default) {
                 (super::async_ops::Step::Yield(v), _) | (_, Some(v)) => { self.push(v); Ok(()) }
                 (super::async_ops::Step::Return(v), None) => Err(self.stop_iteration(v)),
             };
         }
         if matches!(self.heap.get(o), HeapObj::Iter(..)) {
+            // A `map` or `filter` of a Python function called where a frame may open runs it as frames of a job.
+            if ok && self.lazy_iter(o) && self.items_job(o, crate::vm::jobs::Takes::Next(default.unwrap_or(Val::undef())), chunk)? { return Ok(()); }
             return match (self.iter_step(o)?, default) {
                 (Some(v), _) | (None, Some(v)) => { self.push(v); Ok(()) }
                 (None, None) => Err(VmErr::Raised(s!("StopIteration"))),
@@ -555,13 +664,15 @@ impl<'a> VM<'a> {
         if !matches!(self.heap.get(o), HeapObj::Coroutine(..)) || self.is_async_object(o) {
             return Err(VmErr::TypeMsg(s!("'", str self.type_name(o), "' object is not an iterator")));
         }
+        // A generator called where a frame may open runs to its next yield as a frame of the loop.
+        if ok && self.gather_job(o, crate::vm::jobs::Takes::Next(default.unwrap_or(Val::undef())), Vec::new())? { return Ok(()); }
         self.resume_generator(o, default)
     }
 
     /* Resumes generator `o`, its next value pushed, or `default` or StopIteration once it ends. */
     pub(crate) fn resume_generator(&mut self, o: Val, default: Option<Val>) -> Result<(), VmErr> {
         self.push(o); // root across resume's GC
-        let result = self.resume_coroutine(o)?;
+        let result = self.step_coroutine(o)?;
         if self.yielded {
             self.yielded = false;
             *self.stack.last_mut().unwrap() = result; // leave one result, not two
@@ -578,58 +689,35 @@ impl<'a> VM<'a> {
     pub fn call_map(&mut self, argc: u16, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
         if argc < 2 { return Err(cold_type("map() must have at least two arguments")); }
         let at = self.stack.len().checked_sub(argc as usize - 1).ok_or_else(|| cold_runtime("stack underflow"))?;
+        let own = self.makes_iterator(self.stack[at]);
         self.iters_in_place(at, chunk)?;
         let its = self.pop_n(argc as usize - 1)?;
         let f = self.pop()?;
-        self.push_iterator(IterFrame::Map { f, its: its.into() }, "map")
+        self.push_iterator(IterFrame::Map { f, its: its.into(), own }, "map")
     }
 
     /* `filter(pred, iter)`, testing each item as it is asked for, a None predicate keeps truthy items. */
     pub fn call_filter(&mut self, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
         let at = self.stack.len().checked_sub(1).ok_or_else(|| cold_runtime("stack underflow"))?;
+        let own = self.makes_iterator(self.stack[at]);
         self.iters_in_place(at, chunk)?;
         let it = self.pop()?;
         let f = self.pop()?;
-        self.push_iterator(IterFrame::Filter { f, it }, "filter")
+        self.push_iterator(IterFrame::Filter { f, it, own }, "filter")
+    }
+
+    /* Whether the iterator `iter_of` gives for `o` is one it makes, which only its caller holds, as for a builtin container. */
+    fn makes_iterator(&self, o: Val) -> bool {
+        matches!(self.heap.try_get(o), Some(HeapObj::List(_) | HeapObj::Tuple(_) | HeapObj::Range(..) | HeapObj::Str(_) | HeapObj::Dict(_) | HeapObj::Set(_)))
+            && self.heap.classed(o).is_none()
     }
 
     /* Short-circuit truthiness scan shared by `all`/`any`, stopping at the first item whose truth is `find` and pushing it, `!find` once spent. */
     fn scan_truthy(&mut self, op: u16, find: bool, arity_err: &'static str, chunk: &SSAChunk) -> Result<(), VmErr> {
+        let ok = core::mem::take(&mut self.job_ok);
         if op != 1 { return Err(cold_type(arity_err)); }
         let o = self.pop()?;
-        // An iterator steps as asked so the scan stops at the deciding item, anything else reads its container.
-        let lazy = matches!(self.heap.try_get(o), Some(HeapObj::Iter(..) | HeapObj::Coroutine(..) | HeapObj::Instance(..)));
-        let it = if lazy { self.iter_of(o, chunk)? } else { o };
-        // The container or iterator stays on the stack, rooting the items a `__bool__` call may outlive.
-        self.push(it);
-        let decided = if lazy {
-            loop {
-                self.charge_step()?;
-                let Some(v) = self.next_of(it, chunk)? else { break !find };
-                if self.truth_of(v, chunk)? == find { break find; }
-            }
-        } else {
-            let mut cur = self.iter_cursor(o)?;
-            let mut decided = !find;
-            while let Some(v) = cur.next_item(&mut self.heap)? {
-                self.charge_step()?;
-                let truth = if v.is_heap() { self.truth_of(v, chunk)? } else { self.truthy(v) };
-                if truth == find { decided = find; break; }
-            }
-            decided
-        };
-        self.pop()?;
-        self.push(Val::bool(decided));
-        Ok(())
-    }
-
-    /* The truth of `v`, only an instance running user code for it and waiting rooted on the stack meanwhile. */
-    fn truth_of(&mut self, v: Val, chunk: &SSAChunk) -> Result<bool, VmErr> {
-        if !v.is_heap() || !matches!(self.heap.get(v), HeapObj::Instance(..)) { return Ok(self.truthy(v)); }
-        self.push(v);
-        let t = self.truthy_op(v, chunk)?;
-        self.pop()?;
-        Ok(t)
+        self.fold_run(o, if find { crate::vm::jobs::Takes::Any } else { crate::vm::jobs::Takes::Every }, &[], ok, chunk)
     }
 
     pub fn call_all(&mut self, op: u16, chunk: &SSAChunk) -> Result<(), VmErr> { self.scan_truthy(op, false, "all() takes exactly 1 argument", chunk) }
@@ -638,8 +726,11 @@ impl<'a> VM<'a> {
 
     // Materialise an iterable to a list, strings -> chars, ranges eager, coroutines drained.
     pub fn call_list(&mut self, argc: u16, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
+        let ok = core::mem::take(&mut self.job_ok);
         if argc == 0 { return self.alloc_and_push_list(Vec::new()); } // `list()` is the empty list.
         let o = self.pop()?;
+        // A generator, or a user iterator's `__next__`, called where a frame may open runs as a frame of the loop, its items gathered as they come.
+        if ok && self.may_job(o) && self.items_job(o, crate::vm::jobs::Takes::All(OpCode::CallList, 1), chunk)? { return Ok(()); }
         // user-defined iterable wins over the built-in dispatch.
         if let Some(items) = self.iter_to_vec_op(o, chunk)? {
             return self.alloc_and_push_list(items);
@@ -649,8 +740,10 @@ impl<'a> VM<'a> {
     }
 
     pub fn call_tuple(&mut self, argc: u16, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
+        let ok = core::mem::take(&mut self.job_ok);
         if argc == 0 { return self.alloc_and_push_tuple(Vec::new()); } // `tuple()` is the empty tuple.
         let o = self.pop()?;
+        if ok && self.may_job(o) && self.items_job(o, crate::vm::jobs::Takes::All(OpCode::CallTuple, 1), chunk)? { return Ok(()); }
         if let Some(items) = self.iter_to_vec_op(o, chunk)? {
             return self.alloc_and_push_tuple(items);
         }

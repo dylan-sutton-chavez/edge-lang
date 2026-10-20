@@ -506,6 +506,15 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             let unpack = if s.eat_if(TokenType::DoubleStar) { Some(2u16) }
                 else if s.eat_if(TokenType::Star) { Some(1u16) }
                 else { None };
+            // A tuple or list display spread before any keyword is its items passed one by one, as plain positionals.
+            if unpack == Some(1) && kw == 0 && let Some(close) = s.literal_spread() {
+                s.advance();
+                let mut items = 0u16;
+                s.comma_list(|t| t == close, |s| { s.expr(); items += 1; });
+                s.eat(close);
+                pos = pos.saturating_add(items);
+                return;
+            }
             if let Some(kind) = unpack {
                 // The first spread opens the frame its call closes, a native call opened one up front.
                 if lazy && !spread { s.chunk.emit(OpCode::BeginArgs, 0); }
@@ -545,6 +554,39 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         self.expr_depth -= 1;
         if pos > 0xFF || kw > 0xFF { self.error("too many arguments in call (max 255 positional and 255 keyword)"); }
         (pos, kw, spread)
+    }
+
+    /* Where the tuple or list display starting here closes when it alone is the spread argument (`,` or `)` past it), no comprehension inside. */
+    fn literal_spread(&self) -> Option<TokenType> {
+        let toks = &self.tokens.toks;
+        let at = self.tokens.pos;
+        let close = match toks.get(at)?.kind { TokenType::Lpar => TokenType::Rpar, TokenType::Lsqb => TokenType::Rsqb, _ => return None };
+        let (mut depth, mut comma, mut items, mut prev) = (0usize, false, false, TokenType::Lpar);
+        for k in at..toks.len() {
+            let t = toks[k].kind;
+            if matches!(t, TokenType::Nl | TokenType::Comment | TokenType::Newline) { continue; }
+            match t {
+                TokenType::Lpar | TokenType::Lsqb | TokenType::Lbrace => depth += 1,
+                TokenType::Rpar | TokenType::Rsqb | TokenType::Rbrace => {
+                    depth -= 1;
+                    if depth == 0 {
+                        if t != close || close == TokenType::Rpar && items && !comma { return None; }
+                        let next = toks[k + 1..].iter().map(|t| t.kind).find(|t| !matches!(t, TokenType::Nl | TokenType::Comment | TokenType::Newline));
+                        return matches!(next, Some(TokenType::Comma | TokenType::Rpar)).then_some(close);
+                    }
+                }
+                _ if depth == 1 => match t {
+                    TokenType::For | TokenType::Async => return None,
+                    TokenType::Star | TokenType::DoubleStar if matches!(prev, TokenType::Lpar | TokenType::Lsqb | TokenType::Comma) => return None,
+                    TokenType::Comma => comma = true,
+                    _ => items = true,
+                },
+                _ => {}
+            }
+            if depth == 1 && !matches!(t, TokenType::Lpar | TokenType::Lsqb) || k == at { prev = t; }
+            if depth == 1 && k != at && !matches!(t, TokenType::Comma) { items = true; }
+        }
+        None
     }
 
     /* Consume the next Name, or emit a non-syncing diagnostic and return a synthetic name so parsing continues. */

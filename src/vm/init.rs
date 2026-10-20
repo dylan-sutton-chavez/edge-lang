@@ -36,6 +36,7 @@ impl<'a> VM<'a> {
             self.function_parents.push(parent_fi);
             self.fn_definer.push(chunk as *const _);
             let pool = self.pool_of(&desc.1);
+            self.pools[pool].func = global;
             self.fn_pool.push(pool);
             self.fn_module.push(module_spec.map(String::from));
             self.body_to_fi.insert(&desc.1 as *const _, global as usize);
@@ -115,6 +116,7 @@ impl<'a> VM<'a> {
         self.error_byte_pos = None;
         // A run that suspended to the host keeps its module body, so this call resumes it.
         if self.root.is_none() {
+            self.turned = 0;
             // Imports run before user code, the walk giving their topological order.
             let mut in_progress: crate::util::hash::FxHashSet<String> = crate::util::hash::FxHashSet::default();
             self.init_modules(self.chunk, &mut in_progress)?;
@@ -123,7 +125,67 @@ impl<'a> VM<'a> {
             let coro = self.heap.alloc(HeapObj::Coroutine(Coro::fresh(slots, BodyRef::Module)))?;
             self.root = Some(CoroutineHandle { coro, state: CoroState::Ready });
         }
-        self.drive_root()
+        let ran = self.drive_root();
+        // A pause hands the host every generator's state where a snapshot finds it.
+        self.evict_all();
+        ran
+    }
+
+    /* Binds the native module `entry` names, its functions, constants and classes made here. */
+    fn bind_native(&mut self, entry: &crate::parser::ImportEntry) -> Result<(), VmErr> {
+        let ImportKind::Native { funcs, classes, consts } = &entry.kind else { return Ok(()) };
+        let mut attrs: Vec<(String, Val)> = Vec::with_capacity(funcs.len() + classes.len() + consts.len());
+        for b in funcs {
+            let val = self.heap.alloc(HeapObj::Extern(b.clone()))?;
+            attrs.push((b.name.clone(), val));
+        }
+        // Materialise each constant by invoking its export once and binding the result as an attr.
+        for c in consts {
+            let func = c.func.clone();
+            let val = func(&mut self.heap, &[], None)?;
+            attrs.push((c.name.clone(), val));
+        }
+        for c in classes {
+            let mut methods: Vec<(String, Val)> = Vec::with_capacity(c.methods.len());
+            for m in &c.methods {
+                let mval = self.heap.alloc(HeapObj::Extern(m.clone()))?;
+                methods.push((m.name.clone(), mval));
+            }
+            let cls_val = self.heap.alloc(HeapObj::Class(c.name.clone(), Vec::new(), alloc::rc::Rc::new(core::cell::RefCell::new(methods))))?;
+            self.heap.users = true;
+            attrs.push((c.name.clone(), cls_val));
+        }
+        let val = self.heap.alloc(HeapObj::Module(entry.spec.clone(), attrs))?;
+        self.module_table.insert(entry.spec.clone(), val);
+        Ok(())
+    }
+
+    /* The slots the top level of module `spec` (chunk `sub`) starts from, its `__name__` the spec so a main guard skips on import. */
+    pub(crate) fn module_slots(&mut self, spec: &str, sub: &SSAChunk) -> Result<Vec<Val>, VmErr> {
+        let slots = self.fill_builtins(&sub.names);
+        let spec_val = self.heap.alloc(HeapObj::Str(spec.into()))?;
+        let module = self.chunk_module_id(sub);
+        self.scopes[module].set("__name__", spec_val);
+        let doc = match crate::vm::opcodes::attr_lookup::docstring(sub) { Some(d) => self.heap.alloc(HeapObj::Str(d))?, None => Val::none() };
+        self.scopes[module].set("__doc__", doc);
+        Ok(slots)
+    }
+
+    /* `init_modules` for a run of text, each code module's top level run as a floor of its loop, native ones bound here and code ones put in `out` after those they import. */
+    pub(crate) fn pending_modules(&mut self, chunk: &SSAChunk, in_progress: &mut crate::util::hash::FxHashSet<String>, out: &mut Vec<(String, *const SSAChunk)>) -> Result<(), VmErr> {
+        for entry in &chunk.imports {
+            if self.module_table.contains_key(&entry.spec) || out.iter().any(|(s, _)| *s == entry.spec) { continue; }
+            if !in_progress.insert(entry.spec.clone()) { return Err(VmErr::Runtime("circular import")); }
+            match &entry.kind {
+                ImportKind::Native { .. } => self.bind_native(entry)?,
+                ImportKind::Code(sub_chunk) => {
+                    self.pending_modules(sub_chunk, in_progress, out)?;
+                    out.push((entry.spec.clone(), alloc::rc::Rc::as_ptr(sub_chunk)));
+                }
+            }
+            in_progress.remove(&entry.spec);
+        }
+        Ok(())
     }
 
     /* Init each unique import once, code modules run their top-level, native ones just bind. `in_progress` catches cycles cleanly. */
@@ -134,40 +196,11 @@ impl<'a> VM<'a> {
                 return Err(VmErr::Runtime("circular import"));
             }
             match &entry.kind {
-                ImportKind::Native { funcs, classes, consts } => {
-                    let mut attrs: Vec<(String, Val)> = Vec::with_capacity(funcs.len() + classes.len() + consts.len());
-                    for b in funcs {
-                        let val = self.heap.alloc(HeapObj::Extern(b.clone()))?;
-                        attrs.push((b.name.clone(), val));
-                    }
-                    // Materialise each constant by invoking its export once and binding the result as an attr.
-                    for c in consts {
-                        let func = c.func.clone();
-                        let val = func(&mut self.heap, &[], None)?;
-                        attrs.push((c.name.clone(), val));
-                    }
-                    // Synthesise a HeapObj::Class per native class, each method becomes an Extern Val on the class.
-                    for c in classes {
-                        let mut methods: Vec<(String, Val)> = Vec::with_capacity(c.methods.len());
-                        for m in &c.methods {
-                            let mval = self.heap.alloc(HeapObj::Extern(m.clone()))?;
-                            methods.push((m.name.clone(), mval));
-                        }
-                        let cls_val = self.heap.alloc(HeapObj::Class(c.name.clone(), Vec::new(), alloc::rc::Rc::new(core::cell::RefCell::new(methods))))?;
-                        attrs.push((c.name.clone(), cls_val));
-                    }
-                    let val = self.heap.alloc(HeapObj::Module(entry.spec.clone(), attrs))?;
-                    self.module_table.insert(entry.spec.clone(), val);
-                }
+                ImportKind::Native { .. } => self.bind_native(entry)?,
                 ImportKind::Code(sub_chunk) => {
                     self.init_modules(sub_chunk, in_progress)?;
-                    let mut sub_slots = self.fill_builtins(&sub_chunk.names);
-                    // `__name__` is the module spec, so a main guard skips on import.
-                    let spec_val = self.heap.alloc(HeapObj::Str(entry.spec.clone()))?;
+                    let mut sub_slots = self.module_slots(&entry.spec, sub_chunk)?;
                     let module = self.chunk_module_id(sub_chunk);
-                    self.scopes[module].set("__name__", spec_val);
-                    let doc = match crate::vm::opcodes::attr_lookup::docstring(sub_chunk) { Some(d) => self.heap.alloc(HeapObj::Str(d))?, None => Val::none() };
-                    self.scopes[module].set("__doc__", doc);
                     self.exec(sub_chunk, &mut sub_slots)?;
                     let attrs = collect_module_attrs(sub_chunk, &self.scopes[module]);
                     let val = self.heap.alloc(HeapObj::Module(entry.spec.clone(), attrs))?;

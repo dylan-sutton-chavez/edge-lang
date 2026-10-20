@@ -11,13 +11,13 @@ fn compare_dunder_name(op: OpCode) -> Option<&'static str> {
 impl<'a> VM<'a> {
 
     /* Add/Sub/Mul/Div with IC, Mod/Pow/FloorDiv exact for ints of any size, Minus is unary. */
-    pub(crate) fn handle_arith(&mut self, op: OpCode, operand: u16, rip: usize, cache: &OpcodeCache, chunk: &SSAChunk) -> Result<(), VmErr> {
+    pub(crate) fn handle_arith(&mut self, op: OpCode, operand: u16, rip: usize, cache: &OpcodeCache, chunk: &SSAChunk, rerun: crate::vm::redo::Rerun) -> Result<(), VmErr> {
         if op == OpCode::Minus {
-            return self.exec_unary(rip, cache, chunk, "__neg__", |v| Val::float(-v.as_float()), UnOp::Neg, "-");
+            return self.exec_unary(rip, cache, chunk, "__neg__", |v| Val::float(-v.as_float()), UnOp::Neg, "-", rerun);
         }
         if op == OpCode::Pos {
             // +float returns the value unchanged, bool drops its tag to int.
-            return self.exec_unary(rip, cache, chunk, "__pos__", |v| v, UnOp::Pos, "+");
+            return self.exec_unary(rip, cache, chunk, "__pos__", |v| v, UnOp::Pos, "+", rerun);
         }
 
         let (a, b) = self.pop2()?;
@@ -28,6 +28,12 @@ impl<'a> VM<'a> {
             // Guard is_heap since `i += 1` operands are inline ints, and heap.get on a non-heap Val indexes garbage.
             let a_is_list = a.is_heap() && matches!(self.heap.get(a), HeapObj::List(_));
             if a_is_list {
+                // A `map` or `filter` whose steps run Python, met where a frame may open, appends its items as a job of the loop.
+                if rerun == crate::vm::redo::Rerun::Stack && b.is_heap() && matches!(self.heap.get(b), HeapObj::Iter(..)) {
+                    self.stack.extend_from_slice(&[a, b]);
+                    if self.extend_job(chunk)? { return Ok(()); }
+                    self.stack.truncate(self.stack.len() - 2);
+                }
                 // Snapshot rhs first so `xs += xs` doubles correctly, TypeError if rhs isn't iterable.
                 let rhs = self.extract_iter(b)?;
                 if let HeapObj::List(la) = self.heap.get(a) { la.borrow_mut().extend_from_slice(&rhs); }
@@ -50,13 +56,76 @@ impl<'a> VM<'a> {
             OpCode::Sub
         } else { op };
 
-        let dunder = self.try_binary_dunder(op, a, b, inplace, chunk);
+        // A dunder the op runs is a frame of the loop, the op run again after it, a format's of the instances a tuple holds too.
+        let user = self.heap.users && (a.is_heap() || b.is_heap()) && (self.instance_class(a).is_some() || self.instance_class(b).is_some());
+        // A text formats an instance before the instance is asked, its `__rmod__` never, the conversions it calls the op's.
+        let text = user && op == OpCode::Mod && self.text_mod(a, b);
+        let fmt = text || !user && op == OpCode::Mod && b.is_heap() && rerun != crate::vm::redo::Rerun::No && self.redo_fmt(b);
+        // A stack op formats them as a job, the conversions run as frames of the loop before the text is made once.
+        if fmt && rerun == crate::vm::redo::Rerun::Stack && self.percent_job(a, b, chunk)? { return Ok(()); }
+        let user = user && !text;
+        let armed = (user || fmt) && self.redo_late(rip, rerun, self.stack.len() + 2, &[a, b]);
+        let r = self.arith_of(op, a, b, inplace, user, rip, cache, chunk);
+        self.redo_done(armed);
+        r
+    }
+
+    /* `a % b` of a plain text whose values hold instances, each spec's dunder a frame of the loop and the text made once, Ok(false) if none converts. */
+    #[inline(never)]
+    fn percent_job(&mut self, a: Val, b: Val, chunk: &SSAChunk) -> Result<bool, VmErr> {
+        let Some(HeapObj::Str(fmt)) = self.heap.plain(a) else { return Ok(false) };
+        let fmt = fmt.clone();
+        let args: alloc::vec::Vec<Val> = match self.heap.try_get(b) { Some(HeapObj::Tuple(t)) => t.clone(), _ => alloc::vec![b] };
+        // Its conversions noted in one word, a format of more values formats them nested.
+        if args.len() > 64 { return Ok(false); }
+        let mut specs = alloc::vec::Vec::new();
+        // A spec that fails fails again as the text is made, past the conversions before it.
+        let _ = self.percent_with(&fmt, b, Some(&args), 0, Some(&mut specs), false, chunk);
+        let plan: alloc::vec::Vec<(usize, crate::vm::jobs::Check)> = specs.into_iter().filter_map(|(at, c)| self.percent_check(args[at], c).map(|k| (at, k))).collect();
+        if plan.is_empty() { return Ok(false); }
+        if let crate::vm::jobs::Converted::Give(s) = self.convert_run(alloc::boxed::Box::new(Percent { fmt, arg: b, args, done: 0, plan, k: 0 }), chunk)? { self.push(s); }
+        Ok(true)
+    }
+
+    /* The dunder spec `conv` converts instance `v` by, as CPython's `%` picks it, None when its class lacks it. */
+    fn percent_check(&self, v: Val, conv: char) -> Option<crate::vm::jobs::Check> {
+        use crate::vm::jobs::Check;
+        let class = self.instance_class(v)?;
+        let has = |n: &str| self.lookup_class_member(class, n).is_some();
+        match conv {
+            's' if has("__str__") => Some(Check::Str(false)),
+            's' | 'r' | 'a' if has("__repr__") => Some(Check::Str(true)),
+            'd' | 'i' | 'u' if has("__int__") => Some(Check::Int(v)),
+            'f' | 'F' | 'e' | 'E' | 'g' | 'G' if has("__float__") => Some(Check::Float(v)),
+            'd' | 'i' | 'u' | 'x' | 'X' | 'o' | 'c' | 'f' | 'F' | 'e' | 'E' | 'g' | 'G' if has("__index__") => Some(Check::Index),
+            _ => None,
+        }
+    }
+
+    /* Whether `a % b` is a plain text's format of an instance, which CPython's `str.__mod__` answers before `b.__rmod__`. */
+    #[inline(never)]
+    fn text_mod(&self, a: Val, b: Val) -> bool {
+        matches!(self.heap.plain(a), Some(HeapObj::Str(_))) && matches!(self.heap.try_get(b), Some(HeapObj::Instance(..)))
+    }
+
+    /* `handle_arith` of the operands it took, `user` whether one is an instance. */
+    #[inline(always)]
+    #[allow(clippy::too_many_arguments)]
+    fn arith_of(&mut self, op: OpCode, a: Val, b: Val, inplace: bool, user: bool, rip: usize, cache: &OpcodeCache, chunk: &SSAChunk) -> Result<(), VmErr> {
+        // The dunder's own answer is the op's, its frame's value taking the operands' place, though a format's is not.
+        if user { self.redo_then(super::super::redo::Then::Done); }
+        let dunder = if user { self.try_binary_dunder(op, a, b, inplace, chunk) } else { Ok(None) };
+        if user { self.redo_then(super::super::redo::Then::Again); }
 
         // instance dunder protocol, try user-defined operator before any builtin coercion.
         if let Some(r) = dunder? {
             // record the resolved class+method so the IC can fire on subsequent iterations of a hot loop. Reflected ops deopt through `NotImplemented`.
             if let Some(name) = self.site_dunder_name(op, a, inplace) {
                 self.record_dunder_hit(rip, cache, a, name, 2);
+            }
+            // A number on the left answered by the instance on the right learns its reflected dunder, the operands swapped.
+            if (a.is_int() || a.is_float() || a.is_bool()) && let Some((_, rname)) = super::dunder::binary_dunder_names(op) {
+                self.record_dunder_hit(rip, cache, b, rname, crate::vm::sites::REFLECTED);
             }
             self.push(r);
             return Ok(());
@@ -85,9 +154,12 @@ impl<'a> VM<'a> {
     /* Unary `-`/`+`, instance dunder takes precedence over numeric coercion. `ffl` maps the float case. */
     #[allow(clippy::too_many_arguments)]
     fn exec_unary(&mut self, rip: usize, cache: &OpcodeCache, chunk: &SSAChunk,
-                  name: &'static str, ffl: fn(Val) -> Val, op: UnOp, sym: &'static str) -> Result<(), VmErr> {
+                  name: &'static str, ffl: fn(Val) -> Val, op: UnOp, sym: &'static str, rerun: crate::vm::redo::Rerun) -> Result<(), VmErr> {
         let v = self.pop()?;
-        if let Some(r) = self.try_call_dunder(v, name, &[], chunk)? {
+        let armed = self.heap.users && v.is_heap() && self.instance_class(v).is_some() && self.redo_late(rip, rerun, self.stack.len() + 1, &[v]);
+        let dunder = self.try_call_dunder(v, name, &[], chunk);
+        self.redo_done(armed);
+        if let Some(r) = dunder? {
             // monomorphic unary-instance sites promote like binary ops.
             self.record_dunder_hit(rip, cache, v, name, 1);
             self.push(r);
@@ -146,9 +218,15 @@ impl<'a> VM<'a> {
 
     /* The text `fmt % arg` makes, `bytes` reading `%s` and `%b` as bytes and `%r` as `%a`, the bytes form of PEP 461. */
     fn percent_format(&mut self, fmt: String, arg: Val, bytes: bool, chunk: &SSAChunk) -> Result<String, VmErr> {
+        self.percent_with(&fmt, arg, None, 0, None, bytes, chunk)
+    }
+
+    /* `percent_format` over `given` with the values whose `done` bits are set already converted, or with `plan` noting instances and specs in order. */
+    #[allow(clippy::too_many_arguments)]
+    fn percent_with(&mut self, fmt: &str, arg: Val, given: Option<&[Val]>, done: u64, mut plan: Option<&mut alloc::vec::Vec<(usize, char)>>, bytes: bool, chunk: &SSAChunk) -> Result<String, VmErr> {
         let (args, spread): (alloc::vec::Vec<Val>, bool) = match self.heap.try_get(arg) {
-            Some(HeapObj::Tuple(t)) => (t.clone(), true),
-            _ => (alloc::vec![arg], false),
+            Some(HeapObj::Tuple(t)) => (given.map_or_else(|| t.clone(), <[Val]>::to_vec), true),
+            _ => (given.map_or_else(|| alloc::vec![arg], <[Val]>::to_vec), false),
         };
         let chars: alloc::vec::Vec<char> = fmt.chars().collect();
         let mut out = String::new();
@@ -210,15 +288,22 @@ impl<'a> VM<'a> {
             // The C length modifiers `h`, `l` and `L` change nothing.
             while i < chars.len() && matches!(chars[i], 'h' | 'l' | 'L') { i += 1; }
             if i >= chars.len() { return Err(stray()); }
-            let (conv, at) = (chars[i], i); i += 1;
-            let val = match key {
-                Some(k) => { keyed = true; self.format_key(arg, k, bytes, chunk)? }
+            let (conv, at_conv) = (chars[i], i); i += 1;
+            let (val, at) = match key {
+                Some(k) => { keyed = true; (self.format_key(arg, k, bytes, chunk)?, usize::MAX) }
                 None if keyed => return Err(cold_value_s(crate::s!("format requires a parenthesised mapping key at position ", int start as i64))),
-                None => { let v = *args.get(ai).ok_or_else(|| short_of(args.len()))?; ai += 1; v }
+                None => { let v = *args.get(ai).ok_or_else(|| short_of(args.len()))?; ai += 1; (v, ai - 1) }
+            };
+            if let Some(p) = plan.as_deref_mut() { if at != usize::MAX && self.is_instance(val) { p.push((at, conv)); } continue; }
+            let mut converted = at < 64 && done >> at & 1 != 0;
+            // An instance converts here by the dunder its spec runs, as the job converts it.
+            let val = match if converted || bytes || !self.is_instance(val) { None } else { self.percent_check(val, conv) } {
+                Some(c) => { converted = true; self.with_roots([val], |vm| vm.convert_now(val, c, chunk))? }
+                None => val,
             };
             // A bad verb right after `%` is unsupported, one after flags or a width may end a stray `%`.
-            let unsupported = || if at == start + 1 { cold_value_s(crate::s!("unsupported format %", char conv, " at position ", int start as i64)) }
-                else { cold_value_s(crate::s!("stray % at position ", int start as i64, " or unexpected format character '", char conv, "' at position ", int at as i64)) };
+            let unsupported = || if at_conv == start + 1 { cold_value_s(crate::s!("unsupported format %", char conv, " at position ", int start as i64)) }
+                else { cold_value_s(crate::s!("stray % at position ", int start as i64, " or unexpected format character '", char conv, "' at position ", int at_conv as i64)) };
             // How an error names the argument, by its place when a tuple spread them.
             let wrong = |vm: &Self, needs: &str| {
                 let at = if spread { crate::s!("format argument ", int ai as i64) } else { String::from("format argument") };
@@ -248,6 +333,9 @@ impl<'a> VM<'a> {
                     };
                     (self.heap.alloc(HeapObj::Str(String::from(byte as char)))?, None, false)
                 }
+                // A converted value is the text its dunder gave.
+                's' | 'r' if converted => (val, None, false),
+                'a' if converted => { let s = crate::vm::format_spec::ascii_escape(&self.display(val)); (self.heap.alloc(HeapObj::Str(s))?, None, false) }
                 's' => { let s = self.display_op(val, chunk)?; (self.heap.alloc(HeapObj::Str(s))?, None, false) }
                 'r' => { let s = self.repr_op(val, chunk)?; (self.heap.alloc(HeapObj::Str(s))?, None, false) }
                 'a' => { let s = crate::vm::format_spec::ascii_escape(&self.repr_op(val, chunk)?); (self.heap.alloc(HeapObj::Str(s))?, None, false) }
@@ -262,6 +350,8 @@ impl<'a> VM<'a> {
                     let v = if int_like { val } else { self.format_number(val, "__index__", chunk)?.ok_or_else(|| wrong(self, "an integer"))? };
                     (v, Some(conv), true)
                 }
+                'c' if !(int_like || matches!(self.heap.try_get(val), Some(HeapObj::Str(_)))) => return Err(wrong(self, "an int or a unicode character")),
+                'f' | 'F' | 'e' | 'E' | 'g' | 'G' if crate::vm::num_f64(val, &self.heap).is_none() => return Err(wrong(self, "a real number")),
                 'c' => (val, Some('c'), false),
                 'f' | 'F' => (val, Some('f'), true),
                 'e' => (val, Some('e'), true),
@@ -460,32 +550,53 @@ impl<'a> VM<'a> {
         self.heap.foreign_binop(op, a, b)?.ok_or_else(|| self.unsupported(sym, a, b))
     }
 
-    pub(crate) fn handle_compare(&mut self, op: OpCode, rip: usize, cache: &OpcodeCache, chunk: &SSAChunk) -> Result<(), VmErr> {
+    /* Learns `a`'s dunder `name` for a comparison, a `!=`'s on a class with no `__ne__` its `__eq__`, inverted. */
+    fn record_compare_hit(&self, op: OpCode, rip: usize, cache: &OpcodeCache, a: Val, name: &str) {
+        let inverts = op == OpCode::NotEq && self.instance_class(a).is_some_and(|c| self.lookup_class_member(c, "__ne__").is_none());
+        if inverts { self.record_dunder_hit(rip, cache, a, "__eq__", crate::vm::sites::INVERTS) } else { self.record_dunder_hit(rip, cache, a, name, 2) }
+    }
+
+    pub(crate) fn handle_compare(&mut self, op: OpCode, rip: usize, cache: &OpcodeCache, chunk: &SSAChunk, rerun: crate::vm::redo::Rerun) -> Result<(), VmErr> {
         let (a, b) = self.pop2()?;
 
-        let dunder = self.try_compare_dunder(op, a, b, chunk);
+        // A dunder the op runs is a frame of the loop, the op run again after it.
+        let user = self.heap.users && (a.is_heap() || b.is_heap()) && (self.instance_class(a).is_some() || self.instance_class(b).is_some());
+        let armed = user && self.redo_late(rip, rerun, self.stack.len() + 2, &[a, b]);
+        // The dunder's own answer is the op's, its frame's value taking the operands' place.
+        if armed { self.redo_then(super::super::redo::Then::Done); }
+        let dunder = if user { self.compare_dunder(op, a, b, chunk) } else { Ok(None) };
+        self.redo_done(armed);
 
         // try the user-defined comparison dunder before falling back to numeric/string compare.
         if let Some(r) = dunder? {
             // monomorphic comparison sites cache the resolved method like arithmetic ones.
             if let Some(name) = compare_dunder_name(op) {
-                self.record_dunder_hit(rip, cache, a, name, 2);
+                self.record_compare_hit(op, rip, cache, a, name);
+            }
+            if (a.is_int() || a.is_float() || a.is_bool()) && let Some((_, rname)) = super::dunder::compare_dunder_names(op) {
+                self.record_dunder_hit(rip, cache, b, rname, crate::vm::sites::REFLECTED);
             }
             self.push(r);
             return Ok(());
         }
 
+        // A comparison whose instance's dunder declined still learns it, so the relowered op calls its section, declining to the reflected one laid too.
+        if matches!(self.heap.try_get(a), Some(HeapObj::Instance(..))) && let Some(name) = compare_dunder_name(op) { self.record_compare_hit(op, rip, cache, a, name); }
+
         // Set/Set uses subset/superset, NOT total order, the numeric `LtEq = !lt_vals(b, a)` identity is wrong here ({1,2} <= {2,3} would come back True), so we bypass `lt_vals`.
         if self.is_set_like(a) && self.is_set_like(b) { return self.set_compare_and_push(a, b, op); }
         if let Some((x, y)) = self.view_set_operands(a, b, false, chunk)? { return self.set_compare_and_push(x, y, op); }
 
+        // An instance whose `__eq__` and the other's both declined, or neither has, is equal only to itself, its dunders run once.
+        let inst = |v: Val| matches!(self.heap.try_get(v), Some(HeapObj::Instance(..)));
         let result = match op {
-            OpCode::Eq => self.values_eq(a, b, chunk)?,
-            OpCode::NotEq => !self.values_eq(a, b, chunk)?,
-            OpCode::Lt => self.values_lt(a, b, chunk).map_err(|e| self.ordering_err(e, "<", a, b))?,
-            OpCode::Gt => self.values_lt(b, a, chunk).map_err(|e| self.ordering_err(e, ">", a, b))?,
-            OpCode::LtEq => !self.values_lt(b, a, chunk).map_err(|e| self.ordering_err(e, "<=", a, b))?,
-            OpCode::GtEq => !self.values_lt(a, b, chunk).map_err(|e| self.ordering_err(e, ">=", a, b))?,
+            OpCode::Eq | OpCode::NotEq if inst(a) || inst(b) => (a.0 == b.0) == (op == OpCode::Eq),
+            OpCode::Eq => self.values_eq_op(a, b, chunk, rip, rerun)?,
+            OpCode::NotEq => !self.values_eq_op(a, b, chunk, rip, rerun)?,
+            OpCode::Lt => self.values_lt_op(a, b, chunk, rip, rerun, [a, b]).map_err(|e| self.ordering_err(e, "<", a, b))?,
+            OpCode::Gt => self.values_lt_op(b, a, chunk, rip, rerun, [a, b]).map_err(|e| self.ordering_err(e, ">", a, b))?,
+            OpCode::LtEq => !self.values_lt_op(b, a, chunk, rip, rerun, [a, b]).map_err(|e| self.ordering_err(e, "<=", a, b))?,
+            OpCode::GtEq => !self.values_lt_op(a, b, chunk, rip, rerun, [a, b]).map_err(|e| self.ordering_err(e, ">=", a, b))?,
             _ => return Err(cold_runtime("non-compare opcode in handle_compare")),
         };
         self.push(Val::bool(result));
@@ -517,6 +628,22 @@ impl<'a> VM<'a> {
     /* `is` / `is not` compare tag bits inline, `in` / `not in` delegate to contains(). */
     pub(crate) fn handle_identity(&mut self, op: OpCode, chunk: &SSAChunk) -> Result<(), VmErr> {
         let (a, b) = self.pop2()?;
+        // A generator a test steps runs as a frame of the loop to the first item equal to the value, or to its end.
+        if matches!(op, OpCode::In | OpCode::NotIn) && b.is_heap() && matches!(self.heap.get(b), HeapObj::Coroutine(..) | HeapObj::Instance(..))
+            && let Some(g) = if matches!(self.heap.get(b), HeapObj::Coroutine(..)) { Some(b) } else if matches!(self.heap.get(b), &HeapObj::Instance(c, _) if self.lookup_class_member(c, "__contains__").is_some()) { None } else { self.with_roots([a], |vm| vm.iter_of_user(b, chunk))? } {
+            if self.with_roots([a, g], |vm| vm.gather_job(g, crate::vm::jobs::Takes::Contains(a, op == OpCode::NotIn), Vec::new()))? { return Ok(()); }
+            // the test steps the iterator the instance gave
+            if g.0 != b.0 && matches!(self.heap.try_get(g), Some(HeapObj::Iter(..))) && self.with_roots([a, g], |vm| vm.contains_job(g, crate::vm::jobs::Takes::Contains(a, op == OpCode::NotIn), chunk))? { return Ok(()); }
+            if g.0 != b.0 || matches!(self.heap.try_get(g), Some(HeapObj::Instance(..))) {
+                let user = matches!(self.heap.try_get(g), Some(HeapObj::Instance(..)));
+                let hit = self.with_roots([a, g], |vm| if user { vm.iter_contains(b, g, a, chunk) } else { vm.contains_op(g, a, chunk) })?;
+                self.push(Val::bool(hit == (op == OpCode::In)));
+                return Ok(());
+            }
+        }
+        // A `map` or `filter` whose steps run Python steps as a job too, the `__eq__` of its items frames of the loop.
+        if matches!(op, OpCode::In | OpCode::NotIn) && matches!(self.heap.try_get(b), Some(HeapObj::Iter(..)))
+            && self.with_roots([a], |vm| vm.contains_job(b, crate::vm::jobs::Takes::Contains(a, op == OpCode::NotIn), chunk))? { return Ok(()); }
         let result = match op {
             OpCode::In => self.contains_op(b, a, chunk)?,
             OpCode::NotIn => !self.contains_op(b, a, chunk)?,
@@ -543,4 +670,22 @@ fn inplace_err(e: VmErr) -> VmErr {
         },
         e => e,
     }
+}
+
+/* `str % args` while the dunders of the instances it formats run, with the text, the values, those converted and the conversions left in order. */
+struct Percent { fmt: String, arg: Val, args: alloc::vec::Vec<Val>, done: u64, plan: alloc::vec::Vec<(usize, crate::vm::jobs::Check)>, k: usize }
+
+impl crate::vm::jobs::Resume for Percent {
+    fn resume(&mut self, vm: &mut VM<'_>, v: Option<Val>) -> Result<crate::vm::jobs::Next, VmErr> {
+        if let Some(v) = v && let Some(&(at, _)) = self.plan.get(self.k.wrapping_sub(1)) { self.args[at] = v; self.done |= 1 << at; }
+        if let Some(&(at, c)) = self.plan.get(self.k) { self.k += 1; return Ok(crate::vm::jobs::Next::Convert(self.args[at], c)); }
+        let chunk = vm.chunk;
+        let out = vm.percent_with(&self.fmt, self.arg, Some(&self.args), self.done, None, false, chunk)?;
+        Ok(crate::vm::jobs::Next::Give(vm.heap.alloc(HeapObj::Str(out))?))
+    }
+
+    // A format converts the few values it holds.
+    fn few(&self) -> bool { true }
+
+    fn for_each_val(&self, f: &mut dyn FnMut(Val)) { f(self.arg); for &v in &self.args { f(v) } }
 }

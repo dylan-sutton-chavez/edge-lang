@@ -16,6 +16,8 @@ pub enum VmErr {
     HostYield(SchedulerStatus),
     /// Native `CallExtern` deferred to host, caught locally by `call_extern`, never propagates.
     HostCallDeferred,
+    /* An op's handler handed its call to the loop, which runs it as a frame and the op again after it, so it never propagates past the loop. */
+    Redo,
 }
 
 impl VmErr {
@@ -37,6 +39,7 @@ impl VmErr {
             Self::HostYield(_) => "_HostYield".into(),
             // Caught locally in call_extern, unreachable here.
             Self::HostCallDeferred => "_HostCallDeferred".into(),
+            Self::Redo => "_Redo".into(),
         }
     }
 
@@ -73,6 +76,7 @@ impl VmErr {
             Self::Budget => String::from("budget exceeded"),
             Self::HostYield(_) => String::from("scheduler suspended; embedder must drive run_start / run_resume"),
             Self::HostCallDeferred => String::from("native call deferred to host"),
+            Self::Redo => String::from("op handed its call to the loop"),
         }
     }
 

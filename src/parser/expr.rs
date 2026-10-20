@@ -40,6 +40,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         if self.saw_newline || !matches!(self.peek_same_line(), Some(TokenType::If)) { return; }
         self.glued_keyword();
         self.advance();
+        self.chunk.set_ternaries(true);
         let cond_start = self.chunk.instructions.len();
         self.expr_bp(0);
 
@@ -665,8 +666,11 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         let outer_versions = self.ssa_versions.clone();
         let mut body = self.with_fresh_chunk(|s| {
             s.ssa_versions = outer_versions;
-            // Base name shadows the enclosing scope, prefix/`=` marker must be stripped.
-            for p in params { s.bind_param(p); }
+            // The base name shadows the enclosing scope with its prefix/`=` marker stripped, each parameter taking its slot in order as a def's does.
+            for p in params {
+                s.bind_param(p);
+                let _ = s.push_ssa_name(super::types::param_base_name(p), 0);
+            }
             s.in_function = true;
             s.expr();
             s.chunk.emit(OpCode::ReturnValue, 0);
