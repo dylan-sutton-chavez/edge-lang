@@ -1,5 +1,4 @@
 use super::*;
-use crate::alloc::string::ToString;
 use crate::value::View;
 
 /* Single source of truth for opcode -> (forward, reflected) arithmetic dunder names. */
@@ -80,6 +79,7 @@ fn instance_class(heap: &HeapPool, v: Val) -> Option<Val> {
     if !v.is_heap() { return None; }
     match heap.get(v) { HeapObj::Instance(c, _) => Some(*c), _ => heap.classed(v).map(|e| e.0) }
 }
+
 
 impl<'a> VM<'a> {
     /* `recv.<name>(*args)` probes the instance method and invokes it with `self` prepended. `Some(v)` on return, `None` on miss / `NotImplemented` (triggers reflected/fallback dispatch), `Err` only on a raised dunder. */
@@ -173,9 +173,6 @@ impl<'a> VM<'a> {
     #[inline(always)]
     pub(crate) fn dunder_holds(&self, class: Val, a: Val, b: Val) -> bool { dunder_holds(&self.heap, class, a, b) }
 
-    /* Class of an Instance or of a dict or list a user class made, `None` for built-in operands. */
-    #[inline]
-    pub(crate) fn instance_class(&self, v: Val) -> Option<Val> { instance_class(&self.heap, v) }
 
     /* Ordered forward/reflected dunder dispatch, reflected (`b.rname(a)`) runs first when `type(b)` strictly subclasses `type(a)` so overrides win. Returns the first non-None result. */
     fn dispatch_reflected(&mut self, a: Val, b: Val, lname: &str, rname: &str, arith: bool, chunk: &SSAChunk) -> Result<Option<Val>, VmErr> {
@@ -242,24 +239,6 @@ impl<'a> VM<'a> {
         Ok(Some(r))
     }
 
-    /* Python `bool()` semantics, try `__bool__`, then `__len__` (0 = False), else default True for instances. Pass-through for built-in types. */
-    pub(crate) fn truthy_op(&mut self, v: Val, chunk: &SSAChunk) -> Result<bool, VmErr> {
-        if self.instance_class(v).is_none() {
-            let t = self.truthy(v);
-            if t && v.is_heap() && self.heap.is_not_implemented(v) { return Err(cold_type("NotImplemented should not be used in a boolean context")); }
-            return Ok(t);
-        }
-        if let Some(r) = self.try_call_dunder(v, "__bool__", &[], chunk)? {
-            if !matches!(r, x if x.is_bool()) {
-                return Err(VmErr::TypeMsg(crate::s!("__bool__ should return bool, returned ", str self.type_name(r))));
-            }
-            return Ok(r.as_bool());
-        }
-        if let Some(r) = self.try_call_dunder(v, "__len__", &[], chunk)? {
-            return self.len_to_bool(r);
-        }
-        Ok(self.truthy(v))
-    }
 
     /* Steps an iterator once, None once spent or when the value has no `__next__`. */
     /* What a swallowed StopIteration carries, the pending exception set back to `before` the step raised it. */
@@ -440,98 +419,10 @@ impl<'a> VM<'a> {
         Ok(Some(self.heap.alloc(HeapObj::List(Rc::new(RefCell::new(items))))?))
     }
 
-    /* `str(v)` semantics, instance `__str__` wins, then `__repr__`, else the built-in display. */
-    pub(crate) fn display_op(&mut self, v: Val, chunk: &SSAChunk) -> Result<String, VmErr> {
-        if self.instance_class(v).is_some() {
-            if let Some(r) = self.try_call_dunder(v, "__str__", &[], chunk)? {
-                return self.require_str(r, "__str__");
-            }
-            if let Some(r) = self.try_call_dunder(v, "__repr__", &[], chunk)? {
-                return self.require_str(r, "__repr__");
-            }
-        }
-        // Containers render their elements with repr, dispatching user __repr__ on instances.
-        if self.is_container_val(v) { return self.repr_op(v, chunk); }
-        let s = match self.heap.foreign_repr(v) { Some(r) => r?, None => self.display(v) };
-        // Render is O(size). Charge it so reprinting growing data can't outrun the budget.
-        self.charge_steps(s.len())?;
-        Ok(s)
-    }
 
-    /* `repr(v)` semantics, instance `__repr__` wins, otherwise the built-in repr (which adds quotes for strings, etc.). */
-    pub(crate) fn repr_op(&mut self, v: Val, chunk: &SSAChunk) -> Result<String, VmErr> {
-        let s = self.repr_deep(v, chunk, &mut Vec::new())?;
-        self.charge_steps(s.len())?;
-        Ok(s)
-    }
 
-    fn is_container_val(&self, v: Val) -> bool {
-        v.is_heap() && matches!(
-            self.heap.get(v),
-            HeapObj::List(_) | HeapObj::Tuple(_) | HeapObj::Dict(_) | HeapObj::FrozenDict(_) | HeapObj::Set(_) | HeapObj::FrozenSet(_)
-        )
-    }
 
-    /* Container-aware repr dispatches `__repr__` on nested instances. Elements always use repr, with `seen` tracking heap ids for cycle detection. */
-    pub(crate) fn repr_deep(&mut self, v: Val, chunk: &SSAChunk, seen: &mut Vec<u32>) -> Result<String, VmErr> {
-        if let Some(r) = self.heap.foreign_repr(v) { return r; }
-        if !v.is_heap() { return Ok(self.repr(v)); }
-        if self.heap.classed(v).is_some() && let Some(r) = self.try_call_dunder(v, "__repr__", &[], chunk)? {
-            return self.require_str(r, "__repr__");
-        }
-        if !self.is_container_val(v) {
-            if matches!(self.heap.get(v), HeapObj::Instance(..))
-                && let Some(r) = self.try_call_dunder(v, "__repr__", &[], chunk)? {
-                return self.require_str(r, "__repr__");
-            }
-            // The outer path goes along, so an exception inside its own args stops there.
-            return Ok(self.repr_d(v, seen));
-        }
-        let id = v.as_heap();
-        if seen.contains(&id) {
-            return Ok(match self.heap.get(v) {
-                HeapObj::Dict(_) | HeapObj::Set(_) => "{...}".into(),
-                HeapObj::FrozenDict(_) => "frozendict({...})".into(),
-                HeapObj::Tuple(_) => "(...)".into(),
-                HeapObj::FrozenSet(_) => "frozenset({...})".into(),
-                _ => "[...]".into(),
-            });
-        }
-        if seen.len() > crate::vm::value_ops::RENDER_DEPTH_MAX { return Ok("...".into()); }
-        self.render_now(v, chunk, seen)
-    }
 
-    pub(crate) fn require_str(&self, v: Val, name: &str) -> Result<String, VmErr> {
-        if v.is_heap() && let HeapObj::Str(s) = self.heap.get(v) { return Ok(s.clone()); }
-        Err(VmErr::TypeMsg(crate::s!("'", str name, "' did not return a string")))
-    }
 
-    /* `format(v, spec)`, an instance `__format__(spec)` wins, an empty spec is `str(v)` and the rest runs the spec engine. */
-    pub(crate) fn format_op(&mut self, v: Val, spec: &str, chunk: &SSAChunk) -> Result<String, VmErr> {
-        if self.instance_class(v).is_some() {
-            let spec_val = self.heap.alloc(HeapObj::Str(spec.to_string()))?;
-            if let Some(r) = self.try_call_dunder(v, "__format__", &[spec_val], chunk)? {
-                if !matches!(self.heap.try_get(r), Some(HeapObj::Str(_))) { return Err(VmErr::TypeMsg(crate::s!("__format__ must return a str, not ", str self.type_name(r)))); }
-                return self.require_str(r, "__format__");
-            }
-        }
-        let v = crate::value::unboxed(v, &self.heap);
-        if spec.is_empty() { return self.display_op(v, chunk); }
-        if let Some(z) = crate::frontend::complex::parts(&self.heap, v).filter(|_| crate::frontend::complex::is_complex(&self.heap, v)) {
-            return crate::vm::format_spec::format_complex(z.re, z.im, spec, &self.heap);
-        }
-        // Only numbers and strings read a spec, `f"{x!s:>9}"` pads anything else.
-        let own = v.is_int() || v.is_float() || v.is_bool() || crate::frontend::int::is_big(&self.heap, v) || matches!(self.heap.try_get(v), Some(HeapObj::Str(_)));
-        if !own { return Err(VmErr::TypeMsg(crate::s!("unsupported format string passed to ", str &self.type_repr_name(v), ".__format__"))); }
-        crate::vm::format_spec::format_typed(v, spec, self.type_name(v), &self.heap)
-    }
 
-    /* Coerce a `__len__` / `__length_hint__` return value to bool semantics and reject negatives. */
-    pub(crate) fn len_to_bool(&self, v: Val) -> Result<bool, VmErr> {
-        let n = if v.is_int() { v.as_int() as i128 }
-        else if let Some(i) = crate::vm::types::as_i128(v, &self.heap) { i }
-        else { return Err(cold_type("__len__ must return int")); };
-        if n < 0 { return Err(cold_value("__len__() should return >= 0")); }
-        Ok(n != 0)
-    }
 }

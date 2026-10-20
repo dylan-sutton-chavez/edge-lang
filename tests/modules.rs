@@ -3,9 +3,9 @@ mod test {
     use std::collections::HashMap;
 
     use compiler::lexer::lex;
-    use compiler::parser::Parser;
-    use compiler::vm::VM;
-    use compiler::vm::types::{SchedulerStatus, VmErr};
+    use compiler::code::Parser;
+    use compiler::embed::VM;
+    use compiler::value::{SchedulerStatus, VmErr};
     use compiler::modules::{NativeBinding, Resolver};
 
     use crate::common::{answer, fail, TestResolver, test_native};

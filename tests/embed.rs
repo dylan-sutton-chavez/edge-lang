@@ -1,8 +1,9 @@
 /* The VM calls a Rust embedder builds on, the site runs programs through exactly these, so none reads as dead here. */
 mod test {
     use compiler::lexer::lex;
-    use compiler::parser::Parser;
-    use compiler::vm::{HeapObj, Limits, VM};
+    use compiler::code::Parser;
+    use compiler::value::HeapObj;
+use compiler::embed::{Limits, VM};
 
     use crate::common::TestResolver;
 
@@ -27,7 +28,7 @@ mod test {
         assert_eq!(&vm.output_text()[booted.len()..], "hi ada\n");
 
         // A failing call renders a traceback that names the function it failed in.
-        let err = vm.call_export("greet", &[compiler::vm::Val::int(7)]).unwrap_err();
+        let err = vm.call_export("greet", &[compiler::value::Val::int(7)]).unwrap_err();
         let traceback = vm.render_error(&err, SRC, None);
         assert!(traceback.contains("TypeError") && traceback.contains("greet"), "{traceback}");
     }

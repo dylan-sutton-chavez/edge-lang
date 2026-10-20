@@ -106,6 +106,10 @@ A job keeps between calls whatever the builtin needs, so new state goes in a var
 
 Debug and coverage builds count the loops running in `VM::loops`. `exec_in` is the only way into `exec_frame`, and a loop opening inside another panics. The test `old_path_ceilings` runs every case of `vm.json` and fails when a generic frame is pushed. Release builds have no counter.
 
+## One body per builtin
+
+The methods and builtins read their values through `value::Host`, a trait over the heap and the few things only a VM has, its stack for results, its op budget, and the user iterators, dunders and exception state it keeps. `impl Host for VM` answers with the VM's own fields and inlines, so the VM compiles each body to the code it had before. `PlainHost` holds a heap with the kinds of Python and no user code, and `call_pure` runs a builtin on it. An entry of `ALL_METHODS` marked `pure` builds both forms of its body, and `MethodDesc::excluded` says why an entry has no plain form. The test `every_method_is_pure_or_says_why_not` keeps the table complete as builtins are added.
+
 ## Memory model
 
 `Val` is 64 bits and NaN-boxed, with `QNAN = 0x7FFC_0000_0000_0000` and `SIGN = 0x8000...`.

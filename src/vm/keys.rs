@@ -9,15 +9,6 @@ use alloc::vec::Vec;
 pub(crate) enum PairScan { Dunder(usize), Differ(usize), Deep(usize), Ended }
 
 impl<'a> VM<'a> {
-    /* Walks the pairs of `a` and `b` from `from` as `PairScan` says, items read as they are now, None unless both are builtin lists or both builtin tuples. */
-    pub(crate) fn pair_scan(&self, a: Val, b: Val, from: usize) -> Option<PairScan> {
-        let (xs, ys): (&[Val], &[Val]) = match (self.heap.plain(a)?, self.heap.plain(b)?) {
-            (HeapObj::Tuple(x), HeapObj::Tuple(y)) => (x, y),
-            (HeapObj::List(x), HeapObj::List(y)) => return Some(scan_pairs(&x.borrow(), &y.borrow(), from, &self.heap)),
-            _ => return None,
-        };
-        Some(scan_pairs(xs, ys, from, &self.heap))
-    }
 
     /* `a == b`, the content compare first and the user dunders only where it cannot settle. */
     #[inline]
@@ -198,17 +189,7 @@ impl<'a> VM<'a> {
         })
     }
 
-    /* A set of `items`, each one hashable. */
-    pub(crate) fn valset_of(&mut self, items: &[Val]) -> Result<ValSet, VmErr> {
-        for &v in items.iter().filter(|v| v.is_heap()) { self.require_element(v)?; self.keyed(v)?; }
-        Ok(ValSet::from_vals(items, &self.heap))
-    }
 
-    /* A dict of `pairs` in order, a later equal key overwriting the value and keeping the first key. */
-    pub(crate) fn dictmap_of(&mut self, pairs: Vec<(Val, Val)>) -> Result<DictMap, VmErr> {
-        for &(k, _) in pairs.iter().filter(|p| p.0.is_heap()) { self.require_key(k)?; self.keyed(k)?; }
-        Ok(DictMap::from_pairs(pairs, &self.heap))
-    }
 
     /* A dict of the key and value pairs laid flat in `flat`, as a display builds it. */
     pub(crate) fn dictmap_of_flat(&mut self, flat: &[Val]) -> Result<DictMap, VmErr> {
@@ -244,7 +225,7 @@ impl<'a> VM<'a> {
 }
 
 /* `pair_scan` over the items `xs` and `ys`. */
-fn scan_pairs(xs: &[Val], ys: &[Val], from: usize, heap: &crate::value::HeapPool) -> PairScan {
+pub(crate) fn scan_pairs(xs: &[Val], ys: &[Val], from: usize, heap: &crate::value::HeapPool) -> PairScan {
     for k in from..xs.len().min(ys.len()) {
         let (x, y) = (xs[k], ys[k]);
         if x.0 == y.0 { continue; }

@@ -15,23 +15,23 @@ pub fn values(vm: &mut VM, recv: Val, _pos: &[Val]) -> Result<(), VmErr> { push_
 pub fn items(vm: &mut VM, recv: Val, _pos: &[Val]) -> Result<(), VmErr> { push_view(vm, recv, View::Items) }
 
 // `view.isdisjoint(other)`, true when no item of `other` is in the view.
-pub fn view_isdisjoint(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
+pub fn view_isdisjoint<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
     let other = iter_to_vec(vm, pos[0])?;
-    let Some(&HeapObj::DictView(d, kind)) = vm.heap.try_get(recv) else { return Err(cold_type("isdisjoint requires a dict view")) };
+    let Some(&HeapObj::DictView(d, kind)) = vm.heap().try_get(recv) else { return Err(cold_type("isdisjoint requires a dict view")) };
     let mine = vm.view_items(d, kind)?;
     let set = vm.valset_of(&mine)?;
-    let disjoint = !other.iter().any(|&v| set.contains(v, &vm.heap));
+    let disjoint = !other.iter().any(|&v| set.contains(v, vm.heap()));
     vm.push(Val::bool(disjoint));
     Ok(())
 }
 
 // `dict.copy()`, shallow copy, mutations don't affect the original.
-pub fn frozen_copy(vm: &mut VM, recv: Val, _pos: &[Val]) -> Result<(), VmErr> { vm.push(recv); Ok(()) }
+pub fn frozen_copy<H: Host>(vm: &mut H, recv: Val, _pos: &[Val]) -> Result<(), VmErr> { vm.push(recv); Ok(()) }
 
-pub fn copy(vm: &mut VM, recv: Val, _pos: &[Val]) -> Result<(), VmErr> {
+pub fn copy<H: Host>(vm: &mut H, recv: Val, _pos: &[Val]) -> Result<(), VmErr> {
     let entries = dict_entries(vm, recv)?;
     let mut dm = DictMap::with_capacity(entries.len());
-    for (k, v) in entries { dm.insert(k, v, &vm.heap); }
+    for (k, v) in entries { dm.insert(k, v, vm.heap()); }
     vm.alloc_and_push_dict(dm)
 }
 
@@ -53,20 +53,20 @@ pub fn popitem(vm: &mut VM, recv: Val, _pos: &[Val]) -> Result<(), VmErr> {
 }
 
 // `dict.fromkeys(iterable, value=None)` classmethod, new dict mapping each key to `value`.
-pub fn fromkeys(vm: &mut VM, _recv: Val, pos: &[Val]) -> Result<(), VmErr> {
+pub fn fromkeys<H: Host>(vm: &mut H, _recv: Val, pos: &[Val]) -> Result<(), VmErr> {
     let keys = vm.extract_iter(pos[0])?;
     for &k in &keys { vm.require_key(k)?; vm.keyed(k)?; }
     let value = pos.get(1).copied().unwrap_or(Val::none());
     let mut dm = DictMap::with_capacity(keys.len());
-    for k in keys { dm.insert(k, value, &vm.heap); }
+    for k in keys { dm.insert(k, value, vm.heap()); }
     vm.alloc_and_push_dict(dm)
 }
 
-pub fn get(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
+pub fn get<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
     vm.keyed(pos[0])?;
     let default = if pos.len() == 2 { pos[1] } else { Val::none() };
-    let Some(rc) = vm.heap.dict_cell(recv) else { return Err(cold_type("get: receiver is not a dict")) };
-    let found = rc.borrow().get(&pos[0], &vm.heap).copied();
+    let Some(rc) = vm.heap().dict_cell(recv) else { return Err(cold_type("get: receiver is not a dict")) };
+    let found = rc.borrow().get(&pos[0], vm.heap()).copied();
     if found.is_none() { vm.require_key(pos[0])?; }
     vm.push(found.unwrap_or(default)); Ok(())
 }

@@ -44,6 +44,41 @@ A wasm that links the crate as a library, such as a plugin that only parses, dro
 edge-python = { git = "https://github.com/dylan-sutton-chavez/edge-python", tag = "v0.9.6", default-features = false }
 ```
 
+### The crate API
+
+The crate exposes these modules and keeps the rest to itself.
+
+| Module | Holds |
+|---|---|
+| `code` | `compile`, which lexes, parses and folds a source into an `SSAChunk`, the `Parser` for a resolver or a path, and the bytecode it makes, `Instruction`, `OpCode` with `is_jump` and `ALL`, `Value`, `Diagnostic` and `unpack_call` for the counts of a call operand. `Program::new(&chunk)` gives `scope_of(body)`, `params_of(fi)` and `bindings_of(body)` without running anything |
+| `types` | `BUILTIN_TYPES`, `builtin_type`, `exc_parents`, the method table `ALL_METHODS` with `lookup_method`, `CLASS_DUNDERS` with `class_dunder` for the special names a class body may define, and `NativeFnId` with the arity of each builtin |
+| `embed` | `VM` to run a chunk, `Limits`, `SchedulerStatus`, the snapshot calls `save`, `restore`, `source_of`, `limits_of`, `inspect_globals` and `inspect_stack`, and `Resolver`, `Resolved` and `NativeBinding` for modules and natives |
+| `value` | `Val`, `HeapObj`, `HeapPool`, `VmErr`, `BigInt`, `as_i128`, the allocator `meter` and the `Host` trait |
+| `pure` | `call_pure` with the `pure` feature on, `Host` always |
+| `lexer` | `lex`, `Token` and `TokenType` |
+| `modules`, `abi`, `util::sha256` | Manifests, locks and bundles, the wire format of plugins, and SHA-256 |
+
+`bindings_of(body)` answers for the module, every class and every function body with a `BodyKind` and a `Binding` per name slot. A function's names are `Local`, `Cell` or `Global`, the same answer `scope_of` gives. A class body's own names are `Member`, which its methods and comprehensions don't see, so they read past the class to the function around it or the module. Its other names are a `Cell` of that function, a `Lent` plain local of the function that defines the class, read by value as the class is made, or `Global`. Slots no variable takes, such as attribute names, are `Local`.
+
+A class body that defines a dunder outside `CLASS_DUNDERS` fails to compile. The list holds names no builtin type has as a method, such as `__set__`, `__delete__`, `__set_name__` and `__slots__`, so `ALL_METHODS` is no list of them.
+
+The `internals` feature opens the modules behind these for the engine's own tests and tools. They change with every release.
+
+### Builtins without a VM
+
+`call_pure` runs a builtin on plain values and returns its result or the exception it raised, with the class and the message the VM gives. No lexer, parser or VM runs, and the same body the VM runs gives the answer. It is behind the `pure` feature, so the shipped `compiler.wasm` carries none of it.
+
+```rust
+use compiler::pure::{Plain, call_pure};
+
+let up = call_pure("str.upper", &[Plain::Str("abc".into())]);
+assert_eq!(up, Ok(Plain::Str("ABC".into())));
+```
+
+A method is named `type.name` with its receiver first, and a dunder of a builtin value such as `str.__getitem__` resolves among the operators its type answers. `Plain` holds what a call takes and gives, ints of any size, floats, bools, `None`, `str`, `bytes`, `bytearray`, lists, tuples, dicts, sets, ranges and slices. A method or builtin function the tables mark pure runs, and any other answers `NotImplementedError`. `MethodDesc::excluded` and `NativeFnId::excluded` give the reason, such as a method that changes its receiver or one that may run user code.
+
+The bodies of the builtins are generic over `Host`, the heap they read and the user code only a VM runs. The VM is one host and `PlainHost` the other, so each builtin has one body and the VM compiles to the same code it did before.
+
 ## Imports
 
 `compiler.wasm` declares five imports from `env`.

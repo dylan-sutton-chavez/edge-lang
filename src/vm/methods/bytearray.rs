@@ -31,7 +31,7 @@ pub fn extend(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
 
 // `ba.pop(i=-1)`, the byte removed as an int.
 pub fn pop(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
-    let i = match pos.first() { Some(v) if v.is_int() => v.as_int(), None => -1, _ => return Err(cold_type("an integer is required")) };
+    let i = match pos.first() { Some(v) if v.is_int() => v.as_int(), None => -1, Some(&v) if crate::frontend::int::is_big(&vm.heap, v) => return Err(VmErr::Overflow), _ => return Err(cold_type("an integer is required")) };
     let b = buf_mut(vm, recv)?;
     if b.is_empty() { return Err(cold_index("pop from empty bytearray")); }
     let at = if i < 0 { i + b.len() as i64 } else { i };
@@ -42,7 +42,7 @@ pub fn pop(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
 
 // `ba.insert(i, x)`, clamped to the ends like `list.insert`.
 pub fn insert(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
-    let i = if pos[0].is_int() { pos[0].as_int() } else { return Err(cold_type("an integer is required")) };
+    let i = if pos[0].is_int() { pos[0].as_int() } else if crate::frontend::int::is_big(&vm.heap, pos[0]) { return Err(VmErr::Overflow) } else { return Err(cold_type("an integer is required")) };
     let byte = vm.byte_value(pos[1])?;
     let b = buf_mut(vm, recv)?;
     let len = b.len() as i64;
@@ -64,9 +64,9 @@ pub fn clear(vm: &mut VM, recv: Val, _pos: &[Val]) -> Result<(), VmErr> { buf_mu
 
 pub fn reverse(vm: &mut VM, recv: Val, _pos: &[Val]) -> Result<(), VmErr> { buf_mut(vm, recv)?.reverse(); vm.push(Val::none()); Ok(()) }
 
-pub fn copy(vm: &mut VM, recv: Val, _pos: &[Val]) -> Result<(), VmErr> {
+pub fn copy<H: Host>(vm: &mut H, recv: Val, _pos: &[Val]) -> Result<(), VmErr> {
     let b = recv_bytes(vm, recv)?;
-    let v = vm.heap.alloc(HeapObj::ByteArray(b))?;
+    let v = vm.heap_mut().alloc(HeapObj::ByteArray(b))?;
     vm.push(v); Ok(())
 }
 

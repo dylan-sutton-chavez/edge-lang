@@ -2,6 +2,7 @@ use alloc::string::String;
 
 use super::super::VM;
 use super::super::types::*;
+use crate::vm::natives::Builtins;
 
 impl<'a> VM<'a> {
 
@@ -106,21 +107,6 @@ impl<'a> VM<'a> {
         self.push(val); Ok(())
     }
 
-    // `format(value [, spec])`.
-    pub fn call_format(&mut self, op: u16, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
-        if op != 1 && op != 2 {
-            return Err(cold_type("format() takes 1 or 2 arguments"));
-        }
-        let spec_val = if op == 2 { Some(self.pop()?) } else { None };
-        let val = self.pop()?;
-        let spec = match spec_val.map(|sv| self.heap.try_get(sv)) {
-            None => String::new(),
-            Some(Some(HeapObj::Str(s))) => s.clone(),
-            Some(_) => return Err(VmErr::TypeMsg(crate::s!("format() argument 2 must be str, not ", str self.type_name(spec_val.unwrap_or_else(Val::none))))),
-        };
-        let result = self.format_op(val, &spec, chunk)?;
-        self.alloc_and_push_str(result)
-    }
 }
 
 /* What `input()` raises once no line is left to read. */

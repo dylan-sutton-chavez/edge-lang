@@ -3,8 +3,8 @@
 #[test]
 fn old_path_ceilings() {
     use compiler::lexer::lex;
-    use compiler::parser::Parser;
-    use compiler::vm::{Limits, VM};
+    use compiler::code::Parser;
+    use compiler::embed::{Limits, VM};
     const CEILINGS: [u64; 1] = [0];
     const NAMES: [&str; 1] = ["generic frames"];
     let cases: Vec<serde_json::Value> = serde_json::from_str(&std::fs::read_to_string("tests/cases/vm.json").unwrap()).unwrap();
@@ -15,7 +15,7 @@ fn old_path_ceilings() {
         let src = case["src"].as_str().unwrap();
         let (tokens, _) = lex(src);
         let (mut chunk, _) = Parser::new(src, tokens.into_iter()).parse();
-        compiler::vm::optimizer::constant_fold(&mut chunk);
+        compiler::code::constant_fold(&mut chunk);
         let mut vm = VM::with_limits(&chunk, Limits::sandbox());
         let _ = vm.run();
         for (t, n) in total.iter_mut().zip(vm.old_path_counts()) { *t += n; }

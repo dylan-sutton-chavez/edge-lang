@@ -1,9 +1,5 @@
-/* The value model moved to `crate::value`, kept here so existing embedder paths keep resolving. */
-#[doc(hidden)]
-pub use crate::value as types;
-/* The optimizer moved to `crate::optimizer`, kept here so existing embedder paths keep resolving. */
-#[doc(hidden)]
-pub use crate::optimizer;
+// The value model by the name the VM modules use.
+pub(crate) use crate::value as types;
 
 mod cache;
 mod block;
@@ -26,14 +22,15 @@ mod act;
 mod gc;
 mod helpers;
 mod init;
-mod keys;
-mod jobs;
+pub(crate) mod keys;
+pub(crate) mod jobs;
+pub(crate) mod natives;
 mod redo;
 mod nest;
 mod object_model;
 mod groups;
 pub(crate) mod codecs;
-mod memview;
+pub(crate) mod memview;
 mod hints;
 mod timsort;
 
@@ -43,7 +40,7 @@ use crate::util::hash::FxHashMap as HashMap;
 pub use types::{Val, HeapObj, HeapPool, VmErr, Limits};
 pub use methods::{ALL_METHODS, BuiltinMethodId, MethodDesc, MethodKind, lookup_method};
 pub use globals::exc_parents;
-pub use scope::{FnScope, Kind};
+pub use scope::{Binding, BodyKind, FnScope, Kind};
 
 use types::*;
 use cache::CachePool;
@@ -566,10 +563,7 @@ impl<'a> VM<'a> {
 
     /* What a fresh VM sets up on its chunk, wide ints, budget, function tables, `__name__` and `NotImplemented`. */
     fn boot(&mut self, chunk: &'a SSAChunk) {
-        // Python registers its wide ints before any constant boxes one.
-        self.heap.set_wide_int(&crate::frontend::int::KIND);
-        self.heap.know_kind(&crate::frontend::complex::KIND);
-        self.heap.know_kind(&crate::frontend::sentinel::KIND);
+        crate::frontend::install(&mut self.heap);
         self.heap.set_budget(self.budget);
         self.build_function_table(chunk, None, None);
         self.index_functions(0);

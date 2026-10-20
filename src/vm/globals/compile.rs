@@ -10,6 +10,7 @@ use core::hash::Hasher;
 
 use super::super::VM;
 use super::super::types::*;
+use crate::vm::natives::Builtins;
 
 /* A chunk compiled while the program runs, kept while the VM lives since the functions it defines point into it. */
 pub(crate) struct Compiled {
@@ -364,8 +365,6 @@ impl<'a> VM<'a> {
         }
     }
 
-    /* Whether `f` is `eval` or `exec`, whose call where a frame may open runs its text as a floor of the loop. */
-    pub(crate) fn runs_text(&self, f: Val) -> bool { matches!(self.heap.try_get(f), Some(HeapObj::NativeFn(NativeFnId::Eval | NativeFnId::Exec))) }
 
     /* Marks the run of text last set aside as the callback of what `fed` names, which takes what it gives. */
     pub(crate) fn feed_floor(&mut self, fed: Fed) {
