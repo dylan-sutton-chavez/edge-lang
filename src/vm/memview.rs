@@ -6,11 +6,11 @@ use super::types::*;
 use super::opcodes::attr_lookup::AttrLookup;
 use crate::s;
 use alloc::vec::Vec;
+pub(crate) use crate::value::host::{released};
 
-fn released() -> VmErr { cold_value("operation forbidden on released memoryview object") }
 
 /* Where item `i` of a view sits in the bytes beneath it, a negative `i` counting from the end. */
-fn at(m: &MemView, i: i128) -> Result<usize, VmErr> {
+pub(crate) fn at(m: &MemView, i: i128) -> Result<usize, VmErr> {
     let i = if i < 0 { i + m.len as i128 } else { i };
     if !(0..m.len as i128).contains(&i) { return Err(cold_index("index out of bounds on dimension 1")); }
     Ok((m.start as isize + i as isize * m.step) as usize)
@@ -31,36 +31,11 @@ impl<'a> VM<'a> {
         Ok(())
     }
 
-    /* The view `v` holds, refused once released. */
-    pub(crate) fn view(&self, v: Val) -> Option<Result<MemView, VmErr>> {
-        match self.heap.try_get(v)? {
-            HeapObj::MemoryView(m) if m.released => Some(Err(released())),
-            &HeapObj::MemoryView(m) => Some(Ok(m)),
-            _ => None,
-        }
-    }
 
     /* Whether the bytes under a view can be written, a bytearray beneath it. */
     fn writable(&self, m: &MemView) -> bool { matches!(self.heap.try_get(m.obj), Some(HeapObj::ByteArray(_))) }
 
-    /* `m[i]` of a view, the byte as an int. */
-    pub(crate) fn view_item(&self, m: MemView, i: Val) -> Result<Val, VmErr> {
-        let Some(i) = self.as_i128(i).filter(|_| !i.is_float()) else {
-            return Err(VmErr::TypeMsg(s!("memoryview: invalid slice key")));
-        };
-        let at = at(&m, i)?;
-        let byte = self.heap.bytes_of(m.obj).and_then(|b| b.get(at)).copied().ok_or_else(|| cold_index("index out of bounds on dimension 1"))?;
-        Ok(Val::int(byte as i64))
-    }
 
-    /* `m[a:b:c]`, a view of part of the view. */
-    pub(crate) fn view_slice(&mut self, m: MemView, start: Val, stop: Val, step: Val) -> Result<Val, VmErr> {
-        let clip = |v: Val| crate::frontend::int::clip_index(&self.heap, v);
-        let (s, e, st) = super::opcodes::subscript::slice_bounds(clip(start), clip(stop), clip(step), m.len as i64)?;
-        let len = if st > 0 { ((e - s).max(0) + st - 1) / st } else { ((s - e).max(0) - st - 1) / -st } as usize;
-        let start = (m.start as isize + s as isize * m.step).max(0) as usize;
-        self.heap.alloc(HeapObj::MemoryView(MemView { obj: m.obj, start, len, step: m.step * st as isize, released: false }))
-    }
 
     /* `m[i] = byte` or `m[a:b] = bytes`, written into the bytearray beneath. */
     pub(crate) fn view_store(&mut self, m: MemView, idx: Val, value: Val) -> Result<(), VmErr> {

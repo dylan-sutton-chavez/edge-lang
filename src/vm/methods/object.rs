@@ -28,10 +28,10 @@ pub fn exc_str(vm: &mut VM, recv: Val, _pos: &[Val]) -> Result<(), VmErr> {
 }
 
 /* `__getitem__` a class over dict or list reaches through `super()`, the builtin lookup past its overrides. */
-pub fn container_getitem(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
+pub fn container_getitem<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
     vm.keyed(pos[0])?;
-    let found = match vm.heap.get(recv) {
-        HeapObj::Dict(rc) | HeapObj::FrozenDict(rc) => rc.borrow().get(&pos[0], &vm.heap).copied(),
+    let found = match vm.heap().get(recv) {
+        HeapObj::Dict(rc) | HeapObj::FrozenDict(rc) => rc.borrow().get(&pos[0], vm.heap()).copied(),
         _ => return vm.get_item_builtin(recv, pos[0]),
     };
     let Some(v) = found else { vm.require_key(pos[0])?; return Err(vm.key_error(pos[0])) };
@@ -45,7 +45,7 @@ pub fn container_setitem(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmEr
     Ok(())
 }
 
-pub fn container_len(vm: &mut VM, recv: Val, _pos: &[Val]) -> Result<(), VmErr> {
+pub fn container_len<H: Host>(vm: &mut H, recv: Val, _pos: &[Val]) -> Result<(), VmErr> {
     let n = vm.builtin_len(recv)?;
     let v = vm.int_to_val(Some(n))?;
     vm.push(v);
@@ -53,8 +53,8 @@ pub fn container_len(vm: &mut VM, recv: Val, _pos: &[Val]) -> Result<(), VmErr> 
 }
 
 /* Where `x` sits in range `recv`, an integral value by arithmetic, and whether `x` was an int at all. */
-fn range_pos(vm: &VM, recv: Val, x: Val) -> (Option<i128>, bool) {
-    let HeapObj::Range(s, e, st) = *vm.heap.get(recv) else { return (None, true) };
+fn range_pos<H: Host>(vm: &H, recv: Val, x: Val) -> (Option<i128>, bool) {
+    let HeapObj::Range(s, e, st) = *vm.heap().get(recv) else { return (None, true) };
     let int = vm.as_i128(x);
     let k = match int {
         Some(k) => k,
@@ -70,8 +70,8 @@ fn range_pos(vm: &VM, recv: Val, x: Val) -> (Option<i128>, bool) {
 /* The error `range.index` raises for a value it lacks, which quotes the value. */
 fn not_in_range() -> VmErr { VmErr::Raised(alloc::string::String::from("ValueError: range.index(x): x not in range")) }
 
-pub fn range_index(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
-    if let Some(r) = crate::frontend::int::range_index(&mut vm.heap, recv, pos[0]) {
+pub fn range_index<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
+    if let Some(r) = crate::frontend::int::range_index(vm.heap_mut(), recv, pos[0]) {
         let i = r?.ok_or_else(not_in_range)?;
         vm.push(i);
         return Ok(());
@@ -83,8 +83,31 @@ pub fn range_index(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
     }
 }
 
-pub fn range_count(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
-    let n = crate::frontend::int::range_has(&vm.heap, recv, pos[0]).unwrap_or_else(|| range_pos(vm, recv, pos[0]).0.is_some()) as i64;
+pub fn range_count<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
+    let n = crate::frontend::int::range_has(vm.heap(), recv, pos[0]).unwrap_or_else(|| range_pos(vm, recv, pos[0]).0.is_some()) as i64;
     vm.push(Val::int(n));
     Ok(())
 }
+
+// Dunders of builtin values for call_pure.
+#[cfg(feature = "pure")]
+pub fn op_getitem<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
+    let idx = vm.plain_index(recv, pos[0]).unwrap_or(pos[0]);
+    container_getitem(vm, recv, &[idx])
+}
+
+#[cfg(feature = "pure")]
+pub fn op_contains<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
+    let hit = vm.contains(recv, pos[0])?;
+    vm.push(Val::bool(hit));
+    Ok(())
+}
+
+#[cfg(feature = "pure")]
+pub fn op_repr<H: Host>(vm: &mut H, recv: Val, _pos: &[Val]) -> Result<(), VmErr> { let t = vm.repr(recv); vm.alloc_and_push_str(t) }
+
+#[cfg(feature = "pure")]
+pub fn op_str<H: Host>(vm: &mut H, recv: Val, _pos: &[Val]) -> Result<(), VmErr> { let t = vm.display(recv); vm.alloc_and_push_str(t) }
+
+#[cfg(feature = "pure")]
+pub fn op_bool<H: Host>(vm: &mut H, recv: Val, _pos: &[Val]) -> Result<(), VmErr> { let b = vm.truthy(recv); vm.push(Val::bool(b)); Ok(()) }

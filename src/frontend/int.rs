@@ -401,6 +401,8 @@ pub fn range_slice(heap: &mut HeapPool, v: Val, start: Val, stop: Val, step: Val
 /* A slice index with a boxed int clamped to the inline extreme of its sign, which no sequence length reaches. */
 pub fn clip_index(heap: &HeapPool, v: Val) -> Val {
     let v = crate::value::unboxed(v, heap);
+    // A bool bounds as the int it is.
+    if v.is_bool() { return Val::int(v.as_bool() as i64); }
     if !is_big(heap, v) { return v; }
     Val::int(if view(heap, v).is_some_and(|b| b.is_neg()) { Val::INT_MIN } else { Val::INT_MAX })
 }

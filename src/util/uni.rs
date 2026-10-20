@@ -341,6 +341,28 @@ static TITLE: [(u32, &str); 135] = [
     (0xFB15, "\u{544}\u{56B}"), (0xFB16, "\u{54E}\u{576}"), (0xFB17, "\u{544}\u{56D}"),
 ];
 
+// Folds that differ from lowercase as offset runs and grown strings ending in FOLDS.
+static FOLD_RUNS: [(u16, u16, i32); 24] = [
+    (0xB5, 0xB5, 775), (0x17F, 0x17F, -268), (0x345, 0x345, 116), (0x3C2, 0x3C2, 1), (0x3D0, 0x3D0, -30), (0x3D1, 0x3D1, -25),
+    (0x3D5, 0x3D5, -15), (0x3D6, 0x3D6, -22), (0x3F0, 0x3F0, -54), (0x3F1, 0x3F1, -48), (0x3F5, 0x3F5, -64), (0x13A0, 0x13F5, 0),
+    (0x13F8, 0x13FD, -8), (0x1C80, 0x1C80, -6222), (0x1C81, 0x1C81, -6221), (0x1C82, 0x1C82, -6212), (0x1C83, 0x1C84, -6210), (0x1C85, 0x1C85, -6211),
+    (0x1C86, 0x1C86, -6204), (0x1C87, 0x1C87, -6180), (0x1C88, 0x1C88, 35267), (0x1E9B, 0x1E9B, -58), (0x1FBE, 0x1FBE, -7173), (0xAB70, 0xABBF, -38864),
+];
+static FOLD: [(u16, u16); 103] = [
+    (0xDF, 2), (0x149, 5), (0x1F0, 8), (0x390, 14), (0x3B0, 20), (0x587, 24), (0x1E96, 27), (0x1E97, 30), (0x1E98, 33), (0x1E99, 36),
+    (0x1E9A, 39), (0x1E9E, 41), (0x1F50, 45), (0x1F52, 51), (0x1F54, 57), (0x1F56, 63), (0x1F80, 68), (0x1F81, 73), (0x1F82, 78), (0x1F83, 83),
+    (0x1F84, 88), (0x1F85, 93), (0x1F86, 98), (0x1F87, 103), (0x1F88, 108), (0x1F89, 113), (0x1F8A, 118), (0x1F8B, 123), (0x1F8C, 128), (0x1F8D, 133),
+    (0x1F8E, 138), (0x1F8F, 143), (0x1F90, 148), (0x1F91, 153), (0x1F92, 158), (0x1F93, 163), (0x1F94, 168), (0x1F95, 173), (0x1F96, 178), (0x1F97, 183),
+    (0x1F98, 188), (0x1F99, 193), (0x1F9A, 198), (0x1F9B, 203), (0x1F9C, 208), (0x1F9D, 213), (0x1F9E, 218), (0x1F9F, 223), (0x1FA0, 228), (0x1FA1, 233),
+    (0x1FA2, 238), (0x1FA3, 243), (0x1FA4, 248), (0x1FA5, 253), (0x1FA6, 258), (0x1FA7, 263), (0x1FA8, 268), (0x1FA9, 273), (0x1FAA, 278), (0x1FAB, 283),
+    (0x1FAC, 288), (0x1FAD, 293), (0x1FAE, 298), (0x1FAF, 303), (0x1FB2, 308), (0x1FB3, 312), (0x1FB4, 316), (0x1FB6, 320), (0x1FB7, 326), (0x1FBC, 330),
+    (0x1FC2, 335), (0x1FC3, 339), (0x1FC4, 343), (0x1FC6, 347), (0x1FC7, 353), (0x1FCC, 357), (0x1FD2, 363), (0x1FD3, 369), (0x1FD6, 373), (0x1FD7, 379),
+    (0x1FE2, 385), (0x1FE3, 391), (0x1FE4, 395), (0x1FE6, 399), (0x1FE7, 405), (0x1FF2, 410), (0x1FF3, 414), (0x1FF4, 418), (0x1FF6, 422), (0x1FF7, 428),
+    (0x1FFC, 432), (0xFB00, 434), (0xFB01, 436), (0xFB02, 438), (0xFB03, 441), (0xFB04, 444), (0xFB05, 446), (0xFB06, 448), (0xFB13, 452), (0xFB14, 456),
+    (0xFB15, 460), (0xFB16, 464), (0xFB17, 468),
+];
+static FOLDS: &str = "ss\u{2BC}nj\u{30C}\u{3B9}\u{308}\u{301}\u{3C5}\u{308}\u{301}\u{565}\u{582}h\u{331}t\u{308}w\u{30A}y\u{30A}a\u{2BE}ss\u{3C5}\u{313}\u{3C5}\u{313}\u{300}\u{3C5}\u{313}\u{301}\u{3C5}\u{313}\u{342}\u{1F00}\u{3B9}\u{1F01}\u{3B9}\u{1F02}\u{3B9}\u{1F03}\u{3B9}\u{1F04}\u{3B9}\u{1F05}\u{3B9}\u{1F06}\u{3B9}\u{1F07}\u{3B9}\u{1F00}\u{3B9}\u{1F01}\u{3B9}\u{1F02}\u{3B9}\u{1F03}\u{3B9}\u{1F04}\u{3B9}\u{1F05}\u{3B9}\u{1F06}\u{3B9}\u{1F07}\u{3B9}\u{1F20}\u{3B9}\u{1F21}\u{3B9}\u{1F22}\u{3B9}\u{1F23}\u{3B9}\u{1F24}\u{3B9}\u{1F25}\u{3B9}\u{1F26}\u{3B9}\u{1F27}\u{3B9}\u{1F20}\u{3B9}\u{1F21}\u{3B9}\u{1F22}\u{3B9}\u{1F23}\u{3B9}\u{1F24}\u{3B9}\u{1F25}\u{3B9}\u{1F26}\u{3B9}\u{1F27}\u{3B9}\u{1F60}\u{3B9}\u{1F61}\u{3B9}\u{1F62}\u{3B9}\u{1F63}\u{3B9}\u{1F64}\u{3B9}\u{1F65}\u{3B9}\u{1F66}\u{3B9}\u{1F67}\u{3B9}\u{1F60}\u{3B9}\u{1F61}\u{3B9}\u{1F62}\u{3B9}\u{1F63}\u{3B9}\u{1F64}\u{3B9}\u{1F65}\u{3B9}\u{1F66}\u{3B9}\u{1F67}\u{3B9}\u{1F70}\u{3B9}\u{3B1}\u{3B9}\u{3AC}\u{3B9}\u{3B1}\u{342}\u{3B1}\u{342}\u{3B9}\u{3B1}\u{3B9}\u{1F74}\u{3B9}\u{3B7}\u{3B9}\u{3AE}\u{3B9}\u{3B7}\u{342}\u{3B7}\u{342}\u{3B9}\u{3B7}\u{3B9}\u{3B9}\u{308}\u{300}\u{3B9}\u{308}\u{301}\u{3B9}\u{342}\u{3B9}\u{308}\u{342}\u{3C5}\u{308}\u{300}\u{3C5}\u{308}\u{301}\u{3C1}\u{313}\u{3C5}\u{342}\u{3C5}\u{308}\u{342}\u{1F7C}\u{3B9}\u{3C9}\u{3B9}\u{3CE}\u{3B9}\u{3C9}\u{342}\u{3C9}\u{342}\u{3B9}\u{3C9}\u{3B9}fffiflffifflstst\u{574}\u{576}\u{574}\u{565}\u{574}\u{56B}\u{57E}\u{576}\u{574}\u{56D}";
+
 // The range of `table` holding `c`, the tables are sorted and disjoint.
 fn find(table: &[(u32, u32)], c: char) -> Option<usize> {
     use core::cmp::Ordering::*;
@@ -383,6 +405,20 @@ pub fn push_title(out: &mut alloc::string::String, c: char) {
     match TITLE.binary_search_by_key(&(c as u32), |&(k, _)| k) {
         Ok(i) => out.push_str(TITLE[i].1),
         Err(_) => out.extend(c.to_uppercase()),
+    }
+}
+
+// Full casefold so ß gives ss.
+pub fn push_fold(out: &mut alloc::string::String, c: char) {
+    if c.is_ascii() { return out.push(c.to_ascii_lowercase()); }
+    let n = c as u32;
+    if let Ok(i) = FOLD.binary_search_by_key(&n, |&(k, _)| k as u32) {
+        let start = if i == 0 { 0 } else { FOLD[i - 1].1 as usize };
+        return out.push_str(&FOLDS[start..FOLD[i].1 as usize]);
+    }
+    match FOLD_RUNS.iter().find(|&&(lo, hi, _)| (lo as u32..=hi as u32).contains(&n)) {
+        Some(&(_, _, k)) => out.extend(char::from_u32(n.wrapping_add_signed(k))),
+        None => c.to_lowercase().for_each(|l| out.push(l)),
     }
 }
 

@@ -1,7 +1,7 @@
 use super::{read, resolver, rt, stage, unstage, wt, Exports, Host, MemoryCap, Project, Sink, State};
 use anyhow::{anyhow, bail, Result};
 use compiler::abi::WireValue;
-use compiler::vm::Limits;
+use compiler::embed::Limits;
 use std::cell::{RefCell, RefMut};
 use std::collections::{HashMap, VecDeque};
 use std::rc::Rc;

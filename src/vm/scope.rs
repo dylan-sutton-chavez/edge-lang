@@ -113,6 +113,25 @@ pub struct FnScope {
     pub freevars: Vec<(usize, Option<usize>, String)>,
 }
 
+/* What a name of a module, class or function body is, as the VM resolves it before running. */
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Binding {
+    // A slot of the body's own frame, or a temporary or attribute name no variable takes.
+    Local,
+    // A cell a nested function shares, or in a class body one of the function around the class.
+    Cell,
+    // A module binding by its index, the builtins under it.
+    Global(u32),
+    // A name a class body binds, a member of the class its methods do not see.
+    Member,
+    // A plain local of the function defining a class, which the class body reads by value as the class is made.
+    Lent,
+}
+
+/* Which body a scope belongs to, a function with its index in the VM's table. */
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum BodyKind { Module, Class, Function(usize) }
+
 fn canon_of(chunk: &SSAChunk, i: usize) -> usize {
     chunk.canonical.get(i).map_or(i, |&c| c as usize)
 }
@@ -241,6 +260,68 @@ impl<'a> VM<'a> {
         }
         self.fn_scope.truncate(start);
         self.fn_scope.extend(scopes);
+    }
+
+    /* The bindings of every module, class and function body under `root`, by body, the module and class ones resolved as `chunk_kinds` and a class's making resolve them. */
+    pub(crate) fn body_bindings(&mut self, root: &'a SSAChunk) -> FxHashMap<*const SSAChunk, (BodyKind, Vec<Binding>)> {
+        // Each class body under the body that defines it.
+        fn walk<'c>(c: &'c SSAChunk, modules: &mut Vec<&'c SSAChunk>, definers: &mut Vec<(&'c SSAChunk, &'c SSAChunk)>) {
+            for k in &c.classes { definers.push((k, c)); walk(k, modules, definers); }
+            for f in &c.functions { walk(&f.1, modules, definers); }
+            for e in &c.imports { if let crate::parser::ImportKind::Code(sub) = &e.kind { modules.push(sub); walk(sub, modules, definers); } }
+        }
+        let (mut modules, mut definers) = (vec![root], Vec::new());
+        walk(root, &mut modules, &mut definers);
+        let mut out = FxHashMap::default();
+        for fi in 0..self.functions.len() {
+            let kinds = self.fn_scope[fi].kinds.iter().map(|k| match *k { Kind::Local => Binding::Local, Kind::Cell => Binding::Cell, Kind::Global(g) => Binding::Global(g) }).collect();
+            out.insert(&self.functions[fi].1 as *const SSAChunk, (BodyKind::Function(fi), kinds));
+        }
+        for m in modules {
+            let (kinds, _) = self.chunk_kinds(m);
+            out.insert(m as *const SSAChunk, (BodyKind::Module, kinds.iter().map(|k| match *k { Kind::Global(g) => Binding::Global(g), _ => Binding::Local }).collect()));
+        }
+        let definer_of = |c: &SSAChunk| definers.iter().find(|d| core::ptr::eq(d.0, c)).map(|d| d.1);
+        for &(body, definer) in &definers {
+            // The cells a class body reads, those of the function around it, through the classes between.
+            let mut around = definer;
+            while !self.body_to_fi.contains_key(&(around as *const SSAChunk)) && let Some(d) = definer_of(around) { around = d; }
+            let fi = self.body_to_fi.get(&(around as *const SSAChunk)).copied();
+            let kind_in = |vm: &Self, bare: &str| -> Option<Kind> {
+                let fi = fi?;
+                let all: Vec<Kind> = around.names.iter().enumerate().filter(|&(_, n)| ssa_strip(n) == bare).filter_map(|(i, _)| vm.fn_scope[fi].kinds.get(i).copied()).collect();
+                // The cells around the class come before the function's plain locals.
+                [Kind::Cell, Kind::Local].into_iter().find(|k| all.contains(k))
+            };
+            let direct = core::ptr::eq(around, definer);
+            let module = self.chunk_module_id(body);
+            let mut var = vec![false; body.names.len()];
+            let mut member = vec![false; body.names.len()];
+            let mut global = vec![false; body.names.len()];
+            for ins in &body.instructions {
+                let Some(i) = Some(ins.operand as usize).filter(|&i| i < body.names.len()) else { continue };
+                match ins.opcode {
+                    OpCode::StoreName | OpCode::Phi => { var[i] = true; member[i] = true; }
+                    OpCode::LoadName | OpCode::Del => var[i] = true,
+                    OpCode::LoadGlobal | OpCode::StoreGlobal | OpCode::Global => { var[i] = true; global[i] = true; }
+                    _ => {}
+                }
+            }
+            let kinds = body.names.iter().enumerate().map(|(i, name)| {
+                let bare = ssa_strip(name);
+                if !var[i] || bare.starts_with('#') { return Binding::Local; }
+                if global[i] { return Binding::Global(self.scopes[module].id(bare)); }
+                if member[i] { return Binding::Member; }
+                // A plain local is lent only to a class its function defines itself.
+                match kind_in(self, bare) {
+                    Some(Kind::Cell) => Binding::Cell,
+                    Some(Kind::Local) if direct => Binding::Lent,
+                    _ => Binding::Global(self.scopes[module].id(bare)),
+                }
+            }).collect();
+            out.insert(body as *const SSAChunk, (BodyKind::Class, kinds));
+        }
+        out
     }
 
     /* The module table a function reads its globals from. */

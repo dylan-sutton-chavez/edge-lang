@@ -11,7 +11,7 @@ pub mod set;
 pub mod slice;
 pub mod string;
 
-use prelude::{VM, Val, VmErr, cold_type};
+use prelude::{VM, Val, VmErr, HeapObj, Host, cold_type};
 use crate::s;
 use alloc::string::String;
 
@@ -28,6 +28,11 @@ pub struct MethodDesc {
     pub post: Post,
     // Whether a call changes its receiver, what it holds or where it stands.
     pub mutating: bool,
+    // Whether the result hangs on receiver and arguments alone.
+    pub pure: bool,
+    // The same body over plain values.
+    #[cfg(feature = "pure")]
+    pub plain: Option<crate::pure::PlainFn>,
 }
 
 /* What a call does to the result a method left, settled once for the table so a call only compares a tag. */
@@ -38,6 +43,38 @@ pub enum Post {
     ByteArray,
     // A frozendict or frozenset method that builds a new dict or set builds the frozen form.
     Freeze,
+}
+
+// Bytes become bytearrays and built dicts or sets freeze as post asks.
+pub(crate) fn post_result<H: Host>(vm: &mut H, post: Post, top: Val) -> Result<Val, VmErr> {
+    if post == Post::Freeze {
+        if let Some(slot) = vm.heap_mut().try_get_mut(top) {
+            match slot {
+                HeapObj::Dict(rc) => *slot = HeapObj::FrozenDict(rc.clone()),
+                HeapObj::Set(rc) => { let s = rc.borrow().clone(); *slot = HeapObj::FrozenSet(alloc::rc::Rc::new(s)); }
+                _ => {}
+            }
+        }
+        return Ok(top);
+    }
+    let items = match vm.heap().try_get(top) {
+        Some(HeapObj::Bytes(b)) => { let b = b.clone(); return vm.heap_mut().alloc(HeapObj::ByteArray(b)); }
+        Some(HeapObj::List(l)) => l.borrow().clone(),
+        Some(HeapObj::Tuple(t)) => t.clone(),
+        _ => return Ok(top),
+    };
+    let mut out = alloc::vec::Vec::with_capacity(items.len());
+    for x in items {
+        out.push(match vm.heap().try_get(x) { Some(HeapObj::Bytes(b)) => { let b = b.clone(); vm.heap_mut().alloc(HeapObj::ByteArray(b))? } _ => x });
+        vm.root(*out.last().unwrap_or(&x));
+    }
+    vm.unroot(out.len());
+    match vm.heap_mut().try_get_mut(top) {
+        Some(HeapObj::List(l)) => *l.borrow_mut() = out,
+        Some(HeapObj::Tuple(t)) => *t = out,
+        _ => {}
+    }
+    Ok(top)
 }
 
 const fn same(a: &str, b: &str) -> bool {
@@ -83,6 +120,32 @@ const fn mutating_of(ty: &str, name: &str) -> bool {
     false
 }
 
+impl MethodDesc {
+    // Why call_pure leaves the method out.
+    pub fn excluded(&self) -> Option<&'static str> { if self.pure { None } else { excluded_of(self.ty, self.name, self.mutating) } }
+}
+
+// The receiver it changes or the user code and frame it runs.
+const fn excluded_of(ty: &str, name: &str, mutating: bool) -> Option<&'static str> {
+    const FRAMES: &[&str] = &["generator", "coroutine", "async_generator", "async_generator_asend", "async_generator_athrow", "anext_awaitable", "coroutine_wrapper"];
+    const fn any(names: &[&str], name: &str) -> bool {
+        let mut i = 0;
+        while i < names.len() { if same(names[i], name) { return true; } i += 1; }
+        false
+    }
+    if mutating { return Some("changes its receiver"); }
+    if any(FRAMES, ty) { return Some("steps the frame of a generator or a coroutine"); }
+    if same(ty, "op") || same(ty, "object") || same(ty, "super") { return Some("runs the dunder of a value, which may be user code"); }
+    if same(ty, "iterator") { return Some("an iterator lives in the VM that made it"); }
+    if same(ty, "memoryview") { return Some("a view shares the buffer of the VM that holds it"); }
+    if same(ty, "BaseException") || same(ty, "BaseExceptionGroup") { return Some("an exception carries its traceback and the frames that raised it"); }
+    if same(name, "format") || same(name, "format_map") { return Some("a field may run the __format__, __str__ or __getitem__ of a user value"); }
+    if same(name, "sort") { return Some("a key or an item may be user code"); }
+    if same(name, "keys") || same(name, "values") || same(name, "items") { return Some("a view reads the dict it came from live"); }
+    if same(ty, "str") && same(name, "translate") { return Some("a table may be a mapping with its own __getitem__"); }
+    None
+}
+
 /* How a call reaches a method, plain through the table, or with the frame for user code. */
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum MethodKind {
@@ -114,12 +177,22 @@ impl BuiltinMethodId {
 
 // Builds `ALL_METHODS` grouped by receiver type, `min..max` is the arity (max 255 = variadic).
 macro_rules! methods {
-    ( $( $ty:literal { $( $name:tt => $func:path, $min:literal .. $max:literal );* $(;)? } )* ) => {
+    ( $( $ty:literal { $( $name:tt => $func:path, $min:literal .. $max:literal $($pure:ident)? $(=> $body:path)? );* $(;)? } )* ) => {
         &[ $( $( MethodDesc {
-            ty: $ty, name: $name, func: $func,
+            ty: $ty, name: $name, func: methods!(@f $func, $($pure)?),
             min_args: $min, max_args: $max, kind: methods!(@k $name), post: post_of($ty, $name), mutating: mutating_of($ty, $name),
+            pure: methods!(@b $($pure)? $($body)?),
+            #[cfg(feature = "pure")] plain: methods!(@p $func, $($pure)? $($body)?),
         } ),* ),* ]
     };
+    // A pure body is generic over its host.
+    (@f $func:path,) => { $func };
+    (@f $func:path, pure) => { |vm: &mut VM, recv: Val, pos: &[Val]| $func(vm, recv, pos) };
+    (@b) => { false }; (@b pure) => { true }; (@b $body:path) => { true };
+    (@p $func:path,) => { None };
+    (@p $func:path, pure) => { Some(|h: &mut crate::pure::PlainHost, recv: Val, pos: &[Val]| $func(h, recv, pos)) };
+    // In call_pure the dunder runs through the builtin it stands for.
+    (@p $func:path, $body:path) => { Some(|h: &mut crate::pure::PlainHost, recv: Val, pos: &[Val]| $body(h, recv, pos)) };
     (@k "sort") => { MethodKind::Sort }; (@k "translate") => { MethodKind::Mapped }; (@k "format") => { MethodKind::Format }; (@k "format_map") => { MethodKind::Format };
     (@k "index") => { MethodKind::Search }; (@k "count") => { MethodKind::Search }; (@k "remove") => { MethodKind::Search };
     (@k "join") => { MethodKind::Iterates }; (@k "extend") => { MethodKind::Iterates }; (@k "update") => { MethodKind::Iterates };
@@ -133,88 +206,88 @@ macro_rules! methods {
 // Lookup keys on (ty, name) when compiled, so group however reads best.
 const METHODS: &[MethodDesc] = methods! {
     "str" {
-        "encode" => string::encode, 0..2;
-        "upper" => string::upper, 0..0;
-        "lower" => string::lower, 0..0;
-        "strip" => string::strip, 0..1;
-        "capitalize" => string::capitalize, 0..0;
-        "title" => string::title, 0..0;
-        "lstrip" => string::lstrip, 0..1;
-        "rstrip" => string::rstrip, 0..1;
-        "isdigit" => string::isdigit, 0..0;
-        "isalpha" => string::isalpha, 0..0;
-        "isalnum" => string::isalnum, 0..0;
-        "startswith" => string::startswith, 1..3;
-        "endswith" => string::endswith, 1..3;
-        "find" => string::find, 1..3;
-        "count" => string::count, 1..3;
-        "split" => string::split, 0..2;
-        "join" => string::join, 1..1;
-        "replace" => string::replace, 2..3;
-        "removeprefix" => string::removeprefix, 1..1;
-        "removesuffix" => string::removesuffix, 1..1;
-        "splitlines" => string::splitlines, 0..1;
-        "partition" => string::partition, 1..1;
-        "rpartition" => string::rpartition, 1..1;
-        "center" => string::center, 1..2;
-        "zfill" => string::zfill, 1..1;
-        "rsplit" => string::rsplit, 0..2;
-        "casefold" => string::casefold, 0..0;
-        "swapcase" => string::swapcase, 0..0;
-        "ljust" => string::ljust, 1..2;
-        "rjust" => string::rjust, 1..2;
-        "expandtabs" => string::expandtabs, 0..1;
-        "rfind" => string::rfind, 1..3;
-        "index" => string::index, 1..3;
-        "rindex" => string::rindex, 1..3;
-        "isspace" => string::isspace, 0..0;
-        "isupper" => string::isupper, 0..0;
-        "islower" => string::islower, 0..0;
-        "istitle" => string::istitle, 0..0;
-        "isascii" => string::isascii, 0..0;
-        "isdecimal" => string::isdecimal, 0..0;
-        "isnumeric" => string::isnumeric, 0..0;
-        "isprintable" => string::isprintable, 0..0;
-        "isidentifier" => string::isidentifier, 0..0;
-        "maketrans" => string::maketrans, 1..3;
+        "encode" => string::encode, 0..2 pure;
+        "upper" => string::upper, 0..0 pure;
+        "lower" => string::lower, 0..0 pure;
+        "strip" => string::strip, 0..1 pure;
+        "capitalize" => string::capitalize, 0..0 pure;
+        "title" => string::title, 0..0 pure;
+        "lstrip" => string::lstrip, 0..1 pure;
+        "rstrip" => string::rstrip, 0..1 pure;
+        "isdigit" => string::isdigit, 0..0 pure;
+        "isalpha" => string::isalpha, 0..0 pure;
+        "isalnum" => string::isalnum, 0..0 pure;
+        "startswith" => string::startswith, 1..3 pure;
+        "endswith" => string::endswith, 1..3 pure;
+        "find" => string::find, 1..3 pure;
+        "count" => string::count, 1..3 pure;
+        "split" => string::split, 0..2 pure;
+        "join" => string::join, 1..1 pure;
+        "replace" => string::replace, 2..3 pure;
+        "removeprefix" => string::removeprefix, 1..1 pure;
+        "removesuffix" => string::removesuffix, 1..1 pure;
+        "splitlines" => string::splitlines, 0..1 pure;
+        "partition" => string::partition, 1..1 pure;
+        "rpartition" => string::rpartition, 1..1 pure;
+        "center" => string::center, 1..2 pure;
+        "zfill" => string::zfill, 1..1 pure;
+        "rsplit" => string::rsplit, 0..2 pure;
+        "casefold" => string::casefold, 0..0 pure;
+        "swapcase" => string::swapcase, 0..0 pure;
+        "ljust" => string::ljust, 1..2 pure;
+        "rjust" => string::rjust, 1..2 pure;
+        "expandtabs" => string::expandtabs, 0..1 pure;
+        "rfind" => string::rfind, 1..3 pure;
+        "index" => string::index, 1..3 pure;
+        "rindex" => string::rindex, 1..3 pure;
+        "isspace" => string::isspace, 0..0 pure;
+        "isupper" => string::isupper, 0..0 pure;
+        "islower" => string::islower, 0..0 pure;
+        "istitle" => string::istitle, 0..0 pure;
+        "isascii" => string::isascii, 0..0 pure;
+        "isdecimal" => string::isdecimal, 0..0 pure;
+        "isnumeric" => string::isnumeric, 0..0 pure;
+        "isprintable" => string::isprintable, 0..0 pure;
+        "isidentifier" => string::isidentifier, 0..0 pure;
+        "maketrans" => string::maketrans, 1..3 pure;
         "translate" => string::translate, 1..1;
         "format" => framed, 0..255;
     }
     "bytes" {
-        "decode" => bytes::decode, 0..2;
-        "hex" => bytes::hex, 0..2;
-        "startswith" => bytes::startswith, 1..3;
-        "endswith" => bytes::endswith, 1..3;
-        "find" => bytes::find, 1..3;
-        "index" => bytes::index, 1..3;
-        "count" => bytes::count, 1..3;
-        "replace" => bytes::replace, 2..3;
-        "split" => bytes::split, 0..2;
-        "lower" => bytes::lower, 0..0;
-        "upper" => bytes::upper, 0..0;
-        "strip" => bytes::strip, 0..1;
-        "lstrip" => bytes::lstrip, 0..1;
-        "rstrip" => bytes::rstrip, 0..1;
-        "join" => bytes::join, 1..1;
-        "fromhex" => bytes::fromhex, 1..1;
-        "rfind" => bytes::rfind, 1..3; "rindex" => bytes::rindex, 1..3; "rsplit" => bytes::rsplit, 0..2;
-        "splitlines" => bytes::splitlines, 0..1; "partition" => bytes::partition, 1..1; "rpartition" => bytes::rpartition, 1..1;
-        "removeprefix" => bytes::removeprefix, 1..1; "removesuffix" => bytes::removesuffix, 1..1;
-        "center" => bytes::center, 1..2; "ljust" => bytes::ljust, 1..2; "rjust" => bytes::rjust, 1..2; "zfill" => bytes::zfill, 1..1;
-        "expandtabs" => bytes::expandtabs, 0..1; "capitalize" => bytes::capitalize, 0..0; "title" => bytes::title, 0..0;
-        "swapcase" => bytes::swapcase, 0..0; "isalnum" => bytes::isalnum, 0..0; "isalpha" => bytes::isalpha, 0..0;
-        "isascii" => bytes::isascii, 0..0; "isdigit" => bytes::isdigit, 0..0; "islower" => bytes::islower, 0..0;
-        "isspace" => bytes::isspace, 0..0; "istitle" => bytes::istitle, 0..0; "isupper" => bytes::isupper, 0..0;
-        "maketrans" => bytes::maketrans, 2..2; "translate" => bytes::translate, 1..2;
+        "decode" => bytes::decode, 0..2 pure;
+        "hex" => bytes::hex, 0..2 pure;
+        "startswith" => bytes::startswith, 1..3 pure;
+        "endswith" => bytes::endswith, 1..3 pure;
+        "find" => bytes::find, 1..3 pure;
+        "index" => bytes::index, 1..3 pure;
+        "count" => bytes::count, 1..3 pure;
+        "replace" => bytes::replace, 2..3 pure;
+        "split" => bytes::split, 0..2 pure;
+        "lower" => bytes::lower, 0..0 pure;
+        "upper" => bytes::upper, 0..0 pure;
+        "strip" => bytes::strip, 0..1 pure;
+        "lstrip" => bytes::lstrip, 0..1 pure;
+        "rstrip" => bytes::rstrip, 0..1 pure;
+        "join" => bytes::join, 1..1 pure;
+        "fromhex" => bytes::fromhex, 1..1 pure;
+        "rfind" => bytes::rfind, 1..3 pure; "rindex" => bytes::rindex, 1..3 pure; "rsplit" => bytes::rsplit, 0..2 pure;
+        "splitlines" => bytes::splitlines, 0..1 pure; "partition" => bytes::partition, 1..1 pure; "rpartition" => bytes::rpartition, 1..1 pure;
+        "removeprefix" => bytes::removeprefix, 1..1 pure; "removesuffix" => bytes::removesuffix, 1..1 pure;
+        "center" => bytes::center, 1..2 pure; "ljust" => bytes::ljust, 1..2 pure; "rjust" => bytes::rjust, 1..2 pure; "zfill" => bytes::zfill, 1..1 pure;
+        "expandtabs" => bytes::expandtabs, 0..1 pure; "capitalize" => bytes::capitalize, 0..0 pure; "title" => bytes::title, 0..0 pure;
+        "swapcase" => bytes::swapcase, 0..0 pure; "isalnum" => bytes::isalnum, 0..0 pure; "isalpha" => bytes::isalpha, 0..0 pure;
+        "isascii" => bytes::isascii, 0..0 pure; "isdigit" => bytes::isdigit, 0..0 pure; "islower" => bytes::islower, 0..0 pure;
+        "isspace" => bytes::isspace, 0..0 pure; "istitle" => bytes::istitle, 0..0 pure; "isupper" => bytes::isupper, 0..0 pure;
+        "maketrans" => bytes::maketrans, 2..2 pure; "translate" => bytes::translate, 1..2 pure;
     }
     "list" {
         "__init__" => list::init, 0..1;
-        "__getitem__" => object::container_getitem, 1..1;
+        "__getitem__" => object::container_getitem, 1..1 pure;
         "__setitem__" => object::container_setitem, 2..2;
-        "__len__" => object::container_len, 0..0;
-        "index" => list::index, 1..3;
-        "count" => list::count, 1..1;
-        "copy" => list::copy, 0..0;
+        "__len__" => object::container_len, 0..0 pure;
+        "index" => list::index, 1..3 pure;
+        "count" => list::count, 1..1 pure;
+        "copy" => list::copy, 0..0 pure;
         "append" => list::append, 1..1;
         "clear" => list::clear, 0..0;
         "reverse" => list::reverse, 0..0;
@@ -226,31 +299,31 @@ const METHODS: &[MethodDesc] = methods! {
     }
     "dict" {
         "__init__" => dict::update, 0..1;
-        "__getitem__" => object::container_getitem, 1..1;
+        "__getitem__" => object::container_getitem, 1..1 pure;
         "__setitem__" => object::container_setitem, 2..2;
-        "__len__" => object::container_len, 0..0;
+        "__len__" => object::container_len, 0..0 pure;
         "keys" => dict::keys, 0..0;
         "values" => dict::values, 0..0;
         "items" => dict::items, 0..0;
-        "copy" => dict::copy, 0..0;
+        "copy" => dict::copy, 0..0 pure;
         "popitem" => dict::popitem, 0..0;
-        "get" => dict::get, 1..2;
+        "get" => dict::get, 1..2 pure;
         "update" => dict::update, 0..1;
         "pop" => dict::pop, 1..2;
         "setdefault" => dict::setdefault, 1..2;
-        "fromkeys" => dict::fromkeys, 1..2;
+        "fromkeys" => dict::fromkeys, 1..2 pure;
     }
     // A frozendict reads like a dict, `copy` gives itself back and `fromkeys` makes a frozendict.
     "frozendict" {
         "keys" => dict::keys, 0..0; "values" => dict::values, 0..0; "items" => dict::items, 0..0;
-        "get" => dict::get, 1..2; "copy" => dict::frozen_copy, 0..0; "fromkeys" => dict::fromkeys, 1..2;
-        "__getitem__" => object::container_getitem, 1..1; "__len__" => object::container_len, 0..0;
+        "get" => dict::get, 1..2 pure; "copy" => dict::frozen_copy, 0..0 pure; "fromkeys" => dict::fromkeys, 1..2 pure;
+        "__getitem__" => object::container_getitem, 1..1 pure; "__len__" => object::container_len, 0..0 pure;
     }
     // A frozenset answers the set methods that change nothing, with frozenset results.
     "frozenset" {
-        "union" => set::union, 0..255; "intersection" => set::intersection, 0..255; "difference" => set::difference, 0..255;
-        "symmetric_difference" => set::symmetric_difference, 1..1; "issubset" => set::issubset, 1..1;
-        "issuperset" => set::issuperset, 1..1; "isdisjoint" => set::isdisjoint, 1..1; "copy" => set::frozen_copy, 0..0;
+        "union" => set::union, 0..255 pure; "intersection" => set::intersection, 0..255 pure; "difference" => set::difference, 0..255 pure;
+        "symmetric_difference" => set::symmetric_difference, 1..1 pure; "issubset" => set::issubset, 1..1 pure;
+        "issuperset" => set::issuperset, 1..1 pure; "isdisjoint" => set::isdisjoint, 1..1 pure; "copy" => set::frozen_copy, 0..0 pure;
     }
     "set" {
         "add" => set::add, 1..1;
@@ -259,43 +332,43 @@ const METHODS: &[MethodDesc] = methods! {
         "pop" => set::pop, 0..0;
         "clear" => set::clear, 0..0;
         "update" => set::update, 0..255;
-        "copy" => set::copy, 0..0;
-        "union" => set::union, 0..255;
-        "intersection" => set::intersection, 0..255;
-        "difference" => set::difference, 0..255;
-        "symmetric_difference" => set::symmetric_difference, 1..1;
+        "copy" => set::copy, 0..0 pure;
+        "union" => set::union, 0..255 pure;
+        "intersection" => set::intersection, 0..255 pure;
+        "difference" => set::difference, 0..255 pure;
+        "symmetric_difference" => set::symmetric_difference, 1..1 pure;
         "intersection_update" => set::intersection_update, 0..255;
         "difference_update" => set::difference_update, 0..255;
         "symmetric_difference_update" => set::symmetric_difference_update, 1..1;
-        "issubset" => set::issubset, 1..1;
-        "issuperset" => set::issuperset, 1..1;
-        "isdisjoint" => set::isdisjoint, 1..1;
+        "issubset" => set::issubset, 1..1 pure;
+        "issuperset" => set::issuperset, 1..1 pure;
+        "isdisjoint" => set::isdisjoint, 1..1 pure;
     }
     "int" {
-        "bit_length" => numeric::bit_length, 0..0;
-        "bit_count" => numeric::bit_count, 0..0;
-        "to_bytes" => numeric::to_bytes, 0..3;
-        "from_bytes" => numeric::from_bytes, 1..3;
-        "as_integer_ratio" => numeric::int_ratio, 0..0;
-        "is_integer" => numeric::int_is_integer, 0..0;
+        "bit_length" => numeric::bit_length, 0..0 pure;
+        "bit_count" => numeric::bit_count, 0..0 pure;
+        "to_bytes" => numeric::to_bytes, 0..3 pure;
+        "from_bytes" => numeric::from_bytes, 1..3 pure;
+        "as_integer_ratio" => numeric::int_ratio, 0..0 pure;
+        "is_integer" => numeric::int_is_integer, 0..0 pure;
     }
     "float" {
-        "is_integer" => numeric::is_integer, 0..0;
-        "as_integer_ratio" => numeric::float_ratio, 0..0;
-        "hex" => numeric::float_hex, 0..0;
-        "fromhex" => numeric::float_fromhex, 1..1;
-        "from_number" => numeric::float_from_number, 1..1;
+        "is_integer" => numeric::is_integer, 0..0 pure;
+        "as_integer_ratio" => numeric::float_ratio, 0..0 pure;
+        "hex" => numeric::float_hex, 0..0 pure;
+        "fromhex" => numeric::float_fromhex, 1..1 pure;
+        "from_number" => numeric::float_from_number, 1..1 pure;
     }
     // Appended groups, keep snapshot method ids stable.
     "dict" {
         "clear" => dict::clear, 0..0;
     }
     "slice" {
-        "indices" => slice::indices, 1..1;
+        "indices" => slice::indices, 1..1 pure;
     }
     "range" {
-        "index" => object::range_index, 1..1;
-        "count" => object::range_count, 1..1;
+        "index" => object::range_index, 1..1 pure;
+        "count" => object::range_count, 1..1 pure;
     }
     "BaseException" {
         "__init__" => object::exc_init, 0..255;
@@ -306,14 +379,14 @@ const METHODS: &[MethodDesc] = methods! {
         "__iter__" => object::iter_self, 0..0;
     }
     "dict_keys" {
-        "isdisjoint" => dict::view_isdisjoint, 1..1;
+        "isdisjoint" => dict::view_isdisjoint, 1..1 pure;
     }
     "dict_items" {
-        "isdisjoint" => dict::view_isdisjoint, 1..1;
+        "isdisjoint" => dict::view_isdisjoint, 1..1 pure;
     }
     "tuple" {
-        "index" => list::index, 1..3;
-        "count" => list::count, 1..1;
+        "index" => list::index, 1..3 pure;
+        "count" => list::count, 1..1 pure;
     }
     "str" {
         "format_map" => framed, 1..1;
@@ -360,23 +433,23 @@ const METHODS: &[MethodDesc] = methods! {
     }
     // A bytearray answers the bytes methods, its results bytearrays again, and the methods that change it.
     "bytearray" {
-        "decode" => bytes::decode, 0..2; "hex" => bytes::hex, 0..2; "startswith" => bytes::startswith, 1..3;
-        "endswith" => bytes::endswith, 1..3; "find" => bytes::find, 1..3; "index" => bytes::index, 1..3;
-        "count" => bytes::count, 1..3; "replace" => bytes::replace, 2..3; "split" => bytes::split, 0..2;
-        "lower" => bytes::lower, 0..0; "upper" => bytes::upper, 0..0; "strip" => bytes::strip, 0..1;
-        "lstrip" => bytes::lstrip, 0..1; "rstrip" => bytes::rstrip, 0..1; "join" => bytes::join, 1..1;
-        "fromhex" => bytes::fromhex, 1..1; "append" => bytearray::append, 1..1; "extend" => bytearray::extend, 1..1;
+        "decode" => bytes::decode, 0..2 pure; "hex" => bytes::hex, 0..2 pure; "startswith" => bytes::startswith, 1..3 pure;
+        "endswith" => bytes::endswith, 1..3 pure; "find" => bytes::find, 1..3 pure; "index" => bytes::index, 1..3 pure;
+        "count" => bytes::count, 1..3 pure; "replace" => bytes::replace, 2..3 pure; "split" => bytes::split, 0..2 pure;
+        "lower" => bytes::lower, 0..0 pure; "upper" => bytes::upper, 0..0 pure; "strip" => bytes::strip, 0..1 pure;
+        "lstrip" => bytes::lstrip, 0..1 pure; "rstrip" => bytes::rstrip, 0..1 pure; "join" => bytes::join, 1..1 pure;
+        "fromhex" => bytes::fromhex, 1..1 pure; "append" => bytearray::append, 1..1; "extend" => bytearray::extend, 1..1;
         "pop" => bytearray::pop, 0..1; "insert" => bytearray::insert, 2..2; "remove" => bytearray::remove, 1..1;
-        "clear" => bytearray::clear, 0..0; "reverse" => bytearray::reverse, 0..0; "copy" => bytearray::copy, 0..0;
-        "rfind" => bytes::rfind, 1..3; "rindex" => bytes::rindex, 1..3; "rsplit" => bytes::rsplit, 0..2;
-        "splitlines" => bytes::splitlines, 0..1; "partition" => bytes::partition, 1..1; "rpartition" => bytes::rpartition, 1..1;
-        "removeprefix" => bytes::removeprefix, 1..1; "removesuffix" => bytes::removesuffix, 1..1;
-        "center" => bytes::center, 1..2; "ljust" => bytes::ljust, 1..2; "rjust" => bytes::rjust, 1..2; "zfill" => bytes::zfill, 1..1;
-        "expandtabs" => bytes::expandtabs, 0..1; "capitalize" => bytes::capitalize, 0..0; "title" => bytes::title, 0..0;
-        "swapcase" => bytes::swapcase, 0..0; "isalnum" => bytes::isalnum, 0..0; "isalpha" => bytes::isalpha, 0..0;
-        "isascii" => bytes::isascii, 0..0; "isdigit" => bytes::isdigit, 0..0; "islower" => bytes::islower, 0..0;
-        "isspace" => bytes::isspace, 0..0; "istitle" => bytes::istitle, 0..0; "isupper" => bytes::isupper, 0..0;
-        "maketrans" => bytes::maketrans, 2..2; "translate" => bytes::translate, 1..2;
+        "clear" => bytearray::clear, 0..0; "reverse" => bytearray::reverse, 0..0; "copy" => bytearray::copy, 0..0 pure;
+        "rfind" => bytes::rfind, 1..3 pure; "rindex" => bytes::rindex, 1..3 pure; "rsplit" => bytes::rsplit, 0..2 pure;
+        "splitlines" => bytes::splitlines, 0..1 pure; "partition" => bytes::partition, 1..1 pure; "rpartition" => bytes::rpartition, 1..1 pure;
+        "removeprefix" => bytes::removeprefix, 1..1 pure; "removesuffix" => bytes::removesuffix, 1..1 pure;
+        "center" => bytes::center, 1..2 pure; "ljust" => bytes::ljust, 1..2 pure; "rjust" => bytes::rjust, 1..2 pure; "zfill" => bytes::zfill, 1..1 pure;
+        "expandtabs" => bytes::expandtabs, 0..1 pure; "capitalize" => bytes::capitalize, 0..0 pure; "title" => bytes::title, 0..0 pure;
+        "swapcase" => bytes::swapcase, 0..0 pure; "isalnum" => bytes::isalnum, 0..0 pure; "isalpha" => bytes::isalpha, 0..0 pure;
+        "isascii" => bytes::isascii, 0..0 pure; "isdigit" => bytes::isdigit, 0..0 pure; "islower" => bytes::islower, 0..0 pure;
+        "isspace" => bytes::isspace, 0..0 pure; "istitle" => bytes::istitle, 0..0 pure; "isupper" => bytes::isupper, 0..0 pure;
+        "maketrans" => bytes::maketrans, 2..2 pure; "translate" => bytes::translate, 1..2 pure;
         "resize" => bytearray::resize, 1..1; "take_bytes" => bytearray::take_bytes, 0..1;
     }
     "memoryview" {
@@ -405,13 +478,13 @@ const METHODS: &[MethodDesc] = methods! {
         "__ror__" => framed, 1..1; "__xor__" => framed, 1..1; "__rxor__" => framed, 1..1; "__lshift__" => framed, 1..1;
         "__rlshift__" => framed, 1..1; "__rshift__" => framed, 1..1; "__rrshift__" => framed, 1..1; "__divmod__" => framed, 1..1;
         "__rdivmod__" => framed, 1..1; "__eq__" => framed, 1..1; "__ne__" => framed, 1..1; "__lt__" => framed, 1..1;
-        "__le__" => framed, 1..1; "__gt__" => framed, 1..1; "__ge__" => framed, 1..1; "__contains__" => framed, 1..1;
-        "__getitem__" => framed, 1..1; "__format__" => framed, 1..1; "__setitem__" => framed, 2..2; "__delitem__" => framed, 1..1;
+        "__le__" => framed, 1..1; "__gt__" => framed, 1..1; "__ge__" => framed, 1..1; "__contains__" => framed, 1..1 => object::op_contains;
+        "__getitem__" => framed, 1..1 => object::op_getitem; "__format__" => framed, 1..1; "__setitem__" => framed, 2..2; "__delitem__" => framed, 1..1;
         "__pow__" => framed, 1..2;
         "__round__" => framed, 0..1;
         "__neg__" => framed, 0..0; "__pos__" => framed, 0..0; "__abs__" => framed, 0..0; "__invert__" => framed, 0..0;
-        "__bool__" => framed, 0..0; "__int__" => framed, 0..0; "__float__" => framed, 0..0; "__index__" => framed, 0..0;
-        "__hash__" => framed, 0..0; "__repr__" => framed, 0..0; "__str__" => framed, 0..0; "__len__" => framed, 0..0;
+        "__bool__" => framed, 0..0 => object::op_bool; "__int__" => framed, 0..0; "__float__" => framed, 0..0; "__index__" => framed, 0..0;
+        "__hash__" => framed, 0..0; "__repr__" => framed, 0..0 => object::op_repr; "__str__" => framed, 0..0 => object::op_str; "__len__" => framed, 0..0 => object::container_len;
         "__iter__" => framed, 0..0; "__trunc__" => framed, 0..0; "__floor__" => framed, 0..0; "__ceil__" => framed, 0..0;
         "conjugate" => framed, 0..0;
     }

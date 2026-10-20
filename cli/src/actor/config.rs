@@ -1,4 +1,4 @@
-use compiler::vm::Limits;
+use compiler::embed::Limits;
 
 // The whole pool, groups plus the runtime knobs the CLI resolved from actor.yml.
 pub struct ActorConfig {

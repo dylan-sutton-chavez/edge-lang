@@ -12,6 +12,7 @@ use super::lower::{self, Code, Ins, STORE_NOTES_BUILTIN};
 use super::scope::Kind;
 use super::opcodes::{attr_lookup::AttrLookup, function::{Args, Passed}};
 use super::registers::{int_add, int_sub, int_mul, int_mod, int_div, int_floordiv, float_div, int_bits, numeric_binop};
+use crate::vm::natives::Builtins;
 
 /* The frame an instruction loop began with, which the frames it opens return to last. */
 pub(crate) struct Floor {

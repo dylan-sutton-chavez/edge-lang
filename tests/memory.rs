@@ -1,10 +1,10 @@
 /* What the meter reads for a program, every byte the allocator handed its run and took back. */
 mod test {
     use compiler::lexer::lex;
-    use compiler::parser::Parser;
-    use compiler::parser::SSAChunk;
+    use compiler::code::Parser;
+    use compiler::code::SSAChunk;
     use compiler::value::meter::{Meter, set_budget};
-    use compiler::vm::{Limits, VM};
+    use compiler::embed::{Limits, VM};
 
     fn compiled(src: &str) -> SSAChunk {
         let (tokens, _) = lex(src);

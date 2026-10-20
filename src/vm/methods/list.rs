@@ -1,25 +1,27 @@
 use super::prelude::*;
 
 /* `list.index`, `count` or `remove` named `name`, `eq` matches an item, the VM passes one that runs `__eq__`. */
-pub(crate) fn search(vm: &mut VM, recv: Val, name: &str, pos: &[Val], mut eq: impl FnMut(&mut VM, Val, Val) -> Result<bool, VmErr>) -> Result<(), VmErr> {
-    let (len, ty) = match vm.heap.try_get(recv) {
+pub(crate) fn search<H: Host>(vm: &mut H, recv: Val, name: &str, pos: &[Val], mut eq: impl FnMut(&mut H, Val, Val) -> Result<bool, VmErr>) -> Result<(), VmErr> {
+    let (len, ty) = match vm.heap().try_get(recv) {
         Some(HeapObj::List(rc)) => (rc.borrow().len(), "list"),
         Some(HeapObj::Tuple(t)) => (t.len(), "tuple"),
         _ => return Err(cold_type("method requires a list receiver")),
     };
-    vm.heap.spend(len);
+    vm.heap().spend(len);
     let len = len as i64;
     // Optional start/end clamp like Python, negatives count from the end. Bools count as ints.
     let as_i = |v: Val| -> i64 { if v.is_bool() { v.as_bool() as i64 } else { v.as_int() } };
     let norm = |v: Val| (if as_i(v) < 0 { len + as_i(v) } else { as_i(v) }).clamp(0, len) as usize;
     let (start, stop) = if name == "index" {
-        let start = pos.get(1).filter(|v| v.is_int() || v.is_bool()).map_or(0, |&v| norm(v));
-        (start, pos.get(2).filter(|v| v.is_int() || v.is_bool()).map_or(len as usize, |&v| norm(v)).max(start))
+        // A bound past i64 clips to the inline extreme, past either end of any list.
+        let bound = |k: usize| pos.get(k).map(|&v| crate::frontend::int::clip_index(vm.heap(), v)).filter(|v| v.is_int());
+        let start = bound(1).map_or(0, norm);
+        (start, bound(2).map_or(len as usize, norm).max(start))
     } else { (0, len as usize) };
     let mut hits = 0;
     // Each item is read live, a `__eq__` that shrinks the list ends the walk early.
     for i in start..stop {
-        let Some(v) = (match vm.heap.try_get(recv) {
+        let Some(v) = (match vm.heap().try_get(recv) {
             Some(HeapObj::List(rc)) => rc.borrow().get(i).copied(),
             Some(HeapObj::Tuple(t)) => t.get(i).copied(),
             _ => None,
@@ -43,15 +45,15 @@ pub(crate) fn search(vm: &mut VM, recv: Val, name: &str, pos: &[Val], mut eq: im
     }
 }
 
-pub fn index(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
-    search(vm, recv, "index", pos, |vm, a, b| Ok(eq_member(a, b, &vm.heap)))
+pub fn index<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
+    search(vm, recv, "index", pos, |vm, a, b| Ok(eq_member(a, b, vm.heap())))
 }
 
-pub fn count(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
-    search(vm, recv, "count", pos, |vm, a, b| Ok(eq_member(a, b, &vm.heap)))
+pub fn count<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
+    search(vm, recv, "count", pos, |vm, a, b| Ok(eq_member(a, b, vm.heap())))
 }
 
-pub fn copy(vm: &mut VM, recv: Val, _pos: &[Val]) -> Result<(), VmErr> {
+pub fn copy<H: Host>(vm: &mut H, recv: Val, _pos: &[Val]) -> Result<(), VmErr> {
     let items = list_clone(vm, recv)?;
     vm.alloc_and_push_list(items)
 }
@@ -87,7 +89,7 @@ pub fn extend(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
 }
 
 pub fn insert(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
-    if !pos[0].is_int() { return Err(cold_type("list indices must be integers")); }
+    if !pos[0].is_int() { return Err(if crate::frontend::int::is_big(&vm.heap, pos[0]) { VmErr::Overflow } else { cold_type("list indices must be integers") }); }
     let moved = list_mut(vm, recv, "insert: receiver is not a list", |list| {
         let i = pos[0].as_int();
         let ui = if i < 0 {
@@ -108,6 +110,8 @@ pub fn remove(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
 }
 
 pub fn pop(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
+    // An index past i64 overflows before the list is looked at.
+    if pos.first().is_some_and(|&i| crate::frontend::int::is_big(&vm.heap, i)) { return Err(VmErr::Overflow); }
     let (popped, moved) = list_mut(vm, recv, "pop: receiver is not a list", |list| {
         if list.is_empty() { return Err(cold_index("pop from empty list")); }
         if pos.is_empty() { return Ok((list.pop().unwrap(), 0)); }

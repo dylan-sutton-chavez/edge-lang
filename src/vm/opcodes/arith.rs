@@ -193,21 +193,6 @@ impl<'a> VM<'a> {
         self.floor_op(BinOp::Mod, a, b, "%")
     }
 
-    /* `a // b` or `a % b`, floats when either side is one, signed like the divisor. */
-    pub(crate) fn floor_op(&mut self, op: BinOp, a: Val, b: Val, sym: &str) -> Result<Val, VmErr> {
-        let modulo = op == BinOp::Mod;
-        if a.is_float() || b.is_float() {
-            let (Some(af), Some(bf)) = (crate::vm::num_f64(a, &self.heap), crate::vm::num_f64(b, &self.heap)) else { return Err(self.unsupported(sym, a, b)); };
-            let (af, bf) = (af?, bf?);
-            if bf == 0.0 { return Err(VmErr::ZeroDiv); }
-            let (q, r) = float_divmod(af, bf);
-            return Ok(Val::float(if modulo { r } else { q }));
-        }
-        if let (Some(x), Some(y)) = (self.as_i128(a), self.as_i128(b)) && y != 0 && let Some((q, r)) = crate::vm::int_divmod(x, y) {
-            return self.heap.int(if modulo { r } else { q });
-        }
-        self.heap.foreign_binop(op, a, b)?.ok_or_else(|| self.unsupported(sym, a, b))
-    }
 
     /* printf-style `str % args` translates each `%[flags][width][.prec]conv` into the `{:spec}` mini-language and reuses `format_value`. A tuple spreads, else one value. */
     fn str_percent_format(&mut self, fmt_val: Val, arg: Val, chunk: &SSAChunk) -> Result<Val, VmErr> {

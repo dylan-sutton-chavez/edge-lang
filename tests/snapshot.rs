@@ -2,10 +2,10 @@
 mod test {
 
     use compiler::lexer::lex;
-    use compiler::parser::{Parser, SSAChunk};
-    use compiler::vm::VM;
-    use compiler::vm::snapshot;
-    use compiler::vm::types::{Limits, SchedulerStatus, VmErr};
+    use compiler::code::{Parser, SSAChunk};
+    use compiler::embed::VM;
+    use compiler::embed as snapshot;
+    use compiler::value::{Limits, SchedulerStatus, VmErr};
 
     #[derive(serde::Deserialize)]
     #[serde(deny_unknown_fields)]
@@ -65,7 +65,7 @@ mod test {
         assert!(lex_errs.is_empty(), "lex error in {:?}", src);
         let (mut chunk, errs) = Parser::new(src, tokens.into_iter()).parse();
         assert!(errs.is_empty(), "parse error in {:?}: {:?}", src, errs.iter().map(|e| &e.msg).collect::<Vec<_>>());
-        compiler::vm::optimizer::constant_fold(&mut chunk);
+        compiler::code::constant_fold(&mut chunk);
         compiler::util::leak(Box::new(chunk))
     }
 

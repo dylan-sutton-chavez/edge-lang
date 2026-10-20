@@ -8,6 +8,7 @@ use super::lower::{self, Code};
 use super::opcodes::function::Passed;
 use super::types::*;
 use crate::parser::{OpCode, SSAChunk};
+use crate::vm::natives::Builtins;
 
 /* A builtin whose callback runs as a frame of the loop, what it keeps between calls, its frame's caller carrying on only once it is done. */
 pub(crate) enum Job {
@@ -345,6 +346,9 @@ pub(crate) enum Takes {
 /* How far `sum` went, ints of a machine word added exactly, then floats compensated, then any value through `+`. */
 #[derive(Clone, Copy)]
 pub(crate) enum Total { Word(i64), Float(f64, f64), Any }
+
+/* A fold stopped at an item that may run user code. */
+pub(crate) struct Folded { pub(crate) j: Gather, pub(crate) cur: Option<IterFrame>, pub(crate) first: Option<Val>, pub(crate) lazy: bool, pub(crate) co: Val }
 
 /* A builtin over a generator, what it takes of the yields, the items gathered, and the arguments that came after the generator. */
 pub(crate) struct Gather { pub(crate) takes: Takes, pub(crate) items: Vec<Val>, pub(crate) extra: Vec<Val>, pub(crate) acc: Val, pub(crate) total: Total, pub(crate) co: Val, pub(crate) before: Val, pub(crate) best_key: Val, pub(crate) pending: Val, pub(crate) cur: Option<IterFrame>, pub(crate) pull: Pull, native: bool, gens: bool, again: Again }
@@ -2306,20 +2310,6 @@ impl<'a> VM<'a> {
         Some(drive)
     }
 
-    /* A job for the builtin `takes` stands for over `of`, a generator or a user iterator, `extra` its arguments after. */
-    fn gather_of(&self, takes: Takes, extra: Vec<Val>, of: Val) -> Gather {
-        let mut j = Gather::new(takes, extra);
-        // What the items come from stays held while user code the builtin runs between them collects.
-        j.co = of;
-        if takes == Takes::Sum {
-            // The start the items add to, 0 unless passed.
-            let start = j.extra.first().copied().unwrap_or(Val::int(0));
-            let word = if start.is_int() || start.is_foreign() || start.is_bool() { self.as_i128(start).and_then(|n| i64::try_from(n).ok()) } else { None };
-            j.total = match word { Some(w) => Total::Word(w), None if start.is_float() => Total::Float(start.as_float(), 0.0), None => Total::Any };
-            j.acc = start;
-        }
-        j
-    }
 
     /* Runs the builtin `takes` stands for over user iterable `o`, `__iter__` once then a plain `__next__` as frames, Ok(false) for any other `o`. */
     #[inline(never)]
@@ -2502,56 +2492,9 @@ impl<'a> VM<'a> {
             };
             if taken { return Ok(()); }
         }
-        // An iterator steps as asked, so the fold stops at the item that decides it, and a container is read through its cursor.
-        let lazy = matches!(self.heap.try_get(o), Some(HeapObj::Iter(..) | HeapObj::Coroutine(..) | HeapObj::Instance(..)));
-        let (co, mut cur) = if lazy { (self.iter_of(o, chunk)?, None) } else { (o, Some(self.iter_cursor(o)?)) };
-        let mut j = self.gather_of(takes, extra.to_vec(), co);
-        let (mut first, mut held) = (None, None);
-        if let Some(c) = cur.as_mut() {
-            // Ints of a machine word add with no look at the job.
-            if let (Takes::Sum, Total::Word(mut w)) = (j.takes, j.total) {
-                while self.budget != 0 && let Some(v) = c.next_ready(&self.heap) {
-                    match v.is_int().then(|| w.checked_add(v.as_int())).flatten() {
-                        Some(n) => { w = n; self.budget -= 1; }
-                        None => { held = Some(v); break; }
-                    }
-                }
-                j.total = Total::Word(w);
-            }
-            while first.is_none() {
-                let next = match held.take() { Some(v) => Some(v), None => c.next_item(&mut self.heap)? };
-                match next {
-                    None => { let r = self.gather_end(&mut j, Val::none(), chunk)?; self.push(r); return Ok(()); }
-                    Some(v) if self.budget != 0 && !self.heap.has_work() && take_plain(&mut j, v, &self.heap) => self.budget -= 1,
-                    // An item that is no instance, the best or total no instance either, takes no user code either.
-                    Some(v) if !self.is_instance(v) && !self.is_instance(j.acc) && match j.takes {
-                        // Two lists or tuples whose walk meets an instance compare through its dunders.
-                        Takes::Extreme(_) => !matches!(self.pair_scan(v, j.acc, 0), Some(PairScan::Dunder(_))),
-                        Takes::Sum | Takes::Any | Takes::Every => true,
-                        Takes::Keyed(_, k) => matches!(self.heap.try_get(k), Some(HeapObj::NativeFn(_))),
-                        _ => false,
-                    } => {
-                        self.charge_step()?;
-                        match j.takes {
-                            Takes::Sum => (j.total, j.acc) = self.sum_on(j.total, j.acc, v, chunk)?,
-                            Takes::Extreme(is_min) => if j.acc.is_undef() || self.beats(v, j.acc, is_min, chunk)? { j.acc = v; },
-                            // A builtin key runs at once, the keys it gives held while any `__lt__` of theirs compares them.
-                            Takes::Keyed(is_min, k) => {
-                                self.push(k);
-                                self.push(v);
-                                self.exec_call(1, chunk)?;
-                                let kv = self.pop()?;
-                                let best = j.best_key;
-                                if best.is_undef() || self.with_roots([kv, best, j.acc, v], |vm| vm.beats(kv, best, is_min, chunk))? { (j.acc, j.best_key) = (v, kv); }
-                            }
-                            t => if self.truthy(v) == (t == Takes::Any) { self.push(Val::bool(t == Takes::Any)); return Ok(()); },
-                        }
-                    }
-                    Some(v) => first = Some(v),
-                }
-            }
-            self.heap.set_budget(self.budget);
-        }
+        let mut rest = None;
+        self.fold_ready(o, takes, extra, chunk, &mut rest)?;
+        let Some(Folded { mut j, cur, first, lazy, co }) = rest else { return Ok(()) };
         (j.cur, j.native, j.gens) = (cur, !frames, lazy && frames && self.holds_py(co, 0, true));
         let depth = self.jobs.len();
         self.jobs.push(Job::Gather(Box::new(j)));
@@ -2709,9 +2652,6 @@ impl<'a> VM<'a> {
         }
     }
 
-    /* Whether `v` is an instance of a user class. */
-    #[inline(always)]
-    pub(crate) fn is_instance(&self, v: Val) -> bool { v.is_heap() && matches!(self.heap.get(v), HeapObj::Instance(..)) }
 
     /* Whether `o` is a generator or an instance, whose items a builtin's job may take as frames of the loop. */
     #[inline(always)]
@@ -3005,36 +2945,7 @@ impl<'a> VM<'a> {
         Ok(())
     }
 
-    /* The total of a `sum` that went as far as `total`, `acc` its value past the floats, once `v` adds to it. */
-    fn sum_on(&mut self, total: Total, acc: Val, v: Val, chunk: &SSAChunk) -> Result<(Total, Val), VmErr> {
-        let word = |vm: &Self, v: Val| if v.is_int() || v.is_bool() || v.is_foreign() { vm.as_i128(v).and_then(|n| i64::try_from(n).ok()) } else { None };
-        let (total, acc) = match total {
-            Total::Word(w) => match word(self, v).and_then(|b| w.checked_add(b)) {
-                Some(n) => (Total::Word(n), acc),
-                None => {
-                    let a = self.int_to_val(Some(w as i128))?;
-                    let a = self.sum_through(a, v, chunk)?;
-                    if a.is_float() { (Total::Float(a.as_float(), 0.0), a) } else { (Total::Any, a) }
-                }
-            },
-            Total::Float(s, c) if v.is_float() => { let (s, c) = super::globals::numeric::neumaier(s, c, v.as_float()); (Total::Float(s, c), acc) }
-            Total::Float(s, c) => match word(self, v) {
-                Some(b) => (Total::Float(s + b as f64, c), acc),
-                None => (Total::Any, self.sum_through(Val::float(super::globals::numeric::settle((s, c))), v, chunk)?),
-            },
-            Total::Any => (Total::Any, self.sum_through(acc, v, chunk)?),
-        };
-        Ok((total, acc))
-    }
 
-    /* `a + b` for `sum`, both rooted while a user `__add__` runs. */
-    pub(crate) fn sum_through(&mut self, a: Val, b: Val, chunk: &SSAChunk) -> Result<Val, VmErr> {
-        let base = self.temp_roots.len();
-        self.temp_roots.extend([a, b]);
-        let r = self.sum_add(a, b, chunk);
-        self.temp_roots.truncate(base);
-        r
-    }
 
     /* The dunders `a` and `b` call for `lname` (`rname` reflected) in `dispatch_reflected`'s order, each a plain function with its operand and the other. */
     fn reflected_plan(&self, a: Val, b: Val, lname: &str, rname: &str, arith: bool) -> ([(Val, Val, Val); 2], usize) {
@@ -3390,7 +3301,7 @@ impl<'a> VM<'a> {
         Err(VmErr::Raised(crate::s!("StopIteration: ", str &self.display(ret))))
     }
 
-    /* The result of the builtin of `j` once its generator returned `ret`, its items taken out of it. */
+
     pub(crate) fn gather_end(&mut self, j: &mut Gather, ret: Val, chunk: &SSAChunk) -> Result<Val, VmErr> {
         match j.takes {
             Takes::All(OpCode::CallList, _) => self.alloc_list(core::mem::take(&mut j.items)),
@@ -3411,19 +3322,7 @@ impl<'a> VM<'a> {
                 }
                 self.pop()
             }
-            Takes::Any => Ok(Val::bool(false)),
-            Takes::Every => Ok(Val::bool(true)),
-            Takes::Sum => Ok(match j.total {
-                Total::Word(w) => return self.int_to_val(Some(w as i128)),
-                Total::Float(s, c) => Val::float(super::globals::numeric::settle((s, c))),
-                Total::Any => j.acc,
-            }),
-            Takes::Extreme(is_min) | Takes::Keyed(is_min, _) if j.acc.is_undef() => match j.extra.first() {
-                // A `default` given is the result of an empty iterable.
-                Some(&d) => Ok(d),
-                None => Err(crate::vm::cold_value(if is_min { "min() iterable argument is empty" } else { "max() iterable argument is empty" })),
-            },
-            Takes::Extreme(_) | Takes::Keyed(..) => Ok(j.acc),
+            Takes::Any | Takes::Every | Takes::Sum | Takes::Extreme(_) | Takes::Keyed(..) => self.fold_end(j),
             Takes::Next(d) => self.next_end(d, ret),
             Takes::Contains(_, not) => Ok(Val::bool(not)),
             Takes::Extend(l) => Ok(l),
@@ -3464,7 +3363,7 @@ impl<'a> VM<'a> {
 
 /* Takes `v` into the builtin `j` with no user code and no failure, false with nothing changed when that takes the full path. */
 #[inline(always)]
-fn take_plain(j: &mut Gather, v: Val, heap: &HeapPool) -> bool {
+pub(crate) fn take_plain(j: &mut Gather, v: Val, heap: &HeapPool) -> bool {
     match j.takes {
         Takes::Sum => match j.total {
             Total::Word(w) if v.is_int() && let Some(n) = w.checked_add(v.as_int()) => j.total = Total::Word(n),

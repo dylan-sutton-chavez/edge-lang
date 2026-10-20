@@ -1,10 +1,10 @@
 use afl::fuzz;
 
 use compiler::lexer::lex;
-use compiler::parser::Parser;
-use compiler::vm::snapshot;
-use compiler::vm::types::{SchedulerStatus, VmErr};
-use compiler::vm::{Limits, VM};
+use compiler::code::Parser;
+use compiler::embed as snapshot;
+use compiler::value::{SchedulerStatus, VmErr};
+use compiler::embed::{Limits, VM};
 
 // Every run meters what it allocates, as compiler.wasm does.
 #[global_allocator]

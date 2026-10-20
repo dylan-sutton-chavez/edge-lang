@@ -26,7 +26,7 @@ fn iterates(id: super::super::types::NativeFnId) -> bool {
 
 /* A count outside a builtin arity, ranged ones name the bound they miss. */
 #[cold]
-fn arity_err(id: super::super::types::NativeFnId, n: u16) -> VmErr {
+pub(crate) fn arity_err(id: super::super::types::NativeFnId, n: u16) -> VmErr {
     let (lo, hi) = id.arity();
     let name = id.name();
     // The name of a sentinel is its only positional, past two the count with `repr` is what is wrong.
@@ -228,45 +228,13 @@ impl<'a> VM<'a> {
             _ => crate::vm::methods::dispatch_method(self, id, recv, pos, kw),
         };
         done?;
-        match id.post() {
-            crate::vm::methods::Post::None => {}
-            crate::vm::methods::Post::ByteArray => self.top_as_bytearray()?,
-            // Only the built dict or set turns frozen, never a value the method returns.
-            crate::vm::methods::Post::Freeze => if let Some(&top) = self.stack.last() && let Some(slot) = self.heap.try_get_mut(top) {
-                match slot {
-                    HeapObj::Dict(rc) => *slot = HeapObj::FrozenDict(rc.clone()),
-                    HeapObj::Set(rc) => { let s = rc.borrow().clone(); *slot = HeapObj::FrozenSet(Rc::new(s)); }
-                    _ => {}
-                }
-            },
+        if id.post() != crate::vm::methods::Post::None && let Some(&top) = self.stack.last() {
+            let v = crate::vm::methods::post_result(self, id.post(), top)?;
+            if let Some(t) = self.stack.last_mut() { *t = v; }
         }
         self.pay_work()
     }
 
-
-    /* The value on top of the stack with every bytes in it, itself or the items of a list or tuple, made a bytearray. */
-    #[inline(never)]
-    fn top_as_bytearray(&mut self) -> Result<(), VmErr> {
-        let Some(&top) = self.stack.last() else { return Ok(()) };
-        let items = match self.heap.try_get(top) {
-            Some(HeapObj::Bytes(b)) => { let v = self.heap.alloc(HeapObj::ByteArray(b.clone()))?; *self.stack.last_mut().unwrap() = v; return Ok(()); }
-            Some(HeapObj::List(l)) => l.borrow().clone(),
-            Some(HeapObj::Tuple(t)) => t.clone(),
-            _ => return Ok(()),
-        };
-        let mut out = Vec::with_capacity(items.len());
-        for x in items {
-            out.push(match self.heap.try_get(x) { Some(HeapObj::Bytes(b)) => { let b = b.clone(); self.heap.alloc(HeapObj::ByteArray(b))? } _ => x });
-            self.temp_roots.push(*out.last().unwrap());
-        }
-        self.temp_roots.truncate(self.temp_roots.len() - out.len());
-        match self.heap.try_get_mut(top) {
-            Some(HeapObj::List(l)) => *l.borrow_mut() = out,
-            Some(HeapObj::Tuple(t)) => *t = out,
-            _ => {}
-        }
-        Ok(())
-    }
 
     /* `str.lower(s)`, an unbound builtin method takes a receiver of its own type as the first argument. */
     pub(crate) fn exec_unbound_method(&mut self, id: crate::vm::methods::BuiltinMethodId, args: &[Val], kw: &[Val], chunk: &SSAChunk) -> Result<(), VmErr> {

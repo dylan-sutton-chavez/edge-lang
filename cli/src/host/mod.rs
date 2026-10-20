@@ -12,7 +12,7 @@ pub use resolver::{fetch_cached, Project};
 pub use vm::{Completion, Instance, Status, Vm};
 
 use anyhow::{anyhow, Result};
-use compiler::vm::types::Limits;
+use compiler::value::Limits;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::PathBuf;

@@ -7,6 +7,7 @@ use crate::parser::SSAChunk;
 use crate::s;
 use alloc::{rc::Rc, vec::Vec};
 use core::cell::RefCell;
+use crate::vm::natives::Builtins;
 
 /* What a split keeps, instances of a classinfo or those a predicate accepts. */
 enum Cond { Types(Val), Pred(Val) }

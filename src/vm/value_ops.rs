@@ -1,120 +1,24 @@
 use crate::s;
 
 use super::types::*;
+use super::types::host::coerce_floats;
 use crate::parser::types::OpCode;
 
 use alloc::{string::String, vec::Vec, rc::Rc};
 use core::cell::RefCell;
-use core::cmp::Ordering;
 
-/* Cap on nested-container rendering depth, stops self-referential prints from overflowing the stack. */
-pub(crate) const RENDER_DEPTH_MAX: usize = 100;
 
-/* Cap on total rendered output, bounds breadth the way RENDER_DEPTH_MAX bounds depth. */
-pub(crate) const MAX_REPR_LEN: usize = 1_000_000;
 
-/* Same cap for `<` descent, self-referential sequences raise RecursionError. */
-const CMP_DEPTH_MAX: usize = 100;
 
-/* Render `bytes` as `b'...'`, printable ASCII verbatim and the rest escaped, in double quotes when it holds a single quote and no double one. */
-fn format_bytes(buf: &[u8]) -> String { quote_bytes(buf, false) }
 
-/* `format_bytes`, the single quote escaped even inside double quotes when `escape_single` asks, as a bytearray shows. */
-fn quote_bytes(buf: &[u8], escape_single: bool) -> String {
-    let quote = if buf.contains(&b'\'') && !buf.contains(&b'"') { b'"' } else { b'\'' };
-    let mut out = String::with_capacity(buf.len() + 3);
-    out.push('b');
-    out.push(quote as char);
-    for &b in buf {
-        match b {
-            b'\\' => out.push_str("\\\\"),
-            b'\'' if quote == b'\'' || escape_single => out.push_str("\\'"),
-            b'\n' => out.push_str("\\n"),
-            b'\r' => out.push_str("\\r"),
-            b'\t' => out.push_str("\\t"),
-            0x20..=0x7E => out.push(b as char),
-            _ => {
-                out.push_str("\\x");
-                const HEX: &[u8; 16] = b"0123456789abcdef";
-                out.push(HEX[(b >> 4) as usize] as char);
-                out.push(HEX[(b & 0x0F) as usize] as char);
-            }
-        }
-    }
-    out.push(quote as char);
-    out
-}
 
-/* `repr` of a str, quote selection (' unless the text has ' but not ") and backslash escapes for what is not printable, the rest verbatim. */
-fn repr_str(s: &str) -> String {
-    let mut out = String::with_capacity(s.len() + 2);
-    push_repr_str(&mut out, s);
-    out
-}
 
-/* `repr_str` of `s` written onto `out`. */
-pub(crate) fn push_repr_str(out: &mut String, s: &str) {
-    use core::fmt::Write;
-    let quote = if s.contains('\'') && !s.contains('"') { '"' } else { '\'' };
-    out.push(quote);
-    for c in s.chars() {
-        match c {
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            c if c == quote => { out.push('\\'); out.push(c); }
-            c if !crate::util::uni::is_printable(c) => {
-                let n = c as u32;
-                if n <= 0xff { let _ = write!(out, "\\x{:02x}", n); }
-                else if n <= 0xffff { let _ = write!(out, "\\u{:04x}", n); }
-                else { let _ = write!(out, "\\U{:08x}", n); }
-            }
-            c => out.push(c),
-        }
-    }
-    out.push(quote);
-}
 
-/* Coerce a numeric pair to f64, returns None if neither operand is a float. */
-fn coerce_floats(a: Val, b: Val, heap: &HeapPool) -> Option<Result<(f64, f64), VmErr>> {
-    if !a.is_float() && !b.is_float() { return None; }
-    let (x, y) = (num_f64(a, heap)?, num_f64(b, heap)?);
-    Some(x.and_then(|x| Ok((x, y?))))
-}
 
 use super::VM;
 
 impl<'a> VM<'a> {
-    pub fn truthy(&self, v: Val) -> bool {
-        if v.is_none() || v.is_false() { return false; }
-        if v.is_true() { return true; }
-        if v.is_int() { return v.as_int() != 0; }
-        if v.is_float() { return v.as_float() != 0.0; }
-        if v.is_foreign() { return self.heap.foreign_truthy(v).unwrap_or(true); }
-        match self.heap.get(v) {
-            &HeapObj::Boxed(n) => self.truthy(n),
-            HeapObj::Str(s) => !s.is_empty(),
-            HeapObj::Bytes(b) | HeapObj::ByteArray(b) => !b.is_empty(),
-            HeapObj::MemoryView(m) => m.len > 0,
-            HeapObj::FnCode(_) => true,
-            HeapObj::List(l) => !l.borrow().is_empty(),
-            HeapObj::Tuple(t) => !t.is_empty(),
-            HeapObj::Dict(d) | HeapObj::FrozenDict(d) => !d.borrow().is_empty(),
-            HeapObj::Set(s) => !s.borrow().is_empty(),
-            HeapObj::FrozenSet(s) => !s.is_empty(),
-            HeapObj::Range(s,e,st) => if *st > 0 { s < e } else { s > e },
-            HeapObj::BigRange(..) => crate::frontend::int::range_empty(&self.heap, v) == Some(false),
-            HeapObj::DictView(d, _) => self.truthy(*d),
-            HeapObj::Type(_) | HeapObj::Func(..) | HeapObj::Slice(..) | HeapObj::BoundMethod(..)
-            | HeapObj::NativeFn(_) | HeapObj::Class(..) | HeapObj::BoundUserMethod(..)
-            | HeapObj::Super(..) | HeapObj::Property(..) | HeapObj::PropertyPart(..)
-            | HeapObj::StaticMethod(..) | HeapObj::ClassMethod(..) | HeapObj::Instance(..) | HeapObj::Coroutine(..)
-            | HeapObj::Module(..) | HeapObj::Extern(_) | HeapObj::ExcInstance(..)
-            | HeapObj::Ellipsis | HeapObj::NotImplemented | HeapObj::GenericAlias(..) | HeapObj::TypeAlias(..)
-            | HeapObj::Union(_) | HeapObj::TypeVar(_) | HeapObj::Iter(..) | HeapObj::Cell(_) | HeapObj::Code(_) => true,
-        }
-    }
+    #[inline] pub fn truthy(&self, v: Val) -> bool { self.heap.truthy(v) }
 
     /* Clone the element set out of a `set` or `frozenset`, None for any other type. */
     pub(crate) fn clone_set_items(&self, v: Val) -> Option<ValSet> {
@@ -157,12 +61,6 @@ impl<'a> VM<'a> {
         self.heap.alloc(HeapObj::Set(Rc::new(RefCell::new(s))))
     }
 
-    /* Alloc a set-algebra result, frozen picks frozenset (left-operand type rule). */
-    pub(crate) fn alloc_set_result(&mut self, items: Vec<Val>, frozen: bool) -> Result<Val, VmErr> {
-        let s = ValSet::from_vals(&items, &self.heap);
-        if frozen { self.heap.alloc(HeapObj::FrozenSet(Rc::new(s))) }
-        else { self.heap.alloc(HeapObj::Set(Rc::new(RefCell::new(s)))) }
-    }
 
     /* Set binops (|, &, ^, -) over set/frozenset, result frozen iff `a` is frozen. */
     // Union/intersection/symmetric-diff/difference items, content membership lets alloc dedup distinct-handle equals.
@@ -222,88 +120,98 @@ impl<'a> VM<'a> {
         Ok(())
     }
 
+    #[inline(never)]
     pub fn type_name(&self, v: Val) -> &str {
-        if v.is_bool() { "bool" }
-        else if v.is_int() { "int" }
-        else if v.is_float() { "float" }
-        else if v.is_none() { "NoneType" }
-        else if v.is_foreign() { self.heap.foreign_kind(v).map_or("object", |k| k.type_name) }
-        else { match self.heap.get(v) {
-            &HeapObj::Boxed(n) => self.type_name(n),
-            HeapObj::Str(_) => "str",
-            HeapObj::Bytes(_) => "bytes",
-            HeapObj::ByteArray(_) => "bytearray",
-            HeapObj::MemoryView(_) => "memoryview",
-            HeapObj::FnCode(_) => "code",
-            HeapObj::List(_) => "list",
-            HeapObj::Dict(_) => "dict",
-            HeapObj::FrozenDict(_) => "frozendict",
-            HeapObj::Set(_) => "set",
-            HeapObj::FrozenSet(_) => "frozenset",
-            HeapObj::Tuple(_) => "tuple",
-            HeapObj::Func(..) => "function",
-            HeapObj::Type(_) | HeapObj::Class(..) => "type",
-            HeapObj::Range(..) | HeapObj::BigRange(..) => "range",
-            HeapObj::Slice(..) => "slice",
-            // A dunder of a builtin type is a slot wrapper, unbound or bound, a named method a descriptor until bound.
-            &HeapObj::BoundMethod(recv, id) if self.method_unbound(recv, id) => if is_dunder(id.name()) { "wrapper_descriptor" } else { "method_descriptor" },
-            HeapObj::BoundMethod(_, id) if is_dunder(id.name()) => "method-wrapper",
-            HeapObj::BoundMethod(..) | HeapObj::NativeFn(_) | HeapObj::Extern(_) => "builtin_function_or_method",
-            HeapObj::BoundUserMethod(..) => "method",
-            HeapObj::Super(..) => "super",
-            HeapObj::Property(..) | HeapObj::PropertyPart(..) => "property",
-            HeapObj::StaticMethod(..) => "staticmethod",
-            HeapObj::ClassMethod(..) => "classmethod",
-            HeapObj::Instance(cls, _) => {
-                if cls.is_heap() && let HeapObj::Class(name, _, _) = self.heap.get(*cls) {
-                    return name;
-                }
-                "object"
-            }
-            HeapObj::Coroutine(c) => match c.body {
-                BodyRef::Fn(fi) if !self.is_async_fn(fi) => "generator",
-                BodyRef::Fn(fi) if self.functions[fi].1.is_generator => "async_generator",
-                _ => "coroutine",
-            },
-            HeapObj::Module(..) => "module",
-            HeapObj::ExcInstance(..) => "exception",
-            HeapObj::Ellipsis => "ellipsis",
-            HeapObj::NotImplemented => "NotImplementedType",
-            HeapObj::GenericAlias(..) => "GenericAlias",
-            HeapObj::TypeAlias(..) => "TypeAliasType",
-            HeapObj::Union(_) => "Union",
-            // The stars a type parameter was declared with name its kind.
-            HeapObj::TypeVar(n) if n.starts_with("**") => "ParamSpec",
-            HeapObj::TypeVar(n) if n.starts_with('*') => "TypeVarTuple",
-            HeapObj::TypeVar(_) => "TypeVar",
-            HeapObj::Iter(_, name) => name,
-            HeapObj::Cell(_) => "cell",
-            HeapObj::Code(_) => "code",
-            HeapObj::DictView(_, View::Keys) => "dict_keys",
-            HeapObj::DictView(_, View::Values) => "dict_values",
-            HeapObj::DictView(_, View::Items) => "dict_items",
-        }}
+        self.heap.type_name_by(v, &|c| match c.body {
+            BodyRef::Fn(fi) if !self.is_async_fn(fi) => "generator",
+            BodyRef::Fn(fi) if self.functions[fi].1.is_generator => "async_generator",
+            _ => "coroutine",
+        })
     }
 
-    /* `str` of exception `name` from its args, a KeyError key shows as its repr. */
-    fn exc_text(&self, name: &str, args: &[Val], seen: &mut Vec<u32>) -> String {
-        match args {
-            [] => String::new(),
-            // A group reads as its message and how many members it holds.
-            [msg, excs] if super::globals::is_group_type(name) => {
-                let n = match self.heap.try_get(*excs) { Some(HeapObj::List(l)) => l.borrow().len(), Some(HeapObj::Tuple(t)) => t.len(), _ => 0 };
-                let tail = if n == 1 { " sub-exception)" } else { " sub-exceptions)" };
-                s!(str &self.display_d(*msg, seen), " (", int n as i64, str tail)
+
+    // Builtin str and repr with no dunder run.
+    pub fn display(&self, v: Val) -> String { Host::display(self, v) }
+    pub fn repr(&self, v: Val) -> String { Host::repr(self, v) }
+
+    // Text of what only the VM makes.
+    pub(crate) fn display_vm(&self, v: Val, seen: &mut Vec<u32>) -> String {
+        match self.heap.get(v) {
+            &HeapObj::FnCode(fi) => {
+                let name = self.function_names.get(fi).map_or("<lambda>", |n| if n.is_empty() { "<lambda>" } else { n });
+                let body = self.functions.get(fi).map(|f| &f.1);
+                s!("<code object ", str name, str &at(v), ", file \"", str body.map_or("", |b| b.path.as_str()), "\", line ", int body.map_or(0, |b| b.first_line) as i64, ">")
             }
-            [a] if name == "KeyError" => self.repr_d(*a, seen),
-            [a] => self.display_d(*a, seen),
-            [no, msg, rest @ ..] if rest.len() <= 1 && super::globals::matches_exc_class(name, "OSError") => {
-                let mut o = s!("[Errno ", str &self.display_d(*no, seen), "] ", str &self.display_d(*msg, seen));
-                if let [f] = rest { o.push_str(": "); o.push_str(&self.repr_d(*f, seen)); }
+            &HeapObj::Func(i, ..) => s!("<function ", str self.fn_qualname(i), str &at(v), ">"),
+            // User classes live in `__main__`, Python qualifies the repr with the module.
+            HeapObj::Class(name, _, _) => crate::s!("<class '__main__.", str self.class_qualnames.get(&v.0).unwrap_or(name), "'>"),
+            HeapObj::Instance(cls, _) => {
+                // An exception reads as its message.
+                if let Some(base) = self.exc_base(*cls) {
+                    // An exception inside its own args reads as `E(...)` there, the way repr does.
+                    let slot = self.exc_args_slot(v);
+                    if slot.is_some_and(|s| seen.contains(&s)) { return s!(str self.type_name(v), "(...)"); }
+                    seen.extend(slot);
+                    let text = self.exc_text(base, &self.exc_args(v), seen);
+                    if slot.is_some() { seen.pop(); }
+                    return text;
+                }
+                let name = match self.heap.try_get(*cls) {
+                    Some(HeapObj::Class(name, ..)) => s!("__main__.", str self.class_qualnames.get(&cls.0).unwrap_or(name)),
+                    Some(HeapObj::Type(name)) => name.clone(),
+                    _ => "object".into(),
+                };
+                s!("<", str &name, " object", str &at(v), ">")
+            }
+            &HeapObj::BoundUserMethod(recv, func, _) => {
+                let name = match self.heap.try_get(func) { Some(&HeapObj::Func(i, ..)) => self.fn_qualname(i), _ => "?" };
+                s!("<bound method ", str name, " of ", str &self.repr_d(recv, seen), ">")
+            }
+            HeapObj::Coroutine(c) => {
+                let name = match c.body { BodyRef::Fn(fi) => self.fn_qualname(fi), BodyRef::Module => "<module>" };
+                s!("<", str self.type_name(v), " object ", str name, str &at(v), ">")
+            }
+            HeapObj::GenericAlias(origin, args) => {
+                let mut o = self.alias_arg(*origin, seen);
+                o.push('[');
+                match self.heap.get(*args) {
+                    HeapObj::Tuple(t) if !t.is_empty() => for (i, &a) in t.iter().enumerate() {
+                        if i > 0 { o.push_str(", "); }
+                        o.push_str(&self.alias_arg(a, seen));
+                    },
+                    _ => o.push_str("()"),
+                }
+                o.push(']');
                 o
             }
-            _ => { let mut o = s!(cap: 32; "("); self.append_reprs(&mut o, args.iter(), seen); o.push(')'); o }
+            HeapObj::Union(args) => {
+                let mut o = String::new();
+                if let HeapObj::Tuple(t) = self.heap.get(*args) {
+                    for (i, &m) in t.iter().enumerate() {
+                        if i > 0 { o.push_str(" | "); }
+                        // A union stores `None` as its type and spells it back as `None`.
+                        let none = m.is_heap() && matches!(self.heap.get(m), HeapObj::Type(n) if n == "NoneType");
+                        o.push_str(&if none { "None".into() } else { self.alias_arg(m, seen) });
+                    }
+                }
+                o
+            }
+            _ => s!("<", str self.type_name(v), " object", str &at(v), ">"),
         }
+    }
+
+    /* An exception instance reads as its constructor call, `E('x')`. */
+    pub(crate) fn repr_vm(&self, v: Val, seen: &mut Vec<u32>) -> Option<String> {
+        let &HeapObj::Instance(cls, _) = self.heap.get(v) else { return None };
+        self.exc_base(cls)?;
+        let slot = self.exc_args_slot(v);
+        if slot.is_some_and(|s| seen.contains(&s)) { return Some(s!(str self.type_name(v), "(...)")); }
+        seen.extend(slot);
+        let mut o = s!(cap: 32; str self.type_name(v), "(");
+        self.append_reprs(&mut o, self.exc_args(v).iter(), seen);
+        o.push(')');
+        if slot.is_some() { seen.pop(); }
+        Some(o)
     }
 
     /* The heap slot of an exception's `args` tuple, the key cycle checks use. */
@@ -329,213 +237,20 @@ impl<'a> VM<'a> {
         matches!(self.heap.try_get(v), Some(HeapObj::Coroutine(c)) if !matches!(c.body, BodyRef::Fn(fi) if !self.is_async_fn(fi)))
     }
 
-    /* TypeError for a binary operator no operand type supports. */
-    #[cold]
-    pub(crate) fn unsupported(&self, op: &str, a: Val, b: Val) -> VmErr {
-        VmErr::TypeMsg(s!("unsupported operand type(s) for ", str op, ": '", str self.type_name(a), "' and '", str self.type_name(b), "'"))
-    }
 
-    /* `{a, b}` or `frozenset({a, b})` read in place, `...` for a cycle. */
-    fn set_repr<'b>(&self, v: Val, frozen: bool, len: usize, items: impl Iterator<Item = &'b Val>, seen: &mut Vec<u32>) -> String {
-        if len == 0 { return (if frozen { "frozenset()" } else { "set()" }).into(); }
-        let mut out = String::from(if frozen { "frozenset({" } else { "{" });
-        let id = v.as_heap();
-        if seen.contains(&id) { out.push_str("..."); } else { seen.push(id); self.append_reprs(&mut out, items, seen); seen.pop(); }
-        out.push_str(if frozen { "})" } else { "}" });
-        out
-    }
 
-    fn append_reprs<'b>(&self, out: &mut String, it: impl Iterator<Item = &'b Val>, seen: &mut Vec<u32>) {
-        let mut first = true;
-        for v in it {
-            // Bound breadth, a wide structure re-referencing one big child would render without limit.
-            if out.len() > MAX_REPR_LEN { out.push_str(", ..."); break; }
-            if !first { out.push_str(", "); }
-            out.push_str(&self.repr_d(*v, seen));
-            first = false;
-        }
-    }
 
-    pub fn display(&self, v: Val) -> String { self.display_d(v, &mut Vec::new()) }
 
-    /* The text of a FOREIGN value where no error can surface, its type when the kind refuses. */
-    fn foreign_text(&self, v: Val) -> String {
-        match self.heap.foreign_repr(v) { Some(Ok(s)) => s, _ => s!("<", str self.type_name(v), " object", str &at(v), ">") }
-    }
 
-    /* Whether builtin method `id` over `recv` is unbound, read off its type, an operator dunder keeping that type as `recv`. */
-    #[inline]
-    pub(crate) fn method_unbound(&self, recv: Val, id: crate::vm::methods::BuiltinMethodId) -> bool {
-        recv.is_undef() || id.ty() == "op" && matches!(self.heap.try_get(recv), Some(HeapObj::Type(_)))
-    }
 
-    /* The type an unbound builtin method belongs to. */
-    pub(crate) fn method_owner(&self, recv: Val, id: crate::vm::methods::BuiltinMethodId) -> &str {
-        match self.heap.try_get(recv) { Some(HeapObj::Type(n)) if !recv.is_undef() => n, _ => id.ty() }
-    }
 
     /* The qualified name of function `fi`, `<lambda>` for an anonymous one. */
     fn fn_qualname(&self, fi: usize) -> &str {
         match self.function_qualnames.get(fi) { Some(q) if !q.is_empty() => q, _ => match self.function_names.get(fi) { Some(n) if !n.is_empty() => n, _ => "<lambda>" } }
     }
 
-    /* Cycle-aware display, `seen` tracks containers on the current path, so self-referential structures emit "..." instead of recursing forever (and its length bounds raw nesting depth). */
-    fn display_d(&self, v: Val, seen: &mut Vec<u32>) -> String {
-        if seen.len() > RENDER_DEPTH_MAX { return "...".into(); }
-        if v.is_int() { let mut b = itoa::Buffer::new(); return b.format(v.as_int()).into(); }
-        if v.is_float() {
-            // Single source of truth for float text (Python repr rules, scientific + .0).
-            return crate::util::fstr::format_f64(v.as_float());
-        }
-        if v.is_true() { return "True".into(); }
-        if v.is_false() { return "False".into(); }
-        if v.is_none() { return "None".into(); }
-        if v.is_foreign() { return self.foreign_text(v); }
-        match self.heap.get(v) {
-            &HeapObj::Boxed(n) => self.display_d(n, seen),
-            HeapObj::Str(s) => s.clone(),
-            HeapObj::Bytes(b) => format_bytes(b),
-            HeapObj::ByteArray(b) => s!("bytearray(", str &quote_bytes(b, true), ")"),
-            HeapObj::MemoryView(m) => s!(str if m.released { "<released memory" } else { "<memory" }, str &at(v), ">"),
-            &HeapObj::FnCode(fi) => {
-                let name = self.function_names.get(fi).map_or("<lambda>", |n| if n.is_empty() { "<lambda>" } else { n });
-                let body = self.functions.get(fi).map(|f| &f.1);
-                s!("<code object ", str name, str &at(v), ", file \"", str body.map_or("", |b| b.path.as_str()), "\", line ", int body.map_or(0, |b| b.first_line) as i64, ">")
-            }
-            HeapObj::Type(name) => s!("<class '", str name, "'>"),
-            &HeapObj::Func(i, ..) => s!("<function ", str self.fn_qualname(i), str &at(v), ">"),
-            HeapObj::Slice(s,e,st) => s!("slice(", str &self.display_d(*s, seen), ", ", str &self.display_d(*e, seen), ", ", str &self.display_d(*st, seen), ")"),
-            HeapObj::Range(s,e,st) => if *st == 1 { s!("range(", int *s, ", ", int *e, ")") } else { s!("range(", int *s, ", ", int *e, ", ", int *st, ")") },
-            HeapObj::BigRange(..) => crate::frontend::int::range_repr(&self.heap, v).and_then(Result::ok).unwrap_or_else(|| "range(...)".into()),
-            HeapObj::List(l) => { let id = v.as_heap(); if seen.contains(&id) { return "[...]".into(); } seen.push(id); let mut o = s!(cap: 32; "["); self.append_reprs(&mut o, l.borrow().iter(), seen); o.push(']'); seen.pop(); o },
-            HeapObj::Tuple(t) => { let id = v.as_heap(); if seen.contains(&id) { return "(...)".into(); } seen.push(id); let o = if t.len() == 1 { s!("(", str &self.repr_d(t[0], seen), ",)") } else { let mut o = s!(cap: 32; "("); self.append_reprs(&mut o, t.iter(), seen); o.push(')'); o }; seen.pop(); o },
-            HeapObj::Dict(d) => self.dict_repr(v, &d.borrow(), seen),
-            HeapObj::FrozenDict(d) if d.borrow().is_empty() => "frozendict()".into(),
-            HeapObj::FrozenDict(d) => s!("frozendict(", str &self.dict_repr(v, &d.borrow(), seen), ")"),
-            // `object` spells its slot wrappers without the type.
-            &HeapObj::BoundMethod(recv, id) if self.method_unbound(recv, id) && is_dunder(id.name()) && id.ty() == "object" => s!("<slot wrapper '", str id.name(), "'>"),
-            &HeapObj::BoundMethod(recv, id) if self.method_unbound(recv, id) && is_dunder(id.name()) => s!("<slot wrapper '", str id.name(), "' of '", str self.method_owner(recv, id), "' objects>"),
-            &HeapObj::BoundMethod(recv, id) if self.method_unbound(recv, id) => s!("<method '", str id.name(), "' of '", str self.method_owner(recv, id), "' objects>"),
-            &HeapObj::BoundMethod(recv, id) if is_dunder(id.name()) => s!("<method-wrapper '", str id.name(), "' of ", str self.type_name(recv), " object", str &at(recv), ">"),
-            &HeapObj::BoundMethod(recv, id) => s!("<built-in method ", str id.name(), " of ", str self.type_name(recv), " object", str &at(recv), ">"),
-            HeapObj::NativeFn(id) => s!("<built-in function ", str id.name(), ">"),
-            // User classes live in `__main__`, Python qualifies the repr with the module.
-            HeapObj::Class(name, _, _) => crate::s!("<class '__main__.", str self.class_qualnames.get(&v.0).unwrap_or(name), "'>"),
-            HeapObj::Instance(cls, _) => {
-                // An exception reads as its message.
-                if let Some(base) = self.exc_base(*cls) {
-                    // An exception inside its own args reads as `E(...)` there, the way repr does.
-                    let slot = self.exc_args_slot(v);
-                    if slot.is_some_and(|s| seen.contains(&s)) { return s!(str self.type_name(v), "(...)"); }
-                    seen.extend(slot);
-                    let text = self.exc_text(base, &self.exc_args(v), seen);
-                    if slot.is_some() { seen.pop(); }
-                    return text;
-                }
-                let name = match self.heap.try_get(*cls) {
-                    Some(HeapObj::Class(name, ..)) => s!("__main__.", str self.class_qualnames.get(&cls.0).unwrap_or(name)),
-                    Some(HeapObj::Type(name)) => name.clone(),
-                    _ => "object".into(),
-                };
-                s!("<", str &name, " object", str &at(v), ">")
-            }
-            &HeapObj::BoundUserMethod(recv, func, _) => {
-                let name = match self.heap.try_get(func) { Some(&HeapObj::Func(i, ..)) => self.fn_qualname(i), _ => "?" };
-                s!("<bound method ", str name, " of ", str &self.repr_d(recv, seen), ">")
-            }
-            &HeapObj::Super(cls, recv) => {
-                let short = |c: Val| match self.heap.try_get(c) { Some(HeapObj::Class(n, ..) | HeapObj::Type(n)) => n.as_str(), _ => "?" };
-                // A class bound reads as an object of that class, as an instance reads by its type.
-                if recv.is_none() { return s!("<super: <class '", str short(cls), "'>, NULL>"); }
-                let of = if matches!(self.heap.try_get(recv), Some(HeapObj::Class(..))) { short(recv) } else { self.type_name(recv) };
-                s!("<super: <class '", str short(cls), "'>, <", str of, " object>>")
-            }
-            HeapObj::Property(..) => s!("<property object", str &at(v), ">"),
-            HeapObj::PropertyPart(_, slot) => crate::s!("<property.", str ["getter", "setter", "deleter"][*slot as usize], ">"),
-            &HeapObj::StaticMethod(f) => s!("<staticmethod(", str &self.repr_d(f, seen), ")>"),
-            &HeapObj::ClassMethod(f) => s!("<classmethod(", str &self.repr_d(f, seen), ")>"),
-            HeapObj::Coroutine(c) => {
-                let name = match c.body { BodyRef::Fn(fi) => self.fn_qualname(fi), BodyRef::Module => "<module>" };
-                s!("<", str self.type_name(v), " object ", str name, str &at(v), ">")
-            }
-            HeapObj::Iter(_, name) => s!("<", str name, " object", str &at(v), ">"),
-            HeapObj::DictView(d, kind) => {
-                let mut o = s!(str self.type_name(v), "([");
-                if let Some(m) = self.heap.dict_cell(*d) {
-                    for (i, (k, val)) in m.borrow().iter().enumerate() {
-                        if i > 0 { if o.len() > MAX_REPR_LEN { o.push_str(", ..."); break; } o.push_str(", "); }
-                        match kind {
-                            View::Keys => o.push_str(&self.repr_d(k, seen)),
-                            View::Values => o.push_str(&self.repr_d(val, seen)),
-                            View::Items => { o.push('('); o.push_str(&self.repr_d(k, seen)); o.push_str(", "); o.push_str(&self.repr_d(val, seen)); o.push(')'); }
-                        }
-                    }
-                }
-                o.push_str("])");
-                o
-            }
-            HeapObj::Module(name, _) => s!("<module '", str name, "'>"),
-            HeapObj::Extern(f) => s!("<extern function ", str &f.name, ">"),
-            HeapObj::GenericAlias(origin, args) => {
-                let mut o = self.alias_arg(*origin, seen);
-                o.push('[');
-                match self.heap.get(*args) {
-                    HeapObj::Tuple(t) if !t.is_empty() => for (i, &a) in t.iter().enumerate() {
-                        if i > 0 { o.push_str(", "); }
-                        o.push_str(&self.alias_arg(a, seen));
-                    },
-                    _ => o.push_str("()"),
-                }
-                o.push(']');
-                o
-            }
-            HeapObj::TypeAlias(name, _) => name.clone(),
-            HeapObj::TypeVar(name) => name.trim_start_matches('*').into(),
-            HeapObj::Union(args) => {
-                let mut o = String::new();
-                if let HeapObj::Tuple(t) = self.heap.get(*args) {
-                    for (i, &m) in t.iter().enumerate() {
-                        if i > 0 { o.push_str(" | "); }
-                        // A union stores `None` as its type and spells it back as `None`.
-                        let none = m.is_heap() && matches!(self.heap.get(m), HeapObj::Type(n) if n == "NoneType");
-                        o.push_str(&if none { "None".into() } else { self.alias_arg(m, seen) });
-                    }
-                }
-                o
-            }
-            HeapObj::ExcInstance(name, args, _) => self.exc_text(name, args, seen),
-            HeapObj::Set(s) => { let s = s.borrow(); self.set_repr(v, false, s.len(), s.iter(), seen) }
-            HeapObj::FrozenSet(s) => self.set_repr(v, true, s.len(), s.iter(), seen),
-            HeapObj::Ellipsis => "Ellipsis".into(),
-            HeapObj::NotImplemented => "NotImplemented".into(),
-            // A cell names what it holds by type, an unfilled one is empty.
-            &HeapObj::Cell(c) if c.is_undef() => s!("<cell", str &at(v), ": empty>"),
-            &HeapObj::Cell(c) => s!("<cell", str &at(v), ": ", str self.type_name(c), " object", str &at(c), ">"),
-            HeapObj::Code(c) => s!("<code object <module>", str &at(v), ", file \"", str &c.filename, "\", line 1>"),
-        }
-    }
 
-    /* `{k: v, ...}` of the entries of dict `v`, `{...}` where it holds itself. */
-    fn dict_repr(&self, v: Val, d: &DictMap, seen: &mut Vec<u32>) -> String {
-        let id = v.as_heap();
-        if seen.contains(&id) { return "{...}".into(); }
-        seen.push(id);
-        let mut o = s!(cap: 32; "{");
-        for (i, (k, val)) in d.iter().enumerate() {
-            if i > 0 {
-                if o.len() > MAX_REPR_LEN { o.push_str(", ..."); break; }
-                o.push_str(", ");
-            }
-            o.push_str(&self.repr_d(k, seen));
-            o.push_str(": ");
-            o.push_str(&self.repr_d(val, seen));
-        }
-        o.push('}');
-        seen.pop();
-        o
-    }
 
-    pub fn repr(&self, v: Val) -> String { self.repr_d(v, &mut Vec::new()) }
 
     /* An alias argument as Python spells it, a type by its name and anything else by repr. */
     fn alias_arg(&self, v: Val, seen: &mut Vec<u32>) -> String {
@@ -552,184 +267,11 @@ impl<'a> VM<'a> {
         self.repr_d(v, seen)
     }
 
-    pub(crate) fn repr_d(&self, v: Val, seen: &mut Vec<u32>) -> String {
-        if v.is_heap() {
-            match self.heap.get(v) {
-                HeapObj::Str(s) => return repr_str(s),
-                // `repr(E("x"))` is the constructor call, `ValueError('x')`.
-                HeapObj::ExcInstance(name, args, _) => {
-                    let mut o = s!(cap: 32; str name, "(");
-                    self.append_reprs(&mut o, args.iter(), seen);
-                    o.push(')');
-                    return o;
-                }
-                // An exception instance reads as its constructor call, `E('x')`.
-                &HeapObj::Instance(cls, _) if self.exc_base(cls).is_some() => {
-                    let slot = self.exc_args_slot(v);
-                    if slot.is_some_and(|s| seen.contains(&s)) { return s!(str self.type_name(v), "(...)"); }
-                    seen.extend(slot);
-                    let mut o = s!(cap: 32; str self.type_name(v), "(");
-                    self.append_reprs(&mut o, self.exc_args(v).iter(), seen);
-                    o.push(')');
-                    if slot.is_some() { seen.pop(); }
-                    return o;
-                }
-                _ => {}
-            }
-        }
-        self.display_d(v, seen)
-    }
 
-    pub fn lt_vals(&self, a: Val, b: Val) -> Result<bool, VmErr> {
-        self.lt_vals_d(a, b, 0)
-    }
 
-    /* Depth-tracked `<`, past the cap surface RecursionError instead of overflowing the stack. */
-    fn lt_vals_d(&self, a: Val, b: Val, depth: usize) -> Result<bool, VmErr> {
-        if depth > CMP_DEPTH_MAX { return Err(cold_depth()); }
-        let a = if a.is_bool() { Val::int(a.as_bool() as i64) } else { a };
-        let b = if b.is_bool() { Val::int(b.as_bool() as i64) } else { b };
-        if a.is_int() && b.is_int() { return Ok(a.as_int() < b.as_int()); }
-        if (a.is_foreign() || b.is_foreign()) && let Some(o) = self.heap.foreign_cmp(a, b) { return Ok(o == Ordering::Less); }
-        if let Some(Ok((af, bf))) = coerce_floats(a, b, &self.heap) { return Ok(af < bf); }
-        if a.is_heap() && b.is_heap() {
-            match (self.heap.get(a), self.heap.get(b)) {
-                (HeapObj::Str(x), HeapObj::Str(y)) => return Ok(x < y),
-                (HeapObj::Bytes(x) | HeapObj::ByteArray(x), HeapObj::Bytes(y) | HeapObj::ByteArray(y)) => return Ok(x < y),
-                // Sequences compare lexicographically, clone to drop the heap borrow before recursing.
-                (HeapObj::List(x), HeapObj::List(y)) => {
-                    let (x, y) = (x.borrow().clone(), y.borrow().clone());
-                    return self.seq_lt_d(&x, &y, depth + 1);
-                }
-                (HeapObj::Tuple(x), HeapObj::Tuple(y)) => {
-                    let (x, y) = (x.clone(), y.clone());
-                    return self.seq_lt_d(&x, &y, depth + 1);
-                }
-                _ => {}
-            }
-        }
-        // A number of a class over int or float orders as the number.
-        let (x, y) = (unboxed(a, &self.heap), unboxed(b, &self.heap));
-        if x.0 != a.0 || y.0 != b.0 { return self.lt_vals_d(x, y, depth); }
-        Err(VmErr::TypeMsg(s!("'<' not supported between instances of '", str self.type_name(a), "' and '", str self.type_name(b), "'")))
-    }
 
-    /* Lexicographic `<` for sequences, first differing element decides, otherwise the shorter is less. Recurses through `lt_vals`, so nested sequences and mixed element types are handled (and rejected) consistently. */
-    fn seq_lt_d(&self, xs: &[Val], ys: &[Val], depth: usize) -> Result<bool, VmErr> {
-        if depth > CMP_DEPTH_MAX { return Err(cold_depth()); }
-        for (&x, &y) in xs.iter().zip(ys.iter()) {
-            if eq_member(x, y, &self.heap) { continue; }
-            return self.lt_vals_d(x, y, depth + 1);
-        }
-        Ok(xs.len() < ys.len())
-    }
 
-    /* Item presence in list/tuple/dict/set, or substring in string. Non-iterable container raises TypeError. */
-    pub fn contains(&mut self, container: Val, item: Val) -> Result<bool, VmErr> {
-        if container.is_heap() && matches!(self.heap.get(container), HeapObj::Dict(_) | HeapObj::FrozenDict(_) | HeapObj::Set(_) | HeapObj::FrozenSet(_)) { self.keyed(item)?; }
-        if container.is_heap() {
-            match self.heap.get(container) {
-                // A scan counts what it may read as native work.
-                HeapObj::List(v) => { self.heap.spend(v.borrow().len()); return Ok(v.borrow().iter().any(|x| eq_member(*x, item, &self.heap))) }
-                HeapObj::Tuple(v) => { self.heap.spend(v.len()); return Ok(v.iter().any(|x| eq_member(*x, item, &self.heap))) }
-                // Only a miss checks the item, an unhashable one is never inside so a hit needs no check.
-                HeapObj::Dict(p) | HeapObj::FrozenDict(p) => { let hit = p.borrow().contains_key(&item, &self.heap); if !hit { self.require_key(item)?; } return Ok(hit); }
-                HeapObj::Set(s) => { let hit = s.borrow().contains(item, &self.heap); if !hit { self.require_set_probe(item)?; } return Ok(hit); }
-                HeapObj::FrozenSet(s) => { let hit = s.contains(item, &self.heap); if !hit { self.require_set_probe(item)?; } return Ok(hit); }
-                HeapObj::Str(s) => {
-                    if let Some(HeapObj::Str(sub)) = self.heap.try_get(item) { self.heap.spend(s.len()); return Ok(s.contains(sub.as_str())); }
-                    return Err(VmErr::TypeMsg(s!("'in <string>' requires string as left operand, not ", str self.type_name(item))));
-                }
-                HeapObj::Bytes(b) | HeapObj::ByteArray(b) => {
-                    if let Some(sub) = self.heap.bytes_of(item) {
-                        self.heap.spend(b.len());
-                        return Ok(sub.is_empty() || b.windows(sub.len()).any(|w| w == sub));
-                    }
-                    let n = match item { i if i.is_int() => i.as_int(), i if i.is_bool() => i.as_bool() as i64, _ => return Err(cold_type("a bytes-like object is required")) };
-                    if !(0..=255).contains(&n) { return Err(cold_value("byte must be in range(0, 256)")); }
-                    return Ok(b.contains(&(n as u8)));
-                }
-                HeapObj::BigRange(..) => return Ok(crate::frontend::int::range_has(&self.heap, container, item).unwrap_or(false)),
-                HeapObj::Range(s, e, st) => {
-                    let (s, e, st) = (*s as i128, *e as i128, *st as i128);
-                    // O(1) range membership via bounds + step, integral floats match too.
-                    let x = match as_i128(item, &self.heap) {
-                        Some(i) => Some(i),
-                        None if item.is_float() => {
-                            let v = item.as_float();
-                            if v.is_finite() && v == libm::trunc(v) { Some(v as i128) } else { None }
-                        }
-                        None => None,
-                    };
-                    return Ok(match x {
-                        Some(x) => {
-                            let in_bounds = if st > 0 { x >= s && x < e } else { x <= s && x > e };
-                            in_bounds && st != 0 && (x - s) % st == 0
-                        }
-                        None => false,
-                    });
-                }
-                _ => {}
-            }
-        }
-        Err(VmErr::TypeMsg(s!("argument of type '", str self.type_name(container), "' is not a container or iterable")))
-    }
-    pub fn add_vals(&mut self, a: Val, b: Val) -> Result<Val, VmErr> {
-        // Inline-int fast path, overflow falls through to the i128 slow path.
-        if a.is_int() && b.is_int()
-            && let Some(r) = a.as_int().checked_add(b.as_int())
-            && (Val::INT_MIN..=Val::INT_MAX).contains(&r) {
-            return Ok(Val::int(r));
-        }
-        if let Some(p) = coerce_floats(a, b, &self.heap) { let (af, bf) = p?; return Ok(Val::float(af + bf)); }
-        if let (Some(ai), Some(bi)) = (as_i128(a, &self.heap), as_i128(b, &self.heap)) && let Some(r) = ai.checked_add(bi) { return self.heap.int(r); }
-        if let Some(r) = self.wide_op(BinOp::Add, a, b)? { return Ok(r); }
-        if a.is_heap() && b.is_heap() {
-            // Charge the copy cost so growing concatenation in a loop stays bounded (avoids O(n^2)).
-            let copy_cost = match (self.heap.get(a), self.heap.get(b)) {
-                (HeapObj::Str(sa), HeapObj::Str(sb)) => Some(sa.len() + sb.len()),
-                (HeapObj::Bytes(ba) | HeapObj::ByteArray(ba), HeapObj::Bytes(bb) | HeapObj::ByteArray(bb)) => Some(ba.len() + bb.len()),
-                (HeapObj::List(va), HeapObj::List(vb)) => Some(va.borrow().len() + vb.borrow().len()),
-                (HeapObj::Tuple(va), HeapObj::Tuple(vb)) => Some(va.len() + vb.len()),
-                _ => None,
-            };
-            if let Some(n) = copy_cost { self.charge_steps(n)?; }
-            match (self.heap.get(a), self.heap.get(b)) {
-                (HeapObj::Str(sa), HeapObj::Str(sb)) => {
-                    let mut r = String::with_capacity(sa.len() + sb.len());
-                    r.push_str(sa); r.push_str(sb);
-                    return self.heap.alloc(HeapObj::Str(r));
-                }
-                // Each result is sized once, so no operand is copied twice.
-                (HeapObj::List(va), HeapObj::List(vb)) => {
-                    let lst = [&va.borrow()[..], &vb.borrow()[..]].concat();
-                    return self.heap.alloc(HeapObj::List(Rc::new(RefCell::new(lst))));
-                }
-                (HeapObj::Tuple(va), HeapObj::Tuple(vb)) => {
-                    let tup = [&va[..], &vb[..]].concat();
-                    return self.heap.alloc(HeapObj::Tuple(tup));
-                }
-                // The result takes the type of the left side.
-                (left @ (HeapObj::Bytes(ba) | HeapObj::ByteArray(ba)), HeapObj::Bytes(bb) | HeapObj::ByteArray(bb)) => {
-                    let r = [&ba[..], &bb[..]].concat();
-                    return self.heap.alloc(if matches!(left, HeapObj::ByteArray(_)) { HeapObj::ByteArray(r) } else { HeapObj::Bytes(r) });
-                }
-                _ => {}
-            }
-        }
-        Err(self.concat_err(a, b).unwrap_or_else(|| self.unsupported("+", a, b)))
-    }
 
-    /* The error a sequence on the left of `+` raises for a right side of another type. */
-    #[cold]
-    fn concat_err(&self, a: Val, b: Val) -> Option<VmErr> {
-        let (left, right) = (self.type_name(a), self.type_name(b));
-        match self.heap.try_get(a)? {
-            HeapObj::Str(_) | HeapObj::List(_) | HeapObj::Tuple(_) => Some(VmErr::TypeMsg(s!("can only concatenate ", str left, " (not \"", str right, "\") to ", str left))),
-            HeapObj::Bytes(_) | HeapObj::ByteArray(_) => Some(VmErr::TypeMsg(s!("can't concat ", str right, " to ", str left))),
-            _ => None,
-        }
-    }
 
     pub fn sub_vals(&mut self, a: Val, b: Val) -> Result<Val, VmErr> {
         if a.is_int() && b.is_int()
@@ -832,11 +374,6 @@ impl<'a> VM<'a> {
         Ok(Val::float(av / bv))
     }
 
-    /* `op` through the kind of a FOREIGN operand, None when nothing takes it. */
-    pub(crate) fn wide_op(&mut self, op: BinOp, a: Val, b: Val) -> Result<Option<Val>, VmErr> {
-        if !a.is_foreign() && !b.is_foreign() { return Ok(None); }
-        self.heap.foreign_binop(op, a, b)
-    }
 
     /* Method wrapper around the free `as_i128` for borrow-checker ergonomics. */
     #[inline]
@@ -844,14 +381,7 @@ impl<'a> VM<'a> {
         as_i128(v, &self.heap)
     }
 
-    /* Wrap an i128 into the narrowest Val, None->Overflow, 48-bit->inline, else boxed. */
-    #[inline]
-    pub(crate) fn int_to_val(&mut self, r: Option<i128>) -> Result<Val, VmErr> {
-        self.heap.int(r.ok_or_else(cold_overflow)?)
-    }
 }
 
-/* The ` at 0x...` a repr places an object by, the word `id` gives. */
-fn at(v: Val) -> String { alloc::format!(" at 0x{:x}", v.0) }
 
-fn is_dunder(name: &str) -> bool { name.len() > 4 && name.starts_with("__") && name.ends_with("__") }
+pub(crate) use super::types::render::{MAX_REPR_LEN, RENDER_DEPTH_MAX, at, push_repr_str};

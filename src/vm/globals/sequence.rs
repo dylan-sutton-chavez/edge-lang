@@ -1,73 +1,18 @@
 use crate::s;
 
-use alloc::{vec, vec::Vec};
+use alloc::vec::Vec;
 
 use super::super::VM;
 use super::super::types::*;
-use crate::parser::{OpCode, SSAChunk};
+use crate::parser::SSAChunk;
+use crate::vm::natives::Builtins;
 
 
 impl<'a> VM<'a> {
 
-    /* A builtin iterator named `name` over `frame`. */
-    fn alloc_iterator(&mut self, frame: IterFrame, name: &'static str) -> Result<Val, VmErr> {
-        self.heap.alloc(HeapObj::Iter(alloc::rc::Rc::new(core::cell::RefCell::new(frame)), name))
-    }
 
-    /* Pushes a builtin iterator named `name` over `frame`. */
-    pub(crate) fn push_iterator(&mut self, frame: IterFrame, name: &'static str) -> Result<(), VmErr> {
-        let it = self.alloc_iterator(frame, name)?;
-        self.push(it);
-        Ok(())
-    }
 
-    /* What a dict view shows now, an items view pairing each key with its value. */
-    pub(crate) fn view_items(&mut self, d: Val, kind: View) -> Result<Vec<Val>, VmErr> {
-        let entries: Vec<(Val, Val)> = self.heap.dict_cell(d).map_or_else(Vec::new, |m| m.borrow().iter().collect());
-        match kind {
-            View::Keys => Ok(entries.into_iter().map(|(k, _)| k).collect()),
-            View::Values => Ok(entries.into_iter().map(|(_, v)| v).collect()),
-            View::Items => entries.into_iter().map(|(k, v)| self.heap.alloc(HeapObj::Tuple(vec![k, v]))).collect(),
-        }
-    }
 
-    /* An iterator over `o`, the one `iter(o)` gives. */
-    pub(crate) fn iter_of(&mut self, o: Val, chunk: &SSAChunk) -> Result<Val, VmErr> {
-        let ascii = self.heap.str_is_ascii(o);
-        if self.heap.classed(o).is_some() && let Some(it) = self.try_call_dunder(o, "__iter__", &[], chunk)? { return Ok(it); }
-        let name = match self.heap.try_get(o) {
-            Some(HeapObj::Coroutine(..)) if self.is_async_object(o) => return Err(self.not_iterable(o)),
-            Some(HeapObj::Iter(..) | HeapObj::Coroutine(..)) => return Ok(o),
-            Some(HeapObj::Instance(..)) => return self.try_call_dunder(o, "__iter__", &[], chunk)?.ok_or_else(|| self.not_iterable(o)),
-            Some(HeapObj::List(rc)) => { let rc = rc.clone(); return self.alloc_iterator(IterFrame::List { rc, idx: 0 }, "list_iterator"); }
-            Some(&HeapObj::Range(cur, end, step)) => return self.alloc_iterator(IterFrame::Range { cur, end, step }, "range_iterator"),
-            Some(&HeapObj::BigRange(cur, end, step)) => return self.alloc_iterator(IterFrame::BigRange { cur, end, step }, "range_iterator"),
-            Some(HeapObj::Dict(_) | HeapObj::FrozenDict(_)) => return self.alloc_iterator(self.dict_walk(o, View::Keys), "dict_keyiterator"),
-            Some(&HeapObj::DictView(d, kind)) => {
-                let name = match kind { View::Keys => "dict_keyiterator", View::Values => "dict_valueiterator", View::Items => "dict_itemiterator" };
-                return self.alloc_iterator(self.dict_walk(d, kind), name);
-            }
-            Some(HeapObj::Tuple(_)) => "tuple_iterator",
-            Some(HeapObj::Str(_)) => if ascii { "str_ascii_iterator" } else { "str_iterator" },
-            Some(HeapObj::Set(_) | HeapObj::FrozenSet(_)) => "set_iterator",
-            Some(HeapObj::Bytes(_)) => "bytes_iterator",
-            Some(HeapObj::ByteArray(_)) => "bytearray_iterator",
-            Some(HeapObj::MemoryView(_)) => "memory_iterator",
-            _ => return Err(self.not_iterable(o)),
-        };
-        let items = self.extract_iter(o)?;
-        let frame = self.watched(o, items);
-        self.alloc_iterator(frame, name)
-    }
-
-    /* Turns the stack values from `at` into iterators in place, each rooted while the next is made. */
-    fn iters_in_place(&mut self, at: usize, chunk: &SSAChunk) -> Result<(), VmErr> {
-        for i in at..self.stack.len() {
-            let it = self.iter_of(self.stack[i], chunk)?;
-            self.stack[i] = it;
-        }
-        Ok(())
-    }
 
     /* The next item of a builtin iterator, a generator or a `__next__` object, None once spent. */
     pub(crate) fn next_of(&mut self, it: Val, chunk: &SSAChunk) -> Result<Option<Val>, VmErr> {
@@ -146,29 +91,7 @@ impl<'a> VM<'a> {
                 if let Err(e) = self.exec_call(its.len() as u16, chunk) { return self.stopped(e, base); }
                 self.pop().map(Some)
             }
-            IterFrame::Zip { its, strict } => {
-                let base = self.stack.len();
-                if its.is_empty() { return Ok(None); }
-                if !strict {
-                    if !self.push_next_of(&its, chunk)? { return Ok(None); }
-                } else {
-                    // A strict zip ends only when every iterable ends together.
-                    for (k, &it) in its.iter().enumerate() {
-                        match self.next_of(it, chunk)? {
-                            Some(v) => self.push(v),
-                            None if k > 0 => { self.stack.truncate(base); return Err(Self::zip_uneven(k, false)); }
-                            None => {
-                                for (j, &rest) in its.iter().enumerate().skip(1) {
-                                    if let Some(extra) = self.next_of(rest, chunk)? { let _ = extra; return Err(Self::zip_uneven(j, true)); }
-                                }
-                                return Ok(None);
-                            }
-                        }
-                    }
-                }
-                let items = self.stack.split_off(base);
-                self.heap.alloc(HeapObj::Tuple(items)).map(Some)
-            }
+            IterFrame::Zip { its, strict } => self.zip_step(&its, strict, chunk),
             IterFrame::Filter { f, it, .. } => { let (soft, mut first) = (core::mem::take(&mut self.step_soft), true); loop {
                 // A driven step leaves a generator's next item to its driver to run as a frame, and one its builtin test would step in Rust.
                 if soft && !first && !matches!(self.heap.try_get(f), Some(HeapObj::Func(..) | HeapObj::Class(..) | HeapObj::Instance(..) | HeapObj::BoundUserMethod(..)))
@@ -189,14 +112,7 @@ impl<'a> VM<'a> {
                 let item = self.pop()?;
                 if keep { return Ok(Some(item)); }
             } },
-            IterFrame::Enumerate { it, n } => {
-                let Some(item) = self.next_of(it, chunk)? else { return Ok(None) };
-                self.push(item);
-                let next = self.int_to_val(self.as_i128(n).and_then(|i| i.checked_add(1)))?;
-                if let Some(frame) = frame && let IterFrame::Enumerate { n: count, .. } = &mut *frame.borrow_mut() { *count = next; }
-                let item = self.pop()?;
-                self.heap.alloc(HeapObj::Tuple(vec![n, item])).map(Some)
-            }
+            IterFrame::Enumerate { it, n } => self.enumerate_step(frame, it, n, chunk),
             IterFrame::Call { f, sentinel } => {
                 self.push(f);
                 self.exec_call(0, chunk)?;
@@ -224,66 +140,9 @@ impl<'a> VM<'a> {
         }
     }
 
-    /* Pushes the next item of each iterator, false with nothing pushed once one is spent. */
-    fn push_next_of(&mut self, its: &[Val], chunk: &SSAChunk) -> Result<bool, VmErr> {
-        let base = self.stack.len();
-        for &it in its {
-            match self.next_of(it, chunk)? {
-                Some(v) => self.push(v),
-                None => { self.stack.truncate(base); return Ok(false); }
-            }
-        }
-        Ok(true)
-    }
 
-    pub fn call_len(&mut self, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
-        let ok = core::mem::take(&mut self.job_ok);
-        let o = self.pop()?;
-        // An instance's `__len__` runs as a frame of the loop.
-        if ok && self.is_instance(o) && self.check_job(o, crate::vm::jobs::Check::Len) { return Ok(()); }
-        // instance `__len__` takes precedence over built-in length rules.
-        if let Some(r) = self.try_call_dunder(o, "__len__", &[], chunk)? {
-            let n = if r.is_int() { r.as_int() as i128 }
-            else if let Some(i) = crate::vm::types::as_i128(r, &self.heap) { i }
-            else { return Err(cold_type("__len__ must return int")); };
-            if n < 0 { return Err(cold_value("__len__() should return >= 0")); }
-            let v = self.int_to_val(Some(n))?;
-            self.push(v);
-            return Ok(());
-        }
-        let n = self.builtin_len(o)?;
-        let v = self.int_to_val(Some(n))?;
-        self.push(v); Ok(())
-    }
 
-    /* `len(o)` of a builtin container, shared with the plugin ABI. */
-    pub(crate) fn builtin_len(&mut self, o: Val) -> Result<i128, VmErr> {
-        let ascii = self.heap.str_is_ascii(o);
-        Ok(match self.heap.try_get(o) {
-            Some(HeapObj::Str(s)) => (if ascii { s.len() } else { s.chars().count() }) as i128,
-            Some(HeapObj::Bytes(b) | HeapObj::ByteArray(b)) => b.len() as i128,
-            Some(HeapObj::MemoryView(m)) => if m.released { return Err(cold_value("operation forbidden on released memoryview object")) } else { m.len as i128 },
-            Some(HeapObj::List(v)) => v.borrow().len() as i128,
-            Some(HeapObj::Tuple(v)) => v.len() as i128,
-            Some(HeapObj::Dict(v) | HeapObj::FrozenDict(v)) => v.borrow().len() as i128,
-            Some(&HeapObj::DictView(d, _)) => return self.builtin_len(d),
-            Some(HeapObj::Set(v)) => v.borrow().len() as i128,
-            Some(HeapObj::FrozenSet(v)) => v.len() as i128,
-            Some(&HeapObj::Range(_, _, 0)) => return Err(cold_value("range() arg 3 must not be zero")),
-            Some(&HeapObj::Range(s, e, st)) => crate::vm::eq::range_len(s, e, st),
-            Some(HeapObj::BigRange(..)) => crate::frontend::int::range_len(&self.heap, o).unwrap_or(Ok(0))?,
-            _ => return Err(VmErr::TypeMsg(s!("object of type '", str self.type_name(o), "' has no len()"))),
-        })
-    }
 
-    /* `sorted` with no key, its `__lt__` run as frames of the loop when `ok`, called where one may open. */
-    fn sorted_of(&mut self, reverse: bool, ok: bool, chunk: &SSAChunk) -> Result<(), VmErr> {
-        let o = self.pop()?;
-        let items = self.extract_iter(o)?;
-        let mut items = if ok { match self.merge_job(items, reverse, Val::undef()) { Ok(()) => return Ok(()), Err(items) => items } } else { items };
-        self.sort_by_lt(&mut items, reverse, chunk)?;
-        self.alloc_and_push_list(items)
-    }
 
     /* Whether the generator on top of the stack, or the one the instance there gives, runs as a frame of the loop, gathered into the list `sorted` sorts. */
     #[cold]
@@ -378,146 +237,23 @@ impl<'a> VM<'a> {
         Ok(order.into_iter().map(|i| items[i]).collect())
     }
 
-    /* Root the operands (comparators can run GC-triggering user code), sort `keys` the way Python does through `sort_lt`, and return the index permutation. `extra_roots` keeps caller-only values (e.g. the items in a keyed sort) alive across comparisons. The first comparison error ends the sort. */
-    pub(crate) fn sorted_order(&mut self, keys: &[Val], extra_roots: &[Val], reverse: bool, chunk: &SSAChunk) -> Result<Vec<usize>, VmErr> {
-        if let Some(order) = plain_order(keys, reverse, &self.heap) { return Ok(order); }
-        let roots_base = self.temp_roots.len();
-        // Only an instance key runs user code that could collect.
-        if self.any_instance(keys) { self.temp_roots.extend(keys.iter().chain(extra_roots).copied()); }
-        // A descending sort reverses, sorts ascending and reverses back, so equal keys keep their order.
-        let mut order: Vec<usize> = if reverse { (0..keys.len()).rev().collect() } else { (0..keys.len()).collect() };
-        let sorted = crate::vm::timsort::sort(&mut order, &mut |x, y| self.sort_lt(keys[x], keys[y], chunk));
-        if reverse { order.reverse(); }
-        let sort_err = sorted.err();
-        self.temp_roots.truncate(roots_base);
-        if let Some(e) = sort_err { return Err(e); }
-        Ok(order)
-    }
 
-    /* True when a comparison over `vals` can reach a user dunder. */
-    pub(crate) fn any_instance(&self, vals: &[Val]) -> bool {
-        vals.iter().any(|&v| matches!(self.heap.try_get(v), Some(HeapObj::Instance(..))))
-    }
 
-    // a < b via __lt__ when either side defines it, else the built-in comparison.
-    #[inline]
-    pub(crate) fn sort_lt(&mut self, a: Val, b: Val, chunk: &SSAChunk) -> Result<bool, VmErr> {
-        if let Some(r) = self.try_compare_dunder(OpCode::Lt, a, b, chunk)? {
-            return Ok(self.truthy(r));
-        }
-        self.values_lt(a, b, chunk)
-    }
 
-    /* In-place sort dispatching `__lt__`, roots items since a comparison can run user code that GCs. */
-    pub(crate) fn sort_by_lt(&mut self, items: &mut [Val], reverse: bool, chunk: &SSAChunk) -> Result<(), VmErr> {
-        let snapshot = items.to_vec();
-        let order = self.sorted_order(&snapshot, &[], reverse, chunk)?;
-        for (dst, &src) in order.iter().enumerate() { items[dst] = snapshot[src]; }
-        Ok(())
-    }
 
-    /* `reversed(seq)`, a list read live from its end, a range stepped backwards, other sequences read up front. */
-    #[inline(never)]
-    pub fn call_reversed(&mut self) -> Result<(), VmErr> {
-        let o = self.pop()?;
-        let name = match self.heap.try_get(o) {
-            Some(HeapObj::List(rc)) => {
-                let (rc, idx) = (rc.clone(), rc.borrow().len());
-                return self.push_iterator(IterFrame::ListRev { rc, idx }, "list_reverseiterator");
-            }
-            Some(&HeapObj::Range(start, end, step)) => {
-                let n = crate::vm::eq::range_len(start, end, step);
-                let (last, stop) = ((start as i128) + (n - 1) * step as i128, start as i128 - step as i128);
-                // A range whose backward bounds leave i64 reads its items up front.
-                if let (true, Some(back), Ok(cur), Ok(end)) = (n > 0, step.checked_neg(), i64::try_from(last), i64::try_from(stop)) {
-                    return self.push_iterator(IterFrame::Range { cur, end, step: back }, "range_iterator");
-                }
-                "range_iterator"
-            }
-            Some(HeapObj::BigRange(..)) => {
-                let (cur, end, step) = crate::frontend::int::range_reversed(&mut self.heap, o).unwrap_or(Err(VmErr::Overflow))?;
-                return self.push_iterator(IterFrame::BigRange { cur, end, step }, "range_iterator");
-            }
-            Some(HeapObj::Str(_) | HeapObj::Tuple(_) | HeapObj::Bytes(_) | HeapObj::ByteArray(_)) => "reversed",
-            Some(HeapObj::Dict(_) | HeapObj::FrozenDict(_) | HeapObj::DictView(_, View::Keys)) => "dict_reversekeyiterator",
-            Some(HeapObj::DictView(_, View::Values)) => "dict_reversevalueiterator",
-            Some(HeapObj::DictView(_, View::Items)) => "dict_reverseitemiterator",
-            _ => return Err(VmErr::TypeMsg(s!("'", str self.type_name(o), "' object is not reversible"))),
-        };
-        let mut items = self.extract_iter(o)?;
-        items.reverse();
-        let frame = self.watched(o, items);
-        self.push_iterator(frame, name)
-    }
 
-    pub fn call_enumerate(&mut self, op: u16, chunk: &SSAChunk) -> Result<(), VmErr> {
-        let (positional, kw_flat) = self.parse_call_args(op)?;
-        if positional.is_empty() || positional.len() > 2 {
-            return Err(cold_type("enumerate() takes 1 or 2 positional arguments"));
-        }
-        // `start` is positional (`enumerate(xs, 5)`) or keyword (`enumerate(xs, start=5)`), default 0.
-        let mut start = if positional.len() == 2 { positional[1] } else { Val::int(0) };
-        for pair in kw_flat.as_chunks::<2>().0 {
-            match self.kw_name(pair[0]) {
-                Some("start") => start = pair[1],
-                _ => return Err(cold_type("enumerate() got an unexpected keyword argument")),
-            }
-        }
-        if self.as_i128(start).is_none() { return Err(cold_type("enumerate() start must be an integer")); }
-        let it = self.with_roots([positional[0], start], |vm| vm.iter_of(positional[0], chunk))?;
-        self.push_iterator(IterFrame::Enumerate { it, n: start }, "enumerate")
-    }
 
-    /* Pairs the items of N iterables into tuples as they are asked for, stopping at the shortest. */
-    pub fn call_zip(&mut self, op: u16, chunk: &SSAChunk) -> Result<(), VmErr> {
-        // `strict=` is the one keyword, its pair above the iterables.
-        let (pos, kw) = ((op & 0xFF) as usize, (op >> 8) as usize);
-        let mut strict = false;
-        for pair in self.pop_n(2 * kw)?.chunks(2) {
-            if self.kw_name(pair[0]) != Some("strict") {
-                return Err(VmErr::TypeMsg(s!("zip() got an unexpected keyword argument '", str self.kw_name(pair[0]).unwrap_or(""), "'")));
-            }
-            strict = self.truthy(pair[1]);
-        }
-        let at = self.stack.len().checked_sub(pos).ok_or_else(|| cold_runtime("stack underflow"))?;
-        self.iters_in_place(at, chunk)?;
-        let its = self.pop_n(pos)?;
-        self.push_iterator(IterFrame::Zip { its: its.into(), strict }, "zip")
-    }
 
-    /* The error of a strict zip whose argument `k` ran out, or ran on, against those before it. */
-    #[cold]
-    fn zip_uneven(k: usize, longer: bool) -> VmErr {
-        let before = if k == 1 { alloc::string::String::from("argument 1") } else { s!("arguments 1-", int k as i64) };
-        let (n, how) = (k as i64 + 1, if longer { " is longer than " } else { " is shorter than " });
-        cold_value_s(s!("zip() argument ", int n, str how, str &before))
-    }
 
-    // TypeError for a non-iterable operand.
-    pub(crate) fn not_iterable(&self, o: Val) -> VmErr {
-        VmErr::TypeMsg(s!("'", str self.type_name(o), "' object is not iterable"))
-    }
-
-    /* Steps `o` lazily when a range or list, so `all`, `any` and `sum` stop early. */
-    pub(in crate::vm) fn iter_cursor(&mut self, o: Val) -> Result<IterFrame, VmErr> {
-        Ok(match self.heap.try_get(o) {
-            Some(&HeapObj::Range(cur, end, step)) => IterFrame::Range { cur, end, step },
-            Some(&HeapObj::BigRange(cur, end, step)) => IterFrame::BigRange { cur, end, step },
-            Some(HeapObj::List(rc)) => IterFrame::List { rc: rc.clone(), idx: 0 },
-            _ => IterFrame::Seq { items: self.extract_iter(o)?.into(), idx: 0 },
-        })
-    }
 
     /* Vec<Val> from any iterable (dict yields keys, str yields one-char strs, bytes yields ints, a generator runs to its end). */
-    pub(crate) fn extract_iter(&mut self, o: Val) -> Result<Vec<Val>, VmErr> {
-        if !o.is_heap() {
-            return Err(self.not_iterable(o));
-        }
+    // Items of iterators, generators and TypeVarTuples and none for a builtin container.
+    pub(crate) fn vm_items(&mut self, o: Val) -> Result<Option<Vec<Val>>, VmErr> {
         // `*Ts` of a TypeVarTuple unpacks to the one `typing.Unpack[Ts]` it stands for.
         if matches!(self.heap.get(o), HeapObj::TypeVar(n) if n.starts_with('*') && !n.starts_with("**")) {
             let origin = self.heap.alloc(HeapObj::Type("typing.Unpack".into()))?;
             let args = self.with_roots([origin], |vm| vm.heap.alloc(HeapObj::Tuple(alloc::vec![o])))?;
-            return Ok(alloc::vec![self.with_roots([origin, args], |vm| vm.heap.alloc(HeapObj::GenericAlias(origin, args)))?]);
+            return Ok(Some(alloc::vec![self.with_roots([origin, args], |vm| vm.heap.alloc(HeapObj::GenericAlias(origin, args)))?]));
         }
         // An iterator yields what it has left, its items rooted on the stack as steps run user code.
         if matches!(self.heap.get(o), HeapObj::Iter(..)) {
@@ -530,7 +266,7 @@ impl<'a> VM<'a> {
             }
             let out = self.stack.split_off(base);
             self.pop()?;
-            return Ok(out);
+            return Ok(Some(out));
         }
         if matches!(self.heap.get(o), HeapObj::Coroutine(..)) {
             if self.is_async_object(o) { return Err(self.not_iterable(o)); }
@@ -546,65 +282,9 @@ impl<'a> VM<'a> {
             }
             let out = self.stack.split_off(base.min(self.stack.len()));
             self.pop()?;
-            return Ok(out);
+            return Ok(Some(out));
         }
-        if let HeapObj::DictView(d, kind) = *self.heap.get(o) {
-            let items = self.view_items(d, kind)?;
-            self.charge_steps(items.len())?;
-            return Ok(items);
-        }
-        // A wide range steps its cursor, the count it would hold checked against the memory left.
-        if let Some(&HeapObj::BigRange(cur, end, step)) = self.heap.try_get(o) {
-            let n = crate::frontend::int::range_len(&self.heap, o).unwrap_or(Ok(0))?;
-            if (n as u128).saturating_mul(VAL_BYTES as u128) > self.heap.room() as u128 { return Err(cold_heap()); }
-            let (mut walk, mut out) = (IterFrame::BigRange { cur, end, step }, Vec::new());
-            while let Some(x) = walk.next_item(&mut self.heap)? { out.push(x); }
-            self.charge_steps(out.len())?;
-            return Ok(out);
-        }
-        // Snapshot the variant out so the &self borrow ends before any allocation.
-        let snapshot = match self.heap.get(o) {
-            HeapObj::List(v) => Some(v.borrow().clone()),
-            HeapObj::Tuple(v) => Some(v.clone()),
-            HeapObj::Set(v) => Some(v.borrow().iter().cloned().collect()),
-            HeapObj::FrozenSet(v) => Some(v.iter().cloned().collect()),
-            HeapObj::Range(s, e, st) => {
-                let (mut cur, end, step) = (*s, *e, *st);
-                // Materialised length is user-controlled, cap it against the memory left.
-                let span = (end as i128 - cur as i128).unsigned_abs();
-                let count = if step == 0 { 0 } else { span / (step as i128).unsigned_abs() };
-                if count.saturating_mul(VAL_BYTES as u128) > self.heap.room() as u128 { return Err(cold_heap()); }
-                let mut out = Vec::new();
-                if step > 0 {
-                    while cur < end {
-                        out.push(self.heap.int(cur as i128)?);
-                        match cur.checked_add(step) { Some(n) => cur = n, None => break }
-                    }
-                } else {
-                    while cur > end {
-                        out.push(self.heap.int(cur as i128)?);
-                        match cur.checked_add(step) { Some(n) => cur = n, None => break }
-                    }
-                }
-                Some(out)
-            }
-            HeapObj::Dict(d) | HeapObj::FrozenDict(d) => Some(d.borrow().keys().collect()),
-            HeapObj::Bytes(b) | HeapObj::ByteArray(b) => Some(b.iter().map(|&x| Val::int(x as i64)).collect()),
-            HeapObj::MemoryView(_) => Some(self.heap.octets(o).unwrap_or_default().iter().map(|&x| Val::int(x as i64)).collect()),
-            HeapObj::Str(_) => None, // handled below, needs heap allocation
-            _ => return Err(self.not_iterable(o)),
-        };
-        if let Some(v) = snapshot {
-            // Cost scales with element count, charge it so repeated materialisation stays bounded.
-            self.charge_steps(v.len())?;
-            return Ok(v);
-        }
-        // Str path materialises one-char heap strings via the existing helper.
-        if let HeapObj::Str(s) = self.heap.get(o) {
-            let s = s.clone();
-            return self.str_to_char_vals(&s);
-        }
-        unreachable!()
+        Ok(None)
     }
 
     /* `iter(x)`, and `iter(f, sentinel)` calling `f` as each item is asked for. */
@@ -712,44 +392,10 @@ impl<'a> VM<'a> {
             && self.heap.classed(o).is_none()
     }
 
-    /* Short-circuit truthiness scan shared by `all`/`any`, stopping at the first item whose truth is `find` and pushing it, `!find` once spent. */
-    fn scan_truthy(&mut self, op: u16, find: bool, arity_err: &'static str, chunk: &SSAChunk) -> Result<(), VmErr> {
-        let ok = core::mem::take(&mut self.job_ok);
-        if op != 1 { return Err(cold_type(arity_err)); }
-        let o = self.pop()?;
-        self.fold_run(o, if find { crate::vm::jobs::Takes::Any } else { crate::vm::jobs::Takes::Every }, &[], ok, chunk)
-    }
 
-    pub fn call_all(&mut self, op: u16, chunk: &SSAChunk) -> Result<(), VmErr> { self.scan_truthy(op, false, "all() takes exactly 1 argument", chunk) }
 
-    pub fn call_any(&mut self, op: u16, chunk: &SSAChunk) -> Result<(), VmErr> { self.scan_truthy(op, true, "any() takes exactly 1 argument", chunk) }
 
-    // Materialise an iterable to a list, strings -> chars, ranges eager, coroutines drained.
-    pub fn call_list(&mut self, argc: u16, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
-        let ok = core::mem::take(&mut self.job_ok);
-        if argc == 0 { return self.alloc_and_push_list(Vec::new()); } // `list()` is the empty list.
-        let o = self.pop()?;
-        // A generator, or a user iterator's `__next__`, called where a frame may open runs as a frame of the loop, its items gathered as they come.
-        if ok && self.may_job(o) && self.items_job(o, crate::vm::jobs::Takes::All(OpCode::CallList, 1), chunk)? { return Ok(()); }
-        // user-defined iterable wins over the built-in dispatch.
-        if let Some(items) = self.iter_to_vec_op(o, chunk)? {
-            return self.alloc_and_push_list(items);
-        }
-        let items = self.extract_iter(o)?;
-        self.alloc_and_push_list(items)
-    }
 
-    pub fn call_tuple(&mut self, argc: u16, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
-        let ok = core::mem::take(&mut self.job_ok);
-        if argc == 0 { return self.alloc_and_push_tuple(Vec::new()); } // `tuple()` is the empty tuple.
-        let o = self.pop()?;
-        if ok && self.may_job(o) && self.items_job(o, crate::vm::jobs::Takes::All(OpCode::CallTuple, 1), chunk)? { return Ok(()); }
-        if let Some(items) = self.iter_to_vec_op(o, chunk)? {
-            return self.alloc_and_push_tuple(items);
-        }
-        let items = self.extract_iter(o)?;
-        self.alloc_and_push_tuple(items)
-    }
 
 }
 
@@ -786,7 +432,7 @@ fn plain_cmp(a: Val, b: Val, heap: &HeapPool) -> core::cmp::Ordering {
 }
 
 /* Stable order of keys compared without user code, None for dunders or mixes. */
-fn plain_order(keys: &[Val], reverse: bool, heap: &HeapPool) -> Option<Vec<usize>> {
+pub(crate) fn plain_order(keys: &[Val], reverse: bool, heap: &HeapPool) -> Option<Vec<usize>> {
     let first = plain_kind(*keys.first()?, heap, 0)?;
     // Mixed kinds raise or need the full protocol, which the general path gives.
     for &k in &keys[1..] { if plain_kind(k, heap, 0)? != first { return None; } }

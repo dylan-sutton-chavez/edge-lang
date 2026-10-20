@@ -82,22 +82,7 @@ impl<'a> VM<'a> {
         self.call_super(2)
     }
 
-    pub fn call_repr(&mut self, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
-        let ok = core::mem::take(&mut self.job_ok);
-        let o = self.pop()?;
-        // A container of instances whose `__repr__` runs as frames of the loop writes there, as an instance's own does.
-        if ok && o.is_heap() && self.render_job(o, false, chunk)? { return Ok(()); }
-        if ok && self.is_instance(o) && self.check_job(o, crate::vm::jobs::Check::Str(true)) { return Ok(()); }
-        let s = self.repr_op(o, chunk)?;
-        self.alloc_and_push_str(s)
-    }
 
-    /* `ascii(x)`, the repr of `x` with every non-ASCII character escaped. */
-    pub fn call_ascii(&mut self, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
-        let o = self.pop()?;
-        let s = self.repr_op(o, chunk)?;
-        self.alloc_and_push_str(crate::vm::format_spec::ascii_escape(&s))
-    }
 
     /* `sentinel(name, *, repr=None)`, a new object equal only to itself. */
     pub fn call_sentinel(&mut self, op: u16) -> Result<(), VmErr> {
@@ -120,20 +105,7 @@ impl<'a> VM<'a> {
         Ok(())
     }
 
-    pub fn call_callable(&mut self) -> Result<(), VmErr> {
-        let o = self.pop()?;
-        let result = self.is_callable(o);
-        self.push(Val::bool(result));
-        Ok(())
-    }
 
-    /* Whether `o` can be called, an instance or a value a class made only when its class defines `__call__`. */
-    pub(crate) fn is_callable(&self, o: Val) -> bool {
-        if let Some(cls) = self.instance_class(o) { return self.lookup_class_member(cls, "__call__").is_some(); }
-        matches!(self.heap.try_get(o), Some(HeapObj::Func(..) | HeapObj::BoundMethod(..) | HeapObj::Type(_) | HeapObj::NativeFn(_)
-            | HeapObj::Class(..) | HeapObj::BoundUserMethod(..) | HeapObj::Extern(_) | HeapObj::PropertyPart(..)
-            | HeapObj::StaticMethod(_) | HeapObj::GenericAlias(..)))
-    }
 
     /* Type-name based isinstance check. Accepts Type / NativeFn (builtin types) / user Class on the right, allows int<->bool aliasing and walks user inheritance via `is_subclass`. */
     pub fn call_isinstance(&mut self) -> Result<(), VmErr> {

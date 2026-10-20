@@ -39,6 +39,9 @@ pub(super) const fn pack_call(pos: u16, kw: u16) -> u16 {
     ((kw & 0xFF) << 8) | (pos & 0xFF)
 }
 
+// Positional and keyword counts of a call operand without its flags.
+pub const fn unpack_call(operand: u16) -> (u16, u16) { (operand & 0xFF, (operand >> 8) & 0x3F) }
+
 // Operand of a binary op written as `op=`, so the VM asks `__iop__` first.
 pub const INPLACE: u16 = 1;
 

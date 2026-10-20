@@ -1,7 +1,7 @@
 #![allow(clippy::missing_safety_doc)] // safety contract in docs/03-reference/06-abi.mdx, per-fn sections would duplicate it
 
 use crate::abi::{classify_decode, classify_encode, DecodeBits, EncodeRequest, ErrorKind, ErrorStash, HandleTable, Op, PrimitiveBytes, TAG_INVALID};
-use crate::vm::types::{DictMap, HeapObj, Val, VmErr};
+use crate::vm::types::{DictMap, HeapObj, Host, Val, VmErr};
 use crate::vm::methods::lookup_method;
 use crate::vm::VM;
 use alloc::{rc::Rc, string::{String, ToString}, vec::Vec};
@@ -202,7 +202,7 @@ fn host_op(op: u32, recv: u32, name: &str, args: &[Val]) -> Result<Val, VmErr> {
         Some(Op::NewDict) => in_vm("edge_op new_dict called outside run()", |vm| vm.heap.alloc(HeapObj::Dict(Rc::new(RefCell::new(DictMap::new()))))),
         Some(Op::NewList) => in_vm("edge_op new_list called outside run()", |vm| vm.heap.alloc(HeapObj::List(Rc::new(RefCell::new(Vec::new()))))),
         Some(Op::TypeOf) => dispatch_type_of(recv),
-        Some(Op::NewTuple) => in_vm("edge_op new_tuple called outside run()", |vm| vm.tuple_from_items(args.to_vec())),
+        Some(Op::NewTuple) => in_vm("edge_op new_tuple called outside run()", |vm| vm.heap.alloc(HeapObj::Tuple(args.to_vec()))),
         Some(Op::NewSet) => in_vm("edge_op new_set called outside run()", |vm| vm.set_from_items(args.to_vec())),
         Some(Op::NewFrozenSet) => in_vm("edge_op new_frozenset called outside run()", |vm| vm.frozenset_from_items(args.to_vec())),
         // A system call names its plugin call in `recv`, the id `edge_call_id` gave it.

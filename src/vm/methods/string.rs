@@ -3,19 +3,20 @@ use crate::s;
 use crate::util::uni;
 
 use core::iter;
+use crate::vm::natives::Builtins;
 
 // `str.encode([encoding])`, UTF-8/ASCII only, other names error to block silent mismatches.
-pub fn encode(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
+pub fn encode<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
     let (encoding, errors) = codec_args(vm, pos)?;
     let out = crate::vm::codecs::encode(recv_str_ref(vm, recv)?, encoding, errors)?;
-    let v = vm.heap.alloc(HeapObj::Bytes(out))?;
+    let v = vm.heap_mut().alloc(HeapObj::Bytes(out))?;
     vm.push(v); Ok(())
 }
 
 /* The encoding and error handler a call names, UTF-8 and strict where it names none. */
-pub(crate) fn codec_args<'v>(vm: &'v VM, pos: &[Val]) -> Result<(&'v str, &'v str), VmErr> {
+pub(crate) fn codec_args<'v, H: Host>(vm: &'v H, pos: &[Val]) -> Result<(&'v str, &'v str), VmErr> {
     let arg = |i: usize, dflt: &'static str, what: &str| match pos.get(i) {
-        Some(&v) if !v.is_none() => match vm.heap.try_get(v) {
+        Some(&v) if !v.is_none() => match vm.heap().try_get(v) {
             Some(HeapObj::Str(s)) => Ok(s.as_str()),
             _ => Err(VmErr::TypeMsg(crate::s!(str what, "() argument must be str, not ", str vm.type_name(v)))),
         },
@@ -27,7 +28,7 @@ pub(crate) fn codec_args<'v>(vm: &'v VM, pos: &[Val]) -> Result<(&'v str, &'v st
 // str zero-arg transforms, the receiver read in place and the result pushed.
 macro_rules! str_transform {
     ($name:ident, $f:expr) => {
-        pub fn $name(vm: &mut VM, recv: Val, _pos: &[Val]) -> Result<(), VmErr> {
+        pub fn $name<H: Host>(vm: &mut H, recv: Val, _pos: &[Val]) -> Result<(), VmErr> {
             let out = $f(recv_str_ref(vm, recv)?);
             vm.alloc_and_push_str(out)
         }
@@ -40,27 +41,27 @@ str_transform!(title, title_case);
 
 // str.strip / lstrip / rstrip trim whitespace, or any char in the optional arg.
 enum Trim { Both, Start, End }
-fn strip_impl(vm: &mut VM, recv: Val, pos: &[Val], mode: Trim) -> Result<(), VmErr> {
+fn strip_impl<H: Host>(vm: &mut H, recv: Val, pos: &[Val], mode: Trim) -> Result<(), VmErr> {
     let s = recv_str_ref(vm, recv)?;
     let out = if pos.is_empty() {
         match mode { Trim::Both => s.trim_matches(uni::is_space), Trim::Start => s.trim_start_matches(uni::is_space), Trim::End => s.trim_end_matches(uni::is_space) }.to_string()
     } else {
         let name = match mode { Trim::Both => "strip", Trim::Start => "lstrip", Trim::End => "rstrip" };
-        let Some(HeapObj::Str(p)) = vm.heap.try_get(pos[0]) else { return Err(VmErr::TypeMsg(s!(str name, " arg must be None or str"))) };
+        let Some(HeapObj::Str(p)) = vm.heap().try_get(pos[0]) else { return Err(VmErr::TypeMsg(s!(str name, " arg must be None or str"))) };
         let p = p.clone();
         let f = |c: char| p.contains(c);
         match mode { Trim::Both => s.trim_matches(f), Trim::Start => s.trim_start_matches(f), Trim::End => s.trim_end_matches(f) }.to_string()
     };
     vm.alloc_and_push_str(out)
 }
-pub fn strip(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { strip_impl(vm, recv, pos, Trim::Both) }
-pub fn lstrip(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { strip_impl(vm, recv, pos, Trim::Start) }
-pub fn rstrip(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { strip_impl(vm, recv, pos, Trim::End) }
+pub fn strip<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> { strip_impl(vm, recv, pos, Trim::Both) }
+pub fn lstrip<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> { strip_impl(vm, recv, pos, Trim::Start) }
+pub fn rstrip<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> { strip_impl(vm, recv, pos, Trim::End) }
 
 // str predicates, class tests need a non-empty string and case tests a cased char.
 macro_rules! str_pred {
     ($name:ident, $f:expr) => {
-        pub fn $name(vm: &mut VM, recv: Val, _pos: &[Val]) -> Result<(), VmErr> {
+        pub fn $name<H: Host>(vm: &mut H, recv: Val, _pos: &[Val]) -> Result<(), VmErr> {
             let hit = $f(recv_str_ref(vm, recv)?);
             vm.push(Val::bool(hit));
             Ok(())
@@ -95,8 +96,8 @@ fn title_cased(s: &str) -> bool {
 }
 
 // Collect the affix argument as one or more strings (str, or a tuple of str).
-fn affixes(vm: &VM, v: Val, end: bool) -> Result<Vec<String>, VmErr> {
-    if let Some(HeapObj::Tuple(items)) = vm.heap.try_get(v) {
+fn affixes<H: Host>(vm: &H, v: Val, end: bool) -> Result<Vec<String>, VmErr> {
+    if let Some(HeapObj::Tuple(items)) = vm.heap().try_get(v) {
         let items = items.clone();
         let mut out = Vec::with_capacity(items.len());
         let what = if end { "tuple for endswith must only contain str" } else { "tuple for startswith must only contain str" };
@@ -108,20 +109,21 @@ fn affixes(vm: &VM, v: Val, end: bool) -> Result<Vec<String>, VmErr> {
 }
 
 // `str.startswith`/`endswith(affix[, start[, stop]])`, the optional window restricts where the affix must sit.
-fn affix_impl(vm: &mut VM, recv: Val, pos: &[Val], end: bool) -> Result<(), VmErr> {
+fn affix_impl<H: Host>(vm: &mut H, recv: Val, pos: &[Val], end: bool) -> Result<(), VmErr> {
     let affixes = affixes(vm, pos[0], end)?;
-    let ascii = vm.heap.str_is_ascii(recv);
+    let ascii = vm.heap_mut().str_is_ascii(recv);
     let s = recv_str_ref(vm, recv)?;
-    let hit = window(s, ascii, pos, 1).is_some_and(|(lo, hi)| affixes.iter().any(|p| if end { s[lo..hi].ends_with(p.as_str()) } else { s[lo..hi].starts_with(p.as_str()) }));
+    let hit = window(s, ascii, pos, 1, vm.heap()).is_some_and(|(lo, hi)| affixes.iter().any(|p| if end { s[lo..hi].ends_with(p.as_str()) } else { s[lo..hi].starts_with(p.as_str()) }));
     vm.push(Val::bool(hit));
     Ok(())
 }
-pub fn startswith(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { affix_impl(vm, recv, pos, false) }
-pub fn endswith(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { affix_impl(vm, recv, pos, true) }
+pub fn startswith<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> { affix_impl(vm, recv, pos, false) }
+pub fn endswith<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> { affix_impl(vm, recv, pos, true) }
 
 // Byte bounds of the optional char-index `start`/`stop` window (pos[from], pos[from + 1]), None when start lies past the end or past stop.
-fn window(s: &str, ascii: bool, pos: &[Val], from: usize) -> Option<(usize, usize)> {
-    let arg = |k: usize| pos.get(k).filter(|v| v.is_int()).map(|v| v.as_int());
+fn window(s: &str, ascii: bool, pos: &[Val], from: usize, heap: &crate::value::HeapPool) -> Option<(usize, usize)> {
+    // A bound past i64 clips to the inline extreme, past either end of any text.
+    let arg = |k: usize| pos.get(k).map(|&v| crate::frontend::int::clip_index(heap, v)).filter(|v| v.is_int()).map(|v| v.as_int());
     let len = s.len() as i64;
     // ASCII has one char per byte, other text walks chars from the end the index counts from, None past the end.
     let byte = |i: i64| -> Option<usize> {
@@ -134,7 +136,7 @@ fn window(s: &str, ascii: bool, pos: &[Val], from: usize) -> Option<(usize, usiz
     (lo <= hi).then_some((lo, hi))
 }
 
-fn find_impl(vm: &mut VM, recv: Val, pos: &[Val], last: bool, raise: bool) -> Result<(), VmErr> {
+fn find_impl<H: Host>(vm: &mut H, recv: Val, pos: &[Val], last: bool, raise: bool) -> Result<(), VmErr> {
     let what = match (last, raise) {
         (false, false) => "find() argument 1 must be str",
         (true, false) => "rfind() argument 1 must be str",
@@ -142,9 +144,9 @@ fn find_impl(vm: &mut VM, recv: Val, pos: &[Val], last: bool, raise: bool) -> Re
         (true, true) => "rindex() argument 1 must be str",
     };
     let sub = val_to_str(vm, pos[0], what)?;
-    let ascii = vm.heap.str_is_ascii(recv);
+    let ascii = vm.heap_mut().str_is_ascii(recv);
     let s = recv_str_ref(vm, recv)?;
-    let idx = window(s, ascii, pos, 1).and_then(|(lo, hi)| {
+    let idx = window(s, ascii, pos, 1, vm.heap()).and_then(|(lo, hi)| {
         let hay = &s[lo..hi];
         // One character searches as a char, which finds it a byte scan at a time.
         let mut one = sub.chars();
@@ -160,16 +162,16 @@ fn find_impl(vm: &mut VM, recv: Val, pos: &[Val], last: bool, raise: bool) -> Re
     vm.push(Val::int(idx));
     Ok(())
 }
-pub fn find(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { find_impl(vm, recv, pos, false, false) }
-pub fn rfind(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { find_impl(vm, recv, pos, true, false) }
-pub fn index(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { find_impl(vm, recv, pos, false, true) }
-pub fn rindex(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { find_impl(vm, recv, pos, true, true) }
+pub fn find<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> { find_impl(vm, recv, pos, false, false) }
+pub fn rfind<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> { find_impl(vm, recv, pos, true, false) }
+pub fn index<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> { find_impl(vm, recv, pos, false, true) }
+pub fn rindex<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> { find_impl(vm, recv, pos, true, true) }
 
-pub fn count(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
+pub fn count<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
     let sub = val_to_str(vm, pos[0], "count() argument 1 must be str")?;
-    let ascii = vm.heap.str_is_ascii(recv);
+    let ascii = vm.heap_mut().str_is_ascii(recv);
     let s = recv_str_ref(vm, recv)?;
-    let c = window(s, ascii, pos, 1).map_or(0, |(lo, hi)| {
+    let c = window(s, ascii, pos, 1, vm.heap()).map_or(0, |(lo, hi)| {
         let hay = &s[lo..hi];
         // One ASCII byte counts as a plain byte scan, which the compiler vectorizes.
         match sub.as_bytes() {
@@ -201,7 +203,7 @@ fn split_ws_max(s: &str, m: usize, rev: bool) -> Vec<String> {
 }
 
 // `str.split`/`rsplit([sep[, maxsplit]])`, `from_right` counts from the right and reverses sep-mode results.
-fn split_impl(vm: &mut VM, recv: Val, pos: &[Val], from_right: bool) -> Result<(), VmErr> {
+fn split_impl<H: Host>(vm: &mut H, recv: Val, pos: &[Val], from_right: bool) -> Result<(), VmErr> {
     let s = recv_str_ref(vm, recv)?;
     // Optional second arg is maxsplit (<0 means unlimited).
     let maxsplit: Option<usize> = match pos.get(1) {
@@ -224,32 +226,32 @@ fn split_impl(vm: &mut VM, recv: Val, pos: &[Val], from_right: bool) -> Result<(
             None => s.split(sep.as_str()).map(String::from).collect(),
         }
     };
-    let parts: Vec<Val> = strs.into_iter().map(|p| vm.heap.alloc(HeapObj::Str(p))).collect::<Result<_, _>>()?;
+    let parts: Vec<Val> = strs.into_iter().map(|p| vm.heap_mut().alloc(HeapObj::Str(p))).collect::<Result<_, _>>()?;
     vm.alloc_and_push_list(parts)
 }
 
-pub fn split(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { split_impl(vm, recv, pos, false) }
+pub fn split<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> { split_impl(vm, recv, pos, false) }
 
-pub fn join(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
+pub fn join<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
     let items = vm.extract_iter(pos[0]).map_err(|e| if matches!(e, VmErr::TypeMsg(_)) { cold_type("can only join an iterable") } else { e })?;
     let sep = recv_str_ref(vm, recv)?;
     // The joined length is known before any copy, so a text past the memory limit fails first.
     let mut total = sep.len().saturating_mul(items.len().saturating_sub(1));
     for (i, &v) in items.iter().enumerate() {
-        let Some(HeapObj::Str(s)) = vm.heap.try_get(v) else { return Err(VmErr::TypeMsg(crate::s!("sequence item ", int i as i64, ": expected str instance, ", str vm.type_name(v), " found"))) };
+        let Some(HeapObj::Str(s)) = vm.heap().try_get(v) else { return Err(VmErr::TypeMsg(crate::s!("sequence item ", int i as i64, ": expected str instance, ", str vm.type_name(v), " found"))) };
         total = total.saturating_add(s.len());
     }
-    vm.heap.reserve(total)?;
-    vm.heap.spend(total);
+    vm.heap().reserve(total)?;
+    vm.heap().spend(total);
     let mut out = String::with_capacity(total);
     for (i, &v) in items.iter().enumerate() {
         if i > 0 { out.push_str(sep); }
-        if let Some(HeapObj::Str(s)) = vm.heap.try_get(v) { out.push_str(s); }
+        if let Some(HeapObj::Str(s)) = vm.heap().try_get(v) { out.push_str(s); }
     }
     vm.alloc_and_push_str(out)
 }
 
-pub fn replace(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
+pub fn replace<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
     let s = recv_str_ref(vm, recv)?;
     let old = val_to_str(vm, pos[0], "replace() argument 1 must be str")?;
     let new = val_to_str(vm, pos[1], "replace() argument 2 must be str")?;
@@ -257,7 +259,7 @@ pub fn replace(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
     if new.len() > old.len() {
         let hits = if old.is_empty() { s.chars().count() + 1 } else { s.matches(old.as_str()).count() };
         let hits = match pos.get(2) { Some(n) if n.is_int() && n.as_int() >= 0 => hits.min(n.as_int() as usize), _ => hits };
-        vm.heap.reserve(s.len().saturating_add(hits.saturating_mul(new.len() - old.len())))?;
+        vm.heap().reserve(s.len().saturating_add(hits.saturating_mul(new.len() - old.len())))?;
     }
     // Optional third arg is max replacements (<0 means all).
     let out = match pos.get(2) {
@@ -269,7 +271,7 @@ pub fn replace(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
 }
 
 // `str.rsplit([sep[, maxsplit]])`, like split but counts from the right.
-pub fn rsplit(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { split_impl(vm, recv, pos, true) }
+pub fn rsplit<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> { split_impl(vm, recv, pos, true) }
 
 // `str.format(*args)` fills `{[idx][!r|!s|!a][:spec]}` fields, a spec may hold fields one level deep, keyword fields are not supported.
 /* Where named fields come from, the keywords of `format` or the mapping of `format_map`. */
@@ -444,11 +446,11 @@ fn expand_fields(vm: &mut VM, tmpl: &str, pos: &[Val], names: Names, numbering: 
     Ok(out)
 }
 
-str_transform!(casefold, |s: &str| s.to_lowercase());
+str_transform!(casefold, |s: &str| { let mut out = String::with_capacity(s.len()); s.chars().for_each(|c| crate::util::uni::push_fold(&mut out, c)); out });
 str_transform!(swapcase, |s: &str| s.chars().map(|c| if c.is_uppercase() { c.to_lowercase().to_string() } else if c.is_lowercase() { c.to_uppercase().to_string() } else { c.to_string() }).collect::<String>());
 
 /* Parse a pad-method `(width[, fill])` arg pair, `width_err` names the method for the width TypeError. */
-fn width_and_fill(vm: &mut VM, pos: &[Val]) -> Result<(usize, char), VmErr> {
+fn width_and_fill<H: Host>(vm: &mut H, pos: &[Val]) -> Result<(usize, char), VmErr> {
     let width = width_arg(vm, pos[0])?;
     let fill = if pos.len() > 1 {
         let f = val_to_str(vm, pos[1], "The fill character must be a unicode character")?;
@@ -459,7 +461,7 @@ fn width_and_fill(vm: &mut VM, pos: &[Val]) -> Result<(usize, char), VmErr> {
 }
 
 // `str.ljust`/`rjust`/`center(width[, fill])` pad to width in code points, an odd centre pad leans left on an odd width.
-fn justify(vm: &mut VM, recv: Val, pos: &[Val], align: u8) -> Result<(), VmErr> {
+fn justify<H: Host>(vm: &mut H, recv: Val, pos: &[Val], align: u8) -> Result<(), VmErr> {
     let (width, fill) = width_and_fill(vm, pos)?;
     let s = recv_str_ref(vm, recv)?;
     let pad = width.saturating_sub(s.chars().count());
@@ -467,30 +469,30 @@ fn justify(vm: &mut VM, recv: Val, pos: &[Val], align: u8) -> Result<(), VmErr> 
     let out: String = iter::repeat_n(fill, left).chain(s.chars()).chain(iter::repeat_n(fill, pad - left)).collect();
     vm.alloc_and_push_str(out)
 }
-pub fn ljust(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { justify(vm, recv, pos, b'<') }
-pub fn rjust(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { justify(vm, recv, pos, b'>') }
-pub fn center(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { justify(vm, recv, pos, b'^') }
+pub fn ljust<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> { justify(vm, recv, pos, b'<') }
+pub fn rjust<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> { justify(vm, recv, pos, b'>') }
+pub fn center<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> { justify(vm, recv, pos, b'^') }
 
-pub fn expandtabs(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
+pub fn expandtabs<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
     let ts = tab_size(vm, pos)?;
-    let out: String = expand_tabs(recv_str_ref(vm, recv)?.chars(), ['\t', '\n', '\r', ' '], ts, vm.heap.room())?.into_iter().collect();
+    let out: String = expand_tabs(recv_str_ref(vm, recv)?.chars(), ['\t', '\n', '\r', ' '], ts, vm.heap().room())?.into_iter().collect();
     vm.alloc_and_push_str(out)
 }
 
 // `str.removeprefix` / `removesuffix`, strip if present, else return unchanged.
-pub fn removeprefix(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
+pub fn removeprefix<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
     let p = val_to_str(vm, pos[0], "removeprefix() argument must be str")?;
     // A string without the prefix is its own result.
     match recv_str_ref(vm, recv)?.strip_prefix(p.as_str()).map(String::from) { Some(out) => vm.alloc_and_push_str(out), None => { vm.push(recv); Ok(()) } }
 }
 
-pub fn removesuffix(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
+pub fn removesuffix<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
     let suf = val_to_str(vm, pos[0], "removesuffix() argument must be str")?;
     match recv_str_ref(vm, recv)?.strip_suffix(suf.as_str()).map(String::from) { Some(out) => vm.alloc_and_push_str(out), None => { vm.push(recv); Ok(()) } }
 }
 
 // `str.splitlines(keepends=False)`, split on \n / \r / \r\n and the other line breaks, each kept on its line when `keepends` holds.
-pub fn splitlines(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
+pub fn splitlines<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
     // line boundaries \n \r \r\n \v \f \x1c \x1d \x1e \x85.
     const BREAKS: &[char] = &['\n', '\r', '\u{0b}', '\u{0c}', '\u{1c}', '\u{1d}', '\u{1e}', '\u{85}', '\u{2028}', '\u{2029}'];
     let keep = pos.first().is_some_and(|&k| vm.truthy(k));
@@ -511,31 +513,31 @@ pub fn splitlines(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
         }
     }
     if !cur.is_empty() { lines.push(cur); }
-    let parts = lines.into_iter().map(|l| vm.heap.alloc(HeapObj::Str(l))).collect::<Result<Vec<_>, _>>()?;
+    let parts = lines.into_iter().map(|l| vm.heap_mut().alloc(HeapObj::Str(l))).collect::<Result<Vec<_>, _>>()?;
     vm.alloc_and_push_list(parts)
 }
 
 // `str.partition` / `rpartition`, (head, sep, tail), on miss returns (s,"","") / ("","",s).
-fn partition_impl(vm: &mut VM, recv: Val, pos: &[Val], from_right: bool) -> Result<(), VmErr> {
+fn partition_impl<H: Host>(vm: &mut H, recv: Val, pos: &[Val], from_right: bool) -> Result<(), VmErr> {
     let sep = val_to_str(vm, pos[0], "must be str")?;
     if sep.is_empty() { return Err(cold_value("empty separator")); }
     let s = recv_str_ref(vm, recv)?;
     let hit = if from_right { s.rfind(sep.as_str()) } else { s.find(sep.as_str()) };
     let pieces = hit.map(|i| (s[..i].to_string(), s[i + sep.len()..].to_string()));
-    let empty = |vm: &mut VM| vm.heap.alloc(HeapObj::Str(String::new()));
+    let empty = |vm: &mut H| vm.heap_mut().alloc(HeapObj::Str(String::new()));
     let (av, bv, cv) = match pieces {
-        Some((a, c)) => (vm.heap.alloc(HeapObj::Str(a))?, vm.heap.alloc(HeapObj::Str(sep))?, vm.heap.alloc(HeapObj::Str(c))?),
+        Some((a, c)) => (vm.heap_mut().alloc(HeapObj::Str(a))?, vm.heap_mut().alloc(HeapObj::Str(sep))?, vm.heap_mut().alloc(HeapObj::Str(c))?),
         // A miss keeps the original string whole on its side.
         None if from_right => (empty(vm)?, empty(vm)?, recv),
         None => (recv, empty(vm)?, empty(vm)?),
     };
     vm.alloc_and_push_tuple(vec![av, bv, cv])
 }
-pub fn partition(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { partition_impl(vm, recv, pos, false) }
-pub fn rpartition(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { partition_impl(vm, recv, pos, true) }
+pub fn partition<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> { partition_impl(vm, recv, pos, false) }
+pub fn rpartition<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> { partition_impl(vm, recv, pos, true) }
 
 // str padding.
-pub fn zfill(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
+pub fn zfill<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
     let width = width_arg(vm, pos[0])?;
     let s = recv_str_ref(vm, recv)?;
     let nchars = s.chars().count();
@@ -546,29 +548,29 @@ pub fn zfill(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
 }
 
 // `str.maketrans`, the code point table `translate` takes, from a dict or from strings of what maps to what.
-pub fn maketrans(vm: &mut VM, _recv: Val, pos: &[Val]) -> Result<(), VmErr> {
+pub fn maketrans<H: Host>(vm: &mut H, _recv: Val, pos: &[Val]) -> Result<(), VmErr> {
     let mut table = DictMap::new();
     if pos.len() == 1 {
-        let Some(HeapObj::Dict(d)) = vm.heap.try_get(pos[0]) else { return Err(cold_type("if you give only one argument to maketrans it must be a dict")) };
+        let Some(HeapObj::Dict(d)) = vm.heap().try_get(pos[0]) else { return Err(cold_type("if you give only one argument to maketrans it must be a dict")) };
         let entries: Vec<(Val, Val)> = d.borrow().iter().collect();
         for (k, v) in entries {
-            let key = match vm.heap.try_get(k) {
+            let key = match vm.heap().try_get(k) {
                 Some(HeapObj::Str(t)) => match single(t) { Some(c) => Val::int(c as i64), None => return Err(cold_value("string keys in translatetable must be of length 1")) },
                 _ if k.is_int() => k,
                 _ => return Err(cold_type("keys in translate table mustbe strings or integers")),
             };
-            table.insert(key, v, &vm.heap);
+            table.insert(key, v, vm.heap());
         }
         return vm.alloc_and_push_dict(table);
     }
-    let (Some(HeapObj::Str(from)), Some(HeapObj::Str(to))) = (vm.heap.try_get(pos[0]), vm.heap.try_get(pos[1])) else {
+    let (Some(HeapObj::Str(from)), Some(HeapObj::Str(to))) = (vm.heap().try_get(pos[0]), vm.heap().try_get(pos[1])) else {
         return Err(cold_type("first maketrans argument must be a string if there is a second argument"));
     };
     if from.chars().count() != to.chars().count() { return Err(cold_value("the first two maketrans arguments must have equal length")); }
     let pairs: Vec<(char, char)> = from.chars().zip(to.chars()).collect();
     let gone = match pos.get(2) { Some(&z) => val_to_str(vm, z, "maketrans() argument 3 must be str")?, None => String::new() };
-    for (a, b) in pairs { table.insert(Val::int(a as i64), Val::int(b as i64), &vm.heap); }
-    for c in gone.chars() { table.insert(Val::int(c as i64), Val::none(), &vm.heap); }
+    for (a, b) in pairs { table.insert(Val::int(a as i64), Val::int(b as i64), vm.heap()); }
+    for c in gone.chars() { table.insert(Val::int(c as i64), Val::none(), vm.heap()); }
     vm.alloc_and_push_dict(table)
 }
 

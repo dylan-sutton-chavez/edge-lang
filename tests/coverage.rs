@@ -1,8 +1,8 @@
 #[cfg(feature = "coverage")]
 mod test {
     use compiler::lexer::lex;
-    use compiler::parser::{ImportKind, OpCode, Parser, SSAChunk, Value};
-    use compiler::vm::VM;
+    use compiler::code::{ImportKind, OpCode, Parser, SSAChunk, Value};
+    use compiler::embed::VM;
 
     use crate::common::TestResolver;
 

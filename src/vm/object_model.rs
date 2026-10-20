@@ -6,6 +6,7 @@ use super::opcodes::attr_lookup::AttrLookup;
 use crate::parser::SSAChunk;
 use crate::s;
 use alloc::string::String;
+use crate::vm::natives::Builtins;
 
 impl<'a> VM<'a> {
     /* `property 'x' of 'A' object has no setter`, a store or delete the property has no function for. */

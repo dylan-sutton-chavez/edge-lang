@@ -8,8 +8,8 @@ use compiler::modules::{
     NativeBinding, Resolved, Resolver, partition_bindings,
     Manifest, walk_up_dirs, dir_of, join_relative,
 };
-use compiler::vm::types::{HeapObj, HeapPool, Limits, Val, VmErr};
-use compiler::vm::VM;
+use compiler::value::{HeapObj, HeapPool, Limits, Val, VmErr};
+use compiler::embed::VM;
 
 /* Answers deferred call `id` with text, as the wasm host does through `set_host_result_by_id`. */
 pub fn answer(vm: &mut VM, id: u64, text: &str) -> bool {

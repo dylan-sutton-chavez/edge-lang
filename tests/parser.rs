@@ -2,7 +2,7 @@
 mod test {
 
     use compiler::lexer::lex;
-    use compiler::parser::{Parser, Value, Diagnostic};
+    use compiler::code::{Parser, Value, Diagnostic};
 
     #[derive(serde::Deserialize)]
     #[serde(deny_unknown_fields)]
