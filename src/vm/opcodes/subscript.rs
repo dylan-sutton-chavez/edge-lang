@@ -52,7 +52,7 @@ pub(crate) fn slice_bounds(start: Val, stop: Val, step: Val, len: i64) -> Result
 
 impl<'a> VM<'a> {
 
-    pub fn get_item(&mut self, ip: usize, chunk: &crate::parser::SSAChunk, cache: &crate::vm::cache::OpcodeCache) -> Result<(), VmErr> {
+    pub(crate) fn get_item(&mut self, ip: usize, chunk: &crate::parser::SSAChunk, cache: &crate::vm::cache::OpcodeCache, rerun: crate::vm::redo::Rerun) -> Result<(), VmErr> {
         // An in-range int index on a list or tuple needs no dunder or coercion.
         let n = self.stack.len();
         if n >= 2 && self.stack[n - 1].is_int() && self.stack[n - 2].is_heap() {
@@ -66,9 +66,21 @@ impl<'a> VM<'a> {
         }
         let idx = self.pop()?;
         let obj = self.pop()?;
+        // A user object indexed or indexing, or a class by its `__class_getitem__`, runs its dunders as frames of the loop, the op run again after each.
+        let user = self.heap.users && self.instance_class(obj).is_some();
+        let armed = (user || self.heap.user(obj) || self.heap.user(idx) || self.user_keys(&[idx])) && self.redo_late(ip, rerun, self.stack.len() + 2, &[obj, idx]);
+        // Before the program makes a class only a classed builtin could answer, which the full lookup finds.
+        let dunder = if user || !self.heap.users { self.try_call_dunder(obj, "__getitem__", &[idx], chunk) } else { Ok(None) };
+        let r = self.get_item_of(obj, idx, dunder, ip, chunk, cache);
+        self.redo_done(armed);
+        r
+    }
 
+    /* `obj[idx]` past the plain list and tuple indexes, `dunder` what an instance's `__getitem__` gave. */
+    #[inline(always)]
+    fn get_item_of(&mut self, obj: Val, idx: Val, dunder: Result<Option<Val>, VmErr>, ip: usize, chunk: &crate::parser::SSAChunk, cache: &crate::vm::cache::OpcodeCache) -> Result<(), VmErr> {
         // instance `__getitem__` runs before built-in indexing, and slices pass through as a single Slice arg.
-        if let Some(r) = self.try_call_dunder(obj, "__getitem__", &[idx], chunk)? {
+        if let Some(r) = dunder? {
             // Record monomorphic hit so the next iteration skips the class lookup.
             self.record_dunder_hit(ip, cache, obj, "__getitem__", 2);
             self.push(r);

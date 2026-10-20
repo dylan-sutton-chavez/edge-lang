@@ -11,11 +11,14 @@ use super::types::*;
 const MOST: usize = 750;
 const LONGEST: usize = 40;
 
+/* The names and slots of the locals of a body, as a missed name measures them. */
+pub(crate) type Locals = alloc::rc::Rc<[(String, usize)]>;
+
 /* What an error that may still go uncaught missed, for the hint its traceback adds. */
 #[derive(Clone)]
 pub(crate) enum Missed {
-    // A name not in scope, with the locals its frame bound and its module, kept while the frame was alive.
-    Name(String, Vec<String>, usize),
+    // A name not in scope, with the locals of its body, those its frame bound while it was alive, and its module.
+    Name(String, Locals, Vec<bool>, usize),
     // An attribute the object lacks, the hint found only if the error is rendered.
     Attr(Val, String),
 }
@@ -64,13 +67,18 @@ impl<'a> VM<'a> {
     #[cold]
     pub(crate) fn note_missing_name(&mut self, name: &str, chunk: &crate::parser::SSAChunk) {
         if matches!(&self.missed, Some(Missed::Name(n, ..)) if n == name) { return; }
-        let locals = self.frame_locals(chunk).into_iter().map(|(n, _)| n).collect();
-        self.missed = Some(Missed::Name(name.into(), locals, self.chunk_module_id(chunk)));
+        let key = (chunk as *const crate::parser::SSAChunk as usize, chunk.names.len());
+        let names = match self.local_names.get(&key) {
+            Some(n) => n.clone(),
+            None => { let n: Locals = self.local_slots(chunk).into(); self.local_names.insert(key, n.clone()); n }
+        };
+        let bound = names.iter().map(|&(_, slot)| self.regs.get(self.base + slot).is_some_and(|&v| !self.deref(v).is_undef())).collect();
+        self.missed = Some(Missed::Name(name.into(), names, bound, self.chunk_module_id(chunk)));
     }
 
     /* `Did you mean: 'x'?` for a missing name, among the locals of its frame, its module and the builtins. */
-    fn name_hint(&self, name: &str, locals: &[String], module: usize) -> Option<String> {
-        let mut names: Vec<&str> = locals.iter().map(String::as_str).collect();
+    fn name_hint(&self, name: &str, locals: &[(String, usize)], bound: &[bool], module: usize) -> Option<String> {
+        let mut names: Vec<&str> = locals.iter().zip(bound).filter(|(_, b)| **b).map(|((n, _), _)| n.as_str()).collect();
         names.extend(self.scopes[module].iter().map(|(n, _)| n).filter(|n| !n.starts_with('#')));
         names.extend(self.builtins.keys().copied());
         names.extend(super::NativeFnId::ALL.iter().map(|id| id.name()));
@@ -125,7 +133,7 @@ impl<'a> VM<'a> {
     /* The hint the error `e` renders with, when it is the error the last miss was noted for. */
     pub(crate) fn hint_for(&self, e: &VmErr) -> Option<String> {
         match (self.missed.as_ref()?, e) {
-            (Missed::Name(n, locals, module), VmErr::Name(m)) if n == m => self.name_hint(n, locals, *module),
+            (Missed::Name(n, locals, bound, module), VmErr::Name(m)) if n == m => self.name_hint(n, locals, bound, *module),
             (Missed::Attr(obj, name), VmErr::Attribute(msg)) if msg.ends_with(&s!("'", str name, "'")) => {
                 if let Some(h) = crossed(self.type_name(*obj), name) { return Some(h); }
                 // An underscored name is measured against underscored ones only when it starts with one itself.

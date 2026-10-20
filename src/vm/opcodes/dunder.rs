@@ -22,6 +22,23 @@ pub(crate) fn binary_dunder_names(op: OpCode) -> Option<(&'static str, &'static 
     })
 }
 
+/* The (forward, reflected) dunders of register op `op`, its in-place forms as the binary ones, `__getitem__` reflecting to none. */
+pub(crate) fn op_names(op: OpCode) -> Option<(&'static str, &'static str)> {
+    match op {
+        OpCode::MinusR => return Some(("__neg__", "__neg__")),
+        OpCode::InR | OpCode::NotInR => return Some(("__contains__", "__contains__")),
+        OpCode::StoreItemR => return Some(("__setitem__", "__setitem__")),
+        OpCode::ForIterR => return Some(("__next__", "__next__")),
+        _ => {}
+    }
+    match crate::vm::lower::stack_form(op) {
+        OpCode::InPlaceAdd => binary_dunder_names(OpCode::Add),
+        OpCode::InPlaceSub => binary_dunder_names(OpCode::Sub),
+        OpCode::GetItem => Some(("__getitem__", "__getitem__")),
+        f => binary_dunder_names(f).or_else(|| compare_dunder_names(f)),
+    }
+}
+
 /* The in-place dunder `a op= b` asks before the binary pair. */
 pub(crate) fn inplace_dunder_name(op: OpCode) -> Option<&'static str> {
     Some(match op {
@@ -47,16 +64,40 @@ pub(crate) fn compare_dunder_names(op: OpCode) -> Option<(&'static str, &'static
     })
 }
 
+/* Whether the dunder a site learned for instances of `class` runs for `a op b` as is, `a` one of them and `b` of no strict subclass. */
+#[inline(always)]
+pub(crate) fn dunder_holds(heap: &HeapPool, class: Val, a: Val, b: Val) -> bool {
+    let of_class = |v: Val| matches!(heap.try_get(v), Some(&HeapObj::Instance(c, _)) if c.0 == class.0);
+    of_class(a) && (b.0 == a.0 || !b.is_heap() || of_class(b) || !instance_class(heap, b).is_some_and(|bc| heap.is_subclass(bc, class)))
+}
+
+/* Class of an Instance or of a dict or list a user class made, `None` for built-in operands. */
+#[inline]
+pub(crate) fn class_of(heap: &HeapPool, v: Val) -> Option<Val> { instance_class(heap, v) }
+
+#[inline]
+fn instance_class(heap: &HeapPool, v: Val) -> Option<Val> {
+    if !v.is_heap() { return None; }
+    match heap.get(v) { HeapObj::Instance(c, _) => Some(*c), _ => heap.classed(v).map(|e| e.0) }
+}
+
 impl<'a> VM<'a> {
     /* `recv.<name>(*args)` probes the instance method and invokes it with `self` prepended. `Some(v)` on return, `None` on miss / `NotImplemented` (triggers reflected/fallback dispatch), `Err` only on a raised dunder. */
     pub(crate) fn try_call_dunder(&mut self, recv: Val, name: &str, args: &[Val], chunk: &SSAChunk) -> Result<Option<Val>, VmErr> {
         // Built-in types route through their native handlers, and dunder dispatch only fires on user instances.
         let Some(cls_val) = self.instance_class(recv).filter(|_| recv.0 != self.plain_recv.0) else { return Ok(None); };
+        // An op run again takes what the dunder gave before.
+        if let Some(r) = self.redo_dunder(recv, name) { let r = r?; return Ok((!self.heap.is_not_implemented(r)).then_some(r)); }
 
         // Special methods resolve on the type's MRO, bypassing the instance __dict__, like Python.
         let Some((func, class)) = self.lookup_class_member(cls_val, name) else { return Ok(None); };
         // Only plain functions bind as methods, so data attributes never dispatch implicitly.
         if !(func.is_heap() && matches!(self.heap.get(func), HeapObj::Func(..))) { return Ok(None); }
+        // A builtin's handler a job runs again takes what this dunder gave, or stops at it for the job to run it.
+        if self.redo.on && let Some(r) = self.conv_dunder(recv, name, args) { let r = r?; return Ok((!self.heap.is_not_implemented(r)).then_some(r)); }
+        // The dunder the register loop just ran declined, so the protocol goes on past it.
+        if self.declined.0 == func.0 { self.declined = Val::undef(); self.passed_over(func)?; return Ok(None); }
+        if self.declined_also.0 == func.0 { self.declined_also = Val::undef(); self.passed_over(func)?; return Ok(None); }
 
         // Mirror `__init__` dispatch, depth guard before pushing so a recursive blow-up leaves no half-built frame.
         if self.depth >= self.max_calls { return Err(cold_depth()); }
@@ -66,24 +107,82 @@ impl<'a> VM<'a> {
         self.push(recv);
         for &a in args { self.push(a); }
         let argc = (1 + args.len()) as u16;
-        self.exec_call(argc, chunk)?;
+        // A call an op's handler hands to the loop keeps which dunder it was.
+        if self.redo.on { self.exec_hinted(recv, name, argc, chunk)?; } else { self.exec_call(argc, chunk)?; }
 
         let result = self.pop()?;
         if self.heap.is_not_implemented(result) { return Ok(None); }
         Ok(Some(result))
     }
 
-    /* Class of an Instance or of a dict or list a user class made, `None` for built-in operands. */
-    #[inline]
-    pub(crate) fn instance_class(&self, v: Val) -> Option<Val> {
-        if !v.is_heap() { return None; }
-        match self.heap.get(v) { HeapObj::Instance(c, _) => Some(*c), _ => self.heap.classed(v).map(|e| e.0) }
+    /* The call of dunder `name` of `recv` an op's handler hands to the loop, which keeps which dunder it was. */
+    #[inline(never)]
+    fn exec_hinted(&mut self, recv: Val, name: &str, argc: u16, chunk: &SSAChunk) -> Result<(), VmErr> {
+        self.redo_hint(recv, name);
+        let called = self.exec_call(argc, chunk);
+        self.redo.set_hint(None);
+        called
     }
 
+    /* A dunder whose frame declined, passed over when an op handing its calls to the loop runs again, as a call that gave NotImplemented. */
+    #[cold]
+    fn passed_over(&mut self, func: Val) -> Result<(), VmErr> {
+        if self.redo.on || self.redo.lazy && self.redo_wake() { let ni = self.builtin_value("NotImplemented")?; self.redo_declined(func, ni); }
+        Ok(())
+    }
+
+    /* The dunder an instance of `class` runs for register op `op`, or its reflected one for `reflected`, as the op's protocol finds it. */
+    pub(crate) fn op_dunder(&self, op: crate::vm::lower::Ins, class: Val, mode: u16, chunk: &SSAChunk) -> Option<Val> {
+        let reflected = matches!(mode, 1 | 6 | 7);
+        // A load or store runs the property its class finds by name or its `__getattr__` for one it lacks, `str` its `__str__` or its `__repr__`.
+        if matches!(op.op, OpCode::GetAttrR | OpCode::SetAttrR) {
+            let name = crate::parser::ssa_strip(chunk.names.get(op.c as usize)?);
+            if mode == 5 { return self.getattr_of(class, name).map(|(f, _)| f); }
+            return self.property_of(class, name, op.op == OpCode::SetAttrR).map(|(f, _)| f);
+        }
+        // A length runs the class's `__len__`, a truth test its `__bool__` or else its `__len__`.
+        if matches!(op.op, OpCode::LenR | OpCode::JumpIfFalseR | OpCode::NotR | OpCode::CallBool) {
+            let name = if op.op != OpCode::LenR && self.lookup_class_member(class, "__bool__").is_some() { "__bool__" } else { "__len__" };
+            let (f, _) = self.lookup_class_member(class, name)?;
+            return matches!(self.heap.try_get(f), Some(HeapObj::Func(..))).then_some(f);
+        }
+        if op.op == OpCode::GetIter {
+            let (f, _) = self.lookup_class_member(class, "__iter__")?;
+            return matches!(self.heap.try_get(f), Some(HeapObj::Func(..))).then_some(f);
+        }
+        if matches!(op.op, OpCode::CallStr | OpCode::CallRepr) {
+            let name = if op.op == OpCode::CallStr && self.lookup_class_member(class, "__str__").is_some() { "__str__" } else { "__repr__" };
+            let (f, _) = self.lookup_class_member(class, name)?;
+            return matches!(self.heap.try_get(f), Some(HeapObj::Func(..))).then_some(f);
+        }
+        // A `!=` of a class with no `__ne__` runs its `__eq__`.
+        if op.op == OpCode::NotEqR && self.lookup_class_member(class, "__ne__").is_none() {
+            let (f, _) = self.lookup_class_member(class, "__eq__")?;
+            return matches!(self.heap.try_get(f), Some(HeapObj::Func(..))).then_some(f);
+        }
+        let (l, r) = op_names(op.op)?;
+        let form = crate::vm::lower::stack_form(op.op);
+        let inplace = matches!(form, OpCode::InPlaceAdd | OpCode::InPlaceSub) || op.x as u16 == crate::parser::INPLACE;
+        let base = match form { OpCode::InPlaceAdd => OpCode::Add, OpCode::InPlaceSub => OpCode::Sub, f => f };
+        let name = if reflected { r } else { inplace_dunder_name(base).filter(|n| inplace && self.lookup_class_member(class, n).is_some()).unwrap_or(l) };
+        let (f, _) = self.lookup_class_member(class, name)?;
+        matches!(self.heap.try_get(f), Some(HeapObj::Func(..))).then_some(f)
+    }
+
+    /* `dunder_holds` off the VM's heap. */
+    #[inline(always)]
+    pub(crate) fn dunder_holds(&self, class: Val, a: Val, b: Val) -> bool { dunder_holds(&self.heap, class, a, b) }
+
+    /* Class of an Instance or of a dict or list a user class made, `None` for built-in operands. */
+    #[inline]
+    pub(crate) fn instance_class(&self, v: Val) -> Option<Val> { instance_class(&self.heap, v) }
+
     /* Ordered forward/reflected dunder dispatch, reflected (`b.rname(a)`) runs first when `type(b)` strictly subclasses `type(a)` so overrides win. Returns the first non-None result. */
-    fn dispatch_reflected(&mut self, a: Val, b: Val, lname: &str, rname: &str, chunk: &SSAChunk) -> Result<Option<Val>, VmErr> {
+    fn dispatch_reflected(&mut self, a: Val, b: Val, lname: &str, rname: &str, arith: bool, chunk: &SSAChunk) -> Result<Option<Val>, VmErr> {
+        // Arithmetic tries the subclass's reflected dunder first only where it answers it its own way, a comparison always.
         let b_overrides = match (self.instance_class(a), self.instance_class(b)) {
-            (Some(ac), Some(bc)) => ac.0 != bc.0 && self.heap.is_subclass(bc, ac),
+            (Some(ac), Some(bc)) => ac.0 != bc.0 && self.heap.is_subclass(bc, ac)
+                && (!arith || self.lookup_class_member(bc, rname).map(|m| m.0.0) != self.lookup_class_member(ac, rname).map(|m| m.0.0)),
             _ => false,
         };
         let calls: [(Val, &str, Val); 2] = if b_overrides {
@@ -91,7 +190,9 @@ impl<'a> VM<'a> {
         } else {
             [(a, lname, b), (b, rname, a)]
         };
-        for (recv, name, arg) in calls {
+        // An arithmetic op on two instances of one class tries no reflected dunder, as CPython's does.
+        let same = arith && self.instance_class(a).is_some_and(|ac| self.instance_class(b).is_some_and(|bc| bc.0 == ac.0));
+        for (recv, name, arg) in calls.into_iter().take(if same { 1 } else { 2 }) {
             if let Some(r) = self.try_call_dunder(recv, name, &[arg], chunk)? { return Ok(Some(r)); }
         }
         Ok(None)
@@ -107,7 +208,7 @@ impl<'a> VM<'a> {
                 return Ok(Some(r));
             }
             let Some((lname, rname)) = binary_dunder_names(op) else { return Ok(None); };
-            vm.dispatch_reflected(a, b, lname, rname, chunk)
+            vm.dispatch_reflected(a, b, lname, rname, true, chunk)
         })
     }
 
@@ -126,12 +227,13 @@ impl<'a> VM<'a> {
 
     /* The comparison dunder of an instance operand, kept out of line so builtin compares stay inlined. */
     #[inline(never)]
-    fn compare_dunder(&mut self, op: OpCode, a: Val, b: Val, chunk: &SSAChunk) -> Result<Option<Val>, VmErr> {
+    pub(crate) fn compare_dunder(&mut self, op: OpCode, a: Val, b: Val, chunk: &SSAChunk) -> Result<Option<Val>, VmErr> {
         let Some((lname, rname)) = compare_dunder_names(op) else { return Ok(None); };
 
-        let Some(r) = self.with_roots([a, b], |vm| vm.dispatch_reflected(a, b, lname, rname, chunk))? else {
-            // `!=` falls back to negated `__eq__` when `__ne__` is absent.
-            if matches!(op, OpCode::NotEq)
+        let Some(r) = self.with_roots([a, b], |vm| vm.dispatch_reflected(a, b, lname, rname, false, chunk))? else {
+            // `!=` falls back to the negated `__eq__` when neither side defines `__ne__`, as `object.__ne__` does.
+            let defines_ne = |v: Val| self.instance_class(v).is_some_and(|c| self.lookup_class_member(c, "__ne__").is_some());
+            if matches!(op, OpCode::NotEq) && !defines_ne(a) && !defines_ne(b) && { self.redo_then(crate::vm::redo::Then::Not); true }
                 && let Some(eq) = self.try_compare_dunder(OpCode::Eq, a, b, chunk)? {
                 return Ok(Some(Val::bool(!self.truthy(eq))));
             }
@@ -149,7 +251,7 @@ impl<'a> VM<'a> {
         }
         if let Some(r) = self.try_call_dunder(v, "__bool__", &[], chunk)? {
             if !matches!(r, x if x.is_bool()) {
-                return Err(cold_type("__bool__ should return bool"));
+                return Err(VmErr::TypeMsg(crate::s!("__bool__ should return bool, returned ", str self.type_name(r))));
             }
             return Ok(r.as_bool());
         }
@@ -161,6 +263,7 @@ impl<'a> VM<'a> {
 
     /* Steps an iterator once, None once spent or when the value has no `__next__`. */
     /* What a swallowed StopIteration carries, the pending exception set back to `before` the step raised it. */
+    #[inline(never)]
     pub(crate) fn swallow_stop(&mut self, before: Option<Val>) -> Val {
         let raised = core::mem::replace(&mut self.pending.exc_val, before).filter(|e| before.is_none_or(|b| b.0 != e.0));
         match raised.and_then(|e| self.heap.try_get(e)) { Some(HeapObj::ExcInstance(_, args, _)) => args.first().copied().unwrap_or(Val::none()), _ => Val::none() }
@@ -218,7 +321,14 @@ impl<'a> VM<'a> {
             if !matches!(self.heap.try_get(iter), Some(HeapObj::Instance(..))) {
                 return self.with_roots([item, iter], |vm| vm.contains_op(iter, item, chunk));
             }
-            return self.with_roots([container, item, iter], |vm| loop {
+            return self.iter_contains(container, iter, item, chunk);
+        }
+        self.contains_rest(container, item, chunk)
+    }
+
+    /* `in` over the user iterator `iter` stepped through `__next__` until a match */
+    pub(crate) fn iter_contains(&mut self, container: Val, iter: Val, item: Val, chunk: &SSAChunk) -> Result<bool, VmErr> {
+        self.with_roots([container, item, iter], |vm| loop {
                 vm.charge_step()?;
                 let before = vm.pending.exc_val;
                 match vm.iter_next_proto(iter, chunk) {
@@ -230,9 +340,11 @@ impl<'a> VM<'a> {
                     Err(VmErr::Raised(ref m)) if m == "StopIteration" || m.starts_with("StopIteration:") => { vm.swallow_stop(before); return Ok(false) }
                     Err(e) => return Err(e),
                 }
-            });
-        }
+            })
+    }
 
+    /* `contains_op` of an iterator or a generator or anything else */
+    fn contains_rest(&mut self, container: Val, item: Val, chunk: &SSAChunk) -> Result<bool, VmErr> {
         // An iterator steps until a match, leaving the rest unconsumed.
         if matches!(self.heap.try_get(container), Some(HeapObj::Iter(..))) {
             return self.with_roots([container, item, Val::none()], |vm| loop {
@@ -245,7 +357,7 @@ impl<'a> VM<'a> {
         if matches!(self.heap.try_get(container), Some(HeapObj::Coroutine(..))) {
             return self.with_roots([container, item, Val::none()], |vm| loop {
                 vm.charge_step()?;
-                let v = vm.resume_coroutine(container)?;
+                let v = vm.step_coroutine(container)?;
                 if !vm.yielded { return Ok(false); }
                 vm.yielded = false;
                 if let Some(slot) = vm.temp_roots.last_mut() { *slot = v; }
@@ -297,8 +409,13 @@ impl<'a> VM<'a> {
     pub(crate) fn iter_to_vec_op(&mut self, obj: Val, chunk: &SSAChunk) -> Result<Option<Vec<Val>>, VmErr> {
         if self.instance_class(obj).is_none() { return Ok(None); }
         let Some(iter) = self.try_call_dunder(obj, "__iter__", &[], chunk)? else { return Ok(None); };
-        // A builtin iterator or generator drains as itself, a user iterator steps `__next__`.
-        if !matches!(self.heap.try_get(iter), Some(HeapObj::Instance(..))) { return self.extract_iter(iter).map(Some); }
+        self.iter_items_op(obj, iter, chunk).map(Some)
+    }
+
+    /* The items of `iter`, what `__iter__` of `obj` gave, a builtin iterator or generator draining as itself, a user iterator stepping `__next__`. */
+    #[inline(never)]
+    pub(crate) fn iter_items_op(&mut self, obj: Val, iter: Val, chunk: &SSAChunk) -> Result<Vec<Val>, VmErr> {
+        if !matches!(self.heap.try_get(iter), Some(HeapObj::Instance(..))) { return self.extract_iter(iter); }
         // Each `__next__` can run a collection, so the iterator and what it yielded stay rooted.
         self.with_roots([obj, iter], |vm| {
             let mut out = Vec::new();
@@ -309,8 +426,8 @@ impl<'a> VM<'a> {
                     // Inline ints take no slot, so the list they fill is capped by the memory left.
                     Ok(Some(_)) if out.len().saturating_mul(VAL_BYTES) >= vm.heap.room() => return Err(crate::vm::cold_heap()),
                     Ok(Some(v)) => { vm.temp_roots.push(v); out.push(v); }
-                    Ok(None) => return Ok(Some(out)),
-                    Err(VmErr::Raised(ref m)) if m == "StopIteration" || m.starts_with("StopIteration:") => { vm.swallow_stop(before); return Ok(Some(out)) }
+                    Ok(None) => return Ok(out),
+                    Err(VmErr::Raised(ref m)) if m == "StopIteration" || m.starts_with("StopIteration:") => { vm.swallow_stop(before); return Ok(out) }
                     Err(e) => return Err(e),
                 }
             }
@@ -381,89 +498,10 @@ impl<'a> VM<'a> {
             });
         }
         if seen.len() > crate::vm::value_ops::RENDER_DEPTH_MAX { return Ok("...".into()); }
-        seen.push(id);
-        let body = self.repr_container_body(v, chunk, seen);
-        seen.pop();
-        body
+        self.render_now(v, chunk, seen)
     }
 
-    /* Builds the bracketed body for a container `v` (caller has pushed `v` to `seen`). */
-    fn repr_container_body(&mut self, v: Val, chunk: &SSAChunk, seen: &mut Vec<u32>) -> Result<String, VmErr> {
-        // Clone element handles first so a dunder call (which may GC/mutate) can't dangle a borrow.
-        match self.heap.get(v) {
-            HeapObj::List(rc) => {
-                let items = rc.borrow().clone();
-                let mut out = String::from("[");
-                self.join_reprs(&mut out, &items, chunk, seen)?;
-                out.push(']');
-                Ok(out)
-            }
-            HeapObj::Tuple(t) => {
-                let items = t.clone();
-                let mut out = String::from("(");
-                if items.len() == 1 {
-                    let r = self.repr_deep(items[0], chunk, seen)?;
-                    out.push_str(&r);
-                    out.push(',');
-                } else {
-                    self.join_reprs(&mut out, &items, chunk, seen)?;
-                }
-                out.push(')');
-                Ok(out)
-            }
-            HeapObj::Set(s) => {
-                let items: Vec<Val> = s.borrow().iter().copied().collect();
-                if items.is_empty() { return Ok("set()".into()); }
-                let mut out = String::from("{");
-                self.join_reprs(&mut out, &items, chunk, seen)?;
-                out.push('}');
-                Ok(out)
-            }
-            HeapObj::FrozenSet(s) => {
-                let items: Vec<Val> = s.iter().copied().collect();
-                if items.is_empty() { return Ok("frozenset()".into()); }
-                let mut out = String::from("frozenset({");
-                self.join_reprs(&mut out, &items, chunk, seen)?;
-                out.push_str("})");
-                Ok(out)
-            }
-            HeapObj::FrozenDict(d) if d.borrow().is_empty() => Ok("frozendict()".into()),
-            HeapObj::Dict(d) | HeapObj::FrozenDict(d) => {
-                let frozen = matches!(self.heap.get(v), HeapObj::FrozenDict(_));
-                let entries: Vec<(Val, Val)> = d.borrow().iter().collect();
-                let mut out = String::from(if frozen { "frozendict({" } else { "{" });
-                for (i, (k, val)) in entries.iter().enumerate() {
-                    if i > 0 {
-                        // The output cap bounds breadth the way the depth cap bounds nesting.
-                        if out.len() > crate::vm::value_ops::MAX_REPR_LEN { out.push_str(", ..."); break; }
-                        out.push_str(", ");
-                    }
-                    let kr = self.repr_deep(*k, chunk, seen)?;
-                    out.push_str(&kr);
-                    out.push_str(": ");
-                    let vr = self.repr_deep(*val, chunk, seen)?;
-                    out.push_str(&vr);
-                }
-                out.push_str(if frozen { "})" } else { "}" });
-                Ok(out)
-            }
-            _ => Ok(self.repr(v)),
-        }
-    }
-
-    fn join_reprs(&mut self, out: &mut String, items: &[Val], chunk: &SSAChunk, seen: &mut Vec<u32>) -> Result<(), VmErr> {
-        for (i, e) in items.iter().enumerate() {
-            if i > 0 {
-                if out.len() > crate::vm::value_ops::MAX_REPR_LEN { out.push_str(", ..."); break; }
-                out.push_str(", ");
-            }
-            let r = self.repr_deep(*e, chunk, seen)?;
-            out.push_str(&r);
-        }
-        Ok(())
-    }
-
-    fn require_str(&self, v: Val, name: &str) -> Result<String, VmErr> {
+    pub(crate) fn require_str(&self, v: Val, name: &str) -> Result<String, VmErr> {
         if v.is_heap() && let HeapObj::Str(s) = self.heap.get(v) { return Ok(s.clone()); }
         Err(VmErr::TypeMsg(crate::s!("'", str name, "' did not return a string")))
     }
@@ -473,6 +511,7 @@ impl<'a> VM<'a> {
         if self.instance_class(v).is_some() {
             let spec_val = self.heap.alloc(HeapObj::Str(spec.to_string()))?;
             if let Some(r) = self.try_call_dunder(v, "__format__", &[spec_val], chunk)? {
+                if !matches!(self.heap.try_get(r), Some(HeapObj::Str(_))) { return Err(VmErr::TypeMsg(crate::s!("__format__ must return a str, not ", str self.type_name(r)))); }
                 return self.require_str(r, "__format__");
             }
         }
@@ -488,7 +527,7 @@ impl<'a> VM<'a> {
     }
 
     /* Coerce a `__len__` / `__length_hint__` return value to bool semantics and reject negatives. */
-    fn len_to_bool(&self, v: Val) -> Result<bool, VmErr> {
+    pub(crate) fn len_to_bool(&self, v: Val) -> Result<bool, VmErr> {
         let n = if v.is_int() { v.as_int() as i128 }
         else if let Some(i) = crate::vm::types::as_i128(v, &self.heap) { i }
         else { return Err(cold_type("__len__ must return int")); };

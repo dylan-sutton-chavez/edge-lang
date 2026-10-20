@@ -395,8 +395,9 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             self.chunk.emit(OpCode::LoadName, subj);
             self.chunk.emit(OpCode::DictUpdate, 0);
             let slot = self.emit_store_new(&name);
+            let load = if self.globals_decl.contains(&name) { OpCode::LoadGlobal } else { OpCode::LoadName };
             for ki in keys {
-                self.chunk.emit(OpCode::LoadName, slot);
+                self.chunk.emit(load, slot);
                 self.chunk.emit(OpCode::LoadConst, ki);
                 self.chunk.emit(OpCode::DelItem, 0);
             }

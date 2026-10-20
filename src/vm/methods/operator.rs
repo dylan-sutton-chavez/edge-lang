@@ -91,10 +91,10 @@ fn call_plain(vm: &mut VM, recv: Val, name: &str, args: &[Val], chunk: &SSAChunk
         vm.push(a);
         vm.stack.extend(b);
         match op {
-            _ if COMPARE.contains(&op) => vm.handle_compare(op, 0, &cache, chunk),
+            _ if COMPARE.contains(&op) => vm.handle_compare(op, 0, &cache, chunk, crate::vm::redo::Rerun::No),
             OpCode::BitAnd | OpCode::BitOr | OpCode::BitXor | OpCode::Shl | OpCode::Shr | OpCode::BitNot => vm.handle_bitwise(op, 0, chunk),
             OpCode::MatMul => vm.handle_matmul(0, chunk),
-            _ => vm.handle_arith(op, 0, 0, &cache, chunk),
+            _ => vm.handle_arith(op, 0, 0, &cache, chunk, crate::vm::redo::Rerun::No),
         }
     };
     let found = BINARY.iter().chain(COMPARE.iter()).find_map(|&op| operator(op));
@@ -109,7 +109,7 @@ fn call_plain(vm: &mut VM, recv: Val, name: &str, args: &[Val], chunk: &SSAChunk
             "__divmod__" => builtin(vm, "divmod", &[recv, args[0]], chunk),
             "__rdivmod__" => builtin(vm, "divmod", &[args[0], recv], chunk),
             "__contains__" => { let found = vm.contains_op(recv, args[0], chunk)?; vm.push(Val::bool(found)); Ok(()) }
-            "__getitem__" => { vm.push(recv); vm.push(args[0]); vm.get_item(0, chunk, &cache) }
+            "__getitem__" => { vm.push(recv); vm.push(args[0]); vm.get_item(0, chunk, &cache, crate::vm::redo::Rerun::No) }
             "__setitem__" => { vm.store_item_builtin(recv, args[0], args[1])?; vm.push(Val::none()); Ok(()) }
             "__delitem__" => { vm.push(recv); vm.push(args[0]); vm.del_item(chunk)?; vm.push(Val::none()); Ok(()) }
             "__floor__" | "__ceil__" if recv.is_float() => {

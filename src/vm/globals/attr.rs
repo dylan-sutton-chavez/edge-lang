@@ -64,7 +64,8 @@ impl<'a> VM<'a> {
     fn delete_attr_named(&mut self, obj: Val, name: &str, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
         if self.attr_hooks && self.has_hook(obj, "__delattr__") {
             let attr = self.heap.intern_str(name)?;
-            self.call_hook(obj, "__delattr__", &[attr], chunk)?;
+            let at = self.prop_at.take();
+            if !self.hook_in_loop(obj, "__delattr__", &[attr], at)? { self.call_hook(obj, "__delattr__", &[attr], chunk)?; }
             return Ok(());
         }
         self.delete_attr_raw(obj, name, chunk)
@@ -114,6 +115,7 @@ impl<'a> VM<'a> {
     }
 
     /* `vars(obj)`, an Instance yields its `__dict__`, a module, class or type a dict from its attrs, `vars()` the locals. */
+    #[inline(never)]
     pub fn call_vars(&mut self) -> Result<(), VmErr> {
         use alloc::vec::Vec;
         let obj = self.pop()?;
@@ -149,7 +151,7 @@ impl<'a> VM<'a> {
         }
         if let &HeapObj::Instance(cls, ref attrs) = self.heap.get(obj) && self.exc_base(cls).is_none() {
             let attrs = attrs.clone();
-            self.shadowed = true;
+            self.shadow();
             let d = self.heap.alloc(HeapObj::Dict(attrs))?;
             self.push(d);
             return Ok(());
@@ -196,33 +198,56 @@ impl<'a> VM<'a> {
 
     /* `dir(obj)`, the sorted names an attribute read can reach, a user `__dir__` deciding when the class has one, `dir()` the local names. */
     pub fn call_dir(&mut self, argc: u16, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
-        let mut names: alloc::vec::Vec<String> = if argc == 0 {
+        let ok = core::mem::take(&mut self.job_ok);
+        // Called where a frame may open, an instance's `__dir__` runs as a frame of the loop.
+        if ok && argc == 1 && let Some(&obj) = self.stack.last() && let Some(class) = self.instance_class(obj)
+            && let Some((f, defining)) = self.lookup_class_member(class, "__dir__") && matches!(self.heap.try_get(f), Some(HeapObj::Func(..))) {
+            self.pop()?;
+            if let Some(v) = self.calls_run(alloc::boxed::Box::new(DirOf { obj, f, defining }), true)? { self.push(v); }
+            return Ok(());
+        }
+        let names: alloc::vec::Vec<String> = if argc == 0 {
             let in_body = self.body_to_fi.contains_key(&(chunk as *const crate::parser::SSAChunk)) || self.class_chunks.contains(&(chunk as *const crate::parser::SSAChunk));
             if in_body { self.frame_locals(chunk).into_iter().map(|(n, _)| n).collect() }
             else { self.scopes[self.chunk_module_id(chunk)].iter().map(|(n, _)| String::from(n)).filter(|n| !n.starts_with('#')).chain(["__builtins__", "__name__"].map(String::from)).collect() }
         } else {
             let obj = self.pop()?;
             if self.instance_class(obj).is_some() && let Some(listed) = self.try_call_dunder(obj, "__dir__", &[], chunk)? {
-                let items = self.iterable_items(listed, chunk)?;
-                let mut out = alloc::vec::Vec::with_capacity(items.len());
-                for v in items { out.push(self.str_of(v, "__dir__() must return an iterable of str")?); }
-                out
+                let names = self.dir_listed(listed, chunk)?;
+                let list = self.dir_list(names, false)?;
+                self.push(list);
+                return Ok(());
             } else {
                 self.dir_names(obj)
             }
         };
+        let list = self.dir_list(names, true)?;
+        self.push(list);
+        Ok(())
+    }
+
+    /* The names what a `__dir__` gave holds. */
+    fn dir_listed(&mut self, listed: Val, chunk: &crate::parser::SSAChunk) -> Result<alloc::vec::Vec<String>, VmErr> {
+        let items = self.iterable_items(listed, chunk)?;
+        let mut out = alloc::vec::Vec::with_capacity(items.len());
+        for v in items { out.push(self.str_of(v, "__dir__() must return an iterable of str")?); }
+        Ok(out)
+    }
+
+    /* The sorted list `dir` gives of `names`, each once when `once`, as many times as a `__dir__` gave it otherwise. */
+    fn dir_list(&mut self, mut names: alloc::vec::Vec<String>, once: bool) -> Result<Val, VmErr> {
         names.sort_unstable();
-        names.dedup();
+        if once { names.dedup(); }
         let mut items = alloc::vec::Vec::with_capacity(names.len());
         let base = self.temp_roots.len();
         for n in &names { let v = self.heap.alloc(HeapObj::Str(n.clone()))?; self.temp_roots.push(v); items.push(v); }
         let list = self.heap.alloc(HeapObj::List(alloc::rc::Rc::new(core::cell::RefCell::new(items))));
         self.temp_roots.truncate(base);
-        self.push(list?);
-        Ok(())
+        list
     }
 
     /* `globals()`, a copy of the module's bindings, builtins kept apart. */
+    #[inline(never)]
     pub fn call_globals(&mut self, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
         let module = self.chunk_module_id(chunk);
         let bound: alloc::vec::Vec<(String, Val)> = self.scopes[module].iter()
@@ -240,4 +265,18 @@ impl<'a> VM<'a> {
         self.push(dict);
         Ok(())
     }
+}
+
+/* `dir(obj)` of an instance whose class's `__dir__` runs as a frame of a job, what it gives listed sorted. */
+struct DirOf { obj: Val, f: Val, defining: Val }
+
+impl crate::vm::jobs::Calls for DirOf {
+    fn step(&mut self, vm: &mut VM<'_>, got: Option<Result<Val, VmErr>>) -> Result<crate::vm::jobs::Call, VmErr> {
+        let Some(r) = got else { return Ok(crate::vm::jobs::Call::Frame(self.f, self.defining, [self.obj, Val::undef(), Val::undef()])) };
+        let chunk = vm.chunk;
+        let names = vm.dir_listed(r?, chunk)?;
+        Ok(crate::vm::jobs::Call::Give(vm.dir_list(names, false)?))
+    }
+
+    fn for_each_val(&self, f: &mut dyn FnMut(Val)) { f(self.obj); f(self.f); f(self.defining); }
 }

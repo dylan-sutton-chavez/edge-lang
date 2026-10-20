@@ -43,10 +43,10 @@ impl<'a> VM<'a> {
     }
 
     /* Unpacking and `{value!s:spec}` formatting. Indexed get/store/del are dispatched directly from the hot loop, never here. */
-    pub(crate) fn handle_container(&mut self, op: OpCode, operand: u16, chunk: &SSAChunk) -> Result<(), VmErr> {
+    pub(crate) fn handle_container(&mut self, op: OpCode, operand: u16, chunk: &SSAChunk, rip: usize) -> Result<(), VmErr> {
         match op {
-            OpCode::UnpackSequence => self.unpack_iterable(operand as usize, None, chunk)?,
-            OpCode::UnpackEx => self.unpack_iterable((operand >> 8) as usize, Some((operand & 0xFF) as usize), chunk)?,
+            OpCode::UnpackSequence => self.unpack_iterable(operand as usize, None, Some(rip), chunk)?,
+            OpCode::UnpackEx => self.unpack_iterable((operand >> 8) as usize, Some((operand & 0xFF) as usize), Some(rip), chunk)?,
             OpCode::FormatValue => {
                 /* Operand layout is bit 0 has_spec, bits 1..=2 conversion (0 none, 1 !r, 2 !s, 3 !a). See parser/literals.rs. */
                 let has_spec = (operand & 1) != 0;
@@ -97,7 +97,7 @@ impl<'a> VM<'a> {
     }
 
     /* Merge the source on top of the stack into the container below it for `{**m}`, `{*s}`, `[*it]`. */
-    pub(crate) fn handle_spread_merge(&mut self, op: OpCode, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
+    pub(crate) fn handle_spread_merge(&mut self, op: OpCode, chunk: &crate::parser::SSAChunk, rip: usize) -> Result<(), VmErr> {
         let src = self.pop()?;
         let Some(&acc) = self.stack.last() else { return Err(VmErr::Runtime("stack underflow")) };
         if !acc.is_heap() { return Err(cold_runtime("spread accumulator corrupted")); }
@@ -106,9 +106,16 @@ impl<'a> VM<'a> {
             OpCode::DictUpdate => self.dict_spread_into(acc, src)?,
             OpCode::SetUpdate => {
                 if !matches!(self.heap.get(acc), HeapObj::Set(_)) { return Err(cold_runtime("spread accumulator corrupted")); }
+                let src = if matches!(self.heap.try_get(src), Some(HeapObj::Iter(..))) { match self.lazy_items(src, rip)? { Some(v) => v, None => return Ok(()) } } else { src };
                 self.spread_into(acc, src, chunk)?;
             }
             OpCode::ListExtend => {
+                // A `map` or `filter` whose steps run Python appends its items as a job of the loop.
+                if src.is_heap() && matches!(self.heap.get(src), HeapObj::Iter(..)) {
+                    self.push(src);
+                    if self.extend_job(chunk)? { return Ok(()); }
+                    self.pop()?;
+                }
                 let items = self.iterable_items(src, chunk)?;
                 match self.heap.get(acc) {
                     HeapObj::List(rc) => rc.borrow_mut().extend(items),

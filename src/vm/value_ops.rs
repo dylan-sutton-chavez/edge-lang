@@ -47,9 +47,15 @@ fn quote_bytes(buf: &[u8], escape_single: bool) -> String {
 
 /* `repr` of a str, quote selection (' unless the text has ' but not ") and backslash escapes for what is not printable, the rest verbatim. */
 fn repr_str(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    push_repr_str(&mut out, s);
+    out
+}
+
+/* `repr_str` of `s` written onto `out`. */
+pub(crate) fn push_repr_str(out: &mut String, s: &str) {
     use core::fmt::Write;
     let quote = if s.contains('\'') && !s.contains('"') { '"' } else { '\'' };
-    let mut out = String::with_capacity(s.len() + 2);
     out.push(quote);
     for c in s.chars() {
         match c {
@@ -68,7 +74,6 @@ fn repr_str(s: &str) -> String {
         }
     }
     out.push(quote);
-    out
 }
 
 /* Coerce a numeric pair to f64, returns None if neither operand is a float. */
@@ -837,10 +842,6 @@ impl<'a> VM<'a> {
     #[inline]
     pub(crate) fn as_i128(&self, v: Val) -> Option<i128> {
         as_i128(v, &self.heap)
-    }
-
-    pub(crate) fn to_f64_coerce(&self, v: Val) -> Result<f64, VmErr> {
-        num_as_f64(v, &self.heap).ok_or_else(|| cold_type("numeric operand required"))
     }
 
     /* Wrap an i128 into the narrowest Val, None->Overflow, 48-bit->inline, else boxed. */

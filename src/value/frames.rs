@@ -30,7 +30,7 @@ pub enum AwaitMode { Send, Throw, Close, Wrap }
 
 // Suspended sync helper frame, a plain user fn called from a coroutine hit a yielding builtin mid-execution, so its state is snapshotted and parked on the enclosing Coroutine. Frames stack innermost-last, resume walks inside-out so each return value lands on the next frame's stack at the Call site. `exception_delta` carries the helper's try/except frames pushed in its exec so they survive the yield.
 #[derive(Clone, Debug)]
-pub struct SyncFrame {
+pub struct ParkedFrame {
     pub ip: usize,
     pub fi: usize,
     // The function object, whose captured cells take its nonlocal writes once the resumed frame returns.
@@ -39,8 +39,12 @@ pub struct SyncFrame {
     pub stack_delta: Vec<Val>,
     pub iter_delta: Vec<IterFrame>,
     pub exception_delta: Vec<ExceptionFrame>,
+    // The context managers of the `with`s it suspended inside, its handlers' with depths counted from the first.
+    pub withs: Vec<Val>,
     // The instance an `__init__` hands back in place of what it returns, undef for any other call.
     pub instance: Val,
+    // The layout of the code a run suspended inside a parked section, which it resumes in, 0 for none.
+    pub layout: u32,
 }
 
 /* Block-stack frame role. Except catches exceptions, Finally runs on every exit path. */
@@ -60,7 +64,7 @@ pub enum Unwind {
 }
 
 /* Saved stack/iter/with/unwind depths for unwinding to a handler. Stored on the active Coroutine so `try`/`except` survives yields. */
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct ExceptionFrame {
     pub kind: BlockKind,
     pub handler_ip: usize,
@@ -70,6 +74,8 @@ pub struct ExceptionFrame {
     pub unwind_depth: usize,
     // Exceptions being handled when the block began, the ones its handlers add end with it.
     pub handling_depth: usize,
+    // The levels of recursions through sections kept as the block began, the ones past them dropped as a handler takes it.
+    pub turned: usize,
 }
 
 // Coroutine body, user fn (Fn) or the implicit module-body coro (Module -> self.chunk).
@@ -106,15 +112,14 @@ pub enum IterFrame {
     // A range with a bound past i64, stepped through the wide int kind.
     BigRange { cur: Val, end: Val, step: Val },
     Coroutine(Val),
+    // `map(f, *its)`, calling `f` as each item is asked for, `own` when it made its first iterator, which nothing else holds.
+    Map { f: Val, its: alloc::rc::Rc<[Val]>, own: bool },
+    // `filter(f, it)`, a None `f` keeping the truthy items, `own` as for `map`.
+    Filter { f: Val, it: Val, own: bool },
     // User-defined iterator, holds the value returned by `__iter__`, each step calls its `__next__`.
     UserDefined(Val),
     // `reversed(list)` walking the live list from its end, `idx` counting the items still ahead.
     ListRev { rc: alloc::rc::Rc<core::cell::RefCell<Vec<Val>>>, idx: usize },
-    // `map(f, *its)`, calling `f` as each item is asked for.
-    Map { f: Val, its: alloc::rc::Rc<[Val]> },
-    // `filter(f, it)`, a None `f` keeping the truthy items.
-    Filter { f: Val, it: Val },
-    // `strict` makes iterables of unequal length raise ValueError.
     Zip { its: alloc::rc::Rc<[Val]>, strict: bool },
     // `enumerate(it, start)`, `n` the count the next item pairs with.
     Enumerate { it: Val, n: Val },
@@ -124,10 +129,23 @@ pub enum IterFrame {
     Watched { items: alloc::rc::Rc<[Val]>, idx: usize, of: Val, len: usize },
     // A dict or its view read live, `left` the items it still owes, failing once the size or the keys change.
     DictWalk { of: Val, idx: usize, left: usize, len: usize, kind: View },
+    // The mark a generator's section leaves while its loop's body runs, over the `n` iterators of its own that a `PopIter` of that loop drops.
+    Under(u32),
+    // The mark of a generator's section yielding inside a `try` or `with`, holding what its handlers and context managers put on the VM's stacks.
+    Held(u32, alloc::boxed::Box<Held>),
     // `async for` over `it`, `aw` the `__anext__` awaitable in flight or undef, `out` set once a delegated throw settled the step, 1 with the item in `aw`, 2 for the end.
     AsyncFor { it: Val, aw: Val, out: u8 },
     // An awaitable over `target`, `asend` and kin sending or throwing `arg`, `default` what an ended `anext` gives or undef, `stage` fresh, running or spent.
     Awaitable { target: Val, mode: AwaitMode, arg: Val, default: Val, stage: u8 },
+}
+
+/* What a generator's section left on the handler, `with`, unwind and handled stacks above where it began, held while the loop's body runs. */
+#[derive(Clone, Debug, Default)]
+pub struct Held {
+    pub excs: Vec<ExceptionFrame>,
+    pub withs: Vec<Val>,
+    pub unwinds: Vec<Unwind>,
+    pub handling: Vec<(Val, Option<u32>)>,
 }
 
 /* The size of the dict or set a watched frame reads. */
@@ -152,10 +170,34 @@ fn big_range_step(heap: &mut HeapPool, cur: &mut Val, end: Val, step: Val) -> Re
 }
 
 impl IterFrame {
+    /* The item a step of a sequence, list, small-int range or watched set gives now, read without stepping, None for any other or ended frame. */
+    #[inline]
+    pub(crate) fn ready(&self, heap: &HeapPool) -> Option<Val> {
+        match self {
+            Self::Seq { items, idx } => items.get(*idx).copied(),
+            Self::Watched { items, idx, of, len } if watched_len(heap, *of) == *len => items.get(*idx).copied(),
+            Self::List { rc, idx } => rc.borrow().get(*idx).copied(),
+            &Self::Range { cur, end, step } if step > 0 && cur < end && (Val::INT_MIN..=Val::INT_MAX).contains(&cur) => Some(Val::int(cur)),
+            _ => None,
+        }
+    }
+
+    /* The item `ready` would give, stepped past, the one step of a plain loop, None where the handler steps it. */
+    #[inline(always)]
+    pub(crate) fn next_ready(&mut self, heap: &HeapPool) -> Option<Val> {
+        match self {
+            Self::Range { cur, end, step } if *step > 0 && *cur < *end && (Val::INT_MIN..=Val::INT_MAX).contains(cur) => { let v = *cur; *cur = cur.checked_add(*step).unwrap_or(i64::MAX); Some(Val::int(v)) }
+            Self::List { rc, idx } => { let v = rc.borrow().get(*idx).copied()?; *idx += 1; Some(v) }
+            Self::Seq { items, idx } => { let v = *items.get(*idx)?; *idx += 1; Some(v) }
+            Self::Watched { items, idx, of, len } if watched_len(heap, *of) == *len => { let v = *items.get(*idx)?; *idx += 1; Some(v) }
+            _ => None,
+        }
+    }
+
     /* Stateless steps only, the frames that call user code or other iterators step in the VM. */
     pub fn next_item(&mut self, heap: &mut HeapPool) -> Result<Option<Val>, VmErr> {
         match self {
-            Self::Coroutine(_) | Self::UserDefined(_) | Self::Map { .. } | Self::Filter { .. } | Self::Zip { .. } | Self::Enumerate { .. } | Self::Call { .. }
+            Self::Coroutine(_) | Self::UserDefined(_) | Self::Map { .. } | Self::Filter { .. } | Self::Zip { .. } | Self::Enumerate { .. } | Self::Call { .. } | Self::Under(_) | Self::Held(..)
             | Self::AsyncFor { .. } | Self::Awaitable { .. } => Ok(None),
             Self::Seq { items, idx } => {
                 if *idx < items.len() { let v = items[*idx]; *idx += 1; Ok(Some(v)) } else { Ok(None) }
@@ -225,12 +267,17 @@ impl IterFrame {
             IterFrame::DictWalk { of, .. } => f(*of),
             IterFrame::List { rc, .. } | IterFrame::ListRev { rc, .. } => for &v in rc.borrow().iter() { f(v); },
             Self::Coroutine(v) | Self::UserDefined(v) => f(*v),
-            IterFrame::Map { f: g, its } => { f(*g); for &v in its.iter() { f(v); } }
-            IterFrame::Filter { f: g, it } => { f(*g); f(*it); }
+            IterFrame::Map { f: g, its, .. } => { f(*g); for &v in its.iter() { f(v); } }
+            IterFrame::Filter { f: g, it, .. } => { f(*g); f(*it); }
             IterFrame::Zip { its, .. } => for &v in its.iter() { f(v); },
             IterFrame::Enumerate { it, n } => { f(*it); f(*n); }
             IterFrame::Call { f: g, sentinel } => { f(*g); f(*sentinel); }
-            IterFrame::Range { .. } => {}
+            IterFrame::Range { .. } | IterFrame::Under(_) => {}
+            IterFrame::Held(_, h) => {
+                for &v in &h.withs { f(v); }
+                for u in &h.unwinds { if let Unwind::Return(v) = u { f(*v); } }
+                for &(v, _) in &h.handling { f(v); }
+            }
             IterFrame::BigRange { cur, end, step } => { f(*cur); f(*end); f(*step); }
             IterFrame::AsyncFor { it, aw, .. } => { f(*it); f(*aw); }
             IterFrame::Awaitable { target, arg, default, .. } => { f(*target); f(*arg); f(*default); }
@@ -238,7 +285,7 @@ impl IterFrame {
     }
 }
 
-impl SyncFrame {
+impl ParkedFrame {
     /* Visit all Vals across slots, stack delta, and iter frames. */
     pub(crate) fn for_each_val(&self, f: &mut impl FnMut(Val)) {
         f(self.func);
@@ -246,5 +293,6 @@ impl SyncFrame {
         for &v in &self.slots { f(v); }
         for &v in &self.stack_delta { f(v); }
         for fr in &self.iter_delta { fr.for_each_val(f); }
+        for &v in &self.withs { f(v); }
     }
 }

@@ -183,7 +183,7 @@ pub enum HeapObj {
     StaticMethod(Val),
     // `classmethod(func)`, attribute lookup binds the class.
     ClassMethod(Val),
-    // Trailing `Vec<SyncFrame>` stacks suspended sync sub-calls (innermost-last). Resume walks inside-out, each return lands on next frame's Call site. `BodyRef` discriminates user-fn coros from the implicit module-body coro. Final `Vec<ExceptionFrame>` carries try/except across yields.
+    // Trailing `Vec<ParkedFrame>` stacks suspended sync sub-calls innermost-last, resumed inside-out, `BodyRef` telling user coros from the body.
     Coroutine(Box<Coro>),
     /* Produced by `import m`, attr access via LoadAttr, calls fuse through CallMethod. */
     Module(String, Vec<(String, Val)>),
@@ -250,14 +250,22 @@ pub struct Coro {
     pub stack: Vec<Val>,
     pub body: BodyRef,
     pub iters: Vec<IterFrame>,
-    pub syncs: Vec<SyncFrame>,
+    pub syncs: Vec<ParkedFrame>,
     pub excs: Vec<ExceptionFrame>,
+    /* The context managers of the `with`s it suspended inside, three values each, its handlers' with depths counting from the first. */
+    pub withs: Vec<Val>,
+    // Whether it runs now, so a re-entrant resume is found in constant time however deep the chain of generators.
+    pub running: bool,
+    // The layout of the code its body suspended inside a section of, which it resumes in, 0 for none.
+    pub layout: u32,
+    // The next item a builtin's step took from it ahead of time, which its next step hands out at once, undef for none.
+    pub pending: Val,
 }
 
 impl Coro {
     /* A body not yet started, its frame bound. */
     pub fn fresh(slots: Vec<Val>, body: BodyRef) -> Box<Self> {
-        Box::new(Self { ip: 0, slots, stack: Vec::new(), body, iters: Vec::new(), syncs: Vec::new(), excs: Vec::new() })
+        Box::new(Self { ip: 0, slots, stack: Vec::new(), body, iters: Vec::new(), syncs: Vec::new(), excs: Vec::new(), withs: Vec::new(), running: false, layout: 0, pending: Val::undef() })
     }
 
     /* The placeholder a wait left, what wakes it goes there, on the stack of the innermost helper waiting inside. */
@@ -632,6 +640,8 @@ pub(crate) fn for_each_val(obj: &HeapObj, mut f: impl FnMut(Val)) {
             for &v in &c.stack { f(v); }
             for fr in &c.iters { fr.for_each_val(&mut f); }
             for sf in &c.syncs { sf.for_each_val(&mut f); }
+            for &v in &c.withs { f(v); }
+            f(c.pending);
         }
         HeapObj::Func(_, defaults, captures, attrs) => {
             for (_, v) in attrs.borrow().iter() { f(*v); }
@@ -662,6 +672,9 @@ fn unintern<K: Eq + core::hash::Hash + Clone>(map: &mut HashMap<K, u32>, key: &K
     if let Some(owner) = map.remove(key) && owner != idx { map.insert(key.clone(), owner); }
 }
 
+/* The `ascii` of a class of plain methods, whose instances give the ops no dunder to call. */
+const PLAIN: u8 = 3;
+
 /* Arena allocator with mark-sweep GC, names, constants and single characters interned. */
 struct HeapSlot {
     obj: Option<HeapObj>,
@@ -687,6 +700,8 @@ pub struct UserKey { pub hash: i64, pub dict: u64, pub class: u32 }
 
 pub struct HeapPool {
     slots: Vec<HeapSlot>,
+    // Whether the program made a user class, before which no value runs a dunder.
+    pub(crate) users: bool,
     free_list: Vec<u32>,
     live: usize,
     pub gc_threshold: usize,
@@ -695,6 +710,8 @@ pub struct HeapPool {
     meter: &'static meter::Meter,
     // Native work since the last step, scans and copies the op budget charges at the next one.
     work: Cell<usize>,
+    // Whether the slots, the allocations or the native work passed what calls for a collection or a charge, kept by `refresh`.
+    due: Cell<bool>,
     // The op budget left when the VM last charged, so a native operation refuses work it could never pay for.
     budget: Cell<u64>,
     limit: usize,
@@ -748,15 +765,30 @@ impl HeapPool {
     }
 
     /* Counts an allocation toward the next collection. */
-    pub(crate) fn note_alloc(&self) { self.alloc_count.set(self.alloc_count.get().saturating_add(1)); }
+    #[inline(always)]
+    pub(crate) fn note_alloc(&self) {
+        let n = self.alloc_count.get().saturating_add(1);
+        self.alloc_count.set(n);
+        // A count or a slot only grows here, so it can only make `due` true.
+        if n >= self.alloc_limit && n >= self.live / 4 || self.live >= self.gc_threshold { self.due.set(true); }
+    }
+
+    /* Sets `due` from the slots, the allocations and the native work, after any of them or their limits change. */
+    #[inline]
+    fn refresh(&self) {
+        let alloc_limit = (self.live / 4).max(self.alloc_limit);
+        self.due.set(self.live >= self.gc_threshold || self.alloc_count.get() >= alloc_limit || self.work.get() > WORK_SLICE);
+    }
 
     pub fn new(limit: usize) -> Self {
         Self {
             slots: Vec::new(),
+            users: false,
             free_list: Vec::new(),
             live: 0,
             gc_threshold: 512,
             alloc_count: Cell::new(0),
+            due: Cell::new(false),
             meter: crate::util::leak(Box::new(meter::Meter::new(limit))),
             work: Cell::new(0),
             budget: Cell::new(u64::MAX),
@@ -796,7 +828,7 @@ impl HeapPool {
 
     /* The slot interning text `s`, each candidate compared by its own text. */
     #[inline]
-    fn string_slot(&self, s: &str) -> Option<u32> {
+    pub(crate) fn string_slot(&self, s: &str) -> Option<u32> {
         let slots = &self.slots;
         self.strings.find(eq::hash_key(s), |&i| matches!(&slots[i as usize].obj, Some(HeapObj::Str(t)) if t == s)).copied()
     }
@@ -917,6 +949,8 @@ impl HeapPool {
     pub(crate) fn unmetered(&self) -> bool { self.limit != usize::MAX && !meter::installed() }
 
     pub fn mark(&mut self, v: Val) {
+        // A root that holds no object, or one already marked, the most of them, costs no more than the look.
+        if !v.is_foreign() && (!v.is_heap() || self.slots.get(v.as_heap() as usize).is_none_or(|s| s.marked)) { return; }
         let mut foreign = Vec::new();
         if v.is_foreign() { foreign.push(v); }
         if v.is_heap() { self.mark_worklist.push(v.as_heap()); }
@@ -964,6 +998,7 @@ impl HeapPool {
         self.gc_bytes = self.meter.held().saturating_mul(4).max(GC_BYTES_FLOOR);
         self.marked_vals = 0;
         self.alloc_count.set(0);
+        self.refresh();
 
         // Cap free list at 512K slots, sort to prefer low indices and reduce fragmentation.
         if self.free_list.len() > 524_288 {
@@ -980,6 +1015,7 @@ impl HeapPool {
     /* Replace the pool, rebuild free and intern tables. */
     pub(crate) fn restore_objs(&mut self, objs: Vec<Option<HeapObj>>) {
         self.slots = objs.into_iter().map(HeapSlot::new).collect();
+        self.users = self.slots.iter().any(|s| matches!(s.obj, Some(HeapObj::Class(..))));
         self.classes.clear();
         self.user_keys.clear();
         self.free_list.clear();
@@ -1001,6 +1037,7 @@ impl HeapPool {
         self.gc_bytes = self.meter.held().saturating_mul(4).max(GC_BYTES_FLOOR);
         self.marked_vals = 0;
         self.alloc_count.set(0);
+        self.refresh();
     }
 
     /* Swap a live slot's object during restore. */
@@ -1010,13 +1047,16 @@ impl HeapPool {
 
     /* Whether the next step leaves the fast path, for a collection or for a slice of native work to charge. */
     pub fn needs_gc(&self) -> bool {
-        let alloc_limit = (self.live / 4).max(self.alloc_limit);
-        self.live >= self.gc_threshold || self.alloc_count.get() >= alloc_limit || self.work.get() > WORK_SLICE || self.meter.held() > self.gc_bytes || self.over()
+        self.due.get() || self.meter.held() > self.gc_bytes || self.over()
     }
 
     /* Counts `n` units of native work, the next step charges them to the op budget. */
     #[inline]
-    pub fn spend(&self, n: usize) { self.work.set(self.work.get().saturating_add(n)); }
+    pub fn spend(&self, n: usize) {
+        let w = self.work.get().saturating_add(n);
+        self.work.set(w);
+        if w > WORK_SLICE { self.due.set(true); }
+    }
 
     /* Records the op budget left, which `afford` holds native work to. */
     #[inline]
@@ -1033,7 +1073,7 @@ impl HeapPool {
     #[inline]
     pub fn take_work(&self) -> usize {
         let w = self.work.get();
-        if w != 0 { self.work.set(0); }
+        if w != 0 { self.work.set(0); self.refresh(); }
         w
     }
 
@@ -1065,10 +1105,11 @@ impl HeapPool {
         let (dst, src) = if si < ti { (&mut lo[si], &hi[0]) } else { (&mut hi[0], &lo[ti]) };
         let (Some(HeapObj::Str(d)), Some(HeapObj::Str(x))) = (&mut dst.obj, &src.obj) else { return false };
         if src.classed { return false; }
-        if x.len() > 64 { self.work.set(self.work.get().saturating_add(x.len())); }
+        let work = if x.len() > 64 { x.len() } else { 0 };
         // The cached ASCII answer holds only while both halves are ASCII.
         if dst.ascii == 1 && !x.is_ascii() { dst.ascii = 0; }
         d.push_str(x);
+        if work != 0 { self.spend(work); }
         true
     }
 
@@ -1142,6 +1183,24 @@ impl HeapPool {
     #[inline] pub fn plain(&self, v: Val) -> Option<&HeapObj> {
         if !v.is_heap() { return None; }
         self.slots.get(v.as_heap() as usize).filter(|s| !s.classed).and_then(|s| s.obj.as_ref())
+    }
+    /* Marks class `v` as one of plain methods through its `ascii`, which only a str reads, and tells whether `v` is one. */
+    pub(crate) fn set_plain(&mut self, v: Val) { if v.is_heap() && let Some(s) = self.slots.get_mut(v.as_heap() as usize) { s.ascii = PLAIN; } }
+    pub(crate) fn is_plain(&self, v: Val) -> bool { v.is_heap() && self.slots.get(v.as_heap() as usize).is_some_and(|s| s.ascii == PLAIN && matches!(s.obj, Some(HeapObj::Class(..)))) }
+
+    /* Whether `v` is a user instance or class, whose ops run its dunders, or a slice of one, never true before the program makes a class. */
+    #[inline(always)] pub fn user(&self, v: Val) -> bool {
+        if !self.users || !v.is_heap() { return false; }
+        debug_assert!((v.as_heap() as usize) < self.slots.len());
+        // SAFETY a heap Val names a live slot, as `get` holds.
+        let s = unsafe { self.slots.get_unchecked(v.as_heap() as usize) };
+        match s.obj {
+            _ if s.classed => true,
+            Some(HeapObj::Instance(..) | HeapObj::Class(..)) => true,
+            // A slice's bounds are read through their `__index__`.
+            Some(HeapObj::Slice(a, b, c)) => self.user(a) || self.user(b) || self.user(c),
+            _ => false,
+        }
     }
     /* The class and attributes of `v`, a dict or list some user class made. */
     #[inline] pub fn classed(&self, v: Val) -> Option<&ClassedEntry> {

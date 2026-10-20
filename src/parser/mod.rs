@@ -211,7 +211,7 @@ pub(super) struct Mark {
 pub struct Parser<'src, I: Iterator<Item = Token>> {
     pub(super) source: &'src str,
     pub(super) tokens: Tokens<I>,
-    pub(super) chunk: SSAChunk,
+    pub(crate) chunk: SSAChunk,
     pub(super) ssa_versions: Versions,
     /* Names declared `global` in the current function body, redirects load/store to `self.globals`. */
     pub(super) globals_decl: crate::util::hash::FxHashSet<String>,
@@ -402,8 +402,14 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         len
     }
 
-    /* Raw version-bump + StoreName, returns the slot. NOT `store_name` since it deliberately skips `globals_decl` routing. */
+    /* Binds `name` as a `def`, `class`, import or capture does, to a new version of its slot or the module binding a `global` names, giving either. */
     pub(super) fn emit_store_new(&mut self, name: &str) -> u16 {
+        if self.globals_decl.contains(name) {
+            self.note_bound(name);
+            let i = self.chunk.push_name(name);
+            self.chunk.emit(OpCode::StoreGlobal, i);
+            return i;
+        }
         let ver = self.increment_version(name);
         let i = self.push_ssa_name(name, ver);
         self.chunk.emit(OpCode::StoreName, i);
@@ -890,7 +896,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         }
     }
 
-    pub fn parse(self) -> (SSAChunk, Vec<Diagnostic>) { self.parse_as(Body::Program) }
+    pub fn parse(mut self) -> (SSAChunk, Vec<Diagnostic>) { let errors = self.parse_in_place(); (self.chunk, errors) }
 
     /* Parses statements that run under a caller, so the chunk returns None the way a function does. */
     pub fn parse_exec(self) -> (SSAChunk, Vec<Diagnostic>) { self.parse_as(Body::Exec) }
@@ -900,6 +906,18 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
 
     /* The chunk of a source parsed as `body`, the last value on the stack its return. */
     fn parse_as(mut self, body: Body) -> (SSAChunk, Vec<Diagnostic>) {
+        self.parse_body(body);
+        (self.chunk, self.errors)
+    }
+
+    /* `parse` that leaves the parser in place with its chunk in `self.chunk` for the caller to move out, giving the diagnostics. */
+    pub(crate) fn parse_in_place(&mut self) -> Vec<Diagnostic> {
+        self.parse_body(Body::Program);
+        core::mem::take(&mut self.errors)
+    }
+
+    /* The statements of `body` parsed into the chunk. */
+    fn parse_body(&mut self, body: Body) {
         if body == Body::Eval {
             self.expr();
             if !self.at_end() { self.diag_at_peek("invalid syntax"); }
@@ -946,6 +964,7 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             self.chunk.functions.clear();
             self.chunk.classes.clear();
             self.chunk.name_index.clear();
+            self.chunk.name_marks = 0;
             self.chunk.nonlocals.clear();
             self.chunk.stmt_pos.clear();
             self.loops.clear();
@@ -954,7 +973,6 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
         self.chunk.emit(OpCode::ReturnValue, 0);
         self.chunk.finalize_prev_slots();
         if !self.warnings.is_empty() { self.warnings.sort_by_key(|w| w.end != TOKEN_WARNING); }
-        self.chunk.warnings = self.warnings;
-        (self.chunk, self.errors)
+        self.chunk.warnings = core::mem::take(&mut self.warnings);
     }
 }

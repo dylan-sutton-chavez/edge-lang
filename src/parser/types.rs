@@ -97,6 +97,57 @@ pub enum OpCode {
     AppendR,
     // Gives up the string local `a` owns, on entering a loop that appends to it, and stays the last opcode `ALL` ends at.
     OwnResetR,
+    // A CallR whose callee is module binding `a`, read at the call, so no register carries it.
+    CallGlobalR,
+    // A call laid as a section, its callee module binding or register `a`, jumping in while that holds the laid function, else calling as CallR.
+    CallSectionR,
+    // A CallSectionR's section, its entry in `a`, first parameter in `b`, index in `c`, and in `x` flags for where the call, its value and callee lie.
+    SectionR,
+    // A section's return, the value in `b` going to the register the call named and on past the call, both read from the link in `a`.
+    ReturnSectionR,
+    // Before a recursive call into the sections it came from, saves what the level reads after it (the `b` UnturnR words at `a`), stepping the rest.
+    TurnR,
+    // Past that call, takes the level back from the words its TurnR names, the link first, then what it kept, then each step undone.
+    UnturnR,
+    // A section laid from module `c` reads and writes its bindings, `a` taking binding `b` or binding `a` taking `b`.
+    LoadGlobalAtR,
+    StoreGlobalAtR,
+    // Unbinds register `a`, a local a section reads through its check, as each call enters it.
+    UnbindR,
+    // `super()` in a section of method `c`, the proxy of instance `b` past the class defining the method, into `a`.
+    SuperR,
+    // Wraps register `a` into a new cell holding its value, a slot the body of a section keeps in a cell, as the section enters.
+    WrapCellR,
+    // An op laid as a call of its dunder's section on `b` and `c`, taken while the left is of its stub's class and the right no strict subclass.
+    DunderSectionR,
+    // Checks the dunder's result in `a` is what the op needs by `x` (1 a length, 2 a `__bool__` bool, 3 a `__len__` truth), `b` its instance.
+    DunderCheckR,
+    // The return of a section an op calls, as ReturnSectionR, NotImplemented handing the op to its stub for the reflected dunder.
+    ReturnDunderR,
+    // First in the stub of a register call whose head is at `a`, enters the section laid for the function the register holds, or goes on to the call.
+    CallValueR,
+    // A CallSectionR of a function a module binding holds, called by position with nothing kept, checked only for the binding.
+    CallGlobalSectionR,
+    // A CallSectionR of a method by position with nothing kept, checked for the class of the receiver in `b`.
+    CallMethodSectionR,
+    // A CallSectionR of the function a register holds, by position with nothing kept, checked against the section's function.
+    CallValueSectionR,
+    // A CallSectionR of a class whose `__init__` is laid, by position with nothing kept, checked for the binding and the class.
+    CallCtorSectionR,
+    // A CallMethodSectionR whose receiver is the module binding its stub's SectionR names in `c` (one past its index), its register kept for the stub.
+    CallMethodGlobalSectionR,
+    // `a(*b)`, the function in register `a` called with the items of `b` as positionals, the StoreTopR after it taking the result.
+    CallSpreadR,
+    // An exception's `__init__` laid as a section takes its arguments, the `c` registers from `b`, as the `args` of the instance in `a`.
+    ExcArgsR,
+    // A ReturnSectionR from inside a section's `try`, which leaves it through its handlers.
+    ReturnTriedR,
+    // A ReturnSectionR of a value always bound, a parameter nothing deletes or a constant.
+    ReturnBoundR,
+    // `a.append(b)` for a local that only ever holds the list it was made with, its result never read.
+    ListPushR,
+    // A jump to `a`, a head laid past the end of code that grew or back from it, which costs no step.
+    JumpR,
 }
 
 // Each fused builtin opcode and the builtin it runs, with the name that alone picks the opcode.
@@ -242,13 +293,18 @@ pub struct SSAChunk {
     /* The line a function definition starts on, its first decorator included. */
     pub first_line: u32,
     pub is_generator: bool,
+    /* Whether it holds an `a if c else b`, which its lowering keeps in registers. */
+    pub ternaries: bool,
     pub overflow: bool,
     pub prev_slots: Vec<Option<u16>>,
-    pub alias_groups: Vec<Vec<u16>>,
+    /* The slot each name's version chain is rooted at. */
+    pub canonical: Vec<u16>,
     pub phi_map: Vec<usize>,
     pub nonlocals: Vec<String>,
     /* Each slot of `names` by the hash of its text. */
     pub(super) name_index: hashbrown::HashTable<u16>,
+    /* A bit for each mark its names have, by their length and their ends, while no table holds them. */
+    pub(super) name_marks: u32,
     /* stmt ip->byte_offset map, binary-searched on error path, hot dispatch never touches it. */
     pub stmt_pos: Vec<(u32, u32)>,
     /* The SyntaxWarnings of the program, which a host prints before it runs. */
@@ -266,7 +322,24 @@ pub struct SSAChunk {
     pub imports: Vec<ImportEntry>,
 }
 
+/* How many names a chunk finds by scanning before it keeps a table of them by hash. */
+const SCANNED_NAMES: usize = 16;
+
+/* The bit of `name_marks` a name sets, by its length and its first and last bytes. */
+#[inline]
+fn name_mark(n: &str) -> usize {
+    let b = n.as_bytes();
+    (b.len() * 7 + b.last().map_or(0, |&c| c as usize) * 3 + b.first().map_or(0, |&c| c as usize)) & 31
+}
+
 impl SSAChunk {
+    /* Whether the chunk holds an `a if c else b`. */
+    #[inline]
+    pub fn ternaries(&self) -> bool { self.ternaries }
+
+    /* Notes the chunk holds an `a if c else b`, or as a decoded chunk does when `on`. */
+    pub(crate) fn set_ternaries(&mut self, on: bool) { if on { self.ternaries = true; } }
+
     /* Binary-searches stmt_pos to map ip->byte offset, statement-level precision. */
     pub fn resolve(&self, ip: u32) -> Option<u32> {
         let i = self.stmt_pos.partition_point(|&(s, _)| s <= ip).checked_sub(1)?;
@@ -305,70 +378,87 @@ impl SSAChunk {
         (self.constants.len() - 1) as u16
     }
 
-    fn find_name(&self, n: &str, hash: u64) -> Option<u16> {
-        self.name_index.find(hash, |&i| self.names[i as usize] == n).copied()
+    /* The slot of name `n`, found by scanning while the chunk holds few names and by hash past them. */
+    #[inline(always)]
+    fn find_name(&self, n: &str) -> Option<u16> {
+        // While no table holds them, a name sharing no mark with them is new without looking, any other is looked for among them.
+        if self.name_index.is_empty() {
+            if self.name_marks & 1 << name_mark(n) == 0 { return None; }
+            let (b, last) = (n.as_bytes(), n.len().wrapping_sub(1));
+            return self.names.iter().position(|m| m.len() == b.len() && m.as_bytes().get(last) == b.get(last) && m.as_bytes() == b).map(|i| i as u16);
+        }
+        self.name_index.find(hash_key(n), |&i| self.names[i as usize] == n).copied()
     }
 
     pub(super) fn push_name(&mut self, n: &str) -> u16 {
-        let hash = hash_key(n);
-        if let Some(i) = self.find_name(n, hash) { return i; }
+        if let Some(i) = self.find_name(n) { return i; }
         if self.names.len() >= u16::MAX as usize {
             self.overflow = true;
             return 0;
         }
         let i = self.names.len() as u16;
+        self.name_marks |= 1 << name_mark(n);
         self.names.push(n.to_string());
-        let names = &self.names;
-        self.name_index.insert_unique(hash, i, |&j| hash_key(&names[j as usize]));
+        // A chunk of few names keeps no table, one past them hashes them all once.
+        if self.names.len() > SCANNED_NAMES {
+            let names = &self.names;
+            let at = if self.name_index.is_empty() { 0 } else { i as usize };
+            for j in at..names.len() { self.name_index.insert_unique(hash_key(&names[j]), j as u16, |&k| hash_key(&names[k as usize])); }
+        }
         i
     }
 
     /* Builds `prev_slots`, coalesces SSA versions to canonical root, rewrites operands, builds `phi_map`. */
     pub fn finalize_prev_slots(&mut self) {
         let n = self.names.len();
-
-        // `prev_slots[i]` is the slot of name i at version-1, if any.
-        let mut ps: Vec<Option<u16>> = vec![None; n];
-        for (i, name) in self.names.iter().enumerate() {
-            if let Some(parsed) = SsaName::parse(name)
-                && parsed.version > 0
-            {
-                let prev = s!(str parsed.bare, "_", int parsed.version as i64 - 1);
-                if let Some(j) = self.find_name(&prev, hash_key(&prev)) {
-                    ps[i] = Some(j);
+        // Names all at a first version chain nothing, each its own root, which empty tables say.
+        if let Some(first) = self.names.iter().position(|name| SsaName::parse(name).is_some_and(|p| p.version > 0)) {
+            // `prev_slots[i]` is the slot of name i at version-1, if any.
+            let mut ps: Vec<Option<u16>> = vec![None; n];
+            for (i, name) in self.names.iter().enumerate().skip(first) {
+                if let Some(parsed) = SsaName::parse(name)
+                    && parsed.version > 0
+                {
+                    let prev = s!(str parsed.bare, "_", int parsed.version as i64 - 1);
+                    if let Some(j) = self.find_name(&prev) {
+                        ps[i] = Some(j);
+                    }
                 }
             }
-        }
 
-        // Coalesce each version chain to its root, an earlier slot already holds its own.
-        let mut canonical: Vec<u16> = (0..n as u16).collect();
-        for i in 0..n {
-            let mut root = i;
-            while let Some(&Some(p)) = ps.get(root) {
-                let p = p as usize;
-                if p == root { break; }
-                if p < i { root = canonical[p] as usize; break; }
-                root = p;
-            }
-            canonical[i] = root as u16;
-        }
-
-        for ins in &mut self.instructions {
-            match ins.opcode {
-                OpCode::LoadName | OpCode::StoreName | OpCode::Del | OpCode::Phi => {
-                    // Malformed input can leave an out-of-range operand, keep it as-is then.
-                    if let Some(&c) = canonical.get(ins.operand as usize) { ins.operand = c; }
+            // Coalesce each version chain to its root, an earlier slot already holds its own.
+            let mut canonical: Vec<u16> = (0..n as u16).collect();
+            for i in 0..n {
+                let mut root = i;
+                while let Some(&Some(p)) = ps.get(root) {
+                    let p = p as usize;
+                    if p == root { break; }
+                    if p < i { root = canonical[p] as usize; break; }
+                    root = p;
                 }
-                _ => {}
+                canonical[i] = root as u16;
             }
-        }
-        for (a, b) in &mut self.phi_sources {
-            if let Some(&c) = canonical.get(*a as usize) { *a = c; }
-            if let Some(&c) = canonical.get(*b as usize) { *b = c; }
-        }
 
-        self.prev_slots = ps;
-        self.alias_groups = (0..n).map(|i| vec![canonical[i]]).collect();
+            for ins in &mut self.instructions {
+                match ins.opcode {
+                    OpCode::LoadName | OpCode::StoreName | OpCode::Del | OpCode::Phi => {
+                        // Malformed input can leave an out-of-range operand, keep it as-is then.
+                        if let Some(&c) = canonical.get(ins.operand as usize) { ins.operand = c; }
+                    }
+                    _ => {}
+                }
+            }
+            for (a, b) in &mut self.phi_sources {
+                if let Some(&c) = canonical.get(*a as usize) { *a = c; }
+                if let Some(&c) = canonical.get(*b as usize) { *b = c; }
+            }
+
+            self.prev_slots = ps;
+            self.canonical = canonical;
+        } else {
+            self.prev_slots.clear();
+            self.canonical.clear();
+        }
 
         for (_, body, _, _) in &mut self.functions {
             body.finalize_prev_slots();
@@ -473,7 +563,12 @@ pub const SPREAD_BASES: u16 = u16::MAX;
 
 // Param name without `*`/`**`/`~` marker prefixes.
 pub fn param_base_name(p: &str) -> &str {
-    p.trim_start_matches(['*', '~']).trim_end_matches('=')
+    // The markers are ASCII, so cutting at bytes keeps char boundaries.
+    let b = p.as_bytes();
+    let (mut s, mut e) = (0, b.len());
+    while s < e && matches!(b[s], b'*' | b'~') { s += 1; }
+    while e > s && b[e - 1] == b'=' { e -= 1; }
+    &p[s..e]
 }
 
 /* Parsed view of a `<bare>_<digits>` SSA-suffixed name, avoids re-inlining the rfind('_') + ascii-digit + parse dance at every call site. */
@@ -485,12 +580,14 @@ pub struct SsaName<'a> {
 impl<'a> SsaName<'a> {
     // Some when `name` matches `<bare>_<digits>`, None for synthetic temps and non-SSA names.
     pub fn parse(name: &'a str) -> Option<Self> {
-        let pos = name.rfind('_')?;
-        if pos + 1 >= name.len() { return None; }
-        let suffix = &name[pos + 1..];
-        if !suffix.bytes().all(|b| b.is_ascii_digit()) { return None; }
-        let version = suffix.parse().ok()?;
-        Some(Self { bare: &name[..pos], version })
+        // The digits it ends in, read back to the `_` before them in one pass.
+        let b = name.as_bytes();
+        let mut pos = b.len();
+        while pos > 0 && b[pos - 1].is_ascii_digit() { pos -= 1; }
+        if pos == b.len() || pos == 0 || b[pos - 1] != b'_' { return None; }
+        let mut version: u32 = 0;
+        for &d in &b[pos..] { version = version.checked_mul(10)?.checked_add((d - b'0') as u32)?; }
+        Some(Self { bare: &name[..pos - 1], version })
     }
 
     // (bare, version) for any name, defaulting to (name, 0) when no SSA suffix is present.

@@ -11,7 +11,7 @@ use super::{Pending, VM};
 use super::types::*;
 
 const MAGIC: u32 = 0x4E53_5045;
-const FORMAT: u32 = 23;
+const FORMAT: u32 = 25;
 // A SHA-256 of everything before it closes each blob, so a damaged one never restores.
 const SEAL: usize = 32;
 
@@ -208,8 +208,8 @@ fn put_iter_frame(w: &mut W, x: &IterFrame) {
             Some(of) => { w.u8(12); w.val(of); w.usz(*idx); }
             None => { w.u8(0); w.vals(&rc.borrow()[..(*idx).min(rc.borrow().len())].iter().rev().copied().collect::<Vec<_>>()); w.usz(0); }
         },
-        IterFrame::Map { f, its } => { w.u8(4); w.val(*f); w.vals(its); }
-        IterFrame::Filter { f, it } => { w.u8(5); w.val(*f); w.val(*it); }
+        IterFrame::Map { f, its, own } => { w.u8(4); w.val(*f); w.vals(its); w.boolean(*own); }
+        IterFrame::Filter { f, it, own } => { w.u8(5); w.val(*f); w.val(*it); w.boolean(*own); }
         IterFrame::Zip { its, strict } => { w.u8(6); w.vals(its); w.u8(*strict as u8); }
         IterFrame::Enumerate { it, n } => { w.u8(7); w.val(*it); w.val(*n); }
         IterFrame::Call { f, sentinel } => { w.u8(8); w.val(*f); w.val(*sentinel); }
@@ -217,6 +217,10 @@ fn put_iter_frame(w: &mut W, x: &IterFrame) {
         IterFrame::DictWalk { of, idx, left, len, kind } => { w.u8(10); w.val(*of); w.usz(*idx); w.usz(*left); w.usz(*len); w.u8(*kind as u8); }
         IterFrame::AsyncFor { it, aw, out } => { w.u8(14); w.val(*it); w.val(*aw); w.u8(*out); }
         IterFrame::Awaitable { target, mode, arg, default, stage } => { w.u8(15); w.val(*target); put_await_mode(w, mode); w.val(*arg); w.val(*default); w.u8(*stage); }
+        IterFrame::Under(n) => { w.u8(16); w.usz(*n as usize); }
+        IterFrame::Held(n, h) => {
+            w.u8(17); w.usz(*n as usize); w.seq(&h.excs, put_exc_frame); w.vals(&h.withs); w.seq(&h.unwinds, put_unwind); w.seq(&h.handling, put_handled);
+        }
     }
 }
 fn get_iter_frame(r: &mut R) -> Result<IterFrame, SnapErr> {
@@ -224,10 +228,15 @@ fn get_iter_frame(r: &mut R) -> Result<IterFrame, SnapErr> {
         0 => IterFrame::Seq { items: r.vals()?.into(), idx: r.usz()? },
         1 => IterFrame::Range { cur: r.i64()?, end: r.i64()?, step: r.i64()? },
         13 => IterFrame::BigRange { cur: r.val()?, end: r.val()?, step: r.val()? },
+        16 => IterFrame::Under(r.usz()? as u32),
+        17 => {
+            let n = r.usz()? as u32;
+            IterFrame::Held(n, alloc::boxed::Box::new(crate::value::Held { excs: r.seq(get_exc_frame)?, withs: r.vals()?, unwinds: r.seq(get_unwind)?, handling: r.seq(get_handled)? }))
+        }
         2 => IterFrame::Coroutine(r.val()?),
         3 => IterFrame::UserDefined(r.val()?),
-        4 => IterFrame::Map { f: r.val()?, its: r.vals()?.into() },
-        5 => IterFrame::Filter { f: r.val()?, it: r.val()? },
+        4 => IterFrame::Map { f: r.val()?, its: r.vals()?.into(), own: r.boolean()? },
+        5 => IterFrame::Filter { f: r.val()?, it: r.val()?, own: r.boolean()? },
         6 => IterFrame::Zip { its: r.vals()?.into(), strict: r.u8()? != 0 },
         7 => IterFrame::Enumerate { it: r.val()?, n: r.val()? },
         8 => IterFrame::Call { f: r.val()?, sentinel: r.val()? },
@@ -259,9 +268,10 @@ codec!(struct ExceptionFrame, put_exc_frame, get_exc_frame {
     with_depth: usz,
     unwind_depth: usz,
     handling_depth: usz,
+    turned: usz,
 });
 
-codec!(struct SyncFrame, put_sync_frame, get_sync_frame {
+codec!(struct ParkedFrame, put_parked_frame, get_parked_frame {
     ip: usz,
     fi: usz,
     func: val,
@@ -269,7 +279,9 @@ codec!(struct SyncFrame, put_sync_frame, get_sync_frame {
     stack_delta: vals,
     iter_delta: [put_iter_frame, get_iter_frame],
     exception_delta: [put_exc_frame, get_exc_frame],
+    withs: vals,
     instance: val,
+    layout: default,
 });
 
 codec!(enum AwaitMode, put_await_mode, get_await_mode {
@@ -300,6 +312,7 @@ codec!(enum VmErr, put_vm_err, get_vm_err {
     11 Raised(s: str),
     12 HostYield(st: (put_sched, get_sched)),
     13 HostCallDeferred,
+    14 Redo,
 });
 
 codec!(enum Unwind, put_unwind, get_unwind {
@@ -422,9 +435,13 @@ fn put_obj(w: &mut W, obj: &HeapObj) {
         HeapObj::PropertyPart(a, slot) => { w.u8(22); w.val(*a); w.u8(*slot); }
         HeapObj::StaticMethod(a) => { w.u8(23); w.val(*a); }
         HeapObj::ClassMethod(a) => { w.u8(27); w.val(*a); }
+        // One suspended inside a `with` takes a tag of its own that adds its context managers.
         HeapObj::Coroutine(c) => {
-            w.u8(24); w.usz(c.ip); w.vals(&c.slots); w.vals(&c.stack); put_body_ref(w, &c.body);
-            w.seq(&c.iters, put_iter_frame); w.seq(&c.syncs, put_sync_frame); w.seq(&c.excs, put_exc_frame);
+            // One holding an item a builtin's step took ahead takes a tag that adds it after its context managers.
+            w.u8(if !c.pending.is_undef() { 51 } else if c.withs.is_empty() { 24 } else { 50 }); w.usz(c.ip); w.vals(&c.slots); w.vals(&c.stack); put_body_ref(w, &c.body);
+            w.seq(&c.iters, put_iter_frame); w.seq(&c.syncs, put_parked_frame); w.seq(&c.excs, put_exc_frame);
+            if !c.withs.is_empty() || !c.pending.is_undef() { w.vals(&c.withs); }
+            if !c.pending.is_undef() { w.val(c.pending); }
         }
         HeapObj::Module(spec, attrs) => { w.u8(25); w.str(spec); w.seq(attrs, put_name_val); }
         HeapObj::GenericAlias(o, a) => { w.u8(29); w.val(*o); w.val(*a); }
@@ -449,7 +466,8 @@ fn put_obj(w: &mut W, obj: &HeapObj) {
 }
 
 fn get_obj(r: &mut R, externs: &ExternMap, fills: &mut Vec<(u32, SetFill)>, slot: u32) -> Result<HeapObj, SnapErr> {
-    Ok(match r.u8()? {
+    let tag = r.u8()?;
+    Ok(match tag {
         0 => HeapObj::Str(r.str()?),
         1 => HeapObj::Bytes(r.bytes()?),
         2 => HeapObj::List(Rc::new(RefCell::new(r.vals()?))),
@@ -487,9 +505,11 @@ fn get_obj(r: &mut R, externs: &ExternMap, fills: &mut Vec<(u32, SetFill)>, slot
         21 => HeapObj::Property(r.val()?, r.val()?, r.val()?),
         22 => HeapObj::PropertyPart(r.val()?, r.u8()?.min(2)),
         23 => HeapObj::StaticMethod(r.val()?),
-        24 => HeapObj::Coroutine(Box::new(Coro {
+        24 | 50 | 51 => HeapObj::Coroutine(Box::new(Coro {
             ip: r.usz()?, slots: r.vals()?, stack: r.vals()?, body: get_body_ref(r)?,
-            iters: r.seq(get_iter_frame)?, syncs: r.seq(get_sync_frame)?, excs: r.seq(get_exc_frame)?,
+            iters: r.seq(get_iter_frame)?, syncs: r.seq(get_parked_frame)?, excs: r.seq(get_exc_frame)?,
+            withs: if tag != 24 { r.vals()? } else { Vec::new() }, running: false, layout: 0,
+            pending: if tag == 51 { r.val()? } else { Val::undef() },
         })),
         25 => HeapObj::Module(r.str()?, r.seq(get_name_val)?),
         26 => {
@@ -571,17 +591,21 @@ macro_rules! vm_state {
 vm_state! {
     stack: vals,
     iter_stack: [put_iter_frame, get_iter_frame],
-    yields: vals,
     with_stack: vals,
     temp_roots: vals,
     event_queue: vals,
     scopes: [put_globals, get_globals],
     module_table: (put_map, get_map),
     is_async: [boolean], // Filled by MakeCoroutine, not chunk-derivable.
+    laid_fns: [boolean],
+    laid_mods: [str],
+    learned: vals,
+    grown: vals,
     exception_stack: [put_exc_frame, get_exc_frame],
+    turned: usz,
     unwind_stack: [put_unwind, get_unwind],
     handling: [put_handled, get_handled],
-    pending_sync_frames: [put_sync_frame, get_sync_frame],
+    pending_sync_frames: [put_parked_frame, get_parked_frame],
     pending_exec_exc_base: opt_usz,
     pending: (put_pending, get_pending),
     root: (put_root, get_root),
@@ -619,7 +643,7 @@ fn put_call_frame(w: &mut W, f: &CallFrame) {
 
 pub fn save(vm: &VM, source: &str) -> Result<Vec<u8>, SnapErr> {
     // A pause leaves every frame saved in its coroutine, so the register stack holds nothing to keep.
-    debug_assert!(vm.regs.is_empty() && vm.bindings.is_empty(), "a snapshot is taken only at a pause");
+    debug_assert!(vm.pools.iter().all(|p| p.active == 0) && vm.bindings.is_empty(), "a snapshot is taken only at a pause");
     let mut w = W::new();
     w.u32(MAGIC);
     w.u32(FORMAT);
@@ -924,6 +948,7 @@ fn rebuild_mro(vm: &mut VM) -> Result<(), SnapErr> {
             Some(HeapObj::Class(_, bases, members)) => {
                 vm.slotted |= members.borrow().iter().any(|(n, _)| n == "__slots__");
                 vm.user_hash |= members.borrow().iter().any(|(n, _)| n == "__hash__");
+                vm.user_new |= members.borrow().iter().any(|(n, _)| n == "__new__");
                 vm.attr_hooks |= members.borrow().iter().any(|(n, _)| n == "__setattr__" || n == "__delattr__");
                 bases.clone()
             }
@@ -966,7 +991,7 @@ fn rehash(vm: &mut VM, fills: Vec<(u32, SetFill)>) -> Result<(), SnapErr> {
             Some(HeapObj::Dict(rc) | HeapObj::FrozenDict(rc)) => alloc::vec![rc.clone()],
             Some(HeapObj::Instance(class, rc)) => {
                 // An attribute hiding a method or property keeps method sites checking the instance.
-                vm.shadowed |= rc.borrow().iter().any(|(k, _)| matches!(vm.heap.try_get(k), Some(HeapObj::Str(n)) if vm.lookup_class_member(*class, n).is_some_and(|(m, _)| vm.hides(m))));
+                if rc.borrow().iter().any(|(k, _)| matches!(vm.heap.try_get(k), Some(HeapObj::Str(n)) if vm.lookup_class_member(*class, n).is_some_and(|(m, _)| vm.hides(m)))) && !core::mem::replace(&mut vm.shadowed, true) { vm.class_epoch = vm.class_epoch.wrapping_add(1); }
                 alloc::vec![rc.clone()]
             }
             _ => Vec::new(),

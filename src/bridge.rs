@@ -175,12 +175,27 @@ pub unsafe extern "C" fn host_edge_op(op: u32, recv: u32, name_ptr: *const u8, n
     let args: Option<Vec<Val>> = unsafe { safe_handles(argv_ptr, argc) }.iter().map(|&h| get_val(h)).collect();
     let Some(args) = args else { stash_error(VmErr::TypeMsg("edge_op: invalid argument handle".into())); return 1; };
 
-    let result: Result<Val, VmErr> = match Op::from_u32(op) {
-        Some(Op::Call) => dispatch_call(recv, &name, &args),
-        Some(Op::GetAttr) => dispatch_get_attr(recv, &name),
-        Some(Op::SetAttr) => dispatch_set_attr(recv, &name, &args),
-        Some(Op::GetItem) => dispatch_get_item(recv, &args),
-        Some(Op::SetItem) => dispatch_set_item(recv, &args),
+    // The plugin's call waits on what it asks, so Python it runs takes a loop of its own, the one door the rule leaves.
+    with_vm(|vm| vm.hosted += 1);
+    let result = host_op(op, recv, &name, &args);
+    with_vm(|vm| vm.hosted -= 1);
+
+    match result {
+        Ok(v) => { unsafe { *out_handle = put_val(v); } 0 }
+        // A system call still waits, the plugin returns 2 and the host resumes it later.
+        Err(VmErr::HostCallDeferred) => 2,
+        Err(e) => { stash_error(e); 1 }
+    }
+}
+
+/* What `host_edge_op` asks of the VM. */
+fn host_op(op: u32, recv: u32, name: &str, args: &[Val]) -> Result<Val, VmErr> {
+    match Op::from_u32(op) {
+        Some(Op::Call) => dispatch_call(recv, name, args),
+        Some(Op::GetAttr) => dispatch_get_attr(recv, name),
+        Some(Op::SetAttr) => dispatch_set_attr(recv, name, args),
+        Some(Op::GetItem) => dispatch_get_item(recv, args),
+        Some(Op::SetItem) => dispatch_set_item(recv, args),
         Some(Op::Len) => dispatch_len(recv),
         Some(Op::Iter) => dispatch_iter(recv),
         Some(Op::IterNext) => dispatch_iter_next(recv),
@@ -191,15 +206,8 @@ pub unsafe extern "C" fn host_edge_op(op: u32, recv: u32, name_ptr: *const u8, n
         Some(Op::NewSet) => in_vm("edge_op new_set called outside run()", |vm| vm.set_from_items(args.to_vec())),
         Some(Op::NewFrozenSet) => in_vm("edge_op new_frozenset called outside run()", |vm| vm.frozenset_from_items(args.to_vec())),
         // A system call names its plugin call in `recv`, the id `edge_call_id` gave it.
-        Some(Op::Sys) => crate::wasm::system_call(recv, &name, &args),
+        Some(Op::Sys) => crate::wasm::system_call(recv, name, args),
         None => Err(VmErr::Raised(s!("edge_op: unsupported op ", int op as i64))),
-    };
-
-    match result {
-        Ok(v) => { unsafe { *out_handle = put_val(v); } 0 }
-        // A system call still waits, the plugin returns 2 and the host resumes it later.
-        Err(VmErr::HostCallDeferred) => 2,
-        Err(e) => { stash_error(e); 1 }
     }
 }
 

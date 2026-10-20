@@ -1,6 +1,9 @@
 WASM := target/wasm32-unknown-unknown
 RUNTIME := --target wasm32-unknown-unknown -p edge-python --lib --no-default-features --features runtime --crate-type cdylib
 WASM_FEATURES := --enable-bulk-memory-opt --enable-nontrapping-float-to-int --enable-sign-ext
+# wasm-opt inlines a function with one caller at any size, which merges the VM's loops into one function past what V8 gives
+# its full register allocator (8192 virtual registers); a big one stays apart.
+WASM_INLINE := --one-caller-inline-max-function-size=1000
 TSC := npm:typescript@5.9.3/tsc
 TREE := $(CURDIR)/_cdn
 EXE := $(if $(filter Windows_NT,$(OS)),.exe)
@@ -46,9 +49,9 @@ wasm-ship: wasm-small wasm-cli-opt
 wasm-small: export RUSTFLAGS = -Z location-detail=none -Z fmt-debug=none -Z unstable-options -C panic=immediate-abort
 wasm-small:
 	cargo +nightly rustc --locked --release $(RUNTIME) -Z build-std=std,panic_abort -Z build-std-features=optimize_for_size
-	wasm-opt -Oz --converge --generate-global-effects --strip-debug --strip-producers $(WASM_FEATURES) -o $(WASM)/release/compiler.1.wasm $(WASM)/release/compiler.wasm
-	wasm-opt --flatten --rereloop -Oz -Oz $(WASM_FEATURES) -o $(WASM)/release/compiler.2.wasm $(WASM)/release/compiler.1.wasm
-	wasm-opt -Oz --converge $(WASM_FEATURES) -o $(WASM)/release/compiler.wasm $(WASM)/release/compiler.2.wasm
+	wasm-opt -Oz $(WASM_INLINE) --converge --generate-global-effects --strip-debug --strip-producers $(WASM_FEATURES) -o $(WASM)/release/compiler.1.wasm $(WASM)/release/compiler.wasm
+	wasm-opt --flatten --rereloop -Oz -Oz $(WASM_INLINE) $(WASM_FEATURES) -o $(WASM)/release/compiler.2.wasm $(WASM)/release/compiler.1.wasm
+	wasm-opt -Oz $(WASM_INLINE) --converge $(WASM_FEATURES) -o $(WASM)/release/compiler.wasm $(WASM)/release/compiler.2.wasm
 
 # A copy beside the speed build, since the bench counts the build before wasm-opt.
 wasm-cli-opt: wasm-cli

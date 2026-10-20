@@ -146,7 +146,14 @@ fn find_impl(vm: &mut VM, recv: Val, pos: &[Val], last: bool, raise: bool) -> Re
     let s = recv_str_ref(vm, recv)?;
     let idx = window(s, ascii, pos, 1).and_then(|(lo, hi)| {
         let hay = &s[lo..hi];
-        let local = if last { hay.rfind(sub.as_str()) } else { hay.find(sub.as_str()) };
+        // One character searches as a char, which finds it a byte scan at a time.
+        let mut one = sub.chars();
+        let local = match (one.next(), one.next(), last) {
+            (Some(c), None, true) => hay.rfind(c),
+            (Some(c), None, false) => hay.find(c),
+            (_, _, true) => hay.rfind(sub.as_str()),
+            _ => hay.find(sub.as_str()),
+        };
         local.map(|b| if ascii { lo + b } else { s[..lo + b].chars().count() } as i64)
     }).unwrap_or(-1);
     if raise && idx < 0 { return Err(cold_value("substring not found")); }
@@ -275,6 +282,61 @@ pub(crate) fn format(vm: &mut VM, recv: Val, pos: &[Val], names: Names, chunk: &
     // Fields run user dunders, so the arguments stay rooted until the text is built.
     let out = vm.with_roots(pos.iter().chain(kw).copied().chain(map), |vm| expand_fields(vm, &tmpl, pos, names, &mut (0, None), 0, chunk))?;
     vm.alloc_and_push_str(out)
+}
+
+/* `format` of `recv` as a job when a value may run a dunder, each a frame of the loop, Ok(false) for values that run none or attribute fields. */
+pub(crate) fn format_job(vm: &mut VM, recv: Val, pos: &[Val], names: Names, chunk: &crate::parser::SSAChunk) -> Result<bool, VmErr> {
+    let (kw, map) = match names { Names::Kw(kw) => (kw, None), Names::Map(m) => (&[][..], Some(m)) };
+    if !pos.iter().chain(kw).copied().chain(map).any(|v| vm.heap.user(v)) { return Ok(false); }
+    if reads_attr(&recv_str(vm, recv)?) { return Ok(false); }
+    let job = alloc::boxed::Box::new(Fields { recv, pos: pos.to_vec(), kw: kw.to_vec(), map: map.unwrap_or(Val::undef()), conv: None });
+    if let crate::vm::jobs::Converted::Give(s) = vm.convert_run(job, chunk)? { vm.push(s); }
+    Ok(true)
+}
+
+/* Whether a field of `tmpl` names an attribute, a `.` in its name past its head, outside its keys. */
+fn reads_attr(tmpl: &str) -> bool {
+    let b = tmpl.as_bytes();
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'{' && b.get(i + 1) == Some(&b'{') { i += 2; continue; }
+        if b[i] == b'{' {
+            i += 1;
+            while i < b.len() && !matches!(b[i], b'!' | b':' | b'}') {
+                match b[i] { b'.' => return true, b'[' => while i < b.len() && b[i] != b']' { i += 1 }, _ => {} }
+                i += 1;
+            }
+        }
+        i += 1;
+    }
+    false
+}
+
+/* `format` running as a job, with its text and values, and what the dunders it called gave so far. */
+struct Fields { recv: Val, pos: Vec<Val>, kw: Vec<Val>, map: Val, conv: Option<alloc::boxed::Box<crate::vm::redo::Conv>> }
+
+impl crate::vm::jobs::Resume for Fields {
+    fn resume(&mut self, vm: &mut VM<'_>, v: Option<Val>) -> Result<crate::vm::jobs::Next, VmErr> {
+        if let Some(v) = v { VM::conv_took(&mut self.conv, v); }
+        let chunk = vm.chunk;
+        let tmpl = recv_str(vm, self.recv)?;
+        let names = if self.map.is_undef() { Names::Kw(&self.kw) } else { Names::Map(self.map) };
+        let pos = &self.pos;
+        Ok(match vm.conv_run(&mut self.conv, |vm| expand_fields(vm, &tmpl, pos, names, &mut (0, None), 0, chunk))? {
+            Ok(out) => crate::vm::jobs::Next::Give(vm.heap.alloc(HeapObj::Str(out))?),
+            Err((x, c)) => crate::vm::jobs::Next::Convert(x, c),
+        })
+    }
+
+    // A format converts the few values it holds.
+    fn few(&self) -> bool { true }
+
+    fn for_each_val(&self, f: &mut dyn FnMut(Val)) {
+        f(self.recv);
+        for &v in self.pos.iter().chain(&self.kw) { f(v) }
+        if !self.map.is_undef() { f(self.map) }
+        VM::conv_vals(&self.conv, f);
+    }
 }
 
 /* The value a field name reaches, a position or a name, then each `.attr` and `[key]`. */
@@ -514,14 +576,19 @@ pub fn maketrans(vm: &mut VM, _recv: Val, pos: &[Val]) -> Result<(), VmErr> {
 fn single(t: &str) -> Option<char> { let mut cs = t.chars(); cs.next().filter(|_| cs.next().is_none()) }
 
 // `str.translate(table)`, each character looked up by its code point, kept when missing, dropped for None.
-pub fn translate(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { translate_by(vm, recv, pos[0], None) }
+pub fn translate(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { translate_by(vm, recv, pos[0]) }
 
-/* `str.translate` over a table with its own `__getitem__`, which runs in the frame. */
-pub fn translate_mapped(vm: &mut VM, recv: Val, table: Val, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> { translate_by(vm, recv, table, Some(chunk)) }
-
-fn translate_by(vm: &mut VM, recv: Val, table: Val, chunk: Option<&crate::parser::SSAChunk>) -> Result<(), VmErr> {
+/* `str.translate` over a table with its own `__getitem__` or a class over dict, each call a frame of the loop when `frames`, its job giving the text. */
+pub fn translate_mapped(vm: &mut VM, recv: Val, table: Val, frames: bool) -> Result<(), VmErr> {
     let text = recv_str(vm, recv)?;
-    // A plain dict is read in place, any other table through its `__getitem__`, a LookupError keeping the character.
+    let out = String::with_capacity(text.len());
+    if let Some(s) = vm.calls_run(alloc::boxed::Box::new(Translate { recv, table, text, at: 0, out }), frames)? { vm.push(s); }
+    Ok(())
+}
+
+fn translate_by(vm: &mut VM, recv: Val, table: Val) -> Result<(), VmErr> {
+    let text = recv_str(vm, recv)?;
+    // A plain dict is read in place, any other table by its item, a LookupError keeping the character.
     let plain = matches!(vm.heap.plain(table), Some(HeapObj::Dict(_)));
     let mut out = String::with_capacity(text.len());
     for c in text.chars() {
@@ -529,28 +596,72 @@ fn translate_by(vm: &mut VM, recv: Val, table: Val, chunk: Option<&crate::parser
         let mapped = if plain {
             match vm.heap.dict_cell(table).and_then(|d| d.borrow().get(&key, &vm.heap).copied()) { Some(v) => v, None => { out.push(c); continue; } }
         } else {
-            let got = match chunk { Some(chunk) => item_of(vm, table, key, chunk), None => vm.getitem_val(table, key) };
-            match got {
+            match vm.getitem_val(table, key) {
                 Ok(v) => v,
                 Err(e) if vm.raised_as(&e, "LookupError") => { vm.pending.exc_val = None; out.push(c); continue; }
                 Err(e) => return Err(e),
             }
         };
-        match vm.heap.try_get(mapped) {
-            _ if mapped.is_none() => {}
-            Some(HeapObj::Str(t)) => {
-                // A growing result fails on the memory limit before it allocates, and doubles only within it.
-                if out.capacity() - out.len() < t.len() {
-                    let need = out.len() + t.len();
-                    vm.heap.reserve(need)?;
-                    let grow = need.max(out.capacity() * 2);
-                    out.reserve_exact(if vm.heap.reserve(grow).is_ok() { grow } else { need } - out.len());
-                }
-                out.push_str(t);
-            }
-            _ if mapped.is_int() => out.push(u32::try_from(mapped.as_int()).ok().and_then(char::from_u32).ok_or_else(|| cold_value("character mapping must be in range(0x110000)"))?),
-            _ => return Err(cold_type("character mapping must return integer, None or str")),
-        }
+        translate_put(vm, &mut out, mapped)?;
     }
     vm.alloc_and_push_str(out)
+}
+
+/* Adds to `out` what a table mapped a character to, nothing for None, a string, or the character of a code point. */
+fn translate_put(vm: &mut VM, out: &mut String, mapped: Val) -> Result<(), VmErr> {
+    match vm.heap.try_get(mapped) {
+        _ if mapped.is_none() => {}
+        Some(HeapObj::Str(t)) => {
+            // A growing result fails on the memory limit before it allocates, and doubles only within it.
+            if out.capacity() - out.len() < t.len() {
+                let need = out.len() + t.len();
+                vm.heap.reserve(need)?;
+                let grow = need.max(out.capacity() * 2);
+                out.reserve_exact(if vm.heap.reserve(grow).is_ok() { grow } else { need } - out.len());
+            }
+            out.push_str(t);
+        }
+        _ if mapped.is_int() => out.push(u32::try_from(mapped.as_int()).ok().and_then(char::from_u32).ok_or_else(|| cold_value("character mapping must be in range(0x110000)"))?),
+        _ => return Err(cold_type("character mapping must return integer, None or str")),
+    }
+    Ok(())
+}
+
+/* `str.translate` run as a job, with its text, the table, how far into the text it got and what it made so far. */
+struct Translate { recv: Val, table: Val, text: String, at: usize, out: String }
+
+impl crate::vm::jobs::Calls for Translate {
+    fn step(&mut self, vm: &mut VM<'_>, mut got: Option<Result<Val, VmErr>>) -> Result<crate::vm::jobs::Call, VmErr> {
+        use crate::vm::jobs::Call;
+        while let Some(c) = self.text[self.at..].chars().next() {
+            let key = Val::int(c as i64);
+            // The table's `__getitem__`, or the `__missing__` of a class over dict that lacks the key, is called, any other read in place.
+            let r = match got.take() {
+                Some(r) => r,
+                None => match table_hook(vm, self.table, key) {
+                    Some((func, class)) => return Ok(Call::Frame(func, class, [self.table, key, Val::undef()])),
+                    None => vm.get_item_builtin(self.table, key).and_then(|()| vm.pop()),
+                },
+            };
+            match r {
+                Ok(v) => translate_put(vm, &mut self.out, v)?,
+                Err(e) if vm.raised_as(&e, "LookupError") => { vm.pending.exc_val = None; self.out.push(c); }
+                Err(e) => return Err(e),
+            }
+            self.at += c.len_utf8();
+        }
+        Ok(Call::Give(vm.heap.alloc(HeapObj::Str(core::mem::take(&mut self.out)))?))
+    }
+
+    fn for_each_val(&self, f: &mut dyn FnMut(Val)) { f(self.recv); f(self.table); }
+}
+
+/* The plain function and class for item `key` of `table`, its `__getitem__` or a dict subclass's `__missing__`, None for a read in place. */
+fn table_hook(vm: &VM, table: Val, key: Val) -> Option<(Val, Val)> {
+    let class = vm.instance_class(table)?;
+    let func = |name| vm.lookup_class_member(class, name).filter(|(f, _)| matches!(vm.heap.try_get(*f), Some(HeapObj::Func(..))));
+    if let Some(found) = func("__getitem__") { return Some(found); }
+    let HeapObj::Dict(d) = vm.heap.get(table) else { return None };
+    if d.borrow().get(&key, &vm.heap).is_some() { return None; }
+    func("__missing__")
 }

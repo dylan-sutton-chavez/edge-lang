@@ -6,16 +6,21 @@ use super::super::types::*;
 impl<'a> VM<'a> {
 
     /* `print(*args, sep=' ', end='\n')` joins args with `sep`, appends `end`, streams exact bytes via `print_hook` or buffers. Leaves no value (statement-shaped), value uses get a None pushed by the parser / the generic Call path. */
+    #[inline(never)]
     pub fn call_print(&mut self, op: u16, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
+        let ok = core::mem::take(&mut self.job_ok);
         let (positional, kw_flat) = self.parse_call_args(op)?;
-        let mut sep = String::from(" ");
-        let mut end = String::from("\n");
+        // One container or instance printed alone runs its `__repr__` or `__str__` as frames of the loop, a container writing its items with repr.
+        if ok && kw_flat.is_empty() && let [o] = positional[..] && o.is_heap() && self.render_job(o, true, chunk)? { return Ok(()); }
+        if ok && kw_flat.is_empty() && let [o] = positional[..] && self.is_instance(o) && self.str_job(o, true) { return Ok(()); }
+        // The defaults are borrowed, so a print with no keyword makes no string for them.
+        let (mut sep, mut end) = (alloc::borrow::Cow::Borrowed(" "), alloc::borrow::Cow::Borrowed("\n"));
         for pair in kw_flat.as_chunks::<2>().0 {
             // Own the name so the heap borrow ends before the &mut self kwarg calls.
             let kname = String::from(self.kw_name(pair[0]).unwrap_or(""));
             match kname.as_str() {
-                "sep" => sep = self.print_str_kwarg(pair[1], " ", "sep")?,
-                "end" => end = self.print_str_kwarg(pair[1], "\n", "end")?,
+                "sep" => sep = alloc::borrow::Cow::Owned(self.print_str_kwarg(pair[1], " ", "sep")?),
+                "end" => end = alloc::borrow::Cow::Owned(self.print_str_kwarg(pair[1], "\n", "end")?),
                 // No file/stdout selection or buffering in the sandbox, accept and ignore.
                 "file" | "flush" => {}
                 _ => return Err(VmErr::TypeMsg(crate::s!("print() got an unexpected keyword argument '", str &kname, "'"))),
