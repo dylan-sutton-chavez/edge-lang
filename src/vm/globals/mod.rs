@@ -40,7 +40,7 @@ pub(in crate::vm) fn is_exc_type(name: &str) -> bool { name == "BaseException" |
 
 /* Whether builtin exception `name` is a group, the two group types having no builtin subclass. */
 #[inline]
-pub(in crate::vm) fn is_group_type(name: &str) -> bool { matches!(name, "ExceptionGroup" | "BaseExceptionGroup") }
+pub(crate) fn is_group_type(name: &str) -> bool { matches!(name, "ExceptionGroup" | "BaseExceptionGroup") }
 
 /* The second parent of a builtin exception with two, `ExceptionGroup` under `BaseExceptionGroup`. */
 fn exc_also(name: &str) -> Option<&'static str> {
@@ -58,7 +58,7 @@ pub(in crate::vm) fn type_parents(name: &str) -> alloc::vec::Vec<&'static str> {
     exc_parents(name)
 }
 
-pub(in crate::vm) fn matches_exc_class(actual: &str, expected: &str) -> bool {
+pub(crate) fn matches_exc_class(actual: &str, expected: &str) -> bool {
     let mut cur = actual;
     loop {
         if cur == expected { return true; }

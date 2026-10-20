@@ -7,11 +7,11 @@ use core::cell::RefCell;
 
 use compiler::lexer::{lex, TokenType};
 use compiler::modules::{NativeBinding, Resolved, Resolver};
-use compiler::parser::{Diagnostic, Parser, SSAChunk};
+use compiler::code::{Diagnostic, Parser, SSAChunk};
 use compiler::value::{HeapObj, HeapPool, Val, VmErr, as_i128};
-use compiler::vm::VM;
+use compiler::embed::VM;
 
-pub use compiler::vm::Limits;
+pub use compiler::embed::Limits;
 
 // a source rewrite applied before lexing, its output must be valid edge python
 pub type Transform = dyn Fn(&str) -> String + Send + Sync + 'static;
@@ -242,7 +242,7 @@ impl Engine {
             }
             return Err(Error::Compile(buf, errs.first().map(|e| line_col(&src, e.start))));
         }
-        compiler::optimizer::constant_fold(&mut chunk);
+        compiler::code::constant_fold(&mut chunk);
         Ok(Program { chunk, source: src, limits: self.limits })
     }
 }

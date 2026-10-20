@@ -193,21 +193,26 @@ pub(super) fn removed_builtin(name: &str) -> Option<usize> {
     REMOVED_BUILTINS.iter().position(|&(n, _)| n == name)
 }
 
-/* Whether a class body may bind dunder `name`, every other one compiles to an error. */
-pub(super) fn class_dunder(name: &str) -> bool {
-    matches!(name,
-        "__init__" | "__repr__" | "__str__" | "__format__" | "__bool__" | "__len__" | "__iter__" | "__next__" |
-        "__contains__" | "__getitem__" | "__setitem__" | "__delitem__" | "__missing__" | "__getattr__" | "__call__" | "__enter__" |
-        "__exit__" | "__eq__" | "__ne__" | "__lt__" | "__le__" | "__gt__" | "__ge__" | "__int__" | "__float__" |
-        "__index__" | "__abs__" | "__neg__" | "__pos__" | "__invert__" | "__class_getitem__" | "__match_args__" |
-        "__init_subclass__" | "__set_name__" | "__get__" | "__set__" | "__delete__" | "__setattr__" | "__delattr__" | "__new__" | "__slots__" | "__hash__" | "__complex__" |
-        "__add__" | "__sub__" | "__mul__" | "__truediv__" | "__floordiv__" | "__matmul__" | "__mod__" | "__pow__" |
-        "__and__" | "__or__" | "__xor__" | "__lshift__" | "__rshift__" | "__radd__" | "__rsub__" | "__rmul__" |
-        "__rtruediv__" | "__rfloordiv__" | "__rmatmul__" | "__rmod__" | "__rpow__" | "__rand__" | "__ror__" |
-        "__rxor__" | "__rlshift__" | "__rrshift__" | "__iadd__" | "__isub__" | "__imul__" | "__itruediv__" |
-        "__ifloordiv__" | "__imatmul__" | "__imod__" | "__ipow__" | "__iand__" | "__ior__" | "__ixor__" |
-        "__ilshift__" | "__irshift__" | "__dir__" | "__await__" | "__aiter__" | "__anext__" | "__aenter__" | "__aexit__"
-    )
+/* The dunders a class body may bind, every other one compiles to an error, `CLASS_DUNDERS` listing them and `class_dunder` testing one. */
+macro_rules! class_dunders {
+    ($($n:literal)*) => {
+        pub static CLASS_DUNDERS: &[&str] = &[$($n),*];
+        pub fn class_dunder(name: &str) -> bool { matches!(name, $($n)|*) }
+    };
+}
+
+class_dunders! {
+    "__init__" "__repr__" "__str__" "__format__" "__bool__" "__len__" "__iter__" "__next__"
+    "__contains__" "__getitem__" "__setitem__" "__delitem__" "__missing__" "__getattr__" "__call__" "__enter__"
+    "__exit__" "__eq__" "__ne__" "__lt__" "__le__" "__gt__" "__ge__" "__int__" "__float__"
+    "__index__" "__abs__" "__neg__" "__pos__" "__invert__" "__class_getitem__" "__match_args__"
+    "__init_subclass__" "__set_name__" "__get__" "__set__" "__delete__" "__setattr__" "__delattr__" "__new__" "__slots__" "__hash__" "__complex__"
+    "__add__" "__sub__" "__mul__" "__truediv__" "__floordiv__" "__matmul__" "__mod__" "__pow__"
+    "__and__" "__or__" "__xor__" "__lshift__" "__rshift__" "__radd__" "__rsub__" "__rmul__"
+    "__rtruediv__" "__rfloordiv__" "__rmatmul__" "__rmod__" "__rpow__" "__rand__" "__ror__"
+    "__rxor__" "__rlshift__" "__rrshift__" "__iadd__" "__isub__" "__imul__" "__itruediv__"
+    "__ifloordiv__" "__imatmul__" "__imod__" "__ipow__" "__iand__" "__ior__" "__ixor__"
+    "__ilshift__" "__irshift__" "__dir__" "__await__" "__aiter__" "__anext__" "__aenter__" "__aexit__"
 }
 
 // Constant literals stored in the bytecode constants pool.

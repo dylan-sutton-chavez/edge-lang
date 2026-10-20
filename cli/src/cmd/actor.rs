@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Context, Result};
 use crate::actor::{Group, Message, Out, ActorConfig};
 use crate::host::RunLimits;
-use compiler::vm::Limits;
+use compiler::embed::Limits;
 use serde::Deserialize;
 use std::path::Path;
 

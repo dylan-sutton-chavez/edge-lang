@@ -5,25 +5,8 @@ use super::super::types::*;
 
 impl<'a> VM<'a> {
 
-    /* `bytes_fromhex(s)`, the `bytes.fromhex` classmethod as a function. */
-    pub fn call_bytes_fromhex(&mut self) -> Result<(), VmErr> {
-        let s = self.pop()?;
-        crate::vm::methods::bytes::fromhex(self, Val::none(), &[s])
-    }
 
-    /* `int_from_bytes(b, byteorder)`, the `int.from_bytes` classmethod as a function. */
-    pub fn call_int_from_bytes(&mut self) -> Result<(), VmErr> {
-        let order = self.pop()?;
-        let b = self.pop()?;
-        if !matches!(self.heap.try_get(b), Some(HeapObj::Bytes(_))) { return Err(cold_type("int_from_bytes() first arg must be bytes")); }
-        crate::vm::methods::numeric::from_bytes(self, Val::none(), &[b, order])
-    }
 
-    // `int_to_bytes(n, length, byteorder)`, the `int.to_bytes` method as a function.
-    pub fn call_int_to_bytes(&mut self) -> Result<(), VmErr> {
-        let args = self.pop_n(3)?;
-        crate::vm::methods::numeric::to_bytes(self, args[0], &args[1..])
-    }
 
     // `import_module(name)`, fetch an already-imported module by alias, returns its `HeapObj::Module` Val.
     pub fn call_import_module(&mut self) -> Result<(), VmErr> {

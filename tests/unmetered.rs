@@ -1,6 +1,6 @@
 use compiler::lexer::lex;
-use compiler::parser::Parser;
-use compiler::vm::{Limits, VM};
+use compiler::code::Parser;
+use compiler::embed::{Limits, VM};
 
 // Without the metering allocator nothing counts the memory limit, so a run refuses it and runs without one.
 #[test]

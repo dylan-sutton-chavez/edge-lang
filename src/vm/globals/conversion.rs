@@ -1,47 +1,10 @@
 use super::super::VM;
 use super::super::types::*;
-use crate::alloc::string::ToString;
+use crate::vm::natives::Builtins;
 
 impl<'a> VM<'a> {
 
-    pub fn call_str(&mut self, argc: u16, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
-        let ok = core::mem::take(&mut self.job_ok);
-        if argc == 0 { return self.alloc_and_push_str(alloc::string::String::new()); }
-        if argc >= 2 {
-            // `str(bytes, encoding[, errors])` decodes, mirroring `bytes.decode`.
-            let args = self.pop_n(argc as usize)?;
-            for (&a, name) in args[1..].iter().zip(["encoding", "errors"]) {
-                if !matches!(self.heap.try_get(a), Some(HeapObj::Str(_))) {
-                    return Err(VmErr::TypeMsg(crate::s!("str() argument '", str name, "' must be str, not ", str self.type_name(a))));
-                }
-            }
-            if self.heap.bytes_of(args[0]).is_some() {
-                return crate::vm::methods::bytes::decode(self, args[0], &args[1..]);
-            }
-            return Err(VmErr::TypeMsg(crate::s!("decoding to str: need a bytes-like object, ", str self.type_name(args[0]), " found")));
-        }
-        let o = self.pop()?;
-        // A container writes its items with repr, as `repr` does, and an instance its `__str__` or `__repr__`, each run as frames of the loop.
-        if ok && o.is_heap() && self.render_job(o, false, chunk)? { return Ok(()); }
-        if ok && self.is_instance(o) && self.str_job(o, false) { return Ok(()); }
-        let s = self.display_op(o, chunk)?;
-        self.alloc_and_push_str(s)
-    }
 
-    pub fn call_bool(&mut self, argc: u16, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
-        let ok = core::mem::take(&mut self.job_ok);
-        if argc == 0 { self.push(Val::bool(false)); return Ok(()); }
-        let o = self.pop()?;
-        // An instance's `__bool__`, or past it its `__len__`, runs as a frame of the loop.
-        if ok && self.is_instance(o) {
-            let class = self.instance_class(o).unwrap_or(Val::undef());
-            let has_bool = self.lookup_class_member(class, "__bool__").is_some();
-            if if has_bool { self.check_job(o, crate::vm::jobs::Check::Bool) } else { self.check_job(o, crate::vm::jobs::Check::LenTruth) } { return Ok(()); }
-        }
-        let t = self.truthy_op(o, chunk)?;
-        self.push(Val::bool(t));
-        Ok(())
-    }
 
     pub fn call_type(&mut self, argc: u16) -> Result<(), VmErr> {
         let ok = core::mem::take(&mut self.job_ok);
@@ -78,17 +41,4 @@ impl<'a> VM<'a> {
         Ok(())
     }
 
-    /* The name `type(x)` reports, a user instance's own class, an exception's concrete class, else the builtin type name. */
-    pub(crate) fn type_repr_name(&self, o: Val) -> alloc::string::String {
-        if o.is_heap() {
-            match self.heap.get(o) {
-                // Exception instances report their concrete class (e.g. `ZeroDivisionError`).
-                HeapObj::ExcInstance(n, ..) => return n.clone(),
-                _ => if let Some(cls) = self.instance_class(o) && let HeapObj::Class(n, _, _) = self.heap.get(cls) {
-                    return n.clone();
-                },
-            }
-        }
-        self.type_name(o).to_string() // interned, so shares the `set`/`int` singleton
-    }
 }

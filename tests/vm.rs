@@ -2,9 +2,9 @@
 mod test {
 
     use compiler::lexer::lex;
-    use compiler::parser::Parser;
-    use compiler::vm::VM;
-    use compiler::vm::types::{SchedulerStatus, VmErr};
+    use compiler::code::Parser;
+    use compiler::embed::VM;
+    use compiler::value::{SchedulerStatus, VmErr};
 
     #[derive(serde::Deserialize)]
     #[serde(deny_unknown_fields)]
@@ -91,7 +91,7 @@ mod test {
             }
             let (mut chunk, _errors) = Parser::new(&case.src, tokens.into_iter()).parse();
             // Run the same fold pass production does (exports.rs), so fold-path bugs surface here.
-            compiler::vm::optimizer::constant_fold(&mut chunk);
+            compiler::code::constant_fold(&mut chunk);
             let mut vm = VM::with_limits(&chunk, crate::common::corpus_limits());
             vm.input_buffer = case.input.clone();
             hook_sends(&mut vm, &case);
@@ -167,7 +167,7 @@ mod test {
                 }
             }
             // Match production and fold before running.
-            compiler::vm::optimizer::constant_fold(&mut chunk);
+            compiler::code::constant_fold(&mut chunk);
 
             let mut vm = VM::with_limits(&chunk, crate::common::corpus_limits());
             vm.input_buffer = case.input.clone();
@@ -199,10 +199,10 @@ mod test {
     /* An error the host delivers into a parked call renders like one the call raised itself. */
     mod host_errors {
         use compiler::lexer::lex;
-        use compiler::parser::{Parser, SSAChunk};
-        use compiler::vm::VM;
-        use compiler::vm::snapshot;
-        use compiler::vm::types::{Limits, SchedulerStatus, VmErr};
+        use compiler::code::{Parser, SSAChunk};
+        use compiler::embed::VM;
+        use compiler::embed as snapshot;
+        use compiler::value::{Limits, SchedulerStatus, VmErr};
 
         use crate::common::{fail, test_native, TestResolver};
 
@@ -212,7 +212,7 @@ mod test {
             let (tokens, _) = lex(src);
             let (mut chunk, errs) = Parser::with_resolver(src, tokens.into_iter(), Box::new(resolver)).parse();
             assert!(errs.is_empty(), "parse errors on {src:?}: {:?}", errs.iter().map(|e| &e.msg).collect::<Vec<_>>());
-            compiler::vm::optimizer::constant_fold(&mut chunk);
+            compiler::code::constant_fold(&mut chunk);
             chunk
         }
 
@@ -396,7 +396,7 @@ mod test {
     // Builtins that scan or copy pay the op budget for what they read, so looping one cannot outrun it.
     #[test]
     fn native_work_pays_the_budget() {
-        use compiler::vm::types::Limits;
+        use compiler::value::Limits;
         for src in [
             "s = 'ab' * 5000\nfor i in range(1000):\n    n = s.count('b')",
             "l = list(range(10000))\nfor i in range(1000):\n    t = -1 in l",

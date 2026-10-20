@@ -49,7 +49,7 @@ fn parse_source(src: &str) -> Result<Rc<SSAChunk>, String> {
         p.chunk.warnings.retain(|w| w.start < first);
         return Err(s!(str &Diagnostic::render_warnings(&p.chunk.warnings, src, name.as_deref()), str &report));
     }
-    crate::vm::optimizer::constant_fold(&mut p.chunk);
+    crate::optimizer::constant_fold(&mut p.chunk);
     Ok(Rc::new(p.chunk))
 }
 

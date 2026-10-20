@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use slab::Slab;
 
-use compiler::vm::Limits;
+use compiler::embed::Limits;
 
 use crate::host::{now_ns, Host, Instance, Project, Runtime, Vm};
 

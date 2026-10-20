@@ -10,6 +10,11 @@ pub mod scheduler;
 pub mod meter;
 pub mod pool;
 pub mod foreign;
+pub mod host;
+pub mod render;
+pub use host::Host;
+// Python ints past what an i64 holds.
+pub use crate::frontend::bigint::BigInt;
 pub use foreign::{BinOp, UnOp};
 
 pub use frames::*;
@@ -287,7 +292,7 @@ pub use crate::vm::methods::BuiltinMethodId;
 
 // One entry per builtin with its name and arity, `n`, `(lo, hi)`, `(lo, var)` or `var`.
 macro_rules! builtins {
-    ( $( $variant:ident => $name:literal, $arity:tt );* $(;)? ) => {
+    ( $( $variant:ident => $name:literal, $arity:tt $(, $why:literal)? $(=> $body:expr)? );* $(;)? ) => {
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]
         #[repr(u8)]
         pub enum NativeFnId { $( $variant ),* }
@@ -303,8 +308,23 @@ macro_rules! builtins {
             pub fn takes(self, n: u16) -> bool { let (lo, hi) = self.arity(); (lo..=hi).contains(&n) }
             // Every builtin, in table order.
             pub const ALL: &'static [NativeFnId] = &[ $( NativeFnId::$variant ),* ];
+            // Whether the result hangs on the arguments alone.
+            pub fn pure(self) -> bool { match self { $( NativeFnId::$variant => builtins!(@b $($body)?) ),* } }
+            // Why call_pure leaves it out.
+            pub fn excluded(self) -> Option<&'static str> { match self { $( NativeFnId::$variant => builtins!(@w $($why)?) ),* } }
+            // Runs on plain values with `n` arguments on the stack.
+            #[cfg(feature = "pure")]
+            pub(crate) fn plain(self, h: &mut crate::pure::PlainHost, n: u16) -> Option<Result<(), VmErr>> {
+                #[allow(unused_imports)]
+                use crate::vm::natives::Builtins;
+                match self { $( NativeFnId::$variant => builtins!(@p h n $($body)?) ),* }
+            }
         }
     };
+    (@b) => { false }; (@b $body:expr) => { true };
+    (@w) => { None }; (@w $why:literal) => { Some($why) };
+    (@p $h:ident $n:ident) => { None };
+    (@p $h:ident $n:ident $body:expr) => {{ let f: fn(&mut crate::pure::PlainHost, u16, &()) -> Result<(), VmErr> = $body; Some(f($h, $n, &())) }};
     (@a var) => { (0, u16::MAX) };
     (@a ($lo:literal, var)) => { ($lo, u16::MAX) };
     (@a ($lo:literal, $hi:literal)) => { ($lo, $hi) };
@@ -312,45 +332,85 @@ macro_rules! builtins {
 }
 
 builtins! {
-    Print => "print", var;
-    Len => "len", 1; Abs => "abs", 1; Str => "str", (0, 3); Int => "int", (0, 2); Float => "float", (0, 1);
-    Bool => "bool", (0, 1); Type => "type", (1, 3); Chr => "chr", 1; Ord => "ord", 1;
-    Range => "range", (1, 3); Round => "round", (1, 2); Min => "min", (1, var); Max => "max", (1, var); Sum => "sum", (1, 2);
-    Sorted => "sorted", 1; Enumerate => "enumerate", (1, 2); Zip => "zip", var;
-    List => "list", (0, 1); Tuple => "tuple", (0, 1); Dict => "dict", (0, 1); Set => "set", (0, 1);
-    IsInstance => "isinstance", 2; IsSubclass => "issubclass", 2; Input => "input", 0;
-    All => "all", 1; Any => "any", 1;
-    Bin => "bin", 1; Oct => "oct", 1; Hex => "hex", 1; Divmod => "divmod", 2; Pow => "pow", (2, 3);
-    Repr => "repr", 1; Reversed => "reversed", 1; Callable => "callable", 1;
-    Format => "format", (1, 2); GetAttr => "getattr", (2, 3); HasAttr => "hasattr", 2; SetAttr => "setattr", 3; DelAttr => "delattr", 2;
-    Next => "next", (1, 2);
-    Receive => "receive", 0; Map => "map", (2, var); Filter => "filter", 2; Iter => "iter", (1, 2);
-    Bytes => "bytes", (0, 3); ImportModule => "import_module", 1; Slice => "slice", (1, 3); Vars => "vars", (0, 1);
-    BytesFromHex => "bytes_fromhex", 1; IntFromBytes => "int_from_bytes", 2; IntToBytes => "int_to_bytes", 3; FrozenSet => "frozenset", (0, 1);
-    Globals => "globals", 0; Locals => "locals", 0; Dir => "dir", (0, 1);
-    Super => "super", (0, 2);
-    Property => "property", var;
-    StaticMethod => "staticmethod", 1;
-    ClassMethod => "classmethod", 1;
-    SendMsg => "send", 2;
-    Eval => "eval", (1, 3);
-    Exec => "exec", (1, 3);
-    Compile => "compile", (3, 6);
-    Id => "id", 1;
-    Hash => "hash", 1;
-    Complex => "complex", (0, 2);
-    ByteArray => "bytearray", (0, 3);
-    MemoryView => "memoryview", 1;
-    Ascii => "ascii", 1;
-    Sentinel => "sentinel", 1;
-    AIter => "aiter", 1;
-    ANext => "anext", (1, 2);
-    FrozenDict => "frozendict", (0, 1);
+    Print => "print", var, "writes to the output of the program";
+    Len => "len", 1 => |h, _, c| h.call_len(c);
+    Abs => "abs", 1 => |h, _, c| h.call_abs(c);
+    Str => "str", (0, 3) => |h, n, c| h.call_str(n, c);
+    Int => "int", (0, 2) => |h, n, c| h.call_int(n, c);
+    Float => "float", (0, 1) => |h, n, c| h.call_float(n, c);
+    Bool => "bool", (0, 1) => |h, n, c| h.call_bool(n, c);
+    Type => "type", (1, 3), "gives a type object, which is no plain value";
+    Chr => "chr", 1 => |h, _, _| h.call_chr();
+    Ord => "ord", 1 => |h, _, _| h.call_ord();
+    Range => "range", (1, 3) => |h, n, _| h.call_range(n);
+    Round => "round", (1, 2) => |h, n, _| h.call_round(n);
+    Min => "min", (1, var) => |h, n, c| h.call_min(n, c);
+    Max => "max", (1, var) => |h, n, c| h.call_max(n, c);
+    Sum => "sum", (1, 2) => |h, n, c| h.call_sum(n, c);
+    Sorted => "sorted", 1 => |h, _, c| h.sorted_of(false, false, c);
+    Enumerate => "enumerate", (1, 2) => |h, n, c| h.call_enumerate(n, c);
+    Zip => "zip", var => |h, n, c| h.call_zip(n, c);
+    List => "list", (0, 1) => |h, n, c| h.call_list(n, c);
+    Tuple => "tuple", (0, 1) => |h, n, c| h.call_tuple(n, c);
+    Dict => "dict", (0, 1) => |h, n, _| h.call_dict(n);
+    Set => "set", (0, 1) => |h, n, _| h.call_set(n);
+    IsInstance => "isinstance", 2, "takes type objects, which are no plain values";
+    IsSubclass => "issubclass", 2, "takes type objects, which are no plain values";
+    Input => "input", 0, "reads the input of the program";
+    All => "all", 1 => |h, n, c| h.call_all(n, c);
+    Any => "any", 1 => |h, n, c| h.call_any(n, c);
+    Bin => "bin", 1 => |h, _, _| h.call_bin();
+    Oct => "oct", 1 => |h, _, _| h.call_oct();
+    Hex => "hex", 1 => |h, _, _| h.call_hex();
+    Divmod => "divmod", 2 => |h, _, _| h.call_divmod();
+    Pow => "pow", (2, 3) => |h, n, _| h.call_pow(n);
+    Repr => "repr", 1 => |h, _, c| h.call_repr(c);
+    Reversed => "reversed", 1 => |h, _, _| h.call_reversed();
+    Callable => "callable", 1 => |h, _, _| h.call_callable();
+    Format => "format", (1, 2) => |h, n, c| h.call_format(n, c);
+    GetAttr => "getattr", (2, 3), "reads attributes, which may run user code";
+    HasAttr => "hasattr", 2, "reads attributes, which may run user code";
+    SetAttr => "setattr", 3, "changes an object";
+    DelAttr => "delattr", 2, "changes an object";
+    Next => "next", (1, 2), "steps an iterator the VM holds";
+    Receive => "receive", 0, "waits for an event of the host";
+    Map => "map", (2, var), "calls a function, which may be user code";
+    Filter => "filter", 2, "calls a function, which may be user code";
+    Iter => "iter", (1, 2), "gives an iterator the VM holds";
+    Bytes => "bytes", (0, 3) => |h, n, _| h.call_bytes(n);
+    ImportModule => "import_module", 1, "reads the modules of the program";
+    Slice => "slice", (1, 3) => |h, n, _| h.call_slice(n);
+    Vars => "vars", (0, 1), "reads the namespace of a frame";
+    BytesFromHex => "bytes_fromhex", 1 => |h, _, _| h.call_bytes_fromhex();
+    IntFromBytes => "int_from_bytes", 2 => |h, _, _| h.call_int_from_bytes();
+    IntToBytes => "int_to_bytes", 3 => |h, _, _| h.call_int_to_bytes();
+    FrozenSet => "frozenset", (0, 1) => |h, n, _| h.call_frozenset(n);
+    Globals => "globals", 0, "reads the namespace of a frame";
+    Locals => "locals", 0, "reads the namespace of a frame";
+    Dir => "dir", (0, 1), "reads the names of a frame or an object";
+    Super => "super", (0, 2), "reads the class and frame it runs in";
+    Property => "property", var, "makes a descriptor for a class";
+    StaticMethod => "staticmethod", 1, "makes a descriptor for a class";
+    ClassMethod => "classmethod", 1, "makes a descriptor for a class";
+    SendMsg => "send", 2, "hands a message to the host";
+    Eval => "eval", (1, 3), "compiles and runs code";
+    Exec => "exec", (1, 3), "compiles and runs code";
+    Compile => "compile", (3, 6), "compiles code";
+    Id => "id", 1, "reads where the VM placed a value";
+    Hash => "hash", 1, "gives a hash the VM seeds";
+    Complex => "complex", (0, 2) => |h, n, c| h.call_complex(n, c);
+    ByteArray => "bytearray", (0, 3) => |h, n, _| h.call_bytearray(n);
+    MemoryView => "memoryview", 1, "shares the buffer of the VM that holds it";
+    Ascii => "ascii", 1 => |h, _, c| h.call_ascii(c);
+    Sentinel => "sentinel", 1, "makes an object equal only to itself";
+    AIter => "aiter", 1, "gives an async iterator the VM steps";
+    ANext => "anext", (1, 2), "steps an async iterator the VM holds";
+    FrozenDict => "frozendict", (0, 1) => |h, n, _| h.call_frozendict(n);
     // The steps `except*` compiles to, named so no program can spell them.
-    StarStart => "%star_start", 1;
-    StarSplit => "%star_split", 2;
-    StarRaised => "%star_raised", 3;
-    StarEnd => "%star_end", 1;
+    StarStart => "%star_start", 1, "a step of except*, which only compiled code takes";
+    StarSplit => "%star_split", 2, "a step of except*, which only compiled code takes";
+    StarRaised => "%star_raised", 3, "a step of except*, which only compiled code takes";
+    StarEnd => "%star_end", 1, "a step of except*, which only compiled code takes";
 }
 
 /* Insertion-ordered set, each item beside its hash and removed ones undef tombstones, so no table layout decides its order. */

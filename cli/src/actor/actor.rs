@@ -3,7 +3,7 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 use compiler::modules::dir_of;
-use compiler::vm::Limits;
+use compiler::embed::Limits;
 
 use crate::host::{driver, now_ns, Host, Project, Sink, Status, Vm, TICK_NS};
 use crate::pack::{base64_decode, Bundle, BUNDLE_TAG};

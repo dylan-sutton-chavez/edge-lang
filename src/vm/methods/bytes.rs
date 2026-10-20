@@ -2,22 +2,22 @@ use super::prelude::*;
 use crate::vm::opcodes::subscript::slice_bounds;
 
 // `bytes.decode([encoding[, errors]])`. 'strict' raises on invalid UTF-8, 'ignore'/'replace' recover.
-pub fn decode(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
+pub fn decode<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
     let (encoding, errors) = super::string::codec_args(vm, pos)?;
     let text = crate::vm::codecs::decode(recv_bytes_ref(vm, recv)?, encoding, errors)?;
-    let v = vm.heap.alloc(HeapObj::Str(text))?;
+    let v = vm.heap_mut().alloc(HeapObj::Str(text))?;
     vm.push(v); Ok(())
 }
 
 // `bytes.hex([sep[, bytes_per_sep]])`, lowercase hex of every byte, `sep` between groups counted from the right, or the left when negative.
-pub fn hex(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
+pub fn hex<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
     let sep = match pos.first().filter(|v| !v.is_none()) {
         None => None,
         Some(&v) => {
             // A str separator counts its characters, so one non-ASCII character is refused for being so.
-            let units: Vec<u32> = match vm.heap.try_get(v) {
+            let units: Vec<u32> = match vm.heap().try_get(v) {
                 Some(HeapObj::Str(t)) => t.chars().map(|c| c as u32).collect(),
-                _ => match vm.heap.octets(v) { Some(b) => b.iter().map(|&c| c as u32).collect(), None => return Err(VmErr::TypeMsg(crate::s!("object of type '", str vm.type_name(v), "' has no len()"))) },
+                _ => match vm.heap().octets(v) { Some(b) => b.iter().map(|&c| c as u32).collect(), None => return Err(VmErr::TypeMsg(crate::s!("object of type '", str vm.type_name(v), "' has no len()"))) },
             };
             if units.len() != 1 { return Err(cold_value("sep must be length 1.")); }
             if units[0] > 0x7F { return Err(cold_value("sep must be ASCII.")); }
@@ -40,14 +40,14 @@ pub fn hex(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
 }
 
 // bytes-only, strings go through `string::startswith`.
-pub fn startswith(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { affix_impl(vm, recv, pos, false) }
-pub fn endswith(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { affix_impl(vm, recv, pos, true) }
+pub fn startswith<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> { affix_impl(vm, recv, pos, false) }
+pub fn endswith<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> { affix_impl(vm, recv, pos, true) }
 
 /* `startswith` and `endswith`, of one affix or a tuple of them, within the optional start and end. */
-fn affix_impl(vm: &mut VM, recv: Val, pos: &[Val], end: bool) -> Result<(), VmErr> {
-    let affixes = match vm.heap.try_get(pos[0]) { Some(HeapObj::Tuple(items)) => items.to_vec(), _ => alloc::vec![pos[0]] };
+fn affix_impl<H: Host>(vm: &mut H, recv: Val, pos: &[Val], end: bool) -> Result<(), VmErr> {
+    let affixes = match vm.heap().try_get(pos[0]) { Some(HeapObj::Tuple(items)) => items.to_vec(), _ => alloc::vec![pos[0]] };
     let buf = recv_bytes_ref(vm, recv)?;
-    let span = window(buf, pos)?;
+    let span = window(buf, pos, vm.heap())?;
     let mut hit = false;
     for affix in affixes {
         let Ok(p) = recv_bytes_ref(vm, affix) else {
@@ -61,13 +61,13 @@ fn affix_impl(vm: &mut VM, recv: Val, pos: &[Val], end: bool) -> Result<(), VmEr
 }
 
 /* Shared search for find/index and their right forms, `raise` turns a miss into ValueError. */
-pub fn find(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { find_impl(vm, recv, pos, false, false) }
-pub fn index(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { find_impl(vm, recv, pos, false, true) }
-pub fn rfind(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { find_impl(vm, recv, pos, true, false) }
-pub fn rindex(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { find_impl(vm, recv, pos, true, true) }
+pub fn find<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> { find_impl(vm, recv, pos, false, false) }
+pub fn index<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> { find_impl(vm, recv, pos, false, true) }
+pub fn rfind<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> { find_impl(vm, recv, pos, true, false) }
+pub fn rindex<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> { find_impl(vm, recv, pos, true, true) }
 
 // `bytes.fromhex(s)` classmethod, parse pairs of hex digits, skipping ASCII whitespace between pairs.
-pub fn fromhex(vm: &mut VM, _recv: Val, pos: &[Val]) -> Result<(), VmErr> {
+pub fn fromhex<H: Host>(vm: &mut H, _recv: Val, pos: &[Val]) -> Result<(), VmErr> {
     let s = val_to_str(vm, pos[0], "fromhex() argument must be str or bytes-like")?;
     let mut out: Vec<u8> = Vec::new();
     let mut hi: Option<u8> = None;
@@ -82,20 +82,20 @@ pub fn fromhex(vm: &mut VM, _recv: Val, pos: &[Val]) -> Result<(), VmErr> {
     give(vm, out)
 }
 
-pub fn lower(vm: &mut VM, recv: Val, _pos: &[Val]) -> Result<(), VmErr> {
+pub fn lower<H: Host>(vm: &mut H, recv: Val, _pos: &[Val]) -> Result<(), VmErr> {
     let mut buf = recv_bytes(vm, recv)?;
     buf.make_ascii_lowercase();
     give(vm, buf)
 }
 
-pub fn upper(vm: &mut VM, recv: Val, _pos: &[Val]) -> Result<(), VmErr> {
+pub fn upper<H: Host>(vm: &mut H, recv: Val, _pos: &[Val]) -> Result<(), VmErr> {
     let mut buf = recv_bytes(vm, recv)?;
     buf.make_ascii_uppercase();
     give(vm, buf)
 }
 
 // bytes strip, ASCII whitespace, or any byte in the optional argument.
-fn bstrip(vm: &mut VM, recv: Val, pos: &[Val], left: bool, right: bool) -> Result<(), VmErr> {
+fn bstrip<H: Host>(vm: &mut H, recv: Val, pos: &[Val], left: bool, right: bool) -> Result<(), VmErr> {
     let buf = recv_bytes_ref(vm, recv)?;
     let chars = match pos.first() { Some(&a) => Some(recv_bytes_ref(vm, a)?), None => None };
     let strip = |b: u8| -> bool { match &chars { Some(set) => set.contains(&b), None => is_ws(b) } };
@@ -106,11 +106,11 @@ fn bstrip(vm: &mut VM, recv: Val, pos: &[Val], left: bool, right: bool) -> Resul
     let out = buf[s..e].to_vec();
     give(vm, out)
 }
-pub fn strip(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { bstrip(vm, recv, pos, true, true) }
-pub fn lstrip(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { bstrip(vm, recv, pos, true, false) }
-pub fn rstrip(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { bstrip(vm, recv, pos, false, true) }
+pub fn strip<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> { bstrip(vm, recv, pos, true, true) }
+pub fn lstrip<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> { bstrip(vm, recv, pos, true, false) }
+pub fn rstrip<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> { bstrip(vm, recv, pos, false, true) }
 
-pub fn join(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
+pub fn join<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
     let items = vm.extract_iter(pos[0]).map_err(|e| if matches!(e, VmErr::TypeMsg(_)) { cold_type("can only join an iterable of bytes") } else { e })?;
     let sep = recv_bytes_ref(vm, recv)?;
     let mut out: Vec<u8> = Vec::new();
@@ -122,7 +122,7 @@ pub fn join(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
 }
 
 /* What a search looks for, bytes-like or one byte by its value. */
-fn needle(vm: &VM, v: Val) -> Result<Vec<u8>, VmErr> {
+fn needle<H: Host>(vm: &H, v: Val) -> Result<Vec<u8>, VmErr> {
     if v.is_int() || v.is_bool() {
         return u8::try_from(index_arg(vm, v)?).map(|b| alloc::vec![b]).map_err(|_| cold_value("byte must be in range(0, 256)"));
     }
@@ -130,8 +130,8 @@ fn needle(vm: &VM, v: Val) -> Result<Vec<u8>, VmErr> {
 }
 
 /* A bytes-like argument, refused the way Python names any other value. */
-fn bytes_like<'v>(vm: &'v VM, v: Val) -> Result<alloc::borrow::Cow<'v, [u8]>, VmErr> {
-    vm.heap.octets(v).ok_or_else(|| VmErr::TypeMsg(crate::s!("a bytes-like object is required, not '", str vm.type_name(v), "'")))
+fn bytes_like<'v, H: Host>(vm: &'v H, v: Val) -> Result<alloc::borrow::Cow<'v, [u8]>, VmErr> {
+    vm.heap().octets(v).ok_or_else(|| VmErr::TypeMsg(crate::s!("a bytes-like object is required, not '", str vm.type_name(v), "'")))
 }
 
 /* Start of the last `sub` in `buf`. */
@@ -147,17 +147,17 @@ fn find_from(buf: &[u8], sub: &[u8], from: usize) -> Option<usize> {
 }
 
 /* `buf[start:end]` from the optional args after `sub`, clamped like a slice, None when start lies past the end or past stop. */
-fn window(buf: &[u8], pos: &[Val]) -> Result<Option<(usize, usize)>, VmErr> {
-    let arg = |i: usize| pos.get(i).copied().unwrap_or(Val::none());
+fn window(buf: &[u8], pos: &[Val], heap: &crate::value::HeapPool) -> Result<Option<(usize, usize)>, VmErr> {
+    let arg = |i: usize| pos.get(i).map_or(Val::none(), |&v| crate::frontend::int::clip_index(heap, v));
     let (s, e, _) = slice_bounds(arg(1), arg(2), Val::none(), buf.len() as i64)?;
-    let past = pos.get(1).is_some_and(|v| v.is_int() && v.as_int() > buf.len() as i64);
+    let past = arg(1).is_int() && arg(1).as_int() > buf.len() as i64;
     Ok((!past && s <= e).then_some((s as usize, e as usize)))
 }
 
-fn find_impl(vm: &mut VM, recv: Val, pos: &[Val], last: bool, raise: bool) -> Result<(), VmErr> {
+fn find_impl<H: Host>(vm: &mut H, recv: Val, pos: &[Val], last: bool, raise: bool) -> Result<(), VmErr> {
     let sub = needle(vm, pos[0])?;
     let buf = recv_bytes_ref(vm, recv)?;
-    let found = window(buf, pos)?.and_then(|(s, e)| if last { rfind_in(&buf[s..e], &sub).map(|i| i + s) } else { find_from(&buf[..e], &sub, s) });
+    let found = window(buf, pos, vm.heap())?.and_then(|(s, e)| if last { rfind_in(&buf[s..e], &sub).map(|i| i + s) } else { find_from(&buf[..e], &sub, s) });
     let idx = match found {
         Some(i) => i as i64,
         None if raise => return Err(cold_value("subsection not found")),
@@ -167,10 +167,10 @@ fn find_impl(vm: &mut VM, recv: Val, pos: &[Val], last: bool, raise: bool) -> Re
     Ok(())
 }
 
-pub fn count(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
+pub fn count<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
     let sub = needle(vm, pos[0])?;
     let (buf, sub) = (recv_bytes_ref(vm, recv)?, &sub[..]);
-    let Some((s, e)) = window(buf, pos)? else { vm.push(Val::int(0)); return Ok(()) };
+    let Some((s, e)) = window(buf, pos, vm.heap())? else { vm.push(Val::int(0)); return Ok(()) };
     let hay = &buf[s..e];
     let n = if sub.is_empty() { hay.len() + 1 } else {
         let (mut n, mut i) = (0, 0);
@@ -182,7 +182,7 @@ pub fn count(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
 }
 
 // `bytes.replace(old, new[, count])`, a result past the memory limit fails before it allocates.
-pub fn replace(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
+pub fn replace<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
     let (buf, old, new) = (recv_bytes_ref(vm, recv)?, recv_bytes_ref(vm, pos[0])?, recv_bytes_ref(vm, pos[1])?);
     let max = match pos.get(2) { Some(n) if n.is_int() && n.as_int() >= 0 => n.as_int() as usize, _ => usize::MAX };
     let mut hits = Vec::new();
@@ -193,7 +193,7 @@ pub fn replace(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
         i = j + old.len().max(1);
     }
     if new.len() > old.len() {
-        vm.heap.reserve(buf.len().saturating_add(hits.len().saturating_mul(new.len() - old.len())))?;
+        vm.heap().reserve(buf.len().saturating_add(hits.len().saturating_mul(new.len() - old.len())))?;
     }
     let mut out: Vec<u8> = Vec::with_capacity(buf.len() + hits.len() * new.len());
     let mut at = 0;
@@ -207,7 +207,7 @@ pub fn replace(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
 }
 
 // `bytes.split([sep[, maxsplit]])`, no separator splits on runs of ASCII whitespace.
-pub fn split(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
+pub fn split<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
     let buf = recv_bytes_ref(vm, recv)?;
     let max = match pos.get(1) { Some(n) if n.is_int() && n.as_int() >= 0 => n.as_int() as usize, _ => usize::MAX };
     let mut pieces: Vec<&[u8]> = Vec::new();
@@ -243,8 +243,8 @@ pub fn split(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
 fn is_ws(b: u8) -> bool { matches!(b, b' ' | b'\t' | b'\n' | b'\r' | 0x0b | 0x0c) }
 
 /* Pushes `buf` as the bytes a method gives, which a bytearray receiver gets back as a bytearray. */
-fn give(vm: &mut VM, buf: Vec<u8>) -> Result<(), VmErr> {
-    let v = vm.heap.alloc(HeapObj::Bytes(buf))?;
+fn give<H: Host>(vm: &mut H, buf: Vec<u8>) -> Result<(), VmErr> {
+    let v = vm.heap_mut().alloc(HeapObj::Bytes(buf))?;
     vm.push(v);
     Ok(())
 }
@@ -252,7 +252,7 @@ fn give(vm: &mut VM, buf: Vec<u8>) -> Result<(), VmErr> {
 // bytes predicates, class tests need a non-empty value and case tests a cased byte.
 macro_rules! bytes_pred {
     ($($name:ident => $f:expr;)*) => { $(
-        pub fn $name(vm: &mut VM, recv: Val, _pos: &[Val]) -> Result<(), VmErr> {
+        pub fn $name<H: Host>(vm: &mut H, recv: Val, _pos: &[Val]) -> Result<(), VmErr> {
             let hit = $f(recv_bytes_ref(vm, recv)?);
             vm.push(Val::bool(hit));
             Ok(())
@@ -277,26 +277,26 @@ fn titled(b: &[u8]) -> Vec<u8> {
     b.iter().map(|&c| { let out = if prev { c.to_ascii_lowercase() } else { c.to_ascii_uppercase() }; prev = c.is_ascii_alphabetic(); out }).collect()
 }
 
-pub fn title(vm: &mut VM, recv: Val, _pos: &[Val]) -> Result<(), VmErr> { let t = titled(recv_bytes_ref(vm, recv)?); give(vm, t) }
+pub fn title<H: Host>(vm: &mut H, recv: Val, _pos: &[Val]) -> Result<(), VmErr> { let t = titled(recv_bytes_ref(vm, recv)?); give(vm, t) }
 
-pub fn capitalize(vm: &mut VM, recv: Val, _pos: &[Val]) -> Result<(), VmErr> {
+pub fn capitalize<H: Host>(vm: &mut H, recv: Val, _pos: &[Val]) -> Result<(), VmErr> {
     let mut buf = recv_bytes(vm, recv)?;
     buf.make_ascii_lowercase();
     if let Some(first) = buf.first_mut() { first.make_ascii_uppercase(); }
     give(vm, buf)
 }
 
-pub fn swapcase(vm: &mut VM, recv: Val, _pos: &[Val]) -> Result<(), VmErr> {
+pub fn swapcase<H: Host>(vm: &mut H, recv: Val, _pos: &[Val]) -> Result<(), VmErr> {
     let buf = recv_bytes_ref(vm, recv)?.iter().map(|&c| if c.is_ascii_lowercase() { c.to_ascii_uppercase() } else { c.to_ascii_lowercase() }).collect();
     give(vm, buf)
 }
 
 // `ljust`/`rjust`/`center(width[, fill])`, the fill one byte, an odd centre pad leaning left on an odd width.
-fn justify(vm: &mut VM, recv: Val, pos: &[Val], name: &str, align: u8) -> Result<(), VmErr> {
+fn justify<H: Host>(vm: &mut H, recv: Val, pos: &[Val], name: &str, align: u8) -> Result<(), VmErr> {
     let width = width_arg(vm, pos[0])?;
     let fill = match pos.get(1) {
         None => b' ',
-        Some(&f) => match vm.heap.octets(f) {
+        Some(&f) => match vm.heap().octets(f) {
             Some(b) if b.len() == 1 => b[0],
             Some(b) => return Err(VmErr::TypeMsg(crate::s!(str name, "(): argument 2 must be a byte string of length 1, not a ", str vm.type_name(f), " object of length ", int b.len() as i64))),
             None => return Err(VmErr::TypeMsg(crate::s!(str name, "() argument 2 must be a byte string of length 1, not ", str vm.type_name(f)))),
@@ -308,12 +308,12 @@ fn justify(vm: &mut VM, recv: Val, pos: &[Val], name: &str, align: u8) -> Result
     let out = core::iter::repeat_n(fill, left).chain(buf.iter().copied()).chain(core::iter::repeat_n(fill, pad - left)).collect();
     give(vm, out)
 }
-pub fn ljust(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { justify(vm, recv, pos, "ljust", b'<') }
-pub fn rjust(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { justify(vm, recv, pos, "rjust", b'>') }
-pub fn center(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { justify(vm, recv, pos, "center", b'^') }
+pub fn ljust<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> { justify(vm, recv, pos, "ljust", b'<') }
+pub fn rjust<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> { justify(vm, recv, pos, "rjust", b'>') }
+pub fn center<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> { justify(vm, recv, pos, "center", b'^') }
 
 // `bytes.zfill(width)`, zeros after any sign up to the width.
-pub fn zfill(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
+pub fn zfill<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
     let width = width_arg(vm, pos[0])?;
     let buf = recv_bytes_ref(vm, recv)?;
     let signed = matches!(buf.first(), Some(b'+' | b'-')) as usize;
@@ -322,15 +322,15 @@ pub fn zfill(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
     give(vm, out)
 }
 
-pub fn expandtabs(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
+pub fn expandtabs<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
     let ts = tab_size(vm, pos)?;
-    let out = expand_tabs(recv_bytes_ref(vm, recv)?.iter().copied(), *b"\t\n\r ", ts, vm.heap.room())?;
-    vm.heap.spend(out.len());
+    let out = expand_tabs(recv_bytes_ref(vm, recv)?.iter().copied(), *b"\t\n\r ", ts, vm.heap().room())?;
+    vm.heap().spend(out.len());
     give(vm, out)
 }
 
 // `bytes.partition(sep)` and `rpartition`, the three parts around the first or last `sep`.
-fn partition_impl(vm: &mut VM, recv: Val, pos: &[Val], last: bool) -> Result<(), VmErr> {
+fn partition_impl<H: Host>(vm: &mut H, recv: Val, pos: &[Val], last: bool) -> Result<(), VmErr> {
     let sep = bytes_like(vm, pos[0])?.into_owned();
     if sep.is_empty() { return Err(cold_value("empty separator")); }
     let buf = recv_bytes_ref(vm, recv)?;
@@ -341,20 +341,20 @@ fn partition_impl(vm: &mut VM, recv: Val, pos: &[Val], last: bool) -> Result<(),
         None => [buf.to_vec(), Vec::new(), Vec::new()],
     };
     let mut items = Vec::with_capacity(3);
-    for p in parts { items.push(vm.heap.alloc(HeapObj::Bytes(p))?); }
+    for p in parts { items.push(vm.heap_mut().alloc(HeapObj::Bytes(p))?); }
     vm.alloc_and_push_tuple(items)
 }
-pub fn partition(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { partition_impl(vm, recv, pos, false) }
-pub fn rpartition(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> { partition_impl(vm, recv, pos, true) }
+pub fn partition<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> { partition_impl(vm, recv, pos, false) }
+pub fn rpartition<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> { partition_impl(vm, recv, pos, true) }
 
-pub fn removeprefix(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
+pub fn removeprefix<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
     let affix = bytes_like(vm, pos[0])?.into_owned();
     let buf = recv_bytes_ref(vm, recv)?;
     let out = buf.strip_prefix(&affix[..]).unwrap_or(buf).to_vec();
     give(vm, out)
 }
 
-pub fn removesuffix(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
+pub fn removesuffix<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
     let affix = bytes_like(vm, pos[0])?.into_owned();
     let buf = recv_bytes_ref(vm, recv)?;
     let out = buf.strip_suffix(&affix[..]).unwrap_or(buf).to_vec();
@@ -362,7 +362,7 @@ pub fn removesuffix(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
 }
 
 // `bytes.rsplit([sep[, maxsplit]])`, `split` counted from the right.
-pub fn rsplit(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
+pub fn rsplit<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
     let max = match pos.get(1) { Some(n) if n.is_int() && n.as_int() >= 0 => n.as_int() as usize, _ => usize::MAX };
     let sep = match pos.first().filter(|v| !v.is_none()) { Some(&s) => Some(bytes_like(vm, s)?.into_owned()), None => None };
     let buf = recv_bytes_ref(vm, recv)?;
@@ -393,7 +393,7 @@ pub fn rsplit(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
 }
 
 // `bytes.splitlines([keepends])`, broken at `\n`, `\r` and `\r\n` only.
-pub fn splitlines(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
+pub fn splitlines<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
     let keep = pos.first().is_some_and(|&v| vm.truthy(v));
     let buf = recv_bytes_ref(vm, recv)?;
     let (mut lines, mut at) = (Vec::new(), 0);
@@ -407,14 +407,14 @@ pub fn splitlines(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
 }
 
 /* Pushes a list of bytes parts. */
-fn push_parts(vm: &mut VM, parts: Vec<Vec<u8>>) -> Result<(), VmErr> {
+fn push_parts<H: Host>(vm: &mut H, parts: Vec<Vec<u8>>) -> Result<(), VmErr> {
     let mut items = Vec::with_capacity(parts.len());
-    for p in parts { items.push(vm.heap.alloc(HeapObj::Bytes(p))?); }
+    for p in parts { items.push(vm.heap_mut().alloc(HeapObj::Bytes(p))?); }
     vm.alloc_and_push_list(items)
 }
 
 // `bytes.maketrans(from, to)`, the 256-byte table `translate` takes.
-pub fn maketrans(vm: &mut VM, _recv: Val, pos: &[Val]) -> Result<(), VmErr> {
+pub fn maketrans<H: Host>(vm: &mut H, _recv: Val, pos: &[Val]) -> Result<(), VmErr> {
     let (from, to) = (bytes_like(vm, pos[0])?.into_owned(), bytes_like(vm, pos[1])?.into_owned());
     if from.len() != to.len() { return Err(cold_value("maketrans arguments must have same length")); }
     let mut table: Vec<u8> = (0..=255).collect();
@@ -423,7 +423,7 @@ pub fn maketrans(vm: &mut VM, _recv: Val, pos: &[Val]) -> Result<(), VmErr> {
 }
 
 // `bytes.translate(table[, delete])`, every byte through the table, or kept with None, those in `delete` dropped.
-pub fn translate(vm: &mut VM, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
+pub fn translate<H: Host>(vm: &mut H, recv: Val, pos: &[Val]) -> Result<(), VmErr> {
     let table = match pos.first().filter(|v| !v.is_none()) { Some(&t) => Some(bytes_like(vm, t)?.into_owned()), None => None };
     if table.as_ref().is_some_and(|t| t.len() != 256) { return Err(cold_value("translation table must be 256 characters long")); }
     let delete = match pos.get(1) { Some(&d) => bytes_like(vm, d)?.into_owned(), None => Vec::new() };

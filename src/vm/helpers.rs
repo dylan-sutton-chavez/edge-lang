@@ -1,33 +1,33 @@
 use crate::s;
-use alloc::{string::{String, ToString}, vec, vec::Vec};
+use alloc::{string::String, vec, vec::Vec};
 
 use super::VM;
 use super::types::*;
 
+// The shared bodies run on the VM's own heap, stack and budget.
+impl Host for VM<'_> {
+    #[inline(always)] fn heap(&self) -> &HeapPool { &self.heap }
+    #[inline(always)] fn heap_mut(&mut self) -> &mut HeapPool { &mut self.heap }
+    #[inline(always)] fn push(&mut self, v: Val) { self.stack.push(v); }
+    #[inline] fn charge(&mut self, n: usize) -> Result<(), VmErr> { self.charge_steps(n) }
+    #[inline(always)] fn vm_items(&mut self, v: Val) -> Result<Option<Vec<Val>>, VmErr> { VM::vm_items(self, v) }
+    #[inline] fn type_name(&self, v: Val) -> &str { VM::type_name(self, v) }
+    fn display_other(&self, v: Val, seen: &mut Vec<u32>) -> String { self.display_vm(v, seen) }
+    fn repr_other(&self, v: Val, seen: &mut Vec<u32>) -> Option<String> { self.repr_vm(v, seen) }
+    #[inline] fn eq_without_hash(&self, cls: Val) -> bool { self.hash_hook(cls) == Some(None) }
+    #[inline] fn keyed(&mut self, v: Val) -> Result<(), VmErr> { VM::keyed(self, v) }
+    fn key_error(&mut self, key: Val) -> VmErr { VM::key_error(self, key) }
+    #[inline] fn root(&mut self, v: Val) { self.temp_roots.push(v); }
+    #[inline] fn unroot(&mut self, n: usize) { self.temp_roots.truncate(self.temp_roots.len() - n); }
+}
+
 impl<'a> VM<'a> {
 
-    // Interned keyword name behind a Val, or None when not a string.
-    pub(crate) fn kw_name(&self, k: Val) -> Option<&str> {
-        match self.heap.try_get(k) {
-            Some(HeapObj::Str(s)) => Some(s.as_str()),
-            _ => None,
-        }
-    }
 
     /* Byte offset of the last propagating error, or None on success / before `run()`. */
     pub fn error_pos(&self) -> Option<usize> { self.error_byte_pos.map(|p| p as usize) }
 
-    /* `bad operand type for <what>: '<type>'`, what an operator or builtin of one operand says of a value it cannot take. */
-    #[cold]
-    #[inline(never)]
-    pub(crate) fn bad_operand(&self, what: &str, v: Val) -> VmErr { VmErr::TypeMsg(crate::s!("bad operand type for ", str what, ": '", str self.type_name(v), "'")) }
 
-    /* `C.__float__() must return a float, not int`, what a conversion dunder of `obj` that returned `got` raises. */
-    #[cold]
-    #[inline(never)]
-    pub(crate) fn returned_wrong(&self, obj: Val, dunder: &str, want: &str, got: Val) -> VmErr {
-        VmErr::TypeMsg(crate::s!(str self.type_name(obj), ".", str dunder, "() must return ", str want, ", not ", str self.type_name(got)))
-    }
 
     /* The whole report of uncaught `e` in program `src`, its chain, then where it rose, in another text when it rose in one, then the calls it left. */
     pub fn render_error(&self, e: &VmErr, src: &str, path: Option<&str>) -> String {
@@ -229,27 +229,6 @@ impl<'a> VM<'a> {
         Ok(target)
     }
 
-    pub(crate) fn str_to_char_vals(&mut self, s: &str) -> Result<Vec<Val>, VmErr> {
-        // Per-char heap allocs scale with input, charge the budget so loops over this stay bounded.
-        self.charge_steps(s.len())?;
-        s.chars().map(|c| self.heap.alloc(HeapObj::Str(c.to_string()))).collect()
-    }
-
-    /* A live walk over dict `d` showing the part `kind` names. */
-    pub(crate) fn dict_walk(&self, d: Val, kind: View) -> IterFrame {
-        let len = self.heap.dict_cell(d).map_or(0, |m| m.borrow().len());
-        IterFrame::DictWalk { of: d, idx: 0, left: len, len, kind }
-    }
-
-    /* A frame over `items` read from `o`, watching a dict, dict view or set for a change of size. */
-    pub(crate) fn watched(&self, o: Val, items: Vec<Val>) -> IterFrame {
-        let of = match self.heap.try_get(o) {
-            Some(HeapObj::Dict(_) | HeapObj::FrozenDict(_) | HeapObj::Set(_)) => o,
-            Some(&HeapObj::DictView(d, _)) => d,
-            _ => return IterFrame::Seq { items: items.into(), idx: 0 },
-        };
-        IterFrame::Watched { items: items.into(), idx: 0, of, len: crate::value::watched_len(&self.heap, of) }
-    }
 
     pub(crate) fn make_iter_frame(&mut self, obj: Val, chunk: &crate::parser::SSAChunk) -> Result<IterFrame, VmErr> {
         // A new loop's iterator may sit where a freed one `lazy_over` passed by was.

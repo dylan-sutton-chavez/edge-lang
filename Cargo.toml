@@ -30,6 +30,10 @@ std = []
 coverage = []
 # The wrapper that makes compiler.wasm, its exports, host imports, allocator and panic handler.
 runtime = []
+# `call_pure` and the host of plain values it runs the builtins on, left out of the shipped compiler.wasm.
+pure = []
+# The modules behind the stable API, for the engine's own tests and tools that read them.
+internals = []
 
 [dependencies]
 wasm-abi = { workspace = true }

@@ -7,6 +7,7 @@ use super::cache::OpcodeCache;
 use super::lower::{self, Code, Facts, Ins};
 use super::scope::Kind;
 use super::types::*;
+use crate::vm::natives::Builtins;
 
 /* The number a register holds as a float, its int widened. */
 #[inline(always)]
@@ -928,7 +929,7 @@ impl<'a> VM<'a> {
     }
 
     /* What each slot of a chunk's frame is, and the module it binds into. */
-    fn chunk_kinds(&mut self, chunk: &SSAChunk) -> (Rc<[Kind]>, usize) {
+    pub(crate) fn chunk_kinds(&mut self, chunk: &SSAChunk) -> (Rc<[Kind]>, usize) {
         let module = self.chunk_module_id(chunk);
         if let Some(&fi) = self.body_to_fi.get(&(chunk as *const SSAChunk)) { return (self.fn_scope[fi].kinds.clone(), module); }
         // A class body keeps its namespace in slots, its members come from them.
