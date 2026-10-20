@@ -2,7 +2,8 @@
 
 extern crate alloc;
 
-use alloc::{boxed::Box, format, string::{String, ToString}, sync::Arc, vec::Vec};
+use alloc::{boxed::Box, format, rc::Rc, string::{String, ToString}, sync::Arc, vec::Vec};
+use core::cell::RefCell;
 
 use compiler::lexer::{lex, TokenType};
 use compiler::modules::{NativeBinding, Resolved, Resolver};
@@ -15,7 +16,7 @@ pub use compiler::vm::Limits;
 // a source rewrite applied before lexing, its output must be valid edge python
 pub type Transform = dyn Fn(&str) -> String + Send + Sync + 'static;
 
-// scalars round-trip losslessly, composites surface as object carrying their rendered form
+// scalars and lists or tuples of them round-trip losslessly, other composites surface as object carrying their rendered form
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
     None,
@@ -23,8 +24,12 @@ pub enum Value {
     Int(i64),
     Float(f64),
     Str(String),
+    List(Vec<Value>),
     Object(String),
 }
+
+// how deep lists nest across the boundary, so a list holding itself is refused rather than followed forever
+const NESTED: usize = 64;
 
 impl Value {
     pub fn as_int(&self) -> Option<i64> {
@@ -52,8 +57,12 @@ impl Value {
         if let Value::Bool(b) = self { Some(*b) } else { None }
     }
 
-    // render covers composites the heap alone cannot stringify
-    fn read(v: Val, heap: &HeapPool, render: impl FnOnce(Val) -> String) -> Value {
+    pub fn as_list(&self) -> Option<&[Value]> {
+        if let Value::List(l) = self { Some(l) } else { None }
+    }
+
+    // render covers composites the heap alone cannot stringify, a list or tuple nested too deep among them
+    fn read(v: Val, heap: &HeapPool, render: &dyn Fn(Val) -> String, depth: usize) -> Value {
         if v.is_none() { Value::None }
         else if v.is_bool() { Value::Bool(v.as_bool()) }
         else if v.is_float() { Value::Float(v.as_float()) }
@@ -62,17 +71,25 @@ impl Value {
         else if v.is_heap() {
             match heap.get(v) {
                 HeapObj::Str(s) => Value::Str(s.clone()),
+                HeapObj::List(l) if depth < NESTED => Value::List(l.borrow().iter().map(|&x| Self::read(x, heap, render, depth + 1)).collect()),
+                HeapObj::Tuple(t) if depth < NESTED => Value::List(t.iter().map(|&x| Self::read(x, heap, render, depth + 1)).collect()),
                 _ => Value::Object(render(v)),
             }
         } else { Value::None }
     }
 
-    // a composite has no owned form here, so it is refused rather than passed blank
-    fn read_arg(v: Val, heap: &HeapPool) -> Result<Value, VmErr> {
-        if v.is_heap() && as_i128(v, heap).is_none() && !matches!(heap.get(v), HeapObj::Str(_)) {
-            return Err(VmErr::TypeMsg(String::from("host function argument must be a scalar or a str")));
+    // a composite other than a list or tuple has no owned form here, so it is refused rather than passed blank
+    fn read_arg(v: Val, heap: &HeapPool, depth: usize) -> Result<Value, VmErr> {
+        if !v.is_heap() || as_i128(v, heap).is_some() {
+            return Ok(Self::read(v, heap, &|_| String::new(), depth));
         }
-        Ok(Self::read(v, heap, |_| String::new()))
+        let items = |xs: &[Val]| xs.iter().map(|&x| Self::read_arg(x, heap, depth + 1)).collect::<Result<Vec<_>, _>>().map(Value::List);
+        match heap.get(v) {
+            HeapObj::Str(s) => Ok(Value::Str(s.clone())),
+            HeapObj::List(l) if depth < NESTED => items(&l.borrow()),
+            HeapObj::Tuple(t) if depth < NESTED => items(t),
+            _ => Err(VmErr::TypeMsg(String::from("host function argument must be a scalar, a str, or a list or tuple of them"))),
+        }
     }
 
     // allocated on the engine heap so a native can return it
@@ -83,6 +100,10 @@ impl Value {
             Value::Int(i) => heap.int(*i as i128)?,
             Value::Float(f) => Val::float(*f),
             Value::Str(s) | Value::Object(s) => heap.alloc(HeapObj::Str(s.clone()))?,
+            Value::List(items) => {
+                let vals = items.iter().map(|x| x.write(heap)).collect::<Result<Vec<_>, _>>()?;
+                heap.alloc(HeapObj::List(Rc::new(RefCell::new(vals))))?
+            }
         })
     }
 }
@@ -95,6 +116,14 @@ impl core::fmt::Display for Value {
             Value::Int(i) => write!(f, "{i}"),
             Value::Float(x) => write!(f, "{x}"),
             Value::Str(s) | Value::Object(s) => f.write_str(s),
+            Value::List(items) => {
+                f.write_str("[")?;
+                for (i, x) in items.iter().enumerate() {
+                    if i > 0 { f.write_str(", ")?; }
+                    if let Value::Str(s) = x { write!(f, "'{s}'")?; } else { write!(f, "{x}")?; }
+                }
+                f.write_str("]")
+            }
         }
     }
 }
@@ -115,24 +144,39 @@ impl From<String> for Value {
     fn from(s: String) -> Self { Value::Str(s) }
 }
 
-// compile carries a rustc style diagnostic, run carries a traceback
+// compile carries a rustc style diagnostic, run carries a traceback, each with the line and column where it stands when known
+// limit is a run past its limits, which a host may take as running out rather than as a fault of the script
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Error {
-    Compile(String),
-    Run(String),
+    Compile(String, Option<(usize, usize)>),
+    Run(String, Option<(usize, usize)>),
+    Limit(String),
 }
 
 impl Error {
     pub fn message(&self) -> &str {
-        match self { Error::Compile(m) | Error::Run(m) => m }
+        match self { Error::Compile(m, _) | Error::Run(m, _) | Error::Limit(m) => m }
     }
+
+    // one based, the column counted in chars
+    pub fn at(&self) -> Option<(usize, usize)> {
+        match self { Error::Compile(_, at) | Error::Run(_, at) => *at, Error::Limit(_) => None }
+    }
+}
+
+// the one based line and column of a byte of the source
+fn line_col(src: &str, byte: usize) -> (usize, usize) {
+    let before = src.get(..byte.min(src.len())).unwrap_or(src);
+    let line_start = before.rfind('\n').map_or(0, |i| i + 1);
+    (before.matches('\n').count() + 1, before[line_start..].chars().count() + 1)
 }
 
 impl core::fmt::Display for Error {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Error::Compile(m) => write!(f, "compile error: {m}"),
-            Error::Run(m) => write!(f, "run error: {m}"),
+            Error::Compile(m, _) => write!(f, "compile error: {m}"),
+            Error::Run(m, _) => write!(f, "run error: {m}"),
+            Error::Limit(m) => write!(f, "limit reached: {m}"),
         }
     }
 }
@@ -157,6 +201,7 @@ impl Output {
 pub struct Engine {
     limits: Limits,
     natives: Arc<Vec<NativeBinding>>,
+    modules: Arc<Vec<(String, String)>>,
     transforms: Arc<Vec<Box<Transform>>>,
 }
 
@@ -164,6 +209,7 @@ impl core::fmt::Debug for Engine {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("Engine")
             .field("natives", &self.natives.len())
+            .field("modules", &self.modules.len())
             .field("transforms", &self.transforms.len())
             .finish_non_exhaustive()
     }
@@ -171,7 +217,7 @@ impl core::fmt::Debug for Engine {
 
 impl Engine {
     pub fn builder() -> Builder {
-        Builder { limits: Limits::sandbox(), natives: Vec::new(), transforms: Vec::new() }
+        Builder { limits: Limits::sandbox(), natives: Vec::new(), modules: Vec::new(), transforms: Vec::new() }
     }
 
     // err renders a diagnostic with a source caret
@@ -182,7 +228,7 @@ impl Engine {
             src = t(&src);
         }
         let (tokens, lex_errs) = lex(&src);
-        let resolver = HostResolver { natives: self.natives.clone() };
+        let resolver = HostResolver { natives: self.natives.clone(), modules: self.modules.clone() };
         let mut parser = Parser::with_resolver(&src, tokens.into_iter(), Box::new(resolver));
         for e in lex_errs {
             parser.errors.push(Diagnostic { start: e.start, end: e.end, msg: e.msg.into() });
@@ -194,7 +240,7 @@ impl Engine {
                 if i > 0 { buf.push('\n'); }
                 buf.push_str(&e.render(&src, None));
             }
-            return Err(Error::Compile(buf));
+            return Err(Error::Compile(buf, errs.first().map(|e| line_col(&src, e.start))));
         }
         compiler::optimizer::constant_fold(&mut chunk);
         Ok(Program { chunk, source: src, limits: self.limits })
@@ -204,6 +250,7 @@ impl Engine {
 pub struct Builder {
     limits: Limits,
     natives: Vec<NativeBinding>,
+    modules: Vec<(String, String)>,
     transforms: Vec<Box<Transform>>,
 }
 
@@ -242,7 +289,7 @@ impl Builder {
                 }
                 let mut args = Vec::with_capacity(argv.len());
                 for &v in argv {
-                    args.push(Value::read_arg(v, heap)?);
+                    args.push(Value::read_arg(v, heap, 0)?);
                 }
                 f(&args).map_err(VmErr::Raised).and_then(|out| out.write(heap))
             }),
@@ -250,10 +297,17 @@ impl Builder {
         self
     }
 
+    // a module of source the script imports by name, beside host and tasks
+    pub fn module(mut self, name: impl Into<String>, source: impl Into<String>) -> Self {
+        self.modules.push((name.into(), source.into()));
+        self
+    }
+
     pub fn build(self) -> Engine {
         Engine {
             limits: self.limits,
             natives: Arc::new(self.natives),
+            modules: Arc::new(self.modules),
             transforms: Arc::new(self.transforms),
         }
     }
@@ -270,21 +324,23 @@ impl Program {
     // binds the natives the chunk resolved at compile time
     fn boot(&self) -> Result<VM<'_>, Error> {
         let mut vm = VM::with_limits(&self.chunk, self.limits);
-        vm.bind_chunk_externs().map_err(|e| Error::Run(e.render()))?;
+        vm.bind_chunk_externs().map_err(|e| Error::Run(e.render(), None))?;
         Ok(vm)
     }
 
-    // renders a vm error as a traceback tied to this program source
+    // renders a vm error as a traceback tied to this program source, a run out of ops or memory apart
     fn trace(&self, vm: &VM<'_>, e: VmErr) -> Error {
-        Error::Run(e.render_traceback(
+        let limit = matches!(e, VmErr::Budget | VmErr::Heap);
+        let text = e.render_traceback(
             &self.source, vm.error_pos(), None,
             vm.call_stack_frames(), vm.function_names_ref(),
-        ))
+        );
+        if limit { Error::Limit(text) } else { Error::Run(text, vm.error_pos().map(|p| line_col(&self.source, p))) }
     }
 
     // keeps only output past from, skipping what was already reported
     fn outcome(vm: &VM<'_>, v: Val, from: usize) -> Output {
-        let value = Value::read(v, vm.heap(), |v| vm.display(v));
+        let value = Value::read(v, vm.heap(), &|v| vm.display(v), 0);
         let full = vm.output_text();
         let text = full.get(from..).unwrap_or("").into();
         Output { value, text }
@@ -358,9 +414,10 @@ impl core::fmt::Debug for Instance<'_> {
 // the async api every language gets, run, sleep, gather, with_timeout and cancel over the coroutine protocol
 const TASKS: &str = include_str!("tasks.py");
 
-// in memory resolver exposing the engine natives under the host module and the async api under tasks
+// in memory resolver exposing the engine natives under the host module, the async api under tasks and the modules the builder gave
 struct HostResolver {
     natives: Arc<Vec<NativeBinding>>,
+    modules: Arc<Vec<(String, String)>>,
 }
 
 impl Resolver for HostResolver {
@@ -368,8 +425,11 @@ impl Resolver for HostResolver {
         if spec == "tasks" {
             return Ok(Resolved::Code { src: TASKS.to_string(), canonical: "tasks".to_string() });
         }
+        if let Some((name, src)) = self.modules.iter().find(|m| m.0 == spec) {
+            return Ok(Resolved::Code { src: src.clone(), canonical: name.clone() });
+        }
         if spec != "host" {
-            return Err(format!("module '{spec}' not found (only 'host' and 'tasks' are available)"));
+            return Err(format!("module '{spec}' not found (only 'host', 'tasks' and the modules given are available)"));
         }
         // plain functions only, the engine export name conventions stay out of this api
         Ok(Resolved::Native {
@@ -378,6 +438,11 @@ impl Resolver for HostResolver {
             consts: Vec::new(),
             canonical: "host".to_string(),
         })
+    }
+
+    // a module the builder gave imports host, tasks and the other modules as the script does
+    fn child(&self, _spec: &str) -> Box<dyn Resolver> {
+        Box::new(HostResolver { natives: self.natives.clone(), modules: self.modules.clone() })
     }
 }
 
