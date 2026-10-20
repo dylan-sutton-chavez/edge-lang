@@ -9,7 +9,7 @@ static METERED: compiler::value::meter::Metered<std::alloc::System> = compiler::
 fn compile_error() {
     let engine = Engine::builder().build();
     let err = engine.compile("def (:").unwrap_err();
-    assert!(matches!(err, Error::Compile(_)));
+    assert!(matches!(err, Error::Compile(_, Some((1, 5)))), "{err:?}");
     assert!(err.message().contains("error:"));
 }
 
@@ -17,9 +17,9 @@ fn compile_error() {
 #[test]
 fn run_error() {
     let engine = Engine::builder().build();
-    let program = engine.compile("raise ValueError('boom')").unwrap();
+    let program = engine.compile("x = 1\nraise ValueError('boom')").unwrap();
     let err = program.run().unwrap_err();
-    assert!(matches!(err, Error::Run(_)));
+    assert!(matches!(err, Error::Run(_, Some((2, _)))), "{err:?}");
     assert!(err.message().contains("boom"));
 }
 
@@ -76,15 +76,48 @@ fn native_error_class() {
     assert_eq!(program.run().unwrap().text(), "caught\n");
 }
 
-// a composite argument has no owned form, so the native refuses it
+// a composite other than a list or tuple has no owned form, so the native refuses it
 #[test]
 fn native_rejects_composite() {
     let engine = Engine::builder()
         .define("take", |args| Ok(Value::Int(args.len() as i64)))
         .build();
-    let program = engine.compile("from host import take\ntake([1, 2])").unwrap();
+    let program = engine.compile("from host import take\ntake({1: 2})").unwrap();
     let err = program.run().unwrap_err();
     assert!(err.message().contains("scalar"));
+    let program = engine.compile("from host import take\nxs = [1]\nxs.append(xs)\ntake(xs)").unwrap();
+    assert!(program.run().unwrap_err().message().contains("scalar"));
+}
+
+// lists and tuples of scalars, nested too, cross to a native and back as lists
+#[test]
+fn native_list_roundtrip() {
+    let engine = Engine::builder()
+        .define("rev", |args| {
+            let mut xs = args[0].as_list().unwrap_or(&[]).to_vec();
+            xs.reverse();
+            Ok(Value::List(xs))
+        })
+        .build();
+    let program = engine.compile("from host import rev\ndef go():\n  return rev([1, ('a', [True]), None])").unwrap();
+    let want = Value::List(vec![Value::None, Value::List(vec![Value::Str("a".into()), Value::List(vec![Value::Bool(true)])]), Value::Int(1)]);
+    assert_eq!(*program.call("go", &[]).unwrap().value(), want);
+    let program = engine.compile("from host import rev\ndef go(xs):\n  return rev(xs)[0] + 1").unwrap();
+    assert_eq!(*program.call("go", &[Value::List(vec![Value::Int(1), Value::Int(41)])]).unwrap().value(), Value::Int(42));
+    assert_eq!(Value::List(vec![Value::Int(1), Value::Str("x".into())]).to_string(), "[1, 'x']");
+}
+
+// a module the builder gives is imported by name and imports host itself, and an unknown one still fails to compile
+#[test]
+fn own_module() {
+    let engine = Engine::builder()
+        .define("double", |args| Ok(Value::Int(args[0].as_int().unwrap_or(0) * 2)))
+        .module("shapes", "from host import double\ndef area(w, h):\n  return double(w * h) // 2")
+        .build();
+    let out = engine.compile("from shapes import area\nprint(area(6, 7))").unwrap().run().unwrap();
+    assert_eq!(out.text(), "42\n");
+    let err = engine.compile("from nowhere import x").unwrap_err();
+    assert!(matches!(err, Error::Compile(..)) && err.message().contains("nowhere"), "{err:?}");
 }
 
 // natives are positional only, a keyword argument is a type error, not a silent drop
@@ -117,7 +150,11 @@ fn limits_enforced() {
     let engine = Engine::builder().limits(tight).build();
     let program = engine.compile("i = 0\nwhile i < 1000000:\n  i = i + 1").unwrap();
     let err = program.run().unwrap_err();
-    assert!(matches!(err, Error::Run(_)));
+    assert!(matches!(err, Error::Limit(_)), "{err:?}");
+    assert_eq!(err.at(), None);
+    // a fault of the script stays a run error
+    let err = engine.compile("x = 1 // 0").unwrap().run().unwrap_err();
+    assert!(matches!(err, Error::Run(..)), "{err:?}");
 }
 
 #[test]
@@ -234,7 +271,7 @@ fn call_captures_output() {
 fn call_unknown() {
     let engine = Engine::builder().build();
     let program = engine.compile("x = 1").unwrap();
-    assert!(matches!(program.call("missing", &[]), Err(Error::Run(_))));
+    assert!(matches!(program.call("missing", &[]), Err(Error::Run(..))));
 }
 
 
