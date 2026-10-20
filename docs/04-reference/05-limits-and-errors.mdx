@@ -11,7 +11,7 @@ Every execution is metered, builtins included, since a builtin that scans or cop
 
 | Limit | Value | What hitting it raises |
 |---|---|---|
-| Max call depth | Frames up to a sixteenth of the memory limit, 128 nested through builtins and dunders | `RecursionError` |
+| Max call depth | 1000, as Python's default recursion limit, the module's frame among them, and 128 nested through builtins | `RecursionError` |
 | Comparison depth of nested containers | 100 | `RecursionError` |
 | Max operations | 100,000,000 | `RuntimeError` |
 | Max memory | 256 MiB | `MemoryError` |
@@ -24,7 +24,7 @@ Memory and operations can be raised in three places.
 - The `limits` of a group under `edge actor`, see [Actors](/docs/edge-python/platforms/actors).
 - The `--memory` and `--ops` flags of `edge run` and `edge test`.
 
-A plain call runs as a frame of the instruction loop that made it, so the depth follows the memory limit. The frames of a run may take a sixteenth of it, about eighty thousand frames of a small function under the default. A call that a builtin, a dunder method, a generator step or `eval` makes nests a loop in Rust instead. Those stop at 128 levels, which leaves the deepest of them room on the 1 MiB wasm stack of the CLI and on the stack of a browser, and an `eval` level counts as three since its loop takes three times the stack. A coroutine holds at most 768 frames suspended at once.
+Python code calls 1000 deep at most, as Python's default recursion limit, and raises `RecursionError` where Python does, counting one for the module's frame, each function, method, operator dunder, property getter and generator frame, and each level of a recursion run through sections. Edge has no `sys.setrecursionlimit`. A call that a builtin, a dunder method, a generator step or `eval` makes nests a loop in Rust instead. Those stop at 128 levels, which leaves the deepest of them room on the 1 MiB wasm stack of the CLI and on the stack of a browser, and an `eval` level counts as three since its loop takes three times the stack. A coroutine holds at most 768 frames suspended at once.
 
 The memory limit counts every byte the allocator hands the program while it runs, its objects along with the frames, caches and buffers the engine keeps for it. Nothing is estimated, though a 64-bit host counts wider pointers than `compiler.wasm` does. A number held in a container costs only its 8 bytes, so a list of numbers is far cheaper than an object per row. Garbage counts until a collection frees it, and a run that still holds more than the limit after one raises `MemoryError`. Programs sharing one wasm instance, like the actors of a pool, also share a budget of half its address space, 2 GB, and the one whose allocation passes it raises `MemoryError` while the others keep running. A plugin keeps its own memory, which the CLI lets grow to three times the limit plus 64 MB, and a call that needs more traps and raises `RuntimeError`.
 

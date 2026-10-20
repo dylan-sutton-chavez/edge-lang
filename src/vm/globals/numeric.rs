@@ -11,10 +11,10 @@ pub(crate) fn float_to_int(heap: &mut HeapPool, f: f64, transform: impl Fn(f64) 
 }
 
 /* A compensated sum, its compensation added only when nonzero and finite, so overflow stays infinite. */
-fn settle((sum, comp): (f64, f64)) -> f64 { if comp != 0.0 && comp.is_finite() { sum + comp } else { sum } }
+pub(crate) fn settle((sum, comp): (f64, f64)) -> f64 { if comp != 0.0 && comp.is_finite() { sum + comp } else { sum } }
 
 /* One Neumaier (improved Kahan) compensated-summation step returning (sum, comp). */
-fn neumaier(sum: f64, comp: f64, x: f64) -> (f64, f64) {
+pub(crate) fn neumaier(sum: f64, comp: f64, x: f64) -> (f64, f64) {
     let t = sum + x;
     let c = if libm::fabs(sum) >= libm::fabs(x) { (sum - t) + x } else { (x - t) + sum };
     (t, comp + c)
@@ -92,34 +92,13 @@ fn parse_int_radix(heap: &mut HeapPool, s: &str, base: i64) -> Result<Val, VmErr
     crate::frontend::int::from_digits(heap, neg, &digits.ok_or_else(|| cold_value("int(): invalid literal"))?, radix)
 }
 
-/* Where `sum`, `min` and `max` take their items, a cursor over a container or an iterator stepped one item at a time. */
-trait Source {
-    // Whether each step runs user code, so what the caller holds must stay rooted.
-    const LAZY: bool;
-    fn step(&mut self, vm: &mut VM, chunk: &crate::parser::SSAChunk) -> Result<Option<Val>, VmErr>;
-    // The items a cursor already holds, which a user dunder may outlive.
-    fn held(&self) -> &[Val] { &[] }
-}
-
-impl Source for IterFrame {
-    const LAZY: bool = false;
-    #[inline(always)]
-    fn step(&mut self, vm: &mut VM, _: &crate::parser::SSAChunk) -> Result<Option<Val>, VmErr> { self.next_item(&mut vm.heap) }
-    fn held(&self) -> &[Val] { if let IterFrame::Seq { items, .. } = self { items } else { &[] } }
-}
-
-/* An iterator or generator `sum`, `min` and `max` step one item at a time. */
-struct Lazy(Val);
-
-impl Source for Lazy {
-    const LAZY: bool = true;
-    fn step(&mut self, vm: &mut VM, chunk: &crate::parser::SSAChunk) -> Result<Option<Val>, VmErr> { vm.next_of(self.0, chunk) }
-}
 
 impl<'a> VM<'a> {
-
     pub fn call_abs(&mut self, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
+        let ok = core::mem::take(&mut self.job_ok);
         let o = self.pop()?;
+        // An instance's `__abs__` runs as a frame of the loop.
+        if ok && self.is_instance(o) && self.check_job(o, crate::vm::jobs::Check::Abs) { return Ok(()); }
         // Honor a user `__abs__` and pass any return type through.
         if let Some(r) = self.try_call_dunder(o, "__abs__", &[], chunk)? {
             self.push(r);
@@ -137,7 +116,9 @@ impl<'a> VM<'a> {
         self.push(v); Ok(())
     }
 
+    #[inline(never)]
     pub fn call_int(&mut self, argc: u16, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
+        let ok = core::mem::take(&mut self.job_ok);
         // Two-arg form `int(string, base)` parses the string in the given radix.
         if argc == 2 {
             let base_v = self.pop()?;
@@ -169,6 +150,8 @@ impl<'a> VM<'a> {
                 text.and_then(|t| parse_int_radix(&mut self.heap, &t, 10)).map_err(|e| self.invalid_int(e, o, 10))?
             }
             else if o.is_heap() && matches!(self.heap.get(o), HeapObj::Instance(..)) {
+                // A user `__int__` runs as a frame of the loop, its int checked as it returns.
+                if ok && self.check_job(o, crate::vm::jobs::Check::Int(o)) { return Ok(()); }
                 // Honor a user `__int__` method.
                 match self.try_call_dunder(o, "__int__", &[], chunk)? {
                     Some(r) if r.is_bool() => Val::int(r.as_bool() as i64),
@@ -196,7 +179,9 @@ impl<'a> VM<'a> {
     }
 
     /* Converts int or parseable string to floating point. */
+    #[inline(never)]
     pub fn call_float(&mut self, argc: u16, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
+        let ok = core::mem::take(&mut self.job_ok);
         if argc == 0 { self.push(Val::float(0.0)); return Ok(()); } // `float()` is 0.0.
         let o = self.pop()?;
         let o = self.plain_number(o, "__float__", chunk)?;
@@ -218,6 +203,8 @@ impl<'a> VM<'a> {
                 cleaned.parse().map_err(|_| self.no_float(o))?
             }
             else if o.is_heap() && matches!(self.heap.get(o), HeapObj::Instance(..)) {
+                // A user `__float__` runs as a frame of the loop, its float checked as it returns.
+                if ok && self.check_job(o, crate::vm::jobs::Check::Float(o)) { return Ok(()); }
                 // Honor a user `__float__` and fall back to `__index__` like CPython.
                 match self.try_call_dunder(o, "__float__", &[], chunk)? {
                     Some(r) if r.is_float() => { self.push(r); return Ok(()); }
@@ -236,7 +223,13 @@ impl<'a> VM<'a> {
     /* `complex(real, imag)` from numbers or one string, a value whose class defines `__complex__` asked first. */
     pub fn call_complex(&mut self, argc: u16, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
         use crate::frontend::complex::{Complex, parse, parts, val};
+        let ok = core::mem::take(&mut self.job_ok);
         let args = self.pop_n(argc as usize)?;
+        // Called where a frame may open, the dunder that converts an instance runs as a frame of the loop.
+        if ok && argc == 1 && let Some(&a) = args.first() && self.is_instance(a) {
+            if let Some(v) = self.calls_run(alloc::boxed::Box::new(ComplexOf { v: a, hook: 0 }), true)? { self.push(v); }
+            return Ok(());
+        }
         let num = |vm: &mut Self, v: Val, which: &str| -> Result<Complex, VmErr> {
             if let Some(z) = parts(&vm.heap, crate::value::unboxed(v, &vm.heap)) { return Ok(z); }
             for hook in ["__complex__", "__float__", "__index__"] {
@@ -297,6 +290,7 @@ impl<'a> VM<'a> {
         Err(VmErr::TypeMsg(crate::s!("ord() expected a character, but string of length ", int found as i64, " found")))
     }
 
+    #[inline(never)]
     pub fn call_round(&mut self, op: u16) -> Result<(), VmErr> {
         let args = self.pop_n(op as usize)?;
         let v = match (args.first().copied(), args.get(1).copied()) {
@@ -342,6 +336,7 @@ impl<'a> VM<'a> {
     pub fn call_max(&mut self, op: u16, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> { self.call_minmax(op, false, chunk) }
 
     fn call_minmax(&mut self, op: u16, is_min: bool, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
+        let ok = core::mem::take(&mut self.job_ok);
         let (positional, kw_flat) = self.parse_call_args(op)?;
         // Optional `default=` (returned when a single iterable is empty) and `key=` (compare by key(x)).
         let mut default: Option<Val> = None;
@@ -354,38 +349,56 @@ impl<'a> VM<'a> {
             }
         }
         let label = if is_min { "min() iterable argument is empty" } else { "max() iterable argument is empty" };
-        // Without a key one iterable streams, so a range never becomes a list.
-        if positional.len() == 1 && key.is_none() {
-            let o = positional[0];
-            let base = self.temp_roots.len();
-            let best = if self.steps_lazily(o) { self.extreme_cursor(o, &mut Lazy(o), is_min, chunk) } else {
-                let mut cur = self.iter_cursor(o)?;
-                self.extreme_cursor(o, &mut cur, is_min, chunk)
-            };
-            self.temp_roots.truncate(base);
-            return match (best?, default) {
-                (Some(v), _) | (None, Some(v)) => { self.push(v); Ok(()) }
-                (None, None) => Err(cold_value(label)),
-            };
+        // An `eval` or `exec` key runs each text as a floor of the loop.
+        if ok && let Some(k) = key && self.runs_text(k) {
+            // An iterable that may run Python has its items gathered by a job of the loop first, the call run again on them.
+            if let [o] = positional[..] && matches!(self.heap.try_get(o), Some(HeapObj::Instance(..) | HeapObj::Coroutine(..) | HeapObj::Iter(..))) {
+                let base = self.stack.len();
+                self.push(o);
+                for &v in &kw_flat { self.push(v); }
+                self.job_ok = true;
+                let id = if is_min { NativeFnId::Min } else { NativeFnId::Max };
+                if self.gather_arg(id, op, base, chunk)? { return Ok(()); }
+                let o = self.stack[base];
+                self.stack.truncate(base);
+                self.job_ok = false;
+                let items = self.extract_iter(o)?;
+                if items.is_empty() { return match default { Some(d) => { self.push(d); Ok(()) }, None => Err(cold_value(label)) }; }
+                return self.keys_floor(k, items, is_min);
+            }
+            let items = match positional[..] { [o] => self.extract_iter(o)?, _ => positional };
+            if items.is_empty() { return match default { Some(d) => { self.push(d); Ok(()) }, None => Err(cold_value(label)) }; }
+            return self.keys_floor(k, items, is_min);
         }
-        // One iterable with a key streams too, each item's key taken as it arrives.
-        if positional.len() == 1 && let Some(k) = key {
-            let o = positional[0];
-            let base = self.temp_roots.len();
-            let best = if self.steps_lazily(o) { self.extreme_keyed(o, k, &mut Lazy(o), is_min, chunk) } else {
-                let mut cur = self.iter_cursor(o)?;
-                self.extreme_keyed(o, k, &mut cur, is_min, chunk)
+        // A builtin key stepping a generator among the items in Rust runs through a function of the loop, as a job stepping it, any iterable's items unknown yet.
+        if ok && let Some(k) = key && self.steps_whole(k) {
+            let leaf = |vm: &Self, vs: &[Val]| vs.iter().any(|&v| vm.steps_py(v));
+            let held = match positional[..] {
+                [o] => match self.heap.try_get(o) { Some(HeapObj::List(rc)) => { let l = rc.borrow().clone(); leaf(self, &l) }, Some(HeapObj::Tuple(t)) => leaf(self, t), _ => true },
+                _ => leaf(self, &positional),
             };
-            self.temp_roots.truncate(base);
-            return match (best?, default) {
-                (Some(v), _) | (None, Some(v)) => { self.push(v); Ok(()) }
-                (None, None) => Err(cold_value(label)),
-            };
+            if held { key = self.through_loop(k, 1)?.or(key); }
+            // Values whose key now runs as frames fold as one iterable does.
+            if held && positional.len() > 1 && let Some(k) = key {
+                let all = self.heap.alloc(HeapObj::Tuple(positional))?;
+                return self.with_roots([all], |vm| vm.fold_run(all, crate::vm::jobs::Takes::Keyed(is_min, k), &[], ok, chunk));
+            }
+        }
+        // One iterable folds, an item at a time, so a range never becomes a list.
+        if let [o] = positional[..] {
+            let takes = match key { Some(k) => crate::vm::jobs::Takes::Keyed(is_min, k), None => crate::vm::jobs::Takes::Extreme(is_min) };
+            return self.fold_run(o, takes, default.as_slice(), ok, chunk);
         }
         // Many args are values.
         let items = positional;
         if items.is_empty() {
             return match default { Some(d) => { self.push(d); Ok(()) }, None => Err(cold_value(label)) };
+        }
+        // Values whose comparison or key may run user code fold as one iterable does, its dunders frames of the loop.
+        if self.heap.users && (items.iter().any(|v| v.is_heap()) || key.is_some_and(|k| self.heap.user(k))) {
+            let takes = match key { Some(k) => crate::vm::jobs::Takes::Keyed(is_min, k), None => crate::vm::jobs::Takes::Extreme(is_min) };
+            let all = self.heap.alloc(HeapObj::Tuple(items))?;
+            return self.with_roots([all], |vm| vm.fold_run(all, takes, &[], ok, chunk));
         }
         // Without a key, compare elements directly, with one, compare key(x) but return the winning element.
         let keys = match key {
@@ -399,65 +412,9 @@ impl<'a> VM<'a> {
         self.push(items[best]); Ok(())
     }
 
-    /* The least item of `cur`, or with `!is_min` the greatest, the first one on a tie. */
-    fn extreme_cursor<S: Source>(&mut self, of: Val, cur: &mut S, is_min: bool, chunk: &crate::parser::SSAChunk) -> Result<Option<Val>, VmErr> {
-        // An iterator runs user code for each item, so it and the best so far stay rooted throughout.
-        if S::LAZY { self.temp_roots.push(of); }
-        let Some(mut best) = cur.step(self, chunk)? else { return Ok(None) };
-        let slot = self.temp_roots.len();
-        if S::LAZY { self.temp_roots.extend([best, best]); }
-        let base = self.temp_roots.len();
-        while let Some(item) = cur.step(self, chunk)? {
-            self.charge_step()?;
-            if S::LAZY { self.temp_roots[slot + 1] = item; }
-            // A user `__lt__` can collect, so from the first instance on the iterable, its items and the best stay rooted.
-            if self.temp_roots.len() == base && (item.is_heap() || best.is_heap()) && (self.instance_class(item).is_some() || self.instance_class(best).is_some()) {
-                self.temp_roots.push(of);
-                self.temp_roots.extend_from_slice(cur.held());
-            }
-            if self.beats(item, best, is_min, chunk)? { best = item; }
-            if S::LAZY { self.temp_roots[slot] = best; }
-        }
-        Ok(Some(best))
-    }
-
-    /* The item of `cur` with the least `key(item)`, or with `!is_min` the greatest, the first one on a tie. */
-    fn extreme_keyed<S: Source>(&mut self, of: Val, key: Val, cur: &mut S, is_min: bool, chunk: &crate::parser::SSAChunk) -> Result<Option<Val>, VmErr> {
-        // The key runs user code, so the iterable, the key, the best pair and the current pair stay rooted.
-        let slot = self.temp_roots.len();
-        self.temp_roots.extend([of, key, Val::none(), Val::none(), Val::none(), Val::none()]);
-        self.temp_roots.extend_from_slice(cur.held());
-        let Some(mut best) = cur.step(self, chunk)? else { return Ok(None) };
-        self.temp_roots[slot + 2] = best;
-        let mut best_key = self.key_of(key, best, chunk)?;
-        self.temp_roots[slot + 3] = best_key;
-        while let Some(item) = cur.step(self, chunk)? {
-            self.charge_step()?;
-            self.temp_roots[slot + 4] = item;
-            let k = self.key_of(key, item, chunk)?;
-            self.temp_roots[slot + 5] = k;
-            if self.beats(k, best_key, is_min, chunk)? {
-                (best, best_key) = (item, k);
-                (self.temp_roots[slot + 2], self.temp_roots[slot + 3]) = (best, best_key);
-            }
-        }
-        Ok(Some(best))
-    }
-
-    /* `key(item)`. */
-    fn key_of(&mut self, key: Val, item: Val, chunk: &crate::parser::SSAChunk) -> Result<Val, VmErr> {
-        self.push(key);
-        self.push(item);
-        self.exec_call(1, chunk)?;
-        self.pop()
-    }
-
-    /* Whether `sum`, `min` or `max` step `o` one item at a time, an iterator or a generator, rather than through its cursor. */
-    fn steps_lazily(&self, o: Val) -> bool { matches!(self.heap.try_get(o), Some(HeapObj::Iter(..) | HeapObj::Coroutine(..))) }
-
     /* Whether `item < best` for min or `item > best` for max, raising with the operator that ran. */
     #[inline]
-    fn beats(&mut self, item: Val, best: Val, is_min: bool, chunk: &crate::parser::SSAChunk) -> Result<bool, VmErr> {
+    pub(crate) fn beats(&mut self, item: Val, best: Val, is_min: bool, chunk: &crate::parser::SSAChunk) -> Result<bool, VmErr> {
         if item.is_int() && best.is_int() { return Ok(if is_min { item.as_int() < best.as_int() } else { item.as_int() > best.as_int() }); }
         if is_min { return self.sort_lt(item, best, chunk); }
         if let Some(r) = self.try_compare_dunder(crate::parser::OpCode::Gt, item, best, chunk)? { return Ok(self.truthy(r)); }
@@ -468,7 +425,7 @@ impl<'a> VM<'a> {
     }
 
     /* Index of the least key, or with `!is_min` the greatest, the first one on a tie. */
-    fn extreme_index(&mut self, keys: &[Val], is_min: bool, chunk: &crate::parser::SSAChunk) -> Result<usize, VmErr> {
+    pub(crate) fn extreme_index(&mut self, keys: &[Val], is_min: bool, chunk: &crate::parser::SSAChunk) -> Result<usize, VmErr> {
         let mut best = 0;
         for i in 1..keys.len() {
             if self.beats(keys[i], keys[best], is_min, chunk)? { best = i; }
@@ -477,81 +434,29 @@ impl<'a> VM<'a> {
     }
 
     pub fn call_sum(&mut self, op: u16, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
+        let ok = core::mem::take(&mut self.job_ok);
         let args = self.pop_n(op as usize)?;
         if args.is_empty() { return Err(cold_type("sum() requires at least 1 argument")); }
-        let start = if args.len() > 1 { args[1] } else { Val::int(0) };
         // Text and bytes join, which sum points to.
-        match self.heap.try_get(start) {
+        match args.get(1).and_then(|&start| self.heap.try_get(start)) {
             Some(HeapObj::Str(_)) => return Err(cold_type("sum() can't sum strings [use ''.join(seq) instead]")),
             Some(HeapObj::Bytes(_)) => return Err(cold_type("sum() can't sum bytes [use b''.join(seq) instead]")),
             Some(HeapObj::ByteArray(_)) => return Err(cold_type("sum() can't sum bytearray [use b''.join(seq) instead]")),
             _ => {}
         }
-        let base = self.temp_roots.len();
-        let result = if self.steps_lazily(args[0]) { self.sum_cursor(&args, &mut Lazy(args[0]), start, chunk) } else {
-            let mut cur = self.iter_cursor(args[0])?;
-            self.sum_cursor(&args, &mut cur, start, chunk)
-        };
-        self.temp_roots.truncate(base);
-        let result = result?;
-        self.push(result); Ok(())
-    }
-
-    fn sum_cursor<S: Source>(&mut self, args: &[Val], cur: &mut S, start: Val, chunk: &crate::parser::SSAChunk) -> Result<Val, VmErr> {
-        // An iterator runs user code for each item, so it and the running total stay rooted throughout.
-        let slot = self.temp_roots.len();
-        if S::LAZY { self.temp_roots.extend_from_slice(args); self.temp_roots.extend([start, start]); }
-        let base = self.temp_roots.len();
-        let mut acc = start;
-        // Once a float enters, switch to Neumaier compensated summation (Python 3.12+).
-        let mut fstate: Option<(f64, f64)> = if start.is_float() { Some((start.as_float(), 0.0)) } else { None };
-        // Plain ints add in an i128 that boxes once at the end, so a long sum leaves no garbage.
-        let mut wide: Option<i128> = None;
-        loop {
-            if S::LAZY { self.temp_roots[slot + args.len()] = acc; }
-            let Some(item) = cur.step(self, chunk)? else { break };
-            if S::LAZY { self.temp_roots[slot + args.len() + 1] = item; }
-            self.charge_step()?;
-            if fstate.is_none() && item.is_int() && (wide.is_some() || acc.is_int())
-                && let Some(w) = wide.unwrap_or(acc.as_int() as i128).checked_add(item.as_int() as i128) {
-                wide = Some(w);
-                continue;
-            }
-            if let Some(w) = wide.take() { acc = self.int_to_val(Some(w))?; }
-            let user = self.instance_class(acc).is_some() || self.instance_class(item).is_some();
-            // A user `__add__` can collect, so from the first instance on the iterable and its items stay rooted.
-            if user && self.temp_roots.len() == base {
-                self.temp_roots.extend_from_slice(args);
-                self.temp_roots.extend_from_slice(cur.held());
-            }
-            match fstate {
-                Some((s, c)) => match self.to_f64_coerce(item) {
-                    Ok(x) => fstate = Some(neumaier(s, c, x)),
-                    // Non-numeric after floats, the plain addition raises the proper TypeError.
-                    Err(_) => { acc = self.sum_add(Val::float(settle((s, c))), item, chunk)?; fstate = None; }
-                },
-                None if (item.is_float() || acc.is_float())
-                    && self.to_f64_coerce(acc).is_ok() && self.to_f64_coerce(item).is_ok() => {
-                    let base = self.to_f64_coerce(acc).unwrap();
-                    let x = self.to_f64_coerce(item).unwrap();
-                    fstate = Some(neumaier(base, 0.0, x));
-                }
-                None if user => { acc = self.sum_add(acc, item, chunk)?; }
-                None => { acc = self.add_vals(acc, item)?; }
-            }
-        }
-        if let Some(w) = wide { acc = self.int_to_val(Some(w))?; }
-        Ok(match fstate { Some(state) => Val::float(settle(state)), None => acc })
+        // Each item adds as it comes, as CPython 3.15 adds it.
+        self.fold_run(args[0], crate::vm::jobs::Takes::Sum, &args[1..], ok, chunk)
     }
 
     /* One step of `sum`, through a user `__add__` or `__radd__` when either side defines one. */
-    fn sum_add(&mut self, a: Val, b: Val, chunk: &crate::parser::SSAChunk) -> Result<Val, VmErr> {
+    pub(crate) fn sum_add(&mut self, a: Val, b: Val, chunk: &crate::parser::SSAChunk) -> Result<Val, VmErr> {
         match self.try_binary_dunder(crate::parser::types::OpCode::Add, a, b, false, chunk)? {
             Some(v) => Ok(v),
             None => self.add_vals(crate::value::unboxed(a, &self.heap), crate::value::unboxed(b, &self.heap)),
         }
     }
 
+    #[inline(never)]
     pub fn call_range(&mut self, op: u16) -> Result<(), VmErr> {
         let args = self.pop_n(op as usize)?;
         // A bound past i64 makes a wide range.
@@ -602,6 +507,7 @@ impl<'a> VM<'a> {
         self.alloc_and_push_tuple(alloc::vec![q, r])
     }
 
+    #[inline(never)]
     pub fn call_pow(&mut self, op: u16) -> Result<(), VmErr> {
         let args = self.pop_n(op as usize)?;
         match args.len() {
@@ -682,3 +588,23 @@ fn int_arg(vm: &VM, o: Val) -> VmErr { VmErr::TypeMsg(crate::s!("int() argument 
 /* The TypeError of `float(x)` for a value with no float form. */
 #[cold]
 fn float_arg(vm: &VM, o: Val) -> VmErr { VmErr::TypeMsg(crate::s!("float() argument must be a string or a real number, not '", str vm.type_name(o), "'")) }
+
+/* `complex(v)` of an instance as a job, calling the first of `__complex__`, `__float__` and `__index__` its class holds as a frame, `hook` next. */
+struct ComplexOf { v: Val, hook: usize }
+
+impl crate::vm::jobs::Calls for ComplexOf {
+    fn step(&mut self, vm: &mut VM<'_>, got: Option<Result<Val, VmErr>>) -> Result<crate::vm::jobs::Call, VmErr> {
+        use crate::frontend::complex::{parts, val};
+        if let Some(r) = got && let Some(z) = parts(&vm.heap, r?) { return Ok(crate::vm::jobs::Call::Give(val(&mut vm.heap, z.re, z.im)?)); }
+        let class = vm.instance_class(self.v).unwrap_or(Val::undef());
+        while let Some(&hook) = ["__complex__", "__float__", "__index__"].get(self.hook) {
+            self.hook += 1;
+            if let Some((f, defining)) = vm.lookup_class_member(class, hook) && matches!(vm.heap.try_get(f), Some(HeapObj::Func(..))) {
+                return Ok(crate::vm::jobs::Call::Frame(f, defining, [self.v, Val::undef(), Val::undef()]));
+            }
+        }
+        Err(VmErr::TypeMsg(crate::s!("complex() argument must be a string or a number, not ", str vm.type_name(self.v))))
+    }
+
+    fn for_each_val(&self, f: &mut dyn FnMut(Val)) { f(self.v); }
+}

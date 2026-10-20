@@ -291,7 +291,14 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             let idx = self.chunk.push_name(name);
             self.chunk.emit(op, idx);
             match op {
-                OpCode::Global => { self.globals_decl.insert(name.to_string()); }
+                OpCode::Global => {
+                    // A name the scope bound already, a parameter or an earlier store, cannot turn global, as Python has it.
+                    if !self.globals_decl.contains(name) && let Some(v) = self.ssa_versions.get(name) {
+                        let how = if v == 0 { "' is parameter and global" } else { "' is assigned to before global declaration" };
+                        self.errors.push(Diagnostic { start: self.last_end - name.len(), end: self.last_end, msg: s!("name '", str name, str how) });
+                    }
+                    self.globals_decl.insert(name.to_string());
+                }
                 OpCode::Nonlocal => self.declare_nonlocal(name),
                 _ => {}
             }
@@ -615,7 +622,8 @@ impl<'src, I: Iterator<Item = Token>> Parser<'src, I> {
             let t = self.advance();
             if !matches!(self.peek_same_line(), Some(TokenType::Dot | TokenType::Lsqb | TokenType::Lpar)) {
                 let name = self.lexeme(&t);
-                let idx = self.push_ssa_name(name, self.current_version(name));
+                // A name the function declares `global` unbinds its module binding, named bare as its loads name it.
+                let idx = if self.globals_decl.contains(name) { self.chunk.push_name(name) } else { self.push_ssa_name(name, self.current_version(name)) };
                 self.chunk.emit(OpCode::Del, idx);
                 return;
             }

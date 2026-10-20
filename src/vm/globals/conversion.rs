@@ -5,6 +5,7 @@ use crate::alloc::string::ToString;
 impl<'a> VM<'a> {
 
     pub fn call_str(&mut self, argc: u16, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
+        let ok = core::mem::take(&mut self.job_ok);
         if argc == 0 { return self.alloc_and_push_str(alloc::string::String::new()); }
         if argc >= 2 {
             // `str(bytes, encoding[, errors])` decodes, mirroring `bytes.decode`.
@@ -20,20 +21,31 @@ impl<'a> VM<'a> {
             return Err(VmErr::TypeMsg(crate::s!("decoding to str: need a bytes-like object, ", str self.type_name(args[0]), " found")));
         }
         let o = self.pop()?;
+        // A container writes its items with repr, as `repr` does, and an instance its `__str__` or `__repr__`, each run as frames of the loop.
+        if ok && o.is_heap() && self.render_job(o, false, chunk)? { return Ok(()); }
+        if ok && self.is_instance(o) && self.str_job(o, false) { return Ok(()); }
         let s = self.display_op(o, chunk)?;
         self.alloc_and_push_str(s)
     }
 
     pub fn call_bool(&mut self, argc: u16, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
+        let ok = core::mem::take(&mut self.job_ok);
         if argc == 0 { self.push(Val::bool(false)); return Ok(()); }
         let o = self.pop()?;
+        // An instance's `__bool__`, or past it its `__len__`, runs as a frame of the loop.
+        if ok && self.is_instance(o) {
+            let class = self.instance_class(o).unwrap_or(Val::undef());
+            let has_bool = self.lookup_class_member(class, "__bool__").is_some();
+            if if has_bool { self.check_job(o, crate::vm::jobs::Check::Bool) } else { self.check_job(o, crate::vm::jobs::Check::LenTruth) } { return Ok(()); }
+        }
         let t = self.truthy_op(o, chunk)?;
         self.push(Val::bool(t));
         Ok(())
     }
 
-    pub fn call_type(&mut self, argc: u16, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
-        if argc == 3 { return self.call_type_new(chunk); }
+    pub fn call_type(&mut self, argc: u16) -> Result<(), VmErr> {
+        let ok = core::mem::take(&mut self.job_ok);
+        if argc == 3 { return self.call_type_new(ok); }
         if argc != 1 { return Err(cold_type("type() takes 1 or 3 arguments")); }
         let o = self.pop()?;
         // A user instance's type is its own class object, so `type(x) is Cls` holds.
@@ -47,8 +59,8 @@ impl<'a> VM<'a> {
         Ok(())
     }
 
-    /* `type(name, bases, dict)`, a class built from its parts as a class statement builds one. */
-    fn call_type_new(&mut self, chunk: &crate::parser::SSAChunk) -> Result<(), VmErr> {
+    /* `type(name, bases, dict)`, a class built as a class statement builds one, its hooks frames of the loop when `frames`, its job giving the class. */
+    fn call_type_new(&mut self, frames: bool) -> Result<(), VmErr> {
         let (ns, bases, name) = (self.pop()?, self.pop()?, self.pop()?);
         let name = match self.heap.try_get(name) { Some(HeapObj::Str(s)) => s.clone(), _ => return Err(VmErr::TypeMsg(crate::s!("type.__new__() argument 1 must be str, not ", str self.type_name(name)))) };
         let wrong = |vm: &Self, n: &str, want: &str, v: Val| VmErr::TypeMsg(crate::s!("type.__new__() argument ", str n, " must be ", str want, ", not ", str vm.type_name(v)));
@@ -61,8 +73,8 @@ impl<'a> VM<'a> {
             members.push((self.str_of(k, "type() dict keys must be strings")?, v));
         }
         self.check_bases(&mut bases)?;
-        let cls = self.finish_class(name, None, bases, members, &[], chunk)?;
-        self.push(cls);
+        let cls = self.finish_class(name, None, bases, members, &[], frames)?;
+        if !(frames && self.entered) { self.push(cls); }
         Ok(())
     }
 

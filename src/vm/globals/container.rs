@@ -84,8 +84,11 @@ impl<'a> VM<'a> {
             return Err(cold_type("dict expected at most 1 argument"));
         }
         // Keyword pairs sit above the positional source.
+        let ok = core::mem::take(&mut self.job_ok);
         let kw_flat = self.pop_n(kw * 2)?;
         let src = if pos == 1 { Some(self.pop()?) } else { None };
+        // A generator called where a frame may open runs as a frame of the loop, its pairs gathered as it yields them.
+        if ok && kw == 0 && let Some(s) = src && s.is_heap() && self.gather_gen(s, crate::vm::jobs::Takes::All(crate::parser::OpCode::CallDict, op), &[])? { return Ok(()); }
         // A dict source copies with the hashes it stored.
         if let Some(rc) = src.and_then(|s| self.heap.dict_cell(s)) && kw_flat.is_empty() {
             let dm = rc.borrow().clone();
@@ -126,7 +129,9 @@ impl<'a> VM<'a> {
     }
 
     pub fn call_set(&mut self, op: u16) -> Result<(), VmErr> {
+        let ok = core::mem::take(&mut self.job_ok);
         let src = if op == 0 { None } else { Some(self.pop()?) };
+        if ok && let Some(s) = src && s.is_heap() && self.gather_gen(s, crate::vm::jobs::Takes::All(crate::parser::OpCode::CallSet, 1), &[])? { return Ok(()); }
         let s = self.set_source(src)?;
         let val = self.heap.alloc(HeapObj::Set(Rc::new(RefCell::new(s))))?;
         self.push(val);
@@ -155,6 +160,7 @@ impl<'a> VM<'a> {
     }
 
     /* `bytes()`, empty, `n` zero bytes, an iterable of ints in range(256), a bytes-like value or `(str, encoding, errors)`. */
+    #[inline(never)]
     pub fn call_bytes(&mut self, argc: u16) -> Result<(), VmErr> {
         let args = self.pop_n(argc as usize)?;
         let buf = self.octets_of(&args, "bytes")?;

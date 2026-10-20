@@ -31,7 +31,7 @@ fn err_status(msg: &str) -> u32 {
 }
 
 /* Lex and parse with the host resolver, Err is rendered diagnostics. */
-fn parse_source(src: &str) -> Result<SSAChunk, String> {
+fn parse_source(src: &str) -> Result<Rc<SSAChunk>, String> {
     let (tokens, lex_errs) = lex(src);
     let dir = with_slot(|s| s.entry_dir.clone());
     let resolver = Box::new(WasmHostResolver { dir, late: false });
@@ -39,18 +39,18 @@ fn parse_source(src: &str) -> Result<SSAChunk, String> {
     for e in lex_errs {
         p.errors.push(Diagnostic { start: e.start, end: e.end, msg: e.msg.into() });
     }
-    let (mut chunk, errs) = p.parse();
+    let errs = p.parse_in_place();
     if !errs.is_empty() {
         let name = source_name();
         let report = Diagnostic::render_all(&errs, src, name.as_deref());
-        if chunk.warnings.is_empty() { return Err(report); }
+        if p.chunk.warnings.is_empty() { return Err(report); }
         // The warnings before the first error print ahead of it, as Python gives them while it compiles.
         let first = errs.iter().map(|e| e.start).min().unwrap_or(0);
-        chunk.warnings.retain(|w| w.start < first);
-        return Err(s!(str &Diagnostic::render_warnings(&chunk.warnings, src, name.as_deref()), str &report));
+        p.chunk.warnings.retain(|w| w.start < first);
+        return Err(s!(str &Diagnostic::render_warnings(&p.chunk.warnings, src, name.as_deref()), str &report));
     }
-    crate::vm::optimizer::constant_fold(&mut chunk);
-    Ok(chunk)
+    crate::vm::optimizer::constant_fold(&mut p.chunk);
+    Ok(Rc::new(p.chunk))
 }
 
 /* The parsed program for `src`, shared by every slot booting the same source from the same dir. */
@@ -66,7 +66,7 @@ fn entry_chunk(src: &str) -> Result<Rc<SSAChunk>, String> {
     if let Some(chunk) = hit {
         return Ok(chunk);
     }
-    let chunk = Rc::new(parse_source(src)?);
+    let chunk = parse_source(src)?;
     with_runtime(|rt| {
         if rt.chunk_cache.len() >= CHUNK_CACHE {
             rt.chunk_cache.remove(0);
@@ -100,7 +100,7 @@ fn boot_vm(chunk: Rc<SSAChunk>, limits: Limits) -> Box<VM<'static>> {
         s.chunks.push(chunk);
         s.preempt_every
     });
-    let mut vm = Box::new(VM::with_limits(chunk_static, limits));
+    let mut vm = VM::boxed(chunk_static, limits);
     vm.print_hook = Some(stream_print);
     vm.send_hook = Some(send_host);
     // Code that eval or exec compiles imports from the package of the file that called it.
@@ -343,7 +343,7 @@ pub unsafe extern "C" fn repl_eval(ptr: *const u8, len: u32) -> u32 {
         Err(status) => return status,
     };
     let chunk = match parse_source(&src) {
-        Ok(c) => Rc::new(c),
+        Ok(c) => c,
         Err(rendered) => return err_status(&rendered),
     };
     let existing = with_slot(|s| {

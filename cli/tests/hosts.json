@@ -432,7 +432,7 @@
       "main.py": "def f(n):\n    if n == 0:\n        raise ValueError('bottom')\n    return f(n - 1)\n\nf(2000)\n"
     },
     "run": ["run", "main.py"],
-    "fails": ["ValueError: bottom", "--> main.py:3:9", "note: the same call 1999 more times", "--> main.py:6:2"]
+    "fails": ["RecursionError: maximum recursion depth exceeded", "--> main.py:4:5", "note: the same call 997 more times", "--> main.py:6:2"]
   },
   {
     "given": {

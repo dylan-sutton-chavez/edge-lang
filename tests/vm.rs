@@ -248,6 +248,19 @@ mod test {
         }
 
         #[test]
+        fn a_recursion_through_sections_notes_its_levels_as_frames_do() {
+            // The same lines each way, a `try` keeping the recursion in frames, run warm first, one too deep ending at the same level, nothing pending.
+            let laid = |stop: &str, body: [&str; 2]| format!("def f(n, stop):\n    if n == stop:\n        return 1 // (stop - 70)\n    {}\n    {}\n    return f(x + 1, stop) + 1\ndef run():\n    for i in range(4):\n        f(0, 60)\n    f(0, {stop})\nrun()\n", body[0], body[1]);
+            for stop in ["70", "-1"] {
+                let (sections, frames) = (traceback(&laid(stop, ["x = n", "y = 0"])), traceback(&laid(stop, ["try: x = n", "except ValueError: y = 0"])));
+                assert_eq!(locations(&sections), locations(&frames), "{sections}\n=====\n{frames}");
+            }
+            let mutual = |body: [&str; 2]| format!("def even(n):\n    if n == 0:\n        return 1 // n\n    {}\n    {}\n    return odd(x - 1)\ndef odd(n):\n    x = n\n    return even(x - 1)\nfor i in range(8):\n    try:\n        even(40 + i * 2)\n    except ZeroDivisionError:\n        pass\neven(30)\n", body[0], body[1]);
+            let (sections, frames) = (traceback(&mutual(["x = n", "y = 0"])), traceback(&mutual(["try: x = n", "except ValueError: y = 0"])));
+            assert_eq!(locations(&sections), locations(&frames), "{sections}");
+        }
+
+        #[test]
         fn uncaught_at_top_level_points_at_the_call() {
             let tb = traceback("from m import host_defer\nprint('before')\nhost_defer()\nprint('after')\n");
             assert!(tb.contains("RuntimeError: boom"), "{tb}");
@@ -366,6 +379,18 @@ mod test {
         fn a_handled_error_is_no_context_once_its_handler_ends() {
             let tb = traceback("try:\n    1 / 0\nexcept ZeroDivisionError:\n    pass\nraise KeyError('later')\n");
             assert_eq!(locations(&tb), vec!["error: KeyError: 'later'", "  --> main.py:5:1"], "{tb}");
+        }
+        // A builtin's callback hands its result to the builtin, so a wait inside it raises where it waits, as one in a generator does.
+        #[test]
+        fn a_wait_inside_a_builtins_callback_raises_there() {
+            // The loop over `map` runs as a section of `run` when its iterable is a list a name holds, as a frame of the loop otherwise.
+            for (call, it) in ["sorted(range(40), key=k)", "max(range(40), key=k)", "[v for v in map(k, range(40))]", "0"].into_iter().flat_map(|c| [(c, "range(40)"), (c, "xs")]) {
+                let src = format!("from m import host_defer\ndef wait():\n    host_defer()\ndef k(x):\n    if x == 30:\n        wait()\n    return x\nxs = list(range(40))\ndef run():\n    t = 0\n    for v in map(k, {it}):\n        t += v\n    return t\ntry:\n    print({call})\nexcept RuntimeError as e:\n    print('caught', e)\ntry:\n    run()\nexcept RuntimeError as e:\n    print('caught', e)\nprint('end')\n");
+                let (out, tb) = run(&src, "RuntimeError: boom");
+                let caught = "caught receive() and host calls cannot wait inside a callback a builtin runs";
+                let first = if call == "0" { "0" } else { caught };
+                assert_eq!(out, vec![first, caught, "end"], "{call}: {tb:?}");
+            }
         }
     }
     // Builtins that scan or copy pay the op budget for what they read, so looping one cannot outrun it.

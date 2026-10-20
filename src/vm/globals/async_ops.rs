@@ -3,163 +3,240 @@ use alloc::{vec, vec::Vec};
 use crate::parser::{OpCode, SSAChunk};
 use super::super::VM;
 use super::super::types::*;
+use super::super::lower::Code;
+
+/* The helpers the module body waits inside, opened as frames of the loop resuming it, and the ones running with more kept under them by depth. */
+pub(crate) struct Chain { pub(crate) ask: bool, pub(crate) next: bool, pub(crate) coro: Val, pub(crate) chains: Vec<(usize, Val, usize)> }
+
+impl Default for Chain {
+    fn default() -> Self { Self { ask: false, next: false, coro: Val::undef(), chains: Vec::new() } }
+}
 
 /* An ip no chunk reaches, the same on 32 and 64 bits so a snapshot keeps it. */
 pub(crate) const FINISHED: usize = u32::MAX as usize;
 
 impl<'a> VM<'a> {
 
-    // Resume coroutine, persist state on yield, restore caller on return. Suspended sync sub-frames run innermost-first, each pushing its result onto the next frame's stack at the Call site. The coro's `exception_frames` are restored before its body runs and saved back on yield, so `try`/`except` survives suspensions.
-    pub fn resume_coroutine(&mut self, callee: Val) -> Result<Val, VmErr> {
-        // Scheduler-driven resumes have nothing native above.
+    /* resumes the module body `callee` the host drives until it returns or raises or waits */
+    pub(crate) fn resume_root(&mut self, callee: Val) -> Result<Val, VmErr> {
+        (self.redo.on, self.redo.lazy) = (false, false);
         let resume_safe = core::mem::take(&mut self.pending_exec_safe);
-        let for_steps = core::mem::take(&mut self.for_steps);
-        self.wake_gen(callee, for_steps);
-        let (outer_ip, outer_body, syncs, held) = match self.heap.get(callee) {
-            HeapObj::Coroutine(c) => (c.ip, c.body, c.syncs.len(), c.syncs.len() + c.stack.len() + c.slots.len() + c.iters.len()),
+        self.for_steps = false;
+        self.wake_gen(callee, false);
+        let (outer_ip, outer_layout, syncs, held) = match self.heap.get(callee) {
+            HeapObj::Coroutine(c) => (c.ip, c.layout, c.syncs.len(), c.syncs.len() + c.stack.len() + c.slots.len() + c.iters.len()),
             _ => return Err(cold_type("not a coroutine")),
         };
+        self.chain.ask = false;
+        // the helpers it waits inside open as frames of its loop innermost first
+        let outer_layout = if syncs == 0 { outer_layout } else {
+            let Some(l) = self.chains_from(callee, BodyRef::Module, outer_ip, outer_layout) else { return Err(cold_runtime("a body waiting inside helpers that open no frame")) };
+            if self.chain_refused(callee) { return Err(cold_depth()); }
+            l
+        };
+        self.evict_coro(callee);
         if outer_ip == FINISHED { self.yielded = false; return Ok(Val::none()); }
-
-        // Nested resumes from mutual awaits recurse in Rust, and each resume copies every suspended frame, so both stay bounded.
-        if syncs >= crate::vm::frame::SUSPENDED_DEPTH || self.depth >= self.max_calls { return Err(cold_depth()); }
-        // Re-entrant resume (`yield from g` inside g, `next(g)` from g's own body).
-        if self.executing_coros.contains(&callee.0) { return Err(self.running_error(callee)); }
-        // Charge the whole saved state (stack/slots/iters/frames), not just frame count.
+        if matches!(self.heap.try_get(callee), Some(HeapObj::Coroutine(c)) if c.running) { return Err(self.running_error(callee)); }
         self.charge_steps(held)?;
-        // With no suspended helper the state moves out, a yield puts it back and any error finishes the coroutine. Helper frames wait outside every root, so the coroutine keeps them until it saves.
-        let (mut outer_slots, mut outer_stack, mut outer_iters, mut sync_frames, mut outer_exc) = match self.heap.get_mut(callee) {
-            HeapObj::Coroutine(c) if syncs == 0 => (core::mem::take(&mut c.slots), core::mem::take(&mut c.stack), core::mem::take(&mut c.iters), Vec::new(), core::mem::take(&mut c.excs)),
-            HeapObj::Coroutine(c) => (c.slots.clone(), c.stack.clone(), c.iters.clone(), c.syncs.clone(), c.excs.clone()),
+        // its state moves out while it runs and a yield puts it back with the helpers it waits inside
+        let (mut slots, mut stack, mut iters, mut excs, mut withs) = match self.heap.get_mut(callee) {
+            HeapObj::Coroutine(c) => { c.running = true; (core::mem::take(&mut c.slots), core::mem::take(&mut c.stack), core::mem::take(&mut c.iters), core::mem::take(&mut c.excs), core::mem::take(&mut c.withs)) }
             _ => return Err(cold_type("not a coroutine")),
         };
-
-        self.executing_coros.push(callee.0);
-
-        // Stored depths are relative to the saved stacks of the coroutine, restoring lifts them to absolute positions.
-        let (saved_stack_len, saved_iter_len, saved_exc_len) = self.restore_into(&mut outer_stack, &mut outer_iters, &mut outer_exc);
-        let saved_yielded = self.yielded;
-        let saved_resume_ip = self.resume_ip; // don't leak into next exec()
+        let (stack_len, iter_len, exc_len, with_len) = self.restore_into(&mut stack, &mut iters, &mut excs, &mut withs);
+        let saved_resume_ip = self.resume_ip;
         self.yielded = false;
         self.depth += 1;
-
-        // Walk frames inside-out, then the outer. `outer_ran` tracks whether `outer_ip` should be overwritten by `resume_ip` on save, a re-yield inside a sync frame leaves the outer pristine.
-        let mut outer_ran = false;
-        let mut pending_ret: Option<Val> = None;
-        let result: Result<Val, VmErr> = 'drive: loop {
-            if let Some(frame) = sync_frames.pop() {
-                let SyncFrame { ip, fi, func, mut slots, mut stack_delta, mut iter_delta, mut exception_delta, instance } = frame;
-                let (frame_stack_base, frame_iter_base, frame_exc_base) = self.restore_into(&mut stack_delta, &mut iter_delta, &mut exception_delta);
-                // Inner result lands on this frame's stack.
-                if let Some(v) = pending_ret.take() { self.push(v); }
-                self.pending_exec_exc_base = Some(frame_exc_base);
-                self.pending_exec_safe = resume_safe;
-                let (_, body, _, _) = self.functions[fi];
-                let ran = self.exec_from(body, &mut slots, ip);
-                match ran {
-                    Err(e @ VmErr::HostYield(_)) => break 'drive Err(e),
-                    // An escaping error re-raises at the caller's call site, so its handlers and the traceback note follow.
-                    Err(e) => {
-                        self.stack.truncate(frame_stack_base);
-                        self.iter_stack.truncate(frame_iter_base);
-                        self.exception_stack.truncate(frame_exc_base);
-                        let (caller, resume_at): (&'a SSAChunk, usize) = match sync_frames.last() {
-                            Some(f) => (&self.functions[f.fi].1, f.ip),
-                            None => match outer_body {
-                                BodyRef::Fn(ofi) => (&self.functions[ofi].1, outer_ip),
-                                BodyRef::Module => (self.chunk, outer_ip),
-                            },
-                        };
-                        self.note_frame(fi, Some(resume_at.saturating_sub(1) as u32), caller);
-                        self.resume_raise = Some(e);
-                    }
-                    Ok(val) if self.yielded => {
-                        self.save_frames(frame_stack_base, frame_iter_base, frame_exc_base, &mut stack_delta, &mut iter_delta, &mut exception_delta);
-                        sync_frames.push(SyncFrame { ip: self.resume_ip, fi, func, slots, stack_delta, iter_delta, exception_delta, instance });
-                        // Reverse so pop re-enters innermost first.
-                        let newer = core::mem::take(&mut self.pending_sync_frames);
-                        sync_frames.extend(newer.into_iter().rev());
-                        break 'drive Ok(val);
-                    }
-                    // A finished helper drops the loops a return left open, as run_call does.
-                    Ok(val) => {
-                        self.iter_stack.truncate(frame_iter_base);
-                        pending_ret = Some(if instance.is_undef() { val } else { instance });
-                    }
-                }
-            } else {
-                let body: &SSAChunk = match outer_body {
-                    BodyRef::Fn(fi) => &self.functions[fi].1,
-                    BodyRef::Module => self.chunk,
-                };
-                outer_ran = true;
-                self.pending_exec_exc_base = Some(saved_exc_len);
-                self.pending_exec_safe = resume_safe;
-                if let Some(v) = pending_ret.take() { self.push(v); }
-                match self.exec_from(body, &mut outer_slots, outer_ip) {
-                    Err(e) => break 'drive Err(e),
-                    Ok(val) => {
-                        if self.yielded {
-                            let newer = core::mem::take(&mut self.pending_sync_frames);
-                            sync_frames.extend(newer.into_iter().rev());
-                        }
-                        break 'drive Ok(val);
-                    }
-                }
-            }
-        };
-
+        self.pending_exec_exc_base = Some(exc_len);
+        self.pending_exec_safe = resume_safe;
+        if syncs != 0 { (self.chain.next, self.chain.coro) = (true, callee); }
+        self.resume_layout = outer_layout;
+        self.resume_ip = outer_ip;
+        let pool = self.pool_of(self.chunk);
+        let result = self.exec_pooled(self.chunk, pool, &mut slots, false);
         self.depth -= 1;
-        self.executing_coros.retain(|&id| id != callee.0);
-        // A generator waits with the `for` that steps it, anything else that steps a generator or a coroutine has no way to wait.
-        let parked = result.is_ok() && self.yielded && self.waits() && matches!(outer_body, BodyRef::Fn(fi) if self.functions[fi].1.is_generator || self.is_async_fn(fi));
-        let result = match result {
-            Ok(_) if parked && !for_steps => {
-                self.yielded = false;
-                Err(self.suspended_in_generator())
-            }
-            r => r,
-        };
-        // A body that returned or raised is finished, so a later resume must not run its tail again.
         let finished = match &result { Ok(_) => !self.yielded, Err(e) => !matches!(e, VmErr::HostYield(_)) };
-        if finished && let Some(HeapObj::Coroutine(c)) = self.heap.try_get_mut(callee) { c.ip = FINISHED; }
+        if let Some(HeapObj::Coroutine(c)) = self.heap.try_get_mut(callee) { c.running = false; if finished { c.ip = FINISHED; } }
         let result = match result {
             Ok(v) => v,
             Err(e) => {
-                self.stack.truncate(saved_stack_len.min(self.stack.len()));
-                self.iter_stack.truncate(saved_iter_len.min(self.iter_stack.len()));
-                self.exception_stack.truncate(saved_exc_len.min(self.exception_stack.len()));
-                self.resume_raise = None;
-                self.resume_ip = saved_resume_ip;
+                self.stack.truncate(stack_len.min(self.stack.len()));
+                self.iter_stack.truncate(iter_len.min(self.iter_stack.len()));
+                self.exception_stack.truncate(exc_len.min(self.exception_stack.len()));
+                self.with_stack.truncate(with_len.min(self.with_stack.len()));
+                (self.resume_raise, self.resume_ip) = (None, saved_resume_ip);
                 return Err(e);
             }
         };
-
-        if self.yielded {
-            let resume_ip = if outer_ran { self.resume_ip } else { outer_ip };
-            // Handler depths become relative, clamped when the coroutine left a shorter stack.
-            self.save_frames(saved_stack_len, saved_iter_len, saved_exc_len, &mut outer_stack, &mut outer_iters, &mut outer_exc);
-            // An inline-awaited coro isn't a scheduler root, so its body's GC may have freed it, if so skip the save (a freed coro is unreachable and won't resume).
-            if let Some(HeapObj::Coroutine(c)) = self.heap.try_get_mut(callee) {
-                c.ip = resume_ip;
-                c.slots = outer_slots;
-                c.stack = outer_stack;
-                c.iters = outer_iters;
-                c.syncs = sync_frames;
-                c.excs = outer_exc;
-                // The placeholder of a wait is marked, so the next step of the `for` hands over what woke it.
-                if parked && !self.pending.preempt_request && let Some(top) = c.wait_slot() { *top = Val::undef(); }
-            }
-            self.resume_ip = saved_resume_ip; // restore the caller's scratch
-            Ok(result)
-        } else {
-            self.stack.truncate(saved_stack_len);
-            self.iter_stack.truncate(saved_iter_len);
-            self.exception_stack.truncate(saved_exc_len);
-            self.yielded = saved_yielded;
-            self.resume_ip = saved_resume_ip; // restore the caller's scratch
-            Ok(result)
+        if !self.yielded {
+            self.stack.truncate(stack_len);
+            self.iter_stack.truncate(iter_len);
+            self.exception_stack.truncate(exc_len);
+            self.resume_ip = saved_resume_ip;
+            return Ok(result);
         }
+        let layout = core::mem::take(&mut self.resume_layout);
+        self.save_frames(stack_len, iter_len, exc_len, with_len, &mut stack, &mut iters, &mut excs, &mut withs);
+        let newer = core::mem::take(&mut self.pending_sync_frames);
+        if let Some(HeapObj::Coroutine(c)) = self.heap.try_get_mut(callee) {
+            (c.ip, c.layout, c.slots, c.stack, c.iters, c.excs, c.withs) = (self.resume_ip, layout, slots, stack, iters, excs, withs);
+            // the helpers a chained run left kept lie under the ones that parked
+            c.syncs.extend(newer.into_iter().rev());
+        }
+        self.resume_ip = saved_resume_ip;
+        Ok(result)
+    }
+
+    /* The item `co` keeps pending, the next it holds taking its place. */
+    pub(crate) fn take_pending(&mut self, co: Val) -> Val {
+        let next = match self.held.iter().position(|h| h.0.0 == co.0) {
+            Some(k) => { let v = self.held[k].1.pop().unwrap_or(Val::undef()); if self.held[k].1.is_empty() { self.held.swap_remove(k); } v }
+            None => Val::undef(),
+        };
+        let Some(HeapObj::Coroutine(c)) = self.heap.try_get_mut(co) else { return Val::none() };
+        core::mem::replace(&mut c.pending, next)
+    }
+
+    /* One step of generator `co` for a builtin or `for`, None when it finished already, raising as its resume would when it runs already. */
+    #[inline]
+    pub(crate) fn step_coroutine(&mut self, co: Val) -> Result<Val, VmErr> {
+        match self.heap.try_get(co) {
+            // One whose next item a builtin's step took ahead, or whose items a job held, hands that item out as its step.
+            Some(HeapObj::Coroutine(c)) if !c.pending.is_undef() => { self.yielded = true; return Ok(self.take_pending(co)); }
+            Some(HeapObj::Coroutine(c)) if c.ip == FINISHED => { self.yielded = false; return Ok(Val::none()); }
+            Some(HeapObj::Coroutine(c)) if c.running => return Err(self.running_error(co)),
+            _ => {}
+        }
+        Err(self.resumed_apart())
+    }
+
+    /* error of a generator resumed outside the loop which debug builds treat as a bug */
+    #[cold]
+    #[inline(never)]
+    fn resumed_apart(&self) -> VmErr {
+        debug_assert!(false, "a generator resumed outside the loop");
+        cold_runtime("a generator resumed outside the loop")
+    }
+
+    /* The layout `body` of `co`, suspended at `ip` in helpers laid out as `layout`, resumes in once it opens them as frames, None when it cannot. */
+    #[cold]
+    #[inline(never)]
+    fn chains_from(&mut self, co: Val, body: BodyRef, ip: usize, layout: u32) -> Option<u32> {
+        if ip & crate::vm::dispatch::RESUME_RAW != 0 { return None; }
+        if !matches!(self.heap.try_get(co), Some(HeapObj::Coroutine(_))) { return None; }
+        let (chunk, pool): (&SSAChunk, usize) = match body { BodyRef::Fn(fi) => (&self.functions[fi].1, self.fn_pool[fi]), BodyRef::Module => (self.chunk, self.pool_of(self.chunk)) };
+        // A body still in its first code resumes in that code made again with the compiler's resume points, a cold one heating once more as it does.
+        let p = &self.pools[pool];
+        if if p.code.is_none() { p.heat < super::super::lower::HOT_LOOP } else { p.cold && p.heat + 1 < super::super::lower::HOT_LOOP } { return Some(layout); }
+        // The resume code is made now as its run would make it, kept for that run by its layout, the helpers chaining when they go on at one point.
+        (self.resume_ip, self.resume_layout) = (ip, layout);
+        let (code, once) = self.frame_code(chunk, pool);
+        (self.resume_ip, self.resume_layout) = (0, 0);
+        if code.resume(code.lowered(ip)) != ip { return None; }
+        let laid = code.layout;
+        if once { self.retired.push(code); }
+        Some(laid)
+    }
+
+    /* whether the helpers `co` waits inside are too many or keep too much to open as frames */
+    pub(crate) fn chain_refused(&self, co: Val) -> bool {
+        let Some(HeapObj::Coroutine(c)) = self.heap.try_get(co) else { return false };
+        if c.syncs.len() >= crate::vm::act::SUSPENDED_DEPTH { return true; }
+        // What they keep is counted only as far as the bound, a long chain of helpers keeping little looked at once each.
+        let mut kept = c.stack.len();
+        for f in c.syncs.iter().rev() {
+            if kept >= crate::vm::act::SUSPENDED_DEPTH { return true; }
+            kept += f.stack_delta.len();
+        }
+        kept >= crate::vm::act::SUSPENDED_DEPTH
+    }
+
+    /* Opens the innermost helper coroutine `co` still waits inside, carrying on at `ret`, with `v` its call's result, giving where it carries on. */
+    pub(crate) fn chain_next(&mut self, co: Val, ret: usize, v: Option<Val>) -> usize {
+        let Some(HeapObj::Coroutine(c)) = self.heap.try_get_mut(co) else { return ret };
+        let Some(f) = c.syncs.pop() else { return ret };
+        let more = !c.syncs.is_empty();
+        let code = self.sync_code(&f);
+        let at = self.enter_sync(f, code, ret);
+        if let Some(v) = v { self.push(v); }
+        if more {
+            let h = self.head_at(self.top_pool);
+            self.regs[h] = Val::int(self.regs[h].as_int() | crate::vm::act::TASK << 40);
+            self.chain.chains.push((self.acts, co, ret));
+        }
+        at
+    }
+
+    /* The coroutine and its frame's return point when the running frame is a helper it waits inside with more kept under it, whose mark goes. */
+    #[inline(never)]
+    pub(crate) fn chain_top(&mut self) -> Option<(Val, usize)> {
+        let &(depth, co, ret) = self.chain.chains.last()?;
+        if depth != self.acts { return None; }
+        self.chain.chains.pop();
+        let h = self.head_at(self.top_pool);
+        self.regs[h] = Val::int(self.regs[h].as_int() & !(crate::vm::act::TASK << 40));
+        Some((co, ret))
+    }
+
+    /* `chain_next` after the top helper raised `e` out of `fi`, the helper under it opening and the error rising at its call, noted in the traceback. */
+    #[inline(never)]
+    pub(crate) fn chain_raise(&mut self, co: Val, ret: usize, fi: usize) -> usize {
+        if let Some(HeapObj::Coroutine(c)) = self.heap.try_get(co) && let Some(f) = c.syncs.last() {
+            let (ip, caller) = (f.ip, &self.functions[f.fi].1);
+            self.note_frame(fi, Some((ip & !crate::vm::dispatch::RESUME_RAW).saturating_sub(1) as u32), caller);
+        }
+        self.chain_next(co, ret, None)
+    }
+
+    /* The code helper `f` carries on in, the code it suspended in while one keeps it, else the code a resume runs it in, kept while it runs. */
+    fn sync_code(&mut self, f: &ParkedFrame) -> *const Code {
+        if let Some(k) = self.code_laid(f.fi, f.layout) {
+            // SAFETY a code the pool or the retired keep lives as long as the VM.
+            if !unsafe { (*k).unchanged() } { return k; }
+            // One in its first code heats as its resume would heat it, lowered once hot, its resume points the compiler's own.
+            let pool = self.fn_pool[f.fi];
+            self.pools[pool].heat += 1;
+            if self.pools[pool].heat < crate::vm::lower::HOT_LOOP { return k; }
+            let chunk = &self.functions[f.fi].1;
+            return alloc::rc::Rc::as_ptr(&self.lowered_code(chunk, pool, false));
+        }
+        let (chunk, pool) = (&self.functions[f.fi].1, self.fn_pool[f.fi]);
+        (self.resume_ip, self.resume_layout) = (f.ip, f.layout);
+        let (code, once) = self.frame_code(chunk, pool);
+        (self.resume_ip, self.resume_layout) = (0, 0);
+        let k = alloc::rc::Rc::as_ptr(&code);
+        if once { self.retired.push(code); }
+        k
+    }
+
+    /* Opens helper `f` a coroutine waits inside as a frame of the loop over its caller, which goes on at `ret` with its result, giving where it goes. */
+    fn enter_sync(&mut self, f: ParkedFrame, code: *const Code, ret: usize) -> usize {
+        let ParkedFrame { ip, fi, func, slots, mut stack_delta, mut iter_delta, mut exception_delta, mut withs, instance, .. } = f;
+        let pool = self.fn_pool[fi];
+        let chunk: &SSAChunk = &self.functions[fi].1;
+        let names = chunk.names.len();
+        let base = self.open_window(pool, slots.len().max(names), names, false);
+        // Its constants and state may come from a restore or a later window, so it takes them again before its frame opens.
+        if self.pools[pool].consts.is_none() && let Ok(consts) = super::super::cache::const_vals(chunk, &mut self.heap) { self.pools[pool].consts = Some(consts); }
+        self.pools[pool].wcode = 0;
+        self.note_window(pool);
+        self.regs[base..base + slots.len()].copy_from_slice(&slots);
+        // SAFETY the pool holds the code for as long as the VM lives.
+        let cold = self.cold_bases(unsafe { (*code).flat() } && iter_delta.is_empty() && exception_delta.is_empty());
+        let stack_base = self.stack.len();
+        self.restore_into(&mut stack_delta, &mut iter_delta, &mut exception_delta, &mut withs);
+        self.open_helper(fi, func, pool, code, cold, ret, stack_base, instance);
+        self.run_in(pool);
+        // SAFETY as above.
+        let c = unsafe { &*code };
+        if !self.laid(c, pool) { self.grow_frame(chunk, c, pool); }
+        if ip & crate::vm::dispatch::RESUME_RAW != 0 { ip & !crate::vm::dispatch::RESUME_RAW } else { c.lowered(ip) }
+    }
+
+    /* The code of function `fi` laid out as `layout`, which its pool holds or retired. */
+    pub(crate) fn code_laid(&self, fi: usize, layout: u32) -> Option<*const Code> {
+        if layout == 0 { return None; }
+        self.pools[self.fn_pool[fi]].code.iter().chain(&self.retired).find(|c| c.layout == layout).map(alloc::rc::Rc::as_ptr)
     }
 
     /* Whether the yield that just happened waits for something, an event, a host call, a preemption or a parked helper. */
@@ -182,11 +259,21 @@ impl<'a> VM<'a> {
     /* The error a suspension inside a generator raises, its requests dropped. */
     #[cold]
     #[inline(never)]
-    pub(crate) fn suspended_in_generator(&mut self) -> VmErr {
+    pub(crate) fn suspended_in_generator(&mut self, fi: Option<usize>) -> VmErr {
+        let _ = fi;
+        self.suspended_in(" a generator or a coroutine")
+    }
+
+    /* The error a suspension inside `what` raises, its requests dropped. */
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn suspended_in(&mut self, what: &str) -> VmErr {
         let p = &mut self.pending;
         (p.event_wait_request, p.host_call_request, p.preempt_request) = (false, false, false);
         self.pending_sync_frames.clear();
-        VmErr::Raised(alloc::string::String::from("RuntimeError: receive() and host calls cannot wait inside a generator or a coroutine"))
+        // The run carries on raising, not from where it would have resumed.
+        (self.resume_ip, self.resume_layout) = (0, 0);
+        VmErr::Raised(crate::s!("RuntimeError: receive() and host calls cannot wait inside", str what))
     }
 
     /* Steps the module body until it returns, raises or waits on the host, a wait handed out as a HostYield the next `run()` resumes. */
@@ -208,7 +295,8 @@ impl<'a> VM<'a> {
             }
             self.pending.clear_waits();
             self.pending_exec_safe = true;
-            let result = self.resume_coroutine(coro);
+            self.chain.ask = true;
+            let result = self.resume_root(coro);
             // A resume that failed early never reached the park point, so its raise must not leak.
             self.resume_raise = None;
             let yielded = core::mem::take(&mut self.yielded);
@@ -288,13 +376,78 @@ impl<'a> VM<'a> {
         }
     }
 
+    /* The step of the awaitable at `at` an `await` sends `sent` into, as `aw_step` takes it. */
+    pub(crate) fn await_on(&mut self, at: usize, sent: Val, chunk: &SSAChunk) -> Result<Option<Step>, VmErr> { self.aw_step(self.stack[at], sent, false, chunk) }
+
+    /* The step of `sub` an `await` or `async for` (`looped`) sends `sent` into, None once it opened as a frame coming back with `await_back` set. */
+    pub(crate) fn aw_step(&mut self, sub: Val, sent: Val, looped: bool, chunk: &SSAChunk) -> Result<Option<Step>, VmErr> {
+        match core::mem::take(&mut self.await_back) {
+            1 => return Ok(Some(Step::Yield(sent))),
+            2 => return Ok(Some(Step::Return(sent))),
+            // An async generator's yield is the awaitable's value, or passes up from an await inside it.
+            4 => {
+                let g = self.awaitable_frame(sub).map_or(sub, |(g, ..)| g);
+                if self.delegate_of(g).is_some() { return Ok(Some(Step::Yield(sent))); }
+                self.set_stage(sub, 2);
+                return Ok(Some(Step::Return(sent)));
+            }
+            6 => return Err(self.raise_named("StopAsyncIteration", chunk)),
+            5 => {
+                let before = self.pending.exc_val;
+                let ended = Err(self.raise_named("StopAsyncIteration", chunk));
+                return match self.awaitable_frame(sub) { Some((_, mode, _, default, _)) => self.aw_after(sub, ended, mode, default, before).map(Some), None => ended.map(Some) };
+            }
+            _ => {}
+        }
+        // An `async for` steps an async generator itself.
+        if self.coro_kind(sub) == Some(CoroKind::AsyncGen) && !self.executing_coros.contains(&sub.0) {
+            let before = self.pending.exc_val;
+            self.coro_frame = Some((sub, crate::vm::jobs::Takes::Agen, before.unwrap_or(Val::undef())));
+            let r = self.with_roots([sub], |vm| vm.gen_resume(sub, Sent::Value(sent), chunk));
+            self.coro_frame = None;
+            if matches!(r, Ok(Outcome::Opened)) { return Ok(None); }
+            return self.agen_after(sub, r, false, before, chunk).map(Some);
+        }
+        if let Some((g, mode, arg, default, stage)) = self.awaitable_frame(sub) && matches!(mode, AwaitMode::Send | AwaitMode::Throw) && stage < 2
+            && (stage == 1 || sent.is_none()) && self.coro_kind(g) == Some(CoroKind::AsyncGen) && !self.executing_coros.contains(&g.0) {
+            let sent = if stage == 1 { Sent::Value(sent) } else if mode == AwaitMode::Send { Sent::Value(arg) } else { Sent::Throw(arg) };
+            self.set_stage(sub, 1);
+            let before = self.pending.exc_val;
+            self.coro_frame = Some((g, crate::vm::jobs::Takes::Agen, before.unwrap_or(Val::undef())));
+            let r = self.with_roots([sub], |vm| vm.gen_resume(g, sent, chunk));
+            self.coro_frame = None;
+            if matches!(r, Ok(Outcome::Opened)) { return Ok(None); }
+            let step = self.agen_after(g, r, false, before, chunk);
+            return self.aw_after(sub, step, mode, default, before).map(Some);
+        }
+        // A coroutine's `__await__` steps the coroutine itself.
+        let sub = match self.awaitable_frame(sub) { Some((g, AwaitMode::Wrap, ..)) => g, _ => sub };
+        // A generator an `__await__` gave, or a coroutine awaited, resumes as its `send` resumes it, its frame the job's.
+        if matches!(self.coro_kind(sub), Some(CoroKind::Generator | CoroKind::Coroutine)) {
+            let before = self.pending.exc_val.unwrap_or(Val::undef());
+            self.coro_frame = Some((sub, if looped { crate::vm::jobs::Takes::AwaitFor } else { crate::vm::jobs::Takes::Await }, before));
+            let r = self.with_roots([sub], |vm| vm.gen_resume(sub, Sent::Value(sent), chunk));
+            self.coro_frame = None;
+            return Ok(match r? { Outcome::Opened => None, Outcome::Yielded(v) => Some(Step::Yield(v)), Outcome::Returned(v) => Some(Step::Return(v)) });
+        }
+        // Any other awaitable steps its target as a frame through `aw_on`, its job giving the step back to the op.
+        if self.awaitable_frame(sub).is_some() {
+            let before = self.pending.exc_val.unwrap_or(Val::undef());
+            self.coro_frame = Some((sub, if looped { crate::vm::jobs::Takes::AwaitFor } else { crate::vm::jobs::Takes::Await }, before));
+            let r = self.with_roots([sub], |vm| vm.aw_on(sub, Sent::Value(sent), true, chunk));
+            self.coro_frame = None;
+            return r;
+        }
+        self.gen_step(sub, Sent::Value(sent), chunk).map(Some)
+    }
+
     /* One step of what an `await`, a `yield from` or a driver steps, `sent` handed in. */
     pub(crate) fn gen_step(&mut self, it: Val, sent: Sent, chunk: &SSAChunk) -> Result<Step, VmErr> {
         match self.coro_kind(it) {
             // An async generator steps the way `__anext__` does, and nothing closes it but `aclose`.
             Some(CoroKind::AsyncGen) if matches!(sent, Sent::Close) => Ok(Step::Return(Val::none())),
             Some(CoroKind::AsyncGen) => self.agen_step(it, sent, false, chunk),
-            Some(_) => Ok(match self.gen_resume(it, sent, chunk)? { Outcome::Yielded(v) => Step::Yield(v), Outcome::Returned(v) => Step::Return(v) }),
+            Some(_) => Ok(match self.gen_resume(it, sent, chunk)? { Outcome::Yielded(v) => Step::Yield(v), Outcome::Returned(v) => Step::Return(v), Outcome::Opened => return Err(cold_runtime("a generator opened past its call")) }),
             None if self.awaitable_frame(it).is_some() => self.awaitable_step(it, sent, chunk),
             None => self.iter_send(it, sent, chunk),
         }
@@ -303,9 +456,11 @@ impl<'a> VM<'a> {
     /* Resumes generator or coroutine `g` with `sent`, reaching what it waits inside first. */
     fn gen_resume(&mut self, g: Val, sent: Sent, chunk: &SSAChunk) -> Result<Outcome, VmErr> {
         let kind = self.coro_kind(g).ok_or_else(|| cold_type("not a generator"))?;
-        if self.executing_coros.contains(&g.0) { return Err(self.running_error(g)); }
-        let (ip, body) = match self.heap.get(g) { HeapObj::Coroutine(c) => (c.ip, c.body), _ => return Err(cold_type("not a generator")) };
+        let (ip, body, running) = match self.heap.get(g) { HeapObj::Coroutine(c) => (c.ip, c.body, c.running), _ => return Err(cold_type("not a generator")) };
+        if running || self.executing_coros.contains(&g.0) { return Err(self.running_error(g)); }
         if ip == FINISHED {
+            // What a job held of it for a builtin that stopped short goes on as its steps.
+            if matches!(sent, Sent::Value(_)) && matches!(self.heap.get(g), HeapObj::Coroutine(c) if !c.pending.is_undef()) { return Ok(Outcome::Yielded(self.take_pending(g))); }
             return match sent {
                 Sent::Close => Ok(Outcome::Returned(Val::none())),
                 _ if kind == CoroKind::Coroutine => Err(VmErr::Raised("RuntimeError: cannot reuse already awaited coroutine".into())),
@@ -325,17 +480,25 @@ impl<'a> VM<'a> {
             let sub_step = match sent {
                 // An `await` and an `async for` hand a sent value on themselves, as does a `yield from` resumed by `next`.
                 Sent::Value(v) if via != Via::YieldFrom || v.is_none() => None,
-                Sent::Value(v) => Some(self.delegate(sub, Sent::Value(v), chunk)),
+                Sent::Value(v) => Some(self.delegate_on(sub, Sent::Value(v), Cont::After(g, via), chunk)),
                 // GeneratorExit closes what it waits inside, then raises in `g`.
-                Sent::Throw(e) if self.exc_name_of(e) == Some("GeneratorExit") => self.delegate(sub, Sent::Close, chunk).err().map(Err),
-                Sent::Throw(e) => Some(self.delegate(sub, Sent::Throw(e), chunk)),
+                Sent::Throw(e) if self.exc_name_of(e) == Some("GeneratorExit") => match self.delegate_on(sub, Sent::Close, Cont::Exit(g, via, e), chunk) {
+                    Ok(None) => return Ok(Outcome::Opened),
+                    r => r.err().map(Err),
+                },
+                Sent::Throw(e) => Some(self.delegate_on(sub, Sent::Throw(e), Cont::After(g, via), chunk)),
                 // What closing the inner one raises is raised in `g` in place of GeneratorExit.
-                Sent::Close => match self.delegate(sub, Sent::Close, chunk) {
+                Sent::Close => match self.delegate_on(sub, Sent::Close, Cont::Close(g, kind), chunk) {
+                    Ok(None) => return Ok(Outcome::Opened),
                     Err(e) => return self.close_in(g, Some(e), kind, chunk),
-                    Ok(_) => None,
+                    Ok(Some(_)) => None,
                 },
             };
-            if let Some(r) = sub_step { return self.after_delegate(g, via, r, chunk); }
+            match sub_step {
+                Some(Ok(None)) => return Ok(Outcome::Opened),
+                Some(r) => return self.after_delegate(g, via, r.map(|s| s.unwrap_or(Step::Return(Val::none()))), chunk),
+                None => {}
+            }
         }
         match sent {
             Sent::Value(v) => {
@@ -351,6 +514,92 @@ impl<'a> VM<'a> {
             }
             Sent::Close => self.close_in(g, None, kind, chunk),
         }
+    }
+
+    /* `delegate`, None once `sub` opened as a frame whose end runs `cont`, which a frame the call names asks for. */
+    fn delegate_on(&mut self, sub: Val, sent: Sent, cont: Cont, chunk: &SSAChunk) -> Result<Option<Step>, VmErr> {
+        if self.coro_frame.is_some() && self.awaitable_frame(sub).is_some() {
+            let Some((_, takes, before)) = self.coro_frame else { return Ok(None) };
+            let r = self.aw_on(sub, sent, true, chunk)?;
+            if r.is_none() { self.conts.push(Then { cont, takes, before }); }
+            return Ok(r);
+        }
+        // A user iterator's `__next__`, `send`, `throw` or `close` runs as a frame of a job whose step the wait takes.
+        if let Some((_, takes, before)) = self.coro_frame && matches!(takes, crate::vm::jobs::Takes::Next(_) | crate::vm::jobs::Takes::Close) && self.coro_kind(sub).is_none() && let Some((f, defining, arg)) = self.sent_hook(sub, sent) {
+            let base = self.conts.len() as u32;
+            let job = alloc::boxed::Box::new(SentCall { it: sub, f, defining, arg, close: matches!(sent, Sent::Close), base, before: self.pending.exc_val });
+            if self.calls_run(job, true)?.is_none() { self.conts.push(Then { cont, takes, before }); return Ok(None); }
+            return match self.then_out.take() { Some((_, step)) => step.map(Some), None => Err(cold_runtime("a delegation gave no step")) };
+        }
+        let Some((_, takes, before)) = self.coro_frame.filter(|_| matches!(self.coro_kind(sub), Some(CoroKind::Generator | CoroKind::Coroutine))) else { return self.delegate(sub, sent, chunk).map(Some) };
+        self.then_ok = true;
+        let r = self.with_roots([sub], |vm| vm.gen_resume(sub, sent, chunk));
+        self.then_ok = false;
+        match r? {
+            Outcome::Opened => { self.conts.push(Then { cont, takes, before }); Ok(None) }
+            Outcome::Yielded(v) => Ok(Some(Step::Yield(v))),
+            Outcome::Returned(v) => Ok(Some(Step::Return(v))),
+        }
+    }
+
+    /* What `cont` makes of `r`, the step of the frame it waited on, as the call that delegated would have. */
+    fn run_cont(&mut self, cont: Cont, r: Result<Step, VmErr>) -> Result<Outcome, VmErr> {
+        let chunk = self.chunk;
+        match (cont, r) {
+            (Cont::After(g, via), r) | (Cont::Exit(g, via, _), r @ Err(_)) => self.after_delegate(g, via, r, chunk),
+            (Cont::Exit(g, _, e), Ok(_)) => { let err = self.with_roots([e], |vm| vm.raise_value(e, chunk)); self.throw_in(g, err) }
+            (Cont::Close(g, kind), Err(e)) => self.close_in(g, Some(e), kind, chunk),
+            (Cont::Close(g, kind), Ok(_)) => self.close_in(g, None, kind, chunk),
+            (Cont::Aw(it), r) => {
+                let Some((target, mode, _, default, _)) = self.awaitable_frame(it) else { return Err(cold_type("not an awaitable")) };
+                let r = r.map(|s| match s { Step::Yield(v) => Outcome::Yielded(v), Step::Return(v) => Outcome::Returned(v) });
+                let step = self.aw_inner(target, mode, r, None, chunk);
+                Ok(match self.aw_after(it, step, mode, default, None)? { Step::Yield(v) => Outcome::Yielded(v), Step::Return(v) => Outcome::Returned(v) })
+            }
+        }
+    }
+
+    /* Where the loop goes once a `Then` job's frame gave `r`, running the waits from `base` up to the next frame they open, else the result at `ret`. */
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn then_end(&mut self, base: usize, mut r: Result<Step, VmErr>, ret: usize) -> Result<usize, (usize, VmErr)> {
+        let mut waits = self.conts.split_off(base.min(self.conts.len()));
+        while !waits.is_empty() {
+            let t = waits.remove(0);
+            let rest = self.conts.len();
+            let last = waits.is_empty();
+            self.conts.append(&mut waits);
+            let g = match t.cont { Cont::After(g, _) | Cont::Exit(g, ..) | Cont::Close(g, _) | Cont::Aw(g) => g };
+            self.coro_frame = Some((g, if last { t.takes } else { crate::vm::jobs::Takes::Then(rest as u32) }, t.before));
+            let out = self.run_cont(t.cont, r);
+            self.coro_frame = None;
+            if matches!(out, Ok(Outcome::Opened)) {
+                // A throw the frame opened for raises where this gives back, so no turn of the loop raises it again.
+                (self.entered, self.yielded, self.thrown) = (false, false, false);
+                self.gather_ret(ret);
+                return match self.resume_raise.take() { Some(e) => Err((self.gen_entry, e)), None => Ok(self.gen_entry) };
+            }
+            waits = self.conts.split_off(rest);
+            r = out.map(|o| match o { Outcome::Yielded(v) => Step::Yield(v), _ => match o { Outcome::Returned(v) => Step::Return(v), _ => Step::Return(Val::none()) } });
+            if last { return self.then_give(t.takes, t.before, r, ret); }
+        }
+        Err((ret - 1, cold_runtime("a wait ended with none left")))
+    }
+
+    /* `r`, a step of the generator the first call named, given back at `ret` as that call takes it. */
+    fn then_give(&mut self, takes: crate::vm::jobs::Takes, before: Val, r: Result<Step, VmErr>, ret: usize) -> Result<usize, (usize, VmErr)> {
+        use crate::vm::jobs::Takes;
+        let v = match (takes, r) {
+            (Takes::Next(d), Ok(Step::Return(v))) if d.is_undef() => return Err((ret - 1, self.stop_iteration(v))),
+            (Takes::Next(d), Ok(Step::Return(_))) => d,
+            (Takes::Next(_) | Takes::Close, Ok(Step::Yield(v))) | (Takes::Close, Ok(Step::Return(v))) => v,
+            (Takes::Await | Takes::AwaitFor, Ok(Step::Yield(v))) => { self.await_back = 1; v }
+            (Takes::Await | Takes::AwaitFor, Ok(Step::Return(v))) => { self.await_back = 2; v }
+            (Takes::AwaitFor, Err(e)) if raised_is(&e, "StopAsyncIteration") => { self.pending.exc_val = Some(before).filter(|b| !b.is_undef()); self.await_back = 6; Val::none() }
+            (_, Err(e)) => return Err((ret - 1, e)),
+            _ => return Err((ret - 1, cold_runtime("a wait gave a call it does not take"))),
+        };
+        Ok(self.deliver(v, ret, crate::vm::act::NO_DEST))
     }
 
     /* Steps `sub`, the iterator a suspended body waits inside, undef for a builtin iterator that answers only `next`. */
@@ -403,17 +652,41 @@ impl<'a> VM<'a> {
         }
     }
 
-    /* Resumes `g` once, what it yielded or returned. */
+    /* Resumes `g` once, or opens it as a frame of the loop when `coro_frame` names it, its job taking the step as its caller would. */
     fn step_coro(&mut self, g: Val) -> Result<Outcome, VmErr> {
-        let result = self.with_roots([g], |vm| vm.resume_coroutine(g))?;
-        Ok(if core::mem::take(&mut self.yielded) { Outcome::Yielded(result) } else { Outcome::Returned(result) })
+        // A generator a delegation steps opens as a frame too, its end running the waits of those it delegates for.
+        if core::mem::take(&mut self.then_ok) && self.coro_frame.is_some_and(|(c, ..)| c.0 != g.0) {
+            if self.gen_job(g, crate::vm::jobs::Takes::Then(self.conts.len() as u32), Vec::new(), true)? { return Ok(Outcome::Opened); }
+            return self.unopened(g);
+        }
+        if let Some((c, takes, before)) = self.coro_frame && c.0 == g.0 {
+            self.coro_frame = None;
+            if self.gen_job(g, takes, Vec::new(), true)? {
+                if let Some(crate::vm::jobs::Job::Gather(j)) = self.jobs.last_mut() { j.before = before; }
+                return Ok(Outcome::Opened);
+            }
+            return self.unopened(g);
+        }
+        let _ = g;
+        Err(self.resumed_apart())
+    }
+
+    /* The step of `g` when its frame cannot open, the item a builtin's step took ahead or the depth, memory or budget error its resume would give. */
+    #[cold]
+    #[inline(never)]
+    fn unopened(&mut self, g: Val) -> Result<Outcome, VmErr> {
+        if let Some(HeapObj::Coroutine(c)) = self.heap.try_get(g) && !c.pending.is_undef() { return Ok(Outcome::Yielded(self.take_pending(g))); }
+        if self.heap.over() { return Err(crate::vm::cold_heap()); }
+        if self.budget == 0 { return Err(VmErr::Budget); }
+        Err(cold_depth())
     }
 
     /* Raises `err` where `g` waits. */
     fn throw_in(&mut self, g: Val, err: VmErr) -> Result<Outcome, VmErr> {
         self.resume_raise = Some(err);
         let r = self.step_coro(g);
-        self.resume_raise = None;
+        // A frame opened raises it as it enters.
+        if !matches!(r, Ok(Outcome::Opened)) { self.resume_raise = None; }
         r
     }
 
@@ -436,12 +709,56 @@ impl<'a> VM<'a> {
     /* One step of async generator `g` as its `asend` takes it, a plain `yield` returning its value, an `await` inside passing out, an end raising StopAsyncIteration. */
     fn agen_step(&mut self, g: Val, sent: Sent, closing: bool, chunk: &SSAChunk) -> Result<Step, VmErr> {
         let before = self.pending.exc_val;
-        match self.gen_resume(g, sent, chunk) {
+        let r = self.gen_resume(g, sent, chunk);
+        self.agen_after(g, r, closing, before, chunk)
+    }
+
+    /* Where the loop goes once the StopAsyncIteration an `async for` awaited ends the job's frame, else the error `agen_step` would raise. */
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn job_raised(&mut self, e: VmErr) -> Result<Result<usize, (usize, VmErr)>, VmErr> {
+        let Some(crate::vm::jobs::Job::Gather(j)) = self.jobs.last() else { return Err(e) };
+        let (takes, before) = (j.takes, j.before);
+        if let crate::vm::jobs::Takes::Then(base) = takes && let Some(f) = self.top() {
+            self.finish_gen();
+            return Ok(self.then_end(base as usize, Err(e), f.ret));
+        }
+        if takes == crate::vm::jobs::Takes::AwaitFor && raised_is(&e, "StopAsyncIteration") && let Some(f) = self.top() {
+            self.finish_gen();
+            self.pending.exc_val = Some(before).filter(|b| !b.is_undef());
+            self.await_back = 6;
+            return Ok(Ok(self.deliver(Val::none(), f.ret, crate::vm::act::NO_DEST)));
+        }
+        Err(self.agen_raised(e, takes))
+    }
+
+    /* Where the loop goes on once a job's generator frame gave `r` at `ret`, through `then_end` for a `Then` job's. */
+    #[inline(never)]
+    pub(crate) fn job_out(&mut self, r: Result<Val, VmErr>, ret: usize) -> Result<usize, (usize, VmErr)> {
+        match (self.then_out.take(), r) {
+            (Some((base, step)), Ok(_)) => self.then_end(base as usize, step, ret),
+            (_, Ok(r)) => Ok(self.deliver(r, ret, crate::vm::act::NO_DEST)),
+            (_, Err(e)) => Err((ret - 1, e)),
+        }
+    }
+
+    /* The RuntimeError `agen_step` makes of a StopIteration or StopAsyncIteration out of an async generator a job of `takes` steps. */
+    fn agen_raised(&mut self, e: VmErr, takes: crate::vm::jobs::Takes) -> VmErr {
+        if takes != crate::vm::jobs::Takes::Agen || !(raised_is(&e, "StopIteration") || raised_is(&e, "StopAsyncIteration")) { return e; }
+        // The RuntimeError takes the place of the exception the body raised.
+        self.pending.exc_val = None;
+        match self.agen_after(Val::undef(), Err(e), false, None, self.chunk) { Err(e) => e, Ok(_) => cold_runtime("an async generator's error went") }
+    }
+
+    /* What `agen_step` makes of `r`, the outcome of resuming `g`, with `before` the exception pending as it began. */
+    fn agen_after(&mut self, g: Val, r: Result<Outcome, VmErr>, closing: bool, before: Option<Val>, chunk: &SSAChunk) -> Result<Step, VmErr> {
+        match r {
             Ok(Outcome::Yielded(v)) if self.delegate_of(g).is_some() => Ok(Step::Yield(v)),
             Ok(Outcome::Yielded(_)) if closing => Err(VmErr::Raised("RuntimeError: async generator ignored GeneratorExit".into())),
             Ok(Outcome::Yielded(v)) => Ok(Step::Return(v)),
             Ok(Outcome::Returned(_)) if closing => Ok(Step::Return(Val::none())),
             Ok(Outcome::Returned(_)) => Err(self.raise_named("StopAsyncIteration", chunk)),
+            Ok(Outcome::Opened) => Err(cold_runtime("a generator opened past its call")),
             Err(e) if closing && (raised_is(&e, "GeneratorExit") || raised_is(&e, "StopAsyncIteration")) => { self.pending.exc_val = before; Ok(Step::Return(Val::none())) }
             Err(e) if raised_is(&e, "StopIteration") => Err(VmErr::Raised("RuntimeError: async generator raised StopIteration".into())),
             Err(e) if raised_is(&e, "StopAsyncIteration") => Err(VmErr::Raised("RuntimeError: async generator raised StopAsyncIteration".into())),
@@ -462,26 +779,66 @@ impl<'a> VM<'a> {
 
     /* One step of an `asend`, `athrow`, `aclose`, `anext` or `__await__` awaitable, which runs once and is then spent. */
     fn awaitable_step(&mut self, it: Val, sent: Sent, chunk: &SSAChunk) -> Result<Step, VmErr> {
+        self.aw_on(it, sent, false, chunk)?.ok_or_else(|| cold_runtime("an awaitable opened past its call"))
+    }
+
+    /* `next` of the awaitable `it` with `default`, true once its target opened as a frame of the loop. */
+    pub(crate) fn awaitable_next(&mut self, it: Val, default: Val, chunk: &SSAChunk) -> Result<bool, VmErr> {
+        self.coro_frame = Some((it, crate::vm::jobs::Takes::Next(default), self.pending.exc_val.unwrap_or(Val::undef())));
+        let r = self.with_roots([it, default], |vm| vm.aw_on(it, Sent::Value(Val::none()), true, chunk));
+        self.coro_frame = None;
+        match r? {
+            None => Ok(true),
+            Some(Step::Yield(v)) => { self.push(v); Ok(true) }
+            Some(Step::Return(_)) if !default.is_undef() => { self.push(default); Ok(true) }
+            Some(Step::Return(v)) => Err(self.stop_iteration(v)),
+        }
+    }
+
+    /* `awaitable_step`, None once its target opened as a frame of the loop, which `frame` and the call's `coro_frame` allow. */
+    fn aw_on(&mut self, it: Val, sent: Sent, frame: bool, chunk: &SSAChunk) -> Result<Option<Step>, VmErr> {
         let Some((target, mode, arg, default, stage)) = self.awaitable_frame(it) else { return Err(cold_type("not an awaitable")) };
         let before = self.pending.exc_val;
-        let step = match mode {
-            AwaitMode::Wrap => self.gen_step(target, sent, chunk),
+        let sent = match mode {
+            AwaitMode::Wrap => sent,
             _ if stage == 2 => return Err(VmErr::Raised("RuntimeError: cannot reuse already awaited __anext__()/asend()".into())),
             // Closing the awaitable spends it and leaves its generator as it is.
-            _ if matches!(sent, Sent::Close) => { self.set_stage(it, 2); return Ok(Step::Return(Val::none())); }
-            _ => {
-                let sent = if stage == 0 {
-                    if let Sent::Value(v) = sent && !v.is_none() { return Err(VmErr::TypeMsg("can't send non-None value to a just-started coroutine".into())); }
-                    self.set_stage(it, 1);
-                    match mode {
-                        AwaitMode::Send => Sent::Value(arg),
-                        AwaitMode::Throw => Sent::Throw(arg),
-                        _ => Sent::Throw(self.builtin_value("GeneratorExit")?),
-                    }
-                } else { sent };
-                self.with_roots([it], |vm| vm.agen_step(target, sent, mode == AwaitMode::Close, chunk))
+            _ if matches!(sent, Sent::Close) => { self.set_stage(it, 2); return Ok(Some(Step::Return(Val::none()))); }
+            _ if stage == 0 => {
+                if let Sent::Value(v) = sent && !v.is_none() { return Err(VmErr::TypeMsg("can't send non-None value to a just-started coroutine".into())); }
+                self.set_stage(it, 1);
+                match mode {
+                    AwaitMode::Send => Sent::Value(arg),
+                    AwaitMode::Throw => Sent::Throw(arg),
+                    _ => Sent::Throw(self.builtin_value("GeneratorExit")?),
+                }
             }
+            _ => sent,
         };
+        let kind = self.coro_kind(target);
+        let step = match self.coro_frame {
+            // Its target opens as a frame of the loop, whose end gives the awaitable's step through its wait.
+            Some((_, takes, b)) if frame && kind.is_some() => {
+                self.then_ok = true;
+                let r = self.with_roots([it], |vm| vm.gen_resume(target, sent, chunk));
+                self.then_ok = false;
+                if matches!(r, Ok(Outcome::Opened)) { self.conts.push(Then { cont: Cont::Aw(it), takes, before: b }); return Ok(None); }
+                self.aw_inner(target, mode, r, before, chunk)
+            }
+            _ if mode == AwaitMode::Wrap => self.gen_step(target, sent, chunk),
+            _ => self.with_roots([it], |vm| vm.agen_step(target, sent, mode == AwaitMode::Close, chunk)),
+        };
+        self.aw_after(it, step, mode, default, before).map(Some)
+    }
+
+    /* The step of an awaitable's `target` of `mode` that resuming it gave as `r`. */
+    fn aw_inner(&mut self, target: Val, mode: AwaitMode, r: Result<Outcome, VmErr>, before: Option<Val>, chunk: &SSAChunk) -> Result<Step, VmErr> {
+        if mode != AwaitMode::Wrap || self.coro_kind(target) == Some(CoroKind::AsyncGen) { return self.agen_after(target, r, mode == AwaitMode::Close, before, chunk); }
+        r.map(|o| match o { Outcome::Yielded(v) => Step::Yield(v), Outcome::Returned(v) => Step::Return(v), Outcome::Opened => Step::Return(Val::none()) })
+    }
+
+    /* What the awaitable `it` makes of its target's `step`, spent once that gave a value or failed. */
+    fn aw_after(&mut self, it: Val, step: Result<Step, VmErr>, mode: AwaitMode, default: Val, before: Option<Val>) -> Result<Step, VmErr> {
         if !matches!(step, Ok(Step::Yield(_))) && mode != AwaitMode::Wrap { self.set_stage(it, 2); }
         match step {
             // `anext` with a default gives it once the iterator ended.
@@ -507,6 +864,13 @@ impl<'a> VM<'a> {
             Err(e) if raised_is(&e, "StopIteration") => Ok(Step::Return(self.swallow_stop(before))),
             Err(e) => Err(e),
         }
+    }
+
+    /* The method of user iterator `it` taking `sent`, as the plain function, its class and the argument past `it`, undef for none. */
+    fn sent_hook(&self, it: Val, sent: Sent) -> Option<(Val, Val, Val)> {
+        let (name, arg) = match sent { Sent::Value(v) if v.is_none() => ("__next__", Val::undef()), Sent::Value(v) => ("send", v), Sent::Throw(e) => ("throw", e), Sent::Close => ("close", Val::undef()) };
+        let (f, defining) = self.instance_class(it).and_then(|c| self.lookup_class_member(c, name))?;
+        matches!(self.heap.try_get(f), Some(HeapObj::Func(..))).then_some((f, defining, arg))
     }
 
     /* The name of the exception class `e` is or is an instance of. */
@@ -594,10 +958,12 @@ impl<'a> VM<'a> {
         let (aw, sent) = if aw.is_undef() { (self.anext_of(it, chunk)?, Val::none()) } else { (aw, self.pop()?) };
         if let Some(IterFrame::AsyncFor { aw: slot, .. }) = self.iter_stack.last_mut() { *slot = aw; }
         let before = self.pending.exc_val;
-        match self.gen_step(aw, Sent::Value(sent), chunk) {
+        match self.aw_step(aw, sent, true, chunk) {
+            // A frame it opened comes back to this step, which runs again with what it gave.
+            Ok(None) => Ok(Some(Val::undef())),
             // The yield passes up through the frame, which runs this step again with what it is sent.
-            Ok(Step::Yield(v)) => { self.push(v); self.yielded = true; Ok(Some(Val::undef())) }
-            Ok(Step::Return(v)) => {
+            Ok(Some(Step::Yield(v))) => { self.push(v); self.yielded = true; Ok(Some(Val::undef())) }
+            Ok(Some(Step::Return(v))) => {
                 if let Some(IterFrame::AsyncFor { aw: slot, .. }) = self.iter_stack.last_mut() { *slot = Val::undef(); }
                 Ok(Some(v))
             }
@@ -629,8 +995,13 @@ impl<'a> VM<'a> {
 
     /* The methods of a generator, a coroutine, an async generator and the awaitables they give. */
     pub(crate) fn coro_method(&mut self, g: Val, name: &str, args: &[Val], chunk: &SSAChunk) -> Result<(), VmErr> {
+        use crate::vm::jobs::Takes;
+        let (ok, before) = (core::mem::take(&mut self.job_ok), self.pending.exc_val.unwrap_or(Val::undef()));
         let sent = match name {
-            "__next__" if self.coro_kind(g) == Some(CoroKind::Generator) => return self.resume_generator(g, None),
+            "__next__" if self.coro_kind(g) == Some(CoroKind::Generator) => {
+                if ok && self.gather_job(g, Takes::Next(Val::undef()), Vec::new())? { return Ok(()); }
+                return self.resume_generator(g, None);
+            }
             "__iter__" | "__aiter__" => { self.push(g); return Ok(()); }
             "__await__" if self.coro_kind(g).is_none() => { self.push(g); return Ok(()); }
             "__await__" => return self.agen_awaitable(g, AwaitMode::Wrap, Val::none(), Val::undef(), "coroutine_wrapper"),
@@ -644,6 +1015,30 @@ impl<'a> VM<'a> {
             _ => Sent::Value(Val::none()),
         };
         let close = matches!(sent, Sent::Close);
+        // A generator called where a frame may open resumes as one, its job taking the step as this call does.
+        if ok && matches!(self.coro_kind(g), Some(CoroKind::Generator | CoroKind::Coroutine)) {
+            self.coro_frame = Some((g, if close { Takes::Close } else { Takes::Next(Val::undef()) }, before));
+            let r = self.with_roots([g], |vm| vm.gen_resume(g, sent, chunk));
+            self.coro_frame = None;
+            return match r? {
+                Outcome::Opened => Ok(()),
+                Outcome::Yielded(v) => { self.push(v); Ok(()) }
+                Outcome::Returned(v) if close => { self.push(v); Ok(()) }
+                Outcome::Returned(v) => Err(self.stop_iteration(v)),
+            };
+        }
+        // An awaitable called where a frame may open steps its target as one, its job taking the step as this call does.
+        if ok && self.awaitable_frame(g).is_some() {
+            self.coro_frame = Some((g, if close { Takes::Close } else { Takes::Next(Val::undef()) }, before));
+            let r = self.with_roots([g], |vm| vm.aw_on(g, sent, true, chunk));
+            self.coro_frame = None;
+            return match r? {
+                None => Ok(()),
+                Some(Step::Yield(v)) => { self.push(v); Ok(()) }
+                Some(Step::Return(v)) if close => { self.push(v); Ok(()) }
+                Some(Step::Return(v)) => Err(self.stop_iteration(v)),
+            };
+        }
         match self.with_roots([g], |vm| vm.gen_step(g, sent, chunk))? {
             Step::Yield(v) => { self.push(v); Ok(()) }
             Step::Return(v) if close => { self.push(v); Ok(()) }
@@ -706,13 +1101,21 @@ pub(crate) enum Via { YieldFrom, Await, AsyncFor }
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Sent { Value(Val), Throw(Val), Close }
 
+/* What a delegating body does once the frame it waits on ends, resume itself after it, raise GeneratorExit in itself, or close. */
+#[derive(Clone, Copy)]
+pub(crate) enum Cont { After(Val, Via), Exit(Val, Via, Val), Close(Val, CoroKind), Aw(Val) }
+
+/* A wait a `Then` job's frame ends, with the takes and pending exception of the call that began the delegation. */
+#[derive(Clone, Copy)]
+pub(crate) struct Then { pub(crate) cont: Cont, takes: crate::vm::jobs::Takes, pub(crate) before: Val }
+
 /* What a step of an awaited or delegated iterator gives, a value it yields up or the value it ended with. */
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Step { Yield(Val), Return(Val) }
 
 /* What resuming a body gave, a yield or a return. */
 #[derive(Clone, Copy, Debug)]
-enum Outcome { Yielded(Val), Returned(Val) }
+enum Outcome { Yielded(Val), Returned(Val), Opened }
 
 impl VM<'_> {
     /* The attributes a generator, a coroutine or an async generator reads about its own state, its name and code. */
@@ -736,4 +1139,22 @@ impl VM<'_> {
             },
         })
     }
+}
+
+/* A user iterator's method a delegation calls as a frame of a job, giving the waits from `base` a yield, or a return on StopIteration and `close`. */
+struct SentCall { it: Val, f: Val, defining: Val, arg: Val, close: bool, base: u32, before: Option<Val> }
+
+impl crate::vm::jobs::Calls for SentCall {
+    fn step(&mut self, vm: &mut VM<'_>, got: Option<Result<Val, VmErr>>) -> Result<crate::vm::jobs::Call, VmErr> {
+        let Some(r) = got else { return Ok(crate::vm::jobs::Call::Frame(self.f, self.defining, [self.it, self.arg, Val::undef()])) };
+        let step = match r {
+            Ok(_) if self.close => Ok(Step::Return(Val::none())),
+            Ok(v) => Ok(Step::Yield(v)),
+            Err(e) if !self.close && raised_is(&e, "StopIteration") => Ok(Step::Return(vm.swallow_stop(self.before))),
+            Err(e) => Err(e),
+        };
+        Ok(crate::vm::jobs::Call::Then(self.base, step))
+    }
+
+    fn for_each_val(&self, f: &mut dyn FnMut(Val)) { f(self.it); f(self.f); f(self.defining); f(self.arg); if let Some(b) = self.before { f(b) } }
 }

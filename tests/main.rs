@@ -13,6 +13,7 @@ mod snapshot;
 mod coverage;
 mod embed;
 mod memory;
+mod nested;
 mod tables;
 
 /* cases/pending/asyncio.json holds the cases written for the async builtins the engine used to ship, `run`, `sleep`,

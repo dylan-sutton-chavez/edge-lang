@@ -162,24 +162,7 @@ impl<'a> VM<'a> {
     }
 
     // Member lookup along the C3 MRO, first hit wins. Falls back to a direct-then-DFS walk for uncached classes (native classes have no bases, so DFS = own members). Returns `(value, defining_class)` so callers building `BoundUserMethod` / `InstanceMethod` record where the method came from for `super()`.
-    pub(crate) fn lookup_class_member(&self, cls: Val, name: &str) -> Option<(Val, Val)> {
-        if !cls.is_heap() { return None; }
-        let HeapObj::Class(_, bases, members) = self.heap.get(cls) else { return None; };
-        if let Some(mro) = self.mro_cache.get(&cls.0) {
-            for &c in mro.iter() {
-                if let HeapObj::Class(_, _, m) = self.heap.get(c)
-                    && let Some(&(_, v)) = m.borrow().iter().find(|(n, _)| n == name) {
-                        return Some((v, c));
-                    }
-            }
-            return None;
-        }
-        if let Some(&(_, v)) = members.borrow().iter().find(|(n, _)| n == name) { return Some((v, cls)); }
-        for &b in bases {
-            if let Some(found) = self.lookup_class_member(b, name) { return Some(found); }
-        }
-        None
-    }
+    pub(crate) fn lookup_class_member(&self, cls: Val, name: &str) -> Option<(Val, Val)> { class_member(&self.heap, &self.mro_cache, cls, name) }
 
     /* The builtin exception a class derives from through its bases, None for a plain class. */
     pub(crate) fn exc_base(&self, cls: Val) -> Option<&str> {
@@ -500,11 +483,23 @@ impl<'a> VM<'a> {
 
     /* Pushes `obj.name`, shared by LoadAttr and class patterns. */
     pub(crate) fn load_attr(&mut self, obj: Val, name: &str, chunk: &SSAChunk) -> Result<(), VmErr> {
+        // Taken first, so no load the lookup runs meanwhile opens a getter for this one.
+        let prop_at = self.prop_at.take();
         let lookup = match self.resolve_attr(obj, name) {
             Ok(l) => l,
             Err(VmErr::Attribute(msg)) => {
+                // A load of the loop opens the class's `__getattr__` as a frame of the loop, as a property's getter.
+                if let Some((rip, dest)) = prop_at && let Some(class) = self.instance_class(obj)
+                    && let Some((func, owner)) = self.lookup_class_member(class, "__getattr__")
+                    && matches!(self.heap.try_get(func), Some(HeapObj::Func(..))) && self.declined.0 != func.0 {
+                    let name_val = self.heap.intern_str(name)?;
+                    self.pending.method_binding = Some((owner, obj));
+                    if self.open_prop(func, super::function::Passed::Regs([obj, name_val, Val::undef()]), 2, rip, dest)? { self.ran = 4; return Ok(()); }
+                    self.pending.method_binding = None;
+                }
                 if let Some(v) = self.try_getattr_fallback(obj, name, chunk)? {
                     self.push(v);
+                    self.ran = 2;
                     return Ok(());
                 }
                 self.note_missing_attr(obj, name);
@@ -512,12 +507,25 @@ impl<'a> VM<'a> {
             }
             Err(other) => return Err(other),
         };
-        self.push_lookup(lookup, obj, chunk)
+        // A getter or `__get__` raising AttributeError leaves the load to the class's `__getattr__` as Python's does, so it runs nested.
+        let getattr = matches!(lookup, AttrLookup::DescGet { .. } | AttrLookup::PropertyGet { .. })
+            && self.instance_class(obj).is_some_and(|c| self.lookup_class_member(c, "__getattr__").is_some());
+        if !getattr { return self.push_lookup_at(lookup, obj, chunk, prop_at); }
+        match self.push_lookup_at(lookup, obj, chunk, None) {
+            Err(e) if self.absorb_attr_err(&e) => match self.try_getattr_fallback(obj, name, chunk)? {
+                Some(v) => { self.push(v); self.ran = 2; Ok(()) }
+                None => Err(e),
+            },
+            r => r,
+        }
     }
 
     /* Pushes the value `lookup` names for `obj`, a bound method made, a property or alias run. */
     #[inline]
-    pub(crate) fn push_lookup(&mut self, lookup: AttrLookup, obj: Val, chunk: &SSAChunk) -> Result<(), VmErr> {
+    pub(crate) fn push_lookup(&mut self, lookup: AttrLookup, obj: Val, chunk: &SSAChunk) -> Result<(), VmErr> { self.push_lookup_at(lookup, obj, chunk, None) }
+
+    /* `push_lookup` for a load of the loop at `prop_at`, whose property getter opens as a frame of the loop. */
+    fn push_lookup_at(&mut self, lookup: AttrLookup, obj: Val, chunk: &SSAChunk, prop_at: Option<(usize, u16)>) -> Result<(), VmErr> {
         let made = match lookup {
             AttrLookup::ModuleAttr(v) | AttrLookup::ClassMember(v) | AttrLookup::InstanceField(v) => { self.push(v); return Ok(()); }
             AttrLookup::Builtin(name) => { let v = self.builtin_value(name)?; self.push(v); return Ok(()); }
@@ -530,7 +538,7 @@ impl<'a> VM<'a> {
             AttrLookup::Name(s) => HeapObj::Str(s),
             AttrLookup::TypeOf(s) => HeapObj::Type(s),
             // Writes through the dict skip the stores that note hidden methods, so sites check again.
-            AttrLookup::Dict(attrs) => { self.shadowed = true; HeapObj::Dict(attrs) }
+            AttrLookup::Dict(attrs) => { self.shadow(); HeapObj::Dict(attrs) }
             AttrLookup::Mro(cls) => {
                 let mut classes = self.linearize(cls)?;
                 classes.push(self.builtin_value("object")?);
@@ -538,8 +546,15 @@ impl<'a> VM<'a> {
             }
             AttrLookup::Bases(cls) => HeapObj::Tuple(self.direct_bases(cls)?),
             AttrLookup::Members(cls) => { let d = self.members_dict(cls)?; self.push(d); return Ok(()); }
-            AttrLookup::DescGet { desc, recv, owner } => { let v = self.call_hook(desc, "__get__", &[recv, owner], chunk)?; self.push(v); return Ok(()); }
-            AttrLookup::Annotations(owner) => { let v = self.annotations(owner, chunk)?; self.push(v); return Ok(()); }
+            AttrLookup::DescGet { desc, recv, owner } => {
+                // A load of the loop opens it as a frame of the loop, as a getter.
+                if self.hook_in_loop(desc, "__get__", &[recv, owner], prop_at)? { self.ran = 3; return Ok(()); }
+                let v = self.call_hook(desc, "__get__", &[recv, owner], chunk)?;
+                self.push(v);
+                return Ok(());
+            }
+            // A load of the loop runs `__annotate__` as a frame of the loop, whose job gives what it made.
+            AttrLookup::Annotations(owner) => { if let Some(v) = self.annotations(owner, prop_at.is_some())? { self.push(v); } return Ok(()); }
             AttrLookup::Code(fi) => HeapObj::FnCode(fi),
             AttrLookup::Int(n) => { let v = self.heap.int(n as i128)?; self.push(v); return Ok(()); }
             AttrLookup::KwDefaults(pairs) => {
@@ -554,13 +569,27 @@ impl<'a> VM<'a> {
                 HeapObj::Tuple(items)
             }
             AttrLookup::PropertyGet { recv, getter } => {
+                // A getter that gave NotImplemented, which its frame took for a decline, gave that value.
+                if self.declined.0 == getter.0 {
+                    self.declined = Val::undef();
+                    let ni = self.builtin_value("NotImplemented")?;
+                    self.push(ni);
+                    self.ran = 1;
+                    return Ok(());
+                }
+                // A load of the loop opens it as a frame of the loop, as an op's dunder runs.
+                if let Some((rip, dest)) = prop_at && self.open_prop(getter, super::function::Passed::Regs([recv, Val::undef(), Val::undef()]), 1, rip, dest)? { self.ran = 3; return Ok(()); }
                 // Inline getter call, matches `BoundUserMethod` dispatch (push func, push self, call).
                 if self.depth >= self.max_calls { return Err(cold_depth()); }
                 self.push(getter);
                 self.push(recv);
-                return self.exec_call(1, chunk);
+                self.exec_call(1, chunk)?;
+                self.ran = 1;
+                return Ok(());
             }
             AttrLookup::Thunk(f) => {
+                // A load of the loop opens the alias's value as a frame of the loop, as a getter.
+                if let Some((rip, dest)) = prop_at && self.open_prop(f, super::function::Passed::Regs([Val::undef(); 3]), 0, rip, dest)? { self.ran = 3; return Ok(()); }
                 self.push(f);
                 return self.exec_call(0, chunk);
             }
@@ -569,6 +598,37 @@ impl<'a> VM<'a> {
         self.push(v);
         Ok(())
     }
+}
+
+/* `lookup_class_member` on the heap and the MRO cache alone. */
+pub(crate) fn class_member(heap: &crate::value::HeapPool, mro_cache: &crate::util::hash::FxHashMap<u64, alloc::rc::Rc<Vec<Val>>>, cls: Val, name: &str) -> Option<(Val, Val)> {
+    if !cls.is_heap() { return None; }
+    let HeapObj::Class(_, bases, members) = heap.get(cls) else { return None; };
+    // The class heads its own order, so one of no bases looks nowhere past its members.
+    if let Some(&(_, v)) = members.borrow().iter().find(|(n, _)| named(n, name)) { return Some((v, cls)); }
+    if bases.is_empty() { return None; }
+    if let Some(mro) = mro_cache.get(&cls.0) {
+        for &c in mro.iter().skip(1) {
+            if let HeapObj::Class(_, _, m) = heap.get(c)
+                && let Some(&(_, v)) = m.borrow().iter().find(|(n, _)| named(n, name)) {
+                    return Some((v, c));
+                }
+        }
+        return None;
+    }
+    for &b in bases {
+        if let Some(found) = class_member(heap, mro_cache, b, name) { return Some(found); }
+    }
+    None
+}
+
+/* Whether member name `n` is `name`, one of eight to sixteen bytes, as most dunders are, compared as its first and last words. */
+#[inline(always)]
+fn named(n: &str, name: &str) -> bool {
+    let (a, b) = (n.as_bytes(), name.as_bytes());
+    if a.len() != b.len() { return false; }
+    if !(8..=16).contains(&a.len()) { return a == b; }
+    a.first_chunk::<8>() == b.first_chunk::<8>() && a.last_chunk::<8>() == b.last_chunk::<8>()
 }
 
 impl<'a> VM<'a> {

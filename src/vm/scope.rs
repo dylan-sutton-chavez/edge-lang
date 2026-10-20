@@ -7,6 +7,14 @@ use crate::util::hash::FxHashMap;
 use super::VM;
 use super::types::*;
 
+/* Bumped each time a binding that held a heap value is overwritten or unbound, so code that laid functions as sections rechecks their bindings only then. */
+pub(crate) static REBOUND: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+
+#[inline(always)]
+fn rebinds(old: Val, new: Val) {
+    if old.is_heap() && old.0 != new.0 { REBOUND.fetch_add(1, core::sync::atomic::Ordering::Relaxed); }
+}
+
 /* A module's bindings, each name keeping one index for the whole run. */
 #[derive(Default, Clone)]
 pub(crate) struct Globals {
@@ -43,6 +51,7 @@ impl Globals {
 
     pub fn set(&mut self, name: &str, v: Val) {
         let i = self.id(name);
+        rebinds(self.vals[i as usize], v);
         self.vals[i as usize] = v;
     }
 
@@ -50,13 +59,17 @@ impl Globals {
     pub fn at(&self, i: u32) -> Val { self.vals.get(i as usize).copied().unwrap_or(Val::undef()) }
 
     #[inline(always)]
-    pub fn set_at(&mut self, i: u32, v: Val) { if let Some(s) = self.vals.get_mut(i as usize) { *s = v; } }
+    pub fn set_at(&mut self, i: u32, v: Val) { if let Some(s) = self.vals.get_mut(i as usize) { rebinds(*s, v); *s = v; } }
 
     pub fn name(&self, i: u32) -> &str { self.names.get(i as usize).map_or("", |n| n.as_str()) }
 
     /* The builtin last read under index `i` while it was unbound, undef before the first read. */
     #[inline]
     pub fn fallback(&self, i: u32) -> Val { self.builtin.get(i as usize).map_or(Val::undef(), |b| b.1.get()) }
+
+    /* The binding at `i`, else the builtin it last stood for, undef for neither. */
+    #[inline]
+    pub fn read(&self, i: u32) -> Val { match self.at(i) { v if v.is_undef() => self.fallback(i), v => v } }
 
     #[inline]
     pub fn names_builtin(&self, i: u32) -> Option<crate::value::NativeFnId> { self.builtin.get(i as usize).and_then(|b| b.0) }
@@ -68,7 +81,10 @@ impl Globals {
     pub fn iter(&self) -> impl Iterator<Item = (&str, Val)> + '_ { self.entries().filter(|(_, v)| !v.is_undef()) }
 
     /* Unbinds every name, each keeping its index for the code that reads it. */
-    pub fn unbind_all(&mut self) { self.vals.fill(Val::undef()); }
+    pub fn unbind_all(&mut self) {
+        REBOUND.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        self.vals.fill(Val::undef());
+    }
 
     pub fn from_entries(entries: Vec<(String, Val)>) -> Self {
         let mut g = Self::default();
@@ -98,7 +114,7 @@ pub struct FnScope {
 }
 
 fn canon_of(chunk: &SSAChunk, i: usize) -> usize {
-    chunk.alias_groups.get(i).and_then(|g| g.first().copied()).map_or(i, |c| c as usize)
+    chunk.canonical.get(i).map_or(i, |&c| c as usize)
 }
 
 /* The slot each bare name's versions share, preferring a versioned name. */
@@ -116,7 +132,7 @@ fn slots_by_name(chunk: &SSAChunk) -> FxHashMap<&str, usize> {
 fn binds<'c>(params: &'c [String], body: &'c SSAChunk, bare: &[&'c str]) -> Vec<&'c str> {
     let mut set: Vec<&str> = params.iter().map(|p| crate::parser::types::param_base_name(p)).collect();
     for ins in &body.instructions {
-        if matches!(ins.opcode, OpCode::StoreName | OpCode::Phi | OpCode::Del) && let Some(&n) = bare.get(ins.operand as usize) { set.push(n); }
+        if (matches!(ins.opcode, OpCode::StoreName | OpCode::Phi) || ins.opcode == OpCode::Del && !declared_global(body, ins.operand)) && let Some(&n) = bare.get(ins.operand as usize) { set.push(n); }
     }
     if !is_comp(params) { walrus_names(body, &mut set); }
     set.sort_unstable();
@@ -124,6 +140,9 @@ fn binds<'c>(params: &'c [String], body: &'c SSAChunk, bare: &[&'c str]) -> Vec<
     set.retain(|n| !body.nonlocals.iter().any(|x| x == n));
     set
 }
+
+/* Whether name `k` of `body` is one a `global` statement in it declares, which its deletes unbind in the module. */
+fn declared_global(body: &SSAChunk, k: u16) -> bool { body.instructions.iter().any(|i| i.opcode == OpCode::Global && i.operand == k) }
 
 pub(crate) fn is_comp(params: &[String]) -> bool { matches!(params, [p] if p == crate::parser::COMP_ARG) }
 
@@ -144,9 +163,14 @@ impl<'a> VM<'a> {
     pub(crate) fn analyze_scopes(&mut self, start: usize) {
         let end = self.functions.len();
         let functions = self.functions.clone();
-        // Each body's names without their versions, stripped once.
-        let bare: Vec<Vec<&str>> = functions.iter().map(|(_, body, _, _)| body.names.iter().map(|n| ssa_strip(n)).collect()).collect();
-        let locals: Vec<Vec<&str>> = functions.iter().zip(&bare).map(|((params, body, _, _), b)| binds(params, body, b)).collect();
+        // Each body's bare names are stripped once, only for the bodies analyzed and those around them, so code adopted at run time pays only for itself.
+        let mut need = vec![false; end];
+        for fi in start..end {
+            let mut at = Some(fi);
+            while let Some(f) = at.filter(|&f| !need[f]) { need[f] = true; at = self.function_parents[f]; }
+        }
+        let bare: Vec<Vec<&str>> = functions.iter().zip(&need).map(|((_, body, _, _), &n)| if n { body.names.iter().map(|n| ssa_strip(n)).collect() } else { Vec::new() }).collect();
+        let locals: Vec<Vec<&str>> = functions.iter().zip(&bare).zip(&need).map(|(((params, body, _, _), b), &n)| if n { binds(params, body, b) } else { Vec::new() }).collect();
         let owns = |f: usize, n: &str| locals[f].binary_search(&n).is_ok();
         let mut cells: Vec<Vec<&str>> = vec![Vec::new(); end];
         let mut frees: Vec<Vec<&str>> = vec![Vec::new(); end];
@@ -186,8 +210,11 @@ impl<'a> VM<'a> {
         for fi in start..end {
             let body = &functions[fi].1;
             let module = self.fn_module_id(fi);
-            let kinds: Vec<Kind> = body.names.iter().zip(&bare[fi]).map(|(name, &bare)| {
+            // The names a `global` statement declares, looked at once.
+            let globals: Vec<u16> = body.instructions.iter().filter(|i| i.opcode == OpCode::Global).map(|i| i.operand).collect();
+            let kinds: Vec<Kind> = body.names.iter().zip(&bare[fi]).enumerate().map(|(k, (name, &bare))| {
                 if bare.starts_with('#') { Kind::Local }
+                else if globals.contains(&(k as u16)) { Kind::Global(self.scopes[module].id(bare)) }
                 else if reads[fi].contains(&name.as_str()) { Kind::Global(self.scopes[module].id(name)) }
                 else if cells[fi].contains(&bare) || frees[fi].contains(&bare) { Kind::Cell }
                 else if owns(fi, bare) { Kind::Local }
@@ -255,17 +282,24 @@ impl<'a> VM<'a> {
         Ok(v)
     }
 
-    /* The bound locals of the frame running `chunk`, cells read through, which eval and exec get a copy of. */
-    pub(crate) fn frame_locals(&self, chunk: &SSAChunk) -> Vec<(String, Val)> {
+    /* The names `frame_locals` reads and their slots, the same for every frame of `chunk`. */
+    pub(crate) fn local_slots(&self, chunk: &SSAChunk) -> Vec<(String, usize)> {
         let kinds = self.body_to_fi.get(&(chunk as *const SSAChunk)).map(|&fi| &self.fn_scope[fi].kinds);
         // Slot order is the order the names were first bound, parameters first.
         let mut slots: Vec<(&str, usize)> = slots_by_name(chunk).into_iter().collect();
         slots.sort_unstable_by_key(|&(_, slot)| slot);
         slots.into_iter()
             .filter(|&(n, slot)| !n.starts_with('#') && !kinds.is_some_and(|k| matches!(k.get(slot), Some(Kind::Global(_)))))
+            .map(|(n, slot)| (String::from(n), slot))
+            .collect()
+    }
+
+    /* The bound locals of the frame running `chunk`, cells read through, which eval and exec get a copy of. */
+    pub(crate) fn frame_locals(&self, chunk: &SSAChunk) -> Vec<(String, Val)> {
+        self.local_slots(chunk).into_iter()
             .filter_map(|(n, slot)| {
                 let v = self.deref(self.regs.get(self.base + slot).copied()?);
-                (!v.is_undef()).then(|| (String::from(n), v))
+                (!v.is_undef()).then_some((n, v))
             })
             .collect()
     }

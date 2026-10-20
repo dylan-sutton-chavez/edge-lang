@@ -16,10 +16,10 @@ pub(crate) enum Site {
     Field { key: Val, idx: u32, hash: u64, shape: u32, epoch: u32 },
     /* A store over an instance's own attribute, safe while no class changed since `epoch`. */
     SetField { class: Val, key: Val, idx: u32, epoch: u32 },
-    /* A store adding the attribute to an instance of `class` and shape `from`, which then takes shape `to`. */
-    Append { class: Val, key: Val, hash: u64, from: u32, to: u32, epoch: u32 },
-    /* A method `class` finds on `owner`, unless the instance shadows the name. */
-    Method { class: Val, func: Val, owner: Val, hash: u64, epoch: u32 },
+    /* A store adding the attribute to an instance of the class at heap slot `class` and shape `from`, which then takes shape `to`. */
+    Append { class: u32, key: Val, hash: u64, from: u16, to: u16, epoch: u32 },
+    /* A method the class at heap slot `class` finds on the one at `owner`, the function at `func`, unless the instance shadows the name of hash `hash`. */
+    Method { class: u32, func: u32, owner: u32, hash: u64, epoch: u32 },
     /* A builtin type's method, by the receiver's variant. */
     Builtin { kind: Discriminant<HeapObj>, id: BuiltinMethodId },
     /* A module's attribute. */
@@ -28,9 +28,19 @@ pub(crate) enum Site {
     Dunder { class: Val, func: Val, owner: Val, arity: u8, epoch: u32 },
     /* A plain function a call opened as a frame of the loop, which opens again without its checks. */
     Call { callee: Val, fi: u32 },
-    /* A class whose `__init__` of body `fi`, defined on `owner`, a call opened as a frame, its instances sized for `attrs`. */
-    Ctor { class: Val, init: Val, owner: Val, fi: u32, attrs: u32, epoch: u32 },
+    /* The class at heap slot `class` whose `__init__` of body `fi`, defined on `owner`, a call opened as a frame, its instances sized for `attrs`. */
+    Ctor { class: u32, init: Val, owner: Val, fi: u32, attrs: u16, epoch: u32 },
+    /* An op that met no instance on its left the first time, which looks for no dunder before it runs again. */
+    Plain,
 }
+
+// The arity of the dunder a site learned for a binary op whose left operand is a number, reflected on the instance to its right.
+pub(crate) const REFLECTED: u8 = 0x82;
+// The arity of the `__eq__` a `!=` learned on a class with no `__ne__`, which only a laid call runs, inverting what it gives.
+pub(crate) const INVERTS: u8 = 0x42;
+
+// A cache holds one site for each instruction of a code, so a site takes four words.
+const _: () = assert!(core::mem::size_of::<Site>() == 32);
 
 impl Site {
     /* The values a site keeps, which a collection must not sweep. */
@@ -38,24 +48,27 @@ impl Site {
         let none = Val::none();
         match *self {
             Site::Field { key, .. } => [key, none, none],
-            Site::SetField { class, key, .. } | Site::Append { class, key, .. } => [class, key, none],
-            Site::Method { class, func, owner, .. } | Site::Dunder { class, func, owner, .. } => [class, func, owner],
+            Site::SetField { class, key, .. } => [class, key, none],
+            Site::Append { class, key, .. } => [Val::heap(class), key, none],
+            Site::Method { class, func, owner, .. } => [Val::heap(class), Val::heap(func), Val::heap(owner)],
+            Site::Dunder { class, func, owner, .. } => [class, func, owner],
             Site::Module { module, value } => [module, value, none],
             Site::Call { callee, .. } => [callee, none, none],
-            Site::Ctor { class, init, owner, .. } => [class, init, owner],
-            Site::Empty | Site::Builtin { .. } => [none, none, none],
+            Site::Ctor { class, init, owner, .. } => [Val::heap(class), init, owner],
+            Site::Empty | Site::Plain | Site::Builtin { .. } => [none, none, none],
         }
     }
 }
 
 /* `obj.name` through the site off the heap alone, so the register loop keeps its frame borrowed. */
 #[inline(always)]
-pub(crate) fn site_value(heap: &HeapPool, class_epoch: u32, site: Site, obj: Val) -> Option<Val> {
-    match site {
+pub(crate) fn site_value(heap: &HeapPool, class_epoch: u32, site: &Site, obj: Val) -> Option<Val> {
+    match *site {
         // A property a class gains later takes the name back from the instance.
         Site::Field { key, idx, hash, shape, epoch } if epoch == class_epoch => match heap.try_get(obj) {
             Some(HeapObj::Instance(_, attrs)) => {
-                let a = attrs.borrow();
+                // SAFETY nothing writes the attributes while one is read, so the read takes no borrow.
+                let Ok(a) = (unsafe { attrs.try_borrow_unguarded() }) else { return None };
                 // The shape names every key in place, so its entry holds the attribute.
                 if shape != NO_SHAPE && a.shape() == shape { return Some(a.value_at(idx as usize)); }
                 // A swept name may lend its slot to another, whose hash tells them apart.
@@ -70,15 +83,25 @@ pub(crate) fn site_value(heap: &HeapPool, class_epoch: u32, site: Site, obj: Val
 
 /* The builtin method a site keeps for a receiver of `obj`'s type, off the heap alone. */
 #[inline]
-pub(crate) fn site_method_id(heap: &HeapPool, site: Site, obj: Val) -> Option<BuiltinMethodId> {
-    let Site::Builtin { kind, id } = site else { return None };
+pub(crate) fn site_method_id(heap: &HeapPool, site: &Site, obj: Val) -> Option<BuiltinMethodId> {
+    let Site::Builtin { kind, id } = *site else { return None };
     (heap.plain(obj).map(core::mem::discriminant) == Some(kind)).then_some(id)
+}
+
+/* The method a site keeps for `obj`, off the heap alone, as `VM::site_method` finds it. */
+#[inline(always)]
+pub(crate) fn site_method_func(heap: &HeapPool, class_epoch: u32, shadowed: bool, site: &Site, obj: Val, name: &str) -> Option<Val> {
+    let Site::Method { class, func, hash, epoch, .. } = *site else { return None };
+    if epoch != class_epoch { return None; }
+    let Some(HeapObj::Instance(c, attrs)) = heap.try_get(obj) else { return None };
+    if c.0 != Val::heap(class).0 || shadowed && attrs.borrow().position_str(name, hash, heap).is_some() { return None; }
+    Some(Val::heap(func))
 }
 
 /* `obj.name = value` through the site off the heap alone, false when the site cannot store for `obj`. */
 #[inline(always)]
-pub(crate) fn site_put(heap: &HeapPool, class_epoch: u32, site: Site, obj: Val, value: Val) -> bool {
-    match site {
+pub(crate) fn site_put(heap: &HeapPool, class_epoch: u32, site: &Site, obj: Val, value: Val) -> bool {
+    match *site {
         Site::SetField { class, key, idx, epoch } if epoch == class_epoch => {
             let Some(HeapObj::Instance(c, attrs)) = heap.try_get(obj) else { return false };
             let mut a = attrs.borrow_mut();
@@ -90,8 +113,8 @@ pub(crate) fn site_put(heap: &HeapPool, class_epoch: u32, site: Site, obj: Val, 
             let Some(HeapObj::Instance(c, attrs)) = heap.try_get(obj) else { return false };
             let mut a = attrs.borrow_mut();
             // An instance of the shape the site saw lacks the key, so it goes last.
-            if c.0 != class.0 || a.shape() != from { return false; }
-            a.push_shaped(key, value, hash, to);
+            if c.0 != Val::heap(class).0 || a.shape() != from as u32 { return false; }
+            a.push_shaped(key, value, hash, to as u32);
             true
         }
         _ => false,
@@ -108,7 +131,7 @@ pub(crate) const ROOT_SHAPE: u32 = 1;
 impl<'a> VM<'a> {
     /* `obj.name` through the site, None when the site cannot answer for `obj`. */
     #[inline(always)]
-    pub(crate) fn site_get(&self, site: Site, obj: Val) -> Option<Val> { site_value(&self.heap, self.class_epoch, site, obj) }
+    pub(crate) fn site_get(&self, site: Site, obj: Val) -> Option<Val> { site_value(&self.heap, self.class_epoch, &site, obj) }
 
     /* What a site keeps after a slow `obj.name`, an own field or module attribute. */
     pub(crate) fn learn_get(&self, obj: Val, name: &str) -> Site {
@@ -128,7 +151,7 @@ impl<'a> VM<'a> {
 
     /* `obj.name = value` through the site, false when the site cannot store for `obj`. */
     #[inline]
-    pub(crate) fn site_store(&mut self, site: Site, obj: Val, value: Val) -> bool { site_put(&self.heap, self.class_epoch, site, obj, value) }
+    pub(crate) fn site_store(&mut self, site: Site, obj: Val, value: Val) -> bool { site_put(&self.heap, self.class_epoch, &site, obj, value) }
 
     /* What a site keeps after a slow store, `before` the shape the instance had. */
     pub(crate) fn learn_store(&self, obj: Val, name: &str, before: u32) -> Site {
@@ -139,7 +162,7 @@ impl<'a> VM<'a> {
         let Some(i) = a.position_str(name, hash_str(name), &self.heap) else { return Site::Empty };
         let (key, epoch) = (a.key_at(i), self.class_epoch);
         // A store that took the instance from one shape to the next appended its key.
-        if before != NO_SHAPE && a.shape() != NO_SHAPE && a.shape() != before { Site::Append { class, key, hash: a.hash_at(i), from: before, to: a.shape(), epoch } }
+        if before != NO_SHAPE && a.shape() != NO_SHAPE && a.shape() != before { Site::Append { class: class.as_heap(), key, hash: a.hash_at(i), from: before as u16, to: a.shape() as u16, epoch } }
         else { Site::SetField { class, key, idx: i as u32, epoch } }
     }
 
@@ -164,29 +187,30 @@ impl<'a> VM<'a> {
         if epoch != self.class_epoch { return None; }
         let Some(HeapObj::Instance(c, attrs)) = self.heap.try_get(obj) else { return None };
         // An attribute of the instance by the same name shadows the method.
-        if c.0 != class.0 { return None; }
+        if c.0 != Val::heap(class).0 { return None; }
         if self.shadowed && attrs.borrow().position_str(name, hash, &self.heap).is_some() { return None; }
-        Some((func, owner))
+        Some((Val::heap(func), Val::heap(owner)))
     }
 
     /* The builtin method a site keeps for a receiver of `obj`'s type. */
     #[inline]
-    pub(crate) fn site_builtin(&self, site: Site, obj: Val) -> Option<BuiltinMethodId> { site_method_id(&self.heap, site, obj) }
+    pub(crate) fn site_builtin(&self, site: Site, obj: Val) -> Option<BuiltinMethodId> { site_method_id(&self.heap, &site, obj) }
 
     /* The site a method call keeps once the slow lookup bound `func`. */
     pub(crate) fn learn_method(&self, obj: Val, name: &str, func: Val, owner: Val) -> Site {
         let Some(&HeapObj::Instance(class, _)) = self.heap.try_get(obj) else { return Site::Empty };
         // Only a plain function binds the instance, a class or static method binds otherwise.
         let plain = self.lookup_class_member(class, name).is_some_and(|(m, _)| m.0 == func.0 && matches!(self.heap.try_get(m), Some(HeapObj::Func(..))));
-        if !plain { return Site::Empty; }
-        Site::Method { class, func, owner, hash: hash_str(name), epoch: self.class_epoch }
+        // A site keeps the slots of what it names, all heap objects.
+        if !plain || !func.is_heap() || !owner.is_heap() { return Site::Empty; }
+        Site::Method { class: class.as_heap(), func: func.as_heap(), owner: owner.as_heap(), hash: hash_str(name), epoch: self.class_epoch }
     }
 
     /* The site a builtin method call keeps, by the receiver's variant. */
     pub(crate) fn learn_builtin(&self, obj: Val, id: BuiltinMethodId) -> Site {
         match self.heap.try_get(obj) {
-            // A type's method binds by the type itself, not by the variant.
-            Some(HeapObj::Type(_) | HeapObj::Instance(..)) | None => Site::Empty,
+            // A type's method binds by the type itself, and a generator's opens as a frame only through the stack call.
+            Some(HeapObj::Type(_) | HeapObj::Instance(..) | HeapObj::Coroutine(_)) | None => Site::Empty,
             Some(o) => Site::Builtin { kind: core::mem::discriminant(o), id },
         }
     }

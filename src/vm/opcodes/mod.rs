@@ -7,7 +7,7 @@ pub(crate) mod subscript;
 
 pub(super) use crate::vm::{
     VM, Val, VmErr, HeapObj, HeapPool, DictMap, cache,
-    types::{BodyRef, SyncFrame, VAL_BYTES, cold_depth, cold_type, cold_value, cold_value_s, cold_runtime, eq_member, eq_checked, float_divmod}
+    types::{BodyRef, ParkedFrame, VAL_BYTES, cold_depth, cold_type, cold_value, cold_value_s, cold_runtime, eq_member, eq_checked, float_divmod}
 };
 
 pub(super) use crate::parser::{OpCode, SSAChunk};

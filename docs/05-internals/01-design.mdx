@@ -25,7 +25,8 @@ This page covers the parts that span the pipeline. Tokens, parsing and bytecode 
 ## Key mechanisms
 
 - **Register dispatch.** Each chunk lowers to instructions that name frame slots directly. The hot loop is a flat `match` that Rust lowers to a jump table. Opcodes without a register form run as stack opcodes.
-- **One register stack.** Every running frame is a window of one stack, from its base to the next frame. A call opens its callee on top, and an error builds the traceback frames only as it unwinds.
+- **One register stack, a window per chunk.** Every chunk runs in a window of one register stack, laid out once with its constants, and a recursion takes a window one level deeper, laid out the first time it is reached. A frame keeps what its caller needs in five registers just before the window, so a call copies its arguments and nothing else, and an error builds the traceback frames only as it unwinds.
+- **Calls as jumps.** Code that runs often lays the functions, methods, constructors and operator dunders it calls as sections of its own code. A call checks that the name still holds the function the section was laid from, or that the receiver's class still finds the method, writes its arguments into the section's parameters and its link, one register holding where the call carries on and the register its result goes to, and jumps. A return writes the result and jumps back by the link. Any other call opens a frame of the same loop, and a builtin that calls back into Python runs the callback as a frame with a job of its own. A call back into the sections it lies in keeps a level of the recursion on the value stack, a `TurnR` before it and the `UnturnR` words past it, see [Recursion](#recursion).
 - **Inline tag checks and caches.** Register arithmetic and comparisons test the NaN-box tags of both operands inline and take the generic handler for any other type. Two plain strings compare their text inline too, and an int index into an ASCII string returns its interned one-character string. Attribute loads, stores, method calls and operator dunders cache the field index, method or builtin they last resolved. A call caches the function or the class it opened as a frame. An instance dict carries a shape, an id for its exact keys in order while it only ever gained keys, so a field load or a new attribute checks one number. Any other change to the dict drops its shape, and the sites fall back to checking the name and hash of the entry. A class change or a collection invalidates the caches. Caching is per instruction. Each monomorphic site stabilises on its own.
 - **Static scopes.** The names of each function resolve once before anything runs. A name an enclosing function binds becomes a shared `HeapObj::Cell`. The cell is wrapped when that function is called and captured by the definition. Closures observe the `nonlocal` writes of each other. Every other free name reads the binding table of its module by a fixed index. The builtins answer while that binding is unbound.
 - **NaN-boxed values.** `Val` is a 64-bit union. It holds 48-bit signed ints inline, IEEE-754 floats, bools, None, an undef sentinel, and 28-bit heap indices. See [Memory model](#memory-model).
@@ -35,13 +36,17 @@ This page covers the parts that span the pipeline. Tokens, parsing and bytecode 
 
 The first call of a chunk runs the code the compiler wrote. Its second call, or a loop past 16 back-edges, lowers it to register code that every frame shares. A hot frame carries on from its loop head. A lowered instruction holds an opcode, a flag byte and three 16-bit operands, so one instruction reads two registers and writes a third.
 
-- `LoadAttr` and `Call` sites fuse into `CallMethod` and `CallMethodArgs` when every argument is a single-push load. That holds up to 8 arguments and never across a jump target.
+- `LoadAttr` and `Call` sites fuse into `CallMethod` and `CallMethodArgs` when the arguments are loads and arithmetic on them. That holds up to 16 instructions and never across a jump target.
 - Local loads become slot operands.
 - A compare that feeds a branch becomes one compare-and-jump.
 - `s += t` on a local that a loop uses for nothing else becomes `AppendR`. The first append of each entry into the loop makes a new string the register owns, and the appends after it grow that string in place, so building a string in a loop is linear. Entering the loop again gives up ownership, so a name that saw the string before or after never sees it change.
 - Lowering runs once per chunk, and every frame of the chunk shares its caches.
 
-A plain call, a method call and a constructor whose `__init__` takes plain parameters open their frame on the frame stack of the running loop without leaving it, and a return hands the loop back to the caller, so Python recursion never recurses in Rust. The call site remembers the function, method or class, so the next call there copies the arguments into the new frame, fills defaults and captured cells, and runs on in the same loop. A plain return pops the frame in that loop too. `CallR` reads a callee and up to five positionals from registers, `CallMethodR` a receiver and up to four, and past the first two the operands sit in an `ArgsR` after the call. Values already pending under the call are copied to the stack before it and taken back into their registers after it, so a call that suspends resumes in either tier. The result goes straight to the register that stores it, and a builtin method takes its arguments straight from the registers. A `for` over a generator runs its body as a frame of the same loop, and a `yield` saves that frame back into the generator and hands the value to the loop variable. A call that a builtin, a dunder or a resumed coroutine makes, `next()` and `send()` on a generator, or one into code not lowered yet, nests a loop of its own. A frame that suspends becomes a sync frame of its coroutine, which resumes it in place.
+Code called 64 times, a loop past its head heating, or a generator that calls and was resumed often enough is lowered again with sections. Each function, method, `__init__` or closure its calls found is laid once past the code, its registers past the code's own, and the calls inside it jump to their own sections. A section is laid from its body's lowered code, each instruction with its registers moved past the section's link and its jumps past where the section starts, the constants it reads filled in, its returns made to jump back by the link, and the calls it makes of the other sections laid as their heads. A plain function, a method the receiver's class still finds, the method a `super()` proxy finds, a class whose `__init__` returns nothing, a function taking `*args` or `**kwargs`, and a closure whose cells become constants of its section all lay this way, positional or keyword calls alike, from this module or another. A body may hold loops, `try`, `with`, stack work that names no slot of its own, cells it makes as it enters and functions it makes from them. A closure or a lambda with defaults made again on each call runs a section laid once for every function of its body, its cells and defaults filled from the function the call makes. A call that a section's check turns down, a rebound name, another class's receiver or a spent budget, goes to the stub after its head. A call through a register first looks the function it holds up among the other functions it met, sixteen at most, in the block's `alt_tab` and enters the section laid for it (`enter_value`), and a method call does the same for the receiver's class (`enter_method_alt`). Anything else runs the stub's ordinary call, a frame of the loop. Each call a stub takes counts toward a relay. Past `MISSES` (64) of them, the next back-edge outside every section lays the code again with the functions they met beside the ones it checks, and again each time while that lays more than the time before, and frames still running the old code keep it, see [Replaced code](#replaced-code). An error inside a section is raised where it happened, and its traceback is read back from each section's link and, for a recursion, from the link each level kept.
+
+Any other call opens its frame on the frame stack of the running loop without leaving it, and a return hands the loop back to the caller, so Python recursion never recurses in Rust. The call site remembers the function, method or class, so the next call there copies the arguments into the new frame, fills defaults and captured cells, and runs on in the same loop. A plain return pops the frame in that loop too. `CallR` reads a callee and up to five positionals from registers, `CallMethodR` a receiver and up to four, and past the first two the operands sit in an `ArgsR` after the call. Values already pending under the call are copied to the stack before it and taken back into their registers after it, so a call that suspends resumes in either tier. The result goes straight to the register that stores it, and a builtin method takes its arguments straight from the registers. A `for` over a generator function a module binding holds lays the generator's body as the section the loop steps (`Lower::gen_for`), a `yield` jumping to the loop's body and the next step jumping back past it. Any other generator a `for` steps runs as a frame of the same loop (`enter_gen`), and a `yield` saves that frame back into the generator and hands the value to the loop variable. A generator that recurses through `yield from` or a `for` takes a frame per level the same way, and the step that would go past the recursion limit raises RecursionError there, no loop nested for it. The operator dunder an op meets on an instance opens as a frame too (`open_reg_dunder`), as do a property's getter and setter and a class's `__getattr__`, and the first call of a function runs as a frame in its code as the compiler wrote it (`cold_code`). A builtin that calls Python runs the callback as a frame with a job of its own, as `map`, `filter`, `sorted` with a key, `min` and `max` with a key, `sum`, `any` and `all` over a generator, `next()` of a generator, and `len`, `bool`, `abs`, `str`, `repr` or `print` of an instance, see [Calling Python from Rust](#calling-python-from-rust). The text `exec` and `eval` run is a floor of the same loop (`floor_open`), and so are the top level of each module such a text imports and a class body, whose end makes the class (`class_end`). The helpers the module body waits inside open as frames of the loop that resumes it, the innermost first (`chain_next`). A frame that suspends becomes a sync frame of its coroutine, which resumes it in place.
+
+No loop opens inside another. A call into Python from Rust that no frame of the running loop takes is an internal error, which debug builds stop at, and `run_call` opens a loop only as the first, for a call the host makes. An `eval` or `exec` no floor takes is the same internal error. The text `exec` or `eval` runs when a builtin such as `map`, `sorted` or `min` calls it runs as a floor of the loop, whose end hands the builtin what it gave.
 
 Register forms keep int and float math inline. Stack arith and compare opcodes try the same numeric path in `exec_arith_or_compare` before the generic handler.
 
@@ -52,6 +57,54 @@ Constants become values once per chunk. Lowered code reads them from slots after
 - A decimal literal past 4,300 digits is rejected at parse time.
 
 The instruction format is in [Bytecode model](/docs/edge-python/internals/compiler#bytecode-model).
+
+### Recursion
+
+A section's registers are shared by every run of it, so a call that may come back into the sections it lies in, a function or a method calling itself, an operator dunder or a truth test whose dunder runs the same op, a getter loading its own property, or two functions calling each other, keeps a level of the recursion before it jumps (`src/vm/level.rs`). The lowering lays a `TurnR` before the call's head and the `UnturnR` words where the call carries on, and nothing else runs a recursion, with no frames past some depth and no runner of its own.
+
+- The words name what the level keeps, the first the link, and the registers the section reads after the call, the value pending under it in its register among them (`block::live_across`), up to three a word.
+- A parameter the call of its own section passes on as it is keeps nothing, when no instruction of the body writes it and every other call back into the section keeps it (`steady`), so each level returns it as it found it. One the call passes changed, `f(n - 1)`, is kept as any other register, so fib keeps its link, `n` across its first call, and the first call's result across its second.
+- `TurnR` puts the values on the stack, the link last. A lone level, its link and two registers at most, is kept and taken back in the loop itself, and `UnturnR` takes the values back, the link first, in one dispatch.
+- A section whose code leaves nothing of its own on the stack from one instruction to the next (`block::flat`) needs nothing more. Any other notes, in the register before its link, where the stack stood as each level began, and its kept link holds how far the stack had grown in the level, so a walk tells a level's values from what was pending under its call.
+- A level counts as a frame toward the recursion limit, 1000 as Python's (`RECURSION_LIMIT`). `turned` counts the levels kept, which a handler sets back to what it was as its block began, and RecursionError rises where the frames and levels running reach it, at Python's depth for a function, a method, an operator dunder, a property's getter and a generator alike. A level looks at the memory limit only as the stack leaves the stretch it last looked from (`turn_low`, `turn_span`), as often as frames look.
+- A body runs as frames until it is called often enough (`TIER`) or that many frames of it run at once (`LAY_DEPTH`), and is lowered again then, a recursion's levels past it running as its sections.
+- An exception walks the levels it leaves (`walk_levels`). A traceback notes a frame for each, a handler inside a section takes back the registers of its own level first, and a `StopIteration` a `for` over a user iterator ends finds the loop. Each level kept the link of the one below it, and where its stack began tells where that one's values end, past what was pending under the call.
+- A call in a stub that keeps a level runs as an ordinary call between the same `TurnR` and `UnturnR`, as does one a growth laid again past the end.
+
+## Calling Python from Rust
+
+Python code runs in one instruction loop, `exec_frame`, and nowhere else. Nothing in Rust calls a Python function and waits there for its result, and a new opcode or builtin has no door for that. It schedules the jump instead, in one of two ways, and takes the result when the jump comes back.
+
+A loop nested in Rust is what that door would be, and it breaks the rest of the design.
+
+- Its state lies on the host stack, where a `yield`, a preemption or a snapshot cannot reach it, so a run parked under it could neither be saved into a blob nor resumed after the host returns.
+- The host stack, not the memory limit, would bound how deep Python recurses, and on `wasm32` that stack is small.
+- Each call through it pays the loop's setup, more than ten times what a call through a section or a frame costs.
+
+### A section, when the call is known as the code is laid
+
+When the lowering can tell what an instruction calls, from the binding it names or what its site learned, the callee becomes a section of the caller's code. An operator dunder is the example in the repo.
+
+1. `Lower::dunder_call` asks the lowering's `sections` closure for `Want::Dunder` at the op. `lowered_code` in `registers.rs` answers it with the `Callee` the op's site learned, the class's `__add__` for `v + w`, or `None`, which leaves the op as it is.
+2. `Lower::head` emits the head, a `DunderSectionR` with the operands, a `StoreTopR` naming the result's register and where the caller carries on, a `SectionR` naming the section, and a `SectionR` naming the stub.
+3. `Lower::lay` places every wanted section past the code behind one jump, its registers past the code's own frame, keeping what the sections share in a `LayState`. `place` lays each one from its body's code.
+4. `Lower::stub` lays the op as written after the sections, where a call whose check fails goes.
+
+At run time `DunderSectionR` checks that the left operand is still of the class the section was laid for, writes the link and the operands into the section's first registers, and jumps. `ReturnSectionR` writes the result into the register the link names and jumps back by it. A plain call does the same through `CallSectionR`, checking the binding, and a method call checks the receiver's class.
+
+### A frame or job of the loop, when only the run knows
+
+When the callee is only known at run time, a builtin finding a user `__len__` for instance, the code opens it as a frame of the running loop and hands the loop back. The frame's record carries what the return does with the value. `len(o)` of an instance is the example.
+
+1. `call_len` asks `check_job(o, "__len__", Check::Len)`. `job_fn_once` finds a body that can open in the loop, and `open_job` opens it as a frame on `o`, its record marked `JOB`, and pushes `Job::Check(Check::Len)` on `jobs`.
+2. `check_job` sets `entered` and `yielded`, and the builtin returns with nothing pushed. The loop carries on in the new frame.
+3. The frame's return goes to `leave_job`. The job on top takes the value, through `job_fast` or on the full path through `job_take`. It checks the value as `len` does and gives it to the caller with `job_done`, or runs the callback again in place (`rearm`) for a builtin that calls it once for each item.
+
+A job keeps between calls whatever the builtin needs, so new state goes in a variant of `Job` (`src/vm/jobs.rs`), and `Job::for_each_val` marks the values it holds for the collector. A callback with nothing to keep needs no job. The record notes what the return does instead. An operator dunder met at run time opens with `open_reg_dunder`, and `mark_dunder` notes the op's register in its record. On return `dunder_back` writes the result there and carries on past the op. A `NotImplemented` is noted as `declined` and goes back to the op, whose handler tries the reflected dunder.
+
+### What the assertion holds
+
+Debug and coverage builds count the loops running in `VM::loops`. `exec_in` is the only way into `exec_frame`, and a loop opening inside another panics. The test `old_path_ceilings` runs every case of `vm.json` and fails when a generic frame is pushed. Release builds have no counter.
 
 ## Memory model
 
@@ -123,12 +176,19 @@ alloc_limit  = max(marked / 4, 4096)
 
 The roots are these.
 
-- The value stack, the with-stack, yields, and the event queue.
+- The value stack, the with-stack and the event queue.
 - The pending `yield from` value.
-- The register stack, which holds every running frame, and slot templates.
+- The register stack, which holds every running frame and window.
+- The code each running frame or parked run runs, current or replaced, with its inline-cache values, the constants its sections read, and for each section the function it was laid from, its defaults, and the classes, functions and tables its checks compare with.
 - Module binding tables, and cells around class bodies.
-- The suspended module body and iterator frames.
-- Chunk constant pools and inline-cache values.
+- The suspended module body, iterator frames, and the jobs of builtins whose callbacks run as frames.
+- Chunk constant pools, inline-cache values, and the functions lowered code noted it met.
+
+Anything that remembers a value by identity is either marked or dropped at each collection. A freed slot is reused with no generation, so a remembered value that was swept would match the next object to take its slot. Checks that only hold while no class changed are keyed on the class version, and every collection moves it on.
+
+### Replaced code
+
+A lowering replaces a chunk's code. The frame that asked for it carries on in the new code, but frames further down that run the old code keep running it, so the old code goes on a retired list. Each collection keeps it while something still uses it, a frame of the loop whose record names it, a builtin's job that runs its callback in it again, a loop that began with it, or a run parked inside one of its sections, which resumes in it by its layout. The collection drops any other retired code and marks what the kept ones check.
 
 ## Coroutine dispatch
 
@@ -141,7 +201,7 @@ The roots are these.
 
 `vm.run()` runs the module body as a coroutine of its own, the root the host drives. A host call that waits or a `receive()` on an empty queue suspends it, and `drive_root` hands the host a `HostYield` naming the wait.
 
-A plain `def` called from the module body can wait too. Its state is then saved as a `SyncFrame` on the `sync_frames` of the root, innermost last.
+A plain `def` called from the module body can wait too. Its state is then saved as a `ParkedFrame` on the `syncs` of the root, innermost last.
 
 - Resume walks this stack from the inside out before it enters the module body again. The return value of each helper lands at its original `Call` site.
 - An error that escapes a helper raises again at that same site. The handlers of the caller and the traceback notes match a run that never suspended.
@@ -155,10 +215,11 @@ A snapshot holds only the dynamic state of a parked VM. The blob format is in [B
 - A FOREIGN value restores only under a kind registered with the same name and version, and a `Val` naming an entry the blob did not restore fails the restore.
 - `restore_state` replays the blob onto a VM booted fresh from the source the blob embeds.
 - Chunk-derived tables such as the bytecode, the name pools and the extern table are not stored. They come from the re-parse.
+- Lowered code is not stored either. The blob notes which functions and modules were lowered with sections, the functions their calls found and how much of those each laid code read, so a run suspended inside a section resumes in code laid again the same way, the functions it read lowered first.
 
 Preemption supplies the parked state when a program never suspends on its own. `set_preempt_interval(n)` makes the dispatch loop sample a counter at loop back-edges. Every `n` hits it takes the ordinary yield path, the coroutine stays ready, and `top_loop` returns `Preempted`.
 
-Sampling is gated on a `frame_safe` flag per frame. The scheduler step sets it, and a call or method call that an instruction makes passes it to its callee, a frame the loop opens included. A call from a builtin or a dunder passes nothing, so native re-entry cannot be preempted by default, and a new re-entrant path inherits that default instead of corrupting a blob.
+Sampling is gated on a `frame_safe` flag per frame. The scheduler step sets it, and a call or method call that an instruction makes passes it to its callee, a frame the loop opens included. A call from a builtin or a dunder passes nothing, so native re-entry cannot be preempted by default, and a new re-entrant path inherits that default instead of corrupting a blob. Preemption also waits while a builtin's job runs or an operator dunder's frame is open (`frames_park`), since the builtin or the op would have nothing to take the result on resume.
 
 Restore runs in two passes, because hashing reads the heap.
 
