@@ -19,6 +19,12 @@ name = "tests"
 path = "tests/main.rs"
 
 # Its own binary, since it runs without the metering allocator.
+# The opcode handlers over the corpus, as a native build's glue drives them.
+[[test]]
+name = "native"
+path = "tests/native.rs"
+required-features = ["native"]
+
 [[test]]
 name = "unmetered"
 path = "tests/unmetered.rs"
@@ -34,6 +40,10 @@ runtime = []
 pure = []
 # The modules behind the stable API, for the engine's own tests and tools that read them.
 internals = []
+# The VM as the bitcode `edge build` links its glue with, the `op_` handlers, frames and entry.
+native = ["std"]
+# A native build that collects and moves every object at each safepoint, for the tests.
+gc-torture = ["native"]
 
 [dependencies]
 wasm-abi = { workspace = true }
@@ -52,7 +62,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 
 [workspace]
-members = ["abi", "pdk", "pdk/macros", "pdk/example", "skill", "bench"]
+members = ["abi", "pdk", "pdk/macros", "pdk/example", "skill", "bench", "native"]
 # `pdk/example` is wasm-only, in `members` for the lockfile but out of `default-members`, build it with `-p slugify-mod`.
 default-members = [".", "abi", "pdk", "pdk/macros", "skill"]
 resolver = "2"

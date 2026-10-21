@@ -1,0 +1,18 @@
+[package]
+name = "edge-native"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "The VM as the one bitcode module `edge build` links a program's glue with."
+publish = false
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+edge-python = { path = "..", default-features = false, features = ["native"] }
+
+[features]
+# Collects and moves every object at each safepoint, which `edge build --gc-torture` builds for the tests.
+gc-torture = ["edge-python/gc-torture"]
