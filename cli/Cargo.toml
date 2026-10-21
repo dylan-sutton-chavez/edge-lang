@@ -51,6 +51,8 @@ signal-hook = { version = "0.3", default-features = false, features = ["iterator
 [build-dependencies]
 # Precompiles compiler.wasm for the build target.
 wasmtime = { version = "48", default-features = false, features = ["runtime", "cranelift", "all-arch", "std"] }
+# Gzips the VM bitcode `edge build` carries for each target.
+flate2 = "1"
 
 [profile.release]
 opt-level = "z"
