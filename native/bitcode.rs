@@ -37,10 +37,10 @@ fn safepoints(path: &str, text: String) {
 fn inline(vm: &str, path: &str, text: String) {
     // What vm.o defines for other objects: a define that is neither internal nor private.
     let exported: std::collections::HashSet<&str> = vm.lines().filter(|l| l.starts_with("define ") && !l.contains(" internal ") && !l.contains(" private "))
-        .filter_map(|l| ir::reach_name(&l[l.find('@')? + 1..])).collect();
+        .filter_map(|l| Some(ir::symbol(&l[l.find('@')? + 1..]))).collect();
     let mut missing = Vec::new();
     let out: String = text.lines().map(|l| {
-        if let Some(rest) = l.strip_prefix("declare ") && let Some(n) = rest.find('@').and_then(|at| ir::reach_name(&rest[at + 1..])) && !n.starts_with("llvm.") && !exported.contains(n) { missing.push(n.to_string()); }
+        if let Some(rest) = l.strip_prefix("declare ") && let Some(n) = rest.find('@').map(|at| ir::symbol(&rest[at + 1..])) && !n.starts_with("llvm.") && !exported.contains(n) { missing.push(n.to_string()); }
         match l.strip_prefix("define ") { Some(rest) => format!("define available_externally {}\n", rest.trim_start_matches("dso_local ")), None => format!("{l}\n") }
     }).collect();
     // Each one named by the function or constant whose text uses it, so the fast path to cut is plain.
