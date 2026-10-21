@@ -93,22 +93,6 @@ tag function 91
 tag iterator 92
 tag generator 93
 tag coroutine 94
-stack Add 2 1
-stack Sub 2 1
-stack Mod 2 1
-stack Lt 2 1
-stack Eq 2 1
-stack GetItem 2 1
-stack BuildList o[0:16] 1
-stack CallPrint o[0:8]+2*o[8:14] 0
-stack CallRange o[0:8]+2*o[8:14] 1
-stack Call 1+o[0:8]+2*o[8:16] 1
-stack MakeFunction defaults 1
-stack MakeClass classargs 1
-stack GetIter 1 0
-stack CallIsInstance 2 1
-stack Is 2 1
-stack StoreItem 3 0
 rule Add int int -> int | r0 = a0+a1 | raises MemoryError unless r0 in -140737488355328..140737488355327
 rule Add str str -> str | raises MemoryError
 rule Add float float -> float
@@ -135,7 +119,10 @@ rule Add str int -> ! | raises TypeError
 rule Is * * -> bool
 rule StoreItem list int * -> | puts a0 a2 | raises IndexError
 rule Mul int int -> int | r0 = a0*a1 | raises MemoryError unless r0 in -140737488355328..140737488355327
-stack Mul 2 1
 method list.append list * -> NoneType | puts a0 a1
 rule CallCallable * -> bool
 rule CallRepr * -> str | calls a0
+rule CallType * -> type
+rule FormatValue * -> str
+builtin sorted list -> list
+builtin map function list -> iterator | calls a0

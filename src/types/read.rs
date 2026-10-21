@@ -76,9 +76,8 @@ impl Rules {
             let op = name == "Truth" || ops.iter().any(|o| o == name);
             match w[0] {
                 "tag" if w.len() == 3 => {}
-                // The stack effects are `code::effect`'s, tested against the VM.
-                "stack" if op && w.len() == 4 => {}
                 "rule" if op => { let row = r.row(&w[2..])?; r.rows.push((name.into(), at, row)); }
+                "builtin" if w.len() > 2 && at.is_none() => { let row = r.row(&w[2..])?; r.rows.push((alloc::format!("builtin.{name}"), None, row)); }
                 "method" if name.contains('.') && at.is_none() => { let row = r.row(&w[2..])?; r.rows.push((name.into(), None, row)); }
                 _ => return Err(bad(&w.join(" "), "a line of format 1")),
             }
