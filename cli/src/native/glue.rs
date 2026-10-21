@@ -48,6 +48,8 @@ declare i64 @edge_enter(ptr, i32, i64, ptr, i32)
 declare void @edge_leave(ptr, i64)
 declare i64 @edge_raise(ptr, i64)
 declare i64 @edge_safepoint(ptr, ptr, i32)
+declare i32 @edge_root(ptr, ptr, i32)
+declare void @edge_unroot(ptr, ptr, i32, i32)
 declare i1 @is_int(i64)
 declare i1 @is_float(i64)
 declare i1 @is_bool(i64)
@@ -240,7 +242,13 @@ fn code(ir: &mut String, ops: &mut Vec<String>, b: &Body, bodies: &[Body], typed
             // A loop that calls what may collect collects on its back edge too.
             _ if back => { let _ = writeln!(ir, "  %v{k} = call i64 @edge_safepoint(ptr %rt, {live_arg})"); }
             // A recursive call stays a call, any other is inlined so the block is the caller with its callees laid in it.
-            Some(f) => { let _ = writeln!(ir, "  %v{k} = call i64 @\"{}\"(ptr %rt, {}){}", f.name, input.iter().map(|v| format!("i64 {v}")).collect::<Vec<_>>().join(", "), if f.at == host.at { "" } else { " #0" }); }
+            // Nothing roots the caller's values in the callee's frame, so one that may collect gets them rooted around the call.
+            Some(f) => {
+                let rooted = !live.is_empty() && f.chunk.instructions.iter().any(|i| collect.contains(&format!("{:?}", i.opcode).as_str()));
+                if rooted { let _ = writeln!(ir, "  %mk{k} = call i32 @edge_root(ptr %rt, {live_arg})"); }
+                let _ = writeln!(ir, "  %v{k} = call i64 @\"{}\"(ptr %rt, {}){}", f.name, input.iter().map(|v| format!("i64 {v}")).collect::<Vec<_>>().join(", "), if f.at == host.at { "" } else { " #0" });
+                if rooted { let _ = writeln!(ir, "  call void @edge_unroot(ptr %rt, {live_arg}, i32 %mk{k})"); }
+            }
             None => {
                 ops.push(format!("{:?}", ins.opcode));
                 let _ = writeln!(ir, "  %v{k} = call i64 @op_{:?}(ptr %rt, i64 {site}, i64 {}, i64 {}, i64 {}, ptr %rest, {live_arg}) #0", ins.opcode, abc[0], abc[1], abc[2]);
