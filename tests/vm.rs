@@ -89,7 +89,7 @@ mod test {
             {
                 continue;
             }
-            let (mut chunk, _errors) = Parser::new(&case.src, tokens.into_iter()).parse();
+            let (mut chunk, errors) = Parser::new(&case.src, tokens.into_iter()).parse();
             // Run the same fold pass production does (exports.rs), so fold-path bugs surface here.
             compiler::code::constant_fold(&mut chunk);
             let mut vm = VM::with_limits(&chunk, crate::common::corpus_limits());
@@ -102,6 +102,8 @@ mod test {
             // Collect every mismatch (not panic-on-first) so one run lists all regressions.
             match result {
                 Ok(_obj) => {
+                    // A case that names an error fails when neither the compiler nor the run gives it.
+                    if let Some(want) = &case.error && !errors.iter().chain(&chunk.warnings).any(|e| e.msg.contains(want.as_str())) { failures.push(format!("NO ERROR {:?}\n   want '{}'", case.src, want)); }
                     if vm.output != case.output {
                         failures.push(format!("OUTPUT {:?}\n   got {:?}\n   want {:?}", case.src, vm.output, case.output));
                     }

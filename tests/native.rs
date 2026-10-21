@@ -133,3 +133,4 @@ fn gc_keeps_values_in_place() {
     assert_eq!(again.iter().map(|&v| unsafe { native::heap_type(rt, v) }).collect::<Vec<_>>(), kinds, "{WHY}");
     assert_eq!(unsafe { native::heap_type(rt, freed) }, u32::MAX, "{WHY}");
 }
+
