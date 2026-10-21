@@ -355,7 +355,10 @@ impl<'a, 'c> Step<'a, 'c> {
             self.foreign(&row.calls.iter().map(|&j| ins[j]).collect::<Vec<_>>(), true);
             let mut s = s.clone();
             for (e, t) in a.iter().zip(&ins) { if let Some(v) = s.slots.get_mut(e.from as usize) { *v = *t; } }
-            let b = |r: Rhs, lo: bool| match r { Rhs::N(n) => n as i128, Rhs::A(j) => if lo { ins[j].lo as i128 } else { ins[j].hi as i128 } };
+            let b = |r: Rhs, lo: bool| match r {
+                Rhs::N(n) => n as i128,
+                Rhs::A(j) | Rhs::Less(j) => (if lo { ins[j].lo as i128 } else { ins[j].hi as i128 }) - matches!(r, Rhs::Less(_)) as i128,
+            };
             // The exact integer of result `r`, its bounds past an i64 open.
             let exact = |r: usize| row.says.iter().find_map(|x| match x { (q, Out::Exact(op, a, c)) if *q == r => Some((*op, *a, *c)), _ => None }).map(|(op, x, y)| {
                 let f = |a: i128, c: i128| match op { '+' => a + c, '-' => a - c, '*' => a * c, _ => a };
