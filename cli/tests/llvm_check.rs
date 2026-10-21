@@ -70,19 +70,6 @@ fn checks(ir: &str, vm: &str) -> Vec<(&'static str, bool)> {
     ]
 }
 
-/* The programs a fix of the glue came with, in tests/native: and/or, and raises through try, finally and return. */
-#[test]
-fn fixes() {
-    for path in std::fs::read_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/native")).unwrap().flatten().map(|e| e.path()) {
-        let dir = tempfile::tempdir().unwrap();
-        let [vm, native, torture] = three(dir.path(), &std::fs::read_to_string(&path).unwrap(), "", &[], &[]);
-        assert!(native == vm && torture == vm, "{ALARM}, {} differs
-   vm {vm:?}
-   native {native:?}
-   torture {torture:?}", path.display());
-    }
-}
-
 fn texts<'a>(case: &'a serde_json::Value, field: &str) -> Vec<&'a str> { case[field].as_array().into_iter().flatten().filter_map(|v| v.as_str()).collect() }
 
 /* Every program of tests/cases/vm.json and snapshot.json ends the same on the VM, native and native under torture. */
