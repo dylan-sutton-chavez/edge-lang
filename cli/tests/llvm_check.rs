@@ -1,8 +1,7 @@
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use rayon::prelude::*;
 
 #[path = "../../bench/src/ir.rs"]
 mod ir;
@@ -12,7 +11,6 @@ const ALARM: &str = "edge build relies on these optimizations to run at native s
 
 // What a run printed, what it reported and how it ended.
 type Run = (String, String, i32);
-
 fn run(cmd: &mut Command, input: &str) -> Run {
     let mut child = cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().expect("spawning a run");
     child.stdin.take().unwrap().write_all(input.as_bytes()).ok();
@@ -44,20 +42,27 @@ fn flow() {
     assert_eq!(vm.2, 0, "the VM fails the program: {}", vm.1);
     assert_eq!(native, vm, "{ALARM}, native differs from the VM");
     assert_eq!(torture, vm, "{ALARM}, native under GC torture differs from the VM");
+    assert_ne!(std::fs::read(dir.path().join("plain")).unwrap(), std::fs::read(dir.path().join("torture")).unwrap(), "--gc-torture built no torture in");
     let ir = std::fs::read_to_string(dir.path().join("main.ll")).unwrap();
-    for (what, holds) in checks(&ir) {
+    // The VM module edge linked, the host's as edge build targets it, where the tag tests are read.
+    let host = if cfg!(target_os = "macos") { "apple-darwin" } else { "unknown-linux-musl" };
+    let vm = std::fs::read_to_string(format!("{}/../target/bitcode/{}-{host}/vm.ll", env!("CARGO_MANIFEST_DIR"), std::env::consts::ARCH)).unwrap();
+    for (what, holds) in checks(&ir, &vm) {
         assert!(holds, "{ALARM}: {what}");
     }
 }
 
 /* What the optimized module must show for the program above, where fib and mix hold only proven ints. */
-fn checks(ir: &str) -> Vec<(&'static str, bool)> {
-    let [fib, mix] = ["py_fib(", "py_mix("].map(|f| *ir::bodies(ir, f).first().unwrap_or_else(|| panic!("{ALARM}: no {f} in the module")));
+fn checks(ir: &str, vm: &str) -> Vec<(&'static str, bool)> {
+    let [fib, mix] = ["py_fib", "py_mix"].map(|f| *ir::bodies(ir, f).first().unwrap_or_else(|| panic!("{ALARM}: no {f} in the module")));
+    // The program's module calls into vm.o, so the interpreter is reached through the VM's own call graph too.
+    let both = format!("{ir}\n{vm}");
     vec![
-        ("fib or mix reach the interpreter", ir::calls(fib, "edge_vm_loop") + ir::calls(mix, "edge_vm_loop") == 0),
-        ("fib or mix still test a tag", ir::checks(ir, fib, "is_") + ir::checks(ir, mix, "is_") == 0),
+        ("fib or mix call what may reach the interpreter", ir::reaching(&both, fib, "edge_vm_loop") + ir::reaching(&both, mix, "edge_vm_loop") == 0),
+        ("fib or mix still test a tag", ir::checks(vm, fib, "is_") + ir::checks(vm, mix, "is_") == 0),
         ("mix puts its tuple or its range on the heap", ir::calls(mix, "edge_alloc") == 0),
         ("mix stops at a safepoint, though only ints are live", ir::calls(mix, "edge_safepoint") == 0),
+        ("mix still keeps a live or rest buffer in memory", !mix.contains(" = alloca ")),
         ("fib calls itself through the VM, not directly", ir::calls(fib, "py_fib") > 0 && ir::calls(fib, "op_Call") == 0),
     ]
 }
@@ -71,19 +76,11 @@ fn texts<'a>(case: &'a serde_json::Value, field: &str) -> Vec<&'a str> {
 fn corpus() {
     let read = |name: &str| serde_json::from_str::<Vec<serde_json::Value>>(&std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/cases").join(name)).unwrap()).unwrap();
     let cases = [read("vm.json"), read("snapshot.json")].concat();
-    let (next, failures) = (AtomicUsize::new(0), Mutex::new(Vec::new()));
-    std::thread::scope(|s| {
-        for _ in 0..std::thread::available_parallelism().map_or(4, |n| n.get()) {
-            s.spawn(|| while let Some(case) = cases.get(next.fetch_add(1, Ordering::Relaxed)) {
-                let dir = tempfile::tempdir().unwrap();
-                let events = [texts(case, "events"), texts(case, "interactive_events")].concat();
-                let [vm, native, torture] = three(dir.path(), case["src"].as_str().unwrap(), &texts(case, "input").join("\n"), &events, &[]);
-                if native != vm || torture != vm {
-                    failures.lock().unwrap().push(format!("{:?}\n   vm {vm:?}\n   native {native:?}\n   torture {torture:?}", case["src"]));
-                }
-            });
-        }
-    });
-    let failures = failures.into_inner().unwrap();
+    let failures: Vec<String> = cases.par_iter().filter_map(|case| {
+        let dir = tempfile::tempdir().unwrap();
+        let events = [texts(case, "events"), texts(case, "interactive_events")].concat();
+        let [vm, native, torture] = three(dir.path(), case["src"].as_str().unwrap(), &texts(case, "input").join("\n"), &events, &[]);
+        (native != vm || torture != vm).then(|| format!("{:?}\n   vm {vm:?}\n   native {native:?}\n   torture {torture:?}", case["src"]))
+    }).collect();
     assert!(failures.is_empty(), "{ALARM}, {} of {} programs differ:\n{}", failures.len(), cases.len(), failures.join("\n"));
 }

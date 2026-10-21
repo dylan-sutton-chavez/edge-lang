@@ -89,7 +89,7 @@ The page reads for the worker the `edge.json` at `baseUrl`, its imports and what
 - It never reads outside that directory.
 - It never sends the cookies of the page.
 - A worker keeps every module it fetched in memory for its lifetime. Repeat runs make no network requests until `clearCache()` empties it.
-- `fs` lists the files of a page from `edge.files`, a JSON list beside `edge.json`. `edge build --web` writes it and `edge serve` answers it. A page that embeds the engine serves it itself.
+- `fs` lists the files of a page from `edge.files`, a JSON list beside `edge.json`. `edge web` writes it and `edge serve` answers it. A page that embeds the engine serves it itself.
 
 How an import resolves is on [Modules](/docs/edge-python/reference/modules). What `fs` reads is on [System](/docs/edge-python/reference/system#fs).
 

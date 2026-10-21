@@ -63,14 +63,8 @@ impl Sysroot {
     }
 }
 
-/* The triple Rust publishes this host's tools under, glibc builds run on every Linux. */
-fn host() -> String {
-    match std::env::consts::OS {
-        "macos" => format!("{}-apple-darwin", std::env::consts::ARCH),
-        "windows" => format!("{}-pc-windows-msvc", std::env::consts::ARCH),
-        _ => format!("{}-unknown-linux-gnu", std::env::consts::ARCH),
-    }
-}
+/* The triple Rust publishes the tools of this edge's own machine under. */
+fn host() -> String { env!("EDGE_HOST").to_string() }
 
 /* The url and sha256 of one component in a channel manifest, read off its `[pkg.<name>.target.<triple>]` table. */
 fn component(channel: &str, pkg: &str, triple: &str) -> Option<(String, String)> {

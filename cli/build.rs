@@ -13,6 +13,8 @@ fn main() {
     let target = std::env::var("TARGET").expect("TARGET");
     // `edge build` fetches the LLVM tools of the very release that compiles it, read here rather than written down.
     let rustc = std::process::Command::new(std::env::var("RUSTC").unwrap_or("rustc".into())).arg("--version").output().expect("running rustc --version");
+    // The tools it fetches are the ones built for the machine this edge runs on.
+    println!("cargo:rustc-env=EDGE_HOST={target}");
     println!("cargo:rustc-env=EDGE_RUSTC={}", String::from_utf8_lossy(&rustc.stdout).split_whitespace().nth(1).expect("rustc --version names a release"));
     let mut cfg = config::base();
     cfg.target(&target).expect("wasmtime has no backend for the build target");
@@ -27,8 +29,25 @@ fn main() {
     let lucide = manifest.join("../target/lucide.json");
     println!("cargo:rerun-if-changed={}", lucide.display());
     std::fs::copy(&lucide, out.join("lucide.json")).unwrap_or_else(|e| panic!("copying {}: {e}, run make lucide first", lucide.display()));
+    vm_bitcode(&manifest.join("../target/bitcode"), &out);
     let js_dist = std::env::var("EDGE_JS_DIST").map(PathBuf::from).unwrap_or_else(|_| manifest.join("../js/dist"));
     js_host(&js_dist, &out.join("js_host.rs"));
+}
+
+/* Each target's VM bitcode `make bitcode` left, gzipped, with the handlers its `!edge.safepoints` names, as the table
+   `edge build` links against, an absent target being one it cannot build for. */
+fn vm_bitcode(dir: &Path, out: &Path) {
+    println!("cargo:rerun-if-changed={}", dir.display());
+    let mut table = String::from("&[");
+    for target in std::fs::read_dir(dir).into_iter().flatten().flatten().map(|e| e.file_name().to_string_lossy().into_owned()) {
+        let Ok(bc) = std::fs::read(dir.join(&target).join("vm.bc")) else { continue };
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::best());
+        std::io::Write::write_all(&mut gz, &bc).and_then(|()| std::fs::write(out.join(format!("vm-{target}.bc.gz")), gz.finish()?)).expect("writing the VM bitcode");
+        let ll = std::fs::read_to_string(dir.join(&target).join("vm.ll")).expect("vm.ll beside vm.bc, run make bitcode");
+        let collect: Vec<&str> = ll.lines().filter_map(|l| l.split_once(" = !{!\"op_")?.1.strip_suffix("\"}")).collect();
+        table += &format!("(\"{target}\", include_bytes!(concat!(env!(\"OUT_DIR\"), \"/vm-{target}.bc.gz\")), &{collect:?}),");
+    }
+    std::fs::write(out.join("vm_bitcode.rs"), table + "]").expect("writing the VM bitcode table");
 }
 
 /* The compiled JS host the binary carries, keyed by the path the CDN serves each file at, so a page's imports read the same from a dist, from a headless run, or from the CDN. */

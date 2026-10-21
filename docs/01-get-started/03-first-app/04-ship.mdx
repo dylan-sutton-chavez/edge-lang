@@ -1,11 +1,11 @@
 ---
 title: "Ship the app"
-description: "Pack the word counter with edge build and publish it to the registry."
+description: "Compile the word counter with edge build and publish it to the registry."
 ---
 
 # Ship the app
 
-`edge build` packs the project and every package it declares into one artifact. `edge publish` sends that artifact to the registry, where anyone can add it with `edge add`.
+`edge build` compiles the program to one native binary. `edge publish` packs the project and every package it declares into one artifact and sends it to the registry, where anyone can add it with `edge add`.
 
 ## Name the package
 
@@ -28,47 +28,37 @@ A name is first come and permanent. Pick one nobody holds yet. [Package fields](
 
 ## Build it
 
-> [!COPY] edge build
+> [!COPY] edge build main.py
 
 ```text
-$ edge build
-
-  packed app.edge (6 files)
-  114.27 KB
-
-  run  edge run app.edge   or send it to an actor eval group
+$ edge build main.py
+  compiling main.py for aarch64-apple-darwin...
+  (successful) built main
 ```
 
-`app.edge` holds the code, the manifest, the lock and both packages. It runs on any machine with `edge` installed.
+`main` runs on its own, with nothing installed. `--wasm` writes a `.wasm` for WASI instead, and `edge web` writes `dist/`, a folder any browser runs, with the JS host and every package beside it.
 
-> [!COPY] edge run app.edge
-
-Two other modes target other places.
-
-- `edge build --app` writes `app`, a standalone binary that runs offline on the same OS and CPU with nothing installed.
-- `edge build --web` writes `dist/`, a folder any browser runs, with the JS host and every package beside it.
-
-[edge build](/docs/edge-python/platforms/cli#edge-build) covers the three modes and their flags.
+[edge build](/docs/edge-python/platforms/cli#edge-build) covers the targets and the flags.
 
 ## Publish it
 
 1. Create a token in [the settings](https://edgepython.com/settings#tokens).
 2. Export it as `EDGE_TOKEN` in your shell.
-3. Run `edge publish` on the artifact.
+3. Run `edge publish` in the project.
 
 ```text
 $ export EDGE_TOKEN=edge_pat_...
-$ edge publish app.edge
+$ edge publish
   published words 0.1.0
 
   add it with  edge add words
   https://cdn.edgepython.com/pkg/words/0.1.0/app.edge
 ```
 
-The token signs the request and never leaves your machine. The registry reads the listing out of the artifact itself.
+The artifact holds the code, the manifest, the lock and both packages. The token signs the request and never leaves your machine. The registry reads the listing out of the artifact itself.
 
 > [!WARNING]
-> A published version is never overwritten. Raise `version` in `edge.json` and build again before each new release.
+> A published version is never overwritten. Raise `version` in `edge.json` before each new release.
 
 ## Next steps
 

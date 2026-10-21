@@ -21,8 +21,6 @@ pub const ALL: Tags = !0;
 // Not a runtime type: the code a slot holds while unbound.
 pub const UNBOUND: Tags = 1 << 127;
 
-pub fn codes(lo: u8, hi: u8) -> Tags { (lo..=hi.min(126)).fold(0, |t, c| t | 1 << c) }
-
 /* The runs of codes, as the CI reads them. */
 pub fn runs(t: Tags) -> Vec<(u8, u8)> {
     let mut out: Vec<(u8, u8)> = Vec::new();
@@ -38,14 +36,27 @@ pub enum Known {
     Type(u8),
     // A function or class of the program, by its body.
     Body(u32),
-    // A container made at a site (body << 16 | ip), or an instance of class body `c` made there.
+    // A container made at a site (body << 16 | ip), and an instance of class body `c` made at one (NO for any).
     Site(u32),
     Obj(u32, u32),
-    // A method of body `f` bound to an instance of class `c` made at `s`, and builtin method `name` of a value of code `c` made at `s`.
+    // Method `f` bound to an instance of class `c` made at a site, and builtin method `name` of a value of code `c` made at one.
     Bound(u32, u32, u32),
     Meth(u8, u32, u32),
-    // A generator of the tree's context `x`.
+    // The generator or coroutine of the tree's context `x`, and a builtin function by its NativeFnId.
     Gen(u32),
+    Native(u16),
+}
+
+impl Known {
+    /* Instances of one class made at two sites keep their class, their site then any (NO). */
+    pub fn join(self, o: Known) -> Known {
+        match (self, o) {
+            _ if self == o => self,
+            (Known::Obj(c, _), Known::Obj(d, _)) if c == d => Known::Obj(c, NO),
+            (Known::Bound(f, c, _), Known::Bound(g, d, _)) if (f, c) == (g, d) => Known::Bound(f, c, NO),
+            _ => Known::No,
+        }
+    }
 }
 
 /* The type of a value: its tags, the integers it may be, and which value it is when known. */
@@ -62,12 +73,14 @@ impl Ty {
     /* Equal but for the integers: two paths the tree joins. */
     pub fn same(&self, o: &Ty) -> bool { self.tags == o.tags && self.known == o.known }
     pub fn join(&self, o: &Ty) -> Ty {
-        if self.tags == 0 || o.tags == 0 { return if self.tags == 0 { *o } else { *self }; }
-        Ty { tags: self.tags | o.tags, lo: self.lo.min(o.lo), hi: self.hi.max(o.hi), known: if self.known == o.known { self.known } else { Known::No } }
+        // Unbound is no value: the other side keeps its integers and which value it is.
+        if self.tags & !UNBOUND == 0 || o.tags & !UNBOUND == 0 { let (v, u) = if self.tags & !UNBOUND == 0 { (o, self) } else { (self, o) }; return Ty { tags: v.tags | u.tags, ..*v }; }
+        Ty { tags: self.tags | o.tags, lo: self.lo.min(o.lo), hi: self.hi.max(o.hi), known: self.known.join(o.known) }
     }
     /* Every value of `self` is one of `o`. */
     pub fn within(&self, o: &Ty) -> bool {
-        self.tags == 0 || self.tags & !o.tags == 0 && o.lo <= self.lo && self.hi <= o.hi && (o.known == Known::No || o.known == self.known)
+        // Unbound alone holds no integer and is no value.
+        self.tags & !o.tags == 0 && (self.tags & !UNBOUND == 0 || o.lo <= self.lo && self.hi <= o.hi && o.known.join(self.known) == o.known)
     }
 }
 
@@ -101,11 +114,14 @@ impl State {
     pub fn within(&self, o: &State) -> bool { self.all(o, Ty::within) }
 }
 
+/* The rules this build ships, an error with its reason when they are of other sources or not of format 1. */
+pub fn rules() -> Result<read::Rules, String> { read::Rules::read(include_str!("edge.ept")) }
+
 /* A program typed by the rules and accepted by the reviewer. */
 pub struct Typed<'c> { pub prog: step::Prog<'c>, pub tree: tree::Tree }
 
 pub fn typed<'c>(chunk: &'c crate::parser::SSAChunk, rules: &'c read::Rules) -> Result<Typed<'c>, String> {
-    let prog = step::Prog::new(chunk, rules);
+    let prog = step::Prog::new(chunk, rules)?;
     let tree = tree::grow(&prog);
     check::types_check(&prog, &tree)?;
     Ok(Typed { prog, tree })
@@ -124,12 +140,12 @@ impl Typed<'_> {
         dead
     }
 
-    /* How many of the values instructions take have one type over every path, of how many: `edge build --count`. */
+    /* Type coverage: how many of the values instructions take have one type over every path, of how many. */
     pub fn count(&self) -> (usize, usize) {
         let (mut proven, mut total) = (0, 0);
         for (b, body) in self.prog.bodies.iter().enumerate() {
             for (ip, ins) in body.chunk.instructions.iter().enumerate() {
-                let Some((n, _)) = self.prog.rules.effect(ins.opcode, ins.operand, body.chunk) else { continue };
+                let Some(n) = crate::parser::effect(ins, body.chunk).map(|e| e.0 as usize) else { continue };
                 let tops: Vec<&[Entry]> = self.states(b).filter(|x| x.1 == ip && x.2.stack.len() >= n).map(|x| &x.2.stack[x.2.stack.len() - n..]).collect();
                 if tops.is_empty() { continue; }
                 total += n;
@@ -141,6 +157,7 @@ impl Typed<'_> {
 }
 
 /* The tree's tags for each read of a variable, by source line and bare name, for the CI of the rules. */
+#[allow(clippy::type_complexity)]
 pub fn reads(src: &str, ept: &str) -> Result<Vec<(usize, String, Vec<(u8, u8)>)>, String> {
     let rules = read::Rules::read(ept)?;
     let (chunk, errs) = crate::code::compile(src);

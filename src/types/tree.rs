@@ -36,7 +36,8 @@ impl Tree {
     fn admit(&mut self, p: &Prog, x: usize, ip: usize, s: State) -> Option<State> {
         let widen = p.bodies[self.ctxs[x].body as usize].heads.get(ip).copied().unwrap_or(false);
         let seen = &mut self.ctxs[x].seen[ip];
-        let Some(old) = seen.iter_mut().find(|o| o.same(&s)) else { seen.push(s.clone()); return Some(s) };
+        // Once code nothing knows ran every table is anything, and paths of one shape join: splitting them keeps nothing.
+        let Some(old) = seen.iter_mut().find(|o| if self.wild { o.all(&s, |_, _| true) } else { o.same(&s) }) else { seen.push(s.clone()); return Some(s) };
         if s.within(old) { return None; }
         old.slots = hull_all(&old.slots, &s.slots, widen);
         old.iters = hull_all(&old.iters, &s.iters, widen);
@@ -72,8 +73,7 @@ pub fn grow(p: &Prog) -> Tree {
             let (outs, eff) = (st.outs, st.eff);
             if eff.gave_up {
                 let c = &mut t.ctxs[x];
-                (c.gave_up, c.ret, c.raises, t.wild) = (true, Ty::ANY, Ty::ANY, true);
-                changed = true;
+                (c.gave_up, c.ret, c.raises, t.wild, changed) = (true, Ty::ANY, Ty::ANY, true, true);
                 continue;
             }
             if eff.wild && !t.wild { t.wild = true; changed = true; }

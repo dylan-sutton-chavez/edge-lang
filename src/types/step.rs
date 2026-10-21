@@ -16,19 +16,27 @@ pub const ATTR: u32 = 3 << 28;
 pub const YIELDS: u32 = 4 << 28;
 pub const DEFAULTS: u32 = 5 << 28;
 pub const BASES: u32 = 6 << 28;
+pub const CELL: u32 = 7 << 28;
 pub const ITEM: u32 = u32::MAX;
+// The tags the machine's own control makes values of.
+const NAMES: [&str; 18] = ["TypeError", "int", "bool", "float", "complex", "str", "bytes", "NoneType", "type", "function", "instance", "generator", "coroutine", "AttributeError", "NameError", "UnboundLocalError", "AssertionError", "GeneratorExit"];
 
 /* One body of the program: its code, kind, where each name lives, its module, the bodies its MakeFunction and MakeClass
-   make, the program-wide id of each name, each parameter's kind, slot and default, and where back edges land. */
-pub struct Body<'c> { pub chunk: &'c SSAChunk, pub kind: Kind, pub binds: Vec<Binding>, pub module: u32, pub fns: Vec<u32>, pub classes: Vec<u32>, pub names: Vec<u32>, pub params: Vec<(ParamKind, usize, bool)>, pub heads: Vec<bool> }
+   make, the program-wide id of each name, each parameter's kind, slot and default, where back edges land, whether an
+   `async def` made it, and each finally body from its handler to the first EndFinally no finally inside it opened. */
+pub struct Body<'c> { pub chunk: &'c SSAChunk, pub kind: Kind, pub binds: Vec<Binding>, pub module: u32, pub fns: Vec<u32>, pub classes: Vec<u32>, pub names: Vec<u32>, pub params: Vec<(ParamKind, usize, bool)>, pub heads: Vec<bool>, pub coro: bool, pub finally: Vec<(usize, usize)> }
 
-pub struct Prog<'c> { pub rules: &'c Rules, pub bodies: Vec<Body<'c>>, pub names: Vec<String> }
+// The rules, the bodies, each name of the program and whether the VM has a builtin of that name.
+pub struct Prog<'c> { pub rules: &'c Rules, pub bodies: Vec<Body<'c>>, pub names: Vec<String>, builtins: Vec<bool> }
 
 impl<'c> Prog<'c> {
-    pub fn new(chunk: &'c SSAChunk, rules: &'c Rules) -> Self {
-        let mut p = Prog { rules, bodies: Vec::new(), names: Vec::new() };
+    pub fn new(chunk: &'c SSAChunk, rules: &'c Rules) -> Result<Self, String> {
+        if let Some(n) = NAMES.iter().find(|n| rules.tag(n).is_none()) { return Err(alloc::format!("edge.ept has no tag {n}")); }
+        let mut p = Prog { rules, bodies: Vec::new(), names: Vec::new(), builtins: Vec::new() };
         p.walk(&Program::new(chunk), chunk, 0, &[], &mut Map::default());
-        p
+        let mut vm = crate::vm::VM::new(chunk);
+        p.builtins = p.names.iter().map(|n| { vm.register_builtin(n); vm.builtins.contains_key(n.as_str()) }).collect();
+        Ok(p)
     }
     fn walk(&mut self, vm: &Program<'c>, c: &'c SSAChunk, module: u32, params: &[String], ids: &mut Map<String, u32>) -> u32 {
         let me = self.bodies.len() as u32;
@@ -38,24 +46,31 @@ impl<'c> Prog<'c> {
         let mut heads = vec![false; c.instructions.len() + 1];
         for (i, x) in c.instructions.iter().enumerate() { if x.opcode == O::Jump && x.operand as usize <= i { heads[x.operand as usize] = true; } }
         let params = match kind { Kind::Function(fi) => vm.params_of(fi).iter().zip(params).map(|(&(k, s), d)| (k, s, d.ends_with('='))).collect(), _ => Vec::new() };
-        self.bodies.push(Body { chunk: c, kind, binds, module, fns: Vec::new(), classes: Vec::new(), names, params, heads });
-        let fns = c.functions.iter().map(|f| self.walk(vm, &f.1, module, &f.0, ids)).collect();
+        let finally = c.instructions.iter().filter(|x| x.opcode == O::SetupFinally).filter_map(|x| {
+            let mut d = 0;
+            let end = (x.operand as usize..c.instructions.len()).find(|&i| match c.instructions[i].opcode {
+                O::SetupFinally => { d += 1; false }
+                O::EndFinally if d > 0 => { d -= 1; false }
+                o => o == O::EndFinally,
+            });
+            end.map(|e| (x.operand as usize, e))
+        }).collect();
+        self.bodies.push(Body { chunk: c, kind, binds, module, fns: Vec::new(), classes: Vec::new(), names, params, heads, coro: false, finally });
+        let fns: Vec<u32> = c.functions.iter().map(|f| self.walk(vm, &f.1, module, &f.0, ids)).collect();
+        for x in c.instructions.iter().filter(|x| x.opcode == O::MakeCoroutine) { if let Some(&f) = fns.get(x.operand as usize) { self.bodies[f as usize].coro = true; } }
         let classes = c.classes.iter().map(|k| self.walk(vm, k, module, &[], ids)).collect();
         (self.bodies[me as usize].fns, self.bodies[me as usize].classes) = (fns, classes);
         me
     }
-    // The codes of a tag, every code when the file has none of that name.
-    pub fn tag(&self, name: &str) -> Ty { Ty::of(self.rules.tag(name).unwrap_or(ALL)) }
-    fn leaf(&self, c: u8) -> &str { self.rules.tags.iter().find(|t| t.1 == c && t.2 == c).map_or("", |t| &t.0) }
+    // A tag `new` made sure the file has.
+    pub fn tag(&self, name: &str) -> Ty { Ty::of(self.rules.tag(name).unwrap_or(0)) }
+    fn leaf(&self, c: u8) -> &str { self.rules.tags.iter().find(|t| t.1 == c).map_or("", |t| &t.0) }
     fn is(&self, b: u32, k: Kind) -> bool { core::mem::discriminant(&self.bodies[b as usize].kind) == core::mem::discriminant(&k) }
-    /* What a name no code of its module binds is: a builtin type or function, else unbound. */
+    /* What a name no code of its module binds is: a builtin type, by its code when it has a tag, another of the VM's builtins, or unbound. */
     pub fn builtin(&self, name: u32) -> Ty {
         let n = self.names.get(name as usize).map_or("", String::as_str);
-        match self.rules.tags.iter().find(|t| t.0 == n && t.1 == t.2 && crate::parser::builtin_type(n).is_some()) {
-            Some(t) => self.tag("type").with(Known::Type(t.1)),
-            None if NativeFnId::from_name(n).is_some() => self.tag("builtin_function_or_method"),
-            None => Ty::of(UNBOUND),
-        }
+        if crate::parser::builtin_type(n).is_some() { return self.rules.tags.iter().find(|t| t.0 == n).map_or(self.tag("type"), |t| self.tag("type").with(Known::Type(t.1))); }
+        if let Some(f) = NativeFnId::from_name(n) { self.tag("function").with(Known::Native(f as u16)) } else if self.builtins.get(name as usize) == Some(&true) { Ty::ANY.minus(UNBOUND) } else { Ty::of(UNBOUND) }
     }
     pub fn konst(&self, v: &Value) -> Ty {
         let (n, r) = match v { Value::Int(i) => ("int", Some(*i)), Value::BigInt(_) => ("int", None), Value::Bool(b) => ("bool", Some(*b as i64)), Value::Float(_) => ("float", None),
@@ -100,7 +115,11 @@ impl<'a, 'c> Step<'a, 'c> {
         if f.finally { s.unwind.push(Why::Reraise(e)); } else { s.stack.push(Entry::of(e)); }
         self.go(f.handler as usize, s);
     }
-    fn cut(s: &mut State, f: &Try) { s.stack.truncate(f.depth[0] as usize); s.iters.truncate(f.depth[1] as usize); s.unwind.truncate(f.depth[2] as usize); }
+    fn cut(s: &mut State, f: &Try) {
+        s.stack.truncate(f.depth[0] as usize);
+        s.iters.truncate(f.depth[1] as usize);
+        s.unwind.truncate(f.depth[2] as usize);
+    }
     /* The innermost finally handler, popping the frames above it as the VM does. */
     fn cleanup(s: &mut State) -> Option<usize> {
         while let Some(f) = s.tries.pop() { Self::cut(s, &f); if f.finally { return Some(f.handler as usize); } }
@@ -118,7 +137,9 @@ impl<'a, 'c> Step<'a, 'c> {
         self.eff.ran = true;
         let at = self.t.ctxs.iter().position(|c| c.body == f && c.args.len() == args.len() && c.args.iter().zip(&args).all(|(a, b)| a.same(b)) && args.iter().zip(&c.args).all(|(a, b)| a.within(b)));
         let Some(i) = at else { self.eff.calls.push((f, args)); return None };
-        if self.p.bodies[f as usize].chunk.is_generator { return Some(self.p.tag("generator").with(Known::Gen(i as u32))); }
+        // A generator's or coroutine's body runs as it is stepped, the call giving the object that steps it.
+        let b = &self.p.bodies[f as usize];
+        if b.chunk.is_generator || b.coro { return Some(self.p.tag(if b.coro { "coroutine" } else { "generator" }).with(Known::Gen(i as u32))); }
         self.raise(s, self.t.ctxs[i].raises);
         Some(self.t.ctxs[i].ret)
     }
@@ -152,22 +173,30 @@ impl<'a, 'c> Step<'a, 'c> {
                 let recv = Entry::of(Ty::of(1 << code).with(if at == NO { Known::No } else { Known::Site(at) }));
                 let ins = [&[recv][..], a].concat();
                 let key = alloc::format!("{}.{}", self.p.leaf(code), self.p.names[name as usize]);
-                let rows = self.p.rules.rows(&key, 0).into_iter().filter(|r| r.ins.len() == ins.len()).collect();
+                let rows = self.p.rules.rows(&key, 0);
                 self.rows(s, ip, rows, &ins, 1, then);
                 Vec::new()
             }
-            Known::Type(code) => { self.foreign(&args); self.raise(s, Ty::ANY); vec![Ty::of(1 << code)] }
-            _ => { self.foreign(&args); self.unknown(s); vec![Ty::ANY] }
+            Known::Native(f) if plain => {
+                let rows = self.p.rules.rows(&alloc::format!("builtin.{}", NativeFnId::ALL[f as usize].name()), 0);
+                if rows.is_empty() { self.unknown(s); return vec![Ty::ANY]; }
+                self.rows(s, ip, rows, a, 1, then);
+                Vec::new()
+            }
+            Known::Type(code) => { self.foreign(&args, true); self.raise(s, Ty::ANY); vec![Ty::of(1 << code)] }
+            _ => { self.unknown(s); vec![Ty::ANY] }
         }
     }
 
-    /* Values builtin code takes: through a function, or an instance whose class defines a dunder past `__init__`, user code nothing follows may run. */
-    fn foreign(&mut self, vals: &[Ty]) {
+    /* Values builtin code takes: an instance whose class defines a dunder past `__init__`, or a function or class it `calls`,
+       runs user code nothing follows; a generator it steps runs its own body. */
+    fn foreign(&mut self, vals: &[Ty], calls: bool) {
         let user = |v: &Ty| match v.known {
             Known::Obj(c, _) => self.mro(c).is_none_or(|all| self.t.tables.keys().any(|&(o, n)| o >> 28 == MEMBER >> 28 && all.contains(&(o & 0xFFF_FFFF)) && self.p.names[n as usize].starts_with("__") && self.p.names[n as usize] != "__init__")),
-            _ => v.tags & (self.p.tag("function").tags | self.p.tag("method").tags) != 0 || matches!(v.known, Known::Body(_) | Known::Bound(..)),
+            _ => calls && (v.tags & (self.p.tag("function").tags | self.p.tag("type").tags) != 0 || matches!(v.known, Known::Body(_) | Known::Bound(..))),
         };
-        if vals.iter().any(user) { self.eff.wild = true; }
+        self.eff.wild |= vals.iter().any(user);
+        self.eff.ran |= vals.iter().any(|v| matches!(v.known, Known::Gen(_)));
     }
 
     /* The classes a class derives from, itself first, None past a base that is no class of the program nor object. */
@@ -202,12 +231,12 @@ impl<'a, 'c> Step<'a, 'c> {
         match o.known {
             Known::Obj(c, at) if self.mro(c).is_some() && self.lookup(c, "__getattr__").is_empty() && self.lookup(c, "__getattribute__").is_empty() => {
                 let own = self.table(ATTR | c, name);
-                self.lookup(c, &n).into_iter().map(|m| match m.known { Known::Body(f) if self.p.is(f, Kind::Function(0)) => self.p.tag("method").with(Known::Bound(f, c, at)), _ => m }).chain(own).collect()
+                self.lookup(c, &n).into_iter().map(|m| match m.known { Known::Body(f) if self.p.is(f, Kind::Function(0)) => self.p.tag("function").with(Known::Bound(f, c, at)), _ => m }).chain(own).collect()
             }
             Known::Body(c) if self.p.is(c, Kind::Class) => self.lookup(c, &n),
             _ if o.tags.count_ones() == 1 && !self.p.rules.rows(&alloc::format!("{}.{n}", self.p.leaf(o.tags.trailing_zeros() as u8)), 0).is_empty() =>
-                vec![self.p.tag("builtin_function_or_method").with(Known::Meth(o.tags.trailing_zeros() as u8, name, if let Known::Site(x) = o.known { x } else { NO }))],
-            _ => { self.foreign(&[o]); self.unknown(s); vec![Ty::ANY] }
+                vec![self.p.tag("function").with(Known::Meth(o.tags.trailing_zeros() as u8, name, if let Known::Site(x) = o.known { x } else { NO }))],
+            _ => { self.unknown(s); vec![Ty::ANY] }
         }
     }
 
@@ -231,7 +260,7 @@ impl<'a, 'c> Step<'a, 'c> {
             Binding::Global(_) => (self.global(self.name(i)), false),
             Binding::Cell | Binding::Lent => (Ty::ANY, false),
         };
-        if ty.tags & UNBOUND != 0 { self.raise(s, self.p.tag("NameError")); }
+        if ty.tags & UNBOUND != 0 { self.raise(s, Ty::of(self.p.tag("NameError").tags | self.p.tag("UnboundLocalError").tags)); }
         let ty = ty.minus(UNBOUND);
         if ty.tags == 0 { return None; }
         if local { s.slots[i as usize] = ty; }
@@ -241,13 +270,13 @@ impl<'a, 'c> Step<'a, 'c> {
     fn store(&mut self, s: &mut State, i: u16, v: Ty, global: bool) {
         let b = self.body();
         // What testing a value learned of this slot no longer holds once it is written.
-        for e in s.stack.iter_mut() { if e.from == i as u32 { e.from = NO; } if e.of.contains(&(i as u32)) { (e.cond, e.of) = (NO, [NO; 3]); } }
+        for e in s.stack.iter_mut().filter(|e| e.from == i as u32 || e.of.contains(&(i as u32))) { (e.from, e.cond, e.of) = (if e.from == i as u32 { NO } else { e.from }, NO, [NO; 3]); }
         match if global { Binding::Global(0) } else { b.binds.get(i as usize).copied().unwrap_or(Binding::Local) } {
             Binding::Global(_) => { self.write(GLOBAL | b.module, self.name(i), v); if b.kind == Kind::Module && !global { s.slots[i as usize] = v; } }
             Binding::Member => { self.write(MEMBER | self.me(), self.name(i), v); s.slots[i as usize] = v; }
             Binding::Local => s.slots[i as usize] = v,
-            // What a closure's cell holds is never read back.
-            _ => {}
+            // What a closure's cell holds is never read back, only kept for the objects that leave through it.
+            _ => self.write(CELL | b.module, self.name(i), v),
         }
     }
 
@@ -282,9 +311,9 @@ impl<'a, 'c> Step<'a, 'c> {
                 if !(b.ty.lo <= side as i64 && side as i64 <= b.ty.hi) || e.ty.tags & !int == 0 && (if side { e.ty.lo == 0 && e.ty.hi == 0 } else { e.ty.lo > 0 || e.ty.hi < 0 }) { continue; }
                 let mut s = s.clone();
                 let mut ok = true;
-                for c in [b, e] {
+                for (c, test) in [(b, true), (e, false)] {
                     let Some(ins) = self.body().chunk.instructions.get((c.cond >> 8) as usize).filter(|_| c.cond != NO) else { continue };
-                    let name = if c.cond == b.cond { String::from("Truth") } else { alloc::format!("{:?}", ins.opcode) };
+                    let name = if test { String::from("Truth") } else { alloc::format!("{:?}", ins.opcode) };
                     let Some(row) = self.p.rules.rows(&name, ins.operand).get((c.cond & 0xFF) as usize).copied() else { continue };
                     for (_, a, l) in row.learn.iter().filter(|l| l.0 == side) { if let Some(&f) = c.of.get(*a).filter(|&&f| f != NO) { ok &= self.learn(&mut s, f, l, &c.of); } }
                 }
@@ -317,35 +346,36 @@ impl<'a, 'c> Step<'a, 'c> {
     /* An opcode, method or truth test by its rows, each row it meets a path of its own on to `then`; values no row takes give anything. */
     fn rows(&mut self, s: &State, ip: usize, rows: Vec<&Row>, a: &[Entry], m: usize, then: usize) {
         let tys: Vec<Ty> = a.iter().map(|e| e.ty).collect();
-        self.foreign(&tys);
+        let rows: Vec<&Row> = rows.into_iter().filter(|r| r.ins.len() == a.len()).collect();
+        self.foreign(&tys, false);
         if !self.covers(&rows, &tys, 0) {
             // Their containers may change, and code may run through their objects and functions.
-            for v in &tys { match v.known { Known::Site(c) | Known::Obj(_, c) => self.write(c, ITEM, Ty::ANY), _ => self.eff.wild |= v.tags & (self.p.tag("instance").tags | self.p.tag("function").tags | self.p.tag("method").tags) != 0 } }
+            for v in &tys { match v.known { Known::Site(c) | Known::Obj(_, c) if c != NO => self.write(c, ITEM, Ty::ANY), _ => self.eff.wild |= v.tags & (self.p.tag("instance").tags | self.p.tag("function").tags) != 0 } }
             self.raise(s, Ty::ANY);
             let mut s = s.clone();
             s.stack.extend((0..m).map(|_| Entry::of(Ty::ANY)));
             self.go(then, s);
         }
         for (k, row) in rows.iter().enumerate() {
-            let Some(ins) = row.ins.iter().zip(&tys).map(|(p, v)| self.pat(p, v)).collect::<Option<Vec<Ty>>>().filter(|i| i.len() == tys.len()) else { continue };
+            let Some(ins) = row.ins.iter().zip(&tys).map(|(p, v)| self.pat(p, v)).collect::<Option<Vec<Ty>>>() else { continue };
+            self.foreign(&row.calls.iter().map(|&j| ins[j]).collect::<Vec<_>>(), true);
             let mut s = s.clone();
             for (e, t) in a.iter().zip(&ins) { if let Some(v) = s.slots.get_mut(e.from as usize) { *v = *t; } }
-            let b = |r: Rhs, lo: bool| match r { Rhs::N(n) => n as i128, Rhs::A(j) => if lo { ins[j].lo as i128 } else { ins[j].hi as i128 } };
+            let b = |r: Rhs, lo: bool| match r {
+                Rhs::N(n) => n as i128,
+                Rhs::A(j) | Rhs::Less(j) => (if lo { ins[j].lo as i128 } else { ins[j].hi as i128 }) - matches!(r, Rhs::Less(_)) as i128,
+            };
             // The exact integer of result `r`, its bounds past an i64 open.
             let exact = |r: usize| row.says.iter().find_map(|x| match x { (q, Out::Exact(op, a, c)) if *q == r => Some((*op, *a, *c)), _ => None }).map(|(op, x, y)| {
-                let (lo, hi) = match op {
-                    '+' => (b(x, true) + b(y, true), b(x, false) + b(y, false)),
-                    '-' => (b(x, true) - b(y, false), b(x, false) - b(y, true)),
-                    '*' => { let p = [b(x, true) * b(y, true), b(x, true) * b(y, false), b(x, false) * b(y, true), b(x, false) * b(y, false)]; (p[0].min(p[1]).min(p[2]).min(p[3]), p[0].max(p[1]).max(p[2]).max(p[3])) }
-                    _ => (b(x, true), b(x, false)),
-                };
-                (i64::try_from(lo).unwrap_or(i64::MIN), i64::try_from(hi).unwrap_or(i64::MAX))
+                let f = |a: i128, c: i128| match op { '+' => a + c, '-' => a - c, '*' => a * c, _ => a };
+                let ps = [f(b(x, true), b(y, true)), f(b(x, true), b(y, false)), f(b(x, false), b(y, true)), f(b(x, false), b(y, false))];
+                (i64::try_from(*ps.iter().min().unwrap_or(&0)).unwrap_or(i64::MIN), i64::try_from(*ps.iter().max().unwrap_or(&0)).unwrap_or(i64::MAX))
             });
             match row.unless { Some((r, lo, hi)) if exact(r).is_some_and(|(a, b)| lo <= a && b <= hi) => {} _ => self.raise(&s, Ty::of(row.raises)) }
             let Some(outs) = &row.outs else { continue };
             for &(j, v) in &row.puts {
                 let v = v.map_or(Ty::ANY, |v| ins[v]);
-                match j.map(|j| ins[j].known) { Some(Known::Site(c) | Known::Obj(_, c)) => self.write(c, ITEM, v), _ => self.eff.wild = true }
+                match j.map(|j| ins[j].known) { Some(Known::Site(c) | Known::Obj(_, c)) if c != NO => self.write(c, ITEM, v), _ => self.eff.wild = true }
             }
             for (r, &tags) in outs.iter().enumerate() {
                 let mut ty = Ty::of(tags);
@@ -354,7 +384,8 @@ impl<'a, 'c> Step<'a, 'c> {
                     let made = match say {
                         Out::Range(lo, hi) => { (ty.lo, ty.hi) = (ty.lo.max(*lo), ty.hi.min(*hi)); continue }
                         Out::Item(j) => { let it = self.item(&ins[*j]); ty = Ty { tags: ty.tags & it.tags, lo: ty.lo.max(it.lo), hi: ty.hi.min(it.hi), known: it.known }; continue }
-                        Out::Items(js) => js.iter().fold(Ty::NONE, |t, &j| t.join(&ins[j])),
+                        // Each item written apart, so an object among them leaves as itself.
+                        Out::Items(js) => { for &j in js { self.write(self.site(ip), ITEM, ins[j]); } Ty::NONE }
                         Out::Holds(t, lo, hi) => Ty::int(*t, b(*lo, true) as i64, b(*hi, false) as i64),
                         Out::Exact(..) => continue,
                     };
@@ -396,7 +427,12 @@ impl<'a, 'c> Step<'a, 'c> {
             O::Dup2 => { let (y, x) = (pop!(), pop!()); s.stack.extend([x, y, x, y]); self.go(next, s) }
             O::Swap => { let (y, x) = (pop!(), pop!()); s.stack.extend([y, x]); self.go(next, s) }
             O::Rot3 => { let (z, y, x) = (pop!(), pop!(), pop!()); s.stack.extend([y, z, x]); self.go(next, s) }
-            O::Jump => self.go(k as usize, s),
+            // A jump out of a finally body leaves its reason behind, never read again: each way into one pushes its own.
+            O::Jump => {
+                let n = self.body().finally.iter().filter(|r| (r.0..r.1).contains(&ip) && !(r.0..r.1).contains(&(k as usize))).count();
+                s.unwind.truncate(s.unwind.len().saturating_sub(n));
+                self.go(k as usize, s)
+            }
             O::JumpIfFalse | O::JumpIfFalseOrPop | O::JumpIfTrueOrPop | O::Assert => {
                 let e = pop!();
                 self.truth(&s, ip, e, |me, mut s, side| match op {
@@ -438,9 +474,10 @@ impl<'a, 'c> Step<'a, 'c> {
             O::ReturnValue => { let v = s.stack.pop().map_or(self.p.konst(&Value::None), |e| e.ty); self.ret(s, v) }
             O::Raise | O::RaiseFrom => {
                 if op == O::RaiseFrom { pop!(); }
-                let e = if op == O::Raise && k == 1 { Ty::of(self.p.tag("BaseException").tags | self.p.tag("instance").tags) } else {
+                // A bare raise raises again whatever is being handled.
+                let e = if op == O::Raise && k == 1 { Ty::ANY } else {
                     let v = pop!().ty;
-                    match v.known { Known::Body(c) => self.p.tag("instance").with(Known::Obj(c, self.site(ip))), Known::Type(t) => Ty::of(1 << t), _ => Ty::ANY }
+                    match v.known { Known::Body(c) => self.p.tag("instance").with(Known::Obj(c, self.site(ip))), Known::Type(t) => Ty::of(1 << t), Known::Obj(..) => v, _ => Ty::ANY }
                 };
                 self.raise(&s, e.join(&self.p.tag("TypeError")))
             }
@@ -453,8 +490,8 @@ impl<'a, 'c> Step<'a, 'c> {
             O::MakeFunction | O::MakeCoroutine | O::MakeClass => {
                 let class = op == O::MakeClass;
                 let id = if class { &self.body().classes } else { &self.body().fns }.get(k as usize).copied();
-                let (Some((n, _)), Some(id)) = (self.p.rules.effect(op, k, chunk), id) else { return self.give_up() };
-                let Some(at) = s.stack.len().checked_sub(n) else { return self.give_up() };
+                let (Some((n, _)), Some(id)) = (crate::parser::effect(&ins, chunk), id) else { return self.give_up() };
+                let Some(at) = s.stack.len().checked_sub(n as usize) else { return self.give_up() };
                 let dflt: Vec<u32> = self.p.bodies[id as usize].params.iter().enumerate().filter(|p| p.1.2).map(|p| p.0 as u32).collect();
                 for (j, e) in s.stack.split_off(at).into_iter().enumerate() { self.write(if class { BASES } else { DEFAULTS } | id, if class { j as u32 } else { dflt.get(j).copied().unwrap_or(j as u32) }, e.ty); }
                 if class && self.p.bodies[id as usize].chunk.class_kw > 0 { self.unknown(&s); }
@@ -463,28 +500,22 @@ impl<'a, 'c> Step<'a, 'c> {
             }
             // An imported module and a `with` block's manager are anything, and so what reading or calling them gives.
             O::LoadModule => self.push(next, &s, [Ty::ANY]),
-            O::WithEnter | O::WithExit => { if op == O::WithEnter { pop!(); } s.stack.extend([Entry::of(Ty::ANY); 5].into_iter().take(if op == O::WithEnter { 2 } else { 5 })); self.go(next, s) }
+            O::WithEnter => { pop!(); s.stack.extend([Entry::of(Ty::ANY); 2]); self.go(next, s) }
+            O::WithExit => { s.stack.extend([Entry::of(Ty::ANY); 5]); self.go(next, s) }
             O::StoreAttr => {
                 let (v, o) = (pop!(), pop!());
                 match o.ty.known {
                     Known::Obj(c, _) if self.mro(c).is_some() && self.lookup(c, "__setattr__").is_empty() => self.write(ATTR | c, self.name(k), v.ty),
-                    _ => { self.foreign(&[o.ty, v.ty]); self.unknown(&s) }
+                    _ => self.unknown(&s),
                 }
                 self.go(next, s)
             }
             O::LoadAttr => { let o = pop!(); let got = self.attr(&s, o.ty, self.name(k)); self.push(next, &s, got) }
-            O::Call | O::CallMethod => {
-                let method = op == O::CallMethod;
-                let counts = if method { chunk.instructions.get(next).map_or(0, |i| i.operand) } else { k };
-                let Some((n, _)) = self.p.rules.effect(O::Call, counts, chunk) else { return self.give_up() };
-                let Some(at) = s.stack.len().checked_sub(n) else { return self.give_up() };
+            O::Call | O::CallSpread => {
+                let Some(at) = crate::parser::effect(&ins, chunk).and_then(|(n, _)| s.stack.len().checked_sub(n as usize)) else { return self.give_up() };
                 let a = s.stack.split_off(at);
-                let then = next + method as usize;
-                // A fused method call has its receiver where a call has its callee, read as the attribute it names.
-                for callee in if method { self.attr(&s, a[0].ty, self.name(k)) } else { vec![a[0].ty] } {
-                    let rets = self.invoke(&s, ip, callee, &a[1..], counts >> 8 == 0, then);
-                    self.push(then, &s, rets);
-                }
+                let rets = self.invoke(&s, ip, a[0].ty, &a[1..], op == O::Call && k >> 8 == 0, next);
+                self.push(next, &s, rets);
             }
             O::WithJudge => {
                 let r = pop!();
@@ -492,10 +523,10 @@ impl<'a, 'c> Step<'a, 'c> {
                 self.truth(&s, ip, r, |me, mut s, side| { if side && let Some(w) = s.unwind.last_mut() { *w = Why::Normal; } me.go(next, s) })
             }
             _ => {
-                let Some((n, m)) = self.p.rules.effect(op, k, chunk) else { return self.give_up() };
-                let Some(at) = s.stack.len().checked_sub(n) else { return self.give_up() };
+                let Some((n, m)) = crate::parser::effect(&ins, chunk) else { return self.give_up() };
+                let Some(at) = s.stack.len().checked_sub(n as usize) else { return self.give_up() };
                 let a = s.stack.split_off(at);
-                self.rows(&s, ip, self.p.rules.rows(&alloc::format!("{op:?}"), k), &a, m, next)
+                self.rows(&s, ip, self.p.rules.rows(&alloc::format!("{op:?}"), k), &a, m as usize, next)
             }
         }
         // Past code that may write the module's names, each may hold what any code stores in it.

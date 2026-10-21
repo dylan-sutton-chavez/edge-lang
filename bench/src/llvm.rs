@@ -1,7 +1,8 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use wasmtime::{Caller, Config, Engine, Extern, Linker, Module, Store};
+use wasmtime::{Config, Engine, Linker, Module, Store};
+use wasmtime_wasi::{p2::pipe::MemoryOutputPipe, I32Exit, WasiCtxBuilder};
 
 use super::{amount, annotate, ir, list, ROOT};
 
@@ -11,6 +12,9 @@ const SNAPSHOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/llvm/.snapshot");
 const GATE: f64 = 1.3;
 // The four counts of a case, in the order the snapshot keeps them.
 const MODES: [&str; 4] = ["edge wasm", "rust wasm", "edge native", "rust native"];
+
+// What a run printed to stdout, its exit code and the instructions it ran.
+type Run = (String, i32, u64);
 
 // The instructions each case ran in every mode, the same on every machine and every run.
 #[derive(serde::Deserialize)]
@@ -34,6 +38,9 @@ pub fn main(update: bool) {
         .filter_map(|e| e.file_name().to_str()?.strip_suffix(".py").map(String::from)).collect();
     names.sort();
 
+    let host = sh(Command::new("rustc").arg("-vV")).lines().find_map(|l| l.strip_prefix("host: ")).expect("rustc -vV names its host").to_string();
+    // The VM module edge links for the host, where the tag tests the IR is read against are.
+    let vm = std::fs::read_to_string(Path::new(ROOT).join(format!("target/bitcode/{}/vm.ll", host.replace("-gnu", "-musl")))).expect("reading the host's VM module, run make bitcode");
     let (mut failures, mut cases) = (Vec::new(), BTreeMap::new());
     for name in &names {
         let (py, rs) = (Path::new(CASES).join(format!("{name}.py")), Path::new(CASES).join(format!("{name}.rs")));
@@ -42,23 +49,24 @@ pub fn main(update: bool) {
         let rustc = |args: &[&Path]| sh(Command::new("rustc").args(["-Copt-level=3", "-Cpanic=abort"]).args(args));
         edge(&[Path::new("--wasm"), &py, Path::new("-o"), &at(".edge.wasm")]);
         rustc(&[Path::new("-Clto=fat"), Path::new("--target=wasm32-wasip1"), &rs, Path::new("-o"), &at(".rust.wasm")]);
-        let built = edge(&[Path::new("--emit-llvm"), &at(".edge.ll"), &py, Path::new("-o"), &at(".edge.plain")]);
-        edge(&[Path::new("--count"), &py, Path::new("-o"), &at(".edge")]);
+        edge(&[Path::new("--emit-llvm"), &at(".edge.ll"), &py, Path::new("-o"), &at(".edge.plain")]);
+        let built = edge(&[Path::new("--count"), &py, Path::new("-o"), &at(".edge")]);
         rustc(&[Path::new("-Clto=fat"), Path::new("--emit=llvm-bc"), &rs, Path::new("-o"), &at(".rust.bc")]);
-        edge(&[Path::new("--count"), &at(".rust.bc"), Path::new("-o"), &at(".rust.o")]);
+        // The object goes to rustc's own target, not the static musl edge builds by default.
+        edge(&[Path::new("--count"), Path::new("--target"), Path::new(&host), &at(".rust.bc"), Path::new("-o"), &at(".rust.o")]);
         // Linked apart and without LTO, so std comes from its rlibs around the counted object.
         let link = format!("-Clink-arg={}", at(".rust.o").display());
         rustc(&[Path::new(&link), &out.join("empty.rs"), Path::new("-o"), &at(".rust")]);
-        let runs = [wasm(&engine, &at(".edge.wasm")), wasm(&engine, &at(".rust.wasm")), native(&at(".edge")), native(&at(".rust"))];
+        let runs = [wasm(&engine, &at(".edge.wasm"), true), wasm(&engine, &at(".rust.wasm"), false), native(&at(".edge")), native(&at(".rust"))];
 
-        if let Some(k) = (1..4).find(|&k| runs[k].0 != runs[0].0) {
-            failures.push(format!("{name} prints {:?} in {} and {:?} in {}.", runs[0].0, MODES[0], runs[k].0, MODES[k]));
+        if let Some(k) = (1..4).find(|&k| runs[k].0 != runs[0].0 || runs[k].1 != runs[0].1) {
+            failures.push(format!("{name} prints {:?} and ends {} in {}, and prints {:?} and ends {} in {}.", runs[0].0, runs[0].1, MODES[0], runs[k].0, runs[k].1, MODES[k]));
         }
-        let counts = runs.map(|r| r.1 as f64);
+        let counts = runs.map(|r| r.2 as f64);
         let (wasm_ratio, native_ratio) = (counts[0] / counts[1], counts[2] / counts[3]);
         let types = built.lines().find(|l| l.starts_with("types:")).unwrap_or("types: not reported");
         annotate("notice", &format!("{name}: wasm {:.2}x of Rust ({} against {}), native {:.2}x ({} against {}), {types}, left in the optimized IR {}.",
-            wasm_ratio, amount(counts[0], 0), amount(counts[1], 0), native_ratio, amount(counts[2], 0), amount(counts[3], 0), left(&std::fs::read_to_string(at(".edge.ll")).unwrap())));
+            wasm_ratio, amount(counts[0], 0), amount(counts[1], 0), native_ratio, amount(counts[2], 0), amount(counts[3], 0), left(&std::fs::read_to_string(at(".edge.ll")).unwrap(), &vm)));
         if wasm_ratio > GATE || native_ratio > GATE {
             failures.push(format!("{name} runs {wasm_ratio:.2}x of Rust on wasm and {native_ratio:.2}x native, past the {GATE}x gate."));
         }
@@ -110,50 +118,41 @@ fn check(last: &Snapshot, rustc: &str, cases: &BTreeMap<String, [f64; 4]>) -> Ve
 }
 
 /* What the native functions of the program still hold that a proven type takes out. */
-fn left(ir: &str) -> String {
+fn left(ir: &str, vm: &str) -> String {
     let functions = ir::bodies(ir, "py_");
     let sum = |f: &dyn Fn(&str) -> usize| functions.iter().map(|b| f(b)).sum::<usize>();
-    let (tags, overflow, allocations) = (sum(&|b| ir::checks(ir, b, "is_")), sum(&|b| ir::checks(ir, b, "fits_int")), sum(&|b| ir::calls(b, "edge_alloc")));
-    format!("{tags} tag checks, {overflow} overflow checks, {allocations} allocations")
+    let (tags, overflow, allocations) = (sum(&|b| ir::checks(vm, b, "is_")), sum(&|b| ir::checks(vm, b, "fits_int")), sum(&|b| ir::calls(b, "edge_alloc")));
+    // The program's module calls into vm.o, so the interpreter is reached through the VM's own call graph too.
+    let both = format!("{ir}\n{vm}");
+    let vm = sum(&|b| ir::reaching(&both, b, "edge_vm_loop"));
+    format!("{tags} tag checks, {overflow} overflow checks, {allocations} allocations, {vm} calls that may reach the interpreter")
 }
 
-/* Runs one .wasm under WASI's fd_write and proc_exit, and returns what it printed and the instructions it ran. */
-fn wasm(engine: &Engine, path: &Path) -> (String, u64) {
+/* Runs one .wasm under WASI, and returns what it printed to stdout, its exit code and the instructions it ran. Edge's
+   .wasm may import only fd_write and proc_exit, Rust's std asks for its environment as well. */
+fn wasm(engine: &Engine, path: &Path, edge: bool) -> Run {
     let module = Module::from_file(engine, path).unwrap_or_else(|e| panic!("compiling {}: {e}", path.display()));
-    let mut store = Store::new(engine, Vec::<u8>::new());
+    let imports: Vec<String> = module.imports().map(|i| format!("{}.{}", i.module(), i.name())).collect();
+    assert!(!edge || imports.iter().all(|i| ["fd_write", "proc_exit"].map(|f| format!("wasi_snapshot_preview1.{f}")).contains(i)), "{} imports {imports:?}, past WASI's fd_write and proc_exit", path.display());
+    let (stdout, stderr) = (MemoryOutputPipe::new(1 << 20), MemoryOutputPipe::new(1 << 20));
+    let mut store = Store::new(engine, WasiCtxBuilder::new().stdout(stdout.clone()).stderr(stderr).build_p1());
     store.set_fuel(u64::MAX).expect("fuel is enabled");
     let mut linker = Linker::new(engine);
-    linker.func_wrap("wasi_snapshot_preview1", "fd_write", |mut c: Caller<'_, Vec<u8>>, _fd: i32, iovs: i32, n: i32, written: i32| {
-        let Some(Extern::Memory(memory)) = c.get_export("memory") else { return 8 };
-        let word = |c: &Caller<'_, Vec<u8>>, at: i32| u32::from_le_bytes(memory.data(c)[at as usize..at as usize + 4].try_into().unwrap()) as usize;
-        let mut total = 0;
-        for k in 0..n {
-            let (ptr, len) = (word(&c, iovs + 8 * k), word(&c, iovs + 8 * k + 4));
-            let bytes = memory.data(&c)[ptr..ptr + len].to_vec();
-            c.data_mut().extend(bytes);
-            total += len;
-        }
-        memory.data_mut(&mut c)[written as usize..written as usize + 4].copy_from_slice(&(total as u32).to_le_bytes());
-        0
-    }).unwrap();
-    linker.func_wrap("wasi_snapshot_preview1", "proc_exit", |code: i32| -> wasmtime::Result<()> { Err(wasmtime::Error::msg(format!("exit {code}"))) }).unwrap();
-    // Rust's std asks for its environment and arguments, which these programs never read.
-    linker.define_unknown_imports_as_default_values(&mut store, &module).unwrap();
+    wasmtime_wasi::p1::add_to_linker_sync(&mut linker, |wasi| wasi).expect("linking WASI");
     let inst = linker.instantiate(&mut store, &module).unwrap_or_else(|e| panic!("instantiating {}: {e}", path.display()));
-    let ended = inst.get_typed_func::<(), ()>(&mut store, "_start").unwrap().call(&mut store, ());
-    if let Err(e) = ended.as_ref().map_err(|e| e.to_string()) && e != "exit 0" {
-        panic!("{} ends with {e}", path.display());
-    }
-    let ran = u64::MAX - store.get_fuel().unwrap();
-    (String::from_utf8_lossy(store.data()).into(), ran)
+    let code = match inst.get_typed_func::<(), ()>(&mut store, "_start").unwrap().call(&mut store, ()) {
+        Ok(()) => 0,
+        Err(e) => e.downcast_ref::<I32Exit>().unwrap_or_else(|| panic!("{} traps: {e}", path.display())).0,
+    };
+    (String::from_utf8_lossy(&stdout.contents()).into(), code, u64::MAX - store.get_fuel().unwrap())
 }
 
-/* Runs a counted binary, and returns what it printed and the total its counter writes last on stderr. */
-fn native(path: &Path) -> (String, u64) {
+/* Runs a counted binary, and returns what it printed to stdout, its exit code and the total its counter writes last on stderr. */
+fn native(path: &Path) -> Run {
     let out = Command::new(path).output().unwrap_or_else(|e| panic!("running {}: {e}", path.display()));
     let err = String::from_utf8_lossy(&out.stderr);
     let count = err.lines().last().and_then(|l| l.strip_prefix("instructions: ")).and_then(|n| n.parse().ok());
-    (String::from_utf8_lossy(&out.stdout).into(), count.unwrap_or_else(|| panic!("{} ends without its count: {err}", path.display())))
+    (String::from_utf8_lossy(&out.stdout).into(), out.status.code().unwrap_or(-1), count.unwrap_or_else(|| panic!("{} ends without its count: {err}", path.display())))
 }
 
 /* Runs a build step, and returns what it printed, where edge build reports the types it proved. */

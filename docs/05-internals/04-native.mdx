@@ -1,0 +1,35 @@
+---
+title: "Native build"
+description: "How edge build turns the VM into the compiler, with proven types and safepoints."
+---
+
+# Native build
+
+`edge build` compiles a program to one static binary, or a `.wasm` for WASI, with the VM itself as the compiler.
+
+## The VM as compiler
+
+- Each opcode has a handler in the VM. It takes and returns values, not the VM's stack. Its fast path is the code the interpreter runs for numbers and plain containers. Its slow path is the interpreter's own handler for that opcode.
+- The VM is shipped as LLVM bitcode for each target, inside the `edge` binary.
+- `edge build` writes the glue: one LLVM function per Python function, calling the handlers in the order of the bytecode, with each operand a constant. Names and the stack are local values, so they end up in CPU registers.
+- A call whose target is known becomes a direct call. A function that is not recursive is inlined into its caller, so the caller and the callees it lays become one block.
+- LLVM links the glue with the VM, inlines every handler, and optimizes the whole at `-O3`. A constant operand folds the handler down to the one case it takes.
+
+## Proven types
+
+- `edge.ept` holds the rules of every opcode for one version of Edge's sources: which types leave for the types that enter, which errors it raises, and what each branch learns. Spider Monkey, an analysis tool that proves facts about programs, produces it.
+- `edge build` walks the paths of the program over those rules and joins two paths only when their types match. It runs loops until nothing changes and checks the result before using it.
+- Where a value has a single type on every path, the glue gives LLVM that fact as an `llvm.assume`. The handler's own type tests then fold, and the code runs as typed code.
+- Where a value may have several types, the branches stay, as in a Rust `enum`. A branch that never runs costs a comparison, never a wrong result.
+- An `edge.ept` made for other sources is refused, and the program runs through the handlers alone, with the reason on stderr.
+
+## Safepoints
+
+- The collector runs where the VM decides it may, inside a handler's slow path or at a loop's back edge.
+- Before such a call, the glue hands over every live value that may be on the heap, and reads them back after it. A path of proven ints and floats hands over nothing and pays nothing.
+- A test build collects and moves every object at every safepoint, so a missing store or reload fails at once.
+
+## Benchmarks
+
+- `bench/` counts the VM's own WebAssembly instructions and memory per case against its snapshot. A native build leaves the interpreter untouched, and no case may get slower.
+- `bench/llvm` pairs each Python program with the same program in Rust. Both compile to wasm, counted by wasmtime's fuel, and to native, counted by the LLVM instructions they execute. Where the types are proven, Edge must stay within 1.3 times Rust.

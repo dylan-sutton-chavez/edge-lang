@@ -38,7 +38,7 @@ pub fn compile(sys: &Sysroot, modules: &[PathBuf], target: &str, opts: &Opts, ou
         false => optimized,
         true => {
             std::fs::write(&optimized, super::count::instrument(&std::fs::read_to_string(&optimized)?))?;
-            std::fs::write(at("count.ll"), super::count::runtime(target))?;
+            std::fs::write(at("count.ll"), super::count::runtime())?;
             tool(sys, "llvm-link", &[&optimized, &at("count.ll"), "-o", &at("counted.bc")])?;
             at("counted.bc")
         }
@@ -68,7 +68,8 @@ fn lld(sys: &Sysroot, target: &str, object: &str, strip: bool, out: &Path) -> Re
         args.extend(["-flavor", "gnu", "-static", "--gc-sections"].map(String::from));
         args.extend([c("crt1.o"), c("crti.o")]);
         args.extend(tail);
-        args.extend([c("libc.a"), c("crtn.o")]);
+        // Rust's std for musl unwinds, so its fat LTO brings `_Unwind_*` that only libunwind defines, as rustc links it.
+        args.extend([c("libunwind.a"), c("libc.a"), c("crtn.o")]);
         args.extend(strip.then(|| "--strip-all".to_string()));
     } else if target.starts_with("wasm32") {
         args.extend(["-flavor", "wasm", "--gc-sections"].map(String::from));

@@ -227,7 +227,7 @@ Each host reads the files its own way. Both read the same files.
 
 - The CLI reads the disk, or the bundle a run came in. It never follows a link, even one pointing inside the project.
 - A page reads the files beside its program through the same reader its imports use.
-- HTTP cannot list a folder. A page lists files from `edge.files`, the list `edge build --web` writes and `edge serve` and `--web` answer.
+- HTTP cannot list a folder. A page lists files from `edge.files`, the list `edge web` writes and `edge serve` and `--web` answer.
 - A page reads only the paths that list names.
 - A page that embeds the engine serves `edge.files` beside its `edge.json`, a JSON list of every path `fs` may read.
 

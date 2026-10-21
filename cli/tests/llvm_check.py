@@ -31,6 +31,14 @@ def mix(n):
         acc = (acc + i * point[0] - point[1]) % 1000003
     return acc
 
+def triple(n):
+    return [n] * 3
+
+def kept():
+    keep = [7, 8]
+    triple(1)
+    return keep[0]
+
 def scaled(k):
     return lambda v: f"{v * k:.1f}" if isinstance(v, float) else str(v * k)
 
@@ -46,4 +54,4 @@ for s in shapes:
     finally:
         words.append(label(total))
 print(label(total), sorted(seen.items()), fib(20), sum(squares(100)), mix(20000))
-print(" ".join(words), [x if x % 3 else str(x) for x in range(7)], scaled(2)(21))
+print(" ".join(words), [x if x % 3 else str(x) for x in range(7)], scaled(2)(21), kept())

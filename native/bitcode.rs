@@ -37,13 +37,13 @@ fn safepoints(path: &str, text: String) {
 fn inline(vm: &str, path: &str, text: String) {
     // What vm.o defines for other objects: a function or a global that is neither internal nor private.
     let open = |l: &str| !l.contains(" internal ") && !l.contains(" private ");
-    let mut exported: std::collections::HashSet<&str> = vm.lines().filter(|l| l.starts_with("define ") && open(l)).filter_map(|l| ir::reach_name(&l[l.find('@')? + 1..])).collect();
-    exported.extend(vm.lines().filter(|l| l.starts_with('@') && open(l)).filter_map(|l| ir::reach_name(&l[1..])));
+    let mut exported: std::collections::HashSet<&str> = vm.lines().filter(|l| l.starts_with("define ") && open(l)).filter_map(|l| Some(ir::symbol(&l[l.find('@')? + 1..]))).collect();
+    exported.extend(vm.lines().filter(|l| l.starts_with('@') && open(l)).map(|l| ir::symbol(&l[1..])));
     let mut missing = Vec::new();
     let out: String = text.lines().map(|l| {
         // A function declared, or a global left without its value, is one vm.o must give.
-        let wanted = if let Some(rest) = l.strip_prefix("declare ") { rest.find('@').and_then(|at| ir::reach_name(&rest[at + 1..])) }
-            else if l.starts_with('@') && l.contains(" external ") { ir::reach_name(&l[1..]) } else { None };
+        let wanted = if let Some(rest) = l.strip_prefix("declare ") { rest.find('@').map(|at| ir::symbol(&rest[at + 1..])) }
+            else if l.starts_with('@') && l.contains(" external ") { Some(ir::symbol(&l[1..])) } else { None };
         if let Some(n) = wanted && !n.starts_with("llvm.") && !exported.contains(n) { missing.push(n.to_string()); }
         match l.strip_prefix("define ") { Some(rest) => format!("define available_externally {}\n", rest.trim_start_matches("dso_local ")), None => format!("{l}\n") }
     }).collect();

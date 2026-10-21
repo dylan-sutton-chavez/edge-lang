@@ -48,9 +48,15 @@ tar = "0.4"
 [target.'cfg(unix)'.dependencies]
 signal-hook = { version = "0.3", default-features = false, features = ["iterator"] }
 
+# The corpus of llvm_check runs a program per thread and reports in case order.
+[dev-dependencies]
+rayon = "1"
+
 [build-dependencies]
 # Precompiles compiler.wasm for the build target.
 wasmtime = { version = "48", default-features = false, features = ["runtime", "cranelift", "all-arch", "std"] }
+# Gzips the VM bitcode `edge build` carries for each target.
+flate2 = "1"
 
 [profile.release]
 opt-level = "z"

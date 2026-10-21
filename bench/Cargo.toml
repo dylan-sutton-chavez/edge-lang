@@ -8,5 +8,7 @@ description = "Holds compiler.wasm to its last run of tests/cases/vm.json, run i
 
 [dependencies]
 wasmtime = { version = "48", default-features = false, features = ["runtime", "std", "cranelift"] }
+# WASI for both sides of bench/llvm, each output stream apart.
+wasmtime-wasi = { version = "48", default-features = false, features = ["p1"] }
 serde = { workspace = true }
 serde_json = { workspace = true }

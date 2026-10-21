@@ -30,7 +30,7 @@ A project is any folder with `.py` files and an `edge.json` declaring every modu
 1. Write or edit the `.py` files.
 2. Run the entry point with `edge run main.py`.
 3. Add tests in `*_test.py` files and run `edge test`.
-4. Pack a release with `edge build` when the program must run elsewhere.
+4. Compile a release with `edge build` when the program must run elsewhere.
 
 ```bash
 edge init myapp        # scaffold main.py, an empty edge.json and index.html
@@ -39,8 +39,8 @@ edge add json          # declare each package the code imports
 edge lock              # resolve every declared version into edge.lock
 edge run main.py       # run the entry point
 edge test              # discover and run every *_test.py
-edge build             # pack a portable ./app.edge bundle
-edge publish app.edge  # send it to the registry
+edge build main.py     # compile to one native binary, ./main
+edge publish           # pack the project and send it to the registry
 ```
 
 Piping a script works too, which is how the cells of this document run.
@@ -63,7 +63,7 @@ Bare `edge` prints help and exits 0. `edge -v` prints the version. `Ctrl+C` exit
 
 ### edge run
 
-`edge run [file]` executes a `.py` script, a packed `.edge` bundle or an app binary, auto-detected by content. With no file it reads the script from stdin. A bare `edge run` in a terminal with no pipe errors. `edge run -c 'print(1)'` runs inline code instead of a file or stdin, and piped stdin then feeds `input()`.
+`edge run [file]` executes a `.py` script or a packed `.edge` bundle, auto-detected by content. With no file it reads the script from stdin. A bare `edge run` in a terminal with no pipe errors. `edge run -c 'print(1)'` runs inline code instead of a file or stdin, and piped stdin then feeds `input()`.
 
 Run flags.
 
@@ -97,19 +97,25 @@ A static dev server with live reload for the current directory. `--host` default
 
 ### edge build
 
-Three mutually exclusive modes.
+`edge build [file]` compiles a program to one static native binary, the project's `main.py` when no file is given. The VM is the compiler: each opcode's handler is a function of the VM, the program's functions call them in order with their operands constant, and LLVM inlines and optimizes the whole at `-O3`. The binary runs with nothing installed, reads `input()` from stdin, takes `--events <file>` like `edge run`, and prints the same output, errors and exit code.
 
-| Mode | Default output | Artifact |
-|---|---|---|
-| `edge build` | `app.edge` | Raw bundle for hosts and pools that already have `edge` |
-| `edge build --app` | `app` | Standalone binary, runs offline on the same OS and CPU with nothing installed |
-| `edge build --web` | `dist/` | Browser distribution with the vendored JS host and packages |
+| Flag | Effect |
+|---|---|
+| `-o`, `--out <path>` | Output path, the script's name by default. A path ending in `.o` stops at the object |
+| `--wasm` | A `.wasm` for WASI that imports only `fd_write` and `proc_exit` |
+| `--target <triple>` | `x86_64-unknown-linux-musl`, `aarch64-unknown-linux-musl`, `aarch64-apple-darwin` or `wasm32-wasip1`, the host's by default |
+| `--opt speed\|size` | What LLVM optimizes for, `speed` by default |
+| `--strip` | Leave the symbols out |
 
-`--out <path>` overrides the default. The bundle contains every `.py` and `.wasm` under the project plus `edge.json`, the `README.md` and any `LICENSE` at the project root, together with each module the manifest declares by URL and the files it imports. When `edge.json` declares a `docs` directory, a `.edge` also carries its `.mdx` pages under a reserved `@docs/` prefix, checked against the rendering convention first, and an app binary leaves them out. The entry is `main.py`, `app.py` or `index.py` when present. An app binary accepts only the snapshot flags `--save-state`, `--restore-state`, `--preempt` and `--events`.
+The first build asks to download LLVM's tools and the linker from the Rust release Edge is built with, about 200 MB once into `~/.cache/edge/llvm`, the way `--web` offers Chromium. Without a terminal it refuses, and `EDGE_LLVM_ROOT` names a Rust sysroot that has `llvm-tools` instead. An `apple-darwin` target only builds on a Mac, which has the SDK it links against.
+
+### edge web
+
+`edge web` writes `dist/`, a browser distribution with the vendored JS host, the compiler and every package, `--out <dir>` choosing another folder. The entry is `main.py`, `app.py` or `index.py` when present.
 
 ### edge publish
 
-`edge publish app.edge` uploads a `.edge` packed by `edge build`, reading `EDGE_TOKEN` for a token made at `/settings#tokens`, which signs the request and never leaves the machine. The artifact is the whole request. The registry opens it and reads the `name`, the `version`, the description, the repository, the `LICENSE` and the pages under `@docs/` out of the bytes it is about to store, so nothing is declared twice and a listing shows what you shipped. A name is first come and permanent, a version is never overwritten, and the bundle is stored exactly as packed. One artifact is 10 MB at most, an account claims 10 names and publishes 60 versions a day, and its packages add up to 50 MB when it signs in by address alone or a gigabyte with GitHub or Google linked.
+`edge publish` packs the project as one `.edge` and uploads it, reading `EDGE_TOKEN` for a token made at `/settings#tokens`, which signs the request and never leaves the machine. The bundle carries every `.py` and `.wasm` under the project plus `edge.json`, its lock, the `README.md` and any `LICENSE` at the project root, each module the manifest declares by URL and the files it imports, and the `.mdx` pages of a declared `docs` directory under a reserved `@docs/` prefix, checked against the rendering convention first. `--out <file>` writes the `.edge` instead of sending it, which `edge run` and an actor eval group also run. The artifact is the whole request. The registry opens it and reads the `name`, the `version`, the description, the repository, the `LICENSE` and the pages under `@docs/` out of the bytes it is about to store, so nothing is declared twice and a listing shows what you shipped. A name is first come and permanent, a version is never overwritten, and the bundle is stored exactly as packed. One artifact is 10 MB at most, an account claims 10 names and publishes 60 versions a day, and its packages add up to 50 MB when it signs in by address alone or a gigabyte with GitHub or Google linked.
 
 Where a package runs is not declared and not yet worked out, so a release carries no claim about its hosts.
 
@@ -126,7 +132,8 @@ Interactive removal of the binary and PATH entries.
 | Variable | Effect |
 |---|---|
 | `EDGE_COMPILER_WASM` | Path to `compiler.wasm` for the CLI build |
-| `EDGE_CDN_BASE` | Serve the official CDN origin from another base for module downloads and `edge build --web`, used by tests and staging |
+| `EDGE_CDN_BASE` | Serve the official CDN origin from another base for module downloads and `edge web`, used by tests and staging |
+| `EDGE_LLVM_ROOT` | A Rust sysroot with `llvm-tools` that `edge build` uses instead of downloading its own |
 
 ## The Python delta
 
@@ -764,7 +771,7 @@ token = secret.read("GITHUB_TOKEN")
 
 ### fs
 
-`read(path)` returns the text of a project file as a `str`, and `list(dir='.')` every file under a folder in order, both written from the root `edge.json` such as `shop/app/product.rb`. A path with `..`, a leading `/` or a name starting with a dot raises `PermissionError`, like one outside the granted folders, and a file that is missing, not UTF-8 or over 10 MB raises `OSError`. The CLI reads the disk or the bundle and never follows a link, and a page reads the files beside its program, listed in the `edge.files` that `edge build --web` writes and `edge serve` answers. Nothing writes.
+`read(path)` returns the text of a project file as a `str`, and `list(dir='.')` every file under a folder in order, both written from the root `edge.json` such as `shop/app/product.rb`. A path with `..`, a leading `/` or a name starting with a dot raises `PermissionError`, like one outside the granted folders, and a file that is missing, not UTF-8 or over 10 MB raises `OSError`. The CLI reads the disk or the bundle and never follows a link, and a page reads the files beside its program, listed in the `edge.files` that `edge web` writes and `edge serve` answers. Nothing writes.
 
 ```python
 import fs

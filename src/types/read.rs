@@ -1,23 +1,19 @@
 /* Reads `edge.ept`, the rules per opcode at one Edge commit, refusing a file of another commit or version or with a line it does not know. */
 
 use alloc::{format, string::{String, ToString}, vec::Vec};
-use crate::parser::{OpCode, SSAChunk};
+use crate::parser::OpCode;
 use super::Tags;
 
-// The commit every rule is about, the one this build of Edge is.
-pub const COMMIT: &str = "8855578768056f9e68dab3f2a3361e158ed7d9e2";
-
-/* A term of a stack count: a number, `k` times bits `lo..hi` of the operand, a function's defaults or a class's arguments. */
-#[derive(Clone, Debug)]
-pub enum Term { N(usize), Bits(usize, u16, u16), Defaults, ClassArgs }
+// The hash of the sources every rule is about, this build's own (build.rs).
+pub const SOURCES: &str = include_str!(concat!(env!("OUT_DIR"), "/sources.hash"));
 
 /* What a popped value must be for its row to apply. */
 #[derive(Clone, Debug)]
 pub enum Pat { In(Tags), Type(u8), Int(i64), None, Bool(bool) }
 
-/* An operand or a number. */
+/* An operand, an operand less one (a bound `a<j>-1`), or a number. */
 #[derive(Clone, Copy, Debug)]
-pub enum Rhs { A(usize), N(i64) }
+pub enum Rhs { A(usize), Less(usize), N(i64) }
 
 #[derive(Clone, Debug)]
 pub enum Learn { In(Tags), Rel(&'static str, Rhs) }
@@ -39,13 +35,15 @@ pub struct Row {
     pub learn: Vec<(bool, usize, Learn)>,
     // Container `a` takes operand `b` among its items, None for one or items not known.
     pub puts: Vec<(Option<usize>, Option<usize>)>,
+    // The operands it may call, a function or class handed to it.
+    pub calls: Vec<usize>,
 }
 
 #[derive(Default)]
 pub struct Rules {
-    pub tags: Vec<(String, u8, u8)>,
+    // Each exact type by its code, the place of its name in BUILTIN_TYPES, the program's own kinds past them.
+    pub tags: Vec<(String, u8)>,
     // By opcode name and operand, `type.name` of a method, or `Truth`.
-    stacks: Vec<(String, Option<u16>, [Vec<Term>; 2])>,
     rows: Vec<(String, Option<u16>, Row)>,
 }
 
@@ -53,7 +51,9 @@ fn bad(w: &str, what: &str) -> String { format!("edge.ept: '{w}' is not {what}")
 fn int(w: &str) -> Result<i64, String> { w.parse().map_err(|_| bad(w, "an integer")) }
 fn pos(w: &str, side: char) -> Result<usize, String> { w.strip_prefix(side).and_then(|n| n.parse().ok()).ok_or_else(|| bad(w, "a position")) }
 fn rhs(w: &str, open: i64) -> Result<Rhs, String> {
-    if w.is_empty() { Ok(Rhs::N(open)) } else if w.starts_with('a') { pos(w, 'a').map(Rhs::A) } else { int(w).map(Rhs::N) }
+    if w.is_empty() { return Ok(Rhs::N(open)); }
+    if let Some(a) = w.strip_suffix("-1").filter(|a| a.starts_with('a')) { return pos(a, 'a').map(Rhs::Less); }
+    if w.starts_with('a') { pos(w, 'a').map(Rhs::A) } else { int(w).map(Rhs::N) }
 }
 fn span(w: &str) -> Result<(Rhs, Rhs), String> {
     let (lo, hi) = w.split_once("..").ok_or_else(|| bad(w, "a range"))?;
@@ -61,39 +61,23 @@ fn span(w: &str) -> Result<(Rhs, Rhs), String> {
 }
 fn num(r: Rhs) -> Result<i64, String> { if let Rhs::N(n) = r { Ok(n) } else { Err("edge.ept: an operand where a number goes".into()) } }
 
-fn terms(w: &str) -> Result<Vec<Term>, String> {
-    w.split('+').map(|t| {
-        let (k, rest) = match t.split_once('*') { Some((k, r)) => (int(k)? as usize, r), None => (1, t) };
-        Ok(match rest {
-            "defaults" => Term::Defaults,
-            "classargs" => Term::ClassArgs,
-            r if r.starts_with("o[") => {
-                let (lo, hi) = r[2..].trim_end_matches(']').split_once(':').ok_or_else(|| bad(r, "a bit field"))?;
-                Term::Bits(k, int(lo)? as u16, int(hi)? as u16)
-            }
-            r => Term::N(int(r)? as usize * k),
-        })
-    }).collect()
-}
-
 impl Rules {
     pub fn read(text: &str) -> Result<Self, String> {
         let mut lines = text.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#'));
-        if lines.next() != Some(COMMIT) { return Err("edge.ept is of another Edge commit".into()); }
+        if lines.next() != Some(SOURCES) { return Err("edge.ept is of other Edge sources".into()); }
         if lines.next() != Some("ept 1") { return Err("edge.ept is not format 1".into()); }
         let lines: Vec<Vec<&str>> = lines.map(|l| l.split(' ').collect()).collect();
         let mut r = Rules::default();
         // The tags first, as rows name them.
-        for w in &lines { if let ["tag", n, lo, hi] = w[..] { r.tags.push((n.to_string(), int(lo)? as u8, int(hi)? as u8)); } }
-        if r.tags.iter().any(|t| t.2 > 126) { return Err("edge.ept: a tag code past 126".into()); }
+        for w in &lines { if let ["tag", n, c] = w[..] { r.tags.push((n.to_string(), u8::try_from(int(c)?).ok().filter(|&c| c < 127).ok_or_else(|| bad(c, "a code below 127"))?)); } }
         let ops: Vec<String> = OpCode::ALL.iter().map(|o| format!("{o:?}")).collect();
         for w in &lines {
             let (name, at) = match w.get(1).map(|n| n.split_once('@')) { Some(Some((n, a))) => (n, Some(int(a)? as u16)), _ => (*w.get(1).unwrap_or(&""), None) };
             let op = name == "Truth" || ops.iter().any(|o| o == name);
             match w[0] {
-                "tag" if w.len() == 4 => {}
-                "stack" if op && w.len() == 4 => r.stacks.push((name.into(), at, [terms(w[2])?, terms(w[3])?])),
+                "tag" if w.len() == 3 => {}
                 "rule" if op => { let row = r.row(&w[2..])?; r.rows.push((name.into(), at, row)); }
+                "builtin" if w.len() > 2 && at.is_none() => { let row = r.row(&w[2..])?; r.rows.push((alloc::format!("builtin.{name}"), None, row)); }
                 "method" if name.contains('.') && at.is_none() => { let row = r.row(&w[2..])?; r.rows.push((name.into(), None, row)); }
                 _ => return Err(bad(&w.join(" "), "a line of format 1")),
             }
@@ -109,7 +93,7 @@ impl Rules {
         }
     }
 
-    pub fn tag(&self, name: &str) -> Option<Tags> { self.tags.iter().find(|t| t.0 == name).map(|&(_, lo, hi)| super::codes(lo, hi)) }
+    pub fn tag(&self, name: &str) -> Option<Tags> { self.tags.iter().find(|t| t.0 == name).map(|t| 1 << t.1) }
 
     fn row(&self, w: &[&str]) -> Result<Row, String> {
         let mut row = Row::default();
@@ -143,6 +127,7 @@ impl Rules {
                 ["holds", x, t] => row.says.push((r(x)?, Out::Holds(self.set(t)?, Rhs::N(i64::MIN), Rhs::N(i64::MAX)))),
                 ["holds", x, t, "in", lr] => { let (lo, hi) = span(lr)?; row.says.push((r(x)?, Out::Holds(self.set(t)?, lo, hi))); }
                 ["puts", a, b] => row.puts.push((pos(a, 'a').ok(), pos(b, 'a').ok())),
+                ["calls", a] => row.calls.push(pos(a, 'a')?),
                 _ => return Err(bad(&c.join(" "), "a clause of format 1")),
             }
         }
@@ -157,20 +142,6 @@ impl Rules {
             None if e.starts_with('a') => Out::Exact('=', a(e)?, Rhs::N(0)),
             None => Out::Exact('n', Rhs::N(int(e)?), Rhs::N(0)),
         })
-    }
-
-    /* The values `op` pops and pushes at this operand, None for one the file does not cover. */
-    pub fn effect(&self, op: OpCode, operand: u16, chunk: &SSAChunk) -> Option<(usize, usize)> {
-        let name = format!("{op:?}");
-        let mine = |at: Option<u16>| self.stacks.iter().find(|s| s.0 == name && s.1 == at);
-        let e = &mine(Some(operand)).or(mine(None))?.2;
-        let sum = |ts: &[Term]| ts.iter().map(|t| match *t {
-            Term::N(n) => Some(n),
-            Term::Bits(k, lo, hi) => Some(k * ((operand as usize >> lo) & ((1 << (hi - lo)) - 1))),
-            Term::Defaults => chunk.functions.get(operand as usize).map(|f| f.2 as usize),
-            Term::ClassArgs => chunk.classes.get(operand as usize).map(|c| if c.bases == crate::parser::SPREAD_BASES { 1 } else { c.bases as usize } + 2 * c.class_kw as usize),
-        }).sum::<Option<usize>>();
-        Some((sum(&e[0])?, sum(&e[1])?))
     }
 
     /* The rows of opcode, method or `Truth` `name` at this operand, an operand's own rows winning over the plain ones. */
