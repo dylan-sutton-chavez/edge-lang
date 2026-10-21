@@ -44,3 +44,25 @@ pub fn checks(ir: &str, body: &str, prefix: &str) -> usize {
     let masked: Vec<&str> = body.lines().filter(|l| !l.contains("icmp") && takes(l)).filter_map(|l| l.trim().split(" = ").next()).collect();
     body.lines().filter(|l| l.contains(" icmp ") && (takes(l) || l.split([' ', ',']).any(|w| masked.contains(&w)))).count()
 }
+
+/* The functions of `ir` that may reach `target` through calls, a call through a pointer reaching any function. */
+pub fn reach<'a>(ir: &'a str, target: &str) -> Vec<&'a str> {
+    // A symbol from the text after its `@`, quoted or plain, up to its argument list.
+    let name = |s: &'a str| match s.strip_prefix('"') { Some(q) => &q[..q.find('"').unwrap_or(q.len())], None => &s[..s.find(['(', ' ', ',']).unwrap_or(s.len())] };
+    let graph: Vec<(&str, Vec<Option<&str>>)> = ir.split("\ndefine ").skip(1).filter_map(|f| {
+        let body = &f[..f.find("\n}").unwrap_or(f.len())];
+        let own = name(&body[body.find('@')? + 1..]);
+        let callees = body.lines().skip(1).filter_map(|l| {
+            let at = l.find("call ").or_else(|| l.find("invoke "))?;
+            let w = l[at..].split_whitespace().find(|w| (w.starts_with('@') || w.starts_with('%')) && w.contains('('))?;
+            if w.starts_with("@llvm.") { None } else { Some(w.strip_prefix('@').map(name)) }
+        }).collect();
+        Some((own, callees))
+    }).collect();
+    let mut may: Vec<&str> = Vec::new();
+    loop {
+        let more: Vec<&str> = graph.iter().filter(|(f, cs)| !may.contains(f) && cs.iter().any(|c| c.is_none_or(|c| c == target || may.contains(&c)))).map(|(f, _)| *f).collect();
+        if more.is_empty() { return may; }
+        may.extend(more);
+    }
+}
