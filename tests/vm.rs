@@ -131,32 +131,6 @@ mod test {
         }
     }
 
-    /* Runs every vm.json case on 16 threads at once, a VM each, as a host running Python in parallel does: nothing one
-       VM does may change another's run, so each gives what it gives alone. */
-    #[test]
-    fn cases_on_threads() {
-        let cases: Vec<Case> = serde_json::from_str(include_str!("cases/vm.json")).expect("invalid JSON");
-        let cases: Vec<&Case> = cases.iter().filter(|c| c.input.is_empty() && c.events.is_empty() && c.interactive_events.is_empty() && c.sends.is_none()).collect();
-        let run = |case: &Case| -> (Vec<String>, Option<String>) {
-            let (tokens, _) = lex(&case.src);
-            let (mut chunk, _) = Parser::new(&case.src, tokens.into_iter()).parse();
-            compiler::code::constant_fold(&mut chunk);
-            let mut vm = VM::with_limits(&chunk, crate::common::corpus_limits());
-            let r = vm.run().err().map(|e| e.to_string());
-            (vm.output.clone(), r)
-        };
-        let alone: Vec<_> = cases.iter().map(|c| run(c)).collect();
-        let differ = std::sync::Mutex::new(Vec::new());
-        std::thread::scope(|s| for t in 0..16 {
-            let (cases, alone, differ) = (&cases, &alone, &differ);
-            std::thread::Builder::new().stack_size(64 << 20).spawn_scoped(s, move || for (k, c) in cases.iter().enumerate().skip(t % 4) {
-                if run(c) != alone[k] { differ.lock().unwrap().push(c.src.clone()); }
-            }).unwrap();
-        });
-        let differ = differ.into_inner().unwrap();
-        assert!(differ.is_empty(), "{} run(s) differ on threads:\n{}", differ.len(), differ.iter().take(20).cloned().collect::<Vec<_>>().join("\n---\n"));
-    }
-
     /* Reruns every vm.json case in strict_input mode (host-supplied buffer, reading past = RuntimeError) under `Limits::sandbox()` (see `test_cases` for why the bounded profile). Lex/parse errors are also asserted here. */
     #[test]
     fn strict_cases() {

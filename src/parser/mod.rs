@@ -6,7 +6,7 @@ mod expr;
 mod literals;
 mod imports;
 mod effect;
-pub use effect::effect;
+pub use effect::{effect, JUMP, RETURN, TAG_ERR};
 
 pub use types::*;
 // The end a literal warning carries in place of a span, marking it as one the tokenizer gives.
