@@ -45,6 +45,8 @@ pub struct Rules {
     pub tags: Vec<(String, u8)>,
     // By opcode name and operand, `type.name` of a method, or `Truth`.
     rows: Vec<(String, Option<u16>, Row)>,
+    // The places of each name's rows, so a step finds them without reading the file's every row.
+    by: crate::util::hash::FxHashMap<String, Vec<u32>>,
 }
 
 fn bad(w: &str, what: &str) -> String { format!("edge.ept: '{w}' is not {what}") }
@@ -82,6 +84,7 @@ impl Rules {
                 _ => return Err(bad(&w.join(" "), "a line of format 1")),
             }
         }
+        for (i, row) in r.rows.iter().enumerate() { r.by.entry(row.0.clone()).or_default().push(i as u32); }
         Ok(r)
     }
 
@@ -146,7 +149,7 @@ impl Rules {
 
     /* The rows of opcode, method or `Truth` `name` at this operand with their places in the file, an operand's own rows winning over the plain ones. */
     pub fn rows<'r>(&'r self, name: &str, operand: u16) -> Vec<(u32, &'r Row)> {
-        let mine = |at: Option<u16>| self.rows.iter().enumerate().filter(|r| r.1.0 == name && r.1.1 == at).map(|(i, r)| (i as u32, &r.2)).collect::<Vec<_>>();
+        let mine = |at: Option<u16>| self.by.get(name).into_iter().flatten().map(|&i| (i, &self.rows[i as usize])).filter(|r| r.1.1 == at).map(|(i, r)| (i, &r.2)).collect::<Vec<_>>();
         let own = mine(Some(operand));
         if own.is_empty() { mine(None) } else { own }
     }
