@@ -69,12 +69,7 @@ pub fn grow(p: &Prog) -> Tree {
             let mut st = Step::new(p, &t, x);
             st.step(ip, &s);
             let (outs, eff) = (st.outs, st.eff);
-            if eff.gave_up {
-                let c = &mut t.ctxs[x];
-                (c.gave_up, c.ret, c.raises, t.wild) = (true, Ty::ANY, Ty::ANY, true);
-                changed = true;
-                continue;
-            }
+            if eff.gave_up { let c = &mut t.ctxs[x]; (c.gave_up, c.ret, c.raises, t.wild, changed) = (true, Ty::ANY, Ty::ANY, true, true); continue; }
             if eff.wild && !t.wild { t.wild = true; changed = true; }
             for (o, f, v) in eff.writes {
                 // An entry made empty still says something: a container built with no items holds none.

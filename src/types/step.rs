@@ -26,13 +26,16 @@ const NAMES: [&str; 18] = ["TypeError", "int", "bool", "float", "complex", "str"
    `async def` made it. */
 pub struct Body<'c> { pub chunk: &'c SSAChunk, pub kind: Kind, pub binds: Vec<Binding>, pub module: u32, pub fns: Vec<u32>, pub classes: Vec<u32>, pub names: Vec<u32>, pub params: Vec<(ParamKind, usize, bool)>, pub heads: Vec<bool>, pub coro: bool }
 
-pub struct Prog<'c> { pub rules: &'c Rules, pub bodies: Vec<Body<'c>>, pub names: Vec<String> }
+// The rules, the bodies, each name of the program and whether the VM has a builtin of that name.
+pub struct Prog<'c> { pub rules: &'c Rules, pub bodies: Vec<Body<'c>>, pub names: Vec<String>, builtins: Vec<bool> }
 
 impl<'c> Prog<'c> {
     pub fn new(chunk: &'c SSAChunk, rules: &'c Rules) -> Result<Self, String> {
         if let Some(n) = NAMES.iter().find(|n| rules.tag(n).is_none()) { return Err(alloc::format!("edge.ept has no tag {n}")); }
-        let mut p = Prog { rules, bodies: Vec::new(), names: Vec::new() };
+        let mut p = Prog { rules, bodies: Vec::new(), names: Vec::new(), builtins: Vec::new() };
         p.walk(&Program::new(chunk), chunk, 0, &[], &mut Map::default());
+        let mut vm = crate::vm::VM::new(chunk);
+        p.builtins = p.names.iter().map(|n| { vm.register_builtin(n); vm.builtins.contains_key(n.as_str()) }).collect();
         Ok(p)
     }
     fn walk(&mut self, vm: &Program<'c>, c: &'c SSAChunk, module: u32, params: &[String], ids: &mut Map<String, u32>) -> u32 {
@@ -54,12 +57,11 @@ impl<'c> Prog<'c> {
     pub fn tag(&self, name: &str) -> Ty { Ty::of(self.rules.tag(name).unwrap_or(0)) }
     fn leaf(&self, c: u8) -> &str { self.rules.tags.iter().find(|t| t.1 == c).map_or("", |t| &t.0) }
     fn is(&self, b: u32, k: Kind) -> bool { core::mem::discriminant(&self.bodies[b as usize].kind) == core::mem::discriminant(&k) }
-    /* What a name no code of its module binds is: a builtin type, by its code when it has a tag, or function; any other
-       name may be one of the VM's own values or unbound. */
+    /* What a name no code of its module binds is: a builtin type, by its code when it has a tag, another of the VM's builtins, or unbound. */
     pub fn builtin(&self, name: u32) -> Ty {
         let n = self.names.get(name as usize).map_or("", String::as_str);
         if crate::parser::builtin_type(n).is_some() { return self.rules.tags.iter().find(|t| t.0 == n).map_or(self.tag("type"), |t| self.tag("type").with(Known::Type(t.1))); }
-        if NativeFnId::from_name(n).is_some() { self.tag("function") } else { Ty::ANY }
+        if NativeFnId::from_name(n).is_some() { self.tag("function") } else if self.builtins.get(name as usize) == Some(&true) { Ty::ANY.minus(UNBOUND) } else { Ty::of(UNBOUND) }
     }
     pub fn konst(&self, v: &Value) -> Ty {
         let (n, r) = match v { Value::Int(i) => ("int", Some(*i)), Value::BigInt(_) => ("int", None), Value::Bool(b) => ("bool", Some(*b as i64)), Value::Float(_) => ("float", None),
@@ -339,13 +341,9 @@ impl<'a, 'c> Step<'a, 'c> {
             let b = |r: Rhs, lo: bool| match r { Rhs::N(n) => n as i128, Rhs::A(j) => if lo { ins[j].lo as i128 } else { ins[j].hi as i128 } };
             // The exact integer of result `r`, its bounds past an i64 open.
             let exact = |r: usize| row.says.iter().find_map(|x| match x { (q, Out::Exact(op, a, c)) if *q == r => Some((*op, *a, *c)), _ => None }).map(|(op, x, y)| {
-                let (lo, hi) = match op {
-                    '+' => (b(x, true) + b(y, true), b(x, false) + b(y, false)),
-                    '-' => (b(x, true) - b(y, false), b(x, false) - b(y, true)),
-                    '*' => { let p = [b(x, true) * b(y, true), b(x, true) * b(y, false), b(x, false) * b(y, true), b(x, false) * b(y, false)]; (p[0].min(p[1]).min(p[2]).min(p[3]), p[0].max(p[1]).max(p[2]).max(p[3])) }
-                    _ => (b(x, true), b(x, false)),
-                };
-                (i64::try_from(lo).unwrap_or(i64::MIN), i64::try_from(hi).unwrap_or(i64::MAX))
+                let f = |a: i128, c: i128| match op { '+' => a + c, '-' => a - c, '*' => a * c, _ => a };
+                let ps = [f(b(x, true), b(y, true)), f(b(x, true), b(y, false)), f(b(x, false), b(y, true)), f(b(x, false), b(y, false))];
+                (i64::try_from(*ps.iter().min().unwrap_or(&0)).unwrap_or(i64::MIN), i64::try_from(*ps.iter().max().unwrap_or(&0)).unwrap_or(i64::MAX))
             });
             match row.unless { Some((r, lo, hi)) if exact(r).is_some_and(|(a, b)| lo <= a && b <= hi) => {} _ => self.raise(&s, Ty::of(row.raises)) }
             let Some(outs) = &row.outs else { continue };
@@ -360,7 +358,8 @@ impl<'a, 'c> Step<'a, 'c> {
                     let made = match say {
                         Out::Range(lo, hi) => { (ty.lo, ty.hi) = (ty.lo.max(*lo), ty.hi.min(*hi)); continue }
                         Out::Item(j) => { let it = self.item(&ins[*j]); ty = Ty { tags: ty.tags & it.tags, lo: ty.lo.max(it.lo), hi: ty.hi.min(it.hi), known: it.known }; continue }
-                        Out::Items(js) => js.iter().fold(Ty::NONE, |t, &j| t.join(&ins[j])),
+                        // Each item written apart, so an object among them leaves as itself.
+                        Out::Items(js) => { for &j in js { self.write(self.site(ip), ITEM, ins[j]); } Ty::NONE }
                         Out::Holds(t, lo, hi) => Ty::int(*t, b(*lo, true) as i64, b(*hi, false) as i64),
                         Out::Exact(..) => continue,
                     };
@@ -386,11 +385,7 @@ impl<'a, 'c> Step<'a, 'c> {
             O::LoadConst => { let v = chunk.constants.get(k as usize).map_or(Ty::ANY, |c| self.p.konst(c)); self.push(next, &s, [v]) }
             O::LoadTrue | O::LoadFalse | O::LoadNone => { let v = self.p.konst(&if op == O::LoadNone { Value::None } else { Value::Bool(op == O::LoadTrue) }); self.push(next, &s, [v]) }
             O::LoadName => if let Some(e) = self.load(&mut s, k) { s.stack.push(e); self.go(next, s) },
-            O::LoadGlobal => {
-                let v = self.global(self.name(k));
-                if v.tags & UNBOUND != 0 { self.raise(&s, self.p.tag("NameError")); }
-                self.push(next, &s, [v.minus(UNBOUND)])
-            }
+            O::LoadGlobal => { let v = self.global(self.name(k)); if v.tags & UNBOUND != 0 { self.raise(&s, self.p.tag("NameError")); } self.push(next, &s, [v.minus(UNBOUND)]) }
             O::StoreName | O::StoreGlobal => { let v = pop!(); self.store(&mut s, k, v.ty, op == O::StoreGlobal); self.go(next, s) }
             O::Del => { self.store(&mut s, k, Ty::of(UNBOUND), false); self.go(next, s) }
             // Versions of one name share its slot, so a join of two of them moves nothing.
@@ -447,7 +442,7 @@ impl<'a, 'c> Step<'a, 'c> {
                 // A bare raise raises again whatever is being handled.
                 let e = if op == O::Raise && k == 1 { Ty::ANY } else {
                     let v = pop!().ty;
-                    match v.known { Known::Body(c) => self.p.tag("instance").with(Known::Obj(c, self.site(ip))), Known::Type(t) => Ty::of(1 << t), _ => Ty::ANY }
+                    match v.known { Known::Body(c) => self.p.tag("instance").with(Known::Obj(c, self.site(ip))), Known::Type(t) => Ty::of(1 << t), Known::Obj(..) => v, _ => Ty::ANY }
                 };
                 self.raise(&s, e.join(&self.p.tag("TypeError")))
             }

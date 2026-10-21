@@ -11,14 +11,15 @@ mod test {
         all.into_iter().find(|r| r.0 == line && r.1 == name).unwrap_or_else(|| panic!("no read of {name} on line {line}")).2
     }
 
-    const INT: [(u8, u8); 1] = [(1, 1)];
+    // The code of tag `n`, a run of one.
+    fn code(n: &str) -> (u8, u8) { Rules::read(&ept()).unwrap().tags.iter().find(|t| t.0 == n).map(|t| (t.1, t.1)).unwrap() }
 
     #[test]
     fn a_loop_keeps_its_ints_and_a_call_its_result() {
         let src = "def f(n):\n    s = 0\n    for i in range(n):\n        if i % 2 == 0:\n            s = s + i\n    return s\nx = f(10)\nprint(x)\n";
-        assert_eq!(read(src, 5, "i"), INT);
-        assert_eq!(read(src, 6, "s"), INT);
-        assert_eq!(read(src, 8, "x"), INT);
+        assert_eq!(read(src, 5, "i"), [code("int")]);
+        assert_eq!(read(src, 6, "s"), [code("int")]);
+        assert_eq!(read(src, 8, "x"), [code("int")]);
     }
 
     #[test]
@@ -29,8 +30,8 @@ mod test {
         let (chunk, _) = compiler::code::compile(src);
         let t = typed(&chunk, &rules).expect("accepted");
         let f = t.tree.ctxs.iter().find(|c| c.body == 1).expect("f has a context");
-        assert_eq!(compiler::types::runs(f.ret.tags), [(1, 1), (3, 3)]);
-        assert_eq!(compiler::types::runs(f.raises.tags), [(32, 32)], "only the int sum may run out of memory, no TypeError");
+        assert_eq!(compiler::types::runs(f.ret.tags), [code("int"), code("str")]);
+        assert_eq!(compiler::types::runs(f.raises.tags), [code("MemoryError")], "only the int sum may run out of memory, no TypeError");
     }
 
     #[test]
@@ -62,7 +63,7 @@ mod test {
         let mut b = typed(&chunk, &rules).unwrap();
         let at = b.prog.bodies.iter().position(|x| x.chunk.qualname == "g").unwrap() as u32;
         let g = b.tree.ctxs.iter_mut().find(|c| c.body == at).unwrap();
-        g.ret = compiler::types::Ty::of(1 << 3);
+        g.ret = compiler::types::Ty::of(1 << code("str").0);
         assert!(check::types_check(&b.prog, &b.tree).is_err());
         let mut c = typed(&chunk, &rules).unwrap();
         for v in c.tree.tables.values_mut() { v.tags = 0; }
@@ -77,6 +78,21 @@ mod test {
         assert_eq!(sites(kept), 1);
         assert_eq!(sites(&kept.replace("return p.x", "return p")), 0, "returned, it leaves its frame");
         assert_eq!(sites(&kept.replace("return p.x", "q = [p]\n    return 1")), 0, "kept in a list, it leaves its frame");
+        // Two sites met in one list or one result leave as instances of their class.
+        let two = "class P:\n    def __init__(self, x):\n        self.x = x\nkeep = []\ndef f():\n    a = P(1)\n    keep.append(a)\n    b = P(2)\n    keep.append(b)\nf()\n";
+        assert_eq!(sites(two), 0);
+        assert_eq!(sites(&kept.replace("    p = P(n)\n    return p.x", "    return P(1) if n < 2 else P(2)")), 0);
+        assert_eq!(sites(&kept.replace("return p.x", "return p is None")), 0, "compared by identity");
+        assert_eq!(sites(&kept.replace("return p.x", "return id(p)")), 0, "its identity asked");
+    }
+
+    #[test]
+    fn module_code_keeps_its_types() {
+        let src = "x = 1\ny = x + 1\nprint(y)\n";
+        assert_eq!(read(src, 3, "y"), [code("int")]);
+        let rules = Rules::read(&ept()).unwrap();
+        let (chunk, _) = compiler::code::compile(src);
+        assert!(!typed(&chunk, &rules).unwrap().tree.wild);
     }
 
     #[test]
@@ -84,5 +100,6 @@ mod test {
         assert!(Rules::read(&ept().replacen("8855578768056f9e68dab3f2a3361e158ed7d9e2", "0000000000000000000000000000000000000000", 1)).is_err());
         assert!(Rules::read(&(ept() + "rule Add int int -> int | soon a0\n")).is_err());
         assert!(Rules::read(&(ept() + "frobnicate Add\n")).is_err());
+        assert!(Rules::read(&(ept() + "tag int 1 1\n")).is_err(), "a tag is a name and one code");
     }
 }

@@ -136,3 +136,4 @@ rule Is * * -> bool
 rule StoreItem list int * -> | puts a0 a2 | raises IndexError
 rule Mul int int -> int | r0 = a0*a1 | raises MemoryError unless r0 in -140737488355328..140737488355327
 stack Mul 2 1
+method list.append list * -> NoneType | puts a0 a1
