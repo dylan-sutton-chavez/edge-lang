@@ -52,7 +52,13 @@ fn body(rt: *mut Rt, chunk: &compiler::code::SSAChunk, k: i64) -> i64 {
                 let mut io: Vec<i64> = args.iter().skip(3).copied().chain(std::iter::repeat_n(UNDEF, 8)).collect();
                 let r = unsafe { h(rt, site, at(0), at(1), at(2), io.as_mut_ptr(), stack.as_mut_ptr(), stack.len() as u32) };
                 // Every value a handler gives has its type in Edge's tree, heap_type is total.
-                if !is_err(r) && r != UNDEF { assert_ne!(unsafe { native::heap_type(rt, r) }, u32::MAX, "{op:?} gave {r:x}, which heap_type does not name"); }
+                if !is_err(r) && r != UNDEF {
+                    let (t, name) = (unsafe { native::heap_type(rt, r) }, native::type_name(unsafe { &*rt }, r));
+                    assert_ne!(t, u32::MAX, "{op:?} gave {r:x}, which heap_type does not name");
+                    // Its code is the one the VM's own name of the type has, a family's for an instance, a function or an iterator.
+                    let family = (BUILTIN_TYPES.len()..BUILTIN_TYPES.len() + 3).contains(&(t as usize)) || name == "exception" || name.starts_with("method");
+                    assert!(family || t == native::type_id(name) || native::type_id(name) == u32::MAX && t == native::type_id("object"), "{op:?} gave a {name} heap_type codes {t}");
+                }
                 if !is_err(r) {
                     if matches!(op, OpCode::SetupExcept | OpCode::SetupFinally) { tries.push((ins.operand as usize, stack.len())); }
                     if op == OpCode::PopExcept { tries.pop(); }
@@ -134,3 +140,44 @@ fn gc_keeps_values_in_place() {
     assert_eq!(unsafe { native::heap_type(rt, freed) }, u32::MAX, "{WHY}");
 }
 
+
+/* How many generator and coroutine calls of the corpus escape, the cost of laying only those that do not: a call of a
+   generator function whose value only a `for` over it takes, or of a coroutine function only an `await` takes, is laid
+   in its consumer; any other runs on the VM. Read off each body's bytecode, a value's maker and its taker. */
+#[test]
+fn generators_that_escape() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/cases/vm.json");
+    let cases: Vec<Case> = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let (mut laid, mut escape) = ([0usize; 2], [0usize; 2]);
+    fn walk(c: &compiler::code::SSAChunk, laid: &mut [usize; 2], escape: &mut [usize; 2]) {
+        // Each name a `def` of a generator (0) or a coroutine (1) bound, and each stack value's maker.
+        let (mut kinds, mut stack) = (std::collections::HashMap::new(), Vec::<Option<(usize, usize)>>::new());
+        let mut made: Vec<(usize, usize, Option<OpCode>)> = Vec::new();
+        for (ip, ins) in c.instructions.iter().enumerate() {
+            let Some((pops, pushes)) = effect(ins, c) else { stack.clear(); continue };
+            let Some(under) = stack.len().checked_sub(pops as usize) else { stack.clear(); continue };
+            let taken = stack.split_off(under);
+            for v in taken.iter().flatten() { if let Some(m) = made.iter_mut().find(|m| m.0 == v.0 && m.2.is_none()) { m.2 = Some(ins.opcode); } }
+            let pushed: Option<(usize, usize)> = match ins.opcode {
+                OpCode::MakeFunction => Some((ip, usize::from(c.functions[ins.operand as usize].1.is_generator) * 10)),
+                OpCode::MakeCoroutine => Some((ip, 11)),
+                OpCode::StoreName => { if let Some(Some((_, k @ 10..=11))) = taken.first() { kinds.insert(ins.operand, *k - 10); } None }
+                OpCode::LoadName => kinds.get(&ins.operand).map(|&k| (ip, 20 + k)),
+                OpCode::Call => match taken.first() { Some(Some((_, k @ 20..=21))) => { made.push((ip, *k - 20, None)); Some((ip, 30)) } _ => None },
+                _ => None,
+            };
+            stack.extend((0..pushes).map(|j| if j == 0 { pushed } else { None }));
+        }
+        for (_, k, taker) in made {
+            let own = if k == 0 { taker == Some(OpCode::GetIter) } else { taker == Some(OpCode::GetAwaitable) };
+            if own { laid[k] += 1 } else { escape[k] += 1 }
+        }
+        for f in &c.functions { walk(&f.1, laid, escape); }
+        for k in &c.classes { walk(k, laid, escape); }
+    }
+    for case in &cases {
+        let (chunk, errors) = compiler::code::compile(&case.src);
+        if errors.is_empty() { walk(&chunk, &mut laid, &mut escape); }
+    }
+    eprintln!("generator calls: {} laid, {} escape; coroutine calls: {} laid, {} escape", laid[0], escape[0], laid[1], escape[1]);
+}
