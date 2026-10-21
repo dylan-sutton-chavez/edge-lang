@@ -1464,6 +1464,8 @@ impl<'a> VM<'a> {
                         break Err(e)
                     };
                     let (fi, call_ip, generator) = (f.fi, f.call_ip, f.generator);
+                    // A StopIteration a generator's own body raises leaves it as RuntimeError (PEP 479).
+                    let e = if !generator.is_undef() && is_stop(&e) { let kind = self.type_name(generator).replace('_', " "); self.stop_out_of(&kind, e) } else { e };
                     // What a job's generator raises goes as its job takes it, an `async for` ending or an async generator's turning RuntimeError.
                     let e = if f.job && !generator.is_undef() {
                         match self.job_raised(e) {

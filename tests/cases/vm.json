@@ -1,4 +1,8 @@
 [
+  {"src": "def g():\n    yield 1\n    raise StopIteration\nfor x in g():\n    print(x)\nprint(\"end\")", "output": ["1"], "error": "RuntimeError: generator raised StopIteration"},
+  {"src": "def g():\n    yield 1\n    raise StopIteration(\"x\")\nk = g()\nprint(next(k))\ntry:\n    next(k)\nexcept RuntimeError as e:\n    print(\"rt\", e, type(e.__cause__).__name__)", "output": ["1", "rt generator raised StopIteration StopIteration"]},
+  {"src": "def g():\n    yield 1\n    next(iter([]))\ntry:\n    print([x for x in g()])\nexcept RuntimeError as e:\n    print(e)\nasync def c():\n    raise StopIteration\ntry:\n    c().send(None)\nexcept RuntimeError as e:\n    print(e)", "output": ["generator raised StopIteration", "coroutine raised StopIteration"]},
+  {"src": "# a section refused while its callees were wanted leaves no table pair naming them, the head grown for a closure that makes a lambda\ndef leaf1(x):\n    return x + 1\ndef leaf2(x):\n    return x * 2\ndef outer(n):\n    def mk(f, x):\n        g = lambda y: y + n\n        return f(x) + g(x)\n    return mk\nmk = outer(3)\ndef plain(f, x):\n    return f(x)\ndef run(h, f, x):\n    return h(f, x)\nt = 0\nfor i in range(300):\n    t += run(plain, leaf1, i) + run(plain, leaf2, i)\n    t += mk(leaf1, i) + mk(leaf2, i)\nfor i in range(300):\n    t += run(mk, leaf1, i)\nprint(t)\n", "output": ["452100"]},
   {"src": "x = 42", "output": []},
   {"src": "print(42)", "output": ["42"]},
   {"src": "print(1 + 2)", "output": ["3"]},

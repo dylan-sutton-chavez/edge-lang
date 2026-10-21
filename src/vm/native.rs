@@ -428,24 +428,30 @@ pub unsafe extern "C" fn edge_returned(rt: *mut Rt) -> i64 { ok(unsafe { &*rt }.
 /// `src` points at `len` bytes of UTF-8, `argv` at `argc` C strings.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn edge_boot(src: *const u8, len: u64, path: *const u8, plen: u64, argc: i32, argv: *const *const core::ffi::c_char) -> *mut Rt {
-    let args: Vec<String> = (1..argc.max(0) as usize).map(|k| unsafe { core::ffi::CStr::from_ptr(*argv.add(k)) }.to_string_lossy().into_owned()).collect();
-    let (mut memory, mut events) = (Limits::sandbox().memory, Vec::new());
-    let mut it = args.iter();
-    while let Some(flag) = it.next() {
-        let value = it.next();
-        match (flag.as_str(), value.map(String::as_str)) {
-            ("--memory", Some(mb)) if let Ok(mb) = mb.parse::<usize>() => memory = mb.saturating_mul(1 << 20),
-            ("--events", Some(path)) => match std::fs::read_to_string(path) {
-                Ok(text) => events.extend(text.lines().map(String::from)),
-                Err(e) => { fail(&crate::s!("error: cannot open events '", str path, "': ", str &alloc::string::ToString::to_string(&e))); return core::ptr::null_mut(); }
-            },
-            _ => { fail(&crate::s!("error: unknown flag '", str flag, "', a native program takes --memory MB and --events FILE")); return core::ptr::null_mut(); }
-        }
-    }
     let path = (plen != 0).then(|| crate::util::leak(String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(path, plen as usize) }).into_owned().into_boxed_str()) as &'static str);
-    let rt = unsafe { boot(src, len as usize, path, memory, false) };
-    if !rt.is_null() { for e in &events { let _ = unsafe { &mut *rt }.vm.push_event(e); } }
-    rt
+    // A `.wasm` reads no arguments, environment or file, the sandbox's own rule: it imports only fd_write and proc_exit.
+    #[cfg(target_arch = "wasm32")]
+    { let _ = (argc, argv); unsafe { boot(src, len as usize, path, Limits::sandbox().memory, false) } }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let args: Vec<String> = (1..argc.max(0) as usize).map(|k| unsafe { core::ffi::CStr::from_ptr(*argv.add(k)) }.to_string_lossy().into_owned()).collect();
+        let (mut memory, mut events) = (Limits::sandbox().memory, Vec::new());
+        let mut it = args.iter();
+        while let Some(flag) = it.next() {
+            let value = it.next();
+            match (flag.as_str(), value.map(String::as_str)) {
+                ("--memory", Some(mb)) if let Ok(mb) = mb.parse::<usize>() => memory = mb.saturating_mul(1 << 20),
+                ("--events", Some(path)) => match std::fs::read_to_string(path) {
+                    Ok(text) => events.extend(text.lines().map(String::from)),
+                    Err(e) => { fail(&crate::s!("error: cannot open events '", str path, "': ", str &alloc::string::ToString::to_string(&e))); return core::ptr::null_mut(); }
+                },
+                _ => { fail(&crate::s!("error: unknown flag '", str flag, "', a native program takes --memory MB and --events FILE")); return core::ptr::null_mut(); }
+            }
+        }
+        let rt = unsafe { boot(src, len as usize, path, memory, false) };
+        if !rt.is_null() { for e in &events { let _ = unsafe { &mut *rt }.vm.push_event(e); } }
+        rt
+    }
 }
 
 /* `edge_boot` from Rust, the program's output kept for `output` when `keep`. */
@@ -541,6 +547,20 @@ pub unsafe extern "C" fn edge_back(rt: *mut Rt, fi: u32, site: i64, last: i64) {
     if r.frames.last().is_some_and(|f| f.depth == r.vm.depth && f.body == fi as usize + 1) { unsafe { edge_close(rt) } }
     r.vm.depth -= 1;
     if is_err(last) { unsafe { edge_note(rt, fi, site) } }
+}
+
+/* A raise leaving a generator body the glue laid in the loop consuming it, `last`: a StopIteration there leaves it as
+   RuntimeError, as it leaves a generator the VM runs (PEP 479). */
+/// # Safety
+/// `rt` comes from `edge_boot`.
+#[unsafe(no_mangle)]
+#[cold]
+pub unsafe extern "C" fn edge_stop_out(rt: *mut Rt, last: i64) -> i64 {
+    if !is_err(last) || err_id(last) != const { type_id("StopIteration") } { return last; }
+    let vm = unsafe { &mut *(*rt).vm };
+    let e = vm.reg_error.take().unwrap_or_else(|| VmErr::Raised("StopIteration".into()));
+    let e = vm.stop_out_of("generator", e);
+    raised(vm, e)
 }
 
 /* The cold halves of `edge_go` and `edge_back`, out of line so the glue inlines only the depth. */
