@@ -50,8 +50,13 @@ pub struct Rules {
 fn bad(w: &str, what: &str) -> String { format!("edge.ept: '{w}' is not {what}") }
 fn int(w: &str) -> Result<i64, String> { w.parse().map_err(|_| bad(w, "an integer")) }
 fn pos(w: &str, side: char) -> Result<usize, String> { w.strip_prefix(side).and_then(|n| n.parse().ok()).ok_or_else(|| bad(w, "a position")) }
-fn rhs(w: &str, open: i64) -> Result<Rhs, String> { if w.is_empty() { Ok(Rhs::N(open)) } else if w.starts_with('a') { pos(w, 'a').map(Rhs::A) } else { int(w).map(Rhs::N) } }
-fn span(w: &str) -> Result<(Rhs, Rhs), String> { let (lo, hi) = w.split_once("..").ok_or_else(|| bad(w, "a range"))?; Ok((rhs(lo, i64::MIN)?, rhs(hi, i64::MAX)?)) }
+fn rhs(w: &str, open: i64) -> Result<Rhs, String> {
+    if w.is_empty() { Ok(Rhs::N(open)) } else if w.starts_with('a') { pos(w, 'a').map(Rhs::A) } else { int(w).map(Rhs::N) }
+}
+fn span(w: &str) -> Result<(Rhs, Rhs), String> {
+    let (lo, hi) = w.split_once("..").ok_or_else(|| bad(w, "a range"))?;
+    Ok((rhs(lo, i64::MIN)?, rhs(hi, i64::MAX)?))
+}
 fn num(r: Rhs) -> Result<i64, String> { if let Rhs::N(n) = r { Ok(n) } else { Err("edge.ept: an operand where a number goes".into()) } }
 
 impl Rules {

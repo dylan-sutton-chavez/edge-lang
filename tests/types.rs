@@ -93,7 +93,7 @@ mod test {
     #[test]
     fn module_code_keeps_its_types() {
         // A name deleted and read again ends: unbound alone holds no integer.
-        assert_eq!(read("x = 5\ndel x\ntry:\n    print(x)\nexcept NameError:\n    print('gone')\n", 5, "NameError"), [code("NameError")]);
+        assert_eq!(read("x = 5\ndel x\ntry:\n    print(x)\nexcept NameError:\n    print('gone')\n", 5, "NameError"), [code("type")]);
         let src = "x = 1\ny = x + 1\nprint(y)\n";
         assert_eq!(read(src, 3, "y"), [code("int")]);
         let rules = Rules::read(&ept()).unwrap();
@@ -127,5 +127,7 @@ mod test {
         assert!(Rules::read(&(ept() + "rule Add int int -> int | soon a0\n")).is_err());
         assert!(Rules::read(&(ept() + "frobnicate Add\n")).is_err());
         assert!(Rules::read(&(ept() + "tag int 1 1\n")).is_err(), "a tag is a name and one code");
+        // The shipped file holds rules only once Spider Monkey's rules are copied in for these very sources.
+        if let Err(e) = compiler::types::rules() { assert!(e.contains("other Edge sources"), "{e}"); }
     }
 }

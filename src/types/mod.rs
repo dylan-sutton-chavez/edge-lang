@@ -28,11 +28,23 @@ pub fn runs(t: Tags) -> Vec<(u8, u8)> {
     if t | UNBOUND == ALL { vec![(0, 255)] } else { out }
 }
 
-/* Which value of its tags a value is known to be, when one is: a builtin type object by its code, a function or class of
-   the program by its body, a container made at a site (body << 16 | ip), an instance of class `c` made at a site, method
-   `f` bound to one, builtin method `name` of a value of code `c` made at a site, the generator or coroutine of context `x`. */
+/* Which value of its tags a value is known to be, when one is. */
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub enum Known { No, Type(u8), Body(u32), Site(u32), Obj(u32, u32), Bound(u32, u32, u32), Meth(u8, u32, u32), Gen(u32) }
+pub enum Known {
+    No,
+    // A builtin type object, by its code.
+    Type(u8),
+    // A function or class of the program, by its body.
+    Body(u32),
+    // A container made at a site (body << 16 | ip), and an instance of class body `c` made at one (NO for any).
+    Site(u32),
+    Obj(u32, u32),
+    // Method `f` bound to an instance of class `c` made at a site, and builtin method `name` of a value of code `c` made at one.
+    Bound(u32, u32, u32),
+    Meth(u8, u32, u32),
+    // The generator or coroutine of the tree's context `x`.
+    Gen(u32),
+}
 
 impl Known {
     /* Instances of one class made at two sites keep their class, their site then any (NO). */
@@ -64,8 +76,9 @@ impl Ty {
         if self.tags & !UNBOUND == 0 || o.tags & !UNBOUND == 0 { let (v, u) = if self.tags & !UNBOUND == 0 { (o, self) } else { (self, o) }; return Ty { tags: v.tags | u.tags, ..*v }; }
         Ty { tags: self.tags | o.tags, lo: self.lo.min(o.lo), hi: self.hi.max(o.hi), known: self.known.join(o.known) }
     }
-    /* Every value of `self` is one of `o`, unbound alone holding no integer. */
+    /* Every value of `self` is one of `o`. */
     pub fn within(&self, o: &Ty) -> bool {
+        // Unbound alone holds no integer and is no value.
         self.tags & !o.tags == 0 && (self.tags & !UNBOUND == 0 || o.lo <= self.lo && self.hi <= o.hi && o.known.join(self.known) == o.known)
     }
 }
@@ -99,6 +112,9 @@ impl State {
     pub fn same(&self, o: &State) -> bool { self.all(o, Ty::same) }
     pub fn within(&self, o: &State) -> bool { self.all(o, Ty::within) }
 }
+
+/* The rules this build ships, an error with its reason when they are of other sources or not of format 1. */
+pub fn rules() -> Result<read::Rules, String> { read::Rules::read(include_str!("edge.ept")) }
 
 /* A program typed by the rules and accepted by the reviewer. */
 pub struct Typed<'c> { pub prog: step::Prog<'c>, pub tree: tree::Tree }
