@@ -21,8 +21,6 @@ pub const ALL: Tags = !0;
 // Not a runtime type: the code a slot holds while unbound.
 pub const UNBOUND: Tags = 1 << 127;
 
-pub fn codes(lo: u8, hi: u8) -> Tags { (lo..=hi.min(126)).fold(0, |t, c| t | 1 << c) }
-
 /* The runs of codes, as the CI reads them. */
 pub fn runs(t: Tags) -> Vec<(u8, u8)> {
     let mut out: Vec<(u8, u8)> = Vec::new();
@@ -30,22 +28,22 @@ pub fn runs(t: Tags) -> Vec<(u8, u8)> {
     if t | UNBOUND == ALL { vec![(0, 255)] } else { out }
 }
 
-/* Which value of its tags a value is known to be, when one is. */
+/* Which value of its tags a value is known to be, when one is: a builtin type object by its code, a function or class of
+   the program by its body, a container made at a site (body << 16 | ip), an instance of class `c` made at a site, method
+   `f` bound to one, builtin method `name` of a value of code `c` made at a site, the generator or coroutine of context `x`. */
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub enum Known {
-    No,
-    // A builtin type object, by its code.
-    Type(u8),
-    // A function or class of the program, by its body.
-    Body(u32),
-    // A container made at a site (body << 16 | ip), or an instance of class body `c` made there.
-    Site(u32),
-    Obj(u32, u32),
-    // A method of body `f` bound to an instance of class `c` made at `s`, and builtin method `name` of a value of code `c` made at `s`.
-    Bound(u32, u32, u32),
-    Meth(u8, u32, u32),
-    // A generator of the tree's context `x`.
-    Gen(u32),
+pub enum Known { No, Type(u8), Body(u32), Site(u32), Obj(u32, u32), Bound(u32, u32, u32), Meth(u8, u32, u32), Gen(u32) }
+
+impl Known {
+    /* Instances of one class made at two sites keep their class, their site then any (NO). */
+    pub fn join(self, o: Known) -> Known {
+        match (self, o) {
+            _ if self == o => self,
+            (Known::Obj(c, _), Known::Obj(d, _)) if c == d => Known::Obj(c, NO),
+            (Known::Bound(f, c, _), Known::Bound(g, d, _)) if (f, c) == (g, d) => Known::Bound(f, c, NO),
+            _ => Known::No,
+        }
+    }
 }
 
 /* The type of a value: its tags, the integers it may be, and which value it is when known. */
@@ -62,12 +60,13 @@ impl Ty {
     /* Equal but for the integers: two paths the tree joins. */
     pub fn same(&self, o: &Ty) -> bool { self.tags == o.tags && self.known == o.known }
     pub fn join(&self, o: &Ty) -> Ty {
-        if self.tags == 0 || o.tags == 0 { return if self.tags == 0 { *o } else { *self }; }
-        Ty { tags: self.tags | o.tags, lo: self.lo.min(o.lo), hi: self.hi.max(o.hi), known: if self.known == o.known { self.known } else { Known::No } }
+        // Unbound is no value: the other side keeps its integers and which value it is.
+        if self.tags & !UNBOUND == 0 || o.tags & !UNBOUND == 0 { let (v, u) = if self.tags & !UNBOUND == 0 { (o, self) } else { (self, o) }; return Ty { tags: v.tags | u.tags, ..*v }; }
+        Ty { tags: self.tags | o.tags, lo: self.lo.min(o.lo), hi: self.hi.max(o.hi), known: self.known.join(o.known) }
     }
-    /* Every value of `self` is one of `o`. */
+    /* Every value of `self` is one of `o`, unbound alone holding no integer. */
     pub fn within(&self, o: &Ty) -> bool {
-        self.tags == 0 || self.tags & !o.tags == 0 && o.lo <= self.lo && self.hi <= o.hi && (o.known == Known::No || o.known == self.known)
+        self.tags & !o.tags == 0 && (self.tags & !UNBOUND == 0 || o.lo <= self.lo && self.hi <= o.hi && o.known.join(self.known) == o.known)
     }
 }
 
@@ -105,7 +104,7 @@ impl State {
 pub struct Typed<'c> { pub prog: step::Prog<'c>, pub tree: tree::Tree }
 
 pub fn typed<'c>(chunk: &'c crate::parser::SSAChunk, rules: &'c read::Rules) -> Result<Typed<'c>, String> {
-    let prog = step::Prog::new(chunk, rules);
+    let prog = step::Prog::new(chunk, rules)?;
     let tree = tree::grow(&prog);
     check::types_check(&prog, &tree)?;
     Ok(Typed { prog, tree })
@@ -124,12 +123,12 @@ impl Typed<'_> {
         dead
     }
 
-    /* How many of the values instructions take have one type over every path, of how many: `edge build --count`. */
+    /* Type coverage: how many of the values instructions take have one type over every path, of how many. */
     pub fn count(&self) -> (usize, usize) {
         let (mut proven, mut total) = (0, 0);
         for (b, body) in self.prog.bodies.iter().enumerate() {
             for (ip, ins) in body.chunk.instructions.iter().enumerate() {
-                let Some((n, _)) = self.prog.rules.effect(ins.opcode, ins.operand, body.chunk) else { continue };
+                let Some(n) = crate::parser::effect(ins, body.chunk).map(|e| e.0 as usize) else { continue };
                 let tops: Vec<&[Entry]> = self.states(b).filter(|x| x.1 == ip && x.2.stack.len() >= n).map(|x| &x.2.stack[x.2.stack.len() - n..]).collect();
                 if tops.is_empty() { continue; }
                 total += n;
@@ -141,6 +140,7 @@ impl Typed<'_> {
 }
 
 /* The tree's tags for each read of a variable, by source line and bare name, for the CI of the rules. */
+#[allow(clippy::type_complexity)]
 pub fn reads(src: &str, ept: &str) -> Result<Vec<(usize, String, Vec<(u8, u8)>)>, String> {
     let rules = read::Rules::read(ept)?;
     let (chunk, errs) = crate::code::compile(src);

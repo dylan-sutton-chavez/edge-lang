@@ -15,6 +15,7 @@ mod embed;
 mod memory;
 mod nested;
 mod tables;
+mod types;
 #[cfg(feature = "pure")]
 mod pure;
 

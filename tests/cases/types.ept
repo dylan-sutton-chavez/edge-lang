@@ -1,0 +1,141 @@
+SOURCES
+# A small edge.ept for the tree's own tests, its rows as the VM runs them; the shipped file comes from Spider Monkey.
+ept 1
+tag int 0
+tag float 1
+tag complex 2
+tag str 3
+tag bytes 4
+tag bytearray 5
+tag memoryview 6
+tag bool 7
+tag list 8
+tag tuple 9
+tag dict 10
+tag frozendict 11
+tag set 12
+tag frozenset 13
+tag range 14
+tag slice 15
+tag type 16
+tag NoneType 17
+tag sentinel 19
+tag Exception 20
+tag BaseException 21
+tag BaseExceptionGroup 22
+tag ExceptionGroup 23
+tag ValueError 24
+tag TypeError 25
+tag NameError 26
+tag UnboundLocalError 27
+tag KeyError 28
+tag UnicodeError 29
+tag UnicodeEncodeError 30
+tag UnicodeDecodeError 31
+tag UnicodeTranslateError 32
+tag IndexError 33
+tag AttributeError 34
+tag RuntimeError 35
+tag PythonFinalizationError 36
+tag ZeroDivisionError 37
+tag OverflowError 38
+tag FloatingPointError 39
+tag MemoryError 40
+tag RecursionError 41
+tag StopIteration 42
+tag StopAsyncIteration 43
+tag NotImplementedError 44
+tag OSError 45
+tag PermissionError 48
+tag FileNotFoundError 49
+tag FileExistsError 50
+tag IsADirectoryError 51
+tag NotADirectoryError 52
+tag InterruptedError 53
+tag BlockingIOError 54
+tag ChildProcessError 55
+tag ProcessLookupError 56
+tag ConnectionError 57
+tag BrokenPipeError 58
+tag ConnectionAbortedError 59
+tag ConnectionRefusedError 60
+tag ConnectionResetError 61
+tag ImportError 62
+tag ModuleNotFoundError 63
+tag SyntaxError 64
+tag IndentationError 65
+tag TabError 66
+tag AssertionError 67
+tag ArithmeticError 68
+tag LookupError 69
+tag BufferError 70
+tag EOFError 71
+tag ReferenceError 72
+tag SystemError 73
+tag TimeoutError 74
+tag SystemExit 75
+tag GeneratorExit 76
+tag KeyboardInterrupt 77
+tag Warning 78
+tag UserWarning 79
+tag DeprecationWarning 80
+tag PendingDeprecationWarning 81
+tag SyntaxWarning 82
+tag RuntimeWarning 83
+tag FutureWarning 84
+tag ImportWarning 85
+tag UnicodeWarning 86
+tag BytesWarning 87
+tag ResourceWarning 88
+tag EncodingWarning 89
+tag instance 90
+tag function 91
+tag iterator 92
+tag generator 93
+tag coroutine 94
+stack Add 2 1
+stack Sub 2 1
+stack Mod 2 1
+stack Lt 2 1
+stack Eq 2 1
+stack GetItem 2 1
+stack BuildList o[0:16] 1
+stack CallPrint o[0:8]+2*o[8:14] 0
+stack CallRange o[0:8]+2*o[8:14] 1
+stack Call 1+o[0:8]+2*o[8:16] 1
+stack MakeFunction defaults 1
+stack MakeClass classargs 1
+stack GetIter 1 0
+stack CallIsInstance 2 1
+stack Is 2 1
+stack StoreItem 3 0
+rule Add int int -> int | r0 = a0+a1 | raises MemoryError unless r0 in -140737488355328..140737488355327
+rule Add str str -> str | raises MemoryError
+rule Add float float -> float
+rule Sub int int -> int | r0 = a0-a1 | raises MemoryError unless r0 in -140737488355328..140737488355327
+rule Mod int int -> int | raises ZeroDivisionError
+rule Eq int int -> bool
+rule Lt int int -> bool | true a0 < a1 | false a0 >= a1
+rule CallIsInstance * =type:int -> bool | true a0 int|bool | false a0 float|complex|str|bytes|bytearray|memoryview|list|tuple|dict|frozendict|set|frozenset|range|slice|type|NoneType|sentinel|Exception|BaseException|BaseExceptionGroup|ExceptionGroup|ValueError|TypeError|NameError|UnboundLocalError|KeyError|UnicodeError|UnicodeEncodeError|UnicodeDecodeError|UnicodeTranslateError|IndexError|AttributeError|RuntimeError|PythonFinalizationError|ZeroDivisionError|OverflowError|FloatingPointError|MemoryError|RecursionError|StopIteration|StopAsyncIteration|NotImplementedError|OSError|PermissionError|FileNotFoundError|FileExistsError|IsADirectoryError|NotADirectoryError|InterruptedError|BlockingIOError|ChildProcessError|ProcessLookupError|ConnectionError|BrokenPipeError|ConnectionAbortedError|ConnectionRefusedError|ConnectionResetError|ImportError|ModuleNotFoundError|SyntaxError|IndentationError|TabError|AssertionError|ArithmeticError|LookupError|BufferError|EOFError|ReferenceError|SystemError|TimeoutError|SystemExit|GeneratorExit|KeyboardInterrupt|Warning|UserWarning|DeprecationWarning|PendingDeprecationWarning|SyntaxWarning|RuntimeWarning|FutureWarning|ImportWarning|UnicodeWarning|BytesWarning|ResourceWarning|EncodingWarning|instance|function|iterator|generator|coroutine
+rule GetItem list int -> * | item r0 a0 | raises AttributeError
+rule BuildList@0 -> list | items r0
+rule BuildList@1 * -> list | items r0 a0
+rule BuildList@2 * * -> list | items r0 a0 a1
+rule CallPrint@1 * -> | raises *
+rule CallPrint@2 * * -> | raises *
+rule GetIter list ->
+rule GetIter range ->
+rule Truth int -> bool | true a0 int
+rule Truth bool -> bool | true a0 == 1 | false a0 == 0
+rule Truth NoneType -> bool | r0 in 0..0
+rule Truth str -> bool
+rule CallRange int -> range | holds r0 int in 0..a0
+rule Add int str -> ! | raises TypeError
+rule Add str int -> ! | raises TypeError
+rule Is * * -> bool
+rule StoreItem list int * -> | puts a0 a2 | raises IndexError
+rule Mul int int -> int | r0 = a0*a1 | raises MemoryError unless r0 in -140737488355328..140737488355327
+stack Mul 2 1
+method list.append list * -> NoneType | puts a0 a1
+rule CallCallable * -> bool
+rule CallRepr * -> str | calls a0
