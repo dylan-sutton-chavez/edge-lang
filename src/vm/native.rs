@@ -477,11 +477,9 @@ pub unsafe extern "C" fn edge_boot(src: *const u8, len: u64, path: *const u8, pl
 /// `src` points at `len` bytes of UTF-8.
 pub unsafe fn boot(src: *const u8, len: usize, path: Option<&'static str>, memory: usize, keep: bool) -> *mut Rt {
     let src: &'static str = crate::util::leak(String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(src, len) }).into_owned().into_boxed_str());
-    let (chunk, errors) = crate::code::compile(src);
-    let lexed = crate::lexer::lex(src).1;
-    let first = lexed.first().map(|e| (String::from(e.msg), e.start)).or_else(|| errors.first().map(|e| (e.msg.clone(), e.start)));
-    if let Some((msg, at)) = first { fail(&crate::value::err::render_text_at(msg, src, Some(at), path)); return core::ptr::null_mut(); }
-    let chunk: &'static SSAChunk = crate::util::leak(Box::new(chunk));
+    let chunk = match crate::code::compile_with(src, || path.map(String::from), Box::new(crate::modules::NoopResolver)) { Ok(c) => c, Err(report) => { fail(&report); return core::ptr::null_mut() } };
+    // SAFETY the program lives as long as the process, its one reference never given back.
+    let chunk: &'static SSAChunk = unsafe { &*Rc::into_raw(chunk) };
     let mut vm = VM::boxed(chunk, Limits { ops: u64::MAX, memory });
     if !keep { vm.print_hook = Some(out); }
     let Ok(paying) = vm.paying() else { return core::ptr::null_mut() };

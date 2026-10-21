@@ -69,11 +69,12 @@ pub fn build(manifest_path: &Path, file: Option<&Path>, opts: &Opts) -> Result<(
         true => (vec![entry.clone()], PathBuf::new()),
         false => {
             let src = std::fs::read_to_string(&entry).with_context(|| format!("reading {}", entry.display()))?;
-            let (chunk, errors) = compiler::code::compile(&src);
-            // The diagnostics as `edge run` prints them, already headed `error:`.
+            // A native program carries one file for now, so an import is refused, and the file compiles as edge run compiles it.
+            if let Some(compiler::modules::ImportSpec::Bare(spec) | compiler::modules::ImportSpec::Relative(spec) | compiler::modules::ImportSpec::Root(spec)) = compiler::modules::scan_imports(&src).first() { bail!("edge build compiles a single file for now, '{spec}' is an import"); }
+            let name = crate::host::driver::path_spec(&entry);
+            let chunk = compiler::code::compile_with(&src, || Some(name.clone()), Box::new(compiler::modules::NoopResolver)).unwrap_or_else(|report| { eprintln!("{report}"); std::process::exit(1) });
             // Its SyntaxWarnings belong to compiling it, printed as edge run prints them and never again by the binary.
-            if !chunk.warnings.is_empty() { eprint!("{}", compiler::code::Diagnostic::render_warnings(&chunk.warnings, &src, Some(&crate::host::driver::path_spec(&entry)))); }
-            if !errors.is_empty() { eprintln!("{}", compiler::code::Diagnostic::render_all(&errors, &src, Some(&entry.to_string_lossy()))); std::process::exit(1); }
+            if !chunk.warnings.is_empty() { eprint!("{}", compiler::code::Diagnostic::render_warnings(&chunk.warnings, &src, Some(&name))); }
             // Rules that are not these sources', or a tree the reviewer refuses, leave every opcode to its handler.
             let rules = compiler::types::rules();
             let typed = rules.as_ref().map_err(String::clone).and_then(|r| compiler::types::typed(&chunk, r));
@@ -85,15 +86,11 @@ pub fn build(manifest_path: &Path, file: Option<&Path>, opts: &Opts) -> Result<(
         }
     };
     let sys = tools::Sysroot::open(&target)?;
-    let sp = crate::ui::spinner(&format!("compiling {} for {target}", entry.display()));
-    match run::compile(&sys, &modules, &object, &target, opts, &out) {
-        Ok(()) => sp.done(&format!("built {}", out.display())),
-        Err(e) => {
-            sp.fail(&format!("failed to build {}", out.display()));
-            return Err(e);
-        }
-    }
-    Ok(())
+    // Progress is for a person at a terminal, so a build's stderr elsewhere holds only its diagnostics and notes.
+    let sp = std::io::IsTerminal::is_terminal(&std::io::stderr()).then(|| crate::ui::spinner(&format!("compiling {} for {target}", entry.display())));
+    let built = run::compile(&sys, &modules, &object, &target, opts, &out);
+    match (sp, &built) { (Some(sp), Ok(())) => sp.done(&format!("built {}", out.display())), (Some(sp), Err(_)) => sp.fail(&format!("failed to build {}", out.display())), _ => {} }
+    built
 }
 
 /* The C entry `target`'s start code calls, wasi-libc's without arguments so a `.wasm` imports only fd_write and proc_exit. */

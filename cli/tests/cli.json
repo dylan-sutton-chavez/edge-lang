@@ -506,5 +506,10 @@
     },
     "run": ["run", "main.py"],
     "fails": ["name 'all' is reserved for permissions"]
+  },
+  {
+    "given": { "main.py": "from .helper import f\nprint(f())\n", "helper.py": "def f():\n    return 1\n" },
+    "run": ["build", "main.py"],
+    "fails": ["edge build compiles a single file for now, './helper.py' is an import"]
   }
 ]

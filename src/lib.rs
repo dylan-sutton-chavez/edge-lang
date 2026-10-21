@@ -75,6 +75,27 @@ pub mod code {
         (chunk, errors)
     }
 
+    /* `src` lexed, parsed with `resolver` for its imports and folded, as every host compiles a program: Err is its
+       diagnostics rendered, the warnings before the first error ahead of them, as Python gives them while it compiles. */
+    #[inline(always)]
+    pub fn compile_with(src: &str, name: impl FnOnce() -> Option<alloc::string::String>, resolver: alloc::boxed::Box<dyn crate::modules::Resolver>) -> Result<alloc::rc::Rc<SSAChunk>, alloc::string::String> {
+        let (tokens, lex_errs) = crate::lexer::lex(src);
+        let mut p = Parser::with_resolver(src, tokens.into_iter(), resolver);
+        p.errors.extend(lex_errs.into_iter().map(|e| Diagnostic { start: e.start, end: e.end, msg: e.msg.into() }));
+        let errs = p.parse_in_place();
+        if let Some(first) = errs.iter().map(|e| e.start).min() {
+            // The name is read only for a report, a program that compiles never pays for it.
+            let name = name();
+            let name = name.as_deref();
+            p.chunk.warnings.retain(|w| w.start < first);
+            if p.chunk.warnings.is_empty() { return Err(Diagnostic::render_all(&errs, src, name)); }
+            return Err(crate::s!(str &Diagnostic::render_warnings(&p.chunk.warnings, src, name), str &Diagnostic::render_all(&errs, src, name)));
+        }
+        constant_fold(&mut p.chunk);
+        // Shared at once, so the chunk is moved a single time.
+        Ok(alloc::rc::Rc::new(p.chunk))
+    }
+
     // Each body's scope and parameters resolved as the VM resolves them without running.
     pub struct Program<'c> { vm: crate::vm::VM<'c>, bodies: crate::util::hash::FxHashMap<*const SSAChunk, (BodyKind, alloc::vec::Vec<Binding>)> }
 

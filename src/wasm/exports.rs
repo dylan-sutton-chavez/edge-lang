@@ -1,6 +1,5 @@
-use crate::lexer::lex;
 use crate::modules::entry_dir;
-use crate::parser::{Parser, Diagnostic, SSAChunk};
+use crate::parser::{Diagnostic, SSAChunk};
 use crate::vm::{VM, Limits};
 use crate::vm::types::{HeapObj, SchedulerStatus, VmErr};
 use alloc::{boxed::Box, rc::Rc, string::{String, ToString}};
@@ -32,25 +31,8 @@ fn err_status(msg: &str) -> u32 {
 
 /* Lex and parse with the host resolver, Err is rendered diagnostics. */
 fn parse_source(src: &str) -> Result<Rc<SSAChunk>, String> {
-    let (tokens, lex_errs) = lex(src);
     let dir = with_slot(|s| s.entry_dir.clone());
-    let resolver = Box::new(WasmHostResolver { dir, late: false });
-    let mut p = Parser::with_resolver(src, tokens.into_iter(), resolver);
-    for e in lex_errs {
-        p.errors.push(Diagnostic { start: e.start, end: e.end, msg: e.msg.into() });
-    }
-    let errs = p.parse_in_place();
-    if !errs.is_empty() {
-        let name = source_name();
-        let report = Diagnostic::render_all(&errs, src, name.as_deref());
-        if p.chunk.warnings.is_empty() { return Err(report); }
-        // The warnings before the first error print ahead of it, as Python gives them while it compiles.
-        let first = errs.iter().map(|e| e.start).min().unwrap_or(0);
-        p.chunk.warnings.retain(|w| w.start < first);
-        return Err(s!(str &Diagnostic::render_warnings(&p.chunk.warnings, src, name.as_deref()), str &report));
-    }
-    crate::optimizer::constant_fold(&mut p.chunk);
-    Ok(Rc::new(p.chunk))
+    crate::code::compile_with(src, source_name, Box::new(WasmHostResolver { dir, late: false }))
 }
 
 /* The parsed program for `src`, shared by every slot booting the same source from the same dir. */
