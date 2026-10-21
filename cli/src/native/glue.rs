@@ -179,20 +179,30 @@ fn code(ir: &mut String, ops: &mut Vec<String>, b: &Body, bodies: &[Body], typed
     // A host's `PopIter` of a laid loop has no VM iterator to pop.
     let laid_pop = |ip: usize| c.instructions.iter().enumerate().filter(|(f, i)| i.opcode == O::ForIter && *f < ip && ip < i.operand as usize).max_by_key(|x| x.0).is_some_and(|(f, _)| laid.iter().any(|l| l.0 == f));
     let mut called = vec![false; c.instructions.len()];
+    // Which stack slots hold a constant the glue wrote, on the one way into each instruction; a jump target, or any after a frame move, knows none.
+    let moves = c.instructions.iter().any(|i| matches!(i.opcode, O::SetupExcept | O::SetupFinally));
+    let mut entered = vec![moves; c.instructions.len() + 1];
+    for i in c.instructions.iter().filter(|i| matches!(i.opcode, O::Jump | O::JumpIfFalse | O::JumpIfFalseOrPop | O::JumpIfTrueOrPop | O::ForIter)) { entered[i.operand as usize] = true; }
+    let mut plain: Vec<bool> = Vec::new();
     for (ip, ins) in c.instructions.iter().enumerate() {
         let _ = writeln!(ir, "{p}i{ip}:");
         let Some(d) = at[ip].filter(|_| !dead.get(ip).copied().unwrap_or(false)) else { ir.push_str("  unreachable\n"); continue };
         let site = (b.at as i64) << 32 | (ip as i64) << 16 | ins.operand as i64;
         // The module's last return meets an empty stack and takes nothing.
         let (pops, pushes) = effect(ins, c).map_or((0, 0), |(p, q)| ((p as usize).min(d), q as usize));
+        // A branch that keeps or pops its value tests the top it leaves in place.
+        let (pops, pushes) = if matches!(ins.opcode, O::JumpIfFalseOrPop | O::JumpIfTrueOrPop) { (1, 0) } else { (pops, pushes) };
         let (base, t, next, k) = (d - pops, ins.operand as usize, format!("{p}i{}", ip + 1), format!("{p}{ip}"));
+        if entered[ip] { plain.clear(); }
+        plain.resize(d, false);
+        let kept: Vec<bool> = plain.drain(base..).collect();
         let seen = states(typed, b, ip);
         let lay_here = laid.iter().find(|l| l.0 == ip + 2 || l.0 == ip + 1 || l.0 == ip);
         // A stack move reads its inputs and writes them back in their new order.
         let order: Option<&[usize]> = match ins.opcode { O::Dup => Some(&[0, 0]), O::Dup2 => Some(&[0, 1, 0, 1]), O::Swap => Some(&[1, 0]), O::Rot3 => Some(&[1, 2, 0]), O::PopTop => Some(&[]), _ => None };
         if let Some(order) = order {
             for j in 0..pops { let _ = writeln!(ir, "  %m{k}.{j} = load i64, ptr %{p}s{}", base + j); }
-            for (j, &from) in order.iter().enumerate() { let _ = writeln!(ir, "  store i64 %m{k}.{from}, ptr %{p}s{}", base + j); }
+            for (j, &from) in order.iter().enumerate() { let _ = writeln!(ir, "  store i64 %m{k}.{from}, ptr %{p}s{}", base + j); plain.push(kept[from]); }
             let _ = writeln!(ir, "  br label %{next}");
             continue;
         }
@@ -200,9 +210,11 @@ fn code(ir: &mut String, ops: &mut Vec<String>, b: &Body, bodies: &[Body], typed
             (O::LoadConst, Some(Value::Int(i))) => Val::int_checked(*i).map(|v| v.raw()),
             (O::LoadConst, Some(Value::Float(f))) => Some(Val::float(*f).raw()),
             (O::LoadConst, Some(Value::Bool(v))) => Some(Val::bool(*v).raw()),
-            (O::LoadConst, Some(Value::None)) => Some(Val::none().raw()),
+            (O::LoadConst, Some(Value::None)) | (O::LoadNone, _) => Some(Val::none().raw()),
+            (O::LoadTrue | O::LoadFalse, _) => Some(Val::bool(ins.opcode == O::LoadTrue).raw()),
             _ => None,
         };
+        if konst.is_some() { plain.push(true); }
         let back = ins.opcode == O::Jump && t <= ip && called[t..ip].contains(&true);
         let done = match (ins.opcode, lay_here, lay) {
             (O::Jump, ..) if !back => format!("  br label %{p}i{t}"),
@@ -240,7 +252,7 @@ fn code(ir: &mut String, ops: &mut Vec<String>, b: &Body, bodies: &[Body], typed
         let heap = |t: Tags| typed.is_none_or(|ty| t & !["int", "float", "bool", "NoneType"].iter().fold(UNBOUND, |a, n| a | ty.prog.rules.tag(n).unwrap_or(0)) != 0);
         let may = back || collect.contains(&format!("{:?}", ins.opcode).as_str());
         let live: Vec<String> = (0..c.names.len()).filter(|&s| may && local(s) && heap(seen.iter().fold(0, |a, x| a | x.slots.get(s).map_or(!0, |t| t.tags)))).map(|s| format!("%{p}n{s}"))
-            .chain((0..base).filter(|&j| may && heap(seen.iter().fold(0, |a, x| a | x.stack.get(j).map_or(!0, |e| e.ty.tags)))).map(|j| format!("%{p}s{j}"))).collect();
+            .chain((0..base).filter(|&j| may && !plain[j] && heap(seen.iter().fold(0, |a, x| a | x.stack.get(j).map_or(!0, |e| e.ty.tags)))).map(|j| format!("%{p}s{j}"))).collect();
         called[ip] = may;
         for (j, l) in live.iter().enumerate() { let _ = writeln!(ir, "  %l{k}.{j} = load i64, ptr {l}\n  %lp{k}.{j} = getelementptr i64, ptr %live, i64 {j}\n  store i64 %l{k}.{j}, ptr %lp{k}.{j}"); }
         let live_arg = if live.is_empty() { "ptr null, i32 0".to_string() } else { format!("ptr %live, i32 {}", live.len()) };
@@ -276,7 +288,9 @@ fn code(ir: &mut String, ops: &mut Vec<String>, b: &Body, bodies: &[Body], typed
         // An error: a `for` that ended leaves its loop, a `finally` moves the frame or returns, any other goes to the `try` that catches it or out of the function.
         let _ = writeln!(ir, "x{k}:\n  %id{k} = call i32 @err_id(i64 %v{k}) #0");
         if ins.opcode == O::ForIter { let _ = writeln!(ir, "  %end{k} = icmp eq i32 %id{k}, {}\n  br i1 %end{k}, label %{p}i{t}, label %y{k}\ny{k}:", stop()); }
-        let _ = writeln!(ir, "  %jm{k} = icmp uge i32 %id{k}, {JUMP}\n  br i1 %jm{k}, label %j{k}, label %r{k}\nj{k}:\n  %rt{k} = icmp uge i32 %id{k}, {RETURN}\n  %to{k} = and i32 %id{k}, {}\n  store i32 %to{k}, ptr %jt\n  br i1 %rt{k}, label %back, label %goto\nr{k}:", JUMP - 1);
+        // Only the opcodes of `try`, `finally` and return move the frame, so only their errors reach the jump table, which keeps the rest of the body out of one loop through it.
+        if !matches!(ins.opcode, O::SetupExcept | O::SetupFinally | O::PopExcept | O::BeginFinally | O::EndFinally | O::UnwindFinally | O::ReturnValue) { let _ = writeln!(ir, "  br label %r{k}\nr{k}:"); }
+        else { let _ = writeln!(ir, "  %jm{k} = icmp uge i32 %id{k}, {JUMP}\n  br i1 %jm{k}, label %j{k}, label %r{k}\nj{k}:\n  %rt{k} = icmp uge i32 %id{k}, {RETURN}\n  %to{k} = and i32 %id{k}, {}\n  store i32 %to{k}, ptr %jt\n  br i1 %rt{k}, label %back, label %goto\nr{k}:", JUMP - 1); }
         // A StopIteration leaving a laid generator is a RuntimeError, PEP 479.
         if lay.is_some() { let _ = writeln!(ir, "  call i64 @edge_stop_out(ptr %rt, i64 %v{k})"); }
         let _ = writeln!(ir, "  %c{k} = call i64 @edge_raise(ptr %rt, i64 {})\n  %ce{k} = call i1 @is_err(i64 %c{k}) #0\n  br i1 %ce{k}, label %z{k}, label %g{k}\nz{k}:", raised_at(ip));
