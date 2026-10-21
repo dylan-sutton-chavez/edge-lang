@@ -42,8 +42,8 @@ wasm:
 # The VM as one LLVM module per target, the program and its deps in one fat LTO unit: `vm.bc` with its handlers that may
 # collect named in `!edge.safepoints` (the proofs read it), `vm.o` the same module compiled once, and `inline.bc` the
 # handlers' and tag tests' bodies alone, as `available_externally`, which `edge build` inlines into its glue and links
-# with vm.o. `make bitcode TORTURE=1` builds the copy that collects and moves the heap at each safepoint, for the tests.
-# llvm-as comes with `rustup component add llvm-tools`, llvm-extract with an LLVM of the same version (LLVM_X).
+# with vm.o, compiled once by llc. `make bitcode TORTURE=1` builds the copy that collects and moves the heap at each safepoint, for the tests.
+# llvm-as comes with `rustup component add llvm-tools`, llc and llvm-extract with an LLVM of the same version (LLVM_X).
 BITCODE_TARGETS := x86_64-unknown-linux-musl aarch64-unknown-linux-musl aarch64-apple-darwin wasm32-wasip1
 LLVM_BIN = $(shell rustc --print sysroot)/lib/rustlib/$(shell rustc -vV | sed -n 's/host: //p')/bin
 LLVM_X ?= $(LLVM_BIN)
@@ -53,10 +53,11 @@ inline: $(BITCODE_TARGETS:%=inline-%)
 bitcode-%: B = target/bitcode/$*$(if $(TORTURE),-torture)
 bitcode-%:
 	mkdir -p $(B)
-	cargo rustc --locked --profile cli -p edge-native --target $* $(if $(TORTURE),--features gc-torture) -- -C panic=abort -C embed-bitcode=yes --emit=llvm-ir=$(B)/vm.ll,obj=$(B)/vm.o
+	cargo rustc --locked --profile cli -p edge-native --target $* $(if $(TORTURE),--features gc-torture) -- -C panic=abort -C embed-bitcode=yes --emit=llvm-ir=$(B)/vm.ll
 	rustc --edition 2024 -O native/bitcode.rs -o target/bitcode/bitcode
 	target/bitcode/bitcode safepoints $(B)/vm.ll
 	$(LLVM_BIN)/llvm-as $(B)/vm.ll -o $(B)/vm.bc
+	$(LLVM_X)/llc -O3 -filetype=obj -relocation-model=$(if $(findstring musl,$*),static,pic) $(B)/vm.bc -o $(B)/vm.o
 inline-%: B = target/bitcode/$*$(if $(TORTURE),-torture)
 inline-%: bitcode-%
 	$(LLVM_X)/llvm-extract --rfunc '^op_' $(INLINE:%=--func %) -S $(B)/vm.bc -o $(B)/inline.ll

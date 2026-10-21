@@ -30,6 +30,8 @@ fn safepoints(path: &str, text: String) {
     let top = text.lines().filter_map(|l| l.strip_prefix('!')?.split(|c: char| !c.is_ascii_digit()).next()?.parse::<u64>().ok()).max().map_or(0, |n| n + 1);
     let mut out = format!("{text}\n!edge.safepoints = !{{{}}}\n", (0..handlers.len()).map(|k| format!("!{}", top + k as u64)).collect::<Vec<_>>().join(", "));
     for (k, h) in handlers.iter().enumerate() { out += &format!("!{} = !{{!\"{h}\"}}\n", top + k as u64); }
+    // std's personality routine stays a symbol of vm.o, as musl's compiler builtins, linked apart, name it.
+    let out: String = out.lines().map(|l| if l.starts_with("define internal ") && l.contains("@rust_eh_personality(") { format!("define {}\n", &l["define internal ".len()..]) } else { format!("{l}\n") }).collect();
     std::fs::write(path, out).expect("the .ll file written back");
     eprintln!("{} of the handlers may collect", handlers.len());
 }

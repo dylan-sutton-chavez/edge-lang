@@ -16,8 +16,3 @@ static METERED: compiler::value::meter::Metered<dlmalloc::GlobalDlmalloc> = comp
 #[cfg(target_arch = "wasm32")]
 #[panic_handler]
 fn panic(_: &core::panic::PanicInfo) -> ! { compiler::native::exit(101) }
-
-// Nothing unwinds under panic=abort, yet musl's compiler builtins name the personality routine, so on Linux it exists and never runs.
-#[cfg(all(panic = "abort", target_os = "linux"))]
-#[unsafe(no_mangle)]
-pub extern "C" fn rust_eh_personality() { std::process::abort() }
