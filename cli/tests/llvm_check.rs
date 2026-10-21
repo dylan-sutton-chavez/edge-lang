@@ -49,22 +49,20 @@ fn flow() {
     // The VM module edge linked, the host's as edge build targets it, where the tag tests are read.
     let host = if cfg!(target_os = "macos") { "apple-darwin" } else { "unknown-linux-musl" };
     let vm = std::fs::read_to_string(format!("{}/../target/bitcode/{}-{host}/vm.ll", env!("CARGO_MANIFEST_DIR"), std::env::consts::ARCH)).unwrap();
-    checks(&ir, &vm).iter().for_each(|(what, holds)| assert!(holds, "{ALARM}: {what}"));
-}
-
-/* What the optimized module must show for the program above, where fib and mix hold only proven ints. */
-fn checks(ir: &str, vm: &str) -> Vec<(&'static str, bool)> {
-    let [fib, mix] = ["py_fib", "py_mix"].map(|f| *ir::bodies(ir, f).first().unwrap_or_else(|| panic!("{ALARM}: no {f} in the module")));
+    // What the optimized module must show, where fib and mix hold only proven ints.
+    let [fib, mix] = ["py_fib", "py_mix"].map(|f| *ir::bodies(&ir, f).first().unwrap_or_else(|| panic!("{ALARM}: no {f} in the module")));
     // The program's module calls into vm.o, so the interpreter is reached through the VM's own call graph too.
     let both = format!("{ir}\n{vm}");
-    vec![
-        ("fib or mix call what may reach the interpreter", ir::reaching(&both, fib, "edge_vm_loop") + ir::reaching(&both, mix, "edge_vm_loop") == 0),
-        ("fib or mix still test a tag", ir::checks(vm, fib, "is_") + ir::checks(vm, mix, "is_") == 0),
+    let may = ir::reach(&both, "edge_vm_loop");
+    let checks = [
+        ("fib or mix call what may reach the interpreter", ir::reaching(&may, fib, "edge_vm_loop") + ir::reaching(&may, mix, "edge_vm_loop") == 0),
+        ("fib or mix still test a tag", ir::checks(&vm, fib, "is_") + ir::checks(&vm, mix, "is_") == 0),
         ("mix puts its tuple or its range on the heap", ir::calls(mix, "edge_alloc") == 0),
         ("mix stops at a safepoint, though only ints are live", ir::calls(mix, "edge_safepoint") == 0),
         ("mix still keeps a live or rest buffer in memory", !mix.contains(" = alloca ")),
         ("fib calls itself through the VM, not directly", ir::calls(fib, "py_fib") > 0 && ir::calls(fib, "op_Call") == 0),
-    ]
+    ];
+    checks.iter().for_each(|(what, holds)| assert!(holds, "{ALARM}: {what}"));
 }
 
 fn texts<'a>(case: &'a serde_json::Value, field: &str) -> Vec<&'a str> { case[field].as_array().into_iter().flatten().filter_map(|v| v.as_str()).collect() }
