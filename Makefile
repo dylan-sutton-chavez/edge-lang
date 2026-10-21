@@ -34,7 +34,7 @@ MIRI_abi := abi::
 
 unix_only = $(if $(filter Windows_NT,$(OS)),$(error AFL runs on Linux and macOS only))
 
-.PHONY: bitcode wasm wasm-cli wasm-ship wasm-small wasm-cli-opt size js lint lint-rust lint-js lint-cli test bench bench-update bench-accept-slower bench-llvm llvm-check plugin cli cli-release stage serve browsers test-js test-cli test-skill test-std miri miri-list miri-setup fuzz fuzz-status fuzz-triage fuzz-replay fuzz-carry fuzz-container fuzz-stop seeds lucide version check
+.PHONY: bitcode native wasm wasm-cli wasm-ship wasm-small wasm-cli-opt size js lint lint-rust lint-js lint-cli test bench bench-update bench-accept-slower bench-llvm llvm-check plugin cli cli-release stage serve browsers test-js test-cli test-skill test-std miri miri-list miri-setup fuzz fuzz-status fuzz-triage fuzz-replay fuzz-carry fuzz-container fuzz-stop seeds lucide version check
 
 wasm:
 	cargo rustc --locked --release $(RUNTIME)
@@ -125,6 +125,9 @@ plugin:
 
 cli: $(CLI_INPUTS)
 	cd cli && cargo build --locked --release
+
+# The CLI whose `edge build` compiles to every target, the VM's bitcode for each, wasm32-wasip1 among them, carried inside it.
+native: bitcode cli
 
 # musl-gcc has no C++, so the static Linux build runs in Alpine, whose libc is musl.
 cli-release: $(CLI_INPUTS)
