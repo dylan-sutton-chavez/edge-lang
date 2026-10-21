@@ -739,6 +739,8 @@ impl<'a> VM<'a> {
         if self.acts > floor.depth { let b = self.top_run().3; (b.unwind, b.delta) } else { (floor.bases[1], floor.bases[2]) }
     }
     /* Runs the chunk's lowered code, register forms and stack opcodes alike, and each plain call it makes as a frame of this same loop. */
+    // The interpreter's loop, by a name a native program's IR is checked not to reach where its types are proven.
+    #[cfg_attr(feature = "native", unsafe(export_name = "edge_vm_loop"))]
     fn exec_frame(&mut self, chunk: &SSAChunk, pool: usize) -> Result<Val, VmErr> {
         // `resume_coroutine` pre-pushes restored exception frames before calling us. Honor its override so dispatch's handler search includes them.
         let mut exc_base = self.pending_exec_exc_base.take().unwrap_or(self.exception_stack.len());
@@ -1688,7 +1690,7 @@ impl<'a> VM<'a> {
     /* Jumps to this frame's handler for `e`, or hands `e` back when none. */
     #[inline(never)]
     #[allow(clippy::too_many_arguments)]
-    fn catch(&mut self, code: &Code, chunk: &SSAChunk, ip: &mut usize, exc_base: usize, delta_base: usize, e: VmErr, rip: usize) -> Result<(), VmErr> {
+    pub(crate) fn catch(&mut self, code: &Code, chunk: &SSAChunk, ip: &mut usize, exc_base: usize, delta_base: usize, e: VmErr, rip: usize) -> Result<(), VmErr> {
         // HostYield is a control-flow signal, not a Python exception, bypass try/except.
         if matches!(e, VmErr::HostYield(_)) { return Err(e); }
         // A missing name is measured against the frame it is missing from, which is still alive here.
@@ -4829,7 +4831,7 @@ impl<'a> VM<'a> {
     /* Stack opcodes, apart from the loop so a frame's entry stays cheap. */
     #[inline(never)]
     #[allow(clippy::too_many_arguments)]
-    fn dispatch(&mut self, ins: Ins, rip: usize, chunk: &SSAChunk, cache: &OpcodeCache, code: &Code, pool: usize, ip: &mut usize, exc_base: usize) -> Result<Option<Val>, VmErr> {
+    pub(crate) fn dispatch(&mut self, ins: Ins, rip: usize, chunk: &SSAChunk, cache: &OpcodeCache, code: &Code, pool: usize, ip: &mut usize, exc_base: usize) -> Result<Option<Val>, VmErr> {
         // A function made inside a section takes its captures from where the section lays their slots.
         if matches!(ins.op, OpCode::MakeFunction | OpCode::MakeCoroutine) && code.block.is_some() { self.cell_map = section_at(code, rip).map(|s| s.slots.clone()).filter(|m| !m.is_empty()); }
         let n = code.ins.len();

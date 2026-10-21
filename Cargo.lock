@@ -303,6 +303,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "edge-native"
+version = "0.9.6"
+dependencies = [
+ "edge-python",
+]
+
+[[package]]
 name = "edge-python"
 version = "0.9.6"
 dependencies = [

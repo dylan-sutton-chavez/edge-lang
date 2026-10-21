@@ -7,9 +7,20 @@ use alloc::{boxed::Box, string::{String, ToString}, vec, vec::Vec};
 pub(crate) const MAX_EXPR_DEPTH: usize = 200;
 pub(crate) const MAX_INSTRUCTIONS: usize = 65_535;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-#[repr(u8)] // <256 variants, guarantees a 1-byte tag for stable bytecode / transmute / jump-table dispatch
-pub enum OpCode {
+/* The opcodes, the parser's first and then the register forms, which also give `for_each_op!` the parser's names for the handlers of a native build. */
+macro_rules! opcodes {
+    ($d:tt stack: $($s:ident),* ; register: $($r:ident),* $(,)?) => {
+        #[derive(Debug, Clone, Copy, PartialEq)]
+        #[repr(u8)] // <256 variants, guarantees a 1-byte tag for stable bytecode / transmute / jump-table dispatch
+        pub enum OpCode { $($s,)* $($r,)* }
+        #[allow(unused_macros)]
+        macro_rules! for_each_op { ($d m:ident) => { $($d m!($s);)* } }
+        #[allow(unused_imports)]
+        pub(crate) use for_each_op;
+    };
+}
+
+opcodes! { $ stack:
     LoadConst, LoadName, StoreName, Call, PopTop, ReturnValue, BuildString, CallPrint, CallLen, 
     FormatValue, CallAbs, Minus, CallStr, CallInt, CallRange, Phi, CallChr, CallType, MakeFunction, 
     Add, Sub, Mul, Div, Eq, CallFloat, CallBool, CallRound, CallMin, CallMax, CallSum, 
@@ -67,7 +78,8 @@ pub enum OpCode {
     // Pop a value, push whether it matches a mapping pattern (dict).
     MatchMap,
     // `Call` whose args hold a `*` or `**`, closing the spread frame its first spread opened.
-    CallSpread,
+    CallSpread
+    ; register:
     /* Register forms only the VM lowering writes, each reads and writes frame slots. */
     Move, PushRegs,
     AddR, SubR, MulR, DivR, ModR, FloorDivR, InPlaceAddR, InPlaceSubR,

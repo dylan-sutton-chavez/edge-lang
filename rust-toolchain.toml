@@ -1,5 +1,5 @@
 # Every build compiles the same compiler.wasm, which the bench snapshot counts instruction by instruction.
 [toolchain]
 channel = "1.98.0"
-targets = ["wasm32-unknown-unknown"]
+targets = ["wasm32-unknown-unknown", "wasm32-wasip1"]
 components = ["clippy"]

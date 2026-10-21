@@ -62,7 +62,7 @@ pub mod modules;
 pub mod code {
     pub use crate::parser::{
         Parser, SSAChunk, Instruction, OpCode, Value, ImportKind, ImportEntry, Diagnostic, Lines, SsaName, ssa_strip, param_base_name, unpack_call,
-        COMP_ARG, SPREAD_BASES, INPLACE, ITER_VALUE, ITER_AS_IS, ITER_ASYNC, YIELD_FROM, SPREAD_ARGS, KEYWORDS,
+        COMP_ARG, SPREAD_BASES, effect, INPLACE, ITER_VALUE, ITER_AS_IS, ITER_ASYNC, YIELD_FROM, SPREAD_ARGS, KEYWORDS,
     };
     pub use crate::optimizer::constant_fold;
     pub use crate::vm::{Binding, BodyKind, FnScope, Kind, ParamKind};
@@ -93,12 +93,8 @@ pub mod code {
     }
 }
 
-// Builtin types, methods and functions with arity and purity.
-pub mod types {
-    pub use crate::parser::{BUILTIN_TYPES, CLASS_DUNDERS, builtin_type, class_dunder};
-    pub use crate::vm::{ALL_METHODS, BuiltinMethodId, MethodDesc, MethodKind, lookup_method, exc_parents};
-    pub use crate::value::NativeFnId;
-}
+// Builtin types, methods and functions with arity and purity, and the types `edge build` proves.
+pub mod types;
 
 // A VM to embed, run and snapshot with host modules and natives.
 pub mod embed {
@@ -106,6 +102,12 @@ pub mod embed {
     pub use crate::vm::snapshot::{SnapErr, save, restore, source_of, limits_of, inspect_globals, inspect_stack};
     pub use crate::value::{Limits, SchedulerStatus};
     pub use crate::modules::{NativeBinding, Resolved, Resolver};
+}
+
+// The opcode handlers and runtime `edge build` links native programs against.
+#[cfg(feature = "native")]
+pub mod native {
+    pub use crate::vm::native::*;
 }
 
 // Unstable internals for the engine's own tests and tools.

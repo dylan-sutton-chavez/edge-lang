@@ -4,6 +4,9 @@ use std::process::Command;
 use std::time::SystemTime;
 use wasmtime::{Config, Engine, Instance, Linker, Memory, Module, Store, TypedFunc};
 
+mod ir;
+mod llvm;
+
 const CASES: &str = include_str!("../../tests/cases/vm.json");
 const ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
 const SNAPSHOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/.snapshot");
@@ -48,6 +51,10 @@ fn main() {
     let update = std::env::args().any(|a| a == "--update");
     // A snapshot that would take a case running slower than before needs it said outright.
     let accept_slower = std::env::args().any(|a| a == "--accept-slower");
+    // bench/llvm holds the native build against Rust, apart from the VM this bench counts.
+    if std::env::args().any(|a| a == "llvm") {
+        return llvm::main(update);
+    }
     let wasm = std::env::var_os("EDGE_COMPILER_WASM").map(PathBuf::from).unwrap_or_else(|| Path::new(ROOT).join("target/wasm32-unknown-unknown/cli/compiler.wasm"));
     let built = std::fs::metadata(&wasm).and_then(|m| m.modified()).unwrap_or(SystemTime::UNIX_EPOCH);
     if built < newest(&Path::new(ROOT).join("src")) {
