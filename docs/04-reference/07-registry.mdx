@@ -9,7 +9,7 @@ The registry at edgepython.com stores the packages `edge publish` sends. `edge a
 
 ## Publishing
 
-[`edge publish`](/docs/edge-python/platforms/cli#edge-publish) uploads a `.edge` packed by `edge build`. The artifact is the whole request.
+[`edge publish`](/docs/edge-python/platforms/cli#edge-publish) packs the project as one `.edge` and uploads it. The artifact is the whole request.
 
 - The registry reads the name, the version, the description, the repository, the `LICENSE` and the doc pages out of the bytes it is about to store. A listing only ever shows what you shipped.
 - The artifact is stored exactly as it was packed.
@@ -49,7 +49,7 @@ An address is cheap to come by and a provider account is not. The room shows in 
 
 ## Package docs
 
-When `edge.json` declares a `docs` directory, `edge build` packs every `.mdx` page under it into the `.edge`. The site renders those pages on the package listing. A page that breaks a rule below fails the build.
+When `edge.json` declares a `docs` directory, `edge publish` packs every `.mdx` page under it into the `.edge`. The site renders those pages on the package listing. A page that breaks a rule below fails the publish.
 
 - A page nests two folders deep at most, a section, its groups and their pages.
 - Every path segment carries a numeric prefix, like `01-reference/02-cli.mdx`.
