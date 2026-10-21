@@ -12,7 +12,6 @@ const ALARM: &str = "edge build relies on these optimizations to run at native s
 
 // What a run printed, what it reported and how it ended.
 type Run = (String, String, i32);
-
 fn run(cmd: &mut Command, input: &str) -> Run {
     let mut child = cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().expect("spawning a run");
     child.stdin.take().unwrap().write_all(input.as_bytes()).ok();
@@ -44,6 +43,7 @@ fn flow() {
     assert_eq!(vm.2, 0, "the VM fails the program: {}", vm.1);
     assert_eq!(native, vm, "{ALARM}, native differs from the VM");
     assert_eq!(torture, vm, "{ALARM}, native under GC torture differs from the VM");
+    assert_ne!(std::fs::read(dir.path().join("plain")).unwrap(), std::fs::read(dir.path().join("torture")).unwrap(), "--gc-torture built no torture in");
     let ir = std::fs::read_to_string(dir.path().join("main.ll")).unwrap();
     for (what, holds) in checks(&ir) {
         assert!(holds, "{ALARM}: {what}");
@@ -58,6 +58,7 @@ fn checks(ir: &str) -> Vec<(&'static str, bool)> {
         ("fib or mix still test a tag", ir::checks(ir, fib, "is_") + ir::checks(ir, mix, "is_") == 0),
         ("mix puts its tuple or its range on the heap", ir::calls(mix, "edge_alloc") == 0),
         ("mix stops at a safepoint, though only ints are live", ir::calls(mix, "edge_safepoint") == 0),
+        ("mix still keeps a live or rest buffer in memory", !mix.contains(" = alloca ")),
         ("fib calls itself through the VM, not directly", ir::calls(fib, "py_fib") > 0 && ir::calls(fib, "op_Call") == 0),
     ]
 }

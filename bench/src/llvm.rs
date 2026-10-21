@@ -34,6 +34,7 @@ pub fn main(update: bool) {
         .filter_map(|e| e.file_name().to_str()?.strip_suffix(".py").map(String::from)).collect();
     names.sort();
 
+    let host = sh(Command::new("rustc").arg("-vV")).lines().find_map(|l| l.strip_prefix("host: ")).expect("rustc -vV names its host").to_string();
     let (mut failures, mut cases) = (Vec::new(), BTreeMap::new());
     for name in &names {
         let (py, rs) = (Path::new(CASES).join(format!("{name}.py")), Path::new(CASES).join(format!("{name}.rs")));
@@ -42,10 +43,11 @@ pub fn main(update: bool) {
         let rustc = |args: &[&Path]| sh(Command::new("rustc").args(["-Copt-level=3", "-Cpanic=abort"]).args(args));
         edge(&[Path::new("--wasm"), &py, Path::new("-o"), &at(".edge.wasm")]);
         rustc(&[Path::new("-Clto=fat"), Path::new("--target=wasm32-wasip1"), &rs, Path::new("-o"), &at(".rust.wasm")]);
-        let built = edge(&[Path::new("--emit-llvm"), &at(".edge.ll"), &py, Path::new("-o"), &at(".edge.plain")]);
-        edge(&[Path::new("--count"), &py, Path::new("-o"), &at(".edge")]);
+        edge(&[Path::new("--emit-llvm"), &at(".edge.ll"), &py, Path::new("-o"), &at(".edge.plain")]);
+        let built = edge(&[Path::new("--count"), &py, Path::new("-o"), &at(".edge")]);
         rustc(&[Path::new("-Clto=fat"), Path::new("--emit=llvm-bc"), &rs, Path::new("-o"), &at(".rust.bc")]);
-        edge(&[Path::new("--count"), &at(".rust.bc"), Path::new("-o"), &at(".rust.o")]);
+        // The object goes to rustc's own target, not the static musl edge builds by default.
+        edge(&[Path::new("--count"), Path::new("--target"), Path::new(&host), &at(".rust.bc"), Path::new("-o"), &at(".rust.o")]);
         // Linked apart and without LTO, so std comes from its rlibs around the counted object.
         let link = format!("-Clink-arg={}", at(".rust.o").display());
         rustc(&[Path::new(&link), &out.join("empty.rs"), Path::new("-o"), &at(".rust")]);
@@ -114,7 +116,8 @@ fn left(ir: &str) -> String {
     let functions = ir::bodies(ir, "py_");
     let sum = |f: &dyn Fn(&str) -> usize| functions.iter().map(|b| f(b)).sum::<usize>();
     let (tags, overflow, allocations) = (sum(&|b| ir::checks(ir, b, "is_")), sum(&|b| ir::checks(ir, b, "fits_int")), sum(&|b| ir::calls(b, "edge_alloc")));
-    format!("{tags} tag checks, {overflow} overflow checks, {allocations} allocations")
+    let vm = sum(&|b| ir::reaching(ir, b, "edge_vm_loop"));
+    format!("{tags} tag checks, {overflow} overflow checks, {allocations} allocations, {vm} calls that may reach the interpreter")
 }
 
 /* Runs one .wasm under WASI's fd_write and proc_exit, and returns what it printed and the instructions it ran. */
@@ -138,8 +141,11 @@ fn wasm(engine: &Engine, path: &Path) -> (String, u64) {
     }).unwrap();
     linker.func_wrap("wasi_snapshot_preview1", "proc_exit", |code: i32| -> wasmtime::Result<()> { Err(wasmtime::Error::msg(format!("exit {code}"))) }).unwrap();
     // Rust's std asks for its environment and arguments, which these programs never read; Edge's .wasm asks for nothing more.
+    let imports: Vec<String> = module.imports().map(|i| format!("{}.{}", i.module(), i.name())).collect();
     if path.to_string_lossy().ends_with(".rust.wasm") {
         linker.define_unknown_imports_as_default_values(&mut store, &module).unwrap();
+    } else {
+        assert!(imports.iter().all(|i| ["fd_write", "proc_exit"].map(|f| format!("wasi_snapshot_preview1.{f}")).contains(i)), "{} imports {imports:?}, past WASI's fd_write and proc_exit", path.display());
     }
     let inst = linker.instantiate(&mut store, &module).unwrap_or_else(|e| panic!("instantiating {}: {e}", path.display()));
     let ended = inst.get_typed_func::<(), ()>(&mut store, "_start").unwrap().call(&mut store, ());
