@@ -72,7 +72,7 @@ pub fn build(manifest_path: &Path, file: Option<&Path>, opts: &Opts) -> Result<(
             // A native program carries one file, so an import is refused, and the file compiles as edge run compiles it.
             if let Some(compiler::modules::ImportSpec::Bare(spec) | compiler::modules::ImportSpec::Relative(spec) | compiler::modules::ImportSpec::Root(spec)) = compiler::modules::scan_imports(&src).first() { bail!("edge build compiles one file; '{spec}' is an import"); }
             let name = crate::host::driver::path_spec(&entry);
-            let chunk = compiler::code::compile_with(&src, || Some(name.clone()), Box::new(compiler::modules::NoopResolver)).unwrap_or_else(|report| { eprintln!("{report}"); std::process::exit(1) });
+            let chunk = compiler::code::compile_with(&src, || Some(name.clone()), || Box::new(compiler::modules::NoopResolver)).unwrap_or_else(|report| { eprintln!("{report}"); std::process::exit(1) });
             // Its SyntaxWarnings belong to compiling it, printed as edge run prints them and never again by the binary.
             if !chunk.warnings.is_empty() { eprint!("{}", compiler::code::Diagnostic::render_warnings(&chunk.warnings, &src, Some(&name))); }
             // Rules that are not these sources', or a tree the reviewer refuses, leave every opcode to its handler.

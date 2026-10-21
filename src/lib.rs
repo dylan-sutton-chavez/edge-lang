@@ -76,23 +76,25 @@ pub mod code {
     }
 
     /* `src` lexed, parsed with `resolver` for its imports and folded, as every host compiles a program: Err is its
-       diagnostics rendered, the warnings before the first error ahead of them, as Python gives them while it compiles. */
+       diagnostics rendered, the warnings before the first error ahead of them, as Python gives them while it compiles.
+       The resolver is made after lexing so a run starts on the heap the interpreter always had, which bench/ counts. */
     #[inline(always)]
-    pub fn compile_with(src: &str, name: impl FnOnce() -> Option<alloc::string::String>, resolver: alloc::boxed::Box<dyn crate::modules::Resolver>) -> Result<alloc::rc::Rc<SSAChunk>, alloc::string::String> {
+    pub fn compile_with(src: &str, name: impl FnOnce() -> Option<alloc::string::String>, resolver: impl FnOnce() -> alloc::boxed::Box<dyn crate::modules::Resolver>) -> Result<alloc::rc::Rc<SSAChunk>, alloc::string::String> {
         let (tokens, lex_errs) = crate::lexer::lex(src);
-        let mut p = Parser::with_resolver(src, tokens.into_iter(), resolver);
-        p.errors.extend(lex_errs.into_iter().map(|e| Diagnostic { start: e.start, end: e.end, msg: e.msg.into() }));
+        let mut p = Parser::with_resolver(src, tokens.into_iter(), resolver());
+        for e in lex_errs {
+            p.errors.push(Diagnostic { start: e.start, end: e.end, msg: e.msg.into() });
+        }
         let errs = p.parse_in_place();
-        if let Some(first) = errs.iter().map(|e| e.start).min() {
-            // The name is read only for a report, a program that compiles never pays for it.
+        if !errs.is_empty() {
             let name = name();
-            let name = name.as_deref();
+            let report = Diagnostic::render_all(&errs, src, name.as_deref());
+            if p.chunk.warnings.is_empty() { return Err(report); }
+            let first = errs.iter().map(|e| e.start).min().unwrap_or(0);
             p.chunk.warnings.retain(|w| w.start < first);
-            if p.chunk.warnings.is_empty() { return Err(Diagnostic::render_all(&errs, src, name)); }
-            return Err(crate::s!(str &Diagnostic::render_warnings(&p.chunk.warnings, src, name), str &Diagnostic::render_all(&errs, src, name)));
+            return Err(crate::s!(str &Diagnostic::render_warnings(&p.chunk.warnings, src, name.as_deref()), str &report));
         }
         constant_fold(&mut p.chunk);
-        // Shared at once, so the chunk is moved a single time.
         Ok(alloc::rc::Rc::new(p.chunk))
     }
 

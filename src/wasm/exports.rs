@@ -31,8 +31,7 @@ fn err_status(msg: &str) -> u32 {
 
 /* Lex and parse with the host resolver, Err is rendered diagnostics. */
 fn parse_source(src: &str) -> Result<Rc<SSAChunk>, String> {
-    let dir = with_slot(|s| s.entry_dir.clone());
-    crate::code::compile_with(src, source_name, Box::new(WasmHostResolver { dir, late: false }))
+    crate::code::compile_with(src, source_name, || Box::new(WasmHostResolver { dir: with_slot(|s| s.entry_dir.clone()), late: false }))
 }
 
 /* The parsed program for `src`, shared by every slot booting the same source from the same dir. */
