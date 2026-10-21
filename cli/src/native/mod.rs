@@ -73,8 +73,12 @@ pub fn build(manifest_path: &Path, file: Option<&Path>, opts: &Opts) -> Result<(
             if !errors.is_empty() {
                 bail!("{}", compiler::code::Diagnostic::render_all(&errors, &src, Some(&entry.to_string_lossy())));
             }
+            // The rules of this Edge commit type the program, a build without them runs every opcode through its handler.
+            let rules = EPT.map(compiler::types::read::Rules::read).transpose().map_err(|e| anyhow!(e))?;
+            let typed = rules.as_ref().map(|r| compiler::types::typed(&chunk, r)).transpose().map_err(|e| anyhow!(e))?;
+            if let (Some(t), true) = (&typed, opts.count) { let (p, n) = t.count(); eprintln!("types: {p}/{n}"); }
             let glue = dir.path().join("glue.ll");
-            std::fs::write(&glue, glue::module(&chunk, &target, opts.gc_torture))?;
+            std::fs::write(&glue, glue::module(&src, &chunk, typed.as_ref(), &target))?;
             vec![vm_bitcode(&target, dir.path())?, glue]
         }
     };
@@ -94,6 +98,9 @@ pub fn build(manifest_path: &Path, file: Option<&Path>, opts: &Opts) -> Result<(
 fn entry(target: &str) -> &'static str {
     if target.starts_with("wasm32") { "__main_void" } else { "main" }
 }
+
+// The opcode rules `edge.ept` gives for this Edge commit, when the tree carries them.
+const EPT: Option<&str> = include!(concat!(env!("OUT_DIR"), "/ept.rs"));
 
 // The VM's handlers as bitcode per target, gzipped, from `make bitcode`.
 const VM_BITCODE: &[(&str, &[u8])] = include!(concat!(env!("OUT_DIR"), "/vm_bitcode.rs"));
