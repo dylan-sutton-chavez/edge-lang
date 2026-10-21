@@ -131,10 +131,13 @@ bench-accept-slower: wasm-cli
 # The native build against the same programs in Rust, and its parity with the VM, on the CLI built here and the test
 # VMs `make inline` left, counting or collecting at every safepoint.
 bench-llvm llvm-check: export EDGE_BITCODE_DIR = $(CURDIR)/target/bitcode
+NATIVE_HOST = $(subst unknown-linux-gnu,unknown-linux-musl,$(shell rustc -vV | sed -n 's/host: //p'))
 bench-llvm: native
+	$(MAKE) inline-$(NATIVE_HOST) COUNT=1
 	cargo run --locked -p bench --profile cli -- llvm $(if $(UPDATE),--update)
 
 llvm-check: native
+	$(MAKE) inline-$(NATIVE_HOST) TORTURE=1
 	cd cli && cargo test --locked --release --test llvm_check
 
 plugin:
