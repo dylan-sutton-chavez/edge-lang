@@ -147,6 +147,18 @@ mod test {
     }
 
     #[test]
+    fn a_dispatch_table_read_into_many_names_keeps_one_path() {
+        // Ten functions in one list, six of them kept in names before any is called: each call takes the ten one at a
+        // time, and the names hold the list's entry, not one path per choice (10^6 of them).
+        let defs: String = (0..10).map(|i| format!("def f{i}(x):\n    return x + {i}\n")).collect();
+        let names = ["a", "b", "c", "d", "e", "g"];
+        let src = format!("{defs}t = []\n{}{}print({})\n", (0..10).map(|i| format!("t.append(f{i})\n")).collect::<String>(), names.iter().enumerate().map(|(i, n)| format!("{n} = t[{i}]\n")).collect::<String>(), names.map(|n| format!("{n}(1)")).join(" + "));
+        let t = typed_of(&src);
+        assert!(!t.tree.wild);
+        assert!(t.tree.ctxs[0].seen.iter().map(Vec::len).max().unwrap_or(0) <= 2, "{:?}", t.tree.ctxs[0].seen.iter().map(Vec::len).max());
+    }
+
+    #[test]
     fn a_branch_learns_from_the_row_that_made_its_test() {
         // `min` has a row of one operand before the one of two: the test of `min(a, b)` learns only from the second.
         let t = typed_of("def f(a, b):\n    if min(a, b):\n        return a\n    return 'n'\nprint(f(1, 2))\n");
