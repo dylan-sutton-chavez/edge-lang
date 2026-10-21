@@ -130,6 +130,15 @@ mod test {
     }
 
     #[test]
+    fn a_loop_gets_what_its_for_iter_row_says() {
+        // A list's row gives its items, as item() does; a str's row its own answer, where item() knows nothing.
+        assert_eq!(read("xs = [1, 2]\nfor x in xs:\n    print(x)\n", 3, "x"), [code("int")]);
+        let src = "for c in 'ab':\n    print(c)\n";
+        let got = compiler::types::reads(src, &(ept() + "rule GetIter str ->\nrule ForIter str -> str\n")).unwrap();
+        assert_eq!(got.into_iter().find(|r| r.0 == 2 && r.1 == "c").unwrap().2, [code("str")]);
+    }
+
+    #[test]
     fn a_branch_learns_from_the_row_that_made_its_test() {
         // `min` has a row of one operand before the one of two: the test of `min(a, b)` learns only from the second.
         let t = typed_of("def f(a, b):\n    if min(a, b):\n        return a\n    return 'n'\nprint(f(1, 2))\n");
@@ -177,6 +186,10 @@ mod test {
         assert!(Rules::read(&(ept() + "rule Add int int -> int | soon a0\n")).is_err());
         assert!(Rules::read(&(ept() + "frobnicate Add\n")).is_err());
         assert!(Rules::read(&(ept() + "tag int 1 1\n")).is_err(), "a tag is a name and one code");
+        // A named set stands for its tags wherever a tag set goes, and one never named is refused.
+        let set = Rules::read(&ept().replacen("ept 1\n", "ept 1\nset $0 int|str\n", 1)).unwrap();
+        assert_eq!(set.set("$0"), set.set("int|str"));
+        assert!(Rules::read(&(ept() + "rule Add $9 int -> int\n")).is_err());
         // The shipped file holds rules only once Spider Monkey's rules are copied in for these very sources.
         if let Err(e) = compiler::types::rules() { assert!(e.contains("other Edge sources"), "{e}"); }
     }
