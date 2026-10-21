@@ -4,11 +4,11 @@
 /* Each function whose name starts with `prefix`, from its define line to its closing brace. */
 pub fn bodies<'a>(ir: &'a str, prefix: &str) -> Vec<&'a str> {
     ir.split("\ndefine ").skip(1).map(|f| &f[..f.find("\n}").unwrap_or(f.len())])
-        .filter(|f| f.lines().next().and_then(|l| l.find('@').map(|at| name(&l[at + 1..]))).is_some_and(|n| n.starts_with(prefix))).collect()
+        .filter(|f| f.lines().next().and_then(|l| l.find('@').map(|at| symbol(&l[at + 1..]))).is_some_and(|n| n.starts_with(prefix))).collect()
 }
 
 /* A symbol from the text after its `@`, quoted or plain, up to its argument list. */
-fn name(s: &str) -> &str {
+pub fn symbol(s: &str) -> &str {
     match s.strip_prefix('"') { Some(q) => &q[..q.find('"').unwrap_or(q.len())], None => &s[..s.find(['(', ' ', ',']).unwrap_or(s.len())] }
 }
 
@@ -17,7 +17,7 @@ fn callees(body: &str) -> Vec<Option<&str>> {
     body.lines().skip(1).filter_map(|l| {
         let at = l.find("call ").or_else(|| l.find("invoke "))?;
         let w = l[at..].split_whitespace().find(|w| (w.starts_with('@') || w.starts_with('%')) && w.contains('('))?;
-        if w.starts_with("@llvm.") { None } else { Some(w.strip_prefix('@').map(name)) }
+        if w.starts_with("@llvm.") { None } else { Some(w.strip_prefix('@').map(symbol)) }
     }).collect()
 }
 
@@ -28,7 +28,7 @@ pub fn calls(body: &str, callee: &str) -> usize {
 
 /* The functions of `ir` that may reach `target` through calls, a call through a pointer reaching any function. */
 pub fn reach<'a>(ir: &'a str, target: &str) -> Vec<&'a str> {
-    let graph: Vec<(&str, Vec<Option<&str>>)> = bodies(ir, "").into_iter().filter_map(|f| Some((name(&f[f.find('@')? + 1..]), callees(f)))).collect();
+    let graph: Vec<(&str, Vec<Option<&str>>)> = bodies(ir, "").into_iter().filter_map(|f| Some((symbol(&f[f.find('@')? + 1..]), callees(f)))).collect();
     let mut may = std::collections::HashSet::new();
     // One pass per level of the call graph, every function found in it joining at once.
     loop {

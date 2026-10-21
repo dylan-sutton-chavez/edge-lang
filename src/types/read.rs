@@ -35,7 +35,7 @@ pub struct Row {
     pub learn: Vec<(bool, usize, Learn)>,
     // Container `a` takes operand `b` among its items, None for one or items not known.
     pub puts: Vec<(Option<usize>, Option<usize>)>,
-    // The operands it may call, a function or class handed to it.
+    // The operands it may call, a function or class handed to it, usize::MAX for any.
     pub calls: Vec<usize>,
 }
 
@@ -127,7 +127,7 @@ impl Rules {
                 ["holds", x, t] => row.says.push((r(x)?, Out::Holds(self.set(t)?, Rhs::N(i64::MIN), Rhs::N(i64::MAX)))),
                 ["holds", x, t, "in", lr] => { let (lo, hi) = span(lr)?; row.says.push((r(x)?, Out::Holds(self.set(t)?, lo, hi))); }
                 ["puts", a, b] => row.puts.push((pos(a, 'a').ok(), pos(b, 'a').ok())),
-                ["calls", a] => row.calls.push(pos(a, 'a')?),
+                ["calls", a] => row.calls.push(if *a == "*" { usize::MAX } else { pos(a, 'a')? }),
                 _ => return Err(bad(&c.join(" "), "a clause of format 1")),
             }
         }

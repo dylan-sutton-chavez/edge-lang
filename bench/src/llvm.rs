@@ -122,7 +122,9 @@ fn left(ir: &str, vm: &str) -> String {
     let functions = ir::bodies(ir, "py_");
     let sum = |f: &dyn Fn(&str) -> usize| functions.iter().map(|b| f(b)).sum::<usize>();
     let (tags, overflow, allocations) = (sum(&|b| ir::checks(vm, b, "is_")), sum(&|b| ir::checks(vm, b, "fits_int")), sum(&|b| ir::calls(b, "edge_alloc")));
-    let vm = sum(&|b| ir::reaching(ir, b, "edge_vm_loop"));
+    // The program's module calls into vm.o, so the interpreter is reached through the VM's own call graph too.
+    let both = format!("{ir}\n{vm}");
+    let vm = sum(&|b| ir::reaching(&both, b, "edge_vm_loop"));
     format!("{tags} tag checks, {overflow} overflow checks, {allocations} allocations, {vm} calls that may reach the interpreter")
 }
 

@@ -28,7 +28,7 @@ fn body(rt: *mut Rt, prog: &mut Program, chunk: &compiler::code::SSAChunk, k: i6
     // A function's plain locals live here, as the glue keeps them in registers, its parameters bound first.
     let local: Vec<bool> = match prog.scope_of(chunk) { Some((_, s)) if k != 0 => s.kinds.iter().map(|k| *k == Kind::Local).collect(), _ => Vec::new() };
     let mut slots = vec![UNDEF; chunk.names.len()];
-    if k != 0 { for (j, &(_, slot)) in prog.params_of(k as usize - 1).iter().enumerate() { if let Some(&a) = args.get(j) { slots[slot] = a; } } }
+    if k != 0 { for (j, &(_, slot)) in prog.params_of(k as usize - 1).iter().enumerate() { if let (Some(&a), Some(s)) = (args.get(j), slots.get_mut(slot)) { *s = a; } } }
     while let Some(&ins) = chunk.instructions.get(ip) {
         let site = k << 32 | (ip as i64) << 16 | ins.operand as i64;
         let h = native::handler(ins.opcode).expect("every parser opcode has a handler");
