@@ -1,10 +1,8 @@
-use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use rayon::prelude::*;
 
-#[path = "../../bench/src/ir.rs"]
-mod ir;
+#[path = "../../bench/src/ir.rs"] mod ir;
 
 const BIN: &str = env!("CARGO_BIN_EXE_edge");
 const ALARM: &str = "edge build relies on these optimizations to run at native speed, a failure here means the native output regressed";
@@ -13,7 +11,7 @@ const ALARM: &str = "edge build relies on these optimizations to run at native s
 type Run = (String, String, i32);
 fn run(cmd: &mut Command, input: &str) -> Run {
     let mut child = cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().expect("spawning a run");
-    child.stdin.take().unwrap().write_all(input.as_bytes()).ok();
+    std::io::Write::write_all(&mut child.stdin.take().unwrap(), input.as_bytes()).ok();
     let out = child.wait_with_output().unwrap();
     (String::from_utf8_lossy(&out.stdout).into(), String::from_utf8_lossy(&out.stderr).into(), out.status.code().unwrap_or(-1))
 }
@@ -75,7 +73,9 @@ fn texts<'a>(case: &'a serde_json::Value, field: &str) -> Vec<&'a str> { case[fi
 fn corpus() {
     let read = |name: &str| serde_json::from_str::<Vec<serde_json::Value>>(&std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/cases").join(name)).unwrap()).unwrap();
     // LLVM_CHECK_CASES names a file of cases to run alone, the ones a fix is meant for, before the whole corpus.
-    let cases = std::env::var("LLVM_CHECK_CASES").map_or_else(|_| [read("vm.json"), read("snapshot.json")].concat(), |f| read(&f));
+    // Beside the corpus, the programs of tests/native, each a shape of the glue a fix once needed.
+    let own = || std::fs::read_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/native")).unwrap().flatten().map(|f| serde_json::json!({"src": std::fs::read_to_string(f.path()).unwrap()})).collect();
+    let cases = std::env::var("LLVM_CHECK_CASES").map_or_else(|_| [read("vm.json"), read("snapshot.json"), own()].concat(), |f| [read(&f), own()].concat());
     // A native program has no ops budget (a documented deviation), so the cases that end on the VM's budget run forever there.
     let (unbudgeted, cases): (Vec<_>, Vec<_>) = cases.iter().partition(|case| case["error"] == "budget exceeded");
     eprintln!("{} cases end on the VM's budget and are left out: {:?}", unbudgeted.len(), unbudgeted.iter().map(|c| &c["src"]).collect::<Vec<_>>());
