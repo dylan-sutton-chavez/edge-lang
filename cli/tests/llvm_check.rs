@@ -26,9 +26,9 @@ fn three(dir: &Path, src: &str, input: &str, events: &[&str], flags: &[&str]) ->
     let native = |name: &str, flags: &[&str]| {
         let built = run(Command::new(BIN).current_dir(dir).args(["build", "main.py", "-o", name]).args(flags), "");
         if built.2 != 0 { return built }
-        // A program's SyntaxWarnings belong to compiling it, so the build prints them, before its own lines, and the binary never does.
+        // A program's SyntaxWarnings belong to compiling it: the build prints them beside its own notes, the binary never does.
         let (out, err, code) = run(Command::new(dir.join(name)).current_dir(dir).args(with_events), input);
-        (out, built.1.split("  compiling ").next().unwrap_or("").lines().filter(|l| !l.starts_with("edge build:")).map(|l| format!("{l}\n")).collect::<String>() + &err, code)
+        (out, built.1.lines().filter(|l| !l.starts_with("edge build:")).map(|l| format!("{l}\n")).collect::<String>() + &err, code)
     };
     [vm, native("plain", flags), native("torture", &["--gc-torture"])]
 }
@@ -76,9 +76,9 @@ fn corpus() {
     // Plus the programs of tests/native, shapes of the glue a fix needed; LLVM_CHECK_CASES runs a file of cases instead of the corpus.
     let own = || std::fs::read_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/native")).unwrap().flatten().map(|f| serde_json::json!({"src": std::fs::read_to_string(f.path()).unwrap()})).collect();
     let cases = std::env::var("LLVM_CHECK_CASES").map_or_else(|_| [read("vm.json"), read("snapshot.json"), own()].concat(), |f| [read(&f), own()].concat());
-    // A native program has no ops budget (a documented deviation), so the cases that end on the VM's budget run forever there.
-    let (unbudgeted, cases): (Vec<_>, Vec<_>) = cases.iter().partition(|case| case["error"] == "budget exceeded");
-    eprintln!("{} cases end on the VM's budget and are left out: {:?}", unbudgeted.len(), unbudgeted.iter().map(|c| &c["src"]).collect::<Vec<_>>());
+    // Two documented v1 limits: a native program has no ops budget, so a case ending on the VM's runs forever, and it is one file, so an import is refused.
+    let (left, cases): (Vec<_>, Vec<_>) = cases.iter().partition(|c| c["error"] == "budget exceeded" || !compiler::modules::scan_imports(c["src"].as_str().unwrap()).is_empty());
+    eprintln!("{} cases left out, on the VM's budget or importing: {:?}", left.len(), left.iter().map(|c| &c["src"]).collect::<Vec<_>>());
     let failures: Vec<String> = cases.par_iter().filter_map(|case| {
         let dir = tempfile::tempdir().unwrap();
         let events = [texts(case, "events"), texts(case, "interactive_events")].concat();
