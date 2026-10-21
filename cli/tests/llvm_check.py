@@ -25,6 +25,12 @@ def squares(n):
     for i in range(n):
         yield i * i
 
+def mix(n):
+    point, acc = (3, 4), 0
+    for i in range(n):
+        acc = (acc + i * point[0] - point[1]) % 1000003
+    return acc
+
 def scaled(k):
     return lambda v: f"{v * k:.1f}" if isinstance(v, float) else str(v * k)
 
@@ -39,8 +45,5 @@ for s in shapes:
         words.append(f"no area for {e}")
     finally:
         words.append(label(total))
-point, acc = (3, 4), 0
-for i in range(20000):
-    acc = (acc + i * point[0] - point[1]) % 1000003
-print(label(total), sorted(seen.items()), fib(20), sum(squares(100)), acc)
+print(label(total), sorted(seen.items()), fib(20), sum(squares(100)), mix(20000))
 print(" ".join(words), [x if x % 3 else str(x) for x in range(7)], scaled(2)(21))

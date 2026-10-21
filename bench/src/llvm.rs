@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use wasmtime::{Caller, Config, Engine, Extern, Linker, Module, Store};
 
-use super::{amount, annotate, list, ROOT};
+use super::{amount, annotate, ir, list, ROOT};
 
 const CASES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/llvm/cases");
 const SNAPSHOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/llvm/.snapshot");
@@ -109,16 +109,12 @@ fn check(last: &Snapshot, rustc: &str, cases: &BTreeMap<String, [f64; 4]>) -> Ve
     failures
 }
 
-/* What the optimized IR still holds that a proven type would take out: overflow checks and calls to the allocator. */
+/* What the native functions of the program still hold that a proven type takes out. */
 fn left(ir: &str) -> String {
-    // The allocator is the function whose attributes carry allockind, so its calls are found by its attribute group.
-    let groups: Vec<&str> = ir.lines().filter(|l| l.starts_with("attributes #") && l.contains("allockind(\"alloc")).filter_map(|l| l.split_whitespace().nth(1)).collect();
-    let allocators: Vec<&str> = ir.lines().filter(|l| l.starts_with("declare") || l.starts_with("define"))
-        .filter(|l| l.split_whitespace().any(|w| groups.contains(&w))).filter_map(|l| l.split('@').nth(1)?.split('(').next()).collect();
-    let calls = |f: &dyn Fn(&str) -> bool| ir.lines().filter(|l| l.contains("call ") && f(l)).count();
-    let overflow = calls(&|l| l.contains(".with.overflow."));
-    let allocations = calls(&|l| allocators.iter().any(|a| l.contains(&format!("@{a}("))));
-    format!("{overflow} overflow checks, {allocations} allocations")
+    let functions = ir::bodies(ir, "py_");
+    let sum = |f: &dyn Fn(&str) -> usize| functions.iter().map(|b| f(b)).sum::<usize>();
+    let (tags, overflow, allocations) = (sum(&|b| ir::checks(ir, b, "is_")), sum(&|b| ir::checks(ir, b, "fits_int")), sum(&|b| ir::calls(b, "edge_alloc")));
+    format!("{tags} tag checks, {overflow} overflow checks, {allocations} allocations")
 }
 
 /* Runs one .wasm under WASI's fd_write and proc_exit, and returns what it printed and the instructions it ran. */

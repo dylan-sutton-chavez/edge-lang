@@ -4,6 +4,7 @@ use std::process::Command;
 use std::time::SystemTime;
 use wasmtime::{Config, Engine, Instance, Linker, Memory, Module, Store, TypedFunc};
 
+mod ir;
 mod llvm;
 
 const CASES: &str = include_str!("../../tests/cases/vm.json");

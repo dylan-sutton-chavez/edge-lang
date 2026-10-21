@@ -4,6 +4,9 @@ use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+#[path = "../../bench/src/ir.rs"]
+mod ir;
+
 const BIN: &str = env!("CARGO_BIN_EXE_edge");
 const ALARM: &str = "edge build relies on these optimizations to run at native speed, a failure here means the native output regressed";
 
@@ -18,7 +21,7 @@ fn run(cmd: &mut Command, input: &str) -> Run {
 }
 
 /* One program on the VM, native and native under GC torture, with the same input and events, `flags` going to the
-   plain build. */
+   plain build. A build that fails gives its own run, so it shows as a difference. */
 fn three(dir: &Path, src: &str, input: &str, events: &[&str], flags: &[&str]) -> [Run; 3] {
     std::fs::write(dir.join("main.py"), src).unwrap();
     std::fs::write(dir.join("events"), events.join("\n")).unwrap();
@@ -26,8 +29,7 @@ fn three(dir: &Path, src: &str, input: &str, events: &[&str], flags: &[&str]) ->
     let vm = run(Command::new(BIN).current_dir(dir).args(["run", "main.py"]).args(with_events), input);
     let native = |name: &str, flags: &[&str]| {
         let built = run(Command::new(BIN).current_dir(dir).args(["build", "main.py", "-o", name]).args(flags), "");
-        assert_eq!(built.2, 0, "edge build {flags:?} refused {src:?}: {}", built.1);
-        run(Command::new(dir.join(name)).current_dir(dir).args(with_events), input)
+        if built.2 != 0 { built } else { run(Command::new(dir.join(name)).current_dir(dir).args(with_events), input) }
     };
     [vm, native("plain", flags), native("torture", &["--gc-torture"])]
 }
@@ -48,24 +50,28 @@ fn flow() {
     }
 }
 
-/* What the optimized module must show for the program above. */
+/* What the optimized module must show for the program above, where fib and mix hold only proven ints. */
 fn checks(ir: &str) -> Vec<(&'static str, bool)> {
-    let calls = |f: &str| ir.lines().filter(|l| l.contains(" call ") && l.contains(f)).count();
+    let [fib, mix] = ["py_fib(", "py_mix("].map(|f| *ir::bodies(ir, f).first().unwrap_or_else(|| panic!("{ALARM}: no {f} in the module")));
     vec![
-        ("no call reaches the VM's dispatch loop", calls("dispatch") == 0),
+        ("fib or mix reach the interpreter", ir::calls(fib, "edge_vm_loop") + ir::calls(mix, "edge_vm_loop") == 0),
+        ("fib or mix still test a tag", ir::checks(ir, fib, "is_") + ir::checks(ir, mix, "is_") == 0),
+        ("mix puts its tuple or its range on the heap", ir::calls(mix, "edge_alloc") == 0),
+        ("mix stops at a safepoint, though only ints are live", ir::calls(mix, "edge_safepoint") == 0),
+        ("fib calls itself through the VM, not directly", ir::calls(fib, "py_fib") > 0 && ir::calls(fib, "op_Call") == 0),
     ]
+}
+
+fn texts<'a>(case: &'a serde_json::Value, field: &str) -> Vec<&'a str> {
+    case[field].as_array().into_iter().flatten().filter_map(|v| v.as_str()).collect()
 }
 
 /* Every program of tests/cases/vm.json and snapshot.json ends the same on the VM, native and native under torture. */
 #[test]
 fn corpus() {
-    let read = |name: &str| -> Vec<serde_json::Value> {
-        let text = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/cases").join(name)).unwrap();
-        serde_json::from_str(&text).unwrap()
-    };
+    let read = |name: &str| serde_json::from_str::<Vec<serde_json::Value>>(&std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/cases").join(name)).unwrap()).unwrap();
     let cases = [read("vm.json"), read("snapshot.json")].concat();
     let (next, failures) = (AtomicUsize::new(0), Mutex::new(Vec::new()));
-    let texts = |case: &serde_json::Value, field: &str| case[field].as_array().into_iter().flatten().filter_map(|v| v.as_str()).collect::<Vec<_>>();
     std::thread::scope(|s| {
         for _ in 0..std::thread::available_parallelism().map_or(4, |n| n.get()) {
             s.spawn(|| while let Some(case) = cases.get(next.fetch_add(1, Ordering::Relaxed)) {
