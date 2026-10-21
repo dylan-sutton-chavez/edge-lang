@@ -93,12 +93,8 @@ pub mod code {
     }
 }
 
-// Builtin types, methods and functions with arity and purity.
-pub mod types {
-    pub use crate::parser::{BUILTIN_TYPES, CLASS_DUNDERS, builtin_type, class_dunder};
-    pub use crate::vm::{ALL_METHODS, BuiltinMethodId, MethodDesc, MethodKind, lookup_method, exc_parents};
-    pub use crate::value::NativeFnId;
-}
+// Builtin types, methods and functions with arity and purity, and the types `edge build` proves.
+pub mod types;
 
 // A VM to embed, run and snapshot with host modules and natives.
 pub mod embed {
