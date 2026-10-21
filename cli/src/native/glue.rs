@@ -1,11 +1,7 @@
-use compiler::code::{effect, Binding, BodyKind, OpCode as O, ParamKind, Program, SSAChunk, Value};
+use compiler::code::{effect, Binding, BodyKind, OpCode as O, ParamKind, Program, SSAChunk, Value, JUMP, RETURN};
 use compiler::types::{Known, State, Tags, Typed, UNBOUND};
 use compiler::value::Val;
 use std::fmt::Write;
-
-// The ids a handler's error gives for a frame moved to an instruction or returning, ABI section 13.
-const JUMP: u32 = 0x4000_0000;
-const RETURN: u32 = 0x8000_0000;
 
 /* One body: its code, its VM index (0 the module, fi + 1 a function), the tree's index of it, its LLVM name, its
    parameters' slots (MAX for one a direct call cannot bind) and where each name lives. */
@@ -18,7 +14,7 @@ impl Body<'_> {
 
 /* The program as LLVM text: one function per Python function calling the VM's handler of each opcode in order with
    its operands constant, names and stack in allocas mem2reg lifts, and the entry that boots the VM on the source. */
-pub fn module(src: &str, chunk: &SSAChunk, typed: Option<&Typed>, collect: &[&str], target: &str) -> String {
+pub fn module(src: &str, path: &str, chunk: &SSAChunk, typed: Option<&Typed>, collect: &[&str], target: &str) -> String {
     let program = Program::new(chunk);
     let (mut bodies, mut work) = (Vec::new(), vec![chunk]);
     while let Some(c) = work.pop() {
@@ -40,11 +36,12 @@ pub fn module(src: &str, chunk: &SSAChunk, typed: Option<&Typed>, collect: &[&st
     ops.sort();
     ops.dedup();
     for o in ops { let _ = writeln!(ir, "declare i64 @op_{o}(ptr, i64, i64, i64, i64, ptr, ptr, i32)"); }
-    let text: String = src.bytes().map(|c| format!("\\{c:02X}")).collect();
+    let bytes = |s: &str| s.bytes().map(|c| format!("\\{c:02X}")).collect::<String>();
+    let (text, named) = (bytes(src), bytes(path));
     let _ = write!(ir, r#"declare i1 @is_err(i64)
 declare i32 @err_id(i64)
 declare void @llvm.assume(i1)
-declare ptr @edge_boot(ptr, i64, i32, ptr)
+declare ptr @edge_boot(ptr, i64, ptr, i64, i32, ptr)
 declare i32 @edge_finish(ptr, i64)
 declare i64 @edge_returned(ptr)
 declare i64 @edge_enter(ptr, i32, i64, ptr, i32)
@@ -58,9 +55,10 @@ declare i1 @is_none(i64)
 declare i1 @is_heap(i64)
 declare i1 @is_undef(i64)
 @edge.src = private constant [{} x i8] c"{text}"
+@edge.path = private constant [{} x i8] c"{named}"
 attributes #0 = {{ alwaysinline }}
 define i32 @{}(i32 %argc, ptr %argv) {{
-  %rt = call ptr @edge_boot(ptr @edge.src, i64 {}, i32 %argc, ptr %argv)
+  %rt = call ptr @edge_boot(ptr @edge.src, i64 {}, ptr @edge.path, i64 {}, i32 %argc, ptr %argv)
   %bad = icmp eq ptr %rt, null
   br i1 %bad, label %out, label %go
 out:
@@ -70,7 +68,7 @@ go:
   %code = call i32 @edge_finish(ptr %rt, i64 %r)
   ret i32 %code
 }}
-"#, src.len(), super::entry(target), src.len());
+"#, src.len(), path.len(), super::entry(target), src.len(), path.len());
     ir
 }
 

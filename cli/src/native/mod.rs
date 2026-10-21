@@ -79,7 +79,7 @@ pub fn build(manifest_path: &Path, file: Option<&Path>, opts: &Opts) -> Result<(
             match &typed { Ok(t) if opts.count => { let (p, n) = t.count(); eprintln!("types: {p}/{n}"); } Err(why) => eprintln!("edge build: no proven types, {why}"), _ => {} }
             let (vm, collect) = vm_bitcode(&format!("{target}{}", if opts.gc_torture { "-torture" } else { "" }), dir.path())?;
             let glue = dir.path().join("glue.ll");
-            std::fs::write(&glue, glue::module(&src, &chunk, typed.as_ref().ok(), collect, &target))?;
+            std::fs::write(&glue, glue::module(&src, &crate::host::driver::path_spec(&entry), &chunk, typed.as_ref().ok(), collect, &target))?;
             vec![vm, glue]
         }
     };
