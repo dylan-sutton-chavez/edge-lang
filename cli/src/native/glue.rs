@@ -39,6 +39,7 @@ pub fn module(src: &str, path: &str, chunk: &SSAChunk, typed: Option<&Typed>, co
     for o in ops { let _ = writeln!(ir, "declare i64 @op_{o}(ptr, i64, i64, i64, i64, ptr, ptr, i32)"); }
     let bytes = |s: &str| s.bytes().map(|c| format!("\\{c:02X}")).collect::<String>();
     let (text, named) = (bytes(src), bytes(path));
+    let args = if target.starts_with("wasm32") { ("", "i32 0, ptr null") } else { ("i32 %argc, ptr %argv", "i32 %argc, ptr %argv") };
     let _ = write!(ir, r#"declare i1 @is_err(i64)
 declare i32 @err_id(i64)
 declare void @llvm.assume(i1)
@@ -61,8 +62,8 @@ declare i1 @is_undef(i64)
 @edge.src = private constant [{} x i8] c"{text}"
 @edge.path = private constant [{} x i8] c"{named}"
 attributes #0 = {{ alwaysinline }}
-define i32 @{}(i32 %argc, ptr %argv) {{
-  %rt = call ptr @edge_boot(ptr @edge.src, i64 {}, ptr @edge.path, i64 {}, i32 %argc, ptr %argv)
+define i32 @{}({}) {{
+  %rt = call ptr @edge_boot(ptr @edge.src, i64 {}, ptr @edge.path, i64 {}, {})
   %bad = icmp eq ptr %rt, null
   br i1 %bad, label %out, label %go
 out:
@@ -72,7 +73,7 @@ go:
   %code = call i32 @edge_finish(ptr %rt, i64 %r)
   ret i32 %code
 }}
-"#, src.len(), path.len(), super::entry(target), src.len(), path.len());
+"#, src.len(), path.len(), super::entry(target), args.0, src.len(), path.len(), args.1);
     ir
 }
 
