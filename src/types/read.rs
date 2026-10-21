@@ -71,15 +71,14 @@ impl Rules {
         if lines.next() != Some("ept 1") { return Err("edge.ept is not format 1".into()); }
         let lines: Vec<Vec<&str>> = lines.map(|l| l.split(' ').collect()).collect();
         let mut r = Rules::default();
-        // The tags first, as rows name them, then the named sets of them.
-        for w in &lines { if let ["tag", n, c] = w[..] { r.tags.push((n.to_string(), u8::try_from(int(c)?).ok().filter(|&c| c < 127).ok_or_else(|| bad(c, "a code below 127"))?)); } }
-        for w in &lines { if let ["set", n, t] = w[..] && n.starts_with('$') { let t = r.set(t)?; r.sets.push((n.to_string(), t)); } }
+        // The tags come first and the named sets of them next, before the rows that name them.
         let ops: Vec<String> = OpCode::ALL.iter().map(|o| format!("{o:?}")).collect();
         for w in &lines {
             let (name, at) = match w.get(1).map(|n| n.split_once('@')) { Some(Some((n, a))) => (n, Some(int(a)? as u16)), _ => (*w.get(1).unwrap_or(&""), None) };
             let op = name == "Truth" || ops.iter().any(|o| o == name);
             match w[0] {
-                "tag" | "set" if w.len() == 3 => {}
+                "tag" if w.len() == 3 => r.tags.push((w[1].to_string(), u8::try_from(int(w[2])?).ok().filter(|&c| c < 127).ok_or_else(|| bad(w[2], "a code below 127"))?)),
+                "set" if w.len() == 3 && w[1].starts_with('$') => { let t = r.set(w[2])?; r.sets.push((w[1].to_string(), t)); }
                 "rule" if op => { let row = r.row(&w[2..])?; r.rows.push((name.into(), at, row)); }
                 "builtin" if w.len() > 2 && at.is_none() => { let row = r.row(&w[2..])?; r.rows.push((alloc::format!("builtin.{name}"), None, row)); }
                 "method" if name.contains('.') && at.is_none() => { let row = r.row(&w[2..])?; r.rows.push((name.into(), None, row)); }
