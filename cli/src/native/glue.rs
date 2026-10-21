@@ -7,9 +7,6 @@ use std::fmt::Write;
 const JUMP: u32 = 0x4000_0000;
 const RETURN: u32 = 0x8000_0000;
 
-// The tag tests the IR checks read after O3, kept whole through internalize.
-const TAGS: [&str; 7] = ["is_int", "is_float", "is_bool", "is_none", "is_heap", "is_undef", "fits_int"];
-
 /* One body: its code, its VM index (0 the module, fi + 1 a function), the tree's index of it, its LLVM name, its
    parameters' slots (MAX for one a direct call cannot bind) and where each name lives. */
 struct Body<'c> { chunk: &'c SSAChunk, at: usize, ty: Option<usize>, name: String, params: Vec<usize>, binds: Vec<Binding> }
@@ -38,8 +35,6 @@ pub fn module(src: &str, chunk: &SSAChunk, typed: Option<&Typed>, collect: &[&st
     ops.sort();
     ops.dedup();
     for o in ops { let _ = writeln!(ir, "declare i64 @op_{o}(ptr, i64, i64, i64, i64, ptr, ptr, i32)"); }
-    for t in TAGS { let _ = writeln!(ir, "declare i1 @{t}(i64)"); }
-    let used: Vec<String> = TAGS.iter().map(|t| format!("ptr @{t}")).collect();
     let text: String = src.bytes().map(|c| format!("\\{c:02X}")).collect();
     let _ = write!(ir, r#"declare i1 @is_err(i64)
 declare i32 @err_id(i64)
@@ -51,7 +46,12 @@ declare i64 @edge_enter(ptr, i32, i64, ptr, i32)
 declare void @edge_leave(ptr, i64)
 declare i64 @edge_raise(ptr, i64)
 declare i64 @edge_safepoint(ptr, ptr, i32)
-@llvm.used = appending global [{} x ptr] [{}], section "llvm.metadata"
+declare i1 @is_int(i64)
+declare i1 @is_float(i64)
+declare i1 @is_bool(i64)
+declare i1 @is_none(i64)
+declare i1 @is_heap(i64)
+declare i1 @is_undef(i64)
 @edge.src = private constant [{} x i8] c"{text}"
 attributes #0 = {{ alwaysinline }}
 define i32 @{}(i32 %argc, ptr %argv) {{
@@ -65,7 +65,7 @@ go:
   %code = call i32 @edge_finish(ptr %rt, i64 %r)
   ret i32 %code
 }}
-"#, TAGS.len(), used.join(", "), src.len(), super::entry(target), src.len());
+"#, src.len(), super::entry(target), src.len());
     ir
 }
 
@@ -115,7 +115,7 @@ fn function(ir: &mut String, ops: &mut Vec<String>, b: &Body, bodies: &[Body], t
         let n = b.params.len();
         let _ = writeln!(ir, "  %args = alloca [{} x i64]", n.max(1));
         for k in 0..n { let _ = writeln!(ir, "  %a{k} = getelementptr i64, ptr %args, i64 {k}\n  store i64 %p{k}, ptr %a{k}"); }
-        let _ = writeln!(ir, "  %in = call i64 @edge_enter(ptr %rt, i32 {}, i64 %callee, ptr %args, i32 {n})\n  %bad = call i1 @is_err(i64 %in)\n  br i1 %bad, label %fail, label %bound\nfail:\n  ret i64 %in\nbound:", b.at - 1);
+        let _ = writeln!(ir, "  %in = call i64 @edge_enter(ptr %rt, i32 {}, i64 %callee, ptr %args, i32 {n})\n  %bad = call i1 @is_err(i64 %in) #0\n  br i1 %bad, label %fail, label %bound\nfail:\n  ret i64 %in\nbound:", b.at - 1);
         for (k, &slot) in b.params.iter().enumerate().filter(|p| local(*p.1)) { let _ = writeln!(ir, "  store i64 %p{k}, ptr %n{slot}"); }
     }
     let _ = writeln!(ir, "  br label %i0");
@@ -155,7 +155,7 @@ fn function(ir: &mut String, ops: &mut Vec<String>, b: &Body, bodies: &[Body], t
             O::ReturnValue => format!("  ret i64 {none}"),
             // A phi of locals takes its first source that is bound, as the VM's does.
             O::Phi if local(t) => match c.phi_map.get(ip).and_then(|&p| c.phi_sources.get(p)).map(|&(x, y)| (x as usize, y as usize)).filter(|&(x, y)| local(x) && local(y)) {
-                Some((x, y)) => format!("  %pa{k} = load i64, ptr %n{x}\n  %pb{k} = load i64, ptr %n{y}\n  %pu{k} = call i1 @is_undef(i64 %pa{k})\n  %pv{k} = select i1 %pu{k}, i64 %pb{k}, i64 %pa{k}\n  store i64 %pv{k}, ptr %n{t}\n  br label %{next}"),
+                Some((x, y)) => format!("  %pa{k} = load i64, ptr %n{x}\n  %pb{k} = load i64, ptr %n{y}\n  %pu{k} = call i1 @is_undef(i64 %pa{k}) #0\n  %pv{k} = select i1 %pu{k}, i64 %pb{k}, i64 %pa{k}\n  store i64 %pv{k}, ptr %n{t}\n  br label %{next}"),
                 None => format!("  br label %{next}"),
             },
             _ => String::new(),
@@ -163,7 +163,7 @@ fn function(ir: &mut String, ops: &mut Vec<String>, b: &Body, bodies: &[Body], t
         if !done.is_empty() { let _ = writeln!(ir, "{done}"); continue; }
         // A bound local is its own value, an unbound one raises through the VM.
         if ins.opcode == O::LoadName && local(t) {
-            let _ = writeln!(ir, "  %b{k} = load i64, ptr %n{t}\n  %u{k} = call i1 @is_undef(i64 %b{k})\n  store i64 %b{k}, ptr %s{d}\n  br i1 %u{k}, label %h{k}, label %{next}\nh{k}:");
+            let _ = writeln!(ir, "  %b{k} = load i64, ptr %n{t}\n  %u{k} = call i1 @is_undef(i64 %b{k}) #0\n  store i64 %b{k}, ptr %s{d}\n  br i1 %u{k}, label %h{k}, label %{next}\nh{k}:");
         }
         let input: Vec<String> = (0..pops).map(|j| format!("%a{k}.{j}")).collect();
         for (j, v) in input.iter().enumerate() {
@@ -191,7 +191,7 @@ fn function(ir: &mut String, ops: &mut Vec<String>, b: &Body, bodies: &[Body], t
             }
         }
         for (j, l) in live.iter().enumerate() { let _ = writeln!(ir, "  %ll{k}.{j} = load i64, ptr %lp{k}.{j}\n  store i64 %ll{k}.{j}, ptr {l}"); }
-        let _ = writeln!(ir, "  %e{k} = call i1 @is_err(i64 %v{k})\n  br i1 %e{k}, label %x{k}, label %ok{k}\nok{k}:");
+        let _ = writeln!(ir, "  %e{k} = call i1 @is_err(i64 %v{k}) #0\n  br i1 %e{k}, label %x{k}, label %ok{k}\nok{k}:");
         let (yes_to, no_to) = match ins.opcode { O::JumpIfFalse | O::JumpIfFalseOrPop => (next.clone(), format!("i{t}")), _ => (format!("i{t}"), next.clone()) };
         match ins.opcode {
             O::Jump => { let _ = writeln!(ir, "  br label %i{t}"); }
@@ -203,10 +203,10 @@ fn function(ir: &mut String, ops: &mut Vec<String>, b: &Body, bodies: &[Body], t
             }
         }
         // An error: a `for` that ended leaves its loop, a `finally` moves the frame or returns, any other goes to the `try` that catches it or out of the function.
-        let _ = writeln!(ir, "x{k}:\n  %id{k} = call i32 @err_id(i64 %v{k})");
+        let _ = writeln!(ir, "x{k}:\n  %id{k} = call i32 @err_id(i64 %v{k}) #0");
         if ins.opcode == O::ForIter { let _ = writeln!(ir, "  %end{k} = icmp eq i32 %id{k}, {}\n  br i1 %end{k}, label %i{t}, label %y{k}\ny{k}:", stop()); }
         let _ = writeln!(ir, "  %jm{k} = icmp uge i32 %id{k}, {JUMP}\n  br i1 %jm{k}, label %j{k}, label %r{k}\nj{k}:\n  %rt{k} = icmp uge i32 %id{k}, {RETURN}\n  %to{k} = and i32 %id{k}, {}\n  store i32 %to{k}, ptr %jt\n  br i1 %rt{k}, label %back, label %goto\nr{k}:", JUMP - 1);
-        let _ = writeln!(ir, "  %c{k} = call i64 @edge_raise(ptr %rt, i64 {site})\n  %ce{k} = call i1 @is_err(i64 %c{k})\n  br i1 %ce{k}, label %z{k}, label %g{k}\nz{k}:");
+        let _ = writeln!(ir, "  %c{k} = call i64 @edge_raise(ptr %rt, i64 {site})\n  %ce{k} = call i1 @is_err(i64 %c{k}) #0\n  br i1 %ce{k}, label %z{k}, label %g{k}\nz{k}:");
         if b.at != 0 { let _ = writeln!(ir, "  call void @edge_leave(ptr %rt, i64 %c{k})"); }
         // The innermost `try` open here is the one whose setup comes last before it.
         let catch = tries.iter().filter(|x| x.0 < ip && ip < x.1).max_by_key(|x| x.0).map_or("nowhere".to_string(), |x| format!("catch{}", x.1));
@@ -235,7 +235,7 @@ fn assume(ir: &mut String, typed: Option<&Typed>, tags: Tags, v: &str) {
     let plain = [("int", "is_int"), ("float", "is_float"), ("bool", "is_bool"), ("NoneType", "is_none")];
     let test = plain.iter().find(|(n, _)| t.prog.rules.tag(n) == Some(tags)).map(|x| x.1);
     let test = test.or_else(|| (tags.count_ones() == 1 && !plain.iter().any(|(n, _)| t.prog.rules.tag(n) == Some(tags))).then_some("is_heap"));
-    if let Some(f) = test { let _ = writeln!(ir, "  {v}.is = call i1 @{f}(i64 {v})\n  call void @llvm.assume(i1 {v}.is)"); }
+    if let Some(f) = test { let _ = writeln!(ir, "  {v}.is = call i1 @{f}(i64 {v}) #0\n  call void @llvm.assume(i1 {v}.is)"); }
 }
 
 /* The function every path calls with the callee at `at` of the stack, when the tree knows it and it is native. */

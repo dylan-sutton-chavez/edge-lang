@@ -74,7 +74,7 @@ pub fn build(manifest_path: &Path, file: Option<&Path>, opts: &Opts) -> Result<(
                 bail!("{}", compiler::code::Diagnostic::render_all(&errors, &src, Some(&entry.to_string_lossy())));
             }
             // Rules that are not these sources', or a tree the reviewer refuses, leave every opcode to its handler.
-            let rules = EPT.ok_or("src/types/edge.ept is missing".to_string()).and_then(compiler::types::read::Rules::read);
+            let rules = compiler::types::rules();
             let typed = rules.as_ref().map_err(String::clone).and_then(|r| compiler::types::typed(&chunk, r));
             match &typed { Ok(t) if opts.count => { let (p, n) = t.count(); eprintln!("types: {p}/{n}"); } Err(why) => eprintln!("edge build: no proven types, {why}"), _ => {} }
             let (vm, collect) = vm_bitcode(&format!("{target}{}", if opts.gc_torture { "-torture" } else { "" }), dir.path())?;
@@ -99,9 +99,6 @@ pub fn build(manifest_path: &Path, file: Option<&Path>, opts: &Opts) -> Result<(
 fn entry(target: &str) -> &'static str {
     if target.starts_with("wasm32") { "__main_argc_argv" } else { "main" }
 }
-
-// The opcode rules `edge.ept` gives for these Edge sources.
-const EPT: Option<&str> = include!(concat!(env!("OUT_DIR"), "/ept.rs"));
 
 // The VM as bitcode per target, gzipped, from `make bitcode`, with the handlers that may collect.
 const VM_BITCODE: &[(&str, &[u8], &[&str])] = include!(concat!(env!("OUT_DIR"), "/vm_bitcode.rs"));

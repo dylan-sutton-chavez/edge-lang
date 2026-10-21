@@ -17,12 +17,11 @@ description: "How edge build turns the VM into the compiler, with proven types a
 
 ## Proven types
 
-- `edge.ept` holds the rules of every opcode at one Edge commit: which types leave for the types that enter, which errors it raises, and what each branch learns. Spider Monkey, an analysis tool that proves facts about programs, produces it.
+- `edge.ept` holds the rules of every opcode for one version of Edge's sources: which types leave for the types that enter, which errors it raises, and what each branch learns. Spider Monkey, an analysis tool that proves facts about programs, produces it.
 - `edge build` walks the paths of the program over those rules and joins two paths only when their types match. It runs loops until nothing changes and checks the result before using it.
 - Where a value has a single type on every path, the glue gives LLVM that fact as an `llvm.assume`. The handler's own type tests then fold, and the code runs as typed code.
 - Where a value may have several types, the branches stay, as in a Rust `enum`. A branch that never runs costs a comparison, never a wrong result.
-- An object of fixed size that never leaves its function, is never compared with `is` and never passed to `id` takes no heap.
-- An `edge.ept` of another commit is refused, and the program runs through the handlers alone.
+- An `edge.ept` made for other sources is refused, and the program runs through the handlers alone, with the reason on stderr.
 
 ## Safepoints
 

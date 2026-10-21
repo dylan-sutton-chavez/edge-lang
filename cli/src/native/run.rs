@@ -38,7 +38,7 @@ pub fn compile(sys: &Sysroot, modules: &[PathBuf], target: &str, opts: &Opts, ou
         false => optimized,
         true => {
             std::fs::write(&optimized, super::count::instrument(&std::fs::read_to_string(&optimized)?))?;
-            std::fs::write(at("count.ll"), super::count::runtime(target))?;
+            std::fs::write(at("count.ll"), super::count::runtime())?;
             tool(sys, "llvm-link", &[&optimized, &at("count.ll"), "-o", &at("counted.bc")])?;
             at("counted.bc")
         }

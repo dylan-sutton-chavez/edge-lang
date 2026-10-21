@@ -13,6 +13,8 @@ fn main() {
     let target = std::env::var("TARGET").expect("TARGET");
     // `edge build` fetches the LLVM tools of the very release that compiles it, read here rather than written down.
     let rustc = std::process::Command::new(std::env::var("RUSTC").unwrap_or("rustc".into())).arg("--version").output().expect("running rustc --version");
+    // The tools it fetches are the ones built for the machine this edge runs on.
+    println!("cargo:rustc-env=EDGE_HOST={target}");
     println!("cargo:rustc-env=EDGE_RUSTC={}", String::from_utf8_lossy(&rustc.stdout).split_whitespace().nth(1).expect("rustc --version names a release"));
     let mut cfg = config::base();
     cfg.target(&target).expect("wasmtime has no backend for the build target");
@@ -28,9 +30,6 @@ fn main() {
     println!("cargo:rerun-if-changed={}", lucide.display());
     std::fs::copy(&lucide, out.join("lucide.json")).unwrap_or_else(|e| panic!("copying {}: {e}, run make lucide first", lucide.display()));
     vm_bitcode(&manifest.join("../target/bitcode"), &out);
-    let ept = manifest.join("../src/types/edge.ept");
-    println!("cargo:rerun-if-changed={}", ept.display());
-    std::fs::write(out.join("ept.rs"), if ept.exists() { format!("Some(include_str!({:?}))", ept) } else { "None".into() }).expect("writing ept.rs");
     let js_dist = std::env::var("EDGE_JS_DIST").map(PathBuf::from).unwrap_or_else(|_| manifest.join("../js/dist"));
     js_host(&js_dist, &out.join("js_host.rs"));
 }

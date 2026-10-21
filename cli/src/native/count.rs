@@ -40,40 +40,16 @@ fn is_instruction(line: &str) -> bool {
     line.starts_with("  ") && !line.starts_with("   ") && !line.starts_with("  ]") && !line[2..].starts_with(';')
 }
 
-/* The module that holds `@edge.count` and prints it as the last line on stderr when the program exits, its `write` taking the target's `size_t`. */
-pub fn runtime(target: &str) -> String {
-    let size = if target.starts_with("wasm32") { "i32" } else { "i64" };
-    format!(r#"@edge.count = global i64 0
-@edge.count.label = private constant [14 x i8] c"instructions: "
-@llvm.global_dtors = appending global [1 x {{ i32, ptr, ptr }}] [{{ i32, ptr, ptr }} {{ i32 0, ptr @edge.count.print, ptr null }}]
-declare {size} @write(i32, ptr, {size})
-define internal void @edge.count.print() {{
-entry:
-  %buf = alloca [24 x i8]
-  %n0 = load i64, ptr @edge.count
-  %end = getelementptr i8, ptr %buf, i64 23
-  store i8 10, ptr %end
-  br label %digit
-digit:
-  %n = phi i64 [ %n0, %entry ], [ %q, %digit ]
-  %p = phi ptr [ %end, %entry ], [ %p1, %digit ]
-  %q = udiv i64 %n, 10
-  %r = urem i64 %n, 10
-  %r8 = trunc i64 %r to i8
-  %c = add i8 %r8, 48
-  %p1 = getelementptr i8, ptr %p, i64 -1
-  store i8 %c, ptr %p1
-  %more = icmp ne i64 %q, 0
-  br i1 %more, label %digit, label %done
-done:
-  %from = ptrtoint ptr %p1 to {size}
-  %to = ptrtoint ptr %end to {size}
-  %len = sub {size} %to, %from
-  %size = add {size} %len, 1
-  call {size} @write(i32 2, ptr @edge.count.label, {size} 14)
-  call {size} @write(i32 2, ptr %p1, {size} %size)
+/* The module that holds `@edge.count` and prints it as the last line on stderr when the program exits. */
+pub fn runtime() -> &'static str {
+    r#"@edge.count = global i64 0
+@edge.count.text = private constant [20 x i8] c"instructions: %lld\0A\00"
+@llvm.global_dtors = appending global [1 x { i32, ptr, ptr }] [{ i32, ptr, ptr } { i32 0, ptr @edge.count.print, ptr null }]
+declare i32 @dprintf(i32, ptr, ...)
+define internal void @edge.count.print() {
+  %n = load i64, ptr @edge.count
+  call i32 (i32, ptr, ...) @dprintf(i32 2, ptr @edge.count.text, i64 %n)
   ret void
-}}
-"#)
 }
-
+"#
+}
