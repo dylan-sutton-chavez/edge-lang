@@ -1,5 +1,6 @@
 # Every build compiles the same compiler.wasm, which the bench snapshot counts instruction by instruction.
 [toolchain]
 channel = "1.98.0"
-targets = ["wasm32-unknown-unknown", "wasm32-wasip1"]
+# The musl and darwin targets are the native builds' bitcode (make bitcode).
+targets = ["wasm32-unknown-unknown", "wasm32-wasip1", "x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl", "aarch64-apple-darwin"]
 components = ["clippy"]
