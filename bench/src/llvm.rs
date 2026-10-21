@@ -137,8 +137,10 @@ fn wasm(engine: &Engine, path: &Path) -> (String, u64) {
         0
     }).unwrap();
     linker.func_wrap("wasi_snapshot_preview1", "proc_exit", |code: i32| -> wasmtime::Result<()> { Err(wasmtime::Error::msg(format!("exit {code}"))) }).unwrap();
-    // Rust's std asks for its environment and arguments, which these programs never read.
-    linker.define_unknown_imports_as_default_values(&mut store, &module).unwrap();
+    // Rust's std asks for its environment and arguments, which these programs never read; Edge's .wasm asks for nothing more.
+    if path.to_string_lossy().ends_with(".rust.wasm") {
+        linker.define_unknown_imports_as_default_values(&mut store, &module).unwrap();
+    }
     let inst = linker.instantiate(&mut store, &module).unwrap_or_else(|e| panic!("instantiating {}: {e}", path.display()));
     let ended = inst.get_typed_func::<(), ()>(&mut store, "_start").unwrap().call(&mut store, ());
     if let Err(e) = ended.as_ref().map_err(|e| e.to_string()) && e != "exit 0" {
