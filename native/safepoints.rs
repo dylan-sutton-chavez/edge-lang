@@ -28,6 +28,8 @@ fn main() {
         // Metadata the module numbers already, which the new nodes come after.
         if let Some(rest) = line.strip_prefix('!') && let Some(n) = rest.split(|c: char| !c.is_ascii_digit()).next().and_then(|n| n.parse::<u64>().ok()) { top = top.max(n + 1); }
     }
+    // A collection inlined into its callers would leave no call to find, so none at all is an error, never an empty set.
+    assert!(calls.values().flatten().any(|c| *c == Some("edge_collect")), "no function of {path} calls edge_collect, keep VM::collect out of line");
     let mut may: HashSet<&str> = HashSet::from(["edge_collect"]);
     loop {
         let more: Vec<&str> = calls.iter().filter(|(f, cs)| !may.contains(*f) && cs.iter().any(|c| c.is_none_or(|c| may.contains(c)))).map(|(f, _)| *f).collect();
