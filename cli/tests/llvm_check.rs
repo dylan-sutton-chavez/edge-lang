@@ -1,10 +1,8 @@
-use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use rayon::prelude::*;
 
-#[path = "../../bench/src/ir.rs"]
-mod ir;
+#[path = "../../bench/src/ir.rs"] mod ir;
 
 const BIN: &str = env!("CARGO_BIN_EXE_edge");
 const ALARM: &str = "edge build relies on these optimizations to run at native speed, a failure here means the native output regressed";
@@ -13,7 +11,7 @@ const ALARM: &str = "edge build relies on these optimizations to run at native s
 type Run = (String, String, i32);
 fn run(cmd: &mut Command, input: &str) -> Run {
     let mut child = cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().expect("spawning a run");
-    child.stdin.take().unwrap().write_all(input.as_bytes()).ok();
+    std::io::Write::write_all(&mut child.stdin.take().unwrap(), input.as_bytes()).ok();
     let out = child.wait_with_output().unwrap();
     (String::from_utf8_lossy(&out.stdout).into(), String::from_utf8_lossy(&out.stderr).into(), out.status.code().unwrap_or(-1))
 }
@@ -30,8 +28,7 @@ fn three(dir: &Path, src: &str, input: &str, events: &[&str], flags: &[&str]) ->
         if built.2 != 0 { return built }
         // A program's SyntaxWarnings belong to compiling it, so the build prints them, before its own lines, and the binary never does.
         let (out, err, code) = run(Command::new(dir.join(name)).current_dir(dir).args(with_events), input);
-        let warned: String = built.1.split("  compiling ").next().unwrap_or("").lines().filter(|l| !l.starts_with("edge build:")).map(|l| format!("{l}\n")).collect();
-        (out, warned + &err, code)
+        (out, built.1.split("  compiling ").next().unwrap_or("").lines().filter(|l| !l.starts_with("edge build:")).map(|l| format!("{l}\n")).collect::<String>() + &err, code)
     };
     [vm, native("plain", flags), native("torture", &["--gc-torture"])]
 }
@@ -52,9 +49,7 @@ fn flow() {
     // The VM module edge linked, the host's as edge build targets it, where the tag tests are read.
     let host = if cfg!(target_os = "macos") { "apple-darwin" } else { "unknown-linux-musl" };
     let vm = std::fs::read_to_string(format!("{}/../target/bitcode/{}-{host}/vm.ll", env!("CARGO_MANIFEST_DIR"), std::env::consts::ARCH)).unwrap();
-    for (what, holds) in checks(&ir, &vm) {
-        assert!(holds, "{ALARM}: {what}");
-    }
+    checks(&ir, &vm).iter().for_each(|(what, holds)| assert!(holds, "{ALARM}: {what}"));
 }
 
 /* What the optimized module must show for the program above, where fib and mix hold only proven ints. */
@@ -72,27 +67,15 @@ fn checks(ir: &str, vm: &str) -> Vec<(&'static str, bool)> {
     ]
 }
 
-/* The programs a fix of the glue came with, in tests/native: and/or, and raises through try, finally and return. */
-#[test]
-fn fixes() {
-    for path in std::fs::read_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/native")).unwrap().flatten().map(|e| e.path()) {
-        let dir = tempfile::tempdir().unwrap();
-        let [vm, native, torture] = three(dir.path(), &std::fs::read_to_string(&path).unwrap(), "", &[], &[]);
-        assert!(native == vm && torture == vm, "{ALARM}, {} differs
-   vm {vm:?}
-   native {native:?}
-   torture {torture:?}", path.display());
-    }
-}
-
 fn texts<'a>(case: &'a serde_json::Value, field: &str) -> Vec<&'a str> { case[field].as_array().into_iter().flatten().filter_map(|v| v.as_str()).collect() }
 
 /* Every program of tests/cases/vm.json and snapshot.json ends the same on the VM, native and native under torture. */
 #[test]
 fn corpus() {
     let read = |name: &str| serde_json::from_str::<Vec<serde_json::Value>>(&std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/cases").join(name)).unwrap()).unwrap();
-    // LLVM_CHECK_CASES names a file of cases to run alone, the ones a fix is meant for, before the whole corpus.
-    let cases = std::env::var("LLVM_CHECK_CASES").map_or_else(|_| [read("vm.json"), read("snapshot.json")].concat(), |f| read(&f));
+    // Plus the programs of tests/native, shapes of the glue a fix needed; LLVM_CHECK_CASES runs a file of cases instead of the corpus.
+    let own = || std::fs::read_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/native")).unwrap().flatten().map(|f| serde_json::json!({"src": std::fs::read_to_string(f.path()).unwrap()})).collect();
+    let cases = std::env::var("LLVM_CHECK_CASES").map_or_else(|_| [read("vm.json"), read("snapshot.json"), own()].concat(), |f| [read(&f), own()].concat());
     // A native program has no ops budget (a documented deviation), so the cases that end on the VM's budget run forever there.
     let (unbudgeted, cases): (Vec<_>, Vec<_>) = cases.iter().partition(|case| case["error"] == "budget exceeded");
     eprintln!("{} cases end on the VM's budget and are left out: {:?}", unbudgeted.len(), unbudgeted.iter().map(|c| &c["src"]).collect::<Vec<_>>());
