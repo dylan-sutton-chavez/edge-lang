@@ -118,6 +118,18 @@ mod test {
     }
 
     #[test]
+    fn eight_values_of_any_type_meet_a_row_per_type_and_place_in_one_step() {
+        // A row per place and type, as the shipped file has for BuildTuple@8: trying each class of each operand together is 26^8.
+        let names: Vec<String> = Rules::read(&ept()).unwrap().tags.iter().take(25).map(|t| t.0.clone()).collect();
+        let mut text = ept();
+        for p in 0..8 { for n in &names { let mut w = vec!["*"; 8]; w[p] = n; text += &format!("rule BuildTuple@8 {} -> tuple\n", w.join(" ")); } }
+        let src = "def g(a, b):\n    return a - b\ny = g('a', 'b')\nt = (y, y, y, y, y, y, y, y)\nprint(t)\n";
+        // y may be any type: a tuple by the rows that name its type, a list by the last row when none does.
+        let t = compiler::types::reads(src, &(text + "rule BuildTuple@8 * * * * * * * * -> list\n")).unwrap().into_iter().find(|r| r.0 == 5 && r.1 == "t").unwrap().2;
+        assert_eq!(t, [(code("list").0, code("tuple").0)]);
+    }
+
+    #[test]
     fn a_branch_learns_from_the_row_that_made_its_test() {
         // `min` has a row of one operand before the one of two: the test of `min(a, b)` learns only from the second.
         let t = typed_of("def f(a, b):\n    if min(a, b):\n        return a\n    return 'n'\nprint(f(1, 2))\n");

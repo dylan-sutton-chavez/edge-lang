@@ -332,29 +332,34 @@ impl<'a, 'c> Step<'a, 'c> {
         }
     }
 
-    /* What each row takes of `a`: a value goes to the first row in file order that takes it whole, the rows before it taking their part of it (a constant); true when some value no row takes whole. */
-    fn firsts(&self, rows: &[&Row], a: &[Ty]) -> (Vec<Option<Vec<Ty>>>, bool) {
-        // The leaf tags of each operand that no row tells apart, as one class, so `*` is a few classes and not each tag.
-        let classes: Vec<Vec<Ty>> = a.iter().enumerate().map(|(j, v)| {
-            let mut cs: Vec<(Vec<u8>, Tags)> = Vec::new();
-            for c in (0..127).filter(|c| v.tags >> c & 1 == 1) {
-                let one = Ty { tags: 1 << c, ..*v };
-                let key: Vec<u8> = rows.iter().map(|r| self.pat(&r.ins[j], &one).map_or(0, |t| 1 + (t == one) as u8)).collect();
-                match cs.iter_mut().find(|x| x.0 == key) { Some(x) => x.1 |= 1 << c, None => cs.push((key, 1 << c)) }
-            }
-            cs.into_iter().map(|(_, tags)| Ty { tags, ..*v }).collect()
-        }).collect();
-        let (mut took, mut open, mut at) = (vec![None::<Vec<Ty>>; rows.len()], false, vec![0; a.len()]);
-        loop {
-            let Some(v) = at.iter().zip(&classes).map(|(&i, cs)| cs.get(i).copied()).collect::<Option<Vec<Ty>>>() else { return (took, false) };
-            open |= !rows.iter().enumerate().any(|(k, r)| {
-                let Some(ins) = r.ins.iter().zip(&v).map(|(p, v)| self.pat(p, v)).collect::<Option<Vec<Ty>>>() else { return false };
-                let whole = ins == v;
+    /* What each row takes of `a` from operand `pre.len()` on, `pre` the classes the operands before it are in and `live` the
+       rows that take them, with whether they took them whole: a value goes to the first row in file order that takes it
+       whole, the rows before it taking their part (a constant). True when some value no row takes whole. One operand at a
+       time, so a branch ends at the first row that takes the rest whole and the cost is the classes' sum, not their product. */
+    fn firsts(&self, rows: &[&Row], a: &[Ty], live: Vec<(usize, bool)>, pre: &mut Vec<Ty>, took: &mut [Option<Vec<Ty>>]) -> bool {
+        let j = pre.len();
+        let end = live.iter().position(|l| l.1).filter(|&i| rows[live[i].0].ins[j..].iter().zip(&a[j..]).all(|(p, v)| self.pat(p, v) == Some(*v))).map(|i| i + 1);
+        if j == a.len() || end.is_some() {
+            for &(k, _) in &live[..end.unwrap_or(live.len())] {
+                let Some(ins) = rows[k].ins.iter().zip(pre.iter().chain(&a[j..])).map(|(p, v)| self.pat(p, v)).collect::<Option<Vec<Ty>>>() else { continue };
                 took[k] = Some(match took[k].take() { Some(t) => t.iter().zip(&ins).map(|(x, y)| x.join(y)).collect(), None => ins });
-                whole
-            });
-            if !(0..at.len()).any(|j| { at[j] += 1; at[j] < classes[j].len() || { at[j] = 0; false } }) { return (took, open); }
+            }
+            return end.is_none();
         }
+        // The leaf tags of operand `j` that no live row tells apart, as one class.
+        let v = a[j];
+        let mut cs: Vec<(Vec<u8>, Tags)> = Vec::new();
+        for c in (0..127).filter(|c| v.tags >> c & 1 == 1) {
+            let one = Ty { tags: 1 << c, ..v };
+            let key: Vec<u8> = live.iter().map(|l| self.pat(&rows[l.0].ins[j], &one).map_or(0, |t| 1 + (t == one) as u8)).collect();
+            match cs.iter_mut().find(|x| x.0 == key) { Some(x) => x.1 |= 1 << c, None => cs.push((key, 1 << c)) }
+        }
+        cs.into_iter().fold(false, |open, (key, tags)| {
+            pre.push(Ty { tags, ..v });
+            let open = self.firsts(rows, a, live.iter().zip(&key).filter(|x| *x.1 > 0).map(|(l, &k)| (l.0, l.1 && k == 2)).collect(), pre, took) | open;
+            pre.pop();
+            open
+        })
     }
 
     /* An opcode, method or truth test by its rows, each row that takes a value a path of its own on to `then`; values no row takes whole give anything. */
@@ -362,7 +367,8 @@ impl<'a, 'c> Step<'a, 'c> {
         let tys: Vec<Ty> = a.iter().map(|e| e.ty).collect();
         let (places, rows): (Vec<u32>, Vec<&Row>) = rows.into_iter().filter(|r| r.1.ins.len() == a.len()).unzip();
         self.foreign(&tys, false);
-        let (took, open) = self.firsts(&rows, &tys);
+        let mut took = vec![None; rows.len()];
+        let open = self.firsts(&rows, &tys, (0..rows.len()).map(|k| (k, true)).collect(), &mut Vec::new(), &mut took);
         if open {
             // Their containers may change, and code may run through their objects and functions.
             for v in &tys { match v.known { Known::Site(c) | Known::Obj(_, c) if c != NO => self.write(c, ITEM, Ty::ANY), _ => self.eff.wild |= v.tags & (self.p.tag("instance").tags | self.p.tag("function").tags) != 0 } }
