@@ -15,6 +15,11 @@ const NONE: i64 = 0x7FFC_0000_0000_0001;
 
 fn truth(v: i64) -> bool { v == 0x7FFC_0000_0000_0002 }
 
+std::thread_local! {
+    // Each opcode whose stack effect a run of the corpus used, the ones `effect` is checked on.
+    static SEEN: std::cell::RefCell<std::collections::BTreeSet<u8>> = const { std::cell::RefCell::new(std::collections::BTreeSet::new()) };
+}
+
 /* Runs body `k`, the module's here, every instruction through its handler but the stack's own moves and jumps, the
    `try`s open kept as the glue knows them, each handler with the stack depth it starts from. */
 fn body(rt: *mut Rt, chunk: &compiler::code::SSAChunk, k: i64) -> i64 {
@@ -45,6 +50,7 @@ fn body(rt: *mut Rt, chunk: &compiler::code::SSAChunk, k: i64) -> i64 {
             }
             op => {
                 let (pops, pushes) = effect(&ins, chunk).unwrap_or_else(|| panic!("{op:?} has no effect"));
+                SEEN.with(|s| s.borrow_mut().insert(op as u8));
                 let pops = if op == OpCode::ReturnValue { pops.min(stack.len() as u32) } else { pops };
                 let Some(under) = stack.len().checked_sub(pops as usize) else { panic!("{op:?} at {ip} pops {pops} of {}: {:?}", stack.len(), chunk.instructions) };
                 let args = stack.split_off(under);
@@ -101,7 +107,7 @@ fn corpus_through_handlers() {
     for case in cases.iter().filter(|c| c.error.as_deref() != Some("budget exceeded") && c.input.is_empty() && c.events.is_empty() && c.interactive_events.is_empty() && c.sends.is_none() && std::env::var("EDGE_SRC").map_or(true, |f| c.src.contains(&f))).take(std::env::var("EDGE_CASES").ok().and_then(|n| n.parse().ok()).unwrap_or(usize::MAX)) {
         // Native code runs with no step budget, the memory limit as the VM's.
         let limits = compiler::embed::Limits::sandbox();
-        let rt = unsafe { native::boot(case.src.as_ptr(), case.src.len(), limits.memory, true) };
+        let rt = unsafe { native::boot(case.src.as_ptr(), case.src.len(), None, limits.memory, true) };
         if rt.is_null() { continue; }
         ran += 1;
         if std::env::var("EDGE_DUMP").is_ok() { eprintln!("{:?}", native::chunk(unsafe { &*rt }).instructions); }
@@ -114,6 +120,8 @@ fn corpus_through_handlers() {
         let same_err = match (&err, &case.error) { (None, None) => true, (Some(g), Some(w)) => g.contains(w.as_str()), _ => false };
         if !same_out || !same_err { failed.push(format!("{:?}\n   got {got:?} {err:?}\n   want {want:?} {:?}", case.src, case.error)); }
     }
+    let unseen: Vec<OpCode> = OpCode::ALL.iter().copied().filter(|o| !o.is_register() && !SEEN.with(|s| s.borrow().contains(&(*o as u8)))).collect();
+    eprintln!("opcodes whose stack effect no case ran: {unseen:?}");
     let shown = failed.len().min(60);
     assert!(failed.is_empty(), "{} of {ran} case(s) differ from the VM:\n{}", failed.len(), failed[..shown].join("\n"));
 }
@@ -124,7 +132,7 @@ fn corpus_through_handlers() {
 fn gc_keeps_values_in_place() {
     const WHY: &str = "edge build's native code stores live values at safepoints, update it if the GC moves objects or collects elsewhere";
     let src = "a = [1, 2]\nb = 'x' * 3\nc = {'k': a}\nd = [3]\n";
-    let rt = unsafe { native::boot(src.as_ptr(), src.len(), 1 << 26, true) };
+    let rt = unsafe { native::boot(src.as_ptr(), src.len(), None, 1 << 26, true) };
     assert!(!is_err(body(rt, native::chunk(unsafe { &*rt }), 0)));
     let load = move |slot: i64| unsafe { native::handler(OpCode::LoadName).unwrap()(rt, slot, UNDEF, UNDEF, UNDEF, std::ptr::null_mut(), std::ptr::null_mut(), 0) };
     let (live, kinds): (Vec<i64>, Vec<u32>) = (0..3).map(|s| (load(s), unsafe { native::heap_type(rt, load(s)) })).unzip();
@@ -141,43 +149,60 @@ fn gc_keeps_values_in_place() {
 }
 
 
-/* How many generator and coroutine calls of the corpus escape, the cost of laying only those that do not: a call of a
-   generator function whose value only a `for` over it takes, or of a coroutine function only an `await` takes, is laid
-   in its consumer; any other runs on the VM. Read off each body's bytecode, a value's maker and its taker. */
+/* How many generator and coroutine calls of the corpus escape, the cost of laying only those that do not, by what
+   takes them: a `for` in the maker's body (laid), a builtin that iterates it then and there, a name it is stored in and
+   what reads that name, a return, a container, user code. Read off each body's bytecode, a value's maker and its takers. */
 #[test]
 fn generators_that_escape() {
+    #[derive(Clone)]
+    enum Mark { Def(usize), Made(usize), Name(String), Attr(String), Other }
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/cases/vm.json");
     let cases: Vec<Case> = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
-    let (mut laid, mut escape) = ([0usize; 2], [0usize; 2]);
-    fn walk(c: &compiler::code::SSAChunk, laid: &mut [usize; 2], escape: &mut [usize; 2]) {
-        // Each name a `def` of a generator (0) or a coroutine (1) bound, and each stack value's maker.
-        let (mut kinds, mut stack) = (std::collections::HashMap::new(), Vec::<Option<(usize, usize)>>::new());
-        let mut made: Vec<(usize, usize, Option<OpCode>)> = Vec::new();
-        for (ip, ins) in c.instructions.iter().enumerate() {
+    let mut by: std::collections::BTreeMap<String, usize> = Default::default();
+    fn walk(c: &compiler::code::SSAChunk, by: &mut std::collections::BTreeMap<String, usize>) {
+        let bare = |n: &str| compiler::code::ssa_strip(n).to_string();
+        let (mut held, mut stack) = (std::collections::HashMap::<u16, Mark>::new(), Vec::<Mark>::new());
+        // Each value a generator (0) or coroutine (1) function made, its kind and what took it, in order.
+        let mut made: Vec<(usize, Vec<String>)> = Vec::new();
+        for ins in &c.instructions {
             let Some((pops, pushes)) = effect(ins, c) else { stack.clear(); continue };
             let Some(under) = stack.len().checked_sub(pops as usize) else { stack.clear(); continue };
             let taken = stack.split_off(under);
-            for v in taken.iter().flatten() { if let Some(m) = made.iter_mut().find(|m| m.0 == v.0 && m.2.is_none()) { m.2 = Some(ins.opcode); } }
-            let pushed: Option<(usize, usize)> = match ins.opcode {
-                OpCode::MakeFunction => Some((ip, usize::from(c.functions[ins.operand as usize].1.is_generator) * 10)),
-                OpCode::MakeCoroutine => Some((ip, 11)),
-                OpCode::StoreName => { if let Some(Some((_, k @ 10..=11))) = taken.first() { kinds.insert(ins.operand, *k - 10); } None }
-                OpCode::LoadName => kinds.get(&ins.operand).map(|&k| (ip, 20 + k)),
-                OpCode::Call => match taken.first() { Some(Some((_, k @ 20..=21))) => { made.push((ip, *k - 20, None)); Some((ip, 30)) } _ => None },
-                _ => None,
+            let name = |m: &Mark| match m { Mark::Name(n) => n.clone(), Mark::Attr(a) => format!(".{a}"), _ => String::from("?") };
+            let taker = match ins.opcode { OpCode::Call | OpCode::CallSpread => format!("call {}", taken.first().map_or(String::new(), name)), o => format!("{o:?}") };
+            for m in &taken { if let Mark::Made(g) = m { made[*g].1.push(taker.clone()); } }
+            let pushed = match ins.opcode {
+                OpCode::MakeFunction if c.functions[ins.operand as usize].1.is_generator => Mark::Def(0),
+                OpCode::MakeCoroutine => Mark::Def(1),
+                OpCode::StoreName => { match taken.first() { Some(m @ (Mark::Def(_) | Mark::Made(_))) => { held.insert(ins.operand, m.clone()); } _ => { held.remove(&ins.operand); } } Mark::Other }
+                OpCode::LoadName => held.get(&ins.operand).cloned().unwrap_or_else(|| Mark::Name(bare(&c.names[ins.operand as usize]))),
+                OpCode::LoadAttr => Mark::Attr(c.names.get(ins.operand as usize).map_or(String::new(), |n| bare(n))),
+                OpCode::Call => match taken.first() { Some(Mark::Def(k)) => { made.push((*k, Vec::new())); Mark::Made(made.len() - 1) } _ => Mark::Other },
+                _ => Mark::Other,
             };
-            stack.extend((0..pushes).map(|j| if j == 0 { pushed } else { None }));
+            stack.extend((0..pushes).map(|j| if j == 0 { pushed.clone() } else { Mark::Other }));
         }
-        for (_, k, taker) in made {
-            let own = if k == 0 { taker == Some(OpCode::GetIter) } else { taker == Some(OpCode::GetAwaitable) };
-            if own { laid[k] += 1 } else { escape[k] += 1 }
+        for (k, takers) in made {
+            let kind = ["generator", "coroutine"][k];
+            let first = takers.first().cloned().unwrap_or_else(|| String::from("nothing"));
+            // A stored one is told by what read it after: all `for`s, a `next` by hand, or anything else.
+            let what = if first == "StoreName" {
+                let rest: Vec<&String> = takers.iter().skip(1).collect();
+                if rest.is_empty() { String::from("stored, never read here") }
+                else if rest.iter().all(|t| *t == "GetIter") { String::from("stored, then only for") }
+                else if rest.iter().any(|t| *t == "call next") { String::from("stored, next() by hand") }
+                else { format!("stored, then {}", rest[0]) }
+            } else { first };
+            *by.entry(format!("{kind}: {what}")).or_default() += 1;
         }
-        for f in &c.functions { walk(&f.1, laid, escape); }
-        for k in &c.classes { walk(k, laid, escape); }
+        for f in &c.functions { walk(&f.1, by); }
+        for k in &c.classes { walk(k, by); }
     }
     for case in &cases {
         let (chunk, errors) = compiler::code::compile(&case.src);
-        if errors.is_empty() { walk(&chunk, &mut laid, &mut escape); }
+        if errors.is_empty() { walk(&chunk, &mut by); }
     }
-    eprintln!("generator calls: {} laid, {} escape; coroutine calls: {} laid, {} escape", laid[0], escape[0], laid[1], escape[1]);
+    let mut rows: Vec<(usize, String)> = by.into_iter().map(|(k, n)| (n, k)).collect();
+    rows.sort_by(|a, b| b.cmp(a));
+    for (n, k) in rows { eprintln!("{n:5}  {k}"); }
 }

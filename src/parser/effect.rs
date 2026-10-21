@@ -55,3 +55,10 @@ pub fn effect(ins: &Instruction, chunk: &SSAChunk) -> Option<(u32, u32)> {
         _ => return None,
     })
 }
+
+/* A native handler gives one i64: the value, or under `TAG_ERR` an error with its id in bits 4 to 35. The id is Edge's
+   own exception id, the class's index in the builtin type tree, or a move of the frame: `JUMP` to the instruction in its
+   low bits, `RETURN` with the value `edge_returned` gives. No Val has the tag, a heap index takes the nibble 4. */
+pub const TAG_ERR: u64 = crate::abi::nan_box::QNAN | 5;
+pub const JUMP: u32 = 0x4000_0000;
+pub const RETURN: u32 = 0x8000_0000;

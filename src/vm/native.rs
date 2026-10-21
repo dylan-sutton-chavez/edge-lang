@@ -13,9 +13,7 @@ use super::VM;
 /* A handler gives one i64: the value, or under `TAG_ERR` an error with its id in bits 4 to 35. The id is Edge's own
    exception id, the class's index in the builtin type tree, or a move of the frame: `JUMP` to the instruction in its
    low bits, `RETURN` with the value `edge_returned` gives. No Val has the tag, a heap index takes the nibble 4. */
-pub const TAG_ERR: u64 = crate::abi::nan_box::QNAN | 5;
-pub const JUMP: u32 = 0x4000_0000;
-pub const RETURN: u32 = 0x8000_0000;
+pub use crate::parser::{JUMP, RETURN, TAG_ERR};
 
 #[unsafe(no_mangle)] pub extern "C" fn is_err(v: i64) -> bool { (v as u64 & 0xFFFF_0000_0000_000F) == TAG_ERR }
 #[unsafe(no_mangle)] pub extern "C" fn err_id(v: i64) -> u32 { (v as u64 >> 4) as u32 }
@@ -46,10 +44,15 @@ pub struct Rt {
     // What a frame a `finally` ended returns.
     returned: Val,
     src: &'static str,
+    // The file the tracebacks name, as `edge run` names the script.
+    path: Option<&'static str>,
     _paying: crate::value::meter::Paying,
 }
 
 fn out(text: &str) { use std::io::Write; let _ = std::io::stdout().write_all(text.as_bytes()); }
+
+// An error goes to stderr as `edge run` prints one, a blank line after its block.
+fn fail(text: &str) { std::eprintln!("{text}"); }
 
 #[inline(always)]
 fn ok(v: Val) -> i64 { v.0 as i64 }
@@ -194,6 +197,8 @@ unsafe fn slow(rt: &mut Rt, site: i64, op: OpCode, abc: [i64; 3], rest: *mut i64
         }
     }
     let deltas = (rt.vm.pending.pos_delta, rt.vm.pending.kw_delta);
+    // The safepoint itself, where the glue's values and the inputs are rooted and nothing the step makes exists yet.
+    if torture() { tortured(&mut rt.vm); }
     let step = step(rt, body, ip, ins, if branch { 1 } else { pushes });
     // A spread's items, as many as its value holds, stand on the glue's stack as one tuple until the call takes them.
     let step = match step {
@@ -227,7 +232,6 @@ unsafe fn slow(rt: &mut Rt, site: i64, op: OpCode, abc: [i64; 3], rest: *mut i64
     vm.stack.truncate(at);
     for k in 0..nlive as usize { unsafe { *live.add(k) = vm.temp_roots[roots + k].0 as i64; } }
     vm.temp_roots.truncate(roots);
-    if torture() { tortured(vm); }
     ret
 }
 
@@ -385,7 +389,7 @@ pub unsafe extern "C" fn edge_returned(rt: *mut Rt) -> i64 { ok(unsafe { &*rt }.
 /// # Safety
 /// `src` points at `len` bytes of UTF-8, `argv` at `argc` C strings.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn edge_boot(src: *const u8, len: u64, argc: i32, argv: *const *const core::ffi::c_char) -> *mut Rt {
+pub unsafe extern "C" fn edge_boot(src: *const u8, len: u64, path: *const u8, plen: u64, argc: i32, argv: *const *const core::ffi::c_char) -> *mut Rt {
     let args: Vec<String> = (1..argc.max(0) as usize).map(|k| unsafe { core::ffi::CStr::from_ptr(*argv.add(k)) }.to_string_lossy().into_owned()).collect();
     let (mut memory, mut events) = (Limits::sandbox().memory, Vec::new());
     let mut it = args.iter();
@@ -395,12 +399,13 @@ pub unsafe extern "C" fn edge_boot(src: *const u8, len: u64, argc: i32, argv: *c
             ("--memory", Some(mb)) if let Ok(mb) = mb.parse::<usize>() => memory = mb.saturating_mul(1 << 20),
             ("--events", Some(path)) => match std::fs::read_to_string(path) {
                 Ok(text) => events.extend(text.lines().map(String::from)),
-                Err(e) => { out(&crate::s!("error: cannot open events '", str path, "': ", str &alloc::string::ToString::to_string(&e), "\n")); return core::ptr::null_mut(); }
+                Err(e) => { fail(&crate::s!("error: cannot open events '", str path, "': ", str &alloc::string::ToString::to_string(&e))); return core::ptr::null_mut(); }
             },
-            _ => { out(&crate::s!("error: unknown flag '", str flag, "', a native program takes --memory MB and --events FILE\n")); return core::ptr::null_mut(); }
+            _ => { fail(&crate::s!("error: unknown flag '", str flag, "', a native program takes --memory MB and --events FILE")); return core::ptr::null_mut(); }
         }
     }
-    let rt = unsafe { boot(src, len as usize, memory, false) };
+    let path = (plen != 0).then(|| crate::util::leak(String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(path, plen as usize) }).into_owned().into_boxed_str()) as &'static str);
+    let rt = unsafe { boot(src, len as usize, path, memory, false) };
     if !rt.is_null() { for e in &events { let _ = unsafe { &mut *rt }.vm.push_event(e); } }
     rt
 }
@@ -408,17 +413,17 @@ pub unsafe extern "C" fn edge_boot(src: *const u8, len: u64, argc: i32, argv: *c
 /* `edge_boot` from Rust, the program's output kept for `output` when `keep`. */
 /// # Safety
 /// `src` points at `len` bytes of UTF-8.
-pub unsafe fn boot(src: *const u8, len: usize, memory: usize, keep: bool) -> *mut Rt {
+pub unsafe fn boot(src: *const u8, len: usize, path: Option<&'static str>, memory: usize, keep: bool) -> *mut Rt {
     let src: &'static str = crate::util::leak(String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(src, len) }).into_owned().into_boxed_str());
     let (chunk, errors) = crate::code::compile(src);
     let lexed = crate::lexer::lex(src).1;
     let first = lexed.first().map(|e| (String::from(e.msg), e.start)).or_else(|| errors.first().map(|e| (e.msg.clone(), e.start)));
-    if let Some((msg, at)) = first { out(&crate::value::err::render_text_at(msg, src, Some(at), None)); return core::ptr::null_mut(); }
+    if let Some((msg, at)) = first { fail(&crate::value::err::render_text_at(msg, src, Some(at), path)); return core::ptr::null_mut(); }
     let chunk: &'static SSAChunk = crate::util::leak(Box::new(chunk));
     let mut vm = VM::boxed(chunk, Limits { ops: u64::MAX, memory });
     if !keep { vm.print_hook = Some(out); }
     let Ok(paying) = vm.paying() else { return core::ptr::null_mut() };
-    let mut rt = Rt { vm, bodies: Vec::new(), frames: Vec::new(), steps: Default::default(), packs: Vec::new(), returned: Val::none(), src, _paying: paying };
+    let mut rt = Rt { vm, path, bodies: Vec::new(), frames: Vec::new(), steps: Default::default(), packs: Vec::new(), returned: Val::none(), src, _paying: paying };
     let vm = &mut *rt.vm;
     let started = vm.init_modules(chunk, &mut Default::default());
     let chunks: Vec<&'static SSAChunk> = core::iter::once(chunk).chain(vm.functions.iter().map(|f| &f.1)).collect();
@@ -439,7 +444,7 @@ pub unsafe fn boot(src: *const u8, len: usize, memory: usize, keep: bool) -> *mu
 }
 
 #[cold]
-fn report(rt: &mut Rt, e: &VmErr) { let s = rt.vm.render_error(e, rt.src, None); out(&s); }
+fn report(rt: &mut Rt, e: &VmErr) { let s = rt.vm.render_error(e, rt.src, rt.path); fail(&s); }
 
 /* Ends the program after `edge_main` gave `err`, its traceback printed for an exception, and gives the exit code. */
 /// # Safety

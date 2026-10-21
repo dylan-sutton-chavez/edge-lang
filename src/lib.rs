@@ -62,7 +62,7 @@ pub mod modules;
 pub mod code {
     pub use crate::parser::{
         Parser, SSAChunk, Instruction, OpCode, Value, ImportKind, ImportEntry, Diagnostic, Lines, SsaName, ssa_strip, param_base_name, unpack_call,
-        COMP_ARG, SPREAD_BASES, effect, INPLACE, ITER_VALUE, ITER_AS_IS, ITER_ASYNC, YIELD_FROM, SPREAD_ARGS, KEYWORDS,
+        COMP_ARG, SPREAD_BASES, effect, JUMP, RETURN, TAG_ERR, INPLACE, ITER_VALUE, ITER_AS_IS, ITER_ASYNC, YIELD_FROM, SPREAD_ARGS, KEYWORDS,
     };
     pub use crate::optimizer::constant_fold;
     pub use crate::vm::{Binding, BodyKind, FnScope, Kind, ParamKind};
