@@ -1,6 +1,5 @@
-/* The tree of a program's paths: every state each instruction can see, two paths joined only when their types are the
-   same and their integers then hulled, loops and recursion run until nothing grows, a context of its own for each
-   function and the argument types it is called with. The reviewer (check.rs) decides whether to trust it. */
+/* The tree of a program's paths: every state each instruction can see, two paths joined only when their types are the same
+   (their integers then hulled), loops and recursion run until nothing grows, a context for each body and argument types. */
 
 use alloc::{vec, vec::Vec};
 use crate::util::hash::FxHashMap as Map;

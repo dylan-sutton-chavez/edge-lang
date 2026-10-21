@@ -1,15 +1,11 @@
 /* Reads `edge.ept`, the rules per opcode at one Edge commit, refusing a file of another commit or version or with a line it does not know. */
 
 use alloc::{format, string::{String, ToString}, vec::Vec};
-use crate::parser::{OpCode, SSAChunk};
+use crate::parser::OpCode;
 use super::Tags;
 
 // The commit every rule is about, the one this build of Edge is.
 pub const COMMIT: &str = "8855578768056f9e68dab3f2a3361e158ed7d9e2";
-
-/* A term of a stack count: a number, `k` times bits `lo..hi` of the operand, a function's defaults or a class's arguments. */
-#[derive(Clone, Debug)]
-pub enum Term { N(usize), Bits(usize, u16, u16), Defaults, ClassArgs }
 
 /* What a popped value must be for its row to apply. */
 #[derive(Clone, Debug)]
@@ -45,7 +41,6 @@ pub struct Row {
 pub struct Rules {
     pub tags: Vec<(String, u8, u8)>,
     // By opcode name and operand, `type.name` of a method, or `Truth`.
-    stacks: Vec<(String, Option<u16>, [Vec<Term>; 2])>,
     rows: Vec<(String, Option<u16>, Row)>,
 }
 
@@ -60,21 +55,6 @@ fn span(w: &str) -> Result<(Rhs, Rhs), String> {
     Ok((rhs(lo, i64::MIN)?, rhs(hi, i64::MAX)?))
 }
 fn num(r: Rhs) -> Result<i64, String> { if let Rhs::N(n) = r { Ok(n) } else { Err("edge.ept: an operand where a number goes".into()) } }
-
-fn terms(w: &str) -> Result<Vec<Term>, String> {
-    w.split('+').map(|t| {
-        let (k, rest) = match t.split_once('*') { Some((k, r)) => (int(k)? as usize, r), None => (1, t) };
-        Ok(match rest {
-            "defaults" => Term::Defaults,
-            "classargs" => Term::ClassArgs,
-            r if r.starts_with("o[") => {
-                let (lo, hi) = r[2..].trim_end_matches(']').split_once(':').ok_or_else(|| bad(r, "a bit field"))?;
-                Term::Bits(k, int(lo)? as u16, int(hi)? as u16)
-            }
-            r => Term::N(int(r)? as usize * k),
-        })
-    }).collect()
-}
 
 impl Rules {
     pub fn read(text: &str) -> Result<Self, String> {
@@ -92,7 +72,8 @@ impl Rules {
             let op = name == "Truth" || ops.iter().any(|o| o == name);
             match w[0] {
                 "tag" if w.len() == 4 => {}
-                "stack" if op && w.len() == 4 => r.stacks.push((name.into(), at, [terms(w[2])?, terms(w[3])?])),
+                // The stack effects are `code::effect`'s, tested against the VM.
+                "stack" if op && w.len() == 4 => {}
                 "rule" if op => { let row = r.row(&w[2..])?; r.rows.push((name.into(), at, row)); }
                 "method" if name.contains('.') && at.is_none() => { let row = r.row(&w[2..])?; r.rows.push((name.into(), None, row)); }
                 _ => return Err(bad(&w.join(" "), "a line of format 1")),
@@ -157,20 +138,6 @@ impl Rules {
             None if e.starts_with('a') => Out::Exact('=', a(e)?, Rhs::N(0)),
             None => Out::Exact('n', Rhs::N(int(e)?), Rhs::N(0)),
         })
-    }
-
-    /* The values `op` pops and pushes at this operand, None for one the file does not cover. */
-    pub fn effect(&self, op: OpCode, operand: u16, chunk: &SSAChunk) -> Option<(usize, usize)> {
-        let name = format!("{op:?}");
-        let mine = |at: Option<u16>| self.stacks.iter().find(|s| s.0 == name && s.1 == at);
-        let e = &mine(Some(operand)).or(mine(None))?.2;
-        let sum = |ts: &[Term]| ts.iter().map(|t| match *t {
-            Term::N(n) => Some(n),
-            Term::Bits(k, lo, hi) => Some(k * ((operand as usize >> lo) & ((1 << (hi - lo)) - 1))),
-            Term::Defaults => chunk.functions.get(operand as usize).map(|f| f.2 as usize),
-            Term::ClassArgs => chunk.classes.get(operand as usize).map(|c| if c.bases == crate::parser::SPREAD_BASES { 1 } else { c.bases as usize } + 2 * c.class_kw as usize),
-        }).sum::<Option<usize>>();
-        Some((sum(&e[0])?, sum(&e[1])?))
     }
 
     /* The rows of opcode, method or `Truth` `name` at this operand, an operand's own rows winning over the plain ones. */

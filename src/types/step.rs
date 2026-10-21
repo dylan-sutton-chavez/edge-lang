@@ -19,8 +19,9 @@ pub const BASES: u32 = 6 << 28;
 pub const ITEM: u32 = u32::MAX;
 
 /* One body of the program: its code, kind, where each name lives, its module, the bodies its MakeFunction and MakeClass
-   make, the program-wide id of each name, each parameter's kind, slot and default, and where back edges land. */
-pub struct Body<'c> { pub chunk: &'c SSAChunk, pub kind: Kind, pub binds: Vec<Binding>, pub module: u32, pub fns: Vec<u32>, pub classes: Vec<u32>, pub names: Vec<u32>, pub params: Vec<(ParamKind, usize, bool)>, pub heads: Vec<bool> }
+   make, the program-wide id of each name, each parameter's kind, slot and default, where back edges land, and whether an
+   `async def` made it. */
+pub struct Body<'c> { pub chunk: &'c SSAChunk, pub kind: Kind, pub binds: Vec<Binding>, pub module: u32, pub fns: Vec<u32>, pub classes: Vec<u32>, pub names: Vec<u32>, pub params: Vec<(ParamKind, usize, bool)>, pub heads: Vec<bool>, pub coro: bool }
 
 pub struct Prog<'c> { pub rules: &'c Rules, pub bodies: Vec<Body<'c>>, pub names: Vec<String> }
 
@@ -38,8 +39,9 @@ impl<'c> Prog<'c> {
         let mut heads = vec![false; c.instructions.len() + 1];
         for (i, x) in c.instructions.iter().enumerate() { if x.opcode == O::Jump && x.operand as usize <= i { heads[x.operand as usize] = true; } }
         let params = match kind { Kind::Function(fi) => vm.params_of(fi).iter().zip(params).map(|(&(k, s), d)| (k, s, d.ends_with('='))).collect(), _ => Vec::new() };
-        self.bodies.push(Body { chunk: c, kind, binds, module, fns: Vec::new(), classes: Vec::new(), names, params, heads });
-        let fns = c.functions.iter().map(|f| self.walk(vm, &f.1, module, &f.0, ids)).collect();
+        self.bodies.push(Body { chunk: c, kind, binds, module, fns: Vec::new(), classes: Vec::new(), names, params, heads, coro: false });
+        let fns: Vec<u32> = c.functions.iter().map(|f| self.walk(vm, &f.1, module, &f.0, ids)).collect();
+        for x in c.instructions.iter().filter(|x| x.opcode == O::MakeCoroutine) { if let Some(&f) = fns.get(x.operand as usize) { self.bodies[f as usize].coro = true; } }
         let classes = c.classes.iter().map(|k| self.walk(vm, k, module, &[], ids)).collect();
         (self.bodies[me as usize].fns, self.bodies[me as usize].classes) = (fns, classes);
         me
@@ -118,7 +120,9 @@ impl<'a, 'c> Step<'a, 'c> {
         self.eff.ran = true;
         let at = self.t.ctxs.iter().position(|c| c.body == f && c.args.len() == args.len() && c.args.iter().zip(&args).all(|(a, b)| a.same(b)) && args.iter().zip(&c.args).all(|(a, b)| a.within(b)));
         let Some(i) = at else { self.eff.calls.push((f, args)); return None };
-        if self.p.bodies[f as usize].chunk.is_generator { return Some(self.p.tag("generator").with(Known::Gen(i as u32))); }
+        // A generator's or coroutine's body runs as it is stepped, the call giving the object that steps it.
+        let b = &self.p.bodies[f as usize];
+        if b.chunk.is_generator || b.coro { return Some(self.p.tag(if b.coro { "coroutine" } else { "generator" }).with(Known::Gen(i as u32))); }
         self.raise(s, self.t.ctxs[i].raises);
         Some(self.t.ctxs[i].ret)
     }
@@ -241,7 +245,7 @@ impl<'a, 'c> Step<'a, 'c> {
     fn store(&mut self, s: &mut State, i: u16, v: Ty, global: bool) {
         let b = self.body();
         // What testing a value learned of this slot no longer holds once it is written.
-        for e in s.stack.iter_mut() { if e.from == i as u32 { e.from = NO; } if e.of.contains(&(i as u32)) { (e.cond, e.of) = (NO, [NO; 3]); } }
+        for e in s.stack.iter_mut().filter(|e| e.from == i as u32 || e.of.contains(&(i as u32))) { (e.from, e.cond, e.of) = (if e.from == i as u32 { NO } else { e.from }, NO, [NO; 3]); }
         match if global { Binding::Global(0) } else { b.binds.get(i as usize).copied().unwrap_or(Binding::Local) } {
             Binding::Global(_) => { self.write(GLOBAL | b.module, self.name(i), v); if b.kind == Kind::Module && !global { s.slots[i as usize] = v; } }
             Binding::Member => { self.write(MEMBER | self.me(), self.name(i), v); s.slots[i as usize] = v; }
@@ -282,9 +286,9 @@ impl<'a, 'c> Step<'a, 'c> {
                 if !(b.ty.lo <= side as i64 && side as i64 <= b.ty.hi) || e.ty.tags & !int == 0 && (if side { e.ty.lo == 0 && e.ty.hi == 0 } else { e.ty.lo > 0 || e.ty.hi < 0 }) { continue; }
                 let mut s = s.clone();
                 let mut ok = true;
-                for c in [b, e] {
+                for (c, test) in [(b, true), (e, false)] {
                     let Some(ins) = self.body().chunk.instructions.get((c.cond >> 8) as usize).filter(|_| c.cond != NO) else { continue };
-                    let name = if c.cond == b.cond { String::from("Truth") } else { alloc::format!("{:?}", ins.opcode) };
+                    let name = if test { String::from("Truth") } else { alloc::format!("{:?}", ins.opcode) };
                     let Some(row) = self.p.rules.rows(&name, ins.operand).get((c.cond & 0xFF) as usize).copied() else { continue };
                     for (_, a, l) in row.learn.iter().filter(|l| l.0 == side) { if let Some(&f) = c.of.get(*a).filter(|&&f| f != NO) { ok &= self.learn(&mut s, f, l, &c.of); } }
                 }
@@ -453,8 +457,8 @@ impl<'a, 'c> Step<'a, 'c> {
             O::MakeFunction | O::MakeCoroutine | O::MakeClass => {
                 let class = op == O::MakeClass;
                 let id = if class { &self.body().classes } else { &self.body().fns }.get(k as usize).copied();
-                let (Some((n, _)), Some(id)) = (self.p.rules.effect(op, k, chunk), id) else { return self.give_up() };
-                let Some(at) = s.stack.len().checked_sub(n) else { return self.give_up() };
+                let (Some((n, _)), Some(id)) = (crate::parser::effect(&ins, chunk), id) else { return self.give_up() };
+                let Some(at) = s.stack.len().checked_sub(n as usize) else { return self.give_up() };
                 let dflt: Vec<u32> = self.p.bodies[id as usize].params.iter().enumerate().filter(|p| p.1.2).map(|p| p.0 as u32).collect();
                 for (j, e) in s.stack.split_off(at).into_iter().enumerate() { self.write(if class { BASES } else { DEFAULTS } | id, if class { j as u32 } else { dflt.get(j).copied().unwrap_or(j as u32) }, e.ty); }
                 if class && self.p.bodies[id as usize].chunk.class_kw > 0 { self.unknown(&s); }
@@ -473,18 +477,11 @@ impl<'a, 'c> Step<'a, 'c> {
                 self.go(next, s)
             }
             O::LoadAttr => { let o = pop!(); let got = self.attr(&s, o.ty, self.name(k)); self.push(next, &s, got) }
-            O::Call | O::CallMethod => {
-                let method = op == O::CallMethod;
-                let counts = if method { chunk.instructions.get(next).map_or(0, |i| i.operand) } else { k };
-                let Some((n, _)) = self.p.rules.effect(O::Call, counts, chunk) else { return self.give_up() };
-                let Some(at) = s.stack.len().checked_sub(n) else { return self.give_up() };
+            O::Call | O::CallSpread => {
+                let Some(at) = crate::parser::effect(&ins, chunk).and_then(|(n, _)| s.stack.len().checked_sub(n as usize)) else { return self.give_up() };
                 let a = s.stack.split_off(at);
-                let then = next + method as usize;
-                // A fused method call has its receiver where a call has its callee, read as the attribute it names.
-                for callee in if method { self.attr(&s, a[0].ty, self.name(k)) } else { vec![a[0].ty] } {
-                    let rets = self.invoke(&s, ip, callee, &a[1..], counts >> 8 == 0, then);
-                    self.push(then, &s, rets);
-                }
+                let rets = self.invoke(&s, ip, a[0].ty, &a[1..], op == O::Call && k >> 8 == 0, next);
+                self.push(next, &s, rets);
             }
             O::WithJudge => {
                 let r = pop!();
@@ -492,10 +489,10 @@ impl<'a, 'c> Step<'a, 'c> {
                 self.truth(&s, ip, r, |me, mut s, side| { if side && let Some(w) = s.unwind.last_mut() { *w = Why::Normal; } me.go(next, s) })
             }
             _ => {
-                let Some((n, m)) = self.p.rules.effect(op, k, chunk) else { return self.give_up() };
-                let Some(at) = s.stack.len().checked_sub(n) else { return self.give_up() };
+                let Some((n, m)) = crate::parser::effect(&ins, chunk) else { return self.give_up() };
+                let Some(at) = s.stack.len().checked_sub(n as usize) else { return self.give_up() };
                 let a = s.stack.split_off(at);
-                self.rows(&s, ip, self.p.rules.rows(&alloc::format!("{op:?}"), k), &a, m, next)
+                self.rows(&s, ip, self.p.rules.rows(&alloc::format!("{op:?}"), k), &a, m as usize, next)
             }
         }
         // Past code that may write the module's names, each may hold what any code stores in it.

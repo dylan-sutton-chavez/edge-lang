@@ -1,0 +1,73 @@
+8855578768056f9e68dab3f2a3361e158ed7d9e2
+# A small edge.ept for the tree's own tests, its rows as the VM runs them; the shipped file comes from Spider Monkey.
+ept 1
+tag object 0 99
+tag int 1 1
+tag float 2 2
+tag str 3 3
+tag bool 5 5
+tag list 6 6
+tag tuple 7 7
+tag range 11 11
+tag type 13 13
+tag NoneType 14 14
+tag BaseException 20 87
+tag Exception 21 83
+tag TypeError 27 27
+tag NameError 56 57
+tag UnboundLocalError 57 57
+tag AttributeError 60 60
+tag GeneratorExit 86 86
+tag MemoryError 32 32
+tag ZeroDivisionError 37 37
+tag LookupError 33 35
+tag instance 93 93
+tag function 94 94
+tag iterator 95 95
+tag generator 96 96
+tag method 97 97
+tag builtin_function_or_method 98 98
+tag module 99 99
+stack Add 2 1
+stack Sub 2 1
+stack Mod 2 1
+stack Lt 2 1
+stack Eq 2 1
+stack GetItem 2 1
+stack BuildList o[0:16] 1
+stack CallPrint o[0:8]+2*o[8:14] 0
+stack CallRange o[0:8]+2*o[8:14] 1
+stack Call 1+o[0:8]+2*o[8:16] 1
+stack MakeFunction defaults 1
+stack MakeClass classargs 1
+stack GetIter 1 0
+stack CallIsInstance 2 1
+stack Is 2 1
+stack StoreItem 3 0
+rule Add int int -> int | r0 = a0+a1 | raises MemoryError unless r0 in -140737488355328..140737488355327
+rule Add str str -> str | raises MemoryError
+rule Add float float -> float
+rule Sub int int -> int | r0 = a0-a1 | raises MemoryError unless r0 in -140737488355328..140737488355327
+rule Mod int int -> int | raises ZeroDivisionError
+rule Eq int int -> bool
+rule Lt int int -> bool | true a0 < a1 | false a0 >= a1
+rule CallIsInstance * =type:int -> bool | true a0 int|bool | false a0 float|str|list|tuple|range|type|NoneType|BaseException|instance|function|iterator|generator|method|builtin_function_or_method|module
+rule GetItem list int -> * | item r0 a0 | raises AttributeError
+rule BuildList@0 -> list | items r0
+rule BuildList@1 * -> list | items r0 a0
+rule BuildList@2 * * -> list | items r0 a0 a1
+rule CallPrint@1 * -> | raises *
+rule CallPrint@2 * * -> | raises *
+rule GetIter list ->
+rule GetIter range ->
+rule Truth int -> bool | true a0 int
+rule Truth bool -> bool | true a0 == 1 | false a0 == 0
+rule Truth NoneType -> bool | r0 in 0..0
+rule Truth str -> bool
+rule CallRange int -> range | holds r0 int in 0..a0
+rule Add int str -> ! | raises TypeError
+rule Add str int -> ! | raises TypeError
+rule Is * * -> bool
+rule StoreItem list int * -> | puts a0 a2 | raises LookupError
+rule Mul int int -> int | r0 = a0*a1 | raises MemoryError unless r0 in -140737488355328..140737488355327
+stack Mul 2 1
