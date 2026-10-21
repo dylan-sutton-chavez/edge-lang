@@ -2917,11 +2917,6 @@ impl<'p> Lower<'_, 'p> {
         let body = callee.body.clone();
         // What it calls runs as often as it does, a generator's body at each step.
         self.once = false;
-        // A store by name a section holds only into a cell the body keeps, and a function made inside reads its captures from
-        // registers, which a closure's cells laid as constants are not. Both are told before anything it calls is wanted, so a
-        // refusal leaves no table pair or loop naming a section that is never laid.
-        if body.ins.iter().any(|i| i.op == OpCode::StoreName && !callee.cellvars.contains(&(i.a as usize))) { return None; }
-        if body.ins.iter().any(|i| matches!(i.op, OpCode::MakeFunction | OpCode::MakeCoroutine)) && !callee.cells.is_empty() && !callee.by_body { return None; }
         // Wanted before what it calls, so a call back into it, a recursion, finds it.
         let k = self.wanted.len();
         let twin = callee.twin.then(|| Callee { by_body: true, twin: false, ..callee.clone() });
@@ -2935,6 +2930,11 @@ impl<'p> Lower<'_, 'p> {
             let marked: Vec<(OpCode, usize)> = ins.iter().enumerate().filter(|(_, i)| dunder_op(i.op) || matches!(i.op, OpCode::CallGlobalR | OpCode::CallR | OpCode::PushRegs
                 | OpCode::CallMethodR | OpCode::JumpIfFalseR | OpCode::CallSpreadR | OpCode::MakeFunction | OpCode::MakeCoroutine | OpCode::StoreName | OpCode::Call)).map(|(j, i)| (i.op, j)).collect();
             let of = |op: OpCode| marked.iter().filter(move |m| m.0 == op).map(|m| m.1);
+            // A store by name a section holds only into a cell the body keeps, and a function made inside reads its captures from
+            // registers, which a closure's cells laid as constants are not. Both are told before anything it calls is wanted, so a
+            // refusal leaves no table pair or loop naming a section that is never laid.
+            if of(OpCode::StoreName).any(|j| !self.wanted[k].1.cellvars.contains(&(ins[j].a as usize)))
+                || marked.iter().any(|m| matches!(m.0, OpCode::MakeFunction | OpCode::MakeCoroutine)) && !self.wanted[k].1.cells.is_empty() && !self.wanted[k].1.by_body { self.wanted.truncate(k); return None; }
             // A call of a function that may be laid jumps to its section, any other calls as it would outside them.
             let mut calls: Vec<(u16, usize, bool)> = marked.iter().filter(|m| matches!(m.0, OpCode::CallGlobalR | OpCode::CallR))
                 .filter_map(|&(_, j)| Some((super::block::global_of(ins, j, ins[j])?, ins[j].x as usize, false))).collect();
