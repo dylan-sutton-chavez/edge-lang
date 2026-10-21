@@ -127,7 +127,8 @@ cli: $(CLI_INPUTS)
 	cd cli && cargo build --locked --release
 
 # The CLI whose `edge build` compiles to every target, the VM's bitcode for each, wasm32-wasip1 among them, carried inside it.
-native: bitcode cli
+native: bitcode
+	$(MAKE) cli
 
 # musl-gcc has no C++, so the static Linux build runs in Alpine, whose libc is musl.
 cli-release: $(CLI_INPUTS)
