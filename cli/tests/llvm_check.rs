@@ -38,6 +38,11 @@ fn three(dir: &Path, src: &str, input: &str, events: &[&str], flags: &[&str]) ->
 fn flow() {
     let dir = tempfile::tempdir().unwrap();
     let src = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/llvm_check.py")).unwrap();
+    // A program this size types well under a second; past two the tree grows paths it should keep as one.
+    let rules = compiler::types::rules().unwrap_or_else(|e| panic!("edge.ept is missing or stale for these sources: {e}"));
+    let start = std::time::Instant::now();
+    compiler::types::typed(&compiler::code::compile(&src).0, &rules).unwrap_or_else(|e| panic!("{e}"));
+    assert!(start.elapsed().as_secs_f64() < 2.0, "{ALARM}: its types took {:?}", start.elapsed());
     let [vm, native, torture] = three(dir.path(), &src, "", &[], &["--emit-llvm", "main.ll"]);
     assert_eq!(vm.2, 0, "the VM fails the program: {}", vm.1);
     assert_eq!(native, vm, "{ALARM}, native differs from the VM");

@@ -45,6 +45,8 @@ pub enum Known {
     // The generator or coroutine of the tree's context `x`, and a builtin function by its NativeFnId.
     Gen(u32),
     Native(u16),
+    // One of the values table entry (owner, field) holds, taken one at a time where an instruction uses which.
+    Of(u32, u32),
 }
 
 impl Known {
