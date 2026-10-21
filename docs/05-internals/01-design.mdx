@@ -104,7 +104,7 @@ A job keeps between calls whatever the builtin needs, so new state goes in a var
 
 ### What the assertion holds
 
-Debug and coverage builds count the loops running in `VM::loops`. `exec_in` is the only way into `exec_frame`, and a loop opening inside another panics. The test `old_path_ceilings` runs every case of `vm.json` and fails when a generic frame is pushed. Release builds have no counter.
+Debug and coverage builds count the loops running in `VM::loops`. `exec_in` is the only way into `exec_frame`, and a loop opening inside another panics. The test `old_path_ceilings` runs every case of `tests/cases/vm` and fails when a generic frame is pushed. Release builds have no counter.
 
 ## One body per builtin
 

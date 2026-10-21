@@ -4,7 +4,9 @@ use std::process::Command;
 use std::time::SystemTime;
 use wasmtime::{Config, Engine, Instance, Linker, Memory, Module, Store, TypedFunc};
 
-const CASES: &str = include_str!("../../tests/cases/vm.json");
+#[path = "../../tests/cases.rs"]
+mod cases;
+
 const ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
 const SNAPSHOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/.snapshot");
 // Only the cases that exhaust the budget reach this many ops, and they end the same way sooner.
@@ -62,8 +64,8 @@ fn main() {
     let engine = Engine::new(&config).expect("wasmtime engine");
     let module = Module::new(&engine, &bytes).expect("compiling compiler.wasm");
 
-    let cases: Vec<serde_json::Value> = serde_json::from_str(CASES).expect("tests/cases/vm.json is not valid JSON");
-    println!("vm.json  {} cases", cases.len());
+    let cases = cases::vm_cases(Path::new(ROOT));
+    println!("tests/cases/vm  {} cases", cases.len());
     let ran: Vec<(String, (u64, u64))> = cases.iter().map(|case| (key(case), run(&engine, &module, case))).collect();
     let measured = ran.iter().map(|(k, (ops, peak))| (k.clone(), (*ops as f64, (*peak as f64 / MB * 1e6).round() / 1e6))).collect();
     let rustc = Command::new("rustc").arg("--version").current_dir(ROOT).output().map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_default();
@@ -140,9 +142,9 @@ fn compare(m: &Measure, last: &Snapshot, now: &Snapshot, sources: &BTreeMap<Stri
         picked.iter().map(|&&(k, l, n)| moved_line(m, sources, k, l, n)).collect::<Vec<_>>()
     };
     if change > last.threshold {
-        failures.push(format!("vm.json {}, {} {unit} against {} {unit}, {:+.2}% across {} cases. Fix it, or accept it with --update if it is intended. {}{}", m.grew, amount(total, p), amount(before, p), change * 100.0, paired.len(), m.most_grown, list(&moved(true))));
+        failures.push(format!("tests/cases/vm {}, {} {unit} against {} {unit}, {:+.2}% across {} cases. Fix it, or accept it with --update if it is intended. {}{}", m.grew, amount(total, p), amount(before, p), change * 100.0, paired.len(), m.most_grown, list(&moved(true))));
     } else if change < -last.threshold {
-        failures.push(format!("vm.json {}, {} {unit} against {} {unit}, {:+.2}%. The snapshot no longer matches the code, run --update and commit it with the change. {}{}", m.shrank, amount(total, p), amount(before, p), change * 100.0, m.most_shrunk, list(&moved(false))));
+        failures.push(format!("tests/cases/vm {}, {} {unit} against {} {unit}, {:+.2}%. The snapshot no longer matches the code, run --update and commit it with the change. {}{}", m.shrank, amount(total, p), amount(before, p), change * 100.0, m.most_shrunk, list(&moved(false))));
     }
     // A case at 0 has no ratio, so leaving 0 or reaching it moves it on its own, ahead of the rest.
     let by = |&(_, l, n): &(&String, f64, f64)| if l > 0.0 && n > 0.0 { (n / l).ln().abs() } else { f64::INFINITY };
@@ -160,7 +162,7 @@ fn compare(m: &Measure, last: &Snapshot, now: &Snapshot, sources: &BTreeMap<Stri
     }
 
     // Printed even when a finding fails, so adding cases never hides how the existing ones moved.
-    annotate("notice", &format!("vm.json {} {} {unit} {}, {:+.2}% against the snapshot across {} cases, the band is ±{:.1}%.", m.total.0, amount(total, p), m.total.1, change * 100.0, paired.len(), last.threshold * 100.0));
+    annotate("notice", &format!("tests/cases/vm {} {} {unit} {}, {:+.2}% against the snapshot across {} cases, the band is ±{:.1}%.", m.total.0, amount(total, p), m.total.1, change * 100.0, paired.len(), last.threshold * 100.0));
     (failures, grew.len())
 }
 

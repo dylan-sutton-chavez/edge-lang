@@ -4,9 +4,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish = false
-description = "Holds compiler.wasm to its last run of tests/cases/vm.json, run it with make bench."
+description = "Holds compiler.wasm to its last run of tests/cases/vm, run it with make bench."
 
 [dependencies]
 wasmtime = { version = "48", default-features = false, features = ["runtime", "std", "cranelift"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
+serde_yaml_ng = { workspace = true }

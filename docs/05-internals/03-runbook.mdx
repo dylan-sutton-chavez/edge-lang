@@ -20,7 +20,7 @@ Five checks run beside the test suites. Each one has a `make` target at the root
 The fuzzer feeds mutated source through the lexer, the parser and the VM. It also saves a snapshot at the first park and restores it into a fresh VM. It looks for panics and memory faults.
 
 - It runs on [AFL++](https://github.com/AFLplusplus/AFLplusplus) through cargo-afl, on stable Rust.
-- The seeds are the programs in `tests/cases/vm.json`.
+- The seeds are the programs in `tests/cases/vm`.
 - Only programs that parse reach the VM.
 
 > [!NOTE]
@@ -46,7 +46,7 @@ The [fuzzing manual](https://github.com/dylan-sutton-chavez/edge-python/blob/mai
 
 ## Bench
 
-`make bench` runs every case of `tests/cases/vm.json` on the speed build of `compiler.wasm` and counts the WebAssembly instructions it executes. `bench/.snapshot` keeps those instructions and the memory peak in MB for each case, the same on every machine.
+`make bench` runs every case of `tests/cases/vm` on the speed build of `compiler.wasm` and counts the WebAssembly instructions it executes. `bench/.snapshot` keeps those instructions and the memory peak in MB for each case, the same on every machine.
 
 > [!COPY] make bench
 

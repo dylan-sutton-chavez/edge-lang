@@ -1,0 +1,5038 @@
+- case: |-
+    def g():
+        yield 1
+        yield 2
+        yield 3
+    for x in g():
+        print(x)
+  expected: |-
+    1
+    2
+    3
+
+- case: |-
+    def g():
+        for i in range(4):
+            yield i * i
+    for x in g():
+        print(x)
+  expected: |-
+    0
+    1
+    4
+    9
+
+- case: |-
+    def g():
+        yield 10
+    for x in g():
+        print(x)
+  expected: |-
+    10
+
+- case: |-
+    def g(t):
+        for v in t:
+            yield v * 2
+    k = g((1, 2, 3))
+    print(next(k), list(k))
+  expected: |-
+    2 [4, 6]
+
+- case: |-
+    def g(s):
+        for c in s:
+            yield c.upper()
+    print(list(g('añb')))
+  expected: |-
+    ['A', 'Ñ', 'B']
+
+- case: |-
+    def g(d):
+        for k in d:
+            yield (k, d[k])
+    print(list(g({'a': 1, 'b': 2})))
+  expected: |-
+    [('a', 1), ('b', 2)]
+
+- case: |-
+    def g():
+        for a in (1, 2):
+            for b in 'xy':
+                yield f'{a}{b}'
+    print(list(g()))
+  expected: |-
+    ['1x', '1y', '2x', '2y']
+
+- case: |-
+    t = (1, 2, 3)
+    def g():
+        for v in t:
+            yield v
+    a, b = g(), g()
+    print(next(a), next(b), next(a), list(b), list(a))
+  expected: |-
+    1 1 2 [2, 3] [3]
+
+- case: |-
+    def g():
+        try:
+            yield 1
+        finally:
+            print('fin')
+    k = g()
+    next(k)
+    print(next(k, 'done'))
+    print(next(k, 'done'))
+  expected: |-
+    fin
+    done
+    done
+
+- case: |-
+    def g():
+        yield 1
+        raise ValueError('x')
+    k = g()
+    next(k)
+    try:
+        next(k)
+    except ValueError:
+        print('ve')
+    print(next(k, 'done'))
+  expected: |-
+    ve
+    done
+
+- case: |-
+    def g():
+        yield 1
+        print('tail')
+    k = g()
+    for v in k:
+        pass
+    print(list(k))
+  expected: |-
+    tail
+    []
+
+- case: |-
+    def g():
+        yield 1
+        print('end')
+    k = g()
+    print(list(k))
+    print(list(k))
+  expected: |-
+    end
+    [1]
+    []
+
+- case: |-
+    def g():
+        yield 1
+        print('ret')
+        return 5
+    k = g()
+    print(list(k), list(k))
+  expected: |-
+    ret
+    [1] []
+
+- case: |-
+    def g():
+        yield 1
+        print('x')
+    k = g()
+    next(k)
+    for _ in range(3):
+        print(next(k, 'd'))
+  expected: |-
+    x
+    d
+    d
+    d
+
+- case: |-
+    def g():
+        n = 0
+        while n < 2:
+            yield n
+            n += 1
+        print('out')
+    k = g()
+    print(list(k))
+    print(next(k, 'd'))
+  expected: |-
+    out
+    [0, 1]
+    d
+
+- case: |-
+    def g():
+        yield 1
+        yield 2
+    k = g()
+    print(next(k), next(k), next(k, 'd'))
+  expected: |-
+    1 2 d
+
+- case: |-
+    def g(n):
+        for i in range(n):
+            yield i * i
+    print(list(g(4)), list(g(0)))
+  expected: |-
+    [0, 1, 4, 9] []
+
+- case: |-
+    def g():
+        yield 1
+    a, b = g(), g()
+    print(list(a), list(b), list(a))
+  expected: |-
+    [1] [1] []
+
+- case: |-
+    def g():
+        if True:
+            yield 1
+        else:
+            yield 2
+    for x in g():
+        print(x)
+  expected: |-
+    1
+
+- case: |-
+    def g():
+        yield 2
+        yield 1
+    print(sum(g()), sum(g(), 10))
+  expected: |-
+    3 13
+
+- case: |-
+    def g():
+        yield 2
+        yield 1
+    print(max(g()), min(g()))
+  expected: |-
+    2 1
+
+- case: |-
+    def g():
+        yield 2
+        yield 1
+    print(sorted(g()))
+  expected: |-
+    [1, 2]
+
+- case: |-
+    def g():
+        yield 2
+        yield 1
+    print(tuple(g()))
+  expected: |-
+    (2, 1)
+
+- case: |-
+    def g():
+        yield 2
+        yield 1
+    print(set(g()) == {1, 2})
+  expected: |-
+    True
+
+- case: |-
+    def g():
+        yield 2
+        yield 1
+    print([*g()])
+  expected: |-
+    [2, 1]
+
+- case: |-
+    def g():
+        yield 2
+        yield 1
+    def f(a, b):
+        return a - b
+    print(f(*g()))
+  expected: |-
+    1
+
+- case: |-
+    def g():
+        yield 2
+        yield 1
+    print(dict(zip(g(), 'ab')))
+  expected: |-
+    {2: 'a', 1: 'b'}
+
+- case: |-
+    def g():
+        yield 2
+        yield 1
+    print(list(enumerate(g())))
+  expected: |-
+    [(0, 2), (1, 1)]
+
+- case: |-
+    def g():
+        yield 2
+        yield 1
+    print(list(g()), any(g()), all(g()))
+  expected: |-
+    [2, 1] True True
+
+- case: |-
+    def f():
+        yield 1
+        yield 2
+        yield 3
+    for x in f():
+        print(x)
+  expected: |-
+    1
+    2
+    3
+
+- case: |-
+    def squares(n):
+        for i in range(n):
+            yield i*i
+    for x in squares(5):
+        print(x)
+  expected: |-
+    0
+    1
+    4
+    9
+    16
+
+- case: |-
+    def g():
+        yield 1
+        yield 2
+    c = g()
+    print(c())
+    print(c())
+    print(c())
+  error: '''generator'' object is not callable'
+
+- case: |-
+    def g():
+        yield 10
+        yield 20
+        yield 30
+    for x in g():
+        print(x)
+  expected: |-
+    10
+    20
+    30
+
+- case: |-
+    def fib():
+        a, b = 0, 1
+        while True:
+            yield a
+            a, b = b, a + b
+    f = fib()
+    for i in range(7):
+        print(f())
+  error: '''generator'' object is not callable'
+
+- case: |-
+    def squares(n):
+        for i in range(n):
+            yield i * i
+    for x in squares(4):
+        print(x)
+  expected: |-
+    0
+    1
+    4
+    9
+
+- case: |-
+    def count(start):
+        n = start
+        while True:
+            yield n
+            n = n + 1
+    a = count(0)
+    b = count(10)
+    print(a())
+    print(b())
+    print(a())
+    print(b())
+  error: '''generator'' object is not callable'
+
+- case: |-
+    def g():
+        yield 10
+        yield 20
+    c = g()
+    print(next(c))
+    print(next(c))
+  expected: |-
+    10
+    20
+
+- case: |-
+    def a():
+        print('a1')
+        yield None
+        print('a2')
+    def b():
+        print('b1')
+        yield None
+        print('b2')
+    ta = a()
+    tb = b()
+    ta()
+    tb()
+    ta()
+    tb()
+  error: '''generator'' object is not callable'
+
+- case: |-
+    def g():
+        print('before')
+        yield 1
+        print('after')
+    c = g()
+    print(c())
+    print(c())
+  error: '''generator'' object is not callable'
+
+- case: |-
+    async def a():
+        dict(0)
+    list(a())
+  error: TypeError
+
+- case: |-
+    items = [1, 2, 3]
+    async with items as xs:
+        print(len(xs))
+  error: '''async with'' outside async function'
+
+- case: |-
+    async def gen():
+        yield 1
+        yield 2
+    result = list(gen())
+    print(result)
+  error: '''async_generator'' object is not iterable'
+
+- case: |-
+    async def gen():
+        yield 10
+        yield 20
+    for v in gen():
+        print(v)
+  error: '''async_generator'' object is not iterable'
+
+- case: |-
+    def repeat(x, n):
+        for _ in range(n):
+            yield x
+    g = repeat(42, 3)
+    print([g() for _ in range(3)])
+  error: '''generator'' object is not callable'
+
+- case: |-
+    def gen_range(start, stop):
+        i = start
+        while i < stop:
+            yield i
+            i += 1
+    result = []
+    for x in gen_range(2, 6):
+        result.append(x)
+    print(result)
+  expected: |-
+    [2, 3, 4, 5]
+
+- case: |-
+    def evens_up_to(n):
+        i = 0
+        while i < n:
+            yield i
+            i += 2
+    result = []
+    for x in evens_up_to(10):
+        result.append(x)
+    print(result)
+  expected: |-
+    [0, 2, 4, 6, 8]
+
+- case: |-
+    def countdown(n):
+        while n > 0:
+            yield n
+            n -= 1
+    result = []
+    for x in countdown(5):
+        result.append(x)
+    print(result)
+  expected: |-
+    [5, 4, 3, 2, 1]
+
+- case: |-
+    def g():
+        for i in range(5):
+            if i % 2 == 0:
+                yield i
+    result = []
+    for x in g():
+        result.append(x)
+    print(result)
+  expected: |-
+    [0, 2, 4]
+
+- case: |-
+    def naturals():
+        n = 0
+        while True:
+            yield n
+            n += 1
+    g = naturals()
+    result = []
+    for _ in range(5):
+        result.append(g())
+    print(result)
+  error: '''generator'' object is not callable'
+
+- case: |-
+    def take(gen_fn, n):
+        g = gen_fn()
+        return [g() for _ in range(n)]
+    def naturals():
+        n = 0
+        while True:
+            yield n
+            n += 1
+    print(take(naturals, 5))
+  error: '''generator'' object is not callable'
+
+- case: |-
+    def even(n):
+        for i in range(n):
+            if i % 2 == 0:
+                yield i
+    print(list(even(10)))
+  expected: |-
+    [0, 2, 4, 6, 8]
+
+- case: |-
+    def gen():
+        yield 1
+        yield 2
+    def outer():
+        yield from gen()
+        yield 3
+    for v in outer(): print(v)
+  expected: |-
+    1
+    2
+    3
+
+- case: |-
+    def g():
+        yield from [10, 20, 30]
+    for v in g(): print(v)
+  expected: |-
+    10
+    20
+    30
+
+- case: |-
+    def inner():
+        yield 'a'
+        yield 'b'
+    def top():
+        yield from inner()
+        yield 'c'
+    for v in top(): print(v)
+  expected: |-
+    a
+    b
+    c
+
+- case: |-
+    def gen():
+        for i in range(50):
+            yield i
+    total = 0
+    for _ in range(200):
+        total = 0
+        for v in gen():
+            total = total + v
+    print(total)
+  expected: |-
+    1225
+
+- case: |-
+    def gen():
+        items = ["a", "b", "c", "d", "e"]
+        for x in items:
+            yield x
+    joined = ""
+    for _ in range(200):
+        joined = ""
+        for v in gen():
+            joined = joined + v
+    print(joined)
+  expected: |-
+    abcde
+
+- case: |-
+    def g():
+        yield 1
+    gen = g()
+    next(gen)
+    gen.send(99)
+  error: StopIteration
+
+- case: |-
+    def gen(n):
+        for i in range(n):
+            yield i * i
+    print([list(gen(k)) for k in range(4)])
+  expected: |-
+    [[], [0], [0, 1], [0, 1, 4]]
+
+- case: |-
+    def g():
+        for i in range(5000):
+            def f():
+                return i
+            yield i
+    print(len(list(g())))
+  expected: |-
+    5000
+
+- case: |-
+    def g():
+        yield 1
+    it = g()
+    print(next(it))
+    next(it)
+  expected: |-
+    1
+  error: StopIteration
+
+- case: |-
+    def inner():
+        yield 1
+        yield 2
+    def outer():
+        yield 0
+        yield from inner()
+    print(list(outer()))
+  expected: |-
+    [0, 1, 2]
+
+- case: |-
+    def gen(v=5):
+        for i in range(v):
+            yield i
+        else:
+            pass
+    print(list(gen()))
+    print(list(gen(v=10)))
+
+    def g(*args, **kwargs):
+        for i in args:
+            yield i
+        else:
+            pass
+        for k, v in kwargs.items():
+            yield (k, v)
+        else:
+            pass
+    print(list(g(1, 2, 3, foo='bar')))
+  expected: |-
+    [0, 1, 2, 3, 4]
+    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+    [1, 2, 3, ('foo', 'bar')]
+
+- case: |-
+    def gen():
+        yield from (1, 2, 3)
+
+    def gen2():
+        yield from gen()
+
+    def gen3():
+        yield from (4, 5)
+        yield 6
+    print(list(gen()))
+    print(list(gen2()))
+    print(list(gen3()))
+  expected: |-
+    [1, 2, 3]
+    [1, 2, 3]
+    [4, 5, 6]
+
+- case: |-
+    def noop_task():
+        print('noop task')
+        yield 1
+
+    def raise_task():
+        print('raise task')
+        yield 2
+        print('raising')
+        raise Exception
+
+    def main():
+        try:
+            yield from raise_task()
+        except:
+            print('main exception')
+        else:
+            pass
+        finally:
+            pass
+        yield from noop_task()
+    for z in main():
+        print('outer iter', z)
+    else:
+        pass
+  expected: |-
+    raise task
+    outer iter 2
+    raising
+    main exception
+    noop task
+    outer iter 1
+
+- case: |-
+    def g():
+     yield
+    print(next(g()))
+  expected: |-
+    None
+
+- case: |-
+    def g():
+     yield
+    print(list(g()))
+  expected: |-
+    [None]
+
+- case: |-
+    def g():
+     yield
+    print(len(list(g())))
+  expected: |-
+    1
+
+- case: |-
+    def g():
+     yield
+    print(next(g()) is None)
+  expected: |-
+    True
+
+- case: |-
+    def g():
+     yield
+    print(list(g())==[None])
+  expected: |-
+    True
+
+- case: |-
+    def g():
+     if True:
+      yield
+    print(next(g()))
+  expected: |-
+    None
+
+- case: |-
+    def g():
+     yield
+    g=g()
+    print(next(g))
+  expected: |-
+    None
+
+- case: |-
+    def g():
+     yield
+    print(list(g())[0])
+  expected: |-
+    None
+
+- case: |-
+    def g():
+     yield
+    v=next(g())
+    print(v)
+  expected: |-
+    None
+
+- case: |-
+    def g():
+     yield
+    print([next(g())])
+  expected: |-
+    [None]
+
+- case: |-
+    def f():
+     yield
+    print(next(f()))
+  expected: |-
+    None
+
+- case: |-
+    def f():
+     yield
+    print(list(f()))
+  expected: |-
+    [None]
+
+- case: |-
+    def f():
+     yield
+    print(len(list(f())))
+  expected: |-
+    1
+
+- case: |-
+    def f():
+     yield
+    print(next(f()) is None)
+  expected: |-
+    True
+
+- case: |-
+    def f():
+     yield
+    print(list(f())==[None])
+  expected: |-
+    True
+
+- case: |-
+    def f():
+     if True:
+      yield
+    print(next(f()))
+  expected: |-
+    None
+
+- case: |-
+    def f():
+     yield
+    g=f()
+    print(next(g))
+  expected: |-
+    None
+
+- case: |-
+    def f():
+     yield
+    print(list(f())[0])
+  expected: |-
+    None
+
+- case: |-
+    def f():
+     yield
+    v=next(f())
+    print(v)
+  expected: |-
+    None
+
+- case: |-
+    def f():
+     yield
+    print([next(f())])
+  expected: |-
+    [None]
+
+- case: |-
+    def gen():
+     yield
+    print(next(gen()))
+  expected: |-
+    None
+
+- case: |-
+    def gen():
+     yield
+    print(list(gen()))
+  expected: |-
+    [None]
+
+- case: |-
+    def gen():
+     yield
+    print(len(list(gen())))
+  expected: |-
+    1
+
+- case: |-
+    def gen():
+     yield
+    print(next(gen()) is None)
+  expected: |-
+    True
+
+- case: |-
+    def gen():
+     yield
+    print(list(gen())==[None])
+  expected: |-
+    True
+
+- case: |-
+    def gen():
+     if True:
+      yield
+    print(next(gen()))
+  expected: |-
+    None
+
+- case: |-
+    def gen():
+     yield
+    g=gen()
+    print(next(g))
+  expected: |-
+    None
+
+- case: |-
+    def gen():
+     yield
+    print(list(gen())[0])
+  expected: |-
+    None
+
+- case: |-
+    def gen():
+     yield
+    v=next(gen())
+    print(v)
+  expected: |-
+    None
+
+- case: |-
+    def gen():
+     yield
+    print([next(gen())])
+  expected: |-
+    [None]
+
+- case: |-
+    def g():
+        yield
+    for x in g():
+        print(x)
+  expected: |-
+    None
+
+- case: |-
+    def g():
+        yield None
+        yield 1
+    for x in g():
+        print(x)
+  expected: |-
+    None
+    1
+
+- case: |-
+    def g():
+        for i in range(3):
+            yield None
+    print(sum(1 for _ in g()))
+  expected: |-
+    3
+
+- case: |-
+    def g():
+        for i in range(2):
+            yield
+    print(list(g()))
+  expected: |-
+    [None, None]
+
+- case: |-
+    def g():
+        yield 0
+        yield None
+        yield 2
+    print([x for x in g()])
+  expected: |-
+    [0, None, 2]
+
+- case: |-
+    def g():
+        yield None
+    for x in g():
+        print(x is None)
+  expected: |-
+    True
+
+- case: |-
+    def g():
+        yield from [None, None]
+    print(list(g()))
+  expected: |-
+    [None, None]
+
+- case: |-
+    def g():
+        yield None
+        yield None
+    c=0
+    for _ in g():
+        c+=1
+    print(c)
+  expected: |-
+    2
+
+- case: |-
+    def g():
+        if True:
+            yield None
+    for x in g():
+        print("got", x)
+  expected: |-
+    got None
+
+- case: |-
+    def g():
+        yield None
+    print(next(g()))
+  expected: |-
+    None
+
+- case: |-
+    def g():
+     yield
+     yield
+    print(list(g()))
+  expected: |-
+    [None, None]
+
+- case: |-
+    def g():
+     yield
+     yield
+     yield
+    print(list(g()))
+  expected: |-
+    [None, None, None]
+
+- case: |-
+    def g():
+     yield 1
+     yield
+     yield 2
+    print(list(g()))
+  expected: |-
+    [1, None, 2]
+
+- case: |-
+    def g():
+     yield
+     yield 5
+    print(list(g()))
+  expected: |-
+    [None, 5]
+
+- case: |-
+    def g():
+     yield 1
+     yield
+    print(list(g()))
+  expected: |-
+    [1, None]
+
+- case: |-
+    def g():
+     x = 1
+     yield
+     yield x
+    print(list(g()))
+  expected: |-
+    [None, 1]
+
+- case: |-
+    def g():
+     for i in range(2):
+      yield
+    print(list(g()))
+  expected: |-
+    [None, None]
+
+- case: |-
+    def g():
+     yield
+     yield
+     yield
+     yield
+    print(len(list(g())))
+  expected: |-
+    4
+
+- case: |-
+    def g():
+     if True:
+      yield
+     yield
+    print(list(g()))
+  expected: |-
+    [None, None]
+
+- case: |-
+    def g():
+        yield 1
+    it=g()
+    next(it)
+    try:
+        next(it)
+    except StopIteration:
+        print('ok')
+  expected: |-
+    ok
+
+- case: |-
+    def g():
+        yield 1
+        yield 2
+    it=g()
+    print(next(it))
+    print(next(it))
+    try:
+        next(it)
+    except StopIteration:
+        print('done')
+  expected: |-
+    1
+    2
+    done
+
+- case: |-
+    def g():
+        for x in []:
+            yield x
+    it=g()
+    try:
+        next(it)
+    except StopIteration:
+        print('empty')
+  expected: |-
+    empty
+
+- case: |-
+    def g():
+        yield 1
+    it=g()
+    next(it)
+    print(next(it, 'default'))
+  expected: |-
+    default
+
+- case: |-
+    def g():
+        yield 1
+    it=g()
+    print(next(it, 99))
+    print(next(it, 99))
+  expected: |-
+    1
+    99
+
+- case: |-
+    def g():
+        for i in range(3):
+            yield i
+    it=g()
+    while True:
+        try:
+            print(next(it))
+        except StopIteration:
+            print('stop')
+            break
+  expected: |-
+    0
+    1
+    2
+    stop
+
+- case: |-
+    def g():
+        yield 1
+    it=g()
+    next(it)
+    caught=False
+    try:
+        next(it)
+    except StopIteration:
+        caught=True
+    print(caught)
+  expected: |-
+    True
+
+- case: |-
+    def g():
+        yield from [1,2]
+    it=g()
+    print(next(it))
+    print(next(it))
+    print(next(it, -1))
+  expected: |-
+    1
+    2
+    -1
+
+- case: |-
+    def g():
+        yield 1
+    def consume(it):
+        try:
+            while True:
+                next(it)
+        except StopIteration:
+            return 'finished'
+    print(consume(g()))
+  expected: |-
+    finished
+
+- case: |-
+    def g():
+        yield 1
+        yield 2
+        yield 3
+    it = g()
+    count = 0
+    try:
+        while True:
+            next(it)
+            count += 1
+    except StopIteration:
+        pass
+    print(count)
+  expected: |-
+    3
+
+- case: |-
+    def gen():
+        yield 1
+    def gen2():
+        print((yield from gen()))
+    print(list(gen2()))
+  expected: |-
+    None
+    [1]
+
+- case: |-
+    def gen():
+        yield 1
+        yield 2
+    def outer():
+        r = yield from gen()
+        print('r', r)
+    print(list(outer()))
+  expected: |-
+    r None
+    [1, 2]
+
+- case: |-
+    def outer():
+        print((yield from [10, 20, 30]))
+    print(list(outer()))
+  expected: |-
+    None
+    [10, 20, 30]
+
+- case: |-
+    def outer():
+        print((yield from range(3)))
+    print(list(outer()))
+  expected: |-
+    None
+    [0, 1, 2]
+
+- case: |-
+    def outer():
+        print((yield from 'ab'))
+    print(list(outer()))
+  expected: |-
+    None
+    ['a', 'b']
+
+- case: |-
+    def outer():
+        print((yield from ()))
+    print(list(outer()))
+  expected: |-
+    None
+    []
+
+- case: |-
+    def gen():
+        yield 1
+    def outer():
+        x = (yield from gen()) or 'none'
+        print(x)
+    print(list(outer()))
+  expected: |-
+    none
+    [1]
+
+- case: |-
+    def inner():
+        yield 1
+        yield 2
+    def outer():
+        yield 0
+        yield from inner()
+        yield 3
+    print(list(outer()))
+  expected: |-
+    [0, 1, 2, 3]
+
+- case: |-
+    def outer():
+        print((yield from {1: 'a', 2: 'b'}))
+    print(list(outer()))
+  expected: |-
+    None
+    [1, 2]
+
+- case: |-
+    def gen():
+        yield 1
+    def outer():
+        res = yield from gen()
+        print(res is None)
+    print(list(outer()))
+  expected: |-
+    True
+    [1]
+
+- case: |-
+    def gen():
+        yield 1
+        raise ValueError
+    def gen2():
+        try:
+            print((yield from gen()))
+        except ValueError:
+            print('caught')
+    print(list(gen2()))
+  expected: |-
+    caught
+    [1]
+
+- case: |-
+    def gen():
+        yield 1
+        raise KeyError('k')
+    def g():
+        try:
+            yield from gen()
+        except KeyError:
+            print('key')
+    print(list(g()))
+  expected: |-
+    key
+    [1]
+
+- case: |-
+    def gen():
+        raise RuntimeError
+        yield
+    def g():
+        try:
+            yield from gen()
+        except RuntimeError:
+            print('rt')
+    print(list(g()))
+  expected: |-
+    rt
+    []
+
+- case: |-
+    def gen():
+        yield 1
+        yield 2
+        raise ValueError('boom')
+    def g():
+        try:
+            yield from gen()
+        except ValueError as e:
+            print('got', e)
+    print(list(g()))
+  expected: |-
+    got boom
+    [1, 2]
+
+- case: |-
+    def sub():
+        yield 1
+        raise ZeroDivisionError
+    def g():
+        try:
+            yield from sub()
+        except ZeroDivisionError:
+            print('zde')
+        yield 9
+    print(list(g()))
+  expected: |-
+    zde
+    [1, 9]
+
+- case: |-
+    def sub():
+        raise TypeError
+        yield
+    def g():
+        try:
+            yield from sub()
+        except Exception:
+            print('generic')
+    print(list(g()))
+  expected: |-
+    generic
+    []
+
+- case: |-
+    def sub():
+        yield 1
+        raise IndexError
+    def g():
+        try:
+            yield from sub()
+        except IndexError:
+            print('idx')
+        finally:
+            print('fin')
+    print(list(g()))
+  expected: |-
+    idx
+    fin
+    [1]
+
+- case: |-
+    def sub():
+        yield 1
+        raise ValueError('inner')
+    def mid():
+        yield from sub()
+    def g():
+        try:
+            yield from mid()
+        except ValueError as e:
+            print('outer', e)
+    print(list(g()))
+  expected: |-
+    outer inner
+    [1]
+
+- case: |-
+    def sub():
+        yield 1
+        raise ValueError
+    def g():
+        try:
+            yield from sub()
+        except ValueError:
+            yield 'recovered'
+    print(list(g()))
+  expected: |-
+    [1, 'recovered']
+
+- case: |-
+    def sub():
+        raise ValueError('x')
+        yield
+    def g():
+        caught = False
+        try:
+            yield from sub()
+        except ValueError:
+            caught = True
+        print(caught)
+    print(list(g()))
+  expected: |-
+    True
+    []
+
+- case: |-
+    def gen():
+        return 1
+        yield
+    f = gen()
+    def run():
+        print((yield from f))
+    try:
+        next(run())
+    except StopIteration:
+        print('SI')
+  expected: |-
+    1
+    SI
+
+- case: |-
+    def sub():
+        yield 1
+        return 99
+    def g():
+        r = yield from sub()
+        print('r', r)
+    print(list(g()))
+  expected: |-
+    r 99
+    [1]
+
+- case: |-
+    def sub():
+        return 'end'
+        yield
+    def g():
+        v = yield from sub()
+        print(v)
+    print(list(g()))
+  expected: |-
+    end
+    []
+
+- case: |-
+    def sub():
+        yield 1
+        yield 2
+        return 3
+    def g():
+        total = yield from sub()
+        print('total', total)
+    print(list(g()))
+  expected: |-
+    total 3
+    [1, 2]
+
+- case: |-
+    def sub():
+        if False:
+            yield
+        return 5
+    def g():
+        print((yield from sub()))
+    print(list(g()))
+  expected: |-
+    5
+    []
+
+- case: |-
+    def sub():
+        yield 1
+        return
+    def g():
+        v = yield from sub()
+        print(v is None)
+    print(list(g()))
+  expected: |-
+    True
+    [1]
+
+- case: |-
+    def sub():
+        return 10
+        yield
+    def mid():
+        x = yield from sub()
+        return x + 1
+    def g():
+        y = yield from mid()
+        print(y)
+    print(list(g()))
+  expected: |-
+    11
+    []
+
+- case: |-
+    def sub():
+        yield 'a'
+        return 'b'
+    def g():
+        r = yield from sub()
+        yield r
+    print(list(g()))
+  expected: |-
+    ['a', 'b']
+
+- case: |-
+    def gen():
+        return 42
+        yield
+    def run():
+        v = yield from gen()
+        print('v', v)
+    try:
+        next(run())
+    except StopIteration:
+        print('stop')
+  expected: |-
+    v 42
+    stop
+
+- case: |-
+    def sub():
+        yield 1
+        return 2
+    def g():
+        a = yield from sub()
+        b = yield from sub()
+        print(a, b)
+    print(list(g()))
+  expected: |-
+    2 2
+    [1, 1]
+
+- case: |-
+    def g():
+        yield 1
+        yield 2
+    def take(it):
+        out = []
+        out.append(next(it))
+        out.append(next(it))
+        return out
+    print(take(g()))
+  expected: |-
+    [1, 2]
+
+- case: |-
+    def g():
+        yield 1
+        yield 2
+    it = g()
+    print(next(it), next(it))
+  expected: |-
+    1 2
+
+- case: |-
+    def g():
+        yield 1
+        yield 2
+    it = g()
+    print([next(it), next(it)])
+  expected: |-
+    [1, 2]
+
+- case: |-
+    def g():
+        yield 1
+        yield 2
+    it = g()
+    print(next(it) + next(it))
+  expected: |-
+    3
+
+- case: |-
+    def g():
+        yield 1
+        yield 2
+    def add(a, b):
+        return a + b
+    it = g()
+    print(add(next(it), next(it)))
+  expected: |-
+    3
+
+- case: |-
+    def g():
+        yield 1
+        yield 2
+    it = g()
+    print(max(next(it), next(it)))
+  expected: |-
+    2
+
+- case: |-
+    def g():
+        yield 1
+        yield 2
+    it = g()
+    print(next(it, -1), next(it, -1), next(it, -1))
+  expected: |-
+    1 2 -1
+
+- case: |-
+    def g():
+        yield 1
+        yield 2
+    it = g()
+    t = (next(it), next(it))
+    print(t)
+  expected: |-
+    (1, 2)
+
+- case: |-
+    def g():
+        yield 1
+        yield 2
+    def add(a, b):
+        return a + b
+    s = 0
+    for x in g():
+        s = add(s, x)
+    print(s)
+  expected: |-
+    3
+
+- case: |-
+    def g():
+        yield 1
+        yield 2
+    it = g()
+    out = []
+    out.append(next(it))
+    out.append(next(it))
+    out.append(next(it, 99))
+    print(out)
+  expected: |-
+    [1, 2, 99]
+
+- case: |-
+    def f():
+     yield print(1)
+    print(next(f()))
+  expected: |-
+    1
+    None
+
+- case: |-
+    def g():
+        x = yield 1
+        yield x
+    it = g()
+    print(next(it))
+    print(next(it))
+  expected: |-
+    1
+    None
+
+- case: |-
+    def g():
+        yield (yield 1)
+    it = g()
+    print(next(it))
+    print(next(it))
+  expected: |-
+    1
+    None
+
+- case: |-
+    def g():
+        yield ((yield 1) or "fallback")
+    it = g()
+    print(next(it))
+    print(next(it))
+  expected: |-
+    1
+    fallback
+
+- case: |-
+    def g():
+        v = yield 1
+        yield v is None
+    it = g()
+    print(next(it))
+    print(next(it))
+  expected: |-
+    1
+    True
+
+- case: |-
+    def g():
+        a = yield 1
+        b = yield 2
+        yield (a, b)
+    it = g()
+    print(next(it))
+    print(next(it))
+    print(next(it))
+  expected: |-
+    1
+    2
+    (None, None)
+
+- case: |-
+    def g():
+        yield str((yield 1))
+    it = g()
+    print(next(it))
+    print(next(it))
+  expected: |-
+    1
+    None
+
+- case: |-
+    def g():
+        x = yield 1
+        yield [x, x]
+    it = g()
+    print(next(it))
+    print(next(it))
+  expected: |-
+    1
+    [None, None]
+
+- case: |-
+    def g():
+        results = []
+        for i in range(2):
+            got = yield i
+            results.append(got)
+        yield results
+    it = g()
+    print(next(it))
+    print(next(it))
+    print(next(it))
+  expected: |-
+    0
+    1
+    [None, None]
+
+- case: |-
+    def g():
+        x = yield 1
+        yield {"v": x}
+    it = g()
+    print(next(it))
+    print(next(it))
+  expected: |-
+    1
+    {'v': None}
+
+- case: |-
+    def g():
+        yield (yield (yield 1))
+    it = g()
+    print(next(it))
+    print(next(it))
+    print(next(it))
+  expected: |-
+    1
+    None
+    None
+
+- case: |-
+    def f():
+        yield V
+    g = f()
+    V = 11
+    print(next(g))
+  expected: |-
+    11
+
+- case: |-
+    def f():
+        yield 1
+        yield from g
+    g = f()
+    print(next(g))
+    try:
+        next(g)
+    except ValueError:
+        print('ValueError')
+  expected: |-
+    1
+    ValueError
+
+- case: |-
+    def f():
+        yield next(g)
+    g = f()
+    try:
+        next(g)
+    except ValueError:
+        print('ValueError')
+  expected: |-
+    ValueError
+
+- case: |-
+    x = 1
+    def bump():
+        global x
+        x = 5
+    def gen():
+        yield x
+        bump()
+        yield x
+    print(list(gen()))
+  expected: |-
+    [1, 5]
+
+- case: |-
+    def gen():
+        yield 1
+        return
+        yield 2
+    print(list(gen()))
+  expected: |-
+    [1]
+
+- case: |-
+    def g():
+        yield 1
+        yield 2
+        yield 3
+    a, b, c = g()
+    h, *t = g()
+    print(a, b, c, h, t)
+  expected: |-
+    1 2 3 1 [2, 3]
+
+- case: |-
+    def sq():
+        for i in range(10):
+            yield i * i
+    gen = sq()
+    print(9 in gen, next(gen), 100 in gen)
+  expected: |-
+    True 16 False
+
+- case: |-
+    def g():
+        yield 'a'
+        yield 'b'
+    print('b' in g(), 'z' in g(), 'ab' in 'xaby')
+  expected: |-
+    True False True
+
+- case: |-
+    seen = []
+    def g():
+        for i in range(5):
+            seen.append(i)
+            yield i
+    print(2 in g(), seen)
+  expected: |-
+    True [0, 1, 2]
+
+- case: |-
+    def gen():
+        yield 'k', 1
+        yield 'j', 2
+    d = dict(gen())
+    d.update(gen())
+    print(d)
+  expected: |-
+    {'k': 1, 'j': 2}
+
+- case: |-
+    def g():
+        yield 'k', 1
+        yield 'j', 2
+    print(list(g()), dict(g()))
+  expected: |-
+    [('k', 1), ('j', 2)] {'k': 1, 'j': 2}
+
+- case: |-
+    def g():
+        x = yield 1, 2
+        yield x
+    it = g()
+    print(next(it), it.send('s') if hasattr(it, 'send') else 's')
+  expected: |-
+    (1, 2) s
+
+- case: |-
+    def g():
+        yield 1,
+        yield (2, 3)
+        yield *[4, 5], 6
+    print(list(g()))
+  expected: |-
+    [(1,), (2, 3), (4, 5, 6)]
+
+- case: |-
+    def pairs(d):
+        for k in d:
+            yield k, d[k]
+    for k, v in pairs({'a': 1, 'b': 2}):
+        print(k, v)
+  expected: |-
+    a 1
+    b 2
+
+- case: |-
+    def g():
+        yield
+        yield None, None
+    print(list(g()))
+  expected: |-
+    [None, (None, None)]
+
+- case: |-
+    def g(n):
+        for i in range(n):
+            yield i, i * i, str(i)
+    print([t for t in g(3)])
+  expected: |-
+    [(0, 0, '0'), (1, 1, '1'), (2, 4, '2')]
+
+- case: |-
+    def g():
+        y = (yield 1, 2)
+        yield y
+    print(list(g()))
+  expected: |-
+    [(1, 2), None]
+
+- case: |-
+    def g():
+        yield [1, 2], {'a': 3}
+    a, b = next(g())
+    print(a, b)
+  expected: |-
+    [1, 2] {'a': 3}
+
+- case: |-
+    def g():
+        yield 'x', 1; yield 'y', 2
+    print(list(g()))
+  expected: |-
+    [('x', 1), ('y', 2)]
+
+- case: |-
+    def walk(t):
+        yield t[0], len(t)
+        for c in t[1:]:
+            yield from walk(c)
+    print(list(walk(('a', ('b',), ('c', ('d',))))))
+  expected: |-
+    [('a', 3), ('b', 1), ('c', 2), ('d', 1)]
+
+- case: |-
+    it = iter([1, 2])
+    def g():
+        yield 1
+    gen = g()
+    print(iter(it) == it, iter(gen) == gen, it.__iter__() == it, it.__next__())
+  expected: |-
+    True True True 1
+
+- case: |-
+    def gen(n):
+        i = 0
+        while i < n:
+            yield i * 2
+            i += 1
+    t = 0
+    for _ in range(10):
+        for v in gen(10000):
+            t += v
+    print(t)
+  expected: |-
+    999900000
+
+- case: |-
+    def nums(n):
+        for i in range(n):
+            yield i
+    def evens(it):
+        for x in it:
+            if x % 2 == 0:
+                yield x
+    def squares(it):
+        for x in it:
+            yield x * x
+    t = 0
+    for _ in range(5):
+        for v in squares(evens(nums(20000))):
+            t += v
+    print(t)
+  expected: |-
+    6665666700000
+
+- case: |-
+    def inner(n):
+        for i in range(n):
+            yield i
+    def outer(k):
+        for j in range(k):
+            yield from inner(j)
+    t = 0
+    for v in outer(300):
+        t += v
+    print(t)
+  expected: |-
+    4455100
+
+- case: |-
+    def fib_gen():
+        a, b = 0, 1
+        while True:
+            yield a
+            a, b = b, (a + b) % 1000000007
+    t = 0
+    g = fib_gen()
+    for _ in range(60000):
+        t = (t + next(g)) % 1000000007
+    print(t)
+  expected: |-
+    804299273
+
+- case: |-
+    def gen(n):
+        local = [n, n * 2]
+        for i in range(n):
+            junk = [[j] for j in range(200)]
+            yield local[0] + i + len(junk)
+
+    def outer():
+        g = gen(4)
+        first = next(g)
+        rest = list(g)
+        return first, rest
+
+    print(outer())
+  expected: |-
+    (204, [205, 206, 207])
+
+- case: |-
+    def inner():
+        yield 1
+        yield 2
+        return 'done'
+
+    def middle():
+        r = yield from inner()
+        yield r
+
+    def chain():
+        for v in middle():
+            yield v
+        yield from (x * 10 for x in range(2))
+
+    print(list(chain()))
+  expected: |-
+    [1, 2, 'done', 0, 10]
+
+- case: |-
+    def fail():
+        yield 1
+        raise ValueError('in gen')
+
+    g = fail()
+    print(next(g))
+    try:
+        next(g)
+    except ValueError as e:
+        print('caught', e)
+    try:
+        next(g)
+    except StopIteration:
+        print('finished')
+  expected: |-
+    1
+    caught in gen
+    finished
+
+- case: |-
+    def squares(n):
+        for i in range(n):
+            yield i * i
+
+    def main():
+        return sum(squares(20000))
+
+    print(main())
+  expected: |-
+    2666466670000
+
+- case: |-
+    def nat():
+        n = 0
+        while True:
+            yield n
+            n += 1
+    sq = (n * n for n in nat())
+    print(next(sq), next(sq), next(sq))
+  expected: |-
+    0 1 4
+
+- case: |-
+    def nat():
+        n = 0
+        while True:
+            yield n
+            n += 1
+    print(list(zip(nat(), 'ab')), next(enumerate(nat(), 5)))
+  expected: |-
+    [(0, 'a'), (1, 'b')] (5, 0)
+
+- case: |-
+    def nat():
+        n = 0
+        while True:
+            yield n
+            n += 1
+    print(any(map(lambda v: v > 3, nat())), all(v < 3 for v in nat()))
+  expected: |-
+    True False
+
+- case: |-
+    def g(n):
+        for i in range(n):
+            yield i
+    def f(n):
+        for x in g(n):
+            if x == n - 1:
+                return x
+    for n in [1, 2, 3]:
+        print(n, f(n))
+  expected: |-
+    1 0
+    2 1
+    3 2
+
+- case: |
+    def f(): async def g(): pass
+  error: a compound statement must start its own line
+
+- case: |
+    def g():
+        x = [(yield i) for i in range(3)]
+  error: '''yield'' inside a comprehension'
+
+- case: |
+    def g():
+        x = {(yield i) for i in range(3)}
+  error: '''yield'' inside a comprehension'
+
+- case: |
+    def g():
+        x = {i: (yield) for i in range(3)}
+  error: '''yield'' inside a comprehension'
+
+- case: |
+    def g():
+        x = list((yield i) for i in range(3))
+  error: '''yield'' inside a comprehension'
+
+- case: |-
+    def gen(n):
+        for i in range(n):
+            yield str(i).upper()
+    print(list(gen(3)), list(gen(2)))
+  expected: |-
+    ['0', '1', '2'] ['0', '1']
+
+- case: |-
+    exec('def gen():\n    yield 1\n    yield 2')
+    print(list(gen()))
+  expected: |-
+    [1, 2]
+
+- case: |-
+    exec('def g():\n    yield from range(3)')
+    print(list(g()))
+  expected: |-
+    [0, 1, 2]
+
+- case: |-
+    def gen(n):
+        for i in range(n):
+            yield h(i)
+    def h(i):
+        return i * 2 if i < 3 else k(i)
+    def k(i):
+        return -i
+    print(list(gen(5)))
+  expected: |-
+    [0, 2, 4, -3, -4]
+
+- case: |-
+    x = 1
+    yield x
+  error: '''yield'' outside function'
+
+- case: |-
+    def f():
+        return 1
+    if f(): print('same line')
+    print((lambda: (yield))() is not None)
+  expected: |-
+    same line
+    True
+
+- case: |-
+    def g(n):
+        if n:
+            yield next(g(n - 1)) + 1
+        else:
+            yield 0
+    try:
+        next(g(5000))
+    except RecursionError:
+        print('RecursionError')
+    print(next(g(50)))
+  expected: |-
+    RecursionError
+    50
+
+- case: |-
+    def gen(n):
+        for i in range(n):
+            yield i
+    def main():
+        g = gen(3)
+        print(list(g))
+    main()
+  expected: |-
+    [0, 1, 2]
+
+- case: |-
+    def g():
+        yield 1
+    print(list(g()))
+  expected: |-
+    [1]
+
+- case: |-
+    def g():
+        x = yield 1
+        yield x * 10
+    it = g()
+    print(next(it), it.send(4))
+  expected: |-
+    1 40
+
+- case: |-
+    def acc():
+        total = 0
+        while True:
+            v = yield total
+            total += v
+    a = acc()
+    next(a)
+    print(a.send(1), a.send(2), a.send(3))
+  expected: |-
+    1 3 6
+
+- case: |-
+    def g():
+        x = yield
+        print('got', x)
+        yield
+    it = g()
+    next(it)
+    it.send('hi')
+  expected: |-
+    got hi
+
+- case: |-
+    def g():
+        yield 1
+    it = g()
+    print(it.send(None))
+  expected: |-
+    1
+
+- case: |-
+    def g():
+        yield 1
+    it = g()
+    try:
+        it.send(5)
+    except TypeError as e:
+        print(e)
+  expected: |-
+    can't send non-None value to a just-started generator
+
+- case: |-
+    def g():
+        x = yield 1
+        return x
+    it = g()
+    next(it)
+    try:
+        it.send(9)
+    except StopIteration:
+        print('stop')
+  expected: |-
+    stop
+
+- case: |-
+    def g():
+        a = yield 'a'
+        b = yield a + 'b'
+        yield b + 'c'
+    it = g()
+    print(next(it), it.send('x'), it.send('y'))
+  expected: |-
+    a xb yc
+
+- case: |-
+    def g():
+        while True:
+            cmd = yield
+            if cmd == 'quit':
+                return
+            print('cmd', cmd)
+    it = g()
+    next(it)
+    it.send('a')
+    it.send('b')
+    try:
+        it.send('quit')
+    except StopIteration:
+        print('done')
+  expected: |-
+    cmd a
+    cmd b
+    done
+
+- case: |-
+    def g():
+        x = yield 1
+        print(x)
+        y = yield 2
+        print(y)
+    it = g()
+    next(it)
+    next(it)
+    try:
+        next(it)
+    except StopIteration:
+        pass
+  expected: |-
+    None
+    None
+
+- case: |-
+    def g():
+        yield (yield 1) + 1
+    it = g()
+    print(next(it), it.send(5))
+  expected: |-
+    1 6
+
+- case: |-
+    def g():
+        xs = []
+        while len(xs) < 3:
+            xs.append((yield len(xs)))
+        yield xs
+    it = g()
+    next(it)
+    it.send('a')
+    it.send('b')
+    print(it.send('c'))
+  expected: |-
+    ['a', 'b', 'c']
+
+- case: |-
+    def g():
+        try:
+            yield 1
+        except ValueError as e:
+            yield 'caught ' + str(e)
+    it = g()
+    next(it)
+    print(it.throw(ValueError('boom')))
+  expected: |-
+    caught boom
+
+- case: |-
+    def g():
+        yield 1
+    it = g()
+    next(it)
+    try:
+        it.throw(KeyError('k'))
+    except KeyError as e:
+        print('out', e)
+  expected: |-
+    out 'k'
+
+- case: |-
+    def g():
+        yield 1
+    it = g()
+    try:
+        it.throw(ValueError('early'))
+    except ValueError as e:
+        print('early', e)
+    print(list(it))
+  expected: |-
+    early early
+    []
+
+- case: |-
+    def g():
+        try:
+            yield 1
+        except ValueError:
+            pass
+        yield 2
+    it = g()
+    next(it)
+    print(it.throw(ValueError))
+  expected: |-
+    2
+
+- case: |-
+    def g():
+        try:
+            yield 1
+        finally:
+            print('cleanup')
+    it = g()
+    next(it)
+    try:
+        it.throw(RuntimeError('r'))
+    except RuntimeError:
+        print('propagated')
+  expected: |-
+    cleanup
+    propagated
+
+- case: |-
+    def g():
+        yield 1
+        yield 2
+    it = g()
+    next(it)
+    try:
+        it.throw(TypeError('t'))
+    except TypeError:
+        pass
+    print(list(it))
+  expected: |-
+    []
+
+- case: |-
+    def g():
+        while True:
+            try:
+                yield
+            except ValueError as e:
+                print('handled', e)
+    it = g()
+    next(it)
+    it.throw(ValueError('a'))
+    it.throw(ValueError('b'))
+  expected: |-
+    handled a
+    handled b
+
+- case: |-
+    def g():
+        try:
+            yield 1
+        except ValueError as e:
+            yield e.args
+    it = g()
+    next(it)
+    print(it.throw(ValueError, 'old style'))
+  expected: |-
+    ('old style',)
+
+- case: |-
+    def g():
+        try:
+            yield 1
+        except GeneratorExit:
+            print('closing')
+            raise
+    it = g()
+    next(it)
+    it.close()
+    print('closed')
+  expected: |-
+    closing
+    closed
+
+- case: |-
+    def g():
+        try:
+            yield 1
+        finally:
+            print('finally')
+    it = g()
+    next(it)
+    print(it.close())
+  expected: |-
+    finally
+    None
+
+- case: |-
+    def g():
+        yield 1
+    it = g()
+    print(it.close())
+    print(list(it))
+  expected: |-
+    None
+    []
+
+- case: |-
+    def g():
+        yield 1
+        yield 2
+    it = g()
+    next(it)
+    it.close()
+    print(list(it))
+  expected: |-
+    []
+
+- case: |-
+    def g():
+        try:
+            yield 1
+        except GeneratorExit:
+            yield 2
+    it = g()
+    next(it)
+    try:
+        it.close()
+    except RuntimeError as e:
+        print(e)
+  expected: |-
+    generator ignored GeneratorExit
+
+- case: |-
+    def g():
+        try:
+            yield 1
+        except GeneratorExit:
+            return 'r'
+    it = g()
+    next(it)
+    print(it.close())
+  expected: |-
+    r
+
+- case: |-
+    def g():
+        yield 1
+    it = g()
+    next(it)
+    it.close()
+    it.close()
+    print('twice ok')
+  expected: |-
+    twice ok
+
+- case: |-
+    def g():
+        try:
+            yield 1
+        except Exception:
+            print('should not catch')
+        yield 2
+    it = g()
+    next(it)
+    it.close()
+    print('fine')
+  expected: |-
+    fine
+
+- case: |-
+    def g():
+        yield 1
+        yield 2
+    it = g()
+    print(it.__next__(), it.__next__())
+  expected: |-
+    1 2
+
+- case: |-
+    def g():
+        yield 1
+    it = g()
+    print(iter(it) == it, list(it.__iter__()))
+  expected: |-
+    True [1]
+
+- case: |-
+    def g():
+        yield 1
+    it = g()
+    next(it)
+    try:
+        it.__next__()
+    except StopIteration:
+        print('end')
+  expected: |-
+    end
+
+- case: |-
+    def counter():
+        n = 0
+        while True:
+            step = yield n
+            n += step if step is not None else 1
+    c = counter()
+    print(next(c), next(c), c.send(10), next(c))
+  expected: |-
+    0 1 11 12
+
+- case: |-
+    def g():
+        x = yield
+        yield x
+    it = g()
+    it.send(None)
+    print(it.send([1, 2]))
+  expected: |-
+    [1, 2]
+
+- case: |-
+    def g():
+        r = yield 1
+        yield type(r).__name__
+    it = g()
+    next(it)
+    print(it.send({'k': 1}))
+  expected: |-
+    dict
+
+- case: |-
+    def inner():
+        v = yield 'i'
+        yield 'inner got ' + str(v)
+    def outer():
+        yield from inner()
+    it = outer()
+    print(next(it), next(it))
+  expected: |-
+    i inner got None
+
+- case: |-
+    def g():
+        for i in range(3):
+            got = yield i
+            print(i, got)
+    it = g()
+    next(it)
+    it.send('x')
+    it.send('y')
+  expected: |-
+    0 x
+    1 y
+
+- case: |-
+    def g():
+        yield 1
+    it = g()
+    try:
+        it.send()
+    except TypeError:
+        print('TypeError')
+  expected: |-
+    TypeError
+
+- case: |-
+    def g():
+        yield 1
+    it = g()
+    try:
+        it.throw()
+    except TypeError:
+        print('TypeError')
+  expected: |-
+    TypeError
+
+- case: |-
+    def g():
+        yield 1
+    it = g()
+    next(it)
+    try:
+        it.throw('not an exception')
+    except TypeError as e:
+        print(e)
+  expected: |-
+    exceptions must be classes or instances deriving from BaseException, not str
+
+- case: |-
+    def g():
+        yield 1
+    it = g()
+    try:
+        it.close(1)
+    except TypeError:
+        print('TypeError')
+  expected: |-
+    TypeError
+
+- case: |-
+    def g():
+        try:
+            yield 1
+        except ZeroDivisionError:
+            yield 'zde'
+    it = g()
+    next(it)
+    print(it.throw(ZeroDivisionError))
+  expected: |-
+    zde
+
+- case: |-
+    def g():
+        total = 0
+        try:
+            while True:
+                total += yield
+        except GeneratorExit:
+            print('total', total)
+    it = g()
+    next(it)
+    for v in (1, 2, 3):
+        it.send(v)
+    it.close()
+  expected: |-
+    total 6
+
+- case: |-
+    def g():
+        try:
+            yield 1
+        except ValueError:
+            raise TypeError('converted')
+    it = g()
+    next(it)
+    try:
+        it.throw(ValueError)
+    except TypeError as e:
+        print(e)
+  expected: |-
+    converted
+
+- case: |-
+    def g():
+        try:
+            yield 1
+        except ValueError as e:
+            print('ctx', repr(e))
+            yield 2
+    it = g()
+    next(it)
+    print(it.throw(ValueError('m')))
+  expected: |-
+    ctx ValueError('m')
+    2
+
+- case: |-
+    def g():
+        yield 1
+        return 5
+    it = g()
+    next(it)
+    try:
+        next(it)
+    except StopIteration as e:
+        print('value', e.value)
+  expected: |-
+    value 5
+
+- case: |-
+    def g():
+        yield 1
+    it = g()
+    print(hasattr(it, 'send'), hasattr(it, 'throw'), hasattr(it, 'close'))
+  expected: |-
+    True True True
+
+- case: |-
+    def g():
+        x = 0
+        while x < 3:
+            x = (yield x) or x + 1
+    print(list(g()))
+  expected: |-
+    [0, 1, 2]
+
+- case: |-
+    def g():
+        x = 0
+        while x < 10:
+            x = (yield x) or x + 1
+    it = g()
+    print(next(it), it.send(5), next(it))
+  expected: |-
+    0 5 6
+
+- case: |-
+    def g():
+        while True:
+            x = yield
+            yield x * 2
+    it = g()
+    out = []
+    for v in range(3):
+        next(it)
+        out.append(it.send(v))
+    print(out)
+  expected: |-
+    [0, 2, 4]
+
+- case: |-
+    def g():
+        yield 1
+    it = g()
+    next(it)
+    next(it, None)
+    print(it.send(None) if False else 'skip')
+  expected: |-
+    skip
+
+- case: |-
+    def g():
+        yield 1
+        yield 2
+    it = g()
+    next(it)
+    try:
+        it.send(None)
+        it.send(None)
+    except StopIteration:
+        print('exhausted')
+  expected: |-
+    exhausted
+
+- case: |-
+    def g():
+        try:
+            yield 1
+            yield 2
+        except KeyError:
+            yield 'k'
+    it = g()
+    print(next(it), next(it), it.throw(KeyError))
+  expected: |-
+    1 2 k
+
+- case: |-
+    def g():
+        try:
+            yield
+        except Exception as e:
+            yield type(e).__name__
+    it = g()
+    next(it)
+    print(it.throw(IndexError()))
+  expected: |-
+    IndexError
+
+- case: |-
+    def g():
+        yield 1
+    it = g()
+    next(it)
+    it.close()
+    try:
+        next(it)
+    except StopIteration:
+        print('closed stops')
+  expected: |-
+    closed stops
+
+- case: |-
+    def gen(n):
+        yield n
+        yield n + 1
+    t = 0
+    for i in range(300):
+        for v in gen(i):
+            t += v
+    print(t)
+  expected: |-
+    90000
+
+- case: |-
+    def g(n):
+        for i in range(n):
+            yield i
+    def h(x):
+        return x * 3
+    print([v + h(v) for v in g(5)], sum(h(v) + h(1) for v in g(10)))
+  expected: |-
+    [0, 4, 8, 12, 16] 165
+
+- case: |-
+    def g(n):
+        for i in range(n):
+            yield i * 2
+    def f():
+        t = 0
+        for v in g(300):
+            t += v
+        return t
+    t = 0
+    for v in g(300):
+        t += v
+    print(t, f(), v)
+  expected: |-
+    89700 89700 598
+
+- case: |-
+    def inner(n):
+        for i in range(n):
+            yield i
+    def outer(n):
+        for j in inner(n):
+            for k in inner(j):
+                yield j * k
+    print(sum(1 for _ in outer(30)), [x for x in outer(5)])
+  expected: |-
+    435 [0, 0, 2, 0, 3, 6, 0, 4, 8, 12]
+
+- case: |-
+    def g():
+        for i in range(5):
+            try:
+                yield i
+                if i == 3:
+                    raise ValueError(i)
+            except ValueError as e:
+                yield 'caught ' + str(e)
+    print(list(g()))
+    for v in g():
+        print(v)
+  expected: |-
+    [0, 1, 2, 3, 'caught 3', 4]
+    0
+    1
+    2
+    3
+    caught 3
+    4
+
+- case: |-
+    log = []
+    def g():
+        try:
+            for i in range(3):
+                yield i
+        finally:
+            log.append('fin')
+    for v in g():
+        log.append(v)
+    print(log)
+  expected: |-
+    [0, 1, 2, 'fin']
+
+- case: |-
+    def g():
+        for i in range(10):
+            yield i
+    it = g()
+    for v in it:
+        if v == 3:
+            break
+    print(v, next(it), next(it), list(it))
+  expected: |-
+    3 4 5 [6, 7, 8, 9]
+
+- case: |-
+    def g():
+        yield 1
+        yield 2
+        raise KeyError('k')
+    out = []
+    try:
+        for v in g():
+            out.append(v)
+    except KeyError as e:
+        out.append('err ' + str(e))
+    print(out)
+  expected: |-
+    [1, 2, "err 'k'"]
+
+- case: |-
+    def g():
+        yield 1
+        yield 2
+        return 'done'
+    def h():
+        r = yield from g()
+        yield r
+    print(list(h()))
+    for v in h():
+        print(v)
+  expected: |-
+    [1, 2, 'done']
+    1
+    2
+    done
+
+- case: |-
+    def g():
+        total = 0
+        for i in range(4):
+            x = (yield i) or 0
+            total += x + 1
+        yield total
+    print(list(g()))
+  expected: |-
+    [0, 1, 2, 3, 4]
+
+- case: |-
+    def g():
+        v = 0
+        while True:
+            r = yield v
+            v = v + 1 if r is None else r
+    it = g()
+    for x in it:
+        if x == 3:
+            break
+    print(x, it.send(10), next(it), it.send(100))
+    it.close()
+    print('closed')
+  expected: |-
+    3 10 11 100
+    closed
+
+- case: |-
+    def g():
+        for i in range(5):
+            try:
+                yield i
+            except ValueError:
+                yield 'thrown'
+    it = g()
+    for x in it:
+        if x == 2:
+            break
+    print(it.throw(ValueError), next(it), list(it))
+  expected: |-
+    thrown 3 [4]
+
+- case: |-
+    def walk(t):
+        if isinstance(t, list):
+            for c in t:
+                yield from walk(c)
+        else:
+            yield t
+    print(list(walk([1, [2, [3, [4, 5]], 6], [[7]]])))
+    t = 0
+    for v in walk([[i, [i + 1]] for i in range(100)]):
+        t += v
+    print(t)
+  expected: |-
+    [1, 2, 3, 4, 5, 6, 7]
+    10000
+
+- case: |-
+    def counter(k):
+        n = 0
+        def bump():
+            nonlocal n
+            n += k
+            return n
+        for _ in range(5):
+            yield bump()
+    print([v for v in counter(3)], sum(counter(2)))
+  expected: |-
+    [3, 6, 9, 12, 15] 30
+
+- case: |-
+    def g():
+        for i in range(10):
+            yield i
+    it = g()
+    a = []
+    for x in it:
+        a.append(x)
+        if x == 4:
+            break
+    for y in it:
+        a.append(y * 10)
+    print(a)
+  expected: |-
+    [0, 1, 2, 3, 4, 50, 60, 70, 80, 90]
+
+- case: |-
+    def g():
+        yield next(me)
+    me = g()
+    try:
+        for v in me:
+            print(v)
+    except ValueError as e:
+        print('ValueError', e)
+  expected: |-
+    ValueError generator already executing
+
+- case: |-
+    def g():
+        yield 1
+    it = g()
+    print([v for v in it], [v for v in it], list(it))
+  expected: |-
+    [1] [] []
+
+- case: |-
+    def g(n):
+        i = 0
+        while i < n:
+            yield i
+            i += 1
+    t = 0
+    for v in g(200000):
+        t += v
+    print(t)
+  expected: |-
+    19999900000
+
+- case: |-
+    def g():
+        acc = []
+        for i in range(3):
+            acc.append(i)
+            yield list(acc)
+    for v in g():
+        v.append('x')
+        print(v)
+  expected: |-
+    [0, 'x']
+    [0, 1, 'x']
+    [0, 1, 2, 'x']
+
+- case: |-
+    def chain(n):
+        if n == 0:
+            yield 'leaf'
+        else:
+            yield from chain(n - 1)
+    print(list(chain(40)))
+  expected: |-
+    ['leaf']
+
+- case: |-
+    def g():
+        s = 'g'
+        for i in range(3):
+            s += str(i)
+            yield len(s)
+        yield s
+    print(list(g()))
+  expected: |-
+    [2, 3, 4, 'g012']
+
+- case: |-
+    def g():
+        for i in [3, 1, 4, 1, 5]:
+            print('y', i)
+            yield i
+    print(min(g()), max(g()))
+  expected: |-
+    y 3
+    y 1
+    y 4
+    y 1
+    y 5
+    y 3
+    y 1
+    y 4
+    y 1
+    y 5
+    1 5
+
+- case: |-
+    def g():
+        return
+        yield
+    print(sum(g()), sum(g(), 10), min(g(), default='none'), max(iter([]), default=0))
+    try:
+        max(g())
+    except ValueError as e:
+        print('ValueError', e)
+  expected: |-
+    0 10 none 0
+    ValueError max() iterable argument is empty
+
+- case: |-
+    def g():
+        yield 1
+        yield 2
+        raise KeyError('boom')
+    for name, f in (('sum', sum), ('min', min), ('max', max)):
+        try:
+            f(g())
+        except KeyError as e:
+            print(name, 'KeyError', e)
+  expected: |-
+    sum KeyError 'boom'
+    min KeyError 'boom'
+    max KeyError 'boom'
+
+- case: |-
+    def g():
+        for w in ['pear', 'fig', 'banana']:
+            yield w
+    print(min(g(), key=len), max(g(), key=len), max(g(), key=len, default=None))
+  expected: |-
+    fig banana banana
+
+- case: |-
+    def g():
+        yield 0.1
+        yield 0.2
+        yield 0.3
+    print(sum(g()), sum(x for x in [1, 2.5]), max(s for s in ['b', 'a', 'c']))
+  expected: |-
+    0.6 3.5 c
+
+- case: |-
+    def g():
+        yield [1]
+        yield [2]
+    print(sum(g(), []))
+  expected: |-
+    [1, 2]
+
+- case: |-
+    def g():
+        for w in ['pear', 'fig', 'kiwi']:
+            print('yield', w)
+            yield w
+    def k(w):
+        print('key', w)
+        return len(w)
+    print(min(g(), key=k))
+    print(max(g(), key=k))
+  expected: |-
+    yield pear
+    key pear
+    yield fig
+    key fig
+    yield kiwi
+    key kiwi
+    fig
+    yield pear
+    key pear
+    yield fig
+    key fig
+    yield kiwi
+    key kiwi
+    pear
+
+- case: |-
+    def g():
+        return
+        yield
+    print(min(g(), key=len, default='none'), max([], key=len, default=0))
+    try:
+        min(g(), key=len)
+    except ValueError as e:
+        print('ValueError', e)
+  expected: |-
+    none 0
+    ValueError min() iterable argument is empty
+
+- case: |-
+    def chain(n):
+        if n == 0:
+            yield 'leaf'
+        else:
+            yield from chain(n - 1)
+    print(list(chain(500)))
+  expected: |-
+    ['leaf']
+
+- case: |-
+    def chain(n):
+        if n == 0:
+            yield n
+        else:
+            for v in chain(n - 1):
+                yield v + 1
+    print(list(chain(500)), sum(chain(300)))
+  expected: |-
+    [500] 300
+
+- case: |-
+    def forever():
+        yield from forever()
+    try:
+        next(forever())
+    except RecursionError:
+        print('RecursionError')
+  expected: |-
+    RecursionError
+
+- case: |-
+    def inner(n):
+        yield n
+        return n * 10
+    def outer(d):
+        if d == 0:
+            r = yield from inner(7)
+        else:
+            r = yield from outer(d - 1)
+        return r + 1
+    def top():
+        r = yield from outer(300)
+        yield r
+    print(list(top()))
+  expected: |-
+    [7, 371]
+
+- case: |-
+    def gen(): yield 1
+    async def co(): pass
+    def outer():
+        def inner(): pass
+        return inner
+    print(hex(gen.__code__.co_flags), hex(co.__code__.co_flags), hex((lambda: 0).__code__.co_flags), hex(outer().__code__.co_flags), (lambda q: 0).__code__.co_name)
+  expected: |-
+    0x23 0x83 0x3 0x13 <lambda>
+
+- case: |-
+    def sub():
+        x = yield 1
+        print("sub got", x)
+        try:
+            y = yield 2
+        except ValueError as e:
+            print("sub caught", e)
+            y = "rescued"
+        print("sub got", y)
+        return "subret"
+    def outer():
+        r = yield from sub()
+        print("outer got", r)
+        yield 3
+    g = outer()
+    print(next(g))
+    print(g.send("A"))
+    print(g.throw(ValueError("boom")))
+    g.close()
+    def closer():
+        try:
+            yield 1
+        finally:
+            print("sub finally")
+    def outer2():
+        yield from closer()
+    h = outer2(); next(h); h.close(); print("closed")
+  expected: |-
+    1
+    sub got A
+    2
+    sub caught boom
+    sub got rescued
+    outer got subret
+    3
+    sub finally
+    closed
+
+- case: |-
+    def g():
+        return
+        yield
+    try:
+        next(g())
+    except StopIteration as e:
+        print('a', e.value, e.args)
+    try:
+        next(iter([]))
+    except StopIteration as e:
+        print('b', e.value, e.args)
+    try:
+        raise StopIteration
+    except StopIteration as e:
+        print('c', e.value, e.args)
+  expected: |-
+    a None ()
+    b None ()
+    c None ()
+
+- case: |-
+    await x
+  error: '''await'' outside function'
+
+- case: |-
+    def f():
+        await x
+  error: '''await'' outside async function'
+
+- case: |-
+    lambda: await x
+  error: '''await'' outside async function'
+
+- case: |-
+    async def f():
+        def g():
+            await x
+  error: '''await'' outside async function'
+
+- case: |-
+    def f():
+        async for x in y:
+            pass
+  error: '''async for'' outside async function'
+
+- case: |-
+    def f():
+        async with x:
+            pass
+  error: '''async with'' outside async function'
+
+- case: |-
+    async def f():
+        yield from x
+  error: '''yield from'' inside async function'
+
+- case: |-
+    def f():
+        return [x async for x in y]
+  error: asynchronous comprehension outside of an asynchronous function
+
+- case: |-
+    def f():
+        return [await x for x in y]
+  error: asynchronous comprehension outside of an asynchronous function
+
+- case: |-
+    async def f():
+        yield 1
+        return 2
+  error: '''return'' with value in async generator'
+
+- case: |-
+    g = (x async for x in y)
+  error: name 'y' is not defined
+
+- case: |-
+    def sq(x):
+        return x * x
+    def fact(n):
+        return 1 if n <= 1 else n * fact(n - 1)
+    def g(n):
+        t = 0
+        for i in range(n):
+            t += sq(i)
+            x = fact(i % 6) + (yield t)
+            if x is not None:
+                t += x
+        return t
+    gen = g(100)
+    out = []
+    v = next(gen)
+    for k in range(99):
+        v = gen.send(k if k % 3 == 0 else 0)
+        out.append(v)
+    print(sum(out), out[-5:])
+    def sq2(x):
+        return x + 1
+    def h():
+        for i in range(50):
+            try:
+                yield sq(i)
+            except ValueError as e:
+                yield -i
+    it = h()
+    r = [next(it) for _ in range(40)]
+    sq = sq2
+    r.append(next(it))
+    r.append(it.throw(ValueError('x')))
+    r.append(next(it))
+    print(r[-6:], sum(r))
+    print(sum(sq(i) for i in range(300)), list(x * fact(3) for x in range(30))[-3:])
+    def walk(n):
+        if n:
+            yield n
+            yield from walk(n - 1)
+    print(sum(walk(200)))
+  expected: |-
+    8507915 [294152, 303488, 312994, 322599, 332402]
+    [1369, 1444, 1521, 41, -40, 42] 20583
+    45150 [162, 168, 174]
+    20100
+
+- case: |-
+    def gen(n):
+        for i in range(n):
+            yield i * 2
+    def run():
+        g = gen(200)
+        t = 0
+        for v in g:
+            t += v
+            if v >= 100:
+                break
+        rest = []
+        for v in g:
+            rest.append(v)
+            if len(rest) == 3:
+                break
+        print(t, rest, next(g), list(g)[:3], len(list(g)))
+    for _ in range(3):
+        run()
+  expected: |-
+    2550 [102, 104, 106] 108 [110, 112, 114] 0
+    2550 [102, 104, 106] 108 [110, 112, 114] 0
+    2550 [102, 104, 106] 108 [110, 112, 114] 0
+
+- case: |-
+    def inner(n):
+        for i in range(n):
+            yield i
+    def outer(n):
+        for i in range(n):
+            for j in inner(i):
+                yield i * 100 + j
+    def run():
+        t = 0
+        c = 0
+        for v in outer(40):
+            t += v
+            c += 1
+        print(t, c)
+        a = gen2 = None
+        s = 0
+        for x in inner(30):
+            for y in inner(30):
+                s += x * y
+        print(s)
+    run()
+    run()
+  expected: |-
+    2063880 780
+    189225
+    2063880 780
+    189225
+
+- case: |-
+    def gen(n):
+        for i in range(n):
+            if i == 150:
+                raise ValueError("bad " + str(i))
+            yield i
+    def run():
+        t = 0
+        try:
+            for v in gen(300):
+                t += v
+        except ValueError as e:
+            print("caught", e, t)
+        g = gen(10)
+        print(list(g), list(g))
+    run()
+  expected: |-
+    caught bad 150 11175
+    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9] []
+
+- case: |-
+    def gen(n):
+        for i in range(n):
+            if i == 150:
+                raise ValueError("bad " + str(i))
+            yield i
+    def run():
+        t = 0
+        for v in gen(300):
+            t += v
+        print(t)
+    run()
+  error: ValueError
+
+- case: |-
+    log = []
+    def gen(n):
+        try:
+            for i in range(n):
+                yield i
+        finally:
+            log.append("fin" + str(n))
+    def gen2(n):
+        for i in range(n):
+            try:
+                yield i
+            finally:
+                log.append(i)
+    def run():
+        t = 0
+        for v in gen(100):
+            t += v
+        print(t, log)
+        for v in gen2(50):
+            t += v
+        print(t, len(log), log[-3:])
+        g = gen(5)
+        for v in g:
+            if v == 2:
+                break
+        print(log[-1], next(g), list(g))
+        print(log[-1])
+    run()
+  expected: |-
+    4950 ['fin100']
+    6175 51 [47, 48, 49]
+    49 3 [4]
+    fin5
+
+- case: |-
+    def tree(d):
+        if d == 0:
+            yield 1
+            return
+        yield d
+        yield from tree(d - 1)
+        yield from tree(d - 1)
+    def chain(n):
+        for i in range(n):
+            yield from range(i)
+    def run():
+        t = 0
+        c = 0
+        for v in tree(8):
+            t += v
+            c += 1
+        print(t, c)
+        print(sum(1 for _ in chain(30)), list(chain(4)))
+    run()
+  expected: |-
+    758 511
+    435 [0, 0, 1, 0, 1, 2]
+
+- case: |-
+    def make(k):
+        def gen(n):
+            for i in range(n):
+                yield i * k
+        return gen
+    def counter():
+        total = 0
+        def gen(n):
+            nonlocal total
+            for i in range(n):
+                total += i
+                yield total
+        return gen
+    def run():
+        g3 = make(3)
+        t = 0
+        for v in g3(200):
+            t += v
+        print(t)
+        c = counter()
+        last = 0
+        for v in c(100):
+            last = v
+        for v in c(100):
+            last = v
+        print(last)
+    run()
+  expected: |-
+    59700
+    9900
+
+- case: |-
+    def gen(n):
+        for i in range(n):
+            yield i
+    def run():
+        print(list(zip(gen(3), gen(3))))
+        a, b = gen(200), gen(200)
+        s = 0
+        for x, y in zip(a, b):
+            s += x * y
+        print(s)
+        a, b = gen(100), gen(100)
+        s = 0
+        for x in a:
+            s += x + next(b)
+        print(s, list(b))
+        a = gen(50)
+        s = 0
+        for x in a:
+            for y in gen(3):
+                s += x * y
+        print(s)
+    run()
+  expected: |-
+    [(0, 0), (1, 1), (2, 2)]
+    2646700
+    9900 []
+    3675
+
+- case: |-
+    def gen(n):
+        i = 0
+        while i < n:
+            x = yield i
+            if x is not None:
+                i = x
+            i += 1
+        return "done"
+    def pairs(n):
+        for i in range(n):
+            yield (i, [i] * 2)
+    def deep(n):
+        for i in range(n):
+            print_it = str(i) + ":" + str((yield i))
+    def run():
+        t = 0
+        for v in gen(300):
+            t += v
+        print(t)
+        g = gen(10)
+        print(next(g), g.send(5), next(g), list(g))
+        s = 0
+        for a, b in pairs(300):
+            s += a + len(b)
+        print(s)
+        print(list(deep(5)))
+        out = []
+        for v in gen(500):
+            out.append([v] * 3)
+        print(len(out), out[-1])
+        print(sum(gen(1000)), max(pairs(20)), sorted(gen(5), reverse=True))
+    run()
+  expected: |-
+    44850
+    0 6 7 [8, 9]
+    45450
+    [0, 1, 2, 3, 4]
+    500 [499, 499, 499]
+    499500 (19, [19, 19]) [4, 3, 2, 1, 0]
+
+- case: |-
+    def strs(n):
+        for i in range(n):
+            yield str(i)
+    def mixed(n):
+        for i in range(n):
+            if i % 50 == 0:
+                yield "x" + str(i)
+            else:
+                yield i
+    def sends(n):
+        for i in range(n):
+            x = yield i
+            if x:
+                yield -x
+    def run():
+        t = 0
+        for s in strs(300):
+            t += len(s)
+        print(t)
+        c = 0
+        for v in mixed(400):
+            c += 1 if isinstance(v, str) else v
+        print(c)
+        t = 0
+        for v in sends(300):
+            t += v
+        print(t)
+        g = sends(10)
+        print(next(g), g.send(7), next(g), next(g))
+    run()
+  expected: |-
+    790
+    78408
+    44850
+    0 -7 1 2
+
+- case: |-
+    def gen(n):
+        for i in range(n):
+            yield i
+    def run():
+        keep = []
+        t = 0
+        for v in gen(3000):
+            keep.append([v, str(v), {v: v}])
+            if len(keep) > 50:
+                keep = keep[25:]
+            t += v
+        print(t, len(keep))
+        a, b = gen(500), gen(500)
+        s = 0
+        for x in a:
+            s += x * 2
+            if x % 3 == 0:
+                s += next(b)
+            junk = [x] * 10
+        print(s, next(b))
+    run()
+  expected: |-
+    4498500 50
+    263361 167
+
+- case: |-
+    def count(n):
+        i = 0
+        while i < n:
+            yield i
+            i += 1
+    def evens(n):
+        i = 0
+        while i < n:
+            if i % 2 == 0:
+                yield i * 3
+            i = i + 1
+    def lst(xs):
+        for x in xs:
+            yield x
+    def tup(xs):
+        for x in xs:
+            yield x
+    def run():
+        print(sum(count(10)), max(count(7)))
+        t = 0
+        for v in count(1000):
+            t += v
+        print(t)
+        t = 0
+        for v in evens(1000):
+            t += v
+        print(t)
+        t = 0
+        for v in lst(list(range(500))):
+            t += v
+        for v in tup(tuple(range(500))):
+            t += v
+        print(t)
+        big = 0
+        for v in count(2 ** 62 + 5):
+            big = v
+            if v > 300:
+                break
+        print(big)
+    run()
+  expected: |-
+    45 6
+    499500
+    748500
+    249500
+    301
+
+- case: |-
+    def gen(n):
+        for i in range(n):
+            yield i
+    def other(n):
+        for i in range(n):
+            yield -i
+    def run():
+        global gen
+        t = 0
+        for k in range(4):
+            for v in gen(200):
+                t += v
+            if k == 1:
+                gen = other
+        print(t)
+    run()
+    g = other(5)
+    for v in g:
+        if v == -2:
+            break
+    print(list(g))
+  expected: |-
+    0
+    [-3, -4]
+
+- case: |-
+    def s(n):
+        t = 0
+        for k in range(n):
+            t += k
+        return t
+    def gen(n):
+        for i in range(n):
+            yield s(i % 7)
+    def run():
+        g = gen(400)
+        a = [next(g) for _ in range(150)]
+        t = 0
+        for v in g:
+            t += v
+        b = list(gen(100))
+        c = 0
+        for v in gen(300):
+            c += v
+        print(sum(a), t, sum(b), c)
+    run()
+  expected: |-
+    736 1259 490 1490
+
+- case: |-
+    def gen(n):
+        for i in range(n):
+            yield i * 2
+    def sq(x):
+        return x * x
+    def run():
+        t = []
+        for v in map(sq, gen(4)):
+            t.append(v)
+        for v in filter(lambda x: x > 2, gen(4)):
+            t.append(v)
+        print(sorted(gen(5), key=lambda x: -x), max(gen(5), key=sq))
+        return t
+    print(run())
+    def g2():
+        for v in map(sq, [1, 2, 3]):
+            yield v
+    print(list(g2()))
+    def g3(xs):
+        yield from map(sq, xs)
+    print(list(g3([4, 5])))
+    def keygen(x):
+        yield x
+    print([list(g) for g in map(keygen, [1, 2])])
+  expected: |-
+    [8, 6, 4, 2, 0] 8
+    [0, 4, 16, 36, 4, 6]
+    [1, 4, 9]
+    [16, 25]
+    [[1], [2]]
+
+- case: |-
+    # a for over a generator's call lays the generator as a section: break, else, return, defaults, *args, two yields
+    def gen(n, k=0):
+        for i in range(n):
+            yield i * 2 + k
+    def pair(n):
+        for i in range(n):
+            yield i
+            yield -i
+    def stars(*its):
+        for x in its:
+            yield x
+    def early(n):
+        for i in range(n):
+            if i == 3:
+                return
+            yield i
+    def run(n):
+        t = 0
+        for v in gen(n):
+            if v > 30:
+                break
+            t += v
+        else:
+            t = -1
+        out = []
+        for v in gen(3, 10):
+            for w in gen(2):
+                out.append(v * w)
+        for v in pair(3):
+            out.append(v)
+        for v in stars(7, 8):
+            out.append(v)
+        for v in stars():
+            out.append(v)
+        for v in early(10):
+            out.append(v)
+        for v in early(10):
+            if v == 1:
+                return t, out
+        return t, out
+    print(run(100), run(5), run(0))
+  expected: |-
+    (240, [0, 20, 0, 24, 0, 28, 0, 0, 1, -1, 2, -2, 7, 8, 0, 1, 2]) (-1, [0, 20, 0, 24, 0, 28, 0, 0, 1, -1, 2, -2, 7, 8, 0, 1, 2]) (-1, [0, 20, 0, 24, 0, 28, 0, 0, 1, -1, 2, -2, 7, 8, 0, 1, 2])
+
+- case: |-
+    # a function a generator calls through its parameter is laid in its section, checked against what each loop passes
+    def f(x):
+        return x + 1
+    def h(x):
+        return x * 100
+    def g(fn, it):
+        for x in it:
+            yield fn(x)
+    xs = list(range(6))
+    def run():
+        global f
+        t = []
+        for v in g(f, xs):
+            t.append(v)
+            f = h
+        return t
+    print(run())
+    print(run())
+    def run2(fn):
+        t = []
+        for v in g(fn, xs):
+            t.append(v)
+        return t
+    print(run2(abs), run2(h), run2(len if False else str))
+  expected: |-
+    [1, 2, 3, 4, 5, 6]
+    [0, 100, 200, 300, 400, 500]
+    [0, 1, 2, 3, 4, 5] [0, 100, 200, 300, 400, 500] ['0', '1', '2', '3', '4', '5']
+
+- case: |-
+    # an error inside a generator laid as a loop's section
+    def gen(n):
+        for i in range(n):
+            yield 1 // (i - 2)
+    def run():
+        t = 0
+        for v in gen(5):
+            t += v
+        return t
+    run()
+  error: ZeroDivisionError
+
+- case: |-
+    # a generator a loop's generator is passed, or a section's body loops over, is laid as a section the loop takes it into
+    def nums(n):
+        for i in range(n):
+            yield i
+    def evens(it):
+        for x in it:
+            if x % 2 == 0:
+                yield x
+    def squares(it):
+        for x in it:
+            yield x * x
+    t = 0
+    for _ in range(5):
+        for v in squares(evens(nums(20000))):
+            t += v
+    print(t)
+    def run():
+        s = 0
+        for v in squares(evens(nums(300))):
+            if v > 1000:
+                break
+            s += v
+        for v in squares(iter([1, 2, 3])):
+            s += v
+        g = nums(5)
+        next(g)
+        for v in squares(g):
+            s += v
+        return s
+    print(run(), run())
+  expected: |-
+    6665666700000
+    5004 5004
+
+- case: |-
+    def nums(n):
+        for i in range(n):
+            yield i
+    def squares(it):
+        for x in it:
+            yield x * x
+    def run():
+        t = 0
+        for v in squares(nums(5)):
+            t += v
+        return t
+    for i in range(70):
+        r = run()
+    print(r)
+  expected: |-
+    30
+
+- case: |-
+    # a loop over a generator inside a generator laid as a section, by yield from or a for of its own, steps the inner one's section, taken in mid-run too
+    def inner(n):
+        for i in range(n):
+            yield i
+    def outer(k):
+        for j in range(k):
+            yield from inner(j)
+    t = 0
+    for v in outer(300):
+        t += v
+    print(t)
+    def gen2(k):
+        for j in range(k):
+            for x in inner(j):
+                if x > 5:
+                    break
+                yield x
+        yield from inner(3)
+    print(sum(gen2(50)), list(gen2(4)))
+    for v in outer(5):
+        if v == 2:
+            break
+    print(v)
+  expected: |-
+    4455100
+    683 [0, 0, 1, 0, 1, 2, 0, 1, 2]
+    2
+
+- case: |-
+    # a generator yielding inside a try steps in place, its handlers its own while it waits: an error of the loop over it never meets them, one it raises or is thrown does, and a step into a first code its entry lowers takes none
+    def g(n):
+        for i in range(n):
+            try:
+                if i == 25: raise KeyError(i)
+                yield i
+            except KeyError as e:
+                print("caught in g", e)
+            except ValueError:
+                print("thrown in g", i)
+    t = 0
+    try:
+        for v in g(40):
+            t += v
+            if v == 30: raise ValueError("consumer")
+    except ValueError as e:
+        print("consumer caught", e, t)
+    x = g(5)
+    print(next(x), next(x), x.throw(ValueError), next(x))
+    y = g(100)
+    for v in y:
+        if v == 12: break
+    print(next(y))
+    def h(n):
+        i = 0
+        while i < n:
+            try:
+                yield i
+            except ZeroDivisionError:
+                yield -1
+            i += 1
+    z = h(4)
+    print(next(z), z.throw(ZeroDivisionError), next(z), list(z))
+    s = 0
+    for v in h(5000): s += v
+    print(s, sum(h(100)), max(g(50)))
+    def k():
+        for i in range(3):
+            try:
+                yield i
+            finally:
+                print("k fin", i)
+    for v in k():
+        print("v", v)
+    kk = k()
+    next(kk)
+    kk.close()
+    print("done")
+  expected: |-
+    caught in g 25
+    consumer caught consumer 440
+    thrown in g 1
+    0 1 2 3
+    13
+    0 -1 1 [2, 3]
+    caught in g 25
+    12497500 4950 49
+    v 0
+    k fin 0
+    v 1
+    k fin 1
+    v 2
+    k fin 2
+    k fin 0
+    done
+
+- case: |-
+    # list, tuple, set, dict, sum, min, max, any, all and next over a map or filter of a Python function run it as frames of a job,
+    # each item taken as a generator's yield is: empty ones, errors, a filter's truth, a default, a closure, the iterator left spent
+    def sq(x):
+        return x * x
+    xs = list(range(10))
+    print(list(map(sq, xs)), tuple(map(sq, range(3))), set(map(lambda v: v % 3, xs)), dict(map(lambda v: (v, -v), range(3))))
+    print(sum(map(sq, xs)), sum(map(sq, xs), 100), min(map(lambda v: -v, xs)), max(map(sq, xs)), max(map(sq, []), default=7))
+    print(any(map(lambda v: v > 8, xs)), all(map(lambda v: v < 8, xs)), list(filter(lambda v: v % 3 == 0, xs)), list(map(sq, [])))
+    m = map(sq, xs)
+    print(next(m), next(m), list(m), next(m, 'done'))
+    f = filter(lambda v: v > 7, xs)
+    print(next(f), list(f))
+    def bad(v):
+        if v == 4:
+            raise ValueError('four')
+        return v
+    try:
+        list(map(bad, xs))
+    except ValueError as e:
+        print('ValueError', e)
+    def run(k):
+        t = 0
+        for r in range(30):
+            t += sum(map(lambda v: v * k + r, range(20))) + len(list(filter(lambda v: (v + r) % k == 0, range(25))))
+        return t
+    print(run(3))
+    def add(a, b):
+        return a + b
+    print(list(map(add, [1, 2, 3], [10, 20, 30, 40])), sum(map(add, range(5), range(10, 15))), tuple(map(add, [], [1])))
+  expected: |-
+    [0, 1, 4, 9, 16, 25, 36, 49, 64, 81] (0, 1, 4) {0, 1, 2} {0: 0, 1: -1, 2: -2}
+    285 385 -9 81 7
+    True False [0, 3, 6, 9] []
+    0 1 [4, 9, 16, 25, 36, 49, 64, 81] done
+    8 [9]
+    ValueError four
+    26050
+    [11, 22, 33] 70 ()
+
+- case: |-
+    # a generator taken into its section at a yield inside its loop over another generator steps that one as an ordinary iterator, its step sent back to the loop's entry
+    def gi(n):
+        for i in range(n):
+            yield i
+    def outer(n):
+        for v in gi(n):
+            yield v * 2
+            n += 1
+    t = 0
+    for v in outer(30000):
+        t += v
+    print(t)
+  expected: |-
+    899970000
+
+- case: |-
+    # the same for a yield inside a try of that loop
+    def gi(n):
+        for i in range(n):
+            yield i
+    def outer(n):
+        for v in gi(n):
+            try:
+                yield v * 2
+            finally:
+                pass
+    t = 0
+    for v in outer(30000):
+        t += v
+    print(t)
+  expected: |-
+    899970000
+
+- case: |-
+    def a(n):
+        for i in range(n):
+            yield i
+    def b(n):
+        for i in range(n):
+            yield i * 2
+    t = 0
+    g = a
+    for k in range(400):
+        if k == 200:
+            g = b
+        for x in g(10):
+            t += x
+    print(t)
+  expected: |-
+    27000
+
+- case: |-
+    def a(n):
+        for i in range(n):
+            yield i
+    def b(n):
+        for i in range(n):
+            yield i * 2
+    t = 0
+    for k in range(400):
+        g = a if k % 2 else b
+        for x in g(10):
+            t += x
+    print(t)
+  expected: |-
+    27000
+
+- case: |-
+    def a(n):
+        yield -1
+        for i in range(n):
+            yield i
+        yield 100
+    def b(n, m=3):
+        for i in range(n):
+            if i % 2:
+                yield i * m
+            else:
+                yield -i
+    def c(n):
+        i = 0
+        while i < n:
+            yield i
+            i += 3
+    def d(n):
+        for i in range(n):
+            if i == 5:
+                raise ValueError(i)
+            yield i
+    gs = [a, b, c]
+    t = 0
+    for k in range(600):
+        g = gs[k % 3]
+        for x in g(8):
+            t += x
+            if x == 6 and k % 7 == 0:
+                break
+        if k > 500:
+            try:
+                for x in (d if k % 2 else c)(9):
+                    t += x
+            except ValueError:
+                t -= 1
+    print(t)
+    def run():
+        s = 0
+        for k in range(300):
+            f = a if k % 2 else b
+            for y in f(5):
+                s += y
+        return s
+    print(run())
+  expected: |-
+    32188
+    17250
+
+- case: |-
+    # stack for loops inside a section: dicts, sets, generators
+    def items(d):
+        s = 0
+        for k, v in d.items():
+            s += k * v
+        ks = []
+        for ks_k, in [(k,) for k in d]:
+            ks.append(ks_k)
+        return s, ks
+    def gen(n):
+        for i in range(n):
+            yield i, i * i
+    def gens(n):
+        s = 0
+        for a, b in gen(n):
+            s += a + b
+        for i, (a, b) in enumerate(gen(n)):
+            s += i
+        return s
+    def sets(xs):
+        s = 0
+        for a, b in {(x, x + 1) for x in xs}:
+            s += a * b
+        return s
+    def run():
+        t = 0
+        for k in range(100):
+            d = {1: k, 2: 3, k: 4}
+            a, b = items(d)
+            t += a + len(b) + gens(k % 9) + sets([k, 1, 2])
+        return t
+    print(run())
+    def grow(d):
+        for k, v in d.items():
+            d[k + 100] = v
+        return 0
+    def grow_set(s):
+        for a, b in s:
+            s.add((a + 100, b))
+        return 0
+    def bad(n):
+        for i in range(n):
+            if i == 2:
+                raise ValueError('bad ' + str(n))
+            yield i, i
+    def eat(n):
+        s = 0
+        for a, b in bad(n):
+            s += a + b
+        return s
+    def walk():
+        out = []
+        for k in range(150):
+            d = {1: 2, 3: 4}
+            st = {(1, 2), (3, 4)}
+            n = k % 4
+            try:
+                grow(d)
+            except RuntimeError as e:
+                out.append(str(e))
+            try:
+                grow_set(st)
+            except RuntimeError as e:
+                out.append(str(e))
+            try:
+                out.append(eat(n))
+            except ValueError as e:
+                out.append(str(e))
+        return len(out), out[:8]
+    print(walk())
+  expected: |-
+    365277
+    (450, ['dictionary changed size during iteration', 'Set changed size during iteration', 0, 'dictionary changed size during iteration', 'Set changed size during iteration', 0, 'dictionary changed size during iteration', 'Set changed size during iteration'])
+
+- case: |-
+    def a(n):
+        yield -1
+        for i in range(n):
+            yield i
+        yield 100
+    def b(n):
+        for i in range(n):
+            if i % 2:
+                yield i * 3
+            else:
+                yield -i
+    def run():
+        s = 0
+        for k in range(300):
+            f = a if k % 2 else b
+            for y in f(5):
+                s += y
+        return s
+    print(run())
+  expected: |-
+    17250
+
+- case: |-
+    def a(n):
+        for i in range(n):
+            yield i
+    def b(n):
+        for i in range(n):
+            yield i * 3
+    def run():
+        s = 0
+        for k in range(300):
+            f = a if k % 2 else b
+            for y in f(5):
+                s += y
+        return s
+    print(run())
+  expected: |-
+    6000
+
+- case: |-
+    def deep(n):
+        yield from deep(n + 1)
+    g = deep(0)
+    try:
+        next(g)
+    except RecursionError:
+        print('RecursionError')
+    print(next(g, 'done'))
+    def caught(n):
+        try:
+            yield from caught(n + 1)
+        except RecursionError:
+            yield n
+    print(next(caught(0)) > 500)
+    def walk(n):
+        for x in walk(n + 1):
+            yield x
+    try:
+        print(list(walk(0)))
+    except RecursionError:
+        print('RecursionError')
+    def countdown(n):
+        if n:
+            yield n
+            r = yield from countdown(n - 1)
+            return r + 1
+        return 0
+    def outer():
+        r = yield from countdown(700)
+        yield ('r', r)
+    print(list(outer())[-1], sum(countdown(300)))
+  expected: |-
+    RecursionError
+    done
+    True
+    RecursionError
+    ('r', 700) 45150
+
+- case: |-
+    def depth(n):
+        yield n
+        yield from depth(n + 1)
+    m = 0
+    try:
+        for v in depth(0):
+            m = v
+    except RecursionError:
+        print('RecursionError', 900 < m < 1000)
+    def caught(n):
+        try:
+            yield from caught(n + 1)
+        except RecursionError:
+            yield n
+    print(900 < next(caught(0)) < 1000)
+    def deep(n):
+        if n:
+            yield from deep(n - 1)
+        else:
+            yield 'bottom'
+    print(next(deep(900)))
+  expected: |-
+    RecursionError True
+    True
+    bottom
+
+- case: |-
+    # RecursionError at Python's depth through a generator's yield from, 1000 frames with the module's
+    m = 0
+    def gen(n):
+        global m
+        m = n
+        yield n
+        yield from gen(n + 1)
+    try:
+        for v in gen(1):
+            pass
+    except RecursionError:
+        print('generator', 997 <= m <= 999)
+  expected: |-
+    generator True
+
+- case: |-
+    def acc():
+        total = 0
+        while True:
+            v = yield total
+            total += v
+    a = acc(); next(a); print(a.send(1), a.send(2), a.send(3))
+    def g():
+        x = yield 1
+        print('got', x)
+        try:
+            y = yield 2
+        except ValueError as e:
+            print('caught', e)
+            y = 'r'
+        yield y
+        return 'end'
+    it = g(); print(next(it), it.send('s'), it.throw(ValueError('v')))
+    try: next(it)
+    except StopIteration as e: print('stop', e.value)
+    def h():
+        try:
+            yield 1
+        except GeneratorExit:
+            print('exit')
+            return 'closed-val'
+    it = h(); next(it); print(it.close()); print(it.close())
+    def bad():
+        try: yield 1
+        except GeneratorExit: yield 2
+    b = bad(); next(b)
+    try: b.close()
+    except RuntimeError as e: print('RE', e)
+    def plain():
+        yield 1
+        yield 2
+    p = plain(); print(p.__next__(), p.__next__())
+    try: p.__next__()
+    except StopIteration: print('done')
+    q = plain()
+    try: q.send(5)
+    except TypeError as e: print('TE', e)
+    print(q.send(None), q.close(), list(q))
+    r = plain(); next(r)
+    try: r.throw(KeyError('k'))
+    except KeyError as e: print('KE', e)
+    print(list(r))
+    def sub():
+        x = yield 'a'
+        print('sub got', x)
+        return 'subret'
+    def outer():
+        r = yield from sub()
+        print('outer got', r)
+        yield 'b'
+    o = outer(); print(next(o), o.send('S'))
+    o2 = outer(); next(o2)
+    try: o2.throw(ValueError('in'))
+    except ValueError as e: print('VE', e)
+    o3 = outer(); next(o3); print(o3.close())
+    t = 0
+    for k in range(200):
+        a = acc(); next(a)
+        for i in range(5): t += a.send(i)
+        a.close()
+    print(t)
+  expected: |-
+    1 3 6
+    got s
+    caught v
+    1 2 r
+    stop end
+    exit
+    closed-val
+    None
+    RE generator ignored GeneratorExit
+    1 2
+    done
+    TE can't send non-None value to a just-started generator
+    1 None []
+    KE 'k'
+    []
+    sub got S
+    outer got subret
+    a b
+    VE in
+    None
+    4000
+
+- case: |-
+    async def agen(n):
+        for i in range(n):
+            yield i
+    async def consume():
+        t = []
+        async for x in agen(30):
+            t.append(x)
+        return t
+    c = consume()
+    try:
+        c.send(None)
+    except StopIteration as e:
+        print(len(e.value))
+  expected: |-
+    30
+
+- case: |-
+    def run(c):
+        try:
+            while True: c.send(None)
+        except StopIteration as e: return e.value
+        except BaseException as e: return (type(e).__name__, str(e))
+    async def a1():
+        yield 1
+        raise StopIteration
+    async def a2():
+        yield 1
+        raise StopAsyncIteration
+    async def a3():
+        yield 1
+        raise KeyError('k')
+    async def use(g):
+        out = []
+        try:
+            async for x in g: out.append(x)
+        except Exception as e:
+            out.append((type(e).__name__, str(e)))
+        return out
+    print(run(use(a1())), run(use(a2())), run(use(a3())))
+    async def a4():
+        try:
+            yield 1
+            yield 2
+        except ValueError as e:
+            yield ('caught', str(e))
+    async def drv():
+        g = a4()
+        r = [await g.__anext__(), await g.asend(None), await g.athrow(ValueError('v'))]
+        try: await g.__anext__()
+        except StopAsyncIteration: r.append('end')
+        r.append(await anext(g, 'dflt'))
+        return r
+    print(run(drv()))
+    async def a5():
+        for i in range(3): yield i
+    async def drv2():
+        g = a5(); r = []
+        r.append(await anext(g)); await g.aclose(); r.append(await anext(g, 'x'))
+        return r
+    print(run(drv2()))
+  expected: |-
+    [1, ('RuntimeError', 'async generator raised StopIteration')] [1, ('RuntimeError', 'async generator raised StopAsyncIteration')] [1, ('KeyError', "'k'")]
+    [1, 2, ('caught', 'v'), 'end', 'dflt']
+    [0, 'x']
+
+- case: |-
+    def sub():
+        try:
+            x = yield 1
+            print('sub got', x)
+            yield 2
+        except KeyError as e:
+            print('sub caught', e)
+            yield 'after'
+        finally:
+            print('sub finally')
+    def outer():
+        r = yield from sub()
+        print('outer ret', r)
+        yield 'end'
+    o = outer(); print(next(o)); print(o.throw(KeyError('k'))); print(next(o)); print(list(o))
+    o2 = outer(); next(o2)
+    try: o2.throw(ValueError('v'))
+    except ValueError as e: print('VE', e)
+    print(list(o2))
+  expected: |-
+    1
+    sub caught 'k'
+    after
+    sub finally
+    outer ret None
+    end
+    []
+    sub finally
+    VE v
+    []
+
+- case: |-
+    def gen():
+        for s in ['1', '0', '2', '0', '0', '3']:
+            yield s
+    def nums():
+        for v in [0, 1, 0, 2, '', 'a']:
+            yield v
+    print(list(filter(int, gen())))
+    out = []
+    for x in filter(int, gen()):
+        out.append(x)
+    print(out)
+    print(list(filter(bool, nums())), [y for y in filter(len, ['', 'a', '', 'bc'])], list(filter(None, nums())))
+    t = 0
+    for k in range(50):
+        for v in filter(int, gen()):
+            t += int(v)
+    print(t, sum(filter(int, gen())) if False else 0, tuple(filter(str.isdigit, gen())))
+  expected: |-
+    ['1', '2', '3']
+    ['1', '2', '3']
+    [1, 2, 'a'] ['a', 'bc'] [1, 2, 'a']
+    300 0 ('1', '0', '2', '0', '0', '3')
+
+- case: |-
+    # a builtin a map calls on each generator steps it as a job of the loop
+    def g(n):
+        for i in range(n):
+            yield i
+    print(list(map(sum, [g(2), g(3)])), list(map(max, [g(2), g(4)])), list(map(tuple, [g(2)])))
+    for x in map(sorted, [g(3), g(1)]):
+        print(x)
+    print([set(s) for s in map(set, [g(2)])], list(map(dict, [((x, x) for x in g(2))])), list(map(any, [g(2), g(1)])), list(map(bytes, [g(2)])))
+    t = 0
+    for k in range(30):
+        for v in map(sum, [g(k), g(2)]):
+            t += v
+    print(t, list(map(sum, [[1, 2], g(3), (4,)])))
+  expected: |-
+    [1, 3] [1, 3] [(0, 1)]
+    [0, 1, 2]
+    [0]
+    [{0, 1}] [{0: 0, 1: 1}] [True, False] [b'\x00\x01']
+    4090 [3, 3, 4]
+
+- case: |-
+    # a filter whose builtin test steps a generator item runs that test as a job of the loop, the item itself kept
+    def g(n=3):
+        for i in range(n):
+            yield i
+    print([sum(x) for x in filter(sum, [g(2), g(1), g(0), g(3)])])
+    print(len(list(filter(any, [g(2), g(1)]))))
+    print(len(list(filter(sum, (g(k) for k in range(4))))))
+    print(len(tuple(filter(sum, [g(1), g(3)]))))
+    print([type(x).__name__ for x in filter(max, [g(2), g(1)])])
+    print([v for v in filter(sorted, [g(0), g(2)]) for v in [1]])
+  expected: |-
+    [0, 0]
+    1
+    2
+    1
+    ['generator']
+    [1]
+
+- case: |-
+    # a builtin key over generator items runs as a job of the loop on each before the sort, min or max ends
+    def g(n=3):
+        for i in range(n):
+            yield i
+    print([sum(x) for x in sorted([g(3), g(2), g(4)], key=sum)])
+    print([sum(x) for x in sorted((g(k) for k in range(3)), key=sum)])
+    print(sum(min([g(3), g(2)], key=sum)))
+    print(sum(max([g(2), g(3)], key=sum)))
+    print(tuple(max([g(2), g(3)], key=tuple)))
+    print((lambda l: (l.sort(key=sum, reverse=True), [sum(x) for x in l])[1])([g(3), g(1), g(4)]))
+    print(min(map(sum, [g(2), g(3)]), key=lambda v: -v))
+    print(sorted(map(sum, [g(3), g(2)]), key=abs))
+    print(sum(max(g(1), g(3), key=sum)))
+  expected: |-
+    [0, 0, 0]
+    [0, 0, 0]
+    0
+    0
+    ()
+    [0, 0, 0]
+    3
+    [1, 3]
+    0
+
+- case: |-
+    # a builtin a map calls on a lazy iterator wrapping a generator, at any depth, steps it as a job of the loop
+    def g(n=3):
+        for i in range(n):
+            yield i
+    print(list(map(list, [enumerate(g(2))])))
+    print(list(map(list, [zip(g(), g())])))
+    print(list(map(','.join, [map(str, g(2))])))
+    print(list(map(list, [filter(None, g(3))])))
+    print(list(map(sum, [map(abs, g(3))])))
+    print(list(map(dict, [zip(map(str, g(2)), enumerate(g(2)))])))
+    print(list(map(lambda a, b: a + b, map(sum, [g(2)]), map(sum, [g(3)]))))
+    print(list(map(sum, [g(2)], [5])))
+    print(list(map(sum, [iter(g(3))])))
+    print([v for v in map(tuple, [enumerate(g(2)), zip(g(1))])])
+    print(list(map(sum, map(list, [g(2), g(3)]))))
+    print(list(map(list, map(enumerate, [g(2)]))))
+    print(list(map(frozenset, [enumerate(g(1))])))
+    print(list(map(bytes, [map(abs, g(2))])))
+    print(list(map(''.join, [(str(x) for x in g(3))])))
+    print(list(map(sum, [(x for x in g(3))])))
+    print(list(map(sum, (g(k) for k in range(3)))))
+    print(list(map(len, [list(g(2))])))
+  expected: |-
+    [[(0, 0), (1, 1)]]
+    [[(0, 0), (1, 1), (2, 2)]]
+    ['0,1']
+    [[1, 2]]
+    [3]
+    [{'0': (0, 0), '1': (1, 1)}]
+    [4]
+    [6]
+    [3]
+    [((0, 0), (1, 1)), ((0,),)]
+    [1, 3]
+    [[(0, 0), (1, 1)]]
+    [frozenset({(0, 0)})]
+    [b'\x00\x01']
+    ['012']
+    [3]
+    [0, 0, 1]
+    [2]
+
+- case: |-
+    # a builtin consuming a map whose builtin steps generators takes what the jobs of the loop gave
+    def g(n=3):
+        for i in range(n):
+            yield i
+    print(sum(map(sum, [g(2), g(3)])))
+    print('-'.join(map(','.join, [map(str, g(2)), map(str, g(1))])))
+    print(sorted(set(map(tuple, [g(2), g(2)]))))
+    print([*map(sum, [g(2), g(3)])])
+    print(dict(map(tuple, [map(str, g(2))])))
+    print(any(map(sum, [g(1), g(3)])))
+    print(list(zip(map(sum, [g(2)]), map(max, [g(3)]))))
+    print(list(enumerate(map(sum, [g(2), g(3)]))))
+    print(next(map(sum, [g(3)])))
+    print(tuple(map(tuple, [g(2), g(1)])))
+    print('{} {}'.format(*map(sum, [g(2), g(3)])))
+    print({k: v for k, v in zip(map(sum, [g(2)]), map(tuple, [g(2)]))})
+  expected: |-
+    4
+    0,1-0
+    [(0, 1)]
+    [1, 3]
+    {'0': '1'}
+    True
+    [(1, 2)]
+    [(0, 1), (1, 3)]
+    3
+    ((0, 1), (0,))
+    1 3
+    {1: (0, 1)}
+
+- case: |-
+    # what a builtin that stopped short left of a generator the generator still gives
+    def g(n=3):
+        for i in range(n):
+            yield i
+    gs = [g(4)]
+    print(list(map(any, gs)), list(gs[0]))
+    gs = [g(4)]
+    print(list(map(any, gs)), next(gs[0]), next(gs[0], 'end'), next(gs[0], 'end'))
+    gs = [g(5)]
+    print(list(map(all, gs)))
+    out = []
+    for x in gs[0]:
+        out.append(x)
+    print(out)
+    gs = [g(4)]
+    print(list(map(any, gs)), sum(gs[0]), list(gs[0]))
+  expected: |-
+    [True] [2, 3]
+    [True] 2 3 end
+    [False]
+    [1, 2, 3, 4]
+    [True] 5 []
+
+- case: |-
+    # a builtin a map, filter or key calls steps a generator lazily, an infinite one or one it stops short in
+    def g(n=3):
+        for i in range(n):
+            yield i
+    def inf():
+        i = 0
+        while True:
+            yield i
+            i += 1
+    def noisy(n, log):
+        for i in range(n):
+            log.append(i)
+            yield i
+    log = []
+    print(list(map(any, [noisy(5, log)])), log)
+    print(list(map(list, [zip(range(3), inf())])), list(map(dict, [zip(g(2), inf())])))
+    print(list(map(next, [enumerate(inf()), inf()])), list(map(list, [zip(inf(), 'ab')])))
+    log = []
+    print(len(list(filter(any, [noisy(4, log), noisy(1, log)]))), log)
+    log = []
+    print([any(x) for x in sorted([noisy(3, log), noisy(2, log)], key=any)], log)
+    log = []
+    print(sum(max([noisy(2, log), noisy(3, log)], key=all)), log)
+    log = []
+    xs = [noisy(5, log)]
+    print(list(map(all, xs)), log, list(xs[0]), log)
+    print(list(map(next, [zip(inf(), inf())])), next(map(any, [inf()])), list(map(tuple, [zip(g(2), map(str, inf()))])))
+    log = []
+    for v in map(any, [noisy(3, log), noisy(0, log)]):
+        print(v, log)
+    print(min([inf(), inf()], key=next) is not None)
+  expected: |-
+    [True] [0, 1]
+    [[(0, 0), (1, 1), (2, 2)]] [{0: 0, 1: 1}]
+    [(0, 0), 0] [[(0, 'a'), (1, 'b')]]
+    1 [0, 1, 0]
+    [True, False] [0, 1, 0, 1, 2]
+    1 [0, 0, 1]
+    [False] [0, 1, 2, 3, 4] [1, 2, 3, 4] [0, 1, 2, 3, 4]
+    [(0, 0)] True [((0, '0'), (1, '1'))]
+    True [0, 1]
+    False [0, 1]
+    True
+
+- case: |-
+    # a slice store, a method given several generators and a strict zip step each generator as frames of the loop
+    def g(n=3):
+        for i in range(n):
+            yield i
+    l = [9, 9, 9]
+    l[0:2] = g(3)
+    m = [9, 9, 9, 9]
+    m[::2] = g(2)
+    s = {9}
+    s.update(g(2), g(4))
+    d = {}
+    d.update(zip(g(2), g(2)))
+    print(l, m, sorted(s), d, list(zip(g(2), g(2), strict=True)), sorted(set().union(g(2), g(3))))
+    try:
+        list(zip(g(2), g(3), strict=True))
+    except ValueError as e:
+        print('ValueError', e)
+  expected: |-
+    [0, 1, 2, 9] [0, 9, 1, 9] [0, 1, 2, 3, 9] {0: 0, 1: 1} [(0, 0), (1, 1)] [0, 1, 2]
+    ValueError zip() argument 2 is longer than argument 1

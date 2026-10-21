@@ -66,7 +66,7 @@ mod test {
     /* Two cases equal in every field test the same thing twice, so the suite keeps only the first. */
     #[test]
     fn no_duplicate_cases() {
-        let cases: Vec<serde_json::Value> = serde_json::from_str(include_str!("cases/vm.json")).expect("invalid JSON");
+        let cases = crate::cases::vm_cases(std::path::Path::new(env!("CARGO_MANIFEST_DIR")));
         let mut seen = std::collections::HashMap::new();
         let repeated: Vec<String> = cases.iter().enumerate()
             .filter_map(|(i, case)| seen.insert(case.to_string(), i).map(|first| format!("case {i} repeats case {first}, {}", case["src"])))
@@ -74,10 +74,10 @@ mod test {
         assert!(repeated.is_empty(), "{} duplicate case(s):\n{}", repeated.len(), repeated.join("\n"));
     }
 
-    /* Runs vm.json cases under sandbox limits testing budget heap depth guards verifying runaway allocation recursion materialization produce MemoryError RecursionError */
+    /* Runs the vm cases under sandbox limits testing budget heap depth guards verifying runaway allocation recursion materialization produce MemoryError RecursionError */
     #[test]
     fn test_cases() {
-        let cases: Vec<Case> = serde_json::from_str(include_str!("cases/vm.json")).expect("invalid JSON");
+        let cases: Vec<Case> = serde_json::from_value(crate::cases::vm_cases(std::path::Path::new(env!("CARGO_MANIFEST_DIR"))).into()).expect("vm cases");
 
         let mut failures: Vec<String> = Vec::new();
         for case in crate::common::slice(cases) {
@@ -129,10 +129,10 @@ mod test {
         }
     }
 
-    /* Reruns every vm.json case in strict_input mode (host-supplied buffer, reading past = RuntimeError) under `Limits::sandbox()` (see `test_cases` for why the bounded profile). Lex/parse errors are also asserted here. */
+    /* Reruns every vm case in strict_input mode (host-supplied buffer, reading past = RuntimeError) under `Limits::sandbox()` (see `test_cases` for why the bounded profile). Lex/parse errors are also asserted here. */
     #[test]
     fn strict_cases() {
-        let cases: Vec<Case> = serde_json::from_str(include_str!("cases/vm.json")).expect("invalid JSON");
+        let cases: Vec<Case> = serde_json::from_value(crate::cases::vm_cases(std::path::Path::new(env!("CARGO_MANIFEST_DIR"))).into()).expect("vm cases");
 
         for case in crate::common::slice(cases) {
             let (tokens, lex_errs) = lex(&case.src);

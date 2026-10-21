@@ -38,9 +38,9 @@ cargo build --release   # the .rlib Rust embedders link
 
 ## Testing
 
-`make test` runs `tests/cases/vm.json` under `Limits::sandbox()`, so a budget, memory, or call-depth regression fails instead of hanging. The tests count memory through the same metering allocator as `compiler.wasm`, and `tests/memory.rs` checks that a run gives back every byte it took once its VM drops.
+`make test` runs the cases of `tests/cases/vm` under `Limits::sandbox()`, so a budget, memory, or call-depth regression fails instead of hanging. The tests count memory through the same metering allocator as `compiler.wasm`, and `tests/memory.rs` checks that a run gives back every byte it took once its VM drops.
 
-`make bench` counts the WebAssembly instructions each case of `tests/cases/vm.json` executes, so `bench/.snapshot` keeps the same `[instructions, MB]` per case on every machine. It fails when the snapshot was taken with another Rust, a case and its entry do not pair, or the mean or a single case moves past its threshold, the cases that grew listed apart from those that shrank. `make bench-update` takes the snapshot again, unless a case grew past its threshold; `make bench-accept-slower` takes it with those cases too.
+`make bench` counts the WebAssembly instructions each case of `tests/cases/vm` executes, so `bench/.snapshot` keeps the same `[instructions, MB]` per case on every machine. It fails when the snapshot was taken with another Rust, a case and its entry do not pair, or the mean or a single case moves past its threshold, the cases that grew listed apart from those that shrank. `make bench-update` takes the snapshot again, unless a case grew past its threshold; `make bench-accept-slower` takes it with those cases too.
 
 > [!NOTE]
 > The JS, CLI and skill suites read the builds from a CDN served on loopback, and the lock cases of the CLI serve their own registry through `EDGE_SITE_BASE`. Only `edge add` of an unknown name and `edge publish` with a bad token reach production.

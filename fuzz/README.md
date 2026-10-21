@@ -8,7 +8,7 @@ Run them from the repo root. They need Linux or macOS and `cargo install cargo-a
 
 | Command | Does |
 |---|---|
-| `make seeds` | Rebuilds `in/` from `tests/cases/vm.json` and `edge.dict` from `dict.txt` |
+| `make seeds` | Rebuilds `in/` from `tests/cases/vm` and `edge.dict` from `dict.txt` |
 | `make fuzz` | Builds the target and runs one instance per core |
 | `make fuzz-carry` | Minimizes the queues into `corpus/` for the next campaign, carrying the new coverage unminimized if afl-cmin takes over `CMIN_SECS` (600) |
 | `make fuzz-status` | Shows a running campaign |

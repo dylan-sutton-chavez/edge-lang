@@ -1,0 +1,7388 @@
+- case: |-
+    x = 10
+    if x > 5:
+        print('yes')
+    else:
+        print('no')
+  expected: |-
+    yes
+
+- case: |-
+    x = 3
+    if x > 5:
+        print('yes')
+    else:
+        print('no')
+  expected: |-
+    no
+
+- case: |-
+    for i in range(3):
+        print(i)
+  expected: |-
+    0
+    1
+    2
+
+- case: |-
+    s = 0
+    for i in range(5):
+        s += i
+    print(s)
+  expected: |-
+    10
+
+- case: |-
+    s = 0
+    for i in range(10):
+        s = s + 1
+    print(s)
+  expected: |-
+    10
+
+- case: |-
+    x = 1
+    if True:
+        x = 2
+    print(x)
+  expected: |-
+    2
+
+- case: |-
+    x = 1
+    if False:
+        x = 2
+    print(x)
+  expected: |-
+    1
+
+- case: |-
+    for i, v in enumerate(['a','b']):
+        print(i, v)
+  expected: |-
+    0 a
+    1 b
+
+- case: |-
+    for a,b in zip([1,2], [3,4]):
+        print(a,b)
+  expected: |-
+    1 3
+    2 4
+
+- case: |-
+    for i in [1,2,3]:
+        print(i)
+  expected: |-
+    1
+    2
+    3
+
+- case: |-
+    for i in (1,2,3):
+        print(i)
+  expected: |-
+    1
+    2
+    3
+
+- case: |-
+    for ch in 'abc':
+        print(ch)
+  expected: |-
+    a
+    b
+    c
+
+- case: |-
+    for k in {'x':1,'y':2}:
+        print(k)
+  expected: |-
+    x
+    y
+
+- case: |-
+    if 1 < 2 and 3 > 1:
+        print('ok')
+  expected: |-
+    ok
+
+- case: |-
+    if 1 > 2 or 3 > 1:
+        print('ok')
+  expected: |-
+    ok
+
+- case: |-
+    a = [1,2]
+    if 2 in a:
+        print('found')
+  expected: |-
+    found
+
+- case: |-
+    d = {'k':1}
+    if 'k' in d:
+        print('has key')
+  expected: |-
+    has key
+
+- case: |-
+    x = 10
+    if x is not None:
+        print(x)
+  expected: |-
+    10
+
+- case: |-
+    for s in sorted({1, 2, 3}):
+        print(s)
+  expected: |-
+    1
+    2
+    3
+
+- case: |-
+    for a, b, c in zip([1,2],[3,4],[5,6]):
+        print(a,b,c)
+  expected: |-
+    1 3 5
+    2 4 6
+
+- case: |-
+    for _ in range(50):
+        a = "hi" + "there"
+        b = [1,2] + [3,4]
+        c = (5,6) + (7,8)
+    print("ok")
+  expected: |-
+    ok
+
+- case: |-
+    s = "hello"
+    l = [1, 2]
+    for _ in range(20):
+        s = s + "!"
+        l = l + [3]
+    print(s)
+    print(l)
+  expected: |-
+    hello!!!!!!!!!!!!!!!!!!!!
+    [1, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3]
+
+- case: |-
+    d = {}
+    for i in range(100):
+        d[i] = i * i
+    print(d[99])
+  expected: |-
+    9801
+
+- case: |-
+    d = {}
+    for i in range(50):
+        d[str(i)] = i
+    print(d['49'])
+  expected: |-
+    49
+
+- case: |-
+    d = {1: 'one', 2: 'two'}
+    keys = []
+    for k in d:
+        keys = keys + [k]
+    print(keys)
+  expected: |-
+    [1, 2]
+
+- case: |-
+    d = {}
+    for i in range(200):
+        d[i] = i
+    print(len(d))
+  expected: |-
+    200
+
+- case: |-
+    results = []
+    for i in range(1000):
+        results = [i] + results
+    print(results[0])
+  expected: |-
+    999
+
+- case: |-
+    for s in sorted({7, 8, 9, 10}):
+        print(s)
+  expected: |-
+    7
+    8
+    9
+    10
+
+- case: |-
+    r = 0
+    for s in {10, 3, 7}:
+        r += s
+    print(r)
+  expected: |-
+    20
+
+- case: |-
+    x = 0
+    while x < 3:
+        print(x)
+        x += 1
+  expected: |-
+    0
+    1
+    2
+
+- case: |-
+    n = 10
+    s = 0
+    while n > 0:
+        s += n
+        n -= 1
+    print(s)
+  expected: |-
+    55
+
+- case: |-
+    for i in range(10):
+        if i == 3:
+            break
+        print(i)
+  expected: |-
+    0
+    1
+    2
+
+- case: |-
+    for i in range(5):
+        if i == 2:
+            continue
+        print(i)
+  expected: |-
+    0
+    1
+    3
+    4
+
+- case: |-
+    counter: int = 0
+    for _ in range(10_000): counter += 1
+    print(counter)
+  expected: |-
+    10000
+
+- case: |-
+    counter: int = 0
+    for _ in range(0): counter += 1
+    print(counter)
+  expected: |-
+    0
+
+- case: |-
+    counter: int = 0
+    for _ in range(-5, 0): counter += 1
+    print(counter)
+  expected: |-
+    5
+
+- case: |-
+    counter: int = 0
+    for _ in range(10, 0, -1): counter += 1
+    print(counter)
+  expected: |-
+    10
+
+- case: |-
+    counter: int = 0
+    for _ in range(0, 100, 2): counter += 1
+    print(counter)
+  expected: |-
+    50
+
+- case: |-
+    counter: int = 0
+    for _ in range(100): counter += 7
+    print(counter)
+  expected: |-
+    700
+
+- case: |-
+    counter: int = 100
+    for _ in range(50): counter += 1
+    print(counter)
+  expected: |-
+    150
+
+- case: |-
+    counter: int = 0
+    for _ in range(100):
+        counter += 1
+        counter += 2
+    print(counter)
+  expected: |-
+    300
+
+- case: |-
+    counter: float = 0.0
+    for _ in range(50): counter += 1
+    print(counter)
+  expected: |-
+    50.0
+
+- case: |-
+    total: int = 0
+    for i in range(5):
+        for j in range(5):
+            total += 1
+    print(total)
+  expected: |-
+    25
+
+- case: |-
+    if (n := 5) > 3:
+        print(n)
+  expected: |-
+    5
+
+- case: |-
+    data = [1, 2, 3]
+    if (length := len(data)) > 0:
+        print(length)
+  expected: |-
+    3
+
+- case: |-
+    x = 0
+    while (x := x + 1) < 5:
+        print(x)
+  expected: |-
+    1
+    2
+    3
+    4
+
+- case: |-
+    for i in range(3):
+        for j in range(3):
+            print(i, j)
+  expected: |-
+    0 0
+    0 1
+    0 2
+    1 0
+    1 1
+    1 2
+    2 0
+    2 1
+    2 2
+
+- case: |-
+    if True:
+        y = 1
+    print(2 + 3)
+  expected: |-
+    5
+
+- case: |-
+    x = 3
+    while x:
+        x -= 1
+    print(-1 + 2)
+  expected: |-
+    1
+
+- case: |-
+    for i in range(3):
+        pass
+    else:
+        print('done')
+  expected: |-
+    done
+
+- case: |-
+    for i in range(3):
+        if i == 1:
+            break
+    else:
+        print('done')
+    print('end')
+  expected: |-
+    end
+
+- case: |-
+    x = 0
+    while x < 3:
+        x += 1
+    else:
+        print('done')
+  expected: |-
+    done
+
+- case: |-
+    d = {}
+    for i in [3,1,2]:
+        d[i] = i
+    print(list(d.keys()))
+  expected: |-
+    [3, 1, 2]
+
+- case: |-
+    x = 0
+    for i in range(1000):
+        x = {'v': i}
+    print(x['v'])
+  expected: |-
+    999
+
+- case: |-
+    for a, *b in [[1,2,3],[4,5,6]]:
+        print(a, b)
+  expected: |-
+    1 [2, 3]
+    4 [5, 6]
+
+- case: |-
+    x = 1
+    while True:
+        x += 1
+        if x == 5:
+            break
+    print(x)
+  expected: |-
+    5
+
+- case: |-
+    x = 1
+    with x:
+        print('inside')
+    print('after')
+  error: TypeError
+
+- case: |-
+    x = [1, 2]
+    with x as f:
+        print(len(f))
+    print('done')
+  error: TypeError
+
+- case: |-
+    a = 1
+    b = 2
+    with a, b:
+        print('both')
+    print('out')
+  error: TypeError
+
+- case: |-
+    a = [1]
+    b = [2, 3]
+    with a as x, b as y:
+        print(len(x), len(y))
+    print('ok')
+  error: TypeError
+
+- case: |-
+    a = 1
+    b = 2
+    with a:
+        with b:
+            print('nested')
+    print('out')
+  error: TypeError
+
+- case: |-
+    __match__ = 99
+    match 1:
+        case 1:
+            y = 10
+    print(__match__)
+    print(y)
+  expected: |-
+    99
+    10
+
+- case: |-
+    if (n := 10) > 5:
+        print(n)
+  expected: |-
+    10
+
+- case: |-
+    data = [1, 2, 3]
+    while (n := len(data)) > 0:
+        print(data.pop())
+  expected: |-
+    3
+    2
+    1
+
+- case: |-
+    if (squared := 7 ** 2) > 40:
+        print(squared)
+  expected: |-
+    49
+
+- case: |-
+    items = [3, 1, 4, 1, 5]
+    if (m := max(items)) >= 5:
+        print('big', m)
+  expected: |-
+    big 5
+
+- case: |-
+    for i in range(3):
+        print(i)
+    else:
+        print('done')
+  expected: |-
+    0
+    1
+    2
+    done
+
+- case: |-
+    for i in range(5):
+        if i == 2:
+            break
+        print(i)
+    else:
+        print('done')
+  expected: |-
+    0
+    1
+
+- case: |-
+    n = 0
+    while n < 3:
+        print(n)
+        n = n + 1
+    else:
+        print('finished')
+  expected: |-
+    0
+    1
+    2
+    finished
+
+- case: |-
+    n = 0
+    while n < 5:
+        if n == 2:
+            break
+        print(n)
+        n = n + 1
+    else:
+        print('finished')
+  expected: |-
+    0
+    1
+
+- case: |-
+    x = 5
+    match x:
+        case n:
+            print('captured', n)
+  expected: |-
+    captured 5
+
+- case: |-
+    x = 7
+    match x:
+        case 1 | 2 | 3:
+            print('small')
+        case 7 | 8 | 9:
+            print('mid')
+        case _:
+            print('other')
+  expected: |-
+    mid
+
+- case: |-
+    x = -3
+    match x:
+        case n if n > 0:
+            print('positive')
+        case n if n < 0:
+            print('negative')
+        case _:
+            print('zero')
+  expected: |-
+    negative
+
+- case: |-
+    p = [1, 2, 3]
+    match p:
+        case [a, b, c]:
+            print(a, b, c)
+  expected: |-
+    1 2 3
+
+- case: |-
+    p = [1, 2, 3, 4, 5]
+    match p:
+        case [first, *middle, last]:
+            print(first, middle, last)
+  expected: |-
+    1 [2, 3, 4] 5
+
+- case: |-
+    p = []
+    match p:
+        case []:
+            print('empty')
+        case [_]:
+            print('one')
+        case _:
+            print('many')
+  expected: |-
+    empty
+
+- case: |-
+    p = [42]
+    match p:
+        case []:
+            print('empty')
+        case [x]:
+            print('one', x)
+        case _:
+            print('many')
+  expected: |-
+    one 42
+
+- case: |-
+    for v in [1, 2, 'a', 'b']:
+        match v:
+            case 1 | 2:
+                print('int', v)
+            case 'a':
+                print('letter a')
+            case s:
+                print('other', s)
+  expected: |-
+    int 1
+    int 2
+    letter a
+    other b
+
+- case: |-
+    result = []
+    for c in 'abc':
+        result.append(c)
+    print(result)
+  expected: |-
+    ['a', 'b', 'c']
+
+- case: |-
+    x = []
+    for i in range(5):
+        x.append(i)
+    print(x)
+  expected: |-
+    [0, 1, 2, 3, 4]
+
+- case: |-
+    matrix = [[0]*3 for _ in range(3)]
+    for i in range(3):
+        matrix[i][i] = 1
+    print(matrix)
+  expected: |-
+    [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+
+- case: |-
+    x = 0
+    while x < 5:
+        x += 1
+    print(x)
+  expected: |-
+    5
+
+- case: |-
+    x = 0
+    while True:
+        if x >= 3:
+            break
+        x += 1
+    print(x)
+  expected: |-
+    3
+
+- case: |-
+    total = 0
+    for i in range(10):
+        if i % 2 == 0:
+            continue
+        total += i
+    print(total)
+  expected: |-
+    25
+
+- case: |-
+    result = []
+    for i in range(5):
+        if i == 3:
+            continue
+        result.append(i)
+    print(result)
+  expected: |-
+    [0, 1, 2, 4]
+
+- case: |-
+    found = False
+    for i in range(100):
+        if i * i == 49:
+            found = True
+            break
+    print(found, i)
+  expected: |-
+    True 7
+
+- case: |-
+    n = 0
+    while n < 100:
+        n += 1
+        if n == 42:
+            break
+    print(n)
+  expected: |-
+    42
+
+- case: |-
+    for i in range(5):
+        pass
+    else:
+        print('completed')
+  expected: |-
+    completed
+
+- case: |-
+    for i in range(5):
+        if i == 2:
+            break
+    else:
+        print('no break')
+    print('done')
+  expected: |-
+    done
+
+- case: |-
+    x = 0
+    while x < 5:
+        x += 1
+    else:
+        print('done')
+  expected: |-
+    done
+
+- case: |-
+    x = 0
+    while x < 5:
+        x += 1
+        if x == 3:
+            break
+    else:
+        print('no break')
+    print(x)
+  expected: |-
+    3
+
+- case: |-
+    total = 0
+    for i in range(4):
+        for j in range(4):
+            total += i * j
+    print(total)
+  expected: |-
+    36
+
+- case: |-
+    result = []
+    for i in range(3):
+        for j in range(3):
+            if i == j:
+                continue
+            result.append((i, j))
+    print(len(result))
+  expected: |-
+    6
+
+- case: |-
+    outer = 0
+    for i in range(5):
+        inner = 0
+        for j in range(5):
+            inner += 1
+        outer += inner
+    print(outer)
+  expected: |-
+    25
+
+- case: |-
+    x = 5
+    if x < 0:
+        print('neg')
+    elif x == 0:
+        print('zero')
+    elif x < 10:
+        print('small')
+    else:
+        print('big')
+  expected: |-
+    small
+
+- case: |-
+    x = 0
+    if x < 0:
+        print('neg')
+    elif x == 0:
+        print('zero')
+    else:
+        print('pos')
+  expected: |-
+    zero
+
+- case: |-
+    x = -5
+    if x < 0:
+        print('neg')
+    elif x == 0:
+        print('zero')
+    else:
+        print('pos')
+  expected: |-
+    neg
+
+- case: |-
+    x = 100
+    if x < 0:
+        print('neg')
+    elif x < 10:
+        print('small')
+    elif x < 100:
+        print('medium')
+    else:
+        print('large')
+  expected: |-
+    large
+
+- case: |-
+    rows = []
+    for i in range(3):
+        rows.append([j for j in range(3)])
+    print(rows[0])
+    print(rows[2])
+  expected: |-
+    [0, 1, 2]
+    [0, 1, 2]
+
+- case: |-
+    for i, v in enumerate(range(3)):
+        print(i + v)
+  expected: |-
+    0
+    2
+    4
+
+- case: |-
+    result = {}
+    for i, v in enumerate(['a', 'b', 'c']):
+        result[i] = v
+    print(result)
+  expected: |-
+    {0: 'a', 1: 'b', 2: 'c'}
+
+- case: |-
+    if (n := 3) > 5:
+        print(n)
+    else:
+        print('small', n)
+  expected: |-
+    small 3
+
+- case: |-
+    lst = [1, 2, 3, 4, 5]
+    if (n := len(lst)) > 3:
+        print(n)
+  expected: |-
+    5
+
+- case: |-
+    x = 0
+    while (x := x + 1) <= 5:
+        print(x)
+  expected: |-
+    1
+    2
+    3
+    4
+    5
+
+- case: |-
+    nums = []
+    for _ in range(3):
+        nums.append(n := len(nums))
+    print(nums)
+  expected: |-
+    [0, 1, 2]
+
+- case: |-
+    x = 1
+    match x:
+        case 1:
+            print('one')
+        case 2:
+            print('two')
+        case _:
+            print('other')
+  expected: |-
+    one
+
+- case: |-
+    x = 2
+    match x:
+        case 1:
+            print('one')
+        case 2:
+            print('two')
+        case _:
+            print('other')
+  expected: |-
+    two
+
+- case: |-
+    x = 99
+    match x:
+        case 1:
+            print('one')
+        case 2:
+            print('two')
+        case _:
+            print('other')
+  expected: |-
+    other
+
+- case: |-
+    x = 'hello'
+    match x:
+        case 'hello':
+            print('hi')
+        case 'bye':
+            print('bye')
+        case _:
+            print('?')
+  expected: |-
+    hi
+
+- case: |-
+    results = []
+    for v in [0, 1, 2, 3]:
+        match v:
+            case 0:
+                results.append('zero')
+            case 1:
+                results.append('one')
+            case _:
+                results.append('many')
+    print(results)
+  expected: |-
+    ['zero', 'one', 'many', 'many']
+
+- case: |-
+    for i in range(3):
+        pass
+    print('done')
+  expected: |-
+    done
+
+- case: |-
+    total = 0
+    for i in range(1, 101):
+        if i % 3 == 0 or i % 5 == 0:
+            total += i
+    print(total)
+  expected: |-
+    2418
+
+- case: |-
+    s = 0
+    for i in range(1, 1001):
+        s += i
+    print(s)
+  expected: |-
+    500500
+
+- case: |-
+    freq = {}
+    for c in 'abracadabra':
+        freq[c] = freq.get(c, 0) + 1
+    print(freq['a'])
+    print(freq['b'])
+    print(freq['r'])
+  expected: |-
+    5
+    2
+    2
+
+- case: |-
+    stack = []
+    for c in '([{}])':
+        if c in '([{':
+            stack.append(c)
+        else:
+            if stack:
+                stack.pop()
+    print(len(stack))
+  expected: |-
+    0
+
+- case: |-
+    s = 0.0
+    for i in range(1, 11):
+        s += 1.0 / i
+    print(round(s, 3))
+  expected: |-
+    2.929
+
+- case: |-
+    d = {}
+    keys = ['a', 'b', 'c', 'a', 'b', 'a']
+    for k in keys:
+        d[k] = d.get(k, 0) + 1
+    print(d['a'], d['b'], d['c'])
+  expected: |-
+    3 2 1
+
+- case: |-
+    acc = []
+    for i in range(1, 7):
+        for j in range(1, 7):
+            if i * j == 12:
+                acc.append((i, j))
+    print(acc)
+  expected: |-
+    [(2, 6), (3, 4), (4, 3), (6, 2)]
+
+- case: |-
+    for i in range(3):
+        for j in range(3):
+            if j == 2: break
+            print(i, j)
+  expected: |-
+    0 0
+    0 1
+    1 0
+    1 1
+    2 0
+    2 1
+
+- case: |-
+    if __name__ == '__main__':
+        print('entry')
+  expected: |-
+    entry
+
+- case: |-
+    if __name__ != '__main__':
+        print('no')
+    else:
+        print('yes')
+  expected: |-
+    yes
+
+- case: |-
+    for e in range(2000):
+        s = f"prefix{e}"
+    print(s)
+  expected: |-
+    prefix1999
+
+- case: |-
+    weights = [0.5, 0.5]
+    last = 0.0
+    for _ in range(500):
+        last = sum(w * 2 for w in weights)
+    print(last)
+  expected: |-
+    2.0
+
+- case: |-
+    a = [1, 2, 3]
+    a.append(a)
+    for k in range(2000):
+        s = f"junk-{k}"
+    print(len(a))
+    print(len(a[3]))
+  expected: |-
+    4
+    4
+
+- case: |-
+    data = [1, 2, 3, 4, 5, 6]
+    while (n := len(data)) > 3:
+        data.pop()
+    print(data, n)
+  expected: |-
+    [1, 2, 3] 3
+
+- case: |-
+    if (x := 42) > 10:
+        print(x)
+  expected: |-
+    42
+
+- case: |-
+    for x in b'abc': print(x)
+  expected: |-
+    97
+    98
+    99
+
+- case: |-
+    x = 6
+    for i in range(3):
+        x ^= i << 2
+        x |= 1
+        x &= 0xFFFF
+    print(x)
+  expected: |-
+    11
+
+- case: |-
+    keep = {}
+    for i in range(3000):
+        s = "w" + str(i % 50)
+        t = s.upper()
+        if i % 7 == 0:
+            keep[s] = t
+    print(len(keep), keep["w7"], keep.get("w14"), "W49" in keep.values())
+  expected: |-
+    50 W7 W14 True
+
+- case: |-
+    s = "abcabc" * 50
+    counts = {}
+    for c in s:
+        counts[c] = counts.get(c, 0) + 1
+    print(counts, s[0] == "a", s[1] == s[4], "" == s[:0])
+  expected: |-
+    {'a': 100, 'b': 100, 'c': 100} True True True
+
+- case: |-
+    keys = [chr(97 + i % 3) for i in range(30)]
+    d = dict.fromkeys(keys, 0)
+    for k in keys:
+        d[k] += 1
+    print(d, chr(98) in d, ord(keys[4]))
+  expected: |-
+    {'a': 10, 'b': 10, 'c': 10} True 98
+
+- case: |-
+    for evt in (receive(), receive()):
+        print(evt)
+  expected: |-
+    one
+    two
+  events: [one, two]
+
+- case: |-
+    s = set()
+    for i in range(100):
+        s.add(i % 10)
+    print(len(s))
+  expected: |-
+    10
+
+- case: |-
+    while True:
+        pass
+  error: budget exceeded
+
+- case: |-
+    xs = []
+    while True:
+        xs.append([])
+  error: MemoryError
+
+- case: |-
+    s = 'a'
+    for _ in range(40):
+        s = s + s
+    print(len(s))
+  error: budget exceeded
+
+- case: |-
+    s = 'a' * 90000
+    for i in range(100000):
+        x = str(s)
+  error: budget exceeded
+
+- case: |-
+    s = "x"
+    for k in range(2000):
+        s = f"{s!a}{s!a}"
+    print(len(s))
+  error: budget exceeded
+
+- case: |-
+    for c in 'teddy':
+        print(c, end='', flush=True)
+  expected: |-
+    teddy
+
+- case: |-
+    for c in 'abc':
+        print(c, end='')
+    print()
+  expected: |-
+    abc
+
+- case: |-
+    d = {}
+    for i in range(3):
+        d[(i, i)] = i
+    print(len(d))
+  expected: |-
+    3
+
+- case: |-
+    d = {}
+    for i in range(3):
+        d[(0, 0)] = i
+    print(d[(0, 0)])
+    print(len(d))
+  expected: |-
+    2
+    1
+
+- case: |-
+    seen = set()
+    for p in [(1, 2), (1, 2), (3, 4)]:
+        seen.add(p)
+    print(len(seen))
+  expected: |-
+    2
+
+- case: |-
+    counts = {}
+    for p in [(1, 1), (1, 1), (2, 2)]:
+        counts[p] = counts.get(p, 0) + 1
+    print(sorted(counts.items()))
+  expected: |-
+    [((1, 1), 2), ((2, 2), 1)]
+
+- case: |-
+    acc = []
+    for i in range(3):
+        acc += [i]
+    print(acc)
+  expected: |-
+    [0, 1, 2]
+
+- case: |-
+    for i, c in enumerate("xy", 1):
+        print(i, c)
+  expected: |-
+    1 x
+    2 y
+
+- case: |-
+    while True:
+        break
+    else:
+        pass
+    for i in range(4):
+        print('one', i)
+        if i > 2:
+            break
+        else:
+            pass
+        print('two', i)
+    else:
+        pass
+    for i in [1, 2, 3, 4]:
+        if i == 3:
+            break
+        else:
+            pass
+        print(i)
+    else:
+        pass
+  expected: |-
+    one 0
+    two 0
+    one 1
+    two 1
+    one 2
+    two 2
+    one 3
+    1
+    2
+
+- case: |-
+    tests = ((), [], [False], [True], [False, True], [True, False], [False, False], [True, True], range(10))
+    for test in tests:
+        print(all(test))
+    else:
+        pass
+    for test in tests:
+        print(any(test))
+    else:
+        pass
+  expected: |-
+    True
+    True
+    False
+    True
+    False
+    False
+    False
+    True
+    False
+    False
+    False
+    False
+    True
+    True
+    True
+    False
+    True
+    True
+
+- case: |-
+    tests = ((), [], [0], [1], [0, 1, 2], range(10))
+    for test in tests:
+        print(sum(test))
+        print(sum(test, -2))
+    else:
+        pass
+  expected: |-
+    0
+    -2
+    0
+    -2
+    0
+    -2
+    1
+    -1
+    3
+    1
+    45
+    43
+
+- case: |-
+    for i in range(4):
+        print('one', i)
+        if i > 2:
+            continue
+        else:
+            pass
+        print('two', i)
+    else:
+        pass
+    for i in range(4):
+        print('one', i)
+        if i < 2:
+            continue
+        else:
+            pass
+        print('two', i)
+    else:
+        pass
+    for i in [1, 2, 3, 4]:
+        if i == 3:
+            continue
+        else:
+            pass
+        print(i)
+    else:
+        pass
+  expected: |-
+    one 0
+    two 0
+    one 1
+    two 1
+    one 2
+    two 2
+    one 3
+    one 0
+    one 1
+    one 2
+    two 2
+    one 3
+    two 3
+    1
+    2
+    4
+
+- case: |-
+    a = {i: 2 * i for i in range(100)}
+    b = a.copy()
+    for i in range(100):
+        print(i, b[i])
+    else:
+        pass
+    print(len(b))
+  expected: |-
+    0 0
+    1 2
+    2 4
+    3 6
+    4 8
+    5 10
+    6 12
+    7 14
+    8 16
+    9 18
+    10 20
+    11 22
+    12 24
+    13 26
+    14 28
+    15 30
+    16 32
+    17 34
+    18 36
+    19 38
+    20 40
+    21 42
+    22 44
+    23 46
+    24 48
+    25 50
+    26 52
+    27 54
+    28 56
+    29 58
+    30 60
+    31 62
+    32 64
+    33 66
+    34 68
+    35 70
+    36 72
+    37 74
+    38 76
+    39 78
+    40 80
+    41 82
+    42 84
+    43 86
+    44 88
+    45 90
+    46 92
+    47 94
+    48 96
+    49 98
+    50 100
+    51 102
+    52 104
+    53 106
+    54 108
+    55 110
+    56 112
+    57 114
+    58 116
+    59 118
+    60 120
+    61 122
+    62 124
+    63 126
+    64 128
+    65 130
+    66 132
+    67 134
+    68 136
+    69 138
+    70 140
+    71 142
+    72 144
+    73 146
+    74 148
+    75 150
+    76 152
+    77 154
+    78 156
+    79 158
+    80 160
+    81 162
+    82 164
+    83 166
+    84 168
+    85 170
+    86 172
+    87 174
+    88 176
+    89 178
+    90 180
+    91 182
+    92 184
+    93 186
+    94 188
+    95 190
+    96 192
+    97 194
+    98 196
+    99 198
+    100
+
+- case: |-
+    for n in range(20):
+        print('testing dict with {} items'.format(n))
+        for i in range(n):
+            d = dict()
+            for j in range(n):
+                d[str(j)] = j
+            else:
+                pass
+            print(len(d))
+            del d[str(i)]
+            print(len(d))
+            for j in range(n):
+                if str(j) in d:
+                    if j == i:
+                        print(j, 'in d, but it should not be')
+                    else:
+                        pass
+                elif j != i:
+                    print(j, 'not in d, but it should be')
+                else:
+                    pass
+            else:
+                pass
+        else:
+            pass
+    else:
+        pass
+  expected: |-
+    testing dict with 0 items
+    testing dict with 1 items
+    1
+    0
+    testing dict with 2 items
+    2
+    1
+    2
+    1
+    testing dict with 3 items
+    3
+    2
+    3
+    2
+    3
+    2
+    testing dict with 4 items
+    4
+    3
+    4
+    3
+    4
+    3
+    4
+    3
+    testing dict with 5 items
+    5
+    4
+    5
+    4
+    5
+    4
+    5
+    4
+    5
+    4
+    testing dict with 6 items
+    6
+    5
+    6
+    5
+    6
+    5
+    6
+    5
+    6
+    5
+    6
+    5
+    testing dict with 7 items
+    7
+    6
+    7
+    6
+    7
+    6
+    7
+    6
+    7
+    6
+    7
+    6
+    7
+    6
+    testing dict with 8 items
+    8
+    7
+    8
+    7
+    8
+    7
+    8
+    7
+    8
+    7
+    8
+    7
+    8
+    7
+    8
+    7
+    testing dict with 9 items
+    9
+    8
+    9
+    8
+    9
+    8
+    9
+    8
+    9
+    8
+    9
+    8
+    9
+    8
+    9
+    8
+    9
+    8
+    testing dict with 10 items
+    10
+    9
+    10
+    9
+    10
+    9
+    10
+    9
+    10
+    9
+    10
+    9
+    10
+    9
+    10
+    9
+    10
+    9
+    10
+    9
+    testing dict with 11 items
+    11
+    10
+    11
+    10
+    11
+    10
+    11
+    10
+    11
+    10
+    11
+    10
+    11
+    10
+    11
+    10
+    11
+    10
+    11
+    10
+    11
+    10
+    testing dict with 12 items
+    12
+    11
+    12
+    11
+    12
+    11
+    12
+    11
+    12
+    11
+    12
+    11
+    12
+    11
+    12
+    11
+    12
+    11
+    12
+    11
+    12
+    11
+    12
+    11
+    testing dict with 13 items
+    13
+    12
+    13
+    12
+    13
+    12
+    13
+    12
+    13
+    12
+    13
+    12
+    13
+    12
+    13
+    12
+    13
+    12
+    13
+    12
+    13
+    12
+    13
+    12
+    13
+    12
+    testing dict with 14 items
+    14
+    13
+    14
+    13
+    14
+    13
+    14
+    13
+    14
+    13
+    14
+    13
+    14
+    13
+    14
+    13
+    14
+    13
+    14
+    13
+    14
+    13
+    14
+    13
+    14
+    13
+    14
+    13
+    testing dict with 15 items
+    15
+    14
+    15
+    14
+    15
+    14
+    15
+    14
+    15
+    14
+    15
+    14
+    15
+    14
+    15
+    14
+    15
+    14
+    15
+    14
+    15
+    14
+    15
+    14
+    15
+    14
+    15
+    14
+    15
+    14
+    testing dict with 16 items
+    16
+    15
+    16
+    15
+    16
+    15
+    16
+    15
+    16
+    15
+    16
+    15
+    16
+    15
+    16
+    15
+    16
+    15
+    16
+    15
+    16
+    15
+    16
+    15
+    16
+    15
+    16
+    15
+    16
+    15
+    16
+    15
+    testing dict with 17 items
+    17
+    16
+    17
+    16
+    17
+    16
+    17
+    16
+    17
+    16
+    17
+    16
+    17
+    16
+    17
+    16
+    17
+    16
+    17
+    16
+    17
+    16
+    17
+    16
+    17
+    16
+    17
+    16
+    17
+    16
+    17
+    16
+    17
+    16
+    testing dict with 18 items
+    18
+    17
+    18
+    17
+    18
+    17
+    18
+    17
+    18
+    17
+    18
+    17
+    18
+    17
+    18
+    17
+    18
+    17
+    18
+    17
+    18
+    17
+    18
+    17
+    18
+    17
+    18
+    17
+    18
+    17
+    18
+    17
+    18
+    17
+    18
+    17
+    testing dict with 19 items
+    19
+    18
+    19
+    18
+    19
+    18
+    19
+    18
+    19
+    18
+    19
+    18
+    19
+    18
+    19
+    18
+    19
+    18
+    19
+    18
+    19
+    18
+    19
+    18
+    19
+    18
+    19
+    18
+    19
+    18
+    19
+    18
+    19
+    18
+    19
+    18
+    19
+    18
+
+- case: |-
+    d = {1: 2, 3: 4}
+    els = []
+    for i in d:
+        els.append((i, d[i]))
+    else:
+        pass
+    print(sorted(els))
+  expected: |-
+    [(1, 2), (3, 4)]
+
+- case: |-
+    i = 'init'
+    for i in range(0):
+        pass
+    else:
+        pass
+    print(i)
+    for i in range(10):
+        pass
+    else:
+        pass
+    print(i)
+  expected: |-
+    init
+    9
+
+- case: |-
+    for i in range(2):
+        print(i)
+        i = 2
+    else:
+        pass
+    n = 2
+    for i in range(n):
+        print(i)
+        n = 0
+    else:
+        pass
+  expected: |-
+    0
+    1
+    0
+    1
+
+- case: |-
+    gen = (i for i in range(10))
+    for i in gen:
+        print(i)
+    else:
+        pass
+  expected: |-
+    0
+    1
+    2
+    3
+    4
+    5
+    6
+    7
+    8
+    9
+
+- case: |-
+    i = 1 << 65
+    cases = (0, 1, -1, i, -i, i + 1, -(i + 1))
+    for lhs in cases:
+        for rhs in cases:
+            print('{} == {} = {}'.format(lhs, rhs, lhs == rhs))
+            print('{} != {} = {}'.format(lhs, rhs, lhs != rhs))
+            print('{} < {} = {}'.format(lhs, rhs, lhs < rhs))
+            print('{} > {} = {}'.format(lhs, rhs, lhs > rhs))
+            print('{} <= {} = {}'.format(lhs, rhs, lhs <= rhs))
+            print('{} >= {} = {}'.format(lhs, rhs, lhs >= rhs))
+        else:
+            pass
+    else:
+        pass
+  expected: |-
+    0 == 0 = True
+    0 != 0 = False
+    0 < 0 = False
+    0 > 0 = False
+    0 <= 0 = True
+    0 >= 0 = True
+    0 == 1 = False
+    0 != 1 = True
+    0 < 1 = True
+    0 > 1 = False
+    0 <= 1 = True
+    0 >= 1 = False
+    0 == -1 = False
+    0 != -1 = True
+    0 < -1 = False
+    0 > -1 = True
+    0 <= -1 = False
+    0 >= -1 = True
+    0 == 36893488147419103232 = False
+    0 != 36893488147419103232 = True
+    0 < 36893488147419103232 = True
+    0 > 36893488147419103232 = False
+    0 <= 36893488147419103232 = True
+    0 >= 36893488147419103232 = False
+    0 == -36893488147419103232 = False
+    0 != -36893488147419103232 = True
+    0 < -36893488147419103232 = False
+    0 > -36893488147419103232 = True
+    0 <= -36893488147419103232 = False
+    0 >= -36893488147419103232 = True
+    0 == 36893488147419103233 = False
+    0 != 36893488147419103233 = True
+    0 < 36893488147419103233 = True
+    0 > 36893488147419103233 = False
+    0 <= 36893488147419103233 = True
+    0 >= 36893488147419103233 = False
+    0 == -36893488147419103233 = False
+    0 != -36893488147419103233 = True
+    0 < -36893488147419103233 = False
+    0 > -36893488147419103233 = True
+    0 <= -36893488147419103233 = False
+    0 >= -36893488147419103233 = True
+    1 == 0 = False
+    1 != 0 = True
+    1 < 0 = False
+    1 > 0 = True
+    1 <= 0 = False
+    1 >= 0 = True
+    1 == 1 = True
+    1 != 1 = False
+    1 < 1 = False
+    1 > 1 = False
+    1 <= 1 = True
+    1 >= 1 = True
+    1 == -1 = False
+    1 != -1 = True
+    1 < -1 = False
+    1 > -1 = True
+    1 <= -1 = False
+    1 >= -1 = True
+    1 == 36893488147419103232 = False
+    1 != 36893488147419103232 = True
+    1 < 36893488147419103232 = True
+    1 > 36893488147419103232 = False
+    1 <= 36893488147419103232 = True
+    1 >= 36893488147419103232 = False
+    1 == -36893488147419103232 = False
+    1 != -36893488147419103232 = True
+    1 < -36893488147419103232 = False
+    1 > -36893488147419103232 = True
+    1 <= -36893488147419103232 = False
+    1 >= -36893488147419103232 = True
+    1 == 36893488147419103233 = False
+    1 != 36893488147419103233 = True
+    1 < 36893488147419103233 = True
+    1 > 36893488147419103233 = False
+    1 <= 36893488147419103233 = True
+    1 >= 36893488147419103233 = False
+    1 == -36893488147419103233 = False
+    1 != -36893488147419103233 = True
+    1 < -36893488147419103233 = False
+    1 > -36893488147419103233 = True
+    1 <= -36893488147419103233 = False
+    1 >= -36893488147419103233 = True
+    -1 == 0 = False
+    -1 != 0 = True
+    -1 < 0 = True
+    -1 > 0 = False
+    -1 <= 0 = True
+    -1 >= 0 = False
+    -1 == 1 = False
+    -1 != 1 = True
+    -1 < 1 = True
+    -1 > 1 = False
+    -1 <= 1 = True
+    -1 >= 1 = False
+    -1 == -1 = True
+    -1 != -1 = False
+    -1 < -1 = False
+    -1 > -1 = False
+    -1 <= -1 = True
+    -1 >= -1 = True
+    -1 == 36893488147419103232 = False
+    -1 != 36893488147419103232 = True
+    -1 < 36893488147419103232 = True
+    -1 > 36893488147419103232 = False
+    -1 <= 36893488147419103232 = True
+    -1 >= 36893488147419103232 = False
+    -1 == -36893488147419103232 = False
+    -1 != -36893488147419103232 = True
+    -1 < -36893488147419103232 = False
+    -1 > -36893488147419103232 = True
+    -1 <= -36893488147419103232 = False
+    -1 >= -36893488147419103232 = True
+    -1 == 36893488147419103233 = False
+    -1 != 36893488147419103233 = True
+    -1 < 36893488147419103233 = True
+    -1 > 36893488147419103233 = False
+    -1 <= 36893488147419103233 = True
+    -1 >= 36893488147419103233 = False
+    -1 == -36893488147419103233 = False
+    -1 != -36893488147419103233 = True
+    -1 < -36893488147419103233 = False
+    -1 > -36893488147419103233 = True
+    -1 <= -36893488147419103233 = False
+    -1 >= -36893488147419103233 = True
+    36893488147419103232 == 0 = False
+    36893488147419103232 != 0 = True
+    36893488147419103232 < 0 = False
+    36893488147419103232 > 0 = True
+    36893488147419103232 <= 0 = False
+    36893488147419103232 >= 0 = True
+    36893488147419103232 == 1 = False
+    36893488147419103232 != 1 = True
+    36893488147419103232 < 1 = False
+    36893488147419103232 > 1 = True
+    36893488147419103232 <= 1 = False
+    36893488147419103232 >= 1 = True
+    36893488147419103232 == -1 = False
+    36893488147419103232 != -1 = True
+    36893488147419103232 < -1 = False
+    36893488147419103232 > -1 = True
+    36893488147419103232 <= -1 = False
+    36893488147419103232 >= -1 = True
+    36893488147419103232 == 36893488147419103232 = True
+    36893488147419103232 != 36893488147419103232 = False
+    36893488147419103232 < 36893488147419103232 = False
+    36893488147419103232 > 36893488147419103232 = False
+    36893488147419103232 <= 36893488147419103232 = True
+    36893488147419103232 >= 36893488147419103232 = True
+    36893488147419103232 == -36893488147419103232 = False
+    36893488147419103232 != -36893488147419103232 = True
+    36893488147419103232 < -36893488147419103232 = False
+    36893488147419103232 > -36893488147419103232 = True
+    36893488147419103232 <= -36893488147419103232 = False
+    36893488147419103232 >= -36893488147419103232 = True
+    36893488147419103232 == 36893488147419103233 = False
+    36893488147419103232 != 36893488147419103233 = True
+    36893488147419103232 < 36893488147419103233 = True
+    36893488147419103232 > 36893488147419103233 = False
+    36893488147419103232 <= 36893488147419103233 = True
+    36893488147419103232 >= 36893488147419103233 = False
+    36893488147419103232 == -36893488147419103233 = False
+    36893488147419103232 != -36893488147419103233 = True
+    36893488147419103232 < -36893488147419103233 = False
+    36893488147419103232 > -36893488147419103233 = True
+    36893488147419103232 <= -36893488147419103233 = False
+    36893488147419103232 >= -36893488147419103233 = True
+    -36893488147419103232 == 0 = False
+    -36893488147419103232 != 0 = True
+    -36893488147419103232 < 0 = True
+    -36893488147419103232 > 0 = False
+    -36893488147419103232 <= 0 = True
+    -36893488147419103232 >= 0 = False
+    -36893488147419103232 == 1 = False
+    -36893488147419103232 != 1 = True
+    -36893488147419103232 < 1 = True
+    -36893488147419103232 > 1 = False
+    -36893488147419103232 <= 1 = True
+    -36893488147419103232 >= 1 = False
+    -36893488147419103232 == -1 = False
+    -36893488147419103232 != -1 = True
+    -36893488147419103232 < -1 = True
+    -36893488147419103232 > -1 = False
+    -36893488147419103232 <= -1 = True
+    -36893488147419103232 >= -1 = False
+    -36893488147419103232 == 36893488147419103232 = False
+    -36893488147419103232 != 36893488147419103232 = True
+    -36893488147419103232 < 36893488147419103232 = True
+    -36893488147419103232 > 36893488147419103232 = False
+    -36893488147419103232 <= 36893488147419103232 = True
+    -36893488147419103232 >= 36893488147419103232 = False
+    -36893488147419103232 == -36893488147419103232 = True
+    -36893488147419103232 != -36893488147419103232 = False
+    -36893488147419103232 < -36893488147419103232 = False
+    -36893488147419103232 > -36893488147419103232 = False
+    -36893488147419103232 <= -36893488147419103232 = True
+    -36893488147419103232 >= -36893488147419103232 = True
+    -36893488147419103232 == 36893488147419103233 = False
+    -36893488147419103232 != 36893488147419103233 = True
+    -36893488147419103232 < 36893488147419103233 = True
+    -36893488147419103232 > 36893488147419103233 = False
+    -36893488147419103232 <= 36893488147419103233 = True
+    -36893488147419103232 >= 36893488147419103233 = False
+    -36893488147419103232 == -36893488147419103233 = False
+    -36893488147419103232 != -36893488147419103233 = True
+    -36893488147419103232 < -36893488147419103233 = False
+    -36893488147419103232 > -36893488147419103233 = True
+    -36893488147419103232 <= -36893488147419103233 = False
+    -36893488147419103232 >= -36893488147419103233 = True
+    36893488147419103233 == 0 = False
+    36893488147419103233 != 0 = True
+    36893488147419103233 < 0 = False
+    36893488147419103233 > 0 = True
+    36893488147419103233 <= 0 = False
+    36893488147419103233 >= 0 = True
+    36893488147419103233 == 1 = False
+    36893488147419103233 != 1 = True
+    36893488147419103233 < 1 = False
+    36893488147419103233 > 1 = True
+    36893488147419103233 <= 1 = False
+    36893488147419103233 >= 1 = True
+    36893488147419103233 == -1 = False
+    36893488147419103233 != -1 = True
+    36893488147419103233 < -1 = False
+    36893488147419103233 > -1 = True
+    36893488147419103233 <= -1 = False
+    36893488147419103233 >= -1 = True
+    36893488147419103233 == 36893488147419103232 = False
+    36893488147419103233 != 36893488147419103232 = True
+    36893488147419103233 < 36893488147419103232 = False
+    36893488147419103233 > 36893488147419103232 = True
+    36893488147419103233 <= 36893488147419103232 = False
+    36893488147419103233 >= 36893488147419103232 = True
+    36893488147419103233 == -36893488147419103232 = False
+    36893488147419103233 != -36893488147419103232 = True
+    36893488147419103233 < -36893488147419103232 = False
+    36893488147419103233 > -36893488147419103232 = True
+    36893488147419103233 <= -36893488147419103232 = False
+    36893488147419103233 >= -36893488147419103232 = True
+    36893488147419103233 == 36893488147419103233 = True
+    36893488147419103233 != 36893488147419103233 = False
+    36893488147419103233 < 36893488147419103233 = False
+    36893488147419103233 > 36893488147419103233 = False
+    36893488147419103233 <= 36893488147419103233 = True
+    36893488147419103233 >= 36893488147419103233 = True
+    36893488147419103233 == -36893488147419103233 = False
+    36893488147419103233 != -36893488147419103233 = True
+    36893488147419103233 < -36893488147419103233 = False
+    36893488147419103233 > -36893488147419103233 = True
+    36893488147419103233 <= -36893488147419103233 = False
+    36893488147419103233 >= -36893488147419103233 = True
+    -36893488147419103233 == 0 = False
+    -36893488147419103233 != 0 = True
+    -36893488147419103233 < 0 = True
+    -36893488147419103233 > 0 = False
+    -36893488147419103233 <= 0 = True
+    -36893488147419103233 >= 0 = False
+    -36893488147419103233 == 1 = False
+    -36893488147419103233 != 1 = True
+    -36893488147419103233 < 1 = True
+    -36893488147419103233 > 1 = False
+    -36893488147419103233 <= 1 = True
+    -36893488147419103233 >= 1 = False
+    -36893488147419103233 == -1 = False
+    -36893488147419103233 != -1 = True
+    -36893488147419103233 < -1 = True
+    -36893488147419103233 > -1 = False
+    -36893488147419103233 <= -1 = True
+    -36893488147419103233 >= -1 = False
+    -36893488147419103233 == 36893488147419103232 = False
+    -36893488147419103233 != 36893488147419103232 = True
+    -36893488147419103233 < 36893488147419103232 = True
+    -36893488147419103233 > 36893488147419103232 = False
+    -36893488147419103233 <= 36893488147419103232 = True
+    -36893488147419103233 >= 36893488147419103232 = False
+    -36893488147419103233 == -36893488147419103232 = False
+    -36893488147419103233 != -36893488147419103232 = True
+    -36893488147419103233 < -36893488147419103232 = True
+    -36893488147419103233 > -36893488147419103232 = False
+    -36893488147419103233 <= -36893488147419103232 = True
+    -36893488147419103233 >= -36893488147419103232 = False
+    -36893488147419103233 == 36893488147419103233 = False
+    -36893488147419103233 != 36893488147419103233 = True
+    -36893488147419103233 < 36893488147419103233 = True
+    -36893488147419103233 > 36893488147419103233 = False
+    -36893488147419103233 <= 36893488147419103233 = True
+    -36893488147419103233 >= 36893488147419103233 = False
+    -36893488147419103233 == -36893488147419103233 = True
+    -36893488147419103233 != -36893488147419103233 = False
+    -36893488147419103233 < -36893488147419103233 = False
+    -36893488147419103233 > -36893488147419103233 = False
+    -36893488147419103233 <= -36893488147419103233 = True
+    -36893488147419103233 >= -36893488147419103233 = True
+
+- case: |-
+    for i in range(1, 17):
+        for shift in range(70):
+            print(i, '<<', shift, '=', i << shift)
+        else:
+            pass
+    else:
+        pass
+    for i in range(8):
+        print(-100000000000000000000000000000 << i)
+        print(-100000000000000000000000000001 << i)
+        print(-100000000000000000000000000002 << i)
+        print(-100000000000000000000000000003 << i)
+        print(-100000000000000000000000000004 << i)
+        print(-100000000000000000000000000000 >> i)
+        print(-100000000000000000000000000001 >> i)
+        print(-100000000000000000000000000002 >> i)
+        print(-100000000000000000000000000003 >> i)
+        print(-100000000000000000000000000004 >> i)
+    else:
+        pass
+    print(1 << 70 << 0)
+  expected: |-
+    1 << 0 = 1
+    1 << 1 = 2
+    1 << 2 = 4
+    1 << 3 = 8
+    1 << 4 = 16
+    1 << 5 = 32
+    1 << 6 = 64
+    1 << 7 = 128
+    1 << 8 = 256
+    1 << 9 = 512
+    1 << 10 = 1024
+    1 << 11 = 2048
+    1 << 12 = 4096
+    1 << 13 = 8192
+    1 << 14 = 16384
+    1 << 15 = 32768
+    1 << 16 = 65536
+    1 << 17 = 131072
+    1 << 18 = 262144
+    1 << 19 = 524288
+    1 << 20 = 1048576
+    1 << 21 = 2097152
+    1 << 22 = 4194304
+    1 << 23 = 8388608
+    1 << 24 = 16777216
+    1 << 25 = 33554432
+    1 << 26 = 67108864
+    1 << 27 = 134217728
+    1 << 28 = 268435456
+    1 << 29 = 536870912
+    1 << 30 = 1073741824
+    1 << 31 = 2147483648
+    1 << 32 = 4294967296
+    1 << 33 = 8589934592
+    1 << 34 = 17179869184
+    1 << 35 = 34359738368
+    1 << 36 = 68719476736
+    1 << 37 = 137438953472
+    1 << 38 = 274877906944
+    1 << 39 = 549755813888
+    1 << 40 = 1099511627776
+    1 << 41 = 2199023255552
+    1 << 42 = 4398046511104
+    1 << 43 = 8796093022208
+    1 << 44 = 17592186044416
+    1 << 45 = 35184372088832
+    1 << 46 = 70368744177664
+    1 << 47 = 140737488355328
+    1 << 48 = 281474976710656
+    1 << 49 = 562949953421312
+    1 << 50 = 1125899906842624
+    1 << 51 = 2251799813685248
+    1 << 52 = 4503599627370496
+    1 << 53 = 9007199254740992
+    1 << 54 = 18014398509481984
+    1 << 55 = 36028797018963968
+    1 << 56 = 72057594037927936
+    1 << 57 = 144115188075855872
+    1 << 58 = 288230376151711744
+    1 << 59 = 576460752303423488
+    1 << 60 = 1152921504606846976
+    1 << 61 = 2305843009213693952
+    1 << 62 = 4611686018427387904
+    1 << 63 = 9223372036854775808
+    1 << 64 = 18446744073709551616
+    1 << 65 = 36893488147419103232
+    1 << 66 = 73786976294838206464
+    1 << 67 = 147573952589676412928
+    1 << 68 = 295147905179352825856
+    1 << 69 = 590295810358705651712
+    2 << 0 = 2
+    2 << 1 = 4
+    2 << 2 = 8
+    2 << 3 = 16
+    2 << 4 = 32
+    2 << 5 = 64
+    2 << 6 = 128
+    2 << 7 = 256
+    2 << 8 = 512
+    2 << 9 = 1024
+    2 << 10 = 2048
+    2 << 11 = 4096
+    2 << 12 = 8192
+    2 << 13 = 16384
+    2 << 14 = 32768
+    2 << 15 = 65536
+    2 << 16 = 131072
+    2 << 17 = 262144
+    2 << 18 = 524288
+    2 << 19 = 1048576
+    2 << 20 = 2097152
+    2 << 21 = 4194304
+    2 << 22 = 8388608
+    2 << 23 = 16777216
+    2 << 24 = 33554432
+    2 << 25 = 67108864
+    2 << 26 = 134217728
+    2 << 27 = 268435456
+    2 << 28 = 536870912
+    2 << 29 = 1073741824
+    2 << 30 = 2147483648
+    2 << 31 = 4294967296
+    2 << 32 = 8589934592
+    2 << 33 = 17179869184
+    2 << 34 = 34359738368
+    2 << 35 = 68719476736
+    2 << 36 = 137438953472
+    2 << 37 = 274877906944
+    2 << 38 = 549755813888
+    2 << 39 = 1099511627776
+    2 << 40 = 2199023255552
+    2 << 41 = 4398046511104
+    2 << 42 = 8796093022208
+    2 << 43 = 17592186044416
+    2 << 44 = 35184372088832
+    2 << 45 = 70368744177664
+    2 << 46 = 140737488355328
+    2 << 47 = 281474976710656
+    2 << 48 = 562949953421312
+    2 << 49 = 1125899906842624
+    2 << 50 = 2251799813685248
+    2 << 51 = 4503599627370496
+    2 << 52 = 9007199254740992
+    2 << 53 = 18014398509481984
+    2 << 54 = 36028797018963968
+    2 << 55 = 72057594037927936
+    2 << 56 = 144115188075855872
+    2 << 57 = 288230376151711744
+    2 << 58 = 576460752303423488
+    2 << 59 = 1152921504606846976
+    2 << 60 = 2305843009213693952
+    2 << 61 = 4611686018427387904
+    2 << 62 = 9223372036854775808
+    2 << 63 = 18446744073709551616
+    2 << 64 = 36893488147419103232
+    2 << 65 = 73786976294838206464
+    2 << 66 = 147573952589676412928
+    2 << 67 = 295147905179352825856
+    2 << 68 = 590295810358705651712
+    2 << 69 = 1180591620717411303424
+    3 << 0 = 3
+    3 << 1 = 6
+    3 << 2 = 12
+    3 << 3 = 24
+    3 << 4 = 48
+    3 << 5 = 96
+    3 << 6 = 192
+    3 << 7 = 384
+    3 << 8 = 768
+    3 << 9 = 1536
+    3 << 10 = 3072
+    3 << 11 = 6144
+    3 << 12 = 12288
+    3 << 13 = 24576
+    3 << 14 = 49152
+    3 << 15 = 98304
+    3 << 16 = 196608
+    3 << 17 = 393216
+    3 << 18 = 786432
+    3 << 19 = 1572864
+    3 << 20 = 3145728
+    3 << 21 = 6291456
+    3 << 22 = 12582912
+    3 << 23 = 25165824
+    3 << 24 = 50331648
+    3 << 25 = 100663296
+    3 << 26 = 201326592
+    3 << 27 = 402653184
+    3 << 28 = 805306368
+    3 << 29 = 1610612736
+    3 << 30 = 3221225472
+    3 << 31 = 6442450944
+    3 << 32 = 12884901888
+    3 << 33 = 25769803776
+    3 << 34 = 51539607552
+    3 << 35 = 103079215104
+    3 << 36 = 206158430208
+    3 << 37 = 412316860416
+    3 << 38 = 824633720832
+    3 << 39 = 1649267441664
+    3 << 40 = 3298534883328
+    3 << 41 = 6597069766656
+    3 << 42 = 13194139533312
+    3 << 43 = 26388279066624
+    3 << 44 = 52776558133248
+    3 << 45 = 105553116266496
+    3 << 46 = 211106232532992
+    3 << 47 = 422212465065984
+    3 << 48 = 844424930131968
+    3 << 49 = 1688849860263936
+    3 << 50 = 3377699720527872
+    3 << 51 = 6755399441055744
+    3 << 52 = 13510798882111488
+    3 << 53 = 27021597764222976
+    3 << 54 = 54043195528445952
+    3 << 55 = 108086391056891904
+    3 << 56 = 216172782113783808
+    3 << 57 = 432345564227567616
+    3 << 58 = 864691128455135232
+    3 << 59 = 1729382256910270464
+    3 << 60 = 3458764513820540928
+    3 << 61 = 6917529027641081856
+    3 << 62 = 13835058055282163712
+    3 << 63 = 27670116110564327424
+    3 << 64 = 55340232221128654848
+    3 << 65 = 110680464442257309696
+    3 << 66 = 221360928884514619392
+    3 << 67 = 442721857769029238784
+    3 << 68 = 885443715538058477568
+    3 << 69 = 1770887431076116955136
+    4 << 0 = 4
+    4 << 1 = 8
+    4 << 2 = 16
+    4 << 3 = 32
+    4 << 4 = 64
+    4 << 5 = 128
+    4 << 6 = 256
+    4 << 7 = 512
+    4 << 8 = 1024
+    4 << 9 = 2048
+    4 << 10 = 4096
+    4 << 11 = 8192
+    4 << 12 = 16384
+    4 << 13 = 32768
+    4 << 14 = 65536
+    4 << 15 = 131072
+    4 << 16 = 262144
+    4 << 17 = 524288
+    4 << 18 = 1048576
+    4 << 19 = 2097152
+    4 << 20 = 4194304
+    4 << 21 = 8388608
+    4 << 22 = 16777216
+    4 << 23 = 33554432
+    4 << 24 = 67108864
+    4 << 25 = 134217728
+    4 << 26 = 268435456
+    4 << 27 = 536870912
+    4 << 28 = 1073741824
+    4 << 29 = 2147483648
+    4 << 30 = 4294967296
+    4 << 31 = 8589934592
+    4 << 32 = 17179869184
+    4 << 33 = 34359738368
+    4 << 34 = 68719476736
+    4 << 35 = 137438953472
+    4 << 36 = 274877906944
+    4 << 37 = 549755813888
+    4 << 38 = 1099511627776
+    4 << 39 = 2199023255552
+    4 << 40 = 4398046511104
+    4 << 41 = 8796093022208
+    4 << 42 = 17592186044416
+    4 << 43 = 35184372088832
+    4 << 44 = 70368744177664
+    4 << 45 = 140737488355328
+    4 << 46 = 281474976710656
+    4 << 47 = 562949953421312
+    4 << 48 = 1125899906842624
+    4 << 49 = 2251799813685248
+    4 << 50 = 4503599627370496
+    4 << 51 = 9007199254740992
+    4 << 52 = 18014398509481984
+    4 << 53 = 36028797018963968
+    4 << 54 = 72057594037927936
+    4 << 55 = 144115188075855872
+    4 << 56 = 288230376151711744
+    4 << 57 = 576460752303423488
+    4 << 58 = 1152921504606846976
+    4 << 59 = 2305843009213693952
+    4 << 60 = 4611686018427387904
+    4 << 61 = 9223372036854775808
+    4 << 62 = 18446744073709551616
+    4 << 63 = 36893488147419103232
+    4 << 64 = 73786976294838206464
+    4 << 65 = 147573952589676412928
+    4 << 66 = 295147905179352825856
+    4 << 67 = 590295810358705651712
+    4 << 68 = 1180591620717411303424
+    4 << 69 = 2361183241434822606848
+    5 << 0 = 5
+    5 << 1 = 10
+    5 << 2 = 20
+    5 << 3 = 40
+    5 << 4 = 80
+    5 << 5 = 160
+    5 << 6 = 320
+    5 << 7 = 640
+    5 << 8 = 1280
+    5 << 9 = 2560
+    5 << 10 = 5120
+    5 << 11 = 10240
+    5 << 12 = 20480
+    5 << 13 = 40960
+    5 << 14 = 81920
+    5 << 15 = 163840
+    5 << 16 = 327680
+    5 << 17 = 655360
+    5 << 18 = 1310720
+    5 << 19 = 2621440
+    5 << 20 = 5242880
+    5 << 21 = 10485760
+    5 << 22 = 20971520
+    5 << 23 = 41943040
+    5 << 24 = 83886080
+    5 << 25 = 167772160
+    5 << 26 = 335544320
+    5 << 27 = 671088640
+    5 << 28 = 1342177280
+    5 << 29 = 2684354560
+    5 << 30 = 5368709120
+    5 << 31 = 10737418240
+    5 << 32 = 21474836480
+    5 << 33 = 42949672960
+    5 << 34 = 85899345920
+    5 << 35 = 171798691840
+    5 << 36 = 343597383680
+    5 << 37 = 687194767360
+    5 << 38 = 1374389534720
+    5 << 39 = 2748779069440
+    5 << 40 = 5497558138880
+    5 << 41 = 10995116277760
+    5 << 42 = 21990232555520
+    5 << 43 = 43980465111040
+    5 << 44 = 87960930222080
+    5 << 45 = 175921860444160
+    5 << 46 = 351843720888320
+    5 << 47 = 703687441776640
+    5 << 48 = 1407374883553280
+    5 << 49 = 2814749767106560
+    5 << 50 = 5629499534213120
+    5 << 51 = 11258999068426240
+    5 << 52 = 22517998136852480
+    5 << 53 = 45035996273704960
+    5 << 54 = 90071992547409920
+    5 << 55 = 180143985094819840
+    5 << 56 = 360287970189639680
+    5 << 57 = 720575940379279360
+    5 << 58 = 1441151880758558720
+    5 << 59 = 2882303761517117440
+    5 << 60 = 5764607523034234880
+    5 << 61 = 11529215046068469760
+    5 << 62 = 23058430092136939520
+    5 << 63 = 46116860184273879040
+    5 << 64 = 92233720368547758080
+    5 << 65 = 184467440737095516160
+    5 << 66 = 368934881474191032320
+    5 << 67 = 737869762948382064640
+    5 << 68 = 1475739525896764129280
+    5 << 69 = 2951479051793528258560
+    6 << 0 = 6
+    6 << 1 = 12
+    6 << 2 = 24
+    6 << 3 = 48
+    6 << 4 = 96
+    6 << 5 = 192
+    6 << 6 = 384
+    6 << 7 = 768
+    6 << 8 = 1536
+    6 << 9 = 3072
+    6 << 10 = 6144
+    6 << 11 = 12288
+    6 << 12 = 24576
+    6 << 13 = 49152
+    6 << 14 = 98304
+    6 << 15 = 196608
+    6 << 16 = 393216
+    6 << 17 = 786432
+    6 << 18 = 1572864
+    6 << 19 = 3145728
+    6 << 20 = 6291456
+    6 << 21 = 12582912
+    6 << 22 = 25165824
+    6 << 23 = 50331648
+    6 << 24 = 100663296
+    6 << 25 = 201326592
+    6 << 26 = 402653184
+    6 << 27 = 805306368
+    6 << 28 = 1610612736
+    6 << 29 = 3221225472
+    6 << 30 = 6442450944
+    6 << 31 = 12884901888
+    6 << 32 = 25769803776
+    6 << 33 = 51539607552
+    6 << 34 = 103079215104
+    6 << 35 = 206158430208
+    6 << 36 = 412316860416
+    6 << 37 = 824633720832
+    6 << 38 = 1649267441664
+    6 << 39 = 3298534883328
+    6 << 40 = 6597069766656
+    6 << 41 = 13194139533312
+    6 << 42 = 26388279066624
+    6 << 43 = 52776558133248
+    6 << 44 = 105553116266496
+    6 << 45 = 211106232532992
+    6 << 46 = 422212465065984
+    6 << 47 = 844424930131968
+    6 << 48 = 1688849860263936
+    6 << 49 = 3377699720527872
+    6 << 50 = 6755399441055744
+    6 << 51 = 13510798882111488
+    6 << 52 = 27021597764222976
+    6 << 53 = 54043195528445952
+    6 << 54 = 108086391056891904
+    6 << 55 = 216172782113783808
+    6 << 56 = 432345564227567616
+    6 << 57 = 864691128455135232
+    6 << 58 = 1729382256910270464
+    6 << 59 = 3458764513820540928
+    6 << 60 = 6917529027641081856
+    6 << 61 = 13835058055282163712
+    6 << 62 = 27670116110564327424
+    6 << 63 = 55340232221128654848
+    6 << 64 = 110680464442257309696
+    6 << 65 = 221360928884514619392
+    6 << 66 = 442721857769029238784
+    6 << 67 = 885443715538058477568
+    6 << 68 = 1770887431076116955136
+    6 << 69 = 3541774862152233910272
+    7 << 0 = 7
+    7 << 1 = 14
+    7 << 2 = 28
+    7 << 3 = 56
+    7 << 4 = 112
+    7 << 5 = 224
+    7 << 6 = 448
+    7 << 7 = 896
+    7 << 8 = 1792
+    7 << 9 = 3584
+    7 << 10 = 7168
+    7 << 11 = 14336
+    7 << 12 = 28672
+    7 << 13 = 57344
+    7 << 14 = 114688
+    7 << 15 = 229376
+    7 << 16 = 458752
+    7 << 17 = 917504
+    7 << 18 = 1835008
+    7 << 19 = 3670016
+    7 << 20 = 7340032
+    7 << 21 = 14680064
+    7 << 22 = 29360128
+    7 << 23 = 58720256
+    7 << 24 = 117440512
+    7 << 25 = 234881024
+    7 << 26 = 469762048
+    7 << 27 = 939524096
+    7 << 28 = 1879048192
+    7 << 29 = 3758096384
+    7 << 30 = 7516192768
+    7 << 31 = 15032385536
+    7 << 32 = 30064771072
+    7 << 33 = 60129542144
+    7 << 34 = 120259084288
+    7 << 35 = 240518168576
+    7 << 36 = 481036337152
+    7 << 37 = 962072674304
+    7 << 38 = 1924145348608
+    7 << 39 = 3848290697216
+    7 << 40 = 7696581394432
+    7 << 41 = 15393162788864
+    7 << 42 = 30786325577728
+    7 << 43 = 61572651155456
+    7 << 44 = 123145302310912
+    7 << 45 = 246290604621824
+    7 << 46 = 492581209243648
+    7 << 47 = 985162418487296
+    7 << 48 = 1970324836974592
+    7 << 49 = 3940649673949184
+    7 << 50 = 7881299347898368
+    7 << 51 = 15762598695796736
+    7 << 52 = 31525197391593472
+    7 << 53 = 63050394783186944
+    7 << 54 = 126100789566373888
+    7 << 55 = 252201579132747776
+    7 << 56 = 504403158265495552
+    7 << 57 = 1008806316530991104
+    7 << 58 = 2017612633061982208
+    7 << 59 = 4035225266123964416
+    7 << 60 = 8070450532247928832
+    7 << 61 = 16140901064495857664
+    7 << 62 = 32281802128991715328
+    7 << 63 = 64563604257983430656
+    7 << 64 = 129127208515966861312
+    7 << 65 = 258254417031933722624
+    7 << 66 = 516508834063867445248
+    7 << 67 = 1033017668127734890496
+    7 << 68 = 2066035336255469780992
+    7 << 69 = 4132070672510939561984
+    8 << 0 = 8
+    8 << 1 = 16
+    8 << 2 = 32
+    8 << 3 = 64
+    8 << 4 = 128
+    8 << 5 = 256
+    8 << 6 = 512
+    8 << 7 = 1024
+    8 << 8 = 2048
+    8 << 9 = 4096
+    8 << 10 = 8192
+    8 << 11 = 16384
+    8 << 12 = 32768
+    8 << 13 = 65536
+    8 << 14 = 131072
+    8 << 15 = 262144
+    8 << 16 = 524288
+    8 << 17 = 1048576
+    8 << 18 = 2097152
+    8 << 19 = 4194304
+    8 << 20 = 8388608
+    8 << 21 = 16777216
+    8 << 22 = 33554432
+    8 << 23 = 67108864
+    8 << 24 = 134217728
+    8 << 25 = 268435456
+    8 << 26 = 536870912
+    8 << 27 = 1073741824
+    8 << 28 = 2147483648
+    8 << 29 = 4294967296
+    8 << 30 = 8589934592
+    8 << 31 = 17179869184
+    8 << 32 = 34359738368
+    8 << 33 = 68719476736
+    8 << 34 = 137438953472
+    8 << 35 = 274877906944
+    8 << 36 = 549755813888
+    8 << 37 = 1099511627776
+    8 << 38 = 2199023255552
+    8 << 39 = 4398046511104
+    8 << 40 = 8796093022208
+    8 << 41 = 17592186044416
+    8 << 42 = 35184372088832
+    8 << 43 = 70368744177664
+    8 << 44 = 140737488355328
+    8 << 45 = 281474976710656
+    8 << 46 = 562949953421312
+    8 << 47 = 1125899906842624
+    8 << 48 = 2251799813685248
+    8 << 49 = 4503599627370496
+    8 << 50 = 9007199254740992
+    8 << 51 = 18014398509481984
+    8 << 52 = 36028797018963968
+    8 << 53 = 72057594037927936
+    8 << 54 = 144115188075855872
+    8 << 55 = 288230376151711744
+    8 << 56 = 576460752303423488
+    8 << 57 = 1152921504606846976
+    8 << 58 = 2305843009213693952
+    8 << 59 = 4611686018427387904
+    8 << 60 = 9223372036854775808
+    8 << 61 = 18446744073709551616
+    8 << 62 = 36893488147419103232
+    8 << 63 = 73786976294838206464
+    8 << 64 = 147573952589676412928
+    8 << 65 = 295147905179352825856
+    8 << 66 = 590295810358705651712
+    8 << 67 = 1180591620717411303424
+    8 << 68 = 2361183241434822606848
+    8 << 69 = 4722366482869645213696
+    9 << 0 = 9
+    9 << 1 = 18
+    9 << 2 = 36
+    9 << 3 = 72
+    9 << 4 = 144
+    9 << 5 = 288
+    9 << 6 = 576
+    9 << 7 = 1152
+    9 << 8 = 2304
+    9 << 9 = 4608
+    9 << 10 = 9216
+    9 << 11 = 18432
+    9 << 12 = 36864
+    9 << 13 = 73728
+    9 << 14 = 147456
+    9 << 15 = 294912
+    9 << 16 = 589824
+    9 << 17 = 1179648
+    9 << 18 = 2359296
+    9 << 19 = 4718592
+    9 << 20 = 9437184
+    9 << 21 = 18874368
+    9 << 22 = 37748736
+    9 << 23 = 75497472
+    9 << 24 = 150994944
+    9 << 25 = 301989888
+    9 << 26 = 603979776
+    9 << 27 = 1207959552
+    9 << 28 = 2415919104
+    9 << 29 = 4831838208
+    9 << 30 = 9663676416
+    9 << 31 = 19327352832
+    9 << 32 = 38654705664
+    9 << 33 = 77309411328
+    9 << 34 = 154618822656
+    9 << 35 = 309237645312
+    9 << 36 = 618475290624
+    9 << 37 = 1236950581248
+    9 << 38 = 2473901162496
+    9 << 39 = 4947802324992
+    9 << 40 = 9895604649984
+    9 << 41 = 19791209299968
+    9 << 42 = 39582418599936
+    9 << 43 = 79164837199872
+    9 << 44 = 158329674399744
+    9 << 45 = 316659348799488
+    9 << 46 = 633318697598976
+    9 << 47 = 1266637395197952
+    9 << 48 = 2533274790395904
+    9 << 49 = 5066549580791808
+    9 << 50 = 10133099161583616
+    9 << 51 = 20266198323167232
+    9 << 52 = 40532396646334464
+    9 << 53 = 81064793292668928
+    9 << 54 = 162129586585337856
+    9 << 55 = 324259173170675712
+    9 << 56 = 648518346341351424
+    9 << 57 = 1297036692682702848
+    9 << 58 = 2594073385365405696
+    9 << 59 = 5188146770730811392
+    9 << 60 = 10376293541461622784
+    9 << 61 = 20752587082923245568
+    9 << 62 = 41505174165846491136
+    9 << 63 = 83010348331692982272
+    9 << 64 = 166020696663385964544
+    9 << 65 = 332041393326771929088
+    9 << 66 = 664082786653543858176
+    9 << 67 = 1328165573307087716352
+    9 << 68 = 2656331146614175432704
+    9 << 69 = 5312662293228350865408
+    10 << 0 = 10
+    10 << 1 = 20
+    10 << 2 = 40
+    10 << 3 = 80
+    10 << 4 = 160
+    10 << 5 = 320
+    10 << 6 = 640
+    10 << 7 = 1280
+    10 << 8 = 2560
+    10 << 9 = 5120
+    10 << 10 = 10240
+    10 << 11 = 20480
+    10 << 12 = 40960
+    10 << 13 = 81920
+    10 << 14 = 163840
+    10 << 15 = 327680
+    10 << 16 = 655360
+    10 << 17 = 1310720
+    10 << 18 = 2621440
+    10 << 19 = 5242880
+    10 << 20 = 10485760
+    10 << 21 = 20971520
+    10 << 22 = 41943040
+    10 << 23 = 83886080
+    10 << 24 = 167772160
+    10 << 25 = 335544320
+    10 << 26 = 671088640
+    10 << 27 = 1342177280
+    10 << 28 = 2684354560
+    10 << 29 = 5368709120
+    10 << 30 = 10737418240
+    10 << 31 = 21474836480
+    10 << 32 = 42949672960
+    10 << 33 = 85899345920
+    10 << 34 = 171798691840
+    10 << 35 = 343597383680
+    10 << 36 = 687194767360
+    10 << 37 = 1374389534720
+    10 << 38 = 2748779069440
+    10 << 39 = 5497558138880
+    10 << 40 = 10995116277760
+    10 << 41 = 21990232555520
+    10 << 42 = 43980465111040
+    10 << 43 = 87960930222080
+    10 << 44 = 175921860444160
+    10 << 45 = 351843720888320
+    10 << 46 = 703687441776640
+    10 << 47 = 1407374883553280
+    10 << 48 = 2814749767106560
+    10 << 49 = 5629499534213120
+    10 << 50 = 11258999068426240
+    10 << 51 = 22517998136852480
+    10 << 52 = 45035996273704960
+    10 << 53 = 90071992547409920
+    10 << 54 = 180143985094819840
+    10 << 55 = 360287970189639680
+    10 << 56 = 720575940379279360
+    10 << 57 = 1441151880758558720
+    10 << 58 = 2882303761517117440
+    10 << 59 = 5764607523034234880
+    10 << 60 = 11529215046068469760
+    10 << 61 = 23058430092136939520
+    10 << 62 = 46116860184273879040
+    10 << 63 = 92233720368547758080
+    10 << 64 = 184467440737095516160
+    10 << 65 = 368934881474191032320
+    10 << 66 = 737869762948382064640
+    10 << 67 = 1475739525896764129280
+    10 << 68 = 2951479051793528258560
+    10 << 69 = 5902958103587056517120
+    11 << 0 = 11
+    11 << 1 = 22
+    11 << 2 = 44
+    11 << 3 = 88
+    11 << 4 = 176
+    11 << 5 = 352
+    11 << 6 = 704
+    11 << 7 = 1408
+    11 << 8 = 2816
+    11 << 9 = 5632
+    11 << 10 = 11264
+    11 << 11 = 22528
+    11 << 12 = 45056
+    11 << 13 = 90112
+    11 << 14 = 180224
+    11 << 15 = 360448
+    11 << 16 = 720896
+    11 << 17 = 1441792
+    11 << 18 = 2883584
+    11 << 19 = 5767168
+    11 << 20 = 11534336
+    11 << 21 = 23068672
+    11 << 22 = 46137344
+    11 << 23 = 92274688
+    11 << 24 = 184549376
+    11 << 25 = 369098752
+    11 << 26 = 738197504
+    11 << 27 = 1476395008
+    11 << 28 = 2952790016
+    11 << 29 = 5905580032
+    11 << 30 = 11811160064
+    11 << 31 = 23622320128
+    11 << 32 = 47244640256
+    11 << 33 = 94489280512
+    11 << 34 = 188978561024
+    11 << 35 = 377957122048
+    11 << 36 = 755914244096
+    11 << 37 = 1511828488192
+    11 << 38 = 3023656976384
+    11 << 39 = 6047313952768
+    11 << 40 = 12094627905536
+    11 << 41 = 24189255811072
+    11 << 42 = 48378511622144
+    11 << 43 = 96757023244288
+    11 << 44 = 193514046488576
+    11 << 45 = 387028092977152
+    11 << 46 = 774056185954304
+    11 << 47 = 1548112371908608
+    11 << 48 = 3096224743817216
+    11 << 49 = 6192449487634432
+    11 << 50 = 12384898975268864
+    11 << 51 = 24769797950537728
+    11 << 52 = 49539595901075456
+    11 << 53 = 99079191802150912
+    11 << 54 = 198158383604301824
+    11 << 55 = 396316767208603648
+    11 << 56 = 792633534417207296
+    11 << 57 = 1585267068834414592
+    11 << 58 = 3170534137668829184
+    11 << 59 = 6341068275337658368
+    11 << 60 = 12682136550675316736
+    11 << 61 = 25364273101350633472
+    11 << 62 = 50728546202701266944
+    11 << 63 = 101457092405402533888
+    11 << 64 = 202914184810805067776
+    11 << 65 = 405828369621610135552
+    11 << 66 = 811656739243220271104
+    11 << 67 = 1623313478486440542208
+    11 << 68 = 3246626956972881084416
+    11 << 69 = 6493253913945762168832
+    12 << 0 = 12
+    12 << 1 = 24
+    12 << 2 = 48
+    12 << 3 = 96
+    12 << 4 = 192
+    12 << 5 = 384
+    12 << 6 = 768
+    12 << 7 = 1536
+    12 << 8 = 3072
+    12 << 9 = 6144
+    12 << 10 = 12288
+    12 << 11 = 24576
+    12 << 12 = 49152
+    12 << 13 = 98304
+    12 << 14 = 196608
+    12 << 15 = 393216
+    12 << 16 = 786432
+    12 << 17 = 1572864
+    12 << 18 = 3145728
+    12 << 19 = 6291456
+    12 << 20 = 12582912
+    12 << 21 = 25165824
+    12 << 22 = 50331648
+    12 << 23 = 100663296
+    12 << 24 = 201326592
+    12 << 25 = 402653184
+    12 << 26 = 805306368
+    12 << 27 = 1610612736
+    12 << 28 = 3221225472
+    12 << 29 = 6442450944
+    12 << 30 = 12884901888
+    12 << 31 = 25769803776
+    12 << 32 = 51539607552
+    12 << 33 = 103079215104
+    12 << 34 = 206158430208
+    12 << 35 = 412316860416
+    12 << 36 = 824633720832
+    12 << 37 = 1649267441664
+    12 << 38 = 3298534883328
+    12 << 39 = 6597069766656
+    12 << 40 = 13194139533312
+    12 << 41 = 26388279066624
+    12 << 42 = 52776558133248
+    12 << 43 = 105553116266496
+    12 << 44 = 211106232532992
+    12 << 45 = 422212465065984
+    12 << 46 = 844424930131968
+    12 << 47 = 1688849860263936
+    12 << 48 = 3377699720527872
+    12 << 49 = 6755399441055744
+    12 << 50 = 13510798882111488
+    12 << 51 = 27021597764222976
+    12 << 52 = 54043195528445952
+    12 << 53 = 108086391056891904
+    12 << 54 = 216172782113783808
+    12 << 55 = 432345564227567616
+    12 << 56 = 864691128455135232
+    12 << 57 = 1729382256910270464
+    12 << 58 = 3458764513820540928
+    12 << 59 = 6917529027641081856
+    12 << 60 = 13835058055282163712
+    12 << 61 = 27670116110564327424
+    12 << 62 = 55340232221128654848
+    12 << 63 = 110680464442257309696
+    12 << 64 = 221360928884514619392
+    12 << 65 = 442721857769029238784
+    12 << 66 = 885443715538058477568
+    12 << 67 = 1770887431076116955136
+    12 << 68 = 3541774862152233910272
+    12 << 69 = 7083549724304467820544
+    13 << 0 = 13
+    13 << 1 = 26
+    13 << 2 = 52
+    13 << 3 = 104
+    13 << 4 = 208
+    13 << 5 = 416
+    13 << 6 = 832
+    13 << 7 = 1664
+    13 << 8 = 3328
+    13 << 9 = 6656
+    13 << 10 = 13312
+    13 << 11 = 26624
+    13 << 12 = 53248
+    13 << 13 = 106496
+    13 << 14 = 212992
+    13 << 15 = 425984
+    13 << 16 = 851968
+    13 << 17 = 1703936
+    13 << 18 = 3407872
+    13 << 19 = 6815744
+    13 << 20 = 13631488
+    13 << 21 = 27262976
+    13 << 22 = 54525952
+    13 << 23 = 109051904
+    13 << 24 = 218103808
+    13 << 25 = 436207616
+    13 << 26 = 872415232
+    13 << 27 = 1744830464
+    13 << 28 = 3489660928
+    13 << 29 = 6979321856
+    13 << 30 = 13958643712
+    13 << 31 = 27917287424
+    13 << 32 = 55834574848
+    13 << 33 = 111669149696
+    13 << 34 = 223338299392
+    13 << 35 = 446676598784
+    13 << 36 = 893353197568
+    13 << 37 = 1786706395136
+    13 << 38 = 3573412790272
+    13 << 39 = 7146825580544
+    13 << 40 = 14293651161088
+    13 << 41 = 28587302322176
+    13 << 42 = 57174604644352
+    13 << 43 = 114349209288704
+    13 << 44 = 228698418577408
+    13 << 45 = 457396837154816
+    13 << 46 = 914793674309632
+    13 << 47 = 1829587348619264
+    13 << 48 = 3659174697238528
+    13 << 49 = 7318349394477056
+    13 << 50 = 14636698788954112
+    13 << 51 = 29273397577908224
+    13 << 52 = 58546795155816448
+    13 << 53 = 117093590311632896
+    13 << 54 = 234187180623265792
+    13 << 55 = 468374361246531584
+    13 << 56 = 936748722493063168
+    13 << 57 = 1873497444986126336
+    13 << 58 = 3746994889972252672
+    13 << 59 = 7493989779944505344
+    13 << 60 = 14987979559889010688
+    13 << 61 = 29975959119778021376
+    13 << 62 = 59951918239556042752
+    13 << 63 = 119903836479112085504
+    13 << 64 = 239807672958224171008
+    13 << 65 = 479615345916448342016
+    13 << 66 = 959230691832896684032
+    13 << 67 = 1918461383665793368064
+    13 << 68 = 3836922767331586736128
+    13 << 69 = 7673845534663173472256
+    14 << 0 = 14
+    14 << 1 = 28
+    14 << 2 = 56
+    14 << 3 = 112
+    14 << 4 = 224
+    14 << 5 = 448
+    14 << 6 = 896
+    14 << 7 = 1792
+    14 << 8 = 3584
+    14 << 9 = 7168
+    14 << 10 = 14336
+    14 << 11 = 28672
+    14 << 12 = 57344
+    14 << 13 = 114688
+    14 << 14 = 229376
+    14 << 15 = 458752
+    14 << 16 = 917504
+    14 << 17 = 1835008
+    14 << 18 = 3670016
+    14 << 19 = 7340032
+    14 << 20 = 14680064
+    14 << 21 = 29360128
+    14 << 22 = 58720256
+    14 << 23 = 117440512
+    14 << 24 = 234881024
+    14 << 25 = 469762048
+    14 << 26 = 939524096
+    14 << 27 = 1879048192
+    14 << 28 = 3758096384
+    14 << 29 = 7516192768
+    14 << 30 = 15032385536
+    14 << 31 = 30064771072
+    14 << 32 = 60129542144
+    14 << 33 = 120259084288
+    14 << 34 = 240518168576
+    14 << 35 = 481036337152
+    14 << 36 = 962072674304
+    14 << 37 = 1924145348608
+    14 << 38 = 3848290697216
+    14 << 39 = 7696581394432
+    14 << 40 = 15393162788864
+    14 << 41 = 30786325577728
+    14 << 42 = 61572651155456
+    14 << 43 = 123145302310912
+    14 << 44 = 246290604621824
+    14 << 45 = 492581209243648
+    14 << 46 = 985162418487296
+    14 << 47 = 1970324836974592
+    14 << 48 = 3940649673949184
+    14 << 49 = 7881299347898368
+    14 << 50 = 15762598695796736
+    14 << 51 = 31525197391593472
+    14 << 52 = 63050394783186944
+    14 << 53 = 126100789566373888
+    14 << 54 = 252201579132747776
+    14 << 55 = 504403158265495552
+    14 << 56 = 1008806316530991104
+    14 << 57 = 2017612633061982208
+    14 << 58 = 4035225266123964416
+    14 << 59 = 8070450532247928832
+    14 << 60 = 16140901064495857664
+    14 << 61 = 32281802128991715328
+    14 << 62 = 64563604257983430656
+    14 << 63 = 129127208515966861312
+    14 << 64 = 258254417031933722624
+    14 << 65 = 516508834063867445248
+    14 << 66 = 1033017668127734890496
+    14 << 67 = 2066035336255469780992
+    14 << 68 = 4132070672510939561984
+    14 << 69 = 8264141345021879123968
+    15 << 0 = 15
+    15 << 1 = 30
+    15 << 2 = 60
+    15 << 3 = 120
+    15 << 4 = 240
+    15 << 5 = 480
+    15 << 6 = 960
+    15 << 7 = 1920
+    15 << 8 = 3840
+    15 << 9 = 7680
+    15 << 10 = 15360
+    15 << 11 = 30720
+    15 << 12 = 61440
+    15 << 13 = 122880
+    15 << 14 = 245760
+    15 << 15 = 491520
+    15 << 16 = 983040
+    15 << 17 = 1966080
+    15 << 18 = 3932160
+    15 << 19 = 7864320
+    15 << 20 = 15728640
+    15 << 21 = 31457280
+    15 << 22 = 62914560
+    15 << 23 = 125829120
+    15 << 24 = 251658240
+    15 << 25 = 503316480
+    15 << 26 = 1006632960
+    15 << 27 = 2013265920
+    15 << 28 = 4026531840
+    15 << 29 = 8053063680
+    15 << 30 = 16106127360
+    15 << 31 = 32212254720
+    15 << 32 = 64424509440
+    15 << 33 = 128849018880
+    15 << 34 = 257698037760
+    15 << 35 = 515396075520
+    15 << 36 = 1030792151040
+    15 << 37 = 2061584302080
+    15 << 38 = 4123168604160
+    15 << 39 = 8246337208320
+    15 << 40 = 16492674416640
+    15 << 41 = 32985348833280
+    15 << 42 = 65970697666560
+    15 << 43 = 131941395333120
+    15 << 44 = 263882790666240
+    15 << 45 = 527765581332480
+    15 << 46 = 1055531162664960
+    15 << 47 = 2111062325329920
+    15 << 48 = 4222124650659840
+    15 << 49 = 8444249301319680
+    15 << 50 = 16888498602639360
+    15 << 51 = 33776997205278720
+    15 << 52 = 67553994410557440
+    15 << 53 = 135107988821114880
+    15 << 54 = 270215977642229760
+    15 << 55 = 540431955284459520
+    15 << 56 = 1080863910568919040
+    15 << 57 = 2161727821137838080
+    15 << 58 = 4323455642275676160
+    15 << 59 = 8646911284551352320
+    15 << 60 = 17293822569102704640
+    15 << 61 = 34587645138205409280
+    15 << 62 = 69175290276410818560
+    15 << 63 = 138350580552821637120
+    15 << 64 = 276701161105643274240
+    15 << 65 = 553402322211286548480
+    15 << 66 = 1106804644422573096960
+    15 << 67 = 2213609288845146193920
+    15 << 68 = 4427218577690292387840
+    15 << 69 = 8854437155380584775680
+    16 << 0 = 16
+    16 << 1 = 32
+    16 << 2 = 64
+    16 << 3 = 128
+    16 << 4 = 256
+    16 << 5 = 512
+    16 << 6 = 1024
+    16 << 7 = 2048
+    16 << 8 = 4096
+    16 << 9 = 8192
+    16 << 10 = 16384
+    16 << 11 = 32768
+    16 << 12 = 65536
+    16 << 13 = 131072
+    16 << 14 = 262144
+    16 << 15 = 524288
+    16 << 16 = 1048576
+    16 << 17 = 2097152
+    16 << 18 = 4194304
+    16 << 19 = 8388608
+    16 << 20 = 16777216
+    16 << 21 = 33554432
+    16 << 22 = 67108864
+    16 << 23 = 134217728
+    16 << 24 = 268435456
+    16 << 25 = 536870912
+    16 << 26 = 1073741824
+    16 << 27 = 2147483648
+    16 << 28 = 4294967296
+    16 << 29 = 8589934592
+    16 << 30 = 17179869184
+    16 << 31 = 34359738368
+    16 << 32 = 68719476736
+    16 << 33 = 137438953472
+    16 << 34 = 274877906944
+    16 << 35 = 549755813888
+    16 << 36 = 1099511627776
+    16 << 37 = 2199023255552
+    16 << 38 = 4398046511104
+    16 << 39 = 8796093022208
+    16 << 40 = 17592186044416
+    16 << 41 = 35184372088832
+    16 << 42 = 70368744177664
+    16 << 43 = 140737488355328
+    16 << 44 = 281474976710656
+    16 << 45 = 562949953421312
+    16 << 46 = 1125899906842624
+    16 << 47 = 2251799813685248
+    16 << 48 = 4503599627370496
+    16 << 49 = 9007199254740992
+    16 << 50 = 18014398509481984
+    16 << 51 = 36028797018963968
+    16 << 52 = 72057594037927936
+    16 << 53 = 144115188075855872
+    16 << 54 = 288230376151711744
+    16 << 55 = 576460752303423488
+    16 << 56 = 1152921504606846976
+    16 << 57 = 2305843009213693952
+    16 << 58 = 4611686018427387904
+    16 << 59 = 9223372036854775808
+    16 << 60 = 18446744073709551616
+    16 << 61 = 36893488147419103232
+    16 << 62 = 73786976294838206464
+    16 << 63 = 147573952589676412928
+    16 << 64 = 295147905179352825856
+    16 << 65 = 590295810358705651712
+    16 << 66 = 1180591620717411303424
+    16 << 67 = 2361183241434822606848
+    16 << 68 = 4722366482869645213696
+    16 << 69 = 9444732965739290427392
+    -100000000000000000000000000000
+    -100000000000000000000000000001
+    -100000000000000000000000000002
+    -100000000000000000000000000003
+    -100000000000000000000000000004
+    -100000000000000000000000000000
+    -100000000000000000000000000001
+    -100000000000000000000000000002
+    -100000000000000000000000000003
+    -100000000000000000000000000004
+    -200000000000000000000000000000
+    -200000000000000000000000000002
+    -200000000000000000000000000004
+    -200000000000000000000000000006
+    -200000000000000000000000000008
+    -50000000000000000000000000000
+    -50000000000000000000000000001
+    -50000000000000000000000000001
+    -50000000000000000000000000002
+    -50000000000000000000000000002
+    -400000000000000000000000000000
+    -400000000000000000000000000004
+    -400000000000000000000000000008
+    -400000000000000000000000000012
+    -400000000000000000000000000016
+    -25000000000000000000000000000
+    -25000000000000000000000000001
+    -25000000000000000000000000001
+    -25000000000000000000000000001
+    -25000000000000000000000000001
+    -800000000000000000000000000000
+    -800000000000000000000000000008
+    -800000000000000000000000000016
+    -800000000000000000000000000024
+    -800000000000000000000000000032
+    -12500000000000000000000000000
+    -12500000000000000000000000001
+    -12500000000000000000000000001
+    -12500000000000000000000000001
+    -12500000000000000000000000001
+    -1600000000000000000000000000000
+    -1600000000000000000000000000016
+    -1600000000000000000000000000032
+    -1600000000000000000000000000048
+    -1600000000000000000000000000064
+    -6250000000000000000000000000
+    -6250000000000000000000000001
+    -6250000000000000000000000001
+    -6250000000000000000000000001
+    -6250000000000000000000000001
+    -3200000000000000000000000000000
+    -3200000000000000000000000000032
+    -3200000000000000000000000000064
+    -3200000000000000000000000000096
+    -3200000000000000000000000000128
+    -3125000000000000000000000000
+    -3125000000000000000000000001
+    -3125000000000000000000000001
+    -3125000000000000000000000001
+    -3125000000000000000000000001
+    -6400000000000000000000000000000
+    -6400000000000000000000000000064
+    -6400000000000000000000000000128
+    -6400000000000000000000000000192
+    -6400000000000000000000000000256
+    -1562500000000000000000000000
+    -1562500000000000000000000001
+    -1562500000000000000000000001
+    -1562500000000000000000000001
+    -1562500000000000000000000001
+    -12800000000000000000000000000000
+    -12800000000000000000000000000128
+    -12800000000000000000000000000256
+    -12800000000000000000000000000384
+    -12800000000000000000000000000512
+    -781250000000000000000000000
+    -781250000000000000000000001
+    -781250000000000000000000001
+    -781250000000000000000000001
+    -781250000000000000000000001
+    1180591620717411303424
+
+- case: |-
+    delta = 100000000000000000000000000000012345
+    for i in range(11):
+        for j in range(11):
+            x = delta * (i - 5)
+            y = delta * (j - 5)
+            if y != 0:
+                print(x % y)
+            else:
+                pass
+        else:
+            pass
+    else:
+        pass
+    x = 9223372036854775808
+    print((x + 1) % x)
+    x = 9711450922059518768
+    print((x + 1) % x)
+  expected: |-
+    0
+    -100000000000000000000000000000012345
+    -200000000000000000000000000000024690
+    -100000000000000000000000000000012345
+    0
+    0
+    100000000000000000000000000000012345
+    100000000000000000000000000000012345
+    300000000000000000000000000000037035
+    0
+    -400000000000000000000000000000049380
+    0
+    -100000000000000000000000000000012345
+    0
+    0
+    0
+    0
+    200000000000000000000000000000024690
+    0
+    100000000000000000000000000000012345
+    -300000000000000000000000000000037035
+    -300000000000000000000000000000037035
+    0
+    -100000000000000000000000000000012345
+    0
+    0
+    100000000000000000000000000000012345
+    0
+    100000000000000000000000000000012345
+    200000000000000000000000000000024690
+    -200000000000000000000000000000024690
+    -200000000000000000000000000000024690
+    -200000000000000000000000000000024690
+    0
+    0
+    0
+    0
+    100000000000000000000000000000012345
+    200000000000000000000000000000024690
+    300000000000000000000000000000037035
+    -100000000000000000000000000000012345
+    -100000000000000000000000000000012345
+    -100000000000000000000000000000012345
+    -100000000000000000000000000000012345
+    0
+    0
+    100000000000000000000000000000012345
+    200000000000000000000000000000024690
+    300000000000000000000000000000037035
+    400000000000000000000000000000049380
+    0
+    0
+    0
+    0
+    0
+    0
+    0
+    0
+    0
+    0
+    -400000000000000000000000000000049380
+    -300000000000000000000000000000037035
+    -200000000000000000000000000000024690
+    -100000000000000000000000000000012345
+    0
+    0
+    100000000000000000000000000000012345
+    100000000000000000000000000000012345
+    100000000000000000000000000000012345
+    100000000000000000000000000000012345
+    -300000000000000000000000000000037035
+    -200000000000000000000000000000024690
+    -100000000000000000000000000000012345
+    0
+    0
+    0
+    0
+    200000000000000000000000000000024690
+    200000000000000000000000000000024690
+    200000000000000000000000000000024690
+    -200000000000000000000000000000024690
+    -100000000000000000000000000000012345
+    0
+    -100000000000000000000000000000012345
+    0
+    0
+    100000000000000000000000000000012345
+    0
+    300000000000000000000000000000037035
+    300000000000000000000000000000037035
+    -100000000000000000000000000000012345
+    0
+    -200000000000000000000000000000024690
+    0
+    0
+    0
+    0
+    100000000000000000000000000000012345
+    0
+    400000000000000000000000000000049380
+    0
+    -300000000000000000000000000000037035
+    -100000000000000000000000000000012345
+    -100000000000000000000000000000012345
+    0
+    0
+    100000000000000000000000000000012345
+    200000000000000000000000000000024690
+    100000000000000000000000000000012345
+    0
+    1
+    1
+
+- case: |-
+    for i in range(-2, 3):
+        for j in range(-4, 5):
+            if j != 0:
+                print(i, j, i // j, i % j, divmod(i, j))
+            else:
+                pass
+        else:
+            pass
+    else:
+        pass
+  expected: |-
+    -2 -4 0 -2 (0, -2)
+    -2 -3 0 -2 (0, -2)
+    -2 -2 1 0 (1, 0)
+    -2 -1 2 0 (2, 0)
+    -2 1 -2 0 (-2, 0)
+    -2 2 -1 0 (-1, 0)
+    -2 3 -1 1 (-1, 1)
+    -2 4 -1 2 (-1, 2)
+    -1 -4 0 -1 (0, -1)
+    -1 -3 0 -1 (0, -1)
+    -1 -2 0 -1 (0, -1)
+    -1 -1 1 0 (1, 0)
+    -1 1 -1 0 (-1, 0)
+    -1 2 -1 1 (-1, 1)
+    -1 3 -1 2 (-1, 2)
+    -1 4 -1 3 (-1, 3)
+    0 -4 0 0 (0, 0)
+    0 -3 0 0 (0, 0)
+    0 -2 0 0 (0, 0)
+    0 -1 0 0 (0, 0)
+    0 1 0 0 (0, 0)
+    0 2 0 0 (0, 0)
+    0 3 0 0 (0, 0)
+    0 4 0 0 (0, 0)
+    1 -4 -1 -3 (-1, -3)
+    1 -3 -1 -2 (-1, -2)
+    1 -2 -1 -1 (-1, -1)
+    1 -1 -1 0 (-1, 0)
+    1 1 1 0 (1, 0)
+    1 2 0 1 (0, 1)
+    1 3 0 1 (0, 1)
+    1 4 0 1 (0, 1)
+    2 -4 -1 -2 (-1, -2)
+    2 -3 -1 -1 (-1, -1)
+    2 -2 -1 0 (-1, 0)
+    2 -1 -2 0 (-2, 0)
+    2 1 2 0 (2, 0)
+    2 2 1 0 (1, 0)
+    2 3 0 2 (0, 2)
+    2 4 0 2 (0, 2)
+
+- case: |-
+    a = []
+    for i in range(100):
+        a.append(i)
+        a.reverse()
+    else:
+        pass
+    print(a)
+  expected: |-
+    [99, 97, 95, 93, 91, 89, 87, 85, 83, 81, 79, 77, 75, 73, 71, 69, 67, 65, 63, 61, 59, 57, 55, 53, 51, 49, 47, 45, 43, 41, 39, 37, 35, 33, 31, 29, 27, 25, 23, 21, 19, 17, 15, 13, 11, 9, 7, 5, 3, 1, 0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60, 62, 64, 66, 68, 70, 72, 74, 76, 78, 80, 82, 84, 86, 88, 90, 92, 94, 96, 98]
+
+- case: |-
+    l = [1, 2, 3, 4]
+    s = set(l)
+    outs = [s.difference(), s.difference({1}), s.difference({1}, [1, 2]), s.difference({1}, {1, 2}, {2, 3})]
+    for out in outs:
+        print(sorted(out))
+    else:
+        pass
+    s = set(l)
+    print(s.difference_update())
+    print(sorted(s))
+    print(s.difference_update({1}))
+    print(sorted(s))
+    print(s.difference_update({1}, [2]))
+    print(sorted(s))
+    s.difference_update(s)
+    print(s)
+  expected: |-
+    [1, 2, 3, 4]
+    [2, 3, 4]
+    [3, 4]
+    [4]
+    None
+    [1, 2, 3, 4]
+    None
+    [2, 3, 4]
+    None
+    [3, 4]
+    set()
+
+- case: |-
+    sets = [set(), {1}, {1, 2, 3}, {3, 4, 5}, {5, 6, 7}]
+    args = sets + [[1], [1, 2], [1, 2, 3]]
+    for i in sets:
+        for j in args:
+            print(i.issubset(j))
+            print(i.issuperset(j))
+        else:
+            pass
+    else:
+        pass
+  expected: |-
+    True
+    True
+    True
+    False
+    True
+    False
+    True
+    False
+    True
+    False
+    True
+    False
+    True
+    False
+    True
+    False
+    False
+    True
+    True
+    True
+    True
+    False
+    False
+    False
+    False
+    False
+    True
+    True
+    True
+    False
+    True
+    False
+    False
+    True
+    False
+    True
+    True
+    True
+    False
+    False
+    False
+    False
+    False
+    True
+    False
+    True
+    True
+    True
+    False
+    True
+    False
+    False
+    False
+    False
+    True
+    True
+    False
+    False
+    False
+    False
+    False
+    False
+    False
+    False
+    False
+    True
+    False
+    False
+    False
+    False
+    False
+    False
+    True
+    True
+    False
+    False
+    False
+    False
+    False
+    False
+
+- case: |-
+    print('0' * 5)
+    for i in (-4, -2, 0, 2, 4):
+        print(i * '12')
+        print('12' * i)
+    else:
+        pass
+    a = '123'
+    c = a * 3
+    print(a, c)
+    a = '456'
+    a *= 3
+    print(a)
+    a = 3
+    a *= '789'
+    print(a)
+  expected: |-
+    00000
+
+
+
+
+
+
+    1212
+    1212
+    12121212
+    12121212
+    123 123123123
+    456456456
+    789789789
+
+- case: |-
+    for c in range(128):
+        print('0x{:02x}: {}'.format(c, repr(chr(c))))
+    else:
+        pass
+  expected: |-
+    0x00: '\x00'
+    0x01: '\x01'
+    0x02: '\x02'
+    0x03: '\x03'
+    0x04: '\x04'
+    0x05: '\x05'
+    0x06: '\x06'
+    0x07: '\x07'
+    0x08: '\x08'
+    0x09: '\t'
+    0x0a: '\n'
+    0x0b: '\x0b'
+    0x0c: '\x0c'
+    0x0d: '\r'
+    0x0e: '\x0e'
+    0x0f: '\x0f'
+    0x10: '\x10'
+    0x11: '\x11'
+    0x12: '\x12'
+    0x13: '\x13'
+    0x14: '\x14'
+    0x15: '\x15'
+    0x16: '\x16'
+    0x17: '\x17'
+    0x18: '\x18'
+    0x19: '\x19'
+    0x1a: '\x1a'
+    0x1b: '\x1b'
+    0x1c: '\x1c'
+    0x1d: '\x1d'
+    0x1e: '\x1e'
+    0x1f: '\x1f'
+    0x20: ' '
+    0x21: '!'
+    0x22: '"'
+    0x23: '#'
+    0x24: '$'
+    0x25: '%'
+    0x26: '&'
+    0x27: "'"
+    0x28: '('
+    0x29: ')'
+    0x2a: '*'
+    0x2b: '+'
+    0x2c: ','
+    0x2d: '-'
+    0x2e: '.'
+    0x2f: '/'
+    0x30: '0'
+    0x31: '1'
+    0x32: '2'
+    0x33: '3'
+    0x34: '4'
+    0x35: '5'
+    0x36: '6'
+    0x37: '7'
+    0x38: '8'
+    0x39: '9'
+    0x3a: ':'
+    0x3b: ';'
+    0x3c: '<'
+    0x3d: '='
+    0x3e: '>'
+    0x3f: '?'
+    0x40: '@'
+    0x41: 'A'
+    0x42: 'B'
+    0x43: 'C'
+    0x44: 'D'
+    0x45: 'E'
+    0x46: 'F'
+    0x47: 'G'
+    0x48: 'H'
+    0x49: 'I'
+    0x4a: 'J'
+    0x4b: 'K'
+    0x4c: 'L'
+    0x4d: 'M'
+    0x4e: 'N'
+    0x4f: 'O'
+    0x50: 'P'
+    0x51: 'Q'
+    0x52: 'R'
+    0x53: 'S'
+    0x54: 'T'
+    0x55: 'U'
+    0x56: 'V'
+    0x57: 'W'
+    0x58: 'X'
+    0x59: 'Y'
+    0x5a: 'Z'
+    0x5b: '['
+    0x5c: '\\'
+    0x5d: ']'
+    0x5e: '^'
+    0x5f: '_'
+    0x60: '`'
+    0x61: 'a'
+    0x62: 'b'
+    0x63: 'c'
+    0x64: 'd'
+    0x65: 'e'
+    0x66: 'f'
+    0x67: 'g'
+    0x68: 'h'
+    0x69: 'i'
+    0x6a: 'j'
+    0x6b: 'k'
+    0x6c: 'l'
+    0x6d: 'm'
+    0x6e: 'n'
+    0x6f: 'o'
+    0x70: 'p'
+    0x71: 'q'
+    0x72: 'r'
+    0x73: 's'
+    0x74: 't'
+    0x75: 'u'
+    0x76: 'v'
+    0x77: 'w'
+    0x78: 'x'
+    0x79: 'y'
+    0x7a: 'z'
+    0x7b: '{'
+    0x7c: '|'
+    0x7d: '}'
+    0x7e: '~'
+    0x7f: '\x7f'
+
+- case: |-
+    x = 0
+    while x < 2:
+        y = 0
+        while y < 2:
+            z = 0
+            while z < 2:
+                z = z + 1
+                print(x, y, z)
+            else:
+                pass
+            y = y + 1
+        else:
+            pass
+        x = x + 1
+    else:
+        pass
+  expected: |-
+    0 0 1
+    0 0 2
+    0 1 1
+    0 1 2
+    1 0 1
+    1 0 2
+    1 1 1
+    1 1 2
+
+- case: |-
+    q = 1 \
+     if True \
+     else 0
+    print(q)
+  expected: |-
+    1
+
+- case: |-
+    for x in 1, 2:
+        print(x)
+  expected: |-
+    1
+    2
+
+- case: |-
+    for x in 1, 2, 3:
+        print(x)
+  expected: |-
+    1
+    2
+    3
+
+- case: |-
+    for x in 'a', 'b':
+        print(x)
+  expected: |-
+    a
+    b
+
+- case: |-
+    total = 0
+    for x in 1, 2, 3, 4:
+        total += x
+    print(total)
+  expected: |-
+    10
+
+- case: |-
+    for x in 1+1, 2*2:
+        print(x)
+  expected: |-
+    2
+    4
+
+- case: |-
+    for a, b in (1, 2), (3, 4):
+        print(a, b)
+  expected: |-
+    1 2
+    3 4
+
+- case: |-
+    for x in True, False:
+        print(x)
+  expected: |-
+    True
+    False
+
+- case: |-
+    for x in 1.5, 2.5:
+        print(x)
+  expected: |-
+    1.5
+    2.5
+
+- case: |-
+    for x in -1, -2:
+        print(x)
+  expected: |-
+    -1
+    -2
+
+- case: |-
+    for x in 1, 2:
+        for y in 3, 4:
+            print(x, y)
+  expected: |-
+    1 3
+    1 4
+    2 3
+    2 4
+
+- case: |-
+    d = {1:2}
+    for m in d.items, d.keys:
+        print(list(m()))
+  expected: |-
+    [(1, 2)]
+    [1]
+
+- case: |-
+    d = {1:2, 3:4}
+    for m in d.keys, d.values:
+        print(sorted(m()))
+  expected: |-
+    [1, 3]
+    [2, 4]
+
+- case: |-
+    d = {1:2}
+    for m in d.values, d.keys:
+        print(list(m()))
+  expected: |-
+    [2]
+    [1]
+
+- case: |-
+    s = 'hi'
+    for m in s.upper, s.lower:
+        print(m())
+  expected: |-
+    HI
+    hi
+
+- case: |-
+    l = [3, 1, 2]
+    for m in l.sort, l.reverse:
+        m()
+    print(l)
+  expected: |-
+    [3, 2, 1]
+
+- case: |-
+    d = {'a':1}
+    for m in d.keys, d.items:
+        print(list(m()))
+  expected: |-
+    ['a']
+    [('a', 1)]
+
+- case: |-
+    x = 'abc'
+    for m in x.find, x.index:
+        print(m('b'))
+  expected: |-
+    1
+    1
+
+- case: |-
+    d = {1:10}
+    for m in d.items, d.values, d.keys:
+        print(list(m()))
+  expected: |-
+    [(1, 10)]
+    [10]
+    [1]
+
+- case: |-
+    l = [1, 2, 3]
+    for m in l.pop, l.pop:
+        print(m())
+  expected: |-
+    3
+    2
+
+- case: |-
+    s = {1, 2}
+    for m in s.copy, s.copy:
+        print(sorted(m()))
+  expected: |-
+    [1, 2]
+    [1, 2]
+
+- case: |-
+    for i in 1, 2:
+        print(i)
+  expected: |-
+    1
+    2
+
+- case: |-
+    a = frozenset({1, 2})
+    b = frozenset({3, 4})
+    for s in a, b:
+        print(sorted(s))
+  expected: |-
+    [1, 2]
+    [3, 4]
+
+- case: |-
+    for s in frozenset({1}), frozenset({2}):
+        print(sorted(s))
+  expected: |-
+    [1]
+    [2]
+
+- case: |-
+    a = frozenset({1, 2})
+    b = frozenset({3, 4})
+    for s in b, a:
+        print(sorted(s))
+  expected: |-
+    [3, 4]
+    [1, 2]
+
+- case: |-
+    for i in 'x', 'y', 'z':
+        print(i)
+  expected: |-
+    x
+    y
+    z
+
+- case: |-
+    fs = frozenset({5})
+    for x in fs, fs:
+        print(sorted(x))
+  expected: |-
+    [5]
+    [5]
+
+- case: |-
+    for n in 100, 200, 300:
+        print(n)
+  expected: |-
+    100
+    200
+    300
+
+- case: |-
+    for pair in (1, 2), (3, 4), (5, 6):
+        print(sum(pair))
+  expected: |-
+    3
+    7
+    11
+
+- case: |-
+    for c in frozenset('a'), frozenset('b'):
+        print(sorted(c))
+  expected: |-
+    ['a']
+    ['b']
+
+- case: |-
+    acc = []
+    for s in frozenset({1, 2}), frozenset({2, 3}):
+        acc.append(sorted(s))
+    print(acc)
+  expected: |-
+    [[1, 2], [2, 3]]
+
+- case: |-
+    s = {1, 2}
+    t = {3, 4}
+    for i in s, t:
+        print(sorted(i))
+  expected: |-
+    [1, 2]
+    [3, 4]
+
+- case: |-
+    for i in {1}, {2}:
+        print(sorted(i))
+  expected: |-
+    [1]
+    [2]
+
+- case: |-
+    a = {1, 2, 3}
+    for s in a, a.copy():
+        print(len(s))
+  expected: |-
+    3
+    3
+
+- case: |-
+    for s in {1, 2}, {2, 3}, {3, 4}:
+        print(sorted(s))
+  expected: |-
+    [1, 2]
+    [2, 3]
+    [3, 4]
+
+- case: |-
+    x = {1, 2}
+    y = {3}
+    for s in x, y:
+        print(len(s))
+  expected: |-
+    2
+    1
+
+- case: |-
+    for s in set(), {1}:
+        print(len(s))
+  expected: |-
+    0
+    1
+
+- case: |-
+    total = set()
+    for s in {1, 2}, {3, 4}:
+        total |= s
+    print(sorted(total))
+  expected: |-
+    [1, 2, 3, 4]
+
+- case: |-
+    for s in {'a'}, {'b'}:
+        print(sorted(s))
+  expected: |-
+    ['a']
+    ['b']
+
+- case: |-
+    a = {1}
+    b = {2}
+    c = {3}
+    for s in a, b, c:
+        print(sorted(s))
+  expected: |-
+    [1]
+    [2]
+    [3]
+
+- case: |-
+    for s in {1, 2, 3}, {4, 5}:
+        print(len(s))
+  expected: |-
+    3
+    2
+
+- case: |-
+    for x in frozenset({7}):
+        print(x)
+  expected: |-
+    7
+
+- case: |-
+    acc = []
+    for x in frozenset({1, 2, 3}):
+        acc.append(x)
+    print(sorted(acc))
+  expected: |-
+    [1, 2, 3]
+
+- case: |-
+    total = 0
+    for x in frozenset({1, 2, 3, 4}):
+        total += x
+    print(total)
+  expected: |-
+    10
+
+- case: |-
+    for i in range(2):
+        print(i)
+        for j in range(1):
+            pass
+        else:
+            continue
+        break
+  expected: |-
+    0
+    1
+
+- case: |-
+    for i in range(3):
+        for j in range(1):
+            pass
+        else:
+            break
+    else:
+        print("outer-else")
+
+- case: |-
+    for i in range(2):
+        for j in range(2):
+            if j==0:
+                break
+        else:
+            print("inner-else", i)
+        print("body", i)
+  expected: |-
+    body 0
+    body 1
+
+- case: |-
+    for i in range(3):
+        for j in []:
+            pass
+        else:
+            continue
+        print("unreached")
+
+- case: |-
+    k=0
+    for i in range(2):
+        for j in range(2):
+            pass
+        else:
+            k+=1
+    print(k)
+  expected: |-
+    2
+
+- case: |-
+    for i in range(2):
+        print(i)
+    else:
+        print("done")
+  expected: |-
+    0
+    1
+    done
+
+- case: |-
+    for i in range(2):
+        for j in range(3):
+            if j==1:
+                break
+        else:
+            continue
+        print("broke at", i)
+  expected: |-
+    broke at 0
+    broke at 1
+
+- case: |-
+    for i in range(1):
+        while False:
+            pass
+        else:
+            print("while-else")
+  expected: |-
+    while-else
+
+- case: |-
+    for i in range(2):
+        for j in range(1):
+            continue
+        else:
+            print("e", i)
+  expected: |-
+    e 0
+    e 1
+
+- case: |-
+    total=0
+    for i in range(3):
+        for j in range(i):
+            total+=1
+        else:
+            total+=10
+    print(total)
+  expected: |-
+    33
+
+- case: |-
+    it = iter([5,6,7])
+    total = 0
+    for _ in range(3):
+        total += it.__next__()
+    print(total)
+  expected: |-
+    18
+
+- case: |-
+    for x in range(9223372036854775805, 9223372036854775807):
+        print(x)
+  expected: |-
+    9223372036854775805
+    9223372036854775806
+
+- case: |-
+    for x in range(-9223372036854775805, -9223372036854775807, -1):
+        print(x)
+  expected: |-
+    -9223372036854775805
+    -9223372036854775806
+
+- case: |-
+    gg = ((x for x in range(2)) for y in range(2))
+    for i in gg:
+        for j in i:
+            print(j)
+  expected: |-
+    0
+    1
+    0
+    1
+
+- case: |-
+    gg = ((x for x in range(3)) for y in range(2))
+    out = []
+    for i in gg:
+        out.append(list(i))
+    print(out)
+  expected: |-
+    [[0, 1, 2], [0, 1, 2]]
+
+- case: |-
+    gg = ([x * y for x in range(3)] for y in range(1, 3))
+    for row in gg:
+        print(row)
+  expected: |-
+    [0, 1, 2]
+    [0, 2, 4]
+
+- case: |-
+    x = 100.0
+    for _ in range(50):
+        x = x - 1.5
+    print(x)
+  expected: |-
+    25.0
+
+- case: |-
+    x = 10.0
+    for _ in range(10):
+        x -= 0.5
+    print(x)
+  expected: |-
+    5.0
+
+- case: |-
+    s = 0.0
+    for i in range(20):
+        s = s - 0.25
+    print(s)
+  expected: |-
+    -5.0
+
+- case: |-
+    vals = [5, 5.0, 7, 7.5]
+    for v in vals:
+        print(v - 1.5)
+  expected: |-
+    3.5
+    3.5
+    5.5
+    6.0
+
+- case: |-
+    n = float('nan')
+    for _ in range(10):
+        n = n - 1.0
+    print(n)
+  expected: |-
+    nan
+
+- case: |-
+    i = 0
+    while i < 120000:
+        x = [i]
+        i = i + 1
+    print(i)
+  expected: |-
+    120000
+
+- case: |-
+    i = 0
+    while i < 120000:
+        d = {"k": i}
+        i = i + 1
+    print(d["k"])
+  expected: |-
+    119999
+
+- case: |-
+    i = 0
+    while i < 120000:
+        s = {i}
+        i = i + 1
+    print(s)
+  expected: |-
+    {119999}
+
+- case: |-
+    i = 0
+    while i < 120000:
+        t = f"v{i}"
+        i = i + 1
+    print(t)
+  expected: |-
+    v119999
+
+- case: |-
+    xs = [7, 8, 9]
+    for x in xs:
+        print(x)
+    print(xs)
+  expected: |-
+    7
+    8
+    9
+    [7, 8, 9]
+
+- case: |-
+    match (1, 2):
+        case _:
+            print("ok")
+  expected: |-
+    ok
+
+- case: |-
+    match (1, 2):
+        case [a, b]:
+            print(a + b)
+        case _:
+            print("miss")
+  expected: |-
+    3
+
+- case: |-
+    match 7:
+        case 7:
+            print("seven")
+        case _:
+            print("other")
+  expected: |-
+    seven
+
+- case: |-
+    match = 3
+    print(match * 2, match == 3, match if match else 0)
+  expected: |-
+    6 True 3
+
+- case: |-
+    match = "abc"
+    print("b" in match, match.upper(), match[0])
+  expected: |-
+    True ABC a
+
+- case: |-
+    a, b = 1, 2
+    match = [a, b]
+    match [a, b]:
+        case [1, 2]:
+            print(match)
+  expected: |-
+    [1, 2]
+
+- case: |-
+    match 1:
+        case 1: print("uno")
+        case _: print("otro")
+  expected: |-
+    uno
+
+- case: |-
+    match 2:
+        case 1 | 2 if True: x = 5; print(x)
+  expected: |-
+    5
+
+- case: |-
+    with 1:
+      pass
+  error: '''int'' object does not support the context manager protocol'
+
+- case: |-
+    xs = [1, 2, 3]
+    n = 0
+    for x in xs:
+        n += 1
+        if n < 6:
+            xs.append(x)
+    print(n, len(xs))
+  expected: |-
+    8 8
+
+- case: |-
+    d = {i: i for i in range(50)}
+    for i in range(50):
+        del d[i]
+    print(len(d), d)
+  expected: |-
+    0 {}
+
+- case: |-
+    d = {i: i for i in range(40)}
+    for i in range(0, 40, 2):
+        del d[i]
+    d[0] = 'z'
+    print(len(d), list(d)[:3], list(d)[-1], d[0], 2 in d)
+  expected: |-
+    21 [1, 3, 5] 0 z False
+
+- case: |-
+    d = {}
+    for i in range(1000):
+        d[i] = i
+    print(len(d), d[999], 500 in d, 1000 in d)
+  expected: |-
+    1000 999 True False
+
+- case: |-
+    seen = set()
+    for i in range(2000):
+        seen.add(i % 700)
+    print(len(seen), 699 in seen, 700 in seen)
+  expected: |-
+    700 True False
+
+- case: |-
+    d = {}
+    for i in range(300):
+        d[i * 0.5] = i
+    print(d[10.0], d[10], 149.5 in d)
+  expected: |-
+    20 20 True
+
+- case: |-
+    for _ in range(2):
+        print(_)
+  expected: |-
+    0
+    1
+
+- case: |-
+    for i in range(3):
+        send('w', str(i))
+  sends:
+  - [w, '0']
+  - [w, '1']
+  - [w, '2']
+
+- case: |-
+    grid = {}
+    for r in range(2):
+        for c in range(2):
+            grid[r, c] = r + c
+    print(grid[1, 0], grid[1, 1])
+  expected: |-
+    1 2
+
+- case: |-
+    for x, (y, z) in [(1, (2, 3))]:
+        print(x, y, z)
+  expected: |-
+    1 2 3
+
+- case: |-
+    for (a, b), c in [((1, 2), 3), ((4, 5), 6)]:
+        print(a + b + c)
+  expected: |-
+    6
+    15
+
+- case: |-
+    for i, (k, v) in enumerate({"a": 1}.items()):
+        print(i, k, v)
+  expected: |-
+    0 a 1
+
+- case: |-
+    for [a, b] in [[1, 2]]:
+        print(a, b)
+  expected: |-
+    1 2
+
+- case: |-
+    for (a) in [1, 2]:
+        print(a)
+  expected: |-
+    1
+    2
+
+- case: |-
+    for (a,) in [(1,), (2,)]:
+        print(a)
+  expected: |-
+    1
+    2
+
+- case: |-
+    for a, [b, (c, d)] in [(1, [2, (3, 4)])]:
+        print(a, b, c, d)
+  expected: |-
+    1 2 3 4
+
+- case: |-
+    for x, *rest in [(1, 2, 3)]:
+        print(x, rest)
+  expected: |-
+    1 [2, 3]
+
+- case: |-
+    pts = [((0, 0), "o"), ((1, 2), "p")]
+    for (x, y), name in pts:
+        print(name, x + y)
+  expected: |-
+    o 0
+    p 3
+
+- case: |-
+    for i, (a, b) in enumerate(zip("ab", "cd")):
+        print(i, a + b)
+  expected: |-
+    0 ac
+    1 bd
+
+- case: |-
+    d = {}
+    for k, (lo, hi) in [("r", (1, 5))]:
+        d[k] = hi - lo
+    print(d)
+  expected: |-
+    {'r': 4}
+
+- case: |-
+    for (a, b), (c, d) in [((1, 2), (3, 4))]:
+        print(a * d - b * c)
+  expected: |-
+    -2
+
+- case: |-
+    for v in *[1, 2], 3:
+        print(v)
+  expected: |-
+    1
+    2
+    3
+
+- case: |-
+    for x in 7,:
+        print(x)
+  expected: |-
+    7
+
+- case: |-
+    match (1, 2):
+        case (a, b):
+            print(a, b)
+  expected: |-
+    1 2
+
+- case: |-
+    match (1, 2):
+        case a, b:
+            print(a + b)
+  expected: |-
+    3
+
+- case: |-
+    match "a":
+        case "a" as y:
+            print(y)
+  expected: |-
+    a
+
+- case: |-
+    match [1, 2, 3]:
+        case [1, *rest] as whole:
+            print(rest, whole)
+  expected: |-
+    [2, 3] [1, 2, 3]
+
+- case: |-
+    match 5:
+        case (x):
+            print(x)
+  expected: |-
+    5
+
+- case: |-
+    match (1,):
+        case (a,):
+            print("one", a)
+  expected: |-
+    one 1
+
+- case: |-
+    match (0, 5):
+        case 0, y:
+            print("y", y)
+        case _:
+            print("other")
+  expected: |-
+    y 5
+
+- case: |-
+    match [1, 2, 3]:
+        case *init, last:
+            print(init, last)
+  expected: |-
+    [1, 2] 3
+
+- case: |-
+    match 3:
+        case 1 | 2 | 3 as n:
+            print("small", n)
+  expected: |-
+    small 3
+
+- case: |-
+    match (1, 2, 3):
+        case (1, *_):
+            print("starts with 1")
+  expected: |-
+    starts with 1
+
+- case: |-
+    match (1, 2):
+        case (a, b) if a < b:
+            print("ordered")
+        case _:
+            print("no")
+  expected: |-
+    ordered
+
+- case: |-
+    match "xy":
+        case (a, b):
+            print("seq")
+        case _:
+            print("str is not a sequence")
+  expected: |-
+    str is not a sequence
+
+- case: |-
+    match (1, 2):
+        case (1, 3):
+            print("no")
+        case (1, x):
+            print("x", x)
+  expected: |-
+    x 2
+
+- case: |-
+    match [1]:
+        case []:
+            print("empty")
+        case [x]:
+            print("one", x)
+  expected: |-
+    one 1
+
+- case: |-
+    match ():
+        case ():
+            print("empty tuple")
+  expected: |-
+    empty tuple
+
+- case: |-
+    match ("go", "north"):
+        case "go", direction:
+            print("going", direction)
+  expected: |-
+    going north
+
+- case: |-
+    match [1, [2, 3]]:
+        case [a, b]:
+            print(a, b)
+  expected: |-
+    1 [2, 3]
+
+- case: |-
+    match (-1, 2):
+        case -1, y:
+            print(y)
+  expected: |-
+    2
+
+- case: |-
+    match (1, 2, 3):
+        case a, *b:
+            print(a, b)
+  expected: |-
+    1 [2, 3]
+
+- case: |-
+    y = 3 if True else 4
+    if y:
+        print(y)
+  expected: |-
+    3
+
+- case: |-
+    x = 1
+    if x:
+        y = 2
+    -y
+    print(y)
+  expected: |-
+    2
+
+- case: |-
+    z = 5
+    if z == 5: print("one line if")
+  expected: |-
+    one line if
+
+- case: |-
+    x = 3
+    for i in range(1):
+        x = x
+        -x
+    print(x)
+  expected: |-
+    3
+
+- case: |-
+    match 4:
+        case (2 | 4) as n:
+            print(n)
+  expected: |-
+    4
+
+- case: |-
+    match (1, (2, 3)):
+        case (a, (b, c)):
+            print(a, b, c)
+  expected: |-
+    1 2 3
+
+- case: |-
+    match [1, [2, [3, 4]]]:
+        case [a, [b, [c, d]]]:
+            print(a + b + c + d)
+  expected: |-
+    10
+
+- case: |-
+    match (1, 5):
+        case (1 | 2, x):
+            print("x", x)
+  expected: |-
+    x 5
+
+- case: |-
+    match [3, 4]:
+        case [3 as t, 4 | 5 as f]:
+            print(t, f)
+  expected: |-
+    3 4
+
+- case: |-
+    match 7:
+        case (1 | 2 | 3):
+            print("small")
+        case (x):
+            print("other", x)
+  expected: |-
+    other 7
+
+- case: |-
+    match ((1, 2),):
+        case ((a, b),):
+            print(a, b)
+  expected: |-
+    1 2
+
+- case: |-
+    match ((1, 2)):
+        case ((a, b)):
+            print(a, b)
+  expected: |-
+    1 2
+
+- case: |-
+    match [1, 2]:
+        case [1, (2 | 3)]:
+            print("ok")
+  expected: |-
+    ok
+
+- case: |-
+    match 2:
+        case (1 | 2):
+            print("one or two")
+  expected: |-
+    one or two
+
+- case: |-
+    match [1, [2, 3], 4]:
+        case [first, [*mid], last]:
+            print(first, mid, last)
+  expected: |-
+    1 [2, 3] 4
+
+- case: |-
+    match (0, (1, 2)):
+        case 0, (x, y):
+            print(x + y)
+  expected: |-
+    3
+
+- case: |-
+    match ["a", ("b", "c")]:
+        case [x, (y, "c")]:
+            print(x + y)
+  expected: |-
+    ab
+
+- case: |-
+    match [1, 2, 3]:
+        case [1, *_] | [2, *_]:
+            print("starts small")
+  expected: |-
+    starts small
+
+- case: |-
+    match (1, (2, (3, (4,)))):
+        case (_, (_, (_, (d,)))):
+            print(d)
+  expected: |-
+    4
+
+- case: |-
+    match [[1, 2], [3, 4]]:
+        case [[a, b], [c, d]] if a + d == b + c:
+            print("balanced")
+  expected: |-
+    balanced
+
+- case: |-
+    match (5, 6):
+        case ((1 | 5) as x, (6 | 7) as y):
+            print(x * y)
+  expected: |-
+    30
+
+- case: |-
+    match [(1, "x"), (2, "y")]:
+        case [(n, s), *rest]:
+            print(n, s, rest)
+  expected: |-
+    1 x [(2, 'y')]
+
+- case: |-
+    match ([1], [2]):
+        case ([], _):
+            print("empty")
+        case ([a], [b]):
+            print(a, b)
+  expected: |-
+    1 2
+
+- case: |-
+    x = 1
+    if x:
+        y = x
+        -x
+    print(y)
+  expected: |-
+    1
+
+- case: |-
+    match {"k": 1}:
+        case {"k": v}:
+            print(v)
+  expected: |-
+    1
+
+- case: |-
+    match {"k": 1, "j": [2, 3], "z": 9}:
+        case {"k": 1, "j": [a, b], **rest}:
+            print(a, b, rest)
+  expected: |-
+    2 3 {'z': 9}
+
+- case: |-
+    match {"type": "move", "to": (1, 2)}:
+        case {"type": "stop"}:
+            print("stop")
+        case {"type": "move", "to": (x, y)}:
+            print("move", x, y)
+  expected: |-
+    move 1 2
+
+- case: |-
+    match [1, 2]:
+        case {}:
+            print("no")
+        case _:
+            print("list is no mapping")
+  expected: |-
+    list is no mapping
+
+- case: |-
+    match {"a": 1, "b": 2}:
+        case {"c": _}:
+            print("no")
+        case {"a": 1 | 2 as n}:
+            print("a", n)
+  expected: |-
+    a 1
+
+- case: |-
+    match {}:
+        case {}:
+            print("empty dict matches")
+  expected: |-
+    empty dict matches
+
+- case: |-
+    match {1: "one", 2: "two"}:
+        case {1: s, **others}:
+            print(s, others)
+  expected: |-
+    one {2: 'two'}
+
+- case: |-
+    match {"n": {"deep": 5}}:
+        case {"n": {"deep": d}}:
+            print(d)
+  expected: |-
+    5
+
+- case: |-
+    match {"x": None}:
+        case {"x": None}:
+            print("none value")
+  expected: |-
+    none value
+
+- case: |-
+    match 5:
+        case int(n):
+            print("int", n)
+  expected: |-
+    int 5
+
+- case: |-
+    match "s":
+        case int():
+            print("no")
+        case str() as s:
+            print("str", s)
+  expected: |-
+    str s
+
+- case: |-
+    match 3:
+        case int() | str():
+            print("int or str")
+  expected: |-
+    int or str
+
+- case: |-
+    match (1, "x"):
+        case (int(), str(s)):
+            print("typed tuple", s)
+  expected: |-
+    typed tuple x
+
+- case: |-
+    rows = [('a', 1.5), ('bbb', 22.25)]
+    w = max(len(n) for n, _ in rows)
+    for n, v in rows:
+        print(f"{n:<{w}} {v:>{w + 4}.2f}")
+  expected: |-
+    a      1.50
+    bbb   22.25
+
+- case: |-
+    for width in range(1, 5):
+        print(f"[{7:0{width}}]", f"[{'x':^{width}}]")
+  expected: |-
+    [7] [x]
+    [07] [x ]
+    [007] [ x ]
+    [0007] [ x  ]
+
+- case: |-
+    for k, v in {'a': 1, 'b': 2}.items():
+        print(k, v)
+    for i, (p, q) in enumerate(['xy', 'zw']):
+        print(i, p, q)
+  expected: |-
+    a 1
+    b 2
+    0 x y
+    1 z w
+
+- case: |-
+    for w in range(0, 8):
+        print(repr('ab'.center(w)), repr('a'.center(w)))
+  expected: |-
+    'ab' 'a'
+    'ab' 'a'
+    'ab' 'a '
+    ' ab' ' a '
+    ' ab ' ' a  '
+    '  ab ' '  a  '
+    '  ab  ' '  a   '
+    '   ab  ' '   a   '
+
+- case: |-
+    for w in range(0, 8):
+        print(repr('abc'.center(w, '*')), repr(''.center(w, '-')))
+  expected: |-
+    'abc' ''
+    'abc' '-'
+    'abc' '--'
+    'abc' '---'
+    'abc*' '----'
+    '*abc*' '-----'
+    '*abc**' '------'
+    '**abc**' '-------'
+
+- case: |-
+    for s in ['', 'abc', 'ABC', 'Abc', '123', ' \t', 'a1', 'A1 B', 'É', '1a', 'Hello World']:
+        print(repr(s), s.isdigit(), s.isalpha(), s.isalnum(), s.isspace(), s.isupper(), s.islower(), s.istitle())
+  expected: |-
+    '' False False False False False False False
+    'abc' False True True False False True False
+    'ABC' False True True False True False False
+    'Abc' False True True False False False True
+    '123' True False True False False False False
+    ' \t' False False False True False False False
+    'a1' False False True False False True False
+    'A1 B' False False False False True False True
+    'É' False True True False True False True
+    '1a' False False True False False True False
+    'Hello World' False False False False False False True
+
+- case: |-
+    t = '  a b  c  '
+    for m in range(-1, 4):
+        print(t.split(None, m), t.rsplit(None, m))
+  expected: |-
+    ['a', 'b', 'c'] ['a', 'b', 'c']
+    ['a b  c  '] ['  a b  c']
+    ['a', 'b  c  '] ['  a b', 'c']
+    ['a', 'b', 'c  '] ['  a', 'b', 'c']
+    ['a', 'b', 'c'] ['a', 'b', 'c']
+
+- case: |-
+    for m in range(-1, 4):
+        print('x,y,,z'.split(',', m), 'x,y,,z'.rsplit(',', m))
+  expected: |-
+    ['x', 'y', '', 'z'] ['x', 'y', '', 'z']
+    ['x,y,,z'] ['x,y,,z']
+    ['x', 'y,,z'] ['x,y,', 'z']
+    ['x', 'y', ',z'] ['x,y', '', 'z']
+    ['x', 'y', '', 'z'] ['x', 'y', '', 'z']
+
+- case: |-
+    for v in [0xFF, 0o17, 0b101, 1_000, -0x10, 7]:
+        match v:
+            case 0xFF:
+                print('hex')
+            case 0o17:
+                print('oct')
+            case 0b101:
+                print('bin')
+            case 1_0_0_0:
+                print('sep')
+            case -0x10:
+                print('neg hex')
+            case _:
+                print('other', v)
+  expected: |-
+    hex
+    oct
+    bin
+    sep
+    neg hex
+    other 7
+
+- case: |-
+    match [0xFF, 0b1]:
+        case [0xff, 0B1]:
+            print('list hex')
+  expected: |-
+    list hex
+
+- case: |-
+    match {'k': 0o10}:
+        case {'k': 8}:
+            print('oct value')
+  expected: |-
+    oct value
+
+- case: |-
+    match 2 ** 70:
+        case 0x400000000000000000:
+            print('wide hex')
+  expected: |-
+    wide hex
+
+- case: |-
+    match (0b11, -0o7):
+        case (3, -7):
+            print('tuple bases')
+  expected: |-
+    tuple bases
+
+- case: |-
+    x = 0X1F
+    match x:
+        case 0x1f if x > 30:
+            print('guarded')
+  expected: |-
+    guarded
+
+- case: |-
+    xs = []
+    for i in range(300):
+        xs.append('k' * (i % 200))
+    del xs[::2]
+    ys = ['k' * (i % 200) for i in range(300)]
+    print(len(set(xs)), len(set(ys)), ('k' * 150) in ys, ('k' * 150) is not None)
+  expected: |-
+    100 200 True True
+
+- case: |-
+    big = 'x' * 1000
+    for _ in range(200):
+        tmp = [big + str(i) for i in range(50)]
+    print(len(tmp), tmp[-1][-2:], big == 'x' * 1000)
+  expected: |-
+    50 49 True
+
+- case: |-
+    d = {}
+    for i in range(400):
+        d['key' + str(i % 50)] = i
+    for i in range(0, 50, 2):
+        del d['key' + str(i)]
+    print(len(d), d.get('key1'), d.get('key2'), sorted(d)[:3])
+  expected: |-
+    25 351 None ['key1', 'key11', 'key13']
+
+- case: |-
+    s = set()
+    for i in range(500):
+        s.add(('t' * (i % 7)) + str(i % 13))
+    print(len(s), 'ttt3' in s, 'tt12' in s)
+  expected: |-
+    91 True True
+
+- case: |-
+    keep = []
+    for r in range(30):
+        junk = [str(i) * 3 for i in range(100)]
+        keep.append(junk[r])
+    print(keep[:5], len(set(keep)))
+  expected: |-
+    ['000', '111', '222', '333', '444'] 30
+
+- case: |-
+    n = 0
+    for i in range(300):
+        w = b'z' * (i % 160)
+        n += len(w)
+    print(n, b'z' * 3 == b'zzz')
+  expected: |-
+    22450 True
+
+- case: |-
+    names = []
+    for i in range(200):
+        names.append(f"name_{i % 40}")
+    seen = {}
+    for n in names:
+        seen[n] = seen.get(n, 0) + 1
+    print(len(seen), seen['name_0'], max(seen.values()))
+  expected: |-
+    40 5 5
+
+- case: |-
+    it = iter([1, 2, 3, 4, 5])
+    for x in it:
+        if x == 2:
+            break
+    print(next(it), list(it))
+  expected: |-
+    3 [4, 5]
+
+- case: |-
+    xs = list(range(20000))
+    it = iter(xs)
+    s = 0
+    for _ in range(20000):
+        s += next(it)
+    print(s)
+  expected: |-
+    199990000
+
+- case: |-
+    for v in [1, 0, True, False, None, 1.0]:
+        match v:
+            case True:
+                print('T', v)
+            case False:
+                print('F', v)
+            case None:
+                print('N')
+            case _:
+                print('other', v)
+  expected: |-
+    other 1
+    other 0
+    T True
+    F False
+    N
+    other 1.0
+
+- case: |-
+    for v in [[1], [True], [0], [None], [0.0]]:
+        match v:
+            case [True]:
+                print('lt')
+            case [False]:
+                print('lf')
+            case [None]:
+                print('ln')
+            case _:
+                print('lo', v)
+  expected: |-
+    lo [1]
+    lt
+    lo [0]
+    ln
+    lo [0.0]
+
+- case: |-
+    for v in ['ab', ['ab'], b'xy', [b'xy'], {'k': 'ab'}]:
+        match v:
+            case 'a' 'b':
+                print('concat')
+            case ['a' 'b']:
+                print('nested concat')
+            case b'x' b'y':
+                print('bytes')
+            case [b'xy']:
+                print('nested bytes')
+            case {'k': 'a' 'b'}:
+                print('map concat')
+  expected: |-
+    concat
+    nested concat
+    bytes
+    nested bytes
+    map concat
+
+- case: |-
+    x = 'outer'
+    match {'a': 1, 'b': [2, 3]}:
+        case {'a': 1, 'b': [_, last]} as whole:
+            print(last, sorted(whole), x)
+    match 5:
+        case 1 | 2 | 3:
+            print('low')
+        case 4 | 5 if False:
+            print('guarded')
+        case n:
+            print('capture', n)
+  expected: |-
+    3 ['a', 'b'] outer
+    capture 5
+
+- case: |-
+    match 1:
+        case 1 + 2:
+            pass
+  error: unsupported pattern
+
+- case: |-
+    match 1:
+        case -x:
+            pass
+  error: unsupported pattern
+
+- case: |-
+    match 1:
+        case 1 as 2:
+            pass
+  error: invalid pattern target
+
+- case: |-
+    match 1:
+        case f(x)(y):
+            pass
+  error: unsupported pattern
+
+- case: |-
+    match 1:
+        case -True:
+            pass
+  error: unsupported pattern
+
+- case: |-
+    rows = [('a', [1, 2]), ('bb', (3,))]
+    for name, val in rows:
+        print(f'{name:<3}{val!s:>8}|')
+  expected: |-
+    a    [1, 2]|
+    bb     (3,)|
+
+- case: |-
+    n = float("nan")
+    for spec in ["5", "05", "<5", "^7", "=+6", "+", "-8", ".2f", "08.3f", "e", "g"]:
+        print(repr(format(n, spec)), repr(format(float("-inf"), spec)), repr(format(float("inf"), spec)))
+  expected: |-
+    '  nan' ' -inf' '  inf'
+    '00nan' '-0inf' '00inf'
+    'nan  ' '-inf ' 'inf  '
+    '  nan  ' ' -inf  ' '  inf  '
+    '+  nan' '-  inf' '+  inf'
+    '+nan' '-inf' '+inf'
+    '     nan' '    -inf' '     inf'
+    'nan' '-inf' 'inf'
+    '00000nan' '-0000inf' '00000inf'
+    'nan' '-inf' 'inf'
+    'nan' '-inf' 'inf'
+
+- case: |-
+    chunk = [0.5] * 1000000
+    xs = []
+    while True:
+        xs.extend(chunk)
+  error: 'MemoryError: memory limit'
+
+- case: |-
+    parts = []
+    while True:
+        parts.append(bytes(50000000))
+  error: 'MemoryError: memory limit'
+
+- case: |-
+    for i in range(20):
+        b = bytes(50000000)
+    print(len(b))
+  expected: |-
+    50000000
+
+- case: |-
+    s = 0
+    i = 0
+    while i < 300000:
+        s = (s + i * 7) % 1000003
+        i += 1
+    print(s)
+  expected: |-
+    5006
+
+- case: |-
+    s = 0
+    for i in range(250000):
+        if i % 3 == 0:
+            s += i
+        elif i % 3 == 1:
+            s -= 2
+        else:
+            s ^= i
+    print(s)
+  expected: |-
+    10472820227
+
+- case: |-
+    t = 0
+    for i in range(400):
+        for j in range(400):
+            t += (i * j) & 255
+    print(t)
+  expected: |-
+    20002880
+
+- case: |-
+    x = 0.0
+    y = 1.0
+    for i in range(200000):
+        x += y * 0.5
+        y = y * 0.999999 + 0.000001
+    print(f"{x:.6f} {y:.9f}")
+  expected: |-
+    100000.000000 1.000000000
+
+- case: |-
+    acc = 0.0
+    for i in range(200000):
+        acc += i / 3 + (i % 7) * 0.25 - i // 5
+    print(f"{acc:.4f}")
+  expected: |-
+    2666883331.8333
+
+- case: |-
+    c = [0, 0, 0, 0, 0, 0]
+    for i in range(150000):
+        a = i % 17
+        b = i % 13
+        if a < b: c[0] += 1
+        if a <= b: c[1] += 1
+        if a > b: c[2] += 1
+        if a >= b: c[3] += 1
+        if a == b: c[4] += 1
+        if a != b: c[5] += 1
+    print(c)
+  expected: |-
+    [52938, 61765, 88235, 97062, 8827, 141173]
+
+- case: |-
+    n = 0
+    for i in range(150000):
+        x = i * 0.37
+        y = (i % 101) * 1.9
+        if x > y: n += 1
+        if x <= y * 2.0: n += 2
+        if x >= 100.5: n += 3
+        if x != y: n += 1
+    print(n)
+  expected: |-
+    749954
+
+- case: |-
+    h = 2166136261
+    for i in range(200000):
+        h = ((h ^ (i & 0xFF)) * 16777619) & 0xFFFFFFFF
+        h = (h << 3 | h >> 29) & 0xFFFFFFFF
+    print(h, ~h & 0xFFFF)
+  expected: |-
+    1924919479 3912
+
+- case: |-
+    s = 0
+    for i in range(-100000, 100000):
+        s += i // 7 + i % 7 + (-i) // 3 - (-i) % 5
+    print(s)
+  expected: |-
+    66667
+
+- case: |-
+    s = 0.0
+    for i in range(1, 200001):
+        s += 1 / i + i / 7
+    print(s)
+  expected: |-
+    2857157155.6404386
+
+- case: |-
+    s = 0
+    f = 0.0
+    for i in range(1, 60000):
+        s += (i % 50) ** 2 + (i % 9) ** 3
+        f += i ** 0.5
+    print(s, f"{f:.3f}")
+  expected: |-
+    57149361 9797836.289
+
+- case: |-
+    s = 0
+    for i in range(200000):
+        v = -(i % 1000) + 500
+        s += abs(v) + -v + (+v)
+    print(s)
+  expected: |-
+    50000000
+
+- case: |-
+    a = 1
+    b = 1000000
+    c = 0
+    d = 255
+    for i in range(1, 100000):
+        a += i
+        b -= i % 7
+        c ^= i
+        d |= i & 3
+        d &= 0xFFFF
+        a %= 1000007
+        b //= 1
+    print(a, b, c, d)
+  expected: |-
+    915008 700005 0 255
+
+- case: |-
+    n = 0
+    for i in range(200000):
+        if (i % 3 == 0 and i % 5 == 0) or (i % 7 == 0 and not i % 11 == 0):
+            n += 1
+        x = i % 4 or 9
+        n += x and 1
+    print(n)
+  expected: |-
+    237577
+
+- case: |-
+    n = 0
+    for i in range(200000):
+        a = i % 10
+        if 2 < a < 8:
+            n += 1
+        if 0 <= a <= 3 < i % 7:
+            n += 2
+    print(n)
+  expected: |-
+    168568
+
+- case: |-
+    s = 0
+    for i in range(200000):
+        s += i if i % 2 else -i
+        s += 3 if i % 5 == 0 else 1
+    print(s)
+  expected: |-
+    380000
+
+- case: |-
+    x = 1
+    for i in range(1, 40000):
+        x = (x * 3 + i) % 1329227995784915872903807060280344457
+    print(x)
+  expected: |-
+    982655290341898222776145494447933173
+
+- case: |-
+    m = 18446744073709551616
+    x = 88172645463325252
+    acc = 0
+    for _ in range(80000):
+        x = (x * 6364136223846793005 + 1442695040888963407) % m
+        acc ^= x >> 40
+    print(x, acc)
+  expected: |-
+    13172441383142186180 372736
+
+- case: |-
+    big = 140737488355327
+    s = 0
+    for i in range(100000):
+        v = big - (i % 3) + (i % 5)
+        s = (s + v) % 1000000007
+    print(s)
+  expected: |-
+    16558842
+
+- case: |-
+    best = 0
+    arg = 0
+    for n in range(1, 6000):
+        x = n
+        steps = 0
+        while x != 1:
+            x = x // 2 if x % 2 == 0 else 3 * x + 1
+            steps += 1
+        if steps > best:
+            best = steps
+            arg = n
+    print(arg, best)
+  expected: |-
+    3711 237
+
+- case: |-
+    count = 0
+    for n in range(2, 12000):
+        p = True
+        d = 2
+        while d * d <= n:
+            if n % d == 0:
+                p = False
+                break
+            d += 1
+        if p:
+            count += 1
+    print(count)
+  expected: |-
+    1438
+
+- case: |-
+    total = 0
+    for py in range(40):
+        y0 = py / 40 * 2.0 - 1.0
+        for px in range(60):
+            x0 = px / 60 * 3.0 - 2.0
+            x = 0.0
+            y = 0.0
+            it = 0
+            while x * x + y * y <= 4.0 and it < 120:
+                x, y = x * x - y * y + x0, 2.0 * x * y + y0
+                it += 1
+            total += it
+    print(total)
+  expected: |-
+    86165
+
+- case: |-
+    n = 150000
+    flags = [True] * (n + 1)
+    flags[0] = flags[1] = False
+    i = 2
+    while i * i <= n:
+        if flags[i]:
+            for j in range(i * i, n + 1, i):
+                flags[j] = False
+        i += 1
+    print(sum([1 for f in flags if f]))
+  expected: |-
+    13848
+
+- case: |-
+    n = 45
+    x = 7
+    a = []
+    b = []
+    for i in range(n):
+        ra = []
+        rb = []
+        for j in range(n):
+            x = (x * 1103515245 + 12345) % 2147483648
+            ra.append((x % 100) / 10.0)
+            rb.append((x % 37) / 7.0)
+        a.append(ra)
+        b.append(rb)
+    c = [[0.0] * n for _ in range(n)]
+    for i in range(n):
+        ai = a[i]
+        ci = c[i]
+        for k in range(n):
+            aik = ai[k]
+            bk = b[k]
+            for j in range(n):
+                ci[j] += aik * bk[j]
+    print(f"{sum([c[i][i] for i in range(n)]):.6f}")
+  expected: |-
+    26329.900000
+
+- case: |-
+    t = 0
+    for n in range(3000):
+        a, b = 0, 1
+        for _ in range(n % 90):
+            a, b = b, a + b
+        t = (t + a) % 1000000007
+    print(t)
+  expected: |-
+    923086977
+
+- case: |-
+    weights = [(i * 37) % 23 + 1 for i in range(60)]
+    values = [(i * 53) % 31 + 1 for i in range(60)]
+    cap = 500
+    dp = [0] * (cap + 1)
+    for i in range(60):
+        w = weights[i]
+        v = values[i]
+        for c in range(cap, w - 1, -1):
+            if dp[c - w] + v > dp[c]:
+                dp[c] = dp[c - w] + v
+    print(dp[cap])
+  expected: |-
+    895
+
+- case: |-
+    a = "".join([chr(97 + (i * 7) % 26) for i in range(300)])
+    b = "".join([chr(97 + (i * 11) % 26) for i in range(300)])
+    prev = [0] * (len(b) + 1)
+    for i in range(1, len(a) + 1):
+        cur = [0] * (len(b) + 1)
+        ai = a[i - 1]
+        for j in range(1, len(b) + 1):
+            if ai == b[j - 1]:
+                cur[j] = prev[j - 1] + 1
+            else:
+                cur[j] = max(prev[j], cur[j - 1])
+        prev = cur
+    print(prev[len(b)])
+  expected: |-
+    116
+
+- case: |-
+    n = 45
+    INF = 10 ** 9
+    d = [[INF] * n for _ in range(n)]
+    for i in range(n):
+        d[i][i] = 0
+        d[i][(i + 1) % n] = (i * 7) % 13 + 1
+        d[i][(i * 3 + 2) % n] = (i * 5) % 17 + 2
+    for k in range(n):
+        dk = d[k]
+        for i in range(n):
+            di = d[i]
+            dik = di[k]
+            for j in range(n):
+                nd = dik + dk[j]
+                if nd < di[j]:
+                    di[j] = nd
+    print(sum([sum(r) for r in d]))
+  expected: |-
+    68673
+
+- case: |-
+    t = 0
+    for i in range(40000):
+        s = str(i)
+        t += len(s) + abs(-i) % 7 + min(i, 50) + max(i % 9, 3)
+        t += int(s) % 11 + int(float(i) * 0.5) % 5
+        t += ord(chr(65 + i % 26)) + divmod(i, 7)[1] + round(i / 3) % 2
+        t += isinstance(i, int) + (i % 2)
+    print(t)
+  expected: |-
+    6074167
+
+- case: |-
+    xs = []
+    push = xs.append
+    for i in range(80000):
+        push(i % 13)
+    f = "{}-{}".format
+    s = 0
+    for i in range(30000):
+        s += len(f(i, i % 7))
+    print(len(xs), sum(xs), s)
+  expected: |-
+    80000 479989 198890
+
+- case: |-
+    total = 0
+    for i in range(200000):
+        total += i % 9
+    print(total)
+  expected: |-
+    799993
+
+- case: |-
+    a = 0
+    b = 1
+    c = 2
+    i = 0
+    while i < 120000:
+        a = a + b
+        b = (b + c) % 997
+        c = c ^ i
+        i += 1
+    print(a, b, c)
+  expected: |-
+    59658375 857 2
+
+- case: |-
+    xs = []
+    for i in range(100000):
+        xs.append(i * 2)
+    t = 0
+    for i in range(100000):
+        t += xs[i] - xs[-1 - i]
+    print(len(xs), t)
+  expected: |-
+    100000 0
+
+- case: |-
+    xs = list(range(1000))
+    t = 0
+    for i in range(150000):
+        t += xs[-(i % 1000) - 1]
+    print(t)
+  expected: |-
+    74925000
+
+- case: |-
+    xs = list(range(500))
+    for i in range(20000):
+        v = xs.pop()
+        xs.insert(0, v)
+        xs.append(xs.pop(0))
+    print(xs[:5], xs[-5:])
+  expected: |-
+    [0, 1, 2, 3, 4] [495, 496, 497, 498, 499]
+
+- case: |-
+    xs = list(range(200))
+    t = 0
+    for i in range(20000):
+        a = xs[i % 50: i % 50 + 20]
+        b = xs[::7]
+        c = xs[-10:]
+        t += len(a) + b[i % len(b)] + c[0]
+    print(t)
+  expected: |-
+    6159335
+
+- case: |-
+    xs = list(range(100))
+    for i in range(15000):
+        xs[10:20] = [i, i + 1, i + 2]
+        xs[-3:] = xs[-3:] + [i]
+        del xs[0]
+        if len(xs) < 90:
+            xs.extend(range(15))
+    print(len(xs), sum(xs) % 100003)
+  expected: |-
+    100 45423
+
+- case: |-
+    t = 0
+    for i in range(15000):
+        a = [i, i + 1]
+        b = a + [3, 4] + a
+        b.extend(a)
+        b += [5]
+        t += len(b) + b[-1]
+    print(t)
+  expected: |-
+    210000
+
+- case: |-
+    t = 0
+    for k in range(150):
+        sq = [i * i for i in range(300)]
+        ev = [x for x in sq if x % 2 == 0]
+        pairs = [(i, j) for i in range(10) for j in range(i)]
+        t += len(ev) + sum(sq) % 1000 + len(pairs)
+    print(t)
+  expected: |-
+    36750
+
+- case: |-
+    x = 12345
+    xs = []
+    for _ in range(60000):
+        x = (x * 1103515245 + 12345) % 2147483648
+        xs.append(x % 100000)
+    a = sorted(xs)
+    xs.sort(reverse=True)
+    print(a[0], a[-1], a[30000], xs[0], xs[-1])
+  expected: |-
+    0 99999 49941 99999 0
+
+- case: |-
+    a = list(range(5000))
+    b = [x * 3 for x in a]
+    t = 0
+    for _ in range(10):
+        for i, (x, y) in enumerate(zip(a, b)):
+            t += i + x - y
+    print(t)
+  expected: |-
+    -124975000
+
+- case: |-
+    t = 0
+    for k in range(20):
+        for i in range(0, 10000, 3):
+            t += i
+        for i in reversed(range(2000)):
+            t -= i
+        for i in range(5000, 0, -7):
+            t += 1
+    print(t)
+  expected: |-
+    293400960
+
+- case: |-
+    a, b, c = 1, 2, 3
+    for i in range(150000):
+        a, b, c = b, c, (a + b + c) % 1009
+    print(a, b, c)
+  expected: |-
+    527 356 78
+
+- case: |-
+    t = 0
+    for i in range(40000):
+        first, *mid, last = [i, 1, 2, 3, i % 5]
+        *init, tail = (i, i + 1, i + 2)
+        t += first + len(mid) + last + len(init) + tail
+    print(t)
+  expected: |-
+    1600320000
+
+- case: |-
+    d = {}
+    for i in range(60000):
+        d[i] = i * 2
+    t = 0
+    for i in range(0, 120000, 2):
+        if i in d:
+            t += d[i]
+    print(len(d), t)
+  expected: |-
+    60000 1799940000
+
+- case: |-
+    grid = {}
+    for x in range(150):
+        for y in range(150):
+            grid[(x, y)] = (x * y) % 11
+    t = 0
+    for x in range(1, 149):
+        for y in range(1, 149, 3):
+            t += grid[(x - 1, y)] + grid[(x + 1, y)] + grid[(x, y + 1)]
+    print(len(grid), t)
+  expected: |-
+    22500 101484
+
+- case: |-
+    groups = {}
+    for i in range(60000):
+        groups.setdefault(i % 113, []).append(i)
+    t = 0
+    for k in range(200):
+        t += len(groups.get(k, []))
+    print(len(groups), t, groups[5][:3])
+  expected: |-
+    113 60000 [5, 118, 231]
+
+- case: |-
+    d = {"k" + str(i): i for i in range(3000)}
+    t = 0
+    for _ in range(15):
+        for k, v in d.items():
+            t += v
+        for k in d:
+            t += len(k)
+        t += sum(d.values()) % 7
+    print(t)
+  expected: |-
+    67685940
+
+- case: |-
+    t = 0
+    for k in range(60):
+        sq = {i: i * i for i in range(1000)}
+        inv = {v: k2 for k2, v in sq.items() if k2 % 3 == 0}
+        t += len(sq) + len(inv) + sq[999] % 13
+    print(t)
+  expected: |-
+    80280
+
+- case: |-
+    d = {i: i for i in range(20000)}
+    for i in range(0, 20000, 2):
+        del d[i]
+    t = 0
+    for i in range(1, 20000, 4):
+        t += d.pop(i)
+    d2 = dict(d)
+    d2.update({1: 5, 2: 6})
+    print(len(d), t, len(d2), d2[1])
+  expected: |-
+    5000 49995000 5002 5
+
+- case: |-
+    people = [{"name": "p" + str(i), "age": i % 90, "tags": ["a", "b"][: i % 3]} for i in range(5000)]
+    by_age = {}
+    for p in people:
+        by_age.setdefault(p["age"], []).append(p["name"])
+    t = 0
+    for _ in range(10):
+        for p in people:
+            t += p["age"] + len(p["tags"])
+    print(len(by_age), t, by_age[3][:2])
+  expected: |-
+    90 2264990 ['p3', 'p93']
+
+- case: |-
+    s = set()
+    for i in range(60000):
+        s.add((i * 7) % 50021)
+    hits = 0
+    for i in range(60000):
+        if i in s:
+            hits += 1
+    print(len(s), hits)
+  expected: |-
+    50021 50021
+
+- case: |-
+    a = set(range(0, 30000, 2))
+    b = set(range(0, 30000, 3))
+    t = 0
+    for _ in range(15):
+        t += len(a | b) + len(a & b) + len(a - b) + len(a ^ b)
+        t += a.issubset(a | b) + b.isdisjoint({1, 5, 7})
+    print(t)
+  expected: |-
+    750030
+
+- case: |-
+    t = 0
+    for k in range(80):
+        s = {i % 997 for i in range(3000)}
+        e = {x for x in s if x % 2 == 0}
+        t += len(s) + len(e)
+    print(t)
+  expected: |-
+    119680
+
+- case: |-
+    d = {}
+    for i in range(20000):
+        key = frozenset([i % 50, (i * 3) % 50])
+        d[key] = d.get(key, 0) + 1
+    print(len(d), max(d.values()))
+  expected: |-
+    50 400
+
+- case: |-
+    pool = list(range(0, 2000, 3))
+    fast = set(pool)
+    a = 0
+    b = 0
+    for i in range(4000):
+        if i in pool:
+            a += 1
+        if i in fast:
+            b += 1
+    print(a, b)
+  expected: |-
+    667 667
+
+- case: |-
+    w = 40
+    h = 40
+    cells = [[1 if (x * 7 + y * 13) % 5 == 0 else 0 for x in range(w)] for y in range(h)]
+    for _ in range(12):
+        nxt = [[0] * w for _ in range(h)]
+        for y in range(h):
+            for x in range(w):
+                n = 0
+                for dy in (-1, 0, 1):
+                    for dx in (-1, 0, 1):
+                        if dx or dy:
+                            n += cells[(y + dy) % h][(x + dx) % w]
+                nxt[y][x] = 1 if n == 3 or (n == 2 and cells[y][x]) else 0
+        cells = nxt
+    print(sum([sum(r) for r in cells]))
+  expected: |-
+    320
+
+- case: |-
+    stack = []
+    queue = []
+    t = 0
+    for i in range(60000):
+        stack.append(i)
+        queue.append(i * 2)
+        if i % 3 == 0:
+            t += stack.pop()
+        if len(queue) > 50:
+            t -= queue.pop(0)
+    print(t, len(stack), len(queue))
+  expected: |-
+    -2993972550 40000 50
+
+- case: |-
+    data = bytes([i % 256 for i in range(4000)])
+    t = 0
+    for _ in range(15):
+        for b in data:
+            t += b
+        t += data.count(b"\x07") + len(data.split(b"\x00")) + data.find(b"\xff")
+    print(t, data[:4].hex())
+  expected: |-
+    7539120 00010203
+
+- case: |-
+    m = [[0] * 60 for _ in range(60)]
+    for k in range(30):
+        for i in range(60):
+            row = m[i]
+            for j in range(60):
+                row[j] += (i ^ j ^ k) & 3
+    print(sum([sum(r) for r in m]))
+  expected: |-
+    162000
+
+- case: |-
+    xs = [i % 50 for i in range(2000)]
+    t = 0
+    for k in range(1000):
+        t += xs.count(k % 50) + xs.index(k % 50)
+        xs.remove(k % 50)
+        xs.append(k % 50)
+    print(t, len(xs))
+  expected: |-
+    40000 2000
+
+- case: |-
+    s = ""
+    for i in range(3000):
+        s += chr(97 + i % 26)
+    t = 0
+    for i in range(2000):
+        piece = "ab" + str(i) + "cd"
+        t += len(piece)
+    print(len(s), s[:10], t)
+  expected: |-
+    3000 abcdefghij 14890
+
+- case: |-
+    t = 0
+    for k in range(150):
+        parts = [str(i) for i in range(300)]
+        s = ",".join(parts)
+        t += len(s) + len("-".join(["x", "y", "z"]))
+    print(t)
+  expected: |-
+    164100
+
+- case: |-
+    line = " ".join(["word" + str(i % 37) for i in range(400)])
+    t = 0
+    for _ in range(150):
+        ws = line.split()
+        t += len(ws) + len(" ".join(ws)) + len(line.split("1"))
+    print(t)
+  expected: |-
+    486450
+
+- case: |-
+    text = "the quick brown fox jumps over the lazy dog " * 40
+    t = 0
+    for i in range(400):
+        t += text.count("the") + text.find("lazy") + text.rfind("fox")
+        t += len(text.replace("o", "00")) + text.index("dog")
+    print(t)
+  expected: |-
+    1522800
+
+- case: |-
+    words = ["  Hello ", "WORLD", "edge Python  ", " mixed CASE text "]
+    t = 0
+    for i in range(30000):
+        w = words[i % 4]
+        t += len(w.strip()) + len(w.upper()) + len(w.lower()) + len(w.title()) + len(w.lstrip())
+    print(t)
+  expected: |-
+    1537500
+
+- case: |-
+    names = ["file" + str(i) + (".py" if i % 3 == 0 else ".txt") for i in range(500)]
+    n = 0
+    for _ in range(60):
+        for s in names:
+            if s.startswith("file1"):
+                n += 1
+            if s.endswith(".py"):
+                n += 2
+            if s.endswith((".md", ".txt")):
+                n += 3
+    print(n)
+  expected: |-
+    86640
+
+- case: |-
+    h = 0
+    for i in range(30000):
+        x = i * 1.25
+        s = f"{i:06d}|{x:10.3f}|{i:x}|{i % 7:<3}|{'k':^5}|{x:e}"
+        h = (h * 31 + len(s) + ord(s[3])) % 1000000007
+    print(h)
+  expected: |-
+    848611070
+
+- case: |-
+    t = 0
+    tmpl = "{0}-{1}-{0}:{2:.2f}"
+    for i in range(30000):
+        t += len(tmpl.format(i, i % 9, i / 7))
+    print(t)
+  expected: |-
+    600010
+
+- case: |-
+    t = 0
+    for i in range(30000):
+        s = "%d:%s:%.3f:%05d" % (i, "x", i / 3, i % 1000)
+        t += len(s)
+    print(t)
+  expected: |-
+    645560
+
+- case: |-
+    s = "".join([chr(65 + i % 26) for i in range(2000)])
+    t = 0
+    for i in range(5000):
+        a = s[i % 100: i % 100 + 50]
+        b = s[::-1][:20]
+        c = s[::3]
+        t += len(a) + ord(b[i % 20]) + len(c)
+    print(t)
+  expected: |-
+    3977500
+
+- case: |-
+    s = "edge python benchmark " * 200
+    t = 0
+    for _ in range(20):
+        for ch in s:
+            t += ord(ch)
+    print(t)
+  expected: |-
+    8456000
+
+- case: |-
+    t = 0
+    for i in range(50000):
+        s = str(i * 37)
+        t += int(s) % 97 + len(s) + int(s[::-1] or "0") % 13
+    print(t)
+  expected: |-
+    3019031
+
+- case: |-
+    s = "Abc123 xyz_!? 9Z" * 300
+    counts = [0, 0, 0, 0, 0]
+    for _ in range(5):
+        for ch in s:
+            if ch.isdigit(): counts[0] += 1
+            if ch.isalpha(): counts[1] += 1
+            if ch.isspace(): counts[2] += 1
+            if ch.isupper(): counts[3] += 1
+            if ch.isalnum(): counts[4] += 1
+    print(counts)
+  expected: |-
+    [6000, 10500, 3000, 3000, 16500]
+
+- case: |-
+    words = []
+    x = 1
+    for _ in range(15000):
+        x = (x * 1103515245 + 12345) % 2147483648
+        words.append(chr(97 + x % 26) + chr(97 + (x >> 5) % 26) + chr(97 + (x >> 10) % 26))
+    words.sort()
+    eq = 0
+    for i in range(1, len(words)):
+        if words[i] == words[i - 1]:
+            eq += 1
+    print(words[0], words[-1], eq, words[7000] < words[7001])
+  expected: |-
+    aaa zzz 5306 True
+
+- case: |-
+    n = 0
+    for i in range(60000):
+        s = str(i)
+        if s == s[::-1]:
+            n += 1
+    print(n)
+  expected: |-
+    699
+
+- case: |-
+    s = "ñandú café über naïve 日本語 " * 80
+    t = 0
+    for i in range(3000):
+        t += ord(s[i % len(s)]) + len(s[i % 50: i % 50 + 5])
+    print(t, len(s), s.upper()[:12])
+  expected: |-
+    10447091 2080 ÑANDÚ CAFÉ Ü
+
+- case: |-
+    t = 0
+    for i in range(30000):
+        s = "ab" * (i % 10)
+        t += len(s.center(30, "*")) + len(s.zfill(12)) + len(s.ljust(15)) + len(s.rjust(15))
+    print(t)
+  expected: |-
+    2220000
+
+- case: |-
+    t = 0
+    for k in range(150):
+        t += sum(x * x for x in range(500))
+        t += max(x % 97 for x in range(500))
+        t += any(x == 499 for x in range(500)) + all(x >= 0 for x in range(500))
+    print(t)
+  expected: |-
+    6231277200
+
+- case: |-
+    t = 0
+    for i in range(60000):
+        tmp = [i, i + 1, i + 2, i + 3]
+        t += tmp[i % 4]
+    print(t)
+  expected: |-
+    1800060000
+
+- case: |-
+    t = 0
+    for i in range(40000):
+        d = {"a": i, "b": i * 2, "c": [i]}
+        t += d["a"] + d["b"] + len(d["c"])
+    print(t)
+  expected: |-
+    2399980000
+
+- case: |-
+    big = [[i, i * 2] for i in range(80000)]
+    s = sum([p[1] for p in big])
+    big = None
+    t = 0
+    for i in range(50000):
+        t += len([i])
+    print(s, t)
+  expected: |-
+    6399920000 50000
+
+- case: |-
+    d = {}
+    total = 0
+    for r in range(10):
+        for i in range(8000):
+            d[i * r] = i
+        total += len(d)
+        d.clear()
+    print(total, len(d))
+  expected: |-
+    72001 0
+
+- case: |-
+    t = 0
+    for i in range(40000):
+        s = "item-" + str(i) + "-" + str(i % 7)
+        u = s.upper()
+        t += len(u) + (1 if "-3" in s else 0)
+    print(t)
+  expected: |-
+    484128
+
+- case: |-
+    kept = []
+    for i in range(80000):
+        row = (i, str(i))
+        if i % 10 == 0:
+            kept.append(row)
+    print(len(kept), kept[-1])
+  expected: |-
+    8000 (79990, '79990')
+
+- case: |-
+    t = 0
+    for i in range(80000):
+        p = (i, i + 1)
+        q = (p[1], p[0], i % 3)
+        t += q[0] - q[1] + q[2]
+    print(t)
+  expected: |-
+    159999
+
+- case: |-
+    t = 0
+    for i in range(30000):
+        t += ((((((((i + 1) * 2 - 3) * 4 + 5) % 97 - 6) * 7 + 8) % 101 - 9) * 2) + (i % 3 - (i % 5 - (i % 7 - (i % 11)))))
+    print(t)
+  expected: |-
+    2371393
+
+- case: |-
+    t = 0
+    for i in range(30000):
+        for j in range(10):
+            if j == i % 10:
+                break
+            if j % 2:
+                continue
+            t += j
+        else:
+            t += 100
+    print(t)
+  expected: |-
+    180000
+
+- case: |-
+    found = 0
+    for n in range(2, 4000):
+        d = 2
+        while d * d <= n:
+            if n % d == 0:
+                break
+            d += 1
+        else:
+            found += 1
+    print(found)
+  expected: |-
+    550
+
+- case: |-
+    t = 0
+    for i in range(30000):
+        if (r := i % 13) > 6:
+            t += r
+    vals = [y for x in range(2000) if (y := x * 2) % 3 == 0]
+    print(t, len(vals), vals[-1])
+  expected: |-
+    131514 667 3996
+
+- case: |-
+    d = {'a': 1, 'b': 2}
+    for k in d:
+        if k == 'a':
+            del d['b']
+            d['c'] = 3
+        print(k)
+  expected: |-
+    a
+    c
+
+- case: |-
+    d = {'a': 1}
+    for k, v in d.items():
+        d[k] = v + 1
+    it = iter({'a': 1, 'b': 2}.items())
+    print(d, next(it), list(it))
+  expected: |-
+    {'a': 2} ('a', 1) [('b', 2)]
+
+- case: |-
+    d = {}
+    for d['h'], *d['t'] in [[1, 2, 3]]:
+        pass
+    print(d)
+  expected: |-
+    {'h': 1, 't': [2, 3]}
+
+- case: |-
+    for x, in [(1,), (2,)]:
+        print(x)
+  expected: |-
+    1
+    2
+
+- case: |
+    if True: if True: print(1)
+  error: a compound statement must start its own line
+
+- case: |
+    for x in [1]: while x: pass
+  error: a compound statement must start its own line
+
+- case: |
+    while False: for y in []: pass
+  error: a compound statement must start its own line
+
+- case: |
+    with open('x') as f: if f: pass
+  error: a compound statement must start its own line
+
+- case: |
+    if True: try: pass
+  error: a compound statement must start its own line
+
+- case: |
+    if True: x = 1; print(x)
+  expected: |-
+    1
+
+- case: |
+    match 1:
+        case [[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[y]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]:
+            pass
+  error: too deeply nested
+
+- case: |
+    for _ in range(2):
+        print(_)
+  expected: |-
+    0
+    1
+
+- case: |
+    match 3:
+        case _:
+            print('wild')
+  expected: |-
+    wild
+
+- case: |-
+    x = 0
+    for i in range(5):
+        x = x + i
+        x = x * 2
+    print(x)
+  expected: |-
+    52
+
+- case: |-
+    x = 'a'
+    if len(x) > 0:
+        x = x + 'b'
+        x = x + 'c'
+    else:
+        x = 'z'
+    x = x + 'd'
+    print(x)
+  expected: |-
+    abcd
+
+- case: |-
+    n = 0
+    while n < 10:
+        n += 1
+        if n % 2:
+            n += 1
+    n = n * 3
+    print(n)
+  expected: |-
+    30
+
+- case: |-
+    s = set(range(40))
+    for i in range(35):
+        s.discard(i)
+    s.add(100)
+    s.add(3)
+    receive()
+    print(list(s))
+  expected: |-
+    [35, 36, 37, 38, 39, 100, 3]
+  interactive_events: [e]
+
+- case: |-
+    d = {i: i for i in range(30)}
+    for i in range(25):
+        del d[i]
+    d[0] = 0
+    receive()
+    print(list(d))
+  expected: |-
+    [25, 26, 27, 28, 29, 0]
+  interactive_events: [e]
+
+- case: |-
+    s = set(range(20))
+    for i in range(18):
+        s.discard(i)
+    receive()
+    s.add(7)
+    s.add(1)
+    print(list(s))
+  expected: |-
+    [18, 19, 7, 1]
+  interactive_events: [e]
+
+- case: |-
+    s = set(range(30))
+    for i in range(0, 30, 2):
+        s.discard(i)
+    receive()
+    print(s.pop(), s.pop(), len(s))
+  expected: |-
+    1 3 13
+  interactive_events: [e]
+
+- case: |-
+    a = set(range(20))
+    for i in range(15):
+        a.discard(i)
+    b = {99, 15, 7}
+    receive()
+    print(list(a | b), list(a & {16, 19, 15}))
+  expected: |-
+    [15, 16, 17, 18, 19, 99, 7] [15, 16, 19]
+  interactive_events: [e]
+
+- case: |-
+    s = {i * 3 % 17 for i in range(40)}
+    for i in range(10):
+        s.discard(i)
+    receive()
+    print(list(s))
+  expected: |-
+    [12, 15, 10, 13, 16, 11, 14]
+  interactive_events: [e]
+
+- case: |-
+    s = set()
+    for i in range(60):
+        s.add(i)
+        if i % 3:
+            s.discard(i - 1)
+    receive()
+    print(list(s))
+  expected: |-
+    [2, 5, 8, 11, 14, 17, 20, 23, 26, 29, 32, 35, 38, 41, 44, 47, 50, 53, 56, 59]
+  interactive_events: [e]
+
+- case: |-
+    for v in [255, -16, 2**70, 7]:
+        match v:
+            case 0xff:
+                print('hex')
+            case -0x1_0:
+                print('neg')
+            case 0b1_0000000000_0000000000_0000000000_0000000000_0000000000_0000000000_0000000000:
+                print('big')
+            case 0o7:
+                print('oct')
+  expected: |-
+    hex
+    neg
+    big
+    oct
+
+- case: |-
+    x = 1
+    y = 10
+    if x:
+        if y > 5:
+            x = 2
+        y = 20
+    else:
+        y = 30
+    z = x
+    if not z:
+        z = 0
+    print(x, y, z)
+  expected: |-
+    2 20 2
+
+- case: |-
+    i = 0
+    total = 0
+    while i < 5:
+        total += i
+        i += 1
+        if i == 9:
+            break
+    else:
+        done = total
+    for j in range(3):
+        total -= j
+    else:
+        last = j
+    print(i, total, done, last)
+  expected: |-
+    5 7 10 2
+
+- case: |-
+    data = [3, 1, 4, 1, 5]
+    if data:
+        best = max(v for v in data)
+        seen = [y for x in data if (y := x * 2) > 4]
+    else:
+        best = None
+    print(best, seen, y, {k: k * k for k in data if k > 2})
+  expected: |-
+    5 [6, 8, 10] 10 {3: 9, 4: 16, 5: 25}
+
+- case: |-
+    c = 1
+    if not c:
+        v0 = -1
+    else:
+        w = 0
+    if c:
+        v1 = 1
+    if c:
+        v2 = 2
+    if not c:
+        v3 = -1
+    else:
+        w = 3
+    if c:
+        v4 = 4
+    if c:
+        v5 = 5
+    if not c:
+        v6 = -1
+    else:
+        w = 6
+    if c:
+        v0 = 7
+    if c:
+        v1 = 8
+    if not c:
+        v2 = -1
+    else:
+        w = 9
+    if c:
+        v3 = 10
+    if c:
+        v4 = 11
+    if not c:
+        v5 = -1
+    else:
+        w = 12
+    if c:
+        v6 = 13
+    if c:
+        v0 = 14
+    if not c:
+        v1 = -1
+    else:
+        w = 15
+    if c:
+        v2 = 16
+    if c:
+        v3 = 17
+    if not c:
+        v4 = -1
+    else:
+        w = 18
+    if c:
+        v5 = 19
+    if c:
+        v6 = 20
+    if not c:
+        v0 = -1
+    else:
+        w = 21
+    if c:
+        v1 = 22
+    if c:
+        v2 = 23
+    if not c:
+        v3 = -1
+    else:
+        w = 24
+    if c:
+        v4 = 25
+    if c:
+        v5 = 26
+    if not c:
+        v6 = -1
+    else:
+        w = 27
+    if c:
+        v0 = 28
+    if c:
+        v1 = 29
+    if not c:
+        v2 = -1
+    else:
+        w = 30
+    if c:
+        v3 = 31
+    if c:
+        v4 = 32
+    if not c:
+        v5 = -1
+    else:
+        w = 33
+    if c:
+        v6 = 34
+    if c:
+        v0 = 35
+    if not c:
+        v1 = -1
+    else:
+        w = 36
+    if c:
+        v2 = 37
+    if c:
+        v3 = 38
+    if not c:
+        v4 = -1
+    else:
+        w = 39
+    if c:
+        v5 = 40
+    if c:
+        v6 = 41
+    if not c:
+        v0 = -1
+    else:
+        w = 42
+    if c:
+        v1 = 43
+    if c:
+        v2 = 44
+    if not c:
+        v3 = -1
+    else:
+        w = 45
+    if c:
+        v4 = 46
+    if c:
+        v5 = 47
+    if not c:
+        v6 = -1
+    else:
+        w = 48
+    if c:
+        v0 = 49
+    if c:
+        v1 = 50
+    if not c:
+        v2 = -1
+    else:
+        w = 51
+    if c:
+        v3 = 52
+    if c:
+        v4 = 53
+    if not c:
+        v5 = -1
+    else:
+        w = 54
+    if c:
+        v6 = 55
+    if c:
+        v0 = 56
+    if not c:
+        v1 = -1
+    else:
+        w = 57
+    if c:
+        v2 = 58
+    if c:
+        v3 = 59
+    print(v0, v1, v2, v3, v4, v5, v6, w)
+  expected: |-
+    56 50 58 59 53 47 55 57
+
+- case: |-
+    t = 0
+    for i in range(50):
+        t += eval('i * 2')
+    print(t)
+  expected: |-
+    2450
+
+- case: |-
+    for i in range(3):
+        exec('acc = i * 10')
+        print(acc)
+  expected: |-
+    0
+    10
+    20
+
+- case: |-
+    ns = {}
+    for i in range(3):
+        exec('v = ' + str(i), ns)
+    print(ns['v'])
+  expected: |-
+    2
+
+- case: |-
+    co = compile('print("once")', 'f', 'exec')
+    for _ in range(2):
+        exec(co)
+  expected: |-
+    once
+    once
+
+- case: |-
+    fs = []
+    for i in range(3):
+        ns = {'i': i}
+        exec('def f():\n    return i', ns)
+        fs.append(ns['f'])
+    print([f() for f in fs])
+  expected: |-
+    [0, 1, 2]
+
+- case: |-
+    if True:
+    print(1)
+  error: expected an indented block
+
+- case: |-
+    for i in range(2):
+    print(i)
+  error: expected an indented block
+
+- case: |-
+    e = ValueError()
+    for i in range(3):
+        e.add_note(str(i))
+    print(len(e.__notes__), e.__notes__[-1])
+  expected: |-
+    3 2
+
+- case: |-
+    errs = [ValueError(str(i)) for i in range(3)]
+    for i, e in enumerate(errs):
+        e.add_note('#' + str(i))
+    print([e.__notes__ for e in errs])
+  expected: |-
+    [['#0'], ['#1'], ['#2']]
+
+- case: |-
+    e = ValueError()
+    notes = []
+    for w in ['a', 'b']:
+        e.add_note(w)
+    print(' | '.join(e.__notes__))
+  expected: |-
+    a | b
+
+- case: |-
+    for i in range(2 ** 64, 2 ** 64 + 2):
+        print(i)
+  expected: |-
+    18446744073709551616
+    18446744073709551617
+
+- case: |-
+    t = 0
+    for i in range(300):
+        t += max(i, 3, 7, 1)
+    print(t)
+  expected: |-
+    44878
+
+- case: |-
+    s = 'hello world' * 30
+    t = 0
+    for i in range(len(s)):
+        if s[i] == 'o':
+            t += 1
+        elif s[i] != 'l':
+            t += 2
+    print(t)
+  expected: |-
+    420
+
+- case: |-
+    words = ['a', 'b', 'c', 'a'] * 100
+    n = 0
+    for w in words:
+        if w == 'a':
+            n += 1
+    print(n)
+  expected: |-
+    200
+
+- case: |-
+    t = 0
+    for v in (i * i for i in range(1000) if i % 2):
+        t += v
+    print(t)
+  expected: |-
+    166666500
+
+- case: |-
+    for t in [FileNotFoundError, ConnectionResetError, TabError, UserWarning, KeyboardInterrupt, EOFError, TimeoutError, FloatingPointError, UnicodeTranslateError]:
+        print(t.__name__, [k.__name__ for k in t.__mro__][1:])
+  expected: |-
+    FileNotFoundError ['OSError', 'Exception', 'BaseException', 'object']
+    ConnectionResetError ['ConnectionError', 'OSError', 'Exception', 'BaseException', 'object']
+    TabError ['IndentationError', 'SyntaxError', 'Exception', 'BaseException', 'object']
+    UserWarning ['Warning', 'Exception', 'BaseException', 'object']
+    KeyboardInterrupt ['BaseException', 'object']
+    EOFError ['Exception', 'BaseException', 'object']
+    TimeoutError ['OSError', 'Exception', 'BaseException', 'object']
+    FloatingPointError ['ArithmeticError', 'Exception', 'BaseException', 'object']
+    UnicodeTranslateError ['UnicodeError', 'ValueError', 'Exception', 'BaseException', 'object']
+
+- case: |-
+    z = 1.23456+7.891j
+    for spec in ['.2f', '>20.1f', '<18.3e', '^20', '10', '+.1f', 'g', '.3', '']:
+        print(repr(format(z, spec)))
+  expected: |-
+    '1.23+7.89j'
+    '            1.2+7.9j'
+    '1.235e+00+7.891e+00j'
+    '  (1.23456+7.891j)  '
+    '(1.23456+7.891j)'
+    '+1.2+7.9j'
+    '1.23456+7.891j'
+    '(1.23+7.89j)'
+    '(1.23456+7.891j)'
+
+- case: |-
+    for spec in ['', '.1f', '8']:
+        print(repr(format(2j, spec)), repr(format(-2j, spec)))
+  expected: |-
+    '2j' '(-0-2j)'
+    '0.0+2.0j' '-0.0-2.0j'
+    '      2j' ' (-0-2j)'
+
+- case: |-
+    s = 'añb€c'
+    for e in ['ignore', 'replace', 'backslashreplace', 'xmlcharrefreplace']:
+        print(e, s.encode('ascii', e), s.encode('latin-1', e))
+    print(s.encode(), s.encode('utf8'), 'é'.encode('latin1'))
+  expected: |-
+    ignore b'abc' b'a\xf1bc'
+    replace b'a?b?c' b'a\xf1b?c'
+    backslashreplace b'a\\xf1b\\u20acc' b'a\xf1b\\u20acc'
+    xmlcharrefreplace b'a&#241;b&#8364;c' b'a\xf1b&#8364;c'
+    b'a\xc3\xb1b\xe2\x82\xacc' b'a\xc3\xb1b\xe2\x82\xacc' b'\xe9'
+
+- case: |-
+    b = b'a\xffb\xe2\x82c'
+    for e in ['ignore', 'replace', 'backslashreplace']:
+        print(e, repr(b.decode('utf-8', e)), repr(b.decode('ascii', e)))
+    print(b.decode('latin-1'))
+  expected: "ignore 'abc' 'abc'\nreplace 'a�b�c' 'a�b��c'\nbackslashreplace 'a\\\\xffb\\\\xe2\\\\x82c' 'a\\\\xffb\\\\xe2\\\\x82c'\naÿbâ\x82c"
+
+- case: |-
+    b = bytearray()
+    for i in range(100):
+        b.append(i % 256)
+    print(len(b), sum(b), b[50])
+  expected: |-
+    100 4950 50
+
+- case: |-
+    for s in ['abc', '', 'ABC', 'a1', '١٢٣', '½', 'x_y', '1x', 'été', 'a\u200bb', 'a\tb', ' ', '\x7f', 'Ⅻ', '五']:
+        print(repr(s), s.isascii(), s.isdecimal(), s.isnumeric(), s.isidentifier(), s.isprintable())
+  expected: |-
+    'abc' True False False True True
+    '' True False False False True
+    'ABC' True False False True True
+    'a1' True False False True True
+    '١٢٣' False True True False True
+    '½' False False True False True
+    'x_y' True False False True True
+    '1x' True False False False True
+    'été' False False False True True
+    'a\u200bb' False False False False False
+    'a\tb' True False False False False
+    ' ' True False False False True
+    '\x7f' True False False False False
+    'Ⅻ' False False True True True
+    '五' False False True True True
+
+- case: |-
+    for b in [b'abc', b'', b'ABC', b'Ab1', b' \x0b\t', b'Hello World', b'hello world', b'\x80a', b'a1']:
+        print(b, b.isalnum(), b.isalpha(), b.isascii(), b.isdigit(), b.islower(), b.isspace(), b.istitle(), b.isupper())
+  expected: |-
+    b'abc' True True True False True False False False
+    b'' False False True False False False False False
+    b'ABC' True True True False False False False True
+    b'Ab1' True False True False False False True False
+    b' \x0b\t' False False True False False True False False
+    b'Hello World' False False True False False False True False
+    b'hello world' False False True False True False False False
+    b'\x80a' False False False False True False False False
+    b'a1' True False True False True False False False

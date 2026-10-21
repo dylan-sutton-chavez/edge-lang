@@ -45,7 +45,7 @@ mod test {
         // The line the vm suite checks an error at, which a replay leaves alone.
         #[serde(default, rename = "error_line")]
         _error_line: Option<usize>,
-        // A vm.json case, which runs on the corpus budget.
+        // A vm case, which runs on the corpus budget.
         #[serde(skip)]
         corpus: bool,
     }
@@ -74,7 +74,7 @@ mod test {
     }
 
     fn corpus() -> Vec<Case> {
-        let mut cases: Vec<Case> = serde_json::from_str(include_str!("cases/vm.json")).expect("invalid JSON");
+        let mut cases: Vec<Case> = serde_json::from_value(crate::cases::vm_cases(std::path::Path::new(env!("CARGO_MANIFEST_DIR"))).into()).expect("vm cases");
         for case in &mut cases { case.corpus = true; }
         cases
     }
@@ -214,7 +214,7 @@ mod test {
         report("snapshot case failure", failures);
     }
 
-    /* Property, every interactive vm.json case survives a save/restore at each pause. */
+    /* Property, every interactive vm case survives a save/restore at each pause. */
     #[test]
     fn vm_corpus_roundtrip() {
         let cases = corpus();

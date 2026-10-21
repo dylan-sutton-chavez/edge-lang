@@ -1,5 +1,5 @@
 #[cfg(all(debug_assertions, not(feature = "coverage")))]
-// No loop nests in Rust, which debug builds stop at, and no frame is generic, so every case of vm.json runs with no generic frame pushed.
+// No loop nests in Rust, which debug builds stop at, and no frame is generic, so every vm case runs with no generic frame pushed.
 #[test]
 fn old_path_ceilings() {
     use compiler::lexer::lex;
@@ -7,7 +7,7 @@ fn old_path_ceilings() {
     use compiler::embed::{Limits, VM};
     const CEILINGS: [u64; 1] = [0];
     const NAMES: [&str; 1] = ["generic frames"];
-    let cases: Vec<serde_json::Value> = serde_json::from_str(&std::fs::read_to_string("tests/cases/vm.json").unwrap()).unwrap();
+    let cases = crate::cases::vm_cases(std::path::Path::new(env!("CARGO_MANIFEST_DIR")));
     let mut total = [0u64; 1];
     for case in &cases {
         // The cases a host drives with events or input run as vm.rs runs them.
@@ -20,8 +20,8 @@ fn old_path_ceilings() {
         let _ = vm.run();
         for (t, n) in total.iter_mut().zip(vm.old_path_counts()) { *t += n; }
     }
-    eprintln!("old path over vm.json: {:?} (ceilings {:?})", total, CEILINGS);
+    eprintln!("old path over the vm cases: {:?} (ceilings {:?})", total, CEILINGS);
     for k in 0..1 {
-        assert!(total[k] <= CEILINGS[k], "{} opened {} times over vm.json, past its ceiling of {}: a call into Python from Rust is a section, a job or a frame of the running loop", NAMES[k], total[k], CEILINGS[k]);
+        assert!(total[k] <= CEILINGS[k], "{} opened {} times over the vm cases, past its ceiling of {}: a call into Python from Rust is a section, a job or a frame of the running loop", NAMES[k], total[k], CEILINGS[k]);
     }
 }

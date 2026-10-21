@@ -1,0 +1,8018 @@
+- case: |-
+    print(len([1,2,3]))
+  expected: |-
+    3
+
+- case: |-
+    x = [1,2,3]
+    print(x[0])
+  expected: |-
+    1
+
+- case: |-
+    x = [1,2,3]
+    print(x[-1])
+  expected: |-
+    3
+
+- case: |-
+    x = {'a': 1}
+    print(x['a'])
+  expected: |-
+    1
+
+- case: |-
+    print(2 in [1,2,3])
+  expected: |-
+    True
+
+- case: |-
+    print(4 not in [1,2,3])
+  expected: |-
+    True
+
+- case: |-
+    print('a' in {'a':1})
+  expected: |-
+    True
+
+- case: |-
+    x, y = [10, 20]
+    print(x, y)
+  expected: |-
+    10 20
+
+- case: |-
+    print(sum([1,2,3]))
+  expected: |-
+    6
+
+- case: |-
+    print(sorted([3,1,2]))
+  expected: |-
+    [1, 2, 3]
+
+- case: |-
+    print(list((1,2,3)))
+  expected: |-
+    [1, 2, 3]
+
+- case: |-
+    print(tuple([1,2,3]))
+  expected: |-
+    (1, 2, 3)
+
+- case: |-
+    print(list(range(2,5)))
+  expected: |-
+    [2, 3, 4]
+
+- case: |-
+    print(list(range(2,10,2)))
+  expected: |-
+    [2, 4, 6, 8]
+
+- case: "a = [1, 2, 3]\nb = a \nb[0] = 99\nprint(a, b)"
+  expected: |-
+    [99, 2, 3] [99, 2, 3]
+
+- case: |-
+    print(3 in {1, 2, 3})
+  expected: |-
+    True
+
+- case: |-
+    print([1] in {1: 2})
+  error: 'unhashable type: ''list'''
+
+- case: |-
+    print(({1},) in frozenset({1}))
+  error: 'unhashable type: ''set'''
+
+- case: |-
+    print({1} in {1: 2})
+  error: 'unhashable type: ''set'''
+
+- case: |-
+    print({1} in {frozenset({1})}, {2} in {1}, (1, 2) in {(1, 2)}, 'a' in {'a': 1}, [1] in [[1]])
+  expected: |-
+    True False True True True
+
+- case: |-
+    print(len({1, 2, 3}))
+  expected: |-
+    3
+
+- case: |-
+    x = [1,2,3,4,5]
+    print(x[1:3])
+  expected: |-
+    [2, 3]
+
+- case: |-
+    print('hello'[1:4])
+  expected: |-
+    ell
+
+- case: |-
+    print([1,2,3,4][::-1])
+  expected: |-
+    [4, 3, 2, 1]
+
+- case: |-
+    print([1,2,3,4,5][::2])
+  expected: |-
+    [1, 3, 5]
+
+- case: |-
+    a, *b, c = [1, 2, 3, 4, 5]
+    print(a, b, c)
+  expected: |-
+    1 [2, 3, 4] 5
+
+- case: |-
+    *a, b = [1, 2, 3]
+    print(a, b)
+  expected: |-
+    [1, 2] 3
+
+- case: |-
+    print(list(zip([1,2],[3,4],[5,6])))
+  expected: |-
+    [(1, 3, 5), (2, 4, 6)]
+
+- case: |-
+    a, b = [1, 2, 3]
+  error: too many values to unpack
+
+- case: |-
+    a, b, c = [1, 2]
+  error: not enough values to unpack
+
+- case: |-
+    t = (1,2,3,4,5)
+    print(type(t[1:3]))
+  expected: |-
+    <class 'tuple'>
+
+- case: |-
+    l = [1,2,3,4,5]
+    print(type(l[1:3]))
+  expected: |-
+    <class 'list'>
+
+- case: |-
+    print(list(zip([1,2,3],[4,5])))
+  expected: |-
+    [(1, 4), (2, 5)]
+
+- case: |-
+    print(list(zip([],[1,2])))
+  expected: |-
+    []
+
+- case: |-
+    x = (1,2,3)
+    print(x[1:3])
+    print(type(x[1:3]))
+  expected: |-
+    (2, 3)
+    <class 'tuple'>
+
+- case: |-
+    print(min([3,1,4]))
+  expected: |-
+    1
+
+- case: |-
+    print(max([3,1,4]))
+  expected: |-
+    4
+
+- case: |-
+    print(sum([1,2,3], 10))
+  expected: |-
+    16
+
+- case: |-
+    print([1,2,3][99])
+  error: list index out of range
+
+- case: |-
+    print({'a':1}['z'])
+  error: KeyError
+
+- case: |-
+    print('hello'[-1])
+  expected: |-
+    o
+
+- case: |-
+    print([1,2,3][-2])
+  expected: |-
+    2
+
+- case: |-
+    x = {}
+    x['a'] = 1
+    print(x['a'])
+  expected: |-
+    1
+
+- case: |-
+    print(bool([]))
+  expected: |-
+    False
+
+- case: |-
+    print(bool([1]))
+  expected: |-
+    True
+
+- case: |-
+    print(set([1,1,2,2,3,3]))
+  expected: |-
+    {1, 2, 3}
+
+- case: |-
+    print([1, 2, 3] == [1, 2, 3])
+  expected: |-
+    True
+
+- case: |-
+    print([1, 2] == [1, 3])
+  expected: |-
+    False
+
+- case: |-
+    print([] == [])
+  expected: |-
+    True
+
+- case: |-
+    print([1, [2, 3]] == [1, [2, 3]])
+  expected: |-
+    True
+
+- case: |-
+    print([1, [2, 3]] == [1, [2, 4]])
+  expected: |-
+    False
+
+- case: |-
+    print({1, 2, 3} == {3, 2, 1})
+  expected: |-
+    True
+
+- case: |-
+    print({1, 2} == {1, 2, 3})
+  expected: |-
+    False
+
+- case: |-
+    d = {'a': 1, 'b': 2, 'c': 3}
+    print('b' in d)
+  expected: |-
+    True
+
+- case: |-
+    d = {'a': 1, 'b': 2, 'c': 3}
+    print('z' in d)
+  expected: |-
+    False
+
+- case: |-
+    d = {1: 'a', 2: 'b'}
+    d[1] = 'x'
+    print(d[1])
+  expected: |-
+    x
+
+- case: |-
+    print({1: 'a', 2: 'b'} == {2: 'b', 1: 'a'})
+  expected: |-
+    True
+
+- case: |-
+    print({1: 'a'} == {1: 'b'})
+  expected: |-
+    False
+
+- case: |-
+    x = [10, 20, 30]
+    x[0] += 5
+    print(x)
+  expected: |-
+    [15, 20, 30]
+
+- case: |-
+    x = [10, 20, 30]
+    x[1] -= 3
+    print(x)
+  expected: |-
+    [10, 17, 30]
+
+- case: |-
+    x = [2, 3, 4]
+    x[2] *= 10
+    print(x)
+  expected: |-
+    [2, 3, 40]
+
+- case: |-
+    d = {'a': 1}
+    d['a'] += 99
+    print(d['a'])
+  expected: |-
+    100
+
+- case: |-
+    x = [0]
+    x[0] += 1
+    x[0] += 1
+    x[0] += 1
+    print(x[0])
+  expected: |-
+    3
+
+- case: |-
+    a: list[int] = [1, 2, 3]
+    print(a[0])
+  expected: |-
+    1
+
+- case: |-
+    print([x for x in range(5)])
+  expected: |-
+    [0, 1, 2, 3, 4]
+
+- case: |-
+    print([x * 2 for x in range(4)])
+  expected: |-
+    [0, 2, 4, 6]
+
+- case: |-
+    print([x for x in range(10) if x % 2 == 0])
+  expected: |-
+    [0, 2, 4, 6, 8]
+
+- case: |-
+    print([x for x in range(20) if x > 5 if x < 10])
+  expected: |-
+    [6, 7, 8, 9]
+
+- case: |-
+    print([(i, j) for i in range(2) for j in range(2)])
+  expected: |-
+    [(0, 0), (0, 1), (1, 0), (1, 1)]
+
+- case: |-
+    y = 100
+    print([x + y for x in range(3)])
+  expected: |-
+    [100, 101, 102]
+
+- case: |-
+    print([len(s) for s in ['a', 'bb', 'ccc']])
+  expected: |-
+    [1, 2, 3]
+
+- case: |-
+    print([x for x in []])
+  expected: |-
+    []
+
+- case: |-
+    print([print(x) for x in range(2)])
+  expected: |-
+    0
+    1
+    [None, None]
+
+- case: |-
+    print(sum([x for x in range(101)]))
+  expected: |-
+    5050
+
+- case: |-
+    print({k: k * k for k in range(4)})
+  expected: |-
+    {0: 0, 1: 1, 2: 4, 3: 9}
+
+- case: |-
+    pairs = [(1, 'a'), (2, 'b'), (3, 'c')]
+    print({k: v for k, v in pairs})
+  expected: |-
+    {1: 'a', 2: 'b', 3: 'c'}
+
+- case: |-
+    print([x for x in [1, 2, 3, 4, 5] if x > 2])
+  expected: |-
+    [3, 4, 5]
+
+- case: |-
+    matrix = [[1, 2], [3, 4], [5, 6]]
+    print([row[0] for row in matrix])
+  expected: |-
+    [1, 3, 5]
+
+- case: |-
+    x = [1,2,3]
+    y = [4,5,6]
+    print(sum(xi*yi for xi,yi in zip(x,y)))
+  expected: |-
+    32
+
+- case: |-
+    print(list(x*2 for x in range(3)))
+  expected: |-
+    [0, 2, 4]
+
+- case: |-
+    print(max(i for i in [3,1,4,1,5]))
+  expected: |-
+    5
+
+- case: |-
+    print(min(i for i in [3,1,4,1,5]))
+  expected: |-
+    1
+
+- case: |-
+    print(sum(x+y for x,y in zip([1,2],[3,4])))
+  expected: |-
+    10
+
+- case: |-
+    print({9, 10})
+  expected: |-
+    {9, 10}
+
+- case: |-
+    print({10, 9, 8, 7})
+  expected: |-
+    {10, 9, 8, 7}
+
+- case: |-
+    print({1, 2, 10, 20})
+  expected: |-
+    {1, 2, 10, 20}
+
+- case: |-
+    print({1.5, 0.5, 2.5})
+  expected: |-
+    {1.5, 0.5, 2.5}
+
+- case: |-
+    print({0, 1, 2.5})
+  expected: |-
+    {0, 1, 2.5}
+
+- case: |-
+    print({1, 'a', 2})
+  expected: |-
+    {1, 'a', 2}
+
+- case: |-
+    print({100, 2, 30})
+  expected: |-
+    {100, 2, 30}
+
+- case: |-
+    print({-1, 0, 1})
+  expected: |-
+    {-1, 0, 1}
+
+- case: |-
+    print({-10, -2, -1})
+  expected: |-
+    {-10, -2, -1}
+
+- case: |-
+    print({1.0, 2.0, 0.5})
+  expected: |-
+    {1.0, 2.0, 0.5}
+
+- case: |-
+    print('hello'[-2])
+  expected: |-
+    l
+
+- case: |-
+    print((1,2,3)[-1])
+  expected: |-
+    3
+
+- case: |-
+    print(set())
+  expected: |-
+    set()
+
+- case: |-
+    print(len(set()))
+  expected: |-
+    0
+
+- case: |-
+    print(set((1,2,3)))
+  expected: |-
+    {1, 2, 3}
+
+- case: |-
+    print(len(set('abc')))
+  expected: |-
+    3
+
+- case: |-
+    a = [1,2,3,4,5]
+    print(a[1:4:2])
+  expected: |-
+    [2, 4]
+
+- case: |-
+    a = [1,2,3,4,5]
+    print(a[-3:])
+  expected: |-
+    [3, 4, 5]
+
+- case: |-
+    a = [1,2,3,4,5]
+    print(a[:-2])
+  expected: |-
+    [1, 2, 3]
+
+- case: |-
+    t = (1,2,3,4,5)
+    print(t[1:-1])
+  expected: |-
+    (2, 3, 4)
+
+- case: |-
+    s = {1, 2, 3}
+    print(2 in s)
+  expected: |-
+    True
+
+- case: |-
+    s = {1, 2, 3}
+    print(5 in s)
+  expected: |-
+    False
+
+- case: |-
+    print(set([1,1,2,2,3]) == {1,2,3})
+  expected: |-
+    True
+
+- case: |-
+    x = None or 0 or [] or 'default'
+    print(x)
+  expected: |-
+    default
+
+- case: |-
+    counts = {}
+    counts['a'] = (counts.get('a') or 0) + 1
+    counts['a'] = (counts.get('a') or 0) + 1
+    print(counts['a'])
+  expected: |-
+    2
+
+- case: |-
+    print([1 + 2 for _ in range(2)])
+  expected: |-
+    [3, 3]
+
+- case: |-
+    x = []
+    x.append(1)
+    x.append(2)
+    print(x)
+  expected: |-
+    [1, 2]
+
+- case: |-
+    print([y := x + 1 for x in range(3)])
+  expected: |-
+    [1, 2, 3]
+
+- case: |-
+    d = {'a': 1, 'b': 2}
+    print(list(d.values()))
+  expected: |-
+    [1, 2]
+
+- case: |-
+    print({x % 3 for x in range(9)})
+  expected: |-
+    {0, 1, 2}
+
+- case: |-
+    print('abcde'[3:0:-1])
+  expected: |-
+    dcb
+
+- case: |-
+    x = [3,1,2]
+    x.sort()
+    print(x)
+  expected: |-
+    [1, 2, 3]
+
+- case: |-
+    x = [1,2,3]
+    x.reverse()
+    print(x)
+  expected: |-
+    [3, 2, 1]
+
+- case: |-
+    x = [1,2,3]
+    print(x.pop())
+    print(x)
+  expected: |-
+    3
+    [1, 2]
+
+- case: |-
+    x = [1,2,3]
+    x.insert(1, 99)
+    print(x)
+  expected: |-
+    [1, 99, 2, 3]
+
+- case: |-
+    x = [1,2,2,3]
+    x.remove(2)
+    print(x)
+  expected: |-
+    [1, 2, 3]
+
+- case: |-
+    print([1,2,3].index(2))
+  expected: |-
+    1
+
+- case: |-
+    print([1,2,2,3].count(2))
+  expected: |-
+    2
+
+- case: |-
+    d = {'a':1}
+    print(d.get('a'))
+  expected: |-
+    1
+
+- case: |-
+    d = {'a':1}
+    print(d.get('z', 0))
+  expected: |-
+    0
+
+- case: |-
+    d = {'a':1,'b':2}
+    d.update({'b':9,'c':3})
+    print(d)
+  expected: |-
+    {'a': 1, 'b': 9, 'c': 3}
+
+- case: |-
+    d = {'a':1}
+    d.pop('a')
+    print(d)
+  expected: |-
+    {}
+
+- case: |-
+    matrix = [[0]*3 for _ in range(3)]
+    matrix[1][1] = 5
+    print(matrix[1][1])
+  expected: |-
+    5
+
+- case: |-
+    x = [1,2,3]
+    x.extend([4,5])
+    print(x)
+  expected: |-
+    [1, 2, 3, 4, 5]
+
+- case: |-
+    x = [1,2,3]
+    print(x.pop(0))
+    print(x)
+  expected: |-
+    1
+    [2, 3]
+
+- case: |-
+    x = [1,2,3]
+    x.clear()
+    print(x)
+  expected: |-
+    []
+
+- case: |-
+    x = [1,2,3]
+    y = x.copy()
+    y.append(4)
+    print(x)
+    print(y)
+  expected: |-
+    [1, 2, 3]
+    [1, 2, 3, 4]
+
+- case: |-
+    d = {'a':1,'b':2}
+    print(list(d.items()))
+  expected: |-
+    [('a', 1), ('b', 2)]
+
+- case: |-
+    d = {'a':1}
+    print(d.pop('z', 0))
+  expected: |-
+    0
+
+- case: |-
+    d = {}
+    d.setdefault('a', 1)
+    print(d)
+  expected: |-
+    {'a': 1}
+
+- case: |-
+    print(list('abc'))
+  expected: |-
+    ['a', 'b', 'c']
+
+- case: |-
+    d = {'a': [1,2,3]}
+    d['a'].append(4)
+    print(d['a'])
+  expected: |-
+    [1, 2, 3, 4]
+
+- case: |-
+    data = [{'x': i} for i in range(3)]
+    print(data[1]['x'])
+  expected: |-
+    1
+
+- case: |-
+    print(all([1, 2, 3]))
+  expected: |-
+    True
+
+- case: |-
+    print(all([1, 0, 3]))
+  expected: |-
+    False
+
+- case: |-
+    print(all([]))
+  expected: |-
+    True
+
+- case: |-
+    print(any([0, 0, 1]))
+  expected: |-
+    True
+
+- case: |-
+    print(any([0, 0, 0]))
+  expected: |-
+    False
+
+- case: |-
+    print(any([]))
+  expected: |-
+    False
+
+- case: |-
+    print(repr([1, 2, 3]))
+  expected: |-
+    [1, 2, 3]
+
+- case: |-
+    print(list(reversed([1, 2, 3])), next(reversed([1, 2, 3])))
+  expected: |-
+    [3, 2, 1] 3
+
+- case: |-
+    print(tuple(reversed((1, 2, 3))))
+  expected: |-
+    (3, 2, 1)
+
+- case: |-
+    hash([1, 2, 3])
+  error: 'unhashable type: ''list'''
+
+- case: |-
+    d = {(1, 2): 'a'}
+    print(d.get((1, 2)), d.get((3,)), d.pop((1, 2)), d.setdefault('k', []), {(1, 'a'): 0}[(1, 'a')] == 0, dict.fromkeys('ab'), {1}.issubset([1, 2]))
+  expected: |-
+    a None a [] True {'a': None, 'b': None} True
+
+- case: |-
+    f = len
+    print(f([1,2,3]))
+  expected: |-
+    3
+
+- case: |-
+    fns = [abs, len]
+    print(fns[0](-3), fns[1]([1,2]))
+  expected: |-
+    3 2
+
+- case: |-
+    print(hasattr([1,2], 'append'))
+  expected: |-
+    True
+
+- case: |-
+    s = "z" * 200
+    lst = [s]
+    s2 = s + "!"
+    print(len(lst[0]))
+  expected: |-
+    200
+
+- case: |-
+    s = slice(1, 5, 2)
+    xs = [10, 20, 30, 40, 50]
+    print(xs[s])
+  expected: |-
+    [20, 40]
+
+- case: |-
+    d = {'a': 1, 'b': 2}
+    c = d.copy()
+    c['c'] = 3
+    print(d)
+    print(c)
+  expected: |-
+    {'a': 1, 'b': 2}
+    {'a': 1, 'b': 2, 'c': 3}
+
+- case: |-
+    d = {'a': 1, 'b': 2}
+    print(d.popitem())
+    print(d)
+  expected: |-
+    ('b', 2)
+    {'a': 1}
+
+- case: |-
+    print(dict(0))
+  error: TypeError
+
+- case: |-
+    print(dict([(1, 2), (3, 4)]))
+  expected: |-
+    {1: 2, 3: 4}
+
+- case: |-
+    print(dict([('a', 1), ('b', 2)]))
+  expected: |-
+    {'a': 1, 'b': 2}
+
+- case: |-
+    print(dict({'a': 1, 'b': 2}))
+  expected: |-
+    {'a': 1, 'b': 2}
+
+- case: |-
+    print(dict(a=1, b=2))
+  expected: |-
+    {'a': 1, 'b': 2}
+
+- case: |-
+    print(dict(1, 2))
+  error: dict expected at most 1 argument
+
+- case: |-
+    print(dict(-1))
+  error: TypeError
+
+- case: |-
+    xs = [1, 2, 3, 4, 5]
+    result = [y for x in xs if (y := x * 2) > 4]
+    print(result)
+  expected: |-
+    [6, 8, 10]
+
+- case: |-
+    print(sorted(frozenset([1,2,3,2,1])))
+  expected: |-
+    [1, 2, 3]
+
+- case: |-
+    fs = frozenset([1,2,3])
+    print(2 in fs)
+    print(5 in fs)
+  expected: |-
+    True
+    False
+
+- case: |-
+    fs = frozenset([1,2,3])
+    d = {fs: 'value'}
+    print(d[fs])
+  expected: |-
+    value
+
+- case: |-
+    frozenset([[1, 2]])
+  error: unhashable type
+
+- case: |-
+    x = 100
+    y = 200
+    g = globals()
+    print(g['x'] + g['y'])
+  expected: |-
+    300
+
+- case: |-
+    s = 'hello'
+    print(s[0], s[-1])
+  expected: |-
+    h o
+
+- case: |-
+    print('hello'[:])
+  expected: |-
+    hello
+
+- case: |-
+    print('hello'[1:])
+  expected: |-
+    ello
+
+- case: |-
+    print('hello'[:3])
+  expected: |-
+    hel
+
+- case: |-
+    print('hello'[1:3])
+  expected: |-
+    el
+
+- case: |-
+    print('hello'[-2:])
+  expected: |-
+    lo
+
+- case: |-
+    print('hello'[:-2])
+  expected: |-
+    hel
+
+- case: |-
+    print('hello'[::-1])
+  expected: |-
+    olleh
+
+- case: |-
+    print('hello'[::2])
+  expected: |-
+    hlo
+
+- case: |-
+    print('abcde'[0:5:2])
+  expected: |-
+    ace
+
+- case: |-
+    print('abcde'[4:0:-1])
+  expected: |-
+    edcb
+
+- case: |-
+    print('abcde'[4::-1])
+  expected: |-
+    edcba
+
+- case: |-
+    print(list('hello'))
+  expected: |-
+    ['h', 'e', 'l', 'l', 'o']
+
+- case: |-
+    print([] + [])
+  expected: |-
+    []
+
+- case: |-
+    print([1, 2] + [3, 4])
+  expected: |-
+    [1, 2, 3, 4]
+
+- case: |-
+    print([1, 2] + [])
+  expected: |-
+    [1, 2]
+
+- case: |-
+    print([] + [1, 2])
+  expected: |-
+    [1, 2]
+
+- case: |-
+    print([1] * 3)
+  expected: |-
+    [1, 1, 1]
+
+- case: |-
+    print(3 * [1])
+  expected: |-
+    [1, 1, 1]
+
+- case: |-
+    print([] * 10)
+  expected: |-
+    []
+
+- case: |-
+    print([1, 2, 3] * 0)
+  expected: |-
+    []
+
+- case: |-
+    print(len([]))
+  expected: |-
+    0
+
+- case: |-
+    x = [1, 2, 3, 4, 5]
+    print(x[:])
+  expected: |-
+    [1, 2, 3, 4, 5]
+
+- case: |-
+    x = [1, 2, 3, 4, 5]
+    print(x[10:])
+  expected: |-
+    []
+
+- case: |-
+    x = [1, 2, 3, 4, 5]
+    print(x[:0])
+  expected: |-
+    []
+
+- case: |-
+    x = [1, 2, 3, 4, 5]
+    print(x[-3:-1])
+  expected: |-
+    [3, 4]
+
+- case: |-
+    x = [1, 2, 3, 4, 5]
+    print(x[0:5:2])
+  expected: |-
+    [1, 3, 5]
+
+- case: |-
+    x = [1, 2, 3]
+    x.append(4)
+    x.append(5)
+    print(x)
+  expected: |-
+    [1, 2, 3, 4, 5]
+
+- case: |-
+    x = ['c', 'a', 'b']
+    x.sort()
+    print(x)
+  expected: |-
+    ['a', 'b', 'c']
+
+- case: |-
+    x = [3, 1, 2]
+    x.reverse()
+    print(x)
+  expected: |-
+    [2, 1, 3]
+
+- case: |-
+    x = [1]
+    print(x.pop())
+    print(x)
+  expected: |-
+    1
+    []
+
+- case: |-
+    x = [1, 2, 3]
+    print(x.pop(0))
+    print(x)
+  expected: |-
+    1
+    [2, 3]
+
+- case: |-
+    x = [1, 2, 3]
+    print(x.pop(-1))
+    print(x)
+  expected: |-
+    3
+    [1, 2]
+
+- case: |-
+    x = [1, 2, 3, 2]
+    print(x.index(2))
+  expected: |-
+    1
+
+- case: |-
+    x = [1, 2, 3, 2]
+    print(x.index(2, 2))
+  expected: |-
+    3
+
+- case: |-
+    x = [1, 2, 3, 2]
+    print(x.index(2, -1))
+  expected: |-
+    3
+
+- case: |-
+    x = [1, 2, 3, 2]
+    print(x.count(2))
+  expected: |-
+    2
+
+- case: |-
+    x = [1, 2, 3, 2]
+    print(x.count(5))
+  expected: |-
+    0
+
+- case: |-
+    x = [1, 2, 3]
+    x.insert(0, 0)
+    print(x)
+  expected: |-
+    [0, 1, 2, 3]
+
+- case: |-
+    x = [1, 2, 3]
+    x.insert(10, 4)
+    print(x)
+  expected: |-
+    [1, 2, 3, 4]
+
+- case: |-
+    x = [1, 2, 3]
+    x.insert(-1, 99)
+    print(x)
+  expected: |-
+    [1, 2, 99, 3]
+
+- case: |-
+    x = [1, 2, 2, 3]
+    x.remove(2)
+    print(x)
+  expected: |-
+    [1, 2, 3]
+
+- case: |-
+    x = [1, 2, 3]
+    x.extend([4, 5, 6])
+    print(x)
+  expected: |-
+    [1, 2, 3, 4, 5, 6]
+
+- case: |-
+    x = [1, 2, 3]
+    x.extend([])
+    print(x)
+  expected: |-
+    [1, 2, 3]
+
+- case: |-
+    x = [1, 2, 3]
+    y = x.copy()
+    y[0] = 99
+    print(x)
+    print(y)
+  expected: |-
+    [1, 2, 3]
+    [99, 2, 3]
+
+- case: |-
+    x = [1, 2, 3]
+    x.clear()
+    print(x)
+  expected: |-
+    []
+
+- case: |-
+    x = [1, 2, 3]
+    x.extend((4, 5))
+    print(x)
+  expected: |-
+    [1, 2, 3, 4, 5]
+
+- case: |-
+    print(1 in [1, 2, 3])
+  expected: |-
+    True
+
+- case: |-
+    print(4 in [1, 2, 3])
+  expected: |-
+    False
+
+- case: |-
+    print(4 not in [1, 2, 3])
+  expected: |-
+    True
+
+- case: |-
+    print(1 in [])
+  expected: |-
+    False
+
+- case: |-
+    x = [[1, 2], [3, 4]]
+    print(x[0][1])
+  expected: |-
+    2
+
+- case: |-
+    x = [[1, 2], [3, 4]]
+    x[0][0] = 99
+    print(x)
+  expected: |-
+    [[99, 2], [3, 4]]
+
+- case: |-
+    x = [[1, 2], [3, 4]]
+    print([row[0] for row in x])
+  expected: |-
+    [1, 3]
+
+- case: |-
+    print({})
+  expected: |-
+    {}
+
+- case: |-
+    print({'a': 1})
+  expected: |-
+    {'a': 1}
+
+- case: |-
+    d = {}
+    d['x'] = 1
+    d['y'] = 2
+    print(d)
+  expected: |-
+    {'x': 1, 'y': 2}
+
+- case: |-
+    d = {'a': 1, 'b': 2}
+    print('a' in d)
+    print('c' in d)
+  expected: |-
+    True
+    False
+
+- case: |-
+    d = {'a': 1, 'b': 2}
+    print('a' not in d)
+    print('c' not in d)
+  expected: |-
+    False
+    True
+
+- case: |-
+    d = {i: i*i for i in range(5)}
+    print(d[3])
+  expected: |-
+    9
+
+- case: |-
+    d = {'x': 10}
+    d['x'] += 5
+    print(d['x'])
+  expected: |-
+    15
+
+- case: |-
+    d = {'a': [1, 2, 3]}
+    d['a'].append(4)
+    print(d['a'])
+  expected: |-
+    [1, 2, 3, 4]
+
+- case: |-
+    d1 = {'a': 1}
+    d2 = {'b': 2}
+    d1.update(d2)
+    print(d1)
+  expected: |-
+    {'a': 1, 'b': 2}
+
+- case: |-
+    d = {'a': 1, 'b': 2, 'c': 3}
+    print(list(d.keys()))
+  expected: |-
+    ['a', 'b', 'c']
+
+- case: |-
+    d = {'a': 1, 'b': 2, 'c': 3}
+    print(list(d.values()))
+  expected: |-
+    [1, 2, 3]
+
+- case: |-
+    d = {'a': 1}
+    print(d.get('a'))
+    print(d.get('b'))
+    print(d.get('b', 99))
+  expected: |-
+    1
+    None
+    99
+
+- case: |-
+    d = {'a': 1}
+    print(d.pop('a'))
+    print(d)
+  expected: |-
+    1
+    {}
+
+- case: |-
+    d = {'a': 1}
+    print(d.pop('b', 0))
+  expected: |-
+    0
+
+- case: |-
+    d = {}
+    d.setdefault('a', 1)
+    d.setdefault('a', 2)
+    print(d)
+  expected: |-
+    {'a': 1}
+
+- case: |-
+    d = {}
+    v = d.setdefault('k', 42)
+    print(v)
+    print(d)
+  expected: |-
+    42
+    {'k': 42}
+
+- case: |-
+    d = {'k': 10}
+    v = d.setdefault('k', 99)
+    print(v)
+    print(d)
+  expected: |-
+    10
+    {'k': 10}
+
+- case: |-
+    d = {'a': 1, 'b': 2}
+    result = [(k, v) for k, v in d.items()]
+    print(result)
+  expected: |-
+    [('a', 1), ('b', 2)]
+
+- case: |-
+    d = {i: chr(65+i) for i in range(3)}
+    print(d)
+  expected: |-
+    {0: 'A', 1: 'B', 2: 'C'}
+
+- case: |-
+    print({'a': 1} == {'a': 1})
+  expected: |-
+    True
+
+- case: |-
+    print({'a': 1} == {'a': 2})
+  expected: |-
+    False
+
+- case: |-
+    print({'a': 1} != {'b': 1})
+  expected: |-
+    True
+
+- case: |-
+    print({} == {})
+  expected: |-
+    True
+
+- case: |-
+    d = {'a': 1, 'b': 2}
+    print({k: v*2 for k, v in d.items()})
+  expected: |-
+    {'a': 2, 'b': 4}
+
+- case: |-
+    print({k: v for k, v in {'a': 1, 'b': 2}.items() if v > 1})
+  expected: |-
+    {'b': 2}
+
+- case: |-
+    d = {'a': 1, 'b': 2}
+    d.update({'b': 99, 'c': 3})
+    print(d)
+  expected: |-
+    {'a': 1, 'b': 99, 'c': 3}
+
+- case: |-
+    s = {1, 2, 3}
+    print(len(s))
+  expected: |-
+    3
+
+- case: |-
+    s = {1, 1, 2, 2, 3}
+    print(len(s))
+  expected: |-
+    3
+
+- case: |-
+    s = set([1, 2, 2, 3])
+    print(len(s))
+  expected: |-
+    3
+
+- case: |-
+    print(1 in {1, 2, 3})
+  expected: |-
+    True
+
+- case: |-
+    print(4 in {1, 2, 3})
+  expected: |-
+    False
+
+- case: |-
+    print(4 not in {1, 2, 3})
+  expected: |-
+    True
+
+- case: |-
+    s = {1, 2, 3}
+    print(s == {3, 2, 1})
+  expected: |-
+    True
+
+- case: |-
+    s = {1, 2, 3}
+    print(s == {1, 2})
+  expected: |-
+    False
+
+- case: |-
+    s = {1, 2, 3, 4, 5}
+    print(sum(s))
+  expected: |-
+    15
+
+- case: |-
+    print({x for x in range(5)})
+  expected: |-
+    {0, 1, 2, 3, 4}
+
+- case: |-
+    print({x*x for x in range(1, 4)})
+  expected: |-
+    {1, 4, 9}
+
+- case: |-
+    print({x % 2 for x in range(10)})
+  expected: |-
+    {0, 1}
+
+- case: |-
+    s = set([0, 1, 2, 3, 4])
+    print(len(s))
+  expected: |-
+    5
+
+- case: |-
+    a = [1, 2]
+    print('non-empty' if a else 'empty')
+  expected: |-
+    non-empty
+
+- case: |-
+    a = []
+    print('non-empty' if a else 'empty')
+  expected: |-
+    empty
+
+- case: |-
+    print([i for i in range(5)])
+  expected: |-
+    [0, 1, 2, 3, 4]
+
+- case: |-
+    print([i*i for i in range(6)])
+  expected: |-
+    [0, 1, 4, 9, 16, 25]
+
+- case: |-
+    print([i for i in range(10) if i % 3 == 0])
+  expected: |-
+    [0, 3, 6, 9]
+
+- case: |-
+    print([i+j for i in range(3) for j in range(3)])
+  expected: |-
+    [0, 1, 2, 1, 2, 3, 2, 3, 4]
+
+- case: |-
+    print([x for x in range(5) if x != 2 if x != 4])
+  expected: |-
+    [0, 1, 3]
+
+- case: |-
+    nested = [[1, 2, 3], [4, 5, 6]]
+    print([x for row in nested for x in row])
+  expected: |-
+    [1, 2, 3, 4, 5, 6]
+
+- case: |-
+    print({i: i*i for i in range(5)})
+  expected: |-
+    {0: 0, 1: 1, 2: 4, 3: 9, 4: 16}
+
+- case: |-
+    print({i % 3 for i in range(9)})
+  expected: |-
+    {0, 1, 2}
+
+- case: |-
+    print({x*x for x in [-2, -1, 0, 1, 2]})
+  expected: |-
+    {4, 1, 0}
+
+- case: |-
+    print(list(x*2 for x in range(4)))
+  expected: |-
+    [0, 2, 4, 6]
+
+- case: |-
+    print([x for x in [1,2,3,4,5] if x % 2 == 0])
+  expected: |-
+    [2, 4]
+
+- case: |-
+    print([(i,j) for i in range(2) for j in range(2) if i != j])
+  expected: |-
+    [(0, 1), (1, 0)]
+
+- case: |-
+    matrix = [[1,2],[3,4],[5,6]]
+    print([row for row in matrix if row[0] > 1])
+  expected: |-
+    [[3, 4], [5, 6]]
+
+- case: |-
+    print([1, 2][5])
+  error: list index out of range
+
+- case: |-
+    g = (x * x for x in range(3))
+    print(type(g).__name__, type([]).__name__, type({}).__name__, type((1,)).__name__, type({1}).__name__, type('a').__name__)
+  expected: |-
+    generator list dict tuple set str
+
+- case: |-
+    print(min([5, 3, 8, 1, 4]))
+  expected: |-
+    1
+
+- case: |-
+    print(max([5, 3, 8, 1, 4]))
+  expected: |-
+    8
+
+- case: |-
+    print(min(['e', 'h', 'l', 'o']))
+  expected: |-
+    e
+
+- case: |-
+    print(max(['e', 'h', 'l', 'o']))
+  expected: |-
+    o
+
+- case: |-
+    print(sum([]))
+  expected: |-
+    0
+
+- case: |-
+    print(sum([1]))
+  expected: |-
+    1
+
+- case: |-
+    print(sum([1, 2, 3, 4, 5]))
+  expected: |-
+    15
+
+- case: |-
+    print(sum(list(range(101))))
+  expected: |-
+    5050
+
+- case: |-
+    print(sum([1, 2, 3], 100))
+  expected: |-
+    106
+
+- case: |-
+    print(sorted([]))
+  expected: |-
+    []
+
+- case: |-
+    print(sorted([1]))
+  expected: |-
+    [1]
+
+- case: |-
+    print(sorted([3, 1, 4, 1, 5, 9, 2, 6]))
+  expected: |-
+    [1, 1, 2, 3, 4, 5, 6, 9]
+
+- case: |-
+    print(sorted(['b', 'a', 'c']))
+  expected: |-
+    ['a', 'b', 'c']
+
+- case: |-
+    print(list(enumerate([])))
+  expected: |-
+    []
+
+- case: |-
+    print(list(enumerate(['a', 'b', 'c'])))
+  expected: |-
+    [(0, 'a'), (1, 'b'), (2, 'c')]
+
+- case: |-
+    print(list(enumerate(range(3))))
+  expected: |-
+    [(0, 0), (1, 1), (2, 2)]
+
+- case: |-
+    print(list(enumerate(range(2), 5)))
+  expected: |-
+    [(5, 0), (6, 1)]
+
+- case: |-
+    print(list(zip(range(3), 'abc')))
+  expected: |-
+    [(0, 'a'), (1, 'b'), (2, 'c')]
+
+- case: |-
+    print(list(zip(range(2), range(10, 12))))
+  expected: |-
+    [(0, 10), (1, 11)]
+
+- case: |-
+    xs = [0, 0]
+    xs[0:1] = range(3)
+    print(xs)
+  expected: |-
+    [0, 1, 2, 0]
+
+- case: |-
+    print(list(range(3)), tuple(range(2)), sum(range(5)))
+  expected: |-
+    [0, 1, 2] (0, 1) 10
+
+- case: |-
+    print(dict(zip('ab', [1, 2])), sorted([3, 1, 2]))
+  expected: |-
+    {'a': 1, 'b': 2} [1, 2, 3]
+
+- case: |-
+    print(list(zip([], [])))
+  expected: |-
+    []
+
+- case: |-
+    print(list(zip([1, 2, 3], [4, 5, 6])))
+  expected: |-
+    [(1, 4), (2, 5), (3, 6)]
+
+- case: |-
+    print(list(zip([1, 2, 3], ['a', 'b'])))
+  expected: |-
+    [(1, 'a'), (2, 'b')]
+
+- case: |-
+    print(list(range(0)))
+  expected: |-
+    []
+
+- case: |-
+    print(list(range(5)))
+  expected: |-
+    [0, 1, 2, 3, 4]
+
+- case: |-
+    print(list(range(1, 5)))
+  expected: |-
+    [1, 2, 3, 4]
+
+- case: |-
+    print(list(range(0, 10, 2)))
+  expected: |-
+    [0, 2, 4, 6, 8]
+
+- case: |-
+    print(list(range(10, 0, -2)))
+  expected: |-
+    [10, 8, 6, 4, 2]
+
+- case: |-
+    print(list(range(5, 5)))
+  expected: |-
+    []
+
+- case: |-
+    print(list(range(5, 0)))
+  expected: |-
+    []
+
+- case: |-
+    print(type([]))
+  expected: |-
+    <class 'list'>
+
+- case: |-
+    print(type({}))
+  expected: |-
+    <class 'dict'>
+
+- case: |-
+    print(type(set()))
+  expected: |-
+    <class 'set'>
+
+- case: |-
+    print(isinstance([], list))
+  expected: |-
+    True
+
+- case: |-
+    print(isinstance({}, dict))
+  expected: |-
+    True
+
+- case: |-
+    print(isinstance(set(), set))
+  expected: |-
+    True
+
+- case: |-
+    print(bool([0]))
+  expected: |-
+    True
+
+- case: |-
+    print(bool({}))
+  expected: |-
+    False
+
+- case: |-
+    print(bool({0: 0}))
+  expected: |-
+    True
+
+- case: |-
+    print(all([True, True, True]))
+  expected: |-
+    True
+
+- case: |-
+    print(all([True, False, True]))
+  expected: |-
+    False
+
+- case: |-
+    print(any([False, False, True]))
+  expected: |-
+    True
+
+- case: |-
+    print(any([False, False, False]))
+  expected: |-
+    False
+
+- case: |-
+    print(all(x > 0 for x in [1, 2, 3]))
+  expected: |-
+    True
+
+- case: |-
+    print(any(x > 5 for x in [1, 2, 3]))
+  expected: |-
+    False
+
+- case: |-
+    a, b, c = [1, 2, 3]
+    print(a, b, c)
+  expected: |-
+    1 2 3
+
+- case: |-
+    a, *b = [1, 2, 3]
+    print(a, b)
+  expected: |-
+    1 [2, 3]
+
+- case: |-
+    lst = [1, 2]
+    lst += [3, 4]
+    print(lst)
+  expected: |-
+    [1, 2, 3, 4]
+
+- case: |-
+    a = [1, 2]
+    b = a
+    print(a == b)
+  expected: |-
+    True
+
+- case: |-
+    a = [1, 2]
+    b = [1, 2]
+    print(a is b)
+  error: '''is'' compares only with None, True, False, ... or NotImplemented'
+
+- case: |-
+    a = [1, 2]
+    b = [1, 2]
+    print(a == b)
+  expected: |-
+    True
+
+- case: |-
+    print([abs(x) for x in [-3, -1, 0, 1, 3]])
+  expected: |-
+    [3, 1, 0, 1, 3]
+
+- case: |-
+    data = [3, 1, 4, 1, 5, 9, 2, 6]
+    print(max(data) - min(data))
+  expected: |-
+    8
+
+- case: |-
+    print(type([1]) == type([2]))
+  expected: |-
+    True
+
+- case: |-
+    print(type({1, 2}) == set)
+  expected: |-
+    True
+
+- case: |-
+    print(type([1, 2, 3])([4, 5]))
+  expected: |-
+    [4, 5]
+
+- case: |-
+    print(set([1, 1, 2]) == frozenset([2, 1]))
+  expected: |-
+    True
+
+- case: |-
+    pairs = [(1, 'a'), (2, 'b'), (3, 'c')]
+    print({v: k for k, v in pairs})
+  expected: |-
+    {'a': 1, 'b': 2, 'c': 3}
+
+- case: |-
+    nums = list(range(1, 11))
+    evens = [x for x in nums if x % 2 == 0]
+    odds = [x for x in nums if x % 2 != 0]
+    print(sum(evens), sum(odds))
+  expected: |-
+    30 25
+
+- case: |-
+    lst = [1, 2, 3, 2, 4, 3, 5]
+    dupes = [x for x in lst if lst.count(x) > 1]
+    print(sorted(set(dupes)))
+  expected: |-
+    [2, 3]
+
+- case: |-
+    print([x for x in range(20) if x % 2 == 0 and x % 3 == 0])
+  expected: |-
+    [0, 6, 12, 18]
+
+- case: |-
+    print({k: list(range(k)) for k in range(1, 4)})
+  expected: |-
+    {1: [0], 2: [0, 1], 3: [0, 1, 2]}
+
+- case: |-
+    print(sorted(set([3, 1, 4, 1, 5, 9, 2, 6, 5, 3])))
+  expected: |-
+    [1, 2, 3, 4, 5, 6, 9]
+
+- case: |-
+    print([(x, y) for x in range(3) for y in range(3) if x + y == 2])
+  expected: |-
+    [(0, 2), (1, 1), (2, 0)]
+
+- case: |-
+    print(sorted(list('banana')))
+  expected: |-
+    ['a', 'a', 'a', 'b', 'n', 'n']
+
+- case: |-
+    print(list(reversed([1,2,3])))
+  expected: |-
+    [3, 2, 1]
+
+- case: |-
+    print(list(reversed('abc')))
+  expected: |-
+    ['c', 'b', 'a']
+
+- case: |-
+    print('αβγ'[1])
+  expected: |-
+    β
+
+- case: |-
+    print(list('αβγ'))
+  expected: |-
+    ['α', 'β', 'γ']
+
+- case: |-
+    print([1, 2, 3][-5])
+  error: list index out of range
+
+- case: |-
+    print('abc'[10])
+  error: string index out of range
+
+- case: |-
+    print({1: 2}[3])
+  error: KeyError
+
+- case: |-
+    x = 'abc'
+    x[0] = 'z'
+  error: object does not support item assignment
+
+- case: |-
+    x = (1, 2)
+    x[0] = 99
+  error: '''tuple'' object does not support item assignment'
+
+- case: |-
+    (1, 2) + [3]
+  error: can only concatenate tuple (not "list") to tuple
+
+- case: |-
+    x = [1, 2, 3]
+    del x[0]
+    print(x)
+  expected: |-
+    [2, 3]
+
+- case: |-
+    x = [10, 20, 30, 40]
+    del x[-1]
+    print(x)
+  expected: |-
+    [10, 20, 30]
+
+- case: |-
+    d = {'a': 1, 'b': 2}
+    del d['a']
+    print(d)
+  expected: |-
+    {'b': 2}
+
+- case: |-
+    x = [1, 2, 3, 4]
+    del x[0], x[1]
+    print(x)
+  expected: |-
+    [2, 4]
+
+- case: |-
+    print(list(filter(None, [0, 1, '', 'hi', [], [1]])))
+  expected: |-
+    [1, 'hi', [1]]
+
+- case: |-
+    it = iter([10, 20, 30])
+    print(next(it))
+    print(next(it))
+    print(next(it))
+  expected: |-
+    10
+    20
+    30
+
+- case: |-
+    xs = [1, 2, 3]
+    it = iter(xs)
+    next(it)
+    print(xs)
+  expected: |-
+    [1, 2, 3]
+
+- case: |-
+    xs = [1, 2, 3, 4, 5]
+    xs[1:3] = [20, 30]
+    print(xs)
+  expected: |-
+    [1, 20, 30, 4, 5]
+
+- case: |-
+    xs = [1, 2, 3, 4, 5]
+    xs[1:3] = [10, 20, 30, 40]
+    print(xs)
+  expected: |-
+    [1, 10, 20, 30, 40, 4, 5]
+
+- case: |-
+    xs = [1, 2, 3, 4, 5]
+    xs[1:3] = []
+    print(xs)
+  expected: |-
+    [1, 4, 5]
+
+- case: |-
+    xs = [1, 2, 3, 4, 5]
+    xs[2:2] = [99, 100]
+    print(xs)
+  expected: |-
+    [1, 2, 99, 100, 3, 4, 5]
+
+- case: |-
+    xs = [1, 2, 3, 4, 5]
+    xs[:] = [9, 8, 7]
+    print(xs)
+  expected: |-
+    [9, 8, 7]
+
+- case: |-
+    xs = [1, 2, 3, 4, 5]
+    del xs[1:3]
+    print(xs)
+  expected: |-
+    [1, 4, 5]
+
+- case: |-
+    xs = [1, 2, 3, 4, 5]
+    del xs[:2]
+    print(xs)
+  expected: |-
+    [3, 4, 5]
+
+- case: |-
+    xs = [1, 2, 3, 4, 5]
+    del xs[2:]
+    print(xs)
+  expected: |-
+    [1, 2]
+
+- case: |-
+    print(any(x > 100 for x in [1, 2, 200]))
+  expected: |-
+    True
+
+- case: |-
+    print(max(len(s) for s in ['hi', 'hello', 'world']))
+  expected: |-
+    5
+
+- case: |-
+    g = (x * 2 for x in [1, 2, 3])
+    print(list(g))
+  expected: |-
+    [2, 4, 6]
+
+- case: |-
+    print(b'abc'[0])
+  expected: |-
+    97
+
+- case: |-
+    print(b'abc'[-1])
+  expected: |-
+    99
+
+- case: |-
+    d = {b'k': 1}
+    print(d[b'k'])
+  expected: |-
+    1
+
+- case: |-
+    print(b'x' in {b'x', b'y'})
+  expected: |-
+    True
+
+- case: |-
+    print(bytes([65, 66, 67]))
+  expected: |-
+    b'ABC'
+
+- case: |-
+    s = {1, 2, 3}
+    s.add(4)
+    print(s)
+  expected: |-
+    {1, 2, 3, 4}
+
+- case: |-
+    s = {1, 2, 3}
+    s.add(2)
+    print(len(s))
+  expected: |-
+    3
+
+- case: |-
+    s = {1, 2, 3}
+    s.remove(2)
+    print(s)
+  expected: |-
+    {1, 3}
+
+- case: |-
+    s = {1, 2, 3}
+    s.discard(2)
+    s.discard(99)
+    print(s)
+  expected: |-
+    {1, 3}
+
+- case: |-
+    s = {1, 2, 3}
+    x = s.pop()
+    print(len(s))
+    print(x in {1, 2, 3})
+  expected: |-
+    2
+    True
+
+- case: |-
+    s = {1, 2, 3}
+    s.clear()
+    print(s)
+    print(len(s))
+  expected: |-
+    set()
+    0
+
+- case: |-
+    a = {1, 2, 3}
+    b = a.copy()
+    a.add(99)
+    print(b)
+  expected: |-
+    {1, 2, 3}
+
+- case: |-
+    s = {1, 2}
+    s.update([3, 4, 1])
+    print(s)
+  expected: |-
+    {1, 2, 3, 4}
+
+- case: |-
+    s = {1, 2}
+    s.update((3,))
+    s.update({4, 5})
+    print(len(s))
+  expected: |-
+    5
+
+- case: |-
+    print({1, 2, 3}.union({3, 4}))
+  expected: |-
+    {1, 2, 3, 4}
+
+- case: |-
+    print({1, 2, 3}.intersection({2, 3, 4}))
+  expected: |-
+    {2, 3}
+
+- case: |-
+    print({1, 2, 3}.difference({2, 3}))
+  expected: |-
+    {1}
+
+- case: |-
+    print({1, 2, 3}.symmetric_difference({3, 4}))
+  expected: |-
+    {1, 2, 4}
+
+- case: |-
+    print({1, 2}.issubset({1, 2, 3}))
+  expected: |-
+    True
+
+- case: |-
+    print({1, 2, 3}.issubset({1, 2}))
+  expected: |-
+    False
+
+- case: |-
+    print({1, 2, 3}.issuperset({1, 2}))
+  expected: |-
+    True
+
+- case: |-
+    print({1, 2}.isdisjoint({3, 4}))
+  expected: |-
+    True
+
+- case: |-
+    print({1, 2}.isdisjoint({2, 3}))
+  expected: |-
+    False
+
+- case: |-
+    print({1, 2} | {2, 3})
+  expected: |-
+    {1, 2, 3}
+
+- case: |-
+    print({1, 2, 3} & {2, 3, 4})
+  expected: |-
+    {2, 3}
+
+- case: |-
+    print({1, 2, 3} - {3})
+  expected: |-
+    {1, 2}
+
+- case: |-
+    print({1, 2} ^ {2, 3})
+  expected: |-
+    {1, 3}
+
+- case: |-
+    print({1, 2} <= {1, 2, 3})
+  expected: |-
+    True
+
+- case: |-
+    print({1, 2} < {1, 2, 3})
+  expected: |-
+    True
+
+- case: |-
+    print({1, 2} < {1, 2})
+  expected: |-
+    False
+
+- case: |-
+    print({1, 2, 3} >= {1, 2})
+  expected: |-
+    True
+
+- case: |-
+    print({1, 2, 3} > {1, 2})
+  expected: |-
+    True
+
+- case: |-
+    print({1, 2} <= {2, 3})
+  expected: |-
+    False
+
+- case: |-
+    print({2, 3} <= {1, 2})
+  expected: |-
+    False
+
+- case: |-
+    s = {1, 2}
+    s |= {3}
+    print(s)
+  expected: |-
+    {1, 2, 3}
+
+- case: |-
+    s = {1, 2, 3}
+    s &= {2, 3, 4}
+    print(s)
+  expected: |-
+    {2, 3}
+
+- case: |-
+    s = {1, 2, 3}
+    s -= {2}
+    print(s)
+  expected: |-
+    {1, 3}
+
+- case: |-
+    s = {1, 2, 3}
+    t = s
+    s -= {1}
+    print(sorted(t))
+  expected: |-
+    [2, 3]
+
+- case: |-
+    fs = frozenset({1, 2, 3})
+    g = fs
+    fs -= {1}
+    print(sorted(g), sorted(fs))
+  expected: |-
+    [1, 2, 3] [2, 3]
+
+- case: |-
+    s = {1, 2, 3}
+    t = s
+    s -= s
+    print(sorted(t))
+  expected: |-
+    []
+
+- case: |-
+    s = {1, 2, 3}
+    s -= 1
+  error: unsupported operand
+
+- case: |-
+    s = {1, 2}
+    s ^= {2, 3}
+    print(s)
+  expected: |-
+    {1, 3}
+
+- case: |-
+    print({x for x in range(5) if x % 2 == 0})
+  expected: |-
+    {0, 2, 4}
+
+- case: |-
+    print(sorted({1,2,3} & {2,3,4}))
+  expected: |-
+    [2, 3]
+
+- case: |-
+    d = {}
+    d[1] = 'a'
+    d[1.0] = 'b'
+    print(len(d))
+    print(d[1])
+  expected: |-
+    1
+    b
+
+- case: |-
+    d = {}
+    d[[1,2]] = 'v'
+  error: unhashable type
+
+- case: |-
+    s = {[1, 2]}
+  error: unhashable type
+
+- case: |-
+    d = {[1]: 'v'}
+  error: unhashable type
+
+- case: |-
+    print(tuple('abc'))
+  expected: |-
+    ('a', 'b', 'c')
+
+- case: |-
+    print(tuple(range(3)))
+  expected: |-
+    (0, 1, 2)
+
+- case: |-
+    print(set(range(3)))
+  expected: |-
+    {0, 1, 2}
+
+- case: |-
+    print(set({'a':1, 'b':2}))
+  expected: |-
+    {'a', 'b'}
+
+- case: |-
+    x=[1]
+    x.extend(range(3))
+    print(x)
+  expected: |-
+    [1, 0, 1, 2]
+
+- case: |-
+    x=[1]
+    x.extend({2,3})
+    print(sorted(x))
+  expected: |-
+    [1, 2, 3]
+
+- case: |-
+    d={}
+    d.update([('a',1),('b',2)])
+    print(d)
+  expected: |-
+    {'a': 1, 'b': 2}
+
+- case: |-
+    s={1,2}
+    s.remove(99)
+  error: KeyError
+
+- case: |-
+    d={'a':1,'b':2}
+    k=d.keys()
+    d['c']=3
+    print(list(k))
+  expected: |-
+    ['a', 'b', 'c']
+
+- case: |-
+    d = {2 ** 100: 'x'}
+    print(d[2 ** 100])
+  expected: |-
+    x
+
+- case: |-
+    s = {2 ** 100, 2 ** 100}
+    print(len(s))
+  expected: |-
+    1
+
+- case: |-
+    print(sorted([3, 1.5, True, -2, 0.0, -0.0]), sorted([0.0, -0.0]), sorted(['b', 'a', 'ab']), sorted([(2, 'a'), (1, 'b'), (1, 'a')], reverse=True))
+  expected: |-
+    [-2, 0.0, -0.0, True, 1.5, 3] [0.0, -0.0] ['a', 'ab', 'b'] [(2, 'a'), (1, 'b'), (1, 'a')]
+
+- case: |-
+    xs = sorted(["b" + "a", "a" + "c", "a" + "b", "c"])
+    print(xs, max(xs), min(xs), "ab" in xs, xs.count("ba"))
+  expected: |-
+    ['ab', 'ac', 'ba', 'c'] c ab True 1
+
+- case: |-
+    print(len({**{1:1}, **{2:2}}))
+  expected: |-
+    2
+
+- case: |-
+    print({**{'a':1}, **{'a':9}})
+  expected: |-
+    {'a': 9}
+
+- case: |-
+    print({'x':1, **{'y':2}})
+  expected: |-
+    {'x': 1, 'y': 2}
+
+- case: |-
+    print({**{'a':1}, 'b':2})
+  expected: |-
+    {'a': 1, 'b': 2}
+
+- case: |-
+    d = {'a': 1}
+    print({**d, 'b': 2, **{'c': 3}})
+  expected: |-
+    {'a': 1, 'b': 2, 'c': 3}
+
+- case: |-
+    print([*[1, 2], 3, *[4, 5]])
+  expected: |-
+    [1, 2, 3, 4, 5]
+
+- case: |-
+    print([*[1, 2], 3])
+  expected: |-
+    [1, 2, 3]
+
+- case: |-
+    print([0, *range(3)])
+  expected: |-
+    [0, 0, 1, 2]
+
+- case: |-
+    print(len({*[1, 2], *[2, 3]}))
+  expected: |-
+    3
+
+- case: |-
+    print(sorted({*[3, 1], *[1, 2]}))
+  expected: |-
+    [1, 2, 3]
+
+- case: |-
+    x = [1, 2, 3]
+    [print(i) for i in range(2)]
+  expected: |-
+    0
+    1
+
+- case: |-
+    xs = []
+    [xs.append(i) for i in range(3)]
+    print(xs)
+  expected: |-
+    [0, 1, 2]
+
+- case: |-
+    d = {'a': 1}
+    [print(d[k]) for k in d]
+  expected: |-
+    1
+
+- case: |-
+    n = 5
+    [0, 1, 2]
+    print(n)
+  expected: |-
+    5
+
+- case: |-
+    x = [
+        1,
+        2,
+    ]
+    print(x)
+  expected: |-
+    [1, 2]
+
+- case: |-
+    [print(x) for x in range(2)]
+    d = {}
+    [d.update({x: x}) for x in range(2)]
+    print(d[0], d[1])
+    xs = []
+    [xs.append(x) for x in range(2)]
+    print(xs)
+  expected: |-
+    0
+    1
+    0 1
+    [0, 1]
+
+- case: |-
+    print(sorted([(1, 2), (1, 1), (0, 9)]))
+  expected: |-
+    [(0, 9), (1, 1), (1, 2)]
+
+- case: |-
+    print([3, 1] < [3, 2])
+  expected: |-
+    True
+
+- case: |-
+    print(sorted([[2], [1], [1, 0]]))
+  expected: |-
+    [[1], [1, 0], [2]]
+
+- case: |-
+    print(sorted([3, 1, 2], reverse=True))
+  expected: |-
+    [3, 2, 1]
+
+- case: |-
+    lst = [3, 1, 2]; lst.sort(reverse=True); print(lst)
+  expected: |-
+    [3, 2, 1]
+
+- case: |-
+    d = {}
+    d[0] = d
+    print(d)
+  expected: |-
+    {0: {...}}
+
+- case: |-
+    a = [1]
+    a.append(a)
+    print(a)
+  expected: |-
+    [1, [...]]
+
+- case: |-
+    print({1, 1.0, 2})
+  expected: |-
+    {1, 2}
+
+- case: |-
+    d = {i: i * i for i in range(50)}
+    print(d[7])
+    print(len(d))
+  expected: |-
+    49
+    50
+
+- case: |-
+    print([x or (x in [7, 8]) for x in range(3)])
+  expected: |-
+    [False, 1, 2]
+
+- case: |-
+    print({x: (x or 99) for x in range(3)})
+  expected: |-
+    {0: 99, 1: 1, 2: 2}
+
+- case: |-
+    print([(x if x > 0 else -x) for x in range(-1, 2)])
+  expected: |-
+    [1, 0, 1]
+
+- case: |-
+    print([x and x + 1 for x in range(3)])
+  expected: |-
+    [0, 2, 3]
+
+- case: |-
+    print({**5})
+  error: '''int'' object is not a mapping'
+
+- case: |-
+    print([0] * 40000000)
+  error: 'MemoryError: memory limit'
+
+- case: |-
+    print(list(range(40000000)))
+  error: 'MemoryError: memory limit'
+
+- case: |-
+    a = [1]
+    a.append(a)
+    b = [1]
+    b.append(b)
+    print(a < b)
+  error: RecursionError
+
+- case: |-
+    a = [1]
+    a.append(a)
+    print(a == a)
+  expected: |-
+    True
+
+- case: |-
+    a = [1]
+    a.append(a)
+    x = a
+    print(x > a)
+  expected: |-
+    False
+
+- case: |-
+    print([] * 1000000000)
+  expected: |-
+    []
+
+- case: |-
+    print([1, 2, 3, 4, 5][61::-2])
+  expected: |-
+    [5, 3, 1]
+
+- case: |-
+    xs = [1, 2, 3, 4, 5]
+    del xs[61::-2]
+    print(xs)
+  expected: |-
+    [2, 4]
+
+- case: |-
+    xs = [1, 2, 3, 4, 5]
+    xs[61::-2] = []
+  error: extended slice
+
+- case: |-
+    d = {}
+    d.update(-1)
+    print(d)
+  error: '''int'' object is not iterable'
+
+- case: |-
+    d = {}
+    d.update([1, 2])
+    print(d)
+  error: object is not iterable
+
+- case: |-
+    a = [1]
+    a.append(a)
+    a.append(a)
+    print(a == a)
+  expected: |-
+    True
+
+- case: |-
+    print([1e16, 2.5])
+  expected: |-
+    [1e+16, 2.5]
+
+- case: |-
+    print({1e16: 'found'}.get(10 ** 16 + 1, 'missing'))
+  expected: |-
+    missing
+
+- case: |-
+    print(len({1e16, 10 ** 16 + 1}))
+  expected: |-
+    2
+
+- case: |-
+    print(len({1, True}))
+  expected: |-
+    1
+
+- case: |-
+    print(len({1.0, 1, True}))
+  expected: |-
+    1
+
+- case: |-
+    d = {True: 'a', 1: 'b'}
+    print(d)
+  expected: |-
+    {True: 'b'}
+
+- case: |-
+    print({True: 1}[1.0])
+  expected: |-
+    1
+
+- case: |-
+    print(['x\ny'])
+  expected: |-
+    ['x\ny']
+
+- case: |-
+    print({'k': 'a\tb'})
+  expected: |-
+    {'k': 'a\tb'}
+
+- case: |-
+    print(*[1, 2, 3])
+  expected: |-
+    1 2 3
+
+- case: |-
+    print(*[1, 2, 3], sep='-')
+  expected: |-
+    1-2-3
+
+- case: |-
+    print(sum([0.1, 0.2, 0.3]))
+  expected: |-
+    0.6
+
+- case: |-
+    print(sum([0.1, 0.2, 0.3]) == 0.6)
+  expected: |-
+    True
+
+- case: |-
+    d = {'a': 1, 'b': 2}
+    print('a' in d.keys(), 'z' in d.keys())
+  expected: |-
+    True False
+
+- case: |-
+    print(list({'a': 1, 'b': 2}.keys()))
+  expected: |-
+    ['a', 'b']
+
+- case: |-
+    print(sorted({1}.union(range(2, 4))))
+  expected: |-
+    [1, 2, 3]
+
+- case: |-
+    print(sorted({'a'}.union('bc')))
+  expected: |-
+    ['a', 'b', 'c']
+
+- case: |-
+    print(sorted({1, 2, 3}.difference(range(2))))
+  expected: |-
+    [2, 3]
+
+- case: |-
+    s = {1}
+    s.update(frozenset({2, 3}))
+    print(sorted(s))
+  expected: |-
+    [1, 2, 3]
+
+- case: |-
+    print({1, 2, 3}.issubset(range(5)))
+  expected: |-
+    True
+
+- case: |-
+    s = {1, 2, 3, 4}
+    s.intersection_update({2, 4, 6})
+    print(sorted(s))
+  expected: |-
+    [2, 4]
+
+- case: |-
+    s = {1, 2, 3}
+    s.difference_update([1, 2])
+    print(sorted(s))
+  expected: |-
+    [3]
+
+- case: |-
+    print({'a': 1} | {'b': 2})
+  expected: |-
+    {'a': 1, 'b': 2}
+
+- case: |-
+    d = {'a': 1}
+    d |= {'b': 2}
+    print(d)
+  expected: |-
+    {'a': 1, 'b': 2}
+
+- case: |-
+    d = {1: 'a'}
+    d.update(x=1)
+    print(d)
+  expected: |-
+    {1: 'a', 'x': 1}
+
+- case: |-
+    print(dict.fromkeys(['a', 'b'], 0))
+  expected: |-
+    {'a': 0, 'b': 0}
+
+- case: |-
+    print(list(range(10**18, 10**18 + 3)))
+  expected: |-
+    [1000000000000000000, 1000000000000000001, 1000000000000000002]
+
+- case: |-
+    print(min([], default=0))
+  expected: |-
+    0
+
+- case: |-
+    print(max([], default=-1))
+  expected: |-
+    -1
+
+- case: |-
+    d={'a':1}
+    d.update([('b',2)], c=3)
+    print(d)
+  expected: |-
+    {'a': 1, 'b': 2, 'c': 3}
+
+- case: |-
+    s = {1, 2, 3}
+    s.symmetric_difference_update({2, 4})
+    print(sorted(s))
+  expected: |-
+    [1, 3, 4]
+
+- case: |-
+    a = {1, 2}
+    print(sorted({*a, 3}))
+  expected: |-
+    [1, 2, 3]
+
+- case: |-
+    d = {}
+    d.popitem()
+  error: 'popitem(): dictionary is empty'
+
+- case: |-
+    [].pop()
+  error: pop from empty list
+
+- case: |-
+    [1].pop(5)
+  error: pop index out of range
+
+- case: |-
+    min([1, 2], key=abs)
+  error: unexpected keyword argument
+
+- case: |-
+    a = list(range(6))
+    print(a[::-1], a[5:1:-2], a[5::-1], a[10:20])
+    print('hello'[::-2])
+  expected: |-
+    [5, 4, 3, 2, 1, 0] [5, 3] [5, 4, 3, 2, 1, 0] []
+    olh
+
+- case: |-
+    y = 0
+    print([x for x in [1, 2, 3] if (y := x) > 1])
+    print(y)
+  expected: |-
+    [2, 3]
+    3
+
+- case: |-
+    print([x for row in [[1, 2], [3, 4]] for x in row if x > 1])
+  expected: |-
+    [2, 3, 4]
+
+- case: |-
+    print(len({10**18 for _ in range(3)}))
+  expected: |-
+    1
+
+- case: |-
+    print(len({(1, x // 2) for x in range(4)}))
+  expected: |-
+    2
+
+- case: |-
+    print(len({'a' * 200 for _ in range(3)}))
+  expected: |-
+    1
+
+- case: |-
+    print(len({*[10**18, 10**18], *[(1, 2), (1, 2)]}))
+  expected: |-
+    2
+
+- case: |-
+    print(len({(1, 2), (1, 2), (1, 3)}))
+  expected: |-
+    2
+
+- case: |-
+    print(len(set([(1, 2), (1, 2), (1, 3)])))
+  expected: |-
+    2
+
+- case: |-
+    print(sorted(frozenset([(1, 2), (1, 2)])))
+  expected: |-
+    [(1, 2)]
+
+- case: |-
+    print(len({'a' * 200, 'a' * 200}))
+  expected: |-
+    1
+
+- case: |-
+    print({(1, 2)} == {(1, 2)})
+  expected: |-
+    True
+
+- case: |-
+    print({(1, 2)} == {(1, 3)})
+  expected: |-
+    False
+
+- case: |-
+    print(frozenset([(1, 2)]) == frozenset([(1, 2)]))
+  expected: |-
+    True
+
+- case: |-
+    print((1, 2) in {(1, 2), (3, 4)})
+  expected: |-
+    True
+
+- case: |-
+    print({(1, 2)} <= {(1, 2), (3, 4)})
+  expected: |-
+    True
+
+- case: |-
+    print({(1, 2)} < {(1, 2)})
+  expected: |-
+    False
+
+- case: |-
+    a = {(1, 2), (3, 4)}
+    b = {(1, 2), (5, 6)}
+    print(sorted(a & b))
+  expected: |-
+    [(1, 2)]
+
+- case: |-
+    a = {(1, 2), (3, 4)}
+    b = {(1, 2), (5, 6)}
+    print(sorted(a | b))
+  expected: |-
+    [(1, 2), (3, 4), (5, 6)]
+
+- case: |-
+    a = {(1, 2), (3, 4)}
+    b = {(1, 2), (5, 6)}
+    print(sorted(a - b))
+  expected: |-
+    [(3, 4)]
+
+- case: |-
+    a = {(1, 2), (3, 4)}
+    b = {(1, 2), (5, 6)}
+    print(sorted(a ^ b))
+  expected: |-
+    [(3, 4), (5, 6)]
+
+- case: |-
+    a = {(1, 2), (3, 4)}
+    b = {(1, 2), (5, 6)}
+    print(sorted(a.intersection(b)))
+  expected: |-
+    [(1, 2)]
+
+- case: |-
+    a = {(1, 2), (3, 4)}
+    b = {(1, 2), (5, 6)}
+    print(sorted(a.union(b)))
+  expected: |-
+    [(1, 2), (3, 4), (5, 6)]
+
+- case: |-
+    a = {(1, 2), (3, 4)}
+    b = {(1, 2), (5, 6)}
+    print(sorted(a.difference(b)))
+  expected: |-
+    [(3, 4)]
+
+- case: |-
+    a = {(1, 2), (3, 4)}
+    b = {(1, 2), (5, 6)}
+    print(sorted(a.symmetric_difference(b)))
+  expected: |-
+    [(3, 4), (5, 6)]
+
+- case: |-
+    a = {(1, 2), (3, 4)}
+    b = {(1, 2), (5, 6)}
+    print(a.isdisjoint(b))
+  expected: |-
+    False
+
+- case: |-
+    a = {(1, 2), (3, 4)}
+    b = {(1, 2), (5, 6)}
+    print(a.isdisjoint({(9, 9)}))
+  expected: |-
+    True
+
+- case: |-
+    a = {(1, 2), (3, 4)}
+    b = {(1, 2), (5, 6)}
+    print(len(a & b))
+  expected: |-
+    1
+
+- case: |-
+    a = {(1, 2), (3, 4)}
+    b = {(1, 2), (5, 6)}
+    print(len(a - b))
+  expected: |-
+    1
+
+- case: |-
+    a = {(1, 2), (3, 4)}
+    b = {(1, 2), (5, 6)}
+    print(len(a ^ b))
+  expected: |-
+    2
+
+- case: |-
+    a = {(1, 2), (3, 4)}
+    b = {(1, 2), (5, 6)}
+    print((1, 2) in (a & b))
+  expected: |-
+    True
+
+- case: |-
+    a = {(1, 2), (3, 4)}
+    b = {(1, 2), (5, 6)}
+    print((3, 4) in (a - b))
+  expected: |-
+    True
+
+- case: |-
+    a = {(1, 2), (3, 4)}
+    b = {(1, 2), (5, 6)}
+    print({(1, 2)}.issubset(a))
+  expected: |-
+    True
+
+- case: |-
+    a = {(1, 2), (3, 4)}
+    b = {(1, 2), (5, 6)}
+    print(a.issuperset({(1, 2)}))
+  expected: |-
+    True
+
+- case: |-
+    a = {(1, 2), (3, 4)}
+    b = {(1, 2), (5, 6)}
+    print({(1, 2), (3, 4), (5, 6)}.issuperset(a))
+  expected: |-
+    True
+
+- case: |-
+    a = {(1, 2), (3, 4)}
+    c = a.copy()
+    print(sorted(c))
+  expected: |-
+    [(1, 2), (3, 4)]
+
+- case: |-
+    a = {(1, 2), (3, 4)}
+    a.discard((1, 2))
+    print(sorted(a))
+  expected: |-
+    [(3, 4)]
+
+- case: |-
+    a = {(1, 2), (3, 4)}
+    a.remove((3, 4))
+    print(sorted(a))
+  expected: |-
+    [(1, 2)]
+
+- case: |-
+    a = {(1, 2)}
+    a.add((1, 2))
+    print(len(a))
+  expected: |-
+    1
+
+- case: |-
+    a = {(1, 2)}
+    a.add((9, 9))
+    print(len(a))
+  expected: |-
+    2
+
+- case: |-
+    a = {(1, 2), (3, 4)}
+    a.intersection_update({(1, 2)})
+    print(sorted(a))
+  expected: |-
+    [(1, 2)]
+
+- case: |-
+    a = {(1, 2), (3, 4)}
+    a.difference_update({(1, 2)})
+    print(sorted(a))
+  expected: |-
+    [(3, 4)]
+
+- case: |-
+    a = {(1, 2), (3, 4)}
+    a.symmetric_difference_update({(3, 4), (5, 6)})
+    print(sorted(a))
+  expected: |-
+    [(1, 2), (5, 6)]
+
+- case: |-
+    a = {(1, 2), (3, 4)}
+    a.symmetric_difference_update({(3, 4), (a, 6)})
+    print(sorted(a))
+  error: 'unhashable type: ''set'''
+
+- case: |-
+    a = {1}
+    a.add(a)
+  error: 'unhashable type: ''set'''
+
+- case: |-
+    a = {1}
+    a.add((a, 6))
+  error: 'unhashable type: ''set'''
+
+- case: |-
+    a = {1}
+    a.symmetric_difference_update([a])
+  error: 'unhashable type: ''set'''
+
+- case: |-
+    a = {1}
+    a.discard((a, 1))
+  error: 'unhashable type: ''set'''
+
+- case: |-
+    a = {1}
+    a.intersection_update([a])
+  error: 'unhashable type: ''set'''
+
+- case: |-
+    a = {1}
+    a.discard(a)
+    print(a)
+  expected: |-
+    {1}
+
+- case: |-
+    a = {1}
+    a.discard({a for _ in [1]})
+  error: 'unhashable type: ''set'''
+
+- case: |-
+    print(len({(1, (2, 3)), (1, (2, 3))}), {(1, (2, 3)): 'a'}[(1, (2, 3))])
+  expected: |-
+    1 a
+
+- case: |-
+    a = {(1, 2), (3, 4)}
+    a.update({(5, 6), (1, 2)})
+    print(len(a))
+  expected: |-
+    3
+
+- case: |-
+    print({(1, 2)} != {(1, 2)})
+  expected: |-
+    False
+
+- case: |-
+    print({(1, 2), (3, 4)} == {(3, 4), (1, 2)})
+  expected: |-
+    True
+
+- case: |-
+    print({(1, 2)} < {(1, 2), (3, 4)})
+  expected: |-
+    True
+
+- case: |-
+    print({(1, 2)} <= {(1, 2)})
+  expected: |-
+    True
+
+- case: |-
+    print({(1, 2), (3, 4)} > {(1, 2)})
+  expected: |-
+    True
+
+- case: |-
+    print({(1, 2)} >= {(1, 2), (3, 4)})
+  expected: |-
+    False
+
+- case: |-
+    print({(1, 2), (3, 4)} >= {(3, 4)})
+  expected: |-
+    True
+
+- case: |-
+    d = {(1, 2): 'a', (3, 4): 'b'}
+    print(d[(1, 2)])
+  expected: |-
+    a
+
+- case: |-
+    d = {(1, 2): 'a'}
+    d[(1, 2)] = 'x'
+    print(d[(1, 2)])
+    print(len(d))
+  expected: |-
+    x
+    1
+
+- case: |-
+    d = {(1, 2): 'a'}
+    print((1, 2) in d)
+  expected: |-
+    True
+
+- case: |-
+    d = {(1, 2): 'a'}
+    print((9, 9) in d)
+  expected: |-
+    False
+
+- case: |-
+    d = {(1, 2): 'a'}
+    print(d.get((1, 2)))
+  expected: |-
+    a
+
+- case: |-
+    d = {}
+    d[(1, 2)] = 1
+    d[(1, 2)] = 2
+    print(len(d))
+  expected: |-
+    1
+
+- case: |-
+    d = {(1, 2): 'a', (3, 4): 'b'}
+    print(sorted(d.keys()))
+  expected: |-
+    [(1, 2), (3, 4)]
+
+- case: |-
+    d = {(1, 2): 1, (3, 4): 2}
+    print(sorted(d.values()))
+  expected: |-
+    [1, 2]
+
+- case: |-
+    print({(1, 2): 'a'} == {(1, 2): 'a'})
+  expected: |-
+    True
+
+- case: |-
+    print({(1, 2): 'a'} == {(1, 2): 'b'})
+  expected: |-
+    False
+
+- case: |-
+    d = {(1, 2): 'a'}
+    print(len(d))
+  expected: |-
+    1
+
+- case: |-
+    fs = frozenset([1, 2])
+    d = {fs: 'x'}
+    print(d[frozenset([1, 2])])
+  expected: |-
+    x
+
+- case: |-
+    fs = frozenset([1, 2])
+    d = {fs: 'x'}
+    print(frozenset([2, 1]) in d)
+  expected: |-
+    True
+
+- case: |-
+    print(sorted(set([(1, 2), (1, 2)])))
+  expected: |-
+    [(1, 2)]
+
+- case: |-
+    print(len({*[(1, 2), (1, 2)], *[(3, 4)]}))
+  expected: |-
+    2
+
+- case: |-
+    print(sorted(frozenset([(1, 2), (1, 2), (3, 4)])))
+  expected: |-
+    [(1, 2), (3, 4)]
+
+- case: |-
+    print(len(set(((1, 2), (1, 2), (3, 4)))))
+  expected: |-
+    2
+
+- case: |-
+    print(len({'a' * 200, 'b' * 200}))
+  expected: |-
+    2
+
+- case: |-
+    print(sorted({(1,), (1,), (2,)}))
+  expected: |-
+    [(1,), (2,)]
+
+- case: |-
+    print(len({1, 1.0, True}))
+  expected: |-
+    1
+
+- case: |-
+    print(len({0, False, 0.0}))
+  expected: |-
+    1
+
+- case: |-
+    print({1, 1.0, 2} == {1, 2})
+  expected: |-
+    True
+
+- case: |-
+    print(1.0 in {1, 2, 3})
+  expected: |-
+    True
+
+- case: |-
+    print(True in {1})
+  expected: |-
+    True
+
+- case: |-
+    print(len({1, True, 1.0, 1}))
+  expected: |-
+    1
+
+- case: |-
+    d = {1: 'a'}
+    d[1.0] = 'b'
+    print(d[1])
+    print(len(d))
+  expected: |-
+    b
+    1
+
+- case: |-
+    d = {1: 'a'}
+    d[True] = 'b'
+    print(d[1])
+  expected: |-
+    b
+
+- case: |-
+    print(len({10 ** 16, 1e16}))
+  expected: |-
+    1
+
+- case: |-
+    big = 10 ** 16
+    print(big in {1e16})
+  expected: |-
+    True
+
+- case: |-
+    print(1e16 in {10 ** 16})
+  expected: |-
+    True
+
+- case: |-
+    print(len({2 ** 80, 2 ** 80}))
+  expected: |-
+    1
+
+- case: |-
+    print(len({2 ** 80, 2 ** 81}))
+  expected: |-
+    2
+
+- case: |-
+    print(2 ** 80 in {2 ** 80})
+  expected: |-
+    True
+
+- case: |-
+    print({2 ** 80} == {2 ** 80})
+  expected: |-
+    True
+
+- case: |-
+    print(len({-0.0, 0.0, 0}))
+  expected: |-
+    1
+
+- case: |-
+    d = {2 ** 80: 'a'}
+    print(d[2 ** 80])
+  expected: |-
+    a
+
+- case: |-
+    print(len({1.5, 1.5, 2.5}))
+  expected: |-
+    2
+
+- case: |-
+    print({1.0, 2.0} == {1, 2})
+  expected: |-
+    True
+
+- case: |-
+    print(len({frozenset([1, 2]), frozenset([2, 1])}))
+  expected: |-
+    1
+
+- case: |-
+    print(len({frozenset([1, 2]), frozenset([1, 3])}))
+  expected: |-
+    2
+
+- case: |-
+    print(frozenset([1, 2]) in {frozenset([2, 1])})
+  expected: |-
+    True
+
+- case: |-
+    print(len({frozenset(), frozenset()}))
+  expected: |-
+    1
+
+- case: |-
+    s = {frozenset([1, 2])}
+    print(frozenset([2, 1]) in s)
+  expected: |-
+    True
+
+- case: |-
+    print(frozenset([1, 2]) == frozenset([2, 1]))
+  expected: |-
+    True
+
+- case: |-
+    print(frozenset([1, 2]) == frozenset([1, 3]))
+  expected: |-
+    False
+
+- case: |-
+    print(len({((1, 2), 3), ((1, 2), 3)}))
+  expected: |-
+    1
+
+- case: |-
+    print(len({((1, 2), 3), ((1, 2), 4)}))
+  expected: |-
+    2
+
+- case: |-
+    print(((1, 2), 3) in {((1, 2), 3)})
+  expected: |-
+    True
+
+- case: |-
+    print(len({(1, 'a'), (1, 'a'), (1, 'b')}))
+  expected: |-
+    2
+
+- case: |-
+    print(len({(1, (2, 3)), (1, (2, 3))}))
+  expected: |-
+    1
+
+- case: |-
+    print(sorted({(1, 2), (1, 2), (0, 9)}))
+  expected: |-
+    [(0, 9), (1, 2)]
+
+- case: |-
+    print(len({(), ()}))
+  expected: |-
+    1
+
+- case: |-
+    print(() in {()})
+  expected: |-
+    True
+
+- case: |-
+    print(len({(1,), (), (1,)}))
+  expected: |-
+    2
+
+- case: |-
+    print(len({(True, 1), (1, 1)}))
+  expected: |-
+    1
+
+- case: |-
+    d = {(1, 2): [1], (3, 4): [2]}
+    d[(1, 2)].append(9)
+    print(d[(1, 2)])
+  expected: |-
+    [1, 9]
+
+- case: |-
+    print(sorted(set([(i % 2, 0) for i in range(6)])))
+  expected: |-
+    [(0, 0), (1, 0)]
+
+- case: |-
+    d = dict([((1, 2), 'a'), ((1, 2), 'b')])
+    print(len(d))
+  expected: |-
+    1
+
+- case: |-
+    d = {(1, 2): 0}
+    d[(1, 2)] += 5
+    print(d[(1, 2)])
+  expected: |-
+    5
+
+- case: |-
+    print((1, 2) not in {(3, 4)})
+  expected: |-
+    True
+
+- case: |-
+    print((1, 2) not in {(1, 2)})
+  expected: |-
+    False
+
+- case: |-
+    k = 'x' * 200
+    d = {k: 1}
+    print(('x' * 200) in d)
+  expected: |-
+    True
+
+- case: |-
+    d = {'x' * 200: 1}
+    print(d['x' * 200])
+  expected: |-
+    1
+
+- case: |-
+    print(len({'a' * 130, 'a' * 130}))
+  expected: |-
+    1
+
+- case: |-
+    print(('a' * 150) in {'a' * 150})
+  expected: |-
+    True
+
+- case: |-
+    print({'a' * 200} == {'a' * 200})
+  expected: |-
+    True
+
+- case: |-
+    print(sorted({1, 2, 3} & {2, 3, 4}))
+  expected: |-
+    [2, 3]
+
+- case: |-
+    print(sorted({1, 2, 3} - {2}))
+  expected: |-
+    [1, 3]
+
+- case: |-
+    print(sorted({1, 2} ^ {2, 3}))
+  expected: |-
+    [1, 3]
+
+- case: |-
+    print({1, 2, 3}.isdisjoint({4, 5}))
+  expected: |-
+    True
+
+- case: |-
+    print(len({1, 2, 3, 1, 2}))
+  expected: |-
+    3
+
+- case: |-
+    xs = [1, 2, 3]
+    ys = xs
+    xs += [4]
+    print(ys)
+  expected: |-
+    [1, 2, 3, 4]
+
+- case: |-
+    xs = [1, 2]
+    xs += xs
+    print(xs)
+  expected: |-
+    [1, 2, 1, 2]
+
+- case: |-
+    print(min([1, -5, 3], key=abs))
+  expected: |-
+    1
+
+- case: |-
+    print(max(["a", "bbb", "cc"], key=len))
+  expected: |-
+    bbb
+
+- case: |-
+    print(max([], default=-1, key=abs))
+  expected: |-
+    -1
+
+- case: |-
+    print(list(enumerate(["a", "b"], 5)))
+  expected: |-
+    [(5, 'a'), (6, 'b')]
+
+- case: |-
+    print(list(enumerate(["a", "b"], start=10)))
+  expected: |-
+    [(10, 'a'), (11, 'b')]
+
+- case: |-
+    it = iter([1])
+    print(next(it))
+    print(next(it, "done"))
+  expected: |-
+    1
+    done
+
+- case: |-
+    print(next(iter([]), -1))
+  expected: |-
+    -1
+
+- case: |-
+    it = iter([5, 6])
+    print(next(it, 0), next(it, 0), next(it, 0))
+  expected: |-
+    5 6 0
+
+- case: |-
+    print(len(()))
+    print(len((1,)))
+    print(len((1, 2)))
+    print(len([]))
+    x = [1, 2, 3]
+    print(len(x))
+    f = len
+    print(f({}))
+    print(f({1: 2, 3: 4}))
+  expected: |-
+    0
+    1
+    2
+    0
+    3
+    0
+    2
+
+- case: |-
+    print()
+    print(None)
+    print('')
+    print(1)
+    print(1, 2)
+    print(sep='')
+    print(sep='x')
+    print(end='')
+    print(end='x\n')
+    print(1, sep='')
+    print(1, end='')
+    print(1, sep='', end='')
+    print(1, 2, sep='')
+    print(1, 2, end='')
+    print(1, 2, sep='', end='')
+    print([{1: 2}])
+  expected: |2-
+
+    None
+
+    1
+    1 2
+
+
+    x
+    1
+    1112
+    1 212[{1: 2}]
+
+- case: |-
+    d = {'1': 1, '2': 2}
+    print(d['1'], d['2'])
+    d['3'] = 3
+    print(d['1'], d['2'], d['3'])
+    d['2'] = 222
+    print(d['1'], d['2'], d['3'])
+    d2 = dict(d)
+    print('2' in d2)
+    print(d == d2)
+  expected: |-
+    1 2
+    1 2 3
+    1 222 3
+    True
+    True
+
+- case: |-
+    d = dict()
+    print(d)
+    d = dict({1: 2})
+    print(d)
+    d = dict(a=1)
+    print(d)
+    d = dict({1: 2}, a=3)
+    print(d[1], d['a'])
+    d = dict([(1, 2)], a=3, b=4)
+    print(d[1], d['a'], d['b'])
+  expected: |-
+    {}
+    {1: 2}
+    {'a': 1}
+    2 3
+    2 3 4
+
+- case: |-
+    d = dict.fromkeys([1, 2, 3, 4])
+    l = list(d.keys())
+    l.sort()
+    print(l)
+    d = dict.fromkeys([1, 2, 3, 4], 42)
+    l = list(d.values())
+    l.sort()
+    print(l)
+  expected: |-
+    [1, 2, 3, 4]
+    [42, 42, 42, 42]
+
+- case: |-
+    d = {}
+    print(d.setdefault(1))
+    print(d.setdefault(1))
+    print(d.setdefault(5, 42))
+    print(d.setdefault(5, 1))
+    print(d[1])
+    print(d[5])
+    d.pop(5)
+    print(d.setdefault(5, 1))
+    print(d[1])
+    print(d[5])
+  expected: |-
+    None
+    None
+    42
+    42
+    None
+    42
+    1
+    None
+    1
+
+- case: |-
+    a = [1, 2]
+    b = a
+    c = [1, 2]
+    b.append(3)
+    print(a, c)
+  expected: |-
+    [1, 2, 3] [1, 2]
+
+- case: |-
+    i = iter(iter((1, 2, 3)))
+    print(list(i))
+    i = iter(iter([1, 2, 3]))
+    print(list(i))
+    i = iter(iter({1: 2, 3: 4, 5: 6}))
+    print(sorted(i))
+  expected: |-
+    [1, 2, 3]
+    [1, 2, 3]
+    [1, 3, 5]
+
+- case: |-
+    x = [1, 2, 3, 4]
+    x.clear()
+    print(x)
+  expected: |-
+    []
+
+- case: |-
+    a = [1, 2, []]
+    b = a.copy()
+    a[-1].append(1)
+    a.append(4)
+    print(a)
+    print(b)
+  expected: |-
+    [1, 2, [1], 4]
+    [1, 2, [1]]
+
+- case: |-
+    a = [1, 2, 3]
+    a = a + a + a
+    b = [0, 0, a, 0, a, 0]
+    print(a.count(2))
+    print(b.count(a))
+  expected: |-
+    3
+    2
+
+- case: |-
+    a = [1, 2, 3]
+    a.insert(1, 42)
+    print(a)
+    a.insert(-1, -1)
+    print(a)
+    a.insert(99, 99)
+    print(a)
+    a.insert(-99, -99)
+    print(a)
+  expected: |-
+    [1, 42, 2, 3]
+    [1, 42, 2, -1, 3]
+    [1, 42, 2, -1, 3, 99]
+    [-99, 1, 42, 2, -1, 3, 99]
+
+- case: |-
+    x = list(range(2))
+    l = list(x)
+    l[0:0] = [10]
+    print(l)
+    l = list(x)
+    l[:0] = [10, 20]
+    print(l)
+    l = list(x)
+    l[0:0] = [10, 20, 30, 40]
+    print(l)
+    l = list(x)
+    l[1:1] = [10, 20, 30, 40]
+    print(l)
+    l = list(x)
+    l[2:] = [10, 20, 30, 40]
+    print(l)
+    l = list(x)
+    l[1:0] = [10, 20, 30, 40]
+    print(l)
+    l = list(x)
+    l[100:100] = [10, 20, 30, 40]
+    print(l)
+    l = list(range(10))
+    l[4:] = l
+    print(l)
+  expected: |-
+    [10, 0, 1]
+    [10, 20, 0, 1]
+    [10, 20, 30, 40, 0, 1]
+    [0, 10, 20, 30, 40, 1]
+    [0, 1, 10, 20, 30, 40]
+    [0, 10, 20, 30, 40, 1]
+    [0, 1, 10, 20, 30, 40]
+    [0, 1, 2, 3, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+
+- case: |-
+    a = [1, 2, 3]
+    b = [4, 5, 6]
+    c = a + b
+    print(c)
+  expected: |-
+    [1, 2, 3, 4, 5, 6]
+
+- case: |-
+    s = {1, 2, 3, 4}
+    print(s.add(5))
+    print(sorted(s))
+    s = set()
+    s.add(0)
+    s.add(False)
+    print(s)
+    s = set()
+    s.add(False)
+    s.add(0)
+    print(s)
+    s = set()
+    s.add(1)
+    s.add(True)
+    print(s)
+    s = set()
+    s.add(True)
+    s.add(1)
+    print(s)
+  expected: |-
+    None
+    [1, 2, 3, 4, 5]
+    {0}
+    {False}
+    {1}
+    {True}
+
+- case: |-
+    s = {1, 2, 3, 4}
+    print(s.clear())
+    print(list(s))
+  expected: |-
+    None
+    []
+
+- case: |-
+    s = {1, 2}
+    print(s.discard(1))
+    print(list(s))
+  expected: |-
+    None
+    [2]
+
+- case: |-
+    s = {1, 2, 3, 4}
+    print(sorted(s))
+    print(sorted(s.intersection({1, 3})))
+    print(sorted(s.intersection([3, 4])))
+    print(s.intersection_update([1]))
+    print(sorted(s))
+  expected: |-
+    [1, 2, 3, 4]
+    [1, 3]
+    [3, 4]
+    None
+    [1]
+
+- case: |-
+    s = {1, 2, 3, 4}
+    print(s.isdisjoint({1}))
+    print(s.isdisjoint([2]))
+    print(s.isdisjoint([]))
+    print(s.isdisjoint({7, 8, 9, 10}))
+    print(s.isdisjoint([7, 8, 9, 1]))
+  expected: |-
+    False
+    False
+    True
+    True
+    False
+
+- case: |-
+    i = iter(iter({1, 2, 3}))
+    print(sorted(i))
+  expected: |-
+    [1, 2, 3]
+
+- case: |-
+    s = {1, 2, 3, 4}
+    l = list(s)
+    l.sort()
+    print(l)
+  expected: |-
+    [1, 2, 3, 4]
+
+- case: |-
+    print(sorted({1, 2}.symmetric_difference({2, 3})))
+    print(sorted({1, 2}.symmetric_difference([2, 3])))
+    s = {1, 2}
+    print(s.symmetric_difference_update({2, 3}))
+    print(sorted(s))
+  expected: |-
+    [1, 3]
+    [1, 3]
+    None
+    [1, 3]
+
+- case: |-
+    print(sorted({1}.union({2})))
+  expected: |-
+    [1, 2]
+
+- case: |-
+    s = {1}
+    s.update()
+    print(s)
+    s.update([2])
+    print(sorted(s))
+    s.update([1, 3], [2, 2, 4])
+    print(sorted(s))
+  expected: |-
+    {1}
+    [1, 2]
+    [1, 2, 3, 4]
+
+- case: |-
+    a = 'a\x01b'
+    print(len(a))
+    print(ord(a[1]))
+    print(len('aSb'))
+    a = 'aS45b'
+    print(len(a))
+    print(ord(a[1]))
+    a = 'aÿb'
+    print(len(a))
+    print(ord(a[1]))
+  expected: |-
+    3
+    1
+    3
+    5
+    83
+    3
+    255
+
+- case: |-
+    print('123'[0:1])
+    print('123'[0:2])
+    print('123'[:1])
+    print('123'[1:])
+    print('123'[:])
+    print('123'[:-1])
+    print('123'[0:0])
+    print('123'[1:0])
+    print('123'[1:1])
+    print('123'[-1:-1])
+    print('123'[-3:])
+    print('123'[-3:3])
+    print('123'[0:])
+    print('123'[:0])
+    print('123'[:-3])
+    print('123'[:-4])
+    print('123'[:1000000])
+    print('123'[1000000:])
+    print('123'[:-1000000])
+    print('123'[-1000000:])
+    print(''[1:1])
+    print(''[-1:-1])
+    print(b'123'[0:2])
+  expected: |-
+    1
+    12
+    1
+    23
+    123
+    12
+
+
+
+
+    123
+    123
+    123
+
+
+
+    123
+
+
+    123
+
+
+    b'12'
+
+- case: |-
+    x = (1, 2, 3 * 4)
+    print(x[1:])
+    print(x[:-1])
+    print(x[2:3])
+  expected: |-
+    (2, 12)
+    (1, 2)
+    (12,)
+
+- case: |-
+    print([round(True),round(False)])
+  expected: |-
+    [1, 0]
+
+- case: |-
+    print(list(range(*(1,3))))
+  expected: |-
+    [1, 2]
+
+- case: |-
+    a=(0,10,2)
+    print(list(range(*a)))
+  expected: |-
+    [0, 2, 4, 6, 8]
+
+- case: |-
+    print(list(range(*[2,5])))
+  expected: |-
+    [2, 3, 4]
+
+- case: |-
+    print(list(range(*(0,3))))
+  expected: |-
+    [0, 1, 2]
+
+- case: |-
+    t=(1,4)
+    print(list(range(*t)))
+  expected: |-
+    [1, 2, 3]
+
+- case: |-
+    print(list(range(*(5,0,-1))))
+  expected: |-
+    [5, 4, 3, 2, 1]
+
+- case: |-
+    args=(0,6,2)
+    print(list(range(*args)))
+  expected: |-
+    [0, 2, 4]
+
+- case: |-
+    print(list(range(*(3,))))
+  expected: |-
+    [0, 1, 2]
+
+- case: |-
+    r = [1, \
+     2, 3]
+    print(r)
+  expected: |-
+    [1, 2, 3]
+
+- case: |-
+    print([bool()])
+  expected: |-
+    [False]
+
+- case: |-
+    print([bool()]*2)
+  expected: |-
+    [False, False]
+
+- case: |-
+    print([1,2,3].index(2,True))
+  expected: |-
+    1
+
+- case: |-
+    print([1,2,3].index(3,1))
+  expected: |-
+    2
+
+- case: |-
+    print(['a','b','c'].index('c',True))
+  expected: |-
+    2
+
+- case: |-
+    print([5,6,7,8].index(7,2))
+  expected: |-
+    2
+
+- case: |-
+    print([0,1,0,1].index(1,True))
+  expected: |-
+    1
+
+- case: |-
+    print([10,20,30].index(20))
+  expected: |-
+    1
+
+- case: |-
+    print([1,2,3,2].index(2,2))
+  expected: |-
+    3
+
+- case: |-
+    print([True,False,True].index(False,False))
+  expected: |-
+    1
+
+- case: |-
+    print([9,8,7].index(7,1,3))
+  expected: |-
+    2
+
+- case: |-
+    print(['x','y','x'].index('x',1))
+  expected: |-
+    2
+
+- case: |-
+    print(len(frozenset({1, 2, 3})))
+  expected: |-
+    3
+
+- case: |-
+    print(len(frozenset([1, 1, 2])))
+  expected: |-
+    2
+
+- case: |-
+    print(sorted(x for x in frozenset({1, 2})))
+  expected: |-
+    [1, 2]
+
+- case: |-
+    print(sorted([x * 10 for x in frozenset({1, 2, 3})]))
+  expected: |-
+    [10, 20, 30]
+
+- case: |-
+    print(sorted(frozenset({3, 1, 2})))
+  expected: |-
+    [1, 2, 3]
+
+- case: |-
+    print(frozenset({1, 2}) | frozenset({3}))
+  expected: |-
+    frozenset({1, 2, 3})
+
+- case: |-
+    print(frozenset({1}) | frozenset({1}))
+  expected: |-
+    frozenset({1})
+
+- case: |-
+    print(frozenset() | frozenset({5}))
+  expected: |-
+    frozenset({5})
+
+- case: |-
+    print(frozenset({1, 2}) | {3, 4})
+  expected: |-
+    frozenset({1, 2, 3, 4})
+
+- case: |-
+    print({1, 2} | frozenset({3}))
+  expected: |-
+    {1, 2, 3}
+
+- case: |-
+    print(frozenset({1}) | frozenset({2}) | frozenset({3}))
+  expected: |-
+    frozenset({1, 2, 3})
+
+- case: |-
+    print(frozenset({1, 2, 3}) & frozenset({2, 3, 4}))
+  expected: |-
+    frozenset({2, 3})
+
+- case: |-
+    print(frozenset({1}) & frozenset({2}))
+  expected: |-
+    frozenset()
+
+- case: |-
+    print(frozenset({1, 2}) & {2, 3})
+  expected: |-
+    frozenset({2})
+
+- case: |-
+    print({1, 2, 3} & frozenset({2}))
+  expected: |-
+    {2}
+
+- case: |-
+    print(frozenset({1, 2, 3}) - frozenset({2}))
+  expected: |-
+    frozenset({1, 3})
+
+- case: |-
+    print(frozenset({1, 2}) - frozenset({1, 2}))
+  expected: |-
+    frozenset()
+
+- case: |-
+    print(frozenset({1, 2, 3}) - {1})
+  expected: |-
+    frozenset({2, 3})
+
+- case: |-
+    print({1, 2, 3} - frozenset({3}))
+  expected: |-
+    {1, 2}
+
+- case: |-
+    print(frozenset({1, 2}) ^ frozenset({2, 3}))
+  expected: |-
+    frozenset({1, 3})
+
+- case: |-
+    print(frozenset({1, 2}) ^ frozenset({1, 2}))
+  expected: |-
+    frozenset()
+
+- case: |-
+    print(frozenset({1, 2}) ^ {2, 3, 4})
+  expected: |-
+    frozenset({1, 3, 4})
+
+- case: |-
+    print(frozenset({1, 2}) <= frozenset({1, 2, 3}))
+  expected: |-
+    True
+
+- case: |-
+    print(frozenset({1, 2}) < frozenset({1, 2, 3}))
+  expected: |-
+    True
+
+- case: |-
+    print(frozenset({1, 2}) < frozenset({1, 2}))
+  expected: |-
+    False
+
+- case: |-
+    print(frozenset({1, 2, 3}) >= frozenset({1, 2}))
+  expected: |-
+    True
+
+- case: |-
+    print(frozenset({1, 2, 3}) > frozenset({1, 2}))
+  expected: |-
+    True
+
+- case: |-
+    print(frozenset({1, 2}) == frozenset({2, 1}))
+  expected: |-
+    True
+
+- case: |-
+    print(frozenset({1, 2}) != frozenset({1}))
+  expected: |-
+    True
+
+- case: |-
+    print(frozenset({1, 2}) <= {1, 2, 3})
+  expected: |-
+    True
+
+- case: |-
+    print({1, 2} == frozenset({1, 2}))
+  expected: |-
+    True
+
+- case: |-
+    print(3 in frozenset({1, 2, 3}))
+  expected: |-
+    True
+
+- case: |-
+    print(9 in frozenset({1, 2, 3}))
+  expected: |-
+    False
+
+- case: |-
+    d = {frozenset({1, 2}): 'x'}
+    print(d[frozenset({2, 1})])
+  expected: |-
+    x
+
+- case: |-
+    s = {frozenset({1}), frozenset({1})}
+    print(len(s))
+  expected: |-
+    1
+
+- case: |-
+    print(frozenset({1, 2}))
+  expected: |-
+    frozenset({1, 2})
+
+- case: |-
+    print(max(frozenset({3, 1, 2})), min(frozenset({3, 1, 2})), sum(frozenset({1, 2, 3})))
+  expected: |-
+    3 1 6
+
+- case: |-
+    print(frozenset({2, 3}) > frozenset({3}))
+  expected: |-
+    True
+
+- case: |-
+    a, b = {1, 2}
+    print(sorted([a, b]))
+  expected: |-
+    [1, 2]
+
+- case: |-
+    a, b, c = {1, 2, 3}
+    print(a + b + c)
+  expected: |-
+    6
+
+- case: |-
+    a, b, c = {1, 2, 3}
+    print(sorted([a, b, c]))
+  expected: |-
+    [1, 2, 3]
+
+- case: |-
+    x, y = frozenset({10, 20})
+    print(sorted([x, y]))
+  expected: |-
+    [10, 20]
+
+- case: |-
+    p, q = frozenset({5, 6})
+    print(sorted([p, q]))
+  expected: |-
+    [5, 6]
+
+- case: |-
+    a, b = {'x', 'y'}
+    print(sorted([a, b]))
+  expected: |-
+    ['x', 'y']
+
+- case: |-
+    a, b = {1, 2, 3}
+  error: too many values to unpack
+
+- case: |-
+    a, b, c = {1, 2}
+  error: not enough values to unpack
+
+- case: |-
+    a, b = frozenset({1, 2, 3})
+  error: too many values to unpack
+
+- case: |-
+    print([+True, +False, +0])
+  expected: |-
+    [1, 0, 0]
+
+- case: |-
+    print([1][0:-10:-1])
+  expected: |-
+    [1]
+
+- case: |-
+    print([1,2,3][5:-10:-1])
+  expected: |-
+    [3, 2, 1]
+
+- case: |-
+    print([1,2,3][::-1])
+  expected: |-
+    [3, 2, 1]
+
+- case: |-
+    print([1,2,3,4][3:-10:-2])
+  expected: |-
+    [4, 2]
+
+- case: |-
+    print("abcd"[2:-10:-1])
+  expected: |-
+    cba
+
+- case: |-
+    print((1,2,3)[1:-10:-1])
+  expected: |-
+    (2, 1)
+
+- case: |-
+    print([1,2,3][-1:-10:-1])
+  expected: |-
+    [3, 2, 1]
+
+- case: |-
+    print([][0:-5:-1])
+  expected: |-
+    []
+
+- case: |-
+    print([1,2,3,4,5][10:-10:-2])
+  expected: |-
+    [5, 3, 1]
+
+- case: |-
+    print(b"abc"[2:-10:-1])
+  expected: |-
+    b'cba'
+
+- case: |-
+    print(list(map(pow, [2,3],[3,2])))
+  expected: |-
+    [8, 9]
+
+- case: |-
+    print(list(map(max, [1,5],[4,2])))
+  expected: |-
+    [4, 5]
+
+- case: |-
+    d={0:1}
+    del d[0]
+    print(d)
+  expected: |-
+    {}
+
+- case: |-
+    l=[1,2,3]
+    del l[1]
+    print(l)
+  expected: |-
+    [1, 3]
+
+- case: |-
+    d={'a':1,'b':2}
+    del d['a']
+    print(d)
+  expected: |-
+    {'b': 2}
+
+- case: |-
+    l=[1,2,3,4]
+    del l[1:3]
+    print(l)
+  expected: |-
+    [1, 4]
+
+- case: |-
+    d = {0:{0:0}}
+    del d[0][0]
+    print(d)
+  expected: |-
+    {0: {}}
+
+- case: |-
+    d = {"a":{"b":1,"c":2}}
+    del d["a"]["b"]
+    print(d)
+  expected: |-
+    {'a': {'c': 2}}
+
+- case: |-
+    l = [[1,2,3],[4,5,6]]
+    del l[0][1]
+    print(l)
+  expected: |-
+    [[1, 3], [4, 5, 6]]
+
+- case: |-
+    d = {0:[10,20,30]}
+    del d[0][1]
+    print(d)
+  expected: |-
+    {0: [10, 30]}
+
+- case: |-
+    m = {1:{2:{3:4}}}
+    del m[1][2][3]
+    print(m)
+  expected: |-
+    {1: {2: {}}}
+
+- case: |-
+    l = [[1],[2],[3]]
+    del l[1][0]
+    print(l)
+  expected: |-
+    [[1], [], [3]]
+
+- case: |-
+    d = {0:{0:0},1:{1:1}}
+    del d[0][0]
+    print(d)
+  expected: |-
+    {0: {}, 1: {1: 1}}
+
+- case: |-
+    g = [[0,1],[2,3]]
+    del g[1][1]
+    print(g)
+  expected: |-
+    [[0, 1], [2]]
+
+- case: |-
+    d = {"x":{"y":9}}
+    del d["x"]["y"]
+    print(d)
+  expected: |-
+    {'x': {}}
+
+- case: |-
+    a = [[[1,2]]]
+    del a[0][0][1]
+    print(a)
+  expected: |-
+    [[[1]]]
+
+- case: |-
+    it = iter([10, 20, 30])
+    print(it.__next__())
+    print(it.__next__())
+  expected: |-
+    10
+    20
+
+- case: |-
+    it = iter([100])
+    print(it.__next__())
+  expected: |-
+    100
+
+- case: |-
+    l = [1, 2]
+    l += range(6, 10)
+    print(l)
+  expected: |-
+    [1, 2, 6, 7, 8, 9]
+
+- case: |-
+    l = [1]
+    l += (2, 3)
+    print(l)
+  expected: |-
+    [1, 2, 3]
+
+- case: |-
+    l = []
+    l += "abc"
+    print(l)
+  expected: |-
+    ['a', 'b', 'c']
+
+- case: |-
+    l = [0]
+    l += {1, 2}
+    print(sorted(l))
+  expected: |-
+    [0, 1, 2]
+
+- case: |-
+    l = [1, 2]
+    l += [3, 4]
+    print(l)
+  expected: |-
+    [1, 2, 3, 4]
+
+- case: |-
+    l = []
+    l += range(3)
+    print(l)
+  expected: |-
+    [0, 1, 2]
+
+- case: |-
+    a = [1]
+    b = a
+    a += [2, 3]
+    print(b == a, b)
+  expected: |-
+    True [1, 2, 3]
+
+- case: |-
+    l = [1]
+    l += (x for x in range(2, 5))
+    print(l)
+  expected: |-
+    [1, 2, 3, 4]
+
+- case: |-
+    d = {1: "a", 2: "b"}
+    l = [0]
+    l += d
+    print(sorted(l))
+  expected: |-
+    [0, 1, 2]
+
+- case: |-
+    x = [1], [2]
+    print(x)
+  expected: |-
+    ([1], [2])
+
+- case: |-
+    a = 1
+    b = 2
+    del [a, b]
+    print('ok')
+  expected: |-
+    ok
+
+- case: |-
+    lst = [1, 2, 3]
+    del (lst[0])
+    print(lst)
+  expected: |-
+    [2, 3]
+
+- case: |-
+    d = {'k': 1}
+    del (d['k'])
+    print(d)
+  expected: |-
+    {}
+
+- case: |-
+    print("[%*s]" % (6, "hi"))
+  expected: |-
+    [    hi]
+
+- case: |-
+    [a, b] = 100, 200
+    print(a, b)
+  expected: |-
+    100 200
+
+- case: |-
+    [a, b, c] = [1, 2, 3]
+    print(a + b + c)
+  expected: |-
+    6
+
+- case: |-
+    [x] = [42]
+    print(x)
+  expected: |-
+    42
+
+- case: |-
+    [a, b] = (7, 8)
+    print(a, b)
+  expected: |-
+    7 8
+
+- case: |-
+    [a, b] = 'xy'
+    print(a, b)
+  expected: |-
+    x y
+
+- case: |-
+    a = 1
+    b = 2
+    [a, b] = [b, a]
+    print(a, b)
+  expected: |-
+    2 1
+
+- case: |-
+    [a, b] = sorted([2, 1])
+    print(a, b)
+  expected: |-
+    1 2
+
+- case: |-
+    [print(i) for i in range(3)]
+  expected: |-
+    0
+    1
+    2
+
+- case: |-
+    [1, 2, 3]
+    print('ok')
+  expected: |-
+    ok
+
+- case: |-
+    [first, second, third] = 'abc'
+    print(third, second, first)
+  expected: |-
+    c b a
+
+- case: |-
+    xs = [0, 1, 2, 3, 4]
+    print(xs[slice(1, 4)])
+  expected: |-
+    [1, 2, 3]
+
+- case: |-
+    x = {1: 2}, 3
+    print(x)
+  expected: |-
+    ({1: 2}, 3)
+
+- case: |-
+    x = {1, 2}, 3
+    print(type(x[0]) == set, x[1])
+  expected: |-
+    True 3
+
+- case: |-
+    x = {'a': 1}, {'b': 2}
+    print(x)
+  expected: |-
+    ({'a': 1}, {'b': 2})
+
+- case: |-
+    x = {1: 2}, 3, 4
+    print(len(x))
+  expected: |-
+    3
+
+- case: |-
+    a, b = {1: 2}, 5
+    print(a, b)
+  expected: |-
+    {1: 2} 5
+
+- case: |-
+    x = {1, 2, 3}, 'end'
+    print(sorted(x[0]), x[1])
+  expected: |-
+    [1, 2, 3] end
+
+- case: |-
+    x = {}, 1
+    print(x)
+  expected: |-
+    ({}, 1)
+
+- case: |-
+    t = {1: 'a'}, {2: 'b'}, {3: 'c'}
+    print(t[1])
+  expected: |-
+    {2: 'b'}
+
+- case: |-
+    pair = {'k': 'v'}, [1, 2]
+    print(pair[0], pair[1])
+  expected: |-
+    {'k': 'v'} [1, 2]
+
+- case: |-
+    [a, b] = range(2)
+    print(a, b)
+  expected: |-
+    0 1
+
+- case: |-
+    [a, b, c] = range(3)
+    print(a + b + c)
+  expected: |-
+    3
+
+- case: |-
+    print(max([5, 2, 8]))
+  expected: |-
+    8
+
+- case: |-
+    print(sum([1, 2, 3], 10))
+  expected: |-
+    16
+
+- case: |-
+    print(list())
+  expected: |-
+    []
+
+- case: |-
+    print(tuple())
+  expected: |-
+    ()
+
+- case: |-
+    f = list
+    print(f([1, 2]))
+  expected: |-
+    [1, 2]
+
+- case: |-
+    print(dict())
+  expected: |-
+    {}
+
+- case: |-
+    print(list(range(9223372036854775805, 9223372036854775807, 5)))
+  expected: |-
+    [9223372036854775805]
+
+- case: |-
+    print(list(range(9223372036854775798, 9223372036854775807, 3)))
+  expected: |-
+    [9223372036854775798, 9223372036854775801, 9223372036854775804]
+
+- case: |-
+    print(list(range(-9223372036854775808, -9223372036854775806)))
+  expected: |-
+    [-9223372036854775808, -9223372036854775807]
+
+- case: |-
+    print(list(range(-9223372036854775806, -9223372036854775808, -5)))
+  expected: |-
+    [-9223372036854775806]
+
+- case: |-
+    print(list(range(-9223372036854775799, -9223372036854775808, -3)))
+  expected: |-
+    [-9223372036854775799, -9223372036854775802, -9223372036854775805]
+
+- case: |-
+    print(list(range(9223372036854775807, 9223372036854775807)))
+  expected: |-
+    []
+
+- case: |-
+    print([x for x in range(9223372036854775804, 9223372036854775807)])
+  expected: |-
+    [9223372036854775804, 9223372036854775805, 9223372036854775806]
+
+- case: |-
+    print([*range(9223372036854775804, 9223372036854775807)])
+  expected: |-
+    [9223372036854775804, 9223372036854775805, 9223372036854775806]
+
+- case: |-
+    print(list(range(9223372036854775804, 9223372036854775807)))
+  expected: |-
+    [9223372036854775804, 9223372036854775805, 9223372036854775806]
+
+- case: |-
+    print({*range(9223372036854775805, 9223372036854775807)})
+  expected: |-
+    {9223372036854775805, 9223372036854775806}
+
+- case: |-
+    print([x for x in range(-9223372036854775807, -9223372036854775804)])
+  expected: |-
+    [-9223372036854775807, -9223372036854775806, -9223372036854775805]
+
+- case: |-
+    print([x for x in range(140737488355327, 140737488355330)])
+  expected: |-
+    [140737488355327, 140737488355328, 140737488355329]
+
+- case: |-
+    print(list(enumerate(['a', 'b'], start=5)))
+  expected: |-
+    [(5, 'a'), (6, 'b')]
+
+- case: |-
+    print(max([1, -5, 3], key=abs))
+  expected: |-
+    -5
+
+- case: |-
+    print(min([], default=42))
+  expected: |-
+    42
+
+- case: |-
+    print(sorted(['bb', 'a', 'ccc'], key=len))
+  expected: |-
+    ['a', 'bb', 'ccc']
+
+- case: |-
+    xs = [3, 1, 2]
+    xs.sort(reverse=True)
+    print(xs)
+  expected: |-
+    [3, 2, 1]
+
+- case: |-
+    s1 = s2 = set('abc')
+    s1 |= set('ad')
+    print(s1 == s2, len(s1))
+  expected: |-
+    True 4
+
+- case: |-
+    s1 = s2 = set('abc')
+    s1 &= set('ab')
+    print(s1 == s2, len(s1))
+  expected: |-
+    True 2
+
+- case: |-
+    s1 = s2 = set('abc')
+    s1 ^= set('ad')
+    print(s1 == s2, len(s1))
+  expected: |-
+    True 3
+
+- case: |-
+    s = {1, 2}
+    s |= {2, 3}
+    print(sorted(s))
+  expected: |-
+    [1, 2, 3]
+
+- case: |-
+    s = {1, 2, 3}
+    s &= {2, 3, 4}
+    print(sorted(s))
+  expected: |-
+    [2, 3]
+
+- case: |-
+    s = {1, 2, 3}
+    s ^= {3, 4}
+    print(sorted(s))
+  expected: |-
+    [1, 2, 4]
+
+- case: |-
+    s1 = {1}
+    s2 = s1 | {2}
+    print(s1 == s2, sorted(s2))
+  expected: |-
+    False [1, 2]
+
+- case: |-
+    f = frozenset({1})
+    g = f
+    f |= {2}
+    print(f == g, sorted(f))
+  expected: |-
+    False [1, 2]
+
+- case: |-
+    s = {1, 2}
+    s |= set()
+    print(sorted(s))
+  expected: |-
+    [1, 2]
+
+- case: |-
+    a = b = c = {1}
+    a |= {2}
+    print(b == c, sorted(a))
+  expected: |-
+    True [1, 2]
+
+- case: |-
+    l = [3, 1, 2]
+    l.sort()
+    print(l)
+  expected: |-
+    [1, 2, 3]
+
+- case: |-
+    print(sorted(['banana', 'apple', 'cherry']))
+  expected: |-
+    ['apple', 'banana', 'cherry']
+
+- case: |-
+    print(sorted([-3, 1, -2], key=abs))
+  expected: |-
+    [1, -2, -3]
+
+- case: |-
+    print(sorted(['ccc', 'a', 'bb'], key=len))
+  expected: |-
+    ['a', 'bb', 'ccc']
+
+- case: |-
+    l = [2, 1]
+    r = l.sort()
+    print(r, l)
+  expected: |-
+    None [1, 2]
+
+- case: |-
+    print([print(i) for i in range(2)])
+  expected: |-
+    0
+    1
+    [None, None]
+
+- case: |-
+    m = [[y*10 + x for x in range(3)] for y in range(2)]
+    print(m)
+  expected: |-
+    [[0, 1, 2], [10, 11, 12]]
+
+- case: |-
+    nested = [(i, j) for i in range(2) for j in range(2)]
+    print(nested)
+  expected: |-
+    [(0, 0), (0, 1), (1, 0), (1, 1)]
+
+- case: |-
+    g = (sum(x for x in range(n)) for n in range(4))
+    print(list(g))
+  expected: |-
+    [0, 0, 1, 3]
+
+- case: |-
+    data = [[1, 2], [3, 4], [5, 6]]
+    flat = [v for row in data for v in row]
+    print(flat)
+  expected: |-
+    [1, 2, 3, 4, 5, 6]
+
+- case: |-
+    res = [[x for x in range(y) if x % 2 == 0] for y in range(5)]
+    print(res)
+  expected: |-
+    [[], [0], [0], [0, 2], [0, 2]]
+
+- case: |-
+    grid = ((r, c) for r in range(2) for c in range(2))
+    print(list(grid))
+  expected: |-
+    [(0, 0), (0, 1), (1, 0), (1, 1)]
+
+- case: |-
+    gen = ((a + b for b in range(2)) for a in range(2))
+    print([list(inner) for inner in gen])
+  expected: |-
+    [[0, 1], [1, 2]]
+
+- case: |-
+    c = True
+    print([i * 2 for i in range(3)] if c else [])
+  expected: |-
+    [0, 2, 4]
+
+- case: |-
+    print(sum(v if v > 0 else 0 for v in [-1, 2, 3]))
+  expected: |-
+    5
+
+- case: |-
+    xs = [[1, 2], [3, 4]]
+    xs[0][1] += 10
+    print(xs)
+  expected: |-
+    [[1, 12], [3, 4]]
+
+- case: |-
+    d = {'k': [1]}
+    d['k'][0] -= 1
+    print(d)
+  expected: |-
+    {'k': [0]}
+
+- case: |-
+    d = {"a": 1}
+    d.clear()
+    print(d)
+  expected: |-
+    {}
+
+- case: |-
+    d = {1: 2, 3: 4}
+    d.clear()
+    print(len(d))
+  expected: |-
+    0
+
+- case: |-
+    d = {"a": 1}
+    e = d
+    d.clear()
+    print(e)
+  expected: |-
+    {}
+
+- case: |-
+    d = {"a": 1}
+    d.clear()
+    d["b"] = 2
+    print(d)
+  expected: |-
+    {'b': 2}
+
+- case: |-
+    print({"a": 1}.clear())
+  expected: |-
+    None
+
+- case: |-
+    lst = [1]
+    x = 9
+    lst[0], x = x, lst[0]
+    print(lst, x)
+  expected: |-
+    [9] 1
+
+- case: |-
+    a, (b, c) = 1, (2, 3)
+    print(a, b, c)
+    d = {"a": [0, 0]}
+    d["a"][0], d["a"][1] = 5, 6
+    print(d)
+  expected: |-
+    1 2 3
+    {'a': [5, 6]}
+
+- case: |-
+    a, b = [10, 20]
+    print(a, b)
+  expected: |-
+    10 20
+
+- case: |-
+    h, *rest = [1, 2, 3, 4]
+    print(h, rest)
+  expected: |-
+    1 [2, 3, 4]
+
+- case: |-
+    *init, last = [1, 2, 3, 4]
+    print(init, last)
+  expected: |-
+    [1, 2, 3] 4
+
+- case: |-
+    h, *m, t = [1, 2, 3, 4, 5]
+    print(h, m, t)
+  expected: |-
+    1 [2, 3, 4] 5
+
+- case: |-
+    [x, y] = (10, 20)
+    print(x, y)
+  expected: |-
+    10 20
+
+- case: |-
+    [x, y, z] = [7, 8, 9]
+    print(x, y, z)
+  expected: |-
+    7 8 9
+
+- case: |-
+    lst = [1, 2]
+    lst[0], lst[1] = lst[1], lst[0]
+    print(lst)
+  expected: |-
+    [2, 1]
+
+- case: |-
+    d = {}
+    d["a"], d["b"] = 1, 2
+    print(d)
+  expected: |-
+    {'a': 1, 'b': 2}
+
+- case: |-
+    d = {"a": [0, 0]}
+    d["a"][0], d["a"][1] = 5, 6
+    print(d)
+  expected: |-
+    {'a': [5, 6]}
+
+- case: |-
+    lst = [1, 2, 3, 4]
+    lst[0:2], x = [9], 7
+    print(lst, x)
+  expected: |-
+    [9, 3, 4] 7
+
+- case: |-
+    d = {2: 0}
+    k = 1
+    d[k + 1], x = 5, 6
+    print(d, x)
+  expected: |-
+    {2: 5} 6
+
+- case: |-
+    lst = [0, 0]
+    c = True
+    lst[0 if c else 1], x = 8, 9
+    print(lst, x)
+  expected: |-
+    [8, 0] 9
+
+- case: |-
+    d = {"a": 0}
+    k = ""
+    d[k or "a"], x = 3, 4
+    print(d, x)
+  expected: |-
+    {'a': 3} 4
+
+- case: |-
+    a = [0, 0]
+    i = 0
+    a[i], i = 5, 1
+    print(a, i)
+  expected: |-
+    [5, 0] 1
+
+- case: |-
+    lst = [1]
+    ap = lst.append
+    print(ap.__self__ == lst)
+    ap.__self__.append(2)
+    print(lst)
+  expected: |-
+    True
+    [1, 2]
+
+- case: |-
+    lst = [1]
+    print(hasattr(lst.append, '__self__'), hasattr(lst.append, '__func__'))
+    print(getattr(lst.append, '__func__', 'absent'))
+  expected: |-
+    True False
+    absent
+
+- case: |-
+    print(True * [1,2])
+    print("x" * True)
+  expected: |-
+    [1, 2]
+    x
+
+- case: |-
+    print(False * [1,2])
+    print(len(False * "ab"))
+  expected: |-
+    []
+    0
+
+- case: |-
+    xs = [1, 2]
+    ys = xs * True
+    ys.append(3)
+    print(xs)
+    print(xs * True == xs)
+  expected: |-
+    [1, 2]
+    True
+
+- case: |-
+    xs = [1, 2, 3]
+    next(xs)
+  error: '''list'' object is not an iterator'
+
+- case: |-
+    it = iter([1, 2, 3])
+    print(next(it))
+    print(next(it))
+    print(next(it))
+  expected: |-
+    1
+    2
+    3
+
+- case: |-
+    print(list(iter([4, 5, 6])))
+  expected: |-
+    [4, 5, 6]
+
+- case: |-
+    it = iter([1])
+    next(it)
+    next(it)
+  error: StopIteration
+
+- case: |-
+    f = min
+    print(f([], default=0))
+  expected: |-
+    0
+
+- case: |-
+    f = max
+    print(f([], default=-1))
+  expected: |-
+    -1
+
+- case: |-
+    f = enumerate
+    print(list(f(["a", "b"], start=5)))
+  expected: |-
+    [(5, 'a'), (6, 'b')]
+
+- case: |-
+    f = len
+    f([1], extra=1)
+  error: len() takes no keyword arguments
+
+- case: |-
+    print(len({0.5, 2.5, 2.0, 1.5, 1.0}))
+  expected: |-
+    5
+
+- case: |-
+    s = {1, 2.0, True}
+    print(len(s))
+    print(1.0 in s)
+  expected: |-
+    2
+    True
+
+- case: |-
+    a = [0, 0]
+    print(a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[0]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]])
+  error: too deeply nested
+
+- case: |-
+    xs = []
+    print(xs[0] if xs else None)
+  expected: |-
+    None
+
+- case: |-
+    xs = []
+    print(xs[0] if xs else 2)
+  expected: |-
+    2
+
+- case: |-
+    d = {}
+    print(d['k'] if 'k' in d else 'missing')
+  expected: |-
+    missing
+
+- case: |-
+    xs = [1, 2, 3]
+    print([x if x > 1 else 0 for x in xs])
+  expected: |-
+    [0, 2, 3]
+
+- case: |-
+    d = {}
+    d[(1, 2)] = 'a'
+    d[(1, 2)] = 'b'
+    print(len(d), d[(1, 2)], (1, 2) in d, d.get((3, 4)))
+  expected: |-
+    1 b True None
+
+- case: |-
+    k = 'y' * 200
+    d = {k: 1}
+    print(('y' * 200) in d, d['y' * 200])
+  expected: |-
+    True 1
+
+- case: |-
+    print(len({(1, 2), (1, 2)}), (1, 2) in {(1, 2)})
+  expected: |-
+    1 True
+
+- case: |-
+    s = set()
+    s.add((1, 2))
+    s.add((1, 2))
+    s.remove((1, 2))
+    print(len(s))
+  expected: |-
+    0
+
+- case: |-
+    print(True in {1}, 1 in {True}, {1: 'a'}[True], 1.0 in {1})
+  expected: |-
+    True True a True
+
+- case: |-
+    d = {1: 1, 2: 2, 3: 3}
+    del d[3]
+    print(d.popitem(), d)
+  expected: |-
+    (2, 2) {1: 1}
+
+- case: |-
+    s = 'héllo'
+    print(s[1], s[-1], s[1:3], len(s), s[::-1])
+  expected: |-
+    é o él 5 olléh
+
+- case: |-
+    xs = list(range(10))
+    print(xs[2:5], xs[::3], xs[-2:], xs[7:2:-2])
+  expected: |-
+    [2, 3, 4] [0, 3, 6, 9] [8, 9] [7, 5, 3]
+
+- case: |-
+    xs = [print(i) for i in range(2)]
+    print(xs)
+  expected: |-
+    0
+    1
+    [None, None]
+
+- case: |-
+    print([*"abc"])
+  expected: |-
+    ['a', 'b', 'c']
+
+- case: |-
+    print([*b"AB"])
+  expected: |-
+    [65, 66]
+
+- case: |-
+    print([*{"x": 1, "y": 2}])
+  expected: |-
+    ['x', 'y']
+
+- case: |-
+    print(sorted([*frozenset([3, 1, 2])]))
+  expected: |-
+    [1, 2, 3]
+
+- case: |-
+    print({*"aa"} == {"a"})
+  expected: |-
+    True
+
+- case: |-
+    print([*"", 1])
+  expected: |-
+    [1]
+
+- case: |-
+    print(len([*"héllo"]))
+  expected: |-
+    5
+
+- case: |-
+    print([*{1: "a"}, *"b"])
+  expected: |-
+    [1, 'b']
+
+- case: |-
+    print([0, *b"\x01\x02"])
+  expected: |-
+    [0, 1, 2]
+
+- case: |-
+    d = {"k": 1}
+    print([*d, *d.values()])
+  expected: |-
+    ['k', 1]
+
+- case: |-
+    print(*{"a": 1, "b": 2}, sep="-")
+  expected: |-
+    a-b
+
+- case: |-
+    s = "xy"
+    print([*s, *s])
+  expected: |-
+    ['x', 'y', 'x', 'y']
+
+- case: |-
+    print(sum([*b"\x01\x02\x03"]))
+  expected: |-
+    6
+
+- case: |-
+    print({*b"\x05\x05"} == {5})
+  expected: |-
+    True
+
+- case: |-
+    d = {(1, 2): "a"}
+    print(d[1, 2])
+  expected: |-
+    a
+
+- case: |-
+    d = {}
+    d[1, 2] = 3
+    print(d)
+  expected: |-
+    {(1, 2): 3}
+
+- case: |-
+    d = {(0, 0): 1}
+    d[0, 0] += 5
+    print(d[0, 0])
+  expected: |-
+    6
+
+- case: |-
+    d = {(1, 2): 3}
+    del d[1, 2]
+    print(d)
+  expected: |-
+    {}
+
+- case: |-
+    g = {(r, c): r * c for r in range(3) for c in range(3)}
+    print(g[2, 2])
+  expected: |-
+    4
+
+- case: |-
+    d = {("a", 1): True}
+    print(("a", 1) in d, d["a", 1])
+  expected: |-
+    True True
+
+- case: |-
+    x, y = 1, 2
+    d = {(1, 2): "hit"}
+    print(d[x, y])
+  expected: |-
+    hit
+
+- case: |-
+    a = [0, 1, 2, 3]
+    a[1:3] = [9]
+    print(a, a[1:], a[::-1])
+  expected: |-
+    [0, 9, 3] [9, 3] [3, 9, 0]
+
+- case: |-
+    s = slice(2, 8)
+    print(list(range(10))[s], s.stop - s.start)
+  expected: |-
+    [2, 3, 4, 5, 6, 7] 6
+
+- case: |-
+    print(list(range(*slice(1, 7, 2).indices(5))))
+  expected: |-
+    [1, 3]
+
+- case: |-
+    type Point = tuple[float, float]
+    print("alias")
+  expected: |-
+    alias
+
+- case: |-
+    x = list[int]()
+    print(x)
+  expected: |-
+    []
+
+- case: |-
+    print(dict[str, int]() == {})
+  expected: |-
+    True
+
+- case: |-
+    type A = int
+    type B = list[A]
+    print("two aliases")
+  expected: |-
+    two aliases
+
+- case: |-
+    x: tuple[int, ...] = (1, 2)
+    print(x)
+  expected: |-
+    (1, 2)
+
+- case: |-
+    print(len(tuple[int, str]((1, "a"))))
+  expected: |-
+    2
+
+- case: |-
+    type Json = dict[str, "Json"] | list["Json"] | str | int
+    print("recursive alias")
+  expected: |-
+    recursive alias
+
+- case: |-
+    print([j for i, (j, k) in enumerate([(5, 6), (7, 8)])])
+  expected: |-
+    [5, 7]
+
+- case: |-
+    print({k: v for (k, v) in [("x", 1)]})
+  expected: |-
+    {'x': 1}
+
+- case: |-
+    print(sum(a * b for (a, b) in [(1, 2), (3, 4)]))
+  expected: |-
+    14
+
+- case: |-
+    print([(b, a) for a, (b,) in [(1, (2,))]])
+  expected: |-
+    [(2, 1)]
+
+- case: |-
+    print([x + y for (x, y) in zip([1, 2], [3, 4]) if x > 1])
+  expected: |-
+    [6]
+
+- case: |-
+    print(any(a == b for a, (b, _) in [(1, (1, 0))]))
+  expected: |-
+    True
+
+- case: |-
+    [a, b], c = [1, 2], 3
+    print(a, b, c)
+  expected: |-
+    1 2 3
+
+- case: |-
+    x = 1, *[2, 3]
+    print(x)
+  expected: |-
+    (1, 2, 3)
+
+- case: |-
+    t = (*[], 1)
+    print(t)
+  expected: |-
+    (1,)
+
+- case: |-
+    a, b = *[1], 2
+    print(a, b)
+  expected: |-
+    1 2
+
+- case: |-
+    print(type((*[1],)).__name__)
+  expected: |-
+    tuple
+
+- case: |-
+    d = {}
+    (d["a"], d["b"]), n = (1, 2), 3
+    print(d, n)
+  expected: |-
+    {'a': 1, 'b': 2} 3
+
+- case: |-
+    xs = [1, 2]
+    ys = (*xs, *xs)
+    print(ys, xs)
+  expected: |-
+    (1, 2, 1, 2) [1, 2]
+
+- case: |-
+    print([10, 20][True])
+  expected: |-
+    20
+
+- case: |-
+    print([10, 20][False])
+  expected: |-
+    10
+
+- case: |-
+    print("ab"[True])
+  expected: |-
+    b
+
+- case: |-
+    print((5, 6)[True])
+  expected: |-
+    6
+
+- case: |-
+    print(b"AB"[True])
+  expected: |-
+    66
+
+- case: |-
+    xs = [1, 2]
+    xs[True] = 9
+    print(xs)
+  expected: |-
+    [1, 9]
+
+- case: |-
+    xs = [1, 2, 3]
+    del xs[False]
+    print(xs)
+  expected: |-
+    [2, 3]
+
+- case: |-
+    d = {True: "t"}
+    print(d[True], d[1])
+  expected: |-
+    t t
+
+- case: |-
+    d = {}
+    d[True] = 1
+    print(d)
+  expected: |-
+    {True: 1}
+
+- case: |-
+    d = {1: "one"}
+    print(d[True])
+  expected: |-
+    one
+
+- case: |-
+    print([1, 2][-True])
+  expected: |-
+    2
+
+- case: |-
+    xs = ["a", "b"]
+    print(xs[1 > 0], xs[1 < 0])
+  expected: |-
+    b a
+
+- case: |-
+    xs = [0, 0]
+    xs[True] += 5
+    print(xs)
+  expected: |-
+    [0, 5]
+
+- case: |-
+    print([7, 8][not False])
+  expected: |-
+    8
+
+- case: |-
+    xs = [1, 2]
+    print(xs[True] + xs[False])
+  expected: |-
+    3
+
+- case: |-
+    print([[1, 2], [3, 4]][True][False])
+  expected: |-
+    3
+
+- case: |-
+    print({False: 0, True: 1}[3 > 2])
+  expected: |-
+    1
+
+- case: |-
+    x = 2
+    *a, b = [1, 2]
+    print(x, a, b)
+  expected: |-
+    2 [1] 2
+
+- case: |-
+    x = [1,
+         2]
+    print(x)
+  expected: |-
+    [1, 2]
+
+- case: |-
+    n = [0]
+    [n]
+    print(n)
+  expected: |-
+    [0]
+
+- case: |-
+    print(list(zip(*[[5, 6], [7, 8]])))
+  expected: |-
+    [(5, 7), (6, 8)]
+
+- case: |-
+    print(len([*"ab"]), max(*[3, 9, 2]))
+  expected: |-
+    2 9
+
+- case: |-
+    print(sorted(*[[3, 1]]), list(range(*[1, 4])))
+  expected: |-
+    [1, 3] [1, 2, 3]
+
+- case: |-
+    a = [1, 2]
+    print(*a, len(*[[1, 2, 3]]), sep="-")
+  expected: |-
+    1-2-3
+
+- case: |-
+    print(dict(**{"a": 1}, b=2), min(*[4, 2]), sum(*[[1, 2]]))
+  expected: |-
+    {'a': 1, 'b': 2} 2 3
+
+- case: |-
+    print(list(zip(*[[1, 2], [3, 4]], *[[5, 6]])))
+  expected: |-
+    [(1, 3, 5), (2, 4, 6)]
+
+- case: |-
+    print(any(*[[0, 1]]), all(*[[1, 0]]))
+  expected: |-
+    True False
+
+- case: |-
+    print(sorted(*[[3, 1, 2]], reverse=True))
+  expected: |-
+    [3, 2, 1]
+
+- case: |-
+    rows = [[1, 2, 3], [4, 5, 6]]
+    print([list(c) for c in zip(*rows)])
+  expected: |-
+    [[1, 4], [2, 5], [3, 6]]
+
+- case: |-
+    print(tuple(reversed(*[[1, 2, 3]])))
+  expected: |-
+    (3, 2, 1)
+
+- case: |-
+    print(set(*[[1, 1, 2]]) == {1, 2})
+  expected: |-
+    True
+
+- case: |-
+    print(list(enumerate(*["ab"])))
+  expected: |-
+    [(0, 'a'), (1, 'b')]
+
+- case: |-
+    args = [10, 3]
+    print(divmod(*args), pow(*[2, 5]))
+  expected: |-
+    (3, 1) 32
+
+- case: |-
+    print(isinstance(*[1, int]), abs(*[-3]))
+  expected: |-
+    True 3
+
+- case: |-
+    m = [[1, 2], [3, 4]]
+    print(list(map(sum, zip(*m))))
+  expected: |-
+    [4, 6]
+
+- case: |-
+    print(range(5)[1])
+  expected: |-
+    1
+
+- case: |-
+    print(range(10)[-1], range(10)[-10])
+  expected: |-
+    9 0
+
+- case: |-
+    print(range(1, 10, 3)[2])
+  expected: |-
+    7
+
+- case: |-
+    print(range(10, 0, -2)[1])
+  expected: |-
+    8
+
+- case: |-
+    print(range(10)[2:8:2])
+  expected: |-
+    range(2, 8, 2)
+
+- case: |-
+    print(range(5)[::-1])
+  expected: |-
+    range(4, -1, -1)
+
+- case: |-
+    print(list(range(10)[::3]))
+  expected: |-
+    [0, 3, 6, 9]
+
+- case: |-
+    print(range(10)[3:])
+  expected: |-
+    range(3, 10)
+
+- case: |-
+    print(range(0, 20, 5)[1:3])
+  expected: |-
+    range(5, 15, 5)
+
+- case: |-
+    print(list(range(10, 0, -1)[::2]))
+  expected: |-
+    [10, 8, 6, 4, 2]
+
+- case: |-
+    print(range(5)[10:20], len(range(5)[10:20]))
+  expected: |-
+    range(5, 5) 0
+
+- case: |-
+    r = range(100)
+    print(r[50], r[-50], r[25:75:25])
+  expected: |-
+    50 50 range(25, 75, 25)
+
+- case: |-
+    print(range(1000000000)[999999999])
+  expected: |-
+    999999999
+
+- case: |-
+    r = range(2, 12, 2)
+    print([r[i] for i in range(len(r))])
+  expected: |-
+    [2, 4, 6, 8, 10]
+
+- case: |-
+    print(range(5)[True])
+  expected: |-
+    1
+
+- case: |-
+    print(list(range(8)[1:-1]), range(8)[-3:])
+  expected: |-
+    [1, 2, 3, 4, 5, 6] range(5, 8)
+
+- case: |-
+    s = slice(1, None, 2)
+    print(range(10)[s])
+  expected: |-
+    range(1, 10, 2)
+
+- case: |-
+    xs = [[1, 2], [3]]
+    del xs[0][1]
+    print(xs)
+  expected: |-
+    [[1], [3]]
+
+- case: |-
+    xs = [1, 2, 3, 4]
+    del xs[1:3]
+    print(xs)
+  expected: |-
+    [1, 4]
+
+- case: |-
+    data = {"a": [1, 2, 3]}
+    del data["a"][-1]
+    print(data)
+  expected: |-
+    {'a': [1, 2]}
+
+- case: |-
+    xs = [0, 1, 2, 3]
+    del xs[0], xs[0]
+    print(xs)
+  expected: |-
+    [2, 3]
+
+- case: |-
+    m = [[0] * 3 for _ in range(2)]
+    del m[1]
+    print(m)
+  expected: |-
+    [[0, 0, 0]]
+
+- case: |-
+    d = {"k": {"n": 1}}
+    del d["k"]["n"]
+    print(d)
+  expected: |-
+    {'k': {}}
+
+- case: |-
+    xs = list(range(6))
+    del xs[::2]
+    print(xs)
+  expected: |-
+    [1, 3, 5]
+
+- case: |-
+    xs = [1]
+    d = {"k": xs}
+    d["k"] += [2]
+    print(xs)
+  expected: |-
+    [1, 2]
+
+- case: |-
+    s = {1}
+    t = s
+    s |= {2}
+    s -= {1}
+    print(t)
+  expected: |-
+    {2}
+
+- case: |-
+    type Pair[T] = tuple[T, T]
+    print(Pair, Pair[int])
+  expected: |-
+    Pair __main__.Pair[int]
+
+- case: |-
+    type V = list[int]
+    print(V.__value__(["x"]))
+  expected: |-
+    ['x']
+
+- case: |-
+    type Json = dict[str, "Json"] | list["Json"] | str | int
+    print(Json)
+  expected: |-
+    Json
+
+- case: |-
+    n = 3
+    type T = list[int] if n > 2 else int
+    print(T.__value__)
+  expected: |-
+    list[int]
+
+- case: |-
+    type F = dict[str, list[int]]
+    print(F.__value__)
+  expected: |-
+    dict[str, list[int]]
+
+- case: |-
+    type X = int
+    aliases = {X: "int alias"}
+    print(aliases[X])
+  expected: |-
+    int alias
+
+- case: |-
+    type Num[T: int] = list[T]
+    print(Num[bool])
+  expected: |-
+    __main__.Num[bool]
+
+- case: |-
+    print(list[int], dict[str, int])
+  expected: |-
+    list[int] dict[str, int]
+
+- case: |-
+    print(tuple[int, ...], list[dict[str, list[int]]])
+  expected: |-
+    tuple[int, ...] list[dict[str, list[int]]]
+
+- case: |-
+    print(list[int]("ab"), dict[str, int](a=1))
+  expected: |-
+    ['a', 'b'] {'a': 1}
+
+- case: |-
+    print(list[int] == list[int], list[int] == list[str], list[int] == list)
+  expected: |-
+    True False False
+
+- case: |-
+    a = list[int]
+    print(a.__origin__ == list, a.__args__)
+  expected: |-
+    True (<class 'int'>,)
+
+- case: |-
+    print(dict[str, int].__args__)
+  expected: |-
+    (<class 'str'>, <class 'int'>)
+
+- case: |-
+    print(type(list[int]).__name__)
+  expected: |-
+    GenericAlias
+
+- case: |-
+    print(list["Json"], list[None])
+  expected: |-
+    list['Json'] list[None]
+
+- case: |-
+    print({list[int]: 1}[list[int]])
+  expected: |-
+    1
+
+- case: |-
+    print(set[int](), frozenset[str]("aa"))
+  expected: |-
+    set() frozenset({'a'})
+
+- case: |-
+    print(type[int], type[int].__origin__ == type)
+  expected: |-
+    type[int] True
+
+- case: |-
+    Matrix = list[list[float]]
+    print(Matrix, Matrix.__args__[0])
+  expected: |-
+    list[list[float]] list[float]
+
+- case: |-
+    print(tuple[()], tuple[int](range(2)))
+  expected: |-
+    tuple[()] (0, 1)
+
+- case: |-
+    x = dict[str, int]
+    y = x(k=5)
+    print(y, type(y).__name__)
+  expected: |-
+    {'k': 5} dict
+
+- case: |-
+    aliases = [list[int], dict[str, str], set[bool]]
+    print([a.__origin__.__name__ for a in aliases])
+  expected: |-
+    ['list', 'dict', 'set']
+
+- case: |-
+    print(list[int, str].__args__, len(list[int].__args__))
+  expected: |-
+    (<class 'int'>, <class 'str'>) 1
+
+- case: |-
+    errors = {OSError: "os"}
+    print(errors[IOError])
+  expected: |-
+    os
+
+- case: |-
+    print([c.__name__ for c in (IOError, OSError, PermissionError)])
+  expected: |-
+    ['OSError', 'OSError', 'PermissionError']
+
+- case: |-
+    xs = [print]
+    xs[0]
+    ("skipped")
+    print("done")
+  expected: |-
+    done
+
+- case: |-
+    g = len
+    g
+    ([1, 2, 3])
+    print("statement")
+  expected: |-
+    statement
+
+- case: |-
+    d = {"k": 1}
+    d["k"]
+    -1
+    print(d)
+  expected: |-
+    {'k': 1}
+
+- case: |-
+    t = (1, 2)
+    t
+    [0]
+    print(t)
+  expected: |-
+    (1, 2)
+
+- case: |-
+    k = 2
+    k
+    [k]
+    print(k)
+  expected: |-
+    2
+
+- case: |-
+    counter = [0]
+    counter
+    [0]
+    counter[0] += 1
+    print(counter)
+  expected: |-
+    [1]
+
+- case: |-
+    errs = [TypeError("t"), IndexError(), RuntimeError("a", "b")]
+    print(errs)
+  expected: |-
+    [TypeError('t'), IndexError(), RuntimeError('a', 'b')]
+
+- case: |-
+    print(list[int] | None, (int | str) | float)
+  expected: |-
+    list[int] | None int | str | float
+
+- case: |-
+    print({int | str: 1}[str | int])
+  expected: |-
+    1
+
+- case: |-
+    print(*[1, 2], max([5]))
+  expected: |-
+    1 2 5
+
+- case: |-
+    print(sum([1, 2], start=10))
+  expected: |-
+    13
+
+- case: |-
+    nums = [[1], [2]]
+    print(sum(nums, start=[]))
+  expected: |-
+    [1, 2]
+
+- case: |-
+    a = [0] * 1000
+    b = [a] * 1000
+    c = [b] * 1000
+    s = repr(c)
+    print(s[:12], len(s) > 1000)
+  expected: |-
+    [[[0, 0, 0,  True
+
+- case: |-
+    t = tuple([1] * 1000)
+    u = tuple([t] * 1000)
+    v = [u] * 1000
+    print(repr(v)[:10])
+  expected: |-
+    [((1, 1, 1
+
+- case: |-
+    d = {i: [0] * 100 for i in range(1000)}
+    e = [d] * 100
+    print(repr(e)[:6])
+  expected: |-
+    [{0: [
+
+- case: |-
+    a = [0] * 1000
+    b = [a] * 1000
+    c = [b] * 1000
+    print(len(repr(c[0][0])), repr(c)[:3])
+  expected: |-
+    3000 [[[
+
+- case: |-
+    nested = [[i] * 500 for i in range(500)]
+    big = [nested] * 50
+    print(repr(big)[:7], repr(nested[1][:3]))
+  expected: |-
+    [[[0, 0 [1, 1, 1]
+
+- case: |-
+    a = [0] * 1000
+    b = [a] * 1000
+    c = [b] * 1000
+    x = "%r" % ([c],)
+    print(x[:5])
+  expected: |-
+    [[[[0
+
+- case: |-
+    a = [0] * 1000
+    b = [a] * 1000
+    c = [b] * 1000
+    print(repr(c)[:4], repr([1, [2, [3]]]))
+  expected: |-
+    [[[0 [1, [2, [3]]]
+
+- case: |-
+    print(len("héllo"), len(b"ab"), len(frozenset([1, 2])))
+  expected: |-
+    5 2 2
+
+- case: |-
+    r = range(2**49)
+    print(len(r) == 2**49, r[-1] == 2**49 - 1)
+  expected: |-
+    True True
+
+- case: |-
+    print(len({}), len({1: 2}), len(set()), len(()))
+  expected: |-
+    0 1 0 0
+
+- case: |-
+    print(len([[]] * 3), len("a" * 50))
+  expected: |-
+    3 50
+
+- case: |-
+    x = [1, 2, 3, 4, 5]
+    x[1:3] += [9, 9]
+    print(x)
+  expected: |-
+    [1, 2, 3, 9, 9, 4, 5]
+
+- case: |-
+    x = [1, 2, 3, 4]
+    x[::2] *= 1
+    x[0] += 10
+    print(x)
+  expected: |-
+    [11, 2, 3, 4]
+
+- case: |-
+    d = {'k': [1]}
+    d['k'] += [2]
+    d['k'][0] -= 5
+    print(d)
+  expected: |-
+    {'k': [-4, 2]}
+
+- case: |-
+    print({(1.0,): 'a'}[(1,)], {(1, 'a'): 'b'}[(1.0, 'a')], len({(True, 2), (1, 2.0)}))
+  expected: |-
+    a b 1
+
+- case: |-
+    a = 'x' * 300
+    b = 'x' * 299 + 'x'
+    print({a: 1}[b], {b'q' * 200: 2}[b'q' * 200])
+  expected: |-
+    1 2
+
+- case: |-
+    print({1.0: 'x'}[1], {2 ** 70: 'y'}[2.0 ** 70], {0.0: 'z'}[-0.0], len({1, 1.0, True}))
+  expected: |-
+    x y z 1
+
+- case: |-
+    print(len({(1, 2), (1.0, 2), (True, 2.0)}))
+  expected: |-
+    1
+
+- case: |-
+    t1 = ((1, 2), (3, (4, 5)))
+    t2 = ((1.0, 2), (3, (4.0, 5)))
+    print({t1: 'v'}[t2], t1 == t2)
+  expected: |-
+    v True
+
+- case: |-
+    s = {(1, 2), (1.0, 2.0), (2, 1)}
+    print(len(s), sorted(s))
+  expected: |-
+    2 [(1, 2), (2, 1)]
+
+- case: |-
+    xs = list(range(6))
+    del xs[-100::-1]
+    print(xs)
+  expected: |-
+    [0, 1, 2, 3, 4, 5]
+
+- case: |-
+    xs = list(range(6))
+    del xs[::2]
+    ys = list(range(6))
+    del ys[::-2]
+    print(xs, ys)
+  expected: |-
+    [1, 3, 5] [0, 2, 4]
+
+- case: |-
+    xs = list(range(6))
+    del xs[4:1:-1]
+    print(xs)
+  expected: |-
+    [0, 1, 5]
+
+- case: |-
+    xs = list(range(6))
+    del xs[100:]
+    del xs[:-100]
+    del xs[3:1]
+    print(xs)
+  expected: |-
+    [0, 1, 2, 3, 4, 5]
+
+- case: |-
+    xs = list(range(6))
+    xs[::2] = 'abc'
+    ys = list(range(6))
+    ys[::-3] = [9, 8]
+    print(xs, ys)
+  expected: |-
+    ['a', 1, 'b', 3, 'c', 5] [0, 1, 8, 3, 4, 9]
+
+- case: |-
+    xs = list(range(6))
+    xs[2:2] = [7, 7]
+    xs[5:1] = ['z']
+    print(xs)
+  expected: |-
+    [0, 1, 7, 7, 2, 'z', 3, 4, 5]
+
+- case: |-
+    xs = list(range(6))
+    xs[10::3] = []
+    xs[-1:-10:-4] = ['a', 'b']
+    print(xs)
+  expected: |-
+    [0, 'b', 2, 3, 4, 'a']
+
+- case: |-
+    xs = list(range(10))
+    del xs[1::3]
+    xs[::-1] = list(range(len(xs)))
+    print(xs)
+  expected: |-
+    [6, 5, 4, 3, 2, 1, 0]
+
+- case: |-
+    a, *b = {1}
+    print(a, b)
+  expected: |-
+    1 []
+
+- case: |-
+    x, y = {'k': 1, 'j': 2}
+    p, *q = b'abc'
+    print(x, y, p, q)
+  expected: |-
+    k j 97 [98, 99]
+
+- case: |-
+    a, *b, c = range(5)
+    d, *e = frozenset([7])
+    print(a, b, c, d, e)
+  expected: |-
+    0 [1, 2, 3] 4 7 []
+
+- case: |-
+    it = iter([1, 2, 3])
+    first, *rest = it
+    print(first, rest)
+  expected: |-
+    1 [2, 3]
+
+- case: |-
+    x = [1, 2]
+    a, b = x
+    x[0] = 9
+    print(a, b, x)
+  expected: |-
+    1 2 [9, 2]
+
+- case: |-
+    print([1, 2] in [[1, 2], 3], (1,) in {(1,): 'x'}, 'k' in {'k': 1}, 2.0 in range(3))
+  expected: |-
+    True True True True
+
+- case: |-
+    xs = [True, 2.5, False, 1]
+    print(sum(xs), sum(x ** 2 for x in xs), [x ** True for x in xs])
+  expected: |-
+    4.5 8.25 [1, 2.5, 0, 1]
+
+- case: |-
+    print(sorted(set('hello')), sorted(set(range(3)) | {5}), set() == set([]))
+  expected: |-
+    ['e', 'h', 'l', 'o'] [0, 1, 2, 5] True
+
+- case: |-
+    a = {1, 2, 3}
+    print(a.issubset([1, 2, 3, 4]), a.issuperset([1, 2]), a.isdisjoint([4, 5]), a.isdisjoint((3,)))
+  expected: |-
+    True True True False
+
+- case: |-
+    a = {1, 2}
+    print(a.issubset(a), a.issuperset(a), a.isdisjoint(a), set().isdisjoint(set()), set().issubset([]))
+  expected: |-
+    True True False True True
+
+- case: |-
+    a = {1.0, 2}
+    print(a.issuperset([1, 2.0]), a.issubset((1, 2, 3)), {(1, 2)}.issubset({(1.0, 2.0)}))
+  expected: |-
+    True True True
+
+- case: |-
+    data = [3, 1, 3, 2, 1]
+    print(sorted(set(data)), len(set(data)) == len(data), sorted(frozenset(data) - {1}))
+  expected: |-
+    [1, 2, 3] False [2, 3]
+
+- case: |-
+    words = ['b', 'a', 'b']
+    seen = set(words)
+    seen.update(['c'], ('d',))
+    print(sorted(seen), {'a', 'b'}.issubset(seen))
+  expected: |-
+    ['a', 'b', 'c', 'd'] True
+
+- case: |-
+    vals = [1.0, 1, True, 0, False, 0.0]
+    print(sorted(vals, reverse=True), sorted(vals))
+  expected: |-
+    [1.0, 1, True, 0, False, 0.0] [0, False, 0.0, 1.0, 1, True]
+
+- case: |-
+    data = {'a': 2, 'b': 1, 'c': 2, 'd': 1}
+    print(sorted(data, key=data.get, reverse=True))
+  expected: |-
+    ['a', 'c', 'b', 'd']
+
+- case: |-
+    print(sorted('banana', reverse=True), sorted([3, 1, 2], reverse=False), sorted([], reverse=True))
+  expected: |-
+    ['n', 'n', 'b', 'a', 'a', 'a'] [1, 2, 3] []
+
+- case: |-
+    d = {}
+    d.update(['ab', 'cd'])
+    print(d, dict(['ab']))
+  expected: |-
+    {'a': 'b', 'c': 'd'} {'a': 'b'}
+
+- case: |-
+    d = {'x': 0}
+    d.update([('a', 1), ['b', 2]])
+    d.update({'c': 3}, z=9)
+    print(d)
+  expected: |-
+    {'x': 0, 'a': 1, 'b': 2, 'c': 3, 'z': 9}
+
+- case: |-
+    print(dict([(1, 2), [3, 4], 'xy', b'\x05\x06', range(7, 9)]))
+  expected: |-
+    {1: 2, 3: 4, 'x': 'y', 5: 6, 7: 8}
+
+- case: |-
+    d = dict(zip('abc', range(3)))
+    d.update(zip('cd', [10, 11]))
+    print(d)
+  expected: |-
+    {'a': 0, 'b': 1, 'c': 10, 'd': 11}
+
+- case: |-
+    d = {1: 'a'}
+    d.update(d)
+    d.update({}.items())
+    d.update({2: 'b'}.items())
+    print(d)
+  expected: |-
+    {1: 'a', 2: 'b'}
+
+- case: |-
+    print(dict({'a': 1}, b=2), dict([('a', 1)], a=5), dict(enumerate('xy')))
+  expected: |-
+    {'a': 1, 'b': 2} {'a': 5} {0: 'x', 1: 'y'}
+
+- case: |-
+    d = {}
+    d.update(())
+    d.update([])
+    d.update(x=1)
+    print(d, dict(()), dict([]))
+  expected: |-
+    {'x': 1} {} {}
+
+- case: |-
+    print(list(map(str.strip, [' a ', 'b '])), sorted(['b', 'A', 'c'], key=str.lower))
+  expected: |-
+    ['a', 'b'] ['A', 'b', 'c']
+
+- case: |-
+    xs = [3, 1]
+    list.append(xs, 2)
+    list.extend(xs, [0])
+    list.sort(xs)
+    print(xs)
+  expected: |-
+    [0, 1, 2, 3]
+
+- case: |-
+    s = set()
+    set.add(s, 1)
+    set.update(s, [2, 3])
+    print(sorted(s), set.issubset(s, [1, 2, 3, 4]))
+  expected: |-
+    [1, 2, 3] True
+
+- case: |-
+    print(b'\x41\101\q', '\x41\101\q', b'\777'[0] if False else 1)
+  expected: |-
+    b'AA\\q' AA\q 1
+
+- case: |-
+    a = 'ab' * 100
+    b = 'ab' * 100
+    c = 'a' + 'b' * 2
+    print(a == b, len(a), c == 'abb', {a: 1}[b])
+  expected: |-
+    True 200 True 1
+
+- case: |-
+    vals = [10 ** 20 + i for i in range(100)]
+    del vals[:50]
+    again = [10 ** 20 + i for i in range(50, 100)]
+    print(vals == again, sum(vals) - sum(again), (10 ** 20 + 75) in vals)
+  expected: |-
+    True 0 True
+
+- case: |-
+    xs = [(-3.5, 1.25), (10, -0.75), (-0.5, -0.2), (123.456, 0.001)]
+    print([divmod(a, b) for a, b in xs] == [(a // b, a % b) for a, b in xs])
+  expected: |-
+    True
+
+- case: |-
+    print([s.isdigit() for s in ['123', '½', '²', '٣', '①', 'x1', '']])
+  expected: |-
+    [True, False, True, True, True, False, False]
+
+- case: |-
+    print([s.isalpha() for s in ['abc', 'é', '日本', 'á', 'ǅ', 'a1', 'Ⅳ']])
+  expected: |-
+    [True, True, True, False, True, False, False]
+
+- case: |-
+    print([s.isalnum() for s in ['abc1', '½', 'Ⅳ', '五', 'a b', '٣a', '̀']])
+  expected: |-
+    [True, True, True, True, False, True, False]
+
+- case: |-
+    print([type(x).__name__ for x in [iter([1]), iter(range(2)), iter((1,)), iter('ab'), iter('é'), iter({1: 2}), iter({1}), iter(b'x')]])
+  expected: |-
+    ['list_iterator', 'range_iterator', 'tuple_iterator', 'str_ascii_iterator', 'str_iterator', 'dict_keyiterator', 'set_iterator', 'bytes_iterator']
+
+- case: |-
+    print([type(x).__name__ for x in [map(str, [1]), filter(None, [1]), zip([1], [2]), enumerate('a'), reversed([1]), reversed('ab'), reversed(range(2))]])
+  expected: |-
+    ['map', 'filter', 'zip', 'enumerate', 'list_reverseiterator', 'reversed', 'range_iterator']
+
+- case: |-
+    it = iter(range(5))
+    print(list(it), list(it))
+    m = map(str, [1, 2])
+    print(list(m), list(m), sum(iter([1, 2, 3])))
+  expected: |-
+    [0, 1, 2, 3, 4] []
+    ['1', '2'] [] 6
+
+- case: |-
+    xs = [1, 2]
+    it = iter(xs)
+    print(next(it))
+    xs.append(3)
+    print(list(it))
+  expected: |-
+    1
+    [2, 3]
+
+- case: |-
+    it = iter([1, 2, 3, 4])
+    print(3 in it, next(it, None), 9 in iter([1]))
+    z = zip('ab', [1, 2])
+    print(next(z), dict(z))
+  expected: |-
+    True 4 False
+    ('a', 1) {'b': 2}
+
+- case: |-
+    print((1).__class__, 'a'.__class__.__name__, [].__class__ == list, (3).__class__ == int)
+  expected: |-
+    <class 'int'> str True True
+
+- case: |-
+    print([v.__class__.__name__ for v in [1, 's', 2.5, None, (1,), {}, set(), b'', True]])
+  expected: |-
+    ['int', 'str', 'float', 'NoneType', 'tuple', 'dict', 'set', 'bytes', 'bool']
+
+- case: |-
+    print(1 < 2 in [2], 2 in [2] == True, 1 < 2 in [3], 3 in [3] in [[3]])
+  expected: |-
+    True False False True
+
+- case: |-
+    x = None
+    print(x is None is not False, 1 == 1 is not None, 2 not in [3] in [[3]], x is None in [None])
+  expected: |-
+    True True True True
+
+- case: |-
+    a, b, c = 1, [1, 2], [[1, 2]]
+    print(a in b in c, a not in b in c, b in c is not None, a < 2 not in b)
+  expected: |-
+    True False True False
+
+- case: |-
+    print([x for x in range(6) if 1 < x in {2, 3, 5} != False])
+  expected: |-
+    [2, 3, 5]
+
+- case: |-
+    print(1 < 2 > 1 == 1 != 2 in [2] not in [[1]] is not None)
+  expected: |-
+    True
+
+- case: |-
+    n = float('nan')
+    print(n == n, n in [n], n in (n,), [n] == [n], (n,) == (n,), [n] != [n])
+  expected: |-
+    False True True True True False
+
+- case: |-
+    n = float('nan')
+    xs = [1, n, 2]
+    print(xs.count(n), xs.index(n), {n: 'k'}[n], n in {n}, {n: 1} == {n: 1})
+  expected: |-
+    1 1 k True True
+
+- case: |-
+    n = float('nan')
+    xs = [n, 3]
+    xs.remove(n)
+    print(xs, [[n]] == [[n]], {'a': [n]} == {'a': [n]})
+  expected: |-
+    [3] True True
+
+- case: |-
+    n = float('nan')
+    d = {}
+    d[n] = 1
+    d[n] = 2
+    print(len(d), d[n], list(d.values()))
+  expected: |-
+    1 2 [2]
+
+- case: |-
+    n = float('nan')
+    s = {n}
+    s.add(n)
+    print(len(s), n in s, s == {n})
+  expected: |-
+    1 True True
+
+- case: |-
+    a = []
+    a.append(a)
+    print(a in a, a.count(a), a.index(a))
+  expected: |-
+    True 1 0
+
+- case: |-
+    n = float('nan')
+    print([n].count(1), [1, 2].count(n), n not in [n])
+  expected: |-
+    0 0 False
+
+- case: |-
+    n = float('nan')
+    m = float('nan')
+    s = {n, m, n}
+    d = {n: 1, m: 2}
+    print(len(s), n in s, float('nan') in s, len(d), d[n], d[m], float('nan') in d)
+  expected: |-
+    1 True True 1 2 2 True
+
+- case: |-
+    n = float('nan')
+    xs = [1.0, n, 2.0]
+    xs.remove(n)
+    print(xs, n in xs)
+  expected: |-
+    [1.0, 2.0] False
+
+- case: |-
+    import_ok = True
+    n = float('nan')
+    t = (n, 1)
+    print(t == t, t == (n, 1), (float('nan'), 1) == (float('nan'), 1), {t: 'k'}[t], t in {t})
+  expected: |-
+    True True True k True
+
+- case: |-
+    n = float('nan')
+    m = float('nan')
+    print(n == m, n in [m], len({n, m}))
+  expected: |-
+    False True 1
+
+- case: |-
+    print(len('a' * 200000), len([0] * 200000), len(list(range(200000))), len(format(5, '200000d')))
+  expected: |-
+    200000 200000 200000 200000
+
+- case: |-
+    xs = [(float(i), 1.0, 2.0, 3.0) for i in range(500000)]
+    print(len(xs), xs[-1][0])
+  expected: |-
+    500000 499999.0
+
+- case: |-
+    data = [0, 37, 74, 111, 148, 185, 222, 259, 296, 333, 370, 407, 444, 481, 518, 555, 592, 629, 666, 703, 740, 777, 814, 851, 888, 925, 962, 999, 36, 73, 110, 147, 184, 221, 258, 295, 332, 369, 406, 443, 480, 517, 554, 591, 628, 665, 702, 739, 776, 813, 850, 887, 924, 961, 998, 35, 72, 109, 146, 183, 220, 257, 294, 331, 368, 405, 442, 479, 516, 553, 590, 627, 664, 701, 738, 775, 812, 849, 886, 923, 960, 997, 34, 71, 108, 145, 182, 219, 256, 293, 330, 367, 404, 441, 478, 515, 552, 589, 626, 663, 700, 737, 774, 811, 848, 885, 922, 959, 996, 33, 70, 107, 144, 181, 218, 255, 292, 329, 366, 403, 440, 477, 514, 551, 588, 625, 662, 699, 736, 773, 810, 847, 884, 921, 958, 995, 32, 69, 106, 143, 180, 217, 254, 291, 328, 365, 402, 439, 476, 513, 550, 587, 624, 661, 698, 735, 772, 809, 846, 883, 920, 957, 994, 31, 68, 105, 142, 179, 216, 253, 290, 327, 364, 401, 438, 475, 512, 549, 586, 623, 660, 697, 734, 771, 808, 845, 882, 919, 956, 993, 30, 67, 104, 141, 178, 215, 252, 289, 326, 363, 400, 437, 474, 511, 548, 585, 622, 659, 696, 733, 770, 807, 844, 881, 918, 955, 992, 29, 66, 103, 140, 177, 214, 251, 288, 325, 362, 399, 436, 473, 510, 547, 584, 621, 658, 695, 732, 769, 806, 843, 880, 917, 954, 991, 28, 65, 102, 139, 176, 213, 250, 287, 324, 361, 398, 435, 472, 509, 546, 583, 620, 657, 694, 731, 768, 805, 842, 879, 916, 953, 990, 27, 64, 101, 138, 175, 212, 249, 286, 323, 360, 397, 434, 471, 508, 545, 582, 619, 656, 693, 730, 767, 804, 841, 878, 915, 952, 989, 26, 63, 100, 137, 174, 211, 248, 285, 322, 359, 396, 433, 470, 507, 544, 581, 618, 655, 692, 729, 766, 803, 840, 877, 914, 951, 988, 25, 62, 99, 136, 173, 210, 247, 284, 321, 358, 395, 432, 469, 506, 543, 580, 617, 654, 691, 728, 765, 802, 839, 876, 913, 950, 987, 24, 61, 98, 135, 172, 209, 246, 283, 320, 357, 394, 431, 468, 505, 542, 579, 616, 653, 690, 727, 764, 801, 838, 875, 912, 949, 986, 23, 60, 97, 134, 171, 208, 245, 282, 319, 356, 393, 430, 467, 504, 541, 578, 615, 652, 689, 726, 763, 800, 837, 874, 911, 948, 985, 22, 59, 96, 133, 170, 207, 244, 281, 318, 355, 392, 429, 466, 503, 540, 577, 614, 651, 688, 725, 762, 799, 836, 873, 910, 947, 984, 21, 58, 95, 132, 169, 206, 243, 280, 317, 354, 391, 428, 465, 502, 539, 576, 613, 650, 687, 724, 761, 798, 835, 872, 909, 946, 983, 20, 57, 94, 131, 168, 205, 242, 279, 316, 353, 390, 427, 464, 501, 538, 575, 612, 649, 686, 723, 760, 797, 834, 871, 908, 945, 982, 19, 56, 93, 130, 167, 204, 241, 278, 315, 352, 389, 426, 463, 500, 537, 574, 611, 648, 685, 722, 759, 796, 833, 870, 907, 944, 981, 18, 55, 92, 129, 166, 203, 240, 277, 314, 351, 388, 425, 462, 499, 536, 573, 610, 647, 684, 721, 758, 795, 832, 869, 906, 943, 980, 17, 54, 91, 128, 165, 202, 239, 276, 313, 350, 387, 424, 461, 498, 535, 572, 609, 646, 683, 720, 757, 794, 831, 868, 905, 942, 979, 16, 53, 90, 127, 164, 201, 238, 275, 312, 349, 386, 423, 460, 497, 534, 571, 608, 645, 682, 719, 756, 793, 830, 867, 904, 941, 978, 15, 52, 89, 126, 163, 200, 237, 274, 311, 348, 385, 422, 459, 496, 533, 570, 607, 644, 681, 718, 755, 792, 829, 866, 903, 940, 977, 14, 51, 88, 125, 162, 199, 236, 273, 310, 347, 384, 421, 458, 495, 532, 569, 606, 643, 680, 717, 754, 791, 828, 865, 902, 939, 976, 13, 50, 87, 124, 161, 198, 235, 272, 309, 346, 383, 420, 457, 494, 531, 568, 605, 642, 679, 716, 753, 790, 827, 864, 901, 938, 975, 12, 49, 86, 123, 160, 197, 234, 271, 308, 345, 382, 419, 456, 493, 530, 567, 604, 641, 678, 715, 752, 789, 826, 863, 900, 937, 974, 11, 48, 85, 122, 159, 196, 233, 270, 307, 344, 381, 418, 455, 492, 529, 566, 603, 640, 677, 714, 751, 788, 825, 862, 899, 936, 973, 10, 47, 84, 121, 158, 195, 232, 269, 306, 343, 380, 417, 454, 491, 528, 565, 602, 639, 676, 713, 750, 787, 824, 861, 898, 935, 972, 9, 46, 83, 120, 157, 194, 231, 268, 305, 342, 379, 416, 453, 490, 527, 564, 601, 638, 675, 712, 749, 786, 823, 860, 897, 934, 971, 8, 45, 82, 119, 156, 193, 230, 267, 304, 341, 378, 415, 452, 489, 526, 563, 600, 637, 674, 711, 748, 785, 822, 859, 896, 933, 970, 7, 44, 81, 118, 155, 192, 229, 266, 303, 340, 377, 414, 451, 488, 525, 562, 599, 636, 673, 710, 747, 784, 821, 858, 895, 932, 969, 6, 43, 80, 117, 154, 191, 228, 265, 302, 339, 376, 413, 450, 487, 524, 561, 598, 635, 672, 709, 746, 783, 820, 857, 894, 931, 968, 5, 42, 79, 116, 153, 190, 227, 264, 301, 338, 375, 412, 449, 486, 523, 560, 597, 634, 671, 708, 745, 782, 819, 856, 893, 930, 967, 4, 41, 78, 115, 152, 189, 226, 263, 300, 337, 374, 411, 448, 485, 522, 559, 596, 633, 670, 707, 744, 781, 818, 855, 892, 929, 966, 3, 40, 77, 114, 151, 188, 225, 262, 299, 336, 373, 410, 447, 484, 521, 558, 595, 632, 669, 706, 743, 780, 817, 854, 891, 928, 965, 2, 39, 76, 113, 150, 187, 224, 261, 298, 335, 372, 409, 446, 483, 520, 557, 594, 631, 668, 705, 742, 779, 816, 853, 890, 927, 964, 1, 38, 75, 112, 149, 186, 223, 260, 297, 334, 371, 408, 445, 482, 519, 556, 593, 630, 667, 704, 741, 778, 815, 852, 889, 926, 963, 0, 37, 74, 111, 148, 185, 222, 259, 296, 333, 370, 407, 444, 481, 518, 555, 592, 629, 666, 703, 740, 777, 814, 851, 888, 925, 962, 999, 36, 73, 110, 147, 184, 221, 258, 295, 332, 369, 406, 443, 480, 517, 554, 591, 628, 665, 702, 739, 776, 813, 850, 887, 924, 961, 998, 35, 72, 109, 146, 183, 220, 257, 294, 331, 368, 405, 442, 479, 516, 553, 590, 627, 664, 701, 738, 775, 812, 849, 886, 923, 960, 997, 34, 71, 108, 145, 182, 219, 256, 293, 330, 367, 404, 441, 478, 515, 552, 589, 626, 663, 700, 737, 774, 811, 848, 885, 922, 959, 996, 33, 70, 107, 144, 181, 218, 255, 292, 329, 366, 403, 440, 477, 514, 551, 588, 625, 662, 699, 736, 773, 810, 847, 884, 921, 958, 995, 32, 69, 106, 143, 180, 217, 254, 291, 328, 365, 402, 439, 476, 513, 550, 587, 624, 661, 698, 735, 772, 809, 846, 883, 920, 957, 994, 31, 68, 105, 142, 179, 216, 253, 290, 327, 364, 401, 438, 475, 512, 549, 586, 623, 660, 697, 734, 771, 808, 845, 882, 919, 956, 993, 30, 67, 104, 141, 178, 215, 252, 289, 326, 363, 400, 437, 474, 511, 548, 585, 622, 659, 696, 733, 770, 807, 844, 881, 918, 955, 992, 29, 66, 103, 140, 177, 214, 251, 288, 325, 362, 399, 436, 473, 510, 547, 584, 621, 658, 695, 732, 769, 806, 843, 880, 917, 954, 991, 28, 65, 102, 139, 176, 213, 250, 287, 324, 361, 398, 435, 472, 509, 546, 583, 620, 657, 694, 731, 768, 805, 842, 879, 916, 953, 990, 27, 64, 101, 138, 175, 212, 249, 286, 323, 360, 397, 434, 471, 508, 545, 582, 619, 656, 693, 730, 767, 804, 841, 878, 915, 952, 989, 26, 63, 100, 137, 174, 211, 248, 285, 322, 359, 396, 433, 470, 507, 544, 581, 618, 655, 692, 729, 766, 803, 840, 877, 914, 951, 988, 25, 62, 99, 136, 173, 210, 247, 284, 321, 358, 395, 432, 469, 506, 543, 580, 617, 654, 691, 728, 765, 802, 839, 876, 913, 950, 987, 24, 61, 98, 135, 172, 209, 246, 283, 320, 357, 394, 431, 468, 505, 542, 579, 616, 653, 690, 727, 764, 801, 838, 875, 912, 949, 986, 23, 60, 97, 134, 171, 208, 245, 282, 319, 356, 393, 430, 467, 504, 541, 578, 615, 652, 689, 726, 763, 800, 837, 874, 911, 948, 985, 22, 59, 96, 133, 170, 207, 244, 281, 318, 355, 392, 429, 466, 503, 540, 577, 614, 651, 688, 725, 762, 799, 836, 873, 910, 947, 984, 21, 58, 95, 132, 169, 206, 243, 280, 317, 354, 391, 428, 465, 502, 539, 576, 613, 650, 687, 724, 761, 798, 835, 872, 909, 946, 983, 20, 57, 94, 131, 168, 205, 242, 279, 316, 353, 390, 427, 464, 501, 538, 575, 612, 649, 686, 723, 760, 797, 834, 871, 908, 945, 982, 19, 56, 93, 130, 167, 204, 241, 278, 315, 352, 389, 426, 463, 500, 537, 574, 611, 648, 685, 722, 759, 796, 833, 870, 907, 944, 981, 18, 55, 92, 129, 166, 203, 240, 277, 314, 351, 388, 425, 462, 499, 536, 573, 610, 647, 684, 721, 758, 795, 832, 869, 906, 943, 980, 17, 54, 91, 128, 165, 202, 239, 276, 313, 350, 387, 424, 461, 498, 535, 572, 609, 646, 683, 720, 757, 794, 831, 868, 905, 942, 979, 16, 53, 90, 127, 164, 201, 238, 275, 312, 349, 386, 423, 460, 497, 534, 571, 608, 645, 682, 719, 756, 793, 830, 867, 904, 941, 978, 15, 52, 89, 126, 163, 200, 237, 274, 311, 348, 385, 422, 459, 496, 533, 570, 607, 644, 681, 718, 755, 792, 829, 866, 903, 940, 977, 14, 51, 88, 125, 162, 199, 236, 273, 310, 347, 384, 421, 458, 495, 532, 569, 606, 643, 680, 717, 754, 791, 828, 865, 902, 939, 976, 13, 50, 87, 124, 161, 198, 235, 272, 309, 346, 383, 420, 457, 494, 531, 568, 605, 642, 679, 716, 753, 790, 827, 864, 901, 938, 975, 12, 49, 86, 123, 160, 197, 234, 271, 308, 345, 382, 419, 456, 493, 530, 567, 604, 641, 678, 715, 752, 789, 826, 863, 900, 937, 974, 11, 48, 85, 122, 159, 196, 233, 270, 307, 344, 381, 418, 455, 492, 529, 566, 603, 640, 677, 714, 751, 788, 825, 862, 899, 936, 973, 10, 47, 84, 121, 158, 195, 232, 269, 306, 343, 380, 417, 454, 491, 528, 565, 602, 639, 676, 713, 750, 787, 824, 861, 898, 935, 972, 9, 46, 83, 120, 157, 194, 231, 268, 305, 342, 379, 416, 453, 490, 527, 564, 601, 638, 675, 712, 749, 786, 823, 860, 897, 934, 971, 8, 45, 82, 119, 156, 193, 230, 267, 304, 341, 378, 415, 452, 489, 526, 563, 600, 637, 674, 711, 748, 785, 822, 859, 896, 933, 970, 7, 44, 81, 118, 155, 192, 229, 266, 303, 340, 377, 414, 451, 488, 525, 562, 599, 636, 673, 710, 747, 784, 821, 858, 895, 932, 969, 6, 43, 80, 117, 154, 191, 228, 265, 302, 339, 376, 413, 450, 487, 524, 561, 598, 635, 672, 709, 746, 783, 820, 857, 894, 931, 968, 5, 42, 79, 116, 153, 190, 227, 264, 301, 338, 375, 412, 449, 486, 523, 560, 597, 634, 671, 708, 745, 782, 819, 856, 893, 930, 967, 4, 41, 78, 115, 152, 189, 226, 263, 300, 337, 374, 411, 448, 485, 522, 559, 596, 633, 670, 707, 744, 781, 818, 855, 892, 929, 966, 3, 40, 77, 114, 151, 188, 225, 262, 299, 336, 373, 410, 447, 484, 521, 558, 595, 632, 669, 706, 743, 780, 817, 854, 891, 928, 965, 2, 39, 76, 113, 150, 187, 224, 261, 298, 335, 372, 409, 446, 483, 520, 557, 594, 631, 668, 705, 742, 779, 816, 853, 890, 927, 964, 1, 38, 75, 112, 149, 186, 223, 260, 297, 334, 371, 408, 445, 482, 519, 556, 593, 630, 667, 704, 741, 778, 815, 852, 889, 926, 963, 0, 37, 74, 111, 148, 185, 222, 259, 296, 333, 370, 407, 444, 481, 518, 555, 592, 629, 666, 703, 740, 777, 814, 851, 888, 925, 962, 999, 36, 73, 110, 147, 184, 221, 258, 295, 332, 369, 406, 443, 480, 517, 554, 591, 628, 665, 702, 739, 776, 813, 850, 887, 924, 961, 998, 35, 72, 109, 146, 183, 220, 257, 294, 331, 368, 405, 442, 479, 516, 553, 590, 627, 664, 701, 738, 775, 812, 849, 886, 923, 960, 997, 34, 71, 108, 145, 182, 219, 256, 293, 330, 367, 404, 441, 478, 515, 552, 589, 626, 663, 700, 737, 774, 811, 848, 885, 922, 959, 996, 33, 70, 107, 144, 181, 218, 255, 292, 329, 366, 403, 440, 477, 514, 551, 588, 625, 662, 699, 736, 773, 810, 847, 884, 921, 958, 995, 32, 69, 106, 143, 180, 217, 254, 291, 328, 365, 402, 439, 476, 513, 550, 587, 624, 661, 698, 735, 772, 809, 846, 883, 920, 957, 994, 31, 68, 105, 142, 179, 216, 253, 290, 327, 364, 401, 438, 475, 512, 549, 586, 623, 660, 697, 734, 771, 808, 845, 882, 919, 956, 993, 30, 67, 104, 141, 178, 215, 252, 289, 326, 363, 400, 437, 474, 511, 548, 585, 622, 659, 696, 733, 770, 807, 844, 881, 918, 955, 992, 29, 66, 103, 140, 177, 214, 251, 288, 325, 362, 399, 436, 473, 510, 547, 584, 621, 658, 695, 732, 769, 806, 843, 880, 917, 954, 991, 28, 65, 102, 139, 176, 213, 250, 287, 324, 361, 398, 435, 472, 509, 546, 583, 620, 657, 694, 731, 768, 805, 842, 879, 916, 953, 990, 27, 64, 101, 138, 175, 212, 249, 286, 323, 360, 397, 434, 471, 508, 545, 582, 619, 656, 693, 730, 767, 804, 841, 878, 915, 952, 989, 26, 63, 100, 137, 174, 211, 248, 285, 322, 359, 396, 433, 470, 507, 544, 581, 618, 655, 692, 729, 766, 803, 840, 877, 914, 951, 988, 25, 62, 99, 136, 173, 210, 247, 284, 321, 358, 395, 432, 469, 506, 543, 580, 617, 654, 691, 728, 765, 802, 839, 876, 913, 950, 987, 24, 61, 98, 135, 172, 209, 246, 283, 320, 357, 394, 431, 468, 505, 542, 579, 616, 653, 690, 727, 764, 801, 838, 875, 912, 949, 986, 23, 60, 97, 134, 171, 208, 245, 282, 319, 356, 393, 430, 467, 504, 541, 578, 615, 652, 689, 726, 763, 800, 837, 874, 911, 948, 985, 22, 59, 96, 133, 170, 207, 244, 281, 318, 355, 392, 429, 466, 503, 540, 577, 614, 651, 688, 725, 762, 799, 836, 873, 910, 947, 984, 21, 58, 95, 132, 169, 206, 243, 280, 317, 354, 391, 428, 465, 502, 539, 576, 613, 650, 687, 724, 761, 798, 835, 872, 909, 946, 983, 20, 57, 94, 131, 168, 205, 242, 279, 316, 353, 390, 427, 464, 501, 538, 575, 612, 649, 686, 723, 760, 797, 834, 871, 908, 945, 982, 19, 56, 93, 130, 167, 204, 241, 278, 315, 352, 389, 426, 463, 500, 537, 574, 611, 648, 685, 722, 759, 796, 833, 870, 907, 944, 981, 18, 55, 92, 129, 166, 203, 240, 277, 314, 351, 388, 425, 462, 499, 536, 573, 610, 647, 684, 721, 758, 795, 832, 869, 906, 943, 980, 17, 54, 91, 128, 165, 202, 239, 276, 313, 350, 387, 424, 461, 498, 535, 572, 609, 646, 683, 720, 757, 794, 831, 868, 905, 942, 979, 16, 53, 90, 127, 164, 201, 238, 275, 312, 349, 386, 423, 460, 497, 534, 571, 608, 645, 682, 719, 756, 793, 830, 867, 904, 941, 978, 15, 52, 89, 126, 163, 200, 237, 274, 311, 348, 385, 422, 459, 496, 533, 570, 607, 644, 681, 718, 755, 792, 829, 866, 903, 940, 977, 14, 51, 88, 125, 162, 199, 236, 273, 310, 347, 384, 421, 458, 495, 532, 569, 606, 643, 680, 717, 754, 791, 828, 865, 902, 939, 976, 13, 50, 87, 124, 161, 198, 235, 272, 309, 346, 383, 420, 457, 494, 531, 568, 605, 642, 679, 716, 753, 790, 827, 864, 901, 938, 975, 12, 49, 86, 123, 160, 197, 234, 271, 308, 345, 382, 419, 456, 493, 530, 567, 604, 641, 678, 715, 752, 789, 826, 863, 900, 937, 974, 11, 48, 85, 122, 159, 196, 233, 270, 307, 344, 381, 418, 455, 492, 529, 566, 603, 640, 677, 714, 751, 788, 825, 862, 899, 936, 973, 10, 47, 84, 121, 158, 195, 232, 269, 306, 343, 380, 417, 454, 491, 528, 565, 602, 639, 676, 713, 750, 787, 824, 861, 898, 935, 972, 9, 46, 83, 120, 157, 194, 231, 268, 305, 342, 379, 416, 453, 490, 527, 564, 601, 638, 675, 712, 749, 786, 823, 860, 897, 934, 971, 8, 45, 82, 119, 156, 193, 230, 267, 304, 341, 378, 415, 452, 489, 526, 563, 600, 637, 674, 711, 748, 785, 822, 859, 896, 933, 970, 7, 44, 81, 118, 155, 192, 229, 266, 303, 340, 377, 414, 451, 488, 525, 562, 599, 636, 673, 710, 747, 784, 821, 858, 895, 932, 969, 6, 43, 80, 117, 154, 191, 228, 265, 302, 339, 376, 413, 450, 487, 524, 561, 598, 635, 672, 709, 746, 783, 820, 857, 894, 931, 968, 5, 42, 79, 116, 153, 190, 227, 264, 301, 338, 375, 412, 449, 486, 523, 560, 597, 634, 671, 708, 745, 782, 819, 856, 893, 930, 967, 4, 41, 78, 115, 152, 189, 226, 263, 300, 337, 374, 411, 448, 485, 522, 559, 596, 633, 670, 707, 744, 781, 818, 855, 892, 929, 966, 3, 40, 77, 114, 151, 188, 225, 262, 299, 336, 373, 410, 447, 484, 521, 558, 595, 632, 669, 706, 743, 780, 817, 854, 891, 928, 965, 2, 39, 76, 113, 150, 187, 224, 261, 298, 335, 372, 409, 446, 483, 520, 557, 594, 631, 668, 705, 742, 779, 816, 853, 890, 927, 964, 1, 38, 75, 112, 149, 186, 223, 260, 297, 334, 371, 408, 445, 482, 519, 556, 593, 630, 667, 704, 741, 778, 815, 852, 889, 926, 963]
+    conf = {"k0": 0, "k1": 1, "k2": 2, "k3": 3, "k4": 4, "k5": 5, "k6": 6, "k7": 7, "k8": 8, "k9": 9, "k10": 10, "k11": 11, "k12": 12, "k13": 13, "k14": 14, "k15": 15, "k16": 16, "k17": 17, "k18": 18, "k19": 19, "k20": 20, "k21": 21, "k22": 22, "k23": 23, "k24": 24, "k25": 25, "k26": 26, "k27": 27, "k28": 28, "k29": 29, "k30": 30, "k31": 31, "k32": 32, "k33": 33, "k34": 34, "k35": 35, "k36": 36, "k37": 37, "k38": 38, "k39": 39, "k40": 40, "k41": 41, "k42": 42, "k43": 43, "k44": 44, "k45": 45, "k46": 46, "k47": 47, "k48": 48, "k49": 49, "k50": 50, "k51": 51, "k52": 52, "k53": 53, "k54": 54, "k55": 55, "k56": 56, "k57": 57, "k58": 58, "k59": 59, "k60": 60, "k61": 61, "k62": 62, "k63": 63, "k64": 64, "k65": 65, "k66": 66, "k67": 67, "k68": 68, "k69": 69, "k70": 70, "k71": 71, "k72": 72, "k73": 73, "k74": 74, "k75": 75, "k76": 76, "k77": 77, "k78": 78, "k79": 79, "k80": 80, "k81": 81, "k82": 82, "k83": 83, "k84": 84, "k85": 85, "k86": 86, "k87": 87, "k88": 88, "k89": 89, "k90": 90, "k91": 91, "k92": 92, "k93": 93, "k94": 94, "k95": 95, "k96": 96, "k97": 97, "k98": 98, "k99": 99, "k100": 100, "k101": 101, "k102": 102, "k103": 103, "k104": 104, "k105": 105, "k106": 106, "k107": 107, "k108": 108, "k109": 109, "k110": 110, "k111": 111, "k112": 112, "k113": 113, "k114": 114, "k115": 115, "k116": 116, "k117": 117, "k118": 118, "k119": 119, "k120": 120, "k121": 121, "k122": 122, "k123": 123, "k124": 124, "k125": 125, "k126": 126, "k127": 127, "k128": 128, "k129": 129, "k130": 130, "k131": 131, "k132": 132, "k133": 133, "k134": 134, "k135": 135, "k136": 136, "k137": 137, "k138": 138, "k139": 139, "k140": 140, "k141": 141, "k142": 142, "k143": 143, "k144": 144, "k145": 145, "k146": 146, "k147": 147, "k148": 148, "k149": 149, "k150": 150, "k151": 151, "k152": 152, "k153": 153, "k154": 154, "k155": 155, "k156": 156, "k157": 157, "k158": 158, "k159": 159, "k160": 160, "k161": 161, "k162": 162, "k163": 163, "k164": 164, "k165": 165, "k166": 166, "k167": 167, "k168": 168, "k169": 169, "k170": 170, "k171": 171, "k172": 172, "k173": 173, "k174": 174, "k175": 175, "k176": 176, "k177": 177, "k178": 178, "k179": 179, "k180": 180, "k181": 181, "k182": 182, "k183": 183, "k184": 184, "k185": 185, "k186": 186, "k187": 187, "k188": 188, "k189": 189, "k190": 190, "k191": 191, "k192": 192, "k193": 193, "k194": 194, "k195": 195, "k196": 196, "k197": 197, "k198": 198, "k199": 199, "k200": 200, "k201": 201, "k202": 202, "k203": 203, "k204": 204, "k205": 205, "k206": 206, "k207": 207, "k208": 208, "k209": 209, "k210": 210, "k211": 211, "k212": 212, "k213": 213, "k214": 214, "k215": 215, "k216": 216, "k217": 217, "k218": 218, "k219": 219, "k220": 220, "k221": 221, "k222": 222, "k223": 223, "k224": 224, "k225": 225, "k226": 226, "k227": 227, "k228": 228, "k229": 229, "k230": 230, "k231": 231, "k232": 232, "k233": 233, "k234": 234, "k235": 235, "k236": 236, "k237": 237, "k238": 238, "k239": 239, "k240": 240, "k241": 241, "k242": 242, "k243": 243, "k244": 244, "k245": 245, "k246": 246, "k247": 247, "k248": 248, "k249": 249, "k250": 250, "k251": 251, "k252": 252, "k253": 253, "k254": 254, "k255": 255, "k256": 256, "k257": 257, "k258": 258, "k259": 259, "k260": 260, "k261": 261, "k262": 262, "k263": 263, "k264": 264, "k265": 265, "k266": 266, "k267": 267, "k268": 268, "k269": 269, "k270": 270, "k271": 271, "k272": 272, "k273": 273, "k274": 274, "k275": 275, "k276": 276, "k277": 277, "k278": 278, "k279": 279, "k280": 280, "k281": 281, "k282": 282, "k283": 283, "k284": 284, "k285": 285, "k286": 286, "k287": 287, "k288": 288, "k289": 289, "k290": 290, "k291": 291, "k292": 292, "k293": 293, "k294": 294, "k295": 295, "k296": 296, "k297": 297, "k298": 298, "k299": 299, "k300": 300, "k301": 301, "k302": 302, "k303": 303, "k304": 304, "k305": 305, "k306": 306, "k307": 307, "k308": 308, "k309": 309, "k310": 310, "k311": 311, "k312": 312, "k313": 313, "k314": 314, "k315": 315, "k316": 316, "k317": 317, "k318": 318, "k319": 319, "k320": 320, "k321": 321, "k322": 322, "k323": 323, "k324": 324, "k325": 325, "k326": 326, "k327": 327, "k328": 328, "k329": 329, "k330": 330, "k331": 331, "k332": 332, "k333": 333, "k334": 334, "k335": 335, "k336": 336, "k337": 337, "k338": 338, "k339": 339, "k340": 340, "k341": 341, "k342": 342, "k343": 343, "k344": 344, "k345": 345, "k346": 346, "k347": 347, "k348": 348, "k349": 349, "k350": 350, "k351": 351, "k352": 352, "k353": 353, "k354": 354, "k355": 355, "k356": 356, "k357": 357, "k358": 358, "k359": 359, "k360": 360, "k361": 361, "k362": 362, "k363": 363, "k364": 364, "k365": 365, "k366": 366, "k367": 367, "k368": 368, "k369": 369, "k370": 370, "k371": 371, "k372": 372, "k373": 373, "k374": 374, "k375": 375, "k376": 376, "k377": 377, "k378": 378, "k379": 379, "k380": 380, "k381": 381, "k382": 382, "k383": 383, "k384": 384, "k385": 385, "k386": 386, "k387": 387, "k388": 388, "k389": 389, "k390": 390, "k391": 391, "k392": 392, "k393": 393, "k394": 394, "k395": 395, "k396": 396, "k397": 397, "k398": 398, "k399": 399, "k400": 400, "k401": 401, "k402": 402, "k403": 403, "k404": 404, "k405": 405, "k406": 406, "k407": 407, "k408": 408, "k409": 409, "k410": 410, "k411": 411, "k412": 412, "k413": 413, "k414": 414, "k415": 415, "k416": 416, "k417": 417, "k418": 418, "k419": 419, "k420": 420, "k421": 421, "k422": 422, "k423": 423, "k424": 424, "k425": 425, "k426": 426, "k427": 427, "k428": 428, "k429": 429, "k430": 430, "k431": 431, "k432": 432, "k433": 433, "k434": 434, "k435": 435, "k436": 436, "k437": 437, "k438": 438, "k439": 439, "k440": 440, "k441": 441, "k442": 442, "k443": 443, "k444": 444, "k445": 445, "k446": 446, "k447": 447, "k448": 448, "k449": 449, "k450": 450, "k451": 451, "k452": 452, "k453": 453, "k454": 454, "k455": 455, "k456": 456, "k457": 457, "k458": 458, "k459": 459, "k460": 460, "k461": 461, "k462": 462, "k463": 463, "k464": 464, "k465": 465, "k466": 466, "k467": 467, "k468": 468, "k469": 469, "k470": 470, "k471": 471, "k472": 472, "k473": 473, "k474": 474, "k475": 475, "k476": 476, "k477": 477, "k478": 478, "k479": 479, "k480": 480, "k481": 481, "k482": 482, "k483": 483, "k484": 484, "k485": 485, "k486": 486, "k487": 487, "k488": 488, "k489": 489, "k490": 490, "k491": 491, "k492": 492, "k493": 493, "k494": 494, "k495": 495, "k496": 496, "k497": 497, "k498": 498, "k499": 499, "k500": 500, "k501": 501, "k502": 502, "k503": 503, "k504": 504, "k505": 505, "k506": 506, "k507": 507, "k508": 508, "k509": 509, "k510": 510, "k511": 511, "k512": 512, "k513": 513, "k514": 514, "k515": 515, "k516": 516, "k517": 517, "k518": 518, "k519": 519, "k520": 520, "k521": 521, "k522": 522, "k523": 523, "k524": 524, "k525": 525, "k526": 526, "k527": 527, "k528": 528, "k529": 529, "k530": 530, "k531": 531, "k532": 532, "k533": 533, "k534": 534, "k535": 535, "k536": 536, "k537": 537, "k538": 538, "k539": 539, "k540": 540, "k541": 541, "k542": 542, "k543": 543, "k544": 544, "k545": 545, "k546": 546, "k547": 547, "k548": 548, "k549": 549, "k550": 550, "k551": 551, "k552": 552, "k553": 553, "k554": 554, "k555": 555, "k556": 556, "k557": 557, "k558": 558, "k559": 559, "k560": 560, "k561": 561, "k562": 562, "k563": 563, "k564": 564, "k565": 565, "k566": 566, "k567": 567, "k568": 568, "k569": 569, "k570": 570, "k571": 571, "k572": 572, "k573": 573, "k574": 574, "k575": 575, "k576": 576, "k577": 577, "k578": 578, "k579": 579, "k580": 580, "k581": 581, "k582": 582, "k583": 583, "k584": 584, "k585": 585, "k586": 586, "k587": 587, "k588": 588, "k589": 589, "k590": 590, "k591": 591, "k592": 592, "k593": 593, "k594": 594, "k595": 595, "k596": 596, "k597": 597, "k598": 598, "k599": 599, "k600": 600, "k601": 601, "k602": 602, "k603": 603, "k604": 604, "k605": 605, "k606": 606, "k607": 607, "k608": 608, "k609": 609, "k610": 610, "k611": 611, "k612": 612, "k613": 613, "k614": 614, "k615": 615, "k616": 616, "k617": 617, "k618": 618, "k619": 619, "k620": 620, "k621": 621, "k622": 622, "k623": 623, "k624": 624, "k625": 625, "k626": 626, "k627": 627, "k628": 628, "k629": 629, "k630": 630, "k631": 631, "k632": 632, "k633": 633, "k634": 634, "k635": 635, "k636": 636, "k637": 637, "k638": 638, "k639": 639, "k640": 640, "k641": 641, "k642": 642, "k643": 643, "k644": 644, "k645": 645, "k646": 646, "k647": 647, "k648": 648, "k649": 649, "k650": 650, "k651": 651, "k652": 652, "k653": 653, "k654": 654, "k655": 655, "k656": 656, "k657": 657, "k658": 658, "k659": 659, "k660": 660, "k661": 661, "k662": 662, "k663": 663, "k664": 664, "k665": 665, "k666": 666, "k667": 667, "k668": 668, "k669": 669, "k670": 670, "k671": 671, "k672": 672, "k673": 673, "k674": 674, "k675": 675, "k676": 676, "k677": 677, "k678": 678, "k679": 679, "k680": 680, "k681": 681, "k682": 682, "k683": 683, "k684": 684, "k685": 685, "k686": 686, "k687": 687, "k688": 688, "k689": 689, "k690": 690, "k691": 691, "k692": 692, "k693": 693, "k694": 694, "k695": 695, "k696": 696, "k697": 697, "k698": 698, "k699": 699, "k700": 700, "k701": 701, "k702": 702, "k703": 703, "k704": 704, "k705": 705, "k706": 706, "k707": 707, "k708": 708, "k709": 709, "k710": 710, "k711": 711, "k712": 712, "k713": 713, "k714": 714, "k715": 715, "k716": 716, "k717": 717, "k718": 718, "k719": 719, "k720": 720, "k721": 721, "k722": 722, "k723": 723, "k724": 724, "k725": 725, "k726": 726, "k727": 727, "k728": 728, "k729": 729, "k730": 730, "k731": 731, "k732": 732, "k733": 733, "k734": 734, "k735": 735, "k736": 736, "k737": 737, "k738": 738, "k739": 739, "k740": 740, "k741": 741, "k742": 742, "k743": 743, "k744": 744, "k745": 745, "k746": 746, "k747": 747, "k748": 748, "k749": 749, "k750": 750, "k751": 751, "k752": 752, "k753": 753, "k754": 754, "k755": 755, "k756": 756, "k757": 757, "k758": 758, "k759": 759, "k760": 760, "k761": 761, "k762": 762, "k763": 763, "k764": 764, "k765": 765, "k766": 766, "k767": 767, "k768": 768, "k769": 769, "k770": 770, "k771": 771, "k772": 772, "k773": 773, "k774": 774, "k775": 775, "k776": 776, "k777": 777, "k778": 778, "k779": 779, "k780": 780, "k781": 781, "k782": 782, "k783": 783, "k784": 784, "k785": 785, "k786": 786, "k787": 787, "k788": 788, "k789": 789, "k790": 790, "k791": 791, "k792": 792, "k793": 793, "k794": 794, "k795": 795, "k796": 796, "k797": 797, "k798": 798, "k799": 799}
+    print(sum(data), len(conf), conf['k799'])
+  expected: |-
+    1498500 800 799
+
+- case: |-
+    items = []
+    e = ValueError(items)
+    items.append(e)
+    print(repr(e), items)
+  expected: |-
+    ValueError([ValueError([...])]) [ValueError([...])]
+
+- case: |-
+    d = {}
+    e = KeyError(d)
+    d["e"] = e
+    print(d, repr(e))
+  expected: |-
+    {'e': KeyError({...})} KeyError({'e': KeyError({...})})
+
+- case: |-
+    x = None
+    print([] is x)
+  error: '''is'' compares only with None, True, False, ... or NotImplemented'
+
+- case: |-
+    a = [1]
+    b = a
+    print(a is b)
+  error: '''is'' compares only with None, True, False, ... or NotImplemented'
+  error_line: 3
+
+- case: |-
+    print('\N{BULLET}')
+  error: named escapes are not supported
+
+- case: |-
+    print(r'\N{BULLET}', b'\N{x}', '\\N{y}')
+  expected: |-
+    \N{BULLET} b'\\N{x}' \N{y}
+
+- case: |-
+    g = (x for x in range(3))
+    print(list(g), list(g))
+  expected: |-
+    [0, 1, 2] []
+
+- case: |-
+    xs = [1, 2]
+    g = (x * 10 for x in xs)
+    xs.append(3)
+    print(list(g))
+  expected: |-
+    [10, 20, 30]
+
+- case: |-
+    print(list((y := x) for x in range(3)), y)
+  expected: |-
+    [0, 1, 2] 2
+
+- case: |-
+    g = (1 / x for x in [1, 0])
+    print(next(g))
+    next(g)
+  expected: |-
+    1.0
+  error: ZeroDivisionError
+  error_line: 1
+
+- case: |-
+    m = map(print, [1, 2])
+    print('made')
+    list(m)
+  expected: |-
+    made
+    1
+    2
+
+- case: |-
+    xs = [1, 2, 3]
+    r = reversed(xs)
+    xs[0] = 9
+    print(list(r))
+  expected: |-
+    [3, 2, 9]
+
+- case: |-
+    vals = [3, 0, 2, 1]
+    it = iter(vals.pop, 0)
+    print(next(it), vals)
+  expected: |-
+    1 [3, 0, 2]
+
+- case: |-
+    d = {'a': 1}
+    k = d.keys()
+    d['b'] = 2
+    print(k, len(k))
+  expected: |-
+    dict_keys(['a', 'b']) 2
+
+- case: |-
+    d = {'a': 1}
+    print(d.values(), d.items(), type(d.items()).__name__)
+  expected: |-
+    dict_values([1]) dict_items([('a', 1)]) dict_items
+
+- case: |-
+    d = {'a': 1, 'b': 2}
+    print(d.keys() & {'a'}, sorted(d.keys() - {'a'}), d.keys() == {'a', 'b'}, d.keys() == ['a', 'b'])
+  expected: |-
+    {'a'} ['b'] True False
+
+- case: |-
+    d = {'a': 1}
+    print(('a', 1) in d.items(), ('a', 2) in d.items(), 1 in d.values(), d.items().isdisjoint([('b', 2)]))
+  expected: |-
+    True False True True
+
+- case: |-
+    d = {'a': 1, 'b': 2}
+    v = d.values()
+    print(v == v, d.values() == d.values(), list(reversed(d.items())))
+  expected: |-
+    True False [('b', 2), ('a', 1)]
+
+- case: |-
+    print(list(reversed(range(0))), list(reversed(range(5, 0, -2))), list(reversed(range(9223372036854775807, -9223372036854775808, -9223372036854775808))))
+  expected: |-
+    [] [1, 3, 5] [-1, 9223372036854775807]
+
+- case: |-
+    x = 5
+    l = [x for x in range(3)]
+    print(x, l)
+  expected: |-
+    5 [0, 1, 2]
+
+- case: |-
+    print([sum(x for _ in range(2)) for x in [1, 2]], [[a * b for b in range(2)] for a in range(2)])
+  expected: |-
+    [2, 4] [[0, 0], [0, 1]]
+
+- case: |-
+    it = iter([1, 'a', 2, 'b'])
+    d = {}
+    d[next(it)] = next(it)
+    d[next(it)] = next(it)
+    print(d)
+  expected: |-
+    {'a': 1, 'b': 2}
+
+- case: |-
+    l = [10, 20, 30]
+    l[len(l) - 1] = l.pop()
+    print(l)
+  expected: |-
+    [10, 30]
+
+- case: |-
+    d = {}
+    a = d['k'] = 5
+    print(a, d)
+  expected: |-
+    5 {'k': 5}
+
+- case: |-
+    x = [0, 0, 0]
+    i = 0
+    i, x[i] = 1, 2
+    print(i, x)
+  expected: |-
+    1 [0, 2, 0]
+
+- case: |-
+    d = {}
+    *d['a'], d['b'] = [1, 2, 3]
+    print(d)
+  expected: |-
+    {'a': [1, 2], 'b': 3}
+
+- case: |-
+    (a, [b, c]), d = (1, [2, 3]), 4
+    print(a, b, c, d)
+  expected: |-
+    1 2 3 4
+
+- case: |-
+    [a] = [5]
+    (b) = 6
+    print(a, b)
+  expected: |-
+    5 6
+
+- case: |-
+    () = []
+    [] = ()
+    print('empty')
+  expected: |-
+    empty
+
+- case: |-
+    l = [1, 2]
+    l[0], l[1] = l[1], l[0]
+    print(l)
+  expected: |-
+    [2, 1]
+
+- case: |-
+    x = y = []
+    x.append(1)
+    print(y)
+  expected: |-
+    [1]
+
+- case: |-
+    b = set(range(-50000, 3))
+    c = frozenset(range(-50000, 0))
+    print(b > b, b >= b, c < b, b <= c, set(range(3)) < b)
+  expected: |-
+    False True True False True
+
+- case: |
+    x = [2, 3, 4]
+    x[:; )= 10
+    print(x)
+  error: expected expression
+
+- case: |
+    r = range(-5, 5)
+    print([r.index(x) for x in (-5, 0, 4)], [r.count(x) for x in (-6, -5, 5)])
+  expected: |-
+    [0, 5, 9] [0, 1, 0]
+
+- case: |
+    r = range(1, 100, 9)
+    print(all(r[r.index(x)] == x for x in r), sum(r.count(x) for x in range(100)))
+  expected: |-
+    True 11
+
+- case: |
+    a, b = [1, 2, 3]
+  error: too many values to unpack (expected 2, got 3)
+
+- case: |
+    a, b = iter([1, 2, 3])
+  error: too many values to unpack (expected 2)
+
+- case: |
+    a, *b, c = [1]
+  error: not enough values to unpack (expected at least 2, got 1)
+
+- case: |
+    x = [1, 2, 3, 4]
+    x[::2] = [9]
+  error: attempt to assign sequence of size 1 to extended slice of size 2
+
+- case: |
+    print(dict(_=1))
+  expected: |-
+    {'_': 1}
+
+- case: |
+    print(fr'\n{1}\t')
+  expected: |-
+    \n1\t
+
+- case: |-
+    x = [1]
+    x = x + [2]
+    x = x + [3]
+    y = x
+    x = None
+    print(y, x)
+  expected: |-
+    [1, 2, 3] None
+
+- case: |-
+    int = float
+    print(int(3), float(2), bool(1), len([0, 0]))
+  expected: |-
+    3.0 2.0 True 2
+
+- case: |-
+    min = max
+    print(min(1, 2), max(3, 4), sum([1, 2]), len('xy'))
+  expected: |-
+    2 4 3 2
+
+- case: |-
+    x = 'a b'
+    print([x.
+        split()])
+  expected: |-
+    [['a', 'b']]
+
+- case: |-
+    x = 'ab'
+    print({x.
+      upper(): 1})
+  expected: |-
+    {'AB': 1}
+
+- case: |-
+    x = [3, 1]
+    (x.
+     sort())
+    print(x)
+  expected: |-
+    [1, 3]
+
+- case: |-
+    d = {'eval': 1}
+    print(d['eval'])
+  expected: |-
+    1
+
+- case: |-
+    print(min([]), 1)
+  error: min() iterable argument is empty
+
+- case: |-
+    print(sum([True, True, 3]), sum([1, 2, 0.5]), sum([2**62, 2**62, 2**62]))
+  expected: |-
+    5 3.5 13835058055282163712
+
+- case: |-
+    print(sum([10**30, 1]), sum(range(5), 10**20), sum([1, -1] * 5))
+  expected: |-
+    1000000000000000000000000000001 100000000000000000010 0
+
+- case: |-
+    print(max([1, 1.0, True]), min([1.0, 1, True]), max('abc'), min({3: 0, 1: 0}))
+  expected: |-
+    1 1.0 c 1
+
+- case: |-
+    print(max(1, 2), min('b', 'a'), max([2, 'x']) if False else 'ok')
+  expected: |-
+    2 a ok
+
+- case: |-
+    print(max([1, 'a']))
+  error: '''>'' not supported between instances of ''str'' and ''int'''
+
+- case: |-
+    s = {5, 3, 9, 1}
+    receive()
+    print(list(s))
+  expected: |-
+    [5, 3, 9, 1]
+  interactive_events: [e]
+
+- case: |-
+    s = {'b', 'a', 'c', 'zz', 'q'}
+    receive()
+    print(list(s))
+  expected: |-
+    ['b', 'a', 'c', 'zz', 'q']
+  interactive_events: [e]
+
+- case: |-
+    s = frozenset(range(50, 0, -3))
+    receive()
+    print(list(s))
+  expected: |-
+    [50, 47, 44, 41, 38, 35, 32, 29, 26, 23, 20, 17, 14, 11, 8, 5, 2]
+  interactive_events: [e]
+
+- case: |-
+    print([1] + [2, 3], (1,) + (2,), b'ab' + b'cd', [] + [])
+  expected: |-
+    [1, 2, 3] (1, 2) b'abcd' []
+
+- case: |-
+    a = [1, 2]
+    b = a + a
+    b[0] = 9
+    print(a, b)
+  expected: |-
+    [1, 2] [9, 2, 1, 2]
+
+- case: |-
+    print([1] + (2,))
+  error: can only concatenate list (not "tuple") to list
+
+- case: |-
+    t = (1, [2])
+    u = t + t
+    u[1].append(3)
+    print(t, u)
+  expected: |-
+    (1, [2, 3]) (1, [2, 3], 1, [2, 3])
+
+- case: |-
+    print([1].index(5))
+  error: 'list.index(x): x not in list'
+
+- case: |-
+    xs = [1]
+    xs.remove(5)
+  error: 'list.remove(x): x not in list'
+
+- case: |-
+    t = ((1, 2), [3], 'a')
+    print(t.count((1, 2)), t.index([3]), t.count('a'))
+  expected: |-
+    1 1 1
+
+- case: |-
+    print([x for x in (3, 1, 3) if (3, 1, 3).count(x) > 1])
+  expected: |-
+    [3, 3]
+
+- case: |-
+    print(eval('[i * i for i in range(4)]'))
+  expected: |-
+    [0, 1, 4, 9]
+
+- case: |-
+    print(eval('a + b', {'a': 1}, {'b': 2}))
+  expected: |-
+    3
+
+- case: |-
+    g = {'n': 4}
+    print(eval('n * n', g), sorted(k for k in g if k != '__builtins__'))
+  expected: |-
+    16 ['n']
+
+- case: |-
+    ns = {}
+    exec('a = 1\nb = a + 1', ns)
+    print(ns['a'], ns['b'])
+  expected: |-
+    1 2
+
+- case: |-
+    ns = {'base': 10}
+    exec('r = base + 5', ns)
+    print(ns['r'])
+  expected: |-
+    15
+
+- case: |-
+    g, l = {}, {}
+    exec('v = 4', g, l)
+    print('v' in g, l['v'])
+  expected: |-
+    False 4
+
+- case: |-
+    g = {'q': 1}
+    l = {}
+    exec('w = q + 1', g, l)
+    print(l)
+  expected: |-
+    {'w': 2}
+
+- case: |-
+    d = {'x': 1}
+    exec('x = 2\ny = 3', d)
+    print(d['x'], d['y'])
+  expected: |-
+    2 3
+
+- case: |-
+    gs = [eval('(x for x in range(n))', {'n': n}) for n in (2, 3)]
+    print([list(g) for g in gs])
+  expected: |-
+    [[0, 1], [0, 1, 2]]
+
+- case: |-
+    ns = {}
+    exec('a = 1', ns)
+    exec('b = a + 1', ns)
+    print(ns['b'])
+  expected: |-
+    2
+
+- case: |-
+    ns = {}
+    exec('exec("inner = 1")', ns)
+    print(ns.get('inner'))
+  expected: |-
+    1
+
+- case: |-
+    print(eval('v', None, {'v': 8}))
+  expected: |-
+    8
+
+- case: |-
+    a = [1, 2, 3]
+    exec('a[0] = 9')
+    print(a)
+  expected: |-
+    [9, 2, 3]
+
+- case: |-
+    ns = {'d': 1}
+    exec('del d', ns)
+    print('d' in ns)
+  expected: |-
+    False
+
+- case: |-
+    d={}
+    exec('1', d)
+    print('__builtins__' in d, len(d), d['__builtins__'].len([1, 2]))
+  expected: |-
+    True 1 2
+
+- case: |-
+    d={}
+    exec('1', d)
+    b = vars(d['__builtins__'])
+    print(b['abs'](-3), b['int']('4'), 'print' in b, getattr(d['__builtins__'], 'nope', 0))
+  expected: |-
+    3 4 True 0
+
+- case: |-
+    d={'__builtins__': {'print': print}}
+    exec('print("ok")', d)
+  expected: |-
+    ok
+
+- case: |-
+    print(eval('len', {}) == len)
+  expected: |-
+    True
+
+- case: |-
+    a, b = {}, {}
+    exec('1', a)
+    exec('1', b)
+    print(a['__builtins__'] == b['__builtins__'], len(a), len(b))
+  expected: |-
+    True 1 1
+
+- case: |-
+    ns = {}
+    exec('def inc():\n    global c\n    c = c + 1\nc = 0', ns)
+    ns['inc']()
+    ns['inc']()
+    print(ns['c'])
+  expected: |-
+    2
+
+- case: |-
+    ns = {}
+    exec('nm = __name__', ns)
+    print(ns['nm'], '__name__' in ns)
+  expected: |-
+    builtins False
+
+- case: |-
+    ns = {}
+    exec('nm = __name__', ns)
+    print(ns['nm'])
+  expected: |-
+    builtins
+
+- case: |-
+    d = {'a': 1}
+    print(eval('a', d), list(d.keys()))
+  expected: |-
+    1 ['a', '__builtins__']
+
+- case: |-
+    print(eval('len', {'__builtins__': {}}))
+  error: 'NameError: name ''len'' is not defined'
+
+- case: |-
+    [].append(1, 2)
+  error: list.append() takes exactly one argument (2 given)
+
+- case: |-
+    {}.get()
+  error: get expected at least 1 argument, got 0
+
+- case: |-
+    [].insert(1)
+  error: insert expected 2 arguments, got 1
+
+- case: |-
+    [].sort(1)
+  error: sort() takes no positional arguments
+
+- case: |-
+    {[1]: 2}
+  error: 'cannot use ''list'' as a dict key (unhashable type: ''list'')'
+
+- case: |-
+    {[1]}
+  error: 'cannot use ''list'' as a set element (unhashable type: ''list'')'
+
+- case: |-
+    set().add([1])
+  error: 'cannot use ''list'' as a set element (unhashable type: ''list'')'
+
+- case: |-
+    frozenset([[1]])
+  error: 'cannot use ''list'' as a set element (unhashable type: ''list'')'
+
+- case: |-
+    {1: 2}.setdefault({})
+  error: 'cannot use ''dict'' as a dict key (unhashable type: ''dict'')'
+
+- case: |-
+    d = {}
+    d.update()
+    print(d)
+  expected: |-
+    {}
+
+- case: |-
+    print('{a}'.format_map({'a': 1}))
+  expected: |-
+    1
+
+- case: |-
+    print('{x} {y}'.format_map({'x': 'X', 'y': 'Y'}))
+  expected: |-
+    X Y
+
+- case: |-
+    print('{a[0]}'.format_map({'a': 'xyz'}))
+  expected: |-
+    x
+
+- case: |-
+    '{a}'.format_map({})
+  error: 'KeyError: ''a'''
+
+- case: |-
+    'x'.format_map({}, {})
+  error: 'TypeError: str.format_map() takes exactly one argument (2 given)'
+
+- case: |-
+    print(list(map(int.__add__, [1, 2], [10, 20])))
+  expected: |-
+    [11, 22]
+
+- case: |-
+    print(sorted([3, 1, 2], key=int.__neg__))
+  expected: |-
+    [3, 2, 1]
+
+- case: |-
+    print([1, 2].__add__([3]), [1].__mul__(2), [1, 2].__contains__(2))
+  expected: |-
+    [1, 2, 3] [1, 1] True
+
+- case: |-
+    print({1: 2}.__contains__(1), {1: 2}.__len__())
+  expected: |-
+    True 1
+
+- case: |-
+    print({'a': 1}.__or__({'b': 2}))
+  expected: |-
+    {'a': 1, 'b': 2}
+
+- case: |-
+    print({1, 2}.__or__({3}), {1, 2}.__and__({2}), {1, 2}.__sub__({1}))
+  expected: |-
+    {1, 2, 3} {2} {2}
+
+- case: |-
+    print([1].__add__((2,)))
+  error: 'TypeError: can only concatenate list (not "tuple") to list'
+
+- case: |-
+    print(list(iter((1, 2).__iter__())))
+  expected: |-
+    [1, 2]
+
+- case: |-
+    [].__hash__()
+  error: 'TypeError: ''NoneType'' object is not callable'
+
+- case: |-
+    print(hash(frozenset([1, 2])) == hash(frozenset([2, 1])))
+  expected: |-
+    True
+
+- case: |-
+    d = {1: 'a'}
+    print(d[1.0], hash(1) == hash(1.0))
+  expected: |-
+    a True
+
+- case: |-
+    print(len({hash(i) for i in range(100)}))
+  expected: |-
+    100
+
+- case: |-
+    hash([])
+  error: 'TypeError: unhashable type: ''list'''
+
+- case: |-
+    hash({})
+  error: 'TypeError: unhashable type: ''dict'''
+
+- case: |-
+    hash({1})
+  error: 'TypeError: unhashable type: ''set'''
+
+- case: |-
+    hash((1, []))
+  error: 'TypeError: unhashable type: ''list'''
+
+- case: |-
+    hash([1], 2)
+  error: 'TypeError: hash() takes exactly one argument (2 given)'
+
+- case: |-
+    x = [1]
+    print(id(x) == id(x))
+  expected: |-
+    True
+
+- case: |-
+    x, y = [1], [1]
+    print(id(x) == id(y))
+  expected: |-
+    False
+
+- case: |-
+    x = [1]
+    y = x
+    print(id(x) == id(y))
+  expected: |-
+    True
+
+- case: |-
+    print(id(1) > 0, id('a') > 0, id([]) > 0)
+  expected: |-
+    True True True
+
+- case: |-
+    xs = [object for _ in range(3)]
+    print(len({id(x) for x in xs}))
+  expected: |-
+    1
+
+- case: |-
+    items = [[i] for i in range(50)]
+    print(len({id(x) for x in items}))
+  expected: |-
+    50
+
+- case: |-
+    a = [1]
+    ids = id(a)
+    a.append(2)
+    print(ids == id(a))
+  expected: |-
+    True
+
+- case: |-
+    d = {}
+    k = id(d)
+    d['x'] = 1
+    print(k == id(d))
+  expected: |-
+    True
+
+- case: |-
+    print(sorted({hash(x) for x in (1, 1.0, True)}))
+  expected: |-
+    [1]
+
+- case: |-
+    vars([])
+  error: 'TypeError: vars() argument must have __dict__ attribute'
+
+- case: |-
+    e = ValueError('x')
+    e.add_note('n')
+    print(e.__notes__ == ['n'])
+  expected: |-
+    True
+
+- case: |-
+    gen = (x for x in range(3))
+    gen.close()
+    print(list(gen))
+  expected: |-
+    []
+
+- case: |-
+    print(sorted([2 ** 100, 5, 2 ** 64, -2 ** 80, 3.5, 2 ** 64 + 0.5]))
+  expected: |-
+    [-1208925819614629174706176, 3.5, 5, 18446744073709551616, 1.8446744073709552e+19, 1267650600228229401496703205376]
+
+- case: |-
+    print((2 ** 200).to_bytes(26, 'big')[:4], (2 ** 200).to_bytes(26, 'little')[-1])
+  expected: |-
+    b'\x01\x00\x00\x00' 1
+
+- case: |-
+    print(len({2 ** 100, 2.0 ** 100, 2 ** 100 + 0, 2 ** 101 // 2}))
+  expected: |-
+    1
+
+- case: |-
+    print(max(2 ** 100, 2 ** 99), min([2 ** 100, -2 ** 100]), sum([2 ** 100] * 10) == 10 * 2 ** 100)
+  expected: |-
+    1267650600228229401496703205376 -1267650600228229401496703205376 True
+
+- case: |-
+    print(123456789 ** 5, 2 ** 100 - 2 ** 100 + 5, [x * 2 ** 64 for x in range(3)])
+  expected: |-
+    28679718602997181072337614380936720482949 5 [0, 18446744073709551616, 36893488147419103232]
+
+- case: |-
+    print([1, 2, 3][2 ** 64 - 2 ** 64 + 1], 'abc'[2 ** 100 // 2 ** 99])
+  expected: |-
+    2 c
+
+- case: |-
+    print(range(2 ** 64, 2 ** 64 + 10, 3), list(range(2 ** 64, 2 ** 64 + 10, 3)))
+  expected: |-
+    range(18446744073709551616, 18446744073709551626, 3) [18446744073709551616, 18446744073709551619, 18446744073709551622, 18446744073709551625]
+
+- case: |-
+    print(list(range(-(2 ** 70), -(2 ** 70) - 7, -2)))
+  expected: |-
+    [-1180591620717411303424, -1180591620717411303426, -1180591620717411303428, -1180591620717411303430]
+
+- case: |-
+    print(range(2 ** 100)[5], range(2 ** 100)[-1], range(2 ** 100)[2 ** 90])
+  expected: |-
+    5 1267650600228229401496703205375 1237940039285380274899124224
+
+- case: |-
+    print(range(2 ** 100, 2 ** 100 + 10)[2:8:2], range(2 ** 64, 2 ** 64 + 10)[3:5], list(range(2 ** 64, 2 ** 64 + 10)[::-3]))
+  expected: |-
+    range(1267650600228229401496703205378, 1267650600228229401496703205384, 2) range(18446744073709551619, 18446744073709551621) [18446744073709551625, 18446744073709551622, 18446744073709551619, 18446744073709551616]
+
+- case: |-
+    print(list(reversed(range(2 ** 64, 2 ** 64 + 4))), list(reversed(range(2 ** 64, 2 ** 64))))
+  expected: |-
+    [18446744073709551619, 18446744073709551618, 18446744073709551617, 18446744073709551616] []
+
+- case: |-
+    print([i for i in range(10 ** 20, 10 ** 20 + 3)], tuple(range(-2 ** 65, -2 ** 65 + 2)))
+  expected: |-
+    [100000000000000000000, 100000000000000000001, 100000000000000000002] (-36893488147419103232, -36893488147419103231)
+
+- case: |-
+    print(range(True, 2 ** 64, 2 ** 63), list(range(True, 2 ** 64, 2 ** 63)))
+  expected: |-
+    range(1, 18446744073709551616, 9223372036854775808) [1, 9223372036854775809]
+
+- case: |-
+    print({range(2 ** 70): 1}[range(2 ** 70)], range(2 ** 64)[:3], range(2 ** 64)[-2:])
+  expected: |-
+    1 range(0, 3) range(18446744073709551614, 18446744073709551616)
+
+- case: |-
+    print({range(3): 'a'}[range(0, 3)], len({range(0), range(5, 5), range(2 ** 70, 2 ** 70)}), range(4) in {range(0, 4, 1)})
+  expected: |-
+    a 1 True
+
+- case: |-
+    print([1, 2, 3][2 ** 100:], [1, 2, 3][-2 ** 100:], [1, 2, 3][::2 ** 100], [1, 2, 3][::-2 ** 100], 'abc'[:2 ** 70], (1, 2)[-2 ** 70:1])
+  expected: |-
+    [] [1, 2, 3] [1] [3] abc (1,)
+
+- case: |-
+    x = [1, 2, 3, 4]
+    x[2 ** 80:] = [9]
+    print(x)
+  expected: |-
+    [1, 2, 3, 4, 9]
+
+- case: |-
+    x = [1, 2, 3, 4]
+    del x[:-2 ** 80]
+    print(x)
+  expected: |-
+    [1, 2, 3, 4]
+
+- case: |-
+    print(range(10)[2 ** 70:], range(10)[::-2 ** 70], range(2 ** 60)[2 ** 50:2 ** 50 + 3], range(10)[1:8:3])
+  expected: |-
+    range(10, 10) range(9, -1, -1180591620717411303424) range(1125899906842624, 1125899906842627) range(1, 8, 3)
+
+- case: |-
+    print(range(2 ** 64)[:3], range(2 ** 64)[-2:], range(2 ** 100)[::2 ** 99], range(2 ** 100)[::-2 ** 98])
+  expected: |-
+    range(0, 3) range(18446744073709551614, 18446744073709551616) range(0, 1267650600228229401496703205376, 633825300114114700748351602688) range(1267650600228229401496703205375, -1, -316912650057057350374175801344)
+
+- case: |-
+    print(range(0, 2 ** 100, 7)[10 ** 20:10 ** 20 + 2], list(range(2 ** 64, 0, -2 ** 62)[1:]))
+  expected: |-
+    range(700000000000000000000, 700000000000000000014, 7) [13835058055282163712, 9223372036854775808, 4611686018427387904]
+
+- case: |-
+    s = 'aé☃😀b'
+    print(len(s), s[1], s[2], s[3], s[4], s[-1], s[-4])
+  expected: |-
+    5 é ☃ 😀 b b é
+
+- case: |-
+    s = 'xy'
+    print(s[True], s[False])
+  expected: |-
+    y x
+
+- case: |-
+    it = iter([5, 2, 8])
+    print(sum(iter(range(10))), min(iter('zab')), max(it))
+  expected: |-
+    45 a 8
+
+- case: |-
+    print([].append.__name__, 'x'.upper.__name__, {}.get.__name__, [].append.__qualname__, 'x'.upper.__qualname__)
+  expected: |-
+    append upper get list.append str.upper
+
+- case: |-
+    f = max
+    g = [1].pop
+    print(f.__name__, g.__name__, g.__qualname__)
+  expected: |-
+    max pop list.pop
+
+- case: |-
+    print([f.__name__ for f in (sum, min, abs, sorted)])
+  expected: |-
+    ['sum', 'min', 'abs', 'sorted']
+
+- case: |-
+    print(min(['bb', 'aa', 'c'], key=len), max(['bb', 'aa', 'cc'], key=len), max(iter(['x', 'yy', 'zz']), key=len))
+  expected: |-
+    c bb yy
+
+- case: |-
+    print(min([3, 1, 2], key=None), max((x for x in [3, 1, 2]), key=None))
+  expected: |-
+    1 3
+
+- case: |-
+    print(int.__mro__[0].__name__, int.__mro__[-1].__name__, len(int.__mro__), len(object.__mro__), object.__bases__, int.__bases__[0].__name__)
+  expected: |-
+    int object 2 1 () object
+
+- case: |-
+    print([k.__name__ for k in KeyError.__mro__])
+    print([k.__name__ for k in ValueError.__bases__], [k.__name__ for k in BaseException.__bases__], [k.__name__ for k in bool.__mro__])
+  expected: |-
+    ['KeyError', 'LookupError', 'Exception', 'BaseException', 'object']
+    ['Exception'] ['object'] ['bool', 'int', 'object']
+
+- case: |-
+    print('append' in vars(list), 'upper' in vars(str), 'append' in vars(str), vars(list)['append']([1].copy(), 2), len(vars(object)) >= 0)
+  expected: |-
+    True True False None True
+
+- case: |-
+    type('A', 1, {})
+  error: type.__new__() argument 2 must be tuple, not int
+
+- case: |-
+    print(1+0j == 1, 1.0 == 1+0j, hash(1+0j) == hash(1), hash(2.5+0j) == hash(2.5), {1: 'a'}[1+0j], len({1, 1+0j, 1.0}), (1+1j) in {1+1j})
+  expected: |-
+    True True True True a 1 True
+
+- case: |-
+    print(bytearray(), bytearray(3), bytearray(b'ab'), bytearray([65, 66]), bytearray('hé', 'utf-8'), bytearray(range(3)), repr(bytearray(b"it's")))
+  expected: |-
+    bytearray(b'') bytearray(b'\x00\x00\x00') bytearray(b'ab') bytearray(b'AB') bytearray(b'h\xc3\xa9') bytearray(b'\x00\x01\x02') bytearray(b"it\'s")
+
+- case: |-
+    b = bytearray(b'hello')
+    print(b[0], b[-1], b[1:3], b[::-1], len(b), b'ell' in b, 104 in b, list(b)[:2])
+  expected: |-
+    104 111 bytearray(b'el') bytearray(b'olleh') 5 True True [104, 101]
+
+- case: |-
+    b = bytearray(b'abc')
+    b[0] = 65
+    b[1:2] = b'XYZ'
+    del b[-1]
+    b.append(33)
+    b.extend(b'..')
+    b.extend([49, 50])
+    b.insert(0, 62)
+    print(b, b.pop(), b.pop(0), b)
+    b.remove(88)
+    b.reverse()
+    print(b)
+    c = b.copy()
+    c.clear()
+    print(b, c)
+  expected: |-
+    bytearray(b'AXYZ!..1') 50 62 bytearray(b'AXYZ!..1')
+    bytearray(b'1..!ZYA')
+    bytearray(b'1..!ZYA') bytearray(b'')
+
+- case: |-
+    b = bytearray(range(10))
+    b[::2] = b'\x00' * 5
+    del b[1::3]
+    print(list(b))
+    b[2:5] = []
+    print(list(b))
+  expected: |-
+    [0, 0, 3, 5, 0, 0, 9]
+    [0, 0, 0, 9]
+
+- case: |-
+    ba = bytearray(b'xyz')
+    v = memoryview(ba)
+    v[0] = 65
+    v[1:3] = b'BC'
+    print(ba, v.readonly, v.tobytes(), v[-1], bytearray(v[::2]))
+  expected: |-
+    bytearray(b'ABC') False b'ABC' 67 bytearray(b'AC')
+
+- case: |-
+    m = memoryview(b'0123456789')
+    sub = m[2:8][::2]
+    print(list(sub), sub.tobytes(), len(sub), sub[1], bytes(memoryview(sub)))
+  expected: |-
+    [50, 52, 54] b'246' 3 52 b'246'
+
+- case: |-
+    tb = str.maketrans('ab', 'xy', 'c')
+    print(tb, 'abcabd'.translate(tb), 'abc'.translate({97: 'AA', 98: None}), 'abc'.translate(['z'] * 98), 'a'.maketrans({'a': 'b'}))
+  expected: |-
+    {97: 120, 98: 121, 99: None} xyxyd AAc zbc {97: 'b'}
+
+- case: |-
+    print(list(map(eval, ['1 + 1', '2 * 3'])))
+    print(sorted(['3', '1', '2'], key=eval))
+    d = {}
+    list(map(exec, ['a = 1', 'b = 2'], [d, d]))
+    print(d['a'] + d['b'])
+  expected: |-
+    [2, 6]
+    ['1', '2', '3']
+    3

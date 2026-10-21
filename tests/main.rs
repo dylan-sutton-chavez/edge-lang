@@ -1,4 +1,5 @@
 mod common;
+mod cases;
 
 // Every run meters what it allocates, as compiler.wasm does.
 #[global_allocator]
@@ -19,7 +20,7 @@ mod tables;
 mod pure;
 
 /* cases/pending/asyncio.json holds the cases written for the async builtins the engine used to ship, `run`, `sleep`,
-   `gather`, `with_timeout` and `cancel`, grouped by the suite each came from: vm.json, snapshot.json, modules.json
+   `gather`, `with_timeout` and `cancel`, grouped by the suite each came from: the vm cases, snapshot.json, modules.json
    and the CLI hosts.json. The engine now implements only the coroutine protocol of Python, `await`, `send`,
    `throw`, `close` and async generators, and leaves scheduling to an event loop written in Python, so no suite
    loads this file and nothing in it runs. The cases come back once asyncio arrives transpiled with the rest of the
