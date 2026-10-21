@@ -12,14 +12,14 @@ pub const SOURCES: &str = include_str!(concat!(env!("OUT_DIR"), "/sources.hash")
 pub enum Pat { In(Tags), Type(u8), Int(i64), None, Bool(bool) }
 
 /* An operand, an operand less one (a bound `a<j>-1`), or a number. */
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Rhs { A(usize), Less(usize), N(i64) }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Learn { In(Tags), Rel(&'static str, Rhs) }
 
 /* What a row says of a result: its exact integer by `op` (`=`, `-`, `+`, `*`, or `n` a number) on operands, its range, that it is an item of an operand, a container of operands, or one whose items have these tags and bounds. */
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Out { Exact(char, Rhs, Rhs), Range(i64, i64), Item(usize), Items(Vec<usize>), Holds(Tags, Rhs, Rhs) }
 
 #[derive(Clone, Debug, Default)]

@@ -105,13 +105,14 @@ pub enum Why { Normal, Return(Ty), Goto(u16, u16), Reraise(Ty) }
 pub struct State { pub stack: Vec<Entry>, pub slots: Vec<Ty>, pub iters: Vec<Ty>, pub tries: Vec<Try>, pub unwind: Vec<Why> }
 
 impl State {
-    fn all(&self, o: &State, f: impl Fn(&Ty, &Ty) -> bool) -> bool {
+    fn all(&self, o: &State, m: impl Fn(u32, u32) -> bool, f: impl Fn(&Ty, &Ty) -> bool) -> bool {
         (self.stack.len(), self.slots.len(), self.iters.len()) == (o.stack.len(), o.slots.len(), o.iters.len()) && self.tries == o.tries && self.unwind == o.unwind
-            && self.stack.iter().zip(&o.stack).all(|(a, b)| (a.from, a.cond, a.of) == (b.from, b.cond, b.of) && f(&a.ty, &b.ty))
+            && self.stack.iter().zip(&o.stack).all(|(a, b)| [a.from, a.cond].iter().chain(&a.of).zip([b.from, b.cond].iter().chain(&b.of)).all(|(x, y)| m(*x, *y)) && f(&a.ty, &b.ty))
             && self.slots.iter().zip(&o.slots).chain(self.iters.iter().zip(&o.iters)).all(|(a, b)| f(a, b))
     }
-    pub fn same(&self, o: &State) -> bool { self.all(o, Ty::same) }
-    pub fn within(&self, o: &State) -> bool { self.all(o, Ty::within) }
+    pub fn same(&self, o: &State) -> bool { self.all(o, |a, b| a == b, Ty::same) }
+    // A value whose slot or learning is forgotten (NO) knows less, so it holds the one that remembers it.
+    pub fn within(&self, o: &State) -> bool { self.all(o, |a, b| a == b || b == NO, Ty::within) }
 }
 
 /* The rules this build ships, an error with its reason when they are of other sources or not of format 1. */
