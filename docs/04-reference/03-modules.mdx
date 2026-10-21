@@ -21,7 +21,7 @@ Nobody classifies a package. A manifest entry only names a spec.
 - A file that starts with the wasm magic bytes is a native module.
 - Any other file is Python source, whatever its extension.
 - A `.js` or `.mjs` import fails where it is written with `module 'charts' is JavaScript, ship a .py or a .wasm`. No JavaScript loads besides the [system calls](/docs/edge-python/reference/system) of the host.
-- `edge add`, `edge lock`, `edge build` and `edge publish` stop on a JavaScript module before they write anything.
+- `edge add`, `edge lock`, `edge web` and `edge publish` stop on a JavaScript module before they write anything.
 
 ## Syntax
 
@@ -201,7 +201,7 @@ Transit values are `None`, `bool`, `int` up to 128 bits, `float`, `str`, `bytes`
 ## See also
 
 > [!CARDS]
-> - `terminal` [Command line interface](/docs/edge-python/platforms/cli) Write entries with edge add, resolve them with edge lock, vendor them with edge build.
+> - `terminal` [Command line interface](/docs/edge-python/platforms/cli) Write entries with edge add, resolve them with edge lock, vendor them with edge web.
 > - `cpu` [ABI](/docs/edge-python/reference/abi) The wire contract behind wasm plugins.
 > - `shield` [Limits and errors](/docs/edge-python/reference/limits-and-errors) The sandbox profile both hosts run under.
 > - `key` [System](/docs/edge-python/reference/system) The system modules and the permissions that let a package use them.

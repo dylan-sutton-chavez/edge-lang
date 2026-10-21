@@ -196,7 +196,7 @@ error: the pool does not grant eval what this bundle grants
 
 ### Sending a project
 
-For a project, `edge build` packs it into a `.edge`. A client sends it base64-encoded behind an `EDGEPKG:` marker. The actor validates it and serves its files to the compiler from memory, so an untrusted bundle never touches the disk.
+For a project, `edge publish --out app.edge` packs it into a `.edge`. A client sends it base64-encoded behind an `EDGEPKG:` marker. The actor validates it and serves its files to the compiler from memory, so an untrusted bundle never touches the disk.
 
 ### Reading the result
 
@@ -237,6 +237,6 @@ sink: raw-ingested-transformed
 ## See also
 
 > [!CARDS]
-> - `terminal` [Command line interface](/docs/edge-python/platforms/cli#edge-build) Pack a project for an eval group with edge build.
+> - `terminal` [Command line interface](/docs/edge-python/platforms/cli#edge-publish) Pack a project for an eval group with edge publish --out.
 > - `clock` [Async](/docs/edge-python/language/async) The cooperative scheduler each actor runs on.
 > - `camera` [Snapshots](/docs/edge-python/language/snapshots) Freeze and resume a single run.

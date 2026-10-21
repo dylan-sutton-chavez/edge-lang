@@ -63,7 +63,6 @@ pub fn build(manifest_path: &Path, file: Option<&Path>, opts: &Opts) -> Result<(
     };
     let stem = entry.file_stem().ok_or_else(|| anyhow!("{} names no file", entry.display()))?.to_string_lossy().into_owned();
     let out = opts.out.clone().unwrap_or_else(|| PathBuf::from(if target.starts_with("wasm32") { format!("{stem}.wasm") } else { stem }));
-    let sys = tools::Sysroot::open(&target)?;
     let dir = tempfile::tempdir().context("creating a build dir")?;
     // A bitcode input is a whole program already, another language's side of a benchmark.
     let modules = match entry.extension().is_some_and(|e| e == "bc") {
@@ -74,11 +73,16 @@ pub fn build(manifest_path: &Path, file: Option<&Path>, opts: &Opts) -> Result<(
             if !errors.is_empty() {
                 bail!("{}", compiler::code::Diagnostic::render_all(&errors, &src, Some(&entry.to_string_lossy())));
             }
+            // The rules of this Edge commit type the program, a build without them runs every opcode through its handler.
+            let rules = EPT.map(compiler::types::read::Rules::read).transpose().map_err(|e| anyhow!(e))?;
+            let typed = rules.as_ref().map(|r| compiler::types::typed(&chunk, r)).transpose().map_err(|e| anyhow!(e))?;
+            if let (Some(t), true) = (&typed, opts.count) { let (p, n) = t.count(); eprintln!("types: {p}/{n}"); }
             let glue = dir.path().join("glue.ll");
-            std::fs::write(&glue, glue::module(&chunk, &target, opts.gc_torture))?;
-            vec![vm_bitcode(&target)?, glue]
+            std::fs::write(&glue, glue::module(&src, &chunk, typed.as_ref(), &target))?;
+            vec![vm_bitcode(&target, dir.path())?, glue]
         }
     };
+    let sys = tools::Sysroot::open(&target)?;
     let sp = crate::ui::spinner(&format!("compiling {} for {target}", entry.display()));
     match run::compile(&sys, &modules, &target, opts, &out) {
         Ok(()) => sp.done(&format!("built {}", out.display())),
@@ -95,7 +99,19 @@ fn entry(target: &str) -> &'static str {
     if target.starts_with("wasm32") { "__main_void" } else { "main" }
 }
 
-/* The VM's handlers as bitcode for `target`. */
-fn vm_bitcode(target: &str) -> Result<PathBuf> {
-    std::env::var_os("EDGE_VM_BC").map(PathBuf::from).ok_or_else(|| anyhow!("no VM bitcode for {target}"))
+// The opcode rules `edge.ept` gives for this Edge commit, when the tree carries them.
+const EPT: Option<&str> = include!(concat!(env!("OUT_DIR"), "/ept.rs"));
+
+// The VM's handlers as bitcode per target, gzipped, from `make bitcode`.
+const VM_BITCODE: &[(&str, &[u8])] = include!(concat!(env!("OUT_DIR"), "/vm_bitcode.rs"));
+
+/* The VM's bitcode for `target`, unpacked into the build dir. */
+fn vm_bitcode(target: &str, dir: &Path) -> Result<PathBuf> {
+    let Some((_, gz)) = VM_BITCODE.iter().find(|(t, _)| *t == target) else {
+        let have: Vec<&str> = VM_BITCODE.iter().map(|(t, _)| *t).collect();
+        bail!("this edge carries no VM for {target}, it builds for {}", if have.is_empty() { "nothing, run make bitcode".to_string() } else { have.join(", ") });
+    };
+    let path = dir.join("vm.bc");
+    std::io::copy(&mut flate2::read::GzDecoder::new(*gz), &mut std::fs::File::create(&path)?)?;
+    Ok(path)
 }

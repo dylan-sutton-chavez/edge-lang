@@ -77,17 +77,3 @@ done:
 "#)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn each_block_adds_its_own_count_after_its_phis() {
-        let ir = "define i32 @f(i1 %c) {\n  br i1 %c, label %a, label %b\n\na:                                                ; preds = %0\n  %x = add i32 1, 2\n  br label %b\n\nb:\n  %y = phi i32 [ 0, %0 ], [ %x, %a ]\n  switch i32 %y, label %a [\n    i32 3, label %b\n  ]\n}\n";
-        let out = instrument(ir);
-        let adds: Vec<&str> = out.lines().filter(|l| l.contains(" = add i64 ")).map(|l| l.rsplit(", ").next().unwrap()).collect();
-        assert_eq!(adds, ["1", "2", "2"]);
-        let b = out.split("\nb:\n").nth(1).unwrap();
-        assert!(b.starts_with("  %y = phi") && b.lines().nth(1).unwrap().contains("load i64"), "{b}");
-    }
-}

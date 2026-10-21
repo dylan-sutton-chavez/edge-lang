@@ -63,7 +63,7 @@ make test-js test-cli test-skill
 
 ## Docs
 
-`docs/` holds MDX pages two folders deep at most, with a numeric prefix on every path segment. Each opens with a frontmatter holding a `title` and a `description` and has one top-level heading, the rules `edge build` holds package docs to. An `edge-python` block followed by an `output` block becomes a playground on the real engine, and a blockquote opening with a marker such as `[!NOTE]`, `[!QUESTION]`, `[!CARDS]` or `[!COPY]` becomes a box, as [Registry](https://edgepython.com/docs/edge-python/reference/registry#package-docs) lists.
+`docs/` holds MDX pages two folders deep at most, with a numeric prefix on every path segment. Each opens with a frontmatter holding a `title` and a `description` and has one top-level heading, the rules `edge publish` holds package docs to. An `edge-python` block followed by an `output` block becomes a playground on the real engine, and a blockquote opening with a marker such as `[!NOTE]`, `[!QUESTION]`, `[!CARDS]` or `[!COPY]` becomes a box, as [Registry](https://edgepython.com/docs/edge-python/reference/registry#package-docs) lists.
 
 ## CI
 

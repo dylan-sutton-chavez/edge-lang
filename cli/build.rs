@@ -27,8 +27,25 @@ fn main() {
     let lucide = manifest.join("../target/lucide.json");
     println!("cargo:rerun-if-changed={}", lucide.display());
     std::fs::copy(&lucide, out.join("lucide.json")).unwrap_or_else(|e| panic!("copying {}: {e}, run make lucide first", lucide.display()));
+    vm_bitcode(&manifest.join("../target/bitcode"), &out);
+    let ept = manifest.join("../edge.ept");
+    println!("cargo:rerun-if-changed={}", ept.display());
+    std::fs::write(out.join("ept.rs"), if ept.exists() { format!("Some(include_str!({:?}))", ept) } else { "None".into() }).expect("writing ept.rs");
     let js_dist = std::env::var("EDGE_JS_DIST").map(PathBuf::from).unwrap_or_else(|_| manifest.join("../js/dist"));
     js_host(&js_dist, &out.join("js_host.rs"));
+}
+
+/* Each target's VM bitcode `make bitcode` left, gzipped, as the table `edge build` links against, an absent target being one it cannot build for. */
+fn vm_bitcode(dir: &Path, out: &Path) {
+    println!("cargo:rerun-if-changed={}", dir.display());
+    let mut table = String::from("&[");
+    for target in std::fs::read_dir(dir).into_iter().flatten().flatten().map(|e| e.file_name().to_string_lossy().into_owned()) {
+        let Ok(bc) = std::fs::read(dir.join(&target).join("vm.bc")) else { continue };
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::best());
+        std::io::Write::write_all(&mut gz, &bc).and_then(|()| std::fs::write(out.join(format!("vm-{target}.bc.gz")), gz.finish()?)).expect("writing the VM bitcode");
+        table += &format!("(\"{target}\", include_bytes!(concat!(env!(\"OUT_DIR\"), \"/vm-{target}.bc.gz\"))),");
+    }
+    std::fs::write(out.join("vm_bitcode.rs"), table + "]").expect("writing the VM bitcode table");
 }
 
 /* The compiled JS host the binary carries, keyed by the path the CDN serves each file at, so a page's imports read the same from a dist, from a headless run, or from the CDN. */

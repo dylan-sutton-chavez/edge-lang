@@ -91,9 +91,9 @@
       "main.py": "from pkg import label\nprint(label(\"a\", \"b\"))\n"
     },
     "copy": { "pkg/slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm" },
-    "run": ["build", "--app"],
-    "creates": ["app"],
-    "then": { "bin": "./app", "env": { "EDGE_CDN_BASE": "http://127.0.0.1:1", "XDG_CACHE_HOME": "empty-cache" }, "stdout": ["A-B!"] }
+    "run": ["publish", "--out", "app.edge"],
+    "creates": ["app.edge"],
+    "then": { "bin": "edge", "run": ["run", "app.edge"], "env": { "EDGE_CDN_BASE": "http://127.0.0.1:1", "XDG_CACHE_HOME": "empty-cache" }, "stdout": ["A-B!"] }
   },
   {
     "given": {

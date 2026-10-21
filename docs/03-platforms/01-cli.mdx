@@ -1,6 +1,6 @@
 ---
 title: "Command line interface"
-description: "The edge CLI, from run and serve to test, build, actor and package management."
+description: "The edge CLI, from run and serve to test, build, web, actor and package management."
 ---
 
 # Command line interface
@@ -11,12 +11,13 @@ The [system calls](/docs/edge-python/reference/system) run in SpiderMonkey insid
 
 ```bash
 edge run app.py        # run a script, a .edge, or stdin (--web)
-edge build             # pack a portable .edge (--app, --web)
+edge build app.py      # compile to a native binary (--wasm, --target)
+edge web               # vendor the browser host into dist/
 edge actor actor.yml   # run a pool of cooperative actors
 edge serve             # dev server with live reload
 edge test              # run *_test.py files
 edge init my-app       # scaffold a project
-edge publish app.edge  # send a packed .edge to the registry
+edge publish           # pack the project and send it to the registry
 edge add json          # add a package to edge.json
 edge remove json       # remove a package from edge.json
 edge lock              # resolve edge.json into edge.lock
@@ -68,7 +69,7 @@ error: ZeroDivisionError: division by zero
 | A file | `edge run app.py` | Piped stdin feeds [`input()`](/docs/edge-python/reference/builtins) one line per call |
 | Inline code | `edge run -c 'print(1)'` | Piped stdin feeds `input()` the same way |
 | Piped stdin | `cat app.py` piped into `edge run` | Stdin is the script, and a terminal on stdin is an error |
-| A packed artifact | `edge run app.edge` | A `.edge` or an app binary runs exactly as `./app` would |
+| A packed package | `edge run app.edge` | A `.edge` from `edge publish --out` runs with its own lock |
 
 `raise SystemExit(code)` with no argument or an integer exits cleanly with that code and no traceback. A string argument surfaces as a regular error and exits 1.
 
@@ -237,50 +238,54 @@ $ edge lock
 
 ## edge build
 
-Packs the project and its imports into one artifact.
-
-| Command | Writes | Carries | Runs on |
-|---|---|---|---|
-| `edge build` | `app.edge` | The project, its declared modules, each lock, the readme, the license and the docs | A host that has `edge`, or an actor eval group |
-| `edge build --app` | `app`, a standalone binary | The same, appended to this `edge` binary, without the docs | Any host of the same OS and CPU, offline, with nothing installed |
-| `edge build --web` | `dist/` | The JS host under `dist/js/`, `compiler.wasm`, every declared module and a rewritten `edge.json` | Any browser, offline |
+Compiles a program to one static native binary, or a `.wasm` with `--wasm`. The script is the one named, or `main.py` beside the manifest.
 
 ```text
-$ edge build
-
-  packed app.edge (2 files)
-  0.06 KB
-
-  run  edge run app.edge   or send it to an actor eval group
+$ edge build app.py
+  compiling app.py for aarch64-apple-darwin...
+  (successful) built app
+$ ./app
 ```
 
-`--out <path>` replaces the default output, `app.edge`, `app` or `dist/` per mode.
+| Flag | Effect |
+|---|---|
+| `-o`, `--out <path>` | The output, the script's name by default. A path ending in `.o` stops at the object |
+| `--wasm` | A `.wasm` for WASI, importing only `fd_write` and `proc_exit` |
+| `--target <triple>` | `x86_64-unknown-linux-musl`, `aarch64-unknown-linux-musl`, `aarch64-apple-darwin` or `wasm32-wasip1` |
+| `--opt speed\|size` | What LLVM optimizes for, `speed` by default |
+| `--strip` | Leave the symbols out |
+
+- The binary needs nothing installed. It reads `input()` from stdin, takes `--events <file>` as `edge run` does, and prints the same output, errors and exit code.
+- The first build offers to download LLVM's tools and the linker of the Rust release Edge is built with, about 200 MB once into `~/.cache/edge/llvm`. Without a terminal it refuses, and `EDGE_LLVM_ROOT` names a Rust sysroot with `llvm-tools` instead.
+- An `apple-darwin` target only builds on a Mac, which has the SDK it links against.
+- How the VM becomes the compiler is in [Native build](/docs/edge-python/internals/native).
 
 > [!WARNING]
-> A build refuses to pack while a declared version is unlocked. Run `edge lock` after every change to `edge.json`.
+> A build refuses to compile while a declared version is unlocked. Run `edge lock` after every change to `edge.json`.
 
-- Every mode carries each module the manifest declares by URL, with the files it imports beside it. The artifact is the whole program.
-- A `.edge` and an app binary carry the lock beside each manifest they carry. The artifact resolves its own names.
-- A `--web` build rewrites every root import to a vendored path, its relative imports and a sibling `edge.json` included. It leaves the root lock out of `dist/`, and a nested package keeps its own.
-- An app binary honors the run flags `--save-state`, `--restore-state`, `--preempt` and `--events`.
-- A `.edge` and an app binary carry the `README.md` and any `LICENSE` at the project root.
-- A `.edge` carries the pages when `edge.json` declares a `docs` directory. They sit under a reserved `@docs/` prefix no import can reach.
+## edge web
 
-Pages must follow the [package docs](/docs/edge-python/reference/registry#package-docs) convention, or the build fails.
+Writes `dist/`, a folder any browser runs offline: the JS host under `dist/js/`, `compiler.wasm`, every declared module with the files it imports and a rewritten `edge.json`. `--out <dir>` picks another folder.
+
+- Every root import is rewritten to a vendored path, its relative imports and a sibling `edge.json` included.
+- The root lock stays out of `dist/`, and a nested package keeps its own.
 
 ## edge publish
 
-Uploads a `.edge` packed by `edge build`. Set `EDGE_TOKEN` to a token from [the settings](https://edgepython.com/settings#tokens) first.
+Packs the project as one `.edge` and uploads it. Set `EDGE_TOKEN` to a token from [the settings](https://edgepython.com/settings#tokens) first.
 
 ```text
 $ export EDGE_TOKEN=edge_pat_...
-$ edge publish app.edge
+$ edge publish
   published slugify 0.1.0
 
   add it with  edge add slugify
   https://cdn.edgepython.com/pkg/slugify/0.1.0/app.edge
 ```
 
+- The `.edge` carries the project, each module the manifest declares by URL with the files it imports, the lock beside each manifest, the `README.md` and any `LICENSE` at the root.
+- It carries the pages when `edge.json` declares a `docs` directory, under a reserved `@docs/` prefix no import can reach. They must follow the [package docs](/docs/edge-python/reference/registry#package-docs) convention, or the publish fails.
+- `--out <file>` writes the `.edge` instead of sending it. `edge run` and an actor eval group run it.
 - The artifact is the whole request. The name and version come from the manifest inside it.
 - The CLI signs each publish with the token rather than sending it. The token never leaves your machine.
 - A bundle that carries a `.js` or `.mjs` file is refused before it is sent.
