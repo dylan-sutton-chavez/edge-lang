@@ -46,10 +46,36 @@ pub struct Rt {
     _paying: crate::value::meter::Paying,
 }
 
+// What the program prints goes to stdout, an error to stderr as `edge run` prints one, a blank line after its block.
+#[cfg(feature = "std")]
 fn out(text: &str) { use std::io::Write; let _ = std::io::stdout().write_all(text.as_bytes()); }
-
-// An error goes to stderr as `edge run` prints one, a blank line after its block.
+#[cfg(feature = "std")]
 fn fail(text: &str) { std::eprintln!("{text}"); }
+#[cfg(not(feature = "std"))]
+fn out(text: &str) { wasi::write(1, text.as_bytes()) }
+#[cfg(not(feature = "std"))]
+fn fail(text: &str) { wasi::write(2, text.as_bytes()); wasi::write(2, b"\n") }
+
+/* The two WASI calls a `.wasm` makes, its only imports. */
+#[cfg(not(feature = "std"))]
+mod wasi {
+    #[link(wasm_import_module = "wasi_snapshot_preview1")]
+    unsafe extern "C" {
+        fn fd_write(fd: u32, iovs: *const [usize; 2], n: usize, written: *mut usize) -> u16;
+        pub fn proc_exit(code: u32) -> !;
+    }
+    pub fn write(fd: u32, mut b: &[u8]) {
+        while !b.is_empty() {
+            let mut done = 0;
+            if unsafe { fd_write(fd, &[b.as_ptr() as usize, b.len()], 1, &mut done) } != 0 || done == 0 { return; }
+            b = &b[done..];
+        }
+    }
+}
+
+/* Ends the program with `code`, as a panic of a `.wasm` does. */
+#[cfg(not(feature = "std"))]
+pub fn exit(code: u32) -> ! { unsafe { wasi::proc_exit(code) } }
 
 #[inline(always)]
 fn ok(v: Val) -> i64 { v.0 as i64 }
@@ -422,9 +448,9 @@ pub unsafe extern "C" fn edge_returned(rt: *mut Rt) -> i64 { ok(unsafe { &*rt }.
 pub unsafe extern "C" fn edge_boot(src: *const u8, len: u64, path: *const u8, plen: u64, argc: i32, argv: *const *const core::ffi::c_char) -> *mut Rt {
     let path = (plen != 0).then(|| crate::util::leak(String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(path, plen as usize) }).into_owned().into_boxed_str()) as &'static str);
     // A `.wasm` reads no arguments, environment or file, the sandbox's own rule: it imports only fd_write and proc_exit.
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(not(feature = "std"))]
     { let _ = (argc, argv); unsafe { boot(src, len as usize, path, Limits::sandbox().memory, false) } }
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(feature = "std")]
     {
         let args: Vec<String> = (1..argc.max(0) as usize).map(|k| unsafe { core::ffi::CStr::from_ptr(*argv.add(k)) }.to_string_lossy().into_owned()).collect();
         let (mut memory, mut events) = (Limits::sandbox().memory, Vec::new());

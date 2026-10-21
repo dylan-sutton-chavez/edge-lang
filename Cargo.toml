@@ -41,7 +41,7 @@ pure = []
 # The modules behind the stable API, for the engine's own tests and tools that read them.
 internals = []
 # The VM as the bitcode `edge build` links its glue with, the `op_` handlers, frames and entry.
-native = ["std"]
+native = []
 # A native build that collects and moves every object at each safepoint, for the tests.
 gc-torture = ["native"]
 
