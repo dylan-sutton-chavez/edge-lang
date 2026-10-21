@@ -36,7 +36,6 @@ fn three(dir: &Path, src: &str, input: &str, events: &[&str], flags: &[&str]) ->
    recursion, a dict, a heap-free tuple and an int loop. */
 #[test]
 fn flow() {
-    if let Err(why) = compiler::types::rules() { panic!("edge.ept is missing or stale for these sources, so edge build runs untyped: {why}") }
     let dir = tempfile::tempdir().unwrap();
     let src = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/llvm_check.py")).unwrap();
     let [vm, native, torture] = three(dir.path(), &src, "", &[], &["--emit-llvm", "main.ll"]);
@@ -44,6 +43,7 @@ fn flow() {
     assert_eq!(native, vm, "{ALARM}, native differs from the VM");
     assert_eq!(torture, vm, "{ALARM}, native under GC torture differs from the VM");
     assert_ne!(std::fs::read(dir.path().join("plain")).unwrap(), std::fs::read(dir.path().join("torture")).unwrap(), "--gc-torture built no torture in");
+    if let Err(why) = compiler::types::rules() { panic!("edge.ept is missing or stale for these sources, so edge build runs untyped: {why}") }
     let ir = std::fs::read_to_string(dir.path().join("main.ll")).unwrap();
     // The VM module edge linked, the host's as edge build targets it, where the tag tests are read.
     let host = if cfg!(target_os = "macos") { "apple-darwin" } else { "unknown-linux-musl" };
