@@ -97,9 +97,9 @@ pub fn build(manifest_path: &Path, file: Option<&Path>, opts: &Opts) -> Result<(
     Ok(())
 }
 
-/* The C entry `target`'s start code calls with the program's arguments, wasi-libc naming it apart. */
+/* The C entry `target`'s start code calls, wasi-libc's without arguments so a `.wasm` imports only fd_write and proc_exit. */
 fn entry(target: &str) -> &'static str {
-    if target.starts_with("wasm32") { "__main_argc_argv" } else { "main" }
+    if target.starts_with("wasm32") { "__main_void" } else { "main" }
 }
 
 // The VM per target, gzipped, from `make inline`: the handlers' bodies, the rest compiled, the handlers that may collect.
