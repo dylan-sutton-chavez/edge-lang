@@ -40,7 +40,8 @@ fn vm_bitcode(dir: &Path, out: &Path) {
     println!("cargo:rerun-if-changed={}", dir.display());
     let mut table = String::from("&[");
     for target in std::fs::read_dir(dir).into_iter().flatten().flatten().map(|e| e.file_name().to_string_lossy().into_owned()) {
-        if !dir.join(&target).join("inline.bc").exists() { continue }
+        // A test's VM, `-torture` or `-count`, stays out of the binary, `edge build` reads it from `EDGE_BITCODE_DIR`.
+        if !dir.join(&target).join("inline.bc").exists() || target.ends_with("-torture") || target.ends_with("-count") { continue }
         for file in ["inline.bc", "vm.o"] {
             let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::best());
             std::io::Write::write_all(&mut gz, &std::fs::read(dir.join(&target).join(file)).expect("vm.o beside inline.bc, run make inline"))

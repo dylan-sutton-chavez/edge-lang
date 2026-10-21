@@ -77,12 +77,10 @@ pub fn build(manifest_path: &Path, file: Option<&Path>, opts: &Opts) -> Result<(
             let rules = compiler::types::rules();
             let typed = rules.as_ref().map_err(String::clone).and_then(|r| compiler::types::typed(&chunk, r));
             match &typed { Ok(t) if opts.count => { let (p, n) = t.count(); eprintln!("types: {p}/{n}"); } Err(why) => eprintln!("edge build: no proven types, {why}"), _ => {} }
-            let (vm, collect) = vm(&format!("{target}{}", if opts.gc_torture { "-torture" } else { "" }), dir.path())?;
+            let (vm, collect) = vm(&target, if opts.gc_torture { "-torture" } else if opts.count { "-count" } else { "" }, dir.path())?;
             let glue = dir.path().join("glue.ll");
             std::fs::write(&glue, glue::module(&src, &crate::host::driver::path_spec(&entry), &chunk, typed.as_ref().ok(), collect, &target))?;
-            // A count covers the whole VM, its slow paths and collector too, from the repo's own bitcode, as a benchmark against Rust needs.
-            let whole = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../target/bitcode/{target}{}/vm.bc", if opts.gc_torture { "-torture" } else { "" }));
-            if opts.count { (vec![whole, glue], PathBuf::new()) } else { (vec![vm[0].clone(), glue], vm[1].clone()) }
+            (vec![vm[0].clone(), glue], vm[1].clone())
         }
     };
     let sys = tools::Sysroot::open(&target)?;
@@ -106,8 +104,15 @@ fn entry(target: &str) -> &'static str {
 type Vm = (&'static str, [&'static [u8]; 2], &'static [&'static str]);
 const VM: &[Vm] = include!(concat!(env!("OUT_DIR"), "/vm_bitcode.rs"));
 
-/* The VM for `target` unpacked into the build dir, its inlined part and its object, and its handlers that may collect. */
-fn vm(target: &str, dir: &Path) -> Result<([PathBuf; 2], &'static [&'static str])> {
+/* The VM for `target` unpacked into the build dir, its inlined part and its object, and its handlers that may collect.
+   A test's VM, collecting at every safepoint or counting its instructions, is `make bitcode`'s own under `EDGE_BITCODE_DIR`. */
+fn vm(target: &str, variant: &str, dir: &Path) -> Result<([PathBuf; 2], &'static [&'static str])> {
+    if !variant.is_empty() {
+        let root = std::env::var_os("EDGE_BITCODE_DIR").ok_or_else(|| anyhow!("--gc-torture and --count build with a test VM, set EDGE_BITCODE_DIR to the target/bitcode that make bitcode TORTURE=1 or COUNT=1 wrote"))?;
+        let at = Path::new(&root).join(format!("{target}{variant}"));
+        let ll: &'static str = Box::leak(std::fs::read_to_string(at.join("vm.ll")).with_context(|| format!("reading {}", at.join("vm.ll").display()))?.into_boxed_str());
+        return Ok(([at.join("inline.bc"), at.join("vm.o")], Box::leak(ll.lines().filter_map(|l| l.split_once(" = !{!\"op_")?.1.strip_suffix("\"}")).collect::<Vec<_>>().into_boxed_slice())));
+    }
     let Some((_, gz, collect)) = VM.iter().find(|(t, ..)| *t == target) else {
         let have: Vec<&str> = VM.iter().map(|(t, ..)| *t).collect();
         bail!("this edge carries no VM for {target}, it builds for {}", if have.is_empty() { "nothing, run make bitcode".to_string() } else { have.join(", ") });

@@ -52,6 +52,7 @@ declare void @edge_back(ptr, i32, i64, i64)
 declare i64 @edge_raise(ptr, i64)
 declare i64 @edge_safepoint(ptr, ptr, i32)
 declare i32 @edge_root(ptr, ptr, i32)
+declare i64 @edge_stop_out(ptr, i64)
 declare void @edge_unroot(ptr, ptr, i32, i32)
 declare i1 @is_int(i64)
 declare i1 @is_float(i64)
@@ -276,6 +277,8 @@ fn code(ir: &mut String, ops: &mut Vec<String>, b: &Body, bodies: &[Body], typed
         let _ = writeln!(ir, "x{k}:\n  %id{k} = call i32 @err_id(i64 %v{k}) #0");
         if ins.opcode == O::ForIter { let _ = writeln!(ir, "  %end{k} = icmp eq i32 %id{k}, {}\n  br i1 %end{k}, label %{p}i{t}, label %y{k}\ny{k}:", stop()); }
         let _ = writeln!(ir, "  %jm{k} = icmp uge i32 %id{k}, {JUMP}\n  br i1 %jm{k}, label %j{k}, label %r{k}\nj{k}:\n  %rt{k} = icmp uge i32 %id{k}, {RETURN}\n  %to{k} = and i32 %id{k}, {}\n  store i32 %to{k}, ptr %jt\n  br i1 %rt{k}, label %back, label %goto\nr{k}:", JUMP - 1);
+        // A StopIteration leaving a laid generator is a RuntimeError, PEP 479.
+        if lay.is_some() { let _ = writeln!(ir, "  call i64 @edge_stop_out(ptr %rt, i64 %v{k})"); }
         let _ = writeln!(ir, "  %c{k} = call i64 @edge_raise(ptr %rt, i64 {})\n  %ce{k} = call i1 @is_err(i64 %c{k}) #0\n  br i1 %ce{k}, label %z{k}, label %g{k}\nz{k}:", raised_at(ip));
         if host.at != 0 { let _ = writeln!(ir, "  call void @edge_back(ptr %rt, i32 {}, i64 %site, i64 %c{k}) #0", host.at - 1); }
         let _ = writeln!(ir, "  ret i64 %c{k}\ng{k}:\n  store i64 %c{k}, ptr %exc\n  br label %{}", catch(ip));

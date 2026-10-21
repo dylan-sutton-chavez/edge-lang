@@ -29,11 +29,9 @@ impl Sysroot {
         if missing.is_empty() {
             return Ok(root);
         }
-        if !std::io::stdin().is_terminal() {
-            bail!("edge build needs LLVM {RUSTC}'s tools and found none\nhelp: run it once in a terminal to be offered a download, or set EDGE_LLVM_ROOT to a Rust sysroot with llvm-tools");
-        }
-        if !crate::ui::confirm(&format!("edge build needs LLVM's tools from Rust {RUSTC} (about 200 MB, once). Download them?"))? {
-            bail!("edge build needs LLVM's tools, set EDGE_LLVM_ROOT to a Rust sysroot with llvm-tools instead");
+        // Without a terminal nobody is there to agree, so a pipeline is refused rather than left waiting.
+        if !std::io::stdin().is_terminal() || !crate::ui::confirm(&format!("edge build needs LLVM's tools from Rust {RUSTC} (about 200 MB, once). Download them?"))? {
+            bail!("edge build needs LLVM {RUSTC}'s tools\nhelp: agree to the download in a terminal, or set EDGE_LLVM_ROOT to a Rust sysroot with llvm-tools");
         }
         let channel = read(&format!("https://static.rust-lang.org/dist/channel-rust-{RUSTC}.toml"))?;
         let channel = String::from_utf8_lossy(&channel);
