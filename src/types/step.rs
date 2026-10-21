@@ -311,10 +311,8 @@ impl<'a, 'c> Step<'a, 'c> {
                 if !(b.ty.lo <= side as i64 && side as i64 <= b.ty.hi) || e.ty.tags & !int == 0 && (if side { e.ty.lo == 0 && e.ty.hi == 0 } else { e.ty.lo > 0 || e.ty.hi < 0 }) { continue; }
                 let mut s = s.clone();
                 let mut ok = true;
-                for (c, test) in [(b, true), (e, false)] {
-                    let Some(ins) = self.body().chunk.instructions.get((c.cond >> 8) as usize).filter(|_| c.cond != NO) else { continue };
-                    let name = if test { String::from("Truth") } else { alloc::format!("{:?}", ins.opcode) };
-                    let Some(row) = self.p.rules.rows(&name, ins.operand).get((c.cond & 0xFF) as usize).copied() else { continue };
+                for c in [b, e] {
+                    let Some(row) = self.p.rules.nth(c.cond) else { continue };
                     for (_, a, l) in row.learn.iter().filter(|l| l.0 == side) { if let Some(&f) = c.of.get(*a).filter(|&&f| f != NO) { ok &= self.learn(&mut s, f, l, &c.of); } }
                 }
                 if ok { each(self, s, side); }
@@ -360,9 +358,9 @@ impl<'a, 'c> Step<'a, 'c> {
     }
 
     /* An opcode, method or truth test by its rows, each row that takes a value a path of its own on to `then`; values no row takes whole give anything. */
-    fn rows(&mut self, s: &State, ip: usize, rows: Vec<&Row>, a: &[Entry], m: usize, then: usize) {
+    fn rows(&mut self, s: &State, ip: usize, rows: Vec<(u32, &Row)>, a: &[Entry], m: usize, then: usize) {
         let tys: Vec<Ty> = a.iter().map(|e| e.ty).collect();
-        let rows: Vec<&Row> = rows.into_iter().filter(|r| r.ins.len() == a.len()).collect();
+        let (places, rows): (Vec<u32>, Vec<&Row>) = rows.into_iter().filter(|r| r.1.ins.len() == a.len()).unzip();
         self.foreign(&tys, false);
         let (took, open) = self.firsts(&rows, &tys);
         if open {
@@ -411,7 +409,7 @@ impl<'a, 'c> Step<'a, 'c> {
                 }
                 if ty.tags == 0 { continue; }
                 let learns = r == 0 && !row.learn.is_empty();
-                s.stack.push(Entry { ty, from: NO, cond: if learns { (ip as u32) << 8 | k as u32 } else { NO }, of: core::array::from_fn(|j| a.get(j).filter(|_| learns).map_or(NO, |e| e.from)) });
+                s.stack.push(Entry { ty, from: NO, cond: if learns { places[k] } else { NO }, of: core::array::from_fn(|j| a.get(j).filter(|_| learns).map_or(NO, |e| e.from)) });
             }
             self.go(then, s);
         }

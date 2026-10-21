@@ -144,10 +144,13 @@ impl Rules {
         })
     }
 
-    /* The rows of opcode, method or `Truth` `name` at this operand, an operand's own rows winning over the plain ones. */
-    pub fn rows<'r>(&'r self, name: &str, operand: u16) -> Vec<&'r Row> {
-        let mine = |at: Option<u16>| self.rows.iter().filter(|r| r.0 == name && r.1 == at).map(|r| &r.2).collect::<Vec<_>>();
+    /* The rows of opcode, method or `Truth` `name` at this operand with their places in the file, an operand's own rows winning over the plain ones. */
+    pub fn rows<'r>(&'r self, name: &str, operand: u16) -> Vec<(u32, &'r Row)> {
+        let mine = |at: Option<u16>| self.rows.iter().enumerate().filter(|r| r.1.0 == name && r.1.1 == at).map(|(i, r)| (i as u32, &r.2)).collect::<Vec<_>>();
         let own = mine(Some(operand));
         if own.is_empty() { mine(None) } else { own }
     }
+
+    /* The row at place `i` of the file, the one a value that learns names. */
+    pub fn nth(&self, i: u32) -> Option<&Row> { self.rows.get(i as usize).map(|r| &r.2) }
 }
