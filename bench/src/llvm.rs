@@ -34,11 +34,11 @@ pub fn main(update: bool) {
     let mut config = Config::new();
     config.consume_fuel(true);
     let engine = Engine::new(&config).expect("wasmtime engine");
-    let mut names: Vec<String> = std::fs::read_dir(CASES).expect("reading bench/llvm/cases").flatten()
+    let names: std::collections::BTreeSet<String> = std::fs::read_dir(CASES).expect("reading bench/llvm/cases").flatten()
         .filter_map(|e| e.file_name().to_str()?.strip_suffix(".py").map(String::from)).collect();
-    names.sort();
 
-    let host = sh(Command::new("rustc").arg("-vV")).lines().find_map(|l| l.strip_prefix("host: ")).expect("rustc -vV names its host").to_string();
+    let version = sh(Command::new("rustc").arg("-vV"));
+    let (rustc, host) = (version.lines().next().unwrap_or("").to_string(), version.lines().find_map(|l| l.strip_prefix("host: ")).expect("rustc -vV names its host").to_string());
     // The VM module edge links for the host, where the tag tests the IR is read against are.
     let vm = std::fs::read_to_string(Path::new(ROOT).join(format!("target/bitcode/{}/vm.ll", host.replace("-gnu", "-musl")))).expect("reading the host's VM module, run make bitcode");
     let (mut failures, mut cases) = (Vec::new(), BTreeMap::new());
@@ -49,8 +49,8 @@ pub fn main(update: bool) {
         let rustc = |args: &[&Path]| sh(Command::new("rustc").args(["-Copt-level=3", "-Cpanic=abort"]).args(args));
         edge(&[Path::new("--wasm"), &py, Path::new("-o"), &at(".edge.wasm")]);
         rustc(&[Path::new("-Clto=fat"), Path::new("--target=wasm32-wasip1"), &rs, Path::new("-o"), &at(".rust.wasm")]);
-        edge(&[Path::new("--emit-llvm"), &at(".edge.ll"), &py, Path::new("-o"), &at(".edge.plain")]);
-        let built = edge(&[Path::new("--count"), &py, Path::new("-o"), &at(".edge")]);
+        // The module is written before the counter goes in, so one build gives both.
+        let built = edge(&[Path::new("--count"), Path::new("--emit-llvm"), &at(".edge.ll"), &py, Path::new("-o"), &at(".edge")]);
         rustc(&[Path::new("-Clto=fat"), Path::new("--emit=llvm-bc"), &rs, Path::new("-o"), &at(".rust.bc")]);
         // The object goes to rustc's own target, not the static musl edge builds by default.
         edge(&[Path::new("--count"), Path::new("--target"), Path::new(&host), &at(".rust.bc"), Path::new("-o"), &at(".rust.o")]);
@@ -73,7 +73,6 @@ pub fn main(update: bool) {
         cases.insert(name.clone(), counts);
     }
 
-    let rustc = sh(Command::new("rustc").arg("--version")).trim().to_string();
     let last: Option<Snapshot> = std::fs::read_to_string(SNAPSHOT).ok().map(|t| serde_json::from_str(&t).expect("bench/llvm/.snapshot does not parse"));
     if let Some(last) = &last {
         failures.extend(check(last, &rustc, &cases));
@@ -102,20 +101,13 @@ fn check(last: &Snapshot, rustc: &str, cases: &BTreeMap<String, [f64; 4]>) -> Ve
     if last.cases.keys().ne(cases.keys()) {
         return vec![String::from("bench/llvm/cases and the snapshot name different cases, run --update.")];
     }
-    let moved = |grew: bool| cases.iter().flat_map(|(k, now)| (0..4).filter_map(move |m| {
+    // A count that grew is slower than the snapshot and one that shrank leaves it stale, so both are findings, each with its sign.
+    let moved: Vec<String> = cases.iter().flat_map(|(k, now)| (0..4).filter_map(move |m| {
         let (l, n) = (last.cases[k][m], now[m]);
-        (if grew { n > l * (1.0 + last.case_threshold) } else { n < l * (1.0 - last.case_threshold) })
-            .then(|| format!("{k} {} {} to {} instructions ({:+.1}%)", MODES[m], amount(l, 0), amount(n, 0), (n / l - 1.0) * 100.0))
-    })).collect::<Vec<_>>();
-    let (grew, shrank) = (moved(true), moved(false));
-    let mut failures = Vec::new();
-    if !grew.is_empty() {
-        failures.push(format!("{} counts grew past +{:.0}%. Fix them, they are slower than the snapshot.{}", grew.len(), last.case_threshold * 100.0, list(&grew)));
-    }
-    if !shrank.is_empty() {
-        failures.push(format!("{} counts shrank past -{:.0}%. Accept them with --update.{}", shrank.len(), last.case_threshold * 100.0, list(&shrank)));
-    }
-    failures
+        ((n / l - 1.0).abs() > last.case_threshold).then(|| format!("{k} {} {} to {} instructions ({:+.1}%)", MODES[m], amount(l, 0), amount(n, 0), (n / l - 1.0) * 100.0))
+    })).collect();
+    if moved.is_empty() { return moved }
+    vec![format!("{} counts moved past ±{:.0}%. Fix the ones that grew; accept the ones that shrank with --update.{}", moved.len(), last.case_threshold * 100.0, list(&moved))]
 }
 
 /* What the program's module still holds that a proven type takes out, over every function of it: LLVM inlines the
@@ -126,7 +118,8 @@ fn left(ir: &str, vm: &str) -> String {
     let (tags, overflow, allocations) = (sum(&|b| ir::checks(vm, b, "is_")), sum(&|b| ir::checks(vm, b, "fits_int")), sum(&|b| ir::calls(b, "edge_alloc")));
     // The program's module calls into vm.o, so the interpreter is reached through the VM's own call graph too.
     let both = format!("{ir}\n{vm}");
-    let vm = sum(&|b| ir::reaching(&both, b, "edge_vm_loop"));
+    let may = ir::reach(&both, "edge_vm_loop");
+    let vm = sum(&|b| ir::reaching(&may, b, "edge_vm_loop"));
     format!("{tags} tag checks, {overflow} overflow checks, {allocations} allocations, {vm} calls that may reach the interpreter")
 }
 

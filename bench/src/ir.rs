@@ -1,5 +1,5 @@
 /* An LLVM module read as text: the optimized program of `edge build --emit-llvm` and the VM's own module. bench/llvm,
-   cli/tests/llvm_check.rs and native/safepoints.rs share it. */
+   cli/tests/llvm_check.rs and native/bitcode.rs share it. */
 
 /* Each function whose name starts with `prefix`, from its define line to its closing brace. */
 pub fn bodies<'a>(ir: &'a str, prefix: &str) -> Vec<&'a str> {
@@ -38,9 +38,8 @@ pub fn reach<'a>(ir: &'a str, target: &str) -> Vec<&'a str> {
     }
 }
 
-/* The calls in `body` that may reach `target`, a call through a pointer counting as one. */
-pub fn reaching(ir: &str, body: &str, target: &str) -> usize {
-    let may = reach(ir, target);
+/* The calls in `body` to `target` or to a function of `may`, what `reach` found for it, a call through a pointer counting as one. */
+pub fn reaching(may: &[&str], body: &str, target: &str) -> usize {
     callees(body).iter().filter(|c| c.is_none_or(|c| c == target || may.contains(&c))).count()
 }
 
