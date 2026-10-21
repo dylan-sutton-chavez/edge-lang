@@ -60,6 +60,14 @@ mod test {
     }
 
     #[test]
+    fn a_value_of_fixed_truth_takes_one_branch() {
+        // None is always false and a function always true, so the other branch is dead.
+        let t = typed_of("def f(v):\n    if v:\n        return 1\n    return 'n'\nprint(f(None))\n");
+        assert_eq!(compiler::types::runs(t.tree.ctxs.iter().find(|c| c.body == 1).unwrap().ret.tags), [code("str")]);
+        assert_eq!(read("def g():\n    return 0\nx = 1 if g else 'a'\nprint(x)\n", 4, "x"), [code("int")]);
+    }
+
+    #[test]
     fn a_tree_that_misses_a_path_is_refused() {
         let src = "class P:\n    def __init__(self, x):\n        self.x = x\ndef g(p):\n    return p.x\nprint(g(P(3)))\n";
         let t = typed_of(src);
