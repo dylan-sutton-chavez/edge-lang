@@ -90,6 +90,15 @@ pub mod code {
         pub fn bindings_of(&self, body: &SSAChunk) -> Option<(BodyKind, &[Binding])> { self.bodies.get(&(body as *const SSAChunk)).map(|(k, b)| (*k, b.as_slice())) }
         // Kind and slot of each parameter in order.
         pub fn params_of(&self, fi: usize) -> &[(ParamKind, usize)] { self.vm.params_of(fi) }
+        // Whether a direct native call of `fi` needs no VM frame until its body asks for one: plain locals only, no cell,
+        // nothing captured, no `super()`, and no name of a builtin that reads a frame.
+        pub fn lazy_frame(&mut self, fi: usize) -> bool {
+            let Some((_, scope)) = self.vm.functions.get(fi).and_then(|f| self.vm.scope_of(&f.1)) else { return false };
+            let plain = scope.kinds.iter().all(|k| *k == Kind::Local) && scope.cellvars.is_empty();
+            let chunk = &self.vm.functions[fi].1;
+            let reads = chunk.instructions.iter().any(|i| i.opcode == OpCode::LoadName && chunk.names.get(i.operand as usize).is_some_and(|n| matches!(ssa_strip(n), "locals" | "vars" | "exec" | "eval" | "dir")));
+            plain && !reads && !self.vm.uses_super(fi)
+        }
     }
 }
 

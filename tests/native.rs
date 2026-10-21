@@ -6,7 +6,7 @@
 #[global_allocator]
 static METERED: compiler::value::meter::Metered<std::alloc::System> = compiler::value::meter::Metered(std::alloc::System);
 
-use compiler::code::{OpCode, effect};
+use compiler::code::{Kind, OpCode, ParamKind, Program, effect};
 use compiler::native::{self, Rt, JUMP, RETURN, err_id, is_err};
 use compiler::types::BUILTIN_TYPES;
 
@@ -22,16 +22,41 @@ std::thread_local! {
 
 /* Runs body `k`, the module's here, every instruction through its handler but the stack's own moves and jumps, the
    `try`s open kept as the glue knows them, each handler with the stack depth it starts from. */
-fn body(rt: *mut Rt, chunk: &compiler::code::SSAChunk, k: i64) -> i64 {
+fn body(rt: *mut Rt, prog: &mut Program, chunk: &compiler::code::SSAChunk, k: i64, args: &[i64]) -> i64 {
     let stop = BUILTIN_TYPES.iter().position(|&t| t == "StopIteration").unwrap() as u32;
     let (mut stack, mut ip, mut tries) = (Vec::<i64>::new(), 0usize, Vec::<(usize, usize)>::new());
+    // A function's plain locals live here, as the glue keeps them in registers, its parameters bound first.
+    let local: Vec<bool> = match prog.scope_of(chunk) { Some((_, s)) if k != 0 => s.kinds.iter().map(|k| *k == Kind::Local).collect(), _ => Vec::new() };
+    let mut slots = vec![UNDEF; chunk.names.len()];
+    if k != 0 { for (j, &(_, slot)) in prog.params_of(k as usize - 1).iter().enumerate() { if let Some(&a) = args.get(j) { slots[slot] = a; } } }
     while let Some(&ins) = chunk.instructions.get(ip) {
         let site = k << 32 | (ip as i64) << 16 | ins.operand as i64;
         let h = native::handler(ins.opcode).expect("every parser opcode has a handler");
         let mut next = ip + 1;
+        let slot = ins.operand as usize;
+        // What the glue holds live at a call that may collect: its stack and its locals, the args a call takes too.
+        let mut live: Vec<i64> = stack.iter().chain(&slots).chain(args).copied().collect();
         let r = match ins.opcode {
+            OpCode::LoadName if local.get(slot) == Some(&true) && slots[slot] != UNDEF => { stack.push(slots[slot]); NONE }
+            OpCode::StoreName if local.get(slot) == Some(&true) => { slots[slot] = stack.pop().unwrap(); NONE }
+            // A call of a plain function by position runs its body here, lazily framed where it may be.
+            OpCode::Call if ins.operand >> 8 == 0 && let Some(&f) = stack.len().checked_sub(slot + 1).and_then(|at| stack.get(at)) && let Some(fi) = native::function_of(unsafe { &*rt }, f)
+                // One the program defines itself, not one an import or an `exec` made as it ran.
+                && prog.scope_of(native::chunk(unsafe { &*rt }, fi + 1)).is_some_and(|(f, _)| f == fi)
+                && prog.params_of(fi).len() == slot && prog.params_of(fi).iter().all(|p| p.0 == ParamKind::Normal) => {
+                let args = stack.split_off(stack.len() - slot);
+                stack.pop();
+                // The caller's values stay rooted while the callee runs, as edge_root keeps them.
+                let mark = unsafe { native::edge_root(rt, live.as_mut_ptr(), live.len() as u32) };
+                let opened = if prog.lazy_frame(fi) { unsafe { native::edge_go(rt) } } else { unsafe { native::edge_enter(rt, fi as u32, f, args.as_ptr(), slot as u32) } };
+                let r = if is_err(opened) { opened } else { body(rt, prog, native::chunk(unsafe { &*rt }, fi + 1), fi as i64 + 1, &args) };
+                if !is_err(opened) { unsafe { native::edge_back(rt, fi as u32, site, r) }; }
+                unsafe { native::edge_unroot(rt, live.as_mut_ptr(), live.len() as u32, mark) };
+                if !is_err(r) { stack.push(r); }
+                r
+            }
             // A back edge is a safepoint, where the heap may collect and the memory limit raises.
-            OpCode::Jump if (ins.operand as usize) <= ip => unsafe { native::edge_safepoint(rt, stack.as_mut_ptr(), stack.len() as u32) },
+            OpCode::Jump if (ins.operand as usize) <= ip => unsafe { native::edge_safepoint(rt, live.as_mut_ptr(), live.len() as u32) },
             OpCode::Jump => { ip = ins.operand as usize; continue; }
             OpCode::PopTop => { stack.pop(); NONE }
             OpCode::Dup => { let v = *stack.last().unwrap(); stack.push(v); NONE }
@@ -40,7 +65,7 @@ fn body(rt: *mut Rt, chunk: &compiler::code::SSAChunk, k: i64) -> i64 {
             OpCode::Rot3 => { let n = stack.len(); let v = stack.remove(n - 3); stack.push(v); NONE }
             OpCode::JumpIfFalse | OpCode::JumpIfFalseOrPop | OpCode::JumpIfTrueOrPop => {
                 let top = *stack.last().unwrap();
-                let r = unsafe { h(rt, site, top, UNDEF, UNDEF, std::ptr::null_mut(), stack.as_mut_ptr(), stack.len() as u32) };
+                let r = unsafe { h(rt, site, top, UNDEF, UNDEF, std::ptr::null_mut(), live.as_mut_ptr(), live.len() as u32) };
                 if !is_err(r) {
                     let jumps = truth(r) == (ins.opcode == OpCode::JumpIfTrueOrPop);
                     if jumps { next = ins.operand as usize; }
@@ -56,7 +81,7 @@ fn body(rt: *mut Rt, chunk: &compiler::code::SSAChunk, k: i64) -> i64 {
                 let args = stack.split_off(under);
                 let at = |j: usize| args.get(j).copied().unwrap_or(UNDEF);
                 let mut io: Vec<i64> = args.iter().skip(3).copied().chain(std::iter::repeat_n(UNDEF, 8)).collect();
-                let r = unsafe { h(rt, site, at(0), at(1), at(2), io.as_mut_ptr(), stack.as_mut_ptr(), stack.len() as u32) };
+                let r = unsafe { h(rt, site, at(0), at(1), at(2), io.as_mut_ptr(), live.as_mut_ptr(), live.len() as u32) };
                 // Every value a handler gives has its type in Edge's tree, heap_type is total.
                 if !is_err(r) && r != UNDEF {
                     let (t, name) = (unsafe { native::heap_type(rt, r) }, native::type_name(unsafe { &*rt }, r));
@@ -110,8 +135,8 @@ fn corpus_through_handlers() {
         let rt = unsafe { native::boot(case.src.as_ptr(), case.src.len(), None, limits.memory, true) };
         if rt.is_null() { continue; }
         ran += 1;
-        if std::env::var("EDGE_DUMP").is_ok() { eprintln!("{:?}", native::chunk(unsafe { &*rt }).instructions); }
-        let r = body(rt, native::chunk(unsafe { &*rt }), 0);
+        let mut prog = Program::new(native::chunk(unsafe { &*rt }, 0));
+        let r = body(rt, &mut prog, native::chunk(unsafe { &*rt }, 0), 0, &[]);
         let got = native::output(unsafe { &*rt });
         let err = if is_err(r) { native::error(unsafe { &*rt }) } else { None };
         let want: String = case.output.iter().map(|l| format!("{l}\n")).collect();
@@ -133,7 +158,8 @@ fn gc_keeps_values_in_place() {
     const WHY: &str = "edge build's native code stores live values at safepoints, update it if the GC moves objects or collects elsewhere";
     let src = "a = [1, 2]\nb = 'x' * 3\nc = {'k': a}\nd = [3]\n";
     let rt = unsafe { native::boot(src.as_ptr(), src.len(), None, 1 << 26, true) };
-    assert!(!is_err(body(rt, native::chunk(unsafe { &*rt }), 0)));
+    let mut prog = Program::new(native::chunk(unsafe { &*rt }, 0));
+    assert!(!is_err(body(rt, &mut prog, native::chunk(unsafe { &*rt }, 0), 0, &[])));
     let load = move |slot: i64| unsafe { native::handler(OpCode::LoadName).unwrap()(rt, slot, UNDEF, UNDEF, UNDEF, std::ptr::null_mut(), std::ptr::null_mut(), 0) };
     let (live, kinds): (Vec<i64>, Vec<u32>) = (0..3).map(|s| (load(s), unsafe { native::heap_type(rt, load(s)) })).unzip();
     // The list `d` held is garbage once it holds None, its slot free once collected.

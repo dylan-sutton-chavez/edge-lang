@@ -34,23 +34,34 @@ MIRI_abi := abi::
 
 unix_only = $(if $(filter Windows_NT,$(OS)),$(error AFL runs on Linux and macOS only))
 
-.PHONY: bitcode wasm wasm-cli wasm-ship wasm-small wasm-cli-opt size js lint lint-rust lint-js lint-cli test bench bench-update bench-accept-slower bench-llvm llvm-check plugin cli cli-release stage serve browsers test-js test-cli test-skill test-std miri miri-list miri-setup fuzz fuzz-status fuzz-triage fuzz-replay fuzz-carry fuzz-container fuzz-stop seeds lucide version check
+.PHONY: bitcode inline wasm wasm-cli wasm-ship wasm-small wasm-cli-opt size js lint lint-rust lint-js lint-cli test bench bench-update bench-accept-slower bench-llvm llvm-check plugin cli cli-release stage serve browsers test-js test-cli test-skill test-std miri miri-list miri-setup fuzz fuzz-status fuzz-triage fuzz-replay fuzz-carry fuzz-container fuzz-stop seeds lucide version check
 
 wasm:
 	cargo rustc --locked --release $(RUNTIME)
 
-# The VM as one LLVM module per target, the program and its deps in one fat LTO unit, the bitcode `edge build` links
-# its glue with, its handlers that may collect named in `!edge.safepoints`. `make bitcode TORTURE=1` builds the copy
-# that collects and moves the heap at each safepoint, for the tests. llvm-as comes with `rustup component add llvm-tools`.
+# The VM as one LLVM module per target, the program and its deps in one fat LTO unit: `vm.bc` with its handlers that may
+# collect named in `!edge.safepoints` (the proofs read it), `vm.o` the same module compiled once, and `inline.bc` the
+# handlers' and tag tests' bodies alone, as `available_externally`, which `edge build` inlines into its glue and links
+# with vm.o. `make bitcode TORTURE=1` builds the copy that collects and moves the heap at each safepoint, for the tests.
+# llvm-as comes with `rustup component add llvm-tools`, llvm-extract with an LLVM of the same version (LLVM_X).
 BITCODE_TARGETS := x86_64-unknown-linux-musl aarch64-unknown-linux-musl aarch64-apple-darwin wasm32-wasip1
 LLVM_BIN = $(shell rustc --print sysroot)/lib/rustlib/$(shell rustc -vV | sed -n 's/host: //p')/bin
+LLVM_X ?= $(LLVM_BIN)
+INLINE := is_int is_float is_bool is_none is_heap is_undef is_err err_id as_int fits_int heap_type edge_go edge_back
 bitcode: $(BITCODE_TARGETS:%=bitcode-%)
+inline: $(BITCODE_TARGETS:%=inline-%)
+bitcode-%: B = target/bitcode/$*$(if $(TORTURE),-torture)
 bitcode-%:
-	mkdir -p target/bitcode/$*$(if $(TORTURE),-torture)
-	cargo rustc --locked --profile cli -p edge-native --target $* $(if $(TORTURE),--features gc-torture) -- -C embed-bitcode=yes --emit=llvm-ir=target/bitcode/$*$(if $(TORTURE),-torture)/vm.ll
-	rustc --edition 2024 -O native/safepoints.rs -o target/bitcode/safepoints
-	target/bitcode/safepoints target/bitcode/$*$(if $(TORTURE),-torture)/vm.ll
-	$(LLVM_BIN)/llvm-as target/bitcode/$*$(if $(TORTURE),-torture)/vm.ll -o target/bitcode/$*$(if $(TORTURE),-torture)/vm.bc
+	mkdir -p $(B)
+	cargo rustc --locked --profile cli -p edge-native --target $* $(if $(TORTURE),--features gc-torture) -- -C panic=abort -C embed-bitcode=yes --emit=llvm-ir=$(B)/vm.ll,obj=$(B)/vm.o
+	rustc --edition 2024 -O native/bitcode.rs -o target/bitcode/bitcode
+	target/bitcode/bitcode safepoints $(B)/vm.ll
+	$(LLVM_BIN)/llvm-as $(B)/vm.ll -o $(B)/vm.bc
+inline-%: B = target/bitcode/$*$(if $(TORTURE),-torture)
+inline-%: bitcode-%
+	$(LLVM_X)/llvm-extract --keep-const-init --rfunc '^op_' $(INLINE:%=--func %) -S $(B)/vm.bc -o $(B)/inline.ll
+	target/bitcode/bitcode inline $(B)/vm.ll $(B)/inline.ll
+	$(LLVM_BIN)/llvm-as $(B)/inline.ll -o $(B)/inline.bc
 
 wasm-cli:
 	cargo rustc --locked --profile cli $(RUNTIME)

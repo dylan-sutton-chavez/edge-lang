@@ -24,14 +24,18 @@ fn err(id: u32) -> i64 { (TAG_ERR | (id as u64) << 4) as i64 }
 /* What a run `boot` kept printed, the error it holds, and its module's chunk. */
 pub fn output(rt: &Rt) -> String { rt.vm.output_text() }
 pub fn error(rt: &Rt) -> Option<String> { rt.vm.reg_error.as_ref().map(VmErr::render) }
-pub fn chunk(rt: &Rt) -> &'static SSAChunk { rt.bodies[0].chunk }
+pub fn chunk(rt: &Rt, body: usize) -> &'static SSAChunk { rt.bodies[body].chunk }
+/* The function `v` is when a direct call runs it as a body of its own, neither a generator nor a coroutine. */
+pub fn function_of(rt: &Rt, v: i64) -> Option<usize> {
+    match rt.vm.heap.try_get(Val(v as u64)) { Some(&HeapObj::Func(fi, ..)) if !rt.vm.functions[fi].1.is_generator && !rt.vm.is_async.get(fi).copied().unwrap_or(false) => Some(fi), _ => None }
+}
 pub fn type_name(rt: &Rt, v: i64) -> &str { rt.vm.type_name(Val(v as u64)) }
 
 /* One body the glue runs, the module's first then each function's at its index plus one. */
 struct Body { chunk: &'static SSAChunk, code: Rc<Code>, pool: usize }
 
 /* A native frame, its body, window, the exception and spread frames below it and how its call entered. */
-struct Frame { body: usize, exc: usize, deltas: usize, outer: usize, entry: Option<super::opcodes::function::Entry> }
+struct Frame { body: usize, depth: usize, exc: usize, deltas: usize, outer: usize, entry: Option<super::opcodes::function::Entry> }
 
 pub struct Rt {
     vm: Box<VM<'static>>,
@@ -118,15 +122,15 @@ unsafe fn run(rt: *mut Rt, site: i64, op: OpCode, a: i64, b: i64, c: i64, rest: 
         // A name read or bound where its body keeps it, a module binding or a slot of the frame, a builtin under the bindings.
         OpCode::LoadName | OpCode::StoreName => {
             let rt = unsafe { &mut *rt };
-            let (b, slot) = (&rt.bodies[(site >> 32) as usize], (site & 0xFFFF) as usize);
+            // Read with `get` throughout, so a fast path holds no panic and inlines alone.
+            let (Some(b), slot) = (rt.bodies.get((site >> 32) as usize), (site & 0xFFFF) as usize) else { return unsafe { slow(&mut *rt, site, op, [a, b, c], rest, live, nlive) } };
             match b.code.kinds.get(slot) {
-                Some(&super::scope::Kind::Global(g)) => {
-                    let scope = &mut rt.vm.scopes[b.code.module];
+                Some(&super::scope::Kind::Global(g)) if let Some(scope) = rt.vm.scopes.get_mut(b.code.module) => {
                     // One that rebinds a builtin's name tells the fused calls, in the slow path.
                     if op == OpCode::StoreName { if !x.is_undef() && scope.names_builtin(g).is_none() { scope.set_at(g, x); return ok(Val::none()); } }
                     else { let v = match scope.at(g) { v if v.is_undef() => scope.fallback(g), v => v }; if !v.is_undef() { return ok(v); } }
                 }
-                Some(super::scope::Kind::Local) if op == OpCode::LoadName && !rt.vm.regs[rt.vm.base + slot].is_undef() => return ok(rt.vm.regs[rt.vm.base + slot]),
+                Some(super::scope::Kind::Local) if op == OpCode::LoadName && let Some(&v) = rt.vm.regs.get(rt.vm.base + slot) && !v.is_undef() => return ok(v),
                 _ => {}
             }
         }
@@ -137,8 +141,8 @@ unsafe fn run(rt: *mut Rt, site: i64, op: OpCode, a: i64, b: i64, c: i64, rest: 
             let vm = unsafe { &*(*rt).vm };
             let hit = match vm.heap.plain(x) {
                 // SAFETY nothing writes the list while one item is copied out.
-                Some(HeapObj::List(l)) => match unsafe { l.try_borrow_unguarded() } { Ok(l) => index(y.as_int(), l.len()).map(|j| l[j]), Err(_) => None },
-                Some(HeapObj::Tuple(t)) => index(y.as_int(), t.len()).map(|j| t[j]),
+                Some(HeapObj::List(l)) => match unsafe { l.try_borrow_unguarded() } { Ok(l) => index(y.as_int(), l.len()).and_then(|j| l.get(j).copied()), Err(_) => None },
+                Some(HeapObj::Tuple(t)) => index(y.as_int(), t.len()).and_then(|j| t.get(j).copied()),
                 _ => None,
             };
             if let Some(v) = hit { return ok(v); }
@@ -146,8 +150,8 @@ unsafe fn run(rt: *mut Rt, site: i64, op: OpCode, a: i64, b: i64, c: i64, rest: 
         // A list item stored, the list in `a`, the index in `b`, the value in `c`.
         OpCode::StoreItem if x.is_heap() && y.is_int() => {
             let vm = unsafe { &*(*rt).vm };
-            if let Some(HeapObj::List(l)) = vm.heap.plain(x) && let Ok(mut l) = l.try_borrow_mut() && let Some(j) = index(y.as_int(), l.len()) {
-                l[j] = Val(c as u64);
+            if let Some(HeapObj::List(l)) = vm.heap.plain(x) && let Ok(mut l) = l.try_borrow_mut() && let Some(j) = index(y.as_int(), l.len()) && let Some(at) = l.get_mut(j) {
+                *at = Val(c as u64);
                 return ok(Val::none());
             }
         }
@@ -169,22 +173,45 @@ fn index(i: i64, len: usize) -> Option<usize> {
    glue holds kept as roots meanwhile and handed back as the VM leaves them. */
 #[cold]
 #[inline(never)]
+#[unsafe(export_name = "edge_slow")]
 unsafe fn slow(rt: &mut Rt, site: i64, op: OpCode, abc: [i64; 3], rest: *mut i64, live: *mut i64, nlive: u32) -> i64 {
     unsafe { rooted(rt, live, nlive, |rt| slow_step(rt, site, op, abc, rest)) }
 }
 
 /* Runs `f` with the glue's `n` values at `live` kept as roots, each read back as the VM leaves it. */
 unsafe fn rooted<R>(rt: &mut Rt, live: *mut i64, n: u32, f: impl FnOnce(&mut Rt) -> R) -> R {
-    let roots = rt.vm.temp_roots.len();
-    for k in 0..n as usize { rt.vm.temp_roots.push(Val(unsafe { *live.add(k) } as u64)); }
+    let mark = unsafe { edge_root(rt, live, n) };
     let r = f(rt);
-    for k in 0..n as usize { unsafe { *live.add(k) = rt.vm.temp_roots[roots + k].0 as i64; } }
-    rt.vm.temp_roots.truncate(roots);
+    unsafe { edge_unroot(rt, live, n, mark) };
     r
+}
+
+/* The two halves of `rooted` for the glue's own calls that may collect, a direct call among them: the `n` values at
+   `live` kept as roots, then read back as the VM leaves them, `mark` where they start. */
+/// # Safety
+/// `rt` comes from `edge_boot`, `live` holds `n` values.
+#[unsafe(no_mangle)]
+#[cold]
+pub unsafe extern "C" fn edge_root(rt: *mut Rt, live: *mut i64, n: u32) -> u32 {
+    let vm = unsafe { &mut *(*rt).vm };
+    let mark = vm.temp_roots.len() as u32;
+    for k in 0..n as usize { vm.temp_roots.push(Val(unsafe { *live.add(k) } as u64)); }
+    mark
+}
+
+/// # Safety
+/// As `edge_root`, `mark` what it gave.
+#[unsafe(no_mangle)]
+#[cold]
+pub unsafe extern "C" fn edge_unroot(rt: *mut Rt, live: *mut i64, n: u32, mark: u32) {
+    let vm = unsafe { &mut *(*rt).vm };
+    for k in 0..n as usize { unsafe { *live.add(k) = vm.temp_roots[mark as usize + k].0 as i64; } }
+    vm.temp_roots.truncate(mark as usize);
 }
 
 unsafe fn slow_step(rt: &mut Rt, site: i64, op: OpCode, abc: [i64; 3], rest: *mut i64) -> i64 {
     let (body, ip) = parts(site);
+    framed(rt, body);
     let ins: Instruction = rt.bodies[body].chunk.instructions[ip];
     let (pops, pushes) = crate::parser::effect(&ins, rt.bodies[body].chunk).unwrap_or((0, 0));
     let at = rt.vm.stack.len();
@@ -447,7 +474,7 @@ pub unsafe fn boot(src: *const u8, len: usize, path: Option<&'static str>, memor
     let base = vm.open_window(pool, chunk.names.len() + chunk.constants.len() + 3, chunk.names.len(), false);
     let slots = vm.fill_builtins(&chunk.names);
     vm.regs[base..base + slots.len()].copy_from_slice(&slots);
-    rt.frames.push(Frame { body: 0, exc: 0, deltas: 0, outer: vm.pool_now, entry: None });
+    rt.frames.push(Frame { body: 0, depth: vm.depth, exc: 0, deltas: 0, outer: vm.pool_now, entry: None });
     (vm.pool_now, vm.base) = (pool, base);
     if let Err(e) = started { report(&mut rt, &e); return core::ptr::null_mut(); }
     Box::into_raw(Box::new(rt))
@@ -469,7 +496,8 @@ pub unsafe extern "C" fn edge_finish(rt: *mut Rt, last: i64) -> i32 {
     1
 }
 
-/* Opens a frame of function `fi`, the glue's direct call of `callee` with its `n` positionals, giving its window. */
+/* A direct call of function `fi` whose frame its body needs at once, its cells or what it captures: the frame opened as
+   the VM's call opens it, `callee` with its `n` positionals bound, giving its window. `edge_back` ends it. */
 /// # Safety
 /// `rt` comes from `edge_boot`, `args` holds `n` values.
 #[unsafe(no_mangle)]
@@ -477,7 +505,6 @@ pub unsafe extern "C" fn edge_enter(rt: *mut Rt, fi: u32, callee: i64, args: *co
     let rt = unsafe { &mut *rt };
     let (vm, fi) = (&mut *rt.vm, fi as usize);
     if vm.depth >= vm.max_calls { return raised(vm, cold_depth()); }
-    if let Err(e) = vm.charge_step() { return raised(vm, e); }
     let callee = Val(callee as u64);
     let at = vm.stack.len();
     for k in 0..n as usize { vm.stack.push(Val(unsafe { *args.add(k) } as u64)); }
@@ -486,24 +513,74 @@ pub unsafe extern "C" fn edge_enter(rt: *mut Rt, fi: u32, callee: i64, args: *co
     if let Err(e) = vm.enter_scope(fi, &captures, base) { vm.close_window(vm.fn_pool[fi]); return raised(vm, e); }
     let entry = vm.enter_body(fi);
     vm.depth += 1;
-    rt.frames.push(Frame { body: fi + 1, exc: vm.exception_stack.len(), deltas: vm.pending.delta_save.len(), outer: vm.pool_now, entry: Some(entry) });
+    rt.frames.push(Frame { body: fi + 1, depth: vm.depth, exc: vm.exception_stack.len(), deltas: vm.pending.delta_save.len(), outer: vm.pool_now, entry: Some(entry) });
     (vm.pool_now, vm.base) = (vm.fn_pool[fi], base);
     ok(Val::int(base as i64))
 }
 
-/* Closes the innermost frame `edge_enter` opened, `err` what its function gives, its traceback line kept on a raise. */
+/* A direct call of a function `code::Program::lazy_frame` allows: only the depth the recursion limit counts. Its VM
+   frame is made the first time its body needs one, a slow step or a raise, so the hot path keeps nothing. */
 /// # Safety
 /// `rt` comes from `edge_boot`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn edge_leave(rt: *mut Rt, last: i64) {
+pub unsafe extern "C" fn edge_go(rt: *mut Rt) -> i64 {
+    let vm = unsafe { &mut *(*rt).vm };
+    if vm.depth >= vm.max_calls { return unsafe { edge_deep(rt) }; }
+    vm.depth += 1;
+    ok(Val::none())
+}
+
+/* The end of a direct call of `fi` made at `site` in its caller, `last` what it gave: the frame closed if one was made,
+   and on a raise the traceback line the VM's call leaves. */
+/// # Safety
+/// `rt` comes from `edge_boot`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn edge_back(rt: *mut Rt, fi: u32, site: i64, last: i64) {
+    let r = unsafe { &mut *rt };
+    if r.frames.last().is_some_and(|f| f.depth == r.vm.depth && f.body == fi as usize + 1) { unsafe { edge_close(rt) } }
+    r.vm.depth -= 1;
+    if is_err(last) { unsafe { edge_note(rt, fi, site) } }
+}
+
+/* The cold halves of `edge_go` and `edge_back`, out of line so the glue inlines only the depth. */
+/// # Safety
+/// `rt` comes from `edge_boot`.
+#[unsafe(no_mangle)]
+#[cold]
+pub unsafe extern "C" fn edge_deep(rt: *mut Rt) -> i64 { raised(unsafe { &mut *(*rt).vm }, cold_depth()) }
+
+/// # Safety
+/// As `edge_deep`.
+#[unsafe(no_mangle)]
+#[cold]
+pub unsafe extern "C" fn edge_close(rt: *mut Rt) {
     let rt = unsafe { &mut *rt };
     let Some(f) = rt.frames.pop() else { return };
     let (vm, chunk) = (&mut *rt.vm, rt.bodies[f.body].chunk);
     vm.exception_stack.truncate(f.exc);
     vm.close_window(rt.bodies[f.body].pool);
-    vm.depth -= 1;
-    if let Some(entry) = f.entry { vm.leave_body(f.body - 1, entry, !is_err(last), chunk); }
+    if let Some(entry) = f.entry { vm.leave_body(f.body - 1, entry, true, chunk); }
     vm.run_in(f.outer);
+}
+
+/// # Safety
+/// As `edge_deep`.
+#[unsafe(no_mangle)]
+#[cold]
+pub unsafe extern "C" fn edge_note(rt: *mut Rt, fi: u32, site: i64) {
+    let rt = unsafe { &mut *rt };
+    if let Some(b) = rt.bodies.get(parts(site).0) { rt.vm.note_frame(fi as usize, Some(parts(site).1 as u32), b.chunk); }
+}
+
+/* The frame of `body` the running call needs and its lazy call did not make, opened as a call with nothing bound opens
+   it, as a slow step or a raise first asks. */
+#[cold]
+fn framed(rt: &mut Rt, body: usize) {
+    if body == 0 || rt.frames.last().is_some_and(|f| f.depth == rt.vm.depth && f.body == body) { return; }
+    let (vm, chunk, pool) = (&mut *rt.vm, rt.bodies[body].chunk, rt.bodies[body].pool);
+    let base = vm.open_window(pool, chunk.names.len() + chunk.constants.len() + 3, chunk.names.len(), true);
+    rt.frames.push(Frame { body, depth: vm.depth, exc: vm.exception_stack.len(), deltas: vm.pending.delta_save.len(), outer: vm.pool_now, entry: None });
+    (vm.pool_now, vm.base) = (pool, base);
 }
 
 /* A raise at `site`, caught by the innermost `try` of the running frame, giving the exception its handler binds, or the
@@ -514,6 +591,7 @@ pub unsafe extern "C" fn edge_leave(rt: *mut Rt, last: i64) {
 pub unsafe extern "C" fn edge_raise(rt: *mut Rt, site: i64) -> i64 {
     let rt = unsafe { &mut *rt };
     let (body, ip) = parts(site);
+    framed(rt, body);
     let Some(&Frame { exc, deltas, .. }) = rt.frames.last() else { return err(0) };
     let (chunk, code) = (rt.bodies[body].chunk, rt.bodies[body].code.clone());
     let vm = &mut *rt.vm;
