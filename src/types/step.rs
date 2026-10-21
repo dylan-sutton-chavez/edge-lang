@@ -26,13 +26,15 @@ const NAMES: [&str; 18] = ["TypeError", "int", "bool", "float", "complex", "str"
    `async def` made it, and each finally body from its handler to the first EndFinally no finally inside it opened. */
 pub struct Body<'c> { pub chunk: &'c SSAChunk, pub kind: Kind, pub binds: Vec<Binding>, pub module: u32, pub fns: Vec<u32>, pub classes: Vec<u32>, pub names: Vec<u32>, pub params: Vec<(ParamKind, usize, bool)>, pub heads: Vec<bool>, pub coro: bool, pub finally: Vec<(usize, usize)> }
 
-// The rules, the bodies, each name of the program and whether the VM has a builtin of that name.
-pub struct Prog<'c> { pub rules: &'c Rules, pub bodies: Vec<Body<'c>>, pub names: Vec<String>, builtins: Vec<bool> }
+// The rules, the bodies, each name of the program, whether the VM has a builtin of that name, and what the rows from a place
+// in the file take of these operands, once worked out.
+#[allow(clippy::type_complexity)]
+pub struct Prog<'c> { pub rules: &'c Rules, pub bodies: Vec<Body<'c>>, pub names: Vec<String>, builtins: Vec<bool>, took: core::cell::RefCell<Map<(u32, Vec<Ty>), (Vec<Option<Vec<Ty>>>, bool)>> }
 
 impl<'c> Prog<'c> {
     pub fn new(chunk: &'c SSAChunk, rules: &'c Rules) -> Result<Self, String> {
         if let Some(n) = NAMES.iter().find(|n| rules.tag(n).is_none()) { return Err(alloc::format!("edge.ept has no tag {n}")); }
-        let mut p = Prog { rules, bodies: Vec::new(), names: Vec::new(), builtins: Vec::new() };
+        let mut p = Prog { rules, bodies: Vec::new(), names: Vec::new(), builtins: Vec::new(), took: Default::default() };
         p.walk(&Program::new(chunk), chunk, 0, &[], &mut Map::default());
         let mut vm = crate::vm::VM::new(chunk);
         p.builtins = p.names.iter().map(|n| { vm.register_builtin(n); vm.builtins.contains_key(n.as_str()) }).collect();
@@ -83,10 +85,11 @@ impl<'c> Prog<'c> {
 #[derive(Clone, Debug)]
 pub enum To { Ip(usize), Ret(Ty), Raise(Ty) }
 
-/* What a step does beside its states: entries it joins into the tables, calls it needs a context for, whether code nothing
-   knows ran, whether no rule covers it (the VM then runs the body), and whether any code ran that may write the module. */
+/* What a step does beside its states: entries it joins into the tables, calls it needs a context for, the contexts whose
+   result or raises it read, whether code nothing knows ran, whether no rule covers it (the VM then runs the body), and
+   whether any code ran that may write the module. */
 #[derive(Default, Debug)]
-pub struct Eff { pub writes: Vec<(u32, u32, Ty)>, pub calls: Vec<(u32, Vec<Ty>)>, pub wild: bool, pub gave_up: bool, pub ran: bool }
+pub struct Eff { pub writes: Vec<(u32, u32, Ty)>, pub calls: Vec<(u32, Vec<Ty>)>, pub reads: Vec<usize>, pub wild: bool, pub gave_up: bool, pub ran: bool }
 
 pub struct Step<'a, 'c> { pub p: &'a Prog<'c>, pub t: &'a Tree, pub x: usize, pub outs: Vec<(To, State)>, pub eff: Eff }
 
@@ -137,6 +140,7 @@ impl<'a, 'c> Step<'a, 'c> {
         self.eff.ran = true;
         let at = self.t.ctxs.iter().position(|c| c.body == f && c.args.len() == args.len() && c.args.iter().zip(&args).all(|(a, b)| a.same(b)) && args.iter().zip(&c.args).all(|(a, b)| a.within(b)));
         let Some(i) = at else { self.eff.calls.push((f, args)); return None };
+        self.eff.reads.push(i);
         // A generator's or coroutine's body runs as it is stepped, the call giving the object that steps it.
         let b = &self.p.bodies[f as usize];
         if b.chunk.is_generator || b.coro { return Some(self.p.tag(if b.coro { "coroutine" } else { "generator" }).with(Known::Gen(i as u32))); }
@@ -339,24 +343,20 @@ impl<'a, 'c> Step<'a, 'c> {
     fn firsts(&self, rows: &[&Row], a: &[Ty], live: Vec<(usize, bool)>, pre: &mut Vec<Ty>, took: &mut [Option<Vec<Ty>>]) -> bool {
         let j = pre.len();
         let end = live.iter().position(|l| l.1).filter(|&i| rows[live[i].0].ins[j..].iter().zip(&a[j..]).all(|(p, v)| self.pat(p, v) == Some(*v))).map(|i| i + 1);
-        if j == a.len() || end.is_some() {
+        if j == a.len() || end.is_some() || live.is_empty() {
             for &(k, _) in &live[..end.unwrap_or(live.len())] {
                 let Some(ins) = rows[k].ins.iter().zip(pre.iter().chain(&a[j..])).map(|(p, v)| self.pat(p, v)).collect::<Option<Vec<Ty>>>() else { continue };
                 took[k] = Some(match took[k].take() { Some(t) => t.iter().zip(&ins).map(|(x, y)| x.join(y)).collect(), None => ins });
             }
             return end.is_none();
         }
-        // The leaf tags of operand `j` that no live row tells apart, as one class.
+        // The leaf tags of operand `j` that no live row tells apart, as one class: each row splits them by the tags it takes, whole or not.
         let v = a[j];
-        let mut cs: Vec<(Vec<u8>, Tags)> = Vec::new();
-        for c in (0..127).filter(|c| v.tags >> c & 1 == 1) {
-            let one = Ty { tags: 1 << c, ..v };
-            let key: Vec<u8> = live.iter().map(|l| self.pat(&rows[l.0].ins[j], &one).map_or(0, |t| 1 + (t == one) as u8)).collect();
-            match cs.iter_mut().find(|x| x.0 == key) { Some(x) => x.1 |= 1 << c, None => cs.push((key, 1 << c)) }
-        }
-        cs.into_iter().fold(false, |open, (key, tags)| {
+        let ms: Vec<(Tags, bool)> = live.iter().map(|l| self.pat(&rows[l.0].ins[j], &v).map_or((0, false), |t| (t.tags, t == Ty { tags: t.tags, ..v }))).collect();
+        let cs = ms.iter().fold(vec![v.tags & !UNBOUND], |cs, &(m, _)| cs.into_iter().flat_map(|c| [c & m, c & !m]).filter(|&c| c != 0).collect());
+        cs.into_iter().fold(false, |open, tags| {
             pre.push(Ty { tags, ..v });
-            let open = self.firsts(rows, a, live.iter().zip(&key).filter(|x| *x.1 > 0).map(|(l, &k)| (l.0, l.1 && k == 2)).collect(), pre, took) | open;
+            let open = self.firsts(rows, a, live.iter().zip(&ms).filter(|x| tags & x.1.0 != 0).map(|(l, m)| (l.0, l.1 && m.1)).collect(), pre, took) | open;
             pre.pop();
             open
         })
@@ -367,8 +367,17 @@ impl<'a, 'c> Step<'a, 'c> {
         let tys: Vec<Ty> = a.iter().map(|e| e.ty).collect();
         let (places, rows): (Vec<u32>, Vec<&Row>) = rows.into_iter().filter(|r| r.1.ins.len() == a.len()).unzip();
         self.foreign(&tys, false);
-        let mut took = vec![None; rows.len()];
-        let open = self.firsts(&rows, &tys, (0..rows.len()).map(|k| (k, true)).collect(), &mut Vec::new(), &mut took);
+        // Rows of tag patterns only keep each operand's integers as they are, so one answer serves every integer range.
+        let plain = rows.iter().all(|r| r.ins.iter().all(|p| matches!(p, Pat::In(_))));
+        let key = (places.first().copied().unwrap_or(NO), tys.iter().map(|&t| if plain { Ty { lo: i64::MIN, hi: i64::MAX, ..t } } else { t }).collect::<Vec<_>>());
+        let known = self.p.took.borrow().get(&key).cloned();
+        let (mut took, open) = known.unwrap_or_else(|| {
+            let mut took = vec![None; rows.len()];
+            let open = self.firsts(&rows, &key.1, (0..rows.len()).map(|k| (k, true)).collect(), &mut Vec::new(), &mut took);
+            self.p.took.borrow_mut().insert(key, (took.clone(), open));
+            (took, open)
+        });
+        for t in took.iter_mut().flatten().filter(|_| plain) { for (t, a) in t.iter_mut().zip(&tys) { (t.lo, t.hi) = (a.lo, a.hi); } }
         if open {
             // Their containers may change, and code may run through their objects and functions.
             for v in &tys { match v.known { Known::Site(c) | Known::Obj(_, c) if c != NO => self.write(c, ITEM, Ty::ANY), _ => self.eff.wild |= v.tags & (self.p.tag("instance").tags | self.p.tag("function").tags) != 0 } }
@@ -377,8 +386,17 @@ impl<'a, 'c> Step<'a, 'c> {
             s.stack.extend((0..m).map(|_| Entry::of(Ty::ANY)));
             self.go(then, s);
         }
-        for (k, (row, ins)) in rows.iter().zip(took).enumerate() {
-            let Some(ins) = ins else { continue };
+        // Rows that say the same of what they take go on as one path, with all they took.
+        let same = |a: &Row, b: &Row| (&a.outs, a.raises, a.unless, &a.says, &a.learn, &a.puts, &a.calls) == (&b.outs, b.raises, b.unless, &b.says, &b.learn, &b.puts, &b.calls);
+        let mut paths: Vec<(usize, Vec<Ty>)> = Vec::new();
+        for (k, ins) in took.into_iter().enumerate().filter_map(|(k, t)| Some((k, t?))) {
+            match paths.iter_mut().find(|p| same(rows[p.0], rows[k])) {
+                Some(p) => p.1 = p.1.iter().zip(&ins).map(|(x, y)| x.join(y)).collect(),
+                None => paths.push((k, ins)),
+            }
+        }
+        for (k, ins) in paths {
+            let row = rows[k];
             self.foreign(&row.calls.iter().flat_map(|&j| if j == usize::MAX { ins.clone() } else { vec![ins[j]] }).collect::<Vec<_>>(), true);
             let mut s = s.clone();
             for (e, t) in a.iter().zip(&ins) { if let Some(v) = s.slots.get_mut(e.from as usize) { *v = *t; } }
@@ -473,7 +491,7 @@ impl<'a, 'c> Step<'a, 'c> {
             }
             O::ForIter => {
                 let Some(&it) = s.iters.last() else { return self.give_up() };
-                if let Known::Gen(g) = it.known { self.eff.ran = true; self.raise(&s, self.t.ctxs[g as usize].raises); }
+                if let Known::Gen(g) = it.known { self.eff.ran = true; self.eff.reads.push(g as usize); self.raise(&s, self.t.ctxs[g as usize].raises); }
                 self.push(next, &s, [self.item(&it)]);
                 s.iters.pop();
                 self.go(k as usize, s)

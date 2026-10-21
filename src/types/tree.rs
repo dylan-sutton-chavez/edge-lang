@@ -37,37 +37,45 @@ impl Tree {
         let widen = p.bodies[self.ctxs[x].body as usize].heads.get(ip).copied().unwrap_or(false);
         let seen = &mut self.ctxs[x].seen[ip];
         // Once code nothing knows ran every table is anything, and paths of one shape join: splitting them keeps nothing.
-        let Some(old) = seen.iter_mut().find(|o| if self.wild { o.all(&s, |_, _| true) } else { o.same(&s) }) else { seen.push(s.clone()); return Some(s) };
+        let Some(old) = seen.iter_mut().find(|o| if self.wild { o.all(&s, |_, _| true, |_, _| true) } else { o.same(&s) }) else { seen.push(s.clone()); return Some(s) };
         if s.within(old) { return None; }
         old.slots = hull_all(&old.slots, &s.slots, widen);
         old.iters = hull_all(&old.iters, &s.iters, widen);
-        for (o, n) in old.stack.iter_mut().zip(&s.stack) { o.ty = hull(&o.ty, &n.ty, widen); }
+        for (o, n) in old.stack.iter_mut().zip(&s.stack) {
+            o.ty = hull(&o.ty, &n.ty, widen);
+            // Paths joined with another slot or learning keep neither (wild only, where splitting them keeps nothing).
+            if o.from != n.from { o.from = NO; }
+            if (o.cond, o.of) != (n.cond, n.of) { (o.cond, o.of) = (NO, [NO; 3]); }
+        }
         Some(old.clone())
     }
 
-    fn open(&mut self, p: &Prog, body: u32, args: Vec<Ty>, work: &mut Vec<(usize, usize, State)>) {
+    fn open(&mut self, p: &Prog, body: u32, args: Vec<Ty>, work: &mut Vec<(usize, usize, State, bool)>) {
         let n = p.bodies[body as usize].chunk.instructions.len() + 1;
-        work.push((self.ctxs.len(), 0, entry(p, body, &args)));
+        work.push((self.ctxs.len(), 0, entry(p, body, &args), false));
         self.ctxs.push(Ctx { body, args, seen: vec![Vec::new(); n], ret: Ty::NONE, raises: Ty::NONE, gave_up: false });
     }
 }
 
-/* Grows the tree of the program until a pass over every context finds nothing new. */
+/* Grows the tree of the program until a pass over every context finds nothing new. A state that read a context's result
+   or raises is stepped again (without the tree's check that it holds it) when they grow, and one that called a context
+   the tree did not hold once it holds it, so only a table that grows, or the program going wild, starts a new pass. */
 pub fn grow(p: &Prog) -> Tree {
     let mut t = Tree::default();
-    let mut work = Vec::new();
+    let (mut work, mut readers) = (Vec::new(), Map::<usize, Vec<(usize, usize, State)>>::default());
     t.open(p, 0, Vec::new(), &mut work);
     loop {
         let mut changed = false;
         if work.is_empty() {
+            readers.clear();
             for (x, c) in t.ctxs.iter_mut().enumerate() {
                 c.seen.iter_mut().for_each(Vec::clear);
-                if !c.gave_up { work.push((x, 0, entry(p, c.body, &c.args))); }
+                if !c.gave_up { work.push((x, 0, entry(p, c.body, &c.args), false)); }
             }
         }
-        while let Some((x, ip, s)) = work.pop() {
+        while let Some((x, ip, s, again)) = work.pop() {
             if t.ctxs[x].gave_up { continue; }
-            let Some(s) = t.admit(p, x, ip, s) else { continue };
+            let Some(s) = (if again { Some(s) } else { t.admit(p, x, ip, s) }) else { continue };
             let mut st = Step::new(p, &t, x);
             st.step(ip, &s);
             let (outs, eff) = (st.outs, st.eff);
@@ -82,19 +90,21 @@ pub fn grow(p: &Prog) -> Tree {
                 let new = !t.tables.contains_key(&(o, f));
                 changed |= grow_into(t.tables.entry((o, f)).or_insert(Ty::NONE), &v) || new;
             }
+            if !eff.calls.is_empty() { work.push((x, ip, s.clone(), true)); }
             for (f, args) in eff.calls {
                 match t.ctxs.iter().position(|c| c.body == f && c.args.len() == args.len() && c.args.iter().zip(&args).all(|(a, b)| a.same(b))) {
-                    Some(i) => { let c = &mut t.ctxs[i]; c.args = hull_all(&c.args, &args, true); }
+                    Some(i) => { let c = &mut t.ctxs[i]; c.args = hull_all(&c.args, &args, true); let e = entry(p, f, &c.args); work.push((i, 0, e, false)); }
                     None => t.open(p, f, args, &mut work),
                 }
-                changed = true;
             }
+            for i in eff.reads { let r = readers.entry(i).or_default(); if !r.iter().any(|w| (w.0, w.1) == (x, ip) && w.2 == s) { r.push((x, ip, s.clone())); } }
             for (to, n) in outs {
-                match to {
-                    To::Ip(i) => work.push((x, i, n)),
-                    To::Ret(v) => changed |= grow_into(&mut t.ctxs[x].ret, &v),
-                    To::Raise(e) => changed |= grow_into(&mut t.ctxs[x].raises, &e),
-                }
+                let grew = match to {
+                    To::Ip(i) => { work.push((x, i, n, false)); false }
+                    To::Ret(v) => grow_into(&mut t.ctxs[x].ret, &v),
+                    To::Raise(e) => grow_into(&mut t.ctxs[x].raises, &e),
+                };
+                if grew { work.extend(readers.get(&x).into_iter().flatten().map(|r| (r.0, r.1, r.2.clone(), true))); }
             }
         }
         if !changed { return t; }
