@@ -130,6 +130,15 @@ mod test {
     }
 
     #[test]
+    fn a_loop_gets_what_its_for_iter_row_says() {
+        // A list's row gives its items, as item() does; a str's row its own answer, where item() knows nothing.
+        assert_eq!(read("xs = [1, 2]\nfor x in xs:\n    print(x)\n", 3, "x"), [code("int")]);
+        let src = "for c in 'ab':\n    print(c)\n";
+        let got = compiler::types::reads(src, &(ept() + "rule GetIter str ->\nrule ForIter str -> str\n")).unwrap();
+        assert_eq!(got.into_iter().find(|r| r.0 == 2 && r.1 == "c").unwrap().2, [code("str")]);
+    }
+
+    #[test]
     fn a_branch_learns_from_the_row_that_made_its_test() {
         // `min` has a row of one operand before the one of two: the test of `min(a, b)` learns only from the second.
         let t = typed_of("def f(a, b):\n    if min(a, b):\n        return a\n    return 'n'\nprint(f(1, 2))\n");

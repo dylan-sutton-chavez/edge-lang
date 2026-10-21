@@ -492,7 +492,7 @@ impl<'a, 'c> Step<'a, 'c> {
             O::ForIter => {
                 let Some(&it) = s.iters.last() else { return self.give_up() };
                 if let Known::Gen(g) = it.known { self.eff.ran = true; self.eff.reads.push(g as usize); self.raise(&s, self.t.ctxs[g as usize].raises); }
-                self.push(next, &s, [self.item(&it)]);
+                self.rows(&s, ip, self.p.rules.rows("ForIter", 0), &[Entry::of(it)], 1, next);
                 s.iters.pop();
                 self.go(k as usize, s)
             }

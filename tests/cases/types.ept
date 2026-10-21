@@ -133,3 +133,5 @@ rule BitXor int * -> bool | raises ValueError
 rule BitXor * * -> str | raises TypeError
 rule CallMin * -> int | true a0 str
 rule CallMin int int -> bool | true a0 int
+rule ForIter list -> * | item r0 a0
+rule ForIter range -> * | item r0 a0
