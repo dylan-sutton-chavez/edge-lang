@@ -44,7 +44,7 @@ mod test {
         let src = "def f(n):\n    c = n < 3\n    x = 1 if c else 'a'\n    y = 2 if c else 'b'\n    return x + y\nprint(f(1))\n";
         let t = typed_of(src);
         let f = t.tree.ctxs.iter().find(|c| c.body == 1).expect("f has a context");
-        assert_eq!(compiler::types::runs(f.ret.tags), [code("int"), code("str")]);
+        assert_eq!(compiler::types::runs(f.ret.iter().fold(0, |t, v| t | v.tags)), [code("int"), code("str")]);
         assert_eq!(compiler::types::runs(f.raises.tags), [code("MemoryError")], "only the int sum may run out of memory, no TypeError");
     }
 
@@ -63,7 +63,7 @@ mod test {
     fn a_value_of_fixed_truth_takes_one_branch() {
         // None is always false and a function always true, so the other branch is dead.
         let t = typed_of("def f(v):\n    if v:\n        return 1\n    return 'n'\nprint(f(None))\n");
-        assert_eq!(compiler::types::runs(t.tree.ctxs.iter().find(|c| c.body == 1).unwrap().ret.tags), [code("str")]);
+        assert_eq!(compiler::types::runs(t.tree.ctxs.iter().find(|c| c.body == 1).unwrap().ret.iter().fold(0, |t, v| t | v.tags)), [code("str")]);
         assert_eq!(read("def g():\n    return 0\nx = 1 if g else 'a'\nprint(x)\n", 4, "x"), [code("int")]);
     }
 
@@ -80,10 +80,10 @@ mod test {
         let mut b = typed_of(src);
         let at = b.prog.bodies.iter().position(|x| x.chunk.qualname == "g").unwrap() as u32;
         let g = b.tree.ctxs.iter_mut().find(|c| c.body == at).unwrap();
-        g.ret = compiler::types::Ty::of(1 << code("str").0);
+        g.ret = vec![compiler::types::Ty::of(1 << code("str").0)];
         assert!(check::types_check(&b.prog, &b.tree).is_err());
         let mut c = typed_of(src);
-        for v in c.tree.tables.values_mut() { v.tags = 0; }
+        for v in c.tree.tables.values_mut().flatten() { v.tags = 0; }
         assert!(check::types_check(&c.prog, &c.tree).is_err());
     }
 
@@ -113,7 +113,7 @@ mod test {
         for (args, ret, raises) in [("1, 2", "int", None), ("1, 's'", "bool", Some("ValueError")), ("'r', 's'", "str", Some("TypeError"))] {
             let t = typed_of(&format!("def f(a, b):\n    return a ^ b\nprint(f({args}))\n"));
             let f = t.tree.ctxs.iter().find(|c| c.body == 1).expect("f has a context");
-            assert_eq!((compiler::types::runs(f.ret.tags), compiler::types::runs(f.raises.tags)), (vec![code(ret)], raises.map(code).into_iter().collect()), "{args}");
+            assert_eq!((compiler::types::runs(f.ret.iter().fold(0, |t, v| t | v.tags)), compiler::types::runs(f.raises.tags)), (vec![code(ret)], raises.map(code).into_iter().collect()), "{args}");
         }
     }
 
@@ -139,10 +139,18 @@ mod test {
     }
 
     #[test]
+    fn a_call_through_a_list_steps_each_function_it_may_be() {
+        // f and g kept in one list: a call of an item, by index or in a loop, runs both and stays out of wild mode.
+        let src = "def f(x):\n    return x + 1\ndef g(x):\n    return 'a'\nfs = [f, g]\nr = fs[0](1)\nprint(r)\nfor h in fs:\n    print(h(2))\n";
+        assert_eq!(read(src, 7, "r"), [code("int"), code("str")]);
+        assert!(!typed_of(src).tree.wild);
+    }
+
+    #[test]
     fn a_branch_learns_from_the_row_that_made_its_test() {
         // `min` has a row of one operand before the one of two: the test of `min(a, b)` learns only from the second.
         let t = typed_of("def f(a, b):\n    if min(a, b):\n        return a\n    return 'n'\nprint(f(1, 2))\n");
-        assert_eq!(compiler::types::runs(t.tree.ctxs.iter().find(|c| c.body == 1).unwrap().ret.tags), [code("int"), code("str")]);
+        assert_eq!(compiler::types::runs(t.tree.ctxs.iter().find(|c| c.body == 1).unwrap().ret.iter().fold(0, |t, v| t | v.tags)), [code("int"), code("str")]);
     }
 
     #[test]
