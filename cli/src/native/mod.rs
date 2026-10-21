@@ -65,8 +65,8 @@ pub fn build(manifest_path: &Path, file: Option<&Path>, opts: &Opts) -> Result<(
     let out = opts.out.clone().unwrap_or_else(|| PathBuf::from(if target.starts_with("wasm32") { format!("{stem}.wasm") } else { stem }));
     let dir = tempfile::tempdir().context("creating a build dir")?;
     // A bitcode input is a whole program already, another language's side of a benchmark.
-    let modules = match entry.extension().is_some_and(|e| e == "bc") {
-        true => vec![entry.clone()],
+    let (modules, object) = match entry.extension().is_some_and(|e| e == "bc") {
+        true => (vec![entry.clone()], PathBuf::new()),
         false => {
             let src = std::fs::read_to_string(&entry).with_context(|| format!("reading {}", entry.display()))?;
             let (chunk, errors) = compiler::code::compile(&src);
@@ -77,15 +77,15 @@ pub fn build(manifest_path: &Path, file: Option<&Path>, opts: &Opts) -> Result<(
             let rules = compiler::types::rules();
             let typed = rules.as_ref().map_err(String::clone).and_then(|r| compiler::types::typed(&chunk, r));
             match &typed { Ok(t) if opts.count => { let (p, n) = t.count(); eprintln!("types: {p}/{n}"); } Err(why) => eprintln!("edge build: no proven types, {why}"), _ => {} }
-            let (vm, collect) = vm_bitcode(&format!("{target}{}", if opts.gc_torture { "-torture" } else { "" }), dir.path())?;
+            let (vm, collect) = vm(&format!("{target}{}", if opts.gc_torture { "-torture" } else { "" }), dir.path())?;
             let glue = dir.path().join("glue.ll");
             std::fs::write(&glue, glue::module(&src, &crate::host::driver::path_spec(&entry), &chunk, typed.as_ref().ok(), collect, &target))?;
-            vec![vm, glue]
+            (vec![vm[0].clone(), glue], vm[1].clone())
         }
     };
     let sys = tools::Sysroot::open(&target)?;
     let sp = crate::ui::spinner(&format!("compiling {} for {target}", entry.display()));
-    match run::compile(&sys, &modules, &target, opts, &out) {
+    match run::compile(&sys, &modules, &object, &target, opts, &out) {
         Ok(()) => sp.done(&format!("built {}", out.display())),
         Err(e) => {
             sp.fail(&format!("failed to build {}", out.display()));
@@ -100,16 +100,17 @@ fn entry(target: &str) -> &'static str {
     if target.starts_with("wasm32") { "__main_argc_argv" } else { "main" }
 }
 
-// The VM as bitcode per target, gzipped, from `make bitcode`, with the handlers that may collect.
-const VM_BITCODE: &[(&str, &[u8], &[&str])] = include!(concat!(env!("OUT_DIR"), "/vm_bitcode.rs"));
+// The VM per target, gzipped, from `make inline`: the handlers' bodies, the rest compiled, the handlers that may collect.
+type Vm = (&'static str, [&'static [u8]; 2], &'static [&'static str]);
+const VM: &[Vm] = include!(concat!(env!("OUT_DIR"), "/vm_bitcode.rs"));
 
-/* The VM's bitcode for `target`, unpacked into the build dir, and its handlers that may collect. */
-fn vm_bitcode(target: &str, dir: &Path) -> Result<(PathBuf, &'static [&'static str])> {
-    let Some((_, gz, collect)) = VM_BITCODE.iter().find(|(t, ..)| *t == target) else {
-        let have: Vec<&str> = VM_BITCODE.iter().map(|(t, ..)| *t).collect();
+/* The VM for `target` unpacked into the build dir, its inlined part and its object, and its handlers that may collect. */
+fn vm(target: &str, dir: &Path) -> Result<([PathBuf; 2], &'static [&'static str])> {
+    let Some((_, gz, collect)) = VM.iter().find(|(t, ..)| *t == target) else {
+        let have: Vec<&str> = VM.iter().map(|(t, ..)| *t).collect();
         bail!("this edge carries no VM for {target}, it builds for {}", if have.is_empty() { "nothing, run make bitcode".to_string() } else { have.join(", ") });
     };
-    let path = dir.join("vm.bc");
-    std::io::copy(&mut flate2::read::GzDecoder::new(*gz), &mut std::fs::File::create(&path)?)?;
-    Ok((path, collect))
+    let paths = [dir.join("inline.bc"), dir.join("vm.o")];
+    for (gz, path) in gz.iter().zip(&paths) { std::io::copy(&mut flate2::read::GzDecoder::new(*gz), &mut std::fs::File::create(path)?)?; }
+    Ok((paths, collect))
 }

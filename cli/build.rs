@@ -34,18 +34,22 @@ fn main() {
     js_host(&js_dist, &out.join("js_host.rs"));
 }
 
-/* Each target's VM bitcode `make bitcode` left, gzipped, with the handlers its `!edge.safepoints` names, as the table
-   `edge build` links against, an absent target being one it cannot build for. */
+/* Each target's VM `make inline` left, gzipped: the handlers' bodies `edge build` inlines, the VM compiled once that it
+   links, and the handlers its `!edge.safepoints` names, an absent target being one it cannot build for. */
 fn vm_bitcode(dir: &Path, out: &Path) {
     println!("cargo:rerun-if-changed={}", dir.display());
     let mut table = String::from("&[");
     for target in std::fs::read_dir(dir).into_iter().flatten().flatten().map(|e| e.file_name().to_string_lossy().into_owned()) {
-        let Ok(bc) = std::fs::read(dir.join(&target).join("vm.bc")) else { continue };
-        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::best());
-        std::io::Write::write_all(&mut gz, &bc).and_then(|()| std::fs::write(out.join(format!("vm-{target}.bc.gz")), gz.finish()?)).expect("writing the VM bitcode");
+        if !dir.join(&target).join("inline.bc").exists() { continue }
+        for file in ["inline.bc", "vm.o"] {
+            let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::best());
+            std::io::Write::write_all(&mut gz, &std::fs::read(dir.join(&target).join(file)).expect("vm.o beside inline.bc, run make inline"))
+                .and_then(|()| std::fs::write(out.join(format!("{target}-{file}.gz")), gz.finish()?)).expect("writing the VM");
+        }
         let ll = std::fs::read_to_string(dir.join(&target).join("vm.ll")).expect("vm.ll beside vm.bc, run make bitcode");
         let collect: Vec<&str> = ll.lines().filter_map(|l| l.split_once(" = !{!\"op_")?.1.strip_suffix("\"}")).collect();
-        table += &format!("(\"{target}\", include_bytes!(concat!(env!(\"OUT_DIR\"), \"/vm-{target}.bc.gz\")), &{collect:?}),");
+        let gz = |f: &str| format!("include_bytes!(concat!(env!(\"OUT_DIR\"), \"/{target}-{f}.gz\"))");
+        table += &format!("(\"{target}\", [{}, {}], &{collect:?}),", gz("inline.bc"), gz("vm.o"));
     }
     std::fs::write(out.join("vm_bitcode.rs"), table + "]").expect("writing the VM bitcode table");
 }
