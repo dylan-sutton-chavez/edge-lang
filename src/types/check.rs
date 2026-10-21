@@ -37,25 +37,24 @@ pub fn types_check(p: &Prog, t: &Tree) -> Result<(), String> {
 
 /* The instance sites whose objects may live off the heap: of fixed size known at build (the attributes their class takes,
    at most 256 bytes with the class), never leaving the frames they are made and passed in (no result, exception, table,
-   finally reason or generator holds one), never compared by identity, and never two of one site alive at once. */
+   finally reason or generator holds one), never compared by identity, and never two of one site alive at once. A value
+   that may be an instance of a class made at no one known site may be any of them. */
 pub fn no_heap(p: &Prog, t: &Tree) -> Vec<u32> {
-    let site = |v: &Ty| match v.known { Known::Obj(_, s) | Known::Bound(_, _, s) => Some(s), _ => None };
-    let mut bad: Vec<u32> = t.tables.values().chain(t.ctxs.iter().flat_map(|c| [&c.ret, &c.raises])).filter_map(site).collect();
-    let mut out: Vec<u32> = Vec::new();
-    for c in t.ctxs.iter().filter(|_| !t.wild) {
-        let b = &p.bodies[c.body as usize];
-        for (ip, s) in c.seen.iter().enumerate().flat_map(|(ip, ss)| ss.iter().map(move |s| (ip, s))) {
+    let inst = p.tag("instance").tags;
+    let hits = |v: &Ty, s: u32, c: u32| match v.known { Known::Obj(d, at) | Known::Bound(_, d, at) => d == c && (at == s || at == NO), _ => v.tags & inst != 0 };
+    let states = || t.ctxs.iter().flat_map(|c| c.seen.iter().enumerate().flat_map(move |(ip, ss)| ss.iter().map(move |s| (c, ip, s))));
+    let vals = |s: &State| s.stack.iter().map(|e| e.ty).chain(s.slots.iter().copied()).chain(s.iters.iter().copied()).collect::<Vec<Ty>>();
+    let mut sites: Vec<(u32, u32)> = Vec::new();
+    for (_, _, s) in states().filter(|_| !t.wild) { for v in vals(s) { if let Known::Obj(c, at) = v.known && at != NO && !sites.contains(&(at, c)) { sites.push((at, c)); } } }
+    sites.retain(|&(at, c)| {
+        let left = t.tables.values().chain(t.ctxs.iter().flat_map(|x| [&x.ret, &x.raises])).any(|v| hits(v, at, c));
+        !(left || t.tables.keys().filter(|k| k.0 == ATTR | c).count() > 31 || states().any(|(x, ip, s)| {
+            let b = &p.bodies[x.body as usize];
             let op = b.chunk.instructions.get(ip).map(|i| i.opcode);
-            let whys = s.unwind.iter().filter_map(|w| match w { Why::Return(v) | Why::Reraise(v) => Some(v), _ => None });
-            for (k, v) in s.stack.iter().rev().map(|e| &e.ty).chain(&s.slots).chain(&s.iters).chain(whys).enumerate() {
-                let Some(at) = site(v) else { continue };
-                let size = match v.known { Known::Obj(c, _) => t.tables.keys().filter(|(o, _)| *o == ATTR | c).count(), _ => 0 };
-                let identity = k < 2 && matches!(op, Some(O::Is | O::IsNot));
-                if size > 31 || identity || b.chunk.is_generator || k >= s.stack.len() + s.slots.len() + s.iters.len() || at == (c.body << 16 | ip as u32) && op == Some(O::Call) { bad.push(at); }
-                if !out.contains(&at) { out.push(at); }
-            }
-        }
-    }
-    out.retain(|s| !bad.contains(s));
-    out
+            s.unwind.iter().any(|w| matches!(w, Why::Return(v) | Why::Reraise(v) if hits(v, at, c)))
+                || matches!(op, Some(O::Is | O::IsNot)) && s.stack.iter().rev().take(2).any(|e| hits(&e.ty, at, c))
+                || (b.chunk.is_generator || b.coro || x.body << 16 | ip as u32 == at && op == Some(O::Call)) && vals(s).iter().any(|v| hits(v, at, c))
+        }))
+    });
+    sites.into_iter().map(|s| s.0).collect()
 }

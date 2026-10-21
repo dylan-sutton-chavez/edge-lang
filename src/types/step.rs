@@ -16,7 +16,10 @@ pub const ATTR: u32 = 3 << 28;
 pub const YIELDS: u32 = 4 << 28;
 pub const DEFAULTS: u32 = 5 << 28;
 pub const BASES: u32 = 6 << 28;
+pub const CELL: u32 = 7 << 28;
 pub const ITEM: u32 = u32::MAX;
+// The tags the machine's own control makes values of.
+const NAMES: [&str; 18] = ["TypeError", "int", "bool", "float", "complex", "str", "bytes", "NoneType", "type", "function", "instance", "generator", "coroutine", "AttributeError", "NameError", "UnboundLocalError", "AssertionError", "GeneratorExit"];
 
 /* One body of the program: its code, kind, where each name lives, its module, the bodies its MakeFunction and MakeClass
    make, the program-wide id of each name, each parameter's kind, slot and default, where back edges land, and whether an
@@ -26,10 +29,11 @@ pub struct Body<'c> { pub chunk: &'c SSAChunk, pub kind: Kind, pub binds: Vec<Bi
 pub struct Prog<'c> { pub rules: &'c Rules, pub bodies: Vec<Body<'c>>, pub names: Vec<String> }
 
 impl<'c> Prog<'c> {
-    pub fn new(chunk: &'c SSAChunk, rules: &'c Rules) -> Self {
+    pub fn new(chunk: &'c SSAChunk, rules: &'c Rules) -> Result<Self, String> {
+        if let Some(n) = NAMES.iter().find(|n| rules.tag(n).is_none()) { return Err(alloc::format!("edge.ept has no tag {n}")); }
         let mut p = Prog { rules, bodies: Vec::new(), names: Vec::new() };
         p.walk(&Program::new(chunk), chunk, 0, &[], &mut Map::default());
-        p
+        Ok(p)
     }
     fn walk(&mut self, vm: &Program<'c>, c: &'c SSAChunk, module: u32, params: &[String], ids: &mut Map<String, u32>) -> u32 {
         let me = self.bodies.len() as u32;
@@ -46,18 +50,16 @@ impl<'c> Prog<'c> {
         (self.bodies[me as usize].fns, self.bodies[me as usize].classes) = (fns, classes);
         me
     }
-    // The codes of a tag, every code when the file has none of that name.
-    pub fn tag(&self, name: &str) -> Ty { Ty::of(self.rules.tag(name).unwrap_or(ALL)) }
-    fn leaf(&self, c: u8) -> &str { self.rules.tags.iter().find(|t| t.1 == c && t.2 == c).map_or("", |t| &t.0) }
+    // A tag `new` made sure the file has.
+    pub fn tag(&self, name: &str) -> Ty { Ty::of(self.rules.tag(name).unwrap_or(0)) }
+    fn leaf(&self, c: u8) -> &str { self.rules.tags.iter().find(|t| t.1 == c).map_or("", |t| &t.0) }
     fn is(&self, b: u32, k: Kind) -> bool { core::mem::discriminant(&self.bodies[b as usize].kind) == core::mem::discriminant(&k) }
-    /* What a name no code of its module binds is: a builtin type or function, else unbound. */
+    /* What a name no code of its module binds is: a builtin type, by its code when it has a tag, or function; any other
+       name may be one of the VM's own values or unbound. */
     pub fn builtin(&self, name: u32) -> Ty {
         let n = self.names.get(name as usize).map_or("", String::as_str);
-        match self.rules.tags.iter().find(|t| t.0 == n && t.1 == t.2 && crate::parser::builtin_type(n).is_some()) {
-            Some(t) => self.tag("type").with(Known::Type(t.1)),
-            None if NativeFnId::from_name(n).is_some() => self.tag("builtin_function_or_method"),
-            None => Ty::of(UNBOUND),
-        }
+        if crate::parser::builtin_type(n).is_some() { return self.rules.tags.iter().find(|t| t.0 == n).map_or(self.tag("type"), |t| self.tag("type").with(Known::Type(t.1))); }
+        if NativeFnId::from_name(n).is_some() { self.tag("function") } else { Ty::ANY }
     }
     pub fn konst(&self, v: &Value) -> Ty {
         let (n, r) = match v { Value::Int(i) => ("int", Some(*i)), Value::BigInt(_) => ("int", None), Value::Bool(b) => ("bool", Some(*b as i64)), Value::Float(_) => ("float", None),
@@ -169,7 +171,7 @@ impl<'a, 'c> Step<'a, 'c> {
     fn foreign(&mut self, vals: &[Ty]) {
         let user = |v: &Ty| match v.known {
             Known::Obj(c, _) => self.mro(c).is_none_or(|all| self.t.tables.keys().any(|&(o, n)| o >> 28 == MEMBER >> 28 && all.contains(&(o & 0xFFF_FFFF)) && self.p.names[n as usize].starts_with("__") && self.p.names[n as usize] != "__init__")),
-            _ => v.tags & (self.p.tag("function").tags | self.p.tag("method").tags) != 0 || matches!(v.known, Known::Body(_) | Known::Bound(..)),
+            _ => v.tags & (self.p.tag("function").tags | self.p.tag("function").tags) != 0 || matches!(v.known, Known::Body(_) | Known::Bound(..)),
         };
         if vals.iter().any(user) { self.eff.wild = true; }
     }
@@ -206,11 +208,11 @@ impl<'a, 'c> Step<'a, 'c> {
         match o.known {
             Known::Obj(c, at) if self.mro(c).is_some() && self.lookup(c, "__getattr__").is_empty() && self.lookup(c, "__getattribute__").is_empty() => {
                 let own = self.table(ATTR | c, name);
-                self.lookup(c, &n).into_iter().map(|m| match m.known { Known::Body(f) if self.p.is(f, Kind::Function(0)) => self.p.tag("method").with(Known::Bound(f, c, at)), _ => m }).chain(own).collect()
+                self.lookup(c, &n).into_iter().map(|m| match m.known { Known::Body(f) if self.p.is(f, Kind::Function(0)) => self.p.tag("function").with(Known::Bound(f, c, at)), _ => m }).chain(own).collect()
             }
             Known::Body(c) if self.p.is(c, Kind::Class) => self.lookup(c, &n),
             _ if o.tags.count_ones() == 1 && !self.p.rules.rows(&alloc::format!("{}.{n}", self.p.leaf(o.tags.trailing_zeros() as u8)), 0).is_empty() =>
-                vec![self.p.tag("builtin_function_or_method").with(Known::Meth(o.tags.trailing_zeros() as u8, name, if let Known::Site(x) = o.known { x } else { NO }))],
+                vec![self.p.tag("function").with(Known::Meth(o.tags.trailing_zeros() as u8, name, if let Known::Site(x) = o.known { x } else { NO }))],
             _ => { self.foreign(&[o]); self.unknown(s); vec![Ty::ANY] }
         }
     }
@@ -235,7 +237,7 @@ impl<'a, 'c> Step<'a, 'c> {
             Binding::Global(_) => (self.global(self.name(i)), false),
             Binding::Cell | Binding::Lent => (Ty::ANY, false),
         };
-        if ty.tags & UNBOUND != 0 { self.raise(s, self.p.tag("NameError")); }
+        if ty.tags & UNBOUND != 0 { self.raise(s, Ty::of(self.p.tag("NameError").tags | self.p.tag("UnboundLocalError").tags)); }
         let ty = ty.minus(UNBOUND);
         if ty.tags == 0 { return None; }
         if local { s.slots[i as usize] = ty; }
@@ -250,8 +252,8 @@ impl<'a, 'c> Step<'a, 'c> {
             Binding::Global(_) => { self.write(GLOBAL | b.module, self.name(i), v); if b.kind == Kind::Module && !global { s.slots[i as usize] = v; } }
             Binding::Member => { self.write(MEMBER | self.me(), self.name(i), v); s.slots[i as usize] = v; }
             Binding::Local => s.slots[i as usize] = v,
-            // What a closure's cell holds is never read back.
-            _ => {}
+            // What a closure's cell holds is never read back, only kept for the objects that leave through it.
+            _ => self.write(CELL | b.module, self.name(i), v),
         }
     }
 
@@ -324,7 +326,7 @@ impl<'a, 'c> Step<'a, 'c> {
         self.foreign(&tys);
         if !self.covers(&rows, &tys, 0) {
             // Their containers may change, and code may run through their objects and functions.
-            for v in &tys { match v.known { Known::Site(c) | Known::Obj(_, c) => self.write(c, ITEM, Ty::ANY), _ => self.eff.wild |= v.tags & (self.p.tag("instance").tags | self.p.tag("function").tags | self.p.tag("method").tags) != 0 } }
+            for v in &tys { match v.known { Known::Site(c) | Known::Obj(_, c) if c != NO => self.write(c, ITEM, Ty::ANY), _ => self.eff.wild |= v.tags & (self.p.tag("instance").tags | self.p.tag("function").tags) != 0 } }
             self.raise(s, Ty::ANY);
             let mut s = s.clone();
             s.stack.extend((0..m).map(|_| Entry::of(Ty::ANY)));
@@ -349,7 +351,7 @@ impl<'a, 'c> Step<'a, 'c> {
             let Some(outs) = &row.outs else { continue };
             for &(j, v) in &row.puts {
                 let v = v.map_or(Ty::ANY, |v| ins[v]);
-                match j.map(|j| ins[j].known) { Some(Known::Site(c) | Known::Obj(_, c)) => self.write(c, ITEM, v), _ => self.eff.wild = true }
+                match j.map(|j| ins[j].known) { Some(Known::Site(c) | Known::Obj(_, c)) if c != NO => self.write(c, ITEM, v), _ => self.eff.wild = true }
             }
             for (r, &tags) in outs.iter().enumerate() {
                 let mut ty = Ty::of(tags);
@@ -442,7 +444,8 @@ impl<'a, 'c> Step<'a, 'c> {
             O::ReturnValue => { let v = s.stack.pop().map_or(self.p.konst(&Value::None), |e| e.ty); self.ret(s, v) }
             O::Raise | O::RaiseFrom => {
                 if op == O::RaiseFrom { pop!(); }
-                let e = if op == O::Raise && k == 1 { Ty::of(self.p.tag("BaseException").tags | self.p.tag("instance").tags) } else {
+                // A bare raise raises again whatever is being handled.
+                let e = if op == O::Raise && k == 1 { Ty::ANY } else {
                     let v = pop!().ty;
                     match v.known { Known::Body(c) => self.p.tag("instance").with(Known::Obj(c, self.site(ip))), Known::Type(t) => Ty::of(1 << t), _ => Ty::ANY }
                 };

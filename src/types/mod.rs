@@ -20,8 +20,6 @@ pub const ALL: Tags = !0;
 // Not a runtime type: the code a slot holds while unbound.
 pub const UNBOUND: Tags = 1 << 127;
 
-pub fn codes(lo: u8, hi: u8) -> Tags { (lo..=hi.min(126)).fold(0, |t, c| t | 1 << c) }
-
 /* The runs of codes, as the CI reads them. */
 pub fn runs(t: Tags) -> Vec<(u8, u8)> {
     let mut out: Vec<(u8, u8)> = Vec::new();
@@ -34,6 +32,18 @@ pub fn runs(t: Tags) -> Vec<(u8, u8)> {
    `f` bound to one, builtin method `name` of a value of code `c` made at a site, the generator or coroutine of context `x`. */
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Known { No, Type(u8), Body(u32), Site(u32), Obj(u32, u32), Bound(u32, u32, u32), Meth(u8, u32, u32), Gen(u32) }
+
+impl Known {
+    /* Instances of one class made at two sites keep their class, their site then any (NO). */
+    pub fn join(self, o: Known) -> Known {
+        match (self, o) {
+            _ if self == o => self,
+            (Known::Obj(c, _), Known::Obj(d, _)) if c == d => Known::Obj(c, NO),
+            (Known::Bound(f, c, _), Known::Bound(g, d, _)) if (f, c) == (g, d) => Known::Bound(f, c, NO),
+            _ => Known::No,
+        }
+    }
+}
 
 /* The type of a value: its tags, the integers it may be, and which value it is when known. */
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -51,11 +61,11 @@ impl Ty {
     pub fn join(&self, o: &Ty) -> Ty {
         // Unbound is no value: the other side keeps its integers and which value it is.
         if self.tags & !UNBOUND == 0 || o.tags & !UNBOUND == 0 { let (v, u) = if self.tags & !UNBOUND == 0 { (o, self) } else { (self, o) }; return Ty { tags: v.tags | u.tags, ..*v }; }
-        Ty { tags: self.tags | o.tags, lo: self.lo.min(o.lo), hi: self.hi.max(o.hi), known: if self.known == o.known { self.known } else { Known::No } }
+        Ty { tags: self.tags | o.tags, lo: self.lo.min(o.lo), hi: self.hi.max(o.hi), known: self.known.join(o.known) }
     }
     /* Every value of `self` is one of `o`. */
     pub fn within(&self, o: &Ty) -> bool {
-        self.tags == 0 || self.tags & !o.tags == 0 && o.lo <= self.lo && self.hi <= o.hi && (o.known == Known::No || o.known == self.known)
+        self.tags == 0 || self.tags & !o.tags == 0 && o.lo <= self.lo && self.hi <= o.hi && o.known.join(self.known) == o.known
     }
 }
 
@@ -93,7 +103,7 @@ impl State {
 pub struct Typed<'c> { pub prog: step::Prog<'c>, pub tree: tree::Tree }
 
 pub fn typed<'c>(chunk: &'c crate::parser::SSAChunk, rules: &'c read::Rules) -> Result<Typed<'c>, String> {
-    let prog = step::Prog::new(chunk, rules);
+    let prog = step::Prog::new(chunk, rules)?;
     let tree = tree::grow(&prog);
     check::types_check(&prog, &tree)?;
     Ok(Typed { prog, tree })
@@ -112,7 +122,7 @@ impl Typed<'_> {
         dead
     }
 
-    /* How many of the values instructions take have one type over every path, of how many: `edge build --count`. */
+    /* Type coverage: how many of the values instructions take have one type over every path, of how many. */
     pub fn count(&self) -> (usize, usize) {
         let (mut proven, mut total) = (0, 0);
         for (b, body) in self.prog.bodies.iter().enumerate() {

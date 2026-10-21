@@ -39,7 +39,8 @@ pub struct Row {
 
 #[derive(Default)]
 pub struct Rules {
-    pub tags: Vec<(String, u8, u8)>,
+    // Each exact type by its code, the place of its name in BUILTIN_TYPES, the program's own kinds past them.
+    pub tags: Vec<(String, u8)>,
     // By opcode name and operand, `type.name` of a method, or `Truth`.
     rows: Vec<(String, Option<u16>, Row)>,
 }
@@ -64,14 +65,13 @@ impl Rules {
         let lines: Vec<Vec<&str>> = lines.map(|l| l.split(' ').collect()).collect();
         let mut r = Rules::default();
         // The tags first, as rows name them.
-        for w in &lines { if let ["tag", n, lo, hi] = w[..] { r.tags.push((n.to_string(), int(lo)? as u8, int(hi)? as u8)); } }
-        if r.tags.iter().any(|t| t.2 > 126) { return Err("edge.ept: a tag code past 126".into()); }
+        for w in &lines { if let ["tag", n, c] = w[..] { r.tags.push((n.to_string(), u8::try_from(int(c)?).ok().filter(|&c| c < 127).ok_or_else(|| bad(c, "a code below 127"))?)); } }
         let ops: Vec<String> = OpCode::ALL.iter().map(|o| format!("{o:?}")).collect();
         for w in &lines {
             let (name, at) = match w.get(1).map(|n| n.split_once('@')) { Some(Some((n, a))) => (n, Some(int(a)? as u16)), _ => (*w.get(1).unwrap_or(&""), None) };
             let op = name == "Truth" || ops.iter().any(|o| o == name);
             match w[0] {
-                "tag" if w.len() == 4 => {}
+                "tag" if w.len() == 3 => {}
                 // The stack effects are `code::effect`'s, tested against the VM.
                 "stack" if op && w.len() == 4 => {}
                 "rule" if op => { let row = r.row(&w[2..])?; r.rows.push((name.into(), at, row)); }
@@ -90,7 +90,7 @@ impl Rules {
         }
     }
 
-    pub fn tag(&self, name: &str) -> Option<Tags> { self.tags.iter().find(|t| t.0 == name).map(|&(_, lo, hi)| super::codes(lo, hi)) }
+    pub fn tag(&self, name: &str) -> Option<Tags> { self.tags.iter().find(|t| t.0 == name).map(|t| 1 << t.1) }
 
     fn row(&self, w: &[&str]) -> Result<Row, String> {
         let mut row = Row::default();
