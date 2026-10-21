@@ -27,6 +27,7 @@ fn err(id: u32) -> i64 { (TAG_ERR | (id as u64) << 4) as i64 }
 pub fn output(rt: &Rt) -> String { rt.vm.output_text() }
 pub fn error(rt: &Rt) -> Option<String> { rt.vm.reg_error.as_ref().map(VmErr::render) }
 pub fn chunk(rt: &Rt) -> &'static SSAChunk { rt.bodies[0].chunk }
+pub fn type_name(rt: &Rt, v: i64) -> &str { rt.vm.type_name(Val(v as u64)) }
 
 /* One body the glue runs, the module's first then each function's at its index plus one. */
 struct Body { chunk: &'static SSAChunk, code: Rc<Code>, pool: usize }
@@ -62,14 +63,14 @@ fn raised(vm: &mut VM<'static>, e: VmErr) -> i64 {
 }
 
 fn exc_id(vm: &VM<'static>, e: &VmErr) -> u32 {
-    let at = |n: &str| crate::parser::BUILTIN_TYPES.iter().position(|&t| t == n);
     let name = e.class_name();
-    if let Some(i) = at(&name) { return i as u32; }
+    let t = type_id(&name);
+    if t != u32::MAX { return t; }
     // A user class takes the first builtin of its order of resolution.
     let class = vm.pending.exc_val.and_then(|v| match vm.heap.try_get(v) { Some(HeapObj::Instance(c, _)) => Some(*c), _ => None });
     let mro = class.and_then(|c| vm.mro_cache.get(&c.0).cloned());
-    mro.iter().flat_map(|m| m.iter().copied()).find_map(|c| match vm.heap.try_get(c) { Some(HeapObj::Class(n, ..)) => at(n), _ => None })
-        .or_else(|| at("Exception")).unwrap_or(0) as u32
+    mro.iter().flat_map(|m| m.iter().copied()).map(|c| match vm.heap.try_get(c) { Some(HeapObj::Class(n, ..)) => type_id(n), _ => u32::MAX })
+        .find(|&t| t != u32::MAX).unwrap_or(const { type_id("Exception") })
 }
 
 #[inline(always)]
@@ -215,7 +216,7 @@ unsafe fn slow(rt: &mut Rt, site: i64, op: OpCode, abc: [i64; 3], rest: *mut i64
         Ok(Flow::Return(v)) => { rt.returned = v; err(RETURN) }
         Ok(Flow::Jump(k)) => err(JUMP | k as u32),
         // A loop's end is no error the VM keeps, only its id.
-        Ok(Flow::Ended) => err(crate::parser::BUILTIN_TYPES.iter().position(|&t| t == "StopIteration").unwrap_or(0) as u32),
+        Ok(Flow::Ended) => err(const { type_id("StopIteration") }),
         Ok(Flow::Next) => {
             let got = &vm.stack[at.min(vm.stack.len())..];
             for (k, &v) in got.iter().enumerate().skip(1) { unsafe { *rest.add(k - 1) = v.0 as i64; } }
@@ -317,24 +318,60 @@ pub fn handler(op: OpCode) -> Option<Handler> {
 /// `rt` comes from `edge_boot`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn heap_type(rt: *mut Rt, v: i64) -> u32 {
-    let (v, types, other) = (Val(v as u64), crate::parser::BUILTIN_TYPES, crate::types::OTHER_KINDS);
-    let at = |n: &str| types.iter().position(|&t| t == n).or_else(|| other.iter().position(|&t| t == n).map(|k| types.len() + k)).map_or(u32::MAX, |i| i as u32);
-    if v.is_int() { return at("int"); }
-    if v.is_float() { return at("float"); }
-    if v.is_bool() { return at("bool"); }
-    if v.is_none() { return at("NoneType"); }
+    // Each kind of value by the name `type_name_by` gives it, a constant once compiled, as tests/native.rs checks.
+    macro_rules! id { ($n:literal) => {{ const ID: u32 = type_id($n); ID }}; }
+    let v = Val(v as u64);
+    if v.is_int() { return id!("int"); }
+    if v.is_float() { return id!("float"); }
+    if v.is_bool() { return id!("bool"); }
+    if v.is_none() { return id!("NoneType"); }
     if !v.is_heap() && !v.is_foreign() { return u32::MAX; }
     let vm = unsafe { &*(*rt).vm };
     match vm.heap.try_get(v) {
         None if v.is_heap() => u32::MAX,
-        Some(HeapObj::Instance(c, _)) if matches!(vm.heap.try_get(*c), Some(HeapObj::Class(..))) => at("instance"),
-        Some(HeapObj::Func(..) | HeapObj::BoundMethod(..) | HeapObj::NativeFn(_) | HeapObj::Extern(_) | HeapObj::BoundUserMethod(..)) => at("function"),
-        Some(HeapObj::Iter(..)) => at("iterator"),
-        Some(HeapObj::ExcInstance(name, ..)) => at(name),
-        // A plugin's own object, and anything else no table names, is an object.
-        _ => match at(vm.type_name(v)) { u32::MAX => at("object"), t => t },
+        Some(HeapObj::Str(_)) => id!("str"),
+        Some(HeapObj::Bytes(_)) => id!("bytes"),
+        Some(HeapObj::ByteArray(_)) => id!("bytearray"),
+        Some(HeapObj::MemoryView(_)) => id!("memoryview"),
+        Some(HeapObj::List(_)) => id!("list"),
+        Some(HeapObj::Dict(_)) => id!("dict"),
+        Some(HeapObj::FrozenDict(_)) => id!("frozendict"),
+        Some(HeapObj::Set(_)) => id!("set"),
+        Some(HeapObj::FrozenSet(_)) => id!("frozenset"),
+        Some(HeapObj::Tuple(_)) => id!("tuple"),
+        Some(HeapObj::Range(..) | HeapObj::BigRange(..)) => id!("range"),
+        Some(HeapObj::Slice(..)) => id!("slice"),
+        Some(HeapObj::Type(_) | HeapObj::Class(..)) => id!("type"),
+        Some(HeapObj::Instance(c, _)) if matches!(vm.heap.try_get(*c), Some(HeapObj::Class(..))) => id!("instance"),
+        Some(HeapObj::Func(..) | HeapObj::BoundMethod(..) | HeapObj::NativeFn(_) | HeapObj::Extern(_) | HeapObj::BoundUserMethod(..)) => id!("function"),
+        Some(HeapObj::Iter(..)) => id!("iterator"),
+        Some(HeapObj::Module(..)) => id!("module"),
+        Some(HeapObj::Cell(_)) => id!("cell"),
+        Some(HeapObj::Code(_) | HeapObj::FnCode(_)) => id!("code"),
+        Some(HeapObj::ExcInstance(name, ..)) => by_name(name),
+        // What the VM names by its state, a suspended body's kind or a type parameter's, and a plugin's object.
+        _ => match by_name(vm.type_name(v)) { u32::MAX => id!("object"), t => t },
     }
 }
+
+/* A type's id by its name: its index in `BUILTIN_TYPES`, then past its end in `OTHER_KINDS`, u32::MAX for none. A
+   constant wherever the name is, so the code a type claim stands on is one compare. */
+pub const fn type_id(name: &str) -> u32 {
+    let (types, other) = (crate::parser::BUILTIN_TYPES, crate::types::OTHER_KINDS);
+    let mut k = 0;
+    while k < types.len() + other.len() {
+        let t = if k < types.len() { types[k] } else { other[k - types.len()] };
+        let (a, b) = (t.as_bytes(), name.as_bytes());
+        let mut j = 0;
+        while j < a.len() && j < b.len() && a[j] == b[j] { j += 1; }
+        if j == a.len() && j == b.len() { return k as u32; }
+        k += 1;
+    }
+    u32::MAX
+}
+
+#[cold]
+fn by_name(name: &str) -> u32 { type_id(name) }
 
 /* The value a frame returns once a handler gave `RETURN`. */
 /// # Safety

@@ -22,9 +22,9 @@ pub const ITEM: u32 = u32::MAX;
 const NAMES: [&str; 18] = ["TypeError", "int", "bool", "float", "complex", "str", "bytes", "NoneType", "type", "function", "instance", "generator", "coroutine", "AttributeError", "NameError", "UnboundLocalError", "AssertionError", "GeneratorExit"];
 
 /* One body of the program: its code, kind, where each name lives, its module, the bodies its MakeFunction and MakeClass
-   make, the program-wide id of each name, each parameter's kind, slot and default, where back edges land, and whether an
-   `async def` made it. */
-pub struct Body<'c> { pub chunk: &'c SSAChunk, pub kind: Kind, pub binds: Vec<Binding>, pub module: u32, pub fns: Vec<u32>, pub classes: Vec<u32>, pub names: Vec<u32>, pub params: Vec<(ParamKind, usize, bool)>, pub heads: Vec<bool>, pub coro: bool }
+   make, the program-wide id of each name, each parameter's kind, slot and default, where back edges land, whether an
+   `async def` made it, and each finally body from its handler to the first EndFinally no finally inside it opened. */
+pub struct Body<'c> { pub chunk: &'c SSAChunk, pub kind: Kind, pub binds: Vec<Binding>, pub module: u32, pub fns: Vec<u32>, pub classes: Vec<u32>, pub names: Vec<u32>, pub params: Vec<(ParamKind, usize, bool)>, pub heads: Vec<bool>, pub coro: bool, pub finally: Vec<(usize, usize)> }
 
 // The rules, the bodies, each name of the program and whether the VM has a builtin of that name.
 pub struct Prog<'c> { pub rules: &'c Rules, pub bodies: Vec<Body<'c>>, pub names: Vec<String>, builtins: Vec<bool> }
@@ -46,7 +46,16 @@ impl<'c> Prog<'c> {
         let mut heads = vec![false; c.instructions.len() + 1];
         for (i, x) in c.instructions.iter().enumerate() { if x.opcode == O::Jump && x.operand as usize <= i { heads[x.operand as usize] = true; } }
         let params = match kind { Kind::Function(fi) => vm.params_of(fi).iter().zip(params).map(|(&(k, s), d)| (k, s, d.ends_with('='))).collect(), _ => Vec::new() };
-        self.bodies.push(Body { chunk: c, kind, binds, module, fns: Vec::new(), classes: Vec::new(), names, params, heads, coro: false });
+        let finally = c.instructions.iter().filter(|x| x.opcode == O::SetupFinally).filter_map(|x| {
+            let mut d = 0;
+            let end = (x.operand as usize..c.instructions.len()).find(|&i| match c.instructions[i].opcode {
+                O::SetupFinally => { d += 1; false }
+                O::EndFinally if d > 0 => { d -= 1; false }
+                o => o == O::EndFinally,
+            });
+            end.map(|e| (x.operand as usize, e))
+        }).collect();
+        self.bodies.push(Body { chunk: c, kind, binds, module, fns: Vec::new(), classes: Vec::new(), names, params, heads, coro: false, finally });
         let fns: Vec<u32> = c.functions.iter().map(|f| self.walk(vm, &f.1, module, &f.0, ids)).collect();
         for x in c.instructions.iter().filter(|x| x.opcode == O::MakeCoroutine) { if let Some(&f) = fns.get(x.operand as usize) { self.bodies[f as usize].coro = true; } }
         let classes = c.classes.iter().map(|k| self.walk(vm, k, module, &[], ids)).collect();
@@ -106,7 +115,11 @@ impl<'a, 'c> Step<'a, 'c> {
         if f.finally { s.unwind.push(Why::Reraise(e)); } else { s.stack.push(Entry::of(e)); }
         self.go(f.handler as usize, s);
     }
-    fn cut(s: &mut State, f: &Try) { s.stack.truncate(f.depth[0] as usize); s.iters.truncate(f.depth[1] as usize); s.unwind.truncate(f.depth[2] as usize); }
+    fn cut(s: &mut State, f: &Try) {
+        s.stack.truncate(f.depth[0] as usize);
+        s.iters.truncate(f.depth[1] as usize);
+        s.unwind.truncate(f.depth[2] as usize);
+    }
     /* The innermost finally handler, popping the frames above it as the VM does. */
     fn cleanup(s: &mut State) -> Option<usize> {
         while let Some(f) = s.tries.pop() { Self::cut(s, &f); if f.finally { return Some(f.handler as usize); } }
@@ -137,8 +150,8 @@ impl<'a, 'c> Step<'a, 'c> {
         let bound = (plain && given.len() <= ps.len() && ps.iter().all(|p| p.0 == ParamKind::Normal)).then(|| {
             (0..ps.len()).map(|k| given.get(k).copied().or_else(|| ps[k].2.then(|| self.table(DEFAULTS | f, k as u32)).flatten())).collect::<Option<Vec<_>>>()
         }).flatten();
-        let any = vec![Ty::ANY; ps.len()];
-        self.call(s, f, bound.unwrap_or(any))
+        let n = ps.len();
+        self.call(s, f, bound.unwrap_or(vec![Ty::ANY; n]))
     }
 
     /* Calls `callee` with these values: each value it may return, or none when its rows already went on. */
@@ -157,8 +170,10 @@ impl<'a, 'c> Step<'a, 'c> {
             Known::Body(f) if self.p.is(f, Kind::Function(0)) => self.user(s, f, &args, plain).into_iter().collect(),
             Known::Bound(f, c, at) => self.user(s, f, &[&[inst(c, at)][..], &args].concat(), plain).into_iter().collect(),
             Known::Meth(code, name, at) if plain => {
-                let ins = [&[Entry::of(Ty::of(1 << code).with(if at == NO { Known::No } else { Known::Site(at) }))][..], a].concat();
-                let rows = self.p.rules.rows(&alloc::format!("{}.{}", self.p.leaf(code), self.p.names[name as usize]), 0).into_iter().filter(|r| r.ins.len() == ins.len()).collect();
+                let recv = Entry::of(Ty::of(1 << code).with(if at == NO { Known::No } else { Known::Site(at) }));
+                let ins = [&[recv][..], a].concat();
+                let key = alloc::format!("{}.{}", self.p.leaf(code), self.p.names[name as usize]);
+                let rows = self.p.rules.rows(&key, 0);
                 self.rows(s, ip, rows, &ins, 1, then);
                 Vec::new()
             }
@@ -325,6 +340,7 @@ impl<'a, 'c> Step<'a, 'c> {
     /* An opcode, method or truth test by its rows, each row it meets a path of its own on to `then`; values no row takes give anything. */
     fn rows(&mut self, s: &State, ip: usize, rows: Vec<&Row>, a: &[Entry], m: usize, then: usize) {
         let tys: Vec<Ty> = a.iter().map(|e| e.ty).collect();
+        let rows: Vec<&Row> = rows.into_iter().filter(|r| r.ins.len() == a.len()).collect();
         self.foreign(&tys, false);
         if !self.covers(&rows, &tys, 0) {
             // Their containers may change, and code may run through their objects and functions.
@@ -335,11 +351,14 @@ impl<'a, 'c> Step<'a, 'c> {
             self.go(then, s);
         }
         for (k, row) in rows.iter().enumerate() {
-            let Some(ins) = row.ins.iter().zip(&tys).map(|(p, v)| self.pat(p, v)).collect::<Option<Vec<Ty>>>().filter(|i| i.len() == tys.len()) else { continue };
+            let Some(ins) = row.ins.iter().zip(&tys).map(|(p, v)| self.pat(p, v)).collect::<Option<Vec<Ty>>>() else { continue };
             self.foreign(&row.calls.iter().map(|&j| ins[j]).collect::<Vec<_>>(), true);
             let mut s = s.clone();
             for (e, t) in a.iter().zip(&ins) { if let Some(v) = s.slots.get_mut(e.from as usize) { *v = *t; } }
-            let b = |r: Rhs, lo: bool| match r { Rhs::N(n) => n as i128, Rhs::A(j) => if lo { ins[j].lo as i128 } else { ins[j].hi as i128 } };
+            let b = |r: Rhs, lo: bool| match r {
+                Rhs::N(n) => n as i128,
+                Rhs::A(j) | Rhs::Less(j) => (if lo { ins[j].lo as i128 } else { ins[j].hi as i128 }) - matches!(r, Rhs::Less(_)) as i128,
+            };
             // The exact integer of result `r`, its bounds past an i64 open.
             let exact = |r: usize| row.says.iter().find_map(|x| match x { (q, Out::Exact(op, a, c)) if *q == r => Some((*op, *a, *c)), _ => None }).map(|(op, x, y)| {
                 let f = |a: i128, c: i128| match op { '+' => a + c, '-' => a - c, '*' => a * c, _ => a };
@@ -386,7 +405,11 @@ impl<'a, 'c> Step<'a, 'c> {
             O::LoadConst => { let v = chunk.constants.get(k as usize).map_or(Ty::ANY, |c| self.p.konst(c)); self.push(next, &s, [v]) }
             O::LoadTrue | O::LoadFalse | O::LoadNone => { let v = self.p.konst(&if op == O::LoadNone { Value::None } else { Value::Bool(op == O::LoadTrue) }); self.push(next, &s, [v]) }
             O::LoadName => if let Some(e) = self.load(&mut s, k) { s.stack.push(e); self.go(next, s) },
-            O::LoadGlobal => { let v = self.global(self.name(k)); if v.tags & UNBOUND != 0 { self.raise(&s, self.p.tag("NameError")); } self.push(next, &s, [v.minus(UNBOUND)]) }
+            O::LoadGlobal => {
+                let v = self.global(self.name(k));
+                if v.tags & UNBOUND != 0 { self.raise(&s, self.p.tag("NameError")); }
+                self.push(next, &s, [v.minus(UNBOUND)])
+            }
             O::StoreName | O::StoreGlobal => { let v = pop!(); self.store(&mut s, k, v.ty, op == O::StoreGlobal); self.go(next, s) }
             O::Del => { self.store(&mut s, k, Ty::of(UNBOUND), false); self.go(next, s) }
             // Versions of one name share its slot, so a join of two of them moves nothing.
@@ -398,18 +421,25 @@ impl<'a, 'c> Step<'a, 'c> {
             O::Dup2 => { let (y, x) = (pop!(), pop!()); s.stack.extend([x, y, x, y]); self.go(next, s) }
             O::Swap => { let (y, x) = (pop!(), pop!()); s.stack.extend([y, x]); self.go(next, s) }
             O::Rot3 => { let (z, y, x) = (pop!(), pop!(), pop!()); s.stack.extend([y, z, x]); self.go(next, s) }
-            O::Jump => self.go(k as usize, s),
+            // A jump out of a finally body leaves its reason behind, never read again: each way into one pushes its own.
+            O::Jump => {
+                let n = self.body().finally.iter().filter(|r| (r.0..r.1).contains(&ip) && !(r.0..r.1).contains(&(k as usize))).count();
+                s.unwind.truncate(s.unwind.len().saturating_sub(n));
+                self.go(k as usize, s)
+            }
             O::JumpIfFalse | O::JumpIfFalseOrPop | O::JumpIfTrueOrPop | O::Assert => {
                 let e = pop!();
                 self.truth(&s, ip, e, |me, mut s, side| match op {
                     O::JumpIfFalse => me.go(if side { next } else { k as usize }, s),
-                    O::Assert => if side { me.go(next, s) } else { let a = me.p.tag("AssertionError"); me.raise(&s, a) },
+                    O::Assert if side => me.go(next, s),
+                    O::Assert => { let a = me.p.tag("AssertionError"); me.raise(&s, a) }
                     _ if side == (op == O::JumpIfTrueOrPop) => { s.stack.push(Entry::of(e.ty)); me.go(k as usize, s) }
                     _ => me.go(next, s),
                 })
             }
             O::GetIter if k != crate::parser::ITER_VALUE => {
-                let (e, at) = (pop!(), self.outs.len());
+                let e = pop!();
+                let at = self.outs.len();
                 self.rows(&s, ip, self.p.rules.rows("GetIter", k), &[e], 0, next);
                 // The iterated value moves to the loop on each way the rows go on.
                 for (to, st) in &mut self.outs[at..] { if matches!(to, To::Ip(t) if *t == next) { st.iters.push(e.ty); } }
@@ -464,7 +494,8 @@ impl<'a, 'c> Step<'a, 'c> {
             }
             // An imported module and a `with` block's manager are anything, and so what reading or calling them gives.
             O::LoadModule => self.push(next, &s, [Ty::ANY]),
-            O::WithEnter | O::WithExit => { if op == O::WithEnter { pop!(); } s.stack.extend([Entry::of(Ty::ANY); 5].into_iter().take(if op == O::WithEnter { 2 } else { 5 })); self.go(next, s) }
+            O::WithEnter => { pop!(); s.stack.extend([Entry::of(Ty::ANY); 2]); self.go(next, s) }
+            O::WithExit => { s.stack.extend([Entry::of(Ty::ANY); 5]); self.go(next, s) }
             O::StoreAttr => {
                 let (v, o) = (pop!(), pop!());
                 match o.ty.known {

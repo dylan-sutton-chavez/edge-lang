@@ -22,6 +22,14 @@ mod test {
     fn a_loop_keeps_its_ints_and_a_call_its_result() {
         let src = "def f(n):\n    s = 0\n    for i in range(n):\n        if i % 2 == 0:\n            s = s + i\n    return s\nx = f(10)\nprint(x)\n";
         assert_eq!(read(src, 5, "i"), [code("int")]);
+        // range(10) holds 0..=9, so `i` never reaches 10.
+        let rules = Rules::read(&ept()).unwrap();
+        let (chunk, _) = compiler::code::compile(src);
+        let t = typed(&chunk, &rules).unwrap();
+        let body = t.prog.bodies[1].chunk;
+        let i = body.names.iter().position(|n| n.starts_with("i_")).map(|k| body.canonical.get(k).map_or(k, |&c| c as usize)).unwrap();
+        let his: Vec<i64> = t.tree.ctxs.iter().filter(|c| c.body == 1).flat_map(|c| c.seen.iter().flatten()).map(|s| s.slots[i]).filter(|v| v.tags == 1 << code("int").0).map(|v| v.hi).collect();
+        assert!(!his.is_empty() && his.iter().all(|&h| h <= 9), "{his:?}");
         assert_eq!(read(src, 6, "s"), [code("int")]);
         assert_eq!(read(src, 8, "x"), [code("int")]);
     }
@@ -93,7 +101,7 @@ mod test {
     #[test]
     fn module_code_keeps_its_types() {
         // A name deleted and read again ends: unbound alone holds no integer.
-        assert_eq!(read("x = 5\ndel x\ntry:\n    print(x)\nexcept NameError:\n    print('gone')\n", 5, "NameError"), [code("NameError")]);
+        assert_eq!(read("x = 5\ndel x\ntry:\n    print(x)\nexcept NameError:\n    print('gone')\n", 5, "NameError"), [code("type")]);
         let src = "x = 1\ny = x + 1\nprint(y)\n";
         assert_eq!(read(src, 3, "y"), [code("int")]);
         let rules = Rules::read(&ept()).unwrap();
@@ -127,5 +135,7 @@ mod test {
         assert!(Rules::read(&(ept() + "rule Add int int -> int | soon a0\n")).is_err());
         assert!(Rules::read(&(ept() + "frobnicate Add\n")).is_err());
         assert!(Rules::read(&(ept() + "tag int 1 1\n")).is_err(), "a tag is a name and one code");
+        // The shipped file holds rules only once Spider Monkey's rules are copied in for these very sources.
+        if let Err(e) = compiler::types::rules() { assert!(e.contains("other Edge sources"), "{e}"); }
     }
 }

@@ -11,9 +11,9 @@ pub const SOURCES: &str = include_str!(concat!(env!("OUT_DIR"), "/sources.hash")
 #[derive(Clone, Debug)]
 pub enum Pat { In(Tags), Type(u8), Int(i64), None, Bool(bool) }
 
-/* An operand or a number. */
+/* An operand, an operand less one (a bound `a<j>-1`), or a number. */
 #[derive(Clone, Copy, Debug)]
-pub enum Rhs { A(usize), N(i64) }
+pub enum Rhs { A(usize), Less(usize), N(i64) }
 
 #[derive(Clone, Debug)]
 pub enum Learn { In(Tags), Rel(&'static str, Rhs) }
@@ -50,8 +50,15 @@ pub struct Rules {
 fn bad(w: &str, what: &str) -> String { format!("edge.ept: '{w}' is not {what}") }
 fn int(w: &str) -> Result<i64, String> { w.parse().map_err(|_| bad(w, "an integer")) }
 fn pos(w: &str, side: char) -> Result<usize, String> { w.strip_prefix(side).and_then(|n| n.parse().ok()).ok_or_else(|| bad(w, "a position")) }
-fn rhs(w: &str, open: i64) -> Result<Rhs, String> { if w.is_empty() { Ok(Rhs::N(open)) } else if w.starts_with('a') { pos(w, 'a').map(Rhs::A) } else { int(w).map(Rhs::N) } }
-fn span(w: &str) -> Result<(Rhs, Rhs), String> { let (lo, hi) = w.split_once("..").ok_or_else(|| bad(w, "a range"))?; Ok((rhs(lo, i64::MIN)?, rhs(hi, i64::MAX)?)) }
+fn rhs(w: &str, open: i64) -> Result<Rhs, String> {
+    if w.is_empty() { return Ok(Rhs::N(open)); }
+    if let Some(a) = w.strip_suffix("-1").filter(|a| a.starts_with('a')) { return pos(a, 'a').map(Rhs::Less); }
+    if w.starts_with('a') { pos(w, 'a').map(Rhs::A) } else { int(w).map(Rhs::N) }
+}
+fn span(w: &str) -> Result<(Rhs, Rhs), String> {
+    let (lo, hi) = w.split_once("..").ok_or_else(|| bad(w, "a range"))?;
+    Ok((rhs(lo, i64::MIN)?, rhs(hi, i64::MAX)?))
+}
 fn num(r: Rhs) -> Result<i64, String> { if let Rhs::N(n) = r { Ok(n) } else { Err("edge.ept: an operand where a number goes".into()) } }
 
 impl Rules {

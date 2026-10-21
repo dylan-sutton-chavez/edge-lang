@@ -129,7 +129,7 @@ rule Truth int -> bool | true a0 int
 rule Truth bool -> bool | true a0 == 1 | false a0 == 0
 rule Truth NoneType -> bool | r0 in 0..0
 rule Truth str -> bool
-rule CallRange int -> range | holds r0 int in 0..a0
+rule CallRange@1 int -> range | holds r0 int in 0..a0-1
 rule Add int str -> ! | raises TypeError
 rule Add str int -> ! | raises TypeError
 rule Is * * -> bool
