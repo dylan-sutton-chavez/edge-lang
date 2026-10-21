@@ -189,7 +189,7 @@ fn code(ir: &mut String, ops: &mut Vec<String>, b: &Body, bodies: &[Body], typed
         let seen = states(typed, b, ip);
         let lay_here = laid.iter().find(|l| l.0 == ip + 2 || l.0 == ip + 1 || l.0 == ip);
         // A stack move reads its inputs and writes them back in their new order.
-        let order: Option<&[usize]> = match ins.opcode { O::Dup => Some(&[0, 0]), O::Dup2 => Some(&[0, 1, 0, 1]), O::Swap => Some(&[1, 0]), O::Rot3 => Some(&[2, 0, 1]), O::PopTop => Some(&[]), _ => None };
+        let order: Option<&[usize]> = match ins.opcode { O::Dup => Some(&[0, 0]), O::Dup2 => Some(&[0, 1, 0, 1]), O::Swap => Some(&[1, 0]), O::Rot3 => Some(&[1, 2, 0]), O::PopTop => Some(&[]), _ => None };
         if let Some(order) = order {
             for j in 0..pops { let _ = writeln!(ir, "  %m{k}.{j} = load i64, ptr %{p}s{}", base + j); }
             for (j, &from) in order.iter().enumerate() { let _ = writeln!(ir, "  store i64 %m{k}.{from}, ptr %{p}s{}", base + j); }

@@ -128,3 +128,8 @@ builtin sorted list -> list
 builtin map function list -> iterator | calls a0
 rule Truth function -> bool | r0 in 1..1
 builtin filter * * -> iterator | calls *
+rule BitXor int int -> int
+rule BitXor int * -> bool | raises ValueError
+rule BitXor * * -> str | raises TypeError
+rule CallMin * -> int | true a0 str
+rule CallMin int int -> bool | true a0 int
