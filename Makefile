@@ -47,7 +47,7 @@ wasm:
 BITCODE_TARGETS := x86_64-unknown-linux-musl aarch64-unknown-linux-musl aarch64-apple-darwin wasm32-wasip1
 LLVM_BIN = $(shell rustc --print sysroot)/lib/rustlib/$(shell rustc -vV | sed -n 's/host: //p')/bin
 LLVM_X ?= $(LLVM_BIN)
-INLINE := is_int is_float is_bool is_none is_heap is_undef is_err err_id as_int fits_int heap_type edge_go edge_back
+INLINE := is_int is_float is_bool is_none is_heap is_undef is_err err_id as_int fits_int edge_go edge_back
 bitcode: $(BITCODE_TARGETS:%=bitcode-%)
 inline: $(BITCODE_TARGETS:%=inline-%)
 bitcode-%: B = target/bitcode/$*$(if $(TORTURE),-torture)
@@ -59,7 +59,7 @@ bitcode-%:
 	$(LLVM_BIN)/llvm-as $(B)/vm.ll -o $(B)/vm.bc
 inline-%: B = target/bitcode/$*$(if $(TORTURE),-torture)
 inline-%: bitcode-%
-	$(LLVM_X)/llvm-extract --keep-const-init --rfunc '^op_' $(INLINE:%=--func %) -S $(B)/vm.bc -o $(B)/inline.ll
+	$(LLVM_X)/llvm-extract --rfunc '^op_' $(INLINE:%=--func %) -S $(B)/vm.bc -o $(B)/inline.ll
 	target/bitcode/bitcode inline $(B)/vm.ll $(B)/inline.ll
 	$(LLVM_BIN)/llvm-as $(B)/inline.ll -o $(B)/inline.bc
 

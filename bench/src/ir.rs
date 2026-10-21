@@ -26,8 +26,7 @@ pub fn checks(ir: &str, body: &str, prefix: &str) -> usize {
 
 /* The functions of `ir` that may reach `target` through calls, a call through a pointer reaching any function. */
 pub fn reach<'a>(ir: &'a str, target: &str) -> Vec<&'a str> {
-    // A symbol from the text after its `@`, quoted or plain, up to its argument list.
-    let name = |s: &'a str| match s.strip_prefix('"') { Some(q) => &q[..q.find('"').unwrap_or(q.len())], None => &s[..s.find(['(', ' ', ',']).unwrap_or(s.len())] };
+    let name = |s: &'a str| reach_name(s).unwrap_or(s);
     let graph: Vec<(&str, Vec<Option<&str>>)> = ir.split("\ndefine ").skip(1).filter_map(|f| {
         let body = &f[..f.find("\n}").unwrap_or(f.len())];
         let own = name(&body[body.find('@')? + 1..]);
@@ -44,4 +43,9 @@ pub fn reach<'a>(ir: &'a str, target: &str) -> Vec<&'a str> {
         if more.is_empty() { return may; }
         may.extend(more);
     }
+}
+
+/* A symbol from the text after its `@`, quoted or plain, up to its argument list. */
+pub fn reach_name(s: &str) -> Option<&str> {
+    Some(match s.strip_prefix('"') { Some(q) => &q[..q.find('"')?], None => &s[..s.find(['(', ' ', ',']).unwrap_or(s.len())] })
 }
