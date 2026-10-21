@@ -510,6 +510,6 @@
   {
     "given": { "main.py": "from .helper import f\nprint(f())\n", "helper.py": "def f():\n    return 1\n" },
     "run": ["build", "main.py"],
-    "fails": ["edge build compiles a single file for now, './helper.py' is an import"]
+    "fails": ["edge build compiles one file; './helper.py' is an import"]
   }
 ]

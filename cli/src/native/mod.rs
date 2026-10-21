@@ -69,8 +69,8 @@ pub fn build(manifest_path: &Path, file: Option<&Path>, opts: &Opts) -> Result<(
         true => (vec![entry.clone()], PathBuf::new()),
         false => {
             let src = std::fs::read_to_string(&entry).with_context(|| format!("reading {}", entry.display()))?;
-            // A native program carries one file for now, so an import is refused, and the file compiles as edge run compiles it.
-            if let Some(compiler::modules::ImportSpec::Bare(spec) | compiler::modules::ImportSpec::Relative(spec) | compiler::modules::ImportSpec::Root(spec)) = compiler::modules::scan_imports(&src).first() { bail!("edge build compiles a single file for now, '{spec}' is an import"); }
+            // A native program carries one file, so an import is refused, and the file compiles as edge run compiles it.
+            if let Some(compiler::modules::ImportSpec::Bare(spec) | compiler::modules::ImportSpec::Relative(spec) | compiler::modules::ImportSpec::Root(spec)) = compiler::modules::scan_imports(&src).first() { bail!("edge build compiles one file; '{spec}' is an import"); }
             let name = crate::host::driver::path_spec(&entry);
             let chunk = compiler::code::compile_with(&src, || Some(name.clone()), Box::new(compiler::modules::NoopResolver)).unwrap_or_else(|report| { eprintln!("{report}"); std::process::exit(1) });
             // Its SyntaxWarnings belong to compiling it, printed as edge run prints them and never again by the binary.
