@@ -84,7 +84,7 @@ impl Ty {
     }
 }
 
-/* A value on the stack, the slot it was read from, and when a row that learns made it, that row (ip << 8 | row) with the slots its operands came from. */
+/* A value on the stack, the slot it was read from, and when a row that learns made it, that row's place in edge.ept with the slots its operands came from. */
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct Entry { pub ty: Ty, pub from: u32, pub cond: u32, pub of: [u32; 3] }
 

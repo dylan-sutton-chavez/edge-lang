@@ -118,6 +118,13 @@ mod test {
     }
 
     #[test]
+    fn a_branch_learns_from_the_row_that_made_its_test() {
+        // `min` has a row of one operand before the one of two: the test of `min(a, b)` learns only from the second.
+        let t = typed_of("def f(a, b):\n    if min(a, b):\n        return a\n    return 'n'\nprint(f(1, 2))\n");
+        assert_eq!(compiler::types::runs(t.tree.ctxs.iter().find(|c| c.body == 1).unwrap().ret.tags), [code("int"), code("str")]);
+    }
+
+    #[test]
     fn module_code_keeps_its_types() {
         // A name deleted and read again ends: unbound alone holds no integer.
         assert_eq!(read("x = 5\ndel x\ntry:\n    print(x)\nexcept NameError:\n    print('gone')\n", 5, "NameError"), [code("type")]);

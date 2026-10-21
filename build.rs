@@ -1,5 +1,6 @@
-/* The hash `edge.ept`'s first line must carry: sha256 over every file under src/ but src/types/edge.ept, in the byte order
-   of their paths, each as its path from the root, a zero byte, its length as 8 bytes little-endian, and its bytes. */
+/* The hash `edge.ept`'s first line must carry: sha256 over every file under src/ but src/types/ (it reads the rules, it
+   does not define what the VM does), in the byte order of their paths, each as its path from the root, a zero byte, its
+   length as 8 bytes little-endian, and its bytes. */
 
 extern crate alloc;
 #[path = "src/util/sha256.rs"]
@@ -16,7 +17,7 @@ fn files(dir: &std::path::Path, out: &mut Vec<String>) {
 fn main() {
     let mut paths = Vec::new();
     files(std::path::Path::new("src"), &mut paths);
-    paths.retain(|p| p != "src/types/edge.ept");
+    paths.retain(|p| !p.starts_with("src/types/"));
     paths.sort();
     let mut fed = Vec::new();
     for p in &paths {
