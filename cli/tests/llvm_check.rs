@@ -54,7 +54,7 @@ fn flow() {
 fn checks(ir: &str) -> Vec<(&'static str, bool)> {
     let [fib, mix] = ["py_fib(", "py_mix("].map(|f| *ir::bodies(ir, f).first().unwrap_or_else(|| panic!("{ALARM}: no {f} in the module")));
     vec![
-        ("fib or mix reach the interpreter", ir::calls(fib, "edge_vm_loop") + ir::calls(mix, "edge_vm_loop") == 0),
+        ("fib or mix call what may reach the interpreter", ir::reaching(ir, fib, "edge_vm_loop") + ir::reaching(ir, mix, "edge_vm_loop") == 0),
         ("fib or mix still test a tag", ir::checks(ir, fib, "is_") + ir::checks(ir, mix, "is_") == 0),
         ("mix puts its tuple or its range on the heap", ir::calls(mix, "edge_alloc") == 0),
         ("mix stops at a safepoint, though only ints are live", ir::calls(mix, "edge_safepoint") == 0),
