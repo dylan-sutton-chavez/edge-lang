@@ -334,21 +334,38 @@ impl<'a, 'c> Step<'a, 'c> {
         }
     }
 
-    /* Whether the rows take every value of `a[j..]`, among the rows still in play. */
-    fn covers(&self, rows: &[&Row], a: &[Ty], j: usize) -> bool {
-        let Some(v) = a.get(j) else { return !rows.is_empty() };
-        (0..127).filter(|c| v.tags >> c & 1 == 1).all(|c| {
-            let one = Ty { tags: 1 << c, ..*v };
-            self.covers(&rows.iter().copied().filter(|r| r.ins.get(j).and_then(|p| self.pat(p, &one)) == Some(one)).collect::<Vec<_>>(), a, j + 1)
-        })
+    /* What each row takes of `a`: a value goes to the first row in file order that takes it whole, the rows before it taking their part of it (a constant); true when some value no row takes whole. */
+    fn firsts(&self, rows: &[&Row], a: &[Ty]) -> (Vec<Option<Vec<Ty>>>, bool) {
+        // The leaf tags of each operand that no row tells apart, as one class, so `*` is a few classes and not each tag.
+        let classes: Vec<Vec<Ty>> = a.iter().enumerate().map(|(j, v)| {
+            let mut cs: Vec<(Vec<u8>, Tags)> = Vec::new();
+            for c in (0..127).filter(|c| v.tags >> c & 1 == 1) {
+                let one = Ty { tags: 1 << c, ..*v };
+                let key: Vec<u8> = rows.iter().map(|r| self.pat(&r.ins[j], &one).map_or(0, |t| 1 + (t == one) as u8)).collect();
+                match cs.iter_mut().find(|x| x.0 == key) { Some(x) => x.1 |= 1 << c, None => cs.push((key, 1 << c)) }
+            }
+            cs.into_iter().map(|(_, tags)| Ty { tags, ..*v }).collect()
+        }).collect();
+        let (mut took, mut open, mut at) = (vec![None::<Vec<Ty>>; rows.len()], false, vec![0; a.len()]);
+        loop {
+            let Some(v) = at.iter().zip(&classes).map(|(&i, cs)| cs.get(i).copied()).collect::<Option<Vec<Ty>>>() else { return (took, false) };
+            open |= !rows.iter().enumerate().any(|(k, r)| {
+                let Some(ins) = r.ins.iter().zip(&v).map(|(p, v)| self.pat(p, v)).collect::<Option<Vec<Ty>>>() else { return false };
+                let whole = ins == v;
+                took[k] = Some(match took[k].take() { Some(t) => t.iter().zip(&ins).map(|(x, y)| x.join(y)).collect(), None => ins });
+                whole
+            });
+            if !(0..at.len()).any(|j| { at[j] += 1; at[j] < classes[j].len() || { at[j] = 0; false } }) { return (took, open); }
+        }
     }
 
-    /* An opcode, method or truth test by its rows, each row it meets a path of its own on to `then`; values no row takes give anything. */
+    /* An opcode, method or truth test by its rows, each row that takes a value a path of its own on to `then`; values no row takes whole give anything. */
     fn rows(&mut self, s: &State, ip: usize, rows: Vec<&Row>, a: &[Entry], m: usize, then: usize) {
         let tys: Vec<Ty> = a.iter().map(|e| e.ty).collect();
         let rows: Vec<&Row> = rows.into_iter().filter(|r| r.ins.len() == a.len()).collect();
         self.foreign(&tys, false);
-        if !self.covers(&rows, &tys, 0) {
+        let (took, open) = self.firsts(&rows, &tys);
+        if open {
             // Their containers may change, and code may run through their objects and functions.
             for v in &tys { match v.known { Known::Site(c) | Known::Obj(_, c) if c != NO => self.write(c, ITEM, Ty::ANY), _ => self.eff.wild |= v.tags & (self.p.tag("instance").tags | self.p.tag("function").tags) != 0 } }
             self.raise(s, Ty::ANY);
@@ -356,8 +373,8 @@ impl<'a, 'c> Step<'a, 'c> {
             s.stack.extend((0..m).map(|_| Entry::of(Ty::ANY)));
             self.go(then, s);
         }
-        for (k, row) in rows.iter().enumerate() {
-            let Some(ins) = row.ins.iter().zip(&tys).map(|(p, v)| self.pat(p, v)).collect::<Option<Vec<Ty>>>() else { continue };
+        for (k, (row, ins)) in rows.iter().zip(took).enumerate() {
+            let Some(ins) = ins else { continue };
             self.foreign(&row.calls.iter().flat_map(|&j| if j == usize::MAX { ins.clone() } else { vec![ins[j]] }).collect::<Vec<_>>(), true);
             let mut s = s.clone();
             for (e, t) in a.iter().zip(&ins) { if let Some(v) = s.slots.get_mut(e.from as usize) { *v = *t; } }
