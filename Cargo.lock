@@ -374,6 +374,7 @@ dependencies = [
 name = "edge-native"
 version = "0.9.6"
 dependencies = [
+ "dlmalloc",
  "edge-python",
 ]
 
