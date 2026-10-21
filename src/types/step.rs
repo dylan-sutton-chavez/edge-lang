@@ -99,10 +99,12 @@ impl<'a, 'c> Step<'a, 'c> {
     fn body(&self) -> &'a Body<'c> { &self.p.bodies[self.me() as usize] }
     fn site(&self, ip: usize) -> u32 { self.me() << 16 | ip as u32 }
     fn name(&self, i: u16) -> u32 { self.body().names.get(i as usize).copied().unwrap_or(NO) }
-    fn table(&self, owner: u32, field: u32) -> Option<Ty> {
-        if self.t.wild && owner >> 28 < 5 { return Some(Ty::ANY); }
-        self.t.tables.get(&(owner, field)).copied()
+    /* Each value a table entry may hold, or all of them joined. */
+    fn each(&self, owner: u32, field: u32) -> Option<Vec<Ty>> {
+        if self.t.wild && owner >> 28 < 5 { return Some(vec![Ty::ANY]); }
+        self.t.tables.get(&(owner, field)).cloned()
     }
+    fn table(&self, owner: u32, field: u32) -> Option<Ty> { self.each(owner, field).map(|vs| vs.iter().fold(Ty::NONE, |a, v| a.join(v))) }
     fn write(&mut self, owner: u32, field: u32, ty: Ty) { self.eff.writes.push((owner, field, ty)); }
     fn go(&mut self, ip: usize, s: State) { self.outs.push((To::Ip(ip), s)); }
     fn push(&mut self, ip: usize, s: &State, tys: impl IntoIterator<Item = Ty>) {
@@ -136,20 +138,20 @@ impl<'a, 'c> Step<'a, 'c> {
     fn give_up(&mut self) { (self.eff.gave_up, self.eff.wild) = (true, true); }
 
     /* Body `f` called with these arguments: its result, raised where it is called, None while the tree holds no context for them. */
-    fn call(&mut self, s: &State, f: u32, args: Vec<Ty>) -> Option<Ty> {
+    fn call(&mut self, s: &State, f: u32, args: Vec<Ty>) -> Option<Vec<Ty>> {
         self.eff.ran = true;
         let at = self.t.ctxs.iter().position(|c| c.body == f && c.args.len() == args.len() && c.args.iter().zip(&args).all(|(a, b)| a.same(b)) && args.iter().zip(&c.args).all(|(a, b)| a.within(b)));
         let Some(i) = at else { self.eff.calls.push((f, args)); return None };
         self.eff.reads.push(i);
         // A generator's or coroutine's body runs as it is stepped, the call giving the object that steps it.
         let b = &self.p.bodies[f as usize];
-        if b.chunk.is_generator || b.coro { return Some(self.p.tag(if b.coro { "coroutine" } else { "generator" }).with(Known::Gen(i as u32))); }
+        if b.chunk.is_generator || b.coro { return Some(vec![self.p.tag(if b.coro { "coroutine" } else { "generator" }).with(Known::Gen(i as u32))]); }
         self.raise(s, self.t.ctxs[i].raises);
-        Some(self.t.ctxs[i].ret)
+        Some(self.t.ctxs[i].ret.clone())
     }
 
     /* Calls user function `f` with values given by position (or not, `plain` false), each parameter by its slot and default. */
-    fn user(&mut self, s: &State, f: u32, given: &[Ty], plain: bool) -> Option<Ty> {
+    fn user(&mut self, s: &State, f: u32, given: &[Ty], plain: bool) -> Option<Vec<Ty>> {
         let ps = &self.p.bodies[f as usize].params;
         let bound = (plain && given.len() <= ps.len() && ps.iter().all(|p| p.0 == ParamKind::Normal)).then(|| {
             (0..ps.len()).map(|k| given.get(k).copied().or_else(|| ps[k].2.then(|| self.table(DEFAULTS | f, k as u32)).flatten())).collect::<Option<Vec<_>>>()
@@ -171,8 +173,8 @@ impl<'a, 'c> Step<'a, 'c> {
                 }
                 vec![me]
             }
-            Known::Body(f) if self.p.is(f, Kind::Function(0)) => self.user(s, f, &args, plain).into_iter().collect(),
-            Known::Bound(f, c, at) => self.user(s, f, &[&[inst(c, at)][..], &args].concat(), plain).into_iter().collect(),
+            Known::Body(f) if self.p.is(f, Kind::Function(0)) => self.user(s, f, &args, plain).unwrap_or_default(),
+            Known::Bound(f, c, at) => self.user(s, f, &[&[inst(c, at)][..], &args].concat(), plain).unwrap_or_default(),
             Known::Meth(code, name, at) if plain => {
                 let recv = Entry::of(Ty::of(1 << code).with(if at == NO { Known::No } else { Known::Site(at) }));
                 let ins = [&[recv][..], a].concat();
@@ -224,8 +226,8 @@ impl<'a, 'c> Step<'a, 'c> {
     fn lookup(&self, c: u32, name: &str) -> Vec<Ty> {
         let Some(all) = self.mro(c) else { return vec![Ty::ANY] };
         let id = self.p.names.iter().position(|n| n == name).map_or(NO, |i| i as u32);
-        let found = all.iter().filter_map(|&k| self.table(MEMBER | k, id));
-        if all.iter().all(|&k| self.p.bodies[k as usize].chunk.bases <= 1) { found.take(1).collect() } else { found.collect() }
+        let mut found = all.iter().filter_map(|&k| self.each(MEMBER | k, id));
+        if all.iter().all(|&k| self.p.bodies[k as usize].chunk.bases <= 1) { found.next().unwrap_or_default() } else { found.flatten().collect() }
     }
 
     /* Each value attribute `name` of `o` may be. */
@@ -234,7 +236,7 @@ impl<'a, 'c> Step<'a, 'c> {
         self.raise(s, self.p.tag("AttributeError"));
         match o.known {
             Known::Obj(c, at) if self.mro(c).is_some() && self.lookup(c, "__getattr__").is_empty() && self.lookup(c, "__getattribute__").is_empty() => {
-                let own = self.table(ATTR | c, name);
+                let own = self.each(ATTR | c, name).unwrap_or_default();
                 self.lookup(c, &n).into_iter().map(|m| match m.known { Known::Body(f) if self.p.is(f, Kind::Function(0)) => self.p.tag("function").with(Known::Bound(f, c, at)), _ => m }).chain(own).collect()
             }
             Known::Body(c) if self.p.is(c, Kind::Class) => self.lookup(c, &n),
@@ -244,31 +246,30 @@ impl<'a, 'c> Step<'a, 'c> {
         }
     }
 
-    /* The items of a container. */
-    fn item(&self, v: &Ty) -> Ty {
-        match v.known { Known::Site(s) | Known::Obj(_, s) => self.table(s, ITEM).unwrap_or(Ty::ANY), Known::Gen(x) => self.table(YIELDS | x, ITEM).unwrap_or(Ty::NONE), _ => Ty::ANY }
+    /* Each value the items of a container may be. */
+    fn item(&self, v: &Ty) -> Vec<Ty> {
+        match v.known { Known::Site(s) | Known::Obj(_, s) => self.each(s, ITEM).unwrap_or(vec![Ty::ANY]), Known::Gen(x) => self.each(YIELDS | x, ITEM).unwrap_or_default(), _ => vec![Ty::ANY] }
     }
 
-    fn global(&self, name: u32) -> Ty { self.table(GLOBAL | self.body().module, name).unwrap_or(Ty::NONE).join(&self.p.builtin(name)) }
+    fn global(&self, name: u32) -> Vec<Ty> { self.each(GLOBAL | self.body().module, name).unwrap_or_default().into_iter().chain([self.p.builtin(name)]).collect() }
 
     /* Name `i` of the body: a slot of its own frame (the module's names too), a member of a class body or else the module's,
        the module's name from a function. A closure's cell is anything. Raises when it may be unbound. */
-    fn load(&mut self, s: &mut State, i: u16) -> Option<Entry> {
+    fn load(&mut self, s: &mut State, i: u16) -> Vec<Entry> {
         let b = self.body();
         let own = s.slots.get(i as usize).copied().unwrap_or(Ty::of(UNBOUND));
-        let (ty, local) = match b.binds.get(i as usize).copied().unwrap_or(Binding::Local) {
-            Binding::Local => (own, true),
-            Binding::Global(_) if b.kind == Kind::Module => (own, true),
-            Binding::Member if own.tags & UNBOUND != 0 => (own.minus(UNBOUND).join(&self.global(self.name(i))), false),
-            Binding::Member => (own, false),
+        let (tys, local) = match b.binds.get(i as usize).copied().unwrap_or(Binding::Local) {
+            Binding::Local => (vec![own], true),
+            Binding::Global(_) if b.kind == Kind::Module => (vec![own], true),
+            Binding::Member if own.tags & UNBOUND != 0 => ([own.minus(UNBOUND)].into_iter().chain(self.global(self.name(i))).collect(), false),
+            Binding::Member => (vec![own], false),
             Binding::Global(_) => (self.global(self.name(i)), false),
-            Binding::Cell | Binding::Lent => (Ty::ANY, false),
+            Binding::Cell | Binding::Lent => (vec![Ty::ANY], false),
         };
-        if ty.tags & UNBOUND != 0 { self.raise(s, Ty::of(self.p.tag("NameError").tags | self.p.tag("UnboundLocalError").tags)); }
-        let ty = ty.minus(UNBOUND);
-        if ty.tags == 0 { return None; }
-        if local { s.slots[i as usize] = ty; }
-        Some(Entry { from: if local { i as u32 } else { NO }, ..Entry::of(ty) })
+        if tys.iter().any(|t| t.tags & UNBOUND != 0) { self.raise(s, Ty::of(self.p.tag("NameError").tags | self.p.tag("UnboundLocalError").tags)); }
+        let tys: Vec<Ty> = tys.into_iter().map(|t| t.minus(UNBOUND)).filter(|t| t.tags != 0).collect();
+        if local && let Some(&ty) = tys.first() { s.slots[i as usize] = ty; }
+        tys.into_iter().map(|ty| Entry { from: if local { i as u32 } else { NO }, ..Entry::of(ty) }).collect()
     }
 
     fn store(&mut self, s: &mut State, i: u16, v: Ty, global: bool) {
@@ -416,13 +417,14 @@ impl<'a, 'c> Step<'a, 'c> {
                 let v = v.map_or(Ty::ANY, |v| ins[v]);
                 match j.map(|j| ins[j].known) { Some(Known::Site(c) | Known::Obj(_, c)) if c != NO => self.write(c, ITEM, v), _ => self.eff.wild = true }
             }
+            let mut ss = vec![s];
             for (r, &tags) in outs.iter().enumerate() {
-                let mut ty = Ty::of(tags);
+                let (mut ty, mut item) = (Ty::of(tags), None);
                 if let Some((lo, hi)) = exact(r) { (ty.lo, ty.hi) = (lo, hi); }
                 for (_, say) in row.says.iter().filter(|x| x.0 == r) {
                     let made = match say {
                         Out::Range(lo, hi) => { (ty.lo, ty.hi) = (ty.lo.max(*lo), ty.hi.min(*hi)); continue }
-                        Out::Item(j) => { let it = self.item(&ins[*j]); ty = Ty { tags: ty.tags & it.tags, lo: ty.lo.max(it.lo), hi: ty.hi.min(it.hi), known: it.known }; continue }
+                        Out::Item(j) => { item = Some(self.item(&ins[*j])); continue }
                         // Each item written apart, so an object among them leaves as itself.
                         Out::Items(js) => { for &j in js { self.write(self.site(ip), ITEM, ins[j]); } Ty::NONE }
                         Out::Holds(t, lo, hi) => Ty::int(*t, b(*lo, true) as i64, b(*hi, false) as i64),
@@ -431,11 +433,15 @@ impl<'a, 'c> Step<'a, 'c> {
                     ty.known = Known::Site(self.site(ip));
                     self.write(self.site(ip), ITEM, made);
                 }
-                if ty.tags == 0 { continue; }
+                // An item may be any of the values its container holds, each a path of its own.
+                let tys: Vec<Ty> = item.map_or(vec![ty], |its| its.iter().map(|it| Ty { tags: ty.tags & it.tags, lo: ty.lo.max(it.lo), hi: ty.hi.min(it.hi), known: it.known }).collect());
+                let tys: Vec<Ty> = tys.into_iter().filter(|t| t.tags != 0).collect();
+                if tys.is_empty() { continue; }
                 let learns = r == 0 && !row.learn.is_empty();
-                s.stack.push(Entry { ty, from: NO, cond: if learns { places[k] } else { NO }, of: core::array::from_fn(|j| a.get(j).filter(|_| learns).map_or(NO, |e| e.from)) });
+                let e = Entry { ty: Ty::NONE, from: NO, cond: if learns { places[k] } else { NO }, of: core::array::from_fn(|j| a.get(j).filter(|_| learns).map_or(NO, |e| e.from)) };
+                ss = ss.iter().flat_map(|s| tys.iter().map(|&ty| { let mut s = s.clone(); s.stack.push(Entry { ty, ..e }); s })).collect();
             }
-            self.go(then, s);
+            for s in ss { self.go(then, s); }
         }
     }
 
@@ -449,11 +455,11 @@ impl<'a, 'c> Step<'a, 'c> {
         match op {
             O::LoadConst => { let v = chunk.constants.get(k as usize).map_or(Ty::ANY, |c| self.p.konst(c)); self.push(next, &s, [v]) }
             O::LoadTrue | O::LoadFalse | O::LoadNone => { let v = self.p.konst(&if op == O::LoadNone { Value::None } else { Value::Bool(op == O::LoadTrue) }); self.push(next, &s, [v]) }
-            O::LoadName => if let Some(e) = self.load(&mut s, k) { s.stack.push(e); self.go(next, s) },
+            O::LoadName => for e in self.load(&mut s, k) { let mut s = s.clone(); s.stack.push(e); self.go(next, s) },
             O::LoadGlobal => {
-                let v = self.global(self.name(k));
-                if v.tags & UNBOUND != 0 { self.raise(&s, self.p.tag("NameError")); }
-                self.push(next, &s, [v.minus(UNBOUND)])
+                let vs = self.global(self.name(k));
+                if vs.iter().any(|v| v.tags & UNBOUND != 0) { self.raise(&s, self.p.tag("NameError")); }
+                self.push(next, &s, vs.into_iter().map(|v| v.minus(UNBOUND)))
             }
             O::StoreName | O::StoreGlobal => { let v = pop!(); self.store(&mut s, k, v.ty, op == O::StoreGlobal); self.go(next, s) }
             O::Del => { self.store(&mut s, k, Ty::of(UNBOUND), false); self.go(next, s) }
@@ -573,7 +579,7 @@ impl<'a, 'c> Step<'a, 'c> {
         if !self.eff.ran || b.kind != Kind::Module { return; }
         for (_, st) in self.outs.iter_mut() {
             for (v, i) in st.slots.iter_mut().zip(0..).filter(|(_, i)| matches!(b.binds.get(*i), Some(Binding::Global(_)))) {
-                *v = if self.t.wild { Ty::ANY } else { v.join(&self.t.tables.get(&(GLOBAL | b.module, b.names[i])).copied().unwrap_or(Ty::NONE)) };
+                *v = if self.t.wild { Ty::ANY } else { self.t.tables.get(&(GLOBAL | b.module, b.names[i])).into_iter().flatten().fold(*v, |a, w| a.join(w)) };
             }
         }
     }

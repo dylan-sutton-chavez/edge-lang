@@ -8,12 +8,13 @@ use super::step::{Prog, Step, To, entry};
 use super::*;
 
 /* One body run with one tuple of argument types, every state the tree found at each of its instructions. */
-pub struct Ctx { pub body: u32, pub args: Vec<Ty>, pub seen: Vec<Vec<State>>, pub ret: Ty, pub raises: Ty, pub gave_up: bool }
+pub struct Ctx { pub body: u32, pub args: Vec<Ty>, pub seen: Vec<Vec<State>>, pub ret: Vec<Ty>, pub raises: Ty, pub gave_up: bool }
 
 /* The contexts, the module's first, the tables every body shares (names of modules and cells, members, attributes, items,
-   yields, defaults and bases), and whether code nothing knows ran, which makes every table anything. */
+   yields, defaults and bases), and whether code nothing knows ran, which makes every table anything. An entry and a
+   result hold one value per value known of them, so a call through a list, a name or a result steps each body it may be. */
 #[derive(Default)]
-pub struct Tree { pub ctxs: Vec<Ctx>, pub tables: Map<(u32, u32), Ty>, pub wild: bool }
+pub struct Tree { pub ctxs: Vec<Ctx>, pub tables: Map<(u32, u32), Vec<Ty>>, pub wild: bool }
 
 /* `old` joined with `new`, with a bound that grew opened when `widen`, so a loop's integers stop growing. */
 fn hull(old: &Ty, new: &Ty, widen: bool) -> Ty {
@@ -29,6 +30,11 @@ fn grow_into(at: &mut Ty, new: &Ty) -> bool {
     if new.within(at) { return false; }
     *at = hull(at, new, true);
     true
+}
+
+/* Joins `new` into the value of the entry it is known as (one for every value no one is known as), false when held. */
+fn hold(at: &mut Vec<Ty>, new: &Ty) -> bool {
+    match at.iter_mut().find(|v| v.known == new.known || v.known.join(new.known) != Known::No) { Some(v) => grow_into(v, new), None => { at.push(*new); true } }
 }
 
 impl Tree {
@@ -53,7 +59,7 @@ impl Tree {
     fn open(&mut self, p: &Prog, body: u32, args: Vec<Ty>, work: &mut Vec<(usize, usize, State, bool)>) {
         let n = p.bodies[body as usize].chunk.instructions.len() + 1;
         work.push((self.ctxs.len(), 0, entry(p, body, &args), false));
-        self.ctxs.push(Ctx { body, args, seen: vec![Vec::new(); n], ret: Ty::NONE, raises: Ty::NONE, gave_up: false });
+        self.ctxs.push(Ctx { body, args, seen: vec![Vec::new(); n], ret: Vec::new(), raises: Ty::NONE, gave_up: false });
     }
 }
 
@@ -81,14 +87,14 @@ pub fn grow(p: &Prog) -> Tree {
             let (outs, eff) = (st.outs, st.eff);
             if eff.gave_up {
                 let c = &mut t.ctxs[x];
-                (c.gave_up, c.ret, c.raises, t.wild, changed) = (true, Ty::ANY, Ty::ANY, true, true);
+                (c.gave_up, c.ret, c.raises, t.wild, changed) = (true, vec![Ty::ANY], Ty::ANY, true, true);
                 continue;
             }
             if eff.wild && !t.wild { t.wild = true; changed = true; }
             for (o, f, v) in eff.writes {
                 // An entry made empty still says something: a container built with no items holds none.
                 let new = !t.tables.contains_key(&(o, f));
-                changed |= grow_into(t.tables.entry((o, f)).or_insert(Ty::NONE), &v) || new;
+                changed |= hold(t.tables.entry((o, f)).or_default(), &v) || new;
             }
             if !eff.calls.is_empty() { work.push((x, ip, s.clone(), true)); }
             for (f, args) in eff.calls {
@@ -101,7 +107,7 @@ pub fn grow(p: &Prog) -> Tree {
             for (to, n) in outs {
                 let grew = match to {
                     To::Ip(i) => { work.push((x, i, n, false)); false }
-                    To::Ret(v) => grow_into(&mut t.ctxs[x].ret, &v),
+                    To::Ret(v) => hold(&mut t.ctxs[x].ret, &v),
                     To::Raise(e) => grow_into(&mut t.ctxs[x].raises, &e),
                 };
                 if grew { work.extend(readers.get(&x).into_iter().flatten().map(|r| (r.0, r.1, r.2.clone(), true))); }

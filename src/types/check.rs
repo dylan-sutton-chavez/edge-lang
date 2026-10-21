@@ -14,19 +14,19 @@ pub fn types_check(p: &Prog, t: &Tree) -> Result<(), String> {
     let fail = |x: usize, ip: usize, why: &str| Err(alloc::format!("types_check: context {x} at {ip}: {why}"));
     if t.ctxs.first().is_none_or(|c| c.body != 0 || !c.args.is_empty()) { return fail(0, 0, "the module is not the first context"); }
     for (x, c) in t.ctxs.iter().enumerate() {
-        if c.gave_up { if t.wild && Ty::ANY.within(&c.ret) && Ty::ANY.within(&c.raises) { continue; } return fail(x, 0, "a context given up claims less than anything"); }
+        if c.gave_up { if t.wild && c.ret.iter().any(|r| Ty::ANY.within(r)) && Ty::ANY.within(&c.raises) { continue; } return fail(x, 0, "a context given up claims less than anything"); }
         let e = entry(p, c.body, &c.args);
         if !c.seen.first().is_some_and(|s| s.iter().any(|s| e.within(s))) { return fail(x, 0, "its entry is not held"); }
         for (ip, states) in c.seen.iter().enumerate() {
             for s in states {
                 let mut st = Step::new(p, t, x);
                 st.step(ip, s);
-                let held = |to: &To, n: &State| match to { To::Ip(i) => c.seen.get(*i).is_some_and(|ss| ss.iter().any(|w| n.within(w))), To::Ret(v) => v.within(&c.ret), To::Raise(e) => e.within(&c.raises) };
+                let held = |to: &To, n: &State| match to { To::Ip(i) => c.seen.get(*i).is_some_and(|ss| ss.iter().any(|w| n.within(w))), To::Ret(v) => c.ret.iter().any(|r| v.within(r)), To::Raise(e) => e.within(&c.raises) };
                 let why = if st.eff.gave_up { "a step no rule covers" }
                     else if st.eff.wild && !t.wild { "code nothing knows ran in a tree that says none did" }
                     else if !st.eff.calls.is_empty() { "a call to a context the tree does not hold" }
                     // Defaults and bases are read as written even after unknown code ran.
-                    else if st.eff.writes.iter().any(|(o, f, v)| (!t.wild || o >> 28 >= 5) && !t.tables.get(&(*o, *f)).is_some_and(|w| v.within(w))) { "a write outside its table" }
+                    else if st.eff.writes.iter().any(|(o, f, v)| (!t.wild || o >> 28 >= 5) && !t.tables.get(&(*o, *f)).is_some_and(|w| w.iter().any(|w| v.within(w)))) { "a write outside its table" }
                     else if !st.outs.iter().all(|(to, n)| held(to, n)) { "a next state the tree does not hold" }
                     else { continue };
                 return fail(x, ip, why);
