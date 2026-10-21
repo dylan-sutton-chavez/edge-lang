@@ -73,13 +73,14 @@ pub fn build(manifest_path: &Path, file: Option<&Path>, opts: &Opts) -> Result<(
             if !errors.is_empty() {
                 bail!("{}", compiler::code::Diagnostic::render_all(&errors, &src, Some(&entry.to_string_lossy())));
             }
-            // The rules of this Edge commit type the program, a build without them runs every opcode through its handler.
-            let rules = EPT.map(compiler::types::read::Rules::read).transpose().map_err(|e| anyhow!(e))?;
-            let typed = rules.as_ref().map(|r| compiler::types::typed(&chunk, r)).transpose().map_err(|e| anyhow!(e))?;
-            if let (Some(t), true) = (&typed, opts.count) { let (p, n) = t.count(); eprintln!("types: {p}/{n}"); }
+            // Rules that are not these sources', or a tree the reviewer refuses, leave every opcode to its handler.
+            let rules = EPT.ok_or("src/types/edge.ept is missing".to_string()).and_then(compiler::types::read::Rules::read);
+            let typed = rules.as_ref().map_err(String::clone).and_then(|r| compiler::types::typed(&chunk, r));
+            match &typed { Ok(t) if opts.count => { let (p, n) = t.count(); eprintln!("types: {p}/{n}"); } Err(why) => eprintln!("edge build: no proven types, {why}"), _ => {} }
+            let (vm, collect) = vm_bitcode(&format!("{target}{}", if opts.gc_torture { "-torture" } else { "" }), dir.path())?;
             let glue = dir.path().join("glue.ll");
-            std::fs::write(&glue, glue::module(&src, &chunk, typed.as_ref(), &target))?;
-            vec![vm_bitcode(&target, dir.path())?, glue]
+            std::fs::write(&glue, glue::module(&src, &chunk, typed.as_ref().ok(), collect, &target))?;
+            vec![vm, glue]
         }
     };
     let sys = tools::Sysroot::open(&target)?;
@@ -99,19 +100,19 @@ fn entry(target: &str) -> &'static str {
     if target.starts_with("wasm32") { "__main_argc_argv" } else { "main" }
 }
 
-// The opcode rules `edge.ept` gives for this Edge commit, when the tree carries them.
+// The opcode rules `edge.ept` gives for these Edge sources.
 const EPT: Option<&str> = include!(concat!(env!("OUT_DIR"), "/ept.rs"));
 
-// The VM's handlers as bitcode per target, gzipped, from `make bitcode`.
-const VM_BITCODE: &[(&str, &[u8])] = include!(concat!(env!("OUT_DIR"), "/vm_bitcode.rs"));
+// The VM as bitcode per target, gzipped, from `make bitcode`, with the handlers that may collect.
+const VM_BITCODE: &[(&str, &[u8], &[&str])] = include!(concat!(env!("OUT_DIR"), "/vm_bitcode.rs"));
 
-/* The VM's bitcode for `target`, unpacked into the build dir. */
-fn vm_bitcode(target: &str, dir: &Path) -> Result<PathBuf> {
-    let Some((_, gz)) = VM_BITCODE.iter().find(|(t, _)| *t == target) else {
-        let have: Vec<&str> = VM_BITCODE.iter().map(|(t, _)| *t).collect();
+/* The VM's bitcode for `target`, unpacked into the build dir, and its handlers that may collect. */
+fn vm_bitcode(target: &str, dir: &Path) -> Result<(PathBuf, &'static [&'static str])> {
+    let Some((_, gz, collect)) = VM_BITCODE.iter().find(|(t, ..)| *t == target) else {
+        let have: Vec<&str> = VM_BITCODE.iter().map(|(t, ..)| *t).collect();
         bail!("this edge carries no VM for {target}, it builds for {}", if have.is_empty() { "nothing, run make bitcode".to_string() } else { have.join(", ") });
     };
     let path = dir.join("vm.bc");
     std::io::copy(&mut flate2::read::GzDecoder::new(*gz), &mut std::fs::File::create(&path)?)?;
-    Ok(path)
+    Ok((path, collect))
 }
