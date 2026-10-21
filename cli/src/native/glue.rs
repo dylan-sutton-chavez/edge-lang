@@ -1,7 +1,11 @@
 use compiler::code::{effect, Binding, BodyKind, OpCode as O, ParamKind, Program, SSAChunk, Value};
-use compiler::types::{Known, State, Tags, Typed};
+use compiler::types::{Known, State, Tags, Typed, UNBOUND};
 use compiler::value::Val;
 use std::fmt::Write;
+
+// The ids a handler's error gives for a frame moved to an instruction or returning, ABI section 13.
+const JUMP: u32 = 0x4000_0000;
+const RETURN: u32 = 0x8000_0000;
 
 // The tag tests the IR checks read after O3, kept whole through internalize.
 const TAGS: [&str; 7] = ["is_int", "is_float", "is_bool", "is_none", "is_heap", "is_undef", "fits_int"];
@@ -12,7 +16,7 @@ struct Body<'c> { chunk: &'c SSAChunk, at: usize, ty: Option<usize>, name: Strin
 
 /* The program as LLVM text: one function per Python function calling the VM's handler of each opcode in order with
    its operands constant, names and stack in allocas mem2reg lifts, and the entry that boots the VM on the source. */
-pub fn module(src: &str, chunk: &SSAChunk, typed: Option<&Typed>, target: &str) -> String {
+pub fn module(src: &str, chunk: &SSAChunk, typed: Option<&Typed>, collect: &[&str], target: &str) -> String {
     let program = Program::new(chunk);
     let (mut bodies, mut work) = (Vec::new(), vec![chunk]);
     while let Some(c) = work.pop() {
@@ -30,7 +34,7 @@ pub fn module(src: &str, chunk: &SSAChunk, typed: Option<&Typed>, target: &str) 
         bodies.push(Body { chunk: c, at, ty, name, params, binds: binds.to_vec() });
     }
     let (mut ir, mut ops) = (String::new(), Vec::new());
-    for b in &bodies { function(&mut ir, &mut ops, b, &bodies, typed); }
+    for b in &bodies { function(&mut ir, &mut ops, b, &bodies, typed, collect); }
     ops.sort();
     ops.dedup();
     for o in ops { let _ = writeln!(ir, "declare i64 @op_{o}(ptr, i64, i64, i64, i64, ptr, ptr, i32)"); }
@@ -45,7 +49,8 @@ declare i32 @edge_finish(ptr, i64)
 declare i64 @edge_returned(ptr)
 declare i64 @edge_enter(ptr, i32, i64, ptr, i32)
 declare void @edge_leave(ptr, i64)
-declare i64 @edge_raise(ptr, i64, ptr)
+declare i64 @edge_raise(ptr, i64)
+declare i64 @edge_safepoint(ptr, ptr, i32)
 @llvm.used = appending global [{} x ptr] [{}], section "llvm.metadata"
 @edge.src = private constant [{} x i8] c"{text}"
 attributes #0 = {{ alwaysinline }}
@@ -94,7 +99,7 @@ fn states<'t>(typed: Option<&'t Typed>, b: &Body, ip: usize) -> Vec<&'t State> {
     t.tree.ctxs.iter().filter(|c| c.body as usize == ty).flat_map(|c| c.seen.get(ip).into_iter().flatten()).collect()
 }
 
-fn function(ir: &mut String, ops: &mut Vec<String>, b: &Body, bodies: &[Body], typed: Option<&Typed>) {
+fn function(ir: &mut String, ops: &mut Vec<String>, b: &Body, bodies: &[Body], typed: Option<&Typed>, collect: &[&str]) {
     let (c, at) = (b.chunk, depths(b.chunk));
     let rest = c.instructions.iter().filter_map(|i| effect(i, c)).map(|(p, q)| p.max(q)).max().unwrap_or(0) as usize + 1;
     let deep = at.iter().flatten().max().copied().unwrap_or(0) + 4;
@@ -105,7 +110,7 @@ fn function(ir: &mut String, ops: &mut Vec<String>, b: &Body, bodies: &[Body], t
     let _ = writeln!(ir, "define internal i64 @\"{}\"(ptr %rt{callee}{params}) !edge.block !{} {{\nentry:", b.name, b.at);
     for k in 0..deep { let _ = writeln!(ir, "  %s{k} = alloca i64"); }
     for k in (0..c.names.len()).filter(|&k| local(k)) { let _ = writeln!(ir, "  %n{k} = alloca i64\n  store i64 {undef}, ptr %n{k}"); }
-    let _ = writeln!(ir, "  %rest = alloca [{rest} x i64]\n  %live = alloca [{} x i64]\n  %hp = alloca i32\n  %exc = alloca i64", c.names.len() + deep);
+    let _ = writeln!(ir, "  %rest = alloca [{rest} x i64]\n  %live = alloca [{} x i64]\n  %jt = alloca i32\n  %exc = alloca i64", c.names.len() + deep);
     if b.at != 0 {
         let n = b.params.len();
         let _ = writeln!(ir, "  %args = alloca [{} x i64]", n.max(1));
@@ -115,7 +120,9 @@ fn function(ir: &mut String, ops: &mut Vec<String>, b: &Body, bodies: &[Body], t
     }
     let _ = writeln!(ir, "  br label %i0");
     let dead = typed.zip(b.ty).map(|(t, ty)| t.dead(ty)).unwrap_or_default();
-    let handlers: Vec<(usize, bool)> = c.instructions.iter().filter(|i| matches!(i.opcode, O::SetupExcept | O::SetupFinally)).map(|i| (i.operand as usize, i.opcode == O::SetupExcept)).collect();
+    // Each `try` as its setup, its handler and whether an `except` takes the exception there.
+    let tries: Vec<(usize, usize, bool)> = c.instructions.iter().enumerate().filter(|i| matches!(i.1.opcode, O::SetupExcept | O::SetupFinally)).map(|(s, i)| (s, i.operand as usize, i.opcode == O::SetupExcept)).collect();
+    let mut called = vec![false; c.instructions.len()];
     for (ip, ins) in c.instructions.iter().enumerate() {
         let _ = writeln!(ir, "i{ip}:");
         let Some(d) = at[ip].filter(|_| !dead.get(ip).copied().unwrap_or(false)) else { ir.push_str("  unreachable\n"); continue };
@@ -139,8 +146,9 @@ fn function(ir: &mut String, ops: &mut Vec<String>, b: &Body, bodies: &[Body], t
             (O::LoadConst, Some(Value::None)) => Some(Val::none().raw()),
             _ => None,
         };
+        let back = ins.opcode == O::Jump && t <= ip && called[t..ip].contains(&true);
         let done = match ins.opcode {
-            O::Jump => format!("  br label %i{t}"),
+            O::Jump if !back => format!("  br label %i{t}"),
             _ if konst.is_some() => format!("  store i64 {}, ptr %s{d}\n  br label %{next}", konst.unwrap_or(0) as i64),
             O::StoreName if local(t) => format!("  %v{k} = load i64, ptr %s{base}\n  store i64 %v{k}, ptr %n{t}\n  br label %{next}"),
             O::ReturnValue if b.at != 0 => format!("  %v{k} = load i64, ptr %s{base}\n  call void @edge_leave(ptr %rt, i64 %v{k})\n  ret i64 %v{k}"),
@@ -164,21 +172,29 @@ fn function(ir: &mut String, ops: &mut Vec<String>, b: &Body, bodies: &[Body], t
         }
         for (j, v) in input.iter().enumerate().skip(3) { let _ = writeln!(ir, "  %r{k}.{j} = getelementptr i64, ptr %rest, i64 {}\n  store i64 {v}, ptr %r{k}.{j}", j - 3); }
         let abc: Vec<String> = (0..3).map(|j| input.get(j).cloned().unwrap_or(undef.to_string())).collect();
-        // What a collection must see: every local and the stack below the inputs, the handler storing them only on its slow path.
-        let live: Vec<String> = (0..c.names.len()).filter(|&s| local(s)).map(|s| format!("%n{s}")).chain((0..base).map(|j| format!("%s{j}"))).collect();
+        // What a collection must see, only at a call that may collect: every local and stack value below the inputs the tree does not prove plain.
+        let heap = |t: Tags| typed.is_none_or(|ty| t & !["int", "float", "bool", "NoneType"].iter().fold(UNBOUND, |a, n| a | ty.prog.rules.tag(n).unwrap_or(0)) != 0);
+        let may = back || collect.contains(&format!("{:?}", ins.opcode).as_str());
+        let live: Vec<String> = (0..c.names.len()).filter(|&s| may && local(s) && heap(seen.iter().fold(0, |a, x| a | x.slots.get(s).map_or(!0, |t| t.tags)))).map(|s| format!("%n{s}"))
+            .chain((0..base).filter(|&j| may && heap(seen.iter().fold(0, |a, x| a | x.stack.get(j).map_or(!0, |e| e.ty.tags)))).map(|j| format!("%s{j}"))).collect();
+        called[ip] = may;
         for (j, l) in live.iter().enumerate() { let _ = writeln!(ir, "  %l{k}.{j} = load i64, ptr {l}\n  %lp{k}.{j} = getelementptr i64, ptr %live, i64 {j}\n  store i64 %l{k}.{j}, ptr %lp{k}.{j}"); }
+        let live_arg = if live.is_empty() { "ptr null, i32 0".to_string() } else { format!("ptr %live, i32 {}", live.len()) };
         match known(&seen, base, bodies).filter(|f| ins.opcode == O::Call && t >> 8 == 0 && f.params.len() + 1 == pops && f.params.iter().all(|&s| s != usize::MAX)) {
+            // A loop that calls what may collect collects on its back edge too.
+            _ if back => { let _ = writeln!(ir, "  %v{k} = call i64 @edge_safepoint(ptr %rt, {live_arg})"); }
             // A recursive call stays a call, any other is inlined so the block is the caller with its callees laid in it.
             Some(f) => { let _ = writeln!(ir, "  %v{k} = call i64 @\"{}\"(ptr %rt, {}){}", f.name, input.iter().map(|v| format!("i64 {v}")).collect::<Vec<_>>().join(", "), if f.at == b.at { "" } else { " #0" }); }
             None => {
                 ops.push(format!("{:?}", ins.opcode));
-                let _ = writeln!(ir, "  %v{k} = call i64 @op_{:?}(ptr %rt, i64 {site}, i64 {}, i64 {}, i64 {}, ptr %rest, ptr %live, i32 {}) #0", ins.opcode, abc[0], abc[1], abc[2], live.len());
+                let _ = writeln!(ir, "  %v{k} = call i64 @op_{:?}(ptr %rt, i64 {site}, i64 {}, i64 {}, i64 {}, ptr %rest, {live_arg}) #0", ins.opcode, abc[0], abc[1], abc[2]);
             }
         }
         for (j, l) in live.iter().enumerate() { let _ = writeln!(ir, "  %ll{k}.{j} = load i64, ptr %lp{k}.{j}\n  store i64 %ll{k}.{j}, ptr {l}"); }
         let _ = writeln!(ir, "  %e{k} = call i1 @is_err(i64 %v{k})\n  br i1 %e{k}, label %x{k}, label %ok{k}\nok{k}:");
         let (yes_to, no_to) = match ins.opcode { O::JumpIfFalse | O::JumpIfFalseOrPop => (next.clone(), format!("i{t}")), _ => (format!("i{t}"), next.clone()) };
         match ins.opcode {
+            O::Jump => { let _ = writeln!(ir, "  br label %i{t}"); }
             O::JumpIfFalse | O::JumpIfFalseOrPop | O::JumpIfTrueOrPop => { let _ = writeln!(ir, "  %t{k} = icmp eq i64 %v{k}, {yes}\n  br i1 %t{k}, label %{yes_to}, label %{no_to}"); }
             _ => {
                 if pushes > 0 { let _ = writeln!(ir, "  store i64 %v{k}, ptr %s{base}"); }
@@ -186,17 +202,23 @@ fn function(ir: &mut String, ops: &mut Vec<String>, b: &Body, bodies: &[Body], t
                 let _ = writeln!(ir, "  br label %{next}");
             }
         }
-        // An error: a `for` that ended leaves its loop, any other goes to the `try` that catches it, or out of the function.
+        // An error: a `for` that ended leaves its loop, a `finally` moves the frame or returns, any other goes to the `try` that catches it or out of the function.
         let _ = writeln!(ir, "x{k}:\n  %id{k} = call i32 @err_id(i64 %v{k})");
         if ins.opcode == O::ForIter { let _ = writeln!(ir, "  %end{k} = icmp eq i32 %id{k}, {}\n  br i1 %end{k}, label %i{t}, label %y{k}\ny{k}:", stop()); }
-        let _ = writeln!(ir, "  %c{k} = call i64 @edge_raise(ptr %rt, i64 {site}, ptr %hp)\n  %ce{k} = call i1 @is_err(i64 %c{k})\n  br i1 %ce{k}, label %z{k}, label %g{k}\nz{k}:");
+        let _ = writeln!(ir, "  %jm{k} = icmp uge i32 %id{k}, {JUMP}\n  br i1 %jm{k}, label %j{k}, label %r{k}\nj{k}:\n  %rt{k} = icmp uge i32 %id{k}, {RETURN}\n  %to{k} = and i32 %id{k}, {}\n  store i32 %to{k}, ptr %jt\n  br i1 %rt{k}, label %back, label %goto\nr{k}:", JUMP - 1);
+        let _ = writeln!(ir, "  %c{k} = call i64 @edge_raise(ptr %rt, i64 {site})\n  %ce{k} = call i1 @is_err(i64 %c{k})\n  br i1 %ce{k}, label %z{k}, label %g{k}\nz{k}:");
         if b.at != 0 { let _ = writeln!(ir, "  call void @edge_leave(ptr %rt, i64 %c{k})"); }
-        let arms: String = handlers.iter().map(|&(h, _)| format!(" i32 {h}, label %catch{h}")).collect();
-        let _ = writeln!(ir, "  ret i64 %c{k}\ng{k}:\n  store i64 %c{k}, ptr %exc\n  %hv{k} = load i32, ptr %hp\n  switch i32 %hv{k}, label %nowhere [{arms} ]");
+        // The innermost `try` open here is the one whose setup comes last before it.
+        let catch = tries.iter().filter(|x| x.0 < ip && ip < x.1).max_by_key(|x| x.0).map_or("nowhere".to_string(), |x| format!("catch{}", x.1));
+        let _ = writeln!(ir, "  ret i64 %c{k}\ng{k}:\n  store i64 %c{k}, ptr %exc\n  br label %{catch}");
     }
+    let arms: String = (0..c.instructions.len()).filter(|&i| at[i].is_some()).map(|i| format!(" i32 {i}, label %i{i}")).collect();
+    let _ = writeln!(ir, "goto:\n  %gt = load i32, ptr %jt\n  switch i32 %gt, label %nowhere [{arms} ]\nback:\n  %rv = call i64 @edge_returned(ptr %rt)");
+    if b.at != 0 { let _ = writeln!(ir, "  call void @edge_leave(ptr %rt, i64 %rv)"); }
+    let _ = writeln!(ir, "  ret i64 %rv");
     let _ = writeln!(ir, "i{}:\n  ret i64 {none}\nnowhere:\n  unreachable", c.instructions.len());
     let mut seen = Vec::new();
-    for &(h, except) in &handlers {
+    for &(_, h, except) in &tries {
         if seen.contains(&h) { continue; }
         seen.push(h);
         let _ = writeln!(ir, "catch{h}:");
