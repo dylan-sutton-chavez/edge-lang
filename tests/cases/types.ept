@@ -127,3 +127,4 @@ rule FormatValue * -> str
 builtin sorted list -> list
 builtin map function list -> iterator | calls a0
 rule Truth function -> bool | r0 in 1..1
+builtin filter * * -> iterator | calls *

@@ -358,7 +358,7 @@ impl<'a, 'c> Step<'a, 'c> {
         }
         for (k, row) in rows.iter().enumerate() {
             let Some(ins) = row.ins.iter().zip(&tys).map(|(p, v)| self.pat(p, v)).collect::<Option<Vec<Ty>>>() else { continue };
-            self.foreign(&row.calls.iter().map(|&j| ins[j]).collect::<Vec<_>>(), true);
+            self.foreign(&row.calls.iter().flat_map(|&j| if j == usize::MAX { ins.clone() } else { vec![ins[j]] }).collect::<Vec<_>>(), true);
             let mut s = s.clone();
             for (e, t) in a.iter().zip(&ins) { if let Some(v) = s.slots.get_mut(e.from as usize) { *v = *t; } }
             let b = |r: Rhs, lo: bool| match r {
