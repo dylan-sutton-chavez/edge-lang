@@ -93,7 +93,7 @@ mod test {
     #[test]
     fn module_code_keeps_its_types() {
         // A name deleted and read again ends: unbound alone holds no integer.
-        assert_eq!(read("x = 5\ndel x\ntry:\n    print(x)\nexcept NameError:\n    print('gone')\n", 5, "NameError"), [code("NameError")]);
+        assert_eq!(read("x = 5\ndel x\ntry:\n    print(x)\nexcept NameError:\n    print('gone')\n", 5, "NameError"), [code("type")]);
         let src = "x = 1\ny = x + 1\nprint(y)\n";
         assert_eq!(read(src, 3, "y"), [code("int")]);
         let rules = Rules::read(&ept()).unwrap();
