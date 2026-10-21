@@ -11,6 +11,9 @@ fn main() {
     let out = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"));
     let manifest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     let target = std::env::var("TARGET").expect("TARGET");
+    // `edge build` fetches the LLVM tools of the very release that compiles it, read here rather than written down.
+    let rustc = std::process::Command::new(std::env::var("RUSTC").unwrap_or("rustc".into())).arg("--version").output().expect("running rustc --version");
+    println!("cargo:rustc-env=EDGE_RUSTC={}", String::from_utf8_lossy(&rustc.stdout).split_whitespace().nth(1).expect("rustc --version names a release"));
     let mut cfg = config::base();
     cfg.target(&target).expect("wasmtime has no backend for the build target");
     cfg.cranelift_opt_level(wasmtime::OptLevel::Speed);

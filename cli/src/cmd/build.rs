@@ -12,42 +12,13 @@ use std::time::Instant;
 use crate::lock;
 use crate::manifest::Manifest;
 
-// Marks a standalone binary, its trailer holds the payload length before it.
-const STANDALONE_MAGIC: &[u8] = b"EDGESFX\x01";
-
-/* Packs the project as a standalone binary, this exe with the bundle and a trailer appended. */
-pub fn standalone(manifest_path: &Path, out: PathBuf) -> Result<()> {
-    // Nobody reads docs out of an executable, so an app binary leaves them behind.
-    let bundle = collect_bundle(manifest_path, false)?;
-    let files = bundle.files.len();
-    let exe = std::env::current_exe().context("locating the edge binary")?;
-    let mut image = fs::read(&exe).with_context(|| format!("reading {}", exe.display()))?;
-    let payload = bundle.encode();
-    image.extend_from_slice(&payload);
-    image.extend_from_slice(&(payload.len() as u64).to_le_bytes());
-    image.extend_from_slice(STANDALONE_MAGIC);
-    fs::write(&out, &image).with_context(|| format!("writing {}", out.display()))?;
-    make_executable(&out)?;
-    let run = out.display();
-    crate::ui::packed(&out, files, 0, image.len() as u64,
-        &format!("run  ./{run}   flags  --save-state --restore-state --preempt --events"));
-    Ok(())
-}
-
-/* Packs the project as a portable .edge for any host that already has the CLI. */
-pub fn bundle(manifest_path: &Path, out: PathBuf) -> Result<()> {
-    let bundle = collect_bundle(manifest_path, true)?;
-    let payload = bundle.encode();
-    fs::write(&out, &payload).with_context(|| format!("writing {}", out.display()))?;
-    let run = out.display();
-    let pages = bundle.files.iter().filter(|f| f.path.starts_with(docs::PREFIX)).count();
-    crate::ui::packed(&out, bundle.files.len() - pages, pages, payload.len() as u64,
-        &format!("run  edge run {run}   or send it to an actor eval group"));
-    Ok(())
+/* The project as one `.edge`, the artifact the registry holds and an actor runs. */
+pub fn pack(manifest_path: &Path) -> Result<Vec<u8>> {
+    Ok(collect_bundle(manifest_path)?.encode())
 }
 
 /* Reads the project scripts, its notices, its edge.json and every url module it declares into a bundle. */
-fn collect_bundle(manifest_path: &Path, with_docs: bool) -> Result<Bundle> {
+fn collect_bundle(manifest_path: &Path) -> Result<Bundle> {
     let project = match manifest_path.parent() {
         Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
         _ => PathBuf::from("."),
@@ -72,13 +43,11 @@ fn collect_bundle(manifest_path: &Path, with_docs: bool) -> Result<Bundle> {
             files.push(Entry { path: lock::FILE.to_string(), bytes: fs::read(&beside)? });
         }
         let manifest = Manifest::load(manifest_path)?;
-        if with_docs {
-            if let Some(clash) = files.iter().find(|f| f.path.starts_with(docs::PREFIX)) {
-                bail!("'{}' takes the prefix the docs are packed under", clash.path);
-            }
-            let pages = docs::collect(&project, manifest.docs.as_deref())?;
-            files.extend(pages.into_iter().map(|(path, bytes)| Entry { path, bytes }));
+        if let Some(clash) = files.iter().find(|f| f.path.starts_with(docs::PREFIX)) {
+            bail!("'{}' takes the prefix the docs are packed under", clash.path);
         }
+        let pages = docs::collect(&project, manifest.docs.as_deref())?;
+        files.extend(pages.into_iter().map(|(path, bytes)| Entry { path, bytes }));
         vendor_bundle(&lock::resolved(manifest_path, &manifest.imports)?, &mut files)?;
     }
     // A nested package answers to its own manifest, so its url modules ride along too.
@@ -163,57 +132,12 @@ fn carry_tree(base: &str, entry: &str, bytes: Vec<u8>, seen: &mut HashSet<String
     Ok(())
 }
 
-#[cfg(unix)]
-fn make_executable(path: &Path) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    let mut perms = fs::metadata(path)?.permissions();
-    perms.set_mode(0o755);
-    fs::set_permissions(path, perms).with_context(|| format!("setting mode on {}", path.display()))
-}
-
-#[cfg(not(unix))]
-fn make_executable(_path: &Path) -> Result<()> {
-    Ok(())
-}
-
-/* The bundle in this exe's trailer, only the tail is read so plain runs stay cheap. */
-pub fn embedded_payload() -> Option<Vec<u8>> {
-    trailer_payload(&std::env::current_exe().ok()?)
-}
-
-/* Bundle carried by a file, either a raw .edge or a standalone binary with a trailer. */
+/* The bundle a raw `.edge` file carries, read whole only once its magic matches. */
 pub fn file_payload(path: &Path) -> Option<Vec<u8>> {
     let mut head = [0u8; 8];
-    if let Ok(mut f) = fs::File::open(path) {
-        use std::io::Read;
-        if f.read_exact(&mut head).is_ok() && head.starts_with(crate::pack::MAGIC) {
-            return fs::read(path).ok();
-        }
-    }
-    trailer_payload(path)
-}
-
-/* Reads the appended payload of a standalone binary, None when the trailer is absent. */
-fn trailer_payload(path: &Path) -> Option<Vec<u8>> {
-    use std::io::{Read, Seek, SeekFrom};
-    let mut file = fs::File::open(path).ok()?;
-    let trailer = (8 + STANDALONE_MAGIC.len()) as u64;
-    let total = file.seek(SeekFrom::End(0)).ok()?;
-    if total < trailer {
-        return None;
-    }
-    file.seek(SeekFrom::End(-(trailer as i64))).ok()?;
-    let mut buf = [0u8; 8 + 8];
-    file.read_exact(&mut buf[..trailer as usize]).ok()?;
-    if &buf[8..trailer as usize] != STANDALONE_MAGIC {
-        return None;
-    }
-    let len = u64::from_le_bytes(buf[..8].try_into().ok()?);
-    let start = total.checked_sub(trailer + len)?;
-    let mut payload = vec![0u8; len as usize];
-    file.seek(SeekFrom::Start(start)).ok()?;
-    file.read_exact(&mut payload).ok()?;
-    Some(payload)
+    use std::io::Read;
+    fs::File::open(path).ok()?.read_exact(&mut head).ok()?;
+    head.starts_with(crate::pack::MAGIC).then(|| fs::read(path).ok()).flatten()
 }
 
 use crate::web::{COMPILER_WASM, JS_HOST};
@@ -221,7 +145,7 @@ use crate::web::{COMPILER_WASM, JS_HOST};
 const INDEX_HTML: &str = include_str!("../templates/dist.html");
 
 /// Pack the project as a browser dist/, vendoring the JS host, compiler and packages.
-pub fn run(manifest_path: &Path, out_dir: PathBuf) -> Result<()> {
+pub fn web(manifest_path: &Path, out_dir: PathBuf) -> Result<()> {
     let t0 = Instant::now();
     let mut manifest = Manifest::load(manifest_path)?;
     // `Path::parent` returns Some("") for a bare filename, so collapse that to "." explicitly.
@@ -555,7 +479,7 @@ mod tests {
         fs::write(project.join("NOTES.md"), "not a notice").unwrap();
         fs::create_dir(project.join("sub")).unwrap();
         fs::write(project.join("sub/README.md"), "nested").unwrap();
-        let bundle = collect_bundle(&project.join("edge.json"), true).unwrap();
+        let bundle = collect_bundle(&project.join("edge.json")).unwrap();
         let mut paths: Vec<&str> = bundle.files.iter().map(|f| f.path.as_str()).collect();
         paths.sort();
         assert_eq!(paths, ["LICENSE", "LICENSE.py", "LICENSE.txt", "README.md", "main.py"]);
@@ -576,7 +500,7 @@ mod tests {
         fs::create_dir(project.join("src")).unwrap();
         fs::write(project.join("src/entry.py"), "from _json import *").unwrap();
         fs::write(project.join("src/json.wasm"), b"\0asm").unwrap();
-        let bundle = collect_bundle(&project.join("edge.json"), false).unwrap();
+        let bundle = collect_bundle(&project.join("edge.json")).unwrap();
         let mut paths: Vec<&str> = bundle.files.iter().map(|f| f.path.as_str()).collect();
         paths.sort();
         assert_eq!(paths, ["src/entry.py", "src/json.wasm"]);
@@ -595,7 +519,7 @@ mod tests {
         fs::write(project.join("pkg/main.py"), "print(2)").unwrap();
         fs::write(project.join("pkg/edge.json"), r#"{ "imports": {} }"#).unwrap();
         fs::write(project.join("pkg/edge.lock"), "{}").unwrap();
-        let bundle = collect_bundle(&project.join("edge.json"), false).unwrap();
+        let bundle = collect_bundle(&project.join("edge.json")).unwrap();
         let mut paths: Vec<&str> = bundle.files.iter().map(|f| f.path.as_str()).collect();
         paths.sort();
         assert_eq!(paths, ["edge.json", "edge.lock", "main.py", "pkg/edge.json", "pkg/edge.lock", "pkg/main.py"]);
@@ -608,7 +532,7 @@ mod tests {
         let project = dir.path();
         fs::write(project.join("main.py"), "import json").unwrap();
         fs::write(project.join("edge.json"), r#"{ "imports": { "json": "0.1.0" } }"#).unwrap();
-        let Err(e) = collect_bundle(&project.join("edge.json"), false) else { panic!("an unlocked version should stop the build") };
+        let Err(e) = collect_bundle(&project.join("edge.json")) else { panic!("an unlocked version should stop the build") };
         let err = format!("{e:#}");
         assert!(err.contains("'json' is not locked, run edge lock"), "{err}");
     }
@@ -623,14 +547,14 @@ mod tests {
         fs::write(project.join("edge.json"), r#"{ "imports": { "pkg": "./pkg/main.py" } }"#).unwrap();
         fs::write(project.join("pkg/main.py"), "import _slug").unwrap();
         fs::write(project.join("pkg/edge.json"), r#"{ "imports": { "_slug": "./slug.wasm" } }"#).unwrap();
-        let bundle = collect_bundle(&project.join("edge.json"), false).unwrap();
+        let bundle = collect_bundle(&project.join("edge.json")).unwrap();
         let mut paths: Vec<&str> = bundle.files.iter().map(|f| f.path.as_str()).collect();
         paths.sort();
         assert_eq!(paths, ["edge.json", "main.py", "pkg/edge.json", "pkg/main.py"]);
     }
 
     #[test]
-    fn a_declared_docs_tree_rides_along_and_an_app_leaves_it_out() {
+    fn a_declared_docs_tree_rides_along() {
         let dir = tempfile::tempdir().unwrap();
         let project = dir.path();
         fs::write(project.join("main.py"), "print(1)").unwrap();
@@ -639,13 +563,10 @@ mod tests {
         fs::write(project.join("docs/01-intro.mdx"), "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n").unwrap();
         let manifest = project.join("edge.json");
 
-        let packed = collect_bundle(&manifest, true).unwrap();
+        let packed = collect_bundle(&manifest).unwrap();
         let mut paths: Vec<&str> = packed.files.iter().map(|f| f.path.as_str()).collect();
         paths.sort();
         assert_eq!(paths, ["@docs/01-intro.mdx", "edge.json", "main.py"]);
-
-        let app = collect_bundle(&manifest, false).unwrap();
-        assert!(app.files.iter().all(|f| !f.path.starts_with(docs::PREFIX)));
     }
 
     #[test]
@@ -656,7 +577,7 @@ mod tests {
         fs::write(project.join("edge.json"), r#"{ "docs": "./docs" }"#).unwrap();
         fs::create_dir(project.join("docs")).unwrap();
         fs::write(project.join("docs/intro.mdx"), "# Intro\n").unwrap();
-        let Err(e) = collect_bundle(&project.join("edge.json"), true) else { panic!("an unordered page should fail the build") };
+        let Err(e) = collect_bundle(&project.join("edge.json")) else { panic!("an unordered page should fail the build") };
         let err = format!("{e:#}");
         assert!(err.contains("needs a numeric prefix"), "{err}");
     }
