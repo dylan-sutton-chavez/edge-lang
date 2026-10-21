@@ -80,7 +80,9 @@ pub fn build(manifest_path: &Path, file: Option<&Path>, opts: &Opts) -> Result<(
             let (vm, collect) = vm(&format!("{target}{}", if opts.gc_torture { "-torture" } else { "" }), dir.path())?;
             let glue = dir.path().join("glue.ll");
             std::fs::write(&glue, glue::module(&src, &crate::host::driver::path_spec(&entry), &chunk, typed.as_ref().ok(), collect, &target))?;
-            (vec![vm[0].clone(), glue], vm[1].clone())
+            // A count covers the whole VM, its slow paths and collector too, from the repo's own bitcode, as a benchmark against Rust needs.
+            let whole = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../target/bitcode/{target}{}/vm.bc", if opts.gc_torture { "-torture" } else { "" }));
+            if opts.count { (vec![whole, glue], PathBuf::new()) } else { (vec![vm[0].clone(), glue], vm[1].clone()) }
         }
     };
     let sys = tools::Sysroot::open(&target)?;
