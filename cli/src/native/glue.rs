@@ -5,7 +5,7 @@ use std::fmt::Write;
 
 /* One body: its code, its VM index (0 the module, fi + 1 a function), the tree's index of it, its LLVM name, its
    parameters' slots (MAX for one a direct call cannot bind) and where each name lives. */
-struct Body<'c> { chunk: &'c SSAChunk, at: usize, ty: Option<usize>, name: String, params: Vec<usize>, binds: Vec<Binding>, is_gen: bool }
+struct Body<'c> { chunk: &'c SSAChunk, at: usize, ty: Option<usize>, name: String, params: Vec<usize>, binds: Vec<Binding>, is_gen: bool, lazy: bool }
 
 impl Body<'_> {
     /* Whether name `slot` is a local of a function, held in an alloca. */
@@ -15,11 +15,11 @@ impl Body<'_> {
 /* The program as LLVM text: one function per Python function calling the VM's handler of each opcode in order with
    its operands constant, names and stack in allocas mem2reg lifts, and the entry that boots the VM on the source. */
 pub fn module(src: &str, path: &str, chunk: &SSAChunk, typed: Option<&Typed>, collect: &[&str], target: &str) -> String {
-    let program = Program::new(chunk);
+    let mut program = Program::new(chunk);
     let (mut bodies, mut work) = (Vec::new(), vec![chunk]);
     while let Some(c) = work.pop() {
         work.extend(c.functions.iter().map(|f| &f.1).chain(c.classes.iter().flat_map(|k| k.functions.iter().map(|f| &f.1))));
-        let Some((kind, binds)) = program.bindings_of(c) else { continue };
+        let Some((kind, binds)) = program.bindings_of(c).map(|(k, b)| (k, b.to_vec())) else { continue };
         // Class bodies run on the VM, a class's methods are functions like any other, a generator is laid where it is consumed.
         let (at, params) = match kind {
             BodyKind::Module => (0, Vec::new()),
@@ -29,7 +29,8 @@ pub fn module(src: &str, path: &str, chunk: &SSAChunk, typed: Option<&Typed>, co
         let mut name = if at == 0 { "edge_main".to_string() } else { format!("py_{}", c.qualname) };
         if bodies.iter().any(|b: &Body| b.name == name) { name += &format!(".{at}"); }
         let ty = typed.and_then(|t| t.prog.bodies.iter().position(|p| core::ptr::eq(p.chunk, c)));
-        bodies.push(Body { chunk: c, at, ty, name, params, binds: binds.to_vec(), is_gen: c.is_generator });
+        let lazy = at != 0 && program.lazy_frame(at - 1);
+        bodies.push(Body { chunk: c, at, ty, name, params, binds, is_gen: c.is_generator, lazy });
     }
     let (mut ir, mut ops) = (String::new(), Vec::new());
     for b in bodies.iter().filter(|b| !b.is_gen) { function(&mut ir, &mut ops, b, &bodies, typed, collect); }
@@ -45,7 +46,8 @@ declare ptr @edge_boot(ptr, i64, ptr, i64, i32, ptr)
 declare i32 @edge_finish(ptr, i64)
 declare i64 @edge_returned(ptr)
 declare i64 @edge_enter(ptr, i32, i64, ptr, i32)
-declare void @edge_leave(ptr, i64)
+declare i64 @edge_go(ptr)
+declare void @edge_back(ptr, i32, i64, i64)
 declare i64 @edge_raise(ptr, i64)
 declare i64 @edge_safepoint(ptr, ptr, i32)
 declare i32 @edge_root(ptr, ptr, i32)
@@ -131,7 +133,7 @@ fn function(ir: &mut String, ops: &mut Vec<String>, b: &Body, bodies: &[Body], t
     let rest = all().flat_map(|c| c.instructions.iter().filter_map(|i| effect(i, c))).map(|(p, q)| p.max(q)).max().unwrap_or(0) as usize + 1;
     let live = all().map(|c| c.names.len() + depths(c).iter().flatten().max().copied().unwrap_or(0) + 4).sum::<usize>();
     let params: String = (0..b.params.len()).map(|k| format!(", i64 %p{k}")).collect();
-    let callee = if b.at == 0 { "" } else { ", i64 %callee" };
+    let callee = if b.at == 0 { "" } else { ", i64 %callee, i64 %site" };
     let _ = writeln!(ir, "define internal i64 @\"{}\"(ptr %rt{callee}{params}) !edge.block !{} {{\nentry:", b.name, b.at);
     frame(ir, b, "");
     for (f, g) in &laid { frame(ir, g, &format!("g{f}_")); let _ = writeln!(ir, "  %g{f}_r = alloca i32"); }
@@ -140,7 +142,9 @@ fn function(ir: &mut String, ops: &mut Vec<String>, b: &Body, bodies: &[Body], t
         let n = b.params.len();
         let _ = writeln!(ir, "  %args = alloca [{} x i64]", n.max(1));
         for k in 0..n { let _ = writeln!(ir, "  %a{k} = getelementptr i64, ptr %args, i64 {k}\n  store i64 %p{k}, ptr %a{k}"); }
-        let _ = writeln!(ir, "  %in = call i64 @edge_enter(ptr %rt, i32 {}, i64 %callee, ptr %args, i32 {n})\n  %bad = call i1 @is_err(i64 %in) #0\n  br i1 %bad, label %fail, label %bound\nfail:\n  ret i64 %in\nbound:", b.at - 1);
+        // A function with plain locals only makes its VM frame when a slow step or a raise first needs it.
+        let enter = if b.lazy { "call i64 @edge_go(ptr %rt) #0".to_string() } else { format!("call i64 @edge_enter(ptr %rt, i32 {}, i64 %callee, ptr %args, i32 {n})", b.at - 1) };
+        let _ = writeln!(ir, "  %in = {enter}\n  %bad = call i1 @is_err(i64 %in) #0\n  br i1 %bad, label %fail, label %bound\nfail:\n  ret i64 %in\nbound:");
         for (k, &slot) in b.params.iter().enumerate().filter(|p| b.local(*p.1)) { let _ = writeln!(ir, "  store i64 %p{k}, ptr %n{slot}"); }
     }
     let _ = writeln!(ir, "  br label %i0");
@@ -209,7 +213,7 @@ fn code(ir: &mut String, ops: &mut Vec<String>, b: &Body, bodies: &[Body], typed
             (O::Yield, _, Some(l)) => format!("  %v{k} = load i64, ptr %{p}s{base}\n  store i64 %v{k}, ptr %s{}\n  store i32 {ip}, ptr %{p}r\n  br label %i{}\n{p}y{ip}:\n  store i64 {none}, ptr %{p}s{base}\n  br label %{next}", l.depth, l.at + 1),
             (O::ReturnValue, _, Some(l)) => format!("  br label %i{}", l.exit),
             (O::StoreName, ..) if local(t) => format!("  %v{k} = load i64, ptr %{p}s{base}\n  store i64 %v{k}, ptr %{p}n{t}\n  br label %{next}"),
-            (O::ReturnValue, ..) if b.at != 0 => format!("  %v{k} = load i64, ptr %s{base}\n  call void @edge_leave(ptr %rt, i64 %v{k})\n  ret i64 %v{k}"),
+            (O::ReturnValue, ..) if b.at != 0 => format!("  %v{k} = load i64, ptr %s{base}\n  call void @edge_back(ptr %rt, i32 {}, i64 %site, i64 %v{k}) #0\n  ret i64 %v{k}", b.at - 1),
             (O::ReturnValue, ..) => format!("  ret i64 {none}"),
             // A phi of locals takes its first source that is bound, as the VM's does.
             (O::Phi, ..) if local(t) => match c.phi_map.get(ip).and_then(|&p| c.phi_sources.get(p)).map(|&(x, y)| (x as usize, y as usize)).filter(|&(x, y)| local(x) && local(y)) {
@@ -246,7 +250,8 @@ fn code(ir: &mut String, ops: &mut Vec<String>, b: &Body, bodies: &[Body], typed
             Some(f) => {
                 let rooted = !live.is_empty() && f.chunk.instructions.iter().any(|i| collect.contains(&format!("{:?}", i.opcode).as_str()));
                 if rooted { let _ = writeln!(ir, "  %mk{k} = call i32 @edge_root(ptr %rt, {live_arg})"); }
-                let _ = writeln!(ir, "  %v{k} = call i64 @\"{}\"(ptr %rt, {}){}", f.name, input.iter().map(|v| format!("i64 {v}")).collect::<Vec<_>>().join(", "), if f.at == host.at { "" } else { " #0" });
+                let args: String = input.iter().skip(1).map(|v| format!(", i64 {v}")).collect();
+                let _ = writeln!(ir, "  %v{k} = call i64 @\"{}\"(ptr %rt, i64 {}, i64 {site}{args}){}", f.name, input[0], if f.at == host.at { "" } else { " #0" });
                 if rooted { let _ = writeln!(ir, "  call void @edge_unroot(ptr %rt, {live_arg}, i32 %mk{k})"); }
             }
             None => {
@@ -271,14 +276,14 @@ fn code(ir: &mut String, ops: &mut Vec<String>, b: &Body, bodies: &[Body], typed
         if ins.opcode == O::ForIter { let _ = writeln!(ir, "  %end{k} = icmp eq i32 %id{k}, {}\n  br i1 %end{k}, label %{p}i{t}, label %y{k}\ny{k}:", stop()); }
         let _ = writeln!(ir, "  %jm{k} = icmp uge i32 %id{k}, {JUMP}\n  br i1 %jm{k}, label %j{k}, label %r{k}\nj{k}:\n  %rt{k} = icmp uge i32 %id{k}, {RETURN}\n  %to{k} = and i32 %id{k}, {}\n  store i32 %to{k}, ptr %jt\n  br i1 %rt{k}, label %back, label %goto\nr{k}:", JUMP - 1);
         let _ = writeln!(ir, "  %c{k} = call i64 @edge_raise(ptr %rt, i64 {})\n  %ce{k} = call i1 @is_err(i64 %c{k}) #0\n  br i1 %ce{k}, label %z{k}, label %g{k}\nz{k}:", raised_at(ip));
-        if host.at != 0 { let _ = writeln!(ir, "  call void @edge_leave(ptr %rt, i64 %c{k})"); }
+        if host.at != 0 { let _ = writeln!(ir, "  call void @edge_back(ptr %rt, i32 {}, i64 %site, i64 %c{k}) #0", host.at - 1); }
         let _ = writeln!(ir, "  ret i64 %c{k}\ng{k}:\n  store i64 %c{k}, ptr %exc\n  br label %{}", catch(ip));
     }
     // A laid generator that runs off its end ends the loop.
     if let Some(l) = lay { let _ = writeln!(ir, "{p}i{}:\n  br label %i{}", c.instructions.len(), l.exit); return; }
     let arms: String = (0..c.instructions.len()).filter(|&i| at[i].is_some()).map(|i| format!(" i32 {i}, label %i{i}")).collect();
     let _ = writeln!(ir, "goto:\n  %gt = load i32, ptr %jt\n  switch i32 %gt, label %nowhere [{arms} ]\nback:\n  %rv = call i64 @edge_returned(ptr %rt)");
-    if b.at != 0 { let _ = writeln!(ir, "  call void @edge_leave(ptr %rt, i64 %rv)"); }
+    if b.at != 0 { let _ = writeln!(ir, "  call void @edge_back(ptr %rt, i32 {}, i64 %site, i64 %rv) #0", b.at - 1); }
     let _ = writeln!(ir, "  ret i64 %rv\ni{}:\n  ret i64 {none}\nnowhere:\n  unreachable", c.instructions.len());
     let mut seen = Vec::new();
     for &(_, h, except) in &tries {
