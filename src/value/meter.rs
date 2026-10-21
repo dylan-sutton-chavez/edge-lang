@@ -198,7 +198,7 @@ fn block(l: Layout) -> (Layout, usize) {
 impl<A: GlobalAlloc> Metered<A> {
     #[inline]
     unsafe fn place(&self, base: *mut u8, inner: Layout, head: usize) -> *mut u8 {
-        if base.is_null() { return base; }
+        if base.expose_provenance() == 0 { return base; }
         let m = payer();
         m.grew(inner.size());
         unsafe {
@@ -227,8 +227,9 @@ unsafe impl<A: GlobalAlloc> GlobalAlloc for Metered<A> {
     unsafe fn dealloc(&self, p: *mut u8, l: Layout) {
         let (inner, head) = block(l);
         unsafe {
-            (*p.sub(TAG).cast::<*const Meter>().read()).shrank(inner.size());
-            self.0.dealloc(p.sub(head), inner);
+            // Through the address, as `p.sub` would step out of the object `__rust_alloc` returned, poison under fat LTO.
+            (*core::ptr::with_exposed_provenance_mut::<u8>(p.addr() - TAG).cast::<*const Meter>().read()).shrank(inner.size());
+            self.0.dealloc(core::ptr::with_exposed_provenance_mut::<u8>(p.addr() - head), inner);
         }
     }
 
@@ -237,9 +238,9 @@ unsafe impl<A: GlobalAlloc> GlobalAlloc for Metered<A> {
         let (inner, head) = block(l);
         let Some(grown) = size.checked_add(head) else { return core::ptr::null_mut() };
         unsafe {
-            let owner = p.sub(TAG).cast::<*const Meter>().read();
-            let base = self.0.realloc(p.sub(head), inner, grown);
-            if base.is_null() { return base; }
+            let owner = core::ptr::with_exposed_provenance_mut::<u8>(p.addr() - TAG).cast::<*const Meter>().read();
+            let base = self.0.realloc(core::ptr::with_exposed_provenance_mut::<u8>(p.addr() - head), inner, grown);
+            if base.expose_provenance() == 0 { return base; }
             // A grown block goes to the current payer, so a shared buffer charges who made it grow.
             (*owner).shrank(inner.size());
             let m = payer();
