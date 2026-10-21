@@ -549,6 +549,20 @@ pub unsafe extern "C" fn edge_back(rt: *mut Rt, fi: u32, site: i64, last: i64) {
     if is_err(last) { unsafe { edge_note(rt, fi, site) } }
 }
 
+/* A raise leaving a generator body the glue laid in the loop consuming it, `last`: a StopIteration there leaves it as
+   RuntimeError, as it leaves a generator the VM runs (PEP 479). */
+/// # Safety
+/// `rt` comes from `edge_boot`.
+#[unsafe(no_mangle)]
+#[cold]
+pub unsafe extern "C" fn edge_stop_out(rt: *mut Rt, last: i64) -> i64 {
+    if !is_err(last) || err_id(last) != const { type_id("StopIteration") } { return last; }
+    let vm = unsafe { &mut *(*rt).vm };
+    let e = vm.reg_error.take().unwrap_or_else(|| VmErr::Raised("StopIteration".into()));
+    let e = vm.stop_out_of("generator", e);
+    raised(vm, e)
+}
+
 /* The cold halves of `edge_go` and `edge_back`, out of line so the glue inlines only the depth. */
 /// # Safety
 /// `rt` comes from `edge_boot`.

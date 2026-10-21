@@ -56,6 +56,21 @@ impl<'a> VM<'a> {
     }
 
     /* Makes `handled` the context of `exc` when it rose while `handled` was being handled. */
+    /* A StopIteration the body of a `kind` (generator, coroutine, async generator) raises, `e`, leaving it as RuntimeError with
+       the StopIteration as its cause (PEP 479). */
+    #[cold]
+    pub(crate) fn stop_out_of(&mut self, kind: &str, e: VmErr) -> VmErr {
+        let text = crate::s!(str kind, " raised StopIteration");
+        let made = (|| {
+            let stop = match self.pending.exc_val.take() { Some(v) => v, None => { let args = match e.message() { m if m.is_empty() => vec![], m => vec![self.heap.alloc(HeapObj::Str(m))?] }; self.heap.alloc(HeapObj::ExcInstance("StopIteration".into(), args, Val::undef()))? } };
+            let said = self.heap.alloc(HeapObj::Str(text.clone()))?;
+            let rt = self.with_roots([stop, said], |vm| vm.heap.alloc(HeapObj::ExcInstance("RuntimeError".into(), vec![said], Val::undef())))?;
+            self.with_roots([stop, rt], |vm| vm.set_exc_chain(rt, Chain { cause: stop, suppress: true, ..Chain::none() }))?;
+            Ok::<Val, VmErr>(rt)
+        })();
+        match made { Ok(rt) => { self.pending.exc_val = Some(rt); VmErr::Raised(crate::s!("RuntimeError: ", str &text)) } Err(e) => e }
+    }
+
     pub(crate) fn link_context(&mut self, exc: Val, handled: Val, at: Option<u32>) -> Result<(), VmErr> {
         let c = self.exc_chain(exc);
         if exc.0 == handled.0 || !c.context.is_none() { return Ok(()); }

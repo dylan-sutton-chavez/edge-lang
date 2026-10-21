@@ -5,7 +5,7 @@ pub use compiler::native::*;
 #[global_allocator]
 static METERED: compiler::value::meter::Metered<std::alloc::System> = compiler::value::meter::Metered(std::alloc::System);
 
-// Nothing unwinds under panic=abort, yet musl's compiler builtins name the personality routine, so it exists and never runs.
-#[cfg(panic = "abort")]
+// Nothing unwinds under panic=abort, yet musl's compiler builtins name the personality routine, so on Linux it exists and never runs.
+#[cfg(all(panic = "abort", target_os = "linux"))]
 #[unsafe(no_mangle)]
 pub extern "C" fn rust_eh_personality() { std::process::abort() }
