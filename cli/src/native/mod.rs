@@ -94,9 +94,9 @@ pub fn build(manifest_path: &Path, file: Option<&Path>, opts: &Opts) -> Result<(
     Ok(())
 }
 
-/* The C entry `target`'s start code calls, wasi-libc's for a `main` that takes no arguments. */
+/* The C entry `target`'s start code calls with the program's arguments, wasi-libc naming it apart. */
 fn entry(target: &str) -> &'static str {
-    if target.starts_with("wasm32") { "__main_void" } else { "main" }
+    if target.starts_with("wasm32") { "__main_argc_argv" } else { "main" }
 }
 
 // The opcode rules `edge.ept` gives for this Edge commit, when the tree carries them.

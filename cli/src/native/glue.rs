@@ -40,26 +40,24 @@ pub fn module(src: &str, chunk: &SSAChunk, typed: Option<&Typed>, target: &str) 
     let _ = write!(ir, r#"declare i1 @is_err(i64)
 declare i32 @err_id(i64)
 declare void @llvm.assume(i1)
-declare ptr @edge_boot(ptr, i64, i64, i64, i32)
-declare i32 @edge_finish(ptr, i32)
+declare ptr @edge_boot(ptr, i64, i32, ptr)
+declare i32 @edge_finish(ptr, i64)
+declare i64 @edge_returned(ptr)
 declare i64 @edge_enter(ptr, i32, i64, ptr, i32)
-declare void @edge_leave(ptr, i32)
+declare void @edge_leave(ptr, i64)
 declare i64 @edge_raise(ptr, i64, ptr)
 @llvm.used = appending global [{} x ptr] [{}], section "llvm.metadata"
 @edge.src = private constant [{} x i8] c"{text}"
 attributes #0 = {{ alwaysinline }}
-define i32 @{}() {{
-  %rt = call ptr @edge_boot(ptr @edge.src, i64 {}, i64 0, i64 0, i32 0)
+define i32 @{}(i32 %argc, ptr %argv) {{
+  %rt = call ptr @edge_boot(ptr @edge.src, i64 {}, i32 %argc, ptr %argv)
   %bad = icmp eq ptr %rt, null
   br i1 %bad, label %out, label %go
 out:
   ret i32 1
 go:
   %r = call i64 @edge_main(ptr %rt)
-  %e = call i1 @is_err(i64 %r)
-  %id = call i32 @err_id(i64 %r)
-  %err = select i1 %e, i32 %id, i32 0
-  %code = call i32 @edge_finish(ptr %rt, i32 %err)
+  %code = call i32 @edge_finish(ptr %rt, i64 %r)
   ret i32 %code
 }}
 "#, TAGS.len(), used.join(", "), src.len(), super::entry(target), src.len());
@@ -145,7 +143,7 @@ fn function(ir: &mut String, ops: &mut Vec<String>, b: &Body, bodies: &[Body], t
             O::Jump => format!("  br label %i{t}"),
             _ if konst.is_some() => format!("  store i64 {}, ptr %s{d}\n  br label %{next}", konst.unwrap_or(0) as i64),
             O::StoreName if local(t) => format!("  %v{k} = load i64, ptr %s{base}\n  store i64 %v{k}, ptr %n{t}\n  br label %{next}"),
-            O::ReturnValue if b.at != 0 => format!("  %v{k} = load i64, ptr %s{base}\n  call void @edge_leave(ptr %rt, i32 0)\n  ret i64 %v{k}"),
+            O::ReturnValue if b.at != 0 => format!("  %v{k} = load i64, ptr %s{base}\n  call void @edge_leave(ptr %rt, i64 %v{k})\n  ret i64 %v{k}"),
             O::ReturnValue => format!("  ret i64 {none}"),
             // A phi of locals takes its first source that is bound, as the VM's does.
             O::Phi if local(t) => match c.phi_map.get(ip).and_then(|&p| c.phi_sources.get(p)).map(|&(x, y)| (x as usize, y as usize)).filter(|&(x, y)| local(x) && local(y)) {
@@ -192,7 +190,7 @@ fn function(ir: &mut String, ops: &mut Vec<String>, b: &Body, bodies: &[Body], t
         let _ = writeln!(ir, "x{k}:\n  %id{k} = call i32 @err_id(i64 %v{k})");
         if ins.opcode == O::ForIter { let _ = writeln!(ir, "  %end{k} = icmp eq i32 %id{k}, {}\n  br i1 %end{k}, label %i{t}, label %y{k}\ny{k}:", stop()); }
         let _ = writeln!(ir, "  %c{k} = call i64 @edge_raise(ptr %rt, i64 {site}, ptr %hp)\n  %ce{k} = call i1 @is_err(i64 %c{k})\n  br i1 %ce{k}, label %z{k}, label %g{k}\nz{k}:");
-        if b.at != 0 { let _ = writeln!(ir, "  %zi{k} = call i32 @err_id(i64 %c{k})\n  call void @edge_leave(ptr %rt, i32 %zi{k})"); }
+        if b.at != 0 { let _ = writeln!(ir, "  call void @edge_leave(ptr %rt, i64 %c{k})"); }
         let arms: String = handlers.iter().map(|&(h, _)| format!(" i32 {h}, label %catch{h}")).collect();
         let _ = writeln!(ir, "  ret i64 %c{k}\ng{k}:\n  store i64 %c{k}, ptr %exc\n  %hv{k} = load i32, ptr %hp\n  switch i32 %hv{k}, label %nowhere [{arms} ]");
     }
