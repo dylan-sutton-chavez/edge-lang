@@ -112,6 +112,9 @@ impl State {
     pub fn within(&self, o: &State) -> bool { self.all(o, Ty::within) }
 }
 
+/* The rules this build ships, an error with its reason when they are of other sources or not of format 1. */
+pub fn rules() -> Result<read::Rules, String> { read::Rules::read(include_str!("edge.ept")) }
+
 /* A program typed by the rules and accepted by the reviewer. */
 pub struct Typed<'c> { pub prog: step::Prog<'c>, pub tree: tree::Tree }
 
