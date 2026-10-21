@@ -27,7 +27,11 @@ fn three(dir: &Path, src: &str, input: &str, events: &[&str], flags: &[&str]) ->
     let vm = run(Command::new(BIN).current_dir(dir).args(["run", "main.py"]).args(with_events), input);
     let native = |name: &str, flags: &[&str]| {
         let built = run(Command::new(BIN).current_dir(dir).args(["build", "main.py", "-o", name]).args(flags), "");
-        if built.2 != 0 { built } else { run(Command::new(dir.join(name)).current_dir(dir).args(with_events), input) }
+        if built.2 != 0 { return built }
+        // A program's SyntaxWarnings belong to compiling it, so the build prints them, before its own lines, and the binary never does.
+        let (out, err, code) = run(Command::new(dir.join(name)).current_dir(dir).args(with_events), input);
+        let warned: String = built.1.split("  compiling ").next().unwrap_or("").lines().filter(|l| !l.starts_with("edge build:")).map(|l| format!("{l}\n")).collect();
+        (out, warned + &err, code)
     };
     [vm, native("plain", flags), native("torture", &["--gc-torture"])]
 }
@@ -66,6 +70,19 @@ fn checks(ir: &str, vm: &str) -> Vec<(&'static str, bool)> {
         ("mix still keeps a live or rest buffer in memory", !mix.contains(" = alloca ")),
         ("fib calls itself through the VM, not directly", ir::calls(fib, "py_fib") > 0 && ir::calls(fib, "op_Call") == 0),
     ]
+}
+
+/* The programs a fix of the glue came with, in tests/native: and/or, and raises through try, finally and return. */
+#[test]
+fn fixes() {
+    for path in std::fs::read_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/native")).unwrap().flatten().map(|e| e.path()) {
+        let dir = tempfile::tempdir().unwrap();
+        let [vm, native, torture] = three(dir.path(), &std::fs::read_to_string(&path).unwrap(), "", &[], &[]);
+        assert!(native == vm && torture == vm, "{ALARM}, {} differs
+   vm {vm:?}
+   native {native:?}
+   torture {torture:?}", path.display());
+    }
 }
 
 fn texts<'a>(case: &'a serde_json::Value, field: &str) -> Vec<&'a str> { case[field].as_array().into_iter().flatten().filter_map(|v| v.as_str()).collect() }

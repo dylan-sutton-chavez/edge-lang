@@ -71,6 +71,8 @@ pub fn build(manifest_path: &Path, file: Option<&Path>, opts: &Opts) -> Result<(
             let src = std::fs::read_to_string(&entry).with_context(|| format!("reading {}", entry.display()))?;
             let (chunk, errors) = compiler::code::compile(&src);
             // The diagnostics as `edge run` prints them, already headed `error:`.
+            // Its SyntaxWarnings belong to compiling it, printed as edge run prints them and never again by the binary.
+            if !chunk.warnings.is_empty() { eprint!("{}", compiler::code::Diagnostic::render_warnings(&chunk.warnings, &src, Some(&crate::host::driver::path_spec(&entry)))); }
             if !errors.is_empty() { eprintln!("{}", compiler::code::Diagnostic::render_all(&errors, &src, Some(&entry.to_string_lossy()))); std::process::exit(1); }
             // Rules that are not these sources', or a tree the reviewer refuses, leave every opcode to its handler.
             let rules = compiler::types::rules();
