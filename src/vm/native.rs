@@ -21,16 +21,8 @@ pub use crate::parser::{JUMP, RETURN, TAG_ERR};
 #[inline(always)]
 fn err(id: u32) -> i64 { (TAG_ERR | (id as u64) << 4) as i64 }
 
-/* What a run `boot` kept printed, the error it holds, and its module's chunk. */
-pub fn output(rt: &Rt) -> String { rt.vm.output_text() }
-pub fn error(rt: &Rt) -> Option<String> { rt.vm.reg_error.as_ref().map(VmErr::render) }
+/* The chunk of body `body`, the module's at 0 and each function's at its index plus one, as the glue numbers them. */
 pub fn chunk(rt: &Rt, body: usize) -> &'static SSAChunk { rt.bodies[body].chunk }
-/* The function `v` is when a direct call runs it as a body of its own: one the program had at its start, neither a
-   generator nor a coroutine. */
-pub fn function_of(rt: &Rt, v: i64) -> Option<usize> {
-    match rt.vm.heap.try_get(Val(v as u64)) { Some(&HeapObj::Func(fi, ..)) if fi + 1 < rt.bodies.len() && !rt.vm.functions[fi].1.is_generator && !rt.vm.is_async.get(fi).copied().unwrap_or(false) => Some(fi), _ => None }
-}
-pub fn type_name(rt: &Rt, v: i64) -> &str { rt.vm.type_name(Val(v as u64)) }
 
 /* One body the glue runs, the module's first then each function's at its index plus one. */
 struct Body { chunk: &'static SSAChunk, code: Rc<Code>, pool: usize }
@@ -454,7 +446,7 @@ pub unsafe extern "C" fn edge_boot(src: *const u8, len: u64, path: *const u8, pl
     }
 }
 
-/* `edge_boot` from Rust, the program's output kept for `output` when `keep`. */
+/* `edge_boot` from Rust, what the program prints kept in the VM when `keep`. */
 /// # Safety
 /// `src` points at `len` bytes of UTF-8.
 pub unsafe fn boot(src: *const u8, len: usize, path: Option<&'static str>, memory: usize, keep: bool) -> *mut Rt {

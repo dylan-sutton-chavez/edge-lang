@@ -55,7 +55,6 @@ impl<'a> VM<'a> {
         Ok(())
     }
 
-    /* Makes `handled` the context of `exc` when it rose while `handled` was being handled. */
     /* A StopIteration the body of a `kind` (generator, coroutine, async generator) raises, `e`, leaving it as RuntimeError with
        the StopIteration as its cause (PEP 479). */
     #[cold]
@@ -71,6 +70,7 @@ impl<'a> VM<'a> {
         match made { Ok(rt) => { self.pending.exc_val = Some(rt); VmErr::Raised(crate::s!("RuntimeError: ", str &text)) } Err(e) => e }
     }
 
+    /* Makes `handled` the context of `exc` when it rose while `handled` was being handled. */
     pub(crate) fn link_context(&mut self, exc: Val, handled: Val, at: Option<u32>) -> Result<(), VmErr> {
         let c = self.exc_chain(exc);
         if exc.0 == handled.0 || !c.context.is_none() { return Ok(()); }
