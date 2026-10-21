@@ -75,7 +75,9 @@ fn texts<'a>(case: &'a serde_json::Value, field: &str) -> Vec<&'a str> {
 #[test]
 fn corpus() {
     let read = |name: &str| serde_json::from_str::<Vec<serde_json::Value>>(&std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/cases").join(name)).unwrap()).unwrap();
-    let cases = [read("vm.json"), read("snapshot.json")].concat();
+    // Plus the programs the corpus misses that a native build once got wrong: a raise laid out in a loop must not end it.
+    let missed = vec![serde_json::json!({"src": "def g():\n    yield 1\n    raise StopIteration\nfor x in g():\n    print(x)\nprint('end')"})];
+    let cases = [read("vm.json"), read("snapshot.json"), missed].concat();
     let failures: Vec<String> = cases.par_iter().filter_map(|case| {
         let dir = tempfile::tempdir().unwrap();
         let events = [texts(case, "events"), texts(case, "interactive_events")].concat();
