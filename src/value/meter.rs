@@ -175,6 +175,7 @@ pub fn installed() -> bool {
 
 /* Wraps an allocator so each block carries the meter it was charged to, and its free credits that meter. */
 pub struct Metered<A>(pub A);
+#[cfg(feature = "native")] pub(crate) static KEEP: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
 
 const TAG: usize = core::mem::size_of::<*const Meter>();
 
@@ -229,6 +230,7 @@ unsafe impl<A: GlobalAlloc> GlobalAlloc for Metered<A> {
         unsafe {
             // Through the address, as `p.sub` would step out of the object `__rust_alloc` returned, poison under fat LTO.
             (*core::ptr::with_exposed_provenance_mut::<u8>(p.addr() - TAG).cast::<*const Meter>().read()).shrank(inner.size());
+            #[cfg(feature = "gc-torture")] if KEEP.load(Relaxed) { return; }
             self.0.dealloc(core::ptr::with_exposed_provenance_mut::<u8>(p.addr() - head), inner);
         }
     }

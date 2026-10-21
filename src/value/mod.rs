@@ -1043,28 +1043,29 @@ impl HeapPool {
     }
 
     /* Moves every object's storage, for the torture mode of native code: the slot table and each payload made again, the
-       old poisoned and never freed, so a pointer kept across a safepoint reads poison. A Val stays, it is the identity. */
+       old poisoned and kept from reuse, so a pointer kept across a safepoint reads poison. A Val stays, it is the identity. */
     #[cfg(feature = "native")]
     pub(crate) fn relocate(&mut self) {
+        meter::KEEP.store(true, core::sync::atomic::Ordering::Relaxed);
         let moved: Vec<HeapSlot> = self.slots.iter().map(|s| HeapSlot { obj: s.obj.clone(), ..*s.flags() }).collect();
         // A container an Rc shares with its iterators keeps its cell, its items moved to a new buffer.
         for o in moved.iter().filter_map(|s| s.obj.as_ref()) {
             match o {
                 HeapObj::List(l) => { let items = l.borrow().clone(); poison(&mut core::mem::replace(&mut *l.borrow_mut(), items)); }
-                HeapObj::Dict(d) | HeapObj::FrozenDict(d) | HeapObj::Instance(_, d) => { let m = d.borrow().clone(); core::mem::forget(core::mem::replace(&mut *d.borrow_mut(), m)); }
+                HeapObj::Dict(d) | HeapObj::FrozenDict(d) | HeapObj::Instance(_, d) => { let m = d.borrow().clone(); drop(core::mem::replace(&mut *d.borrow_mut(), m)); }
                 _ => {}
             }
         }
-        let mut old = core::mem::ManuallyDrop::new(core::mem::replace(&mut self.slots, moved));
-        for o in old.iter_mut().filter_map(|s| s.obj.as_mut()) {
+        for o in core::mem::replace(&mut self.slots, moved).iter_mut().filter_map(|s| s.obj.as_mut()) {
             match o {
                 HeapObj::Tuple(v) => poison(v),
-                // SAFETY the string is never read or freed again.
+                // SAFETY the string is never read again.
                 HeapObj::Str(t) => unsafe { t.as_bytes_mut().fill(0xFF) },
                 _ => {}
             }
         }
-        fn poison(v: &mut Vec<Val>) { v.fill(Val::undef()); core::mem::forget(core::mem::take(v)); }
+        meter::KEEP.store(false, core::sync::atomic::Ordering::Relaxed);
+        fn poison(v: &mut Vec<Val>) { v.fill(Val::undef()); drop(core::mem::take(v)); }
     }
 
     pub fn sweep(&mut self) {
