@@ -48,7 +48,7 @@ pub struct Rt {
 
 // What the program prints goes to stdout, an error to stderr as `edge run` prints one, a blank line after its block.
 #[cfg(feature = "std")]
-fn out(text: &str) { use std::io::Write; let _ = std::io::stdout().write_all(text.as_bytes()); }
+fn out(text: &str) { use std::io::Write; let mut o = std::io::stdout(); let _ = o.write_all(text.as_bytes()).and_then(|()| o.flush()); }
 #[cfg(feature = "std")]
 fn fail(text: &str) { std::eprintln!("{text}"); }
 #[cfg(not(feature = "std"))]
@@ -481,7 +481,7 @@ pub unsafe fn boot(src: *const u8, len: usize, path: Option<&'static str>, memor
     // SAFETY the program lives as long as the process, its one reference never given back.
     let chunk: &'static SSAChunk = unsafe { &*Rc::into_raw(chunk) };
     let mut vm = VM::boxed(chunk, Limits { ops: u64::MAX, memory });
-    if !keep { vm.print_hook = Some(out); }
+    if !keep { (vm.print_hook, vm.strict_input) = (Some(out as fn(&str)), !cfg!(feature = "std")); }
     let Ok(paying) = vm.paying() else { return core::ptr::null_mut() };
     let mut rt = Rt { vm, path, bodies: Vec::new(), frames: Vec::new(), steps: Default::default(), packs: Vec::new(), returned: Val::none(), src, _paying: paying };
     let vm = &mut *rt.vm;
