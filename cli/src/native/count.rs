@@ -10,20 +10,14 @@ pub fn instrument(ir: &str) -> String {
         // A named entry block starts at its label, an unnamed one right after the `define`.
         let starts = define && !lines.get(at + 1).is_some_and(|l| is_label(l)) || body && is_label(line);
         body = (body || define) && line != "}";
-        out.push_str(line);
-        out.push('\n');
+        out += &format!("{line}\n");
         at += 1;
-        if !starts {
-            continue;
-        }
+        if !starts { continue; }
         // The block runs to its terminator, the next label or the function's end, `switch` cases being part of one instruction.
         let end = (at..lines.len()).find(|&i| is_label(lines[i]) || lines[i] == "}").unwrap_or(lines.len());
         let count = lines[at..end].iter().filter(|l| is_instruction(l)).count();
         let pads = lines[at..end].iter().take_while(|l| !is_instruction(l) || l.contains(" = phi ") || l.contains("landingpad") || l.contains("catchpad") || l.contains("cleanuppad")).count();
-        for l in &lines[at..at + pads] {
-            out.push_str(l);
-            out.push('\n');
-        }
+        out += &lines[at..at + pads].iter().map(|l| format!("{l}\n")).collect::<String>();
         at += pads;
         out.push_str(&format!("  %edge.count.{k} = load i64, ptr @edge.count\n  %edge.count.{k}.n = add i64 %edge.count.{k}, {count}\n  store i64 %edge.count.{k}.n, ptr @edge.count\n"));
         k += 1;

@@ -14,8 +14,8 @@ fn tool(sys: &Sysroot, name: &str, args: &[&str]) -> Result<()> {
     Ok(())
 }
 
-/* The modules linked into one, optimized, counted when asked, compiled and linked for `target`; `out` ending in `.o` stops at the object. */
-pub fn compile(sys: &Sysroot, modules: &[PathBuf], target: &str, opts: &Opts, out: &Path) -> Result<()> {
+/* The modules linked into one, optimized, counted when asked, compiled and linked with the VM's `vm` object for `target`; `out` ending in `.o` stops at the object. */
+pub fn compile(sys: &Sysroot, modules: &[PathBuf], vm: &Path, target: &str, opts: &Opts, out: &Path) -> Result<()> {
     let dir = tempfile::tempdir().context("creating a build dir")?;
     let at = |name: &str| dir.path().join(name).to_string_lossy().into_owned();
     let mut link: Vec<&str> = modules.iter().filter_map(|m| m.to_str()).collect();
@@ -50,11 +50,11 @@ pub fn compile(sys: &Sysroot, modules: &[PathBuf], target: &str, opts: &Opts, ou
     if object == out.to_string_lossy() {
         return Ok(());
     }
-    lld(sys, target, &object, opts.strip, out)
+    lld(sys, target, &[object, vm.to_string_lossy().into_owned()], opts.strip, out)
 }
 
 /* rust-lld in the flavor `target` links with, the object first and the static libc and compiler builtins after it. */
-fn lld(sys: &Sysroot, target: &str, object: &str, strip: bool, out: &Path) -> Result<()> {
+fn lld(sys: &Sysroot, target: &str, objects: &[String], strip: bool, out: &Path) -> Result<()> {
     let crt = sys.crt(target);
     let lib = crt.parent().unwrap_or(&crt).to_path_buf();
     // Rust's own builtins (128-bit division, float conversions) are kept out of LTO, so they link from their rlib.
@@ -63,7 +63,7 @@ fn lld(sys: &Sysroot, target: &str, object: &str, strip: bool, out: &Path) -> Re
         .with_context(|| format!("no compiler builtins under {}", lib.display()))?;
     let c = |name: &str| crt.join(name).to_string_lossy().into_owned();
     let mut args: Vec<String> = Vec::new();
-    let tail = [object.to_string(), builtins.to_string_lossy().into_owned()];
+    let tail: Vec<String> = objects.iter().filter(|o| !o.is_empty()).cloned().chain([builtins.to_string_lossy().into_owned()]).collect();
     if target.contains("musl") {
         args.extend(["-flavor", "gnu", "-static", "--gc-sections"].map(String::from));
         args.extend([c("crt1.o"), c("crti.o")]);

@@ -97,7 +97,7 @@ A static dev server with live reload for the current directory. `--host` default
 
 ### edge build
 
-`edge build [file]` compiles a program to one static native binary, the project's `main.py` when no file is given. The VM is the compiler: each opcode's handler is a function of the VM, the program's functions call them in order with their operands constant, and LLVM inlines and optimizes the whole at `-O3`. The binary runs with nothing installed, reads `input()` from stdin, takes `--events <file>` like `edge run`, and prints the same output, errors and exit code.
+`edge build [file]` compiles a program to one static native binary, the project's `main.py` when no file is given. The VM is the compiler: each opcode's handler is a function of the VM, the program's functions call them in order with their operands constant, and LLVM inlines them and optimizes the program at `-O3` before linking the rest of the VM, compiled once. The binary runs with nothing installed, reads `input()` from stdin, takes `--events <file>` like `edge run`, and prints the same output, errors and exit code.
 
 | Flag | Effect |
 |---|---|

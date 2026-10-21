@@ -125,6 +125,9 @@ mod test {
         assert!(!wild("print(sorted([2, 1]))\n"));
         assert!(wild("def f(x):\n    return x\nprint(map(f, [1]))\n"));
         assert!(wild("print(hash(3))\n"));
+        // `calls *` may call any operand, and a function among them runs.
+        assert!(!wild("print(filter(None, [1]))\n"));
+        assert!(wild("def f(x):\n    return x\nprint(filter(f, [1]))\n"));
     }
 
     #[test]

@@ -10,10 +10,10 @@ description: "How edge build turns the VM into the compiler, with proven types a
 ## The VM as compiler
 
 - Each opcode has a handler in the VM. It takes and returns values, not the VM's stack. Its fast path is the code the interpreter runs for numbers and plain containers. Its slow path is the interpreter's own handler for that opcode.
-- The VM is shipped as LLVM bitcode for each target, inside the `edge` binary.
+- Each target's VM ships inside the `edge` binary in two parts: the handlers as LLVM bitcode, and the rest of the VM (slow paths, interpreter, collector) compiled once.
 - `edge build` writes the glue: one LLVM function per Python function, calling the handlers in the order of the bytecode, with each operand a constant. Names and the stack are local values, so they end up in CPU registers.
 - A call whose target is known becomes a direct call. A function that is not recursive is inlined into its caller, so the caller and the callees it lays become one block.
-- LLVM links the glue with the VM, inlines every handler, and optimizes the whole at `-O3`. A constant operand folds the handler down to the one case it takes.
+- LLVM inlines every handler into the glue and optimizes it at `-O3`, then the linker joins it with the compiled rest of the VM. A constant operand folds the handler down to the one case it takes.
 
 ## Proven types
 
