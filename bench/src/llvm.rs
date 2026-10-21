@@ -82,7 +82,7 @@ pub fn main(update: bool) {
         annotate("error", failure);
     }
     // A first snapshot is only taken from a run that passes, so a failing one never becomes the baseline.
-    if update || last.is_none() && failures.is_empty() {
+    if update || (last.is_none() && failures.is_empty()) {
         let threshold = last.map_or(0.01, |l| l.case_threshold);
         let lines: Vec<String> = cases.iter().map(|(k, c)| format!("    \"{k}\": [{:.0}, {:.0}, {:.0}, {:.0}]", c[0], c[1], c[2], c[3])).collect();
         let json = format!("{{\n  \"rustc\": {rustc:?},\n  \"case_threshold\": {threshold},\n  \"cases\": {{\n{}\n  }}\n}}\n", lines.join(",\n"));
