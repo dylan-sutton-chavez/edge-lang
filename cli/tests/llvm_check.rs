@@ -81,7 +81,8 @@ fn corpus() {
         let dir = tempfile::tempdir().unwrap();
         let events = [texts(case, "events"), texts(case, "interactive_events")].concat();
         let [vm, native, torture] = three(dir.path(), case["src"].as_str().unwrap(), &texts(case, "input").join("\n"), &events, &[]);
-        (native != vm || torture != vm).then(|| format!("{:?}\n   vm {vm:?}\n   native {native:?}\n   torture {torture:?}", case["src"]))
+        // Each one printed as found too, so a run cut short still names what it found.
+        (native != vm || torture != vm).then(|| format!("{:?}\n   vm {vm:?}\n   native {native:?}\n   torture {torture:?}", case["src"])).inspect(|f| eprintln!("DIFF {f}"))
     }).collect();
     assert!(failures.is_empty(), "{ALARM}, {} of {} programs differ:\n{}", failures.len(), cases.len(), failures.join("\n"));
 }
