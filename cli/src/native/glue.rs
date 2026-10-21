@@ -7,9 +7,6 @@ use std::fmt::Write;
 const JUMP: u32 = 0x4000_0000;
 const RETURN: u32 = 0x8000_0000;
 
-// The tag tests the IR checks read after O3, kept whole through internalize.
-const TAGS: [&str; 7] = ["is_int", "is_float", "is_bool", "is_none", "is_heap", "is_undef", "fits_int"];
-
 /* One body: its code, its VM index (0 the module, fi + 1 a function), the tree's index of it, its LLVM name, its
    parameters' slots (MAX for one a direct call cannot bind) and where each name lives. */
 struct Body<'c> { chunk: &'c SSAChunk, at: usize, ty: Option<usize>, name: String, params: Vec<usize>, binds: Vec<Binding> }
@@ -38,8 +35,6 @@ pub fn module(src: &str, chunk: &SSAChunk, typed: Option<&Typed>, collect: &[&st
     ops.sort();
     ops.dedup();
     for o in ops { let _ = writeln!(ir, "declare i64 @op_{o}(ptr, i64, i64, i64, i64, ptr, ptr, i32)"); }
-    for t in TAGS { let _ = writeln!(ir, "declare i1 @{t}(i64)"); }
-    let used: Vec<String> = TAGS.iter().map(|t| format!("ptr @{t}")).collect();
     let text: String = src.bytes().map(|c| format!("\\{c:02X}")).collect();
     let _ = write!(ir, r#"declare i1 @is_err(i64)
 declare i32 @err_id(i64)
@@ -51,7 +46,12 @@ declare i64 @edge_enter(ptr, i32, i64, ptr, i32)
 declare void @edge_leave(ptr, i64)
 declare i64 @edge_raise(ptr, i64)
 declare i64 @edge_safepoint(ptr, ptr, i32)
-@llvm.used = appending global [{} x ptr] [{}], section "llvm.metadata"
+declare i1 @is_int(i64)
+declare i1 @is_float(i64)
+declare i1 @is_bool(i64)
+declare i1 @is_none(i64)
+declare i1 @is_heap(i64)
+declare i1 @is_undef(i64)
 @edge.src = private constant [{} x i8] c"{text}"
 attributes #0 = {{ alwaysinline }}
 define i32 @{}(i32 %argc, ptr %argv) {{
@@ -65,7 +65,7 @@ go:
   %code = call i32 @edge_finish(ptr %rt, i64 %r)
   ret i32 %code
 }}
-"#, TAGS.len(), used.join(", "), src.len(), super::entry(target), src.len());
+"#, src.len(), super::entry(target), src.len());
     ir
 }
 
