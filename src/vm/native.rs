@@ -170,11 +170,23 @@ fn index(i: i64, len: usize) -> Option<usize> {
 #[cold]
 #[inline(never)]
 unsafe fn slow(rt: &mut Rt, site: i64, op: OpCode, abc: [i64; 3], rest: *mut i64, live: *mut i64, nlive: u32) -> i64 {
+    unsafe { rooted(rt, live, nlive, |rt| slow_step(rt, site, op, abc, rest)) }
+}
+
+/* Runs `f` with the glue's `n` values at `live` kept as roots, each read back as the VM leaves it. */
+unsafe fn rooted<R>(rt: &mut Rt, live: *mut i64, n: u32, f: impl FnOnce(&mut Rt) -> R) -> R {
+    let roots = rt.vm.temp_roots.len();
+    for k in 0..n as usize { rt.vm.temp_roots.push(Val(unsafe { *live.add(k) } as u64)); }
+    let r = f(rt);
+    for k in 0..n as usize { unsafe { *live.add(k) = rt.vm.temp_roots[roots + k].0 as i64; } }
+    rt.vm.temp_roots.truncate(roots);
+    r
+}
+
+unsafe fn slow_step(rt: &mut Rt, site: i64, op: OpCode, abc: [i64; 3], rest: *mut i64) -> i64 {
     let (body, ip) = parts(site);
     let ins: Instruction = rt.bodies[body].chunk.instructions[ip];
     let (pops, pushes) = crate::parser::effect(&ins, rt.bodies[body].chunk).unwrap_or((0, 0));
-    let roots = rt.vm.temp_roots.len();
-    for k in 0..nlive as usize { rt.vm.temp_roots.push(Val(unsafe { *live.add(k) } as u64)); }
     let at = rt.vm.stack.len();
     let input = |k: usize| Val(if k < 3 { abc[k] } else { unsafe { *rest.add(k - 3) } } as u64);
     // A branch takes the value it tests alone, which the glue keeps or pops.
@@ -230,8 +242,6 @@ unsafe fn slow(rt: &mut Rt, site: i64, op: OpCode, abc: [i64; 3], rest: *mut i64
         Err(e) => raised(vm, e),
     };
     vm.stack.truncate(at);
-    for k in 0..nlive as usize { unsafe { *live.add(k) = vm.temp_roots[roots + k].0 as i64; } }
-    vm.temp_roots.truncate(roots);
     ret
 }
 
@@ -531,12 +541,7 @@ fn tortured(vm: &mut VM<'static>) {
 }
 
 /* A collection now with `live` as roots too, what `edge_safepoint` runs once the heap asks, for the tests. */
-pub fn collect(rt: &mut Rt, live: &[i64]) {
-    let roots = rt.vm.temp_roots.len();
-    rt.vm.temp_roots.extend(live.iter().map(|&v| Val(v as u64)));
-    rt.vm.collect();
-    rt.vm.temp_roots.truncate(roots);
-}
+pub fn collect(rt: &mut Rt, live: &mut [i64]) { unsafe { rooted(rt, live.as_mut_ptr(), live.len() as u32, |rt| rt.vm.collect()) } }
 
 /* `collect_point` for the glue's own loops, and under torture the move. */
 /// # Safety
@@ -544,13 +549,8 @@ pub fn collect(rt: &mut Rt, live: &[i64]) {
 #[unsafe(no_mangle)]
 #[cold]
 pub unsafe extern "C" fn edge_safepoint(rt: *mut Rt, live: *mut i64, nlive: u32) -> i64 {
-    let vm = unsafe { &mut *(*rt).vm };
-    if !vm.heap.needs_gc() && !torture() { return ok(Val::none()); }
-    let roots = vm.temp_roots.len();
-    for k in 0..nlive as usize { vm.temp_roots.push(Val(unsafe { *live.add(k) } as u64)); }
-    let r = vm.collect_point();
-    if torture() { vm.heap.relocate(); }
-    for k in 0..nlive as usize { unsafe { *live.add(k) = vm.temp_roots[roots + k].0 as i64; } }
-    vm.temp_roots.truncate(roots);
-    match r { Ok(()) => ok(Val::none()), Err(e) => raised(vm, e) }
+    let rt = unsafe { &mut *rt };
+    if !rt.vm.heap.needs_gc() && !torture() { return ok(Val::none()); }
+    let r = unsafe { rooted(rt, live, nlive, |rt| { let r = rt.vm.collect_point(); if torture() { rt.vm.heap.relocate(); } r }) };
+    match r { Ok(()) => ok(Val::none()), Err(e) => raised(&mut rt.vm, e) }
 }

@@ -139,70 +139,11 @@ fn gc_keeps_values_in_place() {
     // The list `d` held is garbage once it holds None, its slot free once collected.
     let freed = load(3);
     unsafe { native::handler(OpCode::StoreName).unwrap()(rt, 3, NONE, UNDEF, UNDEF, std::ptr::null_mut(), std::ptr::null_mut(), 0) };
-    native::collect(unsafe { &mut *rt }, &live);
+    native::collect(unsafe { &mut *rt }, &mut live.clone());
     assert_eq!(unsafe { native::heap_type(rt, freed) }, u32::MAX, "{WHY}");
-    native::collect(unsafe { &mut *rt }, &[live.clone(), vec![freed, freed + 0x7FF0]].concat());
+    native::collect(unsafe { &mut *rt }, &mut [live.clone(), vec![freed, freed + 0x7FF0]].concat());
     let again: Vec<i64> = (0..3).map(load).collect();
     assert_eq!(again, live, "{WHY}");
     assert_eq!(again.iter().map(|&v| unsafe { native::heap_type(rt, v) }).collect::<Vec<_>>(), kinds, "{WHY}");
     assert_eq!(unsafe { native::heap_type(rt, freed) }, u32::MAX, "{WHY}");
-}
-
-
-/* How many generator and coroutine calls of the corpus escape, the cost of laying only those that do not, by what
-   takes them: a `for` in the maker's body (laid), a builtin that iterates it then and there, a name it is stored in and
-   what reads that name, a return, a container, user code. Read off each body's bytecode, a value's maker and its takers. */
-#[test]
-fn generators_that_escape() {
-    #[derive(Clone)]
-    enum Mark { Def(usize), Made(usize), Name(String), Attr(String), Other }
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/cases/vm.json");
-    let cases: Vec<Case> = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
-    let mut by: std::collections::BTreeMap<String, usize> = Default::default();
-    fn walk(c: &compiler::code::SSAChunk, by: &mut std::collections::BTreeMap<String, usize>) {
-        let bare = |n: &str| compiler::code::ssa_strip(n).to_string();
-        let (mut held, mut stack) = (std::collections::HashMap::<u16, Mark>::new(), Vec::<Mark>::new());
-        // Each value a generator (0) or coroutine (1) function made, its kind and what took it, in order.
-        let mut made: Vec<(usize, Vec<String>)> = Vec::new();
-        for ins in &c.instructions {
-            let Some((pops, pushes)) = effect(ins, c) else { stack.clear(); continue };
-            let Some(under) = stack.len().checked_sub(pops as usize) else { stack.clear(); continue };
-            let taken = stack.split_off(under);
-            let name = |m: &Mark| match m { Mark::Name(n) => n.clone(), Mark::Attr(a) => format!(".{a}"), _ => String::from("?") };
-            let taker = match ins.opcode { OpCode::Call | OpCode::CallSpread => format!("call {}", taken.first().map_or(String::new(), name)), o => format!("{o:?}") };
-            for m in &taken { if let Mark::Made(g) = m { made[*g].1.push(taker.clone()); } }
-            let pushed = match ins.opcode {
-                OpCode::MakeFunction if c.functions[ins.operand as usize].1.is_generator => Mark::Def(0),
-                OpCode::MakeCoroutine => Mark::Def(1),
-                OpCode::StoreName => { match taken.first() { Some(m @ (Mark::Def(_) | Mark::Made(_))) => { held.insert(ins.operand, m.clone()); } _ => { held.remove(&ins.operand); } } Mark::Other }
-                OpCode::LoadName => held.get(&ins.operand).cloned().unwrap_or_else(|| Mark::Name(bare(&c.names[ins.operand as usize]))),
-                OpCode::LoadAttr => Mark::Attr(c.names.get(ins.operand as usize).map_or(String::new(), |n| bare(n))),
-                OpCode::Call => match taken.first() { Some(Mark::Def(k)) => { made.push((*k, Vec::new())); Mark::Made(made.len() - 1) } _ => Mark::Other },
-                _ => Mark::Other,
-            };
-            stack.extend((0..pushes).map(|j| if j == 0 { pushed.clone() } else { Mark::Other }));
-        }
-        for (k, takers) in made {
-            let kind = ["generator", "coroutine"][k];
-            let first = takers.first().cloned().unwrap_or_else(|| String::from("nothing"));
-            // A stored one is told by what read it after: all `for`s, a `next` by hand, or anything else.
-            let what = if first == "StoreName" {
-                let rest: Vec<&String> = takers.iter().skip(1).collect();
-                if rest.is_empty() { String::from("stored, never read here") }
-                else if rest.iter().all(|t| *t == "GetIter") { String::from("stored, then only for") }
-                else if rest.iter().any(|t| *t == "call next") { String::from("stored, next() by hand") }
-                else { format!("stored, then {}", rest[0]) }
-            } else { first };
-            *by.entry(format!("{kind}: {what}")).or_default() += 1;
-        }
-        for f in &c.functions { walk(&f.1, by); }
-        for k in &c.classes { walk(k, by); }
-    }
-    for case in &cases {
-        let (chunk, errors) = compiler::code::compile(&case.src);
-        if errors.is_empty() { walk(&chunk, &mut by); }
-    }
-    let mut rows: Vec<(usize, String)> = by.into_iter().map(|(k, n)| (n, k)).collect();
-    rows.sort_by(|a, b| b.cmp(a));
-    for (n, k) in rows { eprintln!("{n:5}  {k}"); }
 }
