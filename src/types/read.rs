@@ -41,8 +41,9 @@ pub struct Row {
 
 #[derive(Default)]
 pub struct Rules {
-    // Each exact type by its code, the place of its name in BUILTIN_TYPES, the program's own kinds past them.
+    // Each exact type by its code, the place of its name in BUILTIN_TYPES, the program's own kinds past them; and each `$<n>` set.
     pub tags: Vec<(String, u8)>,
+    sets: Vec<(String, Tags)>,
     // By opcode name and operand, `type.name` of a method, or `Truth`.
     rows: Vec<(String, Option<u16>, Row)>,
     // The places of each name's rows, so a step finds them without reading the file's every row.
@@ -70,14 +71,15 @@ impl Rules {
         if lines.next() != Some("ept 1") { return Err("edge.ept is not format 1".into()); }
         let lines: Vec<Vec<&str>> = lines.map(|l| l.split(' ').collect()).collect();
         let mut r = Rules::default();
-        // The tags first, as rows name them.
+        // The tags first, as rows name them, then the named sets of them.
         for w in &lines { if let ["tag", n, c] = w[..] { r.tags.push((n.to_string(), u8::try_from(int(c)?).ok().filter(|&c| c < 127).ok_or_else(|| bad(c, "a code below 127"))?)); } }
+        for w in &lines { if let ["set", n, t] = w[..] && n.starts_with('$') { let t = r.set(t)?; r.sets.push((n.to_string(), t)); } }
         let ops: Vec<String> = OpCode::ALL.iter().map(|o| format!("{o:?}")).collect();
         for w in &lines {
             let (name, at) = match w.get(1).map(|n| n.split_once('@')) { Some(Some((n, a))) => (n, Some(int(a)? as u16)), _ => (*w.get(1).unwrap_or(&""), None) };
             let op = name == "Truth" || ops.iter().any(|o| o == name);
             match w[0] {
-                "tag" if w.len() == 3 => {}
+                "tag" | "set" if w.len() == 3 => {}
                 "rule" if op => { let row = r.row(&w[2..])?; r.rows.push((name.into(), at, row)); }
                 "builtin" if w.len() > 2 && at.is_none() => { let row = r.row(&w[2..])?; r.rows.push((alloc::format!("builtin.{name}"), None, row)); }
                 "method" if name.contains('.') && at.is_none() => { let row = r.row(&w[2..])?; r.rows.push((name.into(), None, row)); }
@@ -92,6 +94,7 @@ impl Rules {
         match w {
             "*" => Ok(super::ALL),
             "!" => Ok(0),
+            _ if w.starts_with('$') => self.sets.iter().find(|s| s.0 == w).map(|s| s.1).ok_or_else(|| bad(w, "a named set")),
             _ => w.split('|').try_fold(0, |t, n| Ok(t | self.tag(n).ok_or_else(|| bad(n, "a tag"))?)),
         }
     }

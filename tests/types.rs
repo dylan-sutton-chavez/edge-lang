@@ -186,6 +186,10 @@ mod test {
         assert!(Rules::read(&(ept() + "rule Add int int -> int | soon a0\n")).is_err());
         assert!(Rules::read(&(ept() + "frobnicate Add\n")).is_err());
         assert!(Rules::read(&(ept() + "tag int 1 1\n")).is_err(), "a tag is a name and one code");
+        // A named set stands for its tags wherever a tag set goes, and one never named is refused.
+        let set = Rules::read(&ept().replacen("ept 1\n", "ept 1\nset $0 int|str\n", 1)).unwrap();
+        assert_eq!(set.set("$0"), set.set("int|str"));
+        assert!(Rules::read(&(ept() + "rule Add $9 int -> int\n")).is_err());
         // The shipped file holds rules only once Spider Monkey's rules are copied in for these very sources.
         if let Err(e) = compiler::types::rules() { assert!(e.contains("other Edge sources"), "{e}"); }
     }
