@@ -117,9 +117,10 @@ fn check(last: &Snapshot, rustc: &str, cases: &BTreeMap<String, [f64; 4]>) -> Ve
     failures
 }
 
-/* What the native functions of the program still hold that a proven type takes out. */
+/* What the program's module still holds that a proven type takes out, over every function of it: LLVM inlines the
+   blocks into one another and into main, so no name of a block is sure to survive. */
 fn left(ir: &str, vm: &str) -> String {
-    let functions = ir::bodies(ir, "py_");
+    let functions = ir::bodies(ir, "");
     let sum = |f: &dyn Fn(&str) -> usize| functions.iter().map(|b| f(b)).sum::<usize>();
     let (tags, overflow, allocations) = (sum(&|b| ir::checks(vm, b, "is_")), sum(&|b| ir::checks(vm, b, "fits_int")), sum(&|b| ir::calls(b, "edge_alloc")));
     // The program's module calls into vm.o, so the interpreter is reached through the VM's own call graph too.
