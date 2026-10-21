@@ -68,20 +68,23 @@ fn checks(ir: &str, vm: &str) -> Vec<(&'static str, bool)> {
     ]
 }
 
-fn texts<'a>(case: &'a serde_json::Value, field: &str) -> Vec<&'a str> {
-    case[field].as_array().into_iter().flatten().filter_map(|v| v.as_str()).collect()
-}
+fn texts<'a>(case: &'a serde_json::Value, field: &str) -> Vec<&'a str> { case[field].as_array().into_iter().flatten().filter_map(|v| v.as_str()).collect() }
 
 /* Every program of tests/cases/vm.json and snapshot.json ends the same on the VM, native and native under torture. */
 #[test]
 fn corpus() {
     let read = |name: &str| serde_json::from_str::<Vec<serde_json::Value>>(&std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/cases").join(name)).unwrap()).unwrap();
-    let cases = [read("vm.json"), read("snapshot.json")].concat();
+    // LLVM_CHECK_CASES names a file of cases to run alone, the ones a fix is meant for, before the whole corpus.
+    let cases = std::env::var("LLVM_CHECK_CASES").map_or_else(|_| [read("vm.json"), read("snapshot.json")].concat(), |f| read(&f));
+    // A native program has no ops budget (a documented deviation), so the cases that end on the VM's budget run forever there.
+    let (unbudgeted, cases): (Vec<_>, Vec<_>) = cases.iter().partition(|case| case["error"] == "budget exceeded");
+    eprintln!("{} cases end on the VM's budget and are left out: {:?}", unbudgeted.len(), unbudgeted.iter().map(|c| &c["src"]).collect::<Vec<_>>());
     let failures: Vec<String> = cases.par_iter().filter_map(|case| {
         let dir = tempfile::tempdir().unwrap();
         let events = [texts(case, "events"), texts(case, "interactive_events")].concat();
         let [vm, native, torture] = three(dir.path(), case["src"].as_str().unwrap(), &texts(case, "input").join("\n"), &events, &[]);
-        (native != vm || torture != vm).then(|| format!("{:?}\n   vm {vm:?}\n   native {native:?}\n   torture {torture:?}", case["src"]))
+        // Each one printed as found too, so a run cut short still names what it found.
+        (native != vm || torture != vm).then(|| format!("{:?}\n   vm {vm:?}\n   native {native:?}\n   torture {torture:?}", case["src"])).inspect(|f| eprintln!("DIFF {f}"))
     }).collect();
     assert!(failures.is_empty(), "{ALARM}, {} of {} programs differ:\n{}", failures.len(), cases.len(), failures.join("\n"));
 }
