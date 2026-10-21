@@ -9,15 +9,21 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::host::site;
 
-/* Sends a packed `.edge` to the registry. The artifact is the whole request, so the registry reads the name, the license and what the bundle carries out of the bytes that will run, and nothing here declares it a second time. */
-pub fn run(artifact: &Path) -> Result<()> {
-    let token = std::env::var("EDGE_TOKEN").map_err(|_| anyhow!("set EDGE_TOKEN to a token from edgepython.com/settings#tokens"))?;
-
-    let bytes = fs::read(artifact).with_context(|| format!("reading {}", artifact.display()))?;
-    let name = artifact.file_name().unwrap_or(artifact.as_os_str()).to_string_lossy().into_owned();
+/* Packs the project as one `.edge` and sends it to the registry, or writes it to `out`. The artifact is the whole request, so the registry reads the name, the license and what the bundle carries out of the bytes that will run, and nothing here declares it a second time. */
+pub fn run(manifest_path: &Path, out: Option<&Path>) -> Result<()> {
+    let bytes = crate::cmd::build::pack(manifest_path)?;
+    let name = manifest_path.parent().and_then(Path::file_name).unwrap_or("the project".as_ref()).to_string_lossy().into_owned();
     if let Some(path) = javascript_in(&bytes) {
         bail!("{name} carries '{path}', which is JavaScript, ship a .py or a .wasm");
     }
+    if let Some(out) = out {
+        fs::write(out, &bytes).with_context(|| format!("writing {}", out.display()))?;
+        let files = crate::pack::Bundle::decode(&bytes).map(|b| b.files).unwrap_or_default();
+        let pages = files.iter().filter(|f| f.path.starts_with(crate::docs::PREFIX)).count();
+        crate::ui::packed(out, files.len() - pages, pages, bytes.len() as u64, &format!("run  edge run {}   or send it to an actor eval group", out.display()));
+        return Ok(());
+    }
+    let token = std::env::var("EDGE_TOKEN").map_err(|_| anyhow!("set EDGE_TOKEN to a token from edgepython.com/settings#tokens"))?;
 
     let authorization = signature(&token, &bytes, SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs())?;
     let sp = crate::ui::spinner(&format!("publishing {name}"));

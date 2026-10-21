@@ -151,12 +151,7 @@ fn agreed() -> Result<bool> {
         );
     }
 
-    print!("No headless Chromium found. Download one? [y/N] ");
-    std::io::stdout().flush().ok();
-
-    let mut answer = String::new();
-    std::io::stdin().read_line(&mut answer).map_err(|e| anyhow!("reading the answer: {e}"))?;
-    Ok(matches!(answer.trim(), "y" | "Y" | "yes" | "Yes" | "YES"))
+    crate::ui::confirm("No headless Chromium found. Download one?")
 }
 
 /* Every download lands in one dir edge owns, never a shared one, so removing it takes nothing else with it. */

@@ -43,12 +43,7 @@ fn drop_browser() -> Result<()> {
         return Ok(());
     }
 
-    print!("Remove the headless Chromium edge downloaded to {}? [y/N] ", dir.display());
-    std::io::stdout().flush().ok();
-
-    let mut answer = String::new();
-    std::io::stdin().read_line(&mut answer).map_err(|e| anyhow!("reading the answer: {e}"))?;
-    if !matches!(answer.trim(), "y" | "Y" | "yes" | "Yes" | "YES") {
+    if !crate::ui::confirm(&format!("Remove the headless Chromium edge downloaded to {}?", dir.display()))? {
         println!("kept {}", dir.display());
         return Ok(());
     }
