@@ -2917,6 +2917,11 @@ impl<'p> Lower<'_, 'p> {
         let body = callee.body.clone();
         // What it calls runs as often as it does, a generator's body at each step.
         self.once = false;
+        // A store by name a section holds only into a cell the body keeps, and a function made inside reads its captures from
+        // registers, which a closure's cells laid as constants are not. Both are told before anything it calls is wanted, so a
+        // refusal leaves no table pair or loop naming a section that is never laid.
+        if body.ins.iter().any(|i| i.op == OpCode::StoreName && !callee.cellvars.contains(&(i.a as usize))) { return None; }
+        if body.ins.iter().any(|i| matches!(i.op, OpCode::MakeFunction | OpCode::MakeCoroutine)) && !callee.cells.is_empty() && !callee.by_body { return None; }
         // Wanted before what it calls, so a call back into it, a recursion, finds it.
         let k = self.wanted.len();
         let twin = callee.twin.then(|| Callee { by_body: true, twin: false, ..callee.clone() });
@@ -3013,12 +3018,6 @@ impl<'p> Lower<'_, 'p> {
                 let callee = match g { Some(h) => (self.sections)(Want::Global(module, h)), None => self.celled(k, j, i.a).or_else(|| (self.sections)(Want::NestedValue(fi, body.orig(j), value_of(&body, j)))) };
                 if let Some(c) = callee.filter(|c| spreads(c, i.x)) { self.want_callee(g.unwrap_or(u16::MAX), c.clone(), c.arity); }
             }
-            // A function made inside reads its captures from registers, which a closure's cells laid as constants are not.
-            let makes = marked.iter().any(|m| matches!(m.0, OpCode::MakeFunction | OpCode::MakeCoroutine));
-            // A store by name a section holds only into a cell the body keeps.
-            if of(OpCode::StoreName).any(|j| !self.wanted[k].1.cellvars.contains(&(ins[j].a as usize))) { self.wanted.truncate(k); return None; }
-
-            if makes && !self.wanted[k].1.cells.is_empty() && !self.wanted[k].1.by_body { self.wanted.truncate(k); return None; }
             // A body with `try` lays no recursion, as a handler would meet registers another level wrote, and a loop over a called generator steps its section.
             for j in 2..ins.len() {
                 let (call, store, push) = (ins[j - 2], ins[j - 1], ins[j]);
