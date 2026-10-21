@@ -11,3 +11,7 @@ wasmtime = { version = "48", default-features = false, features = ["runtime", "s
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml_ng = { workspace = true }
+
+# used by tests/cases.rs, which main.rs takes by path where shear does not look
+[package.metadata.cargo-shear]
+ignored = ["serde_yaml_ng"]
