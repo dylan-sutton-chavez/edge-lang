@@ -25,9 +25,10 @@ fn err(id: u32) -> i64 { (TAG_ERR | (id as u64) << 4) as i64 }
 pub fn output(rt: &Rt) -> String { rt.vm.output_text() }
 pub fn error(rt: &Rt) -> Option<String> { rt.vm.reg_error.as_ref().map(VmErr::render) }
 pub fn chunk(rt: &Rt, body: usize) -> &'static SSAChunk { rt.bodies[body].chunk }
-/* The function `v` is when a direct call runs it as a body of its own, neither a generator nor a coroutine. */
+/* The function `v` is when a direct call runs it as a body of its own: one the program had at its start, neither a
+   generator nor a coroutine. */
 pub fn function_of(rt: &Rt, v: i64) -> Option<usize> {
-    match rt.vm.heap.try_get(Val(v as u64)) { Some(&HeapObj::Func(fi, ..)) if !rt.vm.functions[fi].1.is_generator && !rt.vm.is_async.get(fi).copied().unwrap_or(false) => Some(fi), _ => None }
+    match rt.vm.heap.try_get(Val(v as u64)) { Some(&HeapObj::Func(fi, ..)) if fi + 1 < rt.bodies.len() && !rt.vm.functions[fi].1.is_generator && !rt.vm.is_async.get(fi).copied().unwrap_or(false) => Some(fi), _ => None }
 }
 pub fn type_name(rt: &Rt, v: i64) -> &str { rt.vm.type_name(Val(v as u64)) }
 

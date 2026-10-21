@@ -35,23 +35,18 @@ fn safepoints(path: &str, text: String) {
 }
 
 fn inline(vm: &str, path: &str, text: String) {
-    // What vm.o defines for other objects: a define that is neither internal nor private.
-    let exported: std::collections::HashSet<&str> = vm.lines().filter(|l| l.starts_with("define ") && !l.contains(" internal ") && !l.contains(" private "))
-        .filter_map(|l| Some(ir::symbol(&l[l.find('@')? + 1..]))).collect();
+    // What vm.o defines for other objects: a function or a global that is neither internal nor private.
+    let open = |l: &str| !l.contains(" internal ") && !l.contains(" private ");
+    let mut exported: std::collections::HashSet<&str> = vm.lines().filter(|l| l.starts_with("define ") && open(l)).filter_map(|l| Some(ir::symbol(&l[l.find('@')? + 1..]))).collect();
+    exported.extend(vm.lines().filter(|l| l.starts_with('@') && open(l)).map(|l| ir::symbol(&l[1..])));
     let mut missing = Vec::new();
     let out: String = text.lines().map(|l| {
-        if let Some(rest) = l.strip_prefix("declare ") && let Some(n) = rest.find('@').map(|at| ir::symbol(&rest[at + 1..])) && !n.starts_with("llvm.") && !exported.contains(n) { missing.push(n.to_string()); }
+        // A function declared, or a global left without its value, is one vm.o must give.
+        let wanted = if let Some(rest) = l.strip_prefix("declare ") { rest.find('@').map(|at| ir::symbol(&rest[at + 1..])) }
+            else if l.starts_with('@') && l.contains(" external ") { Some(ir::symbol(&l[1..])) } else { None };
+        if let Some(n) = wanted && !n.starts_with("llvm.") && !exported.contains(n) { missing.push(n.to_string()); }
         match l.strip_prefix("define ") { Some(rest) => format!("define available_externally {}\n", rest.trim_start_matches("dso_local ")), None => format!("{l}\n") }
     }).collect();
-    // Each one named by the function or constant whose text uses it, so the fast path to cut is plain.
-    let users: Vec<String> = missing.iter().map(|m| {
-        let at = format!("@{m}");
-        let user = text.lines().find(|l| (l.starts_with("define ") || l.starts_with('@')) && l.contains(&at) && !l.starts_with("declare"))
-            .or_else(|| text.split("\ndefine ").find(|f| f.contains(&at)).and_then(|f| f.lines().next())).unwrap_or("?");
-        // A constant is named by the function that reads it.
-        let by = user.strip_prefix('@').and_then(|u| u.split(' ').next()).and_then(|c| text.split("\ndefine ").skip(1).find(|f| f.contains(&format!("{c},")) || f.contains(&format!("{c})")) || f.contains(&format!("{c} "))).and_then(|f| f.lines().next()));
-        format!("{m} <- {} <- {}", &user[..user.len().min(80)], by.map_or("", |b| &b[..b.len().min(120)]))
-    }).collect();
-    assert!(missing.is_empty(), "the inline handlers call what vm.o does not export, keep their fast paths to exported calls:\n{}", users.join("\n"));
+    assert!(missing.is_empty(), "the inline bodies use what vm.o does not export, keep the fast paths to exported calls:\n{}", missing.join("\n"));
     std::fs::write(path, out).expect("inline.ll written back");
 }

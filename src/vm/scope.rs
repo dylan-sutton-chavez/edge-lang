@@ -8,6 +8,8 @@ use super::VM;
 use super::types::*;
 
 /* Bumped each time a binding that held a heap value is overwritten or unbound, so code that laid functions as sections rechecks their bindings only then. */
+// A native program's inlined global stores bump it too, so its build keeps it a symbol of the VM's object.
+#[cfg_attr(feature = "native", unsafe(export_name = "edge_rebound"))]
 pub(crate) static REBOUND: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
 
 #[inline(always)]
