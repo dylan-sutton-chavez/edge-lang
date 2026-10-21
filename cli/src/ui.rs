@@ -63,7 +63,7 @@ pub fn build_report(dir: &std::path::Path, js_files: usize, packages: usize, scr
     println!("  {:.2} MB · {:.1}s", size as f64 / 1_000_000.0, elapsed.as_secs_f64());
 }
 
-/// Closing lines for `edge build`, `hint` names the other modes so they stay discoverable.
+/// Closing lines for `edge publish --out`, `hint` says what to do with it.
 pub fn packed(out: &std::path::Path, files: usize, docs: usize, size: u64, hint: &str) {
     println!();
     let pages = match docs {
@@ -76,6 +76,15 @@ pub fn packed(out: &std::path::Path, files: usize, docs: usize, size: u64, hint:
     println!("  {scaled:.2} {unit}");
     println!();
     println!("  {hint}");
+}
+
+/// Asks `question` with a [y/N] and reads the answer, false for anything but yes.
+pub fn confirm(question: &str) -> anyhow::Result<bool> {
+    print!("{question} [y/N] ");
+    std::io::stdout().flush().ok();
+    let mut answer = String::new();
+    std::io::stdin().read_line(&mut answer).map_err(|e| anyhow::anyhow!("reading the answer: {e}"))?;
+    Ok(matches!(answer.trim(), "y" | "Y" | "yes" | "Yes" | "YES"))
 }
 
 /// Render an error to stderr. `{:#}` joins the cause chain so the root reason isn't swallowed.

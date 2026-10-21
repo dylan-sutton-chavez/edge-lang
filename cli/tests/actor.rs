@@ -155,7 +155,7 @@ fn post_eval(addr: &str, path: &str, body: &str) -> String {
     resp.split_once("\r\n\r\n").map(|(_, body)| body.to_string()).unwrap_or_default()
 }
 
-/* The bundle wire format `edge build` writes, magic, entry, then length-prefixed files. */
+/* The bundle wire format `edge publish` packs, magic, entry, then length-prefixed files. */
 fn bundle(entry: &str, files: &[(&str, &str)]) -> Vec<u8> {
     fn put(b: &mut Vec<u8>, bytes: &[u8]) {
         b.extend_from_slice(bytes.len().to_string().as_bytes());

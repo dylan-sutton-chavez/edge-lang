@@ -30,9 +30,9 @@
     "fails": ["unknown package 'mystery'"]
   },
   {
-    "given": { "app.edge": "EDGEPKG\u0001" },
+    "given": { "main.py": "print(1)\n" },
     "env": { "EDGE_TOKEN": "edge_pat_nope.nope" },
-    "run": ["publish", "app.edge"],
+    "run": ["publish"],
     "fails": ["That token is not valid."]
   },
   {
@@ -109,7 +109,7 @@
   },
   {
     "given": { "main.py": "print('ok')\n", "edge.json": "{}\n" },
-    "run": ["build", "--web"],
+    "run": ["web"],
     "creates": ["dist/index.html", "dist/main.py", "dist/compiler.wasm"]
   },
   {
@@ -191,13 +191,13 @@
   },
   {
     "given": { "sub/main.py": "print('ok')\n", "edge.json": "{}\n" },
-    "run": ["build", "--web"],
+    "run": ["web"],
     "creates": ["dist/sub/main.py"],
     "contains": { "dist/index.html": "./sub/main.py" }
   },
   {
     "given": { "main.py": "print('ok')\n", "edge.json": "{}\n" },
-    "run": ["build", "--web"],
+    "run": ["web"],
     "contains": { "dist/index.html": "./main.py" }
   },
   {
@@ -278,7 +278,7 @@
       "m.js": "export default () => ({ hi: () => \"hello\" })\n",
       "main.py": "from m import hi\nprint(hi())\n"
     },
-    "run": ["build", "--app"],
+    "run": ["publish", "--out", "app.edge"],
     "fails": ["module 'm' is JavaScript, ship a .py or a .wasm"]
   },
   {
@@ -287,23 +287,14 @@
       "main.py": "import json\nprint(json.dumps({\"n\": 1}))\n"
     },
     "before": [["lock"]],
-    "run": ["build", "--app"],
-    "stdout": ["packed app (4 files)"],
+    "run": ["publish", "--out", "app.edge"],
+    "stdout": ["packed app.edge (4 files)"],
     "then": {
-      "bin": "./app",
+      "bin": "edge",
+      "run": ["run", "app.edge"],
       "env": { "EDGE_CDN_BASE": "http://127.0.0.1:1", "XDG_CACHE_HOME": "empty-cache" },
       "stdout": ["{\"n\": 1}"]
     }
-  },
-  {
-    "given": {
-      "edge.json": "{ \"imports\": { \"json\": \"0.1.0\" } }\n",
-      "main.py": "import json\nprint(json.dumps({\"n\": 1}))\n"
-    },
-    "before": [["lock"]],
-    "run": ["build"],
-    "stdout": ["packed app.edge (4 files)"],
-    "creates": ["app.edge"]
   },
   {
     "given": {
@@ -313,7 +304,7 @@
       "LICENSE.txt": "Apache-2.0\n",
       "NOTES.md": "not a notice\n"
     },
-    "run": ["build"],
+    "run": ["publish", "--out", "app.edge"],
     "stdout": ["packed app.edge (4 files)"],
     "creates": ["app.edge"]
   },
@@ -324,7 +315,7 @@
       "docs/01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```edge-python\nprint(1)\n```\n\n```output\n1\n```\n",
       "docs/02-reference/01-api.mdx": "---\ntitle: Api\ndescription: Every function.\n---\n\n# Api\n"
     },
-    "run": ["build"],
+    "run": ["publish", "--out", "app.edge"],
     "stdout": ["packed app.edge (2 files, 2 docs)"],
     "creates": ["app.edge"]
   },
@@ -334,7 +325,7 @@
       "main.py": "print(\"hello\")\n",
       "docs/intro.mdx": "# Intro\n"
     },
-    "run": ["build"],
+    "run": ["publish", "--out", "app.edge"],
     "fails": ["needs a numeric prefix on every segment"]
   },
   {
@@ -342,7 +333,7 @@
       "edge.json": "{ \"description\": \"Turn absolutely any text that you have into a tidy url slug fast.\" }\n",
       "main.py": "print(\"hello\")\n"
     },
-    "run": ["build"],
+    "run": ["publish", "--out", "app.edge"],
     "fails": ["the cap is 60"]
   },
   {
