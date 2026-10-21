@@ -137,8 +137,8 @@ impl<'a, 'c> Step<'a, 'c> {
         let bound = (plain && given.len() <= ps.len() && ps.iter().all(|p| p.0 == ParamKind::Normal)).then(|| {
             (0..ps.len()).map(|k| given.get(k).copied().or_else(|| ps[k].2.then(|| self.table(DEFAULTS | f, k as u32)).flatten())).collect::<Option<Vec<_>>>()
         }).flatten();
-        let n = ps.len();
-        self.call(s, f, bound.unwrap_or(vec![Ty::ANY; n]))
+        let any = vec![Ty::ANY; ps.len()];
+        self.call(s, f, bound.unwrap_or(any))
     }
 
     /* Calls `callee` with these values: each value it may return, or none when its rows already went on. */
@@ -157,25 +157,25 @@ impl<'a, 'c> Step<'a, 'c> {
             Known::Body(f) if self.p.is(f, Kind::Function(0)) => self.user(s, f, &args, plain).into_iter().collect(),
             Known::Bound(f, c, at) => self.user(s, f, &[&[inst(c, at)][..], &args].concat(), plain).into_iter().collect(),
             Known::Meth(code, name, at) if plain => {
-                let recv = Entry::of(Ty::of(1 << code).with(if at == NO { Known::No } else { Known::Site(at) }));
-                let ins = [&[recv][..], a].concat();
-                let key = alloc::format!("{}.{}", self.p.leaf(code), self.p.names[name as usize]);
-                let rows = self.p.rules.rows(&key, 0).into_iter().filter(|r| r.ins.len() == ins.len()).collect();
+                let ins = [&[Entry::of(Ty::of(1 << code).with(if at == NO { Known::No } else { Known::Site(at) }))][..], a].concat();
+                let rows = self.p.rules.rows(&alloc::format!("{}.{}", self.p.leaf(code), self.p.names[name as usize]), 0).into_iter().filter(|r| r.ins.len() == ins.len()).collect();
                 self.rows(s, ip, rows, &ins, 1, then);
                 Vec::new()
             }
-            Known::Type(code) => { self.foreign(&args); self.raise(s, Ty::ANY); vec![Ty::of(1 << code)] }
-            _ => { self.foreign(&args); self.unknown(s); vec![Ty::ANY] }
+            Known::Type(code) => { self.foreign(&args, true); self.raise(s, Ty::ANY); vec![Ty::of(1 << code)] }
+            _ => { self.unknown(s); vec![Ty::ANY] }
         }
     }
 
-    /* Values builtin code takes: through a function, or an instance whose class defines a dunder past `__init__`, user code nothing follows may run. */
-    fn foreign(&mut self, vals: &[Ty]) {
+    /* Values builtin code takes: an instance whose class defines a dunder past `__init__`, or a function or class it `calls`,
+       runs user code nothing follows; a generator it steps runs its own body. */
+    fn foreign(&mut self, vals: &[Ty], calls: bool) {
         let user = |v: &Ty| match v.known {
             Known::Obj(c, _) => self.mro(c).is_none_or(|all| self.t.tables.keys().any(|&(o, n)| o >> 28 == MEMBER >> 28 && all.contains(&(o & 0xFFF_FFFF)) && self.p.names[n as usize].starts_with("__") && self.p.names[n as usize] != "__init__")),
-            _ => v.tags & (self.p.tag("function").tags | self.p.tag("function").tags) != 0 || matches!(v.known, Known::Body(_) | Known::Bound(..)),
+            _ => calls && (v.tags & (self.p.tag("function").tags | self.p.tag("type").tags) != 0 || matches!(v.known, Known::Body(_) | Known::Bound(..))),
         };
-        if vals.iter().any(user) { self.eff.wild = true; }
+        self.eff.wild |= vals.iter().any(user);
+        self.eff.ran |= vals.iter().any(|v| matches!(v.known, Known::Gen(_)));
     }
 
     /* The classes a class derives from, itself first, None past a base that is no class of the program nor object. */
@@ -215,7 +215,7 @@ impl<'a, 'c> Step<'a, 'c> {
             Known::Body(c) if self.p.is(c, Kind::Class) => self.lookup(c, &n),
             _ if o.tags.count_ones() == 1 && !self.p.rules.rows(&alloc::format!("{}.{n}", self.p.leaf(o.tags.trailing_zeros() as u8)), 0).is_empty() =>
                 vec![self.p.tag("function").with(Known::Meth(o.tags.trailing_zeros() as u8, name, if let Known::Site(x) = o.known { x } else { NO }))],
-            _ => { self.foreign(&[o]); self.unknown(s); vec![Ty::ANY] }
+            _ => { self.unknown(s); vec![Ty::ANY] }
         }
     }
 
@@ -325,7 +325,7 @@ impl<'a, 'c> Step<'a, 'c> {
     /* An opcode, method or truth test by its rows, each row it meets a path of its own on to `then`; values no row takes give anything. */
     fn rows(&mut self, s: &State, ip: usize, rows: Vec<&Row>, a: &[Entry], m: usize, then: usize) {
         let tys: Vec<Ty> = a.iter().map(|e| e.ty).collect();
-        self.foreign(&tys);
+        self.foreign(&tys, false);
         if !self.covers(&rows, &tys, 0) {
             // Their containers may change, and code may run through their objects and functions.
             for v in &tys { match v.known { Known::Site(c) | Known::Obj(_, c) if c != NO => self.write(c, ITEM, Ty::ANY), _ => self.eff.wild |= v.tags & (self.p.tag("instance").tags | self.p.tag("function").tags) != 0 } }
@@ -336,6 +336,7 @@ impl<'a, 'c> Step<'a, 'c> {
         }
         for (k, row) in rows.iter().enumerate() {
             let Some(ins) = row.ins.iter().zip(&tys).map(|(p, v)| self.pat(p, v)).collect::<Option<Vec<Ty>>>().filter(|i| i.len() == tys.len()) else { continue };
+            self.foreign(&row.calls.iter().map(|&j| ins[j]).collect::<Vec<_>>(), true);
             let mut s = s.clone();
             for (e, t) in a.iter().zip(&ins) { if let Some(v) = s.slots.get_mut(e.from as usize) { *v = *t; } }
             let b = |r: Rhs, lo: bool| match r { Rhs::N(n) => n as i128, Rhs::A(j) => if lo { ins[j].lo as i128 } else { ins[j].hi as i128 } };
@@ -402,15 +403,13 @@ impl<'a, 'c> Step<'a, 'c> {
                 let e = pop!();
                 self.truth(&s, ip, e, |me, mut s, side| match op {
                     O::JumpIfFalse => me.go(if side { next } else { k as usize }, s),
-                    O::Assert if side => me.go(next, s),
-                    O::Assert => { let a = me.p.tag("AssertionError"); me.raise(&s, a) }
+                    O::Assert => if side { me.go(next, s) } else { let a = me.p.tag("AssertionError"); me.raise(&s, a) },
                     _ if side == (op == O::JumpIfTrueOrPop) => { s.stack.push(Entry::of(e.ty)); me.go(k as usize, s) }
                     _ => me.go(next, s),
                 })
             }
             O::GetIter if k != crate::parser::ITER_VALUE => {
-                let e = pop!();
-                let at = self.outs.len();
+                let (e, at) = (pop!(), self.outs.len());
                 self.rows(&s, ip, self.p.rules.rows("GetIter", k), &[e], 0, next);
                 // The iterated value moves to the loop on each way the rows go on.
                 for (to, st) in &mut self.outs[at..] { if matches!(to, To::Ip(t) if *t == next) { st.iters.push(e.ty); } }
@@ -470,7 +469,7 @@ impl<'a, 'c> Step<'a, 'c> {
                 let (v, o) = (pop!(), pop!());
                 match o.ty.known {
                     Known::Obj(c, _) if self.mro(c).is_some() && self.lookup(c, "__setattr__").is_empty() => self.write(ATTR | c, self.name(k), v.ty),
-                    _ => { self.foreign(&[o.ty, v.ty]); self.unknown(&s) }
+                    _ => self.unknown(&s),
                 }
                 self.go(next, s)
             }

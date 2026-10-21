@@ -3,7 +3,11 @@
 mod test {
     use compiler::types::{check, read::Rules, typed};
 
-    fn ept() -> String { std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/cases/types.ept")).expect("tests/cases/types.ept") }
+    // Its first line made the hash of these sources, as Spider Monkey writes it for the shipped file.
+    fn ept() -> String {
+        let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/cases/types.ept")).expect("tests/cases/types.ept");
+        text.replacen("SOURCES", compiler::types::read::SOURCES, 1)
+    }
 
     // The tags a read of `name` on `line` has, as code runs.
     fn read(src: &str, line: usize, name: &str) -> Vec<(u8, u8)> {
@@ -88,6 +92,8 @@ mod test {
 
     #[test]
     fn module_code_keeps_its_types() {
+        // A name deleted and read again ends: unbound alone holds no integer.
+        assert_eq!(read("x = 5\ndel x\ntry:\n    print(x)\nexcept NameError:\n    print('gone')\n", 5, "NameError"), [code("NameError")]);
         let src = "x = 1\ny = x + 1\nprint(y)\n";
         assert_eq!(read(src, 3, "y"), [code("int")]);
         let rules = Rules::read(&ept()).unwrap();
@@ -96,8 +102,28 @@ mod test {
     }
 
     #[test]
-    fn a_file_of_another_commit_or_line_is_refused() {
-        assert!(Rules::read(&ept().replacen("8855578768056f9e68dab3f2a3361e158ed7d9e2", "0000000000000000000000000000000000000000", 1)).is_err());
+    fn a_function_handed_to_a_builtin_runs_only_where_its_row_calls_it() {
+        let rules = Rules::read(&ept()).unwrap();
+        let wild = |src: &str| { let (chunk, _) = compiler::code::compile(src); typed(&chunk, &rules).unwrap().tree.wild };
+        assert!(!wild("def f():\n    return 1\nprint(callable(f))\n"));
+        assert!(wild("def f():\n    return 1\nprint(repr(f))\n"));
+    }
+
+    #[test]
+    fn every_program_of_the_corpus_gets_a_tree_the_reviewer_accepts() {
+        let rules = Rules::read(&ept()).unwrap();
+        let cases: Vec<serde_json::Value> = serde_json::from_str(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/cases/vm.json")).unwrap()).unwrap();
+        let mut refused = Vec::new();
+        for src in cases.iter().filter_map(|c| c["src"].as_str()) {
+            let (chunk, errs) = compiler::code::compile(src);
+            if errs.is_empty() && let Err(e) = typed(&chunk, &rules) { refused.push((e, src)); }
+        }
+        assert!(refused.is_empty(), "{} refused, the first: {:?}", refused.len(), refused.first());
+    }
+
+    #[test]
+    fn a_file_of_other_sources_or_lines_is_refused() {
+        assert!(Rules::read(&ept().replacen(compiler::types::read::SOURCES, &"0".repeat(64), 1)).is_err());
         assert!(Rules::read(&(ept() + "rule Add int int -> int | soon a0\n")).is_err());
         assert!(Rules::read(&(ept() + "frobnicate Add\n")).is_err());
         assert!(Rules::read(&(ept() + "tag int 1 1\n")).is_err(), "a tag is a name and one code");

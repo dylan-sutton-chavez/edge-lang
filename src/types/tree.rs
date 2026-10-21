@@ -44,9 +44,8 @@ impl Tree {
     }
 
     fn open(&mut self, p: &Prog, body: u32, args: Vec<Ty>, work: &mut Vec<(usize, usize, State)>) {
-        let n = p.bodies[body as usize].chunk.instructions.len() + 1;
         work.push((self.ctxs.len(), 0, entry(p, body, &args)));
-        self.ctxs.push(Ctx { body, args, seen: vec![Vec::new(); n], ret: Ty::NONE, raises: Ty::NONE, gave_up: false });
+        self.ctxs.push(Ctx { body, args, seen: vec![Vec::new(); p.bodies[body as usize].chunk.instructions.len() + 1], ret: Ty::NONE, raises: Ty::NONE, gave_up: false });
     }
 }
 
@@ -58,10 +57,7 @@ pub fn grow(p: &Prog) -> Tree {
     loop {
         let mut changed = false;
         if work.is_empty() {
-            for (x, c) in t.ctxs.iter_mut().enumerate() {
-                c.seen.iter_mut().for_each(Vec::clear);
-                if !c.gave_up { work.push((x, 0, entry(p, c.body, &c.args))); }
-            }
+            for (x, c) in t.ctxs.iter_mut().enumerate() { c.seen.iter_mut().for_each(Vec::clear); if !c.gave_up { work.push((x, 0, entry(p, c.body, &c.args))); } }
         }
         while let Some((x, ip, s)) = work.pop() {
             if t.ctxs[x].gave_up { continue; }

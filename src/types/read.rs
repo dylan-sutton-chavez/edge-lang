@@ -4,8 +4,8 @@ use alloc::{format, string::{String, ToString}, vec::Vec};
 use crate::parser::OpCode;
 use super::Tags;
 
-// The commit every rule is about, the one this build of Edge is.
-pub const COMMIT: &str = "8855578768056f9e68dab3f2a3361e158ed7d9e2";
+// The hash of the sources every rule is about, this build's own (build.rs).
+pub const SOURCES: &str = include_str!(concat!(env!("OUT_DIR"), "/sources.hash"));
 
 /* What a popped value must be for its row to apply. */
 #[derive(Clone, Debug)]
@@ -35,6 +35,8 @@ pub struct Row {
     pub learn: Vec<(bool, usize, Learn)>,
     // Container `a` takes operand `b` among its items, None for one or items not known.
     pub puts: Vec<(Option<usize>, Option<usize>)>,
+    // The operands it may call, a function or class handed to it.
+    pub calls: Vec<usize>,
 }
 
 #[derive(Default)]
@@ -55,7 +57,7 @@ fn num(r: Rhs) -> Result<i64, String> { if let Rhs::N(n) = r { Ok(n) } else { Er
 impl Rules {
     pub fn read(text: &str) -> Result<Self, String> {
         let mut lines = text.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#'));
-        if lines.next() != Some(COMMIT) { return Err("edge.ept is of another Edge commit".into()); }
+        if lines.next() != Some(SOURCES) { return Err("edge.ept is of other Edge sources".into()); }
         if lines.next() != Some("ept 1") { return Err("edge.ept is not format 1".into()); }
         let lines: Vec<Vec<&str>> = lines.map(|l| l.split(' ').collect()).collect();
         let mut r = Rules::default();
@@ -119,6 +121,7 @@ impl Rules {
                 ["holds", x, t] => row.says.push((r(x)?, Out::Holds(self.set(t)?, Rhs::N(i64::MIN), Rhs::N(i64::MAX)))),
                 ["holds", x, t, "in", lr] => { let (lo, hi) = span(lr)?; row.says.push((r(x)?, Out::Holds(self.set(t)?, lo, hi))); }
                 ["puts", a, b] => row.puts.push((pos(a, 'a').ok(), pos(b, 'a').ok())),
+                ["calls", a] => row.calls.push(pos(a, 'a')?),
                 _ => return Err(bad(&c.join(" "), "a clause of format 1")),
             }
         }

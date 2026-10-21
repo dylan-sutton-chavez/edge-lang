@@ -63,9 +63,9 @@ impl Ty {
         if self.tags & !UNBOUND == 0 || o.tags & !UNBOUND == 0 { let (v, u) = if self.tags & !UNBOUND == 0 { (o, self) } else { (self, o) }; return Ty { tags: v.tags | u.tags, ..*v }; }
         Ty { tags: self.tags | o.tags, lo: self.lo.min(o.lo), hi: self.hi.max(o.hi), known: self.known.join(o.known) }
     }
-    /* Every value of `self` is one of `o`. */
+    /* Every value of `self` is one of `o`, unbound alone holding no integer. */
     pub fn within(&self, o: &Ty) -> bool {
-        self.tags == 0 || self.tags & !o.tags == 0 && o.lo <= self.lo && self.hi <= o.hi && o.known.join(self.known) == o.known
+        self.tags & !o.tags == 0 && (self.tags & !UNBOUND == 0 || o.lo <= self.lo && self.hi <= o.hi && o.known.join(self.known) == o.known)
     }
 }
 
