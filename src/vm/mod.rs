@@ -33,6 +33,8 @@ pub(crate) mod codecs;
 pub(crate) mod memview;
 mod hints;
 mod timsort;
+#[cfg(feature = "native")]
+pub(crate) mod native;
 
 use crate::parser::{SSAChunk, builtin_type};
 use crate::util::hash::FxHashMap as HashMap;
@@ -248,6 +250,9 @@ pub struct VM<'a> {
     pub(crate) held_pool: Vec<Box<crate::value::Held>>,
     /* GC roots for operands popped off the stack but still read after a dunder call that can collect. */
     pub(crate) temp_roots: Vec<Val>,
+    /* The code the next frame of a native program's slow step runs, its one instruction then a return. */
+    #[cfg(feature = "native")]
+    pub(crate) native_code: Option<alloc::rc::Rc<lower::Code>>,
     /* Weak flags for lists produced by iterator builtins (iter/map/filter/zip/enumerate/reversed), next() drains only these and plain lists raise TypeError. Weak so a swept slot can never alias a fresh list. */
     pub(crate) pending: Pending,
     /* Monotonic correlation id handed to each deferred host call, matched by `set_host_result_by_id`. */
@@ -442,6 +447,8 @@ impl<'a> VM<'a> {
             with_stack: Vec::new(),
             held_pool: Vec::new(),
             temp_roots: Vec::new(),
+            #[cfg(feature = "native")]
+            native_code: None,
             pending: Pending::new(),
             next_host_call_id: 0,
             extern_caller: None,

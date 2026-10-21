@@ -64,6 +64,8 @@ impl<'a> VM<'a> {
     /* The code a frame of `chunk` runs, and whether the pool never keeps it. */
     #[inline(always)]
     pub(crate) fn frame_code(&mut self, chunk: &SSAChunk, pool: usize) -> (Rc<Code>, bool) {
+        #[cfg(feature = "native")]
+        if let Some(code) = self.native_code.take() { return (code, false); }
         // A suspended run resumes in the code it parked in, though its pool laid another since, and one in its first code stays there until its resumes heat it.
         let layout = core::mem::take(&mut self.resume_layout);
         if layout != 0 && self.resume_ip != 0
