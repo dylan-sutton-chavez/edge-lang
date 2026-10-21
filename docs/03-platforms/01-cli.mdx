@@ -86,6 +86,7 @@ error: ZeroDivisionError: division by zero
 
 - Without `--save-state`, a script parked on a wait the engine cannot serve prints an error and exits 1.
 - `edge test` takes `--memory` and `--ops` too.
+- A native program `edge build` makes takes `--memory` and `--events`, and refuses `--ops`, since native code has no step budget.
 
 ### Run on the browser host
 
