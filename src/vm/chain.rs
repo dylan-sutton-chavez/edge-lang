@@ -55,11 +55,11 @@ impl<'a> VM<'a> {
         Ok(())
     }
 
-    /* A StopIteration the body of a `kind` (generator, coroutine, async generator) raises, `e`, leaving it as RuntimeError with
-       the StopIteration as its cause (PEP 479). */
+    /* A StopIteration the body of `generator` (a generator, coroutine or async generator, a native one when None) raises, `e`,
+       leaving it as RuntimeError with the StopIteration as its cause (PEP 479). */
     #[cold]
-    pub(crate) fn stop_out_of(&mut self, kind: &str, e: VmErr) -> VmErr {
-        let text = crate::s!(str kind, " raised StopIteration");
+    pub(crate) fn stop_out_of(&mut self, generator: Option<Val>, e: VmErr) -> VmErr {
+        let text = crate::s!(str &generator.map_or_else(|| "generator".into(), |g| self.type_name(g).replace('_', " ")), " raised StopIteration");
         let made = (|| {
             let stop = match self.pending.exc_val.take() { Some(v) => v, None => { let args = match e.message() { m if m.is_empty() => vec![], m => vec![self.heap.alloc(HeapObj::Str(m))?] }; self.heap.alloc(HeapObj::ExcInstance("StopIteration".into(), args, Val::undef()))? } };
             let said = self.heap.alloc(HeapObj::Str(text.clone()))?;

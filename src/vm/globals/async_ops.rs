@@ -721,6 +721,7 @@ impl<'a> VM<'a> {
         let (takes, before) = (j.takes, j.before);
         if let crate::vm::jobs::Takes::Then(base) = takes && let Some(f) = self.top() {
             self.finish_gen();
+            let e = if raised_is(&e, "StopIteration") { self.stop_out_of(Some(f.generator), e) } else { e };
             return Ok(self.then_end(base as usize, Err(e), f.ret));
         }
         if takes == crate::vm::jobs::Takes::AwaitFor && raised_is(&e, "StopAsyncIteration") && let Some(f) = self.top() {
