@@ -36,6 +36,7 @@ fn three(dir: &Path, src: &str, input: &str, events: &[&str], flags: &[&str]) ->
    recursion, a dict, a heap-free tuple and an int loop. */
 #[test]
 fn flow() {
+    if let Err(why) = compiler::types::rules() { panic!("edge.ept is missing or stale for these sources, so edge build runs untyped: {why}") }
     let dir = tempfile::tempdir().unwrap();
     let src = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/llvm_check.py")).unwrap();
     let [vm, native, torture] = three(dir.path(), &src, "", &[], &["--emit-llvm", "main.ll"]);
