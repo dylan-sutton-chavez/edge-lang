@@ -3,12 +3,16 @@
    - `bitcode safepoints vm.ll` names in it the handlers that may collect, `!edge.safepoints`, so the glue stores its
      live values before calling one and reads them back after. Read off the module's own call graph, as bench/llvm reads
      the IR: a function may collect when it calls `edge_collect`, calls through a pointer, or calls one that may.
+   - `bitcode count vm.ll counted.ll` adds to each block of the VM its instruction count, the vm.o of `make bitcode COUNT=1`.
    - `bitcode inline vm.ll inline.ll` makes the handlers and tag tests llvm-extract took out of it `available_externally`,
      bodies the glue inlines whose symbols vm.o defines, and fails on any function they call that vm.o does not export. */
 
 #[path = "../bench/src/ir.rs"]
 #[allow(dead_code)]
 mod ir;
+#[path = "../cli/src/native/count.rs"]
+#[allow(dead_code)]
+mod count;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -16,7 +20,9 @@ fn main() {
     match args.get(1).map(String::as_str) {
         Some("safepoints") => safepoints(&args[2], read(&args[2])),
         Some("inline") => inline(&read(&args[2]), &args[3], read(&args[3])),
-        _ => panic!("bitcode safepoints <vm.ll> | bitcode inline <vm.ll> <inline.ll>"),
+        // The VM's own blocks counting the instructions they run into `@edge.count`, as `edge build --count` counts the glue's.
+        Some("count") => std::fs::write(&args[3], count::instrument(&read(&args[2]))).expect("the counted .ll written"),
+        _ => panic!("bitcode safepoints <vm.ll> | bitcode inline <vm.ll> <inline.ll> | bitcode count <vm.ll> <counted.ll>"),
     }
 }
 
