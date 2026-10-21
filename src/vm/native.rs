@@ -23,10 +23,7 @@ pub const RETURN: u32 = 0x8000_0000;
 #[inline(always)]
 fn err(id: u32) -> i64 { (TAG_ERR | (id as u64) << 4) as i64 }
 
-// `edge_boot` keeps what the program prints instead of writing it.
-pub const KEEP_OUTPUT: u32 = 1;
-
-/* What a run booted with `KEEP_OUTPUT` printed, the error it holds, and its module's chunk. */
+/* What a run `boot` kept printed, the error it holds, and its module's chunk. */
 pub fn output(rt: &Rt) -> String { rt.vm.output_text() }
 pub fn error(rt: &Rt) -> Option<String> { rt.vm.reg_error.as_ref().map(VmErr::render) }
 pub fn chunk(rt: &Rt) -> &'static SSAChunk { rt.bodies[0].chunk }
@@ -114,6 +111,21 @@ unsafe fn run(rt: *mut Rt, site: i64, op: OpCode, a: i64, b: i64, c: i64, rest: 
         OpCode::Minus if x.is_float() => return ok(Val::float(-x.as_float())),
         OpCode::Not if x.is_bool() || x.is_int() || x.is_none() => return ok(Val::bool(!truth(x))),
         OpCode::JumpIfFalse | OpCode::JumpIfFalseOrPop | OpCode::JumpIfTrueOrPop if x.is_bool() || x.is_int() || x.is_none() => return ok(Val::bool(truth(x))),
+        // A name read or bound where its body keeps it, a module binding or a slot of the frame, a builtin under the bindings.
+        OpCode::LoadName | OpCode::StoreName => {
+            let rt = unsafe { &mut *rt };
+            let (b, slot) = (&rt.bodies[(site >> 32) as usize], (site & 0xFFFF) as usize);
+            match b.code.kinds.get(slot) {
+                Some(&super::scope::Kind::Global(g)) => {
+                    let scope = &mut rt.vm.scopes[b.code.module];
+                    // One that rebinds a builtin's name tells the fused calls, in the slow path.
+                    if op == OpCode::StoreName { if !x.is_undef() && scope.names_builtin(g).is_none() { scope.set_at(g, x); return ok(Val::none()); } }
+                    else { let v = match scope.at(g) { v if v.is_undef() => scope.fallback(g), v => v }; if !v.is_undef() { return ok(v); } }
+                }
+                Some(super::scope::Kind::Local) if op == OpCode::LoadName && !rt.vm.regs[rt.vm.base + slot].is_undef() => return ok(rt.vm.regs[rt.vm.base + slot]),
+                _ => {}
+            }
+        }
         OpCode::LoadTrue => return ok(Val::bool(true)),
         OpCode::LoadFalse => return ok(Val::bool(false)),
         OpCode::LoadNone => return ok(Val::none()),
@@ -330,20 +342,44 @@ pub unsafe extern "C" fn heap_type(rt: *mut Rt, v: i64) -> u32 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn edge_returned(rt: *mut Rt) -> i64 { ok(unsafe { &*rt }.returned) }
 
-/* Starts the VM on program `src` with the run's limits, null after printing its syntax errors or a failed import, its
-   output written to stdout, or with `KEEP_OUTPUT` kept for `output`. */
+/* Starts the VM on program `src` as the binary's `main` was called, null after printing its syntax errors, a bad flag
+   or a failed import. Its flags are `edge run`'s: `--memory MB`, and `--events FILE` whose lines are the messages
+   `receive()` takes, read at the start. Native code has no step budget, so `--ops` is refused. */
+/// # Safety
+/// `src` points at `len` bytes of UTF-8, `argv` at `argc` C strings.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn edge_boot(src: *const u8, len: u64, argc: i32, argv: *const *const core::ffi::c_char) -> *mut Rt {
+    let args: Vec<String> = (1..argc.max(0) as usize).map(|k| unsafe { core::ffi::CStr::from_ptr(*argv.add(k)) }.to_string_lossy().into_owned()).collect();
+    let (mut memory, mut events) = (Limits::sandbox().memory, Vec::new());
+    let mut it = args.iter();
+    while let Some(flag) = it.next() {
+        let value = it.next();
+        match (flag.as_str(), value.map(String::as_str)) {
+            ("--memory", Some(mb)) if let Ok(mb) = mb.parse::<usize>() => memory = mb.saturating_mul(1 << 20),
+            ("--events", Some(path)) => match std::fs::read_to_string(path) {
+                Ok(text) => events.extend(text.lines().map(String::from)),
+                Err(e) => { out(&crate::s!("error: cannot open events '", str path, "': ", str &alloc::string::ToString::to_string(&e), "\n")); return core::ptr::null_mut(); }
+            },
+            _ => { out(&crate::s!("error: unknown flag '", str flag, "', a native program takes --memory MB and --events FILE\n")); return core::ptr::null_mut(); }
+        }
+    }
+    let rt = unsafe { boot(src, len as usize, memory, false) };
+    if !rt.is_null() { for e in &events { let _ = unsafe { &mut *rt }.vm.push_event(e); } }
+    rt
+}
+
+/* `edge_boot` from Rust, the program's output kept for `output` when `keep`. */
 /// # Safety
 /// `src` points at `len` bytes of UTF-8.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn edge_boot(src: *const u8, len: usize, ops: u64, memory: u64, flags: u32) -> *mut Rt {
+pub unsafe fn boot(src: *const u8, len: usize, memory: usize, keep: bool) -> *mut Rt {
     let src: &'static str = crate::util::leak(String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(src, len) }).into_owned().into_boxed_str());
     let (chunk, errors) = crate::code::compile(src);
     let lexed = crate::lexer::lex(src).1;
     let first = lexed.first().map(|e| (String::from(e.msg), e.start)).or_else(|| errors.first().map(|e| (e.msg.clone(), e.start)));
     if let Some((msg, at)) = first { out(&crate::value::err::render_text_at(msg, src, Some(at), None)); return core::ptr::null_mut(); }
     let chunk: &'static SSAChunk = crate::util::leak(Box::new(chunk));
-    let mut vm = VM::boxed(chunk, Limits { ops, memory: memory as usize });
-    if flags & KEEP_OUTPUT == 0 { vm.print_hook = Some(out); }
+    let mut vm = VM::boxed(chunk, Limits { ops: u64::MAX, memory });
+    if !keep { vm.print_hook = Some(out); }
     let Ok(paying) = vm.paying() else { return core::ptr::null_mut() };
     let mut rt = Rt { vm, bodies: Vec::new(), frames: Vec::new(), steps: Default::default(), packs: Vec::new(), returned: Val::none(), src, _paying: paying };
     let vm = &mut *rt.vm;

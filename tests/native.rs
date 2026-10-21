@@ -7,7 +7,7 @@
 static METERED: compiler::value::meter::Metered<std::alloc::System> = compiler::value::meter::Metered(std::alloc::System);
 
 use compiler::code::{OpCode, effect};
-use compiler::native::{self, Rt, JUMP, KEEP_OUTPUT, RETURN, err_id, is_err};
+use compiler::native::{self, Rt, JUMP, RETURN, err_id, is_err};
 use compiler::types::BUILTIN_TYPES;
 
 const UNDEF: i64 = 0x7FFC_0000_0000_0000;
@@ -93,7 +93,7 @@ fn corpus_through_handlers() {
     for case in cases.iter().filter(|c| c.error.as_deref() != Some("budget exceeded") && c.input.is_empty() && c.events.is_empty() && c.interactive_events.is_empty() && c.sends.is_none() && std::env::var("EDGE_SRC").map_or(true, |f| c.src.contains(&f))).take(std::env::var("EDGE_CASES").ok().and_then(|n| n.parse().ok()).unwrap_or(usize::MAX)) {
         // Native code runs with no step budget, the memory limit as the VM's.
         let limits = compiler::embed::Limits::sandbox();
-        let rt = unsafe { native::edge_boot(case.src.as_ptr(), case.src.len(), u64::MAX, limits.memory as u64, KEEP_OUTPUT) };
+        let rt = unsafe { native::boot(case.src.as_ptr(), case.src.len(), limits.memory, true) };
         if rt.is_null() { continue; }
         ran += 1;
         if std::env::var("EDGE_DUMP").is_ok() { eprintln!("{:?}", native::chunk(unsafe { &*rt }).instructions); }
