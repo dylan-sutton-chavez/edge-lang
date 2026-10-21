@@ -41,8 +41,9 @@ pub enum Known {
     // Method `f` bound to an instance of class `c` made at a site, and builtin method `name` of a value of code `c` made at one.
     Bound(u32, u32, u32),
     Meth(u8, u32, u32),
-    // The generator or coroutine of the tree's context `x`.
+    // The generator or coroutine of the tree's context `x`, and a builtin function by its NativeFnId.
     Gen(u32),
+    Native(u16),
 }
 
 impl Known {

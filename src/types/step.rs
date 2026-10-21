@@ -70,7 +70,7 @@ impl<'c> Prog<'c> {
     pub fn builtin(&self, name: u32) -> Ty {
         let n = self.names.get(name as usize).map_or("", String::as_str);
         if crate::parser::builtin_type(n).is_some() { return self.rules.tags.iter().find(|t| t.0 == n).map_or(self.tag("type"), |t| self.tag("type").with(Known::Type(t.1))); }
-        if NativeFnId::from_name(n).is_some() { self.tag("function") } else if self.builtins.get(name as usize) == Some(&true) { Ty::ANY.minus(UNBOUND) } else { Ty::of(UNBOUND) }
+        if let Some(f) = NativeFnId::from_name(n) { self.tag("function").with(Known::Native(f as u16)) } else if self.builtins.get(name as usize) == Some(&true) { Ty::ANY.minus(UNBOUND) } else { Ty::of(UNBOUND) }
     }
     pub fn konst(&self, v: &Value) -> Ty {
         let (n, r) = match v { Value::Int(i) => ("int", Some(*i)), Value::BigInt(_) => ("int", None), Value::Bool(b) => ("bool", Some(*b as i64)), Value::Float(_) => ("float", None),
@@ -175,6 +175,12 @@ impl<'a, 'c> Step<'a, 'c> {
                 let key = alloc::format!("{}.{}", self.p.leaf(code), self.p.names[name as usize]);
                 let rows = self.p.rules.rows(&key, 0);
                 self.rows(s, ip, rows, &ins, 1, then);
+                Vec::new()
+            }
+            Known::Native(f) if plain => {
+                let rows = self.p.rules.rows(&alloc::format!("builtin.{}", NativeFnId::ALL[f as usize].name()), 0);
+                if rows.is_empty() { self.unknown(s); return vec![Ty::ANY]; }
+                self.rows(s, ip, rows, a, 1, then);
                 Vec::new()
             }
             Known::Type(code) => { self.foreign(&args, true); self.raise(s, Ty::ANY); vec![Ty::of(1 << code)] }

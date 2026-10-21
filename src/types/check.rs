@@ -38,8 +38,9 @@ pub fn types_check(p: &Prog, t: &Tree) -> Result<(), String> {
 
 /* The instance sites whose objects may live off the heap: of fixed size known at build (the attributes their class takes,
    at most 256 bytes with the class), never leaving the frames they are made and passed in (written into no table, never
-   a result nor an exception out of a body, never held by a generator), never compared by identity, and never two of one
-   site alive at once. Each step is run again to see what leaves, with the values exactly as they leave. */
+   a result nor an exception out of a body, never held by a generator), used only by moving it, reading or writing its
+   attributes and handing it to code of the program (no isinstance, type, repr, format, identity or builtin), and never two
+   of one site alive at once. Each step is run again to see what leaves, with the values exactly as they leave. */
 pub fn no_heap(p: &Prog, t: &Tree) -> Vec<u32> {
     let hits = |v: &Ty, at: u32, c: u32| matches!(v.known, Known::Obj(d, s) | Known::Bound(_, d, s) if d == c && (s == at || s == NO));
     let (mut sites, mut left, mut alive) = (Vec::<(u32, u32)>::new(), Vec::<Ty>::new(), Vec::<(u32, Ty)>::new());
@@ -50,7 +51,14 @@ pub fn no_heap(p: &Prog, t: &Tree) -> Vec<u32> {
             let vals: Vec<Ty> = s.stack.iter().map(|e| e.ty).chain(s.slots.iter().copied()).chain(s.iters.iter().copied()).collect();
             for v in &vals { if let Known::Obj(k, at) = v.known && at != NO && !sites.contains(&(at, k)) { sites.push((at, k)); } }
             if b.chunk.is_generator || b.coro { left.extend(&vals); }
-            if matches!(op, Some(O::Is | O::IsNot)) { left.extend(s.stack.iter().rev().take(2).map(|e| e.ty)); }
+            // A stand-in, not a value: it may only be moved, have its attributes read or written, or be handed to code of the program.
+            let n = b.chunk.instructions.get(ip).and_then(|i| crate::parser::effect(i, b.chunk)).map_or(0, |e| e.0 as usize).min(s.stack.len());
+            let taken = &s.stack[s.stack.len() - n..];
+            let user = taken.first().is_some_and(|e| matches!(e.ty.known, Known::Bound(..)) || matches!(e.ty.known, Known::Body(f) if matches!(p.bodies[f as usize].kind, crate::code::BodyKind::Function(_))));
+            for (j, e) in taken.iter().enumerate() {
+                let moved = matches!(op, Some(O::StoreName | O::PopTop | O::Dup | O::Dup2 | O::Swap | O::Rot3)) || j == 0 && matches!(op, Some(O::LoadAttr | O::StoreAttr)) || user && op == Some(O::Call);
+                if !moved { left.push(e.ty); }
+            }
             if op == Some(O::Call) { alive.extend(vals.iter().map(|&v| (c.body << 16 | ip as u32, v))); }
             let mut st = Step::new(p, t, x);
             st.step(ip, s);
