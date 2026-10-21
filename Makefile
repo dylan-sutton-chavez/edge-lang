@@ -34,7 +34,7 @@ MIRI_abi := abi::
 
 unix_only = $(if $(filter Windows_NT,$(OS)),$(error AFL runs on Linux and macOS only))
 
-.PHONY: wasm wasm-cli wasm-ship wasm-small wasm-cli-opt size js lint lint-rust lint-js lint-cli test bench bench-update bench-accept-slower plugin cli cli-release stage serve browsers test-js test-cli test-skill test-std miri miri-list miri-setup fuzz fuzz-status fuzz-triage fuzz-replay fuzz-carry fuzz-container fuzz-stop seeds lucide version check
+.PHONY: wasm wasm-cli wasm-ship wasm-small wasm-cli-opt size js lint lint-rust lint-js lint-cli test bench bench-update bench-accept-slower bench-llvm llvm-check plugin cli cli-release stage serve browsers test-js test-cli test-skill test-std miri miri-list miri-setup fuzz fuzz-status fuzz-triage fuzz-replay fuzz-carry fuzz-container fuzz-stop seeds lucide version check
 
 wasm:
 	cargo rustc --locked --release $(RUNTIME)
@@ -99,6 +99,13 @@ bench-update: wasm-cli
 
 bench-accept-slower: wasm-cli
 	cargo run --locked -p bench --profile cli -- --update --accept-slower
+
+# The native build against the same programs in Rust, on the CLI built here.
+bench-llvm: cli
+	cargo run --locked -p bench --profile cli -- llvm $(if $(UPDATE),--update)
+
+llvm-check: $(CLI_INPUTS)
+	cd cli && cargo test --locked --release --test llvm_check
 
 plugin:
 	cargo build --locked --release --target wasm32-unknown-unknown -p slugify-mod

@@ -1,0 +1,446 @@
+/* The VM as a library of opcode handlers for `edge build`: each parser opcode an `op_<Name>` symbol taking and returning
+   `Val`s, the frames, raises and safepoints its glue calls. A handler's fast path is the
+   register loop's own, its slow path the VM's handler run as the host runs one, frameless, a call nesting to its end. */
+
+use alloc::{boxed::Box, rc::Rc, string::String, vec::Vec};
+
+use crate::parser::{Instruction, OpCode, SSAChunk};
+use super::lower::{self, Code, Ins};
+use super::registers::{int_add, int_bits, int_div, int_floordiv, int_mod, int_mul, int_sub, float_div};
+use super::types::*;
+use super::VM;
+
+/* What a handler gives, a value and Edge's id of the exception it raised, 0 for none. */
+#[repr(C)]
+pub struct Ret { pub val: i64, pub err: i32 }
+
+const OK: i32 = 0;
+// A finally or a with moved the frame on to the index in `val`, or the frame returns `val`.
+pub const JUMP: i32 = -1;
+pub const RETURN: i32 = -2;
+// `edge_boot` keeps what the program prints instead of writing it.
+pub const KEEP_OUTPUT: u32 = 1;
+
+/* What a run booted with `KEEP_OUTPUT` printed, the error it holds, and its module's chunk. */
+pub fn output(rt: &Rt) -> String { rt.vm.output_text() }
+pub fn error(rt: &Rt) -> Option<String> { rt.vm.reg_error.as_ref().map(|e| alloc::string::ToString::to_string(e)) }
+pub fn chunk(rt: &Rt) -> &'static SSAChunk { rt.bodies[0].chunk }
+
+/* One body the glue runs, the module's first then each function's at its index plus one. */
+struct Body { chunk: &'static SSAChunk, code: Rc<Code>, pool: usize }
+
+/* A native frame, its body, window, the exception and spread frames below it and how its call entered. */
+struct Frame { body: usize, exc: usize, deltas: usize, outer: usize, entry: Option<super::opcodes::function::Entry> }
+
+pub struct Rt {
+    vm: Box<VM<'static>>,
+    bodies: Vec<Body>,
+    frames: Vec<Frame>,
+    // Each instruction a slow step ran, by its body and index, as the code that runs it alone.
+    steps: crate::util::hash::FxHashMap<(usize, usize), Rc<Code>>,
+    // Each spread the glue holds as one tuple, with what it adds to its call's positional and keyword counts.
+    packs: Vec<(Val, i32, i32)>,
+    src: &'static str,
+    _paying: crate::value::meter::Paying,
+}
+
+fn out(text: &str) { use std::io::Write; let _ = std::io::stdout().write_all(text.as_bytes()); }
+
+#[inline(always)]
+fn ok(v: Val) -> Ret { Ret { val: v.0 as i64, err: OK } }
+
+/* Edge's id of the error kept in the VM, the class's index in the builtin type tree, a user class its nearest builtin one. */
+#[cold]
+fn raised(vm: &mut VM<'static>, e: VmErr) -> Ret {
+    let id = exc_id(vm, &e);
+    vm.reg_error = Some(e);
+    Ret { val: Val::undef().0 as i64, err: id }
+}
+
+fn exc_id(vm: &VM<'static>, e: &VmErr) -> i32 {
+    let at = |n: &str| crate::parser::BUILTIN_TYPES.iter().position(|&t| t == n);
+    let name = e.class_name();
+    if let Some(i) = at(&name) { return i as i32; }
+    // A user class takes the first builtin of its order of resolution.
+    let class = vm.pending.exc_val.and_then(|v| match vm.heap.try_get(v) { Some(HeapObj::Instance(c, _)) => Some(*c), _ => None });
+    let mro = class.and_then(|c| vm.mro_cache.get(&c.0).cloned());
+    mro.iter().flat_map(|m| m.iter().copied()).find_map(|c| match vm.heap.try_get(c) { Some(HeapObj::Class(n, ..)) => at(n), _ => None })
+        .or_else(|| at("Exception")).unwrap_or(0) as i32
+}
+
+#[inline(always)]
+fn parts(site: i64) -> (usize, usize) { ((site >> 32) as usize, (site >> 16 & 0xFFFF) as usize) }
+
+/* The handler of every parser opcode, `op` constant in each symbol so its match folds once inlined. */
+#[inline(always)]
+unsafe fn run(rt: *mut Rt, site: i64, op: OpCode, a: i64, b: i64, c: i64, rest: *mut i64, live: *mut i64, nlive: u32) -> Ret {
+    let (x, y) = (Val(a as u64), Val(b as u64));
+    macro_rules! num {
+        ($int:expr, $float:expr) => {{
+            let v = if x.is_int() && y.is_int() { $int(x.as_int(), y.as_int()) } else if x.is_float() && y.is_float() { $float(x.as_float(), y.as_float()) } else { None };
+            if let Some(v) = v { return ok(v); }
+        }};
+    }
+    macro_rules! cmp {
+        ($cmp:tt) => {{
+            if x.is_int() && y.is_int() { return ok(Val::bool(x.as_int() $cmp y.as_int())); }
+            if x.is_float() && y.is_float() { return ok(Val::bool(x.as_float() $cmp y.as_float())); }
+        }};
+    }
+    match op {
+        OpCode::Add | OpCode::InPlaceAdd => num!(int_add, |p: f64, q: f64| Some(Val::float(p + q))),
+        OpCode::Sub | OpCode::InPlaceSub => num!(int_sub, |p: f64, q: f64| Some(Val::float(p - q))),
+        OpCode::Mul => num!(int_mul, |p: f64, q: f64| Some(Val::float(p * q))),
+        OpCode::Div => num!(int_div, float_div),
+        OpCode::Mod => num!(int_mod, |_, _| None),
+        OpCode::FloorDiv => num!(int_floordiv, |_, _| None),
+        OpCode::BitAnd | OpCode::BitOr | OpCode::BitXor | OpCode::Shl | OpCode::Shr if x.is_int() && y.is_int()
+            => if let Some(v) = int_bits(match op { OpCode::BitAnd => OpCode::BitAndR, OpCode::BitOr => OpCode::BitOrR, OpCode::BitXor => OpCode::BitXorR, OpCode::Shl => OpCode::ShlR, _ => OpCode::ShrR }, x.as_int(), y.as_int()) { return ok(v); },
+        OpCode::Lt => cmp!(<),
+        OpCode::LtEq => cmp!(<=),
+        OpCode::Gt => cmp!(>),
+        OpCode::GtEq => cmp!(>=),
+        OpCode::Eq => cmp!(==),
+        OpCode::NotEq => cmp!(!=),
+        OpCode::Is | OpCode::IsNot if !x.is_undef() && !y.is_undef() => return ok(Val::bool((x.0 == y.0) == (op == OpCode::Is))),
+        OpCode::Minus if x.is_int() => if let Some(v) = Val::int_checked(-x.as_int()) { return ok(v); },
+        OpCode::Minus if x.is_float() => return ok(Val::float(-x.as_float())),
+        OpCode::Not if x.is_bool() || x.is_int() || x.is_none() => return ok(Val::bool(!truth(x))),
+        OpCode::JumpIfFalse | OpCode::JumpIfFalseOrPop | OpCode::JumpIfTrueOrPop if x.is_bool() || x.is_int() || x.is_none() => return ok(Val::bool(truth(x))),
+        OpCode::LoadTrue => return ok(Val::bool(true)),
+        OpCode::LoadFalse => return ok(Val::bool(false)),
+        OpCode::LoadNone => return ok(Val::none()),
+        OpCode::GetItem if x.is_heap() && y.is_int() => {
+            let vm = unsafe { &*(*rt).vm };
+            let hit = match vm.heap.plain(x) {
+                // SAFETY nothing writes the list while one item is copied out.
+                Some(HeapObj::List(l)) => match unsafe { l.try_borrow_unguarded() } { Ok(l) => index(y.as_int(), l.len()).map(|j| l[j]), Err(_) => None },
+                Some(HeapObj::Tuple(t)) => index(y.as_int(), t.len()).map(|j| t[j]),
+                _ => None,
+            };
+            if let Some(v) = hit { return ok(v); }
+        }
+        // A list item stored, the list in `a`, the index in `b`, the value in `c`.
+        OpCode::StoreItem if x.is_heap() && y.is_int() => {
+            let vm = unsafe { &*(*rt).vm };
+            if let Some(HeapObj::List(l)) = vm.heap.plain(x) && let Ok(mut l) = l.try_borrow_mut() && let Some(j) = index(y.as_int(), l.len()) {
+                l[j] = Val(c as u64);
+                return ok(Val::none());
+            }
+        }
+        _ => {}
+    }
+    unsafe { slow(&mut *rt, site, op, [a, b, c], rest, live, nlive) }
+}
+
+#[inline(always)]
+fn truth(v: Val) -> bool { if v.is_bool() { v.as_bool() } else if v.is_int() { v.as_int() != 0 } else { false } }
+
+#[inline(always)]
+fn index(i: i64, len: usize) -> Option<usize> {
+    let j = if i < 0 { i + len as i64 } else { i };
+    (0..len as i64).contains(&j).then_some(j as usize)
+}
+
+/* The VM's own handler for `op`, its inputs pushed in stack order and its results taken back, the `live` values the
+   glue holds kept as roots meanwhile and handed back as the VM leaves them. */
+#[cold]
+#[inline(never)]
+unsafe fn slow(rt: &mut Rt, site: i64, op: OpCode, abc: [i64; 3], rest: *mut i64, live: *mut i64, nlive: u32) -> Ret {
+    let (body, ip) = parts(site);
+    let ins: Instruction = rt.bodies[body].chunk.instructions[ip];
+    let (pops, pushes) = crate::parser::effect(&ins, rt.bodies[body].chunk).unwrap_or((0, 0));
+    let roots = rt.vm.temp_roots.len();
+    for k in 0..nlive as usize { rt.vm.temp_roots.push(Val(unsafe { *live.add(k) } as u64)); }
+    let at = rt.vm.stack.len();
+    let input = |k: usize| Val(if k < 3 { abc[k] } else { unsafe { *rest.add(k - 3) } } as u64);
+    // A branch reads the value it tests, which the glue keeps or pops.
+    if !matches!(op, OpCode::JumpIfFalse | OpCode::JumpIfFalseOrPop | OpCode::JumpIfTrueOrPop) {
+        for k in 0..pops as usize {
+            let v = input(k);
+            // A spread's items go back where the spread stood, its counts with them.
+            match rt.packs.iter().position(|p| p.0.0 == v.0) {
+                Some(j) => {
+                    let (t, dpos, dkw) = rt.packs.swap_remove(j);
+                    let items = match rt.vm.heap.try_get(t) { Some(HeapObj::Tuple(items)) => items.clone(), _ => Vec::new() };
+                    rt.vm.stack.extend_from_slice(&items);
+                    (rt.vm.pending.pos_delta, rt.vm.pending.kw_delta) = (rt.vm.pending.pos_delta + dpos, rt.vm.pending.kw_delta + dkw);
+                }
+                None => rt.vm.stack.push(v),
+            }
+        }
+    }
+    let deltas = (rt.vm.pending.pos_delta, rt.vm.pending.kw_delta);
+    let step = step(rt, body, ip, ins, pushes, input(0));
+    // A spread's items, as many as its value holds, stand on the glue's stack as one tuple until the call takes them.
+    let step = match step {
+        Ok(Flow::Gives(top)) if op == OpCode::UnpackArgs => {
+            let vm = &mut *rt.vm;
+            let (dpos, dkw) = (vm.pending.pos_delta - deltas.0, vm.pending.kw_delta - deltas.1);
+            // The return that ended the step took the last item, of the one more than its added positionals it pushed, twice per keyword.
+            if dpos + 1 + 2 * dkw > 0 { vm.stack.push(top); }
+            (vm.pending.pos_delta, vm.pending.kw_delta) = deltas;
+            let items = vm.stack.split_off(at.min(vm.stack.len()));
+            vm.heap.alloc(HeapObj::Tuple(items)).map(|t| { rt.packs.push((t, dpos, dkw)); Flow::Gives(t) })
+        }
+        other => other,
+    };
+    let vm = &mut *rt.vm;
+    let step = step.and_then(|r| if vm.heap.has_work() { vm.pay_work().map(|()| r) } else { Ok(r) });
+    let ret = match step {
+        Ok(Flow::Gives(v)) => ok(v),
+        Ok(Flow::Return(v)) => Ret { val: v.0 as i64, err: RETURN },
+        Ok(Flow::Jump(k)) => Ret { val: k as i64, err: JUMP },
+        // A loop's end is no error the VM keeps, only its id.
+        Ok(Flow::Ended) => Ret { val: Val::undef().0 as i64, err: crate::parser::BUILTIN_TYPES.iter().position(|&t| t == "StopIteration").unwrap_or(0) as i32 },
+        Ok(Flow::Next) => {
+            let got = &vm.stack[at.min(vm.stack.len())..];
+            for (k, &v) in got.iter().enumerate().skip(1) { unsafe { *rest.add(k - 1) = v.0 as i64; } }
+            ok(got.first().copied().filter(|_| pushes != 0).unwrap_or(Val::none()))
+        }
+        Err(e) => raised(vm, e),
+    };
+    vm.stack.truncate(at);
+    for k in 0..nlive as usize { unsafe { *live.add(k) = vm.temp_roots[roots + k].0 as i64; } }
+    vm.temp_roots.truncate(roots);
+    if torture() { tortured(vm); }
+    ret
+}
+
+/* Where an opcode the VM ran leaves the frame: on past it with what it pushed, with a value it gives, at another
+   instruction, or returning. */
+enum Flow { Next, Gives(Val), Jump(usize), Return(Val), Ended }
+
+/* Runs instruction `ip` of `body`. One that only moves the frame's `try`, `finally` and return runs alone. Any other
+   runs as a frame of the VM's loop, in a copy of its body's code returning right after it, so the frames, jobs and
+   generator steps it opens run there to their end as the interpreter runs them. */
+fn step(rt: &mut Rt, body: usize, ip: usize, ins: Instruction, pushes: u32, top: Val) -> Result<Flow, VmErr> {
+    let (chunk, pool) = (rt.bodies[body].chunk, rt.bodies[body].pool);
+    let exc = rt.frames.last().map_or(0, |f| f.exc);
+    if matches!(ins.opcode, OpCode::JumpIfFalse | OpCode::JumpIfFalseOrPop | OpCode::JumpIfTrueOrPop) {
+        let t = { let vm = &mut *rt.vm; vm.truth_at(top, ip, 0, chunk) }?;
+        return Ok(Flow::Gives(Val::bool(t)));
+    }
+    if matches!(ins.opcode, OpCode::SetupExcept | OpCode::SetupFinally | OpCode::PopExcept | OpCode::BeginFinally | OpCode::EndFinally | OpCode::UnwindFinally | OpCode::ReturnValue) {
+        let (code, vm, mut next) = (rt.bodies[body].code.clone(), &mut *rt.vm, ip + 1);
+        return Ok(match vm.dispatch(Ins { op: ins.opcode, x: 0, a: ins.operand, b: 0, c: 0 }, ip, chunk, &code.cache, &code, pool, &mut next, exc)? {
+            Some(v) => Flow::Return(v),
+            None if next != ip + 1 => Flow::Jump(next),
+            None => Flow::Next,
+        });
+    }
+    let code = rt.steps.entry((body, ip)).or_insert_with(|| {
+        let mut src = chunk.instructions.clone();
+        let stop = Instruction { opcode: OpCode::ReturnValue, operand: 0 };
+        // A `for` whose iterator ends goes to its exit, a return too.
+        let mut ends = alloc::vec![ip + 1];
+        if ins.opcode == OpCode::ForIter { ends.push(ins.operand as usize); }
+        for e in ends { if e < src.len() { src[e] = stop } else { src.resize(e + 1, stop) } }
+        Rc::new(lower::identity(&src, chunk.names.len(), rt.bodies[body].code.kinds.clone(), rt.bodies[body].code.module))
+    }).clone();
+    let vm = &mut *rt.vm;
+    let (base, iters) = (vm.base, vm.iter_stack.len());
+    // Its loop takes the frames its calls open, as the module's own loop does.
+    (vm.native_code, vm.resume_ip, vm.pending_exec_safe) = (Some(code), ip, true);
+    let v = vm.exec_in(chunk, base, pool)?;
+    if ins.opcode == OpCode::ForIter && vm.iter_stack.len() < iters { return Ok(Flow::Ended); }
+    Ok(match pushes { 0 => Flow::Next, 1 => Flow::Gives(v), _ => { vm.stack.push(v); Flow::Next } })
+}
+
+macro_rules! handler {
+    ($op:ident) => {
+        #[allow(non_snake_case)]
+        mod $op {
+            /// # Safety
+            /// `rt` comes from `edge_boot`, `rest` and `live` hold what `code::effect` and `nlive` count.
+            #[unsafe(export_name = concat!("op_", stringify!($op)))]
+            pub unsafe extern "C" fn handler(rt: *mut super::Rt, site: i64, a: i64, b: i64, c: i64, rest: *mut i64, live: *mut i64, nlive: u32) -> super::Ret {
+                unsafe { super::run(rt, site, crate::parser::OpCode::$op, a, b, c, rest, live, nlive) }
+            }
+        }
+    };
+}
+crate::parser::for_each_op!(handler);
+
+pub type Handler = unsafe extern "C" fn(*mut Rt, i64, i64, i64, i64, *mut i64, *mut i64, u32) -> Ret;
+
+/* The handler of parser opcode `op`, the same function its `op_` symbol names, for a caller in Rust. */
+pub fn handler(op: OpCode) -> Option<Handler> {
+    macro_rules! of { ($o:ident) => { if op == OpCode::$o { return Some($o::handler); } }; }
+    crate::parser::for_each_op!(of);
+    None
+}
+
+/* The tag tests and the heap kind, kept as functions of the bitcode for the proofs and the IR checks. */
+#[unsafe(no_mangle)] pub extern "C" fn is_int(v: i64) -> bool { Val(v as u64).is_int() }
+#[unsafe(no_mangle)] pub extern "C" fn is_float(v: i64) -> bool { Val(v as u64).is_float() }
+#[unsafe(no_mangle)] pub extern "C" fn is_bool(v: i64) -> bool { Val(v as u64).is_bool() }
+#[unsafe(no_mangle)] pub extern "C" fn is_none(v: i64) -> bool { Val(v as u64).is_none() }
+#[unsafe(no_mangle)] pub extern "C" fn is_heap(v: i64) -> bool { Val(v as u64).is_heap() }
+#[unsafe(no_mangle)] pub extern "C" fn is_undef(v: i64) -> bool { Val(v as u64).is_undef() }
+
+#[unsafe(no_mangle)] pub extern "C" fn fits_int(i: i64) -> bool { Val::int_checked(i).is_some() }
+#[unsafe(no_mangle)] pub extern "C" fn as_int(v: i64) -> i64 { Val(v as u64).as_int() }
+
+/* Edge's type id of any `v`, the tag `edge.ept` gives it: its exact type's place in the builtin type tree, past its end
+   an instance, a function, an iterator, a generator and a coroutine, u32::MAX for an unbound slot. */
+/// # Safety
+/// `rt` comes from `edge_boot`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn heap_type(rt: *mut Rt, v: i64) -> u32 {
+    let (v, types) = (Val(v as u64), crate::parser::BUILTIN_TYPES);
+    let at = |n: &str| types.iter().position(|&t| t == n).map_or(u32::MAX, |i| i as u32);
+    if v.is_int() { return at("int"); }
+    if v.is_float() { return at("float"); }
+    if v.is_bool() { return at("bool"); }
+    if v.is_none() { return at("NoneType"); }
+    if !v.is_heap() { return u32::MAX; }
+    let vm = unsafe { &*(*rt).vm };
+    let past = types.len() as u32;
+    match vm.heap.try_get(v) {
+        None => u32::MAX,
+        Some(HeapObj::Instance(..)) => past,
+        Some(HeapObj::Func(..) | HeapObj::BoundMethod(..) | HeapObj::NativeFn(_) | HeapObj::BoundUserMethod(..) | HeapObj::Extern(_)) => past + 1,
+        Some(HeapObj::Iter(..) | HeapObj::DictView(..)) => past + 2,
+        Some(HeapObj::Coroutine(..)) => past + if vm.is_async_object(v) { 4 } else { 3 },
+        Some(_) => at(vm.type_name(v)),
+    }
+}
+
+/* Starts the VM on program `src` with the run's limits, null after printing its syntax errors or a failed import, its
+   output written to stdout, or with `KEEP_OUTPUT` kept for `output`. */
+/// # Safety
+/// `src` points at `len` bytes of UTF-8.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn edge_boot(src: *const u8, len: usize, ops: u64, memory: u64, flags: u32) -> *mut Rt {
+    let src: &'static str = crate::util::leak(String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(src, len) }).into_owned().into_boxed_str());
+    let (chunk, errors) = crate::code::compile(src);
+    if let Some(e) = errors.first() { out(&crate::value::err::render_text_at(e.msg.clone(), src, Some(e.start), None)); return core::ptr::null_mut(); }
+    let chunk: &'static SSAChunk = crate::util::leak(Box::new(chunk));
+    let mut vm = VM::boxed(chunk, Limits { ops, memory: memory as usize });
+    if flags & KEEP_OUTPUT == 0 { vm.print_hook = Some(out); }
+    let Ok(paying) = vm.paying() else { return core::ptr::null_mut() };
+    let mut rt = Rt { vm, bodies: Vec::new(), frames: Vec::new(), steps: Default::default(), packs: Vec::new(), src, _paying: paying };
+    let vm = &mut *rt.vm;
+    let started = vm.init_modules(chunk, &mut Default::default());
+    let chunks: Vec<&'static SSAChunk> = core::iter::once(chunk).chain(vm.functions.iter().map(|f| &f.1)).collect();
+    for (k, &c) in chunks.iter().enumerate() {
+        let pool = if k == 0 { vm.pool_of(c) } else { vm.fn_pool[k - 1] };
+        if vm.pools[pool].consts.is_none() && let Ok(consts) = super::cache::const_vals(c, &mut vm.heap) { vm.pools[pool].consts = Some(consts); }
+        let (kinds, module) = vm.chunk_kinds(c);
+        rt.bodies.push(Body { chunk: c, code: Rc::new(lower::identity(&c.instructions, c.names.len(), kinds, module)), pool });
+    }
+    let pool = rt.bodies[0].pool;
+    let base = vm.open_window(pool, chunk.names.len() + chunk.constants.len() + 3, chunk.names.len(), false);
+    let slots = vm.fill_builtins(&chunk.names);
+    vm.regs[base..base + slots.len()].copy_from_slice(&slots);
+    rt.frames.push(Frame { body: 0, exc: 0, deltas: 0, outer: vm.pool_now, entry: None });
+    (vm.pool_now, vm.base) = (pool, base);
+    if let Err(e) = started { report(&mut rt, &e); return core::ptr::null_mut(); }
+    Box::into_raw(Box::new(rt))
+}
+
+#[cold]
+fn report(rt: &mut Rt, e: &VmErr) { let s = rt.vm.render_error(e, rt.src, None); out(&s); }
+
+/* Ends the program after `edge_main` gave `err`, its traceback printed for an exception, and gives the exit code. */
+/// # Safety
+/// `rt` comes from `edge_boot`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn edge_finish(rt: *mut Rt, err: i32) -> i32 {
+    let rt = unsafe { &mut *rt };
+    if err == OK { return 0; }
+    let Some(e) = rt.vm.reg_error.take() else { return 1 };
+    if let Some(code) = rt.vm.system_exit_code() { return code as i32; }
+    report(rt, &e);
+    1
+}
+
+/* Opens a frame of function `fi`, the glue's direct call of `callee` with its `n` positionals, giving its window. */
+/// # Safety
+/// `rt` comes from `edge_boot`, `args` holds `n` values.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn edge_enter(rt: *mut Rt, fi: u32, callee: i64, args: *const i64, n: u32) -> Ret {
+    let rt = unsafe { &mut *rt };
+    let (vm, fi) = (&mut *rt.vm, fi as usize);
+    if vm.depth >= vm.max_calls { return raised(vm, cold_depth()); }
+    if let Err(e) = vm.charge_step() { return raised(vm, e); }
+    let callee = Val(callee as u64);
+    let at = vm.stack.len();
+    for k in 0..n as usize { vm.stack.push(Val(unsafe { *args.add(k) } as u64)); }
+    let base = vm.bind_plain(fi, callee, &super::opcodes::function::Passed::Stack { first: at, to: at }, n as usize);
+    let captures = match vm.heap.try_get(callee) { Some(HeapObj::Func(_, _, c, _)) => c.clone(), _ => Default::default() };
+    if let Err(e) = vm.enter_scope(fi, &captures, base) { vm.close_window(vm.fn_pool[fi]); return raised(vm, e); }
+    let entry = vm.enter_body(fi);
+    vm.depth += 1;
+    rt.frames.push(Frame { body: fi + 1, exc: vm.exception_stack.len(), deltas: vm.pending.delta_save.len(), outer: vm.pool_now, entry: Some(entry) });
+    (vm.pool_now, vm.base) = (vm.fn_pool[fi], base);
+    ok(Val::int(base as i64))
+}
+
+/* Closes the innermost frame `edge_enter` opened, `err` what its function gives, its traceback line kept on a raise. */
+/// # Safety
+/// `rt` comes from `edge_boot`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn edge_leave(rt: *mut Rt, err: i32) {
+    let rt = unsafe { &mut *rt };
+    let Some(f) = rt.frames.pop() else { return };
+    let (vm, chunk) = (&mut *rt.vm, rt.bodies[f.body].chunk);
+    vm.exception_stack.truncate(f.exc);
+    vm.close_window(rt.bodies[f.body].pool);
+    vm.depth -= 1;
+    if let Some(entry) = f.entry { vm.leave_body(f.body - 1, entry, err == OK, chunk); }
+    vm.run_in(f.outer);
+}
+
+/* A raise at `site`, caught by the innermost `try` of the running frame, giving the exception its handler binds, or the
+   error again to leave the function with. */
+/// # Safety
+/// `rt` comes from `edge_boot`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn edge_raise(rt: *mut Rt, site: i64, handler: *mut u32) -> Ret {
+    let rt = unsafe { &mut *rt };
+    let (body, ip) = parts(site);
+    let Some(&Frame { exc, deltas, .. }) = rt.frames.last() else { return Ret { val: 0, err: 1 } };
+    let (chunk, code) = (rt.bodies[body].chunk, rt.bodies[body].code.clone());
+    let vm = &mut *rt.vm;
+    let Some(e) = vm.reg_error.take() else { return ok(Val::none()) };
+    let depth = vm.stack.len();
+    let mut next = ip;
+    match vm.catch(&code, chunk, &mut next, exc, deltas, e, ip) {
+        Ok(()) => {
+            if !handler.is_null() { unsafe { *handler = next as u32; } }
+            // A `finally` or a `with` takes no value, its exception held for the end of its cleanup.
+            ok(if vm.stack.len() > depth { vm.stack.pop().unwrap_or(Val::undef()) } else { Val::undef() })
+        }
+        Err(e) => raised(vm, e),
+    }
+}
+
+/* Whether this build collects and moves every object at each safepoint, `edge build --gc-torture`, for the tests. */
+const fn torture() -> bool { cfg!(feature = "gc-torture") }
+
+/* Collects, then moves every live object's storage, the old storage poisoned, so a value the glue did not store is
+   swept and a pointer it kept reads poison. */
+#[cold]
+fn tortured(vm: &mut VM<'static>) {
+    vm.collect();
+    vm.heap.relocate();
+}
+
+/* `collect_point` for the glue's own loops, and under torture the move. */
+/// # Safety
+/// `rt` comes from `edge_boot`, `live` holds `nlive` values.
+#[unsafe(no_mangle)]
+#[cold]
+pub unsafe extern "C" fn edge_safepoint(rt: *mut Rt, live: *mut i64, nlive: u32) -> i32 {
+    let vm = unsafe { &mut *(*rt).vm };
+    if !vm.heap.needs_gc() && !torture() { return OK; }
+    let roots = vm.temp_roots.len();
+    for k in 0..nlive as usize { vm.temp_roots.push(Val(unsafe { *live.add(k) } as u64)); }
+    let r = vm.collect_point();
+    if torture() { vm.heap.relocate(); }
+    for k in 0..nlive as usize { unsafe { *live.add(k) = vm.temp_roots[roots + k].0 as i64; } }
+    vm.temp_roots.truncate(roots);
+    match r { Ok(()) => OK, Err(e) => raised(vm, e).err }
+}

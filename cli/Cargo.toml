@@ -40,6 +40,9 @@ mozjs = "0.26"
 tungstenite = { version = "0.29", default-features = false, features = ["handshake", "rustls-tls-webpki-roots"] }
 # Drives the browser host for `edge run --web` over CDP, `fetch` downloads a known-good Chromium when the user agrees.
 headless_chrome = { version = "1", features = ["fetch"] }
+# Unpack the LLVM tools `edge build` fetches from Rust's release channel.
+flate2 = "1"
+tar = "0.4"
 
 # SIGTERM and SIGINT close a live actor server so its actors finish what they hold.
 [target.'cfg(unix)'.dependencies]
