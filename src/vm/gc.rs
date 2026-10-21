@@ -15,7 +15,8 @@ impl<'a> VM<'a> {
         if self.heap.over() { Err(cold_heap()) } else { Ok(()) }
     }
 
-    /* Mark all reachable roots then sweep, non-heap Vals are no-op to mark. */
+    /* Mark all reachable roots then sweep, non-heap Vals are no-op to mark. A native program's proofs find it by name. */
+    #[cfg_attr(feature = "native", unsafe(export_name = "edge_collect"))]
     pub(crate) fn collect(&mut self) {
         for &v in &self.stack { self.heap.mark(v); }
         for &v in &self.with_stack { self.heap.mark(v); }

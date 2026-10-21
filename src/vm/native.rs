@@ -10,20 +10,25 @@ use super::registers::{int_add, int_bits, int_div, int_floordiv, int_mod, int_mu
 use super::types::*;
 use super::VM;
 
-/* What a handler gives, a value and Edge's id of the exception it raised, 0 for none. */
-#[repr(C)]
-pub struct Ret { pub val: i64, pub err: i32 }
+/* A handler gives one i64: the value, or under `TAG_ERR` an error with its id in bits 4 to 35. The id is Edge's own
+   exception id, the class's index in the builtin type tree, or a move of the frame: `JUMP` to the instruction in its
+   low bits, `RETURN` with the value `edge_returned` gives. No Val has the tag, a heap index takes the nibble 4. */
+pub const TAG_ERR: u64 = crate::abi::nan_box::QNAN | 5;
+pub const JUMP: u32 = 0x4000_0000;
+pub const RETURN: u32 = 0x8000_0000;
 
-const OK: i32 = 0;
-// A finally or a with moved the frame on to the index in `val`, or the frame returns `val`.
-pub const JUMP: i32 = -1;
-pub const RETURN: i32 = -2;
+#[unsafe(no_mangle)] pub extern "C" fn is_err(v: i64) -> bool { (v as u64 & 0xFFFF_0000_0000_000F) == TAG_ERR }
+#[unsafe(no_mangle)] pub extern "C" fn err_id(v: i64) -> u32 { (v as u64 >> 4) as u32 }
+
+#[inline(always)]
+fn err(id: u32) -> i64 { (TAG_ERR | (id as u64) << 4) as i64 }
+
 // `edge_boot` keeps what the program prints instead of writing it.
 pub const KEEP_OUTPUT: u32 = 1;
 
 /* What a run booted with `KEEP_OUTPUT` printed, the error it holds, and its module's chunk. */
 pub fn output(rt: &Rt) -> String { rt.vm.output_text() }
-pub fn error(rt: &Rt) -> Option<String> { rt.vm.reg_error.as_ref().map(|e| alloc::string::ToString::to_string(e)) }
+pub fn error(rt: &Rt) -> Option<String> { rt.vm.reg_error.as_ref().map(VmErr::render) }
 pub fn chunk(rt: &Rt) -> &'static SSAChunk { rt.bodies[0].chunk }
 
 /* One body the glue runs, the module's first then each function's at its index plus one. */
@@ -39,7 +44,9 @@ pub struct Rt {
     // Each instruction a slow step ran, by its body and index, as the code that runs it alone.
     steps: crate::util::hash::FxHashMap<(usize, usize), Rc<Code>>,
     // Each spread the glue holds as one tuple, with what it adds to its call's positional and keyword counts.
-    packs: Vec<(Val, i32, i32)>,
+    packs: Vec<(Val, i32, i32, usize)>,
+    // What a frame a `finally` ended returns.
+    returned: Val,
     src: &'static str,
     _paying: crate::value::meter::Paying,
 }
@@ -47,25 +54,25 @@ pub struct Rt {
 fn out(text: &str) { use std::io::Write; let _ = std::io::stdout().write_all(text.as_bytes()); }
 
 #[inline(always)]
-fn ok(v: Val) -> Ret { Ret { val: v.0 as i64, err: OK } }
+fn ok(v: Val) -> i64 { v.0 as i64 }
 
 /* Edge's id of the error kept in the VM, the class's index in the builtin type tree, a user class its nearest builtin one. */
 #[cold]
-fn raised(vm: &mut VM<'static>, e: VmErr) -> Ret {
+fn raised(vm: &mut VM<'static>, e: VmErr) -> i64 {
     let id = exc_id(vm, &e);
     vm.reg_error = Some(e);
-    Ret { val: Val::undef().0 as i64, err: id }
+    err(id)
 }
 
-fn exc_id(vm: &VM<'static>, e: &VmErr) -> i32 {
+fn exc_id(vm: &VM<'static>, e: &VmErr) -> u32 {
     let at = |n: &str| crate::parser::BUILTIN_TYPES.iter().position(|&t| t == n);
     let name = e.class_name();
-    if let Some(i) = at(&name) { return i as i32; }
+    if let Some(i) = at(&name) { return i as u32; }
     // A user class takes the first builtin of its order of resolution.
     let class = vm.pending.exc_val.and_then(|v| match vm.heap.try_get(v) { Some(HeapObj::Instance(c, _)) => Some(*c), _ => None });
     let mro = class.and_then(|c| vm.mro_cache.get(&c.0).cloned());
     mro.iter().flat_map(|m| m.iter().copied()).find_map(|c| match vm.heap.try_get(c) { Some(HeapObj::Class(n, ..)) => at(n), _ => None })
-        .or_else(|| at("Exception")).unwrap_or(0) as i32
+        .or_else(|| at("Exception")).unwrap_or(0) as u32
 }
 
 #[inline(always)]
@@ -73,7 +80,7 @@ fn parts(site: i64) -> (usize, usize) { ((site >> 32) as usize, (site >> 16 & 0x
 
 /* The handler of every parser opcode, `op` constant in each symbol so its match folds once inlined. */
 #[inline(always)]
-unsafe fn run(rt: *mut Rt, site: i64, op: OpCode, a: i64, b: i64, c: i64, rest: *mut i64, live: *mut i64, nlive: u32) -> Ret {
+unsafe fn run(rt: *mut Rt, site: i64, op: OpCode, a: i64, b: i64, c: i64, rest: *mut i64, live: *mut i64, nlive: u32) -> i64 {
     let (x, y) = (Val(a as u64), Val(b as u64));
     macro_rules! num {
         ($int:expr, $float:expr) => {{
@@ -146,7 +153,7 @@ fn index(i: i64, len: usize) -> Option<usize> {
    glue holds kept as roots meanwhile and handed back as the VM leaves them. */
 #[cold]
 #[inline(never)]
-unsafe fn slow(rt: &mut Rt, site: i64, op: OpCode, abc: [i64; 3], rest: *mut i64, live: *mut i64, nlive: u32) -> Ret {
+unsafe fn slow(rt: &mut Rt, site: i64, op: OpCode, abc: [i64; 3], rest: *mut i64, live: *mut i64, nlive: u32) -> i64 {
     let (body, ip) = parts(site);
     let ins: Instruction = rt.bodies[body].chunk.instructions[ip];
     let (pops, pushes) = crate::parser::effect(&ins, rt.bodies[body].chunk).unwrap_or((0, 0));
@@ -154,16 +161,19 @@ unsafe fn slow(rt: &mut Rt, site: i64, op: OpCode, abc: [i64; 3], rest: *mut i64
     for k in 0..nlive as usize { rt.vm.temp_roots.push(Val(unsafe { *live.add(k) } as u64)); }
     let at = rt.vm.stack.len();
     let input = |k: usize| Val(if k < 3 { abc[k] } else { unsafe { *rest.add(k - 3) } } as u64);
-    // A branch reads the value it tests, which the glue keeps or pops.
-    if !matches!(op, OpCode::JumpIfFalse | OpCode::JumpIfFalseOrPop | OpCode::JumpIfTrueOrPop) {
+    // A branch takes the value it tests alone, which the glue keeps or pops.
+    let branch = matches!(op, OpCode::JumpIfFalse | OpCode::JumpIfFalseOrPop | OpCode::JumpIfTrueOrPop);
+    if branch { rt.vm.stack.push(input(0)); } else {
         for k in 0..pops as usize {
             let v = input(k);
             // A spread's items go back where the spread stood, its counts with them.
             match rt.packs.iter().position(|p| p.0.0 == v.0) {
                 Some(j) => {
-                    let (t, dpos, dkw) = rt.packs.swap_remove(j);
+                    let (t, dpos, dkw, below) = rt.packs.swap_remove(j);
                     let items = match rt.vm.heap.try_get(t) { Some(HeapObj::Tuple(items)) => items.clone(), _ => Vec::new() };
-                    rt.vm.stack.extend_from_slice(&items);
+                    // Positionals spread after keywords go under them, as the VM's own spread puts them.
+                    let under = rt.vm.stack.len().saturating_sub(below);
+                    rt.vm.stack.splice(under..under, items);
                     (rt.vm.pending.pos_delta, rt.vm.pending.kw_delta) = (rt.vm.pending.pos_delta + dpos, rt.vm.pending.kw_delta + dkw);
                 }
                 None => rt.vm.stack.push(v),
@@ -171,7 +181,7 @@ unsafe fn slow(rt: &mut Rt, site: i64, op: OpCode, abc: [i64; 3], rest: *mut i64
         }
     }
     let deltas = (rt.vm.pending.pos_delta, rt.vm.pending.kw_delta);
-    let step = step(rt, body, ip, ins, pushes, input(0));
+    let step = step(rt, body, ip, ins, if branch { 1 } else { pushes });
     // A spread's items, as many as its value holds, stand on the glue's stack as one tuple until the call takes them.
     let step = match step {
         Ok(Flow::Gives(top)) if op == OpCode::UnpackArgs => {
@@ -181,7 +191,8 @@ unsafe fn slow(rt: &mut Rt, site: i64, op: OpCode, abc: [i64; 3], rest: *mut i64
             if dpos + 1 + 2 * dkw > 0 { vm.stack.push(top); }
             (vm.pending.pos_delta, vm.pending.kw_delta) = deltas;
             let items = vm.stack.split_off(at.min(vm.stack.len()));
-            vm.heap.alloc(HeapObj::Tuple(items)).map(|t| { rt.packs.push((t, dpos, dkw)); Flow::Gives(t) })
+            let below = if ins.operand & 0x3 == 1 { 2 * (ins.operand >> 2) as usize } else { 0 };
+            vm.heap.alloc(HeapObj::Tuple(items)).map(|t| { rt.packs.push((t, dpos, dkw, below)); Flow::Gives(t) })
         }
         other => other,
     };
@@ -189,10 +200,10 @@ unsafe fn slow(rt: &mut Rt, site: i64, op: OpCode, abc: [i64; 3], rest: *mut i64
     let step = step.and_then(|r| if vm.heap.has_work() { vm.pay_work().map(|()| r) } else { Ok(r) });
     let ret = match step {
         Ok(Flow::Gives(v)) => ok(v),
-        Ok(Flow::Return(v)) => Ret { val: v.0 as i64, err: RETURN },
-        Ok(Flow::Jump(k)) => Ret { val: k as i64, err: JUMP },
+        Ok(Flow::Return(v)) => { rt.returned = v; err(RETURN) }
+        Ok(Flow::Jump(k)) => err(JUMP | k as u32),
         // A loop's end is no error the VM keeps, only its id.
-        Ok(Flow::Ended) => Ret { val: Val::undef().0 as i64, err: crate::parser::BUILTIN_TYPES.iter().position(|&t| t == "StopIteration").unwrap_or(0) as i32 },
+        Ok(Flow::Ended) => err(crate::parser::BUILTIN_TYPES.iter().position(|&t| t == "StopIteration").unwrap_or(0) as u32),
         Ok(Flow::Next) => {
             let got = &vm.stack[at.min(vm.stack.len())..];
             for (k, &v) in got.iter().enumerate().skip(1) { unsafe { *rest.add(k - 1) = v.0 as i64; } }
@@ -214,13 +225,9 @@ enum Flow { Next, Gives(Val), Jump(usize), Return(Val), Ended }
 /* Runs instruction `ip` of `body`. One that only moves the frame's `try`, `finally` and return runs alone. Any other
    runs as a frame of the VM's loop, in a copy of its body's code returning right after it, so the frames, jobs and
    generator steps it opens run there to their end as the interpreter runs them. */
-fn step(rt: &mut Rt, body: usize, ip: usize, ins: Instruction, pushes: u32, top: Val) -> Result<Flow, VmErr> {
+fn step(rt: &mut Rt, body: usize, ip: usize, ins: Instruction, pushes: u32) -> Result<Flow, VmErr> {
     let (chunk, pool) = (rt.bodies[body].chunk, rt.bodies[body].pool);
     let exc = rt.frames.last().map_or(0, |f| f.exc);
-    if matches!(ins.opcode, OpCode::JumpIfFalse | OpCode::JumpIfFalseOrPop | OpCode::JumpIfTrueOrPop) {
-        let t = { let vm = &mut *rt.vm; vm.truth_at(top, ip, 0, chunk) }?;
-        return Ok(Flow::Gives(Val::bool(t)));
-    }
     if matches!(ins.opcode, OpCode::SetupExcept | OpCode::SetupFinally | OpCode::PopExcept | OpCode::BeginFinally | OpCode::EndFinally | OpCode::UnwindFinally | OpCode::ReturnValue) {
         let (code, vm, mut next) = (rt.bodies[body].code.clone(), &mut *rt.vm, ip + 1);
         return Ok(match vm.dispatch(Ins { op: ins.opcode, x: 0, a: ins.operand, b: 0, c: 0 }, ip, chunk, &code.cache, &code, pool, &mut next, exc)? {
@@ -235,7 +242,17 @@ fn step(rt: &mut Rt, body: usize, ip: usize, ins: Instruction, pushes: u32, top:
         // A `for` whose iterator ends goes to its exit, a return too.
         let mut ends = alloc::vec![ip + 1];
         if ins.opcode == OpCode::ForIter { ends.push(ins.operand as usize); }
+        // A spread runs alone, the keywords before it, which it would go under, put back by the call that takes it.
+        if ins.opcode == OpCode::UnpackArgs { src[ip].operand &= 0x3; }
         for e in ends { if e < src.len() { src[e] = stop } else { src.resize(e + 1, stop) } }
+        // A branch ends at either side with its truth, which a `__bool__` or `__len__` frame decided.
+        if matches!(ins.opcode, OpCode::JumpIfFalse | OpCode::JumpIfFalseOrPop | OpCode::JumpIfTrueOrPop) {
+            let (end, on) = (src.len() as u16, ins.opcode == OpCode::JumpIfTrueOrPop);
+            let truth = |t: bool| Instruction { opcode: if t { OpCode::LoadTrue } else { OpCode::LoadFalse }, operand: 0 };
+            src[ip + 1] = Instruction { opcode: OpCode::Jump, operand: end };
+            src[ins.operand as usize] = Instruction { opcode: OpCode::Jump, operand: end + 2 };
+            src.extend([truth(!on), stop, truth(on), stop]);
+        }
         Rc::new(lower::identity(&src, chunk.names.len(), rt.bodies[body].code.kinds.clone(), rt.bodies[body].code.module))
     }).clone();
     let vm = &mut *rt.vm;
@@ -254,7 +271,7 @@ macro_rules! handler {
             /// # Safety
             /// `rt` comes from `edge_boot`, `rest` and `live` hold what `code::effect` and `nlive` count.
             #[unsafe(export_name = concat!("op_", stringify!($op)))]
-            pub unsafe extern "C" fn handler(rt: *mut super::Rt, site: i64, a: i64, b: i64, c: i64, rest: *mut i64, live: *mut i64, nlive: u32) -> super::Ret {
+            pub unsafe extern "C" fn handler(rt: *mut super::Rt, site: i64, a: i64, b: i64, c: i64, rest: *mut i64, live: *mut i64, nlive: u32) -> i64 {
                 unsafe { super::run(rt, site, crate::parser::OpCode::$op, a, b, c, rest, live, nlive) }
             }
         }
@@ -262,7 +279,7 @@ macro_rules! handler {
 }
 crate::parser::for_each_op!(handler);
 
-pub type Handler = unsafe extern "C" fn(*mut Rt, i64, i64, i64, i64, *mut i64, *mut i64, u32) -> Ret;
+pub type Handler = unsafe extern "C" fn(*mut Rt, i64, i64, i64, i64, *mut i64, *mut i64, u32) -> i64;
 
 /* The handler of parser opcode `op`, the same function its `op_` symbol names, for a caller in Rust. */
 pub fn handler(op: OpCode) -> Option<Handler> {
@@ -307,6 +324,12 @@ pub unsafe extern "C" fn heap_type(rt: *mut Rt, v: i64) -> u32 {
     }
 }
 
+/* The value a frame returns once a handler gave `RETURN`. */
+/// # Safety
+/// `rt` comes from `edge_boot`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn edge_returned(rt: *mut Rt) -> i64 { ok(unsafe { &*rt }.returned) }
+
 /* Starts the VM on program `src` with the run's limits, null after printing its syntax errors or a failed import, its
    output written to stdout, or with `KEEP_OUTPUT` kept for `output`. */
 /// # Safety
@@ -315,12 +338,14 @@ pub unsafe extern "C" fn heap_type(rt: *mut Rt, v: i64) -> u32 {
 pub unsafe extern "C" fn edge_boot(src: *const u8, len: usize, ops: u64, memory: u64, flags: u32) -> *mut Rt {
     let src: &'static str = crate::util::leak(String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(src, len) }).into_owned().into_boxed_str());
     let (chunk, errors) = crate::code::compile(src);
-    if let Some(e) = errors.first() { out(&crate::value::err::render_text_at(e.msg.clone(), src, Some(e.start), None)); return core::ptr::null_mut(); }
+    let lexed = crate::lexer::lex(src).1;
+    let first = lexed.first().map(|e| (String::from(e.msg), e.start)).or_else(|| errors.first().map(|e| (e.msg.clone(), e.start)));
+    if let Some((msg, at)) = first { out(&crate::value::err::render_text_at(msg, src, Some(at), None)); return core::ptr::null_mut(); }
     let chunk: &'static SSAChunk = crate::util::leak(Box::new(chunk));
     let mut vm = VM::boxed(chunk, Limits { ops, memory: memory as usize });
     if flags & KEEP_OUTPUT == 0 { vm.print_hook = Some(out); }
     let Ok(paying) = vm.paying() else { return core::ptr::null_mut() };
-    let mut rt = Rt { vm, bodies: Vec::new(), frames: Vec::new(), steps: Default::default(), packs: Vec::new(), src, _paying: paying };
+    let mut rt = Rt { vm, bodies: Vec::new(), frames: Vec::new(), steps: Default::default(), packs: Vec::new(), returned: Val::none(), src, _paying: paying };
     let vm = &mut *rt.vm;
     let started = vm.init_modules(chunk, &mut Default::default());
     let chunks: Vec<&'static SSAChunk> = core::iter::once(chunk).chain(vm.functions.iter().map(|f| &f.1)).collect();
@@ -347,9 +372,9 @@ fn report(rt: &mut Rt, e: &VmErr) { let s = rt.vm.render_error(e, rt.src, None);
 /// # Safety
 /// `rt` comes from `edge_boot`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn edge_finish(rt: *mut Rt, err: i32) -> i32 {
+pub unsafe extern "C" fn edge_finish(rt: *mut Rt, last: i64) -> i32 {
     let rt = unsafe { &mut *rt };
-    if err == OK { return 0; }
+    if !is_err(last) { return 0; }
     let Some(e) = rt.vm.reg_error.take() else { return 1 };
     if let Some(code) = rt.vm.system_exit_code() { return code as i32; }
     report(rt, &e);
@@ -360,7 +385,7 @@ pub unsafe extern "C" fn edge_finish(rt: *mut Rt, err: i32) -> i32 {
 /// # Safety
 /// `rt` comes from `edge_boot`, `args` holds `n` values.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn edge_enter(rt: *mut Rt, fi: u32, callee: i64, args: *const i64, n: u32) -> Ret {
+pub unsafe extern "C" fn edge_enter(rt: *mut Rt, fi: u32, callee: i64, args: *const i64, n: u32) -> i64 {
     let rt = unsafe { &mut *rt };
     let (vm, fi) = (&mut *rt.vm, fi as usize);
     if vm.depth >= vm.max_calls { return raised(vm, cold_depth()); }
@@ -382,14 +407,14 @@ pub unsafe extern "C" fn edge_enter(rt: *mut Rt, fi: u32, callee: i64, args: *co
 /// # Safety
 /// `rt` comes from `edge_boot`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn edge_leave(rt: *mut Rt, err: i32) {
+pub unsafe extern "C" fn edge_leave(rt: *mut Rt, last: i64) {
     let rt = unsafe { &mut *rt };
     let Some(f) = rt.frames.pop() else { return };
     let (vm, chunk) = (&mut *rt.vm, rt.bodies[f.body].chunk);
     vm.exception_stack.truncate(f.exc);
     vm.close_window(rt.bodies[f.body].pool);
     vm.depth -= 1;
-    if let Some(entry) = f.entry { vm.leave_body(f.body - 1, entry, err == OK, chunk); }
+    if let Some(entry) = f.entry { vm.leave_body(f.body - 1, entry, !is_err(last), chunk); }
     vm.run_in(f.outer);
 }
 
@@ -398,10 +423,10 @@ pub unsafe extern "C" fn edge_leave(rt: *mut Rt, err: i32) {
 /// # Safety
 /// `rt` comes from `edge_boot`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn edge_raise(rt: *mut Rt, site: i64, handler: *mut u32) -> Ret {
+pub unsafe extern "C" fn edge_raise(rt: *mut Rt, site: i64) -> i64 {
     let rt = unsafe { &mut *rt };
     let (body, ip) = parts(site);
-    let Some(&Frame { exc, deltas, .. }) = rt.frames.last() else { return Ret { val: 0, err: 1 } };
+    let Some(&Frame { exc, deltas, .. }) = rt.frames.last() else { return err(0) };
     let (chunk, code) = (rt.bodies[body].chunk, rt.bodies[body].code.clone());
     let vm = &mut *rt.vm;
     let Some(e) = vm.reg_error.take() else { return ok(Val::none()) };
@@ -409,7 +434,6 @@ pub unsafe extern "C" fn edge_raise(rt: *mut Rt, site: i64, handler: *mut u32) -
     let mut next = ip;
     match vm.catch(&code, chunk, &mut next, exc, deltas, e, ip) {
         Ok(()) => {
-            if !handler.is_null() { unsafe { *handler = next as u32; } }
             // A `finally` or a `with` takes no value, its exception held for the end of its cleanup.
             ok(if vm.stack.len() > depth { vm.stack.pop().unwrap_or(Val::undef()) } else { Val::undef() })
         }
@@ -433,14 +457,14 @@ fn tortured(vm: &mut VM<'static>) {
 /// `rt` comes from `edge_boot`, `live` holds `nlive` values.
 #[unsafe(no_mangle)]
 #[cold]
-pub unsafe extern "C" fn edge_safepoint(rt: *mut Rt, live: *mut i64, nlive: u32) -> i32 {
+pub unsafe extern "C" fn edge_safepoint(rt: *mut Rt, live: *mut i64, nlive: u32) -> i64 {
     let vm = unsafe { &mut *(*rt).vm };
-    if !vm.heap.needs_gc() && !torture() { return OK; }
+    if !vm.heap.needs_gc() && !torture() { return ok(Val::none()); }
     let roots = vm.temp_roots.len();
     for k in 0..nlive as usize { vm.temp_roots.push(Val(unsafe { *live.add(k) } as u64)); }
     let r = vm.collect_point();
     if torture() { vm.heap.relocate(); }
     for k in 0..nlive as usize { unsafe { *live.add(k) = vm.temp_roots[roots + k].0 as i64; } }
     vm.temp_roots.truncate(roots);
-    match r { Ok(()) => OK, Err(e) => raised(vm, e).err }
+    match r { Ok(()) => ok(Val::none()), Err(e) => raised(vm, e) }
 }
