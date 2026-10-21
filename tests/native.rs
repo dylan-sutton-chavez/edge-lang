@@ -51,6 +51,8 @@ fn body(rt: *mut Rt, chunk: &compiler::code::SSAChunk, k: i64) -> i64 {
                 let at = |j: usize| args.get(j).copied().unwrap_or(UNDEF);
                 let mut io: Vec<i64> = args.iter().skip(3).copied().chain(std::iter::repeat_n(UNDEF, 8)).collect();
                 let r = unsafe { h(rt, site, at(0), at(1), at(2), io.as_mut_ptr(), stack.as_mut_ptr(), stack.len() as u32) };
+                // Every value a handler gives has its type in Edge's tree, heap_type is total.
+                if !is_err(r) && r != UNDEF { assert_ne!(unsafe { native::heap_type(rt, r) }, u32::MAX, "{op:?} gave {r:x}, which heap_type does not name"); }
                 if !is_err(r) {
                     if matches!(op, OpCode::SetupExcept | OpCode::SetupFinally) { tries.push((ins.operand as usize, stack.len())); }
                     if op == OpCode::PopExcept { tries.pop(); }
@@ -108,4 +110,26 @@ fn corpus_through_handlers() {
     }
     let shown = failed.len().min(60);
     assert!(failed.is_empty(), "{} of {ran} case(s) differ from the VM:\n{}", failed.len(), failed[..shown].join("\n"));
+}
+
+/* A collection leaves every live value at its bits and its object, and a root naming a free or a reused slot harms nothing.
+   Native code keeps values in registers between safepoints and stores them only there. */
+#[test]
+fn gc_keeps_values_in_place() {
+    const WHY: &str = "edge build's native code stores live values at safepoints, update it if the GC moves objects or collects elsewhere";
+    let src = "a = [1, 2]\nb = 'x' * 3\nc = {'k': a}\nd = [3]\n";
+    let rt = unsafe { native::boot(src.as_ptr(), src.len(), 1 << 26, true) };
+    assert!(!is_err(body(rt, native::chunk(unsafe { &*rt }), 0)));
+    let load = move |slot: i64| unsafe { native::handler(OpCode::LoadName).unwrap()(rt, slot, UNDEF, UNDEF, UNDEF, std::ptr::null_mut(), std::ptr::null_mut(), 0) };
+    let (live, kinds): (Vec<i64>, Vec<u32>) = (0..3).map(|s| (load(s), unsafe { native::heap_type(rt, load(s)) })).unzip();
+    // The list `d` held is garbage once it holds None, its slot free once collected.
+    let freed = load(3);
+    unsafe { native::handler(OpCode::StoreName).unwrap()(rt, 3, NONE, UNDEF, UNDEF, std::ptr::null_mut(), std::ptr::null_mut(), 0) };
+    native::collect(unsafe { &mut *rt }, &live);
+    assert_eq!(unsafe { native::heap_type(rt, freed) }, u32::MAX, "{WHY}");
+    native::collect(unsafe { &mut *rt }, &[live.clone(), vec![freed, freed + 0x7FF0]].concat());
+    let again: Vec<i64> = (0..3).map(load).collect();
+    assert_eq!(again, live, "{WHY}");
+    assert_eq!(again.iter().map(|&v| unsafe { native::heap_type(rt, v) }).collect::<Vec<_>>(), kinds, "{WHY}");
+    assert_eq!(unsafe { native::heap_type(rt, freed) }, u32::MAX, "{WHY}");
 }

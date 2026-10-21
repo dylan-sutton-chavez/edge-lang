@@ -317,22 +317,22 @@ pub fn handler(op: OpCode) -> Option<Handler> {
 /// `rt` comes from `edge_boot`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn heap_type(rt: *mut Rt, v: i64) -> u32 {
-    let (v, types) = (Val(v as u64), crate::parser::BUILTIN_TYPES);
-    let at = |n: &str| types.iter().position(|&t| t == n).map_or(u32::MAX, |i| i as u32);
+    let (v, types, other) = (Val(v as u64), crate::parser::BUILTIN_TYPES, crate::types::OTHER_KINDS);
+    let at = |n: &str| types.iter().position(|&t| t == n).or_else(|| other.iter().position(|&t| t == n).map(|k| types.len() + k)).map_or(u32::MAX, |i| i as u32);
     if v.is_int() { return at("int"); }
     if v.is_float() { return at("float"); }
     if v.is_bool() { return at("bool"); }
     if v.is_none() { return at("NoneType"); }
-    if !v.is_heap() { return u32::MAX; }
+    if !v.is_heap() && !v.is_foreign() { return u32::MAX; }
     let vm = unsafe { &*(*rt).vm };
-    let past = types.len() as u32;
     match vm.heap.try_get(v) {
-        None => u32::MAX,
-        Some(HeapObj::Instance(..)) => past,
-        Some(HeapObj::Func(..) | HeapObj::BoundMethod(..) | HeapObj::NativeFn(_) | HeapObj::BoundUserMethod(..) | HeapObj::Extern(_)) => past + 1,
-        Some(HeapObj::Iter(..) | HeapObj::DictView(..)) => past + 2,
-        Some(HeapObj::Coroutine(..)) => past + if vm.is_async_object(v) { 4 } else { 3 },
-        Some(_) => at(vm.type_name(v)),
+        None if v.is_heap() => u32::MAX,
+        Some(HeapObj::Instance(c, _)) if matches!(vm.heap.try_get(*c), Some(HeapObj::Class(..))) => at("instance"),
+        Some(HeapObj::Func(..) | HeapObj::BoundMethod(..) | HeapObj::NativeFn(_) | HeapObj::Extern(_) | HeapObj::BoundUserMethod(..)) => at("function"),
+        Some(HeapObj::Iter(..)) => at("iterator"),
+        Some(HeapObj::ExcInstance(name, ..)) => at(name),
+        // A plugin's own object, and anything else no table names, is an object.
+        _ => match at(vm.type_name(v)) { u32::MAX => at("object"), t => t },
     }
 }
 
@@ -486,6 +486,14 @@ const fn torture() -> bool { cfg!(feature = "gc-torture") }
 fn tortured(vm: &mut VM<'static>) {
     vm.collect();
     vm.heap.relocate();
+}
+
+/* A collection now with `live` as roots too, what `edge_safepoint` runs once the heap asks, for the tests. */
+pub fn collect(rt: &mut Rt, live: &[i64]) {
+    let roots = rt.vm.temp_roots.len();
+    rt.vm.temp_roots.extend(live.iter().map(|&v| Val(v as u64)));
+    rt.vm.collect();
+    rt.vm.temp_roots.truncate(roots);
 }
 
 /* `collect_point` for the glue's own loops, and under torture the move. */

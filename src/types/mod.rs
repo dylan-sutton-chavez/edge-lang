@@ -6,6 +6,7 @@
 pub use crate::parser::{BUILTIN_TYPES, CLASS_DUNDERS, builtin_type, class_dunder};
 pub use crate::vm::{ALL_METHODS, BuiltinMethodId, MethodDesc, MethodKind, lookup_method, exc_parents};
 pub use crate::value::NativeFnId;
+pub use crate::value::host::OTHER_KINDS;
 
 pub mod read;
 pub mod step;
