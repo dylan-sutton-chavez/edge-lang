@@ -34,10 +34,23 @@ MIRI_abi := abi::
 
 unix_only = $(if $(filter Windows_NT,$(OS)),$(error AFL runs on Linux and macOS only))
 
-.PHONY: wasm wasm-cli wasm-ship wasm-small wasm-cli-opt size js lint lint-rust lint-js lint-cli test bench bench-update bench-accept-slower bench-llvm llvm-check plugin cli cli-release stage serve browsers test-js test-cli test-skill test-std miri miri-list miri-setup fuzz fuzz-status fuzz-triage fuzz-replay fuzz-carry fuzz-container fuzz-stop seeds lucide version check
+.PHONY: bitcode wasm wasm-cli wasm-ship wasm-small wasm-cli-opt size js lint lint-rust lint-js lint-cli test bench bench-update bench-accept-slower bench-llvm llvm-check plugin cli cli-release stage serve browsers test-js test-cli test-skill test-std miri miri-list miri-setup fuzz fuzz-status fuzz-triage fuzz-replay fuzz-carry fuzz-container fuzz-stop seeds lucide version check
 
 wasm:
 	cargo rustc --locked --release $(RUNTIME)
+
+# The VM as one LLVM module per target, the program and its deps in one fat LTO unit, the bitcode `edge build` links
+# its glue with, its handlers that may collect named in `!edge.safepoints`. `make bitcode TORTURE=1` builds the copy
+# that collects and moves the heap at each safepoint, for the tests. llvm-as comes with `rustup component add llvm-tools`.
+BITCODE_TARGETS := x86_64-unknown-linux-musl aarch64-unknown-linux-musl aarch64-apple-darwin wasm32-wasip1
+LLVM_BIN = $(shell rustc --print sysroot)/lib/rustlib/$(shell rustc -vV | sed -n 's/host: //p')/bin
+bitcode: $(BITCODE_TARGETS:%=bitcode-%)
+bitcode-%:
+	mkdir -p target/bitcode/$*$(if $(TORTURE),-torture)
+	cargo rustc --locked --profile cli -p edge-native --target $* $(if $(TORTURE),--features gc-torture) -- -C embed-bitcode=yes --emit=llvm-ir=target/bitcode/$*$(if $(TORTURE),-torture)/vm.ll
+	rustc --edition 2024 -O native/safepoints.rs -o target/bitcode/safepoints
+	target/bitcode/safepoints target/bitcode/$*$(if $(TORTURE),-torture)/vm.ll
+	$(LLVM_BIN)/llvm-as target/bitcode/$*$(if $(TORTURE),-torture)/vm.ll -o target/bitcode/$*$(if $(TORTURE),-torture)/vm.bc
 
 wasm-cli:
 	cargo rustc --locked --profile cli $(RUNTIME)

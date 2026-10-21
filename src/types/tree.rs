@@ -1,6 +1,5 @@
-/* The tree of a program's paths: every state each instruction can see, two paths joined only when their types are the
-   same and their integers then hulled, loops and recursion run until nothing grows, a context of its own for each
-   function and the argument types it is called with. The reviewer (check.rs) decides whether to trust it. */
+/* The tree of a program's paths: every state each instruction can see, two paths joined only when their types are the same
+   (their integers then hulled), loops and recursion run until nothing grows, a context for each body and argument types. */
 
 use alloc::{vec, vec::Vec};
 use crate::util::hash::FxHashMap as Map;
@@ -45,9 +44,8 @@ impl Tree {
     }
 
     fn open(&mut self, p: &Prog, body: u32, args: Vec<Ty>, work: &mut Vec<(usize, usize, State)>) {
-        let n = p.bodies[body as usize].chunk.instructions.len() + 1;
         work.push((self.ctxs.len(), 0, entry(p, body, &args)));
-        self.ctxs.push(Ctx { body, args, seen: vec![Vec::new(); n], ret: Ty::NONE, raises: Ty::NONE, gave_up: false });
+        self.ctxs.push(Ctx { body, args, seen: vec![Vec::new(); p.bodies[body as usize].chunk.instructions.len() + 1], ret: Ty::NONE, raises: Ty::NONE, gave_up: false });
     }
 }
 
@@ -59,10 +57,7 @@ pub fn grow(p: &Prog) -> Tree {
     loop {
         let mut changed = false;
         if work.is_empty() {
-            for (x, c) in t.ctxs.iter_mut().enumerate() {
-                c.seen.iter_mut().for_each(Vec::clear);
-                if !c.gave_up { work.push((x, 0, entry(p, c.body, &c.args))); }
-            }
+            for (x, c) in t.ctxs.iter_mut().enumerate() { c.seen.iter_mut().for_each(Vec::clear); if !c.gave_up { work.push((x, 0, entry(p, c.body, &c.args))); } }
         }
         while let Some((x, ip, s)) = work.pop() {
             if t.ctxs[x].gave_up { continue; }
@@ -70,12 +65,7 @@ pub fn grow(p: &Prog) -> Tree {
             let mut st = Step::new(p, &t, x);
             st.step(ip, &s);
             let (outs, eff) = (st.outs, st.eff);
-            if eff.gave_up {
-                let c = &mut t.ctxs[x];
-                (c.gave_up, c.ret, c.raises, t.wild) = (true, Ty::ANY, Ty::ANY, true);
-                changed = true;
-                continue;
-            }
+            if eff.gave_up { let c = &mut t.ctxs[x]; (c.gave_up, c.ret, c.raises, t.wild, changed) = (true, Ty::ANY, Ty::ANY, true, true); continue; }
             if eff.wild && !t.wild { t.wild = true; changed = true; }
             for (o, f, v) in eff.writes {
                 // An entry made empty still says something: a container built with no items holds none.

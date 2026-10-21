@@ -890,6 +890,16 @@ pub trait Host {
 }
 
 // Type name and truth read off the heap alone.
+
+/* The kinds of value no builtin type names, coded past the end of `BUILTIN_TYPES` in this order by the names
+   `type_name_by` gives them, the first five standing for a family: any instance of a class of the program, any function
+   or method, any builtin iterator, and each kind of suspended body. */
+pub const OTHER_KINDS: &[&str] = &[
+    "instance", "function", "iterator", "generator", "coroutine", "async_generator", "module", "property", "staticmethod",
+    "classmethod", "super", "cell", "code", "ellipsis", "NotImplementedType", "GenericAlias", "TypeAliasType", "Union",
+    "TypeVar", "ParamSpec", "TypeVarTuple", "dict_keys", "dict_values", "dict_items",
+];
+
 impl HeapPool {
     pub fn truthy(&self, v: Val) -> bool {
         if v.is_none() || v.is_false() { return false; }
