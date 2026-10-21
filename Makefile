@@ -55,6 +55,8 @@ inline: $(BITCODE_TARGETS:%=inline-%)
 bitcode-%: B = target/bitcode/$*$(if $(TORTURE),-torture)$(if $(COUNT),-count)
 bitcode-%:
 	mkdir -p $(B)
+	# Cargo skips a crate it holds fresh, which would write no vm.ll, so its library goes first.
+	rm -f target/$*/cli/libedge_native.a target/$*/cli/deps/libedge_native-*.a
 	cargo rustc --locked --profile cli -p edge-native --target $* $(if $(TORTURE),--features gc-torture) -- -C panic=abort -C embed-bitcode=yes --emit=llvm-ir=$(B)/vm.ll
 	rustc --edition 2024 -O native/bitcode.rs -o target/bitcode/bitcode
 	target/bitcode/bitcode safepoints $(B)/vm.ll
