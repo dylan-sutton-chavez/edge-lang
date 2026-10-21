@@ -128,11 +128,13 @@ bench-update: wasm-cli
 bench-accept-slower: wasm-cli
 	cargo run --locked -p bench --profile cli -- --update --accept-slower
 
-# The native build against the same programs in Rust, on the CLI built here.
-bench-llvm: cli
+# The native build against the same programs in Rust, and its parity with the VM, on the CLI built here and the test
+# VMs `make inline` left, counting or collecting at every safepoint.
+bench-llvm llvm-check: export EDGE_BITCODE_DIR = $(CURDIR)/target/bitcode
+bench-llvm: native
 	cargo run --locked -p bench --profile cli -- llvm $(if $(UPDATE),--update)
 
-llvm-check: $(CLI_INPUTS)
+llvm-check: native
 	cd cli && cargo test --locked --release --test llvm_check
 
 plugin:
