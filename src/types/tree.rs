@@ -4,7 +4,7 @@
 
 use alloc::{vec, vec::Vec};
 use crate::util::hash::FxHashMap as Map;
-use super::check::{Prog, Step, To, entry};
+use super::step::{Prog, Step, To, entry};
 use super::*;
 
 /* One body run with one tuple of argument types, every state the tree found at each of its instructions. */
@@ -18,7 +18,7 @@ pub struct Tree { pub ctxs: Vec<Ctx>, pub tables: Map<(u32, u32), Ty>, pub wild:
 /* `old` joined with `new`, with a bound that grew opened when `widen`, so a loop's integers stop growing. */
 fn hull(old: &Ty, new: &Ty, widen: bool) -> Ty {
     let j = old.join(new);
-    if !widen || old.tags.is_empty() { return j; }
+    if !widen || old.tags == 0 { return j; }
     Ty { lo: if j.lo < old.lo { i64::MIN } else { j.lo }, hi: if j.hi > old.hi { i64::MAX } else { j.hi }, ..j }
 }
 
@@ -40,7 +40,6 @@ impl Tree {
         if s.within(old) { return None; }
         old.slots = hull_all(&old.slots, &s.slots, widen);
         old.iters = hull_all(&old.iters, &s.iters, widen);
-        old.withs = hull_all(&old.withs, &s.withs, widen);
         for (o, n) in old.stack.iter_mut().zip(&s.stack) { o.ty = hull(&o.ty, &n.ty, widen); }
         Some(old.clone())
     }
