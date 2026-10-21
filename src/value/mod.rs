@@ -749,6 +749,8 @@ struct HeapSlot {
 
 impl HeapSlot {
     fn new(obj: Option<HeapObj>) -> Self { Self { obj, marked: false, ascii: 0, interned: false, classed: false } }
+    #[cfg(feature = "native")]
+    fn flags(&self) -> &Self { self }
 }
 
 /* The user class of a dict or list made by a class deriving from it, and the attributes it got. */
@@ -968,8 +970,10 @@ impl HeapPool {
     /* Reserved for constructing the exception that reports the limit itself, skips the soft limit but not the hard slot cap. */
     pub fn alloc_emergency(&mut self, obj: HeapObj) -> Result<Val, VmErr> { self.admit(obj, false) }
 
-    /* An interned twin, or a fresh slot within the hard cap and, when `soft`, twice the memory limit. */
-    #[inline(always)]
+    /* An interned twin, or a fresh slot within the hard cap and, when `soft`, twice the memory limit. Every object is
+       made here, so a native build keeps it as `edge_alloc`, the call its IR checks count. */
+    #[cfg_attr(not(feature = "native"), inline(always))]
+    #[cfg_attr(feature = "native", inline(never), unsafe(export_name = "edge_alloc"))]
     fn admit(&mut self, obj: HeapObj, soft: bool) -> Result<Val, VmErr> {
         if let Some(idx) = self.intern_lookup(&obj) { return Ok(Val::heap(idx)); }
         if soft && self.meter.held() > self.limit.saturating_mul(2) { return Err(cold_heap()); }
@@ -1036,6 +1040,31 @@ impl HeapPool {
             self.mark_foreign(f, &mut kept);
             for c in kept { if c.is_heap() { self.mark_worklist.push(c.as_heap()); } else if c.is_foreign() { foreign.push(c); } }
         }
+    }
+
+    /* Moves every object's storage, for the torture mode of native code: the slot table and each payload made again, the
+       old poisoned and never freed, so a pointer kept across a safepoint reads poison. A Val stays, it is the identity. */
+    #[cfg(feature = "native")]
+    pub(crate) fn relocate(&mut self) {
+        let moved: Vec<HeapSlot> = self.slots.iter().map(|s| HeapSlot { obj: s.obj.clone(), ..*s.flags() }).collect();
+        // A container an Rc shares with its iterators keeps its cell, its items moved to a new buffer.
+        for o in moved.iter().filter_map(|s| s.obj.as_ref()) {
+            match o {
+                HeapObj::List(l) => { let items = l.borrow().clone(); poison(&mut core::mem::replace(&mut *l.borrow_mut(), items)); }
+                HeapObj::Dict(d) | HeapObj::FrozenDict(d) | HeapObj::Instance(_, d) => { let m = d.borrow().clone(); core::mem::forget(core::mem::replace(&mut *d.borrow_mut(), m)); }
+                _ => {}
+            }
+        }
+        let mut old = core::mem::ManuallyDrop::new(core::mem::replace(&mut self.slots, moved));
+        for o in old.iter_mut().filter_map(|s| s.obj.as_mut()) {
+            match o {
+                HeapObj::Tuple(v) => poison(v),
+                // SAFETY the string is never read or freed again.
+                HeapObj::Str(t) => unsafe { t.as_bytes_mut().fill(0xFF) },
+                _ => {}
+            }
+        }
+        fn poison(v: &mut Vec<Val>) { v.fill(Val::undef()); core::mem::forget(core::mem::take(v)); }
     }
 
     pub fn sweep(&mut self) {

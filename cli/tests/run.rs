@@ -122,8 +122,8 @@ fn a_packed_package_imports_from_inside_itself() {
     std::fs::write(lib.join("main.py"), "from .src.hello import hello\n").unwrap();
     std::fs::write(lib.join("src/hello.py"), "from _words import WORD\n\ndef hello(name):\n    return WORD + \" \" + name\n").unwrap();
     std::fs::write(lib.join("src/words.py"), "WORD = \"hello\"\n").unwrap();
-    let (_, err, code) = run_in(&lib, &["build"], None);
-    assert_eq!(code, 0, "build failed: {err}");
+    let (_, err, code) = run_in(&lib, &["publish", "--out", "app.edge"], None);
+    assert_eq!(code, 0, "publish failed: {err}");
 
     let app = scratch("package-app");
     std::fs::copy(lib.join("app.edge"), app.join("greet.edge")).unwrap();
@@ -211,8 +211,8 @@ fn the_binary_reports_the_version_it_was_built_from() {
 fn a_declared_version_is_locked_once_and_then_runs() {
     let lib = scratch("lockdep");
     std::fs::write(lib.join("main.py"), "def shout(word):\n    return word.upper()\n").unwrap();
-    let (_, err, code) = run_in(&lib, &["build", "--out", "dep.edge"], None);
-    assert_eq!(code, 0, "build failed: {err}");
+    let (_, err, code) = run_in(&lib, &["publish", "--out", "dep.edge"], None);
+    assert_eq!(code, 0, "publish failed: {err}");
     let port = spawn_registry(std::fs::read(lib.join("dep.edge")).unwrap(), "0.1.0");
     let site = format!("http://127.0.0.1:{port}");
     let env = [("EDGE_SITE_BASE", site.as_str()), ("EDGE_CDN_BASE", site.as_str())];
@@ -247,8 +247,8 @@ fn a_declared_version_is_locked_once_and_then_runs() {
 fn add_keeps_the_version_it_was_given() {
     let lib = scratch("pindep");
     std::fs::write(lib.join("main.py"), "def shout(word):\n    return word.upper()\n").unwrap();
-    let (_, err, code) = run_in(&lib, &["build", "--out", "dep.edge"], None);
-    assert_eq!(code, 0, "build failed: {err}");
+    let (_, err, code) = run_in(&lib, &["publish", "--out", "dep.edge"], None);
+    assert_eq!(code, 0, "publish failed: {err}");
     let port = spawn_registry(std::fs::read(lib.join("dep.edge")).unwrap(), "0.1.0");
     let site = format!("http://127.0.0.1:{port}");
     let env = [("EDGE_SITE_BASE", site.as_str()), ("EDGE_CDN_BASE", site.as_str())];
@@ -271,8 +271,8 @@ fn a_package_asks_and_lock_waits_for_the_grant() {
     let lib = scratch("askdep");
     std::fs::write(lib.join("edge.json"), "{ \"name\": \"greet\", \"version\": \"0.1.0\", \"permissions\": { \"main\": [\"net:api.example.com\"] } }\n").unwrap();
     std::fs::write(lib.join("main.py"), "def shout(word):\n    return word.upper()\n").unwrap();
-    let (_, err, code) = run_in(&lib, &["build", "--out", "dep.edge"], None);
-    assert_eq!(code, 0, "build failed: {err}");
+    let (_, err, code) = run_in(&lib, &["publish", "--out", "dep.edge"], None);
+    assert_eq!(code, 0, "publish failed: {err}");
     let port = spawn_registry(std::fs::read(lib.join("dep.edge")).unwrap(), "0.1.0");
     let site = format!("http://127.0.0.1:{port}");
     let env = [("EDGE_SITE_BASE", site.as_str()), ("EDGE_CDN_BASE", site.as_str())];
@@ -527,50 +527,21 @@ fn quoted_imports_are_not_found() {
     assert_eq!(code, 1);
 }
 
-/* edge build --app packs a project into a binary that runs on its own, imports and all. */
-#[test]
-fn standalone_binary_runs_the_packed_project() {
-    let dir = scratch("standalone");
-    std::fs::create_dir_all(dir.join("lib")).unwrap();
-    std::fs::write(dir.join("lib/util.py"), "def greet():\n    return \"packed\"\n").unwrap();
-    std::fs::write(dir.join("edge.json"), "{ \"imports\": { \"util\": \"./lib/util.py\" } }\n").unwrap();
-    std::fs::write(dir.join("main.py"), "import util\nprint(util.greet())\n").unwrap();
-
-    let (_, err, code) = run_in(&dir, &["build", "--app", "--out", "app"], None);
-    assert_eq!(code, 0, "build stderr was: {err}");
-
-    let app = dir.join("app");
-    let out = Command::new(&app).current_dir(&dir).stdin(Stdio::null()).output().unwrap();
-    assert_eq!(String::from_utf8_lossy(&out.stdout), "packed\n");
-    assert_eq!(out.status.code().unwrap_or(-1), 0);
-}
-
-/* edge run accepts a packed .edge, the artifact edge build writes by default. */
+/* edge run accepts a packed .edge, the artifact edge publish sends. */
 #[test]
 fn run_accepts_a_packed_edge() {
     let dir = scratch("run-edge");
     std::fs::write(dir.join("main.py"), "print(\"ran the bundle\")\n").unwrap();
-    let (_, err, code) = run_in(&dir, &["build", "--out", "app.edge"], None);
-    assert_eq!(code, 0, "build stderr was: {err}");
+    let (_, err, code) = run_in(&dir, &["publish", "--out", "app.edge"], None);
+    assert_eq!(code, 0, "publish stderr was: {err}");
     let (out, err, code) = run_in(&dir, &["run", "app.edge"], None);
     assert_eq!(out, "ran the bundle\n", "stderr was: {err}");
     assert_eq!(code, 0);
 }
 
-/* edge build writes a portable .edge carrying the project tree. */
-#[test]
-fn build_writes_an_edge_bundle() {
-    let dir = scratch("bundle");
-    std::fs::write(dir.join("main.py"), "print(\"hi\")\n").unwrap();
-    let (_, err, code) = run_in(&dir, &["build", "--out", "app.edge"], None);
-    assert_eq!(code, 0, "build stderr was: {err}");
-    let bytes = std::fs::read(dir.join("app.edge")).unwrap();
-    assert!(bytes.starts_with(b"EDGEPKG\x01"), "missing bundle magic");
-}
-
 fn web_build(dir: &Path) -> (String, String, i32) {
     common::cdn_base().unwrap_or_else(|e| panic!("{e}"));
-    run_in(dir, &["build", "--web"], None)
+    run_in(dir, &["web"], None)
 }
 
 /* A second web build must not collect the previous dist/ into dist/dist/. */

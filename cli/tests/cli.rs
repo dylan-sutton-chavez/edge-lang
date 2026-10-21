@@ -99,7 +99,8 @@ fn check(bin: &str, c: &Case, args: &[String], cache: &std::path::Path) -> Resul
     }
     if let Some(s) = &c.then {
         let want = Expect { stdout: &s.stdout, stderr: &s.stderr, fails: s.fails.as_deref() };
-        run(&s.bin, &s.run, &s.env, dir.path(), cache, "", want).map_err(|e| format!("[then {}] {e}", s.bin))?;
+        // `edge` names the binary under test, any other bin is a path in the case's dir.
+        run(if s.bin == "edge" { bin } else { &s.bin }, &s.run, &s.env, dir.path(), cache, "", want).map_err(|e| format!("[then {}] {e}", s.bin))?;
     }
     Ok(())
 }
