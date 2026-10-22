@@ -43,3 +43,16 @@ fn gc_keeps_values_in_place() {
     assert_eq!(again.iter().map(|&v| unsafe { native::heap_type(rt, v) }).collect::<Vec<_>>(), kinds, "{WHY}");
     assert_eq!(unsafe { native::heap_type(rt, freed) }, u32::MAX, "{WHY}");
 }
+
+/* The glue numbers functions with `code::Program`, the binary with the VM it boots: both `VM::new` over the same chunk. */
+#[test]
+fn glue_and_binary_number_functions_alike() {
+    let src = "def f():\n    def g():\n        return 1\n    return g()\nclass C:\n    def m(self):\n        return [x for x in range(2)]\nprint(f(), C().m())\n";
+    let chunk = compiler::code::compile_with(src, || None, || Box::new(compiler::modules::NoopResolver)).unwrap();
+    let (program, rt) = (compiler::code::Program::new(&chunk), unsafe { native::boot(src.as_ptr(), src.len(), None, 1 << 26, true) });
+    let mut work = vec![&*chunk];
+    while let Some(c) = work.pop() {
+        work.extend(c.functions.iter().map(|f| &f.1).chain(&c.classes));
+        if let Some((fi, _)) = program.scope_of(c) { assert_eq!(native::chunk(unsafe { &*rt }, fi + 1).qualname, c.qualname, "function {fi}"); }
+    }
+}

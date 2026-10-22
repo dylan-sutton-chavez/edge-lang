@@ -180,6 +180,14 @@ impl Instance {
         Ok(None)
     }
 
+    /* Every answer the imports of `src` get, prefetched as a run does, for a native build to carry, or what stops the run. */
+    pub fn resolutions(&mut self, src: &str) -> Result<Result<Vec<u8>, String>> {
+        if let Some(Status::Error(e)) = self.prepare(src, None)? { return Ok(Err(e)); }
+        let raw = self.with_bytes(src.as_bytes(), |store, ex, ptr, len| ex.resolve_table.call(store, (ptr, len)))?;
+        self.checked(raw)?;
+        Ok(Ok(self.read_out()))
+    }
+
     fn status(&mut self, raw: wasmtime::Result<i32>) -> Result<Status> {
         let status = match raw {
             Ok(raw) => raw as u32,
@@ -343,6 +351,8 @@ impl Vm {
     }
 
     /* Resolves imports and starts a fresh run, a resolution failure reads like a compile error. */
+    pub fn resolutions(&mut self, src: &str) -> Result<Result<Vec<u8>, String>> { self.enter()?.resolutions(src) }
+
     pub fn start(&mut self, src: &str, input: Option<&str>) -> Result<Status> {
         let status = {
             let mut inst = self.enter()?;

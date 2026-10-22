@@ -1,4 +1,4 @@
-use compiler::code::{effect, Binding, BodyKind, OpCode as O, ParamKind, Program, SSAChunk, Value, JUMP, RETURN};
+use compiler::code::{effect, Binding, BodyKind, ImportKind, OpCode as O, ParamKind, Program, SSAChunk, Value, JUMP, RETURN};
 use compiler::types::{Known, State, Tags, Typed, UNBOUND};
 use compiler::value::Val;
 use std::fmt::Write;
@@ -14,15 +14,20 @@ impl Body<'_> {
 
 /* The program as LLVM text: one function per Python function calling the VM's handler of each opcode in order with
    its operands constant, names and stack in allocas mem2reg lifts, and the entry that boots the VM on the source. */
-pub fn module(src: &str, path: &str, chunk: &SSAChunk, typed: Option<&Typed>, collect: &[&str], target: &str) -> String {
+pub fn module(src: &str, path: &str, table: &[u8], chunk: &SSAChunk, typed: Option<&Typed>, collect: &[&str], target: &str) -> String {
     let mut program = Program::new(chunk);
-    let (mut bodies, mut work) = (Vec::new(), vec![chunk]);
+    let (mut bodies, mut work, mut seen) = (Vec::new(), vec![chunk], Vec::new());
     while let Some(c) = work.pop() {
-        work.extend(c.functions.iter().map(|f| &f.1).chain(c.classes.iter().flat_map(|k| k.functions.iter().map(|f| &f.1))));
+        // A module two files import is one module, walked once.
+        if seen.contains(&(c as *const SSAChunk)) { continue; }
+        seen.push(c as *const SSAChunk);
+        let imported = c.imports.iter().filter_map(|e| match &e.kind { ImportKind::Code(m) => Some(&**m), _ => None });
+        work.extend(c.functions.iter().map(|f| &f.1).chain(c.classes.iter().flat_map(|k| k.functions.iter().map(|f| &f.1))).chain(imported));
         let Some((kind, binds)) = program.bindings_of(c).map(|(k, b)| (k, b.to_vec())) else { continue };
         // Class bodies run on the VM, a class's methods are functions like any other, a generator is laid where it is consumed.
         let (at, params) = match kind {
-            BodyKind::Module => (0, Vec::new()),
+            // An imported module's body runs once on the VM as it is imported, its functions are native like the entry's.
+            BodyKind::Module if core::ptr::eq(c, chunk) => (0, Vec::new()),
             BodyKind::Function(fi) => (fi + 1, program.params_of(fi).iter().map(|&(k, s)| if k == ParamKind::Normal { s } else { usize::MAX }).collect()),
             _ => continue,
         };
@@ -37,13 +42,13 @@ pub fn module(src: &str, path: &str, chunk: &SSAChunk, typed: Option<&Typed>, co
     ops.sort();
     ops.dedup();
     for o in ops { let _ = writeln!(ir, "declare i64 @op_{o}(ptr, i64, i64, i64, i64, ptr, ptr, i32)"); }
-    let bytes = |s: &str| s.bytes().map(|c| format!("\\{c:02X}")).collect::<String>();
-    let (text, named) = (bytes(src), bytes(path));
+    let bytes = |s: &[u8]| s.iter().map(|c| format!("\\{c:02X}")).collect::<String>();
+    let (text, named, answers) = (bytes(src.as_bytes()), bytes(path.as_bytes()), bytes(table));
     let args = if target.starts_with("wasm32") { ("", "i32 0, ptr null") } else { ("i32 %argc, ptr %argv", "i32 %argc, ptr %argv") };
     let _ = write!(ir, r#"declare i1 @is_err(i64)
 declare i32 @err_id(i64)
 declare void @llvm.assume(i1)
-declare ptr @edge_boot(ptr, i64, ptr, i64, i32, ptr)
+declare ptr @edge_boot(ptr, i64, ptr, i64, ptr, i64, i32, ptr)
 declare i32 @edge_finish(ptr, i64)
 declare i64 @edge_returned(ptr)
 declare i64 @edge_enter(ptr, i32, i64, ptr, i32)
@@ -62,9 +67,10 @@ declare i1 @is_heap(i64)
 declare i1 @is_undef(i64)
 @edge.src = private constant [{} x i8] c"{text}"
 @edge.path = private constant [{} x i8] c"{named}"
+@edge.table = private constant [{} x i8] c"{answers}"
 attributes #0 = {{ alwaysinline }}
 define i32 @{}({}) {{
-  %rt = call ptr @edge_boot(ptr @edge.src, i64 {}, ptr @edge.path, i64 {}, {})
+  %rt = call ptr @edge_boot(ptr @edge.src, i64 {}, ptr @edge.path, i64 {}, ptr @edge.table, i64 {}, {})
   %bad = icmp eq ptr %rt, null
   br i1 %bad, label %out, label %go
 out:
@@ -74,7 +80,7 @@ go:
   %code = call i32 @edge_finish(ptr %rt, i64 %r)
   ret i32 %code
 }}
-"#, src.len(), path.len(), super::entry(target), args.0, src.len(), path.len(), args.1);
+"#, src.len(), path.len(), table.len(), super::entry(target), args.0, src.len(), path.len(), table.len(), args.1);
     ir
 }
 

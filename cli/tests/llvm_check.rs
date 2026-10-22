@@ -76,14 +76,19 @@ fn texts<'a>(case: &'a serde_json::Value, field: &str) -> Vec<&'a str> { case[fi
 #[test]
 fn corpus() {
     let read = |name: &str| serde_json::from_str::<Vec<serde_json::Value>>(&std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/cases").join(name)).unwrap()).unwrap();
-    // Plus the programs of tests/native, shapes of the glue a fix needed; LLVM_CHECK_CASES runs a file of cases instead of the corpus.
-    let own = || std::fs::read_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/native")).unwrap().flatten().map(|f| serde_json::json!({"src": std::fs::read_to_string(f.path()).unwrap()})).collect();
+    // Plus the programs of tests/native, shapes of the glue a fix needed, a directory a project whose main.py runs; LLVM_CHECK_CASES runs a file of cases instead of the corpus.
+    let text = |f: &Path| serde_json::Value::from(std::fs::read_to_string(f).unwrap());
+    let own = || std::fs::read_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/native")).unwrap().flatten().map(|f| match std::fs::read_dir(f.path()) {
+        Ok(dir) => { let files: serde_json::Map<_, _> = dir.flatten().map(|e| (e.file_name().to_string_lossy().into_owned(), text(&e.path()))).collect(); serde_json::json!({"src": files["main.py"], "files": files}) }
+        Err(_) => serde_json::json!({"src": text(&f.path())}),
+    }).collect();
     let cases = std::env::var("LLVM_CHECK_CASES").map_or_else(|_| [read("vm.json"), read("snapshot.json"), own()].concat(), |f| [read(&f), own()].concat());
-    // Two documented v1 limits: a native program has no ops budget, so a case ending on the VM's runs forever, and it is one file, so an import is refused.
-    let (left, cases): (Vec<_>, Vec<_>) = cases.iter().partition(|c| c["error"] == "budget exceeded" || !compiler::modules::scan_imports(c["src"].as_str().unwrap()).is_empty());
-    eprintln!("{} cases left out, on the VM's budget or importing: {:?}", left.len(), left.iter().map(|c| &c["src"]).collect::<Vec<_>>());
+    // A documented v1 limit: a native program has no ops budget, so a case ending on the VM's runs forever.
+    let (left, cases): (Vec<_>, Vec<_>) = cases.iter().partition(|c| c["error"] == "budget exceeded");
+    eprintln!("{} cases left out, on the VM's budget: {:?}", left.len(), left.iter().map(|c| &c["src"]).collect::<Vec<_>>());
     let failures: Vec<String> = cases.par_iter().filter_map(|case| {
         let dir = tempfile::tempdir().unwrap();
+        for (path, text) in case["files"].as_object().into_iter().flatten() { std::fs::write(dir.path().join(path), text.as_str().unwrap()).unwrap(); }
         let events = [texts(case, "events"), texts(case, "interactive_events")].concat();
         let [vm, native, torture] = three(dir.path(), case["src"].as_str().unwrap(), &texts(case, "input").join("\n"), &events, &[]);
         // Each one printed as found too, so a run cut short still names what it found.

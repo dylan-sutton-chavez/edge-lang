@@ -9,6 +9,7 @@ pub mod json;
 pub mod lock;
 pub mod manifest;
 pub mod rules;
+pub mod table;
 pub mod walk;
 pub use manifest::{Manifest, parse_manifest, parent_dir, walk_up_dirs, dir_of, entry_dir, join_relative, system_spec};
 

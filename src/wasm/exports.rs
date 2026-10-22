@@ -8,6 +8,7 @@ use crate::s;
 
 use super::{ModuleEntry, PausedRun, CHUNK_CACHE, send_host, stream_print, with_runtime, with_slot, write_out, write_out_bytes};
 use super::resolver::WasmHostResolver;
+use crate::modules::table::Table;
 use crate::bridge::{self, BridgeState, VmGuard, safe_bytes, safe_str_owned};
 
 /* Packed `u32` from `run_start` / `run_resume`, top 3 bits = kind, low 29 = out-buffer length. */
@@ -355,6 +356,21 @@ pub unsafe extern "C" fn repl_eval(ptr: *const u8, len: u32) -> u32 {
 }
 
 /* The SyntaxWarnings of `src` as Python prints them, left in the out buffer for a host to show before `run_start`, which reuses the parse. */
+/* Every answer the imports of `src` get as `run_start` resolves them, the table a native build carries, left in the out
+   buffer. A failed parse still answers what it reached, the build reports the program's errors itself. */
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn resolve_table(ptr: *const u8, len: u32) -> u32 {
+    let Ok(src) = source_arg(ptr, len) else { return 0 };
+    let dir = with_slot(|s| s.entry_dir.clone());
+    let table = Table::recording(&dir, Box::new(WasmHostResolver { dir: dir.clone(), late: false }));
+    let bundle = table.bundle.clone();
+    let mut parser = crate::parser::Parser::with_resolver(&src, crate::lexer::lex(&src).0.into_iter(), Box::new(table));
+    let _ = parser.parse_in_place();
+    // Kept, not dropped, so this one-off parse shares no code with the run path's.
+    core::mem::forget(parser);
+    write_out_bytes(bundle.borrow().encode()) as u32
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn compile_warnings(ptr: *const u8, len: u32) -> u32 {
     let Ok(src) = source_arg(ptr, len) else { return 0 };
