@@ -655,6 +655,7 @@ const fn torture() -> bool { cfg!(feature = "gc-torture") }
    swept and a pointer it kept reads poison. */
 #[cold]
 fn tortured(vm: &mut VM<'static>) {
+    if !vm.heap.torture_due() { return; }
     vm.collect();
     vm.heap.relocate();
 }
@@ -669,7 +670,8 @@ pub fn collect(rt: &mut Rt, live: &mut [i64]) { unsafe { rooted(rt, live.as_mut_
 #[cold]
 pub unsafe extern "C" fn edge_safepoint(rt: *mut Rt, live: *mut i64, nlive: u32) -> i64 {
     let rt = unsafe { &mut *rt };
-    if !rt.vm.heap.needs_gc() && !torture() { return ok(Val::none()); }
-    let r = unsafe { rooted(rt, live, nlive, |rt| { let r = rt.vm.collect_point(); if torture() { rt.vm.heap.relocate(); } r }) };
+    let moves = torture() && rt.vm.heap.torture_due();
+    if !rt.vm.heap.needs_gc() && !moves { return ok(Val::none()); }
+    let r = unsafe { rooted(rt, live, nlive, |rt| { let r = rt.vm.collect_point(); if moves { rt.vm.heap.relocate(); } r }) };
     match r { Ok(()) => ok(Val::none()), Err(e) => raised(&mut rt.vm, e) }
 }
