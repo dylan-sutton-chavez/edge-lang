@@ -2098,6 +2098,8 @@ impl<'p> Lower<'_, 'p> {
                         self.back.pop();
                         for a in self.at[..=i].iter_mut().rev().take_while(|a| **a == at) { *a = at - 1; }
                     }
+                    // The call stands where its arguments' instruction does, the column the plain loop reports.
+                    self.cur = i as u32 + 1;
                     self.head(call, rest, t, section, true, &below);
                     if let Some(g) = global { let h = self.out.len() - HEADER as usize; self.out[h + 3].c = g + 1; }
                     self.pending.push(Entry::reg(t));
@@ -2111,6 +2113,7 @@ impl<'p> Lower<'_, 'p> {
                 let rest = Ins { op: OpCode::ArgsR, x: 0, a: r(2), b: r(3), c: r(4) };
                 self.pending.clear();
                 self.settle();
+                self.cur = i as u32 + 1;
                 self.emit(call);
                 if wide(call) { self.emit(rest); }
                 self.take_at(join, 2);
