@@ -16,15 +16,10 @@ impl Table {
     pub fn recording(dir: &str, inner: Box<dyn Resolver>) -> Table {
         Table { bundle: Rc::new(RefCell::new(Bundle { entry: "d".into(), files: vec![Entry { path: "d".into(), bytes: dir.into() }] })), dir: dir.into(), inner: Some(inner) }
     }
-    pub fn new(bytes: &[u8]) -> Result<Table, String> {
-        let mut table = Table { bundle: Rc::new(RefCell::new(Bundle::decode(bytes)?)), dir: String::new(), inner: None };
-        table.dir = table.get("d").unwrap_or_default();
-        Ok(table)
-    }
+    pub fn new(bytes: &[u8]) -> Result<Table, String> { let t = Table { bundle: Rc::new(RefCell::new(Bundle::decode(bytes)?)), dir: String::new(), inner: None }; Ok(t.at(&t.get("d").unwrap_or_default())) }
     /* The same answers from module dir `dir`, for code that eval or exec compiles there. */
     pub fn at(&self, dir: &str) -> Table { Table { bundle: self.bundle.clone(), dir: dir.into(), inner: None } }
     fn get(&self, path: &str) -> Option<String> { self.bundle.borrow().files.iter().find(|f| f.path == path).map(|f| String::from_utf8_lossy(&f.bytes).into_owned()) }
-    fn put(&self, path: String, text: &str) { self.bundle.borrow_mut().files.push(Entry { path, bytes: text.into() }); }
 }
 
 impl Resolver for Table {
@@ -33,14 +28,16 @@ impl Resolver for Table {
         let Some(inner) = self.inner.as_mut() else {
             let answer = self.get(&at).ok_or_else(|| s!("module '", str spec, "' was not imported when the program was built"))?;
             if let Some(why) = answer.strip_prefix('!') { return Err(why.into()); }
-            return Ok(Resolved::Code { src: self.get(&key("m", &answer)).unwrap_or_default(), canonical: answer });
+            let src = self.get(&key("m", &answer)).ok_or_else(|| s!("module '", str spec, "' was built without its source"))?;
+            return Ok(Resolved::Code { src, canonical: answer });
         };
         let got = inner.resolve(spec);
-        match &got {
-            Ok(Resolved::Code { src, canonical }) => { self.put(key("m", canonical), src); self.put(at, canonical) }
-            Ok(Resolved::Native { .. }) => self.put(at, &s!("!edge build runs Python modules only; '", str spec, "' is a plugin")),
-            Err(e) => self.put(at, &s!("!", str e)),
-        }
+        let answer = match &got {
+            Ok(Resolved::Code { src, canonical }) => { self.bundle.borrow_mut().files.push(Entry { path: key("m", canonical), bytes: src.clone().into_bytes() }); canonical.clone() }
+            Ok(Resolved::Native { .. }) => s!("!edge build runs Python modules only; '", str spec, "' is a plugin"),
+            Err(e) => s!("!", str e),
+        };
+        self.bundle.borrow_mut().files.push(Entry { path: at, bytes: answer.into_bytes() });
         got
     }
     fn child(&self, spec: &str) -> Box<dyn Resolver> { Box::new(Table { bundle: self.bundle.clone(), dir: dir_of(spec), inner: self.inner.as_ref().map(|i| i.child(spec)) }) }
