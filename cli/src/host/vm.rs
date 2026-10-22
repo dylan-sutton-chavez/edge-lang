@@ -54,7 +54,7 @@ impl Host {
             running: Vec::new(),
             waiting: HashMap::new(),
             outbox: None,
-            limiter: MemoryCap { max: memory },
+            limiter: MemoryCap { max: memory, refused: false },
             slot: 0,
             events: None,
             run: super::system::run_id(),
@@ -193,7 +193,8 @@ impl Instance {
             Ok(raw) => raw as u32,
             Err(e) => {
                 self.poisoned = true;
-                return Ok(Status::Error(trap_text(&e)));
+                // A container that outgrew linear memory trapped where it grew, past where the VM raises MemoryError.
+                return Ok(Status::Error(if self.store.data().limiter.refused { "error: MemoryError: memory limit".into() } else { trap_text(&e) }));
             }
         };
         Ok(match status >> KIND_SHIFT {

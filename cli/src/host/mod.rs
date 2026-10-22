@@ -236,18 +236,20 @@ impl RunLimits {
     }
 }
 
-/* Linear memory a run may grow to: a container just under its limit doubling holds it and twice it at once, past what it freed growing there. */
+/* Linear memory a run may grow to, room past its limit for garbage, a doubling container and the engine. */
 pub fn linear_cap(memory: usize) -> usize {
-    memory.saturating_mul(4).saturating_add(64 << 20)
+    memory.saturating_mul(3).saturating_add(64 << 20)
 }
 
-// Refuses linear memory growth past the cap, an untrusted run cannot outgrow its slot.
+// Refuses linear memory growth past the cap, an untrusted run cannot outgrow its slot, and notes that it refused.
 pub struct MemoryCap {
     pub max: usize,
+    pub refused: bool,
 }
 
 impl ResourceLimiter for MemoryCap {
     fn memory_growing(&mut self, _current: usize, desired: usize, _maximum: Option<usize>) -> wasmtime::Result<bool> {
+        self.refused |= desired > self.max;
         Ok(desired <= self.max)
     }
 
