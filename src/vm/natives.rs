@@ -793,7 +793,7 @@ pub(crate) trait Builtins: Frames {
                 if n < 0 { return Err(cold_value("negative count")); }
                 // Length is user-controlled, cap it against the memory left so a huge count errors instead of aborting.
                 // Past a 64-bit ssize_t it overflows as CPython's does, short of that no address space holds it.
-                let n = usize::try_from(n).map_err(|_| if n > i64::MAX as i128 { cold_overflow() } else { cold_heap() })?;
+                let n = isize::try_from(n).map_err(|_| if n > i64::MAX as i128 { cold_overflow() } else { cold_heap() })? as usize;
                 self.heap().reserve(n)?;
                 alloc::vec![0u8; n]
             }
