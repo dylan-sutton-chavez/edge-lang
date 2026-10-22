@@ -191,12 +191,14 @@ pub fn scan(src: &str) -> (Vec<ImportSpec>, bool) {
     while i < tokens.len() {
         match tokens[i].kind {
             TokenType::From => {
-                if let Some((spec, next)) = read_spec(src, &tokens, i + 1) {
-                    out.push(spec);
-                    // Step past the `import` of this from-statement so it isn't read as a fresh statement.
-                    i = if tokens.get(next).map(|x| x.kind) == Some(TokenType::Import) { next + 1 } else { next };
-                } else {
-                    i += 1;
+                // Only `from <spec> import` imports: the `from` of `yield from g()` and `raise e from c` names no module.
+                match read_spec(src, &tokens, i + 1) {
+                    Some((spec, next)) if tokens.get(next).map(|x| x.kind) == Some(TokenType::Import) => {
+                        out.push(spec);
+                        // Step past the `import` of this from-statement so it isn't read as a fresh statement.
+                        i = next + 1;
+                    }
+                    _ => i += 1,
                 }
             }
             TokenType::Import => {
