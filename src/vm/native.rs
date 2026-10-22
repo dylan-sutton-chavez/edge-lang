@@ -457,8 +457,7 @@ pub unsafe extern "C" fn edge_boot(src: *const u8, len: u64, path: *const u8, pl
         let (mut memory, mut events) = (Limits::sandbox().memory, Vec::new());
         let mut it = args.iter();
         while let Some(flag) = it.next() {
-            let value = it.next();
-            match (flag.as_str(), value.map(String::as_str)) {
+            match (flag.as_str(), it.next().map(String::as_str)) {
                 ("--memory", Some(mb)) if let Ok(mb) = mb.parse::<usize>() => memory = mb.saturating_mul(1 << 20),
                 ("--events", Some(path)) => match std::fs::read_to_string(path) {
                     Ok(text) => events.extend(text.lines().map(String::from)),
@@ -480,8 +479,7 @@ pub unsafe fn boot(src: *const u8, len: usize, path: Option<&'static str>, table
     let src: &'static str = crate::util::leak(String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(src, len) }).into_owned().into_boxed_str());
     // Its imports answered as the build's were, from the table the build carries, none when it carries none.
     let resolver = move |dir: Option<&str>| -> Result<Box<dyn crate::modules::Resolver>, String> { if table.is_empty() { Ok(Box::new(crate::modules::NoopResolver)) } else { crate::modules::table::Table::new(table).map(|t| Box::new(match dir { Some(d) => t.at(d), None => t }) as Box<_>) } };
-    let tables = match resolver(None) { Ok(t) => t, Err(e) => { fail(&e); return core::ptr::null_mut() } };
-    let chunk = match crate::code::compile_with(src, || path.map(String::from), || tables) { Ok(c) => c, Err(report) => { fail(&report); return core::ptr::null_mut() } };
+    let chunk = match resolver(None).and_then(|t| crate::code::compile_with(src, || path.map(String::from), || t)) { Ok(c) => c, Err(report) => { fail(&report); return core::ptr::null_mut() } };
     // SAFETY the program lives as long as the process, its one reference never given back.
     let chunk: &'static SSAChunk = unsafe { &*Rc::into_raw(chunk) };
     let mut vm = VM::boxed(chunk, Limits { ops: u64::MAX, memory });
