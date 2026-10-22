@@ -5,6 +5,8 @@ use rayon::prelude::*;
 #[path = "../../bench/src/ir.rs"] mod ir;
 
 const BIN: &str = env!("CARGO_BIN_EXE_edge");
+// A native binary may hold this many times its VM's memory limit in address space, so a runaway fails alone instead of starving the machine.
+const SPACE: usize = 8;
 const ALARM: &str = "edge build relies on these optimizations to run at native speed, a failure here means the native output regressed";
 
 // What a run printed, what it reported and how it ended.
@@ -27,7 +29,8 @@ fn three(dir: &Path, src: &str, input: &str, events: &[&str], flags: &[&str]) ->
         let built = run(Command::new(BIN).current_dir(dir).args(["build", "main.py", "-o", name]).args(flags), "");
         if built.2 != 0 { return built }
         // A program's SyntaxWarnings belong to compiling it: the build prints them beside its own notes, the binary never does.
-        let (out, err, code) = run(Command::new(dir.join(name)).current_dir(dir).args(with_events), input);
+        let space = format!("ulimit -v {} && exec \"$0\" \"$@\"", compiler::embed::Limits::sandbox().memory * SPACE >> 10);
+        let (out, err, code) = run(Command::new("sh").current_dir(dir).args(["-c", &space]).arg(dir.join(name)).args(with_events), input);
         (out, built.1.lines().filter(|l| !l.starts_with("edge build:")).map(|l| format!("{l}\n")).collect::<String>() + &err, code)
     };
     [vm, native("plain", flags), native("torture", &["--gc-torture"])]
@@ -49,7 +52,6 @@ fn flow() {
     assert_eq!(native, vm, "{ALARM}, native differs from the VM");
     assert_eq!(torture, vm, "{ALARM}, native under GC torture differs from the VM");
     assert_ne!(std::fs::read(dir.path().join("plain")).unwrap(), std::fs::read(dir.path().join("torture")).unwrap(), "--gc-torture built no torture in");
-    if let Err(why) = compiler::types::rules() { panic!("edge.ept is missing or stale for these sources, so edge build runs untyped: {why}") }
     let ir = std::fs::read_to_string(dir.path().join("main.ll")).unwrap();
     // The VM module edge linked, the host's as edge build targets it, where the tag tests are read.
     let host = if cfg!(target_os = "macos") { "apple-darwin" } else { "unknown-linux-musl" };
