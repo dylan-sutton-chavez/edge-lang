@@ -23,18 +23,19 @@ const NAMES: [&str; 18] = ["TypeError", "int", "bool", "float", "complex", "str"
 
 /* One body of the program: its code, kind, where each name lives, its module, the bodies its MakeFunction and MakeClass
    make, the program-wide id of each name, each parameter's kind, slot and default, where back edges land, whether an
-   `async def` made it, and each finally body from its handler to the first EndFinally no finally inside it opened. */
-pub struct Body<'c> { pub chunk: &'c SSAChunk, pub kind: Kind, pub binds: Vec<Binding>, pub module: u32, pub fns: Vec<u32>, pub classes: Vec<u32>, pub names: Vec<u32>, pub params: Vec<(ParamKind, usize, bool)>, pub heads: Vec<bool>, pub coro: bool, pub finally: Vec<(usize, usize)> }
+   `async def` made it, each finally body from its handler to the first EndFinally no finally inside it opened, and the
+   module body of each import that is code (NO for a native one). */
+pub struct Body<'c> { pub chunk: &'c SSAChunk, pub kind: Kind, pub binds: Vec<Binding>, pub module: u32, pub fns: Vec<u32>, pub classes: Vec<u32>, pub names: Vec<u32>, pub params: Vec<(ParamKind, usize, bool)>, pub heads: Vec<bool>, pub coro: bool, pub finally: Vec<(usize, usize)>, pub imports: Vec<u32> }
 
-// The rules, the bodies, each name of the program, whether the VM has a builtin of that name, and what the rows from a place
-// in the file take of these operands, once worked out.
+// The rules, the bodies, each name of the program, whether the VM has a builtin of that name, what the rows from a place
+// in the file take of these operands, once worked out, and each module imported as code by its spec, once.
 #[allow(clippy::type_complexity)]
-pub struct Prog<'c> { pub rules: &'c Rules, pub bodies: Vec<Body<'c>>, pub names: Vec<String>, builtins: Vec<bool>, took: core::cell::RefCell<Map<(u32, Vec<Ty>), (Vec<Option<Vec<Ty>>>, bool)>> }
+pub struct Prog<'c> { pub rules: &'c Rules, pub bodies: Vec<Body<'c>>, pub names: Vec<String>, builtins: Vec<bool>, took: core::cell::RefCell<Map<(u32, Vec<Ty>), (Vec<Option<Vec<Ty>>>, bool)>>, pub modules: Vec<(String, u32)> }
 
 impl<'c> Prog<'c> {
     pub fn new(chunk: &'c SSAChunk, rules: &'c Rules) -> Result<Self, String> {
         if let Some(n) = NAMES.iter().find(|n| rules.tag(n).is_none()) { return Err(alloc::format!("edge.ept has no tag {n}")); }
-        let mut p = Prog { rules, bodies: Vec::new(), names: Vec::new(), builtins: Vec::new(), took: Default::default() };
+        let mut p = Prog { rules, bodies: Vec::new(), names: Vec::new(), builtins: Vec::new(), took: Default::default(), modules: Vec::new() };
         p.walk(&Program::new(chunk), chunk, 0, &[], &mut Map::default());
         let mut vm = crate::vm::VM::new(chunk);
         p.builtins = p.names.iter().map(|n| { vm.register_builtin(n); vm.builtins.contains_key(n.as_str()) }).collect();
@@ -57,11 +58,16 @@ impl<'c> Prog<'c> {
             });
             end.map(|e| (x.operand as usize, e))
         }).collect();
-        self.bodies.push(Body { chunk: c, kind, binds, module, fns: Vec::new(), classes: Vec::new(), names, params, heads, coro: false, finally });
+        self.bodies.push(Body { chunk: c, kind, binds, module, fns: Vec::new(), classes: Vec::new(), names, params, heads, coro: false, finally, imports: Vec::new() });
         let fns: Vec<u32> = c.functions.iter().map(|f| self.walk(vm, &f.1, module, &f.0, ids)).collect();
         for x in c.instructions.iter().filter(|x| x.opcode == O::MakeCoroutine) { if let Some(&f) = fns.get(x.operand as usize) { self.bodies[f as usize].coro = true; } }
         let classes = c.classes.iter().map(|k| self.walk(vm, k, module, &[], ids)).collect();
-        (self.bodies[me as usize].fns, self.bodies[me as usize].classes) = (fns, classes);
+        let imports = c.imports.iter().map(|e| match (&e.kind, self.modules.iter().find(|m| m.0 == e.spec)) {
+            (_, Some(m)) => m.1,
+            (crate::parser::ImportKind::Code(sub), None) => { self.modules.push((e.spec.clone(), self.bodies.len() as u32)); self.walk(vm, sub, 0, &[], ids) }
+            _ => NO,
+        }).collect();
+        (self.bodies[me as usize].fns, self.bodies[me as usize].classes, self.bodies[me as usize].imports) = (fns, classes, imports);
         me
     }
     // A tag `new` made sure the file has.
@@ -253,6 +259,7 @@ impl<'a, 'c> Step<'a, 'c> {
                 self.lookup(c, &n).into_iter().map(|m| match m.known { Known::Body(f) if self.p.is(f, Kind::Function(0)) => self.p.tag("function").with(Known::Bound(f, c, at)), _ => m }).chain(own).collect()
             }
             Known::Body(c) if self.p.is(c, Kind::Class) => self.lookup(c, &n),
+            Known::Body(m) if self.p.is(m, Kind::Module) => self.one(GLOBAL | m, name).into_iter().collect(),
             _ if o.tags.count_ones() == 1 && !self.p.rules.rows(&alloc::format!("{}.{n}", self.p.leaf(o.tags.trailing_zeros() as u8)), 0).is_empty() =>
                 vec![self.p.tag("function").with(Known::Meth(o.tags.trailing_zeros() as u8, name, if let Known::Site(x) = o.known { x } else { NO }))],
             _ => { self.unknown(s); vec![Ty::ANY] }
@@ -566,7 +573,8 @@ impl<'a, 'c> Step<'a, 'c> {
                 self.push(next, &s, [self.p.tag(if class { "type" } else { "function" }).with(Known::Body(id))])
             }
             // An imported module and a `with` block's manager are anything, and so what reading or calling them gives.
-            O::LoadModule => self.push(next, &s, [Ty::ANY]),
+            // A module imported as code is its body's globals (an instance until edge.ept has a module tag), a native one anything.
+            O::LoadModule => { let m = self.body().imports.get(k as usize).copied().unwrap_or(NO); self.push(next, &s, [if m == NO { Ty::ANY } else { self.p.tag("instance").with(Known::Body(m)) }]) }
             O::WithEnter => { pop!(); s.stack.extend([Entry::of(Ty::ANY); 2]); self.go(next, s) }
             O::WithExit => { s.stack.extend([Entry::of(Ty::ANY); 5]); self.go(next, s) }
             O::StoreAttr => {

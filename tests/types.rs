@@ -159,6 +159,17 @@ mod test {
     }
 
     #[test]
+    fn a_call_into_an_imported_module_steps_its_function() {
+        // helper's f is reached through the module and through `from`, its global read from helper's own names.
+        let r = crate::common::TestResolver::new().with_code("helper", "base = 10\ndef f(x):\n    return x + base\n").with_alias("helper", "helper");
+        let chunk = compiler::code::compile_with("import helper\nfrom helper import f\na = helper.f(1)\nb = f(2)\nprint(a, b)\n", || None, || Box::new(r)).unwrap();
+        let t = typed(Box::leak(Box::new(chunk)), Box::leak(Box::new(Rules::read(&ept()).unwrap()))).expect("the tree is accepted");
+        let f = t.prog.bodies.iter().position(|b| b.chunk.qualname == "f").unwrap() as u32;
+        assert!(!t.tree.wild);
+        assert!(t.tree.ctxs.iter().any(|c| c.body == f && c.ret.iter().fold(0, |a, v| a | v.tags) == 1 << code("int").0));
+    }
+
+    #[test]
     fn a_branch_learns_from_the_row_that_made_its_test() {
         // `min` has a row of one operand before the one of two: the test of `min(a, b)` learns only from the second.
         let t = typed_of("def f(a, b):\n    if min(a, b):\n        return a\n    return 'n'\nprint(f(1, 2))\n");
