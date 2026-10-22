@@ -1046,7 +1046,7 @@ impl HeapPool {
        old poisoned and kept from reuse, so a pointer kept across a safepoint reads poison. A Val stays, it is the identity. */
     #[cfg(feature = "native")]
     pub(crate) fn relocate(&mut self) {
-        meter::KEEP.store(true, core::sync::atomic::Ordering::Relaxed);
+        meter::KEEP.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         let moved: Vec<HeapSlot> = self.slots.iter().map(|s| HeapSlot { obj: s.obj.clone(), ..*s.flags() }).collect();
         // A container an Rc shares with its iterators keeps its cell, its items moved to a new buffer.
         for o in moved.iter().filter_map(|s| s.obj.as_ref()) {
@@ -1064,7 +1064,7 @@ impl HeapPool {
                 _ => {}
             }
         }
-        meter::KEEP.store(false, core::sync::atomic::Ordering::Relaxed);
+        meter::KEEP.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         fn poison(v: &mut Vec<Val>) { v.fill(Val::undef()); drop(core::mem::take(v)); }
     }
 
