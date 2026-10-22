@@ -176,4 +176,13 @@ mod test {
             }
         }
     }
+
+    /* Only `from <spec> import` imports: the `from` of `yield from` and of `raise ... from` names no module. */
+    #[test]
+    fn from_without_import_names_no_module() {
+        for src in ["def g():\n    yield from range(3)\nfor x in g():\n    print(x)", "try:\n    1 / 0\nexcept ZeroDivisionError as e:\n    raise ValueError from e", "try:\n    raise ValueError from None\nexcept ValueError:\n    pass"] {
+            assert!(compiler::modules::scan_imports(src).is_empty(), "{src:?} reads as an import");
+            assert!(compiler::code::compile(src).1.is_empty(), "{src:?} does not compile");
+        }
+    }
 }
