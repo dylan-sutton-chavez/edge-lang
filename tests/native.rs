@@ -65,3 +65,16 @@ fn glue_and_binary_number_functions_alike() {
         if let Some((fi, _)) = program.scope_of(c) { assert_eq!(native::chunk(unsafe { &*rt }, fi + 1).qualname, c.qualname, "function {fi}"); }
     }
 }
+
+/* A table that answers an import but lost that module's source refuses it, it never runs an empty module. */
+#[test]
+fn a_table_without_the_source_refuses_the_import() {
+    use compiler::modules::{table::Table, Resolved, Resolver};
+    struct Helper;
+    impl Resolver for Helper { fn resolve(&mut self, _: &str) -> Result<Resolved, String> { Ok(Resolved::Code { src: "x = 1".into(), canonical: "./h.py".into() }) } }
+    let mut built = Table::recording("", Box::new(Helper));
+    built.resolve("./h.py").unwrap();
+    built.bundle.borrow_mut().files.retain(|f| !f.path.starts_with('m'));
+    let bytes = built.bundle.borrow().encode();
+    assert!(Table::new(&bytes).unwrap().resolve("./h.py").is_err_and(|e| e.contains("without its source")));
+}
