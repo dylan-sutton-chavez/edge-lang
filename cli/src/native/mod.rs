@@ -30,7 +30,7 @@ pub struct Opts {
     /// Leave the symbols out of the output.
     #[arg(long)]
     strip: bool,
-    /// Collect and move every object at every safepoint, for the tests; a big heap moves once every live/64 safepoints.
+    /// Collect and move every object at every safepoint, for the tests; past 1 MB a heap moves once per 4 KB more it holds, in safepoints.
     #[arg(long, hide = true)]
     gc_torture: bool,
     /// Write the module after LLVM optimized it.

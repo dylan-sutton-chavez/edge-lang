@@ -1042,9 +1042,9 @@ impl HeapPool {
         }
     }
 
-    /* Whether torture collects and moves here: at every safepoint on a small heap, then once per a 64th of its objects, linear in the run and the same at every run. */
+    /* Whether torture collects and moves here: at every safepoint while the heap holds under 1 MB, then once per 4 KB past it, linear in the run and the same at every run. */
     #[cfg(feature = "native")]
-    pub(crate) fn torture_due(&self) -> bool { static N: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0); let due = N.fetch_add(1, core::sync::atomic::Ordering::Relaxed) >= self.live / 64; if due { N.store(0, core::sync::atomic::Ordering::Relaxed); } due }
+    pub(crate) fn torture_due(&self) -> bool { static N: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0); let due = N.fetch_add(1, core::sync::atomic::Ordering::Relaxed) >= self.meter.held().saturating_sub(1 << 20) >> 12; if due { N.store(0, core::sync::atomic::Ordering::Relaxed); } due }
 
     /* Moves every object's storage, for the torture mode of native code: the slot table and each payload made again, the
        old poisoned and kept from reuse, so a pointer kept across a safepoint reads poison. A Val stays, it is the identity. */
