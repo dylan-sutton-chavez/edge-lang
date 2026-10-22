@@ -70,6 +70,8 @@ pub fn grow(p: &Prog) -> Tree {
     let mut t = Tree::default();
     let (mut work, mut readers) = (Vec::new(), Map::<usize, Vec<(usize, usize, State)>>::default());
     t.open(p, 0, Vec::new(), &mut work);
+    // Each module imported as code runs its top level once, as the VM runs them before the program.
+    for &(_, m) in &p.modules { t.open(p, m, Vec::new(), &mut work); }
     loop {
         let mut changed = false;
         if work.is_empty() {
