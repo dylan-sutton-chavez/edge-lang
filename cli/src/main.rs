@@ -218,7 +218,7 @@ fn main() {
                 }
             })
         }
-        Cmd::Build { file, opts } => native::build(&manifest_path, file.as_deref(), &opts),
+        Cmd::Build { file, opts } => native::build(&manifest_path, cli.manifest.as_deref().and_then(Path::to_str), file.as_deref(), &opts),
         Cmd::Web { out } => cmd::build::web(&manifest_path, out),
         Cmd::Publish { out } => cmd::publish::run(&manifest_path, out.as_deref()),
         Cmd::Uninstall => cmd::uninstall::run(),

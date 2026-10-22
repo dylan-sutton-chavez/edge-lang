@@ -55,7 +55,7 @@ fn target(opts: &Opts) -> String {
 }
 
 /// Compiles `file`, or the project's entry, to one binary, the VM's own handlers inlined into the program's blocks.
-pub fn build(manifest_path: &Path, file: Option<&Path>, opts: &Opts) -> Result<()> {
+pub fn build(manifest_path: &Path, manifest: Option<&str>, file: Option<&Path>, opts: &Opts) -> Result<()> {
     let target = target(opts);
     let entry = match file {
         Some(f) => f.to_path_buf(),
@@ -69,19 +69,20 @@ pub fn build(manifest_path: &Path, file: Option<&Path>, opts: &Opts) -> Result<(
         true => (vec![entry.clone()], PathBuf::new()),
         false => {
             let src = std::fs::read_to_string(&entry).with_context(|| format!("reading {}", entry.display()))?;
-            // A native program carries one file, so an import is refused, and the file compiles as edge run compiles it.
-            if let Some(compiler::modules::ImportSpec::Bare(spec) | compiler::modules::ImportSpec::Relative(spec) | compiler::modules::ImportSpec::Root(spec)) = compiler::modules::scan_imports(&src).first() { bail!("edge build compiles one file; '{spec}' is an import"); }
+            // Its imports resolve as edge run resolves them, its SyntaxWarnings printed as a run prints them and never by the
+            // binary, and the binary carries the answers to resolve them again the same.
             let name = crate::host::driver::path_spec(&entry);
-            let chunk = compiler::code::compile_with(&src, || Some(name.clone()), || Box::new(compiler::modules::NoopResolver)).unwrap_or_else(|report| { eprintln!("{report}"); std::process::exit(1) });
-            // Its SyntaxWarnings belong to compiling it, printed as edge run prints them and never again by the binary.
-            if !chunk.warnings.is_empty() { eprint!("{}", compiler::code::Diagnostic::render_warnings(&chunk.warnings, &src, Some(&name))); }
+            let mut run = crate::host::driver::host()?.vm(crate::host::driver::stdout_sink(), crate::host::Project::disk(&name, manifest), None, None)?;
+            let table = run.resolutions(&src)?.unwrap_or_else(|report| { crate::ui::traceback(&report); std::process::exit(1) });
+            let resolver = compiler::modules::table::Table::new(&table).map_err(|e| anyhow!(e))?;
+            let chunk = compiler::code::compile_with(&src, || Some(name.clone()), || Box::new(resolver)).unwrap_or_else(|report| { eprintln!("{report}"); std::process::exit(1) });
             // Rules that are not these sources', or a tree the reviewer refuses, leave every opcode to its handler.
             let rules = compiler::types::rules();
             let typed = rules.as_ref().map_err(String::clone).and_then(|r| compiler::types::typed(&chunk, r));
             match &typed { Ok(t) if opts.count => { let (p, n) = t.count(); eprintln!("types: {p}/{n}"); } Err(why) => eprintln!("edge build: no proven types, {why}"), _ => {} }
             let (vm, collect) = vm(&target, if opts.gc_torture { "-torture" } else if opts.count { "-count" } else { "" }, dir.path())?;
             let glue = dir.path().join("glue.ll");
-            std::fs::write(&glue, glue::module(&src, &crate::host::driver::path_spec(&entry), &chunk, typed.as_ref().ok(), collect, &target))?;
+            std::fs::write(&glue, glue::module(&src, &name, &table, &chunk, typed.as_ref().ok(), collect, &target))?;
             (vec![vm[0].clone(), glue], vm[1].clone())
         }
     };

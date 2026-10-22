@@ -445,11 +445,12 @@ pub unsafe extern "C" fn edge_returned(rt: *mut Rt) -> i64 { ok(unsafe { &*rt }.
 /// # Safety
 /// `src` points at `len` bytes of UTF-8, `argv` at `argc` C strings.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn edge_boot(src: *const u8, len: u64, path: *const u8, plen: u64, argc: i32, argv: *const *const core::ffi::c_char) -> *mut Rt {
+pub unsafe extern "C" fn edge_boot(src: *const u8, len: u64, path: *const u8, plen: u64, table: *const u8, tlen: u64, argc: i32, argv: *const *const core::ffi::c_char) -> *mut Rt {
+    let table: &'static [u8] = if tlen == 0 { &[] } else { unsafe { core::slice::from_raw_parts(table, tlen as usize) } };
     let path = (plen != 0).then(|| crate::util::leak(String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(path, plen as usize) }).into_owned().into_boxed_str()) as &'static str);
     // A `.wasm` reads no arguments, environment or file, the sandbox's own rule: it imports only fd_write and proc_exit.
     #[cfg(not(feature = "std"))]
-    { let _ = (argc, argv); unsafe { boot(src, len as usize, path, Limits::sandbox().memory, false) } }
+    { let _ = (argc, argv); unsafe { boot(src, len as usize, path, table, Limits::sandbox().memory, false) } }
     #[cfg(feature = "std")]
     {
         let args: Vec<String> = (1..argc.max(0) as usize).map(|k| unsafe { core::ffi::CStr::from_ptr(*argv.add(k)) }.to_string_lossy().into_owned()).collect();
@@ -466,7 +467,7 @@ pub unsafe extern "C" fn edge_boot(src: *const u8, len: u64, path: *const u8, pl
                 _ => { fail(&crate::s!("error: unknown flag '", str flag, "', a native program takes --memory MB and --events FILE")); return core::ptr::null_mut(); }
             }
         }
-        let rt = unsafe { boot(src, len as usize, path, memory, false) };
+        let rt = unsafe { boot(src, len as usize, path, table, memory, false) };
         if !rt.is_null() { for e in &events { let _ = unsafe { &mut *rt }.vm.push_event(e); } }
         rt
     }
@@ -475,13 +476,17 @@ pub unsafe extern "C" fn edge_boot(src: *const u8, len: u64, path: *const u8, pl
 /* `edge_boot` from Rust, what the program prints kept in the VM when `keep`. */
 /// # Safety
 /// `src` points at `len` bytes of UTF-8.
-pub unsafe fn boot(src: *const u8, len: usize, path: Option<&'static str>, memory: usize, keep: bool) -> *mut Rt {
+pub unsafe fn boot(src: *const u8, len: usize, path: Option<&'static str>, table: &'static [u8], memory: usize, keep: bool) -> *mut Rt {
     let src: &'static str = crate::util::leak(String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(src, len) }).into_owned().into_boxed_str());
-    let chunk = match crate::code::compile_with(src, || path.map(String::from), || Box::new(crate::modules::NoopResolver)) { Ok(c) => c, Err(report) => { fail(&report); return core::ptr::null_mut() } };
+    // Its imports answered as the build's were, from the table the build carries, none when it carries none.
+    let resolver = move |dir: Option<&str>| -> Result<Box<dyn crate::modules::Resolver>, String> { if table.is_empty() { Ok(Box::new(crate::modules::NoopResolver)) } else { crate::modules::table::Table::new(table).map(|t| Box::new(match dir { Some(d) => t.at(d), None => t }) as Box<_>) } };
+    let tables = match resolver(None) { Ok(t) => t, Err(e) => { fail(&e); return core::ptr::null_mut() } };
+    let chunk = match crate::code::compile_with(src, || path.map(String::from), || tables) { Ok(c) => c, Err(report) => { fail(&report); return core::ptr::null_mut() } };
     // SAFETY the program lives as long as the process, its one reference never given back.
     let chunk: &'static SSAChunk = unsafe { &*Rc::into_raw(chunk) };
     let mut vm = VM::boxed(chunk, Limits { ops: u64::MAX, memory });
     if !keep { (vm.print_hook, vm.strict_input) = (Some(out as fn(&str)), !cfg!(feature = "std")); }
+    vm.resolver_hook = Some(crate::util::leak(Box::new(move |dir: &str| resolver(Some(dir)).unwrap_or_else(|_| Box::new(crate::modules::NoopResolver)))));
     let Ok(paying) = vm.paying() else { return core::ptr::null_mut() };
     let mut rt = Rt { vm, path, bodies: Vec::new(), frames: Vec::new(), steps: Default::default(), packs: Vec::new(), returned: Val::none(), src, _paying: paying };
     let vm = &mut *rt.vm;

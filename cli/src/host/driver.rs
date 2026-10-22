@@ -28,7 +28,7 @@ pub fn stdout_sink() -> Sink {
     })
 }
 
-fn host() -> Result<Rc<Host>> {
+pub fn host() -> Result<Rc<Host>> {
     Host::new(Runtime::new()?)
 }
 

@@ -54,7 +54,7 @@ impl Host {
             running: Vec::new(),
             waiting: HashMap::new(),
             outbox: None,
-            limiter: MemoryCap { max: memory },
+            limiter: MemoryCap { max: memory, refused: false },
             slot: 0,
             events: None,
             run: super::system::run_id(),
@@ -180,12 +180,21 @@ impl Instance {
         Ok(None)
     }
 
+    /* Every answer the imports of `src` get, prefetched as a run does, for a native build to carry, or what stops the run. */
+    pub fn resolutions(&mut self, src: &str) -> Result<Result<Vec<u8>, String>> {
+        if let Some(Status::Error(e)) = self.prepare(src, None)? { return Ok(Err(e)); }
+        let raw = self.with_bytes(src.as_bytes(), |store, ex, ptr, len| ex.resolve_table.call(store, (ptr, len)))?;
+        self.checked(raw)?;
+        Ok(Ok(self.read_out()))
+    }
+
     fn status(&mut self, raw: wasmtime::Result<i32>) -> Result<Status> {
         let status = match raw {
             Ok(raw) => raw as u32,
             Err(e) => {
                 self.poisoned = true;
-                return Ok(Status::Error(trap_text(&e)));
+                // A container that outgrew linear memory trapped where it grew, past where the VM raises MemoryError.
+                return Ok(Status::Error(if self.store.data().limiter.refused { "error: MemoryError: memory limit".into() } else { trap_text(&e) }));
             }
         };
         Ok(match status >> KIND_SHIFT {
@@ -343,6 +352,8 @@ impl Vm {
     }
 
     /* Resolves imports and starts a fresh run, a resolution failure reads like a compile error. */
+    pub fn resolutions(&mut self, src: &str) -> Result<Result<Vec<u8>, String>> { self.enter()?.resolutions(src) }
+
     pub fn start(&mut self, src: &str, input: Option<&str>) -> Result<Status> {
         let status = {
             let mut inst = self.enter()?;

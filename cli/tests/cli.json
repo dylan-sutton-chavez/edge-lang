@@ -108,6 +108,11 @@
     "fails": ["ZeroDivisionError"]
   },
   {
+    "given": { "grow.py": "# A list doubling past linear memory ends the run with a MemoryError no except catches, native raises one it can.\nchunk = [0.5] * 1000000\nxs = []\nwhile True:\n    xs.extend(chunk)\n" },
+    "run": ["run", "grow.py"],
+    "fails": ["MemoryError: memory limit"]
+  },
+  {
     "given": { "main.py": "print('ok')\n", "edge.json": "{}\n" },
     "run": ["web"],
     "creates": ["dist/index.html", "dist/main.py", "dist/compiler.wasm"]
@@ -508,8 +513,9 @@
     "fails": ["name 'all' is reserved for permissions"]
   },
   {
-    "given": { "main.py": "from .helper import f\nprint(f())\n", "helper.py": "def f():\n    return 1\n" },
+    "given": { "edge.json": "{ \"imports\": { \"math\": \"0.1.0\" } }\n", "main.py": "import math\nprint(math.sqrt(2.0))\n" },
+    "before": [["lock"]],
     "run": ["build", "main.py"],
-    "fails": ["edge build compiles one file; './helper.py' is an import"]
+    "fails": ["edge build runs Python modules only; '_math' is a plugin"]
   }
 ]

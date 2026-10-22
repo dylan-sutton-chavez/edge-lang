@@ -16,7 +16,7 @@ const NONE: i64 = 0x7FFC_0000_0000_0001;
 fn gc_keeps_values_in_place() {
     const WHY: &str = "edge build's native code stores live values at safepoints, update it if the GC moves objects or collects elsewhere";
     let src = "a = [1, 2]\nb = 'x' * 3\nc = {'k': a}\nd = [3]\n";
-    let rt = unsafe { native::boot(src.as_ptr(), src.len(), None, 1 << 26, true) };
+    let rt = unsafe { native::boot(src.as_ptr(), src.len(), None, &[], 1 << 26, true) };
     let call = move |op: OpCode, site: i64, a: &[i64]| {
         let at = |k: usize| a.get(k).copied().unwrap_or(UNDEF);
         unsafe { native::handler(op).unwrap()(rt, site, at(0), at(1), at(2), std::ptr::null_mut(), std::ptr::null_mut(), 0) }
@@ -42,4 +42,26 @@ fn gc_keeps_values_in_place() {
     assert_eq!(again, live, "{WHY}");
     assert_eq!(again.iter().map(|&v| unsafe { native::heap_type(rt, v) }).collect::<Vec<_>>(), kinds, "{WHY}");
     assert_eq!(unsafe { native::heap_type(rt, freed) }, u32::MAX, "{WHY}");
+}
+
+/* The glue numbers functions with `code::Program`, the binary with the VM it boots: both `VM::new` over the same chunk,
+   an imported module's functions among them, the binary reading the module from the table the build wrote. */
+#[test]
+fn glue_and_binary_number_functions_alike() {
+    struct Helper;
+    impl compiler::modules::Resolver for Helper {
+        fn resolve(&mut self, _: &str) -> Result<compiler::modules::Resolved, String> { Ok(compiler::modules::Resolved::Code { src: "def h():\n    def i():\n        return 2\n    return i()\n".into(), canonical: "helper.py".into() }) }
+    }
+    let src = "import helper\ndef f():\n    def g():\n        return 1\n    return g()\nclass C:\n    def m(self):\n        return [x for x in range(2)]\nprint(f(), C().m(), helper.h())\n";
+    let table = compiler::modules::table::Table::recording("", Box::new(Helper));
+    let bundle = table.bundle.clone();
+    let chunk = compiler::code::compile_with(src, || None, || Box::new(table)).unwrap();
+    let bytes: &'static [u8] = Box::leak(bundle.borrow().encode().into_boxed_slice());
+    let (program, rt) = (compiler::code::Program::new(&chunk), unsafe { native::boot(src.as_ptr(), src.len(), None, bytes, 1 << 26, true) });
+    assert!(!rt.is_null() && chunk.imports.iter().any(|e| matches!(e.kind, compiler::code::ImportKind::Code(_))), "the module is imported");
+    let mut work = vec![&*chunk];
+    while let Some(c) = work.pop() {
+        work.extend(c.functions.iter().map(|f| &f.1).chain(&c.classes).chain(c.imports.iter().filter_map(|e| match &e.kind { compiler::code::ImportKind::Code(m) => Some(&**m), _ => None })));
+        if let Some((fi, _)) = program.scope_of(c) { assert_eq!(native::chunk(unsafe { &*rt }, fi + 1).qualname, c.qualname, "function {fi}"); }
+    }
 }
