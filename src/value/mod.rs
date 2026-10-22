@@ -1046,6 +1046,10 @@ impl HeapPool {
        old poisoned and kept from reuse, so a pointer kept across a safepoint reads poison. A Val stays, it is the identity. */
     #[cfg(feature = "native")]
     pub(crate) fn relocate(&mut self) {
+        // At every safepoint while the heap is small, then once per a 64th of its objects in safepoints, so a big heap's copies stay linear in the run.
+        static SKIPPED: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+        if SKIPPED.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < self.live / 64 { return; }
+        SKIPPED.store(0, core::sync::atomic::Ordering::Relaxed);
         meter::KEEP.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         let moved: Vec<HeapSlot> = self.slots.iter().map(|s| HeapSlot { obj: s.obj.clone(), ..*s.flags() }).collect();
         // A container an Rc shares with its iterators keeps its cell, its items moved to a new buffer.
