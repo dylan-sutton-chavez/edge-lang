@@ -91,8 +91,10 @@ fn corpus() {
         for (path, text) in case["files"].as_object().into_iter().flatten() { std::fs::write(dir.path().join(path), text.as_str().unwrap()).unwrap(); }
         let events = [texts(case, "events"), texts(case, "interactive_events")].concat();
         let [vm, native, torture] = three(dir.path(), case["src"].as_str().unwrap(), &texts(case, "input").join("\n"), &events, &[]);
+        // A documented v1 limit: under `edge run` a container outgrowing linear memory ends the run with the host's MemoryError, no source line under it.
+        let same = |r: &Run| r.0 == vm.0 && r.2 == vm.2 && if vm.1 == "error: MemoryError: memory limit\n" { r.1.starts_with(&vm.1) } else { r.1 == vm.1 };
         // Each one printed as found too, so a run cut short still names what it found.
-        (native != vm || torture != vm).then(|| format!("{:?}\n   vm {vm:?}\n   native {native:?}\n   torture {torture:?}", case["src"])).inspect(|f| eprintln!("DIFF {f}"))
+        (!same(&native) || !same(&torture)).then(|| format!("{:?}\n   vm {vm:?}\n   native {native:?}\n   torture {torture:?}", case["src"])).inspect(|f| eprintln!("DIFF {f}"))
     }).collect();
     assert!(failures.is_empty(), "{ALARM}, {} of {} programs differ:\n{}", failures.len(), cases.len(), failures.join("\n"));
 }
