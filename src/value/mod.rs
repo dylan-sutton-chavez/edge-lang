@@ -1042,11 +1042,15 @@ impl HeapPool {
         }
     }
 
+    /* Whether torture collects and moves here: at every safepoint while the heap holds under 1 MB, then once per 4 KB past it, linear in the run and the same at every run. */
+    #[cfg(feature = "native")]
+    pub(crate) fn torture_due(&self) -> bool { static N: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0); let due = N.fetch_add(1, core::sync::atomic::Ordering::Relaxed) >= self.meter.held().saturating_sub(1 << 20) >> 12; if due { N.store(0, core::sync::atomic::Ordering::Relaxed); } due }
+
     /* Moves every object's storage, for the torture mode of native code: the slot table and each payload made again, the
        old poisoned and kept from reuse, so a pointer kept across a safepoint reads poison. A Val stays, it is the identity. */
     #[cfg(feature = "native")]
     pub(crate) fn relocate(&mut self) {
-        meter::KEEP.store(true, core::sync::atomic::Ordering::Relaxed);
+        meter::KEEP.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         let moved: Vec<HeapSlot> = self.slots.iter().map(|s| HeapSlot { obj: s.obj.clone(), ..*s.flags() }).collect();
         // A container an Rc shares with its iterators keeps its cell, its items moved to a new buffer.
         for o in moved.iter().filter_map(|s| s.obj.as_ref()) {
@@ -1064,7 +1068,7 @@ impl HeapPool {
                 _ => {}
             }
         }
-        meter::KEEP.store(false, core::sync::atomic::Ordering::Relaxed);
+        meter::KEEP.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         fn poison(v: &mut Vec<Val>) { v.fill(Val::undef()); drop(core::mem::take(v)); }
     }
 

@@ -175,7 +175,18 @@ pub fn installed() -> bool {
 
 /* Wraps an allocator so each block carries the meter it was charged to, and its free credits that meter. */
 pub struct Metered<A>(pub A);
-#[cfg(feature = "native")] pub(crate) static KEEP: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+#[cfg(feature = "native")] pub(crate) static KEEP: AtomicUsize = AtomicUsize::new(0);
+
+/* A block torture moved, odd `at` naming the relocation, kept from the inner allocator until the one after the next, so a
+   pointer kept across a safepoint reads its poison and the process holds at most the storage of two moves. */
+#[cfg(feature = "gc-torture")]
+unsafe fn kept<A: GlobalAlloc>(a: &A, block: *mut u8, l: Layout, at: usize) {
+    static mut KEPT: (usize, Vec<(*mut u8, Layout)>, Vec<(*mut u8, Layout)>) = (0, Vec::new(), Vec::new());
+    // SAFETY one thread relocates, and the lists' own growth reallocates, never freeing a block through here.
+    let k = unsafe { &mut *core::ptr::addr_of_mut!(KEPT) };
+    if k.0 != at { k.0 = at; for (b, l) in k.1.drain(..) { unsafe { a.dealloc(b, l) } } core::mem::swap(&mut k.1, &mut k.2); }
+    k.2.push((block, l));
+}
 
 const TAG: usize = core::mem::size_of::<*const Meter>();
 
@@ -230,7 +241,7 @@ unsafe impl<A: GlobalAlloc> GlobalAlloc for Metered<A> {
         unsafe {
             // Through the address, as `p.sub` would step out of the object `__rust_alloc` returned, poison under fat LTO.
             (*core::ptr::with_exposed_provenance_mut::<u8>(p.addr() - TAG).cast::<*const Meter>().read()).shrank(inner.size());
-            #[cfg(feature = "gc-torture")] if KEEP.load(Relaxed) { return; }
+            #[cfg(feature = "gc-torture")] if KEEP.load(Relaxed) & 1 == 1 { return kept(&self.0, core::ptr::with_exposed_provenance_mut::<u8>(p.addr() - head), inner, KEEP.load(Relaxed)); }
             self.0.dealloc(core::ptr::with_exposed_provenance_mut::<u8>(p.addr() - head), inner);
         }
     }

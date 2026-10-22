@@ -1465,7 +1465,7 @@ impl<'a> VM<'a> {
                     };
                     let (fi, call_ip, generator) = (f.fi, f.call_ip, f.generator);
                     // What a job's generator raises goes as its job takes it, an `async for` ending or an async generator's turning RuntimeError.
-                    let mut e = if f.job && !generator.is_undef() {
+                    let e = if f.job && !generator.is_undef() {
                         match self.job_raised(e) {
                             Ok(Ok(at)) => { load!(); ip = at; continue; }
                             Ok(Err((at, e))) => { load!(); (raised, raised_at, ip) = (Some(e), Some(at), at); continue; }
@@ -1480,10 +1480,7 @@ impl<'a> VM<'a> {
                         continue;
                     }
                     // A StopIteration out of the function a `map` or `filter` calls ends the `for` stepping it, the one a job's or a plain `map` frame returns before.
-                    // A StopIteration a generator's own body raises leaves it as RuntimeError (PEP 479).
-                    let stop = is_stop(&e);
-                    if stop && !generator.is_undef() { e = self.stop_out_of(Some(generator), e); }
-                    let stop = stop && generator.is_undef();
+                    let stop = is_stop(&e) && generator.is_undef();
                     let before = match self.jobs.last() {
                         Some(&super::jobs::Job::Map { before, .. } | &super::jobs::Job::Filter { before, .. }) if stop && f.job => Some((before, f.ret)),
                         _ => None,
@@ -1563,9 +1560,10 @@ impl<'a> VM<'a> {
                         continue;
                     }
                     ip = f.ret;
-                    let e = match self.top_linked().then(|| self.unlink_top()) { Some(Err(le)) => le, _ => e };
+                    let mut e = match self.top_linked().then(|| self.unlink_top()) { Some(Err(le)) => le, _ => e };
                     // A generator that raised stays finished, the error meeting its `for`.
-                    if generator.is_undef() { self.leave_frame(); } else { self.finish_gen(); }
+                    // A StopIteration its own body raised leaves a generator as RuntimeError (PEP 479), only its frame paying.
+                    if generator.is_undef() { self.leave_frame(); } else { self.finish_gen(); if is_stop(&e) { e = self.stop_out_of(Some(generator), e); } }
                     load!();
                     // SAFETY as above.
                     let before = before.or_else(|| (stop && !f.job && unsafe { &*cur }.ins.get(f.ret).is_some_and(|i| i.op == OpCode::ForIterR)
