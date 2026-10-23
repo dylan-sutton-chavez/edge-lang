@@ -2241,16 +2241,15 @@ impl<'a> VM<'a> {
         Ok(())
     }
 
-    /* `__iter__` `f` of `o` called as a call of the loop, its frame made the `IterOf` job's, false when it ran without one. */
+    /* `__iter__` `f` of `o` called as a call of the loop, its frame made the `IterOf` job's, false with the job gone when it ran without one. */
     #[cold]
-    #[inline(never)]
     fn call_as_iter(&mut self, f: Val, o: Val, chunk: &SSAChunk) -> Result<bool, VmErr> {
         (self.inline_call, self.pending_exec_safe) = (true, self.frame_safe);
         self.stack.extend_from_slice(&[f, o]);
         let called = self.exec_call_n(1, 0, chunk);
         (self.inline_call, self.pending_exec_safe) = (false, false);
         called?;
-        if !self.entered { self.pop()?; return Ok(false); }
+        if !self.entered { self.pop()?; self.jobs.pop(); return Ok(false); }
         let at = self.head_at(self.top_pool);
         self.regs[at] = Val::int((NO_DEST as i64) << 24 | (self.head(at).as_int() >> 40 | JOB) << 40);
         self.jobs.push(Job::IterOf);
@@ -2335,18 +2334,12 @@ impl<'a> VM<'a> {
         // A plain `__iter__` runs as a frame of the loop too, the builtin's job waiting under it.
         if let Some(&HeapObj::Instance(class, _)) = self.heap.try_get(o) && let Some((f, _)) = self.lookup_class_member(class, "__iter__")
             && f.is_heap() && matches!(self.heap.get(f), HeapObj::Func(..)) {
-            let fi = self.job_fn_once(f).filter(|&fi| !self.uses_super(fi));
             let mut j = self.gather_of(takes, extra.to_vec(), Val::undef());
             j.before = self.pending.exc_val.unwrap_or(Val::undef());
             self.jobs.push(Job::Gather(Box::new(j)));
-            if let Some(fi) = fi {
-                self.open_job(fi, f, o, 0, super::act::NO_DEST, Job::IterOf);
-                (self.entered, self.yielded) = (true, true);
-                return Ok(true);
-            }
+            if let Some(fi) = self.job_fn_once(f).filter(|&fi| !self.uses_super(fi)) { self.open_job(fi, f, o, 0, super::act::NO_DEST, Job::IterOf); (self.entered, self.yielded) = (true, true); return Ok(true); }
             // One whose parameters a call binds, `*args` among them, opens as any call of the loop does, its frame then the job's.
             if self.call_as_iter(f, o, chunk)? { return Ok(true); }
-            self.jobs.pop();
         }
         let base = self.temp_roots.len();
         self.temp_roots.push(o);
@@ -2382,7 +2375,7 @@ impl<'a> VM<'a> {
     }
 
     #[cold]
-    fn non_iterator(&self, it: Val) -> VmErr { VmErr::TypeMsg(crate::s!("iter() returned non-iterator of type '", str self.type_name(it), "'")) }
+    pub(crate) fn non_iterator(&self, it: Val) -> VmErr { VmErr::TypeMsg(crate::s!("iter() returned non-iterator of type '", str self.type_name(it), "'")) }
 
     /* Takes the job's builtin on to `it`, a user iterable's iterator, a generator as `gather_job` runs one, a plain `__next__` as frames, others itself. */
     pub(crate) fn pull_from(&mut self, it: Val, chunk: &SSAChunk) -> Result<Pulled, VmErr> {
@@ -2891,17 +2884,15 @@ impl<'a> VM<'a> {
         if link & 0xFF_FFFF == 0 { self.regs[at] = Val::int(link | ret as i64); }
     }
 
-    /* `e` of a register test at `rip`: one that started a job returns its frame to that op, which takes the result the job
-       leaves on the stack, the loop entering the frame as a call a handler handed it. */
+    /* `e` of a register test at `rip`: a job it started returns its frame to that op, which takes the result left on the stack. */
     #[cold]
     pub(crate) fn contains_later(&mut self, e: VmErr, rip: usize) -> VmErr { if matches!(e, VmErr::Redo) && self.top_gather() { self.gather_ret(rip); } e }
 
     /* Whether the job a register `in` started left its result over the mark, which goes, the result on top. */
     pub(crate) fn contains_back(&mut self) -> bool {
         let n = self.stack.len();
-        let back = n >= 2 && self.stack[n - 2].is_undef();
-        if back { self.stack.remove(n - 2); }
-        back
+        if n >= 2 && self.stack[n - 2].is_undef() { self.stack.remove(n - 2); return true; }
+        false
     }
 
     /* Whether the running frame is a generator a builtin's job runs. */

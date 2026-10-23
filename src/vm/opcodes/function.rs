@@ -650,11 +650,9 @@ impl<'a> VM<'a> {
     #[cold]
     #[inline(never)]
     pub(crate) fn open_bound(&mut self, callee: Val, passed: Passed, n: usize) -> Result<bool, VmErr> {
-        let Some(HeapObj::Func(fi, defaults, captures, _)) = self.heap.try_get(callee) else { return Ok(false) };
-        let fi = *fi;
+        let (fi, defaults, captures) = match self.heap.try_get(callee) { Some(HeapObj::Func(fi, d, c, _)) => (*fi, d.clone(), c.clone()), _ => return Ok(false) };
         if self.call_facts[fi].arity.is_some() || self.functions[fi].1.is_generator || self.is_async.get(fi).copied().unwrap_or(false) { return Ok(false); }
         let args: Vec<Val> = match passed { Passed::Stack { first, .. } => self.stack[first..first + n].to_vec(), Passed::Regs(v) => v[..n].to_vec() };
-        let (defaults, captures) = (defaults.clone(), captures.clone());
         let p = &self.pools[self.call_facts[fi].pool];
         if (p.code.is_none() || p.cold || p.consts.is_none()) && !self.opens_first(fi) { return Ok(false); }
         let names = self.functions[fi].1.names.len();
