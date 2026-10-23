@@ -297,6 +297,7 @@ impl<'a> VM<'a> {
         if argc != 1 { return Err(cold_type("iter() takes 1 or 2 arguments")); }
         let o = *self.stack.last().ok_or_else(|| cold_runtime("stack underflow"))?;
         let it = self.iter_of(o, chunk)?;
+        if matches!(self.heap.try_get(o), Some(HeapObj::Instance(..))) && !self.is_iterator(it) { return Err(self.non_iterator(it)); }
         *self.stack.last_mut().ok_or_else(|| cold_runtime("stack underflow"))? = it;
         Ok(())
     }
