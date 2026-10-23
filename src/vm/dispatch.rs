@@ -514,7 +514,8 @@ impl<'a> VM<'a> {
     #[inline(never)]
     pub(crate) fn open_prop(&mut self, func: Val, passed: Passed, n: usize, rip: usize, dest: u16) -> Result<bool, VmErr> {
         if self.redo_replays() { return Ok(false); }
-        if !self.open_in_loop(func, passed, n)? { return Ok(false); }
+        // One taking `*args` or `**kwargs` opens bound as a call binds it.
+        if !self.open_in_loop(func, passed, n)? && !self.open_bound(func, passed, n)? { return Ok(false); }
         self.mark_dunder(rip, dest);
         Ok(true)
     }

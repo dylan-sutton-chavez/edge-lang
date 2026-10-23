@@ -917,7 +917,7 @@ impl<'a> VM<'a> {
     }
 
     /* Whether `v` steps by `next`, a generator, a builtin iterator or an instance with `__next__`. */
-    fn is_iterator(&self, v: Val) -> bool {
+    pub(crate) fn is_iterator(&self, v: Val) -> bool {
         match self.heap.try_get(v) {
             Some(HeapObj::Iter(..)) => true,
             Some(HeapObj::Coroutine(..)) => self.coro_kind(v) == Some(CoroKind::Generator),

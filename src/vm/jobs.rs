@@ -2241,6 +2241,23 @@ impl<'a> VM<'a> {
         Ok(())
     }
 
+    /* `__iter__` `f` of `o` called as a call of the loop, its frame made the `IterOf` job's, false when it ran without one. */
+    #[cold]
+    #[inline(never)]
+    fn call_as_iter(&mut self, f: Val, o: Val, chunk: &SSAChunk) -> Result<bool, VmErr> {
+        (self.inline_call, self.pending_exec_safe) = (true, self.frame_safe);
+        self.stack.extend_from_slice(&[f, o]);
+        let called = self.exec_call_n(1, 0, chunk);
+        (self.inline_call, self.pending_exec_safe) = (false, false);
+        called?;
+        if !self.entered { self.pop()?; return Ok(false); }
+        let at = self.head_at(self.top_pool);
+        self.regs[at] = Val::int((NO_DEST as i64) << 24 | (self.head(at).as_int() >> 40 | JOB) << 40);
+        self.jobs.push(Job::IterOf);
+        self.yielded = true;
+        Ok(true)
+    }
+
     /* Calls `callee` on `args` as a plain call binds them, its frame the job's returning to `ret`, Ok(false) with the result kept when it opens none. */
     #[inline(never)]
     fn call_as_job(&mut self, callee: Val, args: &[Val], ret: usize, job: Job) -> Result<bool, VmErr> {
@@ -2317,13 +2334,19 @@ impl<'a> VM<'a> {
         if self.budget == 0 || !matches!(self.heap.try_get(o), Some(HeapObj::Instance(..))) { return Ok(false); }
         // A plain `__iter__` runs as a frame of the loop too, the builtin's job waiting under it.
         if let Some(&HeapObj::Instance(class, _)) = self.heap.try_get(o) && let Some((f, _)) = self.lookup_class_member(class, "__iter__")
-            && f.is_heap() && matches!(self.heap.get(f), HeapObj::Func(..)) && let Some(fi) = self.job_fn_once(f) && !self.uses_super(fi) {
+            && f.is_heap() && matches!(self.heap.get(f), HeapObj::Func(..)) {
+            let fi = self.job_fn_once(f).filter(|&fi| !self.uses_super(fi));
             let mut j = self.gather_of(takes, extra.to_vec(), Val::undef());
             j.before = self.pending.exc_val.unwrap_or(Val::undef());
             self.jobs.push(Job::Gather(Box::new(j)));
-            self.open_job(fi, f, o, 0, super::act::NO_DEST, Job::IterOf);
-            (self.entered, self.yielded) = (true, true);
-            return Ok(true);
+            if let Some(fi) = fi {
+                self.open_job(fi, f, o, 0, super::act::NO_DEST, Job::IterOf);
+                (self.entered, self.yielded) = (true, true);
+                return Ok(true);
+            }
+            // One whose parameters a call binds, `*args` among them, opens as any call of the loop does, its frame then the job's.
+            if self.call_as_iter(f, o, chunk)? { return Ok(true); }
+            self.jobs.pop();
         }
         let base = self.temp_roots.len();
         self.temp_roots.push(o);
@@ -2331,6 +2354,7 @@ impl<'a> VM<'a> {
         let it = self.try_call_dunder(o, "__iter__", &[], chunk);
         self.temp_roots.truncate(base);
         let Some(it) = it? else { return Ok(false) };
+        if !self.is_iterator(it) { return Err(self.non_iterator(it)); }
         self.pull_on(it, takes, extra, chunk)
     }
 
@@ -2357,10 +2381,14 @@ impl<'a> VM<'a> {
         self.pull_on(it, takes, extra, chunk)
     }
 
+    #[cold]
+    fn non_iterator(&self, it: Val) -> VmErr { VmErr::TypeMsg(crate::s!("iter() returned non-iterator of type '", str self.type_name(it), "'")) }
+
     /* Takes the job's builtin on to `it`, a user iterable's iterator, a generator as `gather_job` runs one, a plain `__next__` as frames, others itself. */
     pub(crate) fn pull_from(&mut self, it: Val, chunk: &SSAChunk) -> Result<Pulled, VmErr> {
         let j = self.take_gather();
         self.jobs.pop();
+        if !matches!(self.heap.try_get(it), Some(HeapObj::Iter(..) | HeapObj::Coroutine(_) | HeapObj::Instance(..))) { return Err(self.non_iterator(it)); }
         if matches!(self.heap.try_get(it), Some(HeapObj::Coroutine(_))) && self.gather_job(it, j.takes, j.extra.clone())? { return Ok(Pulled::Opened); }
         let before = j.before;
         let mut j = self.gather_of(j.takes, j.extra, it);

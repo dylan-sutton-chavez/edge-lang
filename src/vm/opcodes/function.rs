@@ -646,6 +646,26 @@ impl<'a> VM<'a> {
         Ok(true)
     }
 
+    /* `open_in_loop` of a function taking `*args` or `**kwargs`, its `n` positionals bound as a call binds them, false for any other. */
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn open_bound(&mut self, callee: Val, passed: Passed, n: usize) -> Result<bool, VmErr> {
+        let Some(HeapObj::Func(fi, defaults, captures, _)) = self.heap.try_get(callee) else { return Ok(false) };
+        let fi = *fi;
+        if self.call_facts[fi].arity.is_some() || self.functions[fi].1.is_generator || self.is_async.get(fi).copied().unwrap_or(false) { return Ok(false); }
+        let args: Vec<Val> = match passed { Passed::Stack { first, .. } => self.stack[first..first + n].to_vec(), Passed::Regs(v) => v[..n].to_vec() };
+        let (defaults, captures) = (defaults.clone(), captures.clone());
+        let p = &self.pools[self.call_facts[fi].pool];
+        if (p.code.is_none() || p.cold || p.consts.is_none()) && !self.opens_first(fi) { return Ok(false); }
+        let names = self.functions[fi].1.names.len();
+        let base = self.open_window(self.fn_pool[fi], names + self.functions[fi].1.constants.len() + 3, names, true);
+        if let Err(e) = self.bind_function_args(fi, &defaults, &args, &[], base).and_then(|()| self.enter_scope(fi, &captures, base)) { self.close_window(self.fn_pool[fi]); return Err(e); }
+        if let Passed::Stack { to, .. } = passed { self.stack.truncate(to); }
+        self.charge_step()?;
+        self.enter_frame(fi, callee)?;
+        Ok(true)
+    }
+
     /* Whether `fi`, able to open but not warm (never run or run once), opens as a frame of the loop in its unlowered code, made here when missing. */
     #[cold]
     #[inline(never)]
