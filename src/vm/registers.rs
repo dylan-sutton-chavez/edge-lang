@@ -1125,7 +1125,7 @@ impl<'a> VM<'a> {
                 };
                 self.handle_bitwise(op, (ins.x & !lower::AUGMENTED) as u16, chunk)?;
             }
-            OpCode::In | OpCode::NotIn | OpCode::Is | OpCode::IsNot => self.handle_identity(op, chunk)?,
+            OpCode::In | OpCode::NotIn | OpCode::Is | OpCode::IsNot => self.identity_reg(op, chunk).map_err(|e| self.contains_later(e, rip))?,
             OpCode::Not => self.handle_logic(op, chunk)?,
             OpCode::GetItem => self.get_item_op(rip, chunk, cache, false)?,
             OpCode::CallLen => self.handle_function(op, 1, chunk)?,

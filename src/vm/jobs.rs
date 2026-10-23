@@ -2863,6 +2863,19 @@ impl<'a> VM<'a> {
         if link & 0xFF_FFFF == 0 { self.regs[at] = Val::int(link | ret as i64); }
     }
 
+    /* `e` of a register test at `rip`: one that started a job returns its frame to that op, which takes the result the job
+       leaves on the stack, the loop entering the frame as a call a handler handed it. */
+    #[cold]
+    pub(crate) fn contains_later(&mut self, e: VmErr, rip: usize) -> VmErr { if matches!(e, VmErr::Redo) && self.top_gather() { self.gather_ret(rip); } e }
+
+    /* Whether the job a register `in` started left its result over the mark, which goes, the result on top. */
+    pub(crate) fn contains_back(&mut self) -> bool {
+        let n = self.stack.len();
+        let back = n >= 2 && self.stack[n - 2].is_undef();
+        if back { self.stack.remove(n - 2); }
+        back
+    }
+
     /* Whether the running frame is a generator a builtin's job runs. */
     #[inline(always)]
     pub(crate) fn top_gather(&self) -> bool { self.acts != 0 && self.head(self.head_at(self.top_pool)).as_int() >> 40 & (JOB | super::act::GEN) == JOB | super::act::GEN }

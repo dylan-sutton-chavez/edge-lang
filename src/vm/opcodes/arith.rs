@@ -611,12 +611,24 @@ impl<'a> VM<'a> {
     }
 
     /* `is` / `is not` compare tag bits inline, `in` / `not in` delegate to contains(). */
-    pub(crate) fn handle_identity(&mut self, op: OpCode, chunk: &SSAChunk) -> Result<(), VmErr> {
+    pub(crate) fn handle_identity(&mut self, op: OpCode, chunk: &SSAChunk) -> Result<(), VmErr> { self.identity_at::<false>(op, chunk) }
+
+    pub(crate) fn identity_reg(&mut self, op: OpCode, chunk: &SSAChunk) -> Result<(), VmErr> { self.identity_at::<true>(op, chunk) }
+
+    /* `handle_identity`, for a register op when `REG`: a test a job runs hands the loop its frame, the op running again
+       once the job ends to take the result left on the stack. */
+    #[inline(always)]
+    pub(crate) fn identity_at<const REG: bool>(&mut self, op: OpCode, chunk: &SSAChunk) -> Result<(), VmErr> {
         let (a, b) = self.pop2()?;
         // A generator a test steps runs as a frame of the loop to the first item equal to the value, or to its end.
         if matches!(op, OpCode::In | OpCode::NotIn) && b.is_heap() && matches!(self.heap.get(b), HeapObj::Coroutine(..) | HeapObj::Instance(..))
+            && (!REG || !self.contains_back() || return Ok(()))
             && let Some(g) = if matches!(self.heap.get(b), HeapObj::Coroutine(..)) { Some(b) } else if matches!(self.heap.get(b), &HeapObj::Instance(c, _) if self.lookup_class_member(c, "__contains__").is_some()) { None } else { self.with_roots([a], |vm| vm.iter_of_user(b, chunk))? } {
-            if self.with_roots([a, g], |vm| vm.gather_job(g, crate::vm::jobs::Takes::Contains(a, op == OpCode::NotIn), Vec::new()))? { return Ok(()); }
+            // One the register op runs leaves a mark under the frame, where the job's result lands, the op running again to take it.
+            let mark = REG && matches!(self.heap.try_get(g), Some(HeapObj::Coroutine(..)));
+            if mark { self.push(Val::undef()); }
+            if self.with_roots([a, g], |vm| vm.gather_job(g, crate::vm::jobs::Takes::Contains(a, op == OpCode::NotIn), Vec::new()))? { if REG { return Err(VmErr::Redo); } return Ok(()); }
+            if mark { self.pop()?; }
             // the test steps the iterator the instance gave
             if g.0 != b.0 && matches!(self.heap.try_get(g), Some(HeapObj::Iter(..))) && self.with_roots([a, g], |vm| vm.contains_job(g, crate::vm::jobs::Takes::Contains(a, op == OpCode::NotIn), chunk))? { return Ok(()); }
             if g.0 != b.0 || matches!(self.heap.try_get(g), Some(HeapObj::Instance(..))) {
