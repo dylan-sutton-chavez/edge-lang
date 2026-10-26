@@ -2930,6 +2930,9 @@ impl<'p> Lower<'_, 'p> {
             let marked: Vec<(OpCode, usize)> = ins.iter().enumerate().filter(|(_, i)| dunder_op(i.op) || matches!(i.op, OpCode::CallGlobalR | OpCode::CallR | OpCode::PushRegs
                 | OpCode::CallMethodR | OpCode::JumpIfFalseR | OpCode::CallSpreadR | OpCode::MakeFunction | OpCode::MakeCoroutine | OpCode::StoreName | OpCode::Call)).map(|(j, i)| (i.op, j)).collect();
             let of = |op: OpCode| marked.iter().filter(move |m| m.0 == op).map(|m| m.1);
+            // a body storing by name or making functions over cells is refused before the walk
+            if of(OpCode::StoreName).any(|j| !self.wanted[k].1.cellvars.contains(&(ins[j].a as usize)))
+                || marked.iter().any(|m| matches!(m.0, OpCode::MakeFunction | OpCode::MakeCoroutine)) && !self.wanted[k].1.cells.is_empty() && !self.wanted[k].1.by_body { self.wanted.truncate(k); return None; }
             // A call of a function that may be laid jumps to its section, any other calls as it would outside them.
             let mut calls: Vec<(u16, usize, bool)> = marked.iter().filter(|m| matches!(m.0, OpCode::CallGlobalR | OpCode::CallR))
                 .filter_map(|&(_, j)| Some((super::block::global_of(ins, j, ins[j])?, ins[j].x as usize, false))).collect();
@@ -3013,12 +3016,6 @@ impl<'p> Lower<'_, 'p> {
                 let callee = match g { Some(h) => (self.sections)(Want::Global(module, h)), None => self.celled(k, j, i.a).or_else(|| (self.sections)(Want::NestedValue(fi, body.orig(j), value_of(&body, j)))) };
                 if let Some(c) = callee.filter(|c| spreads(c, i.x)) { self.want_callee(g.unwrap_or(u16::MAX), c.clone(), c.arity); }
             }
-            // A function made inside reads its captures from registers, which a closure's cells laid as constants are not.
-            let makes = marked.iter().any(|m| matches!(m.0, OpCode::MakeFunction | OpCode::MakeCoroutine));
-            // A store by name a section holds only into a cell the body keeps.
-            if of(OpCode::StoreName).any(|j| !self.wanted[k].1.cellvars.contains(&(ins[j].a as usize))) { self.wanted.truncate(k); return None; }
-
-            if makes && !self.wanted[k].1.cells.is_empty() && !self.wanted[k].1.by_body { self.wanted.truncate(k); return None; }
             // A body with `try` lays no recursion, as a handler would meet registers another level wrote, and a loop over a called generator steps its section.
             for j in 2..ins.len() {
                 let (call, store, push) = (ins[j - 2], ins[j - 1], ins[j]);

@@ -422,4 +422,22 @@ mod test {
             assert!(matches!(vm.run(), Err(VmErr::Budget)), "{line}");
         }
     }
+    // a refused closure leaves no table pair naming a section that was dropped
+    #[test]
+    fn a_closure_refused_for_making_a_function_leaves_no_table_pair() {
+        use compiler::value::Limits;
+        let defs = "def inc(y): return y + 1\ndef dbl(y): return y * 2\ndef make(g):\n    return lambda x: g(x) + (lambda z: z)(1)\na = make(inc)\nb = make(dbl)\n";
+        let grown = "def drive(h):\n    t = 0\n    for i in range(50):\n        t += h(i)\n    return t\nprint(drive(inc))\na(0)\nb(0)\nprint(drive(a), drive(b))\n";
+        let laid = "a(0)\nb(0)\ndef twice(h, n):\n    t = 0\n    for i in range(n):\n        t += inc(i) + h(i)\n    return t\ns = 0\nfor r in range(70):\n    s += twice(a, 3)\nprint(s)\n";
+        for (rest, want) in [(grown, vec!["1275", "1325 2500"]), (laid, vec!["1050"])] {
+            let src = format!("{defs}{rest}");
+            let (tokens, _) = lex(&src);
+            let (mut chunk, errs) = Parser::new(&src, tokens.into_iter()).parse();
+            assert!(errs.is_empty(), "{src}");
+            compiler::code::constant_fold(&mut chunk);
+            let mut vm = VM::with_limits(&chunk, Limits::sandbox());
+            assert!(vm.run().is_ok(), "{src}");
+            assert_eq!(vm.output, want, "{src}");
+        }
+    }
 }
