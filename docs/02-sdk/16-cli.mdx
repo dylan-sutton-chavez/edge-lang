@@ -5,7 +5,7 @@ description: "The cli crate as a kit, a core that takes a runtime and the comman
 
 # CLI kit
 
-A runtime of your own gets a CLI by handing the `cli` crate its `.wasm` and its descriptor, as uptime's does in the 23 lines of `examples/uptime/cli/src/lib.rs`. The crate is a kit. Its core loads a runtime into wasmtime, reads `edge.json`, resolves modules, bridges host calls and runs the commands a composition wires. Every command is a component behind a Cargo feature, and so are grants and actors. The `edge` binary is one composition of it.
+A runtime of your own gets a CLI by handing the `cli` crate its `.wasm` and its descriptor, as uptime's does in the 23 lines of `examples/uptime/cli/src/lib.rs`. The crate is a kit. Its core runs a runtime on wasmtime or built into the binary, reads `edge.json`, resolves modules, bridges host calls and runs the commands a composition wires. Every command is a component behind a Cargo feature, and so are grants and actors. The `edge` binary is one composition of it.
 
 ## A composition
 
@@ -14,10 +14,10 @@ A composition of your own is a crate of its own that takes the kit with only the
 ```rust file=examples/uptime/cli/src/lib.rs
 ```
 
-Its manifest takes the kit in one line, with the four components it wires, and builds none of the others. [Start your own crate](/docs/edge-lang/get-started/use-cases/your-runtime#start-your-own-crate) gives the line it writes outside the clone.
+Its manifest takes the kit in one line, with the four components it wires and the `wasm` engine its runtime runs on, and builds none of the others. [Start your own crate](/docs/edge-lang/get-started/use-cases/your-runtime#start-your-own-crate) gives the line it writes outside the clone.
 
 ```toml
-cli = { path = "../../../cli", default-features = false, features = ["net", "perms", "run", "test"] }
+cli = { path = "../../../cli", default-features = false, features = ["net", "perms", "run", "test", "wasm"] }
 ```
 
 `edge` is the composition of every component.
@@ -49,6 +49,7 @@ Tests and staging move the origin and the registry with two variables named afte
 |---|---|
 | `Runtime::wasm(bytes, &DESCRIPTOR)` | A runtime's `.wasm`, which wasmtime compiles on the first load and maps from a cache after |
 | `Runtime::precompiled(wasm, native, &DESCRIPTOR)` | The `.wasm` and the native code wasmtime made of it at build time, which `edge` does with `edge.cwasm` in its `build.rs`. It is `unsafe`, since the kit cannot check that the two match |
+| `Runtime::native(&RUNTIME)` | A runtime built into the binary, which runs in the process with no wasm between as `examples/native` boots one. The binary installs `edge::allocator!()` so a run's memory limit holds. It loads no wasm plugin, runs no actor pool and drives no page, and each refuses with why |
 | `.words(f)` | How the runtime words a run error, taking the source, the class and message the error carries and the byte it rose at, and giving the whole report a host prints |
 
 Without `.words` a host prints the report the engine rendered, whose classes already come from the runtime's `Names`. A runtime that words errors around its own structure wires the function, as the flow runtime does with `tiny::report`, which names the report and the key an error rose in.
@@ -84,7 +85,7 @@ A command implements `Command`.
 | `boot(kit)` | Optionally, the whole process before any argument is read, as an app carried inside a binary takes it |
 | `run(kit, matches)` | Runs with the matches of its own spec and returns the exit code |
 
-Inside `run`, a command reaches the core through the kit. `descriptor()` gives the runtime's names, `manifest(path)` gives `edge.json` held to every rule, `load()` gives the runtime loaded with the wired modules, and `grants()` and `wired()` give the access and the modules. A command that runs programs reads `--memory` and `--ops` into a `RunLimits`, and `RunLimits::over(kit.run_limits())` gives the limits a run holds, each flag given in place of what the kit sets.
+Inside `run`, a command reaches the core through the kit. `descriptor()` gives the runtime's names, `manifest(path)` gives `edge.json` held to every rule, `engine(print, project)` gives an interpreter of the runtime on its engine with the wired modules, and `grants()` and `wired()` give the access and the modules. A command that runs programs reads `--memory` and `--ops` into a `RunLimits`, and `RunLimits::over(kit.run_limits())` gives the limits a run holds, each flag given in place of what the kit sets.
 
 `init` is a whole command. It reads the entry and the scaffold from the descriptor, so a kit over tiny would scaffold a flow. It writes `index.html` only where the `web` component is on, and its last line names a command the composition wires, `serve` beside the page and `run` otherwise. A directory it is given must not exist yet, even empty, and with none it writes into the current directory and never overwrites a file, naming the first one that already exists.
 
@@ -111,8 +112,9 @@ Inside `run`, a command reaches the core through the kit. `descriptor()` gives t
 | `docs` | `docs::FIELD` and `docs::collect` | The pages a package ships, held to the convention and to the icons Lucide draws |
 | `web` | `host::browser` and the embedded JS host | The browser host a dist vendors and `--web` drives |
 | `embed` | The runtime `build.rs` precompiles | The reference runtime the `edge` binary hands the kit |
+| `wasm` | wasmtime and `host::wasm` | Runtimes as `.wasm` and the plugins a project declares, on by default and needed by `embed` and `actors` |
 
-The feature `all` turns every component on, and the `edge` binary requires it. A composition builds only what it embeds, so a CLI over a runtime of its own leaves out `embed`, `web` and `docs`, and `build.rs` then precompiles nothing, copies no icons and compiles no browser host into the binary. `lint-cli` builds the bare kit, each component alone and both examples. `cli/examples/decoupled.rs` compiles every command again outside the crate, where only the kit's public API resolves.
+The feature `all` turns every component on, and the `edge` binary requires it. A composition builds only what it embeds, so a CLI over a runtime of its own leaves out `embed`, `web` and `docs`, and `build.rs` then precompiles nothing, copies no icons and compiles no browser host into the binary. One over `Runtime::native` leaves out `wasm` too and compiles no wasmtime, as `cli/tests/native.rs` composes `run` and `test` over mini and runs the cases both hosts share on it. `lint-cli` builds the bare kit, each component alone, both examples and that test without wasm. `cli/examples/decoupled.rs` compiles every command again outside the crate, where only the kit's public API resolves.
 
 ## Named outputs
 

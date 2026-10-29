@@ -1,4 +1,4 @@
-use cli::host::{Calls, Fault, Held, HostModule, Instance, Reply, WireValue};
+use cli::host::{Calls, Fault, Held, HostModule, Reply, Serve, WireValue};
 use flate2::bufread::GzDecoder;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -271,7 +271,7 @@ impl HostModule for Replay {
         Ok(None)
     }
 
-    fn open(&self, inst: &mut Instance, spec: &str, _pkg: &str, held: Held) -> Result<(), String> {
+    fn open(&self, inst: &mut dyn Serve, spec: &str, _pkg: &str, held: Held) -> Result<(), String> {
         inst.serve(spec, "net", &["request", "response", "read", "close"], Box::new(Bodies { held, open: HashMap::new(), next: 1 }))
     }
 }

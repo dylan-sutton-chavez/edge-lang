@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use edge::deps::dir_of;
 
-use crate::host::{driver, linear_cap, now_ns, time_limit, Fetched, Host, Project, Sink, Status, Vm, Walk, TICK_NS};
+use crate::host::{driver, linear_cap, now_ns, time_limit, Engine, Fetched, Host, Project, Sink, Status, Vm, Walk, TICK_NS};
 use crate::pack::{base64_decode, into_files, Bundle, BUNDLE_TAG};
 
 use super::pool::{Eval, GroupSpec, Message, Out, Reply};

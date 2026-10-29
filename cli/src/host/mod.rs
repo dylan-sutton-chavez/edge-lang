@@ -1,38 +1,35 @@
 mod access;
 #[cfg(feature = "web")]
 pub mod browser;
-pub mod config;
 pub mod driver;
-mod env;
+mod engine;
 mod module;
-mod plugins;
+mod native;
 mod resolver;
-mod rt;
 pub mod scan;
 mod send;
-mod vm;
+mod shared;
+#[cfg(feature = "wasm")]
+mod wasm;
 
 pub use access::{Access, Closed, Held, Open, Package, Packages, Scopes, Untrusted};
 pub use edge::abi::{ErrorKind, WireValue};
+pub use engine::{snapshot_source, Completion, Engine, Status};
 pub use module::{Calls, Reply};
+pub use native::Native;
 pub use resolver::{fetch_cached, Fetched, Project, Remote, Walk};
+pub(crate) use resolver::Side;
 pub use send::{ChannelSink, Senders, FILE};
-pub use vm::{time_limit, Completion, Instance, Status, Vm};
+pub use shared::{Hosted, Hosting, Opened, Waits, Wiring};
+#[cfg(feature = "wasm")]
+pub use wasm::{config, linear_cap, time_limit, Host, Instance, Loaded, Vm, TICK_NS};
 
-use anyhow::{anyhow, Result};
 use edge::value::Limits;
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::rc::Rc;
-use std::sync::mpsc::Sender;
-use std::sync::{Arc, Mutex, OnceLock};
-use wasmtime::{AsContextMut, Engine, Instance as Wasm, InstancePre, Linker, Memory, Module, ResourceLimiter, Store, TypedFunc};
+use std::sync::OnceLock;
 
-use crate::kit::{Descriptor, Runtime};
-
-// the epoch ticker period that untrusted deadlines count in
-pub const TICK_NS: u64 = 100_000_000;
+use crate::kit::Descriptor;
 
 // a build pulls dozens of files so one reset among them should not end it
 const ATTEMPTS: usize = 3;
@@ -167,10 +164,6 @@ pub fn now_ns() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_nanos() as u64)
 }
 
-pub fn wt<T>(r: wasmtime::Result<T>) -> Result<T> {
-    r.map_err(|e| anyhow!("{e}"))
-}
-
 pub type Sink = Box<dyn FnMut(&str) + Send>;
 
 /* whether a bind address is the loopback interface a request must then name */
@@ -195,8 +188,14 @@ pub use edge::deps::rules::plain as plain_path;
 // each registered module spec with the native table slice it occupies
 pub type Registered = HashMap<String, (usize, Vec<String>)>;
 
-// the universal dispatch export taking op receiver name argv argc and the out slot
-pub type EdgeOp = TypedFunc<(i32, i32, i32, i32, i32, i32, i32), i32>;
+/* where a host module opened for a package serves its calls */
+pub trait Serve {
+    /* where the files of the run come from which a module reads its own dirs by */
+    fn project(&self) -> &Project;
+
+    /* serves the calls `module` opened under `spec` with `names` in the order their index answers */
+    fn serve(&mut self, spec: &str, module: &str, names: &[&str], calls: Box<dyn Calls>) -> Result<(), String>;
+}
 
 /* a module the host serves under a name no import may shadow */
 pub trait HostModule: Send + Sync {
@@ -219,7 +218,7 @@ pub trait HostModule: Send + Sync {
     }
 
     /* registers the calls of the module in `inst` under `spec` for `pkg` holding `held` */
-    fn open(&self, inst: &mut Instance, spec: &str, pkg: &str, held: Held) -> Result<(), String>;
+    fn open(&self, inst: &mut dyn Serve, spec: &str, pkg: &str, held: Held) -> Result<(), String>;
 
     /* whether what a package holds lets it write `path` through a file channel */
     fn writes(&self, _held: &Held, _path: &str) -> bool {
@@ -275,133 +274,6 @@ impl Fault {
     }
 }
 
-/* the runtime loaded into wasmtime with what every scheduler thread shares */
-pub struct Loaded {
-    pub engine: Engine,
-    module: Module,
-    pub descriptor: &'static Descriptor,
-    // the host modules the composition wired which every run of this runtime may import
-    modules: Vec<Arc<dyn HostModule>>,
-    // what trusted runs hold of them and the holder names each manifest field reserves
-    access: Arc<dyn Access>,
-    holders: Vec<(&'static str, &'static str)>,
-    // what a run holds where its command line names no limit
-    pub limits: Limits,
-}
-
-impl Loaded {
-    /* maps a precompiled runtime or compiles a raw one once through the native cache */
-    pub fn new(runtime: &Runtime, modules: Vec<Arc<dyn HostModule>>, access: Arc<dyn Access>, holders: Vec<(&'static str, &'static str)>, limits: Limits) -> Result<Arc<Loaded>> {
-        let engine = wt(Engine::new(&config::base()))?;
-        let module = match runtime.native() {
-            // SAFETY whoever built the runtime vouched these bytes are this config's precompile
-            Some(native) => wt(unsafe { Module::deserialize(&engine, native) })?,
-            None => crate::wasm_cache::load(&engine, runtime.module()).map_err(|e| anyhow!("compiling the runtime: {e}"))?,
-        };
-        Ok(Arc::new(Loaded { engine, module, descriptor: runtime.descriptor(), modules, access, holders, limits }))
-    }
-
-    pub fn modules(&self) -> &[Arc<dyn HostModule>] {
-        &self.modules
-    }
-
-    /* the access of a run where an untrusted run with none reaches nothing */
-    pub fn access(&self, project: &Project) -> Arc<dyn Access> {
-        match (&project.access, project.untrusted) {
-            (Some(access), _) => access.clone(),
-            (None, true) => Arc::new(Closed),
-            (None, false) => self.access.clone(),
-        }
-    }
-
-    /* the field a walk carries for `access` then the holders it reserves one per line */
-    fn carried(&self, access: &dyn Access) -> String {
-        let Some(field) = access.field() else { return String::new() };
-        let holders = self.holders.iter().filter(|(_, by)| *by == field).map(|(holder, _)| *holder);
-        std::iter::once(field).chain(holders).collect::<Vec<_>>().join("\n")
-    }
-
-    /* the module names the walk keeps any import from shadowing joined by newlines */
-    fn reserved(&self) -> String {
-        self.modules.iter().map(|module| module.name()).collect::<Vec<_>>().join("\n")
-    }
-
-    /* advances the engine epoch every tick so untrusted deadlines fire */
-    pub fn start_ticker(self: &Arc<Self>) {
-        let loaded = self.clone();
-        std::thread::spawn(move || {
-            loop {
-                std::thread::sleep(std::time::Duration::from_nanos(TICK_NS));
-                loaded.engine.increment_epoch();
-            }
-        });
-    }
-}
-
-/* per-thread linkers over the loaded runtime that mint the instances */
-pub struct Host {
-    pub loaded: Arc<Loaded>,
-    // the runtime with its imports linked once per thread
-    linked: InstancePre<State>,
-    guest: Linker<State>,
-    // third party plugins by the sha256 of their bytes compiled once per thread
-    plugins: RefCell<HashMap<[u8; 32], InstancePre<State>>>,
-}
-
-impl Host {
-    pub fn new(loaded: Arc<Loaded>) -> Result<Rc<Host>> {
-        let mut linker = Linker::new(&loaded.engine);
-        env::link(&mut linker)?;
-        let linked = wt(linker.instantiate_pre(&loaded.module))?;
-        let mut guest = Linker::new(&loaded.engine);
-        plugins::link(&mut guest)?;
-        Ok(Rc::new(Host { loaded, linked, guest, plugins: RefCell::new(HashMap::new()) }))
-    }
-
-    pub fn descriptor(&self) -> &'static Descriptor {
-        self.loaded.descriptor
-    }
-
-    /* a third party plugin linked for instantiation which Cranelift compiles on first sight */
-    pub fn third_party(&self, bytes: &[u8]) -> Result<InstancePre<State>, String> {
-        let key = edge::util::sha256::sha256(bytes);
-        if let Some(pre) = self.plugins.borrow().get(&key) {
-            return Ok(pre.clone());
-        }
-        let module = crate::wasm_cache::load(&self.loaded.engine, bytes)?;
-        let pre = self.plugin_pre(&module)?;
-        self.plugins.borrow_mut().insert(key, pre.clone());
-        Ok(pre)
-    }
-
-    /* a plugin module linked against the guest imports */
-    pub fn plugin_pre(&self, module: &Module) -> Result<InstancePre<State>, String> {
-        wt(self.guest.instantiate_pre(module)).map_err(|e| e.to_string())
-    }
-}
-
-/* one export of a plugin instance with the ABI exports its calls go through */
-#[derive(Clone)]
-pub struct Plugin {
-    pub func: TypedFunc<(i32, i32, i32), i32>,
-    pub alloc: TypedFunc<i32, i32>,
-    pub free: Option<TypedFunc<(i32, i32), ()>>,
-    pub memory: Memory,
-    // where a host call the plugin waited on settles
-    pub resume: Option<TypedFunc<(i32, i32, i32), i32>>,
-}
-
-// the calls one package opened of a host module shared by each of its natives
-pub type Opened = Arc<Mutex<Box<dyn Calls>>>;
-
-/* one entry of the native table the runtime dispatches `host_call_native` through */
-#[derive(Clone)]
-pub enum Native {
-    Plugin(Box<Plugin>),
-    // a host module call by its index among the names it was served under
-    Host { calls: Opened, index: usize, name: Arc<str> },
-}
-
 /* what `--memory` in MB and `--ops` asked for with `None` for the composition's value */
 #[derive(clap::Args, Clone, Copy, Default)]
 pub struct RunLimits {
@@ -436,206 +308,6 @@ impl RunLimits {
             .mut_arg("memory", |arg| arg.help(format!("Memory a run may hold, in MB [default: {}]", limits.memory >> 20)))
             .mut_arg("ops", |arg| arg.help(format!("Operations a run may spend [default: {}]", limits.ops)))
     }
-}
-
-/* room past the limit for garbage plus a doubling container and the engine itself */
-pub fn linear_cap(memory: usize) -> usize {
-    memory.saturating_mul(3).saturating_add(64 << 20)
-}
-
-// refuses linear memory growth past the cap so an untrusted run cannot outgrow its slot
-pub struct MemoryCap {
-    pub max: usize,
-}
-
-impl ResourceLimiter for MemoryCap {
-    fn memory_growing(&mut self, _current: usize, desired: usize, _maximum: Option<usize>) -> wasmtime::Result<bool> {
-        Ok(desired <= self.max)
-    }
-
-    fn table_growing(&mut self, _current: usize, _desired: usize, _maximum: Option<usize>) -> wasmtime::Result<bool> {
-        Ok(true)
-    }
-}
-
-/* everything the host functions reach through the store shared by the slots of the instance */
-pub struct State {
-    pub exports: Option<Exports>,
-    pub print: Sink,
-    pub natives: Vec<Native>,
-    pub registered: Registered,
-    // ids of host calls parked since the last dispatch whose answers arrive as completions
-    pub deferred: Vec<u32>,
-    // the plugin calls running now innermost last which `edge_call_id` answers with
-    pub running: Vec<u32>,
-    // the plugin waiting on each call id resumed once the host call it made settles
-    pub waiting: HashMap<u32, Box<Plugin>>,
-    // messages `send()` handed over or `None` outside an actor pool where no scheduler drains them
-    pub outbox: Option<Vec<(String, String)>>,
-    // the bytes the outbox holds and the most a run may leave there between steps
-    pub outbox_bytes: usize,
-    pub outbox_cap: usize,
-    // where a run's channels take each line the moment the program sends it
-    pub channel: Option<ChannelSink>,
-    // the first line a channel could not take which ends the run after its step
-    pub channel_error: Option<String>,
-    // the packages the last walk met which decide who writes a file channel
-    pub senders: Option<Senders>,
-    // the group the first send went to that no outbox took
-    pub unsent: Option<String>,
-    pub limiter: MemoryCap,
-    // the selected slot and the channel its completions and events reach it through
-    pub slot: u32,
-    pub events: Option<Sender<Completion>>,
-    // the host modules this instance opened which close with it
-    pub opened: Vec<Opened>,
-    // the runtime that names the classes a failed host call raises
-    pub descriptor: &'static Descriptor,
-}
-
-impl State {
-    /* aborts what every opened host module left running */
-    pub(crate) fn close_opened(&mut self) {
-        for calls in self.opened.drain(..) {
-            calls.lock().unwrap_or_else(|e| e.into_inner()).close();
-        }
-    }
-}
-
-impl Drop for State {
-    fn drop(&mut self) {
-        self.close_opened();
-    }
-}
-
-/* the runtime exports the host drives bound once per instance */
-#[derive(Clone)]
-pub struct Exports {
-    pub memory: Memory,
-    pub out_ptr: TypedFunc<(), i32>,
-    pub out_len: TypedFunc<(), i32>,
-    pub wasm_alloc: TypedFunc<i32, i32>,
-    pub wasm_free: TypedFunc<(i32, i32), ()>,
-    pub register_native_module: TypedFunc<(i32, i32, i32, i32, i32), ()>,
-    pub register_module_error: TypedFunc<(i32, i32, i32, i32), ()>,
-    pub reset_modules: TypedFunc<(), ()>,
-    pub set_entry: TypedFunc<(i32, i32), ()>,
-    pub set_input: TypedFunc<(i32, i32), ()>,
-    pub repl_eval: TypedFunc<(i32, i32), i32>,
-    pub run_start: TypedFunc<(i32, i32), i32>,
-    pub run_resume: TypedFunc<(), i32>,
-    pub run_push_event: TypedFunc<(i32, i32), i32>,
-    pub set_host_result_by_id: TypedFunc<(i32, i32), i32>,
-    pub set_host_error_by_id: TypedFunc<(i32, i32, i32), i32>,
-    pub set_preempt_interval: TypedFunc<i32, ()>,
-    pub save_state: TypedFunc<(), i64>,
-    pub restore_state: TypedFunc<(i32, i32), i32>,
-    pub host_edge_op: EdgeOp,
-    pub host_edge_encode: TypedFunc<(i32, i32, i32), i32>,
-    pub host_edge_decode: TypedFunc<(i32, i32, i32, i32), i32>,
-    pub host_edge_release: TypedFunc<i32, ()>,
-    pub host_edge_throw: TypedFunc<(i32, i32, i32), ()>,
-    pub host_edge_take_error: TypedFunc<(i32, i32, i32), i32>,
-    pub set_limits: TypedFunc<(i64, i64), ()>,
-    pub vm_create: TypedFunc<(), i32>,
-    pub vm_select: TypedFunc<i32, i32>,
-    pub vm_drop: TypedFunc<i32, i32>,
-    // the engine resolution walk where each call answers one step and leaves the next
-    pub walk_start: TypedFunc<(i32, i32, i32, i32), i32>,
-    pub walk_fetched: TypedFunc<(i32, i32, i32), i32>,
-    pub walk_plugin_bytes: TypedFunc<(), i32>,
-    pub walk_plugin: TypedFunc<(i32, i32, i32), i32>,
-    pub walk_served: TypedFunc<(i32, i32), i32>,
-    pub walk_known: TypedFunc<(i32, i32), i32>,
-    // a runtime built before walks carried a field lacks it and carries its own default
-    pub walk_carry: Option<TypedFunc<(i32, i32), ()>>,
-    // a runtime older than it lacks it and every send then reads as the root's
-    pub send_package: Option<TypedFunc<(), i32>>,
-    // the runtime's descriptor which a runtime older than it lacks
-    pub runtime_descriptor: Option<TypedFunc<(), i32>>,
-}
-
-impl Exports {
-    fn bind(store: &mut Store<State>, instance: &Wasm) -> Result<Exports> {
-        let memory = instance.get_memory(&mut *store, "memory").ok_or_else(|| anyhow!("edge.wasm exports no memory"))?;
-        macro_rules! f {
-            ($name:literal) => {
-                wt(instance.get_typed_func(&mut *store, $name))?
-            };
-        }
-        Ok(Exports {
-            memory,
-            out_ptr: f!("out_ptr"),
-            out_len: f!("out_len"),
-            wasm_alloc: f!("wasm_alloc"),
-            wasm_free: f!("wasm_free"),
-            register_native_module: f!("register_native_module"),
-            register_module_error: f!("register_module_error"),
-            reset_modules: f!("reset_modules"),
-            set_entry: f!("set_entry"),
-            set_input: f!("set_input"),
-            repl_eval: f!("repl_eval"),
-            run_start: f!("run_start"),
-            run_resume: f!("run_resume"),
-            run_push_event: f!("run_push_event"),
-            set_host_result_by_id: f!("set_host_result_by_id"),
-            set_host_error_by_id: f!("set_host_error_by_id"),
-            set_preempt_interval: f!("set_preempt_interval"),
-            save_state: f!("save_state"),
-            restore_state: f!("restore_state"),
-            host_edge_op: f!("host_edge_op"),
-            host_edge_encode: f!("host_edge_encode"),
-            host_edge_decode: f!("host_edge_decode"),
-            host_edge_release: f!("host_edge_release"),
-            host_edge_throw: f!("host_edge_throw"),
-            host_edge_take_error: f!("host_edge_take_error"),
-            set_limits: f!("set_limits"),
-            vm_create: f!("vm_create"),
-            vm_select: f!("vm_select"),
-            vm_drop: f!("vm_drop"),
-            walk_start: f!("walk_start"),
-            walk_fetched: f!("walk_fetched"),
-            walk_plugin_bytes: f!("walk_plugin_bytes"),
-            walk_plugin: f!("walk_plugin"),
-            walk_served: f!("walk_served"),
-            walk_known: f!("walk_known"),
-            walk_carry: instance.get_typed_func(&mut *store, "walk_carry").ok(),
-            send_package: instance.get_typed_func(&mut *store, "send_package").ok(),
-            runtime_descriptor: instance.get_typed_func(&mut *store, "runtime_descriptor").ok(),
-        })
-    }
-}
-
-pub(crate) fn read(cx: &mut impl AsContextMut<Data = State>, mem: Memory, ptr: i32, len: i32) -> Vec<u8> {
-    let mut buf = vec![0u8; len.max(0) as usize];
-    if mem.read(&mut *cx, ptr as u32 as usize, &mut buf).is_err() {
-        buf.clear();
-    }
-    buf
-}
-
-pub(crate) fn write(cx: &mut impl AsContextMut<Data = State>, mem: Memory, ptr: i32, bytes: &[u8]) {
-    let _ = mem.write(&mut *cx, ptr as u32 as usize, bytes);
-}
-
-pub(crate) fn read_u32(cx: &mut impl AsContextMut<Data = State>, mem: Memory, ptr: i32) -> u32 {
-    let bytes = read(cx, mem, ptr, 4);
-    bytes.try_into().map(u32::from_le_bytes).unwrap_or(0)
-}
-
-pub(crate) fn write_u32(cx: &mut impl AsContextMut<Data = State>, mem: Memory, ptr: i32, value: u32) {
-    write(cx, mem, ptr, &value.to_le_bytes());
-}
-
-/* copies bytes into a fresh runtime allocation that `unstage` frees with the same length */
-pub(crate) fn stage(cx: &mut impl AsContextMut<Data = State>, ex: &Exports, bytes: &[u8]) -> wasmtime::Result<i32> {
-    let ptr = ex.wasm_alloc.call(&mut *cx, bytes.len().max(1) as i32)?;
-    write(cx, ex.memory, ptr, bytes);
-    Ok(ptr)
-}
-
-pub(crate) fn unstage(cx: &mut impl AsContextMut<Data = State>, ex: &Exports, ptr: i32, len: usize) {
-    let _ = ex.wasm_free.call(&mut *cx, (ptr, len.max(1) as i32));
 }
 
 #[cfg(test)]

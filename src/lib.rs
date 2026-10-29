@@ -12,6 +12,10 @@ pub mod abi {
     mod wire;
     pub use wire::*;
 
+    // heap values as wire trees and back for a host that runs the vm in its own process
+    mod values;
+    pub use values::{error_from_kind, from_wire, to_wire};
+
     /* the host bridge behind the six plugin imports in the wasm runtime */
     #[cfg(all(target_arch = "wasm32", feature = "runtime"))]
     pub mod bridge;
@@ -55,6 +59,8 @@ pub mod embed {
     pub use crate::vm::snapshot::{SnapErr, save, save_swept, restore, source_of, entry_of, runtime_of, saved_under, limits_of, inspect_globals, inspect_stack, RUNTIME_AT, OTHER_RUNTIME};
     pub use crate::value::{Limits, SchedulerStatus};
     pub use crate::deps::{NativeBinding, Resolved, Resolver};
+    #[cfg(feature = "std")]
+    pub use crate::vm::calling::{calling, refuse, Calling};
 
     use alloc::vec::Vec;
     use crate::value::{Val, VmErr};

@@ -20,7 +20,9 @@ CLI_INPUTS := $(if $(EDGE_WASM),,wasm-cli) $(if $(EDGE_JS_DIST),,js) lucide
 # the components the edge binary wires as cli/Cargo.toml lists them under its all feature
 CLI_COMPONENTS := $(shell sed -n 's/^all = \[\(.*\)\]$$/\1/p' cli/Cargo.toml | tr -d '",')
 
-CLI_TEST_engine := --lib --bin edge --test cli --test run -- --skip net_suite
+# the components the native test wires which build no wasmtime
+CLI_NATIVE := docs,files,net,perms,publish,run,test,web
+CLI_TEST_engine := --lib --bin edge --test cli --test run --test native -- --skip net_suite
 # the channels test fetches the pinned hour so it runs with the network cases
 CLI_TEST_network := --test cli --test channels net_suite
 CLI_TEST_actors := --test actor
@@ -124,12 +126,14 @@ lint-js:
 	deno check --config js/src/worker/deno.json js/src/worker/worker.ts js/src/worker/engine.ts
 	deno check make/
 
-# each component builds alone and the runner example with only the three it needs
+# each component builds alone, the runner example with only the three it needs and the native test with no wasmtime
 lint-cli: $(CLI_INPUTS) wasm-tiny wasm-uptime
 	cd cli && cargo clippy --locked --all-targets -- -D warnings
 	cd cli && cargo check --locked
 	cd cli && for f in "" $(CLI_COMPONENTS); do cargo clippy --locked --lib --no-default-features --features "$$f" -- -D warnings || exit 1; done
 	cd cli && cargo clippy --locked --no-default-features --features embed,run,test --example runner --example decoupled -- -D warnings
+	cd cli && cargo clippy --locked --no-default-features --features $(CLI_NATIVE) --test native -- -D warnings
+	cd cli && ! cargo tree --locked --no-default-features --features $(CLI_NATIVE) -e normal,build | grep -q wasmtime
 	$(UPTIME_CLI) cargo clippy --locked --all-targets -- -D warnings
 	$(TINY_CLI) cargo clippy --locked --all-targets -- -D warnings
 

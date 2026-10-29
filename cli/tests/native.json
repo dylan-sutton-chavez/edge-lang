@@ -1,0 +1,29 @@
+[
+  {
+    "given": { "a_test.mini": "exit(0)\n", "b_test.mini": "x = [1]\nprint(x)\n" },
+    "run": ["test"],
+    "stdout": ["(successful) a_test.mini", "(successful) b_test.mini", "2/2 files passed"]
+  },
+  {
+    "given": { "main.mini": "print(input(), input())\n" },
+    "run": ["run", "main.mini"],
+    "stdin": "a\r\nb\n",
+    "stdout": ["a b\n"]
+  },
+  {
+    "given": { "main.mini": "xs = [1, 2]\nm = receive()\nprint(xs, m)\n", "ev.txt": "hi\n" },
+    "before": [["run", "main.mini", "--save-state", "state.bin"]],
+    "run": ["run", "--restore-state", "state.bin", "--events", "ev.txt"],
+    "stdout": ["[1, 2] hi\n"]
+  },
+  {
+    "given": { "edge.json": "{ \"imports\": { \"s\": \"./s.wasm\" } }\n", "s.wasm": "", "main.mini": "import s\n" },
+    "run": ["run", "main.mini"],
+    "fails": ["is a wasm plugin and a runtime run natively loads none"]
+  },
+  {
+    "given": { "main.mini": "print(1)\n" },
+    "run": ["run", "--web", "main.mini"],
+    "fails": ["edge runs its runtime natively and a page runs only a wasm module"]
+  }
+]

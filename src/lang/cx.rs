@@ -155,7 +155,17 @@ impl<'c, 'v> Cx<'c, 'v> {
     /* the oldest event the host pushed */
     pub fn take_event(&mut self) -> Option<Val> { self.vm.take_event() }
     /* whether the host's scheduler took the message */
-    pub fn send(&mut self, group: &str, body: &str) -> bool { self.vm.send_hook.is_some_and(|hook| hook(group, body)) }
+    pub fn send(&mut self, group: &str, body: &str) -> bool {
+        #[cfg(all(target_arch = "wasm32", feature = "runtime"))]
+        {
+            self.vm.send_hook.is_some_and(|hook| hook(group, body))
+        }
+        // a refused send reads as not taken as the wasm runtime's hook gives it
+        #[cfg(not(all(target_arch = "wasm32", feature = "runtime")))]
+        {
+            self.sent(group, body).unwrap_or(false)
+        }
+    }
     /* whether the host took the message or the error it refused the message with */
     pub fn sent(&mut self, group: &str, body: &str) -> Result<bool, VmErr> {
         // the wasm runtime hands a send straight to its host which may refuse it
@@ -165,7 +175,13 @@ impl<'c, 'v> Cx<'c, 'v> {
         }
         #[cfg(not(all(target_arch = "wasm32", feature = "runtime")))]
         {
-            Ok(self.vm.send_hook.is_some_and(|hook| hook(group, body)))
+            // a host in this process reads which file sends and may refuse it
+            #[cfg(feature = "std")]
+            let _now = crate::vm::calling::Now::enter(0, self.vm.running_file());
+            let taken = self.vm.send_hook.is_some_and(|hook| hook(group, body));
+            #[cfg(feature = "std")]
+            if let Some(e) = crate::vm::calling::refused() { return Err(e); }
+            Ok(taken)
         }
     }
 

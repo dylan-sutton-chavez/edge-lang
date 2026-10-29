@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use slab::Slab;
 
-use crate::host::{linear_cap, now_ns, Host, Instance, Loaded, Project, Vm};
+use crate::host::{linear_cap, now_ns, Engine, Host, Instance, Loaded, Project, Vm};
 
 use super::actor::{sink_for, Actor, Step};
 use super::pool::{GroupSpec, Message, Pool};

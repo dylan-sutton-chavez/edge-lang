@@ -1,4 +1,5 @@
-use super::{read, read_u32, rt, stage, unstage, write, write_u32, ErrorKind, Exports, Fault, Native, Plugin, Reply, State};
+use super::{read, read_u32, rt, stage, unstage, write, write_u32, Exports, Native, Plugin, State};
+use crate::host::{ErrorKind, Fault};
 use anyhow::{anyhow, Result};
 use edge::abi::WireValue;
 use wasmtime::{AsContextMut, Caller, Linker};
@@ -9,7 +10,7 @@ pub fn link(linker: &mut Linker<State>) -> Result<()> {
         .func_wrap("env", "host_print", |mut caller: Caller<'_, State>, ptr: i32, len: i32| {
             let ex = exports(&caller);
             let text = String::from_utf8_lossy(&read(&mut caller, ex.memory, ptr, len)).into_owned();
-            (caller.data_mut().print)(&text);
+            (caller.data_mut().hosting.print)(&text);
         })
         .map_err(|e| anyhow!("{e}"))?;
     // the walk already gave the runtime every manifest so nothing more answers here
@@ -25,8 +26,10 @@ pub fn link(linker: &mut Linker<State>) -> Result<()> {
             let ex = exports(&caller);
             let group = String::from_utf8_lossy(&read(&mut caller, ex.memory, group_ptr, group_len)).into_owned();
             let body = String::from_utf8_lossy(&read(&mut caller, ex.memory, body_ptr, body_len)).into_owned();
+            // only a file channel of a run with packages asks which of them sends
+            let dir = if caller.data().hosting.asks_sender(&group) { sender(&mut caller, &ex) } else { None };
             // a refused send raises the fault the runtime finds stashed when it sees 2
-            match super::send::deliver(&mut caller, &ex, group, body) {
+            match caller.data_mut().hosting.deliver(group, body, dir) {
                 Ok(true) => 0,
                 Ok(false) => 1,
                 Err(fault) => {
@@ -97,12 +100,12 @@ fn call_native(caller: &mut Caller<'_, State>, id: i32, call_id: i32, argv_ptr: 
             }
             Ok(status)
         }
-        Native::Host { calls, index, name } => {
+        Native::Host(hosted) => {
             let raw = read(caller, ex.memory, argv_ptr, argc.max(1) * 4);
             let handles: Vec<u32> = raw.as_chunks::<4>().0.iter().map(|c| u32::from_le_bytes(*c)).collect();
             // the trailing slot holds the kwargs a host module call never takes
             let Some((&0, positional)) = handles.split_last() else {
-                throw(caller, &ex, &Fault::new(ErrorKind::Type, format!("{name} takes positional arguments only")));
+                throw(caller, &ex, &Fault::new(ErrorKind::Type, format!("{} takes positional arguments only", hosted.name)));
                 return Ok(1);
             };
             let mut args = Vec::with_capacity(positional.len());
@@ -115,28 +118,20 @@ fn call_native(caller: &mut Caller<'_, State>, id: i32, call_id: i32, argv_ptr: 
                     }
                 }
             }
-            let Some(events) = caller.data().events.clone() else {
-                throw(caller, &ex, &Fault::runtime(format!("{name} has no interpreter to answer")));
-                return Ok(1);
-            };
-            let (reply, settle) = Reply::new(call_id as u32, events.clone(), name);
-            calls.lock().unwrap_or_else(|e| e.into_inner()).call(index, args, reply);
-            Ok(answered(caller, &ex, out_ptr, call_id, settle.settle(call_id as u32, &events).transpose()))
+            let answer = caller.data_mut().hosting.call(&hosted, call_id as u32, args);
+            Ok(answered(caller, &ex, out_ptr, answer))
         }
     }
 }
 
 /* answers the runtime with a value now or a park until later or an error */
-fn answered(caller: &mut Caller<'_, State>, ex: &Exports, out_ptr: i32, call_id: i32, answer: Result<Option<WireValue>, Fault>) -> i32 {
+fn answered(caller: &mut Caller<'_, State>, ex: &Exports, out_ptr: i32, answer: Result<Option<WireValue>, Fault>) -> i32 {
     match answer.and_then(|value| value.map(|v| rt::encode(caller, ex, &v).map_err(Fault::runtime)).transpose()) {
         Ok(Some(handle)) => {
             write_u32(caller, ex.memory, out_ptr, handle);
             0
         }
-        Ok(None) => {
-            caller.data_mut().deferred.push(call_id as u32);
-            2
-        }
+        Ok(None) => 2,
         Err(fault) => {
             throw(caller, ex, &fault);
             1
@@ -219,10 +214,17 @@ fn trapped(e: &wasmtime::Error) -> Fault {
 
 /* stashes the error the runtime raises once the call returns 1 */
 pub(super) fn throw(caller: &mut impl AsContextMut<Data = State>, ex: &Exports, fault: &Fault) {
-    let message = fault.message(caller.as_context_mut().data().descriptor);
+    let message = fault.message(caller.as_context_mut().data().hosting.descriptor);
     let text = message.as_bytes();
     if let Ok(ptr) = stage(caller, ex, text) {
         let _ = ex.host_edge_throw.call(&mut *caller, (fault.kind as i32, ptr, text.len() as i32));
         unstage(caller, ex, ptr, text.len());
     }
+}
+
+/* the package dir of the code sending now as the runtime names it */
+fn sender(caller: &mut Caller<'_, State>, ex: &Exports) -> Option<String> {
+    let asked = ex.send_package.as_ref()?.call(&mut *caller, ()).ok()?;
+    let at = ex.out_ptr.call(&mut *caller, ()).ok()?;
+    Some(String::from_utf8_lossy(&read(caller, ex.memory, at, asked)).into_owned())
 }

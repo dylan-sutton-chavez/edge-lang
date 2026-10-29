@@ -1,4 +1,4 @@
-use super::{admitted, cache_root, cdn, get, plugins, Access, Instance, Packages, Senders};
+use super::{admitted, cache_root, cdn, get, Access, Hosting, Packages, Senders, Serve, Wiring};
 use edge::deps::{parse_integrity, system_spec};
 use edge::util::sha256::{hex_encode, sha256};
 use serde_json::Value;
@@ -35,8 +35,47 @@ impl Project {
     }
 }
 
+/* an interpreter of either engine as the import walk and the host modules it serves reach it */
+pub(crate) trait Side: Serve {
+    fn wiring(&self) -> Arc<Wiring>;
+
+    fn hosting(&mut self) -> &mut Hosting;
+
+    /* registers the plugin `bytes` under `spec` or says why its import fails */
+    fn plugin(&mut self, spec: &str, bytes: &[u8]) -> Result<(), String>;
+
+    /* the script tracebacks name and the directory its relative imports join onto */
+    fn name_entry(&mut self, entry: &str) -> anyhow::Result<()>;
+
+    /* drops every module and refusal the runtime holds */
+    fn reset_modules(&mut self) -> anyhow::Result<()>;
+
+    fn register_error(&mut self, spec: &str, msg: &str) -> Result<(), String>;
+
+    /* names the field the next walks carry with the holders it reserves after it */
+    fn walk_carry(&mut self, carried: &str) -> Result<(), String>;
+
+    /* starts the engine resolution walk and returns its first step for this host as JSON */
+    fn walk_start(&mut self, src: &str, system: &str) -> Result<Vec<u8>, String>;
+
+    /* answers a fetch as `kind` 0 bytes or 1 missing or 2 failed with why */
+    fn walk_fetched(&mut self, bytes: &[u8], kind: i32) -> Result<Vec<u8>, String>;
+
+    /* the plugin bytes the last step named which this host may never have seen */
+    fn walk_plugin_bytes(&mut self) -> Result<Vec<u8>, String>;
+
+    /* answers a plugin as `kind` 0 registered or 1 failed or 2 refused with why */
+    fn walk_plugin(&mut self, kind: i32, why: &str) -> Result<Vec<u8>, String>;
+
+    /* hands back what serving the host modules failed at joined by NUL */
+    fn walk_served(&mut self, failures: &str) -> Result<Vec<u8>, String>;
+
+    /* answers the undeclared names with the ones the registry has joined by NUL */
+    fn walk_known(&mut self, names: &str) -> Result<Vec<u8>, String>;
+}
+
 /* what the engine walk asks of this host read from its out buffer */
-pub(super) enum Step {
+pub(crate) enum Step {
     Fetch(String),
     Plugin { spec: String },
     System(Value),
@@ -103,22 +142,25 @@ pub struct Walk {
     out: Vec<u8>,
     access: Arc<dyn Access>,
     // the entry and source a finished walk leaves the instance prepared for
-    pub(super) key: (String, String),
+    #[cfg(feature = "wasm")]
+    pub(crate) key: (String, String),
 }
 
 impl Walk {
     /* the walk of `src` begun from the entry of the instance's project */
-    pub(super) fn start(inst: &mut Instance, src: &str) -> Result<Walk, String> {
-        let loaded = inst.host.loaded.clone();
-        let access = loaded.access(&inst.project);
-        inst.walk_carry(&loaded.carried(&*access))?;
-        let out = inst.walk_start(src, &loaded.reserved())?;
-        Ok(Walk { out, access, key: (inst.project.entry.clone(), src.to_string()) })
+    pub(crate) fn start(inst: &mut dyn Side, src: &str) -> Result<Walk, String> {
+        let wiring = inst.wiring();
+        let access = wiring.access(inst.project());
+        inst.walk_carry(&wiring.carried(&*access))?;
+        let out = inst.walk_start(src, &wiring.reserved())?;
+        #[cfg(feature = "wasm")]
+        let key = (inst.project().entry.clone(), src.to_string());
+        Ok(Walk { out, access, #[cfg(feature = "wasm")] key })
     }
 
     /* answers each step it can until the walk ends or waits on a remote file */
-    pub(super) fn advance(&mut self, inst: &mut Instance) -> Result<Option<Remote>, String> {
-        let project = inst.project.clone();
+    pub(crate) fn advance(&mut self, inst: &mut dyn Side) -> Result<Option<Remote>, String> {
+        let project = inst.project().clone();
         loop {
             self.out = match step(&self.out)? {
                 Step::Fetch(spec) => match locate(&project, &spec) {
@@ -130,9 +172,9 @@ impl Walk {
                     match project.untrusted {
                         true => inst.walk_plugin(2, "is not available to untrusted eval runs")?,
                         // a plugin that does not load fails at its import as a refused one does
-                        false => match plugins::register_bytes(inst, &spec, &bytes) {
+                        false => match inst.plugin(&spec, &bytes) {
                             Ok(()) => inst.walk_plugin(0, "")?,
-                            Err(why) => inst.walk_plugin(2, &format!("is not a valid plugin, {why}"))?,
+                            Err(why) => inst.walk_plugin(2, &why)?,
                         },
                     }
                 }
@@ -149,14 +191,14 @@ impl Walk {
     }
 
     /* hands the walk what the remote fetch it waited on gave */
-    pub(super) fn answer(&mut self, inst: &mut Instance, fetched: Fetched) -> Result<(), String> {
+    pub(crate) fn answer(&mut self, inst: &mut dyn Side, fetched: Fetched) -> Result<(), String> {
         self.out = fed(inst, fetched.0)?;
         Ok(())
     }
 }
 
 /* the walk's next step once it holds `answer` */
-fn fed(inst: &mut Instance, answer: Answer) -> Result<Vec<u8>, String> {
+fn fed(inst: &mut dyn Side, answer: Answer) -> Result<Vec<u8>, String> {
     match answer {
         Answer::Bytes(bytes) => inst.walk_fetched(&bytes, 0),
         Answer::Missing => inst.walk_fetched(&[], 1),
@@ -165,7 +207,7 @@ fn fed(inst: &mut Instance, answer: Answer) -> Result<Vec<u8>, String> {
 }
 
 /* registers every module `root_src` reaches as the engine decides and this host fetches */
-pub fn prefetch(inst: &mut Instance, root_src: &str) -> Result<(), String> {
+pub(crate) fn prefetch(inst: &mut dyn Side, root_src: &str) -> Result<(), String> {
     let mut walk = Walk::start(inst, root_src)?;
     while let Some(remote) = walk.advance(inst)? {
         walk.answer(inst, remote.fetch())?;
@@ -173,7 +215,7 @@ pub fn prefetch(inst: &mut Instance, root_src: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub(super) fn step(out: &[u8]) -> Result<Step, String> {
+pub(crate) fn step(out: &[u8]) -> Result<Step, String> {
     let v: Value = serde_json::from_slice(out).map_err(|e| format!("the runtime left a walk step that is not JSON: {e}"))?;
     let text = |key: &str| v.get(key).and_then(Value::as_str).map(str::to_string);
     if let Some(spec) = text("fetch") {
@@ -193,9 +235,9 @@ pub(super) fn step(out: &[u8]) -> Result<Step, String> {
 }
 
 /* serves each package the walk met every host module `access` gives it */
-fn serve_modules(inst: &mut Instance, access: &Arc<dyn Access>, step: &Value) -> Vec<String> {
-    let host = inst.host.clone();
-    let modules = host.loaded.modules();
+fn serve_modules(inst: &mut dyn Side, access: &Arc<dyn Access>, step: &Value) -> Vec<String> {
+    let wiring = inst.wiring();
+    let modules = wiring.modules();
     let packages = Packages::read(step, access.field());
     if let Some(problem) = access.check(&packages, modules) {
         return vec![problem];
@@ -203,7 +245,7 @@ fn serve_modules(inst: &mut Instance, access: &Arc<dyn Access>, step: &Value) ->
     let mut failures = Vec::new();
     // only an undeclared name or a plugin can reach a host module
     if !packages.needed {
-        inst.store.data_mut().senders = Some(Senders::new(packages, access.clone(), modules.to_vec()));
+        inst.hosting().senders = Some(Senders::new(packages, access.clone(), modules.to_vec()));
         return failures;
     }
     for package in &packages.dirs {
@@ -211,9 +253,9 @@ fn serve_modules(inst: &mut Instance, access: &Arc<dyn Access>, step: &Value) ->
             let spec = system_spec(module.name(), &package.dir);
             let served = match access.held(&packages, package, module.name()) {
                 Ok(held) => {
-                    inst.opening = Some((module.clone(), held.clone()));
+                    inst.hosting().opening = Some((module.clone(), held.clone()));
                     let opened = module.open(inst, &spec, &package.name, held);
-                    inst.opening = None;
+                    inst.hosting().opening = None;
                     opened
                 }
                 Err(refusal) => inst.register_error(&spec, &refusal),
@@ -223,7 +265,7 @@ fn serve_modules(inst: &mut Instance, access: &Arc<dyn Access>, step: &Value) ->
             }
         }
     }
-    inst.store.data_mut().senders = Some(Senders::new(packages, access.clone(), modules.to_vec()));
+    inst.hosting().senders = Some(Senders::new(packages, access.clone(), modules.to_vec()));
     failures
 }
 

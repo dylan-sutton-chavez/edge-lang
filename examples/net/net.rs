@@ -1,4 +1,4 @@
-use cli::host::{Calls, Fault, Held, HostModule, Instance, Reply, WireValue};
+use cli::host::{Calls, Fault, Held, HostModule, Reply, Serve, WireValue};
 use flate2::bufread::GzDecoder;
 use std::collections::{HashMap, VecDeque};
 use std::io::{BufRead, BufReader, Read};
@@ -62,7 +62,7 @@ impl HostModule for Net {
     }
 
     // the kit checks every url against the grant before a call arrives here
-    fn open(&self, inst: &mut Instance, spec: &str, _pkg: &str, _held: Held) -> Result<(), String> {
+    fn open(&self, inst: &mut dyn Serve, spec: &str, _pkg: &str, _held: Held) -> Result<(), String> {
         inst.serve(spec, self.name(), &CALLS, Box::new(Opened { streams: HashMap::new() }))
     }
 }

@@ -22,6 +22,8 @@ mod limits;
 mod act;
 mod gc;
 mod embed;
+#[cfg(feature = "std")]
+pub(crate) mod calling;
 mod init;
 pub(crate) mod jobs;
 mod steps;

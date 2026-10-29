@@ -47,6 +47,6 @@ mod tests {
     #[test]
     fn the_embedded_runtime_is_a_wasm_module() {
         assert_eq!(&EDGE_WASM[..4], b"\0asm");
-        assert_eq!(edge().runtime().module(), EDGE_WASM);
+        assert_eq!(edge().runtime().module(), Some(EDGE_WASM));
     }
 }

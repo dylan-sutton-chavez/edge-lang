@@ -114,7 +114,7 @@ fn guest_memory(caller: &mut Caller<'_, State>) -> wasmtime::Result<Memory> {
 
 /* instantiates a third party plugin once per instance or says why it does not load */
 pub fn register_bytes(inst: &mut Instance, spec: &str, bytes: &[u8]) -> Result<(), String> {
-    if let Some((base, names)) = inst.store.data().registered.get(spec).cloned() {
+    if let Some((base, names)) = inst.store.data().hosting.registered.get(spec).cloned() {
         return inst.register_native(spec, &names, base);
     }
     let host = inst.host.clone();
@@ -155,6 +155,6 @@ pub fn register_pre(inst: &mut Instance, spec: &str, pre: &InstancePre<State>) -
         names.push(n.to_string());
         inst.store.data_mut().natives.push(Native::Plugin(Box::new(Plugin { func, alloc: alloc.clone(), free: free.clone(), memory, resume: resume.clone() })));
     }
-    inst.store.data_mut().registered.insert(spec.to_string(), (base, names.clone()));
+    inst.store.data_mut().hosting.registered.insert(spec.to_string(), (base, names.clone()));
     inst.register_native(spec, &names, base)
 }
