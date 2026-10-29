@@ -66,7 +66,7 @@ impl Host {
         // local imports answer from the manifest directory and nothing outside it
         let root = manifest.and_then(Path::parent).filter(|dir| !dir.as_os_str().is_empty()).unwrap_or(Path::new(".")).canonicalize()?;
         let pages = Arc::new(Mutex::new(HashMap::new()));
-        let port = serve(Served { pages: pages.clone(), imports, root, wasm: kit.runtime().module().into(), descriptor: kit.descriptor() })?;
+        let port = serve(Served { pages: pages.clone(), imports, root, wasm: kit.page_module()?.into(), descriptor: kit.descriptor() })?;
         let browser = launch().context("launching headless Chromium")?;
         let tab = browser.new_tab().map_err(|e| anyhow!("opening a tab: {e}"))?;
 

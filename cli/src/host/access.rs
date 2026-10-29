@@ -179,7 +179,7 @@ impl Access for Closed {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::host::{Calls, Host, Instance, Project, Reply, Status, WireValue};
+    use crate::host::{Calls, Engine, Host, Project, Reply, Serve, Status, WireValue};
     use serde_json::json;
     use std::collections::HashMap;
     use std::sync::Mutex;
@@ -208,7 +208,7 @@ mod tests {
             Ok(None)
         }
 
-        fn open(&self, inst: &mut Instance, spec: &str, _pkg: &str, held: Held) -> Result<(), String> {
+        fn open(&self, inst: &mut dyn Serve, spec: &str, _pkg: &str, held: Held) -> Result<(), String> {
             inst.serve(spec, "probe", &["reach"], Box::new(Bound(held.scopes().is_some())))
         }
     }

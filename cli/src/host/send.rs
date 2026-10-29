@@ -1,7 +1,6 @@
-use super::{read, Access, Exports, Fault, Held, HostModule, Packages, State};
+use super::{Access, Fault, Held, HostModule, Packages};
 use std::collections::HashMap;
 use std::sync::Arc;
-use wasmtime::Caller;
 
 // the channel names whose rest is the file the host writes the lines of
 pub const FILE: &str = "file:";
@@ -58,45 +57,6 @@ fn plain(dir: &str) -> &str {
     dir.trim_start_matches("./")
 }
 
-/* hands a send to the channels or the outbox and is false if neither can */
-pub(super) fn deliver(caller: &mut Caller<'_, State>, ex: &Exports, group: String, body: String) -> Result<bool, Fault> {
-    if let Some(path) = group.strip_prefix(FILE)
-        && caller.data().senders.as_ref().is_some_and(|senders| !senders.alone())
-        && let Some(dir) = sender(caller, ex)
-        && let Some(senders) = caller.data_mut().senders.as_mut()
-    {
-        senders.writes(&dir, path)?;
-    }
-    let state = caller.data_mut();
-    if let Some(channel) = state.channel.as_mut() {
-        // a channel that failed takes nothing more and the run ends after its step
-        if state.channel_error.is_none()
-            && let Err(e) = channel(&group, &body)
-        {
-            state.channel_error = Some(e);
-        }
-        return Ok(true);
-    }
-    let Some(outbox) = state.outbox.as_mut() else {
-        state.unsent.get_or_insert(group);
-        return Ok(false);
-    };
-    let bytes = group.len() + body.len();
-    if state.outbox_bytes.saturating_add(bytes) > state.outbox_cap {
-        return Err(Fault::runtime(format!("the messages sent and not yet delivered would pass the {} MB the run may hold", state.outbox_cap >> 20)));
-    }
-    state.outbox_bytes += bytes;
-    outbox.push((group, body));
-    Ok(true)
-}
-
-/* the package dir of the code sending now as the runtime names it */
-fn sender(caller: &mut Caller<'_, State>, ex: &Exports) -> Option<String> {
-    let asked = ex.send_package.as_ref()?.call(&mut *caller, ()).ok()?;
-    let at = ex.out_ptr.call(&mut *caller, ()).ok()?;
-    Some(String::from_utf8_lossy(&read(caller, ex.memory, at, asked)).into_owned())
-}
-
 #[cfg(all(test, feature = "files", feature = "perms"))]
 mod tests {
     use super::*;
@@ -122,9 +82,9 @@ mod tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "wasm"))]
 mod outbox {
-    use crate::host::{Host, Project, Status};
+    use crate::host::{Engine, Host, Project, Status};
     use edge::embed::Limits;
 
     // what a pool's run sends between steps counts against what it may hold

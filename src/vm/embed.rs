@@ -110,6 +110,12 @@ impl<'a> VM<'a> {
     pub fn call_stack_frames(&self) -> &[CallFrame] { &self.call_stack }
     pub fn function_names_ref(&self) -> &[String] { &self.function_names }
 
+    /* the lines the next `input()` calls read one per call from the first */
+    pub fn set_input(&mut self, lines: Vec<String>) {
+        self.input_buffer = lines;
+        self.input_at = 0;
+    }
+
     /* read-only heap access for embedders reading result values */
     pub fn heap(&self) -> &HeapPool { &self.heap }
 

@@ -1,4 +1,4 @@
-use cli::host::{Calls, Fault, Held, HostModule, Instance, Reply, WireValue};
+use cli::host::{Calls, Fault, Held, HostModule, Reply, Serve, WireValue};
 use std::collections::HashMap;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -206,7 +206,7 @@ impl HostModule for Recorded {
         Ok(None)
     }
 
-    fn open(&self, inst: &mut Instance, spec: &str, _pkg: &str, held: Held) -> Result<(), String> {
+    fn open(&self, inst: &mut dyn Serve, spec: &str, _pkg: &str, held: Held) -> Result<(), String> {
         inst.serve(spec, "net", &["request", "response", "read", "close"], Box::new(Replay { held, open: HashMap::new(), next: 1 }))
     }
 }

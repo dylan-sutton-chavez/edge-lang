@@ -272,7 +272,7 @@ fn run(kit: &Kit, manifest_path: &Path, out_dir: PathBuf) -> Result<()> {
         Err(e) => { sp.fail("failed to write the JS host"); return Err(e); }
     }
 
-    fs::write(out_dir.join("edge.wasm"), kit.runtime().module()).context("writing edge.wasm")?;
+    fs::write(out_dir.join("edge.wasm"), kit.page_module()?).context("writing edge.wasm")?;
 
     let scripts = collect_scripts(kit, &project, &out_dir);
     let sp = crate::ui::spinner("vendoring packages");

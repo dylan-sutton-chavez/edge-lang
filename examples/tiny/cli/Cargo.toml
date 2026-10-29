@@ -25,7 +25,7 @@ harness = false
 
 [dependencies]
 # the kit with the five components this CLI needs and none of the rest
-cli = { path = "../../../cli", default-features = false, features = ["files", "net", "perms", "run", "test"] }
+cli = { path = "../../../cli", default-features = false, features = ["files", "net", "perms", "run", "test", "wasm"] }
 # the runtime whose descriptor names the files and whose words report its errors
 tiny = { path = ".." }
 

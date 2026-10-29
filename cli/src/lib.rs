@@ -25,7 +25,6 @@ pub mod pack;
 pub mod perms;
 // plain terminal output without colors
 pub mod ui;
-mod wasm_cache;
 // embedded browser host assets shared by a packed dist and a headless run
 pub mod web;
 

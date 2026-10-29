@@ -7,7 +7,7 @@ description: "Drive edge.wasm from a Rust host through its imports and exports, 
 
 A Rust host runs a program by loading `edge.wasm` and calling its exports. It is the same `.wasm` the JS host loads. The host owns all I/O, and the engine decides what a program reaches. A binary can also link the crate and run a runtime with no `.wasm` in between, as [Embedding](/docs/edge-lang/sdk/embedding) covers.
 
-The `edge` CLI is such a host. It embeds `edge.wasm` precompiled by wasmtime and implements the imports in `cli/src/host`.
+The `edge` CLI is such a host. It embeds `edge.wasm` precompiled by wasmtime and implements the imports in `cli/src/host/wasm`.
 
 ## Get edge.wasm
 

@@ -1,7 +1,9 @@
 
-#[path = "src/host/config.rs"]
+#[cfg(feature = "embed")]
+#[path = "src/host/wasm/config.rs"]
 mod config;
 
+#[cfg(feature = "embed")]
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
@@ -16,6 +18,7 @@ fn main() {
     let out = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"));
     let manifest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     // a composition that embeds no runtime of this crate's own builds none of these
+    #[cfg(feature = "embed")]
     if wanted("EMBED") {
         let target = std::env::var("TARGET").expect("TARGET");
         let mut cfg = config::base();
@@ -73,6 +76,7 @@ fn walk_js(root: &Path, dir: &Path, found: &mut Vec<(String, PathBuf)>) {
     }
 }
 
+#[cfg(feature = "embed")]
 fn precompile(engine: &wasmtime::Engine, input: &Path, output: &Path, hint: &str) {
     println!("cargo:rerun-if-changed={}", input.display());
     let bytes = std::fs::read(input).unwrap_or_else(|e| panic!("cannot read {}: {e}, {hint}", input.display()));

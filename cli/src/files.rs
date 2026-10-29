@@ -1,4 +1,4 @@
-use crate::host::{plain_path as plain, Calls, Fault, Held, HostModule, Instance, Reply, WireValue};
+use crate::host::{plain_path as plain, Calls, Fault, Held, HostModule, Reply, Serve, WireValue};
 use flate2::bufread::GzDecoder;
 use std::collections::HashMap;
 use std::fs::File;
@@ -45,9 +45,9 @@ impl HostModule for Files {
         held.reach(self, path).is_ok()
     }
 
-    fn open(&self, inst: &mut Instance, spec: &str, _pkg: &str, held: Held) -> Result<(), String> {
+    fn open(&self, inst: &mut dyn Serve, spec: &str, _pkg: &str, held: Held) -> Result<(), String> {
         // a package reads below the manifest its spec names and untrusted runs below the pool's
-        let dir = match (inst.project.untrusted, &inst.project.pool) {
+        let dir = match (inst.project().untrusted, &inst.project().pool) {
             (false, _) => spec.strip_prefix("system:files@").unwrap_or_default().to_string(),
             (true, Some(pool)) => pool.clone(),
             (true, None) => return Err(format!("module '{}' is not available to untrusted eval runs", self.name())),
@@ -184,7 +184,7 @@ fn why(e: &std::io::Error) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::host::{Host, Project, Scopes, Status};
+    use crate::host::{Engine, Host, Project, Scopes, Status};
     use std::sync::{Arc, Mutex};
 
     #[test]

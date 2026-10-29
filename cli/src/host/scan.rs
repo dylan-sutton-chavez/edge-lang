@@ -1,17 +1,13 @@
 use anyhow::{anyhow, Result};
-use std::cell::RefCell;
-use std::rc::Rc;
 
-use super::resolver::{step, Step};
-use super::{linear_cap, Host, Instance, Project};
+use super::resolver::{step, Side, Step};
 use crate::kit::{Descriptor, Kit};
-use edge::embed::Limits;
 
 /* what sources import as the runtime reads them so the host knows no spelling */
 pub struct Scan<'k> {
     kit: &'k Kit,
     // opened on the first source so a build without packages never boots the runtime
-    inst: Option<Rc<RefCell<Instance>>>,
+    inst: Option<Box<dyn Side>>,
 }
 
 impl<'k> Scan<'k> {
@@ -25,17 +21,12 @@ impl<'k> Scan<'k> {
 
     /* every module `src` at `address` imports relative to itself joined onto that address */
     pub fn relative(&mut self, address: &str, src: &str) -> Result<Vec<String>> {
-        let inst = match &self.inst {
-            Some(inst) => inst.clone(),
-            None => {
-                let host = Host::new(self.kit.load()?)?;
-                let inst = host.instance(Box::new(|_: &str| {}), Project::default(), None, linear_cap(Limits::sandbox().memory))?;
-                self.inst.insert(inst).clone()
-            }
+        let inst = match &mut self.inst {
+            Some(inst) => inst,
+            None => self.inst.insert(self.kit.side()?),
         };
-        let mut inst = inst.borrow_mut();
         inst.name_entry(address)?;
-        let found = walk(&mut inst, src).map_err(|e| anyhow!("reading the imports of '{address}': {e}"))?;
+        let found = walk(&mut **inst, src).map_err(|e| anyhow!("reading the imports of '{address}': {e}"))?;
         // the walk leaves a refusal behind for every name it could not reach
         inst.reset_modules()?;
         Ok(found)
@@ -43,7 +34,7 @@ impl<'k> Scan<'k> {
 }
 
 /* drives the walk with every fetch missing so it names each import and reads none */
-fn walk(inst: &mut Instance, src: &str) -> Result<Vec<String>, String> {
+fn walk(inst: &mut dyn Side, src: &str) -> Result<Vec<String>, String> {
     let mut found = Vec::new();
     let mut out = inst.walk_start(src, "")?;
     loop {

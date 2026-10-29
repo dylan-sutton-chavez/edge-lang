@@ -170,7 +170,7 @@ fn ceiling(kit: &Kit, path: &str) -> Result<Vec<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::host::Instance;
+    use crate::host::Serve;
     use serde_json::json;
 
     /* a module whose scopes are lowercase words */
@@ -189,7 +189,7 @@ mod tests {
             Ok(None)
         }
 
-        fn open(&self, _inst: &mut Instance, _spec: &str, _pkg: &str, _held: Held) -> Result<(), String> {
+        fn open(&self, _inst: &mut dyn Serve, _spec: &str, _pkg: &str, _held: Held) -> Result<(), String> {
             Ok(())
         }
     }

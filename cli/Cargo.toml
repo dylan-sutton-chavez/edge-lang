@@ -31,11 +31,18 @@ path = "tests/channels.rs"
 harness = false
 required-features = ["files", "perms", "run"]
 
+# the edge composition's run and test over mini built in with no wasm which is also the test driving it
+[[test]]
+name = "native"
+path = "tests/native.rs"
+harness = false
+required-features = ["docs", "files", "net", "perms", "publish", "run", "test", "web"]
+
 # each command sits behind its own feature and the edge binary wires them all
 [features]
-default = ["all"]
+default = ["all", "wasm"]
 all = ["actors", "actors-server", "build", "docs", "embed", "files", "init", "net", "packages", "perms", "publish", "run", "serve", "test", "uninstall", "web"]
-actors = ["dep:serde_yaml_ng", "dep:slab"]
+actors = ["wasm", "dep:serde_yaml_ng", "dep:slab"]
 # the live server an actor pool becomes with its ingress control endpoint and durable log
 actors-server = ["actors", "dep:mio", "dep:signal-hook"]
 # a bundle or a binary or a dist, each carrying the pages and the browser host of a project
@@ -43,7 +50,7 @@ build = ["docs", "web"]
 # the pages a package ships held to the docs convention and to the icons Lucide draws
 docs = []
 # the reference runtime this crate precompiles for the build target and the edge binary embeds
-embed = ["dep:mini"]
+embed = ["wasm", "dep:mini"]
 # reads of the local files a grant names under the package that asks
 files = ["dep:flate2"]
 init = []
@@ -59,6 +66,8 @@ test = []
 uninstall = ["dep:tempfile"]
 # the browser host a dist vendors and a headless run drives
 web = ["dep:headless_chrome", "dep:tiny_http"]
+# runtimes as wasm modules wasmtime runs and the plugins a project declares
+wasm = ["dep:wasmtime"]
 
 [dependencies]
 # The engine crate as a library, manifest parsing and sha256 pinning.
@@ -66,7 +75,7 @@ edge = { path = ".." }
 # the reference runtime whose descriptor the edge composition hands the kit
 mini = { path = "../examples/mini", optional = true }
 # hosts the runtime a composition hands the kit and Cranelift compiles the plugins a project declares
-wasmtime = { version = "48", default-features = false, features = ["runtime", "std", "cranelift"] }
+wasmtime = { version = "48", default-features = false, features = ["runtime", "std", "cranelift"], optional = true }
 clap = { version = "4", features = ["derive"] }
 # the static dev server and the page server of a headless run
 tiny_http = { version = "0.12", optional = true }
@@ -106,12 +115,14 @@ tungstenite = { version = "0.29", default-features = false, features = ["handsha
 flate2 = "1"
 # the flow runtime the channels test composes a kit over
 tiny = { path = "../examples/tiny" }
+# the reference runtime the native test builds into its binary
+mini = { path = "../examples/mini" }
 # the pinned hour of events that test reads, fetched once into target
 data = { path = "../examples/data" }
 
 [build-dependencies]
 # precompiles the embedded runtime for the build target when a composition embeds one
-wasmtime = { version = "48", default-features = false, features = ["runtime", "cranelift", "all-arch", "std"] }
+wasmtime = { version = "48", default-features = false, features = ["runtime", "cranelift", "all-arch", "std"], optional = true }
 
 [profile.release]
 opt-level = "z"

@@ -1,5 +1,5 @@
 use crate::abi::{classify_decode, classify_encode, DecodeBits, EncodeRequest, ErrorKind, ErrorStash, HandleTable, Op, PrimitiveBytes, TAG_INVALID};
-use crate::lang::{ErrKind, Mode, Names};
+use crate::lang::{Mode, Names};
 use crate::value::{DictMap, HeapObj, Host, Val, VmErr};
 use crate::vm::VM;
 use crate::r#unsafe::{vm_mut, Single};
@@ -140,21 +140,7 @@ pub fn take_error() -> Option<(u32, String)> {
     with_bridge(|b| b.error_stash.take())
 }
 
-/* rebuilds the `VmErr` `err_to_kind` read and matches every kind so none slips into `Raised` */
-pub fn error_from_kind(kind: u32, msg: String) -> VmErr {
-    match ErrorKind::from_u32(kind) {
-        Some(ErrorKind::Type) => VmErr::TypeMsg(msg),
-        Some(ErrorKind::Value) => VmErr::Of(ErrKind::Value, msg),
-        Some(ErrorKind::Runtime) => VmErr::Of(ErrKind::Runtime, msg),
-        Some(ErrorKind::Attribute) => VmErr::Attribute(msg),
-        Some(ErrorKind::Index) => VmErr::Of(ErrKind::Index, msg),
-        Some(ErrorKind::Key) => VmErr::Of(ErrKind::Key, msg),
-        // an end a plugin passes back unread raises the class the runtime names for it
-        Some(ErrorKind::Custom) if msg == abi::op::ITER_END => VmErr::Of(ErrKind::Stop, String::new()),
-        // a custom kind carries its class in `msg` as written and passes through unchanged
-        Some(ErrorKind::Custom) | None => VmErr::Raised(msg),
-    }
-}
+pub use super::values::error_from_kind;
 
 // 0 leaves a handle and 1 stashes an error and 2 means a call waits
 pub(crate) fn host_edge_op(op: u32, recv: u32, name: &str, argv: &[u32], out_handle: &mut u32) -> i32 {
@@ -324,105 +310,12 @@ pub(crate) fn host_edge_encode(tag: u32, bytes: &[u8]) -> u32 {
         EncodeRequest::AllocBytes(b) => alloc_and_put(|| HeapObj::Bytes(b.to_vec())),
         EncodeRequest::AllocInt(i) => match with_vm(|vm| vm.heap.int(i).ok()).flatten() { Some(val) => put_val(val), None => 0 },
         EncodeRequest::Composite(w) => {
-            match with_vm(|vm| wire_to_val(vm, &w).ok()).flatten() {
+            match with_vm(|vm| super::values::from_wire(&mut vm.heap, &w).ok()).flatten() {
                 Some(val) => put_val(val),
                 None => 0,
             }
         }
         EncodeRequest::Invalid => 0,
-    }
-}
-
-/* a wire tree as a heap value keyed by text alone and split like `classify_encode` */
-fn wire_to_val(vm: &mut crate::vm::VM, w: &crate::abi::WireValue) -> Result<Val, VmErr> {
-    use crate::abi::WireValue;
-    Ok(match w {
-        WireValue::None => Val::none(),
-        WireValue::Bool(b) => Val::bool(*b),
-        WireValue::Int(i) => vm.heap.int(*i)?,
-        WireValue::Float(f) => Val::float(*f),
-        WireValue::Bytes(b) => {
-            let s = core::str::from_utf8(b).map_err(|_| VmErr::Value("invalid UTF-8 in wire str"))?;
-            vm.heap.alloc(HeapObj::Str(s.to_string()))?
-        }
-        WireValue::Raw(b) => vm.heap.alloc(HeapObj::Bytes(b.clone()))?,
-        WireValue::List(items) => {
-            let vals = items.iter().map(|it| wire_to_val(vm, it)).collect::<Result<Vec<_>, _>>()?;
-            vm.heap.alloc(HeapObj::List(Rc::new(RefCell::new(vals))))?
-        }
-        WireValue::Dict(pairs) => {
-            let mut map = DictMap::new();
-            for (k, v) in pairs {
-                let WireValue::Bytes(kb) = k else { return Err(VmErr::Type("wire dict keys must be str")); };
-                let ks = core::str::from_utf8(kb).map_err(|_| VmErr::Value("invalid UTF-8 in wire str"))?;
-                let key = vm.heap.alloc(HeapObj::Str(ks.to_string()))?;
-                let val = wire_to_val(vm, v)?;
-                map.insert(key, val, &vm.heap);
-            }
-            vm.heap.alloc(HeapObj::Dict(Rc::new(RefCell::new(map))))?
-        }
-    })
-}
-
-/* a foreign value as a wire int unless past i128 or of a homebound kind */
-fn foreign_int(vm: &crate::vm::VM, v: Val) -> Option<i128> {
-    vm.heap.foreign_kind(v).filter(|k| k.transfer == crate::value::foreign::Transfer::Copy)?;
-    vm.heap.foreign_i128(v)
-}
-
-/* a heap value as a wire tree or none for cycles depth and local values */
-fn val_to_wire(vm: &crate::vm::VM, v: Val, depth: u32, seen: &mut Vec<u64>) -> Option<crate::abi::WireValue> {
-    use crate::abi::{DecodeBits as DB, PrimitiveBytes as PB, WireValue, MAX_WIRE_DEPTH};
-    if depth > MAX_WIRE_DEPTH { return None; }
-    match classify_decode(v.0) {
-        DB::Primitive { tag, bytes } => {
-            let buf: Vec<u8> = match bytes {
-                PB::None => Vec::new(),
-                PB::Bool(b) => alloc::vec![b],
-                PB::Eight(a) => a.to_vec(),
-                PB::Sixteen(a) => a.to_vec(),
-            };
-            WireValue::decode_body(tag, &buf)
-        }
-        DB::Heap => {
-            // a shared reference is fine but meeting a value again mid walk is a cycle
-            let guard = |vm: &crate::vm::VM, seen: &mut Vec<u64>, items: &[Val]| -> Option<Vec<crate::abi::WireValue>> {
-                items.iter().map(|it| val_to_wire(vm, *it, depth + 1, seen)).collect()
-            };
-            if seen.contains(&v.0) { return None; }
-            if v.is_foreign() { return foreign_int(vm, v).map(WireValue::Int); }
-            match vm.heap.get(v) {
-                HeapObj::Str(s) => Some(WireValue::Bytes(s.as_bytes().to_vec())),
-                HeapObj::Bytes(b) => Some(WireValue::Raw(b.clone())),
-                HeapObj::List(rc) => {
-                    seen.push(v.0);
-                    let items = guard(vm, seen, &rc.borrow())?;
-                    seen.pop();
-                    Some(WireValue::List(items))
-                }
-                HeapObj::Tuple(t) => {
-                    seen.push(v.0);
-                    let items = guard(vm, seen, t)?;
-                    seen.pop();
-                    Some(WireValue::List(items))
-                }
-                HeapObj::Dict(rc) => {
-                    seen.push(v.0);
-                    let mut pairs = Vec::new();
-                    for (k, val) in rc.borrow().iter() {
-                        let key = match val_to_wire(vm, k, depth + 1, seen)? {
-                            key @ WireValue::Bytes(_) => key,
-                            _ => return None,
-                        };
-                        pairs.push((key, val_to_wire(vm, val, depth + 1, seen)?));
-                    }
-                    seen.pop();
-                    Some(WireValue::Dict(pairs))
-                }
-                _ => None,
-            }
-        }
-        DB::Invalid => None,
     }
 }
 
@@ -449,11 +342,11 @@ pub(crate) fn host_edge_decode(h: u32, out_tag: &mut u32, dst: &mut [u8]) -> i32
         DecodeBits::Heap => {
             // text bytes ints and composites decode while other values go through `edge_op`
             enum Decoded { Str(alloc::string::String), Bytes(Vec<u8>), Int(i128), Wire(u32, Vec<u8>), Other }
-            let decoded = with_vm(|vm| if v.is_foreign() { foreign_int(vm, v).map_or(Decoded::Other, Decoded::Int) } else { match vm.heap.get(v) {
+            let decoded = with_vm(|vm| if v.is_foreign() { super::values::foreign_int(&vm.heap, v).map_or(Decoded::Other, Decoded::Int) } else { match vm.heap.get(v) {
                 HeapObj::Str(s) => Decoded::Str(s.clone()),
                 HeapObj::Bytes(b) => Decoded::Bytes(b.clone()),
                 HeapObj::List(_) | HeapObj::Tuple(_) | HeapObj::Dict(_) => {
-                    match val_to_wire(vm, v, 0, &mut Vec::new()) {
+                    match super::values::to_wire(&vm.heap, v) {
                         Some(w) => {
                             let mut buf = Vec::new();
                             w.encode_body(&mut buf);

@@ -1,10 +1,9 @@
-use super::{Host, Project, Sink, Status, Vm, FILE};
+use super::{Engine, Project, Sink, Status, FILE};
 use anyhow::{anyhow, bail, Result};
 use crate::kit::Kit;
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufWriter, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
@@ -34,10 +33,6 @@ pub fn stdout_sink() -> Sink {
         let _ = out.write_all(s.as_bytes());
         let _ = out.flush();
     })
-}
-
-fn host(kit: &Kit) -> Result<Rc<Host>> {
-    Host::new(kit.load()?)
 }
 
 /* the named outputs of a run which print or write the file a name holds */
@@ -73,9 +68,9 @@ impl Channels {
     }
 
     /* hands every line `vm` sends to these channels the moment the program sends it */
-    pub fn serve(vm: &Vm, channels: &Shared) {
+    pub fn serve(vm: &mut dyn Engine, channels: &Shared) {
         let channels = channels.clone();
-        vm.instance().borrow_mut().send_to(Box::new(move |channel: &str, body: &str| lock(&channels).send(channel, body)));
+        vm.send_to(Box::new(move |channel: &str, body: &str| lock(&channels).send(channel, body)));
     }
 
     /* one line a program sent written where its channel says */
@@ -222,12 +217,12 @@ pub fn run(kit: &Kit, file: Option<&Path>, code: Option<&str>, opts: &RunOpts) -
     let piped = Piped::start(&stdin, file.is_some() || code.is_some());
     let project = Project::disk(&name, opts.manifest.as_deref());
     let channels = Channels::stdout();
-    let mut vm = host(kit)?.vm(Channels::printer(&channels), project, None, None)?;
-    Channels::serve(&vm, &channels);
+    let mut vm = kit.engine(Channels::printer(&channels), project)?;
+    Channels::serve(&mut *vm, &channels);
     vm.set_preempt_interval(opts.preempt)?;
     let input = piped.and_then(Piped::text);
     let status = vm.start(&src, input.as_deref())?;
-    Ok(drive(kit, &mut vm, status, opts, &src, &channels))
+    Ok(drive(kit, &mut *vm, status, opts, &src, &channels))
 }
 
 /* runs the entry of a bundle from memory without writing to disk */
@@ -238,11 +233,11 @@ pub fn run_bundle(kit: &Kit, payload: &[u8], opts: &RunOpts) -> Result<i32> {
     let src = files.get(&entry).map(|b| String::from_utf8_lossy(b).into_owned()).ok_or_else(|| anyhow!("bundle entry '{entry}' is missing"))?;
     let project = Project::bundle(files, &entry, false);
     let channels = Channels::stdout();
-    let mut vm = host(kit)?.vm(Channels::printer(&channels), project, None, None)?;
-    Channels::serve(&vm, &channels);
+    let mut vm = kit.engine(Channels::printer(&channels), project)?;
+    Channels::serve(&mut *vm, &channels);
     vm.set_preempt_interval(opts.preempt)?;
     let status = vm.start(&src, None)?;
-    Ok(drive(kit, &mut vm, status, opts, &src, &channels))
+    Ok(drive(kit, &mut *vm, status, opts, &src, &channels))
 }
 
 /* boots the source the blob embeds and overlays its saved state before driving on */
@@ -257,8 +252,8 @@ pub fn restore_and_run(kit: &Kit, file: &str, opts: &RunOpts) -> Result<i32> {
     // the script the blob's run started from names its traceback and roots its relative imports
     let project = Project::disk(edge::embed::entry_of(&blob).unwrap_or_default(), opts.manifest.as_deref());
     let channels = Channels::stdout();
-    let mut vm = host(kit)?.vm(Channels::printer(&channels), project, None, None)?;
-    Channels::serve(&vm, &channels);
+    let mut vm = kit.engine(Channels::printer(&channels), project)?;
+    Channels::serve(&mut *vm, &channels);
     vm.set_preempt_interval(opts.preempt)?;
     let status = match vm.restore_state(&blob) {
         Ok(status) => status,
@@ -268,12 +263,12 @@ pub fn restore_and_run(kit: &Kit, file: &str, opts: &RunOpts) -> Result<i32> {
         }
     };
     // the blob carries the source a restored run goes on reporting against
-    let src = super::vm::snapshot_source(&blob).unwrap_or_default();
-    Ok(drive(kit, &mut vm, status, opts, &src, &channels))
+    let src = super::snapshot_source(&blob).unwrap_or_default();
+    Ok(drive(kit, &mut *vm, status, opts, &src, &channels))
 }
 
 /* drives to the end with the channels written and an unservable park saved or failed */
-pub fn drive(kit: &Kit, vm: &mut Vm, status: Status, opts: &RunOpts, src: &str, channels: &Shared) -> i32 {
+pub fn drive(kit: &Kit, vm: &mut dyn Engine, status: Status, opts: &RunOpts, src: &str, channels: &Shared) -> i32 {
     let code = driven(kit, vm, status, opts, src);
     match lock(channels).finish() {
         Ok(()) => code,
@@ -285,7 +280,7 @@ pub fn drive(kit: &Kit, vm: &mut Vm, status: Status, opts: &RunOpts, src: &str, 
 }
 
 /* drives to the end where host calls wait and unservable parks snapshot or fail */
-fn driven(kit: &Kit, vm: &mut Vm, mut status: Status, opts: &RunOpts, src: &str) -> i32 {
+fn driven(kit: &Kit, vm: &mut dyn Engine, mut status: Status, opts: &RunOpts, src: &str) -> i32 {
     let mut events: Option<std::io::BufReader<std::fs::File>> = None;
     loop {
         // a channel that failed a line ends the run once the sending step returns
@@ -332,7 +327,7 @@ fn driven(kit: &Kit, vm: &mut Vm, mut status: Status, opts: &RunOpts, src: &str)
     }
 }
 
-fn step(vm: &mut Vm) -> Status {
+fn step(vm: &mut dyn Engine) -> Status {
     match vm.resume() {
         Ok(status) => status,
         Err(e) => Status::Error(format!("error: {e}")),
@@ -348,7 +343,7 @@ pub fn suspend_message(what: &str) -> String {
 }
 
 /* an unservable park saves a snapshot when asked and otherwise reports the wait and fails */
-fn park(vm: &mut Vm, what: &str, opts: &RunOpts) -> i32 {
+fn park(vm: &mut dyn Engine, what: &str, opts: &RunOpts) -> i32 {
     if let Some(file) = &opts.save_state {
         let blob = match vm.save_state() {
             Ok(Some(blob)) => blob,
@@ -392,7 +387,7 @@ fn next_event(reader: &mut Option<std::io::BufReader<std::fs::File>>, path: &str
 
 /* a persistent interpreter for `edge test` that runs each input exactly once */
 pub struct Session {
-    vm: Vm,
+    vm: Box<dyn Engine>,
     channels: Shared,
     words: Option<crate::kit::Words>,
 }
@@ -401,8 +396,8 @@ impl Session {
     pub fn open(kit: &Kit, manifest: Option<&Path>) -> Result<Session> {
         let project = Project::disk("", manifest.map(path_spec).as_deref());
         let channels = Channels::stdout();
-        let vm = host(kit)?.vm(Channels::printer(&channels), project, None, None)?;
-        Channels::serve(&vm, &channels);
+        let mut vm = kit.engine(Channels::printer(&channels), project)?;
+        Channels::serve(&mut *vm, &channels);
         Ok(Session { vm, channels, words: kit.words() })
     }
 
@@ -423,16 +418,16 @@ impl Session {
                     let err = crate::kit::worded(self.words, src, &text);
                     return self.ended(Outcome { err: Some(err), exit_code: None });
                 }
-                Status::Preempted => step(&mut self.vm),
+                Status::Preempted => step(&mut *self.vm),
                 Status::PendingHostCall => {
                     self.vm.dispatch();
                     if self.vm.inflight() == 0 {
                         return self.ended(Outcome { err: Some(suspend_message("a host call")), exit_code: None });
                     }
                     self.vm.wait(None)?;
-                    step(&mut self.vm)
+                    step(&mut *self.vm)
                 }
-                Status::PendingEvent if self.vm.drain_buffered() > 0 => step(&mut self.vm),
+                Status::PendingEvent if self.vm.drain_buffered() > 0 => step(&mut *self.vm),
                 Status::PendingEvent => return self.ended(Outcome { err: Some(suspend_message("an event")), exit_code: None }),
             };
         }

@@ -1,4 +1,4 @@
-use cli::host::{Calls, Fault, Held, HostModule, Instance, Reply, WireValue};
+use cli::host::{Calls, Fault, Held, HostModule, Reply, Serve, WireValue};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /* the milliseconds a check reads from `now` once its manifest grants clock */
@@ -19,7 +19,7 @@ impl HostModule for Clock {
         Ok(None)
     }
 
-    fn open(&self, inst: &mut Instance, spec: &str, _pkg: &str, _held: Held) -> Result<(), String> {
+    fn open(&self, inst: &mut dyn Serve, spec: &str, _pkg: &str, _held: Held) -> Result<(), String> {
         inst.serve(spec, self.name(), &["now"], Box::new(Now(self.0)))
     }
 }

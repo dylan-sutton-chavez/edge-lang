@@ -937,7 +937,12 @@ impl<'a> VM<'a> {
     /* `f` over the machine where no host calls back */
     #[cfg(not(all(target_arch = "wasm32", feature = "runtime")))]
     #[inline(always)]
-    fn lent<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> R { f(self) }
+    fn lent<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> R {
+        // a host in this process reads which call runs while its binding does
+        #[cfg(feature = "std")]
+        let _now = super::calling::Now::enter(self.next_host_call_id, self.extern_caller.clone());
+        f(self)
+    }
 
     /* parks a host-deferred native under an id and yields with a placeholder `set_host_result_by_id` overwrites */
     fn park_host_call(&mut self) {

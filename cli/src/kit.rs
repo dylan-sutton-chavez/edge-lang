@@ -1,5 +1,6 @@
 use anyhow::Result;
 use clap::{Arg, ArgMatches};
+#[cfg(feature = "wasm")]
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -7,32 +8,48 @@ use std::sync::Arc;
 pub use edge::embed::Limits;
 pub use edge::lang::Descriptor;
 
-use crate::host::{Access, HostModule, Loaded, Names, Open};
+use crate::host::{Access, Engine, HostModule, Names, Native, Open, Project, Sink, Wiring};
+#[cfg(feature = "wasm")]
+use crate::host::{linear_cap, Host, Loaded};
 use crate::manifest::Manifest;
 
 /* a run error in the words of the runtime over its source and byte */
 pub type Words = fn(&str, &str, Option<usize>) -> String;
 
-/* a runtime as its wasm module and the names its files and errors take */
+/* a runtime as the engine that runs it and the names its files and errors take */
 pub struct Runtime {
-    wasm: Cow<'static, [u8]>,
-    // native code wasmtime precompiled from the module or none to compile it on load
-    native: Option<&'static [u8]>,
+    engine: Engines,
     descriptor: &'static Descriptor,
     // how the runtime words a run error where none leaves the engine's own report
     words: Option<Words>,
 }
 
+/* what runs the programs of a runtime */
+enum Engines {
+    // a wasm module with the native code wasmtime precompiled from it or none to compile it on load
+    #[cfg(feature = "wasm")]
+    Wasm { module: Cow<'static, [u8]>, native: Option<&'static [u8]> },
+    // a runtime built into this binary whose metering needs `edge::allocator!()`
+    Native(&'static edge::lang::Runtime),
+}
+
 impl Runtime {
     /// # Safety
+    #[cfg(feature = "wasm")]
     pub unsafe fn precompiled(wasm: &'static [u8], native: &'static [u8], descriptor: &'static Descriptor) -> Runtime {
         // the caller vouches `native` is wasmtime's precompile of `wasm` under `host::config::base` for this target
-        Runtime { wasm: Cow::Borrowed(wasm), native: Some(native), descriptor, words: None }
+        Runtime { engine: Engines::Wasm { module: Cow::Borrowed(wasm), native: Some(native) }, descriptor, words: None }
     }
 
     /* a module wasmtime compiles on its first load and maps from the cache after */
+    #[cfg(feature = "wasm")]
     pub fn wasm(bytes: impl Into<Cow<'static, [u8]>>, descriptor: &'static Descriptor) -> Runtime {
-        Runtime { wasm: bytes.into(), native: None, descriptor, words: None }
+        Runtime { engine: Engines::Wasm { module: bytes.into(), native: None }, descriptor, words: None }
+    }
+
+    /* a runtime built into this binary as examples/native boots one with no wasm between */
+    pub fn native(runtime: &'static edge::lang::Runtime) -> Runtime {
+        Runtime { engine: Engines::Native(runtime), descriptor: runtime.descriptor, words: None }
     }
 
     /* the wording every host prints a run error of this runtime through */
@@ -45,13 +62,13 @@ impl Runtime {
         self.descriptor
     }
 
-    /* the module itself which a browser host and a dist load */
-    pub fn module(&self) -> &[u8] {
-        &self.wasm
-    }
-
-    pub(crate) fn native(&self) -> Option<&'static [u8]> {
-        self.native
+    /* the module a browser host and a dist load which a runtime run natively has none of */
+    pub fn module(&self) -> Option<&[u8]> {
+        match &self.engine {
+            #[cfg(feature = "wasm")]
+            Engines::Wasm { module, .. } => Some(module),
+            Engines::Native(_) => None,
+        }
     }
 }
 
@@ -207,6 +224,11 @@ impl Kit {
         &self.runtime
     }
 
+    /* the wasm module a page runs the programs of this kit on */
+    pub fn page_module(&self) -> Result<&[u8]> {
+        self.runtime.module().ok_or_else(|| anyhow::anyhow!("{} runs its runtime natively and a page runs only a wasm module", self.name))
+    }
+
     pub fn descriptor(&self) -> &'static Descriptor {
         self.runtime.descriptor
     }
@@ -249,10 +271,37 @@ impl Kit {
         self.limits
     }
 
-    /* the runtime loaded into wasmtime with the host modules every thread serves */
-    pub fn load(&self) -> Result<Arc<Loaded>> {
+    /* what the composition wired that every run of its runtime serves */
+    pub fn wiring(&self) -> Arc<Wiring> {
         self.publish();
-        Loaded::new(&self.runtime, self.modules.clone(), self.access.clone(), self.holders(), self.limits)
+        Arc::new(Wiring::new(self.descriptor(), self.modules.clone(), self.access.clone(), self.holders(), self.limits))
+    }
+
+    /* the runtime loaded into wasmtime with the host modules every thread serves */
+    #[cfg(feature = "wasm")]
+    pub fn load(&self) -> Result<Arc<Loaded>> {
+        match &self.runtime.engine {
+            Engines::Wasm { module, native } => Loaded::new(module, *native, self.wiring()),
+            Engines::Native(_) => anyhow::bail!("{} runs its runtime natively and loads no wasm module", self.name),
+        }
+    }
+
+    /* one interpreter of the runtime printing through `print` over the files of `project` */
+    pub fn engine(&self, print: Sink, project: Project) -> Result<Box<dyn Engine>> {
+        match &self.runtime.engine {
+            #[cfg(feature = "wasm")]
+            Engines::Wasm { .. } => Ok(Box::new(Host::new(self.load()?)?.vm(print, project, None, None)?)),
+            Engines::Native(runtime) => Ok(Box::new(Native::new(runtime, self.wiring(), print, project)?)),
+        }
+    }
+
+    /* an interpreter that only walks imports and runs nothing */
+    pub(crate) fn side(&self) -> Result<Box<dyn crate::host::Side>> {
+        match &self.runtime.engine {
+            #[cfg(feature = "wasm")]
+            Engines::Wasm { .. } => Ok(Box::new(Host::new(self.load()?)?.fresh(Box::new(|_: &str| {}), Project::default(), None, linear_cap(Limits::sandbox().memory))?)),
+            Engines::Native(runtime) => Ok(Box::new(Native::new(runtime, self.wiring(), Box::new(|_: &str| {}), Project::default())?)),
+        }
     }
 
     /* fixes the names the host reads for this process from the first kit that runs */
@@ -432,7 +481,7 @@ pub(crate) mod tests {
             Ok(None)
         }
 
-        fn open(&self, _inst: &mut crate::host::Instance, _spec: &str, _pkg: &str, _held: crate::host::Held) -> Result<(), String> {
+        fn open(&self, _inst: &mut dyn crate::host::Serve, _spec: &str, _pkg: &str, _held: crate::host::Held) -> Result<(), String> {
             Ok(())
         }
     }

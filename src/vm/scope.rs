@@ -353,7 +353,7 @@ impl<'a> VM<'a> {
     }
 
     /* the file of the code running now which names the package a send comes from */
-    #[cfg(all(target_arch = "wasm32", feature = "runtime"))]
+    #[cfg(any(feature = "std", all(target_arch = "wasm32", feature = "runtime")))]
     pub(crate) fn running_file(&self) -> Option<alloc::sync::Arc<String>> {
         let pool = self.pools.get(self.pool_now)?;
         if pool.func != super::cache::NO_FN { return self.functions.get(pool.func as usize).map(|f| f.1.path.clone()); }
