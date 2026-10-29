@@ -17,6 +17,8 @@ concurrency:
 
 env:
   EDGE_CDN_BASE: http://127.0.0.1:8788
+  # edgelang.dev is not live yet so the registry tests ask edgepython.com
+  EDGE_SITE_BASE: https://edgepython.com
 
 jobs:
   wasm:
