@@ -1,70 +1,49 @@
 ---
 title: "Welcome"
-description: "What Edge Python is, a live example, and where to start."
+description: "What Edge Lang is, who it is for, and where to start."
 ---
 
 # Welcome
 
-Edge Python is sandboxed Python, compiled to bytecode and run by a register VM written in Rust. One WebAssembly engine of about 250 KB runs it in browsers, in JavaScript runtimes and in the `edge` CLI.
+Edge Lang is an engine for building language runtimes, written in Rust. A single-pass parser compiles source to bytecode with no AST, and a register VM runs it with calls as jumps, an exact memory meter and snapshots. One WebAssembly engine of about 1.6 MB, about 540 KB served as brotli, runs it in browsers, in JavaScript runtimes and in the `edge` CLI.
+
+Edge Lang is the engine, not one language. The parser reads one grammar, spelled by the token table a runtime brings, and what a program means is the runtime's to decide.
 
 The defaults deny everything. A program reaches no files, no network and no environment unless its host grants them. Imports resolve at compile time from `edge.json`, and a running program never loads code you did not declare.
 
-## Try it
+## What a runtime writes
 
-This program asks the GitHub API about the Edge Python repository and prints three of its fields. It runs on the real engine in your browser. Edit it and run it again.
+The engine parses, runs, meters and hosts every program, so a runtime writes only what makes it a language. The repo's smallest is `uptime`, a language for checking the services a project depends on. It is the 241 lines of Rust in the five files of `examples/uptime/src`, and its CLI composes the kit in the 23 lines of `examples/uptime/cli/src/lib.rs`. These are all its files.
 
-```edge-manifest
-{ "imports": { "json": "0.1.0" }, "permissions": { "main": ["net:api.github.com"] } }
-```
+| File | Lines | Holds |
+|---|---:|---|
+| `examples/uptime/src/syntax.rs` | 78 | The token table checks are written in |
+| `examples/uptime/src/natives.rs` | 23 | Four natives of lib under the names a check calls |
+| `examples/uptime/src/language.rs` | 44 | Its rules and the answers lib gives the engine for it |
+| `examples/uptime/src/names.rs` | 57 | The classes of its errors and its words for the engine's kinds |
+| `examples/uptime/src/lib.rs` | 39 | The front, the descriptor and the wasm exports |
+| `examples/uptime/cli/src/lib.rs` | 23 | The CLI composed from the kit |
+| `examples/uptime/cli/src/clock.rs` | 38 | A host module of its own that reads the clock |
+| `examples/uptime/cli/src/main.rs` | 7 | The binary, with the kit's net plugin |
 
-```edge-python
-import json
-import net
+Its board reads three status pages under the grants of its `edge.json`, and [Your runtime and its CLI](/docs/edge-lang/get-started/use-cases/your-runtime) builds it file by file.
 
-r = net.request("GET", "https://api.github.com/repos/dylan-sutton-chavez/edge-python", {}, None)
-status, headers = net.response(r)
-body = b""
-chunk = net.read(r)
-while chunk is not None:
-    body += chunk
-    chunk = net.read(r)
+## Who it is for
 
-repo = json.loads(body.decode())
-print(repo["full_name"])
-print(repo["language"])
-print(repo["default_branch"])
-```
-
-```output
-dylan-sutton-chavez/edge-python
-Rust
-main
-```
-
-Its `edge.json` declares the `json` package and grants the network for `api.github.com` alone. Any other host raises `PermissionError`. Every runnable example in these docs runs the same way.
+- **A runtime author** builds a language on the engine. [Your runtime and its CLI](/docs/edge-lang/get-started/use-cases/your-runtime) builds one end to end with a CLI of its own, and the [SDK overview](/docs/edge-lang/sdk/overview) follows a program through the engine and maps every page of the SDK. The [parser kit](/docs/edge-lang/sdk/parser-kit), [Lib](/docs/edge-lang/sdk/lib), [Language](/docs/edge-lang/sdk/language) and the [CLI kit](/docs/edge-lang/sdk/cli) cover its token table, its natives, its rules and errors and its CLI, and [Limits](/docs/edge-lang/sdk/limits) lists what every run is held to.
+- **A host** embeds the engine and answers what a program asks of the outside. The [JavaScript host](/docs/edge-lang/platforms/javascript), the [edge CLI](/docs/edge-lang/platforms/cli) and a [Rust host](/docs/edge-lang/platforms/rust) drive the same `edge.wasm`, and [Plugins](/docs/edge-lang/sdk/plugins) covers the host modules they serve.
+- **A program writer** runs programs on mini, the reference runtime, with the `edge` CLI. The [Quickstart](/docs/edge-lang/get-started/quickstart) runs a first one.
 
 ## Questions
 
-> [!QUESTION] Is it full Python?
-> A program that compiles behaves as it does in CPython 3.15, error messages included, apart from the choices below. What Edge Python leaves out is missing for the sandbox, like the standard library and `open`, or for the design of the engine, like `locals` and metaclasses. It fails with an error instead, at compile time whenever the compiler can see it. [Limits and errors](/docs/edge-python/reference/limits-and-errors#compile-time-errors) lists those errors and [Design](/docs/edge-python/internals/design#memory-model) explains the memory model behind them.
-
-> [!QUESTION] Where does it behave differently on purpose?
-> In two places. Sets iterate in [insertion order](/docs/edge-python/language/data-types#behavioral-notes), and every NaN is [one value](/docs/edge-python/internals/design#memory-model).
-
-> [!QUESTION] Is there a standard library?
-> No bundled one. Every module is an external package that `edge.json` declares. [Modules](/docs/edge-python/reference/modules) explains how imports resolve.
-
-> [!QUESTION] Can a program run code it builds at run time?
-> Yes, through `eval`, `exec` and `compile`. The text runs in the same sandbox under the same budget and grants, and it imports only packages the program resolved, so the set of packages is still fixed when the program compiles. [Dynamic code](/docs/edge-python/reference/builtins#dynamic-code) has the details.
-
 > [!QUESTION] Can a program reach the network or the disk?
-> Only what the root `edge.json` grants. Each grant names a module and a scope, such as one host for `net` or one folder for `fs`. [System](/docs/edge-python/reference/system) lists every scope.
+> Only what the root `edge.json` grants. Each grant names a module and a scope, such as one host for `net` or one file for `files`, and a program reaches a file only through a `files` grant. [System](/docs/edge-lang/reference/system) lists every scope.
 
 > [!QUESTION] Where does it run?
-> The [JavaScript host](/docs/edge-python/platforms/javascript) runs it in browsers and in runtimes with the same Web APIs, such as Deno. The [edge CLI](/docs/edge-python/platforms/cli) runs the same engine on macOS, Linux and WSL. [Rust](/docs/edge-python/platforms/rust) shows how to drive `compiler.wasm` from Rust code.
+> The [JavaScript host](/docs/edge-lang/platforms/javascript) runs it in browsers and in runtimes with the same Web APIs, such as Deno. The [edge CLI](/docs/edge-lang/platforms/cli) runs the same engine on macOS, Linux and WSL. [Rust](/docs/edge-lang/platforms/rust) shows how to drive `edge.wasm` from Rust code.
 
 > [!QUESTION] Is there a summary for machine learning models?
-> Yes. A model can load [skill/SKILL.md](https://github.com/dylan-sutton-chavez/edge-python/blob/main/skill/SKILL.md) for a self-verifying summary of the language and the CLI.
+> Yes. A model can load `skill/SKILL.md` from the repo for a self-verifying summary of the CLI, imports, permissions, actors and limits.
 
 > [!QUESTION] Where do I ask for help?
 > Email [c.sutton.dylan@gmail.com](mailto:c.sutton.dylan@gmail.com) with questions or for help with an integration.
@@ -72,9 +51,13 @@ Its `edge.json` declares the `json` package and grants the network for `api.gith
 ## Start here
 
 > [!CARDS]
-> - `rocket` [Quickstart](/docs/edge-python/get-started/quickstart) Install the CLI and run a first script.
-> - `hammer` [Your first app](/docs/edge-python/get-started/first-app/create) Create, test and ship a small app step by step.
-> - `book-open` [Language](/docs/edge-python/language/syntax) The syntax and the features, one topic a page.
-> - `terminal` [Platforms](/docs/edge-python/platforms/cli) The CLI, the JavaScript host, actors and Rust.
-> - `package` [Modules](/docs/edge-python/reference/modules) Imports, edge.json and edge.lock.
-> - `cpu` [Internals](/docs/edge-python/internals/design) How the compiler and the VM work.
+> - `activity` [Your runtime and its CLI](/docs/edge-lang/get-started/use-cases/your-runtime) A language for uptime checks and its CLI, end to end.
+> - `book-open` [The book](/docs/edge-lang/get-started/book/intro) Build a runtime on Edge Lang and ship it, one piece at a time.
+> - `rocket` [Quickstart](/docs/edge-lang/get-started/quickstart) Build a runtime from a clone, then install the CLI and run a program.
+> - `map` [SDK overview](/docs/edge-lang/sdk/overview) The path of a program through the engine and the parts every runtime is built from.
+> - `blocks` [Parser kit](/docs/edge-lang/sdk/parser-kit) The one grammar and the token tables that spell it.
+> - `library` [Lib](/docs/edge-lang/sdk/lib) The kernels a runtime names in its own tables.
+> - `plug` [Plugins](/docs/edge-lang/sdk/plugins) Wasm plugins and the host modules a composition serves.
+> - `layers` [CLI kit](/docs/edge-lang/sdk/cli) The commands a CLI of your own is composed from.
+> - `terminal` [Platforms](/docs/edge-lang/platforms/cli) The CLI, the JavaScript host, actors and Rust.
+> - `cpu` [Internals](/docs/edge-lang/internals/design) How the compiler and the VM work.

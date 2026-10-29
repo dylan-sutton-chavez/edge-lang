@@ -18,8 +18,8 @@ const TYPES: Record<string, string> = {
 // Paths carry no version, so every object revalidates against its ETag.
 export const CACHE = 'public, max-age=0, must-revalidate'
 
-// The compiler is the large payload, stored brotli encoded.
-const encoded = (key: string) => key === 'compiler.wasm'
+// edge.wasm and its compiler.wasm copy are the large payloads stored brotli encoded
+const encoded = (key: string) => key === 'edge.wasm' || key === 'compiler.wasm'
 
 export type CdnObject = { key: string; file: string; type: string; encoding: string | null }
 

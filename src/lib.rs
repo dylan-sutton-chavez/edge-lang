@@ -1,44 +1,35 @@
 #![cfg_attr(not(feature = "std"), no_std)]
+// unsafe code lives in r#unsafe alone as the lint gate checks
+#![deny(unsafe_code)]
 
 extern crate alloc;
 
-pub mod abi;
+#[allow(unsafe_code)] pub(crate) mod r#unsafe;
 
-/* Host bridge behind the six plugin imports, part of the wasm `runtime`. */
-#[cfg(all(target_arch = "wasm32", feature = "runtime"))]
-pub mod bridge;
+pub mod abi {
+    // the wire format keeps its file at src/abi.rs
+    #[path = "../abi.rs"]
+    mod wire;
+    pub use wire::*;
 
-#[cfg(all(target_arch = "wasm32", feature = "runtime"))]
-pub mod wasm;
-
-/* Internal compiler helpers (not Edge Python stdlib), separate from pipeline code. */
-pub mod util {
-    pub(crate) mod hash;
-    pub(crate) mod fstr;
-    pub(crate) mod jesc;
-    pub mod sha256;
-    pub(crate) mod uni;
-    pub(crate) mod suggest;
-
-    /* `Box::leak` for memory kept until exit, which Miri then holds as a static root instead of reporting it. */
-    pub fn leak<T: ?Sized>(boxed: alloc::boxed::Box<T>) -> &'static mut T {
-        let leaked = alloc::boxed::Box::leak(boxed);
-        // A zero-sized value owns no allocation to root.
-        #[cfg(miri)]
-        if core::mem::size_of_val(leaked) != 0 {
-            unsafe extern "Rust" {
-                fn miri_static_root(ptr: *const ());
-            }
-            unsafe { miri_static_root(core::ptr::from_ref(leaked).cast()) };
-        }
-        leaked
-    }
+    /* the host bridge behind the six plugin imports in the wasm runtime */
+    #[cfg(all(target_arch = "wasm32", feature = "runtime"))]
+    pub mod bridge;
 }
 
-/* NaN-boxed values and the mark-and-sweep heap, the layer both the frontend and the VM build on. */
+/* the wasm runtime edge.wasm builds and what a native binary boots a runtime with */
+pub mod targets;
+
+/* internal engine helpers apart from the pipeline code and from any runtime library */
+pub mod util;
+
+/* the NaN-boxed values and the mark-and-sweep heap under both the frontend and the VM */
 pub mod value;
 
-// Public only through the internals feature for the engine's own tests and tools.
+/* the natives a runtime gives the engine and the steps they ask of it */
+pub mod lang;
+
+// public only through the internals feature for the engine's own tests and tools
 macro_rules! internal {
     ($($(#[$a:meta])* $m:ident;)*) => { $(
         $(#[$a])* #[cfg(feature = "internals")] pub mod $m;
@@ -46,70 +37,60 @@ macro_rules! internal {
     )* };
 }
 
-pub mod lexer;
 internal! {
-    parser;
-    /* Post-SSA passes, run between parse and boot, touches no VM state. */
-    optimizer;
+    syntax;
+}
+pub use syntax::lexer;
+internal! {
     vm;
-    /* The kinds Edge Python registers on the engine, the wide ints first. */
-    frontend;
 }
-pub mod pure;
-pub mod modules;
+pub mod deps;
 
-// Source to bytecode and the facts of compiled code read without running it.
-pub mod code {
-    pub use crate::parser::{
-        Parser, SSAChunk, Instruction, OpCode, Value, ImportKind, ImportEntry, Diagnostic, Lines, SsaName, ssa_strip, param_base_name, unpack_call,
-        COMP_ARG, SPREAD_BASES, INPLACE, ITER_VALUE, ITER_AS_IS, ITER_ASYNC, YIELD_FROM, SPREAD_ARGS, KEYWORDS,
-    };
-    pub use crate::optimizer::constant_fold;
-    pub use crate::vm::{Binding, BodyKind, FnScope, Kind, ParamKind};
+// source to bytecode and the facts of compiled code read without running it
+pub mod code;
 
-    // Lexes, parses and folds `src` into a chunk and its errors.
-    pub fn compile(src: &str) -> (SSAChunk, alloc::vec::Vec<Diagnostic>) {
-        let (tokens, _) = crate::lexer::lex(src);
-        let (mut chunk, errors) = Parser::new(src, tokens.into_iter()).parse();
-        constant_fold(&mut chunk);
-        (chunk, errors)
-    }
-
-    // Each body's scope and parameters resolved as the VM resolves them without running.
-    pub struct Program<'c> { vm: crate::vm::VM<'c>, bodies: crate::util::hash::FxHashMap<*const SSAChunk, (BodyKind, alloc::vec::Vec<Binding>)> }
-
-    impl<'c> Program<'c> {
-        pub fn new(chunk: &'c SSAChunk) -> Self {
-            let mut vm = crate::vm::VM::new(chunk);
-            let bodies = vm.body_bindings(chunk);
-            Self { vm, bodies }
-        }
-        // None for the module body.
-        pub fn scope_of(&self, body: &SSAChunk) -> Option<(usize, &FnScope)> { self.vm.scope_of(body) }
-        // Which body `body` is and the binding of each of its names, a module's, a class's or a function's, None for a chunk of another program.
-        pub fn bindings_of(&self, body: &SSAChunk) -> Option<(BodyKind, &[Binding])> { self.bodies.get(&(body as *const SSAChunk)).map(|(k, b)| (*k, b.as_slice())) }
-        // Kind and slot of each parameter in order.
-        pub fn params_of(&self, fi: usize) -> &[(ParamKind, usize)] { self.vm.params_of(fi) }
-    }
-}
-
-// Builtin types, methods and functions with arity and purity.
-pub mod types {
-    pub use crate::parser::{BUILTIN_TYPES, CLASS_DUNDERS, builtin_type, class_dunder};
-    pub use crate::vm::{ALL_METHODS, BuiltinMethodId, MethodDesc, MethodKind, lookup_method, exc_parents};
-    pub use crate::value::NativeFnId;
-}
-
-// A VM to embed, run and snapshot with host modules and natives.
+// a VM to embed and run and snapshot with host modules and natives
 pub mod embed {
     pub use crate::vm::VM;
-    pub use crate::vm::snapshot::{SnapErr, save, restore, source_of, limits_of, inspect_globals, inspect_stack};
+    pub use crate::vm::snapshot::{SnapErr, save, save_swept, restore, source_of, entry_of, runtime_of, saved_under, limits_of, inspect_globals, inspect_stack, RUNTIME_AT, OTHER_RUNTIME};
     pub use crate::value::{Limits, SchedulerStatus};
-    pub use crate::modules::{NativeBinding, Resolved, Resolver};
+    pub use crate::deps::{NativeBinding, Resolved, Resolver};
+
+    use alloc::vec::Vec;
+    use crate::value::{Val, VmErr};
+
+    /* calls `name` or `kind.method` on plain values and gives None once a frame opened */
+    pub fn call_native(vm: &mut VM<'_>, name: &str, recv: Val, args: &[Val], kw: &[(&str, Val)]) -> Result<Option<Val>, VmErr> {
+        let _paying = vm.paying()?;
+        let (kind, method) = name.split_once('.').unwrap_or(("", name));
+        let found = match (kind.is_empty(), vm.natives.names().kind_named(kind)) {
+            (true, _) => vm.natives.find(name).map(|n| (n, None)),
+            (false, Some(k)) => vm.kind_method(k, method).map(|(n, owner)| (n, Some(owner))),
+            (false, None) => vm.natives.foreign_method(kind, method).map(|n| (n, Some(crate::lang::KindId::Foreign))),
+        };
+        let Some((native, owner)) = found else { return Err(VmErr::Runtime("a call names a native this runtime does not give")) };
+        // a receiver goes first to check its kind and a type binds itself if asked
+        let (recv, pos): (Val, Vec<Val>) = if !recv.is_undef() {
+            (Val::undef(), core::iter::once(recv).chain(args.iter().copied()).collect())
+        } else if owner.is_some() && native.on_class() {
+            (vm.heap.type_object(kind)?, args.to_vec())
+        } else {
+            (recv, args.to_vec())
+        };
+        let mut flat = Vec::with_capacity(kw.len() * 2);
+        for &(k, v) in kw { flat.extend([vm.heap.intern_str(k)?, v]); }
+        let held = core::iter::once(recv).chain(pos.iter().copied()).chain(flat.iter().copied());
+        let ran = vm.with_roots(held, |vm| {
+            vm.job_ok = true;
+            vm.native_value_call(recv, native, owner, &pos, &flat)
+        });
+        ran.map_err(|e| vm.word(e))
+    }
 }
 
-// Unstable internals for the engine's own tests and tools.
+// unstable internals for the engine's own tests and tools
 #[cfg(feature = "internals")]
 pub mod internals {
-    pub use crate::{frontend, optimizer, parser, vm};
+    pub use crate::{syntax, vm};
+    pub use crate::code::fold;
 }

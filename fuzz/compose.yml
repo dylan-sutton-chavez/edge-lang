@@ -1,4 +1,4 @@
-name: edge-python-afl
+name: fuzz
 
 services:
   fuzzer:

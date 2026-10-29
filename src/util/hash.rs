@@ -1,9 +1,9 @@
 use core::hash::{BuildHasher, Hasher};
 
-/* FxHash multiplier from rustc-hash. */
+/* the FxHash multiplier from rustc-hash */
 const K: u64 = 0x517cc1b727220a95;
 
-/* Fixed seed for deterministic iteration order across runs. */
+/* a fixed seed so iteration order stays the same across runs */
 const FIXED_SEED: u64 = 0x9e3779b97f4a7c15;
 
 #[derive(Clone, Default)]
@@ -23,7 +23,7 @@ impl Hasher for FxHasher {
     #[inline(always)] fn write_u32(&mut self, i: u32) { self.write_u64(i as u64); }
     #[inline(always)] fn write_u64(&mut self, i: u64) { self.0 = (self.0.rotate_left(5) ^ i).wrapping_mul(K); }
     #[inline(always)] fn write_usize(&mut self, i: usize) { self.write_u64(i as u64); }
-    /* Rotate the well mixed high bits down, hashbrown buckets by the low ones. */
+    /* rotates the well mixed high bits down since hashbrown buckets by the low ones */
     #[inline(always)] fn finish(&self) -> u64 { self.0.rotate_left(26) }
 }
 

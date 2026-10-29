@@ -1,9 +1,9 @@
 use super::{read, read_u32, stage, unstage, write, write_u32, wt, Exports, Instance, Native, Plugin, State};
 use anyhow::{anyhow, Result};
-use compiler::abi::EDGE_ABI_VERSION;
+use edge::abi::EDGE_ABI_VERSION;
 use wasmtime::{Caller, ExternType, InstancePre, Linker, Memory, TypedFunc};
 
-/* The seven `env` imports a plugin declares, each bridges guest memory to the compiler exports. */
+/* the seven `env` imports a plugin declares each bridging guest memory to the runtime exports */
 pub fn link(linker: &mut Linker<State>) -> Result<()> {
     linker
         .func_wrap("env", "edge_op", |mut caller: Caller<'_, State>, op: i32, recv: i32, name_ptr: i32, name_len: i32, argv_ptr: i32, argc: i32, out: i32| -> wasmtime::Result<i32> {
@@ -102,7 +102,7 @@ pub fn link(linker: &mut Linker<State>) -> Result<()> {
 }
 
 fn exports(caller: &Caller<'_, State>) -> Exports {
-    caller.data().exports.clone().expect("compiler exports bound before any plugin call")
+    caller.data().exports.clone().expect("runtime exports bound before any plugin call")
 }
 
 fn guest_memory(caller: &mut Caller<'_, State>) -> wasmtime::Result<Memory> {
@@ -112,30 +112,30 @@ fn guest_memory(caller: &mut Caller<'_, State>) -> wasmtime::Result<Memory> {
         .ok_or_else(|| wasmtime::format_err!("plugin exports no memory"))
 }
 
-/* Instantiates a third party plugin from its bytes, once per instance. */
-pub fn register_bytes(inst: &mut Instance, name: &str, spec: &str, bytes: &[u8]) -> Result<(), String> {
+/* instantiates a third party plugin once per instance or says why it does not load */
+pub fn register_bytes(inst: &mut Instance, spec: &str, bytes: &[u8]) -> Result<(), String> {
     if let Some((base, names)) = inst.store.data().registered.get(spec).cloned() {
         return inst.register_native(spec, &names, base);
     }
     let host = inst.host.clone();
-    let pre = host.third_party(bytes).map_err(|e| format!("module '{name}' is not a valid plugin, {}", headline(&e)))?;
-    register_pre(inst, &format!("plugin '{name}'"), spec, &pre)
+    let pre = host.third_party(bytes).map_err(|e| headline(&e).to_string())?;
+    register_pre(inst, spec, &pre)
 }
 
-/* The first line of a wasmtime error, cut before a dangling byte dump that would follow it. */
+/* the first line of a wasmtime error cut before the dangling byte dump after it */
 fn headline(e: &str) -> &str {
     let line = e.lines().next().unwrap_or(e);
     line.rsplit_once(" - ").filter(|(_, tail)| tail.ends_with('[')).map_or(line, |(head, _)| head)
 }
 
-/* Instantiates any linked plugin in the instance's store and registers its exports under `spec`. */
-pub fn register_pre(inst: &mut Instance, what: &str, spec: &str, pre: &InstancePre<State>) -> Result<(), String> {
-    let instance = wt(pre.instantiate(&mut inst.store)).map_err(|e| format!("instantiating {what}: {e}"))?;
-    let memory = instance.get_memory(&mut inst.store, "memory").ok_or_else(|| format!("{what} exports no memory"))?;
+/* instantiates a linked plugin in the instance store and registers its exports under `spec` */
+pub fn register_pre(inst: &mut Instance, spec: &str, pre: &InstancePre<State>) -> Result<(), String> {
+    let instance = wt(pre.instantiate(&mut inst.store)).map_err(|e| format!("it fails to instantiate, {e}"))?;
+    let memory = instance.get_memory(&mut inst.store, "memory").ok_or_else(|| String::from("it exports no memory"))?;
     let version: TypedFunc<(), i32> = wt(instance.get_typed_func(&mut inst.store, "__edge_abi_version")).map_err(|e| e.to_string())?;
     let got = wt(version.call(&mut inst.store, ())).map_err(|e| e.to_string())?;
     if got != EDGE_ABI_VERSION as i32 {
-        return Err(format!("{what} speaks ABI v{got}, this cli expects v{EDGE_ABI_VERSION}"));
+        return Err(format!("it speaks ABI v{got}, this cli expects v{EDGE_ABI_VERSION}"));
     }
     let alloc: TypedFunc<i32, i32> = wt(instance.get_typed_func(&mut inst.store, "__edge_alloc")).map_err(|e| e.to_string())?;
     let free: Option<TypedFunc<(i32, i32), ()>> = instance.get_typed_func(&mut inst.store, "__edge_free").ok();
@@ -147,7 +147,7 @@ pub fn register_pre(inst: &mut Instance, what: &str, spec: &str, pre: &InstanceP
         if !matches!(export.ty(), ExternType::Func(_)) || n == "memory" {
             continue;
         }
-        // Convention exports carry the module surface, other `__` names are ABI internals.
+        // convention exports carry the module surface while other `__` names are ABI internals
         if n.starts_with("__") && !(n.starts_with("__fn_") || n.starts_with("__class_") || n.starts_with("__const_")) {
             continue;
         }

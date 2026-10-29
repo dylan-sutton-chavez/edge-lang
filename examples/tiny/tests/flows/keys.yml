@@ -1,0 +1,737 @@
+- name: count with no keys counts every record in one row
+  input: slice
+  flow: |
+    from: input
+    total:
+      count:
+  out:
+    total:
+      - '{"count":431}'
+
+- name: where keeps the records whose expression holds
+  input: slice
+  flow: |
+    from: input
+    watches:
+      where: type == "WatchEvent"
+      count:
+  out:
+    watches:
+      - '{"count":121}'
+
+- name: where reads nested fields through dots
+  input: slice
+  flow: |
+    from: input
+    opened:
+      where: type == "IssuesEvent" and payload.action == "opened"
+      count:
+  out:
+    opened:
+      - '{"count":26}'
+
+- name: where takes not and a method of a text
+  input: slice
+  flow: |
+    from: input
+    people:
+      where: not actor.login.endswith("[bot]")
+      count:
+  out:
+    people:
+      - '{"count":366}'
+
+- name: a key written as name = expression fills a column of that name
+  input: slice
+  flow: |
+    from: input
+    kinds:
+      count: kind = type.lower()
+      sort: kind
+  out:
+    kinds:
+      - '{"kind":"createevent","count":42}'
+      - '{"kind":"deleteevent","count":11}'
+      - '{"kind":"issuecommentevent","count":20}'
+      - '{"kind":"issuesevent","count":87}'
+      - '{"kind":"pullrequestevent","count":20}'
+      - '{"kind":"pushevent","count":130}'
+      - '{"kind":"watchevent","count":121}'
+
+- name: a named key computes from the record
+  input: slice
+  flow: |
+    from: input
+    owners:
+      count: owner = repo.name.split("/")[0]
+      sort: -count, owner
+      top: 3
+  out:
+    owners:
+      - '{"owner":"merge-demo","count":3}'
+      - '{"owner":"shihabal3amri","count":3}'
+      - '{"owner":"BuilderShock","count":2}'
+
+- name: a report with no aggregate writes each record its where keeps
+  input: slice
+  flow: |
+    from: input
+    tags:
+      where: type == "DeleteEvent" and payload.ref_type == "tag"
+  out:
+    tags:
+      - '{"id":"22704037727","type":"DeleteEvent","actor":{"id":41898282,"login":"github-actions[bot]","display_login":"github-actions","gravatar_id":"","url":"https://api.github.com/users/github-actions[bot]","avatar_url":"https://avatars.githubusercontent.com/u/41898282?"},"repo":{"id":1305808111,"name":"malys/EVABRPUploader","url":"https://api.github.com/repos/malys/EVABRPUploader"},"payload":{"ref":"unstable","ref_type":"tag","full_ref":"refs/tags/unstable","pusher_type":"user"},"public":true,"created_at":"2026-10-01T15:24:07Z"}'
+
+- name: an empty report writes every record the flow keeps
+  input: slice
+  flow: |
+    from: input
+    where: type == "DeleteEvent" and actor.login == "lqflqf"
+    deletes:
+  out:
+    deletes:
+      - '{"id":"22701598479","type":"DeleteEvent","actor":{"id":17067054,"login":"lqflqf","display_login":"lqflqf","gravatar_id":"","url":"https://api.github.com/users/lqflqf","avatar_url":"https://avatars.githubusercontent.com/u/17067054?"},"repo":{"id":1334819039,"name":"lqflqf/docker-amneziawg","url":"https://api.github.com/repos/lqflqf/docker-amneziawg"},"payload":{"ref":"feature/alpine-s6-overlay","ref_type":"branch","full_ref":"refs/heads/feature/alpine-s6-overlay","pusher_type":"user"},"public":true,"created_at":"2026-10-01T15:00:00Z"}'
+
+- name: count groups the records by a field in the order its keys first appear
+  input: slice
+  flow: |
+    from: input
+    kinds:
+      count: type
+  out:
+    kinds:
+      - '{"type":"IssueCommentEvent","count":20}'
+      - '{"type":"IssuesEvent","count":87}'
+      - '{"type":"PullRequestEvent","count":20}'
+      - '{"type":"WatchEvent","count":121}'
+      - '{"type":"PushEvent","count":130}'
+      - '{"type":"DeleteEvent","count":11}'
+      - '{"type":"CreateEvent","count":42}'
+
+- name: a key at a nested path nests in its row
+  input: slice
+  flow: |
+    from: input
+    stars:
+      where: type == "WatchEvent"
+      count: repo.name
+      sort: -count, repo.name
+      top: 3
+  out:
+    stars:
+      - '{"repo":{"name":"shihabal3amri/DiPlay"},"count":3}'
+      - '{"repo":{"name":"OffGridPete/Fieldwatch"},"count":2}'
+      - '{"repo":{"name":"Yuan1z0825/nature-skills"},"count":2}'
+
+- name: count by two keys gives a row per pair
+  input: slice
+  flow: |
+    from: input
+    pairs:
+      where: type == "IssuesEvent"
+      count: type, payload.action
+      sort: -count, payload.action
+  out:
+    pairs:
+      - '{"type":"IssuesEvent","payload":{"action":"labeled"},"count":33}'
+      - '{"type":"IssuesEvent","payload":{"action":"opened"},"count":26}'
+      - '{"type":"IssuesEvent","payload":{"action":"closed"},"count":15}'
+      - '{"type":"IssuesEvent","payload":{"action":"assigned"},"count":9}'
+      - '{"type":"IssuesEvent","payload":{"action":"unlabeled"},"count":3}'
+      - '{"type":"IssuesEvent","payload":{"action":"unassigned"},"count":1}'
+
+- name: sum totals what it measures for each key of by
+  input: slice
+  flow: |
+    from: input
+    comments:
+      where: type == "IssuesEvent"
+      sum: payload.issue.comments
+      by: payload.action
+      sort: payload.action
+  out:
+    comments:
+      - '{"payload":{"action":"assigned"},"sum":3}'
+      - '{"payload":{"action":"closed"},"sum":26}'
+      - '{"payload":{"action":"labeled"},"sum":29}'
+      - '{"payload":{"action":"opened"},"sum":4}'
+      - '{"payload":{"action":"unassigned"},"sum":2}'
+      - '{"payload":{"action":"unlabeled"},"sum":2}'
+
+- name: average gives the mean as a float
+  input: slice
+  flow: |
+    from: input
+    comments:
+      where: type == "IssuesEvent"
+      average: payload.issue.comments
+      by: payload.action
+      sort: payload.action
+  out:
+    comments:
+      - '{"payload":{"action":"assigned"},"average":0.3333333333333333}'
+      - '{"payload":{"action":"closed"},"average":1.7333333333333334}'
+      - '{"payload":{"action":"labeled"},"average":0.8787878787878788}'
+      - '{"payload":{"action":"opened"},"average":0.15384615384615385}'
+      - '{"payload":{"action":"unassigned"},"average":2.0}'
+      - '{"payload":{"action":"unlabeled"},"average":0.6666666666666666}'
+
+- name: min and max keep the least and the greatest
+  input: slice
+  flow: |
+    from: input
+    first:
+      min: created_at
+      by: type
+      sort: type
+    last:
+      max: id
+      by: type
+      sort: type
+  out:
+    first:
+      - '{"type":"CreateEvent","min":"2026-10-01T15:00:01Z"}'
+      - '{"type":"DeleteEvent","min":"2026-10-01T15:00:00Z"}'
+      - '{"type":"IssueCommentEvent","min":"2026-10-01T15:00:00Z"}'
+      - '{"type":"IssuesEvent","min":"2026-10-01T15:00:01Z"}'
+      - '{"type":"PullRequestEvent","min":"2026-10-01T15:00:01Z"}'
+      - '{"type":"PushEvent","min":"2026-10-01T15:00:00Z"}'
+      - '{"type":"WatchEvent","min":"2026-10-01T15:00:02Z"}'
+    last:
+      - '{"type":"CreateEvent","max":"22706084370"}'
+      - '{"type":"DeleteEvent","max":"22706027100"}'
+      - '{"type":"IssueCommentEvent","max":"16206308219"}'
+      - '{"type":"IssuesEvent","max":"16206390686"}'
+      - '{"type":"PullRequestEvent","max":"16206133923"}'
+      - '{"type":"PushEvent","max":"22706113355"}'
+      - '{"type":"WatchEvent","max":"16206412875"}'
+
+- name: two reports fold the same keys side by side
+  input: slice
+  flow: |
+    from: input
+    talk:
+      where: type == "IssuesEvent"
+      count: payload.action
+      sort: -count, payload.action
+    most:
+      where: type == "IssuesEvent"
+      max: payload.issue.comments
+      by: payload.action
+      sort: payload.action
+  out:
+    most:
+      - '{"payload":{"action":"assigned"},"max":1}'
+      - '{"payload":{"action":"closed"},"max":14}'
+      - '{"payload":{"action":"labeled"},"max":14}'
+      - '{"payload":{"action":"opened"},"max":2}'
+      - '{"payload":{"action":"unassigned"},"max":2}'
+      - '{"payload":{"action":"unlabeled"},"max":2}'
+    talk:
+      - '{"payload":{"action":"labeled"},"count":33}'
+      - '{"payload":{"action":"opened"},"count":26}'
+      - '{"payload":{"action":"closed"},"count":15}'
+      - '{"payload":{"action":"assigned"},"count":9}'
+      - '{"payload":{"action":"unlabeled"},"count":3}'
+      - '{"payload":{"action":"unassigned"},"count":1}'
+
+- name: keep filters the rows by the word of their aggregate
+  input: slice
+  flow: |
+    from: input
+    starred:
+      where: type == "WatchEvent"
+      count: repo.name
+      keep: count > 1
+      sort: -count, repo.name
+  out:
+    starred:
+      - '{"repo":{"name":"shihabal3amri/DiPlay"},"count":3}'
+      - '{"repo":{"name":"OffGridPete/Fieldwatch"},"count":2}'
+      - '{"repo":{"name":"Yuan1z0825/nature-skills"},"count":2}'
+      - '{"repo":{"name":"edgcpp/compiler"},"count":2}'
+      - '{"repo":{"name":"eternity4719/HowToLiveBetter"},"count":2}'
+
+- name: a leading minus sorts descending
+  input: slice
+  flow: |
+    from: input
+    kinds:
+      count: type
+      sort: -count
+  out:
+    kinds:
+      - '{"type":"PushEvent","count":130}'
+      - '{"type":"WatchEvent","count":121}'
+      - '{"type":"IssuesEvent","count":87}'
+      - '{"type":"CreateEvent","count":42}'
+      - '{"type":"IssueCommentEvent","count":20}'
+      - '{"type":"PullRequestEvent","count":20}'
+      - '{"type":"DeleteEvent","count":11}'
+
+- name: sort keys of either direction apply in order
+  input: slice
+  flow: |
+    from: input
+    states:
+      where: type == "IssuesEvent"
+      count: payload.issue.state, payload.action
+      sort: payload.issue.state, -count, payload.action
+  out:
+    states:
+      - '{"payload":{"issue":{"state":"closed"},"action":"closed"},"count":15}'
+      - '{"payload":{"issue":{"state":"closed"},"action":"opened"},"count":3}'
+      - '{"payload":{"issue":{"state":"closed"},"action":"assigned"},"count":2}'
+      - '{"payload":{"issue":{"state":"closed"},"action":"labeled"},"count":1}'
+      - '{"payload":{"issue":{"state":"closed"},"action":"unlabeled"},"count":1}'
+      - '{"payload":{"issue":{"state":"open"},"action":"labeled"},"count":32}'
+      - '{"payload":{"issue":{"state":"open"},"action":"opened"},"count":23}'
+      - '{"payload":{"issue":{"state":"open"},"action":"assigned"},"count":7}'
+      - '{"payload":{"issue":{"state":"open"},"action":"unlabeled"},"count":2}'
+      - '{"payload":{"issue":{"state":"open"},"action":"unassigned"},"count":1}'
+
+- name: top keeps the rows of the largest aggregates
+  input: slice
+  flow: |
+    from: input
+    kinds:
+      count: type
+      top: 2
+  out:
+    kinds:
+      - '{"type":"PushEvent","count":130}'
+      - '{"type":"WatchEvent","count":121}'
+
+- name: top past the number of rows keeps them all
+  input: slice
+  flow: |
+    from: input
+    kinds:
+      count: type
+      top: 100
+  out:
+    kinds:
+      - '{"type":"PushEvent","count":130}'
+      - '{"type":"WatchEvent","count":121}'
+      - '{"type":"IssuesEvent","count":87}'
+      - '{"type":"CreateEvent","count":42}'
+      - '{"type":"IssueCommentEvent","count":20}'
+      - '{"type":"PullRequestEvent","count":20}'
+      - '{"type":"DeleteEvent","count":11}'
+
+- name: top after a sort of several keys keeps the first rows
+  input: slice
+  flow: |
+    from: input
+    kinds:
+      count: type
+      sort: -count, type
+      top: 3
+  out:
+    kinds:
+      - '{"type":"PushEvent","count":130}'
+      - '{"type":"WatchEvent","count":121}'
+      - '{"type":"IssuesEvent","count":87}'
+
+- name: one descending sort key then top keeps the greatest rows
+  input: slice
+  flow: |
+    from: input
+    kinds:
+      count: type
+      sort: -count
+      top: 2
+  out:
+    kinds:
+      - '{"type":"PushEvent","count":130}'
+      - '{"type":"WatchEvent","count":121}'
+
+- name: top of zero keeps no row so the report writes nothing
+  input: slice
+  flow: |
+    from: input
+    kinds:
+      count: type
+      top: 0
+  out: {}
+
+- name: the order of a report's keys never changes what it does
+  input: slice
+  flow: |
+    from: input
+    kinds:
+      top: 2
+      sort: -count
+      count: type
+      where: type != "PushEvent"
+  out:
+    kinds:
+      - '{"type":"WatchEvent","count":121}'
+      - '{"type":"IssuesEvent","count":87}'
+
+- name: keep reads the keys of the rows too
+  input: slice
+  flow: |
+    from: input
+    big:
+      count: type
+      keep: count > 50 and type != "IssuesEvent"
+      sort: -count
+  out:
+    big:
+      - '{"type":"PushEvent","count":130}'
+      - '{"type":"WatchEvent","count":121}'
+
+- name: sort orders by an expression over the rows
+  input: slice
+  flow: |
+    from: input
+    actions:
+      where: type == "IssuesEvent"
+      count: payload.action
+      sort: len(payload.action), payload.action
+  out:
+    actions:
+      - '{"payload":{"action":"closed"},"count":15}'
+      - '{"payload":{"action":"opened"},"count":26}'
+      - '{"payload":{"action":"labeled"},"count":33}'
+      - '{"payload":{"action":"assigned"},"count":9}'
+      - '{"payload":{"action":"unlabeled"},"count":3}'
+      - '{"payload":{"action":"unassigned"},"count":1}'
+
+- name: keep then top keeps the largest of the rows kept
+  input: slice
+  flow: |
+    from: input
+    smaller:
+      count: type
+      keep: count < 100
+      top: 2
+  out:
+    smaller:
+      - '{"type":"IssuesEvent","count":87}'
+      - '{"type":"CreateEvent","count":42}'
+
+- name: a name with a dot and no extension tiny writes is a named output
+  input: slice
+  flow: |
+    from: input
+    kinds.json:
+      count: type
+      top: 1
+  out:
+    kinds.json:
+      - '{"type":"PushEvent","count":130}'
+
+- name: a report ending in csv writes a header then a line per row
+  input: slice
+  flow: |
+    from: input
+    types.csv:
+      count: type
+      sort: type
+  out:
+    file:types.csv:
+      - 'type,count'
+      - 'CreateEvent,42'
+      - 'DeleteEvent,11'
+      - 'IssueCommentEvent,20'
+      - 'IssuesEvent,87'
+      - 'PullRequestEvent,20'
+      - 'PushEvent,130'
+      - 'WatchEvent,121'
+
+- name: a csv file names a nested key by its dotted path
+  input: slice
+  flow: |
+    from: input
+    stars.csv:
+      where: type == "WatchEvent"
+      count: repo.name
+      keep: count > 1
+      sort: -count, repo.name
+  out:
+    file:stars.csv:
+      - 'repo.name,count'
+      - 'shihabal3amri/DiPlay,3'
+      - 'OffGridPete/Fieldwatch,2'
+      - 'Yuan1z0825/nature-skills,2'
+      - 'edgcpp/compiler,2'
+      - 'eternity4719/HowToLiveBetter,2'
+
+- name: a report ending in jsonl writes a line of JSON per row
+  input: slice
+  flow: |
+    from: input
+    types.jsonl:
+      count: type
+      sort: type
+      top: 2
+  out:
+    file:types.jsonl:
+      - '{"type":"CreateEvent","count":42}'
+      - '{"type":"DeleteEvent","count":11}'
+
+- name: an aggregate with no keys folds every record into one row
+  input: slice
+  flow: |
+    from: input
+    comments:
+      where: type == "IssuesEvent"
+      average: payload.issue.comments
+  out:
+    comments:
+      - '{"average":0.7586206896551724}'
+
+- name: aggregates over no record still give their one row
+  input: slice
+  flow: |
+    from: input
+    releases:
+      where: type == "ReleaseEvent"
+      count:
+    sizes:
+      where: type == "ReleaseEvent"
+      sum: payload.size
+  out:
+    releases:
+      - '{"count":0}'
+    sizes:
+      - '{"sum":null}'
+
+- name: an average of nothing but None is None
+  input: slice
+  flow: |
+    from: input
+    nothing:
+      where: type == "IssuesEvent"
+      average: None
+      by: payload.action
+      sort: payload.action
+  out:
+    nothing:
+      - '{"payload":{"action":"assigned"},"average":null}'
+      - '{"payload":{"action":"closed"},"average":null}'
+      - '{"payload":{"action":"labeled"},"average":null}'
+      - '{"payload":{"action":"opened"},"average":null}'
+      - '{"payload":{"action":"unassigned"},"average":null}'
+      - '{"payload":{"action":"unlabeled"},"average":null}'
+
+- name: max passes over None values
+  input: slice
+  flow: |
+    from: input
+    closed:
+      where: type == "IssuesEvent"
+      max: payload.issue.closed_at
+      by: payload.action
+      sort: payload.action
+  out:
+    closed:
+      - '{"payload":{"action":"assigned"},"max":"2026-10-01T15:39:14Z"}'
+      - '{"payload":{"action":"closed"},"max":"2026-10-01T15:50:31Z"}'
+      - '{"payload":{"action":"labeled"},"max":"2026-10-01T15:21:42Z"}'
+      - '{"payload":{"action":"opened"},"max":"2026-10-01T15:58:53Z"}'
+      - '{"payload":{"action":"unassigned"},"max":null}'
+      - '{"payload":{"action":"unlabeled"},"max":"2026-10-01T15:28:47Z"}'
+
+- name: a csv source reads its header then a record per line
+  flow: |
+    from: http://127.0.0.1:1/hour/events.csv
+    kinds:
+      count: type
+      sort: -count, type
+  out:
+    kinds:
+      - '{"type":"PushEvent","count":130}'
+      - '{"type":"WatchEvent","count":121}'
+      - '{"type":"IssuesEvent","count":87}'
+      - '{"type":"CreateEvent","count":42}'
+      - '{"type":"IssueCommentEvent","count":20}'
+      - '{"type":"PullRequestEvent","count":20}'
+      - '{"type":"DeleteEvent","count":11}'
+
+- name: a txt source makes each line a record whose field line holds it
+  flow: |
+    from: http://127.0.0.1:1/hour/events.txt
+    watches:
+      where: line.find('"WatchEvent"') >= 0
+      count:
+  out:
+    watches:
+      - '{"count":121}'
+
+- name: a sort with no aggregate holds the records it orders
+  input: slice
+  flow: |
+    from: input
+    latest:
+      where: type == "WatchEvent"
+      sort: -created_at, repo.name
+      top: 2
+  out:
+    latest:
+      - '{"id":"16206412875","type":"WatchEvent","actor":{"id":175637946,"login":"alialshehri1080","display_login":"alialshehri1080","gravatar_id":"","url":"https://api.github.com/users/alialshehri1080","avatar_url":"https://avatars.githubusercontent.com/u/175637946?"},"repo":{"id":658331327,"name":"BBC-Esq/Pyside6_PyQt6_video_audio_player","url":"https://api.github.com/repos/BBC-Esq/Pyside6_PyQt6_video_audio_player"},"payload":{"action":"started"},"public":true,"created_at":"2026-10-01T15:59:50Z"}'
+      - '{"id":"16206406129","type":"WatchEvent","actor":{"id":182265834,"login":"Ayush-Bansal08","display_login":"Ayush-Bansal08","gravatar_id":"","url":"https://api.github.com/users/Ayush-Bansal08","avatar_url":"https://avatars.githubusercontent.com/u/182265834?"},"repo":{"id":1204771226,"name":"Ayush-Bansal08/AI-Ticket-System","url":"https://api.github.com/repos/Ayush-Bansal08/AI-Ticket-System"},"payload":{"action":"started"},"public":true,"created_at":"2026-10-01T15:59:46Z"}'
+
+- name: a method chain computes a key
+  input: slice
+  flow: |
+    from: input
+    kinds:
+      count: kind = type.lower().removesuffix("event")
+      sort: kind
+  out:
+    kinds:
+      - '{"kind":"create","count":42}'
+      - '{"kind":"delete","count":11}'
+      - '{"kind":"issuecomment","count":20}'
+      - '{"kind":"issues","count":87}'
+      - '{"kind":"pullrequest","count":20}'
+      - '{"kind":"push","count":130}'
+      - '{"kind":"watch","count":121}'
+
+- name: a comparison is a key of True and False
+  input: slice
+  flow: |
+    from: input
+    talk:
+      where: type == "IssuesEvent"
+      count: long = payload.issue.comments > 3
+      sort: long
+  out:
+    talk:
+      - '{"long":false,"count":84}'
+      - '{"long":true,"count":3}'
+
+- name: a named key may chain calls and indexes
+  input: slice
+  flow: |
+    from: input
+    owners:
+      where: type == "WatchEvent"
+      count: who = repo.name.split("/")[0].lower()
+      sort: -count, who
+      top: 2
+  out:
+    owners:
+      - '{"who":"shihabal3amri","count":3}'
+      - '{"who":"chasmlol","count":2}'
+
+- name: rows of equal aggregates keep the order their keys first appeared
+  input: slice
+  flow: |
+    from: input
+    stars:
+      where: type == "WatchEvent"
+      count: repo.name
+      top: 6
+  out:
+    stars:
+      - '{"repo":{"name":"shihabal3amri/DiPlay"},"count":3}'
+      - '{"repo":{"name":"Yuan1z0825/nature-skills"},"count":2}'
+      - '{"repo":{"name":"eternity4719/HowToLiveBetter"},"count":2}'
+      - '{"repo":{"name":"edgcpp/compiler"},"count":2}'
+      - '{"repo":{"name":"OffGridPete/Fieldwatch"},"count":2}'
+      - '{"repo":{"name":"MiaAI-Lab/GLM-5.3-Flash-EXL3-2x-DGX-Sparks-TensorFold"},"count":1}'
+
+- name: by takes a named key
+  input: slice
+  flow: |
+    from: input
+    comments:
+      where: type == "IssuesEvent"
+      sum: payload.issue.comments
+      by: state = payload.issue.state
+      sort: state
+  out:
+    comments:
+      - '{"state":"closed","sum":32}'
+      - '{"state":"open","sum":34}'
+
+- name: count and by take their keys as a list too
+  input: slice
+  flow: |
+    from: input
+    pairs:
+      where: type == "IssuesEvent"
+      count:
+        - type
+        - action = payload.action
+      sort: -count, action
+      top: 2
+    totals:
+      where: type == "IssuesEvent"
+      sum: payload.issue.comments
+      by: [payload.issue.state]
+      sort: [payload.issue.state]
+  out:
+    pairs:
+      - '{"type":"IssuesEvent","action":"labeled","count":33}'
+      - '{"type":"IssuesEvent","action":"opened","count":26}'
+    totals:
+      - '{"payload":{"issue":{"state":"closed"}},"sum":32}'
+      - '{"payload":{"issue":{"state":"open"}},"sum":34}'
+
+- name: a time an aggregate keeps writes as its RFC 3339 text
+  input: slice
+  flow: |
+    from: input
+    latest:
+      where: type == "IssuesEvent" and payload.action == "closed"
+      max: time(payload.issue.closed_at)
+  out:
+    latest:
+      - '{"max":"2026-10-01T15:50:31Z"}'
+
+- name: top orders the rows by any aggregate
+  input: slice
+  flow: |
+    from: input
+    late:
+      min: created_at
+      by: type
+      top: 2
+  out:
+    late:
+      - '{"type":"WatchEvent","min":"2026-10-01T15:00:02Z"}'
+      - '{"type":"IssuesEvent","min":"2026-10-01T15:00:01Z"}'
+
+- name: keep reads min as the aggregate and not the function
+  input: slice
+  flow: |
+    from: input
+    early:
+      min: created_at
+      by: type
+      keep: min < "2026-10-01T15:00:01Z"
+      sort: type
+  out:
+    early:
+      - '{"type":"DeleteEvent","min":"2026-10-01T15:00:00Z"}'
+      - '{"type":"IssueCommentEvent","min":"2026-10-01T15:00:00Z"}'
+      - '{"type":"PushEvent","min":"2026-10-01T15:00:00Z"}'
+
+- name: a key names a field past ascii as an expression reads it
+  flow: |
+    from: accents.jsonl
+    cities:
+      count: città
+      sort: città
+    marks:
+      count: a.é
+      sort: a.é
+    named:
+      count: größe = a.é, città
+      sort: größe, città
+  out:
+    cities:
+      - '{"città":"x","count":2}'
+      - '{"città":"y","count":1}'
+    marks:
+      - '{"a":{"é":1},"count":2}'
+      - '{"a":{"é":2},"count":1}'
+    named:
+      - '{"größe":1,"città":"x","count":1}'
+      - '{"größe":1,"città":"y","count":1}'
+      - '{"größe":2,"città":"x","count":1}'

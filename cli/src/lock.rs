@@ -1,11 +1,11 @@
 use anyhow::{anyhow, Context, Result};
-use compiler::modules::lock::locked_spec;
+use edge::deps::lock::locked_spec;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-pub use compiler::modules::lock::{digest_of, Entry, Lock, FILE};
+pub use edge::deps::lock::{digest_of, Entry, Lock, FILE};
 
-/// The lock beside `manifest`, empty when the file is absent.
+// an absent lock file reads as an empty lock
 pub fn beside(manifest: &Path) -> Result<Lock> {
     let path = path_beside(manifest);
     if !path.exists() {
@@ -15,17 +15,17 @@ pub fn beside(manifest: &Path) -> Result<Lock> {
     Lock::parse(&bytes).map_err(|e| anyhow!("parsing {}: {e}", path.display()))
 }
 
-/// Write `lock` beside `manifest` the way edge lock always has, with a trailing newline.
+// writes `lock` beside `manifest` as `edge lock` always has
 pub fn save(lock: &Lock, manifest: &Path) -> Result<PathBuf> {
     let path = path_beside(manifest);
     std::fs::write(&path, format!("{}\n", lock.to_json())).with_context(|| format!("writing {}", path.display()))?;
     Ok(path)
 }
 
-/* Every target a manifest declares as the lock beside it resolved them, so a caller sees addresses and never a version. */
+/* each declared target as the lock resolved it so callers see addresses and never versions */
 pub fn resolved(manifest: &Path, imports: &BTreeMap<String, String>) -> Result<BTreeMap<String, String>> {
     let lock = beside(manifest)?;
-    imports.iter().map(|(name, target)| Ok((name.clone(), locked_spec(name, target, Some(&lock)).map_err(|e| anyhow!(e))?))).collect()
+    imports.iter().map(|(name, target)| Ok((name.clone(), locked_spec(name, target, Some(&lock)).map_err(|e| anyhow!(crate::host::lock_help(&e)))?))).collect()
 }
 
 fn path_beside(manifest: &Path) -> PathBuf {

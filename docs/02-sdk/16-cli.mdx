@@ -1,0 +1,153 @@
+---
+title: "CLI kit"
+description: "The cli crate as a kit, a core that takes a runtime and the commands, fields, host modules and grants a composition wires, with edge as one composition of them."
+---
+
+# CLI kit
+
+A runtime of your own gets a CLI by handing the `cli` crate its `.wasm` and its descriptor, as uptime's does in the 23 lines of `examples/uptime/cli/src/lib.rs`. The crate is a kit. Its core loads a runtime into wasmtime, reads `edge.json`, resolves modules, bridges host calls and runs the commands a composition wires. Every command is a component behind a Cargo feature, and so are grants and actors. The `edge` binary is one composition of it.
+
+## A composition
+
+A composition of your own is a crate of its own that takes the kit with only the components it wires. Uptime's CLI is the whole composition below, the kit's `run` and `test` commands with `net` and a clock of its own under `perms`, as [Your runtime and its CLI](/docs/edge-lang/get-started/use-cases/your-runtime) builds it file by file.
+
+```rust file=examples/uptime/cli/src/lib.rs
+```
+
+Its manifest takes the kit in one line, with the four components it wires, and builds none of the others. [Start your own crate](/docs/edge-lang/get-started/use-cases/your-runtime#start-your-own-crate) gives the line it writes outside the clone.
+
+```toml
+cli = { path = "../../../cli", default-features = false, features = ["net", "perms", "run", "test"] }
+```
+
+`edge` is the composition of every component.
+
+```rust file=cli/src/main.rs
+```
+
+Inside the crate, `cli/examples/runner.rs` wires `run` and `test` over the embedded runtime.
+
+`Kit::new(name, version, runtime)` names the binary and takes the runtime. The rest of a composition is calls on the kit.
+
+| Call | Wires |
+|---|---|
+| `command(c)` | A subcommand |
+| `field(f)`, `fields(fs)` | A manifest key a component reads, checked on every load |
+| `module(m)` | A host module programs may import, whose name no import or package may take |
+| `access(a)` | The grant component, in place of the kit's `Open` |
+| `title(t)`, `site(s)` | The first line of the help, and the site the help names last |
+| `origin(o)`, `registry(r)` | The origin package urls start with, the only one an untrusted run fetches from, and the registry the package commands ask |
+| `upgrade(h)` | The help a binary too old for a project prints |
+| `limits(l)` | What every run may spend and hold where its command line names no limit, the sandbox's limits unless set |
+| `main()` | Parses the arguments and exits with the code of the command they name |
+
+Tests and staging move the origin and the registry with two variables named after the binary, `<NAME>_CDN_BASE` and `<NAME>_SITE_BASE`, so `edge` reads `EDGE_CDN_BASE` and `EDGE_SITE_BASE`. A kit that names no origin reads only `<NAME>_SITE_BASE`, and only for a command that asks the registry, so uptime reads no `UPTIME_CDN_BASE`.
+
+## The runtime is an input
+
+| Constructor | Takes |
+|---|---|
+| `Runtime::wasm(bytes, &DESCRIPTOR)` | A runtime's `.wasm`, which wasmtime compiles on the first load and maps from a cache after |
+| `Runtime::precompiled(wasm, native, &DESCRIPTOR)` | The `.wasm` and the native code wasmtime made of it at build time, which `edge` does with `edge.cwasm` in its `build.rs`. It is `unsafe`, since the kit cannot check that the two match |
+| `.words(f)` | How the runtime words a run error, taking the source, the class and message the error carries and the byte it rose at, and giving the whole report a host prints |
+
+Without `.words` a host prints the report the engine rendered, whose classes already come from the runtime's `Names`. A runtime that words errors around its own structure wires the function, as the flow runtime does with `tiny::report`, which names the report and the key an error rose in.
+
+```text
+report odd, count at line 3: WrongType, cannot add text and number
+```
+
+The descriptor names everything the kit says about the runtime's files and errors, so no command names a language. Mini's comes from `examples/mini/src/lib.rs` and tiny's from `examples/tiny/src/lib.rs`.
+
+| Field | Mini | Tiny | The kit uses it for |
+|---|---|---|---|
+| `language` | `mini` | `tiny` | Help and messages |
+| `extension` | `mini` | `flow.yaml` | Which files are sources |
+| `entries` | `main.mini`, `app.mini`, `index.mini` | `main.flow.yaml` | The entry names in order. `build` packs the first one it finds, and `init` writes the first |
+| `test_suffix` | `_test.mini` | `_test.flow.yaml` | The files `test` finds |
+| `scaffold` | One line that prints | A flow that counts the records of its input in one report, `total` | What `init` writes into the entry |
+| `example_fence`, `manifest_fence` | `edge`, `edge-manifest` | `tiny`, `tiny-manifest` | The fences of the docs a package ships |
+| `type_error`, `value_error`, `runtime_error` | `TypeError`, `ValueError`, `RuntimeError` | `WrongType`, `BadData`, `Error` | The class a failed host call or plugin call of each of the ABI's three kinds raises |
+| `denied_error`, `failed_error` | `PermissionError`, `OSError` | `Denied`, `HostFailed` | The classes a refused and a failed host call raise |
+
+## Commands
+
+A command implements `Command`.
+
+| Method | Answers |
+|---|---|
+| `spec(kit)` | The clap spec, with words from the kit and its runtime |
+| `summary(kit)` | The usage and the summary the top-level help lists |
+| `flags()` | Optionally, a label and the flags the help lists below the commands |
+| `compiles()` | Whether it compiles programs. The kit then holds the manifest to its engine floor and the grants before the command runs |
+| `manifest(matches)` | Optionally, the manifest its programs resolve through, which those checks read. `run` and `test` give `--manifest` or else the nearest `edge.json` above the script or the tested path, and the default is `--manifest` or `./edge.json` |
+| `boot(kit)` | Optionally, the whole process before any argument is read, as an app carried inside a binary takes it |
+| `run(kit, matches)` | Runs with the matches of its own spec and returns the exit code |
+
+Inside `run`, a command reaches the core through the kit. `descriptor()` gives the runtime's names, `manifest(path)` gives `edge.json` held to every rule, `load()` gives the runtime loaded with the wired modules, and `grants()` and `wired()` give the access and the modules. A command that runs programs reads `--memory` and `--ops` into a `RunLimits`, and `RunLimits::over(kit.run_limits())` gives the limits a run holds, each flag given in place of what the kit sets.
+
+`init` is a whole command. It reads the entry and the scaffold from the descriptor, so a kit over tiny would scaffold a flow. It writes `index.html` only where the `web` component is on, and its last line names a command the composition wires, `serve` beside the page and `run` otherwise. A directory it is given must not exist yet, even empty, and with none it writes into the current directory and never overwrites a file, naming the first one that already exists.
+
+```rust file=cli/src/cmd/init.rs
+```
+
+## Components
+
+| Feature | Component | Wires |
+|---|---|---|
+| `run` | `cmd::run::Run` | `run` |
+| `test` | `cmd::test::Test` | `test` |
+| `init` | `cmd::init::Init` | `init` |
+| `build` | `cmd::build::Build` | `build`, which packs a `.edge` bundle or an app binary |
+| `serve` | `cmd::serve::Serve` | `serve`, the dev server |
+| `packages` | `cmd::pkg::Add`, `Remove` and `Lock` | `add`, `remove` and `lock` |
+| `publish` | `cmd::publish::Publish` and `publish::FIELDS` | `publish` and the registry fields `name`, `version`, `description` and `repository` |
+| `uninstall` | `cmd::uninstall::Uninstall` | `uninstall` |
+| `actors` | `cmd::actors::Actor` | `actor`, a pool of cooperative actors |
+| `actors-server` | `cmd::actors::server` | The live server a pool becomes with `listen` |
+| `files` | `files::Files` | The `files` host module, which reads the files a grant names below a package |
+| `net` | `net::Net` | The `net` host module of `examples/net`, the requests and sockets a grant names |
+| `perms` | `perms::Perms` and `perms::FIELD` | The grants each `edge.json` writes |
+| `docs` | `docs::FIELD` and `docs::collect` | The pages a package ships, held to the convention and to the icons Lucide draws |
+| `web` | `host::browser` and the embedded JS host | The browser host a dist vendors and `--web` drives |
+| `embed` | The runtime `build.rs` precompiles | The reference runtime the `edge` binary hands the kit |
+
+The feature `all` turns every component on, and the `edge` binary requires it. A composition builds only what it embeds, so a CLI over a runtime of its own leaves out `embed`, `web` and `docs`, and `build.rs` then precompiles nothing, copies no icons and compiles no browser host into the binary. `lint-cli` builds the bare kit, each component alone and both examples. `cli/examples/decoupled.rs` compiles every command again outside the crate, where only the kit's public API resolves.
+
+## Named outputs
+
+A program writes one line to a named output with its runtime's `send`, and outside an actor pool the kit's own channels take them the moment the program sends, in order with what it prints. A plain name prints its lines under its name, and a name starting with `file:` writes the rest as a file in the directory the run started in, made fresh at its first line and flushed when the run ends. A name holding `..` or an absolute path fails the run before a byte is written, and `run` and `test` both serve them. Only the root package writes a file channel without a grant. Another package writes only below its own directory, where a module's `writes` says its grant reaches, and any other line it sends to a file raises the class the descriptor names as `denied_error`. An untrusted run never reaches these channels, since an eval run in a pool cannot send at all.
+
+## The manifest
+
+The core reads three keys of `edge.json` itself, `imports`, `extends` and `edge`, the lowest engine a project runs on. It keeps every other key as written. A component declares the keys it reads as a `Field`, with the check its value must pass and the names it reserves. `perms::FIELD` reads `permissions` and reserves `all`, `main` and `eval`, and the core turns away any import or package that takes a reserved name or the name of a wired host module.
+
+## Grants
+
+Grants are a component. Without one the kit's `Open` access gives every trusted run each module the composition wired, bounded by nothing, and an untrusted run none. `perms::Perms` holds each package to what its manifest chain grants, and [Plugins](/docs/edge-lang/sdk/plugins#wiring-a-module-to-perms) shows it wiring `net`.
+
+| `Access` method | Answers |
+|---|---|
+| `field()` | The manifest field each module walk carries per chain link, or none |
+| `check(packages, modules)` | Why the packages a walk met cannot be served, or none |
+| `held(packages, package, module)` | What a package holds of a module, or the text its import fails with |
+| `untrusted(kit, pool)` | What untrusted runs hold in an actor pool, a bundle with its own grants and a snippet with none |
+| `project(kit, manifest, lock)` | Why a project cannot compile or lock |
+| `asks(kit, manifest, added, lock)` | What each package `add` brings in asks its root to grant |
+
+## Actors
+
+Behind `actors`, `cmd::actors` runs many programs as cooperative actors over a few threads. Its interface is two calls over a `Pool`, which holds each group's `GroupSpec` and the most actors any one group holds at once.
+
+| Call | Runs |
+|---|---|
+| `actors::run(&kit, pool, threads)` | The pool to quiescence across `threads` schedulers, its groups sharded round robin |
+| `actors::live(&kit, pool, intake)` | The pool on this thread over an `Intake`, which pulls new messages and decides when the pool ends |
+
+Behind `actors-server`, `server::serve(&kit, pool, serve)` keeps the pool live behind an ingress, a control endpoint and a durable log. The `Actor` command reads an `actor.yml` into a `Pool` and calls `run`, or `serve` when the manifest names a `listen` address. The control endpoint binds only a loopback address and stops the boot for any other. An ingress past loopback is the manifest's own choice, and the boot warns that it takes messages from any host with no authentication. [Actors](/docs/edge-lang/platforms/actors) documents the manifest, the groups and the server.
+
+> [!CARDS]
+> - `activity` [Your runtime and its CLI](/docs/edge-lang/get-started/use-cases/your-runtime) A runtime and its CLI built end to end on the kit.
+> - `terminal` [Command line interface](/docs/edge-lang/platforms/cli) What each command of the edge binary does for a project.
+> - `plug` [Plugins](/docs/edge-lang/sdk/plugins) The host modules a composition wires, and perms.
+> - `users` [Actors](/docs/edge-lang/platforms/actors) The actor.yml a pool reads and the server it becomes.

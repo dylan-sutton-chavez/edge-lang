@@ -1,0 +1,63 @@
+- native: repr
+  args: ["a"]
+  ret: "'a'"
+
+- native: repr
+  args: [[1, "b", null]]
+  ret: "[1, 'b', None]"
+
+- native: repr
+  args: [!bytes "00"]
+  ret: "b'\\x00'"
+
+- native: ascii
+  args: ["é"]
+  ret: "'\\xe9'"
+
+- native: repr
+  args: [1e16]
+  ret: "1e+16"
+
+- native: repr
+  args: ["hello"]
+  prints: "'hello'"
+
+- native: repr
+  args: [null]
+  prints: "None"
+
+- native: repr
+  args: [true]
+  prints: "True"
+
+- native: repr
+  args: ["a\tb\nc"]
+  prints: "'a\\tb\\nc'"
+
+- native: repr
+  args: ["it's"]
+  prints: "\"it's\""
+
+- native: repr
+  args: ["he\"llo"]
+  prints: "'he\"llo'"
+
+- native: repr
+  args: ["\n\\"]
+  prints: "'\\n\\\\'"
+
+- native: repr
+  args: ["tab\there"]
+  prints: "'tab\\there'"
+
+- native: repr
+  args: [[1, 2, 3]]
+  prints: "[1, 2, 3]"
+
+- native: repr
+  args: [42]
+  prints: "42"
+
+- native: repr
+  args: [1e16]
+  prints: "1e+16"

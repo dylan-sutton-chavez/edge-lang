@@ -41,8 +41,8 @@ fn run_env(dir: &Path, args: &[&str], env: &[(&str, &str)], stdin: Option<&str>)
 #[test]
 fn runs_a_script_and_streams_stdout() {
     let dir = scratch("run");
-    std::fs::write(dir.join("main.py"), "print(\"cli ok\")\n").unwrap();
-    let (out, _, code) = run_in(&dir, &["run", "main.py"], None);
+    std::fs::write(dir.join("main.mini"), "print(\"cli ok\")\n").unwrap();
+    let (out, _, code) = run_in(&dir, &["run", "main.mini"], None);
     assert_eq!(out, "cli ok\n");
     assert_eq!(code, 0);
 }
@@ -51,9 +51,9 @@ fn runs_a_script_and_streams_stdout() {
 fn resolves_relative_imports_from_the_script_dir() {
     let dir = scratch("imports");
     std::fs::create_dir_all(dir.join("lib")).unwrap();
-    std::fs::write(dir.join("lib/helper.py"), "def double(n):\n  return n * 2\n").unwrap();
-    std::fs::write(dir.join("main.py"), "from .lib.helper import double\nprint(double(21))\n").unwrap();
-    let (out, _, code) = run_in(&dir, &["run", "main.py"], None);
+    std::fs::write(dir.join("lib/helper.mini"), "fn double(n):\n  return n * 2\n").unwrap();
+    std::fs::write(dir.join("main.mini"), "from .lib.helper import double\nprint(double(21))\n").unwrap();
+    let (out, _, code) = run_in(&dir, &["run", "main.mini"], None);
     assert_eq!(out, "42\n");
     assert_eq!(code, 0);
 }
@@ -61,8 +61,8 @@ fn resolves_relative_imports_from_the_script_dir() {
 #[test]
 fn system_exit_code_propagates() {
     let dir = scratch("exit");
-    std::fs::write(dir.join("main.py"), "raise SystemExit(7)\n").unwrap();
-    let (_, _, code) = run_in(&dir, &["run", "main.py"], None);
+    std::fs::write(dir.join("main.mini"), "exit(7)\n").unwrap();
+    let (_, _, code) = run_in(&dir, &["run", "main.mini"], None);
     assert_eq!(code, 7);
 }
 
@@ -74,12 +74,37 @@ fn piped_stdin_is_the_script_when_no_path_is_given() {
     assert_eq!(code, 0);
 }
 
+/* a pipe held open with nothing in it leaves a run that asks for none */
+#[test]
+fn a_run_finishes_with_an_open_stdin_pipe() {
+    let dir = scratch("openpipe");
+    std::fs::write(dir.join("main.mini"), "print(\"no input wanted\")\n").unwrap();
+    let mut child = Command::new(BIN)
+        .args(["run", "main.mini"])
+        .current_dir(&dir)
+        .env("XDG_CACHE_HOME", &dir)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    // kept for the whole run so the pipe stays open with nobody writing to it
+    let open = child.stdin.take().unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || tx.send(child.wait_with_output()));
+    let ended = rx.recv_timeout(std::time::Duration::from_secs(60)).expect("the run blocked on an open stdin pipe");
+    drop(open);
+    let out = ended.unwrap();
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "no input wanted\n");
+    assert_eq!(out.status.code(), Some(0));
+}
+
 #[test]
 fn events_file_feeds_receive() {
     let dir = scratch("events");
-    std::fs::write(dir.join("main.py"), "msg = receive()\nprint(\"got\", msg)\n").unwrap();
+    std::fs::write(dir.join("main.mini"), "msg = receive()\nprint(\"got\", msg)\n").unwrap();
     std::fs::write(dir.join("events.txt"), "ping\n").unwrap();
-    let (out, _, code) = run_in(&dir, &["run", "main.py", "--events", "events.txt"], None);
+    let (out, _, code) = run_in(&dir, &["run", "main.mini", "--events", "events.txt"], None);
     assert_eq!(out, "got ping\n");
     assert_eq!(code, 0);
 }
@@ -87,8 +112,8 @@ fn events_file_feeds_receive() {
 #[test]
 fn snapshot_saves_and_restores_across_processes() {
     let dir = scratch("snapshot");
-    std::fs::write(dir.join("main.py"), "print(\"phase1\")\nmsg = receive()\nprint(\"resumed\", msg)\n").unwrap();
-    let (out, err, code) = run_in(&dir, &["run", "main.py", "--save-state", "state.bin"], None);
+    std::fs::write(dir.join("main.mini"), "print(\"phase1\")\nmsg = receive()\nprint(\"resumed\", msg)\n").unwrap();
+    let (out, err, code) = run_in(&dir, &["run", "main.mini", "--save-state", "state.bin"], None);
     assert_eq!(out, "phase1\n");
     assert!(err.contains("state saved"), "stderr was: {err}");
     assert_eq!(code, 0);
@@ -99,16 +124,13 @@ fn snapshot_saves_and_restores_across_processes() {
 }
 
 #[test]
-fn test_runner_verdicts_come_from_system_exit() {
+fn test_runner_verdicts_come_from_the_exit_code() {
     let dir = scratch("testrun");
-    // A local runner stands in for the published one, the verdict comes from the file either way.
-    std::fs::write(dir.join("edge.json"), "{ \"imports\": { \"test\": \"./runner.py\" } }\n").unwrap();
-    std::fs::write(dir.join("runner.py"), "_tests = []\n\ndef run():\n    raise SystemExit(0)\n").unwrap();
-    std::fs::write(dir.join("green_test.py"), "raise SystemExit(0)\n").unwrap();
+    std::fs::write(dir.join("green_test.mini"), "exit(0)\n").unwrap();
     let (out, _, code) = run_in(&dir, &["test"], None);
-    assert!(out.contains("green_test.py"), "stdout was: {out}");
+    assert!(out.contains("green_test.mini"), "stdout was: {out}");
     assert_eq!(code, 0);
-    std::fs::write(dir.join("red_test.py"), "raise SystemExit(1)\n").unwrap();
+    std::fs::write(dir.join("red_test.mini"), "exit(1)\n").unwrap();
     let (_, _, code) = run_in(&dir, &["test"], None);
     assert_eq!(code, 1);
 }
@@ -118,28 +140,28 @@ fn test_runner_verdicts_come_from_system_exit() {
 fn a_packed_package_imports_from_inside_itself() {
     let lib = scratch("package");
     std::fs::create_dir_all(lib.join("src")).unwrap();
-    std::fs::write(lib.join("edge.json"), "{ \"name\": \"greet\", \"version\": \"0.1.0\", \"imports\": { \"_words\": \"./src/words.py\" } }\n").unwrap();
-    std::fs::write(lib.join("main.py"), "from .src.hello import hello\n").unwrap();
-    std::fs::write(lib.join("src/hello.py"), "from _words import WORD\n\ndef hello(name):\n    return WORD + \" \" + name\n").unwrap();
-    std::fs::write(lib.join("src/words.py"), "WORD = \"hello\"\n").unwrap();
+    std::fs::write(lib.join("edge.json"), "{ \"name\": \"greet\", \"version\": \"0.1.0\", \"imports\": { \"_words\": \"./src/words.mini\" } }\n").unwrap();
+    std::fs::write(lib.join("main.mini"), "from .src.hello import hello\n").unwrap();
+    std::fs::write(lib.join("src/hello.mini"), "from _words import WORD\n\nfn hello(name):\n    return WORD + \" \" + name\n").unwrap();
+    std::fs::write(lib.join("src/words.mini"), "WORD = \"hello\"\n").unwrap();
     let (_, err, code) = run_in(&lib, &["build"], None);
     assert_eq!(code, 0, "build failed: {err}");
 
     let app = scratch("package-app");
     std::fs::copy(lib.join("app.edge"), app.join("greet.edge")).unwrap();
-    let pin = compiler::util::sha256::hex_encode(&compiler::util::sha256::sha256(&std::fs::read(app.join("greet.edge")).unwrap()));
+    let pin = edge::util::sha256::hex_encode(&edge::util::sha256::sha256(&std::fs::read(app.join("greet.edge")).unwrap()));
     std::fs::write(app.join("edge.json"), format!("{{ \"imports\": {{ \"greet\": \"./greet.edge#sha256-{pin}\" }} }}\n")).unwrap();
-    std::fs::write(app.join("main.py"), "from greet import hello\nprint(hello(\"edge\"))\n").unwrap();
-    let (out, err, code) = run_in(&app, &["run", "main.py"], None);
+    std::fs::write(app.join("main.mini"), "from greet import hello\nprint(hello(\"edge\"))\n").unwrap();
+    let (out, err, code) = run_in(&app, &["run", "main.mini"], None);
     assert_eq!((out.as_str(), code), ("hello edge\n", 0), "stderr: {err}");
 }
 
 /* A registry and a CDN of one package, so the whole declare, resolve and run path is exercised without reaching the real one. */
 fn spawn_registry(bundle: Vec<u8>, version: &str) -> u16 {
-    let digest = compiler::util::sha256::hex_encode(&compiler::util::sha256::sha256(&bundle));
+    let digest = edge::util::sha256::hex_encode(&edge::util::sha256::sha256(&bundle));
     let key = format!("/pkg/greet/{version}/app.edge");
     let answer = format!(
-        "{{\"name\":\"greet\",\"version\":\"{version}\",\"digest\":\"{digest}\",\"size\":{},\"hosts\":null,\"url\":\"https://cdn.edgepython.com{key}\"}}",
+        "{{\"name\":\"greet\",\"version\":\"{version}\",\"digest\":\"{digest}\",\"size\":{},\"hosts\":null,\"url\":\"https://cdn.edgelang.dev{key}\"}}",
         bundle.len()
     );
     let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind loopback");
@@ -183,18 +205,18 @@ fn answer_registry(mut stream: std::net::TcpStream, answer: &str, key: &str, bun
 fn a_dependency_written_for_a_later_engine_is_refused_where_it_loads() {
     let dir = scratch("floor");
     std::fs::create_dir_all(dir.join("pkg")).unwrap();
-    std::fs::write(dir.join("edge.json"), "{ \"imports\": { \"greet\": \"./pkg/main.py\" } }\n").unwrap();
-    std::fs::write(dir.join("main.py"), "from greet import shout\nprint(shout('hi'))\n").unwrap();
+    std::fs::write(dir.join("edge.json"), "{ \"imports\": { \"greet\": \"./pkg/main.mini\" } }\n").unwrap();
+    std::fs::write(dir.join("main.mini"), "from greet import shout\nprint(shout('hi'))\n").unwrap();
     std::fs::write(dir.join("pkg/edge.json"), "{ \"name\": \"greet\", \"version\": \"0.1.0\", \"edge\": \"99.0.0\" }\n").unwrap();
-    std::fs::write(dir.join("pkg/main.py"), "def shout(word):\n    return word.upper()\n").unwrap();
+    std::fs::write(dir.join("pkg/main.mini"), "fn shout(word):\n    return word.upper()\n").unwrap();
 
-    let (_, err, code) = run_in(&dir, &["run", "main.py"], None);
+    let (_, err, code) = run_in(&dir, &["run", "main.mini"], None);
     assert!(err.contains("needs edge 99.0.0") && err.contains(env!("CARGO_PKG_VERSION")), "stderr was: {err}");
     assert_eq!(code, 1);
 
     // The same package under a floor this engine meets loads with nothing to say about it.
     std::fs::write(dir.join("pkg/edge.json"), format!("{{ \"edge\": \"{}\" }}\n", env!("CARGO_PKG_VERSION"))).unwrap();
-    let (out, err, code) = run_in(&dir, &["run", "main.py"], None);
+    let (out, err, code) = run_in(&dir, &["run", "main.mini"], None);
     assert_eq!((out.as_str(), code), ("HI\n", 0), "stderr was: {err}");
 }
 
@@ -210,7 +232,7 @@ fn the_binary_reports_the_version_it_was_built_from() {
 #[test]
 fn a_declared_version_is_locked_once_and_then_runs() {
     let lib = scratch("lockdep");
-    std::fs::write(lib.join("main.py"), "def shout(word):\n    return word.upper()\n").unwrap();
+    std::fs::write(lib.join("main.mini"), "fn shout(word):\n    return word.upper()\n").unwrap();
     let (_, err, code) = run_in(&lib, &["build", "--out", "dep.edge"], None);
     assert_eq!(code, 0, "build failed: {err}");
     let port = spawn_registry(std::fs::read(lib.join("dep.edge")).unwrap(), "0.1.0");
@@ -218,7 +240,7 @@ fn a_declared_version_is_locked_once_and_then_runs() {
     let env = [("EDGE_SITE_BASE", site.as_str()), ("EDGE_CDN_BASE", site.as_str())];
 
     let app = scratch("lockapp");
-    std::fs::write(app.join("main.py"), "from greet import shout\nprint(shout('hi edge'))\n").unwrap();
+    std::fs::write(app.join("main.mini"), "from greet import shout\nprint(shout('hi edge'))\n").unwrap();
     std::fs::write(app.join("edge.json"), "{}\n").unwrap();
 
     let (out, err, code) = run_env(&app, &["add", "greet"], &env, None);
@@ -229,8 +251,8 @@ fn a_declared_version_is_locked_once_and_then_runs() {
     assert!(!app.join("edge.lock").exists(), "add writes no lock");
 
     // Nothing says where 0.1.0 is yet, so the run names the command that would answer.
-    let (_, err, code) = run_env(&app, &["run", "main.py"], &env, None);
-    assert!(err.contains("'greet' is not locked, run edge lock"), "stderr was: {err}");
+    let (_, err, code) = run_env(&app, &["run", "main.mini"], &env, None);
+    assert!(err.contains("'greet' is not locked in edge.lock\nhelp: run edge lock"), "stderr was: {err}");
     assert_eq!(code, 1);
 
     let (_, err, code) = run_env(&app, &["lock"], &env, None);
@@ -238,7 +260,7 @@ fn a_declared_version_is_locked_once_and_then_runs() {
     let held = std::fs::read_to_string(app.join("edge.lock")).unwrap();
     assert!(held.contains("\"version\": \"0.1.0\"") && held.contains("sha256-"), "the lock holds the release and its digest: {held}");
 
-    let (out, err, code) = run_env(&app, &["run", "main.py"], &env, None);
+    let (out, err, code) = run_env(&app, &["run", "main.mini"], &env, None);
     assert_eq!((out.as_str(), code), ("HI EDGE\n", 0), "stderr was: {err}");
 }
 
@@ -246,7 +268,7 @@ fn a_declared_version_is_locked_once_and_then_runs() {
 #[test]
 fn add_keeps_the_version_it_was_given() {
     let lib = scratch("pindep");
-    std::fs::write(lib.join("main.py"), "def shout(word):\n    return word.upper()\n").unwrap();
+    std::fs::write(lib.join("main.mini"), "fn shout(word):\n    return word.upper()\n").unwrap();
     let (_, err, code) = run_in(&lib, &["build", "--out", "dep.edge"], None);
     assert_eq!(code, 0, "build failed: {err}");
     let port = spawn_registry(std::fs::read(lib.join("dep.edge")).unwrap(), "0.1.0");
@@ -270,7 +292,7 @@ fn add_keeps_the_version_it_was_given() {
 fn a_package_asks_and_lock_waits_for_the_grant() {
     let lib = scratch("askdep");
     std::fs::write(lib.join("edge.json"), "{ \"name\": \"greet\", \"version\": \"0.1.0\", \"permissions\": { \"main\": [\"net:api.example.com\"] } }\n").unwrap();
-    std::fs::write(lib.join("main.py"), "def shout(word):\n    return word.upper()\n").unwrap();
+    std::fs::write(lib.join("main.mini"), "fn shout(word):\n    return word.upper()\n").unwrap();
     let (_, err, code) = run_in(&lib, &["build", "--out", "dep.edge"], None);
     assert_eq!(code, 0, "build failed: {err}");
     let port = spawn_registry(std::fs::read(lib.join("dep.edge")).unwrap(), "0.1.0");
@@ -278,7 +300,7 @@ fn a_package_asks_and_lock_waits_for_the_grant() {
     let env = [("EDGE_SITE_BASE", site.as_str()), ("EDGE_CDN_BASE", site.as_str())];
 
     let app = scratch("askapp");
-    std::fs::write(app.join("main.py"), "from greet import shout\nprint(shout('granted'))\n").unwrap();
+    std::fs::write(app.join("main.mini"), "from greet import shout\nprint(shout('granted'))\n").unwrap();
     std::fs::write(app.join("edge.json"), "{}\n").unwrap();
     let (out, err, code) = run_env(&app, &["add", "greet"], &env, None);
     assert_eq!(code, 0, "add failed: {err}");
@@ -292,165 +314,8 @@ fn a_package_asks_and_lock_waits_for_the_grant() {
     std::fs::write(app.join("edge.json"), "{ \"imports\": { \"greet\": \"0.1.0\" }, \"permissions\": { \"greet\": [\"net:api.example.com\"] } }\n").unwrap();
     let (_, err, code) = run_env(&app, &["lock"], &env, None);
     assert_eq!(code, 0, "lock failed: {err}");
-    let (out, err, code) = run_env(&app, &["run", "main.py"], &env, None);
+    let (out, err, code) = run_env(&app, &["run", "main.mini"], &env, None);
     assert_eq!((out.as_str(), code), ("GRANTED\n", 0), "stderr was: {err}");
-}
-
-/* A loopback fixture the system call tests reach, canned http and event streams. */
-fn spawn_fixture() -> u16 {
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind loopback");
-    let port = listener.local_addr().expect("tcp addr").port();
-    std::thread::spawn(move || {
-        for stream in listener.incoming().flatten() {
-            std::thread::spawn(move || serve(stream));
-        }
-    });
-    port
-}
-
-// Parts written one at a time, one splits a CRLF, as the browser suite's mock sends them.
-const SSE_FIELDS: [&str; 6] = [
-    "\u{FEFF}data: bom first\n\n",
-    ": a comment\r",
-    "\nevent: ping\r\ndata: skipped\r\n\r\n",
-    "id: 7\rdata: first line\rdata: second line\r\r",
-    "data:no space\nretry: 5000\n\n",
-    "id\ndata: after empty id\n\n",
-];
-
-fn serve(mut stream: std::net::TcpStream) {
-    use std::io::{BufRead, Read, Write};
-    let mut reader = std::io::BufReader::new(stream.try_clone().unwrap());
-    let mut line = String::new();
-    let _ = reader.read_line(&mut line);
-    let path = line.split_whitespace().nth(1).unwrap_or("/").to_string();
-    let (mut last_event_id, mut socket_key) = (None, None);
-    loop {
-        let mut header = String::new();
-        if reader.read_line(&mut header).is_err() || header == "\r\n" || header.is_empty() {
-            break;
-        }
-        if let Some((name, value)) = header.split_once(':') {
-            match name.to_ascii_lowercase().as_str() {
-                "last-event-id" => last_event_id = Some(value.trim().to_string()),
-                "sec-websocket-key" => socket_key = Some(value.trim().to_string()),
-                _ => {}
-            }
-        }
-    }
-    // A page on another port reads it too, so a run with --web reaches the same fixture.
-    let http = |body: &str| format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n{body}", body.len());
-    let events = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n";
-    // An event stream stays open until the client goes away.
-    let mut hold = || while matches!(reader.read(&mut [0u8; 64]), Ok(n) if n > 0) {};
-    match path.as_str() {
-        "/text" => drop(stream.write_all(http("hello from mock").as_bytes())),
-        // Hands the client to a host no grant names, which neither host may follow on its own.
-        "/redirect" => drop(stream.write_all(b"HTTP/1.1 302 Found\r\nLocation: http://evil.example/\r\nContent-Length: 0\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n")),
-        // A socket that greets once, and one that points at it, which neither host may follow.
-        "/ws" => {
-            let accept = tungstenite::handshake::derive_accept_key(socket_key.unwrap_or_default().as_bytes());
-            let _ = stream.write_all(format!("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n").as_bytes());
-            let _ = stream.write_all(b"\x81\x07reached\x88\x00");
-        }
-        "/ws-redirect" => {
-            let port = stream.local_addr().map(|a| a.port()).unwrap_or(0);
-            let _ = stream.write_all(format!("HTTP/1.1 302 Found\r\nLocation: ws://127.0.0.1:{port}/ws\r\nContent-Length: 0\r\n\r\n").as_bytes());
-        }
-        "/json" => drop(stream.write_all(http("{\"ok\":true}").as_bytes())),
-        "/sse" => {
-            let _ = stream.write_all(events.as_bytes());
-            for i in 1..=3 {
-                let _ = stream.write_all(format!("id: {i}\ndata: event {i}\n\n").as_bytes());
-            }
-            hold();
-        }
-        "/sse-fields" => {
-            let _ = stream.write_all(events.as_bytes());
-            for part in SSE_FIELDS {
-                let _ = stream.write_all(part.as_bytes());
-                let _ = stream.flush();
-                std::thread::sleep(std::time::Duration::from_millis(10));
-            }
-            hold();
-        }
-        // The first connection ends after one event, the retry echoes the Last-Event-ID it carried.
-        "/sse-reconnect" => match last_event_id {
-            None => drop(stream.write_all(format!("{events}retry: 250\nid: 41\ndata: first\n\n").as_bytes())),
-            Some(last) => {
-                let _ = stream.write_all(format!("{events}data: last={last}\n\n").as_bytes());
-                hold();
-            }
-        },
-        _ => drop(stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")),
-    }
-}
-
-/* The same program answers the same natively and in the browser, the system calls being the same files in both. */
-#[test]
-fn system_calls_answer_the_same_with_and_without_web() {
-    let port = spawn_fixture();
-    let dir = scratch("system-calls");
-    std::fs::write(dir.join("edge.json"), r#"{ "permissions": { "main": ["net:127.0.0.1", "time:wall"] } }"#).unwrap();
-    let program = [
-        "import net",
-        "import time",
-        &format!("FIXTURE = 'http://127.0.0.1:{port}'"),
-        "r = net.request('GET', FIXTURE + '/text')",
-        "status, headers = net.response(r)",
-        "body = b''",
-        "chunk = net.read(r)",
-        "while chunk is not None:",
-        "    body += chunk",
-        "    chunk = net.read(r)",
-        "print(status, body, time.now() > 10 ** 18)",
-        "heads = net.batch([['response', net.request('GET', url)] for url in [FIXTURE + '/text', FIXTURE + '/text']])",
-        "print([head[0] for head in heads], len(time.batch([['now'], ['now']])))",
-        "try:",
-        "    net.request('GET', 'http://evil.example/')",
-        "except PermissionError as e:",
-        "    print(e)",
-        "try:",
-        "    time.now('monotonic')",
-        "except PermissionError as e:",
-        "    print(e)",
-    ];
-    std::fs::write(dir.join("main.py"), program.join("\n") + "\n").unwrap();
-    let want = "200 b'hello from mock' True\n[200, 200] 2\n'main' has no net:evil.example, edge.json grants it net:127.0.0.1\n'main' has no time:monotonic, edge.json grants it time:wall\n";
-    for args in [&["run", "main.py"][..], &["run", "--web", "main.py"][..]] {
-        let (out, err, code) = run_in(&dir, args, None);
-        assert_eq!((out.as_str(), code), (want, 0), "{args:?} stderr: {err}");
-    }
-}
-
-/* No host follows a redirect on its own, so a granted host cannot hand a request to one that is not. */
-#[test]
-fn a_redirect_is_refused_on_both_hosts() {
-    let port = spawn_fixture();
-    let dir = scratch("redirect");
-    std::fs::write(dir.join("edge.json"), r#"{ "permissions": { "main": ["net:127.0.0.1"] } }"#).unwrap();
-    let url = format!("http://127.0.0.1:{port}/redirect");
-    let socket = format!("ws://127.0.0.1:{port}/ws-redirect");
-    std::fs::write(dir.join("main.py"), format!("import net\ntry:\n    net.response(net.request('GET', '{url}'))\nexcept OSError as e:\n    print(e)\ntry:\n    net.connect('{socket}')\nexcept OSError as e:\n    print(e)\n")).unwrap();
-    let want = format!("net.request to {url} was redirected, request the new address with its own net.request\nthe socket to {socket} failed\n");
-    for args in [&["run", "main.py"][..], &["run", "--web", "main.py"][..]] {
-        let (out, err, code) = run_in(&dir, args, None);
-        assert_eq!((out.as_str(), code), (want.as_str(), 0), "{args:?} stderr: {err}");
-    }
-}
-
-/* A plugin waits on a system call and resumes, a refused connection reaches it as OSError. */
-#[test]
-fn a_plugin_awaits_a_system_call_and_resumes() {
-    let port = spawn_fixture();
-    let dir = scratch("plugin-net");
-    let plugin = concat!(env!("CARGO_MANIFEST_DIR"), "/../target/wasm32-unknown-unknown/release/slugify_mod.wasm");
-    std::fs::copy(plugin, dir.join("slugify_mod.wasm")).expect("the plugin fixture, make plugin");
-    std::fs::write(dir.join("edge.json"), r#"{ "imports": { "slugify_mod": "./slugify_mod.wasm" }, "permissions": { "main": ["net:127.0.0.1"] } }"#).unwrap();
-    let src = format!("from slugify_mod import status_of\nprint(status_of('http://127.0.0.1:{port}/text'))\ntry:\n    status_of('http://127.0.0.1:1/')\nexcept OSError as e:\n    print(type(e).__name__)\n");
-    std::fs::write(dir.join("main.py"), src).unwrap();
-    let (out, err, code) = run_in(&dir, &["run", "main.py"], None);
-    assert_eq!((out.as_str(), code), ("200\nOSError\n", 0), "stderr: {err}");
 }
 
 /* A cached url loads with no pin in the spec, then stays pinned to those first bytes. */
@@ -458,23 +323,23 @@ fn a_plugin_awaits_a_system_call_and_resumes() {
 fn a_cached_module_is_pinned_to_its_first_bytes() {
     let dir = scratch("pin");
     // Seed cache and pin the way a download would. The url never resolves, so nothing can refetch.
-    let url = "https://cdn.test/helper.py";
-    let key = compiler::util::sha256::hex_encode(&compiler::util::sha256::sha256(url.as_bytes()));
-    let blob = dir.join("edge").join("modules").join(format!("{key}.py"));
-    let src = "def double(n):\n    return n * 2\n";
+    let url = "https://cdn.test/helper.mini";
+    let key = edge::util::sha256::hex_encode(&edge::util::sha256::sha256(url.as_bytes()));
+    let blob = dir.join("edge").join("modules").join(format!("{key}.mini"));
+    let src = "fn double(n):\n    return n * 2\n";
     std::fs::create_dir_all(blob.parent().unwrap()).unwrap();
     std::fs::write(&blob, src).unwrap();
-    let pin = compiler::util::sha256::hex_encode(&compiler::util::sha256::sha256(src.as_bytes()));
-    std::fs::write(blob.with_extension("py.lock"), &pin).unwrap();
+    let pin = edge::util::sha256::hex_encode(&edge::util::sha256::sha256(src.as_bytes()));
+    std::fs::write(blob.with_extension("mini.lock"), &pin).unwrap();
     std::fs::write(dir.join("edge.json"), format!("{{ \"imports\": {{ \"helper\": \"{url}\" }} }}\n")).unwrap();
-    std::fs::write(dir.join("main.py"), "from helper import double\nprint(double(21))\n").unwrap();
+    std::fs::write(dir.join("main.mini"), "from helper import double\nprint(double(21))\n").unwrap();
 
-    let (out, err, code) = run_in(&dir, &["run", "main.py"], None);
+    let (out, err, code) = run_in(&dir, &["run", "main.mini"], None);
     assert_eq!(out, "42\n", "stderr was: {err}");
     assert_eq!(code, 0, "stderr was: {err}");
 
-    std::fs::write(&blob, "def double(n):\n    return 0\n").unwrap();
-    let (_, err, code) = run_in(&dir, &["run", "main.py"], None);
+    std::fs::write(&blob, "fn double(n):\n    return 0\n").unwrap();
+    let (_, err, code) = run_in(&dir, &["run", "main.mini"], None);
     assert!(err.contains("integrity drift"), "stderr was: {err}");
     assert_eq!(code, 1);
 }
@@ -483,19 +348,19 @@ fn a_cached_module_is_pinned_to_its_first_bytes() {
 #[test]
 fn a_manifest_pin_verifies_the_target_bytes() {
     let dir = scratch("fragpin");
-    let src = "def double(n):\n    return n * 2\n";
-    std::fs::write(dir.join("helper.py"), src).unwrap();
-    let pin = compiler::util::sha256::hex_encode(&compiler::util::sha256::sha256(src.as_bytes()));
-    std::fs::write(dir.join("edge.json"), format!("{{ \"imports\": {{ \"helper\": \"./helper.py#sha256-{pin}\" }} }}\n")).unwrap();
-    std::fs::write(dir.join("main.py"), "from helper import double\nprint(double(21))\n").unwrap();
+    let src = "fn double(n):\n    return n * 2\n";
+    std::fs::write(dir.join("helper.mini"), src).unwrap();
+    let pin = edge::util::sha256::hex_encode(&edge::util::sha256::sha256(src.as_bytes()));
+    std::fs::write(dir.join("edge.json"), format!("{{ \"imports\": {{ \"helper\": \"./helper.mini#sha256-{pin}\" }} }}\n")).unwrap();
+    std::fs::write(dir.join("main.mini"), "from helper import double\nprint(double(21))\n").unwrap();
 
-    let (out, err, code) = run_in(&dir, &["run", "main.py"], None);
+    let (out, err, code) = run_in(&dir, &["run", "main.mini"], None);
     assert_eq!(out, "42\n", "stderr was: {err}");
     assert_eq!(code, 0, "stderr was: {err}");
 
     let bad = "0".repeat(64);
-    std::fs::write(dir.join("edge.json"), format!("{{ \"imports\": {{ \"helper\": \"./helper.py#sha256-{bad}\" }} }}\n")).unwrap();
-    let (_, err, code) = run_in(&dir, &["run", "main.py"], None);
+    std::fs::write(dir.join("edge.json"), format!("{{ \"imports\": {{ \"helper\": \"./helper.mini#sha256-{bad}\" }} }}\n")).unwrap();
+    let (_, err, code) = run_in(&dir, &["run", "main.mini"], None);
     assert!(err.contains("integrity check failed"), "stderr was: {err}");
     assert_eq!(code, 1);
 }
@@ -507,10 +372,10 @@ fn dotted_imports_anchor_at_the_manifest_root() {
     std::fs::create_dir_all(dir.join("lib")).unwrap();
     std::fs::create_dir_all(dir.join("web")).unwrap();
     std::fs::write(dir.join("edge.json"), "{ \"imports\": {} }\n").unwrap();
-    std::fs::write(dir.join("lib/util.py"), "def f():\n    return 'root-lib'\n").unwrap();
-    std::fs::write(dir.join("web/main.py"), "from lib.util import f\nprint(f())\n").unwrap();
+    std::fs::write(dir.join("lib/util.mini"), "fn f():\n    return 'root-lib'\n").unwrap();
+    std::fs::write(dir.join("web/main.mini"), "from lib.util import f\nprint(f())\n").unwrap();
 
-    let (out, err, code) = run_in(&dir, &["run", "web/main.py"], None);
+    let (out, err, code) = run_in(&dir, &["run", "web/main.mini"], None);
     assert_eq!(out, "root-lib\n", "stderr was: {err}");
     assert_eq!(code, 0, "stderr was: {err}");
 }
@@ -519,11 +384,11 @@ fn dotted_imports_anchor_at_the_manifest_root() {
 #[test]
 fn quoted_imports_are_not_found() {
     let dir = scratch("quoted");
-    std::fs::write(dir.join("helper.py"), "def double(n):\n    return n * 2\n").unwrap();
-    std::fs::write(dir.join("main.py"), "from \"./helper.py\" import double\n").unwrap();
+    std::fs::write(dir.join("helper.mini"), "fn double(n):\n    return n * 2\n").unwrap();
+    std::fs::write(dir.join("main.mini"), "from \"./helper.mini\" import double\n").unwrap();
 
-    let (_, err, code) = run_in(&dir, &["run", "main.py"], None);
-    assert!(err.contains("module './helper.py' not found"), "stderr was: {err}");
+    let (_, err, code) = run_in(&dir, &["run", "main.mini"], None);
+    assert!(err.contains("module './helper.mini' not found"), "stderr was: {err}");
     assert_eq!(code, 1);
 }
 
@@ -532,9 +397,9 @@ fn quoted_imports_are_not_found() {
 fn standalone_binary_runs_the_packed_project() {
     let dir = scratch("standalone");
     std::fs::create_dir_all(dir.join("lib")).unwrap();
-    std::fs::write(dir.join("lib/util.py"), "def greet():\n    return \"packed\"\n").unwrap();
-    std::fs::write(dir.join("edge.json"), "{ \"imports\": { \"util\": \"./lib/util.py\" } }\n").unwrap();
-    std::fs::write(dir.join("main.py"), "import util\nprint(util.greet())\n").unwrap();
+    std::fs::write(dir.join("lib/util.mini"), "fn greet():\n    return \"packed\"\n").unwrap();
+    std::fs::write(dir.join("edge.json"), "{ \"imports\": { \"util\": \"./lib/util.mini\" } }\n").unwrap();
+    std::fs::write(dir.join("main.mini"), "import util\nprint(util.greet())\n").unwrap();
 
     let (_, err, code) = run_in(&dir, &["build", "--app", "--out", "app"], None);
     assert_eq!(code, 0, "build stderr was: {err}");
@@ -549,7 +414,7 @@ fn standalone_binary_runs_the_packed_project() {
 #[test]
 fn run_accepts_a_packed_edge() {
     let dir = scratch("run-edge");
-    std::fs::write(dir.join("main.py"), "print(\"ran the bundle\")\n").unwrap();
+    std::fs::write(dir.join("main.mini"), "print(\"ran the bundle\")\n").unwrap();
     let (_, err, code) = run_in(&dir, &["build", "--out", "app.edge"], None);
     assert_eq!(code, 0, "build stderr was: {err}");
     let (out, err, code) = run_in(&dir, &["run", "app.edge"], None);
@@ -557,11 +422,22 @@ fn run_accepts_a_packed_edge() {
     assert_eq!(code, 0);
 }
 
+/* a trailer claiming more than its file holds fails cleanly and never aborts */
+#[test]
+fn a_crafted_trailer_fails_cleanly() {
+    let dir = scratch("trailer");
+    let crafted = [&b"print(1)\n"[..], &(u64::MAX - 5).to_le_bytes(), b"EDGESFX\x01"].concat();
+    std::fs::write(dir.join("crafted"), crafted).unwrap();
+    let (_, err, code) = run_in(&dir, &["run", "crafted"], None);
+    assert_eq!(code, 1, "stderr was: {err}");
+    assert!(err.starts_with("error: ") && !err.contains("panicked"), "stderr was: {err}");
+}
+
 /* edge build writes a portable .edge carrying the project tree. */
 #[test]
 fn build_writes_an_edge_bundle() {
     let dir = scratch("bundle");
-    std::fs::write(dir.join("main.py"), "print(\"hi\")\n").unwrap();
+    std::fs::write(dir.join("main.mini"), "print(\"hi\")\n").unwrap();
     let (_, err, code) = run_in(&dir, &["build", "--out", "app.edge"], None);
     assert_eq!(code, 0, "build stderr was: {err}");
     let bytes = std::fs::read(dir.join("app.edge")).unwrap();
@@ -577,24 +453,24 @@ fn web_build(dir: &Path) -> (String, String, i32) {
 #[test]
 fn rebuilding_web_does_not_nest_dist() {
     let dir = scratch("rebuild");
-    std::fs::write(dir.join("main.py"), "print(\"ok\")\n").unwrap();
+    std::fs::write(dir.join("main.mini"), "print(\"ok\")\n").unwrap();
     std::fs::write(dir.join("edge.json"), "{}\n").unwrap();
     let (_, err, code) = web_build(&dir);
     assert_eq!(code, 0, "first build stderr was: {err}");
     let (_, err, code) = web_build(&dir);
     assert_eq!(code, 0, "second build stderr was: {err}");
     assert!(!dir.join("dist/dist").exists(), "dist was re-ingested on rebuild");
-    assert!(dir.join("dist/main.py").exists());
+    assert!(dir.join("dist/main.mini").exists());
 }
 
 /* A stale dist/ present before the first build is excluded from collection. */
 #[test]
 fn a_stale_dist_is_not_collected() {
     let dir = scratch("stale");
-    std::fs::write(dir.join("main.py"), "print(\"ok\")\n").unwrap();
+    std::fs::write(dir.join("main.mini"), "print(\"ok\")\n").unwrap();
     std::fs::write(dir.join("edge.json"), "{}\n").unwrap();
     std::fs::create_dir_all(dir.join("dist")).unwrap();
-    std::fs::write(dir.join("dist/stale.py"), "print(\"stale\")\n").unwrap();
+    std::fs::write(dir.join("dist/stale.mini"), "print(\"stale\")\n").unwrap();
     let (_, err, code) = web_build(&dir);
     assert_eq!(code, 0, "build stderr was: {err}");
     assert!(!dir.join("dist/dist").exists(), "stale dist was re-ingested");
@@ -604,13 +480,13 @@ fn a_stale_dist_is_not_collected() {
 #[test]
 fn a_deeper_dir_named_dist_is_packed() {
     let dir = scratch("deepdist");
-    std::fs::write(dir.join("main.py"), "print(\"ok\")\n").unwrap();
+    std::fs::write(dir.join("main.mini"), "print(\"ok\")\n").unwrap();
     std::fs::write(dir.join("edge.json"), "{}\n").unwrap();
     std::fs::create_dir_all(dir.join("sub/dist")).unwrap();
-    std::fs::write(dir.join("sub/dist/keep.py"), "print(\"keep\")\n").unwrap();
+    std::fs::write(dir.join("sub/dist/keep.mini"), "print(\"keep\")\n").unwrap();
     let (_, err, code) = web_build(&dir);
     assert_eq!(code, 0, "build stderr was: {err}");
-    assert!(dir.join("dist/sub/dist/keep.py").exists());
+    assert!(dir.join("dist/sub/dist/keep.mini").exists());
 }
 
 /* The cases of cli/tests/engine.json, each one tempdir whose steps run in order. */
@@ -671,7 +547,7 @@ mod engine_corpus {
         }).collect()
     }
 
-    /* Serves `/lib/mod.py`, answers 404 to the rest and logs every path it was asked for. */
+    /* Serves `/lib/mod.mini`, answers 404 to the rest and logs every path it was asked for. */
     fn fixture() -> (String, Arc<Mutex<Vec<String>>>) {
         let server = tiny_http::Server::http("127.0.0.1:0").expect("bind loopback");
         let port = server.server_addr().to_ip().expect("tcp addr").port();
@@ -682,7 +558,7 @@ mod engine_corpus {
                 let path = req.url().to_string();
                 seen.lock().unwrap().push(path.clone());
                 let resp = match path.as_str() {
-                    "/lib/mod.py" => tiny_http::Response::from_string("def f():\n    return 7\n"),
+                    "/lib/mod.mini" => tiny_http::Response::from_string("fn f():\n    return 7\n"),
                     _ => tiny_http::Response::from_string("").with_status_code(404),
                 };
                 let _ = req.respond(resp);
@@ -751,4 +627,57 @@ mod engine_corpus {
         }
         assert!(failures.is_empty(), "{} engine case(s) failed:\n{}", failures.len(), failures.join("\n"));
     }
+}
+
+/* the blob another runtime saves with its own identity and source sealed again */
+fn foreign(blob: &[u8], source: &str) -> Vec<u8> {
+    let word = |at: usize| u64::from_le_bytes(blob[at..at + 8].try_into().unwrap());
+    let mut out = blob[..8].to_vec();
+    out.extend_from_slice(&(word(8) ^ 1).to_le_bytes());
+    out.extend_from_slice(&blob[16..24]);
+    out.extend_from_slice(&(source.len() as u64).to_le_bytes());
+    // the entry's length lies past the source's and the entry right past the source
+    out.extend_from_slice(&blob[32..40]);
+    out.extend_from_slice(source.as_bytes());
+    out.extend_from_slice(&blob[40 + word(24) as usize..blob.len() - 32]);
+    let seal = edge::util::sha256::sha256(&out);
+    out.extend_from_slice(&seal);
+    out
+}
+
+/* a blob of another runtime is refused before its source parses and runs nothing */
+#[test]
+fn a_blob_of_another_runtime_is_refused_before_its_source_parses() {
+    let dir = scratch("foreign");
+    std::fs::write(dir.join("main.mini"), "print(\"phase1\")\nmsg = receive()\nprint(\"resumed\", msg)\n").unwrap();
+    let (_, err, code) = run_in(&dir, &["run", "main.mini", "--save-state", "state.bin"], None);
+    assert!(err.contains("state saved") && code == 0, "stderr was: {err}");
+    let blob = std::fs::read(dir.join("state.bin")).unwrap();
+    // a flow of the tiny runtime which mini could never parse
+    std::fs::write(dir.join("other.bin"), foreign(&blob, "from: input\ntotal:\n  count:\n")).unwrap();
+    std::fs::write(dir.join("ev.txt"), "later\n").unwrap();
+    let (out, err, code) = run_in(&dir, &["run", "--restore-state", "other.bin", "--events", "ev.txt"], None);
+    assert!(err.contains("snapshot was saved under another runtime"), "stderr was: {err}");
+    assert_eq!((out.as_str(), code), ("", 1));
+}
+
+// 64 nested imports run on the wasm stack with the last nested to every cap
+#[test]
+fn a_deep_chain_of_imports_runs_on_the_wasm_stack() {
+    let mut deepest = String::from("x = 0\n");
+    for d in 0..99 { deepest.push_str(&format!("{}if true:\n", "    ".repeat(d))); }
+    deepest.push_str(&format!("{}x = {}1{}\n", "    ".repeat(99), "(".repeat(190), ")".repeat(190)));
+    let chain = |n: usize| {
+        let app = scratch("chain");
+        for i in 0..n {
+            let code = if i + 1 < n { format!("from .c{} import x\n", i + 1) } else { deepest.clone() };
+            std::fs::write(app.join(format!("c{i}.mini")), code).unwrap();
+        }
+        std::fs::write(app.join("main.mini"), "from .c0 import x\nprint(x)\n").unwrap();
+        run_in(&app, &["run", "main.mini"], None)
+    };
+    let (out, err, code) = chain(64);
+    assert_eq!((code, out.as_str()), (0, "1\n"), "{err}");
+    let (_, err, code) = chain(65);
+    assert!(code == 1 && err.contains("imports nest deeper than 64 modules"), "{code} {err}");
 }

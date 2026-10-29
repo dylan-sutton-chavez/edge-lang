@@ -15,13 +15,13 @@
   {
     "name": "a playground pair",
     "files": {
-      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```edge-python\nprint(1)\n```\n\n```output\n1\n```\n"
+      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```edge\nprint(1)\n```\n\n```output\n1\n```\n"
     }
   },
   {
     "name": "a runnable fence needs no output",
     "files": {
-      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```edge-python\nprint(1)\n```\n"
+      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```edge\nprint(1)\n```\n"
     }
   },
   {
@@ -142,26 +142,26 @@
     "files": {
       "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```output\n1\n```\n"
     },
-    "error": "follows no edge-python block"
+    "error": "follows no edge block"
   },
   {
     "name": "an output block separated by prose",
     "files": {
-      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```edge-python\nprint(1)\n```\n\nProse between.\n\n```output\n1\n```\n"
+      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```edge\nprint(1)\n```\n\nProse between.\n\n```output\n1\n```\n"
     },
-    "error": "follows no edge-python block"
+    "error": "follows no edge block"
   },
   {
     "name": "an output block after a plain fence",
     "files": {
       "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```python\nprint(1)\n```\n\n```output\n1\n```\n"
     },
-    "error": "follows no edge-python block"
+    "error": "follows no edge block"
   },
   {
     "name": "an unterminated fence",
     "files": {
-      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```edge-python\nprint(1)\n"
+      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```edge\nprint(1)\n"
     },
     "error": "unterminated"
   },
@@ -214,7 +214,7 @@
   {
     "name": "a manifest before a runnable fence",
     "files": {
-      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```edge-manifest\n{ \"permissions\": { \"main\": [\"time:wall\"] } }\n```\n\n```edge-python\nimport time\n```\n\n```output\n```\n"
+      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```edge-manifest\n{ \"permissions\": { \"main\": [\"time:wall\"] } }\n```\n\n```edge\nimport time\n```\n\n```output\n```\n"
     }
   },
   {
@@ -222,26 +222,26 @@
     "files": {
       "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```edge-manifest\n{}\n```\n\n```python\nprint(1)\n```\n"
     },
-    "error": "no edge-python block follows"
+    "error": "no edge block follows"
   },
   {
     "name": "a manifest separated by prose",
     "files": {
-      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```edge-manifest\n{}\n```\n\nProse between.\n\n```edge-python\nprint(1)\n```\n"
+      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```edge-manifest\n{}\n```\n\nProse between.\n\n```edge\nprint(1)\n```\n"
     },
-    "error": "no edge-python block follows"
+    "error": "no edge block follows"
   },
   {
     "name": "a manifest that ends the page",
     "files": {
-      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```edge-python\nprint(1)\n```\n\n```edge-manifest\n{}\n```\n"
+      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```edge\nprint(1)\n```\n\n```edge-manifest\n{}\n```\n"
     },
-    "error": "no edge-python block follows"
+    "error": "no edge block follows"
   },
   {
     "name": "a manifest that is not an object",
     "files": {
-      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```edge-manifest\n[\"net:api.example.com\"]\n```\n\n```edge-python\nprint(1)\n```\n"
+      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```edge-manifest\n[\"net:api.example.com\"]\n```\n\n```edge\nprint(1)\n```\n"
     },
     "error": "is not a JSON object"
   },
@@ -260,7 +260,7 @@
   {
     "name": "a set of cards",
     "files": {
-      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n> [!CARDS]\n> - `play` [Quick start](/docs/getting-started/quickstart) Run a first script.\n> - `book` [Modules](https://edgepython.com/docs/reference/modules) What edge.json grants.\n> - `file` [Usage](02-usage) The next page.\n"
+      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n> [!CARDS]\n> - `play` [Quick start](/docs/getting-started/quickstart) Run a first script.\n> - `book` [Modules](https://edgelang.dev/docs/reference/modules) What edge.json grants.\n> - `file` [Usage](02-usage) The next page.\n"
     }
   },
   {
@@ -381,9 +381,9 @@
   {
     "name": "a banner linking over http",
     "files": {
-      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n> [!BANNER] Try it\n> [Go](http://edgepython.com)\n"
+      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n> [!BANNER] Try it\n> [Go](http://edgelang.dev)\n"
     },
-    "error": "links a box to 'http://edgepython.com'"
+    "error": "links a box to 'http://edgelang.dev'"
   },
   {
     "name": "a banner with two lines",
@@ -395,7 +395,7 @@
   {
     "name": "a copy line",
     "files": {
-      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n> [!COPY] curl -fsSL https://cdn.edgepython.com/cli/install.sh | sh\n\nThen open a new shell.\n"
+      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n> [!COPY] curl -fsSL https://cdn.edgelang.dev/cli/install.sh | sh\n\nThen open a new shell.\n"
     }
   },
   {

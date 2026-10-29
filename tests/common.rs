@@ -4,25 +4,47 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-use compiler::modules::{
-    NativeBinding, Resolved, Resolver, partition_bindings,
+use edge::deps::{
+    NativeBinding, NoopResolver, Resolved, Resolver, partition_bindings,
     Manifest, walk_up_dirs, dir_of, join_relative,
 };
-use compiler::value::{HeapObj, HeapPool, Limits, Val, VmErr};
-use compiler::embed::VM;
+use edge::value::{HeapObj, HeapPool, Limits, Val, VmErr};
+use edge::code::{Diagnostic, Parser, SSAChunk};
+use edge::embed::VM;
+use edge::lexer::{lex_as, LexError, Token};
 
-/* Answers deferred call `id` with text, as the wasm host does through `set_host_result_by_id`. */
+/* the spelling every program of these suites is written in */
+pub type Spell = mini::Mini;
+
+/* a VM on `chunk` whose program runs through the reference runtime's natives */
+pub fn boot(chunk: &SSAChunk, limits: Limits) -> VM<'_> { VM::with_runtime(&mini::RUNTIME, chunk, limits) }
+
+/* the tokens of `src` and what its lexer reported */
+pub fn lex(src: &str) -> (Vec<Token>, Vec<LexError>) { lex_as::<Spell>(src) }
+
+/* the parser of the tokens of `src` whose imports `resolver` answers */
+pub fn parser<I: Iterator<Item = Token>>(src: &str, tokens: I, resolver: Box<dyn Resolver>) -> Parser<'_, I, Spell> {
+    Parser::spelled(src, tokens, resolver)
+}
+
+/* `src` parsed with no imports and only the parser's diagnostics */
+pub fn parse(src: &str) -> (SSAChunk, Vec<Diagnostic>) { parser(src, lex(src).0.into_iter(), Box::new(NoopResolver)).parse() }
+
+/* `src` lexed parsed and folded as the engine compiles it */
+pub fn compile(src: &str) -> (SSAChunk, Vec<Diagnostic>) { edge::code::compile_as::<Spell>(src) }
+
+/* answers deferred call `id` with text the way `set_host_result_by_id` does for the wasm host */
 pub fn answer(vm: &mut VM, id: u64, text: &str) -> bool {
     let val = vm.heap_mut().alloc(HeapObj::Str(text.into())).expect("the heap holds the answer");
     vm.inject_host_result_by_id(id, val)
 }
 
-/* Raises `message` into deferred call `id`, as the wasm host does through `set_host_error_by_id`. */
+/* raises `message` into deferred call `id` the way `set_host_error_by_id` does for the wasm host */
 pub fn fail(vm: &mut VM, id: u64, message: &str) -> bool {
     vm.inject_host_error_by_id(id, VmErr::Raised(message.into()))
 }
 
-/* With EDGE_SLICE=k/n only every n-th case from the k-th, so Miri walks a long corpus a slice per run. */
+/* with `EDGE_SLICE=k/n` every n-th case from the k-th so Miri walks a corpus in slices */
 pub fn slice<I: IntoIterator>(cases: I) -> impl Iterator<Item = I::Item> {
     let (k, n) = match std::env::var("EDGE_SLICE") {
         Ok(s) => s.split_once('/')
@@ -34,23 +56,24 @@ pub fn slice<I: IntoIterator>(cases: I) -> impl Iterator<Item = I::Item> {
     cases.into_iter().enumerate().filter(move |(i, _)| i % n == k).map(|(_, case)| case)
 }
 
-/* The budget of a corpus case, which Miri cuts short so a long case checks its code paths and not its result. */
+/* under Miri a long case stops early so it checks code paths and not results */
 pub fn corpus_limits() -> Limits {
-    if cfg!(miri) { Limits { ops: 5_000, ..Limits::sandbox() } } else { Limits::sandbox() }
+    if cfg!(miri) { Limits { ops: MIRI_OPS, ..Limits::sandbox() } } else { Limits::sandbox() }
 }
 
-/* A run Miri cut short at the corpus budget, whose result the native run checks. */
+/* the budget of a corpus case under Miri which the sample's coverage is chosen on */
+pub const MIRI_OPS: u64 = 5_000;
+
+/* a run Miri stopped at the corpus budget whose result the native run checks */
 pub fn cut_short<T>(run: &Result<T, VmErr>) -> bool {
     cfg!(miri) && matches!(run, Err(VmErr::Budget))
 }
 
-// TestResolver, modules and nested manifests with walk-up parity against the host resolver.
-
-/* Shared state across a TestResolver and its children, mirroring the WASM bridge's flat cache + in-flight set. */
+/* shared with child resolvers as the bridge shares its flat cache and in-flight set */
 #[derive(Default)]
 struct TestResolverState {
     modules: HashMap<String, Resolved>,
-    /* Manifests keyed by directory, walk-up checks each parent of the importer's location. */
+    /* keyed by directory so a walk up checks each parent of the importer */
     manifests: HashMap<String, Manifest>,
     in_flight: HashSet<String>,
 }
@@ -58,7 +81,7 @@ struct TestResolverState {
 pub struct TestResolver {
     state: Rc<RefCell<TestResolverState>>,
     in_flight_marker: Option<String>,
-    dir: String, // Scoped dir for this resolver, bare-name imports walk up from here. Empty = entry script.
+    dir: String, // where bare-name imports walk up from and empty for the entry script
 }
 
 impl Drop for TestResolver {
@@ -79,7 +102,7 @@ impl TestResolver {
     }
 
     pub fn with_native(self, spec: &str, bindings: Vec<NativeBinding>) -> Self {
-        // Partition by export-name convention, mirroring the real WASM host resolver.
+        // split by export name convention as the real wasm host resolver does
         let (bindings, classes, consts) = partition_bindings(bindings);
         self.state.borrow_mut().modules.insert(
             spec.to_string(),
@@ -96,7 +119,7 @@ impl TestResolver {
         self
     }
 
-    /* Add an alias to the root manifest. Additive, accumulates across calls. */
+    /* adds an alias to the root manifest and calls accumulate */
     pub fn with_alias(self, name: &str, target: &str) -> Self {
         {
             let mut s = self.state.borrow_mut();
@@ -106,7 +129,7 @@ impl TestResolver {
         self
     }
 
-    /* Register a manifest at `dir`, nearer manifests win for bare-name resolution. */
+    /* registers a manifest at `dir` where nearer manifests win for bare names */
     pub fn with_manifest(self, dir: &str, imports: &[(&str, &str)], extends: Option<&str>) -> Self {
         let imp = imports.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
         let m = Manifest { imports: imp, extends: extends.map(|s| s.to_string()), ..Manifest::default() };
@@ -132,7 +155,7 @@ impl Resolver for TestResolver {
         self.resolve_canonical(&canonical)
     }
 
-    /* Transitive sub-resolver, shares state and rescopes `dir`. Drop clears the in-flight marker. */
+    /* a transitive resolver sharing state under its own `dir` whose drop clears the in-flight mark */
     fn child(&self, spec: &str) -> Box<dyn Resolver> {
         let canon = spec.to_string();
         self.state.borrow_mut().in_flight.insert(canon.clone());
@@ -145,7 +168,7 @@ impl Resolver for TestResolver {
 }
 
 impl TestResolver {
-    /* Nearest ancestor dir with a fixture manifest, mirroring the host manifest probe. */
+    /* the nearest ancestor dir with a fixture manifest as the host probe finds it */
     fn manifest_root(&self, spec: &str) -> Result<String, String> {
         let s = self.state.borrow();
         for dir in walk_up_dirs(&self.dir) {
@@ -156,7 +179,7 @@ impl TestResolver {
         Err(format!("no edge.json above '{}' to resolve '{}'", self.dir, spec))
     }
 
-    /* Walk up from `start_dir` for the nearest manifest declaring `name`. `extends` chains with cycle detection. */
+    /* the nearest manifest above `start_dir` declaring `name` following `extends` without cycling */
     fn resolve_bare(&mut self, name: &str, start_dir: &str) -> Result<Resolved, String> {
         let mut visited: HashSet<String> = HashSet::new();
         let mut search_dir = start_dir.to_string();
@@ -203,16 +226,14 @@ impl TestResolver {
             return Err(format!("circular import: '{}'", spec));
         }
         match s.modules.get(spec) {
-            // Clone so the same module can be re-imported under multiple aliases.
+            // cloned so one module can be imported again under other aliases
             Some(r) => Ok(r.clone()),
             None => Err(format!("module '{}' not found in TestResolver", spec)),
         }
     }
 }
 
-// Fixture functions. Third arg is the kwargs slot (`None` for positional calls), ignored by these fixtures.
-
-/* a + b, exercises CallExtern dispatch and arg marshalling. */
+/* exercises CallExtern dispatch and argument marshalling */
 fn add(_: &mut HeapPool, args: &[Val], _kw: Option<Val>) -> Result<Val, VmErr> {
     if args.len() != 2 { return Err(VmErr::Type("add: expected 2 args")); }
     let a = if args[0].is_int() { args[0].as_int() } else { return Err(VmErr::Type("add: arg 0 not int")); };
@@ -220,14 +241,14 @@ fn add(_: &mut HeapPool, args: &[Val], _kw: Option<Val>) -> Result<Val, VmErr> {
     Ok(Val::int(a + b))
 }
 
-/* x * x, used to verify nested calls (square(add(1,2))). */
+/* checks nested calls when it wraps `add` */
 fn square(_: &mut HeapPool, args: &[Val], _kw: Option<Val>) -> Result<Val, VmErr> {
     if args.len() != 1 { return Err(VmErr::Type("square: expected 1 arg")); }
     let x = if args[0].is_int() { args[0].as_int() } else { return Err(VmErr::Type("square: arg not int")); };
     Ok(Val::int(x * x))
 }
 
-/* A heap string of length n, exercises HeapPool::alloc from extern context. */
+/* a heap string of length `n` allocated from inside an extern */
 fn make_str(heap: &mut HeapPool, args: &[Val], _kw: Option<Val>) -> Result<Val, VmErr> {
     if args.len() != 1 { return Err(VmErr::Type("make_str: expected 1 arg")); }
     let n = if args[0].is_int() { args[0].as_int() } else { return Err(VmErr::Type("make_str: arg not int")); };
@@ -235,24 +256,24 @@ fn make_str(heap: &mut HeapPool, args: &[Val], _kw: Option<Val>) -> Result<Val, 
     heap.alloc(HeapObj::Str(s))
 }
 
-/* A counter, each call sees the one before it. */
+/* each call sees the count the one before it left */
 fn counter(_: &mut HeapPool, _args: &[Val], _kw: Option<Val>) -> Result<Val, VmErr> {
     use std::sync::atomic::{AtomicI64, Ordering};
     static N: AtomicI64 = AtomicI64::new(0);
     Ok(Val::int(N.fetch_add(1, Ordering::SeqCst)))
 }
 
-/* Constant 42, for tests that only care extern was called. */
+/* for tests that only check the extern was called */
 fn const_42(_: &mut HeapPool, _args: &[Val], _kw: Option<Val>) -> Result<Val, VmErr> {
     Ok(Val::int(42))
 }
 
-/* Always errors, exercises extern-error propagation through dispatch. */
+/* always fails to exercise how extern errors propagate through dispatch */
 fn boom(_: &mut HeapPool, _args: &[Val], _kw: Option<Val>) -> Result<Val, VmErr> {
     Err(VmErr::Runtime("boom from extern"))
 }
 
-/* f64 round-trip through an extern call (no int coercion). */
+/* a float round trip through an extern with no int coercion */
 fn double_f(_: &mut HeapPool, args: &[Val], _kw: Option<Val>) -> Result<Val, VmErr> {
     if args.len() != 1 || !args[0].is_float() {
         return Err(VmErr::Type("double_f: expected one float arg"));
@@ -260,7 +281,7 @@ fn double_f(_: &mut HeapPool, args: &[Val], _kw: Option<Val>) -> Result<Val, VmE
     Ok(Val::float(args[0].as_float() * 2.0))
 }
 
-/* bool -> bool, asserts that bool tags survive the extern dispatch. */
+/* bool tags survive the extern dispatch */
 fn negate(_: &mut HeapPool, args: &[Val], _kw: Option<Val>) -> Result<Val, VmErr> {
     if args.len() != 1 || !args[0].is_bool() {
         return Err(VmErr::Type("negate: expected one bool arg"));
@@ -268,17 +289,17 @@ fn negate(_: &mut HeapPool, args: &[Val], _kw: Option<Val>) -> Result<Val, VmErr
     Ok(Val::bool(!args[0].as_bool()))
 }
 
-/* Returns HostCallDeferred, exercises the PendingHostCall yield path through call_extern. */
+/* exercises the PendingHostCall yield path through `call_extern` */
 fn host_defer(_: &mut HeapPool, _args: &[Val], _kw: Option<Val>) -> Result<Val, VmErr> {
     Err(VmErr::HostCallDeferred)
 }
 
-/* Const fixture, zero-arg export materialised at init, bound as a module value attr. */
+/* a zero-arg export materialised at init and bound as a module attribute */
 fn const_pi(_: &mut HeapPool, _args: &[Val], _kw: Option<Val>) -> Result<Val, VmErr> {
     Ok(Val::float(core::f64::consts::PI))
 }
 
-/* bool, int -> int, mixes types to confirm per-arg decode is correct. */
+/* mixed argument types check that each one decodes on its own */
 fn pick(_: &mut HeapPool, args: &[Val], _kw: Option<Val>) -> Result<Val, VmErr> {
     if args.len() != 3 || !args[0].is_bool() || !args[1].is_int() || !args[2].is_int() {
         return Err(VmErr::Type("pick: expected (bool, int, int)"));
@@ -286,10 +307,10 @@ fn pick(_: &mut HeapPool, args: &[Val], _kw: Option<Val>) -> Result<Val, VmErr> 
     Ok(if args[0].as_bool() { args[2] } else { args[1] })
 }
 
-/* Native class fixtures, `Box(v)` stores v on self and `get` reads it back through the self convention. */
+/* `Box(v)` stores `v` on self and `get` reads it back through the self convention */
 fn class_box_init(heap: &mut HeapPool, args: &[Val], _kw: Option<Val>) -> Result<Val, VmErr> {
     let [inst, v] = args else { return Err(VmErr::Type("Box: expected (self, value)")); };
-    let HeapObj::Instance(_, attrs) = heap.get(*inst) else {
+    let Some(attrs) = heap.fields(*inst) else {
         return Err(VmErr::Type("Box: self is not an instance"));
     };
     let attrs = attrs.clone();
@@ -300,7 +321,7 @@ fn class_box_init(heap: &mut HeapPool, args: &[Val], _kw: Option<Val>) -> Result
 
 fn class_box_get(heap: &mut HeapPool, args: &[Val], _kw: Option<Val>) -> Result<Val, VmErr> {
     let [inst] = args else { return Err(VmErr::Type("Box.get: expected (self)")); };
-    let HeapObj::Instance(_, attrs) = heap.get(*inst) else {
+    let Some(attrs) = heap.fields(*inst) else {
         return Err(VmErr::Type("Box.get: self is not an instance"));
     };
     let attrs = attrs.clone();
@@ -309,7 +330,7 @@ fn class_box_get(heap: &mut HeapPool, args: &[Val], _kw: Option<Val>) -> Result<
     out.ok_or(VmErr::Attribute("Box.get: 'v' not set".into()))
 }
 
-/* Fixture-name -> fn ptr, the runner turns each into a NativeBinding. */
+/* the runner turns each fixture into a NativeBinding */
 type NativeFn = fn(&mut HeapPool, &[Val], Option<Val>) -> Result<Val, VmErr>;
 
 pub fn test_native(name: &str) -> Option<NativeBinding> {
@@ -327,7 +348,7 @@ pub fn test_native(name: &str) -> Option<NativeBinding> {
         "__const_pi" => const_pi,
         "__class_Box___init__" => class_box_init,
         "__class_Box_get" => class_box_get,
-        // Registered under a builtin name to assert imported natives shadow builtins.
+        // registered under a builtin name to check imported natives shadow builtins
         "abs" => const_42,
         _ => return None,
     };

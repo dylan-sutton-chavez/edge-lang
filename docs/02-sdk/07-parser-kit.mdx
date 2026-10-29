@@ -1,0 +1,308 @@
+---
+title: "Parser kit"
+description: "The one grammar the parser reads, the token table a runtime spells it with field by field, and the forms every table shares."
+---
+
+# Parser kit
+
+The engine keeps one lexer, one parser and one grammar. A runtime brings a token table, a `Syntax`, that spells the grammar. The lexer reads the source through that table, and the parser compiles each construct to bytecode in one pass, the same bytecode whichever table spelled it. What a construct does once it runs belongs to the runtime, and how the lexer and the parser work is in [Compiler](/docs/edge-lang/internals/compiler).
+
+## Three tables
+
+The repo holds three runtimes, and each spells the grammar its own way. Mini is the reference runtime that `edge.wasm` is built from. Uptime is the language of [Your runtime and its CLI](/docs/edge-lang/get-started/use-cases/your-runtime), and tiny reads only the expressions of its YAML flows through its table, as [Front ends](/docs/edge-lang/sdk/front-ends) shows.
+
+| Choice | Mini | Uptime | Tiny |
+|---|---|---|---|
+| A block | A header colon, then deeper indentation | The header's line end, closed by `end`, or `do` and `end` on one line | None, since the YAML holds the structure |
+| A statement ends at | A line end or `;` | A line end | A line end |
+| Comment | `//` to the end of the line | `#` to the end of the line | None |
+| Constants | `true`, `false`, `nil` | `true`, `false`, `nil` | `True`, `False`, `None` |
+| Logic | `&&`, `\|\|`, `!` | `and`, `or`, `not` | `and`, `or`, `not` |
+| Negated tests | `a !in b`, `a is !b` | `a not in b` | `a not in b` |
+| A first store | `x = 1` | `let x = 1`, which a name's first store needs | None |
+| Assertion and import | `assert`, `import` and `from` | `check` and `use` | None |
+| Text with fields | `f"{x!r:>8}"`, with conversions, specs and `{x=}` | Every double-quoted text, as `"{name:<11}"` | None |
+| Integer division | `~/` | None | `//` |
+| A name after a dot | An attribute | An attribute | A key of a map |
+| `a < b < c` | Tests both comparisons | Compares `a < b` with `c` | Tests both comparisons |
+
+The same function in mini, then in uptime.
+
+```edge
+fn sign(n):
+    if n < 0:
+        return -1
+    else if n == 0:
+        return 0
+    return 1
+
+print(sign(-4), sign(0), sign(9))
+```
+
+```output
+-1 0 1
+```
+
+```text
+fn sign(n)
+  if n < 0
+    return -1
+  else if n == 0
+    return 0
+  end
+  return 1
+end
+```
+
+`tools/spell` holds three more tables over the same grammar for the engine's tests and the corpus tools. Indent reads blocks as mini does with other words and symbols, braces opens a block with `{` and closes it with `}`, and words opens one with `then` or `do` and closes it with `end`.
+
+## A table field by field
+
+Uptime's table is whole below, and every table writes the same fields.
+
+```rust file=examples/uptime/src/syntax.rs
+```
+
+| Field | Decides | Uptime |
+|---|---|---|
+| `name` | What diagnostics and tools call the table | `uptime` |
+| `extension` | The extension an import implies, without its dot. It may hold dots of its own, as `flow.yaml` does | `up` |
+| `words` | Every reserved word beside its token. A space joins two words into one token, as `else if` does | `let`, `check`, `use`, `do` and `end` among 25 |
+| `symbols` | Symbols of one to three bytes beside their tokens, where a text listed twice takes its first entry | 23, from `(` to `:` |
+| `operators` | The byte table `operators(symbols)` builds at compile time | `operators(SYMBOLS)` |
+| `keywords` | The index `index(words)` builds at compile time, which a name looks up once | `index(WORDS)` |
+| `precedence` | Each operator with its left and right binding power, where a left power of zero marks a prefix | 17 entries from `or` to a prefix `-` |
+| `chained` | Whether `a < b < c` tests `a < b` and `b < c` | `false` |
+| `blocks` | `Blocks::Indent`, `Blocks::Braces`, or `Blocks::Words` with `implicit` on when a header's line end opens its block | `Words { implicit: true }` |
+| `ends` | What ends a statement outside brackets, `Ends::Newline`, `Ends::Semicolon` or `Ends::Either` | `Newline` |
+| `comments` | The markers of a comment to the end of its line, the open and close of a block comment, and whether a block comment nests | `#` |
+| `strings` | The quotes, prefixes and escapes of a literal, in the table below | One double quote and the `b` prefix |
+| `interp` | The literals whose fields an expression fills in, or `None` | Every double-quoted text, a spec after `:` |
+| `numbers` | Radixes, a digit separator, leading zeros, dots, exponents and suffixes, in the table below | Decimal digits with `_` and exponents |
+| `continuation` | A byte that joins a line ending in it to the next, and whether a line ending in a binary operator goes on | A line ending in an operator goes on |
+| `shapes` | The grammar's shapes and the kit's optional pieces, in the table below | No conditional, lambda, slice, comprehension or decorator, and `let` required |
+| `soft` | The words reserved only where the grammar wants them, `match`, `case`, `type` and a definition word | None |
+| `bom` | Whether a byte order mark at the start is skipped | `true` |
+
+`Strings` holds every choice about a literal.
+
+| Field | Decides |
+|---|---|
+| `quotes` | Each quote byte, whether a literal of one quote may hold a line end, and whether three quotes open a literal that spans lines |
+| `prefixes` | Each prefix in lowercase with the `RAW`, `BYTES` and `FORMAT` bits it sets |
+| `any_case` | Whether a prefix reads in either case |
+| `hashes` | Whether a raw prefix takes hashes around its quotes, as in `r#"a"b"#` |
+| `adjacent` | Whether literals side by side join into one |
+| `newlines` | Whether a CR or a CRLF inside a literal reads as a LF |
+| `escapes` | The escapes a literal decodes, the simple ones, `\x`, `\u` with four or eight digits or in braces, octal and a joined line, and whether an unknown escape keeps its backslash or fails. `refused` names escapes that fail with a message of their own |
+
+`Numbers` holds every choice about a number.
+
+| Field | Decides |
+|---|---|
+| `radixes` | The letter after a leading zero in either case and the radix it names |
+| `separator` | The byte that may sit between digits |
+| `zeros` | Whether a decimal integer with leading zeros is refused, read in base eight or allowed |
+| `leading_dot`, `trailing_dot` | Whether a float may start or end at its dot, as `.5` and `5.` do |
+| `exponent` | Whether `e` and `E` give a float an exponent |
+| `suffix` | Whether letters right after a number start the next token, fail the number or are dropped |
+
+`Interp` holds how a literal with fields reads. `name` is what diagnostics call it, `f-string` in mini and `text` in uptime. `quotes` names the quotes that interpolate with no prefix, `open` and `close` bound a field, and `literal` writes a delimiter as plain text by doubling it or with a backslash. `short` is the byte before a bare name that makes it a field as `$name` does, `spec` the byte that starts a format spec, `convert` the byte and the letters of a render mode, and `echo` the byte that keeps the field's text beside its value.
+
+`Shapes` holds the shapes of the grammar and the pieces of the kit a table turns on. Mini takes `Shapes::CORE`.
+
+| Field | Decides | `CORE` |
+|---|---|---|
+| `cond` | A conditional written `a if c else b`, written `c ? a : b`, or none | `Cond::Suffix` |
+| `lambda` | A function written with a word, written `\|x\| x + 1`, or none | `Lambda::Word` |
+| `keyword_arg` | The token between a keyword argument's name and its value | `=` |
+| `splat` | Whether the star markers spread values and gather the rest | On |
+| `slices` | Whether a subscript takes bounds with colons between them | On |
+| `dot` | Whether a name after a dot reads an attribute, or an item keyed by the name unless a call follows | `Dot::Attr` |
+| `header_parens` | Whether a header holds its expression in parentheses, as in `if (c)` | Off |
+| `comprehensions`, `decorators`, `named` | Comprehensions, a decorator before a definition, and a name taking a value inside an expression | On |
+| `binding` | Whether a word may lead an assignment, or must lead a name's first store in its scope | `Binding::None` |
+| `arms` | Whether a match takes arms written `p => body` in place of cases | Off |
+| `ranges` | Whether `a..b` and `a..=b` make ranges | Off |
+
+A runtime hands its table to the engine through `Spelling`, which pairs the table with the natives its calls bind to, as the last lines of uptime's file do. `Front::spelled::<Uptime>()` then reads every source of the runtime through it.
+
+### A table that contradicts itself
+
+The lexer checks its table when it is built, at compile time, so a table that contradicts itself fails to compile with the rule it breaks as the message. These are the rules.
+
+- A table that opens a block at a line end, and a table of indentation, ends statements at line ends, and a table whose statements end only at line ends spells no semicolon.
+- A table whose blocks open and close with tokens spells both, and a braces table spells them `{` and `}`.
+- A table that opens a block at a line end reserves `match`, `case` and its definition word outright.
+- Two tokens share one text only where one stands for the other, as `!` stands for `not` and for a conversion in mini.
+- No quote is a symbol or a digit separator, and no comment marker starts with a byte a name, a number or a quote starts with.
+- A field opens with one or two bytes, a doubled delimiter is one byte, and a prefix that interpolates needs the table's `interp`.
+- A piece of `Shapes` needs its marks spelled. A `?` conditional needs `?` and `:`, a bar lambda the bar, `binding` the word `let`, `arms` their mark and no block words, and `ranges` the `..` symbol.
+- A table holds at most eight phrases, sixteen symbols outside the operator table and 63 reserved words of two to eight bytes in its index.
+
+## Lines and blocks
+
+- A source is UTF-8 and holds 10 MiB at most. A leading byte order mark is skipped where `bom` is on.
+- A comment runs from its marker to the end of the line.
+- A logical line ends at a newline outside brackets. Lines join freely inside `()`, `[]` and the braces of a display, and in mini a trailing backslash joins the next line anywhere.
+- `;` separates simple statements on one line in mini.
+- A mini header ends in a colon. Its body follows on the indented lines below, or as simple statements on the same line. An indent is spaces or tabs, never a mix of both, and a dedent returns to an outer level.
+- An uptime header ends at its line end and its body runs to the `end` that closes the whole statement, every `else if`, `else` and `catch` of it included.
+- Blocks nest 100 deep at most in every table.
+
+## Names and keywords
+
+A name starts with a letter or `_` and goes on with letters, digits and `_`. Every non-ASCII character counts as a letter.
+
+| Kind | Mini |
+|---|---|
+| Keywords | `true` `false` `nil` `as` `assert` `async` `await` `break` `class` `continue` `del` `else` `else if` `except` `finally` `for` `from` `global` `if` `import` `in` `is` `lambda` `nonlocal` `pass` `raise` `return` `try` `while` `with` `yield` |
+| Soft keywords | `fn`, `match`, `case` and `type` |
+| Wildcard | `_` |
+
+Mini reserves `fn` only at the start of a statement, or after `async`, when a name follows. `match` and `case` are keywords only at the start of a statement whose header opens a block. `type` is one only at the start of a statement a name follows, which the parser refuses as a type alias. Anywhere else each soft keyword is a name, and `_` is the wildcard of a pattern and a name everywhere else.
+
+## Literals
+
+| Literal | Forms in mini |
+|---|---|
+| Integer | `42`, `0x2A`, `0o52` and `0b101010`, with one `_` between digits or right after a base prefix, as in `1_000` and `0x_FF`. A decimal integer other than zero has no leading `0` |
+| Float | `3.14`, `.5`, `5.`, `1e-5` and `2.5E+3` |
+| String | `'text'` and `"text"`, and the triple-quoted `'''text'''` and `"""text"""`, which span lines |
+| Constant | `true`, `false`, `nil` and `...` |
+
+Adjacent string literals join into one. A prefix before the quote picks the kind of literal, in either case.
+
+| Prefix | Reads as |
+|---|---|
+| No prefix, or `u` | A string |
+| `r` | A raw string, which keeps its backslashes as written |
+| `b`, `br` or `rb` | A bytes literal |
+| `f`, `fr` or `rf` | An f-string |
+
+The escapes of a literal that is not raw decode as it compiles.
+
+| Escape | Stands for |
+|---|---|
+| `\n`, `\t`, `\r` | Line feed, tab, carriage return |
+| `\a`, `\b`, `\f`, `\v` | Bell, backspace, form feed, vertical tab |
+| `\\`, `\'`, `\"` | A backslash and the quotes |
+| `\0`, `\NNN` | Octal with 1 to 3 digits, `\0` is the null character |
+| `\xHH` | A character from two hex digits |
+| `\uHHHH`, `\UHHHHHHHH` | A code point from 4 or 8 hex digits |
+
+An unknown escape keeps its backslash, and so does a `\x`, `\u` or `\U` without exactly the hex digits it takes, as `'\x4'` and `'\x+1'` do. A named escape such as `\N{BULLET}` fails at compile time with `named escapes are not supported`. Uptime decodes `\n`, `\t`, `\\`, `\"` and a code point of one to six hex digits in braces after `\u`, and any other escape fails to lex.
+
+### F-strings
+
+An f-string holds text and fields, each field an expression in braces.
+
+```text
+f"{x} {x!r} {x:>8} {x:>{width}} {x=} {{braces}}"
+```
+
+- A field takes any expression, another f-string included, nested 200 deep at most.
+- `!r`, `!s` or `!a` after the expression names a conversion. With `!` spelling `not`, a `!` that ends the expression of a field still names its conversion.
+- A `:` starts the format spec, which may hold fields of its own.
+- A `=` after the expression keeps its text as the table spelled it, spaces included, beside the value.
+- `{{` and `}}` stand for one brace each.
+
+The compiler keeps the conversion and the spec beside the value. What they make of it is up to the runtime. Uptime's texts are the same literal with no prefix, no conversion and no `=`, so `"{name:<11} {page.ms:>5} ms"` fills two fields.
+
+## Operators and delimiters
+
+| Kind | Tokens in mini |
+|---|---|
+| Arithmetic | `+` `-` `*` `/` `~/` `%` `**` `@` |
+| Bitwise | `&` `\|` `^` `~` `<<` `>>` |
+| Comparison | `==` `!=` `<` `>` `<=` `>=` |
+| Boolean | `&&` `\|\|` `!` |
+| Assignment | `=`, `:=` and the augmented `+=` `-=` `*=` `/=` `~/=` `%=` `**=` `@=` `&=` `\|=` `^=` `<<=` `>>=` |
+| Delimiters | `(` `)` `[` `]` `{` `}` `,` `:` `;` `.` `->` `...` `!` |
+
+A byte a table holds no token for fails with `unexpected character`, as `$`, `?`, a backquote and `#` do in mini. Uptime spells only `+=` and `-=` among the augmented operators and no bitwise operator at all.
+
+## Expressions
+
+The forms bind from the loosest to the tightest, as mini's `precedence` ladders them. Comparisons chain, as in `a < b <= c`, and only `**` groups from the right.
+
+| Form | Examples |
+|---|---|
+| Lambda | `lambda x, y=1: x + y` |
+| Conditional | `a if c else b` |
+| Boolean | `a \|\| b`, `a && b`, `!a` |
+| Comparison | `a == b`, `a in b`, `a !in b`, `a is b`, `a is !b` |
+| Bitwise | `a \| b`, then `a ^ b`, then `a & b` |
+| Shift | `a << b`, `a >> b` |
+| Additive | `a + b`, `a - b` |
+| Multiplicative | `a * b`, `a / b`, `a ~/ b`, `a % b`, `a @ b` |
+| Unary | `-a`, `+a`, `~a`, `await a` |
+| Power | `a ** b` |
+| Primary | `a.name`, `a[i]`, `a[lo:hi:step]`, `f(x, *xs, k=v, **kw)` |
+
+The atoms are names, literals and these forms.
+
+| Atom | Examples |
+|---|---|
+| Group and tuple | `(a)`, `(a, b)`, `(a,)`, `()` |
+| List | `[a, b]`, `[*xs, c]` |
+| Dict | `{k: v}`, `{**d, k: v}`, `{}` |
+| Set | `{a, b}`, `{*xs, c}` |
+| Comprehension | `[x for x in xs if p]`, `{x for x in xs}`, `{k: v for k, v in pairs}` |
+| Generator | `(x for x in xs)` |
+| Named | `(n := a + b)` |
+| Yield | `yield`, `yield v`, `yield from xs` |
+
+- A comprehension takes any number of `for` and `if` clauses.
+- A call takes positional and keyword arguments and `*` and `**` spreads, 255 of each kind at most. A lone generator expression needs no brackets of its own, as in `f(x for x in xs)`.
+- A slice may leave out any of its three parts, as in `a[::2]`.
+- Expressions, assignment targets and patterns nest 200 deep at most.
+
+A form a table's `shapes` turn off is no part of its grammar. Uptime has no lambda, conditional, slice, comprehension, decorator or named expression, and tiny keeps slices and calls.
+
+## Statements
+
+| Simple statement | Forms in mini |
+|---|---|
+| Expression | `f(x)` |
+| Assignment | `a = 1`, `a = b = 1`, `a, *rest = xs`, `p.x, xs[0] = 1, 2` |
+| Augmented assignment | `n += 1`, and the other augmented operators |
+| Annotated assignment | `x: T = v`, `x: T` |
+| `pass`, `break`, `continue` | The word alone |
+| `del` | `del a, xs[0], p.x` |
+| `return` | `return`, `return v`, `return a, b` |
+| `raise` | `raise`, `raise e` |
+| `assert` | `assert c`, `assert c, message` |
+| `global`, `nonlocal` | `global a, b` |
+| `import` | `import a`, `import a.b as c`, `from .a import b as c`, `from a import (b, c)`, `from a import *` |
+
+| Compound statement | Forms in mini |
+|---|---|
+| `if` | `if c` and its body, then any number of `else if d` clauses and an optional `else` one |
+| `while` | `while c` and its body with an optional `else` clause |
+| `for` | `for target in xs` and its body with an optional `else` clause |
+| `try` | `try` and its body, then `except`, `except E`, `except E as e` and `except (A, B)` clauses with a bare `except` last, then an optional `else` and `finally` |
+| `fn` | Defaults, `/`, `*`, `*args`, `**kwargs`, annotations and a `-> T` return annotation, after any `@decorator` lines, and `async fn` |
+| `class` | Bases in parentheses, as in `class P(A, B)`, after any `@decorator` lines |
+| `match` | `match x` holding `case` clauses, each a pattern with an optional `if` guard |
+
+| Pattern | Examples |
+|---|---|
+| Literal | `0`, `"stop"`, `nil` |
+| Capture and wildcard | `x`, `_` |
+| Value | `Color.RED` |
+| Or | `0 \| 1` |
+| As | `[x, y] as pair` |
+| Sequence | `[a, *rest]`, `(a, b)`, `a, b` |
+| Mapping | `{"k": v, **rest}` |
+| Class | `Point(x=0, y=y)` |
+
+Uptime writes the same statements with its own words, `let` before a first store, `check c, message` for an assertion, `use .http` for an import and `try` with `catch E as e`, each compound closed by one `end`.
+
+Imports resolve at compile time, as [Modules](/docs/edge-lang/reference/modules) explains. A statement out of place, such as a `break` outside a loop or a `return` outside a function, fails at compile time. So does a form the parser refuses, such as `with`, `async for`, `except*`, `raise e from cause`, a type alias or a complex literal. [Diagnostics](/docs/edge-lang/reference/diagnostics#compile-time-errors) lists those messages.
+
+> [!CARDS]
+> - `activity` [Your runtime and its CLI](/docs/edge-lang/get-started/use-cases/your-runtime) Uptime's table in a runtime and its CLI, end to end.
+> - `cpu` [Compiler](/docs/edge-lang/internals/compiler) How the lexer and the single-pass parser turn this grammar into bytecode.
+> - `octagon-alert` [Diagnostics](/docs/edge-lang/reference/diagnostics) What the lexer and the parser report when a source breaks the grammar.
+> - `gauge` [Limits](/docs/edge-lang/sdk/limits) The source caps and the limits every run is held to.

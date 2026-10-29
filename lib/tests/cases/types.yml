@@ -1,0 +1,94 @@
+- native: bool
+  args: [0]
+  ret: false
+
+- native: bool
+  args: [[]]
+  ret: true
+
+- native: bool
+  args: [""]
+  ret: false
+
+- native: callable
+  args: [1]
+  ret: false
+
+- native: type
+  args: [1]
+  prints: "<class 'int'>"
+
+- native: bool
+  args: [""]
+  prints: "False"
+
+- native: callable
+  args: ["hello"]
+  prints: "False"
+
+- native: bool
+  args: [!tuple []]
+  prints: "True"
+
+- native: bool
+  args: [null]
+  prints: "False"
+
+- native: bool
+  args: [" "]
+  prints: "True"
+
+- native: bool
+  prints: "False"
+
+- native: bool
+  args: [[]]
+  prints: "True"
+
+- native: bool
+  args: [[1]]
+  prints: "True"
+
+- native: bool
+  args: [[0]]
+  prints: "True"
+
+- native: bool
+  args: [{}]
+  prints: "True"
+
+- native: bool
+  args: [{0: 0}]
+  prints: "True"
+
+- native: bool
+  args: [0]
+  prints: "False"
+
+- native: bool
+  args: [1]
+  prints: "True"
+
+- native: callable
+  args: [42]
+  prints: "False"
+
+- native: bool
+  args: [-1]
+  prints: "True"
+
+- native: bool
+  args: [0.0]
+  prints: "False"
+
+- native: bool
+  args: [0.1]
+  prints: "True"
+
+- native: bool
+  args: ["0"]
+  prints: "True"
+
+- native: bool
+  args: [!tuple [0]]
+  prints: "True"

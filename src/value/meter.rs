@@ -1,19 +1,20 @@
-use core::alloc::{GlobalAlloc, Layout};
+#![deny(unsafe_code)]
+
 use core::sync::atomic::{AtomicUsize, Ordering::Relaxed};
 
-// A meter tells its instance what it holds once per this much growth, and whenever its run ends.
+// a meter reports to its instance per this much growth and when a run ends
 const STEP: usize = 1 << 20;
 
-/* What one interpreter holds through the allocator, the most it held, and what its instance counts for it. */
+/* what one interpreter holds through the allocator and the part its instance has counted */
 pub struct Meter {
     held: AtomicUsize,
-    // The most it held before it last went down, so growing costs no peak check.
+    // the most it held before it last went down so growing costs no peak check
     peak: AtomicUsize,
-    // Growth past it tells the instance, so each block pays one compare.
+    // growth past it tells the instance so each block pays one compare
     mark: AtomicUsize,
     told: AtomicUsize,
     limit: usize,
-    // The limit, or zero after its growth took the instance past its budget.
+    // the limit or zero once its growth took the instance past its budget
     cap: AtomicUsize,
 }
 
@@ -28,16 +29,16 @@ impl Meter {
     #[inline]
     pub fn peak(&self) -> usize { self.peak.load(Relaxed).max(self.held()) }
 
-    /* Whether it holds more than its limit, or grew while its instance is past the budget. */
+    /* past its limit or grown while its instance is over the budget */
     #[inline]
     pub fn over(&self) -> bool { self.held() > self.cap.load(Relaxed) }
 
-    /* What it may still take before its instance reaches the budget. */
+    /* what it may still take before its instance reaches the budget */
     pub fn instance_room(&self) -> usize {
         budget().saturating_sub(total().wrapping_add(self.held().saturating_sub(self.told.load(Relaxed))))
     }
 
-    /* Brings the instance total to what it holds now, squeezing it if its growth passed the budget. */
+    /* updates the instance total and squeezes the cap when its growth passed the budget */
     pub(crate) fn tell(&self) {
         let held = self.held();
         let told = self.told.swap(held, Relaxed);
@@ -46,43 +47,43 @@ impl Meter {
         if total <= budget() { self.cap.store(self.limit, Relaxed); } else if held > told { self.cap.store(0, Relaxed); }
     }
 
-    /* Takes what it held out of the instance total, once its program is gone. */
+    /* takes what it held out of the instance total once its program is gone */
     pub(crate) fn retire(&self) {
         add_total(0usize.wrapping_sub(self.told.swap(0, Relaxed)));
         self.mark.store(usize::MAX, Relaxed);
     }
 
     #[inline]
-    fn grew(&self, n: usize) {
+    pub(crate) fn grew(&self, n: usize) {
         let held = self.held.fetch_add(n, Relaxed) + n;
         if held > self.mark.load(Relaxed) { self.tell(); }
     }
 
     #[inline]
-    fn shrank(&self, n: usize) {
+    pub(crate) fn shrank(&self, n: usize) {
         let held = self.held.fetch_sub(n, Relaxed);
         if held > self.peak.load(Relaxed) { self.peak.store(held, Relaxed); }
     }
 }
 
-// Pays for what is allocated outside every interpreter run, which the instance budget leaves out.
+// pays for what is allocated outside every run and stays out of the instance budget
 static HOST: Meter = Meter { mark: AtomicUsize::new(usize::MAX), ..Meter::new(usize::MAX) };
 
-// An instance is the wasm module, or the thread on a std host, and its programs share one budget.
+// the instance is the wasm module or a std thread whose programs share one budget
 #[cfg(feature = "std")]
 std::thread_local! {
-    static PAYER: core::cell::Cell<*const Meter> = const { core::cell::Cell::new(core::ptr::null()) };
+    static PAYER: core::cell::Cell<Option<&'static Meter>> = const { core::cell::Cell::new(None) };
     static TOTAL: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
     static BUDGET: core::cell::Cell<usize> = const { core::cell::Cell::new(isize::MAX as usize) };
 }
 
 #[cfg(not(feature = "std"))]
-static PAYER: core::sync::atomic::AtomicPtr<Meter> = core::sync::atomic::AtomicPtr::new(&HOST as *const Meter as *mut Meter);
+static PAYER: crate::r#unsafe::Payer = crate::r#unsafe::Payer::new(&HOST);
 
 #[cfg(not(feature = "std"))]
 static TOTAL: AtomicUsize = AtomicUsize::new(0);
 
-// Half the address space by default, the most its programs may hold together.
+// the most its programs may hold together and half the address space by default
 #[cfg(not(feature = "std"))]
 static BUDGET: AtomicUsize = AtomicUsize::new(isize::MAX as usize);
 
@@ -109,7 +110,7 @@ fn budget() -> usize {
     { BUDGET.load(Relaxed) }
 }
 
-/* Bounds what the programs of this instance hold together, past it the one that grows raises MemoryError. */
+/* the most this instance's programs hold before the growing one raises a memory error */
 pub fn set_budget(bytes: usize) {
     let bytes = bytes.min(isize::MAX as usize);
     #[cfg(feature = "std")]
@@ -119,28 +120,35 @@ pub fn set_budget(bytes: usize) {
 }
 
 #[inline]
-fn swap_payer(m: *const Meter) -> *const Meter {
+fn swap_payer(m: &'static Meter) -> &'static Meter {
     #[cfg(feature = "std")]
-    { PAYER.with(|p| p.replace(m)) }
+    { PAYER.replace(Some(m)).unwrap_or(&HOST) }
     #[cfg(not(feature = "std"))]
-    { PAYER.swap(m as *mut Meter, Relaxed) }
+    { PAYER.swap(m) }
 }
 
 #[inline]
 fn payer() -> &'static Meter {
-    // Every meter is leaked, so a payer outlives each block it paid for.
     #[cfg(feature = "std")]
-    { unsafe { PAYER.with(|p| p.get()).as_ref() }.unwrap_or(&HOST) }
+    { PAYER.get().unwrap_or(&HOST) }
     #[cfg(not(feature = "std"))]
-    { unsafe { &*PAYER.load(Relaxed) } }
+    { PAYER.get() }
 }
 
-/* Charges new memory to `m` until it drops, then tells the instance what `m` holds and restores the payer before it. */
-pub struct Paying(*const Meter, &'static Meter);
+/* charges `n` new bytes to the payer and gives that meter for the block's tag */
+#[inline]
+pub(crate) fn charge(n: usize) -> &'static Meter {
+    let m = payer();
+    m.grew(n);
+    m
+}
+
+/* charges this thread's memory to `m` until dropped then reports `m` and restores the payer */
+pub struct Paying(&'static Meter, &'static Meter, core::marker::PhantomData<*const ()>);
 
 impl Paying {
     #[inline]
-    pub fn to(m: &'static Meter) -> Self { Self(swap_payer(m), m) }
+    pub fn to(m: &'static Meter) -> Self { Self(swap_payer(m), m, core::marker::PhantomData) }
 }
 
 impl Drop for Paying {
@@ -151,11 +159,11 @@ impl Drop for Paying {
     }
 }
 
-/* Whether the global allocator is `Metered`, asked once by paying a block to a meter of its own. */
+/* whether `Metered` is the global allocator as one block paid to a probe meter shows */
 pub fn installed() -> bool {
     use core::sync::atomic::AtomicU8;
     static PROBE: Meter = Meter::new(usize::MAX);
-    // Unknown, metered or not, in that order.
+    // zero while unknown then one when metered and two when not
     static SEEN: AtomicU8 = AtomicU8::new(0);
     match SEEN.load(Relaxed) {
         0 => {
@@ -173,185 +181,65 @@ pub fn installed() -> bool {
     }
 }
 
-/* Wraps an allocator so each block carries the meter it was charged to, and its free credits that meter. */
+/* each block carries the meter it was charged to and its free credits that meter */
 pub struct Metered<A>(pub A);
 
-const TAG: usize = core::mem::size_of::<*const Meter>();
-
-/* The block the inner allocator hands out for `l`, the tag in front keeping the alignment of `l`. */
-#[inline(always)]
-fn tagged(l: Layout) -> Option<(Layout, usize)> {
-    let head = l.align().max(TAG);
-    if l.size() > isize::MAX as usize - head { return None; }
-    // A power of two and a size that stays under isize::MAX once rounded.
-    Some((unsafe { Layout::from_size_align_unchecked(l.size() + head, head) }, head))
-}
-
-/* The block a live `l` came from, whose size passed `tagged` when it was made. */
-#[inline(always)]
-fn block(l: Layout) -> (Layout, usize) {
-    let head = l.align().max(TAG);
-    (unsafe { Layout::from_size_align_unchecked(l.size() + head, head) }, head)
-}
-
-#[cfg(not(miri))]
-impl<A: GlobalAlloc> Metered<A> {
-    #[inline]
-    unsafe fn place(&self, base: *mut u8, inner: Layout, head: usize) -> *mut u8 {
-        if base.is_null() { return base; }
-        let m = payer();
-        m.grew(inner.size());
-        unsafe {
-            let p = base.add(head);
-            p.sub(TAG).cast::<*const Meter>().write(m);
-            p
-        }
-    }
-}
-
-#[cfg(not(miri))]
-unsafe impl<A: GlobalAlloc> GlobalAlloc for Metered<A> {
-    #[inline]
-    unsafe fn alloc(&self, l: Layout) -> *mut u8 {
-        let Some((inner, head)) = tagged(l) else { return core::ptr::null_mut() };
-        unsafe { self.place(self.0.alloc(inner), inner, head) }
-    }
-
-    #[inline]
-    unsafe fn alloc_zeroed(&self, l: Layout) -> *mut u8 {
-        let Some((inner, head)) = tagged(l) else { return core::ptr::null_mut() };
-        unsafe { self.place(self.0.alloc_zeroed(inner), inner, head) }
-    }
-
-    #[inline]
-    unsafe fn dealloc(&self, p: *mut u8, l: Layout) {
-        let (inner, head) = block(l);
-        unsafe {
-            (*p.sub(TAG).cast::<*const Meter>().read()).shrank(inner.size());
-            self.0.dealloc(p.sub(head), inner);
-        }
-    }
-
-    #[inline]
-    unsafe fn realloc(&self, p: *mut u8, l: Layout, size: usize) -> *mut u8 {
-        let (inner, head) = block(l);
-        let Some(grown) = size.checked_add(head) else { return core::ptr::null_mut() };
-        unsafe {
-            let owner = p.sub(TAG).cast::<*const Meter>().read();
-            let base = self.0.realloc(p.sub(head), inner, grown);
-            if base.is_null() { return base; }
-            // A grown block goes to the current payer, so a shared buffer charges who made it grow.
-            (*owner).shrank(inner.size());
-            let m = payer();
-            m.grew(grown);
-            let q = base.add(head);
-            q.sub(TAG).cast::<*const Meter>().write(m);
-            q
-        }
-    }
-}
-
-/* Under Miri a block carries no tag, a table keyed by its address holds the meter, so a block is freed through the
-   pointer that owns it, the only way Stacked Borrows lets a box go. */
+/* under Miri an address table holds the meter so Stacked Borrows lets each block go */
 #[cfg(miri)]
-mod owners {
-    use super::{GlobalAlloc, Layout, Meter};
-    use core::sync::atomic::{AtomicBool, Ordering::{Acquire, Relaxed, Release}};
+pub(crate) struct Owners { pub(crate) slots: &'static mut [(usize, Option<&'static Meter>)], pub(crate) len: usize }
 
-    struct Table { slots: *mut (usize, *const Meter), cap: usize, len: usize }
+#[cfg(miri)]
+impl Owners {
+    fn home(&self, addr: usize) -> usize { (addr.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 7) & (self.slots.len() - 1) }
 
-    static LOCK: AtomicBool = AtomicBool::new(false);
-    static mut TABLE: Table = Table { slots: core::ptr::null_mut(), cap: 0, len: 0 };
-
-    /* Runs `f` on the table alone, its slots taken from `inner` so the table never meters itself. */
-    fn with<R>(f: impl FnOnce(&mut Table) -> R) -> R {
-        while LOCK.compare_exchange_weak(false, true, Acquire, Relaxed).is_err() { core::hint::spin_loop(); }
-        let r = f(unsafe { &mut *core::ptr::addr_of_mut!(TABLE) });
-        LOCK.store(false, Release);
-        r
+    /* the slot of `addr` or the empty slot where it would go */
+    fn find(&self, addr: usize) -> usize {
+        let mut i = self.home(addr);
+        while self.slots[i].0 != addr && self.slots[i].0 != 0 { i = (i + 1) & (self.slots.len() - 1); }
+        i
     }
 
-    fn layout(cap: usize) -> Layout { Layout::array::<(usize, *const Meter)>(cap).expect("owner table size") }
-
-    impl Table {
-        fn home(&self, addr: usize) -> usize { (addr.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 7) & (self.cap - 1) }
-
-        fn key(&self, i: usize) -> usize { unsafe { (*self.slots.add(i)).0 } }
-
-        /* The slot of `addr`, or the empty slot where it would go. */
-        fn find(&self, addr: usize) -> usize {
-            let mut i = self.home(addr);
-            while self.key(i) != addr && self.key(i) != 0 { i = (i + 1) & (self.cap - 1); }
-            i
+    /* records `m` for `addr` in slots from `inner` which keep the table off the meter */
+    fn put(&mut self, inner: &impl core::alloc::GlobalAlloc, addr: usize, m: &'static Meter) {
+        if (self.len + 1) * 2 > self.slots.len() {
+            let grown = crate::r#unsafe::table(inner, (self.slots.len() * 2).max(1024));
+            let old = core::mem::replace(&mut self.slots, grown);
+            self.len = 0;
+            for &(a, m) in old.iter() { if let Some(m) = m { self.put(inner, a, m); } }
         }
+        let i = self.find(addr);
+        if self.slots[i].0 == 0 { self.len += 1; }
+        self.slots[i] = (addr, Some(m));
+    }
 
-        fn put(&mut self, inner: &impl GlobalAlloc, addr: usize, m: *const Meter) {
-            if (self.len + 1) * 2 > self.cap {
-                let (old, cap) = (self.slots, self.cap);
-                self.cap = (cap * 2).max(1024);
-                self.slots = unsafe { inner.alloc_zeroed(layout(self.cap)) }.cast();
-                assert!(!self.slots.is_null(), "owner table out of memory");
-                self.len = 0;
-                for i in 0..cap { let (a, m) = unsafe { *old.add(i) }; if a != 0 { self.put(inner, a, m); } }
-                if !old.is_null() { unsafe { inner.dealloc(old.cast(), layout(cap)) }; }
-            }
-            let i = self.find(addr);
-            if self.key(i) == 0 { self.len += 1; }
-            unsafe { *self.slots.add(i) = (addr, m) };
-        }
-
-        /* Takes the meter of `addr` out, shifting the run behind it back so every lookup still ends at an empty slot. */
-        fn take(&mut self, addr: usize) -> *const Meter {
-            let mut i = self.find(addr);
-            assert!(self.key(i) == addr, "a block the meter never handed out");
-            let m = unsafe { (*self.slots.add(i)).1 };
-            self.len -= 1;
-            let mut j = i;
+    /* removes `addr` shifting its run back so lookups still stop at an empty slot */
+    fn take(&mut self, addr: usize) -> &'static Meter {
+        let mut i = self.find(addr);
+        let (key, m) = self.slots[i];
+        let m = m.filter(|_| key == addr).expect("a block the meter never handed out");
+        self.len -= 1;
+        let mut j = i;
+        loop {
+            self.slots[i] = (0, None);
             loop {
-                unsafe { *self.slots.add(i) = (0, core::ptr::null()) };
-                loop {
-                    j = (j + 1) & (self.cap - 1);
-                    let a = self.key(j);
-                    if a == 0 { return m; }
-                    let home = self.home(a);
-                    // An entry stays when its home lies cyclically in (i, j].
-                    if if i <= j { i < home && home <= j } else { i < home || home <= j } { continue; }
-                    unsafe { *self.slots.add(i) = *self.slots.add(j) };
-                    i = j;
-                    break;
-                }
+                j = (j + 1) & (self.slots.len() - 1);
+                let a = self.slots[j].0;
+                if a == 0 { return m; }
+                let home = self.home(a);
+                // an entry stays when its home lies cyclically after i and at most at j
+                if if i <= j { i < home && home <= j } else { i < home || home <= j } { continue; }
+                self.slots[i] = self.slots[j];
+                i = j;
+                break;
             }
         }
     }
-
-    pub(super) fn put(inner: &impl GlobalAlloc, addr: usize, m: &Meter) { with(|t| t.put(inner, addr, m)) }
-    pub(super) fn take(addr: usize) -> &'static Meter { unsafe { &*with(|t| t.take(addr)) } }
 }
 
+/* records that the block at `addr` from `inner` was charged to `m` */
 #[cfg(miri)]
-unsafe impl<A: GlobalAlloc> GlobalAlloc for Metered<A> {
-    unsafe fn alloc(&self, l: Layout) -> *mut u8 {
-        let Some((inner, _)) = tagged(l) else { return core::ptr::null_mut() };
-        let p = unsafe { self.0.alloc(l) };
-        if !p.is_null() { let m = payer(); m.grew(inner.size()); owners::put(&self.0, p.addr(), m); }
-        p
-    }
+pub(crate) fn own(inner: &impl core::alloc::GlobalAlloc, addr: usize, m: &'static Meter) { crate::r#unsafe::owners(|o| o.put(inner, addr, m)) }
 
-    unsafe fn dealloc(&self, p: *mut u8, l: Layout) {
-        owners::take(p.addr()).shrank(block(l).0.size());
-        unsafe { self.0.dealloc(p, l) }
-    }
-
-    unsafe fn realloc(&self, p: *mut u8, l: Layout, size: usize) -> *mut u8 {
-        let (inner, head) = block(l);
-        let Some(grown) = size.checked_add(head) else { return core::ptr::null_mut() };
-        let owner = owners::take(p.addr());
-        let q = unsafe { self.0.realloc(p, l, size) };
-        if q.is_null() { owners::put(&self.0, p.addr(), owner); return q; }
-        owner.shrank(inner.size());
-        let m = payer();
-        m.grew(grown);
-        owners::put(&self.0, q.addr(), m);
-        q
-    }
-}
+/* the meter the block at `addr` was charged to which the table then forgets */
+#[cfg(miri)]
+pub(crate) fn disown(addr: usize) -> &'static Meter { crate::r#unsafe::owners(|o| o.take(addr)) }

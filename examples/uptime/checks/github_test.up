@@ -1,0 +1,15 @@
+use .http
+
+let watched = ["Git Operations", "API Requests", "Actions", "Pages"]
+let page = http.get("https://www.githubstatus.com/api/v2/components.json")
+check page.status == 200
+check page.ms < 3000, "the status API took {page.ms} ms"
+let seen = 0
+for part in page.body.components
+  if part.name in watched
+    check part.status == "operational", "{part.name} is {part.status}"
+    seen += 1
+  end
+end
+# a part GitHub renames fails here instead of passing unseen
+check seen == size(watched), "the status API lists {seen} of the {size(watched)} watched parts"

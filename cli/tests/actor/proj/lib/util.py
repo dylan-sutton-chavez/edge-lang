@@ -1,2 +1,0 @@
-def greet():
-    return "hello from a project dir"

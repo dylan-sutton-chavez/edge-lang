@@ -1,0 +1,543 @@
+- name: a name reads the record's field
+  input: slice
+  flow: |
+    from: input
+    kinds:
+      count: kind = type
+      top: 1
+  out:
+    kinds:
+      - '{"kind":"PushEvent","count":130}'
+
+- name: dots read the fields of nested records
+  input: slice
+  flow: |
+    from: input
+    users:
+      where: type == "IssuesEvent"
+      count: payload.issue.user.login
+      top: 2
+  out:
+    users:
+      - '{"payload":{"issue":{"user":{"login":"github-actions[bot]"}}},"count":4}'
+      - '{"payload":{"issue":{"user":{"login":"aaronmallen"}}},"count":2}'
+
+- name: None True and False read as JSON's null true and false
+  input: slice
+  flow: |
+    from: input
+    words:
+      count: none = None, yes = True, no = False
+  out:
+    words:
+      - '{"none":null,"yes":true,"no":false,"count":431}'
+
+- name: whole and decimal numbers read as numbers
+  input: slice
+  flow: |
+    from: input
+    numbers:
+      count: whole = 3, half = 2.5, big = 1e3
+  out:
+    numbers:
+      - '{"whole":3,"half":2.5,"big":1000.0,"count":431}'
+
+- name: text in either quote reads its escapes
+  input: slice
+  flow: |
+    from: input
+    texts:
+      count: tab = "a\tb", quote = "say \"hi\"", single = 'it\'s'
+  out:
+    texts:
+      - '{"tab":"a\tb","quote":"say \"hi\"","single":"it''s","count":431}'
+
+- name: arithmetic follows its precedence
+  input: slice
+  flow: |
+    from: input
+    math:
+      count: v = 1 + 2 * 3 - 4 / 2, w = (1 + 2) * 3, p = 2 ** 3 ** 2, n = -2 ** 2, f = 7 // 2
+  out:
+    math:
+      - '{"v":5.0,"w":9,"p":512,"n":-4,"f":3,"count":431}'
+
+- name: the remainder of whole numbers
+  input: slice
+  flow: |
+    from: input
+    digits:
+      where: type == "IssuesEvent" and payload.issue.number < 100
+      count: number = payload.issue.number, last = payload.issue.number % 10
+      sort: number
+      top: 3
+  out:
+    digits:
+      - '{"number":1,"last":1,"count":3}'
+      - '{"number":2,"last":2,"count":1}'
+      - '{"number":3,"last":3,"count":1}'
+
+- name: comparisons chain as in mathematics
+  input: slice
+  flow: |
+    from: input
+    some:
+      where: type == "IssuesEvent" and 0 < payload.issue.comments < 3
+      count:
+  out:
+    some:
+      - '{"count":25}'
+
+- name: and and or give one of their operands
+  input: slice
+  flow: |
+    from: input
+    picked:
+      count: first = None or "none", second = True and type
+      sort: second
+      top: 1
+  out:
+    picked:
+      - '{"first":"none","second":"CreateEvent","count":42}'
+
+- name: in tests membership in a list
+  input: slice
+  flow: |
+    from: input
+    both:
+      where: type in ["WatchEvent", "PushEvent"]
+      count:
+  out:
+    both:
+      - '{"count":251}'
+
+- name: not in tests that a list lacks a value
+  input: slice
+  flow: |
+    from: input
+    rest:
+      where: type not in ["WatchEvent", "PushEvent"]
+      count:
+  out:
+    rest:
+      - '{"count":180}'
+
+- name: in finds text inside text
+  input: slice
+  flow: |
+    from: input
+    bots:
+      where: ("bot" in actor.login)
+      count:
+  out:
+    bots:
+      - '{"count":66}'
+
+- name: a list holds expressions
+  input: slice
+  flow: |
+    from: input
+    lists:
+      count: n = len([type, repo.name, 3])
+  out:
+    lists:
+      - '{"n":3,"count":431}'
+
+- name: lower and upper change the case of a text
+  input: slice
+  flow: |
+    from: input
+    cases:
+      where: type == "IssueCommentEvent"
+      count: lower = type.lower(), upper = type.upper()
+  out:
+    cases:
+      - '{"lower":"issuecommentevent","upper":"ISSUECOMMENTEVENT","count":20}'
+
+- name: startswith and endswith test either end
+  input: slice
+  flow: |
+    from: input
+    kinds:
+      where: type.startswith("Pull") or type.endswith("CommentEvent")
+      count: type
+      sort: type
+  out:
+    kinds:
+      - '{"type":"IssueCommentEvent","count":20}'
+      - '{"type":"PullRequestEvent","count":20}'
+
+- name: removeprefix drops a prefix the text starts with
+  input: slice
+  flow: |
+    from: input
+    branches:
+      where: type == "PushEvent"
+      count: branch = payload.ref.removeprefix("refs/heads/")
+      sort: -count, branch
+      top: 3
+  out:
+    branches:
+      - '{"branch":"main","count":96}'
+      - '{"branch":"master","count":7}'
+      - '{"branch":"Dev","count":1}'
+
+- name: removeprefix leaves a text that lacks the prefix as it is
+  input: slice
+  flow: |
+    from: input
+    kinds:
+      count: kind = type.removeprefix("refs/")
+      sort: kind
+      top: 1
+  out:
+    kinds:
+      - '{"kind":"CreateEvent","count":42}'
+
+- name: removesuffix drops a suffix the text ends with
+  input: slice
+  flow: |
+    from: input
+    kinds:
+      count: kind = type.removesuffix("Event")
+      sort: kind
+  out:
+    kinds:
+      - '{"kind":"Create","count":42}'
+      - '{"kind":"Delete","count":11}'
+      - '{"kind":"IssueComment","count":20}'
+      - '{"kind":"Issues","count":87}'
+      - '{"kind":"PullRequest","count":20}'
+      - '{"kind":"Push","count":130}'
+      - '{"kind":"Watch","count":121}'
+
+- name: a slice takes the characters between two positions
+  input: slice
+  flow: |
+    from: input
+    minutes:
+      count: hour = created_at[11:13], minute = created_at[11:16]
+      sort: minute
+      top: 2
+  out:
+    minutes:
+      - '{"hour":"15","minute":"15:00","count":16}'
+      - '{"hour":"15","minute":"15:01","count":8}'
+
+- name: a slice from a position runs to the end and an index counts from either end
+  input: slice
+  flow: |
+    from: input
+    ends:
+      count: zone = created_at[19:], last = created_at[-1], first = created_at[0]
+  out:
+    ends:
+      - '{"zone":"Z","last":"Z","first":"2","count":431}'
+
+- name: strip drops the spaces at either end
+  input: slice
+  flow: |
+    from: input
+    kinds:
+      count: kind = ("  " + type + " ").strip()
+      sort: kind
+      top: 1
+  out:
+    kinds:
+      - '{"kind":"CreateEvent","count":42}'
+
+- name: find gives where a text starts or -1 when it is missing
+  input: slice
+  flow: |
+    from: input
+    found:
+      count: slash = repo.name.find("/") > 0, hash = type.find("#")
+  out:
+    found:
+      - '{"slash":true,"hash":-1,"count":431}'
+
+- name: split cuts a text at each separator
+  input: slice
+  flow: |
+    from: input
+    parts:
+      count: parts = len(repo.name.split("/"))
+  out:
+    parts:
+      - '{"parts":2,"count":431}'
+
+- name: in tests membership in the list a split gives
+  input: slice
+  flow: |
+    from: input
+    cli:
+      where: ("cli" in repo.name.split("/"))
+      count:
+  out:
+    cli:
+      - '{"count":1}'
+
+- name: an index reads an item of a list
+  input: slice
+  flow: |
+    from: input
+    names:
+      where: type == "WatchEvent"
+      count: name = repo.name.split("/")[1]
+      top: 2
+  out:
+    names:
+      - '{"name":"DiPlay","count":3}'
+      - '{"name":"nature-skills","count":2}'
+
+- name: len counts characters items and fields
+  input: slice
+  flow: |
+    from: input
+    sizes:
+      where: type == "WatchEvent"
+      count: chars = len(type), items = len(repo.name.split("/")), fields = len(payload)
+  out:
+    sizes:
+      - '{"chars":10,"items":2,"fields":1,"count":121}'
+
+- name: round rounds half away from zero
+  input: slice
+  flow: |
+    from: input
+    rounded:
+      count: up = round(2.5), down = round(-2.5), tenth = round(1.25, 1)
+  out:
+    rounded:
+      - '{"up":3,"down":-3,"tenth":1.3,"count":431}'
+
+- name: abs int and float convert numbers
+  input: slice
+  flow: |
+    from: input
+    numbers:
+      count: abs = abs(-3), int = int("42"), cut = int(2.9), float = float("2.5")
+  out:
+    numbers:
+      - '{"abs":3,"int":42,"cut":2,"float":2.5,"count":431}'
+
+- name: str renders a value as tiny shows it
+  input: slice
+  flow: |
+    from: input
+    texts:
+      count: three = str(3), none = str(None), yes = str(True), half = str(1.5)
+  out:
+    texts:
+      - '{"three":"3","none":"None","yes":"True","half":"1.5","count":431}'
+
+- name: time reads RFC 3339 text that str renders back
+  input: slice
+  flow: |
+    from: input
+    same:
+      where: str(time(created_at)) == created_at
+      count:
+  out:
+    same:
+      - '{"count":431}'
+
+- name: hours_between gives the hours from one time to the next
+  input: slice
+  flow: |
+    from: input
+    hours:
+      where: type == "IssuesEvent" and payload.action == "closed"
+      count: hours = hours_between(payload.issue.created_at, payload.issue.closed_at)
+      top: 3
+  out:
+    hours:
+      - '{"hours":1.2555555555555555,"count":1}'
+      - '{"hours":1.7041666666666666,"count":1}'
+      - '{"hours":1.1011111111111112,"count":1}'
+
+- name: minutes_between and days_between count in their own units
+  input: slice
+  flow: |
+    from: input
+    spans:
+      where: type == "IssuesEvent" and payload.action == "closed"
+      count: minutes = minutes_between(payload.issue.created_at, payload.issue.closed_at), days = days_between(payload.issue.created_at, payload.issue.closed_at)
+      top: 2
+  out:
+    spans:
+      - '{"minutes":75.33333333333333,"days":0.052314814814814814,"count":1}'
+      - '{"minutes":102.25,"days":0.07100694444444444,"count":1}'
+
+- name: hours_between takes times as well as their texts
+  input: slice
+  flow: |
+    from: input
+    none:
+      count: hours = hours_between(time(created_at), created_at)
+  out:
+    none:
+      - '{"hours":0.0,"count":431}'
+
+- name: min and max pick among their arguments
+  input: slice
+  flow: |
+    from: input
+    picked:
+      count: least = min(3, 1, 2), most = max("a", "b")
+  out:
+    picked:
+      - '{"least":1,"most":"b","count":431}'
+
+- name: replace swaps each match of a text
+  input: slice
+  flow: |
+    from: input
+    kinds:
+      count: kind = type.replace("Event", "")
+      sort: kind
+      top: 1
+  out:
+    kinds:
+      - '{"kind":"Create","count":42}'
+
+- name: None equals only None
+  input: slice
+  flow: |
+    from: input
+    open:
+      where: type == "IssuesEvent" and payload.issue.closed_at == None
+      count:
+  out:
+    open:
+      - '{"count":65}'
+
+- name: a plain value goes on past a line that ends in an operator
+  input: slice
+  flow: |
+    from: input
+    opened:
+      where: type == "IssuesEvent" and
+        payload.action == "opened"
+      count:
+  out:
+    opened:
+      - '{"count":26}'
+
+- name: a comment after a value is no part of it
+  input: slice
+  flow: |
+    from: input
+    watches:
+      where: type == "WatchEvent"   # the stars
+      count:   # how many
+  out:
+    watches:
+      - '{"count":121}'
+
+- name: a hash inside an expression with no space before it is no comment
+  input: slice
+  flow: |
+    from: input
+    odd:
+      where: ("#" in repo.name) or type == "DeleteEvent"
+      count:
+  out:
+    odd:
+      - '{"count":11}'
+
+- name: flow collections read as their block forms
+  input: slice
+  flow: |
+    from: input
+    kinds: {where: type == "CreateEvent", count: [payload.ref_type], sort: [-count]}
+  out:
+    kinds:
+      - '{"payload":{"ref_type":"branch"},"count":42}'
+
+- name: a bare name reads the field a native shares its name with
+  flow: |
+    from: http://127.0.0.1:1/hour/fields.jsonl
+    late:
+      where: min == 59 and len > 900
+      count: at = time[11:19], type
+      sort: at, type
+  out:
+    late:
+      - '{"at":"15:59:02","type":"CreateEvent","count":1}'
+      - '{"at":"15:59:36","type":"IssuesEvent","count":1}'
+
+- name: a call reaches the native beside the field of its name
+  flow: |
+    from: http://127.0.0.1:1/hour/fields.jsonl
+    calls:
+      where: min == 0
+      count: same = str(time(time)) == time, digits = len(str(len)), least = min(min, 30), most = max(len, 0) > 0
+  out:
+    calls:
+      - '{"same":true,"digits":5,"least":0,"most":true,"count":2}'
+      - '{"same":true,"digits":4,"least":0,"most":true,"count":2}'
+      - '{"same":true,"digits":3,"least":0,"most":true,"count":12}'
+
+- name: in keep a bare min reads the aggregate and a call of min the function
+  input: slice
+  flow: |
+    from: input
+    early:
+      min: created_at
+      by: type
+      keep: min < "2026-10-01T15:00:01Z" and min(len(type), 12) == 12
+      sort: type
+  out:
+    early:
+      - '{"type":"IssueCommentEvent","min":"2026-10-01T15:00:00Z"}'
+
+- name: sort reads a bare field named like a native
+  flow: |
+    from: http://127.0.0.1:1/hour/fields.jsonl
+    longest:
+      sort: -len
+      top: 1
+  out:
+    longest:
+      - '{"type":"IssueCommentEvent","time":"2026-10-01T15:06:32Z","len":24541,"min":6}'
+
+- name: round breaks an exact tie away from zero and rounds other values to the nearer side
+  input: slice
+  flow: |
+    from: input
+    odd:
+      count: a = round(2.675, 2), b = round(1.005, 2), c = round(1.15, 1), d = round(0.125, 2), e = round(-0.375, 2)
+  out:
+    odd:
+      - '{"a":2.67,"b":1.0,"c":1.1,"d":0.13,"e":-0.38,"count":431}'
+
+- name: the shortest text of a float picks the even digit between two that read back
+  input: slice
+  flow: |
+    from: input
+    odd:
+      count: a = 89815621140927.12, b = 970501480331273.2
+  out:
+    odd:
+      - '{"a":89815621140927.12,"b":970501480331273.2,"count":431}'
+
+- name: number text reads a leading zero as decimal where no prefix names the base
+  input: slice
+  flow: |
+    from: input
+    numbers:
+      count: zero = int("010", 0), hex = int("0x1f", 0), spaced = int(" 7 "), half = float(" 0.5 ")
+  out:
+    numbers:
+      - '{"zero":10,"hex":31,"spaced":7,"half":0.5,"count":431}'
+
+- name: strip and split keep the information separators as text
+  input: slice
+  flow: |
+    from: input
+    texts:
+      count: kept = len("\x1ca\x1c".strip()), parts = len("a\x1cb".split()), trimmed = len(" a ".strip())
+  out:
+    texts:
+      - '{"kept":3,"parts":1,"trimmed":1,"count":431}'

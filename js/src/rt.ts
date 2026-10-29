@@ -1,7 +1,6 @@
-/* Recursive value the wire's TLV encoding can carry, mirrors `abi/src/lib.rs` `tag`. ArrayBuffer is accepted on encode, decode never produces one. */
 export type EdgeValue = null | boolean | number | bigint | string | Uint8Array | ArrayBuffer | EdgeValue[] | { [key: string]: EdgeValue };
 
-/* Handle-codec surface returned by `makeRt`, the values a system call takes and answers with. */
+/* the handle codec `makeRt` returns for the values a host call takes and answers */
 export interface Rt {
     decodeStr(h: number): string
     decodeInt(h: number): number | bigint
@@ -16,12 +15,12 @@ export interface Rt {
     encodeAny(v: EdgeValue): number
 }
 
-import type { CompilerExports } from './wasm.ts';
+import type { EdgeExports } from './wasm.ts';
 
 const TD = new TextDecoder();
 const TE = new TextEncoder();
 
-// abi/src/lib.rs `pub mod tag`.
+// the tags of `pub mod tag` in `abi/src/lib.rs`
 const TAG_NONE = 0;
 const TAG_BOOL = 1;
 const TAG_INT = 2;
@@ -29,6 +28,8 @@ const TAG_FLOAT = 3;
 const TAG_BYTES = 4;
 const TAG_RAW = 5;
 const TAG_LIST = 6;
+// what the engine answers for a value no transit value holds
+const TAG_INVALID = 0xFFFFFFFF;
 const TAG_DICT = 7;
 
 const U64_MASK = (1n << 64n) - 1n;
@@ -36,13 +37,11 @@ const I128_MAX = (1n << 127n) - 1n;
 const I128_MIN = -(1n << 127n);
 const SAFE_MAX = BigInt(Number.MAX_SAFE_INTEGER);
 
-// i128 LE read, BigInt past 2^53.
 function readI128(v: DataView, off: number): number | bigint {
     const big = (v.getBigInt64(off + 8, true) << 64n) | v.getBigUint64(off, true);
     return big >= -SAFE_MAX && big <= SAFE_MAX ? Number(big) : big;
 }
 
-// i128 LE write, throws beyond i128.
 function writeI128(v: DataView, off: number, n: number | bigint): void {
     const big = BigInt(n);
     if (big > I128_MAX || big < I128_MIN) throw new RangeError(`int out of i128 range: ${n}`);
@@ -50,8 +49,8 @@ function writeI128(v: DataView, off: number, n: number | bigint): void {
     v.setBigInt64(off + 8, big >> 64n, true);
 }
 
-/* Handle-codec helpers wrapping `host_edge_decode` / `host_edge_encode`, so system calls skip NaN-boxing. */
-export function makeRt(getExports: () => CompilerExports): Rt {
+/* wraps `host_edge_decode` and `host_edge_encode` so host calls skip NaN boxing */
+export function makeRt(getExports: () => EdgeExports): Rt {
     return {
         decodeStr: (h) => decodeStr(getExports(), h),
         decodeInt: (h) => decodeInt(getExports(), h),
@@ -62,15 +61,15 @@ export function makeRt(getExports: () => CompilerExports): Rt {
         encodeBool: (b) => encodeBool(getExports(), b),
         encodeFloat: (f) => encodeFloat(getExports(), f),
         encodeNone: () => getExports().host_edge_encode(TAG_NONE, 0, 0),
-        /* Tag-agnostic, decode any handle to a plain JS value, the arguments of a system call. */
+        /* any handle to a plain JS value as a host call takes its arguments */
         decodeAny: (h) => decodeAny(getExports(), h),
-        /* Tag-agnostic, encode a plain JS value back into a handle. Integer numbers become INT, non-integer become FLOAT. */
+        /* encodes integral numbers as ints and the other numbers as floats */
         encodeAny: (v) => encodeAny(getExports(), v),
     };
 }
 
-// Shared alloc/decode/retry cycle, returns tag+bytes.
-function rawDecode(exps: CompilerExports, handle: number): { tag: number, bytes: Uint8Array } {
+// decodes once and retries with the size asked for when the buffer is short
+function rawDecode(exps: EdgeExports, handle: number): { tag: number, bytes: Uint8Array } {
     const tagPtr = exps.wasm_alloc(4);
     let cap = 256;
     let dstPtr = exps.wasm_alloc(cap);
@@ -89,52 +88,51 @@ function rawDecode(exps: CompilerExports, handle: number): { tag: number, bytes:
     return { tag, bytes };
 }
 
-function decodeBytes(exps: CompilerExports, handle: number, expectedTag: number): Uint8Array {
+function decodeBytes(exps: EdgeExports, handle: number, expectedTag: number): Uint8Array {
     const { tag, bytes } = rawDecode(exps, handle);
     if (tag !== expectedTag) throw new Error(`expected tag ${expectedTag}, got ${tag}`);
     return bytes;
 }
 
-const decodeStr = (exps: CompilerExports, h: number) => TD.decode(decodeBytes(exps, h, TAG_BYTES));
-const decodeInt = (exps: CompilerExports, h: number) => {
+const decodeStr = (exps: EdgeExports, h: number) => TD.decode(decodeBytes(exps, h, TAG_BYTES));
+const decodeInt = (exps: EdgeExports, h: number) => {
     const b = decodeBytes(exps, h, TAG_INT);
     return readI128(new DataView(b.buffer, b.byteOffset, 16), 0);
 };
-const decodeBool = (exps: CompilerExports, h: number) => decodeBytes(exps, h, TAG_BOOL)[0] !== 0;
-const decodeFloat = (exps: CompilerExports, h: number) => {
+const decodeBool = (exps: EdgeExports, h: number) => decodeBytes(exps, h, TAG_BOOL)[0] !== 0;
+const decodeFloat = (exps: EdgeExports, h: number) => {
     const b = decodeBytes(exps, h, TAG_FLOAT);
     return new DataView(b.buffer, b.byteOffset, 8).getFloat64(0, true);
 };
 
-// Alloc `len` guest bytes, fill via `write(ptr)`, encode to a handle, free. Pairs alloc/free so lengths can't drift.
-function encodeScalar(exps: CompilerExports, tag: number, len: number, write: (ptr: number) => void): number {
+// one place pairs the alloc and free so their lengths cannot drift
+function encodeScalar(exps: EdgeExports, tag: number, len: number, write: (ptr: number) => void): number {
     const ptr = exps.wasm_alloc(len);
     write(ptr);
     const h = exps.host_edge_encode(tag, ptr, len);
     exps.wasm_free(ptr, len);
     return h;
 }
-function encodeStr(exps: CompilerExports, s: string): number {
+function encodeStr(exps: EdgeExports, s: string): number {
     const bytes = TE.encode(s);
     return encodeScalar(exps, TAG_BYTES, bytes.length, (ptr) => new Uint8Array(exps.memory.buffer, ptr, bytes.length).set(bytes));
 }
-function encodeInt(exps: CompilerExports, n: number | bigint): number {
+function encodeInt(exps: EdgeExports, n: number | bigint): number {
     return encodeScalar(exps, TAG_INT, 16, (ptr) => writeI128(new DataView(exps.memory.buffer), ptr, n));
 }
-function encodeBool(exps: CompilerExports, b: boolean): number {
+function encodeBool(exps: EdgeExports, b: boolean): number {
     return encodeScalar(exps, TAG_BOOL, 1, (ptr) => { new Uint8Array(exps.memory.buffer, ptr, 1)[0] = b ? 1 : 0; });
 }
-function encodeFloat(exps: CompilerExports, f: number): number {
+function encodeFloat(exps: EdgeExports, f: number): number {
     return encodeScalar(exps, TAG_FLOAT, 8, (ptr) => new DataView(exps.memory.buffer).setFloat64(ptr, f, true));
 }
 
-// Decode any tag to a JS value.
-function decodeAny(exps: CompilerExports, handle: number): EdgeValue {
+function decodeAny(exps: EdgeExports, handle: number): EdgeValue {
     const { tag, bytes } = rawDecode(exps, handle);
     return decodeBody(tag, bytes);
 }
 
-/* Wire payload to JS value. LIST/DICT payloads hold nested TLV nodes (tag:u32le len:u32le payload). */
+/* list and dict payloads hold nested nodes framed as `tag:u32le len:u32le payload` */
 function decodeBody(tag: number, bytes: Uint8Array): EdgeValue {
     const view = () => new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     switch (tag) {
@@ -143,7 +141,7 @@ function decodeBody(tag: number, bytes: Uint8Array): EdgeValue {
         case TAG_INT: return readI128(view(), 0);
         case TAG_FLOAT: return view().getFloat64(0, true);
         case TAG_BYTES: return TD.decode(bytes);
-        // Copy, nested payloads are views into the parent buffer.
+        // copied since nested payloads are views into the parent buffer
         case TAG_RAW: return bytes.slice();
         case TAG_LIST: case TAG_DICT: {
             const v = view();
@@ -166,12 +164,14 @@ function decodeBody(tag: number, bytes: Uint8Array): EdgeValue {
             }
             return obj;
         }
-        default: throw new Error(`unknown handle tag ${tag}`);
+        // both hosts word these alike so a program fails the same on each
+        case TAG_INVALID: throw new Error('value is not a transit value');
+        default: throw new Error('malformed wire value');
     }
 }
 
-/* JS value -> handle, chooses tag from typeof. Bigint also accepted for int. */
-function encodeAny(exps: CompilerExports, value: EdgeValue): number {
+/* picks the tag from `typeof` and takes a bigint as an int too */
+function encodeAny(exps: EdgeExports, value: EdgeValue): number {
     if (value === null || value === undefined) return exps.host_edge_encode(TAG_NONE, 0, 0);
     if (typeof value === 'boolean') return encodeBool(exps, value);
     if (typeof value === 'bigint') return encodeInt(exps, value);
@@ -179,7 +179,7 @@ function encodeAny(exps: CompilerExports, value: EdgeValue): number {
         return Number.isInteger(value) ? encodeInt(exps, value) : encodeFloat(exps, value);
     }
     if (typeof value === 'string') return encodeStr(exps, value);
-    // Composites and raw bytes serialize to one TLV payload, then a single host_edge_encode.
+    // composites and raw bytes serialize to one payload for a single `host_edge_encode`
     const { tag, body } = encodeNode(value);
     const ptr = exps.wasm_alloc(Math.max(1, body.length));
     new Uint8Array(exps.memory.buffer, ptr, body.length).set(body);
@@ -188,7 +188,7 @@ function encodeAny(exps: CompilerExports, value: EdgeValue): number {
     return h;
 }
 
-/* JS value to {tag, body}, used for nested nodes and composite roots. */
+/* the tag and body of a nested node or a composite root */
 function encodeNode(value: EdgeValue): { tag: number, body: Uint8Array } {
     if (value === null || value === undefined) return { tag: TAG_NONE, body: new Uint8Array(0) };
     if (typeof value === 'boolean') return { tag: TAG_BOOL, body: Uint8Array.of(value ? 1 : 0) };
@@ -215,7 +215,7 @@ function encodeNode(value: EdgeValue): { tag: number, body: Uint8Array } {
     throw new Error(`cannot encode JS value of type ${typeof value}`);
 }
 
-// count:u32le then each node framed as tag:u32le len:u32le payload.
+// a `count:u32le` then each node framed as `tag:u32le len:u32le payload`
 function joinNodes(count: number, nodes: { tag: number, body: Uint8Array }[]): Uint8Array {
     const total = 4 + nodes.reduce((n, { body }) => n + 8 + body.length, 0);
     const out = new Uint8Array(total);

@@ -1,0 +1,12 @@
+[package]
+name = "native"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Mini booted as a native binary through the engine's native target, its input read from stdin with no wasm between."
+publish = false
+
+[dependencies]
+edge = { path = "../.." }
+mini = { path = "../mini" }

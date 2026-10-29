@@ -1,0 +1,64 @@
+---
+title: "Limits"
+description: "The op budget, the memory limit and the depth caps every run is held to, the caps of the compiler, and determinism."
+---
+
+# Limits
+
+## Sandboxed execution
+
+Every execution is metered, natives included, since a native that scans or copies pays the op budget for the items or bytes it reads. There is no unmetered mode. The JS host and the CLI both run every program under these limits.
+
+| Limit | Value |
+|---|---|
+| Call depth | the runtime's recursion limit, 1000 in mini with the module's frame among them, and 128 nested through natives |
+| Comparison depth of nested containers | 100 |
+| Operations | 100,000,000 |
+| Memory | 256 MiB |
+
+A run raises an error where it reaches a limit. Past the comparison depth `==`, `!=` and `in` raise, while dict and set keys compare the deeper values by identity.
+
+Memory and operations can be raised in three places.
+
+- The `limits` option of `createWorker`, see [JavaScript](/docs/edge-lang/platforms/javascript).
+- The `limits` of a group under `edge actor`, see [Actors](/docs/edge-lang/platforms/actors).
+- The `--memory` and `--ops` flags of `edge run` and `edge test`.
+
+A program calls as deep as its runtime's recursion limit allows, 1000 in mini, counting one for the module's frame, each function, method and generator frame, a frame a native opens for a callback among them, and each level of a recursion run through sections. A call the loop cannot run in place, such as one a plugin makes into program code, nests a loop in Rust instead, and a native that steps a generator counts two toward the same cap. Those stop at 128 levels, which leaves the deepest of them room on the 1 MiB wasm stack of the CLI and on the stack of a browser. A coroutine holds at most 768 frames suspended at once.
+
+The memory limit counts every byte the allocator hands the program while it runs, its objects along with the frames, caches and buffers the engine keeps for it. Nothing is estimated, though a 64-bit host counts wider pointers than `edge.wasm` does. A number held in a container costs only its 8 bytes, so a list of numbers is far cheaper than an object per row. Garbage counts until a collection frees it, and a run that still holds more than the limit after one raises an error. Programs sharing one wasm instance, like the actors of a pool, also share a budget of half its address space, 2 GB, and the one whose allocation passes it raises while the others keep running. A plugin keeps its own memory, which the CLI lets grow to three times the limit plus 64 MB, and a call that needs more traps and raises an error.
+
+Only what the program still holds counts. A result too large for the limit raises before it is built.
+
+> [!WARNING]
+> A spent op budget cannot be caught. A handler that catches its error is entered, but its first operation raises again because the budget is still spent.
+
+## Source and token limits
+
+These caps stop asymmetric inputs. Those are small sources that would recurse deep in the parser or produce huge instruction streams. Each one is a compile-time diagnostic.
+
+| Limit | Value |
+|---|---|
+| Source size | 10 MiB |
+| Block depth, by indentation or by braces | 100 |
+| Nesting depth of the fields of interpolated text, f-strings in mini | 200 |
+| Nesting depth of expressions, targets and patterns | 200 |
+| Instructions, names or constants per chunk | 65,535 |
+| Call arguments | 255 positional, 255 keyword |
+| Native imports per module | 256 |
+| Nesting depth of imports, a module importing the next | 64 |
+| Nesting depth of the lists and objects of an `edge.json` or `edge.lock` | 32 |
+
+The lexer checks the source size before it scans anything. [Compiler](/docs/edge-lang/internals/compiler#limits) explains how the other caps stop the lexer and the parser, and [Diagnostics](/docs/edge-lang/reference/diagnostics#caps) lists the message of each.
+
+## Determinism
+
+The engine has no clock, randomness, threads, or OS access. The same source and the same input give the same output across runs and across `x86_64`, `aarch64` and `wasm32`.
+
+The [host modules](/docs/edge-lang/reference/system) are the only way out, and each is held to a grant. `net` returns what a server answers at the moment of the call, so its results are as stable as that server.
+
+> [!CARDS]
+> - `activity` [Your runtime and its CLI](/docs/edge-lang/get-started/use-cases/your-runtime) A runtime and its CLI built end to end on the kit.
+> - `octagon-alert` [Diagnostics](/docs/edge-lang/reference/diagnostics) What the lexer and the parser report, and how it renders.
+> - `globe` [JavaScript](/docs/edge-lang/platforms/javascript#limits) Raise or lower the limits of a page.
+> - `camera` [Snapshots](/docs/edge-lang/sdk/snapshots) A restored run keeps the limits saved in its blob.

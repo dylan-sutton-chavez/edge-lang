@@ -1,0 +1,212 @@
+---
+title: "Rules"
+description: "Why the engine asks a runtime for the rules its programs run on, what its policy and the rules of a site decide, how mini, tiny and uptime each choose, and what a rule costs."
+---
+
+# Rules
+
+The engine compiles `x / y`, `if items` and `page.status` to the same bytecode in every runtime. What each one does with the values it meets is a rule of the language, such as whether two ints divide into a float, whether an empty list reads as false and whether a field a map lacks reads its key. A runtime states its rules once, in the one type it hands the engine. This chapter covers what that type holds, what the three runtimes of the repo chose and what a rule costs.
+
+## Why the engine asks
+
+The engine runs every operation on its own kinds, and it knows no language. Two languages that spell every token alike can still disagree on what a program means. One divides two ints into a float and another into an int, one counts an index of `-1` from the end and another refuses it, and one reads `0` as false while another reads only `nil` and `false` as false. An answer the engine chose for itself would be one language's answer imposed on every runtime, so the engine asks.
+
+It asks at two times. Most rules are the same for every program of a language, so a runtime states them once as a constant, its `Policy`. Others depend on the values a site meets, since what `recv.name` reads depends on what `recv` is, so a site asks its runtime when it meets a value of a new key and keeps the answer.
+
+## Language
+
+`Language` is the one type a runtime hands the engine, a trait whose constants and functions hold everything past its natives that makes it a language. Tiny's is the shortest in the repo.
+
+```rust file=examples/tiny/src/language.rs
+```
+
+| Part | Holds |
+|---|---|
+| `POLICY` | The rules every program runs on, as [The policy](#the-policy) lists |
+| `NATIVES` | The tables `edge::natives!` builds, as [Natives](/docs/edge-lang/get-started/book/natives) covers |
+| `NAMES` | Its words for the engine's kinds, errors and conventions, as [Errors](/docs/edge-lang/get-started/book/errors) covers |
+| `FRONT` | How its sources become chunks, as [Tokens or a front end](/docs/edge-lang/get-started/book/tokens) covers |
+| `DESCRIPTOR` | How the tools around the engine name its files and its errors |
+| `WIDE`, `KINDS` | The kind its wide ints box in, and the kinds a restore must know before any value |
+| `BUILT` | The kinds of the slices and the ellipsis the engine makes itself |
+| `REPORT` | The report every host prints for an error no handler caught, where the runtime words its own |
+| `Ops` | Its own opcodes, `()` in mini, tiny and uptime, as [Opcodes](/docs/edge-lang/get-started/book/opcodes) covers |
+| `bind_get`, `bind_call`, `bind_op` | The rules of a site, as [Keys and the rules of a site](#keys-and-the-rules-of-a-site) covers |
+| `show`, `format`, `handles` | How a value shows, how it reads under a format spec, and whether the classes a handler names take an error |
+| `misfit`, `message`, `raise` | The words of a call that misses a signature, the words of an engine error, and the value a handler binds |
+
+Every function has a default, so tiny writes three of them. `Runtime::of::<Tiny>()` is the runtime every host boots, and `natives!` names the language as `language: Tiny`, as tiny's `lib.rs` in [What a front end owns](/docs/edge-lang/get-started/book/tokens#what-a-front-end-owns) shows.
+
+### What the engine reads today
+
+The engine's loop is generic over the language, so it folds the policy as constants, and `Runtime::of` hands the hosts the rest. The engine reads every part of the trait. It asks the rules of a site where its own path has no answer, and it calls `message` where a handler catches one of its errors or where one leaves the machine. Its slow paths read `bool_is_int` where a bool meets a number, and lib's kernels read it and `max_int_digits` as rules of the language.
+
+## The policy
+
+A `Policy` is a struct of plain choices, each field one rule of the language. The three runtimes state all seventeen. Mini and uptime keep the engine's rules but `map_fields` and `max_int_digits`, and tiny picks rules of its own for records of data.
+
+| Field | Decides | Mini | Tiny | Uptime |
+|---|---|---|---|---|
+| `int_overflow` | What an int result past the inline range becomes | `Promote` | `Error` | `Promote` |
+| `int_div` | What `/` gives for two ints | `ToFloat` | `ToFloat` | `ToFloat` |
+| `int_mod` | How integer division rounds and whose sign `%` takes | `Truncated` | `Truncated` | `Truncated` |
+| `zero_div` | What a float divided by zero gives, since an int divided by zero always raises | `Error` | `Error` | `Error` |
+| `neg_pow` | What an int raised to a negative int gives | `ToFloat` | `ToFloat` | `ToFloat` |
+| `numeric_eq` | Whether equal numbers of different kinds are one value and one key | `Unified` | `Unified` | `Unified` |
+| `bool_is_int` | Whether a bool counts as the int zero or one | `true` | `false` | `true` |
+| `falsy` | The values a test reads as false | Nil, false, zero, NaN and an empty text | Nil and false | Nil, false, zero, NaN and an empty text |
+| `identity_first` | Whether a container finds an item by identity before it compares | `true` | `true` | `true` |
+| `neg_index` | Whether a negative index or slice bound counts from the end | `true` | `true` | `true` |
+| `str_iter` | What a loop over a text steps through | `CodePoints` | `CodePoints` | `CodePoints` |
+| `map_iter` | What a loop over a map steps through | `Keys` | `Keys` | `Keys` |
+| `map_fields` | Whether an attribute a map lacks reads its key of that name | `false` | `true` | `true` |
+| `builtins_scope` | Whether a name no module binds reads the runtime's builtins | `true` | `true` | `true` |
+| `receiver_slot` | Whether a method takes its receiver as its first parameter | `true` | `true` | `true` |
+| `recursion_limit` | How deep calls nest before the recursion error | 1000 | 64 | 1000 |
+| `max_int_digits` | The decimal digits an int literal or text may hold, with `None` for no limit | 4300 | 10,000 | 10,000 |
+
+`falsy` is a mask over `Falsy::NIL`, `FALSE`, `ZERO`, `NAN`, `EMPTY_TEXT` and `EMPTY_CONTAINER`, with `EMPTY` for both empty flags, so a language whose tests read only nil and false as false writes `Falsy::NIL.or(Falsy::FALSE)`. An empty text and an empty container are flags apart, so a language can read `""` as false and `[]` as true.
+
+The loop reads `int_div`, `int_mod`, `zero_div`, `neg_pow` and `falsy` as constants, and the compiler's folding and lib's `divmod` and `pow` read the same kernels, so a constant folded before the run and a value a loop computes agree. Nil and false always read as false, and the mask adds zero, NaN, an empty text and the empty containers. `int_overflow` must agree with `WIDE`, since an int past the inline range goes to the wide kind the runtime names. `bool_is_int` is read wherever a bool would count as an int, in the slow paths of arithmetic, order, indexes, keys and method lookup and in lib's kernels and type tests, so under `false` a bool adds to no number, orders only against another bool, indexes nothing, finds no method of the int kind and keys apart from the int of its value, while a conversion to an int or a float still reads it as zero or one. `neg_index` is read by the loop's item paths as a constant and by the slow paths of indexes and slices, so under `false` a negative index is out of range and a negative slice bound clamps to the start, while lib's methods keep their own rules for the positions they take. The loop reads none of `numeric_eq`, `identity_first`, `str_iter`, `map_iter`, `builtins_scope` and `receiver_slot` yet. Each states the engine's own behaviour, which is what all three runtimes state, and a runtime that states another value fails to build, since the loop would run it with the engine's own behaviour all the same.
+
+Rules that only lib's kernels follow, such as how a centred text splits an odd pad or which separators the digits of number text may hold, are choices of lib's `Lang` and not fields of the policy, as [Lib](/docs/edge-lang/sdk/lib#lang) lists.
+
+Four rules are checked as the runtime builds, since `Runtime::of` runs inside the static that holds the runtime. A policy promotes ints exactly when its language names a `WIDE` kind, it reads nil and false as false, a field the loop does not read yet states the engine's own behaviour, and the language's natives and front end are built under the policy it states, so the loop, the slow paths and the folder read the same rules. A runtime that breaks any of the four fails to build, with the rule it broke as the message.
+
+### The engine's own rules
+
+A runtime takes `Policy::ENGINE` for every field it leaves to the engine, and mini and uptime state the same rules field by field. A test reads nil, false, zero, NaN and an empty text as false and every other value as true, an empty list, map, set or tuple among them. `~/` truncates toward zero and `%` takes the sign of the number it divides, so `-7 ~/ 2` is `-3` and `-7 % 2` is `-1`. An int past the inline range grows into the wide kind, a negative index counts from the end, and `1 + "two"` raises, since a number never adds to a text. This program splits two zones' offsets from UTC and reads two packages of the repo's `Cargo.lock`.
+
+```edge
+// an offset in seconds split into whole hours and the minutes left over
+for zone, off in [("St. John's", -12600), ('Kathmandu', 20700)]:
+    print(zone, off ~/ 3600, off % 3600 ~/ 60)
+// two packages of this repo's lockfile where abi has no source line and no dependencies
+locked = {'abi': ('', []), 'lib': ('', ['edge', 'itoa', 'mini'])}
+for name, (source, deps) in locked.items():
+    print(name, source || 'a path', deps || 'none', len(deps) || 'no dependencies')
+```
+
+```output
+St. John's -3 -30
+Kathmandu 5 45
+abi a path [] no dependencies
+lib a path ['edge', 'itoa', 'mini'] 3
+```
+
+The offset west of UTC keeps its sign in both parts. The source the lockfile leaves empty reads as false, the empty list of dependencies stays a value and its length of zero reads as false, so a program asks a container for items by its length, as the GH Archive job of [Mini](/docs/edge-lang/get-started/use-cases/mini) does with `if len(line)`.
+
+## Three ways to read a field
+
+`map_fields` is the field the three runtimes split on, and each reads a field of the data it was made for in its own way.
+
+Mini keeps it off. A key of a map reads with brackets, as its job reads `e['repo']['name']`, and a dot reads only an attribute. Run in `examples/data`, whose `edge.json` grants it the one host, this reads when GH Archive last wrote the hour and the tag of its copy from the headers of the answer, then asks the map for the tag by a dot.
+
+```text
+$ edge run -c "import net
+r = net.request('HEAD', 'https://data.gharchive.org/2026-10-01-15.json.gz')
+headers = dict(net.response(r)[1])
+print(headers['last-modified'], headers['etag'])
+print(headers.etag)"
+Thu, 01 Oct 2026 16:05:06 GMT "93dcff6787553a2ad9946fa56e749dc1"
+error: AttributeError: 'dict' object has no attribute 'etag'
+  --> <eval>:5:1
+  |
+5 | print(headers.etag)
+  | ^
+```
+
+Uptime turns it on, so a dot reads the JSON a status page answers. A key the map lacks still fails, as an attribute the map lacks, in uptime's class for it. This ran on 25 October 2026 in a copy of `examples/uptime/checks`, beside its `http.up` helper and its grants.
+
+```text
+$ uptime run -c 'use .http
+let body = http.get("https://www.githubstatus.com/api/v2/status.json").body
+print(body.status.indicator, body.page.updated_at)
+print(body.status.updated_at)'
+none 2026-10-25T11:29:10.013Z
+error: Missing: map has no field updated_at
+  --> <eval>:4:1
+  |
+4 | print(body.status.updated_at)
+  | ^
+```
+
+The page keeps `updated_at` beside its name and not in its status, so the last line asks the wrong map. Uptime registers no methods, so a dot on a map never meets one, and every name after a dot reads a key.
+
+Tiny's table settles the dot before any rule is asked. Its `dot` shape is `Dot::Key`, so the parser compiles `repo.name` to two key reads and keeps an attribute only before a call, as in `login.endswith("[bot]")`. A record that lacks the key then fails as a missing key and not as a missing attribute. One ForkEvent 28 minutes into the hour carries an empty `repo`, so a count of forks by repository stops there.
+
+```tiny
+from: https://data.gharchive.org/2026-10-01-15.json.gz
+
+forks:
+  where: type == "ForkEvent"
+  count: repo.name
+  top: 5
+```
+
+```text
+$ tiny run forks.flow.yaml
+report forks, count at line 5: MissingField, no field "name"
+```
+
+Asking first leaves that event out, with `and "name" in repo` at the end of the `where`.
+
+```text
+$ tiny run forks.flow.yaml
+forks
+{"repo":{"name":"devops0014/dockerwebapp"},"count":4}
+{"repo":{"name":"Laboratorio-di-fisica-computazionale/esercitazione-0-template"},"count":2}
+{"repo":{"name":"rhtap-perf-test/nodejs-devfile-sample1"},"count":1}
+{"repo":{"name":"academic-innovation-online-learning/WD4E-Advanced_Styling_with_Responsive_Design"},"count":1}
+{"repo":{"name":"paperclipai/paperclip"},"count":1}
+```
+
+Tiny's policy turns `map_fields` on as well, and its dots reach it only before a call, the one place its table keeps an attribute.
+
+## Keys and the rules of a site
+
+A policy cannot say what `recv.name` reads, what calling a value does or what `+` makes of two values, since each depends on the values a site meets. For those the trait holds three rules. Each answers for one site and one key, so a site that meets a list, then an object of one class, then a time needs three answers and keeps each.
+
+A `Key` is what a site keys its answer by. `Key::Kind(k)` stands for a value of an engine kind, whose rules the kind alone decides. `Key::Object(class)` stands for an object, keyed by its class, and `Key::Foreign(token)` for a value of a kind lib or the runtime registered.
+
+- `bind_get(cx, recv, name, how)` answers a `GetRule` for `recv.name`, loaded, stored, deleted or called as a method. `Slot` reads the object's own slot, `Const` a value fixed for the key such as a module's global, `Method` a function the object's class holds, `Native` a native method of the value's kind, `Field` a map's key or a foreign kind's field, and `Fail` raises the attribute error.
+- `bind_call(cx, callee, shape)` answers a `CallRule` for a call with the shape of its arguments, a function run as frames, a new object of a class, a bound method, a native, or the error of a value no call takes.
+- `bind_op(cx, op, a, b)` answers an `OpRule` for an `Op` and a pair of keys. An `Op` names the operators and comparisons, `in`, truth, length, iteration, hashing and item access. `Kernel` takes the engine's inline path for its own kinds under the policy, `Native` and `Call` hand the operator to a native or to a function of the program, `Identity` compares by identity, and `Fail` raises the unsupported operand error.
+
+Every runtime of the repo keeps the defaults, `Ask` for `bind_get` and `bind_call` and `Kernel` for `bind_op`, which leave each site to the engine's own path. The engine asks a rule only where that path has no answer, where an attribute lookup misses, where a value is no function, class or native, and where the kernels refuse an operator's operands. A rule therefore never changes a hit of the inline caches [Key mechanisms](/docs/edge-lang/internals/design#key-mechanisms) describes. A site keeps the rule it was given for the key it met, so it asks the runtime once for each key until a class changes.
+
+## What a rule costs
+
+A field of the policy costs what its test costs, on the path that reads it and nowhere else.
+
+| Field | Read | Costs |
+|---|---|---|
+| `int_div`, `int_mod`, `zero_div`, `neg_pow`, `falsy` | As constants the loop folds | Nothing past the test each answer needs, and a language whose values differ from the engine's builds a loop of its own |
+| `map_fields` | By the loop on each attribute miss | A test on every miss, and a call that looks for the key while it is on |
+| `recursion_limit` | Once as a VM boots | Nothing past the compare any limit needs |
+| `max_int_digits` | By the parser at each int literal, and by lib as it converts an int to or from text | One compare for each literal or conversion |
+| `int_overflow` | As the runtime builds, against `WIDE` | Nothing at run time |
+| `bool_is_int` | By the slow paths where a bool meets a number, and by lib's kernels and type tests | A test on the path only a bool reaches |
+| `neg_index` | By the loop's item paths as a constant, and by the slow paths of indexes and slices | A test on the path only a negative index reaches |
+
+`map_fields` is the one with a figure. Turning it on in mini, measured on 24 October 2026 over the 5,871 cases of the corpus, changes what no case prints. It makes 32 cases run more wasm instructions, about 72 more for each attribute miss, and memory stays where it was. Every one of those misses is on a value that is no map, a text, a number, a function, a class or an object, which looks for a key it cannot hold and fails as before. The case that misses most, 2,000 times, runs 144,000 more instructions, 0.51% of its run. A read that finds its attribute pays nothing, since the rule is read only once a lookup misses.
+
+So mini keeps it off. Its programs read a map's keys with brackets, so turning it on would buy mini nothing and charge every miss. Uptime pays the miss to read JSON as a check is written, and tiny's table keeps its dots off that path.
+
+The rules of a site cost a call to the runtime the first time a site meets a key and nothing on a hit.
+
+## Choosing
+
+| | Mini | Tiny | Uptime |
+|---|---|---|---|
+| A key of a map reads | With brackets | With a dot, compiled as a key read | With a dot, read as a key on the miss |
+| `map_fields` | Off, so a miss stays as cheap as it was | On, reached only before a call | On, so a check reads JSON as it is written |
+| `max_int_digits` | 4300, the figure its corpus' limit cases pin | 10,000, the figure its flows pin | 10,000 |
+| The other fields | The engine's own | Its own for data, ints that fail past the inline range, bools that are no numbers, only nil and false false and 64 levels of calls | The engine's own |
+
+A language whose programs read records takes `map_fields` or a table that reads keys at dots, and a language whose programs probe objects for attributes keeps the miss path short. Tiny's flows read records, where a zero or an empty text is a value and a count that overflows is bad data, so tiny states those rules for itself, and `examples/tiny/tests/flows/rules.yml` runs a flow over each. The fields the loop does not read yet are where a language of another family would differ further, and until it reads them a policy states the engine's own behaviour for each.
+
+> [!CARDS]
+> - `triangle-alert` [Errors](/docs/edge-lang/get-started/book/errors) What the engine raises, the classes a runtime names and the words it gives them.
+> - `sliders-horizontal` [Language](/docs/edge-lang/sdk/language) Every part of the trait, the policy, the keys and the rules of a site.
+> - `activity` [Your runtime and its CLI](/docs/edge-lang/get-started/use-cases/your-runtime) Uptime's rules and the checks that read JSON by a dot.

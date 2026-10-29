@@ -1,8 +1,8 @@
 use super::{read, read_u32, stage, unstage, Exports, State};
-use compiler::abi::{WireValue, TAG_INVALID};
+use edge::abi::{WireValue, TAG_INVALID};
 use wasmtime::AsContextMut;
 
-/* Reads a handle as a transit value, sets and instances are refused like the wire. */
+/* reads a handle as a transit value refusing sets and instances as the wire does */
 pub fn decode(cx: &mut impl AsContextMut<Data = State>, ex: &Exports, handle: u32) -> Result<WireValue, String> {
     let tag_ptr = alloc(cx, ex, 4)?;
     let mut cap = 256;
@@ -24,7 +24,7 @@ pub fn decode(cx: &mut impl AsContextMut<Data = State>, ex: &Exports, handle: u3
     WireValue::decode_body(tag, &bytes).ok_or_else(|| "malformed wire value".to_string())
 }
 
-/* Materializes a transit value in the interpreter and returns its handle. */
+/* materializes a transit value in the interpreter and returns its handle */
 pub fn encode(cx: &mut impl AsContextMut<Data = State>, ex: &Exports, value: &WireValue) -> Result<u32, String> {
     let mut body = Vec::new();
     value.encode_body(&mut body);

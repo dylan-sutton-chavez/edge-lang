@@ -1,0 +1,23 @@
+[package]
+name = "uptime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "The runtime of the docs' first use case, a small language for uptime checks with a token table of its own and natives named over lib's kernels."
+publish = false
+
+[lib]
+name = "uptime"
+doctest = false
+
+[features]
+default = ["std"]
+std = ["edge/std"]
+# builds uptime.wasm with the engine's exports over these natives and the grant logic
+web = ["edge/runtime", "edge/perms"]
+
+[dependencies]
+edge = { path = "../..", default-features = false }
+# the capabilities its natives come from and nothing else of lib
+lib = { path = "../../lib", default-features = false, features = ["data", "io", "seq", "spec", "types"] }

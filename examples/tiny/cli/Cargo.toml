@@ -1,0 +1,42 @@
+[package]
+name = "tiny-cli"
+version = "0.9.6"
+edition = "2024"
+license = "Apache-2.0"
+description = "The CLI of the docs' tiny use case, the flow runtime composed from the kit's run and test commands with net and files under perms."
+publish = false
+
+# an empty table makes this crate its own workspace so the engine's never builds wasmtime
+[workspace]
+
+[lib]
+name = "tiny_cli"
+doctest = false
+
+[[bin]]
+name = "tiny"
+path = "src/main.rs"
+
+# runs the CLI on the pinned hour with net answered in the test process
+[[test]]
+name = "hour"
+path = "tests/hour.rs"
+harness = false
+
+[dependencies]
+# the kit with the five components this CLI needs and none of the rest
+cli = { path = "../../../cli", default-features = false, features = ["files", "net", "perms", "run", "test"] }
+# the runtime whose descriptor names the files and whose words report its errors
+tiny = { path = ".." }
+
+[dev-dependencies]
+# inflates the hour's body when a request of the test asks for gzip
+flate2 = "1"
+# the pinned hour the test replays fetched once into the engine's target
+data = { path = "../../data" }
+# the rows the reports print read back as values
+serde_json = "1"
+
+# the binary ships so it carries no symbols
+[profile.release]
+strip = true

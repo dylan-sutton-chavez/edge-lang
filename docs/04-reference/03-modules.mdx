@@ -7,7 +7,7 @@ description: "The compile-time import system, edge.json, edge.lock, integrity pi
 
 Every import resolves at compile time. The compiler asks the host for each module and flattens it into the bytecode. The VM never fetches anything at run time.
 
-The host decides what each name means. It is the [JS host](/docs/edge-python/platforms/javascript), the [CLI](/docs/edge-python/platforms/cli) or a [Rust program](/docs/edge-python/platforms/rust) that drives `compiler.wasm`.
+The host decides what each name means. It is the [JS host](/docs/edge-lang/platforms/javascript), the [CLI](/docs/edge-lang/platforms/cli) or a [Rust program](/docs/edge-lang/platforms/rust) that drives `edge.wasm`.
 
 A module is one of two kinds, and its artifact decides which. Both use the same import syntax.
 
@@ -15,67 +15,80 @@ Nobody classifies a package. A manifest entry only names a spec.
 
 | Kind | Artifact | What it is |
 |---|---|---|
-| Code module | `.py` | Its top level runs once at startup. Its exports live on a module object shared by every importer. |
-| Native module | `.wasm` | A plugin over the [ABI](/docs/edge-python/reference/abi). |
+| Code module | The runtime's extension, `.mini` under `edge` | Its top level runs once at startup. Its exports live on a module object shared by every importer. |
+| Native module | `.wasm` | A plugin over the [ABI](/docs/edge-lang/reference/abi). |
 
 - A file that starts with the wasm magic bytes is a native module.
-- Any other file is Python source, whatever its extension.
-- A `.js` or `.mjs` import fails where it is written with `module 'charts' is JavaScript, ship a .py or a .wasm`. No JavaScript loads besides the [system calls](/docs/edge-python/reference/system) of the host.
+- Any other file is source the parser reads, whatever its extension.
+- A `.js` or `.mjs` import fails where it is written with `module 'charts' is JavaScript, ship a .mini or a .wasm`, naming the runtime's extension. No JavaScript loads besides the host and its [host modules](/docs/edge-lang/reference/system).
 - `edge add`, `edge lock`, `edge build` and `edge publish` stop on a JavaScript module before they write anything.
 
 ## Syntax
 
-```python
-from json import dumps, loads                  # bare name, declared in edge.json
-from .lib.helpers import slugify               # relative to the importing file (./lib/helpers.py)
-from ..shared.util import chunks               # one dir up per extra dot (../shared/util.py)
-from lib.helpers import slugify as sl          # absolute from the nearest edge.json dir
-import math                                    # binds the module itself, use math.sqrt(2.0)
-from utils import *                            # every export becomes a flat name in scope
+```edge
+from charts import draw, legend                // a bare name edge.json declares
+from .lib.helpers import slug                  // beside the importing file in ./lib/helpers.mini
+from ..shared.util import chunks               // one dir up per extra dot in ../shared/util.mini
+from lib.helpers import slug as sl             // from the dir of the nearest edge.json
+import slugify                                 // the module itself as in slugify.Slugger()
+from utils import *                            // every export as a flat name in scope
 ```
 
-Name lists can span lines inside parentheses, with an optional trailing comma. Dots map to directories and the `.py` suffix is implicit.
+Name lists can span lines inside parentheses, with an optional trailing comma. Dots map to directories and the runtime's extension, `.mini` under `edge`, is implicit.
 
 | Spec | Anchored at |
 |---|---|
 | A leading dot, `.lib.helpers` | The importing file |
 | A dotted name, `lib.helpers` | The nearest `edge.json` directory |
-| A plain name, `json` | An entry in `edge.json`, which `edge add <name>` writes |
+| A plain name, `slugs` | An entry in `edge.json`, which `edge add <name>` writes |
 
 Two forms do not work.
 
-- `from . import x` names nothing. Edge has no packages for a bare dot to reach.
-- Dynamic imports are absent. There is no `__import__` and no `importlib`, and the module set is fixed per compilation.
+- `from . import x` names nothing. Edge Lang has no packages for a bare dot to reach.
+- Dynamic imports are absent. The module set is fixed per compilation.
 
 ## Module semantics
 
 Modules are singletons. The same canonical spec is fetched, parsed and initialized once, and every importer sees the same object.
 
 - Mutating a module attribute is visible to every importer.
-- At the top level of a module, `__name__` is its canonical spec. An `if __name__ == "__main__":` block is skipped on import.
 - The helpers of a module stay private to it. Attribute access goes through the module object, not the globals of the importer.
 
-```edge-manifest
-{ "imports": { "math": "0.1.0" } }
+`hosts.mini` keeps the hosts a run asked, `board.mini` asks two through it, and `main.mini` reads the list both of them reach.
+
+```edge
+// hosts.mini
+asked = []
+
+fn ask(host):
+    asked.append(host)
+    return len(asked)
 ```
 
-```edge-python
-import math
-import math as m
-print(math == m)
-print(import_module("math") == m)
-print(__name__)
+```edge
+// board.mini
+from .hosts import ask
+
+fn check(pages):
+    for host in pages:
+        ask(host)
 ```
 
-```output
-True
-True
-__main__
+```edge
+// main.mini
+from .hosts import asked
+from .board import check
+
+check(["www.githubstatus.com", "status.npmjs.org"])
+print(asked)
 ```
 
-`import_module(name)` looks up a module bound by a plain `import` in the current scope. It can dispatch among modules already imported. A module pulled in only with `from x import ...` is not visible to it.
+```text
+$ edge run main.mini
+['www.githubstatus.com', 'status.npmjs.org']
+```
 
-An import cycle, where `a.py` imports `b.py` and `b.py` imports `a.py`, raises `RuntimeError: circular import` at startup.
+An import cycle, where `a.mini` imports `b.mini` and `b.mini` imports `a.mini`, fails at compile time. The error names the module the cycle comes back to, as in `circular import: './a.mini'`, at the import that started it.
 
 ## edge.json
 
@@ -90,8 +103,8 @@ Bare names resolve through `edge.json`, the only manifest name. Every field is o
   "docs": "./docs",
   "edge": "0.9.6",
   "imports": {
-    "json": "0.1.0",
-    "utils": "./lib/utils.py",
+    "slugs": "0.1.0",
+    "utils": "./lib/utils.mini",
     "fastmath": "./vendor/fastmath.wasm"
   },
   "extends": ".."
@@ -101,22 +114,22 @@ Bare names resolve through `edge.json`, the only manifest name. Every field is o
 | Field | Meaning |
 |---|---|
 | `imports` | Bare name to spec, a path, a URL or a `major.minor.patch` version of a registry package. One map holds every module, and the artifact behind each spec tells its kind. A version names a release only, and [`edge.lock`](#edgelock) says where its bytes are. |
-| `permissions` | Which system module the program and each package may use, and what each may reach, as `module:scope` entries per holder. See [Permissions](/docs/edge-python/reference/system#permissions). |
+| `permissions` | Which host module the program and each package may use, and what each may reach, as `module:scope` entries per holder. See [Permissions](/docs/edge-lang/reference/system#permissions). |
 | `extends` | A directory whose `edge.json` answers a name not declared locally. Use it for monorepo sub-packages that share the dependencies of a parent. Omit it for hermetic libraries. A cycle in the chain fails at compile time. |
 | `edge` | The lowest engine the project runs on, `major.minor.patch`. `edge init` writes the version that scaffolded the project, and omitting it runs anywhere. |
-| `name`, `version`, `description`, `repository`, `docs` | What a package carries into a registry. The compiler ignores all five, and their rules are in [Publishing](/docs/edge-python/reference/registry#publishing). |
+| `name`, `version`, `description`, `repository`, `docs` | What a package carries into a registry. The compiler ignores all five, and their rules are in [Publishing](/docs/edge-lang/reference/registry#publishing). |
 
-- No import name may be the name of a system module, such as `time` or `net`. [Permissions](/docs/edge-python/reference/system#permissions) grant those instead.
+- No import name may be the name of a host module, such as `net`. [Permissions](/docs/edge-lang/reference/system#permissions) grant those instead.
 - An engine older than `edge` stops with `this project needs edge 1.0.0, this is 0.9.6`. A dependency written for a later engine is refused where it loads, by the CLI and the browser alike.
 - Unknown keys are ignored.
-- Values must be strings, lists of strings, or objects of them. Numbers and booleans are rejected.
+- Values must be strings, lists of strings, or objects of them, nested at most 32 deep. Numbers and booleans are rejected.
 - The string escapes are `\"`, `\\`, `\/`, `\n`, `\t` and `\r`. `\uXXXX` is not supported, so paste UTF-8 literally.
 
 ### Resolution rules
 
 1. **Walk-up.** A bare name resolves against the nearest `edge.json`, walking up from the directory of the importing file. Each manifest is a package boundary, like the `node_modules` discovery of Node. The chain is capped at 32 hops.
-2. **Hermetic.** The nearest manifest wins. If it does not declare the name and has no `extends`, the name is a system module the host serves to that package. Compilation fails when the host serves none or refuses it. A deep dependency cannot borrow the aliases of a parent.
-3. **Relative to the importer.** A leading-dot spec resolves against the file that contains the import. A transitively imported `lib/a.py` doing `from .b import g` finds `lib/b.py`.
+2. **Hermetic.** The nearest manifest wins. If it does not declare the name and has no `extends`, the name is a host module the host serves to that package. Compilation fails when the host serves none or refuses it. A deep dependency cannot borrow the aliases of a parent.
+3. **Relative to the importer.** A leading-dot spec resolves against the file that contains the import. A transitively imported `util/a.mini` doing `from .b import g` finds `util/b.mini`.
 4. **Spec shapes.** See the table below.
 
 | Spec | Read as |
@@ -127,16 +140,18 @@ Bare names resolve through `edge.json`, the only manifest name. Every field is o
 | Any other spec with a `/` | Joined against the nearest `edge.json` directory |
 | Anything else | A bare name for the walk-up |
 
+A module served from a URL reaches URLs alone, so a package from a registry never reads a local file. An import or a manifest target of such a module that starts with `/`, names another scheme or climbs past the host stops the run before anything compiles, as in `module '../../../../config.mini' is outside https://cdn.edgelang.dev/ which serves its importer`.
+
 ## edge.lock
 
-A version says which release a project wants. The `edge.lock` beside its `edge.json` says where that release is. [`edge lock`](/docs/edge-python/platforms/cli#edge-lock) writes it and every other command reads it, so a run resolves a name without asking a registry.
+A version says which release a project wants. The `edge.lock` beside its `edge.json` says where that release is. [`edge lock`](/docs/edge-lang/platforms/cli#edge-lock) writes it and every other command reads it, so a run resolves a name without asking a registry.
 
 ```json
 {
-  "json": {
+  "slugs": {
     "version": "0.1.0",
-    "url": "https://cdn.edgepython.com/pkg/json/0.1.0/app.edge",
-    "digest": "sha256-0a68e05fc4b6e9110fccafd57802cab5c2a3ca64ed1d3b486ec2770f1a8c758a"
+    "url": "https://cdn.edgelang.dev/pkg/slugs/0.1.0/app.edge",
+    "digest": "sha256-eebcc05a565cf638a0a82e8669f923ad1023626d4dffd22cb1601bea4bb533bb"
   }
 }
 ```
@@ -150,7 +165,8 @@ A version says which release a project wants. The `edge.lock` beside its `edge.j
 A declared version with no entry, or with an entry for another release, fails before anything compiles.
 
 ```text
-error: edge.json at 'edge.json': 'json' is not locked, run edge lock
+error: edge.json at 'edge.json': 'slugs' is not locked in edge.lock
+help: run edge lock
 ```
 
 ## Integrity
@@ -158,20 +174,20 @@ error: edge.json at 'edge.json': 'json' is not locked, run edge lock
 Append `#sha256-<64 hex chars>` to a spec in `edge.json` to pin its content. A locked version is pinned already.
 
 ```json
-{ "imports": { "utils": "https://example.com/utils.py#sha256-deadbeef0123456789abcdef0123456789abcdef0123456789abcdef01234567" } }
+{ "imports": { "utils": "https://example.com/utils.mini#sha256-deadbeef0123456789abcdef0123456789abcdef0123456789abcdef01234567" } }
 ```
 
 A host hashes the raw bytes and refuses to run on a mismatch. The diagnostic shows both digests.
 
 ```text
-error: integrity check failed for 'https://example.com/utils.py'
+error: integrity check failed for 'https://example.com/utils.mini'
  expected sha256-deadbeef0123456789abcdef0123456789abcdef0123456789abcdef01234567
  got sha256-36e4838513e46116f258c86b494eaa826d64fa0a9abdf36e8720a31b3d2862e2
 ```
 
 - Only `sha256` is supported. Other prefixes fail with `unrecognized integrity fragment`.
-- The JS host checks the pin in its fetch layer. How a page caches modules is in [JavaScript](/docs/edge-python/platforms/javascript).
-- The CLI checks the pin on every module it downloads or reads from disk, `.wasm` plugins included. Its disk cache is in [Cache](/docs/edge-python/platforms/cli#cache).
+- The JS host checks the pin in its fetch layer. How a page caches modules is in [JavaScript](/docs/edge-lang/platforms/javascript).
+- The CLI checks the pin on every module it downloads or reads from disk, `.wasm` plugins included. Its disk cache is in [Cache](/docs/edge-lang/platforms/cli#cache).
 
 ## Resolution errors
 
@@ -179,29 +195,36 @@ A bad import is a compile-time diagnostic with the source position of the statem
 
 ```text
 error: module 'utils' is not provided by this host and no edge.json declares it
-  --> main.py:1:6
-   |
- 1 | from utils import f
-   |      ^^^^^
-
-error: module 'json' has no export 'badname'
-  --> main.py:2:6
+help: declare it in edge.json, or use a relative import
+  --> main.mini:1:6
+  |
+1 | from utils import f
+  |      ^^^^^
 ```
 
-- The first diagnostic is the same for a typo and for a package you forgot to declare.
-- The CLI adds `help: declare it in edge.json, or use a relative import`.
-- It also covers modules Edge Python does not ship, like `os` or `sys`. They parse for syntactic compatibility and are rejected here, before any code runs.
+- The diagnostic is the same for a typo and for a package you forgot to declare.
+- The CLI adds the `help` line. A run asks no registry about a name nothing declares, so the hint reads the same for every name.
+
+A name the module does not export fails at its import the same way.
+
+```text
+error: module './hosts.mini' has no export 'badname'
+  --> main.mini:1:6
+  |
+1 | from .hosts import badname
+  |      ^^^^^^
+```
 
 ## Writing your own modules
 
-A module of your own ships as a `.py`, or as a `.wasm` plugin. A plugin sees transit values and reaches the outside only through the [system calls](/docs/edge-python/reference/abi#system-calls) its package is granted.
+A module of your own ships as source in the runtime's extension, `.mini` under `edge`, or as a `.wasm` plugin. A plugin sees transit values and reaches the outside only through the [system calls](/docs/edge-lang/reference/abi#system-calls) its package is granted.
 
-Transit values are `None`, `bool`, `int` up to 128 bits, `float`, `str`, `bytes`, and nested `list` and `dict`. A plugin follows the sealed, language-agnostic [ABI](/docs/edge-python/reference/abi), written in Rust with `wasm-pdk` or in Zig, C or AssemblyScript. A script imports it through a manifest alias like any other module.
+Transit values are nil, booleans, ints up to 128 bits, floats, text, bytes, and nested lists and maps, which mini names `nil`, `bool`, `int`, `float`, `str`, `bytes`, `list` and `dict`. A plugin follows the sealed, language-agnostic [ABI](/docs/edge-lang/reference/abi), written in Rust with the `plugin` crate or in any language that compiles to wasm. A script imports it through a manifest alias like any other module.
 
 ## See also
 
 > [!CARDS]
-> - `terminal` [Command line interface](/docs/edge-python/platforms/cli) Write entries with edge add, resolve them with edge lock, vendor them with edge build.
-> - `cpu` [ABI](/docs/edge-python/reference/abi) The wire contract behind wasm plugins.
-> - `shield` [Limits and errors](/docs/edge-python/reference/limits-and-errors) The sandbox profile both hosts run under.
-> - `key` [System](/docs/edge-python/reference/system) The system modules and the permissions that let a package use them.
+> - `terminal` [Command line interface](/docs/edge-lang/platforms/cli) Write entries with edge add, resolve them with edge lock, vendor them with edge build.
+> - `cpu` [ABI](/docs/edge-lang/reference/abi) The wire contract behind wasm plugins.
+> - `shield` [Limits](/docs/edge-lang/sdk/limits) The sandbox profile both hosts run under.
+> - `key` [System](/docs/edge-lang/reference/system) The host modules and the permissions that let a package use them.

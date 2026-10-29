@@ -1,1 +1,1 @@
-{ "imports": { "util": "./lib/util.py" } }
+{ "imports": { "util": "./lib/util.mini" } }

@@ -1,0 +1,174 @@
+---
+title: "Mini, a scripting language"
+description: "The runtime the engine's corpus runs, on one real job over an hour of public GitHub events, with its surface, its natives, its errors and how it is built."
+---
+
+# Mini, a scripting language
+
+Mini is the reference runtime of Edge Lang. The engine's corpus of 5,302 programs in `tests/cases/vm` runs in it, `edge.wasm` is built from it and the `edge` CLI embeds it. It is about 1,500 lines of Rust in `examples/mini`, a token table, its rules, the natives it takes from lib under its own names and the words of its errors.
+
+This page runs one real job in mini, five reports over an hour of public GitHub events, then shows each part of the runtime. [Tiny](/docs/edge-lang/get-started/use-cases/tiny) runs the same job as a YAML flow over the same hour, and [Your runtime and its CLI](/docs/edge-lang/get-started/use-cases/your-runtime) builds a runtime of your own.
+
+## The job
+
+GH Archive publishes every public GitHub event, one gzipped file of JSON lines per hour. The job reads the hour from 3 pm to 4 pm UTC on 1 October 2026, 85,569 events in 19.4 MB, and writes five reports with the events of bots left out.
+
+| Report | Holds |
+|---|---|
+| `top_stars` | The ten repositories starred most in the hour |
+| `busy_branches` | Each branch pushed to more than once |
+| `activity.csv` | The events of each minute by type, as CSV |
+| `issues_opened` | The issues opened in each repository |
+| `time_to_close` | The hours an issue stayed open, averaged for each repository over the issues closed in the hour |
+
+```edge file=examples/data/github-hour.mini
+```
+
+The job reads the hour through the net plugin a chunk at a time and never holds it whole. It cuts each chunk into lines, keeps the bytes after the last line end for the next chunk and reads each line that holds bytes with `read_json`, a JSON reader the job writes in mini over `split`, `find` and slices. It asks a line for its length first, since an empty buffer reads as true under [the engine's own rules](/docs/edge-lang/get-started/book/rules#the-engines-own-rules). The reports are maps keyed by tuples, `sorted` ranks the stars and `time` reads the two times of an issue, whose difference is a duration with its `hours`.
+
+Only the reports that name a repository read it, since one event of the hour carries an empty `repo`. It is a ForkEvent 28 minutes into the hour, and reading every event's repository first would stop the run there with a `KeyError`.
+
+## Running it
+
+The job's `edge.json` grants it one host.
+
+```json file=examples/data/edge.json
+```
+
+Every report prints under its name. These are the first rows of each, from a run on 23 October 2026.
+
+```text
+$ edge run --ops 100000000000 github-hour.mini
+top_stars
+     4  Niko1221/Strata
+     4  OffGridPete/Fieldwatch
+     4  DietrichGebert/ponytail
+     3  shihabal3amri/DiPlay
+     3  Majorclujerk/Server-Raider
+     3  KKKKhazix/AIHOT
+     2  terrafying/ai-torture-chamber
+     2  Yuan1z0825/nature-skills
+     2  eternity4719/HowToLiveBetter
+     2  edgcpp/compiler
+busy_branches
+    15  TheCak3/Learning-plan-Math-KSU main
+    31  BehemothCaliph/repo-ccot6sg7 main
+activity.csv
+minute,type,count
+15:00,IssuesEvent,15
+15:00,PullRequestEvent,35
+issues_opened
+     1  marmos91/dittofs-web
+     1  bifanaboy/liszt
+time_to_close
+  525.90  CannObserv/power-map
+   12.86  yuta-yoshinaga/go_trumpcards
+```
+
+The whole run prints 6,133 rows and took 11 seconds on a laptop on 24 October 2026, most of it reading the JSON in mini. The CLI holds every run to a budget of 100,000,000 ops unless `--ops` raises it, and reading 89 MB of JSON in mini spends more, so the job raises it. Without `--ops` the run stops where its budget ran out, inside the reader.
+
+```text
+$ edge run github-hour.mini
+error: RuntimeError: budget exceeded
+   --> github-hour.mini:17:9
+   |
+17 |         j = s.find('\\', i)
+   |         ^
+
+note: called from unescape()
+    --> github-hour.mini:113:25
+    |
+113 |             s = unescape(s)
+    |                         ^
+
+note: called from read_json()
+    --> github-hour.mini:168:28
+    |
+168 |             tally(read_json(line.decode()))
+    |                            ^
+```
+
+[Limits](/docs/edge-lang/sdk/limits) covers the budget and the memory limit every run is held to.
+
+## What it may reach
+
+The grant names the one host the job reads. A project that grants another host stops the run at its request, before a byte leaves, with the host it asked for and the ones it holds.
+
+```text
+$ edge run --ops 100000000000 github-hour.mini
+error: PermissionError: 'main' has no net:data.gharchive.org, edge.json grants it net:api.github.com
+    --> github-hour.mini:156:1
+    |
+156 | r = net.request('GET', HOUR, nil, nil, 'gzip')
+    | ^
+```
+
+A project whose `edge.json` grants nothing of `net` stops earlier, at `import net`, with `'main' imports net, which edge.json does not grant it`.
+
+## Its surface
+
+Mini's table spells the engine's one grammar. A header ends in a colon and its block is the indented lines after it. `fn` defines a function, `true`, `false` and `nil` are the three constants, `&&`, `||` and `!` are the logic, `else if` is the second branch of an `if` and `//` starts a comment, so integer division is `~/`. `is !` and `!in` negate `is` and `in`, as `while chunk is !nil` and `c !in BREAKS` do in the job.
+
+```rust file=examples/mini/src/syntax.rs
+```
+
+[Parser kit](/docs/edge-lang/sdk/parser-kit) covers what each field of a `Syntax` decides.
+
+## How it prints
+
+Mini prints the three constants it reads as `true`, `false` and `nil` as `True`, `False` and `None`, and a text inside a container in single quotes. Ints grow without bound and a float prints the shortest digits that read back as it. A map keeps the order its keys first came in, which is the order the job prints `busy_branches`, `activity.csv` and the other reports of a map in.
+
+```rust file=examples/mini/src/style.rs
+```
+
+## Its natives
+
+Each native is a kernel of lib under the name mini gives it, grouped by kind. `print` and `input` come from `io`, `len` and `sorted` from `seq`, `time` from `date`, and the methods of each kind come from the module that holds that kind.
+
+```rust file=examples/mini/src/natives.rs
+```
+
+[Lib](/docs/edge-lang/sdk/lib) lists every kernel by module and how a table names one.
+
+## Its errors
+
+Mini names 31 error classes, each beside its parent, and the engine and lib raise those names. An error prints its class and its words, the line it rose at and each call it passed through, as the budget error above does.
+
+```rust file=examples/mini/src/types.rs
+```
+
+The words of lib's failures are mini's own too.
+
+```rust file=examples/mini/src/words.rs
+```
+
+So are the words of the engine's own errors, in its `Language` beside the rules its corpus runs on, as [Errors](/docs/edge-lang/get-started/book/errors#how-a-runtime-words-them) covers. `map_fields` stays off for now, since reading a missing field off a map's keys puts a call on every attribute miss, as [What a rule costs](/docs/edge-lang/get-started/book/rules#what-a-rule-costs) measures.
+
+```rust file=examples/mini/src/language.rs
+```
+
+## How it is built
+
+The crate links the engine, lib and `itoa`. `lib.rs` gathers the tables of natives under its language, reads every source through the table with `Front::spelled` and names the runtime for the CLI in its `DESCRIPTOR`.
+
+```toml file=examples/mini/Cargo.toml
+```
+
+```rust file=examples/mini/src/lib.rs
+```
+
+```bash
+make wasm
+```
+
+It writes `edge.wasm`, about 2 MB, under `target/wasm32-unknown-unknown/release`, and every host loads it.
+
+## Held to agree with tiny
+
+`examples/data/tests/agree.rs` runs this job and [tiny's flow](/docs/edge-lang/get-started/use-cases/tiny) over a slice of 431 events of the hour, both inside the test process with the net plugin's contract served from the slice, and holds every report of one to the rows of the other. `make bench-data` runs both artifacts over the whole hour and checks the same, as [Tiny](/docs/edge-lang/get-started/use-cases/tiny#at-scale) shows with its figures.
+
+> [!CARDS]
+> - `braces` [Parser kit](/docs/edge-lang/sdk/parser-kit) The grammar mini's token table spells.
+> - `library` [Lib](/docs/edge-lang/sdk/lib) The kernels mini names in its tables.
+> - `workflow` [Tiny](/docs/edge-lang/get-started/use-cases/tiny) The same job as a YAML flow over the same hour.
+> - `terminal` [CLI](/docs/edge-lang/platforms/cli) The edge CLI that runs the job and holds it to its grants.

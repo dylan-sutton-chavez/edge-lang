@@ -9,7 +9,7 @@ groups:
     replicas: 5
     retry: 2
     code: |
-      while True:
+      while true:
           msg = receive()
           raise ValueError("boom")
 

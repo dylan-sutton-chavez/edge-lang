@@ -1,0 +1,27 @@
+[package]
+name = "spell"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "Translates the corpus token by token between two spellings, re-keys the bench snapshots and splits the cases by kind."
+
+[lib]
+name = "spell"
+doctest = false
+
+[[bin]]
+name = "spell"
+path = "src/main.rs"
+
+[dependencies]
+edge = { path = "../.." }
+mini = { path = "../../examples/mini" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml_ng = { workspace = true }
+
+# tests/cases.rs uses it and lib.rs takes that file by path where shear never looks
+[package.metadata.cargo-shear]
+ignored = ["serde"]

@@ -1,4 +1,3 @@
-/* JSON string escaping for snapshot state dumps, control chars below 0x20 as \u00xx. */
 pub fn escape(out: &mut alloc::string::String, s: &str) {
     for c in s.chars() {
         match c {

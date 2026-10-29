@@ -1,0 +1,144 @@
+---
+title: "Front ends"
+description: "How a runtime with a surface of its own reaches the engine through Front and Builder, with tiny's YAML flows as the example."
+---
+
+# Front ends
+
+A runtime hands the engine its sources through a `Front`. A runtime whose programs are text a token table spells writes one line, `Front::spelled::<Mini>()`, and the [parser kit](/docs/edge-lang/sdk/parser-kit) reads every source. A runtime with a surface of its own reads its sources itself and builds the program through a `Builder`, which emits the bytecode the parser emits. The expressions inside such a program still go through the kit's parser, read through a token table the runtime brings.
+
+Tiny is the example. A tiny program is a YAML flow over records, and its front end is four files of `examples/tiny/src`.
+
+| Stage | File | Lines | What it does |
+|---|---|---:|---|
+| Read | `examples/tiny/src/yaml.rs` | 551 | Reads the YAML subset tiny takes, every node with its byte span |
+| Check | `examples/tiny/src/flow.rs` | 453 | Turns the nodes into the flow's source, its filter and its reports, or into diagnostics at their lines |
+| Lower | `examples/tiny/src/lower.rs` | 209 | Builds the program through a `Builder` |
+| Expressions | `examples/tiny/src/expr.rs` | 77 | The token table `TinyExpr` that every expression is read through |
+
+The reader is plain Rust, and the checker calls the engine only for the key a typo most likely meant. Only the lowering and the table speak to the engine.
+
+## Front
+
+| Field | Holds |
+|---|---|
+| `extension` | The extension an import implies, without its dot. It may hold dots of its own, as tiny's `flow.yaml` does |
+| `parse` | A function from a source and a `Unit` to `Parsed`, which is the chunk or every diagnostic that stopped it |
+| `imports` | A function from a source to the `ImportSpec` list it imports, which the module walk fetches before anything compiles |
+| `syntax` | The token table sources are read through, or `None` for a front end of its own |
+
+A `Unit` is what the engine asks of one parse, where its imports resolve and how the modules they reach parse in turn. A front end never opens it and passes it on to `build`.
+
+A runtime names its front once, as its language's `FRONT`, the front the engine compiles code through while a program runs. `Runtime::of` keeps it in the runtime, and `web_exports!(RUNTIME)` builds the runtime's `.wasm` around that runtime, so `run_start` and the module walk read every source through it on every host. For tools and tests, `edge::code::compile(&FRONT, src)` makes the chunk and its diagnostics without running anything.
+
+All of tiny's wiring is its `lib.rs`, shown beside the table its expressions read through.
+
+```rust file=examples/tiny/src/lib.rs
+```
+
+```rust file=examples/tiny/src/expr.rs
+```
+
+`parse` reads the YAML and checks the flow. It returns the problems of either as the engine's `Diagnostic`, or it lowers the program through `edge::code::build::<TinyExpr>`. `imports` answers `net` for a flow whose source is a URL, so the walk serves the net plugin before the flow compiles.
+
+## Builder
+
+`build::<S>(source, unit, f)` opens a chunk for `source`, hands `f` a `Builder`, and returns the chunk, or every diagnostic raised while `f` ran. `S` is the token table expressions are read through.
+
+| Call | Emits |
+|---|---|
+| `at(offset)` | Nothing. It anchors what follows at a byte of the source, so errors and tracebacks point there |
+| `expr(range)` | One expression read from those bytes of the source |
+| `stmts(range)` | The statements read from those bytes, which leave nothing on top |
+| `constant(v)` | A constant, compiled the way its literal compiles |
+| `load(name)`, `store(name)` | A read of a binding, and a store of the value on top |
+| `field(name)`, `item()` | A read of a field of the value on top, and of its item at the key above it |
+| `list(n)`, `map(n)` | A list of the top `n` values, and a map of the top `n` key and value pairs |
+| `call(pos, kw)` | A call of the value under `pos` arguments and `kw` name and value pairs |
+| `binary(op)` | A binary operator over the two values on top |
+| `pop()`, `throw()`, `ret()` | A drop, a raise and a return of the value on top |
+| `import(spec, alias)` | A binding of the module `spec` resolves to |
+| `arms()`, `if_else(cond, then, other)` | A chain of conditional arms where only the first arm whose condition holds runs. The chain closes when it drops, so no front end leaves one open |
+| `for_each(targets, body)` | A loop over the iterable on top that binds each item to the targets |
+| `function(name, params, body)`, `lambda(params, body)` | A function bound to a name, and a function left on top. A parameter written `x=` takes a default pushed before |
+| `subject(name, natives)`, `no_subject()` | The implicit subject, described below |
+| `error(range, msg)` | A diagnostic over those bytes, which leaves the chunk empty |
+
+Every call but `arms` returns the builder, so a statement reads as one chain, and `arms` returns the chain its `arm` and `other` calls extend. The chunk `build` returns is like any chunk the parser makes, and the rest of the engine treats it alike.
+
+### Expressions
+
+`expr(range)` lexes those bytes through `S` and parses one expression, and each token keeps its place in the whole source. A diagnostic inside an expression names its line in the YAML file. A case of tiny's suite whose third line is `where: type == "WatchEvent" True` fails at compile time with `line 3: expected the end of the expression, got 'True'`.
+
+Tiny's table reserves the words `and`, `or`, `not`, `in` and `not in`, and the constants `True`, `False` and `None`. Beside them it reads comparisons, arithmetic, calls, field reads, indexing and slicing, and it spells no lambda, no conditional, no comprehension and no `@`.
+
+A YAML value written in quotes is text and never an expression. Tiny's checker refuses one where an expression goes, so `where: "type == 1"` fails with `where takes an expression written with no quotes around it`.
+
+### The implicit subject
+
+A flow reads a record's fields by name, as in `type == "WatchEvent"` or `repo.name`, with no record written before them. `subject(name, natives)` turns that on. Until `no_subject()`, a free name in an expression reads a field of the value `name` binds. A name keeps its own meaning in three cases.
+
+- It is the subject's own name.
+- The scope binds it, as a parameter or a name an earlier statement stored.
+- The natives `subject` was given define a native or a type of that name.
+
+A name that is called never reads a field, so `time(created_at)` calls what the scope or the runtime binds as `time`. `load` reads a binding whatever subject is set, so the lowering's own names never turn into fields.
+
+Tiny calls `subject("@it", &FIELDS)`. No tiny expression can spell `@it`, and `FIELDS` is `Natives::EMPTY`, so every bare name reads a field of the record, even a field named like a native such as `time`, `len` or `min`. Only a call reaches one of tiny's natives, and in `keep` a bare `min` reads the row's aggregate while `min(len(type), 12)` calls the function.
+
+The field reads the way the table reads a name after a dot. With `Dot::Attr` it is an attribute read, and with `Dot::Key` an item read keyed by the name as text. Tiny's table sets `Dot::Key`, so `type` reads the record's `type` item and `repo.name` reads the `name` item of its `repo` map. A name after a dot stays an attribute only when a call follows, so `actor.login.endswith("[bot]")` reads two items and calls the text method `endswith`. A record that lacks the item stops the run with `MissingField`, as in `no field "action"`.
+
+## How a flow lowers
+
+The GH Archive job reads one hour of public GitHub events, and tiny's suite holds it as its canonical case in `examples/tiny/tests/flows/hosts.yml`. Its `from` is the URL `https://data.gharchive.org/2026-10-01-15.json.gz`, its top-level `where` drops the events of bots, and five reports follow.
+
+- `top_stars` counts the `WatchEvent` records of each `repo.name` and keeps the ten largest counts.
+- `busy_branches` counts the pushes to each repository and branch and keeps the rows counted more than once.
+- `activity.csv` counts the events of each minute and type into a CSV file.
+- `issues_opened` counts the issues opened in each repository.
+- `time_to_close` averages, for each repository, the hours from an issue's opening to its close.
+
+The flow reads through the net plugin, so its project grants `net:data.gharchive.org`. Without the grant the run never compiles, with `'main' imports net, which edge.json does not grant it`, and a grant of `net` with no host stops it at `from` with `from at line 1: Denied, 'main' has no net:data.gharchive.org, edge.json grants it nothing`. A flow whose `from` names a path reads through the CLI's `files` module instead, which a grant such as `files:events.jsonl` or `files:data/` opens below the project's `edge.json`.
+
+Each part of the flow becomes a few calls of the builder.
+
+| Part | Lowers to |
+|---|---|
+| The flow | One function `@each` over a batch of records, which runs every report over each record with `@it` as the subject. The source's loop calls it once per batch, so every report reads the same single pass over the source |
+| `from` with a URL | `import("net", "@net")`, a call of `@net.request` with `inflate` set to `"gzip"` when the path ends in `.gz`, a check through `@status` that the answer is a 200, and one loop that calls `@net.read` once per chunk. `@feed` cuts each chunk into lines with lib's `data::lines` and reads each line in the format its extension names, through `data::json` for JSON lines, through `data::csv` for CSV, and as a record whose one field `line` holds it for text |
+| `from` with a path | `import("files", "@files")`, a call of `@files.open` with `inflate` set to `"gzip"` when the path ends in `.gz`, and the same loop that calls `@files.read` once per chunk |
+| `from` with `input` | The same loop over the host's input, which reads as a `.json` source does, where `@lines` reads the next 64 lines as one batch |
+| `where` | An arm of `arms()` whose condition is `expr` over the record, around every report at the top of the flow and around one report inside it |
+| `count`, `sum`, `average`, `min` or `max` | A map of one row per key. `@count` finds the row of the record's keys and counts the record in place, and `@sum`, `@average`, `@min` and `@max` do the same with the value they measure. A key written as a path reads the record through `item()`, and a key written `name = expr` reads it through `expr`. Once the source ends, `@rows` makes each row a record of its keys under their columns and the aggregate under its own word |
+| `keep` | A run over the rows once the source ends, which keeps through `@push` each row its condition holds for. The row is the subject, so `count > 1` reads the row's `count` |
+| `top` and `sort` | `top` alone, or after one descending key, is lib's `seq::top` through `@top`, which keeps the greatest rows without sorting all of them. Any other sort is `@sorted` once per key, the last key first, and a `top` after it is `@first` |
+| The report's name | `@sink` once per report, on the channel its name gives. A name ending in `.csv` or `.jsonl` gives a file, so `activity.csv` writes the channel `file:activity.csv` with a header line first, and any other name gives the channel of that name. A report with no aggregate and no sort hands each record to `@emit` as it comes, and any other report hands its rows to `@emit_all` once the source ends |
+
+A name that starts with `@` is one no tiny expression can spell, since tiny's table holds no `@`. The lowering's bindings and natives never meet a field of a record, so a record may hold any field. Tiny's `kernels.rs` holds the natives behind those names, and its `lib.rs` names three kernels of lib `@iter`, `@sorted` and `@top`.
+
+Records stream through the flow. The source holds one chunk at a time, with the records its lines complete and the line it has not finished. A report with an aggregate holds one row per key, and only a report that sorts its records with no aggregate holds them. A flow reads its source to its end, and `keep`, `top` and `sort` run over the rows once every record is in. A run that stops first, on its budget, on an error or because its host ends it, closes what its host modules opened, so the net plugin aborts the request and reads no more of the body.
+
+The lowering in full.
+
+```rust file=examples/tiny/src/lower.rs
+```
+
+## Errors
+
+Each statement the lowering builds starts with `at`, anchored at the first byte of the entry it lowers. A run's error carries the byte it rose at, and tiny's `report` in `words.rs` names the entry that holds that byte with its YAML line. That entry is `from`, the top-level `where`, a report, or a report and one of its keys, and a run out of steps or memory names none.
+
+```text
+report pushes, sum at line 7: WrongType, cannot add text to a total of numbers
+```
+
+## Testing a front end
+
+`examples/tiny/tests/flows` holds 266 cases in 8 files, each a flow with its input and the lines it writes to each channel, or with its error or its diagnostics. `cargo test -p tiny` runs them, and `make test` runs that. Their events come from one real hour of GH Archive, fetched once into `target/` and checked against its pinned hash, and the suite serves the net plugin's contract and the `files` module inside the test process with no socket. `make wasm-tiny` builds `tiny.wasm`, and `lint-rust` checks that it exports the ABI every host binds, as `edge.wasm` does.
+
+The engine's own suite holds a smaller front end in `tests/front.rs`. It reads lines led by a word through mini's table, runs what it builds, and spells a table that reads `a.b` as a key.
+
+> [!CARDS]
+> - `activity` [Your runtime and its CLI](/docs/edge-lang/get-started/use-cases/your-runtime) A runtime and its CLI built end to end on the kit.
+> - `braces` [Parser kit](/docs/edge-lang/sdk/parser-kit) The grammar a token table spells, which expressions are read through.
+> - `library` [Lib](/docs/edge-lang/sdk/lib) The kernels tiny names in its tables, and the JSON and CSV readers its own natives call.
+> - `plug` [Plugins](/docs/edge-lang/sdk/plugins) The net plugin a flow reads its source through.

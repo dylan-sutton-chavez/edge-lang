@@ -1,6 +1,6 @@
 # Fuzzing
 
-AFL++ fuzzing of the lexer, the parser and the VM through cargo-afl, on stable Rust. The [Runbook](https://edgepython.com/docs/edge-python/internals/runbook) explains what it covers and how CI runs it.
+AFL++ fuzzing of the lexer, the parser and the VM through cargo-afl, on stable Rust. The [Runbook](https://edgelang.dev/docs/edge-lang/internals/runbook) explains what it covers and how CI runs it.
 
 ## Commands
 

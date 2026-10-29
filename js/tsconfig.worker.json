@@ -1,17 +1,15 @@
 {
     "compilerOptions": {
         "target": "ESNext",
-        "module": "NodeNext",
-        "moduleResolution": "NodeNext",
+        "module": "ESNext",
+        "moduleResolution": "Bundler",
         "lib": ["WebWorker", "ESNext"],
         "strict": true,
         "noUncheckedIndexedAccess": true,
         "skipLibCheck": true,
-        "rewriteRelativeImportExtensions": true,
+        "allowImportingTsExtensions": true,
         "verbatimModuleSyntax": true,
-        "declaration": true,
-        "rootDir": "./src",
-        "outDir": "./dist"
+        "noEmit": true
     },
     "include": ["src/worker/**/*.ts"]
 }

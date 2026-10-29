@@ -1,0 +1,149 @@
+- name: a flow within its budget runs to its end
+  input: slice
+  limits: {ops: 50000000}
+  flow: |
+    from: input
+    total:
+      count:
+  out:
+    total:
+      - '{"count":431}'
+
+- name: a flow past its budget stops with OutOfBudget
+  input: slice
+  limits: {ops: 20000}
+  flow: |
+    from: input
+    total:
+      count:
+  error: 'OutOfBudget, the run spent its budget of steps'
+
+- name: a large input streams through a report in bounded memory
+  input: slice
+  limits: {memory: 8000000}
+  repeat: 20
+  flow: |
+    from: input
+    kinds:
+      count: type
+      sort: -count, type
+  out:
+    kinds:
+      - '{"type":"PushEvent","count":2600}'
+      - '{"type":"WatchEvent","count":2420}'
+      - '{"type":"IssuesEvent","count":1740}'
+      - '{"type":"CreateEvent","count":840}'
+      - '{"type":"IssueCommentEvent","count":400}'
+      - '{"type":"PullRequestEvent","count":400}'
+      - '{"type":"DeleteEvent","count":220}'
+
+- name: a sort with no aggregate holds every record and passes the memory limit
+  input: slice
+  limits: {memory: 8000000}
+  repeat: 20
+  flow: |
+    from: input
+    latest:
+      sort: -created_at
+      top: 1
+  error: 'OutOfBudget, the run passed its memory limit'
+
+- name: the same sort fits a limit its records fit
+  input: slice
+  limits: {memory: 400000000}
+  repeat: 20
+  flow: |
+    from: input
+    latest:
+      sort: -created_at
+      top: 1
+  out:
+    latest:
+      - '{"id":"16206412875","type":"WatchEvent","actor":{"id":175637946,"login":"alialshehri1080","display_login":"alialshehri1080","gravatar_id":"","url":"https://api.github.com/users/alialshehri1080","avatar_url":"https://avatars.githubusercontent.com/u/175637946?"},"repo":{"id":658331327,"name":"BBC-Esq/Pyside6_PyQt6_video_audio_player","url":"https://api.github.com/repos/BBC-Esq/Pyside6_PyQt6_video_audio_player"},"payload":{"action":"started"},"public":true,"created_at":"2026-10-01T15:59:50Z"}'
+
+- name: a report counting keys holds a row per key in bounded memory
+  input: slice
+  limits: {memory: 8000000}
+  repeat: 20
+  flow: |
+    from: input
+    latest:
+      count: at = created_at, kind = type
+      sort: -at
+      top: 1
+  out:
+    latest:
+      - '{"at":"2026-10-01T15:59:50Z","kind":"WatchEvent","count":20}'
+
+- name: a large input spends a small budget
+  input: slice
+  limits: {ops: 3000000}
+  repeat: 20
+  flow: |
+    from: input
+    records:
+  error: 'OutOfBudget, the run spent its budget of steps'
+
+- name: a report of many keys holds a row per key
+  input: slice
+  limits: {memory: 64000000}
+  repeat: 20
+  flow: |
+    from: input
+    repeated:
+      count: id
+      keep: count > 19
+      sort: id
+      top: 2
+  out:
+    repeated:
+      - '{"id":"16201347271","count":20}'
+      - '{"id":"16201347289","count":20}'
+
+- name: reports over a large input each keep their own rows
+  input: slice
+  limits: {memory: 16000000}
+  repeat: 20
+  flow: |
+    from: input
+    kinds:
+      count: type
+      sort: -count, type
+      top: 2
+    starred:
+      where: type == "WatchEvent"
+      count: repo.name
+      keep: count > 59
+      sort: repo.name
+  out:
+    kinds:
+      - '{"type":"PushEvent","count":2600}'
+      - '{"type":"WatchEvent","count":2420}'
+    starred:
+      - '{"repo":{"name":"shihabal3amri/DiPlay"},"count":60}'
+
+- name: an empty input gives the one row of an aggregate
+  input: none
+  flow: |
+    from: input
+    total:
+      count:
+  out:
+    total:
+      - '{"count":0}'
+
+- name: a whole number past the range of whole numbers is bad data
+  input: slice
+  flow: |
+    from: input
+    odd:
+      count: n = len(str(7 ** 20000))
+  error: 'report odd, count at line 3: BadData, the result is too large for a whole number'
+
+- name: the text of a number past the digit limit is bad data before any conversion
+  input: slice
+  flow: |
+    from: input
+    odd:
+      count: n = int("7" * 10001)
+  error: 'report odd, count at line 3: BadData, the number has 10001 digits, past the limit of 10000 for its text'

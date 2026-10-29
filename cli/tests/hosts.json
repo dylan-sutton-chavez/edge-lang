@@ -1,445 +1,105 @@
 [
   {
     "given": {
-      "main.py": "print('ok from edge')\nprint(6 * 7)\n",
+      "main.mini": "print('ok from edge')\nprint(6 * 7)\n",
       "edge.json": "{}\n"
     },
-    "run": ["run", "main.py"],
+    "run": ["run", "main.mini"],
     "stdout": ["ok from edge", "42"]
   },
   {
     "given": {
-      "main.py": "print('before')\nraise ValueError('on purpose')\n",
+      "main.mini": "print('before')\nraise ValueError('on purpose')\n",
       "edge.json": "{}\n"
     },
-    "run": ["run", "main.py"],
+    "run": ["run", "main.mini"],
     "stdout": ["before"],
     "fails": ["ValueError: on purpose"]
   },
   {
-    "given": { "broken.py": "before = 1\nx = 1 / 0\n" },
-    "run": ["run", "broken.py"],
-    "fails": ["ZeroDivisionError", "--> broken.py:2:1"]
+    "given": { "broken.mini": "before = 1\nx = 1 / 0\n" },
+    "run": ["run", "broken.mini"],
+    "fails": ["ZeroDivisionError", "--> broken.mini:2:1"]
   },
   {
     "given": {
       "edge.json": "{}\n",
-      "sub/util.py": "def add(a, b):\n    return a + b\n",
-      "sub/main.py": "from .util import add\nprint(add(2, 3))\n"
+      "sub/util.mini": "fn add(a, b):\n    return a + b\n",
+      "sub/main.mini": "from .util import add\nprint(add(2, 3))\n"
     },
-    "run": ["run", "sub/main.py"],
+    "run": ["run", "sub/main.mini"],
     "stdout": ["5"]
   },
   {
     "given": {
-      "edge.json": "{ \"imports\": { \"later\": \"./later/main.py\" } }\n",
+      "edge.json": "{ \"imports\": { \"later\": \"./later/main.mini\" } }\n",
       "later/edge.json": "{ \"edge\": \"99.0.0\" }\n",
-      "later/main.py": "value = 1\n",
-      "main.py": "from later import value\nprint(value)\n"
+      "later/main.mini": "value = 1\n",
+      "main.mini": "from later import value\nprint(value)\n"
     },
-    "run": ["run", "main.py"],
+    "run": ["run", "main.mini"],
     "fails": ["edge.json at './later/edge.json': needs edge 99.0.0"]
   },
   {
     "given": {
-      "edge.json": "{ \"imports\": { \"json\": \"0.1.0\" } }\n",
-      "main.py": "import json\nprint(json.dumps({\"a\": [1, True, None]}))\n"
+      "edge.json": "{\"imports\": {\"clock\": \"./clock/main.mini\"}}\n",
+      "main.mini": "from clock import now\nprint(now())\n",
+      "clock/edge.json": "{\"name\": \"clock\", \"version\": \"0.2.0\", \"imports\": {\"trace\": \"./trace/main.mini\"}, \"permissions\": {\"main\": [\"net:127.0.0.1\"], \"trace\": [\"net:127.0.0.1\", \"net\"]}}\n",
+      "clock/main.mini": "from trace import stamp\n\nfn now():\n    return stamp()\n",
+      "clock/trace/edge.json": "{\"name\": \"trace\", \"permissions\": {\"main\": [\"net:127.0.0.1\", \"net\"]}}\n",
+      "clock/trace/main.mini": "import net\n\nfn stamp():\n    return net.request('GET', 'http://127.0.0.1:1/') > 0\n"
     },
-    "before": [["lock"]],
-    "run": ["run", "main.py"],
-    "stdout": ["{\"a\": [1, true, null]}"]
-  },
-  {
-    "given": {
-      "edge.json": "{ \"imports\": { \"re\": \"0.1.0\" } }\n",
-      "main.py": "import re\nprint(re.search(r'\\d+', 'abc123def'))\n"
-    },
-    "before": [["lock"]],
-    "run": ["run", "main.py"],
-    "stdout": ["123"]
-  },
-  {
-    "given": {
-      "edge.json": "{ \"imports\": { \"math\": \"0.1.0\" } }\n",
-      "main.py": "import math\nprint(math.floor(2.7))\n"
-    },
-    "before": [["lock"]],
-    "run": ["run", "main.py"],
-    "stdout": ["2"]
-  },
-  {
-    "given": {
-      "edge.json": "{ \"imports\": { \"struct\": \"0.1.0\" } }\n",
-      "main.py": "import struct\nprint(struct.calcsize('i'))\n"
-    },
-    "before": [["lock"]],
-    "run": ["run", "main.py"],
-    "stdout": ["4"]
-  },
-  {
-    "given": {
-      "edge.json": "{ \"imports\": { \"test\": \"0.1.0\" } }\n",
-      "main.py": "from test import test\nprint(callable(test))\n"
-    },
-    "before": [["lock"]],
-    "run": ["run", "main.py"],
-    "stdout": ["True"]
+    "run": ["run", "main.mini"],
+    "fails": ["edge.json does not grant what these packages ask for", "  clock 0.2.0   net:127.0.0.1, net\n", "help: grant them under \"permissions\" in edge.json"]
   },
   {
     "given": {
       "edge.json": "{}\n",
-      "main.py": "import time\n"
+      "main.mini": "bars = [(float(i), 1.0, 2.0, 3.0) for i in range(100000)]\nprint(len(bars))\n"
     },
-    "run": ["run", "main.py"],
-    "fails": ["'main' imports time, which edge.json does not grant it"]
-  },
-  {
-    "given": {
-      "edge.json": "{ \"permissions\": { \"main\": [\"secret:API_KEY\"] } }\n",
-      "main.py": "import secret\nprint(secret.read(\"API_KEY\"))\ntry:\n    secret.read(\"OTHER\")\nexcept PermissionError as e:\n    print(e)\n"
-    },
-    "env": { "EDGE_SECRET_API_KEY": "k-123", "EDGE_SECRET_OTHER": "leak" },
-    "run": ["run", "main.py"],
-    "stdout": ["k-123", "'main' has no secret:OTHER, edge.json grants it secret:API_KEY"]
-  },
-  {
-    "given": {
-      "edge.json": "{ \"permissions\": { \"main\": [\"secret:API_KEY\"] } }\n",
-      "main.py": "import secret\nsecret.read(\"API_KEY\")\n"
-    },
-    "run": ["run", "main.py"],
-    "fails": ["OSError: the host holds no value for API_KEY"]
-  },
-  {
-    "given": {
-      "edge.json": "{\"permissions\": {\"main\": [\"net:127.0.0.1/api\"]}}\n",
-      "main.py": "import net\nfor path in ['/api/items', '/api/../secret', '/api/%2e%2e/secret', '/other']:\n    try:\n        net.request('GET', 'http://127.0.0.1:1' + path)\n        print('reached', path)\n    except PermissionError as e:\n        print(e)\n"
-    },
-    "run": ["run", "main.py"],
-    "stdout": ["reached /api/items", "'main' has no net:127.0.0.1/secret, edge.json grants it net:127.0.0.1/api", "'main' has no net:127.0.0.1/other, edge.json grants it net:127.0.0.1/api"]
-  },
-  {
-    "given": {
-      "edge.json": "{\"permissions\": {\"main\": [\"net:127.0.0.1\"]}}\n",
-      "main.py": "import net\ntry:\n    net.request('GET', 'http://cañón.example/')\nexcept ValueError as e:\n    print(e)\nprint('日本語 ok')\n"
-    },
-    "run": ["run", "main.py"],
-    "stdout": ["'http://cañón.example/' is not a plain url", "日本語 ok"]
-  },
-  {
-    "given": {
-      "edge.json": "{\"permissions\": {\"main\": [\"net:127.0.0.1\"]}}\n",
-      "main.py": "import net\ntry:\n    net.request('GET', 'http://evil.test\\\\@127.0.0.1/')\nexcept ValueError as e:\n    print(e)\n"
-    },
-    "run": ["run", "main.py"],
-    "stdout": ["'http://evil.test\\@127.0.0.1/' is not a plain url, net takes scheme://host/path with no user, backslash or space"]
-  },
-  {
-    "given": {
-      "edge.json": "{\"permissions\": {\"main\": [\"net:127.0.0.1\"]}}\n",
-      "main.py": "import net\ntry:\n    net.request('GET', 'http://127.0.0.1:1/', [['Host', 'evil.test']])\nexcept ValueError as e:\n    print(e)\n"
-    },
-    "run": ["run", "main.py"],
-    "stdout": ["the header 'Host' belongs to the host, a program cannot set it"]
-  },
-  {
-    "given": {
-      "edge.json": "{\"imports\": {\"clock\": \"./clock/main.py\"}}\n",
-      "main.py": "from clock import now\nprint(now())\n",
-      "clock/edge.json": "{\"name\": \"clock\", \"version\": \"0.2.0\", \"imports\": {\"trace\": \"./trace/main.py\"}, \"permissions\": {\"main\": [\"time:wall\"], \"trace\": [\"time:wall\", \"net\"]}}\n",
-      "clock/main.py": "from trace import stamp\n\ndef now():\n    return stamp()\n",
-      "clock/trace/edge.json": "{\"name\": \"trace\", \"permissions\": {\"main\": [\"time:wall\", \"net\"]}}\n",
-      "clock/trace/main.py": "import time\n\ndef stamp():\n    return time.now() > 0\n"
-    },
-    "run": ["run", "main.py"],
-    "fails": ["edge.json does not grant what these packages ask for", "  clock 0.2.0   time:wall, net\n", "help: grant them under \"permissions\" in edge.json"]
-  },
-  {
-    "given": {
-      "sub/util.py": "def add(a, b):\n    return a + b\n",
-      "sub/s_test.py": "from .util import add\nfrom test import test\n\n@test(\"adds\")\ndef t_add():\n    assert add(2, 3) == 5\n",
-      "edge.json": "{ \"imports\": { \"test\": \"0.1.1\" } }\n"
-    },
-    "before": [["lock"]],
-    "run": ["test"],
-    "stdout": ["pass. adds", "(successful) sub/s_test.py", "1/1 files passed"]
-  },
-  {
-    "given": {
-      "f_test.py": "from test import test\n\n@test(\"breaks\")\ndef t():\n    assert 1 == 2\n",
-      "edge.json": "{ \"imports\": { \"test\": \"0.1.1\" } }\n"
-    },
-    "before": [["lock"]],
-    "run": ["test"],
-    "fails": [],
-    "stdout": ["fail. breaks", "(unsuccessful) f_test.py", "0/1 files passed"]
-  },
-  {
-    "given": {
-      "e_test.py": "x = 1\n",
-      "edge.json": "{ \"imports\": { \"test\": \"0.1.1\" } }\n"
-    },
-    "before": [["lock"]],
-    "run": ["test"],
-    "fails": [],
-    "stdout": ["(unsuccessful) e_test.py: no tests registered"]
-  },
-  {
-    "given": {
-      "edge.json": "{ \"permissions\": { \"main\": [\"fs:./shop\"] } }\n",
-      "shop/Gemfile": "gem 'rails'\n",
-      "shop/app/product.rb": "class Product; end\n",
-      "shop/.env": "KEY=1\n",
-      "secret.txt": "outside\n",
-      "main.py": "import fs\nprint(fs.list('shop'))\nprint(fs.read('shop/app/product.rb'), end='')\nfor bad in ['secret.txt', 'shop/../secret.txt', '/etc/passwd', 'shop/.env', 'shop/nope.rb']:\n    try:\n        fs.read(bad)\n    except (PermissionError, OSError) as e:\n        print(type(e).__name__, bad)\n"
-    },
-    "run": ["run", "main.py"],
-    "stdout": ["['shop/Gemfile', 'shop/app/product.rb']", "class Product; end", "PermissionError secret.txt", "PermissionError shop/../secret.txt", "PermissionError /etc/passwd", "PermissionError shop/.env", "OSError shop/nope.rb"]
-  },
-  {
-    "given": {
-      "edge.json": "{ \"imports\": { \"analytics\": \"./analytics/main.py\", \"other\": \"./other/main.py\" }, \"permissions\": { \"all\": [\"secret\"], \"analytics\": [\"secret:KEY\"] } }\n",
-      "analytics/edge.json": "{ \"name\": \"analytics\", \"permissions\": { \"main\": [\"secret:KEY\"] } }\n",
-      "analytics/main.py": "import secret\n\ndef read():\n    return secret.read('KEY')\n",
-      "other/edge.json": "{ \"name\": \"analytics\" }\n",
-      "other/main.py": "import secret\n\ndef read():\n    return secret.read('KEY')\n",
-      "main.py": "import analytics, other\nprint('analytics', analytics.read())\ntry:\n    other.read()\nexcept PermissionError as e:\n    print(e)\n"
-    },
-    "env": { "EDGE_SECRET_KEY": "test-value" },
-    "run": ["run", "main.py"],
-    "stdout": ["analytics test-value", "'other' has no secret:KEY, edge.json grants it nothing"]
-  },
-  {
-    "given": {
-      "edge.json": "{ \"imports\": { \"pay\": \"./pay/main.py\", \"shop\": \"./shop/main.py\" }, \"permissions\": { \"pay\": [\"secret:PAY\"], \"shop\": [\"secret:SHOP\"] } }\n",
-      "pay/edge.json": "{ \"imports\": { \"vault\": \"../vault/main.py\" }, \"permissions\": { \"vault\": [\"secret:PAY\"] } }\n",
-      "pay/main.py": "import vault\n\ndef read(name):\n    return vault.read(name)\n",
-      "shop/edge.json": "{ \"imports\": { \"vault\": \"../vault/main.py\" }, \"permissions\": { \"vault\": [\"secret:SHOP\"] } }\n",
-      "shop/main.py": "import vault\n\ndef read(name):\n    return vault.read(name)\n",
-      "vault/edge.json": "{ \"permissions\": { \"main\": [\"secret\"] } }\n",
-      "vault/main.py": "import secret\n\ndef read(name):\n    return secret.read(name)\n",
-      "main.py": "import pay, shop\nprint(pay.read('PAY'))\ntry:\n    shop.read('PAY')\nexcept PermissionError as e:\n    print(e)\nprint(shop.read('SHOP'))\n"
-    },
-    "env": { "EDGE_SECRET_PAY": "p-1", "EDGE_SECRET_SHOP": "s-2" },
-    "run": ["run", "main.py"],
-    "stdout": ["p-1", "'vault' has no secret:PAY, edge.json grants it secret:SHOP", "s-2"]
-  },
-  {
-    "given": {
-      "edge.json": "{}\n",
-      "main.py": "bars = [(float(i), 1.0, 2.0, 3.0) for i in range(100000)]\nprint(len(bars))\n"
-    },
-    "run": ["run", "--memory", "1", "main.py"],
+    "run": ["run", "--memory", "1", "main.mini"],
     "fails": ["MemoryError: memory limit"]
   },
   {
     "given": {
       "edge.json": "{}\n",
-      "main.py": "bars = [(float(i), 1.0, 2.0, 3.0) for i in range(100000)]\nprint(len(bars))\n"
+      "main.mini": "bars = [(float(i), 1.0, 2.0, 3.0) for i in range(100000)]\nprint(len(bars))\n"
     },
-    "run": ["run", "--memory", "64", "main.py"],
+    "run": ["run", "--memory", "64", "main.mini"],
     "stdout": ["100000"]
   },
   {
     "given": {
       "edge.json": "{}\n",
-      "main.py": "i = 0\nwhile True:\n    i += 1\n"
+      "main.mini": "i = 0\nwhile true:\n    i += 1\n"
     },
-    "run": ["run", "--ops", "1000", "main.py"],
+    "run": ["run", "--ops", "1000", "main.mini"],
     "fails": ["RuntimeError: budget exceeded"]
   },
   {
     "given": {
-      "edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.py\" }, \"permissions\": { \"pepito\": [\"time:wall\"] } }\n",
-      "pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"time:wall\"] } }\n",
-      "pepito/main.py": "import time\nnow_fn = time.now\n\ndef now():\n    return time.now() > 0\n\ndef call(f):\n    return f() > 0\n",
-      "main.py": "import pepito\nprint(pepito.now())\n"
+      "edge.json": "{}\n",
+      "main.mini": "fn f(n):\n    if n == 0:\n        raise ValueError('bottom')\n    return f(n - 1)\n\nf(2000)\n"
     },
-    "run": ["run", "main.py"],
-    "stdout": ["True"]
+    "run": ["run", "main.mini"],
+    "fails": ["RecursionError: maximum recursion depth exceeded", "--> main.mini:4:5", "note: the same call 997 more times", "--> main.mini:6:2"]
   },
   {
     "given": {
-      "edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.py\" }, \"permissions\": { \"pepito\": [\"time:wall\"] } }\n",
-      "pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"time:wall\"] } }\n",
-      "pepito/main.py": "import time\nnow_fn = time.now\n\ndef now():\n    return time.now() > 0\n\ndef call(f):\n    return f() > 0\n",
-      "main.py": "import pepito\npepito.time.now()\n"
+      "edge.json": "{ \"imports\": { \"badplug\": \"./bad.wasm\", \"lib\": \"./lib.mini\" } }\n",
+      "bad.wasm": "notwasm",
+      "lib.mini": "x = 1\nimport badplug\n",
+      "main.mini": "print('never')\nimport lib\n"
     },
-    "run": ["run", "main.py"],
-    "fails": ["PermissionError: this time module was imported by another package"]
-  },
-  {
-    "given": {
-      "edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.py\" }, \"permissions\": { \"pepito\": [\"time:wall\"] } }\n",
-      "pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"time:wall\"] } }\n",
-      "pepito/main.py": "import time\nnow_fn = time.now\n\ndef now():\n    return time.now() > 0\n\ndef call(f):\n    return f() > 0\n",
-      "main.py": "from pepito import time\ntime.now()\n"
-    },
-    "run": ["run", "main.py"],
-    "fails": ["PermissionError: this time module was imported by another package"]
-  },
-  {
-    "given": {
-      "edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.py\" }, \"permissions\": { \"pepito\": [\"time:wall\"] } }\n",
-      "pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"time:wall\"] } }\n",
-      "pepito/main.py": "import time\nnow_fn = time.now\n\ndef now():\n    return time.now() > 0\n\ndef call(f):\n    return f() > 0\n",
-      "main.py": "import pepito\npepito.now_fn()\n"
-    },
-    "run": ["run", "main.py"],
-    "fails": ["PermissionError: this time module was imported by another package"]
-  },
-  {
-    "given": {
-      "edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.py\" }, \"permissions\": { \"pepito\": [\"time:wall\"] } }\n",
-      "pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"time:wall\"] } }\n",
-      "pepito/main.py": "import time\nnow_fn = time.now\n\ndef now():\n    return time.now() > 0\n\ndef call(f):\n    return f() > 0\n",
-      "main.py": "import pepito\ngetattr(pepito, 'time').now()\n"
-    },
-    "run": ["run", "main.py"],
-    "fails": ["PermissionError: this time module was imported by another package"]
-  },
-  {
-    "given": {
-      "edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.py\" }, \"permissions\": { \"pepito\": [\"time:wall\"] } }\n",
-      "pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"time:wall\"] } }\n",
-      "pepito/main.py": "import time\nnow_fn = time.now\n\ndef now():\n    return time.now() > 0\n\ndef call(f):\n    return f() > 0\n",
-      "main.py": "import pepito\nprint(pepito.call(pepito.time.now))\n"
-    },
-    "run": ["run", "main.py"],
-    "stdout": ["True"]
-  },
-  {
-    "given": {
-      "edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.py\" }, \"permissions\": { \"main\": [\"time:wall\"], \"pepito\": [\"time:wall\"] } }\n",
-      "pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"time:wall\"] } }\n",
-      "pepito/main.py": "import time\nnow_fn = time.now\n\ndef now():\n    return time.now() > 0\n\ndef call(f):\n    return f() > 0\n",
-      "main.py": "import time\nimport pepito\nprint(time.now() > 0, pepito.now())\n"
-    },
-    "run": ["run", "main.py"],
-    "stdout": ["True True"]
-  },
-  {
-    "given": {
-      "edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.py\" }, \"permissions\": { \"main\": [\"time:wall\"], \"pepito\": [\"time:wall\"] } }\n",
-      "pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"time:wall\"] } }\n",
-      "pepito/main.py": "import time\nnow_fn = time.now\n\ndef now():\n    return time.now() > 0\n\ndef call(f):\n    return f() > 0\n",
-      "main.py": "import time\nimport pepito\ntry:\n    pepito.time.now()\nexcept PermissionError:\n    print('refused')\nprint(time.now() > 0)\n"
-    },
-    "run": ["run", "main.py"],
-    "stdout": ["refused\nTrue"]
-  },
-  {
-    "given": {
-      "edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.py\" }, \"permissions\": { \"pepito\": [\"time:wall\"] } }\n",
-      "pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"time:wall\"] } }\n",
-      "pepito/main.py": "import time\nnow_fn = time.now\n\ndef now():\n    return time.now() > 0\n\ndef call(f):\n    return f() > 0\n",
-      "main.py": "import pepito\nprint([f() > 0 for f in [pepito.time.now]])\n"
-    },
-    "run": ["run", "main.py"],
-    "fails": ["PermissionError: this time module was imported by another package"]
-  },
-  {
-    "given": {
-      "edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.py\" }, \"permissions\": { \"pepito\": [\"time:wall\"] } }\n",
-      "pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"time:wall\"] } }\n",
-      "pepito/main.py": "import time\nnow_fn = time.now\n\ndef now():\n    return time.now() > 0\n\ndef call(f):\n    return f() > 0\n",
-      "main.py": "import pepito\nf = lambda: pepito.time.now()\ntry:\n    f()\nexcept PermissionError:\n    print('lambda refused')\n"
-    },
-    "run": ["run", "main.py"],
-    "stdout": ["lambda refused"]
-  },
-  {
-    "given": {
-      "edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.py\" }, \"permissions\": { \"pepito\": [\"net:127.0.0.1\"] } }\n",
-      "pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
-      "pepito/main.py": "import net\n",
-      "main.py": "import pepito\npepito.net.request('GET', 'http://127.0.0.1:1/', [], None)\n"
-    },
-    "run": ["run", "main.py"],
-    "fails": ["PermissionError: this net module was imported by another package"]
+    "run": ["run", "main.mini"],
+    "fails": ["module 'badplug' is not a valid plugin, ", " (via lib)\n", "--> main.mini:2:8"]
   },
   {
     "given": {
       "edge.json": "{}\n",
-      "sub/edge.json": "{ \"permissions\": { \"main\": [\"time:wall\"] } }\n",
-      "sub/main.py": "import time\nprint(time.now() > 0)\n"
+      "main.mini": "print('never')\nfrom .helper import twice\n"
     },
-    "run": ["run", "sub/main.py"],
-    "stdout": ["True"]
-  },
-  {
-    "given": {
-      "edge.json": "{}\n",
-      "sub/edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.py\" }, \"permissions\": { \"pepito\": [\"time:wall\"] } }\n",
-      "sub/pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"time:wall\"] } }\n",
-      "sub/pepito/main.py": "import time\n\ndef now():\n    return time.now() > 0\n",
-      "sub/main.py": "import pepito\nprint(pepito.now())\npepito.time.now()\n"
-    },
-    "run": ["run", "sub/main.py"],
-    "stdout": ["True"],
-    "fails": ["PermissionError: this time module was imported by another package"]
-  },
-  {
-    "given": {
-      "edge.json": "{ \"permissions\": { \"main\": [\"time:wall\"] } }\n",
-      "main.py": "import time\nexec('import time\\nprint(time.now() > 0)')\n"
-    },
-    "run": ["run", "main.py"],
-    "stdout": ["True"]
-  },
-  {
-    "given": {
-      "edge.json": "{ \"imports\": { \"helper\": \"./helper.py\" } }\n",
-      "helper.py": "x = 1\n",
-      "main.py": "exec('import helper')\n"
-    },
-    "run": ["run", "main.py"],
-    "fails": ["SyntaxError: module './helper.py' is not one the program imports, and code that eval or exec compiles imports only those (<string>, line 1)"]
-  },
-  {
-    "given": {
-      "edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.py\" }, \"permissions\": { \"pepito\": [\"time:wall\"] } }\n",
-      "pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"time:wall\"] } }\n",
-      "pepito/main.py": "import time\n\ndef now():\n    return eval('time.now() > 0')\n",
-      "main.py": "import pepito\nprint(pepito.now())\nexec('pepito.time.now()')\n"
-    },
-    "run": ["run", "main.py"],
-    "stdout": ["True"],
-    "fails": ["PermissionError: this time module was imported by another package", "--> <string>:1:1", "note: called from exec()", "--> main.py:3:5"]
-  },
-  {
-    "given": {
-      "edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.py\" }, \"permissions\": { \"pepito\": [\"time:wall\"] } }\n",
-      "pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"time:wall\"] } }\n",
-      "pepito/main.py": "import time\n\ndef now():\n    return eval('time.now() > 0')\n",
-      "main.py": "import pepito\nexec('import time')\n"
-    },
-    "run": ["run", "main.py"],
-    "fails": ["'main' imports time, which edge.json does not grant it"]
-  },
-  {
-    "given": {
-      "edge.json": "{}\n",
-      "main.py": "exec('def boom():\\n    return 1 / 0')\nprint('ok')\nboom()\n"
-    },
-    "run": ["run", "main.py"],
-    "stdout": ["ok"],
-    "fails": ["ZeroDivisionError: division by zero", "--> <string>:2:5", "note: called from boom()", "--> main.py:3:5"]
-  },
-  {
-    "given": {
-      "edge.json": "{}\n",
-      "main.py": "def f(n):\n    if n == 0:\n        raise ValueError('bottom')\n    return f(n - 1)\n\nf(2000)\n"
-    },
-    "run": ["run", "main.py"],
-    "fails": ["RecursionError: maximum recursion depth exceeded", "--> main.py:4:5", "note: the same call 997 more times", "--> main.py:6:2"]
-  },
-  {
-    "given": {
-      "edge.json": "{ \"permissions\": { \"main\": [\"time:wall\"] } }\n",
-      "main.py": "exec('import time\\nprint(time.now() > 0)')\n"
-    },
-    "run": ["run", "main.py"],
-    "stdout": ["True"]
+    "run": ["run", "main.mini"],
+    "fails": ["module './helper.mini' could not be read", "--> main.mini:2:"]
   }
 ]

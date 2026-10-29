@@ -1,66 +1,70 @@
-use super::types::{Val, HeapObj, HeapPool, VmErr};
-use crate::parser::{SSAChunk, Value};
+use crate::value::{Val, HeapObj, HeapPool, VmErr};
+use crate::syntax::chunk::{SSAChunk, Value};
 
 use alloc::{boxed::Box, rc::Rc, vec::Vec};
 
 use super::{lower::Code, sites::Site};
+use crate::r#unsafe::lent;
 
-/* What one chunk keeps between its calls. */
+/* what one chunk keeps between its calls */
 pub struct CachePool {
-    /* The chunk's lowered code, which every frame running it shares. */
+    /* the chunk's lowered code which every frame running it shares */
     pub code: Option<Rc<Code>>,
-    /* The chunk's constants as values, made once and kept for good. */
+    /* the chunk's constants as values made once and kept for good */
     pub consts: Option<Box<[Val]>>,
-    /* Set once a frame ran the chunk, its next call lowers it. */
+    /* set once a frame ran the chunk so its next call lowers it */
     pub ran: bool,
-    /* Back-edges and resumes its unlowered frames took, a resume past `HOT_LOOP` lowers it. */
+    /* back-edges and resumes its unlowered frames took and a resume past `HOT_LOOP` lowers it */
     pub heat: u32,
-    /* Each level's window, the first for a run, the next ones for runs inside it. */
+    /* each level's window as `w0` for a run and `wins` for runs inside it */
     pub w0: super::window::Win,
     pub wins: Vec<super::window::Win>,
-    /* The innermost run's window in view, where it starts, how long it is and the code it is laid out for. */
+    /* the innermost run's window start and length with `wcode` the code it is laid for */
     pub window: usize,
     pub wlen: usize,
-    /* How many runs of it are going, all but the innermost kept aside. */
+    /* how many runs of it are going with all but the innermost kept aside */
     pub active: u32,
     pub wcode: usize,
-    /* Whether its code may lay the functions it calls as sections, and its calls so far, past `lower::TIER` of which it is lowered again to lay them. */
+    /* whether its code may lay callees as sections and `calls` past `TIER` lowers it again */
     pub laid: bool,
-    /* Whether its next lowering is whole, no frame but the one laying it again running its code. */
+    /* whether its next lowering is whole with no other frame running its code */
     pub whole: bool,
     pub calls: u32,
-    /* How long its laid code was when last laid again for the other functions its calls met. */
+    /* how long its laid code was when last relaid for other functions its calls met */
     pub relaid: u32,
-    /* What its code holds, `lower::shape`, 0 until read. */
+    /* what its code holds as the bits `shape` gives and 0 until read */
     pub shape: u8,
-    /* The function whose body it runs, `NO_FN` for a module's or a class's. */
+    /* the function whose body it runs or `NO_FN` for a module's or a class's */
     pub func: u32,
-    /* Whether its code is the body as the compiler wrote it, kept from its first call until a lowering. */
+    /* whether its code is the compiled body kept from its first call until a lowering */
     pub cold: bool,
+    // its chunk's deepest stack once found with none inside when only the run knows
+    #[cfg(debug_assertions)]
+    pub depth: Option<Option<u16>>,
 }
 
 pub(crate) const NO_FN: u32 = u32::MAX;
 
 impl Default for CachePool {
     fn default() -> Self {
-        Self { code: None, consts: None, ran: false, heat: 0, w0: super::window::Win { base: super::window::NO_WINDOW, len: 0, code: 0, owner: Val::undef() }, wins: Vec::new(), window: super::window::NO_WINDOW, wlen: 0, active: 0, wcode: 0, laid: false, whole: false, calls: 0, relaid: 0, shape: 0, func: NO_FN, cold: false }
+        Self { code: None, consts: None, ran: false, heat: 0, w0: super::window::Win { base: super::window::NO_WINDOW, len: 0, code: 0, owner: Val::undef() }, wins: Vec::new(), window: super::window::NO_WINDOW, wlen: 0, active: 0, wcode: 0, laid: false, whole: false, calls: 0, relaid: 0, shape: 0, func: NO_FN, cold: false, #[cfg(debug_assertions)] depth: None }
     }
 }
 
-/* A chunk's constants as values, each string interned. */
+/* a chunk's constants as values with each string interned */
 pub(crate) fn const_vals(chunk: &SSAChunk, heap: &mut HeapPool) -> Result<Box<[Val]>, VmErr> {
     let mut out = Vec::with_capacity(chunk.constants.len());
     for c in &chunk.constants {
         out.push(match c {
-            // A wide literal that fits inline demotes so hash and eq stay in sync with the short form.
+            // a wide literal that fits inline demotes so hash and eq match the short form
             Value::Int(i) => heap.int(*i as i128)?,
-            Value::BigInt(b) => crate::frontend::int::val(heap, b.clone())?,
+            Value::Wide { neg, base, digits } => heap.wide_digits(*neg, digits, u32::from(*base))?,
             Value::Float(f) => Val::float(*f),
-            Value::Imag(f) => crate::frontend::complex::val(heap, 0.0, *f)?,
             Value::Bool(b) => Val::bool(*b),
             Value::None => Val::none(),
-            Value::Str(s) => heap.intern_str(s)?,
-            Value::Bytes(b) => heap.alloc(HeapObj::Bytes(b.clone()))?,
+            // texts and bytes sharing one hash stop once the probes they paid pass the budget
+            Value::Str(s) => { let v = heap.intern_str(s)?; heap.within_budget()?; v }
+            Value::Bytes(b) => { let v = heap.alloc(HeapObj::Bytes(b.clone()))?; heap.within_budget()?; v }
         });
     }
     Ok(out.into_boxed_slice())
@@ -68,23 +72,23 @@ pub(crate) fn const_vals(chunk: &SSAChunk, heap: &mut HeapPool) -> Result<Box<[V
 
 pub struct OpcodeCache {
     len: usize,
-    /* Attribute and operator sites by ip, made on the first one learned and shared by every frame of the code. */
+    /* attribute and operator sites made once one is learned and shared by every frame */
     sites: core::cell::OnceCell<Box<[core::cell::Cell<Site>]>>,
 }
 
 impl OpcodeCache {
     pub fn new(len: usize) -> Self { Self { len, sites: core::cell::OnceCell::new() } }
 
-    /* The site at `ip`. */
+    /* the site at `ip` */
     #[inline]
     pub(crate) fn site(&self, ip: usize) -> Site { self.sites.get().and_then(|s| s.get(ip)).map(core::cell::Cell::get).unwrap_or_default() }
 
-    /* `f` of the site at `ip`, read in place since a site is large and a hot path needs a field or two. */
+    /* `f` of the site at `ip` in place to spare hot paths a large copy */
     #[inline(always)]
     pub(crate) fn with_site<R>(&self, ip: usize, f: impl FnOnce(&Site) -> R) -> R {
         match self.sites.get().and_then(|s| s.get(ip)) {
-            // SAFETY the reference lives only inside `f`, and no site is set while a reader runs, as only `set_site` writes one.
-            Some(cell) => f(unsafe { &*cell.as_ptr() }),
+            // the reference lives only inside `f` and no site is set while a reader runs
+            Some(cell) => lent(cell, f),
             None => f(&Site::Empty),
         }
     }
@@ -94,7 +98,7 @@ impl OpcodeCache {
         if let Some(s) = sites.get(ip) { s.set(site); }
     }
 
-    /* A cache of `len` sites, the first ones this one's, for code that grew past this one's end. */
+    /* a cache of `len` sites keeping this one's for code grown past its end */
     pub(crate) fn extended(&self, len: usize) -> Self {
         let out = Self::new(len);
         if let Some(sites) = self.sites.get() { for (k, s) in sites.iter().enumerate() { if !matches!(s.get(), Site::Empty) { out.set_site(k, s.get()); } } }

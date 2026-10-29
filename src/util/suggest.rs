@@ -1,6 +1,3 @@
-/* The nearest name to a mistyped one, by an edit distance where a case flip costs half a change, for the
-   `Did you mean` an error adds. */
-
 const MOVE: usize = 2;
 const CASE: usize = 1;
 const LONGEST: usize = 40;
@@ -9,7 +6,7 @@ fn substitution(a: u8, b: u8) -> usize {
     if a == b { 0 } else if a.eq_ignore_ascii_case(&b) { CASE } else { MOVE }
 }
 
-/* The distance from `a` to `b`, past `max` as `max + 1`, its row kept in `row` across calls. */
+/* the distance from `a` to `b` capped at `max + 1` reusing `row` across calls */
 fn distance(a: &[u8], b: &[u8], max: usize, row: &mut alloc::vec::Vec<usize>) -> usize {
     let pre = a.iter().zip(b).take_while(|(x, y)| x == y).count();
     let (a, b) = (&a[pre..], &b[pre..]);
@@ -37,7 +34,7 @@ fn distance(a: &[u8], b: &[u8], max: usize, row: &mut alloc::vec::Vec<usize>) ->
     result
 }
 
-/* The candidate nearest to `name`, None when every one is too far. */
+/* the candidate nearest to `name` or None when every one is too far */
 pub fn nearest<'c>(name: &str, candidates: impl IntoIterator<Item = &'c str>) -> Option<&'c str> {
     let mut best: Option<(&str, usize)> = None;
     let mut row = alloc::vec::Vec::new();
@@ -45,7 +42,7 @@ pub fn nearest<'c>(name: &str, candidates: impl IntoIterator<Item = &'c str>) ->
         if c == name { continue; }
         let mut max = (name.len() + c.len() + 3) * MOVE / 6;
         if let Some((_, d)) = best { max = max.min(d.saturating_sub(1)); }
-        // Each character one has past the other costs a move, so a length gap past the budget is never near.
+        // each extra character costs a move so a length gap past `max` is never near
         if name.len().abs_diff(c.len()) * MOVE > max { continue; }
         let d = distance(name.as_bytes(), c.as_bytes(), max, &mut row);
         if d <= max && best.is_none_or(|(_, b)| d < b) { best = Some((c, d)); }
@@ -53,7 +50,7 @@ pub fn nearest<'c>(name: &str, candidates: impl IntoIterator<Item = &'c str>) ->
     best.map(|(c, _)| c)
 }
 
-/* `. Did you mean 'x'?` for the nearest candidate, empty when none is near. */
+/* the `Did you mean` suffix for the nearest candidate or empty when none is near */
 pub fn did_you_mean<'c>(name: &str, candidates: impl IntoIterator<Item = &'c str>) -> alloc::string::String {
     match nearest(name, candidates) { Some(c) => crate::s!(". Did you mean '", str c, "'?"), None => alloc::string::String::new() }
 }

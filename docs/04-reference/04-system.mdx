@@ -1,26 +1,32 @@
 ---
 title: "System"
-description: "The fs, net, time and secret modules, and the permissions edge.json grants each package."
+description: "The permissions edge.json grants each package, net, the host module the CLI and the browser both serve, and the files the CLI reads."
 ---
 
 # System
 
-Edge Python reaches outside its sandbox through four system modules.
+A program reaches outside its sandbox only through the host modules its host wires in. The CLI and the JS host both serve `net`, for requests and sockets, and the CLI also serves `files`, which reads local files. A host module needs no `imports` entry, and a package can import it only when the root `edge.json` grants it.
 
-| Module | Reaches |
-|---|---|
-| `fs` | The files of the project |
-| `net` | The network |
-| `time` | The clock |
-| `secret` | The values a host keeps for the program |
+A call that fails raises a class of the runtime that runs it, named in its descriptor. An argument the rules refuse raises the runtime's value error, `ValueError` in mini. A host or path outside the grant raises its `denied_error`, `PermissionError` in mini, and a call that reached out and failed raises its `failed_error`, `OSError` in mini. Uptime raises `BadData`, `Denied` and `Unreachable` for the same three, and the rest of this page names mini's.
 
-They ship inside Edge Python and need no `imports` entry. A package can import one only when the root `edge.json` grants it.
+```edge-manifest
+{ "permissions": { "main": ["net:api.github.com"] } }
+```
 
-```python
-import fs
+```edge
 import net
-import time
-import secret
+
+r = net.request("GET", "https://api.github.com/zen")
+print("granted", r > 0)
+try:
+    net.request("GET", "https://evil.example/")
+except PermissionError as e:
+    print(e)
+```
+
+```output
+granted True
+'main' has no net:evil.example, edge.json grants it net:api.github.com
 ```
 
 ## Permissions
@@ -31,8 +37,8 @@ The root `edge.json` grants each package it imports. Each package passes grants 
 {
   "imports": { "analytics": "1.2.0" },
   "permissions": {
-    "main": ["net:api.example.com", "time:wall", "time:zone"],
-    "analytics": ["net:api.telemetry.com", "time:monotonic"]
+    "main": ["net:api.example.com"],
+    "analytics": ["net:api.telemetry.com/v1"]
   }
 }
 ```
@@ -42,26 +48,15 @@ The root `edge.json` grants each package it imports. Each package passes grants 
 | `main` | The code of the package itself. For the root, every module under the root `edge.json` |
 | `all` | `main` and every package it imports |
 | An import key | The package that key imports |
-| `eval` | Nobody. It caps what a bundle may grant in an [eval group](/docs/edge-python/platforms/actors#untrusted-code) |
+| `eval` | Nobody. It caps what a bundle may grant in an [eval group](/docs/edge-lang/platforms/actors#untrusted-code) |
 
 | Entry | Allows |
 |---|---|
 | `net:<host>` | `request` and `connect` to that exact host, on any port and path |
 | `net:<host>/<prefix>` | The same host, but only at `<prefix>` and the paths under it |
-| `time:wall` | `now()` |
-| `time:monotonic` | `now('monotonic')` |
-| `time:zone` | `zone()` |
-| `secret:<NAME>` | `read('<NAME>')`, that one value and no other |
-| `fs:./<folder>` | `read` and `list` under that folder of the project |
-| `fs:.` | `read` and `list` anywhere in the project |
+| `net` | Importing the module and reaching nothing |
 
-Each scope follows a few rules.
-
-- A `net` host is a lowercase name or an IPv4 written as `a.b.c.d`. It carries no scheme and no port.
-- IPv6 is not supported. The policy of a browser frame cannot name one.
-- A secret name is uppercase letters, digits and underscores. It never starts with a digit.
-- An `fs` folder is written from the root `edge.json`. `fs:./shop` reaches `shop/Gemfile` and never `shopping/`.
-- An entry without a scope, such as `"net"`, lets the package import the module and reach nothing.
+A host is a lowercase name or an IPv4 written as `a.b.c.d`, with no scheme and no port. IPv6 is not supported, since the policy of a browser frame cannot name one. A module the host does not serve, or a scope its module does not take, stops the run before anything compiles.
 
 ### Path prefixes
 
@@ -80,7 +75,9 @@ A package is what an import key brings in, the nearest `edge.json` above its fil
 - A package holds what its importer writes under its key, joined with what the importer writes for `all`.
 - An importer other than the root passes on only what it holds itself.
 - The `name` a manifest gives itself never counts. No package can pose as another.
-- Code reached by a relative import belongs to the package that imports it, even under an `edge.json` of its own.
+- Code reached by a relative import belongs to the package that imports it, even under an `edge.json` of its own, unless an import key brings that package in or it sits in a package around the importer.
+- Two importers holding different grants that reach one such package by relative imports stop the run before anything compiles with `'shared/' is reached by relative imports from 'pay/' and 'shop/' which hold different grants, import it under a key of each edge.json instead`.
+- A grant under the import key of a local module with no `edge.json` of its own reaches nothing, since that code runs as part of its importer, so the run stops before anything compiles with `permissions for 'util' reach nothing, its import './util/main.mini' has no edge.json of its own so it runs as part of this package`.
 - A package two importers share loads once for each. Each copy holds only what its own importer passes it.
 - Code outside any package holds nothing.
 
@@ -91,7 +88,7 @@ A dependency writes in its own `edge.json` what its code needs under `main`. It 
 A generic client such as `http` asks for `"net"` alone. The package that imports it passes the hosts.
 
 ```json
-{ "name": "analytics", "imports": { "http": "0.2.0" }, "permissions": { "main": ["time:monotonic"], "http": ["net:api.telemetry.com"] } }
+{ "name": "analytics", "imports": { "http": "0.2.0" }, "permissions": { "main": ["net:api.telemetry.com"], "http": ["net:api.telemetry.com"] } }
 ```
 
 The CLI holds the tree to these asks at every step.
@@ -99,11 +96,11 @@ The CLI holds the tree to these asks at every step.
 - `edge add` prints what each new package asks for.
 - `edge lock` walks the whole tree, each package through its own `edge.lock`. It writes nothing until the root gives each package it imports everything that package lists, and it names each one that misses something.
 - A package that passes an import less than it asks fails the lock the same way.
-- `edge build`, `edge run` and `edge test` run the same check before anything compiles. An edit after the last lock cannot slip past it.
+- `edge run` and `edge test` run the same check before anything compiles, on the nearest `edge.json` above the script or the tested path, and `edge build` on the project's own. An edit after the last lock cannot slip past it.
 
 ```text
 error: edge.json does not grant what these packages ask for
-  analytics 1.2.0   net:api.telemetry.com, time:monotonic
+  analytics 1.2.0   net:api.telemetry.com
 help: grant them under "permissions" in edge.json
 ```
 
@@ -111,59 +108,61 @@ No import may be named `all`, `main` or `eval`. The package it brings in would a
 
 ### Where a grant is checked
 
-Importing a system module the package holds no entry for fails at compile time.
+Importing a host module the package holds no entry for fails at compile time.
 
 ```text
 'analytics' imports net, which edge.json does not grant it
 ```
 
-Every call checks its scope again, since a url is only known once the program runs. A call outside the grant raises `PermissionError` in the coroutine that made it. `PermissionError` is a subclass of `OSError`.
+Every call checks its scope again, since a url is only known once the program runs. A call outside the grant raises `PermissionError` in the coroutine that made it, before any byte leaves.
 
-```python
-import net
-
-try:
-    net.request("GET", "https://evil.example/")
-except PermissionError as e:
-    print(e)  # 'main' has no net:evil.example, edge.json grants it net:api.example.com
-```
-
-A system module, and every request or socket it opens, answers only code of the package that imported it. Another package that reaches the object, as `pepito.time` or a function passed along, gets `PermissionError` and imports the module itself to use its own grants. A malformed section stops the run before anything compiles, naming the holder and the entry.
-
-## time
-
-| Call | Needs | Returns |
-|---|---|---|
-| `now()`, `now('wall')` | `time:wall` | Nanoseconds since the Unix epoch |
-| `now('monotonic')` | `time:monotonic` | Nanoseconds from an arbitrary start, never going back |
-| `zone()` | `time:zone` | `[name, offset]`, the IANA zone and its offset from UTC in seconds |
-
-A run without any `time` scope reads no clock, so what it prints never depends on when it runs.
+A host module, and every request or socket it opens, answers only code of the package that imported it. Another package that reaches the object, as `analytics.net` or a function passed along, gets `PermissionError` and imports the module itself to use its own grants.
 
 ## net
 
 | Call | Returns |
 |---|---|
-| `request(method, url, headers, body)` | An id at once. The request goes out in the background |
+| `request(method, url, headers, body, inflate, timeout)` | An id at once. The request goes out in the background |
 | `response(id)` | `[status, headers]` once the head arrived |
-| `read(id)` | The next chunk of the body or the next message of a socket. `None` once it ended |
+| `read(id)` | The next chunk of the body or the next message of a socket. `nil` once it ended, and on every read after |
 | `connect(url)` | A socket id once the WebSocket is open |
 | `send(id, data)` | Sends `bytes` or a `str` on a socket |
 | `close(id)` | Aborts a request or closes a socket |
 
-`headers` is a list of `[name, value]` pairs or a dict. `body` is `bytes`, a `str` or `None`. A failure to connect or read raises `OSError` from the call that meets it.
+`headers` is a list of `[name, value]` pairs or a dict. `body` is `bytes`, a `str` or `nil`. With `inflate` set to `"gzip"`, `read` hands back the bytes a gzip body holds. A body arrives one chunk per `read`, so a large one never sits in memory whole. `timeout` bounds the head and each body read to that many seconds, 30 by default and at most 86400, and a read counts it only while it waits. A server silent past it fails the call waiting on it with `OSError`, and every later `read` of that request fails the same way. Every argument after `url` may be left out.
 
-```python
+A package holds at most 128 requests and sockets open at once, and one more fails with `OSError` until it closes one. A socket keeps at most 1024 messages and 16 MB nobody has read. Past them it closes, and a read past the messages it kept fails with `OSError`.
+
+```edge-manifest
+{ "permissions": { "main": ["net:api.github.com"] } }
+```
+
+```edge
 import net
 
-r = net.request("GET", "https://api.example.com/items", [["accept", "application/json"]], None)
+r = net.request("GET", "https://api.github.com/zen", [["accept", "application/vnd.github+json"]], nil)
 status, headers = net.response(r)
 body = b""
 chunk = net.read(r)
-while chunk is not None:
+while chunk is !nil:
     body += chunk
     chunk = net.read(r)
+print(status, body.decode())
 ```
+
+```output
+200 Responsive is better than fast.
+```
+
+GitHub answers one line of its zen, another on each request, and that one came on 25 October 2026.
+
+A call fails with one of three errors.
+
+| Raises | When |
+|---|---|
+| `ValueError` | An argument the rules refuse, before anything is sent |
+| `PermissionError` | A host or path outside the grant, before anything is sent |
+| `OSError` | A connection, a read or a redirect that failed, from the call that meets it |
 
 ### URL rules
 
@@ -172,7 +171,7 @@ The check and the request always read the same host and exactly one path. The pa
 | Part | Rule |
 |---|---|
 | Host | It comes right after the scheme, with no user before it. Anything else raises `ValueError` |
-| Characters | No backslash, space or control character anywhere, or `ValueError`. An `@` later in the path stays, as in `https://edgepython.com/@dylan` |
+| Characters | No backslash, space or control character anywhere, or `ValueError`. An `@` later in the path stays, as in `https://edgelang.dev/@dylan` |
 | Non-ASCII host | Raises `ValueError`. Only its punycode form reads the same everywhere |
 | Numeric host | A host ending in a number raises `ValueError` unless it is written `a.b.c.d`. A browser reads `0x7f.1` or `2130706433` as an IPv4 |
 | Dot segments | A `.` or `..` segment is applied however it is spelled. `/v2/%2e%2e/admin` is `/admin`, and a path prefix cannot be climbed out of |
@@ -180,101 +179,55 @@ The check and the request always read the same host and exactly one path. The pa
 | Fragment | Dropped. It never leaves the host |
 | Redirects | No host follows one. A 301, 302, 303, 307 or 308 raises `OSError`, and the new address goes through its own `request` and its own check |
 | Headers | One that fetch keeps for the host raises `ValueError`, such as `Host`, `Cookie`, `Origin` or any `Sec-` or `Proxy-` header |
+| Sockets | `connect` takes `ws` and `wss`, and an `http` or `https` url opens its socket twin |
 
-In a browser the request is a `fetch` from the Web Worker, and CORS applies on top of the grant. The CLI runs the same calls in SpiderMonkey, with its own HTTP and WebSocket clients underneath. A program answers the same with and without `--web`.
+In a browser the request is a `fetch` from the Web Worker, and CORS applies on top of the grant.
 
-## secret
+### Two implementations
 
-| Call | Needs | Returns |
-|---|---|---|
-| `read(name)` | `secret:<name>` | The value the host keeps under that name, as a `str` |
+The browser and the CLI each run `net` as a module of their own, one in TypeScript over `fetch` and `WebSocket`, one in Rust over `ureq` and `tungstenite`. Both follow the rules above, and one suite of cases runs every program on both, granted and denied. A program answers the same with and without `--web`.
 
-A name the package does not hold raises `PermissionError`. A name it holds but the host keeps no value for raises `OSError`.
-
-Nothing lists the names a host keeps. A program reads only the values it was granted and asks for by name.
-
-- The CLI reads `EDGE_SECRET_<name>` from its environment at the moment of the call. A program never reaches a variable it was not granted, whatever else the environment holds.
-- With `--web` the CLI hands the page only the values a `secret` entry names.
-- A page that embeds the engine passes them to `createWorker` as [secrets](/docs/edge-python/platforms/javascript#permissions-and-secrets).
-
-```python
-import secret
-
-token = secret.read("GITHUB_TOKEN")
+```rust file=examples/net/net.rs
 ```
 
-```bash
-EDGE_SECRET_GITHUB_TOKEN=ghp_example edge run main.py
+```ts file=examples/net/net.ts
 ```
 
-## fs
+## files
 
-| Call | Needs | Returns |
-|---|---|---|
-| `read(path)` | `fs:` a folder holding `path` | The text of that file, read as UTF-8, as a `str` |
-| `list(dir='.')` | `fs:` a folder holding `dir` | Every file under `dir`, as paths from the root `edge.json`, in order |
+The CLI serves `files`, which reads the files a grant names below the directory of the package's `edge.json`. The JS host serves no files.
 
-A path is written from the root `edge.json`, such as `shop/app/product.rb`. Nothing writes.
-
-| Case | Raises |
+| Call | Returns |
 |---|---|
-| A path with `..`, a leading `/` or a name starting with a dot | `PermissionError` |
-| A path outside every folder the package holds | `PermissionError` |
-| A file that is missing, is not UTF-8 or is over 10 MB | `OSError` |
-| A list of more than 10,000 files | `OSError` |
+| `open(path, inflate)` | An id once a grant reaches the path and the file opens |
+| `read(id)` | The next chunk of the file, or `nil` once it ended |
+| `close(id)` | Nothing, and the file is dropped |
 
-Each host reads the files its own way. Both read the same files.
+A path is names joined by slashes below the package, with no `.` or `..` segment, no leading slash and no backslash. A grant names one file, as `files:events.jsonl` does, or a directory with a trailing slash, as `files:data/` does, which reaches every file below it. With `inflate` set to `"gzip"`, `read` hands back the bytes the file holds inflated, and a file with bytes after its gzip stream fails as such a body fails through `net`.
 
-- The CLI reads the disk, or the bundle a run came in. It never follows a link, even one pointing inside the project.
-- A page reads the files beside its program through the same reader its imports use.
-- HTTP cannot list a folder. A page lists files from `edge.files`, the list `edge build --web` writes and `edge serve` and `--web` answer.
-- A page reads only the paths that list names.
-- A page that embeds the engine serves `edge.files` beside its `edge.json`, a JSON list of every path `fs` may read.
+| Raises | When |
+|---|---|
+| `ValueError` | A path the rules refuse, before anything opens |
+| `PermissionError` | A path no grant of the package reaches |
+| `OSError` | A file that is missing or fails to read |
 
-```json
-{ "permissions": { "main": ["fs:./shop"] } }
+An untrusted run in an actor pool reads only below the pool's `edge.json`, within what the pool grants `eval`. A package other than the root writes a file channel only below its own directory, where its `files` grant reaches, and the root writes one without a grant. A tiny flow whose `from` names a path reads it through this module, as [Tiny](/docs/edge-lang/get-started/use-cases/tiny#sources-and-sinks) shows.
+
+```rust file=cli/src/files.rs
 ```
-
-```python
-import fs
-
-for path in fs.list("shop"):
-    print(path)
-
-code = fs.read("shop/app/models/product.rb")
-```
-
-## batch
-
-Every system module also takes `batch(calls)`. `calls` is a list of `[name, *args]` lists answered in one crossing, and the results come back in the same order.
-
-- A call that waits holds the batch until every one settles.
-- The first failure raises in the coroutine that made the batch.
-- Each call still checks its own scope.
-
-```python
-import net
-import time
-
-now, zone = time.batch([["now"], ["zone"]])
-ids = net.batch([["request", "GET", url] for url in ["https://api.example.com/a", "https://api.example.com/b"]])
-heads = net.batch([["response", i] for i in ids])
-```
-
-Each crossing between the program and the host pays to decode the arguments and encode the answer. A batch pays it once for all of its calls.
 
 ## From a plugin
 
-A `.wasm` plugin reaches these calls through the `Sys` op of the [ABI](/docs/edge-python/reference/abi#system-calls).
+A `.wasm` plugin reaches these calls through the `Sys` op of the [ABI](/docs/edge-lang/reference/abi#system-calls), with the grants of its package.
 
 ## In a page
 
-A page passes grants, secrets and a trace switch to `createWorker`, described in [JavaScript](/docs/edge-python/platforms/javascript#permissions-and-secrets).
+A page passes grants and a trace switch to `createWorker`, described in [JavaScript](/docs/edge-lang/platforms/javascript#permissions). A bundle of its own serves other host modules beside `net` or in its place, described in [Compose a host](/docs/edge-lang/platforms/javascript#compose-a-host).
 
 ## See also
 
 > [!CARDS]
-> - `package` [Modules](/docs/edge-python/reference/modules) The edge.json of each package and where it sits.
-> - `triangle-alert` [Limits and errors](/docs/edge-python/reference/limits-and-errors) The exception tree PermissionError joins.
-> - `globe` [JavaScript](/docs/edge-python/platforms/javascript) Grants, secrets and the trace of a page.
-> - `plug` [ABI](/docs/edge-python/reference/abi#system-calls) System calls from a plugin.
+> - `package` [Modules](/docs/edge-lang/reference/modules) The edge.json of each package and where it sits.
+> - `triangle-alert` [Limits](/docs/edge-lang/sdk/limits) The sandbox limits every host call runs under.
+> - `globe` [JavaScript](/docs/edge-lang/platforms/javascript) Grants and the trace of a page.
+> - `plug` [ABI](/docs/edge-lang/reference/abi#system-calls) Host calls from a plugin.

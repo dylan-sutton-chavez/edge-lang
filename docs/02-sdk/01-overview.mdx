@@ -1,0 +1,118 @@
+---
+title: "Overview"
+description: "The three parts every runtime is built from with the files of the smallest, the path a program takes through the engine from its source to the register loop, and what each page of the SDK covers."
+---
+
+# Overview
+
+Edge Lang is the engine a language runtime is built on. Every program, whatever runtime it is written for, compiles to the same bytecode and runs in the same loop, and the parts its runtime brings decide how the program is written, what it calls and how its errors read. This page names the three parts a runtime is built from, with the files of the smallest one, follows a program through the engine and maps the pages of the SDK.
+
+## The three parts
+
+Every runtime is built from three parts. Only the runtime is written for its language, the engine is the same for all of them, and lib is optional.
+
+| Part | Lives in | Owns |
+|---|---|---|
+| A runtime | A crate of its own, as `examples/mini`, `examples/uptime` and `examples/tiny` are | How its programs are written, its names for the engine's kinds and errors, its rules and its natives, with the descriptor its tools read |
+| The engine | `src/`, the crate `edge` | The path of a program below, values and the heap, the collector and the meter, the limits, snapshots, the module walk, the grant logic and the exports every host binds |
+| Lib | `lib/`, the crate `lib` | Kernels a runtime names as its natives, with no name and no words of their own, each module behind a Cargo feature |
+
+### A runtime
+
+A runtime is a crate that hands the engine one type implementing `Language`, with its syntax in `FRONT`, its names for the engine's kinds and errors in `NAMES`, its rules in `POLICY` and its natives in `NATIVES`. Uptime, the smallest in the repo, is the 241 lines of Rust in the five files of `examples/uptime/src`.
+
+| File | Lines | Holds |
+|---|---:|---|
+| `examples/uptime/src/syntax.rs` | 78 | The token table checks are written in |
+| `examples/uptime/src/natives.rs` | 23 | Four natives of lib under the names a check calls |
+| `examples/uptime/src/language.rs` | 44 | Its rules and the answers lib gives the engine for it |
+| `examples/uptime/src/names.rs` | 57 | The classes of its errors and its words for the engine's kinds |
+| `examples/uptime/src/lib.rs` | 39 | The front, the descriptor and the wasm exports |
+
+Its `Language` is whole below, with lib answering how its values show, how a format spec fills a field and which classes a handler matches.
+
+```rust file=examples/uptime/src/language.rs
+```
+
+Its `lib.rs` makes the runtime every host boots of the same type with `Runtime::of::<Uptime>()`, names its files and errors for the tools in a `Descriptor`, and builds the exports of `uptime.wasm` with `web_exports!`. [Your runtime and its CLI](/docs/edge-lang/get-started/use-cases/your-runtime) builds uptime file by file, [the book](/docs/edge-lang/get-started/book/intro) covers why the engine asks for each part and what each choice costs, and [Language](/docs/edge-lang/sdk/language) is the reference of the trait.
+
+### The engine
+
+The engine spells no language. It holds no token table, its own names for kinds and error classes are plain ones a runtime's `Names` replaces, and `make lint` fails when `src/`, `lib/src` or `plugin/` holds a name `make/names.txt` denies. Its directories follow the path of a program, which the next section walks.
+
+| Directory | Holds |
+|---|---|
+| `src/syntax` | The lexer, the single-pass parser, the chunk it writes and its diagnostics |
+| `src/code` | The opcode table, the fold pass, and the calls tools compile through without running anything |
+| `src/vm` | The lowering, the register loop and its driver, frames and sections, generators, the callbacks of natives and snapshots |
+| `src/value` | Values and the heap, FOREIGN kinds, equality and hashing, and the meter |
+| `src/lang` | What a runtime hands the engine, its `Language`, its natives and the `Cx` they run with |
+| `src/deps` | Manifests, locks and bundles, the module walk and the grant logic |
+| `src/targets/web` | The exports every runtime's `.wasm` offers its host |
+| `src/targets/native` | The metered allocator a native binary installs and the `Script` it runs a runtime with |
+| `src/abi.rs`, `src/abi` | The wire format of plugins and the bridge that answers them |
+
+### Lib
+
+Lib holds the natives a runtime would otherwise write itself, as kernels with no name and no words of their own. A runtime turns on the modules it needs by Cargo feature, gives each kernel the name a program calls and the variants it leaves open in a table built with `lib::table!`, and words a kernel's failures through lib's `Lang`. Uptime names four kernels and mini nearly every one. A native lib lacks is a `Native` the runtime writes itself, as tiny writes the spans between two times. [Lib](/docs/edge-lang/sdk/lib) lists every kernel, and [Natives](/docs/edge-lang/sdk/natives) covers the engine's side of every native.
+
+## The path of a program
+
+A source becomes bytecode through the runtime's token table, which the engine's lexer and single-pass parser read it with, or through a front end of the runtime's own. The bytecode runs in one register loop with a driver around it, and code that runs often is lowered on the way.
+
+### A token table or a front end
+
+A runtime first decides how its programs are written. Mini and uptime each bring a token table, a `Syntax` that spells the engine's one grammar, and `Front::spelled::<S>()`, with `S` the type that pairs the table with the runtime's natives, reads every source through the kit's lexer and parser. Tiny's programs are YAML flows, which the grammar has no statements for, so its `Front` reads each source itself and builds the bytecode through a `Builder`, its expressions still read through a table of its own. [Parser kit](/docs/edge-lang/sdk/parser-kit) covers the grammar and every field of a table, and [Front ends](/docs/edge-lang/sdk/front-ends) covers a front of a runtime's own.
+
+Imports resolve before anything compiles. The module walk asks the front what each source imports and has the host fetch every module it reaches, holding each host module to the grants of `edge.json`, so a run never fetches a module, as [Modules](/docs/edge-lang/reference/modules) explains.
+
+### The lexer and the parser
+
+The lexer walks the source as bytes through the table in linear time. A token it gives holds a kind, a line and two byte offsets, never a copy of the text, and a kind names a role rather than a spelling, so `Not` is `!` in mini and `not` in uptime. The parser reads the tokens in one pass with no AST and routes on kinds alone, so every table compiles a construct to the same bytecode. The diagnostics of both land in one report. [Compiler](/docs/edge-lang/internals/compiler) covers both stages, and [Diagnostics](/docs/edge-lang/reference/diagnostics) lists what they report.
+
+### The bytecode and its lowering
+
+The parser writes bytecode as it reads, into a chunk for the module and one for each function and class body in it. An instruction is four bytes, an op of the one table [Opcodes](/docs/edge-lang/sdk/opcodes) covers and a 16-bit operand. The bytecode is in SSA form. Each store to a name takes a new version of it, and a phi where branches join copies the version the branch that ran left. A fold pass then folds the operators whose operands are constants and drops each phi that copies nothing.
+
+On a chunk's first run its bytecode runs as the compiler wrote it, in the register loop itself. Each op reads and writes rows, the registers of the frame laid past its names that hold what a stack would, so the engine has one loop and no stack interpreter beside it. Code that runs often is lowered.
+
+- A function's second call lowers its chunk to register forms, which name the frame slots they read and write, so one instruction reads two registers and writes a third.
+- Code called 64 times is lowered again with sections. A loop still in the compiler's code that passes 16 back-edges is lowered with sections at once and carries on from its head in the new code. A section is a function the calls found, laid inside the caller's own code, so a call checks that its name still holds that function, or its receiver's class that method, writes its arguments into the section's registers and jumps.
+
+[Dispatch shape](/docs/edge-lang/internals/design#dispatch-shape) covers each lowering.
+
+### The loop and its driver
+
+One register loop runs every frame of a run. A call opens its frame in that loop and a return hands it back to the caller, the callback of a native runs there as a frame too, and a call laid as a section is a jump inside the code, so recursion in a program never recurses in Rust. Only a call a plugin or the host makes into program code opens a loop inside another, at most 128 deep, as [Calling program code from Rust](/docs/edge-lang/internals/design#calling-program-code-from-rust) explains.
+
+The loop runs register code and enters and leaves the frames of plain calls in place. It leaves the rest to the driver around it, which enters the frames of other calls, opens class bodies, lowers and grows code, ends returns, `finally` bodies and awaits, takes yields and unwinds errors to their handlers, then hands the loop back. A back-edge is a safe point of the loop, where a run pays a step of its op budget, the collector may run and a preempt may land.
+
+A wait parks the whole run, as a preempt does, and the host gets back a status that names why, as [Host waits](/docs/edge-lang/sdk/host-waits) describes. A host never runs the loop itself. It calls the exports of the runtime's `.wasm`, `run_start` to begin and `run_resume` to go on, as [The run loop](/docs/edge-lang/platforms/rust#the-run-loop) lists, and a host that takes the crate drives a `VM` the same way, as [Embedding](/docs/edge-lang/sdk/embedding#the-run-loop) shows.
+
+The loop is generic over a runtime's `Language`, so it folds the runtime's policy as constants and words every error the engine raises through the runtime. It asks the rules of a site only where its own path has no answer and keeps the rule a site was given, and it runs the runtime's own opcodes beside the engine's. [What is not there yet](/docs/edge-lang/sdk/language#what-is-not-there-yet) lists what is left.
+
+## The pages of the SDK
+
+| Page | Covers |
+|---|---|
+| [Values](/docs/edge-lang/sdk/values) | What a value is, the NaN-box and its kinds, the heap and what it interns, FOREIGN kinds, the collector and the meter |
+| [Calls](/docs/edge-lang/sdk/calls) | Calls as jumps, frames, recursion levels and why nothing nests the loop |
+| [Language](/docs/edge-lang/sdk/language) | The trait a runtime implements, its policy, the keys and rules of a site and `EngineError`, with what the engine reads of each today |
+| [Natives](/docs/edge-lang/sdk/natives) | `Native`, `Sig`, `Args`, `Cx` and `Step`, the registry and the methods of each kind, the guardrails around a call and the budget it pays |
+| [Lib](/docs/edge-lang/sdk/lib) | The kernels by module, the variants a kernel leaves open, tables, `Lang`, failures and their words, and the parts of a language lib answers |
+| [Parser kit](/docs/edge-lang/sdk/parser-kit) | The one grammar, every field of a token table, and the forms every table shares |
+| [Opcodes](/docs/edge-lang/sdk/opcodes) | The table every opcode is declared in, its columns, what `edge::ops!` makes of it and how it is checked |
+| [Embedding](/docs/edge-lang/sdk/embedding) | The crate and its features, a `VM` over a runtime and its limits, the metered allocator, the run loop, the output and a whole native binary |
+| [Host waits](/docs/edge-lang/sdk/host-waits) | How a run waits for an event or a host call, where in a program it may wait, and how each host answers |
+| [Snapshots](/docs/edge-lang/sdk/snapshots) | A parked run frozen to a sealed blob, what the blob holds, and a restore on any host |
+| [Limits](/docs/edge-lang/sdk/limits) | The op budget, the memory limit and the depth caps of every run, the caps of the compiler, and determinism |
+| [Testing](/docs/edge-lang/sdk/testing) | The engine, native and syntax cases, the bench and its keys, the comparison with `main`, and Miri |
+| [Front ends](/docs/edge-lang/sdk/front-ends) | `Front` and `Builder` for a surface of a runtime's own, with tiny's YAML flows |
+| [Plugins](/docs/edge-lang/sdk/plugins) | Wasm plugins and host modules, `net` written once for each host, and the grants that hold them |
+| [CLI kit](/docs/edge-lang/sdk/cli) | The `cli` crate as a kit, its commands and components, with the `edge` binary as one composition of it |
+
+> [!CARDS]
+> - `book-open` [The book](/docs/edge-lang/get-started/book/intro) Build a runtime on the engine one piece at a time, and what each choice costs.
+> - `activity` [Your runtime and its CLI](/docs/edge-lang/get-started/use-cases/your-runtime) Uptime and its CLI, built file by file.
+> - `cpu` [Design](/docs/edge-lang/internals/design) The register loop, the lowering, calls as jumps and the collector in depth.
+> - `braces` [Compiler](/docs/edge-lang/internals/compiler) The lexer, the single-pass parser and the bytecode they write.

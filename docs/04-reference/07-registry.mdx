@@ -5,11 +5,11 @@ description: "Publishing a package, the docs it carries, and reading the registr
 
 # Registry
 
-The registry at edgepython.com stores the packages `edge publish` sends. `edge add` and `edge lock` read it to resolve a name. Its listings and these pages also answer over HTTP.
+The registry at `edgelang.dev` stores the packages `edge publish` sends. `edge add` and `edge lock` read it to resolve a name. Its listings and these pages also answer over HTTP.
 
 ## Publishing
 
-[`edge publish`](/docs/edge-python/platforms/cli#edge-publish) uploads a `.edge` packed by `edge build`. The artifact is the whole request.
+[`edge publish`](/docs/edge-lang/platforms/cli#edge-publish) uploads a `.edge` packed by `edge build`. The artifact is the whole request.
 
 - The registry reads the name, the version, the description, the repository, the `LICENSE` and the doc pages out of the bytes it is about to store. A listing only ever shows what you shipped.
 - The artifact is stored exactly as it was packed.
@@ -19,7 +19,7 @@ The registry at edgepython.com stores the packages `edge publish` sends. `edge a
 
 ### Signing
 
-`EDGE_TOKEN` holds a token from [the settings](https://edgepython.com/settings#tokens). The CLI derives an Ed25519 key from it and signs the digest of the artifact with the current time. The registry keeps only the public key, and the token never leaves your machine.
+`EDGE_TOKEN` holds a token from the settings of your account at `edgelang.dev/settings#tokens`. The CLI derives an Ed25519 key from it and signs the digest of the artifact with the current time. The registry keeps only the public key, and the token never leaves your machine.
 
 ### Package fields
 
@@ -33,7 +33,7 @@ The CLI and the registry check the shape of these `edge.json` fields with the sa
 | `repository` | An `https` URL a listing can link, 256 characters at most |
 | `docs` | A relative directory inside the project |
 
-A name is never `all`, `main` or `eval`, which [permissions](/docs/edge-python/reference/system#permissions) reserve. It is never the name of a system module either.
+A name is never `all`, `main` or `eval`, which [permissions](/docs/edge-lang/reference/system#permissions) reserve. It is never the name of a host module either.
 
 ### Quotas
 
@@ -55,8 +55,8 @@ When `edge.json` declares a `docs` directory, `edge build` packs every `.mdx` pa
 - Every path segment carries a numeric prefix, like `01-reference/02-cli.mdx`.
 - A page opens with a closed frontmatter block that holds a `title` and a `description`.
 - A page has exactly one top-level `#` heading.
-- An `output` block sits only ever directly after an `edge-python` block.
-- An `edge-manifest` block sits only ever directly before an `edge-python` block. It holds one JSON object, the `edge.json` that example runs under, such as `{ "permissions": { "main": ["time:wall"] } }`.
+- An `output` block sits only ever directly after an `edge` block.
+- An `edge-manifest` block sits only ever directly before an `edge` block. It holds one JSON object, the `edge.json` that example runs under, such as `{ "permissions": { "main": ["net:api.github.com"] } }`.
 - An example without an `edge-manifest` block runs under `{}`.
 - Prose stays markdown and raw HTML is refused. Inline code can still write about a tag such as `<script>`.
 - Hidden files and folders are skipped.
@@ -75,7 +75,7 @@ A blockquote whose first line is a marker draws a box. A blank line ends the box
 | `[!BANNER]` | The title | One `[Action](link)` line |
 | `[!COPY]` | The text its button copies, without backticks | Nothing |
 
-- A card icon is the name of a [Lucide](https://lucide.dev/icons) icon from the release the CLI embeds.
+- A card icon is the name of a Lucide icon from the release the CLI embeds.
 - A card or a banner links only to `https` or to a path on the site.
 - A marker opens a box only on the first line of a quote.
 - A box other than `[!COPY]` may not be empty.
@@ -88,36 +88,36 @@ A blockquote whose first line is a marker draws a box. A blank line ends the box
 > Only the hosts its edge.json grants.
 
 > [!CARDS]
-> - `play` [Quickstart](/docs/edge-python/get-started/quickstart) Run a first script.
-> - `book-open` [Modules](/docs/edge-python/reference/modules) What edge.json declares.
+> - `play` [Quickstart](/docs/edge-lang/get-started/quickstart) Run a first script.
+> - `book-open` [Modules](/docs/edge-lang/reference/modules) What edge.json declares.
 
 > [!BANNER] Ready to share it?
-> [Publish a package](/docs/edge-python/reference/registry#publishing)
+> [Publish a package](/docs/edge-lang/reference/registry#publishing)
 
-> [!COPY] edge add json
+> [!COPY] edge add slugs
 ```
 
 ## HTTP API
 
 Everything the site shows answers as data at the same address under `/api`. Nothing here needs a token, and nothing here counts against a package.
 
-> [!COPY] curl 'https://edgepython.com/api/search?q=snapshot'
+> [!COPY] curl 'https://edgelang.dev/api/search?q=snapshot'
 
 ### Search
 
-`GET /api/search?q=<term>` runs one query over four shelves. It answers with `docs`, `people`, `services` and `packages`. A hit carries the address it was found at, and its data is that address under `/api`.
+`GET /api/search?q=<term>` runs one query over five shelves. It answers with `docs`, `services`, `packages`, `research` and `people`. A hit carries the address it was found at, and its data is that address under `/api`. A snippet marks each match between the bytes `\u0001` and `\u0002`.
 
 ```json
 {
   "docs": [
     {
-      "title": "Save, persist, restore",
-      "where": "Language · Snapshots",
-      "href": "/docs/language/snapshots#save-and-restore",
-      "snippet": "…a worker keeps its heap between calls…"
+      "title": "Snapshots",
+      "where": "Internals · Design",
+      "href": "/docs/edge-lang/internals/design#snapshots",
+      "snippet": " A \u0001snapshot\u0002 holds only the dynamic state of a parked VM. The …"
     }
   ],
-  "people": [], "services": [], "packages": []
+  "services": [], "packages": [], "research": [], "people": []
 }
 ```
 
@@ -137,4 +137,4 @@ Everything the site shows answers as data at the same address under `/api`. Noth
 | `GET /api/service/<name>` | One service |
 
 - `?v=` reads an older release of a package. The bare address reads the newest one still live.
-- Reading a package never moves its download number. Only [`edge add`](/docs/edge-python/platforms/cli#edge-add-and-edge-remove) counts one.
+- Reading a package never moves its download number. Only [`edge add`](/docs/edge-lang/platforms/cli#edge-add-and-edge-remove) counts one.

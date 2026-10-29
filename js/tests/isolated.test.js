@@ -6,7 +6,7 @@ import { Buffer } from "node:buffer";
 const BASE = Deno.env.get("EDGE_CDN_BASE")?.replace(/\/$/, "");
 if (!BASE) throw new Error("set EDGE_CDN_BASE (make serve)");
 // The host arrives as an argument, a literal import would have Deno fetch it too.
-const HOST = "https://cdn.edgepython.com/js/src/index.js";
+const HOST = "https://cdn.edgelang.dev/js/src/index.js";
 
 /* A page with a session runs a program, and only what the program was granted reaches it. */
 Deno.test("js: a worker holds nothing of the page and reaches only its grants", async () => {
@@ -21,7 +21,7 @@ Deno.test("js: a worker holds nothing of the page and reaches only its grants", 
         await page.route("**/*", async (r) => {
             const u = new URL(r.request().url());
             if (u.origin === origin) return r.continue();
-            if (u.host !== "cdn.edgepython.com") { strays.push(u.href); return r.abort(); }
+            if (u.host !== "cdn.edgelang.dev") { strays.push(u.href); return r.abort(); }
             const res = await fetch(BASE + u.pathname);
             return r.fulfill({ status: res.status, headers: { "access-control-allow-origin": "*", "content-type": res.headers.get("content-type") }, body: Buffer.from(await res.arrayBuffer()) });
         });

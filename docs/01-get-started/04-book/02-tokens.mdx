@@ -1,0 +1,200 @@
+---
+title: "Tokens or a front end"
+description: "Why the engine asks a runtime how its programs are written, the two ways to answer, what each may choose and what each costs."
+---
+
+# Tokens or a front end
+
+The engine compiles every program with one lexer, one single-pass parser and one grammar, straight to bytecode. It knows no spelling of that grammar, so the first piece a runtime brings is how its programs are written. A token table spells the engine's grammar, and the kit's lexer and parser read every source through it. A front end of its own reads a surface the grammar does not hold, such as a YAML mapping, and builds the bytecode itself.
+
+## Why the engine asks
+
+The parser routes on token kinds and never on text. A kind names a role, so `Catch` is `except` in mini and `catch` in uptime, and `Not` is `!` in mini and `not` in uptime. Which text stands for which kind is the runtime's choice, and so is what a program is at all, statements of the grammar or something the grammar has no statements for.
+
+Either way a runtime hands the engine a `Front`, and every host compiles through it.
+
+| Field | Why the engine needs it |
+|---|---|
+| `parse` | Every host and the module walk make a chunk of a source through it, and so does the engine for code it compiles while a program runs |
+| `imports` | Imports resolve before anything compiles, so the walk asks each source what it imports, then fetches it and checks its grant before any code runs |
+| `extension` | The extension an import implies, without its dot |
+| `syntax` | The token table when there is one, which the engine's hints read so a suggestion such as `Did you mean: 'nil'?` spells the table's word |
+
+A runtime with a table writes `Front::spelled::<S>()`, where `S` is the type that pairs its table with its natives, and gets all four. A runtime with a front end of its own writes the struct. Either names it once, as its language's `FRONT`, which `Runtime::of` hands every host and `web_exports!` reaches through the runtime, as [Front ends](/docs/edge-lang/sdk/front-ends#front) shows.
+
+## One job both ways
+
+The difference shows best on one job done in each. GH Archive's hour from 3 pm UTC on 1 October 2026 holds 85,569 public GitHub events, and the job counts the events of each type and keeps the five most common. In mini, a runtime with a token table, the program is statements of the engine's grammar that read the hour themselves.
+
+```edge
+import net
+
+HOUR = 'https://data.gharchive.org/2026-10-01-15.json.gz'
+
+// a line names its event's type before anything nested in it
+fn kind_of(line):
+    at = line.find(b'"type":"') + 8
+    return line[at:line.find(b'"', at)].decode()
+
+counts = {}
+r = net.request('GET', HOUR, nil, nil, 'gzip')
+rest = b''
+chunk = net.read(r)
+while chunk is !nil:
+    lines = (rest + chunk).split(b'\n')
+    rest = lines.pop()
+    for line in lines:
+        kind = kind_of(line)
+        counts[kind] = counts.get(kind, 0) + 1
+    chunk = net.read(r)
+
+for kind, n in sorted(counts.items(), key=lambda kv: kv[1], reverse=true)[:5]:
+    print(f'{n:>6}  {kind}')
+```
+
+Saved as `types.mini` in `examples/data`, whose `edge.json` grants the one host it reads, it prints the five counts. It reads 89.4 MB of JSON lines once they are inflated, which costs more than the CLI's default budget of 100,000,000 ops, so the run raises it, as [Natives](/docs/edge-lang/get-started/book/natives#what-a-native-pays) explains.
+
+```text
+$ edge run --ops 10000000000 types.mini
+ 64617  PushEvent
+ 10350  CreateEvent
+  3198  PullRequestEvent
+  3072  DeleteEvent
+  1368  IssueCommentEvent
+```
+
+In tiny, a runtime with a front end of its own, the same job is a YAML mapping. `from` names the source, and the one report counts the records by `type` and keeps the five greatest counts.
+
+```tiny
+from: https://data.gharchive.org/2026-10-01-15.json.gz
+
+types:
+  count: type
+  top: 5
+```
+
+Saved beside it as `types.flow.yaml`, it prints the same five counts, each a row of the report.
+
+```text
+$ tiny run types.flow.yaml
+types
+{"type":"PushEvent","count":64617}
+{"type":"CreateEvent","count":10350}
+{"type":"PullRequestEvent","count":3198}
+{"type":"DeleteEvent","count":3072}
+{"type":"IssueCommentEvent","count":1368}
+```
+
+The mini program writes its loop, cuts the chunks into lines and finds each type itself. Tiny's front end builds that loop from five lines of YAML, reading each record in full with lib's JSON reader. Both end as bytecode of the same engine, run by the same VM under the same grant.
+
+## A token table
+
+A table is a `Syntax`, a constant of the runtime's crate, and a type implementing `Spelling` pairs it with the natives the runtime's calls bind to. Uptime's table is 78 lines and mini's 113, and [Parser kit](/docs/edge-lang/sdk/parser-kit#a-table-field-by-field) shows uptime's whole with every field.
+
+### What a table may choose
+
+A table chooses how each construct of the grammar is written, and whether some of them exist at all.
+
+- **Its words and symbols.** Each word or symbol stands for a kind, and two words may make one, as `else if` and `not in` do. A construct whose leading kind the table never spells is not in the language. Uptime spells no `class`, `yield`, `match` or `raise`, so a check has no classes, generators, patterns or raises, and `class` is a plain name in it.
+- **Its blocks and statement ends.** Mini opens a block with a header colon and indentation, and uptime with the line end of a header, closed by `end`. Either way the lexer hands the parser where a block starts and ends, and the block compiles to the same code.
+- **Its operators.** The precedence ladder is the table's, and so is whether `a < b < c` tests both comparisons, which mini's does and uptime's does not.
+- **Its literals.** The quotes, prefixes and escapes of a text, the forms of a number, and which texts fill fields. Uptime fills every double-quoted text, so `"{name}"` needs no prefix, and a brace meant as text is doubled, as `"{{}}"` writes `{}`. Mini fills only a text with the `f` prefix, so its plain texts hold braces freely.
+- **Its shapes.** The grammar's optional forms and the kit's pieces. Uptime turns off the conditional expression, lambdas, slices, comprehensions and decorators, and makes `let` lead a name's first store, so a typo in a name fails before the check runs. Tiny's table reads a name after a dot as a key of a map, so `repo.name` reads a record's field.
+
+### What a table cannot choose
+
+A table spells the one grammar, and it cannot add a statement the grammar does not hold or change what a construct compiles to. The forms are the ones [Parser kit](/docs/edge-lang/sdk/parser-kit#statements) lists, and `with` and type aliases stay refused in every table. What a construct does once it runs is not the table's either. The engine runs it, calling the runtime's natives and naming its errors in the runtime's words.
+
+### What a table costs
+
+A table costs its runtime nothing per token. The lexer and the parser are generic over the table, and every choice is a constant they read at compile time, so each test of a switch folds away in the one copy the runtime's `.wasm` holds. A table pays only for the scans it turns on, a phrase scan for two-word entries such as `else if`, a pair scan for symbols such as `~/`, and the block-word scan for blocks that close with a word, as [Compiler](/docs/edge-lang/internals/compiler#token-tables) lists. The bytecode is the same whichever table spelled a program, so a run costs the same too.
+
+The table is checked when the runtime compiles. A table that contradicts itself, such as one whose blocks open at a line end and whose statements end only at semicolons, fails the build with the rule it breaks as the message, and [Parser kit](/docs/edge-lang/sdk/parser-kit#a-table-that-contradicts-itself) lists the rules.
+
+The lexer and the parser compile once for each table a runtime holds, so a second table adds a second copy of both to its `.wasm`. Every runtime in the repo holds one.
+
+What a runtime gets for its table is every diagnostic of the kit, spelled the table's way. A check whose loop lacks its `end` is refused before it runs, at the line whose end opened the block.
+
+```text
+$ uptime run -c 'let pages = ["github", "npm", "cloudflare"]
+for name in pages
+  print(name)
+'
+error: the block this line opens was never closed, close it with 'end'
+  --> <eval>:2:18
+  |
+2 | for name in pages
+  |                  ^
+```
+
+[Diagnostics](/docs/edge-lang/reference/diagnostics) lists the rest, each spelled through the table of the runtime that reports it.
+
+## A front end of its own
+
+A runtime whose programs are not statements of the grammar reads them itself. Tiny's are YAML mappings whose keys are reports, and no table can spell a mapping.
+
+### What a front end owns
+
+A front end writes the four fields of `Front` itself. Tiny's `parse` reads the YAML, checks the flow and lowers it. Its `imports` answers `net` for a flow whose `from` is a URL and `files` for one whose `from` is a path, so the walk serves that module and checks the flow's grant before anything compiles. Its `syntax` is `None`, since no table spells a flow.
+
+```rust file=examples/tiny/src/lib.rs
+```
+
+The reader, the checker and the lowering are tiny's own, in `examples/tiny/src/yaml.rs`, `examples/tiny/src/flow.rs` and `examples/tiny/src/lower.rs`, and [Front ends](/docs/edge-lang/sdk/front-ends) walks through all three.
+
+### What the engine still gives it
+
+`edge::code::build::<S>` hands the front end a `Builder`, which emits the bytecode the parser emits, so the rest of the engine treats the chunk alike. `expr(range)` reads one expression from those bytes of the source through the table `S`, so tiny writes no expression parser, only a table of 77 lines. Each token keeps its place in the whole source, so a diagnostic inside an expression points into the YAML file, and `at` anchors a run's error at the entry it rose in.
+
+A diagnostic of tiny's own and one of the kit's read alike. Spelling the report's `count` as `cuont` in `types.flow.yaml` fails in tiny's checker, which names the key it most likely meant and then the `top` left with no count to rank by. The same flow saved as `pushes.flow.yaml` with `where: type = "PushEvent"` as its second line, `=` in place of `==`, fails in the kit's lexer and parser inside the YAML value, at its line and column.
+
+```text
+$ tiny run types.flow.yaml
+error: report types has no key "cuont", did you mean count
+  --> types.flow.yaml:4:3
+  |
+4 |   cuont: type
+  |   ^^^^^
+
+error: top keeps the largest rows by the aggregate, so the report takes count, sum, average, min or max, or a sort
+  --> types.flow.yaml:5:3
+  |
+5 |   top: 5
+  |   ^^^
+
+$ tiny run pushes.flow.yaml
+error: unexpected character
+  --> pushes.flow.yaml:2:13
+  |
+2 | where: type = "PushEvent"
+  |             ^
+
+error: expected the end of the expression, got '"PushEvent"'
+  --> pushes.flow.yaml:2:15
+  |
+2 | where: type = "PushEvent"
+  |               ^^^^^^^^^^^
+```
+
+### What a front end costs
+
+A front end costs its runtime the code it writes. Tiny's reader, checker, lowering and expression table are 1,290 lines, where uptime's table is 78. It also owns its diagnostics and its imports, which a table gets from the kit.
+
+It costs a program nothing per record. The front end runs once, when the source compiles, and what runs after is the chunk it built. Tiny's YAML and its expressions are read once whatever the size of the data, and every record of the hour runs through the compiled loop.
+
+## Choosing
+
+| | A token table | A front end of its own |
+|---|---|---|
+| A program is | Statements of the engine's grammar | Whatever the runtime reads, lowered to the same bytecode |
+| The runtime writes | About a hundred lines of constants | A reader, a checker and a lowering, with a table for its expressions |
+| Diagnostics | The kit's, spelled the table's way | Its own for its structure, and the kit's for its expressions |
+| Imports | The import statements of the grammar | What its `imports` answers for a source |
+| At run time | The same as any other table | Nothing past the chunk it built |
+
+A language whose programs are code takes a table, and starting from the one in the repo closest to it is quickest. A language whose programs are data, a mapping, a query or a list of rules, takes a front end and keeps a table for the expressions inside it.
+
+> [!CARDS]
+> - `library` [Natives](/docs/edge-lang/get-started/book/natives) What the calls of both programs reach and what each one pays.
+> - `braces` [Parser kit](/docs/edge-lang/sdk/parser-kit) Every field of a token table and the grammar it spells.
+> - `workflow` [Front ends](/docs/edge-lang/sdk/front-ends) Front, Builder and the implicit subject, with tiny's lowering in full.

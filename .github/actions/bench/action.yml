@@ -1,5 +1,5 @@
 name: Bench
-description: Counts the instructions compiler.wasm runs for every case of tests/cases/vm and holds them to bench/.snapshot.
+description: Counts the instructions edge.wasm runs for every case of tests/cases/vm and holds them to bench/.snapshot.
 
 runs:
   using: composite
@@ -13,7 +13,12 @@ runs:
         cache: false
         rustflags: ""
 
-    # Runs on the build the snapshot was taken from, never the wasm-opt one the Compiler job stages.
+    # the bench counts the build before wasm-opt and never the one the wasm job stages
     - name: Bench
       shell: bash
       run: make bench
+
+    # a build with its static data shifted must count every case alike
+    - name: Layout
+      shell: bash
+      run: make bench-layout

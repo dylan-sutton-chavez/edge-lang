@@ -1,70 +1,65 @@
 [
   {
     "name": "an entry script past 1 MiB runs",
-    "generate": { "main.py": ["s = \"", ["a", 5242880], "\"\nprint(len(s))\n"] },
-    "steps": [{ "run": ["run", "main.py"], "stdout": ["5242880\n"] }]
+    "generate": { "main.mini": ["s = \"", ["a", 5242880], "\"\nprint(len(s))\n"] },
+    "steps": [{ "run": ["run", "main.mini"], "stdout": ["5242880\n"] }]
   },
   {
     "name": "stdin past 1 MiB reaches input() whole",
-    "given": { "main.py": "print(len(input()))\n" },
-    "steps": [{ "run": ["run", "main.py"], "stdin": [["b", 2097152], "\n"], "stdout": ["2097152\n"] }]
+    "given": { "main.mini": "print(len(input()))\n" },
+    "steps": [{ "run": ["run", "main.mini"], "stdin": [["b", 2097152], "\n"], "stdout": ["2097152\n"] }]
   },
   {
     "name": "a snapshot past 1 MiB saves and restores",
     "given": {
-      "main.py": "xs = [(\"v\" * 40) + str(i) for i in range(60000)]\nprint(\"built\", len(xs))\nmsg = receive()\nprint(\"resumed\", msg, len(xs))\n",
+      "main.mini": "xs = [(\"v\" * 40) + str(i) for i in range(60000)]\nprint(\"built\", len(xs))\nmsg = receive()\nprint(\"resumed\", msg, len(xs))\n",
       "ev.txt": "later\n"
     },
     "steps": [
-      { "run": ["run", "main.py", "--save-state", "state.bin"], "stdout": ["built 60000\n"], "stderr": ["state saved"], "file_bytes": { "state.bin": 1048577 } },
+      { "run": ["run", "main.mini", "--save-state", "state.bin"], "stdout": ["built 60000\n"], "stderr": ["state saved"], "file_bytes": { "state.bin": 1048577 } },
       { "run": ["run", "--restore-state", "state.bin", "--events", "ev.txt"], "stdout": ["resumed later 60000\n"] }
     ]
   },
   {
     "name": "a traceback past 1 MiB prints whole with its location",
-    "given": { "main.py": "msg = ''.join(['x' * 1000 for _ in range(2000)])\nraise ValueError(msg)\n" },
-    "steps": [{ "run": ["run", "main.py"], "exit": 1, "stderr": ["--> main.py:2:1"], "stderr_bytes": 2000000 }]
+    "given": { "main.mini": "msg = ''.join(['x' * 1000 for _ in range(2000)])\nraise ValueError(msg)\n" },
+    "steps": [{ "run": ["run", "main.mini"], "exit": 1, "stderr": ["--> main.mini:2:1"], "stderr_bytes": 2000000 }]
   },
   {
     "name": "a native module fails at its import",
     "given": {
       "edge.json": "{ \"imports\": { \"s\": \"./s.so\" } }\n",
       "s.so": "",
-      "s.py": "x = 1\nimport s\n"
+      "s.mini": "x = 1\nimport s\n"
     },
     "steps": [
-      { "run": ["run", "s.py"], "exit": 1, "stderr": ["error: module 's' is not supported, ship a .wasm\n", "--> s.py:2:8"] }
+      { "run": ["run", "s.mini"], "exit": 1, "stderr": ["error: module 's' is not supported, ship a .wasm\n", "--> s.mini:2:8"] }
     ]
   },
   {
     "name": "a JavaScript module is refused where it is imported",
     "given": {
-      "edge.json": "{ \"imports\": { \"lib\": \"./lib.py\", \"widget\": \"./widget.js\" } }\n",
+      "edge.json": "{ \"imports\": { \"lib\": \"./lib.mini\", \"widget\": \"./widget.js\" } }\n",
       "widget.js": "export default () => ({});\n",
-      "lib.py": "import widget\n",
-      "main.py": "import lib\n"
+      "lib.mini": "import widget\n",
+      "main.mini": "import lib\n"
     },
-    "steps": [{ "run": ["run", "main.py"], "exit": 1, "stderr": ["module 'widget' is JavaScript, ship a .py or a .wasm\n", "--> main.py:1:8"] }]
-  },
-  {
-    "name": "an undeclared official name says how to declare it",
-    "given": { "main.py": "x = 1\nimport json\n" },
-    "steps": [{ "run": ["run", "main.py"], "exit": 1, "stderr": ["error: module 'json' is not provided by this host and no edge.json declares it\nhelp: run `edge add json`\n", "--> main.py:2:8"] }]
+    "steps": [{ "run": ["run", "main.mini"], "exit": 1, "stderr": ["module 'widget' is JavaScript, ship a .mini or a .wasm\n", "--> main.mini:1:8"] }]
   },
   {
     "name": "an undeclared unknown name keeps the generic hint",
-    "given": { "main.py": "import my_helpers\n" },
-    "steps": [{ "run": ["run", "main.py"], "exit": 1, "stderr": ["help: declare it in edge.json, or use a relative import\n", "--> main.py:1:8"] }]
+    "given": { "main.mini": "import my_helpers\n" },
+    "steps": [{ "run": ["run", "main.mini"], "exit": 1, "stderr": ["help: declare it in edge.json, or use a relative import\n", "--> main.mini:1:8"] }]
   },
   {
     "name": "a remote module's missing manifests are asked for once",
     "given": {
-      "edge.json": "{ \"imports\": { \"lib\": \"{BASE}/lib/mod.py\" } }\n",
-      "main.py": "from lib import f\nprint(f())\n"
+      "edge.json": "{ \"imports\": { \"lib\": \"{BASE}/lib/mod.mini\" } }\n",
+      "main.mini": "from lib import f\nprint(f())\n"
     },
     "steps": [
-      { "run": ["run", "main.py"], "stdout": ["7\n"] },
-      { "run": ["run", "main.py"], "stdout": ["7\n"], "requests": { "/lib/mod.py": 1, "/lib/edge.json": 1, "/edge.json": 1 } }
+      { "run": ["run", "main.mini"], "stdout": ["7\n"] },
+      { "run": ["run", "main.mini"], "stdout": ["7\n"], "requests": { "/lib/mod.mini": 1, "/lib/edge.json": 1, "/edge.json": 1 } }
     ]
   },
   {
@@ -76,17 +71,34 @@
     "steps": [{ "run": ["actor", "pool.yml"], "lines": { "ok ": 20000 } }]
   },
   {
-    "name": "thousands of actors share the std packages",
-    "given": {
-      "edge.json": "{ \"imports\": { \"json\": \"0.1.0\", \"re\": \"0.1.0\", \"math\": \"0.1.0\", \"struct\": \"0.1.0\" } }\n",
-      "pool.yml": "runtime:\n  max_actors: 1000000\ngroups:\n  dispatcher:\n    seed: [\"go\"]\n    code: |\n      receive()\n      i = 0\n      while i < 3000:\n          send(\"workers\", str(i))\n          i = i + 1\n  workers:\n    replicas: 1000000\n    code: |\n      import json, re, math, struct\n      m = receive()\n      print(\"ok\", json.dumps([m]), math.floor(2.5), struct.calcsize(\"i\"))\n"
-    },
-    "steps": [{ "run": ["lock"] }, { "run": ["actor", "pool.yml"], "lines": { "ok [\"": 3000 } }]
+    "name": "builtins calling back into program code raise RecursionError before the stack runs out",
+    "given": { "main.mini": "fn check(f):\n    try:\n        f()\n    except RecursionError:\n        print('RecursionError')\nfn key(x):\n    return sorted([1, 2], key=key)\nfn low(x):\n    return min([1, 2], key=low)\nfn step(x):\n    return list(map(step, [1]))\nfn keep(x):\n    return list(filter(keep, [1]))\nfn gen():\n    yield next(gen())\ncheck(lambda: key(0))\ncheck(lambda: low(0))\ncheck(lambda: step(0))\ncheck(lambda: keep(0))\ncheck(lambda: next(gen()))\n" },
+    "steps": [{ "run": ["run", "main.mini"], "stdout": ["RecursionError\nRecursionError\nRecursionError\nRecursionError\nRecursionError\n"] }]
   },
   {
-    "name": "builtins calling back into Python raise RecursionError before the stack runs out",
-    "given": { "main.py": "def check(f):\n    try:\n        f()\n    except RecursionError:\n        print('RecursionError')\ndef key(x):\n    return sorted([1, 2], key=key)\nclass G:\n    def __getattr__(self, n):\n        return getattr(G(), n)\nclass I:\n    def __next__(self):\n        return next(I())\nclass L:\n    def __lt__(self, o):\n        return sorted([L(), L()]) is None\nclass R:\n    def __repr__(self):\n        return repr(R())\ncheck(lambda: key(0))\ncheck(lambda: G().zz)\ncheck(lambda: next(I()))\ncheck(lambda: sorted([L(), L()]))\ncheck(lambda: repr(R()))\n" },
-    "steps": [{ "run": ["run", "main.py"], "stdout": ["RecursionError\nRecursionError\nRecursionError\nRecursionError\nRecursionError\n"] }]
+    "name": "a plugin that does not load fails at its import and names the module that reached it",
+    "given": {
+      "edge.json": "{ \"imports\": { \"badplug\": \"./bad.wasm\", \"lib\": \"./lib.mini\" } }\n",
+      "bad.wasm": "notwasm",
+      "lib.mini": "x = 1\nimport badplug\n",
+      "main.mini": "print(1)\nimport badplug\n",
+      "via.mini": "import lib\n"
+    },
+    "steps": [
+      { "run": ["run", "main.mini"], "exit": 1, "stderr": ["error: module 'badplug' is not a valid plugin, failed to parse WebAssembly module: magic header not detected: bad magic number\n", "--> main.mini:2:8"] },
+      { "run": ["run", "via.mini"], "exit": 1, "stderr": ["module 'badplug' is not a valid plugin, failed to parse WebAssembly module: magic header not detected: bad magic number (via lib)\n", "--> via.mini:1:8"] }
+    ]
   },
-  {"name": "SyntaxWarnings print to stderr before the program runs, as Python prints them", "given": {"main.py": "print(\"start\")\ntry:\n    5()\nexcept TypeError:\n    print(\"caught\")\nassert (1, \"m\")\n"}, "steps": [{"run": ["run", "main.py"], "stdout": ["start\ncaught\n"], "stderr": ["main.py:3: SyntaxWarning: 'int' object is not callable; perhaps you missed a comma?\n  5()\n", "main.py:6: SyntaxWarning: assertion is always true, perhaps remove parentheses?\n  assert (1, \"m\")\n"]}]}
+  {
+    "name": "a restored run names its script and imports from beside it",
+    "given": {
+      "sub/helper.mini": "fn twice(x):\n    return x + x\n",
+      "sub/main.mini": "from .helper import twice\nmsg = receive()\nprint(twice(msg))\nraise ValueError(msg)\n",
+      "ev.txt": "ab\n"
+    },
+    "steps": [
+      { "run": ["run", "sub/main.mini", "--save-state", "state.bin"], "stderr": ["state saved"] },
+      { "run": ["run", "--restore-state", "state.bin", "--events", "ev.txt"], "exit": 1, "stdout": ["abab\n"], "stderr": ["ValueError: ab", "--> sub/main.mini:4:"] }
+    ]
+  }
 ]

@@ -2,15 +2,12 @@
 mod test {
     use std::collections::HashMap;
 
-    use compiler::lexer::lex;
-    use compiler::code::Parser;
-    use compiler::embed::VM;
-    use compiler::value::{SchedulerStatus, VmErr};
-    use compiler::modules::{NativeBinding, Resolver};
+    use edge::value::{SchedulerStatus, VmErr};
+    use edge::deps::NativeBinding;
 
-    use crate::common::{answer, fail, TestResolver, test_native};
+    use crate::common::{answer, fail, lex, parse, parser, TestResolver, test_native};
 
-    /* `native` drives resolve() with extern bindings, `code` splices a source module. */
+    /* `native` resolves to extern bindings and `code` splices in a source module */
     #[derive(serde::Deserialize)]
     #[serde(deny_unknown_fields)]
     #[serde(untagged)]
@@ -23,7 +20,7 @@ mod test {
         },
     }
 
-    /* Per-directory `edge.json` for walk-up cases, flat fixtures use `aliases` instead. */
+    /* a per-directory `edge.json` for walk-up cases where flat fixtures use `aliases` */
     #[derive(serde::Deserialize)]
     #[serde(deny_unknown_fields)]
     struct ManifestDef {
@@ -33,7 +30,6 @@ mod test {
         extends: Option<String>,
     }
 
-    /* JSON-driven case from `cases/modules.json`, optional expect_externs/expect_functions/error_span_covers. */
     #[derive(serde::Deserialize)]
     #[serde(deny_unknown_fields)]
     struct Case {
@@ -46,10 +42,10 @@ mod test {
         input: Vec<String>,
         #[serde(default)]
         modules: HashMap<String, ModuleDef>,
-        /* Synthetic root `edge.json`, nested entries in `manifests` shadow this. */
+        /* the synthetic root `edge.json` which nested `manifests` entries shadow */
         #[serde(default)]
         aliases: HashMap<String, String>,
-        /* Nested manifests by directory, exercises walk-up, `extends`, and circular-extends paths. */
+        /* nested manifests by directory for walk-up and `extends` paths with cycles */
         #[serde(default)]
         manifests: HashMap<String, ManifestDef>,
         #[serde(default)]
@@ -58,7 +54,7 @@ mod test {
         expect_functions: Option<usize>,
         #[serde(default)]
         error_span_covers: Option<String>,
-        /* Per-call deliveries (by call_id) simulating out-of-order host resolution, `value` -> set_host_result_by_id, `error` -> set_host_error_by_id. */
+        /* deliveries by call id that simulate the host resolving calls out of order */
         #[serde(default)]
         host_deliveries: Vec<Delivery>,
     }
@@ -88,7 +84,7 @@ mod test {
                     r = r.with_code(spec, code);
                 }
             }
-            /* Auto self-alias bare-name modules so flat fixtures work without explicit `aliases`. */
+            /* bare-name modules alias themselves so flat fixtures need no `aliases` */
             if !spec.contains('/') {
                 r = r.with_alias(spec, spec);
             }
@@ -103,12 +99,11 @@ mod test {
         r
     }
 
-    /* NoopResolver path, imports must produce a clean diagnostic, not panic. Lives in Rust since the JSON runner always builds a TestResolver. */
+    /* with NoopResolver an import gives a clean diagnostic which the JSON runner cannot reach */
     #[test]
     fn noop_resolver_default() {
         let src = "from json import dumps";
-        let (tokens, _) = lex(src);
-        let (_, errs) = Parser::new(src, tokens.into_iter()).parse();
+        let (_, errs) = parse(src);
         assert!(errs.iter().any(|d| d.msg.contains("not found") || d.msg.contains("not configured")), "expected NoopResolver error, got: {:?}", errs.iter().map(|e| &e.msg).collect::<Vec<_>>());
     }
 
@@ -120,14 +115,10 @@ mod test {
 
         for case in cases {
             let resolver = Box::new(build_resolver(&case.modules, &case.aliases, &case.manifests));
-            // Code that eval or exec compiles resolves from the dir of the file that called it.
-            let root = resolver.child("<eval>");
-            let hook = move |dir: &str| root.child(&if dir.is_empty() { "<eval>".to_string() } else { format!("{dir}/<eval>") });
             let (tokens, _lex_errs) = lex(&case.src);
-            let parser = Parser::with_resolver(&case.src, tokens.into_iter(), resolver);
-            let (chunk, parse_errs) = parser.parse();
+            let (chunk, parse_errs) = parser(&case.src, tokens.into_iter(), resolver).parse();
 
-            // Parse-time errors match the `error` substring plus optional span anchor.
+            // parse errors match the `error` substring and an optional span anchor
             if !parse_errs.is_empty() {
                 let combined = parse_errs.iter().map(|d| d.msg.as_str()).collect::<Vec<_>>().join(" | ");
                 let expected = case.error.as_deref().unwrap_or_else(|| panic!("unexpected parse error on {:?}: {}", case.src, combined));
@@ -141,14 +132,13 @@ mod test {
                 continue;
             }
 
-            // Compile-time chunk-shape assertions (no parse errors).
+            // chunk shape checks for a clean parse
             if let Some(n) = case.expect_externs { assert_eq!(chunk.extern_table.len(), n, "extern_table size mismatch on {:?}", case.src); }
             if let Some(n) = case.expect_functions { assert_eq!(chunk.functions.len(), n, "functions count mismatch on {:?}", case.src); }
 
-            let mut vm = VM::new(&chunk);
-            vm.resolver_hook = Some(compiler::util::leak(Box::new(hook)));
+            let mut vm = crate::common::boot(&chunk, edge::embed::Limits::sandbox());
             vm.input_buffer = case.input.clone();
-            // Drive loop, resume on PendingHostCall by delivering the next host_deliveries entry.
+            // each PendingHostCall resumes with the next entry of `host_deliveries`
             let mut hr_idx = 0usize;
             let result = loop {
                 match vm.run() {
@@ -175,5 +165,76 @@ mod test {
                 }
             }
         }
+    }
+
+    /* the modules a real host keeps which checks no cycle itself */
+    #[derive(Clone, Default)]
+    struct Kept(std::sync::Arc<std::sync::Mutex<edge::deps::Deps>>);
+
+    impl edge::deps::DepHost for Kept {
+        fn deps<R>(&mut self, f: impl FnOnce(&mut edge::deps::Deps) -> R) -> R { f(&mut self.0.lock().unwrap()) }
+        fn fetch(&mut self, spec: &str, _pin: Option<[u8; 32]>) -> Result<Vec<u8>, String> { Err(format!("no file '{spec}'")) }
+        fn native(&mut self, name: String, _id: u32, _module: std::sync::Arc<str>) -> NativeBinding { panic!("no native {name} is served") }
+        fn caller_dir(&mut self) -> String { String::new() }
+    }
+
+    // a cycle the host resolver walks reports at the import that closes it
+    #[test]
+    fn an_import_cycle_through_a_host_resolver_reports_where_it_closes() {
+        let mut host = Kept::default();
+        for (spec, code) in [("./a.mini", "from .b import y\nx = 1\n"), ("./b.mini", "from .a import x\ny = 2\n"), ("./c.mini", "from .c import z\nz = 3\n")] {
+            edge::deps::DepHost::deps(&mut host, |d| d.register(spec.into(), edge::deps::ModuleEntry::Code(code.into())));
+        }
+        for src in ["from .a import x\nprint(x)\n", "from .c import z\nprint(z)\n"] {
+            let resolver = Box::new(edge::deps::HostResolver::new(String::new(), host.clone()));
+            let (_, errs) = parser(src, lex(src).0.into_iter(), resolver).parse();
+            let msgs: Vec<&str> = errs.iter().map(|e| e.msg.as_str()).collect();
+            assert!(msgs.len() == 1 && msgs[0].contains("circular import") && errs[0].start == 5, "{src:?}: {msgs:?}");
+        }
+    }
+
+    /* the chunk and the messages `src` compiles to through `resolver` */
+    fn compiled_with(src: &str, resolver: TestResolver) -> (edge::code::SSAChunk, Vec<String>) {
+        let (chunk, errs) = parser(src, lex(src).0.into_iter(), Box::new(resolver)).parse();
+        (chunk, errs.into_iter().map(|e| e.msg).collect())
+    }
+
+    // a module a diamond reaches twice parses once whatever shape its spec takes
+    #[test]
+    fn a_diamond_parses_each_module_once() {
+        const LEVELS: usize = 26;
+        let mut resolver = TestResolver::new();
+        for i in 0..LEVELS {
+            let code = if i + 1 < LEVELS { format!("import m{}\nimport m{} as again\nv = m{}.v + again.v\n", i + 1, i + 1, i + 1) } else { "v = 1\n".to_string() };
+            resolver = resolver.with_alias(&format!("m{i}"), &format!("m{i}.mini")).with_code(&format!("m{i}.mini"), &code);
+        }
+        let start = std::time::Instant::now();
+        let (chunk, errs) = compiled_with("import m0\nprint(m0.v)\n", resolver);
+        assert!(errs.is_empty(), "{errs:?}");
+        assert!(start.elapsed() < std::time::Duration::from_secs(5), "{:?}", start.elapsed());
+        let mut vm = crate::common::boot(&chunk, crate::common::corpus_limits());
+        vm.run().expect("the diamond runs");
+        assert_eq!(vm.output, [(1u64 << (LEVELS - 1)).to_string()]);
+    }
+
+    // imports nest 64 modules deep on a small stack and the next one is refused
+    #[test]
+    fn imports_nest_a_bounded_depth() {
+        fn chain(n: usize) -> TestResolver {
+            // the last module nests its blocks and an expression as deep as the caps allow
+            let mut deepest = String::new();
+            for d in 0..99 { deepest.push_str(&format!("{}if true:\n", "    ".repeat(d))); }
+            deepest.push_str(&format!("{}x = {}1{}\n", "    ".repeat(99), "(".repeat(190), ")".repeat(190)));
+            let mut resolver = TestResolver::new();
+            for i in 0..n {
+                let code = if i + 1 < n { format!("from .c{} import x\n", i + 1) } else { format!("x = 0\n{deepest}") };
+                resolver = resolver.with_code(&format!("./c{i}.mini"), &code);
+            }
+            resolver
+        }
+        let run = |n: usize| std::thread::Builder::new().stack_size(1 << 20).spawn(move || compiled_with("from .c0 import x\nprint(x)\n", chain(n)).1).expect("a thread").join().expect("no overflow");
+        assert_eq!(run(64), Vec::<String>::new());
+        let errs = run(65);
+        assert!(errs.iter().any(|e| e.contains("imports nest deeper than 64 modules")), "{errs:?}");
     }
 }

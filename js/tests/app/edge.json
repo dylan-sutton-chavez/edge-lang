@@ -1,6 +1,6 @@
 {
     "imports": {
-        "calc": "./calculator.py",
+        "calc": "./calculator.mini",
         "trap": "./trap.wasm",
         "abi2": "./abi2.wasm",
         "json": "0.1.0",

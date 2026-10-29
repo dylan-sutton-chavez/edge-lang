@@ -1,0 +1,181 @@
+---
+title: "Tiny, YAML flows for large data"
+description: "A runtime with a front end of its own, whose YAML flows stream an hour of public GitHub events through the net plugin and write one report per key."
+---
+
+# Tiny, YAML flows for large data
+
+Tiny is a language for reports over large data, written as YAML. A flow names its source with `from` and filters it with `where`, and every other key is a report named by its output. Tiny reads its YAML itself and builds its program through a `Builder`, so it is the runtime of Edge Lang with a front end of its own, which [Front ends](/docs/edge-lang/sdk/front-ends) walks through.
+
+This page runs the job [Mini](/docs/edge-lang/get-started/use-cases/mini) runs, five reports over one hour of public GitHub events, as a flow over the same hour. [Your runtime and its CLI](/docs/edge-lang/get-started/use-cases/your-runtime) builds a runtime of your own.
+
+## The job
+
+GH Archive publishes every public GitHub event, one gzipped file of JSON lines per hour. The flow reads the hour from 3 pm to 4 pm UTC on 1 October 2026, 85,569 events in 19.4 MB, and leaves the events of bots out of every report.
+
+```tiny file=examples/data/github-hour.flow.yaml
+```
+
+| Report | Reads |
+|---|---|
+| `top_stars` | Each WatchEvent counted by `repo.name`, the ten greatest counts kept |
+| `busy_branches` | Each PushEvent counted by repository and branch, the rows of more than one push kept |
+| `activity.csv` | Every event counted by its minute and its type, written as a CSV file |
+| `issues_opened` | Each opened issue counted by repository |
+| `time_to_close` | The hours each closed issue stayed open, averaged by repository |
+
+The source is read once, and every record goes through each report in turn. Tiny's own CLI runs the flow, the kit's `run` and `test` over `tiny.wasm` with `net` and `files` under `perms`, which `make tiny` builds from `examples/tiny/cli`. Each report is a named output, so under `tiny run` its rows print under its own name while `activity.csv` lands as a file in the directory the run started in. These are the first lines each report wrote over the whole hour.
+
+```text
+$ tiny run github-hour.flow.yaml
+top_stars
+{"repo":{"name":"Niko1221/Strata"},"count":4}
+{"repo":{"name":"OffGridPete/Fieldwatch"},"count":4}
+{"repo":{"name":"DietrichGebert/ponytail"},"count":4}
+busy_branches
+{"repo":{"name":"TheCak3/Learning-plan-Math-KSU"},"branch":"main","count":15}
+{"repo":{"name":"BehemothCaliph/repo-ccot6sg7"},"branch":"main","count":31}
+$ head -3 activity.csv
+minute,type,count
+15:00,IssuesEvent,15
+15:00,PullRequestEvent,35
+```
+
+In a page the same run hands each report to [the JS host](/docs/edge-lang/platforms/javascript#named-outputs) as a stream of its own, which is what the playground's tabs read.
+
+Mini's job prints the same rows, and a test holds every report of one to the other, as [Mini](/docs/edge-lang/get-started/use-cases/mini#held-to-agree-with-tiny) describes.
+
+## The keys
+
+A flow is one YAML mapping. Its keys are `from`, `where` and its reports, and each report is a mapping of the keys below.
+
+| Key | Takes | Does |
+|---|---|---|
+| `where` | An expression | Keeps the records it is true for. At the top of the flow it filters what every report reads |
+| `count` | Keys or nothing | Counts the records of each key, or all of them with no keys |
+| `sum`, `average`, `min`, `max` | An expression, with `by` | Folds what the expression gives for each key `by` names, or for all records with no `by` |
+| `by` | Keys | The keys of `sum`, `average`, `min` or `max` |
+| `keep` | An expression | Keeps the rows it is true for once the aggregate made them, so `count > 1` reads a row's `count` |
+| `top` | A whole number | Keeps that many rows, the greatest by the aggregate, or the first in the order `sort` gives |
+| `sort` | Keys, each with a leading `-` to sort it descending | Orders the rows, or the records of a report with no aggregate |
+
+A key is a path such as `repo.name`, or a new column written `name = expression`, as `branch = payload.ref.removeprefix("refs/heads/")` is. A report takes at most one aggregate, a report with none writes its records as they arrive unless it sorts them, and a key a report does not take is a diagnostic at its line before anything runs.
+
+## Expressions
+
+Every expression is a plain YAML value read through tiny's own token table. A bare name reads the record's field, `a.b` reads a field of a field, `[11:16]` slices a text, and a call reaches a native or a method of a text. `and`, `or`, `not`, `in`, the comparisons and the arithmetic work as they read, and `True`, `False` and `None` are the constants.
+
+```rust file=examples/tiny/src/natives.rs
+```
+
+A field is never a native, so a record with fields named `time`, `len` or `min` reads them as fields, and `time(...)` stays the native.
+
+## Sources and sinks
+
+`from` takes one line, and its extension gives the format.
+
+| `from` | Reads |
+|---|---|
+| A URL over `http` or `https` | The body through the net plugin, a chunk at a time |
+| A path | The file through the CLI's `files` module, below the project's `edge.json` |
+| `input` | The lines the host feeds the run, read as a `.json` source reads |
+
+A name ending in `.jsonl` reads JSON lines. One ending in `.json` reads an array whose items are the records when its first byte past any white space is `[`, and JSON lines otherwise. `.csv` reads CSV whose first line names the fields, and `.txt` reads each line as a record whose one field `line` holds it. `.gz` after any of them inflates the body as it streams.
+
+A report's name is its output. `activity.csv` writes the file channel `file:activity.csv` as CSV with a header line, a name ending in `.jsonl` writes JSON lines to a file, and any other name writes one JSON line per row to the channel of that name.
+
+## What a flow may reach
+
+The project's `edge.json` grants the flow the one host its source is on.
+
+```json file=examples/data/edge.json
+```
+
+Without the grant the flow never starts, since importing a module the project holds no entry for fails at compile time.
+
+```text
+error: 'main' imports net, which edge.json does not grant it
+  --> github-hour.flow.yaml:1:1
+  |
+1 | from: https://data.gharchive.org/2026-10-01-15.json.gz
+  | ^
+```
+
+A grant of `net` with no host, as in `"main": ["net"]`, lets the flow import it and reach nothing. The flow then stops at `from` before a byte leaves, and tiny names the key and its line.
+
+```text
+from at line 1: Denied, 'main' has no net:data.gharchive.org, edge.json grants it nothing
+```
+
+A path reads only with a grant that names it, such as `files:events.jsonl`, or one that names a directory above it, such as `files:data/`. A path is names joined by slashes below the project, with no `..` and no leading slash, and a grant of another file stops the flow with `from at line 1: Denied, 'main' has no files:events.jsonl, edge.json grants it files:other.jsonl`.
+
+## At scale
+
+The YAML and the expressions are read once, when the flow compiles, whatever the data. Each record then runs the compiled loop, and the source holds one chunk and the records its lines complete. A report with an aggregate holds one row per key and `keep`, `top` and `sort` work on those rows, so memory follows the keys and not the records. Only a report that sorts its records with no aggregate holds every record.
+
+`make bench-data` runs the job in both runtimes over the whole hour, and printed these on 23 October 2026. It serves the hour from its file through the net plugin's contract in chunks of 64 KB, counts the wasm instructions of each run with wasmtime's fuel and times a second run without it.
+
+```text
+$ make bench-data
+85,569 records, 89.4 MB inflated, read through net in chunks of 64 KB
+             records/s     instructions/record       peak MB    first output after
+tiny           112,588                 149,846          30.4                0.73 s
+mini            13,085               2,566,603          64.4                6.53 s
+both jobs wrote the same 6,133 rows across 5 reports
+```
+
+The instructions include compiling the program and come out the same on every run, while the rates move with whatever else the machine runs. The peak is the most the engine's meter held at once. Every report of the job aggregates, so the first line comes once the hour is read. Tiny reads its JSON through lib's `data::json` in Rust, while mini's job reads it with a reader written in mini, which is most of the gap between the two.
+
+A run that stops before its source ends, on its budget or on an error, closes what it opened, and the net plugin aborts the request. `js/tests/stop.test.js` holds the [JS host](/docs/edge-lang/platforms/javascript) to it. It serves an hour of 85,569 records it makes itself, gzipped as the pinned one is, and a flow that spends its budget of 2,000,000 ops must leave the request cancelled with less than half the file taken.
+
+## Errors with their YAML lines
+
+A diagnostic names the line of the YAML before anything runs, with the nearest key when a name is close to one. This report of `watches.flow.yaml` reads the hour and spells its `where` with a letter missing.
+
+```text
+$ tiny run watches.flow.yaml
+error: report watches has no key "wher", did you mean where
+  --> watches.flow.yaml:3:3
+  |
+3 |   wher: type == "WatchEvent"
+  |   ^^^^
+```
+
+With the key spelled right and written a second time below, the second one is refused at its own line.
+
+```text
+$ tiny run watches.flow.yaml
+error: the key "where" is repeated, a mapping holds each key once
+  --> watches.flow.yaml:4:3
+  |
+4 |   where: type == "PushEvent"
+  |   ^^^^^
+```
+
+An error while the flow runs names the report and the key it rose in, with the line of that key. A report that sums a text fails at its `sum`, and a field missing from a record fails at the `where` that read it.
+
+```text
+report pushes, sum at line 7: WrongType, cannot add text to a total of numbers
+where at line 2: MissingField, no field "action"
+```
+
+Tiny's classes are `Denied`, `BadData`, `WrongType`, `MissingField`, `HostFailed` and `OutOfBudget`, and a run out of steps or memory names no report.
+
+## How it is built
+
+The crate links the engine and lib. Its `lib.rs` names the natives under its language and hands the engine its `Front`, and [Front ends](/docs/edge-lang/sdk/front-ends) shows that file, the expression table and the lowering in full. Its `language.rs` states the rules tiny runs on, its own for records of data, where only `None` and `False` read as false, a bool is no number and a whole number past the inline range is bad data, as [The policy](/docs/edge-lang/get-started/book/rules#the-policy) lists, and `words.rs` words the engine's errors in tiny's terms.
+
+```toml file=examples/tiny/Cargo.toml
+```
+
+```bash
+make wasm-tiny
+```
+
+It writes `tiny.wasm` under `target/wasm32-unknown-unknown/release`, with the ABI every host binds, as `edge.wasm` has. `cargo test -p tiny` runs the 266 cases of `examples/tiny/tests/flows` over a slice of the same hour, the net plugin and the `files` module served inside the test process.
+
+> [!CARDS]
+> - `workflow` [Front ends](/docs/edge-lang/sdk/front-ends) How tiny reads its YAML and builds its program.
+> - `library` [Lib](/docs/edge-lang/sdk/lib) The JSON and CSV readers and the kernels tiny names.
+> - `plug` [Plugins](/docs/edge-lang/sdk/plugins) The net plugin a flow reads its source through.
+> - `braces` [Mini](/docs/edge-lang/get-started/use-cases/mini) The same job in a scripting language.

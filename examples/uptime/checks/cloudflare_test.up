@@ -1,0 +1,4 @@
+use .http
+
+let status = http.get("https://www.cloudflarestatus.com/api/v2/status.json").body.status
+check status.indicator == "none", "Cloudflare reports {status.description}"

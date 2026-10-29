@@ -1,94 +1,104 @@
 [
   {
     "copy": {
-      "script.py": "pdk/example/script.py",
-      "edge.json": "pdk/example/edge.json",
+      "script.mini": "plugin/example/script.mini",
+      "edge.json": "plugin/example/edge.json",
       "slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm"
     },
-    "run": ["run", "script.py"],
-    "stdout": ["hello-world-from-edge-python\nHELLO-WORLD-FROM-EDGE-PYTHON!\n24\nhello-world-from-edge-pythonhello-world-from-edge-python\npython\nedge\nhello-world-from\ncaught: repeat count must be non-negative\n"]
+    "run": ["run", "script.mini"],
+    "stdout": ["hello-world-from-edge\nHELLO-WORLD-FROM-EDGE!\n18\nhello-world-from-edgehello-world-from-edge\nedge\nfrom\nhello-world\ncaught: repeat count must be non-negative\n"]
   },
   {
     "given": {
       "edge.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n",
-      "main.py": "from slugify_mod import join_all, version\nprint(join_all(\"-\", \"a\", \"b\", \"c\"), version)\n"
+      "main.mini": "from slugify_mod import join_all, version\nprint(join_all(\"-\", \"a\", \"b\", \"c\"), version)\n"
     },
     "copy": { "slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm" },
-    "run": ["run", "main.py"],
+    "run": ["run", "main.mini"],
     "stdout": ["a-b-c 1"]
   },
   {
     "given": {
       "edge.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n",
-      "main.py": "from slugify_mod import join_all\nparts = (\"a\", \"b\")\ndef spread(*p):\n    return join_all(\"-\", *p)\nprint(join_all(\"-\", *parts), spread(\"x\", \"y\", \"z\"), join_all(*[\"+\", \"k\"]))\n"
+      "main.mini": "from slugify_mod import join_all\nparts = (\"a\", \"b\")\nfn spread(*p):\n    return join_all(\"-\", *p)\nprint(join_all(\"-\", *parts), spread(\"x\", \"y\", \"z\"), join_all(*[\"+\", \"k\"]))\n"
     },
     "copy": { "slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm" },
-    "run": ["run", "main.py"],
+    "run": ["run", "main.mini"],
     "stdout": ["a-b x-y-z k"]
   },
   {
     "given": {
       "edge.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n",
-      "main.py": "from slugify_mod import join_all\nclass Price:\n    def __format__(self, spec):\n        return \"$10\"\nprint(join_all(\"-\", \"a\", 1.5, Price()))\n"
+      "main.mini": "from slugify_mod import join_all\nprint(join_all(\"-\", \"a\", 1.5, 2.0, 10, true, {3}))\n"
     },
     "copy": { "slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm" },
-    "run": ["run", "main.py"],
-    "stdout": ["a-1.5-$10"]
+    "run": ["run", "main.mini"],
+    "stdout": ["a-1.5-2.0-10-True-{3}"]
   },
   {
     "given": {
       "edge.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n",
-      "lib.py": "from slugify_mod import Slugger\n",
-      "main.py": "from .lib import Slugger\ns = Slugger()\ns.add(\"Via A Module\")\nprint(s.build())\n"
+      "lib.mini": "from slugify_mod import Slugger\n",
+      "main.mini": "from .lib import Slugger\ns = Slugger()\ns.add(\"Via A Module\")\nprint(s.build())\n"
     },
     "copy": { "slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm" },
-    "run": ["run", "main.py"],
+    "run": ["run", "main.mini"],
     "stdout": ["via-a-module"]
   },
   {
     "given": {
       "edge.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n",
-      "main.py": "import slugify_mod\nprint(slugify_mod.join_all(1))\n"
+      "main.mini": "import slugify_mod\nprint(slugify_mod.join_all(1))\n"
     },
     "copy": { "slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm" },
-    "run": ["run", "main.py"],
-    "fails": ["TypeError: expected str, got Int(1)", "--> main.py:2:1"]
+    "run": ["run", "main.mini"],
+    "fails": ["TypeError: expected str, got Int(1)", "--> main.mini:2:1"]
+  },
+  {
+    "given": {
+      "edge.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n",
+      "main.mini": "from slugify_mod import Slugger\ntry:\n    Slugger.build(1)\nexcept AttributeError as e:\n    print(\"caught:\", e)\nSlugger.build(1)\n"
+    },
+    "copy": { "slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm" },
+    "run": ["run", "main.mini"],
+    "stdout": ["caught: 'int' object has no attribute '__rust_id'\n"],
+    "fails": ["error: AttributeError: 'int' object has no attribute '__rust_id'\n", "--> main.mini:6:1"]
   },
   {
     "given": {
       "edge.json": "{ \"imports\": { \"slugify_mod\": \"./vendor/slugify\" } }\n",
-      "main.py": "from slugify_mod import join_all\nprint(join_all(\"+\", \"no\", \"extension\"))\n"
+      "main.mini": "from slugify_mod import join_all\nprint(join_all(\"+\", \"no\", \"extension\"))\n"
     },
     "copy": { "vendor/slugify": "target/wasm32-unknown-unknown/release/slugify_mod.wasm" },
-    "run": ["run", "main.py"],
+    "run": ["run", "main.mini"],
     "stdout": ["no+extension"]
   },
   {
     "given": {
       "edge.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm#sha256-0000000000000000000000000000000000000000000000000000000000000000\" } }\n",
-      "main.py": "import slugify_mod\n"
+      "main.mini": "import slugify_mod\n"
     },
     "copy": { "slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm" },
-    "run": ["run", "main.py"],
+    "run": ["run", "main.mini"],
     "fails": ["integrity check failed for './slugify_mod.wasm'"]
   },
   {
     "given": {
-      "edge.json": "{ \"imports\": { \"pkg\": \"./pkg/main.py\" } }\n",
+      "edge.json": "{ \"imports\": { \"pkg\": \"./pkg/main.mini\" } }\n",
       "pkg/edge.json": "{ \"imports\": { \"_slug\": \"./slugify_mod.wasm\" } }\n",
-      "pkg/main.py": "from _slug import join_all\n\ndef label(*parts):\n    return join_all(\"-\", *parts).upper() + \"!\"\n",
-      "main.py": "from pkg import label\nprint(label(\"a\", \"b\"))\n"
+      "pkg/main.mini": "from _slug import join_all\n\nfn label(*parts):\n    return join_all(\"-\", *parts).upper() + \"!\"\n",
+      "main.mini": "from pkg import label\nprint(label(\"a\", \"b\"))\n"
     },
     "copy": { "pkg/slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm" },
-    "run": ["run", "main.py"],
+    "run": ["run", "main.mini"],
     "stdout": ["A-B!"]
   },
   {
     "given": {
-      "edge.json": "{ \"imports\": { \"pkg\": \"./pkg/main.py\" } }\n",
+      "edge.json": "{ \"imports\": { \"pkg\": \"./pkg/main.mini\" } }\n",
       "pkg/edge.json": "{ \"imports\": { \"_slug\": \"./slugify_mod.wasm\" } }\n",
-      "pkg/main.py": "from _slug import join_all\n\ndef label(*parts):\n    return join_all(\"-\", *parts).upper() + \"!\"\n",
-      "main.py": "from pkg import label\nprint(label(\"a\", \"b\"))\n"
+      "pkg/main.mini": "from _slug import join_all\n\nfn label(*parts):\n    return join_all(\"-\", *parts).upper() + \"!\"\n",
+      "main.mini": "from pkg import label\nprint(label(\"a\", \"b\"))\n"
     },
     "copy": { "pkg/slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm" },
     "run": ["build", "--app"],
@@ -97,56 +107,47 @@
   },
   {
     "given": {
-      "edge.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" }, \"permissions\": { \"main\": [\"time:wall\"] } }\n",
-      "main.py": "from slugify_mod import wall_ns\nprint(wall_ns() > 10 ** 18)\n"
-    },
-    "copy": { "slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm" },
-    "run": ["run", "main.py"],
-    "stdout": ["True"]
-  },
-  {
-    "given": {
       "edge.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n",
-      "main.py": "from slugify_mod import wall_ns\ntry:\n    wall_ns()\nexcept PermissionError as e:\n    print(e)\n"
+      "main.mini": "from slugify_mod import Slugger\ns = Slugger()\ns.add('ab')\nn = 0\nfor i in range(450):\n    n += len(s.repeat(5000000))\nprint(n)\n"
     },
     "copy": { "slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm" },
-    "run": ["run", "main.py"],
-    "stdout": ["'main' imports time, which edge.json does not grant it"]
-  },
-  {
-    "given": {
-      "edge.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n",
-      "main.py": "from slugify_mod import Slugger\ns = Slugger()\ns.add('ab')\nn = 0\nfor i in range(450):\n    n += len(s.repeat(5000000))\nprint(n)\n"
-    },
-    "copy": { "slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm" },
-    "run": ["run", "main.py"],
+    "run": ["run", "main.mini"],
     "stdout": ["4500000000"]
   },
   {
     "given": {
       "edge.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n",
-      "main.py": "from slugify_mod import Slugger\ns = Slugger()\ns.add('ab')\ntry:\n    s.repeat(10 ** 12)\nexcept RuntimeError as e:\n    print(str(e).startswith('native module trapped'), 'backtrace' in str(e))\nprint(s.build())\n"
+      "main.mini": "from slugify_mod import Slugger\ns = Slugger()\ns.add('ab')\ntry:\n    s.repeat(10 ** 12)\nexcept RuntimeError as e:\n    print(str(e).startswith('native module trapped'), 'backtrace' in str(e))\nprint(s.build())\n"
     },
     "copy": { "slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm" },
-    "run": ["run", "main.py"],
+    "run": ["run", "main.mini"],
     "stdout": ["True False\nab\n"]
   },
   {
     "given": {
       "edge.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n",
-      "main.py": "from slugify_mod import Slugger\ns = Slugger()\ns.add('ab')\ns.repeat(10 ** 12)\n"
+      "main.mini": "from slugify_mod import Slugger\ns = Slugger()\ns.add('ab')\ns.repeat(10 ** 12)\n"
     },
     "copy": { "slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm" },
-    "run": ["run", "main.py"],
-    "fails": ["RuntimeError: native module trapped: wasm trap", "--> main.py:4:1"]
+    "run": ["run", "main.mini"],
+    "fails": ["RuntimeError: native module trapped: wasm trap", "--> main.mini:4:1"]
   },
   {
     "given": {
       "edge.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n",
-      "main.py": "from slugify_mod import Slugger\ns = Slugger()\ns.add('ab')\ntry:\n    s.repeat(100000000)\nexcept RuntimeError:\n    print('RuntimeError')\nexcept MemoryError:\n    print('MemoryError')\nprint(s.build())\n"
+      "main.mini": "from slugify_mod import Slugger\ns = Slugger()\ns.add('ab')\ntry:\n    s.repeat(100000000)\nexcept RuntimeError:\n    print('RuntimeError')\nexcept MemoryError:\n    print('MemoryError')\nprint(s.build())\n"
     },
     "copy": { "slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm" },
-    "run": ["run", "--memory", "32", "main.py"],
+    "run": ["run", "--memory", "32", "main.mini"],
     "stdout": ["RuntimeError\nab\n"]
+  },
+  {
+    "given": {
+      "edge.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n",
+      "main.mini": "from slugify_mod import slug_all\nprint(slug_all([\"Hello World\", \"From Edge\"]))\nprint(slug_all((\"Edge Lang\", \"Uptime Checks\"), sep=\"_\"), slug_all({\"Mini\": 1, \"Tiny\": 2}), slug_all([]) == \"\")\n"
+    },
+    "copy": { "slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm" },
+    "run": ["run", "main.mini"],
+    "stdout": ["hello-world-from-edge\nedge-lang_uptime-checks mini-tiny True\n"]
   }
 ]

@@ -1,14 +1,13 @@
-/* How many loops run, never more than one, and the generic frames pushed, which `tests/nested.rs` holds at none. */
 #[cfg(any(debug_assertions, feature = "coverage"))]
 #[derive(Default)]
-pub(crate) struct Loops { pub depth: u32, pub generic: u64 }
+pub(crate) struct Loops { pub depth: u32, pub generic: u64 } /* loops running never more than one and generic frames pushed which `tests/nested.rs` holds at none */
 
 #[cfg(any(debug_assertions, feature = "coverage"))]
 impl Loops {
-    /* Opens the loop, which fails when another runs but for a call a plugin or the host makes, `hosted`. */
+    /* panics inside another loop unless `hosted` marks a call from a plugin or the host */
     pub(crate) fn open(&mut self, hosted: bool) {
         if self.depth != 0 && !hosted {
-            panic!("an instruction loop opened inside another: a call into Python from Rust is a section, a job or a frame of the running loop, see docs/05-internals/01-design.mdx");
+            panic!("an instruction loop opened inside another: a native's call into user code is a section, a job or a frame of the running loop, see docs/05-internals/01-design.mdx");
         }
         self.depth += 1;
     }

@@ -1,0 +1,88 @@
+- native: set
+  args: [[1, 2, 2, 3]]
+  ret: !set [3, 2, 1]
+
+- native: set.union
+  recv: !set [1]
+  args: [[2, 3]]
+  ret: !set [1, 2, 3]
+
+- native: set.issubset
+  recv: !set [1]
+  args: [[1, 2]]
+  ret: true
+
+- native: set.remove
+  recv: !set [1, 2]
+  args: [99]
+  error: "KeyError"
+
+- native: set.isdisjoint
+  recv: !set [1, 2]
+  args: [[3]]
+  ret: true
+
+- native: set
+  args: [[1, 1, 2, 2, 3, 3]]
+  prints: "{1, 2, 3}"
+
+- native: set
+  prints: "set()"
+
+- native: set
+  args: [!tuple [1, 2, 3]]
+  prints: "{1, 2, 3}"
+
+- native: set.union
+  recv: !set [1, 2, 3]
+  args: [!set [3, 4]]
+  prints: "{1, 2, 3, 4}"
+
+- native: set.intersection
+  recv: !set [1, 2, 3]
+  args: [!set [2, 3, 4]]
+  prints: "{2, 3}"
+
+- native: set.difference
+  recv: !set [1, 2, 3]
+  args: [!set [2, 3]]
+  prints: "{1}"
+
+- native: set.symmetric_difference
+  recv: !set [1, 2, 3]
+  args: [!set [3, 4]]
+  prints: "{1, 2, 4}"
+
+- native: set.issubset
+  recv: !set [1, 2]
+  args: [!set [1, 2, 3]]
+  prints: "True"
+
+- native: set.issubset
+  recv: !set [1, 2, 3]
+  args: [!set [1, 2]]
+  prints: "False"
+
+- native: set.issuperset
+  recv: !set [1, 2, 3]
+  args: [!set [1, 2]]
+  prints: "True"
+
+- native: set.isdisjoint
+  recv: !set [1, 2]
+  args: [!set [3, 4]]
+  prints: "True"
+
+- native: set.isdisjoint
+  recv: !set [1, 2]
+  args: [!set [2, 3]]
+  prints: "False"
+
+- native: set
+  args: [{"a": 1, "b": 2}]
+  prints: "{'a', 'b'}"
+
+- native: set.isdisjoint
+  recv: !set [1, 2, 3]
+  args: [!set [4, 5]]
+  prints: "True"

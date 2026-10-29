@@ -1,0 +1,176 @@
+---
+title: "Language"
+description: "The trait a runtime implements to hand the engine its rules, names, front and words, with the policy, the keys and rules of a site and EngineError, and what the engine reads of each today."
+---
+
+# Language
+
+`edge::lang::Language` is everything a runtime hands the engine past its natives, as one type. The book's [Rules](/docs/edge-lang/get-started/book/rules) and [Errors](/docs/edge-lang/get-started/book/errors) cover why the engine asks for each part and how mini, tiny and uptime choose. This page is the reference of the trait and the types it names, with what the engine reads of each today.
+
+A runtime writes little of it. Uptime's implementation is the 44 lines of `examples/uptime/src/language.rs`, its policy, the tables and names it hands the engine, and three functions that pass lib's answers on. Every part it leaves out keeps the default the table below lists.
+
+```rust file=examples/uptime/src/language.rs
+```
+
+## The trait
+
+```rust file=src/lang/language.rs
+```
+
+| Item | Holds | Default | The engine reads it today |
+|---|---|---|---|
+| `NAME`, `VERSION` | The identity of the language | The descriptor's `language` for `NAME`, and none for `VERSION` | Yes, in the identity a snapshot records and a restore checks |
+| `POLICY` | The rules programs run on | None | Yes, as constants the loop folds, as [Policy](#policy) lists |
+| `NATIVES` | The tables `edge::natives!` builds | None | Yes |
+| `NAMES` | The words for the engine's kinds, errors and conventions | None | Yes, through the tables `natives!` builds for the language |
+| `FRONT` | How sources become chunks | None | Yes, for the code a program compiles while it runs |
+| `DESCRIPTOR` | How the tools around the engine name the runtime's files and errors | None | Yes, by every host |
+| `WIDE` | The kind an int past the inline range boxes in | `None` | Yes |
+| `KINDS` | The kinds natives box on first use, which a restore names before any value | `&[]` | Yes |
+| `BUILT` | The kinds of the slices and the ellipsis the engine builds itself | `Built::NONE` | Yes, for the slice a kept key makes and for the ellipsis |
+| `REPORT` | How every host shows an error no handler caught | `None`, the engine's report | Yes |
+| `Ops` | The runtime's own opcodes | None, and mini, tiny and uptime write `()` | Yes, as the loop runs them, the parser fuses and folds them and the identity a snapshot records hashes their table, as [Opcodes](/docs/edge-lang/sdk/opcodes#a-runtimes-own-opcodes) explains |
+| `bind_get`, `bind_call` | The rule for `recv.name` and for a call | `GetRule::Ask`, `CallRule::Ask` | Yes, where the engine's own lookup misses and where it cannot call a value |
+| `bind_op` | The rule for an operator | `OpRule::Kernel` | Yes, where the kernels refuse the operands |
+| `show` | A value as text in a `Mode` | Refuses, since the runtime renders no values | Yes |
+| `format` | A value under a format spec | Plain fields only | Yes |
+| `handles` | Whether an exception is of the class or classes a handler names | Refuses, since the runtime gives no matcher | Yes |
+| `misfit` | The error of a call that misses a native's signature | The engine's words | Yes |
+| `message` | The words of an `EngineError` | `edge::lang::plain` | Yes, where a handler catches an engine error and where one leaves the machine |
+| `raise` | The value a handler binds for an `EngineError` | `edge::lang::raised::<Self>` | Yes, where a handler catches an error of the engine |
+| `type_name` | The name of the type of a value for errors and hints | `cx.plain_type`, the name `NAMES` gives | Yes, wherever the engine or lib names a type through `cx.type_name` |
+| `error_kind` | The ABI error kind a plugin sees for an exception | The kind its class names in `NAMES` | Yes, where a plugin reads the error of what the program raised |
+
+The engine reads every part. `Runtime::of::<L>()` erases `L` into the `Runtime` its exports and every host boot, as `pub static RUNTIME: Runtime = Runtime::of::<Mini>();` does in `examples/mini/src/lib.rs`, and `edge::web_exports!(RUNTIME)` builds the wasm exports over it. `natives!` names the language as `language: Mini` and takes its names and its policy from it. The loop is generic over `L`, so it folds `L::POLICY` as constants. A language that keeps the rules the engine's own loop is built with shares that one loop, and any other runs a loop of its own. `Runtime::of` runs inside a static, so its checks fail the build with the broken rule as the message. A policy promotes ints exactly when its language names a `WIDE` kind, it reads nil and false as false, each field the loop does not read yet states the engine's own value, and a syntax that spells the ellipsis comes with the kind `BUILT` names for it.
+
+## Policy
+
+```rust file=src/lang/policy.rs
+```
+
+| Field | Values |
+|---|---|
+| `int_overflow` | `Promote` boxes the result in the wide kind, `Error` raises the overflow error |
+| `int_div` | `ToFloat`, `Floor` or `Trunc` |
+| `int_mod` | `Truncated` rounds toward zero and gives `%` the dividend's sign, `Floored` rounds down and gives it the divisor's |
+| `zero_div` | `Error` raises, `Ieee` gives an infinity or a NaN |
+| `neg_pow` | `ToFloat` or `Error` |
+| `numeric_eq` | `Unified` makes an int and a float of one value equal with one hash, `ByKind` never equal |
+| `falsy` | A mask over `Falsy::NIL`, `FALSE`, `ZERO`, `NAN`, `EMPTY_TEXT` and `EMPTY_CONTAINER`, with `EMPTY` for both empty flags, joined with `or` and tested with `has` |
+| `str_iter` | `CodePoints` or `Bytes` |
+| `map_iter` | `Keys` or `Pairs` |
+| `max_int_digits` | `Some(n)` digits, or `None` for no limit |
+
+The other fields are `bool`, and `recursion_limit` is a `u32`.
+
+The loop, the folder, the slow paths and lib read `int_div`, `int_mod`, `zero_div` and `neg_pow` through one kernel each, so a constant the compiler folds, a hot loop and lib's `divmod` and `pow` give the same answer. `falsy` decides every truth test, where nil and false are always false and the mask adds zero, NaN, an empty text and the empty containers, the last two on flags apart so that `Policy::ENGINE` reads `""` as false and `[]` as true. `int_overflow` must agree with `WIDE`, since an int past the inline range goes to the wide kind. `map_fields` is read on each attribute miss, `recursion_limit` once as a VM boots, and `max_int_digits` by the parser at each int literal and by lib's conversions. `bool_is_int` is read by the slow paths where a bool meets a number, in arithmetic, order, indexes, keys and method lookup, and by lib's kernels and type tests. `neg_index` is read by the loop's item paths and the slow paths of indexes and slices. The loop reads no other field yet, so `Runtime::of` refuses a policy that states anything but the engine's own value for `numeric_eq`, `identity_first`, `str_iter`, `map_iter`, `builtins_scope` or `receiver_slot`. Mini, tiny and uptime state the engine's own for each, and tiny states its own `int_overflow`, `bool_is_int`, `falsy` and `recursion_limit`. `tests/policy.rs` runs a runtime whose `/` keeps two ints an int, which gives an infinity for a float divided by zero, refuses an int to a negative power and reads only nil and false as false, a second whose bools are no ints and whose negative indexes count from no end, and a third that floors `~/` and reads every empty value as false.
+
+## Keys and the rules of a site
+
+```rust file=src/lang/bind.rs
+```
+
+A rule answers for one site and one `Key`, so a site needs one answer for each key it meets.
+
+| Key | Stands for |
+|---|---|
+| `Kind(k)` | A value of an engine kind, whose rules the kind alone decides |
+| `Object(class)` | An object, keyed by its class, whose meta decides its fields, methods and operators |
+| `Foreign(token)` | A value of a kind lib or the runtime registered, keyed by its token |
+
+`Key::of(heap, v)` is the key of a value. `Name` is an interned text a site compares by its bits, `Access` says whether a site loads, stores, deletes or calls a method, and `CallShape` counts the positionals and keywords a call passes and marks a spread.
+
+`bind_get` answers a `GetRule`.
+
+| `GetRule` | Means |
+|---|---|
+| `Slot` | The object's own slot, whose shape and index the engine keeps |
+| `Const(v)` | A value fixed for the key, such as a module's global |
+| `Method { func, bind }` | A function the meta holds, with the receiver bound first when `bind` is set |
+| `Native(id)` | A native method of the receiver's kind |
+| `Field` | A map's key or a foreign kind's field of that name |
+| `Fail` | The attribute error, which the runtime words |
+| `Ask` | No rule, so the engine's own path decides each time |
+
+`bind_call` answers a `CallRule`.
+
+| `CallRule` | Means |
+|---|---|
+| `Function` | A function of the program, run as frames, sections and calls as jumps |
+| `Construct { meta, init, slots }` | A new object of `meta`, whose `init` runs as a frame that hands it back |
+| `Bound { func, recv }` | `func` called with `recv` before the arguments |
+| `Native(id)` | A native |
+| `Fail` | The error of a value no call takes, which the runtime words |
+| `Ask` | No rule, so the engine's own path decides each time |
+
+`bind_op` answers an `OpRule`.
+
+| `OpRule` | Means |
+|---|---|
+| `Kernel` | The engine's inline path for its own kinds under the policy |
+| `Native(id)` | A native of lib or of the runtime |
+| `Call { func, swap, negate }` | A function of the program laid as a section, with its operands swapped or its answer negated |
+| `Identity` | Equality as identity |
+| `Fail` | The unsupported operand error, which the runtime words |
+
+An `Op` is what an operator site asks of its operands.
+
+| Op | Asks |
+|---|---|
+| `Bin(b)`, `InPlace(b)` | A binary operator, or its augmented form, which may change its left operand |
+| `Cmp(c)` | `Eq`, `Ne`, `Lt`, `Le`, `Gt` or `Ge` |
+| `In` | Whether the right operand holds the left |
+| `Unary(u)` | `Neg`, `Pos`, `Abs` or `Invert` |
+| `Truth`, `Len`, `Iter`, `Hash` | A test, a length, an iteration and a hash |
+| `GetItem`, `SetItem`, `DelItem` | Item access |
+| `Runtime(n)` | Opcode `n` of the runtime's own table |
+
+`edge::lang::token_of(op)` is the token a table spells an operator with, and `spelled(cx, op)` is how the runtime's own table spells it, so the words of a `message` name `~/` where the table spells integer division that way.
+
+The engine asks for a rule only where its own path has no answer, so a rule adds to what the engine does and never changes a hit of the inline caches of [Key mechanisms](/docs/edge-lang/internals/design#key-mechanisms). It asks `bind_get` where an attribute lookup misses, for a load, a method call, a store and a delete, and a `Field` rule then reads, writes or removes that key of a map. It asks `bind_call` where a value is no function, class or native, and `bind_op` where the kernels refuse an operator's operands, with a unary operator giving its one key twice. `OpRule::Call` runs its function as a frame of the loop, and the op then runs again with what the function gave. A site keeps the rule an answer gave in its cache with the key it met, the name it read and the epoch of the classes, so it asks the runtime once for each key until a class changes or a collection runs. A refusal ends in an error, so no site keeps one. `tests/rules.rs` runs a runtime whose rules read map keys as fields, answer `+` and `<` through an object's class and make instances callable, and counts how often a loop of 300 asks each hook, about twice a site where it asked every time before.
+
+## EngineError
+
+```rust file=src/lang/error.rs
+```
+
+`EngineError` is an error as facts, and `e.kind()` is the `ErrKind` whose class `NAMES.errors` gives it.
+
+| Variant | Kind |
+|---|---|
+| `Unsupported`, `BadIndex`, `BadSlice`, `Arity`, `Call`, `Pattern` | `Type` |
+| `Cannot` | `Type` |
+| `Cannot` with `Act::Complex` | `Value` |
+| `OutOfRange` | `Index` |
+| `TooWide(k)` | `k` |
+| `MissingKey` | `Key` |
+| `Changed`, a map or a set that changed its size while a loop walked it | `Runtime` |
+| `ZeroStep`, `NegativeShift`, `ByteRange`, `Unpack`, `SliceSize`, `NegativePower` | `Value` |
+| `Undefined`, and `Unbound` of a free cell | `Name` |
+| `Unbound` of a local | `Unbound` |
+| `NoAttribute`, and `ReadOnly` past a builtin type | `Attribute` |
+| `ReadOnly` of a builtin type | `Type` |
+| `ZeroDiv`, `ZeroPow` | `ZeroDiv` |
+| `Overflow`, `IntRange`, `FloatRange` | `Overflow` |
+| `Generator` of a body already running | `Value` |
+| `Generator` of a value sent before the body starts | `Type` |
+| `Generator` of a value sent into a builtin iterator a body waits inside | `Attribute` |
+| Any other `Generator` | `Runtime` |
+| `Stop`, `Close`, `Exit`, `Assert`, `Recursion`, `Memory` | Each its own |
+| `Of(k, words)` | `k` |
+| `Internal` | `Runtime` |
+| `Raised`, `Budget`, `HostYield`, `HostCallDeferred`, `Redo` | None |
+
+The types a variant holds say how it went wrong. `Act` names what a value was asked to do, `Lock` why a store cannot change an attribute, `Use` where an unhashable value was put, `Callee` and `Fit` what a call missed and how, `CallFault` a call refused before it binds, `Gen` the generator protocol and `Pattern` a class pattern that does not fit.
+
+The engine raises its own errors as an `EngineError` and words each one through the runtime's `message` where a handler catches it or where it leaves the machine, so a program reads every error of the engine in its runtime's words. `edge::lang::plain(cx, e)` words each variant in the engine's plain terms, naming kinds as `NAMES.kinds` does and operators as the table spells them, and a runtime's `message` may hand back to it for the variants it leaves. A handler of the program binds what the runtime's `raise` makes of an error of the engine, whose words the engine has written as an `Of` by then. `raised::<L>`, the default, builds an exception of `L`'s class for the kind holding `L::message`'s words, the words as they are for `Of`, the key itself for `MissingKey`, and the value for `Exit`, `Stop` and `Assert`.
+
+## What is not there yet
+
+- A few errors keep the words written where they rise, the length errors of a strict zip, a send to a builtin iterator, and the errors of hosts, imports and the wire.
+- The policy past the fields the loop reads builds only as the engine's own behaviour.
+
+> [!CARDS]
+> - `scale` [Rules](/docs/edge-lang/get-started/book/rules) Why the engine asks for each rule and what the three runtimes chose.
+> - `triangle-alert` [Errors](/docs/edge-lang/get-started/book/errors) The kinds, the classes and the words of an error in each runtime.
+> - `library` [Lib](/docs/edge-lang/sdk/lib) The `Lang` and `Style` choices lib reads on top of a language.

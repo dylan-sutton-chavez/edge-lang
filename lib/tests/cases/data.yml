@@ -1,0 +1,15 @@
+- native: lines
+  args: ["a\nb\r\nc", ""]
+  ret: !tuple [["a", "b"], "c"]
+
+- native: lines
+  args: [5]
+  error: "lines() argument 1 must be str or bytes-like, not int"
+
+- native: json_read
+  args: ["[1, -2, 3.5, true, null]"]
+  ret: [1, -2, 3.5, true, null]
+
+- native: json_read
+  args: ['{"k": 1, "j": 2, "k": 3}']
+  ret: {"k": 3, "j": 2}

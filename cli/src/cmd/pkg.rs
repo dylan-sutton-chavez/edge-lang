@@ -1,26 +1,82 @@
 use anyhow::{anyhow, bail, Result};
-use compiler::modules::rules::shaped_like_version;
+use clap::{ArgMatches, Args, FromArgMatches};
+use edge::deps::rules::{javascript, shaped_like_version};
 use serde_json::{Map, Value};
-use std::io::Read;
 use std::path::Path;
 
-use crate::asks;
-use crate::host::{cdn, get, site, system};
-use crate::lock::{self, Entry, Lock};
-use crate::manifest::Manifest;
+use crate::host::{cdn, get, site};
+use crate::kit::{self, Command, Kit};
+use crate::lock::{self, Entry};
 use crate::ui;
 
-// Bounds a runaway download while a url is hashed into the lock.
-const MAX_FETCH_BYTES: u64 = 64 << 20;
+#[derive(Args)]
+struct Names {
+    /// Package names to add.
+    pkgs: Vec<String>,
+}
 
-/* What the registry says a name resolves to, its newest release unless one is named. A refresh says so, since only taking a package for the first time is worth counting. */
+/* `add` declaring packages by name or version or url */
+pub struct Add;
+
+impl Command for Add {
+    fn spec(&self, _kit: &Kit) -> clap::Command {
+        Names::augment_args(clap::Command::new("add").about("Add packages to edge.json"))
+    }
+
+    fn summary(&self, _kit: &Kit) -> (String, String) {
+        ("add <pkgs>".to_string(), "Add packages to edge.json".to_string())
+    }
+
+    fn run(&self, kit: &Kit, m: &ArgMatches) -> Result<i32> {
+        add(kit, &kit::manifest_path(m), &Names::from_arg_matches(m)?.pkgs)?;
+        Ok(0)
+    }
+}
+
+/* `remove` dropping declared packages */
+pub struct Remove;
+
+impl Command for Remove {
+    fn spec(&self, _kit: &Kit) -> clap::Command {
+        Names::augment_args(clap::Command::new("remove").about("Remove packages from edge.json")).mut_arg("pkgs", |arg| arg.help("Package names to remove"))
+    }
+
+    fn summary(&self, _kit: &Kit) -> (String, String) {
+        ("remove <pkgs>".to_string(), "Remove packages from edge.json".to_string())
+    }
+
+    fn run(&self, kit: &Kit, m: &ArgMatches) -> Result<i32> {
+        remove(kit, &kit::manifest_path(m), &Names::from_arg_matches(m)?.pkgs)?;
+        Ok(0)
+    }
+}
+
+/* `lock` resolving every declared version into edge.lock */
+pub struct Lock;
+
+impl Command for Lock {
+    fn spec(&self, _kit: &Kit) -> clap::Command {
+        clap::Command::new("lock").about("Resolve every version edge.json declares into edge.lock")
+    }
+
+    fn summary(&self, _kit: &Kit) -> (String, String) {
+        ("lock".to_string(), "Resolve edge.json into edge.lock".to_string())
+    }
+
+    fn run(&self, kit: &Kit, m: &ArgMatches) -> Result<i32> {
+        lock(kit, &kit::manifest_path(m))?;
+        Ok(0)
+    }
+}
+
+/* a refresh tells the registry so since only the first take of a package counts */
 fn release(name: &str, version: Option<&str>, refresh: bool) -> Result<Entry> {
     let asked = [version.map(|v| format!("v={v}")), refresh.then(|| "lock=1".to_string())].into_iter().flatten().collect::<Vec<_>>().join("&");
     let query = match asked.is_empty() {
         true => String::new(),
         false => format!("?{asked}"),
     };
-    let source = site(&format!("/api/resolve/package/{name}{query}"));
+    let source = site(&format!("/api/resolve/package/{name}{query}")).map_err(|e| anyhow!(e))?;
 
     let mut response = get(&source).map_err(|e| match (e, version) {
         (ureq::Error::StatusCode(404), Some(v)) => anyhow!("'{name}' has no version {v}"),
@@ -38,22 +94,22 @@ fn release(name: &str, version: Option<&str>, refresh: bool) -> Result<Entry> {
     }
 }
 
-pub fn add(path: &Path, pkgs: &[String]) -> Result<()> {
+fn add(kit: &Kit, path: &Path, pkgs: &[String]) -> Result<()> {
     if pkgs.is_empty() {
         bail!("nothing to add: pass one or more package names");
     }
-    // Validate every spec first so a single unknown name aborts before any write or print.
-    let mut releases = Lock::default();
+    // every spec is checked first so one unknown name aborts before any write or print
+    let mut releases = lock::Lock::default();
     let resolved: Vec<(&str, String)> = pkgs
         .iter()
         .map(|spec| {
             let (name, version, url) = parse_spec(spec);
             if url.as_deref().is_some_and(javascript) {
-                bail!("module '{name}' is JavaScript, ship a .py or a .wasm");
+                bail!("module '{name}' is JavaScript, ship a .{} or a .wasm", kit.descriptor().extension);
             }
             let target = match url {
                 Some(url) => url,
-                // A version is all the manifest keeps, `edge lock` is what turns it into an address.
+                // the manifest keeps only a version and `edge lock` turns it into an address
                 None => {
                     let entry = release(name, version, false)?;
                     let version = entry.version.clone().unwrap_or_default();
@@ -66,38 +122,33 @@ pub fn add(path: &Path, pkgs: &[String]) -> Result<()> {
         .collect::<Result<_>>()?;
 
     let added: Map<String, Value> = resolved.iter().map(|(name, target)| (name.to_string(), Value::String(target.clone()))).collect();
-    let packages = asks::packages(path, &added, &releases)?;
-    let mut m = Manifest::load(path)?;
+    let asks = kit.grants().asks(kit, path, &added, &releases)?;
+    let mut m = kit.manifest(path)?;
     let versions = resolved.iter().any(|(_, target)| shaped_like_version(target));
     for (name, target) in resolved {
         ui::added(name, &target);
         m.imports.insert(name.to_string(), target);
     }
-    let mut asking = false;
-    for package in packages.iter().filter(|p| !p.section.is_null()) {
-        // Against an empty grant every ask comes back unmet, which lists them all.
-        let asked = system::unmet(&[], &package.section);
-        if !asked.is_empty() {
-            ui::asks(&package.who(), &asked);
-            asking = true;
-        }
+    for (who, asked) in &asks {
+        ui::asks(who, asked);
     }
     m.save(path)?;
-    ui::note(match (asking, versions) {
-        (true, _) => "updated edge.json, grant what they ask for under permissions, then run edge lock",
-        (false, true) => "updated edge.json, run edge lock to resolve it",
-        (false, false) => "updated edge.json",
+    let field = kit.grants().field().unwrap_or_default();
+    ui::note(&match (!asks.is_empty(), versions) {
+        (true, _) => format!("updated edge.json, grant what they ask for under {field}, then run {} lock", kit.name()),
+        (false, true) => format!("updated edge.json, run {} lock to resolve it", kit.name()),
+        (false, false) => "updated edge.json".to_string(),
     });
     Ok(())
 }
 
-pub fn remove(path: &Path, pkgs: &[String]) -> Result<()> {
+fn remove(kit: &Kit, path: &Path, pkgs: &[String]) -> Result<()> {
     if pkgs.is_empty() {
         bail!("nothing to remove: pass one or more package names");
     }
-    let mut m = Manifest::load(path)?;
+    let mut m = kit.manifest(path)?;
     let names: Vec<&str> = pkgs.iter().map(|s| parse_spec(s).0).collect();
-    // Validate every name exists first so a single bad one aborts before any write or print.
+    // every name is checked first so one bad name aborts before any write or print
     for name in &names {
         if !m.imports.contains_key(*name) {
             bail!("'{name}' is not in {}", path.display());
@@ -112,18 +163,18 @@ pub fn remove(path: &Path, pkgs: &[String]) -> Result<()> {
     Ok(())
 }
 
-/* Resolves every version and url the manifest declares and writes the lock a run reads, so nothing else has to ask the registry where a name points. */
-pub fn lock(path: &Path) -> Result<()> {
-    let manifest = Manifest::load(path)?;
-    let mut lock = Lock::default();
+/* resolves the manifest into the lock so runs never ask the registry where names point */
+fn lock(kit: &Kit, path: &Path) -> Result<()> {
+    let manifest = kit.manifest(path)?;
+    let mut lock = lock::Lock::default();
 
     for (name, target) in &manifest.imports {
         if javascript(target) {
-            bail!("module '{name}' is JavaScript, ship a .py or a .wasm");
+            bail!("module '{name}' is JavaScript, ship a .{} or a .wasm", kit.descriptor().extension);
         }
         let entry = match shaped_like_version(target) {
             true => release(name, Some(target), true)?,
-            // A path carries its own bytes and a pinned url its own digest.
+            // a path carries its own bytes and a pinned url its own digest
             false if !target.contains("://") || target.contains("#sha256-") => continue,
             false => Entry { version: None, url: target.clone(), digest: lock::digest_of(&download(target)?) },
         };
@@ -131,29 +182,21 @@ pub fn lock(path: &Path) -> Result<()> {
         lock.insert(name, entry);
     }
 
-    // Nothing is written until the root grants what every package in the tree asks for.
-    asks::check(path, &lock)?;
+    // nothing is written until the root grants what every package in the tree asks for
+    kit.grants().project(kit, path, Some(&lock))?;
     let written = lock::save(&lock, path)?;
     ui::note(&format!("wrote {}", written.display()));
     Ok(())
 }
 
-/* Whether a target is a JavaScript module, which no host loads besides its own. */
-fn javascript(target: &str) -> bool {
-    let path = target.split(['?', '#']).next().unwrap_or(target);
-    matches!(path.rsplit('.').next(), Some("js" | "mjs"))
-}
-
-/* The bytes at `url`, hashed into the lock so a later run can tell whether they ever changed. */
+/* the bytes at `url` hashed into the lock so a later run sees any change */
 fn download(url: &str) -> Result<Vec<u8>> {
     let source = cdn(url);
     let mut response = get(&source).map_err(|e| anyhow!("fetching {source}: {e}"))?;
-    let mut bytes = Vec::new();
-    response.body_mut().as_reader().take(MAX_FETCH_BYTES).read_to_end(&mut bytes).map_err(|e| anyhow!("reading {source}: {e}"))?;
-    Ok(bytes)
+    crate::host::body(&mut response).map_err(|e| anyhow!("reading {source}: {e}"))
 }
 
-/// Parse `name`, `name@version` or `name=url`.
+// parses `name` or `name@version` or `name=url`
 fn parse_spec(spec: &str) -> (&str, Option<&str>, Option<String>) {
     if let Some((name, url)) = spec.split_once('=') {
         return (name, None, Some(url.to_string()));
@@ -180,7 +223,7 @@ mod tests {
         for target in ["https://x/charts.js", "https://x/charts.mjs", "https://x/time/index.js?v=2"] {
             assert!(javascript(target), "{target}");
         }
-        for target in ["https://x/json.wasm", "https://x/pkg/json/0.1.0/app.edge", "https://x/helper.py"] {
+        for target in ["https://x/json.wasm", "https://x/pkg/json/0.1.0/app.edge", "https://x/helper.mini"] {
             assert!(!javascript(target), "{target}");
         }
     }

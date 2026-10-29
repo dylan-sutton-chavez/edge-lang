@@ -1,51 +1,66 @@
 ---
 title: "Compiler"
-description: "How the lexer turns source into tokens and the single-pass parser turns tokens into SSA bytecode."
+description: "How the lexer turns source into tokens through a token table, and the single-pass parser turns tokens into SSA bytecode."
 ---
 
 # Compiler
 
-The compiler has two stages and no AST. A LUT-driven lexer turns the source into tokens. A single-pass Pratt parser turns the tokens straight into bytecode in an `SSAChunk`.
+The compiler has two stages and no AST. The lexer turns the source into tokens through the token table a runtime brings, and a single-pass Pratt parser turns the tokens straight into bytecode in an `SSAChunk`. The parser routes on token kinds and never on how a table spelled them, so every table compiles a program to the same bytecode.
 
 - The lexer walks the source as raw bytes in linear time.
 - Lex-time diagnostics collect in a `Vec<LexError>` returned beside the token stream.
-- The parser folds them into its own diagnostics for one ordered report.
+- `edge.wasm` and the module loader push them into the diagnostics of the parser, so one report holds both.
 - Each construct is parsed and lowered in one traversal, with SSA versioning and phi nodes at control-flow joins.
 
-This page covers token-level and bytecode-level mechanics. The surface forms of literals, strings and f-strings live in [Syntax](/docs/edge-python/language/syntax). [Design](/docs/edge-python/internals/design) covers the parts that span the pipeline.
+This page covers token-level and bytecode-level mechanics. The grammar and the forms of literals, strings and f-strings live in [Parser kit](/docs/edge-lang/sdk/parser-kit). [Design](/docs/edge-lang/internals/design) covers the parts that span the pipeline.
 
 ## Tokens
 
-The lexer produces `Token` values of a kind, a line and two byte offsets, never copies of the text, plus two flags the parser reads, as [Offset tokens](#offset-tokens) shows.
+The lexer produces `Token` values of a kind, a line and two byte offsets, never copies of the text, plus two flags the parser reads, as [Offset tokens](#offset-tokens) shows. A kind names a token and not its text, so `BlockClose` is `end` in uptime and `}` in a braces table, and `Not` is `!` in mini and `not` in uptime.
 
 | Category | Kinds |
 |---|---|
-| Keywords | `False`, `None`, `True`, `and`, `as`, `assert`, `async`, `await`, `break`, `class`, `continue`, `def`, `del`, `elif`, `else`, `except`, `finally`, `for`, `from`, `global`, `if`, `import`, `in`, `is`, `lambda`, `nonlocal`, `not`, `or`, `pass`, `raise`, `return`, `try`, `while`, `with`, `yield` |
-| Soft keywords | `match`, `case`, `type` |
+| Keywords | `False`, `Nil`, `True`, `And`, `As`, `Assert`, `Async`, `Await`, `Break`, `Class`, `Continue`, `Fn`, `Delete`, `ElseIf`, `Else`, `Catch`, `Finally`, `For`, `From`, `Global`, `If`, `Import`, `In`, `Is`, `FnExpr`, `Outer`, `Not`, `Or`, `Empty`, `Throw`, `Return`, `Try`, `While`, `With`, `Yield` |
+| Soft keywords | `Match`, `Case`, `Type` |
 | Wildcard | `Underscore`, a lone `_` |
-| Operators | 1, 2 and 3 character forms such as `+`, `==`, `**=`, `//=` |
-| Delimiters | `( ) [ ] { } : , ; .` |
+| Operators | 1, 2 and 3 character forms such as `Plus`, `EqualEqual`, `PowEqual` and `FloorDivEqual` |
+| Comparisons | `IsNot` and `NotIn`, for a table that spells either as one word or symbol |
+| Delimiters | `ParenOpen`, `ParenClose`, `BracketOpen`, `BracketClose`, `BraceOpen`, `BraceClose`, `Colon`, `Comma`, `Semi`, `Dot` |
 | Literals | `Name`, `Int`, `Float`, `String`, `Bytes` |
-| F-string segments | `FstringStart`, `FstringMiddle`, `FstringEnd` |
-| Structure | `Comment`, `Newline`, `Indent`, `Dedent`, `Nl`, `Endmarker` |
+| F-string segments | `FormatStart`, `FormatText`, `FormatEnd` |
+| Structure | `Comment`, `Newline`, `Indent`, `Dedent`, `LineBreak`, `Eof`, `BlockOpen`, `BlockClose` |
+| Kit pieces | `Let`, `Arm`, `Range`, `RangeInclusive` and `Question`, which a table spells only when its `shapes` turn on a binding word, match arms, ranges or a `?` conditional |
 
 A leading UTF-8 BOM (`EF BB BF`) is skipped before scanning. Without that the marker would fuse with the first identifier.
 
+### Token tables
+
+A table is a `Syntax`. A runtime hands it to the lexer and the parser as a type that implements `Spelling`, as `lex_as::<S>` and `Parser::<_, S>::spelled` take it, so the table compiles in as constants. It holds the reserved words with their tokens, the symbols with theirs, an operator table built from the symbols, how a block opens and closes, the comment marker, and whether the definition word is soft.
+
+A table turns on only the scans it needs. Each switch is a constant of the table, so a table that needs none pays for none.
+
+- `Blocks::Braces` turns on the block scan of [Braces](#braces) in place of indentation, and `Blocks::Words` the scan of [Block words](#block-words).
+- A reserved word of two words, such as `else if`, turns on the phrase scan.
+- A symbol whose second byte is neither its first nor `=`, such as `~/`, turns on the pair scan.
+- A `!` that spells `not` turns on the check that tells a negation from an f-string conversion.
+- A comment marker other than `#`, such as `//`, is matched before any symbol it would start.
+
 ### Soft keywords
 
-`match`, `case` and `type` collide with builtins and ordinary names. The scanner fills one token buffer, sized from the source length, and a pass over that buffer then decides what each one is in place.
+`match`, `case` and `type` collide with ordinary names, and so does a soft definition word such as mini's `fn`. The scanner fills one token buffer, sized from the source length, and a pass over that buffer then decides what each one is in place. The pass walks the buffer once with a level for each open bracket, so it marks soft words, comprehension elements and assignment heads in time linear in the tokens however often a statement repeats them.
 
-- `match` and `case` stay keywords only when they start a statement and a header colon follows. The colon must sit outside brackets and before any `=`, newline or `;`.
-- `type` stays a keyword only when it starts a statement and a name follows, as in a type alias.
+- `match` and `case` stay keywords only when they start a statement and its header opens a block, at a colon in mini and indent or a `{` in a braces table. That opener must sit outside brackets and before any `=`, newline or `;`.
+- `type` stays a keyword only when it starts a statement and a name follows, as in a type alias, which the parser refuses with `type aliases are not supported`.
+- A soft definition word stays a keyword only when it starts a statement, or follows `async`, and a name follows it.
 - Everywhere else the word becomes a `Name`.
 
-`match x:` and `match (a, b):` keep keyword force. A call like `match(a, b)` and a binding like `type = None` stay ordinary code.
+`match x:` and `match (a, b):` keep keyword force. A call like `match(a, b)` and a binding like `type = nil` stay ordinary code.
 
-```edge-python
-def match(s, p):
+```edge
+fn match(s, p):
     return s
 
-type = None
+type = nil
 print(match(1, 2))
 print(type)
 ```
@@ -59,14 +74,14 @@ None
 
 ### Numbers and strings
 
-`Int` and `Float` are the only numeric token kinds. A `j` suffix as in `1j` lexes as a `Float`, and the parser makes it an imaginary constant, which the VM boxes as a complex number.
+`Int` and `Float` are the only numeric token kinds. A table that refuses suffixes, as mini and uptime do, reports `invalid suffix on numeric literal` for a letter right after a number, as in `1j`.
 
 - A misplaced or doubled `_` raises `invalid '_' in numeric literal` or `consecutive '_' in numeric literal`. One `_` may follow a radix prefix, as in `0x_FF`.
 - An empty radix body such as `0x` raises `missing digits in numeric literal`.
 - A trailing dot such as `5.` is valid.
 - An empty exponent such as `1e` is left to the float parser. That avoids false positives inside format specs.
 
-The identifier scanner recognises a string prefix right before the opening quote. `string_prefix` maps it to the literal it opens, an f-string, a string or bytes, and a `b` prefix yields a separate `Bytes` token.
+The identifier scanner recognises a string prefix right before the opening quote. `prefix` looks it up in the table for the literal it opens, an f-string, a string or bytes, and a `b` prefix yields a separate `Bytes` token.
 
 Backslash escapes are consumed at lex time and decoded by the parser. `\N{NAME}` is not implemented, because the Unicode name database would add about 200 KB to the WASM artifact.
 
@@ -74,25 +89,27 @@ String errors anchor on the opening quote. The caret points at the literal and n
 
 ### Comments
 
-`#` runs to the end of the line. Comments are emitted as `Comment` tokens, not discarded.
+The marker of the table, `//` in mini and `#` in uptime, runs to the end of the line. Comments are emitted as `Comment` tokens, not discarded.
 
-Tools can round-trip the source. The parser skips `Comment` and `Nl` when it peeks.
+Tools can round-trip the source. The parser skips `Comment` and `LineBreak` when it peeks.
 
 ## Dispatch tables
 
-Two compile-time tables in `lexer/tables.rs` drive the scanner.
+Compile-time tables drive the scanner. `BYTE_CLASS` in `syntax/lexer/tables.rs` serves every table, and `operators` in `syntax/lexer/syntax.rs` builds the operator table of each `Syntax` from its symbols.
 
 ```rust
-// Bit flags per byte: ID_START, ID_CONT, DIGIT, SPACE.
+// a 256 entry table replacing per-byte branches with indexed flag loads
 pub static BYTE_CLASS: [u8; 256] = { /* ... */ };
 
-// Operators by first byte: alone, followed by `=`, doubled, doubled then `=`.
-pub static OPERATORS: [[TokenType; 4]; 128] = { /* ... */ };
+// the byte table of a symbol list leaving `}` to the scanner
+pub const fn operators(symbols: &[(&str, TokenType)]) -> [[TokenType; 4]; 128] { /* ... */ }
 ```
 
 - Identifiers, digits and whitespace use a `scan_while(pred)` driver that loops over `BYTE_CLASS[b] & FLAG`.
-- An operator takes one indexed load, `OPERATORS[b]`. The next byte then picks the doubled form, such as `**`, or the `=` form, such as `*=`, and a third byte picks `**=`.
-- Keyword lookup routes by `(length, first_byte)` and skips most `memcmp` calls.
+- An operator takes one indexed load of the operator table by its first byte. The next byte then picks the doubled form, such as `**`, or the `=` form, such as `*=`, and a third byte picks `**=`.
+- A symbol whose second byte is neither its first nor `=`, such as mini's `~/`, has no slot there. The pair scan matches it whole, the longest first.
+- `}` has no slot either. The scanner tells the end of an f-string field, of a block and of a display apart itself.
+- Keyword lookup goes through the table's `keywords`, the index `index(words)` builds at compile time by length and first byte, which compares a word up to eight bytes long as one packed integer.
 
 ASCII bytes with no operator slot, such as `$`, `?` and `` ` ``, raise `unexpected character` and are skipped.
 
@@ -103,42 +120,59 @@ An f-string becomes a sequence of tokens, not a single `String` token. The parse
 ```text
 f'a {x} b {y + 1}!'
 
-FstringStart
-FstringMiddle("a ")
-Lbrace
+FormatStart
+FormatText("a ")
+BraceOpen
 Name(x)
-Rbrace
-FstringMiddle(" b ")
-Lbrace
+BraceClose
+FormatText(" b ")
+BraceOpen
 Name(y) Plus Int(1)
-Rbrace
-FstringMiddle("!")
-FstringEnd
+BraceClose
+FormatText("!")
+FormatEnd
 ```
 
 - The tokens between `{` and `}` come from the main lexer. An interpolation gets the full expression grammar.
-- `{{` and `}}` emit no `Lbrace` or `Rbrace`. They stay in the `FstringMiddle` text and the parser unescapes them.
+- `{{` and `}}` emit no `BraceOpen` or `BraceClose`. They stay in the `FormatText` text and the parser unescapes them.
 - Triple-quoted f-strings follow the same structure, with newlines inside the middle segments.
-- Nested f-strings live on an `fstring_stack`. Each `}` resumes the right outer template.
-- At the end of the source inside an open f-string, the lexer reports `unterminated f-string literal` and synthesises a closing `FstringEnd`. The parser still sees a balanced sequence.
+- Nested f-strings live on a stack of open `fields`. Each `}` resumes the right outer template.
+- At the end of the source inside an open f-string, the lexer reports `unterminated f-string literal` and synthesises a closing `FormatEnd`. The parser still sees a balanced sequence.
 
-## Indentation
+## Blocks
+
+A table opens and closes a block one of three ways, and the parser reads each as the same block.
+
+### Indentation
 
 The scanner keeps a stack of column counts and emits structural tokens at line boundaries.
 
 | Situation | Tokens emitted |
 |---|---|
-| Blank line or comment-only line | `Nl` |
-| Inside `(...)`, `[...]`, `{...}` | `Nl`, with no `Indent` or `Dedent` |
-| Indentation increased | `Indent`, `Newline` |
-| Indentation decreased | `Dedent` per level, `Newline` |
+| Blank line or comment-only line | `LineBreak` |
+| Inside `(...)`, `[...]`, `{...}` | `LineBreak`, with no `Indent` or `Dedent` |
+| Indentation increased | `Newline`, then `Indent` |
+| Indentation decreased | `Newline`, then a `Dedent` per level |
 | Indentation unchanged | `Newline` |
 | Dedent matches no outer level | The diagnostic `unindent does not match any outer indentation level` |
-| Mixed tabs and spaces in an indent | `Endmarker` to halt the lexer, plus a diagnostic |
+| Mixed tabs and spaces in an indent | `Newline`, then `Eof` to halt the lexer, plus a diagnostic |
+| An indent past 100 levels | `Newline`, then `Eof`, plus a diagnostic |
 
-A `nesting` counter goes up on `(`, `[` and `{` and down on `)`, `]` and `}`. While it is above zero, line breaks emit `Nl` and the indent stack is frozen. Multi-line expressions inside brackets produce no stray `Indent` or `Dedent`.
+A `nesting` counter goes up on `(`, `[` and `{` and down on `)`, `]` and `}`. While it is above zero, line breaks emit `LineBreak` and the indent stack is frozen. Multi-line expressions inside brackets produce no stray `Indent` or `Dedent`.
 
-At the end of the source the lexer pops every open level as a `Dedent`, then emits `Endmarker`. A backslash continuation joins two physical lines.
+At the end of the source the lexer pops every open level as a `Dedent`, then emits `Eof`. A backslash continuation joins two physical lines.
+
+### Braces
+
+A braces table counts no indentation. A line break outside brackets emits `Newline`, and one before a blank or comment-only line emits `LineBreak`.
+
+- A `{` outside brackets and f-strings emits `BlockOpen` after the last token of a header, a name, a literal or a closing bracket. It does the same after a block word, `try`, `except`, `finally` or a statement `else`, and after a trailing comma of a header when the `{` ends the line. Anywhere else it is a `BraceOpen` that opens a display.
+- The `}` of a block emits `BlockClose` and closes every bracket its body left open.
+- A block nested past 100 levels emits `Eof`, plus a diagnostic.
+
+### Block words
+
+A table of `Blocks::Words` spells `BlockOpen` and `BlockClose` as words, `do` and `end` in uptime, and counts no indentation. With `implicit` on, a header still open at its line end opens its block there, so `for x in xs` needs no `do`, and one `end` closes the statement with every clause it holds. A `do` opens a block on the header's own line, as in `for x in [1, 2] do print(x) end`.
 
 ## Offset tokens
 
@@ -151,7 +185,7 @@ pub struct Token {
     pub start: usize,
     pub end: usize,
     pub comp: bool,  // starts the element of a comprehension
-    pub assigns: u8, // on the first token of a statement, the `=` that end its targets
+    pub assigns: u8, // counts the `=` ending the targets of its statement
 }
 ```
 
@@ -163,7 +197,7 @@ The parser slices `&source[t.start..t.end]` lazily for names, string content and
 
 ## Bytecode model
 
-Each instruction is a 4-byte record. It holds a 1-byte `OpCode` (`#[repr(u8)]`), a 2-byte operand, and 1 byte of padding.
+Each instruction is a 4-byte record. It holds a 1-byte `OpCode` (`#[repr(u8)]`) of the table [Opcodes](/docs/edge-lang/sdk/opcodes) covers, a 2-byte operand, and 1 byte of padding.
 
 ```rust
 pub struct Instruction {
@@ -172,17 +206,18 @@ pub struct Instruction {
 }
 ```
 
-Thirty-three specialised `Call*` opcodes, such as `CallLen` and `CallPrint`, cover hot builtins, unless the calling body or an enclosing function binds the name, where the call loads the binding. The operand meaning depends on the opcode.
+The operand meaning depends on the opcode, as the table's `operand` column states for each.
 
 | OpCode | Operand |
 |---|---|
 | `LoadConst` | Constant pool index |
 | `LoadName`, `StoreName` | Name slot index |
-| `Add`, `Sub`, ... | Unused, the inline cache keys on the ip |
+| `Add`, `Sub`, ... | Flags, `INPLACE` for the `op=` form that may update its left side in place, while the inline cache keys on the ip |
 | `Call` | `(num_kw << 8) \| num_pos` |
 | `BuildList`, `BuildTuple`, `BuildSet` | Element count |
 | `BuildDict` | Key and value pair count |
-| `BuildSlice` | Part count, 2 or 3 |
+| `BuildSlice` | Part count, 2 or 3, for a slice a key keeps or a store takes, which the register lowering hands to `StoreCut` with no slice built, though an augmented store such as `x[a:b] += v` still builds one to read and store it |
+| `Cut`, `DelCut` | The object and its bounds, 3 or 4, which a read or a delete of a lone slice takes with no slice built unless the object is a map, which keys by the slice the bounds make |
 | `Jump`, `JumpIfFalse` | Target instruction index |
 | `ForIter` | Jump target when the iterator is exhausted |
 | `Phi` | Target slot, with the sources in `chunk.phi_sources` |
@@ -199,41 +234,45 @@ Operands, the constant pool, the name table and the instruction stream of each c
 `parse_atom` advances one token and routes by kind.
 
 ```text
-Name                     -> name() (handles walrus, calls)
-String / FstringStart    -> string_group() (adjacent str and f-string literals concatenate)
-Int / Float              -> emit numeric constant (ints past i64 become wide constants, past 4,300 decimal digits a parse error)
-True/False/None/Ellipsis -> emit dedicated load opcode
-Lbrace                   -> brace_literal() (dict, set, comprehension)
-Lsqb                     -> list_literal() (list, comprehension)
-Lpar                     -> grouped expr, tuple, generator, or empty tuple
-Lambda                   -> parse_lambda()
+Name / Underscore        -> name() (handles walrus, calls)
+String / FormatStart     -> string_group() (adjacent str and f-string literals concatenate)
+Bytes                    -> one constant, adjacent bytes literals joined
+Int / Float              -> emit numeric constant
+True/False/Nil/Ellipsis  -> emit dedicated load opcode
+BraceOpen                -> brace_literal() (dict, set, comprehension)
+BracketOpen              -> list_literal() (list, comprehension)
+ParenOpen                -> paren_atom() (grouped expr, tuple, generator, or empty tuple)
+Yield                    -> emit_yield() (yield as a value)
+FnExpr                   -> parse_lambda()
 ```
+
+A `BlockOpen` or `BlockClose` where an operand belongs reports `expected expression` and stays for the block it bounds. A closer does the same for the bracket or field it closes, so an empty `{}` field reports only the expression it lacks.
 
 After an atom, `postfix_tail()` handles subscripts, attributes and calls until none apply. It also ends a chain in its store, the `xs[0].v` of an assignment target or a statement such as `xs[0][1] += 1`. `fns[0](-3)`, `obj.method()`, `(lambda x: x)(3)` and `compose(f, g)(x)` all parse the same way.
 
 `*args` and `**kwargs` are accepted in call position.
 
 - Starred unpacking in list, set and dict displays lowers through `ListExtend`, `SetUpdate` and `DictUpdate`.
-- A tuple display such as `(1, *xs, 2)` or `x = *a, b` builds a list the same way and closes with `CallTuple`.
+- A tuple display such as `(1, *xs, 2)` or `x = *a, b` builds a list the same way, then a tuple from it.
 
-Each binary operator declares `(l_bp, r_bp, OpCode)` in `binding_power`. A higher number binds tighter.
+Each table's `precedence` gives every operator its left and right binding power by token kind, whatever the table spells it with, and a left power of zero marks a prefix. The parser reads the powers of the table it parses with. A higher number binds tighter, and the levels below are mini's, while uptime's ladder has no bitwise or shift levels.
 
-| Level | Operators | Notes |
+| Level | Tokens | Notes |
 |---|---|---|
-| 1/2 | `or` | Short-circuit |
-| 3/4 | `and` | Short-circuit |
-| 5 | Unary `not` | Prefix only |
-| 7/8 | `==` `!=` `<` `>` `<=` `>=` `in` `not in` `is` `is not` | Chainable |
-| 9/10 | `\|` | Bitwise |
-| 11/12 | `^` | Bitwise |
-| 13/14 | `&` | Bitwise |
-| 15/16 | `<<` `>>` | Shifts |
-| 17/18 | `+` `-` | Additive |
-| 19/20 | `*` `/` `%` `//` `@` | Multiplicative |
-| 21 | Unary `-` `+` `~` `await` | Prefix |
-| 22/21 | `**` | Right-associative |
+| 1/2 | `Or` | Short-circuit |
+| 3/4 | `And` | Short-circuit |
+| 5 | `Not` as a prefix | Prefix only |
+| 7/8 | `EqualEqual` `NotEqual` `Less` `Greater` `LessEqual` `GreaterEqual` `In`, `Not In` or `NotIn`, `Is`, `Is Not` or `IsNot` | Chainable |
+| 9/10 | `BitOr` | Bitwise |
+| 11/12 | `BitXor` | Bitwise |
+| 13/14 | `BitAnd` | Bitwise |
+| 15/16 | `LeftShift` `RightShift` | Shifts |
+| 17/18 | `Plus` `Minus` | Additive |
+| 19/20 | `Star` `Slash` `Percent` `FloorDiv` `At` | Multiplicative |
+| 21 | `Minus` `Plus` `Tilde` `Await` as prefixes | Prefix |
+| 22/21 | `Pow` | Right-associative |
 
-Only `**` is right-associative, since its `r_bp` is below its `l_bp`. An operator never continues past the end of a logical line. `@deco` on the next line stays a decorator.
+Only `Pow` is right-associative, since its `r_bp` is below its `l_bp`. An operator never continues past the end of a logical line. `@deco` on the next line stays a decorator.
 
 `infix_bp` handles comparison chains such as `a < b < c`.
 
@@ -245,7 +284,7 @@ Only `**` is right-associative, since its `r_bp` is below its `l_bp`. An operato
 
 ### Short-circuit
 
-`and` and `or` lower to `JumpIfFalseOrPop` and `JumpIfTrueOrPop`. These peek the top of the stack and pop only when execution continues. Otherwise they jump and leave the value on the stack.
+`And` and `Or` lower to `JumpIfFalseOrPop` and `JumpIfTrueOrPop`. These peek the top of the stack and pop only when execution continues. Otherwise they jump and leave the value on the stack.
 
 ```text
 a and b
@@ -276,35 +315,7 @@ end:
 
 ### F-strings
 
-An f-string lowers to constant chunks interleaved with `FormatValue` ops and closes with `BuildString`.
-
-```edge-python
-name = "bo"
-age = 3
-print(f"hello {name}, age {age}")
-```
-
-```output
-hello bo, age 3
-```
-
-```text
-LoadConst "hello "
-LoadName name_v
-FormatValue 0
-LoadConst ", age "
-LoadName age_v
-FormatValue 0
-BuildString 4
-CallPrint 1
-```
-
-The `FormatValue` operand is a small flags field.
-
-- Bit 0 is set when a format spec string sits on the stack just below the value.
-- Bits 1 and 2 hold the conversion, `0` none, `1` `!r`, `2` `!s`, `3` `!a`.
-
-The VM applies the conversion first, then the [format spec](/docs/edge-python/language/syntax#f-strings). A spec that fails to parse raises `ValueError` at run time.
+An f-string lowers to its constant chunks and the code of its fields in source order, and closes with `BuildString`, which joins them. How a field turns into text, its [conversion and spec](/docs/edge-lang/sdk/parser-kit#f-strings) included, is up to the runtime.
 
 The `{expr=}` form emits the field text as written, spaces around the `=` included, as a constant after the value and swaps the two, so the field code never moves. Adjacent string literals concatenate at parse time.
 
@@ -312,10 +323,10 @@ The `{expr=}` form emits the field text as written, spaces around the `=` includ
 
 Each binding emits a fresh slot with a higher version. The parser keeps the current version of each name in a table that allocates the text of a name once, when it first binds, and finds it by hash after that. Names in `chunk.names` are stored as `name_version`.
 
-```python
-x = 1  # x_1
-x = 2  # x_2
-y = x  # y_1, references x_2
+```edge
+x = 1  // x_1
+x = 2  // x_2
+y = x  // y_1, references x_2
 ```
 
 ```text
@@ -329,7 +340,7 @@ chunk.instructions:
   StoreName 2   (y_1)
 ```
 
-A name read before any binding in its chunk targets version 0, such as `x_0`. At run time an unbound `_0` name falls back to the builtins. A name that is still unbound raises `NameError`.
+A name read before any binding in its chunk targets version 0, such as `x_0`. At run time an unbound `_0` name falls back to the builtins, and a name unbound there too is an error.
 
 Inside a block every store pushes its name and the version it replaced onto a trail. At each control-flow boundary the parser pushes a `JoinNode { start, mid }` of trail positions onto a stack.
 
@@ -343,17 +354,12 @@ A join reads only the names its blocks stored, so its cost follows those stores 
 
 Each `Phi` carries the target slot, the version after the join, in its operand. The source slots live in `chunk.phi_sources`, indexed at run time by `chunk.phi_map[ip]`. That keeps `Instruction` at 4 bytes.
 
-```edge-python
-cond = True
+```edge
 if cond:
     x = 1
 else:
     x = 2
-print(x)
-```
-
-```output
-1
+y = x
 ```
 
 ```text
@@ -368,56 +374,61 @@ StoreName x_2
 end_label:
 Phi x_3 (sources: x_1, x_2)
 LoadName x_3
-CallPrint 1
+StoreName y_1
 ```
 
 At run time `Phi` copies the first defined source slot into the target. Exactly one branch ran. Exactly one source is defined.
 
 ## Statements
 
-`stmt()` peeks the leading token and routes. Every statement starts with an empty bracket stack, and one that fails without consuming a token skips it, so broken input always ends.
+`stmt()` peeks the leading token and routes by kind. Every statement starts with an empty bracket stack, and one that fails without consuming a token skips it, so broken input always ends.
 
 ```text
-if       -> if_stmt (elif chain, optional else)
-for      -> for_stmt_inner (sync iter, optional else)
-while    -> while_stmt (break/continue patches)
-match    -> match_stmt
-def      -> func_def_inner
-class    -> class_def (__init__, attributes, methods)
-with     -> with_stmt_inner (multi-target, async variant)
-try      -> try_stmt (except, else, finally, raise)
-import   -> import_stmt (compile-time resolver lookup)
-from     -> parse_from_stmt (named and star imports, same path)
-yield    -> yield expr / yield from
-async    -> async def / for / with
-@        -> decorator stack + def or class
-return   -> expr + ReturnValue
-raise    -> expr + Raise / RaiseFrom
-break    -> emits Jump, back-patched to the loop exit
-continue -> jump to current loop start
-del / global / nonlocal / pass -> direct emit
-assert   -> Assert opcode (the ", msg" form lowers to a conditional raise of AssertionError(msg))
-Name     -> assignment, else name_stmt (augmented, indexed, attribute, call)
-( [ *    -> assignment, else an expression statement
+If        -> if_stmt (ElseIf chain, optional Else)
+For       -> for_stmt (sync iter, optional Else)
+While     -> while_stmt (break/continue patches)
+Match     -> match_stmt
+Fn        -> func_def_inner
+Class     -> class_def_with (bases, body, keywords refused)
+With      -> refused, with_stmt parses it for its errors
+Try       -> try_stmt (except, else, finally, raise)
+Import    -> import_stmt (compile-time resolver lookup)
+From      -> parse_from_stmt (named and star imports, same path)
+Yield     -> yield expr / yield from
+Async     -> async fn, with async for and async with refused
+At        -> decorator stack + fn or class
+Return    -> expr + ReturnValue
+Throw     -> expr + Raise, with raise from refused
+Break     -> emits Jump, back-patched to the loop exit
+Continue  -> jump to current loop start
+Delete / Global / Outer / Empty -> direct emit
+Assert    -> Assert opcode (the ", msg" form lowers to a conditional raise carrying msg)
+Type      -> refused as a type alias
+Name      -> assignment, else name_stmt (augmented, indexed, attribute, call)
+Let       -> let_stmt, where the table's binding word leads a store
+BlockOpen -> unexpected '{', its block skipped
+( [ *     -> assignment, else an expression statement
 ```
+
+`compile_block` reads a block as its table writes it. In braces and block words that is the statements between `BlockOpen` and `BlockClose`, and in mini and indent those between `Indent` and `Dedent` or on the line of the header. `header_end` eats the colon an indent header ends with and nothing in braces, and a block brace bounds a statement in error recovery the way a line does, so the statement parsers never ask which table they read.
 
 Each statement returns whether it left a value on the stack. The driver emits `PopTop` after expression statements such as `x.method()`. It emits nothing after assignments and control flow.
 
 - The lexer counts on the first token of a statement the `=` that end its targets. An assignment moves the cursor past those targets without compiling them, compiles the value, then comes back to store into each target from left to right, and a `for` or comprehension stores its targets the same way on each item. The value of `d[k()] = v()` runs first, and `a = b = v` duplicates it once per extra target.
-- Decorators apply to `def` and `class`. The `@` arm peeks for `class` after the decorator list. Each decorator wraps through `Call,1` between `MakeFunction` or `MakeClass` and the final `StoreName`.
-- `raise X from Y` lowers to `RaiseFrom`. It pops the cause and then the exception, and `Y` becomes the `__cause__` of `X`. A bare `raise` raises the current exception again.
-- `except` matching walks the [exception hierarchy](/docs/edge-python/reference/limits-and-errors#exception-hierarchy), the same table `isinstance` uses.
-- Imports resolve at parse time through a resolver the host injects. No import opcode reaches the VM. See [Modules](/docs/edge-python/reference/modules).
+- Decorators apply to a definition and a class. The `At` arm peeks for `Class` after the decorator list. Each decorator wraps through `Call,1` between `MakeFunction` or `MakeClass` and the final `StoreName`.
+- `raise X from Y` fails with `raise from is not supported`. A bare `raise` raises the current exception again.
+- Imports resolve at parse time through a resolver the host injects. No import opcode reaches the VM. See [Modules](/docs/edge-lang/reference/modules).
 
 ## Functions
 
-Lambdas and `def` both compile their body into a fresh `SSAChunk`.
+A lambda and a definition both compile their body into a fresh `SSAChunk`.
 
 ```rust
 self.with_fresh_chunk(|s| {
     s.ssa_versions = outer_versions;
     for p in params { s.bind_param(p); } // each base name at version 0
-    s.expr(); // or compile_block_body for def
+    s.mark_stmt(); // an error in the body points at its expression
+    s.expr(); // a definition compiles its block instead
     s.chunk.emit(OpCode::ReturnValue, 0);
 });
 ```
@@ -430,31 +441,32 @@ A free variable is a name that is neither a parameter nor bound locally. It is l
 
 Parameters are stored as names with markers. `*` marks `*args`, `**` marks `**kwargs`, `~` marks a keyword-only parameter, and a trailing `=` marks one with a default. Defaults live in `HeapObj::Func.defaults` and bind to the marked parameters in source order.
 
-A function or class whose definition has annotations gets an `__annotate__` function, compiled from the annotation expressions where they stand, which builds the dict when `__annotations__` is first read. The annotations of local variables and of the module emit no code. The body chunk keeps how many parameters come before a `/`, which keyword binding refuses to fill, and the line the definition starts on, which `__code__` reports.
+Annotations are parsed for their errors and emit no code, on parameters, returns and variables alike. The body chunk keeps how many parameters come before a `/`, which keyword binding refuses to fill, and the line the definition starts on.
 
 ## Comprehensions and generators
 
-Every comprehension takes several `for` and `if` clauses and compiles to a function called at once, so its loop variables stay its own. Its first iterable goes through `iter()` where the comprehension stands, so `[x for x in 5]` fails there.
+Every comprehension takes several `for` and `if` clauses and compiles to a function called at once, so its loop variables stay its own. Its first iterable becomes an iterator where the comprehension stands, so an error there points at the comprehension.
 
 - A list, set or dict comprehension builds with `BuildList`, `BuildSet` or `BuildDict` and fills with `ListAppend`, `SetAdd` or `MapAdd`, then returns the result.
 - A generator expression is a generator function, its clauses and element running as items are asked for.
 - The lexer marks the first token of an element followed by `for` inside brackets. The parser sets those tokens aside, compiles the clauses, then replays the element innermost.
 - A walrus in the element binds in the enclosing scope, as a `nonlocal` of the body.
 
-Async comprehensions such as `[x async for x in y]` are not supported. Starred unpacking inside a comprehension is not supported either.
+A comprehension that awaits runs as a coroutine the enclosing `async` function awaits. An `async for` clause fails with `async comprehensions are not supported`, and a generator expression that awaits fails with `async generators are not supported`. Starred unpacking inside a comprehension is not supported.
 
 ## Limits
 
-The caps and their messages are listed in [Source and token limits](/docs/edge-python/reference/limits-and-errors#source-and-token-limits). Each stage stops in its own way.
+The caps are listed in [Source and token limits](/docs/edge-lang/sdk/limits#source-and-token-limits), and their messages in [Diagnostics](/docs/edge-lang/reference/diagnostics#caps). Each stage stops in its own way.
 
-- A lexer cap halts lexing with `Endmarker`.
-- `MAX_EXPR_DEPTH` (200) bounds every recursive descent of the parser, through expressions, assignment targets and match patterns. A comparison chain compiles in a loop, so its length has no cap. Deep input raises `expression too deeply nested` instead of overflowing the native or WASM stack.
+- A lexer cap halts lexing with `Eof`.
+- `MAX_EXPR_DEPTH` (200) bounds every recursive descent of the parser through expressions, assignment targets, `del` targets and match patterns. Deep input raises `expression too deeply nested` instead of overflowing the native or WASM stack.
+- Blocks nest at most 100 deep by the lexer's cap, and imports at most 64 modules deep, reported as `imports nest deeper than 64 modules`.
+- A comparison chain and an `else if` chain each compile in a loop, so their length has no cap.
 - Past 65,535 instructions, names or constants, `emit` stops adding and sets `chunk.overflow`. The parser reports the overflow once parsing ends, and the instruction stream never runs.
 
 ## References
 
 1. Aho, Sethi & Ullman. *Compilers. Principles, Techniques and Tools* (1986). LUT-driven scanners.
-2. Python language reference. *Lexical analysis* ([docs.python.org](https://docs.python.org/3/reference/lexical_analysis.html)). Token grammar.
-3. Pratt. *Top Down Operator Precedence* (POPL 1973). Precedence climbing.
-4. Cytron et al. *Efficiently Computing Static Single Assignment Form* (TOPLAS 1991). SSA and phi nodes.
-5. Nystrom. *Crafting Interpreters* ([craftinginterpreters.com](https://craftinginterpreters.com/)). Single-pass codegen patterns.
+2. Pratt. *Top Down Operator Precedence* (POPL 1973). Precedence climbing.
+3. Cytron et al. *Efficiently Computing Static Single Assignment Form* (TOPLAS 1991). SSA and phi nodes.
+4. Nystrom. *Crafting Interpreters* (2021). Single-pass codegen patterns.

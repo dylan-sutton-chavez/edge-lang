@@ -1,0 +1,28 @@
+[package]
+name = "data"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "One real job written twice, in mini and in tiny, over a pinned hour of GH Archive events, with a test holding their reports to agree."
+publish = false
+
+[lib]
+name = "data"
+path = "lib.rs"
+doctest = false
+
+[[test]]
+name = "agree"
+path = "tests/agree.rs"
+
+# the hour's hash is checked with no engine linked so the bench takes it cheaply
+[dependencies]
+sha2 = { workspace = true }
+
+# both runtimes run the job in the test which reads tiny's rows as JSON
+[dev-dependencies]
+edge = { path = "../.." }
+mini = { path = "../mini" }
+tiny = { path = "../tiny" }
+serde_json = { workspace = true }

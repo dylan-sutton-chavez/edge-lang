@@ -8,7 +8,7 @@ groups:
   echoer:
     replicas: 1
     code: |
-      while True:
+      while true:
           msg = receive()
           print("got:", msg)
 

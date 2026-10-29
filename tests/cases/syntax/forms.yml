@@ -1,0 +1,576 @@
+- mini: |
+    x = 3
+    if x > 2:
+        y = 1
+    else if x > 1:
+        y = 2
+    else:
+        y = 3
+    print(y)
+  indent: |
+    x = 3
+    if x > 2:
+        y = 1
+    elif x > 1:
+        y = 2
+    else:
+        y = 3
+    print(y)
+  words: |
+    x = 3
+    if x > 2 then
+        y = 1
+    elseif x > 1 then
+        y = 2
+    else
+        y = 3
+    end
+    print(y)
+
+- mini: |
+    x = true
+    if x: y = 1
+    else: y = 2
+    print(y)
+  indent: |
+    x = True
+    if x:
+        y = 1
+    else:
+        y = 2
+    print(y)
+  words: |
+    x = true
+    if x then y = 1 else y = 2 end
+    print(y)
+
+- mini: |
+    a, c = true, false
+    if c: y = 1 if a else 2
+    else: y = 3 if a else 4
+    print(y)
+  indent: |
+    a, c = True, False
+    if c:
+        y = 1 if a else 2
+    else:
+        y = 3 if a else 4
+    print(y)
+  words: |
+    a, c = true, false
+    if c then y = 1 if a else 2 else y = 3 if a else 4 end
+    print(y)
+
+- mini: |
+    i = 0
+    while i < 3:
+        i += 1
+        if i == 2: continue
+    else:
+        print(i)
+  indent: |
+    i = 0
+    while i < 3:
+        i += 1
+        if i == 2:
+            continue
+    else:
+        print(i)
+  words: |
+    i = 0
+    while i < 3 do
+        i += 1
+        if i == 2 then continue end
+    else
+        print(i)
+    end
+
+- mini: |
+    for n in [1, 2, 3]:
+        if n == 5: break
+    else:
+        print('none')
+  indent: |
+    for n in [1, 2, 3]:
+        if n == 5:
+            break
+    else:
+        print('none')
+  words: |
+    for n in [1, 2, 3] do
+        if n == 5 then break end
+    else
+        print('none')
+    end
+
+- mini: |
+    try:
+        x = 1 / 0
+    except ZeroDivisionError as e:
+        print('caught', e)
+    except:
+        print('other')
+    else:
+        print('fine')
+    finally:
+        print('done')
+  indent: |
+    try:
+        x = 1 / 0
+    except ZeroDivisionError as e:
+        print('caught', e)
+    except:
+        print('other')
+    else:
+        print('fine')
+    finally:
+        print('done')
+  words: |
+    try
+        x = 1 / 0
+    catch ZeroDivisionError as e
+        print('caught', e)
+    catch
+        print('other')
+    else
+        print('fine')
+    finally
+        print('done')
+    end
+
+- mini: |
+    fn f(a, b=2, *rest, k=3, **kw) -> int:
+        return a + b + k
+    print(f(1), f(1, 2, 3, k=4))
+  indent: |
+    def f(a, b=2, *rest, k=3, **kw) -> int:
+        return a + b + k
+    print(f(1), f(1, 2, 3, k=4))
+  words: |
+    function f(a, b=2, *rest, k=3, **kw) -> int
+        return a + b + k
+    end
+    print(f(1), f(1, 2, 3, k=4))
+
+- mini: |
+    class A:
+        fn __init__(self, v):
+            self.v = v
+        fn get(self):
+            return self.v
+    class B(A):
+        pass
+    print(B(1).get())
+  indent: |
+    class A:
+        def __init__(self, v):
+            self.v = v
+        def get(self):
+            return self.v
+    class B(A):
+        pass
+    print(B(1).get())
+  words: |
+    class A
+        function __init__(self, v)
+            self.v = v
+        end
+        function get(self)
+            return self.v
+        end
+    end
+    class B(A)
+        skip
+    end
+    print(B(1).get())
+
+- mini: |
+    x = [2, 1]
+    match x:
+        case 1:
+            y = 'one'
+        case [a, b] if a > b:
+            y = 'pair'
+        case {'k': v}:
+            y = 'map'
+        case _:
+            y = 'other'
+    print(y)
+  indent: |
+    x = [2, 1]
+    match x:
+        case 1:
+            y = 'one'
+        case [a, b] if a > b:
+            y = 'pair'
+        case {'k': v}:
+            y = 'map'
+        case _:
+            y = 'other'
+    print(y)
+  words: |
+    x = [2, 1]
+    match x
+        case 1
+            y = 'one'
+        end
+        case [a, b] if a > b
+            y = 'pair'
+        end
+        case {'k': v}
+            y = 'map'
+        end
+        case _
+            y = 'other'
+        end
+    end
+    print(y)
+
+- mini: |
+    f = lambda a, b=1: a + b
+    xs = [i * 2 for i in range(5) if i % 2 == 0]
+    d = {k: v for k, v in zip('ab', [1, 2])}
+    s = {c for c in 'abc'}
+    g = (n for n in xs)
+    print(f(1), xs, d, s, list(g))
+  indent: |
+    f = lambda a, b=1: a + b
+    xs = [i * 2 for i in range(5) if i % 2 == 0]
+    d = {k: v for k, v in zip('ab', [1, 2])}
+    s = {c for c in 'abc'}
+    g = (n for n in xs)
+    print(f(1), xs, d, s, list(g))
+  words: |
+    f = fn a, b=1: a + b
+    xs = [i * 2 for i in range(5) if i % 2 == 0]
+    d = {k: v for k, v in zip('ab', [1, 2])}
+    s = {c for c in 'abc'}
+    g = (n for n in xs)
+    print(f(1), xs, d, s, list(g))
+
+- mini: |
+    x, w = 5, 6
+    print(f"a {x} b {x!r} c {x:>4} d {x:>{w}} e {x=} f {x = !s} g {{x}} h {f'{x}'}")
+  indent: |
+    x, w = 5, 6
+    print(f"a {x} b {x!r} c {x:>4} d {x:>{w}} e {x=} f {x = !s} g {{x}} h {f'{x}'}")
+  words: |
+    x, w = 5, 6
+    print("a #{x} b #{x!r} c #{x:>4} d #{x:>#{w}} e #{x=} f #{x = !s} g {x} h #{"#{x}"}")
+
+- mini: |
+    x = 3
+    print(f'{x:#x}|{x:=^7}|{x!r:>{x}}|', f"""{x}
+    {x}""")
+  indent: |
+    x = 3
+    print(f'{x:#x}|{x:=^7}|{x!r:>{x}}|', f"""{x}
+    {x}""")
+  words: |
+    x = 3
+    print("#{x:#x}|#{x:=^7}|#{x!r:>#{x}}|", "#{x}
+    #{x}")
+
+- mini: |
+    s = 'a\tb\n' + 'c\'d' + r'\x' + 'é' + '\x41' + '\\'
+    b = b'\x00ab' + rb'\n'
+    print(s, b, 'ad' 'jacent', 'q"q')
+  indent: |
+    s = 'a\tb\n' + 'c\'d' + r'\x' + 'é' + '\x41' + '\\'
+    b = b'\x00ab' + rb'\n'
+    print(s, b, 'ad' 'jacent', 'q"q')
+  words: |
+    s = 'a\tb\n' + 'c\'d' + r'\x' + '\u{e9}' + '\x41' + '\\'
+    b = b'\x00ab' + br'\n'
+    print(s, b, 'ad' 'jacent', r#"q"q"#)
+
+- mini: |
+    print(0x1F, 0o17, 0b101, 1_000_000, 3.5, 2e3, 1.5e-2, 0, 00, 0x_ff)
+  indent: |
+    print(0x1F, 0o17, 0b101, 1_000_000, 3.5, 2e3, 1.5e-2, 0, 00, 0x_ff)
+  words: |
+    print(0x1F, 0o17, 0b101, 1_000_000, 3.5, 2e3, 1.5e-2, 0, 00, 0x_ff)
+
+- mini: |
+    a, b, xs = 1, 2, [1, 3]
+    print(1 < a <= 2 < 3, a is !nil, b !in xs, !(a == b), a != b, b in xs)
+  indent: |
+    a, b, xs = 1, 2, [1, 3]
+    print(1 < a <= 2 < 3, a is not None, b not in xs, not (a == b), a != b, b in xs)
+  words: |
+    a, b, xs = 1, 2, [1, 3]
+    print(1 < a <= 2 < 3, a is not nil, b not in xs, not (a == b), a != b, b in xs)
+
+- mini: |
+    print(1 + 2 * 3 ** 2 ~/ 4 % 5 - -1, 7 & 3 | 4 ^ 1 << 2 >> 1, ~5, !true && false || true, 2 ** -1)
+  indent: |
+    print(1 + 2 * 3 ** 2 // 4 % 5 - -1, 7 & 3 | 4 ^ 1 << 2 >> 1, ~5, not True and False or True, 2 ** -1)
+  words: |
+    print(1 + 2 * 3 ** 2 // 4 % 5 - -1, 7 & 3 | 4 ^ 1 << 2 >> 1, ~5, not true and false or true, 2 ** -1)
+
+- mini: |
+    x = 1 // one
+    // alone
+    y = 2 + 0
+    print(x + y)
+  indent: |
+    x = 1 # one
+    # alone
+    y = 2 + 0
+    print(x + y)
+  words: |
+    x = 1 -- one
+    /* a block /* nested */ still a comment */
+    y = 2 /* inline */ + 0
+    print(x + y)
+
+- mini: |
+    x = 1 + \
+        2
+    print(x)
+  indent: |
+    x = 1 + \
+        2
+    print(x)
+  words: |
+    x = 1 +
+        2
+    print(x)
+
+- mini: |
+    n = 0
+    fn top():
+        m = 1
+        fn inner():
+            nonlocal m
+            global n
+            m += 1
+            n += 1
+        inner()
+        return m
+    print(top(), n)
+  indent: |
+    n = 0
+    def top():
+        m = 1
+        def inner():
+            nonlocal m
+            global n
+            m += 1
+            n += 1
+        inner()
+        return m
+    print(top(), n)
+  words: |
+    n = 0
+    function top()
+        m = 1
+        function inner()
+            outer m
+            global n
+            m += 1
+            n += 1
+        end
+        inner()
+        return m
+    end
+    print(top(), n)
+
+- mini: |
+    x = [1, 2]
+    del x[0]
+    assert len(x) == 1, 'size'
+    try:
+        raise ValueError('bad')
+    except ValueError:
+        pass
+  indent: |
+    x = [1, 2]
+    del x[0]
+    assert len(x) == 1, 'size'
+    try:
+        raise ValueError('bad')
+    except ValueError:
+        pass
+  words: |
+    x = [1, 2]
+    delete x[0]
+    assert len(x) == 1, 'size'
+    try
+        throw ValueError('bad')
+    catch ValueError
+        skip
+    end
+
+- mini: |
+    fn deco(f):
+        return f
+    @deco
+    fn g():
+        return 1
+    print(g())
+  indent: |
+    def deco(f):
+        return f
+    @deco
+    def g():
+        return 1
+    print(g())
+  words: |
+    function deco(f)
+        return f
+    end
+    @deco
+    function g()
+        return 1
+    end
+    print(g())
+
+- mini: |
+    async fn f():
+        return 1
+    async fn g():
+        x = await f()
+        return x
+  indent: |
+    async def f():
+        return 1
+    async def g():
+        x = await f()
+        return x
+  words: |
+    async function f()
+        return 1
+    end
+    async function g()
+        x = await f()
+        return x
+    end
+
+- mini: |
+    xs = [1, 2, 3, 4]
+    if (n := len(xs)) > 3:
+        a, *b = xs[1:3]
+        xs[::2] = [0, 0]
+        n **= 2
+        n ~/= 3
+    print(xs, a, b, n)
+  indent: |
+    xs = [1, 2, 3, 4]
+    if (n := len(xs)) > 3:
+        a, *b = xs[1:3]
+        xs[::2] = [0, 0]
+        n **= 2
+        n //= 3
+    print(xs, a, b, n)
+  words: |
+    xs = [1, 2, 3, 4]
+    if (n := len(xs)) > 3 then
+        a, *b = xs[1:3]
+        xs[::2] = [0, 0]
+        n **= 2
+        n //= 3
+    end
+    print(xs, a, b, n)
+
+- mini: |
+    a = 1; b = 2; print(a + b)
+  indent: |
+    a = 1; b = 2; print(a + b)
+  words: |
+    a = 1; b = 2; print(a + b)
+
+- mini: |
+    if {} == {}: d = {1: 2}; s = {3}
+    print(d, s)
+  indent: |
+    if {} == {}:
+        d = {1: 2}; s = {3}
+    print(d, s)
+  words: |
+    if {} == {} then d = {1: 2}; s = {3} end
+    print(d, s)
+
+- mini: |
+    fn gen(n):
+        for i in range(n):
+            yield i
+        yield from [n]
+    print(list(gen(2)))
+  indent: |
+    def gen(n):
+        for i in range(n):
+            yield i
+        yield from [n]
+    print(list(gen(2)))
+  words: |
+    function gen(n)
+        for i in range(n) do
+            yield i
+        end
+        yield from [n]
+    end
+    print(list(gen(2)))
+
+- mini: |
+    fn f(x):
+        if x: return 1
+        else if !x: return 2
+        while x: x = false
+        return 3
+    print(f(true), f(false))
+  indent: |
+    def f(x):
+        if x:
+            return 1
+        elif not x:
+            return 2
+        while x:
+            x = False
+        return 3
+    print(f(True), f(False))
+  words: |
+    function f(x)
+        if x then return 1 elseif not x then return 2 end
+        while x do x = false end
+        return 3
+    end
+    print(f(true), f(false))
+
+- mini: |
+    try: x = 1
+    finally: y = 2
+    print(x, y)
+  indent: |
+    try:
+        x = 1
+    finally:
+        y = 2
+    print(x, y)
+  words: |
+    try x = 1 finally y = 2 end
+    print(x, y)
+
+- mini: |
+    x = 2
+    match x:
+        case 1: y = 'one'
+        case _: y = 'other'
+    print(y)
+  indent: |
+    x = 2
+    match x:
+        case 1: y = 'one'
+        case _: y = 'other'
+    print(y)
+  words: |
+    x = 2
+    match x
+        case 1
+            y = 'one'
+        end
+        case _
+            y = 'other'
+        end
+    end
+    print(y)

@@ -1,0 +1,21 @@
+from slugify_mod import Slugger
+
+s = Slugger()
+s.add("Hello World")
+s.add("From Edge")
+
+print(s.build()) // `hello-world-from-edge`
+print(s.shout()) // `HELLO-WORLD-FROM-EDGE!`
+print(s.total_len()) // `18`
+print(s.repeat(2)) // `hello-world-from-edgehello-world-from-edge`
+
+// pop mutates the state and returns the last part or None
+print(s.pop()) // `edge`
+print(s.pop()) // `from`
+print(s.build()) // `hello-world`
+
+// an error raised inside the module surfaces as a typed exception
+try:
+    print(s.repeat(-1))
+except ValueError as e:
+    print("caught:", e)

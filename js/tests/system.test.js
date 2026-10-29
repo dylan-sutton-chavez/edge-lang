@@ -1,9 +1,13 @@
-/* The system calls on their own, each opened for one package with the scopes its importers pass it. */
-import { check, held, scopes, unmet } from "../src/system/grants.ts";
-import fs from "../src/system/fs.ts";
-import net from "../src/system/net.ts";
-import secret from "../src/system/secret.ts";
-import time from "../src/system/time.ts";
+import perms, { check, held } from "../src/system/perms.ts";
+import net from "../../examples/net/net.ts";
+import { opened } from "../src/system/gate.ts";
+
+// the grant logic lives in the runtime so these tests reach it through its exports
+const BASE = Deno.env.get("EDGE_CDN_BASE")?.replace(/\/$/, "");
+if (!BASE) throw new Error("set EDGE_CDN_BASE (make serve)");
+const stub = () => 0;
+const { instance } = await WebAssembly.instantiate(await (await fetch(`${BASE}/edge.wasm`)).arrayBuffer(), { env: { host_print: stub, host_call_native: stub, host_fetch_bytes: stub, host_send: stub } });
+const wasm = instance.exports;
 
 const raises = (fn, name, message) => {
     try {
@@ -15,162 +19,111 @@ const raises = (fn, name, message) => {
     throw new Error(`expected a ${name}`);
 };
 
-const denied = (fn, message) => raises(fn, "PermissionError", message);
+const denied = (fn, message) => raises(fn, "denied", message);
 
-Deno.test("system: a package holds what its importer grants its key, and an importer passes on only what it holds", () => {
-    const root = { all: ["time:wall"], main: ["net:api.example.com", "time:zone"], http: ["net"] };
-    if (JSON.stringify(scopes(held([[root, "main"]]), "time")) !== '["wall","zone"]') throw new Error("main time");
-    if (JSON.stringify(scopes(held([[root, "main"]]), "net")) !== '["api.example.com"]') throw new Error("main net");
-    if (JSON.stringify(scopes(held([[root, "http"]]), "net")) !== "[]") throw new Error("an entry without a scope holds the module alone");
-    if (scopes(held([[root, "http"]]), "db") !== null || scopes(held([[root, "analytics"]]), "net") !== null) throw new Error("an ungranted module");
-    if (scopes(held([]), "time") !== null) throw new Error("code outside any package holds nothing");
-    const pay = { all: ["time:wall"], http: ["net:api.stripe.com", "secret:OTHER"], dns: ["net"] };
-    const granted = [{ pay: ["net:api.stripe.com", "time:wall"] }, "pay"];
-    if (JSON.stringify(held([granted, [pay, "http"]])) !== '["time:wall","net:api.stripe.com"]') throw new Error("passed on past what the importer holds");
-    if (JSON.stringify(held([granted, [pay, "dns"]])) !== '["time:wall","net"]') throw new Error("a bare entry passes on with any entry for its module");
+/* what a root listing `scopes` gives `pkg` of net or the bare module for none */
+const grant = (pkg, scopes) => held(wasm, [[{ [pkg]: scopes.length ? scopes.map((scope) => `net:${scope}`) : ["net"] }, pkg]], pkg, "net");
+
+// a fixture on loopback that a test closes once it is done
+const serve = (answer) => Deno.serve({ hostname: "127.0.0.1", port: 0, onListen() {} }, answer);
+
+Deno.test("perms: a package holds what its importer grants its key, and an importer passes on only what it holds", () => {
+    const root = { all: ["net:a.test"], main: ["net:b.test", "net:c.test"], http: ["net"] };
+    const scopes = (chain, pkg, module = "net") => {
+        const got = held(wasm, chain, pkg, module);
+        return typeof got === "string" ? null : JSON.stringify(got.scopes);
+    };
+    if (scopes([[root, "main"]], "main") !== '["a.test","b.test","c.test"]') throw new Error("main net");
+    if (scopes([[root, "http"]], "http") !== '["a.test"]') throw new Error("an entry without a scope adds none");
+    if (scopes([[{ http: ["net"] }, "http"]], "http") !== "[]") throw new Error("an entry without a scope holds the module alone");
+    if (scopes([[root, "http"]], "http", "db") !== null || scopes([[{}, "analytics"]], "analytics") !== null) throw new Error("an ungranted module");
+    if (scopes([], "main") !== null) throw new Error("code outside any package holds nothing");
+    const granted = [{ pay: ["net:api.stripe.com", "net:a.test"] }, "pay"];
+    if (scopes([granted, [{ all: ["net:a.test"], http: ["net:api.stripe.com", "net:other.test"] }, "http"]], "http") !== '["a.test","api.stripe.com"]') throw new Error("passed on past what the importer holds");
+    if (scopes([granted, [{ dns: ["net"] }, "dns"]], "dns") !== "[]") throw new Error("a bare entry passes on with any entry for its module");
+    if (held(wasm, [[root, "http"]], "http", "db") !== "'http' imports db, which edge.json does not grant it") throw new Error("the words an ungranted import fails with");
 });
 
-Deno.test("system: a package needs what it lists for itself and for what it imports", () => {
-    const has = ["time:wall", "net:api.telemetry.com"];
-    const asks = (section) => JSON.stringify(unmet(has, section));
-    if (asks({ main: ["net:api.telemetry.com", "time:wall"] }) !== "[]") throw new Error("a met ask");
-    if (asks({ main: ["time:monotonic"], all: ["net:evil.example"] }) !== '["time:monotonic","net:evil.example"]') throw new Error("unmet asks");
-    if (asks({ main: ["net"] }) !== "[]") throw new Error("a bare ask is met by any entry for its module");
-    if (JSON.stringify(unmet([], { main: ["net"] })) !== '["net"]') throw new Error("a bare ask nothing meets");
-    if (asks({ http: ["net:evil.example"] }) !== '["net:evil.example"]') throw new Error("what a package passes on it needs itself");
+Deno.test("perms: a refusal names what the package holds instead", () => {
+    denied(() => grant("main", ["a.test", "b.test"]).need("c.test"), "'main' has no net:c.test, edge.json grants it net:a.test, net:b.test");
+    denied(() => grant("analytics", []).need("c.test"), "'analytics' has no net:c.test, edge.json grants it nothing");
+    grant("main", ["a.test"]).need("a.test");
 });
 
-Deno.test("system: a malformed permissions section says what it needs", () => {
-    const valid = { all: ["time:monotonic"], main: ["net:api.example.com", "net", "net:10.0.0.255", "net:api.example.com/v2/items", "net:a.test/", "net:a.test/v1.2/@dylan", "secret", "secret:API_KEY", "secret:_V2"] };
-    if (check(undefined) !== null || check(valid) !== null) throw new Error(`a valid section, ${check(valid)}`);
+Deno.test("perms: a malformed permissions section says what it needs", () => {
+    const valid = { all: ["net:a.test"], main: ["net:api.example.com", "net", "net:10.0.0.255", "net:api.example.com/v2/items", "net:a.test/", "net:a.test/v1.2/@dylan"] };
+    if (check(wasm, undefined, [net]) !== null || check(wasm, valid, [net]) !== null) throw new Error(`a valid section, ${check(wasm, valid, [net])}`);
+    const scope = (entry) => [{ main: [`net:${entry}`] }, `permissions for 'main' give net the scope '${entry}', which it does not have`];
     const cases = [
         [{ main: "net:api.example.com" }, "permissions for 'main' must be a list of entries such as \"net:api.example.com\""],
-        [{ main: ["db:/tmp"] }, "permissions for 'main' name 'db', which is not a system module (fs, net, secret, time)"],
-        ...["/tmp", "shop", "./", "./shop/", "./shop/../etc", "./.git", "./shop\\x", ".."].map((dir) => [{ main: [`fs:${dir}`] }, `permissions for 'main' give fs the scope '${dir}', which it does not have`]),
-        ...["api_key", "1KEY", "API-KEY", ""].map((name) => [{ main: [`secret:${name}`] }, `permissions for 'main' give secret the scope '${name}', which it does not have`]),
-        [{ main: ["time:lunar"] }, "permissions for 'main' give time the scope 'lunar', which it does not have"],
-        [{ main: ["net:https://api.example.com/"] }, "permissions for 'main' give net the scope 'https://api.example.com/', which it does not have"],
-        [{ main: ["net:a.test;script-src"] }, "permissions for 'main' give net the scope 'a.test;script-src', which it does not have"],
-        [{ main: ["net:user@a.test"] }, "permissions for 'main' give net the scope 'user@a.test', which it does not have"],
-        [{ main: ["net:API.example.com"] }, "permissions for 'main' give net the scope 'API.example.com', which it does not have"],
-        [{ main: ["net:a.test/api/.."] }, "permissions for 'main' give net the scope 'a.test/api/..', which it does not have"],
-        [{ main: ["net:a.test/caf%C3%A9"] }, "permissions for 'main' give net the scope 'a.test/caf%C3%A9', which it does not have"],
-        [{ main: ["net:a.test//api"] }, "permissions for 'main' give net the scope 'a.test//api', which it does not have"],
-        ...["net:[::1]", "net:0177.0.0.1", "net:2130706433", "net:0x7f.1"].map((e) => [{ main: [e] }, `permissions for 'main' give net the scope '${e.slice(4)}', which it does not have`]),
+        [{ main: ["db:/tmp"] }, "permissions for 'main' name 'db', which is not a host module (net)"],
+        ...["https://api.example.com/", "a.test;script-src", "user@a.test", "API.example.com", "a.test/api/..", "a.test/caf%C3%A9", "a.test//api", "[::1]", "0177.0.0.1", "2130706433", "0x7f.1"].map(scope),
         [["net"], "permissions must map each package to a list of entries"],
+        // holders read in name order whichever order the page wrote them in
+        [{ zeta: ["db:/"], alpha: ["net:API"] }, "permissions for 'alpha' give net the scope 'API', which it does not have"],
     ];
     for (const [section, want] of cases) {
-        if (check(section) !== want) throw new Error(`${JSON.stringify(section)} gave ${check(section)}`);
+        if (check(wasm, section, [net]) !== want) throw new Error(`${JSON.stringify(section)} gave ${check(wasm, section, [net])}`);
     }
+    if (check(wasm, { main: ["net"] }, []) !== "permissions for 'main' name 'net', which is not a host module ()") throw new Error("a host serving no module");
 });
 
-Deno.test("system: time answers only the clocks a package holds", () => {
-    const clock = time("main", ["wall"]).calls;
-    if (typeof clock.now() !== "bigint") throw new Error("the wall clock");
-    denied(() => clock.now("monotonic"), "'main' has no time:monotonic, edge.json grants it time:wall");
-    denied(() => time("analytics", []).calls.zone(), "'analytics' has no time:zone, edge.json grants it nothing");
-    const [name, offset] = time("main", ["zone"]).calls.zone();
-    if (typeof name !== "string" || !Number.isInteger(offset)) throw new Error("the zone");
+Deno.test("perms: a room reaches at most each scoped entry a section lists", () => {
+    const section = { main: ["net:a.test", "net", "db:x:y"], all: ["net:b.test/api"], bad: "net:c.test", worse: [1, null, ":x"] };
+    if (JSON.stringify(perms.granted(section)) !== '[["net","a.test"],["db","x:y"],["net","b.test/api"]]') throw new Error(`unexpected ${JSON.stringify(perms.granted(section))}`);
+    for (const none of [undefined, null, ["net:a.test"], "net:a.test"]) if (perms.granted(none).length) throw new Error(`a section of ${JSON.stringify(none)} granted`);
+    if (perms.field !== "permissions" || JSON.stringify(perms.holders) !== '["all","main","eval"]') throw new Error("perms carries the permissions field and its holders");
 });
 
-Deno.test("system: secret reads only the names a package holds, from what the host keeps", () => {
-    const kept = { API_KEY: "k-123", OTHER: "leak" };
-    const asked = [];
-    const host = { secret: (name) => (asked.push(name), kept[name] ?? null) };
-    const { read } = secret("main", ["API_KEY", "GONE"], host).calls;
-    if (read("API_KEY") !== "k-123") throw new Error("a granted name");
-    denied(() => read("OTHER"), "'main' has no secret:OTHER, edge.json grants it secret:API_KEY, secret:GONE");
-    raises(() => read("GONE"), "OSError", "the host holds no value for GONE");
-    raises(() => read(7), "ValueError", "secret.read takes a name as a str");
-    if (JSON.stringify(asked) !== '["API_KEY","GONE"]') throw new Error(`the host was asked for ${asked}`);
-});
-
-Deno.test("system: fs reads only plain paths under the folders a package holds", async () => {
-    const files = { "shop/Gemfile": "gem 'rails'\n", "shop/app/product.rb": "class Product; end\n", "shop/logo.png": null, "main.py": "x = 1\n" };
-    const asked = [];
-    const host = {
-        read: (path, limit) => {
-            asked.push(path);
-            if (!(path in files)) throw new Error("missing");
-            if (files[path] === null) throw new Error("binary");
-            if (files[path].length > limit) throw new Error("large");
-            return files[path];
-        },
-        list: (dir) => Object.keys(files).filter((path) => dir === "" || path.startsWith(`${dir}/`)).reverse(),
-    };
-    const { read, list } = fs("main", ["./shop"], host).calls;
-    if (read("shop/Gemfile") !== "gem 'rails'\n" || read("./shop/app/product.rb") !== "class Product; end\n") throw new Error("a granted file");
-    if (JSON.stringify(list("shop")) !== '["shop/Gemfile","shop/app/product.rb","shop/logo.png"]') throw new Error("a list comes back in order");
-    denied(() => read("main.py"), "'main' has no fs:./main.py, edge.json grants it fs:./shop");
-    denied(() => list("."), "'main' has no fs:., edge.json grants it fs:./shop");
-    denied(() => read("shopping/x"), "'main' has no fs:./shopping/x, edge.json grants it fs:./shop");
-    for (const path of ["shop/../main.py", "/etc/passwd", "shop//x", "shop/.env", "shop\\x", "shop/a\x00"]) {
-        denied(() => read(path), `'main' cannot reach '${path}', fs reads plain paths under the project, with no '..', no leading '/' and no name starting with a dot`);
+Deno.test("net: a trace shows the method and place a call reached and never its query", () => {
+    const shows = [
+        [["request", ["GET", "https://a.test/x?token=1#f"], 3], '{"scope":"GET a.test/x","id":3}'],
+        [["connect", ["wss://a.test:8443/live?k=1"], 4], '{"scope":"a.test:8443/live","id":4}'],
+        [["response", [3], [200, []]], '{"id":3,"status":200}'],
+        [["read", [3], new Uint8Array(5)], '{"id":3,"bytes":5}'],
+        [["read", [3], null], '{"id":3,"bytes":0}'],
+        [["request", ["GET", "not a url"]], '{"scope":"GET "}'],
+    ];
+    for (const [[call, args, value], want] of shows) {
+        if (JSON.stringify(net.show(call, args, value)) !== want) throw new Error(`${call} showed ${JSON.stringify(net.show(call, args, value))}`);
     }
-    raises(() => read("shop/nope.rb"), "OSError", "the project has no file or folder 'shop/nope.rb'");
-    raises(() => read("shop/logo.png"), "OSError", "'shop/logo.png' is not UTF-8 text");
-    raises(() => read(7), "ValueError", "fs.read takes a path as a str");
-    if (asked.some((path) => !path.startsWith("shop/"))) throw new Error(`the host was asked for ${asked}`);
-    // A host that answers later fails the same way, and the root grant reaches every path.
-    const later = { read: () => Promise.reject(new Error("large")), list: () => Promise.resolve(Array.from({ length: 10_001 }, (_, i) => `f${i}`)) };
-    const all = fs("main", ["."], later).calls;
-    await all.read("main.py").then(() => { throw new Error("a large file read"); }, (e) => { if (e.message !== "'main.py' is larger than 10485760 bytes") throw e; });
-    await all.list().then(() => { throw new Error("an endless list"); }, (e) => { if (e.message !== "'.' holds more than 10000 files") throw e; });
+    if (JSON.stringify(net.origins("a.test/api")) !== '["https://a.test:*","http://a.test:*","wss://a.test:*","ws://a.test:*"]') throw new Error("a scope reaches its whole host");
 });
 
-Deno.test("system: a batch answers many calls of a module in one crossing", async () => {
-    const clock = time("main", ["wall", "zone"]).calls;
-    const [now, zone] = clock.batch([["now"], ["zone"]]);
-    if (typeof now !== "bigint" || !Array.isArray(zone)) throw new Error("a batch of calls that answer at once");
-    denied(() => clock.batch([["now", "monotonic"]]), "'main' has no time:monotonic, edge.json grants it time:wall, time:zone");
-    for (const bad of [[["tick"]], "now", [["now"], 7], [["batch"]]]) {
-        try {
-            clock.batch(bad);
-            throw new Error(`${JSON.stringify(bad)} was taken`);
-        } catch (e) {
-            if (e.name !== "ValueError") throw e;
-        }
+Deno.test("net: a grant that bounds nothing reaches every host", async () => {
+    const open = opened(net, "main", { scopes: null, need() { throw new Error("an unbounded grant was asked to refuse"); } });
+    for (const url of ["http://localhost:1/", "http://127.0.0.1:1/"]) {
+        const id = open.calls.request("GET", url);
+        raises(() => open.calls.read("x"), "invalid", "an id is an int from net.request or net.connect");
+        await open.calls.response(id).catch(() => {});
     }
-    // A call that waits holds the batch until every one of them settles.
-    const server = Deno.serve({ hostname: "127.0.0.1", port: 0, onListen() {} }, () => new Response("hi", { status: 201 }));
+    open.close();
+});
+
+Deno.test("net: a package reaches only its hosts and the ids it opened", async () => {
+    const server = serve(() => new Response("hi"));
     const at = `http://127.0.0.1:${server.addr.port}/`;
-    const web = net("main", ["127.0.0.1"]);
-    const [a, b] = web.calls.batch([["request", "GET", at], ["request", "GET", at]]);
-    const heads = await web.calls.batch([["response", a], ["response", b]]);
-    const bodies = await web.calls.batch([["read", a], ["read", b]]);
-    web.close();
-    await server.shutdown();
-    const text = bodies.map((body) => new TextDecoder().decode(body)).join(" ");
-    if (heads[0][0] !== 201 || heads[1][0] !== 201 || text !== "hi hi") throw new Error(`unexpected ${JSON.stringify(heads)} ${text}`);
-});
-
-Deno.test("system: net reaches only its hosts and the ids its package opened", async () => {
-    const server = Deno.serve({ hostname: "127.0.0.1", port: 0, onListen() {} }, () => new Response("hi"));
-    const at = `http://127.0.0.1:${server.addr.port}/`;
-    const main = net("main", ["127.0.0.1"]);
-    const other = net("analytics", []);
+    const main = opened(net, "main", grant("main", ["127.0.0.1"]));
+    const other = opened(net, "analytics", grant("analytics", []));
     denied(() => main.calls.request("GET", "http://evil.example/"), "'main' has no net:evil.example, edge.json grants it net:127.0.0.1");
     denied(() => other.calls.connect("ws://127.0.0.1:1/"), "'analytics' has no net:127.0.0.1, edge.json grants it nothing");
     const id = main.calls.request("GET", at);
-    try {
-        other.calls.read(id);
-        throw new Error("another package read the id");
-    } catch (e) {
-        if (e.name !== "ValueError") throw e;
-    }
+    raises(() => other.calls.read(id), "invalid", `no open request or socket ${id}`);
+    for (const bad of [null, "one", 1.5, true, 2n ** 60n]) raises(() => main.calls.read(bad), "invalid", "an id is an int from net.request or net.connect");
     const [status] = await main.calls.response(id);
     const body = new TextDecoder().decode(await main.calls.read(id));
+    if (await main.calls.read(id) !== null || await main.calls.read(id) !== null) throw new Error("a read past the end");
     main.close();
     await server.shutdown();
     if (status !== 200 || body !== "hi") throw new Error(`unexpected ${status} ${body}`);
 });
 
-Deno.test("system: net reads a url as every parser does, and an @ after the host is its path", async () => {
-    const server = Deno.serve({ hostname: "127.0.0.1", port: 0, onListen() {} }, (req) => new Response(new URL(req.url).pathname));
+Deno.test("net: a url reads as every parser does, and an @ after the host is its path", async () => {
+    const server = serve((req) => new Response(new URL(req.url).pathname));
     const at = `http://127.0.0.1:${server.addr.port}`;
-    const main = net("main", ["127.0.0.1"]);
-    for (const url of ["http://evil.test\\@127.0.0.1/", "http://user@127.0.0.1/", `${at}@evil.test/`, `${at}/a b`, "http://12%37.0.0.1/", "127.0.0.1/", "http://[::1]/", "http://0x7f.1/", "http://2130706433/"]) {
-        raises(() => main.calls.request("GET", url), "ValueError", `'${url}' is not a plain url, net takes scheme://host/path with no user, backslash or space`);
+    const main = opened(net, "main", grant("main", ["127.0.0.1"]));
+    for (const url of ["http://evil.test\\@127.0.0.1/", "http://user@127.0.0.1/", `${at}@evil.test/`, `${at}/a b`, "http://12%37.0.0.1/", "127.0.0.1/", "http://[::1]/", "http://0x7f.1/", "http://2130706433/", "ftp://127.0.0.1/", "http://127.0.0.1:123456/", "http://127.0.0.1/ "]) {
+        raises(() => main.calls.request("GET", url), "invalid", `'${url}' is not a plain url, net takes scheme://host/path with no user, backslash or space`);
     }
     const id = main.calls.request("GET", `${at}/@dylan`, [["accept", "text/plain"]]);
     const [status] = await main.calls.response(id);
@@ -180,65 +133,72 @@ Deno.test("system: net reads a url as every parser does, and an @ after the host
     if (status !== 200 || path !== "/@dylan") throw new Error(`unexpected ${status} ${path}`);
 });
 
-Deno.test("system: a redirect is refused, the next address goes through its own request", async () => {
-    const server = Deno.serve({ hostname: "127.0.0.1", port: 0, onListen() {} }, () => new Response(null, { status: 302, headers: { location: "http://evil.example/" } }));
+Deno.test("net: a redirect is refused, the next address goes through its own request", async () => {
+    const server = serve(() => new Response(null, { status: 302, headers: { location: "http://evil.example/" } }));
     const at = `http://127.0.0.1:${server.addr.port}/`;
-    const main = net("main", ["127.0.0.1"]);
+    const main = opened(net, "main", grant("main", ["127.0.0.1"]));
     const id = main.calls.request("GET", at);
-    try {
-        await main.calls.response(id);
-        throw new Error("the redirect was followed");
-    } catch (e) {
-        if (e.name !== "OSError" || e.message !== `net.request to ${at} was redirected, request the new address with its own net.request`) throw e;
+    for (const call of [main.calls.response, main.calls.read]) {
+        try {
+            await call(id);
+            throw new Error("the redirect was followed");
+        } catch (e) {
+            if (e.name !== "failed" || e.message !== `net.request to ${at} was redirected, request the new address with its own net.request`) throw e;
+        }
     }
     main.close();
     await server.shutdown();
 });
 
-Deno.test("system: the headers fetch keeps for the host are refused", () => {
-    const main = net("main", ["127.0.0.1"]);
+Deno.test("net: the headers fetch keeps for the host are refused and the rest are pairs or a dict", () => {
+    const main = opened(net, "main", grant("main", ["127.0.0.1"]));
     for (const name of ["Host", "cookie", "Origin", "Content-Length", "Sec-Fetch-Site", "Proxy-Authorization"]) {
-        raises(() => main.calls.request("GET", "http://127.0.0.1:1/", [[name, "x"]]), "ValueError", `the header '${name}' belongs to the host, a program cannot set it`);
+        raises(() => main.calls.request("GET", "http://127.0.0.1:1/", [[name, "x"]]), "invalid", `the header '${name}' belongs to the host, a program cannot set it`);
     }
+    for (const bad of ["x-probe", 1, new Uint8Array([1]), [["x-probe"]]]) {
+        raises(() => main.calls.request("GET", "http://127.0.0.1:1/", bad), "invalid", "headers are [name, value] pairs or a dict");
+    }
+    raises(() => main.calls.request("GET", "http://127.0.0.1:1/", null, null, "zip"), "invalid", "inflate must be None or 'gzip'");
     main.close();
 });
 
-Deno.test("system: a path scope reaches only under its prefix", () => {
-    const api = net("main", ["a.test/api", "b.test"]).calls;
-    const held = "edge.json grants it net:a.test/api, net:b.test";
-    for (const path of ["/api", "/api/", "/api/items", "/api/v2/items?q=1"]) api.request("GET", `http://a.test${path}`);
-    api.request("GET", "http://b.test/anything");
-    denied(() => api.request("GET", "http://a.test/"), `'main' has no net:a.test/, ${held}`);
-    denied(() => api.request("GET", "http://a.test/apixyz"), `'main' has no net:a.test/apixyz, ${held}`);
-    denied(() => api.request("GET", "http://a.test/other/api"), `'main' has no net:a.test/other/api, ${held}`);
-    // A host no scope names reads as the host alone, whatever path was asked for.
-    denied(() => api.request("GET", "http://c.test/api"), `'main' has no net:c.test, ${held}`);
-    // A prefix is climbed out of by no spelling of the segment above.
+Deno.test("net: a path scope reaches only under its prefix", () => {
+    const api = opened(net, "main", grant("main", ["127.0.0.1/api"]));
+    const held = "edge.json grants it net:127.0.0.1/api";
+    const at = "http://127.0.0.1:1";
+    for (const path of ["/api", "/api/", "/api/items", "/api/v2/items?q=1", "/api/a%5cb", "/api/x%2e", "/api/group%2Fproject", "/%61pi/x"]) api.calls.request("GET", `${at}${path}`);
+    denied(() => api.calls.request("GET", `${at}/`), `'main' has no net:127.0.0.1/, ${held}`);
+    denied(() => api.calls.request("GET", `${at}/apixyz`), `'main' has no net:127.0.0.1/apixyz, ${held}`);
+    denied(() => api.calls.request("GET", `${at}/other/api`), `'main' has no net:127.0.0.1/other/api, ${held}`);
+    // a host no scope names reads as the host alone whatever path was asked
+    denied(() => api.calls.request("GET", "http://evil.example/api"), `'main' has no net:evil.example, ${held}`);
     for (const path of ["/api/../secret", "/api/%2e%2e/secret", "/api/.%2e/secret", "/api/./../secret"]) {
-        denied(() => api.request("GET", `http://a.test${path}`), `'main' has no net:a.test/secret, ${held}`);
+        denied(() => api.calls.request("GET", `${at}${path}`), `'main' has no net:127.0.0.1/secret, ${held}`);
     }
-    // A step a server may still take, by decoding once or twice or dropping a parameter, is refused.
+    // a step a server may still take by decoding or dropping a parameter is refused
     for (const path of ["/api/..%2fsecret", "/api/%2E%2E%2Fsecret", "/api/..;/secret", "/api/%252e%252e/secret"]) {
-        denied(() => api.request("GET", `http://a.test${path}`), `'main' has no net:a.test${path}, ${held}`);
+        denied(() => api.calls.request("GET", `${at}${path}`), `'main' has no net:127.0.0.1${path}, ${held}`);
     }
-    // An escape that stays under the prefix in every reading reaches it.
-    for (const path of ["/api/a%5cb", "/api/x%2e", "/api/group%2Fproject", "/%61pi/x"]) api.request("GET", `http://a.test${path}`);
-    net("main", ["a.test/api/"]).calls.request("GET", "http://a.test/api");
+    api.close();
+    const slash = opened(net, "main", grant("main", ["127.0.0.1/api/"]));
+    slash.calls.request("GET", `${at}/api`);
+    slash.close();
 });
 
-Deno.test("system: both hosts send one reading of a path", async () => {
+Deno.test("net: both hosts send one reading of a path", async () => {
     const seen = [];
-    const server = Deno.serve({ hostname: "127.0.0.1", port: 0, onListen() {} }, (req) => {
+    const server = serve((req) => {
         seen.push(new URL(req.url).pathname + new URL(req.url).search);
         return new Response("ok");
     });
     const at = `http://127.0.0.1:${server.addr.port}`;
-    const main = net("main", ["127.0.0.1"]);
+    const main = opened(net, "main", grant("main", ["127.0.0.1"]));
     const sent = async (url) => {
         const id = main.calls.request("GET", at + url);
         await main.calls.response(id);
         return seen.pop();
     };
+    // no count of dot segments climbs above the root into the host
     const cases = [
         ["/a/b/../c", "/a/c"],
         ["/a/./b", "/a/b"],
@@ -249,9 +209,9 @@ Deno.test("system: both hosts send one reading of a path", async () => {
         ["/@dylan", "/@dylan"],
         ["/items?q=a/../b", "/items?q=a/../b"],
         ["/keep#gone", "/keep"],
-        // No count of dot segments climbs above the root into the host.
         ["/../@evil.test/x", "/@evil.test/x"],
         ["/%2E%2E/.evil.test/x", "/.evil.test/x"],
+        ["/a{b}", "/a%7Bb%7D"],
     ];
     for (const [asked, want] of cases) {
         const got = await sent(asked);
@@ -259,4 +219,34 @@ Deno.test("system: both hosts send one reading of a path", async () => {
     }
     main.close();
     await server.shutdown();
+});
+
+Deno.test("net: inflate hands back the bytes a gzip body holds", async () => {
+    const gzip = new Uint8Array(await new Response(new Blob(["hello from gzip\n"]).stream().pipeThrough(new CompressionStream("gzip"))).arrayBuffer());
+    const server = serve(() => new Response(gzip, { headers: { "content-type": "application/gzip" } }));
+    const main = opened(net, "main", grant("main", ["127.0.0.1"]));
+    const id = main.calls.request("GET", `http://127.0.0.1:${server.addr.port}/`, null, null, "gzip");
+    const text = new TextDecoder().decode(await main.calls.read(id));
+    if (await main.calls.read(id) !== null) throw new Error("more than the inflated text");
+    main.close();
+    await server.shutdown();
+    if (text !== "hello from gzip\n") throw new Error(`unexpected ${JSON.stringify(text)}`);
+});
+
+Deno.test("net: a socket that closed reads None every time and refuses a send", async () => {
+    const server = serve((req) => {
+        const { socket, response } = Deno.upgradeWebSocket(req);
+        socket.onmessage = (e) => (e.data === "close" ? socket.close() : socket.send(`echo ${e.data}`));
+        return response;
+    });
+    const main = opened(net, "main", grant("main", ["127.0.0.1"]));
+    const id = await main.calls.connect(`ws://127.0.0.1:${server.addr.port}/`);
+    main.calls.send(id, "ping");
+    const heard = await main.calls.read(id);
+    main.calls.send(id, "close");
+    const ends = [await main.calls.read(id), await main.calls.read(id)];
+    raises(() => main.calls.send(id, "late"), "failed", "the socket is not open");
+    main.close();
+    await server.shutdown();
+    if (heard !== "echo ping" || ends.some((end) => end !== null)) throw new Error(`unexpected ${JSON.stringify([heard, ends])}`);
 });

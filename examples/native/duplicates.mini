@@ -1,0 +1,40 @@
+versions = {}
+// the packages whose dependencies name each crate at each version
+askers = {}
+name = nil
+package = nil
+listing = false
+while true:
+    try:
+        line = input()
+    except EOFError:
+        break
+    if listing:
+        if line == ']':
+            listing = false
+            continue
+        // an entry names a version only where the lock holds its crate twice
+        parts = line.strip().strip('",').split(' ')
+        if len(parts) > 1:
+            askers.setdefault((parts[0], parts[1]), []).append(package)
+    else if line.startswith('name = "'):
+        name = line[8:-1]
+    else if line.startswith('version = "'):
+        version = line[11:-1]
+        package = f'{name} {version}'
+        versions.setdefault(name, []).append(version)
+    else if line == 'dependencies = [':
+        listing = true
+
+held = 0
+for crate in sorted(versions):
+    if len(versions[crate]) < 2:
+        continue
+    held += 1
+    for version in versions[crate]:
+        who = ', '.join(sorted(askers.get((crate, version), [])))
+        if who:
+            print(f'{crate} {version} for {who}')
+        else:
+            print(f'{crate} {version}')
+print(f'{held} of {len(versions)} crates are held at more than one version')

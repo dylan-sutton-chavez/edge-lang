@@ -1,0 +1,318 @@
+---
+title: "Your runtime and its CLI"
+description: "Build a small language for uptime checks on Edge Lang and the CLI that runs them, with every host a check reaches granted by name."
+---
+
+# Your runtime and its CLI
+
+This page builds `uptime`, a language for checking the services a project depends on, and the CLI that runs its checks. The runtime is a token table, its rules, four natives taken from lib and the names of its errors. The CLI is the kit's `run` and `test` commands with the net plugin and a clock, each held to what `edge.json` grants. Both live in the repo under `examples/uptime`, and every file on this page is included from there.
+
+Here is the board the checks print, run on 23 October 2026 against three status pages.
+
+```text
+$ uptime run status.up
+github      200   559 ms  All Systems Operational
+npm         200   568 ms  All Systems Operational
+cloudflare  200   802 ms  Partial System Outage
+```
+
+Cloudflare reported a partial outage that day, so the board exited with 1. These are all the files behind it.
+
+| File | Lines | Holds |
+|---|---:|---|
+| `examples/uptime/src/syntax.rs` | 78 | The token table checks are written in |
+| `examples/uptime/src/natives.rs` | 23 | Four natives of lib under the names a check calls |
+| `examples/uptime/src/language.rs` | 44 | Its rules and the answers lib gives the engine for it |
+| `examples/uptime/src/names.rs` | 57 | The classes of its errors and its words for the engine's kinds |
+| `examples/uptime/src/lib.rs` | 39 | The front, the descriptor and the wasm exports |
+| `examples/uptime/cli/src/lib.rs` | 23 | The CLI composed from the kit |
+| `examples/uptime/cli/src/clock.rs` | 38 | A host module of its own that reads the clock |
+| `examples/uptime/cli/src/main.rs` | 7 | The binary, with the kit's net plugin |
+
+## The surface
+
+Uptime's table spells the engine's one grammar in words. A header's line end opens its block and `end` closes it, so a block needs no braces, and `do` opens one that fits on its line. A `#` starts a comment. A text in double quotes fills each field in braces, and a spec after the field's expression formats it, as `{name:<11}` pads a name to eleven characters. `let` must come before a name's first store, `check` is how the table spells an assertion, and `use` is its import.
+
+```rust file=examples/uptime/src/syntax.rs
+```
+
+A `Syntax` spells out every lexical choice, and [Parser kit](/docs/edge-lang/sdk/parser-kit) covers what each one decides. Every check below reads through this table.
+
+The checks share one helper. `get` requests a URL through `net`, reads the body a chunk at a time, times the request with the clock and returns a map of the status, the milliseconds and the body read as JSON.
+
+```text file=examples/uptime/checks/http.up
+```
+
+A dot reads a key of a map, so `page.body.status.indicator` walks the JSON a status page answers. `map_fields` in the runtime's policy turns that on, as [Its rules](#its-rules) shows.
+
+## Its natives
+
+A runtime takes its natives from lib by capability. Uptime turns on the five modules of lib it uses and leaves the rest out of its wasm.
+
+```toml file=examples/uptime/Cargo.toml
+```
+
+`lib::table!` gives each kernel the name a check calls. `print` and `exit` come from `io`, `json` from `data` and `size` from `seq`. The tables name the runtime's language, which [Its rules](#its-rules) shows.
+
+```rust file=examples/uptime/src/natives.rs
+```
+
+[Lib](/docs/edge-lang/sdk/lib) lists every kernel by module and every part of a table entry.
+
+## Its rules
+
+`Language` is all the runtime gives the engine, as one type. Its `Policy` states the rules a check runs on, such as `map_fields`, which reads a key of a map where a field is missing. Its functions hand the engine lib's rendering, its format specs and the matcher a typed `catch` needs, and `Runtime::of` gives the whole language to every host, as [Language](/docs/edge-lang/sdk/language) lists with every other part.
+
+```rust file=examples/uptime/src/language.rs
+```
+
+## Its errors
+
+The runtime names every class a check can raise, and the engine and lib raise those names, as [Errors](/docs/edge-lang/get-started/book/errors#kinds-and-classes) covers. `Names` holds its words for the engine's kinds, errors and iterators, a failure of lib raises the class `Names` gives its error kind, and `words` rewords one failure in the terms of a check, a body that is not JSON.
+
+```rust file=examples/uptime/src/names.rs
+```
+
+The first error below is lib's failure in the runtime's words. The second is the `let` rule of the table, refused before the program runs.
+
+```text
+$ uptime run -c 'print(json(b"<html>"))'
+error: BadData: the answer is not JSON, unexpected character at byte 0
+  --> <eval>:1:1
+  |
+1 | print(json(b"<html>"))
+  | ^
+
+$ uptime run -c 'let total = 0
+totl = 5'
+error: name 'totl' is not bound, bind it with 'let'
+  --> <eval>:2:1
+  |
+2 | totl = 5
+  | ^^^^
+```
+
+## The front and the wasm exports
+
+`Front::spelled` reads every source through the table. `DESCRIPTOR` tells the CLI the runtime's extension, its test suffix and the class each failed host call raises, so a refused request raises `Denied` and a failed one `Unreachable`. `web_exports!` builds the ABI every host binds around the runtime that holds both.
+
+```rust file=examples/uptime/src/lib.rs
+```
+
+```bash
+make wasm-uptime
+```
+
+It writes `uptime.wasm`, about 1.7 MB, under `target/wasm32-unknown-unknown/release`. `make lint` checks that it exports the same ABI as `edge.wasm`.
+
+## Its CLI
+
+The CLI is a crate of its own over the kit. It turns on the four components it needs, `run`, `test`, `perms` and `net`, and builds none of the others.
+
+```toml file=examples/uptime/cli/Cargo.toml
+```
+
+`kit` is the whole composition. `Runtime::wasm` hands the kit the runtime, which wasmtime compiles on the first run and maps from a cache after. `perms` holds each package to its grants, and `net` and `clock` are the two host modules a check may import.
+
+```rust file=examples/uptime/cli/src/lib.rs
+```
+
+The clock is a host module of its own. Its one call answers the time in milliseconds, and it takes no scope, so its grant gives it whole.
+
+```rust file=examples/uptime/cli/src/clock.rs
+```
+
+The binary takes `net::Net` from the kit's `net` component, as `edge` does, and passes the wall clock. The test passes a net and a clock of its own to the same `kit`, as [How it is tested](#how-it-is-tested) shows.
+
+```rust file=examples/uptime/cli/src/main.rs
+```
+
+`make uptime` builds the wasm, then the binary. The help lists the two commands the composition wired and nothing else.
+
+```text
+$ uptime
+Uptime checks on Edge Lang
+
+Usage  uptime <command> [options]
+
+Commands
+  run <file|.edge>   Run a script, a .edge, stdin or -c <code>
+  test [path]        Run *_test.up files
+
+Run flags          --events <f>  --save-state <f>  --restore-state <f>  --preempt <n>
+Global             --manifest <file>   default edge.json
+
+uptime <command> -h for details · -v for version
+```
+
+[CLI kit](/docs/edge-lang/sdk/cli) covers every component and every call of the kit.
+
+## The checks
+
+The checks sit in `examples/uptime/checks` beside the `edge.json` that grants them. The board reads the status page of each service.
+
+```text file=examples/uptime/checks/status.up
+```
+
+A request that fails raises `Unreachable`, which the board catches to print the service as down and go on. Its exit code counts the services that are not fully up, so a scheduler can alert on it.
+
+A test file is a check that passes or fails. `github_test.up` watches four parts of GitHub and fails when one is degraded or missing from the answer. `npm_test.up` times the registry's own ping, and `cloudflare_test.up` reads Cloudflare's status page.
+
+```text file=examples/uptime/checks/github_test.up
+```
+
+```text file=examples/uptime/checks/npm_test.up
+```
+
+```text file=examples/uptime/checks/cloudflare_test.up
+```
+
+## Run and test
+
+`run` runs one check, and `test` finds every `*_test.up` under the folder and runs each in a fresh session.
+
+```text
+$ uptime test
+error: CheckFailed: Cloudflare reports Partial System Outage
+  --> ./cloudflare_test.up:4:1
+  |
+4 | check status.indicator == "none", "Cloudflare reports {status.description}"
+  | ^
+
+  (unsuccessful) cloudflare_test.up
+  (successful) github_test.up
+  (successful) npm_test.up
+
+  2/3 files passed · 3.1s
+```
+
+A failed `check` raises `CheckFailed` with the words it was given, and `test` exits with 1 once a file fails. The verdicts and the counts go to stdout and the tracebacks to stderr, and [edge test](/docs/edge-lang/platforms/cli#edge-test) lists the exit codes every composition of the kit shares.
+
+## What a check may reach
+
+The grants in `edge.json` are everything the checks can reach. Each `net` entry names one host, and `clock` names the clock.
+
+```json file=examples/uptime/checks/edge.json
+```
+
+Every request checks its host against these grants before a byte leaves. Take Cloudflare's grant out and the board stops at Cloudflare, with an error that names the host it asked for and the ones it holds.
+
+```text
+$ uptime run status.up
+github      200   401 ms  All Systems Operational
+npm         200   365 ms  All Systems Operational
+error: Denied: 'main' has no net:www.cloudflarestatus.com, edge.json grants it net:www.githubstatus.com, net:status.npmjs.org, net:registry.npmjs.org
+   --> status.up:12:5
+   |
+12 |     let page = http.get(url)
+   |     ^
+```
+
+`Denied` is not `Unreachable`, so the board's `catch` lets it through. A refused host is a fault in the checks, and a host that does not answer is a fault in the service.
+
+The clock is a grant too. Without it no check starts, since importing a module the package holds no entry for fails at compile time.
+
+```text
+$ uptime run status.up
+error: module './http.up' parse error: 'main' imports clock, which edge.json does not grant it
+  --> status.up:1:5
+  |
+1 | use .http
+  |     ^^^^^
+```
+
+A grant for a module the CLI does not wire stops `run` and `test` before anything compiles, and the error names the modules it does wire.
+
+```text
+$ uptime run status.up
+error: edge.json at 'edge.json': permissions for 'main' name 'fs', which is not a host module (net, clock)
+```
+
+A grant can also narrow a host to a path prefix, and a package a project imports holds only what the root grants it. [System](/docs/edge-lang/reference/system#permissions) lists the holders and the entries, and [Plugins](/docs/edge-lang/sdk/plugins#wiring-a-module-to-perms) shows how `perms` holds a module to them.
+
+## Ship it
+
+`make uptime` writes a stripped binary of 13.1 MB on macOS arm64 with the runtime inside. It runs on any machine of the same OS and CPU with nothing installed, from a terminal or a scheduler. Its first run compiles the runtime once and keeps the machine code under `~/.cache/<binary>/plugins`, here `~/.cache/uptime/plugins`, which later runs map. The entry of a build no run has mapped for 30 days leaves the cache at the next compile, so rebuilds do not pile up.
+
+`uptime.wasm` is the runtime itself for any host that binds the ABI. A page loads it through the JS host's `wasmUrl`, where `net` answers in TypeScript under the same grants and [a trace](/docs/edge-lang/platforms/javascript#trace) reports every call a check makes. The clock is this CLI's own module, so a page that runs these checks wires a clock of its own, as [Compose a host](/docs/edge-lang/platforms/javascript#compose-a-host) shows.
+
+## Start your own crate
+
+Every manifest on this page takes the engine, lib and the kit by path from the clone. A runtime of your own sits in a repository of its own and takes them by git, pinned to the release it builds on. Copy `examples/uptime` out of the clone with its `cli` folder, and copy the repo's `rust-toolchain.toml` into it so both crates build on the Rust release the engine pins. Three files change.
+
+The runtime's manifest writes out the fields the engine's workspace gave it, takes `edge` and `lib` by git, and keeps the release profile the workspace builds every runtime's wasm with.
+
+```toml
+[package]
+name = "uptime"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+
+# an empty table keeps the runtime a workspace of its own wherever it sits
+[workspace]
+
+[lib]
+name = "uptime"
+doctest = false
+
+[features]
+default = ["std"]
+std = ["edge/std"]
+web = ["edge/runtime", "edge/perms"]
+
+[dependencies]
+edge = { git = "https://github.com/dylan-sutton-chavez/edge-lang", tag = "v0.9.6", default-features = false }
+lib = { git = "https://github.com/dylan-sutton-chavez/edge-lang", tag = "v0.9.6", default-features = false, features = ["data", "io", "seq", "spec", "types"] }
+
+# the size profile the engine's workspace builds each runtime's wasm with
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+```
+
+The CLI's manifest already writes its own fields, so only its `cli` line changes.
+
+```toml
+cli = { git = "https://github.com/dylan-sutton-chavez/edge-lang", tag = "v0.9.6", default-features = false, features = ["net", "perms", "run", "test"] }
+```
+
+The wasm now builds under the runtime's own `target`, so the include in the CLI's `lib.rs` reads it two folders up.
+
+```rust
+const WASM: &[u8] = include_bytes!("../../target/wasm32-unknown-unknown/release/uptime.wasm");
+```
+
+From the runtime's folder these lines build the wasm and then the binary, which lands in the CLI's own `target/release` as `uptime`. The CLI's test stays with the clone, since its last run reads the example plugin the repo builds.
+
+```bash
+rustup target add wasm32-unknown-unknown
+cargo rustc --release --target wasm32-unknown-unknown --lib --no-default-features --features web --crate-type cdylib
+cd cli && cargo build --release
+```
+
+A plugin of your own takes the plugin kit the same way, as [Writing a plugin with the plugin crate](/docs/edge-lang/reference/abi#writing-a-plugin-with-the-plugin-crate) builds one.
+
+```toml
+plugin = { git = "https://github.com/dylan-sutton-chavez/edge-lang", tag = "v0.9.6" }
+```
+
+## How it is tested
+
+`examples/uptime/cli/tests/checks.rs` runs the CLI on a copy of these checks with `net` answered in the test process from `examples/uptime/cli/tests/answers`, the five bodies the checks read on 23 October 2026. It opens no socket, and its clock steps 143 ms per read. The test binary composes the same `kit` with its own net and clock and becomes the CLI for each run. Eight runs cover the board, the test run, the refused host, the missing clock grant, a service that does not answer, a check that adds a text to a number, a check that hands the repo's example plugin a list to iterate and a keyword to read, which `make test-uptime` builds first, and a check run under `--memory 1` that keeps every chunk its answers hand it, which stops with `OutOfBudget` at the read that passes the limit.
+
+```bash
+make test-uptime
+```
+
+`cargo test -p uptime`, which `make test` runs, compiles every check through the table, so a change to the engine that breaks the table fails there first.
+
+> [!CARDS]
+> - `book-open` [The book](/docs/edge-lang/get-started/book/intro) Why the engine asks for each piece of this runtime and what each choice costs.
+> - `braces` [Parser kit](/docs/edge-lang/sdk/parser-kit) Every field of the token table and the grammar it spells.
+> - `library` [Lib](/docs/edge-lang/sdk/lib) The kernels a runtime names and how a table names them.
+> - `plug` [Plugins](/docs/edge-lang/sdk/plugins) The net plugin in Rust and TypeScript and how perms holds it.
+> - `terminal` [CLI kit](/docs/edge-lang/sdk/cli) Every component of the kit and the calls that compose it.

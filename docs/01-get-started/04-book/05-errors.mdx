@@ -1,0 +1,168 @@
+---
+title: "Errors"
+description: "Why the engine raises an error as facts a runtime words, the error kinds and the classes each runtime gives them, how mini, tiny and uptime word an error, how a traceback reads and what an error costs."
+---
+
+# Errors
+
+The engine finds most of a program's errors itself, an operator given a kind it does not take, a key a map lacks, a call with one argument too many. It knows what went wrong and the values it went wrong with, and nothing of how the language says so. A runtime brings that part, a class for each kind of error and the words of each one. This chapter covers what the engine raises, what a runtime chooses for it, how a report and its traceback read and what an error costs.
+
+## Why the engine asks
+
+The same mistake reads three ways. Each program below subtracts two times read as texts, without reading them as times first.
+
+Tiny's flow takes the hours an issue stayed open over the GH Archive hour of [the first chapter](/docs/edge-lang/get-started/book/tokens#one-job-both-ways), subtracting its two times as the texts the record holds.
+
+```tiny
+from: https://data.gharchive.org/2026-10-01-15.json.gz
+
+time_to_close:
+  where: type == "IssuesEvent" and payload.action == "closed"
+  average: payload.issue.closed_at - payload.issue.created_at
+  by: repo.name
+```
+
+```text
+$ tiny run close.flow.yaml
+report time_to_close, average at line 5: WrongType, cannot subtract text and text
+```
+
+Mini's job in `examples/data/github-hour.mini` reads the same two fields. With line 152 subtracting the two texts in place of the times `time` reads from them, it stops at the first closed issue.
+
+```text
+$ edge run --ops 100000000000 github-hour.mini
+error: TypeError: unsupported operand type(s) for -: 'str' and 'str'
+    --> github-hour.mini:152:13
+    |
+152 |             hours = (issue['closed_at'] - issue['created_at']).hours
+    |             ^
+
+note: called from tally()
+    --> github-hour.mini:168:18
+    |
+168 |             tally(read_json(line.decode()))
+    |                  ^
+```
+
+Uptime's check takes the age of GitHub's status page, the clock's milliseconds less the time the page was last updated. This ran on 25 October 2026 in a copy of `examples/uptime/checks`.
+
+```text
+$ uptime run -c 'use clock
+use .http
+let body = http.get("https://www.githubstatus.com/api/v2/status.json").body
+print(clock.now() - body.page.updated_at)'
+error: WrongType: - does not apply to int and text
+  --> <eval>:4:1
+  |
+4 | print(clock.now() - body.page.updated_at)
+  | ^
+```
+
+The engine refused one thing three times, `-` given a text. Mini calls that a `TypeError`, names the text kind `str` and words it as its corpus reads. Uptime calls it `WrongType`, names the kind `text` and takes the engine's plain words. Tiny names the report and the key it rose in and words the error its own way. The engine chose none of those names or words, as [How a runtime words them](#how-a-runtime-words-them) explains.
+
+## Kinds and classes
+
+The engine sorts each error it raises itself into one of 20 kinds, an `ErrKind`, and a runtime's `NAMES` gives each kind a class. The class is what a report prints and what a handler names.
+
+| Kind | Raised for | Mini | Uptime | Tiny |
+|---|---|---|---|---|
+| `Base` | The root of every class a program raises | `BaseException` | `Error` | `Error` |
+| `Error` | A raise whose value names no class of its own | `Exception` | `Error` | `Error` |
+| `Type` | A value of a kind an operation does not take | `TypeError` | `WrongType` | `WrongType` |
+| `Value` | A value of the right kind that is still wrong | `ValueError` | `BadData` | `BadData` |
+| `Name` | A name no scope binds | `NameError` | `Missing` | `MissingField` |
+| `Unbound` | A local read before anything binds it | `UnboundLocalError` | `Missing` | `MissingField` |
+| `Attribute` | An attribute the value lacks | `AttributeError` | `Missing` | `MissingField` |
+| `Key` | A key the map lacks | `KeyError` | `Missing` | `MissingField` |
+| `Index` | An index past the end | `IndexError` | `Missing` | `MissingField` |
+| `ZeroDiv` | A division by zero | `ZeroDivisionError` | `BadData` | `BadData` |
+| `Overflow` | An int too wide for the size it must fit, an int result past the inline range where no wide kind grows it, or a float past the float range | `OverflowError` | `BadData` | `BadData` |
+| `Recursion` | Calls nested past the recursion limit | `RecursionError` | `OutOfBudget` | `OutOfBudget` |
+| `Memory` | The memory limit reached | `MemoryError` | `OutOfBudget` | `OutOfBudget` |
+| `Runtime` | A failure no other kind names | `RuntimeError` | `Error` | `Error` |
+| `Stop` | The end of an iteration, which ends the loop stepping it | `StopIteration` | `Stop` | `Stop` |
+| `Close` | The signal a close throws into a generator | `GeneratorExit` | `Close` | `Close` |
+| `Exit` | A program asking its host to end with a code | `SystemExit` | `Exit` | `Exit` |
+| `Assert` | A failed assertion | `AssertionError` | `CheckFailed` | `Error` |
+| `Syntax` | Code compiled while the program runs that does not parse | `SyntaxError` | `BadData` | `BadData` |
+| `Permission` | A host call or an import the grants refuse | `PermissionError` | `Denied` | `Denied` |
+
+Mini gives every kind a class of its own, as its corpus reads them. Uptime folds the 20 kinds into 10 classes a check catches by what went wrong for it, so a missing key, attribute and index are all `Missing`, and tiny folds them into 9.
+
+A class sits in a tree, the pairs of class and parent `NAMES.tree` holds, and a handler that names a class catches every class below it. Mini's tree holds 31 classes, the 20 above and 11 more such as `LookupError` over `KeyError` and `IndexError`. Uptime keeps `Exit`, `Stop` and `Close` apart from `Error`, so a `catch Error` in a check never stops an exit, and its descriptor's `Unreachable` and `Denied` sit under `Error` for the host calls that fail or are refused. Tiny puts every class under `Error`, since a flow catches nothing.
+
+## The facts of an error
+
+`EngineError` is an error as the engine knows it, one variant for each thing that can go wrong, holding the values it went wrong with and no words.
+
+- `Unsupported { op, a, b }` is an operator that refused its operands, the subtraction above.
+- `MissingKey(k)` is a key a map lacks, tiny's `no field "name"` in [the last chapter](/docs/edge-lang/get-started/book/rules#three-ways-to-read-a-field).
+- `NoAttribute { recv, name, store }` is an attribute a value lacks, mini's `AttributeError` and uptime's `Missing` of the same section.
+- `Arity { callee, fit }` is a call that misses what its callee takes, with `Fit` saying how, a count, a keyword no parameter takes, a parameter given twice, one left out, or a positional one given by keyword.
+- `Cannot { act, recv }` is a value that cannot do what a site asked, with `Act` naming it, be iterated, be called, report a size, stand as a key and the rest.
+- `Of(kind, words)` is an error a native or a host already worded, under a kind.
+- `Raised(v)` is a value the program raised itself.
+- `Budget`, `HostYield`, `HostCallDeferred` and `Redo` are signals that end or pause a run, and no program catches them.
+
+`e.kind()` is the kind whose class the runtime names, and none for a raised value or a signal. [Language](/docs/edge-lang/sdk/language#engineerror) lists every variant with its kind.
+
+## How a runtime words them
+
+The trait holds the words in `message(cx, e)`, which a runtime writes from the facts of `e`. The default is `edge::lang::plain`, the engine's plain words, which name an operator as the runtime's table spells it. Mini writes its own, every variant in the form its corpus reads, in its `language.rs` beside its rules.
+
+```rust file=examples/mini/src/language.rs
+```
+
+`raise(cx, e)` makes the value a handler binds, an exception of the class `NAMES` gives the error's kind holding `message`'s words. A missing key keeps the key itself as its one argument, and an exit, a stop or an assertion keeps its value.
+
+The loop raises an `EngineError`, and the engine words it through the runtime's `message` where a handler catches it and where it leaves the machine, so a program reads every error of the engine in its runtime's words. Uptime writes no `message`, so its subtraction above reads in the engine's plain words with uptime's names for the two kinds. `examples/mini/tests/language.rs` runs 37 programs that fail, each beside a native that builds the same `EngineError` and words it through mini's `message`, and holds the two to one text. The handler binds what the runtime's `raise` makes of the kind and those words, and the default builds an exception of the class `NAMES` gives the kind.
+
+Two more parts word errors.
+
+- **`misfit`** words a call that misses a native's signature. Tiny's says how many arguments a native takes, as a flow that hands `hours_between` one time shows.
+- **`REPORT`** words the whole report of an error no handler caught. Tiny's names the report and the key the error rose in, with the line of that key. Its `message` already worded the error in tiny's terms, so the report only reads a missing key's text as the field it names.
+
+```rust file=examples/tiny/src/words.rs
+```
+
+```text
+$ tiny run close.flow.yaml
+report time_to_close, average at line 5: WrongType, hours_between takes 2 arguments, not 1
+```
+
+That ran with `hours_between(payload.issue.closed_at)` as the `average` of the flow above. A kernel's failure takes a third road, `Lang::words`, which words each `Fail` of lib in the runtime's terms, as [Failures and their words](/docs/edge-lang/sdk/lib#failures-and-their-words) shows.
+
+## A traceback
+
+An error no handler catches ends the run, and the CLI prints its report to stderr and exits with 1. Mini's job above shows every part of one.
+
+- The head is `error:` with the class and the words, then `-->` with the path, the line and the column it rose at, and that line with a caret under the statement it rose in.
+- Each frame the error unwound through adds a `note: called from` with the function's name, the line of its call and a caret under the call's opening parenthesis, the innermost first. The subtraction rose in `tally()`, which line 168 called.
+- A call that repeats, as a recursion's does, shows once and then `note: the same call N more times`.
+- A function with no name of its own reads as `NAMES.anonymous`, `<lambda>` in mini, and code compiled while the program runs as `NAMES.compiled`, `<string>` in mini.
+
+A runtime with a `REPORT` replaces all of it, so tiny's report is the one line above, with no source and no frames, since a flow has no calls of its own. The diagnostics the kit reports before a program runs are another report, spelled through the runtime's table, as [Diagnostics](/docs/edge-lang/reference/diagnostics) lists.
+
+## What an error costs
+
+An error costs nothing until it is raised. The paths that raise one are cold, built apart from the loop's hot code, and the engine finds the frames of a traceback only as the error unwinds through them, so a call pays nothing for a traceback it might print.
+
+A raise pays for its facts and the words come later, where a handler catches the error or where it leaves the machine. A loop that raises and catches the same error on every pass pays for its words on every pass, and a native that tests for an error and drops it, as `getattr` with a default does, pays for none. A missing key and the end of an iteration still build their exception as they rise, since it holds the key or the value. A handler's test walks the runtime's tree, which `Tree::of` lays out as the runtime builds, so the test reads a table and then the parents above the class.
+
+`REPORT` runs once, on the error that ended the run, so tiny's report costs a flow nothing while it reads its records. The words are code in the runtime's `.wasm`. Uptime takes the engine's plain words, mini words every variant and tiny words the variants its flows meet.
+
+## Choosing
+
+| | Mini | Tiny | Uptime |
+|---|---|---|---|
+| Classes | One for each kind and 11 more, as its corpus reads | 9, under one root | 10, a check catches by what went wrong |
+| Signals | `SystemExit` and `GeneratorExit` apart from `Exception`, `StopIteration` under it | Under `Error`, since a flow catches nothing | Apart from `Error`, so `catch Error` never stops an exit |
+| Words for the engine's errors | Its own for every variant, through `message` | Its own, through `message`, with the report its `REPORT` writes | The engine's plain words |
+| A call that misses a native | Its own, through `misfit` | Its own, through `misfit` | The engine's |
+
+A language whose errors must read exactly as its programs expect words every variant, as mini does for its corpus. A language whose programs are data words the report, as tiny does, so an error names the part of the data the user wrote. A small language takes the engine's plain words and names only its classes, as uptime does, and its errors read in the engine's terms.
+
+> [!CARDS]
+> - `zap` [Opcodes](/docs/edge-lang/get-started/book/opcodes) An operation a runtime runs in the loop, its fast and slow paths and what it saves.
+> - `sliders-horizontal` [Language](/docs/edge-lang/sdk/language) Every variant of `EngineError` with its kind, and every part of the trait.
+> - `triangle-alert` [Diagnostics](/docs/edge-lang/reference/diagnostics) Every diagnostic the kit reports before a program runs.

@@ -6,11 +6,11 @@
 </head>
 <body>
   <script type="module">
-    // The worker runs the program beside this page, with the imports and grants of its edge.json.
+    // the worker runs the program beside this page under the imports and grants of edge.json
     import { createWorker } from "./js/src/index.js";
     const src = await fetch("./__EDGE_ENTRY__").then((r) => r.text());
     const worker = await createWorker({ baseUrl: location.href });
-    // Byte-stream stdout: buffer raw chunks and console.log only whole lines (console.log adds its own newline).
+    // output arrives in chunks so only whole lines reach `console.log` which adds its own newline
     let buf = "";
     worker.onOutput((chunk) => {
       buf += chunk;
@@ -18,7 +18,7 @@
       while ((nl = buf.indexOf("\n")) >= 0) { console.log(buf.slice(0, nl)); buf = buf.slice(nl + 1); }
     });
     await worker.run(src, { entry: "__EDGE_ENTRY__" });
-    if (buf) console.log(buf); // flush a trailing line printed without a newline (e.g. print(end=""))
+    if (buf) console.log(buf);
   </script>
 </body>
 </html>

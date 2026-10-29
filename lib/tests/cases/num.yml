@@ -1,0 +1,890 @@
+- native: int
+  args: ["12x"]
+  error: "invalid literal for int() with base 10: '12x'"
+
+- native: int
+  args: ["ff"]
+  kw: {base: 16}
+  ret: 255
+
+- native: int
+  args: ["  -170141183460469231731687303715884105728  "]
+  ret: !int "-170141183460469231731687303715884105728"
+
+- native: abs
+  args: [-5]
+  ret: 5
+
+- native: divmod
+  args: [-7, 3]
+  ret: !tuple [-2, -1]
+
+- native: round
+  args: [2.5]
+  ret: 2
+
+- native: pow
+  args: [2, 200]
+  ret: !int "1606938044258990275541962092341162602522202993782792835301376"
+
+- native: hex
+  args: [255]
+  ret: "0xff"
+
+- native: int.bit_length
+  recv: 255
+  ret: 8
+
+- native: float.is_integer
+  recv: 2.0
+  ret: true
+
+- native: int
+  args: ["abc"]
+  error: "ValueError"
+
+- native: int
+  args: [true]
+  prints: "1"
+
+- native: int
+  args: [false]
+  prints: "0"
+
+- native: float
+  args: [true]
+  prints: "1.0"
+
+- native: int
+  args: ["hello"]
+  error: "ValueError"
+
+- native: float
+  args: ["hello"]
+  error: "ValueError"
+
+- native: abs
+  args: ["hello"]
+  error: "bad operand type for abs(): 'str'"
+
+- native: int
+  args: ["not a number"]
+  error: "invalid literal for int() with base 10: 'not a number'"
+
+- native: float
+  args: ["xyz"]
+  error: "could not convert string to float: 'xyz'"
+
+- native: round
+  args: [true]
+  prints: "1"
+
+- native: round
+  args: [false]
+  prints: "0"
+
+- native: float
+  prints: "0.0"
+
+- native: int
+  prints: "0"
+
+- native: int
+  args: ["x"]
+  error: "invalid literal for int() with base 10: 'x'"
+
+- native: int
+  args: [!bytes "7a7a"]
+  error: "invalid literal for int() with base 10: b'zz'"
+
+- native: hash
+  error: "TypeError: hash() takes exactly one argument (0 given)"
+
+- native: hash
+  args: [[1, 2, 3]]
+  error: "unhashable type: 'list'"
+
+- native: hash
+  args: [[]]
+  error: "TypeError: unhashable type: 'list'"
+
+- native: hash
+  args: [{}]
+  error: "TypeError: unhashable type: 'dict'"
+
+- native: hash
+  args: [!set [1]]
+  error: "TypeError: unhashable type: 'set'"
+
+- native: hash
+  args: [!tuple [1, []]]
+  error: "TypeError: unhashable type: 'list'"
+
+- native: hash
+  args: [[1], 2]
+  error: "TypeError: hash() takes exactly one argument (2 given)"
+
+- native: abs
+  args: [-7]
+  prints: "7"
+
+- native: int
+  args: ["99"]
+  prints: "99"
+
+- native: float
+  args: ["3.14"]
+  prints: "3.14"
+
+- native: round
+  args: [0.5]
+  prints: "0"
+
+- native: round
+  args: [2.5]
+  prints: "2"
+
+- native: round
+  args: [-1.5]
+  prints: "-2"
+
+- native: round
+  args: [-0.5]
+  prints: "0"
+
+- native: round
+  args: [2.5, 1]
+  prints: "2.5"
+
+- native: round
+  args: [1.55, 1]
+  prints: "1.6"
+
+- native: bin
+  args: [5]
+  prints: "0b101"
+
+- native: bin
+  args: [0]
+  prints: "0b0"
+
+- native: bin
+  args: [-10]
+  prints: "-0b1010"
+
+- native: oct
+  args: [8]
+  prints: "0o10"
+
+- native: oct
+  args: [0]
+  prints: "0o0"
+
+- native: hex
+  args: [255]
+  prints: "0xff"
+
+- native: hex
+  args: [16]
+  prints: "0x10"
+
+- native: hex
+  args: [-256]
+  prints: "-0x100"
+
+- native: divmod
+  args: [7, 3]
+  prints: "(2, 1)"
+
+- native: divmod
+  args: [10, 4]
+  prints: "(2, 2)"
+
+- native: divmod
+  args: [-7, 3]
+  prints: "(-2, -1)"
+
+- native: pow
+  args: [2, 10]
+  prints: "1024"
+
+- native: pow
+  args: [3, 5]
+  prints: "243"
+
+- native: pow
+  args: [2, 10, 1000]
+  prints: "24"
+
+- native: pow
+  args: [7, 13, 19]
+  prints: "7"
+
+- native: abs
+  args: [0]
+  prints: "0"
+
+- native: abs
+  args: [-3.14]
+  prints: "3.14"
+
+- native: abs
+  args: [0.0]
+  prints: "0.0"
+
+- native: abs
+  args: [-0.0]
+  prints: "0.0"
+
+- native: int
+  args: [3.9]
+  prints: "3"
+
+- native: int
+  args: [-3.9]
+  prints: "-3"
+
+- native: int
+  args: [0.9]
+  prints: "0"
+
+- native: float
+  args: [42]
+  prints: "42.0"
+
+- native: float
+  args: [-42]
+  prints: "-42.0"
+
+- native: float
+  args: [0]
+  prints: "0.0"
+
+- native: int
+  args: ["123"]
+  prints: "123"
+
+- native: int
+  args: ["  42  "]
+  prints: "42"
+
+- native: bin
+  args: [1]
+  prints: "0b1"
+
+- native: bin
+  args: [255]
+  prints: "0b11111111"
+
+- native: bin
+  args: [-1]
+  prints: "-0b1"
+
+- native: oct
+  args: [7]
+  prints: "0o7"
+
+- native: oct
+  args: [64]
+  prints: "0o100"
+
+- native: hex
+  args: [0]
+  prints: "0x0"
+
+- native: hex
+  args: [15]
+  prints: "0xf"
+
+- native: hex
+  args: [-255]
+  prints: "-0xff"
+
+- native: divmod
+  args: [10, 3]
+  prints: "(3, 1)"
+
+- native: divmod
+  args: [0, 5]
+  prints: "(0, 0)"
+
+- native: divmod
+  args: [7, -3]
+  prints: "(-2, 1)"
+
+- native: pow
+  args: [3, 3]
+  prints: "27"
+
+- native: pow
+  args: [5, 0]
+  prints: "1"
+
+- native: pow
+  args: [2, 10, 100]
+  prints: "24"
+
+- native: float
+  args: ["-3.5"]
+  prints: "-3.5"
+
+- native: abs
+  args: [-3.5]
+  prints: "3.5"
+
+- native: pow
+  args: [3, 200, 7]
+  prints: "2"
+
+- native: round
+  args: [3.5]
+  prints: "4"
+
+- native: round
+  args: [-2.5]
+  prints: "-2"
+
+- native: round
+  args: [3.14159, 2]
+  prints: "3.14"
+
+- native: divmod
+  args: [10, 0]
+  error: "ZeroDivisionError"
+
+- native: int
+  args: ["99999999999999999999999999"]
+  prints: "99999999999999999999999999"
+
+- native: pow
+  args: [3, 200, 1000]
+  prints: "1"
+
+- native: pow
+  args: [2, 100, 1000000007]
+  prints: "976371285"
+
+- native: round
+  args: [2.675, 2]
+  prints: "2.67"
+
+- native: round
+  args: [1.005, 2]
+  prints: "1.0"
+
+- native: round
+  args: [123456789012345.6]
+  prints: "123456789012346"
+
+- native: int
+  args: ["FF", 16]
+  prints: "255"
+
+- native: int
+  args: ["0b101", 2]
+  prints: "5"
+
+- native: int
+  args: ["0o17", 8]
+  prints: "15"
+
+- native: int
+  args: ["z", 36]
+  prints: "35"
+
+- native: int
+  args: ["10", 0]
+  prints: "10"
+
+- native: int
+  args: ["0x10", 0]
+  prints: "16"
+
+- native: int
+  args: ["1_000"]
+  prints: "1000"
+
+- native: int
+  args: ["1_000", 16]
+  prints: "4096"
+
+- native: float
+  args: ["1_000.5"]
+  prints: "1000.5"
+
+- native: int
+  args: ["-FF", 16]
+  prints: "-255"
+
+- native: int.bit_length
+  recv: 255
+  prints: "8"
+
+- native: int.to_bytes
+  recv: 10
+  args: [2, "big"]
+  prints: "b'\\x00\\n'"
+
+- native: int.from_bytes
+  args: [!bytes "0100", "big"]
+  prints: "256"
+
+- native: float.is_integer
+  recv: 3.0
+  prints: "True"
+
+- native: float.is_integer
+  recv: 3.5
+  prints: "False"
+
+- native: int.bit_count
+  recv: 10
+  prints: "2"
+
+- native: divmod
+  args: [7.5, 2]
+  prints: "(3.0, 1.5)"
+
+- native: divmod
+  args: [-7, 2]
+  prints: "(-3, -1)"
+
+- native: int.to_bytes
+  recv: 255
+  args: [1]
+  prints: "b'\\xff'"
+
+- native: int.to_bytes
+  recv: 256
+  args: [1]
+  error: "int too big to convert"
+
+- native: int.to_bytes
+  recv: 10
+  args: [999999999, "big"]
+  error: "MemoryError"
+
+- native: int.from_bytes
+  args: [!bytes "0100"]
+  prints: "256"
+
+- native: abs
+  args: [false]
+  prints: "0"
+
+- native: abs
+  args: [true]
+  prints: "1"
+
+- native: abs
+  args: [1]
+  prints: "1"
+
+- native: abs
+  args: [-1]
+  prints: "1"
+
+- native: bin
+  args: [1]
+  prints: "0b1"
+
+- native: bin
+  args: [-1]
+  prints: "-0b1"
+
+- native: bin
+  args: [15]
+  prints: "0b1111"
+
+- native: bin
+  args: [-15]
+  prints: "-0b1111"
+
+- native: bin
+  args: [12345]
+  prints: "0b11000000111001"
+
+- native: bin
+  args: [21]
+  prints: "0b10101"
+
+- native: bin
+  args: [699050]
+  prints: "0b10101010101010101010"
+
+- native: hex
+  args: [1]
+  prints: "0x1"
+
+- native: hex
+  args: [-1]
+  prints: "-0x1"
+
+- native: hex
+  args: [15]
+  prints: "0xf"
+
+- native: hex
+  args: [-15]
+  prints: "-0xf"
+
+- native: hex
+  args: [12345]
+  prints: "0x3039"
+
+- native: hex
+  args: [74565]
+  prints: "0x12345"
+
+- native: oct
+  args: [1]
+  prints: "0o1"
+
+- native: oct
+  args: [-1]
+  prints: "-0o1"
+
+- native: oct
+  args: [15]
+  prints: "0o17"
+
+- native: oct
+  args: [-15]
+  prints: "-0o17"
+
+- native: oct
+  args: [12345]
+  prints: "0o30071"
+
+- native: oct
+  args: [5349]
+  prints: "0o12345"
+
+- native: pow
+  args: [0, 1]
+  prints: "0"
+
+- native: pow
+  args: [1, 0]
+  prints: "1"
+
+- native: pow
+  args: [-2, 3]
+  prints: "-8"
+
+- native: pow
+  args: [3, 8]
+  prints: "6561"
+
+- native: int.to_bytes
+  recv: 10
+  args: [1]
+  prints: "b'\\n'"
+
+- native: int.to_bytes
+  recv: 100
+  args: [10]
+  prints: "b'\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00d'"
+
+- native: int.from_bytes
+  args: [!bytes "00000000000000000001"]
+  prints: "1"
+
+- native: int.from_bytes
+  args: [!bytes "0100"]
+  prints: "256"
+
+- native: int.to_bytes
+  recv: 10
+  prints: "b'\\n'"
+
+- native: int.to_bytes
+  recv: 100
+  prints: "b'd'"
+
+- native: int
+  args: ["1_2_3"]
+  prints: "123"
+
+- native: int
+  args: ["0o1_2_3", 8]
+  prints: "83"
+
+- native: pow
+  args: [1, 0, 1]
+  prints: "0"
+
+- native: pow
+  args: [5, 0, 1]
+  prints: "0"
+
+- native: pow
+  args: [2, 0, 3]
+  prints: "1"
+
+- native: pow
+  args: [7, 0, 1]
+  prints: "0"
+
+- native: pow
+  args: [10, 0, 1]
+  prints: "0"
+
+- native: pow
+  args: [3, 0, 7]
+  prints: "1"
+
+- native: pow
+  args: [0, 0, 1]
+  prints: "0"
+
+- native: pow
+  args: [100, 0, 1]
+  prints: "0"
+
+- native: pow
+  args: [9, 0, 4]
+  prints: "1"
+
+- native: pow
+  args: [6, 0, 2]
+  prints: "1"
+
+- native: round
+  args: [12345, -1]
+  prints: "12340"
+
+- native: round
+  args: [12355, -1]
+  prints: "12360"
+
+- native: round
+  args: [-12345, -1]
+  prints: "-12340"
+
+- native: round
+  args: [12345, -2]
+  prints: "12300"
+
+- native: round
+  args: [999, -1]
+  prints: "1000"
+
+- native: round
+  args: [1500, -3]
+  prints: "2000"
+
+- native: round
+  args: [2, -3]
+  prints: "0"
+
+- native: round
+  args: [125, -1]
+  prints: "120"
+
+- native: round
+  args: [-125, -1]
+  prints: "-120"
+
+- native: round
+  args: [0, -2]
+  prints: "0"
+
+- native: round
+  args: [true, -1]
+  prints: "0"
+
+- native: round
+  args: [true, 2]
+  prints: "1"
+
+- native: round
+  args: [false, 0]
+  prints: "0"
+
+- native: round
+  args: [true, -2]
+  prints: "0"
+
+- native: int
+  args: [!bytes "3132"]
+  prints: "12"
+
+- native: int
+  args: [!bytes "2d35"]
+  prints: "-5"
+
+- native: int
+  args: [!bytes "30"]
+  prints: "0"
+
+- native: int
+  args: [!bytes "313031", 2]
+  prints: "5"
+
+- native: int
+  args: [!bytes "3737", 8]
+  prints: "63"
+
+- native: int
+  args: [!bytes "2b39"]
+  prints: "9"
+
+- native: int
+  args: [!bytes "3130", 10]
+  prints: "10"
+
+- native: int
+  args: [!bytes "202034322020"]
+  prints: "42"
+
+- native: divmod
+  args: [17, 5]
+  prints: "(3, 2)"
+
+- native: abs
+  args: [-1, 2]
+  error: "abs() takes exactly one argument (2 given)"
+
+- native: int
+  args: ["10", 16]
+  prints: "16"
+
+- native: divmod
+  args: [7]
+  error: "divmod expected 2 arguments, got 1"
+
+- native: pow
+  args: [2, 3, -5]
+  prints: "3"
+
+- native: pow
+  args: [2, 3, 5]
+  prints: "3"
+
+- native: pow
+  args: [2, 0, -1]
+  prints: "0"
+
+- native: pow
+  args: [3, 4, -7]
+  prints: "4"
+
+- native: pow
+  args: [-2, 3, -5]
+  prints: "-3"
+
+- native: pow
+  args: [5, 2, -3]
+  prints: "1"
+
+- native: int
+  args: ["-170141183460469231731687303715884105728"]
+  prints: "-170141183460469231731687303715884105728"
+
+- native: int
+  args: ["170141183460469231731687303715884105727"]
+  prints: "170141183460469231731687303715884105727"
+
+- native: int
+  args: ["+170141183460469231731687303715884105727"]
+  prints: "170141183460469231731687303715884105727"
+
+- native: int
+  args: ["  -170141183460469231731687303715884105728  "]
+  prints: "-170141183460469231731687303715884105728"
+
+- native: round
+  args: [3.14159]
+  kw: {ndigits: 2}
+  prints: "3.14"
+
+- native: pow
+  args: [2, 10]
+  kw: {mod: 1000}
+  prints: "24"
+
+- native: hash
+  args: [!tuple [1, !tuple [2, 3]]]
+  prints: "7267574591690527098"
+
+- native: hash
+  args: [123456789.75]
+  prints: "1729382257033727253"
+
+- native: hash
+  args: [-123456789.75]
+  prints: "-1729382257033727253"
+
+- native: hash
+  args: [1e-300]
+  prints: "482449582752280463"
+
+- native: hash
+  args: [2.5e18]
+  prints: "194156990786306049"
+
+- native: hash
+  args: [!tuple [1.5, 2.5]]
+  prints: "-1826667736619738083"
+
+- native: int
+  args: [!bytes "313233343536373839303132333435363738393031323334353637383930"]
+  prints: "123456789012345678901234567890"
+
+- native: float
+  args: ["inf"]
+  prints: "inf"
+
+- native: float
+  args: ["-inf"]
+  prints: "-inf"
+
+- native: int
+  args: ["0x1f", 16]
+  prints: "31"
+
+- native: int
+  args: ["1f", 16]
+  prints: "31"
+
+- native: int
+  args: ["0x_1f", 16]
+  prints: "31"
+
+- native: int
+  args: ["0x_1f", 0]
+  prints: "31"
+
+- native: int
+  args: ["0x__1f", 16]
+  error: "invalid literal"
+
+- native: int
+  args: ["_1f", 16]
+  error: "invalid literal"
+
+- native: int
+  args: [!bytes "6666", 16]
+  prints: "255"
+
+- native: int
+  args: [!bytes "3766", 16]
+  prints: "127"
+
+- native: int
+  args: ["-80000000000000000000000000000000", 16]
+  prints: "-170141183460469231731687303715884105728"
+
+- native: int
+  args: ["7fffffffffffffffffffffffffffffff", 16]
+  prints: "170141183460469231731687303715884105727"
+
+- native: int
+  args: ["ff"]
+  kw: {base: 16}
+  prints: "255"
+
+- native: int
+  args: ["0x__1f", 16]
+  error: "invalid literal for int() with base 16: '0x__1f'"

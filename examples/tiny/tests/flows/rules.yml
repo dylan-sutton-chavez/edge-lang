@@ -1,0 +1,212 @@
+- name: only None and False read as false so a zero and an empty text are values
+  input: slice
+  flow: |
+    from: input
+    truth:
+      count: zero = 0 or 7, empty = "" or "x", none = None or 7, no = False or 7, flipped = not 0
+  out:
+    truth:
+      - '{"zero":0,"empty":"","none":7,"no":7,"flipped":false,"count":431}'
+
+- name: a where that gives zero keeps every record
+  input: slice
+  flow: |
+    from: input
+    kept:
+      where: 0
+      count:
+  out:
+    kept:
+      - '{"count":431}'
+
+- name: a where that gives None keeps no record
+  input: slice
+  flow: |
+    from: input
+    kept:
+      where: None
+      count:
+  out:
+    kept:
+      - '{"count":0}'
+
+- name: a bool is no number so adding one to a number fails
+  input: slice
+  flow: |
+    from: input
+    odd:
+      count: n = True + 1
+  error: 'report odd, count at line 3: WrongType, cannot add bool and number'
+
+- name: a bool equals no number while a whole and a decimal number of one value are equal
+  input: slice
+  flow: |
+    from: input
+    same:
+      count: bool_one = True == 1, bool_zero = False == 0, whole_decimal = 1 == 1.0
+  out:
+    same:
+      - '{"bool_one":false,"bool_zero":false,"whole_decimal":true,"count":431}'
+
+- name: a bool is no index of a text
+  input: slice
+  flow: |
+    from: input
+    odd:
+      count: c = "abc"[True]
+  error: 'report odd, count at line 3: WrongType, the text takes a number as its index, not bool'
+
+- name: a bool orders against no number
+  input: slice
+  flow: |
+    from: input
+    odd:
+      where: True < 2
+      count:
+  error: 'report odd, where at line 3: WrongType, cannot compare bool and number'
+
+- name: dividing two whole numbers gives a decimal number
+  input: slice
+  flow: |
+    from: input
+    halves:
+      count: half = 7 / 2, whole = 6 / 3
+  out:
+    halves:
+      - '{"half":3.5,"whole":2.0,"count":431}'
+
+- name: whole division and the remainder round toward zero
+  input: slice
+  flow: |
+    from: input
+    rounding:
+      count: q = -7 // 2, r = -7 % 2, s = 7 % -2, t = 7 // -2
+  out:
+    rounding:
+      - '{"q":-3,"r":-1,"s":1,"t":-3,"count":431}'
+
+- name: decimal division and the remainder round toward zero too
+  input: slice
+  flow: |
+    from: input
+    rounding:
+      count: q = -7.5 // 2, r = -7.5 % 2
+  out:
+    rounding:
+      - '{"q":-3.0,"r":-1.5,"count":431}'
+
+- name: a whole number divided by zero fails
+  input: slice
+  flow: |
+    from: input
+    odd:
+      count: n = 1 / 0
+  error: 'report odd, count at line 3: BadData, division by zero'
+
+- name: a decimal number divided by zero fails too
+  input: slice
+  flow: |
+    from: input
+    odd:
+      count: n = 1.5 / 0.0
+  error: 'report odd, count at line 3: BadData, division by zero'
+
+- name: a whole number to a negative power gives a decimal number
+  input: slice
+  flow: |
+    from: input
+    powers:
+      count: p = 2 ** -1, q = 10 ** -2
+  out:
+    powers:
+      - '{"p":0.5,"q":0.01,"count":431}'
+
+- name: the largest whole number of 48 bits holds
+  input: slice
+  flow: |
+    from: input
+    big:
+      count: n = 2 ** 46 + (2 ** 46 - 1)
+  out:
+    big:
+      - '{"n":140737488355327,"count":431}'
+
+- name: a whole number past 48 bits fails rather than growing
+  input: slice
+  flow: |
+    from: input
+    odd:
+      count: n = 2 ** 46 * 2
+  error: 'report odd, count at line 3: BadData, the result is too large for a whole number'
+
+- name: a sum past 48 bits fails rather than growing
+  input: slice
+  flow: |
+    from: input
+    odd:
+      count: n = 140737488355327 + 1
+  error: 'report odd, count at line 3: BadData, the result is too large for a whole number'
+
+- name: an index counts from either end
+  input: slice
+  flow: |
+    from: input
+    ends:
+      count: last = "abc"[-1], first = "abc"[0]
+  out:
+    ends:
+      - '{"last":"c","first":"a","count":431}'
+
+- name: a dotted name reads the key of the record that an index reads
+  input: slice
+  flow: |
+    from: input
+    fields:
+      count: same = repo.name == repo["name"], login = actor.login == actor["login"]
+  out:
+    fields:
+      - '{"same":true,"login":true,"count":431}'
+
+- name: abs takes no bool since a bool is no number
+  input: slice
+  flow: |
+    from: input
+    odd:
+      count: n = abs(True)
+  error: 'report odd, count at line 3: WrongType, abs takes a number, not bool'
+
+- name: round takes no bool since a bool is no number
+  input: slice
+  flow: |
+    from: input
+    odd:
+      count: n = round(True)
+  error: 'report odd, count at line 3: WrongType, round takes a number'
+
+- name: a bool bounds no search of a text
+  input: slice
+  flow: |
+    from: input
+    odd:
+      count: n = "abc".find("b", True)
+  error: 'report odd, count at line 3: WrongType, the bounds of a slice must be number'
+
+- name: int and float convert a bool as they convert a text
+  input: slice
+  flow: |
+    from: input
+    converted:
+      count: i = int(True), f = float(False)
+  out:
+    converted:
+      - '{"i":1,"f":0.0,"count":431}'
+
+- name: two bools order with False first though a bool is no number
+  input: slice
+  flow: |
+    from: input
+    order:
+      count: first = False < True, last = True < False, most = max(False, True)
+  out:
+    order:
+      - '{"first":true,"last":false,"most":true,"count":431}'

@@ -3,7 +3,7 @@ description: Lay one part of the CDN tree out from this checkout's build outputs
 
 inputs:
   part:
-    description: "compiler | js | cli"
+    description: "wasm | js | cli"
     required: true
   name:
     description: The artifact name, one per job, every one of them starting cdn-.

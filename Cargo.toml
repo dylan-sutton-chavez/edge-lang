@@ -1,24 +1,25 @@
 [package]
-name = "edge-python"
+name = "edge"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Single-pass SSA compiler and tiered register VM for a sandboxed Python subset, with NaN-boxed values, inline caches, memoization, mark-sweep GC and snapshots. One WebAssembly module runs in browsers, JavaScript runtimes and the CLI."
+description = "The engine of Edge Lang, for building language runtimes in Rust. A single-pass parser compiles source to SSA bytecode through the token table a runtime brings, and a register VM runs it with calls as jumps, NaN-boxed values, inline caches, an exact memory meter, mark-sweep GC and snapshots. One WebAssembly module runs in browsers, JavaScript runtimes and the CLI."
 readme = "README.md"
 autotests = false
 autobins = false
+autoexamples = false
 
-# `make wasm` builds compiler.wasm as a cdylib, so a crate depending on this one links a plain rlib.
+# `make wasm` builds edge.wasm as a cdylib so dependents link a plain rlib
 [lib]
-name = "compiler"
+name = "edge"
 doctest = false
 
 [[test]]
 name = "tests"
 path = "tests/main.rs"
 
-# Its own binary, since it runs without the metering allocator.
+# its own binary since it runs without the metering allocator
 [[test]]
 name = "unmetered"
 path = "tests/unmetered.rs"
@@ -26,50 +27,58 @@ path = "tests/unmetered.rs"
 [features]
 default = ["std"]
 std = []
-# Records each instruction a run executes for `VM::ran`, method calls left unfused so every ip is the compiler's own.
+# records each executed instruction for `VM::ran` with method calls unfused to keep the compiler's ips
 coverage = []
-# The wrapper that makes compiler.wasm, its exports, host imports, allocator and panic handler.
+# the edge.wasm wrapper of exports and host imports plus its allocator and panic handler
 runtime = []
-# `call_pure` and the host of plain values it runs the builtins on, left out of the shipped compiler.wasm.
-pure = []
-# The modules behind the stable API, for the engine's own tests and tools that read them.
+# the grant logic exported for the hosts and the registry that read it through edge.wasm
+perms = []
+# the modules behind the stable API for the engine's own tests and tools
 internals = []
+# a padding static that shifts static data for make bench-layout
+layout = []
 
 [dependencies]
-wasm-abi = { workspace = true }
+abi = { workspace = true }
 hashbrown = { workspace = true }
 itoa = { workspace = true }
 libm = { workspace = true }
 
-# WASM-only global allocator, host builds use std's and treat compiler.wasm as a library artifact.
+# wasm-only global allocator as host builds use std's and treat edge.wasm as a library
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 dlmalloc = { version = "0.2", default-features = false, features = ["global"] }
 
-# Test-only deps for the JSON-driven test runner. None of these are pulled into the release `compiler.wasm`.
+# test-only deps of the case runner that the release `edge.wasm` never pulls in
 [dev-dependencies]
 hashbrown = { workspace = true, features = ["serde"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml_ng = { workspace = true }
+# the tests run every program through the reference runtime which links this crate back
+mini = { path = "examples/mini" }
+# a test runtime renames these kernels to prove the engine binds by kernel
+lib = { path = "lib" }
+# the indent table the syntax cases and the lexer and parser corpora are written in
+spell = { path = "tools/spell" }
 
 [workspace]
-members = ["abi", "pdk", "pdk/macros", "pdk/example", "skill", "bench"]
-# `pdk/example` is wasm-only, in `members` for the lockfile but out of `default-members`, build it with `-p slugify-mod`.
-default-members = [".", "abi", "pdk", "pdk/macros", "skill"]
+members = ["abi", "plugin", "plugin/macros", "plugin/example", "skill", "bench", "lib", "examples/mini", "examples/tiny", "examples/uptime", "examples/data", "examples/native", "tools/spell"]
+# wasm-only `plugin/example` is out of default-members so build it with `-p slugify-mod`
+default-members = [".", "abi", "plugin", "plugin/macros", "skill", "lib", "examples/mini", "examples/tiny", "examples/uptime", "examples/data", "examples/native"]
 resolver = "2"
 
 [workspace.package]
 version = "0.9.6"
 edition = "2024"
 license = "Apache-2.0"
-repository = "https://github.com/dylan-sutton-chavez/edge-python/"
+repository = "https://github.com/dylan-sutton-chavez/edge-lang/"
 
-# One source for dependency versions, a bump touches one line and the lockfile never splits versions.
+# one source of versions so a bump touches one line and the lockfile never splits
 [workspace.dependencies]
-wasm-abi = { path = "abi" }
+abi = { path = "abi" }
 hashbrown = { version = "0.17", default-features = false }
 itoa = "1"
-# Without `arch` every target takes the same software paths, the ones wasm32 takes, which Miri can interpret.
+# without `arch` every target takes wasm32's software paths which Miri can interpret
 libm = { version = "0.2", default-features = false }
 lol_alloc = "0.4"
 proc-macro2 = "1"
@@ -78,6 +87,7 @@ syn = { version = "3.0.3", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml_ng = "0.10"
+sha2 = "0.10"
 
 [profile.release]
 opt-level = "z"
@@ -86,11 +96,15 @@ codegen-units = 1
 panic = "abort"
 strip = true
 
-# Released CLIs embed this build of compiler.wasm, precompiled to native code, so speed beats size.
+# released CLIs embed this build of edge.wasm precompiled to native code so speed beats size
 [profile.cli]
 inherits = "release"
 opt-level = 3
 
-# The VM corpora run the interpreter, unoptimized they take seventeen times longer.
+# the cli build of make bench-layout kept apart so neither build undoes the other
+[profile.layout]
+inherits = "cli"
+
+# the VM corpora run the interpreter and unoptimized they take seventeen times longer
 [profile.dev]
 opt-level = 2

@@ -1,0 +1,141 @@
+---
+title: "Diagnostics"
+description: "What the lexer and the parser report, how a report renders, and the errors a source meets before it compiles."
+---
+
+# Diagnostics
+
+The lexer and the parser report what they cannot compile as diagnostics, each a message and a byte range of the source. A source with any diagnostic runs nothing, and no handler in the program can catch one.
+
+A report renders each one with its line, its column and a caret under its range.
+
+```text
+error: '(' was never closed
+  --> <input>:1:6
+  |
+1 | print(1
+  |      ^
+```
+
+- A report shows the first 20 and then how many more there are.
+- A long line shows only the 80 characters around its error.
+- A message quotes at most 40 characters of a token.
+
+## Compile-time errors
+
+A row that names mini or indent holds only for that token table, and one that names a braces table only for a table whose blocks open with `{`. A message about interpolated text names it as the table's `interp` does, `f-string` in mini as below and `text` in uptime. [Parser kit](/docs/edge-lang/sdk/parser-kit) shows how the tables spell the grammar.
+
+### Tokens
+
+| Diagnostic | Cause |
+|---|---|
+| `unexpected character` | A byte the table has no token for, such as `$`, `?` or a backquote, and `#` in mini |
+| `unterminated string literal` | A string missing its closing quote |
+| `unterminated triple-quoted string literal` | A triple-quoted string that hit the end of the source |
+| `unterminated f-string literal` | F-string text that hit the end of the source |
+| `f-string was never closed` | A field that hit the end of the source before its f-string closed |
+| `f-string: single '}' is not allowed` | A lone `}` in f-string text, write `}}` for a brace |
+| `invalid f-string conversion (expected !r, !s, or !a)` | A conversion other than those three |
+| `named escapes are not supported, write the character or use \u03b1` | `\N{...}` in a string |
+| `invalid escape in string literal` | In a table that refuses unknown escapes, such as uptime and tiny, an escape it does not know, or a `\x`, `\u` or `\U` without the hex digits it takes |
+| `invalid '_' in numeric literal` and `consecutive '_' in numeric literal` | A misplaced or doubled `_` |
+| `missing digits in numeric literal` | A base prefix with no digits, such as `0x` |
+| `leading zeros in decimal integer literals are not permitted` | A nonzero decimal integer written with a leading `0`, such as `007` |
+| `invalid float literal` | A float with an empty exponent, such as `1e` |
+| `invalid suffix on numeric literal` | A letter right after a number, such as `1j` |
+
+### Brackets, lines and blocks
+
+| Diagnostic | Cause |
+|---|---|
+| `expected X, got 'Y'` | A token other than the one the grammar needs |
+| `expected newline, got 'Y'` | Code after a complete statement on its line |
+| `'(' was never closed` (or `'['` and `'{'`) | A bracket opened with no matching closer, and in a braces table a block the source leaves open |
+| `')' does not match '[', expected ']'` | The wrong closer for the innermost opener |
+| `unexpected ')', no matching opener` | A closer with no opener |
+| `unexpected '{'` | In a braces table, a block that follows no header |
+| `expected an indented block` | A body that starts on the line after its colon without an indent |
+| `a compound statement must start its own line` | An `if`, `for`, `fn` or other compound statement after the colon of another on the same line |
+| `inconsistent indentation: mixing tabs and spaces` | An indent that mixes both whitespace kinds |
+| `unindent does not match any outer indentation level` | A dedent that lands between two outer levels |
+| `unexpected ':' (missing 'if', 'while', 'for', or other statement keyword?)` | A colon after an expression statement |
+
+### Statements
+
+| Diagnostic | Cause |
+|---|---|
+| `'break' outside loop` and `'continue' outside loop` | A loop word outside a loop |
+| `'return' outside function` and `'yield' outside function` | A `return` or `yield` in module code or a class body |
+| `'await' outside function` and `'await' outside async function` | An `await` outside an `async` function |
+| `'await' in a comprehension outside async function` | A comprehension that awaits outside an `async` function |
+| `'yield' inside a comprehension` | A `yield` in the element or clauses of a comprehension or generator expression |
+| `no binding for nonlocal 'x' found` | A `nonlocal` name that no enclosing function binds |
+| `nonlocal declaration not allowed at module level` | A `nonlocal` in module code |
+| `name 'x' is parameter and global` and `name 'x' is parameter and nonlocal` | A parameter declared `global` or `nonlocal` |
+| `name 'x' is assigned to before global declaration` | A name stored in the scope before its `global` |
+| `default 'except:' must be last` | A bare `except` before another clause |
+| `default 'except' must be last` | In a braces table, a bare `except` before another clause |
+| `cannot assign to this expression` and `cannot delete this expression` | A target that is not a name, an attribute, a subscript or a list of them |
+| `cannot use starred expression here` | A starred item with no comma to make a tuple, as in `x = *a` |
+| `starred assignment target must be in a list or tuple` | A lone `*a` as an assignment target |
+| `only a single target can be annotated` | An annotation on a target list or a chain of assignments |
+| `a generator expression beside other arguments needs parentheses of its own` | A bare generator expression beside another argument or before a trailing comma |
+| `expected a parameter name` | A parameter that is no name, such as `fn f(==)` or `lambda 1: 0` |
+| `expected a name` | A `global`, `nonlocal`, `except ... as`, `import ... as` or `from ... import` with no name where the grammar wants one |
+| `expected an attribute name after '.'` | A dot followed by something other than a name, as in `x.'real'` |
+| `expected a module name` and `expected a module name after '.'` | An import whose module path is not names joined by dots |
+| `an integer literal of 4301 digits is past the limit of 4300` | A decimal literal longer than the runtime's digit limit. A table that spells hex literals adds that one can be written in hex |
+| `expected expression` | A token that starts no operand where one belongs |
+| `expected a pattern`, `invalid pattern target` and `multiple stars in sequence pattern` | A `case` pattern the grammar does not read |
+| `unsupported pattern (use literals, names, _, sequences, mappings or classes)` | A `case` pattern of another shape |
+| `mapping pattern keys must be literals` | A mapping pattern key that is not a literal |
+
+### Refused forms
+
+The parser reads these forms and refuses them, each with its own message.
+
+| Diagnostic | Cause |
+|---|---|
+| `with is not supported` | A `with` statement |
+| `async with is not supported` | An `async with` statement |
+| `async for is not supported` | An `async for` statement |
+| `async comprehensions are not supported` | An `async for` clause in a comprehension |
+| `async generators are not supported` | A `yield` in an `async` function, or a generator expression that awaits |
+| `except* is not supported` | An `except*` clause |
+| `raise from is not supported` | `raise e from cause` |
+| `type aliases are not supported` | A `type X = ...` statement |
+| `generic parameters are not supported` | Type parameters such as `[T]` after a function or class name |
+| `class keywords are not supported` | A keyword such as `metaclass=M` in the parentheses of a `class` |
+
+### Caps
+
+| Diagnostic | Cause |
+|---|---|
+| `source file exceeds maximum size (10 MiB)` | A source past 10 MiB, checked before anything is scanned |
+| `indentation depth exceeds maximum (100)` | Blocks nested past 100 by indentation |
+| `block nesting depth exceeds maximum (100)` | In a braces table, blocks nested past 100 |
+| `f-string nesting depth exceeds maximum (200)` | F-string fields nested past 200 |
+| `expression too deeply nested` | Expressions, targets or patterns nested past 200 |
+| `program too large: exceeded the 65535 instruction, name, or constant limit` | A chunk past 65,535 instructions, names or constants |
+| `too many arguments in call (max 255 positional and 255 keyword)` | A call past 255 arguments of either kind |
+| `native calls take at most 15 positional and 15 keyword arguments` | A call of a native module function past 15 arguments of either kind |
+| `too many native imports (max 256 per module)` | A module importing more than 256 natives |
+| `imports nest deeper than 64 modules` | A chain of modules each importing the next past 64 modules |
+
+[Limits](/docs/edge-lang/sdk/limits#source-and-token-limits) lists these caps beside the limits of a run. Import failures are compile-time diagnostics as well. See [Modules](/docs/edge-lang/reference/modules#resolution-errors) for those message formats.
+
+## Environmental errors
+
+Some failures happen before the source reaches the compiler. They surface as plain text with no line or column, and program code cannot catch them.
+
+| Error | Host | When |
+|---|---|---|
+| `input rejected: invalid utf-8 at byte N` | A host of `edge.wasm`, the JS host among them | The source bytes the host hands `run_start` are not valid UTF-8 |
+| `error: reading main.mini: stream did not contain valid UTF-8` | The CLI | The file, or stdin for a piped script, is not valid UTF-8, and the CLI stops before the engine sees it |
+
+Check the encoding in the host before it hands the source to the compiler.
+
+> [!CARDS]
+> - `blocks` [Parser kit](/docs/edge-lang/sdk/parser-kit) The grammar these diagnostics guard and the token tables that spell it.
+> - `gauge` [Limits](/docs/edge-lang/sdk/limits) The caps of the compiler and the limits of a run.
+> - `cpu` [Compiler](/docs/edge-lang/internals/compiler) Where the lexer and the parser raise each diagnostic.

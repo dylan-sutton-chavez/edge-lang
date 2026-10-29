@@ -1,0 +1,514 @@
+{
+  "routes": {
+    "/text": {"headers": [["x-probe", "1"]], "body": "hello from net"},
+    "/big": {"repeat": ["0123456789", 20000]},
+    "/gzip": {"headers": [["content-type", "application/gzip"]], "gzip": ["hello from gzip\n"]},
+    "/gzip-twice": {"headers": [["content-type", "application/gzip"]], "gzip": ["one\n", "two\n"]},
+    "/missing": {"status": 404, "body": "no such page"},
+    "/redirect": {"status": 302, "headers": [["location", "http://evil.example/"]]},
+    "/echo": {"echo": ["x-probe"]},
+    "/socket": {"socket": "echo"},
+    "/socket-redirect": {"status": 302, "headers": [["location", "$SOCKET/socket"]]},
+    "/slow": {"delay": 3000, "body": "late"},
+    "/stall": {"parts": ["begin", "end"], "gap": 3000}
+  },
+  "cases": [
+    {
+      "given": {
+        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "main.mini": "import net\n\nr = net.request('GET', '$FIXTURE/text')\nstatus, headers = net.response(r)\nbody = b''\nchunk = net.read(r)\nwhile chunk is !nil:\n    body += chunk\n    chunk = net.read(r)\nprint(status, body, ['x-probe', '1'] in headers)\nprint(net.read(r), net.read(r))\n"
+      },
+      "run": ["run", "main.mini"],
+      "stdout": ["200 b'hello from net' True", "None None"]
+    },
+    {
+      "given": {
+        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "main.mini": "import net\n\nfn body(r):\n    out = b''\n    chunk = net.read(r)\n    while chunk is !nil:\n        out += chunk\n        chunk = net.read(r)\n    return out\n\nbig = body(net.request('GET', '$FIXTURE/big'))\nprint(len(big), big == b'0123456789' * 20000)\n"
+      },
+      "run": ["run", "main.mini"],
+      "stdout": ["200000 True"]
+    },
+    {
+      "given": {
+        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "main.mini": "import net\n\nfn body(r):\n    out = b''\n    chunk = net.read(r)\n    while chunk is !nil:\n        out += chunk\n        chunk = net.read(r)\n    return out\n\nprint(body(net.request('GET', '$FIXTURE/gzip', nil, nil, 'gzip')).decode(), end='')\nraw = body(net.request('GET', '$FIXTURE/gzip'))\nprint(raw[:2] == b'\\x1f\\x8b', len(raw) > 2)\n"
+      },
+      "run": ["run", "main.mini"],
+      "stdout": ["hello from gzip\nTrue True"]
+    },
+    {
+      "given": {
+        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "main.mini": "import net\n\nfn body(r):\n    out = b''\n    chunk = net.read(r)\n    while chunk is !nil:\n        out += chunk\n        chunk = net.read(r)\n    return out\n\ntry:\n    body(net.request('GET', '$FIXTURE/gzip-twice', nil, nil, 'gzip'))\n    print('read it all')\nexcept OSError as e:\n    print(str(e).startswith('reading the response failed'))\n"
+      },
+      "run": ["run", "main.mini"],
+      "stdout": ["True"]
+    },
+    {
+      "given": {
+        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "main.mini": "import net\n\nfn body(r):\n    out = b''\n    chunk = net.read(r)\n    while chunk is !nil:\n        out += chunk\n        chunk = net.read(r)\n    return out\n\nprint(body(net.request('POST', '$FIXTURE/echo/items?q=1', [['x-probe', 'pairs']], 'hello')).decode())\nprint(body(net.request('PUT', '$FIXTURE/echo', {'x-probe': 'dict'}, b'\\x01\\x02')) == b'PUT /echo\\nx-probe: dict\\n\\x01\\x02')\nprint(body(net.request('get', '$FIXTURE/echo/a/../b/./c')).decode(), end='')\nprint(body(net.request(nil, '$FIXTURE/echo/%2e%2e/echo/Español/@dylan?q=a/../b#gone')).decode(), end='')\n"
+      },
+      "run": ["run", "main.mini"],
+      "stdout": ["POST /echo/items?q=1\nx-probe: pairs\nhello\nTrue\nGET /echo/b/c\nGET /echo/Espa%C3%B1ol/@dylan?q=a/../b\n"]
+    },
+    {
+      "given": {
+        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "main.mini": "import net\n\nfn body(r):\n    out = b''\n    chunk = net.read(r)\n    while chunk is !nil:\n        out += chunk\n        chunk = net.read(r)\n    return out\n\nr = net.request('GET', '$FIXTURE/missing')\nstatus, headers = net.response(r)\nprint(status, body(r))\n"
+      },
+      "run": ["run", "main.mini"],
+      "stdout": ["404 b'no such page'"]
+    },
+    {
+      "given": {
+        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "main.mini": "import net\n\nr = net.request('GET', '$FIXTURE/redirect')\nfor call in [net.response, net.read]:\n    try:\n        call(r)\n    except OSError as e:\n        print(e)\n"
+      },
+      "run": ["run", "main.mini"],
+      "stdout": ["net.request to $FIXTURE/redirect was redirected, request the new address with its own net.request\nnet.request to $FIXTURE/redirect was redirected, request the new address with its own net.request"]
+    },
+    {
+      "given": {
+        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "main.mini": "import net\n\nr = net.request('GET', 'http://127.0.0.1:1/')\ntry:\n    net.response(r)\nexcept OSError as e:\n    print(str(e).startswith('net.request to http://127.0.0.1:1/ failed'))\n"
+      },
+      "run": ["run", "main.mini"],
+      "stdout": ["True"]
+    },
+    {
+      "given": {
+        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "main.mini": "import net\nr = net.request('GET', 'http://127.0.0.1:1/')\nnet.response(r)\n"
+      },
+      "run": ["run", "main.mini"],
+      "fails": ["OSError: net.request to http://127.0.0.1:1/ failed"]
+    },
+    {
+      "given": {
+        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "main.mini": "import net\n\nr = net.request('GET', '$FIXTURE/text')\nprint(net.close(r))\nfor call in [net.read, net.close, net.response]:\n    try:\n        call(float(r))\n    except ValueError as e:\n        print(str(e) == f'no open request or socket {r}')\nfor x in [nil, 'one', 1.5, true, 2 ** 60]:\n    try:\n        net.read(x)\n    except ValueError as e:\n        print(e)\n"
+      },
+      "run": ["run", "main.mini"],
+      "stdout": ["None\nTrue\nTrue\nTrue\nan id is an int from net.request or net.connect\nan id is an int from net.request or net.connect\nan id is an int from net.request or net.connect\nan id is an int from net.request or net.connect\nan id is an int from net.request or net.connect\n"]
+    },
+    {
+      "given": {
+        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "main.mini": "import net\n\ns = net.connect('$SOCKET/socket')\nnet.send(s, 'ping')\nprint(net.read(s))\nnet.send(s, b'\\x01\\x02')\nprint(net.read(s))\ntry:\n    net.response(s)\nexcept ValueError as e:\n    print(e)\nnet.send(s, 'close')\nprint(net.read(s), net.read(s))\ntry:\n    net.send(s, 'late')\nexcept OSError as e:\n    print(e)\nr = net.request('GET', '$FIXTURE/text')\ntry:\n    net.send(r, 'x')\nexcept ValueError as e:\n    print(e)\n"
+      },
+      "run": ["run", "main.mini"],
+      "stdout": ["echo ping\nb'\\x01\\x02'\nresponse takes a request from net.request\nNone None\nthe socket is not open\nsend takes a socket from net.connect"]
+    },
+    {
+      "given": {
+        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "main.mini": "import net\n\ns = net.connect('$FIXTURE/socket')\nnet.send(s, 'twin')\nprint(net.read(s))\ntry:\n    net.connect('$SOCKET/socket-redirect')\nexcept OSError as e:\n    print(e)\n"
+      },
+      "run": ["run", "main.mini"],
+      "stdout": ["echo twin\nthe socket to $SOCKET/socket-redirect failed"]
+    },
+    {
+      "given": {
+        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "main.mini": "import net\n\nfor x in ['http://evil.test\\\\@127.0.0.1/', 'http://user@127.0.0.1/', 'http://127.0.0.1:8@evil.test/', 'http://127.0.0.1/a b', 'http://12%37.0.0.1/', '127.0.0.1/', 'http://[::1]/', 'http://0x7f.1/', 'http://2130706433/', 'http://cañón.example/', 'ftp://127.0.0.1/', 'http://127.0.0.1:123456/']:\n    try:\n        net.request('GET', x)\n    except ValueError as e:\n        print(e)\nprint('日本語 ok')\n"
+      },
+      "run": ["run", "main.mini"],
+      "stdout": ["'http://evil.test\\@127.0.0.1/' is not a plain url, net takes scheme://host/path with no user, backslash or space", "'http://user@127.0.0.1/' is not a plain url, net takes scheme://host/path with no user, backslash or space", "'http://127.0.0.1:8@evil.test/' is not a plain url, net takes scheme://host/path with no user, backslash or space", "'http://127.0.0.1/a b' is not a plain url, net takes scheme://host/path with no user, backslash or space", "'http://12%37.0.0.1/' is not a plain url, net takes scheme://host/path with no user, backslash or space", "'127.0.0.1/' is not a plain url, net takes scheme://host/path with no user, backslash or space", "'http://[::1]/' is not a plain url, net takes scheme://host/path with no user, backslash or space", "'http://0x7f.1/' is not a plain url, net takes scheme://host/path with no user, backslash or space", "'http://2130706433/' is not a plain url, net takes scheme://host/path with no user, backslash or space", "'http://cañón.example/' is not a plain url, net takes scheme://host/path with no user, backslash or space", "'ftp://127.0.0.1/' is not a plain url, net takes scheme://host/path with no user, backslash or space", "'http://127.0.0.1:123456/' is not a plain url, net takes scheme://host/path with no user, backslash or space", "日本語 ok"]
+    },
+    {
+      "given": {
+        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "main.mini": "import net\n\nfor x in ['Host', 'cookie', 'Origin', 'Content-Length', 'Sec-Fetch-Site', 'Proxy-Authorization']:\n    try:\n        net.request('GET', 'http://127.0.0.1:1/', [[x, 'v']])\n    except ValueError as e:\n        print(e)\n"
+      },
+      "run": ["run", "main.mini"],
+      "stdout": ["the header 'Host' belongs to the host, a program cannot set it\nthe header 'cookie' belongs to the host, a program cannot set it\nthe header 'Origin' belongs to the host, a program cannot set it\nthe header 'Content-Length' belongs to the host, a program cannot set it\nthe header 'Sec-Fetch-Site' belongs to the host, a program cannot set it\nthe header 'Proxy-Authorization' belongs to the host, a program cannot set it"]
+    },
+    {
+      "given": {
+        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "main.mini": "import net\n\nfor x in [['GET', 7], [7, 'http://127.0.0.1:1/'], ['GET', 'http://127.0.0.1:1/', 'x-probe'], ['GET', 'http://127.0.0.1:1/', [['x-probe']]], ['GET', 'http://127.0.0.1:1/', [['x-probe', 1]]], ['POST', 'http://127.0.0.1:1/', nil, 5], ['GET', 'http://127.0.0.1:1/', nil, nil, 'zip']]:\n    try:\n        net.request(*x)\n    except ValueError as e:\n        print(e)\ntry:\n    net.request('GET', url='http://127.0.0.1:1/')\nexcept TypeError as e:\n    print(e)\n"
+      },
+      "run": ["run", "main.mini"],
+      "stdout": ["a url must be a str\na method must be a str\nheaders are [name, value] pairs or a dict\nheaders are [name, value] pairs or a dict\na header value must be a str\na body must be bytes, a str or None\ninflate must be None or 'gzip'\nnet.request takes positional arguments only"]
+    },
+    {
+      "given": {
+        "edge.json": "{}\n",
+        "main.mini": "import net\n"
+      },
+      "run": ["run", "main.mini"],
+      "fails": ["'main' imports net, which edge.json does not grant it"]
+    },
+    {
+      "given": {
+        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "main.mini": "import net\n\nfor x in ['http://evil.example/', 'http://localhost:1/', 'ws://evil.example/socket']:\n    try:\n        net.request('GET', x)\n    except PermissionError as e:\n        print(e)\ntry:\n    net.connect('ws://evil.example/')\nexcept PermissionError as e:\n    print(e)\n"
+      },
+      "run": ["run", "main.mini"],
+      "stdout": ["'main' has no net:evil.example, edge.json grants it net:127.0.0.1\n'main' has no net:localhost, edge.json grants it net:127.0.0.1\n'main' has no net:evil.example, edge.json grants it net:127.0.0.1\n'main' has no net:evil.example, edge.json grants it net:127.0.0.1"]
+    },
+    {
+      "given": {
+        "edge.json": "{ \"permissions\": { \"main\": [\"net\"] } }\n",
+        "main.mini": "import net\n\ntry:\n    net.request('GET', 'http://127.0.0.1:1/')\nexcept PermissionError as e:\n    print(e)\n"
+      },
+      "run": ["run", "main.mini"],
+      "stdout": ["'main' has no net:127.0.0.1, edge.json grants it nothing"]
+    },
+    {
+      "given": {
+        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1/api\"] } }\n",
+        "main.mini": "import net\n\nfor path in ['/api', '/api/', '/api/items', '/api/v2/items?q=1', '/api/a%5cb', '/api/x%2e', '/api/group%2Fproject', '/%61pi/x']:\n    net.request('GET', 'http://127.0.0.1:1' + path)\n    print('reached', path)\nfor x in ['/', '/apixyz', '/other/api', '/api/../secret', '/api/%2e%2e/secret', '/api/.%2e/secret', '/api/./../secret', '/api/..%2fsecret', '/api/%2E%2E%2Fsecret', '/api/..;/secret', '/api/%252e%252e/secret']:\n    try:\n        net.request('GET', 'http://127.0.0.1:1' + x)\n    except PermissionError as e:\n        print(e)\ntry:\n    net.request('GET', 'http://evil.example/api')\nexcept PermissionError as e:\n    print(e)\n"
+      },
+      "run": ["run", "main.mini"],
+      "stdout": ["reached /api\nreached /api/\nreached /api/items\nreached /api/v2/items?q=1\nreached /api/a%5cb\nreached /api/x%2e\nreached /api/group%2Fproject\nreached /%61pi/x", "'main' has no net:127.0.0.1/, edge.json grants it net:127.0.0.1/api", "'main' has no net:127.0.0.1/apixyz, edge.json grants it net:127.0.0.1/api", "'main' has no net:127.0.0.1/other/api, edge.json grants it net:127.0.0.1/api", "'main' has no net:127.0.0.1/secret, edge.json grants it net:127.0.0.1/api", "'main' has no net:127.0.0.1/secret, edge.json grants it net:127.0.0.1/api", "'main' has no net:127.0.0.1/secret, edge.json grants it net:127.0.0.1/api", "'main' has no net:127.0.0.1/secret, edge.json grants it net:127.0.0.1/api", "'main' has no net:127.0.0.1/api/..%2fsecret, edge.json grants it net:127.0.0.1/api", "'main' has no net:127.0.0.1/api/%2E%2E%2Fsecret, edge.json grants it net:127.0.0.1/api", "'main' has no net:127.0.0.1/api/..;/secret, edge.json grants it net:127.0.0.1/api", "'main' has no net:127.0.0.1/api/%252e%252e/secret, edge.json grants it net:127.0.0.1/api", "'main' has no net:evil.example, edge.json grants it net:127.0.0.1/api"]
+    },
+    {
+      "given": {
+        "edge.json": "{\"imports\": {\"clock\": \"./clock/main.mini\"}, \"permissions\": {\"main\": [\"net:127.0.0.1\"], \"clock\": [\"net:127.0.0.1\"], \"trace\": [\"net:127.0.0.1\"]}}\n",
+        "clock/edge.json": "{\"name\": \"clock\", \"imports\": {\"trace\": \"./trace/main.mini\"}}\n",
+        "clock/main.mini": "from trace import stamp\n\nfn now():\n    return stamp()\n",
+        "clock/trace/edge.json": "{\"name\": \"trace\"}\n",
+        "clock/trace/main.mini": "import net\n\nfn stamp():\n    return net.request('GET', 'http://127.0.0.1:1/') > 0\n",
+        "main.mini": "from clock import now\nprint(now())\n"
+      },
+      "run": ["run", "main.mini"],
+      "fails": ["'trace' imports net, which edge.json does not grant it"]
+    },
+    {
+      "given": {
+        "edge.json": "{\"imports\": {\"clock\": \"./clock/main.mini\"}, \"permissions\": {\"clock\": [\"net:127.0.0.1\"]}}\n",
+        "clock/edge.json": "{\"name\": \"clock\", \"imports\": {\"trace\": \"./trace/main.mini\"}, \"permissions\": {\"trace\": [\"net:127.0.0.1\"]}}\n",
+        "clock/main.mini": "from trace import stamp\n\nfn now():\n    return stamp()\n",
+        "clock/trace/edge.json": "{\"name\": \"trace\"}\n",
+        "clock/trace/main.mini": "import net\n\nfn stamp():\n    return net.request('GET', 'http://127.0.0.1:1/') > 0\n",
+        "main.mini": "from clock import now\nprint(now())\n"
+      },
+      "run": ["run", "main.mini"],
+      "stdout": ["True"]
+    },
+    {
+      "given": {
+        "edge.json": "{ \"imports\": { \"helper\": \"./helper.mini\" }, \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "helper.mini": "import net\n\nfn later():\n    return net.request('GET', 'http://127.0.0.1:1/') > 0\n",
+        "main.mini": "from helper import later\nprint(later())\n"
+      },
+      "run": ["run", "main.mini"],
+      "stdout": ["True"]
+    },
+    {
+      "given": {
+        "edge.json": "{ \"imports\": { \"clock\": \"./clock/main.mini\" }, \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "clock/edge.json": "{ \"name\": \"main\" }\n",
+        "clock/main.mini": "import net\n\nfn now():\n    return net.request('GET', 'http://127.0.0.1:1/') > 0\n",
+        "main.mini": "from clock import now\nprint(now())\n"
+      },
+      "run": ["run", "main.mini"],
+      "fails": ["'clock' imports net, which edge.json does not grant it"]
+    },
+    {
+      "given": {
+        "edge.json": "{ \"imports\": { \"analytics\": \"./analytics/main.mini\", \"other\": \"./other/main.mini\" }, \"permissions\": { \"all\": [\"net\"], \"analytics\": [\"net:127.0.0.1\"] } }\n",
+        "analytics/edge.json": "{ \"name\": \"analytics\", \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "analytics/main.mini": "import net\n\nfn reach():\n    return net.request('GET', 'http://127.0.0.1:1/') > 0\n",
+        "other/edge.json": "{ \"name\": \"analytics\" }\n",
+        "other/main.mini": "import net\n\nfn reach():\n    return net.request('GET', 'http://127.0.0.1:1/') > 0\n",
+        "main.mini": "import analytics, other\nprint('analytics', analytics.reach())\ntry:\n    other.reach()\nexcept PermissionError as e:\n    print(e)\n"
+      },
+      "run": ["run", "main.mini"],
+      "stdout": ["analytics True", "'other' has no net:127.0.0.1, edge.json grants it nothing"]
+    },
+    {
+      "given": {
+        "edge.json": "{ \"imports\": { \"pay\": \"./pay/main.mini\", \"shop\": \"./shop/main.mini\" }, \"permissions\": { \"pay\": [\"net:127.0.0.1/pay\"], \"shop\": [\"net:127.0.0.1/shop\"] } }\n",
+        "pay/edge.json": "{ \"imports\": { \"vault\": \"../vault/main.mini\" }, \"permissions\": { \"vault\": [\"net:127.0.0.1/pay\"] } }\n",
+        "pay/main.mini": "import vault\n\nfn reach(path):\n    return vault.reach(path)\n",
+        "shop/edge.json": "{ \"imports\": { \"vault\": \"../vault/main.mini\" }, \"permissions\": { \"vault\": [\"net:127.0.0.1/shop\"] } }\n",
+        "shop/main.mini": "import vault\n\nfn reach(path):\n    return vault.reach(path)\n",
+        "vault/edge.json": "{ \"permissions\": { \"main\": [\"net\"] } }\n",
+        "vault/main.mini": "import net\n\nfn reach(path):\n    return net.request('GET', 'http://127.0.0.1:1/' + path) > 0\n",
+        "main.mini": "import pay, shop\nprint(pay.reach('pay'))\ntry:\n    shop.reach('pay')\nexcept PermissionError as e:\n    print(e)\nprint(shop.reach('shop'))\n"
+      },
+      "run": ["run", "main.mini"],
+      "stdout": ["True\n'vault' has no net:127.0.0.1/pay, edge.json grants it net:127.0.0.1/shop\nTrue"]
+    },
+    {
+      "given": {
+        "edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.mini\" }, \"permissions\": { \"pepito\": [\"net:127.0.0.1\"] } }\n",
+        "pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "pepito/main.mini": "import net\nrequest = net.request\n\nfn now():\n    return net.request('GET', 'http://127.0.0.1:1/') > 0\n\nfn call(f):\n    return f('GET', 'http://127.0.0.1:1/') > 0\n",
+        "main.mini": "import pepito\nprint(pepito.now())\n"
+      },
+      "run": ["run", "main.mini"],
+      "stdout": ["True"]
+    },
+    {
+      "given": {
+        "edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.mini\" }, \"permissions\": { \"pepito\": [\"net:127.0.0.1\"] } }\n",
+        "pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "pepito/main.mini": "import net\nrequest = net.request\n\nfn now():\n    return net.request('GET', 'http://127.0.0.1:1/') > 0\n\nfn call(f):\n    return f('GET', 'http://127.0.0.1:1/') > 0\n",
+        "main.mini": "import pepito\npepito.net.request('GET', 'http://127.0.0.1:1/')\n"
+      },
+      "run": ["run", "main.mini"],
+      "fails": ["PermissionError: this net module was imported by another package"]
+    },
+    {
+      "given": {
+        "edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.mini\" }, \"permissions\": { \"pepito\": [\"net:127.0.0.1\"] } }\n",
+        "pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "pepito/main.mini": "import net\nrequest = net.request\n\nfn now():\n    return net.request('GET', 'http://127.0.0.1:1/') > 0\n\nfn call(f):\n    return f('GET', 'http://127.0.0.1:1/') > 0\n",
+        "main.mini": "from pepito import net\nnet.request('GET', 'http://127.0.0.1:1/')\n"
+      },
+      "run": ["run", "main.mini"],
+      "fails": ["PermissionError: this net module was imported by another package"]
+    },
+    {
+      "given": {
+        "edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.mini\" }, \"permissions\": { \"pepito\": [\"net:127.0.0.1\"] } }\n",
+        "pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "pepito/main.mini": "import net\nrequest = net.request\n\nfn now():\n    return net.request('GET', 'http://127.0.0.1:1/') > 0\n\nfn call(f):\n    return f('GET', 'http://127.0.0.1:1/') > 0\n",
+        "main.mini": "import pepito\npepito.request('GET', 'http://127.0.0.1:1/')\n"
+      },
+      "run": ["run", "main.mini"],
+      "fails": ["PermissionError: this net module was imported by another package"]
+    },
+    {
+      "given": {
+        "edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.mini\" }, \"permissions\": { \"pepito\": [\"net:127.0.0.1\"] } }\n",
+        "pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "pepito/main.mini": "import net\nrequest = net.request\n\nfn now():\n    return net.request('GET', 'http://127.0.0.1:1/') > 0\n\nfn call(f):\n    return f('GET', 'http://127.0.0.1:1/') > 0\n",
+        "main.mini": "import pepito\ngetattr(pepito, 'net').request('GET', 'http://127.0.0.1:1/')\n"
+      },
+      "run": ["run", "main.mini"],
+      "fails": ["PermissionError: this net module was imported by another package"]
+    },
+    {
+      "given": {
+        "edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.mini\" }, \"permissions\": { \"pepito\": [\"net:127.0.0.1\"] } }\n",
+        "pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "pepito/main.mini": "import net\nrequest = net.request\n\nfn now():\n    return net.request('GET', 'http://127.0.0.1:1/') > 0\n\nfn call(f):\n    return f('GET', 'http://127.0.0.1:1/') > 0\n",
+        "main.mini": "import pepito\nprint(pepito.call(pepito.net.request))\n"
+      },
+      "run": ["run", "main.mini"],
+      "stdout": ["True"]
+    },
+    {
+      "given": {
+        "edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.mini\" }, \"permissions\": { \"main\": [\"net:127.0.0.1\"], \"pepito\": [\"net:127.0.0.1\"] } }\n",
+        "pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "pepito/main.mini": "import net\nrequest = net.request\n\nfn now():\n    return net.request('GET', 'http://127.0.0.1:1/') > 0\n\nfn call(f):\n    return f('GET', 'http://127.0.0.1:1/') > 0\n",
+        "main.mini": "import net\nimport pepito\nprint(net.request('GET', 'http://127.0.0.1:1/') > 0, pepito.now())\n"
+      },
+      "run": ["run", "main.mini"],
+      "stdout": ["True True"]
+    },
+    {
+      "given": {
+        "edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.mini\" }, \"permissions\": { \"main\": [\"net:127.0.0.1\"], \"pepito\": [\"net:127.0.0.1\"] } }\n",
+        "pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "pepito/main.mini": "import net\nrequest = net.request\n\nfn now():\n    return net.request('GET', 'http://127.0.0.1:1/') > 0\n\nfn call(f):\n    return f('GET', 'http://127.0.0.1:1/') > 0\n",
+        "main.mini": "import net\nimport pepito\ntry:\n    pepito.net.request('GET', 'http://127.0.0.1:1/')\nexcept PermissionError:\n    print('refused')\nprint(net.request('GET', 'http://127.0.0.1:1/') > 0)\n"
+      },
+      "run": ["run", "main.mini"],
+      "stdout": ["refused\nTrue"]
+    },
+    {
+      "given": {
+        "edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.mini\" }, \"permissions\": { \"pepito\": [\"net:127.0.0.1\"] } }\n",
+        "pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "pepito/main.mini": "import net\nrequest = net.request\n\nfn now():\n    return net.request('GET', 'http://127.0.0.1:1/') > 0\n\nfn call(f):\n    return f('GET', 'http://127.0.0.1:1/') > 0\n",
+        "main.mini": "import pepito\nprint([f('GET', 'http://127.0.0.1:1/') > 0 for f in [pepito.net.request]])\n"
+      },
+      "run": ["run", "main.mini"],
+      "fails": ["PermissionError: this net module was imported by another package"]
+    },
+    {
+      "given": {
+        "edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.mini\" }, \"permissions\": { \"pepito\": [\"net:127.0.0.1\"] } }\n",
+        "pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "pepito/main.mini": "import net\nrequest = net.request\n\nfn now():\n    return net.request('GET', 'http://127.0.0.1:1/') > 0\n\nfn call(f):\n    return f('GET', 'http://127.0.0.1:1/') > 0\n",
+        "main.mini": "import pepito\nf = lambda: pepito.net.request('GET', 'http://127.0.0.1:1/')\ntry:\n    f()\nexcept PermissionError:\n    print('lambda refused')\n"
+      },
+      "run": ["run", "main.mini"],
+      "stdout": ["lambda refused"]
+    },
+    {
+      "given": {
+        "edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.mini\" }, \"permissions\": { \"pepito\": [\"net:127.0.0.1\"] } }\n",
+        "pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "pepito/main.mini": "import net\n",
+        "main.mini": "import pepito\npepito.net.request('GET', 'http://127.0.0.1:1/', [], nil)\n"
+      },
+      "run": ["run", "main.mini"],
+      "fails": ["PermissionError: this net module was imported by another package"]
+    },
+    {
+      "given": {
+        "edge.json": "{}\n",
+        "sub/edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "sub/main.mini": "import net\nprint(net.request('GET', 'http://127.0.0.1:1/') > 0)\n"
+      },
+      "run": ["run", "sub/main.mini"],
+      "stdout": ["True"]
+    },
+    {
+      "given": {
+        "edge.json": "{}\n",
+        "sub/edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.mini\" }, \"permissions\": { \"pepito\": [\"net:127.0.0.1\"] } }\n",
+        "sub/pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "sub/pepito/main.mini": "import net\n\nfn now():\n    return net.request('GET', 'http://127.0.0.1:1/') > 0\n",
+        "sub/main.mini": "import pepito\nprint(pepito.now())\npepito.net.request('GET', 'http://127.0.0.1:1/')\n"
+      },
+      "run": ["run", "sub/main.mini"],
+      "stdout": ["True"],
+      "fails": ["PermissionError: this net module was imported by another package"]
+    },
+    {
+      "given": {
+        "edge.json": "{ \"permissions\": { \"main\": \"net:a.test\" } }\n",
+        "main.mini": "print(1)\n"
+      },
+      "run": ["run", "main.mini"],
+      "fails": ["edge.json at 'edge.json': permissions for 'main' must be a list of entries"]
+    },
+    {
+      "given": {
+        "edge.json": "{ \"permissions\": { \"main\": [\"db:/\"] } }\n",
+        "main.mini": "print(1)\n"
+      },
+      "run": ["run", "main.mini"],
+      "fails": ["edge.json at 'edge.json': permissions for 'main' name 'db', which is not a host module (net"]
+    },
+    {
+      "given": {
+        "edge.json": "{ \"permissions\": { \"main\": [\"net:a.test;script-src\"] } }\n",
+        "main.mini": "print(1)\n"
+      },
+      "run": ["run", "main.mini"],
+      "fails": ["edge.json at 'edge.json': permissions for 'main' give net the scope 'a.test;script-src', which it does not have"]
+    },
+    {
+      "given": {
+        "edge.json": "{ \"permissions\": { \"main\": [\"net:0x7f.1\"] } }\n",
+        "main.mini": "print(1)\n"
+      },
+      "run": ["run", "main.mini"],
+      "fails": ["edge.json at 'edge.json': permissions for 'main' give net the scope '0x7f.1', which it does not have"]
+    },
+    {
+      "given": {
+        "edge.json": "{ \"permissions\": { \"main\": [\"net:a.test/api/..\"] } }\n",
+        "main.mini": "print(1)\n"
+      },
+      "run": ["run", "main.mini"],
+      "fails": ["edge.json at 'edge.json': permissions for 'main' give net the scope 'a.test/api/..', which it does not have"]
+    },
+    {
+      "given": {
+        "edge.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" }, \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "main.mini": "from slugify_mod import request_id\nprint(request_id('http://127.0.0.1:1/') > 0)\n"
+      },
+      "copy": {
+        "slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm"
+      },
+      "run": ["run", "main.mini"],
+      "stdout": ["True"]
+    },
+    {
+      "given": {
+        "edge.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n",
+        "main.mini": "from slugify_mod import request_id\ntry:\n    request_id('http://127.0.0.1:1/')\nexcept PermissionError as e:\n    print(e)\n"
+      },
+      "copy": {
+        "slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm"
+      },
+      "run": ["run", "main.mini"],
+      "stdout": ["'main' imports net, which edge.json does not grant it"]
+    },
+    {
+      "given": {
+        "edge.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" }, \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "main.mini": "from slugify_mod import status_of\nprint(status_of('$FIXTURE/text'))\ntry:\n    status_of('http://127.0.0.1:1/')\nexcept OSError as e:\n    print(type(e).__name__)\ntry:\n    status_of('http://evil.example/')\nexcept PermissionError as e:\n    print(e)\n"
+      },
+      "copy": {
+        "slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm"
+      },
+      "run": ["run", "main.mini"],
+      "stdout": ["200\nOSError\n'main' has no net:evil.example, edge.json grants it net:127.0.0.1"]
+    },
+    {
+      "given": {
+        "edge.json": "{ \"imports\": { \"analytics\": \"./analytics/main.mini\" }, \"permissions\": { \"analytics\": [\"net:127.0.0.1\"] } }\n",
+        "analytics/edge.json": "{ \"name\": \"analytics\", \"imports\": { \"http\": \"./http/main.mini\" }, \"permissions\": { \"http\": [\"net:127.0.0.1\"] } }\n",
+        "analytics/main.mini": "import http\n\nfn send():\n    return http.get('http://127.0.0.1:1/')\n",
+        "analytics/http/edge.json": "{ \"name\": \"http\", \"permissions\": { \"main\": [\"net\"] } }\n",
+        "analytics/http/main.mini": "import net\n\nfn get(url):\n    return net.request('GET', url) > 0\n",
+        "main.mini": "import analytics\nprint(analytics.send())\n"
+      },
+      "run": ["run", "main.mini"],
+      "stdout": ["True"]
+    },
+    {
+      "given": {
+        "edge.json": "{ \"imports\": { \"probe\": \"./probe/main.mini\" }, \"permissions\": { \"probe\": [\"net:127.0.0.1/a\"], \"all\": [\"net:127.0.0.1/b\"] } }\n",
+        "probe/edge.json": "{ \"name\": \"probe\" }\n",
+        "probe/main.mini": "import net\n\nfn reach(path):\n    return net.request('GET', 'http://127.0.0.1:1' + path) > 0\n",
+        "main.mini": "import probe\nprint(probe.reach('/a/x'), probe.reach('/b/y'))\ntry:\n    probe.reach('/c')\nexcept PermissionError as e:\n    print(e)\n"
+      },
+      "run": ["run", "main.mini"],
+      "stdout": ["True True\n'probe' has no net:127.0.0.1/c, edge.json grants it net:127.0.0.1/b, net:127.0.0.1/a"]
+    },
+    {
+      "given": {
+        "edge.json": "{ \"imports\": { \"clock\": \"./clock/main.mini\" }, \"permissions\": { \"timer\": [\"net:127.0.0.1\"] } }\n",
+        "clock/edge.json": "{ \"name\": \"timer\" }\n",
+        "clock/main.mini": "import net\n\nfn now():\n    return net.request('GET', 'http://127.0.0.1:1/') > 0\n",
+        "main.mini": "from clock import now\nprint(now())\n"
+      },
+      "run": ["run", "main.mini"],
+      "fails": ["'clock' imports net, which edge.json does not grant it"]
+    },
+    {
+      "given": {
+        "edge.json": "{ \"permissions\": { \"zeta\": [\"net:0x7f.1\"], \"alpha\": [\"db:/tmp\"] } }\n",
+        "main.mini": "print(1)\n"
+      },
+      "run": ["run", "main.mini"],
+      "fails": ["edge.json at 'edge.json': permissions for 'alpha' name 'db', which is not a host module (net"]
+    },
+    {
+      "given": {
+        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "main.mini": "import net\n\nr = net.request('GET', '$FIXTURE/slow', nil, nil, nil, 0.3)\ntry:\n    net.response(r)\nexcept OSError as e:\n    print(e)\ntry:\n    net.request('GET', '$FIXTURE/text', nil, nil, nil, 0)\nexcept ValueError as e:\n    print(e)\nr = net.request('GET', '$FIXTURE/text', nil, nil, nil, 5)\nprint(net.response(r)[0])\n"
+      },
+      "run": ["run", "main.mini"],
+      "stdout": ["net.request to $FIXTURE/slow failed, no answer within 0.3 s\ntimeout must be a number of seconds above 0 and up to 86400\n200"]
+    },
+    {
+      "given": {
+        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "main.mini": "import net\n\nfn f():\n    return 1\nfor h in [{1}, f, {1: 'x'}, 10 ** 40]:\n    try:\n        net.request('GET', '$FIXTURE/text', h)\n    except RuntimeError as e:\n        print(e)\n"
+      },
+      "run": ["run", "main.mini"],
+      "stdout": ["value is not a transit value\nvalue is not a transit value\nvalue is not a transit value\nvalue is not a transit value"]
+    },
+    {
+      "given": {
+        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "main.mini": "import net\n\nheld = []\ntry:\n    for _ in range(200):\n        held.append(net.request('GET', '$FIXTURE/text'))\nexcept OSError as e:\n    print(len(held), e)\nfor r in held:\n    net.close(r)\nprint(net.read(net.request('GET', '$FIXTURE/text')))\n"
+      },
+      "run": ["run", "main.mini"],
+      "stdout": ["128 net holds 128 open requests and sockets for this package, close one first\nb'hello from net'"]
+    },
+    {
+      "given": {
+        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "main.mini": "import net\n\nfn rest(r):\n    out = b''\n    chunk = net.read(r)\n    while chunk is !nil:\n        out += chunk\n        chunk = net.read(r)\n    return out\n\nslow = net.request('GET', '$FIXTURE/big', nil, nil, nil, 0.5)\nfirst = net.read(slow)\nr = net.request('GET', '$FIXTURE/stall', nil, nil, nil, 1)\ngot = b''\ntry:\n    chunk = net.read(r)\n    while chunk is !nil:\n        got += chunk\n        chunk = net.read(r)\nexcept OSError as e:\n    print(got, e)\ntry:\n    net.read(r)\nexcept OSError as e:\n    print(e)\nprint(len(first + rest(slow)))\n"
+      },
+      "run": ["run", "main.mini"],
+      "stdout": ["b'begin' reading the response failed, nothing arrived within 1 s\nreading the response failed, nothing arrived within 1 s\n200000"]
+    }
+  ]
+}

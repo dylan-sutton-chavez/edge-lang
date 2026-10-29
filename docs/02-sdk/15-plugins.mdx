@@ -1,0 +1,111 @@
+---
+title: "Plugins"
+description: "The two kinds of plugin, wasm plugins a package imports and host modules a host serves, with net written once for each host and held to one contract."
+---
+
+# Plugins
+
+A program reaches past its runtime through plugins, which come in two kinds. A wasm plugin is a `.wasm` module a package imports like any other module, and it runs in an instance of its own. A host module is code the host runs itself, and it is the only way a program reaches the network or anything else outside its host.
+
+| | Wasm plugin | Host module |
+|---|---|---|
+| Written with | The `plugin` crate, or anything that meets the ABI | A Rust trait for the CLI kit and a TypeScript interface for the JS host |
+| Runs | In a wasm instance of its own, beside the runtime | Inside the host, natively |
+| A package reaches it | Through an `imports` entry that names its `.wasm` | Through its name, once the composition wires it and the grants allow it |
+| Reaches outside | Only through host modules, under the grants of its package | Directly, once the grant check passed |
+| In the repo | `plugin/example`, which the CLI's plugin suite builds and runs | `examples/net`, requests and sockets, and `cli/src/files.rs`, the files a grant names |
+
+## Wasm plugins
+
+The `plugin` crate turns Rust into a plugin. `#[plugin_fn]` makes a function an export, `#[plugin_class]` with `#[plugin_methods]` makes a struct a class, and `#[plugin_const]` makes a module constant. `module!()` gives a wasm build the allocator and the panic handler every plugin needs. A plugin reaches a host module through `Handle::sys("net.request", ..)` under the grants of the package it sits in. A system call that waits returns `Error::Waiting`, and the plugin goes on in its `#[plugin_resume]` function once the host answers.
+
+[ABI](/docs/edge-lang/reference/abi#writing-a-plugin-with-the-plugin-crate) documents the crate and the wire format, and [System calls](/docs/edge-lang/reference/abi#system-calls) the steps of a call that waits. `plugin/example/src/lib.rs` builds a slug from parts and asks `net` for the status of a URL, through both kinds of call.
+
+## Host modules
+
+A host module is written once for each host that serves it, and the two implementations of one module answer to one contract. The smallest in the repo is uptime's clock, which only uptime's CLI serves, a whole `HostModule` in the 38 lines of `examples/uptime/cli/src/clock.rs`. Its one call answers the time in milliseconds, and it takes no scope, so a grant gives it whole.
+
+```rust file=examples/uptime/cli/src/clock.rs
+```
+
+The reference compositions wire `net` and `files`. `net` is a file in Rust for the CLI kit and a file in TypeScript for the JS host, both whole in [Two implementations](/docs/edge-lang/reference/system#two-implementations), and `files` serves the CLI alone, as [System](/docs/edge-lang/reference/system#files) shows.
+
+### In Rust
+
+The CLI kit's `HostModule` trait has four methods every module writes, as the clock writes them, and three it may.
+
+| Method | Answers |
+|---|---|
+| `name()` | The name a program imports, which no import or package may take |
+| `scope(scope)` | Whether a grant may give the module `scope`, the text after its name and a colon |
+| `reaches(call, args)` | The scope a call reaches, or none for a call no grant bounds |
+| `open(inst, spec, pkg, held)` | Registers the module's calls for package `pkg`, given what the package holds |
+| `covers(scope, reached)` | Whether a granted scope covers what a call reaches, by default when the two are the same text |
+| `asked(held, reached)` | What a refusal names as asked, by default what the call reached |
+| `writes(held, path)` | Whether what a package holds lets it write `path` through a file channel, by default never |
+
+The kit checks every call against the package's grant before the module sees it. It asks `reaches` what the call reaches and refuses it unless a held scope `covers` it, so a module cannot leave a call unchecked.
+
+`open` hands `Instance::serve` the names of the calls and a `Calls` that answers them by index. `Calls::call(index, args, reply)` answers through its `Reply`, and `Calls::close` aborts what a finished run left open. A call that answers before it returns hands the value back at once. A call that answers later, from any thread, parks the run until the answer arrives, which [Host waits](/docs/edge-lang/sdk/host-waits) describes. `net` answers `request` at once with an id and runs the request on a thread of its own. On a request, `response` and `read` always park the run and answer once the head or the next chunk arrives, as their promises do in the browser. On a socket, `read` answers at once when a message is already queued.
+
+A failed call is a `Fault` of one of four kinds.
+
+| Fault | When | Raises |
+|---|---|---|
+| `Fault::invalid` | The arguments are refused before anything is reached | The runtime's value error |
+| `Fault::denied` | No grant covers the scope the call asked | The class the descriptor names as `denied_error` |
+| `Fault::failed` | The call reached out and met a failure | The class the descriptor names as `failed_error` |
+| `Fault::runtime` | Anything else | The runtime's runtime error |
+
+`Held` is what the package holds of the module. `Held::All` bounds no call. `Held::Scopes` holds the scopes its grants give. `need(scope)` refuses a scope outside them in the words the grant component wrote, and `reach(module, reached)` refuses what a call reached unless the module's `covers` takes it.
+
+### In TypeScript
+
+The JS host's `HostModule` in `js/src/system/index.ts` is a plain object, described on [JavaScript](/docs/edge-lang/platforms/javascript#compose-a-host). `name`, `scope`, `reaches` and `open` mirror the Rust trait, as do the optional `covers`, `asked` and `writes`, and `open(pkg, held)` returns the calls one package gets and a `close`. `origins` names the origins a page's frame may reach for a granted scope, and `show` is what a trace shows of a settled call. A call that returns a value answers at once, and one that returns a promise parks the run until it settles. `invalid`, `denied` and `failed` in `js/src/system/error.ts` are the roles the Rust faults take.
+
+## The contract
+
+`examples/net/cases.json` is the contract, written as cases both implementations pass. It holds 54 cases over the calls, the errors and the URL rules [System](/docs/edge-lang/reference/system#net) lists.
+
+| Part | Holds |
+|---|---|
+| `routes` | What a fixture server answers on each path, a body, a status, headers, a repeated text, gzip streams, an echo of the request, or a socket |
+| `cases` | One project per case with its files under `given`, the command under `run`, and what it prints under `stdout` or the texts it fails with under `fails`. `copy` brings a file of the repo into the project |
+
+Three suites read it.
+
+| Suite | Runs the cases on | Started by |
+|---|---|---|
+| `net_suite` in `cli/tests/cli.rs` | The CLI natively, then again with `--web` in Chrome | `make test-cli SUITE=network` |
+| `js/tests/deno.test.js` | The TypeScript module in Deno | `make test-js` |
+| `examples/tiny/tests/flows.rs` | The routes only, served in the test process as the source of tiny's flows | `cargo test -p tiny` |
+
+The CLI and Deno suites each bind a fixture on `127.0.0.1` at a port the system picks, which `$FIXTURE` and `$SOCKET` stand for in the cases. A program answers the same on both hosts, and a difference between them is a bug fixed on both sides with a case.
+
+## Wiring a module to perms
+
+A composition wires host modules and, apart from them, the grant component that holds each package to its grants. The CLI kit exports `net.rs` as `net::Net` behind its `net` feature, the `edge` binary wires it under `perms`, and the JS host's own bundle wires `net.ts` under `perms` the same way.
+
+```rust file=cli/src/main.rs
+```
+
+```ts file=js/src/worker/composition.ts
+```
+
+`perms` does three things on both hosts.
+
+- It reads the `permissions` field of each `edge.json` and reserves the holders `all`, `main` and `eval`, so no import or package takes those names.
+- It refuses a root section that names a module the composition did not wire, or a scope that module's `scope` turns down, before anything compiles.
+- It gives `open` a `Held::Scopes` for each package from its manifest chain, read from the root down, and refuses the import of a package that holds no entry for the module.
+
+The grant logic is written once, in `src/deps/perms.rs`, a `no_std` module of the engine. The CLI links it, and `edge.wasm` exports it behind the engine's `perms` feature as `grants_check`, `grants_scopes` and `grants_held`, which the JS host's `perms` calls.
+
+A composition without `perms` gives every trusted package each module it wired, bounded by nothing, and an untrusted run none. Nothing reads a `permissions` field, and `all`, `main` and `eval` are plain names. [System](/docs/edge-lang/reference/system#permissions) lists the holders and entries a `permissions` section takes.
+
+A module of your own wires the same way, through `Kit::module` in the CLI kit and the `modules` of a JS composition, beside `net` or in its place. Its name becomes reserved, and a grant names it as its name, a colon and a scope its `scope` takes.
+
+> [!CARDS]
+> - `activity` [Your runtime and its CLI](/docs/edge-lang/get-started/use-cases/your-runtime) A runtime and its CLI built end to end on the kit.
+> - `globe` [System](/docs/edge-lang/reference/system) The calls of net, its URL rules and the permissions edge.json grants.
+> - `terminal` [CLI kit](/docs/edge-lang/sdk/cli) The composition that wires net and perms into the edge binary.
+> - `hourglass` [Host waits](/docs/edge-lang/sdk/host-waits) How a call that answers later parks the run and resumes it.

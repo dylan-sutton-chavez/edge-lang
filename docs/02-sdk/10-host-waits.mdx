@@ -1,0 +1,71 @@
+---
+title: "Host waits"
+description: "How a run waits on its host for an event or a host call, where in a program it may wait, and how each host answers."
+---
+
+# Host waits
+
+A run can stop and wait for its host, then carry on where it stopped once the host answers. The engine has no event loop of its own. The host drives the run, and a run that waits hands control back with a status that names what it waits for. A run waits for one of two things, the next event the host pushes or the answer to a host call.
+
+| Wait | Starts when | Status | The host answers with |
+|---|---|---|---|
+| Event | A native returns `Step::Wait`, as lib's `io::receive` does when no event is queued | `PENDING_EVENT` | `run_push_event`, then `run_resume` |
+| Host call | A host module or a plugin answers a call later | `PENDING_HOST_CALL` | `set_host_result_by_id` or `set_host_error_by_id`, then `run_resume` |
+
+A run under a preempt interval also stops every `n` loop back-edges with `PREEMPTED`, and its host resumes it at once or saves it first. [Rust](/docs/edge-lang/platforms/rust#the-status-word) lists every status and the loop that serves them.
+
+## A native that waits
+
+A native waits by returning `Step::Wait`. The engine parks the run, and the event the host pushes next becomes the native's value. An event is a text, and one pushed while the run is busy waits in a queue. `Cx::take_event` takes the oldest queued event without waiting, so lib's `io::receive` is a single match.
+
+```rust file=lib/src/io.rs
+```
+
+Mini names that kernel `receive`. Tiny names no such kernel, so a flow never waits for an event.
+
+## A host call that waits
+
+A call into a host module answers at once or later, and the run parks only for a later answer.
+
+| Host | Answers at once | Parks the run |
+|---|---|---|
+| The CLI kit | A `Reply` answered before the call returns, through `ok`, `fail` or `answer` | A `Reply` answered after the call returned, from any thread, or through `later` even when the answer is known |
+| The JS host | A call that returns a value | A call that returns a promise, until it settles |
+| A wasm plugin | A system call `edge_op` answers with `0` | A system call it answers with `2`, which the plugin returns and finishes in `__edge_resume` |
+
+A `Reply` dropped unanswered fails its call, so a host module that forgets one never hangs the run. [Plugins](/docs/edge-lang/sdk/plugins#host-modules) describes both kinds of host module, and [System calls](/docs/edge-lang/reference/abi#system-calls) the four steps a plugin's wait takes.
+
+`net` uses both answers. `request` answers at once with an id, and the request runs on a thread of its own in the CLI and as a fetch in the browser. On a request, `response` and `read` always park the run, even when the head or the chunk already arrived, so a program waits at the same points on both hosts. A tiny flow whose `from` is a URL, as the GH Archive job's is, parks once on the head and once on every read of the body.
+
+## Where a run may wait
+
+| The wait happens in | What follows |
+|---|---|
+| The module body, or a function it calls however deep | The whole run parks, and the frames between come back as they were on resume |
+| A generator a `for` loop steps, or a function that generator calls | The loop parks with the generator |
+| A generator or a coroutine stepped by its `next` or `send` | The engine refuses the wait, and mini prints `receive() and host calls cannot wait inside a generator or a coroutine` |
+| A function a native calls, such as the key of a sort or the function a map applies inside a native's loop | The engine refuses the wait, and mini prints `receive() and host calls cannot wait inside a callback a builtin runs` |
+| A binding of the name a runtime's own opcode fuses, which the op calls once the program binds it | The engine refuses the wait, and mini prints `receive() and host calls cannot wait inside a call an op makes` |
+| A class body | The engine refuses the wait, and mini prints `a class body cannot suspend, await outside it` |
+
+The runtime words each refusal through its `message`, so mini's text above is mini's own. A runtime that keeps the engine's plain words prints `a host wait cannot park inside a generator or a coroutine`, `a host wait cannot park inside a callback a builtin runs`, `a host wait cannot park inside a call an op makes` and `a class body cannot suspend`. Each refusal takes the class the runtime names for the engine's runtime error, and a handler around the call catches it as it catches any other error. A host call that fails raises its error where the run waits, so a handler around the call catches that too.
+
+## The host side
+
+A host serves both waits through the exports of the runtime's `.wasm`, in the run loop [Rust](/docs/edge-lang/platforms/rust#the-run-loop) describes. Each host does it for its own programs.
+
+- `edge run --events <file>` feeds each line of a file as one event, and `--save-state <file>` saves the run when it waits on something the CLI cannot serve.
+- An actor waits for its next message in an event wait, and its scheduler pushes the message once one arrives.
+- A page hands an event to a worker with `pushEvent`, described in [JavaScript](/docs/edge-lang/platforms/javascript#events).
+
+A Rust host that embeds the crate drives the same loop on a `VM`. A native the host binds into a module defers its answer by returning `VmErr::HostCallDeferred`. `run()` returns `VmErr::HostYield` with the status, `push_event` queues an event, and `inject_host_result_by_id` and `inject_host_error_by_id` answer call `id`, numbered from zero in the order the run made its waiting calls. Tiny's suite drives its flows this way in `examples/tiny/tests/flows.rs`. For a case marked `hops` it saves the run at every wait and restores it into a fresh `VM` before it answers.
+
+## Waits and snapshots
+
+A parked run is a point it can be saved at. The snapshot holds the module body, the frames that parked with it and the call it waits on, and a restored run waits for the same answer. A tiny flow parked on its source keeps the rows or records of every report, the header of a CSV file it writes and the line it has not finished across a snapshot. [Snapshots](/docs/edge-lang/sdk/snapshots) covers the blob and what it holds.
+
+> [!CARDS]
+> - `activity` [Your runtime and its CLI](/docs/edge-lang/get-started/use-cases/your-runtime) A runtime and its CLI built end to end on the kit.
+> - `camera` [Snapshots](/docs/edge-lang/sdk/snapshots) Freeze a parked run to a blob and resume it later.
+> - `plug` [Plugins](/docs/edge-lang/sdk/plugins) The host modules whose calls answer later.
+> - `users` [Actors](/docs/edge-lang/platforms/actors) Many programs, each waiting for its next message.

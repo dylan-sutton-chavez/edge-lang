@@ -3,6 +3,10 @@
 version = 4
 
 [[package]]
+name = "abi"
+version = "0.9.6"
+
+[[package]]
 name = "addr2line"
 version = "0.26.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -44,6 +48,8 @@ dependencies = [
 name = "bench"
 version = "0.9.6"
 dependencies = [
+ "abi",
+ "data",
  "serde",
  "serde_json",
  "serde_yaml_ng",
@@ -283,6 +289,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "data"
+version = "0.9.6"
+dependencies = [
+ "edge",
+ "mini",
+ "serde_json",
+ "sha2",
+ "tiny",
+]
+
+[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -304,17 +321,20 @@ dependencies = [
 ]
 
 [[package]]
-name = "edge-python"
+name = "edge"
 version = "0.9.6"
 dependencies = [
+ "abi",
  "dlmalloc",
  "hashbrown 0.17.1",
  "itoa",
+ "lib",
  "libm",
+ "mini",
  "serde",
  "serde_json",
  "serde_yaml_ng",
- "wasm-abi",
+ "spell",
 ]
 
 [[package]]
@@ -512,6 +532,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "09edd9e8b54e49e587e4f6295a7d29c3ea94d469cb40ab8ca70b288248a81db2"
 
 [[package]]
+name = "lib"
+version = "0.9.6"
+dependencies = [
+ "edge",
+ "itoa",
+ "mini",
+ "serde_yaml_ng",
+]
+
+[[package]]
 name = "libc"
 version = "0.2.189"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -581,6 +611,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "mini"
+version = "0.9.6"
+dependencies = [
+ "edge",
+ "itoa",
+ "lib",
+]
+
+[[package]]
+name = "native"
+version = "0.9.6"
+dependencies = [
+ "edge",
+ "mini",
+]
+
+[[package]]
 name = "object"
 version = "0.39.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -603,6 +650,25 @@ name = "pin-project-lite"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
+
+[[package]]
+name = "plugin"
+version = "0.9.6"
+dependencies = [
+ "abi",
+ "linked_list_allocator",
+ "lol_alloc",
+ "plugin-macros",
+]
+
+[[package]]
+name = "plugin-macros"
+version = "0.9.6"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.6",
+]
 
 [[package]]
 name = "postcard"
@@ -806,7 +872,7 @@ checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 name = "slugify-mod"
 version = "0.1.0"
 dependencies = [
- "wasm-pdk",
+ "plugin",
 ]
 
 [[package]]
@@ -816,6 +882,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9395f0f0eee849a9b707b2f06bb92a6a422090e2123bb2ef8e87a0e61892a8e"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "spell"
+version = "0.9.6"
+dependencies = [
+ "edge",
+ "mini",
+ "serde",
+ "serde_json",
+ "serde_yaml_ng",
 ]
 
 [[package]]
@@ -891,6 +968,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "tiny"
+version = "0.9.6"
+dependencies = [
+ "data",
+ "edge",
+ "lib",
+ "serde",
+ "serde_yaml_ng",
+]
+
+[[package]]
 name = "typenum"
 version = "1.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -909,14 +997,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861"
 
 [[package]]
+name = "uptime"
+version = "0.9.6"
+dependencies = [
+ "edge",
+ "lib",
+]
+
+[[package]]
 name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
-
-[[package]]
-name = "wasm-abi"
-version = "0.9.6"
 
 [[package]]
 name = "wasm-encoder"
@@ -926,25 +1018,6 @@ checksum = "09480d646178e5fdd12bb06e812d0af9a3a191dbc9cd697fdc86687beade7393"
 dependencies = [
  "leb128fmt",
  "wasmparser",
-]
-
-[[package]]
-name = "wasm-pdk"
-version = "0.9.6"
-dependencies = [
- "linked_list_allocator",
- "lol_alloc",
- "wasm-abi",
- "wasm-pdk-macros",
-]
-
-[[package]]
-name = "wasm-pdk-macros"
-version = "0.9.6"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 3.0.6",
 ]
 
 [[package]]

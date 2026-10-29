@@ -1,0 +1,222 @@
+---
+title: "Natives"
+description: "The engine's side of every native, its signature, arguments, context and steps, the registry and the methods of each kind, the guardrails around a call and the budget it pays."
+---
+
+# Natives
+
+A native is a Rust function a runtime registers, and every call past the bytecode reaches one. [Natives](/docs/edge-lang/get-started/book/natives) in the book covers why the engine asks for them and where a runtime gets them, and [Lib](/docs/edge-lang/sdk/lib) covers the kernels and the tables that name them. This page is the reference of the engine's side, the types of `edge::lang` a native is written against and what the engine does around each call.
+
+## Native
+
+A `Native` is a constant of the runtime's crate. Its builders are `const fn`, so a table of natives is laid out while the runtime compiles and costs nothing at boot.
+
+| Field | Holds |
+|---|---|
+| `name` | The name a program calls it by and its errors give, which `named` replaces |
+| `sig` | The `Sig` a call is checked against before the body runs |
+| `run` | The body, a `NativeFn` that takes a `Cx` and the `Args` and returns a `Ret` |
+| `fast1`, `fast2` | A path that answers one or two plain arguments straight from the heap, or declines with `None` |
+| `fast_out` | The line a call of plain positionals writes with no call, for a native that prints |
+| `flags` | The flags below |
+| `intrinsic` | The operation of the engine the native stands for, `Intrinsic::None` for most |
+
+`Native::new(name, sig, run)` makes one, and `fast`, `fast2`, `fast_out`, `flags` and `intrinsic` each give it back with one more part. Lib's `Kernel` wraps a `Native` with no name yet and the same builders, and a table entry names it with `named`.
+
+| Flag | Means | In lib |
+|---|---|---|
+| `STEPS` | The body may answer with a step, so a call of it counts as one that runs program code | `seq::list`, `iter::fold::sum`, `io::receive` |
+| `TYPE` | Its name reads as a type object, and calling that type runs the native | `seq::list`, `map::new`, `set::new` |
+| `PUSH` | A method of lists whose call on a local lowers to the push the loop makes in place | `seq::push` |
+| `CLASS` | Read off its type, it takes the type itself as its receiver | `map::from_keys` |
+
+The four intrinsics are operations the engine reaches for on its own. `Len`, `Range`, `Next` and `IsA` are carried by lib's `seq::len`, `iter::range`, `iter::next` and `types::is_a`, a table names at most one native for each, and the lowering keeps the form of a call that names one, as [Lib](/docs/edge-lang/sdk/lib#a-table) describes.
+
+`lib/src/seq/mod.rs` shows every part in one module. `len` has a fast path and stands for `Len`, `list` and `tuple` are types that may step, `push` lowers in place, `extend` drains what it cannot copy at once, and the bodies spend for the items they move.
+
+```rust file=lib/src/seq/mod.rs
+```
+
+## Sig
+
+A `Sig` is what a call must fit, and the engine checks it before the body runs, so a body never counts its arguments.
+
+| Part | Means | Built with |
+|---|---|---|
+| `min`, `max` | How many positionals a call passes, with `max` at `VAR` for no upper bound | `Sig::exact(n)`, `Sig::range(min, max)`, `Sig::var(min)` |
+| `names` | A name for each positional a keyword may fill, where an empty name keeps it positional | `named(&[..])` |
+| `kw` | The keyword-only parameters, read back by their index | `kw(&[..])` |
+| `extra` | Whether keywords the signature does not name pass on as name and value pairs | `extra()` |
+
+The positionals take their places first. A keyword that `names` holds fills its place, one that `kw` lists fills its slot, and with `extra` the rest pass on whole. A call that does not fit raises the runtime's type error and never reaches the body. The runtime's `misfit` words the error from a `Misfit`, which is `Count`, `Unexpected`, `Twice` or `Missing`, and a runtime that writes no `misfit` gets the engine's own words.
+
+Uptime writes no `misfit`, so a check that hands `size` a second argument reads in the engine's words. This ran on 24 October 2026 in a copy of `examples/uptime/checks`, beside its `http.up` helper and its grants.
+
+```text
+$ uptime run -c 'use .http
+let ping = http.get("https://registry.npmjs.org/-/ping")
+print(ping.status, size(ping.body, "bytes"))'
+error: WrongType: size() takes 1 argument, not 2
+  --> <eval>:3:1
+  |
+3 | print(ping.status, size(ping.body, "bytes"))
+  | ^
+```
+
+Mini's hook words the same misfit its own way, so `len(line, 'bytes')` in mini fails with `TypeError: len() takes exactly one argument (2 given)`. The class is the one each runtime names for a type error.
+
+## Args
+
+| Field | Holds |
+|---|---|
+| `recv` | A method's receiver, and `Val::undef()` for a function |
+| `pos` | The positionals in the order of the signature, a keyword that filled one in its place and one left out as `Val::undef()` |
+| `kw` | The keyword-only values in the order `kw` lists them, `Val::undef()` where none came |
+| `named` | The keywords the signature does not name, as name and value pairs, when it takes them |
+
+`get(i)` and `kw(i)` read one and answer `None` for one left out, and `len` counts the positionals. A body reads `pos` below `min` by index with no check, since the signature was checked, as tiny's `between` reads `a.pos[0]` and `a.pos[1]` in [A native of its own](/docs/edge-lang/get-started/book/natives#a-native-of-its-own).
+
+## Cx
+
+`Cx` is what a body gets of the engine. None of its operations runs program code. One that would have to, such as stepping a generator a program wrote, answers `None` instead, and the native answers with a step.
+
+| Group | Operations |
+|---|---|
+| Reading values | `kind`, `type_name`, `truthy`, `int`, `float`, `text`, `str_of`, `bytes_of`, `is_ascii`, `kw_name`, `fn_name`, `names` |
+| Computing | `eq`, `lt`, `add`, `floor_div`, `modulo`, `pow`, `len`, `get_item`, `slice`, `contains`, `callable` |
+| Checking keys | `require_key`, `require_element`, `require_hashable` |
+| Making values | `new_int`, `new_str`, `new_list`, `new_tuple`, `new_dict`, `new_set`, `new_bytes`, `new_iter`, `type_object` |
+| Iterating | `items`, `iter_of`, `next_plain`, `call_each`, `dict_walk`, `spent`, `resumable`, `is_generator`, `is_coroutine`, `range_index`, `range_reversed` |
+| Raising | `raised`, `stop_iteration`, `exc_base` |
+| Fields | `get_attr`, `set_attr`, `del_attr` |
+| Paying | `spend`, `charge`, `reserve`, `room` |
+| The host | `write`, `line`, `write_line`, `read_line`, `take_event`, `send`, `sent` |
+| Rendering | `render` |
+| The heap | `heap`, `heap_mut`, `Cx::kind_token` |
+
+- `items(v)` answers every item of a container at once, and `None` where stepping `v` would run program code. `next_plain` and `call_each` answer `None` the same way.
+- `eq` compares as a container compares its members, identity first, and raises past the comparison depth. `lt` orders numbers, texts, bytes, lists, tuples and FOREIGN values whose kind orders them, and raises the runtime's type error for any other pair.
+- `new_int` makes the narrowest int, inline when it fits 48 bits and boxed in the runtime's wide kind past them, as [Values](/docs/edge-lang/sdk/values#val) describes.
+- `str_of` reads a text and spends for its length, where `text` reads it for free.
+- `raised(class, args, text)` makes the exception a handler catches, and a failure of a kernel goes through lib's `fail`, which words it through the runtime's `Lang`.
+
+## Out and Step
+
+A body returns a `Ret`, which is `Result<Out, VmErr>`. `Out::Val` is a value, `Out::Step` a step the engine runs, and `Out::Next(g)` asks the engine to run generator `g` to its next item. `.into()` makes an `Out` of a `Val` or a `Step`.
+
+| Step | The engine | The native's value |
+|---|---|---|
+| `Call { f, args, n, then }` | Calls `f` on up to three arguments | What `then` makes of the call's value |
+| `Drain { it, fold }` | Walks `it` item by item through `fold` | What the fold stops with |
+| `Resume { g, sent }` | Sends a value into generator `g`, throws into it or closes it, as `Sent` says | What the generator gives |
+| `Wait` | Parks the run until the host pushes an event | The event, as [Host waits](/docs/edge-lang/sdk/host-waits#a-native-that-waits) shows |
+
+`Step::call(f, args)` gives the call's value as the native's. `Step::call_then(f, args, then)` hands it to `then`, which is `Then::Fn` for a plain function, or `Then::Cont` for a value of a type implementing `Cont`, whose `resume` goes on from the value and whose `trace` names the values it keeps.
+
+A `Fold` holds its function, an `Acc` and an inline kind. The function takes the `Acc` and an `Item`, `Next` for each item, `Called` for the value of a call it asked for and `End` once the iterable ends. It answers with a `Flow`, `More` to go on, `Call(f, x)` to call `f` on `x` first, `Stop(v)` to end with `v`, or `Drain(it)` to walk `it` through the same fold. An `Acc` keeps four values in `v`, a count in `n`, two floats in `f` and a list in `items`, and the collector reaches every value it holds.
+
+An inline kind lets the engine take items itself, so the function sees only the end or the items the engine cannot take.
+
+| Inline | The engine | Built with | In lib |
+|---|---|---|---|
+| `None` | Hands every item to the function | `Fold::new`, `Fold::with` | `map::from_keys` |
+| `Truth(any)` | Stops at the first item of that truth | `Fold::truth` | `iter::fold::every`, `iter::fold::some` |
+| `Collect` | Gathers every item into `acc.items` | `Fold::collect` | `seq::list`, `seq::extend` |
+| `Words` | Adds ints that fit a word into `acc.n` | `Fold::words` | `iter::fold::sum` |
+| `Extreme(min)` | Keeps the least or the greatest of plain numbers in `acc.v[0]` | `Fold::extreme` | `iter::fold::least`, `iter::fold::most` |
+| `Keys` | Calls the key in `acc.v[0]` on each item and gathers what it gives | `Fold::keys` | `seq::sort::sorted` with a key the program wrote |
+| `Best(min)` | Calls the key in `acc.v[3]` on each item and keeps the best | `Fold::best` | `iter::fold::least` and `iter::fold::most` with a key |
+| `First` | Stops at the first item, or gives the default in `acc.v[0]` at the end | `Fold::first` | `iter::next` with a default |
+
+`taking(take)` adds a function that takes an item with no engine op, or declines it to the fold's function. `lib/tests/steps.rs` holds a native for each kind of step, run on mini's tables.
+
+```rust file=lib/tests/steps.rs
+```
+
+The engine runs a step's calls as frames of the loop that called the native, never in a loop of their own, as [Calling program code from Rust](/docs/edge-lang/internals/design#calling-program-code-from-rust) explains. So a callback is metered and limited as any other code is, and an error it raises leaves through the native's call with a note for its frame. The type count of [Tokens or a front end](/docs/edge-lang/get-started/book/tokens#one-job-both-ways) with its key reading `kv[2]` in place of `kv[1]` stops inside the key, after reading the whole hour.
+
+```text
+$ edge run --ops 10000000000 types.mini
+error: IndexError: tuple index out of range
+   --> types.mini:22:54
+   |
+22 | for kind, n in sorted(counts.items(), key=lambda kv: kv[2], reverse=true)[:5]:
+   |                                                      ^
+
+note: called from <lambda>()
+   --> types.mini:22:22
+   |
+22 | for kind, n in sorted(counts.items(), key=lambda kv: kv[2], reverse=true)[:5]:
+   |                      ^
+```
+
+## The registry
+
+`edge::natives!` builds a runtime's `Natives` at compile time from four parts and a fifth that a runtime with FOREIGN kinds of its own may add.
+
+| Part | Holds |
+|---|---|
+| `fns` | Tables of functions, each a slice of `Native` such as a `lib::table!` gives |
+| `methods` | For each kind, the tables of its methods, written `Str => [STR]` |
+| `foreign` | For each FOREIGN kind, the tables of its methods, written `POINT => [POINT_METHODS]` after the static `Kind` it registers, as [A kind's methods](/docs/edge-lang/sdk/values#a-kinds-methods) shows |
+| `types` | The names a load gives as type objects |
+| `language` | The runtime's [`Language`](/docs/edge-lang/sdk/language), whose names and policy the tables take, with the parts lib answers listed in [What lib answers](/docs/edge-lang/sdk/lib#what-lib-answers) |
+
+The language names the tables as its `NATIVES`, and `Runtime::of` hands them to the engine with the rest of the language. Mini's `lib.rs` registers functions from eleven tables and methods on eleven kinds.
+
+```rust file=examples/mini/src/lib.rs
+```
+
+The functions come first in the table, each kind's methods after them and each FOREIGN kind's last, and a native's place is the `NativeId` its calls compile to. The table writes each entry's place into its `id`, so a value, a site or a snapshot that holds a native compares it by that place and never by where the entry lies in memory. The lookups are built with the table. Functions are found by name through tables of hashes, and each kind keeps its methods sorted by the hash of their names behind a mask of name shapes, so most misses read no name at all. `find`, `function`, `method`, `get`, `intrinsic` and `kind_methods` read them. `digest` is a hash of every name in table order with each method's kind, which the identity a snapshot keeps holds, as [Snapshots](/docs/edge-lang/sdk/snapshots) describes.
+
+### Methods per kind
+
+A method is a native registered on a `KindId`, the 22 kinds [Values](/docs/edge-lang/sdk/values#kinds) lists. `x.name(..)` looks `name` up among the methods of the kind `x` has, once for the call site, which keeps what it found. The body reads its receiver in `recv`. Read off the type, a method is unbound and takes its receiver as its first argument, refused unless the receiver is of its kind, and with `CLASS` it takes the type itself. A method read off a value and kept, as `push = xs.append` keeps one, is a value of its own, the same one each time for one receiver.
+
+Uptime registers no methods, so a name after a dot reads a key of a map under its `map_fields`. Tiny registers ten methods on texts and nothing on any other kind. The init every class ends in is no entry of the table, so its place is `NativeId::INIT`.
+
+## Guardrails
+
+The engine holds every native to the same rules, so a native cannot run program code on the side, outrun the budget or slip past the memory limit.
+
+| When | What holds |
+|---|---|
+| The runtime compiles | `edge::natives!` refuses two functions of one name, a kind or a FOREIGN kind listed twice, two methods of one kind whose names hash alike and two natives for one intrinsic. A table holds at most 255 functions and 255 type names |
+| The program compiles | A call of a native's name binds to its place in the table, and a name the program binds itself wins over the native |
+| The call starts | The arguments bind to the `Sig`, and a call that does not fit raises before the body runs |
+| The body runs | It reaches the engine only through `Cx`, which runs no program code, and no collection runs, so the values it makes stay alive until it returns |
+| A step runs | Program code runs as frames of the running loop and is metered as any other code. Only what an `Acc` or a `Cont` holds stays alive across the step, and a wait inside a callback is refused, as [Host waits](/docs/edge-lang/sdk/host-waits#where-a-run-may-wait) lists |
+| The body returns | The work it spent is paid before the next instruction runs |
+
+The digest of the registry is part of the identity that ties a saved run to the runtime it was saved under, so a restore under other natives is refused before the source parses.
+
+## The budget
+
+A run spends its op budget on its calls, the turns of its loops and the work its natives report, and [Limits](/docs/edge-lang/sdk/limits#sandboxed-execution) covers what a run is held to. A native pays for its own work in four ways.
+
+| Operation | Does | Fails |
+|---|---|---|
+| `cx.spend(n)` | Counts `n` units of work, paid when the native returns or at the run's next step | At that payment, once the budget is spent |
+| `cx.charge(n)` | Pays `n` units at once | At once, when fewer than `n` are left |
+| `cx.heap().afford(n)` | Refuses work of `n` units before it starts | At once, when the budget left at the last payment is short of it |
+| `cx.reserve(bytes)` | Refuses a result of that many bytes before it is built | At once, with the runtime's memory error, when it would pass what `cx.room()` leaves |
+
+`cx.room()` is what a result may still take, the memory limit or what is left under twice the limit with garbage counted, whichever is less, and no more than the instance has left. A kernel that grows its result an item at a time reads it as it goes, as lib's drains do.
+
+Lib's kernels pay in proportion to the work they do, past a small floor of work most of them leave free.
+
+- **Scans and copies.** Text and bytes methods pay for the length of their receiver, a slice for the items it copies, and the length of a long text past ASCII by its bytes. `str_of` spends for the text it reads.
+- **Sorts.** A sort pays for its comparisons, and refuses before it starts a sort the budget left cannot pay for.
+- **Wide ints and formats.** A wide int pays by the limbs it works on, and a format spec by the width or the precision it fills.
+- **Hashes and equality.** A walk over nested containers pays for the items it reads, and past 1,048,576 of them it walks again remembering each part it already read, so a value built from shared parts costs what its distinct parts hold.
+- **Results.** A kernel that builds a result reserves its size first, so `split`, `expandtabs`, the bytes kernels and the others refuse a result past the limit before a byte of it is built.
+
+That is why the book's type count pays for every byte of the hour each `find` and each split reads, as [What a native pays](/docs/edge-lang/get-started/book/natives#what-a-native-pays) measures.
+
+`spend` costs one addition, so a kernel spends as it scans and the engine charges the total once the native returns. A drain pays one op for each item it takes, with the work its fold spent on the item before.
+
+> [!CARDS]
+> - `library` [Lib](/docs/edge-lang/sdk/lib) The kernels a table names and the failures they word through the runtime.
+> - `layers` [Values](/docs/edge-lang/sdk/values) What a native reads and makes, the heap and the kinds a runtime boxes its own data in.
+> - `hourglass` [Host waits](/docs/edge-lang/sdk/host-waits) A native that waits for its host and where a run may wait.
+> - `book-open` [Natives](/docs/edge-lang/get-started/book/natives) The book's chapter on why the engine asks for natives and what they cost a runtime.

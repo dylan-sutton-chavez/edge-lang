@@ -1,0 +1,160 @@
+---
+title: "Opcodes"
+description: "Why a runtime adds an opcode of its own and what it pays without one, how Clamp is declared and run, what the table's hash does to a saved run, and what the opcode saved on a job over the GH Archive hour."
+---
+
+# Opcodes
+
+The engine compiles a program to the opcodes of one table, its operators, comparisons, containers, loops and calls, and anything else a program does is a call of a native or of a function the program wrote. A runtime may add opcodes of its own, so that an operation its programs run in their loops runs in the loop itself and not as a call. This chapter covers why a runtime adds one and what it pays without one, how `tests/ops.rs` declares and runs `Clamp`, what the table's hash does to the runs a runtime saved, and what the opcode saved on a job over the GH Archive hour.
+
+## Why a runtime adds one
+
+A call costs what a call costs, whatever its body does. Clamping a value between two bounds takes two compares, and a native that does it still binds its arguments to its `Sig`, builds its `Args`, runs its body and hands back what it returns. Measured on 26 October 2026 in a function's loop, past the loop's own 258 wasm instructions an iteration, `clamp(i, 10, 20)` costs 799 instructions a call as a native through `CallNativeR`. Written in the program as a function of three branches, `clip(i, 10, 20)` costs 239, since that call is a jump into a section of the loop's code, as [Calls as jumps](/docs/edge-lang/sdk/calls#calls-as-jumps) shows. As an opcode of the runtime the call costs 187, its three operands moved into a row of registers and its arm run in place.
+
+That is what a runtime's programs pay without one. Each call of an operation that small pays for the call, and a program that clamps, scales or mixes values in a loop pays it on every pass. A program can write the rule as a function, which costs less than the native, and then every program carries its own copy of a rule of the language. An opcode answers in the loop for the operands its fast path takes, with no frame and no arguments to bind, and leaves every other operand to a slow path written as a native is. It also folds a call of constants as the program compiles, which no call of a native does.
+
+An operation earns one when its work is a few instructions and the language's programs call it in their loops. A native whose body reads a whole text or list pays little for its call next to that work, and stays a native. None of the runtimes in `examples` declares an opcode, and each writes `()` for `Language::Ops`. `tests/ops.rs` declares the one opcode of the repo, in a runtime made to test them.
+
+## Clamp
+
+The runtime of `tests/ops.rs` is mini's natives with one more, `clamp`, and the file's tests compile and run programs through it.
+
+```rust file=tests/ops.rs
+```
+
+The table is one call of `edge::ops!`, the macro the engine's own table is declared with, given one part named `own`. An op's byte is its place in the part, and a row names the op and five columns. `pops` is the count of operands the op takes off the stack, 3 for `Clamp`, and the other four are its parts, where a dash leaves out `fuse`, `fast` or `fold` and no row leaves out `slow`.
+
+- **`fuse`.** The native whose plain calls the parser compiles to the op, a call of `clamp` with three positionals and no keyword or spread. The runtime still registers a native of that name, whose body `clamp_native` runs `clamp_slow`, so a call the parser leaves alone, such as `clamp(x, 0, hi=3)`, reaches the same rule.
+- **`fast`.** What the loop answers in place. `clamp_fast` takes the heap and the three operands and answers three inline ints whose bounds are in order, or gives `None` for the slow path. It reads no heap and builds nothing.
+- **`slow`.** What the op gives once `fast` declines, written as a native's body is, over a `Cx`. `clamp_slow` clamps ints of any width, so `clamp(10 ** 30, 0, 7)` gives 7, and floats, so `clamp(2.5, 0, 1)` gives 1.0. Bounds out of order raise its own `ValueError`, and an operand of any other kind raises `EngineError::Unsupported` for `Op::Runtime`, as an operator that refuses its operands does. The engine asks the runtime's `bind_op` about it first, and mini's `message` words it after the native the op fuses, `TypeError: unsupported operand type(s) for clamp: 'str' and 'int'`.
+- **`fold`.** The constant a call of constants folds to as the program compiles. `print(clamp(9, 0, 3), clamp(-4, 0, 3), clamp(1, 0, 3))` compiles to three constants and prints `3 0 1`. It takes no heap, so it folds only to an int, a float, a bool or nil, and a call it refuses stays the op, so `clamp(9, 3, 0)` still raises its `ValueError` when the line runs. A program that binds the name anywhere, in any scope or as a field, folds none of its calls, so a constant call runs the binding as every other call of it does.
+
+The runtime names the table twice. `type Ops = Clamps` in its `Language` gives the loop the fast path and the engine the slow path and the hash, and `OPS` in its `Spelling` gives the parser the rows it fuses and folds. A front end of its own emits the op with `Builder::op`.
+
+## What the engine does with it
+
+The parser compiles a fused call to `RuntimeOp`, whose operand holds the op's byte with its pops above it. First-run code runs it over the rows its operands sit in, and the lowering writes `RuntimeR` over a row of registers with the op in its flag byte, as [A runtime's own opcodes](/docs/edge-lang/sdk/opcodes#a-runtimes-own-opcodes) lists. Either arm calls `fast` in place and stores what it gives as an operator stores its result. A `None` sends the op to its slow path, which reads its operands, raising for one that is unbound as a read of it would, and runs `slow`.
+
+A name the program binds stays its own. Where the parser sees the scope bind `clamp`, as a parameter, an assignment or a function of that scope, the call compiles as a call of the binding and not as the op. Elsewhere it compiles as the op, and once the program binds the name while it runs, as a module's own `fn clamp` or `global clamp` and an assignment in a function do, every op of it calls that binding, as a call of a native whose name was rebound does, except that the binding runs as a call the op makes and so cannot wait on an event or a host call. A binding of any other name leaves the op on its fast path, so one `fn sum` beside it costs the clamps nothing.
+
+A runtime with no opcodes of its own builds a loop with neither arm, so with the rules of the engine's own loop it runs the one loop the engine builds for every such runtime. A runtime with opcodes runs a loop the engine builds for it alone, as [A VM over a runtime](/docs/edge-lang/sdk/embedding#a-vm-over-a-runtime) describes.
+
+## The table's hash
+
+`OpTable::HASH` is an FNV-1a hash of each op's name, its pops, its fused native and whether it folds, in the order of the table. Adding, removing, renaming or reordering an op changes it, and so does another count of operands, another native or a fold added or dropped. A runtime's identity hashes it with the count of its ops, beside its name, its version, the digest of its natives, the engine's own `OpCode::HASH` and its policy. A snapshot records the identity at byte 8 of its header, and a host checks it there before it parses the blob's source, so it refuses a blob another table saved before compiling any of it.
+
+The last test of `tests/ops.rs` saves a run parked on `receive()` whose code holds `Clamp`, then restores it under a runtime of the same name, version, natives and policy with no table of its own. That restore fails with `snapshot was saved under another runtime`, and the same blob restores under the runtime that saved it.
+
+The bodies of `fast`, `slow` and `fold` are not in the hash. A runtime that changes what an op gives and keeps its row still restores the runs its earlier build saved, unless it raises its `VERSION`, which the identity hashes too. Any change to a row refuses them, as a change to the natives or the rules does in [What a new version breaks](/docs/edge-lang/get-started/book/shipping#what-a-new-version-breaks).
+
+## On the hour
+
+The job counts the records of GH Archive's hour from 3 pm UTC on 1 October 2026 by their size, in bars 512 bytes wide, so a reader of the hour knows how far it buffers one record. `clamp` keeps each record's bar between the first, which takes every record under 1 KB, and the last, which takes every record of 8 KB or more, once for each of the 85,569 records.
+
+```edge
+import net
+
+HOUR = 'https://data.gharchive.org/2026-10-01-15.json.gz'
+
+fn sizes(r):
+    bars = [0] * 17
+    rest = b''
+    chunk = net.read(r)
+    while chunk is !nil:
+        lines = (rest + chunk).split(b'\n')
+        rest = lines.pop()
+        for line in lines:
+            // the first bar takes records under 1 KB and the last those from 8 KB
+            bars[clamp(len(line) ~/ 512, 1, 16)] += 1
+        chunk = net.read(r)
+    return bars
+
+bars = sizes(net.request('GET', HOUR, nil, nil, 'gzip'))
+for k in range(1, 17):
+    label = f'{k / 2} KB'
+    if k == 1:
+        label = 'under 1 KB'
+    else if k == 16:
+        label = '8 KB or more'
+    print(f'{label:>12}  {bars[k]:>6}')
+```
+
+Mini names no `clamp`, so on `edge` the job stops at its first record with a `NameError`, and it runs in the runtime of `tests/ops.rs` instead. That runtime was built as a `.wasm` the way `make wasm-cli` builds `edge.wasm`, once with `Clamp` and once without it, where the same call compiles to the native. On 26 October 2026 both builds ran the job over the hour, served from memory 64 KB a read through `net` as `make bench-data` serves it, and both printed the same bars.
+
+```text
+  under 1 KB   79472
+      1.0 KB    1218
+      1.5 KB     655
+      2.0 KB     291
+      2.5 KB     490
+      3.0 KB     229
+      3.5 KB     195
+      4.0 KB     186
+      4.5 KB     226
+      5.0 KB     190
+      5.5 KB     216
+      6.0 KB     178
+      6.5 KB     189
+      7.0 KB     176
+      7.5 KB     150
+8 KB or more    1508
+```
+
+Counted in wasm instructions as the bench counts them, the op made the job 5.8% cheaper. The other rows are the same job with its bar written another way, run in the build without the op, and the last column is what a record costs past the last row in the same build.
+
+| The bar of a record through | Instructions | A record | Past one bar |
+|---|---:|---:|---:|
+| `clamp` as the op, `RuntimeR` | 907,483,622 | 10,605 | 856 |
+| `clamp` as the native, `CallNativeR` | 962,847,610 | 11,252 | 1,503 |
+| `clip`, the same rule as a function of the program | 921,001,904 | 10,763 | 1,014 |
+| `min(max(len(line) ~/ 512, 1), 16)`, two of mini's natives | 1,011,281,537 | 11,818 | 2,069 |
+| `bars[1] += 1`, every record in one bar | 834,202,019 | 9,749 | 0 |
+
+Reading the hour is most of the job, 9,749 instructions a record to join and split its 89.4 MB and step through the lines, whatever the bar. Past it the op's bar costs 856 a record and the native's 1,503, so the op takes 43% off the work it touches, 647 instructions a record. It costs 158 a record less than `clip`, whose three branches return `lo`, `hi` or `x`, and 1,213 less than the two natives a mini program writes for the rule. The rest of the job ran 152,069 instructions more in the build with the op, 0.02%, in the loop the engine builds for it alone. `clip` and `min` with `max` need no `clamp`, so the last three rows also run on mini's own `edge.wasm`, which counts each of them 12,414 instructions more.
+
+## What an opcode costs
+
+- **Size.** A runtime with opcodes carries its own copy of the loop in its `.wasm`. Measured as `make size` measures `edge.wasm`, the release build with `Clamp` is 2,242 KB raw and 612 KB in brotli, against 2,156 KB and 597 KB without it.
+- **Plain calls only.** A call with a keyword, a spread or another count of positionals stays a call of the native, at the native's cost.
+- **No program code.** `slow` gives a value or an error and no step, so the rule of an op never runs program code as a native's `Step` does, and an operation that takes a function stays a native.
+- **A function that holds it.** A function whose body holds the op is laid as a section like any other, so a loop that calls it jumps. Called in a function's loop, a `bar(x)` that returns `clamp(x, 10, 20)` costs 316 instructions a call with the op and 928 through the native, while a `bar(x)` that returns `clip(x, 10, 20)` is laid as a section with `clip` and costs 405.
+- **The runs it saved.** Any change to the table refuses them, as [The table's hash](#the-tables-hash) covers.
+
+## Testing it
+
+The tests of `tests/ops.rs` hold each part of the op, and `cargo test --locked -p edge --test tests ops::` runs them.
+
+| Test | Holds |
+|---|---|
+| `a_runtime_declares_its_ops_and_the_engine_reads_the_table` | The macro's enum, its count, the op's operand and fused native, a hash past zero and an identity apart from mini's |
+| `a_plain_call_of_the_fused_native_compiles_to_the_op` | A call of three positionals compiles to `RuntimeOp`, and another count, a keyword or a name the program binds does not |
+| `constant_operands_fold_as_the_table_says` | A call of constants compiles to its value, and one that `fold` refuses stays the op and raises when it runs |
+| `the_loop_runs_the_op_over_rows_and_lowered_registers` | First-run code and lowered code give the same sums, in the hot loop of a function and of the module |
+| `the_slow_path_takes_what_the_fast_path_declines` | Floats, bools and wide ints clamp, a text raises in mini's words and an unbound operand raises as its read would |
+| `a_rebound_name_runs_its_binding` | Once the program binds `clamp`, the op calls that binding in cold and in hot code |
+| `another_rebound_name_leaves_the_op_on_its_fast_path` | A program binding one other native's name runs every clamp through `fast` |
+| `a_module_binding_of_the_fused_name_is_called_as_a_function` | A module's own `clamp` is called at the site, a new binding takes over and a delete gives the op back |
+| `a_helper_holding_the_op_runs_it_in_hot_loops` | A helper that clamps is laid as a section, and its slow path, its rules and its recursions answer from inside one |
+| `a_blob_of_another_table_is_refused_before_its_source_is_read` | A blob saved with the op is refused under the same runtime without it and restores under its own |
+| `a_constant_call_runs_a_binding_the_program_makes` | A program binding `clamp` anywhere folds no call of it, so a constant call runs the binding too |
+| `a_binding_the_op_calls_cannot_wait` | A wait inside the binding an op calls raises in mini's words where a wait inside its native's binding parks |
+
+A runtime with an opcode of its own writes the same checks in its crate. It compiles a source with `edge::code::compile_as` to read the ops it gets, as `ops_of` does, and runs it with `edge::embed::VM::with_runtime`, as `ran` does.
+
+## Choosing
+
+| | An opcode | A native | A function of the program |
+|---|---|---|---|
+| Written by | The runtime, as a row and the functions it names | The runtime, or lib as a kernel the runtime names | Each program that needs it |
+| A call in a function's loop | 187 instructions | 799 | 239 |
+| A call of constants | Folds as the program compiles, given a `fold` and no binding of its name | Runs each time | Runs each time |
+| Takes | The row's count of positionals | What its `Sig` takes, keywords included | What its parameters take |
+| Runs program code | No | As steps the loop runs as frames | It is program code |
+| Inside a function a loop calls | Laid as a section | Laid as a section | Laid as a section |
+
+A language whose programs run a small operation on numbers in their loops, a clamp, a mix or a step of a scale, takes an opcode for it and keeps the native beside it for every call the parser does not fuse. An operation that reads a whole text or list, takes keywords or runs program code stays a native, and a runtime that adds no opcode builds no loop of its own.
+
+> [!CARDS]
+> - `package` [Shipping](/docs/edge-lang/get-started/book/shipping) The `.wasm` every host loads, the CLI over it and how both are tested.
+> - `binary` [Opcodes](/docs/edge-lang/sdk/opcodes) The engine's table, its columns and every part of a runtime's own.
+> - `layers` [Calls](/docs/edge-lang/sdk/calls) The frames, the jumps and the sections a call of a native or a function pays for.

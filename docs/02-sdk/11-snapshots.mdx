@@ -1,0 +1,174 @@
+---
+title: "Snapshots"
+description: "Freeze a paused program to a portable blob and resume it later, anywhere."
+---
+
+# Snapshots
+
+A paused program can be frozen whole and brought back later. That can be on another page load, another machine or another day. `saveState` captures the whole interpreter in a portable blob, and `restoreState` boots a fresh VM from it.
+
+A blob holds everything the program needs to go on.
+
+- The heap and every global.
+- Each suspended coroutine with its call frames.
+- The scheduler and the events queued for it.
+- The source, the name of the script the run started from, a structural fingerprint of the compiled bytecode and the identity of the runtime that saved it.
+
+The identity is a hash of the runtime's name and version, the digest of its natives, the count and hash of its own opcodes, the hash of the engine's opcode table and its policy. `restoreState` checks it first, so the source of a blob another runtime saved never parses. It then parses the source again and checks the fingerprint. It rejects a blob another runtime saved with `snapshot was saved under another runtime`, a blob of another program or another compiler build, one of another snapshot format, and a damaged one, since a SHA-256 seal closes every blob. The seal catches damage, not forgery, so a host that hands a blob to someone it does not trust signs it itself. One blob restores any number of times, each restore an independent copy.
+
+The magic, the format, the identity, the fingerprint, the source and the script's name open every blob as its header, at offsets that are constants of the engine in `src/vm/snapshot.rs`, so no host keeps a copy of them. The CLI links the engine and reads a blob's source and script with `edge::embed::source_of` and `edge::embed::entry_of`. The JS host reads them too, at the offsets the runtime's descriptor gives in its `snapshot` field, as [Pause and snapshots](/docs/edge-lang/platforms/javascript#pause-and-snapshots) shows. Both hosts name the script again before the restore, so a traceback after it names the script and its relative imports resolve from the script's directory.
+
+> [!WARNING]
+> A blob is pinned to one program and one compiler build by its fingerprint, and to one runtime by its identity. An engine upgrade invalidates every saved blob.
+
+## Where a run can freeze
+
+A run freezes at a suspension point. There are two ways to reach one.
+
+- The program reaches one on its own, at an empty `receive()` or a pending host call. [Host waits](/docs/edge-lang/sdk/host-waits#where-a-run-may-wait) lists where a run may wait.
+- The host forces one. With a preempt interval of `n` the VM yields every `n` loop back-edges. A loop that never waits, such as a count over the lines of its input, can then be paused, with no change to the program.
+
+At a suspension point the VM unwinds to a clean state it can serialize. A snapshot is only coherent there. Saving while the run executes fails.
+
+Each yield costs the host a round trip. A small interval lets a pause land fast and slows the run, and `0` turns preemption off. That is the default.
+
+## A program that pauses
+
+The type count of [Tokens or a front end](/docs/edge-lang/get-started/book/tokens#one-job-both-ways) can take its events from its host instead of reading the hour itself. Each `receive()` hands it one line of GH Archive's hour from 3 pm UTC on 1 October 2026, and an empty line ends the count.
+
+```edge
+// a line names its event's type before anything nested in it
+fn kind_of(line):
+    at = line.find('"type":"') + 8
+    return line[at:line.find('"', at)]
+
+counts = {}
+seen = 0
+while true:
+    line = receive() // parks here until the host hands in the next event
+    if line == "":
+        break
+    kind = kind_of(line)
+    counts[kind] = counts.get(kind, 0) + 1
+    seen += 1
+for kind, n in sorted(counts.items(), key=lambda kv: kv[1], reverse=true)[:5]:
+    print(f'{n:>6}  {kind}')
+```
+
+`counts` and `seen` live in the VM heap. The only freeze point is the `receive()` line, so a run parked there holds the counts of every event so far and nothing of the network.
+
+## Save and restore
+
+A page drives the round trip through `createWorker`. The first session hands the job the first 40,000 events of the hour and saves.
+
+```js
+import { createWorker } from "https://cdn.edgelang.dev/js/src/index.js";
+
+// resolves once the run waits on receive() so saveState() can capture it
+async function untilParked(worker) {
+  for (let i = 0; i < 1000; i++) {
+    const stack = await worker.stateStack();
+    if (stack.some((c) => c.state === "waiting_event")) return;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  throw new Error("run never parked");
+}
+
+// the page serves a copy of the hour since GH Archive answers no other origin
+const hour = await fetch("./2026-10-01-15.json.gz");
+const text = await new Response(hour.body.pipeThrough(new DecompressionStream("gzip"))).text();
+const events = text.split("\n").filter((line) => line !== "");
+
+const worker = await createWorker({ limits: { ops: 1e10 } });
+worker.onOutput((chunk) => console.log(chunk));
+
+worker.run(typesSrc); // never awaited since it parks on receive() between events
+await untilParked(worker);
+for (const line of events.slice(0, 40000)) worker.pushEvent(line);
+await untilParked(worker);
+
+const blob = await worker.saveState(); // the whole VM with 40000 events counted
+worker.dispose(); // the tab closes and run() is abandoned
+```
+
+A second session on a fresh page load hands it the rest.
+
+```js
+const worker = await createWorker({ limits: { ops: 1e10 } });
+worker.onOutput((chunk) => console.log(chunk));
+
+const done = worker.restoreState(blob); // parked on receive() as the first session left it
+await untilParked(worker);
+for (const line of events.slice(40000)) worker.pushEvent(line);
+worker.pushEvent(""); // the empty line ends the count
+const { out } = await done; // resolves like run() once the program finishes
+```
+
+```text
+ 64617  PushEvent
+ 10350  CreateEvent
+  3198  PullRequestEvent
+  3072  DeleteEvent
+  1368  IssueCommentEvent
+```
+
+These are the counts of the whole hour, the ones the type count prints when it reads the hour itself. The snapshot restored the counts of the first 40,000 events, and the program went on instead of restarting. The restored run spends what is left of the 10,000,000,000 ops the first session gave it, since a blob carries what the run spent and the second session allows as many.
+
+> [!CARDS]
+> - `activity` [Your runtime and its CLI](/docs/edge-lang/get-started/use-cases/your-runtime) A runtime and its CLI built end to end on the kit.
+> - `save` [Persisting a run](/docs/edge-lang/platforms/javascript#persisting-a-run) Keep a blob in Cache Storage, a file, IndexedDB or a server.
+> - `pause` [Pause and snapshots](/docs/edge-lang/platforms/javascript#pause-and-snapshots) Every pause, resume and state call of the JS host.
+
+## From the CLI
+
+The CLI saves and restores the same blob as a plain file, with no JS involved. `--events` feeds each line of a file to one `receive()`, and `--save-state` writes the blob once the file ends and the run waits for more. Saved as `types.mini`, with the hour cut into `first.jsonl` of 40,000 events and `rest.jsonl` of the others and an empty line, the job runs in two processes.
+
+```text
+$ edge run --ops 10000000000 types.mini --events first.jsonl --save-state state.bin
+suspended awaiting an event, state saved to 'state.bin'
+$ edge run --ops 10000000000 --restore-state state.bin --events rest.jsonl
+ 64617  PushEvent
+ 10350  CreateEvent
+  3198  PullRequestEvent
+  3072  DeleteEvent
+  1368  IssueCommentEvent
+```
+
+Both hosts run one engine built from one source. A blob saved in one host restores in the other, so the page's second session takes the CLI's `state.bin` as well. The flags are in [Run flags](/docs/edge-lang/platforms/cli#run-flags).
+
+## What cannot be preempted
+
+A preempt lands at a loop back-edge, and only where the VM can unwind. Three cases run past their interval and yield at the next reachable back-edge.
+
+- A class body and the init of an imported module. The top level of the entry script preempts normally.
+- Program code a native calls back into, such as a key function a sort calls for each item.
+- A single long native operation, such as sorting a huge list.
+
+Everything else preempts, at any call depth and inside `try` blocks.
+
+None of this changes results. An unpreemptible stretch delays a pause and never corrupts one. A preempt that falls due inside code laid with sections waits up to 64 back-edges for the run to leave it, and parks inside it past that. A blob parked inside such code keeps a hash of it, and a restore that would lay it otherwise is refused with `snapshot parks inside laid code this engine lays otherwise`. Why is in [Design](/docs/edge-lang/internals/design#snapshots).
+
+## Inspect without resuming
+
+`stateGlobals` and `stateStack` read a parked run without waking it. That suits a resume screen or debugging a restored blob.
+
+```js
+await worker.stateStack();
+// [{ state: "waiting_event", function: "<module>", ip: 9, frames: [] }]
+
+const { seen, kind } = await worker.stateGlobals();
+// seen reads "40000" and kind "PushEvent" as print shows each value
+```
+
+Those are the first session's answers before it saved, with its 40,000 events counted.
+
+`state` reads `"waiting_event"` for a parked `receive()` and `"waiting_host_call"` for a pending host call. A run held by `pause()` reads `"ready"`, a preempted run waits on nothing and is only not being stepped.
+
+## Limits
+
+- Script state restores identically, queued but unconsumed events included.
+- Live host resources are not captured. DOM handles, sockets and pending host calls must be recreated after a restore.
+- A blob carries the whole heap and has no size cap.
+- A restore spends at most what its blob saved and never more than the VM it restores into allows, and a blob whose heap needs more memory than that VM allows is refused as it decodes. The JS host and the CLI boot that VM with the lower of the limits saved in the blob and the limits the host sets for its runs, so a blob never takes more than a run of that host may.
+
+The byte layout is in [Blob layout](/docs/edge-lang/platforms/rust#blob-layout).

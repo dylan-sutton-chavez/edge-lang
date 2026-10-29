@@ -1,0 +1,241 @@
+---
+title: "Values"
+description: "What a value is to the engine and to a native, the NaN-box and the kinds it holds, the heap and what it interns, the FOREIGN kinds a runtime boxes its own data in, the collector and the memory meter."
+---
+
+# Values
+
+Every value the engine handles is a `Val`, eight bytes on every target. A number or a constant lives in the bits themselves, and anything else names a slot of the heap or an entry of the FOREIGN table. A native reads and makes values through `Cx`, as [Natives](/docs/edge-lang/sdk/natives#cx) lists, and [Memory model](/docs/edge-lang/internals/design#memory-model) has the bit pattern of each tag. This page covers what a runtime and its natives see of them.
+
+## Val
+
+| A `Val` holds | Made with | Read with |
+|---|---|---|
+| A float | `Val::float(f)` | `is_float`, `as_float` |
+| An int of 48 bits | `Val::int(i)`, or `Val::int_checked(i)`, which answers `None` past the range | `is_int`, `as_int` |
+| One of the two truths | `Val::bool(b)` | `is_bool`, `as_bool`, `is_true`, `is_false` |
+| Nil | `Val::none()` | `is_none` |
+| The mark of a name nothing bound yet | `Val::undef()` | `is_undef` |
+| A slot of the heap | `heap.alloc(obj)` or a maker of `Cx` | `is_heap`, `heap.try_get(v)` |
+| An entry of the FOREIGN table | `heap.foreign_new(token, store)` or `heap.foreign_box(token, payload)` | `is_foreign`, `heap.foreign_payload(token, v)` |
+
+An int runs from `Val::INT_MIN` to `Val::INT_MAX`, -140,737,488,355,328 to 140,737,488,355,327, inline with no box. A result past them boxes in the runtime's wide kind, the FOREIGN kind its language's `WIDE` names, and a result that fits again comes back inline, so every int has one form and the inner loop never meets a box. `Cx::new_int` and `heap.int(i)` pick the form, and a runtime that names no wide kind raises its overflow error past 48 bits instead.
+
+Every NaN is stored as one quiet NaN with its sign kept, since the payload of another could read as a tag. Two NaNs are one value, so a set keeps one, while `n == n` stays false.
+
+A 64-bit hash lives past 48 bits from its first value. This one is FNV-1a, the hash the bench keys its cases by, over the first case of `tests/cases/vm/basics.yml` as the bench reads it, and it prints that case's key in `bench/.snapshot`. Each step boxes its result in mini's wide kind, a FOREIGN entry the collector frees once nothing holds it.
+
+```edge
+// the key the bench gives the first case of tests/cases/vm/basics.yml
+case = '{"output":["True"],"src":"print(true)"}'
+
+fn fnv64(text):
+    h = 0xcbf29ce484222325
+    for b in text.encode():
+        h = (h ^ b) * 0x100000001b3 % 2**64
+    return h
+
+key = fnv64(case)
+print(f'{key:016x}', key > 2**47)
+```
+
+```output
+007397267403633c True
+```
+
+[The bench and its keys](/docs/edge-lang/sdk/testing#the-bench-and-its-keys) covers what the bench keys by it.
+
+## Kinds
+
+`kind_of(heap, v)`, which `Cx::kind` reads, gives the `KindId` of a value. A kind is what a native method registers on, and the runtime's `Names.kinds` words each kind for its errors. A wide int reads as `Int`, so the methods of ints answer it too.
+
+| Kind | Holds | Heap object |
+|---|---|---|
+| `None`, `Bool`, `Int`, `Float` | Nil, the truths, ints and floats | No slot, the bits hold them |
+| `Str` | Text in UTF-8 | `Str` |
+| `Bytes`, `ByteArray` | Bytes that never change and bytes that do | `Bytes`, `ByteArray` |
+| `List`, `Tuple` | A sequence that changes and one that never does | `List`, `Tuple` |
+| `Dict`, `Set` | A map and a set, each in the order its keys first came | `Dict`, `Set` |
+| `Range` | A range of ints | `Range`, `BigRange` past 64 bits |
+| `Func` | A function, or one bound to its receiver | `Func`, `Bound` |
+| `Coro` | A generator or a coroutine | `Coroutine` |
+| `Iter` | One of the engine's iterators | `Iter` |
+| `Module` | A module a program imported | `Module` |
+| `Type`, `Class`, `Instance` | A type object, a class and an object of one, a raised error among them | `Object`, which its `meta` tells apart |
+| `Cell` | A variable a closure shares with the frame that binds it | `Cell` |
+| `Other` | A native, a host's binding or a native bound to its receiver | `Native`, `Bound` |
+| `Foreign` | An entry of a kind a runtime or lib registered | No slot, the FOREIGN table holds it |
+
+The heap objects are the leaves the engine knows, and `HeapObj` is closed. An `Object` is a class, a type object or an instance by its `meta`, which is a tag holding the place of a class's or a type's head, its name, bases and members, or else the class or type an instance was made of, so a guard reads one word. A `Bound` holds a receiver and its function or a native's place in the table, and a `Native` holds that place alone. A runtime adds no heap object of its own and boxes its own data in a FOREIGN kind, as mini and tiny box their times.
+
+A list, a map and a set are shared, so every name holding one sees a change through any other. A text, bytes and a tuple never change once built. A map and a set key by content, hashing each key with `hash_val_with_heap` and matching a member by identity before they compare it, so a map keyed by tuples finds an equal tuple built later. A lookup reads one place of its table at a time and pays the op budget for each probe past its first thirty two, so keys chosen to share a hash pay for the probes of each lookup, and a build or a set operation stops once its probes spend the budget. The walks that hash and compare nested containers read up to 1,048,576 items as they go, and past that walk again remembering each container they read, so a value built from shared parts costs what its distinct parts hold.
+
+## The heap
+
+`HeapPool` is the arena of a run, a vector of slots a heap `Val` names by a 28-bit index, so a run holds at most 268,435,456 slots. A freed slot goes on a free list that the next allocations take from, so a run that builds and drops objects in rounds holds no more slots than at its peak. A slot is reused with no generation, so anything that remembers a value by identity is marked or dropped at each collection.
+
+Some values share one slot by content, so equal ones are the same value. The tables that find them pay for each probe past their first thirty two as a map does, so values chosen to share a hash pay for the probes they take.
+
+| Shared | By |
+|---|---|
+| Names and the text constants of a chunk, up to 128 bytes | Their text, through `intern_str` |
+| Every empty text and every text of one byte | Its text, as it is made |
+| Bytes up to 128 bytes | Their content, as they are made |
+| Type objects | Their name |
+| The ellipsis | One value of the runtime's ellipsis kind, made on its first use |
+| A function bound to a receiver | The receiver and the function |
+| A native method bound to a receiver | The receiver and its place in the table |
+| A native method read off its type | Its place in the table |
+
+A text built at run time past one byte is never shared, so two equal texts read from a source are two values that compare equal. A slot keeps a mark of whether its text is all ASCII, read once, so the length of an ASCII text and an index into one cost no scan. An index or a cut into any other text walks from its start, its end or the place the last walk of that text stopped, whichever is nearest, and a walk past 1,024 bytes pays one op for each 16 bytes it reads. A text a loop builds with `+=` grows in place while the loop's register owns it, as [Dispatch shape](/docs/edge-lang/internals/design#dispatch-shape) describes.
+
+`heap.alloc(obj)` admits a new slot unless the run holds twice its memory limit or the arena is full, and the makers of `Cx` go through it. Only the error that reports the limit itself is built past that, through `alloc_emergency`.
+
+## FOREIGN kinds
+
+A FOREIGN value is data the engine holds without knowing its insides, owned by the kind that made it. A kind is a static `Kind` of the crate that owns it.
+
+| Field | Is |
+|---|---|
+| `name`, `version` | What a snapshot names the kind by, and a restore needs a kind of both |
+| `type_name` | The name of the kind's type, which errors and a value's type show |
+| `family` | Values of different families are never equal, so hashes need agree only within one |
+| `immutable` | Whether a value may be copied or shared freely, since its identity is never seen |
+| `repr`, `str`, `truthy` | How a value shows, how it shows as text where that differs, and whether it reads as true under the heap's rules |
+| `hash`, `eq` | The hash and the equality a key uses, never across families and never running program code |
+| `cmp` | The order of two values, or `None` for a kind that does not order |
+| `binop`, `unop` | The operators a value answers, each free to decline one |
+| `to_f64`, `to_i128` | A value as a float or an int, for a kind that is a number |
+| `from_i128`, `from_digits` | How an int past the inline range boxes and how digits past it read, set only by the wide kind |
+| `trace` | The engine values a payload keeps alive, which the collector marks |
+| `get` | What an attribute load of a value reads where the kind's methods hold no such name |
+| `len`, `item`, `cut` | The length a value reports, the item an index reads and the cut its three bounds read |
+| `iter` | The `IterFrame` a loop over a value steps |
+| `call` | What a call of a value with its positionals gives, free to decline |
+| `snapshot` | `Snapshot::Serialize` with the codec of a shared payload, `Snapshot::Store` for a kind of inline stores alone, or `Snapshot::Reject` |
+| `transfer` | `Transfer::Copy` or `Transfer::Deny` across the plugin wire |
+
+`heap.register_kind(&KIND)` registers a kind once and gives its `KindToken`, a kind already registered gets its token back, and another kind under a name one holds is refused with a runtime error, since a snapshot finds a kind by its name. The token is the proof of owning the kind. `heap.foreign_new(token, store)` boxes a new value whose `Store` lies inline in its entry, so it takes no allocation of its own. A store is `Words` of three plain words, `Vals` of three values the collector traces, or `Shared`, a payload of the kind's own type behind one allocation. `heap.foreign_box(token, payload)` boxes an `Rc<dyn Any>` as a `Shared` store, `heap.foreign_box_int(token, i)` keeps an `i128` in `Words`, and `heap.foreign_payload::<T>(token, v)` reads a store back as its type, `None` for a value of another kind. Every other part of the engine only passes the `Val` around and calls the kind's operations. `Cx::kind_token(heap, &KIND)` finds the token once the kind is registered, as tiny's `instant` does in `examples/tiny/src/natives.rs`.
+
+A FOREIGN `Val` names its entry by index and by generation. A freed entry takes the next generation, so a stale or forged `Val` finds nothing, and an entry whose generation runs out retires instead of being reused. The table takes its first entries on the first value a run boxes, and a value of an inline store counts toward a collection as a heap slot does. The engine looks for a FOREIGN value only on its slow paths, so the inline int and float paths pay nothing for them. An operation a kind leaves at `None`, or one that answers `None`, declines, and the engine raises its own error for the operands.
+
+Lib's date module holds the two kinds mini and tiny box their times and durations in, built for each runtime with the type names it picks.
+
+```rust file=lib/src/date/kind.rs
+```
+
+A flow over the GH Archive hour of 1 October 2026 subtracts one time from another to make a duration, which the kind's `binop` answers, keeps the least of each repository through its `cmp` and writes each row through its `repr`.
+
+```tiny
+from: https://data.gharchive.org/2026-10-01-15.json.gz
+where: not actor.login.endswith("[bot]")
+
+open_for:
+  where: type == "IssuesEvent" and payload.action == "closed"
+  min: time(payload.issue.closed_at) - time(payload.issue.created_at)
+  by: repo.name
+  sort: min
+  top: 3
+```
+
+```text
+$ tiny run open.flow.yaml
+open_for
+{"repo":{"name":"zoitbot/tmp-260930"},"min":"17s"}
+{"repo":{"name":"arianacreyes/Repo-1"},"min":"57s"}
+{"repo":{"name":"Tupig/tupigcode"},"min":"88s"}
+```
+
+### Kinds the engine asks about
+
+- **The wide kind.** The language's `WIDE` names the kind every int past 48 bits boxes in, made by `lib::num::big::kind::<L>(type_name)`. It is the only kind with `from_i128` and `from_digits`, and its family takes the inline numbers too, so a float and a wide int of one value are equal and share a hash. The engine reads a wide int that fits an `i128` with one compare and no call into the kind.
+- **Kinds made on first use.** Lib registers a kind when a native boxes its first value of it. The language's `KINDS` lists those a restore may meet, so it can name them before any value exists, and a host that boxes values of its own names them with `heap.know_kind`.
+- **Kinds the engine builds.** The language's `BUILT` names the kinds of the values the engine makes itself, the slice a key of several bounds or a stored slice makes and the one value the ellipsis names, made by `lib::seq::slice::<L>(type_name)` and `lib::types::dots::<L>()`. A read, a delete or a store of `x[a:b:c]` passes its bounds to one op and builds no slice, a store once its code runs in registers, so a slice value exists only where a program keeps one, where an augmented store such as `x[a:b] += v` reads and stores, and where a map takes the slice as its key.
+- **Snapshots.** An inline store rides as it is and a shared payload through its kind's codec, and a restore needs a kind of the same name and version. A kind that rejects fails the save with its name while the run still holds a value of it, as [Rust](/docs/edge-lang/platforms/rust#snapshots) lists among the results of `save_state`, and the JS host and the CLI sweep a value nothing holds before they save, as `edge::embed::save_swept` does.
+- **The plugin wire.** A value crosses to a plugin as the int its kind's `to_i128` gives when its `transfer` is `Copy`, which the wide kind's is. Any other FOREIGN value reaches a plugin as a handle it works on through `edge_op`, as [ABI](/docs/edge-lang/reference/abi#op-codes) lists.
+
+### A kind's methods
+
+A kind's methods are natives in the runtime's table, listed under the kind by `edge::natives!` the way methods are listed under an engine kind.
+
+```rust
+pub static NATIVES: Natives = edge::natives! {
+    language: Mine,
+    fns: [IO],
+    methods: [Str => [STR]],
+    foreign: [POINT => [POINT_METHODS]],
+    types: &TYPES,
+};
+```
+
+`foreign` names each kind by the static `Kind` it registers, so `p.squared()` on a value of `POINT` finds `squared` among `POINT_METHODS` and a value of another kind never does. A read of `p.x` that no method names goes to the kind's `get`. The table keys a kind's methods by the name the kind registers under and each method by its name, so a snapshot names a bound method by both and a table built again finds it by both. A site keeps no foreign method between calls, since the engine kind of every FOREIGN value is the same and only the kind's name tells two tables apart. `tests/names.rs` gives a point kind a method and shows a wide int, a FOREIGN value of another kind, missing it.
+
+## The collector
+
+The collector marks every value a root reaches, then sweeps the slots and the FOREIGN entries nothing reached, with no reference counts, so cycles go too. It runs only at a safe point of the loop, a back-edge or the step of a loop, never while a native's body runs. It runs once the live slots, the allocations since the last sweep or the bytes held pass their thresholds, or once the run holds more than its memory limit, and the first collection waits for 512 live values. [Garbage collection](/docs/edge-lang/internals/design#garbage-collection) gives each threshold and every root.
+
+A FOREIGN entry is marked with the slots. The marking walks into the values a `Vals` store holds, and a shared payload's kind names those it keeps in its `trace`. A native that keeps values across a step keeps them in its `Acc` or in a `Cont` that traces them, since nothing else it holds is a root, as [Out and Step](/docs/edge-lang/sdk/natives#out-and-step) describes.
+
+## The meter
+
+Every block the allocator hands out carries the meter of the run that paid for it, so a run's memory is counted, not estimated. `Metered<A>` is the global allocator that writes the tag. `edge.wasm` installs it, and a host that runs the crate in its own process installs it too, as [The allocator](/docs/edge-lang/sdk/embedding#the-allocator) shows, or a run under a memory limit refuses to start.
+
+- **What a run pays for.** Each heap holds a `Meter`, and while a run runs it is the payer, so its objects, its frames, its caches and its buffers are all charged to it. Freeing a block credits the meter it was charged to, and a block that grows is charged to the payer that grew it. A value a host builds for a run between its steps, an event, an input line or the answer of a call that waited, is charged to that run as well.
+- **The limit.** `held` is what the run holds now, garbage since the last sweep included, and `peak` the most it held at once, which the `memory_peak` export reads. A run past its limit collects at its next safe point and raises the runtime's memory error if it still holds more, while a new slot is refused once the run holds twice its limit.
+- **The instance.** The programs that share a wasm instance or a thread share one budget too, half the address space by default, which `meter::set_budget` sets. The run whose growth passes it raises while the others go on.
+- **Before building.** `room()` is what a result may still take and `reserve(bytes)` refuses a result past it before a byte is built, as [The budget](/docs/edge-lang/sdk/natives#the-budget) describes.
+
+The type count of [Tokens or a front end](/docs/edge-lang/get-started/book/tokens#one-job-both-ways) reads the hour a chunk at a time and keeps only its counts, so it prints its five lines under a limit of 1 MB.
+
+```text
+$ edge run --ops 10000000000 --memory 1 types.mini
+ 64617  PushEvent
+ 10350  CreateEvent
+  3198  PullRequestEvent
+  3072  DeleteEvent
+  1368  IssueCommentEvent
+```
+
+The same count over the hour held whole keeps every chunk, joins them and splits the result, so it holds the 89.4 MB of the hour about three times over.
+
+```edge
+import net
+
+HOUR = 'https://data.gharchive.org/2026-10-01-15.json.gz'
+
+// every chunk of the hour kept before a line of it is cut
+parts = []
+r = net.request('GET', HOUR, nil, nil, 'gzip')
+chunk = net.read(r)
+while chunk is !nil:
+    parts.append(chunk)
+    chunk = net.read(r)
+body = b''.join(parts)
+
+counts = {}
+for line in body.split(b'\n')[:-1]:
+    at = line.find(b'"type":"') + 8
+    kind = line[at:line.find(b'"', at)].decode()
+    counts[kind] = counts.get(kind, 0) + 1
+print(len(body), counts['PushEvent'])
+```
+
+Under the CLI's default limit of 256 MB the run stops at the split, and a limit of 512 MB lets it finish.
+
+```text
+$ edge run --ops 10000000000 whole.mini
+error: MemoryError: memory limit
+   --> whole.mini:15:1
+   |
+15 | for line in body.split(b'\n')[:-1]:
+   | ^
+
+$ edge run --ops 10000000000 --memory 512 whole.mini
+89367842 64617
+```
+
+> [!CARDS]
+> - `library` [Natives](/docs/edge-lang/sdk/natives) The context a native reads and makes values through and the steps it keeps them across.
+> - `gauge` [Limits](/docs/edge-lang/sdk/limits) The memory limit, the op budget and the depth caps every run is held to.
+> - `camera` [Snapshots](/docs/edge-lang/sdk/snapshots) What a blob keeps of the heap and the FOREIGN entries.
+> - `cpu` [Design](/docs/edge-lang/internals/design) The bit patterns, the roots of the collector and the thresholds it runs at.

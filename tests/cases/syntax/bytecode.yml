@@ -1,0 +1,1513 @@
+- mini: |-
+    x = 42
+  names: ["x_1"]
+  constants: ["42"]
+  instructions: [[LoadConst, 0], [StoreName, 0], [ReturnValue, 0]]
+
+- mini: |-
+    x = 1
+    x = 2
+  names: ["x_1", "x_2"]
+  constants: ["1", "2"]
+  instructions: [[LoadConst, 0], [StoreName, 0], [LoadConst, 1], [StoreName, 0], [ReturnValue, 0]]
+
+- mini: |-
+    x = 10
+    y = x
+  names: ["x_1", "y_1"]
+  constants: ["10"]
+  instructions: [[LoadConst, 0], [StoreName, 0], [LoadName, 0], [StoreName, 1], [ReturnValue, 0]]
+
+- mini: |-
+    y = x
+  names: ["x_0", "y_1"]
+  constants: []
+  instructions: [[LoadName, 0], [StoreName, 1], [ReturnValue, 0]]
+
+- mini: |-
+    a = 1
+    b = 2
+    a = b
+    b = a
+  names: ["a_1", "b_1", "a_2", "b_2"]
+  constants: ["1", "2"]
+  instructions: [[LoadConst, 0], [StoreName, 0], [LoadConst, 1], [StoreName, 1], [LoadName, 1], [StoreName, 0], [LoadName, 0], [StoreName, 1], [ReturnValue, 0]]
+
+- mini: |-
+    x: int = 5
+  names: ["x_1"]
+  constants: ["5"]
+  instructions: [[LoadConst, 0], [StoreName, 0], [ReturnValue, 0]]
+
+- mini: |-
+    x: int
+  names: []
+  constants: []
+  instructions: [[ReturnValue, 0]]
+
+- mini: |-
+    counter: int = 0
+    name: str = 'hello'
+    ratio: float = 3.14
+  names: ["counter_1", "name_1", "ratio_1"]
+  constants: ["0", "hello", "3.14"]
+  instructions: [[LoadConst, 0], [StoreName, 0], [LoadConst, 1], [StoreName, 1], [LoadConst, 2], [StoreName, 2], [ReturnValue, 0]]
+
+- mini: |-
+    x = 'hello'
+  names: ["x_1"]
+  constants: ["hello"]
+  instructions: [[LoadConst, 0], [StoreName, 0], [ReturnValue, 0]]
+
+- mini: |-
+    a = true
+    b = false
+  names: ["a_1", "b_1"]
+  constants: []
+  instructions: [[LoadTrue, 0], [StoreName, 0], [LoadFalse, 0], [StoreName, 1], [ReturnValue, 0]]
+
+- mini: |-
+    x = nil
+  names: ["x_1"]
+  constants: []
+  instructions: [[LoadNone, 0], [StoreName, 0], [ReturnValue, 0]]
+
+- mini: |-
+    x = -5
+  names: ["x_1"]
+  constants: ["5"]
+  instructions: [[LoadConst, 0], [Minus, 0], [StoreName, 0], [ReturnValue, 0]]
+
+- mini: |-
+    x = 1 + 2
+  names: ["x_1"]
+  constants: ["1", "2"]
+  instructions: [[LoadConst, 0], [LoadConst, 1], [Add, 0], [StoreName, 0], [ReturnValue, 0]]
+
+- mini: |-
+    x = 5 - 3
+  names: ["x_1"]
+  constants: ["5", "3"]
+  instructions: [[LoadConst, 0], [LoadConst, 1], [Sub, 0], [StoreName, 0], [ReturnValue, 0]]
+
+- mini: |-
+    x = 2 * 3
+  names: ["x_1"]
+  constants: ["2", "3"]
+  instructions: [[LoadConst, 0], [LoadConst, 1], [Mul, 0], [StoreName, 0], [ReturnValue, 0]]
+
+- mini: |-
+    x = 6 / 2
+  names: ["x_1"]
+  constants: ["6", "2"]
+  instructions: [[LoadConst, 0], [LoadConst, 1], [Div, 0], [StoreName, 0], [ReturnValue, 0]]
+
+- mini: |-
+    x = a > b
+  names: ["a_0", "b_0", "x_1"]
+  constants: []
+  instructions: [[LoadName, 0], [LoadName, 1], [Gt, 0], [StoreName, 2], [ReturnValue, 0]]
+
+- mini: |-
+    x = a < b
+  names: ["a_0", "b_0", "x_1"]
+  constants: []
+  instructions: [[LoadName, 0], [LoadName, 1], [Lt, 0], [StoreName, 2], [ReturnValue, 0]]
+
+- mini: |-
+    x = a == b
+  names: ["a_0", "b_0", "x_1"]
+  constants: []
+  instructions: [[LoadName, 0], [LoadName, 1], [Eq, 0], [StoreName, 2], [ReturnValue, 0]]
+
+- mini: |-
+    x = 1
+    x += 2
+  names: ["x_1", "x_2"]
+  constants: ["1", "2"]
+  instructions: [[LoadConst, 0], [StoreName, 0], [LoadName, 0], [LoadConst, 1], [InPlaceAdd, 0], [StoreName, 0], [ReturnValue, 0]]
+
+- mini: |-
+    x = 10
+    x -= 3
+  names: ["x_1", "x_2"]
+  constants: ["10", "3"]
+  instructions: [[LoadConst, 0], [StoreName, 0], [LoadName, 0], [LoadConst, 1], [InPlaceSub, 0], [StoreName, 0], [ReturnValue, 0]]
+
+- mini: |-
+    x = 2
+    x *= 5
+  names: ["x_1", "x_2"]
+  constants: ["2", "5"]
+  instructions: [[LoadConst, 0], [StoreName, 0], [LoadName, 0], [LoadConst, 1], [Mul, 1], [StoreName, 0], [ReturnValue, 0]]
+
+- mini: |-
+    x = 10
+    x /= 2
+  names: ["x_1", "x_2"]
+  constants: ["10", "2"]
+  instructions: [[LoadConst, 0], [StoreName, 0], [LoadName, 0], [LoadConst, 1], [Div, 1], [StoreName, 0], [ReturnValue, 0]]
+
+- mini: |-
+    print(42)
+  names: []
+  constants: ["42"]
+  instructions: [[LoadConst, 0], [CallNative, 1], [ReturnValue, 0]]
+  natives: [["print", 1, 0]]
+
+- mini: |-
+    print(1, 2)
+  names: []
+  constants: ["1", "2"]
+  instructions: [[LoadConst, 0], [LoadConst, 1], [CallNative, 2], [ReturnValue, 0]]
+  natives: [["print", 2, 0]]
+
+- mini: |-
+    abs(-5)
+  names: []
+  constants: ["5"]
+  instructions: [[LoadConst, 0], [Minus, 0], [CallNative, 1], [ReturnValue, 0]]
+  natives: [["abs", 1, 0]]
+
+- mini: |-
+    value: int = abs(-42)
+  names: ["value_1"]
+  constants: ["42"]
+  instructions: [[LoadConst, 0], [Minus, 0], [CallNative, 1], [StoreName, 0], [ReturnValue, 0]]
+  natives: [["abs", 1, 0]]
+
+- mini: |-
+    x = len(y)
+  names: ["y_0", "x_1"]
+  constants: []
+  instructions: [[LoadName, 0], [CallNative, 1], [StoreName, 1], [ReturnValue, 0]]
+  natives: [["len", 1, 0]]
+
+- mini: |-
+    string_euler: str = str(-2.718281)
+  names: ["string_euler_1"]
+  constants: ["2.718281"]
+  instructions: [[LoadConst, 0], [Minus, 0], [CallNative, 1], [StoreName, 0], [ReturnValue, 0]]
+  natives: [["str", 1, 0]]
+
+- mini: |-
+    x = int('42')
+  names: ["x_1"]
+  constants: ["42"]
+  instructions: [[LoadConst, 0], [CallNative, 1], [StoreName, 0], [ReturnValue, 0]]
+  natives: [["int", 1, 0]]
+
+- mini: |-
+    range(4)
+  names: []
+  constants: ["4"]
+  instructions: [[LoadConst, 0], [CallNative, 1], [ReturnValue, 0]]
+  natives: [["range", 1, 0]]
+
+- mini: |-
+    dict()
+  names: []
+  constants: []
+  instructions: [[CallNative, 0], [PopTop, 0], [ReturnValue, 0]]
+  natives: [["dict", 0, 0]]
+
+- mini: |-
+    dict(a=1)
+  names: []
+  constants: ["a", "1"]
+  instructions: [[LoadConst, 0], [LoadConst, 1], [CallNative, 0], [PopTop, 0], [ReturnValue, 0]]
+  natives: [["dict", 0, 1]]
+
+- mini: |-
+    x = {'a': 1}
+  names: ["x_1"]
+  constants: ["a", "1"]
+  instructions: [[LoadConst, 0], [LoadConst, 1], [BuildDict, 1], [StoreName, 0], [ReturnValue, 0]]
+
+- mini: |-
+    x = [1, 2, 3]
+  names: ["x_1"]
+  constants: ["1", "2", "3"]
+  instructions: [[LoadConst, 0], [LoadConst, 1], [LoadConst, 2], [BuildList, 3], [StoreName, 0], [ReturnValue, 0]]
+
+- mini: |-
+    x = d[0]
+  names: ["d_0", "x_1"]
+  constants: ["0"]
+  instructions: [[LoadName, 0], [LoadConst, 0], [GetItem, 0], [StoreName, 1], [ReturnValue, 0]]
+
+- mini: |-
+    range(5)
+  names: []
+  constants: ["5"]
+  instructions: [[LoadConst, 0], [CallNative, 1], [ReturnValue, 0]]
+  natives: [["range", 1, 0]]
+
+- mini: |-
+    name: str = 'Dylan'
+    print(f'Hey, I am: {name}.')
+  names: ["name_1"]
+  constants: ["Dylan", "Hey, I am: ", "."]
+  instructions: [[LoadConst, 0], [StoreName, 0], [LoadConst, 1], [LoadName, 0], [FormatValue, 0], [LoadConst, 2], [BuildString, 3], [CallNative, 1], [ReturnValue, 0]]
+  natives: [["print", 1, 0]]
+
+- mini: |-
+    print(f"{1 + 2}")
+  names: []
+  constants: ["1", "2"]
+  instructions: [[LoadConst, 0], [LoadConst, 1], [Add, 0], [FormatValue, 0], [BuildString, 1], [CallNative, 1], [ReturnValue, 0]]
+  natives: [["print", 1, 0]]
+
+- mini: |-
+    x = f"a {b} c {d} e"
+  names: ["b_0", "d_0", "x_1"]
+  constants: ["a ", " c ", " e"]
+  instructions: [[LoadConst, 0], [LoadName, 0], [FormatValue, 0], [LoadConst, 1], [LoadName, 1], [FormatValue, 0], [LoadConst, 2], [BuildString, 5], [StoreName, 2], [ReturnValue, 0]]
+
+- mini: |-
+    x = f"{len(s)}"
+  names: ["s_0", "x_1"]
+  constants: []
+  instructions: [[LoadName, 0], [CallNative, 1], [FormatValue, 0], [BuildString, 1], [StoreName, 1], [ReturnValue, 0]]
+  natives: [["len", 1, 0]]
+
+- mini: |-
+    x = f"result: {a + b * c}"
+  names: ["a_0", "b_0", "c_0", "x_1"]
+  constants: ["result: "]
+  instructions: [[LoadConst, 0], [LoadName, 0], [LoadName, 1], [LoadName, 2], [Mul, 0], [Add, 0], [FormatValue, 0], [BuildString, 2], [StoreName, 3], [ReturnValue, 0]]
+
+- mini: |-
+    fn add(a, b): return a + b
+    result = add(1, 2)
+  names: ["add_1", "result_1"]
+  constants: ["1", "2"]
+  instructions: [[MakeFunction, 0], [StoreName, 0], [LoadName, 0], [LoadConst, 0], [LoadConst, 1], [Call, 2], [StoreName, 1], [ReturnValue, 0]]
+  functions: 1
+
+- mini: |-
+    if a:
+        x = 1
+    else:
+        x = 2
+  names: ["a_0", "x_1", "x_2", "x_3"]
+  constants: ["1", "2"]
+  instructions: [[LoadName, 0], [JumpIfFalse, 5], [LoadConst, 0], [StoreName, 1], [Jump, 7], [LoadConst, 1], [StoreName, 1], [Phi, 1], [ReturnValue, 0]]
+
+- mini: |-
+    if a:
+        x = 1
+  names: ["a_0", "x_1", "x_0", "x_2"]
+  constants: ["1"]
+  instructions: [[LoadName, 0], [JumpIfFalse, 4], [LoadConst, 0], [StoreName, 2], [Phi, 2], [ReturnValue, 0]]
+
+- mini: |-
+    if a:
+        x = 1
+    else if b:
+        x = 2
+    else:
+        x = 3
+  names: ["a_0", "x_1", "b_0", "x_2", "x_3", "x_4"]
+  constants: ["1", "2", "3"]
+  instructions: [[LoadName, 0], [JumpIfFalse, 5], [LoadConst, 0], [StoreName, 1], [Jump, 12], [LoadName, 2], [JumpIfFalse, 10], [LoadConst, 1], [StoreName, 1], [Jump, 12], [LoadConst, 2], [StoreName, 1], [Phi, 1], [ReturnValue, 0]]
+
+- mini: |-
+    x = 0
+    if a:
+        x = 1
+    else:
+        x = 2
+    y = x
+  names: ["x_1", "a_0", "x_2", "x_3", "x_4", "y_1"]
+  constants: ["0", "1", "2"]
+  instructions: [[LoadConst, 0], [StoreName, 0], [LoadName, 1], [JumpIfFalse, 7], [LoadConst, 1], [StoreName, 0], [Jump, 9], [LoadConst, 2], [StoreName, 0], [Phi, 0], [LoadName, 0], [StoreName, 5], [ReturnValue, 0]]
+
+- mini: |-
+    total = 0
+    for i in range(5):
+        total = total + i
+  names: ["total_1", "i_1", "total_2", "i_0", "i_2", "total_3"]
+  constants: ["0", "5"]
+  instructions: [[LoadConst, 0], [StoreName, 0], [LoadConst, 1], [CallNative, 1], [GetIter, 0], [ForIter, 12], [StoreName, 3], [LoadName, 0], [LoadName, 3], [Add, 0], [StoreName, 0], [Jump, 5], [Phi, 3], [Phi, 0], [ReturnValue, 0]]
+  natives: [["range", 1, 0]]
+
+- mini: |-
+    for i in range(3):
+        print(i)
+  names: ["i_1", "i_0", "i_2"]
+  constants: ["3"]
+  instructions: [[LoadConst, 0], [CallNative, 1], [GetIter, 0], [ForIter, 8], [StoreName, 1], [LoadName, 1], [CallNative, 1], [Jump, 3], [Phi, 1], [ReturnValue, 0]]
+  natives: [["range", 1, 0], ["print", 1, 0]]
+
+- mini: |-
+    forty_two = int('42')
+    seven = int(-7)
+    pi = int(3.14)
+  names: ["forty_two_1", "seven_1", "pi_1"]
+  constants: ["42", "7", "3.14"]
+  instructions: [[LoadConst, 0], [CallNative, 1], [StoreName, 0], [LoadConst, 1], [Minus, 0], [CallNative, 1], [StoreName, 1], [LoadConst, 2], [CallNative, 1], [StoreName, 2], [ReturnValue, 0]]
+  natives: [["int", 1, 0], ["int", 1, 0], ["int", 1, 0]]
+
+- mini: |-
+    d = {1: 'one', 2: true, 'x': 3.14}
+    print(d)
+    print(d[2])
+    print(d['x'])
+  names: ["d_1"]
+  constants: ["1", "one", "2", "x", "3.14", "2", "x"]
+  instructions: [[LoadConst, 0], [LoadConst, 1], [LoadConst, 2], [LoadTrue, 0], [LoadConst, 3], [LoadConst, 4], [BuildDict, 3], [StoreName, 0], [LoadName, 0], [CallNative, 1], [LoadName, 0], [LoadConst, 5], [GetItem, 0], [CallNative, 1], [LoadName, 0], [LoadConst, 6], [GetItem, 0], [CallNative, 1], [ReturnValue, 0]]
+  natives: [["print", 1, 0], ["print", 1, 0], ["print", 1, 0]]
+
+- mini: |-
+    dict()
+    dict(a=1)
+    {'a': 1}
+    dict({'a': 1})
+  names: []
+  constants: ["a", "1", "a", "1", "a", "1"]
+  instructions: [[CallNative, 0], [PopTop, 0], [LoadConst, 0], [LoadConst, 1], [CallNative, 0], [PopTop, 0], [LoadConst, 2], [LoadConst, 3], [BuildDict, 1], [PopTop, 0], [LoadConst, 4], [LoadConst, 5], [BuildDict, 1], [CallNative, 1], [PopTop, 0], [ReturnValue, 0]]
+  natives: [["dict", 0, 0], ["dict", 0, 1], ["dict", 1, 0]]
+
+- mini: |-
+    x = 10
+    if x > 20:
+        y = 1
+    else if x > 5:
+        y = 2
+    else:
+        y = 3
+  names: ["x_1", "y_1", "y_2", "y_3", "y_4"]
+  constants: ["10", "20", "1", "5", "2", "3"]
+  instructions: [[LoadConst, 0], [StoreName, 0], [LoadName, 0], [LoadConst, 1], [Gt, 0], [JumpIfFalse, 9], [LoadConst, 2], [StoreName, 1], [Jump, 18], [LoadName, 0], [LoadConst, 3], [Gt, 0], [JumpIfFalse, 16], [LoadConst, 4], [StoreName, 1], [Jump, 18], [LoadConst, 5], [StoreName, 1], [Phi, 1], [ReturnValue, 0]]
+
+- mini: |-
+    x = 0
+    if a:
+        x = 1
+    else if b:
+        x = 2
+    else:
+        x = 3
+    y = x
+  names: ["x_1", "a_0", "x_2", "b_0", "x_3", "x_4", "x_5", "y_1"]
+  constants: ["0", "1", "2", "3"]
+  instructions: [[LoadConst, 0], [StoreName, 0], [LoadName, 1], [JumpIfFalse, 7], [LoadConst, 1], [StoreName, 0], [Jump, 14], [LoadName, 3], [JumpIfFalse, 12], [LoadConst, 2], [StoreName, 0], [Jump, 14], [LoadConst, 3], [StoreName, 0], [Phi, 0], [LoadName, 0], [StoreName, 7], [ReturnValue, 0]]
+
+- mini: |-
+    a = 1
+    b = 2
+    c = 3
+    d = a + b * c - 1
+  names: ["a_1", "b_1", "c_1", "d_1"]
+  constants: ["1", "2", "3", "1"]
+  instructions: [[LoadConst, 0], [StoreName, 0], [LoadConst, 1], [StoreName, 1], [LoadConst, 2], [StoreName, 2], [LoadName, 0], [LoadName, 1], [LoadName, 2], [Mul, 0], [Add, 0], [LoadConst, 3], [Sub, 0], [StoreName, 3], [ReturnValue, 0]]
+
+- mini: |-
+    s = 0
+    for i in range(10):
+        s += i
+  names: ["s_1", "i_1", "s_2", "i_0", "i_2", "s_3"]
+  constants: ["0", "10"]
+  instructions: [[LoadConst, 0], [StoreName, 0], [LoadConst, 1], [CallNative, 1], [GetIter, 0], [ForIter, 12], [StoreName, 3], [LoadName, 0], [LoadName, 3], [InPlaceAdd, 0], [StoreName, 0], [Jump, 5], [Phi, 3], [Phi, 0], [ReturnValue, 0]]
+  natives: [["range", 1, 0]]
+
+- mini: |-
+    x = 1
+    x = x + 1
+    x = x + 1
+    y = x
+  names: ["x_1", "x_2", "x_3", "y_1"]
+  constants: ["1", "1", "1"]
+  instructions: [[LoadConst, 0], [StoreName, 0], [LoadName, 0], [LoadConst, 1], [Add, 0], [StoreName, 0], [LoadName, 0], [LoadConst, 2], [Add, 0], [StoreName, 0], [LoadName, 0], [StoreName, 3], [ReturnValue, 0]]
+
+- mini: |-
+    x = int(str(42))
+  names: ["x_1"]
+  constants: ["42"]
+  instructions: [[LoadConst, 0], [CallNative, 1], [CallNative, 1], [StoreName, 0], [ReturnValue, 0]]
+  natives: [["str", 1, 0], ["int", 1, 0]]
+
+- mini: |-
+    items = [1, 2, 3]
+    n = len(items)
+    print(n)
+  names: ["items_1", "n_1"]
+  constants: ["1", "2", "3"]
+  instructions: [[LoadConst, 0], [LoadConst, 1], [LoadConst, 2], [BuildList, 3], [StoreName, 0], [LoadName, 0], [CallNative, 1], [StoreName, 1], [LoadName, 1], [CallNative, 1], [ReturnValue, 0]]
+  natives: [["len", 1, 0], ["print", 1, 0]]
+
+- mini: |-
+    x = 10
+    x += 1
+    x -= 2
+    x *= 3
+    x /= 4
+  names: ["x_1", "x_2", "x_3", "x_4", "x_5"]
+  constants: ["10", "1", "2", "3", "4"]
+  instructions: [[LoadConst, 0], [StoreName, 0], [LoadName, 0], [LoadConst, 1], [InPlaceAdd, 0], [StoreName, 0], [LoadName, 0], [LoadConst, 2], [InPlaceSub, 0], [StoreName, 0], [LoadName, 0], [LoadConst, 3], [Mul, 1], [StoreName, 0], [LoadName, 0], [LoadConst, 4], [Div, 1], [StoreName, 0], [ReturnValue, 0]]
+
+- mini: |-
+    x = 1
+    if true:
+        x = 2
+    y = x
+  names: ["x_1", "x_2", "x_3", "y_1"]
+  constants: ["1", "2"]
+  instructions: [[LoadConst, 0], [StoreName, 0], [LoadTrue, 0], [JumpIfFalse, 6], [LoadConst, 1], [StoreName, 0], [Phi, 0], [LoadName, 0], [StoreName, 3], [ReturnValue, 0]]
+
+- mini: |-
+    if true:
+        x = 1
+        y = 2
+    z = x
+  names: ["x_1", "y_1", "x_0", "x_2", "y_0", "y_2", "z_1"]
+  constants: ["1", "2"]
+  instructions: [[LoadTrue, 0], [JumpIfFalse, 6], [LoadConst, 0], [StoreName, 2], [LoadConst, 1], [StoreName, 4], [Phi, 2], [Phi, 4], [LoadName, 2], [StoreName, 6], [ReturnValue, 0]]
+
+- mini: |-
+    for i in range(3):
+        x = i
+        print(x)
+  names: ["i_1", "x_1", "i_0", "i_2", "x_0", "x_2"]
+  constants: ["3"]
+  instructions: [[LoadConst, 0], [CallNative, 1], [GetIter, 0], [ForIter, 10], [StoreName, 2], [LoadName, 2], [StoreName, 4], [LoadName, 4], [CallNative, 1], [Jump, 3], [Phi, 2], [Phi, 4], [ReturnValue, 0]]
+  natives: [["range", 1, 0], ["print", 1, 0]]
+
+- mini: |-
+    x = a.b
+  names: ["a_0", "b", "x_1"]
+  constants: []
+  instructions: [[LoadName, 0], [LoadAttr, 1], [StoreName, 2], [ReturnValue, 0]]
+
+- mini: |-
+    x = a.b.c
+  names: ["a_0", "b", "c", "x_1"]
+  constants: []
+  instructions: [[LoadName, 0], [LoadAttr, 1], [LoadAttr, 2], [StoreName, 3], [ReturnValue, 0]]
+
+- mini: |-
+    x = s.upper()
+  names: ["s_0", "upper", "x_1"]
+  constants: []
+  instructions: [[LoadName, 0], [LoadAttr, 1], [Call, 0], [StoreName, 2], [ReturnValue, 0]]
+
+- mini: |-
+    x = s.replace('a', 'b')
+  names: ["s_0", "replace", "x_1"]
+  constants: ["a", "b"]
+  instructions: [[LoadName, 0], [LoadAttr, 1], [LoadConst, 0], [LoadConst, 1], [Call, 2], [StoreName, 2], [ReturnValue, 0]]
+
+- mini: |-
+    print(s.upper())
+  names: ["s_0", "upper"]
+  constants: []
+  instructions: [[LoadName, 0], [LoadAttr, 1], [Call, 0], [CallNative, 1], [ReturnValue, 0]]
+  natives: [["print", 1, 0]]
+
+- mini: |-
+    self.name = value
+  names: ["value_0", "self_0", "name"]
+  constants: []
+  instructions: [[LoadName, 0], [LoadName, 1], [Swap, 0], [StoreAttr, 2], [ReturnValue, 0]]
+
+- mini: |-
+    x = a[1:3]
+  names: ["a_0", "x_1"]
+  constants: ["1", "3"]
+  instructions: [[LoadName, 0], [LoadConst, 0], [LoadConst, 1], [Cut, 3], [StoreName, 1], [ReturnValue, 0]]
+
+- mini: |-
+    x = a[:3]
+  names: ["a_0", "x_1"]
+  constants: ["3"]
+  instructions: [[LoadName, 0], [LoadNone, 0], [LoadConst, 0], [Cut, 3], [StoreName, 1], [ReturnValue, 0]]
+
+- mini: |-
+    x = a[::2]
+  names: ["a_0", "x_1"]
+  constants: ["2"]
+  instructions: [[LoadName, 0], [LoadNone, 0], [LoadNone, 0], [LoadConst, 0], [Cut, 4], [StoreName, 1], [ReturnValue, 0]]
+
+- mini: |-
+    x = a[1:]
+  names: ["a_0", "x_1"]
+  constants: ["1"]
+  instructions: [[LoadName, 0], [LoadConst, 0], [LoadNone, 0], [Cut, 3], [StoreName, 1], [ReturnValue, 0]]
+
+- mini: |-
+    class Dog:
+        pass
+  names: ["Dog_1"]
+  constants: []
+  instructions: [[MakeClass, 0], [StoreName, 0], [ReturnValue, 0]]
+  classes: 1
+
+- mini: |-
+    class Dog(Animal):
+        pass
+  names: ["Animal_0", "Dog_1"]
+  constants: []
+  instructions: [[LoadName, 0], [MakeClass, 0], [StoreName, 1], [ReturnValue, 0]]
+  classes: 1
+
+- mini: |-
+    try:
+        x = 1
+    except:
+        x = 2
+  names: ["x_1", "x_2", "x_3"]
+  constants: ["1", "2"]
+  instructions: [[SetupFinally, 11], [SetupExcept, 6], [LoadConst, 0], [StoreName, 0], [PopExcept, 0], [Jump, 9], [PopTop, 0], [LoadConst, 1], [StoreName, 0], [PopExcept, 0], [BeginFinally, 0], [EndFinally, 0], [Phi, 0], [ReturnValue, 0]]
+
+- mini: |-
+    x = a & b
+  names: ["a_0", "b_0", "x_1"]
+  constants: []
+  instructions: [[LoadName, 0], [LoadName, 1], [BitAnd, 0], [StoreName, 2], [ReturnValue, 0]]
+
+- mini: |-
+    x = a | b
+  names: ["a_0", "b_0", "x_1"]
+  constants: []
+  instructions: [[LoadName, 0], [LoadName, 1], [BitOr, 0], [StoreName, 2], [ReturnValue, 0]]
+
+- mini: |-
+    x = a ^ b
+  names: ["a_0", "b_0", "x_1"]
+  constants: []
+  instructions: [[LoadName, 0], [LoadName, 1], [BitXor, 0], [StoreName, 2], [ReturnValue, 0]]
+
+- mini: |-
+    x = ~a
+  names: ["a_0", "x_1"]
+  constants: []
+  instructions: [[LoadName, 0], [BitNot, 0], [StoreName, 1], [ReturnValue, 0]]
+
+- mini: |-
+    x = a << 2
+  names: ["a_0", "x_1"]
+  constants: ["2"]
+  instructions: [[LoadName, 0], [LoadConst, 0], [Shl, 0], [StoreName, 1], [ReturnValue, 0]]
+
+- mini: |-
+    x = a >> 2
+  names: ["a_0", "x_1"]
+  constants: ["2"]
+  instructions: [[LoadName, 0], [LoadConst, 0], [Shr, 0], [StoreName, 1], [ReturnValue, 0]]
+
+- mini: |-
+    x = a in b
+  names: ["a_0", "b_0", "x_1"]
+  constants: []
+  instructions: [[LoadName, 0], [LoadName, 1], [In, 0], [StoreName, 2], [ReturnValue, 0]]
+
+- mini: |-
+    x = a !in b
+  names: ["a_0", "b_0", "x_1"]
+  constants: []
+  instructions: [[LoadName, 0], [LoadName, 1], [NotIn, 0], [StoreName, 2], [ReturnValue, 0]]
+
+- mini: |-
+    x = a is nil
+  names: ["a_0", "x_1"]
+  constants: []
+  instructions: [[LoadName, 0], [LoadNone, 0], [Is, 0], [StoreName, 1], [ReturnValue, 0]]
+
+- mini: |-
+    x = a is !nil
+  names: ["a_0", "x_1"]
+  constants: []
+  instructions: [[LoadName, 0], [LoadNone, 0], [IsNot, 0], [StoreName, 1], [ReturnValue, 0]]
+
+- mini: |-
+    x = 1 if true else 2
+  names: ["x_1"]
+  constants: ["1", "2"]
+  instructions: [[LoadTrue, 0], [JumpIfFalse, 4], [LoadConst, 0], [Jump, 5], [LoadConst, 1], [StoreName, 0], [ReturnValue, 0]]
+
+- mini: |-
+    x = a if a else b
+  names: ["a_0", "b_0", "x_1"]
+  constants: []
+  instructions: [[LoadName, 0], [JumpIfFalse, 4], [LoadName, 0], [Jump, 5], [LoadName, 1], [StoreName, 2], [ReturnValue, 0]]
+
+- mini: |-
+    a, b = 1, 2
+  names: ["a_1", "b_1"]
+  constants: ["1", "2"]
+  instructions: [[LoadConst, 0], [LoadConst, 1], [BuildTuple, 2], [UnpackSequence, 2], [StoreName, 0], [StoreName, 1], [ReturnValue, 0]]
+
+- mini: |-
+    a, b, c = 1, 2, 3
+  names: ["a_1", "b_1", "c_1"]
+  constants: ["1", "2", "3"]
+  instructions: [[LoadConst, 0], [LoadConst, 1], [LoadConst, 2], [BuildTuple, 3], [UnpackSequence, 3], [StoreName, 0], [StoreName, 1], [StoreName, 2], [ReturnValue, 0]]
+
+- mini: |-
+    fn f(x, y=1):
+        return x + y
+  names: ["f_1"]
+  constants: ["1"]
+  instructions: [[LoadConst, 0], [MakeFunction, 0], [StoreName, 0], [ReturnValue, 0]]
+  functions: 1
+
+- mini: |-
+    fn f(x, y=1, z=2):
+        pass
+  names: ["f_1"]
+  constants: ["1", "2"]
+  instructions: [[LoadConst, 0], [LoadConst, 1], [MakeFunction, 0], [StoreName, 0], [ReturnValue, 0]]
+  functions: 1
+
+- mini: |-
+    fn f(a, b, c=10):
+        pass
+  names: ["f_1"]
+  constants: ["10"]
+  instructions: [[LoadConst, 0], [MakeFunction, 0], [StoreName, 0], [ReturnValue, 0]]
+  functions: 1
+
+- mini: |-
+    f = lambda x: x
+  names: ["f_1"]
+  constants: []
+  instructions: [[MakeFunction, 0], [StoreName, 0], [ReturnValue, 0]]
+  functions: 1
+
+- mini: |-
+    f = lambda x, y: x + y
+  names: ["f_1"]
+  constants: []
+  instructions: [[MakeFunction, 0], [StoreName, 0], [ReturnValue, 0]]
+  functions: 1
+
+- mini: |-
+    f = lambda: 1
+  names: ["f_1"]
+  constants: []
+  instructions: [[MakeFunction, 0], [StoreName, 0], [ReturnValue, 0]]
+  functions: 1
+
+- mini: |-
+    del x
+  names: ["x_0"]
+  constants: []
+  instructions: [[Del, 0], [ReturnValue, 0]]
+
+- mini: |-
+    x = 1
+    del x
+  names: ["x_1"]
+  constants: ["1"]
+  instructions: [[LoadConst, 0], [StoreName, 0], [Del, 0], [ReturnValue, 0]]
+
+- mini: |-
+    assert x
+  names: ["x_0"]
+  constants: []
+  instructions: [[LoadName, 0], [Assert, 0], [ReturnValue, 0]]
+
+- mini: |-
+    assert x > 0
+  names: ["x_0"]
+  constants: ["0"]
+  instructions: [[LoadName, 0], [LoadConst, 0], [Gt, 0], [Assert, 0], [ReturnValue, 0]]
+
+- mini: |-
+    assert x, 'msg'
+  names: ["x_0", "<assert fail>"]
+  constants: ["msg"]
+  instructions: [[LoadName, 0], [JumpIfFalse, 3], [Jump, 7], [LoadName, 1], [LoadConst, 0], [Call, 1], [Raise, 0], [ReturnValue, 0]]
+
+- mini: |-
+    global x, y
+  names: ["x", "y"]
+  constants: []
+  instructions: [[Global, 0], [Global, 1], [ReturnValue, 0]]
+
+- mini: |-
+    @dec
+    fn f():
+        pass
+  names: ["dec_0", "f_1"]
+  constants: []
+  instructions: [[LoadName, 0], [MakeFunction, 0], [Call, 1], [StoreName, 1], [ReturnValue, 0]]
+  functions: 1
+
+- mini: |-
+    @a
+    @b
+    fn f():
+        pass
+  names: ["a_0", "b_0", "f_1"]
+  constants: []
+  instructions: [[LoadName, 0], [LoadName, 1], [MakeFunction, 0], [Call, 1], [Call, 1], [StoreName, 2], [ReturnValue, 0]]
+  functions: 1
+
+- mini: |-
+    @a
+    @b
+    @c
+    fn f():
+        pass
+  names: ["a_0", "b_0", "c_0", "f_1"]
+  constants: []
+  instructions: [[LoadName, 0], [LoadName, 1], [LoadName, 2], [MakeFunction, 0], [Call, 1], [Call, 1], [Call, 1], [StoreName, 3], [ReturnValue, 0]]
+  functions: 1
+
+- mini: |-
+    @deco(7)
+    fn f():
+        pass
+  names: ["deco_0", "f_1"]
+  constants: ["7"]
+  instructions: [[LoadName, 0], [LoadConst, 0], [Call, 1], [MakeFunction, 0], [Call, 1], [StoreName, 1], [ReturnValue, 0]]
+  functions: 1
+
+- mini: |-
+    @a(1)
+    @b(2)
+    fn f():
+        pass
+  names: ["a_0", "b_0", "f_1"]
+  constants: ["1", "2"]
+  instructions: [[LoadName, 0], [LoadConst, 0], [Call, 1], [LoadName, 1], [LoadConst, 1], [Call, 1], [MakeFunction, 0], [Call, 1], [Call, 1], [StoreName, 2], [ReturnValue, 0]]
+  functions: 1
+
+- mini: |-
+    fn f(*args):
+        pass
+  names: ["f_1"]
+  constants: []
+  instructions: [[MakeFunction, 0], [StoreName, 0], [ReturnValue, 0]]
+  functions: 1
+
+- mini: |-
+    fn f(**kwargs):
+        pass
+  names: ["f_1"]
+  constants: []
+  instructions: [[MakeFunction, 0], [StoreName, 0], [ReturnValue, 0]]
+  functions: 1
+
+- mini: |-
+    fn f(a, *args, **kwargs):
+        pass
+  names: ["f_1"]
+  constants: []
+  instructions: [[MakeFunction, 0], [StoreName, 0], [ReturnValue, 0]]
+  functions: 1
+
+- mini: |-
+    f(*x)
+  names: ["f_0", "x_0"]
+  constants: []
+  instructions: [[LoadName, 0], [BeginArgs, 0], [LoadName, 1], [UnpackArgs, 1], [CallSpread, 1], [PopTop, 0], [ReturnValue, 0]]
+
+- mini: |-
+    f(**d)
+  names: ["f_0", "d_0"]
+  constants: []
+  instructions: [[LoadName, 0], [BeginArgs, 0], [LoadName, 1], [UnpackArgs, 2], [CallSpread, 1], [PopTop, 0], [ReturnValue, 0]]
+
+- mini: |-
+    x = [i for i in range(3)]
+  names: ["i_1", "<listcomp>_1", "x_1"]
+  constants: ["3"]
+  instructions: [[LoadConst, 0], [CallNative, 1], [GetIter, 2], [MakeFunction, 0], [Swap, 0], [Call, 1], [StoreName, 2], [ReturnValue, 0]]
+  functions: 1
+  natives: [["range", 1, 0]]
+
+- mini: |-
+    x = (y := 5)
+  names: ["y_1", "x_1"]
+  constants: ["5"]
+  instructions: [[LoadConst, 0], [StoreName, 0], [LoadName, 0], [StoreName, 1], [ReturnValue, 0]]
+
+- mini: |-
+    x = (1, 2)
+  names: ["x_1"]
+  constants: ["1", "2"]
+  instructions: [[LoadConst, 0], [LoadConst, 1], [BuildTuple, 2], [StoreName, 0], [ReturnValue, 0]]
+
+- mini: |-
+    x = (1, 2, 3)
+  names: ["x_1"]
+  constants: ["1", "2", "3"]
+  instructions: [[LoadConst, 0], [LoadConst, 1], [LoadConst, 2], [BuildTuple, 3], [StoreName, 0], [ReturnValue, 0]]
+
+- mini: |-
+    x = (1,)
+  names: ["x_1"]
+  constants: ["1"]
+  instructions: [[LoadConst, 0], [BuildTuple, 1], [StoreName, 0], [ReturnValue, 0]]
+
+- mini: |-
+    x = {1, 2, 3}
+  names: ["x_1"]
+  constants: ["1", "2", "3"]
+  instructions: [[LoadConst, 0], [LoadConst, 1], [LoadConst, 2], [BuildSet, 3], [StoreName, 0], [ReturnValue, 0]]
+
+- mini: |-
+    x = {1, 2}
+  names: ["x_1"]
+  constants: ["1", "2"]
+  instructions: [[LoadConst, 0], [LoadConst, 1], [BuildSet, 2], [StoreName, 0], [ReturnValue, 0]]
+
+- mini: |-
+    match x:
+        case 1:
+            y = 10
+        case _:
+            y = 20
+  names: ["x_0", "#match1", "y_1", "y_2"]
+  constants: ["1", "10", "20"]
+  instructions: [[LoadName, 0], [StoreName, 1], [LoadName, 1], [LoadConst, 0], [Eq, 0], [JumpIfFalse, 9], [LoadConst, 1], [StoreName, 2], [Jump, 11], [LoadConst, 2], [StoreName, 2], [ReturnValue, 0]]
+
+- mini: |-
+    match x:
+        case 1:
+            y = 1
+        case 2:
+            y = 2
+        case _:
+            y = 3
+  names: ["x_0", "#match1", "y_1", "y_2", "y_3"]
+  constants: ["1", "1", "2", "2", "3"]
+  instructions: [[LoadName, 0], [StoreName, 1], [LoadName, 1], [LoadConst, 0], [Eq, 0], [JumpIfFalse, 9], [LoadConst, 1], [StoreName, 2], [Jump, 18], [LoadName, 1], [LoadConst, 2], [Eq, 0], [JumpIfFalse, 16], [LoadConst, 3], [StoreName, 2], [Jump, 18], [LoadConst, 4], [StoreName, 2], [ReturnValue, 0]]
+
+- mini: |-
+    raise x
+  names: ["x_0"]
+  constants: []
+  instructions: [[LoadName, 0], [Raise, 0], [ReturnValue, 0]]
+
+- mini: |-
+    for i in range(3):
+        pass
+    else:
+        x = 1
+  names: ["i_1", "x_1", "i_0", "i_2", "x_0", "x_2"]
+  constants: ["3", "1"]
+  instructions: [[LoadConst, 0], [CallNative, 1], [GetIter, 0], [ForIter, 6], [StoreName, 2], [Jump, 3], [LoadConst, 1], [StoreName, 4], [Phi, 2], [Phi, 4], [ReturnValue, 0]]
+  natives: [["range", 1, 0]]
+
+- mini: |-
+    while x:
+        pass
+    else:
+        y = 1
+  names: ["x_0", "y_1", "y_0", "y_2"]
+  constants: ["1"]
+  instructions: [[LoadName, 0], [JumpIfFalse, 3], [Jump, 0], [LoadConst, 0], [StoreName, 2], [Phi, 2], [ReturnValue, 0]]
+
+- mini: |-
+    try:
+        x = 1
+    except:
+        x = 2
+    else:
+        x = 3
+  names: ["x_1", "x_2", "x_3", "x_4"]
+  constants: ["1", "2", "3"]
+  instructions: [[SetupFinally, 14], [SetupExcept, 6], [LoadConst, 0], [StoreName, 0], [PopExcept, 0], [Jump, 10], [PopTop, 0], [LoadConst, 1], [StoreName, 0], [Jump, 12], [LoadConst, 2], [StoreName, 0], [PopExcept, 0], [BeginFinally, 0], [EndFinally, 0], [Phi, 0], [ReturnValue, 0]]
+
+- mini: |-
+    class C(A, B):
+        pass
+  names: ["A_0", "B_0", "C_1"]
+  constants: []
+  instructions: [[LoadName, 0], [LoadName, 1], [MakeClass, 0], [StoreName, 2], [ReturnValue, 0]]
+  classes: 1
+
+- mini: |-
+    class C(A, B, D):
+        pass
+  names: ["A_0", "B_0", "D_0", "C_1"]
+  constants: []
+  instructions: [[LoadName, 0], [LoadName, 1], [LoadName, 2], [MakeClass, 0], [StoreName, 3], [ReturnValue, 0]]
+  classes: 1
+
+- mini: |-
+    y = f"{x:.2f}"
+  names: ["x_0", "y_1"]
+  constants: [".2f"]
+  instructions: [[LoadName, 0], [LoadConst, 0], [FormatValue, 1], [BuildString, 1], [StoreName, 1], [ReturnValue, 0]]
+
+- mini: |-
+    y = f"{x:>10}"
+  names: ["x_0", "y_1"]
+  constants: [">10"]
+  instructions: [[LoadName, 0], [LoadConst, 0], [FormatValue, 1], [BuildString, 1], [StoreName, 1], [ReturnValue, 0]]
+
+- mini: |-
+    y = f"{x:04d}"
+  names: ["x_0", "y_1"]
+  constants: ["04d"]
+  instructions: [[LoadName, 0], [LoadConst, 0], [FormatValue, 1], [BuildString, 1], [StoreName, 1], [ReturnValue, 0]]
+
+- mini: |-
+    *a, b = [1, 2, 3]
+  names: ["a_1", "b_1"]
+  constants: ["1", "2", "3"]
+  instructions: [[LoadConst, 0], [LoadConst, 1], [LoadConst, 2], [BuildList, 3], [UnpackEx, 1], [StoreName, 0], [StoreName, 1], [ReturnValue, 0]]
+
+- mini: |-
+    a, *b = [1, 2, 3]
+  names: ["a_1", "b_1"]
+  constants: ["1", "2", "3"]
+  instructions: [[LoadConst, 0], [LoadConst, 1], [LoadConst, 2], [BuildList, 3], [UnpackEx, 256], [StoreName, 0], [StoreName, 1], [ReturnValue, 0]]
+
+- mini: |-
+    a, *b, c = [1, 2, 3, 4]
+  names: ["a_1", "b_1", "c_1"]
+  constants: ["1", "2", "3", "4"]
+  instructions: [[LoadConst, 0], [LoadConst, 1], [LoadConst, 2], [LoadConst, 3], [BuildList, 4], [UnpackEx, 257], [StoreName, 0], [StoreName, 1], [StoreName, 2], [ReturnValue, 0]]
+
+- mini: |-
+    x = d[0] + 1
+  names: ["d_0", "x_1"]
+  constants: ["0", "1"]
+  instructions: [[LoadName, 0], [LoadConst, 0], [GetItem, 0], [LoadConst, 1], [Add, 0], [StoreName, 1], [ReturnValue, 0]]
+
+- mini: |-
+    x = []
+  names: ["x_1"]
+  constants: []
+  instructions: [[BuildList, 0], [StoreName, 0], [ReturnValue, 0]]
+
+- mini: |-
+    x = [i for i in range(3) for j in range(2)]
+  names: ["i_1", "j_1", "<listcomp>_1", "x_1"]
+  constants: ["3"]
+  instructions: [[LoadConst, 0], [CallNative, 1], [GetIter, 2], [MakeFunction, 0], [Swap, 0], [Call, 1], [StoreName, 3], [ReturnValue, 0]]
+  functions: 1
+  natives: [["range", 1, 0]]
+
+- mini: |-
+    x = 'hello' ' world'
+  names: ["x_1"]
+  constants: ["hello world"]
+  instructions: [[LoadConst, 0], [StoreName, 0], [ReturnValue, 0]]
+
+- mini: |-
+    x = ...
+  names: ["x_1"]
+  constants: []
+  instructions: [[LoadEllipsis, 0], [StoreName, 0], [ReturnValue, 0]]
+
+- mini: |-
+    x = [i for i in range(10) if i > 2 if i < 8]
+  names: ["i_1", "<listcomp>_1", "x_1"]
+  constants: ["10"]
+  instructions: [[LoadConst, 0], [CallNative, 1], [GetIter, 2], [MakeFunction, 0], [Swap, 0], [Call, 1], [StoreName, 2], [ReturnValue, 0]]
+  functions: 1
+  natives: [["range", 1, 0]]
+
+- mini: |-
+    x = (i for i in range(3))
+  names: ["i_1", "<genexpr>_1", "x_1"]
+  constants: ["3"]
+  instructions: [[LoadConst, 0], [CallNative, 1], [GetIter, 2], [MakeFunction, 0], [Swap, 0], [Call, 1], [StoreName, 2], [ReturnValue, 0]]
+  functions: 1
+  natives: [["range", 1, 0]]
+
+- mini: |-
+    fn f(x: int, y: str = 'a') -> bool:
+        pass
+  names: ["f_1"]
+  constants: ["a"]
+  instructions: [[LoadConst, 0], [MakeFunction, 0], [StoreName, 0], [ReturnValue, 0]]
+  functions: 1
+
+- mini: |-
+    fn f() -> int:
+        pass
+  names: ["f_1"]
+  constants: []
+  instructions: [[MakeFunction, 0], [StoreName, 0], [ReturnValue, 0]]
+  functions: 1
+
+- mini: |-
+    for a, b in x:
+        pass
+  names: ["x_0", "a_1", "b_1", "a_0", "a_2", "b_0", "b_2"]
+  constants: []
+  instructions: [[LoadName, 0], [GetIter, 0], [ForIter, 7], [UnpackSequence, 2], [StoreName, 3], [StoreName, 5], [Jump, 2], [Phi, 3], [Phi, 5], [ReturnValue, 0]]
+
+- mini: |-
+    for a, b, c in x:
+        pass
+  names: ["x_0", "a_1", "b_1", "c_1", "a_0", "a_2", "b_0", "b_2", "c_0", "c_2"]
+  constants: []
+  instructions: [[LoadName, 0], [GetIter, 0], [ForIter, 8], [UnpackSequence, 3], [StoreName, 4], [StoreName, 6], [StoreName, 8], [Jump, 2], [Phi, 4], [Phi, 6], [Phi, 8], [ReturnValue, 0]]
+
+- mini: |-
+    async fn f():
+        pass
+  names: ["f_1"]
+  constants: []
+  instructions: [[MakeCoroutine, 0], [StoreName, 0], [ReturnValue, 0]]
+  functions: 1
+
+- mini: |-
+    async fn f():
+        await x
+  names: ["x_0", "f_1"]
+  constants: []
+  instructions: [[MakeCoroutine, 0], [StoreName, 1], [ReturnValue, 0]]
+  functions: 1
+
+- mini: |-
+    fn f(a, b, /, c):
+        pass
+  names: ["f_1"]
+  constants: []
+  instructions: [[MakeFunction, 0], [StoreName, 0], [ReturnValue, 0]]
+  functions: 1
+
+- mini: |-
+    fn f(a, /, b, *, c):
+        pass
+  names: ["f_1"]
+  constants: []
+  instructions: [[MakeFunction, 0], [StoreName, 0], [ReturnValue, 0]]
+  functions: 1
+
+- mini: |-
+    for (a, b) in x:
+        pass
+  names: ["x_0", "a_1", "b_1", "a_0", "a_2", "b_0", "b_2"]
+  constants: []
+  instructions: [[LoadName, 0], [GetIter, 0], [ForIter, 7], [UnpackSequence, 2], [StoreName, 3], [StoreName, 5], [Jump, 2], [Phi, 3], [Phi, 5], [ReturnValue, 0]]
+
+- mini: |-
+    for a, *b in x:
+        pass
+  names: ["x_0", "a_1", "b_1", "a_0", "a_2", "b_0", "b_2"]
+  constants: []
+  instructions: [[LoadName, 0], [GetIter, 0], [ForIter, 7], [UnpackEx, 256], [StoreName, 3], [StoreName, 5], [Jump, 2], [Phi, 3], [Phi, 5], [ReturnValue, 0]]
+
+- mini: |-
+    x = 10
+    x ~/= 3
+  names: ["x_1", "x_2"]
+  constants: ["10", "3"]
+  instructions: [[LoadConst, 0], [StoreName, 0], [LoadName, 0], [LoadConst, 1], [FloorDiv, 1], [StoreName, 0], [ReturnValue, 0]]
+
+- mini: |-
+    x = 10
+    x %= 3
+  names: ["x_1", "x_2"]
+  constants: ["10", "3"]
+  instructions: [[LoadConst, 0], [StoreName, 0], [LoadName, 0], [LoadConst, 1], [Mod, 1], [StoreName, 0], [ReturnValue, 0]]
+
+- mini: |-
+    x = 2
+    x **= 3
+  names: ["x_1", "x_2"]
+  constants: ["2", "3"]
+  instructions: [[LoadConst, 0], [StoreName, 0], [LoadName, 0], [LoadConst, 1], [Pow, 1], [StoreName, 0], [ReturnValue, 0]]
+
+- mini: |-
+    x = 7
+    x &= 3
+  names: ["x_1", "x_2"]
+  constants: ["7", "3"]
+  instructions: [[LoadConst, 0], [StoreName, 0], [LoadName, 0], [LoadConst, 1], [InPlaceBitAnd, 0], [StoreName, 0], [ReturnValue, 0]]
+
+- mini: |-
+    x = 5
+    x |= 3
+  names: ["x_1", "x_2"]
+  constants: ["5", "3"]
+  instructions: [[LoadConst, 0], [StoreName, 0], [LoadName, 0], [LoadConst, 1], [InPlaceBitOr, 0], [StoreName, 0], [ReturnValue, 0]]
+
+- mini: |-
+    x = 7
+    x ^= 3
+  names: ["x_1", "x_2"]
+  constants: ["7", "3"]
+  instructions: [[LoadConst, 0], [StoreName, 0], [LoadName, 0], [LoadConst, 1], [InPlaceBitXor, 0], [StoreName, 0], [ReturnValue, 0]]
+
+- mini: |-
+    x = 1
+    x <<= 3
+  names: ["x_1", "x_2"]
+  constants: ["1", "3"]
+  instructions: [[LoadConst, 0], [StoreName, 0], [LoadName, 0], [LoadConst, 1], [Shl, 1], [StoreName, 0], [ReturnValue, 0]]
+
+- mini: |-
+    x = 8
+    x >>= 2
+  names: ["x_1", "x_2"]
+  constants: ["8", "2"]
+  instructions: [[LoadConst, 0], [StoreName, 0], [LoadName, 0], [LoadConst, 1], [Shr, 1], [StoreName, 0], [ReturnValue, 0]]
+
+- mini: |-
+    pass
+  names: []
+  constants: []
+  instructions: [[ReturnValue, 0]]
+
+- mini: |-
+    0
+  names: []
+  constants: ["0"]
+  instructions: [[LoadConst, 0], [PopTop, 0], [ReturnValue, 0]]
+
+- mini: |-
+    []
+  names: []
+  constants: []
+  instructions: [[BuildList, 0], [PopTop, 0], [ReturnValue, 0]]
+
+- mini: |-
+    {}
+  names: []
+  constants: []
+  instructions: [[BuildDict, 0], [PopTop, 0], [ReturnValue, 0]]
+
+- mini: |-
+    ...
+  names: []
+  constants: []
+  instructions: [[LoadEllipsis, 0], [PopTop, 0], [ReturnValue, 0]]
+
+- mini: |-
+    ''
+  names: []
+  constants: [""]
+  instructions: [[LoadConst, 0], [PopTop, 0], [ReturnValue, 0]]
+
+- mini: |-
+    !true
+  names: []
+  constants: []
+  instructions: [[LoadTrue, 0], [Not, 0], [PopTop, 0], [ReturnValue, 0]]
+
+- mini: |-
+    ~0
+  names: []
+  constants: ["0"]
+  instructions: [[LoadConst, 0], [BitNot, 0], [PopTop, 0], [ReturnValue, 0]]
+
+- mini: |-
+    -1
+  names: []
+  constants: ["1"]
+  instructions: [[LoadConst, 0], [Minus, 0], [PopTop, 0], [ReturnValue, 0]]
+
+- mini: |-
+    2 ** 3
+  names: []
+  constants: ["2", "3"]
+  instructions: [[LoadConst, 0], [LoadConst, 1], [Pow, 0], [PopTop, 0], [ReturnValue, 0]]
+
+- mini: |-
+    assert true
+  names: []
+  constants: []
+  instructions: [[LoadTrue, 0], [Assert, 0], [ReturnValue, 0]]
+
+- mini: |-
+    global x
+  names: ["x"]
+  constants: []
+  instructions: [[Global, 0], [ReturnValue, 0]]
+
+- mini: |-
+    raise
+  names: []
+  constants: []
+  instructions: [[Raise, 1], [ReturnValue, 0]]
+
+- mini: |-
+    (1,)
+  names: []
+  constants: ["1"]
+  instructions: [[LoadConst, 0], [BuildTuple, 1], [PopTop, 0], [ReturnValue, 0]]
+
+- mini: |-
+    if true:
+        if false:
+            pass
+  names: []
+  constants: []
+  instructions: [[LoadTrue, 0], [JumpIfFalse, 4], [LoadFalse, 0], [JumpIfFalse, 4], [ReturnValue, 0]]
+
+- mini: |-
+    fn f():
+        f()
+  names: ["f_0", "f_1"]
+  constants: []
+  instructions: [[MakeFunction, 0], [StoreName, 0], [ReturnValue, 0]]
+  functions: 1
+
+- mini: |-
+    ((((1))))
+  names: []
+  constants: ["1"]
+  instructions: [[LoadConst, 0], [PopTop, 0], [ReturnValue, 0]]
+
+- mini: |-
+    1+2+3+4+5
+  names: []
+  constants: ["1", "2", "3", "4", "5"]
+  instructions: [[LoadConst, 0], [LoadConst, 1], [Add, 0], [LoadConst, 2], [Add, 0], [LoadConst, 3], [Add, 0], [LoadConst, 4], [Add, 0], [PopTop, 0], [ReturnValue, 0]]
+
+- mini: |-
+    a.b.c.d
+  names: ["a_0", "b", "c", "d"]
+  constants: []
+  instructions: [[LoadName, 0], [LoadAttr, 1], [LoadAttr, 2], [LoadAttr, 3], [PopTop, 0], [ReturnValue, 0]]
+
+- mini: |-
+    a[0][1][2]
+  names: ["a_0"]
+  constants: ["0", "1", "2"]
+  instructions: [[LoadName, 0], [LoadConst, 0], [GetItem, 0], [LoadConst, 1], [GetItem, 0], [LoadConst, 2], [GetItem, 0], [PopTop, 0], [ReturnValue, 0]]
+
+- mini: |-
+    0xDEAD_BEEF
+  names: []
+  constants: ["3735928559"]
+  instructions: [[LoadConst, 0], [PopTop, 0], [ReturnValue, 0]]
+
+- mini: |-
+    0o777
+  names: []
+  constants: ["511"]
+  instructions: [[LoadConst, 0], [PopTop, 0], [ReturnValue, 0]]
+
+- mini: |-
+    0b1010_1010
+  names: []
+  constants: ["170"]
+  instructions: [[LoadConst, 0], [PopTop, 0], [ReturnValue, 0]]
+
+- mini: |-
+    1_000_000
+  names: []
+  constants: ["1000000"]
+  instructions: [[LoadConst, 0], [PopTop, 0], [ReturnValue, 0]]
+
+- mini: |-
+    2 ** 3 ** 2
+  names: []
+  constants: ["2", "3", "2"]
+  instructions: [[LoadConst, 0], [LoadConst, 1], [LoadConst, 2], [Pow, 0], [Pow, 0], [PopTop, 0], [ReturnValue, 0]]
+
+- mini: |-
+    !!false
+  names: []
+  constants: []
+  instructions: [[LoadFalse, 0], [Not, 0], [Not, 0], [PopTop, 0], [ReturnValue, 0]]
+
+- mini: |-
+    x is !nil
+  names: ["x_0"]
+  constants: []
+  instructions: [[LoadName, 0], [LoadNone, 0], [IsNot, 0], [PopTop, 0], [ReturnValue, 0]]
+
+- mini: |-
+    'hello' 'world'
+  names: []
+  constants: ["helloworld"]
+  instructions: [[LoadConst, 0], [PopTop, 0], [ReturnValue, 0]]
+
+- mini: |-
+    r'raw\n'
+  names: []
+  constants: ["raw\\n"]
+  instructions: [[LoadConst, 0], [PopTop, 0], [ReturnValue, 0]]
+
+- mini: |-
+    b'bytes'
+  names: []
+  constants: ["b\"bytes\""]
+  instructions: [[LoadConst, 0], [PopTop, 0], [ReturnValue, 0]]
+
+- mini: |-
+    """"""
+  names: []
+  constants: [""]
+  instructions: [[LoadConst, 0], [PopTop, 0], [ReturnValue, 0]]
+
+- mini: |-
+    f''
+  names: []
+  constants: [""]
+  instructions: [[LoadConst, 0], [PopTop, 0], [ReturnValue, 0]]
+
+- mini: |-
+    x = a && b || c
+  names: ["a_0", "b_0", "c_0", "x_1"]
+  constants: []
+  instructions: [[LoadName, 0], [JumpIfFalseOrPop, 3], [LoadName, 1], [JumpIfTrueOrPop, 5], [LoadName, 2], [StoreName, 3], [ReturnValue, 0]]
+
+- mini: |-
+    x = a || b && c
+  names: ["a_0", "b_0", "c_0", "x_1"]
+  constants: []
+  instructions: [[LoadName, 0], [JumpIfTrueOrPop, 5], [LoadName, 1], [JumpIfFalseOrPop, 5], [LoadName, 2], [StoreName, 3], [ReturnValue, 0]]
+
+- mini: |-
+    x = a[0].b
+  names: ["a_0", "b", "x_1"]
+  constants: ["0"]
+  instructions: [[LoadName, 0], [LoadConst, 0], [GetItem, 0], [LoadAttr, 1], [StoreName, 2], [ReturnValue, 0]]
+
+- mini: |-
+    x = a.b[0]
+  names: ["a_0", "b", "x_1"]
+  constants: ["0"]
+  instructions: [[LoadName, 0], [LoadAttr, 1], [LoadConst, 0], [GetItem, 0], [StoreName, 2], [ReturnValue, 0]]
+
+- mini: |-
+    x = !a && !b
+  names: ["a_0", "b_0", "x_1"]
+  constants: []
+  instructions: [[LoadName, 0], [Not, 0], [JumpIfFalseOrPop, 5], [LoadName, 1], [Not, 0], [StoreName, 2], [ReturnValue, 0]]
+
+- mini: |-
+    x = 1 + 2 * 3 ** 4
+  names: ["x_1"]
+  constants: ["1", "2", "3", "4"]
+  instructions: [[LoadConst, 0], [LoadConst, 1], [LoadConst, 2], [LoadConst, 3], [Pow, 0], [Mul, 0], [Add, 0], [StoreName, 0], [ReturnValue, 0]]
+
+- mini: |-
+    x = {k: v for k, v in items}
+  names: ["items_0", "k_1", "v_1", "<dictcomp>_1", "x_1"]
+  constants: []
+  instructions: [[LoadName, 0], [GetIter, 2], [MakeFunction, 0], [Swap, 0], [Call, 1], [StoreName, 4], [ReturnValue, 0]]
+  functions: 1
+
+- mini: |-
+    a[0] = 1
+  names: ["a_0"]
+  constants: ["1", "0"]
+  instructions: [[LoadConst, 0], [LoadName, 0], [LoadConst, 1], [Rot3, 0], [StoreItem, 0], [ReturnValue, 0]]
+
+- mini: |-
+    d['key'] = true
+  names: ["d_0"]
+  constants: ["key"]
+  instructions: [[LoadTrue, 0], [LoadName, 0], [LoadConst, 0], [Rot3, 0], [StoreItem, 0], [ReturnValue, 0]]
+
+- mini: |-
+    a.x += 1
+  names: ["a_0", "x"]
+  constants: ["1"]
+  instructions: [[LoadName, 0], [Dup, 0], [LoadAttr, 1], [LoadConst, 0], [InPlaceAdd, 0], [StoreAttr, 1], [ReturnValue, 0]]
+
+- mini: |-
+    obj.count -= 1
+  names: ["obj_0", "count"]
+  constants: ["1"]
+  instructions: [[LoadName, 0], [Dup, 0], [LoadAttr, 1], [LoadConst, 0], [InPlaceSub, 0], [StoreAttr, 1], [ReturnValue, 0]]
+
+- mini: |-
+    a = b = 1
+  names: ["a_1", "b_1"]
+  constants: ["1"]
+  instructions: [[LoadConst, 0], [Dup, 0], [StoreName, 0], [StoreName, 1], [ReturnValue, 0]]
+
+- mini: |-
+    a = b = c = 1
+  names: ["a_1", "b_1", "c_1"]
+  constants: ["1"]
+  instructions: [[LoadConst, 0], [Dup, 0], [StoreName, 0], [Dup, 0], [StoreName, 1], [StoreName, 2], [ReturnValue, 0]]
+
+- mini: |-
+    x = '\x41'
+  names: ["x_1"]
+  constants: ["A"]
+  instructions: [[LoadConst, 0], [StoreName, 0], [ReturnValue, 0]]
+
+- mini: |-
+    x = '\u00e9'
+  names: ["x_1"]
+  constants: ["é"]
+  instructions: [[LoadConst, 0], [StoreName, 0], [ReturnValue, 0]]
+
+- mini: |-
+    a[0] += 1
+  names: ["a_0"]
+  constants: ["0", "1"]
+  instructions: [[LoadName, 0], [LoadConst, 0], [Dup2, 0], [GetItem, 0], [LoadConst, 1], [InPlaceAdd, 0], [StoreItem, 0], [ReturnValue, 0]]
+
+- mini: |-
+    x: list[int] = [1, 2]
+  names: ["x_1"]
+  constants: ["1", "2"]
+  instructions: [[LoadConst, 0], [LoadConst, 1], [BuildList, 2], [StoreName, 0], [ReturnValue, 0]]
+
+- mini: |-
+    x: dict[str, int] = {}
+  names: ["x_1"]
+  constants: []
+  instructions: [[BuildDict, 0], [StoreName, 0], [ReturnValue, 0]]
+
+- mini: |-
+    x: tuple[int, str, float] = [1]
+  names: ["x_1"]
+  constants: ["1"]
+  instructions: [[LoadConst, 0], [BuildList, 1], [StoreName, 0], [ReturnValue, 0]]
+
+- mini: |-
+    sum(i for i in range(3))
+  names: ["i_1", "<genexpr>_1"]
+  constants: ["3"]
+  instructions: [[LoadConst, 0], [CallNative, 1], [GetIter, 2], [MakeFunction, 0], [Swap, 0], [Call, 1], [CallNative, 1], [PopTop, 0], [ReturnValue, 0]]
+  functions: 1
+  natives: [["range", 1, 0], ["sum", 1, 0]]
+
+- mini: |-
+    x = 0xF_F + 0o7_7 + 0b1_1 + 1_000 + 0
+    y = 1_2.5e1_0 + 0xFFFF_FFFF_FFFF_FFFF
+  names: ["x_1", "y_1"]
+  constants: ["255", "63", "3", "1000", "0", "125000000000", "18446744073709551615"]
+  instructions: [[LoadConst, 0], [LoadConst, 1], [Add, 0], [LoadConst, 2], [Add, 0], [LoadConst, 3], [Add, 0], [LoadConst, 4], [Add, 0], [StoreName, 0], [LoadConst, 5], [LoadConst, 6], [Add, 0], [StoreName, 1], [ReturnValue, 0]]
+
+- mini: |-
+    fn f(a, *b, c=1, **d):
+        return a + len(d) + e + b
+    n = f(1_0)
+  names: ["e_0", "f_1", "n_1"]
+  constants: ["1", "10"]
+  instructions: [[LoadConst, 0], [MakeFunction, 0], [StoreName, 1], [LoadName, 1], [LoadConst, 1], [Call, 1], [StoreName, 2], [ReturnValue, 0]]
+  functions: 1
+
+- mini: |-
+    if c:
+        b = 1
+        a = 2
+    else if d:
+        a = 3
+    else:
+        c = 4
+    print(a, b, c)
+  names: ["c_0", "b_1", "a_1", "d_0", "a_2", "c_1", "c_2"]
+  constants: ["1", "2", "3", "4"]
+  instructions: [[LoadName, 0], [JumpIfFalse, 7], [LoadConst, 0], [StoreName, 1], [LoadConst, 1], [StoreName, 2], [Jump, 14], [LoadName, 3], [JumpIfFalse, 12], [LoadConst, 2], [StoreName, 2], [Jump, 14], [LoadConst, 3], [StoreName, 0], [Phi, 0], [LoadName, 2], [LoadName, 1], [LoadName, 0], [CallNative, 3], [ReturnValue, 0]]
+  natives: [["print", 3, 0]]
+
+- mini: |-
+    while c:
+        if d:
+            x = 1
+        else:
+            z = 2
+        x = 3
+    for i in r:
+        try:
+            x = i
+        except E:
+            z = i
+    print(x, z)
+  names: ["c_0", "d_0", "x_1", "z_1", "z_0", "z_2", "x_2", "x_0", "x_3", "z_3", "r_0", "i_1", "x_4", "E_0", "z_4", "z_5", "i_0", "i_2", "x_5", "z_6"]
+  constants: ["1", "2", "3"]
+  instructions: [[LoadName, 0], [JumpIfFalse, 13], [LoadName, 1], [JumpIfFalse, 7], [LoadConst, 0], [StoreName, 7], [Jump, 9], [LoadConst, 1], [StoreName, 4], [Phi, 4], [LoadConst, 2], [StoreName, 7], [Jump, 0], [Phi, 7], [Phi, 4], [LoadName, 10], [GetIter, 0], [ForIter, 39], [StoreName, 16], [SetupFinally, 36], [SetupExcept, 25], [LoadName, 16], [StoreName, 7], [PopExcept, 0], [Jump, 34], [Dup, 0], [LoadName, 13], [MatchExc, 0], [JumpIfFalse, 33], [PopTop, 0], [LoadName, 16], [StoreName, 4], [Jump, 34], [Raise, 0], [PopExcept, 0], [BeginFinally, 0], [EndFinally, 0], [Phi, 4], [Jump, 17], [Phi, 16], [Phi, 7], [Phi, 4], [LoadName, 7], [LoadName, 4], [CallNative, 2], [ReturnValue, 0]]
+  natives: [["print", 2, 0]]

@@ -1,0 +1,41 @@
+[package]
+name = "lib"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Kernels a runtime on Edge Lang names in its own tables, grouped by capability with each module behind a feature of its own."
+publish = false
+
+[lib]
+name = "lib"
+doctest = false
+
+# a runtime picks its modules and each pulls in the modules whose helpers it calls
+[features]
+default = ["all"]
+all = ["bytes", "data", "date", "io", "iter", "map", "num", "reflect", "seq", "set", "spec", "text", "types"]
+bytes = ["iter", "num"]
+data = ["iter", "map"]
+date = []
+io = []
+iter = []
+map = ["iter"]
+num = ["iter"]
+reflect = []
+seq = ["iter", "num"]
+set = ["iter"]
+spec = ["num"]
+text = ["bytes", "iter", "num"]
+types = []
+
+[dependencies]
+edge = { path = "..", default-features = false }
+itoa = { workspace = true }
+
+# host tests run threaded on std and write their programs in mini
+[dev-dependencies]
+mini = { path = "../examples/mini" }
+edge = { path = "..", features = ["std"] }
+# the native cases are yml files the runner reads
+serde_yaml_ng = { workspace = true }

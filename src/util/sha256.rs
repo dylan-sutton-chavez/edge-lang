@@ -17,11 +17,11 @@ const H0: [u32; 8] = [
     0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
 ];
 
-/// FIPS 180-4 SHA-256 of `input`, hand-rolled for parser #sha256- fragment verification to keep deps at two crates. Returns the 32-byte digest.
+// a hand-rolled FIPS 180-4 SHA-256 for `#sha256-` pins so the engine takes no hash crate
 pub fn sha256(input: &[u8]) -> [u8; 32] {
     let mut h = H0;
 
-    /* FIPS 180-4 padding, 0x80 + zeros to len%64==56 + big-endian bit length. */
+    // padding is 0x80 then zeros up to 56 mod 64 then the big-endian bit length
     let mut buf: Vec<u8> = Vec::with_capacity(input.len() + 72);
     buf.extend_from_slice(input);
     buf.push(0x80);
@@ -73,7 +73,7 @@ pub fn sha256(input: &[u8]) -> [u8; 32] {
     out
 }
 
-// Encodes bytes as lowercase hex, 32 bytes -> 64 chars.
+// encodes bytes as lowercase hex
 pub fn hex_encode(bytes: &[u8]) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut s = String::with_capacity(bytes.len() * 2);
@@ -84,7 +84,7 @@ pub fn hex_encode(bytes: &[u8]) -> String {
     s
 }
 
-// Decodes 64-char hex into a 32-byte digest, None if wrong length or invalid chars.
+// decodes 64 hex chars into a 32-byte digest or None
 pub fn hex_decode_32(hex: &str) -> Option<[u8; 32]> {
     if hex.len() != 64 { return None; }
     let bytes = hex.as_bytes();

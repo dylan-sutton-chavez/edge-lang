@@ -6,14 +6,13 @@
 <body>
   <script type="module">
     import { createWorker } from "/js/src/index.js";
-    // Progress the CLI reads over CDP, output grows and then done flips with a code or a traceback.
+    // the progress the CLI reads over CDP as output grows until done flips
     const st = { out: "", done: false, ok: false, code: 0, err: "" };
     window.__edge = st;
     try {
-      // The program, the script it came from and the secrets its grants name, read once for this run.
-      const { src, entry, secrets, limits } = __EDGE_RUN__;
-      // The page reads the project's edge.json from this server for the worker, its imports already locked.
-      const worker = await createWorker({ baseUrl: `${location.origin}/`, secrets, limits });
+      const { src, entry, limits } = __EDGE_RUN__;
+      // the page reads the project edge.json from this server with its imports already locked
+      const worker = await createWorker({ baseUrl: `${location.origin}/`, limits });
       worker.onOutput((text) => { st.out += text });
       const res = await worker.run(src, { entry });
       st.code = res && res.exitCode ? res.exitCode : 0;

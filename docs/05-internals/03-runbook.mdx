@@ -1,11 +1,11 @@
 ---
 title: "Runbook"
-description: "How the engine is checked beyond its tests, with fuzzing, Miri, the bench, consistency and the std packages."
+description: "How the engine is checked beyond its tests, with fuzzing, Miri, the bench and consistency."
 ---
 
 # Runbook
 
-Five checks run beside the test suites. Each one has a `make` target at the root of the repo.
+Four checks run beside the test suites. Each one has a `make` target at the root of the repo.
 
 | Check | Command | In CI |
 |---|---|---|
@@ -13,13 +13,12 @@ Five checks run beside the test suites. Each one has a `make` target at the root
 | Miri | `make miri SUITE=vm` | Back to back, one runner per suite |
 | Bench | `make bench` | Every push and pull request to `main` |
 | Consistency | `make test-cli SUITE=consistency` | Every push and pull request to `main` |
-| Std packages | `make test-cli SUITE=std` | Every push and pull request to `main` |
 
 ## Fuzzing
 
 The fuzzer feeds mutated source through the lexer, the parser and the VM. It also saves a snapshot at the first park and restores it into a fresh VM. It looks for panics and memory faults.
 
-- It runs on [AFL++](https://github.com/AFLplusplus/AFLplusplus) through cargo-afl, on stable Rust.
+- It runs on AFL++ through cargo-afl, on stable Rust.
 - The seeds are the programs in `tests/cases/vm`.
 - Only programs that parse reach the VM.
 
@@ -34,19 +33,32 @@ CI runs it back to back, each run starting the next and a schedule every six hou
 
 The crashes and hangs are uploaded as the `fuzz-findings` artifact and kept for 14 days. A local campaign writes them under `fuzz/out/`, one folder per instance.
 
-The [fuzzing manual](https://github.com/dylan-sutton-chavez/edge-python/blob/main/fuzz/README.md) covers container campaigns, resuming, reproducing a crash and triage.
+The fuzzing manual in `fuzz/README.md` covers container campaigns, resuming, reproducing a crash and triage.
 
 ## Miri
 
-[Miri](https://github.com/rust-lang/miri) interprets the test suites and reports undefined behavior and leaks. It runs on the nightly the Makefile pins as `MIRI_NIGHTLY`, which `make miri` installs with the `miri` component before it builds the Miri sysroot.
+Miri interprets the test suites and reports undefined behavior and leaks. It runs on the nightly the Makefile pins as `MIRI_NIGHTLY`, which `make miri` installs with the `miri` component before it builds the Miri sysroot.
 
 > [!COPY] make miri SUITE=vm
 
-`SUITE` is one of `vm`, `snapshot`, `modules`, `parser`, `lexer` and `abi`, and `CASE` runs one test of it. CI runs each suite on a runner of its own, a test per core, picking up where the last run stopped. Long corpora run in slices with each case stopped at 5,000 ops, a failed test runs first until it passes, and once every test passes a new round starts in the next mode under a new seed.
+`SUITE` is one of `vm`, `snapshot`, `modules`, `parser`, `lexer` and `abi`, and `CASE` runs one test of it. CI runs each suite through `make/miri.sh` on a runner of its own, a test per core, picking up where the last run stopped. The longest tests run in slices, each picked by `EDGE_SLICE=k/n`, a failed test runs first until it passes, and once every test passes a new round starts under a new seed in the next of three modes, Stacked Borrows, Tree Borrows and strict provenance.
+
+Miri cannot walk the corpus in one job, so under Miri the five tests that walk it, `test_cases`, `strict_cases` and `no_duplicate_cases` in `vm` and `vm_corpus_roundtrip` and `vm_corpus_preempt_equivalence` in `snapshot`, read only the sample `tests/cases/miri.tsv` names. Each line names a case by its key, its topic file and its place there. The sample was chosen with the coverage build, so that its cases run every opcode the corpus runs and reach every `unsafe` site the corpus reaches, each stopped at 5,000 ops as Miri stops it, and every round runs the same cases. Two tests of `make test` hold it to the corpus.
+
+- `miri::test::the_sample_names_cases_of_the_corpus` fails once a sampled case moves or changes.
+- `miri::test::coverage_of_the_sample_holds_every_opcode_the_corpus_runs` fails once a corpus case runs an opcode no sampled case runs, and names the cheapest case to add for it as a line of the file.
+
+No test checks the `unsafe` sites, so a change that adds one makes sure a sampled case reaches it. When cases move, this writes the file again with the key and the place of each case it names.
+
+```bash
+MIRI_TSV_OUT=tests/cases/miri.tsv cargo test --locked -p edge --test tests miri::test::the_sample_names_cases_of_the_corpus
+```
+
+Over the sample, `vm` and `snapshot` run whole side by side in 31 to 37 minutes on 32 cores, as measured on 24 October 2026. Before the sample, one slice of a corpus test cut in 192 did not finish in 150 minutes on 64 cores.
 
 ## Bench
 
-`make bench` runs every case of `tests/cases/vm` on the speed build of `compiler.wasm` and counts the WebAssembly instructions it executes. `bench/.snapshot` keeps those instructions and the memory peak in MB for each case, the same on every machine.
+`make bench` runs every case of `tests/cases/vm` on the speed build of `edge.wasm` and counts the WebAssembly instructions it executes. `bench/.snapshot` keeps those instructions and the memory peak in MB for each case, the same on every machine, and in `main` it holds `main`'s numbers, so the bench of a branch is its comparison with `main`, as [Testing](/docs/edge-lang/sdk/testing#the-comparison-with-main) describes.
 
 > [!COPY] make bench
 
@@ -56,11 +68,9 @@ The bench fails when the mean or a single case moves past its threshold, the cas
 
 Seeded programs call generated functions cold, again and warm, defined in the main file, in a module and as a method. Every call with the same arguments must answer the same, so code the engine runs differently once it is hot cannot drift. A run checks 500 programs, `EDGE_CONSISTENCY_PROGRAMS` sets more, and a failure keeps its program under the temp dir with its seed.
 
-## Std packages
-
-The tests of every [edge-python-std](https://github.com/dylan-sutton-chavez/edge-python-std) package run on the CLI built from the tree, so an engine change that breaks a published package fails CI.
+`CONTRIBUTING.md` at the root of the repo covers builds, tests and what a pull request runs, and `.github/workflows` holds the main, fuzz and Miri jobs.
 
 > [!CARDS]
-> - `bug` [Fuzzing manual](https://github.com/dylan-sutton-chavez/edge-python/blob/main/fuzz/README.md) Campaigns, resuming, reproducing and triage.
-> - `git-pull-request` [Contributing](https://github.com/dylan-sutton-chavez/edge-python/blob/main/CONTRIBUTING.md) Builds, tests and what a pull request runs.
-> - `workflow` [CI workflows](https://github.com/dylan-sutton-chavez/edge-python/tree/main/.github/workflows) The main, fuzz and Miri jobs.
+> - `cpu` [Design](/docs/edge-lang/internals/design) The parts of the engine these checks hold to account.
+> - `braces` [Compiler](/docs/edge-lang/internals/compiler) The lexer and the parser the fuzzer feeds first.
+> - `gauge` [Limits](/docs/edge-lang/sdk/limits) The budgets every run, the fuzzed ones among them, is held to.

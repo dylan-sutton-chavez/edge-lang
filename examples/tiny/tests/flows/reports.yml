@@ -1,0 +1,157 @@
+- name: each report reads the one pass over the source
+  input: slice
+  flow: |
+    from: input
+    watches:
+      where: type == "WatchEvent"
+      count:
+    pushes:
+      where: type == "PushEvent"
+      count:
+  out:
+    pushes:
+      - '{"count":130}'
+    watches:
+      - '{"count":121}'
+
+- name: the flow's where filters what every report reads
+  input: slice
+  flow: |
+    from: input
+    where: not actor.login.endswith("[bot]")
+    watches:
+      where: type == "WatchEvent"
+      count:
+    all:
+      count:
+  out:
+    all:
+      - '{"count":366}'
+    watches:
+      - '{"count":121}'
+
+- name: a report's where filters after the flow's where
+  input: slice
+  flow: |
+    from: input
+    where: type == "IssuesEvent"
+    opened:
+      where: payload.action == "opened"
+      count:
+    closed:
+      where: payload.action == "closed"
+      count:
+  out:
+    closed:
+      - '{"count":15}'
+    opened:
+      - '{"count":26}'
+
+- name: a key one report names is no field of the next report
+  input: slice
+  flow: |
+    from: input
+    marked:
+      count: mark = 1
+    fields:
+      where: mark == 1
+      count:
+  error: 'report fields, where at line 5: MissingField, no field "mark"'
+
+- name: a where compares a number field with a number
+  input: slice
+  flow: |
+    from: input
+    where: type == "IssuesEvent"
+    none:
+      where: payload.issue.comments == 0
+      count:
+    one:
+      where: payload.issue.comments == 1
+      count:
+  out:
+    none:
+      - '{"count":59}'
+    one:
+      - '{"count":16}'
+
+- name: True and False compare with the booleans of a record
+  input: slice
+  flow: |
+    from: input
+    where: type == "IssuesEvent"
+    open:
+      where: payload.issue.locked == False
+      count:
+    locked:
+      where: payload.issue.locked == True
+      count:
+  out:
+    locked:
+      - '{"count":0}'
+    open:
+      - '{"count":87}'
+
+- name: a key holds the value of an expression of words
+  input: slice
+  flow: |
+    from: input
+    events:
+      count: named = type.endswith("Event") and not public
+  out:
+    events:
+      - '{"named":false,"count":431}'
+
+- name: each report writes its own channel
+  input: slice
+  flow: |
+    from: input
+    kinds.csv:
+      count: type
+      sort: type
+    total:
+      count:
+    ids.jsonl:
+      count: id
+      top: 1
+  out:
+    file:ids.jsonl:
+      - '{"id":"16201347289","count":1}'
+    file:kinds.csv:
+      - 'type,count'
+      - 'CreateEvent,42'
+      - 'DeleteEvent,11'
+      - 'IssueCommentEvent,20'
+      - 'IssuesEvent,87'
+      - 'PullRequestEvent,20'
+      - 'PushEvent,130'
+      - 'WatchEvent,121'
+    total:
+      - '{"count":431}'
+
+- name: a report that counts beside one that writes its records
+  input: slice
+  flow: |
+    from: input
+    kinds:
+      count: type
+      top: 1
+    tags:
+      where: type == "DeleteEvent" and payload.ref_type == "tag"
+  out:
+    kinds:
+      - '{"type":"PushEvent","count":130}'
+    tags:
+      - '{"id":"22704037727","type":"DeleteEvent","actor":{"id":41898282,"login":"github-actions[bot]","display_login":"github-actions","gravatar_id":"","url":"https://api.github.com/users/github-actions[bot]","avatar_url":"https://avatars.githubusercontent.com/u/41898282?"},"repo":{"id":1305808111,"name":"malys/EVABRPUploader","url":"https://api.github.com/repos/malys/EVABRPUploader"},"payload":{"ref":"unstable","ref_type":"tag","full_ref":"refs/tags/unstable","pusher_type":"user"},"public":true,"created_at":"2026-10-01T15:24:07Z"}'
+
+- name: a report of records writes them in the order they arrive
+  input: slice
+  flow: |
+    from: input
+    deletes:
+      where: type == "DeleteEvent" and actor.login == "renovate[bot]"
+  out:
+    deletes:
+      - '{"id":"22702832555","type":"DeleteEvent","actor":{"id":29139614,"login":"renovate[bot]","display_login":"renovate","gravatar_id":"","url":"https://api.github.com/users/renovate[bot]","avatar_url":"https://avatars.githubusercontent.com/u/29139614?"},"repo":{"id":971750200,"name":"aexoden/boinchub","url":"https://api.github.com/repos/aexoden/boinchub"},"payload":{"ref":"renovate/prettier-3.x","ref_type":"branch","full_ref":"refs/heads/renovate/prettier-3.x","pusher_type":"user"},"public":true,"created_at":"2026-10-01T15:05:52Z"}'
+      - '{"id":"22704862501","type":"DeleteEvent","actor":{"id":29139614,"login":"renovate[bot]","display_login":"renovate","gravatar_id":"","url":"https://api.github.com/users/renovate[bot]","avatar_url":"https://avatars.githubusercontent.com/u/29139614?"},"repo":{"id":570601511,"name":"cailloumajor/mongodb-influxdb","url":"https://api.github.com/repos/cailloumajor/mongodb-influxdb"},"payload":{"ref":"renovate/mongo-8.x","ref_type":"branch","full_ref":"refs/heads/renovate/mongo-8.x","pusher_type":"user"},"public":true,"created_at":"2026-10-01T15:42:36Z"}'
+      - '{"id":"22705249724","type":"DeleteEvent","actor":{"id":29139614,"login":"renovate[bot]","display_login":"renovate","gravatar_id":"","url":"https://api.github.com/users/renovate[bot]","avatar_url":"https://avatars.githubusercontent.com/u/29139614?"},"repo":{"id":1200700094,"name":"soenneker/soenneker.temporal.runners.openapiclient","url":"https://api.github.com/repos/soenneker/soenneker.temporal.runners.openapiclient"},"payload":{"ref":"renovate/soenneker.openapi.fixer-4.x","ref_type":"branch","full_ref":"refs/heads/renovate/soenneker.openapi.fixer-4.x","pusher_type":"user"},"public":true,"created_at":"2026-10-01T15:47:43Z"}'

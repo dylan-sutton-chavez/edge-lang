@@ -1,10 +1,9 @@
-/* Why `drive_root` handed control back, surfaced via `VmErr::HostYield` for embedder resume. */
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SchedulerStatus {
-    /// The module body parked in `receive()`, host waits for `run_push_event`.
+    // the module body parked on an empty event queue until the host pushes one
     PendingEvent,
-    /// The module body parked mid-`CallExtern`, host wakes via `set_host_result_by_id`.
+    // the module body parked inside a host call until the host answers its id
     PendingHostCall,
-    /// Preempt tick, resumes with no host action.
+    // a preempt tick which resumes with nothing from the host
     Preempted,
 }

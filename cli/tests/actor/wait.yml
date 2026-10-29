@@ -1,0 +1,16 @@
+# an eval run that waits on a message ends at once since nothing can send it one
+runtime:
+  listen: tcp://127.0.0.1:7792
+  control: tcp://127.0.0.1:9792
+  durable: tmp/actor/log
+
+groups:
+  runners:
+    eval: true
+
+expect: []
+
+post:
+  - path: "/eval/runners"
+    body: "receive()"
+    expect: "script suspended awaiting a message, nothing can resume it here"

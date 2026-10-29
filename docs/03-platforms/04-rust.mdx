@@ -1,96 +1,42 @@
 ---
 title: "Rust"
-description: "Drive compiler.wasm from a Rust host, with the imports it needs, the exports it offers, the run loop and the snapshot blob."
+description: "Drive edge.wasm from a Rust host through its imports and exports, the status word, the run loop and the snapshot blob."
 ---
 
 # Rust
 
-A Rust host runs Edge Python by loading `compiler.wasm` and calling its exports. It is the same `.wasm` the JS host loads. The host owns all I/O, and the engine decides what a program reaches.
+A Rust host runs a program by loading `edge.wasm` and calling its exports. It is the same `.wasm` the JS host loads. The host owns all I/O, and the engine decides what a program reaches. A binary can also link the crate and run a runtime with no `.wasm` in between, as [Embedding](/docs/edge-lang/sdk/embedding) covers.
 
-The `edge` CLI is such a host. It embeds `compiler.wasm` precompiled by wasmtime and implements the imports in `cli/src/host`.
+The `edge` CLI is such a host. It embeds `edge.wasm` precompiled by wasmtime and implements the imports in `cli/src/host`.
 
-## Get compiler.wasm
+## Get edge.wasm
 
 There are three sources for the module.
 
-- The `compiler.wasm` asset of a tagged GitHub Release.
-- `https://cdn.edgepython.com/compiler.wasm`. It follows the current `main`.
-- `make wasm`. It builds the `edge-python` crate as a `cdylib` with the `runtime` feature on.
+- The `edge.wasm` asset of a tagged GitHub Release.
+- `https://cdn.edgelang.dev/edge.wasm`, which follows the current `main`.
+- `make wasm`. It builds the reference runtime `mini` as a `cdylib` with the engine's `runtime` feature on.
 
-Vendor the matching `compiler.wasm` next to your own sources and pin it by checksum. The CLI pins the modules it downloads the same way.
+Vendor the matching `edge.wasm` next to your own sources and pin it by checksum. The CLI pins the modules it downloads the same way.
 
 A release asset is immutable and the CDN path is not. A checksum is the only thing that ties a build to a known engine.
 
 ### As a crate
 
-The crate builds no wasm of its own and fetches nothing at build time. `cargo build` stays offline and reproducible. Its library is named `compiler`. A host that runs the VM in its own process installs the allocator the memory limit reads, or a run under a memory limit refuses to start.
-
-```toml
-# Downstream Cargo.toml
-[dependencies]
-edge-python = { git = "https://github.com/dylan-sutton-chavez/edge-python", tag = "v0.9.6" }
-```
-
-```rust
-#[global_allocator]
-static METERED: compiler::value::meter::Metered<std::alloc::System> = compiler::value::meter::Metered(std::alloc::System);
-```
-
-The `runtime` feature is the wrapper that makes `compiler.wasm`, with its exports, host imports, allocator and panic handler. It is off by default and `make wasm` turns it on.
-
-A wasm that links the crate as a library, such as a plugin that only parses, drops the default `std` feature. It brings its own allocator and panic handler.
-
-```toml
-edge-python = { git = "https://github.com/dylan-sutton-chavez/edge-python", tag = "v0.9.6", default-features = false }
-```
-
-### The crate API
-
-The crate exposes these modules and keeps the rest to itself.
-
-| Module | Holds |
-|---|---|
-| `code` | `compile`, which lexes, parses and folds a source into an `SSAChunk`, the `Parser` for a resolver or a path, and the bytecode it makes, `Instruction`, `OpCode` with `is_jump` and `ALL`, `Value`, `Diagnostic` and `unpack_call` for the counts of a call operand. `Program::new(&chunk)` gives `scope_of(body)`, `params_of(fi)` and `bindings_of(body)` without running anything |
-| `types` | `BUILTIN_TYPES`, `builtin_type`, `exc_parents`, the method table `ALL_METHODS` with `lookup_method`, `CLASS_DUNDERS` with `class_dunder` for the special names a class body may define, and `NativeFnId` with the arity of each builtin |
-| `embed` | `VM` to run a chunk, `Limits`, `SchedulerStatus`, the snapshot calls `save`, `restore`, `source_of`, `limits_of`, `inspect_globals` and `inspect_stack`, and `Resolver`, `Resolved` and `NativeBinding` for modules and natives |
-| `value` | `Val`, `HeapObj`, `HeapPool`, `VmErr`, `BigInt`, `as_i128`, the allocator `meter` and the `Host` trait |
-| `pure` | `call_pure` with the `pure` feature on, `Host` always |
-| `lexer` | `lex`, `Token` and `TokenType` |
-| `modules`, `abi`, `util::sha256` | Manifests, locks and bundles, the wire format of plugins, and SHA-256 |
-
-`bindings_of(body)` answers for the module, every class and every function body with a `BodyKind` and a `Binding` per name slot. A function's names are `Local`, `Cell` or `Global`, the same answer `scope_of` gives. A class body's own names are `Member`, which its methods and comprehensions don't see, so they read past the class to the function around it or the module. Its other names are a `Cell` of that function, a `Lent` plain local of the function that defines the class, read by value as the class is made, or `Global`. Slots no variable takes, such as attribute names, are `Local`.
-
-A class body that defines a dunder outside `CLASS_DUNDERS` fails to compile. The list holds names no builtin type has as a method, such as `__set__`, `__delete__`, `__set_name__` and `__slots__`, so `ALL_METHODS` is no list of them.
-
-The `internals` feature opens the modules behind these for the engine's own tests and tools. They change with every release.
-
-### Builtins without a VM
-
-`call_pure` runs a builtin on plain values and returns its result or the exception it raised, with the class and the message the VM gives. No lexer, parser or VM runs, and the same body the VM runs gives the answer. It is behind the `pure` feature, so the shipped `compiler.wasm` carries none of it.
-
-```rust
-use compiler::pure::{Plain, call_pure};
-
-let up = call_pure("str.upper", &[Plain::Str("abc".into())]);
-assert_eq!(up, Ok(Plain::Str("ABC".into())));
-```
-
-A method is named `type.name` with its receiver first, and a dunder of a builtin value such as `str.__getitem__` resolves among the operators its type answers. `Plain` holds what a call takes and gives, ints of any size, floats, bools, `None`, `str`, `bytes`, `bytearray`, lists, tuples, dicts, sets, ranges and slices. A method or builtin function the tables mark pure runs, and any other answers `NotImplementedError`. `MethodDesc::excluded` and `NativeFnId::excluded` give the reason, such as a method that changes its receiver or one that may run user code.
-
-The bodies of the builtins are generic over `Host`, the heap they read and the user code only a VM runs. The VM is one host and `PlainHost` the other, so each builtin has one body and the VM compiles to the same code it did before.
+A Rust program can instead link the engine as the crate `edge` and run a runtime in its own process, with no `.wasm` in between. Its binary installs the allocator the memory limit reads with `edge::allocator!()`, or a run under a memory limit refuses to start. [Embedding](/docs/edge-lang/sdk/embedding) covers the crate and its features, the `VM` and its limits, the allocator, the run loop and a whole native binary.
 
 ## Imports
 
-`compiler.wasm` declares five imports from `env`.
+`edge.wasm` declares four imports from `env`.
 
 | Import | Signature | The host |
 |---|---|---|
 | `host_print` | `(ptr: *const u8, len: usize)` | Writes text the program prints |
 | `host_call_native` | `(id: u32, call_id: u32, argv_ptr: *const u32, argc: u32, out: *mut u32) -> i32` | Runs native `id` from `register_native_module`. Returns `0` with a handle in `*out`, `1` with an error stashed, or `2` when the call waits under `call_id` |
 | `host_fetch_bytes` | `(spec_ptr: *const u8, spec_len: u32, hash_ptr: *const u8, out_len: *mut u32) -> *mut u8` | Returns the bytes behind a spec. The walk already puts every manifest in the engine, and the CLI answers with none |
-| `host_send` | `(group_ptr: *const u8, group_len: u32, body_ptr: *const u8, body_len: u32) -> i32` | Hands `send(group, body)` to the host scheduler. Non-zero means this host has none |
+| `host_send` | `(group_ptr: *const u8, group_len: u32, body_ptr: *const u8, body_len: u32) -> i32` | Hands one line of a named output to the host, an actor group or a channel of its own. Returns `0` when the host takes it, `2` when it refuses it with an error stashed through `host_edge_throw`, which the send raises, and any other value when this host takes none |
 
-A plugin declares its own seven imports, listed in the [ABI](/docs/edge-python/reference/abi#host-imports). The host forwards six of them to the `host_edge_*` exports below and answers `edge_call_id` itself.
+A plugin declares its own seven imports, listed in the [ABI](/docs/edge-lang/reference/abi#host-imports). The host forwards six of them to the `host_edge_*` exports below and answers `edge_call_id` itself.
 
 ## Exports
 
@@ -103,6 +49,8 @@ Every result lands in one output buffer that grows as needed. It holds `out_len(
 | Export | Signature | Meaning |
 |---|---|---|
 | `memory` | | The linear memory every pointer points into |
+| `EDGE_RUNTIME` | | The runtime `examples/mini` registers through `web_exports!`, a global no host reads |
+| `runtime_descriptor` | `() -> u32` | Writes the runtime's descriptor as JSON, the language, file extension, entries, test suffix, scaffold, docs fences and error classes its tools use, and a `snapshot` field holding the magic a blob opens with, where its runtime identity lies and the identity this runtime saves, and where its source length and its source lie, so a host checks a blob's runtime and reads its source with no copy of the [layout](#blob-layout). Returns its byte length |
 | `wasm_alloc` | `(size: u32) -> *mut u8` | A zeroed buffer of `size` bytes |
 | `wasm_free` | `(ptr: *mut u8, size: u32)` | Frees a `wasm_alloc` buffer. `size` must match. Null or zero is a no-op |
 | `out_ptr` | `() -> *const u8` | Where the output buffer starts |
@@ -123,6 +71,7 @@ Every result lands in one output buffer that grows as needed. It holds `out_len(
 | `set_host_result_by_id` | `(id: u32, handle: u32) -> i32` | Wakes the run waiting on call `id` with `handle` |
 | `set_host_error_by_id` | `(id: u32, kind: u32, msg_handle: u32) -> i32` | Raises an error of `kind` where the run waits, `msg_handle` a `str` |
 | `memory_peak` | `() -> u64` | The most the last run held at once, in bytes, as the allocator counted it for the limit. A run that fails to compile reads 0 |
+| `send_package` | `() -> u32` | Called inside `host_send`, writes the directory of the `edge.json` of the package whose code is sending. Returns its byte length |
 
 `set_host_result_by_id` and `set_host_error_by_id` return `0`, `1` for a stale handle, `2` when nothing waits on `id`, or `3` when no run is parked.
 
@@ -155,7 +104,7 @@ The run, its stdin, limits, entry, preempt interval and value handles belong to 
 | Export | Signature | Meaning |
 |---|---|---|
 | `save_state` | `() -> i64` | Serializes the parked run into the output buffer. Returns the blob length, `-1` when nothing is parked, or `-2` with the reason in the output buffer when a value cannot be saved |
-| `restore_state` | `(ptr: *const u8, len: u32) -> u32` | Boots a VM from the blob and overlays its state. Returns a status word. The run keeps the limits saved in the blob |
+| `restore_state` | `(ptr: *const u8, len: u32) -> u32` | Boots a VM from the blob and overlays its state. Returns a status word. The run keeps the lower of the limits saved in the blob and those `set_limits` gave |
 | `state_globals` | `() -> u32` | Writes the module-level bindings of the parked run as JSON. Returns its byte length |
 | `state_stack` | `() -> u32` | Writes the suspended module body of the parked run as JSON, its state, function, ip and helper frames. Returns its byte length |
 
@@ -167,6 +116,16 @@ The run, its stdin, limits, entry, preempt interval and value handles belong to 
 | `manifest_fields` | `(ptr: *const u8, len: u32) -> u32` | Writes the `name`, `version`, `description`, `repository` and `edge` fields a registry stores, as JSON, or `{"error": why}`. Returns its byte length |
 | `bundle_index` | `(ptr: *const u8, len: u32) -> u32` | Writes where each file of the `.edge` at `ptr` sits, as `{"entry": path, "files": [[path, offset, length], ...]}`, or `{"error": why}`. A host reads the files of a package straight out of its bytes. Returns its byte length |
 
+### Grants
+
+The grant logic of `src/deps/perms.rs` answers through three exports behind the engine's `perms` feature, which mini's `web` feature turns on. The JS host's `perms` component calls them, and the CLI links the same module.
+
+| Export | Signature | Meaning |
+|---|---|---|
+| `grants_check` | `(s_ptr: *const u8, s_len: u32, m_ptr: *const u8, m_len: u32, t_ptr: *const u8, t_len: u32) -> u32` | Writes why the `permissions` section at `s_ptr` cannot be served, given the JSON list of the wired module names at `m_ptr` and the scoped entries those modules take at `t_ptr`. Returns its byte length, `0` when it holds |
+| `grants_scopes` | `(ptr: *const u8, len: u32) -> u32` | Writes each scoped entry of a section as a JSON list of `[module, scope]` pairs, which its host module judges. Returns its byte length |
+| `grants_held` | `(c_ptr: *const u8, c_len: u32, p_ptr: *const u8, p_len: u32, m_ptr: *const u8, m_len: u32) -> u32` | Writes what the manifest chain at `c_ptr` gives package `p_ptr` of module `m_ptr`, as `{"scopes": [...], "refusal": [before, after]}` or `{"refused": why}`. Returns its byte length |
+
 ### Walk
 
 | Export | Signature | Answers |
@@ -177,6 +136,7 @@ The run, its stdin, limits, entry, preempt interval and value handles belong to 
 | `walk_plugin` | `(kind: u32, ptr: *const u8, len: u32) -> u32` | A `plugin` step |
 | `walk_served` | `(ptr: *const u8, len: u32) -> u32` | A `system` step |
 | `walk_known` | `(ptr: *const u8, len: u32) -> u32` | An `undeclared` step |
+| `walk_carry` | `(ptr: *const u8, len: u32)` | Names, on its first line, the manifest field every later walk carries for each link of a chain, and on the lines after the holders that field reserves. A host with no grant component names none |
 
 Each walk export returns the length of the next step, written to the output buffer. [The resolution walk](#the-resolution-walk) describes the steps.
 
@@ -191,7 +151,7 @@ Each walk export returns the length of the next step, written to the output buff
 | `host_edge_throw` | `edge_throw` |
 | `host_edge_take_error` | `edge_take_error` |
 
-Each takes the arguments of the plugin import it serves, with pointers into the memory of `compiler.wasm`. The host copies names, argv and bytes across from guest memory and copies results back.
+Each takes the arguments of the plugin import it serves, with pointers into the memory of `edge.wasm`. The host copies names, argv and bytes across from guest memory and copies results back.
 
 ## The status word
 
@@ -203,7 +163,7 @@ Each takes the arguments of the plugin import it serves, with pointers into the 
 | 3 | `PENDING_EVENT` | Waits for an event, passes it to `run_push_event`, then calls `run_resume` |
 | 4 | `ERROR` | Stops. The traceback is in the output buffer |
 | 5 | `PENDING_HOST_CALL` | Settles each waiting call with `set_host_result_by_id` or `set_host_error_by_id`, then calls `run_resume` |
-| 6 | `EXIT` | Stops. An uncaught `SystemExit`, with the exit code in the low 8 bits |
+| 6 | `EXIT` | Stops. The program exited, with the exit code in the low 8 bits |
 | 7 | `PREEMPTED` | Calls `run_resume` at once, or `save_state` first |
 
 Kinds 1 and 2 are retired. The other kinds keep their numbers.
@@ -212,7 +172,7 @@ Kinds 1 and 2 are retired. The other kinds keep their numbers.
 
 A host drives one program in this order.
 
-1. Instantiate `compiler.wasm` with the five imports.
+1. Instantiate `edge.wasm` with the four imports.
 2. Call `set_entry` with the script path.
 3. Run the resolution walk from the entry source until it reports `done`.
 4. Call `set_input`, `set_limits` and `set_preempt_interval` as the run needs.
@@ -230,14 +190,14 @@ The engine decides what a program reaches, and the host only answers what it ask
 | `{"fetch": spec}` | Reads the bytes behind `spec`, a manifest, a lock or a module. It answers `walk_fetched` with `kind` `0` and the bytes, `1` when nothing is there with an optional hint, or `2` with why the read failed. The engine checks any `#sha256-` pin itself |
 | `{"plugin": spec, "name": name}` | Reads the bytes of the plugin with `walk_plugin_bytes()`, raw in the output buffer. A plugin inside a package never reached the host before. The host registers it with `register_native_module` and answers `walk_plugin` with `kind` `0` once registered, `1` with why it failed, or `2` with why this host refuses it |
 | `{"system": {root, needed, dirs, permissions}}` | Serves each system module to every `[dir, package]` in `dirs` under the `permissions` of the root. It answers `walk_served` with its failures joined by NUL. `needed` says whether anything can reach a system module at all |
-| `{"undeclared": [names]}` | Says which of these bare names a registry has. It answers `walk_known` with those joined by NUL. Each one fails at its import, with a help line that runs `edge add` when the registry has it |
+| `{"undeclared": [names]}` | Says which of these bare names a registry has. It answers `walk_known` with those joined by NUL. Each one fails at its import, with a help line that runs `edge add` when the registry has it. The CLI answers with none, so its hint stays generic |
 | `{"done": [failures]}` | Nothing more to fetch. The run fails with these when there are any |
 
 Code modules, the manifests the compiler resolves names through, and refusals register inside the engine as the walk meets them.
 
 ## Snapshots
 
-A parked run freezes to a blob and boots again from it. [Snapshots](/docs/edge-python/language/snapshots) covers what a blob holds.
+A parked run freezes to a blob and boots again from it. [Snapshots](/docs/edge-lang/sdk/snapshots) covers what a blob holds.
 
 - **Save.** Drive to a pause, then call `save_state()`. When the result is not negative, read that many bytes at `out_ptr()`. On `-2` the output buffer holds the reason, such as a FOREIGN value whose kind cannot be saved.
 - **Preempt.** With a non-zero `set_preempt_interval`, `run_start` and `run_resume` also return `PREEMPTED`. The run is parked and can be saved. Call `run_resume` to continue, or `save_state()` first.
@@ -251,26 +211,30 @@ A blob is little-endian, self-contained and versioned.
 | Offset | Size | Field |
 |---|---|---|
 | 0 | 4 | Magic, `0x4E535045` |
-| 4 | 4 | Format version, currently `16` |
-| 8 | 8 | Fingerprint, a structural hash of the bytecode |
-| 16 | 8 | Source length in bytes, `N` |
-| 24 | N | Source, UTF-8 |
-| 24+N | 8 | The op budget left at save time |
-| 32+N | 8 | The memory limit in bytes |
-| 40+N | rest | Serialized VM state, the FOREIGN entries by kind name and version, the heap, stacks, scheduler and pending calls |
+| 4 | 4 | Format version, currently `42` |
+| 8 | 8 | Runtime identity, a hash of the name, version, natives, opcodes and policy of the runtime that saved it |
+| 16 | 8 | Fingerprint, a structural hash of the bytecode |
+| 24 | 8 | Source length in bytes, `N` |
+| 32 | 8 | Entry length in bytes, `E` |
+| 40 | N | Source, UTF-8 |
+| 40+N | E | Entry, the script the run started from, UTF-8 |
+| 40+N+E | 8 | The op budget left at save time |
+| 48+N+E | 8 | The memory limit in bytes |
+| 56+N+E | rest | Serialized VM state, the code compiled while the run ran, the FOREIGN entries by kind name and version, the heap with the order its free slots are taken in, stacks, the scheduler with the events and input lines not yet read, and pending calls |
 | end-32 | 32 | Seal, the SHA-256 of every byte before it |
 
-`restore_state` rejects any other format version, and a blob whose seal does not match, so a damaged blob never runs. It then parses the embedded source again and rejects a blob whose fingerprint does not match the freshly compiled chunk. The seal catches damage, not forgery, since anyone can compute it, so a host that hands a blob to someone it does not trust signs it with a key of its own.
+`restore_state` rejects any other format version with `unsupported snapshot format`, and a blob whose seal does not match with `snapshot is damaged`, so a damaged blob never runs. It refuses a blob another runtime saved with `snapshot was saved under another runtime`. It then parses the embedded source again and rejects a blob whose fingerprint does not match the freshly compiled chunk with `snapshot does not match this program or compiler version`, and a blob whose heap passes the memory the VM allows with `snapshot needs more memory than this VM allows` as the heap decodes. The seal catches damage, not forgery, since anyone can compute it, so a host that hands a blob to someone it does not trust signs it with a key of its own.
 
 > [!WARNING]
-> The fingerprint pins each blob to one program and one compiler build. An engine upgrade invalidates every saved blob.
+> The fingerprint pins each blob to one program and one compiler build, and the identity to one runtime. An engine upgrade invalidates every saved blob.
 
-The serializer is `src/vm/snapshot.rs` in the repo. Its internals are in [Design](/docs/edge-python/internals/design#snapshots).
+The serializer is `src/vm/snapshot.rs` in the repo. Its internals are in [Design](/docs/edge-lang/internals/design#snapshots).
 
 ## See also
 
 > [!CARDS]
-> - `plug` [ABI](/docs/edge-python/reference/abi) The wire contract a plugin follows.
-> - `camera` [Snapshots](/docs/edge-python/language/snapshots) Freezing and resuming a paused run.
-> - `terminal` [CLI](/docs/edge-python/platforms/cli) The host this page describes, as a binary.
-> - `cog` [Design](/docs/edge-python/internals/design) How the compiler and VM work inside.
+> - `box` [Embedding](/docs/edge-lang/sdk/embedding) The crate, a VM over a runtime and a whole native binary, with no .wasm between.
+> - `plug` [ABI](/docs/edge-lang/reference/abi) The wire contract a plugin follows.
+> - `camera` [Snapshots](/docs/edge-lang/sdk/snapshots) Freezing and resuming a paused run.
+> - `terminal` [CLI](/docs/edge-lang/platforms/cli) The host this page describes, as a binary.
+> - `cog` [Design](/docs/edge-lang/internals/design) How the compiler and VM work inside.

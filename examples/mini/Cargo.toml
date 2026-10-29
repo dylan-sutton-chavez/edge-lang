@@ -1,0 +1,23 @@
+[package]
+name = "mini"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "The reference runtime of Edge Lang, which edge.wasm is built from, naming the lib kernels its corpus calls."
+publish = false
+
+[lib]
+name = "mini"
+doctest = false
+
+[features]
+default = ["std"]
+std = ["edge/std"]
+# builds edge.wasm with the engine's exports over these natives and the grant logic
+web = ["edge/runtime", "edge/perms"]
+
+[dependencies]
+edge = { path = "../..", default-features = false }
+lib = { path = "../../lib" }
+itoa = { workspace = true }

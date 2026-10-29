@@ -44,17 +44,11 @@ fn spawn(mut cmd: Command, stdin_data: &str, timeout: Duration) -> Result<Outcom
     Ok(Outcome { stdout, stderr, ok: status.success() })
 }
 
-/* The manifest every cell runs under, each official name at the release its lock pins. */
-pub const MANIFEST: &str = r#"{
-  "imports": {
-    "json": "0.1.0",
-    "re": "0.1.0",
-    "math": "0.1.0",
-    "struct": "0.1.0",
-    "test": "0.1.0"
-  }
-}
-"#;
+/* the manifest every cell runs under since no cell imports a package */
+pub const MANIFEST: &str = "{}\n";
+
+// a port nothing listens on so a cell asking any server fails at once
+const NOWHERE: &str = "http://127.0.0.1:9";
 
 // A fresh scratch dir, one per cell so runs never share files.
 fn fresh() -> Result<std::path::PathBuf, String> {
@@ -66,33 +60,16 @@ fn fresh() -> Result<std::path::PathBuf, String> {
     Ok(dir)
 }
 
-/* The lock `edge lock` writes for the manifest, resolved once and copied into every cell. */
-fn lock(edge: &str) -> Result<&'static str, String> {
-    static LOCK: std::sync::OnceLock<Result<String, String>> = std::sync::OnceLock::new();
-    LOCK.get_or_init(|| {
-        let dir = fresh()?;
-        let out = Command::new(edge).arg("lock").current_dir(&dir).stdin(Stdio::null()).output().map_err(|e| format!("spawn failed: {e}"))?;
-        let text = std::fs::read_to_string(dir.join("edge.lock"));
-        let _ = std::fs::remove_dir_all(&dir);
-        match (out.status.success(), text) {
-            (true, Ok(text)) => Ok(text),
-            _ => Err(format!("edge lock failed: {}", String::from_utf8_lossy(&out.stderr).trim())),
-        }
-    })
-    .as_deref()
-    .map_err(Clone::clone)
-}
-
-// The dir of one cell, the manifest beside the lock that resolves it.
-fn scratch(edge: &str) -> Result<std::path::PathBuf, String> {
-    let dir = fresh()?;
-    std::fs::write(dir.join("edge.lock"), lock(edge)?).map_err(|e| format!("write edge.lock failed: {e}"))?;
-    Ok(dir)
+/* the edge binary with every server it could ask moved to a closed port */
+fn offline(edge: &str) -> Command {
+    let mut cmd = Command::new(edge);
+    cmd.env("EDGE_SITE_BASE", NOWHERE).env("EDGE_CDN_BASE", NOWHERE);
+    cmd
 }
 
 pub fn run_script(edge: &str, src: &str, timeout: Duration) -> Result<Outcome, String> {
-    let dir = scratch(edge)?;
-    let mut cmd = Command::new(edge);
+    let dir = fresh()?;
+    let mut cmd = offline(edge);
     cmd.arg("run").arg("--manifest").arg(dir.join("edge.json"));
     let outcome = spawn(cmd, src, timeout);
     let _ = std::fs::remove_dir_all(&dir);
@@ -100,10 +77,10 @@ pub fn run_script(edge: &str, src: &str, timeout: Duration) -> Result<Outcome, S
 }
 
 pub fn run_actor(edge: &str, yml: &str, timeout: Duration) -> Result<Outcome, String> {
-    let dir = scratch(edge)?;
+    let dir = fresh()?;
     let path = dir.join("actor.yml");
     std::fs::write(&path, yml).map_err(|e| format!("write actor.yml failed: {e}"))?;
-    let mut cmd = Command::new(edge);
+    let mut cmd = offline(edge);
     cmd.arg("actor").arg(&path);
     let outcome = spawn(cmd, "", timeout);
     let _ = std::fs::remove_dir_all(&dir);

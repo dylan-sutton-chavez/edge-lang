@@ -1,0 +1,5 @@
+use .http
+
+let ping = http.get("https://registry.npmjs.org/-/ping")
+check ping.status == 200
+check ping.ms < 3000, "the registry took {ping.ms} ms to answer its ping"

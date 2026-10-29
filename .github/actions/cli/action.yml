@@ -10,34 +10,25 @@ inputs:
     required: false
     default: ""
   suite:
-    description: "engine | network | actors | consistency | skill | std (test mode)"
+    description: "engine | network | actors | consistency | skill | uptime | tiny (test mode)"
     required: false
     default: ""
 
 runs:
   using: composite
   steps:
-    # cli/build.rs embeds the speed compiler the compiler job staged.
+    # cli/build.rs embeds the speed edge.wasm the wasm job staged, which the use case CLIs never do
     - name: Fetch the build inputs
+      if: inputs.suite != 'uptime' && inputs.suite != 'tiny'
       uses: actions/download-artifact@v8
       with:
-        name: cdn-compiler
+        name: cdn-wasm
         path: _inputs
 
     - name: Point the build at them
+      if: inputs.suite != 'uptime' && inputs.suite != 'tiny'
       shell: bash
-      run: echo "EDGE_COMPILER_WASM=$GITHUB_WORKSPACE/_inputs/_build/compiler-cli.wasm" >> "$GITHUB_ENV"
-
-    # mozjs builds SpiderMonkey from source on every target, which needs clang, python and llvm-objdump.
-    - name: SpiderMonkey build tools
-      shell: bash
-      run: |
-        case "$RUNNER_OS" in
-          # The image carries several LLVMs, and bindgen needs the libclang of the one llvm-config names.
-          Linux) sudo apt-get update && sudo apt-get install -y clang llvm libclang-dev python3 && echo "LIBCLANG_PATH=$(llvm-config --libdir)" >> "$GITHUB_ENV" ;;
-          # Xcode's objdump is llvm-objdump under another name.
-          macOS) mkdir -p "$RUNNER_TEMP/bin" && ln -sf /usr/bin/objdump "$RUNNER_TEMP/bin/llvm-objdump" && echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH" ;;
-        esac
+      run: echo "EDGE_WASM=$GITHUB_WORKSPACE/_inputs/_build/edge-cli.wasm" >> "$GITHUB_ENV"
 
     # The host is TypeScript and strips in seconds, so make builds it here rather than fetching it.
     - name: Deno
@@ -63,32 +54,9 @@ runs:
       uses: Swatinem/rust-cache@v2
       with:
         workspaces: cli -> target
-        # lint and every test suite build the same debug SpiderMonkey, so they share one cache.
+        # lint and every test suite build the same debug CLI so they share one cache
         shared-key: ${{ inputs.mode != 'release' && 'cli-debug' || '' }}
         key: ${{ inputs.target }}
-
-    # The archive changes only with mozjs_sys, so its lock entry names it, not the whole lock a release bumps.
-    - name: SpiderMonkey revision
-      id: mozjs
-      shell: bash
-      run: echo "revision=$(grep -A2 '^name = "mozjs_sys"$' cli/Cargo.lock | git hash-object --stdin)" >> "$GITHUB_OUTPUT"
-
-    # After rust-cache, so the archive is saved before rust-cache clears the files loose in target.
-    - name: Cache SpiderMonkey
-      uses: actions/cache@v6
-      with:
-        path: |
-          cli/target/libmozjs-*.tar.gz
-          cli/target/*/libmozjs-*.tar.gz
-        key: mozjs-${{ inputs.target || runner.arch }}-${{ steps.mozjs.outputs.revision }}
-
-    # SpiderMonkey compiles once per revision and target, and later jobs link the archive mozjs made of it.
-    - name: Link or build SpiderMonkey
-      shell: bash
-      run: |
-        shopt -s nullglob
-        archive=(cli/target/libmozjs-*.tar.gz cli/target/*/libmozjs-*.tar.gz)
-        if [ ${#archive[@]} -gt 0 ]; then echo "MOZJS_ARCHIVE=$PWD/$archive"; else echo "MOZJS_CREATE_ARCHIVE=1"; fi >> "$GITHUB_ENV"
 
     - name: Clippy and check
       if: inputs.mode == 'lint'
@@ -108,15 +76,21 @@ runs:
         part: cli
         name: cdn-cli-${{ inputs.target }}
 
-    # The web suite drives a real browser, and the runner image is not a contract, so one is installed.
+    # the web and net suites drive a real browser that the runner image may lack
     - name: Install Chromium
-      if: inputs.mode == 'test' && (inputs.suite == 'engine' || inputs.suite == '')
+      if: inputs.mode == 'test' && (inputs.suite == 'engine' || inputs.suite == 'network' || inputs.suite == '')
       shell: bash
       run: |
         sudo apt-get update
         sudo apt-get install -y chromium-browser || sudo apt-get install -y chromium
 
     - name: Test
-      if: inputs.mode == 'test'
+      if: inputs.mode == 'test' && inputs.suite != 'uptime' && inputs.suite != 'tiny'
       shell: bash
       run: make test-cli SUITE=${{ inputs.suite }}
+
+    # a composition of its own over its own runtime, so it builds none of the edge assets
+    - name: Test the use case CLI
+      if: inputs.mode == 'test' && (inputs.suite == 'uptime' || inputs.suite == 'tiny')
+      shell: bash
+      run: make ${{ inputs.suite == 'tiny' && 'test-tiny-cli' || 'test-uptime' }}

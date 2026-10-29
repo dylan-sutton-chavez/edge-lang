@@ -1,0 +1,148 @@
+---
+title: "Lib"
+description: "The kernels a runtime names in its own tables, grouped by capability, with behaviour variants as type parameters and failures each runtime words."
+---
+
+# Lib
+
+`lib` holds the natives a runtime would otherwise write itself, as kernels with no name and no words of their own. A runtime picks the modules it needs by Cargo feature, gives each kernel its name in a table with `lib::table!`, and makes every choice a kernel leaves open through its [`Language`](/docs/edge-lang/sdk/language) and lib's `Lang` trait. Mini names every kernel of lib but the `data` readers and writers, `seq::top` and `date::part`, under the names its corpus calls. Tiny names a few, mostly under the names mini gives them.
+
+Uptime's table is the smallest use of lib in the repo, four entries in the 23 lines of `examples/uptime/src/natives.rs`, each giving one kernel the name a check calls. Its first argument is the runtime whose choices the four kernels follow.
+
+```rust file=examples/uptime/src/natives.rs
+```
+
+The crate is `no_std` and forbids `unsafe` code. Mini names its natives a line each in one file of 291 lines. Tiny names 22 kernels of lib, three of them for its lowering alone, and writes three natives of its own for programs beside 16 that only its lowering calls.
+
+## Modules
+
+Each module but `fmt` sits behind a feature of its own name, and a feature pulls in the modules whose helpers it calls. The default feature `all` takes every module, as mini and tiny do.
+
+| Module | Pulls in | Kernels |
+|---|---|---|
+| `io` | | `print`, `read_line`, `receive`, `send`, `exit` |
+| `iter` | | `range`, `iter`, `next`, `numbered`, `zipped`, `mapped`, `filtered`, `backward`, `range_index`, `range_count`, the generator steps `send`, `throw` and `close`, and in `iter::fold` the folds `every`, `some`, `least`, `most` and `sum` |
+| `seq` | `iter`, `num` | `len`, `list`, `tuple`, `index`, `count`, `push`, `pop`, `insert`, `remove`, `extend`, `reverse`, `copy`, `clear`, `sort::sorted`, `sort::sort` and `top::top`, with `top::greatest`, which picks the greatest keys without sorting them all |
+| `map` | `iter` | `new`, `get`, `keys`, `values`, `items`, `pop`, `pop_last`, `set_default`, `update`, `copy`, `clear`, `from_keys` |
+| `set` | `iter` | `new`, `add`, `remove`, `discard`, `pop`, `clear`, `copy`, `union`, `intersection`, `difference`, `symmetric`, `subset`, `superset`, `disjoint`, and the forms that update in place |
+| `num` | `iter` | `abs`, `div::divmod`, `pow::pow`, `round::round`, `hash::hash`, the `int` and `float` kernels, and wide ints in `num::big` |
+| `text` | `bytes`, `iter`, `num` | `text`, `char_of`, `code_of`, and the modules `case`, `class`, `cut`, `edit`, `find` and `pad` |
+| `bytes` | `iter`, `num` | `new`, `codec::encode`, `codec::decode`, the `hex` kernels and the buffer methods of `bytes::methods` |
+| `data` | `iter`, `map` | `lines::lines`, `json::read`, `json::write`, `csv::read` and `csv::write`, with the helpers a runtime's own natives call, such as `lines::Lines`, `json::parse` and `csv::fields` |
+| `date` | | `parse` and `part`, with `time_kind` and `duration_kind`, which make the kinds a runtime boxes its times and durations in |
+| `types` | | `is_a`, `is_sub`, `type_of`, `callable`, `truth`, and the `match_exc` hook |
+| `reflect` | | `get`, `has`, `set`, `delete` |
+| `fmt` | `num` for `spec` | `render::repr_of` and `render::ascii_of`, the `render` hook in `fmt::render`, and the `format` hook in `fmt::spec` behind the `spec` feature |
+
+`fail`, `kernel`, `lang` and `uni` are always in. They hold the failures, the kernel type, the runtime's choices and the Unicode tables the others share.
+
+## A kernel
+
+A kernel is a `const fn` generic over a `Site` that returns a `Kernel`, a native's body with its signature, fast paths and flags and no name yet. A choice the kernel leaves open is one more type parameter after the site. `text::case` holds six kernels and one such choice, `Case`, which decides whether a character whose other case is several characters maps to them or stays as it is.
+
+```rust file=lib/src/text/case.rs
+```
+
+A variant is a type, so a kernel compiles once for each variant a runtime picks and asks nothing at run time.
+
+| Variant trait | Variants | What it decides | Mini | Tiny |
+|---|---|---|---|---|
+| `num::round::Round` | `HalfEven`, `HalfAway` | Which way a tie rounds | `HalfEven` | `HalfAway` |
+| `text::case::Case` | `Simple`, `Full` | Whether one character may map to several | `Full` | `Full` |
+| `uni::Digits` | `Ascii`, `Decimal`, `Digit`, `Numeric` | Which characters read as digits | `Decimal` to read numbers, and `Digit`, `Decimal` and `Numeric` in its digit tests | `Decimal` |
+| `num::int::Radix` | `Bin`, `Oct`, `Hex` | The base and the prefix of an int's text | All three | None |
+| `bytes::Buf` | `Fixed`, `Mutable` | Whether a buffer kernel makes fixed or mutable bytes | Both | None |
+| `iter::fold::Refuse` | `Adds`, `Joins` | Whether a total refuses a text or bytes start, which a join builds instead | `Joins` | None |
+| `text::cut::Breaks` | `Newline`, `Unicode` | Which characters end a line | Its own `Lines`, Unicode's breaks and three information separators | None |
+| `num::hash::Scheme` | None in lib | The modulus and the constants a hash mixes numbers and tuples with | Its own `Modular` | None |
+| `date::Part` | `Days`, `Hours`, `Minutes`, `Seconds`, `Year`, `Month`, `Day`, `Hour`, `Minute`, `Second` | The field a `part` kernel reads as a method | None | None |
+
+Tiny registers no `part` kernel. Its own natives `hours_between`, `minutes_between` and `days_between` take `Hours`, `Minutes` and `Days` as a type parameter and count the span between two times in that unit.
+
+## A table
+
+`lib::table!` turns a list of entries into the natives a runtime registers. Its first argument is the runtime whose choices every kernel of the table follows.
+
+| Part of an entry | Gives the kernel | From mini |
+|---|---|---|
+| `"name" => path` | The name a program calls and the name its failures give | `"len" => seq::len` |
+| `[Variant]` | The type parameters after the site, in order | `"lower" => text::case::lower[Full]` |
+| `("a", "b")` | Names for the positionals a keyword may fill, where an empty name stays positional | `"sum" => iter::fold::sum[Joins]("", "start")` |
+| `{"k"}` | Names for the keyword-only slots the kernel reads, in order, where names past its slots are taken and ignored | `"print" => io::print{"sep", "end", "file", "flush"}` |
+
+The macro writes a `Site` for each entry, the runtime and the name and parameter names that entry gives. The kernel reads them at compile time. A table that names more positionals than its kernel takes fails to compile, and so does one that names some of the kernel's keyword slots and not all of them.
+
+The tables go to `edge::natives!`, as functions under `fns` and as the methods of a kind under `methods`. Both runtimes do it in their `lib.rs`, shown on [Front ends](/docs/edge-lang/sdk/front-ends), and the lookups are built at compile time, so a table costs nothing at boot. Mini's tables and tiny's follow side by side.
+
+```rust file=examples/mini/src/natives.rs
+```
+
+```rust file=examples/tiny/src/natives.rs
+```
+
+A call of a native compiles to one `CallNative` bound to its kernel, whatever name the table gave it. A runtime that names `seq::len` `size` keeps that call, and `tests/names.rs` holds a runtime that does. Four kernels also stand for an operation of the engine, `seq::len`, `iter::range`, `iter::next` and `types::is_a`, and a table that names two kernels for one of them fails to compile.
+
+When lib holds no kernel for a native, the runtime writes it as a `Native::new(name, sig, run)` of its own and lists it beside its tables. Tiny writes `hours_between`, `minutes_between` and `days_between`, the spans between two times that lib holds no kernel for.
+
+## Lang
+
+`Lang` holds the choices a runtime makes for the kernels its tables name past what its `edge::lang::Language` says. It builds on `Language`, so each name and each rule a kernel reads has one home.
+
+| Item | Decides |
+|---|---|
+| `TREE` | The classes the type tests walk, which `Tree::of` builds from the classes of the runtime's `Names` |
+| `class(c)` | The class a failure of each `Class` raises, by default the class `Names` gives the error kind it matches |
+| `words(cx, at, f)` | The error a failure raises, lib's neutral words by default |
+| `words_bare(f)` | The error a failure raises where no native call runs |
+| `show_into` | How a value renders onto a text, lib's `render` by default |
+| `codec`, `handler`, `codec_name` | The codecs and error handlers a program may name, none by default |
+| `endian` | The byte orders a program may name for an int's bytes, none by default |
+| `CENTRE` | Where a centred text puts the unit an odd pad leaves over, after the text by default |
+| `NUMERALS` | The separator the digits of number text may hold, whether it may follow a prefix or run twice, whether base 0 takes a leading zero and whether a base the call names reads its own prefix, with no separator by default |
+| `SEPARATORS` | Whether the four information separators count as white space in text, no by default |
+| `MACHINE` | The machine ints a tab size and a buffer count must fit, none by default, so memory alone bounds them |
+| `SPECS` | Which of `z`, grouping, `%`, `n` and `=` a format spec takes past its plain parts, none by default |
+| `THROW_VALUE`, `SENTINEL` | Whether a generator's throw takes a value after its class and whether `iter` takes a sentinel after a function, neither by default |
+
+Each default is the plainest rule, and a runtime states the rules its programs read. Mini states its corpus' rules in `examples/mini/src/lang.rs` below, tiny states only `SENTINEL`, which its lowering calls, and uptime states none.
+
+Lib reads the rest off the runtime's `Language` through `Derived`, which every runtime gets and none writes. The iterators the kernels make take their names from `Names.iters`, a wide int boxes in the language's `WIDE` kind, made by `num::big::kind`, the decimal text of an int stops at the policy's `max_int_digits`, and a value renders through the language's `show`.
+
+`Lang` also builds on `Style`, the rendering choices, each with a default. They cover the words for true and false, the quotes and escapes of text, the forms of floats, and how functions, types, modules and exceptions show. Nil, the ellipsis, a nameless function and a module body show as `Names` calls them. Tiny sets only the words for true and false, as `True` and `False` the way its expressions spell them, and takes every other default. Mini sets its own in `examples/mini/src/style.rs`.
+
+```rust file=examples/tiny/src/lang.rs
+```
+
+```rust file=examples/mini/src/lang.rs
+```
+
+Tiny's `lang.rs` also holds `NAMES`, the runtime's words for the engine's kinds, errors and conventions, which its `Language` hands the engine.
+
+A runtime that takes `date` implements `date::Dates` beside `Lang`. It names the kinds its times and durations box in, made once by `date::time_kind` and `date::duration_kind` under the type names the runtime picks, and those kinds raise a time or a duration out of range through the runtime's words. Mini and tiny each hold their two kinds in `lang.rs`.
+
+## Failures and their words
+
+A kernel never writes the text of an error. It fails with a `Fail`, a neutral value naming what went wrong and holding the values it went wrong with, such as `Fail::NotIterable(v)` or `Fail::BadJson { at, why }`. A reason is a field too, as `why` is a `fail::Json` or a `fail::ToJson` for JSON, a `fail::Csv` or a `fail::Coding` for a codec, and each shows as lib's words, so a runtime prints one as it stands or words it itself. `fail::<S>(cx, f)` raises a failure through `Lang::words` with the `At` of its site, the name, positionals and keywords its table entry gave it, so the words name the native as the program called it.
+
+`english::<L>` holds lib's neutral words for every failure, and every runtime starts from it. Tiny words a literal that spells no number, a bad operand and an empty `min` or `max` itself and hands the rest to `english::<Tiny>`. Mini words its failures the way its corpus expects in `examples/mini/src/words.rs`, the reasons of a codec among them. A runtime whose errors read in another language words every failure itself.
+
+Past the type errors the engine names itself, `Class` sorts a failure into `Value`, `Overflow`, `Index`, `Key`, `Lookup`, `Decode`, `Encode`, `End`, `Exit`, `Runtime` or `ZeroDiv`, and `Lang::class` names the class each one raises. Tiny raises `MissingField` for a key, an index or a lookup, `HostFailed` for a runtime failure, and `BadData` for the rest.
+
+## What lib answers
+
+The engine asks a runtime a few questions past its natives through its `Language`, and lib answers them by the runtime's choices. A runtime writes lib's answers as the parts of its language, as [The trait](/docs/edge-lang/sdk/language#the-trait) lists with what the engine reads of each.
+
+| Item | Lib's answer | Mini | Tiny |
+|---|---|---|---|
+| `show` | `fmt::render::hook::<L>`, a value as text under the runtime's `Style` | Yes | Yes |
+| `format` | `fmt::spec::hook::<L>`, a value under a format spec | Yes | No |
+| `handles` | `types::match_exc::<L>`, whether a raised value matches the classes a handler names through `TREE` | Yes | No |
+| `WIDE` | A kind made by `num::big::kind::<L>` | Yes | Yes |
+| `KINDS` | The runtime's time and duration kinds, which a restore names before any value | Yes | Yes |
+| `BUILT` | The slice kind `seq::slice::<L>` and the ellipsis kind `types::dots::<L>` the engine builds | Yes | Yes |
+
+> [!CARDS]
+> - `activity` [Your runtime and its CLI](/docs/edge-lang/get-started/use-cases/your-runtime) A runtime and its CLI built end to end on the kit.
+> - `blocks` [Front ends](/docs/edge-lang/sdk/front-ends) How tiny's lib.rs hands its tables and its language to the engine.
+> - `braces` [Parser kit](/docs/edge-lang/sdk/parser-kit) The token tables that spell how a program calls these natives.
+> - `camera` [Snapshots](/docs/edge-lang/sdk/snapshots) What a restore needs of the kinds lib boxes values in.

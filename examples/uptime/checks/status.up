@@ -1,0 +1,24 @@
+use .http
+
+let pages = [
+  ["github", "https://www.githubstatus.com/api/v2/status.json"],
+  ["npm", "https://status.npmjs.org/api/v2/status.json"],
+  ["cloudflare", "https://www.cloudflarestatus.com/api/v2/status.json"],
+]
+
+let degraded = 0
+for name, url in pages
+  try
+    let page = http.get(url)
+    let status = page.body.status
+    print("{name:<11} {page.status} {page.ms:>5} ms  {status.description}")
+    if status.indicator != "none"
+      degraded += 1
+    end
+  catch Unreachable as e
+    print("{name:<11} down  {e}")
+    degraded += 1
+  end
+end
+# the exit code counts what is not fully up so cron can alert
+exit(degraded)

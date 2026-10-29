@@ -1,0 +1,61 @@
+---
+title: "Introduction"
+description: "What the book builds, what the engine asks of a runtime, the runtimes it reads from, and how every block in it is checked."
+---
+
+# Introduction
+
+This book is for building a language runtime on Edge Lang and shipping it. A runtime is a Rust crate that hands the engine what only a language can decide, and the engine does the rest. Each chapter takes one piece the engine asks for and covers why the engine asks for it, what a runtime may choose and what each choice costs.
+
+The use cases show three runtimes working. This book takes them apart, and a reader who finishes it can build a fourth.
+
+## The engine and the runtime
+
+The engine is the same for every runtime. A runtime brings the parts that make it a language.
+
+| The engine brings | The runtime brings |
+|---|---|
+| One lexer, one single-pass parser and one grammar, compiled to bytecode with no AST | How its programs are written, a token table or a front end of its own |
+| The register VM, calls as jumps, the garbage collector and the memory meter | Its natives, most of them kernels of lib under names of its own |
+| The op budget, the depth caps and snapshots | Its rules, its words for the engine's kinds and errors, and how a value prints |
+| The module walk, the grant logic and the ABI every host binds | Its descriptor, its `.wasm` and the CLI the kit composes over it |
+
+Nothing in the left column knows a language. The engine compiles whatever the right column spells and runs it under the same limits, so a runtime of 200 lines and one of 2,000 get the same VM.
+
+## The runtimes it reads
+
+Every Rust and TOML block in the book is a file of the repo, included by its path. Three runtimes, two shared crates and one test supply them.
+
+| From | What it is | What the book reads in it |
+|---|---|---|
+| `examples/uptime` | A language for uptime checks, in five files of Rust | The smallest token table, natives and CLI, from [Your runtime and its CLI](/docs/edge-lang/get-started/use-cases/your-runtime) |
+| `examples/mini` | The reference runtime the engine's corpus runs | A full token table and methods on eleven kinds, from [Mini](/docs/edge-lang/get-started/use-cases/mini) |
+| `examples/tiny` | YAML flows for large data | A front end of its own and natives lib does not hold, from [Tiny](/docs/edge-lang/get-started/use-cases/tiny) |
+| `lib` | The kernels runtimes name | What a kernel is and what it pays for its work |
+| `examples/net` | The net plugin in Rust and TypeScript | A host module the CLI kit and the JS host both serve |
+| `tests/ops.rs` | A test runtime, mini's natives with an opcode of its own | The one opcode of the repo, its row and its four parts, from [Opcodes](/docs/edge-lang/get-started/book/opcodes) |
+
+## How it is checked
+
+A block that shows a repo file is that file, so it changes when the file does. The programs are short ones written for the book, in mini, uptime or tiny. Each was run as shown with a build of `edge`, `uptime` or `tiny` from the repo, or of the runtime of `tests/ops.rs` for the one job that needs an opcode, and the output under it is what that build printed. A program that reads a live service names the day it ran. The GH Archive hour the book reads never changes, so a run over it prints the same rows on any day.
+
+The three binaries build from a clone, and the last line puts them on the `PATH`.
+
+```bash
+git clone https://github.com/dylan-sutton-chavez/edge-lang
+cd edge-lang
+make cli uptime tiny
+export PATH="$PWD/cli/target/release:$PATH"
+```
+
+`make uptime` and `make tiny` need Rust only, as the [Quickstart](/docs/edge-lang/get-started/quickstart#build-a-runtime-of-your-own) says. `make cli` also builds the JS host and the icon names the `edge` binary embeds, so it needs Deno too and fetches the icon names over the network, as [Install](/docs/edge-lang/platforms/cli#install) lists.
+
+## The chapters
+
+> [!CARDS]
+> - `braces` [Tokens or a front end](/docs/edge-lang/get-started/book/tokens) How programs are written, through a token table or a front end of a runtime's own.
+> - `library` [Natives](/docs/edge-lang/get-started/book/natives) What a call reaches, where its body comes from and what it pays.
+> - `scale` [Rules](/docs/edge-lang/get-started/book/rules) The policy and the rules of a site a runtime states, and what each costs.
+> - `triangle-alert` [Errors](/docs/edge-lang/get-started/book/errors) What the engine raises, the classes a runtime names and the words it gives them.
+> - `zap` [Opcodes](/docs/edge-lang/get-started/book/opcodes) An operation a runtime runs in the loop, its fast and slow paths and what it saves.
+> - `package` [Shipping](/docs/edge-lang/get-started/book/shipping) The `.wasm` every host loads, the CLI over it and how both are tested.

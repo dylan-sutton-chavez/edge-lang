@@ -1,52 +1,116 @@
-# An empty table makes this crate its own workspace root, apart from the compiler workspace.
+# An empty table makes this crate its own workspace root, apart from the engine workspace.
 [workspace]
 
 [package]
-name = "edge"
+name = "cli"
 version = "0.9.6"
 edition = "2024"
-description = "The Edge Python developer CLI. Runs, tests, and scaffolds scripts on the same compiler.wasm the browser uses, hosted under wasmtime, packs apps into standalone binaries or bundles, and runs cooperative actor pools."
+description = "The Edge Lang CLI kit, a core that takes a runtime and the commands a composition wires, and the edge binary composed from it. Runs, tests, and scaffolds programs on the same edge.wasm the browser uses, packs apps into standalone binaries or bundles, and runs cooperative actor pools."
 
+# the kit a composition builds a command line from
+[lib]
+name = "cli"
+path = "src/lib.rs"
+doctest = false
+
+# the reference composition wiring every command over the embedded runtime
 [[bin]]
 name = "edge"
 path = "src/main.rs"
+required-features = ["all"]
+
+# a second composition of two commands which lint-cli builds with their features alone
+[[example]]
+name = "runner"
+required-features = ["embed", "run", "test"]
+
+# a third composition over the flow runtime which is also the test driving it
+[[test]]
+name = "channels"
+path = "tests/channels.rs"
+harness = false
+required-features = ["files", "perms", "run"]
+
+# each command sits behind its own feature and the edge binary wires them all
+[features]
+default = ["all"]
+all = ["actors", "actors-server", "build", "docs", "embed", "files", "init", "net", "packages", "perms", "publish", "run", "serve", "test", "uninstall", "web"]
+actors = ["dep:serde_yaml_ng", "dep:slab"]
+# the live server an actor pool becomes with its ingress control endpoint and durable log
+actors-server = ["actors", "dep:mio", "dep:signal-hook"]
+# a bundle or a binary or a dist, each carrying the pages and the browser host of a project
+build = ["docs", "web"]
+# the pages a package ships held to the docs convention and to the icons Lucide draws
+docs = []
+# the reference runtime this crate precompiles for the build target and the edge binary embeds
+embed = ["dep:mini"]
+# reads of the local files a grant names under the package that asks
+files = ["dep:flate2"]
+init = []
+# the net host module of examples/net that the kit exports with its transports
+net = ["dep:flate2", "dep:tungstenite"]
+packages = []
+# the grants a manifest writes for each package it imports held through one shared logic
+perms = []
+publish = ["dep:ring", "dep:base64"]
+run = []
+serve = ["dep:tiny_http"]
+test = []
+uninstall = ["dep:tempfile"]
+# the browser host a dist vendors and a headless run drives
+web = ["dep:headless_chrome", "dep:tiny_http"]
 
 [dependencies]
 # The engine crate as a library, manifest parsing and sha256 pinning.
-edge-python = { path = ".." }
-# Runs the precompiled compiler.wasm, Cranelift compiles the third party plugins a project declares.
+edge = { path = ".." }
+# the reference runtime whose descriptor the edge composition hands the kit
+mini = { path = "../examples/mini", optional = true }
+# hosts the runtime a composition hands the kit and Cranelift compiles the plugins a project declares
 wasmtime = { version = "48", default-features = false, features = ["runtime", "std", "cranelift"] }
 clap = { version = "4", features = ["derive"] }
-tiny_http = "0.12"
+# the static dev server and the page server of a headless run
+tiny_http = { version = "0.12", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Parses the actor.yml manifest, the maintained fork of serde_yaml.
-serde_yaml_ng = "0.10"
+serde_yaml_ng = { version = "0.10", optional = true }
 anyhow = "1"
 # HTTPS for URL imports and `edge build` vendoring.
 ureq = { version = "3", features = ["brotli"] }
 # Signs a publish with the token secret, on the ring and base64 ureq already brings.
-ring = "0.17"
-base64 = "0.22"
+ring = { version = "0.17", optional = true }
+base64 = { version = "0.22", optional = true }
 # Stable actor keys that survive removal, so the scheduler queues never dangle.
-slab = "0.4"
+slab = { version = "0.4", optional = true }
 # One thread serves every ingress connection, epoll or kqueue waking it for those with data.
-mio = { version = "1", features = ["os-poll", "net"] }
+mio = { version = "1", features = ["os-poll", "net"], optional = true }
 # A unique temp file for the uninstall script, a predictable path invites symlink squatting.
-tempfile = "3"
-# SpiderMonkey, which runs the system calls `js/dist` carries, the one JavaScript the CLI ever evaluates.
-mozjs = "0.26"
+tempfile = { version = "3", optional = true }
 # The WebSocket client behind `net.connect`, on the rustls ureq already brings.
-tungstenite = { version = "0.29", default-features = false, features = ["handshake", "rustls-tls-webpki-roots"] }
+tungstenite = { version = "0.29", default-features = false, features = ["handshake", "rustls-tls-webpki-roots"], optional = true }
+# Inflates a gzip body `net.read` streams, the decoder ureq already brings for its own encodings.
+flate2 = { version = "1", optional = true }
 # Drives the browser host for `edge run --web` over CDP, `fetch` downloads a known-good Chromium when the user agrees.
-headless_chrome = { version = "1", features = ["fetch"] }
+headless_chrome = { version = "1", features = ["fetch"], optional = true }
 
 # SIGTERM and SIGINT close a live actor server so its actors finish what they hold.
 [target.'cfg(unix)'.dependencies]
-signal-hook = { version = "0.3", default-features = false, features = ["iterator"] }
+signal-hook = { version = "0.3", default-features = false, features = ["iterator"], optional = true }
+
+# the throwaway projects the tests write
+[dev-dependencies]
+tempfile = "3"
+# the fixture servers the suites answer net and module fetches with
+tiny_http = "0.12"
+tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
+flate2 = "1"
+# the flow runtime the channels test composes a kit over
+tiny = { path = "../examples/tiny" }
+# the pinned hour of events that test reads, fetched once into target
+data = { path = "../examples/data" }
 
 [build-dependencies]
-# Precompiles compiler.wasm for the build target.
+# precompiles the embedded runtime for the build target when a composition embeds one
 wasmtime = { version = "48", default-features = false, features = ["runtime", "cranelift", "all-arch", "std"] }
 
 [profile.release]
@@ -56,7 +120,7 @@ codegen-units = 1
 panic = "abort"
 strip = true
 
-# build.rs runs Cranelift over compiler.wasm, unoptimized it takes ten times longer.
+# build.rs runs Cranelift over edge.wasm which unoptimized takes ten times longer
 [profile.release.build-override]
 opt-level = 3
 

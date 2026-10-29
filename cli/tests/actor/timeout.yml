@@ -8,12 +8,12 @@ groups:
   runners:
     eval: true
     limits:
-      ops: 1000000000000
+      ops: 18446744073709551615
 
 expect: []
 
-# The op budget sits far off, so only the clock can end the spin.
+# the op budget is the largest a group takes so only the clock can end the spin
 post:
   - path: "/eval/runners"
-    body: "while True:\n    n = sum(range(1000000))"
+    body: "while true:\n    pass"
     expect: "time limit"

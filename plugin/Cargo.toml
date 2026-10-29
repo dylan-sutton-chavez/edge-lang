@@ -1,0 +1,21 @@
+[package]
+name = "plugin"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "The Edge Lang plugin kit, author-side runtime for writing plugin modules importable from Edge Lang programs, compiled to `.wasm` for the JS host and the CLI. Provides `#[plugin_fn]` proc-macro, Handle/Value/Error types, and From/IntoValue traits over the v1 plugin ABI."
+
+[lib]
+crate-type = ["rlib"]
+doctest = false
+
+[dependencies]
+abi = { workspace = true }
+plugin-macros = { path = "macros" }
+# the free-list allocator behind `module_fixed_pool!()` which never calls `memory.grow`
+linked_list_allocator = { version = "0.10", default-features = false }
+
+# re-exported so `plugin::module!()` can name it and authors with their own allocator pay nothing
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+lol_alloc = { workspace = true }

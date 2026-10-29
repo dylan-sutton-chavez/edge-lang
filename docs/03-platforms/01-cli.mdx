@@ -1,41 +1,46 @@
 ---
 title: "Command line interface"
-description: "The edge CLI, from run and serve to test, build, actor and package management."
+description: "The edge CLI, from a project's first file to its modules, plugins, tests, build and publish, and every command and flag it takes."
 ---
 
 # Command line interface
 
-The `edge` CLI runs on macOS, Linux and WSL. It embeds the engine the JS host loads, a `compiler.wasm` built from the same source and precompiled for the machine.
+The `edge` CLI runs programs on mini, the reference runtime, on macOS, Linux and WSL. It embeds `edge.wasm`, the engine and mini built from the same source the JS host loads, precompiled for the machine.
 
-The [system calls](/docs/edge-python/reference/system) run in SpiderMonkey inside the binary. A program answers the same on both hosts.
+`edge` is the composition of the [CLI kit](/docs/edge-lang/sdk/cli) that wires every command below. A runtime of your own gets a CLI from the same kit, as [Your runtime and its CLI](/docs/edge-lang/get-started/use-cases/your-runtime) shows.
+
+The CLI serves [net](/docs/edge-lang/reference/system#net) in Rust and the browser serves it in TypeScript, and one suite of cases holds both to the same answers. A program answers the same on both hosts.
 
 ```bash
-edge run app.py        # run a script, a .edge, or stdin (--web)
-edge build             # pack a portable .edge (--app, --web)
-edge actor actor.yml   # run a pool of cooperative actors
-edge serve             # dev server with live reload
-edge test              # run *_test.py files
-edge init my-app       # scaffold a project
-edge publish app.edge  # send a packed .edge to the registry
-edge add json          # add a package to edge.json
-edge remove json       # remove a package from edge.json
-edge lock              # resolve edge.json into edge.lock
-edge uninstall         # remove the binary and the PATH entry
+edge run main.mini                     # run a script or a .edge or stdin (--web)
+edge build                             # pack a portable .edge (--app or --web)
+edge actor actor.yml                   # run a pool of cooperative actors
+edge serve                             # dev server with live reload
+edge test                              # run *_test.mini files
+edge init my-app                       # scaffold a project
+edge publish app.edge                  # send a packed .edge to the registry
+edge add slugify=./slugify_mod.wasm    # add a module to edge.json
+edge remove slugify                    # remove a module from edge.json
+edge lock                              # resolve edge.json into edge.lock
+edge uninstall                         # remove the binary and the PATH entry
 ```
 
 ## Install
 
 The prebuilt binary is the recommended install.
 
-> [!COPY] curl -fsSL https://cdn.edgepython.com/cli/install.sh | sh
+```bash
+curl -fsSL https://cdn.edgelang.dev/cli/install.sh | sh
+```
 
 - The script drops the binary at `~/.local/bin/edge`.
+- It checks the archive against the sha256 published beside it before it extracts anything, and `EDGE_INSTALL_SHA256` pins a digest you already hold.
 - It appends that directory to your `~/.bashrc` or `~/.zshrc` unless it is already there.
 - Open a new shell and `edge --version` answers.
 - Run the same line again to upgrade.
 - The Linux binaries are static and run on any distribution.
 
-To install one release instead of the latest, pass its tag, as in `curl -fsSL https://cdn.edgepython.com/cli/install.sh | sh -s vX.Y.Z`. Every release from 1.0 on keeps a frozen copy of itself on the CDN. A pinned install and a downgrade read that copy.
+To install one release instead of the latest, pass its tag to the script with `sh -s vX.Y.Z`. Every release from 1.0 on keeps a frozen copy of itself on the CDN. A pinned install and a downgrade read that copy.
 
 To build from source, run these two lines at the repo root.
 
@@ -44,20 +49,188 @@ make wasm-cli js lucide
 cargo install --path cli
 ```
 
+- `make js` and `make lucide` run Deno, and `make lucide` fetches the icon names Lucide publishes over the network.
 - `cargo install` embeds what `make wasm-cli js lucide` built and fetches nothing.
-- `EDGE_COMPILER_WASM` points the build at another `compiler.wasm`.
-- The first build compiles SpiderMonkey from source. It needs clang, python3 and `llvm-objdump` on the path, which on macOS is a symlink to `/usr/bin/objdump`.
-- The full setup is in [CONTRIBUTING](https://github.com/dylan-sutton-chavez/edge-python/blob/main/CONTRIBUTING.md) on GitHub.
+- `EDGE_WASM` points the build at another `edge.wasm`.
+- The full setup is in `CONTRIBUTING.md` at the root of the repo.
+
+## A project
+
+A project is a folder with an `edge.json` at its root, and every command below works on one. This one turns the titles of posts into URL slugs with Edge Lang's example plugin.
+
+### Create it
+
+Run `edge init` with the name of the project.
+
+```text
+$ edge init slugs
+  created slugs/
+    ├─ index.html
+    ├─ main.mini
+    └─ edge.json
+
+  cd slugs && edge serve
+```
+
+| File | What it holds |
+|---|---|
+| `main.mini` | The entry point, a script that prints one line |
+| `edge.json` | The manifest of the project |
+| `index.html` | A page that runs `main.mini` in the browser |
+
+The manifest starts with one field.
+
+```json
+{
+  "edge": "0.9.6"
+}
+```
+
+The `edge` field is the lowest engine the project runs on, the version of the CLI that made it, and an older CLI refuses to run the project. Nothing else resolves until you declare it. [edge.json](/docs/edge-lang/reference/modules#edgejson) describes every field.
+
+### Add a plugin
+
+A plugin is a `.wasm` module an import names by path or by URL. `make plugin` builds the plugin crate's example as `slugify_mod.wasm` under `target/wasm32-unknown-unknown/release`. Copy it into the project and declare it.
+
+```text
+$ edge add slugify=./slugify_mod.wasm
+  + slugify    ./slugify_mod.wasm
+
+  updated edge.json
+```
+
+```json
+{
+  "edge": "0.9.6",
+  "imports": {
+    "slugify": "./slugify_mod.wasm"
+  }
+}
+```
+
+A URL works the same way, as `edge add slugify=<url>`, and `edge lock` then pins the digest of the bytes it serves. [Plugins](/docs/edge-lang/sdk/plugins) covers writing one.
+
+### Split it into modules
+
+The code goes in two files. `slug.mini` wraps the plugin's `Slugger`, which lowercases a title and joins its words with dashes.
+
+```text
+import slugify
+
+fn slug(title):
+    s = slugify.Slugger()
+    s.add(title)
+    return s.build()
+```
+
+`main.mini` imports it with a relative import, which reads `slug.mini` beside it.
+
+```text
+from .slug import slug
+
+for title in ["Edge in five minutes", "Your runtime, and its CLI!"]:
+    print(slug(title))
+```
+
+```text
+$ edge run main.mini
+edge-in-five-minutes
+your-runtime-and-its-cli
+```
+
+A test can import the same function without running the script. [Modules](/docs/edge-lang/reference/modules) lists every form an import takes.
+
+### Lock it
+
+`edge lock` writes `edge.lock` beside the manifest. It records the URL and the digest of each version `edge.json` declares and of each bare URL, and a path carries its own bytes. `edge run`, `edge test` and `edge build` read the lock and never ask the registry themselves.
+
+```text
+$ edge lock
+
+  wrote edge.lock
+```
+
+> [!IMPORTANT]
+> Run `edge lock` again after every change to `edge.json`, and commit `edge.lock` with the code. A version the lock does not hold stops the run with `'<name>' is not locked in edge.lock`, and the CLI adds `help: run edge lock` below it.
+
+### Test it
+
+`edge test` finds every `*_test.mini` file of the project and runs each one in a fresh session. A file passes when it ends cleanly or exits with 0, so a failed `assert` fails it. `slug_test.mini` checks two titles worked out by hand.
+
+```text
+from .slug import slug
+
+assert slug("Edge in five minutes") == "edge-in-five-minutes"
+assert slug("  Spaces, commas & marks  ") == "spaces-commas-marks"
+```
+
+```text
+$ edge test
+  (successful) slug_test.mini
+
+  1/1 files passed · 0.0s
+```
+
+A check the code does not meet fails the whole file and prints where. The plugin keeps accents, so a title with them fails this one.
+
+```text
+$ edge test
+error: AssertionError
+  --> ./slug_test.mini:4:1
+  |
+4 | assert slug("Ünïcode titles") == "unicode-titles"
+  | ^
+
+  (unsuccessful) slug_test.mini
+
+  0/1 files passed · 0.0s
+```
+
+The command exits with 0 when every file passes and 1 when one fails. [edge test](#edge-test) covers the other exit codes and `--web`.
+
+### Build and publish it
+
+`edge build` packs the project and everything it imports into one artifact.
+
+```text
+$ edge build
+
+  packed app.edge (6 files)
+  70.86 KB
+
+  run  edge run app.edge   or send it to an actor eval group
+```
+
+`app.edge` holds the three scripts, the manifest, the lock and the plugin, and it runs on any machine with `edge` installed. `edge build --app` writes a standalone binary instead, and `edge build --web` a folder any browser runs.
+
+The registry reads the name, the version and a one line description from the manifest inside the artifact. Add them to `edge.json` and build again.
+
+```json
+{
+  "name": "slugs",
+  "version": "0.1.0",
+  "description": "Turn the titles of posts into URL slugs.",
+  "edge": "0.9.6",
+  "imports": {
+    "slugify": "./slugify_mod.wasm"
+  }
+}
+```
+
+A name is first come and permanent, so pick one nobody holds yet. Create a token in the settings of your account at `edgelang.dev/settings`, export it as `EDGE_TOKEN` and run `edge publish app.edge`. [Package fields](/docs/edge-lang/reference/registry#package-fields) lists the rules for each field.
+
+> [!WARNING]
+> A published version is never overwritten. Raise `version` in `edge.json` and build again before each new release.
 
 ## edge run
 
 Runs a script and streams its output to the terminal. An uncaught error prints a traceback to stderr and exits 1.
 
 ```text
-$ edge run broken.py
+$ edge run broken.mini
 before
 error: ZeroDivisionError: division by zero
-  --> broken.py:2:1
+  --> broken.mini:2:1
   |
 2 | x = 1 / 0
   | ^
@@ -65,22 +238,38 @@ error: ZeroDivisionError: division by zero
 
 | Input | Example | Notes |
 |---|---|---|
-| A file | `edge run app.py` | Piped stdin feeds [`input()`](/docs/edge-python/reference/builtins) one line per call |
+| A file | `edge run main.mini` | Piped stdin feeds `input()` one line per call |
 | Inline code | `edge run -c 'print(1)'` | Piped stdin feeds `input()` the same way |
-| Piped stdin | `cat app.py` piped into `edge run` | Stdin is the script, and a terminal on stdin is an error |
+| Piped stdin | `cat main.mini` piped into `edge run` | Stdin is the script, and a terminal on stdin is an error |
 | A packed artifact | `edge run app.edge` | A `.edge` or an app binary runs exactly as `./app` would |
 
-`raise SystemExit(code)` with no argument or an integer exits cleanly with that code and no traceback. A string argument surfaces as a regular error and exits 1.
+`exit(code)` ends the run cleanly with that code and no traceback, and `exit()` ends it with 0. A code that is not an int raises a `TypeError` and exits 1.
+
+A run reads piped stdin while the runtime loads, so a pipe a writer holds open with nothing in it leaves the run with no input instead of holding it. A writer that pipes anything at all is waited for until it closes.
+
+### Named outputs
+
+`send(channel, line)` writes one line to a named output, and outside an [actor pool](/docs/edge-lang/platforms/actors) the host serves those names itself, in order with what the run prints. A name prints its lines under its own name, and a name that starts with `file:` writes the rest of the name as a file in the directory the run started in, made fresh at its first line. A name holding `..` or an absolute path is refused before anything is written. Only the root package writes a file channel without a grant, and another package writes only below its own directory, where its `files` grant reaches. An eval run in a pool cannot send at all.
+
+```text
+$ tiny run github-hour.flow.yaml
+top_stars
+{"repo":{"name":"Niko1221/Strata"},"count":4}
+busy_branches
+{"repo":{"name":"TheCak3/Learning-plan-Math-KSU"},"branch":"main","count":15}
+```
+
+That run is `tiny`, the CLI of [Tiny](/docs/edge-lang/get-started/use-cases/tiny), which composes the same `run` command, so named outputs read alike under both binaries. Its flow also names `activity.csv`, which lands in the directory the run started in.
 
 ### Run flags
 
 | Flag | Effect |
 |---|---|
 | `--events <f>` | Each line of the file or FIFO feeds one `receive()`. End of input parks the script. |
-| `--save-state <f>` | On a wait the engine cannot serve, write a [snapshot](/docs/edge-python/language/snapshots) to the file and exit 0. |
+| `--save-state <f>` | On a wait the engine cannot serve, write a [snapshot](/docs/edge-lang/sdk/snapshots) to the file and exit 0. |
 | `--restore-state <f>` | Boot from a snapshot instead of a script and keep running. An unreadable file exits 2. |
 | `--preempt <n>` | Yield every `n` loop back-edges and resume. A program with no suspension point stays snapshottable. |
-| `--memory <MB>` | Memory the run may hold, 256 by default. See [Limits](/docs/edge-python/reference/limits-and-errors#sandboxed-execution). |
+| `--memory <MB>` | Memory the run may hold, 256 by default. See [Limits](/docs/edge-lang/sdk/limits#sandboxed-execution). |
 | `--ops <n>` | Operations the run may spend, 100 million by default. |
 | `--web` | Run on the browser host in headless Chrome instead of the native engine. |
 
@@ -99,10 +288,10 @@ error: ZeroDivisionError: division by zero
 
 ### Module resolution
 
-Every run happens under the [sandbox limits](/docs/edge-python/reference/limits-and-errors).
+Every run happens under the [sandbox limits](/docs/edge-lang/sdk/limits).
 
-- A bare import resolves through [`edge.json`](/docs/edge-python/reference/modules#edgejson). Declare it with `edge add` and resolve it with `edge lock` first.
-- A declared version resolves through the [`edge.lock`](/docs/edge-python/reference/modules#edgelock) beside the manifest that declared it.
+- A bare import resolves through [`edge.json`](/docs/edge-lang/reference/modules#edgejson). Declare it with `edge add` and resolve it with `edge lock` first.
+- A declared version resolves through the [`edge.lock`](/docs/edge-lang/reference/modules#edgelock) beside the manifest that declared it.
 - A relative import loads from disk relative to the importing file.
 - A dotted import loads from the nearest `edge.json` directory.
 
@@ -113,20 +302,20 @@ Every run happens under the [sandbox limits](/docs/edge-python/reference/limits-
 | Downloaded modules | `~/.cache/edge/modules` | Each URL downloads once, 64 MB at most |
 | Module pins | a `.lock` sidecar beside each download | Holds its SHA-256. A later run refuses on drift until you remove the entry. |
 | Absent remote manifests | a `.missing` marker | A remote `edge.json` that answered 404 is skipped on later runs |
-| Compiled plugins | `~/.cache/edge/plugins` | Cranelift machine code keyed by the hash of the `.wasm`, compiled on first use |
+| Compiled plugins | `~/.cache/edge/plugins` | Cranelift machine code keyed by the hash of the `.wasm`, compiled on first use. An entry no run has mapped for 30 days leaves at the next compile |
 
 `$XDG_CACHE_HOME` replaces `~/.cache` when it is set.
 
 ### Module errors
 
-A module that fails to load fails at compile time, at the import that names it. ` (via <importer>)` is appended when another module reached it.
+Each module below fails at compile time, at the import that names it. ` (via <importer>)` is appended when another module reached it. The JS host fails every row but the eval group the same way.
 
 | Module | Message |
 |---|---|
 | A `.so` or `.dylib` | `module 'fastmath' is not supported, ship a .wasm` |
 | A `.wasm` that does not load | `module 'fastmath' is not a valid plugin, <reason>` |
-| A `.js` or `.mjs` | `module 'charts' is JavaScript, ship a .py or a .wasm` |
-| A plugin, or a URL off the official CDN, in an [eval group](/docs/edge-python/platforms/actors#untrusted-code) | `module 'fastmath' is not available to untrusted eval runs` |
+| A `.js` or `.mjs` | `module 'charts' is JavaScript, ship a .mini or a .wasm` |
+| A plugin, or a URL off the official CDN, in an [eval group](/docs/edge-lang/platforms/actors#untrusted-code) | `module 'fastmath' is not available to untrusted eval runs` |
 
 ## edge serve
 
@@ -144,36 +333,33 @@ $ edge serve
 | `--host <addr>` | `127.0.0.1` | Bind address. With `0.0.0.0` the banner adds your LAN URL for a phone on the same network. |
 | `--open` | off | Open the app in a browser once the server is up |
 
+On a loopback address it answers only a request whose `Host` names that address, and any other gets 421, so a page on another site cannot read the project through a name rebound to `127.0.0.1`. A path through a dot entry such as `.git` or `.env`, or through a link that leads out of the directory, answers 404.
+
 ## edge test
 
-Discovers `*_test.py` files recursively and runs each in a fresh interpreter. It skips `dist/` and hidden directories and prints a verdict per file. A directory argument narrows discovery to that subtree, and a file argument runs that file alone.
+Discovers `*_test.mini` files recursively and runs each in a fresh session. It skips `dist/` and hidden directories and prints a verdict per file. A directory argument narrows discovery to that subtree, and a file argument runs that file alone.
 
 ```text
 $ edge test
-pass. adds
-1 passed, 0 failed
-  (successful) main_test.py
-pass. parses
-1 passed, 0 failed
-  (successful) lib/parse_test.py
+  (successful) main_test.mini
+  (successful) lib/parse_test.mini
 
   2/2 files passed · 0.0s
 ```
 
-- Test files declare tests with the `test` package and do not call `run()`. The runner drives it after the file loads.
-- The verdict comes from the `SystemExit` code of the file, never from parsed output.
-- A file that registers no tests fails. State never leaks between files.
-- The project must declare `test` in `edge.json`. Otherwise the runner stops with `declare test in edge.json (edge add test)`.
+- The verdict comes from how the file ends, never from parsed output. A file passes when it ends cleanly or exits with 0, and what it prints shows above its verdict.
+- An uncaught error fails the file and prints its traceback to stderr.
+- State never leaks between files.
 
 | Exit code | Meaning |
 |---|---|
 | `0` | Every file passed |
-| `1` | A file failed, or no `*_test.py` was found |
+| `1` | A file failed, or no `*_test.mini` was found |
 | `2` | The engine session could not start |
 
-`--web` runs the same files on the browser host in headless Chrome. A package proves it works where the system calls run in a real browser. One browser serves the whole suite with a fresh page per file.
+`--web` runs the same files on the browser host in headless Chrome. A package proves it works where its host calls run in a real browser. One browser serves the whole suite with a fresh page per file.
 
-- Discovery, the `test` declaration and the exit codes stay the same.
+- Discovery and the exit codes stay the same.
 - The engine comes out of the binary the way [`edge run --web`](#run-on-the-browser-host) gets it.
 
 ## edge init
@@ -184,35 +370,37 @@ Creates a ready-to-serve project. With no argument it scaffolds the current dire
 $ edge init my-app
   created my-app/
     ├─ index.html
-    ├─ main.py
+    ├─ main.mini
     └─ edge.json
 
   cd my-app && edge serve
 ```
 
-- `--bare` skips `index.html` for script-only projects.
+- `--bare` skips `index.html` for script-only projects, and its last line then names `edge run main.mini` in place of `edge serve`.
 - The manifest holds only the `edge` version that scaffolded it. Nothing resolves until `edge add` fills it.
+- A directory it is given must not exist yet, even empty. With no argument it writes into the current directory and never overwrites a file. When one of the files it would write already exists it names that file and writes none of them.
 
 ## edge add and edge remove
 
-Edits [`edge.json`](/docs/edge-python/reference/modules#edgejson) by name. You never paste URLs. Each line prints the name and what it wrote.
+Edits [`edge.json`](/docs/edge-lang/reference/modules#edgejson) by name, so a registry package never needs its URL pasted. Each line prints the name and what it wrote.
 
 ```text
-$ edge add math
-  + math       0.1.0
+$ edge add slugify=./slugify_mod.wasm
+  + slugify    ./slugify_mod.wasm
 
-  updated edge.json, run edge lock to resolve it
+  updated edge.json
 ```
 
 | Form | Writes |
 |---|---|
-| `edge add json` | The newest version in the registry |
-| `edge add json@0.1.0` | That version |
-| `edge add foo=https://example.com/foo.wasm` | That URL |
+| `edge add <name>` | The newest version of that package in the registry |
+| `edge add <name>@0.1.0` | That version |
+| `edge add <name>=<url>` | That URL or path |
 
 - An unknown name or version aborts the whole command before any write.
 - A URL goes to `imports` too. Each host tells a code module from a native module by the artifact.
 - A `.js` or `.mjs` URL is refused before anything is written.
+- `edge add` lists what each new package asks to be granted, and its last line names what comes next, the grants and then `edge lock`.
 - `edge add` keeps `extends` and every other key already in the manifest.
 - `edge remove` deletes entries by name the same way.
 - Neither command touches `edge.lock`.
@@ -221,14 +409,7 @@ $ edge add math
 
 Turns each version `edge.json` declares into the URL and digest of that release.
 
-It writes them to [`edge.lock`](/docs/edge-python/reference/modules#edgelock) beside the manifest. Commit the lock. Every other command reads it.
-
-```text
-$ edge lock
-  + json       https://cdn.edgepython.com/pkg/json/0.1.0/app.edge
-
-  wrote edge.lock
-```
+It writes them to [`edge.lock`](/docs/edge-lang/reference/modules#edgelock) beside the manifest, with a line per package it resolved. Commit the lock. Every other command reads it.
 
 - This is the only command that asks a registry where a name points.
 - It rebuilds the whole lock each time. Run it again after editing `edge.json` to bring the two back in step.
@@ -243,16 +424,7 @@ Packs the project and its imports into one artifact.
 |---|---|---|---|
 | `edge build` | `app.edge` | The project, its declared modules, each lock, the readme, the license and the docs | A host that has `edge`, or an actor eval group |
 | `edge build --app` | `app`, a standalone binary | The same, appended to this `edge` binary, without the docs | Any host of the same OS and CPU, offline, with nothing installed |
-| `edge build --web` | `dist/` | The JS host under `dist/js/`, `compiler.wasm`, every declared module and a rewritten `edge.json` | Any browser, offline |
-
-```text
-$ edge build
-
-  packed app.edge (2 files)
-  0.06 KB
-
-  run  edge run app.edge   or send it to an actor eval group
-```
+| `edge build --web` | `dist/` | The JS host under `dist/js/`, `edge.wasm`, every declared module and a rewritten `edge.json` | Any browser, offline |
 
 `--out <path>` replaces the default output, `app.edge`, `app` or `dist/` per mode.
 
@@ -266,19 +438,20 @@ $ edge build
 - A `.edge` and an app binary carry the `README.md` and any `LICENSE` at the project root.
 - A `.edge` carries the pages when `edge.json` declares a `docs` directory. They sit under a reserved `@docs/` prefix no import can reach.
 
-Pages must follow the [package docs](/docs/edge-python/reference/registry#package-docs) convention, or the build fails.
+Pages must follow the [package docs](/docs/edge-lang/reference/registry#package-docs) convention, or the build fails.
 
 ## edge publish
 
-Uploads a `.edge` packed by `edge build`. Set `EDGE_TOKEN` to a token from [the settings](https://edgepython.com/settings#tokens) first.
+Uploads a `.edge` packed by `edge build`. Set `EDGE_TOKEN` first to a token from the settings of your account at `edgelang.dev/settings`.
 
 ```text
 $ export EDGE_TOKEN=edge_pat_...
 $ edge publish app.edge
-  published slugify 0.1.0
+  (successful) published slugs 0.1.0
 
-  add it with  edge add slugify
-  https://cdn.edgepython.com/pkg/slugify/0.1.0/app.edge
+  add it with  edge add slugs
+
+  https://cdn.edgelang.dev/pkg/slugs/0.1.0/app.edge
 ```
 
 - The artifact is the whole request. The name and version come from the manifest inside it.
@@ -286,17 +459,21 @@ $ edge publish app.edge
 - A bundle that carries a `.js` or `.mjs` file is refused before it is sent.
 - Publishing a version that already exists exits 2 instead of 1. A script can tell it apart from a failure.
 
-What the registry reads, the naming rules, the quotas and the signing are in [Publishing](/docs/edge-python/reference/registry#publishing).
+What the registry reads, the naming rules, the quotas and the signing are in [Publishing](/docs/edge-lang/reference/registry#publishing).
 
 ## edge actor
 
-Runs many programs as cooperative actors over a few threads, described by an `actor.yml`. The manifest, the groups, the server and untrusted code are in [Actors](/docs/edge-python/platforms/actors).
+Runs many programs as cooperative actors over a few threads, described by an `actor.yml`. The manifest, the groups, the server and untrusted code are in [Actors](/docs/edge-lang/platforms/actors).
 
 > [!COPY] edge actor actor.yml
 
 ## edge uninstall
 
-Removes the binary and its `PATH` entry. The non-interactive equivalent is `curl -fsSL https://cdn.edgepython.com/cli/uninstall.sh | sh`.
+Removes the binary and its `PATH` entry. The script below does the same without asking.
+
+```bash
+curl -fsSL https://cdn.edgelang.dev/cli/uninstall.sh | sh
+```
 
 ## Global flags
 

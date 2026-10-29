@@ -4,13 +4,26 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish = false
-description = "Holds compiler.wasm to its last run of tests/cases/vm, run it with make bench."
+description = "Holds edge.wasm to its last run of tests/cases/vm, run it with make bench, and gives the data job's figures with make bench-data."
+default-run = "bench"
+
+[[bin]]
+name = "bench"
+path = "src/main.rs"
+
+# both runtimes stream the pinned hour through the net module the CLI's host serves
+[[bin]]
+name = "bench-data"
+path = "src/data.rs"
 
 [dependencies]
 wasmtime = { version = "48", default-features = false, features = ["runtime", "std", "cranelift"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml_ng = { workspace = true }
+# the wire values host calls cross as and the hour the data job reads
+abi = { workspace = true }
+data = { path = "../examples/data" }
 
 # used by tests/cases.rs, which main.rs takes by path where shear does not look
 [package.metadata.cargo-shear]

@@ -1,0 +1,142 @@
+---
+title: "Opcodes"
+description: "The one table every opcode of the engine is declared in, its columns, what the ops macro generates from it, what reads it, how it is checked and the opcodes a runtime adds of its own."
+---
+
+# Opcodes
+
+Every opcode of the engine is declared once, as a row of the table in `src/code/table.rs`. A row names the op and states its facts in columns, what it pops and pushes, what its operand names, where control goes past it and which register form the lowering writes for it. `edge::ops!` turns the table into the `OpCode` enum and into everything the compiler asks of an op, so each fact has one home and every reader takes it from there.
+
+## The table
+
+```rust file=src/code/table.rs
+```
+
+The table has three parts, and an op's byte is its place in them.
+
+| Part | Rows | Holds |
+|---|---:|---|
+| `stack` | 112 | The ops the parser emits, in bytecode order, with the two the lowering fuses method calls into |
+| `register` | 66 | The register forms only the lowering writes, each reading and writing frame slots |
+| `internal` | 24 | The forms sections and calls lay |
+
+`OpCode::ALL` holds the 178 ops of the first two parts, so `ALL[b]` is the op of byte `b`, and `OpCode::EVERY` holds all 202. Two of the stack ops, `And` and `Or`, are never in compiled code, since the parser writes both as jumps.
+
+A stack instruction is a 4-byte record of an op and a 16-bit operand, as [Bytecode model](/docs/edge-lang/internals/compiler#bytecode-model) shows. A register instruction holds an op, a flag byte `x` and three 16-bit operands `a`, `b` and `c`, as [Dispatch shape](/docs/edge-lang/internals/design#dispatch-shape) describes. `OpR`, `UnaryR`, `BuildR` and `RowsR` carry a stack op in `x`, so one register form serves every stack op it runs over registers. `RuntimeOp` and its register form `RuntimeR` carry an op of the runtime's own table the same way, in the low byte of the operand and in `x`, as [A runtime's own opcodes](#a-runtimes-own-opcodes) shows.
+
+## Columns
+
+A stack row has eleven columns past its name, and a dash is the column's default.
+
+| Column | Type | Says |
+|---|---|---|
+| `pops`, `pushes` | `Count` | The values it takes from the stack and leaves on it, a number or a count its operand or its chunk gives, `items`, `pairs`, `rest`, `spec`, `args`, `packed`, `site`, `gives`, `defaults`, `bases`, `iter`, `raised` or `high` for the high byte of the operand, and `?` where only the run knows |
+| `operand` | `Operand` | What its operand names, such as a constant, a slot, a name, an attribute, a jump target, a count, a function, a class, a native site or an op of the runtime's own table |
+| `arm` | `Arm` | The block of the register loop whose arm runs it over rows, `values`, `containers`, `calls`, `natives` or `flow` |
+| `flow` | `Flow` | Where control goes past it, the next op by default, or `goto`, `fork`, `guard`, `leave` or `unwind` |
+| `edge` | `Edge` | What the way to its jump target does to the stack, `keep`, `pop` or `catch` |
+| `spill` | `Spill` | What the lowering spills at it so a run parked there resumes in any code, `under` or `every` |
+| `operator` | `Operator` | The operator it applies, `binary`, `augmented` or `unary` |
+| `fold` | `bool` | Whether its constant operands fold at compile time |
+| `form` | `Option<OpCode>` | The register form the lowering writes for it |
+| `branch` | `Option<OpCode>` | The compare and branch form of a comparison |
+
+A register row has three and an internal row the first two. Its pops and pushes read as `?`, since only the run knows them, and its other columns hold their defaults.
+
+| Column | Type | Says |
+|---|---|---|
+| `stack` | `Option<OpCode>` | The stack op a register form falls back to |
+| `rows` | `Rows` | The rows it reads from `b` and writes from `a`, `op` for what its stack op takes and gives, `items` for many values into one, `unpack` for one value into many, `row` for a stack op over the rows from `a` |
+| `fast` | `Fast` | The arm the loop and its slow path generate for it, `arith` for two numbers through the kernels of its stack op, `order` for two numbers ordered as its stack op orders them, `test` for a jump unless they keep that order, `bits` for two ints through a bitwise op, `move` for a copy, and a dash for an arm written by hand |
+
+## What the macro generates
+
+`edge::ops!` takes the name of a table and its three parts, and it writes the enum and its facts as constants.
+
+| Item | Gives |
+|---|---|
+| `OpCode` | The enum the table names, one variant for each row, `#[repr(u8)]`, at its byte |
+| `ALL`, `EVERY` | The ops of the stack and register parts, and every op with the internal forms past `ALL` |
+| `INFO`, `info()` | The columns of each op as an `OpInfo` |
+| `effect(operand, chunk)` | What an op pops and pushes falling through, and `None` where only the run knows, one arm per op as its columns count |
+| `plain_effect(operand)` | The same where its operand alone sets the counts, and `None` where a chunk or the run must |
+| `form`, `branch`, `operator`, `edge`, `rows` | One column each read alone, so a run reads no whole row |
+| `HASH` | An FNV-1a hash of every column of every row in order |
+| `is_jump`, `is_register`, `names_slot`, `names_attr`, `is_binary`, `folds_binary`, `ends_flow`, `unstacked` | The predicates, each written out of the columns or the parts |
+| `folds!`, `attrs!`, `forms!` | The binary ops that fold, the ops naming an attribute and the register forms of one generated arm, as patterns a `match` takes as written |
+| `simple!` | The register forms of each generated arm with their stack ops, handed to a macro that builds a whole `match` from them and the arms written by hand |
+
+`OpInfo` adds `fixed` for the pops and pushes no operand sets, `taken` for the way to a jump's target, `rise` for the most it adds to the stack and `falls` for whether control reaches the next op.
+
+The same macro declares a runtime's own table from one part named `own`, which [A runtime's own opcodes](#a-runtimes-own-opcodes) covers.
+
+## What reads it
+
+The compiler reads the table. A front end's `Builder` asks `is_binary` before it emits an operator, the passes over a chunk ask `names_slot` and match `attrs!`, and the folder matches `folds!` and asks `is_jump`. The loop reads `ALL` to decode the stack op a register form carries in `x`, and asks `is_register` and `is_jump` as it dispatches and lowers.
+
+The loop reads the rest of what it knows of an op from the table too. `depth.rs` takes its stack effects, rises, spills and steps from the columns, `lower.rs` its register, branch and stack forms and the counts of an `OpR`, `block.rs` the rows a register form reads and writes, and `rows` the arm each op runs under. Only the counts of a row op stay in `lower.rs` until its islands get columns.
+
+The arms of the simple register forms come from the `fast` column. `run_regs` hands its own arms to `simple!`, which lays the generated ones between them, each calling the kernel of its stack op from `registers.rs`, and the slow path matches the same forms through `forms!`. A generated arm runs the instructions the arm written by hand ran.
+
+## The hash
+
+`OpCode::HASH` covers every column of every row in order, so any change to the table changes it, and `tests/tables.rs` computes it again apart from the macro. The identity a snapshot records hashes it with the hash of the runtime's own table, so a host refuses a blob another table saved before it parses the blob's source, as [Snapshots](/docs/edge-lang/sdk/snapshots) lists. The fingerprint of the compiled program holds it too.
+
+## How it is checked
+
+`cargo test --locked -p edge --test tests tables::` runs the checks of `tests/tables.rs`, and these hold the table.
+
+| Check | Holds |
+|---|---|
+| `every_opcode_is_listed_once_at_its_byte` | Each op of `ALL` sits at its byte with a name of its own |
+| `every_op_of_the_table_sits_at_its_byte_with_its_columns` | Each op's class follows its part, each predicate follows its column and each register form falls back to the op whose form or branch it is |
+| `the_hash_covers_every_column_in_order` | `HASH` is the hash of the columns as the check computes it |
+| `a_runtime_declares_a_table_of_its_own_with_the_same_macro` | A table declared outside the engine gets its facts from the same macro |
+
+`cargo test --locked -p edge --test tests ops::` runs the checks of `tests/ops.rs` over a runtime with an op of its own, which hold that the parser fuses its native, that constants fold, that the loop runs it over rows and registers, that its slow path takes what the fast path declines, that a rebound name runs its binding and that a blob of another table is refused.
+
+## A runtime's own opcodes
+
+A runtime declares opcodes of its own with the same macro, as a table with one part named `own`, and names it as `Language::Ops`. `tests/ops.rs` declares `Clamp`, which clamps a value between two bounds, for a runtime over mini's natives. [Opcodes](/docs/edge-lang/get-started/book/opcodes) in the book covers why a runtime adds one, what it costs and what `Clamp` saved on a job over the GH Archive hour.
+
+```rust file=tests/ops.rs
+```
+
+A row of `own` names the op and five columns, and a dash leaves a column out.
+
+| Column | Says |
+|---|---|
+| `pops` | The values the op takes off the stack, where it leaves one |
+| `fuse` | The native whose plain calls of that many positionals the parser emits as the op |
+| `fast` | `fn(&mut HeapPool, &[Val]) -> Option<Val>`, what the loop answers in place, and `None` for its slow path |
+| `slow` | `fn(&mut Cx, &[Val]) -> Result<Val, VmErr>`, what the op gives once `fast` declines, which no row leaves out |
+| `fold` | `fn(&[Val]) -> Option<Val>`, the constant the op folds constant operands to as the program compiles |
+
+The macro writes the enum of the ops at their bytes, their `ALL` and `OPS`, `operand` for the operand that runs each, and an `OpTable` whose `COUNT`, `HASH`, `fast` and `SET` the engine reads. `SET` is the table erased for the code outside the loop, and a runtime that reads its sources through a token table names it as `Spelling::OPS` too, so its parser fuses and folds the ops.
+
+| Piece | What the engine does with it |
+|---|---|
+| Fuse | A call of the native the row names, with the row's count of positionals and no keyword or spread, compiles to `RuntimeOp`. A name the program binds stays its own call, and a call of another shape stays the native's |
+| Fold | A call whose operands are each one constant folds to the constant `fold` gives, and the op stays where `fold` gives none or the program binds its name |
+| Fast | The loop runs `RuntimeOp` over rows and the lowering writes `RuntimeR` over a row of registers, and each arm calls `fast` in place. A runtime with no ops of its own builds a loop with neither arm, so the engine's loop is the loop it ran before |
+| Slow | Once `fast` declines, the op reads its operands, raising for an unbound one, and runs `slow`. An unsupported operand error `slow` raises for `Op::Runtime(n)` asks the runtime's `bind_op` as an operator does, and its words name the op by its native |
+| Rebinding | Where the program binds the name of the fused native, the op calls that binding as a call of it would. The ops of the other natives keep their fast paths |
+| Format | The identity a blob records hashes the table, so a host refuses a blob of another table before it parses its source |
+
+A runtime with a front end of its own emits the op through `Builder::op`.
+
+Clamp was measured on 26 October 2026 in wasm instructions, in a runtime of mini's natives with the op and again without it, where the same call compiles to the native. Each figure is what 100,000 more calls of `x = clamp(i, 10, 20)` in a function's loop add, less the loop's own 258 an iteration, which is the same in both builds.
+
+| `clamp(i, 10, 20)` as | Instructions a call |
+|---|---:|
+| `RuntimeR` with its three operands moved into a row | 187 |
+| A function of the program with the same rule | 239 |
+| The native through `CallNativeR` | 799 |
+
+A call of constants folds to its value as the program compiles, so it costs nothing at run time, unless the program binds the op's name somewhere and every call of it runs that binding. The second loop a runtime with ops builds makes its wasm about 107 KB larger before wasm-opt, 109,597 bytes for this one.
+
+> [!CARDS]
+> - `cpu` [Design](/docs/edge-lang/internals/design) The register loop, the lowering and the sections the forms of this table run in.
+> - `braces` [Compiler](/docs/edge-lang/internals/compiler) The parser that emits the stack ops and the instruction they are encoded in.
+> - `sliders-horizontal` [Language](/docs/edge-lang/sdk/language) The trait whose `Ops` names a runtime's own table.
+> - `book-open` [Opcodes](/docs/edge-lang/get-started/book/opcodes) The book's chapter on why a runtime adds an opcode and what `Clamp` saved on a real job.

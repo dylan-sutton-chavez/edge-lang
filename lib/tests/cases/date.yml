@@ -1,0 +1,11 @@
+- native: time
+  args: ["2026-10-01T15:04:05Z"]
+  prints: "2026-10-01T15:04:05Z"
+
+- native: time
+  args: ["nope"]
+  error: "invalid RFC 3339 time: 'nope'"
+
+- native: time
+  args: [5]
+  error: "time() argument must be str, not int"

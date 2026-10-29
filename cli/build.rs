@@ -5,27 +5,40 @@ mod config;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
+/* whether the composition being built turns the named feature on */
+fn wanted(feature: &str) -> bool {
+    std::env::var_os(format!("CARGO_FEATURE_{feature}")).is_some()
+}
+
 fn main() {
-    println!("cargo:rerun-if-env-changed=EDGE_COMPILER_WASM");
+    println!("cargo:rerun-if-env-changed=EDGE_WASM");
     println!("cargo:rerun-if-env-changed=EDGE_JS_DIST");
     let out = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"));
     let manifest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
-    let target = std::env::var("TARGET").expect("TARGET");
-    let mut cfg = config::base();
-    cfg.target(&target).expect("wasmtime has no backend for the build target");
-    cfg.cranelift_opt_level(wasmtime::OptLevel::Speed);
-    let engine = wasmtime::Engine::new(&cfg).expect("wasmtime engine");
-    let compiler = std::env::var("EDGE_COMPILER_WASM")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| manifest.join("../target/wasm32-unknown-unknown/cli/compiler.wasm"));
-    precompile(&engine, &compiler, &out.join("compiler.cwasm"), "run make wasm-cli first");
-    // A browser runs the module itself, never the precompile, so a dist and a headless run carry a raw copy.
-    std::fs::copy(&compiler, out.join("compiler.wasm")).unwrap_or_else(|e| panic!("copying {}: {e}", compiler.display()));
-    let lucide = manifest.join("../target/lucide.json");
-    println!("cargo:rerun-if-changed={}", lucide.display());
-    std::fs::copy(&lucide, out.join("lucide.json")).unwrap_or_else(|e| panic!("copying {}: {e}, run make lucide first", lucide.display()));
-    let js_dist = std::env::var("EDGE_JS_DIST").map(PathBuf::from).unwrap_or_else(|_| manifest.join("../js/dist"));
-    js_host(&js_dist, &out.join("js_host.rs"));
+    // a composition that embeds no runtime of this crate's own builds none of these
+    if wanted("EMBED") {
+        let target = std::env::var("TARGET").expect("TARGET");
+        let mut cfg = config::base();
+        cfg.target(&target).expect("wasmtime has no backend for the build target");
+        cfg.cranelift_opt_level(wasmtime::OptLevel::Speed);
+        let engine = wasmtime::Engine::new(&cfg).expect("wasmtime engine");
+        // the runtime the edge composition embeds and hands the kit
+        let wasm = std::env::var("EDGE_WASM")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| manifest.join("../target/wasm32-unknown-unknown/cli/edge.wasm"));
+        precompile(&engine, &wasm, &out.join("edge.cwasm"), "run make wasm-cli first");
+        // a browser runs the module so a dist carries a raw copy too
+        std::fs::copy(&wasm, out.join("edge.wasm")).unwrap_or_else(|e| panic!("copying {}: {e}", wasm.display()));
+    }
+    if wanted("DOCS") {
+        let lucide = manifest.join("../target/lucide.json");
+        println!("cargo:rerun-if-changed={}", lucide.display());
+        std::fs::copy(&lucide, out.join("lucide.json")).unwrap_or_else(|e| panic!("copying {}: {e}, run make lucide first", lucide.display()));
+    }
+    if wanted("WEB") {
+        let js_dist = std::env::var("EDGE_JS_DIST").map(PathBuf::from).unwrap_or_else(|_| manifest.join("../js/dist"));
+        js_host(&js_dist, &out.join("js_host.rs"));
+    }
 }
 
 /* The compiled JS host the binary carries, keyed by the path the CDN serves each file at, so a page's imports read the same from a dist, from a headless run, or from the CDN. */
@@ -44,17 +57,7 @@ fn js_host(dist: &Path, out: &Path) {
         table.push_str(&format!("    ({key:?}, include_bytes!({:?})),\n", path.display().to_string()));
     }
     table.push_str("];\n");
-    table.push_str(&format!("pub const SYSTEM_MODULES: &[&str] = &{:?};\n", system_modules(&root)));
     std::fs::write(out, table).unwrap_or_else(|e| panic!("writing {}: {e}", out.display()));
-}
-
-/* The system module names as the JS host lists them, so the CLI reserves the same ones without starting SpiderMonkey. */
-fn system_modules(dist: &Path) -> Vec<String> {
-    let file = dist.join("system/names.js");
-    let text = std::fs::read_to_string(&file).unwrap_or_else(|e| panic!("cannot read {}: {e}", file.display()));
-    let list = text.split_once("MODULES = [").and_then(|(_, rest)| rest.split_once(']')).map(|(list, _)| list);
-    let list = list.unwrap_or_else(|| panic!("{} lists no MODULES", file.display()));
-    list.split(',').map(|name| name.trim().trim_matches(['\'', '"']).to_string()).filter(|name| !name.is_empty()).collect()
 }
 
 // tsc writes to js/dist and the CDN serves that tree under js/src, so the prefix is added back here.

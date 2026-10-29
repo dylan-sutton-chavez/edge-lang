@@ -1,0 +1,115 @@
+---
+title: "Shipping"
+description: "The .wasm every host loads and why the engine fixes its exports, the hosts a runtime may ship to, the CLI over it, how the repo tests a runtime and what a new version breaks."
+---
+
+# Shipping
+
+A runtime ships as two things. Its `.wasm` is the runtime itself, and every host loads the same file. Its CLI is the kit composed over that file, a binary that runs the runtime's programs on a machine with nothing else installed. This chapter covers what the engine fixes in both, what a runtime may choose, what each choice costs and how the repo tests a runtime before it ships.
+
+## The artifact
+
+A runtime's crate builds its `.wasm` behind a `web` feature that turns on the engine's `runtime` and `perms` features, as `examples/uptime/Cargo.toml` does. The engine's `runtime` feature writes every export of the artifact, and the runtime's one line `edge::web_exports!(RUNTIME)` names the runtime those exports boot, which holds its natives, its front and its descriptor. Make builds each artifact as a `cdylib` for `wasm32-unknown-unknown`.
+
+```bash
+make wasm wasm-uptime wasm-tiny
+```
+
+They land under `target/wasm32-unknown-unknown/release`, built from the repo on 25 October 2026.
+
+| Artifact | Runtime | Size |
+|---|---|---:|
+| `edge.wasm` | mini, with every module of lib | 2.1 MB |
+| `tiny.wasm` | tiny, with every module of lib and its front end | 1.9 MB |
+| `uptime.wasm` | uptime, with five modules of lib | 1.7 MB |
+
+These are the plain release builds. `make wasm-ship` builds the smaller `edge.wasm` the CDN serves, optimized for size with `wasm-opt`.
+
+### Why the exports are fixed
+
+A host speaks to a runtime only through its exports and four imports, so one artifact serves the CLI, a page and any other host, and none of them knows which language it runs. That holds only while every artifact exports the same names with the same signatures. `make lint` checks each artifact against the one list in `make/exports.ts`, name by name, so a runtime cannot ship an ABI of its own. [Rust](/docs/edge-lang/platforms/rust#exports) documents every export and import.
+
+A runtime differs from another only where the ABI lets it. `runtime_descriptor` writes its descriptor as JSON, so a host reads from the artifact itself the extension its sources take, its entry and test names, its docs fences and the classes a refused or failed host call raises.
+
+## Its hosts
+
+A runtime chooses where it runs, and each host loads the artifact its own way.
+
+| Host | Loads the runtime | Costs |
+|---|---|---|
+| A CLI from the kit, compiled on first use | `Runtime::wasm(bytes, &DESCRIPTOR)` | wasmtime compiles the artifact on the first run on a machine and keeps the machine code under `~/.cache/<binary>/plugins` |
+| A CLI from the kit, compiled when it builds | `Runtime::precompiled(wasm, native, &DESCRIPTOR)` | `build.rs` runs wasmtime, the binary carries the machine code, and the call is `unsafe` since the kit cannot check that the two match |
+| A page | `createWorker({ wasmUrl })`, with a bundle of its own for host modules past `net` | The browser compiles the artifact, and a host module the CLI serves in Rust needs one in TypeScript, as [Compose a host](/docs/edge-lang/platforms/javascript#compose-a-host) shows |
+| Rust in the same process | `edge::embed::VM::with_runtime(&RUNTIME, &chunk, limits)` over the crate | No artifact at all, and the host answers every host call itself, as [Embedding](/docs/edge-lang/sdk/embedding#the-run-loop) shows |
+
+Uptime takes the first row and `edge` the second. Run on a laptop on 24 October 2026 with an empty cache, uptime's first run took about 0.9 s to compile its artifact and left 4.1 MB of machine code in the cache, and the runs after it took 0.04 s or less. `edge` started in 0.02 s or less on its first run, since its binary carries the machine code from its build.
+
+A host module ships once for each host it serves, since it is code the host runs itself. `net` is `examples/net/net.rs`, which the CLI kit exports as `net::Net` behind its `net` feature, and `examples/net/net.ts` for the JS host, and the 54 cases of `examples/net/cases.json` hold both to one contract, so a program answers the same on either. Uptime's `clock` exists in Rust only, so a page that runs uptime's checks wires a clock of its own. [Plugins](/docs/edge-lang/sdk/plugins#host-modules) shows both files of `net` and its contract.
+
+## Its CLI
+
+A CLI of a runtime's own is a crate of its own over the kit, with only the components it wires turned on, as [Your runtime and its CLI](/docs/edge-lang/get-started/use-cases/your-runtime#its-cli) builds for uptime. Each sits in a Cargo workspace of its own, so the engine's workspace never builds wasmtime, and [Start your own crate](/docs/edge-lang/get-started/use-cases/your-runtime#start-your-own-crate) gives the lines a runtime and its CLI write outside the clone. Tiny's CLI makes three choices uptime's does not.
+
+```rust file=examples/tiny/cli/src/lib.rs
+```
+
+- **Its words.** `.words(tiny::report)` hands the kit tiny's own report of a run error, which names the report and the key it rose in, so every command prints tiny's errors as tiny words them.
+- **Its limits.** A flow spends ops by the records it reads, and the type count of [Tokens or a front end](/docs/edge-lang/get-started/book/tokens#one-job-both-ways) spends about 179 million on one hour, past the kit's default of 100 million. `.limits` raises the default every run starts from to 10 billion, and `--ops` and `--memory` still override it.
+- **Its modules.** `files` beside `net`, so a flow whose `from` names a path reads it under a grant.
+
+The help lists the commands the composition wired and nothing else, and the test files it finds by the descriptor's suffix.
+
+```text
+$ tiny
+Tiny flows on Edge Lang
+
+Usage  tiny <command> [options]
+
+Commands
+  run <file|.edge>   Run a script, a .edge, stdin or -c <code>
+  test [path]        Run *_test.flow.yaml files
+
+Run flags          --events <f>  --save-state <f>  --restore-state <f>  --preempt <n>
+Global             --manifest <file>   default edge.json
+
+tiny <command> -h for details · -v for version
+```
+
+`make tiny` builds the binary with its symbols stripped, 13.5 MB on macOS arm64, and `make uptime` builds uptime's at 13.1 MB. `edge` wires every component and carries the JS host and its own machine code, at 18.9 MB. Each runs on any machine of its OS and CPU with nothing installed.
+
+## How the repo tests a runtime
+
+A runtime is tested at three layers before it ships. `make test` and `make lint` run the first and the third, and each CLI has a make target of its own for the second.
+
+The first layer is the runtime's own crate, with no host at all. Uptime's test compiles every check of `examples/uptime/checks` through its front, so a change to the engine or the table that breaks one fails there first, and it runs short programs in a `VM` in the test process to pin the words of its errors.
+
+```rust file=examples/uptime/tests/checks.rs
+```
+
+The second layer is the CLI over the artifact, with its host modules answered in the test process. `make test-uptime` runs the uptime binary over a copy of the checks with `net` answering from the five bodies the checks read on 23 October 2026, so it opens no socket and prints the same board on every run. `make test-tiny-cli` runs the tiny binary over the GH Archive hour the same way.
+
+The third layer is the runtimes held to each other and to the ABI. `cargo test -p tiny` runs the cases of `examples/tiny/tests/flows` over a slice of the hour, `examples/data/tests/agree.rs` holds every report of mini's job to the rows of tiny's flow, and `make lint` checks the exports of all three artifacts.
+
+## What a new version breaks
+
+A runtime that ships again meets three things its users already hold, and none of them runs wrongly. A project or a saved run the new build cannot honor is refused with a message, and machine code it no longer matches is compiled again.
+
+**A project that needs a newer engine.** A project names the lowest engine it runs on as `edge` in its `edge.json`. A binary built on an older engine refuses the project before anything compiles. With `"edge": "1.0.0"` added to the checks' `edge.json`, uptime 0.9.6 runs none of them.
+
+```text
+$ uptime run status.up
+error: this project needs edge 1.0.0, this is 0.9.6
+```
+
+`Kit::upgrade` adds a line saying how to upgrade. Uptime sets none, and `edge` names its installer.
+
+**A saved run.** A snapshot holds the program's source, a fingerprint of its compiled form and the identity of the runtime that saved it, and a restore refuses a blob whose program, compiler build or runtime differ. A runtime that changes its name, its version, its table of natives, [its opcodes](/docs/edge-lang/get-started/book/opcodes#the-tables-hash) or its policy, or ships on a new engine, cannot restore the runs its earlier build saved, and [Snapshots](/docs/edge-lang/sdk/snapshots) lists every refusal.
+
+**Cached machine code.** The kit keys its cache by the artifact's bytes and wasmtime's own version of its compiled code, so a new artifact or a new wasmtime misses the cache and compiles once on its first run, as uptime's first run above did. The entry the old build left stays until no run has mapped it for 30 days, and the next compile then drops it.
+
+The ABI is what a new version leaves alone, since `make lint` holds every artifact to the same list.
+
+> [!CARDS]
+> - `layers` [CLI kit](/docs/edge-lang/sdk/cli) Every component, call and field of a composition.
+> - `globe` [JavaScript](/docs/edge-lang/platforms/javascript) Load a runtime's artifact in a page and compose its host modules.
+> - `cpu` [Rust](/docs/edge-lang/platforms/rust) The exports, the imports, the status word and the run loop every host drives.

@@ -1,6 +1,6 @@
 ---
 title: "JavaScript"
-description: "Run Edge Python in a web page with createWorker, and every option and method the JS host takes."
+description: "Run a program in a web page with createWorker, and every option and method the JS host takes."
 ---
 
 # JavaScript
@@ -11,17 +11,17 @@ The JS host runs a program in a web page. `createWorker` boots the engine in a W
 
 The host loads from one module on the CDN.
 
-> [!COPY] https://cdn.edgepython.com/js/src/index.js
+> [!COPY] https://cdn.edgelang.dev/js/src/index.js
 
 Import `createWorker` from it and hand it the directory of the program.
 
 ```html
 <script type="module">
-  import { createWorker } from "https://cdn.edgepython.com/js/src/index.js";
+  import { createWorker } from "https://cdn.edgelang.dev/js/src/index.js";
 
   const worker = await createWorker({ baseUrl: new URL("./app/", location.href).href });
   worker.onOutput((text) => console.log(text));
-  const src = await fetch("./app/main.py").then((r) => r.text());
+  const src = await fetch("./app/main.mini").then((r) => r.text());
   await worker.run(src);
 </script>
 ```
@@ -34,12 +34,13 @@ A worker runs one program. The page draws itself, and the program answers throug
 | Option | Meaning |
 |---|---|
 | `baseUrl` | The directory of the program. The page reads its `edge.json` and every file a run imports from there |
-| `wasmUrl` | Where `compiler.wasm` lives. By default it sits beside the host |
+| `wasmUrl` | Where `edge.wasm` lives. By default it sits beside the host |
+| `bundleUrl` | The script the frame runs. By default the JS host's own bundle, which serves `net` under `perms` |
+| `composition` | The host modules and grants that bundle serves, which the frame's policy follows. By default the JS host's own |
 | `imports` | Stands in for the `imports` of an `edge.json` the page does not have |
 | `permissions` | Stands in for its `permissions` |
-| `secrets` | The values `secret` reads, keyed by name |
 | `limits` | What a run may hold and spend, `{ memory, ops }` |
-| `trace` | `true` reports every system call through `onTrace` |
+| `trace` | `true` reports every host call through `onTrace` |
 
 The worker it returns carries these calls.
 
@@ -48,6 +49,7 @@ The worker it returns carries these calls.
 | `run(src, opts)` | Runs `src` and resolves once the program ends |
 | `pushEvent(message)` | Hands a message to `receive()` |
 | `onOutput(handler)` | Calls `handler` with each piece of text the program prints |
+| `onChannel(handler)` | Calls `handler` with the name and the line of each named output |
 | `onTrace(handler)` | Calls `handler` with each trace event |
 | `setPreemptInterval(n)` | Makes the next run yield every `n` loop back-edges |
 | `pause()` | Parks the run |
@@ -61,7 +63,7 @@ The worker it returns carries these calls.
 | `dispose()` | Ends the worker and removes its frame |
 | `loadMs` | How long the engine took to load, in milliseconds |
 
-Every call returns a promise except `pushEvent`, the two handlers and `dispose`. `dispose` rejects every pending call with `worker disposed`.
+Every call returns a promise except `pushEvent`, the three handlers and `dispose`. `dispose` rejects every pending call with `worker disposed`.
 
 ## Run a program
 
@@ -74,13 +76,13 @@ Every call returns a promise except `pushEvent`, the two handlers and `dispose`.
 | `repl` | Evaluates `src` as the next input of a REPL on the interpreter the last input left |
 | `incremental` | Reuses the engine instance. Module-level state persists across runs |
 
-A script in a subdirectory passes its path, as in `worker.run(src, { entry: "sub/main.py" })`. Passing `baseUrl` to `run` rejects with `baseUrl belongs to createWorker, a worker runs one program`.
+A script in a subdirectory passes its path, as in `worker.run(src, { entry: "sub/main.mini" })`. Passing `baseUrl` to `run` rejects with `baseUrl belongs to createWorker, a worker runs one program`.
 
 `run` resolves with `{ out, ms, exitCode }`.
 
 - `out` holds the traceback when the run fails, and is empty otherwise. Printed text arrives through `onOutput`.
 - `ms` is how long the run took, in milliseconds.
-- `exitCode` is set when the program raised `SystemExit` with an integer code.
+- `exitCode` is set when the program exits with an integer code.
 
 ## Files and imports
 
@@ -89,24 +91,71 @@ The page reads for the worker the `edge.json` at `baseUrl`, its imports and what
 - It never reads outside that directory.
 - It never sends the cookies of the page.
 - A worker keeps every module it fetched in memory for its lifetime. Repeat runs make no network requests until `clearCache()` empties it.
-- `fs` lists the files of a page from `edge.files`, a JSON list beside `edge.json`. `edge build --web` writes it and `edge serve` answers it. A page that embeds the engine serves it itself.
 
-How an import resolves is on [Modules](/docs/edge-python/reference/modules). What `fs` reads is on [System](/docs/edge-python/reference/system#fs).
+How an import resolves is on [Modules](/docs/edge-lang/reference/modules).
 
-## Permissions and secrets
+## Permissions
 
-A page with an `edge.json` at `baseUrl` takes its grants from there. A page without one passes `imports` and `permissions` to `createWorker` instead. The values `secret` reads go in `secrets`, and each is read only under a name the permissions grant.
+A page with an `edge.json` at `baseUrl` takes its grants from there. A page without one passes `imports` and `permissions` to `createWorker` instead.
 
 ```js
 const worker = await createWorker({
   baseUrl: new URL("./app/", location.href).href,
-  imports: { calc: "./calc.py" },
-  permissions: { main: ["net:api.example.com", "secret:API_KEY"] },
-  secrets: { API_KEY: key },
+  imports: { calc: "./calc.mini" },
+  permissions: { main: ["net:api.example.com"] },
 });
 ```
 
-The holders and entries a `permissions` section takes are on [System](/docs/edge-python/reference/system#permissions).
+The holders and entries a `permissions` section takes are on [System](/docs/edge-lang/reference/system#permissions).
+
+Grants are the work of `perms`, the grant component the JS host's own bundle wires. A composition without it takes no `permissions`, and `createWorker` rejects them with `permissions need a grant component and this composition wires none`.
+
+## Compose a host
+
+The script a frame runs serves a composition, the host modules a program may import and the grant component that holds each package to its grants. The JS host's own bundle serves `net` under `perms`, the way the `edge` binary wires the CLI kit. Another bundle wires a composition of its own.
+
+```ts
+// js/src/worker/composition.ts
+import net from "../../../examples/net/net.ts";
+import perms from "../system/perms.ts";
+
+export default { modules: [net], access: perms };
+```
+
+The entry of the bundle hands its composition to `listen`, which answers every request `createWorker` sends.
+
+```ts
+// js/src/worker/worker.ts
+import composition from "./composition.ts";
+import { listen } from "./listen.ts";
+
+listen(composition);
+```
+
+`make js` bundles the entry as one classic script with `deno bundle --format iife`, and the composition as a module with `--format esm`. A page with a bundle of its own passes both to `createWorker`. It reads the composition only to give the frame its policy, and the modules run in the frame.
+
+```js
+import { createWorker } from "https://cdn.edgelang.dev/js/src/index.js";
+import mine from "./mine/composition.js";
+
+const worker = await createWorker({ bundleUrl: new URL("./mine/bundle.js", location.href).href, composition: mine });
+```
+
+A host module is a plain object.
+
+| Field | Meaning |
+|---|---|
+| `name` | The name a program imports it under. No import may take it |
+| `scope(scope)` | Whether a grant may give the module `scope`, written after its name and a colon |
+| `reaches(call, args)` | The scope a call reaches, which the host checks against the grants before the module sees the call, or `null` for a call no grant bounds |
+| `open(pkg, held)` | The calls one package gets and a `close` for what a run left open. `held.scopes` is `null` when nothing bounds the package |
+| `covers(scope, reached)` | Optional. Whether a granted scope covers what a call reaches, by default when the two are the same text |
+| `asked(held, reached)` | Optional. What a refusal names as asked, by default what the call reached |
+| `writes(held, path)` | Optional. Whether what a package holds lets it write `path` through a file channel, by default never |
+| `origins(scope)` | Optional. The origins the frame may reach for a scope the grants give |
+| `show(call, args, value)` | Optional. What a trace shows of a settled call |
+
+Without a grant component nothing bounds a call. Every package holds each module the composition wired, nobody reads a `permissions` field, and `all`, `main` and `eval` are plain import names. The frame still reaches only the origins its imports name, since no grant widens its policy.
 
 ## Limits
 
@@ -119,9 +168,9 @@ const worker = await createWorker({ limits: { memory: 512, ops: 1e9 } });
 - `memory` caps what a run holds, in MB.
 - `ops` caps how many operations it runs.
 - A field left out keeps the sandbox value of 256 MB and 100,000,000 operations.
-- The call depth stays fixed at 256.
+- The call depth stays fixed at the runtime's recursion limit, 1000 in mini.
 
-Each cap and the error it raises are on [Limits and errors](/docs/edge-python/reference/limits-and-errors).
+Each cap is on [Limits](/docs/edge-lang/sdk/limits).
 
 ## Events
 
@@ -129,9 +178,22 @@ Each cap and the error it raises are on [Limits and errors](/docs/edge-python/re
 
 `onOutput(handler)` receives each piece of text the program prints. A worker holds one handler at a time. A later call replaces it.
 
+## Named outputs
+
+`send(channel, line)` writes one line to a named output, and `onChannel(handler)` hands each one to the page under the name the program chose, as a stream of its own. A worker holds one handler at a time, and without one the lines are dropped.
+
+```js
+const worker = await createWorker({ baseUrl: new URL("./app/", location.href).href });
+const rows = new Map();
+worker.onChannel((channel, line) => rows.set(channel, [...(rows.get(channel) ?? []), line]));
+await worker.run(flow);
+```
+
+A name is whatever the program sends to, so one run can fill several tabs of a page at once. A name that starts with `file:` is a file wherever a host writes files, and in a page it is a stream like any other.
+
 ## Pause and snapshots
 
-A run can be paused, frozen to a blob and brought back later. What a blob holds and where a run can freeze are on [Snapshots](/docs/edge-python/language/snapshots).
+A run can be paused, frozen to a blob and brought back later. What a blob holds and where a run can freeze are on [Snapshots](/docs/edge-lang/sdk/snapshots).
 
 - `setPreemptInterval(n)` makes the VM yield every `n` loop back-edges. It takes effect at the next `run` or `restoreState`. `0` turns preemption off and is the default.
 - `pause()` resolves `true` once the run is parked. It resolves `false` when no run reaches a park, because it already finished or none started.
@@ -140,27 +202,50 @@ A run can be paused, frozen to a blob and brought back later. What a blob holds 
 - `restoreState(blob)` takes a `Uint8Array` or an `ArrayBuffer`. It resolves like `run` once the program finishes, and the run keeps the limits saved in the blob.
 - `stateGlobals()` and `stateStack()` read a parked run without waking it.
 
-A preempt interval lets `pause()` stop a program with no suspension point at all.
+`restoreState` reads the source and the script's name the blob embeds before the engine boots from it, so the modules that source imports are fetched first from the script's directory and a traceback names the script. It finds them from the `snapshot` field of the descriptor `runtime_descriptor` writes, which holds the magic a blob opens with, where its runtime identity lies and the identity this runtime saves, where its source length, the length of its script's name and its source lie, the name following the source. The engine keeps those offsets as constants in `src/vm/snapshot.rs`, so the host holds no copy of the layout, and `edge.wasm` writes them as this field among the others of its descriptor.
 
-```python
-# counter.py, no suspension point anywhere
-n = 0
-while True:
-    n += 1
-    if n % 1_000_000 == 0:
-        print(n)
+```json
+{ "snapshot": { "magic": 1314082885, "runtime_at": 8, "runtime": "9d341ce9676fcbc4", "source_len_at": 24, "entry_len_at": 32, "source_at": 40 } }
+```
+
+A blob whose magic differs, or whose source length runs past its end, is refused with `not an edge snapshot` before anything boots, and a blob another runtime saved with `snapshot was saved under another runtime` before its source is walked.
+
+A preempt interval lets `pause()` stop a program with no suspension point at all. The type count of [Tokens or a front end](/docs/edge-lang/get-started/book/tokens#one-job-both-ways) reads GH Archive's hour here as the run's input, one event for each `input()`, so nothing in its loop waits.
+
+```edge
+// a line names its event's type before anything nested in it
+fn kind_of(line):
+    at = line.find('"type":"') + 8
+    return line[at:line.find('"', at)]
+
+counts = {}
+seen = 0
+while true:
+    try:
+        line = input()
+    except EOFError:
+        break
+    kind = kind_of(line)
+    counts[kind] = counts.get(kind, 0) + 1
+    seen += 1
+for kind, n in sorted(counts.items(), key=lambda kv: kv[1], reverse=true)[:5]:
+    print(f'{n:>6}  {kind}')
 ```
 
 ```js
-const worker = await createWorker();
-await worker.setPreemptInterval(50_000); // ~1 yield per 50k loop iterations
+// the page serves a copy of the hour since GH Archive answers no other origin
+const hour = await fetch("./2026-10-01-15.json.gz");
+const input = await new Response(hour.body.pipeThrough(new DecompressionStream("gzip"))).text();
 
-worker.run(counterSrc); // never awaited, it runs forever
+const worker = await createWorker({ limits: { ops: 1e10 } });
+await worker.setPreemptInterval(50_000); // a yield every 50_000 loop back-edges
 
-await worker.pause(); // resolves true once parked, mid-loop
-const blob = await worker.saveState();
-await worker.stateGlobals(); // { n: "3170000" }
-worker.resume(); // keeps counting from 3170000
+worker.run(countSrc, { input }); // not awaited while the count reads the hour
+
+await worker.pause(); // resolves true once the run parks mid-loop
+const blob = await worker.saveState(); // the counts so far and the input not yet read
+const { seen } = await worker.stateGlobals(); // the events counted when the pause landed
+worker.resume(); // the count goes on from where it parked
 ```
 
 The yields are invisible. The run continues on its own, and the host only notices when it asks to stop.
@@ -176,21 +261,27 @@ Pick `n` for how fast a pause has to land. Each yield is one event loop round tr
 
 `saveState` returns opaque bytes. Any store that holds bytes keeps a blob, and none of them runs the VM.
 
-The page below checkpoints a counter into Cache Storage every five seconds. On load it resumes the saved session when one exists and otherwise starts fresh.
+The page below checkpoints the type count above into Cache Storage every five seconds. On load it resumes the saved session when one exists and otherwise starts the count over the hour. A blob holds the input the run has not read yet, so a restored session counts only the rest of the hour.
 
 ```html
 <script type="module">
-  import { createWorker } from "https://cdn.edgepython.com/js/src/index.js";
+  import { createWorker } from "https://cdn.edgelang.dev/js/src/index.js";
 
-  const worker = await createWorker();
-  const store = await caches.open("edge-python");
+  const worker = await createWorker({ limits: { ops: 1e10 } });
+  const store = await caches.open("edge");
   const KEY = "/session";
+
+  // the hour's events inflated from the copy served beside the page
+  const hour = async () => {
+    const gz = await fetch("./2026-10-01-15.json.gz");
+    return new Response(gz.body.pipeThrough(new DecompressionStream("gzip"))).text();
+  };
 
   await worker.setPreemptInterval(50000);
   const hit = await store.match(KEY);
   hit
     ? worker.restoreState(new Uint8Array(await hit.arrayBuffer()))
-    : worker.run(await fetch("./counter.py").then((r) => r.text()));
+    : worker.run(await fetch("./count.mini").then((r) => r.text()), { input: await hour() });
 
   const checkpoint = async () => {
     if (!await worker.pause()) return; // the run already finished
@@ -210,18 +301,27 @@ The interval is what protects the session.
 Other stores take the same bytes.
 
 ```js
-// A download the user keeps.
+// a download the user keeps
 const file = new Blob([await worker.saveState()], { type: "application/octet-stream" });
 const url = URL.createObjectURL(file);
-Object.assign(document.createElement("a"), { href: url, download: "cart.snapshot" }).click();
+Object.assign(document.createElement("a"), { href: url, download: "session.snapshot" }).click();
 URL.revokeObjectURL(url);
 
-// A file the user picks.
+// a file the user picks
 worker.restoreState(new Uint8Array(await fileInput.files[0].arrayBuffer()));
 
-// IndexedDB keeps a Uint8Array directly, a server takes the raw bytes.
-await store.put("cart", await worker.saveState());
-await fetch("/saves/cart", { method: "PUT", body: await worker.saveState() });
+// an IndexedDB store keeps a Uint8Array as it is under the page's key
+const db = await new Promise((done, fail) => {
+  const open = indexedDB.open("edge", 1);
+  open.onupgradeneeded = () => open.result.createObjectStore("runs");
+  open.onsuccess = () => done(open.result);
+  open.onerror = () => fail(open.error);
+});
+const bytes = await worker.saveState(); // taken first since a transaction ends at the first await
+db.transaction("runs", "readwrite").objectStore("runs").put(bytes, "session");
+
+// a server takes the raw bytes
+await fetch("/saves/session", { method: "PUT", body: bytes });
 ```
 
 A server works the same way as a local store. It only holds bytes.
@@ -231,7 +331,7 @@ const res = await fetch(`/saves/${userId}`);
 if (res.ok) {
   worker.restoreState(new Uint8Array(await res.arrayBuffer())); // continue the held session
 } else {
-  worker.run(cartSrc); // no save yet, start fresh
+  worker.run(jobSrc); // no save yet so the job starts fresh
 }
 ```
 
@@ -247,13 +347,13 @@ Every worker lives in a sandboxed frame with an opaque origin of its own.
 The browser lets the frame connect only where the program may go.
 
 - The origins its imports name, and where each release in its `edge.lock` lives.
-- The hosts its permissions grant, on http, https, ws and wss and any port.
+- The origins each wired module gives for the scopes the grants hold. `net` gives a granted host on http, https, ws and wss and any port.
 
-A request the grants would miss never leaves the frame. A path prefix in a grant is checked by the engine, since a frame policy names only a whole host.
+A source the policy cannot name as written, such as a wildcard or a path, stays out. A request the grants would miss never leaves the frame. A path prefix in a grant is checked by `net` itself, since a frame policy names only a whole host.
 
 ## Trace
 
-A worker created with `trace: true` reports every system call of a run through `onTrace`. Each event is timed in milliseconds from the start of the run.
+A worker created with `trace: true` reports every host call of a run through `onTrace`. Each event is timed in milliseconds from the start of the run.
 
 ```js
 const worker = await createWorker({ trace: true, permissions: { main: ["net:api.example.com"] } });
@@ -264,26 +364,17 @@ worker.onTrace((event) => console.log(event));
 | `kind` | Fields | Sent |
 |---|---|---|
 | `run` | `at`, `epoch` | First, with `epoch` in milliseconds since the Unix epoch |
-| `call` | `at`, `ms`, `pkg`, `call`, `scope`, `outcome`, and `id`, `status` or `bytes` where they apply | Once each system call settles |
+| `call` | `at`, `ms`, `pkg`, `call`, `scope`, `outcome`, and `id`, `status` or `bytes` where the module shows them | Once each host call settles |
 | `print` | `at`, `text` | For each print, cut at 120 characters |
 
-A call names the package, the call, what it reached and how it ended. `outcome` is `ok` or the name of the error.
+A call names the package, the call and how it ended. `outcome` is `ok` or the name of the error. The rest is what the module shows through `show`, and a module without one shows nothing more.
 
-| Module | `scope` holds |
-|---|---|
-| `net` | The method, host and path of a request, the host and path of a socket |
-| `secret` | The name |
-| `time` | The clock |
-| `fs` | The path |
-
-An event never carries a body, a header or a query. A secret value that shows up in a scope or a print is masked. A value of eight characters or more shows its first two, and a shorter one shows none.
-
-A `batch` reports as one call. The calls inside it are not listed one by one. A worker without `trace` pays one check per call.
+For `net` the `scope` holds the method, host and path of a request, or the host and path of a socket. It never shows a body, a header or a query. A worker without `trace` pays one check per call.
 
 ## See also
 
 > [!CARDS]
-> - `camera` [Snapshots](/docs/edge-python/language/snapshots) What a blob holds and where a run can freeze.
-> - `shield` [System](/docs/edge-python/reference/system) The fs, net, time and secret modules and their grants.
-> - `package` [Modules](/docs/edge-python/reference/modules) How imports resolve and what edge.json declares.
-> - `cpu` [Rust](/docs/edge-python/platforms/rust) Drive compiler.wasm from a Rust host.
+> - `camera` [Snapshots](/docs/edge-lang/sdk/snapshots) What a blob holds and where a run can freeze.
+> - `shield` [System](/docs/edge-lang/reference/system) The net module and the grants a page passes.
+> - `package` [Modules](/docs/edge-lang/reference/modules) How imports resolve and what edge.json declares.
+> - `cpu` [Rust](/docs/edge-lang/platforms/rust) Drive edge.wasm from a Rust host.

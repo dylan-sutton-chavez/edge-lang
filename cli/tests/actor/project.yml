@@ -1,4 +1,4 @@
-# A run target that is a directory boots its main.py and resolves the project's own edge.json.
+# A run target that is a directory boots its main.mini and resolves the project's own edge.json.
 groups:
   builder:
     seed: ["go"]

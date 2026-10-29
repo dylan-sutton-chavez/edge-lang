@@ -1,0 +1,166 @@
+---
+title: "Embedding"
+description: "How a Rust host links the engine and runs a runtime of its choice in its own process, from the crate and its features to the VM, its limits, the metered allocator, the run loop, the output and a whole native binary."
+---
+
+# Embedding
+
+A Rust host can link the engine as a crate and run a runtime in its own process, with no `.wasm` in between. It compiles a source through the runtime's front, boots a `VM` over the runtime, drives the run to its end and answers what the program asks of the outside. This page covers the crate, the VM and its limits, the allocator the memory limit reads, the run loop and the output, then the shortest whole host, the binary of `examples/native`. A host that loads a runtime's `.wasm` instead calls the exports [Rust](/docs/edge-lang/platforms/rust) lists, and both drive the same loop.
+
+## The crate
+
+A host takes two crates, the engine `edge` and the runtime it boots, which is a crate of its own built on `edge`. Inside the clone both go by path, as `examples/native` takes the engine and mini.
+
+```toml file=examples/native/Cargo.toml
+```
+
+Outside the clone a host takes both by git at the tag of the release it builds on, the way [Start your own crate](/docs/edge-lang/get-started/use-cases/your-runtime#start-your-own-crate) takes the engine for a runtime. The crate builds no wasm of its own and fetches nothing at build time, so `cargo build` stays offline and reproducible.
+
+### Features
+
+A host keeps the default feature and turns on no other, since the rest build the engine's own artifacts and tools.
+
+| Feature | Turns on |
+|---|---|
+| `std` | The default. The native target's `Script`, `print` and `main`, stdin as the input of a VM with `strict_input` off, and one memory budget for each thread |
+| `runtime` | The wrapper that makes a runtime's `.wasm`, its exports, host imports, allocator and panic handler, built for `wasm32` alone and turned on by a runtime's `web` feature |
+| `perms` | The grant exports of that `.wasm`, `grants_check`, `grants_scopes` and `grants_held`, and a walk that carries `permissions` unless its host names another field, while the grant logic itself is `edge::deps::perms` in every build |
+| `internals` | The modules behind the stable API, for the engine's own tests and tools, which change with every release |
+| `coverage` | A record of each instruction a run executes, which `VM::ran` reads, with method calls left unfused |
+| `layout` | A padding static that shifts static data for `make bench-layout` |
+
+A wasm that links the crate as a library, such as a plugin that only parses, drops `std` with `default-features = false` and brings its own allocator and panic handler. Each runtime of the repo takes the engine with `default-features = false` as well and turns `std` back on through a default feature of its own, so a host that takes a runtime with its defaults builds the engine with `std`.
+
+### The crate API
+
+The crate exposes these modules and keeps the rest to itself.
+
+| Module | Holds |
+|---|---|
+| `code` | `compile`, which parses and folds a source into an `SSAChunk` through a runtime's `Front`, and `compile_as::<S>` through a token table alone with the lexer's diagnostics first, the `Parser` for a resolver or a path, `build` with the `Builder` a front end of its own lowers through, `constant_fold` for a chunk a front parsed, and the bytecode they make, `Instruction`, `OpCode` with `is_jump`, `ALL` and the `info` and `effect` of the one table `edge::ops!` declares it in, which [Opcodes](/docs/edge-lang/sdk/opcodes) covers, `Value`, `Diagnostic` and `unpack_call` for the counts of a call operand. `Program::new(&chunk)` gives `scope_of(body)`, `params_of(fi)` and `bindings_of(body)` without running anything |
+| `embed` | `VM` to run a chunk, `Limits`, `SchedulerStatus`, the snapshot calls `save`, `restore`, `source_of`, `entry_of`, `limits_of`, `inspect_globals` and `inspect_stack` with their `SnapErr`, `runtime_of` and `saved_under`, which read the runtime a blob was saved under before its source parses, with `RUNTIME_AT` where that identity lies and `OTHER_RUNTIME` the refusal, `Resolver`, `Resolved` and `NativeBinding` for modules and natives, and `call_native`, which calls a native of the runtime on values a host built |
+| `lang` | What a runtime hands the engine. Its [`Language`](/docs/edge-lang/sdk/language), with the `Policy` of its rules and the `EngineError` it words, `Runtime`, `Natives` and `Native` with its `Sig`, the rules of a site its language answers, the `Names` of its kinds and errors, the `Front` its sources read through, and the `Descriptor` its tools read. A native's body takes a `Cx` and its `Args` and answers with a value or a `Step`, and `KindId`, `ErrKind` and `Intrinsic` name what the engine knows |
+| `value` | `Val`, `HeapObj`, `HeapPool`, `VmErr`, `as_i128`, the allocator `meter`, the `foreign` kinds a FOREIGN value boxes in and the `Host` trait |
+| `lexer` | `lex_as::<S>`, which lexes a source through a table, `Token`, `TokenType` and `LexError`, the `Syntax` a table writes with every part of it, and the `Spelling` that pairs a table with natives. `operators` and `index` build a table's lookups at compile time |
+| `deps`, `abi`, `util::sha256` | Manifests, locks and bundles, the grant logic in `deps::perms`, the wire format of plugins, and SHA-256 |
+| `targets::native` | What a native binary runs a runtime with, the `Script` it reads, compiles, boots and runs, the `print` hook its VM writes to stdout through, and the `main` that puts them together, as [A native binary](#a-native-binary) shows |
+
+Two macros build a runtime. `edge::natives!` gathers its tables of natives, its methods by kind and its type names under its language into one `Natives` at compile time, and `edge::web_exports!(RUNTIME)` builds the exports of the runtime's `.wasm` around the `Runtime` that `Runtime::of` makes of the language. [Your runtime and its CLI](/docs/edge-lang/get-started/use-cases/your-runtime) uses both. `edge::ops!` declares a table of opcodes, and a host's binary installs the meter with `edge::allocator!()`.
+
+`bindings_of(body)` answers for the module, every class and every function body with a `BodyKind` and a `Binding` per name slot. A function's names are `Local`, `Cell` or `Global`, the same answer `scope_of` gives. A class body's own names are `Member`, which its methods and comprehensions don't see, so they read past the class to the function around it or the module. Its other names are a `Cell` of that function, a `Lent` plain local of the function that defines the class, read by value as the class is made, or `Global`. Slots no variable takes, such as attribute names, are `Local`.
+
+## A VM over a runtime
+
+A runtime's crate hands a host the two things it boots with, its `RUNTIME`, the `Runtime` its language makes, and its `FRONT`, which reads its sources. Uptime's `lib.rs` is whole below, and mini's and tiny's make the same two.
+
+```rust file=examples/uptime/src/lib.rs
+```
+
+`Runtime::of::<L>()` runs inside a static, so the build checks the language's rules and fails on a broken one, and it erases the language into the tables and calls the engine reads outside the loop. It picks the loop as well. A language that keeps the rules the engine's own loop is built with, and adds no opcodes, runs that loop, which every such runtime shares. Any other runs a loop the engine builds for it alone, with the language's policy folded in as constants, as [Language](/docs/edge-lang/sdk/language#the-trait) describes. So `VM` is one type whatever it runs, a host never names the language, and one process boots machines over several runtimes, as the engine's tests run mini beside the runtime of `tests/policy.rs`, whose rules give it a loop of its own.
+
+A host compiles a source with `edge::code::compile(&FRONT, src)`, which parses and folds it with nothing to import and gives the chunk, or every diagnostic that stopped it, or with `Script::compile`, which resolves its imports through the `Resolver` it is given. `Diagnostic::render_all` turns the diagnostics into a report. `VM::with_runtime(&RUNTIME, &chunk, limits)` then boots the machine. The VM borrows the chunk, so the chunk outlives it, and runs it only under the runtime whose front compiled it, since a call of a native compiles to its place in that runtime's table, and `run()` refuses a chunk compiled for another runtime with an error that names both. `VM::new(&chunk)` boots a machine with no runtime at all, which names nothing, calls no native and so runs no chunk a runtime's front compiled.
+
+| Call | Does |
+|---|---|
+| `VM::with_runtime(&RUNTIME, &chunk, limits)` | Boots a machine over a runtime, and `VM::boxed` builds the same machine in a box |
+| `run()` | Begins the run, or carries a parked one on, as [The run loop](#the-run-loop) lists |
+| `push_event(text)` | Hands an event to the run waiting for one, or queues it for the next native that takes one |
+| `inject_host_result_by_id(id, v)`, `inject_host_error_by_id(id, e)` | Answers host call `id` with a value or an error, and gives `false` when nothing waits on it |
+| `set_preempt_interval(n)` | Stops the run every `n` loop back-edges, and never at 0, the default |
+| `reset_budget(ops)` | Gives the run a fresh op budget |
+| `call_export(name, args)` | Calls a function the program defined, once `run` has bound it |
+| `edge::embed::call_native(&mut vm, name, recv, args, kw)` | Calls the native the runtime names `name`, or `kind.method` on `recv`, on values built on the heap, and gives `None` once its answer opened a frame, as the [native cases](/docs/edge-lang/sdk/testing#native-cases) run |
+| `heap()`, `heap_mut()` | The heap, to read a result or build an argument |
+| `display(v)`, `repr(v)` | A value as the runtime renders it, with none of the program's budget spent |
+| `memory()`, `memory_peak()` | What the run holds now and the most it held at once |
+
+### Limits
+
+`Limits` holds the two caps a host sets for each VM, and `Limits::sandbox()` gives the ones every host of the repo runs under unless told otherwise.
+
+| Field | Bounds | Sandbox | Past it |
+|---|---|---:|---|
+| `ops` | The run's calls, the turns of its loops and the work its natives report, across every `run` that carries it on | 100,000,000 | The runtime's runtime error, which no handler stops, since the handler's first op raises again |
+| `memory` | The bytes the allocator hands the run, its objects, frames, caches and buffers, with its garbage until a collection frees it | 256 MiB | A collection at the next safe point, then the runtime's memory error if the run still holds more, and no new slot past twice the limit |
+
+`usize::MAX` for `memory` lifts that cap and with it the need for the meter, as [The allocator](#the-allocator) explains. A run that parks and resumes spends one budget across all of its `run` calls, and `reset_budget` gives it a new one, as the REPL of `edge.wasm` does before each input. The rest of what a run is held to comes from elsewhere. The runtime's `Policy` sets its recursion limit, 1000 in mini, calls that nest a loop in Rust stop at 128, and the programs of one thread share one memory budget. [Limits](/docs/edge-lang/sdk/limits) lists every cap.
+
+## The allocator
+
+```rust file=src/targets/native/mod.rs
+```
+
+`edge::allocator!()` makes the system allocator, behind the meter, the global allocator of the binary it is written in, and `edge::allocator!(Inner = value)` puts the meter over another allocator, as the web target puts it over a pool of dlmalloc for `edge.wasm`. A binary writes it once, as `examples/native` does, since a binary has one global allocator, and a runtime's crate leaves it to the binary. The repo's test binaries write it too, as `tests/main.rs` does for the engine's suites, all but `tests/unmetered.rs`, which holds what a run does without it.
+
+A host meters its allocator because the memory limit is a count, not an estimate. Each block the allocator hands out carries the meter of the run that paid for it in a tag before it, and freeing the block credits that meter, so a run is charged for its objects, its frames, its caches and its buffers, and `memory()` and `memory_peak()` read the count. Pointers and the tag are wider on a 64-bit host, so it counts more bytes for the same program than `edge.wasm` does. With no meter nothing counts, so `run` refuses a VM whose limits cap its memory before anything runs, and only `memory: usize::MAX` runs without one.
+
+The programs of one thread share one budget as well, half the address space by default, which `edge::value::meter::set_budget` sets for that thread. The run whose growth passes it raises the runtime's memory error while the others go on. [The meter](/docs/edge-lang/sdk/values#the-meter) covers what a run pays for.
+
+## The run loop
+
+`run` begins a run, and each later call carries a parked run on from where it stopped. The first call runs every module the program imports, a module's own imports before it, then the program's body, which runs as a coroutine so a statement at any depth can wait for the host. A call returns once the run ends or parks.
+
+| `run` returns | The run | The host |
+|---|---|---|
+| `Ok(_)` | Ended | Reads what it printed, or calls what it defined with `call_export` |
+| `Err(VmErr::HostYield(SchedulerStatus::PendingEvent))` | Parked waiting for an event, as lib's `io::receive` parks with none queued | Pushes one with `push_event` and calls `run` again |
+| `Err(VmErr::HostYield(SchedulerStatus::PendingHostCall))` | Parked on a call a host module deferred | Answers the call by its id and calls `run` again |
+| `Err(VmErr::HostYield(SchedulerStatus::Preempted))` | Stopped at a back-edge past its preempt interval | Calls `run` again at once, or saves the run first |
+| Any other `Err(e)` | Ended on an error no handler caught, a spent budget or the memory limit among them | Reads an exit's status with `system_exit_code()`, and else words the error |
+
+A host module the host serves through its `Resolver` defers a call by returning `VmErr::HostCallDeferred` from its binding, and the run parks on it. The ids of those calls count from zero in the order the run made them. An event pushed while nothing waits stays in a queue, so a host may push events before the first `run`. A preempt lands only where the run can unwind, as [What cannot be preempted](/docs/edge-lang/sdk/snapshots#what-cannot-be-preempted) lists, and [Host waits](/docs/edge-lang/sdk/host-waits) covers where a program may wait.
+
+A parked run, waiting or preempted, saves with `edge::embed::save(&vm, src, entry)`, where `entry` names the script the run started from and `edge::embed::entry_of(&blob)` gives it back, for a host to name the script again before it restores. `edge::embed::restore(&mut vm, &blob)` overlays the blob on a fresh VM booted over the same runtime from the same program, which it checks first, and never lets the blob spend past the limits that VM booted with, so a host keeps the saved ones by booting with `edge::embed::limits_of(&blob)`, as `edge.wasm` does. Tiny's suite does this at every wait of a case marked `hops` in `examples/tiny/tests/flows.rs`.
+
+An error leaves `run` in the runtime's terms, its class named by the runtime's `Names` and an error of the engine worded by its `message`. `report_error(&e, src, path)` gives the whole report a process prints, with the line the error rose at and the calls it left, through the runtime's `REPORT` where it names one, as tiny does. `error_text(&e)` gives the class and the message alone. Both read the VM's own runtime, while the `Display` of an error reads the names of the VM booted last on its thread, so a host with several runtimes words errors through the VM.
+
+## The output
+
+The run writes what it prints through its VM, and a host reads it one of two ways.
+
+- **A hook.** `print_hook`, a `fn(&str)`, receives each text as the run writes it, the exact bytes with no line end added or taken away. `Script` sets it to `print`, which writes to stdout, and `edge.wasm` sets one that calls `host_print`.
+- **The buffer.** With no hook the VM keeps the text as lines in `output`, and `output_text()` joins them, ending with a line end unless the last line is still open.
+
+What reaches it is the text a native writes through `Cx::write` and `Cx::write_line`, as lib's `io::print` does, and the line a native's `fast_out` writes for a call of plain values. Nothing else does. An error comes back as the `Err` of `run`. A `send` goes to `send_hook`, a `fn(&str, &str) -> bool` given the output's name and the line, which refuses it with `false`, and lib's `io::send` raises the runtime's runtime error when no hook takes the line, as mini words it with `send() needs an actor scheduler, missing in this runtime`.
+
+Input comes the other way. `input_buffer` holds the lines lib's `io::read_line` reads first, and once it is empty a VM with `strict_input` off reads stdin a line at a time, as `Script` boots one, while a VM with it on, as every VM boots, reads the end of its input. The hooks are plain functions with no state of their own, so a host that keeps the output of each VM apart leaves `print_hook` unset and reads `output`, or keeps the text in a thread-local, as tiny's suite keeps the lines its flows send.
+
+## A native binary
+
+`edge::targets::native` holds the shortest whole host.
+
+```rust file=src/targets/native/script.rs
+```
+
+`Script::read` compiles the file at a path through a runtime's front and reads each module it imports from that file's directory, through relative imports and an `edge.json` beside it, and `Script::compile` compiles a source the host already holds, with its imports through the `Resolver` it is given. A native script fetches no URL and loads no plugin, so such an import fails before the program runs. `boot` gives a VM over the runtime whose prints go to stdout and whose input reads stdin a line at a time. `run` drives the VM to its end and gives the status the process exits with. A preempted run resumes at once, and an exit ends with its own status, its low byte. An uncaught error writes its report to stderr in the runtime's words after what the program printed and ends with 1, and so does a wait for an event or a host call, which nothing here can answer. `main` puts them together for a binary that runs the file its first argument names, and without one it prints its usage and ends with 1.
+
+`examples/native` boots mini this way. Its binary installs the allocator and hands the rest to `main` with the sandbox's limits.
+
+```rust file=examples/native/src/main.rs
+```
+
+It runs a real job, the crates a `Cargo.lock` holds at more than one version and the packages that ask for each version.
+
+```edge file=examples/native/duplicates.mini
+```
+
+Run over the repo's own lockfile on 25 October 2026, it found three such crates among 128.
+
+```text
+$ cargo run -q -p native -- examples/native/duplicates.mini < Cargo.lock
+embedded-io 0.4.0 for postcard 1.1.3
+embedded-io 0.6.1 for postcard 1.1.3
+hashbrown 0.16.1 for gimli 0.33.0
+hashbrown 0.17.1 for cranelift-codegen 0.135.3, cranelift-frontend 0.135.3, edge 0.9.6, indexmap 2.14.2, object 0.39.1, regalloc2 0.15.2, wasmparser 0.254.0, wasmtime-environ 48.0.3, wasmtime-internal-core 48.0.3
+syn 2.0.119 for pulley-macros 48.0.3, wasmtime-internal-versioned-export-macros 48.0.3
+syn 3.0.6 for async-trait 0.1.92, plugin-macros 0.9.6, serde_derive 1.0.229, thiserror-impl 2.0.21
+3 of 128 crates are held at more than one version
+```
+
+The test in `examples/native/tests/duplicates.rs` runs the binary over both lockfiles of the repo and holds each report to the same rule written in Rust. It holds the other endings too, a `KeyError` on stderr in mini's words with status 1, an `exit(3)` that ends with 3 after what the program printed, and a source that does not compile, which reports where it breaks and never runs.
+
+> [!CARDS]
+> - `cpu` [Rust](/docs/edge-lang/platforms/rust) The exports, the imports and the status word of a runtime's .wasm, for a host that loads it instead.
+> - `hourglass` [Host waits](/docs/edge-lang/sdk/host-waits) Where a program may wait and how each host answers.
+> - `camera` [Snapshots](/docs/edge-lang/sdk/snapshots) A parked run frozen to a blob and restored on any host.
+> - `gauge` [Limits](/docs/edge-lang/sdk/limits) Every cap a run is held to, the ones a host sets among them.

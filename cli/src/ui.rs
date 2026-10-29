@@ -5,28 +5,25 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
-/// A `+ name   url` line for an added package.
 pub fn added(name: &str, url: &str) {
     println!("  + {name:<10} {url}");
 }
 
-/// What a package just added asks the root to grant it.
+// what a package just added asks the root to grant it
 pub fn asks(who: &str, entries: &[String]) {
     println!("    {who} asks {}", entries.join(", "));
 }
 
-/// A `- name` line for a removed package.
 pub fn removed(name: &str) {
     println!("  - {name}");
 }
 
-/// A blank line then a trailing note.
 pub fn note(msg: &str) {
     println!();
     println!("  {msg}");
 }
 
-/// The created-files tree printed by `edge init`.
+// the tree of created files `edge init` prints
 pub fn scaffolded(dir: &str, items: &[&str], next: &str) {
     let label = if dir == "." { "project" } else { dir };
     println!("  created {label}/");
@@ -37,7 +34,7 @@ pub fn scaffolded(dir: &str, items: &[&str], next: &str) {
     note(next);
 }
 
-/// The `edge serve` banner, `lan` adds a network URL.
+// the `edge serve` banner where `lan` adds a network URL
 pub fn serve_banner(port: u16, dir: &Path, lan: Option<&str>) {
     println!("  http://localhost:{port}");
     if let Some(ip) = lan {
@@ -46,24 +43,24 @@ pub fn serve_banner(port: u16, dir: &Path, lan: Option<&str>) {
     println!("  watching {}", dir.display());
 }
 
-/// Print a script's traceback to stderr, verbatim from the engine.
+// the traceback goes to stderr verbatim from the engine
 pub fn traceback(msg: &str) {
     eprintln!("{msg}");
 }
 
-/// Summary printed by `edge build` after vendoring the JS host + packages + scripts into dist/.
+// the summary `edge build` prints after vendoring into dist
 pub fn build_report(dir: &std::path::Path, js_files: usize, packages: usize, scripts: usize, size: u64, elapsed: std::time::Duration) {
     println!();
     println!("  bundled to {}/", dir.display());
     println!();
-    println!("  {js_files} js host files + compiler.wasm");
+    println!("  {js_files} js host files + edge.wasm");
     println!("  {packages} packages");
     println!("  {scripts} scripts");
     println!();
     println!("  {:.2} MB · {:.1}s", size as f64 / 1_000_000.0, elapsed.as_secs_f64());
 }
 
-/// Closing lines for `edge build`, `hint` names the other modes so they stay discoverable.
+// closing lines of `edge build` where `hint` keeps the other modes discoverable
 pub fn packed(out: &std::path::Path, files: usize, docs: usize, size: u64, hint: &str) {
     println!();
     let pages = match docs {
@@ -78,12 +75,12 @@ pub fn packed(out: &std::path::Path, files: usize, docs: usize, size: u64, hint:
     println!("  {hint}");
 }
 
-/// Render an error to stderr. `{:#}` joins the cause chain so the root reason isn't swallowed.
+// `{:#}` joins the cause chain so the root reason is never swallowed
 pub fn error(e: &anyhow::Error) {
     eprintln!("error: {e:#}");
 }
 
-/// Per-file verdict line for `edge test`.
+// the verdict line of each file `edge test` runs
 pub fn test_verdict(ok: bool, file: &str, reason: Option<&str>) {
     let tag = if ok { "(successful)" } else { "(unsuccessful)" };
     match reason {
@@ -92,25 +89,24 @@ pub fn test_verdict(ok: bool, file: &str, reason: Option<&str>) {
     }
 }
 
-/// The `edge test` closing summary.
 pub fn test_summary(passed: usize, total: usize, secs: f64) {
     println!();
     println!("  {passed}/{total} files passed · {secs:.1}s");
 }
 
-// Braille frames used by the spinner, matching the rest of the UI's unicode style.
+// braille frames matching the unicode style of the rest of the UI
 const SPIN_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
-/// Animated stderr spinner for long operations. Falls back to a static line when redirected.
+// a stderr spinner for long steps that falls back to a static line when redirected
 pub struct Spinner {
     stop: Arc<AtomicBool>,
     handle: Option<thread::JoinHandle<()>>,
 }
 
-/// Start a spinner with `label`. Drop it (or call `done`) to stop.
+// dropping it or calling `done` stops the spinner
 pub fn spinner(label: &str) -> Spinner {
     let stop = Arc::new(AtomicBool::new(false));
-    // No animation when stderr is redirected, just announce the step.
+    // a redirected stderr gets the step announced without animation
     if !std::io::stderr().is_terminal() {
         eprintln!("  {label}...");
         return Spinner { stop, handle: None };
@@ -126,7 +122,7 @@ pub fn spinner(label: &str) -> Spinner {
             thread::sleep(Duration::from_millis(120));
             i += 1;
         }
-        // ANSI carriage return plus erase-to-end-of-line so the next print starts clean.
+        // a carriage return and an erase to line end so the next print starts clean
         eprint!("\r\x1b[2K");
         let _ = std::io::stderr().flush();
     });
@@ -134,14 +130,12 @@ pub fn spinner(label: &str) -> Spinner {
 }
 
 impl Spinner {
-    /// Stop the spinner and print a `(successful) {msg}` line.
     pub fn done(self, msg: &str) {
-        // Drop stops the thread and clears the line, the result line goes right after.
+        // the drop stops the thread and clears the line before the result line
         drop(self);
         eprintln!("  (successful) {msg}");
     }
 
-    /// Stop the spinner and print an `(unsuccessful) {msg}` line.
     pub fn fail(self, msg: &str) {
         drop(self);
         eprintln!("  (unsuccessful) {msg}");

@@ -1,0 +1,14 @@
+[package]
+name = "slugify-mod"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+test = false
+doctest = false
+
+[dependencies]
+plugin = { path = ".." }

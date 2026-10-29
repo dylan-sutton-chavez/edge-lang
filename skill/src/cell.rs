@@ -8,8 +8,8 @@ pub enum Verdict {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
-    Python,
-    PythonSkip,
+    Mini,
+    MiniSkip,
     Actor,
     Untrusted,
 }
@@ -40,11 +40,11 @@ pub fn collect(blocks: &[Block]) -> Result<Vec<Cell>, String> {
     while i < blocks.len() {
         let b = &blocks[i];
         let kind = match (b.lang.as_str(), b.meta.as_str()) {
-            ("python", "") => Kind::Python,
-            ("python", "skip") => Kind::PythonSkip,
+            ("mini", "") => Kind::Mini,
+            ("mini", "skip") => Kind::MiniSkip,
             ("yml", "actor") => Kind::Actor,
             ("yml", "untrusted") => Kind::Untrusted,
-            ("python" | "yml", meta) => {
+            ("mini" | "yml", meta) => {
                 return Err(format!("line {}: unknown {} meta '{meta}'", b.line, b.lang));
             }
             _ => {
@@ -53,10 +53,10 @@ pub fn collect(blocks: &[Block]) -> Result<Vec<Cell>, String> {
             }
         };
 
-        if kind == Kind::PythonSkip {
-            if !b.body.contains("# skip") {
+        if kind == Kind::MiniSkip {
+            if !b.body.contains("// skip") {
                 return Err(format!(
-                    "line {}: skip cell needs a '# skip' comment at the nondeterministic construct",
+                    "line {}: skip cell needs a '// skip' comment at the nondeterministic construct",
                     b.line
                 ));
             }
@@ -72,8 +72,8 @@ pub fn collect(blocks: &[Block]) -> Result<Vec<Cell>, String> {
 
         let next = blocks.get(i + 1);
         let Some(text) = next.filter(|n| n.lang == "text") else {
-            if kind == Kind::Python {
-                // A bare python block is illustrative, only a text pair makes it runnable.
+            if kind == Kind::Mini {
+                // A bare mini block is illustrative, only a text pair makes it runnable.
                 i += 1;
                 continue;
             }

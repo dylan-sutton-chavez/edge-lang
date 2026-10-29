@@ -7,12 +7,12 @@
 <body>
   <pre id="out"></pre>
   <script type="module">
-    import { createWorker } from "https://cdn.edgepython.com/js/src/index.js";
-    // The worker runs the program beside this page, and the page shows what it prints.
+    import { createWorker } from "https://cdn.edgelang.dev/js/src/index.js";
+    // the worker runs the program beside this page and the page shows what it prints
     const out = document.getElementById("out");
     const worker = await createWorker({ baseUrl: location.href });
     worker.onOutput((text) => out.append(text));
-    const { out: error } = await worker.run(await fetch("main.py").then((r) => r.text()));
+    const { out: error } = await worker.run(await fetch("__EDGE_ENTRY__").then((r) => r.text()));
     if (error) out.append(error);
   </script>
 </body>

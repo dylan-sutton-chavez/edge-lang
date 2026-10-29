@@ -1,6 +1,6 @@
 {
-  "name": "edge-python",
+  "name": "edge-lang",
   "private": true,
-  "description": "The parts a project built around Edge Python takes from this repo as a git dependency.",
-  "files": ["js/src/system", "js/src/rt.ts", "js/src/room.ts", "js/src/wasm.ts", "docs", "skill/SKILL.md", "tests/cases/docs.json", "cdn/src/tree.ts"]
+  "description": "The parts a project built around Edge takes from this repo as a git dependency.",
+  "files": ["js/src", "examples/net", "docs", "skill/SKILL.md", "tests/cases/docs.json", "cdn/src/tree.ts"]
 }

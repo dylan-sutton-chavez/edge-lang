@@ -4,10 +4,10 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 
-/* Plugin ABI wire format shared by compiler (host) and wasm-pdk (guest), no_std and alloc only. Bump on any breaking change. Plugins export `__edge_abi_version`, hosts MUST refuse unrecognised versions. */
+/* bumped on any breaking change and a host refuses any `__edge_abi_version` it does not know */
 pub const EDGE_ABI_VERSION: u32 = 1;
 
-/* NaN-boxing layout that packs Val into 64 bits. */
+/* the NaN-boxing layout that packs a `Val` into 64 bits */
 pub mod nan_box {
     pub const QNAN: u64 = 0x7FFC_0000_0000_0000;
     pub const SIGN: u64 = 0x8000_0000_0000_0000;
@@ -17,13 +17,13 @@ pub mod nan_box {
     pub const TAG_FALSE: u64 = QNAN | 3;
     pub const TAG_INT: u64 = QNAN | SIGN;
     pub const TAG_HEAP: u64 = QNAN | 4;
-    /* A FOREIGN handle, 16 bits of generation and 32 of index under the first free prefix. */
+    /* a foreign handle with 16 generation and 32 index bits under the first free prefix */
     pub const TAG_FOREIGN: u64 = QNAN | 1 << 48;
-    /* 48-bit signed payload, sign bit at bit 47. */
+    /* a 48-bit signed payload with its sign at bit 47 */
     pub const INT_PAYLOAD_MASK: u64 = 0x0000_FFFF_FFFF_FFFF;
 }
 
-/* Op codes for the `edge_op` dispatch primitive. */
+/* op codes of the `edge_op` dispatch primitive */
 pub mod op {
     pub const CALL: u32 = 0;
     pub const GET_ATTR: u32 = 1;
@@ -36,34 +36,40 @@ pub mod op {
     pub const NEW_DICT: u32 = 8;
     pub const NEW_LIST: u32 = 9;
     pub const TYPE_OF: u32 = 10;
-    // Construct composites from argv items in one call.
+    // builds composites from the argv items in one call
     pub const NEW_TUPLE: u32 = 11;
     pub const NEW_SET: u32 = 12;
     pub const NEW_FROZENSET: u32 = 13;
-    // A system call `module.name`, served as the plugin's own package would import it.
+    // a system call `module.name` served as the package of the plugin would import it
     pub const SYS: u32 = 14;
+    // the name a call gives to call its receiver itself
+    pub const CALL_SELF: &str = "__call__";
+    // the name a receiverless call gives to ask for its one value as text
+    pub const TEXT: &str = "str";
+    // the custom error an ended `ITER_NEXT` gives whose spaces no class name holds
+    pub const ITER_END: &str = "end of iteration";
 }
 
-/* Tags for `edge_encode` / `edge_decode` value transit. */
+/* the tags a value carries through `edge_encode` and `edge_decode` */
 pub mod tag {
     pub const NONE: u32 = 0;
     pub const BOOL: u32 = 1;
     pub const INT: u32 = 2;
     pub const FLOAT: u32 = 3;
-    /* UTF-8 bytes, encoder builds a str, decoder returns its bytes. */
+    /* text as UTF-8 bytes that encode to a str and decode back to its bytes */
     pub const BYTES: u32 = 4;
-    // Opaque bytes, skips UTF-8 validation, maps to Python `bytes`.
+    // opaque bytes kept as a bytes value without UTF-8 validation
     pub const RAW: u32 = 5;
-    // TLV payload, count:u32le then count nodes. Python list/tuple.
+    // a u32le count then that many nodes for a list or a tuple
     pub const LIST: u32 = 6;
-    // TLV payload, count:u32le then count key,value node pairs. Str keys only.
+    // a u32le count then that many key and value node pairs with str keys only
     pub const DICT: u32 = 7;
 }
 
-/* Sentinel from `edge_decode` for invalid handles or non-primitives, callers should reach the value via `edge_op` instead. */
+/* the `edge_decode` answer for an invalid handle or a non-primitive left to `edge_op` */
 pub const TAG_INVALID: u32 = u32::MAX;
 
-/* Error kinds for `edge_take_error` and `edge_throw`. */
+/* error kinds of `edge_take_error` and `edge_throw` */
 pub mod error_kind {
     pub const TYPE: u32 = 0;
     pub const VALUE: u32 = 1;
@@ -74,25 +80,23 @@ pub mod error_kind {
     pub const CUSTOM: u32 = 6;
 }
 
-/* Transit value tree. Composites nest as TLV nodes, tag:u32le len:u32le payload[len]. The top-level ABI call carries (tag, payload) as separate params, so only nested nodes spell the full frame. */
-
-/// Nesting cap for `decode_body`, malformed depth bombs return `None`.
+// the nesting cap of `decode_body` past which a depth bomb returns `None`
 pub const MAX_WIRE_DEPTH: u32 = 32;
 
-/// Typed transit value, sets, instances and other non-transit composites go through `edge_op`.
+// a value that crosses whole while sets and instances go through `edge_op`
 #[derive(Debug, Clone, PartialEq)]
 pub enum WireValue {
     None,
     Bool(bool),
     Int(i128),
     Float(f64),
-    /// UTF-8 transit, the host materialises a `str`.
+    // text the host materialises as a `str`
     Bytes(Vec<u8>),
-    /// Opaque bytes transit, the host materialises a `bytes`.
+    // opaque bytes the host materialises as a `bytes`
     Raw(Vec<u8>),
-    /// Python list/tuple <-> JS array.
+    // a list or tuple that a JS host sees as an array
     List(Vec<WireValue>),
-    /// Str keys only, non-str keys are not transit.
+    // str keys only since a dict with other keys does not cross whole
     Dict(Vec<(WireValue, WireValue)>),
 }
 
@@ -110,7 +114,7 @@ impl WireValue {
         }
     }
 
-    /// Serialize the payload (no own tag/len frame).
+    // the payload without its frame as the top-level call passes the tag apart
     pub fn encode_body(&self, out: &mut Vec<u8>) {
         match self {
             Self::None => {}
@@ -132,7 +136,7 @@ impl WireValue {
         }
     }
 
-    /// Serialize a full nested node (tag, payload length, payload).
+    // a nested node framed as a u32le tag and a u32le length before the payload
     pub fn encode_node(&self, out: &mut Vec<u8>) {
         out.extend_from_slice(&self.tag().to_le_bytes());
         let len_at = out.len();
@@ -142,7 +146,7 @@ impl WireValue {
         out[len_at..len_at + 4].copy_from_slice(&len.to_le_bytes());
     }
 
-    /// Parse a payload for `tag`, `None` on malformed input (bad sizes, trailing bytes, depth bombs).
+    // `None` on bad sizes or trailing bytes or a depth bomb
     pub fn decode_body(tag: u32, bytes: &[u8]) -> Option<WireValue> {
         Self::parse_body(tag, bytes, 0)
     }
@@ -165,7 +169,7 @@ impl WireValue {
             tag::LIST | tag::DICT => {
                 let mut pos = 0usize;
                 let count = Self::read_u32(bytes, &mut pos)? as usize;
-                // Each node frame is >= 8 bytes, rejects count bombs before allocating.
+                // each node frame takes at least 8 bytes so a count bomb fails before allocating
                 if count > (bytes.len() - pos) / 8 { return None; }
                 let val = if t == tag::LIST {
                     let mut items = Vec::with_capacity(count);

@@ -1,49 +1,46 @@
-use super::{cache_root, cdn, get, plugins, site, system, Instance, ORIGIN};
-use crate::web::SYSTEM_MODULES;
-use compiler::modules::{parse_integrity, rules, system_spec};
-use compiler::util::sha256::{hex_encode, sha256};
-use serde_json::{json, Value};
+use super::{admitted, cache_root, cdn, get, plugins, Access, Instance, Packages, Senders};
+use edge::deps::{parse_integrity, system_spec};
+use edge::util::sha256::{hex_encode, sha256};
+use serde_json::Value;
 use std::collections::HashMap;
-use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
 
-// How a fetch error reads when the server says the file does not exist.
+// how a fetch error reads when the server says the file does not exist
 const ABSENT: &str = "not found on the server";
-// Bounds a runaway download, the largest module is well under a megabyte.
-const MAX_FETCH_BYTES: u64 = 64 << 20;
-// How long a failing run may wait on the registry for a better hint.
-const HINT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 
-/* Where a run's files come from and which bare names it may resolve. */
+/* where the files of a run come from and which bare names it may resolve */
 #[derive(Clone, Default)]
 pub struct Project {
-    // The script a run starts from, a directory ending in '/', or empty for the root.
+    // the starting script or a directory ending in `/` or empty for the root
     pub entry: String,
     pub manifest: Option<String>,
-    // An in-memory tree replaces the disk, untrusted runs always carry one.
+    // an in-memory tree replacing the disk which untrusted runs always carry
     pub bundle: Option<Rc<HashMap<String, Vec<u8>>>>,
     pub untrusted: bool,
-    // What an untrusted bundle with its own edge.json may grant, None for any other run.
-    pub ceiling: Option<Vec<String>>,
+    // what the run holds as its pool decided or none for its kind of run
+    pub access: Option<Arc<dyn Access>>,
+    // the directory of the pool manifest an untrusted run reads files below
+    pub pool: Option<String>,
 }
 
 impl Project {
     pub fn disk(entry: &str, manifest: Option<&str>) -> Project {
-        Project { entry: entry.to_string(), manifest: manifest.map(String::from), bundle: None, untrusted: false, ceiling: None }
+        Project { entry: entry.to_string(), manifest: manifest.map(String::from), bundle: None, untrusted: false, access: None, pool: None }
     }
 
     pub fn bundle(files: HashMap<String, Vec<u8>>, entry: &str, untrusted: bool) -> Project {
-        Project { entry: entry.to_string(), manifest: None, bundle: Some(Rc::new(files)), untrusted, ceiling: None }
+        Project { entry: entry.to_string(), manifest: None, bundle: Some(Rc::new(files)), untrusted, access: None, pool: None }
     }
 }
 
-/* What the engine's walk asks of this host, read out of the step it left in the out buffer. */
-enum Step {
+/* what the engine walk asks of this host read from its out buffer */
+pub(super) enum Step {
     Fetch(String),
-    Plugin { spec: String, name: String },
+    Plugin { spec: String },
     System(Value),
-    Undeclared(Vec<String>),
+    Undeclared,
     Done(Vec<String>),
 }
 
@@ -53,150 +50,188 @@ enum Answer {
     Failed(String),
 }
 
-/* Registers every module `root_src` reaches, the engine deciding and this host reading what it asks for. */
-pub fn prefetch(inst: &mut Instance, root_src: &str) -> Result<(), String> {
-    let project = inst.project.clone();
-    let mut out = inst.walk_start(root_src, &SYSTEM_MODULES.join("\n"))?;
-    loop {
-        out = match step(&out)? {
-            Step::Fetch(spec) => match fetch(&project, &spec) {
-                Answer::Bytes(bytes) => inst.walk_fetched(&bytes, 0)?,
-                Answer::Missing => inst.walk_fetched(&[], 1)?,
-                Answer::Failed(e) => inst.walk_fetched(e.as_bytes(), 2)?,
+/* where the answer to a fetch step comes from */
+enum Source {
+    // the disk or the bundle answered at once
+    Here(Answer),
+    Remote(Remote),
+}
+
+/* how a remote file reads once fetched */
+#[derive(Clone, Copy)]
+enum Kind {
+    Module,
+    // a manifest that fails to arrive reads as absent
+    Manifest,
+    // the manifest of a remote package whose absence a marker keeps for later runs
+    Marked,
+}
+
+/* a remote file a walk waits on which any thread may fetch */
+pub struct Remote {
+    url: String,
+    pin: Option<[u8; 32]>,
+    kind: Kind,
+}
+
+impl Remote {
+    /* what fetching the file gives which takes as long as the network does */
+    pub fn fetch(&self) -> Fetched {
+        Fetched(match self.kind {
+            Kind::Marked => fetch_manifest(&self.url).map_or(Answer::Missing, Answer::Bytes),
+            kind => match fetch_cached(&self.url, self.pin) {
+                Ok(bytes) => Answer::Bytes(bytes),
+                Err(_) if matches!(kind, Kind::Manifest) => Answer::Missing,
+                Err(e) => Answer::Failed(e),
             },
-            Step::Plugin { spec, name } => {
-                let bytes = inst.walk_plugin_bytes()?;
-                match project.untrusted {
-                    true => inst.walk_plugin(2, "is not available to untrusted eval runs")?,
-                    false => match plugins::register_bytes(inst, &name, &spec, &bytes) {
-                        Ok(()) => inst.walk_plugin(0, "")?,
-                        Err(e) => inst.walk_plugin(1, &e)?,
-                    },
-                }
-            }
-            Step::System(packages) => {
-                let failures = serve_system(inst, &project, &packages);
-                inst.walk_served(&failures.join("\0"))?
-            }
-            // An untrusted run makes no request on its own behalf, so its hint stays the generic one.
-            Step::Undeclared(names) => {
-                let known = if project.untrusted { Vec::new() } else { registered(&names) };
-                inst.walk_known(&known.join("\0"))?
-            }
-            Step::Done(failures) if failures.is_empty() => return Ok(()),
-            Step::Done(failures) => return Err(failures.iter().map(|f| format!("error: {f}")).collect::<Vec<_>>().join("\n")),
-        };
+        })
     }
 }
 
-fn step(out: &[u8]) -> Result<Step, String> {
-    let v: Value = serde_json::from_slice(out).map_err(|e| format!("the compiler left a walk step that is not JSON: {e}"))?;
+/* what a remote fetch gave the walk waiting on it */
+pub struct Fetched(Answer);
+
+impl Fetched {
+    /* the answer of a fetch whose thread ended without giving one */
+    pub fn lost() -> Fetched {
+        Fetched(Answer::Failed(String::from("the fetch ended without an answer")))
+    }
+}
+
+/* an engine walk between the steps this host answers */
+pub struct Walk {
+    out: Vec<u8>,
+    access: Arc<dyn Access>,
+    // the entry and source a finished walk leaves the instance prepared for
+    pub(super) key: (String, String),
+}
+
+impl Walk {
+    /* the walk of `src` begun from the entry of the instance's project */
+    pub(super) fn start(inst: &mut Instance, src: &str) -> Result<Walk, String> {
+        let loaded = inst.host.loaded.clone();
+        let access = loaded.access(&inst.project);
+        inst.walk_carry(&loaded.carried(&*access))?;
+        let out = inst.walk_start(src, &loaded.reserved())?;
+        Ok(Walk { out, access, key: (inst.project.entry.clone(), src.to_string()) })
+    }
+
+    /* answers each step it can until the walk ends or waits on a remote file */
+    pub(super) fn advance(&mut self, inst: &mut Instance) -> Result<Option<Remote>, String> {
+        let project = inst.project.clone();
+        loop {
+            self.out = match step(&self.out)? {
+                Step::Fetch(spec) => match locate(&project, &spec) {
+                    Source::Here(answer) => fed(inst, answer)?,
+                    Source::Remote(remote) => return Ok(Some(remote)),
+                },
+                Step::Plugin { spec } => {
+                    let bytes = inst.walk_plugin_bytes()?;
+                    match project.untrusted {
+                        true => inst.walk_plugin(2, "is not available to untrusted eval runs")?,
+                        // a plugin that does not load fails at its import as a refused one does
+                        false => match plugins::register_bytes(inst, &spec, &bytes) {
+                            Ok(()) => inst.walk_plugin(0, "")?,
+                            Err(why) => inst.walk_plugin(2, &format!("is not a valid plugin, {why}"))?,
+                        },
+                    }
+                }
+                Step::System(packages) => {
+                    let failures = serve_modules(inst, &self.access, &packages);
+                    inst.walk_served(&failures.join("\0"))?
+                }
+                // a run asks no registry about a name nothing declares so its hint stays generic
+                Step::Undeclared => inst.walk_known("")?,
+                Step::Done(failures) if failures.is_empty() => return Ok(None),
+                Step::Done(failures) => return Err(failures.iter().map(|f| format!("error: {}", super::lock_help(f))).collect::<Vec<_>>().join("\n")),
+            };
+        }
+    }
+
+    /* hands the walk what the remote fetch it waited on gave */
+    pub(super) fn answer(&mut self, inst: &mut Instance, fetched: Fetched) -> Result<(), String> {
+        self.out = fed(inst, fetched.0)?;
+        Ok(())
+    }
+}
+
+/* the walk's next step once it holds `answer` */
+fn fed(inst: &mut Instance, answer: Answer) -> Result<Vec<u8>, String> {
+    match answer {
+        Answer::Bytes(bytes) => inst.walk_fetched(&bytes, 0),
+        Answer::Missing => inst.walk_fetched(&[], 1),
+        Answer::Failed(e) => inst.walk_fetched(e.as_bytes(), 2),
+    }
+}
+
+/* registers every module `root_src` reaches as the engine decides and this host fetches */
+pub fn prefetch(inst: &mut Instance, root_src: &str) -> Result<(), String> {
+    let mut walk = Walk::start(inst, root_src)?;
+    while let Some(remote) = walk.advance(inst)? {
+        walk.answer(inst, remote.fetch())?;
+    }
+    Ok(())
+}
+
+pub(super) fn step(out: &[u8]) -> Result<Step, String> {
+    let v: Value = serde_json::from_slice(out).map_err(|e| format!("the runtime left a walk step that is not JSON: {e}"))?;
     let text = |key: &str| v.get(key).and_then(Value::as_str).map(str::to_string);
     if let Some(spec) = text("fetch") {
         return Ok(Step::Fetch(spec));
     }
     if let Some(spec) = text("plugin") {
-        return Ok(Step::Plugin { spec, name: text("name").unwrap_or_default() });
+        return Ok(Step::Plugin { spec });
     }
     if let Some(packages) = v.get("system") {
         return Ok(Step::System(packages.clone()));
     }
-    if let Some(names) = v.get("undeclared").and_then(Value::as_array) {
-        return Ok(Step::Undeclared(names.iter().filter_map(Value::as_str).map(str::to_string).collect()));
+    if v.get("undeclared").is_some() {
+        return Ok(Step::Undeclared);
     }
-    let failures = v.get("done").and_then(Value::as_array).ok_or_else(|| format!("the compiler left an unknown walk step: {v}"))?;
+    let failures = v.get("done").and_then(Value::as_array).ok_or_else(|| format!("the runtime left an unknown walk step: {v}"))?;
     Ok(Step::Done(failures.iter().filter_map(Value::as_str).map(str::to_string).collect()))
 }
 
-/* The names the registry has, asked at once with lock=1 so nothing counts, none when it is out of reach. */
-fn registered(names: &[String]) -> Vec<String> {
-    std::thread::scope(|scope| {
-        let asks: Vec<_> = names
-            .iter()
-            .filter(|name| rules::named(name))
-            .map(|name| {
-                scope.spawn(move || {
-                    let url = site(&format!("/api/resolve/package/{name}?lock=1"));
-                    ureq::get(&url).config().timeout_global(Some(HINT_TIMEOUT)).build().call().is_ok().then(|| name.clone())
-                })
-            })
-            .collect();
-        asks.into_iter().filter_map(|ask| ask.join().ok().flatten()).collect()
-    })
-}
-
-/* Serves the system modules to every package the walk met, refused where its importers pass none. */
-fn serve_system(inst: &mut Instance, project: &Project, packages: &Value) -> Vec<String> {
-    let root = packages["root"].as_str().unwrap_or_default();
-    // An untrusted run grants only through its own bundle manifest, and an empty grant needs no checking.
-    let declared = packages.get("permissions").filter(|p| (!project.untrusted || project.ceiling.is_some()) && p.as_object().is_some_and(|holders| !holders.is_empty())).cloned();
-    if let Some(problem) = declared.as_ref().and_then(system::check) {
-        return vec![format!("edge.json at '{root}edge.json': {problem}")];
-    }
-    let granted = declared.is_some();
-    let permissions = declared.unwrap_or_else(|| json!({}));
-    let entries: Vec<&Value> = permissions.as_object().into_iter().flat_map(|holders| holders.values()).filter_map(Value::as_array).flatten().collect();
-    // The refusal names only what the bundle grants, never the eval grant of the pool.
-    if let Some(ceiling) = &project.ceiling
-        && !entries.is_empty()
-    {
-        let over: Vec<(&String, String)> = permissions
-            .as_object()
-            .into_iter()
-            .flatten()
-            .filter_map(|(holder, listed)| {
-                let missing = system::unmet(&system::held(&json!([[{ "eval": ceiling }, "eval"]])), &json!({ "main": listed }));
-                (!missing.is_empty()).then(|| (holder, missing.join(", ")))
-            })
-            .collect();
-        if !over.is_empty() {
-            // Laid out as edge lock lays out what a root misses, one holder to a line.
-            let width = over.iter().map(|(holder, _)| holder.len()).max().unwrap_or(0);
-            let lines: Vec<String> = over.iter().map(|(holder, asks)| format!("  {holder:<width$}   {asks}")).collect();
-            return vec![format!("the pool does not grant eval what this bundle grants\n{}", lines.join("\n"))];
-        }
+/* serves each package the walk met every host module `access` gives it */
+fn serve_modules(inst: &mut Instance, access: &Arc<dyn Access>, step: &Value) -> Vec<String> {
+    let host = inst.host.clone();
+    let modules = host.loaded.modules();
+    let packages = Packages::read(step, access.field());
+    if let Some(problem) = access.check(&packages, modules) {
+        return vec![problem];
     }
     let mut failures = Vec::new();
-    // fs reads the project where this run keeps it, under its root edge.json.
-    if entries.iter().any(|e| e.as_str().is_some_and(|e| e.starts_with("fs:"))) {
-        match &project.bundle {
-            Some(files) => system::files(inst.run(), system::Files::Bundle(std::sync::Arc::new((**files).clone()), root.to_string())),
-            None => {
-                let beside = project.manifest.as_deref().and_then(|m| Path::new(m).parent()).filter(|dir| !dir.as_os_str().is_empty());
-                let dir = beside.map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from(if root.is_empty() { "." } else { root }));
-                if let Ok(dir) = dir.canonicalize() {
-                    system::files(inst.run(), system::Files::Disk(dir));
-                }
-            }
-        }
-    }
-    // SpiderMonkey starts only when a system module is reachable, by an undeclared name or a plugin.
-    if !packages["needed"].as_bool().unwrap_or(false) {
+    // only an undeclared name or a plugin can reach a host module
+    if !packages.needed {
+        inst.store.data_mut().senders = Some(Senders::new(packages, access.clone(), modules.to_vec()));
         return failures;
     }
-    for pair in packages["dirs"].as_array().into_iter().flatten() {
-        let (Some(dir), Some(pkg)) = (pair[0].as_str(), pair[1].as_str()) else { continue };
-        // A run that grants nothing of its own holds nothing, whatever its manifests pass on.
-        let chain = if granted { pair[2].clone() } else { json!([]) };
-        for module in SYSTEM_MODULES {
-            let spec = system_spec(module, dir);
-            let served = match system::scopes(&chain, module) {
-                Some(held) => inst.register_system(&spec, pkg, module, &held),
-                None => inst.register_error(&spec, &format!("'{pkg}' imports {module}, which edge.json does not grant it")),
+    for package in &packages.dirs {
+        for module in modules {
+            let spec = system_spec(module.name(), &package.dir);
+            let served = match access.held(&packages, package, module.name()) {
+                Ok(held) => {
+                    inst.opening = Some((module.clone(), held.clone()));
+                    let opened = module.open(inst, &spec, &package.name, held);
+                    inst.opening = None;
+                    opened
+                }
+                Err(refusal) => inst.register_error(&spec, &refusal),
             };
             if let Err(e) = served {
                 failures.push(e);
             }
         }
     }
+    inst.store.data_mut().senders = Some(Senders::new(packages, access.clone(), modules.to_vec()));
     failures
 }
 
-/* Bytes for what the walk asks, a manifest or its lock where the project keeps them, anything else as a module. */
-fn fetch(project: &Project, spec: &str) -> Answer {
+/* reads a manifest or lock beside the project and anything else as a module */
+fn locate(project: &Project, spec: &str) -> Source {
     let (target, pin) = match parse_integrity(spec) {
         Ok(parsed) => parsed,
-        Err(e) => return Answer::Failed(e),
+        Err(e) => return Source::Here(Answer::Failed(e)),
     };
     match target.ends_with("edge.json") || target.ends_with(crate::lock::FILE) {
         true => beside(project, target),
@@ -204,56 +239,58 @@ fn fetch(project: &Project, spec: &str) -> Answer {
     }
 }
 
-/* A manifest or a lock, a `--manifest` override then the only manifest and its lock the one beside it. */
-fn beside(project: &Project, target: &str) -> Answer {
-    if let Some(path) = &project.manifest {
-        let file = match target {
-            "edge.json" => PathBuf::from(path),
-            "edge.lock" => Path::new(path).with_file_name(crate::lock::FILE),
-            _ => return Answer::Missing,
-        };
-        return match std::fs::read(&file) {
+/* a manifest or lock where a `--manifest` override takes the root pair's place alone */
+fn beside(project: &Project, target: &str) -> Source {
+    // every other package keeps the manifest and lock it holds itself
+    let replaced = project.manifest.as_ref().and_then(|path| match target {
+        "edge.json" => Some(PathBuf::from(path)),
+        "edge.lock" => Some(Path::new(path).with_file_name(crate::lock::FILE)),
+        _ => None,
+    });
+    if let Some(file) = replaced {
+        return Source::Here(match std::fs::read(&file) {
             Ok(bytes) => Answer::Bytes(bytes),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Answer::Missing,
             Err(e) => Answer::Failed(format!("reading {}: {e}", file.display())),
-        };
+        });
     }
-    // A remote manifest that answered 404 once stays absent, so later runs skip the request.
+    // a remote manifest that answered 404 once stays absent so later runs skip the request
     if target.contains("://") && project.bundle.is_none() {
-        return fetch_manifest(target).map_or(Answer::Missing, Answer::Bytes);
+        return Source::Remote(Remote { url: target.to_string(), pin: None, kind: Kind::Marked });
     }
     match module(project, target, None) {
-        Answer::Failed(_) => Answer::Missing,
+        Source::Here(Answer::Failed(_)) => Source::Here(Answer::Missing),
+        Source::Remote(remote) => Source::Remote(Remote { kind: Kind::Manifest, ..remote }),
         found => found,
     }
 }
 
-/* A module's bytes, from the bundle, a pinned download or the disk. */
-fn module(project: &Project, target: &str, pin: Option<[u8; 32]>) -> Answer {
+/* a module's bytes from the bundle or the disk or else the download it awaits */
+fn module(project: &Project, target: &str, pin: Option<[u8; 32]>) -> Source {
     if let Some(files) = &project.bundle {
-        // Bundle paths are plain, a joined spec may still carry the importer's leading dot.
+        // bundle paths are plain though a joined spec may keep a leading dot
         if let Some(bytes) = files.get(target.strip_prefix("./").unwrap_or(target)) {
-            return Answer::Bytes(bytes.clone());
+            return Source::Here(Answer::Bytes(bytes.clone()));
         }
         if !target.contains("://") {
-            return Answer::Missing;
+            return Source::Here(Answer::Missing);
         }
     }
     if target.contains("://") {
-        // An untrusted run reads remote modules from the official origin only.
-        if project.untrusted && !target.starts_with(&format!("{ORIGIN}/")) {
-            return Answer::Failed(format!("module '{target}' is not available to untrusted eval runs"));
+        // an untrusted run reads remote modules from the origin its composition names only
+        if project.untrusted && !admitted(target) {
+            return Source::Here(Answer::Failed(format!("module '{target}' is not available to untrusted eval runs")));
         }
-        return fetch_cached(target, pin).map_or_else(Answer::Failed, Answer::Bytes);
+        return Source::Remote(Remote { url: target.to_string(), pin, kind: Kind::Module });
     }
-    match std::fs::read(target) {
+    Source::Here(match std::fs::read(target) {
         Ok(bytes) => Answer::Bytes(bytes),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Answer::Missing,
         Err(e) => Answer::Failed(format!("cannot read module '{target}': {e}")),
-    }
+    })
 }
 
-/* A remote manifest, None when it is absent, a 404 leaves a `.missing` marker in the cache. */
+/* a remote manifest or `None` when absent with a 404 leaving a `.missing` marker */
 fn fetch_manifest(url: &str) -> Option<Vec<u8>> {
     let dir = cache_dir().ok()?;
     let marker = dir.join(format!("{}.missing", hex_encode(&sha256(cdn(url).as_bytes()))));
@@ -271,17 +308,17 @@ fn fetch_manifest(url: &str) -> Option<Vec<u8>> {
     }
 }
 
-/* Downloads once into the user cache, a `.lock` sidecar pins the digest like the JS host lockfile. */
+/* downloads once into the user cache with a `.lock` sidecar pinning the digest */
 pub fn fetch_cached(url: &str, expected: Option<[u8; 32]>) -> Result<Vec<u8>, String> {
     let dir = cache_dir()?;
     let ext = url.rsplit('.').next().unwrap_or("bin");
-    // Keyed by the address actually fetched, so a staging origin never fills a production entry.
+    // keyed by the address actually fetched so a staging origin never fills a production entry
     let source = cdn(url);
     let file = dir.join(format!("{}.{ext}", hex_encode(&sha256(source.as_bytes()))));
     let lock = file.with_extension(format!("{ext}.lock"));
     if file.exists() {
         let bytes = std::fs::read(&file).map_err(|e| format!("cannot read cached '{url}': {e}"))?;
-        // A stale blob under a new explicit pin is a miss, so refetch instead of failing.
+        // a stale blob under a new explicit pin is a miss refetched instead of failing
         match check_pin(url, &bytes, std::fs::read_to_string(&lock).ok(), expected) {
             Ok(_) => return Ok(bytes),
             Err(e) if expected.is_none() => return Err(e),
@@ -292,19 +329,20 @@ pub fn fetch_cached(url: &str, expected: Option<[u8; 32]>) -> Result<Vec<u8>, St
         ureq::Error::StatusCode(404 | 410) => format!("fetching '{source}': {ABSENT}"),
         e => format!("fetching '{source}': {e}"),
     })?;
-    let mut bytes = Vec::new();
-    resp.body_mut().as_reader().take(MAX_FETCH_BYTES).read_to_end(&mut bytes).map_err(|e| format!("reading '{source}': {e}"))?;
+    let bytes = super::body(&mut resp).map_err(|e| format!("reading '{source}': {e}"))?;
     let got = check_pin(url, &bytes, None, expected)?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("creating cache dir: {e}"))?;
-    // Temp plus rename keeps a truncated download out of the shared cache.
-    let tmp = file.with_extension(format!("{ext}.{}.tmp", std::process::id()));
+    // a temp file and a rename keep a truncated download out of the shared cache
+    static FETCHES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let fetch = FETCHES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = file.with_extension(format!("{ext}.{}.{fetch}.tmp", std::process::id()));
     std::fs::write(&tmp, &bytes).map_err(|e| format!("writing cache for '{url}': {e}"))?;
     std::fs::rename(&tmp, &file).map_err(|e| format!("writing cache for '{url}': {e}"))?;
     std::fs::write(&lock, &got).map_err(|e| format!("writing cache for '{url}': {e}"))?;
     Ok(bytes)
 }
 
-/* Hashes `bytes` against an explicit pin, else the sidecar record, unpinned bytes set the pin. */
+/* hashes `bytes` against an explicit pin or else the sidecar and unpinned bytes set it */
 fn check_pin(spec: &str, bytes: &[u8], locked: Option<String>, expected: Option<[u8; 32]>) -> Result<String, String> {
     let got = hex_encode(&sha256(bytes));
     if let Some(want) = expected.map(|h| hex_encode(&h)) {

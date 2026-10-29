@@ -1,0 +1,74 @@
+- native: dict
+  args: [[["a", 1], ["b", 2]]]
+  ret: {"a": 1, "b": 2}
+
+- native: dict.get
+  recv: {"a": 1}
+  args: ["b", 0]
+  ret: 0
+
+- native: dict.pop
+  recv: {"a": 1}
+  args: ["z", 0]
+  ret: 0
+
+- native: dict.fromkeys
+  args: [["a", "b"], 0]
+  ret: {"a": 0, "b": 0}
+
+- native: dict.setdefault
+  recv: {}
+  args: ["k", 5]
+  ret: 5
+
+- native: dict.popitem
+  recv: {"a": 1, "b": 2}
+  ret: !tuple ["b", 2]
+
+- native: dict
+  args: [0]
+  error: "TypeError"
+
+- native: dict
+  args: [[!tuple [1, 2], !tuple [3, 4]]]
+  prints: "{1: 2, 3: 4}"
+
+- native: dict
+  args: [[!tuple ["a", 1], !tuple ["b", 2]]]
+  prints: "{'a': 1, 'b': 2}"
+
+- native: dict
+  args: [{"a": 1, "b": 2}]
+  prints: "{'a': 1, 'b': 2}"
+
+- native: dict
+  kw: {a: 1, b: 2}
+  prints: "{'a': 1, 'b': 2}"
+
+- native: dict
+  args: [1, 2]
+  error: "dict expected at most 1 argument"
+
+- native: dict
+  args: [-1]
+  error: "TypeError"
+
+- native: dict.fromkeys
+  args: [["a", "b"], 0]
+  prints: "{'a': 0, 'b': 0}"
+
+- native: dict
+  prints: "{}"
+
+- native: dict.clear
+  recv: {"a": 1}
+  prints: "None"
+
+- native: dict.get
+  recv: {}
+  error: "get expected at least 1 argument, got 0"
+
+- native: dict.setdefault
+  recv: {1: 2}
+  args: [{}]
+  error: "cannot use 'dict' as a dict key (unhashable type: 'dict')"

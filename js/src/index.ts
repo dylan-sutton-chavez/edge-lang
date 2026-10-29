@@ -1,17 +1,22 @@
 import type { Limits, RunOpts, ExecResult, WorkerRequest, WorkerMessage } from './protocol.ts';
-import type { Permissions } from './system/grants.ts';
+import { roomPolicy, rootOf } from './policy.ts';
+import type { Composition } from './system/index.ts';
+import type { Permissions } from './system/perms.ts';
 import type { TraceEvent } from './system/trace.ts';
 import { roomScript } from './room.ts';
 
-export type { TraceEvent };
+export type { Composition, TraceEvent };
 
 export interface CreateWorkerOpts {
-    // The program's directory, the page reads its files and its edge.json for the room.
+    // the program directory whose files and edge.json the page reads for the room
     baseUrl?: string
     wasmUrl?: string
+    // the classic script the room runs which a composition of its own bundles
+    bundleUrl?: string
+    // the modules and grants that bundle serves which the room's policy follows
+    composition?: Composition
     imports?: Record<string, string>
     permissions?: Permissions
-    secrets?: Record<string, string>
     trace?: boolean
     limits?: Limits | null
 }
@@ -30,6 +35,7 @@ export interface WorkerHandle {
     clearCache(): Promise<void>
     pushEvent(message: unknown): void
     onOutput(handler: (text: string) => void): void
+    onChannel(handler: (channel: string, text: string) => void): void
     onTrace(handler: (event: TraceEvent) => void): void
     dispose(): void
 }
@@ -39,26 +45,30 @@ interface Pending {
     reject: (e: Error) => void
 }
 
-// WorkerRequest without the reqId, `send` attaches it.
+// a `WorkerRequest` without the `reqId` that `send` attaches
 type DistOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
-/* Public entry. `createWorker(opts)` runs one program in a room of its own and returns a proxy whose methods round-trip via postMessage. */
+/* runs one program in a room of its own behind a `postMessage` proxy */
 export async function createWorker(opts: CreateWorkerOpts = {}): Promise<WorkerHandle> {
     if (typeof document === 'undefined') throw new Error('createWorker needs a page, missing in this runtime');
     const base = opts.baseUrl ? new URL('./', opts.baseUrl).href : null;
-    // The compiler sits beside the host wherever it ships, the CDN, a dist and the CLI's server.
-    const wasmUrl = opts.wasmUrl ?? new URL('../../compiler.wasm', import.meta.url).href;
-    // The page fetches the engine and hands it over, so the room loads no code of its own.
-    const [source, wasm, root] = await Promise.all([
-        download(new URL('./worker/bundle.js', import.meta.url).href).then((r) => r.text()),
+    // the engine and the JS host's own bundle sit beside the host wherever it ships
+    const wasmUrl = opts.wasmUrl ?? new URL('../../edge.wasm', import.meta.url).href;
+    const bundleUrl = opts.bundleUrl ?? new URL('./worker/bundle.js', import.meta.url).href;
+    // the page fetches and hands over the engine so the room loads no code itself
+    const [source, wasm, composition, root] = await Promise.all([
+        download(bundleUrl).then((r) => r.text()),
         download(wasmUrl).then((r) => r.arrayBuffer()),
+        opts.composition ?? own(),
         rootOf(opts, base),
     ]);
-    const { port, close } = await openRoom(source, await roomPolicy(root));
+    const section = opts.permissions ?? (composition.access ? root.manifest[composition.access.field] : undefined);
+    const { port, close } = await openRoom(source, await roomPolicy(root.specs, section, composition));
 
     let reqIdCounter = 0;
     const pending = new Map<number, Pending>();
     let outputHandler: ((text: string) => void) | null = null;
+    let channelHandler: ((channel: string, text: string) => void) | null = null;
     let traceHandler: ((event: TraceEvent) => void) | null = null;
 
     const tell = (msg: WorkerRequest) => port.postMessage(msg);
@@ -69,10 +79,10 @@ export async function createWorker(opts: CreateWorkerOpts = {}): Promise<WorkerH
         tell({ ...payload, reqId });
     });
 
-    /* Fire a string into the running script's `receive()` queue. */
+    /* feeds a string to the `receive` queue of the running script */
     const pushEvent = (message: unknown) => tell({ type: 'push-event', message: String(message) });
 
-    /* Reads a file of the program for the room, only inside its directory and never with the page's cookies. */
+    /* reads program files for the room only inside its directory and without page cookies */
     const read = async (id: number, url: string): Promise<void> => {
         const reply = { type: 'file' as const, id, status: 0, contentType: '', body: null as ArrayBuffer | null };
         try {
@@ -91,6 +101,9 @@ export async function createWorker(opts: CreateWorkerOpts = {}): Promise<WorkerH
             case 'line':
                 if (outputHandler) outputHandler(data.text);
                 return;
+            case 'channel':
+                channelHandler?.(data.channel, data.text);
+                return;
             case 'trace':
                 traceHandler?.(data.event);
                 return;
@@ -100,7 +113,7 @@ export async function createWorker(opts: CreateWorkerOpts = {}): Promise<WorkerH
             case 'response':
             case 'error': {
                 if (data.reqId == null) {
-                    // A requestless error is the worker failing, nothing will ever answer.
+                    // an error with no request means the worker failed and nothing will answer
                     if (data.type === 'error') {
                         for (const cb of pending.values()) cb.reject(new Error(data.message));
                         pending.clear();
@@ -117,26 +130,27 @@ export async function createWorker(opts: CreateWorkerOpts = {}): Promise<WorkerH
         }
     };
 
-    // A room whose engine fails to start leaves no frame behind.
-    const ready = await send<{ loadMs: number }>({ type: 'load', opts: { ...opts, baseUrl: base, wasm } })
+    // only plain options cross to the room since a composition holds functions
+    const { imports, permissions, trace, limits } = opts;
+    // a room whose engine fails to start leaves no frame behind
+    const ready = await send<{ loadMs: number }>({ type: 'load', opts: { imports, permissions, trace, limits, baseUrl: base, wasm } })
         .catch((e: unknown) => { close(); throw e; });
 
     return {
         loadMs: ready.loadMs,
 
-        // A worker runs the one program its baseUrl names, so a run cannot point elsewhere.
+        // a worker runs the one program its `baseUrl` names so a run cannot point elsewhere
         run: (src, runOpts = {}) => 'baseUrl' in runOpts
             ? Promise.reject(new Error('baseUrl belongs to createWorker, a worker runs one program'))
             : send<ExecResult>({ type: 'run', src, ...runOpts }),
-        /* Preempt every `interval` back-edges, 0 disables. */
+        /* preempts every `interval` back edges where 0 disables it */
         setPreemptInterval: (interval) => send<void>({ type: 'set-preempt-interval', interval }),
-        /* Park the program, resolves true when parked. */
+        /* resolves true once the program parks */
         pause: () => send<boolean>({ type: 'pause' }),
-        /* Continue a program parked by pause(). */
         resume: () => send<void>({ type: 'resume' }),
-        /* Snapshot the paused program, throws when none. */
+        /* throws when no program is paused */
         saveState: () => send<Uint8Array>({ type: 'save-state' }),
-        /* Boot from a blob, resolves like run(). */
+        /* boots from a blob and resolves like `run` */
         restoreState: (blob) => send<ExecResult>({ type: 'restore-state', blob }),
         stateGlobals: () => send<Record<string, unknown>>({ type: 'state-globals' }),
         stateStack: () => send<unknown[]>({ type: 'state-stack' }),
@@ -145,7 +159,9 @@ export async function createWorker(opts: CreateWorkerOpts = {}): Promise<WorkerH
         pushEvent,
 
         onOutput(handler: (text: string) => void) { outputHandler = handler; },
-        /* What each run reaches, reported only by a worker created with `trace: true`. */
+        /* each line of a named output of the program as the run writes it */
+        onChannel(handler: (channel: string, text: string) => void) { channelHandler = handler; },
+        /* what each run reaches reported only by a worker created with `trace` on */
         onTrace(handler: (event: TraceEvent) => void) { traceHandler = handler; },
 
         dispose() {
@@ -157,57 +173,17 @@ export async function createWorker(opts: CreateWorkerOpts = {}): Promise<WorkerH
     };
 }
 
-/* A file of the engine, fetched by the page so the room never loads code. */
+/* an engine file the page fetches so the room never loads code */
 async function download(url: string): Promise<Response> {
     const res = await fetch(url);
     if (!res.ok) throw new Error(`fetch failed for '${url}' (${res.status})`);
     return res;
 }
 
-/* The specs and grants of the program's root manifest, the page's own or the edge.json at its base. */
-async function rootOf(opts: CreateWorkerOpts, base: string | null): Promise<{ specs: string[], permissions: Permissions }> {
-    if (opts.imports || opts.permissions || !base) return { specs: Object.values(opts.imports ?? {}), permissions: opts.permissions ?? {} };
-    const json = (name: string): Promise<Record<string, unknown>> =>
-        fetch(new URL(name, base), { credentials: 'omit' }).then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
-    const manifest = await json('edge.json');
-    const specs = Object.values((manifest['imports'] ?? {}) as Record<string, unknown>).map(String);
-    // The lock beside the manifest names where each release lives, so the room may reach it.
-    const locked = Object.values(await json('edge.lock')).map((entry) => String((entry as { url?: unknown } | null)?.url ?? ''));
-    return { specs: [...specs, ...locked], permissions: (manifest['permissions'] ?? {}) as Permissions };
-}
+/* the JS host's own composition which its build bundles beside the room's script */
+const own = async (): Promise<Composition> => (await import(new URL('./worker/composition.js', import.meta.url).href)).default;
 
-// A policy names only plain origins and hosts, anything else stays out of reach.
-const PLAIN_ORIGIN = /^https?:\/\/[a-z0-9.-]+(:\d+)?$/;
-const PLAIN_HOST = /^[a-z0-9.-]+$/;
-
-/* The origin of an absolute url, when a policy can name it as written. */
-function originOf(spec: string): string[] {
-    try {
-        const { origin } = new URL(spec);
-        return PLAIN_ORIGIN.test(origin) ? [origin] : [];
-    } catch {
-        return [];
-    }
-}
-
-/* The room runs its own script and the engine, and connects only to its imports and its grants. */
-async function roomPolicy({ specs, permissions }: { specs: string[], permissions: Permissions }): Promise<string> {
-    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(roomScript)));
-    const hosts = Object.values(permissions).flat().flatMap((entry) => {
-        // A path prefix bounds the reach inside net, the policy only ever names a whole host.
-        const name = String(entry).startsWith('net:') ? String(entry).slice(4).split('/')[0]! : '';
-        return PLAIN_HOST.test(name) ? ['https', 'http', 'wss', 'ws'].map((scheme) => `${scheme}://${name}:*`) : [];
-    });
-    const reach = [...new Set([...specs.flatMap(originOf), ...hosts])];
-    return [
-        "default-src 'none'",
-        `script-src 'sha256-${btoa(String.fromCharCode(...digest))}' 'wasm-unsafe-eval'`,
-        'worker-src blob:',
-        `connect-src ${reach.length > 0 ? reach.join(' ') : "'none'"}`,
-    ].join('; ');
-}
-
-/* A sandboxed frame with an opaque origin, no cookie, storage or DOM of the page reaches it. */
+/* a sandboxed frame of opaque origin that no page cookie or storage or DOM reaches */
 async function openRoom(source: string, policy: string): Promise<{ port: MessagePort, close: () => void }> {
     const frame = document.createElement('iframe');
     frame.setAttribute('sandbox', 'allow-scripts');

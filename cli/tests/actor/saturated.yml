@@ -19,7 +19,7 @@ groups:
     replicas: 1
     code: |
       n = 0
-      while True:
+      while true:
           receive()
           n = n + 1
           if n == 3000:

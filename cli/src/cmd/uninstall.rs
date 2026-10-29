@@ -1,23 +1,46 @@
 use anyhow::{anyhow, bail, Result};
-use std::io::{IsTerminal, Write};
+use clap::ArgMatches;
+#[cfg(feature = "web")]
+use std::io::IsTerminal;
+use std::io::Write;
 use std::process::Command;
 
+#[cfg(feature = "web")]
 use crate::host::browser;
+use crate::kit::Kit;
 
-// Bundled at compile time so the binary is self-contained, no network needed to clean up.
+// bundled at compile time so cleaning up needs no network
 const UNINSTALL_SH: &str = include_str!("../../setup/uninstall.sh");
 
-/// Drop the bundled uninstall.sh to a temp file and run it via bash.
-pub fn run() -> Result<()> {
+/* `uninstall` removing the binary the install script placed */
+pub struct Uninstall;
+
+impl crate::kit::Command for Uninstall {
+    fn spec(&self, kit: &Kit) -> clap::Command {
+        clap::Command::new("uninstall").about(format!("Remove the {} binary and its PATH entry", kit.name()))
+    }
+
+    fn summary(&self, kit: &Kit) -> (String, String) {
+        ("uninstall".to_string(), format!("Remove the {} binary and PATH entry", kit.name()))
+    }
+
+    fn run(&self, _kit: &Kit, _m: &ArgMatches) -> anyhow::Result<i32> {
+        run()?;
+        Ok(0)
+    }
+}
+
+// runs the bundled uninstall.sh with bash from a temp file
+fn run() -> Result<()> {
     println!("This removes the edge binary, its cache and the PATH entry from your shell rc files.");
     drop_browser()?;
 
-    // Spawning bash with the script as a file lets read prompts (none, in this path) work normally.
+    // a script file rather than stdin keeps read prompts working
     let temp = stage_script()?;
 
     let mut cmd = Command::new("bash");
     cmd.arg(temp.path());
-    // Point at the install dir derived from where this binary lives, so non-default installs still clean up.
+    // the install dir comes from where this binary lives so custom installs clean up too
     if let Ok(exe) = std::env::current_exe()
         && let Some(dir) = exe.parent()
     {
@@ -31,7 +54,8 @@ pub fn run() -> Result<()> {
     Ok(())
 }
 
-/* A browser edge downloaded is a hundred megabytes it put there, so it goes only when asked, and stays when nobody is there to answer. */
+/* the downloaded browser goes only on a yes and stays when no terminal can answer */
+#[cfg(feature = "web")]
 fn drop_browser() -> Result<()> {
     let Ok(dir) = browser::chrome_dir() else { return Ok(()) };
     if !dir.exists() {
@@ -58,7 +82,13 @@ fn drop_browser() -> Result<()> {
     Ok(())
 }
 
-// A unique temp file, a predictable path in the shared temp dir invites symlink squatting.
+// a composition with no browser host downloaded none
+#[cfg(not(feature = "web"))]
+fn drop_browser() -> Result<()> {
+    Ok(())
+}
+
+// a unique temp file because a predictable shared path invites symlink squatting
 fn stage_script() -> Result<tempfile::NamedTempFile> {
     let mut f = tempfile::NamedTempFile::new().map_err(|e| anyhow!("staging uninstall script: {e}"))?;
     f.write_all(UNINSTALL_SH.as_bytes()).map_err(|e| anyhow!("staging uninstall script: {e}"))?;

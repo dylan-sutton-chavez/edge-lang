@@ -1,0 +1,113 @@
+---
+title: "Calls"
+description: "How a call runs inside the one register loop, frames and their rows, calls as jumps, recursion levels, the driver around the loop and what a native's call back into the program costs."
+---
+
+# Calls
+
+A program runs in one instruction loop, and every call it makes stays in that loop. A call of a function the program wrote opens a frame of the loop or jumps into a copy of the function laid inside the caller's code, a recursion keeps each of its levels in a store of values of its own, and a native that needs program code run hands the call back to the loop instead of making it. This page covers each of these, the driver that runs the loop and takes what the loop leaves it, why no loop ever runs inside another and what each kind of call costs.
+
+[Natives](/docs/edge-lang/sdk/natives) covers the steps a native answers with, and [Design](/docs/edge-lang/internals/design) the lowering that lays the code these calls run.
+
+## Frames and rows
+
+Every frame is a window of one register stack, the module body's and that of each call that opens one. A body keeps one window for each of its runs alive at once, each laid out the first time that many run, so a later call finds its window laid. Five registers before each window hold the frame's record.
+
+- Where the caller carries on, the register its result goes to and the flags of the frame, which mark a native's callback, a generator a `for` steps or a constructor's call among others.
+- The pool of the frame below and the function the frame runs.
+- The callee.
+- How long the recursion levels were as the frame opened, and the top row of the frame below.
+- The code the frame runs.
+
+A plain call writes the record, copies its arguments into the callee's first names and clears the rest of them, and a return reads the record back. No frame of the program is a call on the host stack.
+
+What a window holds past its names depends on the code its frame runs.
+
+- **First-run code.** The first call of a body runs the code the compiler wrote, with its stack values in rows right past its names, as deep as the body's ops ever stack, and its constants read where their pool keeps them. The loop keeps the depth of the rows in a local while it runs the frame, and the record of a frame opened above keeps it as the top row of the frame below.
+- **Lowered code.** Its instructions name registers. The names come first, then the rows, which hold what is live where the frame may carry on in other code, then the constants, the none value and the two truth values, and then the temporaries. The sections a lowering lays take registers past those.
+
+A frame may carry on in other code at a block start, a back-edge, a handler, a yield or a wait, and a call outside a section. There every live value lies in a name or a row, so a loop that hands its frame to lowered code, a park and a resume read the same registers whatever code took the frame. A frame that parks keeps its window, the levels it kept and its handlers as data, which is why a snapshot can save it, as [Snapshots](/docs/edge-lang/sdk/snapshots) describes.
+
+## Calls as jumps
+
+A call that opens a frame writes its record and goes on at the callee's first instruction, in the same turn of the loop. Code that runs often goes further and lays the functions its calls find as sections of its own code, so a call is a jump inside one stretch of code with no record at all. Code is laid that way once it is called 64 times, once 32 frames of it run at once, and from the head of a loop of first-run code that passes 16 back-edges.
+
+A call laid this way is a head of four instructions, which the table in `src/code/table.rs` declares with the other forms sections lay.
+
+| Instruction | Names |
+|---|---|
+| `CallSectionR` or one of its five forms | The callee or the receiver, and the arguments |
+| `StoreTopR` | The register the result goes to and where the caller carries on |
+| `SectionR` | The section, where it starts and its first parameter |
+| `SectionR` | The stub the call goes to when its check fails |
+
+The head checks what the section was laid from. A call of a module binding checks that no binding the sections were laid from was rebound, a call through a register that it holds the function of the section, and a method call that the receiver's class is the one the method was found on and that no class changed. It then pays one op of the budget, writes the arguments into the section's parameters and the link into the register before them, and jumps. The link holds where the caller carries on and the register its result goes to, so a section's return writes the result there and jumps back by it.
+
+A check that fails sends the call to its stub, the call as written, which opens a frame. A call through a register that met other functions first looks for the section of the one it holds among sixteen at most. The calls the stubs take are counted, and past 64 of them the code is laid again with the functions they met beside the first, for as long as each laying lays more than the one before.
+
+## Recursion levels
+
+A section's registers serve every run of it, so a call that may come back into the sections it lies in keeps a level first. The lowering lays a `TurnR` before the call's head and the `UnturnR` words where the call carries on. The words name the link and the registers the section reads after the call, three at most a word, and `TurnR` puts their values on the levels with the link last. `UnturnR` takes them back with the link first, in one dispatch. A lone level, the link and two values at most, is kept and taken back by the loop in place.
+
+The levels are a last-in first-out store of values, and they hold nothing but levels. A frame's record keeps how long the store was as the frame opened, a handler keeps how long it was as its block began, and a parked generator or helper keeps the levels it took with it, so a return, a handler that catches and a callback that runs again each cut the store back to where it was. An error walks the levels it leaves, and its traceback notes a frame for each.
+
+A level counts as a frame toward the runtime's recursion limit, 1000 in mini, so a recursion stops at the same depth whether it runs as frames or through sections. It runs as frames until its body is called 64 times or 32 of its frames run at once, and through sections with a level for each call after that.
+
+## The driver
+
+`run_regs` runs the instructions of every frame, the stack forms of first-run code over their rows and the register forms of lowered code. It also runs in place every call and return it can, a frame opened or left, a jump into a section and back, a level kept and taken back and a callback run again. The driver around it, `drive`, holds the frame the run began with, the floor every frame it opens returns to last, and takes each turn the loop leaves it.
+
+| Turn | Taken when |
+|---|---|
+| Enter | An op the loop left opened a frame, such as the call an operation's handler hands over or the coroutine an `await` steps, and that frame runs next |
+| Floor | A class body starts, and it runs as the floor of the same loop until it ends |
+| Lower | A loop of first-run code passed 16 back-edges, or laid code is laid again for the calls its stubs took, and the frame carries on in the new code where it stood |
+| Grow | A head met a function its code lays no section for, and the call runs again in code grown to lay one |
+| Yield | A frame parks or yields, and the value goes to the `for` or the native stepping a generator, or the run parks for its host |
+| Return | A frame returns where the loop cannot run the return in place, into a native's job, into the `for` stepping a generator or out of the floor |
+| Raise | An error leaves a frame with no handler for it, and the driver unwinds frames until one catches it |
+
+The driver also runs four ops whole. They are a return that runs `finally` bodies first, the end of a `finally` body that carries a return, a jump or an error on, a `break` or a `continue` that leaves through `finally` bodies, and an `await`.
+
+## Why nothing nests the loop
+
+The driver is one Rust call, and every frame of the program is data in the registers, the levels and the stacks of jobs, iterators and handlers. Three things hold because of it, and a loop opened inside another for some call would break each of them, since that call's state would lie on the host stack.
+
+- **A run can always stop.** A park, a preempt and a snapshot reach every frame, so a run waiting at any depth can be saved to a blob and resumed after the host returns.
+- **The runtime bounds recursion.** How deep a program calls is the runtime's recursion limit, never the host stack, which is small on `wasm32`.
+- **A call costs a record or a jump.** A loop opened for one call would pay its setup, many times what a frame or a section costs.
+
+So no native and no handler of an op calls program code. A native answers with a step, as the next section shows, and a handler that needs a call made opens a frame whose return runs its op again with the value. Debug and coverage builds count the loops running and panic when one opens inside another, and in debug builds `nested::old_path_ceilings` runs every case of the corpus that reads no events or input and checks that a body past its tier opens no frame. A release build turns a call no frame took into an internal error instead of nesting.
+
+A loop opens only where the host calls into the engine, as `VM::run` runs each module a program imports and then its body or carries that body on after a wait, and as `call_export` calls a function by its name. The one exception is a plugin whose call the run waits on. When it calls back into the program, that call runs in a loop of its own, 128 deep at most, as [Limits](/docs/edge-lang/sdk/limits#sandboxed-execution) lists.
+
+## A native's call back
+
+A native never calls program code itself. A body that needs a function of the program run, a key `sorted` orders by or a test `filter` applies, answers with a step, and the engine runs the call as a frame of the loop that called the native, marked as the frame of a job. The job sits on a stack of the VM's own and keeps what the native needs between calls, and the collector marks every value it holds. [Out and Step](/docs/edge-lang/sdk/natives#out-and-step) lists the steps.
+
+The frame's return hands its value to the job instead of a register of the caller, and what runs next depends on the job.
+
+- **A key on every item.** A key `sorted`, `min` or `max` calls on each item runs again in the same frame. The job writes the next item into the frame's first register and the loop jumps back to the frame's first instruction, so a walk over 40,624 items opens one frame.
+- **A `map` or a `filter` a `for` steps.** The `for` takes each value the frame gives, and its body runs between two calls, so the frame closes for each value the `for` takes and opens again for the next.
+- **What a callback may do.** It pays one op for each call as any call does, its native work is paid before the next instruction runs, and a wait inside it is refused, as [Host waits](/docs/edge-lang/sdk/host-waits#where-a-run-may-wait) lists. A preempt waits until the native is done, as [Snapshots](/docs/edge-lang/sdk/snapshots#what-cannot-be-preempted) covers.
+
+## What a call costs
+
+These figures are the bench's count of WebAssembly instructions on `edge.wasm`, measured on 26 October 2026 over the hour of GitHub events that [Mini](/docs/edge-lang/get-started/use-cases/mini#the-job) reads. It holds 40,624 repositories with an event from a person, bots left out, and each program reads the same count of events for each of them from one text and builds the same list of pairs first. Each program that calls it binds `key = lambda kv: kv[1]`, and a figure is the difference between a program and the one it is measured against, divided by the 40,624 calls of `key` it makes.
+
+| `key` called by | Against | Instructions a call |
+|---|---|---:|
+| A loop of the module, `k = key(kv)` for each pair, a jump into its section | The same loop with `k = kv[1]` | 213 |
+| `max(items, key=key)` on each pair | `max` of the counts alone | 337 |
+| `sorted(items, key=key, reverse=true)` on each pair, with the order by key | `sorted` of the counts alone | 523 |
+| `map(key, items)` for each step of a `for` | A `for` over the counts | 1,830 |
+
+So a key a native calls costs about 124 instructions more than a call the loop makes as a jump, which pay for the job's take of the value and the frame run again. A `map` a `for` steps costs nearly nine times a jump, since each item opens and closes its frame.
+
+A recursion through sections pays for each level in the values it moves. A walk that finds how deep each of the first 300 events of the hour nests, a map or a list one more than its deepest member, visits 20,813 values, with every event written into the program as a literal. Recursing into each map and list, it costs 53.4 million instructions, about 2,570 for each call with the `isinstance` checks each call makes. The same walk keeping its own list of pairs, as the job's `read_json` keeps its containers, costs 130.2 million.
+
+> [!CARDS]
+> - `library` [Natives](/docs/edge-lang/sdk/natives) The steps a native answers with and the guardrails around each call.
+> - `gauge` [Limits](/docs/edge-lang/sdk/limits) The recursion limit and the cap on the loops a plugin's calls nest.
+> - `camera` [Snapshots](/docs/edge-lang/sdk/snapshots) What a parked run keeps and where a run cannot freeze.
+> - `cpu` [Design](/docs/edge-lang/internals/design) The lowering that lays sections and the code a frame runs in.

@@ -69,7 +69,7 @@ impl Gen {
             0 => format!("({x} + {y})"),
             1 => format!("({x} - {y})"),
             2 => format!("({x} * {y} % 1009)"),
-            3 => format!("({x} // {})", 1 + self.below(6)),
+            3 => format!("({x} ~/ {})", 1 + self.below(6)),
             4 => format!("({x} % {})", 2 + self.below(9)),
             5 => format!("max({x}, {y})"),
             6 => format!("min({x}, {y})"),
@@ -85,7 +85,7 @@ impl Gen {
             2 => format!("{x} % 2 == 0"),
             _ => format!("{x} >= {y}"),
         };
-        if self.chance(25) { format!("{c} and {} > {}", self.var(), self.below(500)) } else { c }
+        if self.chance(25) { format!("{c} && {} > {}", self.var(), self.below(500)) } else { c }
     }
 
     /* `n` statements at `pad`, every loop bounded so a run always ends. */
@@ -163,7 +163,7 @@ impl Gen {
             }
             _ => {
                 let (x, y, z) = (self.var(), self.var(), self.var());
-                out.push_str(&format!("{pad}try:\n{inner}{x} = {y} // {z}\n{pad}except ZeroDivisionError:\n{inner}{x} = {}\n", self.below(10)));
+                out.push_str(&format!("{pad}try:\n{inner}{x} = {y} ~/ {z}\n{pad}except ZeroDivisionError:\n{inner}{x} = {}\n", self.below(10)));
             }
         }
     }
@@ -192,14 +192,14 @@ fn program(seed: u64) -> (String, String) {
     let mut methods = String::from("class K:\n");
     for i in 0..FUNCTIONS {
         let body = g.function("");
-        module.push_str(&format!("def f{i}(a, b):\n{body}\n"));
-        main.push_str(&format!("def f{i}(a, b):\n{body}\n"));
+        module.push_str(&format!("fn f{i}(a, b):\n{body}\n"));
+        main.push_str(&format!("fn f{i}(a, b):\n{body}\n"));
         // The method runs the very same body one level deeper.
         let method: String = body.lines().map(|line| format!("    {line}\n")).collect();
-        methods.push_str(&format!("    def f{i}(self, a, b):\n{method}\n"));
+        methods.push_str(&format!("    fn f{i}(self, a, b):\n{method}\n"));
     }
     module.push_str(&methods);
-    main.push_str("def warm(fn, a, b):\n    for j in range(24):\n        fn(a + j, b - j)\n    return fn(a, b)\n");
+    main.push_str("fn warm(fn, a, b):\n    for j in range(24):\n        fn(a + j, b - j)\n    return fn(a, b)\n");
     let pairs: Vec<String> = (0..PAIRS).map(|_| format!("({}, {})", g.below(200) as i64 - 100, g.below(200) as i64 - 100)).collect();
     main.push_str(&format!("k = m.K()\nfor a, b in [{}]:\n", pairs.join(", ")));
     for i in 0..FUNCTIONS {
@@ -214,7 +214,7 @@ fn program(seed: u64) -> (String, String) {
 fn run(dir: &PathBuf) -> Result<String, String> {
     // Output goes to files, so a full pipe never stalls a program the deadline then blames.
     let (out, err) = (dir.join("stdout.txt"), dir.join("stderr.txt"));
-    let mut child = Command::new(BIN).current_dir(dir).args(["run", "main.py"]).env("XDG_CACHE_HOME", dir)
+    let mut child = Command::new(BIN).current_dir(dir).args(["run", "main.mini"]).env("XDG_CACHE_HOME", dir)
         .stdin(Stdio::null()).stdout(File::create(&out).unwrap()).stderr(File::create(&err).unwrap()).spawn().unwrap();
     let start = Instant::now();
     let status = loop {
@@ -244,9 +244,9 @@ fn a_function_answers_the_same_cold_warm_and_from_any_module() {
         let dir = root.join(seed.to_string());
         std::fs::create_dir_all(&dir).unwrap();
         let (main, module) = program(seed);
-        std::fs::write(dir.join("main.py"), main).unwrap();
-        std::fs::write(dir.join("m.py"), module).unwrap();
-        std::fs::write(dir.join("edge.json"), "{ \"imports\": { \"m\": \"./m.py\" } }\n").unwrap();
+        std::fs::write(dir.join("main.mini"), main).unwrap();
+        std::fs::write(dir.join("m.mini"), module).unwrap();
+        std::fs::write(dir.join("edge.json"), "{ \"imports\": { \"m\": \"./m.mini\" } }\n").unwrap();
         let printed = match run(&dir) {
             Ok(printed) => printed,
             Err(e) => {

@@ -19,27 +19,27 @@ env:
   EDGE_CDN_BASE: http://127.0.0.1:8788
 
 jobs:
-  compiler:
-    name: Compiler
+  wasm:
+    name: Wasm
     runs-on: ubuntu-26.04
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v7
 
-      - uses: ./.github/actions/compiler
+      - uses: ./.github/actions/wasm
         with:
           github-token: ${{ github.token }}
 
   js:
     name: JS
-    needs: [compiler]
+    needs: [wasm]
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/js
 
-  # cli/build.rs embeds the compiler and std builds the compiler job staged.
+  # cli/build.rs embeds the speed edge.wasm the wasm job staged
   cli:
     name: CLI / ${{ matrix.entry }}
     needs: [js]
@@ -95,8 +95,10 @@ jobs:
             cli: consistency
           - entry: cli-skill
             cli: skill
-          - entry: cli-std
-            cli: std
+          - entry: cli-uptime
+            cli: uptime
+          - entry: cli-tiny
+            cli: tiny
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/serve
@@ -111,7 +113,7 @@ jobs:
   # Holds the engine to the instructions of bench/.snapshot once its tests pass.
   bench:
     name: Bench
-    needs: [compiler]
+    needs: [wasm]
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7

@@ -18,13 +18,13 @@ runs:
         cache: npm
         cache-dependency-path: cdn/package-lock.json
 
-    # In the background for the rest of the job, ready once the compiler answers.
+    # in the background for the rest of the job and ready once edge.wasm answers
     - name: Serve
       shell: bash
       run: |
         nohup make serve > "$RUNNER_TEMP/cdn.log" 2>&1 &
         for _ in $(seq 60); do
-          curl -fsS -o /dev/null "$EDGE_CDN_BASE/compiler.wasm" && exit 0
+          curl -fsS -o /dev/null "$EDGE_CDN_BASE/edge.wasm" && exit 0
           sleep 1
         done
         cat "$RUNNER_TEMP/cdn.log"

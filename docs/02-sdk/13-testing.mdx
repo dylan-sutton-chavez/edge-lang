@@ -1,0 +1,179 @@
+---
+title: "Testing"
+description: "How the repo holds the engine and its runtimes to their rules, the engine, native and syntax cases, the bench and its keys, the comparison with main, and Miri."
+---
+
+# Testing
+
+The engine is held to its rules by cases, programs or sources whose result the rule gives, and every change runs them before it lands. `make test` runs the engine's suite, lib's and those of the runtimes in the repo, and [Runbook](/docs/edge-lang/internals/runbook) covers the checks that run beside it, fuzzing, Miri, the bench and the consistency suite. This page covers the three kinds of case, the bench and its keys, how a change is compared with `main`, and what Miri asks of a test.
+
+A runtime tests itself the same way at its own layers, as [How the repo tests a runtime](/docs/edge-lang/get-started/book/shipping#how-the-repo-tests-a-runtime) and [Testing a front end](/docs/edge-lang/sdk/front-ends#testing-a-front-end) show.
+
+## Three kinds of case
+
+| Kind | Holds | Lives in | Run by |
+|---|---|---|---|
+| Engine | A program in mini with what it prints, raises, reads and sends | `tests/cases/vm`, `tests/cases/snapshot.json`, `tests/cases/modules.json` | `cargo test -p edge`, and the bench for `tests/cases/vm` |
+| Native | A native of lib called on plain values, with what it gives, writes or raises | `lib/tests/cases`, a file for each module of lib | `cargo test -p lib` |
+| Syntax | Sources with the tokens they lex to, the chunk they compile to in each spelling, and what the lexer and the parser report | `tests/cases/syntax` | `cargo test -p edge` |
+
+A case states a rule, so its expected output comes from what the rule gives and never from what the engine printed last. A quirk a case finds is a bug, so the case goes in with the fix that makes it pass.
+
+## Engine cases
+
+`tests/cases/vm` holds 5,302 programs in nine files by topic, `basics`, `collections`, `control`, `exceptions`, `functions`, `generators`, `numbers`, `objects` and `strings`. Each case is a YAML entry whose fields the runner reads.
+
+| Field | Holds |
+|---|---|
+| `case` | The program, in mini |
+| `expected` | The lines it prints, in order |
+| `error` | Text the error that ends the run must hold |
+| `error_line` | The line that error points at, counting from 1 |
+| `input` | The lines `input()` reads |
+| `events` | The events queued before the run starts |
+| `interactive_events` | Events pushed one at a time, each once the run parks to wait for one |
+| `sends` | The group and the line of each `send`, in order |
+
+`tests/cases.rs` reads the nine files into the objects every runner takes and gives each case its key.
+
+```rust file=tests/cases.rs
+```
+
+Several tests run every case, each holding it to another rule.
+
+| Test | Holds every case to |
+|---|---|
+| `vm::test::test_cases` | Its output and its error under the sandbox limits, every mismatch listed in one run |
+| `vm::test::strict_cases` | The same, stopping at the first mismatch, with a program that reads past its input expected to fail |
+| `vm::test::no_duplicate_cases` | Being the only case with its fields |
+| `rows::test::rows_match_reference` | Leaving no lowering refused for an op over rows, and with `ROWS_REF` giving the output, the error and the traceback the reference it names kept |
+| `snapshot::test::vm_corpus_roundtrip` | Ending alike when saved and restored at each event pause, for a case with interactive events |
+| `snapshot::test::vm_corpus_preempt_equivalence` | Ending alike when preempted at every back-edge |
+| `snapshot::test::vm_corpus_restore_at_a_preempt` | Ending alike when saved and restored once at the third preempt of an interval of 11, or refused when the restore would lay its code otherwise |
+| `nested::old_path_ceilings` | Opening no frame for a body past its tier of 64 calls from code past its own, in debug builds, with the cases that read events or input left out |
+
+An error the lexer or the parser reports ends a case before it runs, matched against the diagnostics. `snapshot.json` holds the programs that pause, with the interval to preempt them at and what a paused run must show, and `modules.json` the programs that import, with the sources of their modules and their manifests. The engine's other suites in `tests` hold a rule each, the memory a run gives back in `tests/memory.rs`, a front end of the kit in `tests/front.rs` and a runtime that renames its natives in `tests/names.rs`.
+
+## Native cases
+
+A native case calls one native of lib on plain values, with no program around it. `lib/tests/cases` holds 756 of them in a file for each module of lib, named after the module, and `lib/tests/natives.rs` runs them all on one machine whose tables reach every module, mini's tables and a few kernels mini leaves out. The runner builds each value on the heap, calls the native through `edge::embed::call_native` and compares what comes back.
+
+```yaml
+- native: str.split
+  recv: "a,b,c"
+  args: [","]
+  kw: {maxsplit: 1}
+  ret: ["a", "b,c"]
+- native: int
+  args: ["12x"]
+  error: "invalid literal for int() with base 10: '12x'"
+- native: print
+  args: [1.5, !tuple [1, 2]]
+  out: "1.5 (1, 2)"
+```
+
+| Field | Holds |
+|---|---|
+| `native` | The native by the name its runtime gives it, a function or `kind.method` |
+| `recv` | The value a method is called on, left out for a method read off its type |
+| `args`, `kw` | The positionals in order and the keywords by name |
+| `ret` | The value it gives, held to the same kind and value, with floats compared by their bits and sets by their members |
+| `prints` | The lines `print` writes for the value it gives |
+| `out` | The lines the call writes itself |
+| `error` | Text the error it raises must hold |
+
+A value is `null`, a bool, an int, a float with `.nan` and `.inf`, a text, a list or a map, or it carries a tag. `!tuple` and `!set` take a list, `!dict` takes the pairs of a map whose keys a YAML map cannot hold, `!bytes` and `!bytearray` take their bytes in hex, and `!int` takes the digits of an int past 64 bits. A native whose answer opens a frame fails its case, since it runs code of a program and so belongs with the engine cases, and a module with no file of cases fails the run as well.
+
+`lib/tests` holds 112 more tests in 18 files, mostly one for each module of lib. Such a test registers the tables of mini with whatever native of its own the rule needs, runs short programs on plain values and compares what they print and the words they fail with, so a kernel is held to its rule under the names and the words of a runtime that uses it. `lib/tests/steps.rs` registers a native for each kind of step, as [Out and Step](/docs/edge-lang/sdk/natives#out-and-step) shows, and `lib/tests/arity.rs` holds the words of a misfit. `cargo test -p lib` runs them with every feature on, and `make test` runs that.
+
+## Syntax cases
+
+A syntax case runs no program. It holds sources with the tokens they must lex to, the chunk they must compile to, or the messages that must stop them.
+
+| File | Cases | Holds |
+|---|---:|---|
+| `tests/cases/syntax/tokens.yml` | 175 | The tokens a source lexes to |
+| `tests/cases/syntax/bytecode.yml` | 214 | The names, constants and instructions a source compiles to |
+| `tests/cases/syntax/diagnostics.yml` | 154 | The messages that stop a source, beside the chunk it leaves |
+| `tests/cases/syntax/forms.yml` | 29 | Each form in mini and in the indent and words tables, which must compile to one program |
+| `tests/cases/syntax/pieces.yml` | 37 | A piece of the kit read by one of eight test spellings, beside the program mini writes for it or the error it must report |
+
+Every file but `pieces.yml` holds its cases in the same fields, and `tests/syntax.rs` runs each case in every spelling it gives.
+
+| Field | Holds |
+|---|---|
+| `mini` | The source in mini |
+| `indent` | The source in the indent table, which `tools/spell` writes from `mini` when a case leaves it out |
+| `words` | The source in the words table |
+| `tokens` | The tokens each source lexes to, and a case holding only these compiles nothing |
+| `names`, `constants`, `instructions` | The chunk each source compiles to, with no functions, classes or native calls unless `functions` and `classes` count them and `natives` lists them |
+| `errors` | Every message the lexer and the parser report, in order |
+| `error` | Text one of those messages must hold |
+
+The sources of a case compile alike, which holds when their chunks hold the same names, constants and instructions in every body, and a case with no `errors` and no `error` compiles with no message. A case with only `indent` holds what mini lexes or words otherwise, such as a lone `!`, which indent reads as a field's conversion and mini as a negation. Indent and words are tables `tools/spell` keeps for tests, in `tools/spell/src/indent.rs` and `tools/spell/src/words.rs`, beside the tables of the runtimes [Three tables](/docs/edge-lang/sdk/parser-kit#three-tables) compares. `tests/syntax.rs` also holds every table to spelling its own tokens, so a change to the lexer or the parser that reads one spelling differently fails there first.
+
+## Splitting the corpus
+
+An engine case whose every statement prints a native called on literals, or prints a literal, is a native case written as a program, and so is one that makes a single such call to meet its error. One whose error the lexer or the parser reports is a syntax case. `spell split` in `tools/spell` sorts every case of `tests/cases/vm` by these rules, and its one run over the corpus moved 602 cases out as 680 native cases and 112 syntax cases, so a run now moves none. It moves each statement of such a case to a native case in the file of the module that holds its native, and each such error to `tests/cases/syntax/diagnostics.yml`, cuts the moved cases from their topic files, drops their entries from `bench/.snapshot`, and names each case `tests/cases/miri.tsv` samples at its new place or drops it once it moved. A case whose lines do not pair with its statements stays where it is, as do a case with a literal that raises as it is built and an error the indent table words otherwise. With `--dry DIR` the command writes the tree a move would leave into `DIR`, with `split.tsv` naming the kind of every case and `split-counts.tsv` counting them by file and by module.
+
+## The bench and its keys
+
+`make bench` runs every case of `tests/cases/vm` on the speed build of `edge.wasm`, each on a fresh instance of wasmtime, and counts the WebAssembly instructions it executes with wasmtime's fuel. It reads each run's memory peak through the `memory_peak` export, and a case runs with a budget of 10,000,000 ops, since only cases that spend their budget reach it. An instruction count is the same on every machine, so a number reads alike anywhere and no run is timed.
+
+`bench/.snapshot` keeps the numbers, one entry for each case.
+
+| Field | Holds |
+|---|---|
+| `rustc` | The Rust release that built the measured `edge.wasm` |
+| `threshold` | The band the geometric mean of every case's ratio must stay in, 0.5% |
+| `case_threshold` | How far one case may move on its own, 5% |
+| `memory_floor` | A move in memory under 0.004 MB, which passes whatever its ratio |
+| `cases` | Each case's key with its instructions and its peak in MB |
+
+A case's key is the 64-bit FNV-1a hash of its fields as one line of JSON, every field included, so two cases with one program and another input stay apart. [Values](/docs/edge-lang/sdk/values#val) computes the key of the first case in mini. A case whose program or output changes is a new case to the bench, its old entry left with no case.
+
+| The bench fails when | So |
+|---|---|
+| The snapshot was taken with another Rust | Another compiler builds another `edge.wasm`, whose instructions say nothing of the code |
+| A case has no entry or an entry has no case | Every case is measured against a number of its own |
+| The geometric mean grows past the band, or a case past its own threshold | Nothing gets slower unnoticed, with the cases that grew listed apart from those that shrank |
+| The geometric mean shrinks past the band, or a case past its own threshold | The snapshot is taken again with the change, so the next one is measured from it |
+
+`make bench-update` takes the snapshot again, unless a case grew past its threshold, so a slower case is never taken by accident. `make bench-accept-slower` takes it with those cases too.
+
+## The comparison with main
+
+`bench/.snapshot` in `main` holds `main`'s numbers, so `make bench` on a branch is the comparison with `main`, case by case and in the mean. A change that makes cases faster takes the snapshot again in the same pull request, and one that makes a case slower can only take it with `make bench-accept-slower`, which says so outright.
+
+To see every case beside `main`'s without stopping at a threshold, a branch writes its own numbers with `make bench-accept-slower`, copies the file aside, takes `main`'s back with git, and joins the two files on their keys. A case whose key is in one file only is a case that changed or is new.
+
+`make bench-data` measures the data job of [Tiny](/docs/edge-lang/get-started/use-cases/tiny#at-scale) in both runtimes over the whole hour. It also builds the engine of the commit the Makefile names as `MAIN_AT` into `target`, and prints the instructions the job's counting loop spends on each record on that engine beside today's, so the hottest path of a real job is held to its past.
+
+## Miri
+
+Miri interprets the engine's tests and stops at undefined behavior, a leak or a borrow the rules of Rust do not allow. `unsafe` lives in `src/unsafe.rs` and the files `UNSAFE_LEFT` names in the Makefile, and `make lint` fails when another file holds unsafe code, so every unsafe block Miri must reach is known.
+
+> [!COPY] make miri SUITE=vm
+
+`SUITE` is one of `vm`, `snapshot`, `modules`, `parser`, `lexer` and `abi`, and `CASE` runs one test by its exact name. Miri runs on the nightly the Makefile pins as `MIRI_NIGHTLY`, which `make miri` installs.
+
+Miri takes hours to read a corpus of thousands of programs, so under Miri the corpus tests run a sample. `tests/cases/miri.tsv` names 69 cases by key, topic file and place, chosen so that together they run every opcode the corpus runs and reach the unsafe sites it reaches on a budget of 5,000 ops, and under Miri the loader reads only those entries. `tests/miri.rs` holds the sample to the corpus in the native suite.
+
+| Test | Holds |
+|---|---|
+| `miri::test::the_sample_names_cases_of_the_corpus` | Each line names a case of the corpus at its place, and `MIRI_TSV_OUT=tests/cases/miri.tsv` writes the file again once cases move |
+| `miri::test::coverage_of_the_sample_holds_every_opcode_the_corpus_runs` | Every opcode a corpus case runs, some case of the sample runs too, with the cheapest case to add named when one is missing, under the `coverage` feature |
+
+A test written for the engine takes three more things into account.
+
+- **Slices.** `EDGE_SLICE=k/n` makes a corpus test walk every `n`th case from the `k`th, through `slice` in `tests/common.rs`, so a test too long for one job runs in parts.
+- **Budgets.** Under Miri `corpus_limits()` stops each case at the same 5,000 ops, since Miri checks the paths the code takes and the native run checks the results, and `cut_short` lets a case cut that way pass. A test of one program sized past a job takes smaller sizes under `cfg!(miri)` and keeps its native ones, as `a_restore_keeps_addresses` in `tests/snapshot.rs` does.
+- **Time.** A test that measures time, or one too slow for Miri, says so with `#[cfg_attr(miri, ignore)]` and its reason, as `tests/syntax.rs` does for a source of 160 KB.
+
+The metered allocator runs under Miri too. There each block's meter lives in an address table instead of in front of the block, so the borrow rules let a block go, and every run of a test is counted as `edge.wasm` counts it.
+
+> [!CARDS]
+> - `wrench` [Runbook](/docs/edge-lang/internals/runbook) Fuzzing, Miri in CI, the bench and the consistency suite.
+> - `package` [Shipping](/docs/edge-lang/get-started/book/shipping) How the repo tests a runtime at its three layers.
+> - `layers` [Values](/docs/edge-lang/sdk/values) The FNV-1a key of a case computed in mini.
+> - `braces` [Parser kit](/docs/edge-lang/sdk/parser-kit) The tables the syntax cases spell their forms in.

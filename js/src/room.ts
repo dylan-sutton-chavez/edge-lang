@@ -1,4 +1,3 @@
-/* The room's only script, it runs the engine its page hands over and relays both ways through the port. */
 export const roomScript = `
 addEventListener('message', function start({ source, data, ports: [port] }) {
     if (source !== parent || !port) return;

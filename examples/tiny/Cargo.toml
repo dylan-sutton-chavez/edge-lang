@@ -1,0 +1,32 @@
+[package]
+name = "tiny"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "A YAML-native flow language for large data on Edge Lang, with a front end of its own and natives named over lib's kernels."
+publish = false
+
+[lib]
+name = "tiny"
+doctest = false
+
+[[test]]
+name = "flows"
+path = "tests/flows.rs"
+
+[features]
+default = ["std"]
+std = ["edge/std"]
+# builds tiny.wasm with the engine's exports over these natives and the grant logic
+web = ["edge/runtime", "edge/perms"]
+
+[dependencies]
+edge = { path = "../..", default-features = false }
+lib = { path = "../../lib" }
+
+# the suite reads its cases and net routes as yaml over the data job's slice
+[dev-dependencies]
+data = { path = "../data" }
+serde = { workspace = true }
+serde_yaml_ng = { workspace = true }

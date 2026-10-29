@@ -1,11 +1,11 @@
 [
     {"script": "print(str(add(2, 3) + sub(10, 4) + mul(2, 5)))", "expect": "21"},
     {"script": "print(f'{2 ** 10}')", "expect": "1024"},
-    {"script": "print(str(10 // 0))", "error": "ZeroDivisionError"},
+    {"script": "print(str(10 ~/ 0))", "error": "ZeroDivisionError"},
     {"script": "from trap import boom\nprint(str(boom()))", "error": "native module trapped"},
     {"script": "from abi2 import boom\nprint('loaded')", "error": "speaks ABI v2"},
     {"script": "import calc\nprint(str(calc.add(2, 3)))", "expect": "5"},
     {"script": "import net\ntry:\n    net.request('GET', 'https://evil.example/')\nexcept PermissionError as e:\n    print(str(e))", "expect": "'main' has no net:evil.example, edge.json grants it net:127.0.0.1"},
-    {"script": "from ui import upper", "error": "module 'ui' is JavaScript, ship a .py or a .wasm"},
-    {"script": "from json import dumps\nprint(dumps(True))", "expect": "true"}
+    {"script": "from ui import upper", "error": "module 'ui' is JavaScript, ship a .mini or a .wasm"},
+    {"script": "from json import dumps\nprint(dumps(true))", "expect": "true"}
 ]

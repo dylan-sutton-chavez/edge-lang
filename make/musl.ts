@@ -12,11 +12,8 @@ function inside(path: string) {
 }
 
 const env: string[] = []
-for (const name of ['EDGE_COMPILER_WASM', 'MOZJS_ARCHIVE']) {
-  const value = Deno.env.get(name)
-  if (value) env.push('-e', `${name}=${inside(value)}`)
-}
-if (Deno.env.get('MOZJS_CREATE_ARCHIVE')) env.push('-e', 'MOZJS_CREATE_ARCHIVE')
+const wasm = Deno.env.get('EDGE_WASM')
+if (wasm) env.push('-e', `EDGE_WASM=${inside(wasm)}`)
 
 // The container writes as root, so a host with users gets the target dir back.
 const uid = Deno.uid()

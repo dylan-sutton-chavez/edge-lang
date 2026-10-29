@@ -1,164 +1,161 @@
 use alloc::vec::Vec;
 
 use super::Val;
-use super::{HeapObj, HeapPool, View};
+use super::{HeapObj, HeapPool};
 use super::err::VmErr;
 
-/* What the module body waits for while it is suspended to the host. */
+/* what the module body waits for while it is suspended to the host */
 #[derive(Clone, Debug)]
 pub enum CoroState {
-    /// Resumable at once.
     Ready,
-    /// Parked in `receive()` with an empty queue, resumed when the host pushes a message.
+    // parked on an empty event queue until the host pushes a message
     WaitingEvent,
-    /// Parked mid-`CallExtern` with its correlation id, resumed when the host calls `set_host_result_by_id(id)`.
+    // parked inside a `CallExtern` until the host calls `set_host_result_by_id` with its id
     WaitingHostCall(u64),
-    /// Next resume raises this error at the park point, with the user instance when one exists.
+    // the next resume raises this error where it parked with the user instance if any
     Raising(VmErr, Option<Val>),
 }
 
-/* The module body the host drives, and what it waits for. */
+/* the module body the host drives and what it waits for */
 #[derive(Clone, Debug)]
 pub struct CoroutineHandle {
     pub coro: Val,
     pub state: CoroState,
 }
 
-/* What the first step of an async generator awaitable does with its argument, or Wrap for an awaitable that steps the one it holds. */
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AwaitMode { Send, Throw, Close, Wrap }
-
-// Suspended sync helper frame, a plain user fn called from a coroutine hit a yielding builtin mid-execution, so its state is snapshotted and parked on the enclosing Coroutine. Frames stack innermost-last, resume walks inside-out so each return value lands on the next frame's stack at the Call site. `exception_delta` carries the helper's try/except frames pushed in its exec so they survive the yield.
+// a plain function frame parked on its coroutine when a builtin it called yielded
 #[derive(Clone, Debug)]
 pub struct ParkedFrame {
     pub ip: usize,
     pub fi: usize,
-    // The function object, whose captured cells take its nonlocal writes once the resumed frame returns.
+    // the function whose captured cells take its nonlocal writes once the resumed frame returns
     pub func: Val,
     pub slots: Vec<Val>,
-    pub stack_delta: Vec<Val>,
+    // the recursion levels it kept through sections as it parked
+    pub levels: Vec<Val>,
     pub iter_delta: Vec<IterFrame>,
     pub exception_delta: Vec<ExceptionFrame>,
-    // The context managers of the `with`s it suspended inside, its handlers' with depths counted from the first.
-    pub withs: Vec<Val>,
-    // The instance an `__init__` hands back in place of what it returns, undef for any other call.
+    // the instance a constructor call hands back instead of the return value and undef otherwise
     pub instance: Val,
-    // The layout of the code a run suspended inside a parked section, which it resumes in, 0 for none.
+    // the code layout a parked section resumes in and 0 for none
     pub layout: u32,
+    // the top it parked over rows with and zero when it held no row
+    pub top: u16,
 }
 
-/* Block-stack frame role. Except catches exceptions, Finally runs on every exit path. */
+/* `Finally` runs on every exit path while `Except` only catches */
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum BlockKind { Except, Finally }
 
-/* One reason a finally/with cleanup body is running, pushed on entry, popped by EndFinally. */
+/* why a finally body runs pushed on entry and popped by EndFinally */
 #[derive(Clone, Debug)]
 pub enum Unwind {
-    // Reached by normal fall-through, EndFinally just continues.
+    // reached by falling through so `EndFinally` just continues
     Normal,
     Return(Val),
-    // break/continue, run `remaining` more cleanups, then resume at `target`.
+    // a break or continue that runs `remaining` more cleanups then resumes at `target`
     Goto { target: usize, remaining: u16 },
-    // An exception passing through, with the byte offset it was raised at.
-    Reraise(VmErr, Option<u32>),
+    // an exception passing through with where it was raised and its own object
+    Reraise(VmErr, Option<u32>, Val),
 }
 
-/* Saved stack/iter/with/unwind depths for unwinding to a handler. Stored on the active Coroutine so `try`/`except` survives yields. */
+/* stack iter and unwind depths a handler unwinds to kept on the coroutine across yields */
 #[derive(Clone, Copy, Debug)]
 pub struct ExceptionFrame {
     pub kind: BlockKind,
     pub handler_ip: usize,
-    pub stack_depth: usize,
+    // the recursion levels kept as the block began which a handler cuts back to
+    pub levels: usize,
     pub iter_depth: usize,
-    pub with_depth: usize,
     pub unwind_depth: usize,
-    // Exceptions being handled when the block began, the ones its handlers add end with it.
+    // the handling depth as the block began so exceptions its handlers add end with it
     pub handling_depth: usize,
-    // The levels of recursions through sections kept as the block began, the ones past them dropped as a handler takes it.
+    // the section recursion levels as the block began which a handler cuts back to
     pub turned: usize,
+    // the register plus one a lowered handler takes the exception in or 0 for none
+    pub slot: u16,
 }
 
-// Coroutine body, user fn (Fn) or the implicit module-body coro (Module -> self.chunk).
+// the body of a coroutine as a function index or the module body
 #[derive(Clone, Copy, Debug)]
 pub enum BodyRef {
     Fn(usize),
     Module,
 }
 
-/* The `fi` of a frame for the call of `exec` or `eval` that ran a text, which names no function. */
-pub const EXEC_FRAME: usize = usize::MAX;
-pub const EVAL_FRAME: usize = usize::MAX - 1;
-
-/* Call-site snapshot for traceback rendering, built only as an error unwinds through the call. */
+/* a call site for the traceback built only as an error unwinds through the call */
 #[derive(Clone, Debug)]
 pub struct CallFrame {
     pub fi: usize,
     pub call_byte_pos: u32,
-    // The caller's source and path, taken only once the frame stays for a traceback.
+    // the caller source and path taken only once the frame stays for a traceback
     pub caller_source: Option<alloc::sync::Arc<alloc::string::String>>,
     pub caller_path: Option<alloc::sync::Arc<alloc::string::String>>,
-    // How many more times the same call unwound right after this one, a recursion kept once.
+    // how many more times the same call unwound right after so a recursion shows once
     pub repeats: u32,
 }
 
-/* ForIter state, consumed one item per `next_item`. */
+/* the state of a `ForIter` loop consumed one item per `next_item` */
 #[derive(Clone, Debug)]
 pub enum IterFrame {
-    // Shared items, so a generator saving its frames on every yield copies none of them.
+    // shared items so a generator saving its frames on every yield copies none of them
     Seq { items: alloc::rc::Rc<[Val]>, idx: usize },
-    // Live list view, items appended during the loop are visited.
+    // a live view of the list so items appended during the loop are visited
     List { rc: alloc::rc::Rc<core::cell::RefCell<Vec<Val>>>, idx: usize },
     Range { cur: i64, end: i64, step: i64 },
-    // A range with a bound past i64, stepped through the wide int kind.
+    // a range with a bound past i64 stepped through the wide int kind
     BigRange { cur: Val, end: Val, step: Val },
     Coroutine(Val),
-    // `map(f, *its)`, calling `f` as each item is asked for, `own` when it made its first iterator, which nothing else holds.
+    // calls `f` per item asked for and `own` when only it holds its first iterator
     Map { f: Val, its: alloc::rc::Rc<[Val]>, own: bool },
-    // `filter(f, it)`, a None `f` keeping the truthy items, `own` as for `map`.
+    // an undef `f` keeps the items true in themselves and `own` is as for `Map`
     Filter { f: Val, it: Val, own: bool },
-    // User-defined iterator, holds the value returned by `__iter__`, each step calls its `__next__`.
+    // a builtin iterator object the loop steps in place
     UserDefined(Val),
-    // `reversed(list)` walking the live list from its end, `idx` counting the items still ahead.
+    // walks the live list from its end with `idx` counting the items still ahead
     ListRev { rc: alloc::rc::Rc<core::cell::RefCell<Vec<Val>>>, idx: usize },
     Zip { its: alloc::rc::Rc<[Val]>, strict: bool },
-    // `enumerate(it, start)`, `n` the count the next item pairs with.
+    // `n` is the count the next item pairs with
     Enumerate { it: Val, n: Val },
-    // `iter(f, sentinel)`, calling `f` until it returns `sentinel`.
+    // calls `f` until it returns `sentinel`
     Call { f: Val, sentinel: Val },
-    // A set or a reversed dict read up front, a later step failing once `of` changed size.
+    // a set or reversed dict read up front and failing once `of` changes size
     Watched { items: alloc::rc::Rc<[Val]>, idx: usize, of: Val, len: usize },
-    // A dict or its view read live, `left` the items it still owes, failing once the size or the keys change.
-    DictWalk { of: Val, idx: usize, left: usize, len: usize, kind: View },
-    // The mark a generator's section leaves while its loop's body runs, over the `n` iterators of its own that a `PopIter` of that loop drops.
+    // a dict read live with `left` keys owed failing once its size or keys change
+    DictWalk { of: Val, idx: usize, left: usize, len: usize, part: DictPart },
+    // a generator section mark over `n` iterators of its own that the loop `PopIter` drops
     Under(u32),
-    // The mark of a generator's section yielding inside a `try` or `with`, holding what its handlers and context managers put on the VM's stacks.
+    // a generator section yielding inside `try` and what its handlers stacked
     Held(u32, alloc::boxed::Box<Held>),
-    // `async for` over `it`, `aw` the `__anext__` awaitable in flight or undef, `out` set once a delegated throw settled the step, 1 with the item in `aw`, 2 for the end.
-    AsyncFor { it: Val, aw: Val, out: u8 },
-    // An awaitable over `target`, `asend` and kin sending or throwing `arg`, `default` what an ended `anext` gives or undef, `stage` fresh, running or spent.
-    Awaitable { target: Val, mode: AwaitMode, arg: Val, default: Val, stage: u8 },
+    // the octets of a bytes or bytearray value copied once and read one a step
+    Octets { bytes: alloc::rc::Rc<[u8]>, idx: usize },
+    // a text copied once and read one character a step from byte `at`
+    Chars { text: alloc::rc::Rc<str>, at: usize },
 }
 
-/* What a generator's section left on the handler, `with`, unwind and handled stacks above where it began, held while the loop's body runs. */
+/* what a walk over a dict gives for each entry */
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DictPart { Keys, Values, Items }
+
+/* the handler unwind and handled stacks a generator section left while the loop runs */
 #[derive(Clone, Debug, Default)]
 pub struct Held {
     pub excs: Vec<ExceptionFrame>,
-    pub withs: Vec<Val>,
     pub unwinds: Vec<Unwind>,
     pub handling: Vec<(Val, Option<u32>)>,
 }
 
-/* The size of the dict or set a watched frame reads. */
+/* the size of the dict or set a watched frame reads */
 #[inline]
 pub(crate) fn watched_len(heap: &HeapPool, of: Val) -> usize {
     match heap.try_get(of) {
-        Some(HeapObj::Dict(d) | HeapObj::FrozenDict(d)) => d.borrow().len(),
+        Some(HeapObj::Dict(d)) => d.borrow().len(),
         Some(HeapObj::Set(s)) => s.borrow().len(),
         _ => 0,
     }
 }
 
-/* One step of a range with a bound past i64, kept apart so the plain range step stays small enough to inline. */
+/* kept apart so the plain range step stays small enough to inline */
 #[inline(never)]
 fn big_range_step(heap: &mut HeapPool, cur: &mut Val, end: Val, step: Val) -> Result<Option<Val>, VmErr> {
     let order = |a: Val, b: Val| if a.is_int() && b.is_int() { a.as_int().cmp(&b.as_int()) } else { heap.foreign_cmp(a, b).unwrap_or(core::cmp::Ordering::Equal) };
@@ -169,8 +166,24 @@ fn big_range_step(heap: &mut HeapPool, cur: &mut Val, end: Val, step: Val) -> Re
     Ok(Some(v))
 }
 
+/* the cursor of a walk over a live container once it gave its end */
+pub(crate) const SPENT: usize = usize::MAX;
+
+/* an ascii character already interned at byte `at` with any other left to the handler */
+#[inline(never)]
+fn char_ready(heap: &HeapPool, text: &str, at: usize) -> Option<Val> { heap.string_slot(text.get(at..at + 1)?).map(Val::heap) }
+
+/* the character at byte `at` as an interned byte or a text of its own */
+#[inline(never)]
+fn next_char(heap: &mut HeapPool, text: &str, at: &mut usize) -> Result<Option<Val>, VmErr> {
+    let Some(c) = text.get(*at..).and_then(|t| t.chars().next()) else { return Ok(None) };
+    let one = &text[*at..*at + c.len_utf8()];
+    *at += one.len();
+    Ok(Some(heap.alloc(HeapObj::Str(alloc::string::String::from(one)))?))
+}
+
 impl IterFrame {
-    /* The item a step of a sequence, list, small-int range or watched set gives now, read without stepping, None for any other or ended frame. */
+    /* peeks the next item with `None` at the end or where the handler steps */
     #[inline]
     pub(crate) fn ready(&self, heap: &HeapPool) -> Option<Val> {
         match self {
@@ -178,11 +191,13 @@ impl IterFrame {
             Self::Watched { items, idx, of, len } if watched_len(heap, *of) == *len => items.get(*idx).copied(),
             Self::List { rc, idx } => rc.borrow().get(*idx).copied(),
             &Self::Range { cur, end, step } if step > 0 && cur < end && (Val::INT_MIN..=Val::INT_MAX).contains(&cur) => Some(Val::int(cur)),
+            Self::Octets { bytes, idx } => bytes.get(*idx).map(|&b| Val::int(b as i64)),
+            Self::Chars { text, at } => char_ready(heap, text, *at),
             _ => None,
         }
     }
 
-    /* The item `ready` would give, stepped past, the one step of a plain loop, None where the handler steps it. */
+    /* the one step of a plain loop with `None` where the handler steps instead */
     #[inline(always)]
     pub(crate) fn next_ready(&mut self, heap: &HeapPool) -> Option<Val> {
         match self {
@@ -190,55 +205,73 @@ impl IterFrame {
             Self::List { rc, idx } => { let v = rc.borrow().get(*idx).copied()?; *idx += 1; Some(v) }
             Self::Seq { items, idx } => { let v = *items.get(*idx)?; *idx += 1; Some(v) }
             Self::Watched { items, idx, of, len } if watched_len(heap, *of) == *len => { let v = *items.get(*idx)?; *idx += 1; Some(v) }
+            // keys and values step with no allocation and leave a changed dict to next_item
+            Self::DictWalk { of, idx, left, len, part } if *part != DictPart::Items => {
+                let m = heap.dict_cell(*of)?.borrow();
+                if m.len() != *len { return None; }
+                while *idx < m.entry_count() {
+                    let k = m.key_at(*idx);
+                    if k.is_undef() { *idx += 1; continue; }
+                    if *left == 0 { return None; }
+                    let v = if *part == DictPart::Keys { k } else { m.value_at(*idx) };
+                    (*idx, *left) = (*idx + 1, *left - 1);
+                    return Some(v);
+                }
+                None
+            }
+            Self::Octets { bytes, idx } => { let b = *bytes.get(*idx)?; *idx += 1; Some(Val::int(b as i64)) }
+            Self::Chars { text, at } => { let v = heap.string_slot(text.get(*at..*at + 1)?)?; *at += 1; Some(Val::heap(v)) }
             _ => None,
         }
     }
 
-    /* Stateless steps only, the frames that call user code or other iterators step in the VM. */
+    /* stateless steps only as frames calling user code or other iterators step in the vm */
     pub fn next_item(&mut self, heap: &mut HeapPool) -> Result<Option<Val>, VmErr> {
         match self {
-            Self::Coroutine(_) | Self::UserDefined(_) | Self::Map { .. } | Self::Filter { .. } | Self::Zip { .. } | Self::Enumerate { .. } | Self::Call { .. } | Self::Under(_) | Self::Held(..)
-            | Self::AsyncFor { .. } | Self::Awaitable { .. } => Ok(None),
+            Self::Coroutine(_) | Self::UserDefined(_) | Self::Map { .. } | Self::Filter { .. } | Self::Zip { .. } | Self::Enumerate { .. } | Self::Call { .. } | Self::Under(_) | Self::Held(..) => Ok(None),
             Self::Seq { items, idx } => {
                 if *idx < items.len() { let v = items[*idx]; *idx += 1; Ok(Some(v)) } else { Ok(None) }
             }
-            // The failure sticks, every later step fails the same way.
+            // the failure sticks so every later step fails the same way
             Self::Watched { items, idx, of, len } => {
                 if watched_len(heap, *of) != *len {
+                    // a walk that gave its end stays spent whatever its source does
+                    if *idx == SPENT { return Ok(None); }
                     *len = usize::MAX;
-                    let set = matches!(heap.try_get(*of), Some(HeapObj::Set(_)));
-                    return Err(VmErr::Runtime(if set { "Set changed size during iteration" } else { "dictionary changed size during iteration" }));
+                    let kind = if matches!(heap.try_get(*of), Some(HeapObj::Set(_))) { crate::lang::KindId::Set } else { crate::lang::KindId::Dict };
+                    return Err(crate::lang::EngineError::Changed(kind).into());
                 }
-                if *idx < items.len() { let v = items[*idx]; *idx += 1; Ok(Some(v)) } else { Ok(None) }
+                if *idx < items.len() { let v = items[*idx]; *idx += 1; Ok(Some(v)) } else { *idx = SPENT; Ok(None) }
             }
-            // Both failures stick, so every later step fails the same way.
-            Self::DictWalk { of, idx, left, len, kind } => {
+            // both failures stick so every later step fails the same way
+            Self::DictWalk { of, idx, left, len, part } => {
                 let Some(d) = heap.dict_cell(*of) else { return Ok(None) };
-                let d = d.clone();
                 let m = d.borrow();
                 if m.len() != *len {
+                    if *idx == SPENT { return Ok(None); }
                     *len = usize::MAX;
-                    return Err(VmErr::Runtime("dictionary changed size during iteration"));
+                    return Err(crate::lang::EngineError::Changed(crate::lang::KindId::Dict).into());
                 }
                 while *idx < m.entry_count() {
                     let (k, v) = (m.key_at(*idx), m.value_at(*idx));
                     if k.is_undef() { *idx += 1; continue; }
                     if *left == 0 { return Err(VmErr::Runtime("dictionary keys changed during iteration")); }
                     (*idx, *left) = (*idx + 1, *left - 1);
-                    drop(m);
-                    return Ok(Some(match kind {
-                        View::Keys => k,
-                        View::Values => v,
-                        View::Items => heap.alloc(HeapObj::Tuple(alloc::vec![k, v]))?,
-                    }));
+                    return match part {
+                        DictPart::Keys => Ok(Some(k)),
+                        DictPart::Values => Ok(Some(v)),
+                        DictPart::Items => { drop(m); Ok(Some(heap.alloc(HeapObj::Tuple(alloc::vec![k, v]))?)) }
+                    };
                 }
+                *idx = SPENT;
                 Ok(None)
             }
+            // items appended after the walk gave its end stay unread
             Self::List { rc, idx } => {
                 let items = rc.borrow();
-                if *idx < items.len() { let v = items[*idx]; *idx += 1; Ok(Some(v)) } else { Ok(None) }
+                if *idx < items.len() { let v = items[*idx]; *idx += 1; Ok(Some(v)) } else { *idx = SPENT; Ok(None) }
             }
-            // A list that shrank past the cursor ends the walk.
+            // a list that shrank past the cursor ends the walk
             Self::ListRev { rc, idx } => {
                 let items = rc.borrow();
                 if *idx == 0 || *idx > items.len() { *idx = 0; return Ok(None); }
@@ -249,17 +282,21 @@ impl IterFrame {
                 let done = if *step > 0 { *cur >= *end } else { *cur <= *end };
                 if done { Ok(None) } else {
                     let v = *cur;
-                    // Clamp past the i64 edge so the next `done` check ends the range, never overflows.
+                    // clamped at the i64 edge so the next `done` check ends the range without overflow
                     *cur = cur.checked_add(*step).unwrap_or(if *step > 0 { i64::MAX } else { i64::MIN });
-                    // Box magnitudes beyond the 48-bit inline range.
                     Ok(Some(heap.int(v as i128)?))
                 }
             }
             Self::BigRange { cur, end, step } => big_range_step(heap, cur, *end, *step),
+            Self::Octets { bytes, idx } => match bytes.get(*idx) {
+                Some(&b) => { *idx += 1; Ok(Some(Val::int(b as i64))) }
+                None => Ok(None),
+            },
+            Self::Chars { text, at } => next_char(heap, text, at),
         }
     }
 
-    /* Visit each Val in this frame, an i64 Range holds none. */
+    /* an i64 range holds no `Val` to visit */
     pub(crate) fn for_each_val(&self, f: &mut impl FnMut(Val)) {
         match self {
             IterFrame::Seq { items, .. } => for &v in items.iter() { f(v); },
@@ -272,27 +309,22 @@ impl IterFrame {
             IterFrame::Zip { its, .. } => for &v in its.iter() { f(v); },
             IterFrame::Enumerate { it, n } => { f(*it); f(*n); }
             IterFrame::Call { f: g, sentinel } => { f(*g); f(*sentinel); }
-            IterFrame::Range { .. } | IterFrame::Under(_) => {}
+            IterFrame::Range { .. } | IterFrame::Under(_) | IterFrame::Octets { .. } | IterFrame::Chars { .. } => {}
             IterFrame::Held(_, h) => {
-                for &v in &h.withs { f(v); }
-                for u in &h.unwinds { if let Unwind::Return(v) = u { f(*v); } }
+                for u in &h.unwinds { if let Unwind::Return(v) | Unwind::Reraise(_, _, v) = u { f(*v); } }
                 for &(v, _) in &h.handling { f(v); }
             }
             IterFrame::BigRange { cur, end, step } => { f(*cur); f(*end); f(*step); }
-            IterFrame::AsyncFor { it, aw, .. } => { f(*it); f(*aw); }
-            IterFrame::Awaitable { target, arg, default, .. } => { f(*target); f(*arg); f(*default); }
         }
     }
 }
 
 impl ParkedFrame {
-    /* Visit all Vals across slots, stack delta, and iter frames. */
     pub(crate) fn for_each_val(&self, f: &mut impl FnMut(Val)) {
         f(self.func);
         f(self.instance);
         for &v in &self.slots { f(v); }
-        for &v in &self.stack_delta { f(v); }
+        for &v in &self.levels { f(v); }
         for fr in &self.iter_delta { fr.for_each_val(f); }
-        for &v in &self.withs { f(v); }
     }
 }

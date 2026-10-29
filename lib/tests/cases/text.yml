@@ -1,0 +1,1162 @@
+- native: str.split
+  recv: "a,b,c"
+  args: [","]
+  kw: {maxsplit: 1}
+  ret: ["a", "b,c"]
+
+- native: str.upper
+  recv: "abc"
+  ret: "ABC"
+
+- native: str.replace
+  recv: "aXbX"
+  args: ["X", "yy", 1]
+  ret: "ayybX"
+
+- native: str.find
+  recv: "hello"
+  args: ["l"]
+  ret: 2
+
+- native: str.join
+  recv: ","
+  args: [["a", 2]]
+  error: "sequence item 1: expected str instance, int found"
+
+- native: str.upper
+  args: ["q"]
+  ret: "Q"
+
+- native: str
+  args: [1.5]
+  ret: "1.5"
+
+- native: chr
+  args: [65]
+  ret: "A"
+
+- native: ord
+  args: ["é"]
+  ret: 233
+
+- native: ord
+  args: ["A"]
+  prints: "65"
+
+- native: str.count
+  recv: "hello"
+  args: ["l"]
+  prints: "2"
+
+- native: str.lstrip
+  recv: "  hi  "
+  prints: "hi  "
+
+- native: str.rstrip
+  recv: "  hi  "
+  prints: "  hi"
+
+- native: str.isdigit
+  recv: "abc"
+  prints: "False"
+
+- native: str.isalpha
+  recv: "abc"
+  prints: "True"
+
+- native: str.capitalize
+  recv: "hello"
+  prints: "Hello"
+
+- native: str.title
+  recv: "hello world"
+  prints: "Hello World"
+
+- native: str.removeprefix
+  recv: "foobar"
+  args: ["foo"]
+  prints: "bar"
+
+- native: str.removeprefix
+  recv: "hello"
+  args: ["xy"]
+  prints: "hello"
+
+- native: str.removesuffix
+  recv: "foobar"
+  args: ["bar"]
+  prints: "foo"
+
+- native: str.removesuffix
+  recv: "hello"
+  args: ["xy"]
+  prints: "hello"
+
+- native: str.splitlines
+  recv: "a\nb\nc"
+  prints: "['a', 'b', 'c']"
+
+- native: str.partition
+  recv: "foo:bar:baz"
+  args: [":"]
+  prints: "('foo', ':', 'bar:baz')"
+
+- native: str.rpartition
+  recv: "foo:bar:baz"
+  args: [":"]
+  prints: "('foo:bar', ':', 'baz')"
+
+- native: str.lstrip
+  recv: "hello"
+  args: ["h"]
+  prints: "ello"
+
+- native: str.rstrip
+  recv: "hello"
+  args: ["o"]
+  prints: "hell"
+
+- native: str.lstrip
+  recv: "aabbcc"
+  args: ["a"]
+  prints: "bbcc"
+
+- native: str.rstrip
+  recv: "aabbcc"
+  args: ["c"]
+  prints: "aabb"
+
+- native: str.lstrip
+  recv: "aabbcc"
+  args: ["ab"]
+  prints: "cc"
+
+- native: str.capitalize
+  recv: "HELLO"
+  prints: "Hello"
+
+- native: str.title
+  recv: "a b c"
+  prints: "A B C"
+
+- native: str.capitalize
+  recv: ""
+  prints: ""
+
+- native: str.count
+  recv: "hello"
+  args: ["x"]
+  prints: "0"
+
+- native: str.count
+  recv: "hello"
+  args: [""]
+  prints: "6"
+
+- native: str.count
+  recv: "aaaa"
+  args: ["aa"]
+  prints: "2"
+
+- native: str.isdigit
+  recv: ""
+  prints: "False"
+
+- native: str.isalpha
+  recv: ""
+  prints: "False"
+
+- native: str.isalpha
+  recv: "a"
+  prints: "True"
+
+- native: str.isalnum
+  recv: ""
+  prints: "False"
+
+- native: ord
+  args: ["a"]
+  prints: "97"
+
+- native: ord
+  args: ["😀"]
+  prints: "128512"
+
+- native: ord
+  args: ["ab"]
+  error: "ord() expected a character, but string of length 2 found"
+
+- native: str.partition
+  recv: "a-b-c"
+  args: ["-"]
+  prints: "('a', '-', 'b-c')"
+
+- native: str.partition
+  recv: "xyz"
+  args: ["-"]
+  prints: "('xyz', '', '')"
+
+- native: str.rpartition
+  recv: "a-b-c"
+  args: ["-"]
+  prints: "('a-b', '-', 'c')"
+
+- native: str.rpartition
+  recv: "xyz"
+  args: ["-"]
+  prints: "('', '', 'xyz')"
+
+- native: str.title
+  recv: "hello WORLD"
+  prints: "Hello World"
+
+- native: str.title
+  recv: "they're"
+  prints: "They'Re"
+
+- native: str.title
+  recv: "a  b"
+  prints: "A  B"
+
+- native: str.splitlines
+  recv: "splitlines"
+  prints: "['splitlines']"
+
+- native: str.casefold
+  recv: "Hello"
+  prints: "hello"
+
+- native: str.swapcase
+  recv: "AbC"
+  prints: "aBc"
+
+- native: str.removeprefix
+  recv: "hello"
+  args: ["he"]
+  prints: "llo"
+
+- native: str.removesuffix
+  recv: "hello"
+  args: ["lo"]
+  prints: "hel"
+
+- native: str.count
+  recv: "abcabc"
+  args: ["a"]
+  prints: "2"
+
+- native: str.isspace
+  recv: "   spaces   "
+  prints: "False"
+
+- native: str.isupper
+  recv: "ABC"
+  prints: "True"
+
+- native: str.islower
+  recv: "abc"
+  prints: "True"
+
+- native: str.istitle
+  recv: "Title Case"
+  prints: "True"
+
+- native: str.rindex
+  recv: "abcabc"
+  args: ["c"]
+  prints: "5"
+
+- native: str.rindex
+  recv: "abcabc"
+  args: ["z"]
+  error: "substring not found"
+
+- native: ord
+  args: [!bytes "61"]
+  prints: "97"
+
+- native: ord
+  args: [!bytes "5a"]
+  prints: "90"
+
+- native: ord
+  args: [!bytes "7e"]
+  prints: "126"
+
+- native: ord
+  args: [!bytes "20"]
+  prints: "32"
+
+- native: ord
+  args: [!bytes "21"]
+  prints: "33"
+
+- native: ord
+  args: [!bytes "41"]
+  prints: "65"
+
+- native: ord
+  args: [!bytes "7a"]
+  prints: "122"
+
+- native: ord
+  args: [!bytes "23"]
+  prints: "35"
+
+- native: str.splitlines
+  recv: "a\nb\r\nc"
+  args: [true]
+  prints: "['a\\n', 'b\\r\\n', 'c']"
+
+- native: chr
+  args: [65]
+  prints: "A"
+
+- native: str.isdigit
+  recv: "123"
+  prints: "True"
+
+- native: str.isalnum
+  recv: "abc123"
+  prints: "True"
+
+- native: str.center
+  recv: "abc"
+  args: [7, "-"]
+  prints: "--abc--"
+
+- native: str.zfill
+  recv: "42"
+  args: [5]
+  prints: "00042"
+
+- native: str.isdigit
+  recv: "0"
+  prints: "True"
+
+- native: str.isdigit
+  recv: "09"
+  prints: "True"
+
+- native: str.isdigit
+  recv: "9a"
+  prints: "False"
+
+- native: str.isalpha
+  recv: "ab1"
+  prints: "False"
+
+- native: str.isalnum
+  recv: "abc 123"
+  prints: "False"
+
+- native: str.center
+  recv: "a"
+  args: [5]
+  prints: "  a  "
+
+- native: str.center
+  recv: "abc"
+  args: [3]
+  prints: "abc"
+
+- native: str.center
+  recv: "abc"
+  args: [2]
+  prints: "abc"
+
+- native: str.center
+  recv: "ab"
+  args: [6, "*"]
+  prints: "**ab**"
+
+- native: str.zfill
+  recv: "0"
+  args: [3]
+  prints: "000"
+
+- native: str.zfill
+  recv: "5"
+  args: [3]
+  prints: "005"
+
+- native: str.zfill
+  recv: "-5"
+  args: [4]
+  prints: "-005"
+
+- native: str.zfill
+  recv: "abc"
+  args: [5]
+  prints: "00abc"
+
+- native: str.zfill
+  recv: "abc"
+  args: [2]
+  prints: "abc"
+
+- native: chr
+  args: [97]
+  prints: "a"
+
+- native: chr
+  args: [48]
+  prints: "0"
+
+- native: ord
+  args: ["0"]
+  prints: "48"
+
+- native: chr
+  args: [128512]
+  prints: "😀"
+
+- native: chr
+  args: [-1]
+  error: "chr() arg not in range(0x110000)"
+
+- native: ord
+  args: ["A"]
+  prints: "65"
+
+- native: ord
+  args: ["\x00"]
+  prints: "0"
+
+- native: str.center
+  recv: "ñ"
+  args: [5, "*"]
+  prints: "**ñ**"
+
+- native: str.zfill
+  recv: "ñ"
+  args: [3]
+  prints: "00ñ"
+
+- native: str.center
+  recv: "αβ"
+  args: [6, "-"]
+  prints: "--αβ--"
+
+- native: str.center
+  recv: "x"
+  args: [-1000000000]
+  prints: "x"
+
+- native: str.zfill
+  recv: "5"
+  args: [-1000000000]
+  prints: "5"
+
+- native: str.center
+  recv: "a"
+  args: [999999999995]
+  error: "MemoryError"
+
+- native: str.zfill
+  recv: "a"
+  args: [999999999995]
+  error: "MemoryError"
+
+- native: str.title
+  recv: "ab12cd"
+  prints: "Ab12Cd"
+
+- native: str.isdigit
+  recv: "²"
+  prints: "True"
+
+- native: str.splitlines
+  recv: "a\x0bb\x0cc"
+  prints: "['a', 'b', 'c']"
+
+- native: str.rsplit
+  recv: "a b c"
+  args: [" ", 1]
+  prints: "['a b', 'c']"
+
+- native: str.ljust
+  recv: "hi"
+  args: [5, "."]
+  prints: "hi..."
+
+- native: str.rjust
+  recv: "hi"
+  args: [5, "."]
+  prints: "...hi"
+
+- native: str.expandtabs
+  recv: "a\tb"
+  args: [4]
+  prints: "a   b"
+
+- native: str.center
+  recv: "x"
+  args: [5, "ab"]
+  error: "fill character must be exactly one"
+
+- native: str.rsplit
+  recv: "  a  b  c  "
+  args: [null, 1]
+  prints: "['  a  b', 'c']"
+
+- native: str.rsplit
+  recv: "a b  c"
+  args: [null, 1]
+  prints: "['a b', 'c']"
+
+- native: str.center
+  recv: "日本語"
+  args: [7, "*"]
+  prints: "**日本語**"
+
+- native: str.expandtabs
+  recv: "a\tbb\tc"
+  args: [4]
+  prints: "a   bb  c"
+
+- native: str.ljust
+  recv: "x"
+  args: [3, "ab"]
+  error: "The fill character must be exactly one character long"
+
+- native: str.isspace
+  recv: ""
+  prints: "False"
+
+- native: str.isspace
+  recv: " \t\n\r\x0b\x0c"
+  prints: "True"
+
+- native: str.isspace
+  recv: "a"
+  prints: "False"
+
+- native: str.isspace
+  recv: " \t\n\r\x0b\x0ca"
+  prints: "False"
+
+- native: str.isalpha
+  recv: ""
+  prints: "False"
+
+- native: str.isalpha
+  recv: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+  prints: "True"
+
+- native: str.isalpha
+  recv: "0abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+  prints: "False"
+
+- native: str.isalpha
+  recv: "this "
+  prints: "False"
+
+- native: str.isdigit
+  recv: ""
+  prints: "False"
+
+- native: str.isdigit
+  recv: "0123456789"
+  prints: "True"
+
+- native: str.isdigit
+  recv: "0123456789a"
+  prints: "False"
+
+- native: str.isdigit
+  recv: "0123456789 "
+  prints: "False"
+
+- native: str.isupper
+  recv: ""
+  prints: "False"
+
+- native: str.isupper
+  recv: "CHEESE-CAKE WITH ... _FROSTING_*99"
+  prints: "True"
+
+- native: str.isupper
+  recv: "aB"
+  prints: "False"
+
+- native: str.islower
+  recv: ""
+  prints: "False"
+
+- native: str.islower
+  recv: "cheese-cake with ... _frosting_*99"
+  prints: "True"
+
+- native: str.islower
+  recv: "aB"
+  prints: "False"
+
+- native: str.islower
+  recv: "123"
+  prints: "False"
+
+- native: str.islower
+  recv: "123a"
+  prints: "True"
+
+- native: str.rfind
+  recv: "hello world"
+  args: ["ll"]
+  prints: "2"
+
+- native: str.rfind
+  recv: "hello world"
+  args: ["ll", null]
+  prints: "2"
+
+- native: str.rfind
+  recv: "hello world"
+  args: ["ll", 1]
+  prints: "2"
+
+- native: str.rfind
+  recv: "hello world"
+  args: ["ll", 1, null]
+  prints: "2"
+
+- native: str.rfind
+  recv: "hello world"
+  args: ["ll", null, null]
+  prints: "2"
+
+- native: str.rfind
+  recv: "hello world"
+  args: ["ll", 1, -1]
+  prints: "2"
+
+- native: str.rfind
+  recv: "hello world"
+  args: ["ll", 1, 1]
+  prints: "-1"
+
+- native: str.rfind
+  recv: "hello world"
+  args: ["ll", 1, 2]
+  prints: "-1"
+
+- native: str.rfind
+  recv: "hello world"
+  args: ["ll", 1, 3]
+  prints: "-1"
+
+- native: str.rfind
+  recv: "hello world"
+  args: ["ll", 1, 4]
+  prints: "2"
+
+- native: str.rfind
+  recv: "hello world"
+  args: ["ll", 1, 5]
+  prints: "2"
+
+- native: str.rfind
+  recv: "hello world"
+  args: ["ll", -100]
+  prints: "2"
+
+- native: str.rfind
+  recv: "0000"
+  args: ["0"]
+  prints: "3"
+
+- native: str.rfind
+  recv: "0000"
+  args: ["0", 0]
+  prints: "3"
+
+- native: str.rfind
+  recv: "0000"
+  args: ["0", 1]
+  prints: "3"
+
+- native: str.rfind
+  recv: "0000"
+  args: ["0", 2]
+  prints: "3"
+
+- native: str.rfind
+  recv: "0000"
+  args: ["0", 3]
+  prints: "3"
+
+- native: str.rfind
+  recv: "0000"
+  args: ["0", 4]
+  prints: "-1"
+
+- native: str.rfind
+  recv: "0000"
+  args: ["0", 5]
+  prints: "-1"
+
+- native: str.rfind
+  recv: "0000"
+  args: ["-1", 3]
+  prints: "-1"
+
+- native: str.rfind
+  recv: "0000"
+  args: ["1", 3]
+  prints: "-1"
+
+- native: str.rfind
+  recv: "0000"
+  args: ["1", 4]
+  prints: "-1"
+
+- native: str.rfind
+  recv: "0000"
+  args: ["1", 5]
+  prints: "-1"
+
+- native: str.rfind
+  recv: "aaaaaaaaaaa"
+  args: ["bbb", 9, 2]
+  prints: "-1"
+
+- native: ord
+  args: [!bytes "30"]
+  prints: "48"
+
+- native: ord
+  args: [!bytes "39"]
+  prints: "57"
+
+- native: chr
+  args: [65, 66]
+  error: "chr() takes exactly one argument (2 given)"
+
+- native: str.expandtabs
+  recv: "a\tb"
+  args: [444444444444]
+  error: "OverflowError"
+
+- native: str.expandtabs
+  recv: "a\tb"
+  args: [2000000000]
+  error: "MemoryError"
+
+- native: str
+  args: [42]
+  prints: "42"
+
+- native: str.upper
+  recv: "hello"
+  prints: "HELLO"
+
+- native: str.lower
+  recv: "HELLO"
+  prints: "hello"
+
+- native: str.strip
+  recv: "  hi  "
+  prints: "hi"
+
+- native: str.split
+  recv: "a,b,c"
+  args: [","]
+  prints: "['a', 'b', 'c']"
+
+- native: str.join
+  recv: ","
+  args: [["a", "b", "c"]]
+  prints: "a,b,c"
+
+- native: str.replace
+  recv: "hello"
+  args: ["l", "r"]
+  prints: "herro"
+
+- native: str.startswith
+  recv: "hello"
+  args: ["he"]
+  prints: "True"
+
+- native: str.endswith
+  recv: "hello"
+  args: ["lo"]
+  prints: "True"
+
+- native: str.find
+  recv: "hello"
+  args: ["ll"]
+  prints: "2"
+
+- native: str.split
+  recv: "hello world"
+  prints: "['hello', 'world']"
+
+- native: str
+  args: [true]
+  prints: "True"
+
+- native: str
+  args: [null]
+  prints: "None"
+
+- native: str
+  args: [[1, 2, 3]]
+  prints: "[1, 2, 3]"
+
+- native: str.upper
+  recv: "hello world"
+  prints: "HELLO WORLD"
+
+- native: str.lower
+  recv: "HELLO WORLD"
+  prints: "hello world"
+
+- native: str.upper
+  recv: ""
+  prints: ""
+
+- native: str.lower
+  recv: ""
+  prints: ""
+
+- native: str.strip
+  recv: ""
+  prints: ""
+
+- native: str.strip
+  recv: "   "
+  prints: ""
+
+- native: str.find
+  recv: "hello"
+  args: ["e"]
+  prints: "1"
+
+- native: str.find
+  recv: "hello"
+  args: ["x"]
+  prints: "-1"
+
+- native: str.find
+  recv: "hello"
+  args: [""]
+  prints: "0"
+
+- native: str.find
+  recv: "hello"
+  args: ["l"]
+  prints: "2"
+
+- native: str.startswith
+  recv: "hello"
+  args: [""]
+  prints: "True"
+
+- native: str.startswith
+  recv: "hello"
+  args: ["h"]
+  prints: "True"
+
+- native: str.startswith
+  recv: "hello"
+  args: ["hello"]
+  prints: "True"
+
+- native: str.startswith
+  recv: "hello"
+  args: ["helo"]
+  prints: "False"
+
+- native: str.endswith
+  recv: "hello"
+  args: [""]
+  prints: "True"
+
+- native: str.endswith
+  recv: "hello"
+  args: ["o"]
+  prints: "True"
+
+- native: str.endswith
+  recv: "hello"
+  args: ["hello"]
+  prints: "True"
+
+- native: str.endswith
+  recv: "hello"
+  args: ["ello"]
+  prints: "True"
+
+- native: str.endswith
+  recv: "hello"
+  args: ["helo"]
+  prints: "False"
+
+- native: str.split
+  recv: ""
+  args: [","]
+  prints: "['']"
+
+- native: str.split
+  recv: "a"
+  args: [","]
+  prints: "['a']"
+
+- native: str.split
+  recv: "a,,b"
+  args: [","]
+  prints: "['a', '', 'b']"
+
+- native: str.split
+  recv: "  hello  world  "
+  prints: "['hello', 'world']"
+
+- native: str.split
+  recv: ""
+  prints: "[]"
+
+- native: str.join
+  recv: ","
+  args: [["a"]]
+  prints: "a"
+
+- native: str.join
+  recv: ""
+  args: [["a", "b", "c"]]
+  prints: "abc"
+
+- native: str.join
+  recv: "-"
+  args: [["1", "2", "3"]]
+  prints: "1-2-3"
+
+- native: str.join
+  recv: ","
+  args: [[]]
+  prints: ""
+
+- native: str.replace
+  recv: "hello"
+  args: ["l", "r"]
+  prints: "herro"
+
+- native: str.replace
+  recv: "hello"
+  args: ["l", ""]
+  prints: "heo"
+
+- native: str.replace
+  recv: "hello"
+  args: ["x", "y"]
+  prints: "hello"
+
+- native: str.replace
+  recv: ""
+  args: ["x", "y"]
+  prints: ""
+
+- native: str.replace
+  recv: "aaa"
+  args: ["a", "bb"]
+  prints: "bbbbbb"
+
+- native: str.replace
+  recv: "hello world"
+  args: [" ", "_"]
+  prints: "hello_world"
+
+- native: str
+  args: [3.14]
+  prints: "3.14"
+
+- native: str
+  args: [false]
+  prints: "False"
+
+- native: str
+  args: [[1, 2, 3]]
+  prints: "[1, 2, 3]"
+
+- native: str.endswith
+  recv: "abc"
+  args: ["zz"]
+  prints: "False"
+
+- native: str.upper
+  recv: "café"
+  prints: "CAFÉ"
+
+- native: str.strip
+  recv: "xxhelloxx"
+  args: ["x"]
+  prints: "hello"
+
+- native: str.strip
+  recv: "-=hi=-"
+  args: ["-="]
+  prints: "hi"
+
+- native: str.replace
+  recv: "hello"
+  args: ["l", 5]
+  error: "replace() argument 2 must be str, not int"
+
+- native: str
+  args: [-0.0]
+  prints: "-0.0"
+
+- native: str.split
+  recv: "a,b,c"
+  args: [",", 1]
+  prints: "['a', 'b,c']"
+
+- native: str.replace
+  recv: "aaaa"
+  args: ["a", "b", 2]
+  prints: "bbaa"
+
+- native: str.find
+  recv: "abcabc"
+  args: ["a", 1]
+  prints: "3"
+
+- native: str.startswith
+  recv: "hello"
+  args: [!tuple ["hi", "he"]]
+  prints: "True"
+
+- native: str.endswith
+  recv: "hello"
+  args: [!tuple ["lo", "xx"]]
+  prints: "True"
+
+- native: str.split
+  recv: "abc"
+  args: [""]
+  error: "empty separator"
+
+- native: str.split
+  recv: "a  b"
+  args: [null, 1]
+  prints: "['a', 'b']"
+
+- native: str.split
+  recv: "  a  b  c  "
+  args: [null, 1]
+  prints: "['a', 'b  c  ']"
+
+- native: str.split
+  recv: "a    "
+  args: [null, 1]
+  prints: "['a']"
+
+- native: str.startswith
+  recv: "1foobar"
+  args: ["foo", 1]
+  prints: "True"
+
+- native: str.startswith
+  recv: "hello"
+  args: ["ell", 1]
+  prints: "True"
+
+- native: str.startswith
+  recv: "abcdef"
+  args: ["cd", 2]
+  prints: "True"
+
+- native: str.startswith
+  recv: "xxyy"
+  args: ["yy", 2]
+  prints: "True"
+
+- native: str.startswith
+  recv: "foobar"
+  args: ["foo"]
+  prints: "True"
+
+- native: str.startswith
+  recv: "python"
+  args: ["th", 2, 6]
+  prints: "True"
+
+- native: str.startswith
+  recv: "aaa"
+  args: ["a", 1]
+  prints: "True"
+
+- native: str.startswith
+  recv: "test"
+  args: ["est", 1, 4]
+  prints: "True"
+
+- native: str.startswith
+  recv: "12345"
+  args: ["23", 1]
+  prints: "True"
+
+- native: str.startswith
+  recv: "prefix"
+  args: ["pre", 0]
+  prints: "True"
+
+- native: str
+  args: [!bytes "313233", "utf-8"]
+  prints: "123"
+
+- native: str
+  args: [!bytes "6869", "ascii"]
+  prints: "hi"
+
+- native: str
+  args: [!bytes "", "utf-8"]
+  prints: ""
+
+- native: str
+  args: [!bytes "6120622063", "utf-8"]
+  prints: "a b c"
+
+- native: str
+  args: [!bytes "78797a", "utf-8"]
+  prints: "xyz"
+
+- native: str
+  args: [!bytes "68656c6c6f20776f726c64", "ascii"]
+  prints: "hello world"
+
+- native: str
+  prints: ""
+
+- native: str.upper
+  recv: "ab"
+  prints: "AB"
+
+- native: str
+  args: [!bytes "6869"]
+  kw: {encoding: "utf-8"}
+  prints: "hi"
+
+- native: str.upper
+  recv: "a"
+  args: [1]
+  error: "str.upper() takes no arguments (1 given)"
+
+- native: str.split
+  recv: "a"
+  args: [",", 1, 2]
+  error: "split() takes at most 2 arguments (3 given)"
+
+- native: str.find
+  recv: "abc"
+  error: "find expected at least 1 argument, got 0"
+
+- native: str.replace
+  recv: "a"
+  args: ["a"]
+  error: "replace() takes at least 2 positional arguments (1 given)"
+
+- native: str.upper
+  recv: "a"
+  kw: {x: 1}
+  error: "str.upper() takes no keyword arguments"

@@ -1,11 +1,11 @@
 ---
 title: "Actors"
-description: "Run many isolated edge-python programs as cooperative tasks over a few threads."
+description: "Run many isolated Edge Lang programs as cooperative tasks over a few threads."
 ---
 
 # Actors
 
-An actor pool runs many edge-python programs as cooperative tasks over a few threads. Each actor is its own interpreter with its own heap, talks only by message, and hands the thread on while it waits and every `preempt` back-edges.
+An actor pool runs many Edge Lang programs as cooperative tasks over a few threads. Each actor is its own interpreter with its own heap, talks only by message, and hands the thread on while it waits and every `preempt` back-edges.
 
 A pool serves two shapes of work.
 
@@ -29,17 +29,17 @@ groups:
       msg = receive()
       print(msg)
   parser:
-    run: app           # a main.py or a whole project directory
+    run: app           # a script or a whole project directory
   runner:
     eval: true         # compile each message as its own program
 ```
 
 - `code:` is an inline body.
-- `run:` points at a script or a project directory. A directory runs its `main.py` and resolves the `edge.json` of that project and its nested imports. Each declared version resolves through the [`edge.lock`](/docs/edge-python/reference/modules#edgelock) beside its manifest.
+- `run:` points at a script or a project directory. A directory runs the entry file its runtime names, `main.mini` for the `edge` binary, and resolves the `edge.json` of that project and its nested imports. Each declared version resolves through the [`edge.lock`](/docs/edge-lang/reference/modules#edgelock) beside its manifest.
 - `eval: true` is untrusted mode, covered in [Untrusted code](#untrusted-code).
 
 > [!IMPORTANT]
-> A `code` or `run` group runs code you trust. It keeps state between messages and can send. It reaches `fs`, `net`, `time` and `secret` under what the pool `edge.json` grants, with the metered limits as the only cap. Keep third-party code out of it and use an `eval` group instead.
+> A `code` or `run` group runs code you trust. It keeps state between messages and can send. It reaches the host modules, such as `net`, under what the pool `edge.json` grants, with the metered limits as the only cap. Keep third-party code out of it and use an `eval` group instead.
 
 ## Actors and load
 
@@ -49,7 +49,7 @@ groups:
 groups:
   actor:
     run: app
-    replicas: 100000   # ceiling, actors spawn as work arrives
+    replicas: 100000   # a ceiling the actors fill as work arrives
 ```
 
 A message goes to the first of these that exists.
@@ -62,16 +62,16 @@ A message goes to the first of these that exists.
 
 An actor loops over `receive()` and forwards with `send(group, body)`. Both are builtins that need no import.
 
-```python
+```edge
 msg = receive()
-send("transform", msg + "-done")   # hand it to the transform group
+send("transform", msg + "-done")   // hand it to the transform group
 ```
 
-- `send` takes two strings and returns `None`. An actor of that group picks the message up with its own `receive()`.
+- `send` takes two strings and returns `nil`. An actor of that group picks the message up with its own `receive()`.
 - Sends are fire and forget. An actor never blocks waiting on another, which keeps a pool free of circular deadlock.
 - The `seed:` list of a group delivers messages before the pool starts. It is the entry point that kicks a run off.
 - Groups resolve their imports through the `edge.json` beside `actor.yml`, or the one `--manifest` names. A pool never asks the registry where a version points.
-- Outside a pool nothing drains the message. Under `edge run` or in a browser `send()` raises `RuntimeError: send() needs an actor scheduler, missing in this runtime`.
+- Outside a pool the host takes the message as a [named output](/docs/edge-lang/platforms/cli#named-outputs) instead, printed or written as a file under `edge run` and handed to the page as its own stream in a browser.
 
 ## Group fields
 
@@ -80,13 +80,13 @@ send("transform", msg + "-done")   # hand it to the transform group
 | `code` | Inline program body | |
 | `run` | Script path or project directory to run | |
 | `eval` | Untrusted mode, compile each message as its own program | `false` |
-| `replicas` | Actor ceiling, actors spawn on demand up to it | `1` |
+| `replicas` | Actor ceiling, actors spawn on demand up to it | `1`, and `4` for an eval group |
 | `retry` | Times a crashing message is retried before it is dropped | `0` |
 | `seed` | Messages delivered before the pool starts | none |
 | `out` | Where `print` goes, `stdout`, `null` or `file://path` | `stdout` |
 | `limits` | Per-actor `memory` in MB, `ops`, `preempt`, and `timeout` in seconds for an eval group, at most 300 | the sandbox limits, `preempt` 2000, `timeout` 10 |
 
-A group needs one of `code`, `run` or `eval`.
+A group takes exactly one of `code`, `run` or `eval`, and a group with none or with two stops the boot.
 
 ## The server
 
@@ -97,15 +97,15 @@ runtime:
   listen: tcp://127.0.0.1:7777
   durable: tmp/actor/log
   control: tcp://127.0.0.1:9090
-  schedulers: auto     # one per core, or a fixed number
+  schedulers: auto     # one per core or a fixed number
   max_actors: 1000000   # ceiling on the actors of each group
 ```
 
 | Field | Meaning | Default |
 |-------|---------|---------|
-| `listen` | TCP address of the ingress. Setting it makes the pool a server. | none, the pool runs to quiescence |
+| `listen` | TCP address of the ingress. Setting it makes the pool a server. An address past loopback is your choice and exposes the ingress, see [Exposure](#exposure). | none, the pool runs to quiescence |
 | `durable` | Path of the message log, relative to `actor.yml`. Read only by a server. | `actor.wal` beside `actor.yml` |
-| `control` | HTTP address for `/stats`, `/pub/<group>` and `/eval/<group>`. Read only by a server. | none |
+| `control` | Loopback HTTP address for `/stats`, `/pub/<group>` and `/eval/<group>`, on `127.0.0.1`, `::1` or `localhost`. Read only by a server. | none |
 | `schedulers` | `auto` for one thread per core, or a fixed number. A server runs on one. | `auto` |
 | `max_actors` | Ceiling on the actors of each group, applied over `replicas` | none |
 
@@ -116,12 +116,12 @@ A client sends messages one of two ways. Either way the body reaches an actor of
 
 ```bash
 $ curl -X POST localhost:9090/pub/actor -d 'hello'
-{"ok":true}   # 202, fire and forget like the tcp line
+{"ok":true}   # a 202 that fires and forgets like the tcp line
 ```
 
 One thread serves every connection, ingress and control alike, so a slow or waiting client holds up no other. A message holds at most 16 MiB, the server keeps at most 10,000 connections open, and an HTTP client has 30 seconds to send its request. When the actors fall behind, the ingress stops reading and `/pub` and `/eval` answer 503 until there is room.
 
-The `durable` log records each fire and forget message and marks it done once an actor finishes it, so a restart replays only the rest. A `/pub` answers 202 once its message is on disk. SIGTERM stops the server taking messages and gives its actors 25 seconds to finish before it exits.
+The `durable` log records each fire and forget message and marks it done once an actor finishes it, so a restart replays only the rest. A `/pub` answers 202 only once its message is written and synced to disk. A write or a sync that fails answers 503, and the ingress stops taking messages. The server binds its ports before it touches the log, so a second server leaves the log of the first alone, and the log file is readable by its owner alone. SIGTERM stops the server taking messages and gives its actors 25 seconds to finish before it exits.
 
 The `control` address serves live counts at `/stats`. The response itself proves the pool is alive.
 
@@ -139,15 +139,25 @@ $ curl localhost:9090/stats
 | `crashes` | Actors retired after an uncaught error |
 | `dead` | Messages dropped after exhausting their retries |
 
+### Exposure
+
+Neither the ingress nor the control endpoint authenticates a client, so where each binds decides who reaches the pool.
+
+- `control` is local-only. An address other than `127.0.0.1`, `::1` or `localhost` stops the boot before anything binds. From another machine, reach it through an SSH tunnel such as `ssh -L 9090:127.0.0.1:9090 you@host`, then call `localhost:9090` there.
+- `listen` binds the address you give it. On `127.0.0.1` only this machine sends messages. An address such as `0.0.0.0` lets every host that reaches the port send any group a message, an `eval` group included, and the server warns of it at boot.
+
+> [!WARNING]
+> The ingress has no authentication of its own. Bind it past loopback only on a network you trust, such as the private network of a container stack, or keep it on `127.0.0.1` and put a tunnel or an authenticating proxy in front of it.
+
 ## Failure
 
-An actor that raises is retired with its traceback. `retry:` re-delivers the message it was processing to another actor up to that many times. Then the message drops to the dead count, so one poison message cannot take a group down.
+An actor that raises is retired with its traceback, and a failed eval run prints its traceback under its group and counts as a crash too. `retry:` re-delivers the message it was processing to another actor up to that many times. Then the message drops to the dead count, so one poison message cannot take a group down.
 
 ```yaml
 groups:
   actor:
     run: app
-    retry: 2           # three attempts, then the message is dropped dead
+    retry: 2           # three attempts before the message drops dead
 ```
 
 The actors of a group share a few wasm instances, and the actors of one instance share a budget of half its address space, 2 GB. The actor whose allocation passes it raises `MemoryError` while the others keep running. A fault in the engine itself retires every actor of the instance it hit the same way, and their queued messages move on to other actors.
@@ -159,7 +169,7 @@ An `eval` group runs code it does not trust. Each incoming message is compiled a
 ```yaml
 groups:
   runners:
-    eval: true         # every message is untrusted, no send, no shared state
+    eval: true         # every message untrusted with no send and no shared state
 ```
 
 | Guard | Rule |
@@ -167,28 +177,28 @@ groups:
 | Memory | The `memory` limit of the group inside the interpreter. Outside it, three times that limit plus 64 MiB, room for garbage, a container that doubles and the engine. |
 | Time | A deadline the host enforces from outside the instance ends the run after `timeout` seconds of wall-clock time, waits included, even inside a long native operation. |
 | State | Nothing survives between messages. The instance is dropped when the run ends. |
-| Modules | `.wasm` plugins are refused. Remote modules load only from `https://cdn.edgepython.com/`. Nothing loads from disk. |
-| Messages | `send()` has no scheduler to reach, so an eval run cannot send to other groups. |
-| Versions | A bundle resolves a version only through its own [`edge.lock`](/docs/edge-python/reference/modules#edgelock), never against the registry. |
+| Modules | `.wasm` plugins are refused. Remote modules load only from the origin the composition names, `https://cdn.edgelang.dev/` for the `edge` binary. No module loads from disk, and `files` reads only below the pool's `edge.json`. |
+| Messages | `send()` has no scheduler to reach, so a send raises the runtime's runtime error and the pool names the group it asked for. An eval run cannot send to other groups. |
+| Versions | A bundle resolves a version only through its own [`edge.lock`](/docs/edge-lang/reference/modules#edgelock), never against the registry. |
 
 A bundle that carries its own `edge.json` resolves through it. Any other message resolves through the manifest of the pool.
 
 ### Permissions
 
-What the pool grants `eval` under [permissions](/docs/edge-python/reference/system#permissions) is the most a bundle may grant in its own `edge.json`. An entry past it refuses the run before it compiles.
+What the pool grants `eval` under [permissions](/docs/edge-lang/reference/system#permissions) is the most a bundle may grant in its own `edge.json`. An entry past it refuses the run before it compiles.
 
 ```json
 {
   "permissions": {
     "main": ["net:internal.example.com"],
-    "eval": ["net:api.example.com", "time:monotonic"]
+    "eval": ["net:api.example.com/v1"]
   }
 }
 ```
 
 ```text
 error: the pool does not grant eval what this bundle grants
-  main   time:wall
+  main   net:api.example.com
 ```
 
 - A snippet, or a bundle without an `edge.json`, holds nothing.
@@ -213,30 +223,54 @@ $ curl -X POST localhost:9090/eval/runners -d 'print(2 + 3)'
 
 ## A three-stage pipeline
 
-A seed flows through three groups, each stage sending to the next.
+Three groups pass the status pages of three services along, each stage sending to the next. `fetch` reads the page of each host its seed names, `parse` finds the service and its state in the JSON, and `sink` prints a line for each. The `edge.json` beside `actor.yml` grants the three hosts, and every group reaches `net` under it.
+
+```json
+{ "permissions": { "main": ["net:www.githubstatus.com", "net:status.npmjs.org", "net:www.cloudflarestatus.com"] } }
+```
 
 ```yaml
 groups:
-  ingest:
-    seed: ["raw"]
+  fetch:
+    seed: ["www.githubstatus.com", "status.npmjs.org", "www.cloudflarestatus.com"]
     code: |
-      send("transform", receive() + "-ingested")
-  transform:
+      import net
+      while true:
+          host = receive()
+          r = net.request("GET", f"https://{host}/api/v2/status.json")
+          body = b""
+          chunk = net.read(r)
+          while chunk is !nil:
+              body += chunk
+              chunk = net.read(r)
+          send("parse", body.decode())
+  parse:
     code: |
-      send("sink", receive() + "-transformed")
+      // a status page names its service before the state it describes
+      fn field(page, key):
+          at = page.find(f'"{key}":"') + len(key) + 4
+          return page[at:page.find('"', at)]
+      while true:
+          page = receive()
+          send("sink", f"{field(page, 'name'):<18} {field(page, 'description')}")
   sink:
     code: |
-      print("sink:", receive())
+      while true:
+          print(receive())
 ```
 
 ```text
 $ edge actor actor.yml
-sink: raw-ingested-transformed
+GitHub             All Systems Operational
+npm                All Systems Operational
+Cloudflare Status  Partial System Outage
 ```
+
+It printed that on 25 October 2026. Each group holds one actor, so the pages arrive in the order the seed lists them, and the pool ends once every actor waits with an empty mailbox.
 
 ## See also
 
 > [!CARDS]
-> - `terminal` [Command line interface](/docs/edge-python/platforms/cli#edge-build) Pack a project for an eval group with edge build.
-> - `clock` [Async](/docs/edge-python/language/async) The cooperative scheduler each actor runs on.
-> - `camera` [Snapshots](/docs/edge-python/language/snapshots) Freeze and resume a single run.
+> - `terminal` [Command line interface](/docs/edge-lang/platforms/cli#edge-build) Pack a project for an eval group with edge build.
+> - `clock` [Host waits](/docs/edge-lang/sdk/host-waits) How an actor parks on `receive()` until its scheduler pushes the next message.
+> - `camera` [Snapshots](/docs/edge-lang/sdk/snapshots) Freeze and resume a single run.

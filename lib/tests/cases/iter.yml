@@ -1,0 +1,100 @@
+- native: range
+  args: [3]
+  prints: "range(0, 3)"
+
+- native: all
+  args: [[1, 0]]
+  ret: false
+
+- native: any
+  args: [[0, "", []]]
+  ret: true
+
+- native: sum
+  args: [[1, 2, 3]]
+  ret: 6
+
+- native: sum
+  args: [[0.5, 0.25]]
+  ret: 0.75
+
+- native: min
+  args: [[3, 1, 2]]
+  ret: 1
+
+- native: sum
+  args: [[1, 2, 3]]
+  prints: "6"
+
+- native: sum
+  args: [[1, 2, 3], 10]
+  prints: "16"
+
+- native: all
+  args: [[1, 2, 3]]
+  prints: "True"
+
+- native: all
+  args: [[1, 0, 3]]
+  prints: "False"
+
+- native: all
+  args: [[]]
+  prints: "True"
+
+- native: any
+  args: [[0, 0, 1]]
+  prints: "True"
+
+- native: any
+  args: [[0, 0, 0]]
+  prints: "False"
+
+- native: any
+  args: [[]]
+  prints: "False"
+
+- native: sum
+  args: [[]]
+  prints: "0"
+
+- native: sum
+  args: [[1]]
+  prints: "1"
+
+- native: sum
+  args: [[1, 2, 3, 4, 5]]
+  prints: "15"
+
+- native: sum
+  args: [[1, 2, 3], 100]
+  prints: "106"
+
+- native: all
+  args: [[true, true, true]]
+  prints: "True"
+
+- native: all
+  args: [[true, false, true]]
+  prints: "False"
+
+- native: any
+  args: [[false, false, true]]
+  prints: "True"
+
+- native: any
+  args: [[false, false, false]]
+  prints: "False"
+
+- native: sum
+  args: [[0.1, 0.2, 0.3]]
+  prints: "0.6"
+
+- native: sum
+  args: [[1, 2, 3], 10]
+  prints: "16"
+
+- native: sum
+  args: [[1, 2]]
+  kw: {start: 10}
+  prints: "13"

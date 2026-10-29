@@ -2,7 +2,7 @@
 
 set -e
 
-BASE="${EDGE_INSTALL_BASE:-https://cdn.edgepython.com/cli}"
+BASE="${EDGE_INSTALL_BASE:-https://cdn.edgelang.dev/cli}"
 INSTALL_DIR="${EDGE_INSTALL_DIR:-$HOME/.local/bin}"
 
 # An optional vX.Y.Z reads the frozen copy of that release, no argument reads the latest.
@@ -28,10 +28,29 @@ case "$(uname -m)" in
 esac
 
 target="${arch}-${os}"
+archive="edge-${target}.tar.gz"
+
+# the sha256 of a file in the hex the published digest holds
+sha256() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1
+  elif command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | cut -d' ' -f1
+  else openssl dgst -sha256 "$1" | sed 's/.*= //'
+  fi
+}
 
 echo "downloading edge (${target})..."
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+curl -fsSL -o "$tmp/$archive" "${BASE}/${archive}"
+# a pinned EDGE_INSTALL_SHA256 wins over the digest published beside the archive
+want="${EDGE_INSTALL_SHA256:-$(curl -fsSL "${BASE}/${archive}.sha256" | cut -d' ' -f1)}"
+got="$(sha256 "$tmp/$archive")"
+if [ -z "$want" ] || [ "$got" != "$want" ]; then
+  echo "the download of $archive does not match its sha256 ${want:-(none published)}, got $got" >&2
+  exit 1
+fi
 mkdir -p "$INSTALL_DIR"
-curl -fsSL "${BASE}/edge-${target}.tar.gz" | tar -xz -C "$INSTALL_DIR" edge
+tar -xzf "$tmp/$archive" -C "$INSTALL_DIR" edge
 chmod +x "$INSTALL_DIR/edge"
 echo "installed $INSTALL_DIR/edge"
 

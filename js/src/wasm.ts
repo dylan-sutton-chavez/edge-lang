@@ -1,5 +1,4 @@
-/* Exports of compiler.wasm shared by every worker-side module, optional members appear only on newer builds. */
-export interface CompilerExports {
+export interface EdgeExports {
     memory: WebAssembly.Memory
     out_ptr(): number
     out_len(): number
@@ -14,10 +13,19 @@ export interface CompilerExports {
     walk_plugin(kind: number, ptr: number, len: number): number
     walk_served(ptr: number, len: number): number
     walk_known(ptr: number, len: number): number
+    // the field the next walks carry which a runtime before it lacks
+    walk_carry?(ptr: number, len: number): void
+    // the grant logic which a runtime built without its perms feature lacks
+    grants_check?(section_ptr: number, section_len: number, modules_ptr: number, modules_len: number, taken_ptr: number, taken_len: number): number
+    grants_scopes?(section_ptr: number, section_len: number): number
+    grants_held?(chain_ptr: number, chain_len: number, pkg_ptr: number, pkg_len: number, module_ptr: number, module_len: number): number
+    // the descriptor as JSON which a runtime before it lacks
+    runtime_descriptor?(): number
+    // the package dir of the code sending now which a runtime before it lacks
+    send_package?(): number
     set_entry(ptr: number, len: number): void
     set_input?(ptr: number, len: number): void
     repl_eval(ptr: number, len: number): number
-    compile_warnings?(ptr: number, len: number): number
     run_start(ptr: number, len: number): number
     run_resume(): number
     run_push_event(ptr: number, len: number): number

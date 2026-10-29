@@ -1,0 +1,19 @@
+# a control endpoint named by localhost binds the loopback interface and answers there
+runtime:
+  listen: tcp://127.0.0.1:7791
+  control: tcp://localhost:9791
+  durable: tmp/actor/log
+
+groups:
+  echoer:
+    code: |
+      while true:
+          print("got:", receive())
+
+publish:
+  - "echoer one"
+
+expect:
+  - "got: one"
+
+expect_status: "\"actors\":1"

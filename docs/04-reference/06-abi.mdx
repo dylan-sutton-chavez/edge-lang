@@ -1,6 +1,6 @@
 ---
 title: "ABI"
-description: "The wire contract a plugin module must follow to be importable by Edge Python."
+description: "The wire contract a plugin module must follow for a program to import it."
 ---
 
 # ABI
@@ -18,7 +18,7 @@ The API is handle-based.
 - One dispatch primitive, `edge_op`, covers every operation.
 - New types, methods and language features reach existing modules with no ABI change.
 
-This contract is distinct from the interface between `compiler.wasm` and its host. [Rust](/docs/edge-python/platforms/rust) covers that one. That interface is not bound by the 7-import limit here.
+This contract is distinct from the interface between `edge.wasm` and its host. [Rust](/docs/edge-lang/platforms/rust) covers that one. That interface is not bound by the 7-import limit here.
 
 ## Guest export shape
 
@@ -54,11 +54,11 @@ pub extern "C" fn __edge_abi_version() -> u32;
 | Export | Required | Meaning |
 |---|---|---|
 | `__edge_alloc(size)` | Yes | Lets the host stage `argv` arrays in guest linear memory before each call |
-| `__edge_abi_version()` | Yes | The wire-format version, currently `1`. Both hosts read it and refuse a mismatch. A v2 module never decodes garbage on a v1 host |
+| `__edge_abi_version()` | Yes | The wire-format version, currently `1`. Both hosts read it and refuse a mismatch or a module without it. A v2 module never decodes garbage on a v1 host |
 | `__edge_free(ptr, size)` | Should | Lets the host release that staging after each call. Without it staging accumulates for the lifetime of the instance |
 | `__edge_resume(call, answer, out)` | When it waits | Finishes a call that waited on a system call. See [System calls](#system-calls) |
 
-The `wasm-pdk` crate emits `__edge_alloc`, `__edge_free` and `__edge_abi_version` itself. `#[plugin_resume]` emits `__edge_resume`. `EDGE_ABI_VERSION` lives in the shared `wasm-abi` crate, no_std with zero deps, and the host and every PDK read the same value.
+The `plugin` crate emits `__edge_alloc`, `__edge_free` and `__edge_abi_version` itself. `#[plugin_resume]` emits `__edge_resume`. `EDGE_ABI_VERSION` lives in the shared `abi` crate, no_std with zero deps, and the host and every plugin kit read the same value.
 
 ## Host imports
 
@@ -122,30 +122,30 @@ The id of the call the host is running in the plugin right now. It stays the sam
 
 | Op | Value | Meaning |
 |---|---|---|
-| `Call` | 0 | `recv.<name>(args...)` -> handle |
+| `Call` | 0 | `recv.<name>(args...)` -> handle. With `recv` `0` and `name` `str`, the text the runtime writes for `args[0]` -> handle (Str) |
 | `GetAttr` | 1 | `recv.<name>` -> handle |
 | `SetAttr` | 2 | `recv.<name> = args[0]` -> handle (None) |
 | `GetItem` | 3 | `recv[args[0]]` -> handle |
 | `SetItem` | 4 | `recv[args[0]] = args[1]` -> handle (None) |
 | `Len` | 5 | `len(recv)` -> handle (Int) |
 | `Iter` | 6 | `iter(recv)` -> handle (iterator List) |
-| `IterNext` | 7 | `next(iter)` -> handle, or `1` + `StopIteration` on end |
+| `IterNext` | 7 | `next(iter)` -> handle, or `1` with kind `Custom` and the message `abi::op::ITER_END` once it ends |
 | `NewDict` | 8 | Empty dict, recv and name ignored, argc=0 -> handle |
 | `NewList` | 9 | Empty list, recv and name ignored, argc=0 -> handle |
 | `TypeOf` | 10 | Runtime type of recv -> handle (Str with the type name) |
 | `NewTuple` | 11 | Tuple from `argv` items, recv and name ignored -> handle |
 | `NewSet` | 12 | Set from `argv` items, an unhashable item -> error |
-| `NewFrozenSet` | 13 | Frozenset from `argv` items, an unhashable item -> error |
+| `NewFrozenSet` | 13 | Retired. It returns `1` with kind `Type` and `frozenset is not supported` |
 | `Sys` | 14 | The system call `name`, such as `net.request`, with `recv` the id from `edge_call_id` -> handle, or `2` while it waits |
 
-`Op::Iter` materialises the receiver into a List handle, and `Op::IterNext` advances it.
+`Op::Iter` materialises the receiver into a List handle, and `Op::IterNext` walks it through a place its handle keeps. The List stays whole, so every step costs the same however long it is.
 
 - A set yields its items in the order they were added.
 - A dict yields its keys.
 - A str splits into single-character strings.
 - A bytes yields its bytes as ints.
 
-`TypeOf` returns the builtin type names, such as `"int"`, `"float"`, `"str"`, `"bytes"`, `"list"`, `"dict"`, `"set"`, `"tuple"`, `"NoneType"` and `"bool"`. A user instance returns its class name.
+`TypeOf` returns the type's name as the runtime gives it, such as `int`, `str`, `list`, `dict` and `NoneType` in mini, or `text`, `map` and `nil` in uptime. A user instance returns its class name.
 
 Values `15..u32::MAX` are reserved. Old hosts return `1` with kind `Runtime`.
 
@@ -173,29 +173,29 @@ The tags `edge_encode` and `edge_decode` use.
 - Cyclic values cannot serialize. `edge_decode` reports them as non-transit, `0xFFFFFFFF`.
 - `tuple` flattens to `List` on the wire.
 
-The canonical codec is `wasm_abi::WireValue`, with `encode_body` and `decode_body`. The compiler and `wasm-pdk` share it.
+The canonical codec is `abi::WireValue`, with `encode_body` and `decode_body`. The engine and the `plugin` crate share it.
 
-Sets and frozensets construct with `NewSet` and `NewFrozenSet`. The remaining composites, instance, callable and iterator, construct with `edge_op(Call, type_handle, ...)` and work through the indexing ops.
+Sets construct with `NewSet`. The remaining composites, instance, callable and iterator, construct with `edge_op(Call, type_handle, ...)` and work through the indexing ops.
 
 ## Error kinds
 
-The kinds `edge_take_error` and `edge_throw` carry.
+The kinds `edge_take_error` and `edge_throw` carry. Each kind raises the class the runtime names for it, so one plugin reads in mini's classes or in uptime's. The message of every kind but `Custom` leaves out the class its kind names.
 
-| Kind | Value | Maps to |
-|---|---|---|
-| Type | 0 | `TypeError` |
-| Value | 1 | `ValueError` |
-| Runtime | 2 | `RuntimeError` |
-| Attribute | 3 | `AttributeError` |
-| Index | 4 | `IndexError` |
-| Key | 5 | `KeyError` |
-| Custom | 6 | Any other class. The message carries its name, such as `PermissionError: ...` |
+| Kind | Value | Mini | Uptime |
+|---|---|---|---|
+| Type | 0 | `TypeError` | `WrongType` |
+| Value | 1 | `ValueError` | `BadData` |
+| Runtime | 2 | `RuntimeError` | `Error` |
+| Attribute | 3 | `AttributeError` | `Missing` |
+| Index | 4 | `IndexError` | `Missing` |
+| Key | 5 | `KeyError` | `Missing` |
+| Custom | 6 | Any other class. The message carries its name, such as `PermissionError: ...` | The same, such as `Denied: ...` |
 
 ## System calls
 
-A plugin reaches `fs`, `net`, `time` and `secret` through the `Sys` op. They are served exactly as a `.py` beside the `.wasm` would import them. The calls and their scopes are on [System](/docs/edge-python/reference/system).
+A plugin reaches the host modules, such as `net`, through the `Sys` op. They are served exactly as code in the runtime's extension beside the `.wasm` would import them. The calls and their scopes are on [System](/docs/edge-lang/reference/system).
 
-The plugin holds the grants of the package it sits in. A module that package is not granted fails with `PermissionError`.
+The plugin holds the grants of the package it sits in. A module that package is not granted fails with the class the runtime names for a refused call, `PermissionError` in mini.
 
 A call that answers at once returns `0` with the value. One that waits plays out in four steps.
 
@@ -204,28 +204,16 @@ A call that answers at once returns `0` with the value. One that waits plays out
 3. Once the system call settles, the host calls `__edge_resume` with the same call id. It passes a handle to the answer, or `0` with the error left for `edge_take_error`.
 4. What `__edge_resume` returns is what the program sees. `0` is a value, `1` an error, and `2` another wait on the same call.
 
-The program sees what the plugin makes of the answer.
+The program sees what the plugin makes of the answer. The repo's example plugin asks `net` for the status of a URL this way. `status_of` waits on `net.response`, `?` hands back `Error::Waiting`, and `resume` reads the status out of the head with the `status` helper once it arrives.
 
-```rust
-#[plugin_fn]
-fn status_of(url: String) -> Result<i64> {
-    let (method, target) = (encode(Value::Bytes(b"GET".to_vec()))?, encode(Value::Bytes(url.into_bytes()))?);
-    let id = Handle::sys("net.request", &[method.raw(), target.raw()])?;
-    // net.response waits, `?` returns Error::Waiting and the plugin goes on in resume.
-    status(Handle::sys("net.response", &[id.raw()])?)
-}
-
-#[plugin_resume]
-fn resume(_call: u32, head: Result<Handle>) -> Result<i64> {
-    status(head?)
-}
+```rust file=plugin/example/src/lib.rs
 ```
 
 `Handle::sys` returns `Error::Waiting` while the call waits. `call_id()` names the call to keep state under, and `#[plugin_resume]` exports `__edge_resume`.
 
-## Writing a plugin with wasm-pdk
+## Writing a plugin with the plugin crate
 
-The `wasm-pdk` crate is the Plugin Development Kit. It is bundled in this repo and publishable apart from `compiler.wasm`. Its `#[plugin_fn]` macro turns a typed Rust function into a wire-conformant export, and authors write normal Rust.
+The `plugin` crate is the kit for writing plugins in Rust. It is bundled in this repo and publishable apart from `edge.wasm`. Its `#[plugin_fn]` macro turns a typed Rust function into a wire-conformant export, and authors write normal Rust.
 
 ```rust
 // slugify-mod/src/lib.rs
@@ -234,9 +222,9 @@ The `wasm-pdk` crate is the Plugin Development Kit. It is bundled in this repo a
 extern crate alloc;
 
 use alloc::string::String;
-use wasm_pdk::*;
+use plugin::*;
 
-wasm_pdk::module!(); // expands to #[global_allocator] + #[panic_handler]
+plugin::module!(); // expands to #[global_allocator] + #[panic_handler]
 
 #[plugin_fn]
 fn slugify(s: String) -> String {
@@ -263,7 +251,7 @@ fn sum_ints(items: Handle) -> Result<i64> {
 Two macros set up the module.
 
 - `module!()` expands to `#[global_allocator]` and `#[panic_handler]`, and its allocator is a free list that reuses what the plugin frees and grows memory only when none fits.
-- `module_fixed_pool!()`, or `module_fixed_pool!(bytes)`, does the same on a fixed static pool, 4 MiB by default, that never calls `memory.grow`. The bundled `std` packages use it.
+- `module_fixed_pool!()`, or `module_fixed_pool!(bytes)`, does the same on a fixed static pool, 4 MiB by default, that never calls `memory.grow`.
 
 The `Cargo.toml` of the module follows.
 
@@ -277,12 +265,12 @@ edition = "2024"
 crate-type = ["cdylib"]
 
 [dependencies]
-wasm-pdk = { git = "https://github.com/dylan-sutton-chavez/edge-python", tag = "v0.9.6" }
+plugin = { git = "https://github.com/dylan-sutton-chavez/edge-lang", tag = "v0.9.6" }
 ```
 
 Pin a tag rather than `branch = "main"`. That gives reproducible builds and a known wire-ABI version.
 
-A module compiled against `wasm-pdk` from release `vX.Y.Z` is binary-compatible with the `compiler.wasm` of the same release. To upgrade, bump `tag` and run `cargo update -p wasm-pdk`.
+A module compiled against `plugin` from release `vX.Y.Z` is binary-compatible with the `edge.wasm` of the same release. To upgrade, bump `tag` and run `cargo update -p plugin`.
 
 Build it for wasm.
 
@@ -297,17 +285,17 @@ A script uses it through an `edge.json` alias.
 { "imports": { "slugify_mod": "./slugify_mod.wasm" } }
 ```
 
-```python
+```edge
 from slugify_mod import slugify, repeat_n, sum_ints
 
-print(slugify("Hello World"))   # hello-world
-print(repeat_n("ha", 3))        # hahaha
-print(sum_ints([1, 2, 3, 4]))   # 10
+print(slugify("Hello World"))   // hello-world
+print(repeat_n("ha", 3))        // hahaha
+print(sum_ints([1, 2, 3, 4]))   // 10
 
 try:
   print(repeat_n("nope", -1))
 except ValueError as e:
-  print("caught:", e)           # caught: repeat count must be non-negative
+  print("caught:", e)           // caught: repeat count must be non-negative
 ```
 
 ### Types that cross
@@ -322,7 +310,7 @@ except ValueError as e:
 | `bool` | `bool` |
 | `String`, `&str` | `str` |
 | `Bytes` | `bytes`, over the `Raw` tag |
-| `Option<T>` | `T` or `None` |
+| `Option<T>` | `T` or nil |
 | `Vec<Value>`, `Vec<f64>` | A whole sequence in one TLV transit instead of one op per item |
 | `Handle` | Any value, held by the host |
 | `Value` | Any transit value, decoded into the guest |
@@ -331,8 +319,8 @@ A `Handle` releases itself on `Drop`. It carries the ops as methods.
 
 - `call`, `get_attr`, `set_attr`, `get_item` and `set_item`.
 - `len`, `iter` and `iter_next`.
-- `new_dict`, `new_list`, `new_tuple`, `new_set` and `new_frozenset`.
-- `type_of`.
+- `new_dict`, `new_list`, `new_tuple` and `new_set`.
+- `type_of`, and `text`, which returns the value as the runtime writes it.
 
 `PluginCell<T>` is a single-threaded interior mutability cell for static plugin state.
 
@@ -362,35 +350,38 @@ impl Slugger {
 
 A script uses it through the same alias.
 
-```python
+```edge
 from slugify_mod import Slugger
 s = Slugger()
 s.add("Hello")
-print(s.build())   # hello
+print(s.build())   // hello
 ```
 
-Methods may return `T`, `Option<T>` or `Result<T>`. Instances live until the run ends. There is no `__del__` dispatch.
+Methods may return `T`, `Option<T>` or `Result<T>`. Instances live until the run ends, and no plugin code runs when one goes away.
 
 ### Exposing module constants
 
-A `.wasm` exports only functions. A value attribute like `math.pi` ships as a zero-arg `#[plugin_const]` export, under the `__const_<name>` convention. The host calls it once at import and binds the result as a module attribute, a value rather than a callable.
+A `.wasm` exports only functions. A value attribute like the example plugin's `version` ships as a zero-arg `#[plugin_const]` export, under the `__const_<name>` convention. The host calls it once at import and binds the result as a module attribute, a value rather than a callable.
 
 ```rust
 #[plugin_const]
-fn pi() -> f64 { core::f64::consts::PI }
+fn version() -> i64 { 1 }
 ```
 
-```edge-manifest
-{ "imports": { "math": "0.1.0" } }
+A project that declares the plugin reads it as a value.
+
+```json
+{ "imports": { "slugify": "./slugify_mod.wasm" } }
 ```
 
-```edge-python
-import math
-print(math.pi)   # a float, not a call
+```edge
+import slugify
+print(slugify.version, slugify.version + 1)   // an int and not a call
 ```
 
-```output
-3.141592653589793
+```text
+$ edge run main.mini
+1 2
 ```
 
 ### Variadic functions
@@ -408,7 +399,7 @@ fn hypot(coords: Args) -> Result<f64> {
 
 ### Keyword arguments
 
-A `Kwargs` parameter wraps the trailing kwargs handle, as in `fn foo(a: Handle, kw: Kwargs)`.
+A `Kwargs` parameter wraps the trailing kwargs handle, as in the example plugin's `fn slug_all(items: Handle, kw: Kwargs)`.
 
 `get::<T>(name)` reads a primitive kwarg. `get_handle(name)` reads a callable, a tuple or a dict. Without a `Kwargs` parameter the slot is absorbed silently.
 
@@ -438,47 +429,49 @@ unsafe extern "C" {
 const OP_CALL: u32 = 0;
 const TAG_BYTES: u32 = 4;
 
-/// Required by the host for staging argv arrays.
+// the host stages argv arrays in what this returns
 #[unsafe(no_mangle)]
 pub extern "C" fn __edge_alloc(size: u32) -> *mut u8 {
   Box::into_raw(vec![0u8; size as usize].into_boxed_slice()) as *mut u8
 }
 
-/// Releases an `__edge_alloc` buffer after the call; sizes must match.
+// frees an `__edge_alloc` buffer after the call with the size it was given
 #[unsafe(no_mangle)]
 pub extern "C" fn __edge_free(ptr: *mut u8, size: u32) {
   if ptr.is_null() || size == 0 { return; }
-  drop(unsafe { Box::from_raw(core::slice::from_raw_parts_mut(ptr, size) as *mut [u8]) });
+  drop(unsafe { Box::from_raw(core::slice::from_raw_parts_mut(ptr, size as usize) as *mut [u8]) });
 }
+
+// the wire version both hosts check before they load the module
+#[unsafe(no_mangle)]
+pub extern "C" fn __edge_abi_version() -> u32 { 1 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn slugify(argv: *const u32, argc: u32, out: *mut u32) -> i32 {
   if argc != 2 { return 1; } // 1 positional + trailing kwargs slot
   let input = unsafe { *argv };
 
-  // 1) input.lower()
+  // the input lowered by the method the runtime names lower
   let mut lower: u32 = 0;
   if unsafe { edge_op(OP_CALL, input, b"lower".as_ptr(), 5, core::ptr::null(), 0, &mut lower) } != 0 {
     return 1;
   }
 
-  // 2) lower.replace(" ", "-")
+  // the lowered text with each space replaced by a dash
   let space = unsafe { edge_encode(TAG_BYTES, b" ".as_ptr(), 1) };
   let dash  = unsafe { edge_encode(TAG_BYTES, b"-".as_ptr(), 1) };
   let argv2 = [space, dash];
   let r = unsafe { edge_op(OP_CALL, lower, b"replace".as_ptr(), 7, argv2.as_ptr(), 2, out) };
 
-  // 3) Release intermediate handles. The result handle in *out transfers to the host.
+  // the handles made here go back while the one in out passes to the host
   unsafe { edge_release(space); edge_release(dash); edge_release(lower); }
   r
 }
 ```
 
-It takes the same `Cargo.toml` as the `wasm-pdk` example, without `wasm-pdk` and with `lol_alloc = "0.4"`. Plain-named exports like this `slugify` are picked up as free functions. Scripts import the module the same way.
+It takes the same `Cargo.toml` as the `plugin` example, without `plugin` and with `lol_alloc = "0.4"`. Plain-named exports like this `slugify` are picked up as free functions. Scripts import the module the same way. It calls `lower` and `replace` by name, so it runs where the runtime's method table holds them, as mini's does.
 
-The macro writes this boilerplate. By hand it costs about 25 lines for the first function and about 5 for each one after.
-
-Community PDKs track this sealed spec with releases of their own. There is one for Zig (`wasm-pdk-zig`), one for AssemblyScript (`wasm-pdk-as`) and one for C (`wasm-pdk.h`).
+The macro writes this boilerplate, which takes the module above 59 lines for its one function. A plugin in any language that compiles to wasm meets the same contract by exporting these functions, since this page is the whole of it.
 
 ## How the host loads it
 
@@ -492,15 +485,16 @@ For `from <name> import <names>` where the manifest maps `<name>` to a `.wasm` U
 
 The reference bridge is `js/src/native.ts` in the repo.
 
-The [CLI](/docs/edge-python/platforms/cli) implements the same seven imports in Rust over wasmtime, bridging the plugin instance and the compiler instance the same way. It compiles a plugin with Cranelift on first use and caches the machine code. A [Rust host](/docs/edge-python/platforms/rust#plugin-bridge) mirrors the shape.
+The [CLI](/docs/edge-lang/platforms/cli) implements the same seven imports in Rust over wasmtime, bridging the plugin instance and the instance of the runtime's `.wasm` the same way. It compiles a plugin with Cranelift on first use and caches the machine code. A [Rust host](/docs/edge-lang/platforms/rust#plugin-bridge) mirrors the shape.
 
 ## Constraints and caveats
 
 - **Refcounted handles.** The guest releases every handle it creates with `edge_encode` or `edge_op`, except the one returned through `*out`. The host releases `argv` handles.
 - **`edge_decode` covers primitives plus `list`, `tuple` and `dict`.** They cross TLV-encoded. Sets, instances and cyclic values return `TAG_INVALID`. Walk those with `edge_op`.
 - **Trailing kwargs slot.** Every plugin call carries one extra `u32` after the positional argv. It is handle `0` when the caller passed no `name=value` arguments, and otherwise a `dict` handle holding the pairs.
-- **Calling a callable the caller passed.** `edge_op(Call, recv, "__call__", ...)` invokes `recv` directly. Lambdas, builtins, classes and bound methods all route through the dispatch the language uses. Hooks like `default`, `object_hook` or `parse_int` work this way. Positional arguments cap at 255.
-- **Reentrance.** An `edge_op` from the guest runs while the VM is paused on the `CallExtern` of the script. Method dispatch goes through the method table the language uses inside. A method added there reaches existing modules with no recompile.
+- **Calling a callable the caller passed.** `edge_op(Call, recv, name, ...)` with `name` set to `abi::op::CALL_SELF`, the reserved text `__call__` of ABI v1, invokes `recv` itself. Functions, natives, classes and bound methods all route through the dispatch the runtime uses, so a key a program hands a plugin runs as the program would run it. Positional arguments cap at 255.
+- **The end of an iteration.** `IterNext` ends with `1`, kind `Custom` and the message `abi::op::ITER_END`, the reserved text `end of iteration` of ABI v1. No runtime names a class with spaces in it, so the end reads the same under mini, tiny and uptime, and `Handle::iter_next` returns `None` for it. A plugin that hands the end back unread raises the class the runtime names for a finished iteration, `StopIteration` in mini and `Stop` in uptime.
+- **Reentrance.** An `edge_op` from the guest runs while the VM is paused on the `CallExtern` of the script. Method dispatch goes through the method table the runtime registers. A method added there reaches existing modules with no recompile.
 - **Errors are a status.** Returning `1` does not abort the host. The host pulls the error and raises it as a typed exception.
 - **Memory ownership.** The host reads guest linear memory only at well-defined copy points. Allocations inside the guest stay private.
 - **ABI v1 leaks about 8 bytes per host call** in guest linear memory. A single worker session caps at roughly 500 k plugin calls. Recycle the worker from time to time for unbounded streaming.
@@ -508,7 +502,7 @@ The [CLI](/docs/edge-python/platforms/cli) implements the same seven imports in 
 ## See also
 
 > [!CARDS]
-> - `cpu` [Rust](/docs/edge-python/platforms/rust) The exports of compiler.wasm, the run loop and the blob layout.
-> - `package` [Modules](/docs/edge-python/reference/modules) Import resolution, edge.json, integrity pins and delivery.
-> - `shield` [System](/docs/edge-python/reference/system) The calls a plugin reaches through Sys.
-> - `camera` [Snapshots](/docs/edge-python/language/snapshots) Freezing and resuming a paused run from the host.
+> - `cpu` [Rust](/docs/edge-lang/platforms/rust) The exports of edge.wasm, the run loop and the blob layout.
+> - `package` [Modules](/docs/edge-lang/reference/modules) Import resolution, edge.json, integrity pins and delivery.
+> - `shield` [System](/docs/edge-lang/reference/system) The calls a plugin reaches through Sys.
+> - `camera` [Snapshots](/docs/edge-lang/sdk/snapshots) Freezing and resuming a paused run from the host.

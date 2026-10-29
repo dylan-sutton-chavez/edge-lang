@@ -1,0 +1,15 @@
+- native: hasattr
+  args: ["hello", "upper"]
+  ret: true
+
+- native: hasattr
+  args: ["hello", "xyz"]
+  ret: false
+
+- native: getattr
+  args: ["hi", "xyz", "default"]
+  ret: "default"
+
+- native: getattr
+  args: [1, "nope"]
+  error: "'int' object has no attribute 'nope'"

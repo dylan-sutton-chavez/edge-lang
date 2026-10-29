@@ -1,0 +1,16 @@
+use net
+use clock
+
+fn get(url)
+  let start = clock.now()
+  let id = net.request("GET", url)
+  let status = net.response(id)[0]
+  let body = b""
+  let chunk = net.read(id)
+  # a read gives the body a chunk at a time and nil after the last
+  while chunk != nil
+    body += chunk
+    chunk = net.read(id)
+  end
+  return {"status": status, "ms": clock.now() - start, "body": json(body)}
+end

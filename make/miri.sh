@@ -10,8 +10,8 @@ deadline=$(( ${STARTED:-$(date +%s)} + ${MINUTES:-355} * 60 - ${MARGIN:-600} ))
 workers="${JOBS:-$(nproc)}"
 MODES=("" "-Zmiri-tree-borrows" "-Zmiri-strict-provenance -Zmiri-symbolic-alignment-check")
 NAMES=("Stacked Borrows" "Tree Borrows" "Strict provenance")
-# A corpus too long for one job runs in that many slices, test@k/n each a row of its own.
-declare -A SLICES=([vm::test::test_cases]=24 [vm::test::strict_cases]=24 [snapshot::test::vm_corpus_preempt_equivalence]=24)
+# each listed test runs in that many slices sized for 16 cores and 100 minutes
+declare -A SLICES=([vm::test::test_cases]=4 [vm::test::strict_cases]=4 [snapshot::test::vm_corpus_preempt_equivalence]=4 [snapshot::test::vm_corpus_restore_at_a_preempt]=4 [snapshot::test::snapshot_cases]=24 [snapshot::test::flipped_bytes_never_panic]=2 [snapshot::test::resealed_forgeries_never_panic]=4 [snapshot::test::a_restore_keeps_addresses]=3)
 summary="${GITHUB_STEP_SUMMARY:-/dev/stdout}"
 work="$(mktemp -d)"
 declare -A unit_of=() log_of=() began=() whole=()

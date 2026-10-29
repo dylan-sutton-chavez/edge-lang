@@ -1,5 +1,5 @@
 [package]
-name = "edge-python-afl"
+name = "fuzz"
 version = "0.0.0"
 publish = false
 edition = "2024"
@@ -10,8 +10,12 @@ edition = "2024"
 [dependencies]
 afl = "0.18.2"
 
-[dependencies.edge-python]
+[dependencies.edge]
 path = ".."
+
+# the reference runtime whose spelling the fuzzed sources are read in
+[dependencies.mini]
+path = "../examples/mini"
 
 [[bin]]
 name = "afl-pipeline"

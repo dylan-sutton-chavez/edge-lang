@@ -1,0 +1,920 @@
+- mini: |-
+    import os
+  names: []
+  constants: []
+  instructions: [[ReturnValue, 0]]
+  errors: ["module 'os' not found (no resolver configured)"]
+
+- mini: |-
+    from os import path
+  names: []
+  constants: []
+  instructions: [[ReturnValue, 0]]
+  errors: ["module 'os' not found (no resolver configured)"]
+
+- mini: |-
+    from os import path, getcwd
+  names: []
+  constants: []
+  instructions: [[ReturnValue, 0]]
+  errors: ["module 'os' not found (no resolver configured)"]
+
+- mini: |-
+    import os, sys
+  names: []
+  constants: []
+  instructions: [[ReturnValue, 0]]
+  errors: ["module 'os' not found (no resolver configured)"]
+
+- indent: |-
+    import os.path
+  names: []
+  constants: []
+  instructions: [[ReturnValue, 0]]
+  errors: ["module 'os/path.py' not found (no resolver configured)"]
+
+- mini: |-
+    import numpy as np
+  names: []
+  constants: []
+  instructions: [[ReturnValue, 0]]
+  errors: ["module 'numpy' not found (no resolver configured)"]
+
+- mini: |-
+    from os import path as p
+  names: []
+  constants: []
+  instructions: [[ReturnValue, 0]]
+  errors: ["module 'os' not found (no resolver configured)"]
+
+- mini: |-
+    fn f()
+        pass
+  names: []
+  constants: []
+  instructions: [[ReturnValue, 0]]
+  errors: ["expected ':', got indent"]
+
+- mini: |-
+    with x as f:
+        pass
+  names: []
+  constants: []
+  instructions: [[ReturnValue, 0]]
+  errors: ["with is not supported"]
+
+- mini: |-
+    with x:
+        pass
+  names: []
+  constants: []
+  instructions: [[ReturnValue, 0]]
+  errors: ["with is not supported"]
+
+- mini: |-
+    yield 1
+  names: []
+  constants: []
+  instructions: [[ReturnValue, 0]]
+  errors: ["'yield' outside function"]
+
+- mini: |-
+    yield
+  names: []
+  constants: []
+  instructions: [[ReturnValue, 0]]
+  errors: ["'yield' outside function"]
+
+- mini: |-
+    nonlocal x
+  names: []
+  constants: []
+  instructions: [[ReturnValue, 0]]
+  errors: ["nonlocal declaration not allowed at module level"]
+
+- mini: |-
+    nonlocal x, y
+  names: []
+  constants: []
+  instructions: [[ReturnValue, 0]]
+  errors: ["nonlocal declaration not allowed at module level", "nonlocal declaration not allowed at module level"]
+
+- mini: |-
+    raise x from y
+  names: []
+  constants: []
+  instructions: [[ReturnValue, 0]]
+  errors: ["raise from is not supported"]
+
+- mini: |-
+    with a, b:
+        pass
+  names: []
+  constants: []
+  instructions: [[ReturnValue, 0]]
+  errors: ["with is not supported"]
+
+- mini: |-
+    with a as x, b as y:
+        pass
+  names: []
+  constants: []
+  instructions: [[ReturnValue, 0]]
+  errors: ["with is not supported"]
+
+- mini: |-
+    x = await y
+  names: []
+  constants: []
+  instructions: [[ReturnValue, 0]]
+  errors: ["'await' outside function"]
+
+- mini: |-
+    await f()
+  names: []
+  constants: []
+  instructions: [[ReturnValue, 0]]
+  errors: ["'await' outside function"]
+
+- mini: |-
+    yield from x
+  names: []
+  constants: []
+  instructions: [[ReturnValue, 0]]
+  errors: ["'yield' outside function"]
+
+- mini: |-
+    yield from range(3)
+  names: []
+  constants: []
+  instructions: [[ReturnValue, 0]]
+  errors: ["'yield' outside function"]
+
+- mini: |-
+    async for a in x:
+        pass
+  names: []
+  constants: []
+  instructions: [[ReturnValue, 0]]
+  errors: ["async for is not supported"]
+
+- mini: |-
+    async with a as x:
+        pass
+  names: []
+  constants: []
+  instructions: [[ReturnValue, 0]]
+  errors: ["async with is not supported"]
+
+- mini: |-
+    break
+  names: []
+  constants: []
+  instructions: [[ReturnValue, 0]]
+  errors: ["'break' outside loop"]
+
+- mini: |-
+    continue
+  names: []
+  constants: []
+  instructions: [[ReturnValue, 0]]
+  errors: ["'continue' outside loop"]
+
+- mini: |-
+    break
+    x = 1
+  names: []
+  constants: []
+  instructions: [[ReturnValue, 0]]
+  errors: ["'break' outside loop"]
+
+- mini: |-
+    print('hello'
+  names: []
+  constants: []
+  instructions: [[ReturnValue, 0]]
+  errors: ["'(' was never closed"]
+
+- mini: |-
+    f() = 1
+  names: []
+  constants: []
+  instructions: [[ReturnValue, 0]]
+  errors: ["cannot assign to this expression"]
+
+- mini: |-
+    *a = [1]
+  names: []
+  constants: []
+  instructions: [[ReturnValue, 0]]
+  errors: ["starred assignment target must be in a list or tuple"]
+
+- mini: |-
+    (a, 1) = x
+  names: []
+  constants: []
+  instructions: [[ReturnValue, 0]]
+  errors: ["cannot assign to this expression"]
+
+- mini: |-
+    if x = 1:
+        pass
+  names: []
+  constants: []
+  instructions: [[ReturnValue, 0]]
+  errors: ["expected ':', got '='"]
+
+- mini: |-
+    x = 1j
+  indent: |-
+    x = 1j
+  names: []
+  constants: []
+  instructions: [[ReturnValue, 0]]
+  errors: ["invalid suffix on numeric literal"]
+
+- mini: |-
+    x = 2.5j
+  indent: |-
+    x = 2.5j
+  names: []
+  constants: []
+  instructions: [[ReturnValue, 0]]
+  errors: ["invalid suffix on numeric literal"]
+
+- mini: |-
+    x = 1e3J
+  indent: |-
+    x = 1e3J
+  names: []
+  constants: []
+  instructions: [[ReturnValue, 0]]
+  errors: ["invalid suffix on numeric literal"]
+
+- mini: |-
+    x = 0j + 1
+  indent: |-
+    x = 0j + 1
+  names: []
+  constants: []
+  instructions: [[ReturnValue, 0]]
+  errors: ["invalid suffix on numeric literal"]
+
+- mini: |-
+    type X = int
+  names: []
+  constants: []
+  instructions: [[ReturnValue, 0]]
+  errors: ["type aliases are not supported"]
+
+- mini: |-
+    fn f[T](x):
+        return x
+  names: []
+  constants: []
+  instructions: [[ReturnValue, 0]]
+  errors: ["generic parameters are not supported"]
+
+- mini: |-
+    class C[T]:
+        pass
+  names: []
+  constants: []
+  instructions: [[ReturnValue, 0]]
+  errors: ["generic parameters are not supported"]
+
+- mini: |-
+    class C(B, metaclass=M):
+        pass
+  names: []
+  constants: []
+  instructions: [[ReturnValue, 0]]
+  errors: ["class keywords are not supported"]
+
+- mini: |-
+    try:
+        pass
+    except* E:
+        pass
+  names: []
+  constants: []
+  instructions: [[ReturnValue, 0]]
+  errors: ["except* is not supported"]
+
+- mini: |-
+    [1)
+  names: []
+  constants: []
+  instructions: [[ReturnValue, 0]]
+  errors: ["')' does not match '[', expected ']'"]
+
+- mini: |-
+    (1]
+  names: []
+  constants: []
+  instructions: [[ReturnValue, 0]]
+  errors: ["']' does not match '(', expected ')'"]
+
+- mini: |-
+    import asyncio
+  error: "asyncio"
+
+- mini: |-
+    ''i(((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((()),range(]
+  error: "'(' was never closed"
+
+- mini: |-
+    ''i(((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((()),range(,]
+  error: "'(' was never closed"
+
+- mini: |-
+    ''f(((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((()),range(]
+  error: "'(' was never closed"
+
+- mini: |-
+    print(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(f(x)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+  error: "too deeply nested"
+
+- mini: |-
+    a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a.m(a))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+  error: "too deeply nested"
+
+- mini: |-
+    x = "
+  indent: |-
+    x = "
+  error: "unterminated string literal"
+
+- mini: |-
+    f(x for x in y,)
+  error: "a generator expression beside other arguments needs parentheses of its own"
+
+- mini: |
+    (] =')
+    }] =')
+  indent: |
+    (] =')
+    }] =')
+  error: "unterminated string literal"
+
+- mini: |
+    nonlocal q
+  error: "nonlocal declaration not allowed at module level"
+
+- mini: |-
+    a, b, c = 1, 2, 3
+    cond = true
+    del (a if cond else b)
+  error: "cannot delete this expression"
+
+- mini: |-
+    fn f():
+        return [1]
+    del f()
+  error: "cannot delete this expression"
+
+- mini: |-
+    class C:
+        fn m(self):
+            return 1
+    c = C()
+    del c.m()
+  error: "cannot delete this expression"
+
+- mini: |-
+    // a module path is names joined by dots and its import binds a name
+    import a.(b
+  error: "expected a module name after '.'"
+
+- mini: |-
+    from m import 1
+  error: "expected a name"
+
+- mini: |-
+    import m as 1
+  error: "expected a name"
+
+- mini: |-
+    from m import (a, 2)
+  error: "expected a name"
+
+- mini: |-
+    a = [0, 0]
+    print(a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[0]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]])
+  error: "too deeply nested"
+
+- mini: |-
+    print('\N{BULLET}')
+  indent: |-
+    print('\N{BULLET}')
+  error: "named escapes are not supported"
+
+- mini: |
+    x = [2, 3, 4]
+    x[:; )= 10
+    print(x)
+  error: "expected expression"
+
+- mini: |-
+    match 1:
+        case 1 + 2:
+            pass
+  error: "unsupported pattern"
+
+- mini: |-
+    match 1:
+        case -x:
+            pass
+  error: "unsupported pattern"
+
+- mini: |-
+    match 1:
+        case 1 as 2:
+            pass
+  error: "invalid pattern target"
+
+- mini: |-
+    match 1:
+        case f(x)(y):
+            pass
+  error: "unsupported pattern"
+
+- mini: |-
+    match 1:
+        case -true:
+            pass
+  error: "unsupported pattern"
+
+- mini: |
+    if true: if true: print(1)
+  error: "a compound statement must start its own line"
+
+- mini: |
+    for x in [1]: while x: pass
+  error: "a compound statement must start its own line"
+
+- mini: |
+    while false: for y in []: pass
+  error: "a compound statement must start its own line"
+
+- mini: |
+    if true: try: pass
+  error: "a compound statement must start its own line"
+
+- mini: |
+    match 1:
+        case [[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[y]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]:
+            pass
+  error: "too deeply nested"
+
+- mini: |-
+    if true:
+    print(1)
+  error: "expected an indented block"
+
+- mini: |-
+    for i in range(2):
+    print(i)
+  error: "expected an indented block"
+
+- mini: |-
+    // a bare `as` names no pattern to bind after
+    match 5:
+        case as x:
+            print(x)
+  error: "expected a pattern"
+
+- mini: |-
+    fn f(bad):
+        if bad: raise ValueError('x')
+        from nomod import y
+        return y
+  error: "module 'nomod' not found"
+
+- mini: |-
+    // a handler binds its exception to a name alone
+    try:
+        raise ValueError('x')
+    except ValueError as 1:
+        print('caught')
+  error: "expected a name"
+
+- mini: |-
+    f = lambda *a: len(a)
+    print(f(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1))
+  error: "too many arguments in call"
+
+- mini: |-
+    fn f(a b):
+        return a
+  error: "expected ','"
+
+- mini: |-
+    fn f(a=1 b=2):
+        return a
+  error: "expected ','"
+
+- mini: |-
+    g = lambda a b: a
+  error: "expected ','"
+
+- mini: |-
+    fn f(a, b):
+        return a + b
+    print(f(1 2))
+  error: "expected ','"
+
+- mini: |
+    fn f(): fn g(): pass
+  error: "a compound statement must start its own line"
+
+- mini: |
+    [n) = [9)bbbbbb, //]
+    x3, //]
+    ] = [5]
+    fn f(bbbbbbb
+  error: "')' does not match '[', expected ']'"
+
+- mini: |
+    fn f():
+        fn g():
+            nonlocal q
+  error: "no binding for nonlocal 'q' found"
+
+- mini: |
+    q = 1
+    fn f():
+        nonlocal q
+  error: "no binding for nonlocal 'q' found"
+
+- mini: |
+    fn f(q):
+        nonlocal q
+  error: "name 'q' is parameter and nonlocal"
+
+- mini: |-
+    fn f(a: 1 +): pass
+  error: "expected expression"
+
+- mini: |-
+    fn f():
+        fn later(x):
+            return x
+        global later
+    f()
+    print("no")
+  error: "name 'later' is assigned to before global declaration"
+
+- mini: |-
+    fn f():
+        x = 1
+        global x
+  error: "name 'x' is assigned to before global declaration"
+
+- mini: |-
+    fn f(x):
+        global x
+  error: "name 'x' is parameter and global"
+
+- mini: |-
+    // a parameter is a name so an operator in its place fails to compile
+    fn f(==):
+        pass
+    f()
+  error: "expected a parameter name"
+
+- mini: |-
+    g = lambda <=: 1
+    g()
+  error: "expected a parameter name"
+
+- mini: |-
+    fn f(=):
+        return 2
+    f()
+  error: "expected a parameter name"
+
+- mini: |-
+    fn f(a, +=):
+        pass
+    f(1)
+  error: "expected a parameter name"
+
+- mini: |-
+    t = [lambda:=: 1]
+  error: "expected a parameter name"
+
+- mini: |-
+    fn f(1, 2):
+        return 3
+    print(f())
+  error: "expected a parameter name"
+
+- mini: |-
+    // a marker takes a name after it as every other parameter does
+    fn f(*1):
+        pass
+  error: "expected a parameter name"
+
+- mini: |-
+    // a declaration lists names and nothing else
+    fn f():
+        global 1
+  error: "expected a name"
+
+- mini: |-
+    fn f():
+        global
+  error: "expected a name"
+
+- mini: |-
+    fn f():
+        x = 1
+        fn g():
+            nonlocal x, 2
+  error: "expected a name"
+
+- mini: |
+    fn f(): async fn g(): pass
+  error: "a compound statement must start its own line"
+
+- mini: |
+    fn g():
+        x = [(yield i) for i in range(3)]
+  error: "'yield' inside a comprehension"
+
+- mini: |
+    fn g():
+        x = {(yield i) for i in range(3)}
+  error: "'yield' inside a comprehension"
+
+- mini: |
+    fn g():
+        x = {i: (yield) for i in range(3)}
+  error: "'yield' inside a comprehension"
+
+- mini: |
+    fn g():
+        x = list((yield i) for i in range(3))
+  error: "'yield' inside a comprehension"
+
+- mini: |-
+    x = 1
+    yield x
+  error: "'yield' outside function"
+
+- mini: |-
+    await x
+  error: "'await' outside function"
+
+- mini: |-
+    fn f():
+        await x
+  error: "'await' outside async function"
+
+- mini: |-
+    lambda: await x
+  error: "'await' outside async function"
+
+- mini: |-
+    async fn f():
+        fn g():
+            await x
+  error: "'await' outside async function"
+
+- mini: |-
+    fn f():
+        return [await x for x in y]
+  error: "'await' in a comprehension outside async function"
+
+- mini: |-
+    x = 1_
+    print(x)
+  indent: |-
+    x = 1_
+    print(x)
+  error: "invalid '_'"
+
+- mini: |-
+    x = 1__2
+    print(x)
+  indent: |-
+    x = 1__2
+    print(x)
+  error: "consecutive '_'"
+
+- mini: |-
+    x = 1e_5
+    print(x)
+  indent: |-
+    x = 1e_5
+    print(x)
+  error: "invalid '_'"
+
+- mini: |-
+    x = 0x
+  indent: |-
+    x = 0x
+  error: "missing digits"
+
+- mini: |-
+    x = 1e
+  error: "invalid"
+
+- mini: |-
+    x = 007
+  error: "leading zeros"
+
+- mini: |-
+    print(1 2)
+  error: "expected ','"
+
+- mini: |-
+    x = 5
+    print(x"a")
+  error: "expected ','"
+
+- mini: |-
+    print(1, 2 3)
+  error: "expected ','"
+
+- mini: |-
+    print(1, sep="-" end="")
+  error: "expected ','"
+
+- mini: |-
+    z = 1 2
+    print(z)
+  error: "expected newline"
+
+- mini: |-
+    x = 1 y = 2
+    print(x)
+  error: "expected newline"
+
+- mini: |-
+    f(x for x in y, 1)
+  error: "a generator expression beside other arguments needs parentheses of its own"
+
+- mini: |-
+    f(1, x for x in y)
+  error: "a generator expression beside other arguments needs parentheses of its own"
+
+- mini: |-
+    any(x for x in y, 1)
+  error: "a generator expression beside other arguments needs parentheses of its own"
+
+- mini: |
+    x = 1 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  error: "expected newline, got 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa...'"
+
+- mini: |
+    x = 1 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+  error: "expected newline, got ''bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb...'"
+
+- mini: |
+    print(1 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa)
+  error: "expected ',', got 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa...'"
+
+- mini: |
+    x = 1 12345678901234567890123456789012345678901234567890
+  error: "expected newline, got '1234567890123456789012345678901234567890...'"
+
+- mini: |
+    ((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((a)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) = 1
+  error: "too deeply nested"
+
+- mini: |-
+    x = 1
+    y = x.
+    print(2)
+  error: "expected an attribute name after '.'"
+
+- mini: |-
+    x = 1
+    x.
+  error: "expected an attribute name after '.'"
+
+- mini: |-
+    return 1
+  error: "'return' outside function"
+
+- mini: |-
+    0x__1
+  indent: |-
+    0x__1
+  error: "invalid '_'"
+
+- mini: |-
+    0x_
+  indent: |-
+    0x_
+  error: "invalid '_'"
+
+- mini: |-
+    0b
+  indent: |-
+    0b
+  error: "missing digits in numeric literal"
+
+- mini: |-
+    x = 99999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999
+  error: "an integer literal of 4301 digits is past the limit of 4300, write it in hex after 0x"
+
+- mini: |-
+    class F(ValueError):
+        fn __init__(self, code):
+            super().__init__(self'code', code)
+            self.code = code
+    try:
+        raise F(7)
+    except ValueError as e:
+        print(e.code, e.args, e)
+  error: "expected ','"
+
+- mini: |
+    class A: fn f(self): pass
+  error: "a compound statement must start its own line"
+
+- mini: |-
+    class A:
+        return 1
+  error: "'return' outside function"
+
+- mini: |
+    fn f():
+        class A:
+            q = 1
+            fn g(self):
+                nonlocal q
+  error: "no binding for nonlocal 'q' found"
+
+- mini: |-
+    class A:
+        await x
+  error: "'await' outside function"
+
+- mini: |-
+    fn f():
+        class C:
+            pass
+        global C
+  error: "name 'C' is assigned to before global declaration"
+
+- mini: |-
+    // the token after a dot names an attribute or the program fails to compile
+    x = 1
+    print(x. 1)
+  error: "expected an attribute name after '.'"
+
+- mini: |-
+    x = 1
+    print(x.'real')
+  error: "expected an attribute name after '.'"
+
+- mini: |-
+    x = 1
+    print(f'{x!q}')
+  error: "invalid f-string conversion"
+
+- mini: |-
+    x = 1
+    print(f'\N{BULLET} {x}')
+  indent: |-
+    x = 1
+    print(f'\N{BULLET} {x}')
+  error: "named escapes are not supported"
+
+- mini: |
+    print(f'a}b')
+  indent: |
+    print(f'a}b')
+  error: "f-string: single '}' is not allowed"
+
+- mini: |
+    x = 1
+    print(f'{x}}')
+  indent: |
+    x = 1
+    print(f'{x}}')
+  error: "f-string: single '}' is not allowed"
+
+- mini: |-
+    x = 1
+    print(f"a {x}
+    b")
+  indent: |-
+    x = 1
+    print(f"a {x}
+    b")
+  error: "unterminated f-string literal"
+
+- mini: |-
+    x = '''a
+    b''' y = 2
+  error: "expected newline, got 'y'"
+
+- mini: |-
+    x = 1 + \
+        2 y = 3
+  error: "expected newline, got 'y'"

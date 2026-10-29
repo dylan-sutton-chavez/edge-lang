@@ -1,5 +1,5 @@
-# Every build compiles the same compiler.wasm, which the bench snapshot counts instruction by instruction.
 [toolchain]
+# every build compiles the same edge.wasm which the bench snapshot counts instruction by instruction
 channel = "1.98.0"
 targets = ["wasm32-unknown-unknown"]
 components = ["clippy"]

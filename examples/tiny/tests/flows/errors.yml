@@ -1,0 +1,734 @@
+- name: indentation takes spaces and never tabs
+  input: slice
+  flow: |
+    from: input
+    watches:
+    	where: type == "WatchEvent"
+      count:
+  diagnostics:
+    - 'line 3: indentation takes spaces, not tabs'
+
+- name: a key written twice in one mapping is refused
+  input: slice
+  flow: |
+    from: input
+    watches:
+      where: type == "WatchEvent"
+      where: type == "PushEvent"
+      count:
+  diagnostics:
+    - 'line 4: the key "where" is repeated, a mapping holds each key once'
+
+- name: an anchor is refused
+  input: slice
+  flow: |
+    from: input
+    watches:
+      where: &w type == "WatchEvent"
+      count:
+  diagnostics:
+    - 'line 3: tiny reads no anchors, write the value out'
+
+- name: a block scalar is refused
+  input: slice
+  flow: |
+    from: input
+    watches:
+      where: |
+        type == "WatchEvent"
+      count:
+  diagnostics:
+    - 'line 3: tiny reads no block scalars, write the text quoted'
+
+- name: a quoted value with more after it is refused
+  input: slice
+  flow: |
+    from: input
+    bots:
+      where: "bot" in actor.login
+      count:
+  diagnostics:
+    - 'line 3: a quoted value is text that ends at its quote, an expression starts with no quote'
+
+- name: a plain value holding a colon and a space is refused
+  input: slice
+  flow: |
+    from: input
+    odd:
+      where: type == "a: b"
+      count:
+  diagnostics:
+    - 'line 3: a plain value holds ": ", quote it or drop the space'
+
+- name: an unknown key of a report names the nearest known one
+  input: slice
+  flow: |
+    from: input
+    watches:
+      wher: type == "WatchEvent"
+      count:
+  diagnostics:
+    - 'line 3: report watches has no key "wher", did you mean where'
+
+- name: a top level key holding no mapping names the nearest key of a flow
+  input: slice
+  flow: |
+    from: input
+    wher: type == "WatchEvent"
+    watches:
+      count:
+  diagnostics:
+    - 'line 2: report wher takes a mapping of keys such as where and count, did you mean where'
+
+- name: a flow names its source
+  input: slice
+  flow: |
+    watches:
+      count:
+  diagnostics:
+    - 'line 1: a flow names its source with from'
+
+- name: a flow writes at least one report
+  input: slice
+  flow: |
+    from: input
+    where: type == "WatchEvent"
+  diagnostics:
+    - 'line 1: a flow writes at least one report, such as a key total with count under it'
+
+- name: from takes one line
+  input: slice
+  flow: |
+    from:
+      input: json-lines
+    total:
+      count:
+  diagnostics:
+    - 'line 2: from takes one line naming a url, a path or input'
+
+- name: a source names a format tiny reads by its extension
+  input: slice
+  flow: |
+    from: https://example.com/events.parquet
+    total:
+      count:
+  diagnostics:
+    - 'line 1: from names a source whose extension gives its format, .jsonl, .json, .csv or .txt, with .gz after it when gzipped'
+
+- name: from reads a url through http or https
+  input: slice
+  flow: |
+    from: ftp://example.com/events.jsonl
+    total:
+      count:
+  diagnostics:
+    - 'line 1: from reads a url through http:// or https://'
+
+- name: top takes a whole number
+  input: slice
+  flow: |
+    from: input
+    kinds:
+      count: type
+      top: ten
+  diagnostics:
+    - 'line 4: top takes a whole number'
+
+- name: a key that is no field takes a name
+  input: slice
+  flow: |
+    from: input
+    kinds:
+      count: type.lower()
+  diagnostics:
+    - 'line 3: "type.lower()" is no field, so the key takes a name, as name = type.lower()'
+
+- name: a key named with a word is refused
+  input: slice
+  flow: |
+    from: input
+    kinds:
+      count: None = type
+  diagnostics:
+    - 'line 3: "None" is no name a key may take'
+
+- name: keep filters the rows an aggregate makes
+  input: slice
+  flow: |
+    from: input
+    watches:
+      keep: type == "WatchEvent"
+  diagnostics:
+    - 'line 3: keep filters the rows an aggregate makes, so a report of records filters with where'
+
+- name: a report takes one aggregate
+  input: slice
+  flow: |
+    from: input
+    kinds:
+      count: type
+      sum: payload.size
+  diagnostics:
+    - 'line 4: report kinds takes one aggregate, not both count and sum'
+
+- name: count takes its keys itself
+  input: slice
+  flow: |
+    from: input
+    kinds:
+      count:
+      by: type
+  diagnostics:
+    - 'line 4: count takes its keys itself, by gives the keys of sum, average, min or max'
+
+- name: by gives the keys of an aggregate
+  input: slice
+  flow: |
+    from: input
+    kinds:
+      by: type
+  diagnostics:
+    - 'line 3: by gives the keys of sum, average, min or max, so the report takes one of them'
+
+- name: by takes the keys of the rows
+  input: slice
+  flow: |
+    from: input
+    comments:
+      sum: payload.issue.comments
+      by:
+  diagnostics:
+    - 'line 4: by takes the keys of the rows, as by: name'
+
+- name: top keeps rows that an aggregate or a sort orders
+  input: slice
+  flow: |
+    from: input
+    first:
+      top: 3
+  diagnostics:
+    - 'line 3: top keeps the largest rows by the aggregate, so the report takes count, sum, average, min or max, or a sort'
+
+- name: a key takes no column the aggregate fills
+  input: slice
+  flow: |
+    from: input
+    kinds:
+      count: count = type
+  diagnostics:
+    - 'line 3: the aggregate fills the column count, so the key takes another name'
+
+- name: a key given twice is refused
+  input: slice
+  flow: |
+    from: input
+    kinds:
+      count: type, type
+  diagnostics:
+    - 'line 3: the key type is given twice'
+
+- name: keys whose paths overlap are refused
+  input: slice
+  flow: |
+    from: input
+    repos:
+      count: repo, repo.name
+  diagnostics:
+    - 'line 3: the keys repo and repo.name overlap'
+
+- name: a report's name holds no spaces
+  input: slice
+  flow: |
+    from: input
+    top stars:
+      count: repo.name
+  diagnostics:
+    - 'line 2: the report "top stars" takes a name with no spaces, since its name is its output'
+
+- name: a quoted value where an expression goes is refused
+  input: slice
+  flow: |
+    from: input
+    odd:
+      where: "type == 1"
+      count:
+  diagnostics:
+    - 'line 3: where takes an expression written with no quotes around it'
+
+- name: an aggregate takes the expression it measures
+  input: slice
+  flow: |
+    from: input
+    comments:
+      sum:
+  diagnostics:
+    - 'line 3: sum takes an expression'
+
+- name: a flow file holds one document
+  input: slice
+  flow: |
+    from: input
+    total:
+      count:
+    ---
+    from: input
+  diagnostics:
+    - 'line 5: a flow file holds one mapping, so it takes no second document'
+
+- name: an expression that stops short is refused at its line
+  input: slice
+  flow: |
+    from: input
+    odd:
+      count:
+      where: type ==
+  diagnostics:
+    - 'line 4: expected expression'
+
+- name: an expression with more after its end is refused
+  input: slice
+  flow: |
+    from: input
+    odd:
+      where: type == "WatchEvent" True
+      count:
+  diagnostics:
+    - 'line 3: expected the end of the expression, got ''True'''
+
+- name: a field a record lacks stops the run
+  input: slice
+  flow: |
+    from: input
+    where: payload.action == "opened"
+    opened:
+      count:
+  error: 'where at line 2: MissingField, no field "action"'
+
+- name: adding text and a number is refused
+  input: slice
+  flow: |
+    from: input
+    odd:
+      count: n = type + 1
+  error: 'report odd, count at line 3: WrongType, cannot add text and number'
+
+- name: a sum of text is refused at its line
+  input: slice
+  flow: |
+    from: input
+    odd:
+      where: type == "IssuesEvent"
+      sum: type
+      by: payload.action
+  error: 'report odd, sum at line 4: WrongType, cannot add text to a total of numbers'
+
+- name: text that spells no time is bad data
+  input: slice
+  flow: |
+    from: input
+    odd:
+      max: time(type)
+  error: 'report odd, max at line 3: BadData, invalid RFC 3339 time: "IssueCommentEvent"'
+
+- name: hours_between refuses text that spells no time
+  input: slice
+  flow: |
+    from: input
+    odd:
+      where: hours_between(type, created_at) > 1
+      count:
+  error: 'report odd, where at line 3: BadData, invalid RFC 3339 time: "IssueCommentEvent"'
+
+- name: hours_between takes times or their texts
+  input: slice
+  flow: |
+    from: input
+    odd:
+      where: hours_between(None, created_at) > 1
+      count:
+  error: 'report odd, where at line 3: WrongType, hours_between takes times or RFC 3339 texts, not None'
+
+- name: a line of input that is no JSON is bad data
+  input: slice-csv
+  flow: |
+    from: input
+    total:
+      count:
+  error: 'from at line 1: BadData, line 1 of the input is no JSON, invalid literal at byte 0'
+
+- name: an error in a report names the report
+  input: slice
+  flow: |
+    from: input
+    watches:
+      where: type == "WatchEvent"
+      count:
+    pushes:
+      where: type == "PushEvent"
+      sum: payload.ref
+  error: 'report pushes, sum at line 7: WrongType, cannot add text to a total of numbers'
+
+- name: an error in a key of by names by
+  input: slice
+  flow: |
+    from: input
+    closed:
+      where: type == "IssuesEvent"
+      average: payload.issue.comments
+      by: at = time(payload.issue.state)
+  error: 'report closed, by at line 5: BadData, invalid RFC 3339 time: "open"'
+
+- name: text and a number do not compare
+  input: slice
+  flow: |
+    from: input
+    where: created_at > 3
+    total:
+      count:
+  error: 'where at line 2: WrongType, cannot compare text and number'
+
+- name: a method of None is a missing field
+  input: slice
+  flow: |
+    from: input
+    odd:
+      where: type == "IssuesEvent"
+      count: year = payload.issue.closed_at.lower()
+  error: 'report odd, count at line 4: MissingField, None has no field or method lower'
+
+- name: an item past a list's end is a missing field
+  input: slice
+  flow: |
+    from: input
+    odd:
+      count: part = repo.name.split("/")[5]
+  error: 'report odd, count at line 3: MissingField, the list holds no item at that index'
+
+- name: a list is no key
+  input: slice
+  flow: |
+    from: input
+    odd:
+      count: parts = repo.name.split("/")
+  error: 'report odd, count at line 3: WrongType, a key is a text a number or a bool, not a list'
+
+- name: a native called with too few arguments
+  input: slice
+  flow: |
+    from: input
+    odd:
+      count: n = len()
+  error: 'report odd, count at line 3: WrongType, len takes 1 argument, not 0'
+
+- name: a division by zero is bad data
+  input: slice
+  flow: |
+    from: input
+    odd:
+      count: n = len(type) / 0
+  error: 'report odd, count at line 3: BadData, division by zero'
+
+- name: a csv file takes records
+  flow: |
+    from: http://127.0.0.1:1/hour/names.jsonl
+    names.csv:
+  error: 'report names.csv at line 2: WrongType, a csv file takes records, not text'
+
+- name: a name no field or function holds is a missing field
+  input: slice
+  flow: |
+    from: input
+    odd:
+      count: n = nope(type)
+  error: 'report odd, count at line 3: MissingField, no field or function "nope"'
+
+- name: keep reads only the word of the report's own aggregate
+  input: slice
+  flow: |
+    from: input
+    totals:
+      where: type == "IssuesEvent"
+      sum: payload.issue.comments
+      by: payload.action
+      keep: count > 1
+  error: 'report totals, keep at line 6: MissingField, no field "count"'
+
+- name: an error in keep names keep
+  input: slice
+  flow: |
+    from: input
+    kinds:
+      count: type
+      keep: count > "many"
+  error: 'report kinds, keep at line 4: WrongType, cannot compare number and text'
+
+- name: an error in sort names sort
+  input: slice
+  flow: |
+    from: input
+    kinds:
+      count: type
+      sort: count + type
+  error: 'report kinds, sort at line 4: WrongType, cannot add number and text'
+
+- name: a blank key between commas is refused at its line
+  input: slice
+  flow: |
+    from: input
+    odd:
+      count: type, ,repo.name
+  diagnostics:
+    - 'line 3: count holds an empty key between its commas'
+
+- name: a blank key of a sort is refused at its line
+  input: slice
+  flow: |
+    from: input
+    kinds:
+      count: type
+      sort: count, ,type
+  diagnostics:
+    - 'line 4: sort holds an empty key'
+
+- name: brackets nested past the reader's depth are refused at their line
+  input: slice
+  flow: |
+    from: input
+    odd:
+      count: [[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]
+  diagnostics:
+    - 'line 3: this value nests past 64 levels'
+
+- name: list items nested past the reader's depth are refused at their line
+  input: slice
+  flow: |
+    from: input
+    odd:
+      count:
+        - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - x
+  diagnostics:
+    - 'line 4: this value nests past 64 levels'
+
+- name: an expression nested past the parser's depth is refused at its line
+  input: slice
+  flow: |
+    from: input
+    odd:
+      where: ((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((1)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) == 1
+      count:
+  diagnostics:
+    - 'line 3: expression too deeply nested'
+
+- name: text that spells no whole number is bad data
+  input: slice
+  flow: |
+    from: input
+    odd:
+      count: n = int(type)
+  error: 'report odd, count at line 3: BadData, "IssueCommentEvent" spells no number'
+
+- name: text that spells no number is bad data
+  input: slice
+  flow: |
+    from: input
+    odd:
+      count: n = float(type)
+  error: 'report odd, count at line 3: BadData, "IssueCommentEvent" spells no number'
+
+- name: a prefix test takes text
+  input: slice
+  flow: |
+    from: input
+    odd:
+      where: type.startswith(1)
+      count:
+  error: 'report odd, where at line 3: WrongType, startswith takes text, not number'
+
+- name: the distance from zero takes a number
+  input: slice
+  flow: |
+    from: input
+    odd:
+      count: n = abs(type)
+  error: 'report odd, count at line 3: WrongType, abs takes a number, not text'
+
+- name: the least of a number and text does not compare
+  input: slice
+  flow: |
+    from: input
+    odd:
+      count: n = min(type, 1)
+  error: 'report odd, count at line 3: WrongType, cannot compare number and text'
+
+- name: an item past the end of text is a missing field
+  input: slice
+  flow: |
+    from: input
+    odd:
+      count: c = type[50]
+  error: 'report odd, count at line 3: MissingField, the text holds no item at that index'
+
+- name: in looks for a value only in what holds values
+  input: slice
+  flow: |
+    from: input
+    odd:
+      where: 1 in len(type)
+      count:
+  error: 'report odd, where at line 3: WrongType, cannot look for a value in number'
+
+- name: a record that is a list reads no field by name
+  grants: ['net:127.0.0.1']
+  flow: |
+    from: http://127.0.0.1:1/hour/pairs.jsonl
+    kinds:
+      count: type
+  error: 'report kinds, count at line 3: WrongType, the list takes a number as its index, not text'
+
+- name: the length of a number is refused naming what len takes
+  input: slice
+  flow: |
+    from: input
+    odd:
+      count: n = len(len(type))
+  error: 'report odd, count at line 3: WrongType, len takes text, a list or a record, not number'
+
+- name: a minus before text is refused in tiny's words
+  flow: |
+    from: odd.jsonl
+    odd:
+      where: -a == 1
+      count:
+  error: 'report odd, where at line 3: WrongType, cannot negate text'
+
+- name: text repeats only a whole number of times
+  flow: |
+    from: odd.jsonl
+    odd:
+      where: a * c == 1
+      count:
+  error: 'report odd, where at line 3: WrongType, text or a list repeats a whole number of times, not a fraction'
+
+- name: a power takes numbers on each side
+  flow: |
+    from: odd.jsonl
+    odd:
+      where: a ** 2 == 1
+      count:
+  error: 'report odd, where at line 3: WrongType, ** takes a number on each side'
+
+- name: a power too large for a number is bad data
+  flow: |
+    from: odd.jsonl
+    odd:
+      where: c ** 1000 == 1
+      count:
+  error: 'report odd, where at line 3: BadData, the result is too large for a number'
+
+- name: in looks for text in text
+  flow: |
+    from: odd.jsonl
+    odd:
+      where: 1 in a
+      count:
+  error: 'report odd, where at line 3: WrongType, in looks for text in text, not number'
+
+- name: a record is no key
+  flow: |
+    from: odd.jsonl
+    odd:
+      where: e in e
+      count:
+  error: 'report odd, where at line 3: WrongType, a record cannot be a key'
+
+- name: None holds no values for min to read
+  flow: |
+    from: odd.jsonl
+    odd:
+      where: min(g) == 1
+      count:
+  error: 'report odd, where at line 3: WrongType, None holds no values'
+
+- name: a record reads no field a number names
+  flow: |
+    from: odd.jsonl
+    odd:
+      where: e[0] == 1
+      count:
+  error: 'report odd, where at line 3: MissingField, no field 0'
+
+- name: a record is read by field and never by a slice
+  flow: |
+    from: odd.jsonl
+    odd:
+      where: e[1:2] == 1
+      count:
+  error: 'report odd, where at line 3: MissingField, a record is read by field, not by a slice'
+
+- name: round takes a whole number of digits
+  flow: |
+    from: odd.jsonl
+    odd:
+      where: round(c, 1.5) == 1
+      count:
+  error: 'report odd, where at line 3: WrongType, round takes a whole number, not a fraction'
+
+- name: one argument at least takes no plural
+  flow: |
+    from: odd.jsonl
+    odd:
+      where: max() == 1
+      count:
+  error: 'report odd, where at line 3: WrongType, max takes at least 1 argument, not 0'
+
+- name: an index with a fraction is refused for what it lacks
+  flow: |
+    from: odd.jsonl
+    odd:
+      where: a[1.5] == 1
+      count:
+  error: 'report odd, where at line 3: WrongType, the text takes a whole number as its index, not a fraction'
+
+- name: a csv quote that never closes is bad data at the line that opened it
+  flow: |
+    from: open.csv
+    rows:
+      count: a
+  error: 'from at line 1: BadData, line 3 of open.csv holds a quote at byte 2 that never closes'
+
+- name: a digit separator spells no number
+  input: slice
+  flow: |
+    from: input
+    odd:
+      count: n = int("1_000")
+  error: 'report odd, count at line 3: BadData, "1_000" spells no number'
+
+- name: a refused escape before a wide character is reported whole
+  input: slice
+  flow: |
+    from: input
+    odd:
+      where: type == "\é"
+      count:
+  diagnostics:
+    - 'line 3: invalid escape in string literal'
+
+- name: a hex escape takes exactly two hex digits
+  input: slice
+  flow: |
+    from: input
+    odd:
+      where: type == "\x4" or type == "\x+1"
+      count:
+  diagnostics:
+    - 'line 3: invalid escape in string literal'
+    - 'line 3: invalid escape in string literal'
+
+- name: a key written twice in one flow mapping is refused
+  input: slice
+  flow: |
+    from: input
+    watches: {where: type == "WatchEvent", where: type == "PushEvent", count: }
+  diagnostics:
+    - 'line 2: the key "where" is repeated, a mapping holds each key once'

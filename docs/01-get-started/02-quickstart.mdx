@@ -1,15 +1,51 @@
 ---
 title: "Quickstart"
-description: "Install the CLI and run a first script."
+description: "Build a runtime of your own and the CLI that runs it from a clone, then install the edge CLI and run a first program on mini."
 ---
 
 # Quickstart
 
+## Build a runtime of your own
+
+Edge Lang is an engine for language runtimes. A runtime on it is a crate with a token table, its rules, the natives it takes from lib and a descriptor, and its CLI is the kit composed over it. The repo holds one, `uptime`, a language for checking the services a project depends on. Build it and its CLI from a clone.
+
+```bash
+git clone https://github.com/dylan-sutton-chavez/edge-lang
+cd edge-lang
+make uptime
+export PATH="$PWD/cli/target/release:$PATH"
+```
+
+`make uptime` needs Rust only, and `rust-toolchain.toml` pins the toolchain with its wasm target. Then run the checks.
+
+```bash
+cd examples/uptime/checks
+uptime run status.up
+```
+
+```text
+github      200   559 ms  All Systems Operational
+npm         200   568 ms  All Systems Operational
+cloudflare  200   802 ms  Partial System Outage
+```
+
+The board read three status pages through the net plugin, under the grants of the `edge.json` beside it. The runtime is the 241 lines of Rust in the five files of `examples/uptime/src`, and the CLI is the kit composed over it, whole below.
+
+```rust file=examples/uptime/cli/src/lib.rs
+```
+
+`Kit::new` takes the runtime, made of its wasm and its descriptor. `run` and `test` are two of the kit's commands, `perms` holds each check to what `edge.json` grants, and `net` and `clock` are the host modules a check may import.
+
+> [!BANNER] Build it file by file
+> [Your runtime and its CLI](/docs/edge-lang/get-started/use-cases/your-runtime)
+
 ## Install the CLI
 
-Run the installer in a terminal.
+The `edge` CLI runs programs on mini, the reference runtime the repo holds beside uptime. Run the installer in a terminal.
 
-> [!COPY] curl -fsSL https://cdn.edgepython.com/cli/install.sh | sh
+```bash
+curl -fsSL https://cdn.edgelang.dev/cli/install.sh | sh
+```
 
 > [!NOTE]
 > The installer works on macOS, Linux and WSL.
@@ -18,37 +54,44 @@ Open a new shell and check the install. It prints the version of the CLI.
 
 > [!COPY] edge --version
 
-To build the CLI from source instead, follow [Install](/docs/edge-python/platforms/cli#install) in the CLI reference.
+To build the CLI from source instead, follow [Install](/docs/edge-lang/platforms/cli#install) in the CLI reference.
 
-## Run your first script
+## Run a first program
 
-Create `hello.py` with the code below. You can also edit it and run it here in the browser.
+A program reaches nothing outside its sandbox until its `edge.json` grants it, so a first program that reads GitHub's status page asks for that one host. It requests the page, reads its body a chunk at a time and prints the state the page describes. You can also edit it and run it here in the browser.
 
-```edge-python
-def greet(name):
-  return f"Hello, {name}!"
+```edge-manifest
+{ "permissions": { "main": ["net:www.githubstatus.com"] } }
+```
 
-for who in ["world", "edge", "python"]:
-  print(greet(who))
+```edge
+import net
+
+r = net.request("GET", "https://www.githubstatus.com/api/v2/status.json")
+code, headers = net.response(r)
+body = b""
+chunk = net.read(r)
+while chunk is !nil:
+    body += chunk
+    chunk = net.read(r)
+page = body.decode()
+at = page.find('"description":"') + 15
+print("GitHub", code, page[at:page.find('"', at)])
 ```
 
 ```output
-Hello, world!
-Hello, edge!
-Hello, python!
+GitHub 200 All Systems Operational
 ```
 
-Run it from your terminal.
+It printed that on 25 October 2026. Save it as `status.mini` beside an `edge.json` holding the grant above, and run it from your terminal.
 
-> [!COPY] edge run hello.py
+> [!COPY] edge run status.mini
 
-There is no build step. The CLI compiles the file and runs it.
-
-> [!BANNER] Build your first app
-> [Start the tutorial](/docs/edge-python/get-started/first-app/create)
+There is no build step. The CLI compiles the file and runs it, and without the grant the import of `net` fails before anything runs.
 
 ## Next steps
 
 > [!CARDS]
-> - `book-open` [Language](/docs/edge-python/language/syntax) Walk through the language feature by feature.
-> - `terminal` [Command line interface](/docs/edge-python/platforms/cli) Every command of the edge CLI and its flags.
+> - `activity` [Your runtime and its CLI](/docs/edge-lang/get-started/use-cases/your-runtime) The uptime runtime and its CLI, one file at a time.
+> - `braces` [Parser kit](/docs/edge-lang/sdk/parser-kit) The grammar a token table spells.
+> - `terminal` [Command line interface](/docs/edge-lang/platforms/cli) A project from its first file to its publish, and every command.

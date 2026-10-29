@@ -1,19 +1,25 @@
 use anyhow::{anyhow, bail, Context, Result};
 use std::fs;
-use std::path::{Component, Path};
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
-// Every page lands under this prefix inside the bundle, so no import can ever resolve to one.
+use crate::kit::{Descriptor, Field};
+
+// every page lands under this prefix in the bundle so no import resolves to one
 pub const PREFIX: &str = "@docs/";
 
-/* Every page under the declared docs dir, keyed for the bundle, empty when the manifest declares none. */
-pub fn collect(project: &Path, declared: Option<&str>) -> Result<Vec<(String, Vec<u8>)>> {
+/* the manifest key naming the folder a package ships its pages in */
+pub const FIELD: Field = Field { name: "docs", check: crate::manifest::string, reserves: &[] };
+
+/* every page under the declared docs dir keyed for the bundle or none if undeclared */
+pub fn collect(project: &Path, declared: Option<&str>, d: &Descriptor) -> Result<Vec<(String, Vec<u8>)>> {
     let Some(declared) = declared else { return Ok(Vec::new()) };
     let root = project.join(relative(declared)?);
     if !root.is_dir() {
         bail!("edge.json declares docs at '{declared}' and no directory is there");
     }
-    let mut found = pages(&root, "")?;
+    let mut found = pages(&root, "", &mut HashSet::new())?;
     if found.is_empty() {
         bail!("no .mdx pages under '{declared}', write one or drop the docs key");
     }
@@ -22,28 +28,27 @@ pub fn collect(project: &Path, declared: Option<&str>) -> Result<Vec<(String, Ve
     for page in found {
         let bytes = fs::read(root.join(&page)).with_context(|| format!("reading {declared}/{page}"))?;
         let text = core::str::from_utf8(&bytes).map_err(|_| anyhow!("'{page}' is not valid UTF-8"))?;
-        check(&page, text)?;
+        check(&page, text, d)?;
         out.push((format!("{PREFIX}{page}"), bytes));
     }
     Ok(out)
 }
 
-/* The declared path as a plain relative one, the same guard a bundle path gets on read. */
+/* the declared path made plain and relative with the guard bundle paths get on read */
 fn relative(declared: &str) -> Result<String> {
     let trimmed = declared.trim_start_matches("./").trim_end_matches('/');
-    let plain = !trimmed.is_empty()
-        && !declared.contains("://")
-        && !declared.starts_with('/')
-        && Path::new(trimmed).components().all(|c| matches!(c, Component::Normal(_)));
-    if !plain {
+    if !edge::deps::rules::plain(trimmed) {
         bail!("docs '{declared}' must be a relative path inside the project");
     }
     Ok(trimmed.to_string())
 }
 
-/* Page paths relative to the docs root, hidden entries skipped the way the project walk skips them. */
-fn pages(dir: &Path, prefix: &str) -> Result<Vec<String>> {
+/* page paths below the docs root skipping hidden entries as the project walk does */
+fn pages(dir: &Path, prefix: &str, seen: &mut HashSet<PathBuf>) -> Result<Vec<String>> {
     let mut found = Vec::new();
+    if !crate::host::first_visit(seen, dir) {
+        return Ok(found);
+    }
     let entries = fs::read_dir(dir).with_context(|| format!("reading {}", dir.display()))?;
     for entry in entries.flatten() {
         let path = entry.path();
@@ -52,7 +57,7 @@ fn pages(dir: &Path, prefix: &str) -> Result<Vec<String>> {
             continue;
         }
         if path.is_dir() {
-            found.extend(pages(&path, &format!("{prefix}{name}/"))?);
+            found.extend(pages(&path, &format!("{prefix}{name}/"), seen)?);
         } else if name.ends_with(".mdx") {
             found.push(format!("{prefix}{name}"));
         }
@@ -60,10 +65,10 @@ fn pages(dir: &Path, prefix: &str) -> Result<Vec<String>> {
     Ok(found)
 }
 
-// The boxes a blockquote opens with a `[!KIND]` marker, the first five as GitHub draws them.
+// the boxes a `[!KIND]` marker opens with the first five drawn as GitHub draws them
 const KINDS: [&str; 9] = ["NOTE", "TIP", "IMPORTANT", "WARNING", "CAUTION", "QUESTION", "CARDS", "BANNER", "COPY"];
 
-// The Lucide release `make lucide` writes, every name a card can carry.
+// the Lucide release `make lucide` writes with every icon name a card can carry
 #[derive(serde::Deserialize)]
 struct Lucide {
     version: &'static str,
@@ -73,8 +78,8 @@ struct Lucide {
 
 static LUCIDE: LazyLock<Lucide> = LazyLock::new(|| serde_json::from_str(include_str!(concat!(env!("OUT_DIR"), "/lucide.json"))).expect("parsing lucide.json"));
 
-/* The convention the site renderer relies on, so a package cannot ship docs the site cannot lay out. */
-fn check(page: &str, text: &str) -> Result<()> {
+/* the site renderer conventions so no package ships docs the site cannot lay out */
+fn check(page: &str, text: &str, d: &Descriptor) -> Result<()> {
     let segments: Vec<&str> = page.split('/').collect();
     if segments.len() > 3 {
         bail!("'{page}' nests deeper than two folders, a section, its groups and their pages is all the renderer orders");
@@ -86,7 +91,7 @@ fn check(page: &str, text: &str) -> Result<()> {
     let mut closed: Option<&str> = None;
     let mut headings = 0usize;
     let mut quote = Quote::Out;
-    // The lines of the edge-manifest being read, checked once its fence closes.
+    // the lines of the manifest block being read and checked once its fence closes
     let mut manifest = String::new();
     for line in front(page, text)?.lines() {
         if open.is_none() {
@@ -95,18 +100,18 @@ fn check(page: &str, text: &str) -> Result<()> {
         if let Some(rest) = line.trim().strip_prefix("```") {
             match open.take() {
                 Some(lang) => {
-                    if lang == "edge-manifest" && !object(&manifest) {
-                        bail!("'{page}' has an edge-manifest block that is not a JSON object");
+                    if lang == d.manifest_fence && !object(&manifest) {
+                        bail!("'{page}' has an {} block that is not a JSON object", d.manifest_fence);
                     }
                     closed = Some(lang);
                 }
                 None => {
                     let lang = rest.trim();
-                    if lang == "output" && closed != Some("edge-python") {
-                        bail!("'{page}' has an output block that follows no edge-python block");
+                    if lang == "output" && closed != Some(d.example_fence) {
+                        bail!("'{page}' has an output block that follows no {} block", d.example_fence);
                     }
-                    if closed == Some("edge-manifest") && lang != "edge-python" {
-                        return Err(lone(page));
+                    if closed == Some(d.manifest_fence) && lang != d.example_fence {
+                        return Err(lone(page, d));
                     }
                     open = Some(lang);
                     closed = None;
@@ -115,7 +120,7 @@ fn check(page: &str, text: &str) -> Result<()> {
             }
             continue;
         }
-        if open == Some("edge-manifest") {
+        if open == Some(d.manifest_fence) {
             manifest.push_str(line);
             manifest.push('\n');
         }
@@ -126,10 +131,10 @@ fn check(page: &str, text: &str) -> Result<()> {
             if let Some(tag) = tagged(line) {
                 bail!("'{page}' writes the raw HTML '{tag}', and a page is markdown the site renders itself");
             }
-            // Blank lines keep two fences adjacent, prose between them does not.
+            // blank lines keep two fences adjacent but prose between them does not
             if !line.trim().is_empty() {
-                if closed == Some("edge-manifest") {
-                    return Err(lone(page));
+                if closed == Some(d.manifest_fence) {
+                    return Err(lone(page, d));
                 }
                 closed = None;
             }
@@ -139,8 +144,8 @@ fn check(page: &str, text: &str) -> Result<()> {
         bail!("'{page}' leaves a code fence unterminated");
     }
     quote.end(page)?;
-    if closed == Some("edge-manifest") {
-        return Err(lone(page));
+    if closed == Some(d.manifest_fence) {
+        return Err(lone(page, d));
     }
     if headings != 1 {
         bail!("'{page}' has {headings} top-level headings, the renderer needs exactly one");
@@ -148,7 +153,7 @@ fn check(page: &str, text: &str) -> Result<()> {
     Ok(())
 }
 
-/* Where a prose line stands among blockquotes, so a box is read whole before the site draws it. */
+/* where a prose line stands among blockquotes so a box is read whole before drawing */
 enum Quote<'a> {
     Out,
     Plain,
@@ -171,7 +176,7 @@ impl<'a> Quote<'a> {
                 if !KINDS.contains(&kind) {
                     bail!("'{page}' opens a [!{kind}] box, and a box is one of {}", KINDS.join(", "));
                 }
-                // A question, a banner and a copy line write beside the marker, every other box below it.
+                // only a question or banner or copy box writes its text beside the marker
                 let what = match kind {
                     "QUESTION" => "question",
                     "BANNER" => "title",
@@ -210,13 +215,13 @@ impl<'a> Quote<'a> {
     }
 }
 
-// A `[!KIND]` that opens a quote line, and the text beside it.
+// the `[!KIND]` opening a quote line and the text beside it
 fn marker(rest: &str) -> Option<(&str, &str)> {
     let (kind, beside) = rest.strip_prefix("[!")?.split_once(']')?;
     (!kind.is_empty() && kind.bytes().all(|b| b.is_ascii_alphabetic())).then(|| (kind, beside.trim()))
 }
 
-/* A line inside a box, held to the shape the site lays out for cards and banners. */
+/* holds a box line to the shape the site lays out for cards and banners */
 fn shaped(page: &str, kind: &str, lines: usize, rest: &str) -> Result<()> {
     let href = match kind {
         "CARDS" => {
@@ -241,7 +246,7 @@ fn shaped(page: &str, kind: &str, lines: usize, rest: &str) -> Result<()> {
     Ok(())
 }
 
-// A `- `icon` [Title](link) description` line, its icon and its link.
+// the icon and link of a card line
 fn card(rest: &str) -> Option<(&str, &str)> {
     let (icon, rest) = rest.strip_prefix("- `")?.split_once("` [")?;
     let (title, rest) = rest.split_once("](")?;
@@ -249,28 +254,28 @@ fn card(rest: &str) -> Option<(&str, &str)> {
     (!title.is_empty() && !about.trim().is_empty()).then_some((icon, href))
 }
 
-// A `[Action](link)` line, its link.
+// the link of an `[Action](link)` line
 fn button(rest: &str) -> Option<&str> {
     let (label, href) = rest.strip_prefix('[')?.strip_suffix(')')?.split_once("](")?;
     (!label.is_empty()).then_some(href)
 }
 
-/* A link a box can carry, https or a path on the site, since a link with no colon names no scheme. */
+/* https or a site path since a link without a colon names no scheme */
 fn linked(href: &str) -> bool {
     !href.contains(char::is_whitespace) && (href.starts_with("https://") || !(href.contains(':') || href.starts_with("//")))
 }
 
-/* An edge-manifest with no edge-python block right after it, which no example would run under. */
-fn lone(page: &str) -> anyhow::Error {
-    anyhow!("'{page}' has an edge-manifest block that no edge-python block follows")
+/* a manifest block no example block follows so no example would run under it */
+fn lone(page: &str, d: &Descriptor) -> anyhow::Error {
+    anyhow!("'{page}' has an {} block that no {} block follows", d.manifest_fence, d.example_fence)
 }
 
-// An edge-manifest holds one JSON object, the edge.json its example runs under.
+// a manifest block holds one JSON object as the edge.json its example runs under
 fn object(text: &str) -> bool {
     serde_json::from_str::<serde_json::Value>(text).is_ok_and(|value| value.is_object())
 }
 
-/* The first HTML tag a prose line opens, since a page the registry renders is markdown from a stranger and a raw tag would run on its origin. Inline code drops out first, so a page can still write about `<script>`. */
+/* the first HTML tag in prose since a raw tag would run on the registry */
 fn tagged(line: &str) -> Option<String> {
     let mut prose = String::with_capacity(line.len());
     let mut code = false;
@@ -282,7 +287,7 @@ fn tagged(line: &str) -> Option<String> {
         }
     }
 
-    // Every `<` is a candidate, so `a < b` does not hide a tag later on the same line.
+    // every `<` is a candidate so `a < b` cannot hide a later tag
     for (at, _) in prose.match_indices('<') {
         let rest = &prose[at + 1..];
         let closing = rest.starts_with('/');
@@ -291,7 +296,7 @@ fn tagged(line: &str) -> Option<String> {
             continue;
         }
         let end = name.find(|c: char| c.is_whitespace() || c == '>').unwrap_or(name.len());
-        // A tag that closes right after its name reads as one, a tag with attributes shows only its name.
+        // a tag shows its closing bracket only when it closes right after its name
         let shut = if name[end..].starts_with('>') { ">" } else { "" };
         return Some(format!("<{}{}{shut}", if closing { "/" } else { "" }, &name[..end]));
     }
@@ -299,7 +304,7 @@ fn tagged(line: &str) -> Option<String> {
     None
 }
 
-/* The page past its frontmatter, which names the page and describes it, and closes. */
+/* the page past a frontmatter that holds a title and a description and closes */
 fn front<'a>(page: &str, text: &'a str) -> Result<&'a str> {
     let Some(rest) = text.strip_prefix("---\n").or_else(|| text.strip_prefix("---\r\n")) else {
         bail!("'{page}' opens with no frontmatter, a page needs a title and a description");
@@ -333,7 +338,7 @@ fn front<'a>(page: &str, text: &'a str) -> Result<&'a str> {
     bail!("'{page}' leaves its frontmatter unterminated")
 }
 
-/* A segment the renderer can order, digits then a separator, `01-cli.mdx` or `02-reference`. */
+/* a segment the renderer can order with digits then a separator as in `01-cli.mdx` */
 fn ordered(segment: &str) -> bool {
     let rest = segment.trim_start_matches(|c: char| c.is_ascii_digit());
     rest.len() < segment.len() && (rest.starts_with('-') || rest.starts_with('_'))
@@ -352,7 +357,7 @@ mod tests {
         error: Option<String>,
     }
 
-    /* The corpus the site renderer shares, so neither side can change a rule on its own. */
+    /* the corpus shared with the site renderer so neither side changes a rule alone */
     #[test]
     fn the_shared_corpus_agrees() {
         let cases: Vec<Case> = serde_json::from_str(include_str!("../../tests/cases/docs.json")).expect("parsing docs.json");
@@ -365,7 +370,7 @@ mod tests {
                 fs::write(at, body).unwrap();
             }
             let pages = case.files.keys().filter(|p| p.ends_with(".mdx")).count();
-            match (&case.error, collect(dir.path(), Some("./docs"))) {
+            match (&case.error, collect(dir.path(), Some("./docs"), &mini::DESCRIPTOR)) {
                 (None, Ok(got)) => assert_eq!(got.len(), pages, "{}", case.name),
                 (None, Err(e)) => panic!("{} should pass, got {e:#}", case.name),
                 (Some(want), Err(e)) => {
@@ -384,22 +389,41 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         fs::create_dir_all(dir.path().join("docs/01-reference")).unwrap();
         fs::write(dir.path().join("docs/01-reference/01-cli.mdx"), PAGE).unwrap();
-        let got = collect(dir.path(), Some("docs")).unwrap();
+        let got = collect(dir.path(), Some("docs"), &mini::DESCRIPTOR).unwrap();
         assert_eq!(got[0].0, "@docs/01-reference/01-cli.mdx");
     }
 
     #[test]
     fn no_docs_key_collects_nothing() {
         let dir = tempfile::tempdir().unwrap();
-        assert!(collect(dir.path(), None).unwrap().is_empty());
+        assert!(collect(dir.path(), None, &mini::DESCRIPTOR).unwrap().is_empty());
     }
 
     #[test]
     fn a_path_outside_the_project_is_refused() {
         let dir = tempfile::tempdir().unwrap();
         for bad in ["../docs", "/etc", "https://example.com/docs", "./"] {
-            let err = format!("{:#}", collect(dir.path(), Some(bad)).expect_err(bad));
+            let err = format!("{:#}", collect(dir.path(), Some(bad), &mini::DESCRIPTOR).expect_err(bad));
             assert!(err.contains("must be a relative path"), "{bad} got '{err}'");
         }
+    }
+
+    /* a fence naming a repo file stays empty for the site to fill */
+    #[test]
+    fn every_included_file_is_in_the_repo_and_never_copied() {
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        let mut included = Vec::new();
+        for page in pages(&repo.join("docs"), "", &mut HashSet::new()).unwrap() {
+            let text = fs::read_to_string(repo.join("docs").join(&page)).unwrap();
+            let mut lines = text.lines();
+            while let Some(line) = lines.next() {
+                let named = line.trim().strip_prefix("```").and_then(|info| info.split_whitespace().find_map(|word| word.strip_prefix("file=")));
+                let Some(file) = named else { continue };
+                assert!(repo.join(file).is_file(), "'{page}' includes '{file}', which the repo does not hold");
+                assert_eq!(lines.next().map(str::trim), Some("```"), "'{page}' copies '{file}' into its fence, the site fills it");
+                included.push(file.to_string());
+            }
+        }
+        assert!(included.iter().any(|f| f == "examples/net/net.rs") && included.iter().any(|f| f == "examples/net/net.ts"), "{included:?}");
     }
 }

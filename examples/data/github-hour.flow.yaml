@@ -1,0 +1,24 @@
+from: https://data.gharchive.org/2026-10-01-15.json.gz
+where: not actor.login.endswith("[bot]")
+
+top_stars:
+  where: type == "WatchEvent"
+  count: repo.name
+  top: 10
+
+busy_branches:
+  where: type == "PushEvent"
+  count: repo.name, branch = payload.ref.removeprefix("refs/heads/")
+  keep: count > 1
+
+activity.csv:
+  count: minute = created_at[11:16], type
+
+issues_opened:
+  where: type == "IssuesEvent" and payload.action == "opened"
+  count: repo.name
+
+time_to_close:
+  where: type == "IssuesEvent" and payload.action == "closed"
+  average: hours_between(payload.issue.created_at, payload.issue.closed_at)
+  by: repo.name

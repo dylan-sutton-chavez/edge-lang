@@ -1,0 +1,5 @@
+{
+  "permissions": {
+    "main": ["clock", "net:www.githubstatus.com", "net:status.npmjs.org", "net:registry.npmjs.org", "net:www.cloudflarestatus.com"]
+  }
+}

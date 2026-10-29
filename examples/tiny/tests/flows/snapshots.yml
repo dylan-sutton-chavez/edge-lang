@@ -1,0 +1,135 @@
+- name: a flow parked on its source resumes from a snapshot as from its pause
+  grants: ['net:data.gharchive.org']
+  hops: true
+  flow: |
+    from: https://data.gharchive.org/2026-10-01-15.json.gz
+    total:
+      count:
+  out:
+    total:
+      - '{"count":431}'
+
+- name: a report keeps its rows across snapshots
+  grants: ['net:data.gharchive.org']
+  hops: true
+  flow: |
+    from: https://data.gharchive.org/2026-10-01-15.json.gz
+    kinds:
+      count: type
+      sort: -count, type
+  out:
+    kinds:
+      - '{"type":"PushEvent","count":130}'
+      - '{"type":"WatchEvent","count":121}'
+      - '{"type":"IssuesEvent","count":87}'
+      - '{"type":"CreateEvent","count":42}'
+      - '{"type":"IssueCommentEvent","count":20}'
+      - '{"type":"PullRequestEvent","count":20}'
+      - '{"type":"DeleteEvent","count":11}'
+
+- name: every report keeps its state across snapshots
+  grants: ['net:data.gharchive.org']
+  hops: true
+  flow: |
+    from: https://data.gharchive.org/2026-10-01-15.json.gz
+    starred:
+      where: type == "WatchEvent"
+      count: repo.name
+      keep: count > 2
+    opened:
+      where: type == "IssuesEvent" and payload.action == "opened"
+      count:
+    closed:
+      where: type == "IssuesEvent" and payload.action == "closed"
+      count:
+  out:
+    closed:
+      - '{"count":15}'
+    opened:
+      - '{"count":26}'
+    starred:
+      - '{"repo":{"name":"shihabal3amri/DiPlay"},"count":3}'
+
+- name: a csv file keeps its header across snapshots
+  grants: ['net:data.gharchive.org']
+  hops: true
+  flow: |
+    from: https://data.gharchive.org/2026-10-01-15.json.gz
+    deletes.csv:
+      where: type == "DeleteEvent" and created_at > "2026-10-01T15:00:00Z"
+  out:
+    file:deletes.csv:
+      - 'id,type,actor.id,actor.login,actor.display_login,actor.gravatar_id,actor.url,actor.avatar_url,repo.id,repo.name,repo.url,payload.ref,payload.ref_type,payload.full_ref,payload.pusher_type,public,created_at,org.id,org.login,org.gravatar_id,org.url,org.avatar_url'
+      - '22702383485,DeleteEvent,118344674,github-merge-queue[bot],github-merge-queue,,https://api.github.com/users/github-merge-queue[bot],https://avatars.githubusercontent.com/u/118344674?,52855516,Homebrew/homebrew-core,https://api.github.com/repos/Homebrew/homebrew-core,gh-readonly-queue/main/pr-314663-0211e9c2eeea26bc0f1b382446dc076321e9a871,branch,refs/heads/gh-readonly-queue/main/pr-314663-0211e9c2eeea26bc0f1b382446dc076321e9a871,user,true,2026-10-01T15:04:12Z,1503512,Homebrew,,https://api.github.com/orgs/Homebrew,https://avatars.githubusercontent.com/u/1503512?'
+      - '22702832555,DeleteEvent,29139614,renovate[bot],renovate,,https://api.github.com/users/renovate[bot],https://avatars.githubusercontent.com/u/29139614?,971750200,aexoden/boinchub,https://api.github.com/repos/aexoden/boinchub,renovate/prettier-3.x,branch,refs/heads/renovate/prettier-3.x,user,true,2026-10-01T15:05:52Z,,,,,'
+      - '22703254577,DeleteEvent,2912652,koenbeuk,koenbeuk,,https://api.github.com/users/koenbeuk,https://avatars.githubusercontent.com/u/2912652?,1209761865,civitai/civitai-developer-docs,https://api.github.com/repos/civitai/civitai-developer-docs,ideogram-45,branch,refs/heads/ideogram-45,user,true,2026-10-01T15:21:10Z,117393426,civitai,,https://api.github.com/orgs/civitai,https://avatars.githubusercontent.com/u/117393426?'
+      - '22703669813,DeleteEvent,11467628,shobande-femi,shobande-femi,,https://api.github.com/users/shobande-femi,https://avatars.githubusercontent.com/u/11467628?,966458244,aikirun/aiki,https://api.github.com/repos/aikirun/aiki,arm-schedule-timer,branch,refs/heads/arm-schedule-timer,user,true,2026-10-01T15:27:49Z,241119977,aikirun,,https://api.github.com/orgs/aikirun,https://avatars.githubusercontent.com/u/241119977?'
+      - '22704037727,DeleteEvent,41898282,github-actions[bot],github-actions,,https://api.github.com/users/github-actions[bot],https://avatars.githubusercontent.com/u/41898282?,1305808111,malys/EVABRPUploader,https://api.github.com/repos/malys/EVABRPUploader,unstable,tag,refs/tags/unstable,user,true,2026-10-01T15:24:07Z,,,,,'
+      - '22704429968,DeleteEvent,40964666,kevindaffaarr,kevindaffaarr,,https://api.github.com/users/kevindaffaarr,https://avatars.githubusercontent.com/u/40964666?,512152756,kevindaffaarr/quantist_api,https://api.github.com/repos/kevindaffaarr/quantist_api,dev-sanctum,branch,refs/heads/dev-sanctum,user,true,2026-10-01T15:30:27Z,,,,,'
+      - '22704862501,DeleteEvent,29139614,renovate[bot],renovate,,https://api.github.com/users/renovate[bot],https://avatars.githubusercontent.com/u/29139614?,570601511,cailloumajor/mongodb-influxdb,https://api.github.com/repos/cailloumajor/mongodb-influxdb,renovate/mongo-8.x,branch,refs/heads/renovate/mongo-8.x,user,true,2026-10-01T15:42:36Z,,,,,'
+      - '22705249724,DeleteEvent,29139614,renovate[bot],renovate,,https://api.github.com/users/renovate[bot],https://avatars.githubusercontent.com/u/29139614?,1200700094,soenneker/soenneker.temporal.runners.openapiclient,https://api.github.com/repos/soenneker/soenneker.temporal.runners.openapiclient,renovate/soenneker.openapi.fixer-4.x,branch,refs/heads/renovate/soenneker.openapi.fixer-4.x,user,true,2026-10-01T15:47:43Z,,,,,'
+      - '22705648787,DeleteEvent,49699333,dependabot[bot],dependabot,,https://api.github.com/users/dependabot[bot],https://avatars.githubusercontent.com/u/49699333?,1342605838,Hoshino-Yumetsuki/hexo-renderer-pug-rs,https://api.github.com/repos/Hoshino-Yumetsuki/hexo-renderer-pug-rs,dependabot/npm_and_yarn/oxfmt-0.65.0,branch,refs/heads/dependabot/npm_and_yarn/oxfmt-0.65.0,user,true,2026-10-01T15:40:26Z,,,,,'
+      - '22706027100,DeleteEvent,254751612,eduardooliveirak95,eduardooliveirak95,,https://api.github.com/users/eduardooliveirak95,https://avatars.githubusercontent.com/u/254751612?,1133740106,eduardooliveirak95/eduardo,https://api.github.com/repos/eduardooliveirak95/eduardo,claude/hopeful-maxwell-f67etd,branch,refs/heads/claude/hopeful-maxwell-f67etd,user,true,2026-10-01T15:51:00Z,,,,,'
+
+- name: a sort holding records keeps them across snapshots
+  grants: ['net:data.gharchive.org']
+  hops: true
+  flow: |
+    from: https://data.gharchive.org/2026-10-01-15.json.gz
+    latest:
+      where: type == "DeleteEvent"
+      sort: -created_at
+      top: 3
+  out:
+    latest:
+      - '{"id":"22706027100","type":"DeleteEvent","actor":{"id":254751612,"login":"eduardooliveirak95","display_login":"eduardooliveirak95","gravatar_id":"","url":"https://api.github.com/users/eduardooliveirak95","avatar_url":"https://avatars.githubusercontent.com/u/254751612?"},"repo":{"id":1133740106,"name":"eduardooliveirak95/eduardo","url":"https://api.github.com/repos/eduardooliveirak95/eduardo"},"payload":{"ref":"claude/hopeful-maxwell-f67etd","ref_type":"branch","full_ref":"refs/heads/claude/hopeful-maxwell-f67etd","pusher_type":"user"},"public":true,"created_at":"2026-10-01T15:51:00Z"}'
+      - '{"id":"22705249724","type":"DeleteEvent","actor":{"id":29139614,"login":"renovate[bot]","display_login":"renovate","gravatar_id":"","url":"https://api.github.com/users/renovate[bot]","avatar_url":"https://avatars.githubusercontent.com/u/29139614?"},"repo":{"id":1200700094,"name":"soenneker/soenneker.temporal.runners.openapiclient","url":"https://api.github.com/repos/soenneker/soenneker.temporal.runners.openapiclient"},"payload":{"ref":"renovate/soenneker.openapi.fixer-4.x","ref_type":"branch","full_ref":"refs/heads/renovate/soenneker.openapi.fixer-4.x","pusher_type":"user"},"public":true,"created_at":"2026-10-01T15:47:43Z"}'
+      - '{"id":"22704862501","type":"DeleteEvent","actor":{"id":29139614,"login":"renovate[bot]","display_login":"renovate","gravatar_id":"","url":"https://api.github.com/users/renovate[bot]","avatar_url":"https://avatars.githubusercontent.com/u/29139614?"},"repo":{"id":570601511,"name":"cailloumajor/mongodb-influxdb","url":"https://api.github.com/repos/cailloumajor/mongodb-influxdb"},"payload":{"ref":"renovate/mongo-8.x","ref_type":"branch","full_ref":"refs/heads/renovate/mongo-8.x","pusher_type":"user"},"public":true,"created_at":"2026-10-01T15:42:36Z"}'
+
+- name: a named key survives snapshots
+  grants: ['net:data.gharchive.org']
+  hops: true
+  flow: |
+    from: https://data.gharchive.org/2026-10-01-15.json.gz
+    kinds:
+      where: type == "CreateEvent"
+      count: kind = payload.ref_type.upper()
+      sort: kind
+  out:
+    kinds:
+      - '{"kind":"BRANCH","count":42}'
+
+- name: a time held across a wait survives a restore
+  grants: ['net:data.gharchive.org']
+  hops: true
+  flow: |
+    from: https://data.gharchive.org/2026-10-01-15.json.gz
+    latest:
+      where: type == "IssuesEvent" and payload.action == "closed"
+      max: time(payload.issue.closed_at)
+  out:
+    latest:
+      - '{"max":"2026-10-01T15:50:31Z"}'
+
+- name: a duration held across a wait survives a restore
+  grants: ['net:data.gharchive.org']
+  hops: true
+  flow: |
+    from: https://data.gharchive.org/2026-10-01-15.json.gz
+    longest:
+      where: type == "IssuesEvent" and payload.action == "closed"
+      max: time(payload.issue.closed_at) - time(payload.issue.created_at)
+  out:
+    longest:
+      - '{"max":"5619740s"}'
+
+- name: a source of host input never waits so it never hops
+  input: slice
+  hops: true
+  flow: |
+    from: input
+    total:
+      count:
+  out:
+    total:
+      - '{"count":431}'

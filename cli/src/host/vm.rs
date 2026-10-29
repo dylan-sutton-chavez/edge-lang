@@ -1,7 +1,8 @@
-use super::{read, resolver, rt, stage, unstage, wt, Exports, Host, MemoryCap, Project, Sink, State};
+use super::{read, resolver, rt, stage, unstage, wt, Calls, Exports, Fault, Fetched, Host, MemoryCap, Native, Opened, Project, Remote, Sink, State, Walk};
 use anyhow::{anyhow, bail, Result};
-use compiler::abi::WireValue;
-use compiler::embed::Limits;
+use edge::abi::WireValue;
+use edge::embed::Limits;
+use crate::kit::Descriptor;
 use std::cell::{RefCell, RefMut};
 use std::collections::{HashMap, VecDeque};
 use std::rc::Rc;
@@ -12,7 +13,7 @@ use wasmtime::{ResourceLimiter, Store};
 
 const KIND_SHIFT: u32 = 29;
 
-/* What a run step left the interpreter waiting on, the packed status of the compiler exports. */
+/* what a run step left the interpreter waiting on as packed by the runtime exports */
 pub enum Status {
     Done,
     PendingEvent,
@@ -24,68 +25,74 @@ pub enum Status {
 
 pub enum Completion {
     Value { id: u32, value: WireValue },
-    Error { id: u32, msg: String },
+    Error { id: u32, fault: Fault },
 }
 
-/* One compiler instance, its store and the slots its interpreters run in. */
+/* one runtime instance with its store and the slots its interpreters run in */
 pub struct Instance {
     pub(super) host: Rc<Host>,
     pub(super) store: Store<State>,
     pub(super) ex: Exports,
     pub project: Project,
-    // The slot the per-run exports act on right now.
+    // the slot the per-run exports act on right now
     selected: u32,
-    // Entry dir and source whose modules are registered, slots booting them skip the walk.
+    // the entry dir and source already registered so slots booting them skip the walk
     prepared: Option<(String, String)>,
-    // A trap leaves the instance memory untrustworthy, nothing runs in it again.
+    // a trap leaves the instance memory untrustworthy so nothing runs in it again
     poisoned: bool,
     slots: usize,
+    // the module being opened with what its package holds which gates every call it serves
+    pub(super) opening: Option<(Arc<dyn super::HostModule>, super::Held)>,
 }
 
 impl Host {
-    /* A fresh compiler instance, `deadline` in epoch ticks and `memory` in bytes bound every memory of its store, plugins included. */
+    /* a runtime instance whose `deadline` in epoch ticks and `memory` in bytes bound plugins too */
     pub fn instance(self: &Rc<Self>, sink: Sink, project: Project, deadline: Option<u64>, memory: usize) -> Result<Rc<RefCell<Instance>>> {
         let state = State {
             exports: None,
-            print: Arc::new(Mutex::new(sink)),
+            print: sink,
             natives: Vec::new(),
             registered: HashMap::new(),
             deferred: Vec::new(),
             running: Vec::new(),
             waiting: HashMap::new(),
             outbox: None,
+            outbox_bytes: 0,
+            outbox_cap: self.loaded.limits.memory,
+            channel: None,
+            channel_error: None,
+            senders: None,
+            unsent: None,
             limiter: MemoryCap { max: memory },
             slot: 0,
             events: None,
-            run: super::system::run_id(),
+            opened: Vec::new(),
+            descriptor: self.loaded.descriptor,
         };
-        let mut store = Store::new(&self.runtime.engine, state);
+        let mut store = Store::new(&self.loaded.engine, state);
         store.limiter(|s: &mut State| &mut s.limiter as &mut dyn ResourceLimiter);
         store.set_epoch_deadline(deadline.unwrap_or(1 << 40));
         store.epoch_deadline_trap();
-        let instance = wt(self.compiler.instantiate(&mut store))?;
+        let instance = wt(self.linked.instantiate(&mut store))?;
         let ex = Exports::bind(&mut store, &instance)?;
         store.data_mut().exports = Some(ex.clone());
         wt(ex.reset_modules.call(&mut store, ()))?;
-        Ok(Rc::new(RefCell::new(Instance { host: self.clone(), store, ex, project, selected: 0, prepared: None, poisoned: false, slots: 0 })))
+        Ok(Rc::new(RefCell::new(Instance { host: self.clone(), store, ex, project, selected: 0, prepared: None, poisoned: false, slots: 0, opening: None })))
     }
 
-    /* One interpreter on an instance of its own, the shape of every one-shot run. */
+    /* one interpreter on an instance of its own as every one-shot run uses */
     pub fn vm(self: &Rc<Self>, sink: Sink, project: Project, deadline: Option<u64>, memory: Option<usize>) -> Result<Vm> {
-        let asked = super::RunLimits::get().engine();
-        // Without a cap of its own the run grows only as far as the limit of the command line allows.
-        let memory = memory.unwrap_or_else(|| super::linear_cap(asked.unwrap_or_else(Limits::sandbox).memory));
+        let limits = super::RunLimits::get().over(self.loaded.limits);
+        // these limits bound an uncapped run and apply before a group sets its own
+        let memory = memory.unwrap_or_else(|| super::linear_cap(limits.memory));
         let mut vm = Vm::on(self.instance(sink, project, deadline, memory)?, 0);
-        // What the command line asked for, before a group sets its own.
-        if let Some(limits) = asked {
-            vm.set_limits(&limits)?;
-        }
+        vm.set_limits(&limits)?;
         Ok(vm)
     }
 }
 
 impl Instance {
-    /* Opens another interpreter slot in `inst`, the slot frees when the Vm drops. */
+    /* opens another interpreter slot in `inst` that frees when the `Vm` drops */
     pub fn slot(inst: &Rc<RefCell<Instance>>) -> Result<Vm> {
         let id = {
             let mut i = inst.borrow_mut();
@@ -104,16 +111,21 @@ impl Instance {
         self.slots
     }
 
-    /* Lets send() reach the scheduler, only pool instances drain the outbox. */
+    /* lets `send()` reach the scheduler since only pool instances drain the outbox */
     pub fn accept_sends(&mut self) {
         self.store.data_mut().outbox.get_or_insert_with(Vec::new);
+    }
+
+    /* hands every line a run sends to `channel` the moment the program sends it */
+    pub fn send_to(&mut self, channel: super::ChannelSink) {
+        self.store.data_mut().channel = Some(channel);
     }
 
     pub fn poisoned(&self) -> bool {
         self.poisoned
     }
 
-    /* Any failed call is a trap, and a trapped instance never runs again. */
+    /* any failed call is a trap and a trapped instance never runs again */
     fn checked<R>(&mut self, r: wasmtime::Result<R>) -> Result<R> {
         r.map_err(|e| {
             self.poisoned = true;
@@ -141,7 +153,7 @@ impl Instance {
         Ok(())
     }
 
-    /* Stages `bytes` for one `(ptr, len)` call and frees them once it returns. */
+    /* stages `bytes` for one pointer and length call and frees them once it returns */
     fn with_bytes<R>(&mut self, bytes: &[u8], call: impl FnOnce(&mut Store<State>, &Exports, i32, i32) -> wasmtime::Result<R>) -> Result<wasmtime::Result<R>> {
         let staged = stage(&mut self.store, &self.ex, bytes);
         let ptr = self.checked(staged)?;
@@ -151,26 +163,34 @@ impl Instance {
         Ok(result)
     }
 
-    /* The compiler's out buffer, what the last call left there. */
+    /* what the last call left in the out buffer of the runtime */
     fn read_out(&mut self) -> Vec<u8> {
         let ptr = self.ex.out_ptr.call(&mut self.store, ()).unwrap_or(0);
         let len = self.ex.out_len.call(&mut self.store, ()).unwrap_or(0);
         read(&mut self.store, self.ex.memory, ptr, len)
     }
 
-    // Names the entry the walk and parse resolve from, registers its modules once, feeds stdin.
+    /* whether the descriptor names this runtime as the one that saved the blob */
+    fn saved_here(&mut self, blob: &[u8]) -> bool {
+        let Some(describe) = self.ex.runtime_descriptor.clone() else { return true };
+        let Ok(len) = describe.call(&mut self.store, ()) else { return true };
+        let ptr = self.ex.out_ptr.call(&mut self.store, ()).unwrap_or(0);
+        let text = read(&mut self.store, self.ex.memory, ptr, len);
+        let Ok(d) = serde_json::from_slice::<serde_json::Value>(&text) else { return true };
+        let (Some(at), Some(id)) = (d["snapshot"]["runtime_at"].as_u64(), d["snapshot"]["runtime"].as_str()) else { return true };
+        let at = at as usize;
+        blob.get(at..at + 8).and_then(|w| w.try_into().ok()).map(u64::from_le_bytes).is_some_and(|w| format!("{w:016x}") == id)
+    }
+
+    // names the entry the walk resolves from then registers its modules once and feeds stdin
     fn prepare(&mut self, src: &str, input: Option<&str>) -> Result<Option<Status>> {
         let entry = self.project.entry.clone();
-        let raw = self.with_bytes(entry.as_bytes(), |store, ex, ptr, len| ex.set_entry.call(store, (ptr, len)))?;
-        self.checked(raw)?;
+        self.name_entry(&entry)?;
         let key = (entry, src.to_string());
         if self.prepared.as_ref() != Some(&key) {
             if let Err(e) = resolver::prefetch(self, src) {
                 return Ok(Some(Status::Error(e)));
             }
-            // The SyntaxWarnings of a newly compiled program go to stderr before it runs, as Python prints them.
-            let raw = self.with_bytes(src.as_bytes(), |store, ex, ptr, len| ex.compile_warnings.call(store, (ptr, len)))?;
-            if self.checked(raw)? > 0 { eprint!("{}", String::from_utf8_lossy(&self.read_out())); }
             self.prepared = Some(key);
         }
         if let Some(text) = input {
@@ -180,12 +200,24 @@ impl Instance {
         Ok(None)
     }
 
+    /* the script tracebacks name and the directory its relative imports join onto */
+    pub(super) fn name_entry(&mut self, entry: &str) -> Result<()> {
+        let raw = self.with_bytes(entry.as_bytes(), |store, ex, ptr, len| ex.set_entry.call(store, (ptr, len)))?;
+        self.checked(raw)
+    }
+
+    /* drops every module and refusal the runtime holds */
+    pub(super) fn reset_modules(&mut self) -> Result<()> {
+        let raw = self.ex.reset_modules.call(&mut self.store, ());
+        self.checked(raw)
+    }
+
     fn status(&mut self, raw: wasmtime::Result<i32>) -> Result<Status> {
         let status = match raw {
             Ok(raw) => raw as u32,
             Err(e) => {
                 self.poisoned = true;
-                return Ok(Status::Error(trap_text(&e)));
+                return Ok(Status::Error(trap_text(&e, self.host.descriptor())));
             }
         };
         Ok(match status >> KIND_SHIFT {
@@ -199,11 +231,6 @@ impl Instance {
         })
     }
 
-    /* The run this instance reports its system calls under. */
-    pub(super) fn run(&self) -> u64 {
-        self.store.data().run
-    }
-
     pub(super) fn register_error(&mut self, spec: &str, msg: &str) -> Result<(), String> {
         self.register_pair(spec, msg.as_bytes(), |store, ex, (s, sl), (p, pl)| ex.register_module_error.call(store, (s, sl, p, pl)))
     }
@@ -213,52 +240,69 @@ impl Instance {
         self.register_pair(spec, joined.as_bytes(), |store, ex, (s, sl), (p, pl)| ex.register_native_module.call(store, (s, sl, p, pl, base as i32)))
     }
 
-    /* Serves `module` to `pkg` under `spec`, opened with the scopes that package holds. */
-    pub(super) fn register_system(&mut self, spec: &str, pkg: &str, module: &str, held: &[String]) -> Result<(), String> {
+    /* serves the calls `module` opened under `spec` with `names` in the order their index answers */
+    pub fn serve(&mut self, spec: &str, module: &str, names: &[&str], calls: Box<dyn Calls>) -> Result<(), String> {
+        // a spec this instance already serves keeps the calls its package opened first
         if let Some((base, names)) = self.store.data().registered.get(spec).cloned() {
             return self.register_native(spec, &names, base);
         }
+        // the kit checks each call against the grant so no module can skip it
+        let calls = match self.opening.clone() {
+            Some((module, held)) => Box::new(super::access::Gate { module, held, names: names.iter().map(|name| name.to_string()).collect(), calls }),
+            None => calls,
+        };
         let state = self.store.data_mut();
-        let names = super::system::open(state.run, spec, pkg, module, held);
+        let calls: Opened = Arc::new(Mutex::new(calls));
+        state.opened.push(calls.clone());
         let base = state.natives.len();
-        for name in &names {
-            state.natives.push(super::Native::System { module: module.to_string(), name: name.clone(), spec: spec.to_string() });
+        for (index, name) in names.iter().enumerate() {
+            state.natives.push(Native::Host { calls: calls.clone(), index, name: format!("{module}.{name}").into() });
         }
+        let names: Vec<String> = names.iter().map(|name| name.to_string()).collect();
         state.registered.insert(spec.to_string(), (base, names.clone()));
         self.register_native(spec, &names, base)
     }
 
-    /* Starts the engine's resolution walk, returning the first step it asks this host, as JSON. */
+    /* names the field the next walks carry with the holders it reserves after it */
+    pub(super) fn walk_carry(&mut self, carried: &str) -> Result<(), String> {
+        let Some(carry) = self.ex.walk_carry.clone() else { return Ok(()) };
+        let ptr = stage(&mut self.store, &self.ex, carried.as_bytes()).map_err(|e| e.to_string())?;
+        let result = carry.call(&mut self.store, (ptr, carried.len() as i32));
+        unstage(&mut self.store, &self.ex, ptr, carried.len());
+        self.checked(result).map_err(|e| e.to_string())
+    }
+
+    /* starts the engine resolution walk and returns its first step for this host as JSON */
     pub(super) fn walk_start(&mut self, src: &str, system: &str) -> Result<Vec<u8>, String> {
         self.walk_call(&[src.as_bytes(), system.as_bytes()], |store, ex, s| ex.walk_start.call(store, (s[0].0, s[0].1, s[1].0, s[1].1)))
     }
 
-    /* Answers a fetch, `kind` 0 with the bytes, 1 missing, 2 failed with why. */
+    /* answers a fetch as `kind` 0 bytes or 1 missing or 2 failed with why */
     pub(super) fn walk_fetched(&mut self, bytes: &[u8], kind: i32) -> Result<Vec<u8>, String> {
         self.walk_call(&[bytes], |store, ex, s| ex.walk_fetched.call(store, (s[0].0, s[0].1, kind)))
     }
 
-    /* The bytes of the plugin the last step named, which may never have passed through this host. */
+    /* the plugin bytes the last step named which this host may never have seen */
     pub(super) fn walk_plugin_bytes(&mut self) -> Result<Vec<u8>, String> {
         self.walk_call(&[], |store, ex, _| ex.walk_plugin_bytes.call(store, ()))
     }
 
-    /* Answers a plugin, `kind` 0 registered, 1 failed, 2 refused, each with why. */
+    /* answers a plugin as `kind` 0 registered or 1 failed or 2 refused with why */
     pub(super) fn walk_plugin(&mut self, kind: i32, why: &str) -> Result<Vec<u8>, String> {
         self.walk_call(&[why.as_bytes()], |store, ex, s| ex.walk_plugin.call(store, (kind, s[0].0, s[0].1)))
     }
 
-    /* Hands back what serving the system modules failed at, the failures joined by NUL. */
+    /* hands back what serving the host modules failed at joined by NUL */
     pub(super) fn walk_served(&mut self, failures: &str) -> Result<Vec<u8>, String> {
         self.walk_call(&[failures.as_bytes()], |store, ex, s| ex.walk_served.call(store, (s[0].0, s[0].1)))
     }
 
-    /* Answers the undeclared names with the ones the registry has, joined by NUL. */
+    /* answers the undeclared names with the ones the registry has joined by NUL */
     pub(super) fn walk_known(&mut self, names: &str) -> Result<Vec<u8>, String> {
         self.walk_call(&[names.as_bytes()], |store, ex, s| ex.walk_known.call(store, (s[0].0, s[0].1)))
     }
 
-    // Stages the buffers for one walk call, frees them after, and reads the step it left.
+    // stages buffers for one walk call and frees them before reading the step it left
     fn walk_call(&mut self, bufs: &[&[u8]], call: impl FnOnce(&mut Store<State>, &Exports, &[(i32, i32)]) -> wasmtime::Result<i32>) -> Result<Vec<u8>, String> {
         let mut staged = Vec::with_capacity(bufs.len());
         for bytes in bufs {
@@ -274,7 +318,7 @@ impl Instance {
         Ok(self.read_out())
     }
 
-    // Stages a spec and a payload for one registration call, both freed once it returns.
+    // stages a spec and payload for one registration call freeing both once it returns
     fn register_pair(&mut self, spec: &str, payload: &[u8], call: impl FnOnce(&mut Store<State>, &Exports, (i32, i32), (i32, i32)) -> wasmtime::Result<()>) -> Result<(), String> {
         let s = stage(&mut self.store, &self.ex, spec.as_bytes()).map_err(|e| e.to_string())?;
         let p = stage(&mut self.store, &self.ex, payload).map_err(|e| e.to_string())?;
@@ -286,13 +330,13 @@ impl Instance {
     }
 }
 
-/* One interpreter, a slot of an instance plus the completions its deferred calls report to. */
+/* one interpreter slot of an instance with the completions its deferred calls report */
 pub struct Vm {
     inst: Rc<RefCell<Instance>>,
     slot: u32,
     events: Sender<Completion>,
     rx: Receiver<Completion>,
-    // Calls this interpreter parked on, moved out of the shared store after every step.
+    // calls this interpreter parked on moved out of the shared store after every step
     parked: Vec<u32>,
     inflight: usize,
     buffered: VecDeque<String>,
@@ -308,7 +352,7 @@ impl Drop for Vm {
             if !inst.poisoned {
                 let Instance { store, ex, selected, .. } = &mut *inst;
                 let _ = ex.vm_drop.call(&mut *store, self.slot as i32);
-                // Dropping the selected slot moves the compiler back to slot 0.
+                // dropping the selected slot moves the runtime back to slot 0
                 if *selected == self.slot {
                     *selected = 0;
                     store.data_mut().events = None;
@@ -324,14 +368,14 @@ impl Vm {
         Vm { inst, slot, events, rx, parked: Vec::new(), inflight: 0, buffered: VecDeque::new() }
     }
 
-    /* Keeps what the step just parked on, before another slot of the instance runs. */
+    /* keeps what the step just parked on before another slot of the instance runs */
     fn stepped(&mut self, status: Result<Status>) -> Result<Status> {
         let calls = std::mem::take(&mut self.inst.borrow_mut().store.data_mut().deferred);
         self.parked.extend(calls);
         status
     }
 
-    /* The instance with this interpreter's slot selected. */
+    /* the instance with the slot of this interpreter selected */
     fn enter(&self) -> Result<RefMut<'_, Instance>> {
         let mut inst = self.inst.borrow_mut();
         inst.select(self.slot, &self.events)?;
@@ -342,7 +386,7 @@ impl Vm {
         &self.inst
     }
 
-    /* Resolves imports and starts a fresh run, a resolution failure reads like a compile error. */
+    /* resolves imports and starts a fresh run with resolution failures read as compile errors */
     pub fn start(&mut self, src: &str, input: Option<&str>) -> Result<Status> {
         let status = {
             let mut inst = self.enter()?;
@@ -355,7 +399,7 @@ impl Vm {
         self.stepped(status)
     }
 
-    /* Runs one more input on the persistent interpreter, history never re-executes. */
+    /* runs one more input on the persistent interpreter without running the history again */
     pub fn repl_eval(&mut self, src: &str, input: Option<&str>) -> Result<Status> {
         let status = {
             let mut inst = self.enter()?;
@@ -380,12 +424,12 @@ impl Vm {
         self.stepped(status)
     }
 
-    /* Runs the next input as `entry`, whose directory resolves its relative imports. */
+    /* runs the next input as `entry` whose directory resolves its relative imports */
     pub fn set_entry(&mut self, entry: &str) {
         self.inst.borrow_mut().project.entry = entry.to_string();
     }
 
-    /* Wakes a parked receive(), or queues the message until the run parks on one. */
+    /* wakes a parked `receive()` or queues the message until the run parks on one */
     pub fn push_event(&mut self, message: &str) -> bool {
         if self.inject(message) {
             return true;
@@ -400,7 +444,7 @@ impl Vm {
         matches!(inst.checked(raw), Ok(0))
     }
 
-    /* Hands queued messages to a run parked on an event, the count delivered. */
+    /* hands queued messages to a run parked on an event and returns how many arrived */
     pub fn drain_buffered(&mut self) -> usize {
         let mut delivered = 0;
         while let Some(message) = self.buffered.front().cloned() {
@@ -426,8 +470,10 @@ impl Vm {
         }
     }
 
-    /* Boots from the blob's embedded source, its imports must resolve again. */
+    /* boots from the source the blob embeds whose imports must resolve again */
     pub fn restore_state(&mut self, blob: &[u8]) -> Result<Status> {
+        // a blob another runtime saved is refused before its source is walked
+        if !self.enter()?.saved_here(blob) { bail!("{}", edge::embed::OTHER_RUNTIME); }
         let source = snapshot_source(blob)?;
         let status = {
             let mut inst = self.enter()?;
@@ -449,9 +495,11 @@ impl Vm {
         inst.checked(raw)
     }
 
-    /* Caps the next boot, a group's limits or the sandbox profile. */
+    /* caps the next boot with the limits of a group or the sandbox profile */
     pub fn set_limits(&mut self, limits: &Limits) -> Result<()> {
         let mut inst = self.enter()?;
+        // what a run sends between steps counts against what it may hold
+        inst.store.data_mut().outbox_cap = limits.memory;
         let raw = {
             let Instance { store, ex, .. } = &mut *inst;
             ex.set_limits.call(&mut *store, (limits.memory as i64, limits.ops as i64))
@@ -459,7 +507,7 @@ impl Vm {
         inst.checked(raw)
     }
 
-    /* Drops every module registration, the next input starts in a fresh namespace. */
+    /* drops every module registration so the next input starts in a fresh namespace */
     pub fn reset(&mut self) -> Result<()> {
         let mut inst = self.enter()?;
         let raw = {
@@ -473,12 +521,13 @@ impl Vm {
         state.registered.clear();
         state.deferred.clear();
         state.waiting.clear();
+        state.close_opened();
         drop(inst);
         self.parked.clear();
         Ok(())
     }
 
-    /* Moves the parked calls into the in-flight count, each answer arrives as a completion. */
+    /* moves the parked calls into the in-flight count whose answers arrive as completions */
     pub fn dispatch(&mut self) {
         self.inflight += std::mem::take(&mut self.parked).len();
     }
@@ -487,7 +536,7 @@ impl Vm {
         self.inflight
     }
 
-    /* Blocks for the next completion, then injects every one that arrived, the count delivered. */
+    /* blocks for the next completion then injects all that arrived and returns the count */
     pub fn wait(&mut self, timeout: Option<Duration>) -> Result<usize> {
         let first = match timeout {
             Some(t) => self.rx.recv_timeout(t).ok(),
@@ -498,7 +547,7 @@ impl Vm {
         Ok(1 + self.poll()?)
     }
 
-    /* Injects the completions already in, never blocks. */
+    /* injects the completions already in without blocking */
     pub fn poll(&mut self) -> Result<usize> {
         let mut delivered = 0;
         while let Ok(completion) = self.rx.try_recv() {
@@ -511,27 +560,27 @@ impl Vm {
     fn deliver(&mut self, completion: Completion) -> Result<()> {
         let (id, value) = match completion {
             Completion::Value { id, value } => (id, Ok(value)),
-            Completion::Error { id, msg } => (id, Err(msg)),
+            Completion::Error { id, fault } => (id, Err(fault)),
         };
         self.inflight = self.inflight.saturating_sub(1);
         let mut inst = self.enter()?;
         let raw = {
             let Instance { store, ex, .. } = &mut *inst;
             match (store.data_mut().waiting.remove(&id), value) {
-                // A plugin waiting on this call finishes its own work before the program sees the result.
+                // a plugin waiting on this call finishes its work before the program sees the result
                 (Some(plugin), settled) => super::env::resume(&mut *store, ex, id, plugin, settled),
                 (None, Ok(value)) => {
                     let handle = rt::encode(&mut *store, ex, &value).map_err(|e| anyhow!(e))?;
                     ex.set_host_result_by_id.call(&mut *store, (id as i32, handle as i32))
                 }
-                (None, Err(msg)) => {
-                    let (kind, msg) = super::env::kind_of(&msg);
-                    let handle = rt::encode(&mut *store, ex, &WireValue::Bytes(msg.as_bytes().to_vec())).map_err(|e| anyhow!(e))?;
-                    ex.set_host_error_by_id.call(&mut *store, (id as i32, kind, handle as i32))
+                (None, Err(fault)) => {
+                    let text = fault.message(store.data().descriptor);
+                    let handle = rt::encode(&mut *store, ex, &WireValue::Bytes(text.into_bytes())).map_err(|e| anyhow!(e))?;
+                    ex.set_host_error_by_id.call(&mut *store, (id as i32, fault.kind as i32, handle as i32))
                 }
             }
         };
-        // A resumed plugin that waits again is already in flight on the same id.
+        // a resumed plugin that waits again is already in flight on the same id
         let waits = std::mem::take(&mut inst.store.data_mut().deferred).len();
         let code = inst.checked(raw)?;
         drop(inst);
@@ -542,27 +591,89 @@ impl Vm {
         Ok(())
     }
 
-    /* Everything send() queued since the last take. */
+    /* everything `send()` queued since the last take */
     pub fn take_sends(&mut self) -> Vec<(String, String)> {
-        self.inst.borrow_mut().store.data_mut().outbox.as_mut().map(std::mem::take).unwrap_or_default()
+        let mut inst = self.inst.borrow_mut();
+        let state = inst.store.data_mut();
+        state.outbox_bytes = 0;
+        state.outbox.as_mut().map(std::mem::take).unwrap_or_default()
+    }
+
+    /* why a channel of the run failed to take a line since the last ask */
+    pub fn channel_error(&mut self) -> Option<String> {
+        self.inst.borrow_mut().store.data_mut().channel_error.take()
+    }
+
+    /* begins the import walk of `src` which `walk_on` steps where its caller chooses */
+    pub fn walk(&mut self, src: &str) -> Result<Walk, String> {
+        let mut inst = self.enter().map_err(|e| e.to_string())?;
+        let entry = inst.project.entry.clone();
+        inst.name_entry(&entry).map_err(|e| e.to_string())?;
+        Walk::start(&mut inst, src)
+    }
+
+    /* steps `walk` with what a fetch gave until it waits on another file or ends */
+    pub fn walk_on(&mut self, walk: &mut Walk, fetched: Option<Fetched>) -> Result<Option<Remote>, String> {
+        let mut inst = self.enter().map_err(|e| e.to_string())?;
+        if let Some(fetched) = fetched {
+            walk.answer(&mut inst, fetched)?;
+        }
+        let next = walk.advance(&mut inst)?;
+        // a finished walk leaves the instance prepared so the start walks nothing again
+        if next.is_none() {
+            inst.prepared = Some(walk.key.clone());
+        }
+        Ok(next)
+    }
+
+    /* the group a send of this instance went to that no scheduler took */
+    pub fn unsent(&self) -> Option<String> {
+        self.inst.borrow().store.data().unsent.clone()
     }
 }
 
-/* The source a snapshot blob embeds, the header layout of vm/snapshot.rs. */
+/* the source a snapshot blob embeds read by the engine that wrote its header */
 pub fn snapshot_source(blob: &[u8]) -> Result<String> {
-    let bad = || anyhow!("not an edge-python snapshot");
-    if blob.len() < 24 || u32::from_le_bytes(blob[0..4].try_into().map_err(|_| bad())?) != 0x4E53_5045 {
-        return Err(bad());
-    }
-    let len = u64::from_le_bytes(blob[16..24].try_into().map_err(|_| bad())?) as usize;
-    let end = 24usize.checked_add(len).filter(|e| *e <= blob.len()).ok_or_else(bad)?;
-    Ok(String::from_utf8_lossy(&blob[24..end]).into_owned())
+    edge::embed::source_of(blob).map(String::from).map_err(|e| anyhow!(e))
 }
 
-/* A trap is a run error, an epoch deadline reads as the time limit. */
-fn trap_text(e: &wasmtime::Error) -> String {
+/* a trap is a run error and an epoch deadline reads as the time limit */
+fn trap_text(e: &wasmtime::Error, d: &Descriptor) -> String {
     if e.downcast_ref::<wasmtime::Trap>().is_some_and(|t| *t == wasmtime::Trap::Interrupt) {
-        return "error: RuntimeError: run exceeded its time limit".to_string();
+        return time_limit(d);
     }
     format!("error: {e}")
+}
+
+/* the traceback of a run past its time limit raised as the runtime's runtime error */
+pub fn time_limit(d: &Descriptor) -> String {
+    format!("error: {}: run exceeded its time limit", d.runtime_error)
+}
+
+#[cfg(test)]
+mod restore {
+    use crate::host::{Host, Project, Status};
+    use std::sync::{Arc, Mutex};
+
+    // a blob the engine refuses leaves the run the instance keeps parked
+    #[test]
+    fn a_refused_blob_leaves_the_parked_run() {
+        let kit = crate::kit::tests::bare();
+        let host = Host::new(kit.load().unwrap()).unwrap();
+        let printed = Arc::new(Mutex::new(String::new()));
+        let into = printed.clone();
+        let mut vm = host.vm(Box::new(move |text: &str| into.lock().unwrap().push_str(text)), Project::disk("", None), None, None).unwrap();
+        assert!(matches!(vm.start("m = receive()\nprint('kept', m)\n", None).unwrap(), Status::PendingEvent));
+        let blob = vm.save_state().unwrap().expect("a parked run saves");
+        // the same blob sealed again over a source that no longer parses
+        let len = u64::from_le_bytes(blob[24..32].try_into().unwrap()) as usize;
+        let mut bad = blob[..blob.len() - 32].to_vec();
+        bad[40..40 + len].fill(b'(');
+        let seal = edge::util::sha256::sha256(&bad);
+        bad.extend_from_slice(&seal);
+        assert!(matches!(vm.restore_state(&bad).unwrap(), Status::Error(e) if e.contains("no longer parses")));
+        vm.push_event("x");
+        assert!(matches!(vm.resume().unwrap(), Status::Done));
+        assert_eq!(printed.lock().unwrap().as_str(), "kept x\n");
+    }
 }

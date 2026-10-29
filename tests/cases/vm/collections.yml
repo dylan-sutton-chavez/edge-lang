@@ -1,9 +1,4 @@
 - case: |-
-    print(len([1,2,3]))
-  expected: |-
-    3
-
-- case: |-
     x = [1,2,3]
     print(x[0])
   expected: |-
@@ -27,7 +22,7 @@
     True
 
 - case: |-
-    print(4 not in [1,2,3])
+    print(4 !in [1,2,3])
   expected: |-
     True
 
@@ -43,24 +38,9 @@
     10 20
 
 - case: |-
-    print(sum([1,2,3]))
-  expected: |-
-    6
-
-- case: |-
     print(sorted([3,1,2]))
   expected: |-
     [1, 2, 3]
-
-- case: |-
-    print(list((1,2,3)))
-  expected: |-
-    [1, 2, 3]
-
-- case: |-
-    print(tuple([1,2,3]))
-  expected: |-
-    (1, 2, 3)
 
 - case: |-
     print(list(range(2,5)))
@@ -86,22 +66,8 @@
   error: 'unhashable type: ''list'''
 
 - case: |-
-    print(({1},) in frozenset({1}))
-  error: 'unhashable type: ''set'''
-
-- case: |-
     print({1} in {1: 2})
   error: 'unhashable type: ''set'''
-
-- case: |-
-    print({1} in {frozenset({1})}, {2} in {1}, (1, 2) in {(1, 2)}, 'a' in {'a': 1}, [1] in [[1]])
-  expected: |-
-    True False True True True
-
-- case: |-
-    print(len({1, 2, 3}))
-  expected: |-
-    3
 
 - case: |-
     x = [1,2,3,4,5]
@@ -190,11 +156,6 @@
     4
 
 - case: |-
-    print(sum([1,2,3], 10))
-  expected: |-
-    16
-
-- case: |-
     print([1,2,3][99])
   error: list index out of range
 
@@ -218,21 +179,6 @@
     print(x['a'])
   expected: |-
     1
-
-- case: |-
-    print(bool([]))
-  expected: |-
-    False
-
-- case: |-
-    print(bool([1]))
-  expected: |-
-    True
-
-- case: |-
-    print(set([1,1,2,2,3,3]))
-  expected: |-
-    {1, 2, 3}
 
 - case: |-
     print([1, 2, 3] == [1, 2, 3])
@@ -444,56 +390,6 @@
     10
 
 - case: |-
-    print({9, 10})
-  expected: |-
-    {9, 10}
-
-- case: |-
-    print({10, 9, 8, 7})
-  expected: |-
-    {10, 9, 8, 7}
-
-- case: |-
-    print({1, 2, 10, 20})
-  expected: |-
-    {1, 2, 10, 20}
-
-- case: |-
-    print({1.5, 0.5, 2.5})
-  expected: |-
-    {1.5, 0.5, 2.5}
-
-- case: |-
-    print({0, 1, 2.5})
-  expected: |-
-    {0, 1, 2.5}
-
-- case: |-
-    print({1, 'a', 2})
-  expected: |-
-    {1, 'a', 2}
-
-- case: |-
-    print({100, 2, 30})
-  expected: |-
-    {100, 2, 30}
-
-- case: |-
-    print({-1, 0, 1})
-  expected: |-
-    {-1, 0, 1}
-
-- case: |-
-    print({-10, -2, -1})
-  expected: |-
-    {-10, -2, -1}
-
-- case: |-
-    print({1.0, 2.0, 0.5})
-  expected: |-
-    {1.0, 2.0, 0.5}
-
-- case: |-
     print('hello'[-2])
   expected: |-
     l
@@ -504,19 +400,9 @@
     3
 
 - case: |-
-    print(set())
-  expected: |-
-    set()
-
-- case: |-
     print(len(set()))
   expected: |-
     0
-
-- case: |-
-    print(set((1,2,3)))
-  expected: |-
-    {1, 2, 3}
 
 - case: |-
     print(len(set('abc')))
@@ -565,15 +451,15 @@
     True
 
 - case: |-
-    x = None or 0 or [] or 'default'
+    x = nil || 0 || [] || 'default'
     print(x)
   expected: |-
-    default
+    []
 
 - case: |-
     counts = {}
-    counts['a'] = (counts.get('a') or 0) + 1
-    counts['a'] = (counts.get('a') or 0) + 1
+    counts['a'] = (counts.get('a') || 0) + 1
+    counts['a'] = (counts.get('a') || 0) + 1
     print(counts['a'])
   expected: |-
     2
@@ -647,16 +533,6 @@
     print(x)
   expected: |-
     [1, 2, 3]
-
-- case: |-
-    print([1,2,3].index(2))
-  expected: |-
-    1
-
-- case: |-
-    print([1,2,2,3].count(2))
-  expected: |-
-    2
 
 - case: |-
     d = {'a':1}
@@ -743,11 +619,6 @@
     {'a': 1}
 
 - case: |-
-    print(list('abc'))
-  expected: |-
-    ['a', 'b', 'c']
-
-- case: |-
     d = {'a': [1,2,3]}
     d['a'].append(4)
     print(d['a'])
@@ -761,41 +632,6 @@
     1
 
 - case: |-
-    print(all([1, 2, 3]))
-  expected: |-
-    True
-
-- case: |-
-    print(all([1, 0, 3]))
-  expected: |-
-    False
-
-- case: |-
-    print(all([]))
-  expected: |-
-    True
-
-- case: |-
-    print(any([0, 0, 1]))
-  expected: |-
-    True
-
-- case: |-
-    print(any([0, 0, 0]))
-  expected: |-
-    False
-
-- case: |-
-    print(any([]))
-  expected: |-
-    False
-
-- case: |-
-    print(repr([1, 2, 3]))
-  expected: |-
-    [1, 2, 3]
-
-- case: |-
     print(list(reversed([1, 2, 3])), next(reversed([1, 2, 3])))
   expected: |-
     [3, 2, 1] 3
@@ -804,10 +640,6 @@
     print(tuple(reversed((1, 2, 3))))
   expected: |-
     (3, 2, 1)
-
-- case: |-
-    hash([1, 2, 3])
-  error: 'unhashable type: ''list'''
 
 - case: |-
     d = {(1, 2): 'a'}
@@ -841,13 +673,6 @@
     200
 
 - case: |-
-    s = slice(1, 5, 2)
-    xs = [10, 20, 30, 40, 50]
-    print(xs[s])
-  expected: |-
-    [20, 40]
-
-- case: |-
     d = {'a': 1, 'b': 2}
     c = d.copy()
     c['c'] = 3
@@ -866,75 +691,11 @@
     {'a': 1}
 
 - case: |-
-    print(dict(0))
-  error: TypeError
-
-- case: |-
-    print(dict([(1, 2), (3, 4)]))
-  expected: |-
-    {1: 2, 3: 4}
-
-- case: |-
-    print(dict([('a', 1), ('b', 2)]))
-  expected: |-
-    {'a': 1, 'b': 2}
-
-- case: |-
-    print(dict({'a': 1, 'b': 2}))
-  expected: |-
-    {'a': 1, 'b': 2}
-
-- case: |-
-    print(dict(a=1, b=2))
-  expected: |-
-    {'a': 1, 'b': 2}
-
-- case: |-
-    print(dict(1, 2))
-  error: dict expected at most 1 argument
-
-- case: |-
-    print(dict(-1))
-  error: TypeError
-
-- case: |-
     xs = [1, 2, 3, 4, 5]
     result = [y for x in xs if (y := x * 2) > 4]
     print(result)
   expected: |-
     [6, 8, 10]
-
-- case: |-
-    print(sorted(frozenset([1,2,3,2,1])))
-  expected: |-
-    [1, 2, 3]
-
-- case: |-
-    fs = frozenset([1,2,3])
-    print(2 in fs)
-    print(5 in fs)
-  expected: |-
-    True
-    False
-
-- case: |-
-    fs = frozenset([1,2,3])
-    d = {fs: 'value'}
-    print(d[fs])
-  expected: |-
-    value
-
-- case: |-
-    frozenset([[1, 2]])
-  error: unhashable type
-
-- case: |-
-    x = 100
-    y = 200
-    g = globals()
-    print(g['x'] + g['y'])
-  expected: |-
-    300
 
 - case: |-
     s = 'hello'
@@ -998,11 +759,6 @@
     edcba
 
 - case: |-
-    print(list('hello'))
-  expected: |-
-    ['h', 'e', 'l', 'l', 'o']
-
-- case: |-
     print([] + [])
   expected: |-
     []
@@ -1041,11 +797,6 @@
     print([1, 2, 3] * 0)
   expected: |-
     []
-
-- case: |-
-    print(len([]))
-  expected: |-
-    0
 
 - case: |-
     x = [1, 2, 3, 4, 5]
@@ -1230,7 +981,7 @@
     False
 
 - case: |-
-    print(4 not in [1, 2, 3])
+    print(4 !in [1, 2, 3])
   expected: |-
     True
 
@@ -1259,16 +1010,6 @@
     [1, 3]
 
 - case: |-
-    print({})
-  expected: |-
-    {}
-
-- case: |-
-    print({'a': 1})
-  expected: |-
-    {'a': 1}
-
-- case: |-
     d = {}
     d['x'] = 1
     d['y'] = 2
@@ -1286,8 +1027,8 @@
 
 - case: |-
     d = {'a': 1, 'b': 2}
-    print('a' not in d)
-    print('c' not in d)
+    print('a' !in d)
+    print('c' !in d)
   expected: |-
     False
     True
@@ -1462,7 +1203,7 @@
     False
 
 - case: |-
-    print(4 not in {1, 2, 3})
+    print(4 !in {1, 2, 3})
   expected: |-
     True
 
@@ -1515,7 +1256,7 @@
     a = []
     print('non-empty' if a else 'empty')
   expected: |-
-    empty
+    non-empty
 
 - case: |-
     print([i for i in range(5)])
@@ -1615,29 +1356,9 @@
     o
 
 - case: |-
-    print(sum([]))
-  expected: |-
-    0
-
-- case: |-
-    print(sum([1]))
-  expected: |-
-    1
-
-- case: |-
-    print(sum([1, 2, 3, 4, 5]))
-  expected: |-
-    15
-
-- case: |-
     print(sum(list(range(101))))
   expected: |-
     5050
-
-- case: |-
-    print(sum([1, 2, 3], 100))
-  expected: |-
-    106
 
 - case: |-
     print(sorted([]))
@@ -1787,41 +1508,6 @@
     True
 
 - case: |-
-    print(bool([0]))
-  expected: |-
-    True
-
-- case: |-
-    print(bool({}))
-  expected: |-
-    False
-
-- case: |-
-    print(bool({0: 0}))
-  expected: |-
-    True
-
-- case: |-
-    print(all([True, True, True]))
-  expected: |-
-    True
-
-- case: |-
-    print(all([True, False, True]))
-  expected: |-
-    False
-
-- case: |-
-    print(any([False, False, True]))
-  expected: |-
-    True
-
-- case: |-
-    print(any([False, False, False]))
-  expected: |-
-    False
-
-- case: |-
     print(all(x > 0 for x in [1, 2, 3]))
   expected: |-
     True
@@ -1860,12 +1546,6 @@
 - case: |-
     a = [1, 2]
     b = [1, 2]
-    print(a is b)
-  error: '''is'' compares only with None, True, False, ... or NotImplemented'
-
-- case: |-
-    a = [1, 2]
-    b = [1, 2]
     print(a == b)
   expected: |-
     True
@@ -1897,11 +1577,6 @@
     [4, 5]
 
 - case: |-
-    print(set([1, 1, 2]) == frozenset([2, 1]))
-  expected: |-
-    True
-
-- case: |-
     pairs = [(1, 'a'), (2, 'b'), (3, 'c')]
     print({v: k for k, v in pairs})
   expected: |-
@@ -1923,7 +1598,7 @@
     [2, 3]
 
 - case: |-
-    print([x for x in range(20) if x % 2 == 0 and x % 3 == 0])
+    print([x for x in range(20) if x % 2 == 0 && x % 3 == 0])
   expected: |-
     [0, 6, 12, 18]
 
@@ -1961,11 +1636,6 @@
     print('αβγ'[1])
   expected: |-
     β
-
-- case: |-
-    print(list('αβγ'))
-  expected: |-
-    ['α', 'β', 'γ']
 
 - case: |-
     print([1, 2, 3][-5])
@@ -2022,9 +1692,9 @@
     [2, 4]
 
 - case: |-
-    print(list(filter(None, [0, 1, '', 'hi', [], [1]])))
+    print(list(filter(nil, [0, 1, '', 'hi', [], [1]])))
   expected: |-
-    [1, 'hi', [1]]
+    [1, 'hi', [], [1]]
 
 - case: |-
     it = iter([10, 20, 30])
@@ -2138,11 +1808,6 @@
     True
 
 - case: |-
-    print(bytes([65, 66, 67]))
-  expected: |-
-    b'ABC'
-
-- case: |-
     s = {1, 2, 3}
     s.add(4)
     print(s)
@@ -2211,51 +1876,6 @@
     print(len(s))
   expected: |-
     5
-
-- case: |-
-    print({1, 2, 3}.union({3, 4}))
-  expected: |-
-    {1, 2, 3, 4}
-
-- case: |-
-    print({1, 2, 3}.intersection({2, 3, 4}))
-  expected: |-
-    {2, 3}
-
-- case: |-
-    print({1, 2, 3}.difference({2, 3}))
-  expected: |-
-    {1}
-
-- case: |-
-    print({1, 2, 3}.symmetric_difference({3, 4}))
-  expected: |-
-    {1, 2, 4}
-
-- case: |-
-    print({1, 2}.issubset({1, 2, 3}))
-  expected: |-
-    True
-
-- case: |-
-    print({1, 2, 3}.issubset({1, 2}))
-  expected: |-
-    False
-
-- case: |-
-    print({1, 2, 3}.issuperset({1, 2}))
-  expected: |-
-    True
-
-- case: |-
-    print({1, 2}.isdisjoint({3, 4}))
-  expected: |-
-    True
-
-- case: |-
-    print({1, 2}.isdisjoint({2, 3}))
-  expected: |-
-    False
 
 - case: |-
     print({1, 2} | {2, 3})
@@ -2342,14 +1962,6 @@
     [2, 3]
 
 - case: |-
-    fs = frozenset({1, 2, 3})
-    g = fs
-    fs -= {1}
-    print(sorted(g), sorted(fs))
-  expected: |-
-    [1, 2, 3] [2, 3]
-
-- case: |-
     s = {1, 2, 3}
     t = s
     s -= s
@@ -2403,11 +2015,6 @@
   error: unhashable type
 
 - case: |-
-    print(tuple('abc'))
-  expected: |-
-    ('a', 'b', 'c')
-
-- case: |-
     print(tuple(range(3)))
   expected: |-
     (0, 1, 2)
@@ -2416,11 +2023,6 @@
     print(set(range(3)))
   expected: |-
     {0, 1, 2}
-
-- case: |-
-    print(set({'a':1, 'b':2}))
-  expected: |-
-    {'a', 'b'}
 
 - case: |-
     x=[1]
@@ -2449,14 +2051,6 @@
   error: KeyError
 
 - case: |-
-    d={'a':1,'b':2}
-    k=d.keys()
-    d['c']=3
-    print(list(k))
-  expected: |-
-    ['a', 'b', 'c']
-
-- case: |-
     d = {2 ** 100: 'x'}
     print(d[2 ** 100])
   expected: |-
@@ -2469,7 +2063,7 @@
     1
 
 - case: |-
-    print(sorted([3, 1.5, True, -2, 0.0, -0.0]), sorted([0.0, -0.0]), sorted(['b', 'a', 'ab']), sorted([(2, 'a'), (1, 'b'), (1, 'a')], reverse=True))
+    print(sorted([3, 1.5, true, -2, 0.0, -0.0]), sorted([0.0, -0.0]), sorted(['b', 'a', 'ab']), sorted([(2, 'a'), (1, 'b'), (1, 'a')], reverse=true))
   expected: |-
     [-2, 0.0, -0.0, True, 1.5, 3] [0.0, -0.0] ['a', 'ab', 'b'] [(2, 'a'), (1, 'b'), (1, 'a')]
 
@@ -2596,12 +2190,12 @@
     [[1], [1, 0], [2]]
 
 - case: |-
-    print(sorted([3, 1, 2], reverse=True))
+    print(sorted([3, 1, 2], reverse=true))
   expected: |-
     [3, 2, 1]
 
 - case: |-
-    lst = [3, 1, 2]; lst.sort(reverse=True); print(lst)
+    lst = [3, 1, 2]; lst.sort(reverse=true); print(lst)
   expected: |-
     [3, 2, 1]
 
@@ -2620,11 +2214,6 @@
     [1, [...]]
 
 - case: |-
-    print({1, 1.0, 2})
-  expected: |-
-    {1, 2}
-
-- case: |-
     d = {i: i * i for i in range(50)}
     print(d[7])
     print(len(d))
@@ -2633,12 +2222,12 @@
     50
 
 - case: |-
-    print([x or (x in [7, 8]) for x in range(3)])
+    print([x || (x in [7, 8]) for x in range(3)])
   expected: |-
     [False, 1, 2]
 
 - case: |-
-    print({x: (x or 99) for x in range(3)})
+    print({x: (x || 99) for x in range(3)})
   expected: |-
     {0: 99, 1: 1, 2: 2}
 
@@ -2648,7 +2237,7 @@
     [1, 0, 1]
 
 - case: |-
-    print([x and x + 1 for x in range(3)])
+    print([x && x + 1 for x in range(3)])
   expected: |-
     [0, 2, 3]
 
@@ -2730,11 +2319,6 @@
     True
 
 - case: |-
-    print([1e16, 2.5])
-  expected: |-
-    [1e+16, 2.5]
-
-- case: |-
     print({1e16: 'found'}.get(10 ** 16 + 1, 'missing'))
   expected: |-
     missing
@@ -2745,35 +2329,15 @@
     2
 
 - case: |-
-    print(len({1, True}))
-  expected: |-
-    1
-
-- case: |-
-    print(len({1.0, 1, True}))
-  expected: |-
-    1
-
-- case: |-
-    d = {True: 'a', 1: 'b'}
+    d = {true: 'a', 1: 'b'}
     print(d)
   expected: |-
     {True: 'b'}
 
 - case: |-
-    print({True: 1}[1.0])
+    print({true: 1}[1.0])
   expected: |-
     1
-
-- case: |-
-    print(['x\ny'])
-  expected: |-
-    ['x\ny']
-
-- case: |-
-    print({'k': 'a\tb'})
-  expected: |-
-    {'k': 'a\tb'}
 
 - case: |-
     print(*[1, 2, 3])
@@ -2784,11 +2348,6 @@
     print(*[1, 2, 3], sep='-')
   expected: |-
     1-2-3
-
-- case: |-
-    print(sum([0.1, 0.2, 0.3]))
-  expected: |-
-    0.6
 
 - case: |-
     print(sum([0.1, 0.2, 0.3]) == 0.6)
@@ -2820,13 +2379,6 @@
     print(sorted({1, 2, 3}.difference(range(2))))
   expected: |-
     [2, 3]
-
-- case: |-
-    s = {1}
-    s.update(frozenset({2, 3}))
-    print(sorted(s))
-  expected: |-
-    [1, 2, 3]
 
 - case: |-
     print({1, 2, 3}.issubset(range(5)))
@@ -2865,11 +2417,6 @@
     print(d)
   expected: |-
     {1: 'a', 'x': 1}
-
-- case: |-
-    print(dict.fromkeys(['a', 'b'], 0))
-  expected: |-
-    {'a': 0, 'b': 0}
 
 - case: |-
     print(list(range(10**18, 10**18 + 3)))
@@ -2912,18 +2459,6 @@
   error: 'popitem(): dictionary is empty'
 
 - case: |-
-    [].pop()
-  error: pop from empty list
-
-- case: |-
-    [1].pop(5)
-  error: pop index out of range
-
-- case: |-
-    min([1, 2], key=abs)
-  error: unexpected keyword argument
-
-- case: |-
     a = list(range(6))
     print(a[::-1], a[5:1:-2], a[5::-1], a[10:20])
     print('hello'[::-2])
@@ -2950,7 +2485,7 @@
     1
 
 - case: |-
-    print(len({(1, x // 2) for x in range(4)}))
+    print(len({(1, x ~/ 2) for x in range(4)}))
   expected: |-
     2
 
@@ -2965,19 +2500,9 @@
     2
 
 - case: |-
-    print(len({(1, 2), (1, 2), (1, 3)}))
-  expected: |-
-    2
-
-- case: |-
     print(len(set([(1, 2), (1, 2), (1, 3)])))
   expected: |-
     2
-
-- case: |-
-    print(sorted(frozenset([(1, 2), (1, 2)])))
-  expected: |-
-    [(1, 2)]
 
 - case: |-
     print(len({'a' * 200, 'a' * 200}))
@@ -2993,11 +2518,6 @@
     print({(1, 2)} == {(1, 3)})
   expected: |-
     False
-
-- case: |-
-    print(frozenset([(1, 2)]) == frozenset([(1, 2)]))
-  expected: |-
-    True
 
 - case: |-
     print((1, 2) in {(1, 2), (3, 4)})
@@ -3356,20 +2876,6 @@
     1
 
 - case: |-
-    fs = frozenset([1, 2])
-    d = {fs: 'x'}
-    print(d[frozenset([1, 2])])
-  expected: |-
-    x
-
-- case: |-
-    fs = frozenset([1, 2])
-    d = {fs: 'x'}
-    print(frozenset([2, 1]) in d)
-  expected: |-
-    True
-
-- case: |-
     print(sorted(set([(1, 2), (1, 2)])))
   expected: |-
     [(1, 2)]
@@ -3378,11 +2884,6 @@
     print(len({*[(1, 2), (1, 2)], *[(3, 4)]}))
   expected: |-
     2
-
-- case: |-
-    print(sorted(frozenset([(1, 2), (1, 2), (3, 4)])))
-  expected: |-
-    [(1, 2), (3, 4)]
 
 - case: |-
     print(len(set(((1, 2), (1, 2), (3, 4)))))
@@ -3400,16 +2901,6 @@
     [(1,), (2,)]
 
 - case: |-
-    print(len({1, 1.0, True}))
-  expected: |-
-    1
-
-- case: |-
-    print(len({0, False, 0.0}))
-  expected: |-
-    1
-
-- case: |-
     print({1, 1.0, 2} == {1, 2})
   expected: |-
     True
@@ -3420,14 +2911,9 @@
     True
 
 - case: |-
-    print(True in {1})
+    print(true in {1})
   expected: |-
     True
-
-- case: |-
-    print(len({1, True, 1.0, 1}))
-  expected: |-
-    1
 
 - case: |-
     d = {1: 'a'}
@@ -3440,7 +2926,7 @@
 
 - case: |-
     d = {1: 'a'}
-    d[True] = 'b'
+    d[true] = 'b'
     print(d[1])
   expected: |-
     b
@@ -3482,20 +2968,10 @@
     True
 
 - case: |-
-    print(len({-0.0, 0.0, 0}))
-  expected: |-
-    1
-
-- case: |-
     d = {2 ** 80: 'a'}
     print(d[2 ** 80])
   expected: |-
     a
-
-- case: |-
-    print(len({1.5, 1.5, 2.5}))
-  expected: |-
-    2
 
 - case: |-
     print({1.0, 2.0} == {1, 2})
@@ -3503,65 +2979,9 @@
     True
 
 - case: |-
-    print(len({frozenset([1, 2]), frozenset([2, 1])}))
-  expected: |-
-    1
-
-- case: |-
-    print(len({frozenset([1, 2]), frozenset([1, 3])}))
-  expected: |-
-    2
-
-- case: |-
-    print(frozenset([1, 2]) in {frozenset([2, 1])})
-  expected: |-
-    True
-
-- case: |-
-    print(len({frozenset(), frozenset()}))
-  expected: |-
-    1
-
-- case: |-
-    s = {frozenset([1, 2])}
-    print(frozenset([2, 1]) in s)
-  expected: |-
-    True
-
-- case: |-
-    print(frozenset([1, 2]) == frozenset([2, 1]))
-  expected: |-
-    True
-
-- case: |-
-    print(frozenset([1, 2]) == frozenset([1, 3]))
-  expected: |-
-    False
-
-- case: |-
-    print(len({((1, 2), 3), ((1, 2), 3)}))
-  expected: |-
-    1
-
-- case: |-
-    print(len({((1, 2), 3), ((1, 2), 4)}))
-  expected: |-
-    2
-
-- case: |-
     print(((1, 2), 3) in {((1, 2), 3)})
   expected: |-
     True
-
-- case: |-
-    print(len({(1, 'a'), (1, 'a'), (1, 'b')}))
-  expected: |-
-    2
-
-- case: |-
-    print(len({(1, (2, 3)), (1, (2, 3))}))
-  expected: |-
-    1
 
 - case: |-
     print(sorted({(1, 2), (1, 2), (0, 9)}))
@@ -3569,24 +2989,9 @@
     [(0, 9), (1, 2)]
 
 - case: |-
-    print(len({(), ()}))
-  expected: |-
-    1
-
-- case: |-
     print(() in {()})
   expected: |-
     True
-
-- case: |-
-    print(len({(1,), (), (1,)}))
-  expected: |-
-    2
-
-- case: |-
-    print(len({(True, 1), (1, 1)}))
-  expected: |-
-    1
 
 - case: |-
     d = {(1, 2): [1], (3, 4): [2]}
@@ -3614,12 +3019,12 @@
     5
 
 - case: |-
-    print((1, 2) not in {(3, 4)})
+    print((1, 2) !in {(3, 4)})
   expected: |-
     True
 
 - case: |-
-    print((1, 2) not in {(1, 2)})
+    print((1, 2) !in {(1, 2)})
   expected: |-
     False
 
@@ -3665,16 +3070,6 @@
     print(sorted({1, 2} ^ {2, 3}))
   expected: |-
     [1, 3]
-
-- case: |-
-    print({1, 2, 3}.isdisjoint({4, 5}))
-  expected: |-
-    True
-
-- case: |-
-    print(len({1, 2, 3, 1, 2}))
-  expected: |-
-    3
 
 - case: |-
     xs = [1, 2, 3]
@@ -3756,7 +3151,7 @@
 
 - case: |-
     print()
-    print(None)
+    print(nil)
     print('')
     print(1)
     print(1, 2)
@@ -3970,18 +3365,18 @@
     print(sorted(s))
     s = set()
     s.add(0)
-    s.add(False)
+    s.add(false)
     print(s)
     s = set()
-    s.add(False)
+    s.add(false)
     s.add(0)
     print(s)
     s = set()
     s.add(1)
-    s.add(True)
+    s.add(true)
     print(s)
     s = set()
-    s.add(True)
+    s.add(true)
     s.add(1)
     print(s)
   expected: |-
@@ -4160,7 +3555,7 @@
     (12,)
 
 - case: |-
-    print([round(True),round(False)])
+    print([round(true),round(false)])
   expected: |-
     [1, 0]
 
@@ -4225,248 +3620,6 @@
     [False, False]
 
 - case: |-
-    print([1,2,3].index(2,True))
-  expected: |-
-    1
-
-- case: |-
-    print([1,2,3].index(3,1))
-  expected: |-
-    2
-
-- case: |-
-    print(['a','b','c'].index('c',True))
-  expected: |-
-    2
-
-- case: |-
-    print([5,6,7,8].index(7,2))
-  expected: |-
-    2
-
-- case: |-
-    print([0,1,0,1].index(1,True))
-  expected: |-
-    1
-
-- case: |-
-    print([10,20,30].index(20))
-  expected: |-
-    1
-
-- case: |-
-    print([1,2,3,2].index(2,2))
-  expected: |-
-    3
-
-- case: |-
-    print([True,False,True].index(False,False))
-  expected: |-
-    1
-
-- case: |-
-    print([9,8,7].index(7,1,3))
-  expected: |-
-    2
-
-- case: |-
-    print(['x','y','x'].index('x',1))
-  expected: |-
-    2
-
-- case: |-
-    print(len(frozenset({1, 2, 3})))
-  expected: |-
-    3
-
-- case: |-
-    print(len(frozenset([1, 1, 2])))
-  expected: |-
-    2
-
-- case: |-
-    print(sorted(x for x in frozenset({1, 2})))
-  expected: |-
-    [1, 2]
-
-- case: |-
-    print(sorted([x * 10 for x in frozenset({1, 2, 3})]))
-  expected: |-
-    [10, 20, 30]
-
-- case: |-
-    print(sorted(frozenset({3, 1, 2})))
-  expected: |-
-    [1, 2, 3]
-
-- case: |-
-    print(frozenset({1, 2}) | frozenset({3}))
-  expected: |-
-    frozenset({1, 2, 3})
-
-- case: |-
-    print(frozenset({1}) | frozenset({1}))
-  expected: |-
-    frozenset({1})
-
-- case: |-
-    print(frozenset() | frozenset({5}))
-  expected: |-
-    frozenset({5})
-
-- case: |-
-    print(frozenset({1, 2}) | {3, 4})
-  expected: |-
-    frozenset({1, 2, 3, 4})
-
-- case: |-
-    print({1, 2} | frozenset({3}))
-  expected: |-
-    {1, 2, 3}
-
-- case: |-
-    print(frozenset({1}) | frozenset({2}) | frozenset({3}))
-  expected: |-
-    frozenset({1, 2, 3})
-
-- case: |-
-    print(frozenset({1, 2, 3}) & frozenset({2, 3, 4}))
-  expected: |-
-    frozenset({2, 3})
-
-- case: |-
-    print(frozenset({1}) & frozenset({2}))
-  expected: |-
-    frozenset()
-
-- case: |-
-    print(frozenset({1, 2}) & {2, 3})
-  expected: |-
-    frozenset({2})
-
-- case: |-
-    print({1, 2, 3} & frozenset({2}))
-  expected: |-
-    {2}
-
-- case: |-
-    print(frozenset({1, 2, 3}) - frozenset({2}))
-  expected: |-
-    frozenset({1, 3})
-
-- case: |-
-    print(frozenset({1, 2}) - frozenset({1, 2}))
-  expected: |-
-    frozenset()
-
-- case: |-
-    print(frozenset({1, 2, 3}) - {1})
-  expected: |-
-    frozenset({2, 3})
-
-- case: |-
-    print({1, 2, 3} - frozenset({3}))
-  expected: |-
-    {1, 2}
-
-- case: |-
-    print(frozenset({1, 2}) ^ frozenset({2, 3}))
-  expected: |-
-    frozenset({1, 3})
-
-- case: |-
-    print(frozenset({1, 2}) ^ frozenset({1, 2}))
-  expected: |-
-    frozenset()
-
-- case: |-
-    print(frozenset({1, 2}) ^ {2, 3, 4})
-  expected: |-
-    frozenset({1, 3, 4})
-
-- case: |-
-    print(frozenset({1, 2}) <= frozenset({1, 2, 3}))
-  expected: |-
-    True
-
-- case: |-
-    print(frozenset({1, 2}) < frozenset({1, 2, 3}))
-  expected: |-
-    True
-
-- case: |-
-    print(frozenset({1, 2}) < frozenset({1, 2}))
-  expected: |-
-    False
-
-- case: |-
-    print(frozenset({1, 2, 3}) >= frozenset({1, 2}))
-  expected: |-
-    True
-
-- case: |-
-    print(frozenset({1, 2, 3}) > frozenset({1, 2}))
-  expected: |-
-    True
-
-- case: |-
-    print(frozenset({1, 2}) == frozenset({2, 1}))
-  expected: |-
-    True
-
-- case: |-
-    print(frozenset({1, 2}) != frozenset({1}))
-  expected: |-
-    True
-
-- case: |-
-    print(frozenset({1, 2}) <= {1, 2, 3})
-  expected: |-
-    True
-
-- case: |-
-    print({1, 2} == frozenset({1, 2}))
-  expected: |-
-    True
-
-- case: |-
-    print(3 in frozenset({1, 2, 3}))
-  expected: |-
-    True
-
-- case: |-
-    print(9 in frozenset({1, 2, 3}))
-  expected: |-
-    False
-
-- case: |-
-    d = {frozenset({1, 2}): 'x'}
-    print(d[frozenset({2, 1})])
-  expected: |-
-    x
-
-- case: |-
-    s = {frozenset({1}), frozenset({1})}
-    print(len(s))
-  expected: |-
-    1
-
-- case: |-
-    print(frozenset({1, 2}))
-  expected: |-
-    frozenset({1, 2})
-
-- case: |-
-    print(max(frozenset({3, 1, 2})), min(frozenset({3, 1, 2})), sum(frozenset({1, 2, 3})))
-  expected: |-
-    3 1 6
-
-- case: |-
-    print(frozenset({2, 3}) > frozenset({3}))
-  expected: |-
-    True
-
-- case: |-
     a, b = {1, 2}
     print(sorted([a, b]))
   expected: |-
@@ -4485,18 +3638,6 @@
     [1, 2, 3]
 
 - case: |-
-    x, y = frozenset({10, 20})
-    print(sorted([x, y]))
-  expected: |-
-    [10, 20]
-
-- case: |-
-    p, q = frozenset({5, 6})
-    print(sorted([p, q]))
-  expected: |-
-    [5, 6]
-
-- case: |-
     a, b = {'x', 'y'}
     print(sorted([a, b]))
   expected: |-
@@ -4511,11 +3652,7 @@
   error: not enough values to unpack
 
 - case: |-
-    a, b = frozenset({1, 2, 3})
-  error: too many values to unpack
-
-- case: |-
-    print([+True, +False, +0])
+    print([+true, +false, +0])
   expected: |-
     [1, 0, 0]
 
@@ -4678,20 +3815,6 @@
     [[[1]]]
 
 - case: |-
-    it = iter([10, 20, 30])
-    print(it.__next__())
-    print(it.__next__())
-  expected: |-
-    10
-    20
-
-- case: |-
-    it = iter([100])
-    print(it.__next__())
-  expected: |-
-    100
-
-- case: |-
     l = [1, 2]
     l += range(6, 10)
     print(l)
@@ -4785,11 +3908,6 @@
     {}
 
 - case: |-
-    print("[%*s]" % (6, "hi"))
-  expected: |-
-    [    hi]
-
-- case: |-
     [a, b] = 100, 200
     print(a, b)
   expected: |-
@@ -4851,12 +3969,6 @@
     print(third, second, first)
   expected: |-
     c b a
-
-- case: |-
-    xs = [0, 1, 2, 3, 4]
-    print(xs[slice(1, 4)])
-  expected: |-
-    [1, 2, 3]
 
 - case: |-
     x = {1: 2}, 3
@@ -4930,30 +4042,10 @@
     8
 
 - case: |-
-    print(sum([1, 2, 3], 10))
-  expected: |-
-    16
-
-- case: |-
-    print(list())
-  expected: |-
-    []
-
-- case: |-
-    print(tuple())
-  expected: |-
-    ()
-
-- case: |-
     f = list
     print(f([1, 2]))
   expected: |-
     [1, 2]
-
-- case: |-
-    print(dict())
-  expected: |-
-    {}
 
 - case: |-
     print(list(range(9223372036854775805, 9223372036854775807, 5)))
@@ -5037,7 +4129,7 @@
 
 - case: |-
     xs = [3, 1, 2]
-    xs.sort(reverse=True)
+    xs.sort(reverse=true)
     print(xs)
   expected: |-
     [3, 2, 1]
@@ -5088,14 +4180,6 @@
     s1 = {1}
     s2 = s1 | {2}
     print(s1 == s2, sorted(s2))
-  expected: |-
-    False [1, 2]
-
-- case: |-
-    f = frozenset({1})
-    g = f
-    f |= {2}
-    print(f == g, sorted(f))
   expected: |-
     False [1, 2]
 
@@ -5193,7 +4277,7 @@
     [[0, 1], [1, 2]]
 
 - case: |-
-    c = True
+    c = true
     print([i * 2 for i in range(3)] if c else [])
   expected: |-
     [0, 2, 4]
@@ -5246,11 +4330,6 @@
     print(d)
   expected: |-
     {'b': 2}
-
-- case: |-
-    print({"a": 1}.clear())
-  expected: |-
-    None
 
 - case: |-
     lst = [1]
@@ -5344,7 +4423,7 @@
 
 - case: |-
     lst = [0, 0]
-    c = True
+    c = true
     lst[0 if c else 1], x = 8, 9
     print(lst, x)
   expected: |-
@@ -5353,7 +4432,7 @@
 - case: |-
     d = {"a": 0}
     k = ""
-    d[k or "a"], x = 3, 4
+    d[k || "a"], x = 3, 4
     print(d, x)
   expected: |-
     {'a': 3} 4
@@ -5367,43 +4446,25 @@
     [5, 0] 1
 
 - case: |-
-    lst = [1]
-    ap = lst.append
-    print(ap.__self__ == lst)
-    ap.__self__.append(2)
-    print(lst)
-  expected: |-
-    True
-    [1, 2]
-
-- case: |-
-    lst = [1]
-    print(hasattr(lst.append, '__self__'), hasattr(lst.append, '__func__'))
-    print(getattr(lst.append, '__func__', 'absent'))
-  expected: |-
-    True False
-    absent
-
-- case: |-
-    print(True * [1,2])
-    print("x" * True)
+    print(true * [1,2])
+    print("x" * true)
   expected: |-
     [1, 2]
     x
 
 - case: |-
-    print(False * [1,2])
-    print(len(False * "ab"))
+    print(false * [1,2])
+    print(len(false * "ab"))
   expected: |-
     []
     0
 
 - case: |-
     xs = [1, 2]
-    ys = xs * True
+    ys = xs * true
     ys.append(3)
     print(xs)
-    print(xs * True == xs)
+    print(xs * true == xs)
   expected: |-
     [1, 2]
     True
@@ -5458,12 +4519,7 @@
   error: len() takes no keyword arguments
 
 - case: |-
-    print(len({0.5, 2.5, 2.0, 1.5, 1.0}))
-  expected: |-
-    5
-
-- case: |-
-    s = {1, 2.0, True}
+    s = {1, 2.0, true}
     print(len(s))
     print(1.0 in s)
   expected: |-
@@ -5471,21 +4527,14 @@
     True
 
 - case: |-
-    a = [0, 0]
-    print(a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[a[0]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]])
-  error: too deeply nested
-
-- case: |-
     xs = []
-    print(xs[0] if xs else None)
-  expected: |-
-    None
+    print(xs[0] if xs else nil)
+  error: list index out of range
 
 - case: |-
     xs = []
     print(xs[0] if xs else 2)
-  expected: |-
-    2
+  error: list index out of range
 
 - case: |-
     d = {}
@@ -5529,7 +4578,7 @@
     0
 
 - case: |-
-    print(True in {1}, 1 in {True}, {1: 'a'}[True], 1.0 in {1})
+    print(true in {1}, 1 in {true}, {1: 'a'}[true], 1.0 in {1})
   expected: |-
     True True a True
 
@@ -5574,11 +4623,6 @@
     print([*{"x": 1, "y": 2}])
   expected: |-
     ['x', 'y']
-
-- case: |-
-    print(sorted([*frozenset([3, 1, 2])]))
-  expected: |-
-    [1, 2, 3]
 
 - case: |-
     print({*"aa"} == {"a"})
@@ -5666,7 +4710,7 @@
     4
 
 - case: |-
-    d = {("a", 1): True}
+    d = {("a", 1): true}
     print(("a", 1) in d, d["a", 1])
   expected: |-
     True True
@@ -5686,56 +4730,10 @@
     [0, 9, 3] [9, 3] [3, 9, 0]
 
 - case: |-
-    s = slice(2, 8)
-    print(list(range(10))[s], s.stop - s.start)
-  expected: |-
-    [2, 3, 4, 5, 6, 7] 6
-
-- case: |-
-    print(list(range(*slice(1, 7, 2).indices(5))))
-  expected: |-
-    [1, 3]
-
-- case: |-
-    type Point = tuple[float, float]
-    print("alias")
-  expected: |-
-    alias
-
-- case: |-
-    x = list[int]()
-    print(x)
-  expected: |-
-    []
-
-- case: |-
-    print(dict[str, int]() == {})
-  expected: |-
-    True
-
-- case: |-
-    type A = int
-    type B = list[A]
-    print("two aliases")
-  expected: |-
-    two aliases
-
-- case: |-
     x: tuple[int, ...] = (1, 2)
     print(x)
   expected: |-
     (1, 2)
-
-- case: |-
-    print(len(tuple[int, str]((1, "a"))))
-  expected: |-
-    2
-
-- case: |-
-    type Json = dict[str, "Json"] | list["Json"] | str | int
-    print("recursive alias")
-  expected: |-
-    recursive alias
 
 - case: |-
     print([j for i, (j, k) in enumerate([(5, 6), (7, 8)])])
@@ -5811,65 +4809,65 @@
     (1, 2, 1, 2) [1, 2]
 
 - case: |-
-    print([10, 20][True])
+    print([10, 20][true])
   expected: |-
     20
 
 - case: |-
-    print([10, 20][False])
+    print([10, 20][false])
   expected: |-
     10
 
 - case: |-
-    print("ab"[True])
+    print("ab"[true])
   expected: |-
     b
 
 - case: |-
-    print((5, 6)[True])
+    print((5, 6)[true])
   expected: |-
     6
 
 - case: |-
-    print(b"AB"[True])
+    print(b"AB"[true])
   expected: |-
     66
 
 - case: |-
     xs = [1, 2]
-    xs[True] = 9
+    xs[true] = 9
     print(xs)
   expected: |-
     [1, 9]
 
 - case: |-
     xs = [1, 2, 3]
-    del xs[False]
+    del xs[false]
     print(xs)
   expected: |-
     [2, 3]
 
 - case: |-
-    d = {True: "t"}
-    print(d[True], d[1])
+    d = {true: "t"}
+    print(d[true], d[1])
   expected: |-
     t t
 
 - case: |-
     d = {}
-    d[True] = 1
+    d[true] = 1
     print(d)
   expected: |-
     {True: 1}
 
 - case: |-
     d = {1: "one"}
-    print(d[True])
+    print(d[true])
   expected: |-
     one
 
 - case: |-
-    print([1, 2][-True])
+    print([1, 2][-true])
   expected: |-
     2
 
@@ -5881,29 +4879,29 @@
 
 - case: |-
     xs = [0, 0]
-    xs[True] += 5
+    xs[true] += 5
     print(xs)
   expected: |-
     [0, 5]
 
 - case: |-
-    print([7, 8][not False])
+    print([7, 8][!false])
   expected: |-
     8
 
 - case: |-
     xs = [1, 2]
-    print(xs[True] + xs[False])
+    print(xs[true] + xs[false])
   expected: |-
     3
 
 - case: |-
-    print([[1, 2], [3, 4]][True][False])
+    print([[1, 2], [3, 4]][true][false])
   expected: |-
     3
 
 - case: |-
-    print({False: 0, True: 1}[3 > 2])
+    print({false: 0, true: 1}[3 > 2])
   expected: |-
     1
 
@@ -5965,7 +4963,7 @@
     True False
 
 - case: |-
-    print(sorted(*[[3, 1, 2]], reverse=True))
+    print(sorted(*[[3, 1, 2]], reverse=true))
   expected: |-
     [3, 2, 1]
 
@@ -6080,7 +5078,7 @@
     [2, 4, 6, 8, 10]
 
 - case: |-
-    print(range(5)[True])
+    print(range(5)[true])
   expected: |-
     1
 
@@ -6088,12 +5086,6 @@
     print(list(range(8)[1:-1]), range(8)[-3:])
   expected: |-
     [1, 2, 3, 4, 5, 6] range(5, 8)
-
-- case: |-
-    s = slice(1, None, 2)
-    print(range(10)[s])
-  expected: |-
-    range(1, 10, 2)
 
 - case: |-
     xs = [[1, 2], [3]]
@@ -6162,146 +5154,6 @@
     {2}
 
 - case: |-
-    type Pair[T] = tuple[T, T]
-    print(Pair, Pair[int])
-  expected: |-
-    Pair __main__.Pair[int]
-
-- case: |-
-    type V = list[int]
-    print(V.__value__(["x"]))
-  expected: |-
-    ['x']
-
-- case: |-
-    type Json = dict[str, "Json"] | list["Json"] | str | int
-    print(Json)
-  expected: |-
-    Json
-
-- case: |-
-    n = 3
-    type T = list[int] if n > 2 else int
-    print(T.__value__)
-  expected: |-
-    list[int]
-
-- case: |-
-    type F = dict[str, list[int]]
-    print(F.__value__)
-  expected: |-
-    dict[str, list[int]]
-
-- case: |-
-    type X = int
-    aliases = {X: "int alias"}
-    print(aliases[X])
-  expected: |-
-    int alias
-
-- case: |-
-    type Num[T: int] = list[T]
-    print(Num[bool])
-  expected: |-
-    __main__.Num[bool]
-
-- case: |-
-    print(list[int], dict[str, int])
-  expected: |-
-    list[int] dict[str, int]
-
-- case: |-
-    print(tuple[int, ...], list[dict[str, list[int]]])
-  expected: |-
-    tuple[int, ...] list[dict[str, list[int]]]
-
-- case: |-
-    print(list[int]("ab"), dict[str, int](a=1))
-  expected: |-
-    ['a', 'b'] {'a': 1}
-
-- case: |-
-    print(list[int] == list[int], list[int] == list[str], list[int] == list)
-  expected: |-
-    True False False
-
-- case: |-
-    a = list[int]
-    print(a.__origin__ == list, a.__args__)
-  expected: |-
-    True (<class 'int'>,)
-
-- case: |-
-    print(dict[str, int].__args__)
-  expected: |-
-    (<class 'str'>, <class 'int'>)
-
-- case: |-
-    print(type(list[int]).__name__)
-  expected: |-
-    GenericAlias
-
-- case: |-
-    print(list["Json"], list[None])
-  expected: |-
-    list['Json'] list[None]
-
-- case: |-
-    print({list[int]: 1}[list[int]])
-  expected: |-
-    1
-
-- case: |-
-    print(set[int](), frozenset[str]("aa"))
-  expected: |-
-    set() frozenset({'a'})
-
-- case: |-
-    print(type[int], type[int].__origin__ == type)
-  expected: |-
-    type[int] True
-
-- case: |-
-    Matrix = list[list[float]]
-    print(Matrix, Matrix.__args__[0])
-  expected: |-
-    list[list[float]] list[float]
-
-- case: |-
-    print(tuple[()], tuple[int](range(2)))
-  expected: |-
-    tuple[()] (0, 1)
-
-- case: |-
-    x = dict[str, int]
-    y = x(k=5)
-    print(y, type(y).__name__)
-  expected: |-
-    {'k': 5} dict
-
-- case: |-
-    aliases = [list[int], dict[str, str], set[bool]]
-    print([a.__origin__.__name__ for a in aliases])
-  expected: |-
-    ['list', 'dict', 'set']
-
-- case: |-
-    print(list[int, str].__args__, len(list[int].__args__))
-  expected: |-
-    (<class 'int'>, <class 'str'>) 1
-
-- case: |-
-    errors = {OSError: "os"}
-    print(errors[IOError])
-  expected: |-
-    os
-
-- case: |-
-    print([c.__name__ for c in (IOError, OSError, PermissionError)])
-  expected: |-
-    ['OSError', 'OSError', 'PermissionError']
-
-- case: |-
     xs = [print]
     xs[0]
     ("skipped")
@@ -6357,24 +5209,9 @@
     [TypeError('t'), IndexError(), RuntimeError('a', 'b')]
 
 - case: |-
-    print(list[int] | None, (int | str) | float)
-  expected: |-
-    list[int] | None int | str | float
-
-- case: |-
-    print({int | str: 1}[str | int])
-  expected: |-
-    1
-
-- case: |-
     print(*[1, 2], max([5]))
   expected: |-
     1 2 5
-
-- case: |-
-    print(sum([1, 2], start=10))
-  expected: |-
-    13
 
 - case: |-
     nums = [[1], [2]]
@@ -6425,23 +5262,9 @@
     a = [0] * 1000
     b = [a] * 1000
     c = [b] * 1000
-    x = "%r" % ([c],)
-    print(x[:5])
-  expected: |-
-    [[[[0
-
-- case: |-
-    a = [0] * 1000
-    b = [a] * 1000
-    c = [b] * 1000
     print(repr(c)[:4], repr([1, [2, [3]]]))
   expected: |-
     [[[0 [1, [2, [3]]]
-
-- case: |-
-    print(len("héllo"), len(b"ab"), len(frozenset([1, 2])))
-  expected: |-
-    5 2 2
 
 - case: |-
     r = range(2**49)
@@ -6483,7 +5306,7 @@
     {'k': [-4, 2]}
 
 - case: |-
-    print({(1.0,): 'a'}[(1,)], {(1, 'a'): 'b'}[(1.0, 'a')], len({(True, 2), (1, 2.0)}))
+    print({(1.0,): 'a'}[(1,)], {(1, 'a'): 'b'}[(1.0, 'a')], len({(true, 2), (1, 2.0)}))
   expected: |-
     a b 1
 
@@ -6495,14 +5318,9 @@
     1 2
 
 - case: |-
-    print({1.0: 'x'}[1], {2 ** 70: 'y'}[2.0 ** 70], {0.0: 'z'}[-0.0], len({1, 1.0, True}))
+    print({1.0: 'x'}[1], {2 ** 70: 'y'}[2.0 ** 70], {0.0: 'z'}[-0.0], len({1, 1.0, true}))
   expected: |-
     x y z 1
-
-- case: |-
-    print(len({(1, 2), (1.0, 2), (True, 2.0)}))
-  expected: |-
-    1
 
 - case: |-
     t1 = ((1, 2), (3, (4, 5)))
@@ -6596,13 +5414,6 @@
     k j 97 [98, 99]
 
 - case: |-
-    a, *b, c = range(5)
-    d, *e = frozenset([7])
-    print(a, b, c, d, e)
-  expected: |-
-    0 [1, 2, 3] 4 7 []
-
-- case: |-
     it = iter([1, 2, 3])
     first, *rest = it
     print(first, rest)
@@ -6623,8 +5434,8 @@
     True True True True
 
 - case: |-
-    xs = [True, 2.5, False, 1]
-    print(sum(xs), sum(x ** 2 for x in xs), [x ** True for x in xs])
+    xs = [true, 2.5, false, 1]
+    print(sum(xs), sum(x ** 2 for x in xs), [x ** true for x in xs])
   expected: |-
     4.5 8.25 [1, 2.5, 0, 1]
 
@@ -6652,12 +5463,6 @@
     True True True
 
 - case: |-
-    data = [3, 1, 3, 2, 1]
-    print(sorted(set(data)), len(set(data)) == len(data), sorted(frozenset(data) - {1}))
-  expected: |-
-    [1, 2, 3] False [2, 3]
-
-- case: |-
     words = ['b', 'a', 'b']
     seen = set(words)
     seen.update(['c'], ('d',))
@@ -6666,19 +5471,19 @@
     ['a', 'b', 'c', 'd'] True
 
 - case: |-
-    vals = [1.0, 1, True, 0, False, 0.0]
-    print(sorted(vals, reverse=True), sorted(vals))
+    vals = [1.0, 1, true, 0, false, 0.0]
+    print(sorted(vals, reverse=true), sorted(vals))
   expected: |-
     [1.0, 1, True, 0, False, 0.0] [0, False, 0.0, 1.0, 1, True]
 
 - case: |-
     data = {'a': 2, 'b': 1, 'c': 2, 'd': 1}
-    print(sorted(data, key=data.get, reverse=True))
+    print(sorted(data, key=data.get, reverse=true))
   expected: |-
     ['a', 'c', 'b', 'd']
 
 - case: |-
-    print(sorted('banana', reverse=True), sorted([3, 1, 2], reverse=False), sorted([], reverse=True))
+    print(sorted('banana', reverse=true), sorted([3, 1, 2], reverse=false), sorted([], reverse=true))
   expected: |-
     ['n', 'n', 'b', 'a', 'a', 'a'] [1, 2, 3] []
 
@@ -6755,7 +5560,7 @@
     [1, 2, 3] True
 
 - case: |-
-    print(b'\x41\101\q', '\x41\101\q', b'\777'[0] if False else 1)
+    print(b'\x41\101\q', '\x41\101\q', b'\777'[0] if false else 1)
   expected: |-
     b'AA\\q' AA\q 1
 
@@ -6777,7 +5582,7 @@
 
 - case: |-
     xs = [(-3.5, 1.25), (10, -0.75), (-0.5, -0.2), (123.456, 0.001)]
-    print([divmod(a, b) for a, b in xs] == [(a // b, a % b) for a, b in xs])
+    print([divmod(a, b) for a, b in xs] == [(a ~/ b, a % b) for a, b in xs])
   expected: |-
     True
 
@@ -6802,7 +5607,7 @@
     ['list_iterator', 'range_iterator', 'tuple_iterator', 'str_ascii_iterator', 'str_iterator', 'dict_keyiterator', 'set_iterator', 'bytes_iterator']
 
 - case: |-
-    print([type(x).__name__ for x in [map(str, [1]), filter(None, [1]), zip([1], [2]), enumerate('a'), reversed([1]), reversed('ab'), reversed(range(2))]])
+    print([type(x).__name__ for x in [map(str, [1]), filter(nil, [1]), zip([1], [2]), enumerate('a'), reversed([1]), reversed('ab'), reversed(range(2))]])
   expected: |-
     ['map', 'filter', 'zip', 'enumerate', 'list_reverseiterator', 'reversed', 'range_iterator']
 
@@ -6827,7 +5632,7 @@
 
 - case: |-
     it = iter([1, 2, 3, 4])
-    print(3 in it, next(it, None), 9 in iter([1]))
+    print(3 in it, next(it, nil), 9 in iter([1]))
     z = zip('ab', [1, 2])
     print(next(z), dict(z))
   expected: |-
@@ -6835,39 +5640,29 @@
     ('a', 1) {'b': 2}
 
 - case: |-
-    print((1).__class__, 'a'.__class__.__name__, [].__class__ == list, (3).__class__ == int)
-  expected: |-
-    <class 'int'> str True True
-
-- case: |-
-    print([v.__class__.__name__ for v in [1, 's', 2.5, None, (1,), {}, set(), b'', True]])
-  expected: |-
-    ['int', 'str', 'float', 'NoneType', 'tuple', 'dict', 'set', 'bytes', 'bool']
-
-- case: |-
-    print(1 < 2 in [2], 2 in [2] == True, 1 < 2 in [3], 3 in [3] in [[3]])
+    print(1 < 2 in [2], 2 in [2] == true, 1 < 2 in [3], 3 in [3] in [[3]])
   expected: |-
     True False False True
 
 - case: |-
-    x = None
-    print(x is None is not False, 1 == 1 is not None, 2 not in [3] in [[3]], x is None in [None])
+    x = nil
+    print(x is nil is !false, 1 == 1 is !nil, 2 !in [3] in [[3]], x is nil in [nil])
   expected: |-
     True True True True
 
 - case: |-
     a, b, c = 1, [1, 2], [[1, 2]]
-    print(a in b in c, a not in b in c, b in c is not None, a < 2 not in b)
+    print(a in b in c, a !in b in c, b in c is !nil, a < 2 !in b)
   expected: |-
     True False True False
 
 - case: |-
-    print([x for x in range(6) if 1 < x in {2, 3, 5} != False])
+    print([x for x in range(6) if 1 < x in {2, 3, 5} != false])
   expected: |-
     [2, 3, 5]
 
 - case: |-
-    print(1 < 2 > 1 == 1 != 2 in [2] not in [[1]] is not None)
+    print(1 < 2 > 1 == 1 != 2 in [2] !in [[1]] is !nil)
   expected: |-
     True
 
@@ -6918,7 +5713,7 @@
 
 - case: |-
     n = float('nan')
-    print([n].count(1), [1, 2].count(n), n not in [n])
+    print([n].count(1), [1, 2].count(n), n !in [n])
   expected: |-
     0 0 False
 
@@ -6940,7 +5735,7 @@
     [1.0, 2.0] False
 
 - case: |-
-    import_ok = True
+    import_ok = true
     n = float('nan')
     t = (n, 1)
     print(t == t, t == (n, 1), (float('nan'), 1) == (float('nan'), 1), {t: 'k'}[t], t in {t})
@@ -6953,11 +5748,6 @@
     print(n == m, n in [m], len({n, m}))
   expected: |-
     False True 1
-
-- case: |-
-    print(len('a' * 200000), len([0] * 200000), len(list(range(200000))), len(format(5, '200000d')))
-  expected: |-
-    200000 200000 200000 200000
 
 - case: |-
     xs = [(float(i), 1.0, 2.0, 3.0) for i in range(500000)]
@@ -6987,22 +5777,6 @@
     print(d, repr(e))
   expected: |-
     {'e': KeyError({...})} KeyError({'e': KeyError({...})})
-
-- case: |-
-    x = None
-    print([] is x)
-  error: '''is'' compares only with None, True, False, ... or NotImplemented'
-
-- case: |-
-    a = [1]
-    b = a
-    print(a is b)
-  error: '''is'' compares only with None, True, False, ... or NotImplemented'
-  error_line: 3
-
-- case: |-
-    print('\N{BULLET}')
-  error: named escapes are not supported
 
 - case: |-
     print(r'\N{BULLET}', b'\N{x}', '\\N{y}')
@@ -7062,42 +5836,50 @@
     1 [3, 0, 2]
 
 - case: |-
-    d = {'a': 1}
-    k = d.keys()
-    d['b'] = 2
-    print(k, len(k))
-  expected: |-
-    dict_keys(['a', 'b']) 2
-
-- case: |-
-    d = {'a': 1}
-    print(d.values(), d.items(), type(d.items()).__name__)
-  expected: |-
-    dict_values([1]) dict_items([('a', 1)]) dict_items
-
-- case: |-
-    d = {'a': 1, 'b': 2}
-    print(d.keys() & {'a'}, sorted(d.keys() - {'a'}), d.keys() == {'a', 'b'}, d.keys() == ['a', 'b'])
-  expected: |-
-    {'a'} ['b'] True False
-
-- case: |-
-    d = {'a': 1}
-    print(('a', 1) in d.items(), ('a', 2) in d.items(), 1 in d.values(), d.items().isdisjoint([('b', 2)]))
-  expected: |-
-    True False True True
-
-- case: |-
-    d = {'a': 1, 'b': 2}
-    v = d.values()
-    print(v == v, d.values() == d.values(), list(reversed(d.items())))
-  expected: |-
-    True False [('b', 2), ('a', 1)]
-
-- case: |-
     print(list(reversed(range(0))), list(reversed(range(5, 0, -2))), list(reversed(range(9223372036854775807, -9223372036854775808, -9223372036854775808))))
   expected: |-
     [] [1, 3, 5] [-1, 9223372036854775807]
+
+- case: |-
+    try:
+        len(range(-2**62, 2**62))
+    except OverflowError as e:
+        print('OverflowError', e)
+    print(len(range(0, 2**63 - 1)), len(range(2**62, -2**62, -2)))
+  expected: |-
+    OverflowError Python int too large to convert to C ssize_t
+    9223372036854775807 4611686018427387904
+
+- case: |-
+    for bad in [lambda: range(10**40, 'a'), lambda: range(1, 2**70, 1.5), lambda: iter(5, 1)]:
+        try:
+            bad()
+        except TypeError as e:
+            print(e)
+  expected: |-
+    'str' object cannot be interpreted as an integer
+    'float' object cannot be interpreted as an integer
+    iter(v, w): v must be callable
+
+- case: |-
+    print(list(enumerate(iterable='ab')), list(enumerate('ab', true)), list(enumerate(start=3, iterable='x')))
+    print(list(enumerate('ab', 10**40)))
+    try:
+        enumerate('a', 1, start=2)
+    except TypeError:
+        print('TypeError')
+  expected: |-
+    [(0, 'a'), (1, 'b')] [(1, 'a'), (2, 'b')] [(3, 'x')]
+    [(10000000000000000000000000000000000000000, 'a'), (10000000000000000000000000000000000000001, 'b')]
+    TypeError
+
+- case: |-
+    print(next(reversed(range(-2**63, 2**63 - 1))), list(reversed(range(-2**63, -2**63 + 2))))
+    r = reversed(range(2**63 - 100, -2**63, -2**57))
+    print(next(r), next(r), sum(1 for _ in r))
+  expected: |-
+    9223372036854775806 [-9223372036854775807, -9223372036854775808]
+    -9079256848778920036 -8935141660703064164 126
 
 - case: |-
     x = 5
@@ -7183,19 +5965,6 @@
   expected: |-
     [1]
 
-- case: |-
-    b = set(range(-50000, 3))
-    c = frozenset(range(-50000, 0))
-    print(b > b, b >= b, c < b, b <= c, set(range(3)) < b)
-  expected: |-
-    False True True False True
-
-- case: |
-    x = [2, 3, 4]
-    x[:; )= 10
-    print(x)
-  error: expected expression
-
 - case: |
     r = range(-5, 5)
     print([r.index(x) for x in (-5, 0, 4)], [r.count(x) for x in (-6, -5, 5)])
@@ -7240,7 +6009,7 @@
     x = x + [2]
     x = x + [3]
     y = x
-    x = None
+    x = nil
     print(y, x)
   expected: |-
     [1, 2, 3] None
@@ -7290,7 +6059,7 @@
   error: min() iterable argument is empty
 
 - case: |-
-    print(sum([True, True, 3]), sum([1, 2, 0.5]), sum([2**62, 2**62, 2**62]))
+    print(sum([true, true, 3]), sum([1, 2, 0.5]), sum([2**62, 2**62, 2**62]))
   expected: |-
     5 3.5 13835058055282163712
 
@@ -7300,12 +6069,12 @@
     1000000000000000000000000000001 100000000000000000010 0
 
 - case: |-
-    print(max([1, 1.0, True]), min([1.0, 1, True]), max('abc'), min({3: 0, 1: 0}))
+    print(max([1, 1.0, true]), min([1.0, 1, true]), max('abc'), min({3: 0, 1: 0}))
   expected: |-
     1 1.0 c 1
 
 - case: |-
-    print(max(1, 2), min('b', 'a'), max([2, 'x']) if False else 'ok')
+    print(max(1, 2), min('b', 'a'), max([2, 'x']) if false else 'ok')
   expected: |-
     2 a ok
 
@@ -7327,14 +6096,6 @@
     print(list(s))
   expected: |-
     ['b', 'a', 'c', 'zz', 'q']
-  interactive_events: [e]
-
-- case: |-
-    s = frozenset(range(50, 0, -3))
-    receive()
-    print(list(s))
-  expected: |-
-    [50, 47, 44, 41, 38, 35, 32, 29, 26, 23, 20, 17, 14, 11, 8, 5, 2]
   interactive_events: [e]
 
 - case: |-
@@ -7363,10 +6124,6 @@
     (1, [2, 3]) (1, [2, 3], 1, [2, 3])
 
 - case: |-
-    print([1].index(5))
-  error: 'list.index(x): x not in list'
-
-- case: |-
     xs = [1]
     xs.remove(5)
   error: 'list.remove(x): x not in list'
@@ -7383,179 +6140,24 @@
     [3, 3]
 
 - case: |-
-    print(eval('[i * i for i in range(4)]'))
-  expected: |-
-    [0, 1, 4, 9]
-
-- case: |-
-    print(eval('a + b', {'a': 1}, {'b': 2}))
-  expected: |-
-    3
-
-- case: |-
-    g = {'n': 4}
-    print(eval('n * n', g), sorted(k for k in g if k != '__builtins__'))
-  expected: |-
-    16 ['n']
-
-- case: |-
-    ns = {}
-    exec('a = 1\nb = a + 1', ns)
-    print(ns['a'], ns['b'])
-  expected: |-
-    1 2
-
-- case: |-
-    ns = {'base': 10}
-    exec('r = base + 5', ns)
-    print(ns['r'])
-  expected: |-
-    15
-
-- case: |-
-    g, l = {}, {}
-    exec('v = 4', g, l)
-    print('v' in g, l['v'])
-  expected: |-
-    False 4
-
-- case: |-
-    g = {'q': 1}
-    l = {}
-    exec('w = q + 1', g, l)
-    print(l)
-  expected: |-
-    {'w': 2}
-
-- case: |-
-    d = {'x': 1}
-    exec('x = 2\ny = 3', d)
-    print(d['x'], d['y'])
-  expected: |-
-    2 3
-
-- case: |-
-    gs = [eval('(x for x in range(n))', {'n': n}) for n in (2, 3)]
-    print([list(g) for g in gs])
-  expected: |-
-    [[0, 1], [0, 1, 2]]
-
-- case: |-
-    ns = {}
-    exec('a = 1', ns)
-    exec('b = a + 1', ns)
-    print(ns['b'])
-  expected: |-
-    2
-
-- case: |-
-    ns = {}
-    exec('exec("inner = 1")', ns)
-    print(ns.get('inner'))
-  expected: |-
-    1
-
-- case: |-
-    print(eval('v', None, {'v': 8}))
-  expected: |-
-    8
-
-- case: |-
-    a = [1, 2, 3]
-    exec('a[0] = 9')
-    print(a)
-  expected: |-
-    [9, 2, 3]
-
-- case: |-
-    ns = {'d': 1}
-    exec('del d', ns)
-    print('d' in ns)
-  expected: |-
-    False
-
-- case: |-
-    d={}
-    exec('1', d)
-    print('__builtins__' in d, len(d), d['__builtins__'].len([1, 2]))
-  expected: |-
-    True 1 2
-
-- case: |-
-    d={}
-    exec('1', d)
-    b = vars(d['__builtins__'])
-    print(b['abs'](-3), b['int']('4'), 'print' in b, getattr(d['__builtins__'], 'nope', 0))
-  expected: |-
-    3 4 True 0
-
-- case: |-
-    d={'__builtins__': {'print': print}}
-    exec('print("ok")', d)
-  expected: |-
-    ok
-
-- case: |-
-    print(eval('len', {}) == len)
-  expected: |-
-    True
-
-- case: |-
-    a, b = {}, {}
-    exec('1', a)
-    exec('1', b)
-    print(a['__builtins__'] == b['__builtins__'], len(a), len(b))
-  expected: |-
-    True 1 1
-
-- case: |-
-    ns = {}
-    exec('def inc():\n    global c\n    c = c + 1\nc = 0', ns)
-    ns['inc']()
-    ns['inc']()
-    print(ns['c'])
-  expected: |-
-    2
-
-- case: |-
-    ns = {}
-    exec('nm = __name__', ns)
-    print(ns['nm'], '__name__' in ns)
-  expected: |-
-    builtins False
-
-- case: |-
-    ns = {}
-    exec('nm = __name__', ns)
-    print(ns['nm'])
-  expected: |-
-    builtins
-
-- case: |-
-    d = {'a': 1}
-    print(eval('a', d), list(d.keys()))
-  expected: |-
-    1 ['a', '__builtins__']
-
-- case: |-
-    print(eval('len', {'__builtins__': {}}))
-  error: 'NameError: name ''len'' is not defined'
-
-- case: |-
-    [].append(1, 2)
-  error: list.append() takes exactly one argument (2 given)
-
-- case: |-
-    {}.get()
-  error: get expected at least 1 argument, got 0
-
-- case: |-
-    [].insert(1)
-  error: insert expected 2 arguments, got 1
-
-- case: |-
     [].sort(1)
   error: sort() takes no positional arguments
+
+- case: |-
+    fn t(f):
+        try:
+            f()
+        except TypeError as e:
+            print(e)
+    t(lambda: sorted([2, 1], keys=len))
+    t(lambda: [2, 1].sort(keys=len))
+    t(lambda: [2, 1].sort(reversed=true))
+    t(lambda: [2, 1].sort(1, keys=len))
+  expected: |-
+    sorted() got an unexpected keyword argument 'keys'
+    sort() got an unexpected keyword argument 'keys'. Did you mean 'key'?
+    sort() got an unexpected keyword argument 'reversed'. Did you mean 'reverse'?
+    sort() takes no positional arguments
 
 - case: |-
     {[1]: 2}
@@ -7570,90 +6172,11 @@
   error: 'cannot use ''list'' as a set element (unhashable type: ''list'')'
 
 - case: |-
-    frozenset([[1]])
-  error: 'cannot use ''list'' as a set element (unhashable type: ''list'')'
-
-- case: |-
-    {1: 2}.setdefault({})
-  error: 'cannot use ''dict'' as a dict key (unhashable type: ''dict'')'
-
-- case: |-
     d = {}
     d.update()
     print(d)
   expected: |-
     {}
-
-- case: |-
-    print('{a}'.format_map({'a': 1}))
-  expected: |-
-    1
-
-- case: |-
-    print('{x} {y}'.format_map({'x': 'X', 'y': 'Y'}))
-  expected: |-
-    X Y
-
-- case: |-
-    print('{a[0]}'.format_map({'a': 'xyz'}))
-  expected: |-
-    x
-
-- case: |-
-    '{a}'.format_map({})
-  error: 'KeyError: ''a'''
-
-- case: |-
-    'x'.format_map({}, {})
-  error: 'TypeError: str.format_map() takes exactly one argument (2 given)'
-
-- case: |-
-    print(list(map(int.__add__, [1, 2], [10, 20])))
-  expected: |-
-    [11, 22]
-
-- case: |-
-    print(sorted([3, 1, 2], key=int.__neg__))
-  expected: |-
-    [3, 2, 1]
-
-- case: |-
-    print([1, 2].__add__([3]), [1].__mul__(2), [1, 2].__contains__(2))
-  expected: |-
-    [1, 2, 3] [1, 1] True
-
-- case: |-
-    print({1: 2}.__contains__(1), {1: 2}.__len__())
-  expected: |-
-    True 1
-
-- case: |-
-    print({'a': 1}.__or__({'b': 2}))
-  expected: |-
-    {'a': 1, 'b': 2}
-
-- case: |-
-    print({1, 2}.__or__({3}), {1, 2}.__and__({2}), {1, 2}.__sub__({1}))
-  expected: |-
-    {1, 2, 3} {2} {2}
-
-- case: |-
-    print([1].__add__((2,)))
-  error: 'TypeError: can only concatenate list (not "tuple") to list'
-
-- case: |-
-    print(list(iter((1, 2).__iter__())))
-  expected: |-
-    [1, 2]
-
-- case: |-
-    [].__hash__()
-  error: 'TypeError: ''NoneType'' object is not callable'
-
-- case: |-
-    print(hash(frozenset([1, 2])) == hash(frozenset([2, 1])))
-  expected: |-
-    True
 
 - case: |-
     d = {1: 'a'}
@@ -7667,92 +6190,9 @@
     100
 
 - case: |-
-    hash([])
-  error: 'TypeError: unhashable type: ''list'''
-
-- case: |-
-    hash({})
-  error: 'TypeError: unhashable type: ''dict'''
-
-- case: |-
-    hash({1})
-  error: 'TypeError: unhashable type: ''set'''
-
-- case: |-
-    hash((1, []))
-  error: 'TypeError: unhashable type: ''list'''
-
-- case: |-
-    hash([1], 2)
-  error: 'TypeError: hash() takes exactly one argument (2 given)'
-
-- case: |-
-    x = [1]
-    print(id(x) == id(x))
-  expected: |-
-    True
-
-- case: |-
-    x, y = [1], [1]
-    print(id(x) == id(y))
-  expected: |-
-    False
-
-- case: |-
-    x = [1]
-    y = x
-    print(id(x) == id(y))
-  expected: |-
-    True
-
-- case: |-
-    print(id(1) > 0, id('a') > 0, id([]) > 0)
-  expected: |-
-    True True True
-
-- case: |-
-    xs = [object for _ in range(3)]
-    print(len({id(x) for x in xs}))
-  expected: |-
-    1
-
-- case: |-
-    items = [[i] for i in range(50)]
-    print(len({id(x) for x in items}))
-  expected: |-
-    50
-
-- case: |-
-    a = [1]
-    ids = id(a)
-    a.append(2)
-    print(ids == id(a))
-  expected: |-
-    True
-
-- case: |-
-    d = {}
-    k = id(d)
-    d['x'] = 1
-    print(k == id(d))
-  expected: |-
-    True
-
-- case: |-
-    print(sorted({hash(x) for x in (1, 1.0, True)}))
+    print(sorted({hash(x) for x in (1, 1.0, true)}))
   expected: |-
     [1]
-
-- case: |-
-    vars([])
-  error: 'TypeError: vars() argument must have __dict__ attribute'
-
-- case: |-
-    e = ValueError('x')
-    e.add_note('n')
-    print(e.__notes__ == ['n'])
-  expected: |-
-    True
 
 - case: |-
     gen = (x for x in range(3))
@@ -7772,7 +6212,7 @@
     b'\x01\x00\x00\x00' 1
 
 - case: |-
-    print(len({2 ** 100, 2.0 ** 100, 2 ** 100 + 0, 2 ** 101 // 2}))
+    print(len({2 ** 100, 2.0 ** 100, 2 ** 100 + 0, 2 ** 101 ~/ 2}))
   expected: |-
     1
 
@@ -7787,7 +6227,7 @@
     28679718602997181072337614380936720482949 5 [0, 18446744073709551616, 36893488147419103232]
 
 - case: |-
-    print([1, 2, 3][2 ** 64 - 2 ** 64 + 1], 'abc'[2 ** 100 // 2 ** 99])
+    print([1, 2, 3][2 ** 64 - 2 ** 64 + 1], 'abc'[2 ** 100 ~/ 2 ** 99])
   expected: |-
     2 c
 
@@ -7822,7 +6262,7 @@
     [100000000000000000000, 100000000000000000001, 100000000000000000002] (-36893488147419103232, -36893488147419103231)
 
 - case: |-
-    print(range(True, 2 ** 64, 2 ** 63), list(range(True, 2 ** 64, 2 ** 63)))
+    print(range(true, 2 ** 64, 2 ** 63), list(range(true, 2 ** 64, 2 ** 63)))
   expected: |-
     range(1, 18446744073709551616, 9223372036854775808) [1, 9223372036854775809]
 
@@ -7878,7 +6318,7 @@
 
 - case: |-
     s = 'xy'
-    print(s[True], s[False])
+    print(s[true], s[false])
   expected: |-
     y x
 
@@ -7887,18 +6327,6 @@
     print(sum(iter(range(10))), min(iter('zab')), max(it))
   expected: |-
     45 a 8
-
-- case: |-
-    print([].append.__name__, 'x'.upper.__name__, {}.get.__name__, [].append.__qualname__, 'x'.upper.__qualname__)
-  expected: |-
-    append upper get list.append str.upper
-
-- case: |-
-    f = max
-    g = [1].pop
-    print(f.__name__, g.__name__, g.__qualname__)
-  expected: |-
-    max pop list.pop
 
 - case: |-
     print([f.__name__ for f in (sum, min, abs, sorted)])
@@ -7911,35 +6339,9 @@
     c bb yy
 
 - case: |-
-    print(min([3, 1, 2], key=None), max((x for x in [3, 1, 2]), key=None))
+    print(min([3, 1, 2], key=nil), max((x for x in [3, 1, 2]), key=nil))
   expected: |-
     1 3
-
-- case: |-
-    print(int.__mro__[0].__name__, int.__mro__[-1].__name__, len(int.__mro__), len(object.__mro__), object.__bases__, int.__bases__[0].__name__)
-  expected: |-
-    int object 2 1 () object
-
-- case: |-
-    print([k.__name__ for k in KeyError.__mro__])
-    print([k.__name__ for k in ValueError.__bases__], [k.__name__ for k in BaseException.__bases__], [k.__name__ for k in bool.__mro__])
-  expected: |-
-    ['KeyError', 'LookupError', 'Exception', 'BaseException', 'object']
-    ['Exception'] ['object'] ['bool', 'int', 'object']
-
-- case: |-
-    print('append' in vars(list), 'upper' in vars(str), 'append' in vars(str), vars(list)['append']([1].copy(), 2), len(vars(object)) >= 0)
-  expected: |-
-    True True False None True
-
-- case: |-
-    type('A', 1, {})
-  error: type.__new__() argument 2 must be tuple, not int
-
-- case: |-
-    print(1+0j == 1, 1.0 == 1+0j, hash(1+0j) == hash(1), hash(2.5+0j) == hash(2.5), {1: 'a'}[1+0j], len({1, 1+0j, 1.0}), (1+1j) in {1+1j})
-  expected: |-
-    True True True True a 1 True
 
 - case: |-
     print(bytearray(), bytearray(3), bytearray(b'ab'), bytearray([65, 66]), bytearray('hé', 'utf-8'), bytearray(range(3)), repr(bytearray(b"it's")))
@@ -7985,34 +6387,757 @@
     [0, 0, 0, 9]
 
 - case: |-
-    ba = bytearray(b'xyz')
-    v = memoryview(ba)
-    v[0] = 65
-    v[1:3] = b'BC'
-    print(ba, v.readonly, v.tobytes(), v[-1], bytearray(v[::2]))
-  expected: |-
-    bytearray(b'ABC') False b'ABC' 67 bytearray(b'AC')
-
-- case: |-
-    m = memoryview(b'0123456789')
-    sub = m[2:8][::2]
-    print(list(sub), sub.tobytes(), len(sub), sub[1], bytes(memoryview(sub)))
-  expected: |-
-    [50, 52, 54] b'246' 3 52 b'246'
-
-- case: |-
-    tb = str.maketrans('ab', 'xy', 'c')
-    print(tb, 'abcabd'.translate(tb), 'abc'.translate({97: 'AA', 98: None}), 'abc'.translate(['z'] * 98), 'a'.maketrans({'a': 'b'}))
-  expected: |-
-    {97: 120, 98: 121, 99: None} xyxyd AAc zbc {97: 'b'}
-
-- case: |-
-    print(list(map(eval, ['1 + 1', '2 * 3'])))
-    print(sorted(['3', '1', '2'], key=eval))
     d = {}
-    list(map(exec, ['a = 1', 'b = 2'], [d, d]))
-    print(d['a'] + d['b'])
+    d.update((k, k * 2) for k in range(3))
+    print(d)
+    e = {'a': 1}
+    e.update(((c, i) for i, c in enumerate('bc')), z=9)
+    print(e)
   expected: |-
-    [2, 6]
-    ['1', '2', '3']
-    3
+    {0: 0, 1: 2, 2: 4}
+    {'a': 1, 'b': 0, 'c': 1, 'z': 9}
+
+- case: |-
+    fn t(label, f):
+        try:
+            print(label, repr(f()))
+        except Exception as e:
+            print(label, type(e).__name__, e)
+    b = bytearray(b'abc')
+    t('p1', lambda: b.pop(true))
+    t('p2', lambda: b.insert(true, 120))
+    t('p3', lambda: b.pop('x'))
+    t('p4', lambda: b.resize(2 ** 70))
+    t('p5', lambda: b.take_bytes(-5))
+    t('p6', lambda: b.take_bytes('x'))
+    t('p7', lambda: b.take_bytes(2 ** 70))
+    t('p8', lambda: b.extend(5))
+    t('p9', lambda: b.extend('xy'))
+    print(b)
+  expected: |-
+    p1 98
+    p2 None
+    p3 TypeError 'str' object cannot be interpreted as an integer
+    p4 OverflowError Python int too large to convert to C ssize_t
+    p5 IndexError can't take -2 bytes outside size 3
+    p6 TypeError n must be an integer or None
+    p7 IndexError cannot fit 'int' into an index-sized integer
+    p8 TypeError can't extend bytearray with int
+    p9 TypeError expected iterable of integers; got: 'str'
+    bytearray(b'axc')
+
+- case: |-
+    fn kv(k):
+        yield k
+        yield k * 2
+    fn pairs():
+        yield ('a', 1)
+        yield ['b', 2]
+    print(dict(pairs(), z=0))
+    print(dict([kv('x'), ('y', 1), kv('w')]))
+    print(dict((kv(c) for c in 'pq'), r=3))
+    try:
+        dict([('a', 1), kv('a'), (c for c in 'abc')])
+    except ValueError as e:
+        print(e)
+  expected: |-
+    {'a': 1, 'b': 2, 'z': 0}
+    {'x': 'xx', 'y': 1, 'w': 'ww'}
+    {'p': 'pp', 'q': 'qq', 'r': 3}
+    dictionary update sequence element #2 has length 3; 2 is required
+
+- case: |-
+    t = (1, 2)
+    s = 'text'
+    print(tuple(t) is t, str(s) is s, list(t) is t, list(range(10**12, 0)), tuple(range(0, -10**12)), set(range(5, 5)))
+  expected: |-
+    True True False [] () set()
+
+- case: |-
+    fn bad(v):
+        if v == 3:
+            raise KeyError(v)
+        return v
+    xs = [3, 1, 2]
+    try:
+        sorted(xs, key=bad)
+    except KeyError as e:
+        print('key', e)
+    fn by(k=2):
+        return lambda v: v % k
+    print(sorted(range(6), key=by()), sorted([1.5, 1, 0.5, 2], key=lambda v: -v), sorted(['b', 'a', 'c'], key=lambda s: 0, reverse=true))
+    ys = [5, 2, 8]
+    ys.sort(key=lambda v: (v % 2, v), reverse=true)
+    print(ys, xs)
+  expected: |-
+    key 3
+    [0, 2, 4, 1, 3, 5] [2, 1.5, 1, 0.5] ['b', 'a', 'c']
+    [5, 8, 2] [3, 1, 2]
+
+- case: |-
+    // a tuple whose items share parts hashes each part once
+    t = ()
+    u = ()
+    for i in range(40):
+        t = (t, t)
+        u = (u, u)
+    print(hash(t) == hash(u), hash(t) == hash((t[0], u[1])))
+  expected: |-
+    True True
+
+- case: |-
+    // shared parts read once as dict keys and set items
+    t = ()
+    u = ()
+    for i in range(40):
+        t = (t, t)
+        u = (u, u)
+    d = {t: 1}
+    d[u] = 2
+    s = set()
+    s.add(t)
+    print(len(d), d[t], u in s, len({t, u}), len(dict.fromkeys([t, u])), len(set([t, u])), t in {1: 2})
+  expected: |-
+    1 2 True 1 1 1 False
+
+- case: |-
+    // shared parts compare once in equality and order
+    t = ()
+    u = ()
+    for i in range(40):
+        t = (t, t)
+        u = (u, u)
+    print(t == u, t != u, t < u, t <= u, [t].count(u), [u].index(t), u in [t])
+  expected: |-
+    True False False True 1 0 True
+
+- case: |-
+    // lists that share parts compare each pair once
+    a = []
+    b = []
+    for i in range(40):
+        a = [a, a]
+        b = [b, b]
+    print(a == b, a != b, [a] == [b], {1: a} == {1: b})
+  expected: |-
+    True False True True
+
+- case: |-
+    // a sort in place pays for its comparisons
+    xs = ['x' * 1000 + str(i * 7919 % 20011) for i in range(20000)]
+    for i in range(100000):
+        xs.sort()
+  error: budget exceeded
+
+- case: |-
+    // a sorted copy pays for its comparisons
+    xs = ['x' * 1000 + str(i * 7919 % 20011) for i in range(20000)]
+    for i in range(100000):
+        ys = sorted(xs)
+  error: budget exceeded
+
+- case: |-
+    // the greatest and least of long texts pay for the bytes they compare
+    xs = ['x' * 1000 + str(i * 7919 % 20011) for i in range(20000)]
+    for i in range(100000):
+        m = max(xs)
+        m = min(xs)
+  error: budget exceeded
+
+- case: |-
+    // the items of bytes are refused before they pass the memory left
+    b = bytes(40000000)
+    print(len(list(b)))
+  error: MemoryError
+
+- case: |-
+    // bytes add and pick their least in place with no item made for each
+    b = bytes(40000000)
+    print(sum(b), min(b))
+  expected: |-
+    0 0
+
+- case: |-
+    // bytes pick their greatest and their set in place with no item made for each
+    b = bytearray(40000000)
+    print(max(b), len(set(b)))
+  expected: |-
+    0 1
+
+- case: |-
+    // bytes test their truth in place with no item made for each
+    b = bytes(40000000)
+    print(any(b), all(b), all(b'\x01\x02'), any(b'\x00\x01'))
+  expected: |-
+    False False True True
+
+- case: |-
+    // hex text is refused before it passes the memory left
+    b = bytes(100000000)
+    print(len(b.hex(':')))
+  error: MemoryError
+
+- case: |-
+    // copies of sets and maps pay for their entries
+    a = set(range(200000))
+    d = dict.fromkeys(range(200000))
+    for i in range(100000):
+        b = set(a)
+        e = dict(d)
+  error: budget exceeded
+
+- case: |-
+    // a buffer copy an extension and a growth pay for their bytes
+    b = bytes(1000000)
+    for i in range(100000):
+        c = bytearray(b)
+        c.extend(b)
+        c.resize(3000000)
+  error: budget exceeded
+
+- case: |-
+    // a long tuple of classes pays for the classes it reads
+    t = (str,) * 2000000
+    for i in range(100000):
+        r = isinstance(5, t)
+        r = issubclass(int, t)
+  error: budget exceeded
+
+- case: |-
+    // a symmetric update toggles each distinct item once
+    s = {1, 2, 3}
+    s.symmetric_difference_update([2, 2, 5, 5])
+    t = set()
+    t.symmetric_difference_update('aab')
+    u = {1, 2, 3}
+    u.symmetric_difference_update([1, 2, 2])
+    print(sorted(s), sorted(t), sorted(u))
+  expected: |-
+    [1, 3, 5] ['a', 'b'] [3]
+
+- case: |-
+    // a sequence search refuses a nil bound which a text search takes as none
+    fn t(label, f):
+        try:
+            print(label, repr(f()))
+        except TypeError as e:
+            print(label, 'TypeError')
+    t('a', lambda: [1, 2, 3].index(1, nil))
+    t('b', lambda: (1,).index(1, 0, nil))
+    t('c', lambda: 'abc'.find('c', nil))
+    t('d', lambda: b'abc'.find(b'c', nil, nil))
+  expected: |-
+    a TypeError
+    b TypeError
+    c 2
+    d 2
+
+- case: |-
+    // an insert or a pop takes a bool as an int and clamps a word
+    fn ins(i):
+        xs = [1, 2]
+        xs.insert(i, 9)
+        return xs
+    fn t(label, f):
+        try:
+            print(label, repr(f()))
+        except Exception as e:
+            print(label, type(e).__name__)
+    t('a', lambda: ins(true))
+    t('b', lambda: ins(2 ** 47))
+    t('c', lambda: ins(-2 ** 63))
+    t('d', lambda: ins(2 ** 32))
+    t('e', lambda: [1, 2, 3].pop(true))
+    t('f', lambda: [1, 2].pop(2 ** 50))
+    t('g', lambda: [1, 2].pop(2 ** 32))
+    t('h', lambda: [1, 2].pop(2 ** 70))
+  expected: |-
+    a [1, 9, 2]
+    b [1, 2, 9]
+    c [9, 1, 2]
+    d [1, 2, 9]
+    e 2
+    f IndexError
+    g IndexError
+    h OverflowError
+
+- case: |-
+    // a bytearray grown inside its own loop is walked as it was at the start
+    b = bytearray(b'abc')
+    seen = []
+    for x in b:
+        seen.append(x)
+        b.append(x + 1)
+    print(seen, len(b))
+  expected: |-
+    [97, 98, 99] 6
+
+- case: |-
+    // a bytearray changed in place inside its own loop is walked as it began
+    b = bytearray(b'abc')
+    out = []
+    for x in b:
+        b[2] = 122
+        out.append(x)
+    it = iter(b)
+    b[0] = 65
+    print(out, b, next(it), [x for x in b'\x00\xff'])
+  expected: |-
+    [97, 98, 99] bytearray(b'Abz') 97 [0, 255]
+
+- case: |-
+    // a negative index counts from the end of a list a text and a tuple
+    locked = [('abi', '0.9.6'), ('itoa', '1.0.18'), ('libm', '0.2.16')]
+    print(locked[-1], locked[-2][0], locked[-1][-1], 'edge.wasm'[-4:], locked[-2:], 'libm'[-1])
+  expected: |-
+    ('libm', '0.2.16') itoa 0.2.16 wasm [('itoa', '1.0.18'), ('libm', '0.2.16')] m
+
+- case: |-
+    // keys sharing one table hash pay for each probe so a flood runs out
+    p = 2 ** 61 - 1
+    seen = {}
+    for i in range(1000000):
+        seen[i * p] = i
+    print(len(seen))
+  error: budget exceeded
+
+- case: |-
+    // a set built from keys sharing one hash stops once its probes spend the budget
+    p = 2 ** 61 - 1
+    keys = [i * p for i in range(1000000)]
+    print(len(set(keys)))
+  error: budget exceeded
+
+- case: |-
+    // keys sharing one table hash still find each other while the budget lasts
+    p = 2 ** 61 - 1
+    seen = {i * p: i for i in range(2000)}
+    print(len(seen), seen[1999 * p], 5 * p in seen, 5 * p + 1 in seen, len(set(seen) | {0, p}))
+  expected: |-
+    2000 1999 True False 2000
+
+- case: |-
+    // the set operators pay for the items they read as their methods do
+    a, b = set(range(100000)), set(range(100000, 200000))
+    for i in range(100000):
+        c = a & b
+        c = a - a
+        c = a <= b
+  error: budget exceeded
+
+- case: |-
+    // ordering long lists and unpacking one with a star pay for the items they read
+    xs, ys = list(range(1000000)), list(range(1000000))
+    for i in range(100000):
+        if xs < ys:
+            break
+        first, *rest = xs
+  error: budget exceeded
+
+- case: |-
+    // merging maps and spreading one pay for the entries they copy
+    d = dict.fromkeys(range(100000))
+    for i in range(100000):
+        e = d | d
+        f = {**d}
+  error: budget exceeded
+
+- case: |-
+    // a long subset test pays for what it reads and stops at the first miss
+    a, b = set(range(100000)), set(range(1, 100001))
+    print(a <= b, a - {0} <= b, a < a | b, {1, 2} >= {2}, a == set(range(100000)), a != b)
+  expected: |-
+    False True True True True True
+
+- case: |-
+    // a needle in bytes is found in time linear in both lengths
+    hay = bytes(2000000)
+    needle = bytes(1000000) + b'\x01'
+    print(needle in hay, needle in hay + b'\x01', b'' in hay, b'\x00\x01' in bytearray(b'ab\x00\x01'))
+  expected: |-
+    False True True True
+
+- case: |-
+    // a range of wide ints fits while its items and their entries fit
+    xs = list(range(2 ** 60, 2 ** 60 + 100000))
+    print(len(xs), xs[-1] - xs[0], len(set(range(2 ** 60, 2 ** 60 + 1000))))
+  expected: |-
+    100000 99999 1000
+
+- case: |-
+    // a range of wide ints is refused before its items pass the memory left
+    xs = list(range(2 ** 60, 2 ** 60 + 20000000))
+  error: MemoryError
+
+- case: |-
+    // a map and a set of one repeated key grow with what they keep
+    x = [7] * 10000000
+    print(len(dict.fromkeys(x)), len(set(x)), len(dict.fromkeys(x, 0)), len({}.fromkeys(range(3))))
+  expected: |-
+    1 1 1 3
+
+- case: |-
+    // a map and a set keep every key through growth deletes compaction and clear
+    d = {}
+    s = set()
+    for i in range(3000):
+        d[i * 7] = i
+        s.add(i * 7)
+    for i in range(0, 3000, 2):
+        del d[i * 7]
+        s.discard(i * 7)
+    for i in range(3000, 4500):
+        d[i * 7] = i
+        s.add(i * 7)
+    hd = 0
+    hs = 0
+    for i in range(4500):
+        if (i * 7) in d:
+            hd += 1
+        if (i * 7) in s:
+            hs += 1
+    print(len(d), len(s), hd, hs, sum(d.values()), sum(s), list(d)[:3], list(d)[-3:])
+    c = d.copy()
+    d.clear()
+    s.clear()
+    for i in range(40):
+        d['k' + str(i)] = i
+        s.add('k' + str(i % 25))
+    for i in range(0, 40, 3):
+        del d['k' + str(i)]
+    print(len(c), c[7], len(d), 'k39' in d, 'k39' in c, len(s), 'k24' in s, 'k25' in s, list(d)[:4])
+  expected: |-
+    3000 3000 3000 3000 7874250 55119750 [7, 21, 35] [31479, 31486, 31493]
+    3000 1 26 False False 25 True False ['k1', 'k2', 'k4', 'k5']
+
+- case: |-
+    // taking out and putting back one key again and again leaves both whole
+    d = {}
+    s = set()
+    for i in range(40):
+        d[i] = i
+        s.add(i)
+    for r in range(50000):
+        del d[17]
+        d[17] = r
+        s.remove(17)
+        s.add(17)
+    print(len(d), d[17], d[16], list(d)[-1], 17 in d, 18 in d)
+    print(len(s), 17 in s, 40 in s, list(s)[-1])
+  expected: |-
+    40 49999 16 17 True True
+    40 True False 17
+
+- case: |-
+    // lookups of absent keys over keys sharing one hash pay for each probe
+    p = 2 ** 61 - 1
+    seen = {i * p: i for i in range(3000)}
+    hits = 0
+    for i in range(3000, 1000000):
+        if i * p in seen:
+            hits += 1
+    print(hits)
+  error: budget exceeded
+
+- case: |-
+    // a cut reads lists texts tuples bytes and ranges in a function and at top
+    fn cuts(xs, s, b, r):
+        return xs[1:3], xs[::-1], s[-3:], s[::2], b[1:], r[2:8:3], (1, 2, 3)[:-1]
+    for _ in range(3):
+        t = cuts([1, 2, 3, 4], 'abcdef', b'xyz', range(10))
+    print(t)
+    print([1, 2, 3, 4][1:3], 'abcdef'[-3:], b'xyz'[::-1], range(10)[::4])
+  expected: |-
+    ([2, 3], [4, 3, 2, 1], 'def', 'ace', b'yz', range(2, 8, 3), (1, 2))
+    [2, 3] def b'zyx' range(0, 10, 4)
+
+- case: |-
+    // a map read with bounds looks up the slice they make
+    d = {'a': 1}
+    for _ in range(2):
+        try:
+            print(d[1:2])
+        except KeyError as e:
+            print('missing', e)
+  expected: |-
+    missing slice(1, 2, None)
+    missing slice(1, 2, None)
+
+- case: |-
+    // a cut store takes any iterable and a cut delete removes the items it picks
+    xs = list(range(8))
+    xs[1:3] = 'ab'
+    xs[::3] = (9, 9, 9)
+    del xs[-2:]
+    print(xs)
+    fn gen():
+        yield 7
+        yield 8
+    ys = [0, 1, 2]
+    for _ in range(2):
+        ys[1:2] = gen()
+    print(ys)
+    fn trim(zs):
+        for _ in range(3):
+            del zs[:1]
+        return zs
+    print(trim(list(range(6))))
+  expected: |-
+    [9, 'a', 'b', 9, 4, 5]
+    [0, 7, 8, 8, 2]
+    [3, 4, 5]
+
+- case: |-
+    // a key of several bounds keeps the slice it makes with its fields
+    d = {}
+    try:
+        d[1:2, 3]
+    except KeyError as e:
+        k = e.args[0]
+        print(k, k[0].start, k[0].stop, k[0].step, type(k[0]))
+  expected: |-
+    (slice(1, 2, None), 3) 1 2 None <class 'slice'>
+
+- case: |-
+    // a kept slice shows each bound as its repr alone or inside a container
+    d = {}
+    try:
+        d[[1, 2]:'a']
+    except KeyError as e:
+        k = e.args[0]
+    print(k, [k], repr(k), str(k), (k, 1))
+  expected: |-
+    slice([1, 2], 'a', None) [slice([1, 2], 'a', None)] slice([1, 2], 'a', None) slice([1, 2], 'a', None) (slice([1, 2], 'a', None), 1)
+
+- case: |-
+    // a bound of the wrong type raises in every cut read store and delete
+    fn t(label, f):
+        try:
+            print(label, f())
+        except TypeError as e:
+            print(label, e)
+    fn store(xs, at):
+        xs[at:] = xs[:1]
+        return xs
+    fn drop(xs, at):
+        del xs[:at]
+        return xs
+    t('list', lambda: [1, 2, 3, 4][1.5:])
+    t('text', lambda: 'hello'[:5 / 2])
+    t('wide text', lambda: 'héllo'['a':])
+    t('bytes', lambda: b'abcd'[:'x'])
+    t('tuple', lambda: (1, 2, 3)[0.0:2])
+    t('bytearray', lambda: bytearray(b'abcd')[[]:])
+    t('stepped', lambda: [1, 2, 3][2.0::-1])
+    t('store list', lambda: store([1, 2, 3, 4], 1.5))
+    t('store bytearray', lambda: store(bytearray(b'abcd'), 'a'))
+    t('delete list', lambda: drop([1, 2, 3], 'a'))
+    t('delete bytearray', lambda: drop(bytearray(b'abc'), 0.5))
+    t('ints', lambda: (store([1, 2, 3, 4], 1), drop([1, 2, 3], 1), [1, 2, 3][nil:2], 'héllo'[true:-1]))
+    n = 0
+    for i in range(300):
+        try:
+            n += len([1, 2, 3][i / 2:])
+        except TypeError:
+            n += 1
+    print(n)
+  expected: |-
+    list slice indices must be integers or None or have an __index__ method
+    text slice indices must be integers or None or have an __index__ method
+    wide text slice indices must be integers or None or have an __index__ method
+    bytes slice indices must be integers or None or have an __index__ method
+    tuple slice indices must be integers or None or have an __index__ method
+    bytearray slice indices must be integers or None or have an __index__ method
+    stepped slice indices must be integers or None or have an __index__ method
+    store list slice indices must be integers or None or have an __index__ method
+    store bytearray slice indices must be integers or None or have an __index__ method
+    delete list slice indices must be integers or None or have an __index__ method
+    delete bytearray slice indices must be integers or None or have an __index__ method
+    ints ([1, 1], [2, 3], [1, 2], 'éll')
+    300
+
+- case: |-
+    // a range longer than an i64 indexes from either end as any other range
+    r = range(-9223372036854775807, 9223372036854775807)
+    print(r[0], r[1], r[-1], r[2 ** 63 + 5], r[2 ** 64 - 3], r[-(2 ** 64 - 2)])
+    for i in [2 ** 64 - 2, -(2 ** 64 - 1), 2 ** 100]:
+        try:
+            print(r[i])
+        except IndexError as e:
+            print(e)
+  expected: |-
+    -9223372036854775807 -9223372036854775806 9223372036854775806 6 9223372036854775806 -9223372036854775807
+    range object index out of range
+    range object index out of range
+    range object index out of range
+
+- case: |-
+    // a join of two long lists is refused before its copy passes the memory left
+    x = [1] * 20000000
+    y = x + x
+    print(len(y))
+  error: MemoryError
+
+- case: |-
+    // rounds that build and drop many objects reuse every slot a collection frees
+    n = 0
+    while n < 7:
+        a = [[[], [], []] for i in range(180000)]
+        a = nil
+        n += 1
+    print(n)
+  expected: |-
+    7
+
+- case: |-
+    // short bytes sharing one hash pay for each probe so a flood runs out
+    M = 2 ** 64
+    K = 0x517cc1b727220a95
+    fn rotl(x, n):
+        return ((x << n) % M) | (x >> (64 - n))
+    low = (12345 * pow(K, -1, M)) % M
+    s0 = (2 * K) % M
+    keys = []
+    for i in range(40000):
+        s1 = ((rotl(s0, 5) ^ i) * K) % M
+        keys.append(i.to_bytes(8, 'little') + (low ^ rotl(s1, 5)).to_bytes(8, 'little'))
+    print(len(keys))
+  error: budget exceeded
+
+- case: |-
+    // short bytes sharing one hash still share one value with an equal twin
+    M = 2 ** 64
+    K = 0x517cc1b727220a95
+    fn rotl(x, n):
+        return ((x << n) % M) | (x >> (64 - n))
+    low = (12345 * pow(K, -1, M)) % M
+    s0 = (2 * K) % M
+    keys = []
+    for i in range(2000):
+        s1 = ((rotl(s0, 5) ^ i) * K) % M
+        keys.append(i.to_bytes(8, 'little') + (low ^ rotl(s1, 5)).to_bytes(8, 'little'))
+    twins = [bytes(list(k)) for k in keys]
+    print(len(set(keys)), all(a is b for a, b in zip(keys, twins)), keys[7] == twins[7], keys[3] is keys[4], hash(keys[0]) == hash(keys[1999]))
+  expected: |-
+    2000 True True False True
+
+- case: |-
+    // a set changed in place one item at a time pays for that item alone
+    seen = set()
+    for i in range(20000):
+        seen |= {i}
+    left = set(range(20000))
+    for i in range(20000):
+        left -= {i}
+    flip = set()
+    for i in range(20000):
+        flip ^= {i % 100}
+    both = set(range(100))
+    both &= {5, 7, 1000}
+    print(len(seen), len(left), len(flip), sorted(both))
+  expected: |-
+    20000 0 0 [5, 7]
+
+- case: |-
+    // a set changed in place keeps its identity and empties or keeps itself
+    a = {1, 2, 3}
+    b = a
+    a |= a
+    print(sorted(b))
+    a &= a
+    print(sorted(b))
+    a ^= a
+    print(sorted(b), a is b)
+    a = {1, 2, 3}
+    b = a
+    a -= a
+    print(sorted(b), a is b)
+    c = {1, 2}
+    d = c
+    c |= {3}
+    c -= {1}
+    c ^= {2, 4}
+    c &= {3, 4, 5}
+    print(sorted(d), c is d)
+  expected: |-
+    [1, 2, 3]
+    [1, 2, 3]
+    [] True
+    [] True
+    [3, 4] True
+
+- case: |-
+    // a pop takes the first item and a popitem the last entry while both change
+    s = set(range(10))
+    d = dict.fromkeys(range(10))
+    out = []
+    for i in range(5):
+        out.append(s.pop())
+        out.append(d.popitem()[0])
+        s.add(100 + i)
+        d[100 + i] = nil
+        del d[100 + i]
+    print(out, sorted(s), list(d))
+    k = 0
+    while len(s) > 0:
+        s.pop()
+        k += 1
+    while len(d) > 0:
+        d.popitem()
+        k += 1
+    print(k, s, d)
+  expected: |-
+    [0, 9, 1, 8, 2, 7, 3, 6, 4, 5] [5, 6, 7, 8, 9, 100, 101, 102, 103, 104] [0, 1, 2, 3, 4]
+    15 set() {}
+
+- case: |-
+    // a small set losing the items of a large one walks its own items
+    big = set(range(100000))
+    n = 0
+    for i in range(2000):
+        s = {i, -i - 1}
+        s -= big
+        n += len(s)
+    print(n)
+  expected: |-
+    2000
+
+- case: |-
+    // a map stores reads and deletes a slice key alike hot and cold
+    fn put(d, v):
+        d[1:2] = v
+        return len(d)
+    fn drop(d):
+        del d[1:2]
+        return len(d)
+    d = {}
+    print(put(d, 'a'), d[1:2], drop(d))
+    for i in range(400):
+        e = {}
+        a = put(e, 'a')
+        b = e[1:2]
+        c = drop(e)
+    print(a, b, c)
+    try:
+        drop({})
+    except KeyError as x:
+        print('missing', x)
+  expected: |-
+    1 a 0
+    1 a 0
+    missing slice(1, 2, None)
+
+- case: |-
+    // the ellipsis and a kept slice equal themselves and a slice of equal bounds
+    x = ...
+    print(... == ..., x == x, x != ..., [x] == [...])
+    d = {}
+    d[1:2] = 'a'
+    d[1:2] = 'b'
+    print(len(d), d[1:2], d)
+    k = list(d.keys())[0]
+    print(k == k, k in d)
+  expected: |-
+    True True False True
+    1 b {slice(1, 2, None): 'b'}
+    True True

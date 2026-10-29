@@ -27,7 +27,7 @@ runs:
       shell: bash
       run: make browsers
 
-    # The Deno suite loads the pdk example to prove a plugin reaches and awaits system calls.
+    # the Deno suite loads the plugin example to prove it reaches and awaits system calls
     - name: Toolchain
       uses: actions-rust-lang/setup-rust-toolchain@v1
       with:

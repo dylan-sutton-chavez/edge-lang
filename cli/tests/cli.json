@@ -2,11 +2,11 @@
   {
     "run": ["init", "myapp"],
     "stdout": ["created myapp/"],
-    "creates": ["myapp/main.py", "myapp/edge.json", "myapp/index.html"]
+    "creates": ["myapp/main.mini", "myapp/edge.json", "myapp/index.html"]
   },
   {
     "run": ["init", "myapp", "--bare"],
-    "creates": ["myapp/main.py", "myapp/edge.json"],
+    "creates": ["myapp/main.mini", "myapp/edge.json"],
     "contains": { "myapp/edge.json": "\"edge\":" }
   },
   {
@@ -17,7 +17,7 @@
   {
     "run": ["init"],
     "stdout": ["created project/"],
-    "creates": ["main.py", "edge.json", "index.html"]
+    "creates": ["main.mini", "edge.json", "index.html"]
   },
   {
     "given": { "edge.json": "{}\n" },
@@ -37,12 +37,12 @@
   },
   {
     "given": { "edge.json": "{ \"extends\": \"..\", \"imports\": {} }\n" },
-    "run": ["add", "foo=https://example.com/foo.py"],
+    "run": ["add", "foo=https://example.com/foo.mini"],
     "contains": { "edge.json": "\"extends\": \"..\"" }
   },
   {
     "given": { "edge.json": "{}\n" },
-    "run": ["add", "foo=https://example.com/foo.py", "mystery"],
+    "run": ["add", "foo=https://example.com/foo.mini", "mystery"],
     "fails": ["unknown package 'mystery'"],
     "contains": { "edge.json": "{}\n" }
   },
@@ -51,7 +51,7 @@
     "fails": ["nothing to add"]
   },
   {
-    "given": { "edge.json": "{\"imports\":{\"math\":\"https://cdn.edgepython.com/std/math.wasm\"}}\n" },
+    "given": { "edge.json": "{\"imports\":{\"math\":\"https://cdn.edgelang.dev/std/math.wasm\"}}\n" },
     "run": ["remove", "math"],
     "stdout": ["- math"]
   },
@@ -61,7 +61,7 @@
     "fails": ["not in"]
   },
   {
-    "given": { "edge.json": "{\"imports\":{\"math\":\"https://cdn.edgepython.com/std/math.wasm\"}}\n" },
+    "given": { "edge.json": "{\"imports\":{\"math\":\"https://cdn.edgelang.dev/std/math.wasm\"}}\n" },
     "run": ["remove", "math", "mystery"],
     "fails": ["not in"],
     "contains": { "edge.json": "math.wasm" }
@@ -72,12 +72,12 @@
   },
   {
     "given": { "custom.json": "{}\n" },
-    "run": ["--manifest", "custom.json", "add", "foo=https://example.com/foo.py"],
-    "contains": { "custom.json": "example.com/foo.py" }
+    "run": ["--manifest", "custom.json", "add", "foo=https://example.com/foo.mini"],
+    "contains": { "custom.json": "example.com/foo.mini" }
   },
   {
-    "run": ["run", "no_such.py"],
-    "fails": ["reading no_such.py"]
+    "run": ["run", "no_such.mini"],
+    "fails": ["reading no_such.mini"]
   },
   {
     "run": ["runn"],
@@ -85,48 +85,54 @@
   },
   {
     "run": ["test"],
-    "fails": ["no *_test.py files found"]
+    "fails": ["no *_test.mini files found"]
   },
   {
-    "given": { "a_test.py": "raise SystemExit(0)\n" },
+    "given": { "a_test.mini": "exit(0)\n", "b_test.mini": "x = 1\n" },
     "run": ["test"],
-    "fails": ["declare test in edge.json (edge add test)"]
+    "stdout": ["(successful) a_test.mini", "(successful) b_test.mini", "2/2 files passed"]
   },
   {
-    "given": { "u.py": "val = 5\n", "t.py": "from .u import val\nprint(\"got\", val)\n" },
-    "run": ["run", "t.py"],
+    "given": { "a_test.mini": "exit(1)\n" },
+    "run": ["test"],
+    "stdout": ["(unsuccessful) a_test.mini", "0/1 files passed"],
+    "fails": []
+  },
+  {
+    "given": { "u.mini": "val = 5\n", "t.mini": "from .u import val\nprint(\"got\", val)\n" },
+    "run": ["run", "t.mini"],
     "stdout": ["got 5"]
   },
   {
-    "given": { "t.py": "print('hi from edge')\n" },
-    "run": ["run", "t.py"],
+    "given": { "t.mini": "print('hi from edge')\n" },
+    "run": ["run", "t.mini"],
     "stdout": ["hi from edge"]
   },
   {
-    "given": { "boom.py": "x = 1 / 0\n" },
-    "run": ["run", "boom.py"],
+    "given": { "boom.mini": "x = 1 / 0\n" },
+    "run": ["run", "boom.mini"],
     "fails": ["ZeroDivisionError"]
   },
   {
-    "given": { "main.py": "print('ok')\n", "edge.json": "{}\n" },
+    "given": { "main.mini": "print('ok')\n", "edge.json": "{}\n" },
     "run": ["build", "--web"],
-    "creates": ["dist/index.html", "dist/main.py", "dist/compiler.wasm"]
+    "creates": ["dist/index.html", "dist/main.mini", "dist/edge.wasm"]
   },
   {
     "given": { "edge.json": "{}\n" },
-    "run": ["add", "test=https://example.com/test.py"],
-    "stdout": ["+ test       https://example.com/test.py"],
+    "run": ["add", "test=https://example.com/test.mini"],
+    "stdout": ["+ test       https://example.com/test.mini"],
     "contains": { "edge.json": "\"imports\"" }
   },
   {
     "given": { "edge.json": "{}\n" },
-    "run": ["add", "foo=https://example.com/foo.py"],
-    "contains": { "edge.json": "\"imports\": {\n    \"foo\": \"https://example.com/foo.py\"" }
+    "run": ["add", "foo=https://example.com/foo.mini"],
+    "contains": { "edge.json": "\"imports\": {\n    \"foo\": \"https://example.com/foo.mini\"" }
   },
   {
     "given": { "edge.json": "{}\n" },
     "run": ["add", "bar=https://example.com/bar.js"],
-    "fails": ["module 'bar' is JavaScript, ship a .py or a .wasm"],
+    "fails": ["module 'bar' is JavaScript, ship a .mini or a .wasm"],
     "contains": { "edge.json": "{}\n" }
   },
   {
@@ -137,37 +143,37 @@
   },
   {
     "given": { "edge.json": "{}\n" },
-    "run": ["add", "one=https://example.com/one.py", "two=https://example.com/two.js"],
-    "fails": ["module 'two' is JavaScript, ship a .py or a .wasm"],
+    "run": ["add", "one=https://example.com/one.mini", "two=https://example.com/two.js"],
+    "fails": ["module 'two' is JavaScript, ship a .mini or a .wasm"],
     "contains": { "edge.json": "{}\n" }
   },
   {
-    "given": { "ask.py": "s = input()\nprint(len(s))\n" },
-    "run": ["run", "ask.py"],
+    "given": { "ask.mini": "s = input()\nprint(len(s))\n" },
+    "run": ["run", "ask.mini"],
     "stdin": "hello\r\n",
     "stdout": ["5"]
   },
   {
-    "given": { "ask.py": "s = input()\nprint(len(s))\n" },
-    "run": ["run", "ask.py"],
+    "given": { "ask.mini": "s = input()\nprint(len(s))\n" },
+    "run": ["run", "ask.mini"],
     "stdin": "hello\n",
     "stdout": ["5"]
   },
   {
-    "given": { "ask.py": "a = input()\nb = input()\nprint(len(a))\nprint(len(b))\n" },
-    "run": ["run", "ask.py"],
+    "given": { "ask.mini": "a = input()\nb = input()\nprint(len(a))\nprint(len(b))\n" },
+    "run": ["run", "ask.mini"],
     "stdin": "x\r\nyy\r\n",
     "stdout": ["1", "2"]
   },
   {
-    "given": { "ask.py": "s = input()\nprint(repr(s))\n" },
-    "run": ["run", "ask.py"],
+    "given": { "ask.mini": "s = input()\nprint(repr(s))\n" },
+    "run": ["run", "ask.mini"],
     "stdin": "hi\r\n",
     "stdout": ["'hi'"]
   },
   {
-    "given": { "ask.py": "s = input()\nprint(len(s))\n" },
-    "run": ["run", "ask.py"],
+    "given": { "ask.mini": "s = input()\nprint(len(s))\n" },
+    "run": ["run", "ask.mini"],
     "stdin": "hey\r",
     "stdout": ["3"]
   },
@@ -185,41 +191,41 @@
     "stdout": ["5"]
   },
   {
-    "given": { "f.py": "print(1)\n" },
-    "run": ["run", "-c", "print(2)", "f.py"],
+    "given": { "f.mini": "print(1)\n" },
+    "run": ["run", "-c", "print(2)", "f.mini"],
     "fails": ["cannot be used with"]
   },
   {
-    "given": { "sub/main.py": "print('ok')\n", "edge.json": "{}\n" },
+    "given": { "sub/main.mini": "print('ok')\n", "edge.json": "{}\n" },
     "run": ["build", "--web"],
-    "creates": ["dist/sub/main.py"],
-    "contains": { "dist/index.html": "./sub/main.py" }
+    "creates": ["dist/sub/main.mini"],
+    "contains": { "dist/index.html": "./sub/main.mini" }
   },
   {
-    "given": { "main.py": "print('ok')\n", "edge.json": "{}\n" },
+    "given": { "main.mini": "print('ok')\n", "edge.json": "{}\n" },
     "run": ["build", "--web"],
-    "contains": { "dist/index.html": "./main.py" }
+    "contains": { "dist/index.html": "./main.mini" }
   },
   {
-    "given": { "main.py": "import json\n" },
-    "run": ["run", "main.py"],
+    "given": { "main.mini": "import json\n" },
+    "run": ["run", "main.mini"],
     "fails": ["module 'json' is not provided by this host and no edge.json declares it"]
   },
   {
-    "given": { "main.py": "import json\n" },
+    "given": { "main.mini": "import json\n" },
     "env": { "EDGE_SITE_BASE": "http://127.0.0.1:1" },
-    "run": ["run", "main.py"],
+    "run": ["run", "main.mini"],
     "fails": ["module 'json' is not provided by this host and no edge.json declares it\nhelp: declare it in edge.json, or use a relative import"]
   },
   {
     "given": {
-      "edge.json": "{ \"imports\": { \"lib\": \"./lib.py\", \"widget\": \"./widget.js\" } }\n",
+      "edge.json": "{ \"imports\": { \"lib\": \"./lib.mini\", \"widget\": \"./widget.js\" } }\n",
       "widget.js": "export default () => ({ name: () => 'widget' });\n",
-      "lib.py": "import widget\nprint(widget.name())\n",
-      "main.py": "import lib\n"
+      "lib.mini": "import widget\nprint(widget.name())\n",
+      "main.mini": "import lib\n"
     },
-    "run": ["run", "main.py"],
-    "fails": ["module 'widget' is JavaScript, ship a .py or a .wasm"]
+    "run": ["run", "main.mini"],
+    "fails": ["module 'widget' is JavaScript, ship a .mini or a .wasm"]
   },
   {
     "given": {
@@ -227,88 +233,64 @@
       "widget.js": "export default () => ({});\n"
     },
     "run": ["lock"],
-    "fails": ["module 'widget' is JavaScript, ship a .py or a .wasm"]
+    "fails": ["module 'widget' is JavaScript, ship a .mini or a .wasm"]
   },
   {
     "given": {
       "edge.json": "{ \"imports\": { \"helper\": \"./helper\" } }\n",
-      "helper": "def double(n):\n    return n * 2\n",
-      "main.py": "from helper import double\nprint(double(21))\n"
+      "helper": "fn double(n):\n    return n * 2\n",
+      "main.mini": "from helper import double\nprint(double(21))\n"
     },
-    "run": ["run", "main.py"],
+    "run": ["run", "main.mini"],
     "stdout": ["42"]
   },
   {
     "given": {
       "edge.json": "{ \"imports\": { \"x\": \"./x.wasm\" } }\n",
       "x.wasm": "not a wasm module",
-      "main.py": "import x\n"
+      "main.mini": "import x\n"
     },
-    "run": ["run", "main.py"],
+    "run": ["run", "main.mini"],
     "fails": ["error: module 'x' is not a valid plugin, failed to parse WebAssembly module: magic header not detected: bad magic number\n"]
   },
   {
     "given": {
       "edge.json": "{ \"imports\": { \"x\": \"./x.mjs\" } }\n",
       "x.mjs": "export default { answer: () => 42 };\n",
-      "main.py": "import x\nprint(x.answer())\n"
+      "main.mini": "import x\nprint(x.answer())\n"
     },
-    "run": ["run", "main.py"],
-    "fails": ["module 'x' is JavaScript, ship a .py or a .wasm"]
+    "run": ["run", "main.mini"],
+    "fails": ["module 'x' is JavaScript, ship a .mini or a .wasm"]
   },
   {
     "given": {
       "edge.json": "{ \"imports\": { \"x\": \"./vendor/x.so\" } }\n",
-      "main.py": "import x\n"
+      "main.mini": "import x\n"
     },
-    "run": ["run", "main.py"],
+    "run": ["run", "main.mini"],
     "fails": ["module 'x' is not supported, ship a .wasm"]
   },
   {
     "given": {
       "edge.json": "{ \"imports\": { \"x\": \"./vendor/x.dylib\" } }\n",
-      "main.py": "import x\n"
+      "main.mini": "import x\n"
     },
-    "run": ["run", "main.py"],
+    "run": ["run", "main.mini"],
     "fails": ["module 'x' is not supported, ship a .wasm"]
   },
   {
     "given": {
       "edge.json": "{ \"imports\": { \"m\": \"./m.js\" } }\n",
       "m.js": "export default () => ({ hi: () => \"hello\" })\n",
-      "main.py": "from m import hi\nprint(hi())\n"
+      "main.mini": "from m import hi\nprint(hi())\n"
     },
     "run": ["build", "--app"],
-    "fails": ["module 'm' is JavaScript, ship a .py or a .wasm"]
-  },
-  {
-    "given": {
-      "edge.json": "{ \"imports\": { \"json\": \"0.1.0\" } }\n",
-      "main.py": "import json\nprint(json.dumps({\"n\": 1}))\n"
-    },
-    "before": [["lock"]],
-    "run": ["build", "--app"],
-    "stdout": ["packed app (4 files)"],
-    "then": {
-      "bin": "./app",
-      "env": { "EDGE_CDN_BASE": "http://127.0.0.1:1", "XDG_CACHE_HOME": "empty-cache" },
-      "stdout": ["{\"n\": 1}"]
-    }
-  },
-  {
-    "given": {
-      "edge.json": "{ \"imports\": { \"json\": \"0.1.0\" } }\n",
-      "main.py": "import json\nprint(json.dumps({\"n\": 1}))\n"
-    },
-    "before": [["lock"]],
-    "run": ["build"],
-    "stdout": ["packed app.edge (4 files)"],
-    "creates": ["app.edge"]
+    "fails": ["module 'm' is JavaScript, ship a .mini or a .wasm"]
   },
   {
     "given": {
       "edge.json": "{ \"imports\": {} }\n",
-      "main.py": "print(\"hello\")\n",
+      "main.mini": "print(\"hello\")\n",
       "README.md": "# app\n",
       "LICENSE.txt": "Apache-2.0\n",
       "NOTES.md": "not a notice\n"
@@ -320,8 +302,8 @@
   {
     "given": {
       "edge.json": "{ \"name\": \"slugify\", \"version\": \"0.1.0\", \"description\": \"Turn text into a slug.\", \"docs\": \"./docs\" }\n",
-      "main.py": "print(\"hello\")\n",
-      "docs/01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```edge-python\nprint(1)\n```\n\n```output\n1\n```\n",
+      "main.mini": "print(\"hello\")\n",
+      "docs/01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```edge\nprint(1)\n```\n\n```output\n1\n```\n",
       "docs/02-reference/01-api.mdx": "---\ntitle: Api\ndescription: Every function.\n---\n\n# Api\n"
     },
     "run": ["build"],
@@ -331,7 +313,7 @@
   {
     "given": {
       "edge.json": "{ \"docs\": \"./docs\" }\n",
-      "main.py": "print(\"hello\")\n",
+      "main.mini": "print(\"hello\")\n",
       "docs/intro.mdx": "# Intro\n"
     },
     "run": ["build"],
@@ -340,7 +322,7 @@
   {
     "given": {
       "edge.json": "{ \"description\": \"Turn absolutely any text that you have into a tidy url slug fast.\" }\n",
-      "main.py": "print(\"hello\")\n"
+      "main.mini": "print(\"hello\")\n"
     },
     "run": ["build"],
     "fails": ["the cap is 60"]
@@ -348,162 +330,105 @@
   {
     "given": {
       "edge.json": "{}\n",
-      "main.py": "print('x')\n"
+      "main.mini": "print('x')\n"
     },
-    "run": ["run", "--web", "--preempt", "500", "main.py"],
+    "run": ["run", "--web", "--preempt", "500", "main.mini"],
     "fails": ["--preempt belongs to the native engine"]
   },
   {
     "given": {
-      "edge.json": "{\"permissions\": {\"main\": [\"time:wall\"]}}\n",
-      "main.py": "import time\nprint(time.now() > 10 ** 18)\ntry:\n    time.now('monotonic')\nexcept PermissionError as e:\n    print(e)\n"
-    },
-    "run": ["run", "main.py"],
-    "stdout": ["True", "'main' has no time:monotonic, edge.json grants it time:wall"]
-  },
-  {
-    "given": {
-      "clock/edge.json": "{\"name\": \"clock\", \"imports\": {\"trace\": \"./trace/main.py\"}}\n",
-      "clock/main.py": "from trace import stamp\n\ndef now():\n    return stamp()\n",
-      "clock/trace/edge.json": "{\"name\": \"trace\"}\n",
-      "clock/trace/main.py": "import time\n\ndef stamp():\n    return time.now() > 0\n",
-      "main.py": "from clock import now\nprint(now())\n",
-      "edge.json": "{\"imports\": {\"clock\": \"./clock/main.py\"}, \"permissions\": {\"main\": [\"time:wall\"], \"clock\": [\"time:wall\"]}}\n"
-    },
-    "run": ["run", "main.py"],
-    "fails": ["'trace' imports time, which edge.json does not grant it"]
-  },
-  {
-    "given": {
-      "clock/edge.json": "{\"name\": \"clock\", \"imports\": {\"trace\": \"./trace/main.py\"}, \"permissions\": {\"trace\": [\"time:wall\"]}}\n",
-      "clock/main.py": "from trace import stamp\n\ndef now():\n    return stamp()\n",
-      "clock/trace/edge.json": "{\"name\": \"trace\"}\n",
-      "clock/trace/main.py": "import time\n\ndef stamp():\n    return time.now() > 0\n",
-      "main.py": "from clock import now\nprint(now())\n",
-      "edge.json": "{\"imports\": {\"clock\": \"./clock/main.py\"}, \"permissions\": {\"clock\": [\"time:wall\"]}}\n"
-    },
-    "run": ["run", "main.py"],
-    "stdout": ["True"]
-  },
-  {
-    "given": {
-      "edge.json": "{\"imports\": {\"helper\": \"./helper.py\"}, \"permissions\": {\"main\": [\"time:wall\"]}}\n",
-      "helper.py": "import time\n\ndef later():\n    return time.now() > 0\n",
-      "main.py": "from helper import later\nprint(later())\n"
-    },
-    "run": ["run", "main.py"],
-    "stdout": ["True"]
-  },
-  {
-    "given": {
-      "edge.json": "{\"permissions\": {\"main\": [\"net:127.0.0.1\"]}}\n",
-      "main.py": "import net\nr = net.request('GET', 'http://127.0.0.1:1/')\nnet.response(r)\n"
-    },
-    "run": ["run", "main.py"],
-    "fails": ["OSError: net.request to http://127.0.0.1:1/ failed"]
-  },
-  {
-    "given": {
-      "edge.json": "{\"permissions\": {\"main\": \"time:wall\"}}\n",
-      "main.py": "print(1)\n"
-    },
-    "run": ["run", "main.py"],
-    "fails": ["permissions for 'main' must be a list of entries"]
-  },
-  {
-    "given": {
-      "edge.json": "{\"imports\": {\"clock\": \"./clock/main.py\"}}\n",
-      "main.py": "from clock import now\nprint(now())\n",
-      "clock/edge.json": "{\"name\": \"clock\", \"version\": \"0.2.0\", \"imports\": {\"trace\": \"./trace/main.py\"}, \"permissions\": {\"main\": [\"time:wall\"], \"trace\": [\"time:wall\", \"net\"]}}\n",
-      "clock/main.py": "from trace import stamp\n\ndef now():\n    return stamp()\n",
-      "clock/trace/edge.json": "{\"name\": \"trace\", \"permissions\": {\"main\": [\"time:wall\", \"net\"]}}\n",
-      "clock/trace/main.py": "import time\n\ndef stamp():\n    return time.now() > 0\n"
+      "edge.json": "{\"imports\": {\"clock\": \"./clock/main.mini\"}}\n",
+      "main.mini": "from clock import now\nprint(now())\n",
+      "clock/edge.json": "{\"name\": \"clock\", \"version\": \"0.2.0\", \"imports\": {\"trace\": \"./trace/main.mini\"}, \"permissions\": {\"main\": [\"net:127.0.0.1\"], \"trace\": [\"net:127.0.0.1\", \"net\"]}}\n",
+      "clock/main.mini": "from trace import stamp\n\nfn now():\n    return stamp()\n",
+      "clock/trace/edge.json": "{\"name\": \"trace\", \"permissions\": {\"main\": [\"net:127.0.0.1\", \"net\"]}}\n",
+      "clock/trace/main.mini": "import net\n\nfn stamp():\n    return net.request('GET', 'http://127.0.0.1:1/') > 0\n"
     },
     "run": ["lock"],
-    "fails": ["edge.json does not grant what these packages ask for", "  clock 0.2.0   time:wall, net\n", "help: grant them under \"permissions\" in edge.json"]
+    "fails": ["edge.json does not grant what these packages ask for", "  clock 0.2.0   net:127.0.0.1, net\n", "help: grant them under \"permissions\" in edge.json"]
   },
   {
     "given": {
-      "edge.json": "{\"imports\": {\"clock\": \"./clock/main.py\"}}\n",
-      "main.py": "from clock import now\nprint(now())\n",
-      "clock/edge.json": "{\"name\": \"clock\", \"version\": \"0.2.0\", \"imports\": {\"trace\": \"./trace/main.py\"}, \"permissions\": {\"main\": [\"time:wall\"], \"trace\": [\"time:wall\", \"net\"]}}\n",
-      "clock/main.py": "from trace import stamp\n\ndef now():\n    return stamp()\n",
-      "clock/trace/edge.json": "{\"name\": \"trace\", \"permissions\": {\"main\": [\"time:wall\", \"net\"]}}\n",
-      "clock/trace/main.py": "import time\n\ndef stamp():\n    return time.now() > 0\n"
+      "edge.json": "{\"imports\": {\"clock\": \"./clock/main.mini\"}}\n",
+      "main.mini": "from clock import now\nprint(now())\n",
+      "clock/edge.json": "{\"name\": \"clock\", \"version\": \"0.2.0\", \"imports\": {\"trace\": \"./trace/main.mini\"}, \"permissions\": {\"main\": [\"net:127.0.0.1\"], \"trace\": [\"net:127.0.0.1\", \"net\"]}}\n",
+      "clock/main.mini": "from trace import stamp\n\nfn now():\n    return stamp()\n",
+      "clock/trace/edge.json": "{\"name\": \"trace\", \"permissions\": {\"main\": [\"net:127.0.0.1\", \"net\"]}}\n",
+      "clock/trace/main.mini": "import net\n\nfn stamp():\n    return net.request('GET', 'http://127.0.0.1:1/') > 0\n"
     },
     "run": ["build"],
     "fails": ["edge.json does not grant what these packages ask for"]
   },
   {
     "given": {
-      "edge.json": "{\"imports\": {\"clock\": \"./clock/main.py\"}}\n",
-      "main.py": "from clock import now\nprint(now())\n",
-      "clock/edge.json": "{\"name\": \"clock\", \"version\": \"0.2.0\", \"imports\": {\"trace\": \"./trace/main.py\"}, \"permissions\": {\"main\": [\"time:wall\"], \"trace\": [\"time:wall\", \"net\"]}}\n",
-      "clock/main.py": "from trace import stamp\n\ndef now():\n    return stamp()\n",
-      "clock/trace/edge.json": "{\"name\": \"trace\", \"permissions\": {\"main\": [\"time:wall\", \"net\"]}}\n",
-      "clock/trace/main.py": "import time\n\ndef stamp():\n    return time.now() > 0\n",
-      "green_test.py": "raise SystemExit(0)\n"
+      "edge.json": "{\"imports\": {\"clock\": \"./clock/main.mini\"}}\n",
+      "main.mini": "from clock import now\nprint(now())\n",
+      "clock/edge.json": "{\"name\": \"clock\", \"version\": \"0.2.0\", \"imports\": {\"trace\": \"./trace/main.mini\"}, \"permissions\": {\"main\": [\"net:127.0.0.1\"], \"trace\": [\"net:127.0.0.1\", \"net\"]}}\n",
+      "clock/main.mini": "from trace import stamp\n\nfn now():\n    return stamp()\n",
+      "clock/trace/edge.json": "{\"name\": \"trace\", \"permissions\": {\"main\": [\"net:127.0.0.1\", \"net\"]}}\n",
+      "clock/trace/main.mini": "import net\n\nfn stamp():\n    return net.request('GET', 'http://127.0.0.1:1/') > 0\n",
+      "green_test.mini": "exit(0)\n"
     },
     "run": ["test"],
     "fails": ["edge.json does not grant what these packages ask for"]
   },
   {
     "given": {
-      "edge.json": "{\"imports\": {\"clock\": \"./clock/main.py\"}, \"permissions\": {\"clock\": [\"time:wall\", \"net\"]}}\n",
-      "main.py": "from clock import now\nprint(now())\n",
-      "clock/edge.json": "{\"name\": \"clock\", \"version\": \"0.2.0\", \"imports\": {\"trace\": \"./trace/main.py\"}, \"permissions\": {\"main\": [\"time:wall\"], \"trace\": [\"time:wall\", \"net\"]}}\n",
-      "clock/main.py": "from trace import stamp\n\ndef now():\n    return stamp()\n",
-      "clock/trace/edge.json": "{\"name\": \"trace\", \"permissions\": {\"main\": [\"time:wall\", \"net\"]}}\n",
-      "clock/trace/main.py": "import time\n\ndef stamp():\n    return time.now() > 0\n"
+      "edge.json": "{\"imports\": {\"clock\": \"./clock/main.mini\"}, \"permissions\": {\"clock\": [\"net:127.0.0.1\", \"net\"]}}\n",
+      "main.mini": "from clock import now\nprint(now())\n",
+      "clock/edge.json": "{\"name\": \"clock\", \"version\": \"0.2.0\", \"imports\": {\"trace\": \"./trace/main.mini\"}, \"permissions\": {\"main\": [\"net:127.0.0.1\"], \"trace\": [\"net:127.0.0.1\", \"net\"]}}\n",
+      "clock/main.mini": "from trace import stamp\n\nfn now():\n    return stamp()\n",
+      "clock/trace/edge.json": "{\"name\": \"trace\", \"permissions\": {\"main\": [\"net:127.0.0.1\", \"net\"]}}\n",
+      "clock/trace/main.mini": "import net\n\nfn stamp():\n    return net.request('GET', 'http://127.0.0.1:1/') > 0\n"
     },
-    "run": ["run", "main.py"],
+    "run": ["run", "main.mini"],
     "stdout": ["True"]
   },
   {
     "given": {
-      "edge.json": "{\"imports\": {\"clock\": \"./clock/main.py\"}, \"permissions\": {\"clock\": [\"time:wall\"]}}\n",
-      "main.py": "from clock import now\nprint(now())\n",
-      "clock/edge.json": "{\"name\": \"clock\", \"version\": \"0.2.0\", \"imports\": {\"trace\": \"./trace/main.py\"}, \"permissions\": {\"main\": [\"time:wall\"]}}\n",
-      "clock/main.py": "from trace import stamp\n\ndef now():\n    return stamp()\n",
-      "clock/trace/edge.json": "{\"name\": \"trace\", \"permissions\": {\"main\": [\"time:wall\"]}}\n",
-      "clock/trace/main.py": "import time\n\ndef stamp():\n    return time.now() > 0\n"
+      "edge.json": "{\"imports\": {\"clock\": \"./clock/main.mini\"}, \"permissions\": {\"clock\": [\"net:127.0.0.1\"]}}\n",
+      "main.mini": "from clock import now\nprint(now())\n",
+      "clock/edge.json": "{\"name\": \"clock\", \"version\": \"0.2.0\", \"imports\": {\"trace\": \"./trace/main.mini\"}, \"permissions\": {\"main\": [\"net:127.0.0.1\"]}}\n",
+      "clock/main.mini": "from trace import stamp\n\nfn now():\n    return stamp()\n",
+      "clock/trace/edge.json": "{\"name\": \"trace\", \"permissions\": {\"main\": [\"net:127.0.0.1\"]}}\n",
+      "clock/trace/main.mini": "import net\n\nfn stamp():\n    return net.request('GET', 'http://127.0.0.1:1/') > 0\n"
     },
     "run": ["lock"],
-    "fails": ["edge.json at 'clock/trace/edge.json' asks for time:wall, which clock 0.2.0 does not pass it"]
+    "fails": ["edge.json at 'clock/trace/edge.json' asks for net:127.0.0.1, which clock 0.2.0 does not pass it"]
   },
   {
     "given": {
-      "edge.json": "{\"imports\": {\"main\": \"./clock/main.py\"}}\n",
-      "main.py": "from clock import now\n",
-      "clock/main.py": "def now():\n    return 0\n"
+      "edge.json": "{\"imports\": {\"main\": \"./clock/main.mini\"}}\n",
+      "main.mini": "from clock import now\n",
+      "clock/main.mini": "fn now():\n    return 0\n"
     },
     "run": ["lock"],
     "fails": ["import 'main' is reserved for permissions"]
   },
   {
     "given": {
-      "edge.json": "{\"imports\": {\"clock\": \"./clock/main.py\"}}\n",
-      "main.py": "from clock import now\n",
-      "clock/main.py": "def now():\n    return 0\n",
-      "clock/edge.json": "{\"name\": \"timer\", \"permissions\": {\"main\": [\"time:wall\"]}}\n"
+      "edge.json": "{\"imports\": {\"clock\": \"./clock/main.mini\"}}\n",
+      "main.mini": "from clock import now\n",
+      "clock/main.mini": "fn now():\n    return 0\n",
+      "clock/edge.json": "{\"name\": \"timer\", \"permissions\": {\"main\": [\"net:127.0.0.1\"]}}\n"
     },
     "run": ["lock"],
-    "fails": ["edge.json does not grant what these packages ask for\n  clock   time:wall\n"]
+    "fails": ["edge.json does not grant what these packages ask for\n  clock   net:127.0.0.1\n"]
   },
   {
     "given": {
-      "edge.json": "{\"imports\": {\"clock\": \"./clock/main.py\"}}\n",
-      "main.py": "from clock import now\n",
-      "clock/main.py": "def now():\n    return 0\n",
+      "edge.json": "{\"imports\": {\"clock\": \"./clock/main.mini\"}}\n",
+      "main.mini": "from clock import now\n",
+      "clock/main.mini": "fn now():\n    return 0\n",
       "clock/edge.json": "{\"name\": \"clock\", \"permissions\": {\"main\": [\"db:/\"]}}\n"
     },
     "run": ["lock"],
-    "fails": ["edge.json at 'clock/edge.json': permissions for 'main' name 'db', which is not a system module (fs, net, secret, time)"]
+    "fails": ["edge.json at 'clock/edge.json': permissions for 'main' name 'db', which is not a host module (net, files)"]
   },
   {
     "given": {
       "edge.json": "{\"permissions\": {\"main\": [\"net:a.test;script-src\"]}}\n",
-      "main.py": "print(1)\n"
+      "main.mini": "print(1)\n"
     },
     "run": ["lock"],
     "fails": ["edge.json at 'edge.json': permissions for 'main' give net the scope 'a.test;script-src', which it does not have"]
@@ -511,9 +436,157 @@
   {
     "given": {
       "edge.json": "{\"name\": \"all\"}\n",
-      "main.py": "print(1)\n"
+      "main.mini": "print(1)\n"
     },
-    "run": ["run", "main.py"],
+    "run": ["run", "main.mini"],
     "fails": ["name 'all' is reserved for permissions"]
+  },
+  {
+    "given": {
+      "edge.json": "{ \"permissions\": { \"main\": [\"files:events.jsonl\"] } }\n",
+      "events.jsonl": "first\nsecond\n",
+      "main.mini": "import files\n\nf = files.open('events.jsonl')\nbody = b''\nchunk = files.read(f)\nwhile chunk is !nil:\n    body += chunk\n    chunk = files.read(f)\nprint(body.decode().splitlines(), files.read(f))\nfiles.close(f)\n"
+    },
+    "run": ["run", "main.mini"],
+    "stdout": ["['first', 'second'] None"]
+  },
+  {
+    "given": {
+      "edge.json": "{ \"permissions\": { \"main\": [\"files:other.txt\"] } }\n",
+      "events.jsonl": "first\n",
+      "main.mini": "import files\n\ntry:\n    files.open('events.jsonl')\nexcept PermissionError as e:\n    print(e)\n"
+    },
+    "run": ["run", "main.mini"],
+    "stdout": ["'main' has no files:events.jsonl, edge.json grants it files:other.txt"]
+  },
+  {
+    "given": {
+      "edge.json": "{ \"permissions\": { \"main\": [\"files:logs/\"] } }\n",
+      "logs/day/a.txt": "inside\n",
+      "b.txt": "beside\n",
+      "main.mini": "import files\n\nprint(files.read(files.open('logs/day/a.txt')))\ntry:\n    files.open('b.txt')\nexcept PermissionError as e:\n    print(e)\n"
+    },
+    "run": ["run", "main.mini"],
+    "stdout": ["b'inside\\n'", "'main' has no files:b.txt, edge.json grants it files:logs/"]
+  },
+  {
+    "given": {
+      "edge.json": "{ \"permissions\": { \"main\": [\"net:a.test\"] } }\n",
+      "events.jsonl": "first\n",
+      "main.mini": "import files\n"
+    },
+    "run": ["run", "main.mini"],
+    "fails": ["'main' imports files, which edge.json does not grant it"]
+  },
+  {
+    "given": {
+      "edge.json": "{ \"permissions\": { \"main\": [\"files:events.jsonl\"] } }\n",
+      "main.mini": "import files\n\nfor path in ['../events.jsonl', '/etc/hosts', 'logs//a.txt']:\n    try:\n        files.open(path)\n    except ValueError as e:\n        print(e)\ntry:\n    files.open('events.jsonl')\nexcept OSError as e:\n    print(e)\n"
+    },
+    "run": ["run", "main.mini"],
+    "stdout": ["'../events.jsonl' is not a plain path, files takes names joined by slashes below the package", "'/etc/hosts' is not a plain path", "'logs//a.txt' is not a plain path", "cannot open events.jsonl, no such file"]
+  },
+  {
+    "given": { "main.mini": "xs = [1, 2]\nprint(xs + 'tail')\n" },
+    "run": ["run", "main.mini"],
+    "fails": ["error: TypeError: can only concatenate list", "--> main.mini:2:1"]
+  },
+  {
+    "given": { "main.mini": "send('rows', '{\"n\": 1}')\nsend('rows', '{\"n\": 2}')\nsend('file:rows.jsonl', '{\"n\": 3}')\n" },
+    "run": ["run", "main.mini"],
+    "stdout": ["rows\n{\"n\": 1}\n{\"n\": 2}\n"],
+    "contains": { "rows.jsonl": "{\"n\": 3}\n" }
+  },
+  {
+    "given": { "main.mini": "send('file:../stray.jsonl', 'escaped')\n" },
+    "run": ["run", "main.mini"],
+    "fails": ["error: the channel 'file:../stray.jsonl' names no file below the directory of the run"]
+  },
+  {
+    "given": { "main.mini": "from .a import x\nprint(x)\n", "a.mini": "from .b import y\nx = 1\n", "b.mini": "from .a import x\ny = 2\n" },
+    "run": ["run", "main.mini"],
+    "fails": ["circular import: './a.mini'"]
+  },
+  {
+    "given": {
+      "edge.json": "{ \"imports\": { \"strict\": \"./strict/main.mini\" }, \"permissions\": { \"main\": [\"net:127.0.0.1\"], \"strict\": [\"net\"] } }\n",
+      "strict/edge.json": "{}\n",
+      "strict/main.mini": "import net\n\nfn reach():\n    return net.request('GET', 'http://127.0.0.1:9/')\n",
+      "main.mini": "from strict import reach\nreach()\n"
+    },
+    "run": ["run", "--manifest", "edge.json", "main.mini"],
+    "fails": ["'strict' has no net:127.0.0.1, edge.json grants it nothing"]
+  },
+  {
+    "given": {
+      "edge.json": "{ \"imports\": { \"strict\": \"./strict/main.mini\" } }\n",
+      "strict/edge.json": "{ \"imports\": { \"helper\": \"./helper.mini\" } }\n",
+      "strict/helper.mini": "fn shout(word):\n    return word.upper()\n",
+      "strict/main.mini": "from helper import shout\n\nfn hello():\n    return shout('nested')\n",
+      "main.mini": "from strict import hello\nprint(hello())\n"
+    },
+    "run": ["run", "--manifest", "edge.json", "main.mini"],
+    "stdout": ["NESTED\n"]
+  },
+  {
+    "given": {
+      "edge.json": "{ \"imports\": { \"util\": \"./util/main.mini\" }, \"permissions\": { \"main\": [] } }\n",
+      "util/edge.json": "{}\n",
+      "util/main.mini": "fn write():\n    send('file:report.txt', 'from util')\n",
+      "main.mini": "import util\nsend('file:mine.txt', 'from main')\ntry:\n    util.write()\nexcept PermissionError as e:\n    print(e)\n"
+    },
+    "run": ["run", "main.mini"],
+    "stdout": ["'util' has no grant that reaches file:report.txt, only the root package writes a file channel without one\n"],
+    "contains": {"mine.txt": "from main\n"}
+  },
+  {
+    "given": {
+      "edge.json": "{ \"imports\": { \"util\": \"./util/main.mini\" }, \"permissions\": { \"util\": [\"files:out/\"] } }\n",
+      "util/edge.json": "{}\n",
+      "util/out/kept.txt": "",
+      "util/main.mini": "fn write():\n    send('file:util/out/report.txt', 'granted')\n",
+      "main.mini": "import util\nutil.write()\n"
+    },
+    "run": ["run", "main.mini"],
+    "contains": {"util/out/report.txt": "granted\n"}
+  },
+  {
+    "given": {
+      "main.mini": "send('report', 'row 1')\nprint('P1')\nsend('report', 'row 2')\nprint('P2')\n"
+    },
+    "run": ["run", "main.mini"],
+    "stdout": ["report\nrow 1\nP1\nreport\nrow 2\nP2\n"]
+  },
+  {
+    "given": {
+      "edge.json": "{ \"imports\": { \"x\": \"./x.mini\" } }\n"
+    },
+    "run": ["init"],
+    "fails": ["'./edge.json' already exists, init writes only into a directory without it"],
+    "contains": {"edge.json": "\"x\": \"./x.mini\""}
+  },
+  {
+    "given": {
+      "edge.json": "{ \"imports\": { \"util\": \"./util/main.mini\" }, \"permissions\": { \"util\": [\"net\"] } }\n",
+      "util/main.mini": "x = 1\n",
+      "main.mini": "import util\nprint(util.x)\n"
+    },
+    "run": ["run", "main.mini"],
+    "fails": ["permissions for 'util' reach nothing, its import './util/main.mini' has no edge.json of its own so it runs as part of this package"]
+  },
+  {
+    "given": {
+      "sub/edge.json": "{ \"imports\": { \"pkg\": \"./pkg/main.mini\" } }\n",
+      "sub/pkg/edge.json": "{ \"permissions\": { \"all\": [\"net:a.test\"] } }\n",
+      "sub/pkg/main.mini": "x = 1\n",
+      "sub/main.mini": "import pkg\nprint(pkg.x)\n"
+    },
+    "run": ["run", "sub/main.mini"],
+    "fails": ["edge.json does not grant what these packages ask for\n  pkg   net:a.test"]
+  },
+  {
+    "run": ["init", "myapp", "--bare"],
+    "stdout": ["created myapp/", "cd myapp && edge run main.mini"],
+    "creates": ["myapp/main.mini", "myapp/edge.json"]
   }
 ]

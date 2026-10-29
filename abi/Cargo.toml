@@ -1,10 +1,10 @@
 [package]
-name = "wasm-abi"
+name = "abi"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Plugin ABI wire-format constants shared by the Edge Python compiler and the wasm-pdk. no_std, zero deps."
+description = "Plugin ABI wire-format constants shared by the Edge Lang engine and the plugin crate. no_std, zero deps."
 
 [lib]
 crate-type = ["rlib"]

@@ -1,0 +1,17 @@
+[package]
+name = "plugin-macros"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Internal proc-macro for the `plugin` crate. NOT FOR DIRECT USE, `plugin` re-exports the `#[plugin_fn]` attribute. Lives in its own crate because Rust requires proc-macros to set `proc-macro = true`; nesting at `plugin/macros` makes the parent-child relationship explicit."
+
+[lib]
+proc-macro = true
+test = false
+doctest = false
+
+[dependencies]
+proc-macro2 = { workspace = true }
+quote = { workspace = true }
+syn = { workspace = true }

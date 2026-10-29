@@ -1,0 +1,57 @@
+[any]
+# denied whole in code strings and comments alike
+BaseException BaseExceptionGroup Exception ExceptionGroup GeneratorExit KeyboardInterrupt SystemExit
+ArithmeticError FloatingPointError OverflowError ZeroDivisionError AssertionError AttributeError BufferError EOFError
+ImportError ModuleNotFoundError LookupError IndexError KeyError MemoryError NameError UnboundLocalError
+OSError EnvironmentError IOError WindowsError BlockingIOError ChildProcessError ConnectionError BrokenPipeError
+ConnectionAbortedError ConnectionRefusedError ConnectionResetError FileExistsError FileNotFoundError InterruptedError
+IsADirectoryError NotADirectoryError PermissionError ProcessLookupError TimeoutError ReferenceError RuntimeError
+NotImplementedError PythonFinalizationError RecursionError StopAsyncIteration StopIteration SyntaxError
+IndentationError TabError SystemError TypeError ValueError UnicodeError UnicodeDecodeError UnicodeEncodeError
+UnicodeTranslateError
+Warning BytesWarning DeprecationWarning EncodingWarning FutureWarning ImportWarning PendingDeprecationWarning
+ResourceWarning RuntimeWarning SyntaxWarning UnicodeWarning UserWarning
+NoneType NotImplementedType EllipsisType builtin_function_or_method
+list_iterator list_reverseiterator range_iterator longrange_iterator tuple_iterator str_ascii_iterator str_iterator
+bytes_iterator bytearray_iterator set_iterator dict_keyiterator dict_valueiterator dict_itemiterator
+dict_reversekeyiterator dict_reversevalueiterator dict_reverseitemiterator callable_iterator
+PEP Errno ssize_t
+/(?<![A-Za-z0-9_])C (?:int|long)(?![A-Za-z0-9_])/
+/ordinal not in range|maps to <undefined>|surrogate code point range/
+/(?<![A-Za-z0-9_])__[a-z][a-z0-9_]*__(?![A-Za-z0-9_])/
+/python(?![a-z])/i
+/(?<![a-z0-9])py(?![a-z0-9])/i
+
+[code]
+# denied whole as an identifier
+Lsqb Rsqb Lpar Rpar Vbar Amper Circumflex Rarrow DoubleStar DoubleSlash Endmarker Nl Elif Nonlocal
+FstringStart FstringMiddle FstringEnd VbarEqual AmperEqual CircumflexEqual DoubleStarEqual DoubleSlashEqual
+MinEqual EqEqual
+
+[string]
+# denied as a whole literal or quoted or called inside one
+abs aiter all anext any ascii bin bool breakpoint bytearray bytes callable chr classmethod compile complex delattr
+dict dir divmod enumerate eval exec filter float format frozenset getattr globals hasattr hash help hex id input int
+isinstance issubclass iter len list locals map max memoryview min next object oct open ord pow print property range
+repr reversed round set setattr slice sorted staticmethod str sum super tuple type vars zip
+upper lower casefold capitalize title swapcase center ljust rjust zfill expandtabs strip lstrip rstrip split rsplit
+splitlines partition rpartition join replace find rfind index rindex count startswith endswith isalpha isdigit
+isdecimal isnumeric isalnum isspace islower isupper istitle isidentifier isprintable isascii encode decode
+format_map maketrans translate removeprefix removesuffix append extend insert pop remove clear copy reverse sort
+keys values items get setdefault update popitem fromkeys add discard union intersection difference
+symmetric_difference issubset issuperset isdisjoint intersection_update difference_update
+symmetric_difference_update fromhex bit_length bit_count to_bytes from_bytes as_integer_ratio is_integer conjugate
+real imag numerator denominator send throw close asend athrow aclose mro receive
+function generator coroutine async_generator module method cell ellipsis dict_keys dict_values dict_items mappingproxy
+False None True and as assert async await break class continue def del elif else except finally for from global if
+import in is lambda nonlocal not or pass raise return try while with yield match case
+/(?<![A-Za-z0-9_])(?:True|False|None|NotImplemented|Ellipsis|self|cls|Traceback)(?![A-Za-z0-9_])/
+/<(?:lambda|locals|genexpr|listcomp|dictcomp|setcomp|module)>/
+/(?<![A-Za-z0-9_])(?:str|list|dict|set|frozenset|tuple|bytes|bytearray|int|float|range)\.[a-z_]+/
+
+[allow]
+# a file then texts it may hold as literals or names then the reason
+lib/src/lib.rs "bytes" "iter" "map" "set" cargo features of lib
+src/deps/perms.rs "all" "eval" holders a permissions section names
+src/deps/resolver.rs "get" a function of the net module a test registers
+src/deps/walk.rs "all" a holder a permissions section names in a test

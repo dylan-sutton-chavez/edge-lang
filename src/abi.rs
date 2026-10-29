@@ -1,8 +1,8 @@
 use alloc::{string::String, vec::Vec};
 
-pub use wasm_abi::{nan_box, WireValue, EDGE_ABI_VERSION, MAX_WIRE_DEPTH, TAG_INVALID};
+pub use abi::{nan_box, WireValue, EDGE_ABI_VERSION, MAX_WIRE_DEPTH, TAG_INVALID};
 
-/* Sealed op codes, tags and error kinds, each with a `from_u32` reverse map, spec in docs/03-reference/06-abi.mdx. */
+/* a sealed ABI enum with a `from_u32` reverse map as `docs/04-reference/06-abi.mdx` specifies */
 macro_rules! abi_enum {
     ($name:ident { $($variant:ident = $value:path),+ $(,)? }) => {
         #[allow(non_camel_case_types)]
@@ -17,61 +17,58 @@ macro_rules! abi_enum {
     };
 }
 
-/* Op codes (sealed), values mirror `wasm_abi::op::*`. */
 abi_enum!(Op {
-    Call = wasm_abi::op::CALL,
-    GetAttr = wasm_abi::op::GET_ATTR,
-    SetAttr = wasm_abi::op::SET_ATTR,
-    GetItem = wasm_abi::op::GET_ITEM,
-    SetItem = wasm_abi::op::SET_ITEM,
-    Len = wasm_abi::op::LEN,
-    Iter = wasm_abi::op::ITER,
-    IterNext = wasm_abi::op::ITER_NEXT,
-    NewDict = wasm_abi::op::NEW_DICT,
-    NewList = wasm_abi::op::NEW_LIST,
-    TypeOf = wasm_abi::op::TYPE_OF,
-    NewTuple = wasm_abi::op::NEW_TUPLE,
-    NewSet = wasm_abi::op::NEW_SET,
-    NewFrozenSet = wasm_abi::op::NEW_FROZENSET,
-    Sys = wasm_abi::op::SYS,
+    Call = abi::op::CALL,
+    GetAttr = abi::op::GET_ATTR,
+    SetAttr = abi::op::SET_ATTR,
+    GetItem = abi::op::GET_ITEM,
+    SetItem = abi::op::SET_ITEM,
+    Len = abi::op::LEN,
+    Iter = abi::op::ITER,
+    IterNext = abi::op::ITER_NEXT,
+    NewDict = abi::op::NEW_DICT,
+    NewList = abi::op::NEW_LIST,
+    TypeOf = abi::op::TYPE_OF,
+    NewTuple = abi::op::NEW_TUPLE,
+    NewSet = abi::op::NEW_SET,
+    NewFrozenSet = abi::op::NEW_FROZENSET,
+    Sys = abi::op::SYS,
 });
 
-/* Tags (sealed), values mirror `wasm_abi::tag::*`. */
 abi_enum!(Tag {
-    None = wasm_abi::tag::NONE,
-    Bool = wasm_abi::tag::BOOL,
-    Int = wasm_abi::tag::INT,
-    Float = wasm_abi::tag::FLOAT,
-    // UTF-8 bytes, encoder builds a str, decoder returns its bytes.
-    Bytes = wasm_abi::tag::BYTES,
-    // Opaque bytes, no UTF-8 validation, maps to Python `bytes`.
-    Raw = wasm_abi::tag::RAW,
-    // TLV composites, payloads defined in `wasm_abi::WireValue`.
-    List = wasm_abi::tag::LIST,
-    Dict = wasm_abi::tag::DICT,
+    None = abi::tag::NONE,
+    Bool = abi::tag::BOOL,
+    Int = abi::tag::INT,
+    Float = abi::tag::FLOAT,
+    // text as UTF-8 bytes that encode to a str and decode back to its bytes
+    Bytes = abi::tag::BYTES,
+    // opaque bytes kept as a bytes value without UTF-8 validation
+    Raw = abi::tag::RAW,
+    // composites in TLV form whose payloads `abi::WireValue` defines
+    List = abi::tag::LIST,
+    Dict = abi::tag::DICT,
 });
 
-/* Error kinds (sealed), values mirror `wasm_abi::error_kind::*`. */
 abi_enum!(ErrorKind {
-    Type = wasm_abi::error_kind::TYPE,
-    Value = wasm_abi::error_kind::VALUE,
-    Runtime = wasm_abi::error_kind::RUNTIME,
-    Attribute = wasm_abi::error_kind::ATTRIBUTE,
-    Index = wasm_abi::error_kind::INDEX,
-    Key = wasm_abi::error_kind::KEY,
-    Custom = wasm_abi::error_kind::CUSTOM,
+    Type = abi::error_kind::TYPE,
+    Value = abi::error_kind::VALUE,
+    Runtime = abi::error_kind::RUNTIME,
+    Attribute = abi::error_kind::ATTRIBUTE,
+    Index = abi::error_kind::INDEX,
+    Key = abi::error_kind::KEY,
+    Custom = abi::error_kind::CUSTOM,
 });
 
-/* Handle table */
-
-// Handle slot, rc=0 = free. Exposed handle = index+1 (0 reserved as invalid).
+// free at rc 0 and handed out as index plus one so 0 stays invalid
 struct HandleSlot {
-    // Raw Val bits, opaque to the ABI, encode/decode go through classify_*.
+    // raw `Val` bits that only the classify functions interpret
     val: u64,
     rc: u32,
+    // how far `IterNext` walked the list the handle names
+    at: u32,
 }
 
-// Refcounted handle -> Val-bits map, cleared between script runs.
+// refcounted handles to `Val` bits cleared between script runs
 pub struct HandleTable {
     slots: Vec<HandleSlot>,
     free_list: Vec<u32>,
@@ -86,29 +83,28 @@ impl HandleTable {
         Self { slots: Vec::new(), free_list: Vec::new() }
     }
 
-    // Reset to empty state. Called by the host between runs.
     pub fn clear(&mut self) {
         self.slots.clear();
         self.free_list.clear();
     }
 
-    // Register a value. Returns a fresh handle (rc=1).
+    // a fresh handle at rc 1 reusing a freed slot first
     pub fn put(&mut self, val: u64) -> u32 {
         if let Some(idx) = self.free_list.pop() {
-            self.slots[idx as usize] = HandleSlot { val, rc: 1 };
+            self.slots[idx as usize] = HandleSlot { val, rc: 1, at: 0 };
             idx + 1
         } else {
-            self.slots.push(HandleSlot { val, rc: 1 });
+            self.slots.push(HandleSlot { val, rc: 1, at: 0 });
             self.slots.len() as u32
         }
     }
 
-    // Every value a handle still holds.
+    // every value a handle still holds
     pub fn live(&self) -> impl Iterator<Item = u64> + '_ {
         self.slots.iter().filter(|s| s.rc > 0).map(|s| s.val)
     }
 
-    // Look up a value by handle, or `None` if invalid / freed.
+    // the value of a live handle and `None` for an invalid or freed one
     pub fn get(&self, h: u32) -> Option<u64> {
         if h == 0 { return None; }
         self.slots.get((h - 1) as usize)
@@ -116,7 +112,14 @@ impl HandleTable {
             .map(|s| s.val)
     }
 
-    // Decrements rc, frees slot at 0. Safe against double-release.
+    // where `IterNext` stands in the list live handle `h` names before it moves one on
+    pub fn advance(&mut self, h: u32) -> Option<u32> {
+        let slot = self.slots.get_mut(h.checked_sub(1)? as usize).filter(|s| s.rc > 0)?;
+        slot.at = slot.at.saturating_add(1);
+        Some(slot.at - 1)
+    }
+
+    // frees the slot at rc 0 and ignores a handle released twice
     pub fn release(&mut self, h: u32) {
         if h == 0 { return; }
         let idx = (h - 1) as usize;
@@ -129,9 +132,7 @@ impl HandleTable {
     }
 }
 
-/* Error stash */
-
-// Single-slot error stash, populated by dispatch failures / edge_throw, drained by edge_take_error.
+// one pending error that dispatch failures and `edge_throw` set and `edge_take_error` drains
 #[derive(Default)]
 pub struct ErrorStash(Option<(u32, String)>);
 
@@ -139,28 +140,23 @@ impl ErrorStash {
     pub const fn new() -> Self { Self(None) }
     pub fn clear(&mut self) { self.0 = None; }
 
-    // Replace any pending error with `(kind, msg)`.
     pub fn set(&mut self, kind: u32, msg: String) {
         self.0 = Some((kind, msg));
     }
 
-    // Stash a typed error.
     pub fn set_typed(&mut self, kind: ErrorKind, msg: String) {
         self.0 = Some((kind as u32, msg));
     }
 
-    // Take the error if present.
     pub fn take(&mut self) -> Option<(u32, String)> { self.0.take() }
 
-    // Peeks without consuming, lets edge_take_error retry on buffer-too-small.
+    // leaves the error in place so `edge_take_error` can retry with a bigger buffer
     pub fn peek(&self) -> Option<(u32, &str)> {
         self.0.as_ref().map(|(k, m)| (*k, m.as_str()))
     }
 }
 
-/* Primitive codec helpers */
-
-// edge_encode outcome, Direct (Val bits), AllocStr / AllocBytes / AllocInt (host alloc), Composite (host builds recursively), or Invalid.
+// the outcome of `edge_encode` where the host allocates the `Alloc` cases and builds a `Composite`
 pub enum EncodeRequest<'a> {
     Direct(u64),
     AllocStr(&'a str),
@@ -170,12 +166,12 @@ pub enum EncodeRequest<'a> {
     Invalid,
 }
 
-// Val bits for an inline int, `None` when the value needs a box.
+// the `Val` bits of an inline int or `None` when the value needs a box
 pub fn inline_int_bits(i: i128) -> Option<u64> {
     i64::try_from(i).ok().and_then(crate::value::Val::int_checked).map(|v| v.0)
 }
 
-// Maps (tag, bytes) to EncodeRequest using the sealed `nan_box` layout.
+// maps a tag and its bytes to a request on the sealed `nan_box` layout
 pub fn classify_encode(tag: u32, bytes: &[u8]) -> EncodeRequest<'_> {
     use nan_box::*;
 
@@ -186,12 +182,12 @@ pub fn classify_encode(tag: u32, bytes: &[u8]) -> EncodeRequest<'_> {
             EncodeRequest::Direct(if b { TAG_TRUE } else { TAG_FALSE })
         }
         Some(Tag::Int) => {
-            // Wire format is 16 bytes (i128) covering Edge Python's full int range.
+            // the wire int is an i128 of 16 bytes covering the whole int range
             if bytes.len() != 16 { return EncodeRequest::Invalid; }
             let mut buf = [0u8; 16];
             buf.copy_from_slice(bytes);
             let i = i128::from_le_bytes(buf);
-            // Fits in 48-bit inline range -> emit as Val::int directly, else box it.
+            // ints past the 48-bit inline range get boxed
             match inline_int_bits(i) {
                 Some(bits) => EncodeRequest::Direct(bits),
                 None => EncodeRequest::AllocInt(i),
@@ -201,14 +197,13 @@ pub fn classify_encode(tag: u32, bytes: &[u8]) -> EncodeRequest<'_> {
             if bytes.len() != 8 { return EncodeRequest::Invalid; }
             let mut buf = [0u8; 8];
             buf.copy_from_slice(bytes);
-            // Val::float canonicalizes NaNs that would collide with the tag space.
+            // `Val::float` canonicalizes NaNs that would collide with the tag space
             EncodeRequest::Direct(crate::value::Val::float(f64::from_le_bytes(buf)).0)
         }
         Some(Tag::Bytes) => match core::str::from_utf8(bytes) {
             Ok(s) => EncodeRequest::AllocStr(s),
             Err(_) => EncodeRequest::Invalid,
         },
-        // Raw bytes bypass UTF-8 validation and become a Python `bytes`.
         Some(Tag::Raw) => EncodeRequest::AllocBytes(bytes),
         Some(Tag::List) | Some(Tag::Dict) => match WireValue::decode_body(tag, bytes) {
             Some(w) => EncodeRequest::Composite(w),
@@ -218,7 +213,7 @@ pub fn classify_encode(tag: u32, bytes: &[u8]) -> EncodeRequest<'_> {
     }
 }
 
-// edge_decode outcome, Primitive (ready bytes), Heap (host materializes), or Invalid.
+// the outcome of `edge_decode` where the host materializes a `Heap` value itself
 pub enum DecodeBits {
     Primitive { tag: u32, bytes: PrimitiveBytes },
     Heap,
@@ -232,10 +227,9 @@ pub enum PrimitiveBytes {
     Sixteen([u8; 16]),
 }
 
-// Classifies Val bits, Heap routes the host to HeapPool.
+// a `Heap` answer sends the host to `HeapPool` for the value
 pub fn classify_decode(val_bits: u64) -> DecodeBits {
     let v = crate::value::Val(val_bits);
-    // Ints widen to the 16-byte wire form.
     let (tag, bytes) = if v.is_float() { (Tag::Float, PrimitiveBytes::Eight(v.as_float().to_le_bytes())) }
         else if v.is_int() { (Tag::Int, PrimitiveBytes::Sixteen((v.as_int() as i128).to_le_bytes())) }
         else if v.is_none() { (Tag::None, PrimitiveBytes::None) }

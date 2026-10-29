@@ -1,115 +1,298 @@
-use serde_json::Value;
+use crate::host::{plain_path as plain, Calls, Fault, Held, HostModule, Instance, Reply, WireValue};
+use flate2::bufread::GzDecoder;
+use std::collections::HashMap;
+use std::fs::File;
+use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicI64, Ordering};
 
-// One past the most files fs lists, so a folder over its cap still reads as over it from the index.
-pub const INDEX_LIMIT: usize = 10_001;
+/* reads of the files a grant names below the directory of the package's manifest */
+pub struct Files;
 
-/* The folders fs grants anyone in a permissions section, each as a path from the root edge.json, '' for the root. */
-pub fn granted(permissions: Option<&Value>) -> Vec<String> {
-    let entries = permissions.and_then(Value::as_object).into_iter().flat_map(|holders| holders.values()).filter_map(Value::as_array).flatten();
-    let mut dirs: Vec<String> = entries.filter_map(|entry| entry.as_str()?.strip_prefix("fs:")).map(|dir| dir.trim_start_matches('.').trim_start_matches('/').to_string()).collect();
-    dirs.sort();
-    dirs.dedup();
-    dirs
-}
+const CALLS: [&str; 3] = ["open", "read", "close"];
 
-/* Where `path` sits under `root`, only when no link on the way moves it, so the real file is the one the path names. */
-fn located(root: &Path, path: &str) -> Option<PathBuf> {
-    let written = if path.is_empty() { root.to_path_buf() } else { root.join(path) };
-    (written.canonicalize().ok()? == written).then_some(written)
-}
+// how much of a file one read hands over as net hands over a body
+const CHUNK: usize = 64 << 10;
 
-/* The text of one file under `root`, `root` already canonical, failing with the word fs names for each reason. */
-pub fn read(root: &Path, path: &str, limit: u64) -> Result<String, &'static str> {
-    let file = located(root, path).filter(|file| file.is_file()).ok_or("missing")?;
-    if std::fs::metadata(&file).map_err(|_| "missing")?.len() > limit {
-        return Err("large");
+// one counter for every package so an id never names two files
+static NEXT: AtomicI64 = AtomicI64::new(1);
+
+impl HostModule for Files {
+    fn name(&self) -> &str {
+        "files"
     }
-    String::from_utf8(std::fs::read(&file).map_err(|_| "missing")?).map_err(|_| "binary")
-}
 
-/* Every plain file under `dir`, no link followed and no name starting with a dot, at most `limit` of them. */
-pub fn list(root: &Path, dir: &str, limit: usize) -> Result<Vec<String>, &'static str> {
-    let start = located(root, dir).filter(|start| start.is_dir()).ok_or("missing")?;
-    let mut found = Vec::new();
-    let mut pending = vec![(start, dir.to_string())];
-    while let Some((at, rel)) = pending.pop() {
-        for entry in std::fs::read_dir(&at).map_err(|_| "missing")?.flatten() {
-            let (Ok(kind), Ok(name)) = (entry.file_type(), entry.file_name().into_string()) else { continue };
-            if name.starts_with('.') || name.contains('\\') {
-                continue;
-            }
-            let path = if rel.is_empty() { name } else { format!("{rel}/{name}") };
-            if kind.is_dir() {
-                pending.push((entry.path(), path));
-            } else if kind.is_file() {
-                found.push(path);
-                if found.len() >= limit {
-                    return Ok(found);
-                }
-            }
+    // a scope is a plain path and one trailing slash makes it a whole directory
+    fn scope(&self, scope: &str) -> bool {
+        plain(scope.strip_suffix('/').unwrap_or(scope))
+    }
+
+    // an open reaches the path it names and reads of an open file reach nothing
+    fn reaches(&self, call: &str, args: &[WireValue]) -> Result<Option<String>, Fault> {
+        match call {
+            "open" => path_of(args.first().unwrap_or(&WireValue::None)).map(|path| Some(path.to_string())),
+            _ => Ok(None),
         }
     }
-    Ok(found)
+
+    // a scope names the file or with a trailing slash everything below the directory
+    fn covers(&self, scope: &str, reached: &str) -> bool {
+        scope == reached || (scope.ends_with('/') && reached.starts_with(scope))
+    }
+
+    // a grant reaching a file lets the package write it through a file channel too
+    fn writes(&self, held: &Held, path: &str) -> bool {
+        held.reach(self, path).is_ok()
+    }
+
+    fn open(&self, inst: &mut Instance, spec: &str, _pkg: &str, held: Held) -> Result<(), String> {
+        // a package reads below the manifest its spec names and untrusted runs below the pool's
+        let dir = match (inst.project.untrusted, &inst.project.pool) {
+            (false, _) => spec.strip_prefix("system:files@").unwrap_or_default().to_string(),
+            (true, Some(pool)) => pool.clone(),
+            (true, None) => return Err(format!("module '{}' is not available to untrusted eval runs", self.name())),
+        };
+        inst.serve(spec, self.name(), &CALLS, Box::new(Opened { held, dir, open: HashMap::new() }))
+    }
 }
 
-/* The files of every folder fs grants under `root`, the list a page reads since http cannot list a folder. */
-pub fn index(root: &Path, permissions: Option<&Value>, limit: usize) -> Vec<String> {
-    let Ok(root) = root.canonicalize() else { return Vec::new() };
-    let mut all: Vec<String> = granted(permissions).iter().flat_map(|dir| list(&root, dir, limit).unwrap_or_default()).collect();
-    all.sort();
-    all.dedup();
-    all
+/* the calls of one package and the files it opened */
+struct Opened {
+    held: Held,
+    dir: String,
+    open: HashMap<i64, Reader>,
+}
+
+enum Reader {
+    Plain(File),
+    Gzip(Box<GzDecoder<BufReader<File>>>),
+}
+
+impl Calls for Opened {
+    fn call(&mut self, index: usize, args: Vec<WireValue>, reply: Reply) {
+        let arg = |at: usize| args.get(at).unwrap_or(&WireValue::None);
+        reply.answer(match CALLS[index] {
+            "open" => self.open(arg(0), arg(1)),
+            "read" => self.read(arg(0)),
+            _ => self.close_one(arg(0)),
+        });
+    }
+
+    fn close(&mut self) {
+        self.open.clear();
+    }
+}
+
+impl Opened {
+    /* the id of the file at `path` under the package once its grant reaches it */
+    fn open(&mut self, path: &WireValue, inflate: &WireValue) -> Result<WireValue, Fault> {
+        let path = path_of(path)?;
+        let inflate = match inflate {
+            WireValue::None => false,
+            WireValue::Bytes(b) if b == b"gzip" => true,
+            _ => return Err(Fault::invalid("inflate must be None or 'gzip'")),
+        };
+        let (real, resolved) = self.resolve(path)?;
+        // a link the name runs through must land where the grant reaches too
+        if resolved != path {
+            self.held.reach(&Files, &resolved)?;
+        }
+        let file = File::open(&real).map_err(|e| Fault::failed(format!("cannot open {path}, {}", why(&e))))?;
+        let reader = match inflate {
+            true => Reader::Gzip(Box::new(GzDecoder::new(BufReader::new(file)))),
+            false => Reader::Plain(file),
+        };
+        let id = NEXT.fetch_add(1, Ordering::Relaxed);
+        self.open.insert(id, reader);
+        Ok(WireValue::Int(id.into()))
+    }
+
+    /* the real file `path` names with every link resolved and its path below the package */
+    fn resolve(&self, path: &str) -> Result<(PathBuf, String), Fault> {
+        let base = Path::new(if self.dir.is_empty() { "." } else { &self.dir });
+        let opened = |e: std::io::Error| Fault::failed(format!("cannot open {path}, {}", why(&e)));
+        let (root, real) = (base.canonicalize().map_err(opened)?, base.join(path).canonicalize().map_err(opened)?);
+        let parts = real.strip_prefix(&root).ok().and_then(|rest| rest.iter().map(|part| part.to_str()).collect::<Option<Vec<_>>>());
+        match parts.filter(|parts| !parts.is_empty()).map(|parts| parts.join("/")) {
+            Some(below) => Ok((real, below)),
+            None => Err(Fault::denied(format!("'{path}' is a link out of the package, files reads only below it"))),
+        }
+    }
+
+    /* the next chunk of a file inflated when asked or None at its end */
+    fn read(&mut self, id: &WireValue) -> Result<WireValue, Fault> {
+        let reader = self.open.get_mut(&id_of(id)?).ok_or_else(|| Fault::invalid(format!("no open file {}", shown(id))))?;
+        let mut buf = vec![0u8; CHUNK];
+        let read = match reader {
+            Reader::Plain(file) => file.read(&mut buf),
+            Reader::Gzip(file) => file.read(&mut buf),
+        };
+        let n = read.map_err(|e| Fault::failed(format!("reading the file failed, {}", why(&e))))?;
+        if n > 0 {
+            buf.truncate(n);
+            return Ok(WireValue::Raw(buf));
+        }
+        // bytes after the gzip stream fail the file as net fails a body
+        if let Reader::Gzip(file) = reader
+            && !file.get_mut().fill_buf().map_err(|e| Fault::failed(format!("reading the file failed, {}", why(&e))))?.is_empty()
+        {
+            return Err(Fault::failed("reading the file failed, junk found after the end of the gzip stream"));
+        }
+        Ok(WireValue::None)
+    }
+
+    fn close_one(&mut self, id: &WireValue) -> Result<WireValue, Fault> {
+        self.open.remove(&id_of(id)?).ok_or_else(|| Fault::invalid(format!("no open file {}", shown(id))))?;
+        Ok(WireValue::None)
+    }
+}
+
+/* a path a call names checked to stay below the package */
+fn path_of(path: &WireValue) -> Result<&str, Fault> {
+    let WireValue::Bytes(raw) = path else { return Err(Fault::invalid("a path must be a str")) };
+    let path = std::str::from_utf8(raw).map_err(|_| Fault::invalid("a path must be a str"))?;
+    if !plain(path) {
+        return Err(Fault::invalid(format!("'{path}' is not a plain path, files takes names joined by slashes below the package")));
+    }
+    Ok(path)
+}
+
+/* an id as the int `open` gave */
+fn id_of(id: &WireValue) -> Result<i64, Fault> {
+    match id {
+        WireValue::Int(n) => i64::try_from(*n).map_err(|_| Fault::invalid("an id is an int from files.open")),
+        _ => Err(Fault::invalid("an id is an int from files.open")),
+    }
+}
+
+fn shown(id: &WireValue) -> String {
+    match id {
+        WireValue::Int(n) => n.to_string(),
+        _ => String::from("?"),
+    }
+}
+
+/* the words of an io failure without its os code */
+fn why(e: &std::io::Error) -> String {
+    match e.kind() {
+        std::io::ErrorKind::NotFound => String::from("no such file"),
+        std::io::ErrorKind::PermissionDenied => String::from("the system refused it"),
+        _ => e.to_string(),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
+    use crate::host::{Host, Project, Scopes, Status};
+    use std::sync::{Arc, Mutex};
 
-    fn project() -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("edge-files-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
-        fs::create_dir_all(dir.join("shop/app")).unwrap();
-        fs::write(dir.join("shop/Gemfile"), "gem 'rails'\n").unwrap();
-        fs::write(dir.join("shop/app/product.rb"), "class Product; end\n").unwrap();
-        fs::write(dir.join("shop/.env"), "KEY=1\n").unwrap();
-        fs::write(dir.join("shop/logo.png"), [0xff, 0xd8, 0xff]).unwrap();
-        fs::write(dir.join("secret.txt"), "outside\n").unwrap();
-        dir.canonicalize().unwrap()
+    #[test]
+    fn a_scope_is_a_plain_path_below_the_package() {
+        for scope in ["events.jsonl", "data/", "data/2026/hour.json.gz", "a b.csv"] {
+            assert!(Files.scope(scope), "{scope}");
+        }
+        for scope in ["", "/etc/passwd", "../up.csv", "data/../x", "./x", "data//x", "c:\\x", "data\\x", "//"] {
+            assert!(!Files.scope(scope), "{scope}");
+        }
     }
 
     #[test]
-    fn a_file_reads_as_text_and_every_other_answer_names_its_reason() {
-        let root = project();
-        assert_eq!(read(&root, "shop/Gemfile", 1 << 20).unwrap(), "gem 'rails'\n");
-        assert_eq!(read(&root, "shop/nope.rb", 1 << 20), Err("missing"));
-        assert_eq!(read(&root, "shop/app", 1 << 20), Err("missing"));
-        assert_eq!(read(&root, "shop/logo.png", 1 << 20), Err("binary"));
-        assert_eq!(read(&root, "shop/Gemfile", 4), Err("large"));
+    fn a_grant_reaches_its_file_and_what_its_directory_holds() {
+        let refusal = ("'main' has no files:".to_string(), ", edge.json grants it files:events.jsonl, files:logs/".to_string());
+        let held = Held::Scopes(Scopes::new(vec!["events.jsonl".to_string(), "logs/".to_string()], refusal));
+        assert!(held.reach(&Files, "events.jsonl").is_ok() && held.reach(&Files, "logs/2026/a.txt").is_ok());
+        for path in ["other.jsonl", "events.jsonl.gz", "logsx/a.txt"] {
+            let refused = held.reach(&Files, path).unwrap_err();
+            assert_eq!(refused.text, format!("'main' has no files:{path}, edge.json grants it files:events.jsonl, files:logs/"));
+        }
+        assert!(Held::All.reach(&Files, "anything/at/all").is_ok());
+    }
+
+    #[test]
+    fn a_gzip_file_reads_inflated_and_refuses_bytes_after_its_stream() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        std::io::Write::write_all(&mut gz, b"one\ntwo\n").unwrap();
+        let bytes = gz.finish().unwrap();
+        std::fs::write(dir.path().join("hour.txt.gz"), &bytes).unwrap();
+        std::fs::write(dir.path().join("twice.txt.gz"), [bytes.as_slice(), bytes.as_slice()].concat()).unwrap();
+        let mut opened = Opened { held: Held::All, dir: format!("{}/", dir.path().display()), open: HashMap::new() };
+        let gzip = WireValue::Bytes(b"gzip".to_vec());
+        let id = opened.open(&WireValue::Bytes(b"hour.txt.gz".to_vec()), &gzip).unwrap();
+        assert_eq!(opened.read(&id).unwrap(), WireValue::Raw(b"one\ntwo\n".to_vec()));
+        assert_eq!(opened.read(&id).unwrap(), WireValue::None);
+        let id = opened.open(&WireValue::Bytes(b"twice.txt.gz".to_vec()), &gzip).unwrap();
+        assert_eq!(opened.read(&id).unwrap(), WireValue::Raw(b"one\ntwo\n".to_vec()));
+        assert_eq!(opened.read(&id).unwrap_err().text, "reading the file failed, junk found after the end of the gzip stream");
+        opened.close_one(&id).unwrap();
+        assert_eq!(opened.read(&id).unwrap_err().text, format!("no open file {}", shown(&id)));
     }
 
     #[cfg(unix)]
     #[test]
-    fn a_link_never_reads_even_one_pointing_inside() {
-        let root = project();
-        std::os::unix::fs::symlink(root.join("secret.txt"), root.join("shop/out.txt")).unwrap();
-        std::os::unix::fs::symlink(root.join("shop/Gemfile"), root.join("shop/in.txt")).unwrap();
-        std::os::unix::fs::symlink(&root, root.join("shop/up")).unwrap();
-        assert_eq!(read(&root, "shop/out.txt", 1 << 20), Err("missing"));
-        assert_eq!(read(&root, "shop/in.txt", 1 << 20), Err("missing"));
-        assert_eq!(read(&root, "shop/up/secret.txt", 1 << 20), Err("missing"));
-        assert_eq!(list(&root, "shop", 100).map(|mut found| { found.sort(); found }), Ok(vec!["shop/Gemfile".to_string(), "shop/app/product.rb".to_string(), "shop/logo.png".to_string()]));
+    fn a_link_is_held_to_the_grant_where_it_lands() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("data")).unwrap();
+        std::fs::write(dir.path().join("data/a.txt"), "granted\n").unwrap();
+        std::fs::write(dir.path().join("secret.txt"), "outside the grant\n").unwrap();
+        for (link, to) in [("data/inner.txt", "a.txt"), ("data/leak.txt", "../secret.txt"), ("data/hosts", "/etc/hosts")] {
+            std::os::unix::fs::symlink(to, dir.path().join(link)).unwrap();
+        }
+        let refusal = ("'main' has no files:".to_string(), ", edge.json grants it files:data/".to_string());
+        let held = Held::Scopes(Scopes::new(vec!["data/".to_string()], refusal));
+        let mut opened = Opened { held, dir: format!("{}/", dir.path().display()), open: HashMap::new() };
+        let mut read = |path: &str| opened.open(&WireValue::Bytes(path.as_bytes().to_vec()), &WireValue::None).map(|_| ()).map_err(|fault| fault.text);
+        assert_eq!(read("data/a.txt"), Ok(()));
+        assert_eq!(read("data/inner.txt"), Ok(()));
+        assert_eq!(read("data/leak.txt"), Err("'main' has no files:secret.txt, edge.json grants it files:data/".to_string()));
+        assert_eq!(read("data/hosts"), Err("'data/hosts' is a link out of the package, files reads only below it".to_string()));
     }
 
     #[test]
-    fn a_list_skips_hidden_names_and_stops_at_its_limit() {
-        let root = project();
-        let mut found = list(&root, "shop", 100).unwrap();
-        found.sort();
-        assert_eq!(found, ["shop/Gemfile", "shop/app/product.rb", "shop/logo.png"]);
-        assert_eq!(list(&root, "shop", 2).unwrap().len(), 2);
-        assert_eq!(list(&root, "nope", 100), Err("missing"));
-        let permissions = serde_json::json!({ "main": ["fs:./shop/app", "net:a.test"], "lint": ["fs:./shop/app"] });
-        assert_eq!(index(&root, Some(&permissions), 100), ["shop/app/product.rb"]);
+    fn a_trusted_run_reads_below_its_entry_and_an_untrusted_one_reaches_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("logs")).unwrap();
+        std::fs::write(dir.path().join("logs/a.txt"), "inside\n").unwrap();
+        // paths join the directory of the package's manifest
+        std::fs::write(dir.path().join("edge.json"), "{}\n").unwrap();
+        let entry = dir.path().join("main.mini").display().to_string();
+        let kit = crate::kit::tests::bare().module(Arc::new(Files));
+        let host = Host::new(kit.load().unwrap()).unwrap();
+        let printed = Arc::new(Mutex::new(String::new()));
+        let into = printed.clone();
+        let mut vm = host.vm(Box::new(move |text: &str| into.lock().unwrap().push_str(text)), Project::disk(&entry, None), None, None).unwrap();
+        let status = vm.start("import files\nprint(files.read(files.open('logs/a.txt')))\n", None).unwrap();
+        assert!(matches!(status, Status::Done), "the trusted run did not finish");
+        assert_eq!(printed.lock().unwrap().as_str(), "b'inside\\n'\n");
+        let mut vm = host.vm(Box::new(|_: &str| {}), Project::bundle(std::collections::HashMap::new(), "", true), None, None).unwrap();
+        let Status::Error(refused) = vm.start("import files\n", None).unwrap() else { panic!("an untrusted run imported files") };
+        assert!(refused.contains("module 'files' is not available to untrusted eval runs"), "{refused}");
+    }
+
+    #[test]
+    fn an_untrusted_run_reads_below_its_pool_and_never_where_the_process_started() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("logs")).unwrap();
+        std::fs::write(dir.path().join("logs/a.txt"), "pooled\n").unwrap();
+        let kit = crate::kit::tests::bare().module(Arc::new(Files));
+        let host = Host::new(kit.load().unwrap()).unwrap();
+        // an untrusted run that may open any file below `pool`
+        let untrusted = |pool: Option<String>| {
+            let mut project = Project::bundle(std::collections::HashMap::new(), "", true);
+            project.access = Some(Arc::new(crate::host::Open));
+            project.pool = pool;
+            project
+        };
+        let printed = Arc::new(Mutex::new(String::new()));
+        let into = printed.clone();
+        let pool = format!("{}/", dir.path().display());
+        let mut vm = host.vm(Box::new(move |text: &str| into.lock().unwrap().push_str(text)), untrusted(Some(pool)), None, None).unwrap();
+        let status = vm.start("import files\nprint(files.read(files.open('logs/a.txt')))\n", None).unwrap();
+        assert!(matches!(status, Status::Done), "the pooled run did not finish");
+        assert_eq!(printed.lock().unwrap().as_str(), "b'pooled\\n'\n");
+        let mut vm = host.vm(Box::new(|_: &str| {}), untrusted(None), None, None).unwrap();
+        let Status::Error(refused) = vm.start("import files\n", None).unwrap() else { panic!("a run with no pool imported files") };
+        assert!(refused.contains("module 'files' is not available to untrusted eval runs"), "{refused}");
     }
 }

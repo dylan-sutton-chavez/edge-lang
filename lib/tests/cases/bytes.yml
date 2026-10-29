@@ -1,0 +1,178 @@
+- native: bytes
+  args: ["abc", "utf-8"]
+  ret: !bytes "616263"
+
+- native: bytes.hex
+  recv: !bytes "00ff"
+  ret: "00ff"
+
+- native: bytes.decode
+  recv: !bytes "68c3a9"
+  ret: "hé"
+
+- native: bytes.decode
+  recv: !bytes "ff"
+  error: "'utf-8' codec can't decode byte 0xff in position 0: invalid start byte"
+
+- native: bytes.fromhex
+  args: ["00 ff"]
+  ret: !bytes "00ff"
+
+- native: str.encode
+  recv: "é"
+  ret: !bytes "c3a9"
+
+- native: bytearray
+  args: [[1, 2]]
+  ret: !bytearray "0102"
+
+- native: bytes
+  prints: "b''"
+
+- native: bytes.index
+  recv: !bytes "68656c6c6f"
+  args: [!bytes ""]
+  prints: "0"
+
+- native: bytes.fromhex
+  args: ["zz"]
+  error: "non-hexadecimal number found in fromhex() arg"
+
+- native: bytes
+  args: [[65, 66, 67]]
+  prints: "b'ABC'"
+
+- native: bytes
+  args: [3]
+  prints: "b'\\x00\\x00\\x00'"
+
+- native: bytes
+  args: ["hi", "utf-8"]
+  prints: "b'hi'"
+
+- native: bytes
+  args: [7, 3]
+  error: "bytes() argument 'encoding' must be str, not int"
+
+- native: bytes
+  args: [999999999995]
+  error: "MemoryError"
+
+- native: bytes.fromhex
+  args: ["41 42"]
+  prints: "b'AB'"
+
+- native: bytes.lstrip
+  recv: !bytes "0b616263"
+  prints: "b'abc'"
+
+- native: bytes.rstrip
+  recv: !bytes "6162630b"
+  prints: "b'abc'"
+
+- native: bytes
+  args: ["hé"]
+  kw: {encoding: "utf-8"}
+  prints: "b'h\\xc3\\xa9'"
+
+- native: bytes.replace
+  recv: !bytes "68656c6c6f"
+  args: [!bytes "", !bytes "58"]
+  prints: "b'XhXeXlXlXoX'"
+
+- native: str.encode
+  recv: "hi"
+  prints: "b'hi'"
+
+- native: bytes.decode
+  recv: !bytes "68656c6c6f"
+  prints: "hello"
+
+- native: bytes.decode
+  recv: !bytes "61ff62"
+  args: ["utf-8", "ignore"]
+  prints: "ab"
+
+- native: bytes.decode
+  recv: !bytes "61ff62"
+  args: ["utf-8", "replace"]
+  prints: "a�b"
+
+- native: bytes.decode
+  recv: !bytes "61ff62"
+  args: ["utf-8", "strict"]
+  error: "'utf-8' codec can't decode byte 0xff in position 1: invalid start byte"
+
+- native: bytes.hex
+  recv: !bytes "01ff"
+  prints: "01ff"
+
+- native: bytes.startswith
+  recv: !bytes "68656c6c6f"
+  args: [!bytes "68656c"]
+  prints: "True"
+
+- native: bytes.endswith
+  recv: !bytes "68656c6c6f"
+  args: [!bytes "6c6f"]
+  prints: "True"
+
+- native: bytes.find
+  recv: !bytes "68656c6c6f"
+  args: [!bytes ""]
+  prints: "0"
+
+- native: bytes.lower
+  recv: !bytes "414243"
+  prints: "b'abc'"
+
+- native: bytes.upper
+  recv: !bytes "616263"
+  prints: "b'ABC'"
+
+- native: bytes.strip
+  recv: !bytes "202068692020"
+  prints: "b'hi'"
+
+- native: bytes.join
+  recv: !bytes "2d"
+  args: [[!bytes "61", !bytes "62"]]
+  prints: "b'a-b'"
+
+- native: bytes.strip
+  recv: !bytes "0b"
+  prints: "b''"
+
+- native: bytes.strip
+  recv: !bytes "0b68690b"
+  prints: "b'hi'"
+
+- native: bytes.strip
+  recv: !bytes "200b092078200b20"
+  prints: "b'x'"
+
+- native: bytes.strip
+  recv: !bytes "0b64617461"
+  prints: "b'data'"
+
+- native: bytes.strip
+  recv: !bytes "780b79"
+  prints: "b'x\\x0by'"
+
+- native: bytes.strip
+  recv: !bytes "0b0a7a0a0b"
+  prints: "b'z'"
+
+- native: bytes.split
+  recv: !bytes "2020612062622020636363206420"
+  prints: "[b'a', b'bb', b'ccc', b'd']"
+
+- native: bytes.split
+  recv: !bytes "2020612062622020636363206420"
+  args: [null, 1]
+  prints: "[b'a', b'bb  ccc d ']"
+
+- native: bytes.startswith
+  recv: !bytes "61"
+  args: ["a"]
+  error: "startswith first arg must be bytes or a tuple of bytes, not str"
