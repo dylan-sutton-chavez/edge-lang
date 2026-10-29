@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "abi"
-version = "0.9.6"
+version = "0.9.7"
 
 [[package]]
 name = "addr2line"
@@ -46,7 +46,7 @@ dependencies = [
 
 [[package]]
 name = "bench"
-version = "0.9.6"
+version = "0.9.7"
 dependencies = [
  "abi",
  "data",
@@ -290,7 +290,7 @@ dependencies = [
 
 [[package]]
 name = "data"
-version = "0.9.6"
+version = "0.9.7"
 dependencies = [
  "edge",
  "mini",
@@ -322,7 +322,7 @@ dependencies = [
 
 [[package]]
 name = "edge"
-version = "0.9.6"
+version = "0.9.7"
 dependencies = [
  "abi",
  "dlmalloc",
@@ -533,7 +533,7 @@ checksum = "09edd9e8b54e49e587e4f6295a7d29c3ea94d469cb40ab8ca70b288248a81db2"
 
 [[package]]
 name = "lib"
-version = "0.9.6"
+version = "0.9.7"
 dependencies = [
  "edge",
  "itoa",
@@ -612,7 +612,7 @@ dependencies = [
 
 [[package]]
 name = "mini"
-version = "0.9.6"
+version = "0.9.7"
 dependencies = [
  "edge",
  "itoa",
@@ -621,7 +621,7 @@ dependencies = [
 
 [[package]]
 name = "native"
-version = "0.9.6"
+version = "0.9.7"
 dependencies = [
  "edge",
  "mini",
@@ -653,7 +653,7 @@ checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 
 [[package]]
 name = "plugin"
-version = "0.9.6"
+version = "0.9.7"
 dependencies = [
  "abi",
  "linked_list_allocator",
@@ -663,7 +663,7 @@ dependencies = [
 
 [[package]]
 name = "plugin-macros"
-version = "0.9.6"
+version = "0.9.7"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -860,7 +860,7 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
 name = "skill"
-version = "0.9.6"
+version = "0.9.7"
 
 [[package]]
 name = "slab"
@@ -886,7 +886,7 @@ dependencies = [
 
 [[package]]
 name = "spell"
-version = "0.9.6"
+version = "0.9.7"
 dependencies = [
  "edge",
  "mini",
@@ -969,7 +969,7 @@ dependencies = [
 
 [[package]]
 name = "tiny"
-version = "0.9.6"
+version = "0.9.7"
 dependencies = [
  "data",
  "edge",
@@ -998,7 +998,7 @@ checksum = "673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861"
 
 [[package]]
 name = "uptime"
-version = "0.9.6"
+version = "0.9.7"
 dependencies = [
  "edge",
  "lib",

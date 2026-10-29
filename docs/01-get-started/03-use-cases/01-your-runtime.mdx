@@ -262,8 +262,8 @@ std = ["edge/std"]
 web = ["edge/runtime", "edge/perms"]
 
 [dependencies]
-edge = { git = "https://github.com/dylan-sutton-chavez/edge-lang", tag = "v0.9.6", default-features = false }
-lib = { git = "https://github.com/dylan-sutton-chavez/edge-lang", tag = "v0.9.6", default-features = false, features = ["data", "io", "seq", "spec", "types"] }
+edge = { git = "https://github.com/dylan-sutton-chavez/edge-lang", tag = "v0.9.7", default-features = false }
+lib = { git = "https://github.com/dylan-sutton-chavez/edge-lang", tag = "v0.9.7", default-features = false, features = ["data", "io", "seq", "spec", "types"] }
 
 # the size profile the engine's workspace builds each runtime's wasm with
 [profile.release]
@@ -277,7 +277,7 @@ strip = true
 The CLI's manifest already writes its own fields, so only its `cli` line changes.
 
 ```toml
-cli = { git = "https://github.com/dylan-sutton-chavez/edge-lang", tag = "v0.9.6", default-features = false, features = ["net", "perms", "run", "test"] }
+cli = { git = "https://github.com/dylan-sutton-chavez/edge-lang", tag = "v0.9.7", default-features = false, features = ["net", "perms", "run", "test"] }
 ```
 
 The wasm now builds under the runtime's own `target`, so the include in the CLI's `lib.rs` reads it two folders up.
@@ -297,7 +297,7 @@ cd cli && cargo build --release
 A plugin of your own takes the plugin kit the same way, as [Writing a plugin with the plugin crate](/docs/edge-lang/reference/abi#writing-a-plugin-with-the-plugin-crate) builds one.
 
 ```toml
-plugin = { git = "https://github.com/dylan-sutton-chavez/edge-lang", tag = "v0.9.6" }
+plugin = { git = "https://github.com/dylan-sutton-chavez/edge-lang", tag = "v0.9.7" }
 ```
 
 ## How it is tested

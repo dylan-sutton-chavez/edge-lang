@@ -3,7 +3,7 @@
 
 [package]
 name = "cli"
-version = "0.9.6"
+version = "0.9.7"
 edition = "2024"
 description = "The Edge Lang CLI kit, a core that takes a runtime and the commands a composition wires, and the edge binary composed from it. Runs, tests, and scaffolds programs on the same edge.wasm the browser uses, packs apps into standalone binaries or bundles, and runs cooperative actor pools."
 

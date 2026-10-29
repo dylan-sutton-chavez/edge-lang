@@ -94,11 +94,11 @@ The third layer is the runtimes held to each other and to the ABI. `cargo test -
 
 A runtime that ships again meets three things its users already hold, and none of them runs wrongly. A project or a saved run the new build cannot honor is refused with a message, and machine code it no longer matches is compiled again.
 
-**A project that needs a newer engine.** A project names the lowest engine it runs on as `edge` in its `edge.json`. A binary built on an older engine refuses the project before anything compiles. With `"edge": "1.0.0"` added to the checks' `edge.json`, uptime 0.9.6 runs none of them.
+**A project that needs a newer engine.** A project names the lowest engine it runs on as `edge` in its `edge.json`. A binary built on an older engine refuses the project before anything compiles. With `"edge": "1.0.0"` added to the checks' `edge.json`, uptime 0.9.7 runs none of them.
 
 ```text
 $ uptime run status.up
-error: this project needs edge 1.0.0, this is 0.9.6
+error: this project needs edge 1.0.0, this is 0.9.7
 ```
 
 `Kit::upgrade` adds a line saying how to upgrade. Uptime sets none, and `edge` names its installer.

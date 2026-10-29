@@ -101,7 +101,7 @@ Bare names resolve through `edge.json`, the only manifest name. Every field is o
   "description": "Draw a chart from a list of points.",
   "repository": "https://github.com/you/charts",
   "docs": "./docs",
-  "edge": "0.9.6",
+  "edge": "0.9.7",
   "imports": {
     "slugs": "0.1.0",
     "utils": "./lib/utils.mini",
@@ -120,7 +120,7 @@ Bare names resolve through `edge.json`, the only manifest name. Every field is o
 | `name`, `version`, `description`, `repository`, `docs` | What a package carries into a registry. The compiler ignores all five, and their rules are in [Publishing](/docs/edge-lang/reference/registry#publishing). |
 
 - No import name may be the name of a host module, such as `net`. [Permissions](/docs/edge-lang/reference/system#permissions) grant those instead.
-- An engine older than `edge` stops with `this project needs edge 1.0.0, this is 0.9.6`. A dependency written for a later engine is refused where it loads, by the CLI and the browser alike.
+- An engine older than `edge` stops with `this project needs edge 1.0.0, this is 0.9.7`. A dependency written for a later engine is refused where it loads, by the CLI and the browser alike.
 - Unknown keys are ignored.
 - Values must be strings, lists of strings, or objects of them, nested at most 32 deep. Numbers and booleans are rejected.
 - The string escapes are `\"`, `\\`, `\/`, `\n`, `\t` and `\r`. `\uXXXX` is not supported, so paste UTF-8 literally.

@@ -68,7 +68,7 @@ default-members = [".", "abi", "plugin", "plugin/macros", "skill", "lib", "examp
 resolver = "2"
 
 [workspace.package]
-version = "0.9.6"
+version = "0.9.7"
 edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/dylan-sutton-chavez/edge-lang/"

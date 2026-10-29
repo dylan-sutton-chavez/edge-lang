@@ -1,6 +1,6 @@
 [package]
 name = "uptime-cli"
-version = "0.9.6"
+version = "0.9.7"
 edition = "2024"
 license = "Apache-2.0"
 description = "The CLI of the docs' first use case, the uptime runtime composed from the kit's run and test commands with net and a clock under perms."

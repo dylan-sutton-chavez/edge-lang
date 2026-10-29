@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "abi"
-version = "0.9.6"
+version = "0.9.7"
 
 [[package]]
 name = "addr2line"
@@ -219,7 +219,7 @@ checksum = "1c133bc6a41be0d194c306b5506d15e6feeea7b1d6604bd3f8310dfb2ca96486"
 
 [[package]]
 name = "cli"
-version = "0.9.6"
+version = "0.9.7"
 dependencies = [
  "anyhow",
  "clap",
@@ -432,7 +432,7 @@ dependencies = [
 
 [[package]]
 name = "data"
-version = "0.9.6"
+version = "0.9.7"
 dependencies = [
  "sha2",
 ]
@@ -466,7 +466,7 @@ dependencies = [
 
 [[package]]
 name = "edge"
-version = "0.9.6"
+version = "0.9.7"
 dependencies = [
  "abi",
  "dlmalloc",
@@ -727,7 +727,7 @@ checksum = "09edd9e8b54e49e587e4f6295a7d29c3ea94d469cb40ab8ca70b288248a81db2"
 
 [[package]]
 name = "lib"
-version = "0.9.6"
+version = "0.9.7"
 dependencies = [
  "edge",
  "itoa",
@@ -1189,7 +1189,7 @@ dependencies = [
 
 [[package]]
 name = "tiny"
-version = "0.9.6"
+version = "0.9.7"
 dependencies = [
  "edge",
  "lib",
@@ -1197,7 +1197,7 @@ dependencies = [
 
 [[package]]
 name = "tiny-cli"
-version = "0.9.6"
+version = "0.9.7"
 dependencies = [
  "cli",
  "data",
