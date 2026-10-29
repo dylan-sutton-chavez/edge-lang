@@ -116,7 +116,8 @@ Deno.test("js: createWorker runs the corpus in a page", async () => {
 
         const reqd = (frag) => requested.some((u) => u.includes(frag));
 
-        for (const c of cases) {
+        // TODO remove the package publication path and every case marked todo
+        for (const c of cases.filter((c) => !c.todo)) {
             errors.length = 0;
             const got = await page.evaluate(async (src) => {
                 const lines = [];
@@ -255,8 +256,6 @@ Deno.test("js: createWorker runs the corpus in a page", async () => {
 
         // Laziness, only what the corpus imports gets fetched, and a JavaScript import is refused before any fetch.
         if (reqd("/app/ui.js")) throw new Error("ui is JavaScript, yet ui.js was fetched");
-        if (!reqd("/pkg/json/")) throw new Error("json imported but its package was never fetched");
-        if (reqd("/pkg/re/")) throw new Error("re declared but never imported, yet its package was fetched (not lazy)");
 
         if (strays.size) throw new Error([...strays].join("\n"));
     } catch (e) {

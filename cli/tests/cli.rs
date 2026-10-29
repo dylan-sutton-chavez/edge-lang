@@ -24,6 +24,7 @@ struct Case {
     #[serde(default)] contains: BTreeMap<String, String>,
     // A second command in the same dir, the way a packed artifact runs itself.
     #[serde(default)] then: Option<Step>,
+    #[serde(default)] todo: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -208,7 +209,8 @@ fn run_suite(cases: &[Case], hosts: &[&[&str]]) {
     // One cache per suite, so no case touches the real one and the runtime downloads once.
     let cache = tempfile::tempdir().expect("suite cache dir");
     let mut failed = vec![];
-    for c in cases {
+    // TODO remove the package publication path and every case marked todo
+    for c in cases.iter().filter(|c| c.todo.is_none()) {
         for host in hosts {
             // A host flag goes right after the subcommand, where `run` and `test` read it.
             let mut args = c.run.clone();

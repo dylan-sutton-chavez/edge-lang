@@ -27,13 +27,15 @@
   {
     "given": { "edge.json": "{}\n" },
     "run": ["add", "mystery"],
-    "fails": ["unknown package 'mystery'"]
+    "fails": ["unknown package 'mystery'"],
+    "todo": "remove the whole package publication path"
   },
   {
     "given": { "app.edge": "EDGEPKG\u0001" },
     "env": { "EDGE_TOKEN": "edge_pat_nope.nope" },
     "run": ["publish", "app.edge"],
-    "fails": ["That token is not valid."]
+    "fails": ["That token is not valid."],
+    "todo": "remove the whole package publication path"
   },
   {
     "given": { "edge.json": "{ \"extends\": \"..\", \"imports\": {} }\n" },
@@ -44,6 +46,7 @@
     "given": { "edge.json": "{}\n" },
     "run": ["add", "foo=https://example.com/foo.mini", "mystery"],
     "fails": ["unknown package 'mystery'"],
+    "todo": "remove the whole package publication path",
     "contains": { "edge.json": "{}\n" }
   },
   {

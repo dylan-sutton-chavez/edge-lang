@@ -3,8 +3,6 @@
         "calc": "./calculator.mini",
         "trap": "./trap.wasm",
         "abi2": "./abi2.wasm",
-        "json": "0.1.0",
-        "re": "0.1.0",
         "ui": "./ui.js"
     },
     "permissions": {
