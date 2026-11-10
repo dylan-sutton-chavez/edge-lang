@@ -31,6 +31,13 @@ path = "tests/channels.rs"
 harness = false
 required-features = ["files", "perms", "run"]
 
+# the preparation runner held as root against a hostile step which is also the test driving it
+[[test]]
+name = "prep"
+path = "tests/prep.rs"
+harness = false
+required-features = ["prep"]
+
 # the edge composition's run and test over mini built in with no wasm which is also the test driving it
 [[test]]
 name = "native"
@@ -41,7 +48,7 @@ required-features = ["docs", "files", "net", "perms", "publish", "run", "test", 
 # each command sits behind its own feature and the edge binary wires them all
 [features]
 default = ["all", "wasm"]
-all = ["actors", "actors-server", "build", "docs", "embed", "files", "init", "net", "packages", "perms", "publish", "run", "serve", "test", "uninstall", "web"]
+all = ["actors", "actors-server", "build", "docs", "embed", "files", "init", "net", "packages", "perms", "prep", "publish", "run", "serve", "test", "uninstall", "web"]
 actors = ["wasm", "dep:serde_yaml_ng", "dep:slab"]
 # the live server an actor pool becomes with its ingress control endpoint and durable log
 actors-server = ["actors", "dep:mio", "dep:signal-hook"]
@@ -59,6 +66,8 @@ net = ["dep:flate2", "dep:tungstenite"]
 packages = []
 # the grants a manifest writes for each package it imports held through one shared logic
 perms = []
+# the runner scoped files and caps a preparation step is held to on linux
+prep = ["dep:libc"]
 publish = ["dep:ring", "dep:base64"]
 run = []
 serve = ["dep:tiny_http"]
@@ -101,6 +110,10 @@ tungstenite = { version = "0.29", default-features = false, features = ["handsha
 flate2 = { version = "1", optional = true }
 # Drives the browser host for `edge run --web` over CDP, `fetch` downloads a known-good Chromium when the user agrees.
 headless_chrome = { version = "1", features = ["fetch"], optional = true }
+
+# the user drop and process sweep of a preparation step
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = { version = "0.2", optional = true }
 
 # SIGTERM and SIGINT close a live actor server so its actors finish what they hold.
 [target.'cfg(unix)'.dependencies]

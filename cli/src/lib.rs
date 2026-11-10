@@ -20,6 +20,9 @@ pub mod manifest;
 #[path = "../../examples/net/net.rs"]
 pub mod net;
 pub mod pack;
+// the runner scoped files and caps of a preparation step
+#[cfg(all(feature = "prep", target_os = "linux"))]
+pub mod prep;
 // the grants each manifest writes held from the root down as an opt-in component
 #[cfg(feature = "perms")]
 pub mod perms;
