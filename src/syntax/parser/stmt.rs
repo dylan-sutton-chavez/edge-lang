@@ -19,6 +19,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
     /* one statement and true when it leaves a value for the caller to pop */
     pub(super) fn stmt(&mut self) -> bool {
         self.mark_stmt();
+        if let Some(value) = self.grammar_item() { return value; }
 
         match self.peek() {
             Some(TokenType::If) => {

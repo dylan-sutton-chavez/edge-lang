@@ -177,6 +177,11 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
             self.error("expression too deeply nested");
             return;
         }
+        if Self::GRAMMAR.is_some() {
+            self.grammar_bp(min_bp);
+            self.expr_depth -= 1;
+            return;
+        }
         match self.peek() {
             Some(TokenType::Not) => {
                 self.advance();
@@ -191,6 +196,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
 
     // an operator never continues past the logical line so a decorator below stays one
     pub(super) fn infix_bp(&mut self, min_bp: u8) {
+        if Self::GRAMMAR.is_some() { return self.grammar_infix(min_bp); }
         // the open jumps of a comparison chain linked through their operands as a patch list
         let mut chain = u16::MAX;
         while let Some(tok) = self.peek_same_line() {
@@ -313,11 +319,15 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
 
     pub(super) fn parse_atom(&mut self) {
         // a block brace starts no operand so it stays for the block it bounds
-        if Self::DELIMITED && matches!(self.tokens.peek().map(|t| t.kind), Some(TokenType::BlockOpen | TokenType::BlockClose | TokenType::Newline | TokenType::LineBreak | TokenType::Comment)) && matches!(self.peek(), Some(TokenType::BlockOpen | TokenType::BlockClose)) {
+        if Self::DELIMITED && Self::GRAMMAR.is_none() && matches!(self.tokens.peek().map(|t| t.kind), Some(TokenType::BlockOpen | TokenType::BlockClose | TokenType::Newline | TokenType::LineBreak | TokenType::Comment)) && matches!(self.peek(), Some(TokenType::BlockOpen | TokenType::BlockClose)) {
             return self.diag_at_peek("expected expression");
         }
         let errs_before = self.errors.len();
         let t = self.advance();
+        if Self::GRAMMAR.is_some() && self.grammar_atom(t) {
+            self.postfix_tail(Tail::Expr);
+            return;
+        }
         // a table without the lambda word reads its anonymous functions apart
         if !matches!(Self::SHAPES.lambda, Lambda::Word) && self.closure(t) {
             self.postfix_tail(Tail::Expr);
@@ -449,6 +459,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
 
     pub(super) fn name(&mut self, t: Token) {
         let name = self.lexeme(&t);
+        if Self::GRAMMAR.is_some() && self.grammar_name(t) { return; }
         match self.peek_same_line() {
             // a walrus stores like an assignment honoring an enclosing `global` and leaves the value
             Some(TokenType::ColonEqual) => {
@@ -460,7 +471,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
                 self.store_name(name);
                 self.emit_load_ssa(name);
             }
-            Some(TokenType::ParenOpen) => { self.call(name, false); }
+            Some(TokenType::ParenOpen) if !self.fresh() => { self.call(name, false); }
             _ => self.emit_load_ssa(name),
         }
     }
@@ -620,6 +631,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
     pub(super) fn postfix_tail(&mut self, tail: Tail) -> bool {
         loop {
             match self.peek_same_line() {
+                Some(TokenType::BracketOpen | TokenType::ParenOpen) if self.fresh() => return false,
                 Some(TokenType::BracketOpen) => {
                     self.advance();
                     let cut = self.parse_subscript();

@@ -64,7 +64,7 @@ pub const UPTIME: Syntax = Syntax {
     continuation: Continuation { join: None, operator: true },
     shapes: Shapes {
         cond: Cond::None, lambda: Lambda::None, keyword_arg: T::Equal, splat: false, slices: false, dot: Dot::Attr,
-        header_parens: false, comprehensions: false, decorators: false, named: false, binding: Binding::Required, arms: false, ranges: false,
+        header_parens: false, comprehensions: false, decorators: false, named: false, binding: Binding::Required, arms: false, ranges: false, grammar: None,
     },
     soft: &[],
     bom: true,

@@ -154,13 +154,16 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
             }
             if asynced && let Some((start, end)) = at { self.reject(start, end, Self::ASYNC_COMP_REFUSED); }
             let at = self.mark();
-            let Some(shape) = self.tokens.target_list() else { return self.error("cannot assign to this expression") };
+            let pattern = self.pattern_target();
+            let shape = if pattern.is_some() { None } else { self.tokens.target_list() };
+            if pattern.is_none() && shape.is_none() { return self.error("cannot assign to this expression") }
             self.eat(TokenType::In);
             self.expr_bp(1);
             self.chunk.emit(OpCode::GetIter, 0);
-            loop_starts.push(self.chunk.instructions.len() as u16);
+            let start = self.chunk.instructions.len() as u16;
+            loop_starts.push(start);
             for_iters.push(self.emit_jump(OpCode::ForIter));
-            self.store_back(at, shape);
+            match (pattern, shape) { (Some(p), _) => self.bind_pattern(p, start), (None, Some(shape)) => self.store_back(at, shape), _ => {} }
         }
     }
 
@@ -203,8 +206,9 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         let in_async = self.in_async;
         self.eat(TokenType::For);
         let at = self.mark();
-        let shape = self.tokens.target_list();
-        if shape.is_none() { self.error("cannot assign to this expression"); }
+        let pattern = self.pattern_target();
+        let shape = if pattern.is_some() { None } else { self.tokens.target_list() };
+        if pattern.is_none() && shape.is_none() { self.error("cannot assign to this expression"); }
         self.eat(TokenType::In);
         self.expr_bp(1);
         self.chunk.emit(OpCode::GetIter, super::ITER_VALUE);
@@ -223,7 +227,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
             s.chunk.emit(OpCode::GetIter, super::ITER_AS_IS);
             let mut loop_starts = alloc::vec![s.chunk.instructions.len() as u16];
             let mut for_iters = alloc::vec![s.emit_jump(OpCode::ForIter)];
-            if let Some(shape) = shape { s.store_back(at, shape); }
+            match (pattern, shape) { (Some(p), _) => s.bind_pattern(p, loop_starts[0]), (None, Some(shape)) => s.store_back(at, shape), _ => {} }
             s.mark_stmt();
             s.comp_clauses(&mut loop_starts, &mut for_iters);
             let rest = s.tokens.pos;
@@ -622,7 +626,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
     }
 
     /* the next name or a diagnostic and a synthetic name so parsing goes on */
-    fn ident_or_missing(&mut self, msg: &str) -> &'src str {
+    pub(super) fn ident_or_missing(&mut self, msg: &str) -> &'src str {
         // `_` lexes as the `match` wildcard yet names a function or class like any identifier
         if matches!(self.peek(), Some(TokenType::Name | TokenType::Underscore)) {
             self.advance_text()
@@ -767,7 +771,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         let (params, defaults) = self.param_list(TokenType::ParenClose, true);
         self.eat(TokenType::ParenClose);
         // a return annotation ends at the token that opens the body in either spelling
-        if self.eat_if(TokenType::Returns) { self.pass_annotation(|k| matches!(k, TokenType::Colon | TokenType::BlockOpen), false); }
+        if self.eat_if(TokenType::Returns) { self.pass_annotation(|k| matches!(k, TokenType::Colon | TokenType::BlockOpen) || (Self::GRAMMAR.is_some() && k == TokenType::Equal), false); }
         self.header_end();
         (params, defaults)
     }
@@ -834,6 +838,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
 
     /* passes a plain annotation and parses any other for its errors dropping its code */
     pub(super) fn pass_annotation(&mut self, end: fn(TokenType) -> bool, starred: bool) {
+        if Self::GRAMMAR.is_some() { return self.skip_typed(end); }
         match self.tokens.plain_annotation(end) {
             Some(at) => while self.tokens.pos < at { self.advance(); },
             // a starred annotation unpacks into the `*args` it annotates

@@ -2,6 +2,7 @@ pub mod tables;
 pub use tables::utf8_char_len;
 
 pub mod syntax;
+pub mod grammar;
 pub use syntax::{index, join, joined, operators, role, Binding, Blocks, Comments, Cond, Continuation, Dot, Ends, Escapes, Interp, Keywords, Lambda, Literal, Mode, Numbers, Quote, Shapes, Shown, Spelling, Strings, Suffix, Syntax, Unicode, Unknown, Zeros, BYTES, FORMAT, RAW};
 
 mod scan;
@@ -73,6 +74,8 @@ pub enum TokenType {
     IsNot, NotIn,
     // the word and marks of the kit pieces a table switches on
     Let, Arm, Range, RangeInclusive, Question,
+    // the joins of lists and of formulas a grammar table spells
+    Concat, Iff,
 }
 
 // the tokens of `source` in spelling `S` and the lex errors the caller folds in

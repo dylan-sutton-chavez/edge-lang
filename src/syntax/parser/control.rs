@@ -353,7 +353,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
     }
 
     /* a fresh slot for a value a sub-pattern matches against */
-    fn pattern_slot(&mut self) -> u16 {
+    pub(super) fn pattern_slot(&mut self) -> u16 {
         let ver = self.increment_version(crate::syntax::ssa::SSA_TMP_MATCH_ITEM);
         self.chunk.push_name(&s!(str crate::syntax::ssa::SSA_TMP_MATCH_ITEM, int ver))
     }

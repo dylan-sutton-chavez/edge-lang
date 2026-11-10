@@ -260,13 +260,15 @@ pub struct Shapes {
     pub arms: bool,
     // whether `a..b` and `a..=b` make ranges
     pub ranges: bool,
+    // the modes and forms that read the table's expressions in place of the fixed core
+    pub grammar: Option<&'static super::grammar::Grammar>,
 }
 
 impl Shapes {
     // the shapes of the fixed core with every kit piece off
     pub const CORE: Shapes = Shapes {
         cond: Cond::Suffix, lambda: Lambda::Word, keyword_arg: T::Equal, splat: true, slices: true, dot: Dot::Attr,
-        header_parens: false, comprehensions: true, decorators: true, named: true, binding: Binding::None, arms: false, ranges: false,
+        header_parens: false, comprehensions: true, decorators: true, named: true, binding: Binding::None, arms: false, ranges: false, grammar: None,
     };
 }
 

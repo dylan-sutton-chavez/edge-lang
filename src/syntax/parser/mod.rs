@@ -4,6 +4,7 @@ mod expr;
 mod literals;
 mod imports;
 mod build;
+mod forms;
 
 pub use build::{build, Arms, Builder, Parsed, Unit};
 
@@ -280,6 +281,8 @@ pub struct Parser<'src, I: Iterator<Item = Token>, S: Spelling> {
     pub(super) modules: crate::lang::ParseFn,
     /* the value whose fields free names read in what a builder parses */
     pub(super) subject: Option<Box<build::Subject>>,
+    // the mode of a grammar table the expression at the cursor reads in
+    pub(super) mode: u8,
     spelling: PhantomData<S>,
 }
 
@@ -806,6 +809,8 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
     /* a simple statement ends at its line or a `;` and never at another statement */
     pub(super) fn end_statement(&mut self, errors_before: usize) {
         if self.block_closed || self.errors.len() > errors_before { return; }
+        // a grammar's items end where their forms do
+        if Self::GRAMMAR.is_some() { return; }
         if !Self::LINES { return self.end_by_semicolon(); }
         let Some(t) = self.tokens.peek() else { return };
         if matches!(t.kind, TokenType::Semi | TokenType::Newline | TokenType::LineBreak | TokenType::Comment | TokenType::Dedent | TokenType::Eof) { return; }
@@ -930,6 +935,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
             module_cache,
             modules,
             subject: None,
+            mode: 0,
             spelling: PhantomData,
         }
     }

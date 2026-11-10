@@ -1111,6 +1111,11 @@ impl<'a, S: Spelling> Scanner<'a, S> {
             if cl & ID_START != 0 {
                 self.pos += if b >= 0x80 { utf8_char_len(b) } else { 1 };
                 self.scan_id_rest();
+                // a grammar's names may join parts by one byte and end in another
+                if let Some(g) = S::SYNTAX.shapes.grammar {
+                    while g.inner != 0 && self.at(0) == Some(g.inner) && self.at(1).is_some_and(|c| BYTE_CLASS[c as usize] & ID_START != 0) { self.pos += 1; self.scan_id_rest(); }
+                    if g.tail != 0 && self.at(0) == Some(g.tail) { self.pos += 1; }
+                }
                 let slice = &self.src[start..self.pos];
 
                 // a prefix opens a literal only right before a quote
