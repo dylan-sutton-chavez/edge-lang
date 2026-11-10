@@ -626,6 +626,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         let name = self.lexeme(&t);
         let start = self.chunk.instructions.len();
         self.saw_newline = false;
+        if Self::GRAMMAR.is_some() && self.grammar_name(t) { return true; }
 
         // `x: T` annotates while a colon on the next line belongs to another statement
         if matches!(self.peek_same_line(), Some(TokenType::Colon)) {

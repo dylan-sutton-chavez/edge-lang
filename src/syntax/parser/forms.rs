@@ -103,6 +103,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         for slot in f.slots {
             match *slot {
                 Slot::Word(w) => { if !self.eat_word(w) { self.diag_at_peek(&crate::s!("expected '", str w, "'")); } continue; }
+                Slot::Name => { let first = self.advance(); let mut end = first.end; while self.peek() == Some(TokenType::Dot) { self.advance(); end = self.advance().end; } self.emit_const(Value::Str(self.source[first.start..end].into())); }
                 Slot::Expr(k) => self.in_mode(k),
                 Slot::Opt(w, k) => if self.eat_word(w) { self.in_mode(k) } else { self.emit_const(Value::None) },
                 Slot::Tagged(tags, default) => {

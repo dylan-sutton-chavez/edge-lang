@@ -23,6 +23,8 @@ pub struct Mode { pub rows: &'static [Row], pub words: &'static [&'static str] }
 #[derive(Clone, Copy)]
 pub enum Slot {
     Word(&'static str),
+    // a bare name or dotted path read as its text
+    Name,
     // an expression read in mode `k`
     Expr(u8),
     // a word then an expression in mode `k` or none without the word
