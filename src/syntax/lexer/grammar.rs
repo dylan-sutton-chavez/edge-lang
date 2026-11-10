@@ -33,6 +33,12 @@ pub enum Slot {
     Tagged(&'static [(&'static str, &'static str)], &'static str),
     // after the word a list of name and count pairs each led by its words
     Limits(&'static str, &'static [(&'static str, &'static str)]),
+    // a name the body slot after it binds as the parameter of a function
+    Bind,
+    // a braced expression in mode `k` made the function of the bound name
+    Body(u8),
+    // the byte offset of the form's head word
+    At,
 }
 
 /* a construct led by a word that compiles to a call of `call` with its slots */
@@ -61,8 +67,10 @@ pub struct Grammar {
     // bytes a name may hold inside and the byte it may end with
     pub inner: u8,
     pub tail: u8,
+    // calls whose lone comprehension argument runs item by item as a generator
+    pub lazy: &'static [&'static str],
 }
 
 impl Grammar {
-    pub const NONE: Grammar = Grammar { modes: &[], forms: &[], patterns: &[], modifiers: &[], unmatched: "", inner: 0, tail: 0 };
+    pub const NONE: Grammar = Grammar { modes: &[], forms: &[], patterns: &[], modifiers: &[], unmatched: "", inner: 0, tail: 0, lazy: &[] };
 }

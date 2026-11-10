@@ -81,8 +81,9 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
             self.list_tail(0, true);
             return;
         }
+        let lazy = core::mem::take(&mut self.lazy_arg);
         if self.at_comp() {
-            self.comprehension(Comp::List);
+            self.comprehension(if lazy { Comp::Gen } else { Comp::List });
             self.eat(TokenType::BracketClose);
             return;
         }
@@ -418,6 +419,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
     /* calls `name` by binding import or native and true when it keeps no value */
     pub(super) fn call(&mut self, name: &str, stmt: bool) -> bool {
         let call_pos = self.last_end as u32;
+        self.lazy_arg = Self::GRAMMAR.is_some_and(|g| g.lazy.contains(&name));
         // a builtin name the scope binds as a parameter or otherwise calls the binding
         if self.ssa_versions.contains(name) || self.globals_decl.contains(name) || self.unfused.iter().any(|u| u == name) {
             let i = self.push_ssa_name(name, self.current_version(name));
@@ -538,6 +540,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         let mut pos = 0u16;
         let mut kw = 0u16;
         let mut spread = false;
+        let lazy_arg = core::mem::take(&mut self.lazy_arg);
         self.comma_list(|t| t == TokenType::ParenClose, |s| {
             let unpack = if !Self::SPLAT { None }
                 else if s.eat_if(TokenType::Pow) { Some(2u16) }
@@ -582,6 +585,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
                     pos = pos.saturating_add(1);
                 }
             } else {
+                s.lazy_arg = lazy_arg && s.lone_list();
                 if s.at_comp() { s.genexp_arg(pos + kw == 0); } else { s.expr(); }
                 pos = pos.saturating_add(1);
             }
@@ -590,6 +594,15 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         self.expr_depth -= 1;
         if pos > 0xFF || kw > 0xFF { self.error("too many arguments in call (max 255 positional and 255 keyword)"); }
         (pos, kw, spread)
+    }
+
+    /* whether a bracket at the cursor is a whole argument of the call */
+    fn lone_list(&self) -> bool {
+        let toks = &self.tokens.toks[self.tokens.pos..];
+        if toks.first().map(|t| t.kind) != Some(TokenType::BracketOpen) { return false; }
+        let mut depth = 0usize;
+        let end = toks.iter().position(|t| { match t.kind { TokenType::ParenOpen | TokenType::BracketOpen | TokenType::BraceOpen => depth += 1, TokenType::ParenClose | TokenType::BracketClose | TokenType::BraceClose => depth -= 1, _ => {} } depth == 0 });
+        end.and_then(|e| toks[e + 1..].iter().find(|t| !matches!(t.kind, TokenType::LineBreak | TokenType::Comment | TokenType::Newline))).is_some_and(|t| matches!(t.kind, TokenType::ParenClose | TokenType::Comma))
     }
 
     /* the closer of a tuple or list display that alone is the spread argument */

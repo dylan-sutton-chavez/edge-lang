@@ -100,11 +100,23 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
     /* a form's slots in order as the arguments of its call */
     fn form(&mut self, f: &Form, at: u32) {
         self.emit_load_ssa(f.call);
+        let mut bound = alloc::string::String::new();
         for slot in f.slots {
             match *slot {
                 Slot::Word(w) => { if !self.eat_word(w) { self.diag_at_peek(&crate::s!("expected '", str w, "'")); } continue; }
                 Slot::Name => { let first = self.advance(); let mut end = first.end; while self.peek() == Some(TokenType::Dot) { self.advance(); end = self.advance().end; } self.emit_const(Value::Str(self.source[first.start..end].into())); }
                 Slot::Expr(k) => self.in_mode(k),
+                Slot::Bind => { bound = self.advance_text().into(); continue; }
+                Slot::Body(k) => {
+                    let saved = core::mem::replace(&mut self.mode, k);
+                    let cut = self.enter_qual(S::NATIVES.names().anonymous, true);
+                    let params = alloc::vec![core::mem::take(&mut bound)];
+                    let body = self.expr_body(&params);
+                    self.leave_qual(cut);
+                    self.mode = saved;
+                    self.push_function(params, body, 0, None, OpCode::MakeFunction);
+                }
+                Slot::At => self.emit_const(Value::Int(at as i64)),
                 Slot::Opt(w, k) => if self.eat_word(w) { self.in_mode(k) } else { self.emit_const(Value::None) },
                 Slot::Tagged(tags, default) => {
                     self.eat(TokenType::BracketOpen);
@@ -122,7 +134,8 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
                         let Some(&(words, name)) = names.iter().find(|l| l.0.split(' ').all(|x| self.eat_word(x))) else { self.diag_at_peek("expected a limit"); break };
                         let _ = words;
                         self.emit_const(Value::Str(name.into()));
-                        self.in_mode(0);
+                        // a limit no value follows on its line counts one
+                        if matches!(self.peek_same_line(), None | Some(TokenType::Comma | TokenType::BraceClose | TokenType::BlockClose | TokenType::ParenClose | TokenType::BracketClose)) { self.emit_const(Value::Int(1)) } else { self.in_mode(0) }
                         self.chunk.emit(OpCode::BuildList, 2);
                         n += 1;
                     }
@@ -130,7 +143,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
                 }
             }
         }
-        self.call_of(f.slots.iter().filter(|s| !matches!(s, Slot::Word(_))).count() as u16, at);
+        self.call_of(f.slots.iter().filter(|s| !matches!(s, Slot::Word(_) | Slot::Bind)).count() as u16, at);
     }
 
     // whether a limit word follows the comma at the cursor
@@ -225,7 +238,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         let close = Self::close_of(open);
         self.enter_block();
         let mut ends = Vec::new();
-        while !matches!(self.peek(), None) && self.peek() != Some(close) {
+        while self.peek().is_some() && self.peek() != Some(close) {
             let mut fails = Vec::new();
             let from = self.tokens.pos;
             self.pattern(subj, &mut fails);
@@ -247,6 +260,13 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
 
     /* the pattern at the cursor tested on `subj` jumping out where a test fails */
     pub(super) fn pattern(&mut self, subj: u16, fails: &mut Vec<usize>) {
+        // a literal matches the value equal to it
+        if matches!(self.peek(), Some(TokenType::Int | TokenType::String | TokenType::True | TokenType::False)) {
+            self.chunk.emit(OpCode::LoadName, subj);
+            self.parse_atom();
+            self.chunk.emit(OpCode::Eq, 0);
+            return fails.push(self.emit_jump(OpCode::JumpIfFalse));
+        }
         let t = self.advance();
         let part = |s: &mut Self, i: u16| {
             s.chunk.emit(OpCode::LoadName, subj);
@@ -281,7 +301,8 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
                     Test::Field(f, k) => { let i = self.chunk.push_name(f); self.chunk.emit(OpCode::LoadAttr, i); self.emit_const(Value::Int(k)); self.chunk.emit(OpCode::Eq, 0); }
                 }
                 fails.push(self.emit_jump(OpCode::JumpIfFalse));
-                if let Some(i) = p.part { let slot = part(self, i); self.pattern(slot, fails); }
+                // a word with no part of its own binds the subject to the name after it
+                match p.part { Some(i) => { let slot = part(self, i); self.pattern(slot, fails); } None if matches!(self.peek(), Some(TokenType::Name | TokenType::Underscore)) => self.pattern(subj, fails), None => {} }
             }
             _ => self.error_at(t.start, t.end, "expected a pattern"),
         }

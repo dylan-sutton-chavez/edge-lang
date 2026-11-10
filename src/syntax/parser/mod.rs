@@ -283,6 +283,8 @@ pub struct Parser<'src, I: Iterator<Item = Token>, S: Spelling> {
     pub(super) subject: Option<Box<build::Subject>>,
     // the mode of a grammar table the expression at the cursor reads in
     pub(super) mode: u8,
+    // a call of a lazy name whose list comprehension argument becomes a generator
+    pub(super) lazy_arg: bool,
     spelling: PhantomData<S>,
 }
 
@@ -936,6 +938,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
             modules,
             subject: None,
             mode: 0,
+            lazy_arg: false,
             spelling: PhantomData,
         }
     }
