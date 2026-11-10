@@ -328,6 +328,7 @@ dependencies = [
  "edge",
  "flate2",
  "headless_chrome",
+ "libc",
  "mini",
  "mio",
  "ring",
