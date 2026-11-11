@@ -33,8 +33,6 @@ fuzz/logs/
 fuzz/corpus/
 fuzz/edge.dict
 
-_micropython/
-
 **/deno.lock
 
 /backlog.json

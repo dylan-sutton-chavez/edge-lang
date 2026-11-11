@@ -9,7 +9,6 @@ const TYPES: Record<string, string> = {
   '.wasm': 'application/wasm',
   '.js': 'text/javascript; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
-  '.py': 'text/x-python; charset=utf-8',
   '.sh': 'text/x-shellscript; charset=utf-8',
   '.gz': 'application/gzip',
   '.ts': 'text/plain; charset=utf-8'

@@ -27,7 +27,7 @@
   {
     "name": "a heading inside a fence is not a heading",
     "files": {
-      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```python\n# not a heading\n```\n"
+      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```text\n# not a heading\n```\n"
     }
   },
   {
@@ -154,7 +154,7 @@
   {
     "name": "an output block after a plain fence",
     "files": {
-      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```python\nprint(1)\n```\n\n```output\n1\n```\n"
+      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```text\nprint(1)\n```\n\n```output\n1\n```\n"
     },
     "error": "follows no edge block"
   },
@@ -220,7 +220,7 @@
   {
     "name": "a manifest before a plain fence",
     "files": {
-      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```edge-manifest\n{}\n```\n\n```python\nprint(1)\n```\n"
+      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```edge-manifest\n{}\n```\n\n```text\nprint(1)\n```\n"
     },
     "error": "no edge block follows"
   },
