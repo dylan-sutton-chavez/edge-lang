@@ -362,6 +362,11 @@ pub trait Host {
                 if !(0..len).contains(&i) { return Err(out_of_range(obj)); }
                 self.heap_mut().int(s as i128 + i * st as i128)
             }
+            // a table that reads keys at dots reads a module's export by its name
+            HeapObj::Module(_, attrs) => match self.heap().try_get(idx) {
+                Some(HeapObj::Str(k)) => attrs.iter().find(|(n, _)| n == k).map(|&(_, v)| v).ok_or_else(|| E::cannot(Act::Subscript, Some(obj))),
+                _ => Err(E::cannot(Act::Subscript, Some(obj))),
+            },
             _ => Err(E::cannot(Act::Subscript, Some(obj))),
         }
     }

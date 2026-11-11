@@ -8,10 +8,10 @@ mod test {
     use edge::lexer::TokenType as T;
     use edge::lexer::{index, operators, Binding, Blocks, Comments, Cond, Continuation, Dot, Ends, Escapes, Keywords, Lambda, Numbers, Quote, Shapes, Spelling, Strings, Suffix, Syntax, TokenType, Unicode, Unknown, Zeros};
 
-    const WORDS: &[(&str, TokenType)] = &[("true", T::True), ("false", T::False), ("or", T::Or), ("in", T::In), ("if", T::If), ("else", T::Else), ("match", T::Match), ("fn", T::Fn), ("let", T::Let), ("for", T::For), ("_", T::Underscore)];
+    const WORDS: &[(&str, TokenType)] = &[("true", T::True), ("false", T::False), ("or", T::Or), ("in", T::In), ("if", T::If), ("else", T::Else), ("match", T::Match), ("fn", T::Fn), ("let", T::Let), ("for", T::For), ("use", T::Import), ("_", T::Underscore)];
     const SYMBOLS: &[(&str, TokenType)] = &[
         ("(", T::ParenOpen), (")", T::ParenClose), ("[", T::BracketOpen), ("]", T::BracketClose), ("{", T::BraceOpen), ("}", T::BraceClose), ("{", T::BlockOpen), ("}", T::BlockClose), (":", T::Colon),
-        ("=>", T::Arm), ("==", T::EqualEqual), ("<", T::Less), ("=", T::Equal), ("+", T::Plus), ("-", T::Minus), ("/", T::Slash), (",", T::Comma),
+        ("=>", T::Arm), ("==", T::EqualEqual), ("<", T::Less), ("=", T::Equal), ("+", T::Plus), ("-", T::Minus), ("/", T::Slash), (",", T::Comma), (".", T::Dot),
     ];
     static OPERATORS: [[TokenType; 4]; 128] = operators(SYMBOLS);
     static KEYWORDS: Keywords = index(WORDS);
@@ -52,10 +52,19 @@ mod test {
     // a form's call is a function of the script so each test sees what the slots gave
     const CALLS: &str = "fn steps(x, n, f) = if n == 0 or f(x) == x { x } else { steps(f(x), n - 1, f) }\nfn trio(a, b, c) = [a, b, c]\nfn pick(n, g) = g\n";
 
+    // a module the tests import by the name m
+    struct One;
+    impl edge::deps::Resolver for One {
+        fn resolve(&mut self, spec: &str) -> Result<edge::deps::Resolved, String> {
+            if spec == "m" { Ok(edge::deps::Resolved::Code { src: "let x = 5\n".into(), canonical: "m".into() }) } else { Err(format!("no module {spec}")) }
+        }
+        fn child(&self, _: &str) -> Box<dyn edge::deps::Resolver> { Box::new(One) }
+    }
+
     fn run(src: &str) -> String {
         const FRONT: Front = Front::spelled::<Forms>();
         let src = format!("{CALLS}{src}");
-        let chunk = FRONT.program(&src, Box::new(edge::deps::NoopResolver)).unwrap_or_else(|e| panic!("{}", edge::code::Diagnostic::render_all(&e, &src, None)));
+        let chunk = FRONT.program(&src, Box::new(One)).unwrap_or_else(|e| panic!("{}", edge::code::Diagnostic::render_all(&e, &src, None)));
         let mut vm = boot(&chunk, Limits::sandbox());
         match vm.run() { Ok(_) => vm.output_text(), Err(e) => vm.error_text(&e) }
     }
@@ -79,6 +88,11 @@ mod test {
         assert!(run("let _ = print(any([n == 0 or 1 / (n - n) == 1 for n in [0, 1]] + []))").contains("ZeroDivisionError"));
         assert!(run("let _ = print(pick(1, [n for n in [1]]))").contains("generator"));
         assert!(run("let _ = print(all([n == 1 or 1 / (n - n) == 1 for n in [0, 1]]))").contains("ZeroDivisionError"));
+    }
+
+    #[test]
+    fn a_dot_reads_a_module_s_export_as_a_key() {
+        assert_eq!(run("use m\nlet _ = print(m.x)"), "5\n");
     }
 
     #[test]
