@@ -37,28 +37,29 @@ The board read three status pages through the net plugin, under the grants of th
 `Kit::new` takes the runtime, made of its wasm and its descriptor. `run` and `test` are two of the kit's commands, `perms` holds each check to what `edge.json` grants, and `net` and `clock` are the host modules a check may import.
 
 > [!BANNER] Build it file by file
-> [Your runtime and its CLI](/docs/edge-lang/get-started/use-cases/your-runtime)
+> [Your runtime and its CLI](./03-use-cases/01-your-runtime.mdx)
 
 ## Install the CLI
 
-The `edge` CLI runs programs on mini, the reference runtime the repo holds beside uptime. Run the installer in a terminal.
+The `edge` CLI runs programs on mini, the reference runtime the repo holds beside uptime. Build it in the same clone.
 
 ```bash
-curl -fsSL https://cdn.edgelang.dev/cli/install.sh | sh
+make wasm-cli js lucide
+cargo install --path cli
 ```
 
 > [!NOTE]
-> The installer works on macOS, Linux and WSL.
+> The CLI runs on macOS, Linux and WSL. `make js` and `make lucide` need Deno too.
 
-Open a new shell and check the install. It prints the version of the CLI.
+Check the install. It prints the version of the CLI.
 
 > [!COPY] edge --version
 
-To build the CLI from source instead, follow [Install](/docs/edge-lang/platforms/cli#install) in the CLI reference.
+Prebuilt binaries and every detail are in [Install](../03-platforms/01-cli.mdx#install) in the CLI reference.
 
 ## Run a first program
 
-A program reaches nothing outside its sandbox until its `edge.json` grants it, so a first program that reads GitHub's status page asks for that one host. It requests the page, reads its body a chunk at a time and prints the state the page describes. You can also edit it and run it here in the browser.
+A program reaches nothing outside its sandbox until its `edge.json` grants it, so a first program that reads GitHub's status page asks for that one host. It requests the page, reads its body a chunk at a time and prints the state the page describes.
 
 ```edge-manifest
 { "permissions": { "main": ["net:www.githubstatus.com"] } }
@@ -92,6 +93,6 @@ There is no build step. The CLI compiles the file and runs it, and without the g
 ## Next steps
 
 > [!CARDS]
-> - `activity` [Your runtime and its CLI](/docs/edge-lang/get-started/use-cases/your-runtime) The uptime runtime and its CLI, one file at a time.
-> - `braces` [Parser kit](/docs/edge-lang/sdk/parser-kit) The grammar a token table spells.
-> - `terminal` [Command line interface](/docs/edge-lang/platforms/cli) A project from its first file to its publish, and every command.
+> - `activity` [Your runtime and its CLI](./03-use-cases/01-your-runtime.mdx) The uptime runtime and its CLI, one file at a time.
+> - `braces` [Parser kit](../02-sdk/07-parser-kit.mdx) The grammar a token table spells.
+> - `terminal` [Command line interface](../03-platforms/01-cli.mdx) A project from its first file to its publish, and every command.

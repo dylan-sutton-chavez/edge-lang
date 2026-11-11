@@ -5,7 +5,7 @@ description: "What a value is to the engine and to a native, the NaN-box and the
 
 # Values
 
-Every value the engine handles is a `Val`, eight bytes on every target. A number or a constant lives in the bits themselves, and anything else names a slot of the heap or an entry of the FOREIGN table. A native reads and makes values through `Cx`, as [Natives](/docs/edge-lang/sdk/natives#cx) lists, and [Memory model](/docs/edge-lang/internals/design#memory-model) has the bit pattern of each tag. This page covers what a runtime and its natives see of them.
+Every value the engine handles is a `Val`, eight bytes on every target. A number or a constant lives in the bits themselves, and anything else names a slot of the heap or an entry of the FOREIGN table. A native reads and makes values through `Cx`, as [Natives](./05-natives.mdx#cx) lists, and [Memory model](../05-internals/01-design.mdx#memory-model) has the bit pattern of each tag. This page covers what a runtime and its natives see of them.
 
 ## Val
 
@@ -43,7 +43,7 @@ print(f'{key:016x}', key > 2**47)
 007397267403633c True
 ```
 
-[The bench and its keys](/docs/edge-lang/sdk/testing#the-bench-and-its-keys) covers what the bench keys by it.
+[The bench and its keys](./13-testing.mdx#the-bench-and-its-keys) covers what the bench keys by it.
 
 ## Kinds
 
@@ -87,7 +87,7 @@ Some values share one slot by content, so equal ones are the same value. The tab
 | A native method bound to a receiver | The receiver and its place in the table |
 | A native method read off its type | Its place in the table |
 
-A text built at run time past one byte is never shared, so two equal texts read from a source are two values that compare equal. A slot keeps a mark of whether its text is all ASCII, read once, so the length of an ASCII text and an index into one cost no scan. An index or a cut into any other text walks from its start, its end or the place the last walk of that text stopped, whichever is nearest, and a walk past 1,024 bytes pays one op for each 16 bytes it reads. A text a loop builds with `+=` grows in place while the loop's register owns it, as [Dispatch shape](/docs/edge-lang/internals/design#dispatch-shape) describes.
+A text built at run time past one byte is never shared, so two equal texts read from a source are two values that compare equal. A slot keeps a mark of whether its text is all ASCII, read once, so the length of an ASCII text and an index into one cost no scan. An index or a cut into any other text walks from its start, its end or the place the last walk of that text stopped, whichever is nearest, and a walk past 1,024 bytes pays one op for each 16 bytes it reads. A text a loop builds with `+=` grows in place while the loop's register owns it, as [Dispatch shape](../05-internals/01-design.mdx#dispatch-shape) describes.
 
 `heap.alloc(obj)` admits a new slot unless the run holds twice its memory limit or the arena is full, and the makers of `Cx` go through it. Only the error that reports the limit itself is built past that, through `alloc_emergency`.
 
@@ -151,8 +151,8 @@ open_for
 - **The wide kind.** The language's `WIDE` names the kind every int past 48 bits boxes in, made by `lib::num::big::kind::<L>(type_name)`. It is the only kind with `from_i128` and `from_digits`, and its family takes the inline numbers too, so a float and a wide int of one value are equal and share a hash. The engine reads a wide int that fits an `i128` with one compare and no call into the kind.
 - **Kinds made on first use.** Lib registers a kind when a native boxes its first value of it. The language's `KINDS` lists those a restore may meet, so it can name them before any value exists, and a host that boxes values of its own names them with `heap.know_kind`.
 - **Kinds the engine builds.** The language's `BUILT` names the kinds of the values the engine makes itself, the slice a key of several bounds or a stored slice makes and the one value the ellipsis names, made by `lib::seq::slice::<L>(type_name)` and `lib::types::dots::<L>()`. A read, a delete or a store of `x[a:b:c]` passes its bounds to one op and builds no slice, a store once its code runs in registers, so a slice value exists only where a program keeps one, where an augmented store such as `x[a:b] += v` reads and stores, and where a map takes the slice as its key.
-- **Snapshots.** An inline store rides as it is and a shared payload through its kind's codec, and a restore needs a kind of the same name and version. A kind that rejects fails the save with its name while the run still holds a value of it, as [Rust](/docs/edge-lang/platforms/rust#snapshots) lists among the results of `save_state`, and the JS host and the CLI sweep a value nothing holds before they save, as `edge::embed::save_swept` does.
-- **The plugin wire.** A value crosses to a plugin as the int its kind's `to_i128` gives when its `transfer` is `Copy`, which the wide kind's is. Any other FOREIGN value reaches a plugin as a handle it works on through `edge_op`, as [ABI](/docs/edge-lang/reference/abi#op-codes) lists.
+- **Snapshots.** An inline store rides as it is and a shared payload through its kind's codec, and a restore needs a kind of the same name and version. A kind that rejects fails the save with its name while the run still holds a value of it, as [Rust](../03-platforms/04-rust.mdx#snapshots) lists among the results of `save_state`, and the JS host and the CLI sweep a value nothing holds before they save, as `edge::embed::save_swept` does.
+- **The plugin wire.** A value crosses to a plugin as the int its kind's `to_i128` gives when its `transfer` is `Copy`, which the wide kind's is. Any other FOREIGN value reaches a plugin as a handle it works on through `edge_op`, as [ABI](../04-reference/06-abi.mdx#op-codes) lists.
 
 ### A kind's methods
 
@@ -172,20 +172,20 @@ pub static NATIVES: Natives = edge::natives! {
 
 ## The collector
 
-The collector marks every value a root reaches, then sweeps the slots and the FOREIGN entries nothing reached, with no reference counts, so cycles go too. It runs only at a safe point of the loop, a back-edge or the step of a loop, never while a native's body runs. It runs once the live slots, the allocations since the last sweep or the bytes held pass their thresholds, or once the run holds more than its memory limit, and the first collection waits for 512 live values. [Garbage collection](/docs/edge-lang/internals/design#garbage-collection) gives each threshold and every root.
+The collector marks every value a root reaches, then sweeps the slots and the FOREIGN entries nothing reached, with no reference counts, so cycles go too. It runs only at a safe point of the loop, a back-edge or the step of a loop, never while a native's body runs. It runs once the live slots, the allocations since the last sweep or the bytes held pass their thresholds, or once the run holds more than its memory limit, and the first collection waits for 512 live values. [Garbage collection](../05-internals/01-design.mdx#garbage-collection) gives each threshold and every root.
 
-A FOREIGN entry is marked with the slots. The marking walks into the values a `Vals` store holds, and a shared payload's kind names those it keeps in its `trace`. A native that keeps values across a step keeps them in its `Acc` or in a `Cont` that traces them, since nothing else it holds is a root, as [Out and Step](/docs/edge-lang/sdk/natives#out-and-step) describes.
+A FOREIGN entry is marked with the slots. The marking walks into the values a `Vals` store holds, and a shared payload's kind names those it keeps in its `trace`. A native that keeps values across a step keeps them in its `Acc` or in a `Cont` that traces them, since nothing else it holds is a root, as [Out and Step](./05-natives.mdx#out-and-step) describes.
 
 ## The meter
 
-Every block the allocator hands out carries the meter of the run that paid for it, so a run's memory is counted, not estimated. `Metered<A>` is the global allocator that writes the tag. `edge.wasm` installs it, and a host that runs the crate in its own process installs it too, as [The allocator](/docs/edge-lang/sdk/embedding#the-allocator) shows, or a run under a memory limit refuses to start.
+Every block the allocator hands out carries the meter of the run that paid for it, so a run's memory is counted, not estimated. `Metered<A>` is the global allocator that writes the tag. `edge.wasm` installs it, and a host that runs the crate in its own process installs it too, as [The allocator](./09-embedding.mdx#the-allocator) shows, or a run under a memory limit refuses to start.
 
 - **What a run pays for.** Each heap holds a `Meter`, and while a run runs it is the payer, so its objects, its frames, its caches and its buffers are all charged to it. Freeing a block credits the meter it was charged to, and a block that grows is charged to the payer that grew it. A value a host builds for a run between its steps, an event, an input line or the answer of a call that waited, is charged to that run as well.
 - **The limit.** `held` is what the run holds now, garbage since the last sweep included, and `peak` the most it held at once, which the `memory_peak` export reads. A run past its limit collects at its next safe point and raises the runtime's memory error if it still holds more, while a new slot is refused once the run holds twice its limit.
 - **The instance.** The programs that share a wasm instance or a thread share one budget too, half the address space by default, which `meter::set_budget` sets. The run whose growth passes it raises while the others go on.
-- **Before building.** `room()` is what a result may still take and `reserve(bytes)` refuses a result past it before a byte is built, as [The budget](/docs/edge-lang/sdk/natives#the-budget) describes.
+- **Before building.** `room()` is what a result may still take and `reserve(bytes)` refuses a result past it before a byte is built, as [The budget](./05-natives.mdx#the-budget) describes.
 
-The type count of [Tokens or a front end](/docs/edge-lang/get-started/book/tokens#one-job-both-ways) reads the hour a chunk at a time and keeps only its counts, so it prints its five lines under a limit of 1 MB.
+The type count of [Tokens or a front end](../01-get-started/04-book/02-tokens.mdx#one-job-both-ways) reads the hour a chunk at a time and keeps only its counts, so it prints its five lines under a limit of 1 MB.
 
 ```text
 $ edge run --ops 10000000000 --memory 1 types.mini
@@ -235,7 +235,7 @@ $ edge run --ops 10000000000 --memory 512 whole.mini
 ```
 
 > [!CARDS]
-> - `library` [Natives](/docs/edge-lang/sdk/natives) The context a native reads and makes values through and the steps it keeps them across.
-> - `gauge` [Limits](/docs/edge-lang/sdk/limits) The memory limit, the op budget and the depth caps every run is held to.
-> - `camera` [Snapshots](/docs/edge-lang/sdk/snapshots) What a blob keeps of the heap and the FOREIGN entries.
-> - `cpu` [Design](/docs/edge-lang/internals/design) The bit patterns, the roots of the collector and the thresholds it runs at.
+> - `library` [Natives](./05-natives.mdx) The context a native reads and makes values through and the steps it keeps them across.
+> - `gauge` [Limits](./12-limits.mdx) The memory limit, the op budget and the depth caps every run is held to.
+> - `camera` [Snapshots](./11-snapshots.mdx) What a blob keeps of the heap and the FOREIGN entries.
+> - `cpu` [Design](../05-internals/01-design.mdx) The bit patterns, the roots of the collector and the thresholds it runs at.

@@ -5,9 +5,9 @@ description: "A runtime with a front end of its own, whose YAML flows stream an 
 
 # Tiny, YAML flows for large data
 
-Tiny is a language for reports over large data, written as YAML. A flow names its source with `from` and filters it with `where`, and every other key is a report named by its output. Tiny reads its YAML itself and builds its program through a `Builder`, so it is the runtime of Edge Lang with a front end of its own, which [Front ends](/docs/edge-lang/sdk/front-ends) walks through.
+Tiny is a language for reports over large data, written as YAML. A flow names its source with `from` and filters it with `where`, and every other key is a report named by its output. Tiny reads its YAML itself and builds its program through a `Builder`, so it is the runtime of Edge Lang with a front end of its own, which [Front ends](../../02-sdk/14-front-ends.mdx) walks through.
 
-This page runs the job [Mini](/docs/edge-lang/get-started/use-cases/mini) runs, five reports over one hour of public GitHub events, as a flow over the same hour. [Your runtime and its CLI](/docs/edge-lang/get-started/use-cases/your-runtime) builds a runtime of your own.
+This page runs the job [Mini](./02-mini.mdx) runs, five reports over one hour of public GitHub events, as a flow over the same hour. [Your runtime and its CLI](./01-your-runtime.mdx) builds a runtime of your own.
 
 ## The job
 
@@ -41,9 +41,9 @@ minute,type,count
 15:00,PullRequestEvent,35
 ```
 
-In a page the same run hands each report to [the JS host](/docs/edge-lang/platforms/javascript#named-outputs) as a stream of its own, which is what the playground's tabs read.
+In a page the same run hands each report to [the JS host](../../03-platforms/02-javascript.mdx#named-outputs) as a stream of its own.
 
-Mini's job prints the same rows, and a test holds every report of one to the other, as [Mini](/docs/edge-lang/get-started/use-cases/mini#held-to-agree-with-tiny) describes.
+Mini's job prints the same rows, and a test holds every report of one to the other, as [Mini](./02-mini.mdx#held-to-agree-with-tiny) describes.
 
 ## The keys
 
@@ -126,7 +126,7 @@ both jobs wrote the same 6,133 rows across 5 reports
 
 The instructions include compiling the program and come out the same on every run, while the rates move with whatever else the machine runs. The peak is the most the engine's meter held at once. Every report of the job aggregates, so the first line comes once the hour is read. Tiny reads its JSON through lib's `data::json` in Rust, while mini's job reads it with a reader written in mini, which is most of the gap between the two.
 
-A run that stops before its source ends, on its budget or on an error, closes what it opened, and the net plugin aborts the request. `js/tests/stop.test.js` holds the [JS host](/docs/edge-lang/platforms/javascript) to it. It serves an hour of 85,569 records it makes itself, gzipped as the pinned one is, and a flow that spends its budget of 2,000,000 ops must leave the request cancelled with less than half the file taken.
+A run that stops before its source ends, on its budget or on an error, closes what it opened, and the net plugin aborts the request. `js/tests/stop.test.js` holds the [JS host](../../03-platforms/02-javascript.mdx) to it. It serves an hour of 85,569 records it makes itself, gzipped as the pinned one is, and a flow that spends its budget of 2,000,000 ops must leave the request cancelled with less than half the file taken.
 
 ## Errors with their YAML lines
 
@@ -163,7 +163,7 @@ Tiny's classes are `Denied`, `BadData`, `WrongType`, `MissingField`, `HostFailed
 
 ## How it is built
 
-The crate links the engine and lib. Its `lib.rs` names the natives under its language and hands the engine its `Front`, and [Front ends](/docs/edge-lang/sdk/front-ends) shows that file, the expression table and the lowering in full. Its `language.rs` states the rules tiny runs on, its own for records of data, where only `None` and `False` read as false, a bool is no number and a whole number past the inline range is bad data, as [The policy](/docs/edge-lang/get-started/book/rules#the-policy) lists, and `words.rs` words the engine's errors in tiny's terms.
+The crate links the engine and lib. Its `lib.rs` names the natives under its language and hands the engine its `Front`, and [Front ends](../../02-sdk/14-front-ends.mdx) shows that file, the expression table and the lowering in full. Its `language.rs` states the rules tiny runs on, its own for records of data, where only `None` and `False` read as false, a bool is no number and a whole number past the inline range is bad data, as [The policy](../04-book/04-rules.mdx#the-policy) lists, and `words.rs` words the engine's errors in tiny's terms.
 
 ```toml file=examples/tiny/Cargo.toml
 ```
@@ -175,7 +175,7 @@ make wasm-tiny
 It writes `tiny.wasm` under `target/wasm32-unknown-unknown/release`, with the ABI every host binds, as `edge.wasm` has. `cargo test -p tiny` runs the 266 cases of `examples/tiny/tests/flows` over a slice of the same hour, the net plugin and the `files` module served inside the test process.
 
 > [!CARDS]
-> - `workflow` [Front ends](/docs/edge-lang/sdk/front-ends) How tiny reads its YAML and builds its program.
-> - `library` [Lib](/docs/edge-lang/sdk/lib) The JSON and CSV readers and the kernels tiny names.
-> - `plug` [Plugins](/docs/edge-lang/sdk/plugins) The net plugin a flow reads its source through.
-> - `braces` [Mini](/docs/edge-lang/get-started/use-cases/mini) The same job in a scripting language.
+> - `workflow` [Front ends](../../02-sdk/14-front-ends.mdx) How tiny reads its YAML and builds its program.
+> - `library` [Lib](../../02-sdk/06-lib.mdx) The JSON and CSV readers and the kernels tiny names.
+> - `plug` [Plugins](../../02-sdk/15-plugins.mdx) The net plugin a flow reads its source through.
+> - `braces` [Mini](./02-mini.mdx) The same job in a scripting language.

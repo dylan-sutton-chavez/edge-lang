@@ -18,7 +18,7 @@ The API is handle-based.
 - One dispatch primitive, `edge_op`, covers every operation.
 - New types, methods and language features reach existing modules with no ABI change.
 
-This contract is distinct from the interface between `edge.wasm` and its host. [Rust](/docs/edge-lang/platforms/rust) covers that one. That interface is not bound by the 7-import limit here.
+This contract is distinct from the interface between `edge.wasm` and its host. [Rust](../03-platforms/04-rust.mdx) covers that one. That interface is not bound by the 7-import limit here.
 
 ## Guest export shape
 
@@ -193,7 +193,7 @@ The kinds `edge_take_error` and `edge_throw` carry. Each kind raises the class t
 
 ## System calls
 
-A plugin reaches the host modules, such as `net`, through the `Sys` op. They are served exactly as code in the runtime's extension beside the `.wasm` would import them. The calls and their scopes are on [System](/docs/edge-lang/reference/system).
+A plugin reaches the host modules, such as `net`, through the `Sys` op. They are served exactly as code in the runtime's extension beside the `.wasm` would import them. The calls and their scopes are on [System](./04-system.mdx).
 
 The plugin holds the grants of the package it sits in. A module that package is not granted fails with the class the runtime names for a refused call, `PermissionError` in mini.
 
@@ -485,7 +485,7 @@ For `from <name> import <names>` where the manifest maps `<name>` to a `.wasm` U
 
 The reference bridge is `js/src/native.ts` in the repo.
 
-The [CLI](/docs/edge-lang/platforms/cli) implements the same seven imports in Rust over wasmtime, bridging the plugin instance and the instance of the runtime's `.wasm` the same way. It compiles a plugin with Cranelift on first use and caches the machine code. A [Rust host](/docs/edge-lang/platforms/rust#plugin-bridge) mirrors the shape.
+The [CLI](../03-platforms/01-cli.mdx) implements the same seven imports in Rust over wasmtime, bridging the plugin instance and the instance of the runtime's `.wasm` the same way. It compiles a plugin with Cranelift on first use and caches the machine code. A [Rust host](../03-platforms/04-rust.mdx#plugin-bridge) mirrors the shape.
 
 ## Constraints and caveats
 
@@ -502,7 +502,7 @@ The [CLI](/docs/edge-lang/platforms/cli) implements the same seven imports in Ru
 ## See also
 
 > [!CARDS]
-> - `cpu` [Rust](/docs/edge-lang/platforms/rust) The exports of edge.wasm, the run loop and the blob layout.
-> - `package` [Modules](/docs/edge-lang/reference/modules) Import resolution, edge.json, integrity pins and delivery.
-> - `shield` [System](/docs/edge-lang/reference/system) The calls a plugin reaches through Sys.
-> - `camera` [Snapshots](/docs/edge-lang/sdk/snapshots) Freezing and resuming a paused run from the host.
+> - `cpu` [Rust](../03-platforms/04-rust.mdx) The exports of edge.wasm, the run loop and the blob layout.
+> - `package` [Modules](./03-modules.mdx) Import resolution, edge.json, integrity pins and delivery.
+> - `shield` [System](./04-system.mdx) The calls a plugin reaches through Sys.
+> - `camera` [Snapshots](../02-sdk/11-snapshots.mdx) Freezing and resuming a paused run from the host.

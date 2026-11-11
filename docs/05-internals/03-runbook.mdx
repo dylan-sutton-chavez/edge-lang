@@ -58,7 +58,7 @@ Over the sample, `vm` and `snapshot` run whole side by side in 31 to 37 minutes 
 
 ## Bench
 
-`make bench` runs every case of `tests/cases/vm` on the speed build of `edge.wasm` and counts the WebAssembly instructions it executes. `bench/.snapshot` keeps those instructions and the memory peak in MB for each case, the same on every machine, and in `main` it holds `main`'s numbers, so the bench of a branch is its comparison with `main`, as [Testing](/docs/edge-lang/sdk/testing#the-comparison-with-main) describes.
+`make bench` runs every case of `tests/cases/vm` on the speed build of `edge.wasm` and counts the WebAssembly instructions it executes. `bench/.snapshot` keeps those instructions and the memory peak in MB for each case, the same on every machine, and in `main` it holds `main`'s numbers, so the bench of a branch is its comparison with `main`, as [Testing](../02-sdk/13-testing.mdx#the-comparison-with-main) describes.
 
 > [!COPY] make bench
 
@@ -71,6 +71,6 @@ Seeded programs call generated functions cold, again and warm, defined in the ma
 `CONTRIBUTING.md` at the root of the repo covers builds, tests and what a pull request runs, and `.github/workflows` holds the main, fuzz and Miri jobs.
 
 > [!CARDS]
-> - `cpu` [Design](/docs/edge-lang/internals/design) The parts of the engine these checks hold to account.
-> - `braces` [Compiler](/docs/edge-lang/internals/compiler) The lexer and the parser the fuzzer feeds first.
-> - `gauge` [Limits](/docs/edge-lang/sdk/limits) The budgets every run, the fuzzed ones among them, is held to.
+> - `cpu` [Design](./01-design.mdx) The parts of the engine these checks hold to account.
+> - `braces` [Compiler](./02-compiler.mdx) The lexer and the parser the fuzzer feeds first.
+> - `gauge` [Limits](../02-sdk/12-limits.mdx) The budgets every run, the fuzzed ones among them, is held to.

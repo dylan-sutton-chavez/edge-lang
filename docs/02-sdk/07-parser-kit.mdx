@@ -5,11 +5,11 @@ description: "The one grammar the parser reads, the token table a runtime spells
 
 # Parser kit
 
-The engine keeps one lexer, one parser and one grammar. A runtime brings a token table, a `Syntax`, that spells the grammar. The lexer reads the source through that table, and the parser compiles each construct to bytecode in one pass, the same bytecode whichever table spelled it. What a construct does once it runs belongs to the runtime, and how the lexer and the parser work is in [Compiler](/docs/edge-lang/internals/compiler).
+The engine keeps one lexer, one parser and one grammar. A runtime brings a token table, a `Syntax`, that spells the grammar. The lexer reads the source through that table, and the parser compiles each construct to bytecode in one pass, the same bytecode whichever table spelled it. What a construct does once it runs belongs to the runtime, and how the lexer and the parser work is in [Compiler](../05-internals/02-compiler.mdx).
 
 ## Three tables
 
-The repo holds three runtimes, and each spells the grammar its own way. Mini is the reference runtime that `edge.wasm` is built from. Uptime is the language of [Your runtime and its CLI](/docs/edge-lang/get-started/use-cases/your-runtime), and tiny reads only the expressions of its YAML flows through its table, as [Front ends](/docs/edge-lang/sdk/front-ends) shows.
+The repo holds three runtimes, and each spells the grammar its own way. Mini is the reference runtime that `edge.wasm` is built from. Uptime is the language of [Your runtime and its CLI](../01-get-started/03-use-cases/01-your-runtime.mdx), and tiny reads only the expressions of its YAML flows through its table, as [Front ends](./14-front-ends.mdx) shows.
 
 | Choice | Mini | Uptime | Tiny |
 |---|---|---|---|
@@ -299,10 +299,10 @@ A form a table's `shapes` turn off is no part of its grammar. Uptime has no lamb
 
 Uptime writes the same statements with its own words, `let` before a first store, `check c, message` for an assertion, `use .http` for an import and `try` with `catch E as e`, each compound closed by one `end`.
 
-Imports resolve at compile time, as [Modules](/docs/edge-lang/reference/modules) explains. A statement out of place, such as a `break` outside a loop or a `return` outside a function, fails at compile time. So does a form the parser refuses, such as `with`, `async for`, `except*`, `raise e from cause`, a type alias or a complex literal. [Diagnostics](/docs/edge-lang/reference/diagnostics#compile-time-errors) lists those messages.
+Imports resolve at compile time, as [Modules](../04-reference/03-modules.mdx) explains. A statement out of place, such as a `break` outside a loop or a `return` outside a function, fails at compile time. So does a form the parser refuses, such as `with`, `async for`, `except*`, `raise e from cause`, a type alias or a complex literal. [Diagnostics](../04-reference/05-diagnostics.mdx#compile-time-errors) lists those messages.
 
 > [!CARDS]
-> - `activity` [Your runtime and its CLI](/docs/edge-lang/get-started/use-cases/your-runtime) Uptime's table in a runtime and its CLI, end to end.
-> - `cpu` [Compiler](/docs/edge-lang/internals/compiler) How the lexer and the single-pass parser turn this grammar into bytecode.
-> - `octagon-alert` [Diagnostics](/docs/edge-lang/reference/diagnostics) What the lexer and the parser report when a source breaks the grammar.
-> - `gauge` [Limits](/docs/edge-lang/sdk/limits) The source caps and the limits every run is held to.
+> - `activity` [Your runtime and its CLI](../01-get-started/03-use-cases/01-your-runtime.mdx) Uptime's table in a runtime and its CLI, end to end.
+> - `cpu` [Compiler](../05-internals/02-compiler.mdx) How the lexer and the single-pass parser turn this grammar into bytecode.
+> - `octagon-alert` [Diagnostics](../04-reference/05-diagnostics.mdx) What the lexer and the parser report when a source breaks the grammar.
+> - `gauge` [Limits](./12-limits.mdx) The source caps and the limits every run is held to.

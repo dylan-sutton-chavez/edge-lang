@@ -260,7 +260,7 @@
   {
     "name": "a set of cards",
     "files": {
-      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n> [!CARDS]\n> - `play` [Quick start](/docs/getting-started/quickstart) Run a first script.\n> - `book` [Modules](https://edgelang.dev/docs/reference/modules) What edge.json grants.\n> - `file` [Usage](02-usage) The next page.\n"
+      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n> [!CARDS]\n> - `play` [Quick start](/docs/getting-started/quickstart) Run a first script.\n> - `book` [Modules](https://example.com/docs/reference/modules) What edge.json grants.\n> - `file` [Usage](02-usage) The next page.\n"
     }
   },
   {
@@ -381,9 +381,9 @@
   {
     "name": "a banner linking over http",
     "files": {
-      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n> [!BANNER] Try it\n> [Go](http://edgelang.dev)\n"
+      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n> [!BANNER] Try it\n> [Go](http://example.com)\n"
     },
-    "error": "links a box to 'http://edgelang.dev'"
+    "error": "links a box to 'http://example.com'"
   },
   {
     "name": "a banner with two lines",
@@ -395,7 +395,7 @@
   {
     "name": "a copy line",
     "files": {
-      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n> [!COPY] curl -fsSL https://cdn.edgelang.dev/cli/install.sh | sh\n\nThen open a new shell.\n"
+      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n> [!COPY] curl -fsSL https://example.com/install.sh | sh\n\nThen open a new shell.\n"
     }
   },
   {

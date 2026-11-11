@@ -12,7 +12,7 @@ The compiler has two stages and no AST. The lexer turns the source into tokens t
 - `edge.wasm` and the module loader push them into the diagnostics of the parser, so one report holds both.
 - Each construct is parsed and lowered in one traversal, with SSA versioning and phi nodes at control-flow joins.
 
-This page covers token-level and bytecode-level mechanics. The grammar and the forms of literals, strings and f-strings live in [Parser kit](/docs/edge-lang/sdk/parser-kit). [Design](/docs/edge-lang/internals/design) covers the parts that span the pipeline.
+This page covers token-level and bytecode-level mechanics. The grammar and the forms of literals, strings and f-strings live in [Parser kit](../02-sdk/07-parser-kit.mdx). [Design](./01-design.mdx) covers the parts that span the pipeline.
 
 ## Tokens
 
@@ -197,7 +197,7 @@ The parser slices `&source[t.start..t.end]` lazily for names, string content and
 
 ## Bytecode model
 
-Each instruction is a 4-byte record. It holds a 1-byte `OpCode` (`#[repr(u8)]`) of the table [Opcodes](/docs/edge-lang/sdk/opcodes) covers, a 2-byte operand, and 1 byte of padding.
+Each instruction is a 4-byte record. It holds a 1-byte `OpCode` (`#[repr(u8)]`) of the table [Opcodes](../02-sdk/08-opcodes.mdx) covers, a 2-byte operand, and 1 byte of padding.
 
 ```rust
 pub struct Instruction {
@@ -315,7 +315,7 @@ end:
 
 ### F-strings
 
-An f-string lowers to its constant chunks and the code of its fields in source order, and closes with `BuildString`, which joins them. How a field turns into text, its [conversion and spec](/docs/edge-lang/sdk/parser-kit#f-strings) included, is up to the runtime.
+An f-string lowers to its constant chunks and the code of its fields in source order, and closes with `BuildString`, which joins them. How a field turns into text, its [conversion and spec](../02-sdk/07-parser-kit.mdx#f-strings) included, is up to the runtime.
 
 The `{expr=}` form emits the field text as written, spaces around the `=` included, as a constant after the value and swaps the two, so the field code never moves. Adjacent string literals concatenate at parse time.
 
@@ -417,7 +417,7 @@ Each statement returns whether it left a value on the stack. The driver emits `P
 - The lexer counts on the first token of a statement the `=` that end its targets. An assignment moves the cursor past those targets without compiling them, compiles the value, then comes back to store into each target from left to right, and a `for` or comprehension stores its targets the same way on each item. The value of `d[k()] = v()` runs first, and `a = b = v` duplicates it once per extra target.
 - Decorators apply to a definition and a class. The `At` arm peeks for `Class` after the decorator list. Each decorator wraps through `Call,1` between `MakeFunction` or `MakeClass` and the final `StoreName`.
 - `raise X from Y` fails with `raise from is not supported`. A bare `raise` raises the current exception again.
-- Imports resolve at parse time through a resolver the host injects. No import opcode reaches the VM. See [Modules](/docs/edge-lang/reference/modules).
+- Imports resolve at parse time through a resolver the host injects. No import opcode reaches the VM. See [Modules](../04-reference/03-modules.mdx).
 
 ## Functions
 
@@ -456,7 +456,7 @@ A comprehension that awaits runs as a coroutine the enclosing `async` function a
 
 ## Limits
 
-The caps are listed in [Source and token limits](/docs/edge-lang/sdk/limits#source-and-token-limits), and their messages in [Diagnostics](/docs/edge-lang/reference/diagnostics#caps). Each stage stops in its own way.
+The caps are listed in [Source and token limits](../02-sdk/12-limits.mdx#source-and-token-limits), and their messages in [Diagnostics](../04-reference/05-diagnostics.mdx#caps). Each stage stops in its own way.
 
 - A lexer cap halts lexing with `Eof`.
 - `MAX_EXPR_DEPTH` (200) bounds every recursive descent of the parser through expressions, assignment targets, `del` targets and match patterns. Deep input raises `expression too deeply nested` instead of overflowing the native or WASM stack.

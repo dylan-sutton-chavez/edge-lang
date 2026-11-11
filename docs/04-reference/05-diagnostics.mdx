@@ -23,7 +23,7 @@ error: '(' was never closed
 
 ## Compile-time errors
 
-A row that names mini or indent holds only for that token table, and one that names a braces table only for a table whose blocks open with `{`. A message about interpolated text names it as the table's `interp` does, `f-string` in mini as below and `text` in uptime. [Parser kit](/docs/edge-lang/sdk/parser-kit) shows how the tables spell the grammar.
+A row that names mini or indent holds only for that token table, and one that names a braces table only for a table whose blocks open with `{`. A message about interpolated text names it as the table's `interp` does, `f-string` in mini as below and `text` in uptime. [Parser kit](../02-sdk/07-parser-kit.mdx) shows how the tables spell the grammar.
 
 ### Tokens
 
@@ -122,7 +122,7 @@ The parser reads these forms and refuses them, each with its own message.
 | `too many native imports (max 256 per module)` | A module importing more than 256 natives |
 | `imports nest deeper than 64 modules` | A chain of modules each importing the next past 64 modules |
 
-[Limits](/docs/edge-lang/sdk/limits#source-and-token-limits) lists these caps beside the limits of a run. Import failures are compile-time diagnostics as well. See [Modules](/docs/edge-lang/reference/modules#resolution-errors) for those message formats.
+[Limits](../02-sdk/12-limits.mdx#source-and-token-limits) lists these caps beside the limits of a run. Import failures are compile-time diagnostics as well. See [Modules](./03-modules.mdx#resolution-errors) for those message formats.
 
 ## Environmental errors
 
@@ -136,6 +136,6 @@ Some failures happen before the source reaches the compiler. They surface as pla
 Check the encoding in the host before it hands the source to the compiler.
 
 > [!CARDS]
-> - `blocks` [Parser kit](/docs/edge-lang/sdk/parser-kit) The grammar these diagnostics guard and the token tables that spell it.
-> - `gauge` [Limits](/docs/edge-lang/sdk/limits) The caps of the compiler and the limits of a run.
-> - `cpu` [Compiler](/docs/edge-lang/internals/compiler) Where the lexer and the parser raise each diagnostic.
+> - `blocks` [Parser kit](../02-sdk/07-parser-kit.mdx) The grammar these diagnostics guard and the token tables that spell it.
+> - `gauge` [Limits](../02-sdk/12-limits.mdx) The caps of the compiler and the limits of a run.
+> - `cpu` [Compiler](../05-internals/02-compiler.mdx) Where the lexer and the parser raise each diagnostic.

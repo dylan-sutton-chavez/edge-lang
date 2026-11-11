@@ -100,7 +100,7 @@ checked 1 service
 
 `edge init [name]` scaffolds `main.mini`, `edge.json` and `index.html` in a new directory, or in the current one with no name. `--bare` skips the HTML. It never overwrites a file, and refuses with the name of the first one that already exists.
 
-`edge add <name>` looks a name up in the registry at its newest version, or at the one `<name>@0.1.0` names, writes one `imports` entry holding that version alone, and prints it with what the package asks the root to grant. `edge add foo=<url>` or `edge add foo=./path` registers a custom spec verbatim, also under `imports`, since each host tells a `.mini` and a `.wasm` module apart by the artifact, and a `.js` or `.mjs` spec is refused before anything is written. `edge add` keeps `extends` and any other key already there. `edge remove` deletes entries. Unknown names abort the whole command before any write, and neither command touches `edge.lock`. The same registry answers over HTTP, where `GET https://edgelang.dev/api/search?q=<term>` finds a package and every address it names answers as data under `/api`.
+`edge add <name>` looks a name up in the registry at its newest version, or at the one `<name>@0.1.0` names, writes one `imports` entry holding that version alone, and prints it with what the package asks the root to grant. `edge add foo=<url>` or `edge add foo=./path` registers a custom spec verbatim, also under `imports`, since each host tells a `.mini` and a `.wasm` module apart by the artifact, and a `.js` or `.mjs` spec is refused before anything is written. `edge add` keeps `extends` and any other key already there. `edge remove` deletes entries. Unknown names abort the whole command before any write, and neither command touches `edge.lock`.
 
 `edge lock` turns each declared version into the URL and digest of that release, pins each bare URL to the digest of its bytes, and writes `edge.lock` beside the manifest, rebuilding the whole file each time. It is the only command that asks the registry where a name points, so `edge run`, `edge test` and `edge build` read the lock and resolve nothing themselves. A version with no entry, or one whose entry holds another release, fails with `'<name>' is not locked, run edge lock`. It also walks every package in the tree, each through its own `edge.lock`, and writes nothing while a package lacks what it lists from its importer. `edge run` and `edge test` repeat that check on the nearest `edge.json` above the script or the tested path before compiling, and `edge build` on the project's own.
 
@@ -122,7 +122,7 @@ Three mutually exclusive modes.
 
 ### edge publish
 
-`edge publish app.edge` uploads a `.edge` packed by `edge build`, reading `EDGE_TOKEN` for a token made at `edgelang.dev/settings#tokens`, which signs the request and never leaves the machine. The artifact is the whole request. The registry opens it and reads the `name`, the `version`, the description, the repository, the `LICENSE` and the pages under `@docs/` out of the bytes it is about to store, so nothing is declared twice and a listing shows what you shipped. A name is first come and permanent, a version is never overwritten and publishing one twice exits 2, and the bundle is stored exactly as packed. One artifact is 10 MB at most, an account claims 10 names and publishes 60 versions a day, and its packages add up to 50 MB when it signs in by address alone or a gigabyte with GitHub or Google linked.
+`edge publish app.edge` uploads a `.edge` packed by `edge build`, to the registry the composition names, reading `EDGE_TOKEN` for a token that registry issued, which signs the request and never leaves the machine. The artifact is the whole request. The registry opens it and reads the `name`, the `version`, the description, the repository, the `LICENSE` and the pages under `@docs/` out of the bytes it is about to store, so nothing is declared twice and a listing shows what you shipped. A name is first come and permanent, a version is never overwritten and publishing one twice exits 2, and the bundle is stored exactly as packed.
 
 ### edge actor
 
@@ -138,8 +138,8 @@ Interactive removal of the binary and PATH entries.
 |---|---|
 | `EDGE_TOKEN` | The registry token `edge publish` signs with |
 | `EDGE_CHROME_PATH` | The browser `--web` drives |
-| `EDGE_CDN_BASE` | Serve the official CDN origin from another base for module downloads and `edge build --web`, used by tests and staging |
-| `EDGE_SITE_BASE` | Ask another registry than `https://edgelang.dev`, used by tests and staging |
+| `EDGE_CDN_BASE` | Serve the composition's origin from another base for module downloads and `edge build --web`, used by tests and staging |
+| `EDGE_SITE_BASE` | Ask another registry than the one the composition names, used by tests and staging |
 | `EDGE_WASM` | Path to the `edge.wasm` a build of the CLI embeds |
 
 ## Imports
@@ -290,7 +290,7 @@ got hello
 
 ### The untrusted model
 
-`eval: true` groups compile each message as its own program in a fresh wasm instance with its own memory, capped by the `memory` limit of the group and by three times that plus 64 MiB of linear memory, and cut off by a deadline the host enforces from outside after `limits: timeout:` seconds of wall-clock time, waits included, ten unless set and at most 300. An eval group holds four actors unless `replicas` says otherwise. No state survives between messages. A bundle that carries its own `edge.json` resolves through it, any other message through the manifest of the pool. Either way `.wasm` plugins are refused, remote modules load only from `https://cdn.edgelang.dev/`, and `send()` has no scheduler, so a send raises and the pool names the group it asked for. A bundle grants its own permissions in its own `edge.json` as any root does, but only within what the pool grants `eval`, so an entry past it refuses the run before it compiles, and a snippet holds nothing. A failed eval run prints its traceback under its group and counts as a crash. A `code` or `run` group is trusted instead, it keeps state, can send and can use `net` and `files` under the grants of the pool, so reach for `eval` when the code is not yours.
+`eval: true` groups compile each message as its own program in a fresh wasm instance with its own memory, capped by the `memory` limit of the group and by three times that plus 64 MiB of linear memory, and cut off by a deadline the host enforces from outside after `limits: timeout:` seconds of wall-clock time, waits included, ten unless set and at most 300. An eval group holds four actors unless `replicas` says otherwise. No state survives between messages. A bundle that carries its own `edge.json` resolves through it, any other message through the manifest of the pool. Either way `.wasm` plugins are refused, remote modules load only from the origin the composition names, and `send()` has no scheduler, so a send raises and the pool names the group it asked for. A bundle grants its own permissions in its own `edge.json` as any root does, but only within what the pool grants `eval`, so an entry past it refuses the run before it compiles, and a snippet holds nothing. A failed eval run prints its traceback under its group and counts as a crash. A `code` or `run` group is trusted instead, it keeps state, can send and can use `net` and `files` under the grants of the pool, so reach for `eval` when the code is not yours.
 
 ```yml untrusted
 groups:

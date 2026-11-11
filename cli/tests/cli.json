@@ -54,7 +54,7 @@
     "fails": ["nothing to add"]
   },
   {
-    "given": { "edge.json": "{\"imports\":{\"math\":\"https://cdn.edgelang.dev/std/math.wasm\"}}\n" },
+    "given": { "edge.json": "{\"imports\":{\"math\":\"https://example.com/math.wasm\"}}\n" },
     "run": ["remove", "math"],
     "stdout": ["- math"]
   },
@@ -64,7 +64,7 @@
     "fails": ["not in"]
   },
   {
-    "given": { "edge.json": "{\"imports\":{\"math\":\"https://cdn.edgelang.dev/std/math.wasm\"}}\n" },
+    "given": { "edge.json": "{\"imports\":{\"math\":\"https://example.com/math.wasm\"}}\n" },
     "run": ["remove", "math", "mystery"],
     "fails": ["not in"],
     "contains": { "edge.json": "math.wasm" }

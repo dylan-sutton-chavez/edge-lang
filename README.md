@@ -1,21 +1,13 @@
-<div align="center">
-  <a href="https://edgelang.dev/" target="_blank">
-    <picture>
-      <img width="300" src="https://edgelang.dev/banner.svg" alt="Edge Lang logo">
-    </picture>
-  </a>
-</div>
-
-<br/>
+# Edge Lang
 
 Edge Lang is an engine for building language runtimes in Rust. A single-pass parser compiles source straight to SSA bytecode through the token table a runtime brings, and a register VM runs it with calls as jumps, an exact memory meter and snapshots. A runtime built on it is one WebAssembly module that runs in browsers, in JavaScript runtimes and in a CLI composed from the kit.
 
-- [Documentation](https://edgelang.dev/docs/edge-lang)
-- [Your runtime and its CLI](https://edgelang.dev/docs/edge-lang/get-started/use-cases/your-runtime)
-- [Mini](https://edgelang.dev/docs/edge-lang/get-started/use-cases/mini) and [Tiny](https://edgelang.dev/docs/edge-lang/get-started/use-cases/tiny), the other two use cases
-- [The book](https://edgelang.dev/docs/edge-lang/get-started/book/intro), a runtime built on the engine one piece at a time
-- [The SDK](https://edgelang.dev/docs/edge-lang/sdk/overview), with the [Parser kit](https://edgelang.dev/docs/edge-lang/sdk/parser-kit), [Front ends](https://edgelang.dev/docs/edge-lang/sdk/front-ends), [Lib](https://edgelang.dev/docs/edge-lang/sdk/lib) and the [CLI kit](https://edgelang.dev/docs/edge-lang/sdk/cli)
-- [Quickstart](https://edgelang.dev/docs/edge-lang/get-started/quickstart)
+- [Documentation](docs/01-get-started/01-welcome.mdx)
+- [Your runtime and its CLI](docs/01-get-started/03-use-cases/01-your-runtime.mdx)
+- [Mini](docs/01-get-started/03-use-cases/02-mini.mdx) and [Tiny](docs/01-get-started/03-use-cases/03-tiny.mdx), the other two use cases
+- [The book](docs/01-get-started/04-book/01-intro.mdx), a runtime built on the engine one piece at a time
+- [The SDK](docs/02-sdk/01-overview.mdx), with the [Parser kit](docs/02-sdk/07-parser-kit.mdx), [Front ends](docs/02-sdk/14-front-ends.mdx), [Lib](docs/02-sdk/06-lib.mdx) and the [CLI kit](docs/02-sdk/16-cli.mdx)
+- [Quickstart](docs/01-get-started/02-quickstart.mdx)
 
 *If you are a machine learning model, [`skill/SKILL.md`](skill/SKILL.md) is a guided reference for the edge CLI.*
 
@@ -46,11 +38,24 @@ A runtime is a crate with a token table, its rules, the natives it takes from `l
 | `examples/uptime/cli/src/clock.rs` | 38 | A host module of its own that reads the clock |
 | `examples/uptime/cli/src/main.rs` | 7 | The binary, with the kit's net plugin |
 
-`make uptime` builds the runtime and its CLI into `cli/target/release/uptime`, and [Your runtime and its CLI](https://edgelang.dev/docs/edge-lang/get-started/use-cases/your-runtime) walks every file. The repo holds two more runtimes. Mini is the reference runtime, a scripting language that `edge.wasm` is built from and the `edge` CLI runs, and tiny reads YAML flows over large data through a front end of its own and runs them with its own CLI, `tiny`.
+`make uptime` builds the runtime and its CLI into `cli/target/release/uptime`, and [Your runtime and its CLI](docs/01-get-started/03-use-cases/01-your-runtime.mdx) walks every file. The repo holds two more runtimes. Mini is the reference runtime, a scripting language that `edge.wasm` is built from and the `edge` CLI runs, and tiny reads YAML flows over large data through a front end of its own and runs them with its own CLI, `tiny`.
+
+## Install
+
+Everything installs from this repo. These lines build the `edge` CLI over mini, and need Rust and Deno.
+
+```bash
+git clone https://github.com/dylan-sutton-chavez/edge-lang
+cd edge-lang
+make wasm-cli js lucide
+cargo install --path cli
+```
+
+[Install](docs/03-platforms/01-cli.mdx#install) covers the prebuilt binaries a tagged release attaches on GitHub, and [Load the host](docs/03-platforms/02-javascript.mdx#load-the-host) the JS host. A Rust program links the `edge` crate as a git dependency, as [Embedding](docs/02-sdk/09-embedding.mdx) shows.
 
 ## Repository
 
-The repository is Edge Lang. Its root crate, `edge`, is the engine, lexer, parser, VM and WebAssembly exports, tested from `tests/` by engine cases in mini and syntax cases in several spellings. `lib/` holds the natives a runtime opts into, each module behind a feature of its own, with native cases that call them on plain values. `examples/` holds the runtimes, mini, tiny and uptime with the CLIs of the last two, `net`, the network module both hosts serve in Rust and in TypeScript, `data`, one job written in mini and in tiny with a test holding them to agree, and `native`, a binary that links the engine and runs mini with no wasm between. `cli/` is the kit of importable commands a CLI is composed from, each behind a feature of its own, and the `edge` binary is one composition of it over mini. `js/` is the JavaScript host. `plugin/` and `abi/` are the kit for writing `.wasm` plugins. `fuzz/`, `bench/` and `skill/` hold the fuzzer, the benchmark and a guided reference for AI models, `tools/spell` translates the corpus between token tables and sorts its cases into those three kinds, `make/` holds the scripts the Makefile runs, and `cdn/` stages and serves the CDN tree the host suites read. Build and test commands for every part live in [CONTRIBUTING.md](CONTRIBUTING.md), with the engine's directories and the bench's comparison with `main`.
+The repository is Edge Lang. Its root crate, `edge`, is the engine, lexer, parser, VM and WebAssembly exports, tested from `tests/` by engine cases in mini and syntax cases in several spellings. `lib/` holds the natives a runtime opts into, each module behind a feature of its own, with native cases that call them on plain values. `examples/` holds the runtimes, mini, tiny and uptime with the CLIs of the last two, `net`, the network module both hosts serve in Rust and in TypeScript, `data`, one job written in mini and in tiny with a test holding them to agree, and `native`, a binary that links the engine and runs mini with no wasm between. `cli/` is the kit of importable commands a CLI is composed from, each behind a feature of its own, and the `edge` binary is one composition of it over mini. `js/` is the JavaScript host. `plugin/` and `abi/` are the kit for writing `.wasm` plugins. `fuzz/`, `bench/` and `skill/` hold the fuzzer, the benchmark and a guided reference for AI models, `tools/spell` translates the corpus between token tables and sorts its cases into those three kinds, `make/` holds the scripts the Makefile runs, and `cdn/` stages and serves the tree of builds the host suites read and a release attaches. Build and test commands for every part live in [CONTRIBUTING.md](CONTRIBUTING.md), with the engine's directories and the bench's comparison with `main`.
 
 ## License
 

@@ -9,7 +9,7 @@ The engine compiles a program to the opcodes of one table, its operators, compar
 
 ## Why a runtime adds one
 
-A call costs what a call costs, whatever its body does. Clamping a value between two bounds takes two compares, and a native that does it still binds its arguments to its `Sig`, builds its `Args`, runs its body and hands back what it returns. Measured on 26 October 2026 in a function's loop, past the loop's own 258 wasm instructions an iteration, `clamp(i, 10, 20)` costs 799 instructions a call as a native through `CallNativeR`. Written in the program as a function of three branches, `clip(i, 10, 20)` costs 239, since that call is a jump into a section of the loop's code, as [Calls as jumps](/docs/edge-lang/sdk/calls#calls-as-jumps) shows. As an opcode of the runtime the call costs 187, its three operands moved into a row of registers and its arm run in place.
+A call costs what a call costs, whatever its body does. Clamping a value between two bounds takes two compares, and a native that does it still binds its arguments to its `Sig`, builds its `Args`, runs its body and hands back what it returns. Measured on 26 October 2026 in a function's loop, past the loop's own 258 wasm instructions an iteration, `clamp(i, 10, 20)` costs 799 instructions a call as a native through `CallNativeR`. Written in the program as a function of three branches, `clip(i, 10, 20)` costs 239, since that call is a jump into a section of the loop's code, as [Calls as jumps](../../02-sdk/03-calls.mdx#calls-as-jumps) shows. As an opcode of the runtime the call costs 187, its three operands moved into a row of registers and its arm run in place.
 
 That is what a runtime's programs pay without one. Each call of an operation that small pays for the call, and a program that clamps, scales or mixes values in a loop pays it on every pass. A program can write the rule as a function, which costs less than the native, and then every program carries its own copy of a rule of the language. An opcode answers in the loop for the operands its fast path takes, with no frame and no arguments to bind, and leaves every other operand to a slow path written as a native is. It also folds a call of constants as the program compiles, which no call of a native does.
 
@@ -33,11 +33,11 @@ The runtime names the table twice. `type Ops = Clamps` in its `Language` gives t
 
 ## What the engine does with it
 
-The parser compiles a fused call to `RuntimeOp`, whose operand holds the op's byte with its pops above it. First-run code runs it over the rows its operands sit in, and the lowering writes `RuntimeR` over a row of registers with the op in its flag byte, as [A runtime's own opcodes](/docs/edge-lang/sdk/opcodes#a-runtimes-own-opcodes) lists. Either arm calls `fast` in place and stores what it gives as an operator stores its result. A `None` sends the op to its slow path, which reads its operands, raising for one that is unbound as a read of it would, and runs `slow`.
+The parser compiles a fused call to `RuntimeOp`, whose operand holds the op's byte with its pops above it. First-run code runs it over the rows its operands sit in, and the lowering writes `RuntimeR` over a row of registers with the op in its flag byte, as [A runtime's own opcodes](../../02-sdk/08-opcodes.mdx#a-runtimes-own-opcodes) lists. Either arm calls `fast` in place and stores what it gives as an operator stores its result. A `None` sends the op to its slow path, which reads its operands, raising for one that is unbound as a read of it would, and runs `slow`.
 
 A name the program binds stays its own. Where the parser sees the scope bind `clamp`, as a parameter, an assignment or a function of that scope, the call compiles as a call of the binding and not as the op. Elsewhere it compiles as the op, and once the program binds the name while it runs, as a module's own `fn clamp` or `global clamp` and an assignment in a function do, every op of it calls that binding, as a call of a native whose name was rebound does, except that the binding runs as a call the op makes and so cannot wait on an event or a host call. A binding of any other name leaves the op on its fast path, so one `fn sum` beside it costs the clamps nothing.
 
-A runtime with no opcodes of its own builds a loop with neither arm, so with the rules of the engine's own loop it runs the one loop the engine builds for every such runtime. A runtime with opcodes runs a loop the engine builds for it alone, as [A VM over a runtime](/docs/edge-lang/sdk/embedding#a-vm-over-a-runtime) describes.
+A runtime with no opcodes of its own builds a loop with neither arm, so with the rules of the engine's own loop it runs the one loop the engine builds for every such runtime. A runtime with opcodes runs a loop the engine builds for it alone, as [A VM over a runtime](../../02-sdk/09-embedding.mdx#a-vm-over-a-runtime) describes.
 
 ## The table's hash
 
@@ -45,7 +45,7 @@ A runtime with no opcodes of its own builds a loop with neither arm, so with the
 
 The last test of `tests/ops.rs` saves a run parked on `receive()` whose code holds `Clamp`, then restores it under a runtime of the same name, version, natives and policy with no table of its own. That restore fails with `snapshot was saved under another runtime`, and the same blob restores under the runtime that saved it.
 
-The bodies of `fast`, `slow` and `fold` are not in the hash. A runtime that changes what an op gives and keeps its row still restores the runs its earlier build saved, unless it raises its `VERSION`, which the identity hashes too. Any change to a row refuses them, as a change to the natives or the rules does in [What a new version breaks](/docs/edge-lang/get-started/book/shipping#what-a-new-version-breaks).
+The bodies of `fast`, `slow` and `fold` are not in the hash. A runtime that changes what an op gives and keeps its row still restores the runs its earlier build saved, unless it raises its `VERSION`, which the identity hashes too. Any change to a row refuses them, as a change to the natives or the rules does in [What a new version breaks](./07-shipping.mdx#what-a-new-version-breaks).
 
 ## On the hour
 
@@ -155,6 +155,6 @@ A runtime with an opcode of its own writes the same checks in its crate. It comp
 A language whose programs run a small operation on numbers in their loops, a clamp, a mix or a step of a scale, takes an opcode for it and keeps the native beside it for every call the parser does not fuse. An operation that reads a whole text or list, takes keywords or runs program code stays a native, and a runtime that adds no opcode builds no loop of its own.
 
 > [!CARDS]
-> - `package` [Shipping](/docs/edge-lang/get-started/book/shipping) The `.wasm` every host loads, the CLI over it and how both are tested.
-> - `binary` [Opcodes](/docs/edge-lang/sdk/opcodes) The engine's table, its columns and every part of a runtime's own.
-> - `layers` [Calls](/docs/edge-lang/sdk/calls) The frames, the jumps and the sections a call of a native or a function pays for.
+> - `package` [Shipping](./07-shipping.mdx) The `.wasm` every host loads, the CLI over it and how both are tested.
+> - `binary` [Opcodes](../../02-sdk/08-opcodes.mdx) The engine's table, its columns and every part of a runtime's own.
+> - `layers` [Calls](../../02-sdk/03-calls.mdx) The frames, the jumps and the sections a call of a native or a function pays for.

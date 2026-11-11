@@ -44,7 +44,7 @@ fn main() {
     }
 }
 
-/* The compiled JS host the binary carries, keyed by the path the CDN serves each file at, so a page's imports read the same from a dist, from a headless run, or from the CDN. */
+/* the compiled js host the binary carries keyed by its path in a staged tree */
 fn js_host(dist: &Path, out: &Path) {
     println!("cargo:rerun-if-changed={}", dist.display());
     let hint = "run make js first";
@@ -63,7 +63,7 @@ fn js_host(dist: &Path, out: &Path) {
     std::fs::write(out, table).unwrap_or_else(|e| panic!("writing {}: {e}", out.display()));
 }
 
-// tsc writes to js/dist and the CDN serves that tree under js/src, so the prefix is added back here.
+// tsc writes js/dist while a staged tree holds it under js/src so src is added
 fn walk_js(root: &Path, dir: &Path, found: &mut Vec<(String, PathBuf)>) {
     for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
         let path = entry.path();

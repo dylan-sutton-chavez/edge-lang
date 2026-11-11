@@ -9,15 +9,17 @@ The JS host runs a program in a web page. `createWorker` boots the engine in a W
 
 ## Load the host
 
-The host loads from one module on the CDN.
+The host is the `js/` folder of [the repo on GitHub](https://github.com/dylan-sutton-chavez/edge-lang), built from its TypeScript sources. This line at the repo root, with Rust, Deno and Node installed, writes the tree a page loads to `_cdn/`, `edge.wasm` at its root and the host under `js/src/`.
 
-> [!COPY] https://cdn.edgelang.dev/js/src/index.js
+> [!COPY] make wasm js stage PARTS="wasm js"
 
-Import `createWorker` from it and hand it the directory of the program.
+A tagged release on [GitHub Releases](https://github.com/dylan-sutton-chavez/edge-lang/releases) attaches the same tree as `cdn.tar.gz`, and `edge build --web` vendors it into a project's `dist/`. Serve the tree from your own origin. `createWorker` reads `edge.wasm` two folders above `index.js` unless `wasmUrl` names another.
+
+Import `createWorker` from `js/src/index.js` and hand it the directory of the program.
 
 ```html
 <script type="module">
-  import { createWorker } from "https://cdn.edgelang.dev/js/src/index.js";
+  import { createWorker } from "./js/src/index.js";
 
   const worker = await createWorker({ baseUrl: new URL("./app/", location.href).href });
   worker.onOutput((text) => console.log(text));
@@ -92,7 +94,7 @@ The page reads for the worker the `edge.json` at `baseUrl`, its imports and what
 - It never sends the cookies of the page.
 - A worker keeps every module it fetched in memory for its lifetime. Repeat runs make no network requests until `clearCache()` empties it.
 
-How an import resolves is on [Modules](/docs/edge-lang/reference/modules).
+How an import resolves is on [Modules](../04-reference/03-modules.mdx).
 
 ## Permissions
 
@@ -106,7 +108,7 @@ const worker = await createWorker({
 });
 ```
 
-The holders and entries a `permissions` section takes are on [System](/docs/edge-lang/reference/system#permissions).
+The holders and entries a `permissions` section takes are on [System](../04-reference/04-system.mdx#permissions).
 
 Grants are the work of `perms`, the grant component the JS host's own bundle wires. A composition without it takes no `permissions`, and `createWorker` rejects them with `permissions need a grant component and this composition wires none`.
 
@@ -135,7 +137,7 @@ listen(composition);
 `make js` bundles the entry as one classic script with `deno bundle --format iife`, and the composition as a module with `--format esm`. A page with a bundle of its own passes both to `createWorker`. It reads the composition only to give the frame its policy, and the modules run in the frame.
 
 ```js
-import { createWorker } from "https://cdn.edgelang.dev/js/src/index.js";
+import { createWorker } from "./js/src/index.js";
 import mine from "./mine/composition.js";
 
 const worker = await createWorker({ bundleUrl: new URL("./mine/bundle.js", location.href).href, composition: mine });
@@ -170,7 +172,7 @@ const worker = await createWorker({ limits: { memory: 512, ops: 1e9 } });
 - A field left out keeps the sandbox value of 256 MB and 100,000,000 operations.
 - The call depth stays fixed at the runtime's recursion limit, 1000 in mini.
 
-Each cap is on [Limits](/docs/edge-lang/sdk/limits).
+Each cap is on [Limits](../02-sdk/12-limits.mdx).
 
 ## Events
 
@@ -193,7 +195,7 @@ A name is whatever the program sends to, so one run can fill several tabs of a p
 
 ## Pause and snapshots
 
-A run can be paused, frozen to a blob and brought back later. What a blob holds and where a run can freeze are on [Snapshots](/docs/edge-lang/sdk/snapshots).
+A run can be paused, frozen to a blob and brought back later. What a blob holds and where a run can freeze are on [Snapshots](../02-sdk/11-snapshots.mdx).
 
 - `setPreemptInterval(n)` makes the VM yield every `n` loop back-edges. It takes effect at the next `run` or `restoreState`. `0` turns preemption off and is the default.
 - `pause()` resolves `true` once the run is parked. It resolves `false` when no run reaches a park, because it already finished or none started.
@@ -210,7 +212,7 @@ A run can be paused, frozen to a blob and brought back later. What a blob holds 
 
 A blob whose magic differs, or whose source length runs past its end, is refused with `not an edge snapshot` before anything boots, and a blob another runtime saved with `snapshot was saved under another runtime` before its source is walked.
 
-A preempt interval lets `pause()` stop a program with no suspension point at all. The type count of [Tokens or a front end](/docs/edge-lang/get-started/book/tokens#one-job-both-ways) reads GH Archive's hour here as the run's input, one event for each `input()`, so nothing in its loop waits.
+A preempt interval lets `pause()` stop a program with no suspension point at all. The type count of [Tokens or a front end](../01-get-started/04-book/02-tokens.mdx#one-job-both-ways) reads GH Archive's hour here as the run's input, one event for each `input()`, so nothing in its loop waits.
 
 ```edge
 // a line names its event's type before anything nested in it
@@ -265,7 +267,7 @@ The page below checkpoints the type count above into Cache Storage every five se
 
 ```html
 <script type="module">
-  import { createWorker } from "https://cdn.edgelang.dev/js/src/index.js";
+  import { createWorker } from "./js/src/index.js";
 
   const worker = await createWorker({ limits: { ops: 1e10 } });
   const store = await caches.open("edge");
@@ -374,7 +376,7 @@ For `net` the `scope` holds the method, host and path of a request, or the host 
 ## See also
 
 > [!CARDS]
-> - `camera` [Snapshots](/docs/edge-lang/sdk/snapshots) What a blob holds and where a run can freeze.
-> - `shield` [System](/docs/edge-lang/reference/system) The net module and the grants a page passes.
-> - `package` [Modules](/docs/edge-lang/reference/modules) How imports resolve and what edge.json declares.
-> - `cpu` [Rust](/docs/edge-lang/platforms/rust) Drive edge.wasm from a Rust host.
+> - `camera` [Snapshots](../02-sdk/11-snapshots.mdx) What a blob holds and where a run can freeze.
+> - `shield` [System](../04-reference/04-system.mdx) The net module and the grants a page passes.
+> - `package` [Modules](../04-reference/03-modules.mdx) How imports resolve and what edge.json declares.
+> - `cpu` [Rust](./04-rust.mdx) Drive edge.wasm from a Rust host.

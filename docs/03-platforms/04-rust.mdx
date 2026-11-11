@@ -5,25 +5,25 @@ description: "Drive edge.wasm from a Rust host through its imports and exports, 
 
 # Rust
 
-A Rust host runs a program by loading `edge.wasm` and calling its exports. It is the same `.wasm` the JS host loads. The host owns all I/O, and the engine decides what a program reaches. A binary can also link the crate and run a runtime with no `.wasm` in between, as [Embedding](/docs/edge-lang/sdk/embedding) covers.
+A Rust host runs a program by loading `edge.wasm` and calling its exports. It is the same `.wasm` the JS host loads. The host owns all I/O, and the engine decides what a program reaches. A binary can also link the crate and run a runtime with no `.wasm` in between, as [Embedding](../02-sdk/09-embedding.mdx) covers.
 
 The `edge` CLI is such a host. It embeds `edge.wasm` precompiled by wasmtime and implements the imports in `cli/src/host/wasm`.
 
 ## Get edge.wasm
 
-There are three sources for the module.
+There are three sources for the module, all of them the repo on GitHub.
 
-- The `edge.wasm` asset of a tagged GitHub Release.
-- `https://cdn.edgelang.dev/edge.wasm`, which follows the current `main`.
+- The `edge.wasm` at the root of `cdn.tar.gz`, the tree a tagged [GitHub Release](https://github.com/dylan-sutton-chavez/edge-lang/releases) attaches.
+- The same file in a clone of the repo at the current `main`.
 - `make wasm`. It builds the reference runtime `mini` as a `cdylib` with the engine's `runtime` feature on.
 
 Vendor the matching `edge.wasm` next to your own sources and pin it by checksum. The CLI pins the modules it downloads the same way.
 
-A release asset is immutable and the CDN path is not. A checksum is the only thing that ties a build to a known engine.
+A release asset is immutable and a branch is not. A checksum is the only thing that ties a build to a known engine.
 
 ### As a crate
 
-A Rust program can instead link the engine as the crate `edge` and run a runtime in its own process, with no `.wasm` in between. Its binary installs the allocator the memory limit reads with `edge::allocator!()`, or a run under a memory limit refuses to start. [Embedding](/docs/edge-lang/sdk/embedding) covers the crate and its features, the `VM` and its limits, the allocator, the run loop and a whole native binary.
+A Rust program can instead link the engine as the crate `edge` and run a runtime in its own process, with no `.wasm` in between. Its binary installs the allocator the memory limit reads with `edge::allocator!()`, or a run under a memory limit refuses to start. [Embedding](../02-sdk/09-embedding.mdx) covers the crate and its features, the `VM` and its limits, the allocator, the run loop and a whole native binary.
 
 ## Imports
 
@@ -36,7 +36,7 @@ A Rust program can instead link the engine as the crate `edge` and run a runtime
 | `host_fetch_bytes` | `(spec_ptr: *const u8, spec_len: u32, hash_ptr: *const u8, out_len: *mut u32) -> *mut u8` | Returns the bytes behind a spec. The walk already puts every manifest in the engine, and the CLI answers with none |
 | `host_send` | `(group_ptr: *const u8, group_len: u32, body_ptr: *const u8, body_len: u32) -> i32` | Hands one line of a named output to the host, an actor group or a channel of its own. Returns `0` when the host takes it, `2` when it refuses it with an error stashed through `host_edge_throw`, which the send raises, and any other value when this host takes none |
 
-A plugin declares its own seven imports, listed in the [ABI](/docs/edge-lang/reference/abi#host-imports). The host forwards six of them to the `host_edge_*` exports below and answers `edge_call_id` itself.
+A plugin declares its own seven imports, listed in the [ABI](../04-reference/06-abi.mdx#host-imports). The host forwards six of them to the `host_edge_*` exports below and answers `edge_call_id` itself.
 
 ## Exports
 
@@ -197,7 +197,7 @@ Code modules, the manifests the compiler resolves names through, and refusals re
 
 ## Snapshots
 
-A parked run freezes to a blob and boots again from it. [Snapshots](/docs/edge-lang/sdk/snapshots) covers what a blob holds.
+A parked run freezes to a blob and boots again from it. [Snapshots](../02-sdk/11-snapshots.mdx) covers what a blob holds.
 
 - **Save.** Drive to a pause, then call `save_state()`. When the result is not negative, read that many bytes at `out_ptr()`. On `-2` the output buffer holds the reason, such as a FOREIGN value whose kind cannot be saved.
 - **Preempt.** With a non-zero `set_preempt_interval`, `run_start` and `run_resume` also return `PREEMPTED`. The run is parked and can be saved. Call `run_resume` to continue, or `save_state()` first.
@@ -228,13 +228,13 @@ A blob is little-endian, self-contained and versioned.
 > [!WARNING]
 > The fingerprint pins each blob to one program and one compiler build, and the identity to one runtime. An engine upgrade invalidates every saved blob.
 
-The serializer is `src/vm/snapshot.rs` in the repo. Its internals are in [Design](/docs/edge-lang/internals/design#snapshots).
+The serializer is `src/vm/snapshot.rs` in the repo. Its internals are in [Design](../05-internals/01-design.mdx#snapshots).
 
 ## See also
 
 > [!CARDS]
-> - `box` [Embedding](/docs/edge-lang/sdk/embedding) The crate, a VM over a runtime and a whole native binary, with no .wasm between.
-> - `plug` [ABI](/docs/edge-lang/reference/abi) The wire contract a plugin follows.
-> - `camera` [Snapshots](/docs/edge-lang/sdk/snapshots) Freezing and resuming a paused run.
-> - `terminal` [CLI](/docs/edge-lang/platforms/cli) The host this page describes, as a binary.
-> - `cog` [Design](/docs/edge-lang/internals/design) How the compiler and VM work inside.
+> - `box` [Embedding](../02-sdk/09-embedding.mdx) The crate, a VM over a runtime and a whole native binary, with no .wasm between.
+> - `plug` [ABI](../04-reference/06-abi.mdx) The wire contract a plugin follows.
+> - `camera` [Snapshots](../02-sdk/11-snapshots.mdx) Freezing and resuming a paused run.
+> - `terminal` [CLI](./01-cli.mdx) The host this page describes, as a binary.
+> - `cog` [Design](../05-internals/01-design.mdx) How the compiler and VM work inside.

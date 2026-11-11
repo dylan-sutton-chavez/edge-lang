@@ -20,8 +20,6 @@ Everything in this repository is in scope, whether the issue is a sandbox escape
 - The JS host in `js/`.
 - The three runtimes in `examples/`, mini, tiny and uptime, with their CLIs, `edge`, `tiny` and `uptime`.
 
-The only exception is the CDN, and the documentation website, which are served infrastructure rather than shipped code.
-
 ## Response
 
 Reports are acknowledged as soon as possible. Fixes land on the main branch and ship in the next release.

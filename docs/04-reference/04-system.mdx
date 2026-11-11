@@ -48,7 +48,7 @@ The root `edge.json` grants each package it imports. Each package passes grants 
 | `main` | The code of the package itself. For the root, every module under the root `edge.json` |
 | `all` | `main` and every package it imports |
 | An import key | The package that key imports |
-| `eval` | Nobody. It caps what a bundle may grant in an [eval group](/docs/edge-lang/platforms/actors#untrusted-code) |
+| `eval` | Nobody. It caps what a bundle may grant in an [eval group](../03-platforms/03-actors.mdx#untrusted-code) |
 
 | Entry | Allows |
 |---|---|
@@ -171,7 +171,7 @@ The check and the request always read the same host and exactly one path. The pa
 | Part | Rule |
 |---|---|
 | Host | It comes right after the scheme, with no user before it. Anything else raises `ValueError` |
-| Characters | No backslash, space or control character anywhere, or `ValueError`. An `@` later in the path stays, as in `https://edgelang.dev/@dylan` |
+| Characters | No backslash, space or control character anywhere, or `ValueError`. An `@` later in the path stays, as in `https://example.com/@dylan` |
 | Non-ASCII host | Raises `ValueError`. Only its punycode form reads the same everywhere |
 | Numeric host | A host ending in a number raises `ValueError` unless it is written `a.b.c.d`. A browser reads `0x7f.1` or `2130706433` as an IPv4 |
 | Dot segments | A `.` or `..` segment is applied however it is spelled. `/v2/%2e%2e/admin` is `/admin`, and a path prefix cannot be climbed out of |
@@ -211,23 +211,23 @@ A path is names joined by slashes below the package, with no `.` or `..` segment
 | `PermissionError` | A path no grant of the package reaches |
 | `OSError` | A file that is missing or fails to read |
 
-An untrusted run in an actor pool reads only below the pool's `edge.json`, within what the pool grants `eval`. A package other than the root writes a file channel only below its own directory, where its `files` grant reaches, and the root writes one without a grant. A tiny flow whose `from` names a path reads it through this module, as [Tiny](/docs/edge-lang/get-started/use-cases/tiny#sources-and-sinks) shows.
+An untrusted run in an actor pool reads only below the pool's `edge.json`, within what the pool grants `eval`. A package other than the root writes a file channel only below its own directory, where its `files` grant reaches, and the root writes one without a grant. A tiny flow whose `from` names a path reads it through this module, as [Tiny](../01-get-started/03-use-cases/03-tiny.mdx#sources-and-sinks) shows.
 
 ```rust file=cli/src/files.rs
 ```
 
 ## From a plugin
 
-A `.wasm` plugin reaches these calls through the `Sys` op of the [ABI](/docs/edge-lang/reference/abi#system-calls), with the grants of its package.
+A `.wasm` plugin reaches these calls through the `Sys` op of the [ABI](./06-abi.mdx#system-calls), with the grants of its package.
 
 ## In a page
 
-A page passes grants and a trace switch to `createWorker`, described in [JavaScript](/docs/edge-lang/platforms/javascript#permissions). A bundle of its own serves other host modules beside `net` or in its place, described in [Compose a host](/docs/edge-lang/platforms/javascript#compose-a-host).
+A page passes grants and a trace switch to `createWorker`, described in [JavaScript](../03-platforms/02-javascript.mdx#permissions). A bundle of its own serves other host modules beside `net` or in its place, described in [Compose a host](../03-platforms/02-javascript.mdx#compose-a-host).
 
 ## See also
 
 > [!CARDS]
-> - `package` [Modules](/docs/edge-lang/reference/modules) The edge.json of each package and where it sits.
-> - `triangle-alert` [Limits](/docs/edge-lang/sdk/limits) The sandbox limits every host call runs under.
-> - `globe` [JavaScript](/docs/edge-lang/platforms/javascript) Grants and the trace of a page.
-> - `plug` [ABI](/docs/edge-lang/reference/abi#system-calls) Host calls from a plugin.
+> - `package` [Modules](./03-modules.mdx) The edge.json of each package and where it sits.
+> - `triangle-alert` [Limits](../02-sdk/12-limits.mdx) The sandbox limits every host call runs under.
+> - `globe` [JavaScript](../03-platforms/02-javascript.mdx) Grants and the trace of a page.
+> - `plug` [ABI](./06-abi.mdx#system-calls) Host calls from a plugin.

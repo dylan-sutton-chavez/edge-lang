@@ -5,7 +5,7 @@ description: "The kernels a runtime names in its own tables, grouped by capabili
 
 # Lib
 
-`lib` holds the natives a runtime would otherwise write itself, as kernels with no name and no words of their own. A runtime picks the modules it needs by Cargo feature, gives each kernel its name in a table with `lib::table!`, and makes every choice a kernel leaves open through its [`Language`](/docs/edge-lang/sdk/language) and lib's `Lang` trait. Mini names every kernel of lib but the `data` readers and writers, `seq::top` and `date::part`, under the names its corpus calls. Tiny names a few, mostly under the names mini gives them.
+`lib` holds the natives a runtime would otherwise write itself, as kernels with no name and no words of their own. A runtime picks the modules it needs by Cargo feature, gives each kernel its name in a table with `lib::table!`, and makes every choice a kernel leaves open through its [`Language`](./04-language.mdx) and lib's `Lang` trait. Mini names every kernel of lib but the `data` readers and writers, `seq::top` and `date::part`, under the names its corpus calls. Tiny names a few, mostly under the names mini gives them.
 
 Uptime's table is the smallest use of lib in the repo, four entries in the 23 lines of `examples/uptime/src/natives.rs`, each giving one kernel the name a check calls. Its first argument is the runtime whose choices the four kernels follow.
 
@@ -72,7 +72,7 @@ Tiny registers no `part` kernel. Its own natives `hours_between`, `minutes_betwe
 
 The macro writes a `Site` for each entry, the runtime and the name and parameter names that entry gives. The kernel reads them at compile time. A table that names more positionals than its kernel takes fails to compile, and so does one that names some of the kernel's keyword slots and not all of them.
 
-The tables go to `edge::natives!`, as functions under `fns` and as the methods of a kind under `methods`. Both runtimes do it in their `lib.rs`, shown on [Front ends](/docs/edge-lang/sdk/front-ends), and the lookups are built at compile time, so a table costs nothing at boot. Mini's tables and tiny's follow side by side.
+The tables go to `edge::natives!`, as functions under `fns` and as the methods of a kind under `methods`. Both runtimes do it in their `lib.rs`, shown on [Front ends](./14-front-ends.mdx), and the lookups are built at compile time, so a table costs nothing at boot. Mini's tables and tiny's follow side by side.
 
 ```rust file=examples/mini/src/natives.rs
 ```
@@ -130,7 +130,7 @@ Past the type errors the engine names itself, `Class` sorts a failure into `Valu
 
 ## What lib answers
 
-The engine asks a runtime a few questions past its natives through its `Language`, and lib answers them by the runtime's choices. A runtime writes lib's answers as the parts of its language, as [The trait](/docs/edge-lang/sdk/language#the-trait) lists with what the engine reads of each.
+The engine asks a runtime a few questions past its natives through its `Language`, and lib answers them by the runtime's choices. A runtime writes lib's answers as the parts of its language, as [The trait](./04-language.mdx#the-trait) lists with what the engine reads of each.
 
 | Item | Lib's answer | Mini | Tiny |
 |---|---|---|---|
@@ -142,7 +142,7 @@ The engine asks a runtime a few questions past its natives through its `Language
 | `BUILT` | The slice kind `seq::slice::<L>` and the ellipsis kind `types::dots::<L>` the engine builds | Yes | Yes |
 
 > [!CARDS]
-> - `activity` [Your runtime and its CLI](/docs/edge-lang/get-started/use-cases/your-runtime) A runtime and its CLI built end to end on the kit.
-> - `blocks` [Front ends](/docs/edge-lang/sdk/front-ends) How tiny's lib.rs hands its tables and its language to the engine.
-> - `braces` [Parser kit](/docs/edge-lang/sdk/parser-kit) The token tables that spell how a program calls these natives.
-> - `camera` [Snapshots](/docs/edge-lang/sdk/snapshots) What a restore needs of the kinds lib boxes values in.
+> - `activity` [Your runtime and its CLI](../01-get-started/03-use-cases/01-your-runtime.mdx) A runtime and its CLI built end to end on the kit.
+> - `blocks` [Front ends](./14-front-ends.mdx) How tiny's lib.rs hands its tables and its language to the engine.
+> - `braces` [Parser kit](./07-parser-kit.mdx) The token tables that spell how a program calls these natives.
+> - `camera` [Snapshots](./11-snapshots.mdx) What a restore needs of the kinds lib boxes values in.

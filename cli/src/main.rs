@@ -12,10 +12,10 @@ fn edge() -> Kit {
     let runtime = unsafe { Runtime::precompiled(EDGE_WASM, EDGE_CWASM, &mini::DESCRIPTOR) };
     Kit::new("edge", env!("CARGO_PKG_VERSION"), runtime)
         .title(format!("The Edge Lang developer CLI for {}", mini::DESCRIPTOR.language))
-        .site("edgelang.dev")
+        .site("github.com/dylan-sutton-chavez/edge-lang")
         .origin("https://cdn.edgelang.dev")
         .registry("https://edgelang.dev")
-        .upgrade("curl -fsSL https://cdn.edgelang.dev/cli/install.sh | sh")
+        .upgrade("git pull in your edge-lang clone, then make wasm-cli js lucide and cargo install --path cli")
         .command(run::Run)
         .command(build::Build)
         .command(actors::Actor)

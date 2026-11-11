@@ -7,9 +7,9 @@ description: "The edge CLI, from a project's first file to its modules, plugins,
 
 The `edge` CLI runs programs on mini, the reference runtime, on macOS, Linux and WSL. It embeds `edge.wasm`, the engine and mini built from the same source the JS host loads, precompiled for the machine.
 
-`edge` is the composition of the [CLI kit](/docs/edge-lang/sdk/cli) that wires every command below. A runtime of your own gets a CLI from the same kit, as [Your runtime and its CLI](/docs/edge-lang/get-started/use-cases/your-runtime) shows.
+`edge` is the composition of the [CLI kit](../02-sdk/16-cli.mdx) that wires every command below. A runtime of your own gets a CLI from the same kit, as [Your runtime and its CLI](../01-get-started/03-use-cases/01-your-runtime.mdx) shows.
 
-The CLI serves [net](/docs/edge-lang/reference/system#net) in Rust and the browser serves it in TypeScript, and one suite of cases holds both to the same answers. A program answers the same on both hosts.
+The CLI serves [net](../04-reference/04-system.mdx#net) in Rust and the browser serves it in TypeScript, and one suite of cases holds both to the same answers. A program answers the same on both hosts.
 
 ```bash
 edge run main.mini                     # run a script or a .edge or stdin (--web)
@@ -18,7 +18,7 @@ edge actor actor.yml                   # run a pool of cooperative actors
 edge serve                             # dev server with live reload
 edge test                              # run *_test.mini files
 edge init my-app                       # scaffold a project
-edge publish app.edge                  # send a packed .edge to the registry
+edge publish app.edge                  # send a packed .edge to a registry
 edge add slugify=./slugify_mod.wasm    # add a module to edge.json
 edge remove slugify                    # remove a module from edge.json
 edge lock                              # resolve edge.json into edge.lock
@@ -27,32 +27,23 @@ edge uninstall                         # remove the binary and the PATH entry
 
 ## Install
 
-The prebuilt binary is the recommended install.
+The CLI builds from a clone of [the repo on GitHub](https://github.com/dylan-sutton-chavez/edge-lang).
 
 ```bash
-curl -fsSL https://cdn.edgelang.dev/cli/install.sh | sh
-```
-
-- The script drops the binary at `~/.local/bin/edge`.
-- It checks the archive against the sha256 published beside it before it extracts anything, and `EDGE_INSTALL_SHA256` pins a digest you already hold.
-- It appends that directory to your `~/.bashrc` or `~/.zshrc` unless it is already there.
-- Open a new shell and `edge --version` answers.
-- Run the same line again to upgrade.
-- The Linux binaries are static and run on any distribution.
-
-To install one release instead of the latest, pass its tag to the script with `sh -s vX.Y.Z`. Every release from 1.0 on keeps a frozen copy of itself on the CDN. A pinned install and a downgrade read that copy.
-
-To build from source, run these two lines at the repo root.
-
-```bash
+git clone https://github.com/dylan-sutton-chavez/edge-lang
+cd edge-lang
 make wasm-cli js lucide
 cargo install --path cli
 ```
 
+- `rust-toolchain.toml` pins the Rust toolchain and its wasm target, and rustup fetches both on the first build.
 - `make js` and `make lucide` run Deno, and `make lucide` fetches the icon names Lucide publishes over the network.
-- `cargo install` embeds what `make wasm-cli js lucide` built and fetches nothing.
+- `cargo install` embeds what `make wasm-cli js lucide` built and fetches nothing. It puts `edge` in `~/.cargo/bin`.
 - `EDGE_WASM` points the build at another `edge.wasm`.
+- To upgrade, run `git pull` and the last two lines again.
 - The full setup is in `CONTRIBUTING.md` at the root of the repo.
+
+A tagged release on [GitHub Releases](https://github.com/dylan-sutton-chavez/edge-lang/releases) also attaches `cdn.tar.gz`, the tree of that release's builds. Its `cli/` folder holds a prebuilt `edge-<target>.tar.gz` for macOS and Linux, and the Linux binaries are static.
 
 ## A project
 
@@ -86,7 +77,7 @@ The manifest starts with one field.
 }
 ```
 
-The `edge` field is the lowest engine the project runs on, the version of the CLI that made it, and an older CLI refuses to run the project. Nothing else resolves until you declare it. [edge.json](/docs/edge-lang/reference/modules#edgejson) describes every field.
+The `edge` field is the lowest engine the project runs on, the version of the CLI that made it, and an older CLI refuses to run the project. Nothing else resolves until you declare it. [edge.json](../04-reference/03-modules.mdx#edgejson) describes every field.
 
 ### Add a plugin
 
@@ -108,7 +99,7 @@ $ edge add slugify=./slugify_mod.wasm
 }
 ```
 
-A URL works the same way, as `edge add slugify=<url>`, and `edge lock` then pins the digest of the bytes it serves. [Plugins](/docs/edge-lang/sdk/plugins) covers writing one.
+A URL works the same way, as `edge add slugify=<url>`, and `edge lock` then pins the digest of the bytes it serves. [Plugins](../02-sdk/15-plugins.mdx) covers writing one.
 
 ### Split it into modules
 
@@ -138,7 +129,7 @@ edge-in-five-minutes
 your-runtime-and-its-cli
 ```
 
-A test can import the same function without running the script. [Modules](/docs/edge-lang/reference/modules) lists every form an import takes.
+A test can import the same function without running the script. [Modules](../04-reference/03-modules.mdx) lists every form an import takes.
 
 ### Lock it
 
@@ -188,7 +179,7 @@ error: AssertionError
 
 The command exits with 0 when every file passes and 1 when one fails. [edge test](#edge-test) covers the other exit codes and `--web`.
 
-### Build and publish it
+### Build it
 
 `edge build` packs the project and everything it imports into one artifact.
 
@@ -203,24 +194,7 @@ $ edge build
 
 `app.edge` holds the three scripts, the manifest, the lock and the plugin, and it runs on any machine with `edge` installed. `edge build --app` writes a standalone binary instead, and `edge build --web` a folder any browser runs.
 
-The registry reads the name, the version and a one line description from the manifest inside the artifact. Add them to `edge.json` and build again.
-
-```json
-{
-  "name": "slugs",
-  "version": "0.1.0",
-  "description": "Turn the titles of posts into URL slugs.",
-  "edge": "0.9.7",
-  "imports": {
-    "slugify": "./slugify_mod.wasm"
-  }
-}
-```
-
-A name is first come and permanent, so pick one nobody holds yet. Create a token in the settings of your account at `edgelang.dev/settings`, export it as `EDGE_TOKEN` and run `edge publish app.edge`. [Package fields](/docs/edge-lang/reference/registry#package-fields) lists the rules for each field.
-
-> [!WARNING]
-> A published version is never overwritten. Raise `version` in `edge.json` and build again before each new release.
+A package also carries a name, a version and a one line description in its `edge.json`, which [Package fields](../04-reference/07-registry.mdx#package-fields) lists.
 
 ## edge run
 
@@ -249,7 +223,7 @@ A run reads piped stdin while the runtime loads, so a pipe a writer holds open w
 
 ### Named outputs
 
-`send(channel, line)` writes one line to a named output, and outside an [actor pool](/docs/edge-lang/platforms/actors) the host serves those names itself, in order with what the run prints. A name prints its lines under its own name, and a name that starts with `file:` writes the rest of the name as a file in the directory the run started in, made fresh at its first line. A name holding `..` or an absolute path is refused before anything is written. Only the root package writes a file channel without a grant, and another package writes only below its own directory, where its `files` grant reaches. An eval run in a pool cannot send at all.
+`send(channel, line)` writes one line to a named output, and outside an [actor pool](./03-actors.mdx) the host serves those names itself, in order with what the run prints. A name prints its lines under its own name, and a name that starts with `file:` writes the rest of the name as a file in the directory the run started in, made fresh at its first line. A name holding `..` or an absolute path is refused before anything is written. Only the root package writes a file channel without a grant, and another package writes only below its own directory, where its `files` grant reaches. An eval run in a pool cannot send at all.
 
 ```text
 $ tiny run github-hour.flow.yaml
@@ -259,17 +233,17 @@ busy_branches
 {"repo":{"name":"TheCak3/Learning-plan-Math-KSU"},"branch":"main","count":15}
 ```
 
-That run is `tiny`, the CLI of [Tiny](/docs/edge-lang/get-started/use-cases/tiny), which composes the same `run` command, so named outputs read alike under both binaries. Its flow also names `activity.csv`, which lands in the directory the run started in.
+That run is `tiny`, the CLI of [Tiny](../01-get-started/03-use-cases/03-tiny.mdx), which composes the same `run` command, so named outputs read alike under both binaries. Its flow also names `activity.csv`, which lands in the directory the run started in.
 
 ### Run flags
 
 | Flag | Effect |
 |---|---|
 | `--events <f>` | Each line of the file or FIFO feeds one `receive()`. End of input parks the script. |
-| `--save-state <f>` | On a wait the engine cannot serve, write a [snapshot](/docs/edge-lang/sdk/snapshots) to the file and exit 0. |
+| `--save-state <f>` | On a wait the engine cannot serve, write a [snapshot](../02-sdk/11-snapshots.mdx) to the file and exit 0. |
 | `--restore-state <f>` | Boot from a snapshot instead of a script and keep running. An unreadable file exits 2. |
 | `--preempt <n>` | Yield every `n` loop back-edges and resume. A program with no suspension point stays snapshottable. |
-| `--memory <MB>` | Memory the run may hold, 256 by default. See [Limits](/docs/edge-lang/sdk/limits#sandboxed-execution). |
+| `--memory <MB>` | Memory the run may hold, 256 by default. See [Limits](../02-sdk/12-limits.mdx#sandboxed-execution). |
 | `--ops <n>` | Operations the run may spend, 100 million by default. |
 | `--web` | Run on the browser host in headless Chrome instead of the native engine. |
 
@@ -288,10 +262,10 @@ That run is `tiny`, the CLI of [Tiny](/docs/edge-lang/get-started/use-cases/tiny
 
 ### Module resolution
 
-Every run happens under the [sandbox limits](/docs/edge-lang/sdk/limits).
+Every run happens under the [sandbox limits](../02-sdk/12-limits.mdx).
 
-- A bare import resolves through [`edge.json`](/docs/edge-lang/reference/modules#edgejson). Declare it with `edge add` and resolve it with `edge lock` first.
-- A declared version resolves through the [`edge.lock`](/docs/edge-lang/reference/modules#edgelock) beside the manifest that declared it.
+- A bare import resolves through [`edge.json`](../04-reference/03-modules.mdx#edgejson). Declare it with `edge add` and resolve it with `edge lock` first.
+- A declared version resolves through the [`edge.lock`](../04-reference/03-modules.mdx#edgelock) beside the manifest that declared it.
 - A relative import loads from disk relative to the importing file.
 - A dotted import loads from the nearest `edge.json` directory.
 
@@ -315,7 +289,7 @@ Each module below fails at compile time, at the import that names it. ` (via <im
 | A `.so` or `.dylib` | `module 'fastmath' is not supported, ship a .wasm` |
 | A `.wasm` that does not load | `module 'fastmath' is not a valid plugin, <reason>` |
 | A `.js` or `.mjs` | `module 'charts' is JavaScript, ship a .mini or a .wasm` |
-| A plugin, or a URL off the official CDN, in an [eval group](/docs/edge-lang/platforms/actors#untrusted-code) | `module 'fastmath' is not available to untrusted eval runs` |
+| A plugin, or a URL off the composition's origin, in an [eval group](./03-actors.mdx#untrusted-code) | `module 'fastmath' is not available to untrusted eval runs` |
 
 ## edge serve
 
@@ -382,7 +356,7 @@ $ edge init my-app
 
 ## edge add and edge remove
 
-Edits [`edge.json`](/docs/edge-lang/reference/modules#edgejson) by name, so a registry package never needs its URL pasted. Each line prints the name and what it wrote.
+Edits [`edge.json`](../04-reference/03-modules.mdx#edgejson) by name, so a registry package never needs its URL pasted. Each line prints the name and what it wrote.
 
 ```text
 $ edge add slugify=./slugify_mod.wasm
@@ -393,7 +367,7 @@ $ edge add slugify=./slugify_mod.wasm
 
 | Form | Writes |
 |---|---|
-| `edge add <name>` | The newest version of that package in the registry |
+| `edge add <name>` | The newest version of that package in the registry the composition names |
 | `edge add <name>@0.1.0` | That version |
 | `edge add <name>=<url>` | That URL or path |
 
@@ -409,7 +383,7 @@ $ edge add slugify=./slugify_mod.wasm
 
 Turns each version `edge.json` declares into the URL and digest of that release.
 
-It writes them to [`edge.lock`](/docs/edge-lang/reference/modules#edgelock) beside the manifest, with a line per package it resolved. Commit the lock. Every other command reads it.
+It writes them to [`edge.lock`](../04-reference/03-modules.mdx#edgelock) beside the manifest, with a line per package it resolved. Commit the lock. Every other command reads it.
 
 - This is the only command that asks a registry where a name points.
 - It rebuilds the whole lock each time. Run it again after editing `edge.json` to bring the two back in step.
@@ -438,42 +412,30 @@ Packs the project and its imports into one artifact.
 - A `.edge` and an app binary carry the `README.md` and any `LICENSE` at the project root.
 - A `.edge` carries the pages when `edge.json` declares a `docs` directory. They sit under a reserved `@docs/` prefix no import can reach.
 
-Pages must follow the [package docs](/docs/edge-lang/reference/registry#package-docs) convention, or the build fails.
+Pages must follow the [package docs](../04-reference/07-registry.mdx#package-docs) convention, or the build fails.
 
 ## edge publish
 
-Uploads a `.edge` packed by `edge build`. Set `EDGE_TOKEN` first to a token from the settings of your account at `edgelang.dev/settings`.
+Uploads a `.edge` packed by `edge build` to the registry the composition names with `registry(r)` in the [CLI kit](../02-sdk/16-cli.mdx). Set `EDGE_TOKEN` first to a token that registry issued.
 
-```text
-$ export EDGE_TOKEN=edge_pat_...
-$ edge publish app.edge
-  (successful) published slugs 0.1.0
-
-  add it with  edge add slugs
-
-  https://cdn.edgelang.dev/pkg/slugs/0.1.0/app.edge
-```
+> [!COPY] edge publish app.edge
 
 - The artifact is the whole request. The name and version come from the manifest inside it.
 - The CLI signs each publish with the token rather than sending it. The token never leaves your machine.
 - A bundle that carries a `.js` or `.mjs` file is refused before it is sent.
 - Publishing a version that already exists exits 2 instead of 1. A script can tell it apart from a failure.
 
-What the registry reads, the naming rules, the quotas and the signing are in [Publishing](/docs/edge-lang/reference/registry#publishing).
+What the registry reads, the naming rules and the signing are in [Publishing](../04-reference/07-registry.mdx#publishing).
 
 ## edge actor
 
-Runs many programs as cooperative actors over a few threads, described by an `actor.yml`. The manifest, the groups, the server and untrusted code are in [Actors](/docs/edge-lang/platforms/actors).
+Runs many programs as cooperative actors over a few threads, described by an `actor.yml`. The manifest, the groups, the server and untrusted code are in [Actors](./03-actors.mdx).
 
 > [!COPY] edge actor actor.yml
 
 ## edge uninstall
 
-Removes the binary and its `PATH` entry. The script below does the same without asking.
-
-```bash
-curl -fsSL https://cdn.edgelang.dev/cli/uninstall.sh | sh
-```
+Removes the `edge` binary from the folder it runs from, its cache and any `PATH` entry for that folder in your `~/.bashrc` or `~/.zshrc`.
 
 ## Global flags
 

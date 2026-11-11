@@ -5,7 +5,7 @@ description: "How a runtime with a surface of its own reaches the engine through
 
 # Front ends
 
-A runtime hands the engine its sources through a `Front`. A runtime whose programs are text a token table spells writes one line, `Front::spelled::<Mini>()`, and the [parser kit](/docs/edge-lang/sdk/parser-kit) reads every source. A runtime with a surface of its own reads its sources itself and builds the program through a `Builder`, which emits the bytecode the parser emits. The expressions inside such a program still go through the kit's parser, read through a token table the runtime brings.
+A runtime hands the engine its sources through a `Front`. A runtime whose programs are text a token table spells writes one line, `Front::spelled::<Mini>()`, and the [parser kit](./07-parser-kit.mdx) reads every source. A runtime with a surface of its own reads its sources itself and builds the program through a `Builder`, which emits the bytecode the parser emits. The expressions inside such a program still go through the kit's parser, read through a token table the runtime brings.
 
 Tiny is the example. A tiny program is a YAML flow over records, and its front end is four files of `examples/tiny/src`.
 
@@ -138,7 +138,7 @@ report pushes, sum at line 7: WrongType, cannot add text to a total of numbers
 The engine's own suite holds a smaller front end in `tests/front.rs`. It reads lines led by a word through mini's table, runs what it builds, and spells a table that reads `a.b` as a key.
 
 > [!CARDS]
-> - `activity` [Your runtime and its CLI](/docs/edge-lang/get-started/use-cases/your-runtime) A runtime and its CLI built end to end on the kit.
-> - `braces` [Parser kit](/docs/edge-lang/sdk/parser-kit) The grammar a token table spells, which expressions are read through.
-> - `library` [Lib](/docs/edge-lang/sdk/lib) The kernels tiny names in its tables, and the JSON and CSV readers its own natives call.
-> - `plug` [Plugins](/docs/edge-lang/sdk/plugins) The net plugin a flow reads its source through.
+> - `activity` [Your runtime and its CLI](../01-get-started/03-use-cases/01-your-runtime.mdx) A runtime and its CLI built end to end on the kit.
+> - `braces` [Parser kit](./07-parser-kit.mdx) The grammar a token table spells, which expressions are read through.
+> - `library` [Lib](./06-lib.mdx) The kernels tiny names in its tables, and the JSON and CSV readers its own natives call.
+> - `plug` [Plugins](./15-plugins.mdx) The net plugin a flow reads its source through.

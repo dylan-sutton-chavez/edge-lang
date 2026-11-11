@@ -22,7 +22,7 @@ The table has three parts, and an op's byte is its place in them.
 
 `OpCode::ALL` holds the 178 ops of the first two parts, so `ALL[b]` is the op of byte `b`, and `OpCode::EVERY` holds all 202. Two of the stack ops, `And` and `Or`, are never in compiled code, since the parser writes both as jumps.
 
-A stack instruction is a 4-byte record of an op and a 16-bit operand, as [Bytecode model](/docs/edge-lang/internals/compiler#bytecode-model) shows. A register instruction holds an op, a flag byte `x` and three 16-bit operands `a`, `b` and `c`, as [Dispatch shape](/docs/edge-lang/internals/design#dispatch-shape) describes. `OpR`, `UnaryR`, `BuildR` and `RowsR` carry a stack op in `x`, so one register form serves every stack op it runs over registers. `RuntimeOp` and its register form `RuntimeR` carry an op of the runtime's own table the same way, in the low byte of the operand and in `x`, as [A runtime's own opcodes](#a-runtimes-own-opcodes) shows.
+A stack instruction is a 4-byte record of an op and a 16-bit operand, as [Bytecode model](../05-internals/02-compiler.mdx#bytecode-model) shows. A register instruction holds an op, a flag byte `x` and three 16-bit operands `a`, `b` and `c`, as [Dispatch shape](../05-internals/01-design.mdx#dispatch-shape) describes. `OpR`, `UnaryR`, `BuildR` and `RowsR` carry a stack op in `x`, so one register form serves every stack op it runs over registers. `RuntimeOp` and its register form `RuntimeR` carry an op of the runtime's own table the same way, in the low byte of the operand and in `x`, as [A runtime's own opcodes](#a-runtimes-own-opcodes) shows.
 
 ## Columns
 
@@ -80,7 +80,7 @@ The arms of the simple register forms come from the `fast` column. `run_regs` ha
 
 ## The hash
 
-`OpCode::HASH` covers every column of every row in order, so any change to the table changes it, and `tests/tables.rs` computes it again apart from the macro. The identity a snapshot records hashes it with the hash of the runtime's own table, so a host refuses a blob another table saved before it parses the blob's source, as [Snapshots](/docs/edge-lang/sdk/snapshots) lists. The fingerprint of the compiled program holds it too.
+`OpCode::HASH` covers every column of every row in order, so any change to the table changes it, and `tests/tables.rs` computes it again apart from the macro. The identity a snapshot records hashes it with the hash of the runtime's own table, so a host refuses a blob another table saved before it parses the blob's source, as [Snapshots](./11-snapshots.mdx) lists. The fingerprint of the compiled program holds it too.
 
 ## How it is checked
 
@@ -97,7 +97,7 @@ The arms of the simple register forms come from the `fast` column. `run_regs` ha
 
 ## A runtime's own opcodes
 
-A runtime declares opcodes of its own with the same macro, as a table with one part named `own`, and names it as `Language::Ops`. `tests/ops.rs` declares `Clamp`, which clamps a value between two bounds, for a runtime over mini's natives. [Opcodes](/docs/edge-lang/get-started/book/opcodes) in the book covers why a runtime adds one, what it costs and what `Clamp` saved on a job over the GH Archive hour.
+A runtime declares opcodes of its own with the same macro, as a table with one part named `own`, and names it as `Language::Ops`. `tests/ops.rs` declares `Clamp`, which clamps a value between two bounds, for a runtime over mini's natives. [Opcodes](../01-get-started/04-book/06-opcodes.mdx) in the book covers why a runtime adds one, what it costs and what `Clamp` saved on a job over the GH Archive hour.
 
 ```rust file=tests/ops.rs
 ```
@@ -136,7 +136,7 @@ Clamp was measured on 26 October 2026 in wasm instructions, in a runtime of mini
 A call of constants folds to its value as the program compiles, so it costs nothing at run time, unless the program binds the op's name somewhere and every call of it runs that binding. The second loop a runtime with ops builds makes its wasm about 107 KB larger before wasm-opt, 109,597 bytes for this one.
 
 > [!CARDS]
-> - `cpu` [Design](/docs/edge-lang/internals/design) The register loop, the lowering and the sections the forms of this table run in.
-> - `braces` [Compiler](/docs/edge-lang/internals/compiler) The parser that emits the stack ops and the instruction they are encoded in.
-> - `sliders-horizontal` [Language](/docs/edge-lang/sdk/language) The trait whose `Ops` names a runtime's own table.
-> - `book-open` [Opcodes](/docs/edge-lang/get-started/book/opcodes) The book's chapter on why a runtime adds an opcode and what `Clamp` saved on a real job.
+> - `cpu` [Design](../05-internals/01-design.mdx) The register loop, the lowering and the sections the forms of this table run in.
+> - `braces` [Compiler](../05-internals/02-compiler.mdx) The parser that emits the stack ops and the instruction they are encoded in.
+> - `sliders-horizontal` [Language](./04-language.mdx) The trait whose `Ops` names a runtime's own table.
+> - `book-open` [Opcodes](../01-get-started/04-book/06-opcodes.mdx) The book's chapter on why a runtime adds an opcode and what `Clamp` saved on a real job.

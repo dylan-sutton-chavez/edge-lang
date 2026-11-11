@@ -9,9 +9,9 @@ The engine has no functions of its own. Its bytecode holds the operators, the co
 
 ## Why the engine asks
 
-The engine needs a runtime's natives when it compiles, not only when it runs. The parser binds each call of a native's name to that native, as one `CallNative` that names its place in the table, so a call costs no lookup by name while the program runs. That is why the type that hands the parser a token table also hands it the natives, as the last lines of uptime's table on [Parser kit](/docs/edge-lang/sdk/parser-kit#a-table-field-by-field) do. A name the program binds itself wins over a native of the same name, whether a parameter, an assignment or an import binds it.
+The engine needs a runtime's natives when it compiles, not only when it runs. The parser binds each call of a native's name to that native, as one `CallNative` that names its place in the table, so a call costs no lookup by name while the program runs. That is why the type that hands the parser a token table also hands it the natives, as the last lines of uptime's table on [Parser kit](../../02-sdk/07-parser-kit.mdx#a-table-field-by-field) do. A name the program binds itself wins over a native of the same name, whether a parameter, an assignment or an import binds it.
 
-A method is a native too, registered on a kind. `line.find(..)` in the type count of [the last chapter](/docs/edge-lang/get-started/book/tokens#one-job-both-ways) looks `find` up among the methods of the kind its receiver has, once for the call site, which then keeps what it found. A runtime that registers no methods, as uptime does, leaves a name after a dot to its other rules, so `page.body.status` reads keys of a map.
+A method is a native too, registered on a kind. `line.find(..)` in the type count of [the last chapter](./02-tokens.mdx#one-job-both-ways) looks `find` up among the methods of the kind its receiver has, once for the call site, which then keeps what it found. A runtime that registers no methods, as uptime does, leaves a name after a dot to its other rules, so `page.body.status` reads keys of a map.
 
 ## A kernel of lib
 
@@ -30,9 +30,9 @@ error: WrongType: a value of kind int cannot report a size
   | ^
 ```
 
-That ran on 25 October 2026 in `examples/uptime/checks`, beside the `http.up` helper and the grants the checks hold. Mini names the same kernel `len`, and `len(200)` in mini fails with `TypeError: object of type 'int' has no len()`. Neither text is the kernel's. `seq::len` stands for the engine's own length operation, so the engine refuses a value with no length itself, as an `EngineError` the runtime words under the class it names for a type error. Mini's words name the native as mini calls it, and uptime takes the engine's plain words. A failure of the kernel itself takes its class and its words from the runtime's `Lang`, as [Lib](/docs/edge-lang/sdk/lib#failures-and-their-words) shows.
+That ran on 25 October 2026 in `examples/uptime/checks`, beside the `http.up` helper and the grants the checks hold. Mini names the same kernel `len`, and `len(200)` in mini fails with `TypeError: object of type 'int' has no len()`. Neither text is the kernel's. `seq::len` stands for the engine's own length operation, so the engine refuses a value with no length itself, as an `EngineError` the runtime words under the class it names for a type error. Mini's words name the native as mini calls it, and uptime takes the engine's plain words. A failure of the kernel itself takes its class and its words from the runtime's `Lang`, as [Lib](../../02-sdk/06-lib.mdx#failures-and-their-words) shows.
 
-What a runtime may choose for each entry of its table is in [Lib](/docs/edge-lang/sdk/lib#a-table).
+What a runtime may choose for each entry of its table is in [Lib](../../02-sdk/06-lib.mdx#a-table).
 
 - **Which kernels.** Lib's modules are Cargo features, and a runtime's `.wasm` holds only the modules it turns on. Uptime turns on five.
 - **Their names, and the names of their parameters.** A keyword may fill a positional the table names, and a kernel's keyword slots take the names the table gives them.
@@ -93,7 +93,7 @@ A call of a native runs through the same few steps whatever the runtime.
 - **Its arguments bind first.** Positionals and keywords bind to the native's `Sig`, the names its table gave the parameters included. A call that does not fit fails before the body runs, in the words of the runtime's `misfit`, which mini and tiny write and uptime leaves to the engine.
 - **Small calls skip the call.** A native with a fast path answers one or two plain arguments straight from the heap, as `len` of a list does, and a `print` of numbers and texts writes its line with no call, in a runtime that shows them the way lib does by default. A call that is a whole statement keeps no value.
 - **Four kernels stand for the engine's own operations.** `seq::len`, `iter::range`, `iter::next` and `types::is_a` are the ones the engine reaches when it needs that operation itself. A kit range `a..b` builds through the runtime's range kernel, the lowering turns a call of the length kernel into a register form of its own, and a value with no length is refused in that kernel's name, as `size()` was above.
-- **Program code runs as steps.** A native that needs program code run, such as the key function `sorted` called in the type count, returns a `Step` in place of calling it. The engine runs that code as frames of the same loop, so a callback is metered and limited as any other code is. A native that waits for its host returns `Step::Wait`, as [Host waits](/docs/edge-lang/sdk/host-waits#a-native-that-waits) shows.
+- **Program code runs as steps.** A native that needs program code run, such as the key function `sorted` called in the type count, returns a `Step` in place of calling it. The engine runs that code as frames of the same loop, so a callback is metered and limited as any other code is. A native that waits for its host returns `Step::Wait`, as [Host waits](../../02-sdk/10-host-waits.mdx#a-native-that-waits) shows.
 
 ## What a native pays
 
@@ -107,7 +107,7 @@ That is why the type count of the last chapter needed `--ops`. Each program was 
 | Mini's loop alone, cutting the hour into lines with `+` and `split` | about 198 million |
 | Tiny's flow, which reads every record in full through lib's line and JSON readers | about 179 million |
 
-The hour is 89.4 MB inflated. Mini's program pays for each byte about four times, once to join a chunk to the rest of the last one, once to split it and twice in the two `find` calls on its line. Tiny's flow pays about twice, once to cut its lines and once to read each line as JSON, so it pays less while it reads every field of every record. Where the work happens matters more than how much of it there is, and a runtime decides that when it chooses what to name. [Tiny](/docs/edge-lang/get-started/use-cases/tiny#at-scale) measures a wider gap on the whole job in wasm instructions, about 150,000 for each record in tiny and 2.6 million in mini, whose job reads its JSON in mini.
+The hour is 89.4 MB inflated. Mini's program pays for each byte about four times, once to join a chunk to the rest of the last one, once to split it and twice in the two `find` calls on its line. Tiny's flow pays about twice, once to cut its lines and once to read each line as JSON, so it pays less while it reads every field of every record. Where the work happens matters more than how much of it there is, and a runtime decides that when it chooses what to name. [Tiny](../03-use-cases/03-tiny.mdx#at-scale) measures a wider gap on the whole job in wasm instructions, about 150,000 for each record in tiny and 2.6 million in mini, whose job reads its JSON in mini.
 
 ## What natives cost a runtime
 
@@ -115,9 +115,9 @@ The tables cost nothing at boot. `edge::natives!` builds every lookup while the 
 
 A table entry builds its kernel for the runtime and the name it gives, so the code of every kernel a runtime names lands in its `.wasm`, and the modules it leaves off add none. `uptime.wasm`, with five of lib's modules and four natives, is 1.7 MB, and `edge.wasm`, with every module and natives on eleven kinds, is 2.1 MB.
 
-A snapshot holds the identity of the runtime that saved it, its name, its version, the digest of every native's name in table order, its opcodes and its policy, so a blob restores only under the runtime it was saved under. A runtime that renames, adds, removes or reorders a native, or changes a rule, can no longer restore the blobs its earlier build saved, as [Shipping](/docs/edge-lang/get-started/book/shipping#what-a-new-version-breaks) covers.
+A snapshot holds the identity of the runtime that saved it, its name, its version, the digest of every native's name in table order, its opcodes and its policy, so a blob restores only under the runtime it was saved under. A runtime that renames, adds, removes or reorders a native, or changes a rule, can no longer restore the blobs its earlier build saved, as [Shipping](./07-shipping.mdx#what-a-new-version-breaks) covers.
 
 > [!CARDS]
-> - `scale` [Rules](/docs/edge-lang/get-started/book/rules) The rules these natives run under, how the three runtimes chose them and what each costs.
-> - `library` [Lib](/docs/edge-lang/sdk/lib) Every kernel by module, the parts of a table entry and the `Lang` choices.
-> - `activity` [Your runtime and its CLI](/docs/edge-lang/get-started/use-cases/your-runtime) Uptime's four natives and the words of its errors.
+> - `scale` [Rules](./04-rules.mdx) The rules these natives run under, how the three runtimes chose them and what each costs.
+> - `library` [Lib](../../02-sdk/06-lib.mdx) Every kernel by module, the parts of a table entry and the `Lang` choices.
+> - `activity` [Your runtime and its CLI](../03-use-cases/01-your-runtime.mdx) Uptime's four natives and the words of its errors.

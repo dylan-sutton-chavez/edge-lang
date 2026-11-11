@@ -527,11 +527,11 @@ pub(crate) mod tests {
     /* the top-level help lists each command the composition wired with words from its runtime */
     #[test]
     fn the_help_lists_what_the_composition_wired() {
-        let kit = kit().title("The Edge mini developer CLI").site("edgelang.dev").command(Probe);
+        let kit = kit().title("The Edge mini developer CLI").site("example.com").command(Probe);
         let help = kit.help();
         assert!(help.starts_with("The Edge mini developer CLI\n\nUsage  edge <command> [options]\n\nCommands\n"), "{help}");
         assert!(help.contains("\n  probe [path]       Probe *_test.mini files\n\nProbe flags        --deep\nGlobal             --manifest <file>   default edge.json\n\n"), "{help}");
-        assert!(help.ends_with("edge <command> -h for details \u{00b7} -v for version \u{00b7} edgelang.dev"), "{help}");
+        assert!(help.ends_with("edge <command> -h for details \u{00b7} -v for version \u{00b7} example.com"), "{help}");
     }
 
     /* the global manifest flag reaches the matches of every command */

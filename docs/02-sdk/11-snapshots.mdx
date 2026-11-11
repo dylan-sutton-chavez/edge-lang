@@ -16,7 +16,7 @@ A blob holds everything the program needs to go on.
 
 The identity is a hash of the runtime's name and version, the digest of its natives, the count and hash of its own opcodes, the hash of the engine's opcode table and its policy. `restoreState` checks it first, so the source of a blob another runtime saved never parses. It then parses the source again and checks the fingerprint. It rejects a blob another runtime saved with `snapshot was saved under another runtime`, a blob of another program or another compiler build, one of another snapshot format, and a damaged one, since a SHA-256 seal closes every blob. The seal catches damage, not forgery, so a host that hands a blob to someone it does not trust signs it itself. One blob restores any number of times, each restore an independent copy.
 
-The magic, the format, the identity, the fingerprint, the source and the script's name open every blob as its header, at offsets that are constants of the engine in `src/vm/snapshot.rs`, so no host keeps a copy of them. The CLI links the engine and reads a blob's source and script with `edge::embed::source_of` and `edge::embed::entry_of`. The JS host reads them too, at the offsets the runtime's descriptor gives in its `snapshot` field, as [Pause and snapshots](/docs/edge-lang/platforms/javascript#pause-and-snapshots) shows. Both hosts name the script again before the restore, so a traceback after it names the script and its relative imports resolve from the script's directory.
+The magic, the format, the identity, the fingerprint, the source and the script's name open every blob as its header, at offsets that are constants of the engine in `src/vm/snapshot.rs`, so no host keeps a copy of them. The CLI links the engine and reads a blob's source and script with `edge::embed::source_of` and `edge::embed::entry_of`. The JS host reads them too, at the offsets the runtime's descriptor gives in its `snapshot` field, as [Pause and snapshots](../03-platforms/02-javascript.mdx#pause-and-snapshots) shows. Both hosts name the script again before the restore, so a traceback after it names the script and its relative imports resolve from the script's directory.
 
 > [!WARNING]
 > A blob is pinned to one program and one compiler build by its fingerprint, and to one runtime by its identity. An engine upgrade invalidates every saved blob.
@@ -25,7 +25,7 @@ The magic, the format, the identity, the fingerprint, the source and the script'
 
 A run freezes at a suspension point. There are two ways to reach one.
 
-- The program reaches one on its own, at an empty `receive()` or a pending host call. [Host waits](/docs/edge-lang/sdk/host-waits#where-a-run-may-wait) lists where a run may wait.
+- The program reaches one on its own, at an empty `receive()` or a pending host call. [Host waits](./10-host-waits.mdx#where-a-run-may-wait) lists where a run may wait.
 - The host forces one. With a preempt interval of `n` the VM yields every `n` loop back-edges. A loop that never waits, such as a count over the lines of its input, can then be paused, with no change to the program.
 
 At a suspension point the VM unwinds to a clean state it can serialize. A snapshot is only coherent there. Saving while the run executes fails.
@@ -34,7 +34,7 @@ Each yield costs the host a round trip. A small interval lets a pause land fast 
 
 ## A program that pauses
 
-The type count of [Tokens or a front end](/docs/edge-lang/get-started/book/tokens#one-job-both-ways) can take its events from its host instead of reading the hour itself. Each `receive()` hands it one line of GH Archive's hour from 3 pm UTC on 1 October 2026, and an empty line ends the count.
+The type count of [Tokens or a front end](../01-get-started/04-book/02-tokens.mdx#one-job-both-ways) can take its events from its host instead of reading the hour itself. Each `receive()` hands it one line of GH Archive's hour from 3 pm UTC on 1 October 2026, and an empty line ends the count.
 
 ```edge
 // a line names its event's type before anything nested in it
@@ -62,7 +62,7 @@ for kind, n in sorted(counts.items(), key=lambda kv: kv[1], reverse=true)[:5]:
 A page drives the round trip through `createWorker`. The first session hands the job the first 40,000 events of the hour and saves.
 
 ```js
-import { createWorker } from "https://cdn.edgelang.dev/js/src/index.js";
+import { createWorker } from "./js/src/index.js";
 
 // resolves once the run waits on receive() so saveState() can capture it
 async function untilParked(worker) {
@@ -115,9 +115,9 @@ const { out } = await done; // resolves like run() once the program finishes
 These are the counts of the whole hour, the ones the type count prints when it reads the hour itself. The snapshot restored the counts of the first 40,000 events, and the program went on instead of restarting. The restored run spends what is left of the 10,000,000,000 ops the first session gave it, since a blob carries what the run spent and the second session allows as many.
 
 > [!CARDS]
-> - `activity` [Your runtime and its CLI](/docs/edge-lang/get-started/use-cases/your-runtime) A runtime and its CLI built end to end on the kit.
-> - `save` [Persisting a run](/docs/edge-lang/platforms/javascript#persisting-a-run) Keep a blob in Cache Storage, a file, IndexedDB or a server.
-> - `pause` [Pause and snapshots](/docs/edge-lang/platforms/javascript#pause-and-snapshots) Every pause, resume and state call of the JS host.
+> - `activity` [Your runtime and its CLI](../01-get-started/03-use-cases/01-your-runtime.mdx) A runtime and its CLI built end to end on the kit.
+> - `save` [Persisting a run](../03-platforms/02-javascript.mdx#persisting-a-run) Keep a blob in Cache Storage, a file, IndexedDB or a server.
+> - `pause` [Pause and snapshots](../03-platforms/02-javascript.mdx#pause-and-snapshots) Every pause, resume and state call of the JS host.
 
 ## From the CLI
 
@@ -134,7 +134,7 @@ $ edge run --ops 10000000000 --restore-state state.bin --events rest.jsonl
   1368  IssueCommentEvent
 ```
 
-Both hosts run one engine built from one source. A blob saved in one host restores in the other, so the page's second session takes the CLI's `state.bin` as well. The flags are in [Run flags](/docs/edge-lang/platforms/cli#run-flags).
+Both hosts run one engine built from one source. A blob saved in one host restores in the other, so the page's second session takes the CLI's `state.bin` as well. The flags are in [Run flags](../03-platforms/01-cli.mdx#run-flags).
 
 ## What cannot be preempted
 
@@ -146,7 +146,7 @@ A preempt lands at a loop back-edge, and only where the VM can unwind. Three cas
 
 Everything else preempts, at any call depth and inside `try` blocks.
 
-None of this changes results. An unpreemptible stretch delays a pause and never corrupts one. A preempt that falls due inside code laid with sections waits up to 64 back-edges for the run to leave it, and parks inside it past that. A blob parked inside such code keeps a hash of it, and a restore that would lay it otherwise is refused with `snapshot parks inside laid code this engine lays otherwise`. Why is in [Design](/docs/edge-lang/internals/design#snapshots).
+None of this changes results. An unpreemptible stretch delays a pause and never corrupts one. A preempt that falls due inside code laid with sections waits up to 64 back-edges for the run to leave it, and parks inside it past that. A blob parked inside such code keeps a hash of it, and a restore that would lay it otherwise is refused with `snapshot parks inside laid code this engine lays otherwise`. Why is in [Design](../05-internals/01-design.mdx#snapshots).
 
 ## Inspect without resuming
 
@@ -171,4 +171,4 @@ Those are the first session's answers before it saved, with its 40,000 events co
 - A blob carries the whole heap and has no size cap.
 - A restore spends at most what its blob saved and never more than the VM it restores into allows, and a blob whose heap needs more memory than that VM allows is refused as it decodes. The JS host and the CLI boot that VM with the lower of the limits saved in the blob and the limits the host sets for its runs, so a blob never takes more than a run of that host may.
 
-The byte layout is in [Blob layout](/docs/edge-lang/platforms/rust#blob-layout).
+The byte layout is in [Blob layout](../03-platforms/04-rust.mdx#blob-layout).

@@ -11,7 +11,7 @@ The engine finds most of a program's errors itself, an operator given a kind it 
 
 The same mistake reads three ways. Each program below subtracts two times read as texts, without reading them as times first.
 
-Tiny's flow takes the hours an issue stayed open over the GH Archive hour of [the first chapter](/docs/edge-lang/get-started/book/tokens#one-job-both-ways), subtracting its two times as the texts the record holds.
+Tiny's flow takes the hours an issue stayed open over the GH Archive hour of [the first chapter](./02-tokens.mdx#one-job-both-ways), subtracting its two times as the texts the record holds.
 
 ```tiny
 from: https://data.gharchive.org/2026-10-01-15.json.gz
@@ -96,7 +96,7 @@ A class sits in a tree, the pairs of class and parent `NAMES.tree` holds, and a 
 `EngineError` is an error as the engine knows it, one variant for each thing that can go wrong, holding the values it went wrong with and no words.
 
 - `Unsupported { op, a, b }` is an operator that refused its operands, the subtraction above.
-- `MissingKey(k)` is a key a map lacks, tiny's `no field "name"` in [the last chapter](/docs/edge-lang/get-started/book/rules#three-ways-to-read-a-field).
+- `MissingKey(k)` is a key a map lacks, tiny's `no field "name"` in [the last chapter](./04-rules.mdx#three-ways-to-read-a-field).
 - `NoAttribute { recv, name, store }` is an attribute a value lacks, mini's `AttributeError` and uptime's `Missing` of the same section.
 - `Arity { callee, fit }` is a call that misses what its callee takes, with `Fit` saying how, a count, a keyword no parameter takes, a parameter given twice, one left out, or a positional one given by keyword.
 - `Cannot { act, recv }` is a value that cannot do what a site asked, with `Act` naming it, be iterated, be called, report a size, stand as a key and the rest.
@@ -104,7 +104,7 @@ A class sits in a tree, the pairs of class and parent `NAMES.tree` holds, and a 
 - `Raised(v)` is a value the program raised itself.
 - `Budget`, `HostYield`, `HostCallDeferred` and `Redo` are signals that end or pause a run, and no program catches them.
 
-`e.kind()` is the kind whose class the runtime names, and none for a raised value or a signal. [Language](/docs/edge-lang/sdk/language#engineerror) lists every variant with its kind.
+`e.kind()` is the kind whose class the runtime names, and none for a raised value or a signal. [Language](../../02-sdk/04-language.mdx#engineerror) lists every variant with its kind.
 
 ## How a runtime words them
 
@@ -130,7 +130,7 @@ $ tiny run close.flow.yaml
 report time_to_close, average at line 5: WrongType, hours_between takes 2 arguments, not 1
 ```
 
-That ran with `hours_between(payload.issue.closed_at)` as the `average` of the flow above. A kernel's failure takes a third road, `Lang::words`, which words each `Fail` of lib in the runtime's terms, as [Failures and their words](/docs/edge-lang/sdk/lib#failures-and-their-words) shows.
+That ran with `hours_between(payload.issue.closed_at)` as the `average` of the flow above. A kernel's failure takes a third road, `Lang::words`, which words each `Fail` of lib in the runtime's terms, as [Failures and their words](../../02-sdk/06-lib.mdx#failures-and-their-words) shows.
 
 ## A traceback
 
@@ -141,7 +141,7 @@ An error no handler catches ends the run, and the CLI prints its report to stder
 - A call that repeats, as a recursion's does, shows once and then `note: the same call N more times`.
 - A function with no name of its own reads as `NAMES.anonymous`, `<lambda>` in mini, and code compiled while the program runs as `NAMES.compiled`, `<string>` in mini.
 
-A runtime with a `REPORT` replaces all of it, so tiny's report is the one line above, with no source and no frames, since a flow has no calls of its own. The diagnostics the kit reports before a program runs are another report, spelled through the runtime's table, as [Diagnostics](/docs/edge-lang/reference/diagnostics) lists.
+A runtime with a `REPORT` replaces all of it, so tiny's report is the one line above, with no source and no frames, since a flow has no calls of its own. The diagnostics the kit reports before a program runs are another report, spelled through the runtime's table, as [Diagnostics](../../04-reference/05-diagnostics.mdx) lists.
 
 ## What an error costs
 
@@ -163,6 +163,6 @@ A raise pays for its facts and the words come later, where a handler catches the
 A language whose errors must read exactly as its programs expect words every variant, as mini does for its corpus. A language whose programs are data words the report, as tiny does, so an error names the part of the data the user wrote. A small language takes the engine's plain words and names only its classes, as uptime does, and its errors read in the engine's terms.
 
 > [!CARDS]
-> - `zap` [Opcodes](/docs/edge-lang/get-started/book/opcodes) An operation a runtime runs in the loop, its fast and slow paths and what it saves.
-> - `sliders-horizontal` [Language](/docs/edge-lang/sdk/language) Every variant of `EngineError` with its kind, and every part of the trait.
-> - `triangle-alert` [Diagnostics](/docs/edge-lang/reference/diagnostics) Every diagnostic the kit reports before a program runs.
+> - `zap` [Opcodes](./06-opcodes.mdx) An operation a runtime runs in the loop, its fast and slow paths and what it saves.
+> - `sliders-horizontal` [Language](../../02-sdk/04-language.mdx) Every variant of `EngineError` with its kind, and every part of the trait.
+> - `triangle-alert` [Diagnostics](../../04-reference/05-diagnostics.mdx) Every diagnostic the kit reports before a program runs.

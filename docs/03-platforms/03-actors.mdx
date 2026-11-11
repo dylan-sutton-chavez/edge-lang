@@ -35,7 +35,7 @@ groups:
 ```
 
 - `code:` is an inline body.
-- `run:` points at a script or a project directory. A directory runs the entry file its runtime names, `main.mini` for the `edge` binary, and resolves the `edge.json` of that project and its nested imports. Each declared version resolves through the [`edge.lock`](/docs/edge-lang/reference/modules#edgelock) beside its manifest.
+- `run:` points at a script or a project directory. A directory runs the entry file its runtime names, `main.mini` for the `edge` binary, and resolves the `edge.json` of that project and its nested imports. Each declared version resolves through the [`edge.lock`](../04-reference/03-modules.mdx#edgelock) beside its manifest.
 - `eval: true` is untrusted mode, covered in [Untrusted code](#untrusted-code).
 
 > [!IMPORTANT]
@@ -71,7 +71,7 @@ send("transform", msg + "-done")   // hand it to the transform group
 - Sends are fire and forget. An actor never blocks waiting on another, which keeps a pool free of circular deadlock.
 - The `seed:` list of a group delivers messages before the pool starts. It is the entry point that kicks a run off.
 - Groups resolve their imports through the `edge.json` beside `actor.yml`, or the one `--manifest` names. A pool never asks the registry where a version points.
-- Outside a pool the host takes the message as a [named output](/docs/edge-lang/platforms/cli#named-outputs) instead, printed or written as a file under `edge run` and handed to the page as its own stream in a browser.
+- Outside a pool the host takes the message as a [named output](./01-cli.mdx#named-outputs) instead, printed or written as a file under `edge run` and handed to the page as its own stream in a browser.
 
 ## Group fields
 
@@ -177,15 +177,15 @@ groups:
 | Memory | The `memory` limit of the group inside the interpreter. Outside it, three times that limit plus 64 MiB, room for garbage, a container that doubles and the engine. |
 | Time | A deadline the host enforces from outside the instance ends the run after `timeout` seconds of wall-clock time, waits included, even inside a long native operation. |
 | State | Nothing survives between messages. The instance is dropped when the run ends. |
-| Modules | `.wasm` plugins are refused. Remote modules load only from the origin the composition names, `https://cdn.edgelang.dev/` for the `edge` binary. No module loads from disk, and `files` reads only below the pool's `edge.json`. |
+| Modules | `.wasm` plugins are refused. Remote modules load only from the origin the composition names with `origin(o)`. No module loads from disk, and `files` reads only below the pool's `edge.json`. |
 | Messages | `send()` has no scheduler to reach, so a send raises the runtime's runtime error and the pool names the group it asked for. An eval run cannot send to other groups. |
-| Versions | A bundle resolves a version only through its own [`edge.lock`](/docs/edge-lang/reference/modules#edgelock), never against the registry. |
+| Versions | A bundle resolves a version only through its own [`edge.lock`](../04-reference/03-modules.mdx#edgelock), never against the registry. |
 
 A bundle that carries its own `edge.json` resolves through it. Any other message resolves through the manifest of the pool.
 
 ### Permissions
 
-What the pool grants `eval` under [permissions](/docs/edge-lang/reference/system#permissions) is the most a bundle may grant in its own `edge.json`. An entry past it refuses the run before it compiles.
+What the pool grants `eval` under [permissions](../04-reference/04-system.mdx#permissions) is the most a bundle may grant in its own `edge.json`. An entry past it refuses the run before it compiles.
 
 ```json
 {
@@ -271,6 +271,6 @@ It printed that on 25 October 2026. Each group holds one actor, so the pages arr
 ## See also
 
 > [!CARDS]
-> - `terminal` [Command line interface](/docs/edge-lang/platforms/cli#edge-build) Pack a project for an eval group with edge build.
-> - `clock` [Host waits](/docs/edge-lang/sdk/host-waits) How an actor parks on `receive()` until its scheduler pushes the next message.
-> - `camera` [Snapshots](/docs/edge-lang/sdk/snapshots) Freeze and resume a single run.
+> - `terminal` [Command line interface](./01-cli.mdx#edge-build) Pack a project for an eval group with edge build.
+> - `clock` [Host waits](../02-sdk/10-host-waits.mdx) How an actor parks on `receive()` until its scheduler pushes the next message.
+> - `camera` [Snapshots](../02-sdk/11-snapshots.mdx) Freeze and resume a single run.

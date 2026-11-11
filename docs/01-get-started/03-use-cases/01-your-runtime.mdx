@@ -36,7 +36,7 @@ Uptime's table spells the engine's one grammar in words. A header's line end ope
 ```rust file=examples/uptime/src/syntax.rs
 ```
 
-A `Syntax` spells out every lexical choice, and [Parser kit](/docs/edge-lang/sdk/parser-kit) covers what each one decides. Every check below reads through this table.
+A `Syntax` spells out every lexical choice, and [Parser kit](../../02-sdk/07-parser-kit.mdx) covers what each one decides. Every check below reads through this table.
 
 The checks share one helper. `get` requests a URL through `net`, reads the body a chunk at a time, times the request with the clock and returns a map of the status, the milliseconds and the body read as JSON.
 
@@ -57,18 +57,18 @@ A runtime takes its natives from lib by capability. Uptime turns on the five mod
 ```rust file=examples/uptime/src/natives.rs
 ```
 
-[Lib](/docs/edge-lang/sdk/lib) lists every kernel by module and every part of a table entry.
+[Lib](../../02-sdk/06-lib.mdx) lists every kernel by module and every part of a table entry.
 
 ## Its rules
 
-`Language` is all the runtime gives the engine, as one type. Its `Policy` states the rules a check runs on, such as `map_fields`, which reads a key of a map where a field is missing. Its functions hand the engine lib's rendering, its format specs and the matcher a typed `catch` needs, and `Runtime::of` gives the whole language to every host, as [Language](/docs/edge-lang/sdk/language) lists with every other part.
+`Language` is all the runtime gives the engine, as one type. Its `Policy` states the rules a check runs on, such as `map_fields`, which reads a key of a map where a field is missing. Its functions hand the engine lib's rendering, its format specs and the matcher a typed `catch` needs, and `Runtime::of` gives the whole language to every host, as [Language](../../02-sdk/04-language.mdx) lists with every other part.
 
 ```rust file=examples/uptime/src/language.rs
 ```
 
 ## Its errors
 
-The runtime names every class a check can raise, and the engine and lib raise those names, as [Errors](/docs/edge-lang/get-started/book/errors#kinds-and-classes) covers. `Names` holds its words for the engine's kinds, errors and iterators, a failure of lib raises the class `Names` gives its error kind, and `words` rewords one failure in the terms of a check, a body that is not JSON.
+The runtime names every class a check can raise, and the engine and lib raise those names, as [Errors](../04-book/05-errors.mdx#kinds-and-classes) covers. `Names` holds its words for the engine's kinds, errors and iterators, a failure of lib raises the class `Names` gives its error kind, and `words` rewords one failure in the terms of a check, a body that is not JSON.
 
 ```rust file=examples/uptime/src/names.rs
 ```
@@ -145,7 +145,7 @@ Global             --manifest <file>   default edge.json
 uptime <command> -h for details · -v for version
 ```
 
-[CLI kit](/docs/edge-lang/sdk/cli) covers every component and every call of the kit.
+[CLI kit](../../02-sdk/16-cli.mdx) covers every component and every call of the kit.
 
 ## The checks
 
@@ -186,7 +186,7 @@ error: CheckFailed: Cloudflare reports Partial System Outage
   2/3 files passed · 3.1s
 ```
 
-A failed `check` raises `CheckFailed` with the words it was given, and `test` exits with 1 once a file fails. The verdicts and the counts go to stdout and the tracebacks to stderr, and [edge test](/docs/edge-lang/platforms/cli#edge-test) lists the exit codes every composition of the kit shares.
+A failed `check` raises `CheckFailed` with the words it was given, and `test` exits with 1 once a file fails. The verdicts and the counts go to stdout and the tracebacks to stderr, and [edge test](../../03-platforms/01-cli.mdx#edge-test) lists the exit codes every composition of the kit shares.
 
 ## What a check may reach
 
@@ -228,13 +228,13 @@ $ uptime run status.up
 error: edge.json at 'edge.json': permissions for 'main' name 'fs', which is not a host module (net, clock)
 ```
 
-A grant can also narrow a host to a path prefix, and a package a project imports holds only what the root grants it. [System](/docs/edge-lang/reference/system#permissions) lists the holders and the entries, and [Plugins](/docs/edge-lang/sdk/plugins#wiring-a-module-to-perms) shows how `perms` holds a module to them.
+A grant can also narrow a host to a path prefix, and a package a project imports holds only what the root grants it. [System](../../04-reference/04-system.mdx#permissions) lists the holders and the entries, and [Plugins](../../02-sdk/15-plugins.mdx#wiring-a-module-to-perms) shows how `perms` holds a module to them.
 
 ## Ship it
 
 `make uptime` writes a stripped binary of 13.1 MB on macOS arm64 with the runtime inside. It runs on any machine of the same OS and CPU with nothing installed, from a terminal or a scheduler. Its first run compiles the runtime once and keeps the machine code under `~/.cache/<binary>/plugins`, here `~/.cache/uptime/plugins`, which later runs map. The entry of a build no run has mapped for 30 days leaves the cache at the next compile, so rebuilds do not pile up.
 
-`uptime.wasm` is the runtime itself for any host that binds the ABI. A page loads it through the JS host's `wasmUrl`, where `net` answers in TypeScript under the same grants and [a trace](/docs/edge-lang/platforms/javascript#trace) reports every call a check makes. The clock is this CLI's own module, so a page that runs these checks wires a clock of its own, as [Compose a host](/docs/edge-lang/platforms/javascript#compose-a-host) shows.
+`uptime.wasm` is the runtime itself for any host that binds the ABI. A page loads it through the JS host's `wasmUrl`, where `net` answers in TypeScript under the same grants and [a trace](../../03-platforms/02-javascript.mdx#trace) reports every call a check makes. The clock is this CLI's own module, so a page that runs these checks wires a clock of its own, as [Compose a host](../../03-platforms/02-javascript.mdx#compose-a-host) shows.
 
 ## Start your own crate
 
@@ -294,7 +294,7 @@ cargo rustc --release --target wasm32-unknown-unknown --lib --no-default-feature
 cd cli && cargo build --release
 ```
 
-A plugin of your own takes the plugin kit the same way, as [Writing a plugin with the plugin crate](/docs/edge-lang/reference/abi#writing-a-plugin-with-the-plugin-crate) builds one.
+A plugin of your own takes the plugin kit the same way, as [Writing a plugin with the plugin crate](../../04-reference/06-abi.mdx#writing-a-plugin-with-the-plugin-crate) builds one.
 
 ```toml
 plugin = { git = "https://github.com/dylan-sutton-chavez/edge-lang", tag = "v0.9.7" }
@@ -311,8 +311,8 @@ make test-uptime
 `cargo test -p uptime`, which `make test` runs, compiles every check through the table, so a change to the engine that breaks the table fails there first.
 
 > [!CARDS]
-> - `book-open` [The book](/docs/edge-lang/get-started/book/intro) Why the engine asks for each piece of this runtime and what each choice costs.
-> - `braces` [Parser kit](/docs/edge-lang/sdk/parser-kit) Every field of the token table and the grammar it spells.
-> - `library` [Lib](/docs/edge-lang/sdk/lib) The kernels a runtime names and how a table names them.
-> - `plug` [Plugins](/docs/edge-lang/sdk/plugins) The net plugin in Rust and TypeScript and how perms holds it.
-> - `terminal` [CLI kit](/docs/edge-lang/sdk/cli) Every component of the kit and the calls that compose it.
+> - `book-open` [The book](../04-book/01-intro.mdx) Why the engine asks for each piece of this runtime and what each choice costs.
+> - `braces` [Parser kit](../../02-sdk/07-parser-kit.mdx) Every field of the token table and the grammar it spells.
+> - `library` [Lib](../../02-sdk/06-lib.mdx) The kernels a runtime names and how a table names them.
+> - `plug` [Plugins](../../02-sdk/15-plugins.mdx) The net plugin in Rust and TypeScript and how perms holds it.
+> - `terminal` [CLI kit](../../02-sdk/16-cli.mdx) Every component of the kit and the calls that compose it.

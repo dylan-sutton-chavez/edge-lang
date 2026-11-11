@@ -23,19 +23,19 @@ It asks at two times. Most rules are the same for every program of a language, s
 | Part | Holds |
 |---|---|
 | `POLICY` | The rules every program runs on, as [The policy](#the-policy) lists |
-| `NATIVES` | The tables `edge::natives!` builds, as [Natives](/docs/edge-lang/get-started/book/natives) covers |
-| `NAMES` | Its words for the engine's kinds, errors and conventions, as [Errors](/docs/edge-lang/get-started/book/errors) covers |
-| `FRONT` | How its sources become chunks, as [Tokens or a front end](/docs/edge-lang/get-started/book/tokens) covers |
+| `NATIVES` | The tables `edge::natives!` builds, as [Natives](./03-natives.mdx) covers |
+| `NAMES` | Its words for the engine's kinds, errors and conventions, as [Errors](./05-errors.mdx) covers |
+| `FRONT` | How its sources become chunks, as [Tokens or a front end](./02-tokens.mdx) covers |
 | `DESCRIPTOR` | How the tools around the engine name its files and its errors |
 | `WIDE`, `KINDS` | The kind its wide ints box in, and the kinds a restore must know before any value |
 | `BUILT` | The kinds of the slices and the ellipsis the engine makes itself |
 | `REPORT` | The report every host prints for an error no handler caught, where the runtime words its own |
-| `Ops` | Its own opcodes, `()` in mini, tiny and uptime, as [Opcodes](/docs/edge-lang/get-started/book/opcodes) covers |
+| `Ops` | Its own opcodes, `()` in mini, tiny and uptime, as [Opcodes](./06-opcodes.mdx) covers |
 | `bind_get`, `bind_call`, `bind_op` | The rules of a site, as [Keys and the rules of a site](#keys-and-the-rules-of-a-site) covers |
 | `show`, `format`, `handles` | How a value shows, how it reads under a format spec, and whether the classes a handler names take an error |
 | `misfit`, `message`, `raise` | The words of a call that misses a signature, the words of an engine error, and the value a handler binds |
 
-Every function has a default, so tiny writes three of them. `Runtime::of::<Tiny>()` is the runtime every host boots, and `natives!` names the language as `language: Tiny`, as tiny's `lib.rs` in [What a front end owns](/docs/edge-lang/get-started/book/tokens#what-a-front-end-owns) shows.
+Every function has a default, so tiny writes three of them. `Runtime::of::<Tiny>()` is the runtime every host boots, and `natives!` names the language as `language: Tiny`, as tiny's `lib.rs` in [What a front end owns](./02-tokens.mdx#what-a-front-end-owns) shows.
 
 ### What the engine reads today
 
@@ -69,7 +69,7 @@ A `Policy` is a struct of plain choices, each field one rule of the language. Th
 
 The loop reads `int_div`, `int_mod`, `zero_div`, `neg_pow` and `falsy` as constants, and the compiler's folding and lib's `divmod` and `pow` read the same kernels, so a constant folded before the run and a value a loop computes agree. Nil and false always read as false, and the mask adds zero, NaN, an empty text and the empty containers. `int_overflow` must agree with `WIDE`, since an int past the inline range goes to the wide kind the runtime names. `bool_is_int` is read wherever a bool would count as an int, in the slow paths of arithmetic, order, indexes, keys and method lookup and in lib's kernels and type tests, so under `false` a bool adds to no number, orders only against another bool, indexes nothing, finds no method of the int kind and keys apart from the int of its value, while a conversion to an int or a float still reads it as zero or one. `neg_index` is read by the loop's item paths as a constant and by the slow paths of indexes and slices, so under `false` a negative index is out of range and a negative slice bound clamps to the start, while lib's methods keep their own rules for the positions they take. The loop reads none of `numeric_eq`, `identity_first`, `str_iter`, `map_iter`, `builtins_scope` and `receiver_slot` yet. Each states the engine's own behaviour, which is what all three runtimes state, and a runtime that states another value fails to build, since the loop would run it with the engine's own behaviour all the same.
 
-Rules that only lib's kernels follow, such as how a centred text splits an odd pad or which separators the digits of number text may hold, are choices of lib's `Lang` and not fields of the policy, as [Lib](/docs/edge-lang/sdk/lib#lang) lists.
+Rules that only lib's kernels follow, such as how a centred text splits an odd pad or which separators the digits of number text may hold, are choices of lib's `Lang` and not fields of the policy, as [Lib](../../02-sdk/06-lib.mdx#lang) lists.
 
 Four rules are checked as the runtime builds, since `Runtime::of` runs inside the static that holds the runtime. A policy promotes ints exactly when its language names a `WIDE` kind, it reads nil and false as false, a field the loop does not read yet states the engine's own behaviour, and the language's natives and front end are built under the policy it states, so the loop, the slow paths and the folder read the same rules. A runtime that breaks any of the four fails to build, with the rule it broke as the message.
 
@@ -94,7 +94,7 @@ abi a path [] no dependencies
 lib a path ['edge', 'itoa', 'mini'] 3
 ```
 
-The offset west of UTC keeps its sign in both parts. The source the lockfile leaves empty reads as false, the empty list of dependencies stays a value and its length of zero reads as false, so a program asks a container for items by its length, as the GH Archive job of [Mini](/docs/edge-lang/get-started/use-cases/mini) does with `if len(line)`.
+The offset west of UTC keeps its sign in both parts. The source the lockfile leaves empty reads as false, the empty list of dependencies stays a value and its length of zero reads as false, so a program asks a container for items by its length, as the GH Archive job of [Mini](../03-use-cases/02-mini.mdx) does with `if len(line)`.
 
 ## Three ways to read a field
 
@@ -173,7 +173,7 @@ A `Key` is what a site keys its answer by. `Key::Kind(k)` stands for a value of 
 - `bind_call(cx, callee, shape)` answers a `CallRule` for a call with the shape of its arguments, a function run as frames, a new object of a class, a bound method, a native, or the error of a value no call takes.
 - `bind_op(cx, op, a, b)` answers an `OpRule` for an `Op` and a pair of keys. An `Op` names the operators and comparisons, `in`, truth, length, iteration, hashing and item access. `Kernel` takes the engine's inline path for its own kinds under the policy, `Native` and `Call` hand the operator to a native or to a function of the program, `Identity` compares by identity, and `Fail` raises the unsupported operand error.
 
-Every runtime of the repo keeps the defaults, `Ask` for `bind_get` and `bind_call` and `Kernel` for `bind_op`, which leave each site to the engine's own path. The engine asks a rule only where that path has no answer, where an attribute lookup misses, where a value is no function, class or native, and where the kernels refuse an operator's operands. A rule therefore never changes a hit of the inline caches [Key mechanisms](/docs/edge-lang/internals/design#key-mechanisms) describes. A site keeps the rule it was given for the key it met, so it asks the runtime once for each key until a class changes.
+Every runtime of the repo keeps the defaults, `Ask` for `bind_get` and `bind_call` and `Kernel` for `bind_op`, which leave each site to the engine's own path. The engine asks a rule only where that path has no answer, where an attribute lookup misses, where a value is no function, class or native, and where the kernels refuse an operator's operands. A rule therefore never changes a hit of the inline caches [Key mechanisms](../../05-internals/01-design.mdx#key-mechanisms) describes. A site keeps the rule it was given for the key it met, so it asks the runtime once for each key until a class changes.
 
 ## What a rule costs
 
@@ -207,6 +207,6 @@ The rules of a site cost a call to the runtime the first time a site meets a key
 A language whose programs read records takes `map_fields` or a table that reads keys at dots, and a language whose programs probe objects for attributes keeps the miss path short. Tiny's flows read records, where a zero or an empty text is a value and a count that overflows is bad data, so tiny states those rules for itself, and `examples/tiny/tests/flows/rules.yml` runs a flow over each. The fields the loop does not read yet are where a language of another family would differ further, and until it reads them a policy states the engine's own behaviour for each.
 
 > [!CARDS]
-> - `triangle-alert` [Errors](/docs/edge-lang/get-started/book/errors) What the engine raises, the classes a runtime names and the words it gives them.
-> - `sliders-horizontal` [Language](/docs/edge-lang/sdk/language) Every part of the trait, the policy, the keys and the rules of a site.
-> - `activity` [Your runtime and its CLI](/docs/edge-lang/get-started/use-cases/your-runtime) Uptime's rules and the checks that read JSON by a dot.
+> - `triangle-alert` [Errors](./05-errors.mdx) What the engine raises, the classes a runtime names and the words it gives them.
+> - `sliders-horizontal` [Language](../../02-sdk/04-language.mdx) Every part of the trait, the policy, the keys and the rules of a site.
+> - `activity` [Your runtime and its CLI](../03-use-cases/01-your-runtime.mdx) Uptime's rules and the checks that read JSON by a dot.

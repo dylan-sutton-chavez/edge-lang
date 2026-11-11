@@ -5,9 +5,9 @@ description: "How the repo holds the engine and its runtimes to their rules, the
 
 # Testing
 
-The engine is held to its rules by cases, programs or sources whose result the rule gives, and every change runs them before it lands. `make test` runs the engine's suite, lib's and those of the runtimes in the repo, and [Runbook](/docs/edge-lang/internals/runbook) covers the checks that run beside it, fuzzing, Miri, the bench and the consistency suite. This page covers the three kinds of case, the bench and its keys, how a change is compared with `main`, and what Miri asks of a test.
+The engine is held to its rules by cases, programs or sources whose result the rule gives, and every change runs them before it lands. `make test` runs the engine's suite, lib's and those of the runtimes in the repo, and [Runbook](../05-internals/03-runbook.mdx) covers the checks that run beside it, fuzzing, Miri, the bench and the consistency suite. This page covers the three kinds of case, the bench and its keys, how a change is compared with `main`, and what Miri asks of a test.
 
-A runtime tests itself the same way at its own layers, as [How the repo tests a runtime](/docs/edge-lang/get-started/book/shipping#how-the-repo-tests-a-runtime) and [Testing a front end](/docs/edge-lang/sdk/front-ends#testing-a-front-end) show.
+A runtime tests itself the same way at its own layers, as [How the repo tests a runtime](../01-get-started/04-book/07-shipping.mdx#how-the-repo-tests-a-runtime) and [Testing a front end](./14-front-ends.mdx#testing-a-front-end) show.
 
 ## Three kinds of case
 
@@ -84,7 +84,7 @@ A native case calls one native of lib on plain values, with no program around it
 
 A value is `null`, a bool, an int, a float with `.nan` and `.inf`, a text, a list or a map, or it carries a tag. `!tuple` and `!set` take a list, `!dict` takes the pairs of a map whose keys a YAML map cannot hold, `!bytes` and `!bytearray` take their bytes in hex, and `!int` takes the digits of an int past 64 bits. A native whose answer opens a frame fails its case, since it runs code of a program and so belongs with the engine cases, and a module with no file of cases fails the run as well.
 
-`lib/tests` holds 112 more tests in 18 files, mostly one for each module of lib. Such a test registers the tables of mini with whatever native of its own the rule needs, runs short programs on plain values and compares what they print and the words they fail with, so a kernel is held to its rule under the names and the words of a runtime that uses it. `lib/tests/steps.rs` registers a native for each kind of step, as [Out and Step](/docs/edge-lang/sdk/natives#out-and-step) shows, and `lib/tests/arity.rs` holds the words of a misfit. `cargo test -p lib` runs them with every feature on, and `make test` runs that.
+`lib/tests` holds 112 more tests in 18 files, mostly one for each module of lib. Such a test registers the tables of mini with whatever native of its own the rule needs, runs short programs on plain values and compares what they print and the words they fail with, so a kernel is held to its rule under the names and the words of a runtime that uses it. `lib/tests/steps.rs` registers a native for each kind of step, as [Out and Step](./05-natives.mdx#out-and-step) shows, and `lib/tests/arity.rs` holds the words of a misfit. `cargo test -p lib` runs them with every feature on, and `make test` runs that.
 
 ## Syntax cases
 
@@ -110,7 +110,7 @@ Every file but `pieces.yml` holds its cases in the same fields, and `tests/synta
 | `errors` | Every message the lexer and the parser report, in order |
 | `error` | Text one of those messages must hold |
 
-The sources of a case compile alike, which holds when their chunks hold the same names, constants and instructions in every body, and a case with no `errors` and no `error` compiles with no message. A case with only `indent` holds what mini lexes or words otherwise, such as a lone `!`, which indent reads as a field's conversion and mini as a negation. Indent and words are tables `tools/spell` keeps for tests, in `tools/spell/src/indent.rs` and `tools/spell/src/words.rs`, beside the tables of the runtimes [Three tables](/docs/edge-lang/sdk/parser-kit#three-tables) compares. `tests/syntax.rs` also holds every table to spelling its own tokens, so a change to the lexer or the parser that reads one spelling differently fails there first.
+The sources of a case compile alike, which holds when their chunks hold the same names, constants and instructions in every body, and a case with no `errors` and no `error` compiles with no message. A case with only `indent` holds what mini lexes or words otherwise, such as a lone `!`, which indent reads as a field's conversion and mini as a negation. Indent and words are tables `tools/spell` keeps for tests, in `tools/spell/src/indent.rs` and `tools/spell/src/words.rs`, beside the tables of the runtimes [Three tables](./07-parser-kit.mdx#three-tables) compares. `tests/syntax.rs` also holds every table to spelling its own tokens, so a change to the lexer or the parser that reads one spelling differently fails there first.
 
 ## Splitting the corpus
 
@@ -130,7 +130,7 @@ An engine case whose every statement prints a native called on literals, or prin
 | `memory_floor` | A move in memory under 0.004 MB, which passes whatever its ratio |
 | `cases` | Each case's key with its instructions and its peak in MB |
 
-A case's key is the 64-bit FNV-1a hash of its fields as one line of JSON, every field included, so two cases with one program and another input stay apart. [Values](/docs/edge-lang/sdk/values#val) computes the key of the first case in mini. A case whose program or output changes is a new case to the bench, its old entry left with no case.
+A case's key is the 64-bit FNV-1a hash of its fields as one line of JSON, every field included, so two cases with one program and another input stay apart. [Values](./02-values.mdx#val) computes the key of the first case in mini. A case whose program or output changes is a new case to the bench, its old entry left with no case.
 
 | The bench fails when | So |
 |---|---|
@@ -147,7 +147,7 @@ A case's key is the 64-bit FNV-1a hash of its fields as one line of JSON, every 
 
 To see every case beside `main`'s without stopping at a threshold, a branch writes its own numbers with `make bench-accept-slower`, copies the file aside, takes `main`'s back with git, and joins the two files on their keys. A case whose key is in one file only is a case that changed or is new.
 
-`make bench-data` measures the data job of [Tiny](/docs/edge-lang/get-started/use-cases/tiny#at-scale) in both runtimes over the whole hour. It also builds the engine of the commit the Makefile names as `MAIN_AT` into `target`, and prints the instructions the job's counting loop spends on each record on that engine beside today's, so the hottest path of a real job is held to its past.
+`make bench-data` measures the data job of [Tiny](../01-get-started/03-use-cases/03-tiny.mdx#at-scale) in both runtimes over the whole hour. It also builds the engine of the commit the Makefile names as `MAIN_AT` into `target`, and prints the instructions the job's counting loop spends on each record on that engine beside today's, so the hottest path of a real job is held to its past.
 
 ## Miri
 
@@ -173,7 +173,7 @@ A test written for the engine takes three more things into account.
 The metered allocator runs under Miri too. There each block's meter lives in an address table instead of in front of the block, so the borrow rules let a block go, and every run of a test is counted as `edge.wasm` counts it.
 
 > [!CARDS]
-> - `wrench` [Runbook](/docs/edge-lang/internals/runbook) Fuzzing, Miri in CI, the bench and the consistency suite.
-> - `package` [Shipping](/docs/edge-lang/get-started/book/shipping) How the repo tests a runtime at its three layers.
-> - `layers` [Values](/docs/edge-lang/sdk/values) The FNV-1a key of a case computed in mini.
-> - `braces` [Parser kit](/docs/edge-lang/sdk/parser-kit) The tables the syntax cases spell their forms in.
+> - `wrench` [Runbook](../05-internals/03-runbook.mdx) Fuzzing, Miri in CI, the bench and the consistency suite.
+> - `package` [Shipping](../01-get-started/04-book/07-shipping.mdx) How the repo tests a runtime at its three layers.
+> - `layers` [Values](./02-values.mdx) The FNV-1a key of a case computed in mini.
+> - `braces` [Parser kit](./07-parser-kit.mdx) The tables the syntax cases spell their forms in.

@@ -38,7 +38,7 @@ mod tests {
 
     // keys are urls a page imports so a bad key breaks pages and never builds
     #[test]
-    fn the_embedded_host_is_keyed_by_its_cdn_path() {
+    fn the_embedded_host_is_keyed_by_its_staged_path() {
         assert!(!JS_HOST.is_empty());
         assert!(JS_HOST.iter().all(|(key, _)| key.starts_with("src/") && key.ends_with(".js") && !key.contains('\\')));
         assert!(JS_HOST.iter().any(|(key, _)| *key == "src/index.js"));

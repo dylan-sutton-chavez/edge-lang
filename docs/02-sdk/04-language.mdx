@@ -5,7 +5,7 @@ description: "The trait a runtime implements to hand the engine its rules, names
 
 # Language
 
-`edge::lang::Language` is everything a runtime hands the engine past its natives, as one type. The book's [Rules](/docs/edge-lang/get-started/book/rules) and [Errors](/docs/edge-lang/get-started/book/errors) cover why the engine asks for each part and how mini, tiny and uptime choose. This page is the reference of the trait and the types it names, with what the engine reads of each today.
+`edge::lang::Language` is everything a runtime hands the engine past its natives, as one type. The book's [Rules](../01-get-started/04-book/04-rules.mdx) and [Errors](../01-get-started/04-book/05-errors.mdx) cover why the engine asks for each part and how mini, tiny and uptime choose. This page is the reference of the trait and the types it names, with what the engine reads of each today.
 
 A runtime writes little of it. Uptime's implementation is the 44 lines of `examples/uptime/src/language.rs`, its policy, the tables and names it hands the engine, and three functions that pass lib's answers on. Every part it leaves out keeps the default the table below lists.
 
@@ -29,7 +29,7 @@ A runtime writes little of it. Uptime's implementation is the 44 lines of `examp
 | `KINDS` | The kinds natives box on first use, which a restore names before any value | `&[]` | Yes |
 | `BUILT` | The kinds of the slices and the ellipsis the engine builds itself | `Built::NONE` | Yes, for the slice a kept key makes and for the ellipsis |
 | `REPORT` | How every host shows an error no handler caught | `None`, the engine's report | Yes |
-| `Ops` | The runtime's own opcodes | None, and mini, tiny and uptime write `()` | Yes, as the loop runs them, the parser fuses and folds them and the identity a snapshot records hashes their table, as [Opcodes](/docs/edge-lang/sdk/opcodes#a-runtimes-own-opcodes) explains |
+| `Ops` | The runtime's own opcodes | None, and mini, tiny and uptime write `()` | Yes, as the loop runs them, the parser fuses and folds them and the identity a snapshot records hashes their table, as [Opcodes](./08-opcodes.mdx#a-runtimes-own-opcodes) explains |
 | `bind_get`, `bind_call` | The rule for `recv.name` and for a call | `GetRule::Ask`, `CallRule::Ask` | Yes, where the engine's own lookup misses and where it cannot call a value |
 | `bind_op` | The rule for an operator | `OpRule::Kernel` | Yes, where the kernels refuse the operands |
 | `show` | A value as text in a `Mode` | Refuses, since the runtime renders no values | Yes |
@@ -127,7 +127,7 @@ An `Op` is what an operator site asks of its operands.
 
 `edge::lang::token_of(op)` is the token a table spells an operator with, and `spelled(cx, op)` is how the runtime's own table spells it, so the words of a `message` name `~/` where the table spells integer division that way.
 
-The engine asks for a rule only where its own path has no answer, so a rule adds to what the engine does and never changes a hit of the inline caches of [Key mechanisms](/docs/edge-lang/internals/design#key-mechanisms). It asks `bind_get` where an attribute lookup misses, for a load, a method call, a store and a delete, and a `Field` rule then reads, writes or removes that key of a map. It asks `bind_call` where a value is no function, class or native, and `bind_op` where the kernels refuse an operator's operands, with a unary operator giving its one key twice. `OpRule::Call` runs its function as a frame of the loop, and the op then runs again with what the function gave. A site keeps the rule an answer gave in its cache with the key it met, the name it read and the epoch of the classes, so it asks the runtime once for each key until a class changes or a collection runs. A refusal ends in an error, so no site keeps one. `tests/rules.rs` runs a runtime whose rules read map keys as fields, answer `+` and `<` through an object's class and make instances callable, and counts how often a loop of 300 asks each hook, about twice a site where it asked every time before.
+The engine asks for a rule only where its own path has no answer, so a rule adds to what the engine does and never changes a hit of the inline caches of [Key mechanisms](../05-internals/01-design.mdx#key-mechanisms). It asks `bind_get` where an attribute lookup misses, for a load, a method call, a store and a delete, and a `Field` rule then reads, writes or removes that key of a map. It asks `bind_call` where a value is no function, class or native, and `bind_op` where the kernels refuse an operator's operands, with a unary operator giving its one key twice. `OpRule::Call` runs its function as a frame of the loop, and the op then runs again with what the function gave. A site keeps the rule an answer gave in its cache with the key it met, the name it read and the epoch of the classes, so it asks the runtime once for each key until a class changes or a collection runs. A refusal ends in an error, so no site keeps one. `tests/rules.rs` runs a runtime whose rules read map keys as fields, answer `+` and `<` through an object's class and make instances callable, and counts how often a loop of 300 asks each hook, about twice a site where it asked every time before.
 
 ## EngineError
 
@@ -171,6 +171,6 @@ The engine raises its own errors as an `EngineError` and words each one through 
 - The policy past the fields the loop reads builds only as the engine's own behaviour.
 
 > [!CARDS]
-> - `scale` [Rules](/docs/edge-lang/get-started/book/rules) Why the engine asks for each rule and what the three runtimes chose.
-> - `triangle-alert` [Errors](/docs/edge-lang/get-started/book/errors) The kinds, the classes and the words of an error in each runtime.
-> - `library` [Lib](/docs/edge-lang/sdk/lib) The `Lang` and `Style` choices lib reads on top of a language.
+> - `scale` [Rules](../01-get-started/04-book/04-rules.mdx) Why the engine asks for each rule and what the three runtimes chose.
+> - `triangle-alert` [Errors](../01-get-started/04-book/05-errors.mdx) The kinds, the classes and the words of an error in each runtime.
+> - `library` [Lib](./06-lib.mdx) The `Lang` and `Style` choices lib reads on top of a language.

@@ -7,7 +7,7 @@ description: "The runtime the engine's corpus runs, on one real job over an hour
 
 Mini is the reference runtime of Edge Lang. The engine's corpus of 5,302 programs in `tests/cases/vm` runs in it, `edge.wasm` is built from it and the `edge` CLI embeds it. It is about 1,500 lines of Rust in `examples/mini`, a token table, its rules, the natives it takes from lib under its own names and the words of its errors.
 
-This page runs one real job in mini, five reports over an hour of public GitHub events, then shows each part of the runtime. [Tiny](/docs/edge-lang/get-started/use-cases/tiny) runs the same job as a YAML flow over the same hour, and [Your runtime and its CLI](/docs/edge-lang/get-started/use-cases/your-runtime) builds a runtime of your own.
+This page runs one real job in mini, five reports over an hour of public GitHub events, then shows each part of the runtime. [Tiny](./03-tiny.mdx) runs the same job as a YAML flow over the same hour, and [Your runtime and its CLI](./01-your-runtime.mdx) builds a runtime of your own.
 
 ## The job
 
@@ -24,7 +24,7 @@ GH Archive publishes every public GitHub event, one gzipped file of JSON lines p
 ```edge file=examples/data/github-hour.mini
 ```
 
-The job reads the hour through the net plugin a chunk at a time and never holds it whole. It cuts each chunk into lines, keeps the bytes after the last line end for the next chunk and reads each line that holds bytes with `read_json`, a JSON reader the job writes in mini over `split`, `find` and slices. It asks a line for its length first, since an empty buffer reads as true under [the engine's own rules](/docs/edge-lang/get-started/book/rules#the-engines-own-rules). The reports are maps keyed by tuples, `sorted` ranks the stars and `time` reads the two times of an issue, whose difference is a duration with its `hours`.
+The job reads the hour through the net plugin a chunk at a time and never holds it whole. It cuts each chunk into lines, keeps the bytes after the last line end for the next chunk and reads each line that holds bytes with `read_json`, a JSON reader the job writes in mini over `split`, `find` and slices. It asks a line for its length first, since an empty buffer reads as true under [the engine's own rules](../04-book/04-rules.mdx#the-engines-own-rules). The reports are maps keyed by tuples, `sorted` ranks the stars and `time` reads the two times of an issue, whose difference is a duration with its `hours`.
 
 Only the reports that name a repository read it, since one event of the hour carries an empty `repo`. It is a ForkEvent 28 minutes into the hour, and reading every event's repository first would stop the run there with a `KeyError`.
 
@@ -88,7 +88,7 @@ note: called from read_json()
     |                            ^
 ```
 
-[Limits](/docs/edge-lang/sdk/limits) covers the budget and the memory limit every run is held to.
+[Limits](../../02-sdk/12-limits.mdx) covers the budget and the memory limit every run is held to.
 
 ## What it may reach
 
@@ -112,7 +112,7 @@ Mini's table spells the engine's one grammar. A header ends in a colon and its b
 ```rust file=examples/mini/src/syntax.rs
 ```
 
-[Parser kit](/docs/edge-lang/sdk/parser-kit) covers what each field of a `Syntax` decides.
+[Parser kit](../../02-sdk/07-parser-kit.mdx) covers what each field of a `Syntax` decides.
 
 ## How it prints
 
@@ -128,7 +128,7 @@ Each native is a kernel of lib under the name mini gives it, grouped by kind. `p
 ```rust file=examples/mini/src/natives.rs
 ```
 
-[Lib](/docs/edge-lang/sdk/lib) lists every kernel by module and how a table names one.
+[Lib](../../02-sdk/06-lib.mdx) lists every kernel by module and how a table names one.
 
 ## Its errors
 
@@ -142,7 +142,7 @@ The words of lib's failures are mini's own too.
 ```rust file=examples/mini/src/words.rs
 ```
 
-So are the words of the engine's own errors, in its `Language` beside the rules its corpus runs on, as [Errors](/docs/edge-lang/get-started/book/errors#how-a-runtime-words-them) covers. `map_fields` stays off for now, since reading a missing field off a map's keys puts a call on every attribute miss, as [What a rule costs](/docs/edge-lang/get-started/book/rules#what-a-rule-costs) measures.
+So are the words of the engine's own errors, in its `Language` beside the rules its corpus runs on, as [Errors](../04-book/05-errors.mdx#how-a-runtime-words-them) covers. `map_fields` stays off for now, since reading a missing field off a map's keys puts a call on every attribute miss, as [What a rule costs](../04-book/04-rules.mdx#what-a-rule-costs) measures.
 
 ```rust file=examples/mini/src/language.rs
 ```
@@ -165,10 +165,10 @@ It writes `edge.wasm`, about 2 MB, under `target/wasm32-unknown-unknown/release`
 
 ## Held to agree with tiny
 
-`examples/data/tests/agree.rs` runs this job and [tiny's flow](/docs/edge-lang/get-started/use-cases/tiny) over a slice of 431 events of the hour, both inside the test process with the net plugin's contract served from the slice, and holds every report of one to the rows of the other. `make bench-data` runs both artifacts over the whole hour and checks the same, as [Tiny](/docs/edge-lang/get-started/use-cases/tiny#at-scale) shows with its figures.
+`examples/data/tests/agree.rs` runs this job and [tiny's flow](./03-tiny.mdx) over a slice of 431 events of the hour, both inside the test process with the net plugin's contract served from the slice, and holds every report of one to the rows of the other. `make bench-data` runs both artifacts over the whole hour and checks the same, as [Tiny](./03-tiny.mdx#at-scale) shows with its figures.
 
 > [!CARDS]
-> - `braces` [Parser kit](/docs/edge-lang/sdk/parser-kit) The grammar mini's token table spells.
-> - `library` [Lib](/docs/edge-lang/sdk/lib) The kernels mini names in its tables.
-> - `workflow` [Tiny](/docs/edge-lang/get-started/use-cases/tiny) The same job as a YAML flow over the same hour.
-> - `terminal` [CLI](/docs/edge-lang/platforms/cli) The edge CLI that runs the job and holds it to its grants.
+> - `braces` [Parser kit](../../02-sdk/07-parser-kit.mdx) The grammar mini's token table spells.
+> - `library` [Lib](../../02-sdk/06-lib.mdx) The kernels mini names in its tables.
+> - `workflow` [Tiny](./03-tiny.mdx) The same job as a YAML flow over the same hour.
+> - `terminal` [CLI](../../03-platforms/01-cli.mdx) The edge CLI that runs the job and holds it to its grants.

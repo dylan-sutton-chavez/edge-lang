@@ -46,7 +46,7 @@ impl Command for Publish {
 
 /* the artifact is the whole request so the registry reads every field from the bytes */
 fn run(kit: &Kit, artifact: &Path) -> Result<()> {
-    let token = std::env::var("EDGE_TOKEN").map_err(|_| anyhow!("set EDGE_TOKEN to a token from edgelang.dev/settings#tokens"))?;
+    let token = std::env::var("EDGE_TOKEN").map_err(|_| anyhow!("set EDGE_TOKEN to a token the registry issued"))?;
 
     let bytes = fs::read(artifact).with_context(|| format!("reading {}", artifact.display()))?;
     let name = artifact.file_name().unwrap_or(artifact.as_os_str()).to_string_lossy().into_owned();
@@ -89,7 +89,7 @@ fn javascript_in(artifact: &[u8]) -> Option<String> {
 
 /* the secret signs instead of travelling since the registry keeps only its public key */
 fn signature(token: &str, artifact: &[u8], at: u64) -> Result<String> {
-    let (id, secret) = token.strip_prefix("edge_pat_").and_then(|rest| rest.split_once('.')).ok_or_else(|| anyhow!("EDGE_TOKEN is not a token from edgelang.dev/settings#tokens"))?;
+    let (id, secret) = token.strip_prefix("edge_pat_").and_then(|rest| rest.split_once('.')).ok_or_else(|| anyhow!("EDGE_TOKEN is not a token the registry issued"))?;
     let key = Ed25519KeyPair::from_seed_unchecked(&sha256(secret.as_bytes())).map_err(|e| anyhow!("deriving the signing key: {e}"))?;
     let signed = format!("edge publish\n{id}\n{at}\n{}", hex_encode(&sha256(artifact)));
     Ok(format!("Edge {id}.{at}.{}", URL_SAFE_NO_PAD.encode(key.sign(signed.as_bytes()))))
