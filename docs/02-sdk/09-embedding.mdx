@@ -12,6 +12,18 @@ A Rust host can link the engine as a crate and run a runtime in its own process,
 A host takes two crates, the engine `edge` and the runtime it boots, which is a crate of its own built on `edge`. Inside the clone both go by path, as `examples/native` takes the engine and mini.
 
 ```toml file=examples/native/Cargo.toml
+[package]
+name = "native"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Mini booted as a native binary through the engine's native target, its input read from stdin with no wasm between."
+publish = false
+
+[dependencies]
+edge = { path = "../.." }
+mini = { path = "../mini" }
 ```
 
 Outside the clone a host takes both by git at the tag of the release it builds on, the way [Start your own crate](../01-get-started/03-use-cases/01-your-runtime.mdx#start-your-own-crate) takes the engine for a runtime. The crate builds no wasm of its own and fetches nothing at build time, so `cargo build` stays offline and reproducible.
@@ -54,6 +66,45 @@ Two macros build a runtime. `edge::natives!` gathers its tables of natives, its 
 A runtime's crate hands a host the two things it boots with, its `RUNTIME`, the `Runtime` its language makes, and its `FRONT`, which reads its sources. Uptime's `lib.rs` is whole below, and mini's and tiny's make the same two.
 
 ```rust file=examples/uptime/src/lib.rs
+#![no_std]
+#![forbid(unsafe_code)]
+
+extern crate alloc;
+
+use edge::lang::{Descriptor, Front, Runtime};
+
+mod language;
+mod names;
+mod natives;
+mod syntax;
+
+pub use names::NAMES;
+pub use natives::NATIVES;
+pub use syntax::{Uptime, UPTIME};
+
+pub static RUNTIME: Runtime = Runtime::of::<Uptime>();
+
+// every source reads through the token table of syntax.rs
+pub const FRONT: Front = Front::spelled::<Uptime>();
+
+// the names the CLI gives this runtime's files and errors
+pub const DESCRIPTOR: Descriptor = Descriptor {
+    language: "uptime",
+    extension: UPTIME.extension,
+    entries: &["main.up"],
+    test_suffix: "_test.up",
+    scaffold: "print(\"up\")\n",
+    example_fence: "uptime",
+    manifest_fence: "uptime-manifest",
+    type_error: "WrongType",
+    value_error: "BadData",
+    runtime_error: "Error",
+    denied_error: "Denied",
+    failed_error: "Unreachable",
+};
+
+#[cfg(all(target_arch = "wasm32", feature = "web"))]
+edge::web_exports!(RUNTIME);
 ```
 
 `Runtime::of::<L>()` runs inside a static, so the build checks the language's rules and fails on a broken one, and it erases the language into the tables and calls the engine reads outside the loop. It picks the loop as well. A language that keeps the rules the engine's own loop is built with, and adds no opcodes, runs that loop, which every such runtime shares. Any other runs a loop the engine builds for it alone, with the language's policy folded in as constants, as [Language](./04-language.mdx#the-trait) describes. So `VM` is one type whatever it runs, a host never names the language, and one process boots machines over several runtimes, as the engine's tests run mini beside the runtime of `tests/policy.rs`, whose rules give it a loop of its own.
@@ -88,6 +139,20 @@ A host compiles a source with `edge::code::compile(&FRONT, src)`, which parses a
 ## The allocator
 
 ```rust file=src/targets/native/mod.rs
+#[cfg(feature = "std")]
+mod script;
+#[cfg(feature = "std")]
+pub use script::{Script, main, print};
+
+/* installs the meter over the system allocator or a named one as the global allocator */
+#[macro_export]
+macro_rules! allocator {
+    () => { $crate::allocator!(::std::alloc::System = ::std::alloc::System); };
+    ($inner:ty = $value:expr) => {
+        #[global_allocator]
+        static EDGE_ALLOCATOR: $crate::value::meter::Metered<$inner> = $crate::value::meter::Metered($value);
+    };
+}
 ```
 
 `edge::allocator!()` makes the system allocator, behind the meter, the global allocator of the binary it is written in, and `edge::allocator!(Inner = value)` puts the meter over another allocator, as the web target puts it over a pool of dlmalloc for `edge.wasm`. A binary writes it once, as `examples/native` does, since a binary has one global allocator, and a runtime's crate leaves it to the binary. The repo's test binaries write it too, as `tests/main.rs` does for the engine's suites, all but `tests/unmetered.rs`, which holds what a run does without it.
@@ -130,6 +195,176 @@ Input comes the other way. `input_buffer` holds the lines lib's `io::read_line` 
 `edge::targets::native` holds the shortest whole host.
 
 ```rust file=src/targets/native/script.rs
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::process::ExitCode;
+use std::rc::Rc;
+use std::sync::{Arc, Mutex, PoisonError};
+
+use crate::deps::walk::{self, Carry, Fetched, Loaded, Step, Walk};
+use crate::deps::{DepHost, Deps, HostResolver, NativeBinding, Resolver};
+use crate::lang::{ErrKind, Front, Runtime};
+use crate::syntax::{chunk::SSAChunk, diag::Diagnostic};
+use crate::value::{Limits, SchedulerStatus, VmErr};
+use crate::vm::VM;
+
+/* a source file compiled through a runtime's front end and ready to boot */
+pub struct Script {
+    pub path: String,
+    pub src: String,
+    pub chunk: SSAChunk,
+}
+
+impl Script {
+    /* the file at `path` compiled with its imports read beside it or why not */
+    pub fn read(front: &Front, path: &str) -> Result<Script, String> {
+        let src = std::fs::read_to_string(path).map_err(|e| format!("error: cannot read '{path}': {e}"))?;
+        Script::beside(front, Path::new(path), path, src)
+    }
+
+    /* `src` of the file at `at` named `shown` with imports read from its directory */
+    fn beside(front: &Front, at: &Path, shown: &str, src: String) -> Result<Script, String> {
+        let mut files = Files::of(at);
+        files.gather(front, &src)?;
+        Script::compile(front, shown, src, Box::new(HostResolver::new(String::new(), files)))
+    }
+
+    /* `src` compiled as the file at `path` with its imports through `resolver` */
+    pub fn compile(front: &Front, path: &str, src: String, resolver: Box<dyn Resolver>) -> Result<Script, String> {
+        let chunk = front.program(&src, resolver).map_err(|errs| Diagnostic::render_all(&errs, &src, Some(path)))?;
+        let mut chunk = Rc::unwrap_or_clone(chunk);
+        crate::code::constant_fold(&mut chunk, front.policy);
+        Ok(Script { path: path.into(), src, chunk })
+    }
+
+    /* a VM over runtime `rt` that prints to stdout and reads its input from stdin */
+    pub fn boot(&self, rt: &'static Runtime, limits: Limits) -> VM<'_> {
+        let mut vm = VM::with_runtime(rt, &self.chunk, limits);
+        vm.print_hook = Some(print);
+        vm.strict_input = false;
+        vm
+    }
+
+    /* runs `vm` to its end and gives the status the process exits with */
+    pub fn run(&self, vm: &mut VM<'_>) -> u8 {
+        let ran = loop {
+            match vm.run() {
+                Err(VmErr::HostYield(SchedulerStatus::Preempted)) => continue,
+                ran => break ran,
+            }
+        };
+        // what the program printed lands before any report of how it ended
+        let _ = std::io::stdout().flush();
+        let report = match ran {
+            Ok(_) => return 0,
+            Err(VmErr::HostYield(wait)) => {
+                let what = if matches!(wait, SchedulerStatus::PendingEvent) { "an event" } else { "a host call" };
+                format!("error: script suspended awaiting {what}, nothing can resume it here")
+            }
+            Err(e) => match vm.system_exit_code() {
+                // an uncaught exit with an int code ends cleanly with its low byte
+                Some(code) => return code as u8,
+                None => vm.report_error(&e, &self.src, Some(&self.path)),
+            },
+        };
+        fail(&report)
+    }
+}
+
+/* hands the exact text a program prints to stdout */
+pub fn print(text: &str) {
+    // a closed stdout stops no run so a failed write is dropped
+    let _ = std::io::stdout().lock().write_all(text.as_bytes());
+}
+
+/* the main of a binary that runs the file its first argument names */
+pub fn main(rt: &'static Runtime, front: &Front, limits: Limits) -> ExitCode {
+    // a path that is no UTF-8 still opens and reads lossily in what is reported
+    let mut args = std::env::args_os();
+    let bin = args.next().map(|b| b.to_string_lossy().into_owned()).unwrap_or_default();
+    let Some(path) = args.next() else {
+        return ExitCode::from(fail(&format!("usage: {bin} <file.{}>", front.extension)));
+    };
+    let shown = path.to_string_lossy();
+    let read = std::fs::read_to_string(&path).map_err(|e| format!("error: cannot read '{shown}': {e}"));
+    match read.and_then(|src| Script::beside(front, Path::new(&path), &shown, src)) {
+        Ok(script) => {
+            let mut vm = script.boot(rt, limits);
+            ExitCode::from(script.run(&mut vm))
+        }
+        Err(report) => ExitCode::from(fail(&report)),
+    }
+}
+
+/* the modules a script imports read from the directory it sits in */
+#[derive(Clone)]
+struct Files {
+    dir: Arc<PathBuf>,
+    deps: Arc<Mutex<Deps>>,
+}
+
+impl Files {
+    fn of(script: &Path) -> Files {
+        let dir = script.parent().map(Path::to_path_buf).unwrap_or_default();
+        Files { dir: Arc::new(dir), deps: Arc::new(Mutex::new(Deps::new())) }
+    }
+
+    /* walks every import `src` reaches and registers each module or gives the failures */
+    fn gather(&mut self, front: &Front, src: &str) -> Result<(), String> {
+        let mut walk = Walk::new(front, src, "", Vec::new(), Carry::default());
+        loop {
+            let Some(step) = walk::settle(self, walk.step()) else { continue };
+            match step {
+                Step::Fetch(spec) => walk.fetched(self.read(&spec)),
+                Step::Plugin { .. } => walk.loaded(Loaded::Refused(String::from("is a plugin and a native script loads none"))),
+                // a native script serves no system module and asks no registry
+                Step::System(_) => walk.served(Vec::new()),
+                Step::Undeclared(_) => walk.known(Vec::new()),
+                Step::Done(failures) if failures.is_empty() => return Ok(()),
+                Step::Done(failures) => return Err(failures.iter().map(|f| format!("error: {f}")).collect::<Vec<_>>().join("\n")),
+                Step::Code { .. } | Step::Refuse { .. } | Step::Manifest { .. } => {}
+            }
+        }
+    }
+
+    /* the file `spec` names below the script's directory read whole */
+    fn read(&self, spec: &str) -> Fetched {
+        let target = spec.split_once('#').map_or(spec, |(t, _)| t);
+        if target.contains("://") { return Fetched::Failed(format!("module '{target}' is a url and a native script reads local files only")); }
+        let file = self.dir.join(target.trim_start_matches("./"));
+        match std::fs::read(&file) {
+            Ok(bytes) => Fetched::Bytes(bytes),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Fetched::Missing(None),
+            Err(e) => Fetched::Failed(format!("cannot read '{}': {e}", file.display())),
+        }
+    }
+}
+
+impl DepHost for Files {
+    fn deps<R>(&mut self, f: impl FnOnce(&mut Deps) -> R) -> R { f(&mut self.deps.lock().unwrap_or_else(PoisonError::into_inner)) }
+
+    fn fetch(&mut self, spec: &str, _pin: Option<[u8; 32]>) -> Result<Vec<u8>, String> {
+        match self.read(spec) {
+            Fetched::Bytes(bytes) => Ok(bytes),
+            Fetched::Missing(_) => Err(format!("no file '{spec}'")),
+            Fetched::Failed(e) => Err(e),
+        }
+    }
+
+    // no module of a native script is native so a binding only refuses
+    fn native(&mut self, name: String, _id: u32, module: Arc<str>) -> NativeBinding {
+        let refusal = format!("module '{module}' is native and a native script serves none");
+        NativeBinding { name, func: Arc::new(move |_, _, _| Err(VmErr::Of(ErrKind::Runtime, refusal.clone()))) }
+    }
+
+    fn caller_dir(&mut self) -> String { String::new() }
+}
+
+/* writes `report` to stderr as one block and gives the failing status */
+fn fail(report: &str) -> u8 {
+    eprintln!("{}", report.trim_end());
+    1
+}
 ```
 
 `Script::read` compiles the file at a path through a runtime's front and reads each module it imports from that file's directory, through relative imports and an `edge.json` beside it, and `Script::compile` compiles a source the host already holds, with its imports through the `Resolver` it is given. A native script fetches no URL and loads no plugin, so such an import fails before the program runs. `boot` gives a VM over the runtime whose prints go to stdout and whose input reads stdin a line at a time. `run` drives the VM to its end and gives the status the process exits with. A preempted run resumes at once, and an exit ends with its own status, its low byte. An uncaught error writes its report to stderr in the runtime's words after what the program printed and ends with 1, and so does a wait for an event or a host call, which nothing here can answer. `main` puts them together for a binary that runs the file its first argument names, and without one it prints its usage and ends with 1.
@@ -137,11 +372,62 @@ Input comes the other way. `input_buffer` holds the lines lib's `io::read_line` 
 `examples/native` boots mini this way. Its binary installs the allocator and hands the rest to `main` with the sandbox's limits.
 
 ```rust file=examples/native/src/main.rs
+use std::process::ExitCode;
+
+use edge::embed::Limits;
+
+// every run meters what it allocates so the sandbox's memory limit holds
+edge::allocator!();
+
+/* runs the mini file its first argument names with stdin as the program's input */
+fn main() -> ExitCode {
+    edge::targets::native::main(&mini::RUNTIME, &mini::FRONT, Limits::sandbox())
+}
 ```
 
 It runs a real job, the crates a `Cargo.lock` holds at more than one version and the packages that ask for each version.
 
 ```edge file=examples/native/duplicates.mini
+versions = {}
+// the packages whose dependencies name each crate at each version
+askers = {}
+name = nil
+package = nil
+listing = false
+while true:
+    try:
+        line = input()
+    except EOFError:
+        break
+    if listing:
+        if line == ']':
+            listing = false
+            continue
+        // an entry names a version only where the lock holds its crate twice
+        parts = line.strip().strip('",').split(' ')
+        if len(parts) > 1:
+            askers.setdefault((parts[0], parts[1]), []).append(package)
+    else if line.startswith('name = "'):
+        name = line[8:-1]
+    else if line.startswith('version = "'):
+        version = line[11:-1]
+        package = f'{name} {version}'
+        versions.setdefault(name, []).append(version)
+    else if line == 'dependencies = [':
+        listing = true
+
+held = 0
+for crate in sorted(versions):
+    if len(versions[crate]) < 2:
+        continue
+    held += 1
+    for version in versions[crate]:
+        who = ', '.join(sorted(askers.get((crate, version), [])))
+        if who:
+            print(f'{crate} {version} for {who}')
+        else:
+            print(f'{crate} {version}')
+print(f'{held} of {len(versions)} crates are held at more than one version')
 ```
 
 Run over the repo's own lockfile on 25 October 2026, it found three such crates among 128.

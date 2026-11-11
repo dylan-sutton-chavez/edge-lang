@@ -408,9 +408,9 @@ mod tests {
         }
     }
 
-    /* a fence naming a repo file stays empty for the site to fill */
+    /* a fence naming a repo file holds it as it is so a reader on GitHub sees it */
     #[test]
-    fn every_included_file_is_in_the_repo_and_never_copied() {
+    fn every_included_file_is_in_the_repo_and_copied_as_it_is() {
         let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
         let mut included = Vec::new();
         for page in pages(&repo.join("docs"), "", &mut HashSet::new()).unwrap() {
@@ -419,8 +419,9 @@ mod tests {
             while let Some(line) = lines.next() {
                 let named = line.trim().strip_prefix("```").and_then(|info| info.split_whitespace().find_map(|word| word.strip_prefix("file=")));
                 let Some(file) = named else { continue };
-                assert!(repo.join(file).is_file(), "'{page}' includes '{file}', which the repo does not hold");
-                assert_eq!(lines.next().map(str::trim), Some("```"), "'{page}' copies '{file}' into its fence, the site fills it");
+                let want = fs::read_to_string(repo.join(file)).unwrap_or_else(|_| panic!("'{page}' includes '{file}', which the repo does not hold"));
+                let held: Vec<&str> = lines.by_ref().take_while(|line| line.trim() != "```").collect();
+                assert!(held.join("\n") == want.trim_end_matches('\n'), "'{page}' holds another '{file}' than the repo, copy the file into its fence");
                 included.push(file.to_string());
             }
         }
