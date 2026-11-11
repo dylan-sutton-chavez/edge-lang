@@ -42,9 +42,8 @@ impl VM<'_> {
             // a slice taking a generator or a lazy iterator gathers it as frames first
             OpCode::StoreItem if self.may_job(self.regs[at - 1]) && self.heap.slice_of(self.regs[at - 2]).is_some() => return self.held_aside(ins, i),
             OpCode::StoreItem => return self.store_item(),
-            OpCode::DelItem => { self.del_item(self.regs[at - 2], self.regs[at - 1])?; (2, None) }
             // a slice read or delete passes its bounds with no slice built
-            OpCode::Cut | OpCode::DelCut => {
+            OpCode::Cut => {
                 let row = self.cut_row(chunk, top as u16 - op, op)?;
                 (op as usize, self.cut_op(ins.op, row, Val::undef(), i)?)
             }
@@ -59,9 +58,6 @@ impl VM<'_> {
                 (1, Some(v))
             }
             OpCode::StoreAttr => { self.store_attr_at(self.regs[at - 2], op, self.regs[at - 1], i, &code.cache, chunk)?; (2, None) }
-            OpCode::DelAttr => { self.del_attr_at(self.regs[at - 1], op, chunk, Some((&code.cache, i)))?; (1, None) }
-            OpCode::MatchSeq | OpCode::MatchMap => (1, Some(self.matches_shape(ins.op, self.regs[at - 1]))),
-            OpCode::MatchClass => (3, Some(self.match_class(self.regs[at - 3], self.regs[at - 2], self.regs[at - 1], op as usize)?)),
             OpCode::ListExtend | OpCode::SetUpdate | OpCode::DictUpdate | OpCode::UnpackSequence | OpCode::UnpackEx => return self.held_aside(ins, i),
             _ => return Err(cold_runtime("not a container op over rows")),
         };

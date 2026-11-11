@@ -73,7 +73,6 @@ impl Versions {
 
 /* synthetic temps of desugarings whose leading `#` keeps them out of module attributes */
 pub const SSA_TMP_CMP: &str = "#cmp";
-pub const SSA_TMP_MATCH: &str = "#match";
 pub const SSA_TMP_MATCH_ITEM: &str = "#match_item";
 
 // the parameter a comprehension receives its iterator through

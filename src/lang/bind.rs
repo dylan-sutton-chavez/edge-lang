@@ -52,7 +52,6 @@ pub enum Op {
     Hash,
     GetItem,
     SetItem,
-    DelItem,
     // opcode `n` of the runtime's own table
     Runtime(u8),
 }
@@ -72,7 +71,6 @@ impl Op {
             Op::Hash => 0x53,
             Op::GetItem => 0x54,
             Op::SetItem => 0x55,
-            Op::DelItem => 0x56,
             Op::Runtime(n) => 0x100 | n as u16,
         }
     }

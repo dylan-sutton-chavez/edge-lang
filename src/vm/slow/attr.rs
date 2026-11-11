@@ -1,9 +1,8 @@
 use crate::vm::VM;
 use crate::value::{Val, VmErr, HeapObj, Host, cold_runtime};
-use crate::code::OpCode;
 use crate::syntax::chunk::SSAChunk;
 use alloc::{string::String, vec::Vec};
-use crate::lang::{same_text, Act, EngineError, ErrKind, KindId, Lock, Pattern};
+use crate::lang::{same_text, Act, EngineError, ErrKind, KindId, Lock};
 use crate::vm::cache::OpcodeCache;
 
 use crate::lang::{Cx, Native, Ret};
@@ -188,68 +187,6 @@ impl<'a> VM<'a> {
     /* the init every class ends in bound to `recv` or unbound for undef */
     fn init_lookup(&self, recv: Val) -> AttrLookup { AttrLookup::Native(recv, &self.natives.init, KindId::Instance) }
 
-    /* whether `obj` is an instance of `cls` as the runtime's isinstance answers */
-    fn instance_of(&mut self, obj: Val, cls: Val) -> Result<bool, VmErr> {
-        let Some(n) = self.natives.intrinsic(crate::lang::Intrinsic::IsA) else {
-            // a runtime with no class test answers through its exception matcher
-            return (self.rt.handles)(&self.heap, obj, cls);
-        };
-        if let Some(v) = n.fast2.and_then(|f| f(&mut self.heap, obj, cls)) { return Ok(self.truthy(v)); }
-        match (n.run)(&mut crate::lang::Cx::new(self), crate::lang::Args { recv: Val::undef(), pos: &[obj, cls], kw: &[], named: &[] })? {
-            crate::lang::Out::Val(v) => Ok(self.truthy(v)),
-            _ => Err(cold_runtime("an isinstance that steps")),
-        }
-    }
-
-    // the values a class pattern matches as a tuple or None on a miss
-    pub(crate) fn match_class(&mut self, subj: Val, cls: Val, names: Val, npos: usize) -> Result<Val, VmErr> {
-        if !self.instance_of(subj, cls)? { return Ok(Val::none()); }
-        let mut attrs: Vec<String> = Vec::new();
-        // the values found stay rooted while later reads may run user code
-        let base = self.temp_roots.len();
-        // a builtin type matches its one positional sub-pattern against the subject itself
-        let held = self.natives.names();
-        let self_match = matches!(self.heap.type_kind(cls), Some(KindId::Bool | KindId::Bytes | KindId::Dict | KindId::Float | KindId::Int | KindId::List | KindId::Set | KindId::Str | KindId::Tuple));
-        if self_match && npos > 0 {
-            if npos > 1 { return Err(EngineError::Pattern(Pattern::OnePositional(subj)).into()); }
-            self.temp_roots.push(subj);
-        } else if npos > 0 {
-            let order = self.lookup_class_member(cls, held.fields.match_args).map(|(v, _)| v);
-            let Some(HeapObj::Tuple(order)) = order.and_then(|v| self.heap.try_get(v)) else {
-                return Err(EngineError::Pattern(Pattern::NoFields).into());
-            };
-            if npos > order.len() { return Err(EngineError::Pattern(Pattern::TooMany).into()); }
-            let order = order[..npos].to_vec();
-            for n in order { attrs.push(self.render(n, crate::lang::Mode::Str)?); }
-        }
-        let kw = match self.heap.get(names) { HeapObj::Tuple(kw) => kw.clone(), _ => Vec::new() };
-        for n in kw { attrs.push(self.render(n, crate::lang::Mode::Str)?); }
-        for a in &attrs {
-            match self.attr_value(subj, a) {
-                Ok(v) => self.temp_roots.push(v),
-                // a missing attribute fails the pattern instead of raising
-                Err(e) if self.absorb_attr_err(&e) => { self.temp_roots.truncate(base); return Ok(Val::none()); }
-                Err(e) => { self.temp_roots.truncate(base); return Err(e); }
-            }
-        }
-        let values = self.temp_roots.split_off(base);
-        self.heap.alloc(HeapObj::Tuple(values))
-    }
-
-    // whether `v` fits a sequence pattern or with MatchMap a mapping one
-    pub(crate) fn matches_shape(&self, op: OpCode, v: Val) -> Val {
-        Val::bool(if op == OpCode::MatchSeq { v.is_heap() && matches!(self.heap.get(v), HeapObj::List(_) | HeapObj::Tuple(_)) } else { self.heap.dict_cell(v).is_some() })
-    }
-
-    /* true for any attribute error class which then counts as handled */
-    pub(crate) fn absorb_attr_err(&mut self, e: &VmErr) -> bool {
-        let names = self.natives.names();
-        let user = self.pending.exc_val.and_then(|v| self.heap.class_of(v)).and_then(|c| self.exc_base(c));
-        let hit = (matches!(e, VmErr::Raised(_)) || e.is_kind(ErrKind::Attribute)) && names.derives(user.unwrap_or(e.class(names)), names.error(ErrKind::Attribute));
-        if hit { self.pending.exc_val = None; }
-        hit
-    }
-
     /* what `obj.name` reads */
     pub(crate) fn attr_value(&mut self, obj: Val, name: &str) -> Result<Val, VmErr> {
         let v = self.attr_found(obj, name)?;
@@ -416,16 +353,7 @@ pub(crate) fn init(cx: &mut Cx<'_, '_>, a: crate::lang::Args<'_>) -> Ret {
 
 impl<'a> VM<'a> {
 
-    // `del obj.attr` removing the attribute named `op` in place
-    pub fn exec_del_attr(&mut self, obj: Val, op: u16, chunk: &crate::syntax::chunk::SSAChunk) -> Result<(), VmErr> { self.del_attr_at(obj, op, chunk, None) }
-
-    /* `exec_del_attr` where site `at` keeps the rule a missing attribute asks */
-    pub(crate) fn del_attr_at(&mut self, obj: Val, op: u16, chunk: &crate::syntax::chunk::SSAChunk, at: Option<(&OpcodeCache, usize)>) -> Result<(), VmErr> {
-        let name = chunk.names.get(op as usize).ok_or_else(|| cold_runtime("DelAttr: bad name index"))?.clone();
-        self.delete_attr_in(obj, &name, at)
-    }
-
-    /* removes attribute `name` of `obj` for natives and `del` and raises when it is absent */
+    /* removes attribute `name` of `obj` for natives and raises when it is absent */
     #[inline]
     pub(crate) fn delete_attr_named(&mut self, obj: Val, name: &str) -> Result<(), VmErr> { self.delete_attr_in(obj, name, None) }
 

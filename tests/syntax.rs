@@ -346,7 +346,6 @@ mod test {
         let errors = |src: &str| compiled::<Words>(src).1;
         assert_eq!(errors("break\n"), ["'break' outside loop"]);
         assert_eq!(errors("x = await f()\n"), ["'await' outside function"]);
-        assert_eq!(errors("outer x\n"), ["outer declaration not allowed at module level"]);
         assert_eq!(errors("throw e from c\n"), ["throw from is not supported"]);
         assert_eq!(errors("try\n  x\ncatch* E\n  y\nend\n"), ["catch* is not supported"]);
         assert_eq!(errors("try\n  a\ncatch\n  b\ncatch E\n  c\nend\n"), ["default 'catch' must be last"]);
@@ -457,9 +456,9 @@ mod test {
     const KIT_WORDS: &[(&str, TokenType)] = &[
         ("false", TokenType::False), ("nil", TokenType::Nil), ("true", TokenType::True), ("as", TokenType::As), ("assert", TokenType::Assert),
         ("async", TokenType::Async), ("await", TokenType::Await), ("break", TokenType::Break), ("class", TokenType::Class), ("continue", TokenType::Continue),
-        ("fn", TokenType::Fn), ("del", TokenType::Delete), ("else if", TokenType::ElseIf), ("else", TokenType::Else), ("except", TokenType::Catch),
-        ("finally", TokenType::Finally), ("for", TokenType::For), ("from", TokenType::From), ("global", TokenType::Global), ("if", TokenType::If),
-        ("import", TokenType::Import), ("in", TokenType::In), ("is", TokenType::Is), ("nonlocal", TokenType::Outer), ("pass", TokenType::Empty),
+        ("fn", TokenType::Fn), ("else if", TokenType::ElseIf), ("else", TokenType::Else), ("except", TokenType::Catch),
+        ("finally", TokenType::Finally), ("for", TokenType::For), ("from", TokenType::From), ("if", TokenType::If),
+        ("import", TokenType::Import), ("in", TokenType::In), ("is", TokenType::Is), ("pass", TokenType::Empty),
         ("raise", TokenType::Throw), ("return", TokenType::Return), ("try", TokenType::Try), ("while", TokenType::While), ("with", TokenType::With),
         ("yield", TokenType::Yield), ("match", TokenType::Match), ("type", TokenType::Type), ("_", TokenType::Underscore), ("let", TokenType::Let),
     ];
@@ -599,24 +598,11 @@ mod test {
     fn the_kit_lexes_its_marks() {
         use TokenType::*;
         assert_eq!(kinds::<Kit>("let x = 0..=n => a ? b .. c || |d|"), [Let, Name, Equal, Int, RangeInclusive, Name, Arm, Name, Question, Name, Range, Name, Or, BitOr, Name, BitOr]);
-        // a closure default an arm or a question conditional leaves the targets of its statement
-        for src in ["f = 0\nf += |a=1| a\n", "f: object = |a=1| a\n", "|a=1| a\n", "d = [0]\nmatch 1:\n    1 => d[0] = 1\n", "xs = [|a, b=2| a for _ in 0..2]\n"] {
+        // a closure default or a question conditional leaves the targets of its statement
+        for src in ["f = 0\nf += |a=1| a\n", "f: object = |a=1| a\n", "|a=1| a\n", "xs = [|a, b=2| a for _ in 0..2]\n"] {
             assert!(compiled::<Kit>(src).1.is_empty(), "{src:?} reports {:?}", compiled::<Kit>(src).1);
         }
         assert!(compiled::<Questions>("d = [0]\nif true ? 1 : 0: d[0] = 5\n").1.is_empty());
-    }
-
-    // dotted patterns read keys as dots do and a class pattern keeps its attribute
-    #[test]
-    fn keys_reach_dotted_patterns() {
-        use edge::code::{OpCode, Value};
-        let src = "match d {\n    case k.a { y = 1 }\n    case m.P(x=1) { y = 2 }\n}\n";
-        let ((keys, e), (attrs, f)) = (compiled::<Keys>(src), compiled::<Braces>(src));
-        assert!(e.is_empty() && f.is_empty(), "{e:?} {f:?}");
-        let count = |c: &SSAChunk, op: OpCode| c.instructions.iter().filter(|i| i.opcode == op).count();
-        assert_eq!((count(&keys, OpCode::LoadAttr), count(&attrs, OpCode::LoadAttr)), (1, 2));
-        assert_eq!(count(&keys, OpCode::GetItem), count(&attrs, OpCode::GetItem) + 1);
-        assert!(keys.constants.contains(&Value::Str("a".into())));
     }
 
     // check refuses each piece a table switches on without spelling its marks
@@ -1082,7 +1068,6 @@ mod parser {
         check(format!("async def f():\n    return {}g()", "await ".repeat(1_000 * scale)), "await");
         check(format!("x = {}1", "0 if c else ".repeat(1_000 * scale)), "chained conditional");
         check(format!("{}a{} = 1", "(".repeat(1_000 * scale), ")".repeat(1_000 * scale)), "nested target");
-        check(format!("match x:\n    case {}y{}:\n        pass\n", "[".repeat(1_000 * scale), "]".repeat(1_000 * scale)), "nested pattern");
         // a comparison chain stays flat so any length compiles
         assert_eq!(messages(&format!("x = 1{}", " < 1".repeat(100 * scale))), Vec::<String>::new(), "comparison chain");
     }

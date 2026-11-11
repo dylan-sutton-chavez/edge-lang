@@ -167,11 +167,11 @@ fn slots_by_name(chunk: &SSAChunk) -> FxHashMap<&str, usize> {
     map
 }
 
-/* sorted bare names a body binds by store or delete or parameter except nonlocals */
+/* sorted bare names a body binds by store or parameter except nonlocals */
 fn binds<'c>(params: &'c [String], body: &'c SSAChunk, bare: &[&'c str]) -> Vec<&'c str> {
     let mut set: Vec<&str> = params.iter().map(|p| crate::syntax::ssa::param_base_name(p)).collect();
     for ins in &body.instructions {
-        if (matches!(ins.opcode, OpCode::StoreName | OpCode::Phi) || ins.opcode == OpCode::Del && !declared_global(body, ins.operand)) && let Some(&n) = bare.get(ins.operand as usize) { set.push(n); }
+        if matches!(ins.opcode, OpCode::StoreName | OpCode::Phi) && let Some(&n) = bare.get(ins.operand as usize) { set.push(n); }
     }
     if !is_comp(params) { walrus_names(body, &mut set); }
     set.sort_unstable();
@@ -179,9 +179,6 @@ fn binds<'c>(params: &'c [String], body: &'c SSAChunk, bare: &[&'c str]) -> Vec<
     set.retain(|n| !body.nonlocals.iter().any(|x| x == n));
     set
 }
-
-/* whether `body` declares name `k` `global` so its deletes unbind it in the module */
-fn declared_global(body: &SSAChunk, k: u16) -> bool { body.instructions.iter().any(|i| i.opcode == OpCode::Global && i.operand == k) }
 
 pub(crate) fn is_comp(params: &[String]) -> bool { matches!(params, [p] if p == crate::syntax::ssa::COMP_ARG) }
 
@@ -217,12 +214,7 @@ impl<'a> VM<'a> {
         for fi in start..end {
             let body = &functions[fi].1;
             for ins in &body.instructions {
-                // a name declared `global` reads and writes the module binding wherever it appears
-                if matches!(ins.opcode, OpCode::LoadGlobal | OpCode::StoreGlobal) {
-                    if let Some(n) = body.names.get(ins.operand as usize) && !reads[fi].contains(&n.as_str()) { reads[fi].push(n); }
-                    continue;
-                }
-                if !matches!(ins.opcode, OpCode::LoadName | OpCode::StoreName | OpCode::Del | OpCode::Phi) { continue; }
+                if !matches!(ins.opcode, OpCode::LoadName | OpCode::StoreName | OpCode::Phi) { continue; }
                 let Some(&n) = bare[fi].get(ins.operand as usize) else { continue };
                 if n.starts_with('#') || owns(fi, n) { continue; }
                 // the nearest enclosing function binding it owns the cell and those between pass it on
@@ -249,11 +241,8 @@ impl<'a> VM<'a> {
         for fi in start..end {
             let body = &functions[fi].1;
             let module = self.fn_module_id(fi);
-            // the names a `global` statement declares gathered once
-            let globals: Vec<u16> = body.instructions.iter().filter(|i| i.opcode == OpCode::Global).map(|i| i.operand).collect();
-            let kinds: Vec<Kind> = body.names.iter().zip(&bare[fi]).enumerate().map(|(k, (name, &bare))| {
+            let kinds: Vec<Kind> = body.names.iter().zip(&bare[fi]).map(|(name, &bare)| {
                 if bare.starts_with('#') { Kind::Local }
-                else if globals.contains(&(k as u16)) { Kind::Global(self.scopes[module].id(bare)) }
                 else if reads[fi].contains(&name.as_str()) { Kind::Global(self.scopes[module].id(name)) }
                 else if cells[fi].contains(&bare) || frees[fi].contains(&bare) { Kind::Cell }
                 else if owns(fi, bare) { Kind::Local }
@@ -315,20 +304,17 @@ impl<'a> VM<'a> {
             let module = self.chunk_module_id(body);
             let mut var = vec![false; body.names.len()];
             let mut member = vec![false; body.names.len()];
-            let mut global = vec![false; body.names.len()];
             for ins in &body.instructions {
                 let Some(i) = Some(ins.operand as usize).filter(|&i| i < body.names.len()) else { continue };
                 match ins.opcode {
                     OpCode::StoreName | OpCode::Phi => { var[i] = true; member[i] = true; }
-                    OpCode::LoadName | OpCode::Del => var[i] = true,
-                    OpCode::LoadGlobal | OpCode::StoreGlobal | OpCode::Global => { var[i] = true; global[i] = true; }
+                    OpCode::LoadName => var[i] = true,
                     _ => {}
                 }
             }
             let kinds = body.names.iter().enumerate().map(|(i, name)| {
                 let bare = ssa_strip(name);
                 if !var[i] || bare.starts_with('#') { return Binding::Local; }
-                if global[i] { return Binding::Global(self.scopes[module].id(bare)); }
                 if member[i] { return Binding::Member; }
                 // a plain local is lent only to a class its function defines itself
                 match kind_in(self, bare) {

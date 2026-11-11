@@ -88,9 +88,6 @@ pub(crate) fn kinds(ins: &Ins) -> u8 {
         ForIter => JUMPS,
         // a stack jump of a `try`'s handler
         JumpIfFalse | JumpIfFalseOrPop | JumpIfTrueOrPop => JUMPS,
-        // a name an `except` clause binds with `as` and then deletes
-        Del if ins.x == 0 => DEST,
-        Del => 0,
         _ => NONE,
     }
 }
@@ -140,7 +137,7 @@ pub(crate) fn dead_phi(ins: &[Ins], k: usize, r: u16) -> bool {
             Some(_) if i.op == ForIterR => (false, i.b == r),
             Some((dest, reads, _)) => (reads.iter().any(|&f| field(i, f) == r) || rows(i).is_some_and(|(_, s)| s.contains(&r)), dest && i.a == r),
             // every Phi is left out so none reads
-            None => (matches!(i.op, LoadName | Del) && i.a == r, i.op == StoreName && i.a == r),
+            None => (i.op == LoadName && i.a == r, i.op == StoreName && i.a == r),
         };
         if reads { return false; }
         if writes || matches!(i.op, ReturnR | ReturnValue | Raise | RaiseR) { continue; }

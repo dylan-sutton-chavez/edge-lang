@@ -6,7 +6,7 @@ pub(super) fn append_loops(src: &[Instruction], facts: &Facts) -> (Vec<bool>, Ve
     if !src.windows(2).any(|w| w[0].opcode == OpCode::InPlaceAdd && w[1].opcode == OpCode::StoreName && facts.kinds.get(w[1].operand as usize) == Some(&Kind::Local)) { return (Vec::new(), Vec::new()); }
     let mut appends = vec![false; src.len()];
     let mut resets = Vec::new();
-    let refers = |ins: &Instruction| matches!(ins.opcode, OpCode::LoadName | OpCode::StoreName | OpCode::Del | OpCode::Phi);
+    let refers = |ins: &Instruction| matches!(ins.opcode, OpCode::LoadName | OpCode::StoreName | OpCode::Phi);
     for (end, back) in src.iter().enumerate().filter(|(j, b)| b.opcode == OpCode::Jump && (b.operand as usize) <= *j) {
         let head = back.operand as usize;
         // a jump from outside into the loop would skip the reset at its head
@@ -30,7 +30,7 @@ pub(super) fn append_loops(src: &[Instruction], facts: &Facts) -> (Vec<bool>, Ve
     (appends, resets)
 }
 
-/* locals stored once from new lists and never deleted or merged hold them wherever read */
+/* locals stored once from new lists and never merged hold them wherever read */
 pub(super) fn list_locals(src: &[Instruction], flags: &[u32], facts: &Facts, names: usize) -> Vec<bool> {
     let mut stores = vec![0u8; names];
     let mut list = vec![false; names];
@@ -42,7 +42,7 @@ pub(super) fn list_locals(src: &[Instruction], flags: &[u32], facts: &Facts, nam
                 stores[s] = stores[s].saturating_add(1);
                 list[s] = k > 0 && src[k - 1].opcode == OpCode::BuildList && !flags.get(k).is_some_and(|f| f & TARGET != 0);
             }
-            OpCode::Del | OpCode::Phi => stores[s] = 2,
+            OpCode::Phi => stores[s] = 2,
             _ => {}
         }
     }
@@ -51,13 +51,13 @@ pub(super) fn list_locals(src: &[Instruction], flags: &[u32], facts: &Facts, nam
 
 #[inline]
 pub(super) fn transfer(bound: &mut [u64], ins: Instruction, k: usize, chunk: &SSAChunk) {
-    if !matches!(ins.opcode, OpCode::StoreName | OpCode::Phi | OpCode::Del) { return; }
+    if !matches!(ins.opcode, OpCode::StoreName | OpCode::Phi) { return; }
     let s = ins.operand as usize;
     let has = |b: &[u64], r: u16| b.get(r as usize / 64).is_some_and(|w| w & 1 << (r % 64) != 0);
     // a Phi binds its slot only when one of its sources is bound
     if ins.opcode == OpCode::Phi && !chunk.phi_map.get(k).and_then(|&p| chunk.phi_sources.get(p)).is_some_and(|&(a, b)| has(bound, a) || has(bound, b)) { return; }
     let Some(w) = bound.get_mut(s / 64) else { return };
-    if ins.opcode == OpCode::Del { *w &= !(1 << (s % 64)); } else { *w |= 1 << (s % 64); }
+    *w |= 1 << (s % 64);
 }
 
 /* the slots bound on every path into each block as a bit row per block */

@@ -1,6 +1,5 @@
 use crate::code::OpCode;
 use crate::syntax::chunk::SSAChunk;
-use crate::syntax::ssa::ssa_strip;
 use super::super::VM;
 use super::super::lower::Code;
 use crate::code::Ins;
@@ -24,11 +23,10 @@ impl VM<'_> {
         let top = self.top as usize;
         let at = self.base + top;
         match ins.op {
-            OpCode::LoadName | OpCode::LoadGlobal | OpCode::LoadEllipsis | OpCode::LoadModule => {
+            OpCode::LoadName | OpCode::LoadEllipsis | OpCode::LoadModule => {
                 if top >= code.frame { return Err(cold_runtime("a stack deeper than the rows of its frame")); }
                 let v = match ins.op {
                     OpCode::LoadName => self.name_value(ins.a as usize, code, chunk)?,
-                    OpCode::LoadGlobal => self.global_value(ins.a as usize, code, chunk)?,
                     op => self.load_value(op, ins.a, chunk)?,
                 };
                 self.regs[at] = v;
@@ -38,13 +36,6 @@ impl VM<'_> {
                 self.top -= 1;
                 self.store_name(ins.a as usize, self.regs[at - 1], code);
             }
-            OpCode::StoreGlobal => {
-                self.top -= 1;
-                let name = chunk.names.get(ins.a as usize).ok_or_else(|| cold_runtime("StoreGlobal: name index out of bounds"))?;
-                self.note_builtin_binding(name);
-                self.scopes[code.module].set(name, self.regs[at - 1]);
-            }
-            OpCode::Del => self.del_name(ins.a as usize, code, chunk)?,
             // the phi tables index the compiler's instructions
             OpCode::Phi => self.phi_rows(ins.a as usize, code.orig(i) as usize, code, chunk),
             OpCode::Assert => {
@@ -92,13 +83,6 @@ impl VM<'_> {
         }
     }
 
-    /* what LoadGlobal of name `k` reads from its module binding or its builtin */
-    fn global_value(&self, k: usize, code: &Code, chunk: &SSAChunk) -> Result<Val, VmErr> {
-        if let Some(&Kind::Global(g)) = code.kinds.get(k) { return self.global_at(code.module, g); }
-        let name = chunk.names.get(k).ok_or_else(|| cold_runtime("LoadGlobal: name index out of bounds"))?;
-        self.scopes[code.module].get(name).or_else(|| self.global(name)).ok_or_else(|| crate::lang::EngineError::Undefined(name.clone()).into())
-    }
-
     /* binds slot `k` to `v` rebinding a builtin's name and filling a cell */
     fn store_name(&mut self, k: usize, v: Val, code: &Code) {
         match code.kinds.get(k) {
@@ -112,28 +96,6 @@ impl VM<'_> {
         }
     }
 
-    /* unbinds slot `k` and an unbound one raises as its read would */
-    fn del_name(&mut self, k: usize, code: &Code, chunk: &SSAChunk) -> Result<(), VmErr> {
-        match code.kinds.get(k) {
-            Some(&Kind::Global(g)) => {
-                let name = ssa_strip(&chunk.names[k]);
-                if self.scopes[code.module].at(g).is_undef() { return Err(crate::lang::EngineError::Undefined(name.into()).into()); }
-                self.scopes[code.module].set_at(g, Val::undef());
-                // a builtin's name falls back to it
-                self.note_builtin_binding(name);
-            }
-            Some(Kind::Cell) => {
-                let cell = self.regs[self.base + k];
-                if self.deref(cell).is_undef() { return Err(self.unbound_err(chunk, k)); }
-                self.set_cell(cell, Val::undef());
-            }
-            _ => match self.regs[self.base..self.base + code.rows as usize].get_mut(k) {
-                Some(s) if !s.is_undef() => *s = Val::undef(),
-                _ => return Err(self.unbound_err(chunk, k)),
-            },
-        }
-        Ok(())
-    }
 
     /* binds slot `k` to the first bound source of the phi at compiler instruction `rip` */
     fn phi_rows(&mut self, k: usize, rip: usize, code: &Code, chunk: &SSAChunk) {

@@ -1,11 +1,11 @@
 use super::{Mark, Parser, Shape};
 use super::expr::Tail;
-use crate::{code::OpCode, syntax::diag::Diagnostic};
+use crate::code::OpCode;
 use crate::s;
 
 use crate::syntax::lexer::{Spelling, Token, TokenType};
 
-use alloc::{string::ToString, vec::Vec};
+use alloc::vec::Vec;
 
 impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
 
@@ -42,11 +42,6 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
             }
             Some(TokenType::While) => {
                 self.while_stmt();
-                false
-            }
-            // a grammar's match is a value read where any expression is
-            Some(TokenType::Match) if Self::GRAMMAR.is_none() => {
-                self.match_stmt();
                 false
             }
             Some(TokenType::Yield) => {
@@ -125,14 +120,6 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
                 self.parse_from_stmt();
                 false
             }
-            Some(TokenType::Global) => {
-                self.emit_name_list(OpCode::Global);
-                false
-            }
-            Some(TokenType::Outer) => {
-                self.emit_name_list(OpCode::Outer);
-                false
-            }
             Some(TokenType::Assert) => {
                 self.advance();
                 self.expr();
@@ -151,15 +138,6 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
                     self.patch(to_end);
                 } else {
                     self.chunk.emit(OpCode::Assert, 0);
-                }
-                false
-            }
-            Some(TokenType::Delete) => {
-                self.advance();
-                loop {
-                    self.parse_del_target();
-                    // a trailing comma ends the list where the statement ends
-                    if !self.eat_if(TokenType::Comma) || self.at_del_end() { break; }
                 }
                 false
             }
@@ -275,45 +253,6 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         if count > 0 {
             self.chunk.emit(OpCode::UnwindFinally, count as u16);
         }
-    }
-
-    /* declares each listed name `global` or `nonlocal` so later loads and stores route accordingly */
-    pub(super) fn emit_name_list(&mut self, op: OpCode) {
-        self.advance();
-        loop {
-            if !matches!(self.peek_same_line(), Some(TokenType::Name | TokenType::Underscore)) { return self.error("expected a name"); }
-            let name = self.advance_text();
-            let idx = self.chunk.push_name(name);
-            self.chunk.emit(op, idx);
-            match op {
-                OpCode::Global => {
-                    // a parameter or a name stored earlier in the scope cannot turn global
-                    if !self.globals_decl.contains(name) && let Some(v) = self.ssa_versions.get(name) {
-                        let how = if v == 0 { Self::PARAM_GLOBAL } else { Self::ASSIGNED_GLOBAL };
-                        self.errors.push(Diagnostic { start: self.last_end - name.len(), end: self.last_end, msg: s!("name '", str name, str how) });
-                    }
-                    self.globals_decl.insert(name.to_string());
-                }
-                OpCode::Outer => self.declare_nonlocal(name),
-                _ => {}
-            }
-            if !self.eat_if(TokenType::Comma) { break; }
-        }
-    }
-
-    /* records a nonlocal name an enclosing function must bind by the end of the module */
-    fn declare_nonlocal(&mut self, name: &str) {
-        let (start, end) = (self.last_end - name.len(), self.last_end);
-        let msg = if !self.in_function && !self.in_class_body {
-            s!(str Self::OUTER_AT_MODULE)
-        } else if self.ssa_versions.get(name) == Some(0) {
-            s!("name '", str name, str Self::PARAM_OUTER)
-        } else {
-            if !self.chunk.nonlocals.iter().any(|n| n == name) { self.chunk.nonlocals.push(name.to_string()); }
-            self.unbound_nonlocals.push((name.to_string(), start, end));
-            return;
-        };
-        self.errors.push(Diagnostic { start, end, msg });
     }
 
     /* an assignment value or tuple running to the line end */
@@ -564,7 +503,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
     /* reports a store to an unbound name where the table requires its binding word */
     fn declared(&mut self, t: Token) {
         let name = self.lexeme(&t);
-        if t.kind == TokenType::Underscore || self.ssa_versions.contains(name) || self.globals_decl.contains(name) || self.chunk.nonlocals.iter().any(|n| n == name) { return; }
+        if t.kind == TokenType::Underscore || self.ssa_versions.contains(name) || self.chunk.nonlocals.iter().any(|n| n == name) { return; }
         let msg = s!("name '", str name, "' is not bound, bind it with ", str Self::shown(TokenType::Let));
         self.reject(t.start, t.end, &msg);
     }
@@ -712,109 +651,6 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
             TokenType::RightShiftEqual => Some(OpCode::Shr),
             _ => None,
         }
-    }
-
-    /* one `del` target as a name or an access chain or a group of targets */
-    fn parse_del_target(&mut self) {
-        self.peek_same_line();
-        let open = self.tokens.pos;
-        let Some(&t) = self.tokens.peek() else { return self.error("cannot delete this expression") };
-        match t.kind {
-            TokenType::Name | TokenType::Underscore => {
-                self.advance();
-                if self.at_del_end() {
-                    let name = self.lexeme(&t);
-                    // a bare name unbinds its current version or its module binding when declared `global`
-                    let idx = if self.globals_decl.contains(name) { self.chunk.push_name(name) } else { self.push_ssa_name(name, self.current_version(name)) };
-                    return self.chunk.emit(OpCode::Del, idx);
-                }
-                self.name(t);
-            }
-            TokenType::ParenOpen | TokenType::BracketOpen => {
-                self.advance();
-                let (close, _) = self.tokens.group_target(open);
-                if self.del_ends_after(close) { return self.nested(|s| s.del_group(t.kind, close)); }
-                if t.kind == TokenType::ParenOpen { self.paren_atom(); } else { self.list_literal(); }
-            }
-            TokenType::String | TokenType::FormatStart | TokenType::Bytes | TokenType::Int | TokenType::Float | TokenType::True
-            | TokenType::False | TokenType::Nil | TokenType::Ellipsis | TokenType::BraceOpen => {
-                // a literal's chain compiles as an operand whose last access becomes its delete
-                self.parse_atom();
-                let del = match self.chunk.instructions.last().map(|i| i.opcode) {
-                    Some(OpCode::GetItem) => Some(OpCode::DelItem),
-                    Some(OpCode::Cut) => Some(OpCode::DelCut),
-                    Some(OpCode::LoadAttr) => Some(OpCode::DelAttr),
-                    _ => None,
-                };
-                match del.filter(|_| self.at_del_end()) {
-                    Some(op) => if let Some(ins) = self.chunk.instructions.last_mut() { ins.opcode = op; },
-                    None => self.error_at(t.start, self.last_end, "cannot delete this expression"),
-                }
-                return;
-            }
-            _ => return self.error("cannot delete this expression"),
-        }
-        // only an attribute or a subscript ends a chain a delete reaches
-        if !self.del_tail() { self.error_at(t.start, self.last_end, "cannot delete this expression"); }
-    }
-
-    /* the trailers of a `del` chain whose last attribute or subscript turns into its delete */
-    fn del_tail(&mut self) -> bool {
-        loop {
-            match self.peek_same_line() {
-                Some(TokenType::BracketOpen) => {
-                    self.advance();
-                    let cut = self.parse_subscript();
-                    if self.at_del_end() { self.emit_del_item(cut); return true; }
-                    self.emit_get_item(cut);
-                }
-                Some(TokenType::Dot) => {
-                    self.advance();
-                    if !matches!(self.peek_same_line(), Some(TokenType::Name | TokenType::Underscore)) { self.diag_at_peek(Self::ATTR_AFTER_DOT); return false; }
-                    let t = self.advance();
-                    let name = self.lexeme(&t);
-                    // a table that reads keys at dots deletes a key unless a call follows
-                    if Self::KEYS && !matches!(self.peek_same_line(), Some(TokenType::ParenOpen)) {
-                        self.emit_const(crate::syntax::chunk::Value::Str(name.to_string()));
-                        if self.at_del_end() { self.chunk.emit(OpCode::DelItem, 0); return true; }
-                        self.chunk.emit(OpCode::GetItem, 0);
-                        continue;
-                    }
-                    let idx = self.chunk.push_name(name);
-                    if self.at_del_end() { self.chunk.emit(OpCode::DelAttr, idx); return true; }
-                    self.chunk.emit(OpCode::LoadAttr, idx);
-                }
-                Some(TokenType::ParenOpen) => {
-                    let call_pos = self.last_end as u32;
-                    self.advance();
-                    self.call_rest(call_pos);
-                }
-                _ => return false,
-            }
-        }
-    }
-
-    /* deletes each target of a group closing at `close` where an empty one deletes nothing */
-    fn del_group(&mut self, open: TokenType, close: usize) {
-        let shut = if open == TokenType::ParenOpen { TokenType::ParenClose } else { TokenType::BracketClose };
-        while self.tokens.pos < close && !matches!(self.peek(), Some(k) if k == shut) {
-            self.parse_del_target();
-            if !self.eat_if(TokenType::Comma) { break; }
-        }
-        self.tokens.pos = close;
-        self.eat(shut);
-    }
-
-    /* whether a `del` target ends at the cursor */
-    pub(super) fn at_del_end(&mut self) -> bool {
-        matches!(self.peek_same_line(), None | Some(TokenType::Semi | TokenType::Comma | TokenType::ParenClose | TokenType::BracketClose))
-    }
-
-    /* whether a `del` target ends right after the group closing at `close` */
-    fn del_ends_after(&self, close: usize) -> bool {
-        let next = self.tokens.toks.get(close + 1..).and_then(|rest| rest.iter().find(|t| !matches!(t.kind, TokenType::LineBreak | TokenType::Comment)));
-        next.is_none_or(|t| matches!(t.kind, TokenType::Newline | TokenType::Eof | TokenType::Dedent | TokenType::Semi | TokenType::Comma | TokenType::ParenClose | TokenType::BracketClose)
-            || (Self::DELIMITED && t.kind == TokenType::BlockClose))
     }
 
     /* a yield past its keyword leaves a value so it serves as statement or expression */

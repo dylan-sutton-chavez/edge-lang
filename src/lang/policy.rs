@@ -164,8 +164,9 @@ impl Policy {
         map_fields: false,
         builtins_scope: true,
         receiver_slot: true,
-        recursion_limit: 1000,
-        max_int_digits: Some(4300),
+        // a runtime states its own depth and digit limits
+        recursion_limit: 10_000,
+        max_int_digits: None,
     };
 
     /* whether the loop compiles alike under this policy and `other` */

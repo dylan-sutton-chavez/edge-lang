@@ -59,8 +59,6 @@ pub enum EngineError {
     Uneven { arg: u32, longer: bool },
     // the protocol of generators and coroutines
     Generator(Gen),
-    // a class pattern that does not fit its class
-    Pattern(Pattern),
     // the end of an iteration with its value which ends the loop stepping it
     Stop(Val),
     // the signal a close throws into a generator
@@ -93,7 +91,6 @@ pub enum Act {
     Call,
     Subscript,
     AssignItem,
-    DeleteItem,
     AssignSlice,
     Slice,
     // a slice taken of a value that is no sequence
@@ -214,17 +211,6 @@ pub enum Gen {
     Sent,
 }
 
-/* a class pattern that does not fit its class */
-#[derive(Clone, Debug)]
-pub enum Pattern {
-    // more than one positional pattern for a builtin subject
-    OnePositional(Val),
-    // positional patterns for a class with no matched fields
-    NoFields,
-    // more positional patterns than matched fields
-    TooMany,
-}
-
 /* the errors raised most built in calls of their own so sites keep no room */
 impl EngineError {
     #[cold]
@@ -258,7 +244,7 @@ impl EngineError {
     pub fn kind(&self) -> Option<ErrKind> {
         use EngineError as E;
         Some(match self {
-            E::Unsupported { .. } | E::BadIndex { .. } | E::BadSlice { .. } | E::Arity { .. } | E::Call(_) | E::Pattern(_) => ErrKind::Type,
+            E::Unsupported { .. } | E::BadIndex { .. } | E::BadSlice { .. } | E::Arity { .. } | E::Call(_) => ErrKind::Type,
             E::Cannot { act: Act::Complex, .. } => ErrKind::Value,
             E::Cannot { .. } => ErrKind::Type,
             E::OutOfRange { .. } => ErrKind::Index,
@@ -440,7 +426,6 @@ pub fn plain(cx: &mut Cx<'_, '_>, e: &EngineError) -> String {
             Gen::ClassSuspend => String::from("a class body cannot suspend"),
             Gen::Sent => String::from("a builtin iterator takes no sent value"),
         },
-        E::Pattern(_) => String::from("the class pattern does not fit its class"),
         &E::Stop(v) | &E::Exit(v) | &E::Assert(v) => if v.is_undef() || v.is_none() { String::new() } else { cx.render(v, Mode::Str).unwrap_or_default() },
         E::Close => String::new(),
         E::Recursion => String::from("calls nested past the recursion limit"),
@@ -457,7 +442,7 @@ pub fn plain(cx: &mut Cx<'_, '_>, e: &EngineError) -> String {
 fn verb(act: Act) -> &'static str {
     match act {
         Act::Iterate => "be iterated", Act::Next => "step as an iterator", Act::Call => "be called", Act::Subscript => "be indexed",
-        Act::AssignItem => "take an item", Act::DeleteItem => "drop an item", Act::AssignSlice => "take a slice", Act::Slice => "be sliced",
+        Act::AssignItem => "take an item", Act::AssignSlice => "take a slice", Act::Slice => "be sliced",
         Act::Sequence => "be sliced as a sequence", Act::Size => "report a size", Act::Hash { .. } => "stand as a key", Act::Await => "be awaited",
         Act::Map { .. } => "be read as a map", Act::Contain => "hold items", Act::Index => "stand for an index", Act::Raise { .. } => "be raised",
         Act::Bytes => "be read as bytes", Act::Spec => "stand as a format spec", Act::Keyword => "name a keyword", Act::DeleteAttr => "lose a field", Act::DropArgs => "lose the arguments it holds",

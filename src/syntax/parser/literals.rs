@@ -213,12 +213,10 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         self.eat(TokenType::In);
         self.expr_bp(1);
         self.chunk.emit(OpCode::GetIter, super::ITER_VALUE);
-        // a walrus binds where the comprehension stands and a `global` there counts too
-        let globals = self.globals_decl.clone();
+        // a walrus binds where the comprehension stands
         let mut body = self.with_fresh_chunk(|s| {
             s.in_comp = true;
             s.in_async = in_async;
-            s.globals_decl = globals;
             // a body error points at the element until a clause marks its own line
             s.chunk.stmt_pos.push((0, elem_start));
             s.bind_param(COMP_ARG);
@@ -421,14 +419,9 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         let call_pos = self.last_end as u32;
         self.lazy_arg = Self::GRAMMAR.is_some_and(|g| g.lazy.contains(&name));
         // a builtin name the scope binds as a parameter or otherwise calls the binding
-        if self.ssa_versions.contains(name) || self.globals_decl.contains(name) || self.unfused.iter().any(|u| u == name) {
+        if self.ssa_versions.contains(name) || self.unfused.iter().any(|u| u == name) {
             let i = self.push_ssa_name(name, self.current_version(name));
-            if self.globals_decl.contains(name) {
-                let gi = self.chunk.push_name(name);
-                self.chunk.emit(OpCode::LoadGlobal, gi);
-            } else {
-                self.chunk.emit(OpCode::LoadName, i);
-            }
+            self.chunk.emit(OpCode::LoadName, i);
             self.advance();
             self.call_rest(call_pos);
             return false;

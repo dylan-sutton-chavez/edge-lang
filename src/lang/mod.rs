@@ -195,8 +195,6 @@ pub struct Fields {
     // what a bound method was bound to and its function
     pub receiver: &'static str,
     pub function: &'static str,
-    // the fields a class pattern matches by position
-    pub match_args: &'static str,
     // the arguments an error was made with
     pub args: &'static str,
     // the value an ending iteration carries
@@ -231,7 +229,7 @@ impl Names {
         coroutine: "Async", descriptor: "Descriptor", native: "Native", method: "Method", exception: "Fault",
         ellipsis_type: "Dots", ellipsis: "Dots", constructor: "init", name_field: "name",
         fields: Fields {
-            receiver: "receiver", function: "function_of", match_args: "match_fields", args: "arguments", value: "carried",
+            receiver: "receiver", function: "function_of", args: "arguments", value: "carried",
             start: "first", stop: "end", step: "stride",
         },
         module_name: "module_name",

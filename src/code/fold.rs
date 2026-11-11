@@ -23,7 +23,7 @@ fn fold_names(chunk: &SSAChunk, out: &mut Vec<&'static str>) {
 /* those of `names` that `chunk` its bodies and its modules store or delete */
 fn stores_of(chunk: &SSAChunk, names: &[&'static str], out: &mut Vec<&'static str>) {
     for ins in &chunk.instructions {
-        if !matches!(ins.opcode, OpCode::StoreName | OpCode::StoreGlobal | OpCode::StoreAttr | OpCode::Del | OpCode::DelAttr) { continue; }
+        if !matches!(ins.opcode, OpCode::StoreName | OpCode::StoreAttr) { continue; }
         let Some(n) = chunk.names.get(usize::from(ins.operand)).map(|n| crate::syntax::ssa::ssa_strip(n)) else { continue };
         if let Some(&name) = names.iter().find(|&&f| f == n) { out.push(name); }
     }

@@ -249,7 +249,7 @@ pub(crate) fn rowed(src: &[Instruction], i: usize, chunk: &SSAChunk, d: usize) -
 fn spread_regs(src: &[Instruction], end: usize, d: usize) -> bool {
     let (Some(unpack), Some(call)) = (src.get(end), src.get(end + 1)) else { return false };
     if unpack.opcode != UnpackArgs || !matches!(unpack.operand, 1 | 2) || call.opcode != CallSpread || call.operand != 1 || end + 2 >= src.len() { return false; }
-    let simple = |k: usize| matches!(src[k].opcode, LoadName | LoadConst | LoadGlobal | LoadNone | LoadTrue | LoadFalse | BuildList | BuildTuple | BuildDict);
+    let simple = |k: usize| matches!(src[k].opcode, LoadName | LoadConst | LoadNone | LoadTrue | LoadFalse | BuildList | BuildTuple | BuildDict);
     let mut b = end;
     while b > 0 && simple(b - 1) { b -= 1; }
     // the loads after the BeginArgs leave one value over the callee

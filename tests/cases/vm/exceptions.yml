@@ -1842,7 +1842,6 @@
     }
   expected: |-
     5
-    gone
 
 - case: |-
     try {
@@ -1857,7 +1856,6 @@
     }
   expected: |-
     ("k",)
-    gone
 
 - case: |-
     try {
@@ -1872,7 +1870,6 @@
     }
   expected: |-
     caught
-    gone
 
 - case: |-
     try {
@@ -1884,8 +1881,7 @@
     } catch NameError {
         print("gone")
     }
-  expected: |-
-    gone
+  expected: ""
 
 - case: |-
     try {
@@ -1901,7 +1897,6 @@
     }
   expected: |-
     a
-    gone
 
 - case: |-
     try {
@@ -1916,7 +1911,6 @@
     }
   expected: |-
     caught
-    gone
 
 - case: |-
     try {
@@ -1931,7 +1925,6 @@
     }
   expected: |-
     h
-    gone
 
 - case: |-
     try {
@@ -1946,7 +1939,6 @@
     }
   expected: |-
     1
-    gone
 
 - case: |-
     fn f() {

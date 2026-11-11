@@ -57,7 +57,7 @@ pub static NAMES: Names = Names {
     constructor: "@new",
     name_field: "@name",
     fields: Fields {
-        receiver: "@receiver", function: "@function", match_args: "@match", args: "@arguments", value: "@value",
+        receiver: "@receiver", function: "@function", args: "@arguments", value: "@value",
         start: "@start", stop: "@stop", step: "@step",
     },
     module_name: "@module",

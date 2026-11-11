@@ -68,10 +68,7 @@ crate::ops! {
         EndFinally        0         0       none      flow        -       -      every  -          -     -             -;
         // unwinds the operand count of finally blocks before a break or continue jumps
         UnwindFinally     0         0       count     flow        unwind  -      every  -          -     -             -;
-        Del               0         0       slot      values      -       -      every  -          -     -             -;
         Assert            1         0       none      values      -       -      -      -          -     OpR           -;
-        Global            0         0       name      values      -       -      -      -          -     -             -;
-        Outer             0         0       name      values      -       -      -      -          -     -             -;
         UnpackArgs        1         1       flags     calls       -       -      under  -          -     -             -;
         ListAppend        1         0       none      containers  -       -      -      -          -     ListAppendR   -;
         SetAdd            1         0       none      containers  -       -      -      -          -     SetAddR       -;
@@ -91,20 +88,14 @@ crate::ops! {
         CallMethod        args      1       method    calls       -       -      under  -          -     CallMethodR   -;
         CallMethodArgs    0         0       call      calls       -       -      -      -          -     -             -;
         PopIter           0         0       none      flow        -       -      every  -          -     -             -;
-        DelItem           2         0       none      containers  -       -      -      -          -     OpR           -;
-        DelAttr           1         0       attr      containers  -       -      -      -          -     OpR           -;
         CallExtern        packed    1       binding   calls       -       -      under  -          -     -             -;
         // the module of `chunk.imports[operand]` read from `vm.module_table` in constant time
         LoadModule        0         1       module    values      -       -      -      -          -     OpR           -;
         // a name declared `global` read or written in `self.globals` by its bare name in `chunk.names`
-        LoadGlobal        0         1       name      values      -       -      -      -          -     LoadGlobalR   -;
-        StoreGlobal       1         0       name      values      -       -      -      -          -     StoreGlobalR  -;
         // `{**m}` `{*s}` and `[*it]` merge the popped value into the container below it
         DictUpdate        1         0       none      containers  -       -      under  -          -     -             -;
         SetUpdate         1         0       none      containers  -       -      under  -          -     -             -;
         ListExtend        1         0       none      containers  -       -      under  -          -     -             -;
-        // whether the popped value matches a sequence pattern which str and bytes never do
-        MatchSeq          1         1       none      containers  -       -      -      -          -     OpR           -;
         // extends a left list in place so aliases see it and adds otherwise
         InPlaceAdd        2         1       flags     values      -       -      under  augmented  -     InPlaceAddR   -;
         // removes from a left set in place so aliases see it and subtracts otherwise
@@ -124,10 +115,6 @@ crate::ops! {
         Rot3              3         3       none      values      -       -      -      -          -     -             -;
         // `a @ b` which no value supports
         MatMul            2         1       flags     values      -       -      -      binary     -     -             -;
-        // a class pattern pushing the matched attributes or None with the positional count as operand
-        MatchClass        3         1       count     containers  -       -      -      -          -     OpR           -;
-        // whether the popped value matches a mapping pattern
-        MatchMap          1         1       none      containers  -       -      -      -          -     OpR           -;
         // a call with a `*` or `**` argument closing the frame its first spread opened
         CallSpread        args      1       call      calls       -       -      under  -          -     CallSpreadR   -;
         // a call of the native its operand names with its count or through `chunk.native_sites`
@@ -144,8 +131,6 @@ crate::ops! {
         Cut               items     1       count     containers  -       -      -      -          -     OpR           -;
         // stores the value under the object and its bounds over that cut
         StoreCut          items     0       count     containers  -       -      -      -          -     OpR           -;
-        // deletes the cut of the object under its bounds
-        DelCut            items     0       count     containers  -       -      -      -          -     OpR           -;
     }
 
     // register forms only the VM lowering writes each reading and writing frame slots

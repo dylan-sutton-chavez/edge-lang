@@ -22,7 +22,7 @@ pub static NAMES: Names = Names {
     errors: ERRORS,
     iters: ["iterator"; lang::ITERS],
     coroutine: "generator", descriptor: "fn", native: "fn", method: "fn", exception: "error",
-    fields: Fields { receiver: "receiver", function: "function", match_args: "match_fields", args: "args", value: "value", start: "start", stop: "stop", step: "step" },
+    fields: Fields { receiver: "receiver", function: "function", args: "args", value: "value", start: "start", stop: "stop", step: "step" },
     anonymous: "<fn>",
     tree: &TREE,
     ..Names::PLAIN

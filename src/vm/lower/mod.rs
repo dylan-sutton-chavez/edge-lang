@@ -76,7 +76,6 @@ pub(crate) const CALLS: u8 = 1;
 pub(crate) const LOOPS: u8 = 2;
 pub(crate) const ATTRS: u8 = 4;
 pub(crate) const APPENDS: u8 = 8;
-pub(crate) const DELETES: u8 = 16;
 // an await which steps over rows only in the compiler's own code
 pub(crate) const AWAITS: u8 = 32;
 // a jump or handler or an early end of flow means more than one block
@@ -95,7 +94,6 @@ pub(crate) fn shape(src: &[Instruction]) -> u8 {
             OpCode::Jump if i.operand as usize <= k => LOOPS,
             OpCode::LoadAttr => ATTRS,
             OpCode::InPlaceAdd => APPENDS,
-            OpCode::Del => DELETES,
             OpCode::GetAwaitable | OpCode::Await => AWAITS,
             _ => 0,
         };
@@ -317,18 +315,17 @@ impl Entry {
 
 
 /* what a section's body holds that its laying looks for read in one pass */
-struct Marks { makes: bool, deletes: bool, builds: bool, tried: bool, stacked: bool, yields: usize, yields_stack: bool }
+struct Marks { makes: bool, builds: bool, tried: bool, stacked: bool, yields: usize, yields_stack: bool }
 
 fn body_marks(ins: &[Ins]) -> Marks {
     use OpCode::*;
-    let mut m = Marks { makes: false, deletes: false, builds: false, tried: false, stacked: false, yields: 0, yields_stack: false };
+    let mut m = Marks { makes: false, builds: false, tried: false, stacked: false, yields: 0, yields_stack: false };
     for i in ins {
         match i.op {
             MakeFunction => { m.makes = true; m.builds = true; }
             MakeCoroutine => m.makes = true,
             OpR if i.x == MakeFunction as u8 => { m.makes = true; m.builds = true; }
             OpR if i.x == MakeCoroutine as u8 => m.makes = true,
-            Del => m.deletes = true,
             BuildList | BuildDict | BuildSet | CallNative | CallNativeR | ListToTuple | ListToTupleR | RuntimeR => m.builds = true,
             BuildR if matches!(OpCode::ALL[(i.x & !TAKEN) as usize], BuildList | BuildDict | BuildSet) => m.builds = true,
             SetupExcept | SetupFinally => m.tried = true,
@@ -383,11 +380,6 @@ fn lower_in<'p>(src: &[Instruction], chunk: &SSAChunk, facts: &Facts, sections: 
     // code whose depths settle nowhere runs as the compiler wrote it
     settled?;
     if let Some(f) = flags.first_mut() { *f |= START; }
-    let mut deleted = Vec::new();
-    for ins in src.iter().filter(|i| facts.shape & DELETES != 0 && i.opcode == OpCode::Del) {
-        deleted.resize(names, false);
-        if let Some(s) = deleted.get_mut(ins.operand as usize) { *s = true; }
-    }
     // code of one block binds at its start only what its call binds
     let one = flags.is_empty() || !flags[1..len.max(1)].iter().any(|f| f & START != 0);
     let bound_at = (facts.regs && !one).then(|| bound_on_entry(src, chunk, names, facts, &mut flags));
@@ -399,7 +391,7 @@ fn lower_in<'p>(src: &[Instruction], chunk: &SSAChunk, facts: &Facts, sections: 
     // a module's instructions no loop reruns lay no calls since what they call runs once
     let once = if facts.once && facts.regs { runs_once(src) } else { Vec::new() };
     let mut l = Lower {
-        src, chunk, facts, flags: &flags, deleted, names, cbase, consts, tbase,
+        src, chunk, facts, flags: &flags, names, cbase, consts, tbase,
         out: Vec::with_capacity(len), orig: Vec::with_capacity(len + 1), at, back: Vec::with_capacity(len + 1),
         pending: Vec::with_capacity(MAX_PENDING), patches: Vec::new(), temps: 0, last: None, cur: 0, quiet: 0, bound: vec![0; names.div_ceil(64)],
         appends, lists: core::cell::OnceCell::new(), sections, wanted: Vec::new(), heads: Vec::new(), prep: Vec::new(), seeds: Vec::new(), dest: None, resume: None,
@@ -453,8 +445,8 @@ fn lower_in<'p>(src: &[Instruction], chunk: &SSAChunk, facts: &Facts, sections: 
         // a fused group's later instructions start where its last one does
         let under = (l.pending.len() as u32) << 16;
         for k in 1..step { l.at[i + k] = before.max(l.out.len().saturating_sub(1)) as u32 | under; }
-        // only stores binds and deletes change what is bound
-        for (k, &ins) in src[i..i + step].iter().enumerate().filter(|(_, s)| matches!(s.opcode, OpCode::StoreName | OpCode::Phi | OpCode::Del)) { transfer(&mut l.bound, ins, i + k, chunk); }
+        // only stores and binds change what is bound
+        for (k, &ins) in src[i..i + step].iter().enumerate().filter(|(_, s)| matches!(s.opcode, OpCode::StoreName | OpCode::Phi)) { transfer(&mut l.bound, ins, i + k, chunk); }
         i += step;
         if l.settled() { l.quiet = i as u32; }
     }
@@ -707,7 +699,6 @@ struct Lower<'c, 'p> {
     facts: &'c Facts,
     // each instruction's entry and block start flags with the block's row past them
     flags: &'c [u32],
-    deleted: Vec<bool>,
     names: usize,
     cbase: usize,
     consts: usize,
@@ -842,19 +833,7 @@ impl<'p> Lower<'_, 'p> {
             OpCode::LoadTrue if regs => self.push(Entry::reg((self.cbase + self.consts + 1) as u16)),
             OpCode::LoadFalse if regs => self.push(Entry::reg((self.cbase + self.consts + 2) as u16)),
             OpCode::StoreName if regs && (op as usize) < self.names && !self.pending.is_empty() => self.store_name(op),
-            // a `global` name reads and writes its module binding by index
-            OpCode::LoadGlobal if regs && let Some(Kind::Global(g)) = self.kind(op) => {
-                let t = self.dest();
-                self.produce(Ins { op: OpCode::LoadGlobalR, x: 0, a: t, b: g as u16, c: 0 });
-            }
-            OpCode::StoreGlobal if regs && !self.pending.is_empty() && let Some(Kind::Global(g)) = self.kind(op) => {
-                let v = self.pop();
-                // a builtin's store redirects its fused calls
-                self.emit(Ins { op: OpCode::StoreGlobalR, x: self.builtin_flag(op), a: g as u16, b: v.r, c: 0 });
-            }
             OpCode::PopTop if !self.pending.is_empty() => { self.pending.pop(); }
-            // a declaration does nothing at run time
-            OpCode::Global | OpCode::Outer => {}
             OpCode::Dup if !self.pending.is_empty() => { let e = self.pending[self.pending.len() - 1]; self.push(e); }
             OpCode::Swap if self.pending.len() >= 2 => { let k = self.pending.len(); self.pending.swap(k - 1, k - 2); }
             OpCode::Rot3 if self.pending.len() >= 3 => {
@@ -1209,7 +1188,7 @@ impl<'p> Lower<'_, 'p> {
                 self.pending.clear();
                 self.emit(Ins { op: OpCode::ReturnR, x: 0, a: 0, b: (self.cbase + self.consts) as u16, c: 0 });
             }
-            OpCode::Pos | OpCode::BitNot | OpCode::MatchSeq | OpCode::MatchMap | OpCode::MatchClass | OpCode::DelItem | OpCode::DelAttr | OpCode::Assert | OpCode::Cut | OpCode::DelCut
+            OpCode::Pos | OpCode::BitNot | OpCode::Assert | OpCode::Cut
                 | OpCode::Raise | OpCode::UnpackSequence | OpCode::UnpackEx if let Some(n) = self.forms(i) => return n,
             _ => self.island_op(ins),
         }
@@ -1328,7 +1307,7 @@ impl<'p> Lower<'_, 'p> {
                 let slot = self.dest();
                 self.emit(Ins { b: slot + 1, ..Ins::of(ins) });
             }
-            Jump | SetupFinally | PopExcept | BeginFinally | EndFinally | UnwindFinally | PopIter | Del | Phi => { self.settle(); self.emit_orig(ins); }
+            Jump | SetupFinally | PopExcept | BeginFinally | EndFinally | UnwindFinally | PopIter | Phi => { self.settle(); self.emit_orig(ins); }
             // a loop step writes its item into its row
             ForIter => {
                 self.settle();
@@ -1515,7 +1494,7 @@ impl<'p> Lower<'_, 'p> {
 
     /* a local's read waits for its use since only the frame writes it */
     fn deferrable(&self, s: usize) -> bool {
-        !self.deleted.get(s).is_some_and(|&d| d) && self.bound.get(s / 64).is_some_and(|w| w & (1 << (s % 64)) != 0)
+        self.bound.get(s / 64).is_some_and(|w| w & (1 << (s % 64)) != 0)
     }
 
     fn load_name(&mut self, s: u16) {
@@ -1706,30 +1685,19 @@ impl<'p> Lower<'_, 'p> {
     fn forms(&mut self, i: usize) -> Option<usize> {
         let (ins, op, n) = (self.src[i], self.src[i].operand, self.pending.len());
         match ins.opcode {
-            OpCode::Pos | OpCode::BitNot | OpCode::MatchSeq | OpCode::MatchMap if n > 0 => {
+            OpCode::Pos | OpCode::BitNot if n > 0 => {
                 let v = self.pop();
                 let t = self.dest();
-                let form = if matches!(ins.opcode, OpCode::Pos | OpCode::BitNot) { OpCode::UnaryR } else { OpCode::OpR };
-                self.produce(Ins { op: form, x: ins.opcode as u8, a: t, b: v.r, c: 0 });
+                self.produce(Ins { op: OpCode::UnaryR, x: ins.opcode as u8, a: t, b: v.r, c: 0 });
             }
-            OpCode::DelAttr | OpCode::Assert if n > 0 => {
+            OpCode::Assert if n > 0 => {
                 let v = self.pop();
                 self.emit(Ins { op: OpCode::OpR, x: ins.opcode as u8, a: 0, b: v.r, c: op });
-            }
-            // a delete takes its object and its key or a slice's bounds as one row
-            OpCode::DelItem | OpCode::DelCut if n >= (op as usize).max(2) => {
-                let row = self.row((op as usize).max(2));
-                self.emit(Ins { op: OpCode::OpR, x: ins.opcode as u8, a: 0, b: row, c: op });
             }
             // a slice read takes its object and bounds as one row
             OpCode::Cut if n >= op as usize => {
                 let row = self.row(op as usize);
                 let t = self.dest();
-                self.produce(Ins { op: OpCode::OpR, x: ins.opcode as u8, a: t, b: row, c: op });
-            }
-            OpCode::MatchClass if n >= 3 => {
-                let row = self.row(3);
-                let t = self.temp();
                 self.produce(Ins { op: OpCode::OpR, x: ins.opcode as u8, a: t, b: row, c: op });
             }
             // nothing pending under a raise is read again

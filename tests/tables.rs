@@ -68,11 +68,11 @@ mod test {
         assert_eq!((bound(&p, b, "c"), bound(&p, b, "p"), bound(&p, b, "u")), (vec![Cell], vec![Lent], vec![Member]));
         let (_, m) = p.scope_of(&b.functions[0].1).expect("m is a function");
         assert_eq!(m.freevars.iter().map(|v| v.2.as_str()).collect::<Vec<_>>(), ["c"]);
-        // `global` in a class body writes the module and inner classes see no plain locals
-        let (c, _) = crate::words::legacy("fn f():\n    w = 1\n    class D:\n        global q\n        q = 1\n        class I:\n            t = w\n    return D\n");
+        // inner classes see no plain locals
+        let (c, _) = crate::words::legacy("fn f():\n    w = 1\n    class D:\n        class I:\n            t = w\n    return D\n");
         let p = Program::new(&c);
         let d = &c.functions[0].1.classes[0];
-        assert!(global(&bound(&p, d, "q")) && global(&bound(&p, &d.classes[0], "w")));
+        assert!(global(&bound(&p, &d.classes[0], "w")));
         // a comprehension in a class body sees no members except the iterable it is handed
         let (c, _) = crate::words::legacy("class E:\n    xs = [1, 2]\n    ys = [i * 2 for i in xs]\n    zs = [xs for i in range(2)]\n");
         let p = Program::new(&c);

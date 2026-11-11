@@ -462,13 +462,13 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         let name = self.lexeme(&t);
         if Self::GRAMMAR.is_some() && self.grammar_name(t) { return; }
         match self.peek_same_line() {
-            // a walrus stores like an assignment honoring an enclosing `global` and leaves the value
+            // a walrus stores like an assignment and leaves the value
             Some(TokenType::ColonEqual) => {
                 // a table without named expressions leaves the mark to fail after the name
                 if !Self::SHAPES.named { return self.emit_load_ssa(name); }
                 self.advance();
                 self.expr();
-                if self.in_comp && !self.globals_decl.contains(name) && !self.chunk.nonlocals.iter().any(|n| n == name) { self.chunk.nonlocals.push(name.to_string()); }
+                if self.in_comp && !self.chunk.nonlocals.iter().any(|n| n == name) { self.chunk.nonlocals.push(name.to_string()); }
                 self.store_name(name);
                 self.emit_load_ssa(name);
             }
@@ -672,9 +672,6 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
     /* a subscript read whose lone slice hands its bounds to one op */
     pub(super) fn emit_get_item(&mut self, cut: bool) { self.emit_item(cut, OpCode::GetItem, OpCode::Cut) }
 
-    /* a subscript delete whose lone slice hands its bounds to one op */
-    pub(super) fn emit_del_item(&mut self, cut: bool) { self.emit_item(cut, OpCode::DelItem, OpCode::DelCut) }
-
     /* `item` of a subscript or `cut` over the bounds of its lone slice */
     fn emit_item(&mut self, cut: bool, item: OpCode, cutting: OpCode) {
         match self.chunk.instructions.last() {
@@ -787,11 +784,6 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
     pub(super) fn return_versions(&mut self, outer: &mut Versions, held: usize) {
         // an empty outer gets nothing back and the body's versions drop with its chunk
         if held == 0 { return; }
-        // nonlocals the body binds leave the unbound list before its versions go back
-        if self.in_function && !self.unbound_nonlocals.is_empty() {
-            let (versions, own) = (&self.ssa_versions, &self.chunk.nonlocals);
-            self.unbound_nonlocals.retain(|(name, ..)| !versions.contains(name) || own.contains(name));
-        }
         self.join_stack.pop();
         let mut versions = core::mem::take(&mut self.ssa_versions);
         versions.truncate(held);

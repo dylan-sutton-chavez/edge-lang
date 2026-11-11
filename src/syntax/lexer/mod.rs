@@ -46,8 +46,8 @@ pub(crate) fn dots(kind: TokenType, text: &str) -> usize {
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum TokenType {
     // reserved words
-    False, Nil, True, And, As, Assert, Async, Await, Break, Class, Continue, Fn, Delete,
-    ElseIf, Else, Catch, Finally, For, From, Global, If, Import, In, Is, FnExpr, Outer,
+    False, Nil, True, And, As, Assert, Async, Await, Break, Class, Continue, Fn,
+    ElseIf, Else, Catch, Finally, For, From, If, Import, In, Is, FnExpr,
     Not, Or, Empty, Throw, Return, Try, While, With, Yield,
     // words reserved only where the grammar wants them
     Case, Match, Type, Underscore,

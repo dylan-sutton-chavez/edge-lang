@@ -1,13 +1,11 @@
 use alloc::vec::Vec;
 use crate::code::OpCode;
 use crate::syntax::chunk::SSAChunk;
-use crate::syntax::ssa::ssa_strip;
 use super::{VM, lower};
 use crate::value::*;
 use super::sites::Site;
 use super::lower::{Code, STORE_NOTES_BUILTIN};
 use crate::code::Ins;
-use super::scope::Kind;
 use crate::vm::calls::Opened;
 use super::registers::numeric_binop;
 use crate::vm::frame::{Floor, chunk_in};
@@ -92,19 +90,12 @@ impl<'a> VM<'a> {
             }
             OpCode::MakeClass => return self.exec_make_class(ins.c, code.orig(rip) as usize + 1, chunk, Some(ins.b), ins.a),
             OpCode::LoadModule | OpCode::LoadYieldFrom | OpCode::LoadEllipsis => self.load_value(op, ins.c, chunk)?,
-            OpCode::MatchSeq | OpCode::MatchMap => { let v = self.reg(chunk, b)?; self.matches_shape(op, v) }
-            OpCode::MatchClass => {
-                let (s, c, k) = (self.reg(chunk, b)?, self.reg(chunk, b + 1)?, self.reg(chunk, b + 2)?);
-                self.match_class(s, c, k, ins.c as usize)?
-            }
-            OpCode::DelItem => { let (o, k) = (self.reg(chunk, b)?, self.reg(chunk, b + 1)?); return self.del_item(o, k); }
-            OpCode::Cut | OpCode::DelCut | OpCode::StoreCut => {
+            OpCode::Cut | OpCode::StoreCut => {
                 // what frames gathered of a lazy source comes back as a store reruns
                 let retaken = if op == OpCode::StoreCut { core::mem::replace(&mut self.retake, Val::undef()) } else { Val::undef() };
                 let row = self.cut_row(chunk, b, ins.c)?;
                 match self.cut_op(op, row, retaken, rip)? { Some(v) => v, None => return Ok(()) }
             }
-            OpCode::DelAttr => { let o = self.reg(chunk, b)?; return self.del_attr_at(o, ins.c, chunk, Some((&code.cache, rip))); }
             OpCode::Assert => { let v = self.reg(chunk, b)?; return self.assert_holds(v); }
             OpCode::UnpackEx => return self.unpack_reg(ins, rip, chunk, (ins.c >> 8) as usize, Some((ins.c & 0xFF) as usize)),
             _ => return Err(cold_runtime("not an OpR opcode")),
@@ -390,41 +381,13 @@ impl<'a> VM<'a> {
         Ok(ip)
     }
 
-    // a join or delete or declaration the register loop runs raising for what is unbound
+    // a join the register loop runs raising for what is unbound
     #[inline(never)]
     pub(crate) fn side_op(&mut self, ins: Ins, i: usize, code: &Code, chunk: &SSAChunk) -> Result<(), VmErr> {
-        let (op, chunk) = (ins.a as usize, chunk_in(&self.functions, code, chunk, i));
-        match ins.op {
-            // the phi tables index the compiler's instructions
-            OpCode::Phi => self.exec_phi(ins.a, code.orig(i) as usize, &chunk.phi_map, &chunk.phi_sources),
-            // a section's delete of binding `b` of module `c`
-            OpCode::Del if ins.x == 1 => {
-                let (g, m) = (ins.b as u32, ins.c as usize);
-                let name = ssa_strip(&chunk.names[op]);
-                if self.scopes[m].at(g).is_undef() { return Err(crate::lang::EngineError::Undefined(name.into()).into()); }
-                self.scopes[m].set_at(g, Val::undef());
-                self.note_builtin_binding(name);
-            }
-            OpCode::Del => match code.kinds.get(op) {
-                Some(&Kind::Global(g)) => {
-                    let name = ssa_strip(&chunk.names[op]);
-                    if self.scopes[code.module].at(g).is_undef() { return Err(crate::lang::EngineError::Undefined(name.into()).into()); }
-                    self.scopes[code.module].set_at(g, Val::undef());
-                    // a builtin name falls back
-                    self.note_builtin_binding(name);
-                }
-                Some(Kind::Cell) => {
-                    let cell = self.regs[self.base + op];
-                    if self.deref(cell).is_undef() { return Err(self.unbound_err(chunk, op)); }
-                    self.set_cell(cell, Val::undef());
-                }
-                _ => match self.regs.get_mut(self.base + op) {
-                    Some(s) if !s.is_undef() => *s = Val::undef(),
-                    _ => return Err(self.unbound_err(chunk, op)),
-                },
-            },
-            // declarations do nothing as they run
-            _ => {}
+        // the phi tables index the compiler's instructions
+        if ins.op == OpCode::Phi {
+            let chunk = chunk_in(&self.functions, code, chunk, i);
+            self.exec_phi(ins.a, code.orig(i) as usize, &chunk.phi_map, &chunk.phi_sources);
         }
         Ok(())
     }

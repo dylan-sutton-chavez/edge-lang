@@ -109,7 +109,7 @@ pub(crate) fn extend<'p>(old: &Code, src: &[Instruction], chunk: &SSAChunk, fact
     }
     let (places, entry) = unpacked(&old.at);
     let mut l = Lower {
-        src, chunk, facts, flags: &[], deleted: Vec::new(), names, cbase: old.cbase as usize, consts, tbase: old.cbase as usize + consts + 3,
+        src, chunk, facts, flags: &[], names, cbase: old.cbase as usize, consts, tbase: old.cbase as usize + consts + 3,
         out: old.ins.clone(), orig, at: places, back,
         pending: Vec::new(), patches: Vec::new(), temps: 0, last: None, cur: 0, quiet: 0, bound: vec![0; names.div_ceil(64)],
         appends: Vec::new(), lists: core::cell::OnceCell::new(), sections, wanted, heads: Vec::new(), prep: Vec::new(), seeds: Vec::new(), dest: None, resume: None,
@@ -384,7 +384,7 @@ fn extend_all<'p>(old: &Code, src: &[Instruction], chunk: &SSAChunk, facts: &Fac
     let once = if facts.once && facts.shape & CALLS != 0 { runs_once(src) } else { Vec::new() };
     let (places, entry) = unpacked(&old.at);
     let mut l = Lower {
-        src, chunk, facts, flags: &[], deleted: Vec::new(), names, cbase: old.cbase as usize, consts, tbase: old.cbase as usize + consts + 3,
+        src, chunk, facts, flags: &[], names, cbase: old.cbase as usize, consts, tbase: old.cbase as usize + consts + 3,
         out: old.ins.clone(), orig, at: places, back,
         pending: Vec::new(), patches: Vec::new(), temps: 0, last: None, cur: 0, quiet: 0, bound: vec![0; names.div_ceil(64)],
         appends: Vec::new(), lists: core::cell::OnceCell::new(), sections, wanted: Vec::new(), heads: Vec::new(), prep: Vec::new(), seeds: Vec::new(), dest: None, resume: None,

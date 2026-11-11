@@ -517,7 +517,7 @@ impl<'a> VM<'a> {
                     if x.is_true() || x.is_int() && L::POLICY.falsy.int_truth(x.as_int()) { sp -= 1; p = past(p, 1); } else { valued!() }
                 }
                 // the rarer value ops run out of line
-                OpCode::LoadGlobal | OpCode::StoreGlobal | OpCode::LoadEllipsis | OpCode::LoadModule
+                OpCode::LoadEllipsis | OpCode::LoadModule
                 | OpCode::Pow | OpCode::MatMul | OpCode::In | OpCode::NotIn | OpCode::Pos | OpCode::BitNot | OpCode::Len | OpCode::ListToTuple | OpCode::MatchExc => { over!(); debug_assert!(s0 + sp <= r.len()); valued!() }
                 // containers over rows start with a tuple built of the top rows
                 OpCode::BuildTuple => {
@@ -658,7 +658,7 @@ impl<'a> VM<'a> {
                 }
                 // the rarer container ops run out of line over the rows
                 OpCode::SetAdd | OpCode::MapAdd | OpCode::ListExtend | OpCode::SetUpdate | OpCode::DictUpdate | OpCode::UnpackEx
-                | OpCode::DelItem | OpCode::DelAttr | OpCode::MatchSeq | OpCode::MatchMap | OpCode::MatchClass | OpCode::Cut | OpCode::DelCut => {
+                | OpCode::Cut => {
                     if sp != usize::MAX { sync!(); }
                     let ran = self.held_rows(idx!(), code, chunk);
                     refill!();
@@ -1441,8 +1441,8 @@ impl<'a> VM<'a> {
                     if sp != usize::MAX { sync!(); }
                     break;
                 }
-                // a join a delete or a declaration runs apart raising for what is unbound
-                OpCode::Phi | OpCode::Del | OpCode::Global | OpCode::Outer => {
+                // a join runs apart raising for what is unbound
+                OpCode::Phi => {
                     if let Err(e) = self.side_op(ins, idx!(), code, chunk) { self.reg_error = Some(e); break; }
                     r = &mut self.regs[base..];
                     p = past(p, 1);

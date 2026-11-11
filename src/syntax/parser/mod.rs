@@ -234,7 +234,6 @@ fn quoted(text: &str) -> String {
 pub(super) struct Mark {
     pos: usize,
     errors: usize,
-    unbound: usize,
     line: usize,
     end: usize,
     closed: bool,
@@ -246,8 +245,6 @@ pub struct Parser<'src, I: Iterator<Item = Token>, S: Spelling> {
     pub(super) tokens: Tokens<I, S>,
     pub(crate) chunk: SSAChunk,
     pub(super) ssa_versions: Versions,
-    /* names declared `global` in the current function body whose loads and stores go to `self.globals` */
-    pub(super) globals_decl: crate::util::hash::FxHashSet<String>,
     pub(super) join_stack: Vec<JoinNode>,
     /* each store inside an open block as its slot and replaced version for the joins */
     pub(super) trail: Vec<(u32, u32)>,
@@ -288,8 +285,6 @@ pub struct Parser<'src, I: Iterator<Item = Token>, S: Spelling> {
     pub(super) unfused: Vec<String>,
     /* builtins each body calls before binding them by start token so no body compiles thrice */
     pub(super) late: HashMap<usize, Vec<String>>,
-    /* names declared `nonlocal` here or deeper that no function up to here binds */
-    pub(super) unbound_nonlocals: Vec<(String, usize, usize)>,
     pub errors: Vec<Diagnostic>,
     /* the host resolver the imports of the source go through */
     pub(super) resolver: Box<dyn Resolver>,
@@ -377,13 +372,9 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         THROW_FROM_REFUSED_TEXT THROW_FROM_REFUSED = [b(Throw), lit(b" "), b(From), lit(b" is not supported")];
         CLASS_KEYWORDS_REFUSED_TEXT CLASS_KEYWORDS_REFUSED = [b(Class), lit(b" keywords are not supported")];
         TYPE_ALIAS_REFUSED_TEXT TYPE_ALIAS_REFUSED = [b(Type), lit(b" aliases are not supported")];
-        OUTER_AT_MODULE_TEXT OUTER_AT_MODULE = [b(Outer), lit(b" declaration not allowed at module level")];
         DEFAULT_CATCH_TEXT DEFAULT_CATCH = [lit(b"default '"), b(Catch), colon, lit(b"' must be last")];
         BAD_CONVERSION_TEXT BAD_CONVERSION = [lit(b"invalid "), name, lit(b" conversion (expected "), marks, lit(b")")];
         FORMAT_UNCLOSED_TEXT FORMAT_UNCLOSED = [name, lit(b" was never closed")];
-        PARAM_GLOBAL_TEXT PARAM_GLOBAL = [lit(b"' is parameter and "), b(Global)];
-        ASSIGNED_GLOBAL_TEXT ASSIGNED_GLOBAL = [lit(b"' is assigned to before "), b(Global), lit(b" declaration")];
-        PARAM_OUTER_TEXT PARAM_OUTER = [lit(b"' is parameter and "), b(Outer)];
     }
 
     pub(super) fn current_version(&self, name: &str) -> u32 {
@@ -414,11 +405,6 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
     pub(super) fn emit_load_ssa(&mut self, name: &str) {
         // only a builder's parser reads a subject so other parsers compile none of this
         if S::SUBJECT && self.subject_field(name) { return; }
-        if self.globals_decl.contains(name) {
-            let i = self.chunk.push_name(name);
-            self.chunk.emit(OpCode::LoadGlobal, i);
-            return;
-        }
         let i = self.push_ssa_name(name, self.current_version(name));
         self.chunk.emit(OpCode::LoadName, i);
     }
@@ -435,11 +421,6 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
     }
 
     pub(super) fn store_name(&mut self, name: &str) {
-        if self.globals_decl.contains(name) {
-            let i = self.chunk.push_name(name);
-            self.chunk.emit(OpCode::StoreGlobal, i);
-            return;
-        }
         let ver = self.increment_version(name);
         let i = self.push_ssa_name(name, ver);
         self.chunk.emit(OpCode::StoreName, i);
@@ -489,13 +470,8 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         self.around_fn = around;
     }
 
-    /* binds `name` to a new version or to the module binding a `global` names */
+    /* binds `name` to a new version */
     pub(super) fn emit_store_new(&mut self, name: &str) -> u16 {
-        if self.globals_decl.contains(name) {
-            let i = self.chunk.push_name(name);
-            self.chunk.emit(OpCode::StoreGlobal, i);
-            return i;
-        }
         let ver = self.increment_version(name);
         let i = self.push_ssa_name(name, ver);
         self.chunk.emit(OpCode::StoreName, i);
@@ -508,29 +484,20 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         let fresh = SSAChunk::over(self.chunk.source.clone(), self.chunk.path.clone(), None);
         let saved_chunk = core::mem::replace(&mut self.chunk, fresh);
         let saved_ver = core::mem::take(&mut self.ssa_versions);
-        let saved_globals = core::mem::take(&mut self.globals_decl);
         let saved_joins = (core::mem::take(&mut self.join_stack), core::mem::take(&mut self.trail));
         let saved_loops = (core::mem::take(&mut self.loops), core::mem::replace(&mut self.cleanup_count, 0));
         let saved_class = core::mem::replace(&mut self.in_class_body, false);
         let saved_comp = core::mem::replace(&mut self.in_comp, false);
         let saved_function = core::mem::replace(&mut self.in_function, false);
         let saved_async = core::mem::replace(&mut self.in_async, false);
-        let saved_unbound = core::mem::take(&mut self.unbound_nonlocals);
         // a nested body keeps what enclosing scopes left unfused and hands up what it fused
         let saved_fused = (core::mem::take(&mut self.called), core::mem::take(&mut self.fused_externs), self.unfused.len(), core::mem::replace(&mut self.far_from, self.called_far.len()));
         // a copy of the parent externs lets nested bodies call imported natives without leaking up
         self.chunk.extern_table = saved_chunk.extern_table.clone();
         self.chunk.extern_index = saved_chunk.extern_index.clone();
         f(self);
-        // a function binds what its locals hold unless it declared the name nonlocal itself
-        let mut unbound = core::mem::replace(&mut self.unbound_nonlocals, saved_unbound);
-        if self.in_function {
-            unbound.retain(|(name, ..)| !self.ssa_versions.contains(name) || self.chunk.nonlocals.contains(name));
-        }
-        self.unbound_nonlocals.append(&mut unbound);
         let body = core::mem::replace(&mut self.chunk, saved_chunk);
         self.ssa_versions = saved_ver;
-        self.globals_decl = saved_globals;
         (self.join_stack, self.trail) = saved_joins;
         (self.loops, self.cleanup_count) = saved_loops;
         self.in_class_body = saved_class;
@@ -701,7 +668,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
 
     pub(super) fn mark(&self) -> Mark {
         Mark {
-            pos: self.tokens.pos, errors: self.errors.len(), unbound: self.unbound_nonlocals.len(),
+            pos: self.tokens.pos, errors: self.errors.len(),
             line: self.last_line, end: self.last_end, closed: self.block_closed, newline: self.saw_newline,
         }
     }
@@ -716,7 +683,6 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
     pub(super) fn rewind(&mut self, m: Mark) {
         self.seek(m);
         self.errors.truncate(m.errors);
-        self.unbound_nonlocals.truncate(m.unbound);
     }
 
     pub(super) fn at_target_end(&mut self) -> bool { self.peek_same_line().is_some_and(ends_target::<S>) }
@@ -924,7 +890,6 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
             tokens: Tokens { toks: iter.collect(), pos: 0, from: PhantomData },
             chunk,
             ssa_versions: Versions::default(),
-            globals_decl: crate::util::hash::FxHashSet::default(),
             join_stack: Vec::new(),
             trail: Vec::new(),
             block_closed: false,
@@ -949,7 +914,6 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
             fused_externs: Vec::new(),
             unfused: Vec::new(),
             late: HashMap::default(),
-            unbound_nonlocals: Vec::new(),
             errors: Vec::new(),
             resolver,
             module_cache,
@@ -1006,10 +970,6 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
     #[inline(always)]
     pub(super) fn close(&mut self, body: Body) {
         if body == Body::Exec { self.emit_const(Value::None); }
-
-        for (name, start, end) in core::mem::take(&mut self.unbound_nonlocals) {
-            self.errors.push(Diagnostic { start, end, msg: s!("no binding for nonlocal '", str &name, "' found") });
-        }
 
         if self.chunk.overflow {
             let n = self.source.len();

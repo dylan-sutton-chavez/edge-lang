@@ -690,11 +690,6 @@ impl<'a> VM<'a> {
         }
     }
 
-    /* a native's name the program binds or deletes makes its calls check the binding */
-    pub(crate) fn note_builtin_binding(&mut self, bare: &str) {
-        if let Some(id) = self.natives.function_id(bare) { self.rebind_native(id.0); }
-    }
-
     /* the name of native `id` holds a program value so its calls check bindings */
     #[cold]
     #[inline(never)]

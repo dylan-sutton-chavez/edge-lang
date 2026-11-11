@@ -479,7 +479,7 @@ impl<'p> Lower<'_, 'p> {
     pub(super) fn spread(&mut self, i: usize) -> Option<usize> {
         use OpCode::*;
         let src = self.src;
-        let simple = |k: usize| src.get(k).is_some_and(|s| matches!(s.opcode, LoadName | LoadConst | LoadGlobal | LoadNone | LoadTrue | LoadFalse | BuildList | BuildTuple | BuildDict)) && !self.target(k);
+        let simple = |k: usize| src.get(k).is_some_and(|s| matches!(s.opcode, LoadName | LoadConst | LoadNone | LoadTrue | LoadFalse | BuildList | BuildTuple | BuildDict)) && !self.target(k);
         let mut end = i + 1;
         while simple(end) { end += 1; }
         let at = |k: usize| src.get(k).filter(|_| !self.target(k)).copied();
@@ -1419,7 +1419,7 @@ impl<'p> Lower<'_, 'p> {
             if stepped.is_some() || marks.makes { slot_map = map.iter().map(|m| m.unwrap_or(u16::MAX)).collect(); }
             // a return inside its `for` loops drops their iterators as a frame's end would
             let loops = crate::vm::block::loops_around(ins);
-            let deletes = by_body || marks.deletes;
+            let deletes = by_body;
             // bodies that build drop their last returned container on entry so collection can free it
             let builds = marks.builds;
             let tried = marks.tried;
@@ -1734,8 +1734,6 @@ impl<'p> Lower<'_, 'p> {
                         self.emit(Ins { op: OpCode::StoreTopR, x: 0, a: t, b: 0, c: 0 });
                         self.emit(Ins { op: OpCode::StoreCellR, x: 0, a: reg(i.a), b: t, c: 0 });
                     },
-                    // a module binding's delete names binding and module keeping the name for its error
-                    OpCode::Del if let Some(&Kind::Global(g)) = body.kinds.get(i.a as usize) => self.emit(Ins { op: OpCode::Del, x: 1, a: i.a, b: g as u16, c: module as u16 }),
                     // a pair writes both its targets and reads its source which may be a constant
                     OpCode::UnpackR if i.x != 0 => {
                         konst(self.out.len(), 2, i.c, &mut *extra, &mut *slots, &mut *uses);

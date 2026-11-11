@@ -502,7 +502,7 @@ impl<'a> VM<'a> {
         // only the names code reads or binds as variables take a module binding
         let mut var = vec![false; chunk.names.len()];
         for ins in &chunk.instructions {
-            if matches!(ins.opcode, OpCode::LoadName | OpCode::StoreName | OpCode::Del | OpCode::Phi | OpCode::LoadGlobal | OpCode::StoreGlobal)
+            if matches!(ins.opcode, OpCode::LoadName | OpCode::StoreName | OpCode::Phi)
                 && let Some(v) = var.get_mut(ins.operand as usize) { *v = true; }
         }
         let kinds = chunk.names.iter().zip(var).map(|(name, var)| {

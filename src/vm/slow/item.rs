@@ -9,19 +9,13 @@ use crate::code::Ins;
 use crate::lang::{Act, EngineError};
 
 
-/* slice store or delete on any vector where an extended slice needs an exact count */
-fn splice<T>(b: &mut Vec<T>, (s, e, st): (i64, i64, i64), items: Option<Vec<T>>) -> Result<(), VmErr> {
+/* slice store on any vector where an extended slice needs an exact count */
+fn splice<T>(b: &mut Vec<T>, (s, e, st): (i64, i64, i64), items: Vec<T>) -> Result<(), VmErr> {
     if st == 1 {
-        b.splice(s as usize..e.max(s) as usize, items.unwrap_or_default());
+        b.splice(s as usize..e.max(s) as usize, items);
         return Ok(());
     }
     // selected positions sit `st` apart from `s` and strictly before `e`
-    let picked = |k: i64| (if st > 0 { k < e && k >= s } else { k > e && k <= s }) && (k - s) % st == 0;
-    let Some(items) = items else {
-        let mut k = -1;
-        b.retain(|_| { k += 1; !picked(k) });
-        return Ok(());
-    };
     let span = if st > 0 { (e - s + st - 1) / st } else { (s - e - st - 1) / -st };
     if items.len() as i64 != span.max(0) {
         return Err(EngineError::SliceSize { size: items.len() as u32, span: span.max(0) as u32 }.into());
@@ -115,7 +109,7 @@ impl<'a> VM<'a> {
         // a slice store splices the iterable's items in place but a map keys by it
         if let Some([start, stop, step]) = self.heap.slice_of(idx_val) && self.heap.dict_cell(cont).is_none() {
             let new_items = self.extract_iter(value)?;
-            return self.store_slice(cont, start, stop, step, Some(new_items));
+            return self.store_slice(cont, start, stop, step, new_items);
         }
         // rejects mutable keys before borrowing the container mutably below
         if matches!(self.heap.get(cont), HeapObj::Dict(_)) {
@@ -145,40 +139,6 @@ impl<'a> VM<'a> {
         Ok(())
     }
 
-    pub fn del_item(&mut self, cont: Val, idx_val: Val) -> Result<(), VmErr> {
-        if !cont.is_heap() { return Err(EngineError::cannot(Act::DeleteItem, None)); }
-        let idx_val = self.plain_index(cont, idx_val).unwrap_or(idx_val);
-        // a map deletes a slice as the key it is
-        if let Some([start, stop, step]) = self.heap.slice_of(idx_val) && self.heap.dict_cell(cont).is_none() {
-            return self.store_slice(cont, start, stop, step, None);
-        }
-        match self.heap.get(cont) {
-            HeapObj::List(v) => {
-                if !idx_val.is_int() { return Err(EngineError::bad_index(cont, idx_val)); }
-                let mut b = v.borrow_mut();
-                let ui = normalize_index(idx_val.as_int(), b.len(), self.heap.policy);
-                if ui >= b.len() { return Err(EngineError::out_of_range(cont, true)); }
-                b.remove(ui);
-            }
-            HeapObj::Dict(p) => {
-                if p.borrow_mut().remove(&idx_val, &self.heap).is_none() {
-                    self.require_key(idx_val)?;
-                    return Err(self.key_error(idx_val));
-                }
-            }
-            HeapObj::ByteArray(_) => {
-                if !idx_val.is_int() { return Err(EngineError::bad_index(cont, idx_val)); }
-                let policy = self.heap.policy;
-                let Some(HeapObj::ByteArray(b)) = self.heap.try_get_mut(cont) else { return Ok(()) };
-                let ui = normalize_index(idx_val.as_int(), b.len(), policy);
-                if ui >= b.len() { return Err(EngineError::out_of_range(cont, true)); }
-                b.remove(ui);
-            }
-            _ => return Err(EngineError::cannot(Act::DeleteItem, Some(cont))),
-        }
-        Ok(())
-    }
-
     /* the `n` registers of a cut's row from `b` with nil past them */
     pub(crate) fn cut_row(&self, chunk: &crate::syntax::chunk::SSAChunk, b: u16, n: u16) -> Result<[Val; 5], VmErr> {
         let (mut row, n, at) = ([Val::none(); 5], usize::from(n.min(5)), self.base + b as usize);
@@ -188,40 +148,33 @@ impl<'a> VM<'a> {
         Ok(row)
     }
 
-    /* a cut read or delete or a store whose row leads with its value */
+    /* a cut read or a store whose row leads with its value */
     #[inline(never)]
     pub(crate) fn cut_op(&mut self, op: OpCode, row: [Val; 5], retaken: Val, rip: usize) -> Result<Option<Val>, VmErr> {
         let at = usize::from(op == OpCode::StoreCut);
         let (obj, [start, stop, step]) = (row[at], [row[at + 1], row[at + 2], row[at + 3]]);
-        // a map reads stores and deletes the slice the bounds make as its key
+        // a map reads and stores the slice the bounds make as its key
         if self.heap.dict_cell(obj).is_some() {
             let key = self.heap.new_slice([start, stop, step])?;
-            return match op {
-                OpCode::Cut => self.getitem_val(obj, key).map(Some),
-                OpCode::StoreCut => self.store_item_builtin(obj, key, row[0]).map(|()| None),
-                _ => self.del_item(obj, key).map(|()| None),
-            };
+            return if op == OpCode::Cut { self.getitem_val(obj, key).map(Some) } else { self.store_item_builtin(obj, key, row[0]).map(|()| None) };
         }
         // a cut paces the collector once as the slice it no longer builds did
         if retaken.is_undef() { self.heap.pace(); }
         if op == OpCode::Cut { return self.slice_val(obj, start, stop, step).map(Some); }
-        let items = if op == OpCode::DelCut { None } else {
-            let v = if !retaken.is_undef() { retaken } else if self.may_job(row[0]) && self.steps_user(row[0]) {
-                match self.retake_job(row[0], rip)? { Some(v) => v, None => return Ok(None) }
-            } else { row[0] };
-            Some(v)
-        };
-        if !obj.is_heap() { return Err(EngineError::cannot(if items.is_some() { Act::AssignItem } else { Act::DeleteItem }, None)); }
-        let items = match items { Some(v) => Some(self.extract_iter(v)?), None => None };
+        let v = if !retaken.is_undef() { retaken } else if self.may_job(row[0]) && self.steps_user(row[0]) {
+            match self.retake_job(row[0], rip)? { Some(v) => v, None => return Ok(None) }
+        } else { row[0] };
+        if !obj.is_heap() { return Err(EngineError::cannot(Act::AssignItem, None)); }
+        let items = self.extract_iter(v)?;
         self.store_slice(obj, start, stop, step, items).map(|_| None)
     }
 
-    /* slice store or with no items delete where an extended slice needs an exact count */
-    fn store_slice(&mut self, cont: Val, start: Val, stop: Val, step: Val, items: Option<Vec<Val>>) -> Result<(), VmErr> {
+    /* slice store where an extended slice needs an exact count */
+    fn store_slice(&mut self, cont: Val, start: Val, stop: Val, step: Val, items: Vec<Val>) -> Result<(), VmErr> {
         let clip = |v: Val| crate::value::wide::clip_index(&self.heap, v);
         let (start, stop, step) = (clip(start), clip(stop), clip(step));
         if matches!(self.heap.get(cont), HeapObj::ByteArray(_)) {
-            let bytes = match items { Some(items) => Some(items.into_iter().map(|v| self.byte_value(v)).collect::<Result<Vec<u8>, VmErr>>()?), None => None };
+            let bytes = items.into_iter().map(|v| self.byte_value(v)).collect::<Result<Vec<u8>, VmErr>>()?;
             let neg = self.heap.policy.neg_index;
             let Some(HeapObj::ByteArray(b)) = self.heap.try_get_mut(cont) else { return Ok(()) };
             let bounds = slice_bounds(start, stop, step, b.len() as i64, neg)?;

@@ -402,7 +402,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
     pub(super) fn subject_field(&mut self, name: &str) -> bool {
         let Some(subject) = self.subject.take() else { return false };
         let natives = subject.natives;
-        let free = name != subject.name && !self.globals_decl.contains(name) && !self.ssa_versions.contains(name)
+        let free = name != subject.name && !self.ssa_versions.contains(name)
             && natives.find(name).is_none() && !natives.types.contains(&name);
         if free {
             self.emit_load_ssa(&subject.name);
