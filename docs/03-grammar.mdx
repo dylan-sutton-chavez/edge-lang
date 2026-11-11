@@ -1,0 +1,133 @@
+---
+title: "Grammar"
+description: "Forms, modes and patterns a runtime adds to the parser through the grammar of its token table."
+---
+
+# Grammar
+
+A token table can bring a `Grammar` in `shapes.grammar`. The parser then reads the program as items (`let`, `fn`, `type` and imports) whose expressions follow the grammar's rules, and three things open up that the fixed core lacks:
+
+- **Forms.** A construct led by a word of your own, such as `fix k = 1 up to 10 { ... }`, that compiles to a call of a function with its parts as arguments.
+- **Modes.** Operator tables an expression is read with, so a form can read its parts with other operators than plain values.
+- **Patterns.** Words a `match` arm tests its subject with, such as `ok v`.
+
+Everything still compiles to the engine's bytecode, so a grammar costs nothing at run time.
+
+## Example
+
+The table below brings braces, `--` comments and a grammar with one form, one pattern word and one lazy call. It reuses mini's natives, so it runs on mini's runtime.
+
+```rust standalone_crate
+use edge::code::OpCode as O;
+use edge::embed::{Limits, VM};
+use edge::lang::{Front, Natives};
+use edge::lexer::grammar::{Emit, Form, Grammar, Mode, Pattern, Row, Slot, Test};
+use edge::lexer::TokenType as T;
+use edge::lexer::{index, operators, Binding, Blocks, Comments, Cond, Continuation, Dot, Ends, Escapes, Keywords, Lambda, Numbers, Quote, Shapes, Spelling, Strings, Suffix, Syntax, TokenType, Unicode, Unknown, Zeros};
+
+edge::allocator!();
+
+const WORDS: &[(&str, TokenType)] = &[
+    ("true", T::True), ("false", T::False), ("or", T::Or), ("in", T::In), ("if", T::If), ("else", T::Else),
+    ("match", T::Match), ("fn", T::Fn), ("let", T::Let), ("for", T::For), ("_", T::Underscore),
+];
+const SYMBOLS: &[(&str, TokenType)] = &[
+    ("(", T::ParenOpen), (")", T::ParenClose), ("[", T::BracketOpen), ("]", T::BracketClose),
+    ("{", T::BraceOpen), ("}", T::BraceClose), ("{", T::BlockOpen), ("}", T::BlockClose),
+    (":", T::Colon), ("=>", T::Arm), ("==", T::EqualEqual), ("<", T::Less), ("=", T::Equal), ("+", T::Plus), ("-", T::Minus), ("/", T::Slash), (",", T::Comma),
+];
+static OPERATORS: [[TokenType; 4]; 128] = operators(SYMBOLS);
+static KEYWORDS: Keywords = index(WORDS);
+
+// mode 0, each operator with its powers and the code it compiles to
+const ROWS: &[Row] = &[
+    Row { tok: T::Or, left: 4, right: 5, emit: Emit::Lazy(false) },
+    Row { tok: T::EqualEqual, left: 10, right: 11, emit: Emit::Op(O::Eq) },
+    Row { tok: T::Less, left: 10, right: 11, emit: Emit::Op(O::Lt) },
+    Row { tok: T::Plus, left: 14, right: 15, emit: Emit::Op(O::Add) },
+    Row { tok: T::Minus, left: 14, right: 15, emit: Emit::Op(O::Sub) },
+    Row { tok: T::Slash, left: 16, right: 17, emit: Emit::Op(O::FloorDiv) },
+];
+
+static GRAMMAR: Grammar = Grammar {
+    modes: &[Mode { rows: ROWS, words: &[] }],
+    // fix k = start up to n { body } calls steps(start, n, fn(k) = body)
+    forms: &[Form { head: "fix", slots: &[Slot::Bind, Slot::Word("="), Slot::Expr(0), Slot::Word("up"), Slot::Word("to"), Slot::Expr(0), Slot::Body(0)], call: "steps" }],
+    // ok v matches a pair whose item 0 is true and binds item 1 to v
+    patterns: &[Pattern { word: "ok", test: Test::Item(0, true), part: Some(1) }],
+    // any reads its lone comprehension one item at a time
+    lazy: &["any"],
+    ..Grammar::NONE
+};
+
+struct Fixes;
+
+impl Spelling for Fixes {
+    const SYNTAX: Syntax = Syntax {
+        name: "fixes", extension: "fix", words: WORDS, symbols: SYMBOLS, operators: &OPERATORS, keywords: &KEYWORDS,
+        precedence: &[], chained: false, blocks: Blocks::Braces, ends: Ends::Semicolon,
+        comments: Comments { line: &["--"], block: None, nested: false },
+        shapes: Shapes {
+            cond: Cond::None, lambda: Lambda::None, keyword_arg: T::Equal, splat: false, slices: false, dot: Dot::Key, header_parens: false,
+            comprehensions: true, decorators: false, named: false, binding: Binding::Optional, arms: true, ranges: false, grammar: Some(&GRAMMAR),
+        },
+        strings: Strings {
+            quotes: &[Quote { byte: b'"', multiline: false, triple: false }], prefixes: &[], any_case: false, hashes: false, adjacent: false, newlines: false,
+            escapes: Escapes { simple: &[], hex: false, unicode: Unicode::Fixed, octal: false, line_join: false, unknown: Unknown::Refuse, refused: &[] },
+        },
+        interp: None,
+        numbers: Numbers { radixes: &[], separator: None, zeros: Zeros::Refused, leading_dot: false, trailing_dot: false, exponent: false, suffix: Suffix::Refused },
+        continuation: Continuation { join: None, operator: false },
+        soft: &[],
+        bom: false,
+    };
+    const NATIVES: &'static Natives = &mini::NATIVES;
+}
+
+const PROGRAM: &str = r#"
+fn steps(x, n, f) = if n == 0 or f(x) == x { x } else { steps(f(x), n - 1, f) }
+fn answer(r) = match r { ok v => v  _ => "failed" }
+let _ = print(fix k = 1 up to 10 { if k < 50 { k + k } else { k } })
+let _ = print(answer([true, 5]), answer([false, 5]))
+let _ = print(any([n == 0 or 1 / (n - n) == 1 for n in [0, 1]]))
+"#;
+
+fn main() {
+    const FRONT: Front = Front::spelled::<Fixes>();
+    let (chunk, errors) = edge::code::compile(&FRONT, PROGRAM);
+    assert!(errors.is_empty(), "{}", edge::code::Diagnostic::render_all(&errors, PROGRAM, None));
+    let mut vm = VM::with_runtime(&mini::RUNTIME, &chunk, Limits::sandbox());
+    vm.run().expect("the program runs");
+    assert_eq!(vm.output_text(), "64\n5 failed\nTrue\n");
+}
+```
+
+`fix` doubles `k` until it passes 50 or ten steps run, so it prints `64`. The last line would divide by zero for `n = 1` if `any` built the whole list first. It stops at the first true item instead.
+
+## The parts
+
+| Type | Fields | Means |
+|---|---|---|
+| `Grammar` | `modes`, `forms`, `patterns`, `lazy` | The operator tables, the forms, the pattern words and the calls whose lone comprehension runs as a generator |
+| | `modifiers` | Words before an item, each wrapping it in a call of the function it names |
+| | `unmatched` | The function a `match` calls when no arm takes its value |
+| | `inner`, `tail` | A byte a name may hold inside, and one it may end with, such as `-` and `?` |
+| `Mode` | `rows`, `words` | The operators of one reading of an expression, and words it reads as plain texts. Mode 0 reads plain values |
+| `Row` | `tok`, `left`, `right`, `emit` | An operator and its binding powers, a zero `left` marks a prefix. `emit` is `Emit::Op(opcode)`, `Emit::Lazy(and)` for a short-circuit, or `Emit::Call(name)` |
+| `Form` | `head`, `slots`, `call` | The word that leads the form, its parts in order, and the function it calls with them |
+| `Pattern` | `word`, `test`, `part` | A word an arm tests its subject with, and the item its own pattern then matches |
+
+A `Slot` is one part of a form after its head:
+
+| Slot | Reads |
+|---|---|
+| `Word(w)` | The word `w`, and nothing is passed |
+| `Name` | A bare name or dotted path, passed as its text |
+| `Expr(k)` | An expression in mode `k` |
+| `Opt(w, k)` | `w` then an expression in mode `k`, or `nil` without the word |
+| `Tagged(tags, default)` | A bracketed expression handed to the call its leading word names, or to `default` |
+| `Limits(w, pairs)` | After `w`, a list of names with counts, each led by its word, passed as `[name, count]` pairs |
+| `Bind` and `Body(k)` | A name, then a braced expression in mode `k` passed as a function of that name |
+| `At` | The byte offset of the head word, for error reports |
+
+A `Test` is `Nil`, `NotNil`, `Item(index, bool)` or `Field(name, int)`, checked before the arm's pattern matches the `part`. `Grammar::NONE` fills the fields an example leaves out.

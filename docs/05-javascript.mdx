@@ -1,0 +1,154 @@
+---
+title: "JavaScript"
+description: "Run a runtime's .wasm in a web page with createWorker, and the imports and exports any other host drives."
+---
+
+# JavaScript
+
+The JS host runs a runtime's `.wasm` in a web page. `createWorker` boots the engine in a Web Worker inside a sandboxed frame of its own, which no cookie, storage or DOM of the page reaches, and everything else is a call on the worker it returns.
+
+## Load the host
+
+Serve the tree [Install](./01-overview.mdx#install) builds, or the `dist/` that `edge build --web` writes, from your own origin. `createWorker` loads `edge.wasm` from two folders above `index.js` unless `wasmUrl` names another, such as the `.wasm` of your own runtime. Each example below is a module script of a page that serves `dist/`, and the block after it is what it logs.
+
+```js
+import { createWorker } from "./dist/js/src/index.js";
+
+const worker = await createWorker();
+worker.onOutput((text) => console.log(text.trimEnd()));
+const { out, exitCode } = await worker.run("print('hello from edge')\nexit(3)");
+console.log(out === "", exitCode);
+```
+
+```text
+hello from edge
+true 3
+```
+
+`run(src)` resolves once the program ends with `{ out, ms, exitCode }`. `out` holds the error report when the run fails and is empty otherwise, `ms` is how long it ran, and `exitCode` is set when the program exits with a code. What the program prints arrives through `onOutput`.
+
+## Options
+
+| `createWorker` option | Meaning |
+|---|---|
+| `baseUrl` | The program's directory. The page reads its `edge.json` and each file a run imports from there, never outside it and never with the page's cookies |
+| `wasmUrl` | Where the runtime's `.wasm` lives |
+| `imports`, `permissions` | Stand in for those fields of an `edge.json` the page does not have |
+| `limits` | `{ memory, ops }`, memory in MB. A field left out keeps 256 MB and 100,000,000 ops |
+| `trace` | Reports every host call through `onTrace` |
+| `bundleUrl`, `composition` | A worker script of your own and the host modules it serves |
+
+| `run` option | Meaning |
+|---|---|
+| `entry` | The script path `src` came from, where its relative imports resolve |
+| `input` | The text `input()` reads, one line per call |
+| `repl` | Runs `src` as the next input of a REPL on what the last input left |
+| `incremental` | Keeps module state across runs |
+
+A grant is checked before any request leaves the frame:
+
+```js
+import { createWorker } from "./dist/js/src/index.js";
+
+const worker = await createWorker({ permissions: { main: ["net:api.example.com"] } });
+worker.onOutput((text) => console.log(text.trimEnd()));
+await worker.run("import net\ntry:\n    net.request('GET', 'https://other.example/')\nexcept PermissionError as e:\n    print(e)");
+```
+
+```text
+'main' has no net:other.example, edge.json grants it net:api.example.com
+```
+
+## Events and named outputs
+
+`pushEvent(message)` hands a string to the program's `receive()`, and a message pushed before the program waits is queued. `send(name, line)` in a program writes a line to a named output, which `onChannel` hands to the page under that name.
+
+```js
+import { createWorker } from "./dist/js/src/index.js";
+
+const worker = await createWorker();
+worker.onChannel((name, line) => console.log(name, line));
+const done = worker.run("while true:\n    m = receive()\n    if m == 'stop':\n        break\n    send('upper', m.upper())");
+worker.pushEvent("ab");
+worker.pushEvent("cd");
+worker.pushEvent("stop");
+await done;
+```
+
+```text
+upper AB
+upper CD
+```
+
+## Pause and snapshots
+
+`setPreemptInterval(n)` makes the run yield every `n` loop back-edges, so `pause()` can stop even a loop that never waits. `saveState()` freezes a parked run to a `Uint8Array`, and `restoreState(blob)` boots from it later, in this page or another, and resolves like `run`.
+
+```js
+import { createWorker } from "./dist/js/src/index.js";
+
+const worker = await createWorker();
+worker.onOutput((text) => console.log(text.trimEnd()));
+await worker.setPreemptInterval(50_000);
+const running = worker.run("n = 0\nwhile n < 1000000:\n    n = n + 1\nprint('done', n)");
+await worker.pause();
+const { n } = await worker.stateGlobals();
+const blob = await worker.saveState();
+worker.resume();
+await running;
+await worker.restoreState(blob);
+console.log(Number(n) > 0 && Number(n) < 1000000);
+```
+
+```text
+done 1000000
+done 1000000
+true
+```
+
+The second `done` comes from the blob, which held the loop at the `n` the pause landed on.
+
+| Worker call | Does |
+|---|---|
+| `run(src, opts)` | Runs `src` and resolves once it ends |
+| `onOutput(f)`, `onChannel(f)`, `onTrace(f)` | Take what the program prints, sends and reaches. One handler each, a later call replaces it |
+| `pushEvent(message)` | Hands a message to `receive()` |
+| `setPreemptInterval(n)` | Yields every `n` back-edges from the next run, 0 turns it off |
+| `pause()`, `resume()` | Parks the run, and lets it go on. `pause` resolves `false` when no run was there to park |
+| `saveState()`, `restoreState(blob)` | Freezes a parked run, and boots from a blob |
+| `stateGlobals()`, `stateStack()` | Reads a parked run without waking it |
+| `reset()`, `clearCache()` | Drops the registered modules and open sockets, and forgets fetched modules |
+| `dispose()` | Ends the worker and rejects every pending call |
+
+## Other hosts
+
+Any host that runs WebAssembly can drive a runtime's `.wasm` directly. The `edge` CLI does so with wasmtime in `cli/src/host/wasm`, and `js/src` is the browser's version. Every input is a buffer the host allocates with `wasm_alloc(size)`, fills, passes as `(ptr, len)` and frees with `wasm_free(ptr, size)`. Every result lands in one output buffer at `out_ptr()`, `out_len()` bytes long, valid until the next call.
+
+The module imports four functions from `env`:
+
+| Import | The host |
+|---|---|
+| `host_print(ptr, len)` | Writes text the program prints |
+| `host_call_native(id, call_id, argv, argc, out) -> i32` | Runs native `id` of a module it registered. `0` answers with a value in `*out`, `1` raised an error, `2` waits under `call_id` |
+| `host_fetch_bytes(spec, spec_len, hash, out_len) -> ptr` | Gives the bytes behind a spec, or none |
+| `host_send(name, name_len, line, line_len) -> i32` | Takes one line of a named output, `0` when taken |
+
+A host drives one run in this order:
+
+1. Instantiate the module with the imports, then call `set_entry` with the script path.
+2. Run the import walk: `walk_start` with the source, then answer each step it writes (`fetch`, `plugin`, `system`) with `walk_fetched`, `walk_plugin` or `walk_served` until it writes `done`. The engine checks every pin and grant itself.
+3. Call `set_input`, `set_limits(memory, ops)` and `set_preempt_interval(n)` as needed.
+4. Call `run_start` with the source, then read the status word and call `run_resume` until the run ends.
+
+The status word packs a kind in its top 3 bits and the output length in the low 29:
+
+| Kind | Name | The host |
+|---|---|---|
+| 0 | `DONE` | Stops, the program finished |
+| 3 | `PENDING_EVENT` | Passes an event to `run_push_event`, then calls `run_resume` |
+| 4 | `ERROR` | Stops, the report is in the output buffer |
+| 5 | `PENDING_HOST_CALL` | Answers with `set_host_result_by_id` or `set_host_error_by_id`, then calls `run_resume` |
+| 6 | `EXIT` | Stops, the exit code is in the low 8 bits |
+| 7 | `PREEMPTED` | Calls `run_resume`, or `save_state` first |
+
+`register_native_module(spec, names, base_id)` serves a host module, `save_state` and `restore_state` freeze and thaw a run, `vm_create` and `vm_select` hold several runs in one instance, and `runtime_descriptor` writes the runtime's names and file extension as JSON.

@@ -1,0 +1,105 @@
+---
+title: "Errors and limits"
+description: "How compile and run errors read on every host, and every cap a run and a source are held to."
+---
+
+# Errors and limits
+
+## Compile errors
+
+The lexer and the parser recover after an error and report every one they find before anything runs. Each names the file, line and column with the line itself.
+
+```mini syntax.mini
+x = = 2
+print('one'
+```
+
+```text
+$ edge run syntax.mini
+error: expected expression
+  --> syntax.mini:1:5
+  |
+1 | x = = 2
+  |     ^
+
+error: '(' was never closed
+  --> syntax.mini:2:6
+  |
+2 | print('one'
+  |      ^
+```
+
+In Rust, `edge::code::compile` returns the diagnostics beside the chunk, and `Diagnostic::render_all(&errors, src, Some(path))` writes this same report. In a page, `run` resolves with it in `out`.
+
+## Run errors
+
+An error no handler catches ends the run with its class and message, in the runtime's own names, then the line it rose at and the calls that led there. The `edge` CLI writes it to stderr and exits with 1. `exit(n)` ends a run with status `n` instead.
+
+```mini broken.mini
+fn ratio(a, b):
+    return a / b
+
+print('before')
+print(ratio(1, 0))
+```
+
+```text
+$ edge run broken.mini
+before
+error: ZeroDivisionError: division by zero
+  --> broken.mini:2:5
+  |
+2 |     return a / b
+  |     ^
+
+note: called from ratio()
+  --> broken.mini:5:12
+  |
+5 | print(ratio(1, 0))
+  |            ^
+```
+
+| Host | Gets |
+|---|---|
+| Rust | The `Err(e)` of `vm.run()`. `vm.report_error(&e, src, path)` writes this report, `vm.error_text(&e)` only its first line, and `vm.system_exit_code()` the status of an `exit` |
+| JavaScript | `out` of the value `run` resolves with, and `exitCode` |
+| `.wasm` | The `ERROR` or `EXIT` kind of the status word, with the report in the output buffer |
+
+A runtime words every error the engine raises through its `Names` and its `message`, so a runtime of your own decides each class and sentence, as [Build a runtime](./02-runtime.mdx#the-language) lists.
+
+## Limits
+
+Every run is metered, natives included, and there is no unmetered mode. A run raises an error where it reaches a limit.
+
+| Limit | Default | Set with |
+|---|---|---|
+| Operations | 100,000,000 | `Limits { ops, .. }`, `limits.ops` in JS, `--ops`, `set_limits` |
+| Memory the run holds | 256 MiB | `Limits { memory, .. }`, `limits.memory` in MB in JS, `--memory`, `set_limits` |
+| Call depth | The runtime's `recursion_limit`, 1000 in mini | `Policy` |
+| Calls nested through a native or a plugin | 128 | Fixed |
+| Comparison depth of nested containers | 100 | Fixed |
+
+`Limits::sandbox()` gives the defaults. The memory limit is a count of every byte the allocator hands the run, not an estimate, so a Rust host installs `edge::allocator!()` or sets `memory: usize::MAX`. A spent op budget cannot be caught, since a handler's first op raises again, and `reset_budget(ops)` gives a parked run a new one.
+
+```text
+$ edge run broken.mini --ops 3
+error: RuntimeError: budget exceeded
+  --> broken.mini:4:1
+  |
+4 | print('before')
+  | ^
+```
+
+A source is held to these caps, each reported as a compile error:
+
+| Cap | Value |
+|---|---|
+| Source size | 10 MiB |
+| Block depth | 100 |
+| Nesting of expressions, targets and patterns | 200 |
+| Instructions, names or constants per function | 65,535 |
+| Call arguments | 255 positional and 255 keyword |
+| Native imports per module | 256 |
+| Imports nested one inside the next | 64 |
+
+The engine has no clock, randomness, threads or system access of its own. The same source and the same input give the same output on `x86_64`, `aarch64` and `wasm32`, and only the host modules a grant opens can differ.

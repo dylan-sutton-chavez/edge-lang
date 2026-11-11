@@ -408,22 +408,27 @@ mod tests {
         }
     }
 
-    /* a fence naming a repo file stays empty for the site to fill */
+    /* the repo's own pages follow the rules package docs are held to */
     #[test]
-    fn every_included_file_is_in_the_repo_and_never_copied() {
+    fn the_repo_docs_hold_to_the_rules() {
         let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
-        let mut included = Vec::new();
-        for page in pages(&repo.join("docs"), "", &mut HashSet::new()).unwrap() {
-            let text = fs::read_to_string(repo.join("docs").join(&page)).unwrap();
-            let mut lines = text.lines();
-            while let Some(line) = lines.next() {
-                let named = line.trim().strip_prefix("```").and_then(|info| info.split_whitespace().find_map(|word| word.strip_prefix("file=")));
-                let Some(file) = named else { continue };
-                assert!(repo.join(file).is_file(), "'{page}' includes '{file}', which the repo does not hold");
-                assert_eq!(lines.next().map(str::trim), Some("```"), "'{page}' copies '{file}' into its fence, the site fills it");
-                included.push(file.to_string());
-            }
-        }
-        assert!(included.iter().any(|f| f == "examples/net/net.rs") && included.iter().any(|f| f == "examples/net/net.ts"), "{included:?}");
+        let pages = collect(&repo, Some("docs"), &mini::DESCRIPTOR).unwrap_or_else(|e| panic!("{e:#}"));
+        assert!(!pages.is_empty());
     }
+}
+
+// the rust blocks of each page compile and run as doctests of this crate
+#[cfg(doctest)]
+mod examples {
+    #[doc = include_str!("../../docs/02-runtime.mdx")]
+    struct Runtime;
+
+    #[doc = include_str!("../../docs/03-grammar.mdx")]
+    struct Grammar;
+
+    #[doc = include_str!("../../docs/04-rust.mdx")]
+    struct Rust;
+
+    #[doc = include_str!("../../docs/06-cli.mdx")]
+    struct Cli;
 }

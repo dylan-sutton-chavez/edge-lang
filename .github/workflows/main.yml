@@ -93,6 +93,8 @@ jobs:
             cli: actors
           - entry: cli-consistency
             cli: consistency
+          - entry: cli-docs
+            cli: docs
           - entry: cli-skill
             cli: skill
           - entry: cli-uptime

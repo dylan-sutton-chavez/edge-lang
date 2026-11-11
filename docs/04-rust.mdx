@@ -1,0 +1,193 @@
+---
+title: "Rust"
+description: "Compile and run programs inside a Rust program: the VM, its output, events, host functions, exported functions, snapshots and a native binary."
+---
+
+# Rust
+
+A Rust program links the engine and a runtime as crates and runs programs in its own process, with no `.wasm` in between. The examples on this page embed mini through the `mini` crate. A runtime of your own exposes the same `RUNTIME` and `FRONT`, as [Build a runtime](./02-runtime.mdx) shows.
+
+```toml
+[dependencies]
+edge = { git = "https://github.com/dylan-sutton-chavez/edge-lang", branch = "main" }
+mini = { git = "https://github.com/dylan-sutton-chavez/edge-lang", branch = "main" }
+```
+
+## Run a program
+
+`edge::code::compile` parses a source through a runtime's front and gives the chunk with every diagnostic. `VM::with_runtime` boots a machine over it, and `run` runs it to the end.
+
+```rust standalone_crate
+use edge::embed::{Limits, VM};
+
+// the memory limit counts what this allocator hands out
+edge::allocator!();
+
+fn main() {
+    let src = "fn square(n):\n    return n * n\nprint([square(n) for n in range(4)])\n";
+    let (chunk, errors) = edge::code::compile(&mini::FRONT, src);
+    assert!(errors.is_empty(), "{}", edge::code::Diagnostic::render_all(&errors, src, Some("main.mini")));
+    let mut vm = VM::with_runtime(&mini::RUNTIME, &chunk, Limits::sandbox());
+    vm.run().expect("the program runs");
+    assert_eq!(vm.output_text(), "[0, 1, 4, 9]\n");
+}
+```
+
+The binary installs `edge::allocator!()` once, since a VM whose limits cap memory refuses to run without the meter. A VM keeps what the program prints as lines in `output`, and `output_text()` joins them. Set `vm.print_hook = Some(f)` with a `fn(&str)` to take each text as it is written instead.
+
+| Call | Does |
+|---|---|
+| `VM::with_runtime(&RUNTIME, &chunk, limits)` | Boots a machine. The chunk outlives it |
+| `run()` | Runs the program, or carries a parked run on |
+| `push_event(text)` | Hands an event to a run waiting in `receive()`, or queues it |
+| `inject_host_result_by_id(id, value)` | Answers a host call the run waits on |
+| `call_export(name, args)` | Calls a function the program defined, after `run` |
+| `set_preempt_interval(n)` | Stops the run every `n` loop back-edges, never at 0 |
+| `reset_budget(ops)` | Gives the run a fresh op budget |
+| `set_input(lines)` | The lines `input()` reads |
+| `error_text(&e)`, `report_error(&e, src, path)` | An error as one line, or as the whole report with its source line |
+| `display(v)`, `repr(v)` | A value as the runtime prints it |
+| `memory()`, `memory_peak()` | What the run holds now, and the most it held |
+
+## Events
+
+A run that calls `receive()` with nothing queued parks, and `run` returns `VmErr::HostYield(SchedulerStatus::PendingEvent)`. The host pushes an event and calls `run` again, and the run goes on from where it stopped.
+
+```rust standalone_crate
+use edge::embed::{Limits, SchedulerStatus, VM};
+use edge::value::VmErr;
+
+edge::allocator!();
+
+fn main() {
+    let src = "total = 0\nwhile true:\n    m = receive()\n    if m == 'stop':\n        break\n    total += int(m)\nprint('total', total)\n";
+    let (chunk, _) = edge::code::compile(&mini::FRONT, src);
+    let mut vm = VM::with_runtime(&mini::RUNTIME, &chunk, Limits::sandbox());
+    let mut events = ["2", "3", "stop"].into_iter();
+    loop {
+        match vm.run() {
+            Ok(_) => break,
+            Err(VmErr::HostYield(SchedulerStatus::PendingEvent)) => vm.push_event(events.next().unwrap()).unwrap(),
+            Err(e) => panic!("{}", vm.report_error(&e, src, Some("main.mini"))),
+        }
+    }
+    assert_eq!(vm.output_text(), "total 5\n");
+}
+```
+
+## Host functions
+
+An import is answered by a `Resolver`. Answering with `Resolved::Code` serves a module's source, and `Resolved::Native` serves Rust functions. A function that returns `VmErr::HostCallDeferred` parks the run with `PendingHostCall`, and the host answers it later by id, counting from 0 in the order the run made the calls.
+
+```rust standalone_crate
+use edge::embed::{Limits, NativeBinding, Resolved, Resolver, SchedulerStatus, VM};
+use edge::targets::native::Script;
+use edge::value::{HeapPool, Val, VmErr};
+
+edge::allocator!();
+
+fn double(_: &mut HeapPool, args: &[Val], _kw: Option<Val>) -> Result<Val, VmErr> {
+    Ok(Val::int(args[0].as_int() * 2))
+}
+
+// answered later, the way a host waits on a network reply
+fn fetch(_: &mut HeapPool, _args: &[Val], _kw: Option<Val>) -> Result<Val, VmErr> {
+    Err(VmErr::HostCallDeferred)
+}
+
+struct Host;
+
+impl Resolver for Host {
+    fn resolve(&mut self, spec: &str) -> Result<Resolved, String> {
+        match spec {
+            "host" => Ok(Resolved::Native {
+                bindings: vec![NativeBinding::from_fn("double", double), NativeBinding::from_fn("fetch", fetch)],
+                classes: vec![],
+                consts: vec![],
+                canonical: "host".into(),
+            }),
+            "util" => Ok(Resolved::Code { src: "fn greet(n):\n    return 'hi ' + n\n".into(), canonical: "util".into() }),
+            _ => Err(format!("no module '{spec}'")),
+        }
+    }
+}
+
+fn main() {
+    let src = "import host\nimport util\nprint(host.double(21), util.greet('ana'))\nprint(host.fetch() + 1)\n";
+    let script = Script::compile(&mini::FRONT, "main.mini", src.into(), Box::new(Host)).unwrap();
+    let mut vm = VM::with_runtime(&mini::RUNTIME, &script.chunk, Limits::sandbox());
+    assert!(matches!(vm.run(), Err(VmErr::HostYield(SchedulerStatus::PendingHostCall))));
+    assert!(vm.inject_host_result_by_id(0, Val::int(41)));
+    vm.run().unwrap();
+    assert_eq!(vm.output_text(), "42 hi ana\n42\n");
+}
+```
+
+## Exported functions
+
+Once `run` has bound the program's names, `call_export` calls one of its functions with values the host built.
+
+```rust standalone_crate
+use edge::embed::{Limits, VM};
+use edge::value::Val;
+
+edge::allocator!();
+
+fn main() {
+    let (chunk, _) = edge::code::compile(&mini::FRONT, "fn area(w, h):\n    return w * h\n");
+    let mut vm = VM::with_runtime(&mini::RUNTIME, &chunk, Limits::sandbox());
+    vm.run().unwrap();
+    let got = vm.call_export("area", &[Val::int(6), Val::int(7)]).unwrap();
+    assert_eq!(vm.display(got), "42");
+}
+```
+
+## Snapshots
+
+A parked run freezes to a blob with `edge::embed::save` and thaws on a fresh VM booted from the same program with `edge::embed::restore`, on this host or another. The blob holds the heap, every frame and the input not yet read.
+
+```rust standalone_crate
+use edge::embed::{self, Limits, SchedulerStatus, VM};
+use edge::value::VmErr;
+
+edge::allocator!();
+
+fn main() {
+    let src = "seen = []\nwhile true:\n    m = receive()\n    if m == 'stop':\n        break\n    seen.append(m)\nprint(seen)\n";
+    let (chunk, _) = edge::code::compile(&mini::FRONT, src);
+    let mut vm = VM::with_runtime(&mini::RUNTIME, &chunk, Limits::sandbox());
+    assert!(matches!(vm.run(), Err(VmErr::HostYield(SchedulerStatus::PendingEvent))));
+    vm.push_event("a").unwrap();
+    assert!(matches!(vm.run(), Err(VmErr::HostYield(SchedulerStatus::PendingEvent))));
+    let blob = embed::save(&vm, src, "main.mini").unwrap();
+    drop(vm);
+
+    // a new machine over the same program picks up where the first one parked
+    let mut later = VM::with_runtime(&mini::RUNTIME, &chunk, embed::limits_of(&blob).unwrap());
+    embed::restore(&mut later, &blob).unwrap();
+    later.push_event("b").unwrap();
+    later.push_event("stop").unwrap();
+    later.run().unwrap();
+    assert_eq!(later.output_text(), "['a', 'b']\n");
+}
+```
+
+`set_preempt_interval(n)` parks a run that never waits with `SchedulerStatus::Preempted`, so a long loop can be saved too. `embed::entry_of(&blob)` gives back the script name the blob was saved under.
+
+## A native binary
+
+`edge::targets::native` holds a whole host: `Script::read` compiles a file and reads its relative imports beside it, `boot` gives a VM that prints to stdout and reads stdin, and `main` puts them together.
+
+```rust no_run standalone_crate
+use edge::embed::Limits;
+use std::process::ExitCode;
+
+edge::allocator!();
+
+// runs the mini file its first argument names
+fn main() -> ExitCode {
+    edge::targets::native::main(&mini::RUNTIME, &mini::FRONT, Limits::sandbox())
+}
+```
+
+A native script loads no URL and no plugin. The `edge` CLI and the JS host serve both.

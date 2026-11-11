@@ -1,0 +1,183 @@
+---
+title: "CLI"
+description: "The edge commands, a project from its first file to a packed build, packages by URL, grants, and a CLI of your own composed from the kit."
+---
+
+# CLI
+
+The `edge` CLI runs mini programs on macOS, Linux and WSL. It embeds `edge.wasm` precompiled for the machine, the same module the JS host loads, so a program answers the same in a page and in a terminal. [Install](./01-overview.mdx#install) builds it from the repo.
+
+## Commands
+
+| Command | Does |
+|---|---|
+| `edge run <file>` | Runs a script, a packed `.edge`, stdin, or `-c <code>`. `--web` runs it in headless Chrome on the JS host |
+| `edge build` | Packs the project into `app.edge`. `--app` writes a standalone binary, `--web` a `dist/` folder for the browser |
+| `edge test [path]` | Runs every `*_test.mini` file in a fresh session. A file passes when it ends cleanly |
+| `edge init [name]` | Creates a project with `main.mini`, `edge.json` and an `index.html`. `--bare` leaves out the page |
+| `edge add <name>=<source>` | Declares an import in `edge.json`, by URL or by path |
+| `edge remove <name>` | Removes an import |
+| `edge lock` | Downloads every URL import once and pins its digest in `edge.lock` |
+| `edge serve` | A dev server with live reload, on `127.0.0.1:5173` unless `--host` and `--port` say otherwise |
+| `edge actor <file>` | Runs a pool of actors from an `actor.yml` |
+| `edge uninstall` | Removes the binary and its PATH entry |
+
+`edge run` and `edge test` take `--memory <MB>` and `--ops <n>`. `edge run` also takes `--events <file>`, one event per line, `--preempt <n>`, `--save-state <file>` and `--restore-state <file>`. Every command takes `--manifest <file>` in place of `./edge.json`.
+
+## A project
+
+`edge init` creates the project.
+
+```text
+$ edge init hello
+created hello/
+$ cd hello
+```
+
+Its code goes in two files. `main.mini` imports `slug.mini` with a relative import.
+
+```mini slug.mini
+// a title in lowercase with its words joined by dashes
+fn slug(title):
+    words = [w for w in title.lower().split(' ') if w]
+    return '-'.join(words)
+```
+
+```mini main.mini
+from .slug import slug
+
+for title in ['Edge in five minutes', 'Your  runtime and its CLI']:
+    print(slug(title))
+```
+
+```text
+$ edge run main.mini
+edge-in-five-minutes
+your-runtime-and-its-cli
+```
+
+A test imports the same function. An `assert` that fails fails its file, and `edge test` exits with 1.
+
+```mini slug_test.mini
+from .slug import slug
+
+assert slug('Edge in five minutes') == 'edge-in-five-minutes'
+assert slug('  spaces  ') == 'spaces'
+```
+
+```text
+$ edge test
+(successful) slug_test.mini
+```
+
+`edge build` packs the scripts, the manifest and every import into one `app.edge` that runs anywhere `edge` is installed.
+
+```text
+$ edge build
+packed app.edge (4 files)
+$ edge run app.edge
+edge-in-five-minutes
+your-runtime-and-its-cli
+```
+
+## Packages by URL
+
+`edge add` declares an import under the name the code imports it by. The source is a path or a URL: a `.mini` module, a `.wasm` plugin, or a `.edge` package that `edge build` packed and a tagged GitHub release attaches. This one takes a module from this repo at a fixed commit.
+
+```text
+$ edge add util=https://raw.githubusercontent.com/dylan-sutton-chavez/edge-lang/d1a17e9d59205564d12eb4df4cd3a116a2984467/cli/tests/actor/proj/lib/util.mini
++ util       https://raw.githubusercontent.com/dylan-sutton-chavez/edge-lang/d1a17e9d59205564d12eb4df4cd3a116a2984467/cli/tests/actor/proj/lib/util.mini
+updated edge.json, run edge lock to pin it
+$ edge lock
+wrote edge.lock
+```
+
+```mini main.mini
+import util
+
+print(util.greet())
+```
+
+```text
+$ edge run main.mini
+hello from a project dir
+```
+
+`edge lock` downloads each URL once and writes its digest to `edge.lock`, and `edge run`, `edge test` and `edge build` refuse bytes other than the ones it pins. Run it after every change to `edge.json` and commit `edge.lock` with the code. An import can also pin its bytes in the URL itself, with a `#sha256-<64 hex>` fragment.
+
+A package names itself in its own `edge.json`:
+
+| Field | Rule |
+|---|---|
+| `name` | Up to 40 lowercase letters, digits and single hyphens, starting with a letter. Never `all`, `main` or `eval` |
+| `version` | `major.minor.patch` |
+| `description` | One line, up to 60 characters |
+| `repository` | An `https` URL |
+| `docs` | A folder of `.mdx` pages that `edge build` packs with the package |
+
+## Grants
+
+A program reaches the outside only through the host modules its host serves. The CLI serves two, and the JS host serves `net`:
+
+| Module | Calls | Scope of a grant |
+|---|---|---|
+| `net` | `request(method, url, headers, body, inflate, timeout)` gives an id, then `response(id)`, `read(id)` and `close(id)`. `connect(url)` and `send(id, data)` for WebSockets | `net:<host>`, or `net:<host>/<prefix>` for the paths under it |
+| `files` | `open(path, inflate)` gives an id, then `read(id)` and `close(id)` | `files:<file>`, or `files:<dir>/` for every file below it |
+
+The root `edge.json` grants them in `permissions`, which maps a holder to entries written `module:scope`:
+
+| Holder | Holds |
+|---|---|
+| `main` | The project's own code |
+| An import name | That package |
+| `all` | The project and every package it imports |
+
+A package lists what it needs in its own `edge.json`, and can only pass on what its importer gave it. A call outside its grant raises before anything leaves the process:
+
+```edge-manifest
+{ "permissions": { "main": ["net:api.example.com"] } }
+```
+
+```edge
+import net
+
+try:
+    net.request('GET', 'https://other.example/')
+except PermissionError as e:
+    print(e)
+```
+
+```output
+'main' has no net:other.example, edge.json grants it net:api.example.com
+```
+
+## A CLI of your own
+
+The `cli` crate is a kit: a `Kit` over a runtime and the commands you wire, each behind a feature of the crate. The `edge` binary is one composition of it over mini, and a runtime of your own gets a CLI the same way. With no arguments, this one prints its help.
+
+```rust standalone_crate
+use cli::cmd::{run, test};
+use cli::{Kit, Runtime};
+
+// the native runtime meters its memory through this allocator
+edge::allocator!();
+
+fn main() {
+    Kit::new("calc", "0.1.0", Runtime::native(&mini::RUNTIME))
+        .title("A CLI for calc programs")
+        .command(run::Run)
+        .command(test::Test)
+        .main()
+}
+```
+
+`Runtime::native` links the runtime into the binary, and `Runtime::wasm(bytes, &DESCRIPTOR)` loads its `.wasm` instead, which also lets the binary load `.wasm` plugins. `.module(...)` serves a host module such as `cli::net::Net`, and `.field(cli::perms::FIELD)` with `.access(Arc::new(cli::perms::Perms))` holds each package to its grants.
+
+| Feature | Command or part |
+|---|---|
+| `run`, `test`, `build`, `init`, `serve`, `actors`, `uninstall` | The command of that name |
+| `packages` | `add`, `remove` and `lock` |
+| `net`, `files` | The host modules for requests and sockets, and for local files |
+| `perms` | Grants |
+| `web` | `--web` runs on headless Chrome |
+| `wasm` | Runtimes and plugins as `.wasm` |

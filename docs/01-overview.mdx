@@ -1,0 +1,79 @@
+---
+title: "Overview"
+description: "What the Edge SDK is, what it is made of, and how to install it from GitHub."
+---
+
+# Overview
+
+The Edge SDK is a toolkit for building language runtimes in Rust. You bring a token table, a few rules and the natives your programs call, and the SDK gives you the rest:
+
+1. **Lexer.** Reads source bytes through your token table in one linear pass.
+2. **Parser.** A single-pass Pratt parser with no AST that writes SSA bytecode and reports diagnostics with recovery.
+3. **VM.** A register VM that runs the bytecode with an op budget, an exact memory meter, a garbage collector and snapshots.
+
+A runtime built on it compiles to one WebAssembly module that runs in a web page, in the `edge` CLI or inside your own Rust program. A program reaches no file, no network and no environment unless its host grants it.
+
+## What the repo holds
+
+| Part | Path | What you use it for |
+|---|---|---|
+| `edge` | `src/` | The engine crate: lexer, parser, VM, snapshots, imports and grants |
+| `lib` | `lib/` | Ready natives (print, text, lists, maps, JSON, dates...) a runtime names in its own table |
+| `cli` | `cli/` | The `edge` CLI, and the kit you compose a CLI of your own from |
+| JS host | `js/` | `createWorker`, which runs a runtime's `.wasm` in a web page |
+| `plugin` | `plugin/` | The crate for writing `.wasm` plugins a program imports |
+| Runtimes | `examples/` | `mini`, the reference runtime the `edge` CLI runs, plus `uptime` and `tiny` |
+
+The examples in these pages run programs written in mini, a small scripting language with Python's shape. Any runtime you build runs the same way.
+
+## Install
+
+Everything installs from [the repo on GitHub](https://github.com/dylan-sutton-chavez/edge-lang). You need Rust, and Deno for the JS host.
+
+The CLI:
+
+```bash
+git clone https://github.com/dylan-sutton-chavez/edge-lang
+cd edge-lang
+make wasm-cli js lucide
+cargo install --path cli
+```
+
+`rust-toolchain.toml` pins the toolchain and its wasm target, and `cargo install` puts `edge` in `~/.cargo/bin`. A tagged release also attaches prebuilt binaries for macOS and Linux, and `cli/setup/install.sh` installs the latest one into `~/.local/bin`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/dylan-sutton-chavez/edge-lang/main/cli/setup/install.sh | bash
+```
+
+The crates, as git dependencies of your own crate:
+
+```toml
+[dependencies]
+edge = { git = "https://github.com/dylan-sutton-chavez/edge-lang", branch = "main" }
+lib = { git = "https://github.com/dylan-sutton-chavez/edge-lang", branch = "main" }
+# the reference runtime, for embedding mini as it is
+mini = { git = "https://github.com/dylan-sutton-chavez/edge-lang", branch = "main" }
+# the CLI kit, with only the commands you wire
+cli = { git = "https://github.com/dylan-sutton-chavez/edge-lang", branch = "main", default-features = false, features = ["run", "test"] }
+```
+
+Pin `tag = "vX.Y.Z"` or `rev = "..."` instead of `branch` for a reproducible build. The crates build offline once fetched.
+
+The JS host and `edge.wasm`, as the tree a page serves:
+
+```bash
+make wasm js stage PARTS="wasm js"
+```
+
+That writes `_cdn/`, with `edge.wasm` at its root and the host under `js/src/`. A tagged release attaches the same tree as `cdn.tar.gz`, and `edge build --web` copies it into a project's `dist/`.
+
+## Pages
+
+| Page | Covers |
+|---|---|
+| [Build a runtime](./02-runtime.mdx) | A token table, natives, rules and the `Runtime` every host boots |
+| [Grammar](./03-grammar.mdx) | Forms, modes and patterns a runtime adds to the parser |
+| [Rust](./04-rust.mdx) | Compile and run programs inside a Rust program, events, host functions and snapshots |
+| [JavaScript](./05-javascript.mdx) | Run a runtime's `.wasm` in a page, and the exports any host drives |
+| [CLI](./06-cli.mdx) | The `edge` commands, packages by URL, grants, and a CLI of your own |
+| [Errors and limits](./07-errors-and-limits.mdx) | How errors read, and every cap a run is held to |

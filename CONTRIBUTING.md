@@ -12,7 +12,7 @@ For a large change, open an issue or email [c.sutton.dylan@gmail.com](mailto:c.s
 
 - New behavior comes with tests, and docs describe the code as it is after the change.
 - Changes to the CLI or package behavior update `skill/SKILL.md`.
-- Changes to the engine keep `make bench` and `make bench-layout` passing, and significant ones run the [fuzzer](docs/05-internals/03-runbook.mdx).
+- Changes to the engine keep `make bench` and `make bench-layout` passing, and significant ones run the fuzzer with `make fuzz`.
 
 Run `make check` before sending, and the maintainer runs CI once the pull request is open.
 
@@ -37,7 +37,7 @@ The engine in `src/` is laid out along the path a program takes from its source 
 | `src/util` | Hashing, the probe table, byte search, JSON escapes and the near names an error suggests, shared by the rest |
 | `src/unsafe.rs` | Every unsafe region of the engine, each with the argument that it is sound |
 
-`src/lib.rs` denies `unsafe_code` everywhere else, and `make lint` fails when another file of `src/` holds unsafe code or when `src/`, `lib/src` or `plugin/` holds a name `make/names.txt` denies. [Overview](docs/02-sdk/01-overview.mdx) follows a program through these directories, and [Design](docs/05-internals/01-design.mdx) covers the loop and the lowering in depth.
+`src/lib.rs` denies `unsafe_code` everywhere else, and `make lint` fails when another file of `src/` holds unsafe code or when `src/`, `lib/src` or `plugin/` holds a name `make/names.txt` denies.
 
 ## Building
 
@@ -67,7 +67,7 @@ New behavior comes with cases of three kinds. A case states a rule, so its expec
 | Native | A kernel of lib called on plain values, with its result or the words of its failure | `lib/tests/cases`, one YAML file per module of lib |
 | Syntax | Sources that compile to one program in several spellings, the tokens they lex to, and what the lexer and the parser report | `tests/cases/syntax` |
 
-A new engine case goes at the end of its topic file, so the places other files name stay put, and an existing case changes only with the rule it states. [Testing](docs/02-sdk/13-testing.mdx) covers the fields of each kind and every test that runs them.
+A new engine case goes at the end of its topic file, so the places other files name stay put, and an existing case changes only with the rule it states.
 
 `make bench` counts the WebAssembly instructions each case of `tests/cases/vm` executes, so `bench/.snapshot` keeps the same `[instructions, MB]` per case on every machine. The snapshot on `main` holds the numbers of `main`, so the bench of a branch is its comparison with `main`, case by case and in the geometric mean. It fails when the snapshot was taken with another Rust, a case and its entry do not pair, or the mean or a single case moves past its threshold, the cases that grew listed apart from those that shrank. A change that makes cases faster takes the snapshot again with `make bench-update` in the same pull request. That refuses a case that grew past its threshold, and `make bench-accept-slower` takes it too, so a pull request that makes a case slower says so outright.
 
@@ -105,7 +105,7 @@ make test-js test-cli test-skill
 
 ## Docs
 
-`docs/` holds MDX pages two folders deep at most, with a numeric prefix on every path segment. Each opens with a frontmatter holding a `title` and a `description` and has one top-level heading, the rules `edge build` holds package docs to. An `edge` block followed by an `output` block shows a program and what it prints, and a blockquote opening with a marker such as `[!NOTE]`, `[!QUESTION]`, `[!CARDS]` or `[!COPY]` becomes a box, as [Packages](docs/04-reference/07-packages.mdx#package-docs) lists.
+`docs/` holds MDX pages two folders deep at most, with a numeric prefix on every path segment. Each opens with a frontmatter holding a `title` and a `description` and has one top-level heading, the rules `edge build` holds package docs to. Every example runs: `make test-cli SUITE=docs` runs the `rust` blocks as doctests of the kit, `make test-cli SUITE=network` runs each `$ edge` transcript and each `edge` block against the `output` block after it, with the files that `mini <path>` blocks write, and `make test-js` runs each `js` block in a page against the `text` block after it.
 
 ## CI
 

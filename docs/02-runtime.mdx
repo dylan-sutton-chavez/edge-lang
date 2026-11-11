@@ -1,0 +1,171 @@
+---
+title: "Build a runtime"
+description: "A token table, the natives a program calls, the rules of the language and the Runtime every host boots, in one crate."
+---
+
+# Build a runtime
+
+A runtime is a Rust crate that hands the engine four things:
+
+| Piece | Type | Says |
+|---|---|---|
+| Token table | `edge::lexer::Syntax`, through `Spelling` | How programs are written: words, symbols, blocks, strings, numbers |
+| Natives | `edge::lang::Natives`, built with `edge::natives!` | The functions a program calls, usually kernels of `lib` under your names |
+| Language | `edge::lang::Language` | The rules (`Policy`), the names of types and errors (`Names`), how values show |
+| Runtime | `edge::lang::Runtime::of::<L>()` | The erased runtime every host boots, checked at compile time |
+
+The parser has one grammar. A token table only spells it, so `!` and `not` can both be the `Not` token, and a block can open with `{`, with a colon and indentation, or with a word such as `do`. Every table compiles the same construct to the same bytecode.
+
+## A whole runtime
+
+The crate below is a complete runtime named `tally`, with braces for blocks, `let` for a first store, and two natives from `lib`. It compiles a program and runs it.
+
+```rust standalone_crate
+use edge::embed::{Limits, VM};
+use edge::lang::{Cx, Descriptor, Front, Language, Mode, Names, Native, Natives, Overflow, Policy, Runtime};
+use edge::lexer::TokenType as T;
+use edge::lexer::{index, operators, Binding, Blocks, Comments, Continuation, Ends, Escapes, Keywords, Numbers, Quote, Shapes, Spelling, Strings, Suffix, Syntax, TokenType, Unicode, Unknown, Zeros};
+use edge::value::{Val, VmErr};
+
+// every run meters what it allocates so its memory limit holds
+edge::allocator!();
+
+pub struct Tally;
+
+const WORDS: &[(&str, TokenType)] = &[
+    ("let", T::Let), ("fn", T::Fn), ("return", T::Return), ("if", T::If), ("else", T::Else),
+    ("for", T::For), ("in", T::In), ("while", T::While), ("true", T::True), ("false", T::False), ("nil", T::Nil),
+];
+const SYMBOLS: &[(&str, TokenType)] = &[
+    ("(", T::ParenOpen), (")", T::ParenClose), ("[", T::BracketOpen), ("]", T::BracketClose),
+    ("{", T::BraceOpen), ("}", T::BraceClose), ("{", T::BlockOpen), ("}", T::BlockClose),
+    (",", T::Comma), (":", T::Colon), ("==", T::EqualEqual), ("<", T::Less),
+    ("=", T::Equal), ("+", T::Plus), ("-", T::Minus), ("*", T::Star),
+];
+static OPERATORS: [[TokenType; 4]; 128] = operators(SYMBOLS);
+static KEYWORDS: Keywords = index(WORDS);
+// each operator's left and right power, a zero left power marks a prefix
+const LADDER: &[(TokenType, u8, u8)] = &[
+    (T::EqualEqual, 1, 2), (T::Less, 1, 2), (T::Plus, 3, 4), (T::Minus, 3, 4), (T::Star, 5, 6), (T::Minus, 0, 7),
+];
+
+impl Spelling for Tally {
+    const SYNTAX: Syntax = Syntax {
+        name: "tally", extension: "tly", words: WORDS, symbols: SYMBOLS, operators: &OPERATORS, keywords: &KEYWORDS,
+        precedence: LADDER, chained: false, blocks: Blocks::Braces, ends: Ends::Newline,
+        comments: Comments { line: &["#"], block: None, nested: false },
+        strings: Strings {
+            quotes: &[Quote { byte: b'"', multiline: false, triple: false }],
+            prefixes: &[], any_case: false, hashes: false, adjacent: false, newlines: false,
+            escapes: Escapes { simple: &[(b'n', '\n')], hex: false, unicode: Unicode::Fixed, octal: false, line_join: false, unknown: Unknown::Refuse, refused: &[] },
+        },
+        interp: None,
+        numbers: Numbers { radixes: &[], separator: None, zeros: Zeros::Refused, leading_dot: false, trailing_dot: false, exponent: false, suffix: Suffix::Refused },
+        continuation: Continuation { join: None, operator: true },
+        shapes: Shapes { binding: Binding::Required, ..Shapes::CORE },
+        soft: &[],
+        bom: false,
+    };
+    const NATIVES: &'static Natives = &NATIVES;
+}
+
+// two kernels of lib under the names a program calls
+const TABLE: &[Native] = &lib::table![Tally; "print" => lib::io::print, "len" => lib::seq::len];
+
+static NATIVES: Natives = edge::natives! { language: Tally, fns: [TABLE], methods: [], types: &[] };
+
+// lib words failures and renders values with its defaults
+static TREE: lib::lang::Tree = lib::lang::Tree::of::<Tally>();
+impl lib::Lang for Tally {
+    const TREE: &'static lib::lang::Tree = &TREE;
+}
+impl lib::fmt::render::Style for Tally {}
+
+impl Language for Tally {
+    const VERSION: u32 = 1;
+    // the engine's rules, but an int too wide to box raises instead of growing
+    const POLICY: Policy = Policy { int_overflow: Overflow::Error, ..Policy::ENGINE };
+    const NATIVES: &'static Natives = &NATIVES;
+    const NAMES: &'static Names = &Names::PLAIN;
+    const FRONT: Front = FRONT;
+    const DESCRIPTOR: &'static Descriptor = &DESCRIPTOR;
+    type Ops = ();
+
+    fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Mode) -> Result<String, VmErr> {
+        lib::fmt::render::hook::<Tally>(cx, v, mode)
+    }
+}
+
+pub const FRONT: Front = Front::spelled::<Tally>();
+pub const DESCRIPTOR: Descriptor = Descriptor { language: "tally", extension: "tly", entries: &["main.tly"], ..Descriptor::NONE };
+pub static RUNTIME: Runtime = Runtime::of::<Tally>();
+
+// the exports of tally.wasm, built only for the web feature on wasm32
+#[cfg(all(target_arch = "wasm32", feature = "web"))]
+edge::web_exports!(RUNTIME);
+
+fn main() {
+    let src = "let total = 0\nfor n in [1, 2, 3] {\n    total = total + n * n\n}\nprint(\"squares\", len([1, 2, 3]), total)\n";
+    let (chunk, errors) = edge::code::compile(&FRONT, src);
+    assert!(errors.is_empty(), "{}", edge::code::Diagnostic::render_all(&errors, src, Some("main.tly")));
+    let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
+    vm.run().expect("the program runs");
+    assert_eq!(vm.output_text(), "squares 3 14\n");
+}
+```
+
+Its `Cargo.toml` takes the engine and only the modules of `lib` it names:
+
+```toml
+[dependencies]
+edge = { git = "https://github.com/dylan-sutton-chavez/edge-lang", branch = "main" }
+lib = { git = "https://github.com/dylan-sutton-chavez/edge-lang", branch = "main", default-features = false, features = ["io", "seq"] }
+```
+
+## The token table
+
+Each field of `Syntax` decides one thing about how a program is written.
+
+| Field | Decides |
+|---|---|
+| `words`, `symbols` | Each reserved word and symbol and the token it is. A space joins a phrase, as in `("else if", T::ElseIf)`, and a braces table lists `{` both as `BraceOpen` and as `BlockOpen` |
+| `operators`, `keywords` | Lookups built at compile time with `operators(SYMBOLS)` and `index(WORDS)` |
+| `precedence`, `chained` | Binding powers, and whether `a < b < c` chains |
+| `blocks`, `ends` | `Indent`, `Braces` or `Words { implicit }`, and whether statements end at a line end, a semicolon or either |
+| `comments`, `strings`, `interp`, `numbers` | Comment markers, quotes and escapes, interpolated strings, and number literals |
+| `shapes` | The optional pieces: lambdas, comprehensions, slices, decorators, `match` arms, ranges, `let` and a [grammar](./03-grammar.mdx) of its own. `Shapes::CORE` turns every piece on but `let`, arms, ranges and a grammar |
+
+A runtime whose source is not text with tokens, such as YAML, implements `edge::lang::Front` itself and emits the same bytecode through `edge::code::Builder`, as `examples/tiny` does.
+
+## Natives
+
+`lib` holds kernels with no names of their own, grouped by feature: `bytes`, `data` (JSON, CSV), `date`, `io`, `iter`, `map`, `num`, `reflect`, `seq`, `set`, `spec`, `text` and `types`. `lib::table!` gives each kernel the name a program calls, as `"json" => lib::data::json::read` would. `methods` in `edge::natives!` registers methods by kind, such as `text.upper`, and `types` names the types a program may test against. A native `lib` lacks is an `edge::lang::Native` you write yourself, a Rust function that takes a `Cx` and its arguments and answers with a value.
+
+## The language
+
+`Language` holds what the engine asks a runtime. Its constants have defaults you start from.
+
+| Item | Default | Decides |
+|---|---|---|
+| `POLICY` | `Policy::ENGINE` | Integer overflow and division, what is falsy, negative indexes, string and map iteration, the recursion limit. Ints that grow without bound also need `WIDE`, as `lib::num::big::kind` gives |
+| `NAMES` | `Names::PLAIN` | The names of the engine's types and error classes in your language |
+| `show`, `format` | none | How a value prints, usually `lib::fmt::render::hook` and `lib::fmt::spec::hook` |
+| `handles` | none | Which errors a handler catches, usually `lib::types::match_exc` |
+| `DESCRIPTOR` | `Descriptor::NONE` | The names tools read: file extension, entry files, test suffix, the fences of package docs and error classes |
+
+`Runtime::of::<L>()` runs in a `static`, so a broken policy fails the build, not a run.
+
+## The .wasm of a runtime
+
+The same crate builds the module the JS host and the CLI load. `edge::web_exports!(RUNTIME)`, as in the example above, writes its exports behind a `web` feature, and the crate builds as a `cdylib`:
+
+```toml
+[features]
+web = ["edge/runtime", "edge/perms"]
+```
+
+```bash
+cargo rustc --release --target wasm32-unknown-unknown --lib --crate-type cdylib --no-default-features --features web
+```
+
+`examples/uptime` is a full runtime in 241 lines with its own error classes and a CLI, and `examples/mini` is the one `edge.wasm` is built from.

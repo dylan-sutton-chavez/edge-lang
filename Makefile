@@ -27,6 +27,8 @@ CLI_TEST_engine := --lib --bin edge --test cli --test run --test native -- --ski
 CLI_TEST_network := --test cli --test channels net_suite
 CLI_TEST_actors := --test actor
 CLI_TEST_consistency := --test consistency
+# the rust examples of docs/ run as doctests of the kit
+CLI_TEST_docs := --doc
 # the channels test composes a kit over the flow runtime the network suite builds
 CLI_NEEDS_engine := plugin
 CLI_NEEDS_network := plugin wasm-tiny
@@ -218,7 +220,7 @@ test-js: plugin wasm wasm-tiny wasm-uptime
 
 # engine runs cli and run without the net cases that network runs alone
 test-cli: $(CLI_INPUTS) $(CLI_NEEDS_$(SUITE))
-	$(if $(filter-out engine network actors consistency skill,$(SUITE)),$(error SUITE is one of engine network actors consistency skill, or none for all))
+	$(if $(filter-out engine network actors consistency docs skill,$(SUITE)),$(error SUITE is one of engine network actors consistency docs skill, or none for all))
 	$(if $(filter skill,$(SUITE)),,cd cli && cargo test --locked $(CLI_TEST_$(SUITE)))
 
 test-skill: export SKILL_EDGE = $(CURDIR)/cli/target/debug/edge$(EXE)

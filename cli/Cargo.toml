@@ -11,7 +11,6 @@ description = "The Edge Lang CLI kit, a core that takes a runtime and the comman
 [lib]
 name = "cli"
 path = "src/lib.rs"
-doctest = false
 
 # the reference composition wiring every command over the embedded runtime
 [[bin]]
@@ -113,6 +112,8 @@ flate2 = "1"
 tiny = { path = "../examples/tiny" }
 # the reference runtime the native test builds into its binary
 mini = { path = "../examples/mini" }
+# the kernels the runtime example of the docs names
+lib = { path = "../lib" }
 # the pinned hour of events that test reads, fetched once into target
 data = { path = "../examples/data" }
 
