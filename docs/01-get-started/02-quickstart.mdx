@@ -32,29 +32,6 @@ cloudflare  200   802 ms  Partial System Outage
 The board read three status pages through the net plugin, under the grants of the `edge.json` beside it. The runtime is the 241 lines of Rust in the five files of `examples/uptime/src`, and the CLI is the kit composed over it, whole below.
 
 ```rust file=examples/uptime/cli/src/lib.rs
-use cli::cmd::{run, test};
-use cli::host::HostModule;
-use cli::{perms, Kit, Runtime};
-use std::sync::Arc;
-
-mod clock;
-
-pub use clock::{wall, Clock};
-
-// the runtime make wasm-uptime builds from examples/uptime
-const WASM: &[u8] = include_bytes!("../../../../target/wasm32-unknown-unknown/release/uptime.wasm");
-
-/* run and test with net and the clock held to what edge.json grants */
-pub fn kit(net: Arc<dyn HostModule>, clock: Arc<dyn HostModule>) -> Kit {
-    Kit::new("uptime", env!("CARGO_PKG_VERSION"), Runtime::wasm(WASM, &uptime::DESCRIPTOR))
-        .title("Uptime checks on Edge Lang")
-        .command(run::Run)
-        .command(test::Test)
-        .field(perms::FIELD)
-        .access(Arc::new(perms::Perms))
-        .module(net)
-        .module(clock)
-}
 ```
 
 `Kit::new` takes the runtime, made of its wasm and its descriptor. `run` and `test` are two of the kit's commands, `perms` holds each check to what `edge.json` grants, and `net` and `clock` are the host modules a check may import.

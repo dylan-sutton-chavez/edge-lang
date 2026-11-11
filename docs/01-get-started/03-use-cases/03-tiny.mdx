@@ -14,30 +14,6 @@ This page runs the job [Mini](./02-mini.mdx) runs, five reports over one hour of
 GH Archive publishes every public GitHub event, one gzipped file of JSON lines per hour. The flow reads the hour from 3 pm to 4 pm UTC on 1 October 2026, 85,569 events in 19.4 MB, and leaves the events of bots out of every report.
 
 ```tiny file=examples/data/github-hour.flow.yaml
-from: https://data.gharchive.org/2026-10-01-15.json.gz
-where: not actor.login.endswith("[bot]")
-
-top_stars:
-  where: type == "WatchEvent"
-  count: repo.name
-  top: 10
-
-busy_branches:
-  where: type == "PushEvent"
-  count: repo.name, branch = payload.ref.removeprefix("refs/heads/")
-  keep: count > 1
-
-activity.csv:
-  count: minute = created_at[11:16], type
-
-issues_opened:
-  where: type == "IssuesEvent" and payload.action == "opened"
-  count: repo.name
-
-time_to_close:
-  where: type == "IssuesEvent" and payload.action == "closed"
-  average: hours_between(payload.issue.created_at, payload.issue.closed_at)
-  by: repo.name
 ```
 
 | Report | Reads |
@@ -90,74 +66,6 @@ A key is a path such as `repo.name`, or a new column written `name = expression`
 Every expression is a plain YAML value read through tiny's own token table. A bare name reads the record's field, `a.b` reads a field of a field, `[11:16]` slices a text, and a call reaches a native or a method of a text. `and`, `or`, `not`, `in`, the comparisons and the arithmetic work as they read, and `True`, `False` and `None` are the constants.
 
 ```rust file=examples/tiny/src/natives.rs
-use edge::lang::{Args, Cx, Mode, Native, Ret, Sig};
-use edge::value::{Val, VmErr};
-use lib::date::{Days, Duration, Field, Hours, Minutes, Part, Time};
-use lib::num::round::HalfAway;
-use lib::text::case::Full;
-use lib::uni::Decimal;
-use lib::{date, iter, num, seq, text};
-
-use crate::Tiny;
-
-pub const FNS: &[Native] = &lib::table![Tiny;
-    "time" => date::parse[Tiny],
-    "len" => seq::len,
-    "str" => text::text,
-    "int" => num::int::new[Decimal],
-    "float" => num::float::new[Decimal],
-    "round" => num::round::round[HalfAway],
-    "abs" => num::abs,
-    "min" => iter::fold::least,
-    "max" => iter::fold::most,
-];
-
-// the spans between two times which lib holds no kernel for
-pub const OWN: &[Native] = &[
-    Native::new("hours_between", Sig::exact(2), between::<Hours>),
-    Native::new("minutes_between", Sig::exact(2), between::<Minutes>),
-    Native::new("days_between", Sig::exact(2), between::<Days>),
-];
-
-pub const STR: &[Native] = &lib::table![Tiny;
-    "endswith" => text::find::ends,
-    "startswith" => text::find::starts,
-    "removeprefix" => text::edit::drop_prefix,
-    "removesuffix" => text::edit::drop_suffix,
-    "lower" => text::case::lower[Full],
-    "upper" => text::case::upper[Full],
-    "strip" => text::pad::trim,
-    "split" => text::cut::split,
-    "replace" => text::edit::replace,
-    "find" => text::find::find,
-];
-
-/* the kind of `v` as tiny's names table words it */
-pub fn kind_name<'a>(cx: &'a Cx<'_, '_>, v: Val) -> &'a str { cx.type_name(v) }
-
-/* the error a native raises when its receiver or argument is of another kind */
-pub fn wrong(cx: &Cx<'_, '_>, what: &str, want: &str, v: Val) -> VmErr {
-    VmErr::Raised(alloc::format!("WrongType: {what} takes {want}, not {}", kind_name(cx, v)))
-}
-
-/* the span from the first time to the second counted in the unit `P` names */
-fn between<P: Part>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
-    let what = match P::FIELD { Field::Days => "days_between", Field::Minutes => "minutes_between", _ => "hours_between" };
-    let (start, end) = (instant(cx, a.pos[0], what)?, instant(cx, a.pos[1], what)?);
-    Ok(Val::float(P::FIELD.of_duration(&Duration { nanos: end.nanos - start.nanos })).into())
-}
-
-/* the time a value holds or its RFC 3339 text spells */
-fn instant(cx: &mut Cx<'_, '_>, v: Val, what: &str) -> Result<Time, VmErr> {
-    if let Some(s) = cx.str_of(v) {
-        if let Some(t) = Time::parse(s) { return Ok(t); }
-        let shown = cx.render(v, Mode::Repr)?;
-        return Err(VmErr::Raised(alloc::format!("BadData: invalid RFC 3339 time: {shown}")));
-    }
-    let heap = cx.heap();
-    if let Some(t) = Cx::kind_token(heap, &crate::lang::TIME).and_then(|token| heap.foreign_payload::<Time>(token, v)) { return Ok(*t); }
-    Err(wrong(cx, what, "times or RFC 3339 texts", v))
-}
 ```
 
 A field is never a native, so a record with fields named `time`, `len` or `min` reads them as fields, and `time(...)` stays the native.
@@ -181,7 +89,6 @@ A report's name is its output. `activity.csv` writes the file channel `file:acti
 The project's `edge.json` grants the flow the one host its source is on.
 
 ```json file=examples/data/edge.json
-{ "permissions": { "main": ["net:data.gharchive.org"] } }
 ```
 
 Without the grant the flow never starts, since importing a module the project holds no entry for fails at compile time.
@@ -259,38 +166,6 @@ Tiny's classes are `Denied`, `BadData`, `WrongType`, `MissingField`, `HostFailed
 The crate links the engine and lib. Its `lib.rs` names the natives under its language and hands the engine its `Front`, and [Front ends](../../02-sdk/14-front-ends.mdx) shows that file, the expression table and the lowering in full. Its `language.rs` states the rules tiny runs on, its own for records of data, where only `None` and `False` read as false, a bool is no number and a whole number past the inline range is bad data, as [The policy](../04-book/04-rules.mdx#the-policy) lists, and `words.rs` words the engine's errors in tiny's terms.
 
 ```toml file=examples/tiny/Cargo.toml
-[package]
-name = "tiny"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-repository.workspace = true
-description = "A YAML-native flow language for large data on Edge Lang, with a front end of its own and natives named over lib's kernels."
-publish = false
-
-[lib]
-name = "tiny"
-doctest = false
-
-[[test]]
-name = "flows"
-path = "tests/flows.rs"
-
-[features]
-default = ["std"]
-std = ["edge/std"]
-# builds tiny.wasm with the engine's exports over these natives and the grant logic
-web = ["edge/runtime", "edge/perms"]
-
-[dependencies]
-edge = { path = "../..", default-features = false }
-lib = { path = "../../lib" }
-
-# the suite reads its cases and net routes as yaml over the data job's slice
-[dev-dependencies]
-data = { path = "../data" }
-serde = { workspace = true }
-serde_yaml_ng = { workspace = true }
 ```
 
 ```bash

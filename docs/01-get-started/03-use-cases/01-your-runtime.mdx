@@ -34,84 +34,6 @@ Cloudflare reported a partial outage that day, so the board exited with 1. These
 Uptime's table spells the engine's one grammar in words. A header's line end opens its block and `end` closes it, so a block needs no braces, and `do` opens one that fits on its line. A `#` starts a comment. A text in double quotes fills each field in braces, and a spec after the field's expression formats it, as `{name:<11}` pads a name to eleven characters. `let` must come before a name's first store, `check` is how the table spells an assertion, and `use` is its import.
 
 ```rust file=examples/uptime/src/syntax.rs
-use edge::lexer::{index, operators, Binding, Blocks, Comments, Cond, Continuation, Dot, Ends, Escapes, Interp, Keywords, Lambda, Literal, Numbers, Quote, Shapes, Spelling, Strings, Suffix, Syntax, TokenType, Unicode, Unknown, Zeros, BYTES};
-use edge::lexer::TokenType as T;
-
-// the words a check is written in where a header's line end opens its block
-const WORDS: &[(&str, TokenType)] = &[
-    ("let", T::Let), ("fn", T::Fn), ("return", T::Return), ("use", T::Import), ("check", T::Assert),
-    ("if", T::If), ("else if", T::ElseIf), ("else", T::Else), ("for", T::For), ("in", T::In), ("not in", T::NotIn),
-    ("while", T::While), ("break", T::Break), ("continue", T::Continue), ("try", T::Try), ("catch", T::Catch), ("as", T::As),
-    ("do", T::BlockOpen), ("end", T::BlockClose), ("and", T::And), ("or", T::Or), ("not", T::Not),
-    ("nil", T::Nil), ("true", T::True), ("false", T::False),
-];
-
-const SYMBOLS: &[(&str, TokenType)] = &[
-    ("(", T::ParenOpen), (")", T::ParenClose), ("[", T::BracketOpen), ("]", T::BracketClose), ("{", T::BraceOpen), ("}", T::BraceClose),
-    ("==", T::EqualEqual), ("!=", T::NotEqual), ("<=", T::LessEqual), (">=", T::GreaterEqual), ("<", T::Less), (">", T::Greater),
-    ("+=", T::PlusEqual), ("-=", T::MinusEqual), ("+", T::Plus), ("-", T::Minus), ("*", T::Star), ("/", T::Slash), ("%", T::Percent),
-    ("=", T::Equal), (".", T::Dot), (",", T::Comma), (":", T::Colon),
-];
-
-static OPERATORS: [[TokenType; 4]; 128] = operators(SYMBOLS);
-
-static KEYWORDS: Keywords = index(WORDS);
-
-// each operator's left and right binding power where a zero left power marks a prefix
-const LADDER: &[(TokenType, u8, u8)] = &[
-    (T::Or, 1, 2), (T::And, 3, 4), (T::Not, 0, 5),
-    (T::EqualEqual, 7, 8), (T::NotEqual, 7, 8), (T::Less, 7, 8), (T::Greater, 7, 8), (T::LessEqual, 7, 8), (T::GreaterEqual, 7, 8),
-    (T::In, 7, 8), (T::NotIn, 7, 8), (T::Plus, 9, 10), (T::Minus, 9, 10), (T::Star, 11, 12), (T::Slash, 11, 12), (T::Percent, 11, 12),
-    (T::Minus, 0, 13),
-];
-
-// blocks close at end and texts fill their fields while a first store needs let
-pub const UPTIME: Syntax = Syntax {
-    name: "uptime",
-    extension: "up",
-    words: WORDS,
-    symbols: SYMBOLS,
-    operators: &OPERATORS,
-    keywords: &KEYWORDS,
-    precedence: LADDER,
-    chained: false,
-    blocks: Blocks::Words { implicit: true },
-    ends: Ends::Newline,
-    comments: Comments { line: &["#"], block: None, nested: false },
-    strings: Strings {
-        quotes: &[Quote { byte: b'"', multiline: false, triple: false }],
-        prefixes: &[("b", BYTES)],
-        any_case: false,
-        hashes: false,
-        adjacent: false,
-        newlines: false,
-        escapes: Escapes {
-            simple: &[(b'n', '\n'), (b't', '\t'), (b'\\', '\\'), (b'"', '"')],
-            hex: false,
-            unicode: Unicode::Braced,
-            octal: false,
-            line_join: false,
-            unknown: Unknown::Refuse,
-            refused: &[],
-        },
-    },
-    interp: Some(Interp { name: "text", quotes: b"\"", open: "{", close: b'}', literal: Literal::Doubled, short: None, spec: Some(b':'), convert: None, echo: None }),
-    numbers: Numbers { radixes: &[], separator: Some(b'_'), zeros: Zeros::Refused, leading_dot: false, trailing_dot: false, exponent: true, suffix: Suffix::Refused },
-    continuation: Continuation { join: None, operator: true },
-    shapes: Shapes {
-        cond: Cond::None, lambda: Lambda::None, keyword_arg: T::Equal, splat: false, slices: false, dot: Dot::Attr,
-        header_parens: false, comprehensions: false, decorators: false, named: false, binding: Binding::Required, arms: false, ranges: false, grammar: None,
-    },
-    soft: &[],
-    bom: true,
-};
-
-pub struct Uptime;
-
-impl Spelling for Uptime {
-    const SYNTAX: Syntax = UPTIME;
-    const NATIVES: &'static edge::lang::Natives = &crate::NATIVES;
-}
 ```
 
 A `Syntax` spells out every lexical choice, and [Parser kit](../../02-sdk/07-parser-kit.mdx) covers what each one decides. Every check below reads through this table.
@@ -119,22 +41,6 @@ A `Syntax` spells out every lexical choice, and [Parser kit](../../02-sdk/07-par
 The checks share one helper. `get` requests a URL through `net`, reads the body a chunk at a time, times the request with the clock and returns a map of the status, the milliseconds and the body read as JSON.
 
 ```text file=examples/uptime/checks/http.up
-use net
-use clock
-
-fn get(url)
-  let start = clock.now()
-  let id = net.request("GET", url)
-  let status = net.response(id)[0]
-  let body = b""
-  let chunk = net.read(id)
-  # a read gives the body a chunk at a time and nil after the last
-  while chunk != nil
-    body += chunk
-    chunk = net.read(id)
-  end
-  return {"status": status, "ms": clock.now() - start, "body": json(body)}
-end
 ```
 
 A dot reads a key of a map, so `page.body.status.indicator` walks the JSON a status page answers. `map_fields` in the runtime's policy turns that on, as [Its rules](#its-rules) shows.
@@ -144,57 +50,11 @@ A dot reads a key of a map, so `page.body.status.indicator` walks the JSON a sta
 A runtime takes its natives from lib by capability. Uptime turns on the five modules of lib it uses and leaves the rest out of its wasm.
 
 ```toml file=examples/uptime/Cargo.toml
-[package]
-name = "uptime"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-repository.workspace = true
-description = "The runtime of the docs' first use case, a small language for uptime checks with a token table of its own and natives named over lib's kernels."
-publish = false
-
-[lib]
-name = "uptime"
-doctest = false
-
-[features]
-default = ["std"]
-std = ["edge/std"]
-# builds uptime.wasm with the engine's exports over these natives and the grant logic
-web = ["edge/runtime", "edge/perms"]
-
-[dependencies]
-edge = { path = "../..", default-features = false }
-# the capabilities its natives come from and nothing else of lib
-lib = { path = "../../lib", default-features = false, features = ["data", "io", "seq", "spec", "types"] }
 ```
 
 `lib::table!` gives each kernel the name a check calls. `print` and `exit` come from `io`, `json` from `data` and `size` from `seq`. The tables name the runtime's language, which [Its rules](#its-rules) shows.
 
 ```rust file=examples/uptime/src/natives.rs
-use edge::lang::{Native, Natives};
-use edge::value::foreign::Kind;
-use lib::{data, io, seq};
-
-use crate::Uptime;
-
-// the four natives a check calls each a lib kernel under its own name
-const TABLE: &[Native] = &lib::table![Uptime;
-    "print" => io::print,
-    "exit" => io::exit,
-    "json" => data::json::read,
-    "size" => seq::len,
-];
-
-pub static NATIVES: Natives = edge::natives! {
-    language: Uptime,
-    fns: [TABLE],
-    methods: [],
-    types: &crate::names::TYPES,
-};
-
-// the kind that boxes an int too wide for an inline value
-pub static WIDE: Kind = lib::num::big::kind::<Uptime>("int");
 ```
 
 [Lib](../../02-sdk/06-lib.mdx) lists every kernel by module and every part of a table entry.
@@ -204,50 +64,6 @@ pub static WIDE: Kind = lib::num::big::kind::<Uptime>("int");
 `Language` is all the runtime gives the engine, as one type. Its `Policy` states the rules a check runs on, such as `map_fields`, which reads a key of a map where a field is missing. Its functions hand the engine lib's rendering, its format specs and the matcher a typed `catch` needs, and `Runtime::of` gives the whole language to every host, as [Language](../../02-sdk/04-language.mdx) lists with every other part.
 
 ```rust file=examples/uptime/src/language.rs
-use alloc::string::String;
-
-use edge::lang::{Cx, Descriptor, Falsy, Front, IntDiv, IntMod, Language, MapIter, Mode, Names, Natives, NegPow, NumEq, Overflow, Policy, StrIter, ZeroDiv};
-use edge::value::foreign::Kind;
-use edge::value::{HeapPool, Val, VmErr};
-
-use crate::Uptime;
-
-impl Language for Uptime {
-    const VERSION: u32 = 1;
-    // the engine's own rules but for map fields and the digit limit
-    const POLICY: Policy = Policy {
-        int_overflow: Overflow::Promote,
-        int_div: IntDiv::ToFloat,
-        int_mod: IntMod::Truncated,
-        zero_div: ZeroDiv::Error,
-        neg_pow: NegPow::ToFloat,
-        numeric_eq: NumEq::Unified,
-        bool_is_int: true,
-        falsy: Falsy::NIL.or(Falsy::FALSE).or(Falsy::ZERO).or(Falsy::NAN).or(Falsy::EMPTY_TEXT),
-        identity_first: true,
-        neg_index: true,
-        str_iter: StrIter::CodePoints,
-        map_iter: MapIter::Keys,
-        // an answer's fields read as `status.indicator`
-        map_fields: true,
-        builtins_scope: true,
-        receiver_slot: true,
-        recursion_limit: 1000,
-        max_int_digits: Some(10_000),
-    };
-    const NATIVES: &'static Natives = &crate::NATIVES;
-    const NAMES: &'static Names = &crate::NAMES;
-    const FRONT: Front = crate::FRONT;
-    const DESCRIPTOR: &'static Descriptor = &crate::DESCRIPTOR;
-    const WIDE: Option<&'static Kind> = Some(&crate::natives::WIDE);
-    type Ops = ();
-
-    fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Mode) -> Result<String, VmErr> { lib::fmt::render::hook::<Uptime>(cx, v, mode) }
-
-    fn format(cx: &mut Cx<'_, '_>, v: Val, spec: &str) -> Result<String, VmErr> { lib::fmt::spec::hook::<Uptime>(cx, v, spec) }
-
-    fn handles(heap: &HeapPool, exc: Val, class: Val) -> Result<bool, VmErr> { lib::types::match_exc::<Uptime>(heap, exc, class) }
-}
 ```
 
 ## Its errors
@@ -255,63 +71,6 @@ impl Language for Uptime {
 The runtime names every class a check can raise, and the engine and lib raise those names, as [Errors](../04-book/05-errors.mdx#kinds-and-classes) covers. `Names` holds its words for the engine's kinds, errors and iterators, a failure of lib raises the class `Names` gives its error kind, and `words` rewords one failure in the terms of a check, a body that is not JSON.
 
 ```rust file=examples/uptime/src/names.rs
-use edge::lang::{self, Cx, Names};
-use edge::value::VmErr;
-use lib::fail::{english, raise, At, Class, Fail};
-use lib::lang::Tree;
-
-use crate::Uptime;
-
-// the classes a check raises shortest first where the three signals stand apart from Error
-const CLASSES: [(&str, &str); 11] = [
-    ("Exit", ""), ("Stop", ""), ("Close", ""), ("Error", ""), ("Denied", "Error"), ("BadData", "Error"), ("Missing", "Error"),
-    ("WrongType", "Error"), ("CheckFailed", "Error"), ("OutOfBudget", "Error"), ("Unreachable", "Error"),
-];
-
-// the classes as names a check can catch
-pub const TYPES: [&str; CLASSES.len()] = names(&CLASSES);
-
-const fn names<const N: usize>(classes: &[(&'static str, &'static str); N]) -> [&'static str; N] {
-    let mut out = [""; N];
-    let mut i = 0;
-    while i < N { out[i] = classes[i].0; i += 1; }
-    out
-}
-
-static RAISED: lang::Tree = lang::Tree::of(&CLASSES);
-
-// the same classes for lib's type tests
-static TREE: Tree = Tree::of::<Uptime>();
-
-// a check's words for the engine's kinds errors and iterators with the rest left plain
-pub static NAMES: Names = Names {
-    kinds: [
-        "nil", "bool", "int", "float", "text", "bytes", "bytes", "list", "tuple", "map", "set", "range",
-        "fn", "generator", "iterator", "module", "type", "type", "value", "cell", "value", "value",
-    ],
-    errors: [
-        "Error", "Error", "WrongType", "BadData", "Missing", "Missing", "Missing", "Missing", "Missing", "BadData",
-        "BadData", "OutOfBudget", "OutOfBudget", "Error", "Stop", "Close", "Exit", "CheckFailed", "BadData", "Denied",
-    ],
-    iters: ["iterator"; lang::ITERS],
-    tree: &RAISED,
-    ..Names::PLAIN
-};
-
-impl lib::fmt::render::Style for Uptime {}
-
-// every failure raises the class its error kind names in `NAMES`
-impl lib::Lang for Uptime {
-    const TREE: &'static Tree = &TREE;
-
-    // a body that is not JSON reads as such and lib words the rest
-    fn words(cx: &mut Cx<'_, '_>, at: At, f: Fail) -> VmErr {
-        match f {
-            Fail::BadJson { at, why } => raise::<Uptime>(Class::Value, &alloc::format!("the answer is not JSON, {why} at byte {at}")),
-            f => english::<Uptime>(cx, at, f),
-        }
-    }
-}
 ```
 
 The first error below is lib's failure in the runtime's words. The second is the `let` rule of the table, refused before the program runs.
@@ -338,45 +97,6 @@ error: name 'totl' is not bound, bind it with 'let'
 `Front::spelled` reads every source through the table. `DESCRIPTOR` tells the CLI the runtime's extension, its test suffix and the class each failed host call raises, so a refused request raises `Denied` and a failed one `Unreachable`. `web_exports!` builds the ABI every host binds around the runtime that holds both.
 
 ```rust file=examples/uptime/src/lib.rs
-#![no_std]
-#![forbid(unsafe_code)]
-
-extern crate alloc;
-
-use edge::lang::{Descriptor, Front, Runtime};
-
-mod language;
-mod names;
-mod natives;
-mod syntax;
-
-pub use names::NAMES;
-pub use natives::NATIVES;
-pub use syntax::{Uptime, UPTIME};
-
-pub static RUNTIME: Runtime = Runtime::of::<Uptime>();
-
-// every source reads through the token table of syntax.rs
-pub const FRONT: Front = Front::spelled::<Uptime>();
-
-// the names the CLI gives this runtime's files and errors
-pub const DESCRIPTOR: Descriptor = Descriptor {
-    language: "uptime",
-    extension: UPTIME.extension,
-    entries: &["main.up"],
-    test_suffix: "_test.up",
-    scaffold: "print(\"up\")\n",
-    example_fence: "uptime",
-    manifest_fence: "uptime-manifest",
-    type_error: "WrongType",
-    value_error: "BadData",
-    runtime_error: "Error",
-    denied_error: "Denied",
-    failed_error: "Unreachable",
-};
-
-#[cfg(all(target_arch = "wasm32", feature = "web"))]
-edge::web_exports!(RUNTIME);
 ```
 
 ```bash
@@ -390,123 +110,21 @@ It writes `uptime.wasm`, about 1.7 MB, under `target/wasm32-unknown-unknown/rele
 The CLI is a crate of its own over the kit. It turns on the four components it needs, `run`, `test`, `perms` and `net`, and builds none of the others.
 
 ```toml file=examples/uptime/cli/Cargo.toml
-[package]
-name = "uptime-cli"
-version = "0.9.7"
-edition = "2024"
-license = "Apache-2.0"
-description = "The CLI of the docs' first use case, the uptime runtime composed from the kit's run and test commands with net and a clock under perms."
-publish = false
-
-# an empty table makes this crate its own workspace so the engine's never builds wasmtime
-[workspace]
-
-[lib]
-name = "uptime_cli"
-doctest = false
-
-[[bin]]
-name = "uptime"
-path = "src/main.rs"
-
-# runs the CLI on the checks with net answered in the test process
-[[test]]
-name = "checks"
-path = "tests/checks.rs"
-harness = false
-
-[dependencies]
-# the kit with the four components this CLI needs and none of the rest
-cli = { path = "../../../cli", default-features = false, features = ["net", "perms", "run", "test", "wasm"] }
-# the runtime whose descriptor names the files and errors
-uptime = { path = ".." }
-
-# the binary ships so it carries no symbols
-[profile.release]
-strip = true
 ```
 
 `kit` is the whole composition. `Runtime::wasm` hands the kit the runtime, which wasmtime compiles on the first run and maps from a cache after. `perms` holds each package to its grants, and `net` and `clock` are the two host modules a check may import.
 
 ```rust file=examples/uptime/cli/src/lib.rs
-use cli::cmd::{run, test};
-use cli::host::HostModule;
-use cli::{perms, Kit, Runtime};
-use std::sync::Arc;
-
-mod clock;
-
-pub use clock::{wall, Clock};
-
-// the runtime make wasm-uptime builds from examples/uptime
-const WASM: &[u8] = include_bytes!("../../../../target/wasm32-unknown-unknown/release/uptime.wasm");
-
-/* run and test with net and the clock held to what edge.json grants */
-pub fn kit(net: Arc<dyn HostModule>, clock: Arc<dyn HostModule>) -> Kit {
-    Kit::new("uptime", env!("CARGO_PKG_VERSION"), Runtime::wasm(WASM, &uptime::DESCRIPTOR))
-        .title("Uptime checks on Edge Lang")
-        .command(run::Run)
-        .command(test::Test)
-        .field(perms::FIELD)
-        .access(Arc::new(perms::Perms))
-        .module(net)
-        .module(clock)
-}
 ```
 
 The clock is a host module of its own. Its one call answers the time in milliseconds, and it takes no scope, so its grant gives it whole.
 
 ```rust file=examples/uptime/cli/src/clock.rs
-use cli::host::{Calls, Fault, Held, HostModule, Reply, Serve, WireValue};
-use std::time::{SystemTime, UNIX_EPOCH};
-
-/* the milliseconds a check reads from `now` once its manifest grants clock */
-pub struct Clock(pub fn() -> u64);
-
-impl HostModule for Clock {
-    fn name(&self) -> &str {
-        "clock"
-    }
-
-    // a grant gives the clock whole so it takes no scope
-    fn scope(&self, _scope: &str) -> bool {
-        false
-    }
-
-    // so no call of it reaches a scope the kit checks
-    fn reaches(&self, _call: &str, _args: &[WireValue]) -> Result<Option<String>, Fault> {
-        Ok(None)
-    }
-
-    fn open(&self, inst: &mut dyn Serve, spec: &str, _pkg: &str, _held: Held) -> Result<(), String> {
-        inst.serve(spec, self.name(), &["now"], Box::new(Now(self.0)))
-    }
-}
-
-struct Now(fn() -> u64);
-
-impl Calls for Now {
-    fn call(&mut self, _index: usize, _args: Vec<WireValue>, reply: Reply) {
-        reply.ok(WireValue::Int((self.0)().into()));
-    }
-}
-
-/* the wall clock in milliseconds since the epoch */
-pub fn wall() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
-}
 ```
 
 The binary takes `net::Net` from the kit's `net` component, as `edge` does, and passes the wall clock. The test passes a net and a clock of its own to the same `kit`, as [How it is tested](#how-it-is-tested) shows.
 
 ```rust file=examples/uptime/cli/src/main.rs
-use cli::net::Net;
-use std::sync::Arc;
-use uptime_cli::{kit, wall, Clock};
-
-fn main() {
-    kit(Arc::new(Net), Arc::new(Clock(wall))).main()
-}
 ```
 
 `make uptime` builds the wasm, then the binary. The help lists the two commands the composition wired and nothing else.
@@ -534,30 +152,6 @@ uptime <command> -h for details · -v for version
 The checks sit in `examples/uptime/checks` beside the `edge.json` that grants them. The board reads the status page of each service.
 
 ```text file=examples/uptime/checks/status.up
-use .http
-
-let pages = [
-  ["github", "https://www.githubstatus.com/api/v2/status.json"],
-  ["npm", "https://status.npmjs.org/api/v2/status.json"],
-  ["cloudflare", "https://www.cloudflarestatus.com/api/v2/status.json"],
-]
-
-let degraded = 0
-for name, url in pages
-  try
-    let page = http.get(url)
-    let status = page.body.status
-    print("{name:<11} {page.status} {page.ms:>5} ms  {status.description}")
-    if status.indicator != "none"
-      degraded += 1
-    end
-  catch Unreachable as e
-    print("{name:<11} down  {e}")
-    degraded += 1
-  end
-end
-# the exit code counts what is not fully up so cron can alert
-exit(degraded)
 ```
 
 A request that fails raises `Unreachable`, which the board catches to print the service as down and go on. Its exit code counts the services that are not fully up, so a scheduler can alert on it.
@@ -565,36 +159,12 @@ A request that fails raises `Unreachable`, which the board catches to print the 
 A test file is a check that passes or fails. `github_test.up` watches four parts of GitHub and fails when one is degraded or missing from the answer. `npm_test.up` times the registry's own ping, and `cloudflare_test.up` reads Cloudflare's status page.
 
 ```text file=examples/uptime/checks/github_test.up
-use .http
-
-let watched = ["Git Operations", "API Requests", "Actions", "Pages"]
-let page = http.get("https://www.githubstatus.com/api/v2/components.json")
-check page.status == 200
-check page.ms < 3000, "the status API took {page.ms} ms"
-let seen = 0
-for part in page.body.components
-  if part.name in watched
-    check part.status == "operational", "{part.name} is {part.status}"
-    seen += 1
-  end
-end
-# a part GitHub renames fails here instead of passing unseen
-check seen == size(watched), "the status API lists {seen} of the {size(watched)} watched parts"
 ```
 
 ```text file=examples/uptime/checks/npm_test.up
-use .http
-
-let ping = http.get("https://registry.npmjs.org/-/ping")
-check ping.status == 200
-check ping.ms < 3000, "the registry took {ping.ms} ms to answer its ping"
 ```
 
 ```text file=examples/uptime/checks/cloudflare_test.up
-use .http
-
-let status = http.get("https://www.cloudflarestatus.com/api/v2/status.json").body.status
-check status.indicator == "none", "Cloudflare reports {status.description}"
 ```
 
 ## Run and test
@@ -623,11 +193,6 @@ A failed `check` raises `CheckFailed` with the words it was given, and `test` ex
 The grants in `edge.json` are everything the checks can reach. Each `net` entry names one host, and `clock` names the clock.
 
 ```json file=examples/uptime/checks/edge.json
-{
-  "permissions": {
-    "main": ["clock", "net:www.githubstatus.com", "net:status.npmjs.org", "net:registry.npmjs.org", "net:www.cloudflarestatus.com"]
-  }
-}
 ```
 
 Every request checks its host against these grants before a byte leaves. Take Cloudflare's grant out and the board stops at Cloudflare, with an error that names the host it asked for and the ones it holds.
