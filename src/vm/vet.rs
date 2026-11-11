@@ -201,8 +201,8 @@ impl<'a> VM<'a> {
         let Some(HeapObj::Coroutine(c)) = self.heap.try_get(co) else { return Ok(()) };
         if c.ip == FINISHED { return Ok(()); }
         let (body, ip) = (c.body, c.ip);
-        // a generator or async body makes each coroutine but the root's module body
-        let made = match body { BodyRef::Fn(fi) => self.functions.get(fi).is_some_and(|f| f.1.is_generator) || self.is_async_fn(fi), BodyRef::Module => self.root.as_ref().is_some_and(|h| h.coro.0 == co.0) };
+        // a generator body makes each coroutine but the root's module body
+        let made = match body { BodyRef::Fn(fi) => self.functions.get(fi).is_some_and(|f| f.1.is_generator), BodyRef::Module => self.root.as_ref().is_some_and(|h| h.coro.0 == co.0) };
         if !made { return Err(bad()); }
         // a body not yet started holds its bound frame and nothing more
         if ip == 0 && (!c.syncs.is_empty() || !c.levels.is_empty() || !c.excs.is_empty() || !c.iters.is_empty() || c.top != 0) { return Err(bad()); }
@@ -214,7 +214,7 @@ impl<'a> VM<'a> {
         let mut layouts = Vec::with_capacity(syncs.len());
         for (k, f) in syncs.iter().enumerate() {
             // helpers a body waits inside are plain functions holding an instance only as constructors
-            let plain = self.functions.get(f.fi).is_some_and(|g| !g.1.is_generator) && !self.is_async_fn(f.fi);
+            let plain = self.functions.get(f.fi).is_some_and(|g| !g.1.is_generator);
             let instance = f.instance.is_undef() || self.heap.instance(f.instance).is_some();
             let func = f.func.is_undef() || matches!(self.heap.try_get(f.func), Some(HeapObj::Func { .. }));
             if !plain || !instance || !func || f.ip == FINISHED { return Err(bad()); }

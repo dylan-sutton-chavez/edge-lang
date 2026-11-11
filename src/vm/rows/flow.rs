@@ -168,19 +168,6 @@ impl VM<'_> {
         if pops { self.top -= 1; } else { self.regs[self.base + top - 1] = Val::none(); }
     }
 
-    // the awaitable an await steps in the top row with its first sent value above
-    #[inline(never)]
-    pub(crate) fn awaitable_rows(&mut self, code: &Code) -> bool {
-        let top = self.top as usize;
-        if top >= code.frame { self.reg_error = Some(cold_runtime("a stack deeper than the rows of its frame")); return false; }
-        let ran = self.awaitable_of(self.regs[self.base + top - 1]).map(|it| {
-            let at = self.base + top;
-            (self.regs[at - 1], self.regs[at]) = (it, Val::none());
-            self.top += 1;
-        });
-        self.stepped(ran).map_err(|e| self.reg_error = Some(e)).is_ok()
-    }
-
     // the value a delegation returned pushed onto the rows
     #[inline(never)]
     pub(crate) fn delegated_rows(&mut self, code: &Code) -> bool {

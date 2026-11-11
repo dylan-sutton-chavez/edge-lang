@@ -160,7 +160,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         for ins in &sub.instructions {
             let slot_idx = match ins.opcode {
                 OpCode::StoreName => Some(ins.operand as usize),
-                OpCode::MakeFunction | OpCode::MakeCoroutine => sub.functions
+                OpCode::MakeFunction => sub.functions
                     .get(ins.operand as usize)
                     .map(|f| f.3 as usize),
                 _ => None,

@@ -104,7 +104,7 @@ pub(crate) fn gen_pure(ins: &[Ins]) -> bool {
 
 /* whether `i` makes a function by its stack form or its OpR */
 pub(crate) fn makes(i: &Ins) -> bool {
-    matches!(i.op, MakeFunction | MakeCoroutine) || i.op == OpR && (i.x == MakeFunction as u8 || i.x == MakeCoroutine as u8)
+    i.op == MakeFunction || i.op == OpR && i.x == MakeFunction as u8
 }
 
 /* whether every return of the body `ins` lies outside its `try`s read in laid order */

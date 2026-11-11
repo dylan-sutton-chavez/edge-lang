@@ -215,7 +215,7 @@ impl<'a> VM<'a> {
     pub fn type_name(&self, v: Val) -> &str {
         let names = self.natives.names();
         self.heap.type_name_by(v, &|c| match c.body {
-            BodyRef::Fn(fi) if !self.is_async_fn(fi) => names.kind(crate::lang::KindId::Coro),
+            BodyRef::Fn(_) => names.kind(crate::lang::KindId::Coro),
             _ => names.coroutine,
         })
     }

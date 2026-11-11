@@ -1300,7 +1300,7 @@ fn continues(chain: TokenType, clause: TokenType) -> bool {
     use TokenType as T;
     match chain {
         T::ElseIf => matches!(clause, T::If | T::ElseIf),
-        T::Else => matches!(clause, T::If | T::ElseIf | T::While | T::For | T::Catch | T::Async),
+        T::Else => matches!(clause, T::If | T::ElseIf | T::While | T::For | T::Catch),
         T::Catch => matches!(clause, T::Try | T::Catch),
         T::Finally => matches!(clause, T::Try | T::Catch | T::Else),
         _ => false,

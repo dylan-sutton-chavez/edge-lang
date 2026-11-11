@@ -98,9 +98,9 @@ enum Known { Call(Val, u32), Ctor(Val), Method, Other }
 
 /* the VM's `opens_in_loop` read off fields alone so the loop keeps its frame borrowed */
 #[inline(always)]
-fn opens_in_loop(facts: &[super::act::CallFacts], is_async: &[bool], pools: &[super::cache::CachePool], fi: usize, n: usize) -> bool {
+fn opens_in_loop(facts: &[super::act::CallFacts], pools: &[super::cache::CachePool], fi: usize, n: usize) -> bool {
     let f = &facts[fi];
-    f.in_loop && f.arity.is_some_and(|k| n <= k && n >= f.required as usize) && !is_async.get(fi).copied().unwrap_or(false)
+    f.in_loop && f.arity.is_some_and(|k| n <= k && n >= f.required as usize)
         && pools[f.pool].code.is_some() && !pools[f.pool].cold && pools[f.pool].consts.is_some()
 }
 
@@ -340,7 +340,7 @@ impl<'a> VM<'a> {
                         else { let args = [reg!($ins.b), reg!($ins.c)]; self.enter_block(i, code, fi as usize, callee, &args[..$ins.x as usize], false) }
                     }
                     // another function than the site's opens alike with its body read off the function itself
-                    Known::Call(..) if $ins.op != OpCode::CallMethodR && let Some(&HeapObj::Func { fi, .. }) = self.heap.try_get($callee) && opens_in_loop(&self.call_facts, &self.is_async, &self.pools, fi, $ins.x as usize) => {
+                    Known::Call(..) if $ins.op != OpCode::CallMethodR && let Some(&HeapObj::Func { fi, .. }) = self.heap.try_get($callee) && opens_in_loop(&self.call_facts, &self.pools, fi, $ins.x as usize) => {
                         let (callee, args) = ($callee, [reg!($ins.b), reg!($ins.c)]);
                         if lower::wide($ins) { self.enter_wide(i, code, chunk, fi, callee) }
                         else { self.enter_block(i, code, fi, callee, &args[..$ins.x as usize], false) }
@@ -673,7 +673,7 @@ impl<'a> VM<'a> {
                     let k = (op & 0xFF) as usize + 2 * (op >> 8) as usize;
                     debug_assert!(sp > k);
                     let callee = reg!(s0 + sp - k - 1);
-                    if op <= 5 && let Some(&HeapObj::Func { fi, .. }) = self.heap.try_get(callee) && self.call_facts[fi].plain && opens_in_loop(&self.call_facts, &self.is_async, &self.pools, fi, k)
+                    if op <= 5 && let Some(&HeapObj::Func { fi, .. }) = self.heap.try_get(callee) && self.call_facts[fi].plain && opens_in_loop(&self.call_facts, &self.pools, fi, k)
                         && let Some((c, ch)) = self.enter_rows(i, s0 + sp, k, fi, callee, code) {
                         (code, chunk) = (c.get(), ch.get());
                         (cache, prog, switched) = (&code.cache, whole!(), true);
@@ -705,7 +705,7 @@ impl<'a> VM<'a> {
                     goto!(next);
                 }
                 // the other calls and makers over rows run out of line from their word
-                OpCode::CallMethod | OpCode::CallMethodArgs | OpCode::BeginArgs | OpCode::CallExtern | OpCode::MakeFunction | OpCode::MakeCoroutine | OpCode::MakeClass
+                OpCode::CallMethod | OpCode::CallMethodArgs | OpCode::BeginArgs | OpCode::CallExtern | OpCode::MakeFunction | OpCode::MakeClass
                 | OpCode::UnpackArgs | OpCode::CallSpread => {
                     if sp != usize::MAX { sync!(); }
                     let next = self.calls_rows(idx!(), code, chunk);
@@ -1428,18 +1428,6 @@ impl<'a> VM<'a> {
                     refill!();
                     if !ran { break; }
                     p = past(p, 1);
-                }
-                OpCode::GetAwaitable => {
-                    if sp != usize::MAX { sync!(); }
-                    let ran = self.awaitable_rows(code);
-                    refill!();
-                    if !ran { break; }
-                    p = past(p, 1);
-                }
-                // an await over rows leaves for its driver which steps the awaitable
-                OpCode::Await => {
-                    if sp != usize::MAX { sync!(); }
-                    break;
                 }
                 // a join runs apart raising for what is unbound
                 OpCode::Phi => {

@@ -14,7 +14,7 @@ use crate::s;
 use crate::r#unsafe::pinned;
 
 pub const MAGIC: u32 = 0x4E53_5045;
-const FORMAT: u32 = 42;
+const FORMAT: u32 = 43;
 // where a header keeps the identity of the runtime that saved the blob
 pub const RUNTIME_AT: usize = 8;
 // the refusal of a blob another runtime saved
@@ -651,7 +651,6 @@ vm_state! {
     event_queue: (put_events, get_events),
     scopes: [put_globals, get_globals],
     module_table: (put_map, get_map),
-    is_async: [boolean], // filled by `MakeCoroutine` and not chunk-derivable
     laid_fns: [boolean],
     laid_mods: [str],
     learned: vals,

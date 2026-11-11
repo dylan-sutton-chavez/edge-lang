@@ -99,7 +99,6 @@ pub enum Act {
     Size,
     // stand as a key in use `at` where an item of kind `inner` is unhashable
     Hash { at: Use, inner: KindId },
-    Await,
     // read as a map where `spread` marks a double star argument
     Map { spread: bool },
     // hold items for a membership test
@@ -443,7 +442,7 @@ fn verb(act: Act) -> &'static str {
     match act {
         Act::Iterate => "be iterated", Act::Next => "step as an iterator", Act::Call => "be called", Act::Subscript => "be indexed",
         Act::AssignItem => "take an item", Act::AssignSlice => "take a slice", Act::Slice => "be sliced",
-        Act::Sequence => "be sliced as a sequence", Act::Size => "report a size", Act::Hash { .. } => "stand as a key", Act::Await => "be awaited",
+        Act::Sequence => "be sliced as a sequence", Act::Size => "report a size", Act::Hash { .. } => "stand as a key",
         Act::Map { .. } => "be read as a map", Act::Contain => "hold items", Act::Index => "stand for an index", Act::Raise { .. } => "be raised",
         Act::Bytes => "be read as bytes", Act::Spec => "stand as a format spec", Act::Keyword => "name a keyword", Act::DeleteAttr => "lose a field", Act::DropArgs => "lose the arguments it holds",
         Act::Resume(_) => "be resumed", Act::Complex => "be a complex number",

@@ -101,7 +101,7 @@ impl VM<'_> {
         match ins.op {
             // a spread packs into its own operand so the frame it opens keeps nothing
             OpCode::BeginArgs => Some(i + 1),
-            OpCode::MakeFunction | OpCode::MakeCoroutine => match self.make_rows(ins, i, code, chunk) {
+            OpCode::MakeFunction => match self.make_rows(ins, i, code, chunk) {
                 Ok(()) => Some(i + 1),
                 Err(e) => { self.reg_error = Some(e); None }
             },
@@ -153,7 +153,7 @@ impl VM<'_> {
         let n = chunk.functions.get(ins.a as usize).map_or(0, |f| f.2 as usize);
         let at = self.top as usize - n;
         self.pending.call_ip = Some(code.orig(i));
-        self.make_function(ins.op, ins.a, Some((at as u16, at as u16)), chunk)?;
+        self.make_function(ins.a, Some((at as u16, at as u16)), chunk)?;
         self.top = at as u32 + 1;
         Ok(())
     }

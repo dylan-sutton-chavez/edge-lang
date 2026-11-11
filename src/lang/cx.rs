@@ -248,7 +248,7 @@ impl<'c, 'v> Cx<'c, 'v> {
     /* whether `g` is a generator holding no item so its next step resumes its frame */
     #[inline]
     pub fn resumable(&self, g: Val) -> bool {
-        matches!(self.vm.heap.try_get(g), Some(HeapObj::Coroutine(c)) if c.pending.is_undef() && matches!(c.body, crate::value::BodyRef::Fn(fi) if !self.vm.is_async_fn(fi)))
+        matches!(self.vm.heap.try_get(g), Some(HeapObj::Coroutine(c)) if c.pending.is_undef() && matches!(c.body, crate::value::BodyRef::Fn(_)))
     }
     /* `v` as text in `mode` the way the runtime's render hook writes it */
     pub fn render(&mut self, v: Val, mode: super::Mode) -> Result<String, VmErr> { self.vm.render(v, mode) }

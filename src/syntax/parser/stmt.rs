@@ -32,7 +32,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
             }
             Some(TokenType::Fn) => {
                 self.advance();
-                self.func_def_inner(0, false);
+                self.func_def_inner(0);
                 false
             }
             Some(TokenType::With) => {
@@ -49,32 +49,6 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
                 self.emit_yield();
                 true
             }
-            Some(TokenType::Async) => {
-                let t = self.advance();
-                match self.peek() {
-                    Some(TokenType::Fn) => {
-                        self.advance();
-                        self.func_def_inner(0, true);
-                    }
-                    Some(TokenType::For) => {
-                        self.reject(t.start, t.end, Self::ASYNC_FOR_REFUSED);
-                        self.for_stmt();
-                    }
-                    Some(TokenType::With) => {
-                        self.reject(t.start, t.end, Self::ASYNC_WITH_REFUSED);
-                        self.with_stmt();
-                    }
-                    _ => {}
-                }
-                false
-            }
-            Some(TokenType::Await) => {
-                let t = self.advance();
-                self.check_await(t.start, t.end);
-                self.expr();
-                self.emit_await();
-                true
-            }
             Some(TokenType::At) if Self::SHAPES.decorators => {
                 let mut count = 0u16;
                 self.decorated_at = self.tokens.peek().map(|t| t.line);
@@ -82,15 +56,12 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
                     self.expr();
                     count += 1;
                 }
-                if self.eat_if(TokenType::Async) {
-                    self.advance();
-                    self.func_def_inner(count, true);
-                } else if matches!(self.peek(), Some(TokenType::Class)) {
+                if matches!(self.peek(), Some(TokenType::Class)) {
                     self.advance();
                     self.class_def_with(count);
                 } else {
                     self.advance();
-                    self.func_def_inner(count, false);
+                    self.func_def_inner(count);
                 }
                 false
             }
@@ -658,7 +629,6 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         // a comprehension is a scope of its own with no frame a `yield` could suspend
         if self.in_comp { return self.error(Self::YIELD_IN_COMP); }
         if !self.in_function { return self.error(Self::YIELD_OUTSIDE); }
-        if self.in_async { return self.error(Self::ASYNC_GEN_REFUSED); }
         let bare = matches!(
             self.peek_same_line(),
             None | Some(TokenType::ParenClose | TokenType::BracketClose | TokenType::BraceClose
@@ -683,19 +653,6 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
             self.expr_or_tuple(|s| matches!(s.peek_same_line(), None | Some(TokenType::ParenClose | TokenType::BracketClose | TokenType::BraceClose)));
             self.chunk.emit(OpCode::Yield, 0);
         }
-    }
-
-    /* refuses the `await` spanning `start..end` outside an `async def` */
-    pub(super) fn check_await(&mut self, start: usize, end: usize) {
-        if self.in_async { return; }
-        let msg = if self.in_comp { Self::AWAIT_IN_COMP } else if self.in_function { Self::AWAIT_OUTSIDE_ASYNC } else { Self::AWAIT_OUTSIDE };
-        self.reject(start, end, msg);
-    }
-
-    /* awaits the stacked value by stepping its awaitable in place until it returns */
-    pub(super) fn emit_await(&mut self) {
-        self.chunk.emit(OpCode::GetAwaitable, 0);
-        self.chunk.emit(OpCode::Await, 0);
     }
 
 }

@@ -46,7 +46,7 @@ pub(crate) fn dots(kind: TokenType, text: &str) -> usize {
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum TokenType {
     // reserved words
-    False, Nil, True, And, As, Assert, Async, Await, Break, Class, Continue, Fn,
+    False, Nil, True, And, As, Assert, Break, Class, Continue, Fn,
     ElseIf, Else, Catch, Finally, For, From, If, Import, In, Is, FnExpr,
     Not, Or, Empty, Throw, Return, Try, While, With, Yield,
     // words reserved only where the grammar wants them
@@ -265,7 +265,7 @@ fn header_colon<S: Spelling>(tokens: &[Token], head: usize, first: usize) -> usi
 /* whether a statement led by `kind` ends its header in a colon a body follows */
 pub fn opens_body(kind: TokenType) -> bool {
     matches!(kind, TokenType::If | TokenType::ElseIf | TokenType::Else | TokenType::While | TokenType::For | TokenType::With
-        | TokenType::Try | TokenType::Catch | TokenType::Finally | TokenType::Fn | TokenType::Class | TokenType::Async
+        | TokenType::Try | TokenType::Catch | TokenType::Finally | TokenType::Fn | TokenType::Class
         | TokenType::Match | TokenType::Case)
 }
 
@@ -324,8 +324,7 @@ fn opens_header<S: Spelling>(tokens: &[Token], i: usize) -> (bool, usize) {
 
 // whether a soft definition word starts a statement right before a name
 fn defines<S: Spelling>(tokens: &[Token], i: usize) -> bool {
-    let after_async = i > 0 && tokens[i - 1].kind == TokenType::Async;
-    (starts_stmt::<S>(tokens, i) || after_async)
+    starts_stmt::<S>(tokens, i)
         && tokens.get(i + 1).is_some_and(|t| matches!(t.kind, TokenType::Name | TokenType::Underscore | TokenType::Match | TokenType::Case | TokenType::Type | TokenType::Fn))
 }
 
@@ -503,8 +502,7 @@ impl Pass {
 
     // whether a soft definition word at `i` starts a statement right before a name
     fn defines(&self, tokens: &[Token], i: usize) -> bool {
-        let after_async = i > 0 && tokens[i - 1].kind == TokenType::Async;
-        (self.starts || after_async)
+        self.starts
             && tokens.get(i + 1).is_some_and(|t| matches!(t.kind, TokenType::Name | TokenType::Underscore | TokenType::Match | TokenType::Case | TokenType::Type | TokenType::Fn))
     }
 

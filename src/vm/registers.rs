@@ -40,7 +40,7 @@ impl<'a> VM<'a> {
         let p = &self.pools[pool];
         match &p.code {
             // a body that suspends keeps the code its saved state names resume points in
-            Some(code) if p.laid || p.calls < lower::TIER && self.resume_ip & crate::vm::frame::RESUME_RAW == 0 || chunk.is_generator || self.fi_of(chunk).is_some_and(|fi| self.is_async.get(fi).copied().unwrap_or(false)) => (code.clone(), false),
+            Some(code) if p.laid || p.calls < lower::TIER && self.resume_ip & crate::vm::frame::RESUME_RAW == 0 || chunk.is_generator => (code.clone(), false),
             Some(_) => (self.lowered_code(chunk, pool, true), false),
             None => self.first_code(chunk, pool),
         }
@@ -118,7 +118,7 @@ impl<'a> VM<'a> {
             return;
         }
         if self.pools[pool].code.is_some() { return; }
-        if chunk.is_generator || self.is_async.get(fi).copied().unwrap_or(false) { return; }
+        if chunk.is_generator { return; }
         if self.pools[pool].consts.is_none() && let Ok(consts) = super::cache::const_vals(chunk, &mut self.heap) { self.pools[pool].consts = Some(consts); }
         if self.pools[pool].consts.is_none() { return; }
         let f = self.functions[fi];
@@ -147,7 +147,7 @@ impl<'a> VM<'a> {
             return (self.first_identity(&lower::fuse_method_calls(chunk, self.pools[pool].shape), chunk, pool, kinds, module), true);
         }
         // a heated generator with calls lays at once since it never suspends inside a section
-        let generator = chunk.is_generator && fi.is_some_and(|fi| !self.is_async.get(fi).copied().unwrap_or(false))
+        let generator = chunk.is_generator
             && chunk.instructions.iter().any(|i| matches!(i.opcode, OpCode::Call | OpCode::CallMethodArgs));
         let laid = generator || self.pools[pool].calls >= lower::TIER || self.was_laid(chunk, fi);
         (self.lowered_code(chunk, pool, laid), false)
@@ -464,7 +464,7 @@ impl<'a> VM<'a> {
         let Some(&body) = self.functions.get(fi) else { return };
         let pool = self.call_facts[fi].pool;
         let p = &self.pools[pool];
-        if pool == lowering || p.code.as_ref().is_some_and(|c| !p.cold || c.plain.get().is_some()) || body.1.is_generator || self.is_async.get(fi).copied().unwrap_or(false) { return; }
+        if pool == lowering || p.code.as_ref().is_some_and(|c| !p.cold || c.plain.get().is_some()) || body.1.is_generator { return; }
         if self.pools[pool].consts.is_none() && let Ok(consts) = super::cache::const_vals(&body.1, &mut self.heap) { self.pools[pool].consts = Some(consts); }
         if self.pools[pool].consts.is_some() && !self.lend(fi, pool, &body.1, false) { self.lowered_code(&body.1, pool, false); }
     }

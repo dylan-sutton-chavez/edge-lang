@@ -643,7 +643,7 @@ impl<'p> Lower<'_, 'p> {
             let ins = &body.ins;
             // the body instructions each look below needs found in one pass
             let marked: Vec<(OpCode, usize)> = ins.iter().enumerate().filter(|(_, i)| matches!(i.op, OpCode::CallGlobalR | OpCode::CallR
-                | OpCode::CallMethodR | OpCode::CallSpreadR | OpCode::MakeFunction | OpCode::MakeCoroutine | OpCode::OpR | OpCode::StoreName | OpCode::RowsR)).map(|(j, i)| (i.op, j)).collect();
+                | OpCode::CallMethodR | OpCode::CallSpreadR | OpCode::MakeFunction | OpCode::OpR | OpCode::StoreName | OpCode::RowsR)).map(|(j, i)| (i.op, j)).collect();
             let of = |op: OpCode| marked.iter().filter(move |m| m.0 == op).map(|m| m.1);
             // a body storing by name or making functions over cells is refused before the walk
             let makes = marked.iter().any(|m| crate::vm::block::makes(&ins[m.1]));

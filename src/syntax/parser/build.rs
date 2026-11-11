@@ -349,7 +349,6 @@ fn signature(params: &[&str]) -> (Vec<String>, u16) {
 /* binds each parameter at version zero so the body reads it before any store */
 fn open_body<S: Spelling>(p: &mut Inner<'_, S>, params: &[String]) {
     p.in_function = true;
-    p.in_async = false;
     for param in params {
         p.bind_param(param);
         let _ = p.push_ssa_name(param_base_name(param), 0);

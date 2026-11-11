@@ -307,12 +307,6 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
                 self.expr_bp(Self::PREFIX[TokenType::Tilde as usize]);
                 self.chunk.emit(OpCode::BitNot, 0);
             }
-            Some(TokenType::Await) => {
-                let t = self.advance();
-                self.check_await(t.start, t.end);
-                self.expr_bp(Self::PREFIX[TokenType::Await as usize]);
-                self.emit_await();
-            }
             _ => self.parse_atom()
         }
     }

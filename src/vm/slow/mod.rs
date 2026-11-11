@@ -83,10 +83,10 @@ impl<'a> VM<'a> {
     fn exec_op(&mut self, ins: Ins, rip: usize, chunk: &SSAChunk, code: &Code) -> Result<(), VmErr> {
         let (op, b) = (OpCode::ALL[ins.x as usize], ins.b);
         let v = match op {
-            OpCode::MakeFunction | OpCode::MakeCoroutine => {
+            OpCode::MakeFunction => {
                 // a function made inside a section takes its captures where the section lays their slots
                 self.cell_map = section_at(code, rip).map(|s| s.slots.clone()).filter(|m| !m.is_empty());
-                return self.make_function(op, ins.c, Some((ins.a, ins.b)), chunk);
+                return self.make_function(ins.c, Some((ins.a, ins.b)), chunk);
             }
             OpCode::MakeClass => return self.exec_make_class(ins.c, code.orig(rip) as usize + 1, chunk, Some(ins.b), ins.a),
             OpCode::LoadModule | OpCode::LoadYieldFrom | OpCode::LoadEllipsis => self.load_value(op, ins.c, chunk)?,
@@ -123,7 +123,7 @@ impl<'a> VM<'a> {
         let ins = code.ins[rip];
         let ran = match ins.op {
             // the driver takes a return a finally's end and an await as its turns
-            OpCode::ReturnR | OpCode::ReturnValue | OpCode::EndFinally | OpCode::UnwindFinally | OpCode::Await => return None,
+            OpCode::ReturnR | OpCode::ReturnValue | OpCode::EndFinally | OpCode::UnwindFinally => return None,
             OpCode::Jump => self.jump_apart(ins, rip, code, floor),
             // a section call the loop left runs its stub unless a body function enters it
             OpCode::CallSectionR | OpCode::CallGlobalSectionR | OpCode::CallMethodSectionR | OpCode::CallValueSectionR | OpCode::CallCtorSectionR | OpCode::CallMethodGlobalSectionR => Ok(self.section_turned(code, rip)),

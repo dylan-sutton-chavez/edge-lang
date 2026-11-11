@@ -76,10 +76,6 @@ crate::ops! {
         BuildSet          items     1       count     containers  -       -      under  -          -     BuildR        -;
         UnpackEx          1         rest    count     containers  -       -      -      -          -     OpR           -;
         LoadEllipsis      0         1       none      values      -       -      -      -          -     OpR           -;
-        // `await` where GetAwaitable makes what Await steps by sending in the value under it
-        Await             2         1       none      flow        -       -      under  -          -     -             -;
-        GetAwaitable      1         2       none      flow        -       -      under  -          -     -             -;
-        MakeCoroutine     defaults  1       function  calls       -       -      -      -          -     OpR           -;
         StoreItem         3         0       none      containers  -       -      -      -          -     StoreItemR    -;
         Dup2              2         4       none      values      -       -      -      -          -     -             -;
         JumpIfFalseOrPop  1         0       jump      flow        fork    keep   every  -          -     JumpIfFalseR  -;

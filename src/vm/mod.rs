@@ -210,7 +210,6 @@ pub struct VM<'a> {
     pub(crate) any_rebound: u8,
     // a call rule handed between a site and its slow path both ways
     pub(crate) rule_hand: Option<sites::Site>,
-    pub(crate) is_async: Vec<bool>,
     /* the functions and by path the modules whose code was laid with sections */
     pub(crate) laid_fns: Vec<bool>,
     pub(crate) laid_mods: Vec<String>,
@@ -287,8 +286,6 @@ pub struct VM<'a> {
     pub(crate) resume_raise: Option<VmErr>,
     // a generator resumed in place with its job's takes and the call's prior pending exception
     pub(crate) coro_frame: Option<(Val, crate::vm::jobs::Takes, Val)>,
-    // how an awaited frame came back to its op as 1 yielded or 2 returned
-    pub(crate) await_back: u8,
     // body waits delegating to a `Then` job's frame innermost first and whether one may open
     pub(crate) conts: Vec<crate::vm::coro::Then>,
     pub(crate) then_ok: bool,
@@ -524,7 +521,6 @@ impl<'a> VM<'a> {
             pending_exec_safe: false,
             resume_raise: None,
             coro_frame: None,
-            await_back: 0,
             conts: Vec::new(),
             then_ok: false,
             step_soft: false,
@@ -592,7 +588,6 @@ impl<'a> VM<'a> {
             rebound: Vec::new(),
             any_rebound: 0,
             rule_hand: None,
-            is_async: Vec::new(),
             laid_fns: Vec::new(),
             laid_mods: Vec::new(),
             learned: Vec::new(),

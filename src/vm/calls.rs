@@ -89,25 +89,17 @@ impl<'a> VM<'a> {
                 if let Some(v) = self.call_args(callee, &pos, &kw, chunk)? { self.push(v); }
                 Ok(())
             }
-            OpCode::MakeFunction | OpCode::MakeCoroutine => self.exec_make_function(op, operand, chunk),
+            OpCode::MakeFunction => self.make_function(operand, None, chunk),
             OpCode::CallExtern => self.call_extern(operand, chunk),
             _ => Err(cold_runtime("non-function opcode in handle_function")),
         }
     }
 
-    fn exec_make_function(&mut self, opcode: OpCode, operand: u16, chunk: &SSAChunk) -> Result<(), VmErr> { self.make_function(opcode, operand, None, chunk) }
-
     /* makes function `operand` of `chunk` from defaults on the stack or in registers `row` names */
     #[inline(always)]
-    pub(crate) fn make_function(&mut self, opcode: OpCode, operand: u16, row: Option<(u16, u16)>, chunk: &SSAChunk) -> Result<(), VmErr> {
+    pub(crate) fn make_function(&mut self, operand: u16, row: Option<(u16, u16)>, chunk: &SSAChunk) -> Result<(), VmErr> {
         let global = self.body_of(chunk).and_then(|b| b.fns.get(operand as usize).copied())
             .ok_or_else(|| cold_runtime("MakeFunction: unknown function index"))? as usize;
-
-        if opcode == OpCode::MakeCoroutine {
-            if self.is_async.len() <= global { self.is_async.resize(global + 1, false); }
-            self.is_async[global] = true;
-            if let Some(f) = self.call_facts.get_mut(global) { f.bits &= !super::act::OPENS; }
-        }
 
         let n_defaults = self.functions[global].2 as usize;
         let defaults = match row {
@@ -278,7 +270,7 @@ impl<'a> VM<'a> {
             }
         };
         // a function whose parameters keywords and defaults fill opens its block in this loop
-        if inline && call_safe == self.frame_safe && num_pos + num_kw <= 8 && !self.functions[fi].1.is_generator && self.warm_code(fi) && !self.is_async.get(fi).copied().unwrap_or(false)
+        if inline && call_safe == self.frame_safe && num_pos + num_kw <= 8 && !self.functions[fi].1.is_generator && self.warm_code(fi)
             && self.open_keyed(callee, positional, kw_flat)? { return Ok(None); }
 
         let (defaults, captures) = (defaults.as_deref().unwrap_or(&[]), captures.as_deref().unwrap_or(&[]));
@@ -295,7 +287,7 @@ impl<'a> VM<'a> {
 
     /* whether calling `fi` makes a suspended generator or coroutine rather than running its body */
     #[inline(always)]
-    fn makes_gen(&self, fi: usize) -> bool { self.functions[fi].1.is_generator || self.is_async.get(fi).copied().unwrap_or(false) }
+    fn makes_gen(&self, fi: usize) -> bool { self.functions[fi].1.is_generator }
 
     /* `fi` suspended with the names bound at `base` and the rest laid on first resume */
     #[inline(never)]
@@ -351,7 +343,7 @@ impl<'a> VM<'a> {
         };
         // one that never ran runs the code the compiler wrote as a first call does
         let facts = &self.call_facts[fi];
-        if !facts.in_loop || !facts.arity.is_some_and(|k| n <= k && n >= facts.required as usize) || self.is_async.get(fi).copied().unwrap_or(false) { return Ok(Opened::No); }
+        if !facts.in_loop || !facts.arity.is_some_and(|k| n <= k && n >= facts.required as usize) { return Ok(Opened::No); }
         let p = &self.pools[facts.pool];
         if (p.code.is_none() || p.cold || p.consts.is_none()) && !self.opens_first(fi) { return Ok(Opened::No); }
         self.open_frame(fi, callee, args, cut, captured)?;
@@ -377,7 +369,7 @@ impl<'a> VM<'a> {
         let Some(&HeapObj::Func { fi, ref defaults, .. }) = self.heap.try_get(callee) else { return Ok(false) };
         let f = self.call_facts[fi];
         // a generator or coroutine makes its object which the full path does
-        if self.functions[fi].1.is_generator || self.is_async.get(fi).copied().unwrap_or(false) { return Ok(false); }
+        if self.functions[fi].1.is_generator { return Ok(false); }
         // a `*args` function called by position alone takes leftover positionals in a tuple
         if f.arity.is_none() && num_kw == 0 && self.pending_instance.is_undef() && let Some(p) = self.star_slot(fi) && num_pos >= p && p < 8 && !self.pools[f.pool].cold && self.pools[f.pool].code.is_some() && self.pools[f.pool].consts.is_some() {
             let rest = self.heap.alloc(HeapObj::Tuple(pos[p..].to_vec()))?;
@@ -398,7 +390,7 @@ impl<'a> VM<'a> {
         let Some(arity) = f.arity else { return Ok(false) };
         let p = &self.pools[f.pool];
         if !(f.in_loop || self.cells_only(fi)) || arity > 8 || num_pos > arity || p.code.is_none() || p.cold || p.consts.is_none()
-            || self.is_async.get(fi).copied().unwrap_or(false) { return Ok(false); }
+            { return Ok(false); }
         let mut args = [Val::undef(); 8];
         args[..num_pos].copy_from_slice(pos);
         let params = &self.functions[fi].0;
@@ -490,7 +482,7 @@ impl<'a> VM<'a> {
     #[inline(always)]
     pub(crate) fn opens_in_loop(&self, fi: usize, n: usize) -> bool {
         let facts = &self.call_facts[fi];
-        facts.in_loop && facts.arity.is_some_and(|k| n <= k && n >= facts.required as usize) && !self.is_async_fn(fi)
+        facts.in_loop && facts.arity.is_some_and(|k| n <= k && n >= facts.required as usize)
             && self.pools[facts.pool].code.is_some() && !self.pools[facts.pool].cold && self.pools[facts.pool].consts.is_some()
     }
 

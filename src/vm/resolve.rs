@@ -80,7 +80,7 @@ impl<'a> VM<'a> {
         let parent = self.fn_definer[fi];
         let ins = &parent.instructions;
         let backs: Vec<(usize, usize)> = ins.iter().enumerate().filter(|(j, i)| i.opcode == OpCode::Jump && (i.operand as usize) <= *j).map(|(j, i)| (i.operand as usize, j)).collect();
-        for (m, i) in ins.iter().enumerate().filter(|(_, i)| matches!(i.opcode, OpCode::MakeFunction | OpCode::MakeCoroutine)) {
+        for (m, i) in ins.iter().enumerate().filter(|(_, i)| i.opcode == OpCode::MakeFunction) {
             let Some(g) = parent.functions.get(i.operand as usize).and_then(|d| self.fi_of(&d.1)) else { continue };
             if self.fn_remade[g].get() == 0 { self.fn_remade[g].set(1 + backs.iter().any(|&(t, j)| t <= m && m < j) as u8); }
         }
@@ -150,7 +150,7 @@ impl<'a> VM<'a> {
         let arity = f.arity.unwrap_or(params.len());
         // laid bodies fill their first slots with positionals and exclude coroutines whose call runs nothing
         let plain_slots = self.param_slots[fi].iter().enumerate().all(|(k, &(_, s))| s == k);
-        if !plain_slots || self.functions[fi].1.is_generator || self.is_async.get(fi).copied().unwrap_or(false) { return None; }
+        if !plain_slots || self.functions[fi].1.is_generator { return None; }
         if f.closure && cells.is_empty() { return None; }
         let (names, module) = (self.functions[fi].1.names.len(), self.fn_module_id(fi));
         let pool = &self.pools[f.pool];
@@ -169,7 +169,7 @@ impl<'a> VM<'a> {
             let Kind::Global(g) = *k else { continue };
             let Some(v) = self.scopes.get(module).map(|s| s.at(g)) else { continue };
             let Some(&HeapObj::Func { fi, .. }) = self.heap.try_get(v) else { continue };
-            if !self.functions[fi].1.is_generator || self.is_async.get(fi).copied().unwrap_or(false) || out.iter().any(|o| o.0 == v.0) { continue; }
+            if !self.functions[fi].1.is_generator || out.iter().any(|o| o.0 == v.0) { continue; }
             let (body, pool) = (self.functions[fi], self.call_facts[fi].pool);
             if self.pools[pool].consts.is_none() && let Ok(consts) = super::cache::const_vals(&body.1, &mut self.heap) { self.pools[pool].consts = Some(consts); }
             if self.pools[pool].consts.is_none() { continue; }
@@ -202,7 +202,7 @@ impl<'a> VM<'a> {
 
     /* the body of generator `fi` lowered without sections from its pool or made now */
     pub(crate) fn gen_body(&self, fi: usize) -> Option<Rc<Code>> {
-        if !self.functions[fi].1.is_generator || self.is_async.get(fi).copied().unwrap_or(false) { return None; }
+        if !self.functions[fi].1.is_generator { return None; }
         let (body, pool) = (self.functions[fi], self.call_facts[fi].pool);
         self.pools[pool].consts.as_ref()?;
         match &self.pools[pool].code {
@@ -246,7 +246,7 @@ impl<'a> VM<'a> {
         let plain = (star.is_some() || dstar.is_some()) && params.len() == q + dstar.is_some() as usize && params.iter().enumerate().all(|(k, &(_, slot))| slot == k)
             && defaults.len() == marks.iter().filter(|m| m.ends_with('=')).count();
         let (f, body) = (&self.call_facts[fi], &self.functions[fi].1);
-        if !plain || f.closure && cells.is_empty() || !self.fn_scope[fi].cellvars.is_empty() || body.is_generator || self.is_async.get(fi).copied().unwrap_or(false) { return None; }
+        if !plain || f.closure && cells.is_empty() || !self.fn_scope[fi].cellvars.is_empty() || body.is_generator { return None; }
         let pool = &self.pools[f.pool];
         let body_code = match &pool.code { Some(code) => self.plain_of(code, body, || self.fn_facts(fi))?, None => own(fi)? };
         let consts = pool.consts.as_deref()?.to_vec();
@@ -319,7 +319,7 @@ impl<'a> VM<'a> {
         let f = self.call_facts[fi];
         // first code holding a body lent to its callers is lowered for them already
         let p = &self.pools[f.pool];
-        if f.closure || f.pool == lowering || p.code.as_ref().is_some_and(|c| !p.cold || c.plain.get().is_some()) || self.functions[fi].1.is_generator || self.is_async.get(fi).copied().unwrap_or(false) { return; }
+        if f.closure || f.pool == lowering || p.code.as_ref().is_some_and(|c| !p.cold || c.plain.get().is_some()) || self.functions[fi].1.is_generator { return; }
         let body = self.functions[fi];
         if self.pools[f.pool].consts.is_none() && let Ok(consts) = super::cache::const_vals(&body.1, &mut self.heap) { self.pools[f.pool].consts = Some(consts); }
         if self.pools[f.pool].consts.is_none() { return; }
@@ -332,7 +332,7 @@ impl<'a> VM<'a> {
     pub(crate) fn lower_closure(&mut self, value: Val, lowering: usize) {
         let Some(&HeapObj::Func { fi, .. }) = self.heap.try_get(value) else { return };
         let f = self.call_facts[fi];
-        if !f.closure || f.pool == lowering || self.pools[f.pool].code.is_some() || self.functions[fi].1.is_generator || self.is_async.get(fi).copied().unwrap_or(false) { return; }
+        if !f.closure || f.pool == lowering || self.pools[f.pool].code.is_some() || self.functions[fi].1.is_generator { return; }
         let body = self.functions[fi];
         if self.pools[f.pool].consts.is_none() && let Ok(consts) = super::cache::const_vals(&body.1, &mut self.heap) { self.pools[f.pool].consts = Some(consts); }
         if self.pools[f.pool].consts.is_some() && !self.lend(fi, f.pool, &body.1, false) { self.lowered_code(&body.1, f.pool, false); }
@@ -362,7 +362,7 @@ impl<'a> VM<'a> {
         if self.pools[pool].shape == 0 { self.pools[pool].shape = lower::shape(&chunk.instructions); }
         // a body without a calling loop gains nothing from heating so it runs the lowering
         if cfg!(feature = "coverage") || self.pools[pool].shape & (lower::LOOPS | lower::CALLS) != lower::LOOPS | lower::CALLS
-            || made && (chunk.is_generator || self.is_async.get(fi).copied().unwrap_or(false) || !calls_in_loop(&chunk.instructions)) { return false; }
+            || made && (chunk.is_generator || !calls_in_loop(&chunk.instructions)) { return false; }
         // one that never ran takes its first code now and its first call still counts
         if self.pools[pool].code.is_none() {
             self.cold_code(fi);

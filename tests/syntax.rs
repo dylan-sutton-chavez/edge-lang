@@ -345,7 +345,6 @@ mod test {
     fn words_report_in_their_own_spelling() {
         let errors = |src: &str| compiled::<Words>(src).1;
         assert_eq!(errors("break\n"), ["'break' outside loop"]);
-        assert_eq!(errors("x = await f()\n"), ["'await' outside function"]);
         assert_eq!(errors("throw e from c\n"), ["throw from is not supported"]);
         assert_eq!(errors("try\n  x\ncatch* E\n  y\nend\n"), ["catch* is not supported"]);
         assert_eq!(errors("try\n  a\ncatch\n  b\ncatch E\n  c\nend\n"), ["default 'catch' must be last"]);
@@ -455,7 +454,7 @@ mod test {
     // mini's words with a binding word and without the lambda and case words
     const KIT_WORDS: &[(&str, TokenType)] = &[
         ("false", TokenType::False), ("nil", TokenType::Nil), ("true", TokenType::True), ("as", TokenType::As), ("assert", TokenType::Assert),
-        ("async", TokenType::Async), ("await", TokenType::Await), ("break", TokenType::Break), ("class", TokenType::Class), ("continue", TokenType::Continue),
+        ("break", TokenType::Break), ("class", TokenType::Class), ("continue", TokenType::Continue),
         ("fn", TokenType::Fn), ("else if", TokenType::ElseIf), ("else", TokenType::Else), ("except", TokenType::Catch),
         ("finally", TokenType::Finally), ("for", TokenType::For), ("from", TokenType::From), ("if", TokenType::If),
         ("import", TokenType::Import), ("in", TokenType::In), ("is", TokenType::Is), ("pass", TokenType::Empty),
@@ -490,7 +489,7 @@ mod test {
         (TokenType::BitOr, 9, 10), (TokenType::BitXor, 11, 12), (TokenType::BitAnd, 13, 14), (TokenType::LeftShift, 15, 16), (TokenType::RightShift, 15, 16),
         (TokenType::Plus, 17, 18), (TokenType::Minus, 17, 18),
         (TokenType::Star, 19, 20), (TokenType::Slash, 19, 20), (TokenType::Percent, 19, 20), (TokenType::FloorDiv, 19, 20), (TokenType::At, 19, 20),
-        (TokenType::Minus, 0, 21), (TokenType::Plus, 0, 21), (TokenType::Tilde, 0, 21), (TokenType::Await, 0, 21),
+        (TokenType::Minus, 0, 21), (TokenType::Plus, 0, 21), (TokenType::Tilde, 0, 21),
         (TokenType::Pow, 22, 21),
     ];
 
@@ -1065,7 +1064,6 @@ mod parser {
         check(format!("x = {}1", "~".repeat(2_000 * scale)), "bitwise not");
         check(format!("x = {}True", "not ".repeat(1_000 * scale)), "logical not");
         check(format!("x = 2{}", "**2".repeat(1_000 * scale)), "right-assoc pow");
-        check(format!("async def f():\n    return {}g()", "await ".repeat(1_000 * scale)), "await");
         check(format!("x = {}1", "0 if c else ".repeat(1_000 * scale)), "chained conditional");
         check(format!("{}a{} = 1", "(".repeat(1_000 * scale), ")".repeat(1_000 * scale)), "nested target");
         // a comparison chain stays flat so any length compiles

@@ -76,8 +76,6 @@ pub(crate) const CALLS: u8 = 1;
 pub(crate) const LOOPS: u8 = 2;
 pub(crate) const ATTRS: u8 = 4;
 pub(crate) const APPENDS: u8 = 8;
-// an await which steps over rows only in the compiler's own code
-pub(crate) const AWAITS: u8 = 32;
 // a jump or handler or an early end of flow means more than one block
 pub(crate) const JUMPS: u8 = 64;
 // set on every shape read so a pool knows it read one
@@ -94,7 +92,6 @@ pub(crate) fn shape(src: &[Instruction]) -> u8 {
             OpCode::Jump if i.operand as usize <= k => LOOPS,
             OpCode::LoadAttr => ATTRS,
             OpCode::InPlaceAdd => APPENDS,
-            OpCode::GetAwaitable | OpCode::Await => AWAITS,
             _ => 0,
         };
     }
@@ -323,9 +320,7 @@ fn body_marks(ins: &[Ins]) -> Marks {
     for i in ins {
         match i.op {
             MakeFunction => { m.makes = true; m.builds = true; }
-            MakeCoroutine => m.makes = true,
             OpR if i.x == MakeFunction as u8 => { m.makes = true; m.builds = true; }
-            OpR if i.x == MakeCoroutine as u8 => m.makes = true,
             BuildList | BuildDict | BuildSet | CallNative | CallNativeR | ListToTuple | ListToTupleR | RuntimeR => m.builds = true,
             BuildR if matches!(OpCode::ALL[(i.x & !TAKEN) as usize], BuildList | BuildDict | BuildSet) => m.builds = true,
             SetupExcept | SetupFinally => m.tried = true,
@@ -340,7 +335,7 @@ fn body_marks(ins: &[Ins]) -> Marks {
 /* lowers fused stack code to registers with `sections` giving the function a call may lay */
 pub(crate) fn lower<'p>(src: &[Instruction], chunk: &SSAChunk, facts: &Facts, sections: &dyn Fn(Want) -> Option<Callee<'p>>) -> Option<Code> {
     // class bodies and awaits and chunks past what sixteen bits count run unlowered
-    if !facts.regs || facts.shape & AWAITS != 0 || src.len() >= usize::from(u16::MAX) { return None; }
+    if !facts.regs || src.len() >= usize::from(u16::MAX) { return None; }
     let mut more = false;
     let code = lower_in(src, chunk, facts, sections, false, &mut more);
     if !more { return code; }
@@ -1050,7 +1045,7 @@ impl<'p> Lower<'_, 'p> {
             // a `yield from` whose value goes unused reads nothing
             OpCode::LoadYieldFrom if regs && self.src.get(i + 1).is_some_and(|n| n.opcode == OpCode::PopTop) && !self.target(i + 1) => return 2,
             // a maker or a value of the vm reads its pending row into a temporary
-            OpCode::MakeFunction | OpCode::MakeCoroutine | OpCode::MakeClass | OpCode::LoadModule | OpCode::LoadEllipsis | OpCode::LoadYieldFrom
+            OpCode::MakeFunction | OpCode::MakeClass | OpCode::LoadModule | OpCode::LoadEllipsis | OpCode::LoadYieldFrom
                 if regs && self.pending.len() >= op_row(ins.opcode, op, self.chunk) => {
                 let b = self.row(op_row(ins.opcode, op, self.chunk));
                 // a definition stored to a local goes straight there and takes no temporary
@@ -1969,12 +1964,7 @@ pub(crate) const ROW_VOID: u16 = 0x8000;
 /* the values row op `i` reads from its row and leaves there */
 #[inline]
 pub(crate) fn row_op_counts(i: &Ins) -> (u16, u16) {
-    let gives = match OpCode::ALL.get(i.x as usize) {
-        Some(OpCode::GetAwaitable) => 2,
-        _ if i.c & ROW_VOID != 0 => 0,
-        _ => 1,
-    };
-    (i.c & !ROW_VOID, gives)
+    (i.c & !ROW_VOID, u16::from(i.c & ROW_VOID == 0))
 }
 
 /* whether row op `i` calls what it runs as a call does */

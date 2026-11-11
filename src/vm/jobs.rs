@@ -105,8 +105,6 @@ pub(crate) enum Takes {
     Contains(Val, bool),
     // `close` where the close signal ends it and any item it yields fails it
     Close,
-    // an `await` whose yield or return goes back to the op with `await_back` saying which
-    Await,
     // a delegated generator's step whose end runs the waits in `conts` from the given index
     Then(u32),
     // items up to a limit for the op to retake at its slot or `retake`
@@ -244,7 +242,7 @@ impl<'a> VM<'a> {
         if self.too_deep() { return None; }
         let facts = &self.call_facts[fi];
         let p = &self.pools[facts.pool];
-        if facts.plain && facts.arity == Some(n) && p.code.is_some() && !p.cold && p.consts.is_some() && !self.is_async.get(fi).copied().unwrap_or(false) { return Some(fi); }
+        if facts.plain && facts.arity == Some(n) && p.code.is_some() && !p.cold && p.consts.is_some() { return Some(fi); }
         self.job_fn_cold(fi, n, once)
     }
 
@@ -263,10 +261,10 @@ impl<'a> VM<'a> {
         // a one-off keeps first code until `TIER` calls and a repeated callback lowers at once
         let warm = !once || { let p = &mut self.pools[facts.pool]; p.calls = (p.calls + p.cold as u32).min(lower::TIER); p.calls >= lower::TIER };
         let p = &self.pools[facts.pool];
-        if ((once || facts.closure && bare) && p.code.is_none() || p.cold && warm) && !self.is_async.get(fi).copied().unwrap_or(false) { self.cold_code(fi); }
+        if (once || facts.closure && bare) && p.code.is_none() || p.cold && warm { self.cold_code(fi); }
         let p = &self.pools[facts.pool];
         if bare && facts.arity == Some(n) && p.cold && p.code.is_some() && p.consts.is_some() { return Some(fi); }
-        if p.code.is_none() && facts.in_loop && !facts.closure && !self.is_async.get(fi).copied().unwrap_or(false) {
+        if p.code.is_none() && facts.in_loop && !facts.closure {
             let body = self.functions[fi];
             if self.pools[facts.pool].consts.is_none() && let Ok(consts) = super::cache::const_vals(&body.1, &mut self.heap) { self.pools[facts.pool].consts = Some(consts); }
             if self.pools[facts.pool].consts.is_some() { self.lowered_code(&body.1, facts.pool, false); }
@@ -542,7 +540,7 @@ impl<'a> VM<'a> {
         let chunk = self.chunk;
         let func = match self.heap.try_get(g) { Some(&HeapObj::Bound { func, .. }) if func.is_heap() => func, _ => g };
         let fi = match self.heap.try_get(func) {
-            Some(&HeapObj::Func { fi, .. }) if !self.functions[fi].1.is_generator && !self.is_async.get(fi).copied().unwrap_or(false) => Some(fi),
+            Some(&HeapObj::Func { fi, .. }) if !self.functions[fi].1.is_generator => Some(fi),
             _ => None,
         };
         let opens = frames && self.budget != 0 && fi.is_some();
@@ -801,15 +799,11 @@ impl<'a> VM<'a> {
 
     /* runs generator `co` as a frame per `takes` or false for the builtin's own path */
     #[inline(never)]
-    pub(crate) fn gather_job(&mut self, co: Val, takes: Takes, extra: Vec<Val>) -> Result<bool, VmErr> { self.gen_job(co, takes, extra, false) }
-
-    /* `gather_job` and for a coroutine too when `coro` the step its call or await makes */
-    pub(crate) fn gen_job(&mut self, co: Val, takes: Takes, extra: Vec<Val>, coro: bool) -> Result<bool, VmErr> {
+    pub(crate) fn gather_job(&mut self, co: Val, takes: Takes, extra: Vec<Val>) -> Result<bool, VmErr> {
         if self.budget == 0 { return Ok(false); }
         let Some(HeapObj::Coroutine(c)) = self.heap.try_get(co) else { return Ok(false) };
         let BodyRef::Fn(fi) = c.body else { return Ok(false) };
-        let (generator, is_async) = (self.functions[fi].1.is_generator, self.is_async_fn(fi));
-        if !(generator && !is_async || coro && is_async) { return Ok(false); }
+        if !self.functions[fi].1.is_generator { return Ok(false); }
         let pool = self.call_facts[fi].pool;
         let job = match takes { Takes::Next(d) => Job::NextGen(d, self.job_to), _ => Job::Gather(Box::new(self.gather_of(takes, extra, co))) };
         self.jobs.push(job);
@@ -888,7 +882,7 @@ impl<'a> VM<'a> {
         match self.heap.try_get(it) {
             Some(HeapObj::Coroutine(c)) if !c.pending.is_undef() => Peek::Item,
             Some(HeapObj::Coroutine(c)) if c.ip == crate::vm::coro::FINISHED => Peek::End,
-            Some(HeapObj::Coroutine(c)) if !c.running && !c.pinned() && c.syncs.is_empty() && matches!(c.body, BodyRef::Fn(fi) if self.functions[fi].1.is_generator && !self.is_async.get(fi).copied().unwrap_or(false)) => Peek::Gen(it),
+            Some(HeapObj::Coroutine(c)) if !c.running && !c.pinned() && c.syncs.is_empty() && matches!(c.body, BodyRef::Fn(fi) if self.functions[fi].1.is_generator) => Peek::Gen(it),
             Some(HeapObj::Iter(f, _)) if depth < 8 => match f.try_borrow() { Ok(f) => self.peek_frame(&f, depth + 1), Err(_) => Peek::Other },
             _ => Peek::Other,
         }
@@ -1663,7 +1657,6 @@ impl<'a> VM<'a> {
             Takes::Any => self.truthy(v).then_some(Val::bool(true)),
             Takes::Every => (!self.truthy(v)).then_some(Val::bool(false)),
             Takes::Next(_) | Takes::Prefetch(_) => Some(v),
-            Takes::Await => { self.await_back = 1; Some(v) }
             Takes::Then(b) => { self.then_out = Some((b, Ok(crate::vm::coro::Step::Yield(v)))); Some(v) }
             Takes::Close => return Err(crate::lang::EngineError::Generator(crate::lang::Gen::IgnoredClose(crate::lang::Body::Generator)).into()),
             Takes::Contains(item, not) => {
@@ -1746,7 +1739,6 @@ impl<'a> VM<'a> {
             Takes::Contains(_, not) => Ok(Val::bool(not)),
             Takes::Extend(l) => Ok(l),
             Takes::Close => Ok(ret),
-            Takes::Await => { self.await_back = 2; Ok(ret) }
             Takes::Then(b) => { self.then_out = Some((b, Ok(crate::vm::coro::Step::Return(ret)))); Ok(ret) }
             // a held native binding runs on the items its generator gave
             Takes::Hold => {
@@ -1797,7 +1789,7 @@ pub(crate) fn take_plain(j: &mut Gather, v: Val, heap: &HeapPool) -> bool {
         },
         // a native's fold takes what its own take adds with no call
         Takes::Fold => return j.fold.as_mut().is_some_and(|f| f.take_inline(v, heap)),
-        Takes::Next(_) | Takes::Contains(..) | Takes::Close | Takes::Await | Takes::Then(_) | Takes::Prefetch(_) => return false,
+        Takes::Next(_) | Takes::Contains(..) | Takes::Close | Takes::Then(_) | Takes::Prefetch(_) => return false,
     }
     true
 }

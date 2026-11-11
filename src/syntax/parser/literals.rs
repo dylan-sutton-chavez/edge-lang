@@ -147,13 +147,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
                 self.chunk.emit(OpCode::JumpIfFalse, ls);
                 continue;
             }
-            let at = self.tokens.peek().map(|t| (t.start, t.end));
-            let asynced = self.eat_if(TokenType::Async);
-            if !self.eat_if(TokenType::For) {
-                if asynced { self.diag_at_peek(Self::FOR_AFTER_ASYNC); }
-                break;
-            }
-            if asynced && let Some((start, end)) = at { self.reject(start, end, Self::ASYNC_COMP_REFUSED); }
+            if !self.eat_if(TokenType::For) { break; }
             let at = self.mark();
             let pattern = self.pattern_target();
             let shape = if pattern.is_some() { None } else { self.tokens.target_list() };
@@ -183,7 +177,6 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         while let Some(t) = self.tokens.peek() {
             match t.kind {
                 TokenType::For | TokenType::ParenClose | TokenType::BracketClose | TokenType::BraceClose | TokenType::Eof if depth == 0 => break,
-                TokenType::Async if depth == 0 && self.tokens.after_head() == TokenType::For => break,
                 TokenType::ParenOpen | TokenType::BracketOpen | TokenType::BraceOpen => depth += 1,
                 TokenType::ParenClose | TokenType::BracketClose | TokenType::BraceClose => depth -= 1,
                 TokenType::FnExpr if depth == 0 => lambdas += 1,
@@ -202,9 +195,6 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
             Comp::Brace if pair => (Some(OpCode::BuildDict), OpCode::MapAdd, names[2]),
             Comp::Brace => (Some(OpCode::BuildSet), OpCode::SetAdd, names[3]),
         };
-        let async_at = self.tokens.peek().map(|t| (t.start, t.end));
-        if self.eat_if(TokenType::Async) && let Some((start, end)) = async_at { self.reject(start, end, Self::ASYNC_COMP_REFUSED); }
-        let in_async = self.in_async;
         self.eat(TokenType::For);
         let at = self.mark();
         let pattern = self.pattern_target();
@@ -216,7 +206,6 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         // a walrus binds where the comprehension stands
         let mut body = self.with_fresh_chunk(|s| {
             s.in_comp = true;
-            s.in_async = in_async;
             // a body error points at the element until a clause marks its own line
             s.chunk.stmt_pos.push((0, elem_start));
             s.bind_param(COMP_ARG);
@@ -245,13 +234,9 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
             if build.is_some() { s.chunk.emit(OpCode::ReturnValue, 0); }
         });
         body.is_generator = kind == Comp::Gen;
-        // a comprehension that awaits runs as a coroutine the enclosing one awaits
-        let awaits = body.instructions.iter().any(|i| i.opcode == OpCode::GetAwaitable);
-        if awaits && kind == Comp::Gen { self.reject(elem_start as usize, self.last_end, Self::ASYNC_GEN_REFUSED); }
-        self.push_function(alloc::vec![COMP_ARG.into()], body, 0, Some(name), if awaits { OpCode::MakeCoroutine } else { OpCode::MakeFunction });
+        self.push_function(alloc::vec![COMP_ARG.into()], body, 0, Some(name), OpCode::MakeFunction);
         self.chunk.emit(OpCode::Swap, 0);
         self.chunk.emit(OpCode::Call, 1);
-        if awaits && kind != Comp::Gen { self.emit_await(); }
     }
 
     /* a bare generator expression which must be the only argument of its call */
@@ -618,7 +603,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
                     }
                 }
                 _ if depth == 1 => match t {
-                    TokenType::For | TokenType::Async => return None,
+                    TokenType::For => return None,
                     TokenType::Star | TokenType::Pow if matches!(prev, TokenType::ParenOpen | TokenType::BracketOpen | TokenType::Comma) => return None,
                     TokenType::Comma => comma = true,
                     _ => items = true,
@@ -724,12 +709,12 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         self.chunk.emit(OpCode::MakeClass, ci);
     }
 
-    pub(super) fn func_def_inner(&mut self, decorators: u16, is_async: bool) {
+    pub(super) fn func_def_inner(&mut self, decorators: u16) {
         // token lines count from zero
         let first_line = self.decorated_at.take().unwrap_or(self.last_line) as u32 + 1;
         let fname = self.ident_or_missing("expected function name");
         self.refuse_type_params();
-        self.func_value(fname, first_line, is_async);
+        self.func_value(fname, first_line);
 
         self.emit_decorator_calls(decorators);
 
@@ -737,16 +722,16 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
     }
 
     // the function named fname left on the stack for its decorators
-    fn func_value(&mut self, fname: &'src str, first_line: u32, is_async: bool) {
+    fn func_value(&mut self, fname: &'src str, first_line: u32) {
         let (params, defaults) = self.parse_params();
         let posonly = self.posonly;
         let cut = self.enter_qual(fname, true);
-        let mut body = self.compile_body(&params, is_async);
+        let mut body = self.compile_body(&params);
         self.leave_qual(cut);
         (body.posonly, body.first_line) = (posonly, first_line);
 
         // free names reach the parent chunk so nested defs capture grandparent variables
-        self.push_function(params, body, defaults, Some(fname), if is_async { OpCode::MakeCoroutine } else { OpCode::MakeFunction });
+        self.push_function(params, body, defaults, Some(fname), OpCode::MakeFunction);
     }
 
     // a type parameter list after a def or class name parses and then fails
@@ -859,9 +844,8 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         self.chunk.rewind(at);
     }
 
-    fn body_of(&mut self, params: &[String], is_async: bool) {
+    fn body_of(&mut self, params: &[String]) {
         self.in_function = true;
-        self.in_async = is_async;
         for p in params {
             // the base name without its markers shadows the enclosing scope
             self.bind_param(p);
@@ -870,15 +854,15 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         self.compile_block();
     }
 
-    pub(super) fn compile_body(&mut self, params: &[String], is_async: bool) -> SSAChunk {
+    pub(super) fn compile_body(&mut self, params: &[String]) -> SSAChunk {
         let restart = self.mark();
         let known = if self.late.is_empty() { None } else { self.late.get(&restart.pos).cloned() };
         let mut late = Vec::new();
-        let mut body = self.with_fresh_chunk(|s| { s.unfused.extend(known.iter().flatten().cloned()); s.body_of(params, is_async); late = s.called_then_bound(); });
+        let mut body = self.with_fresh_chunk(|s| { s.unfused.extend(known.iter().flatten().cloned()); s.body_of(params); late = s.called_then_bound(); });
         // a builtin called before its binding is a local so the body compiles once more
         if known.is_none() && !late.is_empty() {
             self.rewind(restart);
-            body = self.with_fresh_chunk(|s| { s.unfused.extend(late.iter().cloned()); s.body_of(params, is_async); });
+            body = self.with_fresh_chunk(|s| { s.unfused.extend(late.iter().cloned()); s.body_of(params); });
             self.late.insert(restart.pos, late);
         }
         // computed once so `exec_call` never scans the body

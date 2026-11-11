@@ -3,7 +3,7 @@ use edge::lexer::TokenType as T;
 
 const RESERVED: &[(&str, TokenType)] = &[
     ("false", T::False), ("nil", T::Nil), ("true", T::True), ("and", T::And), ("as", T::As), ("assert", T::Assert),
-    ("async", T::Async), ("await", T::Await), ("break", T::Break), ("class", T::Class), ("continue", T::Continue),
+    ("break", T::Break), ("class", T::Class), ("continue", T::Continue),
     ("function", T::Fn), ("elseif", T::ElseIf), ("else", T::Else), ("catch", T::Catch),
     ("finally", T::Finally), ("for", T::For), ("from", T::From), ("if", T::If),
     ("import", T::Import), ("in", T::In), ("is", T::Is), ("fn", T::FnExpr), ("not", T::Not),
@@ -93,7 +93,7 @@ impl Spelling for Words {
 
 const BRACE_WORDS: &[(&str, TokenType)] = &[
     ("false", T::False), ("nil", T::Nil), ("true", T::True), ("as", T::As), ("assert", T::Assert),
-    ("async", T::Async), ("await", T::Await), ("break", T::Break), ("class", T::Class), ("continue", T::Continue),
+    ("break", T::Break), ("class", T::Class), ("continue", T::Continue),
     ("fn", T::Fn), ("else if", T::ElseIf), ("else", T::Else), ("except", T::Catch),
     ("finally", T::Finally), ("for", T::For), ("from", T::From), ("if", T::If),
     ("import", T::Import), ("in", T::In), ("is", T::Is), ("lambda", T::FnExpr),
@@ -128,7 +128,7 @@ pub const LADDER: &[(TokenType, u8, u8)] = &[
     (T::BitOr, 9, 10), (T::BitXor, 11, 12), (T::BitAnd, 13, 14), (T::LeftShift, 15, 16), (T::RightShift, 15, 16),
     (T::Plus, 17, 18), (T::Minus, 17, 18),
     (T::Star, 19, 20), (T::Slash, 19, 20), (T::Percent, 19, 20), (T::FloorDiv, 19, 20), (T::At, 19, 20),
-    (T::Minus, 0, 21), (T::Plus, 0, 21), (T::Tilde, 0, 21), (T::Await, 0, 21),
+    (T::Minus, 0, 21), (T::Plus, 0, 21), (T::Tilde, 0, 21),
     (T::Pow, 22, 21),
 ];
 
@@ -205,7 +205,7 @@ impl Spelling for Braces {
 
 const INDENT_WORDS: &[(&str, TokenType)] = &[
     ("False", T::False), ("None", T::Nil), ("True", T::True), ("and", T::And), ("as", T::As), ("assert", T::Assert),
-    ("async", T::Async), ("await", T::Await), ("break", T::Break), ("class", T::Class), ("continue", T::Continue),
+    ("break", T::Break), ("class", T::Class), ("continue", T::Continue),
     ("def", T::Fn), ("elif", T::ElseIf), ("else", T::Else), ("except", T::Catch), ("finally", T::Finally),
     ("for", T::For), ("from", T::From), ("if", T::If), ("import", T::Import), ("in", T::In),
     ("is", T::Is), ("lambda", T::FnExpr), ("not", T::Not), ("or", T::Or), ("pass", T::Empty),
@@ -260,7 +260,7 @@ impl Spelling for Indent {
 
 const LEGACY_WORDS: &[(&str, TokenType)] = &[
     ("false", T::False), ("nil", T::Nil), ("true", T::True), ("as", T::As), ("assert", T::Assert),
-    ("async", T::Async), ("await", T::Await), ("break", T::Break), ("class", T::Class), ("continue", T::Continue),
+    ("break", T::Break), ("class", T::Class), ("continue", T::Continue),
     ("fn", T::Fn), ("else if", T::ElseIf), ("else", T::Else), ("except", T::Catch),
     ("finally", T::Finally), ("for", T::For), ("from", T::From), ("if", T::If),
     ("import", T::Import), ("in", T::In), ("is", T::Is), ("lambda", T::FnExpr),

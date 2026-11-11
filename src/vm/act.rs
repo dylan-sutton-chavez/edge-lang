@@ -278,20 +278,20 @@ impl<'a> VM<'a> {
     #[inline(always)]
     pub(crate) fn star_slot(&self, fi: usize) -> Option<usize> {
         let p = self.call_facts[fi].star;
-        (p != NO_SLOTS && !self.is_async.get(fi).copied().unwrap_or(false)).then_some(p as usize)
+        (p != NO_SLOTS).then_some(p as usize)
     }
 
     /* the slots `fi`'s params take in order so a call filling each opens its block */
     #[inline(always)]
     pub(crate) fn full_slots(&self, fi: usize) -> Option<usize> {
         let n = self.call_facts[fi].full;
-        (n != NO_SLOTS && !self.is_async.get(fi).copied().unwrap_or(false)).then_some(n as usize)
+        (n != NO_SLOTS).then_some(n as usize)
     }
 
     /* whether only the cells its nested functions share keep `fi` from opening in the loop */
     pub(crate) fn cells_only(&self, fi: usize) -> bool {
         let f = &self.call_facts[fi];
-        f.arity.is_some() && !self.fn_scope[fi].cellvars.is_empty() && !self.functions[fi].1.is_generator && !self.is_async.get(fi).copied().unwrap_or(false)
+        f.arity.is_some() && !self.fn_scope[fi].cellvars.is_empty() && !self.functions[fi].1.is_generator
             && self.param_slots[fi].iter().enumerate().all(|(k, &(_, s))| s == k)
     }
 

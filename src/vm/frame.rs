@@ -963,22 +963,6 @@ impl<'a> VM<'a> {
                 }
                 Ok(None)
             }
-            // sends the top into the awaitable below yielding up to rerun the step on resume
-            OpCode::Await => {
-                let sent = self.pop()?;
-                let at = self.under(1)?;
-                match self.await_on(at, sent, chunk)? {
-                    Some(crate::vm::coro::Step::Yield(v)) => {
-                        self.push(v);
-                        self.yielded = true;
-                        *ip -= 1;
-                    }
-                    Some(crate::vm::coro::Step::Return(v)) => self.set_slot(at, v),
-                    // the frame it opened comes back to this op
-                    None => *ip -= 1,
-                }
-                Ok(None)
-            }
             _ => Err(cold_runtime("an op the register loop left its driver")),
         }
     }

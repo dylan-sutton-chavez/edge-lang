@@ -207,17 +207,6 @@ impl VM<'_> {
         if frame.is_empty() && let Some(crate::value::HeapObj::Coroutine(c)) = self.heap.try_get_mut(co) { core::mem::swap(frame, &mut c.slots); }
     }
 
-    /* what register `at` of generator `g` holds in its own window or saved slots */
-    pub(crate) fn gen_slot_val(&self, g: Val, at: usize) -> Option<Val> {
-        let Some(crate::value::HeapObj::Coroutine(c)) = self.heap.try_get(g) else { return None };
-        let crate::value::BodyRef::Fn(fi) = c.body else { return None };
-        let pool = self.fn_pool[fi];
-        match (0..=self.pools[pool].wins.len()).find_map(|level| self.pools[pool].win(level).filter(|w| w.owner.0 == g.0)) {
-            Some(w) => self.regs.get(w.base + at).copied(),
-            None => c.slots.get(at).copied(),
-        }
-    }
-
     /* register `at` of generator `g` in the window it owns or its saved slots */
     pub(crate) fn gen_slot(&mut self, g: Val, at: usize) -> Option<&mut Val> {
         let Some(crate::value::HeapObj::Coroutine(c)) = self.heap.try_get(g) else { return None };

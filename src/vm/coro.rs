@@ -379,13 +379,10 @@ impl<'a> VM<'a> {
         }
     }
 
-    /* which of a generator or a coroutine `g` is and None for anything else */
+    /* which of a generator or a module body `g` is and None for anything else */
     pub(crate) fn coro_kind(&self, g: Val) -> Option<CoroKind> {
         let Some(HeapObj::Coroutine(c)) = self.heap.try_get(g) else { return None };
-        Some(match c.body {
-            BodyRef::Fn(fi) if !self.is_async_fn(fi) => CoroKind::Generator,
-            _ => CoroKind::Coroutine,
-        })
+        Some(match c.body { BodyRef::Fn(_) => CoroKind::Generator, BodyRef::Module => CoroKind::Coroutine })
     }
 
     /* the instructions of a coroutine body */
@@ -393,39 +390,19 @@ impl<'a> VM<'a> {
         match body { BodyRef::Fn(fi) => &self.functions[fi].1.instructions, BodyRef::Module => &self.chunk.instructions }
     }
 
-    /* what `g` waits inside by `yield from` or `await` with undef for a builtin iterator */
-    pub(crate) fn delegate_of(&self, g: Val) -> Option<(Val, Via)> {
+    /* what `g` waits inside by `yield from` with undef for a builtin iterator */
+    pub(crate) fn delegate_of(&self, g: Val) -> Option<Val> {
         let Some(HeapObj::Coroutine(c)) = self.heap.try_get(g) else { return None };
         if c.ip == 0 || c.ip == FINISHED || !c.syncs.is_empty() { return None; }
-        let code = self.body_code(c.body);
-        if code.get(c.ip).is_some_and(|i| i.opcode == OpCode::Await) { return (c.top as usize).checked_sub(2).and_then(|k| self.gen_slot_val(g, k)).map(|v| (v, Via::Await)); }
-        delegation_at(code, c.ip)?;
+        delegation_at(self.body_code(c.body), c.ip)?;
         match c.iters.last() {
-            Some(&(IterFrame::Coroutine(v) | IterFrame::UserDefined(v))) => Some((v, Via::YieldFrom)),
-            Some(_) => Some((Val::undef(), Via::YieldFrom)),
+            Some(&(IterFrame::Coroutine(v) | IterFrame::UserDefined(v))) => Some(v),
+            Some(_) => Some(Val::undef()),
             None => None,
         }
     }
 
-    /* `aw_step` on the awaitable at slot `at` an `await` sends `sent` into */
-    pub(crate) fn await_on(&mut self, at: usize, sent: Val, chunk: &SSAChunk) -> Result<Option<Step>, VmErr> { self.aw_step(self.slot(at), sent, chunk) }
-
-    /* the step of coroutine `sub` an `await` sends `sent` into or None once it opened */
-    pub(crate) fn aw_step(&mut self, sub: Val, sent: Val, chunk: &SSAChunk) -> Result<Option<Step>, VmErr> {
-        match core::mem::take(&mut self.await_back) {
-            1 => return Ok(Some(Step::Yield(sent))),
-            2 => return Ok(Some(Step::Return(sent))),
-            _ => {}
-        }
-        // an awaited coroutine resumes as its `send` resumes it with its frame the job's
-        let before = self.pending.exc_val.unwrap_or(Val::undef());
-        self.coro_frame = Some((sub, crate::vm::jobs::Takes::Await, before));
-        let r = self.with_roots([sub], |vm| vm.gen_resume(sub, Sent::Value(sent), chunk));
-        self.coro_frame = None;
-        Ok(match r? { Outcome::Opened => None, Outcome::Yielded(v) => Some(Step::Yield(v)), Outcome::Returned(v) => Some(Step::Return(v)) })
-    }
-
-    /* one step of what an `await` or `yield from` or a driver steps with `sent` */
+    /* one step of what a `yield from` or a driver steps with `sent` */
     pub(crate) fn gen_step(&mut self, it: Val, sent: Sent, chunk: &SSAChunk) -> Result<Step, VmErr> {
         match self.coro_kind(it) {
             Some(_) => Ok(match self.gen_resume(it, sent, chunk)? { Outcome::Yielded(v) => Step::Yield(v), Outcome::Returned(v) => Step::Return(v), Outcome::Opened => return Err(cold_runtime("a generator opened past its call")) }),
@@ -457,17 +434,17 @@ impl<'a> VM<'a> {
                 Sent::Value(_) => return self.step_coro(g),
             }
         }
-        if let Some((sub, via)) = self.delegate_of(g) {
+        if let Some(sub) = self.delegate_of(g) {
             let sub_step = match sent {
-                // `await` and `async for` and `yield from` that `next` resumes pass sent values on themselves
-                Sent::Value(v) if via != Via::YieldFrom || v.is_none() => None,
-                Sent::Value(v) => Some(self.delegate_on(sub, Sent::Value(v), Cont::After(g, via), chunk)),
+                // a `yield from` that `next` resumes steps its inner iterator itself
+                Sent::Value(v) if v.is_none() => None,
+                Sent::Value(v) => Some(self.delegate_on(sub, Sent::Value(v), Cont::After(g), chunk)),
                 // the close signal closes what it waits inside then raises in `g`
-                Sent::Throw(e) if self.exc_name_of(e) == Some(self.natives.names().error(ErrKind::Close)) => match self.delegate_on(sub, Sent::Close, Cont::Exit(g, via, e), chunk) {
+                Sent::Throw(e) if self.exc_name_of(e) == Some(self.natives.names().error(ErrKind::Close)) => match self.delegate_on(sub, Sent::Close, Cont::Exit(g, e), chunk) {
                     Ok(None) => return Ok(Outcome::Opened),
                     r => r.err().map(Err),
                 },
-                Sent::Throw(e) => Some(self.delegate_on(sub, Sent::Throw(e), Cont::After(g, via), chunk)),
+                Sent::Throw(e) => Some(self.delegate_on(sub, Sent::Throw(e), Cont::After(g), chunk)),
                 // what closing the inner one raises replaces the close signal in `g`
                 Sent::Close => match self.delegate_on(sub, Sent::Close, Cont::Close(g, kind), chunk) {
                     Ok(None) => return Ok(Outcome::Opened),
@@ -477,7 +454,7 @@ impl<'a> VM<'a> {
             };
             match sub_step {
                 Some(Ok(None)) => return Ok(Outcome::Opened),
-                Some(r) => return self.after_delegate(g, via, r.map(|s| s.unwrap_or(Step::Return(Val::none()))), chunk),
+                Some(r) => return self.after_delegate(g, r.map(|s| s.unwrap_or(Step::Return(Val::none()))), chunk),
                 None => {}
             }
         }
@@ -485,7 +462,7 @@ impl<'a> VM<'a> {
             Sent::Value(v) => {
                 // a value-position `yield` left a placeholder on the saved stack that the sent value takes
                 let code = self.body_code(body);
-                let at_yield = ip > 0 && code.get(ip - 1).is_some_and(|i| i.opcode == OpCode::Yield) || self.delegate_of(g).is_some_and(|(_, via)| via != Via::YieldFrom);
+                let at_yield = ip > 0 && code.get(ip - 1).is_some_and(|i| i.opcode == OpCode::Yield);
                 // a yield parks with its row as the slot the value takes
                 if at_yield && let HeapObj::Coroutine(c) = self.heap.get(g) && c.syncs.is_empty() && let Some(at) = (c.top as usize).checked_sub(1) && let Some(slot) = self.gen_slot(g, at) { *slot = v; }
                 self.step_coro(g)
@@ -522,8 +499,8 @@ impl<'a> VM<'a> {
     fn run_cont(&mut self, cont: Cont, r: Result<Step, VmErr>) -> Result<Outcome, VmErr> {
         let chunk = self.chunk;
         match (cont, r) {
-            (Cont::After(g, via), r) | (Cont::Exit(g, via, _), r @ Err(_)) => self.after_delegate(g, via, r, chunk),
-            (Cont::Exit(g, _, e), Ok(_)) => { let err = self.with_roots([e], |vm| vm.raise_value(e, chunk)); self.throw_in(g, err) }
+            (Cont::After(g), r) | (Cont::Exit(g, _), r @ Err(_)) => self.after_delegate(g, r, chunk),
+            (Cont::Exit(g, e), Ok(_)) => { let err = self.with_roots([e], |vm| vm.raise_value(e, chunk)); self.throw_in(g, err) }
             (Cont::Close(g, kind), Err(e)) => self.close_in(g, Some(e), kind, chunk),
             (Cont::Close(g, kind), Ok(_)) => self.close_in(g, None, kind, chunk),
         }
@@ -545,7 +522,7 @@ impl<'a> VM<'a> {
             let rest = self.conts.len();
             let last = waits.is_empty();
             self.conts.append(&mut waits);
-            let g = match t.cont { Cont::After(g, _) | Cont::Exit(g, ..) | Cont::Close(g, _) => g };
+            let g = match t.cont { Cont::After(g) | Cont::Exit(g, _) | Cont::Close(g, _) => g };
             self.coro_frame = Some((g, if last { t.takes } else { crate::vm::jobs::Takes::Then(rest as u32) }, t.before));
             let out = self.run_cont(t.cont, r);
             self.coro_frame = None;
@@ -569,8 +546,6 @@ impl<'a> VM<'a> {
             (Takes::Next(d), Ok(Step::Return(v))) if d.is_undef() => return Err((ret - 1, self.stop_iteration(v))),
             (Takes::Next(d), Ok(Step::Return(_))) => d,
             (Takes::Next(_) | Takes::Close, Ok(Step::Yield(v))) | (Takes::Close, Ok(Step::Return(v))) => v,
-            (Takes::Await, Ok(Step::Yield(v))) => { self.await_back = 1; v }
-            (Takes::Await, Ok(Step::Return(v))) => { self.await_back = 2; v }
             (_, Err(e)) => return Err((ret - 1, e)),
             _ => return Err((ret - 1, cold_runtime("a wait gave a call it does not take"))),
         };
@@ -588,48 +563,37 @@ impl<'a> VM<'a> {
     }
 
     /* carries on `g` after what it waits inside took a step */
-    fn after_delegate(&mut self, g: Val, via: Via, step: Result<Step, VmErr>, chunk: &SSAChunk) -> Result<Outcome, VmErr> {
+    fn after_delegate(&mut self, g: Val, step: Result<Step, VmErr>, chunk: &SSAChunk) -> Result<Outcome, VmErr> {
         let _ = chunk;
         match step {
             Ok(Step::Yield(v)) => Ok(Outcome::Yielded(v)),
-            Ok(Step::Return(v)) => { self.land(g, via, v); self.step_coro(g) }
+            Ok(Step::Return(v)) => { self.land(g, v); self.step_coro(g) }
             Err(e) => self.throw_in(g, e),
         }
     }
 
-    /* settles the wait of `g` with `v` which its `yield from` or `await` evaluates to */
-    fn land(&mut self, g: Val, via: Via, v: Val) {
+    /* settles the `yield from` of `g` with `v` which the loop exit's `LoadYieldFrom` takes */
+    fn land(&mut self, g: Val, v: Val) {
         let exit = match self.heap.get(g) {
-            HeapObj::Coroutine(c) if via == Via::YieldFrom => { let code = self.body_code(c.body); delegation_at(code, c.ip).map(|at| code[at].operand as usize) }
+            HeapObj::Coroutine(c) => { let code = self.body_code(c.body); delegation_at(code, c.ip).map(|at| code[at].operand as usize) }
             _ => None,
         };
         let Some(HeapObj::Coroutine(c)) = self.heap.try_get_mut(g) else { return };
-        match via {
-            // the loop exit runs `LoadYieldFrom` which takes the value
-            Via::YieldFrom => {
-                c.iters.pop();
-                if let Some(exit) = exit { c.ip = exit; }
-                self.yield_from_value = v;
-            }
-            // the result replaces the awaitable and its placeholder and the body resumes past `Await`
-            Via::Await => {
-                let at = (c.top as usize).checked_sub(2);
-                (c.top, c.ip) = (c.top.saturating_sub(1), c.ip + 1);
-                if let Some(at) = at && let Some(slot) = self.gen_slot(g, at) { *slot = v; }
-            }
-        }
+        c.iters.pop();
+        if let Some(exit) = exit { c.ip = exit; }
+        self.yield_from_value = v;
     }
 
     /* resumes `g` as a loop frame `coro_frame` names with its job taking the step */
     fn step_coro(&mut self, g: Val) -> Result<Outcome, VmErr> {
         // a delegated generator opens as a frame too and its end runs its delegators' waits
         if core::mem::take(&mut self.then_ok) && self.coro_frame.is_some_and(|(c, ..)| c.0 != g.0) {
-            if self.gen_job(g, crate::vm::jobs::Takes::Then(self.conts.len() as u32), Vec::new(), true)? { return Ok(Outcome::Opened); }
+            if self.gather_job(g, crate::vm::jobs::Takes::Then(self.conts.len() as u32), Vec::new())? { return Ok(Outcome::Opened); }
             return self.unopened(g);
         }
         if let Some((c, takes, before)) = self.coro_frame && c.0 == g.0 {
             self.coro_frame = None;
-            if self.gen_job(g, takes, Vec::new(), true)? {
+            if self.gather_job(g, takes, Vec::new())? {
                 if let Some(crate::vm::jobs::Job::Gather(j)) = self.jobs.last_mut() { j.before = before; }
                 return Ok(Outcome::Opened);
             }
@@ -739,15 +703,6 @@ impl<'a> VM<'a> {
         }
     }
 
-    /* what `await x` steps which only a coroutine is */
-    pub(crate) fn awaitable_of(&mut self, x: Val) -> Result<Val, VmErr> {
-        if self.coro_kind(x) == Some(CoroKind::Coroutine) {
-            if matches!(self.heap.get(x), HeapObj::Coroutine(c) if c.ip == FINISHED) { return Err(EngineError::Generator(Gen::Reused).into()); }
-            return Ok(x);
-        }
-        Err(EngineError::cannot(Act::Await, Some(x)))
-    }
-
     /* what throwing a value or a type and value raises checked against the root class */
     fn thrown(&mut self, args: &[Val], chunk: &SSAChunk) -> Result<Val, VmErr> {
         let exc = if args.len() > 1 && self.heap.is_classlike(args[0]) {
@@ -811,17 +766,13 @@ impl CoroKind {
     }
 }
 
-/* what a body waits inside through a `yield from` or an `await` */
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum Via { YieldFrom, Await }
-
 /* what a driver hands a suspended body to send or throw or close it */
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Sent { Value(Val), Throw(Val), Close }
 
 /* what a delegating body does when its awaited frame ends resume or raise or close */
 #[derive(Clone, Copy)]
-pub(crate) enum Cont { After(Val, Via), Exit(Val, Via, Val), Close(Val, CoroKind) }
+pub(crate) enum Cont { After(Val), Exit(Val, Val), Close(Val, CoroKind) }
 
 /* a wait a `Then` job's frame ends keeping the delegating call's takes and pending exception */
 #[derive(Clone, Copy)]
@@ -1140,7 +1091,7 @@ impl<'a> VM<'a> {
         let Some(HeapObj::Coroutine(c)) = self.heap.try_get_mut(co) else { return None };
         // finished running and sectioned bodies resume nested and coroutines open only for their own step
         let BodyRef::Fn(fi) = c.body else { return None };
-        if c.ip == FINISHED || c.running || c.pinned() || !c.syncs.is_empty() || !c.pending.is_undef() || !self.functions[fi].1.is_generator && !self.is_async_fn(fi) { return self.enter_rare(co, fi, i, quiet); }
+        if c.ip == FINISHED || c.running || c.pinned() || !c.syncs.is_empty() || !c.pending.is_undef() || !self.functions[fi].1.is_generator { return self.enter_rare(co, fi, i, quiet); }
         self.open_gen(co, fi, i, quiet, None)
     }
 
@@ -1512,12 +1463,8 @@ impl<'a> VM<'a> {
         ret
     }
 
-    /* whether function `fi` is an `async def` */
-    #[inline]
-    pub(crate) fn is_async_fn(&self, fi: usize) -> bool { self.is_async.get(fi).copied().unwrap_or(false) }
-
-    /* whether `v` is a coroutine which only `await` steps */
-    pub(crate) fn is_async_object(&self, v: Val) -> bool {
-        matches!(self.heap.try_get(v), Some(HeapObj::Coroutine(c)) if !matches!(c.body, BodyRef::Fn(fi) if !self.is_async_fn(fi)))
+    /* whether `v` is a module body suspended as a coroutine which no `next` steps */
+    pub(crate) fn is_module_coro(&self, v: Val) -> bool {
+        matches!(self.heap.try_get(v), Some(HeapObj::Coroutine(c)) if matches!(c.body, BodyRef::Module))
     }
 }

@@ -273,8 +273,6 @@ pub struct Parser<'src, I: Iterator<Item = Token>, S: Spelling> {
     pub(super) in_comp: bool,
     /* true inside a def or lambda body as the only place `return` and `yield` belong */
     pub(super) in_function: bool,
-    /* true while an `async def` body compiles as the only place `await` belongs */
-    pub(super) in_async: bool,
     /* the natives the body calls as bits in two words with those past 128 listed */
     pub(super) called: [u64; 2],
     pub(super) called_far: Vec<u16>,
@@ -350,24 +348,16 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         RETURN_OUTSIDE_TEXT RETURN_OUTSIDE = [q(Return), lit(b" outside function")];
         YIELD_IN_COMP_TEXT YIELD_IN_COMP = [q(Yield), lit(b" inside a comprehension")];
         YIELD_OUTSIDE_TEXT YIELD_OUTSIDE = [q(Yield), lit(b" outside function")];
-        AWAIT_OUTSIDE_ASYNC_TEXT AWAIT_OUTSIDE_ASYNC = [q(Await), lit(b" outside "), b(Async), lit(b" function")];
-        AWAIT_OUTSIDE_TEXT AWAIT_OUTSIDE = [q(Await), lit(b" outside function")];
-        AWAIT_IN_COMP_TEXT AWAIT_IN_COMP = [q(Await), lit(b" in a comprehension outside "), b(Async), lit(b" function")];
         STRAY_COLON_TEXT STRAY_COLON = [lit(b"unexpected "), q(Colon), lit(b" (missing "), q(If), lit(b", "), q(While), lit(b", "), q(For), lit(b", or other statement keyword?)")];
         UNCLOSED_BLOCK_TEXT UNCLOSED_BLOCK = [q(BlockOpen), lit(b" was never closed")];
         UNCLOSED_LINE_TEXT UNCLOSED_LINE = [lit(b"the block this line opens was never closed, close it with "), q(BlockClose)];
         STRAY_BLOCK_TEXT STRAY_BLOCK = [lit(b"unexpected "), q(BlockOpen)];
         STRAY_CLOSE_TEXT STRAY_CLOSE = [lit(b"unexpected "), q(BlockClose)];
-        FOR_AFTER_ASYNC_TEXT FOR_AFTER_ASYNC = [lit(b"expected "), q(For), lit(b" after "), q(Async)];
         FOR_AFTER_ELEMENT_TEXT FOR_AFTER_ELEMENT = [lit(b"expected "), q(For), lit(b" after the element of a comprehension")];
         PAREN_EXPECTED_TEXT PAREN_EXPECTED = [lit(b"expected "), q(ParenOpen)];
         MODULE_AFTER_DOT_TEXT MODULE_AFTER_DOT = [lit(b"expected a module name after "), q(Dot)];
         ATTR_AFTER_DOT_TEXT ATTR_AFTER_DOT = [lit(b"expected an attribute name after "), q(Dot)];
         WITH_REFUSED_TEXT WITH_REFUSED = [b(With), lit(b" is not supported")];
-        ASYNC_FOR_REFUSED_TEXT ASYNC_FOR_REFUSED = [b(Async), lit(b" "), b(For), lit(b" is not supported")];
-        ASYNC_WITH_REFUSED_TEXT ASYNC_WITH_REFUSED = [b(Async), lit(b" "), b(With), lit(b" is not supported")];
-        ASYNC_COMP_REFUSED_TEXT ASYNC_COMP_REFUSED = [b(Async), lit(b" comprehensions are not supported")];
-        ASYNC_GEN_REFUSED_TEXT ASYNC_GEN_REFUSED = [b(Async), lit(b" generators are not supported")];
         CATCH_STAR_REFUSED_TEXT CATCH_STAR_REFUSED = [b(Catch), b(Star), lit(b" is not supported")];
         THROW_FROM_REFUSED_TEXT THROW_FROM_REFUSED = [b(Throw), lit(b" "), b(From), lit(b" is not supported")];
         CLASS_KEYWORDS_REFUSED_TEXT CLASS_KEYWORDS_REFUSED = [b(Class), lit(b" keywords are not supported")];
@@ -489,7 +479,6 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         let saved_class = core::mem::replace(&mut self.in_class_body, false);
         let saved_comp = core::mem::replace(&mut self.in_comp, false);
         let saved_function = core::mem::replace(&mut self.in_function, false);
-        let saved_async = core::mem::replace(&mut self.in_async, false);
         // a nested body keeps what enclosing scopes left unfused and hands up what it fused
         let saved_fused = (core::mem::take(&mut self.called), core::mem::take(&mut self.fused_externs), self.unfused.len(), core::mem::replace(&mut self.far_from, self.called_far.len()));
         // a copy of the parent externs lets nested bodies call imported natives without leaking up
@@ -503,7 +492,6 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         self.in_class_body = saved_class;
         self.in_comp = saved_comp;
         self.in_function = saved_function;
-        self.in_async = saved_async;
         let outer = self.chunk.extern_table.len();
         let inner = core::mem::replace(&mut self.fused_externs, saved_fused.1);
         self.fused_externs.extend(inner.into_iter().filter(|&i| (i as usize) < outer));
@@ -907,7 +895,6 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
             decorated_at: None,
             in_comp: false,
             in_function: false,
-            in_async: false,
             called: [0; 2],
             called_far: Vec::new(),
             far_from: 0,

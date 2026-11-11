@@ -16,7 +16,7 @@ impl<'a> VM<'a> {
         if let Some(v) = self.pended(it) { return Ok(v); }
         match self.heap.try_get(it) {
             Some(HeapObj::Iter(..)) => self.iter_step(it),
-            Some(HeapObj::Coroutine(..)) if self.is_async_object(it) => Err(EngineError::cannot(Act::Next, Some(it))),
+            Some(HeapObj::Coroutine(..)) if self.is_module_coro(it) => Err(EngineError::cannot(Act::Next, Some(it))),
             Some(HeapObj::Coroutine(..)) => {
                 let v = self.with_roots([it], |vm| vm.step_coroutine(it))?;
                 Ok(core::mem::take(&mut self.yielded).then_some(v))
@@ -134,7 +134,7 @@ impl<'a> VM<'a> {
             });
         }
         if matches!(self.heap.get(o), HeapObj::Coroutine(..)) {
-            if self.is_async_object(o) { return Err(self.not_iterable(o)); }
+            if self.is_module_coro(o) { return Err(self.not_iterable(o)); }
             // the coroutine and its yielded values stay rooted as each resume may collect
             return self.with_roots([o], |vm| {
                 let base = vm.temp_roots.len();
@@ -157,7 +157,7 @@ impl<'a> VM<'a> {
         let ascii = self.heap.str_is_ascii(o);
         let names = &self.natives.names().iters;
         let name = match self.heap.try_get(o) {
-            Some(HeapObj::Coroutine(..)) if self.is_async_object(o) => return Err(self.not_iterable(o)),
+            Some(HeapObj::Coroutine(..)) if self.is_module_coro(o) => return Err(self.not_iterable(o)),
             Some(HeapObj::Iter(..) | HeapObj::Coroutine(..)) => return Ok(o),
             Some(HeapObj::List(rc)) => { let rc = rc.clone(); return self.alloc_iterator(IterFrame::List { rc, idx: 0 }, names[it::LIST]); }
             Some(&HeapObj::Range(cur, end, step)) => return self.alloc_iterator(IterFrame::Range { cur, end, step }, names[it::RANGE]),
@@ -423,7 +423,7 @@ impl<'a> VM<'a> {
             HeapObj::Str(s) => IterFrame::Chars { text: s.as_str().into(), at: 0 },
             HeapObj::Bytes(b) | HeapObj::ByteArray(b) => IterFrame::Octets { bytes: b.as_slice().into(), idx: 0 },
             // a coroutine steps only under `await`
-            HeapObj::Coroutine(..) if !self.is_async_object(obj) => return Ok(IterFrame::Coroutine(obj)),
+            HeapObj::Coroutine(..) if !self.is_module_coro(obj) => return Ok(IterFrame::Coroutine(obj)),
             // a builtin iterator advances in place so the loop spends it
             HeapObj::Iter(frame, _) => return Ok(match &*frame.borrow() {
                 f @ (IterFrame::Map { .. } | IterFrame::Filter { .. }) => f.clone(),

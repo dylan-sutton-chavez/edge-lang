@@ -22,7 +22,7 @@ impl<'a> VM<'a> {
         for &v in self.event_queue.slots() { self.heap.mark(v); }
         // the handled exception and any pending finally return value outlive their stack slots
         if let Some(v) = self.pending.exc_val { self.heap.mark(v); }
-        for t in &self.conts { let (crate::vm::coro::Cont::After(g, _) | crate::vm::coro::Cont::Exit(g, ..) | crate::vm::coro::Cont::Close(g, _)) = t.cont; self.heap.mark(g); self.heap.mark(t.before); if let crate::vm::coro::Cont::Exit(_, _, e) = t.cont { self.heap.mark(e); } }
+        for t in &self.conts { let (crate::vm::coro::Cont::After(g) | crate::vm::coro::Cont::Exit(g, _) | crate::vm::coro::Cont::Close(g, _)) = t.cont; self.heap.mark(g); self.heap.mark(t.before); if let crate::vm::coro::Cont::Exit(_, e) = t.cont { self.heap.mark(e); } }
         if let Some((_, Ok(crate::vm::coro::Step::Yield(v) | crate::vm::coro::Step::Return(v)))) = self.then_out { self.heap.mark(v); }
         if let Some(super::hints::Missed::Attr(v, _)) = &self.missed { self.heap.mark(*v); }
         self.redo.mark(&mut self.heap);
