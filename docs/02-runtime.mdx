@@ -34,12 +34,12 @@ pub struct Tally;
 
 const WORDS: &[(&str, TokenType)] = &[
     ("let", T::Let), ("fn", T::Fn), ("return", T::Return), ("if", T::If), ("else", T::Else),
-    ("for", T::For), ("in", T::In), ("while", T::While), ("true", T::True), ("false", T::False), ("nil", T::Nil),
+    ("for", T::For), ("in", T::In), ("true", T::True), ("false", T::False), ("nil", T::Nil),
 ];
 const SYMBOLS: &[(&str, TokenType)] = &[
     ("(", T::ParenOpen), (")", T::ParenClose), ("[", T::BracketOpen), ("]", T::BracketClose),
     ("{", T::BraceOpen), ("}", T::BraceClose), ("{", T::BlockOpen), ("}", T::BlockClose),
-    (",", T::Comma), (":", T::Colon), ("==", T::EqualEqual), ("<", T::Less),
+    (",", T::Comma), ("==", T::EqualEqual), ("<", T::Less),
     ("=", T::Equal), ("+", T::Plus), ("-", T::Minus), ("*", T::Star),
 ];
 static OPERATORS: [[TokenType; 4]; 128] = operators(SYMBOLS);

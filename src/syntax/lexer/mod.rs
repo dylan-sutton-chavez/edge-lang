@@ -3,7 +3,7 @@ pub use tables::utf8_char_len;
 
 pub mod syntax;
 pub mod grammar;
-pub use syntax::{index, join, joined, operators, role, Binding, Blocks, Comments, Cond, Continuation, Dot, Ends, Escapes, Interp, Keywords, Lambda, Literal, Mode, Numbers, Quote, Shapes, Shown, Spelling, Strings, Suffix, Syntax, Unicode, Unknown, Zeros, BYTES, FORMAT, RAW};
+pub use syntax::{capped, index, join, joined, operators, role, Binding, Blocks, Comments, Cond, Continuation, Dot, Ends, Escapes, Interp, Keywords, Lambda, Literal, Mode, Numbers, Quote, Shapes, Shown, Spelling, Strings, Suffix, Syntax, Unicode, Unknown, Zeros, BYTES, FORMAT, RAW, TEXT_MAX};
 
 mod scan;
 

@@ -1,6 +1,6 @@
 use super::{Token, TokenType, LexError, opens_body};
 use super::tables::*;
-use super::syntax::{join, joined, Blocks, Ends, Interp, Literal, Phrase, Quote, Spelling, Suffix, Unicode, Unknown, MAX_PAIRS, MAX_PHRASES, BYTES, FORMAT, RAW};
+use super::syntax::{capped, join, joined, Blocks, Ends, Interp, Literal, Phrase, Quote, Spelling, Suffix, Unicode, Unknown, MAX_PAIRS, MAX_PHRASES, BYTES, FORMAT, RAW, TEXT_MAX};
 
 use alloc::vec::Vec;
 use core::marker::PhantomData;
@@ -304,12 +304,13 @@ impl<'a, S: Spelling> Scanner<'a, S> {
         t
     };
     // the messages the table words with its own spellings at compile time
-    const NAME: &'static [u8] = match Self::INTERP { Some(i) => i.name.as_bytes(), None => b"interpolated string" };
-    const UNTERMINATED_TEXT: &'static ([u8; 96], usize) = &join(&[b"unterminated ", Self::NAME, b" literal"]);
+    const NAME: &'static [u8] = capped(match Self::INTERP { Some(i) => i.name.as_bytes(), None => b"interpolated string" });
+    // each buffer holds its literal parts and a name of at most TEXT_MAX bytes
+    const UNTERMINATED_TEXT: &'static ([u8; b"unterminated  literal".len() + TEXT_MAX], usize) = &join(&[b"unterminated ", Self::NAME, b" literal"]);
     const UNTERMINATED: &'static str = joined(Self::UNTERMINATED_TEXT);
-    const SINGLE_CLOSE_TEXT: &'static ([u8; 96], usize) = &join(&[Self::NAME, b": single '", &[Self::CLOSE], b"' is not allowed"]);
+    const SINGLE_CLOSE_TEXT: &'static ([u8; b": single 'x' is not allowed".len() + TEXT_MAX], usize) = &join(&[Self::NAME, b": single '", &[Self::CLOSE], b"' is not allowed"]);
     const SINGLE_CLOSE: &'static str = joined(Self::SINGLE_CLOSE_TEXT);
-    const TOO_DEEP_TEXT: &'static ([u8; 96], usize) = &join(&[Self::NAME, b" nesting depth exceeds maximum (200)"]);
+    const TOO_DEEP_TEXT: &'static ([u8; b" nesting depth exceeds maximum (200)".len() + TEXT_MAX], usize) = &join(&[Self::NAME, b" nesting depth exceeds maximum (200)"]);
     const TOO_DEEP: &'static str = joined(Self::TOO_DEEP_TEXT);
     const MISPLACED_TEXT: &'static ([u8; 64], usize) = &join(&[b"invalid '", &[Self::SEP], b"' in numeric literal"]);
     const MISPLACED: &'static str = joined(Self::MISPLACED_TEXT);

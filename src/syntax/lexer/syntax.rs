@@ -374,6 +374,7 @@ impl Syntax {
                 }
                 p += 1;
             }
+            assert!(n - start <= TEXT_MAX, "a token's text in a diagnostic is at most 40 bytes, shorten the reserved word or the interpolated string name");
             s.spans[k] = (start as u16, n as u16);
             k += 1;
         }
@@ -589,6 +590,15 @@ impl Syntax {
         }
         false
     }
+}
+
+// the most bytes one token's text or a table's interpolated string name shows in a diagnostic
+pub const TEXT_MAX: usize = 40;
+
+// `t` once it fits the bound every message buffer is sized by
+pub const fn capped(t: &'static [u8]) -> &'static [u8] {
+    assert!(t.len() <= TEXT_MAX, "an interpolated string name is at most 40 bytes, the size diagnostics leave it");
+    t
 }
 
 // parts joined at compile time into a buffer of `N` bytes and its length

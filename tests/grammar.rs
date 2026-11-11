@@ -49,6 +49,18 @@ mod test {
         const NATIVES: &'static edge::lang::Natives = &mini::NATIVES;
     }
 
+    // the same table with no colon, so neither ':' nor 'while' has a spelling
+    const BARE_SYMBOLS: &[(&str, TokenType)] = &[
+        ("(", T::ParenOpen), (")", T::ParenClose), ("[", T::BracketOpen), ("]", T::BracketClose), ("{", T::BraceOpen), ("}", T::BraceClose), ("{", T::BlockOpen), ("}", T::BlockClose),
+        ("=>", T::Arm), ("==", T::EqualEqual), ("<", T::Less), ("=", T::Equal), ("+", T::Plus), ("-", T::Minus), ("/", T::Slash), (",", T::Comma), (".", T::Dot),
+    ];
+    static BARE_OPERATORS: [[TokenType; 4]; 128] = operators(BARE_SYMBOLS);
+    struct Bare;
+    impl Spelling for Bare {
+        const SYNTAX: Syntax = Syntax { symbols: BARE_SYMBOLS, operators: &BARE_OPERATORS, ..SYNTAX };
+        const NATIVES: &'static edge::lang::Natives = &mini::NATIVES;
+    }
+
     // a form's call is a function of the script so each test sees what the slots gave
     const CALLS: &str = "fn steps(x, n, f) = if n == 0 or f(x) == x { x } else { steps(f(x), n - 1, f) }\nfn trio(a, b, c) = [a, b, c]\nfn pick(n, g) = g\n";
 
@@ -100,5 +112,14 @@ mod test {
         assert_eq!(run("fn kind(x) = match x { 0 => \"zero\"  \"a\" => \"text\"  _ => \"other\" }\nlet _ = print(kind(0), kind(\"a\"), kind(5))"), "zero text other\n");
         // a word with no part binds the whole subject to the name after it
         assert_eq!(run("fn yes1(x) = match x { yes p => p[1]  _ => 0 }\nlet _ = print(yes1([true, 5]), yes1([false, 5]))"), "5 0\n");
+    }
+
+    #[test]
+    fn a_table_with_no_colon_or_while_words_its_messages_and_runs() {
+        const FRONT: Front = Front::spelled::<Bare>();
+        let src = format!("{CALLS}let _ = print(fix k = 0 up to 3 {{ k + 1 }})");
+        let chunk = FRONT.program(&src, Box::new(One)).unwrap_or_else(|e| panic!("{}", edge::code::Diagnostic::render_all(&e, &src, None)));
+        let mut vm = boot(&chunk, Limits::sandbox());
+        assert_eq!(vm.run().map(|_| vm.output_text()).ok().as_deref(), Some("3\n"));
     }
 }

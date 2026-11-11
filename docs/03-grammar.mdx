@@ -34,7 +34,7 @@ const WORDS: &[(&str, TokenType)] = &[
 const SYMBOLS: &[(&str, TokenType)] = &[
     ("(", T::ParenOpen), (")", T::ParenClose), ("[", T::BracketOpen), ("]", T::BracketClose),
     ("{", T::BraceOpen), ("}", T::BraceClose), ("{", T::BlockOpen), ("}", T::BlockClose),
-    (":", T::Colon), ("=>", T::Arm), ("==", T::EqualEqual), ("<", T::Less), ("=", T::Equal), ("+", T::Plus), ("-", T::Minus), ("/", T::Slash), (",", T::Comma),
+    ("=>", T::Arm), ("==", T::EqualEqual), ("<", T::Less), ("=", T::Equal), ("+", T::Plus), ("-", T::Minus), ("/", T::Slash), (",", T::Comma),
 ];
 static OPERATORS: [[TokenType; 4]; 128] = operators(SYMBOLS);
 static KEYWORDS: Keywords = index(WORDS);

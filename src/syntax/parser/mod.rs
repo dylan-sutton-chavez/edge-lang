@@ -66,10 +66,28 @@ pub(crate) type ModuleCache = alloc::rc::Rc<core::cell::RefCell<Vec<(String, Opt
 
 // diagnostic texts a table words at compile time from its own spellings
 macro_rules! worded {
-    ($($text:ident $name:ident = [$($part:expr),* $(,)?];)*) => { $(
-        const $text: &'static ([u8; 128], usize) = &crate::syntax::lexer::join(&[$($part),*]);
+    ($($text:ident $name:ident = [$($kind:ident $(($($arg:tt)*))?),* $(,)?];)*) => { $(
+        // sized by its parts so no table's spellings outgrow it
+        const $text: &'static ([u8; 0 $(+ part_max!($kind $($($arg)*)?))*], usize) = &crate::syntax::lexer::join(&[$(part!($kind $($($arg)*)?)),*]);
         pub(super) const $name: &'static str = crate::syntax::lexer::joined(Self::$text);
     )* };
+}
+
+// one part of a worded text, a literal or a text the table decides
+macro_rules! part {
+    (lit $text:expr) => { $text };
+    (q $kind:ident) => { Self::q(TokenType::$kind) };
+    (b $kind:ident) => { Self::b(TokenType::$kind) };
+    (name) => { Self::NAME };
+    (marks) => { Self::MARKS_TEXT };
+    (colon) => { Self::COLON_IF_INDENT };
+}
+
+// the most bytes a part can take, its own length or the cap its table is held to
+macro_rules! part_max {
+    (lit $text:expr) => { $text.len() };
+    (marks) => { 128 };
+    ($kind:ident $($rest:tt)*) => { crate::syntax::lexer::TEXT_MAX };
 }
 
 /* every token behind a cursor so a comprehension can compile its element after its clauses */
@@ -311,7 +329,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
 
     const fn b(kind: TokenType) -> &'static [u8] { Self::bare(kind).as_bytes() }
 
-    const NAME: &'static [u8] = match S::SYNTAX.interp { Some(i) => i.name.as_bytes(), None => b"interpolated string" };
+    const NAME: &'static [u8] = crate::syntax::lexer::capped(match S::SYNTAX.interp { Some(i) => i.name.as_bytes(), None => b"interpolated string" });
     const COLON_IF_INDENT: &'static [u8] = if Self::DELIMITED { b"" } else { Self::b(TokenType::Colon) };
     // the conversions a field may name listed as the message writes them
     const MARK_LIST: &'static ([u8; 128], usize) = &{
@@ -332,40 +350,40 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
     const MARKS_TEXT: &'static [u8] = Self::MARK_LIST.0.split_at(Self::MARK_LIST.1).0;
 
     worded! {
-        BREAK_OUTSIDE_TEXT BREAK_OUTSIDE = [Self::q(TokenType::Break), b" outside loop"];
-        CONTINUE_OUTSIDE_TEXT CONTINUE_OUTSIDE = [Self::q(TokenType::Continue), b" outside loop"];
-        RETURN_OUTSIDE_TEXT RETURN_OUTSIDE = [Self::q(TokenType::Return), b" outside function"];
-        YIELD_IN_COMP_TEXT YIELD_IN_COMP = [Self::q(TokenType::Yield), b" inside a comprehension"];
-        YIELD_OUTSIDE_TEXT YIELD_OUTSIDE = [Self::q(TokenType::Yield), b" outside function"];
-        AWAIT_OUTSIDE_ASYNC_TEXT AWAIT_OUTSIDE_ASYNC = [Self::q(TokenType::Await), b" outside ", Self::b(TokenType::Async), b" function"];
-        AWAIT_OUTSIDE_TEXT AWAIT_OUTSIDE = [Self::q(TokenType::Await), b" outside function"];
-        AWAIT_IN_COMP_TEXT AWAIT_IN_COMP = [Self::q(TokenType::Await), b" in a comprehension outside ", Self::b(TokenType::Async), b" function"];
-        STRAY_COLON_TEXT STRAY_COLON = [b"unexpected ", Self::q(TokenType::Colon), b" (missing ", Self::q(TokenType::If), b", ", Self::q(TokenType::While), b", ", Self::q(TokenType::For), b", or other statement keyword?)"];
-        UNCLOSED_BLOCK_TEXT UNCLOSED_BLOCK = [Self::q(TokenType::BlockOpen), b" was never closed"];
-        UNCLOSED_LINE_TEXT UNCLOSED_LINE = [b"the block this line opens was never closed, close it with ", Self::q(TokenType::BlockClose)];
-        STRAY_BLOCK_TEXT STRAY_BLOCK = [b"unexpected ", Self::q(TokenType::BlockOpen)];
-        STRAY_CLOSE_TEXT STRAY_CLOSE = [b"unexpected ", Self::q(TokenType::BlockClose)];
-        FOR_AFTER_ASYNC_TEXT FOR_AFTER_ASYNC = [b"expected ", Self::q(TokenType::For), b" after ", Self::q(TokenType::Async)];
-        FOR_AFTER_ELEMENT_TEXT FOR_AFTER_ELEMENT = [b"expected ", Self::q(TokenType::For), b" after the element of a comprehension"];
-        PAREN_EXPECTED_TEXT PAREN_EXPECTED = [b"expected ", Self::q(TokenType::ParenOpen)];
-        MODULE_AFTER_DOT_TEXT MODULE_AFTER_DOT = [b"expected a module name after ", Self::q(TokenType::Dot)];
-        ATTR_AFTER_DOT_TEXT ATTR_AFTER_DOT = [b"expected an attribute name after ", Self::q(TokenType::Dot)];
-        WITH_REFUSED_TEXT WITH_REFUSED = [Self::b(TokenType::With), b" is not supported"];
-        ASYNC_FOR_REFUSED_TEXT ASYNC_FOR_REFUSED = [Self::b(TokenType::Async), b" ", Self::b(TokenType::For), b" is not supported"];
-        ASYNC_WITH_REFUSED_TEXT ASYNC_WITH_REFUSED = [Self::b(TokenType::Async), b" ", Self::b(TokenType::With), b" is not supported"];
-        ASYNC_COMP_REFUSED_TEXT ASYNC_COMP_REFUSED = [Self::b(TokenType::Async), b" comprehensions are not supported"];
-        ASYNC_GEN_REFUSED_TEXT ASYNC_GEN_REFUSED = [Self::b(TokenType::Async), b" generators are not supported"];
-        CATCH_STAR_REFUSED_TEXT CATCH_STAR_REFUSED = [Self::b(TokenType::Catch), Self::b(TokenType::Star), b" is not supported"];
-        THROW_FROM_REFUSED_TEXT THROW_FROM_REFUSED = [Self::b(TokenType::Throw), b" ", Self::b(TokenType::From), b" is not supported"];
-        CLASS_KEYWORDS_REFUSED_TEXT CLASS_KEYWORDS_REFUSED = [Self::b(TokenType::Class), b" keywords are not supported"];
-        TYPE_ALIAS_REFUSED_TEXT TYPE_ALIAS_REFUSED = [Self::b(TokenType::Type), b" aliases are not supported"];
-        OUTER_AT_MODULE_TEXT OUTER_AT_MODULE = [Self::b(TokenType::Outer), b" declaration not allowed at module level"];
-        DEFAULT_CATCH_TEXT DEFAULT_CATCH = [b"default '", Self::b(TokenType::Catch), Self::COLON_IF_INDENT, b"' must be last"];
-        BAD_CONVERSION_TEXT BAD_CONVERSION = [b"invalid ", Self::NAME, b" conversion (expected ", Self::MARKS_TEXT, b")"];
-        FORMAT_UNCLOSED_TEXT FORMAT_UNCLOSED = [Self::NAME, b" was never closed"];
-        PARAM_GLOBAL_TEXT PARAM_GLOBAL = [b"' is parameter and ", Self::b(TokenType::Global)];
-        ASSIGNED_GLOBAL_TEXT ASSIGNED_GLOBAL = [b"' is assigned to before ", Self::b(TokenType::Global), b" declaration"];
-        PARAM_OUTER_TEXT PARAM_OUTER = [b"' is parameter and ", Self::b(TokenType::Outer)];
+        BREAK_OUTSIDE_TEXT BREAK_OUTSIDE = [q(Break), lit(b" outside loop")];
+        CONTINUE_OUTSIDE_TEXT CONTINUE_OUTSIDE = [q(Continue), lit(b" outside loop")];
+        RETURN_OUTSIDE_TEXT RETURN_OUTSIDE = [q(Return), lit(b" outside function")];
+        YIELD_IN_COMP_TEXT YIELD_IN_COMP = [q(Yield), lit(b" inside a comprehension")];
+        YIELD_OUTSIDE_TEXT YIELD_OUTSIDE = [q(Yield), lit(b" outside function")];
+        AWAIT_OUTSIDE_ASYNC_TEXT AWAIT_OUTSIDE_ASYNC = [q(Await), lit(b" outside "), b(Async), lit(b" function")];
+        AWAIT_OUTSIDE_TEXT AWAIT_OUTSIDE = [q(Await), lit(b" outside function")];
+        AWAIT_IN_COMP_TEXT AWAIT_IN_COMP = [q(Await), lit(b" in a comprehension outside "), b(Async), lit(b" function")];
+        STRAY_COLON_TEXT STRAY_COLON = [lit(b"unexpected "), q(Colon), lit(b" (missing "), q(If), lit(b", "), q(While), lit(b", "), q(For), lit(b", or other statement keyword?)")];
+        UNCLOSED_BLOCK_TEXT UNCLOSED_BLOCK = [q(BlockOpen), lit(b" was never closed")];
+        UNCLOSED_LINE_TEXT UNCLOSED_LINE = [lit(b"the block this line opens was never closed, close it with "), q(BlockClose)];
+        STRAY_BLOCK_TEXT STRAY_BLOCK = [lit(b"unexpected "), q(BlockOpen)];
+        STRAY_CLOSE_TEXT STRAY_CLOSE = [lit(b"unexpected "), q(BlockClose)];
+        FOR_AFTER_ASYNC_TEXT FOR_AFTER_ASYNC = [lit(b"expected "), q(For), lit(b" after "), q(Async)];
+        FOR_AFTER_ELEMENT_TEXT FOR_AFTER_ELEMENT = [lit(b"expected "), q(For), lit(b" after the element of a comprehension")];
+        PAREN_EXPECTED_TEXT PAREN_EXPECTED = [lit(b"expected "), q(ParenOpen)];
+        MODULE_AFTER_DOT_TEXT MODULE_AFTER_DOT = [lit(b"expected a module name after "), q(Dot)];
+        ATTR_AFTER_DOT_TEXT ATTR_AFTER_DOT = [lit(b"expected an attribute name after "), q(Dot)];
+        WITH_REFUSED_TEXT WITH_REFUSED = [b(With), lit(b" is not supported")];
+        ASYNC_FOR_REFUSED_TEXT ASYNC_FOR_REFUSED = [b(Async), lit(b" "), b(For), lit(b" is not supported")];
+        ASYNC_WITH_REFUSED_TEXT ASYNC_WITH_REFUSED = [b(Async), lit(b" "), b(With), lit(b" is not supported")];
+        ASYNC_COMP_REFUSED_TEXT ASYNC_COMP_REFUSED = [b(Async), lit(b" comprehensions are not supported")];
+        ASYNC_GEN_REFUSED_TEXT ASYNC_GEN_REFUSED = [b(Async), lit(b" generators are not supported")];
+        CATCH_STAR_REFUSED_TEXT CATCH_STAR_REFUSED = [b(Catch), b(Star), lit(b" is not supported")];
+        THROW_FROM_REFUSED_TEXT THROW_FROM_REFUSED = [b(Throw), lit(b" "), b(From), lit(b" is not supported")];
+        CLASS_KEYWORDS_REFUSED_TEXT CLASS_KEYWORDS_REFUSED = [b(Class), lit(b" keywords are not supported")];
+        TYPE_ALIAS_REFUSED_TEXT TYPE_ALIAS_REFUSED = [b(Type), lit(b" aliases are not supported")];
+        OUTER_AT_MODULE_TEXT OUTER_AT_MODULE = [b(Outer), lit(b" declaration not allowed at module level")];
+        DEFAULT_CATCH_TEXT DEFAULT_CATCH = [lit(b"default '"), b(Catch), colon, lit(b"' must be last")];
+        BAD_CONVERSION_TEXT BAD_CONVERSION = [lit(b"invalid "), name, lit(b" conversion (expected "), marks, lit(b")")];
+        FORMAT_UNCLOSED_TEXT FORMAT_UNCLOSED = [name, lit(b" was never closed")];
+        PARAM_GLOBAL_TEXT PARAM_GLOBAL = [lit(b"' is parameter and "), b(Global)];
+        ASSIGNED_GLOBAL_TEXT ASSIGNED_GLOBAL = [lit(b"' is assigned to before "), b(Global), lit(b" declaration")];
+        PARAM_OUTER_TEXT PARAM_OUTER = [lit(b"' is parameter and "), b(Outer)];
     }
 
     pub(super) fn current_version(&self, name: &str) -> u32 {
