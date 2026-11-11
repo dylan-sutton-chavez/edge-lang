@@ -30,7 +30,6 @@ struct Case {
     #[serde(default)] contains: BTreeMap<String, String>,
     // A second command in the same dir, the way a packed artifact runs itself.
     #[serde(default)] then: Option<Step>,
-    #[serde(default)] todo: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -195,9 +194,8 @@ fn run_suite(bin: Bin, cases: &[Case], hosts: &[&[&str]]) {
     // One cache per suite, so no case touches the real one and the runtime downloads once.
     let cache = tempfile::tempdir().expect("suite cache dir");
     let mut failed = vec![];
-    // TODO remove the package publication path and every case marked todo
     // a case that holds a plugin runs only where plugins load
-    for c in cases.iter().filter(|c| c.todo.is_none() && (bin.plugins || !c.given.keys().chain(c.copy.keys()).any(|file| file.ends_with(".wasm")))) {
+    for c in cases.iter().filter(|c| bin.plugins || !c.given.keys().chain(c.copy.keys()).any(|file| file.ends_with(".wasm"))) {
         for host in hosts {
             // A host flag goes right after the subcommand, where `run` and `test` read it.
             let mut args = c.run.clone();
@@ -250,7 +248,7 @@ struct Expect<'a> {
 
 fn run(bin: Bin, args: &[String], env: &BTreeMap<String, String>, dir: &std::path::Path, cache: &std::path::Path, stdin: &str, want: Expect) -> Result<(), String> {
     let mut cmd = Command::new(bin.path);
-    cmd.env("EDGE_CDN_BASE", crate::common::cdn_base()?).env("XDG_CACHE_HOME", cache).envs(bin.env.iter().copied());
+    cmd.env("XDG_CACHE_HOME", cache).envs(bin.env.iter().copied());
     let mut child = cmd.args(args).current_dir(dir).envs(env)
         .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped())
         .spawn().map_err(|e| e.to_string())?;

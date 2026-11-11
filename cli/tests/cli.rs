@@ -1,4 +1,3 @@
-mod common;
 mod suite;
 
 use suite::{net, suite, Bin};

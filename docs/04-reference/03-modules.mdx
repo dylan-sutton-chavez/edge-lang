@@ -21,7 +21,7 @@ Nobody classifies a package. A manifest entry only names a spec.
 - A file that starts with the wasm magic bytes is a native module.
 - Any other file is source the parser reads, whatever its extension.
 - A `.js` or `.mjs` import fails where it is written with `module 'charts' is JavaScript, ship a .mini or a .wasm`, naming the runtime's extension. No JavaScript loads besides the host and its [host modules](./04-system.mdx).
-- `edge add`, `edge lock`, `edge build` and `edge publish` stop on a JavaScript module before they write anything.
+- `edge add`, `edge lock` and `edge build` stop on a JavaScript module before they write anything.
 
 ## Syntax
 
@@ -113,11 +113,11 @@ Bare names resolve through `edge.json`, the only manifest name. Every field is o
 
 | Field | Meaning |
 |---|---|
-| `imports` | Bare name to spec, a path, a URL or a `major.minor.patch` version of a registry package. One map holds every module, and the artifact behind each spec tells its kind. A version names a release only, and [`edge.lock`](#edgelock) says where its bytes are. |
+| `imports` | Bare name to spec, a path, a URL or a `major.minor.patch` version. One map holds every module, and the artifact behind each spec tells its kind. A version names a release only, and an [`edge.lock`](#edgelock) a package carries says where its bytes are. |
 | `permissions` | Which host module the program and each package may use, and what each may reach, as `module:scope` entries per holder. See [Permissions](./04-system.mdx#permissions). |
 | `extends` | A directory whose `edge.json` answers a name not declared locally. Use it for monorepo sub-packages that share the dependencies of a parent. Omit it for hermetic libraries. A cycle in the chain fails at compile time. |
 | `edge` | The lowest engine the project runs on, `major.minor.patch`. `edge init` writes the version that scaffolded the project, and omitting it runs anywhere. |
-| `name`, `version`, `description`, `repository`, `docs` | What a package carries into a registry. The compiler ignores all five, and their rules are in [Publishing](./07-registry.mdx#publishing). |
+| `name`, `version`, `description`, `repository`, `docs` | What a package names and describes itself with. The compiler ignores all five, and their rules are in [Package fields](./07-packages.mdx#package-fields). |
 
 - No import name may be the name of a host module, such as `net`. [Permissions](./04-system.mdx#permissions) grant those instead.
 - An engine older than `edge` stops with `this project needs edge 1.0.0, this is 0.9.7`. A dependency written for a later engine is refused where it loads, by the CLI and the browser alike.
@@ -140,24 +140,23 @@ Bare names resolve through `edge.json`, the only manifest name. Every field is o
 | Any other spec with a `/` | Joined against the nearest `edge.json` directory |
 | Anything else | A bare name for the walk-up |
 
-A module served from a URL reaches URLs alone, so a package from a registry never reads a local file. An import or a manifest target of such a module that starts with `/`, names another scheme or climbs past the host stops the run before anything compiles, as in `module '../../../../config.mini' is outside https://example.com/ which serves its importer`.
+A module served from a URL reaches URLs alone, so a package from GitHub never reads a local file. An import or a manifest target of such a module that starts with `/`, names another scheme or climbs past the host stops the run before anything compiles, as in `module '../../../../config.mini' is outside https://example.com/ which serves its importer`.
 
 ## edge.lock
 
-A version says which release a project wants. The `edge.lock` beside its `edge.json` says where that release is. [`edge lock`](../03-platforms/01-cli.mdx#edge-lock) writes it and every other command reads it, so a run resolves a name without asking a registry.
+The `edge.lock` beside an `edge.json` pins the bytes of each URL it declares. [`edge lock`](../03-platforms/01-cli.mdx#edge-lock) writes it and every other command reads it, so a run sees any change to those bytes.
 
 ```json
 {
   "slugs": {
-    "version": "0.1.0",
-    "url": "https://example.com/pkg/slugs/0.1.0/app.edge",
+    "url": "https://github.com/owner/slugs/releases/download/v0.1.0/app.edge",
     "digest": "sha256-eebcc05a565cf638a0a82e8669f923ad1023626d4dffd22cb1601bea4bb533bb"
   }
 }
 ```
 
-- The lock holds one entry per declared name and nothing transitive. A published package carries its own dependencies inside its `.edge`.
-- An entry for a bare URL records only the URL and the digest.
+- The lock holds one entry per declared name and nothing transitive. A packed package carries its own dependencies inside its `.edge`.
+- An entry for a declared version also records that `version`, and only a lock written by hand or carried by a package holds one.
 - A relative path has no entry. Its bytes are already in the project.
 - A URL that carries its own `#sha256-` has no entry. It already says what to expect.
 - A lock answers for the manifest it sits beside. A nested package and a packed `.edge` each carry their own.
@@ -203,7 +202,7 @@ help: declare it in edge.json, or use a relative import
 ```
 
 - The diagnostic is the same for a typo and for a package you forgot to declare.
-- The CLI adds the `help` line. A run asks no registry about a name nothing declares, so the hint reads the same for every name.
+- The CLI adds the `help` line, and the hint reads the same for every name.
 
 A name the module does not export fails at its import the same way.
 

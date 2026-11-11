@@ -1,43 +1,29 @@
 ---
-title: "Registry"
-description: "Publishing a package to a registry, the fields it holds and the docs it carries."
+title: "Packages"
+description: "The fields a package names itself with and the docs it carries."
 ---
 
-# Registry
+# Packages
 
-A registry stores the packages `edge publish` sends, and `edge add` and `edge lock` read it to resolve a name. A composition names the registry it asks with `registry(r)` in the [CLI kit](../02-sdk/16-cli.mdx).
+A package is a project other projects import. `edge build` packs it into a `.edge`, a tagged GitHub release can attach that file, and another project declares its URL with [`edge add`](../03-platforms/01-cli.mdx#edge-add-and-edge-remove) and pins it with `edge lock`.
 
-## Publishing
+## Package fields
 
-[`edge publish`](../03-platforms/01-cli.mdx#edge-publish) uploads a `.edge` packed by `edge build`. The artifact is the whole request.
-
-- The registry reads the name, the version, the description, the repository, the `LICENSE` and the doc pages out of the bytes it is about to store. A listing only ever shows what you shipped.
-- The artifact is stored exactly as it was packed.
-- The license comes from the `LICENSE` file the artifact carries and is not a manifest field.
-- A name is first come and permanent.
-- A version is never overwritten. Publishing the same one twice is refused with exit code 2.
-
-### Signing
-
-`EDGE_TOKEN` holds a token the registry issued. The CLI derives an Ed25519 key from it and signs the digest of the artifact with the current time. The registry keeps only the public key, and the token never leaves your machine.
-
-### Package fields
-
-The CLI and the registry check the shape of these `edge.json` fields with the same rules. The compiler ignores them.
+The CLI checks the shape of these `edge.json` fields with the engine's rules. The compiler ignores them.
 
 | Field | Rule |
 |---|---|
 | `name` | At most 40 lowercase letters, digits and single hyphens. Starts with a letter and does not end with a hyphen. |
 | `version` | `major.minor.patch`, each part 0 to 99 without leading zeros |
 | `description` | One line, not empty, 60 characters at most |
-| `repository` | An `https` URL a listing can link, 256 characters at most |
+| `repository` | An `https` URL, 256 characters at most |
 | `docs` | A relative directory inside the project |
 
 A name is never `all`, `main` or `eval`, which [permissions](./04-system.mdx#permissions) reserve. It is never the name of a host module either.
 
 ## Package docs
 
-When `edge.json` declares a `docs` directory, `edge build` packs every `.mdx` page under it into the `.edge`. A registry can render those pages beside the package. A page that breaks a rule below fails the build.
+When `edge.json` declares a `docs` directory, `edge build` packs every `.mdx` page under it into the `.edge`. A page that breaks a rule below fails the build.
 
 - A page nests two folders deep at most, a section, its groups and their pages.
 - Every path segment carries a numeric prefix, like `01-reference/02-cli.mdx`.
@@ -80,7 +66,7 @@ A blockquote whose first line is a marker draws a box. A blank line ends the box
 > - `book-open` [Modules](./03-modules.mdx) What edge.json declares.
 
 > [!BANNER] Ready to share it?
-> [Publish a package](./07-registry.mdx#publishing)
+> [Pack a package](./07-packages.mdx#package-fields)
 
-> [!COPY] edge add slugs
+> [!COPY] edge add slugs=./slugs.edge
 ```

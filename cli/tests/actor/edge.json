@@ -1,3 +1,5 @@
 {
-  "imports": {}
+  "imports": {
+    "remote": "https://example.com/remote.mini"
+  }
 }

@@ -7,10 +7,9 @@ const BIN: &str = env!("CARGO_BIN_EXE_edge");
 
 /* The edge binary with a private cache, remote modules resolve through the local CDN. */
 fn edge() -> Command {
-    let base = std::env::var("EDGE_CDN_BASE").unwrap_or_else(|_| panic!("set EDGE_CDN_BASE (make serve)"));
     let cache = std::env::temp_dir().join(format!("edge-actor-cache-{}", std::process::id()));
     let mut cmd = Command::new(BIN);
-    cmd.env("EDGE_CDN_BASE", base).env("XDG_CACHE_HOME", cache);
+    cmd.env("XDG_CACHE_HOME", cache);
     cmd
 }
 
@@ -698,45 +697,4 @@ fn the_control_port_refuses_a_rebound_host_and_a_web_page() {
     assert!(rebound.starts_with("HTTP/1.1 421") && nameless.starts_with("HTTP/1.1 200 OK"), "rebound was {rebound:?} and nameless {nameless:?}");
     assert!(page.starts_with("HTTP/1.1 403"), "page was {page:?}");
     assert!(stdout.contains("echo hi") && !stdout.contains("injected") && !stdout.contains("page"), "stdout was {stdout:?}");
-}
-
-/* an eval import awaiting a silent server holds up no actor and ends on time */
-#[test]
-fn an_eval_import_waiting_on_the_network_holds_up_no_actor() {
-    use std::io::BufRead;
-    use std::time::Instant;
-    // a server that takes every connection and never answers one
-    let silent = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let at = silent.local_addr().unwrap();
-    std::thread::spawn(move || {
-        let held: Vec<TcpStream> = silent.incoming().map_while(Result::ok).collect();
-        drop(held);
-    });
-    let scratch = std::env::temp_dir().join(format!("edge-actor-silent-{}", std::process::id()));
-    let _ = std::fs::create_dir_all(&scratch);
-    std::fs::write(scratch.join("edge.json"), r#"{ "imports": { "slow": "https://cdn.edgelang.dev/slow/mod.mini" } }"#).unwrap();
-    let manifest = scratch.join("actor.yml");
-    std::fs::write(&manifest, "runtime:\n  schedulers: 1\ngroups:\n  ask:\n    eval: true\n    limits:\n      timeout: 2\n    seed: [\"import slow\\nprint('never')\"]\n  echo:\n    code: print('echo', receive())\n    seed: [\"hi\"]\n").unwrap();
-    let started = Instant::now();
-    let mut child = edge().args(["actor", manifest.to_str().unwrap()]).env("EDGE_CDN_BASE", format!("http://{at}")).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
-    let stdout = child.stdout.take().unwrap();
-    let (tx, lines) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        for line in std::io::BufReader::new(stdout).lines().map_while(Result::ok) {
-            let _ = tx.send((started.elapsed().as_secs_f64(), line));
-        }
-    });
-    let echoed = lines.recv_timeout(Duration::from_secs(15));
-    let ended = (0..300).find_map(|_| {
-        std::thread::sleep(Duration::from_millis(50));
-        child.try_wait().ok().flatten().map(|status| (started.elapsed().as_secs_f64(), status))
-    });
-    let _ = child.kill();
-    let out = child.wait_with_output().unwrap();
-    let _ = std::fs::remove_dir_all(&scratch);
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    // the echo comes while the fetch waits and the pool ends at the eval deadline
-    let ok = matches!((&echoed, ended), (Ok((echo, line)), Some((end, status))) if line == "echo hi" && *echo + 1.0 < end && status.code() == Some(1));
-    assert!(ok, "the echo waited behind the fetch or the pool outlived the deadline, {echoed:?} {ended:?}");
-    assert!(stderr.contains("error: an eval run of group 'ask' failed") && stderr.contains("time limit"), "stderr {stderr:?}");
 }

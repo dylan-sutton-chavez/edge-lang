@@ -36,12 +36,10 @@ Inside the crate, `cli/examples/runner.rs` wires `run` and `test` over the embed
 | `module(m)` | A host module programs may import, whose name no import or package may take |
 | `access(a)` | The grant component, in place of the kit's `Open` |
 | `title(t)`, `site(s)` | The first line of the help, and the site the help names last |
-| `origin(o)`, `registry(r)` | The origin package urls start with, the only one an untrusted run fetches from, and the registry the package commands ask |
 | `upgrade(h)` | The help a binary too old for a project prints |
 | `limits(l)` | What every run may spend and hold where its command line names no limit, the sandbox's limits unless set |
 | `main()` | Parses the arguments and exits with the code of the command they name |
 
-Tests and staging move the origin and the registry with two variables named after the binary, `<NAME>_CDN_BASE` and `<NAME>_SITE_BASE`, so `edge` reads `EDGE_CDN_BASE` and `EDGE_SITE_BASE`. A kit that names no origin reads only `<NAME>_SITE_BASE`, and only for a command that asks the registry, so uptime reads no `UPTIME_CDN_BASE`.
 
 ## The runtime is an input
 
@@ -102,7 +100,6 @@ Inside `run`, a command reaches the core through the kit. `descriptor()` gives t
 | `build` | `cmd::build::Build` | `build`, which packs a `.edge` bundle or an app binary |
 | `serve` | `cmd::serve::Serve` | `serve`, the dev server |
 | `packages` | `cmd::pkg::Add`, `Remove` and `Lock` | `add`, `remove` and `lock` |
-| `publish` | `cmd::publish::Publish` and `publish::FIELDS` | `publish` and the registry fields `name`, `version`, `description` and `repository` |
 | `uninstall` | `cmd::uninstall::Uninstall` | `uninstall` |
 | `actors` | `cmd::actors::Actor` | `actor`, a pool of cooperative actors |
 | `actors-server` | `cmd::actors::server` | The live server a pool becomes with `listen` |

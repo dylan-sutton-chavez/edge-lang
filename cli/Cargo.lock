@@ -322,7 +322,6 @@ name = "cli"
 version = "0.9.7"
 dependencies = [
  "anyhow",
- "base64 0.22.1",
  "clap",
  "data",
  "edge",
@@ -330,7 +329,6 @@ dependencies = [
  "headless_chrome",
  "mini",
  "mio",
- "ring",
  "serde",
  "serde_json",
  "serde_yaml_ng",

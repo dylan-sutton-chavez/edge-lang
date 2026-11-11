@@ -1,4 +1,4 @@
-use super::{admitted, cache_root, cdn, get, Access, Hosting, Packages, Senders, Serve, Wiring};
+use super::{cache_root, get, Access, Hosting, Packages, Senders, Serve, Wiring};
 use edge::deps::{parse_integrity, system_spec};
 use edge::util::sha256::{hex_encode, sha256};
 use serde_json::Value;
@@ -319,8 +319,8 @@ fn module(project: &Project, target: &str, pin: Option<[u8; 32]>) -> Source {
         }
     }
     if target.contains("://") {
-        // an untrusted run reads remote modules from the origin its composition names only
-        if project.untrusted && !admitted(target) {
+        // an untrusted run reads no remote module
+        if project.untrusted {
             return Source::Here(Answer::Failed(format!("module '{target}' is not available to untrusted eval runs")));
         }
         return Source::Remote(Remote { url: target.to_string(), pin, kind: Kind::Module });
@@ -335,7 +335,7 @@ fn module(project: &Project, target: &str, pin: Option<[u8; 32]>) -> Source {
 /* a remote manifest or `None` when absent with a 404 leaving a `.missing` marker */
 fn fetch_manifest(url: &str) -> Option<Vec<u8>> {
     let dir = cache_dir().ok()?;
-    let marker = dir.join(format!("{}.missing", hex_encode(&sha256(cdn(url).as_bytes()))));
+    let marker = dir.join(format!("{}.missing", hex_encode(&sha256(url.as_bytes()))));
     if marker.exists() {
         return None;
     }
@@ -354,9 +354,7 @@ fn fetch_manifest(url: &str) -> Option<Vec<u8>> {
 pub fn fetch_cached(url: &str, expected: Option<[u8; 32]>) -> Result<Vec<u8>, String> {
     let dir = cache_dir()?;
     let ext = url.rsplit('.').next().unwrap_or("bin");
-    // keyed by the address actually fetched so a staging origin never fills a production entry
-    let source = cdn(url);
-    let file = dir.join(format!("{}.{ext}", hex_encode(&sha256(source.as_bytes()))));
+    let file = dir.join(format!("{}.{ext}", hex_encode(&sha256(url.as_bytes()))));
     let lock = file.with_extension(format!("{ext}.lock"));
     if file.exists() {
         let bytes = std::fs::read(&file).map_err(|e| format!("cannot read cached '{url}': {e}"))?;
@@ -367,11 +365,11 @@ pub fn fetch_cached(url: &str, expected: Option<[u8; 32]>) -> Result<Vec<u8>, St
             Err(_) => {}
         }
     }
-    let mut resp = get(&source).map_err(|e| match e {
-        ureq::Error::StatusCode(404 | 410) => format!("fetching '{source}': {ABSENT}"),
-        e => format!("fetching '{source}': {e}"),
+    let mut resp = get(url).map_err(|e| match e {
+        ureq::Error::StatusCode(404 | 410) => format!("fetching '{url}': {ABSENT}"),
+        e => format!("fetching '{url}': {e}"),
     })?;
-    let bytes = super::body(&mut resp).map_err(|e| format!("reading '{source}': {e}"))?;
+    let bytes = super::body(&mut resp).map_err(|e| format!("reading '{url}': {e}"))?;
     let got = check_pin(url, &bytes, None, expected)?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("creating cache dir: {e}"))?;
     // a temp file and a rename keep a truncated download out of the shared cache

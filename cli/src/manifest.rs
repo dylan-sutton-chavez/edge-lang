@@ -5,7 +5,15 @@ use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use crate::kit::Kit;
+use crate::kit::{Field, Kit};
+
+/* the keys a package names and describes itself with in save order */
+pub const FIELDS: &[Field] = &[
+    Field { name: "name", check: string, reserves: &[] },
+    Field { name: "version", check: string, reserves: &[] },
+    Field { name: "description", check: string, reserves: &[] },
+    Field { name: "repository", check: string, reserves: &[] },
+];
 
 /* the manifest as the core reads it with every other key kept as written */
 #[derive(Default)]
@@ -28,7 +36,7 @@ impl Manifest {
         }
         let text = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
         let value: Value = serde_json::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
-        // the engine rules the registry also runs so a build never packs what it refuses
+        // the engine rules so a build never packs a manifest they refuse
         let at = path.display();
         let parsed = parse_manifest(text.as_bytes()).map_err(|e| anyhow!("edge.json at '{at}': {e}"))?;
         rules::check(&parsed, &kit.reserved(), &kit.holders()).map_err(|e| anyhow!("edge.json at '{at}': {e}"))?;
@@ -114,7 +122,7 @@ mod tests {
     }
 
     #[test]
-    fn the_registry_fields_round_trip() {
+    fn the_package_fields_round_trip() {
         let m = load(r#"{ "name": "slugify", "version": "0.1.0", "description": "Turn text into a slug.", "repository": "https://github.com/x/slugify", "docs": "./docs" }"#).unwrap();
         assert_eq!(m.text("name"), Some("slugify"));
         assert_eq!(m.text("version"), Some("0.1.0"));
@@ -123,7 +131,7 @@ mod tests {
     }
 
     #[test]
-    fn a_manifest_without_the_registry_fields_still_loads() {
+    fn a_manifest_without_the_package_fields_still_loads() {
         let m = load(r#"{ "imports": { "json": "https://x/json.wasm" } }"#).unwrap();
         assert!(m.text("name").is_none() && m.text("version").is_none() && m.text("docs").is_none());
         assert_eq!(m.imports.get("json").map(String::as_str), Some("https://x/json.wasm"));
@@ -131,7 +139,7 @@ mod tests {
 
     /* the engine holds the rules and the CLI applies them naming the file it read */
     #[test]
-    fn the_fields_a_registry_would_turn_away_are_refused() {
+    fn the_fields_the_engine_rules_turn_away_are_refused() {
         for (body, want) in [
             (r#"{ "name": "Slugify" }"#, "must be lowercase"),
             (r#"{ "name": "quiet" }"#, "is reserved for the system module"),
@@ -194,7 +202,6 @@ mod tests {
     }
 
     /* a rewrite lays out declared fields first then the core and the rest */
-    #[cfg(feature = "publish")]
     #[test]
     fn a_rewrite_leads_with_the_declared_fields() {
         let dir = tempfile::tempdir().unwrap();

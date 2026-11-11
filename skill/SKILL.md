@@ -1,6 +1,6 @@
 ---
 name: edge
-description: Run, test, pack and publish Edge Lang projects with the edge CLI, with their imports, permissions, actor pools and sandbox limits. Use when working in an Edge Lang project or when the user asks how to use the edge CLI.
+description: Run, test and pack Edge Lang projects with the edge CLI, with their imports, permissions, actor pools and sandbox limits. Use when working in an Edge Lang project or when the user asks how to use the edge CLI.
 ---
 
 # Edge Lang
@@ -9,7 +9,7 @@ This document is self-verifying and its examples follow the cells v1 grammar. A 
 
 Edge Lang is an engine for building language runtimes, a single-pass compiler to bytecode and a register VM in one WebAssembly binary. The `edge` CLI runs mini, the reference runtime built on it, on macOS, Linux and WSL, and the JS host runs the same `edge.wasm` in browsers and in JavaScript runtimes such as Deno. Mini opens a block with a header colon and deeper indentation, writes `fn`, `true`, `false`, `nil`, `&&`, `||`, `!` and `else if`, starts a comment with `//` and divides toward zero at `~/`, where `%` takes the sign of the number it divides. A test reads `nil`, `false`, `0`, NaN and `""` as false and every list, map, set and tuple as true, empty or not. Every module is a file or a package declared in `edge.json` and resolved at compile time. Programs are deterministic, and a program reaches no network or file unless its `edge.json` grants it.
 
-Use this skill to drive the edge CLI. It covers running, testing, packing and publishing a project, declaring what it imports, granting it the network and files, running actor pools and staying inside the sandbox limits.
+Use this skill to drive the edge CLI. It covers running, testing and packing a project, declaring what it imports, granting it the network and files, running actor pools and staying inside the sandbox limits.
 
 ## The working loop
 
@@ -26,12 +26,12 @@ cd myapp
 edge run main.mini                       # run the entry point
 echo 'assert 6 * 7 == 42' > answer_test.mini
 edge test                                # run every *_test.mini under the folder
-edge add slugify=./slugify_mod.wasm      # declare a module by path, by URL or by registry name
-edge lock                                # pin each declared version and URL in edge.lock
+edge add slugify=./slugify_mod.wasm      # declare a module by path or by URL
+edge lock                                # pin each declared URL in edge.lock
 edge build                               # pack a portable ./app.edge bundle
 ```
 
-`edge init` writes `main.mini`, which prints one line, an `index.html` that runs it in a browser, and an `edge.json` holding only the engine that made it.
+`edge init` writes `main.mini`, which prints one line, an `index.html` that runs it in a browser on the JS host `edge build --web` writes to `dist/`, and an `edge.json` holding only the engine that made it. Its last line names `edge build --web && edge serve`.
 
 ```json
 {
@@ -100,9 +100,9 @@ checked 1 service
 
 `edge init [name]` scaffolds `main.mini`, `edge.json` and `index.html` in a new directory, or in the current one with no name. `--bare` skips the HTML. It never overwrites a file, and refuses with the name of the first one that already exists.
 
-`edge add <name>` looks a name up in the registry at its newest version, or at the one `<name>@0.1.0` names, writes one `imports` entry holding that version alone, and prints it with what the package asks the root to grant. `edge add foo=<url>` or `edge add foo=./path` registers a custom spec verbatim, also under `imports`, since each host tells a `.mini` and a `.wasm` module apart by the artifact, and a `.js` or `.mjs` spec is refused before anything is written. `edge add` keeps `extends` and any other key already there. `edge remove` deletes entries. Unknown names abort the whole command before any write, and neither command touches `edge.lock`.
+`edge add foo=<url>` or `edge add foo=./path` writes the spec verbatim under `imports` and prints it with what the package asks the root to grant. A URL can be a raw file or a release asset on GitHub, such as `https://github.com/owner/foo/releases/download/v0.1.0/app.edge`. Each host tells a `.mini` and a `.wasm` module apart by the artifact, and a `.js` or `.mjs` spec is refused before anything is written. `edge add` keeps `extends` and any other key already there. `edge remove` deletes entries. A spec without a URL or a path, such as a bare name or a version, aborts the whole command before any write, and neither command touches `edge.lock`.
 
-`edge lock` turns each declared version into the URL and digest of that release, pins each bare URL to the digest of its bytes, and writes `edge.lock` beside the manifest, rebuilding the whole file each time. It is the only command that asks the registry where a name points, so `edge run`, `edge test` and `edge build` read the lock and resolve nothing themselves. A version with no entry, or one whose entry holds another release, fails with `'<name>' is not locked, run edge lock`. It also walks every package in the tree, each through its own `edge.lock`, and writes nothing while a package lacks what it lists from its importer. `edge run` and `edge test` repeat that check on the nearest `edge.json` above the script or the tested path before compiling, and `edge build` on the project's own.
+`edge lock` pins each declared URL to the digest of its bytes and writes `edge.lock` beside the manifest, rebuilding the whole file each time, so `edge run`, `edge test` and `edge build` refuse bytes other than the ones it pins. A declared version names no source and `edge lock` refuses it. It also walks every package in the tree, each through its own `edge.lock`, and writes nothing while a package lacks what it lists from its importer. `edge run` and `edge test` repeat that check on the nearest `edge.json` above the script or the tested path before compiling, and `edge build` on the project's own.
 
 ### edge serve
 
@@ -120,10 +120,6 @@ Three mutually exclusive modes.
 
 `--out <path>` overrides the default. The bundle contains every `.mini` and `.wasm` under the project plus `edge.json`, each `edge.lock`, the `README.md` and any `LICENSE` at the project root, together with each module the manifest declares by URL and the files it imports. When `edge.json` declares a `docs` directory, a `.edge` also carries its `.mdx` pages under a reserved `@docs/` prefix, checked against the rendering convention first, and an app binary leaves them out. The entry is `main.mini`, `app.mini` or `index.mini`, the first present. An app binary accepts only the snapshot flags `--save-state`, `--restore-state`, `--preempt` and `--events`.
 
-### edge publish
-
-`edge publish app.edge` uploads a `.edge` packed by `edge build`, to the registry the composition names, reading `EDGE_TOKEN` for a token that registry issued, which signs the request and never leaves the machine. The artifact is the whole request. The registry opens it and reads the `name`, the `version`, the description, the repository, the `LICENSE` and the pages under `@docs/` out of the bytes it is about to store, so nothing is declared twice and a listing shows what you shipped. A name is first come and permanent, a version is never overwritten and publishing one twice exits 2, and the bundle is stored exactly as packed.
-
 ### edge actor
 
 `edge actor <file>` runs an actor pool from an `actor.yml` manifest, resolving group imports through the `edge.json` beside it or the one `--manifest` names. See the actors section for the schema and the two execution models.
@@ -136,10 +132,7 @@ Interactive removal of the binary and PATH entries.
 
 | Variable | Effect |
 |---|---|
-| `EDGE_TOKEN` | The registry token `edge publish` signs with |
 | `EDGE_CHROME_PATH` | The browser `--web` drives |
-| `EDGE_CDN_BASE` | Serve the composition's origin from another base for module downloads and `edge build --web`, used by tests and staging |
-| `EDGE_SITE_BASE` | Ask another registry than the one the composition names, used by tests and staging |
 | `EDGE_WASM` | Path to the `edge.wasm` a build of the CLI embeds |
 
 ## Imports
@@ -156,7 +149,7 @@ from lib.helpers import slug as sl
 
 Not supported. `from . import x` and any form of dynamic import.
 
-Bare names resolve through `edge.json`, walking up from the importing file with the nearest manifest winning. The manifest maps each name to a path, a URL, or a `major.minor.patch` version naming a registry package under `imports`, and `extends` may name a parent manifest. A version resolves through the `edge.lock` beside the manifest that declared it, which every host reads before the compiler sees the manifest, so the compiler only ever meets a path or a URL. An `edge` field names the lowest engine the project runs on, `major.minor.patch`, and it runs on that version or any later one, never on an earlier one, which stops with `this project needs edge 1.0.0, this is 0.9.7`. The artifact decides the kind, `.mini` is a code module and `.wasm` a native plugin, so a manifest never classifies a package, and a `.js` or `.mjs` import fails with `module 'charts' is JavaScript, ship a .mini or a .wasm`, since no JavaScript loads besides the host itself. `permissions` grants the host modules, see that section. `name`, `version`, `description`, `repository` and `docs` are the registry fields, ignored by the compiler and shape-checked by the CLI. Only what nothing else supplies belongs there, so an author and a date come from the publishing account and the license is read from the packed `LICENSE` file.
+Bare names resolve through `edge.json`, walking up from the importing file with the nearest manifest winning. The manifest maps each name to a path, a URL, or a `major.minor.patch` version under `imports`, and `extends` may name a parent manifest. A version resolves through the `edge.lock` beside the manifest that declared it, such as the one a packed package carries, which every host reads before the compiler sees the manifest, so the compiler only ever meets a path or a URL. An `edge` field names the lowest engine the project runs on, `major.minor.patch`, and it runs on that version or any later one, never on an earlier one, which stops with `this project needs edge 1.0.0, this is 0.9.7`. The artifact decides the kind, `.mini` is a code module and `.wasm` a native plugin, so a manifest never classifies a package, and a `.js` or `.mjs` import fails with `module 'charts' is JavaScript, ship a .mini or a .wasm`, since no JavaScript loads besides the host itself. `permissions` grants the host modules, see that section. `name`, `version`, `description`, `repository` and `docs` are the package fields, ignored by the compiler and shape-checked by the CLI, and the license is read from the packed `LICENSE` file.
 
 ```json
 {
@@ -167,7 +160,7 @@ Bare names resolve through `edge.json`, walking up from the importing file with 
 }
 ```
 
-A registry name resolves only when declared, `edge add <name>` then `edge lock` writes each entry, and an undeclared name fails at compile time.
+A bare name resolves only when declared, `edge add <name>=<url>` then `edge lock` writes each entry, and an undeclared name fails at compile time.
 
 ```mini
 import nothere
@@ -177,7 +170,7 @@ import nothere
 module 'nothere' is not provided by this host and no edge.json declares it
 ```
 
-The CLI adds a `help:` line that says to declare the name or import it by a relative path, and a run asks no registry about it. Modules are singletons with shared mutable state, and an import cycle fails at compile time with `circular import: '<spec>'` naming the module it comes back to.
+The CLI adds a `help:` line that says to declare the name or import it by a relative path. Modules are singletons with shared mutable state, and an import cycle fails at compile time with `circular import: '<spec>'` naming the module it comes back to.
 
 ## Snapshots
 
@@ -290,7 +283,7 @@ got hello
 
 ### The untrusted model
 
-`eval: true` groups compile each message as its own program in a fresh wasm instance with its own memory, capped by the `memory` limit of the group and by three times that plus 64 MiB of linear memory, and cut off by a deadline the host enforces from outside after `limits: timeout:` seconds of wall-clock time, waits included, ten unless set and at most 300. An eval group holds four actors unless `replicas` says otherwise. No state survives between messages. A bundle that carries its own `edge.json` resolves through it, any other message through the manifest of the pool. Either way `.wasm` plugins are refused, remote modules load only from the origin the composition names, and `send()` has no scheduler, so a send raises and the pool names the group it asked for. A bundle grants its own permissions in its own `edge.json` as any root does, but only within what the pool grants `eval`, so an entry past it refuses the run before it compiles, and a snippet holds nothing. A failed eval run prints its traceback under its group and counts as a crash. A `code` or `run` group is trusted instead, it keeps state, can send and can use `net` and `files` under the grants of the pool, so reach for `eval` when the code is not yours.
+`eval: true` groups compile each message as its own program in a fresh wasm instance with its own memory, capped by the `memory` limit of the group and by three times that plus 64 MiB of linear memory, and cut off by a deadline the host enforces from outside after `limits: timeout:` seconds of wall-clock time, waits included, ten unless set and at most 300. An eval group holds four actors unless `replicas` says otherwise. No state survives between messages. A bundle that carries its own `edge.json` resolves through it, any other message through the manifest of the pool. Either way `.wasm` plugins and remote modules are refused, and `send()` has no scheduler, so a send raises and the pool names the group it asked for. A bundle grants its own permissions in its own `edge.json` as any root does, but only within what the pool grants `eval`, so an entry past it refuses the run before it compiles, and a snippet holds nothing. A failed eval run prints its traceback under its group and counts as a crash. A `code` or `run` group is trusted instead, it keeps state, can send and can use `net` and `files` under the grants of the pool, so reach for `eval` when the code is not yours.
 
 ```yml untrusted
 groups:

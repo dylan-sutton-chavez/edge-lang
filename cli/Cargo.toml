@@ -36,12 +36,12 @@ required-features = ["files", "perms", "run"]
 name = "native"
 path = "tests/native.rs"
 harness = false
-required-features = ["docs", "files", "net", "perms", "publish", "run", "test", "web"]
+required-features = ["docs", "files", "net", "perms", "run", "test", "web"]
 
 # each command sits behind its own feature and the edge binary wires them all
 [features]
 default = ["all", "wasm"]
-all = ["actors", "actors-server", "build", "docs", "embed", "files", "init", "net", "packages", "perms", "publish", "run", "serve", "test", "uninstall", "web"]
+all = ["actors", "actors-server", "build", "docs", "embed", "files", "init", "net", "packages", "perms", "run", "serve", "test", "uninstall", "web"]
 actors = ["wasm", "dep:serde_yaml_ng", "dep:slab"]
 # the live server an actor pool becomes with its ingress control endpoint and durable log
 actors-server = ["actors", "dep:mio", "dep:signal-hook"]
@@ -59,7 +59,6 @@ net = ["dep:flate2", "dep:tungstenite"]
 packages = []
 # the grants a manifest writes for each package it imports held through one shared logic
 perms = []
-publish = ["dep:ring", "dep:base64"]
 run = []
 serve = ["dep:tiny_http"]
 test = []
@@ -86,9 +85,6 @@ serde_yaml_ng = { version = "0.10", optional = true }
 anyhow = "1"
 # HTTPS for URL imports and `edge build` vendoring.
 ureq = { version = "3", features = ["brotli"] }
-# Signs a publish with the token secret, on the ring and base64 ureq already brings.
-ring = { version = "0.17", optional = true }
-base64 = { version = "0.22", optional = true }
 # Stable actor keys that survive removal, so the scheduler queues never dangle.
 slab = { version = "0.4", optional = true }
 # One thread serves every ingress connection, epoll or kqueue waking it for those with data.

@@ -6,8 +6,6 @@ pub mod build;
 pub mod init;
 #[cfg(feature = "packages")]
 pub mod pkg;
-#[cfg(feature = "publish")]
-pub mod publish;
 #[cfg(feature = "run")]
 pub mod run;
 #[cfg(feature = "serve")]

@@ -73,8 +73,12 @@ fn run(kit: &Kit, name: Option<&str>, bare: bool) -> Result<()> {
     let items: Vec<&str> = files.iter().map(|(name, _)| *name).collect();
 
     // the next step names a command this composition wires
-    let step = if page && kit.wires("serve") { "serve".to_string() } else { format!("run {}", d.entry()) };
-    let next = if dir == "." { format!("{} {step}", kit.name()) } else { format!("cd {dir} && {} {step}", kit.name()) };
+    let name = kit.name();
+    let step = match page && kit.wires("serve") && kit.wires("build") {
+        true => format!("{name} build --web && {name} serve"),
+        false => format!("{name} run {}", d.entry()),
+    };
+    let next = if dir == "." { step } else { format!("cd {dir} && {step}") };
     crate::ui::scaffolded(dir, &items, &next);
     Ok(())
 }

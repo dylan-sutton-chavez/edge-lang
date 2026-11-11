@@ -268,7 +268,7 @@ fn project_file(root: &Path, path: &str, d: &Descriptor) -> Option<(Vec<u8>, &'s
     Some((std::fs::read(&file).ok()?, content_type(&file, d)))
 }
 
-/* the same `js/` prefix a dist and the CDN use so harness imports read alike */
+/* the same `js/` prefix a dist and the release tree use so harness imports read alike */
 fn host_file(path: &str, d: &Descriptor) -> Option<(Vec<u8>, &'static str)> {
     let rel = path.strip_prefix("js/")?;
     let (_, bytes) = JS_HOST.iter().find(|(key, _)| *key == rel)?;

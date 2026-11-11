@@ -21,7 +21,7 @@ CLI_INPUTS := $(if $(EDGE_WASM),,wasm-cli) $(if $(EDGE_JS_DIST),,js) lucide
 CLI_COMPONENTS := $(shell sed -n 's/^all = \[\(.*\)\]$$/\1/p' cli/Cargo.toml | tr -d '",')
 
 # the components the native test wires which build no wasmtime
-CLI_NATIVE := docs,files,net,perms,publish,run,test,web
+CLI_NATIVE := docs,files,net,perms,run,test,web
 CLI_TEST_engine := --lib --bin edge --test cli --test run --test native -- --skip net_suite
 # the channels test fetches the pinned hour so it runs with the network cases
 CLI_TEST_network := --test cli --test channels net_suite

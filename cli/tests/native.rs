@@ -1,8 +1,7 @@
-mod common;
 mod suite;
 
-use cli::cmd::{publish, run, test};
-use cli::{docs, files, net, perms, Kit, Runtime};
+use cli::cmd::{run, test};
+use cli::{docs, files, manifest, net, perms, Kit, Runtime};
 use std::sync::Arc;
 use suite::{net, suite, Bin};
 
@@ -18,7 +17,7 @@ fn kit() -> Kit {
         .title(format!("The Edge Lang developer CLI for {} run natively", mini::DESCRIPTOR.language))
         .command(run::Run)
         .command(test::Test)
-        .fields(publish::FIELDS)
+        .fields(manifest::FIELDS)
         .field(docs::FIELD)
         .field(perms::FIELD)
         .module(Arc::new(net::Net))

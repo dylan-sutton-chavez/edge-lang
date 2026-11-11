@@ -1,5 +1,5 @@
-use cli::cmd::{actors, build, init, pkg, publish, run, serve, test, uninstall};
-use cli::{docs, files, net, perms, Kit, Runtime};
+use cli::cmd::{actors, build, init, pkg, run, serve, test, uninstall};
+use cli::{docs, files, manifest, net, perms, Kit, Runtime};
 use std::sync::Arc;
 
 // the reference runtime built from examples/mini which this binary embeds
@@ -13,8 +13,6 @@ fn edge() -> Kit {
     Kit::new("edge", env!("CARGO_PKG_VERSION"), runtime)
         .title(format!("The Edge Lang developer CLI for {}", mini::DESCRIPTOR.language))
         .site("github.com/dylan-sutton-chavez/edge-lang")
-        .origin("https://cdn.edgelang.dev")
-        .registry("https://edgelang.dev")
         .upgrade("git pull in your edge-lang clone, then make wasm-cli js lucide and cargo install --path cli")
         .command(run::Run)
         .command(build::Build)
@@ -22,12 +20,11 @@ fn edge() -> Kit {
         .command(serve::Serve)
         .command(test::Test)
         .command(init::Init)
-        .command(publish::Publish)
         .command(pkg::Add)
         .command(pkg::Remove)
         .command(pkg::Lock)
         .command(uninstall::Uninstall)
-        .fields(publish::FIELDS)
+        .fields(manifest::FIELDS)
         .field(docs::FIELD)
         .field(perms::FIELD)
         .module(Arc::new(net::Net))

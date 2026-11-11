@@ -103,7 +103,7 @@
     "copy": { "pkg/slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm" },
     "run": ["build", "--app"],
     "creates": ["app"],
-    "then": { "bin": "./app", "env": { "EDGE_CDN_BASE": "http://127.0.0.1:1", "XDG_CACHE_HOME": "empty-cache" }, "stdout": ["A-B!"] }
+    "then": { "bin": "./app", "env": { "XDG_CACHE_HOME": "empty-cache" }, "stdout": ["A-B!"] }
   },
   {
     "given": {

@@ -29,3 +29,7 @@ post:
   - path: "/eval/runners"
     body: "send('g', 'x')"
     expect: "send() needs an actor scheduler, missing in this runtime"
+  # an eval run reads no remote module so it fails before any request
+  - path: "/eval/runners"
+    body: "import remote"
+    expect: "module 'https://example.com/remote.mini' is not available to untrusted eval runs"

@@ -47,9 +47,6 @@ fn spawn(mut cmd: Command, stdin_data: &str, timeout: Duration) -> Result<Outcom
 /* the manifest every cell runs under since no cell imports a package */
 pub const MANIFEST: &str = "{}\n";
 
-// a port nothing listens on so a cell asking any server fails at once
-const NOWHERE: &str = "http://127.0.0.1:9";
-
 // A fresh scratch dir, one per cell so runs never share files.
 fn fresh() -> Result<std::path::PathBuf, String> {
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -60,16 +57,9 @@ fn fresh() -> Result<std::path::PathBuf, String> {
     Ok(dir)
 }
 
-/* the edge binary with every server it could ask moved to a closed port */
-fn offline(edge: &str) -> Command {
-    let mut cmd = Command::new(edge);
-    cmd.env("EDGE_SITE_BASE", NOWHERE).env("EDGE_CDN_BASE", NOWHERE);
-    cmd
-}
-
 pub fn run_script(edge: &str, src: &str, timeout: Duration) -> Result<Outcome, String> {
     let dir = fresh()?;
-    let mut cmd = offline(edge);
+    let mut cmd = Command::new(edge);
     cmd.arg("run").arg("--manifest").arg(dir.join("edge.json"));
     let outcome = spawn(cmd, src, timeout);
     let _ = std::fs::remove_dir_all(&dir);
@@ -80,7 +70,7 @@ pub fn run_actor(edge: &str, yml: &str, timeout: Duration) -> Result<Outcome, St
     let dir = fresh()?;
     let path = dir.join("actor.yml");
     std::fs::write(&path, yml).map_err(|e| format!("write actor.yml failed: {e}"))?;
-    let mut cmd = offline(edge);
+    let mut cmd = Command::new(edge);
     cmd.arg("actor").arg(&path);
     let outcome = spawn(cmd, "", timeout);
     let _ = std::fs::remove_dir_all(&dir);

@@ -2,17 +2,19 @@
 
 set -e
 
-BASE="${EDGE_INSTALL_BASE:-https://cdn.edgelang.dev/cli}"
+REPO="${EDGE_INSTALL_REPO:-https://github.com/dylan-sutton-chavez/edge-lang}"
 INSTALL_DIR="${EDGE_INSTALL_DIR:-$HOME/.local/bin}"
 
-# An optional vX.Y.Z reads the frozen copy of that release, no argument reads the latest.
+# an optional vX.Y.Z reads the tree its release attached and none reads the latest
 version="${1:-}"
 if [ -n "$version" ]; then
   printf '%s\n' "$version" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || {
     echo "bad version: $version, expected vX.Y.Z" >&2
     exit 1
   }
-  BASE="${BASE%/cli}/$version/cli"
+  TREE="$REPO/releases/download/$version/cdn.tar.gz"
+else
+  TREE="$REPO/releases/latest/download/cdn.tar.gz"
 fi
 
 case "$(uname -s)" in
@@ -41,16 +43,17 @@ sha256() {
 echo "downloading edge (${target})..."
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
-curl -fsSL -o "$tmp/$archive" "${BASE}/${archive}"
-# a pinned EDGE_INSTALL_SHA256 wins over the digest published beside the archive
-want="${EDGE_INSTALL_SHA256:-$(curl -fsSL "${BASE}/${archive}.sha256" | cut -d' ' -f1)}"
-got="$(sha256 "$tmp/$archive")"
+curl -fsSL -o "$tmp/cdn.tar.gz" "$TREE"
+tar -xzf "$tmp/cdn.tar.gz" -C "$tmp" ./cli
+# a pinned EDGE_INSTALL_SHA256 wins over the digest the tree holds beside the archive
+want="${EDGE_INSTALL_SHA256:-$(cat "$tmp/cli/$archive.sha256" 2>/dev/null | cut -d' ' -f1)}"
+got="$(sha256 "$tmp/cli/$archive" 2>/dev/null)"
 if [ -z "$want" ] || [ "$got" != "$want" ]; then
   echo "the download of $archive does not match its sha256 ${want:-(none published)}, got $got" >&2
   exit 1
 fi
 mkdir -p "$INSTALL_DIR"
-tar -xzf "$tmp/$archive" -C "$INSTALL_DIR" edge
+tar -xzf "$tmp/cli/$archive" -C "$INSTALL_DIR" edge
 chmod +x "$INSTALL_DIR/edge"
 echo "installed $INSTALL_DIR/edge"
 

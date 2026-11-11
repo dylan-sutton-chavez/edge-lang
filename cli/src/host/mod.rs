@@ -41,15 +41,11 @@ pub const FETCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60
 // the most one download may hold since the largest module is well under a megabyte
 pub const MAX_FETCH_BYTES: u64 = 64 << 20;
 
-/* where a composition's packages come from and what its caches and variables are named */
+/* what a composition's caches are named after */
 #[derive(Clone, Debug, Default)]
 pub struct Names {
-    // the binary's name which its cache dirs and variables follow
+    // the binary's name which its cache dirs follow
     pub name: String,
-    // the origin package urls start with which untrusted runs alone may fetch from
-    pub origin: Option<String>,
-    // the registry the package commands ask
-    pub registry: Option<String>,
 }
 
 static NAMES: OnceLock<Names> = OnceLock::new();
@@ -58,7 +54,7 @@ static NAMES: OnceLock<Names> = OnceLock::new();
 pub fn names() -> &'static Names {
     NAMES.get_or_init(|| {
         let name = std::env::current_exe().ok().and_then(|exe| exe.file_stem().map(|stem| stem.to_string_lossy().into_owned()));
-        Names { name: name.unwrap_or_default(), origin: None, registry: None }
+        Names { name: name.unwrap_or_default() }
     })
 }
 
@@ -72,39 +68,6 @@ pub fn lock_help(msg: &str) -> String {
     match msg.ends_with(&format!(" in {}", edge::deps::lock::FILE)) {
         true => format!("{msg}\nhelp: run {} lock", names().name),
         false => msg.to_string(),
-    }
-}
-
-/* a variable of the composition such as `EDGE_CDN_BASE` named after its binary */
-fn variable(suffix: &str) -> Option<String> {
-    let name = names().name.to_ascii_uppercase().replace('-', "_");
-    std::env::var(format!("{name}_{suffix}")).ok()
-}
-
-/* the registry endpoint for `path` which tests and staging move with `<NAME>_SITE_BASE` */
-pub fn site(path: &str) -> Result<String, String> {
-    let base = variable("SITE_BASE").or_else(|| names().registry.clone()).ok_or_else(|| format!("{} names no registry to ask", names().name))?;
-    Ok(format!("{}{path}", base.trim_end_matches('/')))
-}
-
-/* tests and staging serve the composition's origin from `<NAME>_CDN_BASE` which production never sets */
-pub fn cdn(url: &str) -> String {
-    match &names().origin {
-        Some(origin) => rebase(origin, url, variable("CDN_BASE").as_deref(), variable("SITE_BASE").is_some()),
-        None => url.to_string(),
-    }
-}
-
-/* whether an untrusted run may fetch `url` which only the composition's origin serves */
-pub fn admitted(url: &str) -> bool {
-    names().origin.as_ref().is_some_and(|origin| url.strip_prefix(origin.as_str()).is_some_and(|rest| rest.starts_with('/')))
-}
-
-// real registry packages live only on the real CDN and move only with the registry
-fn rebase(origin: &str, url: &str, base: Option<&str>, registry_moved: bool) -> String {
-    match (url.strip_prefix(origin), base) {
-        (Some(path), Some(base)) if registry_moved || !path.starts_with("/pkg/") => format!("{}{path}", base.trim_end_matches('/')),
-        _ => url.to_string(),
     }
 }
 
@@ -313,18 +276,6 @@ impl RunLimits {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // a package follows its registry while everything built comes from the staged CDN
-    #[test]
-    fn a_staged_run_reads_its_cdn_but_the_real_registrys_packages() {
-        let (origin, staged) = ("https://cdn.example", "http://127.0.0.1:8788");
-        for path in ["/edge.wasm", "/js/src/index.js", "/cli/install.sh"] {
-            assert_eq!(rebase(origin, &format!("{origin}{path}"), Some(staged), false), format!("{staged}{path}"));
-        }
-        let pkg = format!("{origin}/pkg/test/0.1.0/app.edge");
-        assert_eq!(rebase(origin, &pkg, Some(staged), false), pkg);
-        assert_eq!(rebase(origin, &pkg, Some(staged), true), format!("{staged}/pkg/test/0.1.0/app.edge"));
-    }
 
     // a refused or failed call raises the class its runtime names for that role
     #[test]

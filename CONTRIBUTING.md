@@ -85,7 +85,7 @@ MIRI_TSV_OUT=tests/cases/miri.tsv cargo test --locked -p edge --test tests miri:
 ```
 
 > [!NOTE]
-> The JS and CLI suites read the builds from a tree served on loopback, the lock cases of the CLI serve their own registry through `EDGE_SITE_BASE`, and the skill suite reaches no server.
+> The JS suites read the builds from a tree served on loopback, the lock cases of the CLI serve their own release on loopback, and the skill suite reaches no server.
 
 First, stage the builds and serve them in a terminal of their own.
 
@@ -93,7 +93,7 @@ First, stage the builds and serve them in a terminal of their own.
 make stage serve
 ```
 
-Next, point the suites at it and run them.
+Next, point the JS suites at it and run them.
 
 ```bash
 export EDGE_CDN_BASE=http://127.0.0.1:8788

@@ -1,5 +1,3 @@
-mod common;
-
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -17,13 +15,9 @@ fn scratch(name: &str) -> PathBuf {
 }
 
 fn run_in(dir: &Path, args: &[&str], stdin: Option<&str>) -> (String, String, i32) {
-    run_env(dir, args, &[], stdin)
-}
-
-fn run_env(dir: &Path, args: &[&str], env: &[(&str, &str)], stdin: Option<&str>) -> (String, String, i32) {
     let mut cmd = Command::new(BIN);
     // Scratch-local module cache, so no case reads or writes the real one.
-    cmd.current_dir(dir).args(args).env("XDG_CACHE_HOME", dir).envs(env.iter().copied()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    cmd.current_dir(dir).args(args).env("XDG_CACHE_HOME", dir).stdout(Stdio::piped()).stderr(Stdio::piped());
     cmd.stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() });
     let mut child = cmd.spawn().unwrap();
     if let Some(input) = stdin {
@@ -156,48 +150,24 @@ fn a_packed_package_imports_from_inside_itself() {
     assert_eq!((out.as_str(), code), ("hello edge\n", 0), "stderr: {err}");
 }
 
-/* A registry and a CDN of one package, so the whole declare, resolve and run path is exercised without reaching the real one. */
-fn spawn_registry(bundle: Vec<u8>, version: &str) -> u16 {
-    let digest = edge::util::sha256::hex_encode(&edge::util::sha256::sha256(&bundle));
-    let key = format!("/pkg/greet/{version}/app.edge");
-    let answer = format!(
-        "{{\"name\":\"greet\",\"version\":\"{version}\",\"digest\":\"{digest}\",\"size\":{},\"hosts\":null,\"url\":\"https://cdn.edgelang.dev{key}\"}}",
-        bundle.len()
-    );
+/* a host of one file at a release path the way GitHub serves a tag's asset */
+fn spawn_release(bundle: Vec<u8>) -> String {
+    use std::io::{BufRead, Write};
+    const KEY: &str = "/owner/greet/releases/download/v0.1.0/app.edge";
     let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind loopback");
     let port = listener.local_addr().expect("tcp addr").port();
-    let version = version.to_string();
     std::thread::spawn(move || {
-        for stream in listener.incoming().flatten() {
-            let (answer, key, bundle, version) = (answer.clone(), key.clone(), bundle.clone(), version.clone());
-            std::thread::spawn(move || answer_registry(stream, &answer, &key, &bundle, &version));
+        for mut stream in listener.incoming().flatten() {
+            let mut line = String::new();
+            let _ = std::io::BufReader::new(stream.try_clone().unwrap()).read_line(&mut line);
+            let reply = match line.split_whitespace().nth(1) == Some(KEY) {
+                true => [format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", bundle.len()).into_bytes(), bundle.clone()].concat(),
+                false => b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec(),
+            };
+            let _ = stream.write_all(&reply);
         }
     });
-    port
-}
-
-fn answer_registry(mut stream: std::net::TcpStream, answer: &str, key: &str, bundle: &[u8], version: &str) {
-    use std::io::{BufRead, Write};
-    let mut reader = std::io::BufReader::new(stream.try_clone().unwrap());
-    let mut line = String::new();
-    let _ = reader.read_line(&mut line);
-    let path = line.split_whitespace().nth(1).unwrap_or("/").to_string();
-    let (route, query) = path.split_once('?').unwrap_or((path.as_str(), ""));
-    // A release other than the one this registry holds is not there.
-    let other = query.split('&').filter_map(|pair| pair.strip_prefix("v=")).any(|asked| asked != version);
-    let head = |kind: &str, len: usize| format!("HTTP/1.1 200 OK\r\nContent-Type: {kind}\r\nContent-Length: {len}\r\nConnection: close\r\n\r\n");
-    let body = match route {
-        "/api/resolve/package/greet" if !other => Some((head("application/json", answer.len()), answer.as_bytes().to_vec())),
-        p if p == key => Some((head("application/octet-stream", bundle.len()), bundle.to_vec())),
-        _ => None,
-    };
-    match body {
-        Some((head, bytes)) => {
-            let _ = stream.write_all(head.as_bytes());
-            let _ = stream.write_all(&bytes);
-        }
-        None => drop(stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")),
-    }
+    format!("http://127.0.0.1:{port}{KEY}")
 }
 
 /* A dependency says the lowest engine it runs on in its own manifest, so the refusal comes from the package that carries it and never from a registry. A project whose own manifest asks for one is refused before any of this, by the command itself. */
@@ -228,66 +198,48 @@ fn the_binary_reports_the_version_it_was_built_from() {
     assert_eq!((out.trim(), code), (format!("edge {}", env!("CARGO_PKG_VERSION")).as_str(), 0), "stderr: {err}");
 }
 
-/* Declaring a package writes only its version, `edge lock` is what records where those bytes are, and a run reads that and nothing else. */
+/* add declares a url as written and lock pins its bytes so a run reads them and nothing else */
 #[test]
-fn a_declared_version_is_locked_once_and_then_runs() {
+fn a_declared_url_is_locked_once_and_then_runs() {
     let lib = scratch("lockdep");
     std::fs::write(lib.join("main.mini"), "fn shout(word):\n    return word.upper()\n").unwrap();
     let (_, err, code) = run_in(&lib, &["build", "--out", "dep.edge"], None);
     assert_eq!(code, 0, "build failed: {err}");
-    let port = spawn_registry(std::fs::read(lib.join("dep.edge")).unwrap(), "0.1.0");
-    let site = format!("http://127.0.0.1:{port}");
-    let env = [("EDGE_SITE_BASE", site.as_str()), ("EDGE_CDN_BASE", site.as_str())];
+    let url = spawn_release(std::fs::read(lib.join("dep.edge")).unwrap());
 
     let app = scratch("lockapp");
     std::fs::write(app.join("main.mini"), "from greet import shout\nprint(shout('hi edge'))\n").unwrap();
     std::fs::write(app.join("edge.json"), "{}\n").unwrap();
+    let (_, err, code) = run_in(&app, &["add", "greet@0.1.0"], None);
+    assert!(err.contains("'greet@0.1.0' names no source, give it as name=<url> or name=<path>"), "stderr was: {err}");
+    assert_eq!((code, std::fs::read_to_string(app.join("edge.json")).unwrap().as_str()), (1, "{}\n"));
 
-    let (out, err, code) = run_env(&app, &["add", "greet"], &env, None);
+    let (_, err, code) = run_in(&app, &["add", &format!("greet={url}")], None);
     assert_eq!(code, 0, "add failed: {err}");
-    assert!(out.contains("greet") && out.contains("0.1.0"), "add printed the version: {out}");
-    let declared = std::fs::read_to_string(app.join("edge.json")).unwrap();
-    assert!(declared.contains("\"greet\": \"0.1.0\""), "the manifest keeps the version alone: {declared}");
+    assert!(std::fs::read_to_string(app.join("edge.json")).unwrap().contains(&url), "the manifest keeps the url");
     assert!(!app.join("edge.lock").exists(), "add writes no lock");
 
-    // Nothing says where 0.1.0 is yet, so the run names the command that would answer.
-    let (_, err, code) = run_env(&app, &["run", "main.mini"], &env, None);
-    assert!(err.contains("'greet' is not locked in edge.lock\nhelp: run edge lock"), "stderr was: {err}");
-    assert_eq!(code, 1);
-
-    let (_, err, code) = run_env(&app, &["lock"], &env, None);
+    let (_, err, code) = run_in(&app, &["lock"], None);
     assert_eq!(code, 0, "lock failed: {err}");
     let held = std::fs::read_to_string(app.join("edge.lock")).unwrap();
-    assert!(held.contains("\"version\": \"0.1.0\"") && held.contains("sha256-"), "the lock holds the release and its digest: {held}");
+    assert!(held.contains(&url) && held.contains("sha256-"), "the lock holds the url and its digest: {held}");
 
-    let (out, err, code) = run_env(&app, &["run", "main.mini"], &env, None);
+    let (out, err, code) = run_in(&app, &["run", "main.mini"], None);
     assert_eq!((out.as_str(), code), ("HI EDGE\n", 0), "stderr was: {err}");
 }
 
-/* add keeps the version it is given, and a release the registry lacks writes nothing. */
+/* a version names no source so lock refuses it and writes nothing */
 #[test]
-fn add_keeps_the_version_it_was_given() {
-    let lib = scratch("pindep");
-    std::fs::write(lib.join("main.mini"), "fn shout(word):\n    return word.upper()\n").unwrap();
-    let (_, err, code) = run_in(&lib, &["build", "--out", "dep.edge"], None);
-    assert_eq!(code, 0, "build failed: {err}");
-    let port = spawn_registry(std::fs::read(lib.join("dep.edge")).unwrap(), "0.1.0");
-    let site = format!("http://127.0.0.1:{port}");
-    let env = [("EDGE_SITE_BASE", site.as_str()), ("EDGE_CDN_BASE", site.as_str())];
-
-    let app = scratch("pinapp");
-    std::fs::write(app.join("edge.json"), "{}\n").unwrap();
-    let (_, err, code) = run_env(&app, &["add", "greet@9.9.9"], &env, None);
-    assert!(err.contains("'greet' has no version 9.9.9"), "stderr was: {err}");
-    assert_eq!((code, std::fs::read_to_string(app.join("edge.json")).unwrap().as_str()), (1, "{}\n"));
-
-    let (_, err, code) = run_env(&app, &["add", "greet@0.1.0"], &env, None);
-    assert_eq!(code, 0, "add failed: {err}");
-    let declared = std::fs::read_to_string(app.join("edge.json")).unwrap();
-    assert!(declared.contains("\"greet\": \"0.1.0\""), "the manifest keeps the version it was given: {declared}");
+fn a_declared_version_is_refused_by_lock() {
+    let app = scratch("versionapp");
+    std::fs::write(app.join("edge.json"), "{ \"imports\": { \"greet\": \"0.1.0\" } }\n").unwrap();
+    let (_, err, code) = run_in(&app, &["lock"], None);
+    assert!(err.contains("'greet' is declared '0.1.0' but no version resolves, give it a url or a path"), "stderr was: {err}");
+    assert_eq!(code, 1);
+    assert!(!app.join("edge.lock").exists(), "a refused lock writes nothing");
 }
 
-/* add shows what a package asks, and lock writes nothing until the root grants it. */
+/* add shows what a package asks and lock writes nothing until the root grants it */
 #[test]
 fn a_package_asks_and_lock_waits_for_the_grant() {
     let lib = scratch("askdep");
@@ -295,26 +247,24 @@ fn a_package_asks_and_lock_waits_for_the_grant() {
     std::fs::write(lib.join("main.mini"), "fn shout(word):\n    return word.upper()\n").unwrap();
     let (_, err, code) = run_in(&lib, &["build", "--out", "dep.edge"], None);
     assert_eq!(code, 0, "build failed: {err}");
-    let port = spawn_registry(std::fs::read(lib.join("dep.edge")).unwrap(), "0.1.0");
-    let site = format!("http://127.0.0.1:{port}");
-    let env = [("EDGE_SITE_BASE", site.as_str()), ("EDGE_CDN_BASE", site.as_str())];
+    let url = spawn_release(std::fs::read(lib.join("dep.edge")).unwrap());
 
     let app = scratch("askapp");
     std::fs::write(app.join("main.mini"), "from greet import shout\nprint(shout('granted'))\n").unwrap();
     std::fs::write(app.join("edge.json"), "{}\n").unwrap();
-    let (out, err, code) = run_env(&app, &["add", "greet"], &env, None);
+    let (out, err, code) = run_in(&app, &["add", &format!("greet={url}")], None);
     assert_eq!(code, 0, "add failed: {err}");
     assert!(out.contains("greet 0.1.0 asks net:api.example.com"), "add showed the ask: {out}");
 
-    let (_, err, code) = run_env(&app, &["lock"], &env, None);
+    let (_, err, code) = run_in(&app, &["lock"], None);
     assert!(err.contains("edge.json does not grant what these packages ask for\n  greet 0.1.0   net:api.example.com\n"), "stderr was: {err}");
     assert_eq!(code, 1);
     assert!(!app.join("edge.lock").exists(), "a refused lock writes nothing");
 
-    std::fs::write(app.join("edge.json"), "{ \"imports\": { \"greet\": \"0.1.0\" }, \"permissions\": { \"greet\": [\"net:api.example.com\"] } }\n").unwrap();
-    let (_, err, code) = run_env(&app, &["lock"], &env, None);
+    std::fs::write(app.join("edge.json"), format!("{{ \"imports\": {{ \"greet\": \"{url}\" }}, \"permissions\": {{ \"greet\": [\"net:api.example.com\"] }} }}\n")).unwrap();
+    let (_, err, code) = run_in(&app, &["lock"], None);
     assert_eq!(code, 0, "lock failed: {err}");
-    let (out, err, code) = run_env(&app, &["run", "main.mini"], &env, None);
+    let (out, err, code) = run_in(&app, &["run", "main.mini"], None);
     assert_eq!((out.as_str(), code), ("GRANTED\n", 0), "stderr was: {err}");
 }
 
@@ -445,7 +395,6 @@ fn build_writes_an_edge_bundle() {
 }
 
 fn web_build(dir: &Path) -> (String, String, i32) {
-    common::cdn_base().unwrap_or_else(|e| panic!("{e}"));
     run_in(dir, &["build", "--web"], None)
 }
 
@@ -569,7 +518,6 @@ mod engine_corpus {
 
     #[test]
     fn engine_corpus() {
-        crate::common::cdn_base().unwrap_or_else(|e| panic!("{e}"));
         let cases: Vec<Case> = serde_json::from_str(include_str!("engine.json")).expect("engine.json parse");
         let (base, log) = fixture();
         let mut failures = Vec::new();

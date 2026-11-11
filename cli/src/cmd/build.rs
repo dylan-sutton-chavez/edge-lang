@@ -2,7 +2,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use crate::docs;
 use crate::host::driver::{self, RunOpts};
 use crate::host::scan::Scan;
-use crate::host::{cdn, get};
+use crate::host::get;
 use crate::kit::{self, Command, Descriptor, Kit};
 use crate::pack::{Bundle, Entry, STANDALONE_MAGIC};
 use clap::{ArgMatches, Args, FromArgMatches, Parser};
@@ -302,7 +302,7 @@ fn run(kit: &Kit, manifest_path: &Path, out_dir: PathBuf) -> Result<()> {
     Ok(())
 }
 
-// writes the embedded JS host into `dist/js/` mirroring its CDN layout
+// writes the embedded JS host into `dist/js/` mirroring the release tree
 fn vendor_js(out_dir: &Path) -> Result<()> {
     for (rel, bytes) in JS_HOST {
         let path = out_dir.join("js").join(rel);
@@ -444,12 +444,10 @@ fn file_deps(scan: &mut Scan, base: &str, rel: &str, bytes: &[u8]) -> Result<Vec
 
 /* the bytes of a package file and None when the host has no such file */
 fn read_package(url: &str) -> Result<Option<Vec<u8>>> {
-    // errors name the address requested since a staging origin is where a failure needs looking
-    let source = cdn(url);
-    match get(&source) {
-        Ok(mut resp) => Ok(Some(crate::host::body(&mut resp).map_err(|e| anyhow!("reading {source}: {e}"))?)),
+    match get(url) {
+        Ok(mut resp) => Ok(Some(crate::host::body(&mut resp).map_err(|e| anyhow!("reading {url}: {e}"))?)),
         Err(ureq::Error::StatusCode(404)) => Ok(None),
-        Err(e) => Err(anyhow!("fetching {source}: {e}")),
+        Err(e) => Err(anyhow!("fetching {url}: {e}")),
     }
 }
 

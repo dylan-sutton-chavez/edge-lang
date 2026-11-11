@@ -120,9 +120,7 @@ pub struct Kit {
     version: &'static str,
     title: String,
     site: Option<&'static str>,
-    // where packages and the registry live and what a binary too old says
-    origin: Option<&'static str>,
-    registry: Option<&'static str>,
+    // what a binary too old says
     upgrade: Option<&'static str>,
     runtime: Runtime,
     commands: Vec<Box<dyn Command>>,
@@ -139,7 +137,7 @@ impl Kit {
     pub fn new(name: &'static str, version: &'static str, runtime: Runtime) -> Kit {
         let title = format!("The {name} developer CLI");
         let access = Arc::new(Open);
-        Kit { name, version, title, site: None, origin: None, registry: None, upgrade: None, runtime, commands: Vec::new(), fields: Vec::new(), modules: Vec::new(), access, limits: Limits::sandbox() }
+        Kit { name, version, title, site: None, upgrade: None, runtime, commands: Vec::new(), fields: Vec::new(), modules: Vec::new(), access, limits: Limits::sandbox() }
     }
 
     /* the first line of the top-level help */
@@ -151,18 +149,6 @@ impl Kit {
     /* where the top-level help sends a reader last */
     pub fn site(mut self, site: &'static str) -> Kit {
         self.site = Some(site);
-        self
-    }
-
-    /* the origin package urls start with which untrusted runs alone may fetch from */
-    pub fn origin(mut self, origin: &'static str) -> Kit {
-        self.origin = Some(origin);
-        self
-    }
-
-    /* the registry the package commands resolve names and publish through */
-    pub fn registry(mut self, registry: &'static str) -> Kit {
-        self.registry = Some(registry);
         self
     }
 
@@ -306,7 +292,7 @@ impl Kit {
 
     /* fixes the names the host reads for this process from the first kit that runs */
     fn publish(&self) {
-        crate::host::name(Names { name: self.name.to_string(), origin: self.origin.map(String::from), registry: self.registry.map(String::from) });
+        crate::host::name(Names { name: self.name.to_string() });
     }
 
     /* the manifest at `path` held to the engine rules and to every declared field */
@@ -495,10 +481,7 @@ pub(crate) mod tests {
 
     /* a kit over the reference runtime build.rs embeds with a quiet module and no commands */
     pub fn kit() -> Kit {
-        let kit = bare();
-        // the registry fields come with the publish component when its feature is on
-        #[cfg(feature = "publish")]
-        let kit = kit.fields(crate::cmd::publish::FIELDS);
+        let kit = bare().fields(crate::manifest::FIELDS);
         #[cfg(feature = "perms")]
         let kit = kit.field(crate::perms::FIELD).access(Arc::new(crate::perms::Perms));
         kit.field(crate::docs::FIELD).module(Arc::new(Quiet))

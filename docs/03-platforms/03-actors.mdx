@@ -70,7 +70,7 @@ send("transform", msg + "-done")   // hand it to the transform group
 - `send` takes two strings and returns `nil`. An actor of that group picks the message up with its own `receive()`.
 - Sends are fire and forget. An actor never blocks waiting on another, which keeps a pool free of circular deadlock.
 - The `seed:` list of a group delivers messages before the pool starts. It is the entry point that kicks a run off.
-- Groups resolve their imports through the `edge.json` beside `actor.yml`, or the one `--manifest` names. A pool never asks the registry where a version points.
+- Groups resolve their imports through the `edge.json` beside `actor.yml`, or the one `--manifest` names, and the `edge.lock` beside it.
 - Outside a pool the host takes the message as a [named output](./01-cli.mdx#named-outputs) instead, printed or written as a file under `edge run` and handed to the page as its own stream in a browser.
 
 ## Group fields
@@ -177,9 +177,9 @@ groups:
 | Memory | The `memory` limit of the group inside the interpreter. Outside it, three times that limit plus 64 MiB, room for garbage, a container that doubles and the engine. |
 | Time | A deadline the host enforces from outside the instance ends the run after `timeout` seconds of wall-clock time, waits included, even inside a long native operation. |
 | State | Nothing survives between messages. The instance is dropped when the run ends. |
-| Modules | `.wasm` plugins are refused. Remote modules load only from the origin the composition names with `origin(o)`. No module loads from disk, and `files` reads only below the pool's `edge.json`. |
+| Modules | `.wasm` plugins and remote modules are refused. No module loads from disk, and `files` reads only below the pool's `edge.json`. |
 | Messages | `send()` has no scheduler to reach, so a send raises the runtime's runtime error and the pool names the group it asked for. An eval run cannot send to other groups. |
-| Versions | A bundle resolves a version only through its own [`edge.lock`](../04-reference/03-modules.mdx#edgelock), never against the registry. |
+| Versions | A bundle resolves a version only through its own [`edge.lock`](../04-reference/03-modules.mdx#edgelock). |
 
 A bundle that carries its own `edge.json` resolves through it. Any other message resolves through the manifest of the pool.
 

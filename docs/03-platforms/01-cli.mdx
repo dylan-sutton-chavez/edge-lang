@@ -1,6 +1,6 @@
 ---
 title: "Command line interface"
-description: "The edge CLI, from a project's first file to its modules, plugins, tests, build and publish, and every command and flag it takes."
+description: "The edge CLI, from a project's first file to its modules, plugins, tests and build, and every command and flag it takes."
 ---
 
 # Command line interface
@@ -18,10 +18,9 @@ edge actor actor.yml                   # run a pool of cooperative actors
 edge serve                             # dev server with live reload
 edge test                              # run *_test.mini files
 edge init my-app                       # scaffold a project
-edge publish app.edge                  # send a packed .edge to a registry
 edge add slugify=./slugify_mod.wasm    # add a module to edge.json
 edge remove slugify                    # remove a module from edge.json
-edge lock                              # resolve edge.json into edge.lock
+edge lock                              # pin the urls of edge.json in edge.lock
 edge uninstall                         # remove the binary and the PATH entry
 ```
 
@@ -43,7 +42,11 @@ cargo install --path cli
 - To upgrade, run `git pull` and the last two lines again.
 - The full setup is in `CONTRIBUTING.md` at the root of the repo.
 
-A tagged release on [GitHub Releases](https://github.com/dylan-sutton-chavez/edge-lang/releases) also attaches `cdn.tar.gz`, the tree of that release's builds. Its `cli/` folder holds a prebuilt `edge-<target>.tar.gz` for macOS and Linux, and the Linux binaries are static.
+A tagged release on [GitHub Releases](https://github.com/dylan-sutton-chavez/edge-lang/releases) also attaches `cdn.tar.gz`, the tree of that release's builds. Its `cli/` folder holds a prebuilt `edge-<target>.tar.gz` for macOS and Linux, and the Linux binaries are static. `cli/setup/install.sh` downloads that tree, checks the binary against the digest beside it and puts `edge` in `~/.local/bin`. It reads the latest release, or the `vX.Y.Z` tag it is given, and refuses a tree that holds no digest unless `EDGE_INSTALL_SHA256` pins one.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/dylan-sutton-chavez/edge-lang/main/cli/setup/install.sh | bash
+```
 
 ## A project
 
@@ -60,14 +63,14 @@ $ edge init slugs
     ├─ main.mini
     └─ edge.json
 
-  cd slugs && edge serve
+  cd slugs && edge build --web && edge serve
 ```
 
 | File | What it holds |
 |---|---|
 | `main.mini` | The entry point, a script that prints one line |
 | `edge.json` | The manifest of the project |
-| `index.html` | A page that runs `main.mini` in the browser |
+| `index.html` | A page that runs `main.mini` in the browser on the JS host `edge build --web` writes to `dist/` |
 
 The manifest starts with one field.
 
@@ -133,7 +136,7 @@ A test can import the same function without running the script. [Modules](../04-
 
 ### Lock it
 
-`edge lock` writes `edge.lock` beside the manifest. It records the URL and the digest of each version `edge.json` declares and of each bare URL, and a path carries its own bytes. `edge run`, `edge test` and `edge build` read the lock and never ask the registry themselves.
+`edge lock` writes `edge.lock` beside the manifest. It records the digest of each URL `edge.json` declares, and a path carries its own bytes. `edge run`, `edge test` and `edge build` read the lock and refuse bytes other than the ones it pins.
 
 ```text
 $ edge lock
@@ -142,7 +145,7 @@ $ edge lock
 ```
 
 > [!IMPORTANT]
-> Run `edge lock` again after every change to `edge.json`, and commit `edge.lock` with the code. A version the lock does not hold stops the run with `'<name>' is not locked in edge.lock`, and the CLI adds `help: run edge lock` below it.
+> Run `edge lock` again after every change to `edge.json`, and commit `edge.lock` with the code.
 
 ### Test it
 
@@ -194,7 +197,7 @@ $ edge build
 
 `app.edge` holds the three scripts, the manifest, the lock and the plugin, and it runs on any machine with `edge` installed. `edge build --app` writes a standalone binary instead, and `edge build --web` a folder any browser runs.
 
-A package also carries a name, a version and a one line description in its `edge.json`, which [Package fields](../04-reference/07-registry.mdx#package-fields) lists.
+A package also carries a name, a version and a one line description in its `edge.json`, which [Package fields](../04-reference/07-packages.mdx#package-fields) lists.
 
 ## edge run
 
@@ -264,7 +267,7 @@ That run is `tiny`, the CLI of [Tiny](../01-get-started/03-use-cases/03-tiny.mdx
 
 Every run happens under the [sandbox limits](../02-sdk/12-limits.mdx).
 
-- A bare import resolves through [`edge.json`](../04-reference/03-modules.mdx#edgejson). Declare it with `edge add` and resolve it with `edge lock` first.
+- A bare import resolves through [`edge.json`](../04-reference/03-modules.mdx#edgejson). Declare it with `edge add` and pin it with `edge lock` first.
 - A declared version resolves through the [`edge.lock`](../04-reference/03-modules.mdx#edgelock) beside the manifest that declared it.
 - A relative import loads from disk relative to the importing file.
 - A dotted import loads from the nearest `edge.json` directory.
@@ -347,16 +350,17 @@ $ edge init my-app
     ├─ main.mini
     └─ edge.json
 
-  cd my-app && edge serve
+  cd my-app && edge build --web && edge serve
 ```
 
-- `--bare` skips `index.html` for script-only projects, and its last line then names `edge run main.mini` in place of `edge serve`.
+- `index.html` imports the JS host from `dist/js/src/index.js`, so `edge build --web` comes before `edge serve`.
+- `--bare` skips `index.html` for script-only projects, and its last line then names `edge run main.mini`.
 - The manifest holds only the `edge` version that scaffolded it. Nothing resolves until `edge add` fills it.
 - A directory it is given must not exist yet, even empty. With no argument it writes into the current directory and never overwrites a file. When one of the files it would write already exists it names that file and writes none of them.
 
 ## edge add and edge remove
 
-Edits [`edge.json`](../04-reference/03-modules.mdx#edgejson) by name, so a registry package never needs its URL pasted. Each line prints the name and what it wrote.
+Edits [`edge.json`](../04-reference/03-modules.mdx#edgejson) by name. Each line prints the name and what it wrote.
 
 ```text
 $ edge add slugify=./slugify_mod.wasm
@@ -367,11 +371,14 @@ $ edge add slugify=./slugify_mod.wasm
 
 | Form | Writes |
 |---|---|
-| `edge add <name>` | The newest version of that package in the registry the composition names |
-| `edge add <name>@0.1.0` | That version |
-| `edge add <name>=<url>` | That URL or path |
+| `edge add <name>=<url>` | That URL, such as a raw file or a release asset on GitHub |
+| `edge add <name>=<path>` | That path |
 
-- An unknown name or version aborts the whole command before any write.
+```text
+$ edge add greet=https://github.com/owner/greet/releases/download/v0.1.0/app.edge
+```
+
+- A spec without a URL or a path, such as a bare name or a version, aborts the whole command before any write.
 - A URL goes to `imports` too. Each host tells a code module from a native module by the artifact.
 - A `.js` or `.mjs` URL is refused before anything is written.
 - `edge add` lists what each new package asks to be granted, and its last line names what comes next, the grants and then `edge lock`.
@@ -381,14 +388,13 @@ $ edge add slugify=./slugify_mod.wasm
 
 ## edge lock
 
-Turns each version `edge.json` declares into the URL and digest of that release.
+Downloads each URL `edge.json` declares and pins it to the digest of its bytes.
 
-It writes them to [`edge.lock`](../04-reference/03-modules.mdx#edgelock) beside the manifest, with a line per package it resolved. Commit the lock. Every other command reads it.
+It writes them to [`edge.lock`](../04-reference/03-modules.mdx#edgelock) beside the manifest, with a line per package it pinned. Commit the lock. Every other command reads it.
 
-- This is the only command that asks a registry where a name points.
 - It rebuilds the whole lock each time. Run it again after editing `edge.json` to bring the two back in step.
-- It records a digest for a bare URL too. Those bytes are pinned as well.
-- `edge run`, `edge test` and `edge build` read the lock and never resolve a version themselves.
+- A path carries its own bytes and a URL with `#sha256-` its own digest, so neither gets a line.
+- A version names no source, and `edge lock` refuses it.
 
 ## edge build
 
@@ -403,7 +409,7 @@ Packs the project and its imports into one artifact.
 `--out <path>` replaces the default output, `app.edge`, `app` or `dist/` per mode.
 
 > [!WARNING]
-> A build refuses to pack while a declared version is unlocked. Run `edge lock` after every change to `edge.json`.
+> A build packs the bytes the lock pins. Run `edge lock` after every change to `edge.json`.
 
 - Every mode carries each module the manifest declares by URL, with the files it imports beside it. The artifact is the whole program.
 - A `.edge` and an app binary carry the lock beside each manifest they carry. The artifact resolves its own names.
@@ -412,20 +418,7 @@ Packs the project and its imports into one artifact.
 - A `.edge` and an app binary carry the `README.md` and any `LICENSE` at the project root.
 - A `.edge` carries the pages when `edge.json` declares a `docs` directory. They sit under a reserved `@docs/` prefix no import can reach.
 
-Pages must follow the [package docs](../04-reference/07-registry.mdx#package-docs) convention, or the build fails.
-
-## edge publish
-
-Uploads a `.edge` packed by `edge build` to the registry the composition names with `registry(r)` in the [CLI kit](../02-sdk/16-cli.mdx). Set `EDGE_TOKEN` first to a token that registry issued.
-
-> [!COPY] edge publish app.edge
-
-- The artifact is the whole request. The name and version come from the manifest inside it.
-- The CLI signs each publish with the token rather than sending it. The token never leaves your machine.
-- A bundle that carries a `.js` or `.mjs` file is refused before it is sent.
-- Publishing a version that already exists exits 2 instead of 1. A script can tell it apart from a failure.
-
-What the registry reads, the naming rules and the signing are in [Publishing](../04-reference/07-registry.mdx#publishing).
+Pages must follow the [package docs](../04-reference/07-packages.mdx#package-docs) convention, or the build fails.
 
 ## edge actor
 

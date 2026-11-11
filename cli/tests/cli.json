@@ -1,8 +1,9 @@
 [
   {
     "run": ["init", "myapp"],
-    "stdout": ["created myapp/"],
-    "creates": ["myapp/main.mini", "myapp/edge.json", "myapp/index.html"]
+    "stdout": ["created myapp/", "cd myapp && edge build --web && edge serve"],
+    "creates": ["myapp/main.mini", "myapp/edge.json", "myapp/index.html"],
+    "contains": { "myapp/index.html": "from \"./dist/js/src/index.js\"" }
   },
   {
     "run": ["init", "myapp", "--bare"],
@@ -25,19 +26,6 @@
     "contains": { "edge.json": "example.com/foo.wasm" }
   },
   {
-    "given": { "edge.json": "{}\n" },
-    "run": ["add", "mystery"],
-    "fails": ["unknown package 'mystery'"],
-    "todo": "remove the whole package publication path"
-  },
-  {
-    "given": { "app.edge": "EDGEPKG\u0001" },
-    "env": { "EDGE_TOKEN": "edge_pat_nope.nope" },
-    "run": ["publish", "app.edge"],
-    "fails": ["That token is not valid."],
-    "todo": "remove the whole package publication path"
-  },
-  {
     "given": { "edge.json": "{ \"extends\": \"..\", \"imports\": {} }\n" },
     "run": ["add", "foo=https://example.com/foo.mini"],
     "contains": { "edge.json": "\"extends\": \"..\"" }
@@ -45,8 +33,7 @@
   {
     "given": { "edge.json": "{}\n" },
     "run": ["add", "foo=https://example.com/foo.mini", "mystery"],
-    "fails": ["unknown package 'mystery'"],
-    "todo": "remove the whole package publication path",
+    "fails": ["'mystery' names no source, give it as name=<url> or name=<path>"],
     "contains": { "edge.json": "{}\n" }
   },
   {
@@ -211,12 +198,6 @@
   },
   {
     "given": { "main.mini": "import json\n" },
-    "run": ["run", "main.mini"],
-    "fails": ["module 'json' is not provided by this host and no edge.json declares it"]
-  },
-  {
-    "given": { "main.mini": "import json\n" },
-    "env": { "EDGE_SITE_BASE": "http://127.0.0.1:1" },
     "run": ["run", "main.mini"],
     "fails": ["module 'json' is not provided by this host and no edge.json declares it\nhelp: declare it in edge.json, or use a relative import"]
   },
