@@ -47,7 +47,6 @@ fn walk(inst: &mut dyn Side, src: &str) -> Result<Vec<String>, String> {
             }
             Step::Plugin { .. } => inst.walk_plugin(2, "")?,
             Step::System(_) => inst.walk_served("")?,
-            Step::Undeclared => inst.walk_known("")?,
             Step::Done(_) => return Ok(found),
         };
     }

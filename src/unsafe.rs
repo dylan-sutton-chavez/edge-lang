@@ -342,10 +342,7 @@ pub(crate) mod web {
         fn walk_plugin(kind: u32, p: *const u8, n: u32) -> u32 { walk::walk_plugin(kind, text(p, n)) }
         fn walk_plugin_bytes() -> u32 { walk::walk_plugin_bytes() }
         fn walk_served(p: *const u8, n: u32) -> u32 { walk::walk_served(slice(p, n)) }
-        fn walk_known(p: *const u8, n: u32) -> u32 { walk::walk_known(slice(p, n)) }
         fn walk_carry(p: *const u8, n: u32) { walk::walk_carry(slice(p, n)) }
-        fn manifest_check(mp: *const u8, mn: u32, lp: *const u8, ln: u32, yp: *const u8, yn: u32) -> u32 { package::manifest_check(slice(mp, mn), slice(lp, ln), slice(yp, yn)) }
-        fn manifest_fields(p: *const u8, n: u32) -> u32 { package::manifest_fields(slice(p, n)) }
         fn bundle_index(p: *const u8, n: u32) -> u32 { package::bundle_index(slice(p, n)) }
         #[cfg(feature = "perms")] fn grants_check(sp: *const u8, sn: u32, mp: *const u8, mn: u32, tp: *const u8, tn: u32) -> u32 { crate::targets::web::perms::grants_check(slice(sp, sn), slice(mp, mn), slice(tp, tn)) }
         #[cfg(feature = "perms")] fn grants_scopes(p: *const u8, n: u32) -> u32 { crate::targets::web::perms::grants_scopes(slice(p, n)) }

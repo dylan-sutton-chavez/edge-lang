@@ -42,8 +42,6 @@ pub enum Step {
     Manifest { spec: String, manifest: Manifest },
     /* every package met for the host to serve its system modules answered with `served` */
     System(Packages),
-    /* undeclared bare names for the host to say which a registry has answered with `known` */
-    Undeclared(Vec<String>),
     /* every failure and none when everything registered */
     Done(Vec<String>),
 }
@@ -90,7 +88,6 @@ enum Waiting {
     Lock { spec: String, manifest: Manifest },
     Plugin(String),
     System,
-    Undeclared(Vec<String>),
 }
 
 /* the resolution walk hosts drive lazily so only what a program imports is fetched */
@@ -220,33 +217,17 @@ impl Walk {
         }
     }
 
-    /* the system modules are served and a still undeclared name is asked about before failing */
+    /* the system modules are served and each still undeclared name fails at its import */
     pub fn served(&mut self, failures: Vec<String>) {
         if !matches!(self.waiting.take(), Some(Waiting::System)) {
             return;
         }
         self.failures.extend(failures);
         let mut seen = FxHashSet::default();
-        // a served module resolves before any refusal so no registry is asked about it
+        // a served module resolves before any refusal
         let undeclared = |name: &String| !self.system.contains(name) && seen.insert(name.clone());
-        let names: Vec<String> = core::mem::take(&mut self.pending_bare).into_iter().map(|(name, _, _)| name).filter(undeclared).collect();
-        if names.is_empty() {
-            self.done = true;
-            return;
-        }
-        self.waiting = Some(Waiting::Undeclared(names.clone()));
-        self.out.push_back(Step::Undeclared(names));
-    }
-
-    /* each undeclared name fails at its import saying where it can come from */
-    pub fn known(&mut self, registered: Vec<String>) {
-        let Some(Waiting::Undeclared(names)) = self.waiting.take() else { return };
-        for name in names {
-            let help = match registered.contains(&name) {
-                true => s!("a registry holds '", str &name, "', declare it in edge.json"),
-                false => s!("declare it in edge.json, or use a relative import"),
-            };
-            let msg = s!("module '", str &name, "' is not provided by this host and no edge.json declares it\nhelp: ", str &help);
+        for name in core::mem::take(&mut self.pending_bare).into_iter().map(|(name, _, _)| name).filter(undeclared) {
+            let msg = s!("module '", str &name, "' is not provided by this host and no edge.json declares it\nhelp: declare it in edge.json, or use a relative import");
             self.out.push_back(Step::Refuse { spec: name, msg });
         }
         self.done = true;
@@ -867,13 +848,6 @@ pub fn served<H: DepHost>(host: &mut H, failures: &[u8]) -> String {
     drive(host)
 }
 
-/* answers the undeclared names with the ones a registry has joined by NUL */
-pub fn known<H: DepHost>(host: &mut H, names: &[u8]) -> String {
-    let names = split(names, '\0');
-    host.deps(|d| d.walk.as_mut().map(|walk| walk.known(names)));
-    drive(host)
-}
-
 /* registers what `step` names in the host's modules or gives back one the host answers */
 pub fn settle<H: DepHost>(host: &mut H, step: Step) -> Option<Step> {
     match step {
@@ -922,12 +896,6 @@ fn drive<H: DepHost>(host: &mut H) -> String {
                 return out;
             }
             Step::System(packages) => return served::system(&packages),
-            Step::Undeclared(names) => {
-                out.push_str("{\"undeclared\":");
-                list(&mut out, &names);
-                out.push('}');
-                return out;
-            }
             Step::Done(failures) => {
                 host.deps(|d| d.walk = None);
                 out.push_str("{\"done\":");
@@ -992,8 +960,6 @@ mod tests {
                     seen.packages = Some(packages);
                     walk.served(Vec::new());
                 }
-                // a registry that has json and nothing else
-                Step::Undeclared(names) => walk.known(names.into_iter().filter(|name| name == "json").collect()),
                 Step::Done(failures) => {
                     seen.failures = failures;
                     return seen;
@@ -1170,7 +1136,7 @@ mod tests {
         let seen = walk(&[file("edge.json", r#"{ "imports": { "ui": "./ui.js" } }"#)], "import ui\nimport json\nimport my_helpers\n");
         assert!(seen.refused.contains(&(s!("./ui.js"), s!("module 'ui' is JavaScript, ship a .mini or a .wasm"))), "{:?}", seen.refused);
         let help = |name: &str| seen.refused.iter().find(|(spec, _)| spec == name).map(|(_, msg)| msg.split_once("\nhelp: ").unwrap().1.to_string());
-        assert_eq!(help("json").as_deref(), Some("a registry holds 'json', declare it in edge.json"));
+        assert_eq!(help("json").as_deref(), Some("declare it in edge.json, or use a relative import"));
         assert_eq!(help("my_helpers").as_deref(), Some("declare it in edge.json, or use a relative import"));
         assert!(seen.packages.unwrap().needed);
     }
@@ -1193,7 +1159,7 @@ mod tests {
         assert_eq!(fetched(&mut host, b"y = 1\n", 0), r#"{"fetch":"./edge.json"}"#);
         assert_eq!(fetched(&mut host, b"", 1), r#"{"system":{"root":"","needed":false,"dirs":[["","main",[[{},"main"]]]],"permissions":{}}}"#);
         assert_eq!(served(&mut host, b""), r#"{"done":[]}"#);
-        assert_eq!(known(&mut host, b""), r#"{"done":["no resolution walk is running"]}"#);
+        assert_eq!(served(&mut host, b""), r#"{"done":["no resolution walk is running"]}"#);
         let state = host.state();
         assert!(matches!(state.deps.registry.as_slice(), [(spec, ModuleEntry::Code(src))] if spec == "./x.mini" && src == "y = 1\n"));
         assert_eq!((state.changed, state.deps.manifests.len()), (1, 1));
@@ -1209,10 +1175,9 @@ mod tests {
         assert!(plugin_bytes(&mut host).is_empty());
         assert_eq!(loaded(&mut host, 0, String::new()), r#"{"fetch":"./edge.json"}"#);
         assert_eq!(fetched(&mut host, b"", 1), r#"{"system":{"root":"","needed":true,"dirs":[["","main",[[{},"main"]]]],"permissions":{}}}"#);
-        assert_eq!(served(&mut host, b""), r#"{"undeclared":["json"]}"#);
-        assert_eq!(known(&mut host, b"json\0yaml"), r#"{"done":[]}"#);
+        assert_eq!(served(&mut host, b""), r#"{"done":[]}"#);
         let state = host.state();
-        assert_eq!(state.deps.refusals, vec![(s!("json"), s!("module 'json' is not provided by this host and no edge.json declares it\nhelp: a registry holds 'json', declare it in edge.json"))]);
+        assert_eq!(state.deps.refusals, vec![(s!("json"), s!("module 'json' is not provided by this host and no edge.json declares it\nhelp: declare it in edge.json, or use a relative import"))]);
         assert_eq!(state.changed, 1);
     }
 
@@ -1228,13 +1193,14 @@ mod tests {
         assert_eq!(host.state().deps.refusals, vec![(s!("./fast.wasm"), s!("module 'fast' is not loaded here"))]);
     }
 
-    // a module the host serves resolves before any refusal so no registry hears of it
+    // a module the host serves resolves before any refusal
     #[test]
-    fn a_served_module_is_never_asked_about_as_undeclared() {
+    fn a_served_module_is_never_refused_as_undeclared() {
         let mut host = Host::default();
         assert_eq!(start(&FRONT, &mut host, "import net\nimport json\n", "", b"net", carried()), r#"{"fetch":"edge.json"}"#);
         assert_eq!(fetched(&mut host, b"", 1), r#"{"system":{"root":"","needed":true,"dirs":[["","main",[[{},"main"]]]],"permissions":{}}}"#);
-        assert_eq!(served(&mut host, b""), r#"{"undeclared":["json"]}"#);
+        assert_eq!(served(&mut host, b""), r#"{"done":[]}"#);
+        assert_eq!(host.state().deps.refusals.iter().map(|(spec, _)| spec.as_str()).collect::<Vec<_>>(), ["json"]);
     }
 
     // a host naming no field reads no section and reserves no holder

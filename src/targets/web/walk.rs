@@ -44,7 +44,3 @@ pub(crate) fn walk_plugin(kind: u32, text: &str) -> u32 {
 pub(crate) fn walk_served(failures: &[u8]) -> u32 {
     write_out(&walk::served(&mut WebHost, failures)) as u32
 }
-
-pub(crate) fn walk_known(names: &[u8]) -> u32 {
-    write_out(&walk::known(&mut WebHost, names)) as u32
-}

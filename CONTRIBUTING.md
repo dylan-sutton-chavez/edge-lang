@@ -105,7 +105,7 @@ make test-js test-cli test-skill
 
 ## Docs
 
-`docs/` holds MDX pages two folders deep at most, with a numeric prefix on every path segment. Each opens with a frontmatter holding a `title` and a `description` and has one top-level heading, the rules `edge build` holds package docs to. An `edge` block followed by an `output` block shows a program and what it prints, and a blockquote opening with a marker such as `[!NOTE]`, `[!QUESTION]`, `[!CARDS]` or `[!COPY]` becomes a box, as [Registry](docs/04-reference/07-registry.mdx#package-docs) lists.
+`docs/` holds MDX pages two folders deep at most, with a numeric prefix on every path segment. Each opens with a frontmatter holding a `title` and a `description` and has one top-level heading, the rules `edge build` holds package docs to. An `edge` block followed by an `output` block shows a program and what it prints, and a blockquote opening with a marker such as `[!NOTE]`, `[!QUESTION]`, `[!CARDS]` or `[!COPY]` becomes a box, as [Packages](docs/04-reference/07-packages.mdx#package-docs) lists.
 
 ## CI
 

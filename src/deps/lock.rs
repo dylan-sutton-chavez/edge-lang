@@ -58,11 +58,6 @@ impl Lock {
         &self.entries
     }
 
-    /* every entry as a registry holds it so a bad published lock fails when read */
-    pub fn check(&self) -> Result<(), String> {
-        self.entries.iter().try_for_each(|(name, entry)| entry_error(name, entry).map_or(Ok(()), Err))
-    }
-
     /* the lock as its writer writes it in two space JSON and name order */
     pub fn to_json(&self) -> String {
         if self.entries.is_empty() {
@@ -87,16 +82,6 @@ impl Lock {
         out.push('}');
         out
     }
-}
-
-/* why an entry cannot be published for its address or its digest or its release */
-fn entry_error(name: &str, entry: &Entry) -> Option<String> {
-    if !entry.url.starts_with("https://") {
-        return Some(s!("'", str name, "' holds '", str &entry.url, "' in ", str FILE, ", which is not an https url"));
-    }
-    digest_error(name, entry).or_else(|| {
-        entry.version.as_deref().filter(|v| !rules::is_version(v)).map(|v| s!("'", str name, "' is locked at '", str v, "', which is not a version"))
-    })
 }
 
 // any host fetches the schemes it reaches but a malformed digest pins nothing anywhere
@@ -195,8 +180,6 @@ mod tests {
         let mut lock = Lock::default();
         lock.insert("json", Entry { version: Some(s!("0.1.0")), url: s!("https://x/y.edge"), digest: s!("sha256-00") });
         assert!(locked_spec("json", "0.1.0", Some(&lock)).unwrap_err().contains("holds 'sha256-00' in edge.lock"));
-        lock.insert("json", Entry { version: Some(s!("0.1.0")), url: s!("http://x/y.edge"), digest: DIGEST.to_string() });
-        assert!(lock.check().unwrap_err().contains("which is not an https url"));
     }
 
     #[test]

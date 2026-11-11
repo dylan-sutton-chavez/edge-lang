@@ -317,9 +317,8 @@ impl Files {
             match step {
                 Step::Fetch(spec) => walk.fetched(self.read(&spec)),
                 Step::Plugin { .. } => walk.loaded(Loaded::Refused(String::from("is a plugin and a native script loads none"))),
-                // a native script serves no system module and asks no registry
+                // a native script serves no system module
                 Step::System(_) => walk.served(Vec::new()),
-                Step::Undeclared(_) => walk.known(Vec::new()),
                 Step::Done(failures) if failures.is_empty() => return Ok(()),
                 Step::Done(failures) => return Err(failures.iter().map(|f| format!("error: {f}")).collect::<Vec<_>>().join("\n")),
                 Step::Code { .. } | Step::Refuse { .. } | Step::Manifest { .. } => {}

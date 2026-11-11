@@ -30,7 +30,7 @@ export interface Packages {
 }
 
 // what the engine walk asks of this host next as written to the out buffer
-type Step = { fetch: string } | { plugin: string } | { system: Packages } | { undeclared: string[] } | { done: string[] };
+type Step = { fetch: string } | { plugin: string } | { system: Packages } | { done: string[] };
 
 /* a hint for a spec whose scheme is insecure or missing and null otherwise */
 function schemeHint(spec: string): string | null {
@@ -110,10 +110,6 @@ export async function bfsPrefetch(rootSrc: string, exports: EdgeExports, ctx: Pr
         } else if ('system' in step) {
             const failures = TE.encode(serve(step.system).join('\0'));
             step = call([failures], ([at]) => exports.walk_served(at!, failures.length));
-        } else if ('undeclared' in step) {
-            // a page has no `edge add` to suggest so undeclared names keep the generic help
-            const none = new Uint8Array();
-            step = call([none], ([at]) => exports.walk_known(at!, 0));
         } else {
             if (step.done.length) throw new Error(`could not pre-fetch every imported module:\n  ${step.done.join('\n  ')}`);
             return;

@@ -69,9 +69,6 @@ pub(crate) trait Side: Serve {
 
     /* hands back what serving the host modules failed at joined by NUL */
     fn walk_served(&mut self, failures: &str) -> Result<Vec<u8>, String>;
-
-    /* answers the undeclared names with the ones the registry has joined by NUL */
-    fn walk_known(&mut self, names: &str) -> Result<Vec<u8>, String>;
 }
 
 /* what the engine walk asks of this host read from its out buffer */
@@ -79,7 +76,6 @@ pub(crate) enum Step {
     Fetch(String),
     Plugin { spec: String },
     System(Value),
-    Undeclared,
     Done(Vec<String>),
 }
 
@@ -182,8 +178,6 @@ impl Walk {
                     let failures = serve_modules(inst, &self.access, &packages);
                     inst.walk_served(&failures.join("\0"))?
                 }
-                // a run asks no registry about a name nothing declares so its hint stays generic
-                Step::Undeclared => inst.walk_known("")?,
                 Step::Done(failures) if failures.is_empty() => return Ok(None),
                 Step::Done(failures) => return Err(failures.iter().map(|f| format!("error: {}", super::lock_help(f))).collect::<Vec<_>>().join("\n")),
             };
@@ -226,9 +220,6 @@ pub(crate) fn step(out: &[u8]) -> Result<Step, String> {
     }
     if let Some(packages) = v.get("system") {
         return Ok(Step::System(packages.clone()));
-    }
-    if v.get("undeclared").is_some() {
-        return Ok(Step::Undeclared);
     }
     let failures = v.get("done").and_then(Value::as_array).ok_or_else(|| format!("the runtime left an unknown walk step: {v}"))?;
     Ok(Step::Done(failures.iter().filter_map(Value::as_str).map(str::to_string).collect()))

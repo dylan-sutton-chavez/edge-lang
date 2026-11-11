@@ -212,7 +212,6 @@ fn walk(store: &mut Store<Host>, inst: &Instance, ex: &Exports, src: &str) {
     let start: TypedFunc<(i32, i32, i32, i32), i32> = func(inst, store, "walk_start");
     let fetched: TypedFunc<(i32, i32, i32), i32> = func(inst, store, "walk_fetched");
     let served: TypedFunc<(i32, i32), i32> = func(inst, store, "walk_served");
-    let known: TypedFunc<(i32, i32), i32> = func(inst, store, "walk_known");
     let register: TypedFunc<(i32, i32, i32, i32, i32), ()> = func(inst, store, "register_native_module");
     let src_at = ex.alloc.call(&mut *store, src.len().max(1) as i32).expect("wasm_alloc");
     ex.memory.write(&mut *store, src_at as usize, src.as_bytes()).expect("writing runtime memory");
@@ -233,8 +232,6 @@ fn walk(store: &mut Store<Host>, inst: &Instance, ex: &Exports, src: &str) {
                 ex.free.call(&mut *store, (spec_at, spec.len() as i32)).expect("wasm_free");
             }
             staged(store, ex, b"", |s, p, n| served.call(s, (p, n))).expect("walk_served");
-        } else if step.get("undeclared").is_some() {
-            staged(store, ex, b"", |s, p, n| known.call(s, (p, n))).expect("walk_known");
         } else {
             let failures = step["done"].as_array().unwrap_or_else(|| panic!("an unknown walk step {step}"));
             assert!(failures.is_empty(), "the job's imports failed {failures:?}");

@@ -190,7 +190,6 @@ pub struct Exports {
     pub walk_plugin_bytes: TypedFunc<(), i32>,
     pub walk_plugin: TypedFunc<(i32, i32, i32), i32>,
     pub walk_served: TypedFunc<(i32, i32), i32>,
-    pub walk_known: TypedFunc<(i32, i32), i32>,
     // a runtime built before walks carried a field lacks it and carries its own default
     pub walk_carry: Option<TypedFunc<(i32, i32), ()>>,
     // a runtime older than it lacks it and every send then reads as the root's
@@ -242,7 +241,6 @@ impl Exports {
             walk_plugin_bytes: f!("walk_plugin_bytes"),
             walk_plugin: f!("walk_plugin"),
             walk_served: f!("walk_served"),
-            walk_known: f!("walk_known"),
             walk_carry: instance.get_typed_func(&mut *store, "walk_carry").ok(),
             send_package: instance.get_typed_func(&mut *store, "send_package").ok(),
             runtime_descriptor: instance.get_typed_func(&mut *store, "runtime_descriptor").ok(),

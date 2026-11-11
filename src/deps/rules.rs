@@ -101,7 +101,7 @@ pub fn import_error(name: &str, target: &str, system: &[&str], reserved: &[(&str
     (shaped_like_version(target) && !is_version(target)).then(|| s!("'", str name, "' is declared '", str target, "', and a version is ", str VERSION_RULE))
 }
 
-/* every field a registry reads and every import held to a packed package's rules */
+/* every package field and every import held to a packed package's rules */
 pub fn check(m: &Manifest, system: &[&str], reserved: &[(&str, &str)]) -> Result<(), String> {
     if let Some(name) = &m.name
         && let Some(e) = name_error(name, system, reserved)
@@ -138,17 +138,6 @@ pub fn check(m: &Manifest, system: &[&str], reserved: &[(&str, &str)]) -> Result
     m.imports.iter().find_map(|(name, target)| import_error(name, target, system, reserved)).map_or(Ok(()), Err)
 }
 
-/* a package's manifest held to the rules with its versions resolved by its lock */
-pub fn check_package(manifest: &[u8], lock: Option<&[u8]>, system: &[&str], reserved: &[(&str, &str)]) -> Result<(), String> {
-    let m = super::parse_manifest(manifest)?;
-    check(&m, system, reserved)?;
-    let held = lock.map(super::lock::Lock::parse).transpose()?;
-    if let Some(held) = &held {
-        held.check()?;
-    }
-    m.imports.iter().try_for_each(|(name, target)| super::lock::locked_spec(name, target, held.as_ref()).map(|_| ()))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -182,7 +171,7 @@ mod tests {
     }
 
     #[test]
-    fn the_fields_a_registry_would_turn_away_are_refused() {
+    fn the_fields_the_rules_turn_away_are_refused() {
         for (body, want) in [
             (r#"{ "name": "Slugify" }"#, "must be lowercase"),
             (r#"{ "name": "slug--ify" }"#, "must be lowercase"),
@@ -216,19 +205,5 @@ mod tests {
         assert!(check(&main, &SYSTEM, &[]).is_ok());
         assert_eq!(check(&main, &SYSTEM, &[("main", "grants")]).unwrap_err(), "name 'main' is reserved for grants");
         assert_eq!(import_error("main", "./main.mini", &SYSTEM, &perms::reserved()).as_deref(), Some("import 'main' is reserved for permissions"));
-    }
-
-    // a version says nothing about where its bytes are so its package carries the lock
-    #[test]
-    fn a_package_declaring_a_version_carries_its_lock() {
-        let manifest = br#"{ "name": "app", "imports": { "dep": "0.1.0" } }"#;
-        let held = br#"{ "dep": { "version": "0.1.0", "url": "https://example.com/dep.edge", "digest": "sha256-a4bf0317b809477e6e475cd791573953d3ae05c4e2b03bd5f35199609557dd90" } }"#;
-        let reserved = perms::reserved();
-        assert!(check_package(manifest, Some(held), &SYSTEM, &reserved).is_ok());
-        assert_eq!(check_package(manifest, None, &SYSTEM, &reserved).unwrap_err(), "'dep' is not locked in edge.lock");
-        assert!(check_package(br#"{ "imports": { "dep": "0.2.0" } }"#, Some(held), &SYSTEM, &reserved).unwrap_err().contains("locked 0.1.0"));
-        assert!(check_package(manifest, Some(b"{ nope"), &SYSTEM, &reserved).is_err());
-        let short = br#"{ "dep": { "version": "0.1.0", "url": "https://example.com/dep.edge", "digest": "sha256-ab" } }"#;
-        assert!(check_package(manifest, Some(short), &SYSTEM, &reserved).unwrap_err().contains("64 hex characters"));
     }
 }

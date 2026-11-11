@@ -508,8 +508,4 @@ impl Side for Native {
     fn walk_served(&mut self, failures: &str) -> Result<Vec<u8>, String> {
         Ok(walk::served(&mut self.host, failures.as_bytes()).into_bytes())
     }
-
-    fn walk_known(&mut self, names: &str) -> Result<Vec<u8>, String> {
-        Ok(walk::known(&mut self.host, names.as_bytes()).into_bytes())
-    }
 }

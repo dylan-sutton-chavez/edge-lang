@@ -249,7 +249,6 @@ mod test {
                 Step::Code { spec, .. } => code.push(bare(&spec)),
                 Step::Plugin { spec, .. } => { plugins.push(spec); walk.loaded(Loaded::Ok); }
                 Step::System(_) => walk.served(Vec::new()),
-                Step::Undeclared(_) => walk.known(Vec::new()),
                 Step::Done(failures) => { assert!(failures.is_empty(), "{failures:?}"); break; }
                 Step::Refuse { .. } | Step::Manifest { .. } => {}
             }

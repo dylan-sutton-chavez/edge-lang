@@ -12,7 +12,6 @@ export interface EdgeExports {
     walk_plugin_bytes(): number
     walk_plugin(kind: number, ptr: number, len: number): number
     walk_served(ptr: number, len: number): number
-    walk_known(ptr: number, len: number): number
     // the field the next walks carry which a runtime before it lacks
     walk_carry?(ptr: number, len: number): void
     // the grant logic which a runtime built without its perms feature lacks

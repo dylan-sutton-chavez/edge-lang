@@ -275,7 +275,7 @@ fn object(text: &str) -> bool {
     serde_json::from_str::<serde_json::Value>(text).is_ok_and(|value| value.is_object())
 }
 
-/* the first HTML tag in prose since a raw tag would run on the registry */
+/* the first HTML tag in prose since a raw tag would run where the page renders */
 fn tagged(line: &str) -> Option<String> {
     let mut prose = String::with_capacity(line.len());
     let mut code = false;

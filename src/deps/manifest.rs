@@ -10,7 +10,7 @@ pub struct Manifest {
     // bare names to specs scanned in order since a Vec spares a hashbrown monomorphization
     pub imports: Vec<(String, String)>,
     pub extends: Option<String>,
-    // what a package carries into a registry which the compiler never reads
+    // what a package names and describes itself with which the compiler never reads
     pub name: Option<String>,
     pub version: Option<String>,
     pub description: Option<String>,
@@ -211,7 +211,7 @@ mod tests {
     }
 
     #[test]
-    fn the_registry_fields_are_read_and_must_be_strings() {
+    fn the_package_fields_are_read_and_must_be_strings() {
         let m = parse_manifest(r#"{ "name": "café", "version": "0.1.0", "edge": "0.7.5", "future": { "kept": ["x"] } }"#.as_bytes()).unwrap();
         assert_eq!((m.name.as_deref(), m.version.as_deref(), m.edge.as_deref()), (Some("café"), Some("0.1.0"), Some("0.7.5")));
         assert!(parse_manifest(br#"{ "name": ["x"] }"#).unwrap_err().contains("'name' must be a string"));

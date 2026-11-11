@@ -295,11 +295,6 @@ impl Side for Instance {
     fn walk_served(&mut self, failures: &str) -> Result<Vec<u8>, String> {
         self.walk_call(&[failures.as_bytes()], |store, ex, s| ex.walk_served.call(store, (s[0].0, s[0].1)))
     }
-
-    /* answers the undeclared names with the ones the registry has joined by NUL */
-    fn walk_known(&mut self, names: &str) -> Result<Vec<u8>, String> {
-        self.walk_call(&[names.as_bytes()], |store, ex, s| ex.walk_known.call(store, (s[0].0, s[0].1)))
-    }
 }
 
 /* one interpreter slot of an instance with the completions its deferred calls report */
