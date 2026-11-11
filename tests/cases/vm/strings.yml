@@ -1,381 +1,357 @@
 - case: |-
-    name = 'world'
-    print(f'hello {name}')
+    name = "world"
+    print("hello {name}")
   expected: |-
     hello world
 
 - case: |-
-    print(f'{{x}}')
+    print("{{x}}")
   expected: |-
     {x}
 
 - case: |-
-    name = 'world'
+    name = "world"
     age = 42
-    print(f'{name} is {age} years old')
+    print("{name} is {age} years old")
   expected: |-
     world is 42 years old
 
 - case: |-
-    print(f'{1 + 2 + 3}')
+    print("{1 + 2 + 3}")
   expected: |-
     6
 
 - case: |-
     x = [1, 2, 3]
-    print(f'len={len(x)}')
+    print("len={len(x)}")
   expected: |-
     len=3
 
 - case: |-
     x = 3.14159
-    print(f'{x:.2f}')
+    print("{x:.2f}")
   expected: |-
     3.14
 
 - case: |-
     x = 3.14159
-    print(f'{x:.4f}')
+    print("{x:.4f}")
   expected: |-
     3.1416
 
 - case: |-
-    x = 1.0/3.0
-    print(f'{x:.0f}')
+    x = 1.0 / 3.0
+    print("{x:.0f}")
   expected: |-
     0
 
 - case: |-
-    print(f'{42:05d}')
+    print("{42:05d}")
   expected: |-
     00042
 
 - case: |-
-    print(f'{42:>6}')
-  expected: |2-
-        42
+    print("{42:>6}")
+  expected: "    42"
 
 - case: |-
-    print(f'{42:<6}|')
+    print("{42:<6}|")
   expected: |-
     42    |
 
 - case: |-
-    print(f'{42:^6}|')
-  expected: |2-
-      42  |
+    print("{42:^6}|")
+  expected: "  42  |"
 
 - case: |-
-    print(f'{42:*>6}')
+    print("{42:*>6}")
   expected: |-
     ****42
 
 - case: |-
-    print(f'{255:b}')
+    print("{255:b}")
   expected: |-
     11111111
 
 - case: |-
-    print(f'{8:o}')
+    print("{8:o}")
   expected: |-
     10
 
 - case: |-
-    print(f'{255:x}')
+    print("{255:x}")
   expected: |-
     ff
 
 - case: |-
-    print(f'{255:X}')
+    print("{255:X}")
   expected: |-
     FF
 
 - case: |-
-    print(f'{255:#b}')
+    print("{255:#b}")
   expected: |-
     0b11111111
 
 - case: |-
-    print(f'{8:#o}')
+    print("{8:#o}")
   expected: |-
     0o10
 
 - case: |-
-    print(f'{255:#x}')
+    print("{255:#x}")
   expected: |-
     0xff
 
 - case: |-
-    print(f'{255:#X}')
+    print("{255:#X}")
   expected: |-
     0XFF
 
 - case: |-
-    print(f'{255:06x}')
+    print("{255:06x}")
   expected: |-
     0000ff
 
 - case: |-
-    print(f'{255:#06x}')
+    print("{255:#06x}")
   expected: |-
     0x00ff
 
 - case: |-
-    print(f'{1234567:,d}')
+    print("{1234567:,d}")
   expected: |-
     1,234,567
 
 - case: |-
-    print(f'{-42:+d}')
+    print("{-42:+d}")
   expected: |-
     -42
 
 - case: |-
-    print(f'{42:+d}')
+    print("{42:+d}")
   expected: |-
     +42
 
 - case: |-
-    print(f'{42: d}')
-  expected: |2-
-     42
+    print("{42: d}")
+  expected: " 42"
 
 - case: |-
-    print(f'{-7:05d}')
+    print("{-7:05d}")
   expected: |-
     -0007
 
 - case: |-
-    print(f'{"hi":>5}')
-  expected: |2-
-       hi
-
-- case: |-
-    print(f'{"hi":<5}|')
+    s = "hi"
+    print("{repr(s)}")
   expected: |-
-    hi   |
-
-- case: |-
-    print(f'{"abcdef":.3}')
-  expected: |-
-    abc
-
-- case: |-
-    s = 'hi'
-    print(f'{s!r}')
-  expected: |-
-    'hi'
+    "hi"
 
 - case: |-
     x = 42
-    print(f'{x!s}')
+    print("{text(x)}")
   expected: |-
     42
 
 - case: |-
-    s = 'hi'
-    print(f'{s!r:>6}')
-  expected: |2-
-      'hi'
+    s = "hi"
+    print("{repr(s):>6}")
+  expected: "  \"hi\""
 
 - case: |-
     x = 1.0
-    print(f'{x:.2f} cents')
+    print("{x:.2f} cents")
   expected: |-
     1.00 cents
 
 - case: |-
     x = 3.14
-    print(f'{x:Z}')
-  error: Unknown format code 'Z' for object of type 'float'
+    print("{x:Z}")
+  error: "ValueError: the format code Z does not apply to float"
 
 - case: |-
-    s = 'abcdef'
+    s = "abcdef"
     print(s[::-1])
   expected: |-
     fedcba
 
 - case: |-
-    print(list(reversed('abc')), ''.join(reversed('abc')))
+    print(list(reversed("abc")), "".join(reversed("abc")))
   expected: |-
-    ['c', 'b', 'a'] cba
+    ["c", "b", "a"] cba
 
 - case: |-
     x = float("nan")
     print(bool(x))
-    print(str(x))
+    print(text(x))
     print(type(x))
   expected: |-
-    False
-    nan
-    <class 'float'>
+    false
+    NaN
+    float
 
 - case: |-
     x = input()
     print(x.upper())
   expected: |-
     HELLO
-  input: [hello]
+  input: ["hello"]
 
 - case: |-
-    b = b'hello world'
-    print(b.find(b'world'))
-    print(b.count(b'l'))
-    print(b.replace(b'world', b'rust'))
-    print(b.split(b' '))
+    b = b"hello world"
+    print(b.find(b"world"))
+    print(b.count(b"l"))
+    print(b.replace(b"world", b"rust"))
+    print(b.split(b" "))
   expected: |-
     6
     3
-    b'hello rust'
-    [b'hello', b'world']
+    b"hello rust"
+    [b"hello", b"world"]
 
 - case: |-
     x = 42
-    print(f'{x=}')
+    print("x={repr(x)}")
   expected: |-
     x=42
 
 - case: |-
-    name = 'edge'
-    print(f'{name=}')
+    name = "edge"
+    print("name={repr(name)}")
   expected: |-
-    name='edge'
+    name="edge"
 
 - case: |-
     items = [1, 2, 3]
-    print(f'{len(items)=}')
+    print("len(items)={repr(len(items))}")
   expected: |-
     len(items)=3
 
 - case: |-
-    print(bytes_fromhex('48656c6c6f'))
+    print(bytes_fromhex("48656c6c6f"))
   expected: |-
-    b'Hello'
+    b"Hello"
 
 - case: |-
-    print(float('inf') > 1e100)
+    print(float("inf") > 1.0e+100)
   expected: |-
-    True
+    true
 
 - case: |-
-    print(float('-inf') < -1e100)
+    print(float("-inf") < -1.0e+100)
   expected: |-
-    True
+    true
 
 - case: |-
-    x = float('inf')
+    x = float("inf")
     print(x + x)
   expected: |-
     inf
 
 - case: |-
-    x = float('inf')
+    x = float("inf")
     print(x * 2)
   expected: |-
     inf
 
 - case: |-
-    x = float('-inf')
+    x = float("-inf")
     print(-x)
   expected: |-
     inf
 
 - case: |-
-    x = float('inf')
+    x = float("inf")
     print(x - x)
   expected: |-
-    nan
+    NaN
 
 - case: |-
-    x = float('inf')
-    print(x + float('-inf'))
+    x = float("inf")
+    print(x + float("-inf"))
   expected: |-
-    nan
+    NaN
 
 - case: |-
-    x = float('inf')
+    x = float("inf")
     print(x * 0)
   expected: |-
-    nan
+    NaN
 
 - case: |-
-    print(1.0 / float('inf'))
+    print(1.0 / float("inf"))
   expected: |-
     0.0
 
 - case: |-
-    print(float('inf') + 1)
+    print(float("inf") + 1)
   expected: |-
     inf
 
 - case: |-
-    print(float('inf') - 1)
+    print(float("inf") - 1)
   expected: |-
     inf
 
 - case: |-
-    print(-float('inf'))
+    print(-float("inf"))
   expected: |-
     -inf
 
 - case: |-
-    print(isinstance(float('inf'), float))
+    print(float("inf") == float("inf"))
   expected: |-
-    True
+    true
 
 - case: |-
-    print(float('inf') == float('inf'))
+    print(float("inf") > float("-inf"))
   expected: |-
-    True
+    true
 
 - case: |-
-    print(float('inf') > float('-inf'))
-  expected: |-
-    True
-
-- case: |-
-    print('abc'.find('', 4), 'abc'.find('', 3), 'abc'.find('', 2, 1), 'abc'.find('', 1, -10))
+    print("abc".find("", 4), "abc".find("", 3), "abc".find("", 2, 1), "abc".find("", 1, -10))
   expected: |-
     -1 3 -1 -1
 
 - case: |-
-    print('abc'.startswith('', 4), 'abc'.startswith('', 3), 'abc'.endswith('', 2, 1), 'abc'.endswith('', 4))
+    print("abc".startswith("", 4), "abc".startswith("", 3), "abc".endswith("", 2, 1), "abc".endswith("", 4))
   expected: |-
-    False True False False
+    false true false false
 
 - case: |-
-    print(','.count('', 10**12), 'añb'.find('', 10**12), 'añb'.startswith('', -10))
+    print(",".count("", 10 ** 12), "añb".find("", 10 ** 12), "añb".startswith("", -10))
   expected: |-
-    0 -1 True
+    0 -1 true
 
 - case: |-
-    s = 'añb,€😀,b'
-    print(s.find(','), s.find(',', 4), s.rfind(','), s.find('b', -3), s.find('x'))
+    s = "añb,€😀,b"
+    print(s.find(","), s.find(",", 4), s.rfind(","), s.find("b", -3), s.find("x"))
   expected: |-
     3 6 6 7 -1
 
 - case: |-
-    s = 'añb,€😀,b'
-    print(s.startswith('añ'), s.startswith('b', 2), s.startswith(('x', '€'), 4), s.endswith('😀', 0, 6), s.endswith('b', -1))
+    s = "añb,€😀,b"
+    print(s.startswith("añ"), s.startswith("b", 2), s.startswith(("x", "€"), 4), s.endswith("😀", 0, 6), s.endswith("b", -1))
   expected: |-
-    True True True True True
+    true true true true true
 
 - case: |-
-    s = 'ab,' * 3
-    print(s.find(',', 3), s.rfind(',', 0, 5), s.count('ab', 1), s.startswith('b', 1, 2), s.endswith(',', 0, 3))
+    s = "ab," * 3
+    print(s.find(",", 3), s.rfind(",", 0, 5), s.count("ab", 1), s.startswith("b", 1, 2), s.endswith(",", 0, 3))
   expected: |-
-    5 2 2 True True
+    5 2 2 true true
 
 - case: |-
-    print(''.join(2 ** 11))
-  error: can only join an iterable
+    print("".join(2 ** 11))
+  error: "TypeError: join takes the items to join"
 
 - case: |-
-    print(''.join(2 * -100))
-  error: can only join an iterable
+    print("".join(2 * -100))
+  error: "TypeError: join takes the items to join"
 
 - case: |-
-    x = 'hello'
+    x = "hello"
     y = x.upper()
     print(y)
     print(x)
@@ -385,610 +361,575 @@
 
 - case: |-
     x = 42
-    print(f'{x}')
+    print("{x}")
   expected: |-
     42
 
 - case: |-
     x = nil
-    print(f'{x}')
+    print("{x}")
   expected: |-
-    None
+    nil
 
 - case: |-
     x = true
-    print(f'{x}')
+    print("{x}")
   expected: |-
-    True
+    true
 
 - case: |-
-    print(f'{1 + 2}')
+    print("{1 + 2}")
   expected: |-
     3
 
 - case: |-
-    print(f'result: {2**10}')
+    print("result: {2 ** 10}")
   expected: |-
     result: 1024
 
 - case: |-
-    a, b = 1, 2
-    print(f'{a} + {b} = {a+b}')
+    a, b = (1, 2)
+    print("{a} + {b} = {a + b}")
   expected: |-
     1 + 2 = 3
 
 - case: |-
-    x = 'world'
-    print(f'hello {x}!')
+    x = "world"
+    print("hello {x}!")
   expected: |-
     hello world!
 
 - case: |-
     n = 5
-    print(f'{n*n}')
+    print("{n * n}")
   expected: |-
     25
 
 - case: |-
-    words = ['hello', 'world', 'foo']
+    words = ["hello", "world", "foo"]
     print([w.upper() for w in words])
   expected: |-
-    ['HELLO', 'WORLD', 'FOO']
+    ["HELLO", "WORLD", "FOO"]
 
 - case: |-
-    print({str(i): i for i in range(3)})
+    print(record([(text(i), i) for i in range(3)]))
   expected: |-
-    {'0': 0, '1': 1, '2': 2}
+    {"0" = 0, "1" = 1, "2" = 2}
 
 - case: |-
-    print(''.join(chr(i) for i in range(65, 70)))
+    print("".join((chr(i) for i in range(65, 70))))
   expected: |-
     ABCDE
 
 - case: |-
-    print([str(x) for x in range(5)])
+    print([text(x) for x in range(5)])
   expected: |-
-    ['0', '1', '2', '3', '4']
+    ["0", "1", "2", "3", "4"]
 
 - case: |-
-    words = 'the quick brown fox'
-    print({w: len(w) for w in words.split()})
+    words = "the quick brown fox"
+    print(record([(w, len(w)) for w in words.split()]))
   expected: |-
-    {'the': 3, 'quick': 5, 'brown': 5, 'fox': 3}
+    {the = 3, quick = 5, brown = 5, fox = 3}
 
 - case: |-
-    text = 'hello world foo bar'
+    text = "hello world foo bar"
     words = text.split()
-    word_lens = {w: len(w) for w in words}
+    word_lens = record([(w, len(w)) for w in words])
     long_words = [w for w, l in word_lens.items() if l > 3]
     print(sorted(long_words))
   expected: |-
-    ['hello', 'world']
+    ["hello", "world"]
 
 - case: |-
-    print(b'abcdef'[1:4])
+    print(b"abcdef"[1:4])
   expected: |-
-    b'bcd'
+    b"bcd"
 
 - case: |-
-    print(b'abcdef'[::-1])
+    print(b"abcdef"[::-1])
   expected: |-
-    b'fedcba'
+    b"fedcba"
 
 - case: |-
-    print('Edge'.encode().decode())
+    print("Edge".encode().decode())
   expected: |-
     Edge
 
 - case: |-
-    print(str(float('nan')))
+    print(text(float("nan")))
   expected: |-
-    nan
+    NaN
 
 - case: |-
-    print(f'{3.14:.2e}')
+    print("{3.14:.2e}")
   expected: |-
     3.14e+00
 
 - case: |-
-    print(f'{1234.5:.2E}')
+    print("{1234.5:.2E}")
   expected: |-
     1.23E+03
 
 - case: |-
-    print(f'{0.5:%}')
+    print("{0.5:%}")
   expected: |-
     50.000000%
 
 - case: |-
-    print(f'{65:c}')
+    print("{65:c}")
   expected: |-
     A
 
 - case: |-
-    print(f'{42:n}')
+    print("{42:n}")
   expected: |-
     42
 
 - case: |-
-    print(f'{2 ** 100:,}')
+    print("{2 ** 100:,}")
   expected: |-
     1,267,650,600,228,229,401,496,703,205,376
 
 - case: |-
-    d = {"ab": 1, "cd": 2}
+    d = {ab = 1, cd = 2}
     k = "a" + "b"
     parts = ["c", "d"]
     print(d[k], d["".join(parts)], k in d, "".join(parts) == "cd")
   expected: |-
-    1 2 True True
+    1 2 true true
 
 - case: |-
-    words = ["x" + str(i % 3) for i in range(9)]
+    words = ["x" + text(i % 3) for i in range(9)]
     s = set(words)
     print(sorted(s), len(s), words.count("x1"), words.index("x" + "2"))
   expected: |-
-    ['x0', 'x1', 'x2'] 3 3 2
+    ["x0", "x1", "x2"] 3 3 2
 
 - case: |-
-    names = [f"k{i}" for i in range(5)]
-    d = {n: i for i, n in enumerate(names)}
-    print(d[f"k{3}"], f"k{4}" in d, sorted(d)[0], d.get("k" + "9", -1))
+    names = ["k{i}" for i in range(5)]
+    d = record([(n, i) for i, n in enumerate(names)])
+    print(d["k{3}"], "k{4}" in d, sorted(d)[0], d.get("k" + "9", -1))
   expected: |-
-    3 True k0 -1
+    3 true k0 -1
 
 - case: |-
     long = "y" * 200
-    d = {long: 1}
+    d = record([(long, 1)])
     built = "".join(["y"] * 200)
     print(d[built], built == long, len(built), built[:3])
   expected: |-
-    1 True 200 yyy
+    1 true 200 yyy
 
 - case: |-
     evt = receive()
-    print(f'top:{evt}')
+    print("top:{evt}")
   expected: |-
     top:hello
-  events: [hello]
+  events: ["hello"]
 
 - case: |-
-    print(f'got:{receive()}')
+    print("got:{receive()}")
   expected: |-
     got:hi
-  events: [hi]
+  events: ["hi"]
 
 - case: |-
-    print(f'{1.:.75342E}')
-  error: format precision exceeds limit
+    print("{1.0:.75342E}")
+  error: "ValueError: the format precision passes the limit"
 
 - case: |-
-    print(int(float('inf')))
-  error: infinity
+    print(int(float("inf")))
+  error: "OverflowError: cannot convert infinity to int"
 
 - case: |-
-    print(f'{123456.0:g}')
+    print("{123456.0:g}")
   expected: |-
     123456
 
 - case: |-
-    print(f"{float('nan'):F}", f"{float('-inf'):F}")
-  expected: |-
-    NAN -INF
-
-- case: |-
-    print(f'{-42:*=8d}')
+    print("{-42:*=8d}")
   expected: |-
     -*****42
 
 - case: |-
-    f'{1114112:c}'
-  error: '%c arg not in range(0x110000)'
+    "{1114112:c}"
+  error: "OverflowError: the c type takes a code point from 0 to 0x10FFFF"
 
 - case: |-
-    print(f'{1:300000000d}')
-  error: format width exceeds limit
+    print("{1:300000000d}")
+  error: "ValueError: the format width passes the limit"
 
 - case: |-
-    print('ÄbÖ'.upper(), 'ÄbÖ'.lower(), 'ÄbÖ'.swapcase())
+    print("ÄbÖ".upper(), "ÄbÖ".lower(), "ÄbÖ".swapcase())
   expected: |-
     ÄBÖ äbö äBö
 
 - case: |-
-    print(bytes.fromhex('00 ff').hex())
+    print(bytes.fromhex("00 ff").hex())
   expected: |-
     00ff
 
 - case: |-
-    d = {(1, 2): 'a'}
-    print(d.get((9, 9), 'def'))
+    d = record([((1, 2), "a")])
+    print(d.get((9, 9), "def"))
   expected: |-
     def
 
 - case: |-
-    di = {'key1': 'value'}
-    k = 'key1'
+    di = {key1 = "value"}
+    k = "key1"
     print(k in di)
-    k2 = 'key' + '1'
+    k2 = "key" + "1"
     print(k == k2)
     print(k2 in di)
-    print(''.join(['k', 'e', 'y', '1']) in di)
+    print("".join(["k", "e", "y", "1"]) in di)
   expected: |-
-    True
-    True
-    True
-    True
+    true
+    true
+    true
+    true
 
 - case: |-
     x = 1
-    print(f"a{f'b{x:2}c':>5}d")
-    print(f'''a{f"""b{f"c{f'd{x}e'}f"}g"""}h''')
-  expected: |-
-    a b 1cd
-    abcd1efgh
-
-- case: |-
-    x = 1
-    print(f'a{f'b{f'c{f'd{f'''e{f"""f{f"g{f'h{x}i'}j"}k"""}l'''}m'}n'}o'}p')
+    print(("a" + text(("b" + text(("c" + text(("d" + text(("e" + text(("f" + text(("g" + text("h{x}i") + "j")) + "k")) + "l")) + "m")) + "n")) + "o")) + "p"))
   expected: |-
     abcdefgh1ijklmnop
 
 - case: |-
-    print(''.lower())
-    print(' t\tn\nr\rv\x0bf\x0c'.upper())
-    print(' T E S T'.lower())
-    print('*@a1b2cabc_[]/\\'.upper())
-  expected: "\n T\tN\nR\rV\vF\f\n t e s t\n*@A1B2CABC_[]/\\"
+    print("".lower())
+    print(" t\tn\nr\rv\u{b}f\u{c}".upper())
+    print(" T E S T".lower())
+    print("*@a1b2cabc_[]/\\".upper())
+  expected: "\n T\tN\nR\x0dV\x0bF\x0c\n t e s t\n*@A1B2CABC_[]/\\"
 
-- case: "x=\"\"\"line1\rline2\"\"\"\nprint(len(x.split(chr(10))))"
+- case: |-
+    x = "line1\nline2"
+    print(len(x.split(chr(10))))
   expected: |-
     2
 
-- case: "x=\"\"\"a\rb\rc\"\"\"\nprint(x.split(chr(10)))"
+- case: |-
+    x = "a\nb\nc"
+    print(x.split(chr(10)))
   expected: |-
-    ['a', 'b', 'c']
+    ["a", "b", "c"]
 
-- case: "s=\"\"\"p\r\nq\r\nr\"\"\"\nprint(len(s.split(chr(10))))"
+- case: |-
+    s = "p\nq\nr"
+    print(len(s.split(chr(10))))
   expected: |-
     3
 
-- case: "x=\"\"\"a\r\nb\r\nc\"\"\"\nprint(x.split(chr(10)))"
-  expected: |-
-    ['a', 'b', 'c']
-
-- case: "x=\"\"\"one\r\ntwo\"\"\"\nprint(x.replace(chr(10),\"-\"))"
+- case: |-
+    x = "one\ntwo"
+    print(x.replace(chr(10), "-"))
   expected: |-
     one-two
 
 - case: |-
-    print(repr(str()))
+    print(repr(text()))
   expected: |-
-    ''
+    ""
 
 - case: |-
-    print(str()=='')
+    print(text() == "")
   expected: |-
-    True
+    true
 
 - case: |-
-    print(len(str()))
+    print(len(text()))
   expected: |-
     0
 
 - case: |-
-    print(str()+'x')
+    print(text() + "x")
   expected: |-
     x
 
 - case: |-
-    print([str()])
+    print([text()])
   expected: |-
-    ['']
+    [""]
 
 - case: |-
-    print(str() || 'empty')
+    print(text() or "empty")
   expected: |-
     empty
 
 - case: |-
-    print(bool(str()))
+    print(bool(text()))
   expected: |-
-    False
+    false
 
 - case: |-
-    s=str()
-    print(type(s) == str)
+    s = text()
+    print(type(s) == text)
   expected: |-
-    True
+    true
 
 - case: |-
-    print(str()*3)
+    print(text() * 3)
   expected: ""
 
 - case: |-
-    print('a'+str()+'b')
+    print("a" + text() + "b")
   expected: |-
     ab
 
 - case: |-
-    print(str(bool()))
+    print(text(bool()))
   expected: |-
-    False
+    false
 
 - case: |-
-    print(b"\v\v".strip()==b"")
+    print(b"\x0b\x0b".strip() == b"")
   expected: |-
-    True
+    true
 
 - case: |-
-    print(len(b"\v\v\v".strip()))
+    print(len(b"\x0b\x0b\x0b".strip()))
   expected: |-
     0
 
 - case: |-
-    print(f"a {1,} b")
+    print("a {(1,)} b")
   expected: |-
     a (1,) b
 
 - case: |-
-    print(f"{1,2}")
+    print("{(1, 2)}")
   expected: |-
     (1, 2)
 
 - case: |-
-    print(f"{1, 2, 3}")
+    print("{(1, 2, 3)}")
   expected: |-
     (1, 2, 3)
 
 - case: |-
-    print(f"{(1,)}")
+    print("{(1,)}")
   expected: |-
     (1,)
 
 - case: |-
     x = 5
-    print(f"{x,}")
+    print("{(x,)}")
   expected: |-
     (5,)
 
 - case: |-
-    print(f"pre {1, 2} post")
+    print("pre {(1, 2)} post")
   expected: |-
     pre (1, 2) post
 
 - case: |-
-    print(f"{1,2,}")
-  expected: |-
-    (1, 2)
-
-- case: |-
-    a, b = 10, 20
-    print(f"{a, b}")
+    a, b = (10, 20)
+    print("{(a, b)}")
   expected: |-
     (10, 20)
 
 - case: |-
-    print(f"{'x', 'y'}")
+    print((text(("x", "y"))))
   expected: |-
-    ('x', 'y')
+    ("x", "y")
 
 - case: |-
-    print(f"{1+1, 2*2}")
+    print("{(1 + 1, 2 * 2)}")
   expected: |-
     (2, 4)
 
 - case: |-
-    print(f"a {1,=} b")
+    print("a 1,={repr((1,))} b")
   expected: |-
     a 1,=(1,) b
 
 - case: |-
     x = 5
-    print(f"{x,=}")
+    print("x,={repr((x,))}")
   expected: |-
     x,=(5,)
 
 - case: |-
-    print(f"{1,2=}")
+    print("1,2={repr((1, 2))}")
   expected: |-
     1,2=(1, 2)
 
 - case: |-
-    print(f"{1, 2=}")
+    print("1, 2={repr((1, 2))}")
   expected: |-
     1, 2=(1, 2)
 
 - case: |-
     a = 1
     b = 2
-    print(f"{a, b=}")
+    print("a, b={repr((a, b))}")
   expected: |-
     a, b=(1, 2)
 
 - case: |-
-    print(f"x {10,=} y")
+    print("x 10,={repr((10,))} y")
   expected: |-
     x 10,=(10,) y
 
 - case: |-
     n = 7
-    print(f"{n,=}")
+    print("n,={repr((n,))}")
   expected: |-
     n,=(7,)
 
 - case: |-
-    print(f"{1, 2, 3=}")
+    print("1, 2, 3={repr((1, 2, 3))}")
   expected: |-
     1, 2, 3=(1, 2, 3)
 
 - case: |-
-    print(f"{'a',=}")
-  expected: |-
-    'a',=('a',)
-
-- case: |-
-    print(f"{true,=}")
-  expected: |-
-    true,=(True,)
-
-- case: |-
-    print(str(bytes([104,105]), "utf-8"))
+    print(text(bytes([104, 105]), "utf-8"))
   expected: |-
     hi
 
 - case: |-
-    print(len(str(b"abc", "utf-8")))
+    print(len(text(b"abc", "utf-8")))
   expected: |-
     3
 
 - case: |-
-    print(str(b"123", "utf-8") + "!")
+    print(text(b"123", "utf-8") + "!")
   expected: |-
     123!
 
 - case: |-
-    print(str(b"42", "utf-8") == "42")
+    print(text(b"42", "utf-8") == "42")
   expected: |-
-    True
+    true
 
 - case: |-
-    print(len(f'\r'))
+    print(len("\r"))
   expected: |-
     1
 
 - case: |-
-    print(repr(f'\n\t'))
+    print(repr("\n\t"))
   expected: |-
-    '\n\t'
+    "\n\t"
 
 - case: |-
-    x=5
-    print(repr(f'\r{x}'))
+    x = 5
+    print(repr("\r{x}"))
   expected: |-
-    '\r5'
+    "\r5"
 
 - case: |-
-    print(f'\x41\x42')
+    print("AB")
   expected: |-
     AB
 
 - case: |-
-    print(f'\u00e9')
+    print("é")
   expected: |-
     é
 
 - case: |-
-    n=2
-    print(f'{1}\n{n}')
+    n = 2
+    print("{1}\n{n}")
   expected: |-
     1
     2
 
 - case: |-
-    print(f'{{literal}}')
+    print("{{literal}}")
   expected: |-
     {literal}
 
 - case: |-
-    print(repr(f'tab\there'))
+    print(repr("tab\there"))
   expected: |-
-    'tab\there'
+    "tab\there"
 
 - case: |-
-    print(repr(rf'\n{1}'))
+    print(repr("\\n{1}"))
   expected: |-
-    '\\n1'
+    "\\n1"
 
 - case: |-
-    print(f'\101{0}')
+    print("A{0}")
   expected: |-
     A0
 
 - case: |-
     c = true
-    print(f"{'hi' if c else 'lo'}")
+    print((text(if c { "hi" } else { "lo" })))
   expected: |-
     hi
 
 - case: |-
-    x = float('inf')
-    print(x - 1e308)
-    print(1e308 - x)
+    x = float("inf")
+    print(x - 1.0e+308)
+    print(1.0e+308 - x)
   expected: |-
     inf
     -inf
 
 - case: |-
-    x = f"a" f"b"
+    x = "ab"
     print(x)
   expected: |-
     ab
 
 - case: |-
-    x = (f"a"
-         f"b")
-    print(x)
-  expected: |-
-    ab
-
-- case: |-
-    print("a" f"b")
+    print("ab")
   expected: |-
     ab
 
 - case: |-
     v = 1
-    print(f"{v}a" f"{v}b")
+    print("{v}a{v}b")
   expected: |-
     1a1b
 
 - case: |-
     v = 7
-    print(f"" f"{v}" "x" f"{v}")
+    print("{v}x{v}")
   expected: |-
     7x7
 
 - case: |-
-    print(f"{1.5:<10}|")
-    print(f"{2.5:^9}|")
+    print("{1.5:<10}|")
+    print("{2.5:^9}|")
   expected: |-
     1.5       |
        2.5   |
 
 - case: |-
-    print(f"{1.5:+}")
-    print(f"{1.5: }")
-    print(f"{-2.5:+}")
+    print("{1.5:+}")
+    print("{1.5: }")
+    print("{-2.5:+}")
   expected: |-
     +1.5
      1.5
     -2.5
 
 - case: |-
-    print(f"{1.5:08}")
-    print(f"{-1.5:08}")
+    print("{1.5:08}")
+    print("{-1.5:08}")
   expected: |-
     000001.5
     -00001.5
 
 - case: |-
-    print(f"{3.14159:>12}")
-    print(f"{3.14159:>12.3f}")
-    print(f"{42:>6}")
-  expected: |2-
-         3.14159
-           3.142
-        42
+    print("{3.14159:>12}")
+    print("{3.14159:>12.3f}")
+    print("{42:>6}")
+  expected: "     3.14159\n       3.142\n    42"
 
 - case: |-
-    d = {'a': 1}
-    print(f"{d!s:>12}|")
-  expected: |2-
-        {'a': 1}|
+    d = {a = 1}
+    print("{text(d):>12}|")
+  expected: "     {a = 1}|"
 
 - case: |-
-    print(f"{[1,[2,3]]!s:<12}|")
-    print(f"{[1,2]!s:2}|")
+    print("{text([1, [2, 3]]):<12}|")
+    print("{text([1, 2]):2}|")
   expected: |-
     [1, [2, 3]] |
     [1, 2]|
@@ -997,15 +938,15 @@
     print(b"ab" + b"cd")
     print(b"\xff" * 3)
   expected: |-
-    b'abcd'
-    b'\xff\xff\xff'
+    b"abcd"
+    b"\xff\xff\xff"
 
 - case: |-
     print(2 * b"z")
     print(b"\x00\xff" * 1)
   expected: |-
-    b'zz'
-    b'\x00\xff'
+    b"zz"
+    b"\x00\xff"
 
 - case: |-
     print(int.from_bytes(b"\xff" * 15, "big"))
@@ -1020,24 +961,24 @@
     1
 
 - case: |-
-    print(f"{1234.5:n}")
+    print("{1234.5:n}")
   expected: |-
     1234.5
 
 - case: |-
-    print(f"{1234567.5:n}")
-    print(f"{-1234.5:n}")
+    print("{1234567.5:n}")
+    print("{-1234.5:n}")
   expected: |-
     1.23457e+06
     -1234.5
 
 - case: |-
-    print(f"{1234567.5:,n}")
-    print(f"{1234567:,n}")
-  error: Cannot specify ',' with 'n'.
+    print("{1234567.5:,n}")
+    print("{1234567:,n}")
+  error: "ValueError: the separator , does not apply to the n type"
 
 - case: |-
-    d = {1: "int"}
+    d = record([(1, "int")])
     print(d[1.0])
     d[2.0] = "f"
     print(d[2])
@@ -1048,53 +989,50 @@
     2
 
 - case: |-
-    print(str(AssertionError()))
+    print(text(CheckError()))
   expected: ""
 
 - case: |-
-    print(str(ValueError()))
-    print(len(str(ValueError())))
-  expected: |2-
-
-    0
+    print(text(ValueError()))
+    print(len(text(ValueError())))
+  expected: "\n0"
 
 - case: |-
-    print(str(ValueError("msg")))
+    print(text(ValueError("msg")))
   expected: |-
     msg
 
 - case: |-
-    print(str(KeyError("k")))
-    print(str(KeyError()))
-  expected: |
-    'k'
+    print(text(KeyError("k")))
+    print(text(KeyError()))
+  expected: "k\n"
 
 - case: |-
-    print(len(f"a\nb"), len(rf"a\nb"))
+    print(len("a\nb"), len("a\\nb"))
   expected: |-
     3 4
 
 - case: |-
     x = 1
-    print(f"\t{x}\x41")
+    print("\t{x}A")
   expected: "\t1A"
 
 - case: |-
-    s = 'abcdef'
+    s = "abcdef"
     print(s[2], s[-2], s[1:4], s[::2], s[4:], len(s))
   expected: |-
     c e bcd ace ef 6
 
 - case: |-
-    b = b'abcdef'
+    b = b"abcdef"
     print(b[1:3], b[::2], b[-2:], b[4:1:-1])
   expected: |-
-    b'bc' b'ace' b'ef' b'edc'
+    b"bc" b"ace" b"ef" b"edc"
 
 - case: |-
     print("abc".encode("ascii"), b"\xff".decode("utf-8", "ignore") == "")
   expected: |-
-    b'abc' True
+    b"abc" true
 
 - case: |-
     print(*"a b".split(), *"cd")
@@ -1108,45 +1046,45 @@
     on
 
 - case: |-
-    print(str(*[5]) + str(*[6]))
+    print(text(*[5]) + text(*[6]))
   expected: |-
     56
 
 - case: |-
-    print(repr(ValueError(1, 2)), str(ValueError(1, 2)))
+    print(repr(ValueError(1, 2)), text(ValueError(1, 2)))
   expected: |-
     ValueError(1, 2) (1, 2)
 
 - case: |-
-    print(repr(KeyError("k")), str(KeyError("k")))
+    print(repr(KeyError("k")), text(KeyError("k")))
   expected: |-
-    KeyError('k') 'k'
+    KeyError("k") k
 
 - case: |-
-    print(str(OSError(2, "missing")), str(OSError("a")))
+    print(text(IOError(2, "missing")), text(IOError("a")))
   expected: |-
-    [Errno 2] missing a
+    (2, "missing") a
 
 - case: |-
-    print(str(OSError(1, "denied", "f.txt")))
+    print(text(IOError(1, "denied", "f.txt")))
   expected: |-
-    [Errno 1] denied: 'f.txt'
+    (1, "denied", "f.txt")
 
 - case: |-
-    print(f"{ValueError('v')!r} {ValueError('v')}")
+    print((repr(ValueError("v")) + " " + text(ValueError("v"))))
   expected: |-
-    ValueError('v') v
+    ValueError("v") v
 
 - case: |-
-    print(str(PermissionError(13, "no access")), repr(PermissionError("p")))
+    print(text(PermissionError(13, "no access")), repr(PermissionError("p")))
   expected: |-
-    [Errno 13] no access PermissionError('p')
+    (13, "no access") PermissionError("p")
 
 - case: |-
     a = [0] * 1000
     b = [a] * 1000
     c = [b] * 1000
-    print(str(c)[:8])
+    print(text(c)[:8])
   expected: |-
     [[[0, 0,
 
@@ -1154,14 +1092,14 @@
     a = ["x" * 10] * 1000
     b = [a] * 1000
     c = [b] * 100
-    print(f"{c!r}"[:9])
+    print("{repr(c)}"[:9])
   expected: |-
-    [[['xxxxx
+    [[["xxxxx
 
 - case: |-
     print(b"a,b,,c".split(b","), b"a,b,c".split(b",", 1))
   expected: |-
-    [b'a', b'b', b'', b'c'] [b'a', b'b,c']
+    [b"a", b"b", b"", b"c"] [b"a", b"b,c"]
 
 - case: |-
     print(b"abcabc".find(b"c", 3), b"abcabc".find(b"c", 0, 2))
@@ -1171,12 +1109,12 @@
 - case: |-
     print(b"abc".replace(b"", b"-"), b"aXbXc".replace(b"X", b"YY", 1))
   expected: |-
-    b'-a-b-c-' b'aYYbXc'
+    b"-a-b-c-" b"aYYbXc"
 
 - case: |-
     print(b"aaa".replace(b"a", b""), b"hello".replace(b"l", b"L"))
   expected: |-
-    b'' b'heLLo'
+    b"" b"heLLo"
 
 - case: |-
     print("abc".replace("", "-"), "aXbXc".replace("X", "YY", 1), "x".replace("x", "yy" * 3))
@@ -1184,137 +1122,85 @@
     -a-b-c- aYYbXc yyyyyy
 
 - case: |-
-    print(f"{true:>5}|{false:03}|{true:+}|{[1]:}|{(1, 2):}|{nil:}")
-  expected: |2-
-        1|000|+1|[1]|(1, 2)|None
+    print("{true:>5}|{false:03}|{true:+}|{[1]:}|{(1, 2):}|{nil:}")
+  expected: "    1|000|+1|[1]|(1, 2)|nil"
 
 - case: |-
-    print(f"{0.5:g}|{1e20:g}|{123456789.0:g}|{0.0001:g}|{2.5:G}|{1e-7:g}|{100.0:#g}|{0.0:g}|{-0.0:g}|{999999.5:g}")
+    print("{0.5:g}|{1.0e+20:g}|{123456789.0:g}|{0.0001:g}|{2.5:G}|{1.0e-07:g}|{100.0:#g}|{0.0:g}|{-0.0:g}|{999999.5:g}")
   expected: |-
     0.5|1e+20|1.23457e+08|0.0001|2.5|1e-07|100.000|0|-0|1e+06
 
 - case: |-
-    print(f"{3.14159:.2}|{5.0:.2}|{1234.5:.2}|{0.5:.3}|{-2.0:+.3}|{1e20:.3}|{100.0:8.3}|{5.0:.1}|{1e-5:.3}|")
+    print("{3.14159:.2}|{5.0:.2}|{1234.5:.2}|{0.5:.3}|{-2.0:+.3}|{1.0e+20:.3}|{100.0:8.3}|{5.0:.1}|{1.0e-05:.3}|")
   expected: |-
     3.1|5.0|1.2e+03|0.5|-2.0|1e+20|   1e+02|5e+00|1e-05|
 
 - case: |-
-    x = 3.14159
-    w, p = 10, 2
-    print(f"{x:{w}}|{x:{w}.{p}f}|{x:>{w}}|{x:{'<'}{w}}|")
-  expected: |2-
-       3.14159|      3.14|   3.14159|3.14159   |
-
-- case: |-
-    w = 10
-    print(f"{'ab':{'*'}^{w}}|{42:{w ~/ 2}d}|")
+    print([s.center(6, ".") for s in ["", "a", "ab", "abc", "abcd", "abcde", "abcdef", "abcdefg"]])
   expected: |-
-    ****ab****|   42|
+    ["......", "..a...", "..ab..", ".abc..", ".abcd.", "abcde.", "abcdef", "abcdefg"]
 
 - case: |-
-    xs = [1, 2]
-    p = 2
-    print(f"{xs[0]:{p * 3}}|{len(xs):0{p}}|{'q'!r:>{p + 3}}|")
-  expected: |2-
-         1|02|  'q'|
-
-- case: |-
-    w = 6
-    d = {'k': 3}
-    print(f"{d['k']:{w}}|{d['k']:<{w}}|{d.get('z', 0):{w}d}|")
-  expected: |2-
-         3|3     |     0|
-
-- case: |-
-    fill, align, w = '-', '>', 8
-    print(f"{'v':{fill}{align}{w}}", f"{3:{fill}{align}{w}}", f"{3.0:{align}{w}.1f}")
+    print("hello".startswith(("x", "he")), "hello".endswith("lo", 0, 5), "hello".endswith("lo", 0, 4), "hello".startswith("l", 2), "héllo".endswith("ll", -4, -1))
   expected: |-
-    -------v -------3      3.0
+    true true false true true
 
 - case: |-
-    n = 3
-    print(f"{'':{n}}|", f"{'':-^{n * 2}}|", f"{1:{n}}{2:{n}}")
-  expected: |2-
-       | ------|   1  2
-
-- case: |-
-    prec = 3
-    vals = [1/3, 2/3, 1.0]
-    print(' '.join(f"{v:.{prec}f}" for v in vals), ' '.join(f"{v:.{prec}g}" for v in vals))
+    print(" a\tb\nc ".split(), " a\tb\nc ".rsplit(nil, 1), "".split(), "   ".rsplit(nil, 0))
   expected: |-
-    0.333 0.667 1.000 0.333 0.667 1
+    ["a", "b", "c"] [" a\tb", "c"] [] []
 
 - case: |-
-    print([s.center(6, '.') for s in ['', 'a', 'ab', 'abc', 'abcd', 'abcde', 'abcdef', 'abcdefg']])
-  expected: |-
-    ['......', '..a...', '..ab..', '.abc..', '.abcd.', 'abcde.', 'abcdef', 'abcdefg']
-
-- case: |-
-    print('hello'.startswith(('x', 'he')), 'hello'.endswith('lo', 0, 5), 'hello'.endswith('lo', 0, 4), 'hello'.startswith('l', 2), 'héllo'.endswith('ll', -4, -1))
-  expected: |-
-    True True False True True
-
-- case: |-
-    print(' a\tb\nc '.split(), ' a\tb\nc '.rsplit(nil, 1), ''.split(), '   '.rsplit(nil, 0))
-  expected: |-
-    ['a', 'b', 'c'] [' a\tb', 'c'] [] []
-
-- case: |-
-    rows = [('id', 3), ('name', 10), ('ok', 4)]
-    print('|'.join(n.center(w) for n, w in rows))
-    print('|'.join(n.ljust(w, '_') for n, w in rows))
+    rows = [("id", 3), ("name", 10), ("ok", 4)]
+    print("|".join((n.center(w) for n, w in rows)))
+    print("|".join((n.ljust(w, "_") for n, w in rows)))
   expected: " id|   name   | ok \nid_|name______|ok__"
 
 - case: |-
-    words = ['bb', 'a', 'cc', 'd', 'ee', 'f']
+    words = ["bb", "a", "cc", "d", "ee", "f"]
     print(sorted(words, key=len, reverse=true), sorted(words, key=len))
   expected: |-
-    ['bb', 'cc', 'ee', 'a', 'd', 'f'] ['a', 'd', 'f', 'bb', 'cc', 'ee']
+    ["bb", "cc", "ee", "a", "d", "f"] ["a", "d", "f", "bb", "cc", "ee"]
 
 - case: |-
-    print(str.lower('AB'), str.upper('x'), str.strip('  y '), str.split('a b'))
+    print(text.lower("AB"), text.upper("x"), text.strip("  y "), text.split("a b"))
   expected: |-
-    ab X y ['a', 'b']
+    ab X y ["a", "b"]
 
 - case: |-
-    print(dict.get({'a': 1}, 'a'), dict.get({}, 'z', 9), str.join('-', ['a', 'b']))
+    print(record.get({a = 1}, "a"), record.get({}, "z", 9), text.join("-", ["a", "b"]))
   expected: |-
     1 9 a-b
 
 - case: |-
-    words = ['Hello', 'WORLD']
-    print(list(map(str.swapcase, words)), [str.startswith(w, 'H') for w in words])
+    words = ["Hello", "WORLD"]
+    print(list(map(text.swapcase, words)), [text.startswith(w, "H") for w in words])
   expected: |-
-    ['hELLO', 'world'] [True, False]
+    ["hELLO", "world"] [true, false]
 
 - case: |-
-    print([s.isspace() for s in [' ', '\t\n', '\x1c', '\x1f', '　', '​', '']])
+    print([s.isspace() for s in [" ", "\t\n", "\u{1c}", "\u{1f}", "　", "​", ""]])
   expected: |-
-    [True, True, True, True, True, False, False]
+    [true, true, true, true, true, false, false]
 
 - case: |-
-    print('a\x1cb\x1dc'.split(), '　x　'.strip(), '\x1f y \x1e'.rsplit(nil, 1))
+    print("a\u{1c}b\u{1d}c".split(), "　x　".strip(), "\u{1f} y \u{1e}".rsplit(nil, 1))
   expected: |-
-    ['a', 'b', 'c'] x ['y']
+    ["a", "b", "c"] x ["y"]
 
 - case: |-
-    print('-'.join(map(str, range(4))), '+'.join({'x': 1, 'y': 2}), '.'.join(reversed('abc')), b','.join(iter([b'a', b'b'])))
+    print("-".join(map(text, range(4))), "+".join({x = 1, y = 2}), ".".join(reversed("abc")), b",".join(iter([b"a", b"b"])))
   expected: |-
-    0-1-2-3 x+y c.b.a b'a,b'
+    0-1-2-3 x+y c.b.a b"a,b"
 
 - case: |-
-    n = float('nan')
-    print(str(n), repr(-n), f'{n:5}|', round(1.5) != n, n != n)
+    n = float("nan")
+    print(text(n), repr(-n), "{n:5}|", round(1.5) != n, n != n)
   expected: |-
-    nan nan   nan| True True
+    NaN NaN   nan| true true
 
 - case: |-
-    print(f"{float('nan'):>6}|{float('nan'):F}|{float('inf'):+.1f}|{-float('inf'):08}|{float('nan'):,}")
-  expected: |2-
-       nan|NAN|+inf|-0000inf|nan
-
-- case: |-
-    words = ["w" + str((i * 7919) % 50000) for i in range(30000)]
+    words = ["w" + text(i * 7919 % 50000) for i in range(30000)]
     s = sorted(words)
     t = sorted(words, key=len)
     print(s[0], s[-1], t[0], t[-1])
@@ -1322,525 +1208,429 @@
     w0 w9999 w0 w12081
 
 - case: |-
-    print(f"{2.675:.2f}")
+    print("{2.675:.2f}")
   expected: |-
     2.67
 
 - case: |-
-    print(f"{1e22:.1f}")
+    print("{1.0e+22:.1f}")
   expected: |-
     10000000000000000000000.0
 
 - case: |-
-    s = f"{1e300:.2f}"
+    s = "{1.0e+300:.2f}"
     print(len(s), s[:20], s[-6:])
   expected: |-
     304 10000000000000000525 160.00
 
 - case: |-
-    print(f"{0.125:.2f} {0.375:.2f} {0.625:.2f}")
+    print("{0.125:.2f} {0.375:.2f} {0.625:.2f}")
   expected: |-
     0.12 0.38 0.62
 
 - case: |-
-    print(f"{0.5:.0f} {1.5:.0f} {2.5:.0f} {3.5:.0f}")
+    print("{0.5:.0f} {1.5:.0f} {2.5:.0f} {3.5:.0f}")
   expected: |-
     0 2 2 4
 
 - case: |-
-    print(f"{0.125:.1%}", f"{1.005:.1%}")
+    print("{0.125:.1%}", "{1.005:.1%}")
   expected: |-
     12.5% 100.5%
 
 - case: |-
-    print(f"{2.675:.3g}", f"{1e22:.25g}")
+    print("{2.675:.3g}", "{1.0e+22:.25g}")
   expected: |-
     2.67 10000000000000000000000
 
 - case: |-
     d = {}
-    d = d['self'] = {}
-    print(list(d), list(d['self']), list(d['self']['self']))
+    d = d["self"] = {}
+    print(list(d), list(d["self"]), list(d["self"]["self"]))
   expected: |-
-    ['self'] ['self'] ['self']
+    ["self"] ["self"] ["self"]
 
 - case: |-
     x = 5
-    print(f'{x:=^9}')
+    print("{x:=^9}")
   expected: |-
     ====5====
 
 - case: |-
-    print(f'{(y := 4)} {y}')
-  expected: |-
-    4 4
-
-- case: |-
-    print(f'{"a"!r:=^7}')
-  expected: |-
-    =='a'==
-
-- case: |-
-    x = 3
-    print(f"{x || 5=}", f"{x if x > 1 else 0=}")
-  expected: |-
-    x || 5=3 x if x > 1 else 0=3
-
-- case: |-
-    y = 0
-    print(f"{y && 7=}", f"{y || [7]=}")
-  expected: |-
-    y && 7=0 y || [7]=[7]
-
-- case: |-
     x = 1
-    print(f"{x = }|{ x=}|{x=  }|{ x = !s}")
+    print("x = {repr(x)}| x={repr(x)}|x=  {repr(x)}| x = {text(x)}")
   expected: |-
     x = 1| x=1|x=  1| x = 1
 
 - case: |-
-    s = 'x' * 1000000
-    print(len(''.join([s] * 1000)))
-  error: 'MemoryError: memory limit'
+    s = "x" * 1000000
+    print(len("".join([s] * 1000)))
+  error: "MemoryError: memory limit"
 
-- case: |
-    w = 5
-    print(f'{{a}}', f'{1}}}', f'{3:>{w}}|', rf'{{x}}')
+- case: |-
+    print(sum([float("inf"), 1000.0, 5, 0.1]), sum([1.0e+308, 1.0e+308]), sum([1, 2.5, float("-inf")]), sum([float("nan"), 1.0]))
+    print(sum([-0.0], -0.0), sum([0.1] * 10), sum([1.0e+100, 1.0, -1.0e+100]), sum([0.1, "x"][:1], 0.2))
   expected: |-
-    {a} 1}     3| {x}
-
-- case: |
-    print(sum([float('inf'), 1e3, 5, 0.1]), sum([1e308, 1e308]), sum([1, 2.5, float('-inf')]), sum([float('nan'), 1.0]))
-    print(sum([-0.0], -0.0), sum([0.1] * 10), sum([1e100, 1.0, -1e100]), sum([0.1, 'x'][:1], 0.2))
-  expected: |-
-    inf inf -inf nan
+    inf inf -inf NaN
     -0.0 1.0 1.0 0.30000000000000004
 
-- case: |
+- case: |-
     b = bytes(30000000)
-    x = b.find(b'\x01')
-    y = b.find(b'\x01')
-    z = b.find(b'\x01')
-    w = b.find(b'\x01')
+    x = b.find(b"\x01")
+    y = b.find(b"\x01")
+    z = b.find(b"\x01")
+    w = b.find(b"\x01")
     print(x)
-  error: budget exceeded
+  error: "Error: budget exceeded"
 
-- case: |
-    s = 'MiXeD Ünï'
+- case: |-
+    s = "MiXeD Ünï"
     print(s.upper(), s.lower(), s.swapcase(), s.title(), s.capitalize(), s)
   expected: |-
     MIXED ÜNÏ mixed ünï mIxEd üNÏ Mixed Ünï Mixed ünï MiXeD Ünï
 
-- case: |
-    print(repr('  ab  '.strip()), repr('xxabxx'.strip('x')), repr('ab'.ljust(4, '*')), repr('ab'.rjust(4)), repr('ab'.center(5, '-')), repr('abc'.ljust(2)))
+- case: |-
+    print(repr("  ab  ".strip()), repr("xxabxx".strip("x")), repr("ab".ljust(4, "*")), repr("ab".rjust(4)), repr("ab".center(5, "-")), repr("abc".ljust(2)))
   expected: |-
-    'ab' 'ab' 'ab**' '  ab' '--ab-' 'abc'
+    "ab" "ab" "ab**" "  ab" "--ab-" "abc"
 
-- case: |
-    print('a,b,,c'.split(','), ' a  b '.split(), '-'.join(['x', 'y', 'z']), 'aaa'.replace('a', 'bb', 2), 'abc'.replace('x', 'y'))
+- case: |-
+    print("a,b,,c".split(","), " a  b ".split(), "-".join(["x", "y", "z"]), "aaa".replace("a", "bb", 2), "abc".replace("x", "y"))
   expected: |-
-    ['a', 'b', '', 'c'] ['a', 'b'] x-y-z bbbba abc
+    ["a", "b", "", "c"] ["a", "b"] x-y-z bbbba abc
 
-- case: |
-    b = b'\x00\xffhi'
-    print(b.hex(), b[2:].decode(), b.startswith(b'\x00'), b.endswith(b'hi'), b.endswith(b'x'), b)
+- case: |-
+    b = b"\x00\xffhi"
+    print(b.hex(), b[2:].decode(), b.startswith(b"\x00"), b.endswith(b"hi"), b.endswith(b"x"), b)
   expected: |-
-    00ff6869 hi True True False b'\x00\xffhi'
+    00ff6869 hi true true false b"\x00\xffhi"
 
-- case: |
-    b = b'  a-b-a  '
-    print(b.strip(), b.find(b'b'), b.count(b'a'), b.replace(b'a', b'x'), b.strip().split(b'-'), b'+'.join([b'1', b'2']))
+- case: |-
+    b = b"  a-b-a  "
+    print(b.strip(), b.find(b"b"), b.count(b"a"), b.replace(b"a", b"x"), b.strip().split(b"-"), b"+".join([b"1", b"2"]))
   expected: |-
-    b'a-b-a' 4 2 b'  x-b-x  ' [b'a', b'b', b'a'] b'1+2'
+    b"a-b-a" 4 2 b"  x-b-x  " [b"a", b"b", b"a"] b"1+2"
 
-- case: |
-    print(f"{'ab': }")
-  error: Space not allowed in string format specifier
-
-- case: |
-    print(rf'\{{')
-  expected: |-
-    \{
-
-- case: |
+- case: |-
     x = 1
-    print(rf'\{x}')
+    print("\\{x}")
   expected: |-
     \1
 
-- case: |
-    print(rf'a\{{b}}c')
+- case: |-
+    print("a\\{{b}}c")
   expected: |-
     a\{b}c
 
-- case: |
-    print(rf'\'' + 'x')
+- case: |-
+    print("\\'" + "x")
   expected: |-
     \'x
 
-- case: |
-    print(rf'\\{2}')
+- case: |-
+    print("\\\\{2}")
   expected: |-
     \\2
 
-- case: |
-    print(rf"\{{")
-  expected: |-
-    \{
-
-- case: |
-    print(rf'''\{{
-    ''')
-  expected: |
-    \{
-
-- case: |
-    d = 'dir'
-    print(rf'C:\{d}\x')
+- case: |-
+    d = "dir"
+    print("C:\\{d}\\x")
   expected: |-
     C:\dir\x
 
-- case: |
-    print(rf'\}}', rf'\{{x}}')
+- case: |-
+    print("\\}}", "\\{{x}}")
   expected: |-
     \} \{x}
 
 - case: |-
-    x = 'ab'
-    print(x.upper(
-    ).
-     lower())
+    x = "ab"
+    print(x.upper().lower())
   expected: |-
     ab
 
 - case: |-
-    x, y, z, n = 5, 2.5, true, nil
-    print(f'{x}|{y}|{z}|{n}')
+    x, y, z, n = (5, 2.5, true, nil)
+    print("{x}|{y}|{z}|{n}")
   expected: |-
-    5|2.5|True|None
-
-- case: |-
-    w = 6
-    print(f'[{42:{w}}]', f'[{3.5:{w}.2f}]', f'[{"s":>{w}}]')
-  expected: |-
-    [    42] [  3.50] [     s]
+    5|2.5|true|nil
 
 - case: |-
     x = -0.0
-    print(f'{x} {1e16} {1e-7} {float("nan")} {float("inf")}')
+    print((text(x) + " " + text(1.0e+16) + " " + text(1.0e-07) + " " + text(float("nan")) + " " + text(float("inf"))))
   expected: |-
-    -0.0 1e+16 1e-07 nan inf
+    -0.0 1e16 1e-7 NaN inf
 
 - case: |-
-    x = 2**100
-    print(f'{x}-{-5}-{0}')
+    x = 2 ** 100
+    print("{x}-{-5}-{0}")
   expected: |-
     1267650600228229401496703205376--5-0
 
 - case: |-
     x = 3
-    print(f'{x=} {x!r} {x!s} {true!r}')
+    print("x={repr(x)} {repr(x)} {text(x)} {repr(true)}")
   expected: |-
-    x=3 3 3 True
+    x=3 3 3 true
 
 - case: |-
-    w = 3
-    print(f'{1:0{w}}', f'{true:>{w}}', f'{nil!s:^{w + 2}}')
-  expected: "001   1 None "
-
-- case: |-
-    print(f'{1}{2}{3}', f'{"a"}{1.0}', len(f'{10**20}'))
+    print("{1}{2}{3}", (text("a") + text(1.0)), len("{10 ** 20}"))
   expected: |-
     123 a1.0 21
 
 - case: |-
     x = 5
-    s = f'{x}'
-    print(type(s).__name__, s + '!', s.zfill(3))
+    s = "{x}"
+    print(text(type(s)), s + "!", s.zfill(3))
   expected: |-
-    str 5! 005
+    text 5! 005
 
 - case: |-
     café = 2
     π = 3
     名前 = café ** π
-    print(f"{名前:=^9}|{π!r:>3}|{café=}|{名前:,}")
+    print("{名前:=^9}|{repr(π):>3}|café={repr(café)}|{名前:,}")
   expected: |-
     ====8====|  3|café=2|8
 
 - case: |-
-    print(b'abc'.startswith((b'x', b'ab')), b'abc'.endswith(b'bc', 0, 3), b'abc'.startswith(b'a', 5))
+    print(b"abc".startswith((b"x", b"ab")), b"abc".endswith(b"bc", 0, 3), b"abc".startswith(b"a", 5))
   expected: |-
-    True True False
+    true true false
 
 - case: |-
-    print(hash(float('inf')), hash(float('-inf')))
+    print(10 ** 400 < float("inf"), 10 ** 400 > float("-inf"), 10 ** 400 == float("inf"))
   expected: |-
-    314159 -314159
+    true true false
 
 - case: |-
-    print(10 ** 400 < float('inf'), 10 ** 400 > float('-inf'), 10 ** 400 == float('inf'))
+    print(int("ff" * 40, 16) == 256 ** 40 - 1, int("z" * 30, 36) == 36 ** 30 - 1, int("7" * 40, 8) == 8 ** 40 - 1)
   expected: |-
-    True True False
+    true true true
 
 - case: |-
-    print(int('ff' * 40, 16) == 256 ** 40 - 1, int('z' * 30, 36) == 36 ** 30 - 1, int('7' * 40, 8) == 8 ** 40 - 1)
+    print(int("0x" + "f" * 40, 0) == 16 ** 40 - 1, int("0b" + "1" * 100, 0) == 2 ** 100 - 1, int("1_000_000_000_000_000_000_000"))
   expected: |-
-    True True True
+    true true 1000000000000000000000
 
 - case: |-
-    print(int('0x' + 'f' * 40, 0) == 16 ** 40 - 1, int('0b' + '1' * 100, 0) == 2 ** 100 - 1, int('1_000_000_000_000_000_000_000'))
-  expected: |-
-    True True 1000000000000000000000
-
-- case: |-
-    print(f'{2 ** 100:,}', f'{2 ** 100:_x}', f'{2 ** 100:e}', f'{2 ** 100:>40}')
+    print("{2 ** 100:,}", "{2 ** 100:_x}", "{2 ** 100:e}", "{2 ** 100:>40}")
   expected: |-
     1,267,650,600,228,229,401,496,703,205,376 10_0000_0000_0000_0000_0000_0000 1.267651e+30          1267650600228229401496703205376
 
 - case: |-
-    print(f'{2 ** 100:x}', f'{2 ** 100:#b}'[:12], f'{-(2 ** 100):+d}', f'{2 ** 100:X}')
+    print("{2 ** 100:x}", "{2 ** 100:#b}"[:12], "{-2 ** 100:+d}", "{2 ** 100:X}")
   expected: |-
     10000000000000000000000000 0b1000000000 -1267650600228229401496703205376 10000000000000000000000000
 
 - case: |-
-    print(f'{2 ** 100:040d}', f'{-(2 ** 70):_}', f'{2 ** 100:.3e}', f'{2 ** 100:.2f}')
+    print("{2 ** 100:040d}", "{-2 ** 70:_}", "{2 ** 100:.3e}", "{2 ** 100:.2f}")
   expected: |-
     0000000001267650600228229401496703205376 -1_180_591_620_717_411_303_424 1.268e+30 1267650600228229401496703205376.00
 
 - case: |-
-    print(str(2 ** 100), repr(2 ** 100), [2 ** 100], (2 ** 64,), {2 ** 64: 1})
+    print(text(2 ** 100), repr(2 ** 100), [2 ** 100], (2 ** 64,), record([(2 ** 64, 1)]))
   expected: |-
-    1267650600228229401496703205376 1267650600228229401496703205376 [1267650600228229401496703205376] (18446744073709551616,) {18446744073709551616: 1}
+    1267650600228229401496703205376 1267650600228229401496703205376 [1267650600228229401496703205376] (18446744073709551616,) {18446744073709551616 = 1}
 
 - case: |-
-    print(int.from_bytes(b'\xff' * 20, 'big') == 2 ** 160 - 1, int.from_bytes(b'\x01' + b'\x00' * 30, 'little'))
+    print(int.from_bytes(b"\xff" * 20, "big") == 2 ** 160 - 1, int.from_bytes(b"\x01" + b"\x00" * 30, "little"))
   expected: |-
-    True 1
+    true 1
 
 - case: |-
-    print(2 ** 100 in {2 ** 100: 1}, {2 ** 100: 'a'}[2 ** 100], {2 ** 100: 'f'}[2.0 ** 100])
+    print(2 ** 100 in record([(2 ** 100, 1)]), record([(2 ** 100, "a")])[2 ** 100], record([(2 ** 100, "f")])[2.0 ** 100])
   expected: |-
-    True a f
+    true a f
 
 - case: |-
-    print(len(str(2 ** 10000)), str(2 ** 10000)[:20], len(hex(2 ** 20000)), (2 ** 20000).bit_length())
+    print(len(text(2 ** 10000)), text(2 ** 10000)[:20], len(hex(2 ** 20000)), (2 ** 20000).bit_length())
   expected: |-
     3011 19950631168807583848 5003 20001
 
 - case: |-
-    print(len(str(3 ** 9000)), str(3 ** 9000)[-10:])
+    print(len(text(3 ** 9000)), text(3 ** 9000)[-10:])
   expected: |-
     4295 8096980001
 
 - case: |-
-    print(int(str(7 ** 4000)) == 7 ** 4000, int(hex(11 ** 3000), 16) == 11 ** 3000)
+    print(int(text(7 ** 4000)) == 7 ** 4000, int(hex(11 ** 3000), 16) == 11 ** 3000)
   expected: |-
-    True True
+    true true
 
 - case: |-
     x = 9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999
-    print(len(str(x)), x % 1000)
+    print(len(text(x)), x % 1000)
   expected: |-
     4300 999
 
 - case: |-
-    s = 'abcdef'
+    s = "abcdef"
     print(s[0], s[5], s[-1], s[-6], [s[i] for i in range(len(s))])
   expected: |-
-    a f f a ['a', 'b', 'c', 'd', 'e', 'f']
+    a f f a ["a", "b", "c", "d", "e", "f"]
 
 - case: |-
-    print('é'.encode(errors='replace', encoding='ascii'), b'\xff'.decode(errors='ignore'), str(b'\xffa', 'utf-8', 'replace'), bytes('é', 'ascii', 'ignore'))
+    print("é".encode(errors="replace", encoding="ascii"), b"\xff".decode(errors="ignore"), text(b"\xffa", "utf-8", "replace"), bytes("é", "ascii", "ignore"))
   expected: |-
-    b'?'  �a b''
+    b"?"  �a b""
 
 - case: |-
-    print('a b c'.split(maxsplit=1), 'a,b,c'.rsplit(sep=',', maxsplit=1), 'x\ny\n'.splitlines(keepends=true), 'a\tb'.expandtabs(tabsize=4))
-    print((-1).to_bytes(2, 'big', signed=true), int.from_bytes(b'\xff\xff', 'big', signed=true), (5).to_bytes(length=2, byteorder='little'))
+    print("a b c".split(maxsplit=1), "a,b,c".rsplit(sep=",", maxsplit=1), "x\ny\n".splitlines(keepends=true), "a\tb".expandtabs(tabsize=4))
+    print((-1).to_bytes(2, "big", signed=true), int.from_bytes(b"\xff\xff", "big", signed=true), (5).to_bytes(length=2, byteorder="little"))
   expected: |-
-    ['a', 'b c'] ['a,b', 'c'] ['x\n', 'y\n'] a   b
-    b'\xff\xff' -1 b'\x05\x00'
+    ["a", "b c"] ["a,b", "c"] ["x\n", "y\n"] a   b
+    b"\xff\xff" -1 b"\x05\x00"
 
 - case: |-
-    b = bytearray(b'  Hello World  ')
-    print(b.strip(), b.upper(), b.lower().split(), b.replace(b'l', b'L'), b.find(b'o'), b.count(b'l'), b.startswith(b'  H'), b.decode(), b.hex()[:6], bytearray.fromhex('41 42'), bytearray(b'-').join([b'a', bytearray(b'b')]))
+    b = bytearray(b"  Hello World  ")
+    print(b.strip(), b.upper(), b.lower().split(), b.replace(b"l", b"L"), b.find(b"o"), b.count(b"l"), b.startswith(b"  H"), b.decode(), b.hex()[:6], bytearray.fromhex("41 42"), bytearray(b"-").join([b"a", bytearray(b"b")]))
   expected: |-
-    bytearray(b'Hello World') bytearray(b'  HELLO WORLD  ') [bytearray(b'hello'), bytearray(b'world')] bytearray(b'  HeLLo WorLd  ') 6 3 True   Hello World   202048 bytearray(b'AB') bytearray(b'a-b')
+    b"Hello World" b"  HELLO WORLD  " [b"hello", b"world"] b"  HeLLo WorLd  " 6 3 true   Hello World   202048 b"AB" b"a-b"
 
 - case: |-
-    b = bytearray(b'12')
-    print(int(b), float(b), bytes(b), str(b, 'ascii'), ord(bytearray(b'z')), isinstance(b, bytearray), isinstance(b, bytes), bool(bytearray()))
-  expected: |-
-    12 12.0 b'12' 12 122 True False True
-
-- case: |-
-    print(b'abcabc'.rfind(b'b'), b'abcabc'.rfind(b'b', 0, 3), b'abc'.rfind(98), b'abc'.find(99), b'aaa'.count(97), b'abc'.rindex(b'a'))
-    print(b' a  b  c '.rsplit(), b'a,b,c'.rsplit(b',', 1), b'a b c'.rsplit(nil, 1), b'  a b  '.rsplit(maxsplit=1), b'a b\x0bc'.split())
-    print(b'a\nb\r\nc\rd'.splitlines(), b'a\nb\r\n'.splitlines(true), b'a\x0bb\x0c'.splitlines(), b''.splitlines())
+    print(b"abcabc".rfind(b"b"), b"abcabc".rfind(b"b", 0, 3), b"abc".rfind(98), b"abc".find(99), b"aaa".count(97), b"abc".rindex(b"a"))
+    print(b" a  b  c ".rsplit(), b"a,b,c".rsplit(b",", 1), b"a b c".rsplit(nil, 1), b"  a b  ".rsplit(maxsplit=1), b"a b\x0bc".split())
+    print(b"a\nb\r\nc\rd".splitlines(), b"a\nb\r\n".splitlines(true), b"a\x0bb\x0c".splitlines(), b"".splitlines())
   expected: |-
     4 1 1 2 3 0
-    [b'a', b'b', b'c'] [b'a,b', b'c'] [b'a b', b'c'] [b'  a', b'b'] [b'a', b'b', b'c']
-    [b'a', b'b', b'c', b'd'] [b'a\n', b'b\r\n'] [b'a\x0bb\x0c'] []
+    [b"a", b"b", b"c"] [b"a,b", b"c"] [b"a b", b"c"] [b"  a", b"b"] [b"a", b"b", b"c"]
+    [b"a", b"b", b"c", b"d"] [b"a\n", b"b\r\n"] [b"a\x0bb\x0c"] []
 
 - case: |-
-    for v in (float('inf'), float('-inf'), float('nan')):
-        print(f"{v:%} {v:.1%} {v:E} {v:G} {v:F} {v:e} {v:g} {v:f}")
-    print(f"{float('-inf'):%}|{float('nan'):.2E}|{float('-nan'):G}|{float('inf'):+F}|{float('-inf'):10.2%}|")
-  expected: |-
-    inf% inf% INF INF INF inf inf inf
-    -inf% -inf% -INF -INF -INF -inf -inf -inf
-    nan% nan% NAN NAN NAN nan nan nan
-    -inf%|NAN|NAN|+INF|     -inf%|
-
-- case: |-
-    print(bytes.fromhex(b'41 42'), bytearray.fromhex(bytearray(b'43')), bytes.fromhex('41\x0b42'), bytes_fromhex(b'44'))
-    for s in ['4 é', 'zé', '41 4']:
-        try:
+    print(bytes.fromhex(b"41 42"), bytearray.fromhex(bytearray(b"43")), bytes.fromhex("41\u{b}42"), bytes_fromhex(b"44"))
+    for s in ["4 é", "zé", "41 4"] {
+        try {
             bytes.fromhex(s)
-        except ValueError as e:
+        } catch ValueError as e {
             print(e)
+        }
+    }
   expected: |-
-    b'AB' bytearray(b'C') b'AB' b'D'
-    non-hexadecimal number found in fromhex() arg at position 2
-    non-hexadecimal number found in fromhex() arg at position 1
-    fromhex() arg must contain an even number of hexadecimal digits
+    b"AB" b"C" b"AB" b"D"
+    fromhex found no hex digit at position 2
+    fromhex found no hex digit at position 1
+    fromhex takes an even count of hex digits
 
 - case: |-
-    fn t(label, f):
-        try:
+    fn t(label, f) {
+        try {
             print(label, repr(f()))
-        except Exception as e:
-            print(label, type(e).__name__, e)
-    x = b'hello world'
-    t('a1', lambda: x.find(b'o', 'x'))
-    t('a2', lambda: x.split(nil, true))
-    t('a3', lambda: x.replace(b'l', b'L', count=1))
-    t('a4', lambda: x.replace(b'l', b'L', 'x'))
-    t('a5', lambda: x.strip(nil))
-    t('a6', lambda: x.strip('h'))
-    t('a7', lambda: x.split('o'))
-    t('a8', lambda: x.find(2 ** 70))
-    t('a9', lambda: x.find('o'))
-    t('a10', lambda: x.startswith((b'h', 1)))
-    t('a11', lambda: x.hex(':', 2 ** 70))
-    t('a12', lambda: x.decode(1))
-    t('a13', lambda: b'-'.join([b'a', 'b']))
-    t('a14', lambda: b'-'.join(5))
-    t('a15', lambda: x.center(13, nil))
-    t('a16', lambda: [type(p).__name__ for p in x.partition(bytearray(b' '))])
+        } catch Error as e {
+            print(label, text(type(e)), e)
+        }
+    }
+    x = b"hello world"
+    t("a1", || x.find(b"o", "x"))
+    t("a2", || x.split(nil, true))
+    t("a3", || x.replace(b"l", b"L", count=1))
+    t("a4", || x.replace(b"l", b"L", "x"))
+    t("a5", || x.strip(nil))
+    t("a6", || x.strip("h"))
+    t("a7", || x.split("o"))
+    t("a8", || x.find(2 ** 70))
+    t("a9", || x.find("o"))
+    t("a10", || x.startswith((b"h", 1)))
+    t("a11", || x.hex(":", 2 ** 70))
+    t("a12", || x.decode(1))
+    t("a13", || b"-".join([b"a", "b"]))
+    t("a14", || b"-".join(5))
+    t("a15", || x.center(13, nil))
+    t("a16", || [text(type(p)) for p in x.partition(bytearray(b" "))])
   expected: |-
-    a1 TypeError slice indices must be integers or have an __index__ method
-    a2 [b'hello', b'world']
-    a3 b'heLlo world'
-    a4 TypeError 'str' object cannot be interpreted as an integer
-    a5 b'hello world'
-    a6 TypeError a bytes-like object is required, not 'str'
-    a7 TypeError a bytes-like object is required, not 'str'
-    a8 ValueError byte must be in range(0, 256)
-    a9 TypeError argument should be integer or bytes-like object, not 'str'
-    a10 True
-    a11 OverflowError Python int too large to convert to C ssize_t
-    a12 TypeError decode() argument 'encoding' must be str, not int
-    a13 TypeError sequence item 1: expected a bytes-like object, str found
-    a14 TypeError can only join an iterable
-    a15 TypeError center() argument 2 must be a byte string of length 1, not None
-    a16 ['bytes', 'bytearray', 'bytes']
+    a1 TypeError the bounds of a slice must be int
+    a2 [b"hello", b"world"]
+    a3 b"heLlo world"
+    a4 TypeError replace takes int, not text
+    a5 b"hello world"
+    a6 TypeError strip takes bytes, not text
+    a7 TypeError split takes bytes, not text
+    a8 ValueError find takes a byte from 0 to 255
+    a9 TypeError find takes int or bytes, not text
+    a10 true
+    a11 OverflowError int too large for an index
+    a12 TypeError decode takes text as encoding, not int
+    a13 TypeError item 1 of join is text, not bytes
+    a14 TypeError join takes the items to join
+    a15 TypeError center takes one byte as its fill, not nil
+    a16 ["bytes", "bytearray", "bytes"]
 
 - case: |-
-    print(repr(str(b'a\xffb', errors='ignore')), repr(str(encoding='utf-8')), repr(str(b'h\xc3\xa9', errors='strict')), repr(str(object=b'x')))
+    print(repr(text(b"a\xffb", errors="ignore")), repr(text(encoding="utf-8")), repr(text(b"h\xc3\xa9", errors="strict")), repr(text(object=b"x")))
   expected: |-
-    'ab' '' 'hé' "b'x'"
+    "ab" "" "hé" "b\"x\""
 
 - case: |-
     s = "ñandú café 日本語"
     print(s[0], s[4], s[-1], s[-5], s[2:7], s[-3:], repr(s[:0]), s[::2], s[::-1], s[10:2:-3], s[-2:-9:-2], repr(s[100:]), s[3:100])
-    for i in (len(s), -len(s) - 1):
-        try:
+    for i in (len(s), -len(s) - 1) {
+        try {
             s[i]
-        except IndexError as e:
+        } catch IndexError as e {
             print(e)
+        }
+    }
   expected: |-
-    ñ ú 語 é ndú c 日本語 '' ñnúcf 本 語本日 éfac údnañ  aú 本 fc '' dú café 日本語
-    string index out of range
-    string index out of range
+    ñ ú 語 é ndú c 日本語 "" ñnúcf 本 語本日 éfac údnañ  aú 本 fc "" dú café 日本語
+    text index out of range
+    text index out of range
 
 - case: |-
-    print(f"{1:$>5}|{'a':?^5}|{2:'<3}|{3:{'>'}4}")
-  expected: |-
-    $$$$1|??a??|2''|   3
-
-- case: |-
-    print(f"{1#}")
-  error: unexpected character
-
-- case: |-
-    s = 'a\
-    b' + '''c\
-    d'''
+    s = "ab" + "cd"
     print(s, len(s))
   expected: |-
     abcd 4
 
 - case: |-
     // a nil argument trims white space as no argument does
-    print(repr('  x  '.strip(nil)), repr(' y '.lstrip(nil)), repr(' z '.rstrip(nil)))
+    print(repr("  x  ".strip(nil)), repr(" y ".lstrip(nil)), repr(" z ".rstrip(nil)))
   expected: |-
-    'x' 'y ' ' z'
+    "x" "y " " z"
 
 - case: |-
     // a bool cut count or replace count is the int it stands for and count may come by name
-    print('a b c'.split(' ', true), 'a b c'.rsplit(' ', false), 'aaa'.replace('a', 'b', true), 'aaa'.replace('a', 'b', count=2))
+    print("a b c".split(" ", true), "a b c".rsplit(" ", false), "aaa".replace("a", "b", true), "aaa".replace("a", "b", count=2))
   expected: |-
-    ['a', 'b c'] ['a b c'] baa bba
-
-- case: |-
-    // a codec name of another kind names encode and its parameter as decode does
-    try:
-        'a'.encode(1)
-    except TypeError as e:
-        print(e)
-    try:
-        'a'.encode('utf-8', 2)
-    except TypeError as e:
-        print(e)
-  expected: |-
-    encode() argument 'encoding' must be str, not int
-    encode() argument 'errors' must be str, not int
+    ["a", "b c"] ["a b c"] baa bba
 
 - case: |-
     // the surrogate handlers fail as strict does since text holds no lone surrogates
-    for h in ('surrogateescape', 'surrogatepass'):
-        try:
-            b'a\xffb'.decode('utf-8', h)
-        except UnicodeDecodeError as e:
+    for h in ("surrogateescape", "surrogatepass") {
+        try {
+            b"a\xffb".decode("utf-8", h)
+        } catch ValueError as e {
             print(e)
+        }
+    }
   expected: |-
-    'utf-8' codec can't decode byte 0xff in position 1: invalid start byte
-    'utf-8' codec can't decode byte 0xff in position 1: invalid start byte
+    utf-8 cannot decode byte 0xff at 1, which starts no character
+    utf-8 cannot decode byte 0xff at 1, which starts no character
 
 - case: |-
     // a nil codec argument reads as nil in the failure as bytes and decode word it
-    try:
-        str(b'x', 'utf-8', nil)
-    except TypeError as e:
+    try {
+        text(b"x", "utf-8", nil)
+    } catch TypeError as e {
         print(e)
+    }
   expected: |-
-    str() argument 'errors' must be str, not None
+    text takes text as errors, not nil
 
 - case: |-
     // a bound that is no int fails alike for text bytes and lists
-    fn t(f):
-        try:
+    fn t(f) {
+        try {
             print(f())
-        except TypeError as e:
-            print(type(e).__name__)
-    t(lambda: 'abcabc'.find('c', 'x'))
-    t(lambda: b'abcabc'.find(b'c', 'x'))
-    t(lambda: [1, 2, 3].index(1, 'x'))
-    t(lambda: 'abcabc'.count('c', 'x'))
-    t(lambda: 'abcabc'.startswith('a', 'x'))
-    t(lambda: 'abcabc'.find('c', nil, 4))
+        } catch TypeError as e {
+            print(text(type(e)))
+        }
+    }
+    t(|| "abcabc".find("c", "x"))
+    t(|| b"abcabc".find(b"c", "x"))
+    t(|| [1, 2, 3].index(1, "x"))
+    t(|| "abcabc".count("c", "x"))
+    t(|| "abcabc".startswith("a", "x"))
+    t(|| "abcabc".find("c", nil, 4))
   expected: |-
     TypeError
     TypeError
@@ -1851,172 +1641,175 @@
 
 - case: |-
     // text and bytes read a count and a width as the same int argument
-    fn t(f):
-        try:
+    fn t(f) {
+        try {
             print(repr(f()))
-        except Exception as e:
-            print(type(e).__name__, e)
-    t(lambda: 'abc'.split('b', -2 ** 63))
-    t(lambda: b'abc'.split(b'b', -2 ** 63))
-    t(lambda: 'x'.center(-2 ** 63))
-    t(lambda: b'x'.center(-2 ** 63))
-    t(lambda: 'aaa'.replace('a', 'b', 1.5))
-    t(lambda: b'aaa'.replace(b'a', b'b', 1.5))
-    t(lambda: 'a b'.split(nil, 2 ** 70))
+        } catch Error as e {
+            print(text(type(e)), e)
+        }
+    }
+    t(|| "abc".split("b", -2 ** 63))
+    t(|| b"abc".split(b"b", -2 ** 63))
+    t(|| "x".center(-2 ** 63))
+    t(|| b"x".center(-2 ** 63))
+    t(|| "aaa".replace("a", "b", 1.5))
+    t(|| b"aaa".replace(b"a", b"b", 1.5))
+    t(|| "a b".split(nil, 2 ** 70))
   expected: |-
-    ['a', 'c']
-    [b'a', b'c']
-    'x'
-    b'x'
-    TypeError 'float' object cannot be interpreted as an integer
-    TypeError 'float' object cannot be interpreted as an integer
-    OverflowError Python int too large to convert to C ssize_t
+    ["a", "c"]
+    [b"a", b"c"]
+    "x"
+    b"x"
+    TypeError replace takes int, not float
+    TypeError replace takes int, not float
+    OverflowError int too large for an index
 
 - case: |-
     // a tuple of affixes stops at its first hit before an item of another kind
-    fn t(f):
-        try:
+    fn t(f) {
+        try {
             print(f())
-        except TypeError as e:
-            print('TypeError', e)
-    t(lambda: 'abc'.startswith(('a', 5)))
-    t(lambda: b'abc'.startswith((b'a', 5)))
-    t(lambda: 'abc'.endswith(('c', 5)))
-    t(lambda: 'abc'.startswith((5, 'a')))
+        } catch TypeError as e {
+            print("TypeError", e)
+        }
+    }
+    t(|| "abc".startswith(("a", 5)))
+    t(|| b"abc".startswith((b"a", 5)))
+    t(|| "abc".endswith(("c", 5)))
+    t(|| "abc".startswith((5, "a")))
   expected: |-
-    True
-    True
-    True
-    TypeError tuple for startswith must only contain str, not int
+    true
+    true
+    true
+    TypeError each affix of startswith must be text, not int
 
 - case: |-
     // a search of bytes takes time linear in the bytes and the needle
-    b = b'a' * 2000000
-    n = b'a' * 200000 + b'b'
-    print(b.rfind(n), b.find(n), b.count(n), len(b.split(n)), len(b.replace(n, b'')))
+    b = b"a" * 2000000
+    n = b"a" * 200000 + b"b"
+    print(b.rfind(n), b.find(n), b.count(n), len(b.split(n)), len(b.replace(n, b"")))
   expected: |-
     -1 -1 0 1 2000000
 
 - case: |-
     // a capital sigma ending a word lowers to the final sigma in each case map
-    print('ΣΑΣ'.swapcase(), 'ΣΑΣ ΣΑΣ'.title(), 'ΑΣ'.capitalize(), "ΣΑΣ'Α".title(), 'ΣΑΣ'.lower())
+    print("ΣΑΣ".swapcase(), "ΣΑΣ ΣΑΣ".title(), "ΑΣ".capitalize(), "ΣΑΣ'Α".title(), "ΣΑΣ".lower())
   expected: |-
     σας Σας Σας Ας Σασ'Α σας
 
 - case: |-
-    // a zero fill groups its zeros and the alternate form keeps the point
-    print(f'{1234:08,}', f'{42:#09_}', f'{123456.789:#.0f}', f'{1.5:#.0e}', f'{1234:<08}', f'{1234.5:,%}')
-    print(f'{1e20:#}', f'{0.5:#.0%}', f'{5.0:#.0g}', f'{float("inf"):010,}', f'{-0.0:z010,.1f}', f'{255:#09_x}')
-  expected: |-
-    0,001,234 0_000_042 123457. 2.e+00 12340000 123,450.000000%
-    1.e+20 50.% 5. 0000000inf 0,000,000.0 0x00_00ff
-
-- case: |-
     // a character spec takes no precision and no sign and a separator is checked first
-    fn t(f):
-        try:
+    fn t(f) {
+        try {
             print(f())
-        except ValueError as e:
-            print('ValueError', e)
-    t(lambda: f'{1:.3c}')
-    t(lambda: f'{65:+c}')
-    t(lambda: f'{5:z.2d}')
-    t(lambda: f'{65:#,c}')
-    t(lambda: f'{5.0:,x}')
-    t(lambda: f'{5:,n}')
+        } catch ValueError as e {
+            print("ValueError", e)
+        }
+    }
+    t(|| "{1:.3c}")
+    t(|| "{65:+c}")
+    t(|| "{5:z.2d}")
+    t(|| "{65:#,c}")
+    t(|| "{5.0:,x}")
+    t(|| "{5:,n}")
   expected: |-
-    ValueError Precision not allowed in integer format specifier
-    ValueError Sign not allowed with integer format specifier 'c'
-    ValueError Precision not allowed in integer format specifier
-    ValueError Cannot specify ',' with 'c'.
-    ValueError Cannot specify ',' with 'x'.
-    ValueError Cannot specify ',' with 'n'.
+    ValueError a precision does not apply to whole numbers
+    ValueError a sign does not apply to the c type
+    ValueError a precision does not apply to whole numbers
+    ValueError the separator , does not apply to the c type
+    ValueError the separator , does not apply to the x type
+    ValueError the separator , does not apply to the n type
 
 - case: |-
     // a split is refused before its pieces pass the memory left
-    s = ',' * 8000000
-    print(len(s.split(',')))
-  error: MemoryError
+    s = "," * 8000000
+    print(len(s.split(",")))
+  error: "MemoryError: memory limit"
 
 - case: |-
     // a split of bytes is refused before its pieces pass the memory left
     b = bytes(8000000)
-    print(len(b.split(b'\x00')))
-  error: MemoryError
+    print(len(b.split(b"\x00")))
+  error: "MemoryError: memory limit"
 
 - case: |-
     // lines are refused before they pass the memory left
-    s = '\n' * 8000000
+    s = "\n" * 8000000
     print(len(s.splitlines()))
-  error: MemoryError
+  error: "MemoryError: memory limit"
 
 - case: |-
     // every line of an expanded text counts toward one result
-    print(len(('\t\n' * 100).expandtabs(10000000)))
-  error: MemoryError
+    print(len(("\t\n" * 100).expandtabs(10000000)))
+  error: "MemoryError: memory limit"
 
 - case: |-
     // a pad counts the bytes its fill takes
-    print(len('1'.ljust(200000000, '\U0001f600')))
-  error: MemoryError
+    print(len("1".ljust(200000000, "😀")))
+  error: "MemoryError: memory limit"
 
 - case: |-
     // the characters of a text are refused before they pass the memory left
-    s = 'é' * 8000000
+    s = "é" * 8000000
     print(len(list(s)))
-  error: MemoryError
+  error: "MemoryError: memory limit"
 
 - case: |-
     // a long text of many byte characters keeps its count so every length reads it
-    s = 'é' * 4000000
-    for i in range(100000):
+    s = "é" * 4000000
+    for i in range(100000) {
         n = len(s)
+    }
     print(n)
   expected: |-
     4000000
 
 - case: |-
     // a long order of two texts pays for the bytes it reads
-    a = 'x' * 1000000 + 'a'
-    b = 'x' * 1000000 + 'b'
-    for i in range(100000):
+    a = "x" * 1000000 + "a"
+    b = "x" * 1000000 + "b"
+    for i in range(100000) {
         t = a < b
-  error: budget exceeded
+    }
+  error: "Error: budget exceeded"
 
 - case: |-
     // three information separators end a line and the unit separator does not
-    print('a\x1cb\x1dc\x1ed\x1fe'.splitlines(), len('\x1c\x1d\x1e'.splitlines(true)))
+    print("a\u{1c}b\u{1d}c\u{1e}d\u{1f}e".splitlines(), len("\u{1c}\u{1d}\u{1e}".splitlines(true)))
   expected: |-
-    ['a', 'b', 'c', 'd\x1fe'] 3
+    ["a", "b", "c", "d\u{1f}e"] 3
 
 - case: |-
     // the length of a long text costs the same at any size
-    t = 'x' * 4000000
+    t = "x" * 4000000
     n = 0
-    for i in range(100000):
+    for i in range(100000) {
         n = len(t)
+    }
     print(n)
   expected: |-
     4000000
 
 - case: |-
     // a text grown in place counts its characters again past the count it kept
-    fn grow():
-        s = 'é' * 100
+    fn grow() {
+        s = "é" * 100
         n = len(s)
-        for i in range(20):
-            s += 'ü'
+        for i in range(20) {
+            s += "ü"
             n += len(s)
-        s += 'ab'
-        return len(s), n
+        }
+        s += "ab"
+        return (len(s), n)
+    }
     print(grow())
   expected: |-
     (122, 2310)
 
 - case: |-
     // long texts made from marked parts keep exact lengths and characters
-    a = ''.join(['ab'] * 100) + 'c' * 70
-    b = 'é' * 70 + ''.join(['ñ'] * 30)
+    a = "".join(["ab"] * 100) + "c" * 70
+    b = "é" * 70 + "".join(["ñ"] * 30)
     c = a[1:150]
     print(len(a), len(b), len(c), a[199], b[69], b[70], c[-1])
   expected: |-
@@ -2024,101 +1817,99 @@
 
 - case: |-
     // a text rebound inside its own loop is walked as it was at the start
-    s = 'abc'
-    out = ''
-    for c in s:
+    s = "abc"
+    out = ""
+    for c in s {
         s = s + c
         out += c
+    }
     print(out, s)
   expected: |-
     abc abcabc
 
 - case: |-
     // a text grown in place inside its own loop is walked as it began
-    fn grow(s):
+    fn grow(s) {
         out = []
-        for c in s:
+        for c in s {
             s += c
             out.append(c)
-        return out, s
-    print(grow('xy' * 2))
+        }
+        return (out, s)
+    }
+    print(grow("xy" * 2))
   expected: |-
-    (['x', 'y', 'x', 'y'], 'xyxyxyxy')
+    (["x", "y", "x", "y"], "xyxyxyxy")
 
 - case: |-
     // a text of wide characters steps one character at a time through loops and iter
-    t = 'añ€😀b'
+    t = "añ€😀b"
     n = 0
-    for c in t:
+    for c in t {
         n += len(c)
+    }
     it = iter(t)
-    print(n, next(it) + next(it), ''.join(c for c in t) == t, '-'.join([c for c in 'x€y']))
+    print(n, next(it) + next(it), "".join((c for c in t)) == t, "-".join([c for c in "x€y"]))
   expected: |-
-    5 añ True x-€-y
-
-- case: |-
-    // a code point escape takes exactly its hex digits or stays as an unknown escape
-    print('\x+1' == '\x01', len('\x+1'), len('\x4'))
-    print('\u12', '\x4', '\U0001F60', '\u12g4')
-    print('\xZZ', b'\xZZ', '\x41é\U0001F600')
-  expected: |-
-    False 4 3
-    \u12 \x4 \U0001F60 \u12g4
-    \xZZ b'\\xZZ' Aé😀
+    5 añ true x-€-y
 
 - case: |-
     // text too large for the memory left as utf-32 is refused before its bytes exist
-    s = 'a' * 70000000
-    print(len(s.encode('utf-32')))
-  error: MemoryError
+    s = "a" * 70000000
+    print(len(s.encode("utf-32")))
+  error: "MemoryError: memory limit"
 
 - case: |-
     // an encoder writes each run it cannot map as its handler says
-    print('caf\u00e9 \u2603'.encode('ascii', 'xmlcharrefreplace'), 'caf\u00e9'.encode('ascii', 'replace'), 'caf\u00e9'.encode('ascii', 'ignore'))
-    print('\u00e9\u00e9x'.encode('ascii', 'backslashreplace'), 'x\u00e9'.encode('utf-16-le'), len('\u00e9\U0001F600'.encode('utf-32')))
-    try:
-        'ab\u00e9\u00e9c'.encode('ascii')
-    except UnicodeEncodeError as e:
+    print("café ☃".encode("ascii", "xmlcharrefreplace"), "café".encode("ascii", "replace"), "café".encode("ascii", "ignore"))
+    print("ééx".encode("ascii", "backslashreplace"), "xé".encode("utf-16-le"), len("é😀".encode("utf-32")))
+    try {
+        "abééc".encode("ascii")
+    } catch ValueError as e {
         print(e)
+    }
   expected: |-
-    b'caf&#233; &#9731;' b'caf?' b'caf'
-    b'\\xe9\\xe9x' b'x\x00\xe9\x00' 12
-    'ascii' codec can't encode characters in position 2-3: ordinal not in range(128)
+    b"caf&#233; &#9731;" b"caf?" b"caf"
+    b"\\xe9\\xe9x" b"x\x00\xe9\x00" 12
+    ascii cannot encode characters 2 to 3, which the codec maps to nothing
 
 - case: |-
     // a text past ascii reads and cuts alike from either end or its last read
-    t = 'aé😀b' * 400
-    u = 'é' + 'x' * 3000 + '😀' + 'y' * 2000
+    t = "aé😀b" * 400
+    u = "é" + "x" * 3000 + "😀" + "y" * 2000
     print(len(t), t[0], t[1], t[2], t[1598], t[-1], t[-3], t[801], t[-800], t[1599])
     print(u[3001], u[-2001], u[-1], u[0], u[-5002], len(u))
-    for s, i in [(u, 5002), (u, -5003), (t, 1600), (t, -1601)]:
-        try:
+    for s, i in [(u, 5002), (u, -5003), (t, 1600), (t, -1601)] {
+        try {
             print(s[i])
-        except IndexError as e:
+        } catch IndexError as e {
             print(e)
-    print(''.join(t[i] for i in range(len(t))) == t, ''.join(t[-i] for i in range(1, len(t) + 1)) == t[::-1])
-    print(''.join(u[i] for i in range(0, len(u), 7)) == u[::7], [u[i] for i in [4000, 10, 3001, 4999, 2]])
+        }
+    }
+    print("".join((t[i] for i in range(len(t)))) == t, "".join((t[-i] for i in range(1, len(t) + 1))) == t[::-1])
+    print("".join((u[i] for i in range(0, len(u), 7))) == u[::7], [u[i] for i in [4000, 10, 3001, 4999, 2]])
     print(t[3:9], t[-6:-2], t[1597:2000], t[9:3:-1], t[::-397], t[2::399], t[-1:-9:-3], repr(t[5:5]), repr(t[9:3]))
     print(u[2999:3003], u[3001::-1000], u[-2001:-1999], u[::1000], len(u[1:-1]), len(u[::-2]))
-    g = 'ü'
-    for i in range(5):
-        g += 'é' * 300 + str(i)
+    g = "ü"
+    for i in range(5) {
+        g += "é" * 300 + text(i)
         print(g[-1], g[301 * i + 300], g[301 * i + 1], len(g))
+    }
     print([t[i % 1600] + u[i] for i in range(2998, 3004)])
   expected: |-
     1600 a é 😀 😀 b é é a b
     😀 😀 y é é 5002
-    string index out of range
-    string index out of range
-    string index out of range
-    string index out of range
-    True True
-    True ['y', 'x', '😀', 'y', 'x']
-    baé😀ba 😀baé é😀b éab😀éa b😀éab 😀éab😀 baé '' ''
+    text index out of range
+    text index out of range
+    text index out of range
+    text index out of range
+    true true
+    true ["y", "x", "😀", "y", "x"]
+    baé😀ba 😀baé é😀b éab😀éa b😀éab 😀éab😀 baé "" ""
     xx😀y 😀xxx 😀y éxxxyy 5000 2501
     0 é é 302
     1 é é 603
     2 é é 904
     3 é é 1205
     4 é é 1506
-    ['😀x', 'bx', 'ax', 'é😀', '😀y', 'by']
+    ["😀x", "bx", "ax", "é😀", "😀y", "by"]

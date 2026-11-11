@@ -1,7 +1,7 @@
 [
   {
     "given": {
-      "main.mini": "print('ok from edge')\nprint(6 * 7)\n",
+      "main.mini": "print(\"ok from edge\")\nprint(6 * 7)\n",
       "edge.json": "{}\n"
     },
     "run": ["run", "main.mini"],
@@ -9,7 +9,7 @@
   },
   {
     "given": {
-      "main.mini": "print('before')\nraise ValueError('on purpose')\n",
+      "main.mini": "print(\"before\")\nthrow ValueError(\"on purpose\")\n",
       "edge.json": "{}\n"
     },
     "run": ["run", "main.mini"],
@@ -19,13 +19,13 @@
   {
     "given": { "broken.mini": "before = 1\nx = 1 / 0\n" },
     "run": ["run", "broken.mini"],
-    "fails": ["ZeroDivisionError", "--> broken.mini:2:1"]
+    "fails": ["DivisionError", "--> broken.mini:2:1"]
   },
   {
     "given": {
       "edge.json": "{}\n",
-      "sub/util.mini": "fn add(a, b):\n    return a + b\n",
-      "sub/main.mini": "from .util import add\nprint(add(2, 3))\n"
+      "sub/util.mini": "fn add(a, b) {\n    return a + b\n}\n",
+      "sub/main.mini": "use .util as util\nadd = util.add\nprint(add(2, 3))\n"
     },
     "run": ["run", "sub/main.mini"],
     "stdout": ["5"]
@@ -35,7 +35,7 @@
       "edge.json": "{ \"imports\": { \"later\": \"./later/main.mini\" } }\n",
       "later/edge.json": "{ \"edge\": \"99.0.0\" }\n",
       "later/main.mini": "value = 1\n",
-      "main.mini": "from later import value\nprint(value)\n"
+      "main.mini": "use later\nvalue = later.value\nprint(value)\n"
     },
     "run": ["run", "main.mini"],
     "fails": ["edge.json at './later/edge.json': needs edge 99.0.0"]
@@ -43,11 +43,11 @@
   {
     "given": {
       "edge.json": "{\"imports\": {\"clock\": \"./clock/main.mini\"}}\n",
-      "main.mini": "from clock import now\nprint(now())\n",
+      "main.mini": "use clock\nnow = clock.now\nprint(now())\n",
       "clock/edge.json": "{\"name\": \"clock\", \"version\": \"0.2.0\", \"imports\": {\"trace\": \"./trace/main.mini\"}, \"permissions\": {\"main\": [\"net:127.0.0.1\"], \"trace\": [\"net:127.0.0.1\", \"net\"]}}\n",
-      "clock/main.mini": "from trace import stamp\n\nfn now():\n    return stamp()\n",
+      "clock/main.mini": "use trace\nstamp = trace.stamp\n\nfn now() {\n    return stamp()\n}\n",
       "clock/trace/edge.json": "{\"name\": \"trace\", \"permissions\": {\"main\": [\"net:127.0.0.1\", \"net\"]}}\n",
-      "clock/trace/main.mini": "import net\n\nfn stamp():\n    return net.request('GET', 'http://127.0.0.1:1/') > 0\n"
+      "clock/trace/main.mini": "use net\n\nfn stamp() {\n    return net.request(\"GET\", \"http://127.0.0.1:1/\") > 0\n}\n"
     },
     "run": ["run", "main.mini"],
     "fails": ["edge.json does not grant what these packages ask for", "  clock 0.2.0   net:127.0.0.1, net\n", "help: grant them under \"permissions\" in edge.json"]
@@ -71,33 +71,33 @@
   {
     "given": {
       "edge.json": "{}\n",
-      "main.mini": "i = 0\nwhile true:\n    i += 1\n"
+      "main.mini": "i = 0\nwhile true {\n    i += 1\n}\n"
     },
     "run": ["run", "--ops", "1000", "main.mini"],
-    "fails": ["RuntimeError: budget exceeded"]
+    "fails": ["Error: budget exceeded"]
   },
   {
     "given": {
       "edge.json": "{}\n",
-      "main.mini": "fn f(n):\n    if n == 0:\n        raise ValueError('bottom')\n    return f(n - 1)\n\nf(2000)\n"
+      "main.mini": "fn f(n) {\n    if n == 0 {\n        throw ValueError(\"bottom\")\n    }\n    return f(n - 1)\n}\n\nf(2000)\n"
     },
     "run": ["run", "main.mini"],
-    "fails": ["RecursionError: maximum recursion depth exceeded", "--> main.mini:4:5", "note: the same call 997 more times", "--> main.mini:6:2"]
+    "fails": ["RecursionError: calls nested past the recursion limit", "--> main.mini:5:5", "note: the same call 997 more times", "--> main.mini:8:2"]
   },
   {
     "given": {
       "edge.json": "{ \"imports\": { \"badplug\": \"./bad.wasm\", \"lib\": \"./lib.mini\" } }\n",
       "bad.wasm": "notwasm",
-      "lib.mini": "x = 1\nimport badplug\n",
-      "main.mini": "print('never')\nimport lib\n"
+      "lib.mini": "x = 1\nuse badplug\n",
+      "main.mini": "print(\"never\")\nuse lib\n"
     },
     "run": ["run", "main.mini"],
-    "fails": ["module 'badplug' is not a valid plugin, ", " (via lib)\n", "--> main.mini:2:8"]
+    "fails": ["module 'badplug' is not a valid plugin, ", " (via lib)\n", "--> main.mini:2:5"]
   },
   {
     "given": {
       "edge.json": "{}\n",
-      "main.mini": "print('never')\nfrom .helper import twice\n"
+      "main.mini": "print(\"never\")\nuse .helper as helper\ntwice = helper.twice\n"
     },
     "run": ["run", "main.mini"],
     "fails": ["module './helper.mini' could not be read", "--> main.mini:2:"]

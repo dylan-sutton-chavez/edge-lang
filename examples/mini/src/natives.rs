@@ -1,14 +1,15 @@
-use edge::lang::Native;
+use edge::lang::{Args, Cx, Native, Ret, Sig};
+use lib::fail::Class;
 use lib::bytes::{self, Fixed, Mutable};
 use lib::iter::fold::Joins;
 use lib::num::int::{Bin, Hex, Oct};
 use lib::num::round::HalfEven;
 use lib::text::case::Full;
 use lib::uni::{Decimal, Digit, Numeric};
-use lib::{date, fmt, io, iter, map, num, reflect, seq, set, text, types};
+use lib::{date, fmt, io, iter, map, num, seq, set, text, types};
 
 use crate::Mini;
-use crate::lang::{Lines, Modular};
+use crate::lang::Lines;
 
 pub const IO: &[Native] = &lib::table![Mini;
     "print" => io::print{"sep", "end", "file", "flush"},
@@ -55,14 +56,14 @@ pub const FOLDS: &[Native] = &lib::table![Mini;
 ];
 
 pub const CONVERT: &[Native] = &lib::table![Mini;
-    "str" => text::text("object", "encoding", "errors"),
+    "text" => text::text("object", "encoding", "errors"),
     "int" => num::int::new[Decimal]("", "base"),
     "float" => num::float::new[Decimal],
     "bool" => types::truth,
     "list" => seq::list,
     "tuple" => seq::tuple,
     // keywords past the source are entries put after its own
-    "dict" => map::new,
+    "record" => map::new,
     "set" => set::new,
     "chr" => text::char_of,
     "ord" => text::code_of,
@@ -70,8 +71,6 @@ pub const CONVERT: &[Native] = &lib::table![Mini;
     "oct" => num::int::radix[Oct],
     "hex" => num::int::radix[Hex],
     "repr" => fmt::render::repr_of,
-    "ascii" => fmt::render::ascii_of,
-    "hash" => num::hash::hash[Modular],
     "callable" => types::callable,
 ];
 
@@ -83,18 +82,12 @@ pub const BYTES: &[Native] = &lib::table![Mini;
 
 pub const SORT: &[Native] = &lib::table![Mini; "sorted" => seq::sort::sorted{"key", "reverse"}];
 
-pub const ATTR: &[Native] = &lib::table![Mini;
-    "getattr" => reflect::get,
-    "hasattr" => reflect::has,
-    "setattr" => reflect::set,
-    "delattr" => reflect::delete,
-];
+pub const TYPES: &[Native] = &lib::table![Mini; "type" => types::type_of];
 
-pub const TYPES: &[Native] = &lib::table![Mini;
-    "isinstance" => types::is_a,
-    "issubclass" => types::is_sub,
-    "type" => types::type_of,
-];
+// a value no arm of a match takes raises where the match starts
+fn unmatched(_: &mut Cx<'_, '_>, _: Args<'_>) -> Ret { Err(lib::fail::raise::<Mini>(Class::Value, "no arm of the match takes the value")) }
+
+pub const MATCH: &[Native] = &[Native::new("unmatched", Sig::exact(1), unmatched)];
 
 pub const STR: &[Native] = &lib::table![Mini;
     "encode" => bytes::codec::encode("encoding", "errors"),
@@ -281,11 +274,4 @@ pub const FLOAT: &[Native] = &lib::table![Mini;
 pub const RANGE: &[Native] = &lib::table![Mini;
     "index" => iter::range_index,
     "count" => iter::range_count,
-];
-
-// generators and coroutines both resume through the engine
-pub const GEN: &[Native] = &lib::table![Mini;
-    "send" => iter::send,
-    "throw" => iter::throw,
-    "close" => iter::close,
 ];

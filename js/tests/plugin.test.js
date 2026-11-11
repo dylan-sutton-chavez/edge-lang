@@ -63,7 +63,7 @@ Deno.test("plugin: an end a plugin hands back unread raises the class each runti
     const dir = await Deno.makeTempDir();
     await Deno.writeFile(`${dir}/steps.wasm`, first());
     const runs = [
-        ["edge", "from steps import first\nprint(first([7, 8]))\ntry:\n    first([])\nexcept StopIteration:\n    print('ended')\n"],
+        ["edge", "use steps\nfirst = steps.first\nprint(first([7, 8]))\ntry {\n    first([])\n} catch Stop {\n    print(\"ended\")\n}\n"],
         ["uptime", "use steps\nprint(steps.first([7, 8]))\ntry\n  steps.first([])\ncatch Stop\n  print(\"ended\")\nend\n"],
     ];
     for (const [runtime, src] of runs) {
@@ -80,14 +80,14 @@ Deno.test("plugin: a plugin that does not load fails at its import and names the
     await Deno.writeTextFile(`${dir}/edge.json`, JSON.stringify({ imports: { badplug: "./bad.wasm", old: "./old.wasm", lib: "./lib.mini" } }));
     await Deno.writeTextFile(`${dir}/bad.wasm`, "notwasm");
     await Deno.writeFile(`${dir}/old.wasm`, plugin(2));
-    await Deno.writeTextFile(`${dir}/lib.mini`, "x = 1\nimport badplug\n");
+    await Deno.writeTextFile(`${dir}/lib.mini`, "x = 1\nuse badplug\n");
     const engine = await import(new URL("../src/worker/engine.ts?refused", import.meta.url).href);
     await engine.load({ wasmUrl: new URL("target/wasm32-unknown-unknown/release/edge.wasm", ROOT).href, baseUrl: `file://${dir}/` });
     // the WebAssembly runtime words the reason for bytes that are no wasm
     const runs = [
-        ["main.mini", "print(1)\nimport badplug\n", ["error: module 'badplug' is not a valid plugin, ", "--> main.mini:2:8"]],
-        ["via.mini", "import lib\n", ["module 'badplug' is not a valid plugin, ", " (via lib)\n", "--> via.mini:1:8"]],
-        ["old.mini", "import old\n", ["error: module 'old' is not a valid plugin, it speaks ABI v2, this host expects v1\n", "--> old.mini:1:8"]],
+        ["main.mini", "print(1)\nuse badplug\n", ["error: module 'badplug' is not a valid plugin, ", "--> main.mini:2:5"]],
+        ["via.mini", "use lib\n", ["module 'badplug' is not a valid plugin, ", " (via lib)\n", "--> via.mini:1:5"]],
+        ["old.mini", "use old\n", ["error: module 'old' is not a valid plugin, it speaks ABI v2, this host expects v1\n", "--> old.mini:1:5"]],
     ];
     for (const [entry, src, wants] of runs) {
         const lines = [];

@@ -66,15 +66,16 @@ async function serve() {
 const cancelled = (seen) => Promise.race([seen.cancelled, new Promise((resolve) => setTimeout(() => resolve(false), 5000))]);
 
 // mini reads the body until it has enough lines or the hour ends
-const reader = (url, enough) => `import net
+const reader = (url, enough) => `use net
 
-r = net.request('GET', '${url}', nil, nil, 'gzip')
+r = net.request("GET", "${url}", nil, nil, "gzip")
 net.response(r)
 lines = 0
 chunk = net.read(r)
-while chunk is !nil && lines < ${enough}:
-    lines += chunk.count(b'\\n')
+while chunk != nil and lines < ${enough} {
+    lines += chunk.count(b"\\n")
     chunk = net.read(r)
+}
 net.close(r)
 print(lines)
 `;

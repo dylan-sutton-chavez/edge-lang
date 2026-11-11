@@ -8,9 +8,10 @@ groups:
     code: |
       receive()
       i = 0
-      while i < 5:
+      while i < 5 {
           send("actors", "job")
           i = i + 1
+      }
     seed:
       - go
   actors:

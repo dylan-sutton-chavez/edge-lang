@@ -346,11 +346,35 @@ pub fn test_native(name: &str) -> Option<NativeBinding> {
         "pick" => pick,
         "host_defer" => host_defer,
         "__const_pi" => const_pi,
-        "__class_Box___init__" => class_box_init,
+        "__class_Box_init" => class_box_init,
         "__class_Box_get" => class_box_get,
         // registered under a builtin name to check imported natives shadow builtins
         "abs" => const_42,
         _ => return None,
     };
     Some(NativeBinding::from_fn(name, func))
+}
+// where two chunks part with each name of `a` renamed as `b` spells it
+pub fn differ(a: &SSAChunk, b: &SSAChunk, at: &str, rename: &dyn Fn(&str) -> String) -> Option<String> {
+    let ins = |c: &SSAChunk| c.instructions.iter().map(|i| (i.opcode, i.operand)).collect::<Vec<_>>();
+    let names: Vec<String> = a.names.iter().map(|n| rename(n)).collect();
+    if names != b.names { return Some(format!("{at} names {names:?} against {:?}", b.names)); }
+    if a.constants != b.constants { return Some(format!("{at} constants {:?} against {:?}", a.constants, b.constants)); }
+    if ins(a) != ins(b) { return Some(format!("{at} instructions differ")); }
+    if (a.functions.len(), a.classes.len(), a.bases, a.is_generator) != (b.functions.len(), b.classes.len(), b.bases, b.is_generator) {
+        return Some(format!("{at} holds other bodies"));
+    }
+    for (i, (f, g)) in a.functions.iter().zip(&b.functions).enumerate() {
+        let params: Vec<String> = f.0.iter().map(|n| rename(n)).collect();
+        if (&params, f.2, f.3) != (&g.0, g.2, g.3) { return Some(format!("{at} function {i} has another signature")); }
+        if let Some(d) = differ(&f.1, &g.1, &format!("{at} function {i}"), rename) { return Some(d); }
+    }
+    a.classes.iter().zip(&b.classes).enumerate().find_map(|(i, (c, d))| differ(c, d, &format!("{at} class {i}"), rename))
+}
+
+// two chunks are one program with errors on both sides or neither
+pub fn same_program(a: &(SSAChunk, Vec<String>), b: &(SSAChunk, Vec<String>)) -> Result<(), String> {
+    let ((a, ea), (b, eb)) = (a, b);
+    if ea.is_empty() != eb.is_empty() { return Err(format!("errors {ea:?} against {eb:?}")); }
+    differ(a, b, "module", &|n| n.to_string()).map_or(Ok(()), Err)
 }

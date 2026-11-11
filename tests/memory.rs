@@ -17,7 +17,7 @@ mod test {
         (vm.memory(), vm.memory_peak(), vm.heap().meter())
     }
 
-    const MIXED: &str = "class P:\n    fn __init__(self, x):\n        self.x = x\nfn squares(n):\n    for i in range(n):\n        yield i * i\nd = {str(i): [i, (i, i + 1.5), {i}] for i in range(300)}\ns = ''.join(f'{k}:{v[0]!r}' for k, v in d.items())\nps = sorted([P(i) for i in range(200)], key=lambda p: -p.x)\nt = list(squares(500))\ntry:\n    raise ValueError('x' * 100)\nexcept ValueError as e:\n    msg = str(e)\nb = bytes(range(256)) * 10\nprint(len(s), ps[0].x, sum(t), len(msg), len(b.hex()))\n";
+    const MIXED: &str = "fn P(x) = {x = x}\nfn squares(n) {\n    for i in range(n) {\n        yield i * i\n    }\n}\nd = record([(text(i), [i, (i, i + 1.5), set([i])]) for i in range(300)])\ns = \"\".join([\"{k}:{repr(v[0])}\" for (k, v) in d.items()])\nps = sorted([P(i) for i in range(200)], key=|p| -p.x)\nt = list(squares(500))\ntry {\n    throw ValueError(\"x\" * 100)\n} catch ValueError as e {\n    msg = text(e)\n}\nb = bytes(range(256)) * 10\nprint(len(s), ps[0].x, sum(t), len(msg), len(b.hex()))\n";
 
     // a dropped VM gives back every byte its run took so nothing drifts
     #[test]
@@ -38,14 +38,14 @@ mod test {
     // the list goes before the loop starts collecting so only the peak remembers it
     #[test]
     fn the_peak_keeps_what_a_program_held_after_a_collection_let_it_go() {
-        let (held, peak, _) = ran("xs = [0] * 1000000\nxs = nil\nn = 0\nfor i in range(100000):\n    n += len([i])\n");
+        let (held, peak, _) = ran("xs = [0] * 1000000\nxs = nil\nn = 0\nfor i in range(100000) {\n    n += len([i])\n}\n");
         assert!(peak >= 8_000_000 && held < 4_000_000, "peak {peak} held {held}");
     }
 
     // an in-place intersection shrinks the table so only the peak keeps the big one
     #[test]
     fn the_peak_keeps_what_a_set_held_before_it_shrank() {
-        let (held, peak, _) = ran("s = set(range(100000))\ns &= {0}\n");
+        let (held, peak, _) = ran("s = set(range(100000))\ns &= set([0])\n");
         assert!(peak >= 2_000_000 && held < peak / 2, "peak {peak} held {held}");
     }
 
@@ -53,10 +53,10 @@ mod test {
     #[test]
     fn large_garbage_collects_by_its_bytes() {
         for src in [
-            "a = set(range(0, 200000, 2))\nb = set(range(0, 200000, 3))\nt = 0\nfor r in range(40):\n    t += len(a & b) + len(a | b)\n",
-            "x = 1\nfor i in range(1, 3000):\n    x = x * i\n",
-            "t = 0\nfor i in range(300):\n    t += len(list(range(20000)))\n",
-            "s = 'y' * 100000\nt = 0\nfor i in range(300):\n    t += len(s + 'z')\n",
+            "a = set(range(0, 200000, 2))\nb = set(range(0, 200000, 3))\nt = 0\nfor r in range(40) {\n    t += len(a & b) + len(a | b)\n}\n",
+            "x = 1\nfor i in range(1, 3000) {\n    x = x * i\n}\n",
+            "t = 0\nfor i in range(300) {\n    t += len(list(range(20000)))\n}\n",
+            "s = \"y\" * 100000\nt = 0\nfor i in range(300) {\n    t += len(s + \"z\")\n}\n",
         ] {
             let (_, peak, _) = ran(src);
             assert!(peak < 48 << 20, "{src}: peak {peak}");
@@ -106,7 +106,9 @@ mod test {
             "s = set(range(9000000))\nt = s.copy()\nu = s.copy()\n",
             "s = set(range(9000000))\nt = s.copy()\nu = set(s)\n",
         ] {
-            let chunk = compiled(src);
+            // a set display spreads in the legacy fixture which mini no longer spells
+            let (chunk, errs) = crate::words::legacy(src);
+            assert!(errs.is_empty(), "{src}");
             let mut vm = crate::common::boot(&chunk, Limits::sandbox());
             let _ = vm.run();
             assert!(vm.memory_peak() >> 20 < 450, "{src:?} peaked at {} MiB", vm.memory_peak() >> 20);
@@ -118,9 +120,10 @@ mod test {
     fn a_small_result_of_a_large_set_or_map_fits() {
         for (src, out) in [
             ("a = set(range(9000000))\nprint(len(a & {1}), len({1} & a), len(a - a), len(a | {1}))\n", "1 1 0 9000000"),
-            ("d = dict.fromkeys(range(6000000))\nprint(len(d | {1: 2}))\n", "6000000"),
+            ("d = record.fromkeys(range(6000000))\nprint(len(d | {1: 2}))\n", "6000000"),
         ] {
-            let chunk = compiled(src);
+            let (chunk, errs) = crate::words::legacy(src);
+            assert!(errs.is_empty(), "{src}");
             let mut vm = crate::common::boot(&chunk, Limits::sandbox());
             vm.run().unwrap_or_else(|e| panic!("{src:?}: {e}"));
             assert_eq!(vm.output, [out]);
@@ -131,8 +134,8 @@ mod test {
     #[test]
     fn a_table_that_shrank_gives_back_its_room() {
         for src in [
-            "d = dict.fromkeys(range(2000000))\nfor i in range(1999960):\n    del d[i]\nfor r in range(2000):\n    d[-1] = r\n    del d[-1]\n",
-            "s = set(range(2000000))\nfor i in range(1999960):\n    s.discard(i)\nfor r in range(2000):\n    s.add(-1)\n    s.discard(-1)\n",
+            "d = record.fromkeys(range(2000000))\nfor i in range(1999960) {\n    d.pop(i)\n}\nfor r in range(2000) {\n    d[-1] = r\n    d.pop(-1)\n}\n",
+            "s = set(range(2000000))\nfor i in range(1999960) {\n    s.discard(i)\n}\nfor r in range(2000) {\n    s.add(-1)\n    s.discard(-1)\n}\n",
         ] {
             let (held, _, _) = ran(src);
             assert!(held < 8 << 20, "{src:?} holds {held}");
@@ -161,15 +164,6 @@ mod test {
         assert!(seen[0].0 == Some(3000) && seen[0].1 > 0 && seen[1] == seen[0] && seen[2].0.is_none(), "{seen:?}");
     }
 
-    // a collection due at the floor lands before the slot table doubles
-    #[test]
-    fn a_loop_collects_before_its_slot_table_doubles() {
-        let src = |n: usize| format!("class P:\n    pass\nt = 0\nfor i in range({n}):\n    p = P()\n    setattr(p, 'x' + str(i % 3), i)\n    t += getattr(p, 'x' + str(i % 3))\nprint(t)\n");
-        let (_, below, _) = ran(&src(150));
-        let (_, past, _) = ran(&src(300));
-        assert!(past < below + (16 << 10), "below {below} past {past}");
-    }
-
     // reducers take a generator one item at a time so its items never pile up
     #[test]
     fn reducing_a_generator_holds_one_item_at_a_time() {
@@ -193,13 +187,13 @@ mod test {
         set_budget(64 << 20);
         // host memory stays outside the budget but a received event counts against the program
         drop(std::hint::black_box(vec![0u8; 32 << 20]));
-        let holder = compiled("xs = [0] * 5000000\nfn total():\n    return len(xs)\n");
+        let holder = compiled("xs = [0] * 5000000\nfn total() {\n    return len(xs)\n}\n");
         let mut a = crate::common::boot(&holder, Limits::sandbox());
         a.run().unwrap();
         a.push_event(&"e".repeat(8 << 20)).unwrap();
         assert!(a.memory() >= 40_000_000 + (8 << 20), "{}", a.memory());
         // each stops far below its own 256 MB limit so the instance budget refused it
-        for src in ["ys = [0] * 5000000\n", "ys = []\nwhile true:\n    ys.append(0)\n"] {
+        for src in ["ys = [0] * 5000000\n", "ys = []\nwhile true {\n    ys.append(0)\n}\n"] {
             let chunk = compiled(src);
             let mut b = crate::common::boot(&chunk, Limits::sandbox());
             let err = b.run().map(|_| ()).unwrap_err();

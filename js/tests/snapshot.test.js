@@ -19,7 +19,7 @@ async function parked(engine) {
 Deno.test("snapshot: a run parked on receive() restores from its blob and takes other events", async () => {
     const engine = await boot("restore");
     const lines = [];
-    const src = "history = []\nwhile true:\n    m = receive()\n    if m == 'stop':\n        break\n    history.append(m)\nprint('|'.join(history))";
+    const src = "history = []\nwhile true {\n    m = receive()\n    if m == \"stop\" {\n        break\n    }\n    history.append(m)\n}\nprint(\"|\".join(history))";
     const running = engine.run({ src }, (t) => lines.push(t));
     await parked(engine);
     engine.pushEvent("a");
@@ -72,7 +72,7 @@ async function foreign(blob, source) {
 
 Deno.test("snapshot: a blob of another runtime is refused before its source parses and runs nothing", async () => {
     const engine = await boot("foreign");
-    const running = engine.run({ src: "print('phase1')\nreceive()\nprint('resumed')" }, () => {});
+    const running = engine.run({ src: "print(\"phase1\")\nreceive()\nprint(\"resumed\")" }, () => {});
     await parked(engine);
     const blob = engine.saveState();
     engine.pushEvent("done");
@@ -87,8 +87,8 @@ Deno.test("snapshot: a blob of another runtime is refused before its source pars
 Deno.test("snapshot: a restored run names its script and imports from beside it", async () => {
     const dir = await Deno.makeTempDir();
     await Deno.mkdir(`${dir}/sub`);
-    await Deno.writeTextFile(`${dir}/sub/helper.mini`, "fn twice(x):\n    return x + x\n");
-    const src = "from .helper import twice\nmsg = receive()\nprint(twice(msg))\nraise ValueError(msg)\n";
+    await Deno.writeTextFile(`${dir}/sub/helper.mini`, "fn twice(x) {\n    return x + x\n}\n");
+    const src = "use .helper as helper\ntwice = helper.twice\nmsg = receive()\nprint(twice(msg))\nthrow ValueError(msg)\n";
     const engine = await import(new URL("../src/worker/engine.ts?snapshot=entry", import.meta.url).href);
     await engine.load({ wasmUrl: new URL("target/wasm32-unknown-unknown/release/edge.wasm", ROOT).href, baseUrl: `file://${dir}/` });
     const running = engine.run({ src, entry: "sub/main.mini" }, () => {});
@@ -104,5 +104,5 @@ Deno.test("snapshot: a restored run names its script and imports from beside it"
     const { out } = await resumed;
     await Deno.remove(dir, { recursive: true });
     if (lines.join("") !== "abab\n") throw new Error(`the restored run printed ${JSON.stringify(lines.join(""))}`);
-    if (!out.includes("ValueError: ab") || !out.includes("sub/main.mini:4")) throw new Error(`the restored run failed with ${JSON.stringify(out)}`);
+    if (!out.includes("ValueError: ab") || !out.includes("sub/main.mini:5")) throw new Error(`the restored run failed with ${JSON.stringify(out)}`);
 });

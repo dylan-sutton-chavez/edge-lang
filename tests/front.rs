@@ -7,10 +7,14 @@ mod test {
     use edge::deps::walk::{Carry, Fetched, Loaded, Step, Walk};
     use edge::deps::{ImportSpec, Resolver};
     use edge::lexer::{Dot, Shapes, Spelling, Syntax};
-    use mini::Mini;
+    // the builder and the parse it is held to both read the fixed core
+    use crate::words::Legacy as Mini;
     use std::rc::Rc;
 
     // lines led by a word with what follows read through mini's table
+    // the fixed core read in indentation which a builder's chunks compare against
+    const LEGACY: Front = Front::spelled::<crate::words::Legacy>();
+
     const STEPS: Front = Front { extension: "steps", parse: steps, imports, syntax: None, policy: mini::FRONT.policy };
 
     #[derive(Clone, Copy)]
@@ -36,7 +40,7 @@ mod test {
     // mini's table reading the name after a dot as a key the way records want
     struct Keys;
     impl Spelling for Keys {
-        const SYNTAX: Syntax = Syntax { name: "keys", shapes: Shapes { dot: Dot::Key, ..Shapes::CORE }, ..mini::MINI };
+        const SYNTAX: Syntax = Syntax { name: "keys", shapes: Shapes { dot: Dot::Key, ..Shapes::CORE }, ..crate::words::LEGACY };
         const NATIVES: &'static edge::lang::Natives = &mini::NATIVES;
     }
 
@@ -117,9 +121,9 @@ mod test {
     }
 
     fn same(steps_src: &str, mini_src: &str) {
-        let (ours, theirs) = (compiled(&STEPS, steps_src, Box::new(edge::deps::NoopResolver)), compiled(&mini::FRONT, mini_src, Box::new(edge::deps::NoopResolver)));
+        let (ours, theirs) = (compiled(&STEPS, steps_src, Box::new(edge::deps::NoopResolver)), compiled(&LEGACY, mini_src, Box::new(edge::deps::NoopResolver)));
         assert!(ours.1.is_empty() && theirs.1.is_empty(), "{:?} and {:?}", ours.1, theirs.1);
-        if let Err(e) = spell::check::same_program(&theirs, &ours) { panic!("{steps_src:?} against {mini_src:?}: {e}"); }
+        if let Err(e) = crate::common::same_program(&theirs, &ours) { panic!("{steps_src:?} against {mini_src:?}: {e}"); }
     }
 
     // what a chunk prints when it runs to its end
@@ -152,14 +156,14 @@ mod test {
         });
         let src = "import a\nimport b\nimport c\nlet total = 0\nover it in [a, b, c]\n  if kind == \"push\"\n    let total = total + size\n  let f = abs\nprint(total)\n";
         let mini_src = "import a\nimport b\nimport c\ntotal = 0\nfor it in [a, b, c]:\n    if it.kind == \"push\":\n        total = total + it.size\n    f = abs\nprint(total)\n";
-        let (ours, theirs) = (compiled(&STEPS, src, Box::new(modules("steps"))), compiled(&mini::FRONT, mini_src, Box::new(modules("mini"))));
+        let (ours, theirs) = (compiled(&STEPS, src, Box::new(modules("steps"))), compiled(&LEGACY, mini_src, Box::new(modules("mini"))));
         assert!(ours.1.is_empty() && theirs.1.is_empty(), "{:?} and {:?}", ours.1, theirs.1);
-        if let Err(e) = spell::check::same_program(&theirs, &ours) { panic!("{e}"); }
+        if let Err(e) = crate::common::same_program(&theirs, &ours) { panic!("{e}"); }
         assert_eq!(output(&ours.0), ["8"]);
         // an import parses through the front end of the source that imports it
         let looped = || Box::new(TestResolver::new().with_code("a", "each n in [3]\n  let size = n\n").with_alias("a", "a"));
         assert!(compiled(&STEPS, "import a\n", looped()).1.is_empty());
-        assert!(compiled(&mini::FRONT, "import a\n", looped()).1.iter().any(|e| e.starts_with("module 'a' parse error")));
+        assert!(compiled(&LEGACY, "import a\n", looped()).1.iter().any(|e| e.starts_with("module 'a' parse error")));
     }
 
     // a table reading keys at dots reads the subject's fields as keys of records
@@ -171,7 +175,7 @@ mod test {
         let keyed = Front { parse: keyed, ..STEPS };
         let (ours, theirs) = (compiled(&keyed, &src, Box::new(edge::deps::NoopResolver)), compiled(&Front::spelled::<Keys>(), &parsed, Box::new(edge::deps::NoopResolver)));
         assert!(ours.1.is_empty() && theirs.1.is_empty(), "{:?} and {:?}", ours.1, theirs.1);
-        if let Err(e) = spell::check::same_program(&theirs, &ours) { panic!("{e}"); }
+        if let Err(e) = crate::common::same_program(&theirs, &ours) { panic!("{e}"); }
         assert!(ours.0.instructions.iter().any(|i| i.opcode == OpCode::GetItem) && !ours.0.instructions.iter().any(|i| i.opcode == OpCode::LoadAttr));
         assert_eq!(output(&ours.0), ["8"]);
     }
@@ -217,8 +221,8 @@ mod test {
             b.at(0).stmts(0..5);
         });
         let chunk = folded(built.unwrap_or_else(|e| panic!("{:?}", e.iter().map(|d| &d.msg).collect::<Vec<_>>())));
-        let parsed = compiled(&mini::FRONT, "xs = [1, 2]\nm = {\"k\": xs}\nf = lambda v: v + 1\ny = f(m[\"k\"][0])\nz = m.get(\"k\")\nt = true\nn = nil\nif y > 5:\n    raise ValueError(\"bad\")\ny > 5\n", Box::new(edge::deps::NoopResolver));
-        if let Err(e) = spell::check::same_program(&parsed, &(chunk, Vec::new())) { panic!("{e}"); }
+        let parsed = compiled(&LEGACY, "xs = [1, 2]\nm = {\"k\": xs}\nf = lambda v: v + 1\ny = f(m[\"k\"][0])\nz = m.get(\"k\")\nt = true\nn = nil\nif y > 5:\n    raise ValueError(\"bad\")\ny > 5\n", Box::new(edge::deps::NoopResolver));
+        if let Err(e) = crate::common::same_program(&parsed, &(chunk, Vec::new())) { panic!("{e}"); }
     }
 
     // a chain of arms builds what an else if chain parses to
@@ -230,8 +234,8 @@ mod test {
             b.at(0).arms().arm(|b| { b.expr(0..5); }, |b| { b.stmts(6..14); }).arm(|b| { b.expr(15..20); }, |b| { b.stmts(21..29); }).other(|b| { b.stmts(30..38); });
         });
         let chunk = folded(built.ok().expect("no errors"));
-        let parsed = compiled(&mini::FRONT, "a = 2\nif a > 1:\n    print(1)\nelse if a > 0:\n    print(2)\nelse:\n    print(3)\n", Box::new(edge::deps::NoopResolver));
-        if let Err(e) = spell::check::same_program(&parsed, &(chunk.clone(), Vec::new())) { panic!("{e}"); }
+        let parsed = compiled(&LEGACY, "a = 2\nif a > 1:\n    print(1)\nelse if a > 0:\n    print(2)\nelse:\n    print(3)\n", Box::new(edge::deps::NoopResolver));
+        if let Err(e) = crate::common::same_program(&parsed, &(chunk.clone(), Vec::new())) { panic!("{e}"); }
         assert_eq!(output(&chunk), ["1"]);
     }
 

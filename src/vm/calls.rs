@@ -1025,6 +1025,8 @@ impl<'a> VM<'a> {
         let lookup = match self.find_attr(obj, name) {
             Ok(Some(l)) => l,
             Ok(None) => {
+                // a function a record holds calls through the field a dot reads
+                if !obj.is_foreign() && let Some(f) = self.own_field(obj, name)? { return self.call_in_loop_with(f, positional, kw_flat, chunk); }
                 if let Some(f) = self.get_rule(obj, name, crate::lang::Access::Method, Some((cache, rip)))? { return self.call_in_loop_with(f, positional, kw_flat, chunk); }
                 self.note_missing_attr(obj, name);
                 return Err(self.no_attr(obj, name));

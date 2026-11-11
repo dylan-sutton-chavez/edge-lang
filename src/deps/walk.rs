@@ -992,7 +992,7 @@ mod tests {
             file("edge.json", r#"{ "imports": { "greet": "0.1.0" } }"#),
             ("edge.lock", lock_text.into_bytes()),
             ("https://cdn.test/greet.mini", dep),
-        ], "from greet import shout\n");
+        ], "use greet\n");
         assert!(seen.failures.is_empty(), "{:?}", seen.failures);
         let pinned = s!("https://cdn.test/greet.mini#", str &digest);
         assert_eq!(seen.code, vec![pinned.clone()]);
@@ -1005,7 +1005,7 @@ mod tests {
         let seen = walk(&[
             file("edge.json", r#"{ "imports": { "lib": "./lib.mini#sha256-a4bf0317b809477e6e475cd791573953d3ae05c4e2b03bd5f35199609557dd90" } }"#),
             file("lib.mini", "x = 1\n"),
-        ], "import lib\n");
+        ], "use lib\n");
         assert!(seen.failures.iter().any(|f| f.starts_with("integrity check failed for './lib.mini'")), "{:?}", seen.failures);
     }
 
@@ -1014,7 +1014,7 @@ mod tests {
         let bundle = Bundle {
             entry: s!("main.mini"),
             files: vec![
-                Entry { path: s!("main.mini"), bytes: b"from _fast import go\n".to_vec() },
+                Entry { path: s!("main.mini"), bytes: b"use _fast\n".to_vec() },
                 Entry { path: s!("edge.json"), bytes: br#"{ "name": "fast", "imports": { "_fast": "./fast.wasm" } }"#.to_vec() },
                 Entry { path: s!("fast.wasm"), bytes: b"\0asm\x01\0\0\0".to_vec() },
             ],
@@ -1022,7 +1022,7 @@ mod tests {
         let seen = walk(&[
             file("edge.json", r#"{ "imports": { "fast": "https://cdn.test/pkg/fast/0.1.0/app.edge" } }"#),
             ("https://cdn.test/pkg/fast/0.1.0/app.edge", bundle),
-        ], "import fast\n");
+        ], "use fast\n");
         assert!(seen.failures.is_empty(), "{:?}", seen.failures);
         assert_eq!(seen.plugins, vec![s!("https://cdn.test/pkg/fast/0.1.0/app.edge/fast.wasm")]);
         assert!(!seen.fetched.iter().any(|f| f.contains("app.edge/")), "files inside a package never reach the host: {:?}", seen.fetched);
@@ -1036,14 +1036,14 @@ mod tests {
         let seen = walk(&[
             file("edge.json", r#"{ "imports": { "analytics": "./analytics/main.mini", "other": "./other/main.mini" }, "permissions": { "analytics": ["secret:KEY"] } }"#),
             file("analytics/edge.json", r#"{ "name": "analytics", "imports": { "trace": "./trace/main.mini" }, "permissions": { "trace": ["secret:KEY"] } }"#),
-            file("analytics/main.mini", "import trace\n"),
+            file("analytics/main.mini", "use trace\n"),
             file("analytics/trace/edge.json", r#"{ "name": "trace" }"#),
             file("analytics/trace/main.mini", ""),
             file("other/edge.json", r#"{ "name": "analytics" }"#),
-            file("other/main.mini", "from .inner.main import x\n"),
+            file("other/main.mini", "use .inner.main\n"),
             file("other/inner/edge.json", r#"{ "name": "analytics" }"#),
             file("other/inner/main.mini", "x = 1\n"),
-        ], "import analytics\nimport other\n");
+        ], "use analytics\nuse other\n");
         assert!(seen.failures.is_empty(), "{:?}", seen.failures);
         assert_eq!(grants(&seen, ""), named("main", &["main"]));
         assert_eq!(grants(&seen, "./analytics/"), named("analytics", &["analytics"]));
@@ -1062,13 +1062,13 @@ mod tests {
         let seen = walk(&[
             file("edge.json", r#"{ "imports": { "pay": "./pay/main.mini", "shop": "./shop/main.mini" }, "permissions": { "pay": ["secret:PAY"], "shop": ["secret:SHOP"] } }"#),
             file("pay/edge.json", r#"{ "imports": { "vault": "../vault/main.mini" }, "permissions": { "vault": ["secret:PAY"] } }"#),
-            file("pay/main.mini", "import vault\n"),
+            file("pay/main.mini", "use vault\n"),
             file("shop/edge.json", r#"{ "imports": { "vault": "../vault/main.mini" }, "permissions": { "vault": ["secret:SHOP"] } }"#),
-            file("shop/main.mini", "import vault\n"),
+            file("shop/main.mini", "use vault\n"),
             file("vault/edge.json", "{}"),
-            file("vault/main.mini", "from .util import x\n"),
+            file("vault/main.mini", "use .util\n"),
             file("vault/util.mini", "x = 1\n"),
-        ], "import pay\nimport shop\n");
+        ], "use pay\nuse shop\n");
         assert!(seen.failures.is_empty(), "{:?}", seen.failures);
         assert_eq!(grants(&seen, "./vault/"), named("vault", &["pay", "vault"]));
         assert_eq!(grants(&seen, "./.edge-copy-1-vault/"), named("vault", &["shop", "vault"]));
@@ -1085,7 +1085,7 @@ mod tests {
         let bundle = Bundle {
             entry: s!("main.mini"),
             files: vec![
-                Entry { path: s!("main.mini"), bytes: b"from .util import x\n".to_vec() },
+                Entry { path: s!("main.mini"), bytes: b"use .util\n".to_vec() },
                 Entry { path: s!("edge.json"), bytes: br#"{ "name": "http" }"#.to_vec() },
                 Entry { path: s!("util.mini"), bytes: b"x = 1\n".to_vec() },
             ],
@@ -1094,11 +1094,11 @@ mod tests {
         let seen = walk(&[
             file("edge.json", r#"{ "imports": { "pay": "./pay/main.mini", "shop": "./shop/main.mini" }, "permissions": { "pay": ["secret:PAY"], "shop": ["secret:SHOP"] } }"#),
             ("pay/edge.json", importer("PAY")),
-            file("pay/main.mini", "import http\n"),
+            file("pay/main.mini", "use http\n"),
             ("shop/edge.json", importer("SHOP")),
-            file("shop/main.mini", "import http\n"),
+            file("shop/main.mini", "use http\n"),
             ("https://cdn.test/pkg/http/0.1.0/app.edge", bundle),
-        ], "import pay\nimport shop\n");
+        ], "use pay\nuse shop\n");
         assert!(seen.failures.is_empty(), "{:?}", seen.failures);
         assert_eq!(grants(&seen, "https://cdn.test/pkg/http/0.1.0/app.edge/"), named("http", &["pay", "http"]));
         let copy = "https://cdn.test/pkg/http/0.1.0/.edge-copy-1-app.edge/";
@@ -1113,10 +1113,10 @@ mod tests {
         let seen = walk(&[
             file("edge.json", r#"{ "imports": { "a": "./a/main.mini" } }"#),
             file("a/edge.json", r#"{ "imports": { "b": "../b/main.mini" } }"#),
-            file("a/main.mini", "import b\n"),
+            file("a/main.mini", "use b\n"),
             file("b/edge.json", r#"{ "imports": { "a": "../a/main.mini" } }"#),
-            file("b/main.mini", "import a\n"),
-        ], "import a\n");
+            file("b/main.mini", "use a\n"),
+        ], "use a\n");
         assert!(seen.failures.is_empty(), "{:?}", seen.failures);
         assert_eq!(grants(&seen, "./a/"), named("a", &["a"]));
         assert_eq!(grants(&seen, "./b/"), named("b", &["a", "b"]));
@@ -1127,13 +1127,13 @@ mod tests {
     fn a_manifest_for_a_later_engine_or_shadowing_a_system_module_is_refused() {
         let later = walk(&[file("edge.json", r#"{ "edge": "99.0.0" }"#)], "");
         assert!(later.failures.iter().any(|f| f.starts_with("edge.json at 'edge.json': needs edge 99.0.0")), "{:?}", later.failures);
-        let shadow = walk(&[file("edge.json", r#"{ "imports": { "time": "./fake.mini" } }"#), file("fake.mini", "")], "import time\n");
+        let shadow = walk(&[file("edge.json", r#"{ "imports": { "time": "./fake.mini" } }"#), file("fake.mini", "")], "use time\n");
         assert!(shadow.failures.iter().any(|f| f.contains("import 'time' takes the name of a system module")), "{:?}", shadow.failures);
     }
 
     #[test]
     fn what_cannot_load_is_refused_where_it_is_imported() {
-        let seen = walk(&[file("edge.json", r#"{ "imports": { "ui": "./ui.js" } }"#)], "import ui\nimport json\nimport my_helpers\n");
+        let seen = walk(&[file("edge.json", r#"{ "imports": { "ui": "./ui.js" } }"#)], "use ui\nuse json\nuse my_helpers\n");
         assert!(seen.refused.contains(&(s!("./ui.js"), s!("module 'ui' is JavaScript, ship a .mini or a .wasm"))), "{:?}", seen.refused);
         let help = |name: &str| seen.refused.iter().find(|(spec, _)| spec == name).map(|(_, msg)| msg.split_once("\nhelp: ").unwrap().1.to_string());
         assert_eq!(help("json").as_deref(), Some("declare it in edge.json, or use a relative import"));
@@ -1143,7 +1143,7 @@ mod tests {
 
     #[test]
     fn the_root_is_main_even_without_a_manifest_and_a_missing_module_fails() {
-        let seen = walk(&[], "from .helper import x\n");
+        let seen = walk(&[], "use .helper\n");
         assert!(seen.refused.contains(&(s!("./helper.mini"), s!("module './helper.mini' could not be read"))), "{:?}", seen.refused);
         assert_eq!(grants(&seen, ""), named("main", &["main"]));
         let packages = seen.packages.unwrap();
@@ -1154,7 +1154,7 @@ mod tests {
     #[test]
     fn the_host_drives_the_walk_through_its_json_steps() {
         let mut host = Host::default();
-        assert_eq!(start(&FRONT, &mut host, "import x\n", "", b"net\ntime", carried()), r#"{"fetch":"edge.json"}"#);
+        assert_eq!(start(&FRONT, &mut host, "use x\n", "", b"net\ntime", carried()), r#"{"fetch":"edge.json"}"#);
         assert_eq!(fetched(&mut host, br#"{ "imports": { "x": "./x.mini" } }"#, 0), r#"{"fetch":"./x.mini"}"#);
         assert_eq!(fetched(&mut host, b"y = 1\n", 0), r#"{"fetch":"./edge.json"}"#);
         assert_eq!(fetched(&mut host, b"", 1), r#"{"system":{"root":"","needed":false,"dirs":[["","main",[[{},"main"]]]],"permissions":{}}}"#);
@@ -1168,7 +1168,7 @@ mod tests {
     #[test]
     fn a_plugin_and_an_undeclared_name_answer_through_the_host() {
         let mut host = Host::default();
-        assert_eq!(start(&FRONT, &mut host, "import fast\nimport json\n", "", b"", carried()), r#"{"fetch":"edge.json"}"#);
+        assert_eq!(start(&FRONT, &mut host, "use fast\nuse json\n", "", b"", carried()), r#"{"fetch":"edge.json"}"#);
         assert_eq!(fetched(&mut host, br#"{ "imports": { "fast": "./fast.wasm" } }"#, 0), r#"{"fetch":"./fast.wasm"}"#);
         assert_eq!(fetched(&mut host, b"\0asm\x01\0\0\0", 0), r#"{"plugin":"./fast.wasm","name":"fast"}"#);
         assert_eq!(plugin_bytes(&mut host), b"\0asm\x01\0\0\0");
@@ -1184,7 +1184,7 @@ mod tests {
     #[test]
     fn a_refused_plugin_and_a_failed_fetch_end_the_walk_with_why() {
         let mut host = Host::default();
-        assert_eq!(start(&FRONT, &mut host, "import fast\nfrom .gone import x\n", "", b"", carried()), r#"{"fetch":"./gone.mini"}"#);
+        assert_eq!(start(&FRONT, &mut host, "use fast\nuse .gone\n", "", b"", carried()), r#"{"fetch":"./gone.mini"}"#);
         assert_eq!(fetched(&mut host, b"timed out", 2), r#"{"fetch":"edge.json"}"#);
         assert_eq!(fetched(&mut host, br#"{ "imports": { "fast": "./fast.wasm" } }"#, 0), r#"{"fetch":"./fast.wasm"}"#);
         assert_eq!(fetched(&mut host, b"\0asm", 0), r#"{"plugin":"./fast.wasm","name":"fast"}"#);
@@ -1197,7 +1197,7 @@ mod tests {
     #[test]
     fn a_served_module_is_never_refused_as_undeclared() {
         let mut host = Host::default();
-        assert_eq!(start(&FRONT, &mut host, "import net\nimport json\n", "", b"net", carried()), r#"{"fetch":"edge.json"}"#);
+        assert_eq!(start(&FRONT, &mut host, "use net\nuse json\n", "", b"net", carried()), r#"{"fetch":"edge.json"}"#);
         assert_eq!(fetched(&mut host, b"", 1), r#"{"system":{"root":"","needed":true,"dirs":[["","main",[[{},"main"]]]],"permissions":{}}}"#);
         assert_eq!(served(&mut host, b""), r#"{"done":[]}"#);
         assert_eq!(host.state().deps.refusals.iter().map(|(spec, _)| spec.as_str()).collect::<Vec<_>>(), ["json"]);
@@ -1207,15 +1207,15 @@ mod tests {
     #[test]
     fn a_walk_carries_only_the_field_its_host_names() {
         let files = [file("edge.json", r#"{ "imports": { "main": "./lib.mini" }, "permissions": "junk" }"#), file("lib.mini", "x = 1\n")];
-        let bare = walk_carrying(&files, "import main\n", Carry::default());
+        let bare = walk_carrying(&files, "use main\n", Carry::default());
         assert!(bare.failures.is_empty(), "{:?}", bare.failures);
         let packages = bare.packages.unwrap();
         assert!(packages.field.is_empty() && packages.section.is_empty());
         let json = served::system(&packages);
         assert!(json.starts_with(r#"{"system":{"root":"","needed":false,"dirs":[["","main",[[{},"main"]]]"#) && json.ends_with("]]}}") && !json.contains("permissions"), "{json}");
-        let held = walk(&files, "import main\n");
+        let held = walk(&files, "use main\n");
         assert!(held.failures.iter().any(|f| f == "edge.json at 'edge.json': permissions must map each package to a list of entries"), "{:?}", held.failures);
-        let named = walk_carrying(&[file("edge.json", r#"{ "imports": { "main": "./lib.mini" } }"#), file("lib.mini", "")], "import main\n", carried());
+        let named = walk_carrying(&[file("edge.json", r#"{ "imports": { "main": "./lib.mini" } }"#), file("lib.mini", "")], "use main\n", carried());
         assert!(named.failures.iter().any(|f| f.ends_with("import 'main' is reserved for permissions")), "{:?}", named.failures);
         assert_eq!(carry(b"permissions\nall\nmain").holders, [s!("all"), s!("main")]);
         assert!(carry(b"").field.is_empty() && carry(b"\nmain").holders.is_empty());
@@ -1228,14 +1228,14 @@ mod tests {
         for n in 0..16 {
             let next = n + 1;
             let (manifest, main) = match next < 16 {
-                true => (s!("{ \"imports\": { \"a\": \"../p", int next, "/main.mini\", \"b\": \"../p", int next, "/main.mini\" } }"), s!("import a\nimport b\n")),
+                true => (s!("{ \"imports\": { \"a\": \"../p", int next, "/main.mini\", \"b\": \"../p", int next, "/main.mini\" } }"), s!("use a\nuse b\n")),
                 false => (s!("{}"), s!("v = 1\n")),
             };
             owned.push((s!("p", int n, "/edge.json"), manifest));
             owned.push((s!("p", int n, "/main.mini"), main));
         }
         let files: Vec<(&str, Vec<u8>)> = owned.iter().map(|(path, text)| (path.as_str(), text.as_bytes().to_vec())).collect();
-        let seen = walk(&files, "import a\nimport b\n");
+        let seen = walk(&files, "use a\nuse b\n");
         assert!(seen.failures.is_empty(), "{:?}", seen.failures);
         assert_eq!(seen.code.len(), 16, "{:?}", seen.code);
         assert!(!seen.packages.unwrap().dirs.iter().any(|(dir, _, _)| dir.contains(".edge-copy")));
@@ -1249,7 +1249,7 @@ mod tests {
             file("util/main.mini", "x = 1\n"),
             file("kept/edge.json", "{}"),
             file("kept/main.mini", "y = 1\n"),
-        ], "import util\nimport kept\n");
+        ], "use util\nuse kept\n");
         assert_eq!(seen.failures, [s!("edge.json at 'edge.json': permissions for 'util' reach nothing, its import './util/main.mini' has no edge.json of its own so it runs as part of this package")]);
     }
 
@@ -1266,13 +1266,13 @@ mod tests {
         let root = file("edge.json", r#"{ "imports": { "pay": "https://cdn.test/pkg/pay/0.1.0/app.edge" } }"#);
         let secret = file("config.mini", "SECRET = 'hunter2'\n");
         for (main, manifest, why) in [
-            ("from ......config import SECRET\nleak = SECRET\n", "{}", "module '../../../../../config.mini' is outside https://cdn.test/ which serves its importer"),
-            ("import cfg\n", r#"{ "imports": { "cfg": "/abs/project/config.mini" } }"#, "import 'cfg' at '/abs/project/config.mini' is outside https://cdn.test/"),
-            ("import cfg\n", r#"{ "imports": { "cfg": "../../../../../config.mini" } }"#, "import 'cfg' at '../../../../../config.mini' is outside https://cdn.test/"),
-            ("import cfg\n", r#"{ "imports": { "cfg": "file:///abs/project/config.mini" } }"#, "is outside https://cdn.test/"),
-            ("import cfg\n", r#"{ "extends": "/abs/project" }"#, "extends '/abs/project' is outside https://cdn.test/"),
+            ("use ......config\nleak = SECRET\n", "{}", "module '../../../../../config.mini' is outside https://cdn.test/ which serves its importer"),
+            ("use cfg\n", r#"{ "imports": { "cfg": "/abs/project/config.mini" } }"#, "import 'cfg' at '/abs/project/config.mini' is outside https://cdn.test/"),
+            ("use cfg\n", r#"{ "imports": { "cfg": "../../../../../config.mini" } }"#, "import 'cfg' at '../../../../../config.mini' is outside https://cdn.test/"),
+            ("use cfg\n", r#"{ "imports": { "cfg": "file:///abs/project/config.mini" } }"#, "is outside https://cdn.test/"),
+            ("use cfg\n", r#"{ "extends": "/abs/project" }"#, "extends '/abs/project' is outside https://cdn.test/"),
         ] {
-            let seen = walk(&[root.clone(), secret.clone(), ("https://cdn.test/pkg/pay/0.1.0/app.edge", bundle(main, manifest))], "import pay\n");
+            let seen = walk(&[root.clone(), secret.clone(), ("https://cdn.test/pkg/pay/0.1.0/app.edge", bundle(main, manifest))], "use pay\n");
             assert!(seen.failures.iter().any(|f| f.contains(why)), "{main:?} {manifest}: {:?}", seen.failures);
             // the root's own manifest and lock are the only local files the walk reads
             assert!(seen.fetched.iter().all(|f| f.contains("://") || f == "edge.json" || f == "edge.lock"), "{main:?} {manifest} asked for a local file: {:?}", seen.fetched);
@@ -1286,10 +1286,10 @@ mod tests {
         let seen = walk(&[
             file("edge.json", r#"{ "imports": { "pay": "./pay/main.mini" }, "permissions": { "main": ["net:bank.example.com"], "pay": ["net"] } }"#),
             file("pay/edge.json", "{}"),
-            file("pay/main.mini", "from ..shared.main import f\n"),
+            file("pay/main.mini", "use ..shared.main\n"),
             file("shared/edge.json", "{}"),
             file("shared/main.mini", "fn f():\n    pass\n"),
-        ], "import pay\n");
+        ], "use pay\n");
         assert!(seen.failures.is_empty(), "{:?}", seen.failures);
         assert_eq!(grants(&seen, "./shared/"), named("pay", &["pay"]));
         let packages = seen.packages.unwrap();
@@ -1303,23 +1303,23 @@ mod tests {
         let seen = walk(&[
             file("edge.json", r#"{ "imports": { "pay": "./pay/main.mini", "shop": "./shop/main.mini" }, "permissions": { "pay": ["net:a.example.com"], "shop": ["net:b.example.com"] } }"#),
             file("pay/edge.json", "{}"),
-            file("pay/main.mini", "from ..shared.main import f\n"),
+            file("pay/main.mini", "use ..shared.main\n"),
             file("shop/edge.json", "{}"),
-            file("shop/main.mini", "from ..shared.main import f\n"),
+            file("shop/main.mini", "use ..shared.main\n"),
             file("shared/edge.json", "{}"),
             file("shared/main.mini", "fn f():\n    pass\n"),
-        ], "import pay\nimport shop\n");
+        ], "use pay\nuse shop\n");
         assert!(seen.failures.iter().any(|f| f.starts_with("'shared/' is reached by relative imports from 'pay/' and 'shop/'")), "{:?}", seen.failures);
         // importers holding alike share the package as a key's importers do
         let alike = walk(&[
             file("edge.json", r#"{ "imports": { "pay": "./pay/main.mini", "shop": "./shop/main.mini" }, "permissions": { "pay": ["net"], "shop": ["net"] } }"#),
             file("pay/edge.json", "{}"),
-            file("pay/main.mini", "from ..shared.main import f\n"),
+            file("pay/main.mini", "use ..shared.main\n"),
             file("shop/edge.json", "{}"),
-            file("shop/main.mini", "from ..shared.main import f\n"),
+            file("shop/main.mini", "use ..shared.main\n"),
             file("shared/edge.json", "{}"),
             file("shared/main.mini", "fn f():\n    pass\n"),
-        ], "import pay\nimport shop\n");
+        ], "use pay\nuse shop\n");
         assert!(alike.failures.is_empty(), "{:?}", alike.failures);
     }
 

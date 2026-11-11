@@ -11,7 +11,7 @@ The lexer and the parser recover after an error and report every one they find b
 
 ```mini syntax.mini
 x = = 2
-print('one'
+print("one"
 ```
 
 ```text
@@ -25,7 +25,7 @@ error: expected expression
 error: '(' was never closed
   --> syntax.mini:2:6
   |
-2 | print('one'
+2 | print("one"
   |      ^
 ```
 
@@ -36,26 +36,27 @@ In Rust, `edge::code::compile` returns the diagnostics beside the chunk, and `Di
 An error no handler catches ends the run with its class and message, in the runtime's own names, then the line it rose at and the calls that led there. The `edge` CLI writes it to stderr and exits with 1. `exit(n)` ends a run with status `n` instead.
 
 ```mini broken.mini
-fn ratio(a, b):
+fn ratio(a, b) {
     return a / b
+}
 
-print('before')
+print("before")
 print(ratio(1, 0))
 ```
 
 ```text
 $ edge run broken.mini
 before
-error: ZeroDivisionError: division by zero
+error: DivisionError: division by zero
   --> broken.mini:2:5
   |
 2 |     return a / b
   |     ^
 
 note: called from ratio()
-  --> broken.mini:5:12
+  --> broken.mini:6:12
   |
-5 | print(ratio(1, 0))
+6 | print(ratio(1, 0))
   |            ^
 ```
 
@@ -83,10 +84,10 @@ Every run is metered, natives included, and there is no unmetered mode. A run ra
 
 ```text
 $ edge run broken.mini --ops 3
-error: RuntimeError: budget exceeded
-  --> broken.mini:4:1
+error: Error: budget exceeded
+  --> broken.mini:5:1
   |
-4 | print('before')
+5 | print("before")
   | ^
 ```
 

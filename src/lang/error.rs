@@ -436,7 +436,7 @@ pub fn plain(cx: &mut Cx<'_, '_>, e: &EngineError) -> String {
             Gen::FreshSend(_) => crate::s!("a body that has not started takes only ", str cx.names().nil),
             Gen::Reused => String::from("the body already ran to its end"),
             Gen::IgnoredClose(_) => String::from("the body went on after a close"),
-            Gen::Wait { inside } => crate::s!("a host wait cannot park inside ", str inside),
+            Gen::Wait { inside } => crate::s!("a host wait cannot park inside", str inside),
             Gen::ClassSuspend => String::from("a class body cannot suspend"),
             Gen::Sent => String::from("a builtin iterator takes no sent value"),
         },

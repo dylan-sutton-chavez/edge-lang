@@ -6,7 +6,7 @@ use mini::{Mini, RUNTIME};
 edge::allocator!();
 
 // each call's repr or its error in the words the corpus reads
-const TRY: &str = "fn t(f):\n    try:\n        print(repr(f()))\n    except Exception as e:\n        print(type(e).__name__ + ':', e)\n";
+const TRY: &str = "fn t(f) {\n    try {\n        print(repr(f()))\n    } catch Error as e {\n        print(text(type(e)) + \":\", e)\n    }\n}\n";
 
 /* what `src` printed and then the words of the error it ended in */
 fn run(src: &str) -> String {
@@ -26,20 +26,20 @@ fn names_normalize_before_the_lookup() {
     }
     for name in ["utf16le", "utf32be", "utf.8", "u-8", "cp-1252", "L_1"] {
         assert!(<Mini as Lang>::codec(name).is_none(), "{name}");
-        assert_eq!(run(&format!("'a'.encode({name:?})")), "LookupError: unknown encoding: ".to_string() + name);
+        assert_eq!(run(&format!("\"a\".encode({name:?})")), "KeyError: no codec is named ".to_string() + name);
     }
 }
 
 #[test]
 fn cp1252_reads_nul_and_refuses_only_its_holes() {
     let got = tried(concat!(
-        "t(lambda: [ord(c) for c in b'a\\x00\\x80'.decode('cp1252')])\n",
-        "t(lambda: b'\\x81'.decode('cp1252'))\n",
-        "t(lambda: list('\\u0152\\u0153'.encode('cp1252')))\n",
+        "t(|| [ord(c) for c in b\"a\\x00\\x80\".decode(\"cp1252\")])\n",
+        "t(|| b\"\\x81\".decode(\"cp1252\"))\n",
+        "t(|| list(\"Œœ\".encode(\"cp1252\")))\n",
     ));
     let want = concat!(
         "[97, 0, 8364]\n",
-        "UnicodeDecodeError: 'charmap' codec can't decode byte 0x81 in position 0: character maps to <undefined>\n",
+        "ValueError: charmap cannot decode byte 0x81 at 0, which the codec maps to nothing\n",
         "[140, 156]\n",
     );
     assert_eq!(got, want);
@@ -48,18 +48,18 @@ fn cp1252_reads_nul_and_refuses_only_its_holes() {
 #[test]
 fn a_handler_is_looked_up_only_once_a_span_fails() {
     let got = tried(concat!(
-        "t(lambda: [ord(c) for c in b'ab'.decode('utf-16-le', 'bogus')])\n",
-        "t(lambda: b'ab'.decode('cp1252', 'bogus'))\n",
-        "t(lambda: b'\\x81'.decode('cp1252', 'bogus'))\n",
-        "t(lambda: b'\\xff'.decode('utf-8', 'xmlcharrefreplace'))\n",
-        "t(lambda: 'a\\xe9\\xfc'.encode('ascii', 'surrogateescape'))\n",
+        "t(|| [ord(c) for c in b\"ab\".decode(\"utf-16-le\", \"bogus\")])\n",
+        "t(|| b\"ab\".decode(\"cp1252\", \"bogus\"))\n",
+        "t(|| b\"\\x81\".decode(\"cp1252\", \"bogus\"))\n",
+        "t(|| b\"\\xff\".decode(\"utf-8\", \"xmlcharrefreplace\"))\n",
+        "t(|| \"aéü\".encode(\"ascii\", \"surrogateescape\"))\n",
     ));
     let want = concat!(
         "[25185]\n",
-        "'ab'\n",
-        "LookupError: unknown error handler name 'bogus'\n",
-        "TypeError: don't know how to handle UnicodeDecodeError in error callback\n",
-        "UnicodeEncodeError: 'ascii' codec can't encode characters in position 1-2: ordinal not in range(128)\n",
+        "\"ab\"\n",
+        "KeyError: no error handler is named bogus\n",
+        "TypeError: the error handler cannot repair a failed decode\n",
+        "ValueError: ascii cannot encode characters 1 to 2, which the codec maps to nothing\n",
     );
     assert_eq!(got, want);
 }
@@ -122,16 +122,16 @@ fn neutral(src: &str) -> String {
 
 #[test]
 fn a_codec_failure_carries_its_reason_for_the_runtime_to_word() {
-    assert_eq!(neutral("'caf\\u00e9'.encode('ascii')"), "UnicodeEncodeError: us-ascii cannot encode U+00E9 at character 3, which the codec maps to nothing");
-    assert_eq!(neutral("b'\\xff'.decode('utf-8')"), "UnicodeDecodeError: utf-8 cannot decode byte 0xff at 0, which starts no character");
-    assert_eq!(neutral("b'\\xe2\\x82'.decode('utf-8')"), "UnicodeDecodeError: utf-8 cannot decode bytes 0 to 1, where the data ends inside a character");
-    assert_eq!(neutral("b'\\x00\\xdc'.decode('utf-16-le')"), "UnicodeDecodeError: utf-16le cannot decode bytes 0 to 1, a low surrogate with no high surrogate before it");
+    assert_eq!(neutral("\"café\".encode(\"ascii\")"), "ValueError: us-ascii cannot encode U+00E9 at character 3, which the codec maps to nothing");
+    assert_eq!(neutral("b\"\\xff\".decode(\"utf-8\")"), "ValueError: utf-8 cannot decode byte 0xff at 0, which starts no character");
+    assert_eq!(neutral("b\"\\xe2\\x82\".decode(\"utf-8\")"), "ValueError: utf-8 cannot decode bytes 0 to 1, where the data ends inside a character");
+    assert_eq!(neutral("b\"\\x00\\xdc\".decode(\"utf-16-le\")"), "ValueError: utf-16le cannot decode bytes 0 to 1, a low surrogate with no high surrogate before it");
     // mini words the same reasons as its corpus reads them
-    let got = tried("t(lambda: 'caf\\u00e9'.encode('ascii'))\nt(lambda: b'\\xff'.decode('utf-8'))\nt(lambda: b'\\x00\\xdc'.decode('utf-16-le'))\n");
+    let got = tried("t(|| \"café\".encode(\"ascii\"))\nt(|| b\"\\xff\".decode(\"utf-8\"))\nt(|| b\"\\x00\\xdc\".decode(\"utf-16-le\"))\n");
     let want = concat!(
-        "UnicodeEncodeError: 'ascii' codec can't encode character '\\xe9' in position 3: ordinal not in range(128)\n",
-        "UnicodeDecodeError: 'utf-8' codec can't decode byte 0xff in position 0: invalid start byte\n",
-        "UnicodeDecodeError: 'utf-16-le' codec can't decode bytes in position 0-1: illegal encoding\n",
+        "ValueError: ascii cannot encode U+00E9 at character 3, which the codec maps to nothing\n",
+        "ValueError: utf-8 cannot decode byte 0xff at 0, which starts no character\n",
+        "ValueError: utf-16-le cannot decode bytes 0 to 1, a low surrogate with no high surrogate before it\n",
     );
     assert_eq!(got, want);
 }

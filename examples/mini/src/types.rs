@@ -2,23 +2,15 @@ use lib::lang::Tree;
 
 use crate::Mini;
 
-// the builtin types besides the exceptions
-const PLAIN: [&str; 14] = ["int", "float", "str", "bytes", "bytearray", "bool", "list", "tuple", "dict", "set", "range", "type", "NoneType", "object"];
+// the builtin types besides the errors
+const PLAIN: [&str; 12] = ["int", "float", "text", "bytes", "bytearray", "bool", "list", "tuple", "record", "set", "range", "type"];
 
-// each builtin exception beside its parent with the root's parent empty
-pub(crate) const CLASSES: [(&str, &str); 31] = [
-    ("OSError", "Exception"),
-    ("EOFError", "Exception"), ("KeyError", "LookupError"),
-    ("Exception", "BaseException"), ("NameError", "Exception"), ("TypeError", "Exception"),
-    ("IndexError", "LookupError"), ("SystemExit", "BaseException"), ("ValueError", "Exception"),
-    ("ImportError", "Exception"), ("LookupError", "Exception"), ("MemoryError", "Exception"), ("SyntaxError", "Exception"),
-    ("RuntimeError", "Exception"), ("TimeoutError", "OSError"), ("UnicodeError", "ValueError"),
-    ("BaseException", ""), ("GeneratorExit", "BaseException"), ("OverflowError", "ArithmeticError"), ("StopIteration", "Exception"),
-    ("AssertionError", "Exception"), ("AttributeError", "Exception"), ("RecursionError", "RuntimeError"),
-    ("ArithmeticError", "Exception"), ("PermissionError", "OSError"),
-    ("UnboundLocalError", "NameError"), ("ZeroDivisionError", "ArithmeticError"),
-    ("UnicodeDecodeError", "UnicodeError"), ("UnicodeEncodeError", "UnicodeError"),
-    ("ModuleNotFoundError", "ImportError"), ("NotImplementedError", "RuntimeError"),
+// each error class beside its parent where the signals have no parent
+pub(crate) const CLASSES: [(&str, &str); 18] = [
+    ("Error", ""), ("Stop", ""), ("Close", ""), ("Exit", ""),
+    ("TypeError", "Error"), ("ValueError", "Error"), ("NameError", "Error"), ("FieldError", "Error"), ("KeyError", "Error"),
+    ("IndexError", "Error"), ("DivisionError", "Error"), ("OverflowError", "Error"), ("RecursionError", "Error"),
+    ("MemoryError", "Error"), ("CheckError", "Error"), ("SyntaxError", "Error"), ("IOError", "Error"), ("PermissionError", "IOError"),
 ];
 
 // the classes the type tests walk as mini's names give them
@@ -27,7 +19,7 @@ pub static TREE: Tree = Tree::of::<Mini>();
 // the names a load gives as type objects
 pub const NAMES: &[&str] = &names::<{ PLAIN.len() + CLASSES.len() }>();
 
-/* the plain types then every exception of the tree */
+/* the plain types then every class of the tree */
 const fn names<const N: usize>() -> [&'static str; N] {
     let mut out = [""; N];
     let mut i = 0;

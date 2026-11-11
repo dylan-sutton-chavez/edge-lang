@@ -98,7 +98,7 @@
     "modules": { "m": { "native": ["add"] } }
   },
   {
-    "src": "from m import factor\nclass C:\n    fn __init__(self, n):\n        self.n = n\n    fn compute(self):\n        return factor(self.n)\nprint(C(7).compute())",
+    "src": "from m import factor\nclass C:\n    fn init(self, n):\n        self.n = n\n    fn compute(self):\n        return factor(self.n)\nprint(C(7).compute())",
     "output": ["14"],
     "modules": { "m": { "code": "fn factor(n):\n    return n * 2" } }
   },
@@ -113,7 +113,7 @@
     "modules": { "m": { "native": ["square"] } }
   },
   {
-    "src": "from m import safe_div\ntry:\n    print(safe_div(10, 2))\n    print(safe_div(10, 0))\nexcept ZeroDivisionError:\n    print('caught')",
+    "src": "from m import safe_div\ntry:\n    print(safe_div(10, 2))\n    print(safe_div(10, 0))\nexcept DivisionError:\n    print('caught')",
     "output": ["5.0", "caught"],
     "modules": { "m": { "code": "fn safe_div(a, b):\n    return a / b" } }
   },
@@ -121,8 +121,8 @@
     "src": "from a import f\nfrom b import g\nprint(f(2))\nprint(g(3))",
     "output": ["2-tagA", "3-tagB"],
     "modules": {
-      "a": { "code": "fn tag_a():\n    return 'tagA'\n\nfn f(n):\n    return str(n) + '-' + tag_a()" },
-      "b": { "code": "fn tag_b():\n    return 'tagB'\n\nfn g(n):\n    return str(n) + '-' + tag_b()" }
+      "a": { "code": "fn tag_a():\n    return 'tagA'\n\nfn f(n):\n    return text(n) + '-' + tag_a()" },
+      "b": { "code": "fn tag_b():\n    return 'tagB'\n\nfn g(n):\n    return text(n) + '-' + tag_b()" }
     }
   },
   {
@@ -207,7 +207,7 @@
   },
   {
     "src": "from m import negate\nprint(negate(true))\nprint(negate(false))",
-    "output": ["False", "True"],
+    "output": ["false", "true"],
     "modules": { "m": { "native": ["negate"] } }
   },
   {
@@ -248,11 +248,11 @@
   {
     "src": "import m\nprint(m.nope)",
     "modules": { "m": { "native": ["add"] } },
-    "error": "module 'm' has no attribute 'nope'"
+    "error": "module has no field nope"
   },
   {
     "src": "import m\nprint(type(m))",
-    "output": ["<class 'module'>"],
+    "output": ["module"],
     "modules": { "m": { "code": "x = 1" } }
   },
   {
@@ -288,33 +288,33 @@
   {
     "src": "from m import *\nprint(_hidden)",
     "modules": { "m": { "code": "_hidden = 1\nshown = 2" } },
-    "error": "name '_hidden' is not defined"
+    "error": "_hidden is not bound"
   },
   {
-    "src": "from m import label\nprint(__name__)\nprint(label(1))",
-    "output": ["__main__", "yes"],
-    "modules": { "m": { "code": "fn label(p):\n    return 'yes' if p == 1 else 'no'\n\nif __name__ == '__main__':\n    print('ran as main')" } }
+    "src": "from m import label\nprint(module_name)\nprint(label(1))",
+    "output": ["main", "yes"],
+    "modules": { "m": { "code": "fn label(p):\n    return 'yes' if p == 1 else 'no'\n\nif module_name == 'main':\n    print('ran as main')" } }
   },
   {
     "src": "from m import got_name\nprint(got_name)",
     "output": ["m"],
-    "modules": { "m": { "code": "got_name = __name__" } }
+    "modules": { "m": { "code": "got_name = module_name" } }
   },
   {
     "src": "from m import is_even\nprint(is_even(4))\nprint(is_even(7))",
-    "output": ["True", "False"],
+    "output": ["true", "false"],
     "modules": { "m": { "code": "fn is_even(n):\n    return true if n == 0 else is_odd(n - 1)\n\nfn is_odd(n):\n    return false if n == 0 else is_even(n - 1)" } }
   },
   {
     "src": "from m import is_odd\nprint(is_odd(3))",
-    "output": ["True"],
+    "output": ["true"],
     "modules": { "m": { "code": "fn is_even(n):\n    return true if n == 0 else is_odd(n - 1)\n\nfn is_odd(n):\n    return false if n == 0 else is_even(n - 1)" } }
   },
   {
     "src": "from a_mod import handler\nprint(handler(3))",
     "output": ["b:6"],
     "modules": {
-      "a_mod": { "code": "from b_alias import compute\n\nfn handler(n):\n    return 'b:' + str(compute(n))" },
+      "a_mod": { "code": "from b_alias import compute\n\nfn handler(n):\n    return 'b:' + text(compute(n))" },
       "b_mod": { "code": "fn compute(n):\n    return n * 2" }
     },
     "aliases": { "a_mod": "a_mod", "b_alias": "b_mod" }
@@ -323,8 +323,8 @@
     "src": "from a import f\nfrom b import g\nprint(f())\nprint(g())",
     "output": ["a:42", "b:42"],
     "modules": {
-      "a": { "code": "from c import K\n\nfn f():\n    return 'a:' + str(K)" },
-      "b": { "code": "from c import K\n\nfn g():\n    return 'b:' + str(K)" },
+      "a": { "code": "from c import K\n\nfn f():\n    return 'a:' + text(K)" },
+      "b": { "code": "from c import K\n\nfn g():\n    return 'b:' + text(K)" },
       "c": { "code": "K = 42" }
     }
   },
@@ -348,16 +348,16 @@
     "src": "from a import describe\nfrom b import describe as describe_b\nprint(describe())\nprint(describe_b())",
     "output": ["a:1", "b:2"],
     "modules": {
-      "a": { "code": "K = 1\nfn describe():\n    return 'a:' + str(K)" },
-      "b": { "code": "K = 2\nfn describe():\n    return 'b:' + str(K)" }
+      "a": { "code": "K = 1\nfn describe():\n    return 'a:' + text(K)" },
+      "b": { "code": "K = 2\nfn describe():\n    return 'b:' + text(K)" }
     }
   },
   {
     "src": "from a import Wrap\nfrom b import other\nprint(Wrap().run(5))\nprint(other(5))",
     "output": ["a:7", "b:25"],
     "modules": {
-      "a": { "code": "fn helper(n):\n    return n + 2\n\nclass Wrap:\n    fn run(self, n):\n        return 'a:' + str(helper(n))" },
-      "b": { "code": "fn helper(n):\n    return n * 5\n\nfn other(n):\n    return 'b:' + str(helper(n))" }
+      "a": { "code": "fn helper(n):\n    return n + 2\n\nclass Wrap:\n    fn run(self, n):\n        return 'a:' + text(helper(n))" },
+      "b": { "code": "fn helper(n):\n    return n * 5\n\nfn other(n):\n    return 'b:' + text(helper(n))" }
     }
   },
   {
@@ -603,17 +603,14 @@
   },
   {
     "src": "import boxmod\nb = boxmod.Box(7)\nc = boxmod.Box(9)\nprint(b.get(), c.get())",
-    "modules": { "boxmod": { "native": ["__class_Box___init__", "__class_Box_get"] } },
+    "modules": { "boxmod": { "native": ["__class_Box_init", "__class_Box_get"] } },
     "output": ["7 9"]
   },
-  {"src": "import m\nprint(getattr(m, 'f')())\nprint(hasattr(m, 'f'), hasattr(m, 'nope'))\nprint(getattr(m, 'nope', 'fallback'))", "output": ["7", "True False", "fallback"], "modules": {"m": {"code": "fn f():\n    return 7"}}},
-  {"src": "import m\nprint(getattr(m, 'add')(2, 3), hasattr(m, 'add'))", "output": ["5 True"], "modules": {"m": {"native": ["add"]}}},
-  {"src": "import m\ngetattr(m, 'nope')", "modules": {"m": {"code": "x = 1"}}, "error": "has no attribute 'nope'"},
   {"src": "from m import go\nprint(go())\nprint(go())\nprint(go())", "output": ["(6, 2)", "(6, 2)", "(6, 2)"], "modules": {"m": {"code": "fn go():\n    last = 0\n    n = 0\n    for x in [2, 6]:\n        last = x\n        n += 1\n    return (last, n)"}}},
-  {"src": "from util2 import sq, tw, setk, fact, P\nt = 0\nfor i in range(300):\n    t += sq(i) + tw(i) + fact(i % 10) + P(i).v\n    if i == 150:\n        setk(100)\nprint(t)", "output": ["30260284"], "modules": {"util2": {"code": "K = 7\nfn sq(x):\n    return x * x\nfn tw(x):\n    return sq(x) + K\nfn setk(v):\n    global K\n    K = v\nfn fact(n):\n    return 1 if n <= 1 else n * fact(n - 1)\nclass P:\n    fn __init__(self, v):\n        self.v = v + K\n"}}},
+  {"src": "from util2 import sq, tw, setk, fact, P\nt = 0\nfor i in range(300):\n    t += sq(i) + tw(i) + fact(i % 10) + P(i).v\n    if i == 150:\n        setk(100)\nprint(t)", "output": ["30260284"], "modules": {"util2": {"code": "K = 7\nfn sq(x):\n    return x * x\nfn tw(x):\n    return sq(x) + K\nfn setk(v):\n    global K\n    K = v\nfn fact(n):\n    return 1 if n <= 1 else n * fact(n - 1)\nclass P:\n    fn init(self, v):\n        self.v = v + K\n"}}},
   {"src": "// an imported function's binding is checked in the module that imported it, its recursion in its own\nfrom u3 import f, g\nK2 = 1\nfn other(x):\n    return x * 100\nfn run(n):\n    t = 0\n    for i in range(n):\n        t += f(i) + g(i % 9)\n    return t\nprint(run(100))\nf = other\nprint(run(100))", "output": ["5842", "495792"], "modules": {"u3": {"code": "fn f(x):\n    return x + 1\nK = 0\nfn g(n):\n    return 0 if n == 0 else 2 + g(n - 1)\n"}}},
   {"src": "// calls of a module's functions through its attribute, inside and outside a function, and a recursion through one\nimport mb\nfn f(n):\n    return mb.g(n) + mb.h(n)\nfn down(n):\n    return 0 if n == 0 else 1 + mb.back(n - 1, down)\nt = 0\nfor i in range(300):\n    t += f(i) + mb.g(i) + down(20 + i % 5)\nprint(t)", "output": ["186600"], "modules": {"mb": {"code": "fn g(n):\n    return n + 1\nfn h(n):\n    return n * 2\nfn back(n, f):\n    return f(n)"}}},
-  {"src": "// a call through a register meeting a function of another module lays its section without the joins its body keeps\nimport m\nfn f0(a, b):\n    v0 = a % 10007\n    v1 = b % 10007\n    v2 = 0\n    xs = [a, b]\n    s = ''\n    for y1 in list(xs):\n        if ((6 - 4) ~/ 1) == abs((v0 ~/ 5)) && v2 > 386:\n                return (v0, v1, v2, v3, len(xs), xs[-1], s)\n        else:\n            v3 = 0 % 10007\n            v1 = (v1 + xs[-1] + len(s)) % 10007\n        for i3 in range(5):\n            s = (s + str(max(v3, 3) % 10))[-12:]\n    return (v0, v1, v2, v3, len(xs), xs[-1], s)\nfn warm(fn, a, b):\n    for j in range(24):\n        fn(a + j, b - j)\n    return fn(a, b)\nfor a, b in [(-77, 7), (-74, -43)]:\n    print('f0', a, b, warm(f0, a, b))\n    print('f0', a, b, warm(m.f0, a, b))", "output": ["f0 -77 7 (-77, 26, 0, 0, 2, 7, '3333333333')", "f0 -77 7 (-77, 26, 0, 0, 2, 7, '3333333333')", "f0 -74 -43 (-74, -124, 0, 0, 2, -43, '3333333333')", "f0 -74 -43 (-74, -124, 0, 0, 2, -43, '3333333333')"], "modules": {"m": {"code": "fn f0(a, b):\n    v0 = a % 10007\n    v1 = b % 10007\n    v2 = 0\n    xs = [a, b]\n    s = ''\n    for y1 in list(xs):\n        if ((6 - 4) ~/ 1) == abs((v0 ~/ 5)) && v2 > 386:\n                return (v0, v1, v2, v3, len(xs), xs[-1], s)\n        else:\n            v3 = 0 % 10007\n            v1 = (v1 + xs[-1] + len(s)) % 10007\n        for i3 in range(5):\n            s = (s + str(max(v3, 3) % 10))[-12:]\n    return (v0, v1, v2, v3, len(xs), xs[-1], s)"}}},
+  {"src": "// a call through a register meeting a function of another module lays its section without the joins its body keeps\nimport m\nfn f0(a, b):\n    v0 = a % 10007\n    v1 = b % 10007\n    v2 = 0\n    xs = [a, b]\n    s = ''\n    for y1 in list(xs):\n        if ((6 - 4) ~/ 1) == abs((v0 ~/ 5)) && v2 > 386:\n                return (v0, v1, v2, v3, len(xs), xs[-1], s)\n        else:\n            v3 = 0 % 10007\n            v1 = (v1 + xs[-1] + len(s)) % 10007\n        for i3 in range(5):\n            s = (s + text(max(v3, 3) % 10))[-12:]\n    return (v0, v1, v2, v3, len(xs), xs[-1], s)\nfn warm(fn, a, b):\n    for j in range(24):\n        fn(a + j, b - j)\n    return fn(a, b)\nfor a, b in [(-77, 7), (-74, -43)]:\n    print('f0', a, b, warm(f0, a, b))\n    print('f0', a, b, warm(m.f0, a, b))", "output": ["f0 -77 7 (-77, 26, 0, 0, 2, 7, \"3333333333\")", "f0 -77 7 (-77, 26, 0, 0, 2, 7, \"3333333333\")", "f0 -74 -43 (-74, -124, 0, 0, 2, -43, \"3333333333\")", "f0 -74 -43 (-74, -124, 0, 0, 2, -43, \"3333333333\")"], "modules": {"m": {"code": "fn f0(a, b):\n    v0 = a % 10007\n    v1 = b % 10007\n    v2 = 0\n    xs = [a, b]\n    s = ''\n    for y1 in list(xs):\n        if ((6 - 4) ~/ 1) == abs((v0 ~/ 5)) && v2 > 386:\n                return (v0, v1, v2, v3, len(xs), xs[-1], s)\n        else:\n            v3 = 0 % 10007\n            v1 = (v1 + xs[-1] + len(s)) % 10007\n        for i3 in range(5):\n            s = (s + text(max(v3, 3) % 10))[-12:]\n    return (v0, v1, v2, v3, len(xs), xs[-1], s)"}}},
   {"src": "// a call through a register meeting a function and a bound method of another module, its return's head laid past the end\nimport m\nfn f0(a, b):\n    xs = [a, b]\n    for y in list(xs):\n        return (a % 7, len(xs), xs[-1])\nfn warm(fn, a, b):\n    for j in range(24):\n        fn(a + j, b - j)\n    return fn(a, b)\nk = m.K()\nfor a, b in [(-77, 7), (-74, -43)]:\n    print(warm(f0, a, b), warm(m.f0, a, b), warm(k.f2, a, b))", "output": ["(0, 2, 7) (0, 2, 7) 3", "(-4, 2, -43) (-4, 2, -43) 3"], "modules": {"m": {"code": "fn f0(a, b):\n    xs = [a, b]\n    for y in list(xs):\n        return (a % 7, len(xs), xs[-1])\nclass K:\n    fn f2(self, a, b):\n        xs = [a, b]\n        if len(xs) < 40:\n            xs.append(a - min(a, 8))\n        return len(xs)"}}},
   {"src": "from .a.b.c import run\nprint(run())", "output": ["top:x"], "modules": {"./a/b/c.mini": {"code": "from ...top import name\n\nfn run():\n    return 'top:' + name()"}, "./top.mini": {"code": "fn name():\n    return 'x'"}}},
   {"src": "from .a.b.c.d.e.f import run\nprint(run())", "output": ["top:x"], "modules": {"./a/b/c/d/e/f.mini": {"code": "from ......top import name\n\nfn run():\n    return 'top:' + name()"}, "./top.mini": {"code": "fn name():\n    return 'x'"}}},

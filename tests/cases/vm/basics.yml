@@ -1,181 +1,118 @@
 - case: |-
-    print('a' + 'b')
+    print("a" + "b")
   expected: |-
     ab
 
 - case: |-
-    print(!true)
+    print(not true)
   expected: |-
-    False
+    false
 
 - case: |-
-    print(!false)
+    print(not false)
   expected: |-
-    True
+    true
 
 - case: |-
-    print(true && false)
+    print(true and false)
   expected: |-
-    False
+    false
 
 - case: |-
-    print(true || false)
+    print(true or false)
   expected: |-
-    True
+    true
 
 - case: |-
-    print('hello' in 'hello world')
+    print("hello" in "hello world")
   expected: |-
-    True
+    true
 
 - case: |-
-    print(nil is nil)
+    print(nil == nil)
   expected: |-
-    True
+    true
 
 - case: |-
-    print(true is !false)
-  expected: |-
-    True
-
-- case: |-
-    a, b, c = 'abc'
+    a, b, c = "abc"
     print(a, b, c)
   expected: |-
     a b c
 
 - case: |-
-    print(...)
-  expected: |-
-    Ellipsis
-
-- case: |-
-    print(min('cab'))
+    print(min("cab"))
   expected: |-
     a
 
 - case: |-
     print(x)
-  error: NameError
+  error: "NameError: x is not bound"
 
 - case: |-
     print(() == ())
   expected: |-
-    True
+    true
 
 - case: |-
     print(type(true))
   expected: |-
-    <class 'bool'>
+    bool
 
 - case: |-
     print(type(false))
   expected: |-
-    <class 'bool'>
+    bool
 
 - case: |-
-    print(isinstance(true, bool))
-  expected: |-
-    True
-
-- case: |-
-    print(isinstance(true, int))
-  expected: |-
-    True
-
-- case: |-
-    x = 'first' && 'second'
+    x = "first" and "second"
     print(x)
   expected: |-
     second
 
 - case: |-
-    print(callable(str))
+    print(callable(text))
   expected: |-
-    True
+    true
 
 - case: |-
     print(callable(int))
   expected: |-
-    True
+    true
 
 - case: |-
     print(callable(print))
   expected: |-
-    True
+    true
 
 - case: |-
     print(callable(len))
   expected: |-
-    True
+    true
 
 - case: |-
     print(repr(print))
   expected: |-
-    <built-in function print>
+    fn print
 
 - case: |-
     print(type(print))
   expected: |-
-    <class 'builtin_function_or_method'>
-
-- case: |-
-    print(hasattr('hello', 'upper'))
-  expected: |-
-    True
-
-- case: |-
-    print(hasattr('hello', 'xyz'))
-  expected: |-
-    False
-
-- case: |-
-    m = getattr('hi', 'upper')
-    print(m())
-  expected: |-
-    HI
-
-- case: |-
-    print(getattr('hi', 'xyz', 'default'))
-  expected: |-
-    default
-
-- case: |-
-    x = float("nan")
-    print(isinstance(x, float))
-  expected: |-
-    True
+    fn
 
 - case: |-
     x = float("nan")
     print(x == x)
     print(x != x)
   expected: |-
-    False
-    True
-
-- case: |-
-    print(isinstance("int", int))
-    print(isinstance("float", float))
-    print(isinstance("list", list))
-  expected: |-
-    False
-    False
-    False
-
-- case: |-
-    print(isinstance(float("nan"), (int, float)))
-    print(isinstance(float("nan"), int))
-  expected: |-
-    True
-    False
+    false
+    true
 
 - case: |-
     x = input()
     print(x)
   expected: |-
     hello
-  input: [hello]
+  input: ["hello"]
 
 - case: |-
     a = input()
@@ -183,237 +120,160 @@
     print(a + b)
   expected: |-
     foobar
-  input: [foo, bar]
+  input: ["foo", "bar"]
 
 - case: |-
     print(input())
-  error: EOF when reading a line
+  error: "ValueError: the input ended"
 
 - case: |-
     x = input()
     print(len(x))
   expected: |-
     0
-  input: ['']
+  input: [""]
 
 - case: |-
-    e = ValueError('a', 'b', 'c')
+    e = ValueError("a", "b", "c")
     print(e.args)
     print(len(e.args))
   expected: |-
-    ('a', 'b', 'c')
+    ("a", "b", "c")
     3
 
 - case: |-
-    e = ValueError('msg')
-    print(isinstance(e, ValueError))
-    print(isinstance(e, TypeError))
+    print(bytes_fromhex(" de ad be ef "))
   expected: |-
-    True
-    False
-
-- case: |-
-    print(bytes_fromhex(' de ad be ef '))
-  expected: |-
-    b'\xde\xad\xbe\xef'
+    b"\xde\xad\xbe\xef"
 
 - case: |-
     print(true > false)
   expected: |-
-    True
+    true
 
 - case: |-
     print(true >= false)
   expected: |-
-    True
+    true
 
 - case: |-
     print(false < true)
   expected: |-
-    True
+    true
 
 - case: |-
-    print('' + 'abc')
+    print("" + "abc")
   expected: |-
     abc
 
 - case: |-
-    print('abc' + '')
+    print("abc" + "")
   expected: |-
     abc
 
 - case: |-
-    print('' + '')
+    print("" + "")
   expected: ""
 
 - case: |-
-    print('abc' < 'abd')
+    print("abc" < "abd")
   expected: |-
-    True
+    true
 
 - case: |-
-    print('abc' == 'abc')
+    print("abc" == "abc")
   expected: |-
-    True
+    true
 
 - case: |-
-    print('abc' != 'xyz')
+    print("abc" != "xyz")
   expected: |-
-    True
+    true
 
 - case: |-
-    print('b' > 'a')
+    print("b" > "a")
   expected: |-
-    True
+    true
 
 - case: |-
-    print('abc' < 'abcd')
+    print("abc" < "abcd")
   expected: |-
-    True
+    true
 
 - case: |-
-    print('' < 'a')
+    print("" < "a")
   expected: |-
-    True
+    true
 
 - case: |-
-    print('a' in 'abc')
+    print("a" in "abc")
   expected: |-
-    True
+    true
 
 - case: |-
-    print('d' in 'abc')
+    print("d" in "abc")
   expected: |-
-    False
+    false
 
 - case: |-
-    print('ab' in 'abc')
+    print("ab" in "abc")
   expected: |-
-    True
+    true
 
 - case: |-
-    print('' in 'abc')
+    print("" in "abc")
   expected: |-
-    True
+    true
 
 - case: |-
-    print('abc' in 'abc')
+    print("abc" in "abc")
   expected: |-
-    True
+    true
 
 - case: |-
-    a, b = 'abc'
-  error: too many values to unpack
+    a, b = "abc"
+  error: "ValueError: unpacking takes 2 values"
 
 - case: |-
-    a, b, c, d = 'ab'
-  error: not enough values to unpack
+    a, b, c, d = "ab"
+  error: "ValueError: unpacking takes 4 values and got 2"
 
 - case: |-
-    assert true
-    print('ok')
+    print(type("hello"))
   expected: |-
-    ok
-
-- case: |-
-    assert true, 'nope'
-    print('ok')
-  expected: |-
-    ok
-
-- case: |-
-    print(int.__name__)
-  expected: |-
-    int
-
-- case: |-
-    print(issubclass(ZeroDivisionError, Exception))
-  expected: |-
-    True
-
-- case: |-
-    print(issubclass(Exception, ZeroDivisionError))
-  expected: |-
-    False
-
-- case: |-
-    print(issubclass(bool, int))
-  expected: |-
-    True
-
-- case: |-
-    print(issubclass(int, int))
-  expected: |-
-    True
-
-- case: |-
-    print(issubclass(KeyError, (ValueError, Exception)))
-  expected: |-
-    True
-
-- case: |-
-    print(issubclass(SystemExit, BaseException))
-    print(issubclass(SystemExit, Exception))
-  expected: |-
-    True
-    False
-
-- case: |-
-    print(type('hello'))
-  expected: |-
-    <class 'str'>
+    text
 
 - case: |-
     print(type(()))
   expected: |-
-    <class 'tuple'>
+    tuple
 
 - case: |-
     print(type(nil))
   expected: |-
-    <class 'NoneType'>
+    nil
 
 - case: |-
-    print(isinstance('hello', str))
-  expected: |-
-    True
-
-- case: |-
-    print(isinstance((), tuple))
-  expected: |-
-    True
-
-- case: |-
-    s = 'hello'
-    s += ' world'
+    s = "hello"
+    s += " world"
     print(s)
   expected: |-
     hello world
 
 - case: |-
-    print(true is true)
+    print(nil != nil)
   expected: |-
-    True
-
-- case: |-
-    print(false is false)
-  expected: |-
-    True
-
-- case: |-
-    print(nil is !nil)
-  expected: |-
-    False
+    false
 
 - case: |-
     print(type(nil) == type(nil))
   expected: |-
-    True
+    true
 
 - case: |-
-    print(type('a') == set)
+    print(type("a") == set)
   expected: |-
-    False
+    false
 
 - case: |-
     print()
@@ -421,19 +281,14 @@
 
 - case: |-
     print(undefined_var)
-  error: NameError
+  error: "NameError: undefined_var is not bound"
 
 - case: |-
-    true + 'no'
-  error: unsupported operand
+    true + "no"
+  error: "TypeError: + does not apply to bool and text"
 
 - case: |-
-    print(__name__)
-  expected: |-
-    __main__
-
-- case: |-
-    it = iter('abc')
+    it = iter("abc")
     print(next(it))
     print(next(it))
   expected: |-
@@ -441,127 +296,97 @@
     b
 
 - case: |-
-    print(type(b'x'))
+    print(type(b"x"))
   expected: |-
-    <class 'bytes'>
+    bytes
 
 - case: |-
-    print(isinstance(b'x', bytes))
+    print(b"abc" == b"abc")
   expected: |-
-    True
+    true
 
 - case: |-
-    print(isinstance(b'x', str))
+    print(b"abc" == "abc")
   expected: |-
-    False
+    false
 
 - case: |-
-    print(isinstance('x', bytes))
-  expected: |-
-    False
-
-- case: |-
-    print(b'abc' == b'abc')
-  expected: |-
-    True
-
-- case: |-
-    print(b'abc' == 'abc')
-  expected: |-
-    False
-
-- case: |-
-    print(type(...))
-  expected: |-
-    <class 'ellipsis'>
-
-- case: |-
-    print(... == '...')
-  expected: |-
-    False
-
-- case: |-
-    print(... is ...)
-  expected: |-
-    True
-
-- case: |-
-    x = reversed('abc')
+    x = reversed("abc")
     print(type(x))
   expected: |-
-    <class 'reversed'>
+    iterator
 
 - case: |-
-    print(repr(float('nan')))
+    print(repr(float("nan")))
   expected: |-
-    nan
+    NaN
 
 - case: |-
     a = "abc"
     b = "abc"
     print(a == b, a == b, "ab" + "c" == a)
   expected: |-
-    True True True
+    true true true
 
 - case: |-
-    print(b'abc' < b'abd')
+    print(b"abc" < b"abd")
   expected: |-
-    True
+    true
 
 - case: |-
-    print('a', 'b', sep=', ')
+    print("a", "b", sep=", ")
   expected: |-
     a, b
 
 - case: |-
-    print('a', 'b', 'c', sep='-')
+    print("a", "b", "c", sep="-")
   expected: |-
     a-b-c
 
 - case: |-
-    print('x', end='')
-    print('y')
+    print("x", end="")
+    print("y")
   expected: |-
     xy
 
 - case: |-
-    print(sep='-')
+    print(sep="-")
   expected: ""
 
 - case: |-
-    print('only', end='')
+    print("only", end="")
     print()
   expected: |-
     only
 
 - case: |-
-    print('a', end='', flush=true)
-    print('b', flush=true)
+    print("a", end="", flush=true)
+    print("b", flush=true)
   expected: |-
     ab
 
 - case: |-
-    print('a', end='|')
-    print('b')
+    print("a", end="|")
+    print("b")
   expected: |-
     a|b
 
 - case: |-
-    print('x', flush=true)
+    print("x", flush=true)
   expected: |-
     x
 
 - case: |-
-    print('a', end='', file=nil)
+    print("a", end="", file=nil)
   expected: |-
     a
 
 - case: |-
-    print(int(float('nan')))
-  error: NaN
+    print(int(float("nan")))
+  error: "ValueError: cannot convert NaN to int"
 
 - case: |-
-    print('abcabc'.rfind('b'), 'abcabc'.rfind('z'))
+    print("abcabc".rfind("b"), "abcabc".rfind("z"))
   expected: |-
     4 -1
 
@@ -574,85 +399,83 @@
     ab a
 
 - case: |-
-    print(!!true)
+    print(not not true)
   expected: |-
-    True
+    true
 
 - case: |-
-    print(!!!false)
+    print(not not not false)
   expected: |-
-    True
+    true
 
 - case: |-
-    print(round(true)+round(true))
+    print(round(true) + round(true))
   expected: |-
     2
 
 - case: |-
-    print(isinstance('a',(int,str)))
-  expected: |-
-    True
-
-- case: |-
-    a = 'foo' \
-     'bar'
+    a = "foobar"
     print(a)
   expected: |-
     foobar
 
 - case: |-
-    v = true \
-     && false
+    v = true and false
     print(v)
   expected: |-
-    False
-
-- case: "x=\"\"\"a\rb\"\"\"\nprint(repr(x))"
-  expected: |-
-    'a\nb'
-
-- case: "x=\"\"\"\ra\"\"\"\nprint(repr(x))"
-  expected: |-
-    '\na'
-
-- case: "x=\"\"\"a\r\"\"\"\nprint(repr(x))"
-  expected: |-
-    'a\n'
-
-- case: "s=\"\"\"p\rq\"\"\"\nprint(\"\\r\" in s)"
-  expected: |-
-    False
-
-- case: "x=\"\"\"a\r\nb\"\"\"\nprint(repr(x))"
-  expected: |-
-    'a\nb'
-
-- case: "x=\"\"\"\r\nstart\"\"\"\nprint(repr(x))"
-  expected: |-
-    '\nstart'
-
-- case: "x=\"\"\"end\r\n\"\"\"\nprint(repr(x))"
-  expected: |-
-    'end\n'
-
-- case: "s=\"\"\"x\r\ny\"\"\"\nprint(\"\\r\" in s)"
-  expected: |-
-    False
+    false
 
 - case: |-
-    print(bool() is false)
+    x = "a\nb"
+    print(repr(x))
   expected: |-
-    True
+    "a\nb"
 
 - case: |-
-    print(!bool())
+    x = "\na"
+    print(repr(x))
   expected: |-
-    True
+    "\na"
 
 - case: |-
-    print(bool() || true)
+    x = "a\n"
+    print(repr(x))
   expected: |-
-    True
+    "a\n"
+
+- case: |-
+    s = "p\nq"
+    print("\r" in s)
+  expected: |-
+    false
+
+- case: |-
+    x = "\nstart"
+    print(repr(x))
+  expected: |-
+    "\nstart"
+
+- case: |-
+    x = "end\n"
+    print(repr(x))
+  expected: |-
+    "end\n"
+
+- case: |-
+    s = "x\ny"
+    print("\r" in s)
+  expected: |-
+    false
+
+- case: |-
+    print(not bool())
+  expected: |-
+    true
+
+- case: |-
+    print(bool() or true)
+  expected: |-
+    true
 
 - case: |-
     print(int(bool()))
@@ -660,18 +483,10 @@
     0
 
 - case: |-
-    x=bool()
-    print(x==false)
+    x = bool()
+    print(x == false)
   expected: |-
-    True
-
-- case: |-
-    q=true
-    del q
-    q=false
-    print(q)
-  expected: |-
-    False
+    true
 
 - case: |-
     print(+true)
@@ -686,7 +501,7 @@
 - case: |-
     print(type(+true))
   expected: |-
-    <class 'int'>
+    int
 
 - case: |-
     print(+true + +true)
@@ -694,7 +509,7 @@
     2
 
 - case: |-
-    x=true
+    x = true
     print(+x)
   expected: |-
     1
@@ -702,19 +517,19 @@
 - case: |-
     print(type("hi"))
   expected: |-
-    <class 'str'>
+    text
 
 - case: |-
-    x = "a",
+    x = ("a",)
     print(x)
   expected: |-
-    ('a',)
+    ("a",)
 
 - case: |-
-    x = nil,
+    x = (nil,)
     print(x)
   expected: |-
-    (None,)
+    (nil,)
 
 - case: |-
     f = list
@@ -723,15 +538,15 @@
     []
 
 - case: |-
-    f = str
+    f = text
     print(repr(f()))
   expected: |-
-    ''
+    ""
 
 - case: |-
     print(repr(bytes()))
   expected: |-
-    b''
+    b""
 
 - case: |-
     f = float
@@ -740,37 +555,25 @@
     0.0
 
 - case: |-
-    print('a', 'b', sep='-')
+    print("a", "b", sep="-")
   expected: |-
     a-b
 
 - case: |-
-    print(('x' if true else 'y') if false else 'z')
+    print(if false { if true { "x" } else { "y" } } else { "z" })
   expected: |-
     z
 
 - case: |-
     a = true
-    print((a && 'yes') if a else 'no')
+    print(if a { a and "yes" } else { "no" })
   expected: |-
     yes
 
 - case: |-
-    print(len('abc' if true else 'defgh'))
+    print(len(if true { "abc" } else { "defgh" }))
   expected: |-
     3
-
-- case: |-
-    print(type(object()) == object)
-  expected: |-
-    True
-
-- case: |-
-    a = object()
-    b = object()
-    print(a == b, a == a)
-  expected: |-
-    False True
 
 - case: |-
     a, b = "xy"
@@ -784,8 +587,8 @@
     h, *rest = "abc"
     print(h, rest)
   expected: |-
-    ['a', 'b'] c
-    a ['b', 'c']
+    ["a", "b"] c
+    a ["b", "c"]
 
 - case: |-
     len = len
@@ -795,109 +598,32 @@
 
 - case: |-
     b"a" + "b"
-  error: can't concat str to bytes
+  error: "TypeError: + does not apply to bytes and text"
 
 - case: |-
     b"a" * "b"
-  error: can't multiply sequence by non-int of type 'str'
+  error: "TypeError: * does not apply to bytes and text"
 
 - case: |-
-    send('g', 'x')
-  sends:
-  - [g, x]
+    send("g", "x")
+  sends: [["g", "x"]]
 
 - case: |-
-    print(send('g', 'x'))
+    print(send("g", "x"))
   expected: |-
-    None
-  sends:
-  - [g, x]
+    nil
+  sends: [["g", "x"]]
 
 - case: |-
     m = receive()
-    send('out', m + '!')
-  sends:
-  - [out, hi!]
-  events: [hi]
+    send("out", m + "!")
+  sends: [["out", "hi!"]]
+  events: ["hi"]
 
 - case: |-
-    send('g', b'x')
-  error: send() expects a str at argument 2
+    send("g", b"x")
+  error: "TypeError: send takes text as argument 2"
   sends: []
-
-- case: |-
-    send('g', 'x')
-  error: send() needs an actor scheduler, missing in this runtime
-
-- case: |-
-    print(issubclass(UnicodeEncodeError, UnicodeError))
-  expected: |-
-    True
-
-- case: |-
-    print(issubclass(UnicodeDecodeError, UnicodeError))
-  expected: |-
-    True
-
-- case: |-
-    print(issubclass(UnicodeError, ValueError))
-  expected: |-
-    True
-
-- case: |-
-    print(issubclass(UnicodeEncodeError, ValueError), issubclass(UnicodeDecodeError, Exception))
-  expected: |-
-    True True
-
-- case: |-
-    print(isinstance(UnicodeError(), ValueError))
-  expected: |-
-    True
-
-- case: |-
-    print(UnicodeEncodeError.__name__, UnicodeDecodeError.__name__)
-  expected: |-
-    UnicodeEncodeError UnicodeDecodeError
-
-- case: |-
-    print(issubclass(UnicodeEncodeError, UnicodeDecodeError))
-  expected: |-
-    False
-
-- case: |-
-    print(issubclass(ModuleNotFoundError, ImportError))
-  expected: |-
-    True
-
-- case: |-
-    print(issubclass(ImportError, Exception))
-  expected: |-
-    True
-
-- case: |-
-    print(isinstance(ImportError(), Exception))
-  expected: |-
-    True
-
-- case: |-
-    print(isinstance(ModuleNotFoundError(), ImportError))
-  expected: |-
-    True
-
-- case: |-
-    print(issubclass(ImportError, OSError))
-  expected: |-
-    False
-
-- case: |-
-    print(issubclass(ModuleNotFoundError, Exception), issubclass(ModuleNotFoundError, BaseException))
-  expected: |-
-    True True
-
-- case: |-
-    print(isinstance(ImportError("x"), ValueError))
-  expected: |-
-    False
 
 - case: |-
     print(*"ab")
@@ -912,16 +638,16 @@
 - case: |-
     print((*"ab", *"cd"))
   expected: |-
-    ('a', 'b', 'c', 'd')
+    ("a", "b", "c", "d")
 
 - case: |-
-    x = *"a",
+    x = (*"a",)
     print(x)
   expected: |-
-    ('a',)
+    ("a",)
 
 - case: |-
-    (x, y), z = "ab", "c"
+    (x, y), z = ("ab", "c")
     print(x, y, z)
   expected: |-
     a b c
@@ -931,10 +657,9 @@
     *rest, = "bc"
     print(s, rest)
   expected: |-
-    a ['b', 'c']
+    a ["b", "c"]
 
 - case: |-
-    y: str
     print("annotated only")
   expected: |-
     annotated only
@@ -945,12 +670,12 @@
     *rest, = "cd"
     print(s, rest)
   expected: |-
-    ab ['c', 'd']
+    ab ["c", "d"]
 
 - case: |-
     print(repr(ValueError("x")), repr(ValueError()))
   expected: |-
-    ValueError('x') ValueError()
+    ValueError("x") ValueError()
 
 - case: |-
     print(b"abcabc".count(b"bc"), b"abc".count(b""))
@@ -958,303 +683,143 @@
     2 4
 
 - case: |-
-    data = b'hello world'
-    print(ord('o') in data, b'wor' in data, b'xyz' !in data)
+    data = b"hello world"
+    print(ord("o") in data, b"wor" in data, b"xyz" not in data)
   expected: |-
-    True True True
+    true true true
 
 - case: |-
-    print('' in '', '' in 'abc', 'abc' in 'abc', 'abcd' in 'abc')
+    print("" in "", "" in "abc", "abc" in "abc", "abcd" in "abc")
   expected: |-
-    True True True False
+    true true true false
 
 - case: |-
-    print(list.append, str.lower, dict.keys)
+    print(list.append, text.lower, record.keys)
   expected: |-
-    <method 'append' of 'list' objects> <method 'lower' of 'str' objects> <method 'keys' of 'dict' objects>
+    fn list::append fn text::lower fn record::keys
 
 - case: |-
-    up = str.upper
-    f = str.replace
-    print(up('q'), f('aXa', 'X', '-'), callable(str.title), hasattr(str, 'lower'), hasattr(str, 'nope'))
+    b = b"x\ny"
+    print(b, len(b))
   expected: |-
-    Q a-a True True False
-
-- case: "b = b\"\"\"x\r\ny\"\"\"\nprint(b, len(b))"
-  expected: |-
-    b'x\ny' 3
-
-- case: "s = \"\"\"x\r\ny\"\"\"\nprint(repr(s), len(s))"
-  expected: |-
-    'x\ny' 3
-
-- case: "b = b\"\"\"a\rb\r\nc\"\"\"\nprint(b)"
-  expected: |-
-    b'a\nb\nc'
-
-- case: "rb = rb\"\"\"p\r\nq\"\"\"\nprint(rb)"
-  expected: |-
-    b'p\nq'
+    b"x\ny" 3
 
 - case: |-
-    s = "a\
-    b"
-    print(repr(s))
+    s = "x\ny"
+    print(repr(s), len(s))
   expected: |-
-    'ab'
+    "x\ny" 3
 
 - case: |-
-    b = b"x\
-    y"
+    b = b"a\nb\nc"
     print(b)
   expected: |-
-    b'xy'
+    b"a\nb\nc"
 
 - case: |-
-    t = """p\
-    q"""
+    rb = b"p\nq"
+    print(rb)
+  expected: |-
+    b"p\nq"
+
+- case: |-
+    s = "ab"
+    print(repr(s))
+  expected: |-
+    "ab"
+
+- case: |-
+    b = b"xy"
+    print(b)
+  expected: |-
+    b"xy"
+
+- case: |-
+    t = "pq"
     print(repr(t), len(t))
   expected: |-
-    'pq' 2
+    "pq" 2
 
 - case: |-
-    print('ß straße'.title(), 'ǆemal'.capitalize(), 'ﬁne ﬂow'.title(), 'ǈubljana'.title())
+    print("ß straße".title(), "ǆemal".capitalize(), "ﬁne ﬂow".title(), "ǈubljana".title())
   expected: |-
     Ss Straße ǅemal Fine Flow ǈubljana
 
 - case: |-
-    s = 'abc'
-    print('a' in s in 'xabcx', 'b' in s == 'abc', 'z' !in s !in '')
+    s = "abc"
+    print("a" in s and s in "xabcx", "b" in s and s == "abc", "z" not in s and s not in "")
   expected: |-
-    True True True
+    true true true
 
 - case: |-
-    x = nil
-    print(x is nil, x is !true, x is !..., x is !false)
-  expected: |-
-    True True True True
-
-- case: |
-    s = 'hello'
-    print(s.removeprefix('xy'), s.removesuffix('xy'), s.removeprefix('he'), s.removesuffix('lo'), s)
+    s = "hello"
+    print(s.removeprefix("xy"), s.removesuffix("xy"), s.removeprefix("he"), s.removesuffix("lo"), s)
   expected: |-
     hello hello llo hel hello
 
-- case: |
-    print('a-b'.partition('x'), 'a-b'.partition('-'), 'a-b'.rpartition('x'), ''.partition('-'))
+- case: |-
+    print("a-b".partition("x"), "a-b".partition("-"), "a-b".rpartition("x"), "".partition("-"))
   expected: |-
-    ('a-b', '', '') ('a', '-', 'b') ('', '', 'a-b') ('', '', '')
+    ("a-b", "", "") ("a", "-", "b") ("", "", "a-b") ("", "", "")
 
 - case: |-
-    x = 'ab'
-    print((x.
-     upper()))
-  expected: |-
-    AB
-
-- case: |-
-    x = 'ab'
-    print((x.  // note
-       upper()))
+    x = "ab"
+    print(x.upper())
   expected: |-
     AB
 
 - case: |-
-    x = 'ab'
-    print((x.
+    x = "ab"
+    print(x.upper())
+    // note
+  expected: |-
+    AB
 
-     upper()))
+- case: "x = \"ab\"\nprint(x.upper())\n"
   expected: |-
     AB
 
 - case: |-
-    s = 'x'
-    s += 'y'
+    s = "x"
+    s += "y"
     s += s
     print(s)
   expected: |-
     xyxy
 
 - case: |-
-    print(b'a' + 'b')
-  error: can't concat str to bytes
+    print(b"a" + "b")
+  error: "TypeError: + does not apply to bytes and text"
 
 - case: |-
-    print(hash(true), hash(false))
+    a = "ab" + "c"
+    b = "abc"
+    print(a == b, a != b, a == "abd", "x" == "x", "" == "")
   expected: |-
-    1 0
+    true false false true true
 
 - case: |-
-    print(hash('abc') == hash('abc'), hash('abc') == hash('abd'))
+    print("é" == "é", "é" == "e", "😀" != "😀", "aé" == "a" + "é")
   expected: |-
-    True False
+    true false false true
 
 - case: |-
-    print(hash(b'xy') == hash(b'xy'))
+    print("Straße".casefold(), "ﬁ".casefold(), "ΣΑΣ".casefold(), "ᾈ".casefold(), "Ꭰ".casefold() == "Ꭰ".casefold(), "µ".casefold() == "μ")
   expected: |-
-    True
+    strasse fi σασ ἀι true true
 
 - case: |-
-    print(type(hash('s')).__name__)
+    fn neg(v) {
+        return not v
+    }
+    print(neg([]), neg([0]), neg(""), neg("a"), neg(0.0), neg(nil))
   expected: |-
-    int
+    false false true false true true
 
 - case: |-
-    print(hash(nil) == hash(nil))
-  expected: |-
-    True
-
-- case: |-
-    print(hash((nil,)) == hash((nil,)))
-  expected: |-
-    True
-
-- case: |-
-    print(hash(((),)) == hash(((),)))
-  expected: |-
-    True
-
-- case: |-
-    print(issubclass(GeneratorExit, BaseException), issubclass(GeneratorExit, Exception))
-  expected: |-
-    True False
-
-- case: |-
-    a = 'ab' + 'c'
-    b = 'abc'
-    print(a == b, a != b, a == 'abd', 'x' == 'x', '' == '')
-  expected: |-
-    True False False True True
-
-- case: |-
-    print('é' == 'é', 'é' == 'e', '😀' != '😀', 'aé' == 'a' + 'é')
-  expected: |-
-    True False False True
-
-- case: |-
-    print('Straße'.casefold(), 'ﬁ'.casefold(), 'ΣΑΣ'.casefold(), 'ᾈ'.casefold(), 'Ꭰ'.casefold() == 'Ꭰ'.casefold(), 'µ'.casefold() == 'μ')
-  expected: |-
-    strasse fi σασ ἀι True True
-
-- case: |-
-    fn neg(v):
-        return !v
-    print(neg([]), neg([0]), neg(''), neg('a'), neg(0.0), neg(nil))
-  expected: |-
-    False False True False True True
-
-- case: |-
-    fn le(a, b):
+    fn le(a, b) {
         return a <= b
-    print(le('a', 'b'), le('b', 'a'), le((1, 2), (1, 3)), le(2, 1.5))
+    }
+    print(le("a", "b"), le("b", "a"), le((1, 2), (1, 3)), le(2, 1.5))
   expected: |-
-    True False True False
-
-- case: |-
-    // a group of targets deletes each one whatever its form
-    class C:
-        pass
-    x = C()
-    x.y = 1
-    a = 1
-    del (a, x.y)
-    print(hasattr(x, 'y'))
-    try:
-        print(a)
-    except NameError:
-        print('unbound')
-  expected: |-
-    False
-    unbound
-
-- case: |-
-    a = 1
-    x = [5, 6]
-    del (a, x[0])
-    print(x)
-    try:
-        print(a)
-    except NameError:
-        print('unbound')
-  expected: |-
-    [6]
-    unbound
-
-- case: |-
-    // deletes in a loop leave each statement's values balanced
-    class C:
-        pass
-    x = C()
-    d = {}
-    n = 0
-    for i in range(2000):
-        a = i
-        x.y = i
-        d[i] = i
-        del (a, x.y), [d[i]]
-        n += 1
-    print(n, hasattr(x, 'y'), d)
-  expected: |-
-    2000 False {}
-
-- case: |-
-    // an empty group deletes nothing and nested groups reach every target
-    a, b, c = 1, 2, 3
-    del (), []
-    del [a, (b, [c])],
-    gone = []
-    try:
-        print(a)
-    except NameError:
-        gone.append('a')
-    try:
-        print(b)
-    except NameError:
-        gone.append('b')
-    try:
-        print(c)
-    except NameError:
-        gone.append('c')
-    print(gone)
-  expected: |-
-    ['a', 'b', 'c']
-
-- case: |-
-    g = 1
-    fn f():
-        global g
-        del (g)
-    f()
-    try:
-        print(g)
-    except NameError:
-        print('gone')
-  expected: |-
-    gone
-
-- case: |-
-    // a chain from a group or a call deletes its last attribute or item
-    class C:
-        pass
-    c = C()
-    c.v = [1, 2, 3]
-    fn get():
-        return c
-    del (c).v[0]
-    del get().v[0]
-    print(c.v)
-  expected: |-
-    [3]
-
-- case: |-
-    // the ellipsis stays one value through collections and collections of values
-    xs = [..., ...]
-    for i in range(3000):
-        xs.append([i])
-    print(xs[0] is xs[1], xs[0] is ..., repr(...), [...], type(...) is type(xs[0]))
-    del xs
-    junk = [[i] for i in range(3000)]
-    print(... is ..., ...)
-  expected: |-
-    True True Ellipsis [Ellipsis] True
-    True Ellipsis
+    true false true false

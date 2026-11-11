@@ -1,9 +1,5 @@
-use edge::lang::Cx;
-use edge::value::VmErr;
 use edge::value::foreign::Kind;
-use lib::fail::{At, Class, Fail};
 use lib::lang::{Centre, Codec, Endian, Machine, Numerals, OnError, Specs, Tree};
-use lib::num::hash::Scheme;
 use lib::text::cut::Breaks;
 use lib::Lang;
 
@@ -11,9 +7,6 @@ use crate::Mini;
 
 // the kind that boxes every int too wide for an inline value
 pub static WIDE: Kind = lib::num::big::kind::<Mini>(crate::names::KIND_NAMES[edge::lang::KindId::Int as usize]);
-
-// the kind of the one value the ellipsis names
-pub static DOTS: Kind = lib::types::dots::<Mini>();
 
 // the kind of the slice a key of bounds makes
 pub static SLICE: Kind = lib::seq::slice::<Mini>("slice");
@@ -27,26 +20,21 @@ impl lib::date::Dates for Mini {
     const DURATION: &'static Kind = &DURATION;
 }
 
-/* numbers modulo the mersenne prime of 61 bits and tuples mixed as xxhash mixes lanes */
-pub struct Modular;
-
-impl Scheme for Modular {
-    const BITS: u32 = 61;
-    const NIL: i64 = 0xFCA8_6420;
-    const INF: i64 = 314_159;
-    const RESERVED: Option<(i64, i64)> = Some((-1, -2));
-    const RESERVED_TUPLE: i64 = 1_546_275_796;
-    const SEED: u64 = 2_870_177_450_012_600_261;
-    const LANE: (u64, u64) = (14_029_467_366_897_019_727, 11_400_714_785_074_694_791);
-    const ROTATE: u32 = 31;
-    // the length mixes with a constant that keeps the empty tuple's hash of the corpus
-    const LENGTH: u64 = Self::SEED ^ 3_527_539;
-}
-
-/* the line breaks of unicode with the three information separators the corpus breaks at */
+/* the line breaks of unicode with the three information separators */
 pub struct Lines;
 
 impl Breaks for Lines { const BREAKS: &'static [char] = &['\n', '\r', '\u{0b}', '\u{0c}', '\u{1c}', '\u{1d}', '\u{1e}', '\u{85}', '\u{2028}', '\u{2029}']; }
+
+// a record shows its pairs the way its literal writes them
+impl lib::fmt::render::Style for Mini {
+    const PAIR: &'static str = " = ";
+
+    fn bare_key(key: &str) -> bool {
+        let mut chars = key.chars();
+        let start = chars.next().is_some_and(|c| c == '_' || c.is_alphabetic());
+        start && chars.all(|c| c == '_' || c.is_alphanumeric()) && !crate::MINI.words.iter().any(|w| w.0 == key)
+    }
+}
 
 impl Lang for Mini {
     const TREE: &'static Tree = &crate::types::TREE;
@@ -60,18 +48,6 @@ impl Lang for Mini {
     const SPECS: Specs = Specs::ALL;
     const THROW_VALUE: bool = true;
     const SENTINEL: bool = true;
-
-    // the classes past the engine's error kinds with the rest by kind
-    fn class(c: Class) -> &'static str {
-        match c {
-            Class::Lookup => "LookupError", Class::Decode => "UnicodeDecodeError", Class::Encode => "UnicodeEncodeError", Class::End => "EOFError",
-            c => lib::lang::class::<Mini>(c),
-        }
-    }
-
-    fn words(cx: &mut Cx<'_, '_>, at: At, f: Fail) -> VmErr { crate::words::words(cx, at, f) }
-
-    fn words_bare(f: Fail) -> VmErr { crate::words::words_bare(f) }
 
     fn codec(name: &str) -> Option<Codec> { crate::codecs::codec(name) }
 

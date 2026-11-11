@@ -102,7 +102,7 @@ mod test {
     /* with NoopResolver an import gives a clean diagnostic which the JSON runner cannot reach */
     #[test]
     fn noop_resolver_default() {
-        let src = "from json import dumps";
+        let src = "use json\ndumps = json.dumps";
         let (_, errs) = parse(src);
         assert!(errs.iter().any(|d| d.msg.contains("not found") || d.msg.contains("not configured")), "expected NoopResolver error, got: {:?}", errs.iter().map(|e| &e.msg).collect::<Vec<_>>());
     }
@@ -115,8 +115,9 @@ mod test {
 
         for case in cases {
             let resolver = Box::new(build_resolver(&case.modules, &case.aliases, &case.manifests));
-            let (tokens, _lex_errs) = lex(&case.src);
-            let (chunk, parse_errs) = parser(&case.src, tokens.into_iter(), resolver).parse();
+            // the module system reads its cases in the legacy fixture which still spells every import form
+            let (tokens, _lex_errs) = edge::lexer::lex_as::<crate::words::Legacy>(&case.src);
+            let (chunk, parse_errs) = edge::code::Parser::<_, crate::words::Legacy>::spelled(&case.src, tokens.into_iter(), resolver).parse();
 
             // parse errors match the `error` substring and an optional span anchor
             if !parse_errs.is_empty() {
@@ -182,14 +183,14 @@ mod test {
     #[test]
     fn an_import_cycle_through_a_host_resolver_reports_where_it_closes() {
         let mut host = Kept::default();
-        for (spec, code) in [("./a.mini", "from .b import y\nx = 1\n"), ("./b.mini", "from .a import x\ny = 2\n"), ("./c.mini", "from .c import z\nz = 3\n")] {
+        for (spec, code) in [("./a.mini", "use .b\nx = 1\n"), ("./b.mini", "use .a\ny = 2\n"), ("./c.mini", "use .c\nz = 3\n")] {
             edge::deps::DepHost::deps(&mut host, |d| d.register(spec.into(), edge::deps::ModuleEntry::Code(code.into())));
         }
-        for src in ["from .a import x\nprint(x)\n", "from .c import z\nprint(z)\n"] {
+        for src in ["use .a\nprint(a.x)\n", "use .c\nprint(c.z)\n"] {
             let resolver = Box::new(edge::deps::HostResolver::new(String::new(), host.clone()));
             let (_, errs) = parser(src, lex(src).0.into_iter(), resolver).parse();
             let msgs: Vec<&str> = errs.iter().map(|e| e.msg.as_str()).collect();
-            assert!(msgs.len() == 1 && msgs[0].contains("circular import") && errs[0].start == 5, "{src:?}: {msgs:?}");
+            assert!(msgs.len() == 1 && msgs[0].contains("circular import") && errs[0].start == 4, "{src:?}: {msgs:?}");
         }
     }
 
@@ -205,11 +206,11 @@ mod test {
         const LEVELS: usize = 26;
         let mut resolver = TestResolver::new();
         for i in 0..LEVELS {
-            let code = if i + 1 < LEVELS { format!("import m{}\nimport m{} as again\nv = m{}.v + again.v\n", i + 1, i + 1, i + 1) } else { "v = 1\n".to_string() };
+            let code = if i + 1 < LEVELS { format!("use m{}\nuse m{} as again\nv = m{}.v + again.v\n", i + 1, i + 1, i + 1) } else { "v = 1\n".to_string() };
             resolver = resolver.with_alias(&format!("m{i}"), &format!("m{i}.mini")).with_code(&format!("m{i}.mini"), &code);
         }
         let start = std::time::Instant::now();
-        let (chunk, errs) = compiled_with("import m0\nprint(m0.v)\n", resolver);
+        let (chunk, errs) = compiled_with("use m0\nprint(m0.v)\n", resolver);
         assert!(errs.is_empty(), "{errs:?}");
         assert!(start.elapsed() < std::time::Duration::from_secs(5), "{:?}", start.elapsed());
         let mut vm = crate::common::boot(&chunk, crate::common::corpus_limits());
@@ -223,16 +224,17 @@ mod test {
         fn chain(n: usize) -> TestResolver {
             // the last module nests its blocks and an expression as deep as the caps allow
             let mut deepest = String::new();
-            for d in 0..99 { deepest.push_str(&format!("{}if true:\n", "    ".repeat(d))); }
+            for d in 0..99 { deepest.push_str(&format!("{}if true {{\n", "    ".repeat(d))); }
             deepest.push_str(&format!("{}x = {}1{}\n", "    ".repeat(99), "(".repeat(190), ")".repeat(190)));
+            for d in (0..99).rev() { deepest.push_str(&format!("{}}}\n", "    ".repeat(d))); }
             let mut resolver = TestResolver::new();
             for i in 0..n {
-                let code = if i + 1 < n { format!("from .c{} import x\n", i + 1) } else { format!("x = 0\n{deepest}") };
+                let code = if i + 1 < n { format!("use .c{0} as c{0}\nx = c{0}.x\n", i + 1) } else { format!("x = 0\n{deepest}") };
                 resolver = resolver.with_code(&format!("./c{i}.mini"), &code);
             }
             resolver
         }
-        let run = |n: usize| std::thread::Builder::new().stack_size(1 << 20).spawn(move || compiled_with("from .c0 import x\nprint(x)\n", chain(n)).1).expect("a thread").join().expect("no overflow");
+        let run = |n: usize| std::thread::Builder::new().stack_size(1 << 20).spawn(move || compiled_with("use .c0 as c0\nx = c0.x\nprint(x)\n", chain(n)).1).expect("a thread").join().expect("no overflow");
         assert_eq!(run(64), Vec::<String>::new());
         let errs = run(65);
         assert!(errs.iter().any(|e| e.contains("imports nest deeper than 64 modules")), "{errs:?}");

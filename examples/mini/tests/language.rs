@@ -5,7 +5,7 @@ use edge::lexer::{Spelling, Syntax};
 use edge::value::{HeapPool, Val, VmErr};
 use edge::value::foreign::Kind;
 use edge::value::foreign::{BinOp, UnOp};
-use mini::natives::{ARRAY, ATTR, BUFFER, BYTES, CONVERT, DATE, DICT, FLOAT, FOLDS, GEN, INT, IO, ITER, LIST, LIST_SORT, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
+use mini::natives::{ARRAY, BUFFER, BYTES, CONVERT, DATE, DICT, FLOAT, FOLDS, INT, IO, ITER, LIST, LIST_SORT, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
 use mini::{Mini, NAMES};
 
 // the sandbox's memory limit meters what a run allocates as edge.wasm does
@@ -16,7 +16,7 @@ const PROBE: &[Native] = &[Native::new("probe", Sig::var(1), probe)];
 
 static NATIVES: Natives = edge::natives! {
     language: Probe,
-    fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, ATTR, TYPES, DATE, PROBE],
+    fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, TYPES, DATE, PROBE],
     methods: [
         Str => [STR],
         Bytes => [BUFFER],
@@ -28,7 +28,6 @@ static NATIVES: Natives = edge::natives! {
         Int => [INT],
         Float => [FLOAT],
         Range => [RANGE],
-        Coro => [GEN],
     ],
     types: mini::types::NAMES,
 };
@@ -132,43 +131,40 @@ fn ran(src: &str) -> String {
 
 // each program's engine error beside the probe that words it over the same values
 const SAME: &[(&str, &str)] = &[
-    ("x = 1 + 'a'\n", "print(probe('add', 1, 'a'))\n"),
-    ("x = [1] + 'a'\n", "print(probe('add', [1], 'a'))\n"),
-    ("x = [1] * 'a'\n", "print(probe('mul', [1], 'a'))\n"),
-    ("x = 1 < 'a'\n", "print(probe('lt', 1, 'a'))\n"),
-    ("x = -'a'\n", "print(probe('neg', 'a'))\n"),
-    ("x = 1 in 'a'\n", "print(probe('in', 1, 'a'))\n"),
-    ("for x in 5:\n    pass\n", "print(probe('iterate', 5))\n"),
-    ("x = 5\nx()\n", "print(probe('call', 5))\n"),
-    ("x = 5\ny = x[0]\n", "print(probe('subscript', 5))\n"),
-    ("t = (1,)\nt[0] = 2\n", "print(probe('assign', (1,)))\n"),
-    ("x = 1 in 5\n", "print(probe('contain', 5))\n"),
-    ("x = len(5)\n", "print(probe('size', 5))\n"),
-    ("x = {[1]: 2}\n", "print(probe('key', [1]))\n"),
-    ("x = [1]['a']\n", "print(probe('index', [1], 'a'))\n"),
-    ("x = [1][5]\n", "print(probe('range', [1]))\n"),
-    ("x = {}['k']\n", "print(probe('missing', 'k'))\n"),
-    ("print(nope)\n", "print(probe('undefined', 'nope'))\n"),
-    ("fn f():\n    x = x + 1\nf()\n", "print(probe('unbound', 'x'))\n"),
-    ("x = (1).foo\n", "print(probe('attribute', 1, 'foo'))\n"),
-    ("x = 1 / 0\n", "print(probe('zero'))\n"),
-    ("a, b, c = [1, 2]\n", "print(probe('few'))\n"),
-    ("a, b = [1, 2, 3]\n", "print(probe('many'))\n"),
-    ("fn f(a):\n    pass\nf(1, 2)\n", "print(probe('count'))\n"),
-    ("fn f(a):\n    pass\nf(b=1)\n", "print(probe('unexpected'))\n"),
-    ("fn f(a):\n    pass\nf()\n", "print(probe('absent'))\n"),
-    ("fn f(n):\n    return f(n + 1)\nf(0)\n", "print(probe('deep'))\n"),
-    ("x = 1\nx.y = 2\n", "print(probe('store', 1, 'y'))\n"),
-    ("class A:\n    pass\nx = A.b\n", "class A:\n    pass\nprint(probe('attribute', A, 'b'))\n"),
-    ("x = (1,)[5]\n", "print(probe('range', (1,)))\n"),
-    ("x = 'a'[5]\n", "print(probe('range', 'a'))\n"),
-    ("x = 'a'['b']\n", "print(probe('index', 'a', 'b'))\n"),
-    ("x = [1]\nx[5] = 2\n", "print(probe('put', [1]))\n"),
-    ("a, *b, c = [1]\n", "print(probe('rest'))\n"),
-    ("fn g():\n    yield 1\nx = g()\nx.send(1)\n", "print(probe('fresh'))\n"),
-    ("x = [1][::0]\n", "print(probe('step'))\n"),
-    ("raise 5\n", "print(probe('raise', 5))\n"),
-    ("fn f(**k):\n    pass\nf(**5)\n", "print(probe('spread', 5))\n"),
+    ("x = 1 + \"a\"\n", "print(probe(\"add\", 1, \"a\"))\n"),
+    ("x = [1] + \"a\"\n", "print(probe(\"add\", [1], \"a\"))\n"),
+    ("x = [1] * \"a\"\n", "print(probe(\"mul\", [1], \"a\"))\n"),
+    ("x = 1 < \"a\"\n", "print(probe(\"lt\", 1, \"a\"))\n"),
+    ("x = -\"a\"\n", "print(probe(\"neg\", \"a\"))\n"),
+    ("x = 1 in \"a\"\n", "print(probe(\"in\", 1, \"a\"))\n"),
+    ("for x in 5 {\n}\n", "print(probe(\"iterate\", 5))\n"),
+    ("x = 5\nx()\n", "print(probe(\"call\", 5))\n"),
+    ("x = 5\ny = x[0]\n", "print(probe(\"subscript\", 5))\n"),
+    ("t = (1,)\nt[0] = 2\n", "print(probe(\"assign\", (1,)))\n"),
+    ("x = 1 in 5\n", "print(probe(\"contain\", 5))\n"),
+    ("x = len(5)\n", "print(probe(\"size\", 5))\n"),
+    ("x = record([([1], 2)])\n", "print(probe(\"key\", [1]))\n"),
+    ("x = [1][\"a\"]\n", "print(probe(\"index\", [1], \"a\"))\n"),
+    ("x = [1][5]\n", "print(probe(\"range\", [1]))\n"),
+    ("print(nope)\n", "print(probe(\"undefined\", \"nope\"))\n"),
+    ("fn f() {\n    x = x + 1\n}\nf()\n", "print(probe(\"unbound\", \"x\"))\n"),
+    ("x = (1).foo\n", "print(probe(\"attribute\", 1, \"foo\"))\n"),
+    ("x = 1 / 0\n", "print(probe(\"zero\"))\n"),
+    ("a, b, c = [1, 2]\n", "print(probe(\"few\"))\n"),
+    ("a, b = [1, 2, 3]\n", "print(probe(\"many\"))\n"),
+    ("fn f(a) {\n}\nf(1, 2)\n", "print(probe(\"count\"))\n"),
+    ("fn f(a) {\n}\nf(b=1)\n", "print(probe(\"unexpected\"))\n"),
+    ("fn f(a) {\n}\nf()\n", "print(probe(\"absent\"))\n"),
+    ("fn f(n) {\n    return f(n + 1)\n}\nf(0)\n", "print(probe(\"deep\"))\n"),
+    ("x = 1\nx.y = 2\n", "print(probe(\"store\", 1, \"y\"))\n"),
+    ("x = (1,)[5]\n", "print(probe(\"range\", (1,)))\n"),
+    ("x = \"a\"[5]\n", "print(probe(\"range\", \"a\"))\n"),
+    ("x = \"a\"[\"b\"]\n", "print(probe(\"index\", \"a\", \"b\"))\n"),
+    ("x = [1]\nx[5] = 2\n", "print(probe(\"put\", [1]))\n"),
+    ("a, *b, c = [1]\n", "print(probe(\"rest\"))\n"),
+    ("x = [1][::0]\n", "print(probe(\"step\"))\n"),
+    ("throw 5\n", "print(probe(\"raise\", 5))\n"),
+    ("fn f(**k) {\n}\nf(**5)\n", "print(probe(\"spread\", 5))\n"),
 ];
 
 #[test]
@@ -183,6 +179,6 @@ fn the_loop_raises_each_engine_error_in_minis_words() {
 // an operator reads as mini spells it in what the loop raises
 #[test]
 fn an_operator_reads_as_the_runtime_spells_it() {
-    assert_eq!(ran("print(probe('floor', 1, 'a'))\n"), "TypeError: unsupported operand type(s) for ~/: 'int' and 'str'");
-    assert_eq!(ran("x = 1 ~/ 'a'\n"), ran("print(probe('floor', 1, 'a'))\n"));
+    assert_eq!(ran("print(probe(\"floor\", 1, \"a\"))\n"), "TypeError: ~/ does not apply to int and text");
+    assert_eq!(ran("x = 1 ~/ \"a\"\n"), ran("print(probe(\"floor\", 1, \"a\"))\n"));
 }

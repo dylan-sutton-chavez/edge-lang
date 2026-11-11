@@ -6,7 +6,7 @@ mod test {
     use edge::value::foreign::Kind;
     use edge::value::{HeapPool, Val, VmErr};
     use mini::Mini;
-    use mini::natives::{ARRAY, ATTR, BUFFER, BYTES, CONVERT, DICT, FLOAT, FOLDS, GEN, INT, IO, ITER, LIST, LIST_SORT, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
+    use mini::natives::{ARRAY, BUFFER, BYTES, CONVERT, DICT, FLOAT, FOLDS, INT, IO, ITER, LIST, LIST_SORT, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
 
     // clamp of three ints answered in the loop and other numbers by its slow path
     edge::ops! {
@@ -58,7 +58,7 @@ mod test {
     // mini's natives with the clamp the op fuses
     static NATIVES: Natives = edge::natives! {
         language: Clamped,
-        fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, ATTR, TYPES, CLAMP],
+        fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, TYPES, CLAMP],
         methods: [
             Str => [STR],
             Bytes => [BUFFER],
@@ -70,7 +70,6 @@ mod test {
             Int => [INT],
             Float => [FLOAT],
             Range => [RANGE],
-            Coro => [GEN],
         ],
         types: mini::types::NAMES,
     };
@@ -146,7 +145,7 @@ mod test {
             assert!(!ops_of(src).iter().any(|o| o.0 == OpCode::RuntimeOp), "{src:?}");
         }
         // a name the program binds is its own function and no op
-        assert!(!ops_of("fn clamp(a, b, c):\n    return a\ny = clamp(1, 2, 3)\n").iter().any(|o| o.0 == OpCode::RuntimeOp));
+        assert!(!ops_of("fn clamp(a, b, c) {\n    return a\n}\ny = clamp(1, 2, 3)\n").iter().any(|o| o.0 == OpCode::RuntimeOp));
     }
 
     #[test]
@@ -163,7 +162,7 @@ mod test {
     fn the_loop_runs_the_op_over_rows_and_lowered_registers() {
         assert_eq!(ran("x = 5\nprint(clamp(x, 0, 3), clamp(x - 9, 0, 3), clamp(x, 0, 9))\n"), "3 0 5");
         // a hot loop and a function body lower the op to its register form
-        let src = "fn f(n):\n    t = 0\n    for i in range(n):\n        t = t + clamp(i, 10, 20)\n    return t\nprint(f(300), f(300))\nt = 0\nfor i in range(300):\n    t = t + clamp(i, 10, 20)\nprint(t)\n";
+        let src = "fn f(n) {\n    t = 0\n    for i in range(n) {\n        t = t + clamp(i, 10, 20)\n    }\n    return t\n}\nprint(f(300), f(300))\nt = 0\nfor i in range(300) {\n    t = t + clamp(i, 10, 20)\n}\nprint(t)\n";
         assert_eq!(ran(src), "5845 5845\n5845");
     }
 
@@ -172,24 +171,24 @@ mod test {
         assert_eq!(ran("x = 2.5\nprint(clamp(x, 0, 1), clamp(x, 0.5, 9), clamp(true, 0, 9))\n"), "1.0 2.5 1");
         let wide = "x = 10 ** 30\nprint(clamp(x, 0, 7), clamp(-x, 0, 7))\n";
         assert_eq!(ran(wide), "7 0");
-        assert_eq!(ran("x = 'a'\nclamp(x, 0, 1)\n"), "TypeError: unsupported operand type(s) for clamp: 'str' and 'int'");
-        assert_eq!(ran("fn f(x):\n    return clamp(x, 0, 1)\nprint(f(3), f(2.5))\n"), "1 1.0");
-        assert_eq!(ran("fn f(x):\n    return clamp(x, 0, 1)\nfor v in [3, 2.5, 'b']:\n    f(v)\n"), "TypeError: unsupported operand type(s) for clamp: 'str' and 'int'");
+        assert_eq!(ran("x = \"a\"\nclamp(x, 0, 1)\n"), "TypeError: clamp does not apply to text and int");
+        assert_eq!(ran("fn f(x) {\n    return clamp(x, 0, 1)\n}\nprint(f(3), f(2.5))\n"), "1 1.0");
+        assert_eq!(ran("fn f(x) {\n    return clamp(x, 0, 1)\n}\nfor v in [3, 2.5, \"b\"] {\n    f(v)\n}\n"), "TypeError: clamp does not apply to text and int");
         // an unbound operand raises as its read would
-        assert!(ran("fn f():\n    clamp(y, 0, 1)\n    y = 1\nf()\n").starts_with("UnboundLocalError"));
+        assert!(ran("fn f() {\n    clamp(y, 0, 1)\n    y = 1\n}\nf()\n").starts_with("NameError"));
     }
 
     #[test]
     fn a_rebound_name_runs_its_binding() {
-        let src = "fn swap():\n    global clamp\n    clamp = lambda a, b, c: a + b + c\nx = 5\nprint(clamp(x, 0, 3))\nswap()\nprint(clamp(x, 0, 3))\n";
+        let src = "x = 5\nprint(clamp(x, 0, 3))\nclamp = |a, b, c| a + b + c\nprint(clamp(x, 0, 3))\n";
         assert_eq!(ran(src), "3\n8");
-        let hot = "fn f(n):\n    t = 0\n    for i in range(n):\n        t = t + clamp(i, 0, 1)\n    return t\nprint(f(100))\nfn g(a, b, c):\n    return 2\nfn swap():\n    global clamp\n    clamp = g\nswap()\nprint(f(100))\n";
+        let hot = "fn f(n) {\n    t = 0\n    for i in range(n) {\n        t = t + clamp(i, 0, 1)\n    }\n    return t\n}\nprint(f(100))\nfn g(a, b, c) = 2\nclamp = g\nprint(f(100))\n";
         assert_eq!(ran(hot), "99\n200");
     }
 
     #[test]
     fn another_rebound_name_leaves_the_op_on_its_fast_path() {
-        let src = "fn sum(xs):\n    return 0\nfn f(n):\n    t = 0\n    for i in range(n):\n        t = t + clamp(i, 10, 20)\n    return t\nprint(f(300), f(300))\nt = 0\nfor i in range(300):\n    t = t + clamp(i, 10, 20)\nprint(t, sum([1]))\n";
+        let src = "fn sum(xs) {\n    return 0\n}\nfn f(n) {\n    t = 0\n    for i in range(n) {\n        t = t + clamp(i, 10, 20)\n    }\n    return t\n}\nprint(f(300), f(300))\nt = 0\nfor i in range(300) {\n    t = t + clamp(i, 10, 20)\n}\nprint(t, sum([1]))\n";
         let before = SLOW.with(|n| n.get());
         assert_eq!(ran(src), "5845 5845\n5845 0");
         // every operand was an int in order so no op left its fast path
@@ -198,31 +197,31 @@ mod test {
 
     #[test]
     fn a_module_binding_of_the_fused_name_is_called_as_a_function() {
-        let own = "fn clamp(x, lo, hi):\n    return x + lo + hi\nfn f(n):\n    t = 0\n    for i in range(n):\n        t = t + clamp(i, 1, 2)\n    return t\nprint(f(100), f(100))\n";
+        let own = "fn clamp(x, lo, hi) {\n    return x + lo + hi\n}\nfn f(n) {\n    t = 0\n    for i in range(n) {\n        t = t + clamp(i, 1, 2)\n    }\n    return t\n}\nprint(f(100), f(100))\n";
         assert_eq!(ran(own), "5250 5250");
-        // a new binding is called and once deleted the op's own rule answers again
-        let swapped = "fn clamp(x, lo, hi):\n    return 1\nfn f(n):\n    t = 0\n    for i in range(n):\n        t = t + clamp(i, 0, 5)\n    return t\nprint(f(100))\nfn swap():\n    global clamp\n    clamp = lambda x, lo, hi: 2\nswap()\nprint(f(100))\ndel clamp\nprint(f(100))\n";
-        assert_eq!(ran(swapped), "100\n200\n485");
+        // a new binding is called in place of the one before
+        let swapped = "fn clamp(x, lo, hi) = 1\nfn f(n) {\n    t = 0\n    for i in range(n) {\n        t = t + clamp(i, 0, 5)\n    }\n    return t\n}\nprint(f(100))\nclamp = |x, lo, hi| 2\nprint(f(100))\n";
+        assert_eq!(ran(swapped), "100\n200");
         // its own function raising inside the loop raises as that function
-        let raised = "fn clamp(x, lo, hi):\n    if x == 70:\n        raise ValueError('mine')\n    return x\nfn f(n):\n    t = 0\n    for i in range(n):\n        t = t + clamp(i, 0, 5)\n    return t\nf(100)\n";
+        let raised = "fn clamp(x, lo, hi) {\n    if x == 70 {\n        throw ValueError(\"mine\")\n    }\n    return x\n}\nfn f(n) {\n    t = 0\n    for i in range(n) {\n        t = t + clamp(i, 0, 5)\n    }\n    return t\n}\nf(100)\n";
         assert_eq!(ran(raised), "ValueError: mine");
     }
 
     #[test]
     fn a_helper_holding_the_op_runs_it_in_hot_loops() {
-        let plain = "fn bar(x):\n    return clamp(x, 10, 20)\nfn f(n):\n    t = 0\n    for i in range(n):\n        t = t + bar(i)\n    return t\nprint(f(300), f(300))\n";
+        let plain = "fn bar(x) {\n    return clamp(x, 10, 20)\n}\nfn f(n) {\n    t = 0\n    for i in range(n) {\n        t = t + bar(i)\n    }\n    return t\n}\nprint(f(300), f(300))\n";
         assert_eq!(ran(plain), "5845 5845");
         // operands its fast path declines take the slow path from inside the helper
-        let slow = "fn bar(x):\n    return clamp(x, 0, 7)\nt = 0\nfor k in range(100):\n    t = t + bar(10 ** 30) + bar(2.5) + bar(true)\nprint(t)\n";
+        let slow = "fn bar(x) {\n    return clamp(x, 0, 7)\n}\nt = 0\nfor k in range(100) {\n    t = t + bar(10 ** 30) + bar(2.5) + bar(true)\n}\nprint(t)\n";
         assert_eq!(ran(slow), "1050.0");
-        let wrong = "fn bar(x):\n    return clamp(x, 0, 1)\nt = 0\nfor v in [3, 2.5, -1] * 30 + ['b']:\n    t = t + bar(v)\n";
-        assert_eq!(ran(wrong), "TypeError: unsupported operand type(s) for clamp: 'str' and 'int'");
-        let bounds = "fn bar(x, lo):\n    return clamp(x, lo, 4)\nt = 0\nfor i in range(100):\n    t = t + bar(i, i ~/ 50 * 9)\n";
+        let wrong = "fn bar(x) {\n    return clamp(x, 0, 1)\n}\nt = 0\nfor v in [3, 2.5, -1] * 30 + [\"b\"] {\n    t = t + bar(v)\n}\n";
+        assert_eq!(ran(wrong), "TypeError: clamp does not apply to text and int");
+        let bounds = "fn bar(x, lo) {\n    return clamp(x, lo, 4)\n}\nt = 0\nfor i in range(100) {\n    t = t + bar(i, i ~/ 50 * 9)\n}\n";
         assert_eq!(ran(bounds), "ValueError: clamp's low bound lies past its high bound");
         // a recursion and a generator holding the op keep their values across their levels
-        let walk = "fn walk(n):\n    if n == 0:\n        return 0\n    return clamp(n, 0, 5) + walk(n - 1)\nt = 0\nfor k in range(100):\n    t = t + walk(10)\nprint(t)\n";
+        let walk = "fn walk(n) {\n    if n == 0 {\n        return 0\n    }\n    return clamp(n, 0, 5) + walk(n - 1)\n}\nt = 0\nfor k in range(100) {\n    t = t + walk(10)\n}\nprint(t)\n";
         assert_eq!(ran(walk), "4000");
-        let stepped = "fn clamped(xs):\n    for x in xs:\n        yield clamp(x, 0, 9)\nt = 0\nfor k in range(50):\n    for v in clamped([-3, 4, 12]):\n        t = t + v\nprint(t)\n";
+        let stepped = "fn clamped(xs) {\n    for x in xs {\n        yield clamp(x, 0, 9)\n    }\n}\nt = 0\nfor k in range(50) {\n    for v in clamped([-3, 4, 12]) {\n        t = t + v\n    }\n}\nprint(t)\n";
         assert_eq!(ran(stepped), "650");
     }
 
@@ -267,12 +266,12 @@ mod test {
 
     #[test]
     fn a_constant_call_runs_a_binding_the_program_makes() {
-        let before = "fn swap():\n    global clamp\n    clamp = lambda a, b, c: 1000\nswap()\nx = 1\nprint(clamp(x, 2, 3), clamp(1, 2, 3))\n";
+        let before = "clamp = |a, b, c| 1000\nx = 1\nprint(clamp(x, 2, 3), clamp(1, 2, 3))\n";
         assert_eq!(ran(before), "1000 1000");
         // a store written past the call still keeps the call from folding
-        let after = "fn f():\n    return clamp(1, 2, 3)\nfn swap():\n    global clamp\n    clamp = lambda a, b, c: 1000\nprint(f())\nswap()\nprint(f())\n";
+        let after = "fn f() = clamp(1, 2, 3)\nprint(f())\nclamp = |a, b, c| 1000\nprint(f())\n";
         assert_eq!(ran(after), "2\n1000");
-        assert!(ops_of("y = clamp(9, 0, 3)\nfn g():\n    global clamp\n    clamp = 1\n").iter().any(|o| o.0 == OpCode::RuntimeOp));
+        assert!(ops_of("y = clamp(9, 0, 3)\nclamp = 1\n").iter().any(|o| o.0 == OpCode::RuntimeOp));
     }
 
     /* what `src` prints driven with `events` pushed one at each event wait */
@@ -292,8 +291,8 @@ mod test {
 
     #[test]
     fn a_binding_the_op_calls_cannot_wait() {
-        let src = "fn bar(x):\n    return clamp(x, 0, 5)\nfn f(n):\n    t = 0\n    for i in range(n):\n        t = t + bar(i)\n    return t\nprint(f(200))\nfn clamp(x, lo, hi):\n    if x == 150:\n        print('wait', receive())\n    return x * 2\nprint(f(200))\n";
-        assert_eq!(ran_with(src, &["go"]), "985\nRuntimeError: receive() and host calls cannot wait inside a call an op makes");
+        let src = "fn bar(x) {\n    return clamp(x, 0, 5)\n}\nfn f(n) {\n    t = 0\n    for i in range(n) {\n        t = t + bar(i)\n    }\n    return t\n}\nprint(f(200))\nfn clamp(x, lo, hi) {\n    if x == 150 {\n        print(\"wait\", receive())\n    }\n    return x * 2\n}\nprint(f(200))\n";
+        assert_eq!(ran_with(src, &["go"]), "985\nError: a host wait cannot park inside a call an op makes");
         // the same wait inside the binding of a native's name parks and resumes
         let native = src.replace("clamp", "min").replace("min(x, 0, 5)", "min(x, 5)").replace("fn min(x, lo, hi)", "fn min(x, hi)");
         assert_eq!(ran_with(&native, &["go"]), "985\nwait go\n39800");

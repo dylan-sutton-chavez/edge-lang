@@ -214,7 +214,7 @@
   {
     "name": "a manifest before a runnable fence",
     "files": {
-      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```edge-manifest\n{ \"permissions\": { \"main\": [\"time:wall\"] } }\n```\n\n```edge\nimport time\n```\n\n```output\n```\n"
+      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```edge-manifest\n{ \"permissions\": { \"main\": [\"time:wall\"] } }\n```\n\n```edge\nuse time\n```\n\n```output\n```\n"
     }
   },
   {

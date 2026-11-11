@@ -17,7 +17,7 @@
     "stdout": ["[1, 2] hi\n"]
   },
   {
-    "given": { "edge.json": "{ \"imports\": { \"s\": \"./s.wasm\" } }\n", "s.wasm": "", "main.mini": "import s\n" },
+    "given": { "edge.json": "{ \"imports\": { \"s\": \"./s.wasm\" } }\n", "s.wasm": "", "main.mini": "use s\n" },
     "run": ["run", "main.mini"],
     "fails": ["is a wasm plugin and a runtime run natively loads none"]
   },

@@ -10,10 +10,10 @@ groups:
     eval: true
 
 publish:
-  - "runners print('two plus three is', 2 + 3)"
-  - "runners print('hello from a snippet')"
+  - 'runners print("two plus three is", 2 + 3)'
+  - 'runners print("hello from a snippet")'
   # Building a list and a string exercises the allocator inside the sandboxed instance.
-  - "runners print(''.join(str(i) for i in range(5)))"
+  - 'runners print("".join(text(i) for i in range(5)))'
 
 expect:
   - "two plus three is 5"
@@ -23,13 +23,13 @@ expect:
 # A POST to /eval/<group> runs the body on the eval group and replies with what it printed.
 post:
   - path: "/eval/runners"
-    body: "print('answered over http')"
+    body: 'print("answered over http")'
     expect: "{\"ok\":true,\"stdout\":\"answered over http\\n\"}"
   # A snippet has no scheduler to send through, send() names what it lacks.
   - path: "/eval/runners"
-    body: "send('g', 'x')"
-    expect: "send() needs an actor scheduler, missing in this runtime"
+    body: 'send("g", "x")'
+    expect: "send needs an actor scheduler which this runtime lacks"
   # an eval run reads no remote module so it fails before any request
   - path: "/eval/runners"
-    body: "import remote"
+    body: "use remote"
     expect: "module 'https://example.com/remote.mini' is not available to untrusted eval runs"

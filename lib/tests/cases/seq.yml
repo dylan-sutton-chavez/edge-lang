@@ -46,7 +46,7 @@
   prints: "5"
 
 - native: len
-  error: "len() takes exactly one argument (0 given)"
+  error: "TypeError: len() takes 1 argument, not 0"
 
 - native: len
   args: [[1, 2, 3]]
@@ -76,11 +76,11 @@
 
 - native: list
   args: ["abc"]
-  prints: "['a', 'b', 'c']"
+  prints: "[\"a\", \"b\", \"c\"]"
 
 - native: list
   args: ["hello"]
-  prints: "['h', 'e', 'l', 'l', 'o']"
+  prints: "[\"h\", \"e\", \"l\", \"l\", \"o\"]"
 
 - native: len
   args: [[]]
@@ -88,11 +88,11 @@
 
 - native: list
   args: ["αβγ"]
-  prints: "['α', 'β', 'γ']"
+  prints: "[\"α\", \"β\", \"γ\"]"
 
 - native: tuple
   args: ["abc"]
-  prints: "('a', 'b', 'c')"
+  prints: "(\"a\", \"b\", \"c\")"
 
 - native: len
   args: [!set [1, true]]
@@ -104,12 +104,12 @@
 
 - native: list.pop
   recv: []
-  error: "pop from empty list"
+  error: "IndexError: pop found the list empty"
 
 - native: list.pop
   recv: [1]
   args: [5]
-  error: "pop index out of range"
+  error: "IndexError: pop found no item at that index"
 
 - native: len
   args: [!set [!tuple [1, 2], !tuple [1, 2], !tuple [1, 3]]]
@@ -234,17 +234,17 @@
 - native: list.index
   recv: [1]
   args: [5]
-  error: "list.index(x): x not in list"
+  error: "ValueError: index found no such item in the list"
 
 - native: list.append
   recv: []
   args: [1, 2]
-  error: "list.append() takes exactly one argument (2 given)"
+  error: "TypeError: list.append() takes 1 argument, not 2"
 
 - native: list.insert
   recv: []
   args: [1]
-  error: "insert expected 2 arguments, got 1"
+  error: "TypeError: list.insert() takes 2 arguments, not 1"
 
 - native: len
   args: [42]
@@ -252,7 +252,7 @@
 
 - native: len
   args: [42]
-  error: "object of type 'int' has no len()"
+  error: "TypeError: a value of kind int cannot report a size"
 
 - native: len
   args: ["\n"]
@@ -261,9 +261,9 @@
 - native: tuple.index
   recv: !tuple [1, 2]
   args: [5]
-  error: "tuple.index(x): x not in tuple"
+  error: "ValueError: index found no such item in the tuple"
 
 - native: tuple.index
   recv: !tuple [1, 2, 3]
   args: [3, 0, 2]
-  error: "tuple.index(x): x not in tuple"
+  error: "ValueError: index found no such item in the tuple"

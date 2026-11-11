@@ -98,7 +98,7 @@ fn main() {
     assert!(errors.is_empty(), "{}", edge::code::Diagnostic::render_all(&errors, PROGRAM, None));
     let mut vm = VM::with_runtime(&mini::RUNTIME, &chunk, Limits::sandbox());
     vm.run().expect("the program runs");
-    assert_eq!(vm.output_text(), "64\n5 failed\nTrue\n");
+    assert_eq!(vm.output_text(), "64\n5 failed\ntrue\n");
 }
 ```
 

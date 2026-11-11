@@ -262,11 +262,11 @@ mod tests {
         let printed = Arc::new(Mutex::new(String::new()));
         let into = printed.clone();
         let mut vm = host.vm(Box::new(move |text: &str| into.lock().unwrap().push_str(text)), Project::disk(&entry, None), None, None).unwrap();
-        let status = vm.start("import files\nprint(files.read(files.open('logs/a.txt')))\n", None).unwrap();
+        let status = vm.start("use files\nprint(files.read(files.open(\"logs/a.txt\")))\n", None).unwrap();
         assert!(matches!(status, Status::Done), "the trusted run did not finish");
-        assert_eq!(printed.lock().unwrap().as_str(), "b'inside\\n'\n");
+        assert_eq!(printed.lock().unwrap().as_str(), "b\"inside\\n\"\n");
         let mut vm = host.vm(Box::new(|_: &str| {}), Project::bundle(std::collections::HashMap::new(), "", true), None, None).unwrap();
-        let Status::Error(refused) = vm.start("import files\n", None).unwrap() else { panic!("an untrusted run imported files") };
+        let Status::Error(refused) = vm.start("use files\n", None).unwrap() else { panic!("an untrusted run imported files") };
         assert!(refused.contains("module 'files' is not available to untrusted eval runs"), "{refused}");
     }
 
@@ -288,11 +288,11 @@ mod tests {
         let into = printed.clone();
         let pool = format!("{}/", dir.path().display());
         let mut vm = host.vm(Box::new(move |text: &str| into.lock().unwrap().push_str(text)), untrusted(Some(pool)), None, None).unwrap();
-        let status = vm.start("import files\nprint(files.read(files.open('logs/a.txt')))\n", None).unwrap();
+        let status = vm.start("use files\nprint(files.read(files.open(\"logs/a.txt\")))\n", None).unwrap();
         assert!(matches!(status, Status::Done), "the pooled run did not finish");
-        assert_eq!(printed.lock().unwrap().as_str(), "b'pooled\\n'\n");
+        assert_eq!(printed.lock().unwrap().as_str(), "b\"pooled\\n\"\n");
         let mut vm = host.vm(Box::new(|_: &str| {}), untrusted(None), None, None).unwrap();
-        let Status::Error(refused) = vm.start("import files\n", None).unwrap() else { panic!("a run with no pool imported files") };
+        let Status::Error(refused) = vm.start("use files\n", None).unwrap() else { panic!("a run with no pool imported files") };
         assert!(refused.contains("module 'files' is not available to untrusted eval runs"), "{refused}");
     }
 }

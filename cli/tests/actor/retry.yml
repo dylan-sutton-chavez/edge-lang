@@ -9,9 +9,10 @@ groups:
     replicas: 5
     retry: 2
     code: |
-      while true:
+      while true {
           msg = receive()
-          raise ValueError("boom")
+          throw ValueError("boom")
+      }
 
 publish:
   - "crasher poison"

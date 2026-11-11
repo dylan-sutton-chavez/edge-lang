@@ -296,7 +296,7 @@ mod tests {
     /* the source enters the page as a JSON string that no tag or quote escapes */
     #[test]
     fn the_harness_cannot_be_escaped_by_a_script() {
-        let hostile = "print('</script><script>alert(1)</script>')";
+        let hostile = "print(\"</script><script>alert(1)</script>\")";
         let page = page(hostile, "sub/main.mini", Limits::sandbox()).unwrap();
 
         assert!(!page.contains("<script>alert(1)"));

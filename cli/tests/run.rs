@@ -45,8 +45,8 @@ fn runs_a_script_and_streams_stdout() {
 fn resolves_relative_imports_from_the_script_dir() {
     let dir = scratch("imports");
     std::fs::create_dir_all(dir.join("lib")).unwrap();
-    std::fs::write(dir.join("lib/helper.mini"), "fn double(n):\n  return n * 2\n").unwrap();
-    std::fs::write(dir.join("main.mini"), "from .lib.helper import double\nprint(double(21))\n").unwrap();
+    std::fs::write(dir.join("lib/helper.mini"), "fn double(n) {\n  return n * 2\n}\n").unwrap();
+    std::fs::write(dir.join("main.mini"), "use .lib.helper as helper\ndouble = helper.double\nprint(double(21))\n").unwrap();
     let (out, _, code) = run_in(&dir, &["run", "main.mini"], None);
     assert_eq!(out, "42\n");
     assert_eq!(code, 0);
@@ -135,8 +135,8 @@ fn a_packed_package_imports_from_inside_itself() {
     let lib = scratch("package");
     std::fs::create_dir_all(lib.join("src")).unwrap();
     std::fs::write(lib.join("edge.json"), "{ \"name\": \"greet\", \"version\": \"0.1.0\", \"imports\": { \"_words\": \"./src/words.mini\" } }\n").unwrap();
-    std::fs::write(lib.join("main.mini"), "from .src.hello import hello\n").unwrap();
-    std::fs::write(lib.join("src/hello.mini"), "from _words import WORD\n\nfn hello(name):\n    return WORD + \" \" + name\n").unwrap();
+    std::fs::write(lib.join("main.mini"), "use .src.hello as hello\nhello = hello.hello\n").unwrap();
+    std::fs::write(lib.join("src/hello.mini"), "use _words\nWORD = _words.WORD\n\nfn hello(name) {\n    return WORD + \" \" + name\n}\n").unwrap();
     std::fs::write(lib.join("src/words.mini"), "WORD = \"hello\"\n").unwrap();
     let (_, err, code) = run_in(&lib, &["build"], None);
     assert_eq!(code, 0, "build failed: {err}");
@@ -145,7 +145,7 @@ fn a_packed_package_imports_from_inside_itself() {
     std::fs::copy(lib.join("app.edge"), app.join("greet.edge")).unwrap();
     let pin = edge::util::sha256::hex_encode(&edge::util::sha256::sha256(&std::fs::read(app.join("greet.edge")).unwrap()));
     std::fs::write(app.join("edge.json"), format!("{{ \"imports\": {{ \"greet\": \"./greet.edge#sha256-{pin}\" }} }}\n")).unwrap();
-    std::fs::write(app.join("main.mini"), "from greet import hello\nprint(hello(\"edge\"))\n").unwrap();
+    std::fs::write(app.join("main.mini"), "use greet\nprint(greet.hello(\"edge\"))\n").unwrap();
     let (out, err, code) = run_in(&app, &["run", "main.mini"], None);
     assert_eq!((out.as_str(), code), ("hello edge\n", 0), "stderr: {err}");
 }
@@ -176,9 +176,9 @@ fn a_dependency_written_for_a_later_engine_is_refused_where_it_loads() {
     let dir = scratch("floor");
     std::fs::create_dir_all(dir.join("pkg")).unwrap();
     std::fs::write(dir.join("edge.json"), "{ \"imports\": { \"greet\": \"./pkg/main.mini\" } }\n").unwrap();
-    std::fs::write(dir.join("main.mini"), "from greet import shout\nprint(shout('hi'))\n").unwrap();
+    std::fs::write(dir.join("main.mini"), "use greet\nprint(greet.shout(\"hi\"))\n").unwrap();
     std::fs::write(dir.join("pkg/edge.json"), "{ \"name\": \"greet\", \"version\": \"0.1.0\", \"edge\": \"99.0.0\" }\n").unwrap();
-    std::fs::write(dir.join("pkg/main.mini"), "fn shout(word):\n    return word.upper()\n").unwrap();
+    std::fs::write(dir.join("pkg/main.mini"), "fn shout(word) {\n    return word.upper()\n}\n").unwrap();
 
     let (_, err, code) = run_in(&dir, &["run", "main.mini"], None);
     assert!(err.contains("needs edge 99.0.0") && err.contains(env!("CARGO_PKG_VERSION")), "stderr was: {err}");
@@ -202,13 +202,13 @@ fn the_binary_reports_the_version_it_was_built_from() {
 #[test]
 fn a_declared_url_is_locked_once_and_then_runs() {
     let lib = scratch("lockdep");
-    std::fs::write(lib.join("main.mini"), "fn shout(word):\n    return word.upper()\n").unwrap();
+    std::fs::write(lib.join("main.mini"), "fn shout(word) {\n    return word.upper()\n}\n").unwrap();
     let (_, err, code) = run_in(&lib, &["build", "--out", "dep.edge"], None);
     assert_eq!(code, 0, "build failed: {err}");
     let url = spawn_release(std::fs::read(lib.join("dep.edge")).unwrap());
 
     let app = scratch("lockapp");
-    std::fs::write(app.join("main.mini"), "from greet import shout\nprint(shout('hi edge'))\n").unwrap();
+    std::fs::write(app.join("main.mini"), "use greet\nprint(greet.shout(\"hi edge\"))\n").unwrap();
     std::fs::write(app.join("edge.json"), "{}\n").unwrap();
     let (_, err, code) = run_in(&app, &["add", "greet@0.1.0"], None);
     assert!(err.contains("'greet@0.1.0' names no source, give it as name=<url> or name=<path>"), "stderr was: {err}");
@@ -244,13 +244,13 @@ fn a_declared_version_is_refused_by_lock() {
 fn a_package_asks_and_lock_waits_for_the_grant() {
     let lib = scratch("askdep");
     std::fs::write(lib.join("edge.json"), "{ \"name\": \"greet\", \"version\": \"0.1.0\", \"permissions\": { \"main\": [\"net:api.example.com\"] } }\n").unwrap();
-    std::fs::write(lib.join("main.mini"), "fn shout(word):\n    return word.upper()\n").unwrap();
+    std::fs::write(lib.join("main.mini"), "fn shout(word) {\n    return word.upper()\n}\n").unwrap();
     let (_, err, code) = run_in(&lib, &["build", "--out", "dep.edge"], None);
     assert_eq!(code, 0, "build failed: {err}");
     let url = spawn_release(std::fs::read(lib.join("dep.edge")).unwrap());
 
     let app = scratch("askapp");
-    std::fs::write(app.join("main.mini"), "from greet import shout\nprint(shout('granted'))\n").unwrap();
+    std::fs::write(app.join("main.mini"), "use greet\nprint(greet.shout(\"granted\"))\n").unwrap();
     std::fs::write(app.join("edge.json"), "{}\n").unwrap();
     let (out, err, code) = run_in(&app, &["add", &format!("greet={url}")], None);
     assert_eq!(code, 0, "add failed: {err}");
@@ -276,19 +276,19 @@ fn a_cached_module_is_pinned_to_its_first_bytes() {
     let url = "https://cdn.test/helper.mini";
     let key = edge::util::sha256::hex_encode(&edge::util::sha256::sha256(url.as_bytes()));
     let blob = dir.join("edge").join("modules").join(format!("{key}.mini"));
-    let src = "fn double(n):\n    return n * 2\n";
+    let src = "fn double(n) {\n    return n * 2\n}\n";
     std::fs::create_dir_all(blob.parent().unwrap()).unwrap();
     std::fs::write(&blob, src).unwrap();
     let pin = edge::util::sha256::hex_encode(&edge::util::sha256::sha256(src.as_bytes()));
     std::fs::write(blob.with_extension("mini.lock"), &pin).unwrap();
     std::fs::write(dir.join("edge.json"), format!("{{ \"imports\": {{ \"helper\": \"{url}\" }} }}\n")).unwrap();
-    std::fs::write(dir.join("main.mini"), "from helper import double\nprint(double(21))\n").unwrap();
+    std::fs::write(dir.join("main.mini"), "use helper\nprint(helper.double(21))\n").unwrap();
 
     let (out, err, code) = run_in(&dir, &["run", "main.mini"], None);
     assert_eq!(out, "42\n", "stderr was: {err}");
     assert_eq!(code, 0, "stderr was: {err}");
 
-    std::fs::write(&blob, "fn double(n):\n    return 0\n").unwrap();
+    std::fs::write(&blob, "fn double(n) {\n    return 0\n}\n").unwrap();
     let (_, err, code) = run_in(&dir, &["run", "main.mini"], None);
     assert!(err.contains("integrity drift"), "stderr was: {err}");
     assert_eq!(code, 1);
@@ -298,11 +298,11 @@ fn a_cached_module_is_pinned_to_its_first_bytes() {
 #[test]
 fn a_manifest_pin_verifies_the_target_bytes() {
     let dir = scratch("fragpin");
-    let src = "fn double(n):\n    return n * 2\n";
+    let src = "fn double(n) {\n    return n * 2\n}\n";
     std::fs::write(dir.join("helper.mini"), src).unwrap();
     let pin = edge::util::sha256::hex_encode(&edge::util::sha256::sha256(src.as_bytes()));
     std::fs::write(dir.join("edge.json"), format!("{{ \"imports\": {{ \"helper\": \"./helper.mini#sha256-{pin}\" }} }}\n")).unwrap();
-    std::fs::write(dir.join("main.mini"), "from helper import double\nprint(double(21))\n").unwrap();
+    std::fs::write(dir.join("main.mini"), "use helper\nprint(helper.double(21))\n").unwrap();
 
     let (out, err, code) = run_in(&dir, &["run", "main.mini"], None);
     assert_eq!(out, "42\n", "stderr was: {err}");
@@ -322,23 +322,23 @@ fn dotted_imports_anchor_at_the_manifest_root() {
     std::fs::create_dir_all(dir.join("lib")).unwrap();
     std::fs::create_dir_all(dir.join("web")).unwrap();
     std::fs::write(dir.join("edge.json"), "{ \"imports\": {} }\n").unwrap();
-    std::fs::write(dir.join("lib/util.mini"), "fn f():\n    return 'root-lib'\n").unwrap();
-    std::fs::write(dir.join("web/main.mini"), "from lib.util import f\nprint(f())\n").unwrap();
+    std::fs::write(dir.join("lib/util.mini"), "fn f() {\n    return \"root-lib\"\n}\n").unwrap();
+    std::fs::write(dir.join("web/main.mini"), "use lib.util as util\nprint(util.f())\n").unwrap();
 
     let (out, err, code) = run_in(&dir, &["run", "web/main.mini"], None);
     assert_eq!(out, "root-lib\n", "stderr was: {err}");
     assert_eq!(code, 0, "stderr was: {err}");
 }
 
-/* Quoted specs are not imports at all, they fail like any missing module. */
+/* quoted specs are not imports at all and a module name must follow the word */
 #[test]
 fn quoted_imports_are_not_found() {
     let dir = scratch("quoted");
-    std::fs::write(dir.join("helper.mini"), "fn double(n):\n    return n * 2\n").unwrap();
-    std::fs::write(dir.join("main.mini"), "from \"./helper.mini\" import double\n").unwrap();
+    std::fs::write(dir.join("helper.mini"), "fn double(n) {\n    return n * 2\n}\n").unwrap();
+    std::fs::write(dir.join("main.mini"), "use \"./helper.mini\"\n").unwrap();
 
     let (_, err, code) = run_in(&dir, &["run", "main.mini"], None);
-    assert!(err.contains("module './helper.mini' not found"), "stderr was: {err}");
+    assert!(err.contains("expected a module name") && err.contains("main.mini:1:5"), "stderr was: {err}");
     assert_eq!(code, 1);
 }
 
@@ -347,9 +347,9 @@ fn quoted_imports_are_not_found() {
 fn standalone_binary_runs_the_packed_project() {
     let dir = scratch("standalone");
     std::fs::create_dir_all(dir.join("lib")).unwrap();
-    std::fs::write(dir.join("lib/util.mini"), "fn greet():\n    return \"packed\"\n").unwrap();
+    std::fs::write(dir.join("lib/util.mini"), "fn greet() {\n    return \"packed\"\n}\n").unwrap();
     std::fs::write(dir.join("edge.json"), "{ \"imports\": { \"util\": \"./lib/util.mini\" } }\n").unwrap();
-    std::fs::write(dir.join("main.mini"), "import util\nprint(util.greet())\n").unwrap();
+    std::fs::write(dir.join("main.mini"), "use util\nprint(util.greet())\n").unwrap();
 
     let (_, err, code) = run_in(&dir, &["build", "--app", "--out", "app"], None);
     assert_eq!(code, 0, "build stderr was: {err}");
@@ -507,7 +507,7 @@ mod engine_corpus {
                 let path = req.url().to_string();
                 seen.lock().unwrap().push(path.clone());
                 let resp = match path.as_str() {
-                    "/lib/mod.mini" => tiny_http::Response::from_string("fn f():\n    return 7\n"),
+                    "/lib/mod.mini" => tiny_http::Response::from_string("fn f() {\n    return 7\n}\n"),
                     _ => tiny_http::Response::from_string("").with_status_code(404),
                 };
                 let _ = req.respond(resp);
@@ -613,15 +613,16 @@ fn a_blob_of_another_runtime_is_refused_before_its_source_parses() {
 #[test]
 fn a_deep_chain_of_imports_runs_on_the_wasm_stack() {
     let mut deepest = String::from("x = 0\n");
-    for d in 0..99 { deepest.push_str(&format!("{}if true:\n", "    ".repeat(d))); }
+    for d in 0..99 { deepest.push_str(&format!("{}if true {{\n", "    ".repeat(d))); }
     deepest.push_str(&format!("{}x = {}1{}\n", "    ".repeat(99), "(".repeat(190), ")".repeat(190)));
+    for d in (0..99).rev() { deepest.push_str(&format!("{}}}\n", "    ".repeat(d))); }
     let chain = |n: usize| {
         let app = scratch("chain");
         for i in 0..n {
-            let code = if i + 1 < n { format!("from .c{} import x\n", i + 1) } else { deepest.clone() };
+            let code = if i + 1 < n { format!("use .c{0} as c{0}\nx = c{0}.x\n", i + 1) } else { deepest.clone() };
             std::fs::write(app.join(format!("c{i}.mini")), code).unwrap();
         }
-        std::fs::write(app.join("main.mini"), "from .c0 import x\nprint(x)\n").unwrap();
+        std::fs::write(app.join("main.mini"), "use .c0 as c0\nx = c0.x\nprint(x)\n").unwrap();
         run_in(&app, &["run", "main.mini"], None)
     };
     let (out, err, code) = chain(64);

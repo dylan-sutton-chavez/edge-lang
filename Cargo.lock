@@ -334,7 +334,6 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml_ng",
- "spell",
 ]
 
 [[package]]
@@ -615,7 +614,6 @@ name = "mini"
 version = "0.9.7"
 dependencies = [
  "edge",
- "itoa",
  "lib",
 ]
 
@@ -882,17 +880,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9395f0f0eee849a9b707b2f06bb92a6a422090e2123bb2ef8e87a0e61892a8e"
 dependencies = [
  "serde",
-]
-
-[[package]]
-name = "spell"
-version = "0.9.7"
-dependencies = [
- "edge",
- "mini",
- "serde",
- "serde_json",
- "serde_yaml_ng",
 ]
 
 [[package]]

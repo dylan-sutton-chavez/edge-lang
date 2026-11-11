@@ -10,9 +10,7 @@ pub mod lang;
 mod language;
 mod names;
 pub mod natives;
-mod style;
 pub mod types;
-pub mod words;
 
 pub use names::NAMES;
 // the text type `over!` names in the crate it expands in
@@ -22,7 +20,7 @@ use natives::*;
 
 pub static NATIVES: Natives = edge::natives! {
     language: Mini,
-    fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, ATTR, TYPES, DATE],
+    fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, TYPES, MATCH, DATE],
     methods: [
         Str => [STR],
         Bytes => [BUFFER],
@@ -34,14 +32,13 @@ pub static NATIVES: Natives = edge::natives! {
         Int => [INT],
         Float => [FLOAT],
         Range => [RANGE],
-        Coro => [GEN],
     ],
     types: types::NAMES,
 };
 
 pub static RUNTIME: Runtime = Runtime::of::<Mini>();
 
-// mini reads every source through its own token table
+// mini reads every source through its own token table and grammar
 pub const FRONT: Front = Front::spelled::<Mini>();
 
 mod syntax;
@@ -60,7 +57,7 @@ pub const DESCRIPTOR: Descriptor = Descriptor {
     value_error: names::ERRORS[ErrKind::Value as usize],
     runtime_error: names::ERRORS[ErrKind::Runtime as usize],
     denied_error: names::ERRORS[ErrKind::Permission as usize],
-    failed_error: "OSError",
+    failed_error: "IOError",
 };
 
 #[cfg(all(target_arch = "wasm32", feature = "web"))]

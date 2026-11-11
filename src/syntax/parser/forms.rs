@@ -261,7 +261,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
     /* the pattern at the cursor tested on `subj` jumping out where a test fails */
     pub(super) fn pattern(&mut self, subj: u16, fails: &mut Vec<usize>) {
         // a literal matches the value equal to it
-        if matches!(self.peek(), Some(TokenType::Int | TokenType::String | TokenType::True | TokenType::False)) {
+        if matches!(self.peek(), Some(TokenType::Int | TokenType::String | TokenType::FormatStart | TokenType::True | TokenType::False)) {
             self.chunk.emit(OpCode::LoadName, subj);
             self.parse_atom();
             self.chunk.emit(OpCode::Eq, 0);
@@ -354,6 +354,8 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         }
         match self.peek()? {
             TokenType::Let => self.let_item(),
+            // a function whose body is a block of statements is the fixed definition
+            TokenType::Fn if self.block_fn() => return None,
             TokenType::Fn => {
                 self.advance();
                 let name = self.ident_or_missing("expected function name");
@@ -384,6 +386,16 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
             _ => return None,
         }
         Some(false)
+    }
+
+    /* whether a block opens after the parameters before any `=` */
+    fn block_fn(&self) -> bool {
+        let mut depth = 0i32;
+        let mut after = self.tokens.toks[self.tokens.pos..].iter().map(|t| t.kind).skip_while(|&k| k != TokenType::ParenOpen).skip_while(|&k| {
+            depth += match k { TokenType::ParenOpen => 1, TokenType::ParenClose => -1, _ => 0 };
+            depth > 0
+        });
+        after.find(|k| matches!(k, TokenType::Equal | TokenType::BlockOpen | TokenType::BraceOpen)).is_some_and(|k| k != TokenType::Equal)
     }
 
     /* an annotation passed over whole to the end it ends at outside brackets */

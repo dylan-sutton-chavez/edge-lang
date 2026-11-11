@@ -446,7 +446,8 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         }
         if parts == 0 {
             self.emit_const(Value::Str(String::new()));
-        } else {
+        } else if parts > 1 || self.chunk.instructions.last().is_none_or(|i| i.opcode != OpCode::LoadConst) {
+            // a lone piece of text with no field is its own value
             self.chunk.emit(OpCode::BuildString, parts);
         }
     }

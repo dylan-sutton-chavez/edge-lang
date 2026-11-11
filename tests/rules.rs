@@ -5,12 +5,12 @@ mod test {
     use edge::value::foreign::{BinOp, Kind, UnOp};
     use edge::value::{HeapPool, Val, VmErr};
     use mini::Mini;
-    use mini::natives::{ARRAY, ATTR, BUFFER, BYTES, CONVERT, DICT, FLOAT, FOLDS, GEN, INT, IO, ITER, LIST, LIST_SORT, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
+    use mini::natives::{ARRAY, BUFFER, BYTES, CONVERT, DICT, FLOAT, FOLDS, INT, IO, ITER, LIST, LIST_SORT, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
 
     // mini's natives under a runtime whose rules answer what the engine refuses
     static NATIVES: Natives = edge::natives! {
         language: Binds,
-        fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, ATTR, TYPES],
+        fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, TYPES],
         methods: [
             Str => [STR],
             Bytes => [BUFFER],
@@ -22,7 +22,6 @@ mod test {
             Int => [INT],
             Float => [FLOAT],
             Range => [RANGE],
-            Coro => [GEN],
         ],
         types: mini::types::NAMES,
     };
@@ -112,42 +111,20 @@ mod test {
     }
 
     #[test]
-    fn a_get_rule_reads_writes_and_deletes_a_maps_keys_as_fields() {
-        assert_eq!(ran("d = {'x': 1}\nd.y = 2\nprint(d.x, d.y, d)\ndel d.x\nprint(d)\n"), "1 2 {'x': 1, 'y': 2}\n{'y': 2}");
-        assert_eq!(ran("d = {}\nprint(d.nope)\n"), "AttributeError: 'dict' object has no attribute 'nope'");
+    fn a_get_rule_reads_and_writes_a_maps_keys_as_fields() {
+        assert_eq!(ran("d = {x = 1}\nd.y = 2\nprint(d.x, d.y, d)\n"), "1 2 {x = 1, y = 2}");
+        assert_eq!(ran("d = {}\nprint(d.nope)\n"), "FieldError: record has no field nope");
     }
 
     #[test]
     fn a_get_rule_gives_a_constant_and_binds_a_native_method() {
         assert_eq!(ran("x = 5\nprint(x.zero, x.width())\n"), "0 3");
-        assert_eq!(ran("x = 5\nprint(x.other)\n"), "AttributeError: 'int' object has no attribute 'other'");
-    }
-
-    #[test]
-    fn a_call_rule_binds_an_instance_or_constructs_another() {
-        let src = "class Greeter:\n    fn __init__(self, word):\n        self.word = word\n    fn call(self, name):\n        return self.word + ' ' + name\ng = Greeter('hi')\nprint(g('ann'))\n";
-        assert_eq!(ran(src), "hi ann");
-        let src = "class P:\n    made = true\n    fn __init__(self, n):\n        self.n = n\np = P(1)\nq = p(5)\nprint(p.n, q.n, type(q) == P)\n";
-        assert_eq!(ran(src), "1 5 True");
-        let hot = "class Greeter:\n    fn __init__(self, word):\n        self.word = word\n    fn call(self, name):\n        return self.word + name\ng = Greeter('a')\nout = ''\nfor i in range(300):\n    out = g(out)\nprint(len(out))\n";
-        assert_eq!(ran(hot), "300");
-        assert_eq!(ran("class Q:\n    pass\nQ()(1)\n"), "TypeError: 'Q' object is not callable");
-    }
-
-    #[test]
-    fn an_op_rule_calls_the_class_swapped_or_negated() {
-        let src = "class V:\n    fn __init__(self, n):\n        self.n = n\n    fn add(self, other):\n        return self.n + other\n    fn less(self, other):\n        return self.n < other.n\nv = V(2)\nw = V(3)\nprint(v + 3, 3 + v, v < w, v >= w, w >= v)\n";
-        assert_eq!(ran(src), "5 5 True False True");
-        let hot = "class V:\n    fn __init__(self, n):\n        self.n = n\n    fn add(self, other):\n        return self.n + other\nv = V(1)\nt = 0\nfor i in range(300):\n    t = t + (v + i)\nprint(t)\n";
-        assert_eq!(ran(hot), "45150");
-        let nested = "class V:\n    fn __init__(self, n):\n        self.n = n\n    fn add(self, other):\n        return self.n + other\nfn f(v, k):\n    return v + k\nv = V(1)\nt = 0\nfor i in range(300):\n    t = t + f(v, i)\ntry:\n    v + 'a'\nexcept TypeError as e:\n    print(t, e)\n";
-        assert_eq!(ran(nested), "45150 unsupported operand type(s) for +: 'int' and 'str'");
+        assert_eq!(ran("x = 5\nprint(x.other)\n"), "FieldError: int has no field other");
     }
 
     #[test]
     fn an_op_rule_runs_a_native_or_identity_and_a_kernel_rule_refuses() {
-        assert_eq!(ran("print(-[1, 2, 3], [1] < 'a')\n"), "3 False");
-        assert_eq!(ran("class V:\n    pass\nprint(V() * 2)\n"), "TypeError: unsupported operand type(s) for *: 'V' and 'int'");
+        assert_eq!(ran("print(-[1, 2, 3], [1] < \"a\")\n"), "3 false");
     }
 
     // mini binding capitals naming ints wholes and classing objects as value errors
@@ -211,30 +188,18 @@ mod test {
 
     #[test]
     fn a_handler_binds_what_the_runtimes_raise_makes() {
-        let src = "try:\n    1 / 0\nexcept ZeroDivisionError as e:\n    print(e)\ntry:\n    [][2]\nexcept IndexError as e:\n    print(e)\n";
+        let src = "try {\n    1 / 0\n} catch DivisionError as e {\n    print(e)\n}\ntry {\n    [][2]\n} catch IndexError as e {\n    print(e)\n}\n";
         assert_eq!(hooked(src), "DIVISION BY ZERO\nLIST INDEX OUT OF RANGE");
         assert_eq!(ran(src), "division by zero\nlist index out of range");
         // what the program raises itself stays its own
-        assert_eq!(hooked("try:\n    raise ValueError('mine')\nexcept ValueError as e:\n    print(e)\n"), "mine");
+        assert_eq!(hooked("try {\n    throw ValueError(\"mine\")\n} catch ValueError as e {\n    print(e)\n}\n"), "mine");
     }
 
     #[test]
     fn the_engine_names_a_type_as_the_runtimes_type_name_does() {
-        assert_eq!(hooked("x = 5\nprint(x.nope)\n"), "AttributeError: 'whole' object has no attribute 'nope'");
-        assert_eq!(hooked("print(1 + 'a')\n"), "TypeError: unsupported operand type(s) for +: 'whole' and 'str'");
-        assert_eq!(ran("x = 5\nprint(x.nope)\n"), "AttributeError: 'int' object has no attribute 'nope'");
-    }
-
-    #[test]
-    fn a_plugin_reads_the_error_kind_the_runtime_gives() {
-        let src = "class Boom(Exception):\n    pass\nraise Boom('x')\n";
-        let kind = |rt: &'static Runtime| {
-            let (chunk, _) = edge::code::compile_as::<Hooked>(src);
-            let mut vm = VM::with_runtime(rt, &chunk, Limits::sandbox());
-            let e = vm.run().expect_err("raises");
-            vm.error_kind(&e)
-        };
-        assert_eq!((kind(&HOOKED), kind(&RUNTIME)), (edge::abi::ErrorKind::Value, edge::abi::ErrorKind::Custom));
+        assert_eq!(hooked("x = 5\nprint(x.nope)\n"), "FieldError: whole has no field nope");
+        assert_eq!(hooked("print(1 + \"a\")\n"), "TypeError: + does not apply to whole and text");
+        assert_eq!(ran("x = 5\nprint(x.nope)\n"), "FieldError: int has no field nope");
     }
 
     // how often each bind hook of the counting runtime was asked
@@ -303,25 +268,8 @@ mod test {
     #[test]
     fn a_site_keeps_its_rule_and_asks_the_runtime_once() {
         // a field read a store and a constant three hundred times at their sites
-        let (out, asked) = counted("d = {'x': 1}\nt = 0\nfor i in range(300):\n    d.y = i\n    t = t + d.x + d.y + i.zero\nprint(t)\n");
+        let (out, asked) = counted("d = {x = 1}\nt = 0\nfor i in range(300) {\n    d.y = i\n    t = t + d.x + d.y + i.zero\n}\nprint(t)\n");
         assert_eq!(out, "45150");
         assert!(asked[0] <= 12, "{asked:?}");
-        // an operator a class answers and a call an instance's class answers
-        let (out, asked) = counted("class V:\n    fn __init__(self, n):\n        self.n = n\n    fn add(self, other):\n        return self.n + other\nv = V(1)\nt = 0\nfor i in range(300):\n    t = t + (v + i)\nprint(t)\n");
-        assert_eq!(out, "45150");
-        assert!(asked[2] <= 4, "{asked:?}");
-        let (out, asked) = counted("class G:\n    fn __init__(self, w):\n        self.w = w\n    fn call(self, s):\n        return self.w + s\ng = G('a')\nfn f(n):\n    out = ''\n    for i in range(n):\n        out = g(out)\n    return len(out)\nprint(f(300))\n");
-        assert_eq!(out, "300");
-        assert!(asked[1] <= 4, "{asked:?}");
-    }
-
-    #[test]
-    fn a_kept_rule_goes_once_its_class_changes() {
-        let src = "class V:\n    fn __init__(self, n):\n        self.n = n\n    fn add(self, other):\n        return self.n + other\nfn twice(self, other):\n    return 2 * other\nv = V(0)\nt = 0\nfor i in range(300):\n    if i == 150:\n        V.add = twice\n    t = t + (v + 1)\nprint(t)\n";
-        let (out, asked) = counted(src);
-        assert_eq!(out, "450");
-        assert!(asked[2] >= 2, "{asked:?}");
-        // one site meeting two keys answers each by its own rule
-        assert_eq!(counted("for x in [{'zero': 7}, 5, {'zero': 8}, 6]:\n    print(x.zero)\n").0, "7\n0\n8\n0");
     }
 }

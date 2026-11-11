@@ -4,7 +4,7 @@
 
 - native: lines
   args: [5]
-  error: "lines() argument 1 must be str or bytes-like, not int"
+  error: "TypeError: lines takes text or bytes, not int"
 
 - native: json_read
   args: ["[1, -2, 3.5, true, null]"]

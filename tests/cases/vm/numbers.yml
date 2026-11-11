@@ -44,14 +44,14 @@
     3
 
 - case: |-
-    print('ha' * 3)
+    print("ha" * 3)
   expected: |-
     hahaha
 
 - case: |-
     print(type(42))
   expected: |-
-    <class 'int'>
+    int
 
 - case: |-
     print(1 + 2 * 3)
@@ -96,41 +96,41 @@
 - case: |-
     print(3 < 5)
   expected: |-
-    True
+    true
 
 - case: |-
     print(3 <= 3)
   expected: |-
-    True
+    true
 
 - case: |-
     print(3 == 3)
   expected: |-
-    True
+    true
 
 - case: |-
     print(3 != 4)
   expected: |-
-    True
+    true
 
 - case: |-
     print(5 >= 3)
   expected: |-
-    True
+    true
 
 - case: |-
-    a, b = 1, 2
+    a, b = (1, 2)
     print(a, b)
   expected: |-
     1 2
 
 - case: |-
-    print(min(3,1,4))
+    print(min(3, 1, 4))
   expected: |-
     1
 
 - case: |-
-    print(max(3,1,4))
+    print(max(3, 1, 4))
   expected: |-
     4
 
@@ -147,68 +147,48 @@
     5.0
 
 - case: |-
-    print(!(3 > 5))
+    print(not 3 > 5)
   expected: |-
-    True
+    true
 
 - case: |-
     print(1 in -1)
-  error: argument of type 'int' is not a container or iterable
+  error: "TypeError: a value of kind int cannot hold items"
 
 - case: |-
-    print('x' in -1)
-  error: argument of type 'int' is not a container or iterable
+    print("x" in -1)
+  error: "TypeError: a value of kind int cannot hold items"
 
 - case: |-
     print(5 in 5)
-  error: argument of type 'int' is not a container or iterable
+  error: "TypeError: a value of kind int cannot hold items"
 
 - case: |-
     print(-0.0 == 0.0)
   expected: |-
-    True
+    true
 
 - case: |-
     print(0.1 + 0.2 == 0.3)
   expected: |-
-    False
+    false
 
 - case: |-
     print(min(-1))
-  error: not iterable
+  error: "TypeError: a value of kind int cannot be iterated"
 
 - case: |-
     print(max(-1))
-  error: not iterable
+  error: "TypeError: a value of kind int cannot be iterated"
 
 - case: |-
-    print(1/0)
-  error: ZeroDivisionError
-
-- case: |-
-    print(isinstance(42, int))
-  expected: |-
-    True
-
-- case: |-
-    print(isinstance(42, (str, int)))
-  expected: |-
-    True
-
-- case: |-
-    my_type = int
-    print(isinstance(10, my_type))
-  expected: |-
-    True
-
-- case: |-
-    isinstance(42, 'int')
-  error: isinstance() arg 2 must be a type, a tuple of types, or a union
+    print(1 / 0)
+  error: "DivisionError: division by zero"
 
 - case: |-
     print((1, 2) == (1, 2))
   expected: |-
-    True
+    true
 
 - case: |-
     print(2 ** 46)
@@ -226,17 +206,17 @@
     10
 
 - case: |-
-    print(sum(i*i for i in range(4)))
+    print(sum((i * i for i in range(4))))
   expected: |-
     14
 
 - case: |-
-    print(sum(x for x in range(10) if x % 2 == 0))
+    print(sum((x for x in range(10) if x % 2 == 0)))
   expected: |-
     20
 
 - case: |-
-    print(sum(i*j for i in range(3) for j in range(3)))
+    print(sum((i * j for i in range(3) for j in range(3))))
   expected: |-
     9
 
@@ -253,12 +233,12 @@
 - case: |-
     print(3.0 < 4)
   expected: |-
-    True
+    true
 
 - case: |-
     print(4 > 3.0)
   expected: |-
-    True
+    true
 
 - case: |-
     print(4 ** 0.5)
@@ -282,7 +262,7 @@
 
 - case: |-
     x = 5
-    print('big' if x > 3 else 'small')
+    print(if x > 3 { "big" } else { "small" })
   expected: |-
     big
 
@@ -307,157 +287,157 @@
     9223372036854775808
 
 - case: |-
-    x = 0 || 'fallback'
+    x = 0 or "fallback"
     print(x)
   expected: |-
     fallback
 
 - case: |-
-    x = 1 && 2 && 3
+    x = 1 and 2 and 3
     print(x)
   expected: |-
     3
 
 - case: |-
     x = 5
-    print((x || 0) + 1)
+    print((x or 0) + 1)
   expected: |-
     6
 
 - case: |-
     x = 0
-    print((x && 5) + 1)
+    print((x and 5) + 1)
   expected: |-
     1
 
 - case: |-
     x = 5
-    print(!(x || 0))
+    print(not (x or 0))
   expected: |-
-    False
+    false
 
 - case: |-
     x = 5
-    print(-(x || 0))
+    print(-(x or 0))
   expected: |-
     -5
 
 - case: |-
     c = true
-    print((7 if c else 0) + 1)
+    print((if c { 7 } else { 0 }) + 1)
   expected: |-
     8
 
 - case: |-
     x = 5
-    print((x || 2 * 3) + 1)
+    print((x or 2 * 3) + 1)
   expected: |-
     6
 
 - case: |-
-    print((1 || 2) + 3)
+    print((1 or 2) + 3)
   expected: |-
     4
 
 - case: |-
-    a, b = 0, 3
-    print((a || b || 0) - 1)
+    a, b = (0, 3)
+    print((a or b or 0) - 1)
   expected: |-
     2
 
 - case: |-
     x = 0
-    print((x || 0) + 1)
+    print((x or 0) + 1)
   expected: |-
     1
 
 - case: |-
     x = 5
-    print((x && 0) + 1)
+    print((x and 0) + 1)
   expected: |-
     1
 
 - case: |-
     c = false
-    print((7 if c else 0) + 1)
+    print((if c { 7 } else { 0 }) + 1)
   expected: |-
     1
 
 - case: |-
     x = 5
-    print(1 + (x || 2))
+    print(1 + (x or 2))
   expected: |-
     6
 
 - case: |-
     x = 5
-    print(x || 0 + 1)
+    print(x or 0 + 1)
   expected: |-
     5
 
 - case: |-
-    print(!0, -(4), 2 ** 3 + 1, 1 + 2 * 3)
+    print(not 0, -4, 2 ** 3 + 1, 1 + 2 * 3)
   expected: |-
-    True -4 9 7
+    true -4 9 7
 
 - case: |-
-    print(1 < 2 < 3)
+    print(1 < 2 and 2 < 3)
   expected: |-
-    True
+    true
 
 - case: |-
-    print(1 < 3 < 2)
+    print(1 < 3 and 3 < 2)
   expected: |-
-    False
+    false
 
 - case: |-
-    print(3 < 2 < 1)
+    print(3 < 2 and 2 < 1)
   expected: |-
-    False
+    false
 
 - case: |-
-    print(1 < 2 < 3 < 4)
+    print(1 < 2 and 2 < 3 and 3 < 4)
   expected: |-
-    True
+    true
 
 - case: |-
-    print(1 < 2 < 3 < 1)
+    print(1 < 2 and 2 < 3 and 3 < 1)
   expected: |-
-    False
+    false
 
 - case: |-
     x = 5
-    print(0 < x < 10)
+    print(0 < x and x < 10)
   expected: |-
-    True
+    true
 
 - case: |-
     x = 15
-    print(0 < x < 10)
+    print(0 < x and x < 10)
   expected: |-
-    False
+    false
 
 - case: |-
-    print(1 == 1 == 1)
+    print(1 == 1 and 1 == 1)
   expected: |-
-    True
+    true
 
 - case: |-
-    print(1 == 1 == 2)
+    print(1 == 1 and 1 == 2)
   expected: |-
-    False
+    false
 
 - case: |-
-    a, b, c = 1, 2, 3
-    print(a < b < c)
+    a, b, c = (1, 2, 3)
+    print(a < b and b < c)
   expected: |-
-    True
+    true
 
 - case: |-
-    a, b, c = 1, 3, 2
-    print(a < b < c)
+    a, b, c = (1, 3, 2)
+    print(a < b and b < c)
   expected: |-
-    False
+    false
 
 - case: |-
     x = 5
@@ -476,7 +456,7 @@
 - case: |-
     print(10 % 3 == 1)
   expected: |-
-    True
+    true
 
 - case: |-
     g = abs
@@ -506,15 +486,15 @@
     a = a + "b"
     print(b == "a" * 150)
   expected: |-
-    True
+    true
 
 - case: |-
     x = float("nan")
     print(x + 1)
     print(x * 0)
   expected: |-
-    nan
-    nan
+    NaN
+    NaN
 
 - case: |-
     print(7.5 % 2.5)
@@ -535,28 +515,6 @@
     -3.0
 
 - case: |-
-    __cmp__ = 42
-    x = 1 < 2 < 3
-    print(x)
-    print(__cmp__)
-  expected: |-
-    True
-    42
-
-- case: |-
-    print(isinstance(42, int))
-    print(isinstance(3.14, float))
-    print(isinstance("hello", str))
-    print(isinstance(true, bool))
-    print(isinstance(true, int))
-  expected: |-
-    True
-    True
-    True
-    True
-    True
-
-- case: |-
     a = "y" * 200
     b = a
     c = a
@@ -565,7 +523,7 @@
     print(len(b))
     print(len(d))
   expected: |-
-    True
+    true
     200
     201
 
@@ -584,8 +542,8 @@
     print(x < 0)
     print(x > 0)
   expected: |-
-    False
-    False
+    false
+    false
 
 - case: |-
     print(7 ~/ 2.0)
@@ -599,41 +557,11 @@
     1.0
 
 - case: |-
-    __cmp__ = 42
-    x = 3 < 2 < 1
-    print(x)
-    print(__cmp__)
-  expected: |-
-    False
-    42
-
-- case: |-
-    __cmp__ = 7
-    a = 1 < 2 < 3
-    b = 10 > 5 > 1
-    print(a)
-    print(b)
-    print(__cmp__)
-  expected: |-
-    True
-    True
-    7
-
-- case: |-
-    print(isinstance("int", (int, str)))
-    print(isinstance(42, (str, float)))
-    print(isinstance(42, (str, int)))
-  expected: |-
-    True
-    False
-    True
-
-- case: |-
     x = int(input())
     print(x * 2)
   expected: |-
     84
-  input: ['42']
+  input: ["42"]
 
 - case: |-
     print(sum(range(11)))
@@ -643,46 +571,46 @@
 - case: |-
     print(all(range(1, 4)))
   expected: |-
-    True
+    true
 
 - case: |-
     print(any(range(0, 0)))
   expected: |-
-    False
+    false
 
 - case: |-
-    print(int_from_bytes(b'\x01\x02', 'big'))
+    print(int_from_bytes(b"\x01\x02", "big"))
   expected: |-
     258
 
 - case: |-
-    print(int_from_bytes(b'\x01\x02', 'little'))
+    print(int_from_bytes(b"\x01\x02", "little"))
   expected: |-
     513
 
 - case: |-
-    print(int_to_bytes(258, 2, 'big'))
+    print(int_to_bytes(258, 2, "big"))
   expected: |-
-    b'\x01\x02'
+    b"\x01\x02"
 
 - case: |-
-    print(int_to_bytes(513, 2, 'little'))
+    print(int_to_bytes(513, 2, "little"))
   expected: |-
-    b'\x01\x02'
+    b"\x01\x02"
 
 - case: |-
     n = 0xCAFEBABE
-    print(int_from_bytes(int_to_bytes(n, 4, 'big'), 'big'))
+    print(int_from_bytes(int_to_bytes(n, 4, "big"), "big"))
   expected: |-
     3405691582
 
 - case: |-
-    print(int_from_bytes(5, 'big'))
-  error: int_from_bytes() first arg must be bytes
+    print(int_from_bytes(5, "big"))
+  error: "TypeError: int_from_bytes takes bytes first"
 
 - case: |-
     print(int_to_bytes(508, 4, -1))
-  error: byteorder must be
+  error: "ValueError: the call names no byte order the runtime knows"
 
 - case: |-
     print(3.0 % 1.5)
@@ -920,62 +848,57 @@
     0
 
 - case: |-
-    print(0**0)
+    print(0 ** 0)
   expected: |-
     1
 
 - case: |-
-    print(0**1)
+    print(0 ** 1)
   expected: |-
     0
 
 - case: |-
-    print(1**0)
+    print(1 ** 0)
   expected: |-
     1
 
 - case: |-
-    print((-1)**0)
+    print((-1) ** 0)
   expected: |-
     1
 
 - case: |-
-    print((-1)**1)
+    print((-1) ** 1)
   expected: |-
     -1
 
 - case: |-
-    print((-1)**2)
-  expected: |-
-    1
-
-- case: |-
-    print((-1)**3)
+    print((-1) ** 3)
   expected: |-
     -1
 
 - case: |-
-    print((-1)**100)
+    print((-1) ** 100)
   expected: |-
     1
 
 - case: |-
-    print((-1)**101)
+    print((-1) ** 101)
   expected: |-
     -1
 
 - case: |-
-    print(1**1000)
+    print(1 ** 1000)
   expected: |-
     1
 
 - case: |-
-    print(0**10)
+    print(0 ** 10)
   expected: |-
     0
 
 - case: |-
-    print(10**0)
+    print(10 ** 0)
   expected: |-
     1
 
@@ -1017,139 +940,127 @@
 - case: |-
     print(1 == 1.0)
   expected: |-
-    True
+    true
 
 - case: |-
     print(0 == 0.0)
   expected: |-
-    True
+    true
 
 - case: |-
     print(-1 == -1.0)
   expected: |-
-    True
+    true
 
 - case: |-
-    print('x' * 0)
+    print("x" * 0)
   expected: ""
 
 - case: |-
-    print(0 * 'x')
+    print(0 * "x")
   expected: ""
 
 - case: |-
-    print('' * 5)
+    print("" * 5)
   expected: ""
 
 - case: |-
-    print('abc'.count('', 4), 'abc'.count('', 3), 'abc'.count('', 2, 1), 'abc'.count('', 1, 1))
+    print("abc".count("", 4), "abc".count("", 3), "abc".count("", 2, 1), "abc".count("", 1, 1))
   expected: |-
     0 1 0 1
 
 - case: |-
-    s = 'añb,€😀,b'
-    print(s.count('b'), s.count(',', 0, 4), s.count('', 2, 5), s.count('ñ', -10, 2))
+    s = "añb,€😀,b"
+    print(s.count("b"), s.count(",", 0, 4), s.count("", 2, 5), s.count("ñ", -10, 2))
   expected: |-
     2 1 4 1
 
 - case: |-
     x = 5
-    y = 'big' if x > 3 else 'small'
+    y = if x > 3 { "big" } else { "small" }
     print(y)
   expected: |-
     big
 
 - case: |-
     x = 1
-    y = 'big' if x > 3 else 'small'
+    y = if x > 3 { "big" } else { "small" }
     print(y)
   expected: |-
     small
 
 - case: |-
     x = 5
-    y = x if x > 0 else -x
+    y = if x > 0 { x } else { -x }
     print(y)
   expected: |-
     5
 
 - case: |-
     x = -5
-    y = x if x > 0 else -x
+    y = if x > 0 { x } else { -x }
     print(y)
   expected: |-
     5
 
 - case: |-
-    a, b = 3, 7
-    result = a if a > b else b
+    a, b = (3, 7)
+    result = if a > b { a } else { b }
     print(result)
   expected: |-
     7
 
 - case: |-
-    print(sum(i for i in range(10)))
+    print(sum((i for i in range(10))))
   expected: |-
     45
 
 - case: |-
-    print(sum(i*i for i in range(5)))
+    print(sum((i * i for i in range(5))))
   expected: |-
     30
 
 - case: |-
-    print(any(x > 5 for x in range(10)))
+    print(any((x > 5 for x in range(10))))
   expected: |-
-    True
+    true
 
 - case: |-
-    print(all(x > 0 for x in range(1, 5)))
+    print(all((x > 0 for x in range(1, 5))))
   expected: |-
-    True
+    true
 
 - case: |-
-    print(all(x > 0 for x in range(5)))
+    print(all((x > 0 for x in range(5))))
   expected: |-
-    False
+    false
 
 - case: |-
-    print(max(i*i for i in range(1, 6)))
+    print(max((i * i for i in range(1, 6))))
   expected: |-
     25
 
 - case: |-
-    print(min(i*i for i in range(1, 6)))
+    print(min((i * i for i in range(1, 6))))
   expected: |-
     1
 
 - case: |-
-    print(1 + 'a')
-  error: TypeError
-
-- case: |-
-    print(1 / 0)
-  error: ZeroDivisionError
+    print(1 + "a")
+  error: "TypeError: + does not apply to int and text"
 
 - case: |-
     print(0 ~/ 0)
-  error: ZeroDivisionError
+  error: "DivisionError: division by zero"
 
 - case: |-
     print(1 % 0)
-  error: ZeroDivisionError
+  error: "DivisionError: division by zero"
 
 - case: |-
-    assert 1 == 2, '1 != 2'
-  error: 1 != 2
-
-- case: |-
-    print(type(1).__name__)
+    print(text(type(1)))
   expected: |-
     int
-
-- case: |-
-    print(issubclass(5, int))
-  error: issubclass() arg 1 must be a class
 
 - case: |-
     print(min(1, 2, 3))
@@ -1184,35 +1095,20 @@
 - case: |-
     print(type(3.14))
   expected: |-
-    <class 'float'>
-
-- case: |-
-    print(isinstance(3.14, float))
-  expected: |-
-    True
-
-- case: |-
-    print(isinstance(42, (int, str)))
-  expected: |-
-    True
-
-- case: |-
-    print(isinstance(42, (str, list)))
-  expected: |-
-    False
+    float
 
 - case: |-
     print(bool(range(0)))
   expected: |-
-    True
+    true
 
 - case: |-
     print(bool(range(5)))
   expected: |-
-    True
+    true
 
 - case: |-
-    a, b, c = 1, 2, 3
+    a, b, c = (1, 2, 3)
     print(a, b, c)
   expected: |-
     1 2 3
@@ -1265,40 +1161,40 @@
     2
 
 - case: |-
-    print(1 < 2 < 3 < 4 < 5)
+    print(1 < 2 and 2 < 3 and 3 < 4 and 4 < 5)
   expected: |-
-    True
+    true
 
 - case: |-
-    print(1 <= 1 <= 2 <= 3)
+    print(1 <= 1 and 1 <= 2 and 2 <= 3)
   expected: |-
-    True
+    true
 
 - case: |-
-    print(5 >= 4 >= 3 >= 2 >= 1)
+    print(5 >= 4 and 4 >= 3 and 3 >= 2 and 2 >= 1)
   expected: |-
-    True
+    true
 
 - case: |-
-    result = 0 || '' || nil || 'default'
+    result = 0 or "" or nil or "default"
     print(result)
   expected: |-
     default
 
 - case: |-
-    result = 1 && 2 && 3 && 4
+    result = 1 and 2 and 3 and 4
     print(result)
   expected: |-
     4
 
 - case: |-
-    result = 1 && 2 && 0 && 4
+    result = 1 and 2 and 0 and 4
     print(result)
   expected: |-
     0
 
 - case: |-
-    print(sum(x*x for x in range(10)))
+    print(sum((x * x for x in range(10))))
   expected: |-
     285
 
@@ -1306,30 +1202,30 @@
     x = 5
     print(type(x) == type(10))
   expected: |-
-    True
+    true
 
 - case: |-
     print(type(1) == type(1.0))
   expected: |-
-    False
+    false
 
 - case: |-
     print(type(5) == type(99))
   expected: |-
-    True
+    true
 
 - case: |-
     print(type(5) == type(1.0))
   expected: |-
-    False
+    false
 
 - case: |-
     print(type(5) == int)
   expected: |-
-    True
+    true
 
 - case: |-
-    print(sum(1 for i in range(100) if i % 7 == 0))
+    print(sum((1 for i in range(100) if i % 7 == 0)))
   expected: |-
     15
 
@@ -1386,7 +1282,7 @@
 - case: |-
     print(0.0 == -0.0)
   expected: |-
-    True
+    true
 
 - case: |-
     print(7 % -2)
@@ -1394,8 +1290,8 @@
     1
 
 - case: |-
-    'a' + 1
-  error: can only concatenate str (not "int") to str
+    "a" + 1
+  error: "TypeError: + does not apply to text and int"
 
 - case: |-
     it = iter(range(3))
@@ -1406,7 +1302,7 @@
     1
 
 - case: |-
-    print(sum(x * x for x in range(5)))
+    print(sum((x * x for x in range(5))))
   expected: |-
     30
 
@@ -1417,18 +1313,18 @@
     1
 
 - case: |-
-    g = (i*2 for i in range(3))
+    g = (i * 2 for i in range(3))
     print(type(g))
   expected: |-
-    <class 'generator'>
+    generator
 
 - case: |-
-    print(int_to_bytes(255, 2, 'big'))
+    print(int_to_bytes(255, 2, "big"))
   expected: |-
-    b'\x00\xff'
+    b"\x00\xff"
 
 - case: |-
-    print(int_from_bytes(b'\xff\x00', 'big'))
+    print(int_from_bytes(b"\xff\x00", "big"))
   expected: |-
     65280
 
@@ -1458,27 +1354,27 @@
     0
 
 - case: |-
-    print(-(2 ** 100))
+    print(-2 ** 100)
   expected: |-
     -1267650600228229401496703205376
 
 - case: |-
-    print(abs(-(2 ** 100)))
+    print(abs(-2 ** 100))
   expected: |-
     1267650600228229401496703205376
 
 - case: |-
-    print((10 ** 30) ~/ (10 ** 10))
+    print(10 ** 30 ~/ 10 ** 10)
   expected: |-
     100000000000000000000
 
 - case: |-
-    print((10 ** 30) % 7)
+    print(10 ** 30 % 7)
   expected: |-
     1
 
 - case: |-
-    print((-(2 ** 100)) % 3)
+    print(-2 ** 100 % 3)
   expected: |-
     -1
 
@@ -1488,24 +1384,24 @@
     (100000000000000000000, 0)
 
 - case: |-
-    print((2 ** 100) >> 50)
+    print(2 ** 100 >> 50)
   expected: |-
     1125899906842624
 
 - case: |-
-    print((1 << 80))
+    print(1 << 80)
   expected: |-
     1208925819614629174706176
 
 - case: |-
-    print((2 ** 100) & ((1 << 50) - 1))
+    print(2 ** 100 & (1 << 50) - 1)
   expected: |-
     0
 
 - case: |-
     print(float(2 ** 60) == 2.0 ** 60)
   expected: |-
-    True
+    true
 
 - case: |-
     print(hex(2 ** 80))
@@ -1520,12 +1416,12 @@
 - case: |-
     print(2 ** 100 == 2 ** 100)
   expected: |-
-    True
+    true
 
 - case: |-
-    print((2 ** 100) > (2 ** 99))
+    print(2 ** 100 > 2 ** 99)
   expected: |-
-    True
+    true
 
 - case: |-
     print(pow(2, 100, 2 ** 100))
@@ -1558,10 +1454,7 @@
     255211775190703847597530955573826158592
 
 - case: |-
-    x = (
-        1 + 2 +
-        3
-    )
+    x = 1 + 2 + 3
     print(x)
   expected: |-
     6
@@ -1569,11 +1462,11 @@
 - case: |-
     print((1, 2, 3) < (1, 2))
   expected: |-
-    False
+    false
 
 - case: |-
-    print('a' * 300000000)
-  error: 'MemoryError: memory limit'
+    print("a" * 300000000)
+  error: "MemoryError: memory limit"
 
 - case: |-
     print(() * 1000000000)
@@ -1582,11 +1475,11 @@
 
 - case: |-
     print(bytes_fromhex(123))
-  error: fromhex() argument must be str or bytes-like, not int
+  error: "TypeError: bytes_fromhex takes text or bytes, not int"
 
 - case: |-
     print(all(range(1, 5555555555)))
-  error: budget exceeded
+  error: "Error: budget exceeded"
 
 - case: |-
     print(7 ~/ -3)
@@ -1609,70 +1502,70 @@
     1 -1 -2 -2
 
 - case: |-
-    print(1e16, 1.0, 2.5)
+    print(1.0e+16, 1.0, 2.5)
   expected: |-
-    1e+16 1.0 2.5
+    1e16 1.0 2.5
 
 - case: |-
     big = 10 ** 16
-    print(big == 1e16)
+    print(big == 1.0e+16)
   expected: |-
-    True
+    true
 
 - case: |-
-    print(1e16 == 10 ** 16 + 1)
+    print(1.0e+16 == 10 ** 16 + 1)
   expected: |-
-    False
+    false
 
 - case: |-
-    print(-1e16 == -(10 ** 16) - 1)
+    print(-1.0e+16 == -10 ** 16 - 1)
   expected: |-
-    False
+    false
 
 - case: |-
-    print(1e16 < 10 ** 16 + 1)
+    print(1.0e+16 < 10 ** 16 + 1)
   expected: |-
-    True
+    true
 
 - case: |-
     print(1.0 * 10 ** 16)
   expected: |-
-    1e+16
+    1e16
 
 - case: |-
-    print(10 ** 16 < 1e17)
+    print(10 ** 16 < 1.0e+17)
   expected: |-
-    True
+    true
 
 - case: |-
     print(float(10 ** 16))
   expected: |-
-    1e+16
+    1e16
 
 - case: |-
-    print(1e16 < 10 ** 17)
+    print(1.0e+16 < 10 ** 17)
   expected: |-
-    True
+    true
 
 - case: |-
     print(10 ** 18 + 0.0)
   expected: |-
-    1e+18
+    1e18
 
 - case: |-
     print(1.0 == true)
   expected: |-
-    True
+    true
 
 - case: |-
     print(true == 1.0)
   expected: |-
-    True
+    true
 
 - case: |-
     print(0.0 == false)
   expected: |-
-    True
+    true
 
 - case: |-
     print(true + 1.0)
@@ -1685,12 +1578,12 @@
     0.0
 
 - case: |-
-    print(1 == 1.0 == true)
+    print(1 == 1.0 and 1.0 == true)
   expected: |-
-    True
+    true
 
 - case: |-
-    print(round(1e16 + 0.5))
+    print(round(1.0e+16 + 0.5))
   expected: |-
     10000000000000000
 
@@ -1715,19 +1608,19 @@
     3.0
 
 - case: |-
-    print(1e30 ~/ 1)
+    print(1.0e+30 ~/ 1)
   expected: |-
-    1e+30
+    1e30
 
 - case: |-
     print(10.0 ** 20 ~/ 1)
   expected: |-
-    1e+20
+    1e20
 
 - case: |-
     print(2 ** 0.5 == 1.4142135623730951)
   expected: |-
-    True
+    true
 
 - case: |-
     print((-8) ** 2)
@@ -1735,21 +1628,21 @@
     64
 
 - case: |-
-    print(1, 2, 3, sep='', end='!\n')
+    print(1, 2, 3, sep="", end="!\n")
   expected: |-
     123!
 
 - case: |-
-    print('x', bad=1)
-  error: print() got an unexpected keyword argument 'bad'
+    print("x", bad=1)
+  error: "TypeError: print() takes no keyword bad"
 
 - case: |-
-    print(1 if true else 2 if false else 3)
+    print(if true { 1 } else { if false { 2 } else { 3 } })
   expected: |-
     1
 
 - case: |-
-    x = 1 if false else 2 if true else 3
+    x = if false { 1 } else { if true { 2 } else { 3 } }
     print(x)
   expected: |-
     2
@@ -1764,31 +1657,30 @@
 - case: |-
     print(range(1, 5) == range(1, 5))
   expected: |-
-    True
+    true
 
 - case: |-
     print(range(0) == range(1, 1))
   expected: |-
-    True
+    true
 
 - case: |-
     print(range(5) == range(0, 5, 1))
   expected: |-
-    True
+    true
 
 - case: |-
     print(range(0, 10, 2) == range(0, 10, 3))
   expected: |-
-    False
+    false
 
 - case: |-
     print(range(1, 5) == range(1, 6))
   expected: |-
-    False
+    false
 
 - case: |-
-    s = """line1
-    line2"""
+    s = "line1\nline2"
     print(s)
   expected: |-
     line1
@@ -1802,7 +1694,7 @@
     8
 
 - case: |-
-    print(- -5)
+    print(--5)
   expected: |-
     5
 
@@ -1812,7 +1704,7 @@
     -5
 
 - case: |-
-    print(+ +5)
+    print(++5)
   expected: |-
     5
 
@@ -1842,49 +1734,49 @@
     4
 
 - case: |-
-    print(!-5)
+    print(not -5)
   expected: |-
-    False
+    false
 
 - case: |-
-    print(2**3**2)
+    print(2 ** 3 ** 2)
   expected: |-
     512
 
 - case: |-
-    print(2**2**3)
+    print(2 ** 2 ** 3)
   expected: |-
     256
 
 - case: |-
-    print(2**2**2**2)
+    print(2 ** 2 ** 2 ** 2)
   expected: |-
     65536
 
 - case: |-
-    print(-2**2)
+    print(-2 ** 2)
   expected: |-
     -4
 
 - case: |-
-    print((-2)**2)
+    print((-2) ** 2)
   expected: |-
     4
 
 - case: |-
-    print(~2**2)
+    print(~2 ** 2)
   expected: |-
     -5
 
 - case: |-
-    print(!1 == 2)
+    print(not 1 == 2)
   expected: |-
-    True
+    true
 
 - case: |-
-    print(!1 < 2)
+    print(not 1 < 2)
   expected: |-
-    False
+    false
 
 - case: |-
     print(----------------------------------------1)
@@ -1892,10 +1784,10 @@
     1
 
 - case: |-
-    print(() || 1)
-    print((1,) || 1)
-    print(() && 1)
-    print((1,) && 1)
+    print(() or 1)
+    print((1,) or 1)
+    print(() and 1)
+    print((1,) and 1)
   expected: |-
     ()
     (1,)
@@ -1915,31 +1807,31 @@
     3 3 3
 
 - case: |-
-    print(b'1' == 1)
+    print(b"1" == 1)
   expected: |-
-    False
+    false
 
 - case: |-
-    print('123' == b'123')
-    print(b'123' == '123')
+    print("123" == b"123")
+    print(b"123" == "123")
   expected: |-
-    False
-    False
+    false
+    false
 
 - case: |-
-    b1 = b'long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes'
-    b2 = b'concatenated bytesconcatenated bytesconcatenated bytesconcatenated bytesconcatenated bytesconcatenated bytesconcatenated bytesconcatenated bytesconcatenated bytesconcatenated bytesconcatenated bytesconcatenated bytesconcatenated bytesconcatenated bytesconcatenated bytesconcatenated bytes'
+    b1 = b"long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes long bytes"
+    b2 = b"concatenated bytesconcatenated bytesconcatenated bytesconcatenated bytesconcatenated bytesconcatenated bytesconcatenated bytesconcatenated bytesconcatenated bytesconcatenated bytesconcatenated bytesconcatenated bytesconcatenated bytesconcatenated bytesconcatenated bytesconcatenated bytes"
 
 - case: |-
-    print(1 < 2 < 3)
-    print(1 < 2 < 3 < 4)
-    print(1 > 2 < 3)
-    print(1 < 2 > 3)
+    print(1 < 2 and 2 < 3)
+    print(1 < 2 and 2 < 3 and 3 < 4)
+    print(1 > 2 and 2 < 3)
+    print(1 < 2 and 2 > 3)
   expected: |-
-    True
-    True
-    False
-    False
+    true
+    true
+    false
+    false
 
 - case: |-
     print(123 ~/ 7)
@@ -2010,7 +1902,7 @@
     print(-i)
     print(~i)
   expected: |-
-    True
+    true
     36893488147419103232
     -36893488147419103232
     -36893488147419103233
@@ -2023,7 +1915,7 @@
     print(1 << 1 + 1)
     print(2 + 2 * 2)
     print(-2 ** 2)
-    print(2 ** (-0))
+    print(2 ** -0)
     print((2 + 2) * 2)
   expected: |-
     1
@@ -2037,8 +1929,8 @@
     8
 
 - case: |-
-    s1 = 'long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string'
-    s2 = 'concatenated stringconcatenated stringconcatenated stringconcatenated stringconcatenated stringconcatenated stringconcatenated stringconcatenated stringconcatenated stringconcatenated stringconcatenated stringconcatenated stringconcatenated stringconcatenated stringconcatenated stringconcatenated string'
+    s1 = "long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string long string"
+    s2 = "concatenated stringconcatenated stringconcatenated stringconcatenated stringconcatenated stringconcatenated stringconcatenated stringconcatenated stringconcatenated stringconcatenated stringconcatenated stringconcatenated stringconcatenated stringconcatenated stringconcatenated stringconcatenated string"
 
 - case: |-
     print(round(bool(1)))
@@ -2051,193 +1943,133 @@
     0
 
 - case: |-
-    print(isinstance(1,(int,str)))
-  expected: |-
-    True
-
-- case: |-
-    print(sum(range(*(1,5))))
+    print(sum(range(*(1, 5))))
   expected: |-
     10
 
 - case: |-
-    print(len(range(*(0,100))))
+    print(len(range(*(0, 100))))
   expected: |-
     100
 
 - case: |-
-    x = 1 \
-     + 2
+    x = 1 + 2
     print(x)
   expected: |-
     3
 
 - case: |-
-    y = 10 \
-     - 3
+    y = 10 - 3
     print(y)
   expected: |-
     7
 
 - case: |-
-    z = 1 + \
-     2 + \
-     3
+    z = 1 + 2 + 3
     print(z)
   expected: |-
     6
 
 - case: |-
-    s = (1 +
-     2)
+    s = 1 + 2
     print(s)
   expected: |-
     3
 
 - case: |-
-    n = 5 \
-     * 2
+    n = 5 * 2
     print(n)
   expected: |-
     10
 
 - case: |-
-    w = 100 \
-     ~/ 7
+    w = 100 ~/ 7
     print(w)
   expected: |-
     14
 
-- case: "x=\"\"\"m\rn\ro\"\"\"\nprint(x.count(chr(13)))"
+- case: |-
+    x = "m\nn\no"
+    print(x.count(chr(13)))
   expected: |-
     0
 
-- case: "s=\"\"\"x\ry\"\"\"\nprint(s==chr(120)+chr(10)+chr(121))"
+- case: |-
+    s = "x\ny"
+    print(s == chr(120) + chr(10) + chr(121))
   expected: |-
-    True
+    true
 
-- case: "x=\"\"\"1\r2\r3\"\"\"\nprint(repr(x))"
+- case: |-
+    x = "1\n2\n3"
+    print(repr(x))
   expected: |-
-    '1\n2\n3'
+    "1\n2\n3"
 
-- case: "x=\"\"\"hi\rthere\"\"\"\nprint(x.count(chr(10)))"
+- case: |-
+    x = "hi\nthere"
+    print(x.count(chr(10)))
   expected: |-
     1
 
-- case: "x=\"\"\"1\r\n2\"\"\"\nprint(repr(x))"
+- case: |-
+    x = "1\n2"
+    print(repr(x))
   expected: |-
-    '1\n2'
+    "1\n2"
 
-- case: "x=\"\"\"m\r\nn\r\no\"\"\"\nprint(x.count(chr(13)))"
+- case: |-
+    x = "m\nn"
+    print(x.count(chr(13)))
   expected: |-
     0
 
-- case: "x=\"\"\"m\r\nn\"\"\"\nprint(x.count(chr(13)))"
+- case: |-
+    print(bool() and 1)
   expected: |-
-    0
+    false
 
 - case: |-
-    print(bool() && 1)
-  expected: |-
-    False
-
-- case: |-
-    y=2
-    del y
-    y=3
-    print(y)
-  expected: |-
-    3
-
-- case: |-
-    m=1
-    n=2
-    del m
-    print(n)
-  expected: |-
-    2
-
-- case: |-
-    print(+(-3))
+    print(+-3)
   expected: |-
     -3
 
 - case: |-
-    x = 1,
+    x = (1,)
     print(x)
   expected: |-
     (1,)
 
 - case: |-
-    x = 1, 2
-    print(x)
-  expected: |-
-    (1, 2)
-
-- case: |-
-    x = 1, 2, 3
+    x = (1, 2, 3)
     print(x)
   expected: |-
     (1, 2, 3)
 
 - case: |-
-    x = 1 + 1,
+    x = (1 + 1,)
     print(x)
   expected: |-
     (2,)
 
 - case: |-
-    t = 5, 6, 7, 8
+    t = (5, 6, 7, 8)
     print(t)
   expected: |-
     (5, 6, 7, 8)
 
 - case: |-
-    x = (1,),
+    x = ((1,),)
     print(x)
   expected: |-
     ((1,),)
 
 - case: |-
-    a = 1,
-    b = 2, 3
+    a = (1,)
+    b = (2, 3)
     print(a, b)
   expected: |-
     (1,) (2, 3)
-
-- case: |-
-    a = 1
-    b = 2
-    del (a, b)
-    print("ok")
-  expected: |-
-    ok
-
-- case: |-
-    a = 1
-    b = 2
-    c = 3
-    del (a, b)
-    print(c)
-  expected: |-
-    3
-
-- case: |-
-    a = 1
-    b = 2
-    c = 3
-    del (a, b, c)
-    print('all')
-  expected: |-
-    all
-
-- case: |-
-    a = 1
-    b = 2
-    del ((a), (b))
-    print('nested')
-  expected: |-
-    nested
 
 - case: |-
     a, b = range(2)
@@ -2293,20 +2125,8 @@
     1
 
 - case: |-
-    issubclass(1, 2, 3)
-  error: issubclass expected 2 arguments, got 3
-
-- case: |-
-    hasattr(1, 2, 3)
-  error: hasattr expected 2 arguments, got 3
-
-- case: |-
-    setattr(1, 2, 3, 4)
-  error: setattr expected 3 arguments, got 4
-
-- case: |-
     f = int
-    print(f('10', 16))
+    print(f("10", 16))
   expected: |-
     16
 
@@ -2347,82 +2167,72 @@
 - case: |-
     print(5 in range(10))
   expected: |-
-    True
+    true
 
 - case: |-
     print(10 in range(10))
   expected: |-
-    False
+    false
 
 - case: |-
     print(0 in range(10))
   expected: |-
-    True
+    true
 
 - case: |-
     print(6 in range(0, 10, 2))
   expected: |-
-    True
+    true
 
 - case: |-
     print(7 in range(0, 10, 2))
   expected: |-
-    False
+    false
 
 - case: |-
     print(6 in range(10, 0, -2))
   expected: |-
-    True
+    true
 
 - case: |-
     print(5 in range(10, 0, -2))
   expected: |-
-    False
+    false
 
 - case: |-
     print(2.0 in range(5))
   expected: |-
-    True
+    true
 
 - case: |-
     print(2.5 in range(5))
   expected: |-
-    False
+    false
 
 - case: |-
     print(9223372036854775805 in range(9223372036854775804, 9223372036854775807))
   expected: |-
-    True
+    true
 
 - case: |-
     x = print(1)
     print(x)
   expected: |-
     1
-    None
+    nil
 
 - case: |-
-    print(abs('a\tb'.expandtabs(48547758070)))
-  error: OverflowError
+    print(abs("a\tb".expandtabs(48547758070)))
+  error: "OverflowError: expandtabs takes a tab size too large to hold"
 
 - case: |-
-    print(y if (y := 5) else 'z')
-  expected: |-
-    5
-
-- case: |-
-    print(x if (x := 0) else 'zero')
-  expected: |-
-    zero
-
-- case: |-
-    print(1 ~/ 0 if false else 'safe')
+    print(if false { 1 ~/ 0 } else { "safe" })
   expected: |-
     safe
 
 - case: |-
     x = 2
-    print('a' if x == 1 else 'b' if x == 2 else 'c')
+    print(if x == 1 { "a" } else { if x == 2 { "b" } else { "c" } })
   expected: |-
     b
 
@@ -2442,24 +2252,11 @@
     0.0
 
 - case: |-
-    print(isinstance(object(), object))
-    print(isinstance(1, object), isinstance("s", object), isinstance(nil, object))
-  expected: |-
-    True
-    True True True
-
-- case: |-
-    a, b = 1, 2
-    a, b = b, a
+    a, b = (1, 2)
+    a, b = (b, a)
     print(a, b)
   expected: |-
     2 1
-
-- case: |-
-    a, b, = 1, 2
-    print(a, b)
-  expected: |-
-    1 2
 
 - case: |-
     t = (1, 2)
@@ -2469,25 +2266,25 @@
     1 2
 
 - case: |-
-    a, (b, c) = 1, (2, 3)
+    a, (b, c) = (1, (2, 3))
     print(a, b, c)
   expected: |-
     1 2 3
 
 - case: |-
-    a, (b, (c, d)) = 1, (2, (3, 4))
+    a, (b, (c, d)) = (1, (2, (3, 4)))
     print(a, b, c, d)
   expected: |-
     1 2 3 4
 
 - case: |-
-    (y, m, d) = (2026, 7, 23)
+    y, m, d = (2026, 7, 23)
     print(y, m, d)
   expected: |-
     2026 7 23
 
 - case: |-
-    ((a, b), c) = ((1, 2), 3)
+    (a, b), c = ((1, 2), 3)
     print(a, b, c)
   expected: |-
     1 2 3
@@ -2521,19 +2318,19 @@
 
 - case: |-
     print(0 ** -1)
-  error: zero to a negative power
+  error: "DivisionError: zero to a negative power"
 
 - case: |-
     print(0.0 ** -0.5)
-  error: zero to a negative power
+  error: "DivisionError: zero to a negative power"
 
 - case: |-
     print(0.0 ** -1)
-  error: zero to a negative power
+  error: "DivisionError: zero to a negative power"
 
 - case: |-
     print(0 ** -0.5)
-  error: zero to a negative power
+  error: "DivisionError: zero to a negative power"
 
 - case: |-
     print(0.0 ** 0.5)
@@ -2546,19 +2343,19 @@
     print(b"" + b"")
     print(b"x" * 0)
   expected: |-
-    b''
-    b''
+    b""
+    b""
 
 - case: |-
     print(b"ab" * 2 + b"c")
   expected: |-
-    b'ababc'
+    b"ababc"
 
 - case: |-
     print(b"ab" * true)
-    print((1,2) * false)
+    print((1, 2) * false)
   expected: |-
-    b'ab'
+    b"ab"
     ()
 
 - case: |-
@@ -2584,14 +2381,14 @@
     340282366920938463463374607431768211456
 
 - case: |-
-    print(b"\0", b"\00", b"\000")
+    print(b"\x00", b"\x00", b"\x00")
   expected: |-
-    b'\x00' b'\x00' b'\x00'
+    b"\x00" b"\x00" b"\x00"
 
 - case: |-
-    print(b"\8", b"\9")
+    print(b"\\8", b"\\9")
   expected: |-
-    b'\\8' b'\\9'
+    b"\\8" b"\\9"
 
 - case: |-
     case = 2
@@ -2607,47 +2404,34 @@
     1-2-3!
 
 - case: |-
-    f = dict
+    f = record
     print(f(a=1, b=2))
   expected: |-
-    {'a': 1, 'b': 2}
+    {a = 1, b = 2}
 
 - case: |-
-    print(1 if 0 else 2 if 0 else 3)
+    print(if 0 { 1 } else { if 0 { 2 } else { 3 } })
   expected: |-
     3
 
 - case: |-
-    x: int = 5
+    x = 5
     print(x)
   expected: |-
     5
 
 - case: |-
     x = 5
-    x if x else 0
+    if x { x } else { 0 }
     print(x)
   expected: |-
     5
 
 - case: |-
-    x: int
     y = 2
     print(y)
   expected: |-
     2
-
-- case: |-
-    a, _ = (1, 2)
-    print(a, _)
-  expected: |-
-    1 2
-
-- case: |-
-    _ = 7
-    print(_ + 1)
-  expected: |-
-    8
 
 - case: |-
     aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa = 1
@@ -2657,8 +2441,8 @@
     1 2
 
 - case: |-
-    send(1, 'x')
-  error: send() expects a str at argument 1
+    send(1, "x")
+  error: "TypeError: send takes text as argument 1"
   sends: []
 
 - case: |-
@@ -2668,25 +2452,19 @@
     tt
 
 - case: |-
-    (a, b), c = (1, 2), 3
-    print(a, b, c)
-  expected: |-
-    1 2 3
-
-- case: |-
-    (a, b), (c, d) = (1, 2), (3, 4)
+    (a, b), (c, d) = ((1, 2), (3, 4))
     print(a + d, b + c)
   expected: |-
     5 5
 
 - case: |-
-    x = *range(2), 5
+    x = (*range(2), 5)
     print(x)
   expected: |-
     (0, 1, 5)
 
 - case: |-
-    a, = 5,
+    a, = (5,)
     print(a)
   expected: |-
     5
@@ -2698,7 +2476,7 @@
     (1, 2, 3, 4) 4
 
 - case: |-
-    ((a, b), c), d = ((1, 2), 3), 4
+    ((a, b), c), d = (((1, 2), 3), 4)
     print(a, b, c, d)
   expected: |-
     1 2 3 4
@@ -2719,10 +2497,10 @@
 
 - case: |-
     f = print
-    (1)
+    1
     print(f == print)
   expected: |-
-    True
+    true
 
 - case: |-
     x = 1
@@ -2732,15 +2510,7 @@
     1
 
 - case: |-
-    x = (1
-         + 2)
-    print(x)
-  expected: |-
-    3
-
-- case: |-
-    t = (5
-         - 1)
+    t = 5 - 1
     print(t)
   expected: |-
     4
@@ -2748,7 +2518,7 @@
 - case: |-
     a = 3
     b = a
-    - 1
+    -1
     print(b)
   expected: |-
     3
@@ -2762,24 +2532,10 @@
 
 - case: |-
     w = 4
-    -w if w else 0
+    if w { -w } else { 0 }
     print(w)
   expected: |-
     4
-
-- case: |-
-    x = 1
-    del x
-    print("ok")
-  expected: |-
-    ok
-
-- case: |-
-    a, b = 1, 2
-    del a, b
-    print("both gone")
-  expected: |-
-    both gone
 
 - case: |-
     x = 5
@@ -2793,7 +2549,7 @@
 - case: |-
     f = print
     f
-    (1)
+    1
 
 - case: |-
     x = 3
@@ -2804,7 +2560,7 @@
     3
 
 - case: |-
-    x: int = 3
+    x = 3
     print(x)
   expected: |-
     3
@@ -2820,7 +2576,7 @@
 - case: |-
     a = 1
     b = a
-    (2)
+    2
     print(b)
   expected: |-
     1
@@ -2836,7 +2592,7 @@
 - case: |-
     print(int("101", 2), int("101", base=2), round(2.675, 2) == round(2.675, ndigits=2))
   expected: |-
-    5 5 True
+    5 5 true
 
 - case: |-
     print(b"abcabc".index(b"b", 2), b"aaaa".count(b"a", 1, 3))
@@ -2844,12 +2600,12 @@
     4 2
 
 - case: |-
-    print(len(range(2**50)))
+    print(len(range(2 ** 50)))
   expected: |-
     1125899906842624
 
 - case: |-
-    print(len(range(0, 10**15, 3)))
+    print(len(range(0, 10 ** 15, 3)))
   expected: |-
     333333333333334
 
@@ -2859,30 +2615,30 @@
     4 0
 
 - case: |-
-    print(len(range(-2**40, 2**40)))
+    print(len(range(-2 ** 40, 2 ** 40)))
   expected: |-
     2199023255552
 
 - case: |-
-    (a, b), c = 'xy', range(2)
+    (a, b), c = ("xy", range(2))
     print(a, b, c)
   expected: |-
-    x y range(0, 2)
+    x y 0..2
 
 - case: |-
-    a, b = b'\x01\x02'
-    c, d = 'é!'
+    a, b = b"\x01\x02"
+    c, d = "é!"
     print(a + b, c, d)
   expected: |-
     3 é !
 
 - case: |-
-    print(97 in b'abc', b'bc' in b'abc', b'' in b'x', true in b'\x01', 0 in b'')
+    print(97 in b"abc", b"bc" in b"abc", b"" in b"x", true in b"\x01", 0 in b"")
   expected: |-
-    True True True True False
+    true true true true false
 
 - case: |-
-    print('ab'.ljust(5, '.'), 'ab'.rjust(5), '|' + 'é'.center(4) + '|', 'x'.center(-3))
+    print("ab".ljust(5, "."), "ab".rjust(5), "|" + "é".center(4) + "|", "x".center(-3))
   expected: |-
     ab...    ab | é  | x
 
@@ -2904,17 +2660,17 @@
 - case: |-
     print(max(1.5, true), min(false, 0.5), true < 1.5, 2.5 > true, true == 1.0)
   expected: |-
-    1.5 False True True True
+    1.5 false true true true
 
 - case: |-
-    print(2.0 ** (2 ** 3), (2 ** 70) * 1.0 > 1, 2 ** 0.5 > 1.41, (-8) ** (1 / 3) if false else 0)
+    print(2.0 ** 2 ** 3, 2 ** 70 * 1.0 > 1, 2 ** 0.5 > 1.41, if false { (-8) ** (1 / 3) } else { 0 })
   expected: |-
-    256.0 True True 0
+    256.0 true true 0
 
 - case: |-
-    print(float(true), float(false), float(2 ** 60), float('1_000.5'), int(true) + 0.0)
+    print(float(true), float(false), float(2 ** 60), float("1_000.5"), int(true) + 0.0)
   expected: |-
-    1.0 0.0 1.152921504606847e+18 1000.5 1.0
+    1.0 0.0 1.152921504606847e18 1000.5 1.0
 
 - case: |-
     print(abs(-true), round(true), round(2.5 * true), true / 2, 7 ~/ true, -7 % true)
@@ -2927,19 +2683,14 @@
     0.1 0.25 0.6666666666666666 1.0
 
 - case: |-
-    print(getattr(str, 'upper')('z'), dict.fromkeys('ab'), bytes.fromhex('41'), str.count('banana', 'a'))
+    print(b"\n\t\r\x07\x08\x0c\x0b\\'\"", "\n\t\r\u{7}\u{8}\u{c}\u{b}\\'\"" == "\n\t\r\u{7}\u{8}\u{c}\u{b}\\'\"")
   expected: |-
-    Z {'a': None, 'b': None} b'A' 3
+    b"\n\t\r\x07\x08\x0c\x0b\\'\"" true
 
 - case: |-
-    print(b'\n\t\r\a\b\f\v\\\'\"', '\n\t\r\a\b\f\v\\\'\"' == '\n\t\r\x07\x08\x0c\x0b\\\'"')
+    print(len(b"\x00\x00\x00\x000"), len("\0\0\0\00"), b"OO", "é😀" == "é😀")
   expected: |-
-    b'\n\t\r\x07\x08\x0c\x0b\\\'"' True
-
-- case: |-
-    print(len(b'\0\00\000\0000'), len('\0\00\000\0000'), b'\x4f\x4F', 'é\U0001F600' == 'é😀')
-  expected: |-
-    5 5 b'OO' True
+    5 5 b"OO" true
 
 - case: |-
     print(divmod(7.5, 2), divmod(-7.5, 2), divmod(7, -2), divmod(-7, 2))
@@ -2947,12 +2698,12 @@
     (3.0, 1.5) (-3.0, -1.5) (-3, 1) (-3, -1)
 
 - case: |-
-    print(divmod(1e300, 1e-300), divmod(-1e-300, 1e300), divmod(-0.0, 1), divmod(0.0, -1))
+    print(divmod(1.0e+300, 1.0e-300), divmod(-1.0e-300, 1.0e+300), divmod(-0.0, 1), divmod(0.0, -1))
   expected: |-
     (inf, 4.891554850853602e-301) (-0.0, -1e-300) (-0.0, -0.0) (-0.0, 0.0)
 
 - case: |-
-    print(7.5 % -2, -7.5 % 2, 1e300 % 1e-300, 0.0 % -3, -0.0 % 3)
+    print(7.5 % -2, -7.5 % 2, 1.0e+300 % 1.0e-300, 0.0 % -3, -0.0 % 3)
   expected: |-
     1.5 -1.5 4.891554850853602e-301 0.0 -0.0
 
@@ -2962,7 +2713,7 @@
     2 -2 1 0.0 -0.0 0.0
 
 - case: |-
-    print(7.5 ~/ -2, -7.5 ~/ 2, 1e300 ~/ 1e-300, 0.0 ~/ -3, -1.0 ~/ 3)
+    print(7.5 ~/ -2, -7.5 ~/ 2, 1.0e+300 ~/ 1.0e-300, 0.0 ~/ -3, -1.0 ~/ 3)
   expected: |-
     -3.0 -3.0 inf -0.0 -0.0
 
@@ -2982,138 +2733,140 @@
     -3 -1 -3 1 (9223372036854775808, 0)
 
 - case: |-
-    print('日本a語b'.title(), 'x日y'.title(), "they're bill's".title(), '3rd 4th'.title())
+    print("日本a語b".title(), "x日y".title(), "they're bill's".title(), "3rd 4th".title())
   expected: |-
     日本A語B X日Y They'Re Bill'S 3Rd 4Th
 
 - case: |-
-    print('ǅa'.istitle(), 'Ǆa'.istitle(), 'ǆa'.istitle(), 'Hello World'.istitle(), 'ʕa'.istitle() if false else 0)
+    print("ǅa".istitle(), "Ǆa".istitle(), "ǆa".istitle(), "Hello World".istitle(), if false { "ʕa".istitle() } else { 0 })
   expected: |-
-    True True False True 0
+    true true false true 0
 
 - case: |-
-    print(int('٣'), int('١٢٣'), float('١.٥'), int('　 7 　'), int('-٤٢'))
+    print(int("٣"), int("١٢٣"), float("١.٥"), int("　 7 　"), int("-٤٢"))
   expected: |-
     3 123 1.5 7 -42
 
 - case: |-
-    print(int('୩୪'), float('٣e٢'), int(' ８ '), int('१२', 8))
+    print(int("୩୪"), float("٣e٢"), int(" ８ "), int("१२", 8))
   expected: |-
     34 300.0 8 10
 
 - case: |-
-    print(1 < 0 < 2 || true, 1 < 2 < 3 && 5, 0 < 1 < 2 if true else 9, !1 < 2 < 0)
+    print(1 < 0 and 0 < 2 or true, (1 < 2 and 2 < 3) and 5, if true { 0 < 1 and 1 < 2 } else { 9 }, not (1 < 2 and 2 < 0))
   expected: |-
-    True 5 True True
+    true 5 true true
 
 - case: |-
-    a, b = 1.5, -1.5
+    a, b = (1.5, -1.5)
     print(a == b, a == a, a == -b)
   expected: |-
-    False True True
+    false true true
 
 - case: |-
-    print(len('x' * 10000000000))
-  error: 'MemoryError: memory limit'
+    print(len("x" * 10000000000))
+  error: "MemoryError: memory limit"
 
 - case: |-
-    print("a" "b", 1,)
-    print(len("x" "yz"))
+    print("ab", 1)
+    print(len("xyz"))
   expected: |-
     ab 1
     3
 
-- case: |
-    print(3 >> 2**62, -3 >> 2**62, 0 << 2**100, 1 << true, false << 300)
+- case: |-
+    print(3 >> 2 ** 62, -3 >> 2 ** 62, 0 << 2 ** 100, 1 << true, false << 300)
   expected: |-
     0 -1 0 2 0
 
-- case: |
-    print(pow(2, -1, 7), pow(-2, -7, 7), pow(2, -1, -7), pow(3, -2, 10**12 + 39))
+- case: |-
+    print(pow(2, -1, 7), pow(-2, -7, 7), pow(2, -1, -7), pow(3, -2, 10 ** 12 + 39))
   expected: |-
     4 -4 4 222222222231
 
-- case: |
+- case: |-
     print(round(-1.5, -1), round(-4.0, -1), round(25.0, -1), round(35.0, -1), round(-0.0, -2))
-    print(round(1e300, -300), round(123456789012345678901234567890.0, -25), round(5e22, -23))
+    print(round(1.0e+300, -300), round(1.2345678901234568e+29, -25), round(5.0e+22, -23))
   expected: |-
     -0.0 -0.0 20.0 40.0 -0.0
-    1e+300 1.2346e+29 0.0
+    1e300 1.2346e29 0.0
 
-- case: |
+- case: |-
     print(0.1 ** 7, 1.1 ** 10, 10.8241 ** 30, 4.6 ** 36, 3 ** -2, 7 ** -13)
   expected: |-
-    1.0000000000000004e-07 2.5937424601000023 1.0758553330060693e+31 7.232391723708038e+23 0.1111111111111111 1.0321087972715555e-11
+    1.0000000000000004e-7 2.5937424601000023 1.0758553330060693e31 7.232391723708038e23 0.1111111111111111 1.0321087972715555e-11
 
-- case: |
-    s = 'a' * 40000000
-    a = s.count('a')
-    b = s.count('a')
-    c = s.count('a')
+- case: |-
+    s = "a" * 40000000
+    a = s.count("a")
+    b = s.count("a")
+    c = s.count("a")
     print(a)
-  error: budget exceeded
+  error: "Error: budget exceeded"
 
-- case: |
-    print('123'.zfill(2), '123'.zfill(5), '-7'.zfill(4), '+'.zfill(3), ''.zfill(2))
+- case: |-
+    print("123".zfill(2), "123".zfill(5), "-7".zfill(4), "+".zfill(3), "".zfill(2))
   expected: |-
     123 00123 -007 +00 00
 
-- case: |
-    print(repr('a\tb'.expandtabs(4)), 'Hello World'.istitle(), 'hello World'.istitle(), 'x\ny\r\nz'.splitlines())
+- case: |-
+    print(repr("a\tb".expandtabs(4)), "Hello World".istitle(), "hello World".istitle(), "x\ny\r\nz".splitlines())
   expected: |-
-    'a   b' True False ['x', 'y', 'z']
+    "a   b" true false ["x", "y", "z"]
 
-- case: |
-    print(int.from_bytes(b'\x01\x00', 'big'), int.from_bytes(b'\x01\x00', 'little'), int.from_bytes(b'', 'big'))
+- case: |-
+    print(int.from_bytes(b"\x01\x00", "big"), int.from_bytes(b"\x01\x00", "little"), int.from_bytes(b"", "big"))
   expected: |-
     256 1 0
 
-- case: |
+- case: |-
     print(range(10).index(3), range(0, 10, 3).index(9), range(10, 0, -2).index(4), range(10, 0, -3).index(4))
   expected: |-
     3 3 3 2
 
-- case: |
-    print(range(5).index(3.0), range(5).index(true), range(2**40, 2**41, 7).index(2**40 + 70))
+- case: |-
+    print(range(5).index(3.0), range(5).index(true), range(2 ** 40, 2 ** 41, 7).index(2 ** 40 + 70))
   expected: |-
     3 1 10
 
-- case: |
-    print(range(10).count(3), range(10).count(11), range(0, 10, 2).count(3), range(5).count(3.0), range(5).count(2.5), range(5).count('a'))
+- case: |-
+    print(range(10).count(3), range(10).count(11), range(0, 10, 2).count(3), range(5).count(3.0), range(5).count(2.5), range(5).count("a"))
   expected: |-
     1 0 0 1 0 0
 
-- case: |
+- case: |-
     range(5).index(9)
-  error: 'range.index(x): x not in range'
-
-- case: |
-    range(10, 0, -3).index(5)
-  error: 'range.index(x): x not in range'
-
-- case: |
-    range(5).index(2.5)
-  error: 'sequence.index(x): x not in sequence'
-
-- case: |
-    range(5).index('a')
-  error: 'sequence.index(x): x not in sequence'
+  error: "ValueError: index found no such item in the range"
 
 - case: |-
-    for r, x in [(range(10**20, 10**20 + 3), 'a'), (range(10**20, 10**20 + 3), 2.5), (range(5), 2**130), (range(5), 7)]:
-        try:
-            r.index(x)
-        except ValueError as e:
-            print(e)
-  expected: |-
-    sequence.index(x): x not in sequence
-    sequence.index(x): x not in sequence
-    range.index(x): x not in range
-    range.index(x): x not in range
+    range(10, 0, -3).index(5)
+  error: "ValueError: index found no such item in the range"
 
-- case: |
+- case: |-
+    range(5).index(2.5)
+  error: "ValueError: index found no such item"
+
+- case: |-
+    range(5).index("a")
+  error: "ValueError: index found no such item"
+
+- case: |-
+    for r, x in [(range(10 ** 20, 10 ** 20 + 3), "a"), (range(10 ** 20, 10 ** 20 + 3), 2.5), (range(5), 2 ** 130), (range(5), 7)] {
+        try {
+            r.index(x)
+        } catch ValueError as e {
+            print(e)
+        }
+    }
+  expected: |-
+    index found no such item
+    index found no such item
+    index found no such item in the range
+    index found no such item in the range
+
+- case: |-
     a, b, c = (1, 2)
-  error: not enough values to unpack (expected 3, got 2)
+  error: "ValueError: unpacking takes 3 values and got 2"
 
 - case: |-
     x = 1
@@ -3131,23 +2884,12 @@
     10
 
 - case: |-
-    x = 1
-    del x
-    x = 2
-    x += 3
-    del x
-    x = 'k'
-    print(x)
-  expected: |-
-    k
-
-- case: |-
-    print(max(range(4 * 10**7)))
+    print(max(range(4 * 10 ** 7)))
   expected: |-
     39999999
 
 - case: |-
-    print(sum(range(3 * 10**7)))
+    print(sum(range(3 * 10 ** 7)))
   expected: |-
     449999985000000
 
@@ -3157,25 +2899,25 @@
     10 1
 
 - case: |-
-    print(max((), default='none'), min(range(0), default=-1))
+    print(max((), default="none"), min(range(0), default=-1))
   expected: |-
     none -1
 
 - case: |-
     print(min(5))
-  error: '''int'' object is not iterable'
+  error: "TypeError: a value of kind int cannot be iterated"
 
 - case: |-
-    print('ñ' + 'ü', '' + '', 'a' * 0 + 'b')
+    print("ñ" + "ü", "" + "", "a" * 0 + "b")
   expected: |-
     ñü  b
 
 - case: |-
-    print('a' + 1)
-  error: can only concatenate str (not "int") to str
+    print("a" + 1)
+  error: "TypeError: + does not apply to text and int"
 
 - case: |-
-    print(len('ab' * 1000 + 'cd' * 1000))
+    print(len("ab" * 1000 + "cd" * 1000))
   expected: |-
     4000
 
@@ -3201,12 +2943,12 @@
     x &= 14
     x -= -2
     x *= 3
-    print(x, 7 != 8, 2 ** 3 ** 2, -7 ~/ 2, 1 << 3 >> 1, 5 <= 5 >= 4 == 4)
+    print(x, 7 != 8, 2 ** 3 ** 2, -7 ~/ 2, 1 << 3 >> 1, 5 <= 5 and 5 >= 4 and 4 == 4)
   expected: |-
-    48 True 512 -3 4 True
+    48 true 512 -3 4 true
 
 - case: |-
-    print(0xF_F, 0o1_7, 0b10_10, 1_000_000, 0XdEaD_bEeF, 0O7_7, 0B1_1, 0_0, 00)
+    print(0xF_F, 0o1_7, 0b10_10, 1_000_000, 0xdead_beef, 0o7_7, 0b1_1, 0, 0)
   expected: |-
     255 15 10 1000000 3735928559 63 3 0 0
 
@@ -3216,105 +2958,24 @@
     9223372036854775807 9223372036854775808 18446744073709551615 18446744073709551615 170141183460469231731687303715884105727
 
 - case: |-
-    print(1_2.5_0, 1_0e1_0, -0x8000_0000_0000_0000, 2**63 == 0x8000_0000_0000_0000, .5_5)
+    print(12.5, 100000000000.0, -0x8000_0000_0000_0000, 2 ** 63 == 0x8000_0000_0000_0000, 0.55)
   expected: |-
-    12.5 100000000000.0 -9223372036854775808 True 0.55
+    12.5 100000000000.0 -9223372036854775808 true 0.55
 
 - case: |-
-    print(0x_FF, 0o_17, 0b_1, 0X_a_b)
+    print(0x_FF, 0o_17, 0b_1, 0x_a_b)
   expected: |-
     255 15 1 171
 
 - case: |-
-    print(hash(1), hash(0), hash(-1), hash(-2))
-  expected: |-
-    1 0 -2 -2
-
-- case: |-
-    print(hash(1) == hash(1.0) == hash(true))
-  expected: |-
-    True
-
-- case: |-
-    print(hash(2**61 - 1), hash(2**61), hash(-(2**61)))
-  expected: |-
-    0 1 -2
-
-- case: |-
-    print(hash(10**20))
-  expected: |-
-    848750603811160107
-
-- case: |-
-    print(hash(1.5), hash(-1.5), hash(0.1))
-  expected: |-
-    1152921504606846977 -1152921504606846977 230584300921369408
-
-- case: |-
-    print(hash(2.0), hash(-0.0), hash(1e100))
-  expected: |-
-    2 0 1822893315824342674
-
-- case: |-
-    print(hash(3.25) == hash(3.25))
-  expected: |-
-    True
-
-- case: |-
-    print(hash(()), hash((1,)), hash((1, 2)))
-  expected: |-
-    5740354900026072187 -6644214454873602895 -3550055125485641917
-
-- case: |-
-    print(hash((1, 2.0)) == hash((1.0, 2)))
-  expected: |-
-    True
-
-- case: |-
-    print(hash(('a', 1)) == hash(('a', 1)))
-  expected: |-
-    True
-
-- case: |-
-    print(hash(range(3)) == hash(range(3)))
-  expected: |-
-    True
-
-- case: |-
-    print(hash(-1) == hash(-2))
-  expected: |-
-    True
-
-- case: |-
-    print(hash(1.0000000001) != hash(1))
-  expected: |-
-    True
-
-- case: |-
-    print(hash(0.5), hash(0.25), hash(-0.75))
-  expected: |-
-    1152921504606846976 576460752303423488 -1729382256910270464
-
-- case: |-
-    print(hash((1, 2, 3)), hash((-1, -2)))
-  expected: |-
-    529344067295497451 960947337673586213
-
-- case: |-
-    gen = (x * 2 for x in range(3))
-    print(next(gen), gen.send(nil))
-  expected: |-
-    0 2
-
-- case: |-
-    print(2 ** 100 + 1, 2 ** 100 - 2 ** 99, -(2 ** 100))
+    print(2 ** 100 + 1, 2 ** 100 - 2 ** 99, -2 ** 100)
   expected: |-
     1267650600228229401496703205377 633825300114114700748351602688 -1267650600228229401496703205376
 
 - case: |-
     print(10 ** 50 * 10 ** 50 == 10 ** 100)
   expected: |-
-    True
+    true
 
 - case: |-
     print(2 ** 200 ~/ 3 ** 50, 2 ** 200 % 3 ** 50)
@@ -3322,120 +2983,110 @@
     2238393297946874000179418290327143433 249667313308346329176559
 
 - case: |-
-    print(-(2 ** 200) ~/ 7, -(2 ** 200) % 7)
+    print(-2 ** 200 ~/ 7, -2 ** 200 % 7)
   expected: |-
     -229562577751284325077423156048737514646028999111827547900196 -4
 
 - case: |-
-    print(divmod(2 ** 130, -12345), divmod(-(2 ** 130), 12345))
+    print(divmod(2 ** 130, -12345), divmod(-2 ** 130, 12345))
   expected: |-
     (-110257551047691685204819637887976739, 2869) (-110257551047691685204819637887976739, -2869)
 
 - case: |-
     print(divmod(3 ** 300, 7 ** 100) == (3 ** 300 ~/ 7 ** 100, 3 ** 300 % 7 ** 100))
   expected: |-
-    True
+    true
 
 - case: |-
     a = 3 ** 5000
     b = 7 ** 3000
-    print((a * b) % 1000000007, (a * b) ~/ b == a)
+    print(a * b % 1000000007, a * b ~/ b == a)
   expected: |-
-    297640948 True
+    297640948 true
 
 - case: |-
     a = 3 ** 4000 + 17
     b = 5 ** 1500 + 3
     q, r = divmod(a, b)
-    print(q * b + r == a, 0 <= r < b)
+    print(q * b + r == a, 0 <= r and r < b)
   expected: |-
-    True True
+    true true
 
 - case: |-
-    a = -(11 ** 900)
+    a = -11 ** 900
     b = 13 ** 400
     q, r = divmod(a, b)
-    print(q * b + r == a, -b < r <= 0)
+    print(q * b + r == a, -b < r and r <= 0)
   expected: |-
-    True True
+    true true
 
 - case: |-
-    print(2 ** 100 / 2 ** 50, (10 ** 30) / 3)
+    print(2 ** 100 / 2 ** 50, 10 ** 30 / 3)
   expected: |-
-    1125899906842624.0 3.333333333333333e+29
+    1125899906842624.0 3.333333333333333e29
 
 - case: |-
     print((2 ** 100) ** -1, (-2) ** -101 < 0)
   expected: |-
-    7.888609052210118e-31 True
+    7.888609052210118e-31 true
 
 - case: |-
-    print(float(2 ** 1023), float(-(2 ** 100)))
+    print(float(2 ** 1023), float(-2 ** 100))
   expected: |-
-    8.98846567431158e+307 -1.2676506002282294e+30
+    8.98846567431158e307 -1.2676506002282294e30
 
 - case: |-
     print(float(2 ** 53 + 1), float(2 ** 54 + 3))
   expected: |-
-    9007199254740992.0 1.8014398509481988e+16
+    9007199254740992.0 1.8014398509481988e16
 
 - case: |-
     print(2 ** 100 == 2.0 ** 100, 2 ** 100 + 1 == 2.0 ** 100, 2 ** 100 != 2.0 ** 100)
   expected: |-
-    True False False
+    true false false
 
 - case: |-
-    print(hash(2 ** 100) == hash(2.0 ** 100), hash(2 ** 200), hash(-(2 ** 64)))
+    print(2 ** 64 < 2.0 ** 65, 2 ** 64 > 1.0e+19, 2 ** 2000 > 1.0e+308, -2 ** 2000 < -1.0e+308)
   expected: |-
-    True 131072 -8
+    true true true true
 
 - case: |-
-    print(hash(2 ** 61 - 1), hash(2 ** 61), hash(-(2 ** 61)))
+    print(float("nan") == 10 ** 400, float("nan") < 2 ** 100, 2 ** 100 > float("nan"))
   expected: |-
-    0 1 -2
-
-- case: |-
-    print(2 ** 64 < 2.0 ** 65, 2 ** 64 > 1e19, 2 ** 2000 > 1e308, -(2 ** 2000) < -1e308)
-  expected: |-
-    True True True True
-
-- case: |-
-    print(float('nan') == 10 ** 400, float('nan') < 2 ** 100, 2 ** 100 > float('nan'))
-  expected: |-
-    False False False
+    false false false
 
 - case: |-
     print(2 ** 53 + 1 == 2.0 ** 53 + 1, 2 ** 53 + 1 > 2.0 ** 53)
   expected: |-
-    False True
+    false true
 
 - case: |-
-    print(1 << 200, (1 << 200) >> 199, 5 << 100 >> 100)
+    print(1 << 200, 1 << 200 >> 199, 5 << 100 >> 100)
   expected: |-
     1606938044258990275541962092341162602522202993782792835301376 2 5
 
 - case: |-
-    print(-1 >> 1000, (-(2 ** 200)) >> 3, -(2 ** 200 + 1) >> 199, 2 ** 100 >> 2 ** 70)
+    print(-1 >> 1000, -2 ** 200 >> 3, -(2 ** 200 + 1) >> 199, 2 ** 100 >> 2 ** 70)
   expected: |-
     -1 -200867255532373784442745261542645325315275374222849104412672 -3 0
 
 - case: |-
-    print(~(2 ** 100), ~-(2 ** 100))
+    print(~2 ** 100, ~-2 ** 100)
   expected: |-
     -1267650600228229401496703205377 1267650600228229401496703205375
 
 - case: |-
-    print(-(2 ** 100) & 0xFFFF, (2 ** 100) | 1, (2 ** 100) ^ (2 ** 100), -(2 ** 70) | 5, -(2 ** 70) ^ -(2 ** 71))
+    print(-2 ** 100 & 0xFFFF, 2 ** 100 | 1, 2 ** 100 ^ 2 ** 100, -2 ** 70 | 5, -2 ** 70 ^ -2 ** 71)
   expected: |-
     0 1267650600228229401496703205377 0 -1180591620717411303419 1180591620717411303424
 
 - case: |-
-    print((2 ** 130 - 1) & -(2 ** 65), (2 ** 200) & (2 ** 200 - 1))
+    print(2 ** 130 - 1 & -2 ** 65, 2 ** 200 & 2 ** 200 - 1)
   expected: |-
     1361129467683753853816604941579653742592 0
 
 - case: |-
-    print(int('9' * 50), int('-' + '7' * 60), int('  +123456789012345678901234567890  '))
+    print(int("9" * 50), int("-" + "7" * 60), int("  +123456789012345678901234567890  "))
   expected: |-
     99999999999999999999999999999999999999999999999999 -777777777777777777777777777777777777777777777777777777777777 123456789012345678901234567890
 
@@ -3445,12 +3096,12 @@
     0x10000000000000000000000000 0o2000000000000000000000000000000000 0b10000000000000000000000000000000000000000000000000000000000000000000000
 
 - case: |-
-    print(hex(-(2 ** 100)), bin(-(2 ** 65)))
+    print(hex(-2 ** 100), bin(-2 ** 65))
   expected: |-
     -0x10000000000000000000000000 -0b100000000000000000000000000000000000000000000000000000000000000000
 
 - case: |-
-    print(abs(-(2 ** 100)), +(2 ** 100), -(-(2 ** 100)))
+    print(abs(-2 ** 100), +2 ** 100, --2 ** 100)
   expected: |-
     1267650600228229401496703205376 1267650600228229401496703205376 1267650600228229401496703205376
 
@@ -3470,9 +3121,9 @@
     1267650600228229401496703205376 1267650600228229401496703205376 0
 
 - case: |-
-    print(round(2.5e30), round(-1.5e40), int(1e30), int(-1.5e40), int(2.0 ** 200) == 2 ** 200)
+    print(round(2.5e+30), round(-1.5e+40), int(1.0e+30), int(-1.5e+40), int(2.0 ** 200) == 2 ** 200)
   expected: |-
-    2499999999999999908974073741312 -15000000000000001060141952447820087689216 1000000000000000019884624838656 -15000000000000001060141952447820087689216 True
+    2499999999999999908974073741312 -15000000000000001060141952447820087689216 1000000000000000019884624838656 -15000000000000001060141952447820087689216 true
 
 - case: |-
     print(pow(2, -1, 7), pow(3, 2 ** 100, 10 ** 30 + 7), pow(-3, 5, -7), pow(2 ** 100, 2 ** 100, 2 ** 61 - 1))
@@ -3485,19 +3136,14 @@
     1 0 36893488147419070465
 
 - case: |-
-    print((2 ** 100).bit_length(), (2 ** 100 - 1).bit_count(), (-(2 ** 100)).bit_length(), (-(2 ** 70 - 1)).bit_count())
+    print((2 ** 100).bit_length(), (2 ** 100 - 1).bit_count(), (-2 ** 100).bit_length(), (-(2 ** 70 - 1)).bit_count())
   expected: |-
     101 100 101 70
 
 - case: |-
-    print(isinstance(2 ** 100, int), type(2 ** 100), type(2 ** 100).__name__, type(2 ** 100 - 2 ** 100 + 5))
+    print(bool(2 ** 100), bool(2 ** 100 - 2 ** 100), not 2 ** 100)
   expected: |-
-    True <class 'int'> int <class 'int'>
-
-- case: |-
-    print(bool(2 ** 100), bool(2 ** 100 - 2 ** 100), !2 ** 100)
-  expected: |-
-    True False False
+    true false false
 
 - case: |-
     print((-5) ** 3, (-2) ** 101, 0 ** 0, 0 ** 2 ** 100, 1 ** 2 ** 100, (-1) ** (2 ** 100 + 1))
@@ -3521,9 +3167,9 @@
     89747057356671886482
 
 - case: |-
-    print(1e300 * 10 ** 10, 2 ** 100 * 1.5, 10 ** 400 * 0.0 if false else 'skip')
+    print(1.0e+300 * 10 ** 10, 2 ** 100 * 1.5, if false { 10 ** 400 * 0.0 } else { "skip" })
   expected: |-
-    inf 1.901475900342344e+30 skip
+    inf 1.901475900342344e30 skip
 
 - case: |-
     print(1_000_000_000_000_000_000_000_000, 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF, -0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF)
@@ -3537,19 +3183,19 @@
 
 - case: |-
     x = 2 ** 100
-    print(x == 1267650600228229401496703205376, x is !nil)
+    print(x == 1267650600228229401496703205376, x != nil)
   expected: |-
-    True True
+    true true
 
 - case: |-
-    print(2 ** 64 % 2 ** 64 == 0, -(2 ** 64) ~/ 2 ** 64, 7 ~/ -(2 ** 70), 7 % -(2 ** 70))
+    print(2 ** 64 % 2 ** 64 == 0, -2 ** 64 ~/ 2 ** 64, 7 ~/ -2 ** 70, 7 % -2 ** 70)
   expected: |-
-    True -1 0 7
+    true -1 0 7
 
 - case: |-
-    print(divmod(-(2 ** 100), -(2 ** 50)), divmod(2 ** 100, 3.0))
+    print(divmod(-2 ** 100, -2 ** 50), divmod(2 ** 100, 3.0))
   expected: |-
-    (1125899906842624, 0) (4.2255020007607644e+29, 1.0)
+    (1125899906842624, 0) (4.2255020007607644e29, 1.0)
 
 - case: |-
     x = 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
@@ -3560,22 +3206,17 @@
 - case: |-
     print(range(2 ** 100))
   expected: |-
-    range(0, 1267650600228229401496703205376)
+    0..1267650600228229401496703205376
 
 - case: |-
     print(len(range(2 ** 100, 2 ** 100 + 5)), bool(range(2 ** 100, 2 ** 100)), bool(range(2 ** 100, 2 ** 101)))
   expected: |-
-    5 True True
+    5 true true
 
 - case: |-
     print(range(2 ** 70) == range(2 ** 70), range(5, 2 ** 64, 2 ** 64) == range(5, 6), range(2 ** 70, 2 ** 70) == range(0))
   expected: |-
-    True True True
-
-- case: |-
-    print(hash(range(5, 2 ** 64, 2 ** 64)) == hash(range(5, 6)), hash(range(2 ** 70)) == hash(range(2 ** 70)))
-  expected: |-
-    True True
+    true true true
 
 - case: |-
     print(range(2 ** 100).index(2 ** 99), range(2 ** 100).count(7), range(2 ** 100).count(-1))
@@ -3589,382 +3230,284 @@
 
 - case: |-
     it = iter(range(2 ** 64, 2 ** 64 + 2))
-    print(next(it), next(it), next(it, 'end'))
+    print(next(it), next(it), next(it, "end"))
   expected: |-
     18446744073709551616 18446744073709551617 end
 
 - case: |-
-    print(type(range(2 ** 64)).__name__, isinstance(range(2 ** 64), range), repr(range(-(2 ** 64), 0, 2 ** 63)))
+    print(2 ** 80 in range(2 ** 100), 3.0 in range(2 ** 70), "a" in range(2 ** 70), -1 in range(2 ** 70))
   expected: |-
-    range True range(-18446744073709551616, 0, 9223372036854775808)
-
-- case: |-
-    print(2 ** 80 in range(2 ** 100), 3.0 in range(2 ** 70), 'a' in range(2 ** 70), -1 in range(2 ** 70))
-  expected: |-
-    True True False False
+    true true false false
 
 - case: |-
     print(2 ** 1000000000)
-  error: budget exceeded
+  error: "Error: budget exceeded"
 
 - case: |-
     x = 7 ** 3000
     y = x * x
-    print(y % 1000, round(5, -10 ** 6), round(-(2 ** 100), -40))
+    print(y % 1000, round(5, -10 ** 6), round(-2 ** 100, -40))
   expected: |-
     1 0 0
 
 - case: |-
-    print('1' == 1, 1 == '1', 'a' == nil, nil == 'a', 'a' == b'a', 'a' != 1)
+    print("1" == 1, 1 == "1", "a" == nil, nil == "a", "a" == b"a", "a" != 1)
   expected: |-
-    False False False False False True
+    false false false false false true
 
 - case: |-
-    print(sum(i * 2 for i in range(300000)), max(i % 1000 for i in range(300000)))
+    print(sum((i * 2 for i in range(300000))), max((i % 1000 for i in range(300000))))
   expected: |-
     89999700000 999
 
 - case: |-
-    a = bytearray(b'ab')
-    print(a == b'ab', b'ab' == a, a < b'b', a + b'c', b'c' + a, a * 2, type(a + b'c').__name__, type(b'c' + a).__name__)
-    a += b'!'
+    a = bytearray(b"ab")
+    print(a == b"ab", b"ab" == a, a < b"b", a + b"c", b"c" + a, a * 2, text(type(a + b"c")), text(type(b"c" + a)))
+    a += b"!"
     print(a)
   expected: |-
-    True True True bytearray(b'abc') b'cab' bytearray(b'abab') bytearray bytes
-    bytearray(b'ab!')
+    true true true b"abc" b"cab" b"abab" bytearray bytes
+    b"ab!"
 
 - case: |-
-    x = b'hELLO wORLD'
-    print(x.capitalize(), x.title(), x.swapcase(), b'ab'.center(7, b'*'), b'ab'.ljust(5), b'ab'.rjust(5, b'-'), b'-12'.zfill(6), b'+a'.zfill(4))
-    print(b'a\tbc\td'.expandtabs(), b'a\tb\nc\td'.expandtabs(3), b'a,b,c'.partition(b','), b'a,b,c'.rpartition(b','), b'abc'.partition(b'x'), b'abc'.rpartition(b'x'))
-    print(b'abc'.removeprefix(b'ab'), b'abc'.removesuffix(b'bc'), b'abc'.removeprefix(b'z'))
+    x = b"hELLO wORLD"
+    print(x.capitalize(), x.title(), x.swapcase(), b"ab".center(7, b"*"), b"ab".ljust(5), b"ab".rjust(5, b"-"), b"-12".zfill(6), b"+a".zfill(4))
+    print(b"a\tbc\td".expandtabs(), b"a\tb\nc\td".expandtabs(3), b"a,b,c".partition(b","), b"a,b,c".rpartition(b","), b"abc".partition(b"x"), b"abc".rpartition(b"x"))
+    print(b"abc".removeprefix(b"ab"), b"abc".removesuffix(b"bc"), b"abc".removeprefix(b"z"))
   expected: |-
-    b'Hello world' b'Hello World' b'Hello World' b'***ab**' b'ab   ' b'---ab' b'-00012' b'+00a'
-    b'a       bc      d' b'a  b\nc  d' (b'a', b',', b'b,c') (b'a,b', b',', b'c') (b'abc', b'', b'') (b'', b'', b'abc')
-    b'c' b'a' b'abc'
+    b"Hello world" b"Hello World" b"Hello World" b"***ab**" b"ab   " b"---ab" b"-00012" b"+00a"
+    b"a       bc      d" b"a  b\nc  d" (b"a", b",", b"b,c") (b"a,b", b",", b"c") (b"abc", b"", b"") (b"", b"", b"abc")
+    b"c" b"a" b"abc"
 
 - case: |-
-    print(abs(-140737488355328), abs(-2**47) == 2**47, -abs(-2**47), abs(-140737488355327))
+    print(abs(-140737488355328), abs(-2 ** 47) == 2 ** 47, -abs(-2 ** 47), abs(-140737488355327))
   expected: |-
-    140737488355328 True -140737488355328 140737488355327
+    140737488355328 true -140737488355328 140737488355327
 
 - case: |-
-    print(round(2.5, nil), round(7, nil), round(2.675, true), round(2.5, 2**40), round(2.5, 2**100), round(5, 2**100), round(true, nil))
-    print(round(5e-324, 324), round(5e-324, 323), round(1e-320, 400))
-    for nd in (1.0, '2'):
-        try:
-            round(2.5, nd)
-        except TypeError as e:
-            print(e)
-    try:
-        round(5, 2.0)
-    except TypeError as e:
-        print(e)
-  expected: |-
-    2 7 2.7 2.5 2.5 5 1
-    5e-324 0.0 1e-320
-    'float' object cannot be interpreted as an integer
-    'str' object cannot be interpreted as an integer
-    'float' object cannot be interpreted as an integer
-
-- case: |-
-    print(pow(2, 10, nil), pow(3, -2**127, 7), pow(5, -2**127, 11), pow(2, 2**127, 13))
+    print(pow(2, 10, nil), pow(3, -2 ** 127, 7), pow(5, -2 ** 127, 11), pow(2, 2 ** 127, 13))
   expected: |-
     1024 4 3 9
 
 - case: |-
-    for f in (min, max):
-        try:
+    for f in (min, max) {
+        try {
             f(1, 2, default=0)
-        except TypeError as e:
+        } catch TypeError as e {
             print(e)
+        }
+    }
   expected: |-
-    Cannot specify a default for min() with multiple positional arguments
-    Cannot specify a default for max() with multiple positional arguments
+    min takes default only with one positional argument
+    max takes default only with one positional argument
 
 - case: |-
     print(sum([], true), sum([], false), sum([1, 2], true), sum([0.5], true), sum((x for x in []), true))
-    try:
+    try {
         sum(iterable=[1, 2])
-    except TypeError:
-        print('TypeError')
+    } catch TypeError {
+        print("TypeError")
+    }
   expected: |-
-    True False 4 1.5 True
+    true false 4 1.5 true
     TypeError
 
 - case: |-
-    for n in (5, 0):
-        try:
-            n.to_bytes(-1, 'big')
-        except ValueError as e:
+    for n in (5, 0) {
+        try {
+            n.to_bytes(-1, "big")
+        } catch ValueError as e {
             print(e)
+        }
+    }
   expected: |-
-    length argument must be non-negative
-    length argument must be non-negative
+    the length must not be negative
+    the length must not be negative
 
 - case: |-
-    for s in ('--5', '+-5', '-+5', '0x-5', '0x+5', '0b_-1'):
-        try:
-            print(int(s, 0))
-        except ValueError as e:
-            print(e)
-    print(int('0_0', 0), int('00', 0), int('0x_1f', 0), int('-0_0', 0))
-    for s, b in (('-5', 10), ('0x-5', 16), ('- 5', 10), ('+5', 10)):
-        try:
-            print(int(s, b))
-        except ValueError as e:
-            print(e)
-  expected: |-
-    invalid literal for int() with base 0: '--5'
-    invalid literal for int() with base 0: '+-5'
-    invalid literal for int() with base 0: '-+5'
-    invalid literal for int() with base 0: '0x-5'
-    invalid literal for int() with base 0: '0x+5'
-    invalid literal for int() with base 0: '0b_-1'
-    0 0 31 0
-    -5
-    invalid literal for int() with base 16: '0x-5'
-    invalid literal for int() with base 10: '- 5'
-    5
-
-- case: |-
-    fn t(f):
-        try:
+    fn t(f) {
+        try {
             print(f())
-        except Exception as e:
-            print(type(e).__name__, e)
-    t(lambda: int('0', false))
-    t(lambda: int('1', true))
-    t(lambda: int('7', 2**70))
-    t(lambda: int(5, 1))
-    t(lambda: int(5, 2))
-    t(lambda: int(x='5'))
-    t(lambda: int('5', base=10, x='5'))
+        } catch Error as e {
+            print(text(type(e)), e)
+        }
+    }
+    t(|| int("0", false))
+    t(|| int("1", true))
+    t(|| int("7", 2 ** 70))
+    t(|| int(5, 1))
+    t(|| int(5, 2))
+    t(|| int(x="5"))
+    t(|| int("5", base=10, x="5"))
   expected: |-
     0
-    ValueError int() base must be >= 2 and <= 36, or 0
-    ValueError int() base must be >= 2 and <= 36, or 0
-    ValueError int() base must be >= 2 and <= 36, or 0
-    TypeError int() can't convert non-string with explicit base
-    TypeError 'x' is an invalid keyword argument for int()
-    TypeError 'x' is an invalid keyword argument for int()
+    ValueError base of int must be 0 or from 2 to 36
+    ValueError base of int must be 0 or from 2 to 36
+    ValueError base of int must be 0 or from 2 to 36
+    TypeError int takes base only with text or bytes
+    TypeError int() takes no keyword x
+    TypeError int() takes no keyword x
 
 - case: |-
-    for s in ('1_000.5', '2_5e1_0', '1_.5', '1._5', '1e_5', '1_e5', 'i_nf', '1__0'):
-        try:
+    for s in ("1_000.5", "2_5e1_0", "1_.5", "1._5", "1e_5", "1_e5", "i_nf", "1__0") {
+        try {
             print(float(s))
-        except ValueError as e:
+        } catch ValueError as e {
             print(e)
+        }
+    }
   expected: |-
     1000.5
     250000000000.0
-    could not convert string to float: '1_.5'
-    could not convert string to float: '1._5'
-    could not convert string to float: '1e_5'
-    could not convert string to float: '1_e5'
-    could not convert string to float: 'i_nf'
-    could not convert string to float: '1__0'
-
-- case: |-
-    print(hash(nil), hash((nil,)), hash(range(0)), hash(range(5, 6)), hash(range(9, 9, -2)) == hash(range(0)))
-  expected: |-
-    4238894112 9181102132670838864 2676694398852732306 -7048428680432378585 True
-
-- case: |-
-    print(sum(x * 0.1 for x in range(10)), sum((x for x in [1, 2.5, true, 3]), 0.5), sum(v for v in [10**20, 0.5]))
-    class P:
-        fn __init__(self, v):
-            self.v = v
-    print(sum(P(i).v for i in range(50)), sum(P(i).v * 0.5 for i in range(4)), sum((x for x in [0.1] * 10), 1))
-    d = {'a': 1.5, 'b': 2, 'c': 0.25}
-    print(sum(d.values()), max(d.values()), min(d, key=lambda k: d[k]))
-    m = [[1, 2], [3, 4]]
-    print(list(map(sum, zip(*m))), list(map(max, [1, 5], [4, 2])), list(map(sorted, [(x for x in [3, 1])])), list(map(min, [[3, 1], (x for x in [5, 4])])))
-  expected: |-
-    4.5 8.0 1e+20
-    1225 3.0 2.0
-    3.75 2 c
-    [4, 6] [4, 5] [[1, 3]] [1, 4]
-
-- case: |-
-    fn mask(s, t, u):
-        s &= t
-        s ^= u
-        return s
-    a = {1, 2, 3}
-    b = mask(a, {2, 3, 4}, {9})
-    print(sorted(b), b is a)
-  expected: |-
-    [2, 3, 9] True
-
-- case: |-
-    fn mat(a, b):
-        return a @ b
-    mat(2, 3)
-  error: "unsupported operand type(s) for @: 'int' and 'int'"
+    "1_.5" spells no float
+    "1._5" spells no float
+    "1e_5" spells no float
+    "1_e5" spells no float
+    "i_nf" spells no float
+    "1__0" spells no float
 
 - case: |-
     // a radix text of a value that is no int names the value's type
-    for f in (bin, oct, hex):
-        try:
+    for f in (bin, oct, hex) {
+        try {
             f(1.5)
-        except TypeError as e:
+        } catch TypeError as e {
             print(e)
+        }
+    }
   expected: |-
-    'float' object cannot be interpreted as an integer
-    'float' object cannot be interpreted as an integer
-    'float' object cannot be interpreted as an integer
+    bin takes int, not float
+    oct takes int, not float
+    hex takes int, not float
 
 - case: |-
     // bytes read as an int must be bytes-like
-    try:
-        int.from_bytes(5, 'big')
-    except TypeError as e:
+    try {
+        int.from_bytes(5, "big")
+    } catch TypeError as e {
         print(e)
+    }
   expected: |-
-    a bytes-like object is required, not 'int'
+    from_bytes takes bytes, not int
 
 - case: |-
     // the shortest text of a float breaks an exact tie toward the even digit
-    print(89815621140927.12, 970501480331273.2, [89815621140927.12], f'{970501480331273.2}')
+    print(89815621140927.12, 970501480331273.2, [89815621140927.12], "{970501480331273.2}")
   expected: |-
     89815621140927.12 970501480331273.2 [89815621140927.12] 970501480331273.2
 
 - case: |-
     // the decimal text of a wide int is charged by its digits
     x = 7 ** 4500
-    for _ in range(1000):
-        s = str(x)
+    for _ in range(1000) {
+        s = text(x)
+    }
     print(len(s))
-  error: budget exceeded
-
-- case: |-
-    // a wide int pays for the limbs its hash reads
-    x = (1 << 3000000) - 1
-    d = {}
-    for i in range(100000):
-        d[x] = hash(x)
-  error: budget exceeded
+  error: "Error: budget exceeded"
 
 - case: |-
     // a wide int pays for the limbs an order or an equality reads
     x = (1 << 3000000) - 1
     y = x - 1
-    for i in range(100000):
+    for i in range(100000) {
         t = x == y
         t = x < y
-  error: budget exceeded
+    }
+  error: "Error: budget exceeded"
 
 - case: |-
     // a shift right pays for the limbs it moves
     x = (1 << 3000000) - 1
-    for i in range(100000):
+    for i in range(100000) {
         y = x >> 7
-  error: budget exceeded
+    }
+  error: "Error: budget exceeded"
 
 - case: |-
     // a negation an absolute value and an inverse pay for the limbs they copy
     x = (1 << 3000000) - 1
-    for i in range(100000):
+    for i in range(100000) {
         y = -x
         y = abs(x)
         y = ~x
-  error: budget exceeded
+    }
+  error: "Error: budget exceeded"
 
 - case: |-
     // the bytes of an int are charged by their length
     x = (1 << 3000000) - 1
-    for i in range(100000):
-        b = x.to_bytes(400000, 'big')
-  error: budget exceeded
+    for i in range(100000) {
+        b = x.to_bytes(400000, "big")
+    }
+  error: "Error: budget exceeded"
 
 - case: |-
     // the text of a power of two base pays for its digits
     x = (1 << 3000000) - 1
-    for i in range(100000):
+    for i in range(100000) {
         s = bin(x)
         s = hex(x)
-        s = f'{x:o}'
-  error: budget exceeded
+        s = "{x:o}"
+    }
+  error: "Error: budget exceeded"
 
 - case: |-
     // the text of a power of two base is refused before it is built
     x = 1 << 130000000
     print(len(bin(x)))
-  error: budget exceeded
+  error: "Error: budget exceeded"
 
 - case: |-
     // a long text pays for what a float reads of it
-    s = '1.' + '5' * 300000
-    for i in range(100000):
+    s = "1." + "5" * 300000
+    for i in range(100000) {
         f = float(s)
-  error: budget exceeded
+    }
+  error: "Error: budget exceeded"
 
 - case: |-
     // a wide field and a long precision pay for what they write
     x = 5.5
-    for i in range(100000):
-        s = f'{x:>500000}'
-        s = f'{x:.60000g}'
-  error: budget exceeded
-
-- case: |-
-    // a tuple pays for the items its hash reads
-    t = tuple(range(1000000))
-    for i in range(100000):
-        h = hash(t)
-  error: budget exceeded
+    for i in range(100000) {
+        s = "{x:>500000}"
+        s = "{x:.60000g}"
+    }
+  error: "Error: budget exceeded"
 
 - case: |-
     // zero takes no bytes signed or not
-    print((0).to_bytes(0, 'big', signed=true), (0).to_bytes(1, 'little', signed=true), (-1).to_bytes(1, 'big', signed=true), (0).to_bytes(0, 'big'))
+    print((0).to_bytes(0, "big", signed=true), (0).to_bytes(1, "little", signed=true), (-1).to_bytes(1, "big", signed=true), (0).to_bytes(0, "big"))
   expected: |-
-    b'' b'\x00' b'\xff' b''
+    b"" b"\x00" b"\xff" b""
 
 - case: |-
     // a bool under a character type codes the character of its int
-    print(repr(f'{true:c}'), repr(f'{false:c}'), repr(f'{false:>3c}'), repr(f'{true:<2c}|'))
+    print(repr("{true:c}"), repr("{false:c}"), repr("{false:>3c}"), repr("{true:<2c}|"))
   expected: |-
-    '\x01' '\x00' '  \x00' '\x01 |'
-
-- case: |-
-    // a fill of any width sits before its align mark
-    print(repr(f'{5:é>4}'), repr(f'{"a":日<4}'), repr(f'{"a":😀^5}'), repr(f'{1.5:é^9.2f}'))
-  expected: |-
-    'ééé5' 'a日日日' '😀😀a😀😀' 'éé1.50ééé'
-
-- case: |-
-    // an int past an i128 hashes as the float of its value does
-    print(hash(2 ** 200) == hash(2.0 ** 200), hash(-(2 ** 200)) == -hash(2 ** 200), hash(2 ** 200))
-  expected: |-
-    True True 131072
-
-- case: |-
-    // a hot module loop's lowering gives up at the @ after it
-    for i in range(300): pass
-    x = 1 @ 2
-  error: "unsupported operand type(s) for @: 'int' and 'int'"
-  error_line: 3
+    "\u{1}" "\u{0}" "  \u{0}" "\u{1} |"
 
 - case: |-
     // the least inline int floored by minus one leaves the inline range
-    fn q(a, b):
-        return a ~/ b, a % b
+    fn q(a, b) {
+        return (a ~/ b, a % b)
+    }
     x = -140737488355328
     last = nil
-    for i in range(300):
+    for i in range(300) {
         last = q(x, -1)
+    }
     print(x ~/ -1, last)
   expected: |-
     140737488355328 (140737488355328, 0)
 
 - case: |-
     // offsets behind the zero meridian split into hours and minutes keeping their sign
-    zones = [("St. John's", -12600), ('Marquesas', -34200), ('Kolkata', 19800), ('Kathmandu', 20700), ('Chatham', 45900)]
-    for zone, off in zones:
-        h, m = off ~/ 3600, off % 3600 ~/ 60
-        print(zone, h, m, divmod(off, 3600), 'UTC' + ('-' if off < 0 else '+') + str(abs(h)).zfill(2) + ':' + str(abs(m)).zfill(2))
-    print(-7 % 3, 7 % -3, -7 ~/ 2, -7.5 % 2, -7.5 ~/ 2, -(10 ** 20) % 7, pow(-3, 3, 5))
+    zones = [("St. John's", -12600), ("Marquesas", -34200), ("Kolkata", 19800), ("Kathmandu", 20700), ("Chatham", 45900)]
+    for zone, off in zones {
+        h, m = (off ~/ 3600, off % 3600 ~/ 60)
+        print(zone, h, m, divmod(off, 3600), "UTC" + (if off < 0 { "-" } else { "+" }) + text(abs(h)).zfill(2) + ":" + text(abs(m)).zfill(2))
+    }
+    print(-7 % 3, 7 % -3, -7 ~/ 2, -7.5 % 2, -7.5 ~/ 2, -10 ** 20 % 7, pow(-3, 3, 5))
   expected: |-
     St. John's -3 -30 (-3, -1800) UTC-03:30
     Marquesas -9 -30 (-9, -1800) UTC-09:30
@@ -3976,52 +3519,56 @@
 - case: |-
     // a count of nanoseconds over whole years outgrows 64 bits and keeps every digit
     year = 31556952
-    for years in [292, 293, 1000]:
+    for years in [292, 293, 1000] {
         ns = years * year * 10 ** 9
         print(1970 + years, ns, ns > 2 ** 63 - 1)
+    }
   expected: |-
-    2262 9214629984000000000 False
-    2263 9246186936000000000 True
-    2970 31556952000000000000 True
+    2262 9214629984000000000 false
+    2263 9246186936000000000 true
+    2970 31556952000000000000 true
 
 - case: |-
     // a quotient a hair under a whole number still counts that whole
-    route, leg = 618437.5595219431, 47.96571828414838
+    route, leg = (618437.5595219431, 47.96571828414838)
     print(route ~/ leg, route % leg, divmod(-route, leg), 5273815377.905444 ~/ -0.8537242354225951)
   expected: |-
     12893.0 15.553684418031565 (-12893.0, -15.553684418031565) -6177422590.0
 
 - case: |-
     // a NaN reading orders with no bound so range checks drop it hot or cold
-    nan = float('nan')
+    nan = float("nan")
     readings = [3, nan, 1, 7.5]
     print([r for r in readings if r <= 5], [r for r in readings if r >= 2])
     print(1 <= nan, nan >= 1, 1 >= nan, nan <= 1, 2 ** 100 >= nan, [1, 2] <= [1, nan], [1, nan] >= [1, 2], (1, nan) <= (1, 2))
     late = 0
-    for i in range(300):
-        if nan >= i || i <= nan:
+    for i in range(300) {
+        if nan >= i or i <= nan {
             late += 1
+        }
+    }
     print(late)
   expected: |-
     [3, 1] [3, 7.5]
-    False False False False False False False False
+    false false false false false false false false
     0
 
 - case: |-
     // a count too wide for a float orders against NaN as every number does
-    nan, big = float('nan'), 10 ** 400
+    nan, big = (float("nan"), 10 ** 400)
     print(big < nan, big > nan, nan < big, nan > big, big <= nan, big >= nan, big == nan, big != nan)
     print(max(big, nan) == big, min(nan, big) != big, sorted([big, 1.5]) == [1.5, big])
   expected: |-
-    False False False False False False False True
-    True True True
+    false false false false false false false true
+    true true true
 
 - case: |-
     // the length of a wide int reads its top limb so many lengths stay cheap
     x = 1 << 4000000
     t = 0
-    for i in range(20000):
+    for i in range(20000) {
         t += x.bit_length()
+    }
     print(t, (x - 1).bit_count(), (-x).bit_length(), (x - 1).bit_length())
   expected: |-
     80000020000 4000000 4000001 4000000
@@ -4030,6 +3577,7 @@
     // counting the ones of a wide int pays for each limb it reads
     x = (1 << 4000000) - 1
     n = 0
-    for i in range(100000):
+    for i in range(100000) {
         n += x.bit_count()
-  error: budget exceeded
+    }
+  error: "Error: budget exceeded"

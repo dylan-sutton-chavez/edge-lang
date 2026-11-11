@@ -20,4 +20,3 @@ web = ["edge/runtime", "edge/perms"]
 [dependencies]
 edge = { path = "../..", default-features = false }
 lib = { path = "../../lib" }
-itoa = { workspace = true }

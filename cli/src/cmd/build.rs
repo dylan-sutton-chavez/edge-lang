@@ -605,14 +605,14 @@ mod tests {
     #[test]
     fn a_packed_dependency_drags_nothing_beside_it() {
         let kit = kit();
-        assert!(file_deps(&mut Scan::new(&kit), "https://cdn.test/pkg/app/0.1.0", "app.edge", b"EDGEPKG\x01from .src.test import run").unwrap().is_empty());
+        assert!(file_deps(&mut Scan::new(&kit), "https://cdn.test/pkg/app/0.1.0", "app.edge", b"EDGEPKG\x01use .src.test as test").unwrap().is_empty());
     }
 
     // a vendored source pulls in what the runtime reads as its imports and its manifest
     #[test]
     fn a_vendored_source_pulls_in_its_relative_imports() {
         let kit = kit();
-        let src = b"from .lib.util import shout\nfrom ..outside import x\nimport json\n";
+        let src = b"use .lib.util as util\nuse ..outside as outside\nuse json\n";
         let deps = file_deps(&mut Scan::new(&kit), "https://cdn.test/pkg/greet/0.1.0", "main.mini", src).unwrap();
         let outside = "https://cdn.test/pkg/greet/outside.mini".to_string();
         assert_eq!(deps, [(Ok("lib/util.mini".to_string()), true), (Err(outside), true), (Ok("edge.json".to_string()), false)]);
@@ -624,7 +624,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let project = dir.path();
         fs::create_dir(project.join("src")).unwrap();
-        fs::write(project.join("src/entry.mini"), "from _json import *").unwrap();
+        fs::write(project.join("src/entry.mini"), "use _json").unwrap();
         fs::write(project.join("src/json.wasm"), b"\0asm").unwrap();
         let bundle = collect_bundle(&project.join("edge.json"), false).unwrap();
         let mut paths: Vec<&str> = bundle.files.iter().map(|f| f.path.as_str()).collect();
@@ -655,7 +655,7 @@ mod tests {
     fn a_version_no_lock_holds_stops_the_build() {
         let dir = tempfile::tempdir().unwrap();
         let project = dir.path();
-        fs::write(project.join("main.mini"), "import json").unwrap();
+        fs::write(project.join("main.mini"), "use json").unwrap();
         fs::write(project.join("edge.json"), r#"{ "imports": { "json": "0.1.0" } }"#).unwrap();
         let Err(e) = collect_bundle(&project.join("edge.json"), false) else { panic!("an unlocked version should stop the build") };
         let err = format!("{e:#}");
@@ -668,7 +668,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let project = dir.path();
         fs::create_dir(project.join("pkg")).unwrap();
-        fs::write(project.join("main.mini"), "import pkg").unwrap();
+        fs::write(project.join("main.mini"), "use pkg").unwrap();
         fs::write(project.join("edge.json"), r#"{ "imports": { "pkg": "./pkg/main.mini" } }"#).unwrap();
         fs::write(project.join("pkg/main.mini"), "import _slug").unwrap();
         fs::write(project.join("pkg/edge.json"), r#"{ "imports": { "_slug": "./slug.wasm" } }"#).unwrap();

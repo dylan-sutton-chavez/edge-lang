@@ -138,11 +138,11 @@ mod test {
     const POINT_METHODS: &[Native] = &[Native::new("squared", Sig::range(0, 1), squared)];
 
     // mini's types but the assert class which its names still give
-    const TYPES: [&str; mini::types::NAMES.len() - 1] = without(mini::types::NAMES, "AssertionError");
+    const TYPES: [&str; mini::types::NAMES.len() - 1] = without(mini::types::NAMES, "CheckError");
 
     static NATIVES: Natives = edge::natives! {
         language: Renamed,
-        fns: [&IO, &ITER, mini::natives::NEXT, mini::natives::NUM, mini::natives::FOLDS, mini::natives::CONVERT, mini::natives::BYTES, mini::natives::SORT, mini::natives::ATTR, mini::natives::TYPES, OWN],
+        fns: [&IO, &ITER, mini::natives::NEXT, mini::natives::NUM, mini::natives::FOLDS, mini::natives::CONVERT, mini::natives::BYTES, mini::natives::SORT, mini::natives::TYPES, OWN],
         methods: [
             Str => [mini::natives::STR],
             List => [mini::natives::LIST, mini::natives::LIST_SORT],
@@ -179,7 +179,7 @@ mod test {
 
         fn handles(heap: &HeapPool, exc: Val, class: Val) -> Result<bool, VmErr> { lib::types::match_exc::<mini::Mini>(heap, exc, class) }
 
-        fn misfit(n: &Native, owner: Option<&str>, m: Misfit<'_>) -> VmErr { mini::words::arity(n, owner, m) }
+        fn misfit(n: &Native, owner: Option<&str>, m: Misfit<'_>) -> VmErr { <mini::Mini as edge::lang::Language>::misfit(n, owner, m) }
 
         fn message(cx: &mut Cx<'_, '_>, e: &edge::lang::EngineError) -> String { <mini::Mini as Language>::message(cx, e) }
     }
@@ -208,64 +208,63 @@ mod test {
         called.sort_unstable();
         let calls = chunk.instructions.iter().filter(|i| i.opcode == OpCode::CallNative).count();
         assert!(calls == 2 && called == ["println", "size"], "{called:?}");
-        assert_eq!(ran("println(size([1, 2]), size('abc'))\n").as_deref(), Ok("2 3\n"));
+        assert_eq!(ran("println(size([1, 2]), size(\"abc\"))\n").as_deref(), Ok("2 3\n"));
         // the old names are no builtins of this runtime
-        assert_eq!(ran("print(1)\n"), Err(String::from("NameError: name 'print' is not defined")));
-        assert!(ran("println(len([1]))\n").is_err_and(|e| e.contains("'len' is not defined")));
+        assert_eq!(ran("print(1)\n"), Err(String::from("NameError: print is not bound")));
+        assert!(ran("println(len([1]))\n").is_err_and(|e| e.contains("len is not bound")));
     }
 
     // every engine operation a native stands for has the kernel mini registers for it
     #[test]
     fn each_intrinsic_binds_a_kernel_of_mini() {
-        for k in [Intrinsic::Len, Intrinsic::Range, Intrinsic::Next, Intrinsic::IsA] {
+        for k in [Intrinsic::Len, Intrinsic::Range, Intrinsic::Next] {
             assert!(mini::NATIVES.intrinsic(k).is_some(), "{k:?} has no kernel");
         }
     }
 
     #[test]
     fn a_rebound_renamed_builtin_runs_its_binding() {
-        assert_eq!(ran("fn println(x):\n    size(x)\nprintln([1])\nsize = lambda x: 7\nx = size([1])\n").as_deref(), Ok(""));
+        assert_eq!(ran("fn println(x) {\n    size(x)\n}\nprintln([1])\nsize = |x| 7\nx = size([1])\n").as_deref(), Ok(""));
     }
 
     #[test]
     fn map_fields_read_a_key_only_where_no_attribute_is() {
-        assert_eq!(ran("d = {'a': 1, 'keys': 2}\nprintln(d.a, d['keys'], d.get('a'), size(list(d.keys())))\n").as_deref(), Ok("1 2 1 2\n"));
+        assert_eq!(ran("d = {a = 1, keys = 2}\nprintln(d.a, d[\"keys\"], d.get(\"a\"), size(list(d.keys())))\n").as_deref(), Ok("1 2 1 2\n"));
         // a message names the length builtin as this runtime does
-        assert!(ran("println(size(5))\n").is_err_and(|e| e.contains("has no size()")));
-        assert!(ran("d = {'a': 1}\nprintln(d.b)\n").is_err_and(|e| e.contains("has no attribute 'b'")));
+        assert!(ran("println(size(5))\n").is_err_and(|e| e.contains("cannot report a size")));
+        assert!(ran("d = {a = 1}\nprintln(d.b)\n").is_err_and(|e| e.contains("has no field b")));
     }
 
     // a foreign kind's methods come from its own table and no other kind finds them
     #[test]
     fn a_foreign_kind_calls_the_methods_its_table_holds() {
         assert_eq!(ran("p = point()\nprintln(p.squared(), p.squared(p), p.x)\n").as_deref(), Ok("25 0 3\n"));
-        assert_eq!(ran("p = point()\nf = p.squared\nt = 0\nfor i in range(300):\n    t += f()\nprintln(t)\n").as_deref(), Ok("7500\n"));
-        assert!(ran("x = 10 ** 30\nprintln(x.squared())\n").is_err_and(|e| e.contains("has no attribute 'squared'")));
+        assert_eq!(ran("p = point()\nf = p.squared\nt = 0\nfor i in range(300) {\n    t += f()\n}\nprintln(t)\n").as_deref(), Ok("7500\n"));
+        assert!(ran("x = 10 ** 30\nprintln(x.squared())\n").is_err_and(|e| e.contains("has no field squared")));
         assert!(ran("p = point()\nprintln(p.squared(1, 2))\n").is_err_and(|e| e.contains("squared")));
     }
 
     #[test]
     fn a_foreign_value_shows_the_fields_its_kind_reads() {
         assert_eq!(ran("p = point()\nprintln(p.x + p.y)\n").as_deref(), Ok("7\n"));
-        assert!(ran("p = point()\nprintln(p.z)\n").is_err_and(|e| e.contains("'point' object has no attribute 'z'")));
+        assert!(ran("p = point()\nprintln(p.z)\n").is_err_and(|e| e.contains("point has no field z")));
     }
 
     /* a foreign kind answers the length items cuts loops calls and text its hooks give */
     #[test]
     fn a_foreign_kind_answers_the_hooks_it_sets() {
-        let src = "p = point()\nprintln(size(p), p[0], p[1], p[1:2], list(p), p(2), str(p), p)\nfor v in p:\n    println(v)\n";
+        let src = "p = point()\nprintln(size(p), p[0], p[1], p[1:2], list(p), p(2), text(p), p)\nfor v in p {\n    println(v)\n}\n";
         assert_eq!(ran(src).as_deref(), Ok("2 3 4 1 [3, 4] 6 <3 4> <3 4>\n3\n4\n"));
         // a kind that answers calls makes its values callable as their calls are
-        assert_eq!(ran("p = point()\nprintln(p(2), callable(p), callable(2 ** 100))\n").as_deref(), Ok("6 True False\n"));
+        assert_eq!(ran("p = point()\nprintln(p(2), callable(p), callable(2 ** 100))\n").as_deref(), Ok("6 true false\n"));
         // the ellipsis its syntax spells is a value of the kind it names
-        assert_eq!(ran("println(callable(...), ..., ... == ...)\n").as_deref(), Ok("False Ellipsis True\n"));
     }
 
     #[test]
     fn the_runtime_sets_how_deep_calls_go_and_how_long_a_literal_is() {
-        let down = |n: u32| ran(&format!("fn down(n):\n    if n == 0:\n        return 0\n    return down(n - 1)\nprintln(down({n}))\n"));
+        let down = |n: u32| ran(&format!("fn down(n) {{\n    if n == 0 {{\n        return 0\n    }}\n    return down(n - 1)\n}}\nprintln(down({n}))\n"));
         assert_eq!(down(40).as_deref(), Ok("0\n"));
-        assert!(down(60).is_err_and(|e| e.contains("maximum recursion depth exceeded")));
+        assert!(down(60).is_err_and(|e| e.contains("calls nested past the recursion limit")));
         let (_, errors) = compile_as::<Renamed>("println(123456789012345678901234)\n");
         assert!(errors.iter().any(|d| d.msg.contains("past the limit of 10")), "{:?}", errors.iter().map(|d| &d.msg).collect::<Vec<_>>());
     }
@@ -280,18 +279,9 @@ mod test {
         assert!(shown.contains("Did you mean: 'true'?"), "{shown}");
     }
 
-    // a failed assert raises the class its runtime names though no type lists it
-    #[test]
-    fn a_failed_assert_raises_the_class_the_runtime_names() {
-        assert!(ran("println(AssertionError)\n").is_err_and(|e| e.contains("'AssertionError' is not defined")));
-        assert_eq!(ran("assert 1 == 2, 'boom'\n"), Err(String::from("AssertionError: boom")));
-        assert_eq!(ran("assert 1 == 2\n"), Err(String::from("AssertionError")));
-        assert_eq!(ran("AssertionError = 5\nassert true, 'fine'\nprintln('passed')\n").as_deref(), Ok("passed\n"));
-    }
-
     #[test]
     fn a_foreign_sequence_steps_as_a_tuple_and_a_second_kind_of_a_name_is_refused() {
-        assert_eq!(ran("println(type(iter(pair())), list(pair()))\n").as_deref(), Ok("<class 'tuple_iterator'> [1, 2]\n"));
+        assert_eq!(ran("println(type(iter(pair())), list(pair()))\n").as_deref(), Ok("iterator [1, 2]\n"));
         // a second kind of the point's name fails where it registers
         assert!(ran("p = point()\nq = clash()\n").is_err_and(|e| e.contains("a second kind takes a name another kind holds")), "{:?}", ran("p = point()\nq = clash()\n"));
         assert!(ran("q = clash()\np = point()\n").is_err_and(|e| e.contains("a second kind takes a name another kind holds")));
@@ -299,7 +289,7 @@ mod test {
 
     #[test]
     fn a_save_sweeps_a_refusing_kind_s_value_nothing_holds() {
-        let src = "p = point()\nprintln(p.x)\np = nil\nt = 0\nfor i in range(3000):\n    t += i\nprintln(t)\n";
+        let src = "p = point()\nprintln(p.x)\np = nil\nt = 0\nfor i in range(3000) {\n    t += i\n}\nprintln(t)\n";
         let chunk = compiled(src);
         let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
         vm.set_preempt_interval(100);
@@ -311,7 +301,7 @@ mod test {
         while matches!(back.run(), Err(VmErr::HostYield(_))) {}
         assert!(back.output_text().ends_with("4498500\n"), "{:?}", back.output_text());
         // a value the run still holds keeps refusing
-        let held = "p = point()\nt = 0\nfor i in range(3000):\n    t += i\nprintln(t, p.x)\n";
+        let held = "p = point()\nt = 0\nfor i in range(3000) {\n    t += i\n}\nprintln(t, p.x)\n";
         let chunk = compiled(held);
         let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
         vm.set_preempt_interval(100);
@@ -326,8 +316,8 @@ mod test {
         // the engine's own words name no source language which a runtime's message replaces
         assert_eq!(VmErr::Name(String::from("x")).render(&mini), "Name: x is not bound");
         assert_eq!(VmErr::CallDepth.render(&mini), "Recursion: calls nested past the recursion limit");
-        assert_eq!(VmErr::ZeroDiv.render(&mini::NAMES), "ZeroDivisionError: division by zero");
-        assert!(VmErr::Raised(String::from("StopIteration: 3")).is(edge::lang::ErrKind::Stop, &mini::NAMES));
-        assert!(!VmErr::Raised(String::from("StopIterationX")).is(edge::lang::ErrKind::Stop, &mini::NAMES));
+        assert_eq!(VmErr::ZeroDiv.render(&mini::NAMES), "DivisionError: division by zero");
+        assert!(VmErr::Raised(String::from("Stop: 3")).is(edge::lang::ErrKind::Stop, &mini::NAMES));
+        assert!(!VmErr::Raised(String::from("StopX")).is(edge::lang::ErrKind::Stop, &mini::NAMES));
     }
 }

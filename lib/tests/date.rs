@@ -7,7 +7,7 @@ use edge::value::foreign::{BinOp, Snapshot, UnOp};
 use edge::value::{HeapPool, Val};
 use lib::date::{self, Civil, Day, Days, Duration, Field, Hour, Hours, Minute, Minutes, Month, Second, Seconds, Time, Year};
 use mini::Mini;
-use mini::natives::{ARRAY, ATTR, BUFFER, BYTES, CONVERT, DICT, FLOAT, FOLDS, GEN, INT, IO, ITER, LIST, LIST_SORT, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
+use mini::natives::{ARRAY, BUFFER, BYTES, CONVERT, DICT, FLOAT, FOLDS, INT, IO, ITER, LIST, LIST_SORT, MATCH, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
 
 // every run meters what it allocates as edge.wasm does
 edge::allocator!();
@@ -30,7 +30,7 @@ const PARTS: &[Native] = &lib::table![Mini;
 
 static NATIVES: Natives = edge::natives! {
     language: Over,
-    fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, ATTR, TYPES, DATE],
+    fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, TYPES, MATCH, DATE],
     methods: [
         Str => [STR],
         Bytes => [BUFFER],
@@ -42,7 +42,6 @@ static NATIVES: Natives = edge::natives! {
         Int => [INT],
         Float => [FLOAT],
         Range => [RANGE],
-        Coro => [GEN],
         Foreign => [PARTS],
     ],
     types: mini::types::NAMES,
@@ -69,7 +68,7 @@ fn run(src: &str) -> String {
 }
 
 // each call's repr or its error as the class then the words
-const TRY: &str = "fn t(f):\n    try:\n        print(repr(f()))\n    except Exception as e:\n        print(type(e).__name__ + ':', e)\n";
+const TRY: &str = "fn t(f) {\n    try {\n        print(repr(f()))\n    } catch Error as e {\n        print(text(type(e)) + \":\", e)\n    }\n}\n";
 
 fn tried(calls: &str) -> String { run(&(String::from(TRY) + calls)) }
 
@@ -188,8 +187,8 @@ fn the_kinds_compute_compare_hash_and_save() {
     let zero = op(&mut h, BinOp::Sub, d, d).unwrap_or_else(|| panic!("no zero"));
     assert_eq!((h.foreign_truthy(zero), h.foreign_truthy(d), h.foreign_truthy(a)), (Some(false), Some(true), Some(true)));
     let far = date::time_val::<Mini>(&mut h, time("9999-12-31T23:00:00Z")).unwrap_or_else(|e| panic!("{e}"));
-    assert!(h.foreign_binop(BinOp::Add, far, d).is_err_and(|e| e.to_string().contains("time out of range")));
-    assert!(h.foreign_binop(BinOp::Mul, d, Val::float(f64::INFINITY)).is_err_and(|e| e.to_string().contains("duration out of range")));
+    assert!(h.foreign_binop(BinOp::Add, far, d).is_err_and(|e| e.to_string().contains("the time falls outside the years 0000 to 9999")));
+    assert!(h.foreign_binop(BinOp::Mul, d, Val::float(f64::INFINITY)).is_err_and(|e| e.to_string().contains("the duration is longer than a duration holds")));
     assert!(h.foreign_binop(BinOp::TrueDiv, d, Val::float(0.0)).is_err() && h.foreign_binop(BinOp::TrueDiv, d, zero).is_err());
 }
 
@@ -217,25 +216,25 @@ fn a_snapshot_saves_each_value_in_a_few_bytes() {
 #[test]
 fn programs_take_differences_across_offsets_and_read_fields() {
     let src = concat!(
-        "a = time('2026-10-01T15:04:05Z')\nb = time('2026-10-01T17:34:05+01:00')\nd = b - a\n",
-        "print(a, b, d, d.hours(), d.minutes(), d.days(), d.seconds(), type(a).__name__, type(d).__name__)\n",
+        "a = time(\"2026-10-01T15:04:05Z\")\nb = time(\"2026-10-01T17:34:05+01:00\")\nd = b - a\n",
+        "print(a, b, d, d.hours(), d.minutes(), d.days(), d.seconds(), text(type(a)), text(type(d)))\n",
         "print(a + d, d + a, b - d, d * 2, 2 * d, d / 2, d / d, d * 1.5, d / 4.0, -d, abs(-d), +d, d - d, d * true, d * 0.1)\n",
-        "print(bool(d - d), bool(d), bool(a), a == time('2026-10-01T16:04:05+01:00'), a != b, a < b, d > d - d, sorted([b, a]) == [a, b])\n",
-        "print({a: 1}[time('2026-10-01T10:04:05-05:00')], {d: 2}[b - a], a == d, d == 5400, (d * 1.5) / d)\n",
-        "print(a.year(), a.month(), a.day(), a.hour(), a.minute(), a.second(), b.hour(), time('2026-10-01T23:30:00-02:30').day())\n",
-        "print((time('2026-10-02T01:00:00+09:00') - time('2026-10-01T12:00:00-04:00')).hours(), (time('2026-10-01T23:30:00-02:30') - time('2026-10-02T00:00:00Z')).hours(),\n",
-        "    (time('2026-03-29T03:00:00+02:00') - time('2026-03-29T01:00:00+01:00')).hours(), (time('2026-10-01T00:00:00Z') - time('2026-10-02T06:00:00+06:00')).hours())\n",
-        "print(time('2024-03-01T00:00:00Z') - time('2024-02-28T00:00:00Z'), (time('2023-03-01T00:00:00Z') - time('2023-02-28T00:00:00Z')).days(),\n",
-        "    (time('2025-01-01T00:00:00Z') - time('2024-01-01T00:00:00Z')).days(), time('2024-02-28T12:00:00Z') + (time('2024-01-02T00:00:00Z') - time('2024-01-01T00:00:00Z')))\n",
-        "print(time('2016-12-31T23:59:60Z'), time('2016-12-31T23:59:60Z') - time('2016-12-31T23:59:59Z'), time('2016-12-31T23:59:60.5Z').second())\n",
-        "ns = time('2026-10-01T00:00:00.000000003Z') - time('2026-10-01T00:00:00Z')\n",
-        "print(time('2026-10-01T00:00:01.25Z') - time('2026-10-01T00:00:00.5Z'), ns / 2, (ns - ns / 2 - ns / 2) / 2, ns * 0.5)\n",
+        "print(bool(d - d), bool(d), bool(a), a == time(\"2026-10-01T16:04:05+01:00\"), a != b, a < b, d > d - d, sorted([b, a]) == [a, b])\n",
+        "print(record([(a, 1)])[time(\"2026-10-01T10:04:05-05:00\")], record([(d, 2)])[b - a], a == d, d == 5400, (d * 1.5) / d)\n",
+        "print(a.year(), a.month(), a.day(), a.hour(), a.minute(), a.second(), b.hour(), time(\"2026-10-01T23:30:00-02:30\").day())\n",
+        "print((time(\"2026-10-02T01:00:00+09:00\") - time(\"2026-10-01T12:00:00-04:00\")).hours(), (time(\"2026-10-01T23:30:00-02:30\") - time(\"2026-10-02T00:00:00Z\")).hours(),\n",
+        "    (time(\"2026-03-29T03:00:00+02:00\") - time(\"2026-03-29T01:00:00+01:00\")).hours(), (time(\"2026-10-01T00:00:00Z\") - time(\"2026-10-02T06:00:00+06:00\")).hours())\n",
+        "print(time(\"2024-03-01T00:00:00Z\") - time(\"2024-02-28T00:00:00Z\"), (time(\"2023-03-01T00:00:00Z\") - time(\"2023-02-28T00:00:00Z\")).days(),\n",
+        "    (time(\"2025-01-01T00:00:00Z\") - time(\"2024-01-01T00:00:00Z\")).days(), time(\"2024-02-28T12:00:00Z\") + (time(\"2024-01-02T00:00:00Z\") - time(\"2024-01-01T00:00:00Z\")))\n",
+        "print(time(\"2016-12-31T23:59:60Z\"), time(\"2016-12-31T23:59:60Z\") - time(\"2016-12-31T23:59:59Z\"), time(\"2016-12-31T23:59:60.5Z\").second())\n",
+        "ns = time(\"2026-10-01T00:00:00.000000003Z\") - time(\"2026-10-01T00:00:00Z\")\n",
+        "print(time(\"2026-10-01T00:00:01.25Z\") - time(\"2026-10-01T00:00:00.5Z\"), ns / 2, (ns - ns / 2 - ns / 2) / 2, ns * 0.5)\n",
     );
     let want = concat!(
         "2026-10-01T15:04:05Z 2026-10-01T17:34:05+01:00 5400s 1.5 90.0 0.0625 5400.0 time duration\n",
         "2026-10-01T16:34:05Z 2026-10-01T16:34:05Z 2026-10-01T16:04:05+01:00 10800s 10800s 2700s 1.0 8100s 1350s -5400s 5400s 5400s 0s 5400s 540s\n",
-        "False True True True True True True True\n",
-        "1 2 False False 1.5\n",
+        "false true true true true true true true\n",
+        "1 2 false false 1.5\n",
         "2026 10 1 15 4 5 17 1\n",
         "0.0 2.0 1.0 -24.0\n",
         "172800s 1.0 366.0 2024-02-29T12:00:00Z\n",
@@ -248,19 +247,26 @@ fn programs_take_differences_across_offsets_and_read_fields() {
 #[test]
 fn programs_get_the_failures_in_the_runtimes_words() {
     let got = tried(concat!(
-        "a = time('2026-10-01T15:04:05Z')\nd = time('2026-10-01T16:34:05Z') - a\n",
-        "t(lambda: time('2026-02-30T00:00:00Z'))\nt(lambda: time('nope'))\nt(lambda: time(5))\nt(lambda: a - 1)\nt(lambda: a + a)\n",
-        "t(lambda: d / 0)\nt(lambda: d / (d - d))\nt(lambda: -a)\nt(lambda: d.year())\nt(lambda: a.hours())\n",
-        "t(lambda: time('9999-12-31T23:59:59Z') + d)\nt(lambda: a < d)\nt(lambda: d * 1e400)\nt(lambda: d * 2 ** 200)\n",
+        "a = time(\"2026-10-01T15:04:05Z\")\nd = time(\"2026-10-01T16:34:05Z\") - a\n",
+        "t(|| time(\"2026-02-30T00:00:00Z\"))\nt(|| time(\"nope\"))\nt(|| time(5))\nt(|| a - 1)\nt(|| a + a)\n",
+        "t(|| d / 0)\nt(|| d / (d - d))\nt(|| -a)\nt(|| d.year())\nt(|| a.hours())\n",
+        "t(|| time(\"9999-12-31T23:59:59Z\") + d)\nt(|| a < d)\nt(|| d * 1e400)\nt(|| d * 2 ** 200)\n",
     ));
     let want = concat!(
-        "ValueError: invalid RFC 3339 time: '2026-02-30T00:00:00Z'\nValueError: invalid RFC 3339 time: 'nope'\n",
-        "TypeError: time() argument must be str, not int\n",
-        "TypeError: unsupported operand type(s) for -: 'time' and 'int'\nTypeError: unsupported operand type(s) for +: 'time' and 'time'\n",
-        "ZeroDivisionError: division by zero\nZeroDivisionError: division by zero\nTypeError: bad operand type for unary -: 'time'\n",
-        "TypeError: 'year' applies to 'time' values, not 'duration'\nTypeError: 'hours' applies to 'duration' values, not 'time'\n",
-        "ValueError: time out of range\nTypeError: '<' not supported between instances of 'time' and 'duration'\n",
-        "ValueError: duration out of range\nValueError: duration out of range\n",
+        "ValueError: invalid RFC 3339 time: \"2026-02-30T00:00:00Z\"\n",
+        "ValueError: invalid RFC 3339 time: \"nope\"\n",
+        "TypeError: time takes text, not int\n",
+        "TypeError: - does not apply to time and int\n",
+        "TypeError: + does not apply to time and time\n",
+        "DivisionError: division by zero\n",
+        "DivisionError: division by zero\n",
+        "TypeError: - does not apply to time\n",
+        "TypeError: year applies to time values, not duration\n",
+        "TypeError: hours applies to duration values, not time\n",
+        "ValueError: the time falls outside the years 0000 to 9999\n",
+        "TypeError: < does not apply to time and duration\n",
+        "ValueError: the duration is longer than a duration holds\n",
+        "ValueError: the duration is longer than a duration holds\n",
     );
     assert_eq!(got, want);
 }
@@ -307,7 +313,7 @@ fn a_time_or_duration_out_of_range_raises_in_the_words_of_its_runtime() {
     let (lone, ld) = (date::time_val::<Neutral>(&mut n, time("9999-12-31T23:30:00Z")).unwrap_or_else(|e| panic!("{e}")), date::duration_val::<Neutral>(&mut n, span).unwrap_or_else(|e| panic!("{e}")));
     let said = |h: &mut HeapPool, a: Val, b: Val| h.foreign_binop(BinOp::Add, a, b).err().map(|e| e.to_string()).unwrap_or_default();
     let long = |h: &mut HeapPool, v: Val| h.foreign_binop(BinOp::Mul, v, Val::float(f64::INFINITY)).err().map(|e| e.to_string()).unwrap_or_default();
-    assert!(said(&mut h, far, d).ends_with(": time out of range") && long(&mut h, d).ends_with(": duration out of range"));
+    assert!(said(&mut h, far, d).ends_with(": the time falls outside the years 0000 to 9999") && long(&mut h, d).ends_with(": the duration is longer than a duration holds"));
     assert_eq!(said(&mut n, lone, ld), "ValueError: the time falls outside the years 0000 to 9999");
     assert_eq!(long(&mut n, ld), "ValueError: the duration is longer than a duration holds");
 }

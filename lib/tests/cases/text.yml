@@ -1,33 +1,33 @@
-- native: str.split
+- native: text.split
   recv: "a,b,c"
   args: [","]
   kw: {maxsplit: 1}
   ret: ["a", "b,c"]
 
-- native: str.upper
+- native: text.upper
   recv: "abc"
   ret: "ABC"
 
-- native: str.replace
+- native: text.replace
   recv: "aXbX"
   args: ["X", "yy", 1]
   ret: "ayybX"
 
-- native: str.find
+- native: text.find
   recv: "hello"
   args: ["l"]
   ret: 2
 
-- native: str.join
+- native: text.join
   recv: ","
   args: [["a", 2]]
-  error: "sequence item 1: expected str instance, int found"
+  error: "TypeError: item 1 of join is int, not text"
 
-- native: str.upper
+- native: text.upper
   args: ["q"]
   ret: "Q"
 
-- native: str
+- native: text
   args: [1.5]
   ret: "1.5"
 
@@ -43,136 +43,136 @@
   args: ["A"]
   prints: "65"
 
-- native: str.count
+- native: text.count
   recv: "hello"
   args: ["l"]
   prints: "2"
 
-- native: str.lstrip
+- native: text.lstrip
   recv: "  hi  "
   prints: "hi  "
 
-- native: str.rstrip
+- native: text.rstrip
   recv: "  hi  "
   prints: "  hi"
 
-- native: str.isdigit
+- native: text.isdigit
   recv: "abc"
-  prints: "False"
+  prints: "false"
 
-- native: str.isalpha
+- native: text.isalpha
   recv: "abc"
-  prints: "True"
+  prints: "true"
 
-- native: str.capitalize
+- native: text.capitalize
   recv: "hello"
   prints: "Hello"
 
-- native: str.title
+- native: text.title
   recv: "hello world"
   prints: "Hello World"
 
-- native: str.removeprefix
+- native: text.removeprefix
   recv: "foobar"
   args: ["foo"]
   prints: "bar"
 
-- native: str.removeprefix
+- native: text.removeprefix
   recv: "hello"
   args: ["xy"]
   prints: "hello"
 
-- native: str.removesuffix
+- native: text.removesuffix
   recv: "foobar"
   args: ["bar"]
   prints: "foo"
 
-- native: str.removesuffix
+- native: text.removesuffix
   recv: "hello"
   args: ["xy"]
   prints: "hello"
 
-- native: str.splitlines
+- native: text.splitlines
   recv: "a\nb\nc"
-  prints: "['a', 'b', 'c']"
+  prints: "[\"a\", \"b\", \"c\"]"
 
-- native: str.partition
+- native: text.partition
   recv: "foo:bar:baz"
   args: [":"]
-  prints: "('foo', ':', 'bar:baz')"
+  prints: "(\"foo\", \":\", \"bar:baz\")"
 
-- native: str.rpartition
+- native: text.rpartition
   recv: "foo:bar:baz"
   args: [":"]
-  prints: "('foo:bar', ':', 'baz')"
+  prints: "(\"foo:bar\", \":\", \"baz\")"
 
-- native: str.lstrip
+- native: text.lstrip
   recv: "hello"
   args: ["h"]
   prints: "ello"
 
-- native: str.rstrip
+- native: text.rstrip
   recv: "hello"
   args: ["o"]
   prints: "hell"
 
-- native: str.lstrip
+- native: text.lstrip
   recv: "aabbcc"
   args: ["a"]
   prints: "bbcc"
 
-- native: str.rstrip
+- native: text.rstrip
   recv: "aabbcc"
   args: ["c"]
   prints: "aabb"
 
-- native: str.lstrip
+- native: text.lstrip
   recv: "aabbcc"
   args: ["ab"]
   prints: "cc"
 
-- native: str.capitalize
+- native: text.capitalize
   recv: "HELLO"
   prints: "Hello"
 
-- native: str.title
+- native: text.title
   recv: "a b c"
   prints: "A B C"
 
-- native: str.capitalize
+- native: text.capitalize
   recv: ""
   prints: ""
 
-- native: str.count
+- native: text.count
   recv: "hello"
   args: ["x"]
   prints: "0"
 
-- native: str.count
+- native: text.count
   recv: "hello"
   args: [""]
   prints: "6"
 
-- native: str.count
+- native: text.count
   recv: "aaaa"
   args: ["aa"]
   prints: "2"
 
-- native: str.isdigit
+- native: text.isdigit
   recv: ""
-  prints: "False"
+  prints: "false"
 
-- native: str.isalpha
+- native: text.isalpha
   recv: ""
-  prints: "False"
+  prints: "false"
 
-- native: str.isalpha
+- native: text.isalpha
   recv: "a"
-  prints: "True"
+  prints: "true"
 
-- native: str.isalnum
+- native: text.isalnum
   recv: ""
-  prints: "False"
+  prints: "false"
 
 - native: ord
   args: ["a"]
@@ -184,92 +184,92 @@
 
 - native: ord
   args: ["ab"]
-  error: "ord() expected a character, but string of length 2 found"
+  error: "TypeError: ord takes one character, not 2"
 
-- native: str.partition
+- native: text.partition
   recv: "a-b-c"
   args: ["-"]
-  prints: "('a', '-', 'b-c')"
+  prints: "(\"a\", \"-\", \"b-c\")"
 
-- native: str.partition
+- native: text.partition
   recv: "xyz"
   args: ["-"]
-  prints: "('xyz', '', '')"
+  prints: "(\"xyz\", \"\", \"\")"
 
-- native: str.rpartition
+- native: text.rpartition
   recv: "a-b-c"
   args: ["-"]
-  prints: "('a-b', '-', 'c')"
+  prints: "(\"a-b\", \"-\", \"c\")"
 
-- native: str.rpartition
+- native: text.rpartition
   recv: "xyz"
   args: ["-"]
-  prints: "('', '', 'xyz')"
+  prints: "(\"\", \"\", \"xyz\")"
 
-- native: str.title
+- native: text.title
   recv: "hello WORLD"
   prints: "Hello World"
 
-- native: str.title
+- native: text.title
   recv: "they're"
   prints: "They'Re"
 
-- native: str.title
+- native: text.title
   recv: "a  b"
   prints: "A  B"
 
-- native: str.splitlines
+- native: text.splitlines
   recv: "splitlines"
-  prints: "['splitlines']"
+  prints: "[\"splitlines\"]"
 
-- native: str.casefold
+- native: text.casefold
   recv: "Hello"
   prints: "hello"
 
-- native: str.swapcase
+- native: text.swapcase
   recv: "AbC"
   prints: "aBc"
 
-- native: str.removeprefix
+- native: text.removeprefix
   recv: "hello"
   args: ["he"]
   prints: "llo"
 
-- native: str.removesuffix
+- native: text.removesuffix
   recv: "hello"
   args: ["lo"]
   prints: "hel"
 
-- native: str.count
+- native: text.count
   recv: "abcabc"
   args: ["a"]
   prints: "2"
 
-- native: str.isspace
+- native: text.isspace
   recv: "   spaces   "
-  prints: "False"
+  prints: "false"
 
-- native: str.isupper
+- native: text.isupper
   recv: "ABC"
-  prints: "True"
+  prints: "true"
 
-- native: str.islower
+- native: text.islower
   recv: "abc"
-  prints: "True"
+  prints: "true"
 
-- native: str.istitle
+- native: text.istitle
   recv: "Title Case"
-  prints: "True"
+  prints: "true"
 
-- native: str.rindex
+- native: text.rindex
   recv: "abcabc"
   args: ["c"]
   prints: "5"
 
-- native: str.rindex
+- native: text.rindex
   recv: "abcabc"
   args: ["z"]
-  error: "substring not found"
+  error: "ValueError: rindex found no match"
 
 - native: ord
   args: [!bytes "61"]
@@ -303,94 +303,94 @@
   args: [!bytes "23"]
   prints: "35"
 
-- native: str.splitlines
+- native: text.splitlines
   recv: "a\nb\r\nc"
   args: [true]
-  prints: "['a\\n', 'b\\r\\n', 'c']"
+  prints: "[\"a\\n\", \"b\\r\\n\", \"c\"]"
 
 - native: chr
   args: [65]
   prints: "A"
 
-- native: str.isdigit
+- native: text.isdigit
   recv: "123"
-  prints: "True"
+  prints: "true"
 
-- native: str.isalnum
+- native: text.isalnum
   recv: "abc123"
-  prints: "True"
+  prints: "true"
 
-- native: str.center
+- native: text.center
   recv: "abc"
   args: [7, "-"]
   prints: "--abc--"
 
-- native: str.zfill
+- native: text.zfill
   recv: "42"
   args: [5]
   prints: "00042"
 
-- native: str.isdigit
+- native: text.isdigit
   recv: "0"
-  prints: "True"
+  prints: "true"
 
-- native: str.isdigit
+- native: text.isdigit
   recv: "09"
-  prints: "True"
+  prints: "true"
 
-- native: str.isdigit
+- native: text.isdigit
   recv: "9a"
-  prints: "False"
+  prints: "false"
 
-- native: str.isalpha
+- native: text.isalpha
   recv: "ab1"
-  prints: "False"
+  prints: "false"
 
-- native: str.isalnum
+- native: text.isalnum
   recv: "abc 123"
-  prints: "False"
+  prints: "false"
 
-- native: str.center
+- native: text.center
   recv: "a"
   args: [5]
   prints: "  a  "
 
-- native: str.center
+- native: text.center
   recv: "abc"
   args: [3]
   prints: "abc"
 
-- native: str.center
+- native: text.center
   recv: "abc"
   args: [2]
   prints: "abc"
 
-- native: str.center
+- native: text.center
   recv: "ab"
   args: [6, "*"]
   prints: "**ab**"
 
-- native: str.zfill
+- native: text.zfill
   recv: "0"
   args: [3]
   prints: "000"
 
-- native: str.zfill
+- native: text.zfill
   recv: "5"
   args: [3]
   prints: "005"
 
-- native: str.zfill
+- native: text.zfill
   recv: "-5"
   args: [4]
   prints: "-005"
 
-- native: str.zfill
+- native: text.zfill
   recv: "abc"
   args: [5]
   prints: "00abc"
 
-- native: str.zfill
+- native: text.zfill
   recv: "abc"
   args: [2]
   prints: "abc"
@@ -413,7 +413,7 @@
 
 - native: chr
   args: [-1]
-  error: "chr() arg not in range(0x110000)"
+  error: "ValueError: chr takes a code point from 0 to 0x10FFFF"
 
 - native: ord
   args: ["A"]
@@ -423,299 +423,299 @@
   args: ["\x00"]
   prints: "0"
 
-- native: str.center
+- native: text.center
   recv: "ñ"
   args: [5, "*"]
   prints: "**ñ**"
 
-- native: str.zfill
+- native: text.zfill
   recv: "ñ"
   args: [3]
   prints: "00ñ"
 
-- native: str.center
+- native: text.center
   recv: "αβ"
   args: [6, "-"]
   prints: "--αβ--"
 
-- native: str.center
+- native: text.center
   recv: "x"
   args: [-1000000000]
   prints: "x"
 
-- native: str.zfill
+- native: text.zfill
   recv: "5"
   args: [-1000000000]
   prints: "5"
 
-- native: str.center
+- native: text.center
   recv: "a"
   args: [999999999995]
   error: "MemoryError"
 
-- native: str.zfill
+- native: text.zfill
   recv: "a"
   args: [999999999995]
   error: "MemoryError"
 
-- native: str.title
+- native: text.title
   recv: "ab12cd"
   prints: "Ab12Cd"
 
-- native: str.isdigit
+- native: text.isdigit
   recv: "²"
-  prints: "True"
+  prints: "true"
 
-- native: str.splitlines
+- native: text.splitlines
   recv: "a\x0bb\x0cc"
-  prints: "['a', 'b', 'c']"
+  prints: "[\"a\", \"b\", \"c\"]"
 
-- native: str.rsplit
+- native: text.rsplit
   recv: "a b c"
   args: [" ", 1]
-  prints: "['a b', 'c']"
+  prints: "[\"a b\", \"c\"]"
 
-- native: str.ljust
+- native: text.ljust
   recv: "hi"
   args: [5, "."]
   prints: "hi..."
 
-- native: str.rjust
+- native: text.rjust
   recv: "hi"
   args: [5, "."]
   prints: "...hi"
 
-- native: str.expandtabs
+- native: text.expandtabs
   recv: "a\tb"
   args: [4]
   prints: "a   b"
 
-- native: str.center
+- native: text.center
   recv: "x"
   args: [5, "ab"]
-  error: "fill character must be exactly one"
+  error: "TypeError: center takes one character as its fill"
 
-- native: str.rsplit
+- native: text.rsplit
   recv: "  a  b  c  "
   args: [null, 1]
-  prints: "['  a  b', 'c']"
+  prints: "[\"  a  b\", \"c\"]"
 
-- native: str.rsplit
+- native: text.rsplit
   recv: "a b  c"
   args: [null, 1]
-  prints: "['a b', 'c']"
+  prints: "[\"a b\", \"c\"]"
 
-- native: str.center
+- native: text.center
   recv: "日本語"
   args: [7, "*"]
   prints: "**日本語**"
 
-- native: str.expandtabs
+- native: text.expandtabs
   recv: "a\tbb\tc"
   args: [4]
   prints: "a   bb  c"
 
-- native: str.ljust
+- native: text.ljust
   recv: "x"
   args: [3, "ab"]
-  error: "The fill character must be exactly one character long"
+  error: "TypeError: ljust takes one character as its fill"
 
-- native: str.isspace
+- native: text.isspace
   recv: ""
-  prints: "False"
+  prints: "false"
 
-- native: str.isspace
+- native: text.isspace
   recv: " \t\n\r\x0b\x0c"
-  prints: "True"
+  prints: "true"
 
-- native: str.isspace
+- native: text.isspace
   recv: "a"
-  prints: "False"
+  prints: "false"
 
-- native: str.isspace
+- native: text.isspace
   recv: " \t\n\r\x0b\x0ca"
-  prints: "False"
+  prints: "false"
 
-- native: str.isalpha
+- native: text.isalpha
   recv: ""
-  prints: "False"
+  prints: "false"
 
-- native: str.isalpha
+- native: text.isalpha
   recv: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-  prints: "True"
+  prints: "true"
 
-- native: str.isalpha
+- native: text.isalpha
   recv: "0abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-  prints: "False"
+  prints: "false"
 
-- native: str.isalpha
+- native: text.isalpha
   recv: "this "
-  prints: "False"
+  prints: "false"
 
-- native: str.isdigit
+- native: text.isdigit
   recv: ""
-  prints: "False"
+  prints: "false"
 
-- native: str.isdigit
+- native: text.isdigit
   recv: "0123456789"
-  prints: "True"
+  prints: "true"
 
-- native: str.isdigit
+- native: text.isdigit
   recv: "0123456789a"
-  prints: "False"
+  prints: "false"
 
-- native: str.isdigit
+- native: text.isdigit
   recv: "0123456789 "
-  prints: "False"
+  prints: "false"
 
-- native: str.isupper
+- native: text.isupper
   recv: ""
-  prints: "False"
+  prints: "false"
 
-- native: str.isupper
+- native: text.isupper
   recv: "CHEESE-CAKE WITH ... _FROSTING_*99"
-  prints: "True"
+  prints: "true"
 
-- native: str.isupper
+- native: text.isupper
   recv: "aB"
-  prints: "False"
+  prints: "false"
 
-- native: str.islower
+- native: text.islower
   recv: ""
-  prints: "False"
+  prints: "false"
 
-- native: str.islower
+- native: text.islower
   recv: "cheese-cake with ... _frosting_*99"
-  prints: "True"
+  prints: "true"
 
-- native: str.islower
+- native: text.islower
   recv: "aB"
-  prints: "False"
+  prints: "false"
 
-- native: str.islower
+- native: text.islower
   recv: "123"
-  prints: "False"
+  prints: "false"
 
-- native: str.islower
+- native: text.islower
   recv: "123a"
-  prints: "True"
+  prints: "true"
 
-- native: str.rfind
+- native: text.rfind
   recv: "hello world"
   args: ["ll"]
   prints: "2"
 
-- native: str.rfind
+- native: text.rfind
   recv: "hello world"
   args: ["ll", null]
   prints: "2"
 
-- native: str.rfind
+- native: text.rfind
   recv: "hello world"
   args: ["ll", 1]
   prints: "2"
 
-- native: str.rfind
+- native: text.rfind
   recv: "hello world"
   args: ["ll", 1, null]
   prints: "2"
 
-- native: str.rfind
+- native: text.rfind
   recv: "hello world"
   args: ["ll", null, null]
   prints: "2"
 
-- native: str.rfind
+- native: text.rfind
   recv: "hello world"
   args: ["ll", 1, -1]
   prints: "2"
 
-- native: str.rfind
+- native: text.rfind
   recv: "hello world"
   args: ["ll", 1, 1]
   prints: "-1"
 
-- native: str.rfind
+- native: text.rfind
   recv: "hello world"
   args: ["ll", 1, 2]
   prints: "-1"
 
-- native: str.rfind
+- native: text.rfind
   recv: "hello world"
   args: ["ll", 1, 3]
   prints: "-1"
 
-- native: str.rfind
+- native: text.rfind
   recv: "hello world"
   args: ["ll", 1, 4]
   prints: "2"
 
-- native: str.rfind
+- native: text.rfind
   recv: "hello world"
   args: ["ll", 1, 5]
   prints: "2"
 
-- native: str.rfind
+- native: text.rfind
   recv: "hello world"
   args: ["ll", -100]
   prints: "2"
 
-- native: str.rfind
+- native: text.rfind
   recv: "0000"
   args: ["0"]
   prints: "3"
 
-- native: str.rfind
+- native: text.rfind
   recv: "0000"
   args: ["0", 0]
   prints: "3"
 
-- native: str.rfind
+- native: text.rfind
   recv: "0000"
   args: ["0", 1]
   prints: "3"
 
-- native: str.rfind
+- native: text.rfind
   recv: "0000"
   args: ["0", 2]
   prints: "3"
 
-- native: str.rfind
+- native: text.rfind
   recv: "0000"
   args: ["0", 3]
   prints: "3"
 
-- native: str.rfind
+- native: text.rfind
   recv: "0000"
   args: ["0", 4]
   prints: "-1"
 
-- native: str.rfind
+- native: text.rfind
   recv: "0000"
   args: ["0", 5]
   prints: "-1"
 
-- native: str.rfind
+- native: text.rfind
   recv: "0000"
   args: ["-1", 3]
   prints: "-1"
 
-- native: str.rfind
+- native: text.rfind
   recv: "0000"
   args: ["1", 3]
   prints: "-1"
 
-- native: str.rfind
+- native: text.rfind
   recv: "0000"
   args: ["1", 4]
   prints: "-1"
 
-- native: str.rfind
+- native: text.rfind
   recv: "0000"
   args: ["1", 5]
   prints: "-1"
 
-- native: str.rfind
+- native: text.rfind
   recv: "aaaaaaaaaaa"
   args: ["bbb", 9, 2]
   prints: "-1"
@@ -730,433 +730,433 @@
 
 - native: chr
   args: [65, 66]
-  error: "chr() takes exactly one argument (2 given)"
+  error: "TypeError: chr() takes 1 argument, not 2"
 
-- native: str.expandtabs
+- native: text.expandtabs
   recv: "a\tb"
   args: [444444444444]
   error: "OverflowError"
 
-- native: str.expandtabs
+- native: text.expandtabs
   recv: "a\tb"
   args: [2000000000]
   error: "MemoryError"
 
-- native: str
+- native: text
   args: [42]
   prints: "42"
 
-- native: str.upper
+- native: text.upper
   recv: "hello"
   prints: "HELLO"
 
-- native: str.lower
+- native: text.lower
   recv: "HELLO"
   prints: "hello"
 
-- native: str.strip
+- native: text.strip
   recv: "  hi  "
   prints: "hi"
 
-- native: str.split
+- native: text.split
   recv: "a,b,c"
   args: [","]
-  prints: "['a', 'b', 'c']"
+  prints: "[\"a\", \"b\", \"c\"]"
 
-- native: str.join
+- native: text.join
   recv: ","
   args: [["a", "b", "c"]]
   prints: "a,b,c"
 
-- native: str.replace
+- native: text.replace
   recv: "hello"
   args: ["l", "r"]
   prints: "herro"
 
-- native: str.startswith
+- native: text.startswith
   recv: "hello"
   args: ["he"]
-  prints: "True"
+  prints: "true"
 
-- native: str.endswith
+- native: text.endswith
   recv: "hello"
   args: ["lo"]
-  prints: "True"
+  prints: "true"
 
-- native: str.find
+- native: text.find
   recv: "hello"
   args: ["ll"]
   prints: "2"
 
-- native: str.split
+- native: text.split
   recv: "hello world"
-  prints: "['hello', 'world']"
+  prints: "[\"hello\", \"world\"]"
 
-- native: str
+- native: text
   args: [true]
-  prints: "True"
+  prints: "true"
 
-- native: str
+- native: text
   args: [null]
-  prints: "None"
+  prints: "nil"
 
-- native: str
+- native: text
   args: [[1, 2, 3]]
   prints: "[1, 2, 3]"
 
-- native: str.upper
+- native: text.upper
   recv: "hello world"
   prints: "HELLO WORLD"
 
-- native: str.lower
+- native: text.lower
   recv: "HELLO WORLD"
   prints: "hello world"
 
-- native: str.upper
+- native: text.upper
   recv: ""
   prints: ""
 
-- native: str.lower
+- native: text.lower
   recv: ""
   prints: ""
 
-- native: str.strip
+- native: text.strip
   recv: ""
   prints: ""
 
-- native: str.strip
+- native: text.strip
   recv: "   "
   prints: ""
 
-- native: str.find
+- native: text.find
   recv: "hello"
   args: ["e"]
   prints: "1"
 
-- native: str.find
+- native: text.find
   recv: "hello"
   args: ["x"]
   prints: "-1"
 
-- native: str.find
+- native: text.find
   recv: "hello"
   args: [""]
   prints: "0"
 
-- native: str.find
+- native: text.find
   recv: "hello"
   args: ["l"]
   prints: "2"
 
-- native: str.startswith
+- native: text.startswith
   recv: "hello"
   args: [""]
-  prints: "True"
+  prints: "true"
 
-- native: str.startswith
+- native: text.startswith
   recv: "hello"
   args: ["h"]
-  prints: "True"
+  prints: "true"
 
-- native: str.startswith
+- native: text.startswith
   recv: "hello"
   args: ["hello"]
-  prints: "True"
+  prints: "true"
 
-- native: str.startswith
+- native: text.startswith
   recv: "hello"
   args: ["helo"]
-  prints: "False"
+  prints: "false"
 
-- native: str.endswith
+- native: text.endswith
   recv: "hello"
   args: [""]
-  prints: "True"
+  prints: "true"
 
-- native: str.endswith
+- native: text.endswith
   recv: "hello"
   args: ["o"]
-  prints: "True"
+  prints: "true"
 
-- native: str.endswith
+- native: text.endswith
   recv: "hello"
   args: ["hello"]
-  prints: "True"
+  prints: "true"
 
-- native: str.endswith
+- native: text.endswith
   recv: "hello"
   args: ["ello"]
-  prints: "True"
+  prints: "true"
 
-- native: str.endswith
+- native: text.endswith
   recv: "hello"
   args: ["helo"]
-  prints: "False"
+  prints: "false"
 
-- native: str.split
+- native: text.split
   recv: ""
   args: [","]
-  prints: "['']"
+  prints: "[\"\"]"
 
-- native: str.split
+- native: text.split
   recv: "a"
   args: [","]
-  prints: "['a']"
+  prints: "[\"a\"]"
 
-- native: str.split
+- native: text.split
   recv: "a,,b"
   args: [","]
-  prints: "['a', '', 'b']"
+  prints: "[\"a\", \"\", \"b\"]"
 
-- native: str.split
+- native: text.split
   recv: "  hello  world  "
-  prints: "['hello', 'world']"
+  prints: "[\"hello\", \"world\"]"
 
-- native: str.split
+- native: text.split
   recv: ""
   prints: "[]"
 
-- native: str.join
+- native: text.join
   recv: ","
   args: [["a"]]
   prints: "a"
 
-- native: str.join
+- native: text.join
   recv: ""
   args: [["a", "b", "c"]]
   prints: "abc"
 
-- native: str.join
+- native: text.join
   recv: "-"
   args: [["1", "2", "3"]]
   prints: "1-2-3"
 
-- native: str.join
+- native: text.join
   recv: ","
   args: [[]]
   prints: ""
 
-- native: str.replace
+- native: text.replace
   recv: "hello"
   args: ["l", "r"]
   prints: "herro"
 
-- native: str.replace
+- native: text.replace
   recv: "hello"
   args: ["l", ""]
   prints: "heo"
 
-- native: str.replace
+- native: text.replace
   recv: "hello"
   args: ["x", "y"]
   prints: "hello"
 
-- native: str.replace
+- native: text.replace
   recv: ""
   args: ["x", "y"]
   prints: ""
 
-- native: str.replace
+- native: text.replace
   recv: "aaa"
   args: ["a", "bb"]
   prints: "bbbbbb"
 
-- native: str.replace
+- native: text.replace
   recv: "hello world"
   args: [" ", "_"]
   prints: "hello_world"
 
-- native: str
+- native: text
   args: [3.14]
   prints: "3.14"
 
-- native: str
+- native: text
   args: [false]
-  prints: "False"
+  prints: "false"
 
-- native: str
+- native: text
   args: [[1, 2, 3]]
   prints: "[1, 2, 3]"
 
-- native: str.endswith
+- native: text.endswith
   recv: "abc"
   args: ["zz"]
-  prints: "False"
+  prints: "false"
 
-- native: str.upper
+- native: text.upper
   recv: "café"
   prints: "CAFÉ"
 
-- native: str.strip
+- native: text.strip
   recv: "xxhelloxx"
   args: ["x"]
   prints: "hello"
 
-- native: str.strip
+- native: text.strip
   recv: "-=hi=-"
   args: ["-="]
   prints: "hi"
 
-- native: str.replace
+- native: text.replace
   recv: "hello"
   args: ["l", 5]
-  error: "replace() argument 2 must be str, not int"
+  error: "TypeError: replace takes text as argument 2, not int"
 
-- native: str
+- native: text
   args: [-0.0]
   prints: "-0.0"
 
-- native: str.split
+- native: text.split
   recv: "a,b,c"
   args: [",", 1]
-  prints: "['a', 'b,c']"
+  prints: "[\"a\", \"b,c\"]"
 
-- native: str.replace
+- native: text.replace
   recv: "aaaa"
   args: ["a", "b", 2]
   prints: "bbaa"
 
-- native: str.find
+- native: text.find
   recv: "abcabc"
   args: ["a", 1]
   prints: "3"
 
-- native: str.startswith
+- native: text.startswith
   recv: "hello"
   args: [!tuple ["hi", "he"]]
-  prints: "True"
+  prints: "true"
 
-- native: str.endswith
+- native: text.endswith
   recv: "hello"
   args: [!tuple ["lo", "xx"]]
-  prints: "True"
+  prints: "true"
 
-- native: str.split
+- native: text.split
   recv: "abc"
   args: [""]
-  error: "empty separator"
+  error: "ValueError: split takes a separator that is not empty"
 
-- native: str.split
+- native: text.split
   recv: "a  b"
   args: [null, 1]
-  prints: "['a', 'b']"
+  prints: "[\"a\", \"b\"]"
 
-- native: str.split
+- native: text.split
   recv: "  a  b  c  "
   args: [null, 1]
-  prints: "['a', 'b  c  ']"
+  prints: "[\"a\", \"b  c  \"]"
 
-- native: str.split
+- native: text.split
   recv: "a    "
   args: [null, 1]
-  prints: "['a']"
+  prints: "[\"a\"]"
 
-- native: str.startswith
+- native: text.startswith
   recv: "1foobar"
   args: ["foo", 1]
-  prints: "True"
+  prints: "true"
 
-- native: str.startswith
+- native: text.startswith
   recv: "hello"
   args: ["ell", 1]
-  prints: "True"
+  prints: "true"
 
-- native: str.startswith
+- native: text.startswith
   recv: "abcdef"
   args: ["cd", 2]
-  prints: "True"
+  prints: "true"
 
-- native: str.startswith
+- native: text.startswith
   recv: "xxyy"
   args: ["yy", 2]
-  prints: "True"
+  prints: "true"
 
-- native: str.startswith
+- native: text.startswith
   recv: "foobar"
   args: ["foo"]
-  prints: "True"
+  prints: "true"
 
-- native: str.startswith
+- native: text.startswith
   recv: "python"
   args: ["th", 2, 6]
-  prints: "True"
+  prints: "true"
 
-- native: str.startswith
+- native: text.startswith
   recv: "aaa"
   args: ["a", 1]
-  prints: "True"
+  prints: "true"
 
-- native: str.startswith
+- native: text.startswith
   recv: "test"
   args: ["est", 1, 4]
-  prints: "True"
+  prints: "true"
 
-- native: str.startswith
+- native: text.startswith
   recv: "12345"
   args: ["23", 1]
-  prints: "True"
+  prints: "true"
 
-- native: str.startswith
+- native: text.startswith
   recv: "prefix"
   args: ["pre", 0]
-  prints: "True"
+  prints: "true"
 
-- native: str
+- native: text
   args: [!bytes "313233", "utf-8"]
   prints: "123"
 
-- native: str
+- native: text
   args: [!bytes "6869", "ascii"]
   prints: "hi"
 
-- native: str
+- native: text
   args: [!bytes "", "utf-8"]
   prints: ""
 
-- native: str
+- native: text
   args: [!bytes "6120622063", "utf-8"]
   prints: "a b c"
 
-- native: str
+- native: text
   args: [!bytes "78797a", "utf-8"]
   prints: "xyz"
 
-- native: str
+- native: text
   args: [!bytes "68656c6c6f20776f726c64", "ascii"]
   prints: "hello world"
 
-- native: str
+- native: text
   prints: ""
 
-- native: str.upper
+- native: text.upper
   recv: "ab"
   prints: "AB"
 
-- native: str
+- native: text
   args: [!bytes "6869"]
   kw: {encoding: "utf-8"}
   prints: "hi"
 
-- native: str.upper
+- native: text.upper
   recv: "a"
   args: [1]
-  error: "str.upper() takes no arguments (1 given)"
+  error: "TypeError: text.upper() takes 0 arguments, not 1"
 
-- native: str.split
+- native: text.split
   recv: "a"
   args: [",", 1, 2]
-  error: "split() takes at most 2 arguments (3 given)"
+  error: "TypeError: text.split() takes 0 to 2 arguments, not 3"
 
-- native: str.find
+- native: text.find
   recv: "abc"
-  error: "find expected at least 1 argument, got 0"
+  error: "TypeError: text.find() takes 1 to 3 arguments, not 0"
 
-- native: str.replace
+- native: text.replace
   recv: "a"
   args: ["a"]
-  error: "replace() takes at least 2 positional arguments (1 given)"
+  error: "TypeError: text.replace() takes 2 to 3 arguments, not 1"
 
-- native: str.upper
+- native: text.upper
   recv: "a"
   kw: {x: 1}
-  error: "str.upper() takes no keyword arguments"
+  error: "TypeError: text.upper() takes no keyword x"

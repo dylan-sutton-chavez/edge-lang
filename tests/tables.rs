@@ -14,7 +14,7 @@ mod test {
     fn a_function_scope_and_parameters_are_those_the_vm_resolved() {
         use edge::code::{Kind, ParamKind};
         use edge::embed::VM;
-        let src = "g = 1\nfn f(a, *r, k=2, **m):\n    x = a\n    fn h():\n        return x\n    return g\n";
+        let src = "g = 1\nfn f(a, *r, k=2, **m) {\n    x = a\n    fn h() {\n        return x\n    }\n    return g\n}\n";
         let (chunk, errors) = crate::common::parse(src);
         assert!(errors.is_empty());
         let vm = VM::new(&chunk);
@@ -45,7 +45,7 @@ mod test {
         use crate::common::compile;
         let global = |b: &[edge::code::Binding]| matches!(b, [Global(_)]);
         // a module binds into its globals and a function reads them
-        let (c, e) = compile("x = 1\nfn f(): return x\nprint(len([x]))\n");
+        let (c, e) = compile("x = 1\nfn f() {\n    return x\n}\nprint(len([x]))\n");
         assert!(e.is_empty());
         let p = Program::new(&c);
         assert_eq!(p.bindings_of(&c).map(|b| b.0), Some(BodyKind::Module));
@@ -53,7 +53,7 @@ mod test {
         assert_eq!(p.bindings_of(&c.functions[0].1).map(|b| b.0), Some(BodyKind::Function(0)));
         assert_eq!(bound(&p, &c.functions[0].1, "x"), bound(&p, &c, "x"));
         // class body names are members and a method reads past them to the module
-        let (c, _) = compile("y = 2\nclass A:\n    a = y\n    fn m(self): return a\n");
+        let (c, _) = crate::words::legacy("y = 2\nclass A:\n    a = y\n    fn m(self): return a\n");
         let p = Program::new(&c);
         let a = &c.classes[0];
         assert_eq!(p.bindings_of(a).map(|b| b.0), Some(BodyKind::Class));
@@ -61,7 +61,7 @@ mod test {
         assert_eq!(bound(&p, a, "y"), bound(&p, &c, "y"));
         assert!(global(&bound(&p, &a.functions[0].1, "a")));
         // a class in a function borrows plain locals and reads cells its methods share too
-        let (c, _) = compile("fn f():\n    c = 1\n    p = 2\n    fn g(): return c\n    class B:\n        u = c\n        v = p\n        fn m(self): return c\n    return B\n");
+        let (c, _) = crate::words::legacy("fn f():\n    c = 1\n    p = 2\n    fn g(): return c\n    class B:\n        u = c\n        v = p\n        fn m(self): return c\n    return B\n");
         let p = Program::new(&c);
         let (f, b) = (&c.functions[0].1, &c.functions[0].1.classes[0]);
         assert_eq!((bound(&p, f, "c"), bound(&p, f, "p")), (vec![Cell], vec![Local]));
@@ -69,12 +69,12 @@ mod test {
         let (_, m) = p.scope_of(&b.functions[0].1).expect("m is a function");
         assert_eq!(m.freevars.iter().map(|v| v.2.as_str()).collect::<Vec<_>>(), ["c"]);
         // `global` in a class body writes the module and inner classes see no plain locals
-        let (c, _) = compile("fn f():\n    w = 1\n    class D:\n        global q\n        q = 1\n        class I:\n            t = w\n    return D\n");
+        let (c, _) = crate::words::legacy("fn f():\n    w = 1\n    class D:\n        global q\n        q = 1\n        class I:\n            t = w\n    return D\n");
         let p = Program::new(&c);
         let d = &c.functions[0].1.classes[0];
         assert!(global(&bound(&p, d, "q")) && global(&bound(&p, &d.classes[0], "w")));
         // a comprehension in a class body sees no members except the iterable it is handed
-        let (c, _) = compile("class E:\n    xs = [1, 2]\n    ys = [i * 2 for i in xs]\n    zs = [xs for i in range(2)]\n");
+        let (c, _) = crate::words::legacy("class E:\n    xs = [1, 2]\n    ys = [i * 2 for i in xs]\n    zs = [xs for i in range(2)]\n");
         let p = Program::new(&c);
         let e = &c.classes[0];
         assert_eq!((bound(&p, e, "xs"), bound(&p, e, "ys")), (vec![Member], vec![Member]));

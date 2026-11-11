@@ -4,7 +4,7 @@
 
 - native: print
   args: ["a", null, true]
-  out: "a None True"
+  out: "a nil true"
 
 - native: print
   args: [1, 2]
@@ -18,19 +18,19 @@
 
 - native: print
   args: [{"k": [1, "v"]}]
-  out: "{'k': [1, 'v']}"
+  out: "{k = [1, \"v\"]}"
 
 - native: print
   args: [true]
-  out: "True"
+  out: "true"
 
 - native: print
   args: [false]
-  out: "False"
+  out: "false"
 
 - native: print
   args: [null]
-  out: "None"
+  out: "nil"
 
 - native: print
   args: ["hello"]
@@ -38,23 +38,23 @@
 
 - native: print
   args: [!bytes "68656c6c6f"]
-  out: "b'hello'"
+  out: "b\"hello\""
 
 - native: print
   args: [!bytes ""]
-  out: "b''"
+  out: "b\"\""
 
 - native: print
   args: [!bytes "610a620963"]
-  out: "b'a\\nb\\tc'"
+  out: "b\"a\\nb\\tc\""
 
 - native: print
   args: [!bytes "666f6f626172"]
-  out: "b'foobar'"
+  out: "b\"foobar\""
 
 - native: print
   args: [!tuple ["a\nb"]]
-  out: "('a\\nb',)"
+  out: "(\"a\\nb\",)"
 
 - native: print
   args: ["\\z"]
@@ -82,7 +82,7 @@
 
 - native: print
   args: [!set [1, "a", 2]]
-  out: "{1, 'a', 2}"
+  out: "{1, \"a\", 2}"
 
 - native: print
   args: [!set [100, 2, 30]]
@@ -106,7 +106,7 @@
 
 - native: print
   args: [{"a": 1}]
-  out: "{'a': 1}"
+  out: "{a = 1}"
 
 - native: print
   args: [!set [1, 1.0, 2]]
@@ -114,15 +114,15 @@
 
 - native: print
   args: [[1e16, 2.5]]
-  out: "[1e+16, 2.5]"
+  out: "[1e16, 2.5]"
 
 - native: print
   args: [["x\ny"]]
-  out: "['x\\ny']"
+  out: "[\"x\\ny\"]"
 
 - native: print
   args: [{"k": "a\tb"}]
-  out: "{'k': 'a\\tb'}"
+  out: "{k = \"a\\tb\"}"
 
 - native: print
   args: [42]
@@ -150,15 +150,15 @@
 
 - native: print
   args: [1e16]
-  out: "1e+16"
+  out: "1e16"
 
 - native: print
   args: [1e17]
-  out: "1e+17"
+  out: "1e17"
 
 - native: print
   args: [1e-5]
-  out: "1e-05"
+  out: "0.00001"
 
 - native: print
   args: [0.0001]
@@ -166,15 +166,15 @@
 
 - native: print
   args: [1e100]
-  out: "1e+100"
+  out: "1e100"
 
 - native: print
   args: [1e21]
-  out: "1e+21"
+  out: "1e21"
 
 - native: print
   args: [1e20]
-  out: "1e+20"
+  out: "1e20"
 
 - native: print
   args: [5000000000000000.0]
@@ -182,7 +182,7 @@
 
 - native: print
   args: [1.2345678901234568e18]
-  out: "1.2345678901234568e+18"
+  out: "1.2345678901234568e18"
 
 - native: print
   args: [0.0001]
@@ -190,11 +190,11 @@
 
 - native: print
   args: [1.5e300]
-  out: "1.5e+300"
+  out: "1.5e300"
 
 - native: print
   args: [2.5e-8]
-  out: "2.5e-08"
+  out: "2.5e-8"
 
 - native: print
   args: [5]
@@ -210,7 +210,7 @@
 
 - native: print
   args: [!bytes "5c7531323334"]
-  out: "b'\\\\u1234'"
+  out: "b\"\\\\u1234\""
 
 - native: print
   args: [100000]
@@ -230,15 +230,15 @@
 
 - native: print
   args: [!bytes "41"]
-  out: "b'A'"
+  out: "b\"A\""
 
 - native: print
   args: [!bytes "7f"]
-  out: "b'\\x7f'"
+  out: "b\"\\x7f\""
 
 - native: print
   args: [!bytes "614141427a"]
-  out: "b'aAABz'"
+  out: "b\"aAABz\""
 
 - native: print
   args: [!int "170141183460469231731687303715884105728"]
@@ -246,4 +246,4 @@
 
 - native: print
   args: [!bytes "01ff"]
-  out: "b'\\x01\\xff'"
+  out: "b\"\\x01\\xff\""

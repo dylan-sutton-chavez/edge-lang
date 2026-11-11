@@ -605,7 +605,7 @@ mod restore {
         let printed = Arc::new(Mutex::new(String::new()));
         let into = printed.clone();
         let mut vm = host.vm(Box::new(move |text: &str| into.lock().unwrap().push_str(text)), Project::disk("", None), None, None).unwrap();
-        assert!(matches!(vm.start("m = receive()\nprint('kept', m)\n", None).unwrap(), Status::PendingEvent));
+        assert!(matches!(vm.start("m = receive()\nprint(\"kept\", m)\n", None).unwrap(), Status::PendingEvent));
         let blob = vm.save_state().unwrap().expect("a parked run saves");
         // the same blob sealed again over a source that no longer parses
         let len = u64::from_le_bytes(blob[24..32].try_into().unwrap()) as usize;

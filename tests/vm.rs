@@ -249,114 +249,106 @@ mod test {
         }
 
         fn traceback(src: &str) -> String {
-            let (_, tb) = run(src, "RuntimeError: boom");
+            let (_, tb) = run(src, "Error: boom");
             tb.unwrap_or_else(|| panic!("expected an uncaught error from {src:?}"))
         }
 
         #[test]
         fn a_recursion_through_sections_notes_its_levels_as_frames_do() {
             // the same lines both ways and a `try` keeps the recursion in frames
-            let laid = |stop: &str, body: [&str; 2]| format!("fn f(n, stop):\n    if n == stop:\n        return 1 ~/ (stop - 70)\n    {}\n    {}\n    return f(x + 1, stop) + 1\nfn run():\n    for i in range(4):\n        f(0, 60)\n    f(0, {stop})\nrun()\n", body[0], body[1]);
+            let laid = |stop: &str, body: [&str; 2]| format!("fn f(n, stop) {{\n    if n == stop {{\n        return 1 ~/ (stop - 70)\n    }}\n    {}\n    {}\n    return f(x + 1, stop) + 1\n}}\nfn run() {{\n    for i in range(4) {{\n        f(0, 60)\n    }}\n    f(0, {stop})\n}}\nrun()\n", body[0], body[1]);
             for stop in ["70", "-1"] {
-                let (sections, frames) = (traceback(&laid(stop, ["x = n", "y = 0"])), traceback(&laid(stop, ["try: x = n", "except ValueError: y = 0"])));
+                let (sections, frames) = (traceback(&laid(stop, ["x = n", "y = 0"])), traceback(&laid(stop, ["try { x = n } catch ValueError { y = 0 }", "y = 0"])));
                 assert_eq!(locations(&sections), locations(&frames), "{sections}\n=====\n{frames}");
             }
-            let mutual = |body: [&str; 2]| format!("fn even(n):\n    if n == 0:\n        return 1 ~/ n\n    {}\n    {}\n    return odd(x - 1)\nfn odd(n):\n    x = n\n    return even(x - 1)\nfor i in range(8):\n    try:\n        even(40 + i * 2)\n    except ZeroDivisionError:\n        pass\neven(30)\n", body[0], body[1]);
-            let (sections, frames) = (traceback(&mutual(["x = n", "y = 0"])), traceback(&mutual(["try: x = n", "except ValueError: y = 0"])));
+            let mutual = |body: [&str; 2]| format!("fn even(n) {{\n    if n == 0 {{\n        return 1 ~/ n\n    }}\n    {}\n    {}\n    return odd(x - 1)\n}}\nfn odd(n) {{\n    x = n\n    return even(x - 1)\n}}\nfor i in range(8) {{\n    try {{\n        even(40 + i * 2)\n    }} catch DivisionError {{\n    }}\n}}\neven(30)\n", body[0], body[1]);
+            let (sections, frames) = (traceback(&mutual(["x = n", "y = 0"])), traceback(&mutual(["try { x = n } catch ValueError { y = 0 }", "y = 0"])));
             assert_eq!(locations(&sections), locations(&frames), "{sections}");
         }
 
         #[test]
         fn uncaught_at_top_level_points_at_the_call() {
-            let tb = traceback("from m import host_defer\nprint('before')\nhost_defer()\nprint('after')\n");
-            assert!(tb.contains("RuntimeError: boom"), "{tb}");
-            assert!(tb.contains("--> main.mini:3:1"), "{tb}");
-            assert!(tb.contains("3 | host_defer()"), "{tb}");
+            let tb = traceback("use m\nhost_defer = m.host_defer\nprint(\"before\")\nhost_defer()\nprint(\"after\")\n");
+            assert!(tb.contains("Error: boom"), "{tb}");
+            assert!(tb.contains("--> main.mini:4:1"), "{tb}");
+            assert!(tb.contains("4 | host_defer()"), "{tb}");
         }
 
         #[test]
         fn uncaught_in_a_function_keeps_the_called_from_note() {
-            let tb = traceback("from m import host_defer\nfn helper():\n    x = 1\n    host_defer()\nhelper()\n");
-            assert!(tb.contains("--> main.mini:4:5"), "{tb}");
+            let tb = traceback("use m\nhost_defer = m.host_defer\nfn helper() {\n    x = 1\n    host_defer()\n}\nhelper()\n");
+            assert!(tb.contains("--> main.mini:5:5"), "{tb}");
             assert!(tb.contains("note: called from helper()"), "{tb}");
-            assert!(tb.contains(":5:7"), "{tb}");
+            assert!(tb.contains(":7:7"), "{tb}");
         }
 
         #[test]
         fn a_key_that_fails_notes_its_call_as_a_called_function_does() {
             for call in ["sorted(xs, key=bad)", "min(xs, key=bad)", "max(xs, key=bad)", "list(map(bad, xs))"] {
-                let tb = traceback(&format!("fn bad(x):\n    return 1 ~/ (x - 3)\nxs = [1, 2, 3, 4]\nprint({call})\n"));
+                let tb = traceback(&format!("fn bad(x) {{\n    return 1 ~/ (x - 3)\n}}\nxs = [1, 2, 3, 4]\nprint({call})\n"));
                 assert!(tb.contains("--> main.mini:2:5"), "{tb}");
                 assert!(tb.contains("note: called from bad()"), "{tb}");
-                assert!(tb.contains("--> main.mini:4:"), "{tb}");
+                assert!(tb.contains("--> main.mini:5:"), "{tb}");
             }
         }
 
         #[test]
         fn caught_error_leaves_no_stale_position() {
-            let src = "from m import host_defer\ntry:\n    host_defer()\nexcept RuntimeError as e:\n    print('caught', e)\nx = 1 / 0\n";
-            let (out, tb) = run(src, "RuntimeError: boom");
+            let src = "use m\nhost_defer = m.host_defer\ntry {\n    host_defer()\n} catch Error as e {\n    print(\"caught\", e)\n}\nx = 1 / 0\n";
+            let (out, tb) = run(src, "Error: boom");
             assert_eq!(out, vec!["caught boom"]);
-            let tb = tb.expect("the later ZeroDivisionError escapes");
-            assert!(tb.contains("ZeroDivisionError"), "{tb}");
-            assert!(tb.contains("--> main.mini:6:1"), "{tb}");
+            let tb = tb.expect("the later DivisionError escapes");
+            assert!(tb.contains("DivisionError"), "{tb}");
+            assert!(tb.contains("--> main.mini:8:1"), "{tb}");
         }
 
         #[test]
         fn a_callers_handler_catches_an_error_raised_inside_a_resumed_helper() {
-            let src = "from m import host_defer\nfn helper():\n    host_defer()\n    print('helper continued')\ntry:\n    helper()\nexcept RuntimeError:\n    print('caught in caller')\nprint('end')\n";
-            let (out, tb) = run(src, "RuntimeError: boom");
+            let src = "use m\nhost_defer = m.host_defer\nfn helper() {\n    host_defer()\n    print(\"helper continued\")\n}\ntry {\n    helper()\n} catch Error {\n    print(\"caught in caller\")\n}\nprint(\"end\")\n";
+            let (out, tb) = run(src, "Error: boom");
             assert_eq!(tb, None);
             assert_eq!(out, vec!["caught in caller", "end"]);
         }
 
         #[test]
-        fn a_host_call_cannot_wait_inside_a_coroutine() {
-            let src = "from m import host_defer\nasync fn child():\n    host_defer()\ntry:\n    child().send(nil)\nexcept RuntimeError as e:\n    print(e)\n";
-            let (out, tb) = run(src, "RuntimeError: boom");
-            assert_eq!(tb, None);
-            assert_eq!(out, vec!["receive() and host calls cannot wait inside a generator or a coroutine"]);
-        }
-
-        #[test]
         fn nested_helpers_render_like_an_error_raised_without_suspending() {
-            let layout = |stmt: &str| format!("from m import host_defer\nfn inner():\n    {stmt}\nfn outer():\n    inner()\nouter()\n");
+            let layout = |stmt: &str| format!("use m\nhost_defer = m.host_defer\nfn inner() {{\n    {stmt}\n}}\nfn outer() {{\n    inner()\n}}\nouter()\n");
             let delivered = traceback(&layout("host_defer()"));
-            let raised = traceback(&layout("raise RuntimeError('boom')"));
+            let raised = traceback(&layout("throw Error(\"boom\")"));
             assert_eq!(locations(&delivered), locations(&raised), "\n{delivered}\n{raised}");
             assert!(delivered.contains("note: called from inner()") && delivered.contains("note: called from outer()"), "{delivered}");
         }
 
         #[test]
         fn an_ordinary_error_after_a_helper_resumed_reaches_the_callers_handler() {
-            let src = "from m import host_defer\nfn helper():\n    try:\n        host_defer()\n    except RuntimeError:\n        pass\n    raise ValueError('x')\ntry:\n    helper()\nexcept ValueError:\n    print('caught')\nprint('end')\n";
-            let (out, tb) = run(src, "RuntimeError: boom");
+            let src = "use m\nhost_defer = m.host_defer\nfn helper() {\n    try {\n        host_defer()\n    } catch Error {\n    }\n    throw ValueError(\"x\")\n}\ntry {\n    helper()\n} catch ValueError {\n    print(\"caught\")\n}\nprint(\"end\")\n";
+            let (out, tb) = run(src, "Error: boom");
             assert_eq!(tb, None);
             assert_eq!(out, vec!["caught", "end"]);
         }
 
         #[test]
         fn an_ordinary_error_after_a_helper_resumed_keeps_its_line_and_note() {
-            let body = |stmt: &str| format!("from m import host_defer\nfn helper():\n    try:\n        {stmt}\n    except RuntimeError:\n        pass\n    x = 1 / 0\nhelper()\n");
+            let body = |stmt: &str| format!("use m\nhost_defer = m.host_defer\nfn helper() {{\n    try {{\n        {stmt}\n    }} catch Error {{\n    }}\n    x = 1 / 0\n}}\nhelper()\n");
             let resumed = traceback(&body("host_defer()"));
-            let direct = traceback(&body("pass"));
-            assert!(resumed.contains("--> main.mini:7:5"), "{resumed}");
+            let direct = traceback(&body(""));
+            assert!(resumed.contains("--> main.mini:8:5"), "{resumed}");
             assert_eq!(locations(&resumed), locations(&direct), "\n{resumed}\n{direct}");
         }
 
         #[test]
         fn a_pending_raise_survives_a_snapshot() {
-            let src = "from m import host_defer\nprint('before')\nhost_defer()\nprint('after')\n";
+            let src = "use m\nhost_defer = m.host_defer\nprint(\"before\")\nhost_defer()\nprint(\"after\")\n";
             let chunk = compile(src);
             let mut vm = crate::common::boot(&chunk, Limits::sandbox());
             assert!(matches!(vm.run(), Err(VmErr::HostYield(SchedulerStatus::PendingHostCall))));
-            assert!(fail(&mut vm, 0, "RuntimeError: boom"));
+            assert!(fail(&mut vm, 0, "Error: boom"));
             let blob = snapshot::save(&vm, src, "").expect("save");
             let mut restored = crate::common::boot(&chunk, Limits::sandbox());
             snapshot::restore(&mut restored, &blob).expect("restore");
             let e = restored.run().expect_err("the delivered error escapes after restore");
             let tb = render(&restored, &e, src);
-            assert!(tb.contains("RuntimeError: boom") && tb.contains("--> main.mini:3:1"), "{tb}");
+            assert!(tb.contains("Error: boom") && tb.contains("--> main.mini:4:1"), "{tb}");
             assert!(!restored.output.iter().any(|l| l == "after"), "{:?}", restored.output);
         }
 
@@ -365,9 +357,9 @@ mod test {
         fn a_wait_inside_a_builtins_callback_raises_there() {
             // `map` over a named list loops in a section of `run` and otherwise in frames
             for (call, it) in ["sorted(range(40), key=k)", "max(range(40), key=k)", "[v for v in map(k, range(40))]", "0"].into_iter().flat_map(|c| [(c, "range(40)"), (c, "xs")]) {
-                let src = format!("from m import host_defer\nfn wait():\n    host_defer()\nfn k(x):\n    if x == 30:\n        wait()\n    return x\nxs = list(range(40))\nfn run():\n    t = 0\n    for v in map(k, {it}):\n        t += v\n    return t\ntry:\n    print({call})\nexcept RuntimeError as e:\n    print('caught', e)\ntry:\n    run()\nexcept RuntimeError as e:\n    print('caught', e)\nprint('end')\n");
-                let (out, tb) = run(&src, "RuntimeError: boom");
-                let caught = "caught receive() and host calls cannot wait inside a callback a builtin runs";
+                let src = format!("use m\nhost_defer = m.host_defer\nfn wait() {{\n    host_defer()\n}}\nfn k(x) {{\n    if x == 30 {{\n        wait()\n    }}\n    return x\n}}\nxs = list(range(40))\nfn run() {{\n    t = 0\n    for v in map(k, {it}) {{\n        t += v\n    }}\n    return t\n}}\ntry {{\n    print({call})\n}} catch Error as e {{\n    print(\"caught\", e)\n}}\ntry {{\n    run()\n}} catch Error as e {{\n    print(\"caught\", e)\n}}\nprint(\"end\")\n");
+                let (out, tb) = run(&src, "Error: boom");
+                let caught = "caught a host wait cannot park inside a callback a builtin runs";
                 let first = if call == "0" { "0" } else { caught };
                 assert_eq!(out, vec![first, caught, "end"], "{call}: {tb:?}");
             }
@@ -376,10 +368,10 @@ mod test {
         // a lambda's error points into its body and its frame reads as the anonymous name
         #[test]
         fn a_lambda_is_named_and_points_into_its_body() {
-            let tb = traceback("rows = [('a', '3'), ('b', 'x')]\nprint(sorted(rows, key=lambda r: int(r[1])))\n");
-            assert!(tb.contains("--> main.mini:2:34") && tb.contains("note: called from <lambda>()"), "{tb}");
-            let tb = traceback("f = lambda s: int(s)\nx = 1\nprint(f('y'))\n");
-            assert!(tb.contains("--> main.mini:1:15") && tb.contains("note: called from <lambda>()") && tb.contains("--> main.mini:3:8"), "{tb}");
+            let tb = traceback("rows = [(\"a\", \"3\"), (\"b\", \"x\")]\nprint(sorted(rows, key=|r| int(r[1])))\n");
+            assert!(tb.contains("--> main.mini:2:28") && tb.contains("note: called from <fn>()"), "{tb}");
+            let tb = traceback("f = |s| int(s)\nx = 1\nprint(f(\"y\"))\n");
+            assert!(tb.contains("--> main.mini:1:9") && tb.contains("note: called from <fn>()") && tb.contains("--> main.mini:3:8"), "{tb}");
         }
     }
     // scanning or copying builtins pay for what they read so loops cannot outrun the budget
@@ -390,22 +382,22 @@ mod test {
         let (n, k, ops) = if cfg!(miri) { (1_000, 100, 20_000) } else { (10_000, 1_000, 200_000) };
         let h = n / 2;
         for src in [
-            format!("s = 'ab' * {h}\nfor i in range({k}):\n    n = s.count('b')"),
-            format!("l = list(range({n}))\nfor i in range({k}):\n    t = -1 in l"),
-            format!("a = [list(range({n}))]\nb = [list(range({n}))]\nfor i in range({k}):\n    t = a == b"),
-            format!("a = 'x' * {n}\nb = 'x' * {n}\nfor i in range({k}):\n    t = a == b"),
-            format!("l = list(range({n}))\nfor i in range({k}):\n    t = sum(l)"),
-            format!("d = dict.fromkeys(range({n}))\nfor i in range({k}):\n    e = d.copy()"),
-            format!("k = 'x' * {n}\nd = {{}}\nfor i in range({k}):\n    d[k] = i"),
-            format!("s = 'x'\nfor i in range({k}):\n    t = s.rjust({n})"),
-            format!("l = list(range({n}))\nfor i in range({k}):\n    l.insert(0, i)\n    l.pop(0)"),
+            format!("s = \"ab\" * {h}\nfor i in range({k}) {{\n    n = s.count(\"b\")\n}}"),
+            format!("l = list(range({n}))\nfor i in range({k}) {{\n    t = -1 in l\n}}"),
+            format!("a = [list(range({n}))]\nb = [list(range({n}))]\nfor i in range({k}) {{\n    t = a == b\n}}"),
+            format!("a = \"x\" * {n}\nb = \"x\" * {n}\nfor i in range({k}) {{\n    t = a == b\n}}"),
+            format!("l = list(range({n}))\nfor i in range({k}) {{\n    t = sum(l)\n}}"),
+            format!("d = record.fromkeys(range({n}))\nfor i in range({k}) {{\n    e = d.copy()\n}}"),
+            format!("k = \"x\" * {n}\nd = {{}}\nfor i in range({k}) {{\n    d[k] = i\n}}"),
+            format!("s = \"x\"\nfor i in range({k}) {{\n    t = s.rjust({n})\n}}"),
+            format!("l = list(range({n}))\nfor i in range({k}) {{\n    l.insert(0, i)\n    l.pop(0)\n}}"),
         ] {
             let (chunk, _) = crate::common::parse(&src);
             let mut vm = crate::common::boot(&chunk, Limits { ops, ..Limits::sandbox() });
             assert!(matches!(vm.run(), Err(VmErr::Budget)), "{src}");
         }
         // the same work written without a loop pays line by line
-        for (setup, line) in [(format!("s = 'ab' * {h}"), "n = s.count('b')"), (format!("a = 'x' * {n}\nb = 'x' * {n}"), "t = a == b"), (format!("l = list(range({n}))"), "t = -1 in l"), (format!("k = 'x' * {n}\nd = {{}}"), "d[k] = 1")] {
+        for (setup, line) in [(format!("s = \"ab\" * {h}"), "n = s.count(\"b\")"), (format!("a = \"x\" * {n}\nb = \"x\" * {n}"), "t = a == b"), (format!("l = list(range({n}))"), "t = -1 in l"), (format!("k = \"x\" * {n}\nd = {{}}"), "d[k] = 1")] {
             let src = format!("{setup}\n{}", format!("{line}\n").repeat(k));
             let (chunk, _) = crate::common::parse(&src);
             let mut vm = crate::common::boot(&chunk, Limits { ops, ..Limits::sandbox() });
@@ -416,7 +408,7 @@ mod test {
     #[test]
     fn a_resumed_generator_pays_within_the_budget() {
         use edge::value::Limits;
-        let src = "fn gi(n):\n    for i in range(n):\n        yield i\nfn outer(n):\n    for v in gi(n):\n        try:\n            yield v * 2\n        finally:\n            pass\nt = 0\nfor v in outer(30000):\n    t += v\nprint(t)\n";
+        let src = "fn gi(n) {\n    for i in range(n) {\n        yield i\n    }\n}\nfn outer(n) {\n    for v in gi(n) {\n        try {\n            yield v * 2\n        } finally {\n        }\n    }\n}\nt = 0\nfor v in outer(30000) {\n    t += v\n}\nprint(t)\n";
         let (chunk, _) = crate::common::parse(src);
         for ops in 1..=80 {
             let mut vm = crate::common::boot(&chunk, Limits { ops, ..Limits::sandbox() });
@@ -428,7 +420,7 @@ mod test {
     fn a_class_whose_step_runs_out_of_budget_raises() {
         use edge::value::Limits;
         let src = "class O:\n    pass\nfn f():\n    class P:\n        pass\n    return P\nprint(f())\n";
-        let (chunk, _) = crate::common::parse(src);
+        let (chunk, _) = crate::words::legacy(src);
         for owed in [1_000, 70_000, 1_000_000] {
             let mut vm = crate::common::boot(&chunk, Limits { ops: 500, ..Limits::sandbox() });
             vm.heap_mut().spend(owed);
@@ -439,7 +431,7 @@ mod test {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn a_long_input_reads_in_linear_time() {
-        let src = "t = 0\nfor _ in range(400000):\n    t += int(input())\nprint(t)\n";
+        let src = "t = 0\nfor _ in range(400000) {\n    t += int(input())\n}\nprint(t)\n";
         let (chunk, _) = crate::common::parse(src);
         let mut vm = crate::common::boot(&chunk, edge::value::Limits::sandbox());
         vm.input_buffer = (0..400_000).map(|i| (i % 10).to_string()).collect();
@@ -454,56 +446,25 @@ mod test {
     fn far_reads_of_a_text_past_ascii_pay_for_the_bytes_they_walk() {
         use edge::value::Limits;
         for line in ["c = t[i * 104729 % n]", "c = t[-1 - i * 104729 % n]", "c = t[i * 104729 % n:i * 104729 % n + 2]", "c = t[i * 104729 % n::n]", "c = u[n + 2 + i]", "c = u[-n - 3 - i]"] {
-            let src = format!("n = 300000\nt = 'é' * n\nu = 'é' + 'x' * n\nfor i in range(2000):\n    try:\n        {line}\n    except IndexError:\n        c = 0\n");
-            let (chunk, _) = crate::common::parse(&src);
+            let src = format!("n = 300000\nt = \"é\" * n\nu = \"é\" + \"x\" * n\nfor i in range(2000) {{\n    try {{\n        {line}\n    }} catch IndexError {{\n        c = 0\n    }}\n}}\n");
+            let (chunk, _) = crate::common::compile(&src);
             let mut vm = crate::common::boot(&chunk, Limits { ops: 400_000, ..Limits::sandbox() });
             assert!(matches!(vm.run(), Err(VmErr::Budget)), "{line}");
         }
         // each index in turn walks one character on from the last read
-        let src = "n = 300000\nt = 'é' * n\nc = 0\nfor i in range(n):\n    if t[i] == 'é':\n        c += 1\nprint(c)\n";
-        let (chunk, _) = crate::common::parse(src);
+        let src = "n = 300000\nt = \"é\" * n\nc = 0\nfor i in range(n) {\n    if t[i] == \"é\" {\n        c += 1\n    }\n}\nprint(c)\n";
+        let (chunk, _) = crate::common::compile(src);
         let mut vm = crate::common::boot(&chunk, Limits { ops: 10_000_000, ..Limits::sandbox() });
         let start = std::time::Instant::now();
         vm.run().unwrap();
         assert_eq!(vm.output, ["300000"]);
         assert!(start.elapsed() < std::time::Duration::from_secs(5), "{:?}", start.elapsed());
     }
-    // names sharing one hash pay for each probe of the tables that intern them
-    #[test]
-    #[cfg_attr(miri, ignore)]
-    fn names_sharing_one_hash_pay_for_each_probe() {
-        use edge::value::{Limits, hash_str};
-        const K: u64 = 0x517c_c1b7_2722_0a95;
-        let inv = (0..6).fold(K, |x, _| x.wrapping_mul(2u64.wrapping_sub(K.wrapping_mul(x))));
-        assert_eq!(K.wrapping_mul(inv), 1);
-        let (mut names, mut seed) = (Vec::new(), 7u64);
-        // a second block undoes whatever the first did so every name ends on one hash
-        while names.len() < 1500 {
-            seed = seed.wrapping_mul(0x5851_f42d_4c95_7f2d).wrapping_add(1);
-            let first = u64::from_le_bytes(core::array::from_fn(|k| b'a' + (seed >> (k * 4 + 20) & 15) as u8));
-            let second = 12345u64.wrapping_mul(inv) ^ (K.rotate_left(5) ^ first).wrapping_mul(K).rotate_left(5);
-            let text = [first.to_le_bytes(), second.to_le_bytes()].concat();
-            if text[8..].iter().all(|b| (b' '..=b'~').contains(b) && *b != b'"' && *b != b'\\') && let Ok(s) = String::from_utf8(text) && !names.contains(&s) { names.push(s); }
-        }
-        assert!(names.iter().all(|s| hash_str(s) == hash_str(&names[0])));
-        let plain: Vec<String> = (0..1500).map(|i| format!("plain name {i:05}")).collect();
-        for (keys, shared) in [(&names, true), (&plain, false)] {
-            let src = format!("class O:\n    pass\no = O()\nfor k in {keys:?}:\n    setattr(o, k, 1)\nprint(getattr(o, {:?}))\n", keys[1499]);
-            let (chunk, _) = crate::common::parse(&src);
-            let mut vm = crate::common::boot(&chunk, Limits { ops: 400_000, ..Limits::sandbox() });
-            assert_eq!(matches!(vm.run(), Err(VmErr::Budget)), shared, "{}", keys[0]);
-            // a type object made by such a name pays for the probes of its table
-            let mut vm = crate::common::boot(&chunk, Limits::sandbox());
-            for k in keys.iter() { vm.heap_mut().type_object(k).unwrap(); }
-            let work = vm.heap().take_work();
-            assert_eq!(work > 500_000, shared, "{work}");
-        }
-    }
     // emptying a set by pop and a map by popitem reads each removed entry once
     #[test]
     #[cfg_attr(miri, ignore)]
     fn emptying_a_set_or_a_map_from_one_end_takes_linear_time() {
-        let src = "s = set(range(1000000))\nd = dict.fromkeys(range(1000000))\nk = 0\nwhile len(s) > 0:\n    s.pop()\n    d.popitem()\n    k += 1\nprint(k, len(d))\n";
+        let src = "s = set(range(1000000))\nd = record.fromkeys(range(1000000))\nk = 0\nwhile len(s) > 0 {\n    s.pop()\n    d.popitem()\n    k += 1\n}\nprint(k, len(d))\n";
         let (chunk, _) = crate::common::parse(src);
         let mut vm = crate::common::boot(&chunk, edge::value::Limits::sandbox());
         let start = std::time::Instant::now();

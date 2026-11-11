@@ -7,11 +7,12 @@ groups:
     seed: ["go"]
     code: |
       receive()
-      try:
-          xs = [str(i) for i in range(50000)]
+      try {
+          xs = [text(i) for i in range(50000)]
           print("unbounded")
-      except MemoryError:
+      } catch MemoryError {
           print("capped")
+      }
 
 expect:
   - "capped"

@@ -33,10 +33,10 @@ Deno.test("js: a worker holds nothing of the page and reaches only its grants", 
             const worker = await createWorker({ permissions: { main: ["net:127.0.0.1"] } });
             const lines = [];
             worker.onOutput((text) => lines.push(text));
-            await worker.run(`import net\nr = net.request('GET', '${origin}/')\nnet.response(r)\nprint(net.read(r))`);
+            await worker.run(`use net\nr = net.request("GET", "${origin}/")\nnet.response(r)\nprint(net.read(r))`);
             return { page: await fetch("/").then((r) => r.text()), room: lines.join("").trim() };
         }, [HOST, origin]);
-        if (got.page !== "session=secret" || got.room !== "b'none'") throw new Error(`the room carried the page's cookie ${JSON.stringify(got)}`);
+        if (got.page !== "session=secret" || got.room !== 'b"none"') throw new Error(`the room carried the page's cookie ${JSON.stringify(got)}`);
 
         const frame = page.frames().find((f) => f !== page.mainFrame());
         const room = await frame.evaluate(() => ({ origin, policy: document.querySelector("meta").content }));
@@ -46,7 +46,7 @@ Deno.test("js: a worker holds nothing of the page and reaches only its grants", 
         // A grant that is not a plain host is refused before the run, and stays out of the policy all the same.
         const refused = await page.evaluate(async (host) => {
             const worker = await (await import(host)).createWorker({ permissions: { main: ["net:a.test;script-src"] } });
-            return worker.run("import net\nprint(1)").then(() => "ran", (e) => e.message);
+            return worker.run("use net\nprint(1)").then(() => "ran", (e) => e.message);
         }, HOST);
         if (!refused.includes("give net the scope 'a.test;script-src', which it does not have")) throw new Error(`unexpected ${refused}`);
         const policy = await page.frames().at(-1).evaluate(() => document.querySelector("meta").content);

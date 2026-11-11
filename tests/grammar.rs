@@ -90,16 +90,16 @@ mod test {
     fn a_form_hands_its_head_offset_and_a_bare_limit_counts_one() {
         let src = "let _ = print(here 1 within wide, work 4)\nlet _ = print(here 2 within wide)";
         let at = |k: usize| CALLS.len() + src.match_indices("here").nth(k).map_or(0, |m| m.0);
-        assert_eq!(run(src), format!("[{}, 1, [['wide', 1], ['work', 4]]]\n[{}, 2, [['wide', 1]]]\n", at(0), at(1)));
+        assert_eq!(run(src), format!("[{}, 1, [[\"wide\", 1], [\"work\", 4]]]\n[{}, 2, [[\"wide\", 1]]]\n", at(0), at(1)));
     }
 
     #[test]
     fn a_lazy_name_reads_its_lone_comprehension_item_by_item() {
-        assert_eq!(run("let _ = print(any([n == 0 or 1 / (n - n) == 1 for n in [0, 1]]))"), "True\n");
+        assert_eq!(run("let _ = print(any([n == 0 or 1 / (n - n) == 1 for n in [0, 1]]))"), "true\n");
         // a comprehension that is not the whole argument and a name off the list stay lists
-        assert!(run("let _ = print(any([n == 0 or 1 / (n - n) == 1 for n in [0, 1]] + []))").contains("ZeroDivisionError"));
+        assert!(run("let _ = print(any([n == 0 or 1 / (n - n) == 1 for n in [0, 1]] + []))").contains("DivisionError"));
         assert!(run("let _ = print(pick(1, [n for n in [1]]))").contains("generator"));
-        assert!(run("let _ = print(all([n == 1 or 1 / (n - n) == 1 for n in [0, 1]]))").contains("ZeroDivisionError"));
+        assert!(run("let _ = print(all([n == 1 or 1 / (n - n) == 1 for n in [0, 1]]))").contains("DivisionError"));
     }
 
     #[test]

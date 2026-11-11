@@ -2,7 +2,7 @@ use edge::embed::{Limits, VM};
 use edge::lang::{Acc, Args, Cont, Cx, Flow, Fold, Item, Native, Natives, Ret, Runtime, STEPS, Sent, Sig, Step, Then};
 use edge::value::{SchedulerStatus, Val, VmErr};
 use mini::Mini;
-use mini::natives::{ARRAY, ATTR, BUFFER, BYTES, CONVERT, DICT, FLOAT, FOLDS, GEN, INT, IO, ITER, LIST, LIST_SORT, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
+use mini::natives::{ARRAY, BUFFER, BYTES, CONVERT, DICT, FLOAT, FOLDS, INT, IO, ITER, LIST, LIST_SORT, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
 
 // every run meters what it allocates as edge.wasm does
 edge::allocator!();
@@ -28,7 +28,7 @@ const STEPPED: &[Native] = &[
 
 static NATIVES: Natives = edge::natives! {
     language: Over,
-    fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, ATTR, TYPES, STEPPED],
+    fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, TYPES, mini::natives::MATCH, mini::natives::DATE, STEPPED],
     methods: [
         Str => [STR],
         Bytes => [BUFFER],
@@ -40,7 +40,6 @@ static NATIVES: Natives = edge::natives! {
         Int => [INT],
         Float => [FLOAT],
         Range => [RANGE],
-        Coro => [GEN],
     ],
     types: mini::types::NAMES,
 };
@@ -229,51 +228,51 @@ fn prints(src: &str, want: &str) {
 
 #[test]
 fn a_call_runs_as_a_frame_and_gives_its_value() {
-    prints("print(apply(lambda x: x * 2, 21))", "42\n");
-    prints("fn f(x):\n    return x + 1\nprint(apply_inc(f, 1))", "3\n");
-    prints("print(twice(lambda x: x * 3, 2))", "18\n");
-    prints("class K:\n    fn __init__(self, v):\n        self.v = v\nprint(apply(K, 7).v)", "7\n");
-    prints("print(apply(len, [1, 2]), apply(str, 5))", "2 5\n");
+    prints("print(apply(|x| x * 2, 21))", "42\n");
+    prints("fn f(x) {\n    return x + 1\n}\nprint(apply_inc(f, 1))", "3\n");
+    prints("print(twice(|x| x * 3, 2))", "18\n");
+    prints("fn K(v) = {v = v}\nprint(apply(K, 7).v)", "7\n");
+    prints("print(apply(len, [1, 2]), apply(text, 5))", "2 5\n");
 }
 
 #[test]
 fn a_call_in_a_hot_loop_stays_a_frame() {
-    prints("t = 0\nfor i in range(3000):\n    t += apply(lambda x: x + 1, i)\nprint(t)", "4501500\n");
-    prints("fn h(i):\n    return apply_inc(lambda x: x * 2, i)\nt = 0\nfor i in range(3000):\n    t += h(i)\nprint(t)", "9000000\n");
+    prints("t = 0\nfor i in range(3000) {\n    t += apply(|x| x + 1, i)\n}\nprint(t)", "4501500\n");
+    prints("fn h(i) {\n    return apply_inc(|x| x * 2, i)\n}\nt = 0\nfor i in range(3000) {\n    t += h(i)\n}\nprint(t)", "9000000\n");
 }
 
 #[test]
 fn an_error_in_a_call_rises_from_the_native() {
-    let src = "fn bad(x):\n    raise ValueError('no ' + str(x))\ntry:\n    apply(bad, 1)\nexcept ValueError as e:\n    print('caught', e)";
+    let src = "fn bad(x) {\n    throw ValueError(\"no \" + text(x))\n}\ntry {\n    apply(bad, 1)\n} catch ValueError as e {\n    print(\"caught\", e)\n}";
     prints(src, "caught no 1\n");
 }
 
 #[test]
 fn a_drain_folds_containers_generators_and_lazy_iterators() {
-    prints("print(total([1, 2, 3]), total(range(5)), total({1: 0, 2: 0}))", "6 10 3\n");
-    prints("print(total(x * x for x in range(4)))", "14\n");
-    prints("print(total(map(lambda x: x + 1, [1, 2, 3])))", "9\n");
-    prints("print(total(filter(lambda x: x % 2, range(10))))", "25\n");
+    prints("print(total([1, 2, 3]), total(range(5)), total(record([(1, 0), (2, 0)])))", "6 10 3\n");
+    prints("print(total((x * x for x in range(4))))", "14\n");
+    prints("print(total(map(|x| x + 1, [1, 2, 3])))", "9\n");
+    prints("print(total(filter(|x| x % 2, range(10))))", "25\n");
     prints("print(total(iter([4, 5])))", "9\n");
-    let out = run("print(total(['a']))", &[]);
+    let out = run("print(total([\"a\"]))", &[]);
     assert!(out.as_ref().is_err_and(|e| e.contains("total takes ints")), "{out:?}");
 }
 
 #[test]
 fn a_drain_stops_early_and_keeps_its_generator() {
-    prints("fn g():\n    yield 1\n    yield 2\n    return 9\nit = g()\nprint(first(it), first(it))\ntry:\n    first(it)\nexcept StopIteration as e:\n    print('stop', e.value)", "1 2\nstop 9\n");
+    prints("fn g() {\n    yield 1\n    yield 2\n    return 9\n}\nit = g()\nprint(first(it), first(it))\ntry {\n    first(it)\n} catch Stop as e {\n    print(\"stop\", e.value)\n}", "1 2\nstop 9\n");
     prints("it = iter([7, 8])\nprint(first(it), list(it))", "7 [8]\n");
 }
 
 #[test]
 fn a_drain_calls_between_items() {
-    prints("print(keys([3, 1, 2], lambda v: -v))", "[-3, -1, -2]\n");
-    prints("print(keys((i for i in range(4)), lambda v: v * 10))", "[0, 10, 20, 30]\n");
-    prints("print(keys(map(lambda x: x + 1, [1, 2]), lambda v: v * 2))", "[4, 6]\n");
-    prints("print(keys([1, 2], str), keys(['a'], len))", "['1', '2'] [1]\n");
-    prints("class K:\n    fn __init__(self, v):\n        self.v = v\nprint([k.v for k in keys([1, 2], K)])", "[1, 2]\n");
-    prints("n = keys(list(range(2000)), lambda v: v + 1)\nprint(len(n), n[0], n[-1])", "2000 1 2000\n");
-    let src = "fn bad(v):\n    if v == 2:\n        raise KeyError(v)\n    return v\ntry:\n    keys([1, 2, 3], bad)\nexcept KeyError as e:\n    print('caught', e)";
+    prints("print(keys([3, 1, 2], |v| -v))", "[-3, -1, -2]\n");
+    prints("print(keys((i for i in range(4)), |v| v * 10))", "[0, 10, 20, 30]\n");
+    prints("print(keys(map(|x| x + 1, [1, 2]), |v| v * 2))", "[4, 6]\n");
+    prints("print(keys([1, 2], text), keys([\"a\"], len))", "[\"1\", \"2\"] [1]\n");
+    prints("fn K(v) = {v = v}\nprint([k.v for k in keys([1, 2], K)])", "[1, 2]\n");
+    prints("n = keys(list(range(2000)), |v| v + 1)\nprint(len(n), n[0], n[-1])", "2000 1 2000\n");
+    let src = "fn bad(v) {\n    if v == 2 {\n        throw KeyError(v)\n    }\n    return v\n}\ntry {\n    keys([1, 2, 3], bad)\n} catch KeyError as e {\n    print(\"caught\", e)\n}";
     prints(src, "caught 2\n");
 }
 
@@ -281,70 +280,69 @@ fn a_drain_calls_between_items() {
 fn a_drain_walks_on_to_the_iterables_its_end_names() {
     prints("print(sums([1, 2], range(3), (4,)))", "10\n");
     prints("print(sums((i for i in range(3)), (i * 10 for i in range(3))))", "33\n");
-    prints("fn g(n):\n    yield n\nprint(sums(g(1), [2, 3], g(4), range(2)))", "11\n");
-    prints("print(sums(map(lambda x: x + 1, [1, 2]), (i for i in range(2))))", "6\n");
+    prints("fn g(n) {\n    yield n\n}\nprint(sums(g(1), [2, 3], g(4), range(2)))", "11\n");
+    prints("print(sums(map(|x| x + 1, [1, 2]), (i for i in range(2))))", "6\n");
     prints("print(sums(iter([]), (i for i in []), [7]))", "7\n");
-    prints("print(lists((i for i in range(2)), [5], (x for x in 'ab')))", "[[0, 1], [5], ['a', 'b']]\n");
-    prints("fn g(n):\n    yield n\n    yield n + 1\nt = 0\nfor i in range(300):\n    t += sums(g(i), [i], g(0))\nprint(t)", "135150\n");
-    let src = "fn bad():\n    yield 1\n    raise ValueError('late')\ntry:\n    sums([1], bad())\nexcept ValueError as e:\n    print('caught', e)";
+    prints("print(lists((i for i in range(2)), [5], (x for x in \"ab\")))", "[[0, 1], [5], [\"a\", \"b\"]]\n");
+    prints("fn g(n) {\n    yield n\n    yield n + 1\n}\nt = 0\nfor i in range(300) {\n    t += sums(g(i), [i], g(0))\n}\nprint(t)", "135150\n");
+    let src = "fn bad() {\n    yield 1\n    throw ValueError(\"late\")\n}\ntry {\n    sums([1], bad())\n} catch ValueError as e {\n    print(\"caught\", e)\n}";
     prints(src, "caught late\n");
 }
 
 #[test]
 fn a_collect_keeps_what_each_iterable_gave_across_its_chain() {
-    let g = "fn g(n):\n    for i in range(n):\n        yield i\n";
+    let g = "fn g(n) {\n    for i in range(n) {\n        yield i\n    }\n}\n";
     prints(&(g.to_string() + "print(joins([7], g(2), (8,), g(1)))"), "[7, 0, 1, 8, 0]\n");
-    prints(&(g.to_string() + "print(joins(g(3), [5], g(0), 'ab'))"), "[0, 1, 2, 5, 'a', 'b']\n");
-    prints(&(g.to_string() + "t = 0\nfor i in range(300):\n    t += len(joins([i], g(2), g(3)))\nprint(t)"), "1800\n");
+    prints(&(g.to_string() + "print(joins(g(3), [5], g(0), \"ab\"))"), "[0, 1, 2, 5, \"a\", \"b\"]\n");
+    prints(&(g.to_string() + "t = 0\nfor i in range(300) {\n    t += len(joins([i], g(2), g(3)))\n}\nprint(t)"), "1800\n");
 }
 
 #[test]
 fn a_drain_past_a_call_opens_the_next_iterables_frames_over_its_caller() {
-    prints("print(chained(lambda v: v * 10, [1, 2], [3, 4]))", "[10, 20, 30, 40]\n");
-    prints("print(chained(lambda v: v * 10, [1], (i for i in [2, 3]), range(4, 5)))", "[10, 20, 30, 40]\n");
-    prints("fn k(v):\n    return v + 1\nout = chained(k, list(range(50)), [100, 200])\nprint(len(out), out[0], out[49], out[50], out[51])", "52 1 50 101 201\n");
-    prints("t = 0\nfor i in range(200):\n    t += sum(chained(lambda v: v * 2, [i, i], (i,)))\nprint(t)", "119400\n");
-    let src = "fn bad(v):\n    if v == 3:\n        raise KeyError(v)\n    return v\ntry:\n    chained(bad, [1, 2], [3])\nexcept KeyError as e:\n    print('caught', e)";
+    prints("print(chained(|v| v * 10, [1, 2], [3, 4]))", "[10, 20, 30, 40]\n");
+    prints("print(chained(|v| v * 10, [1], (i for i in [2, 3]), range(4, 5)))", "[10, 20, 30, 40]\n");
+    prints("fn k(v) {\n    return v + 1\n}\nout = chained(k, list(range(50)), [100, 200])\nprint(len(out), out[0], out[49], out[50], out[51])", "52 1 50 101 201\n");
+    prints("t = 0\nfor i in range(200) {\n    t += sum(chained(|v| v * 2, [i, i], (i,)))\n}\nprint(t)", "119400\n");
+    let src = "fn bad(v) {\n    if v == 3 {\n        throw KeyError(v)\n    }\n    return v\n}\ntry {\n    chained(bad, [1, 2], [3])\n} catch KeyError as e {\n    print(\"caught\", e)\n}";
     prints(src, "caught 3\n");
 }
 
 #[test]
 fn the_inline_folds_take_items_as_the_engine_folds_do() {
-    prints("print(every(range(1, 9)), every(range(0, 9)), every([]), every(i for i in [1, 0]), every(x for x in 'ab'))", "True False True False True\n");
-    prints("print(words(range(5)), words(i for i in range(5)), words([1, 2.5, 3]), words(x / 2 for x in range(3)))", "10 10 6.5 1.5\n");
-    prints("print(words([2 ** 40, 2 ** 40, 1]), lists(range(3)), lists(i * i for i in range(3)))", "2199023255553 [[0, 1, 2]] [[0, 1, 4]]\n");
-    prints("print(most([3, 9, 2]), most(range(5)), most(x * 1.5 for x in range(4)), most(['b', 'c', 'a']), most([1, 2.5, 2]), most(i % 7 for i in range(20)))", "9 4 4.5 c 2.5 6\n");
-    prints("print(most((1, 'x')) if false else most([(1, 2), (1, 3)]), every([0.0, 1]), words(range(2 ** 40, 2 ** 40 + 3)))", "(1, 3) False 3298534883331\n");
+    prints("print(every(range(1, 9)), every(range(0, 9)), every([]), every((i for i in [1, 0])), every((x for x in \"ab\")))", "true false true false true\n");
+    prints("print(words(range(5)), words((i for i in range(5))), words([1, 2.5, 3]), words((x / 2 for x in range(3))))", "10 10 6.5 1.5\n");
+    prints("print(words([2 ** 40, 2 ** 40, 1]), lists(range(3)), lists((i * i for i in range(3))))", "2199023255553 [[0, 1, 2]] [[0, 1, 4]]\n");
+    prints("print(most([3, 9, 2]), most(range(5)), most((x * 1.5 for x in range(4))), most([\"b\", \"c\", \"a\"]), most([1, 2.5, 2]), most((i % 7 for i in range(20))))", "9 4 4.5 c 2.5 6\n");
+    prints("print(if false { most((1, \"x\")) } else { most([(1, 2), (1, 3)]) }, every([0.0, 1]), words(range(2 ** 40, 2 ** 40 + 3)))", "(1, 3) false 3298534883331\n");
     let out = run("most([])", &[]);
     assert!(out.as_ref().is_err_and(|e| e.contains("most of nothing")), "{out:?}");
 }
 
 #[test]
 fn a_resume_sends_throws_and_closes() {
-    prints("fn g():\n    x = yield 1\n    yield x * 2\nit = g()\nprint(next(it))\nprint(resume(it, 5))\nprint(shut(it))", "1\n10\nNone\n");
-    prints("fn g():\n    yield 1\nit = g()\nnext(it)\ntry:\n    resume(it, 0)\nexcept StopIteration:\n    print('done')", "done\n");
+    prints("fn g() {\n    yield 1\n}\nit = g()\nnext(it)\ntry {\n    resume(it, 0)\n} catch Stop {\n    print(\"done\")\n}", "done\n");
 }
 
 #[test]
 fn a_wait_parks_until_the_host_pushes_an_event() {
-    assert_eq!(run("x = wait()\nprint('got', x)", &["hi"]), Ok("got hi\n".into()));
-    assert_eq!(run("fn f():\n    return wait() + '!'\nprint(f(), f())", &["a", "b"]), Ok("a! b!\n".into()));
+    assert_eq!(run("x = wait()\nprint(\"got\", x)", &["hi"]), Ok("got hi\n".into()));
+    assert_eq!(run("fn f() {\n    return wait() + \"!\"\n}\nprint(f(), f())", &["a", "b"]), Ok("a! b!\n".into()));
 }
 
 #[test]
 fn list_extend_gathers_a_generator_before_it_extends() {
-    prints("xs = [0]\nxs.extend(i for i in range(3))\nprint(xs)", "[0, 0, 1, 2]\n");
-    prints("xs = []\nxs.extend(map(lambda v: v * 2, [1, 2]))\nprint(xs)", "[2, 4]\n");
-    prints("fn g():\n    yield 1\n    raise ValueError('half')\nxs = []\ntry:\n    xs.extend(g())\nexcept ValueError:\n    print(xs)", "[]\n");
+    prints("xs = [0]\nxs.extend((i for i in range(3)))\nprint(xs)", "[0, 0, 1, 2]\n");
+    prints("xs = []\nxs.extend(map(|v| v * 2, [1, 2]))\nprint(xs)", "[2, 4]\n");
+    prints("fn g() {\n    yield 1\n    throw ValueError(\"half\")\n}\nxs = []\ntry {\n    xs.extend(g())\n} catch ValueError {\n    print(xs)\n}", "[]\n");
 }
 
 #[test]
 fn a_call_that_misses_a_signature_reads_in_the_runtimes_words() {
     let out = run("apply(1)", &[]);
-    assert!(out.as_ref().is_err_and(|e| e.contains("apply expected 2 arguments, got 1")), "{out:?}");
+    assert!(out.as_ref().is_err_and(|e| e.contains("apply() takes 2 arguments, not 1")), "{out:?}");
     let out = run("apply(f=1, x=2)", &[]);
-    assert!(out.as_ref().is_err_and(|e| e.contains("apply() takes no keyword arguments")), "{out:?}");
-    prints("print('a', 'b', sep='-', end='.\\n')", "a-b.\n");
+    assert!(out.as_ref().is_err_and(|e| e.contains("apply() takes no keyword")), "{out:?}");
+    prints("print(\"a\", \"b\", sep=\"-\", end=\".\\n\")", "a-b.\n");
 }
 
 #[test]
@@ -358,7 +356,7 @@ fn a_native_value_survives_a_snapshot() {
     edge::embed::restore(&mut back, &blob).unwrap_or_else(|e| panic!("{e}"));
     back.push_event("go").unwrap_or_else(|e| panic!("{e}"));
     back.run().unwrap_or_else(|e| panic!("{e}"));
-    assert!(back.output_text().starts_with("[1, 2] 2 <built-in method append of list object at"), "{}", back.output_text());
+    assert!(back.output_text().starts_with("[1, 2] 2 fn list::append bound at "), "{}", back.output_text());
     // another runtime refuses the blob
     let mut bare = VM::with_limits(&chunk, Limits::sandbox());
     assert!(edge::embed::restore(&mut bare, &blob).is_err_and(|e| e.contains("another runtime")));

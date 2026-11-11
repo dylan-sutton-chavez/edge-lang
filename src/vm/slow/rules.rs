@@ -41,6 +41,8 @@ impl VM<'_> {
     #[inline(never)]
     pub(crate) fn put_rule(&mut self, obj: Val, name: &str, value: Val, at: Option<(&OpcodeCache, usize)>) -> Result<bool, VmErr> {
         let (key, text) = (Key::of(&self.heap, obj), self.heap.intern_str(name)?);
+        // a map's field is its key where the policy reads keys as fields
+        if self.natives.policy.map_fields && let Some(d) = self.heap.dict_cell(obj) { d.borrow_mut().insert(text, value, &self.heap); return Ok(true); }
         if self.bound_get(key, text, Access::Store, at) != GetRule::Field { return Ok(false); }
         let Some(d) = self.heap.dict_cell(obj) else { return Ok(false) };
         d.borrow_mut().insert(text, value, &self.heap);

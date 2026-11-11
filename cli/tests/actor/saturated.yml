@@ -5,9 +5,10 @@ groups:
     code: |
       receive()
       i = 0
-      while i < 3000:
-          send("workers", str(i))
+      while i < 3000 {
+          send("workers", text(i))
           i = i + 1
+      }
     seed:
       - go
   workers:
@@ -19,11 +20,13 @@ groups:
     replicas: 1
     code: |
       n = 0
-      while true:
+      while true {
           receive()
           n = n + 1
-          if n == 3000:
+          if n == 3000 {
               print("all", n)
+          }
+      }
 
 expect:
   - "all 3000"

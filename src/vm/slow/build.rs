@@ -217,7 +217,7 @@ impl<'a> VM<'a> {
                     return VmErr::Raised(n);
                 }
                 // any other value raises a type error
-                None => return crate::lang::EngineError::cannot(crate::lang::Act::Raise { throw: false }, None),
+                None => return crate::lang::EngineError::cannot(crate::lang::Act::Raise { throw: false }, Some(exc)),
             },
         }
         self.pending.exc_val = Some(exc);

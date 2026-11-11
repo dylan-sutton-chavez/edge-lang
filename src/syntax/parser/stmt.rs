@@ -44,7 +44,8 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
                 self.while_stmt();
                 false
             }
-            Some(TokenType::Match) => {
+            // a grammar's match is a value read where any expression is
+            Some(TokenType::Match) if Self::GRAMMAR.is_none() => {
                 self.match_stmt();
                 false
             }

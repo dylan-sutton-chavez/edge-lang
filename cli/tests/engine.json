@@ -12,7 +12,7 @@
   {
     "name": "a snapshot past 1 MiB saves and restores",
     "given": {
-      "main.mini": "xs = [(\"v\" * 40) + str(i) for i in range(60000)]\nprint(\"built\", len(xs))\nmsg = receive()\nprint(\"resumed\", msg, len(xs))\n",
+      "main.mini": "xs = [\"v\" * 40 + text(i) for i in range(60000)]\nprint(\"built\", len(xs))\nmsg = receive()\nprint(\"resumed\", msg, len(xs))\n",
       "ev.txt": "later\n"
     },
     "steps": [
@@ -22,7 +22,7 @@
   },
   {
     "name": "a traceback past 1 MiB prints whole with its location",
-    "given": { "main.mini": "msg = ''.join(['x' * 1000 for _ in range(2000)])\nraise ValueError(msg)\n" },
+    "given": { "main.mini": "msg = \"\".join([\"x\" * 1000 for _ in range(2000)])\nthrow ValueError(msg)\n" },
     "steps": [{ "run": ["run", "main.mini"], "exit": 1, "stderr": ["--> main.mini:2:1"], "stderr_bytes": 2000000 }]
   },
   {
@@ -30,10 +30,10 @@
     "given": {
       "edge.json": "{ \"imports\": { \"s\": \"./s.so\" } }\n",
       "s.so": "",
-      "s.mini": "x = 1\nimport s\n"
+      "s.mini": "x = 1\nuse s\n"
     },
     "steps": [
-      { "run": ["run", "s.mini"], "exit": 1, "stderr": ["error: module 's' is not supported, ship a .wasm\n", "--> s.mini:2:8"] }
+      { "run": ["run", "s.mini"], "exit": 1, "stderr": ["error: module 's' is not supported, ship a .wasm\n", "--> s.mini:2:5"] }
     ]
   },
   {
@@ -41,21 +41,21 @@
     "given": {
       "edge.json": "{ \"imports\": { \"lib\": \"./lib.mini\", \"widget\": \"./widget.js\" } }\n",
       "widget.js": "export default () => ({});\n",
-      "lib.mini": "import widget\n",
-      "main.mini": "import lib\n"
+      "lib.mini": "use widget\n",
+      "main.mini": "use lib\n"
     },
-    "steps": [{ "run": ["run", "main.mini"], "exit": 1, "stderr": ["module 'widget' is JavaScript, ship a .mini or a .wasm\n", "--> main.mini:1:8"] }]
+    "steps": [{ "run": ["run", "main.mini"], "exit": 1, "stderr": ["module 'widget' is JavaScript, ship a .mini or a .wasm\n", "--> main.mini:1:5"] }]
   },
   {
     "name": "an undeclared unknown name keeps the generic hint",
-    "given": { "main.mini": "import my_helpers\n" },
-    "steps": [{ "run": ["run", "main.mini"], "exit": 1, "stderr": ["help: declare it in edge.json, or use a relative import\n", "--> main.mini:1:8"] }]
+    "given": { "main.mini": "use my_helpers\n" },
+    "steps": [{ "run": ["run", "main.mini"], "exit": 1, "stderr": ["help: declare it in edge.json, or use a relative import\n", "--> main.mini:1:5"] }]
   },
   {
     "name": "a remote module's missing manifests are asked for once",
     "given": {
       "edge.json": "{ \"imports\": { \"lib\": \"{BASE}/lib/mod.mini\" } }\n",
-      "main.mini": "from lib import f\nprint(f())\n"
+      "main.mini": "use lib\nf = lib.f\nprint(f())\n"
     },
     "steps": [
       { "run": ["run", "main.mini"], "stdout": ["7\n"] },
@@ -66,13 +66,13 @@
     "name": "a single-shot pool delivers every message",
     "given": {
       "edge.json": "{}\n",
-      "pool.yml": "runtime:\n  max_actors: 1000000\ngroups:\n  dispatcher:\n    seed: [\"go\"]\n    code: |\n      receive()\n      i = 0\n      while i < 20000:\n          send(\"workers\", str(i))\n          i = i + 1\n  workers:\n    replicas: 1000000\n    code: |\n      m = receive()\n      print(\"ok\", m)\n"
+      "pool.yml": "runtime:\n  max_actors: 1000000\ngroups:\n  dispatcher:\n    seed: [\"go\"]\n    code: |\n      receive()\n      i = 0\n      while i < 20000 {\n          send(\"workers\", text(i))\n          i = i + 1\n      }\n  workers:\n    replicas: 1000000\n    code: |\n      m = receive()\n      print(\"ok\", m)\n"
     },
     "steps": [{ "run": ["actor", "pool.yml"], "lines": { "ok ": 20000 } }]
   },
   {
     "name": "builtins calling back into program code raise RecursionError before the stack runs out",
-    "given": { "main.mini": "fn check(f):\n    try:\n        f()\n    except RecursionError:\n        print('RecursionError')\nfn key(x):\n    return sorted([1, 2], key=key)\nfn low(x):\n    return min([1, 2], key=low)\nfn step(x):\n    return list(map(step, [1]))\nfn keep(x):\n    return list(filter(keep, [1]))\nfn gen():\n    yield next(gen())\ncheck(lambda: key(0))\ncheck(lambda: low(0))\ncheck(lambda: step(0))\ncheck(lambda: keep(0))\ncheck(lambda: next(gen()))\n" },
+    "given": { "main.mini": "fn check(f) {\n    try {\n        f()\n    } catch RecursionError {\n        print(\"RecursionError\")\n    }\n}\nfn key(x) {\n    return sorted([1, 2], key=key)\n}\nfn low(x) {\n    return min([1, 2], key=low)\n}\nfn step(x) {\n    return list(map(step, [1]))\n}\nfn keep(x) {\n    return list(filter(keep, [1]))\n}\nfn gen() {\n    yield next(gen())\n}\ncheck(|| key(0))\ncheck(|| low(0))\ncheck(|| step(0))\ncheck(|| keep(0))\ncheck(|| next(gen()))\n" },
     "steps": [{ "run": ["run", "main.mini"], "stdout": ["RecursionError\nRecursionError\nRecursionError\nRecursionError\nRecursionError\n"] }]
   },
   {
@@ -80,25 +80,25 @@
     "given": {
       "edge.json": "{ \"imports\": { \"badplug\": \"./bad.wasm\", \"lib\": \"./lib.mini\" } }\n",
       "bad.wasm": "notwasm",
-      "lib.mini": "x = 1\nimport badplug\n",
-      "main.mini": "print(1)\nimport badplug\n",
-      "via.mini": "import lib\n"
+      "lib.mini": "x = 1\nuse badplug\n",
+      "main.mini": "print(1)\nuse badplug\n",
+      "via.mini": "use lib\n"
     },
     "steps": [
-      { "run": ["run", "main.mini"], "exit": 1, "stderr": ["error: module 'badplug' is not a valid plugin, failed to parse WebAssembly module: magic header not detected: bad magic number\n", "--> main.mini:2:8"] },
-      { "run": ["run", "via.mini"], "exit": 1, "stderr": ["module 'badplug' is not a valid plugin, failed to parse WebAssembly module: magic header not detected: bad magic number (via lib)\n", "--> via.mini:1:8"] }
+      { "run": ["run", "main.mini"], "exit": 1, "stderr": ["error: module 'badplug' is not a valid plugin, failed to parse WebAssembly module: magic header not detected: bad magic number\n", "--> main.mini:2:5"] },
+      { "run": ["run", "via.mini"], "exit": 1, "stderr": ["module 'badplug' is not a valid plugin, failed to parse WebAssembly module: magic header not detected: bad magic number (via lib)\n", "--> via.mini:1:5"] }
     ]
   },
   {
     "name": "a restored run names its script and imports from beside it",
     "given": {
-      "sub/helper.mini": "fn twice(x):\n    return x + x\n",
-      "sub/main.mini": "from .helper import twice\nmsg = receive()\nprint(twice(msg))\nraise ValueError(msg)\n",
+      "sub/helper.mini": "fn twice(x) {\n    return x + x\n}\n",
+      "sub/main.mini": "use .helper as helper\ntwice = helper.twice\nmsg = receive()\nprint(twice(msg))\nthrow ValueError(msg)\n",
       "ev.txt": "ab\n"
     },
     "steps": [
       { "run": ["run", "sub/main.mini", "--save-state", "state.bin"], "stderr": ["state saved"] },
-      { "run": ["run", "--restore-state", "state.bin", "--events", "ev.txt"], "exit": 1, "stdout": ["abab\n"], "stderr": ["ValueError: ab", "--> sub/main.mini:4:"] }
+      { "run": ["run", "--restore-state", "state.bin", "--events", "ev.txt"], "exit": 1, "stdout": ["abab\n"], "stderr": ["ValueError: ab", "--> sub/main.mini:5:"] }
     ]
   }
 ]

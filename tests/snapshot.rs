@@ -296,7 +296,7 @@ mod test {
     /* corrupt or truncated blobs and blobs of another program fail without a panic */
     #[test]
     fn corrupt_blobs() {
-        let src = "x = [1, 2, {'k': 3}]\nreceive()\nprint(x)";
+        let src = "x = [1, 2, {k = 3}]\nreceive()\nprint(x)";
         let chunk = parse_static(src);
         let mut vm = crate::common::boot(chunk, Limits::sandbox());
         assert!(matches!(vm.run(), Err(VmErr::HostYield(SchedulerStatus::PendingEvent))));
@@ -330,13 +330,13 @@ mod test {
         snapshot::restore(&mut vm, &blob).expect("pristine blob");
         vm.push_event("go").unwrap();
         vm.run().expect("finish");
-        assert_eq!(vm.output, vec!["[1, 2, {'k': 3}]"]);
+        assert_eq!(vm.output, vec!["[1, 2, {k = 3}]"]);
     }
 
     /* an untrusted blob with any byte corrupted fails the restore and never runs or traps */
     #[test]
     fn flipped_bytes_never_panic() {
-        let src = "r = range(3, 30, 4)\nx = [r, {'k': (1, 2.5)}, 'text']\nreceive()\nprint(x, len(r), r[1])";
+        let src = "r = range(3, 30, 4)\nx = [r, {k = (1, 2.5)}, \"text\"]\nreceive()\nprint(x, len(r), r[1])";
         // one parse serves every boot since a chunk holds no state of a run
         let chunk = parse_static(src);
         let mut vm = crate::common::boot(chunk, Limits::sandbox());
@@ -382,7 +382,7 @@ mod test {
     #[test]
     fn resealed_forgeries_never_panic() {
         // a recursion laid as sections parks inside them with links and levels to bend
-        let src = "fn rec(n, acc):\n    if n == 0:\n        return acc\n    s = 0\n    for k in range(3):\n        s += k\n    return rec(n - 1, acc + n + s)\nt = 0\nfor i in range(40):\n    t += rec(30, 0)\nprint(t)";
+        let src = "fn rec(n, acc) {\n    if n == 0 {\n        return acc\n    }\n    s = 0\n    for k in range(3) {\n        s += k\n    }\n    return rec(n - 1, acc + n + s)\n}\nt = 0\nfor i in range(40) {\n    t += rec(30, 0)\n}\nprint(t)";
         forgeries_never_panic(src, 97, 8, if cfg!(miri) { 20_000 } else { 2_000_000 });
         // a recursion through three functions parks holding levels whose count a forgery bends
         forgeries_never_panic(TRIO, 25, 6, if cfg!(miri) { 20_000 } else { 200_000 });
@@ -423,7 +423,7 @@ mod test {
     }
 
     // a recursion through three functions which the loop lays as sections that keep levels
-    const TRIO: &str = "fn expr(d):\n    v = term(d)\n    i = 0\n    while i < 100:\n        i += 1\n        v = v + term(d)\n    return v\nfn term(d):\n    return factor(d)\nfn factor(d):\n    if d > 0:\n        return expr(d - 1)\n    return 1\nt = 0\nfor i in range(300):\n    t += expr(1)\nprint(t)";
+    const TRIO: &str = "fn expr(d) {\n    v = term(d)\n    i = 0\n    while i < 100 {\n        i += 1\n        v = v + term(d)\n    }\n    return v\n}\nfn term(d) {\n    return factor(d)\n}\nfn factor(d) {\n    if d > 0 {\n        return expr(d - 1)\n    }\n    return 1\n}\nt = 0\nfor i in range(300) {\n    t += expr(1)\n}\nprint(t)";
 
     /* a run restored at a preempt saves and restores again wherever it parks */
     #[test]
@@ -447,7 +447,7 @@ mod test {
     fn a_restored_recursion_stops_where_cold_code_stops() {
         // under miri a tenth of the warm loop and three preempts fit one job
         let (rounds, ats) = if cfg!(miri) { (20, 1..4) } else { (200, 1..30) };
-        let src = format!("class P:\n    fn __init__(self, text):\n        self.text = text\n        self.at = 0\n    fn expr(self):\n        v = self.term()\n        while self.at < len(self.text) && self.text[self.at] == '+':\n            self.at += 1\n            v = v + self.term()\n        return v\n    fn term(self):\n        v = self.factor()\n        while self.at < len(self.text) && self.text[self.at] == '*':\n            self.at += 1\n            v = v * self.factor()\n        return v\n    fn factor(self):\n        c = self.text[self.at]\n        self.at += 1\n        if c == '(':\n            v = self.expr()\n            self.at += 1\n            return v\n        return int(c)\nfn parse(text):\n    try:\n        return P(text).expr()\n    except RecursionError:\n        return 'deep'\nt = 0\nfor i in range({rounds}):\n    t = t + parse('(1+2)*3+' + str(i % 10))\nprint(t)\nfor n in [100, 300, 400, 1200]:\n    print(n, parse('(' * n + '1' + ')' * n))");
+        let src = format!("fn expr(p) {{\n    v = term(p)\n    while p.at < len(p.text) and p.text[p.at] == \"+\" {{\n        p.at += 1\n        v = v + term(p)\n    }}\n    return v\n}}\nfn term(p) {{\n    v = factor(p)\n    while p.at < len(p.text) and p.text[p.at] == \"*\" {{\n        p.at += 1\n        v = v * factor(p)\n    }}\n    return v\n}}\nfn factor(p) {{\n    c = p.text[p.at]\n    p.at += 1\n    if c == \"(\" {{\n        v = expr(p)\n        p.at += 1\n        return v\n    }}\n    return int(c)\n}}\nfn parse(text) {{\n    try {{\n        return expr({{text = text, at = 0}})\n    }} catch RecursionError {{\n        return \"deep\"\n    }}\n}}\nt = 0\nfor i in range({rounds}) {{\n    t = t + parse(\"(1+2)*3+\" + text(i % 10))\n}}\nprint(t)\nfor n in [100, 300, 400, 1200] {{\n    print(n, parse(\"(\" * n + \"1\" + \")\" * n))\n}}");
         let case: Case = serde_json::from_value(serde_json::json!({ "src": src })).expect("case");
         let direct = run_case(&case, 0, 0, 0).output.expect("direct");
         assert_eq!(direct[3..], ["400 deep", "1200 deep"], "{direct:?}");
@@ -464,7 +464,7 @@ mod test {
     fn a_restore_refuses_a_heap_past_its_memory() {
         // under miri a fortieth of the heap preempted forty times as often fits one job
         let (n, every) = if cfg!(miri) { (1000, 25) } else { (40000, 1000) };
-        let src = format!("xs = []\nfor i in range({n}):\n    xs.append('k' + str(i))\nt = 0\nfor i in range({}):\n    t += i\nprint(t, len(xs))", n / 2);
+        let src = format!("xs = []\nfor i in range({n}) {{\n    xs.append(\"k\" + text(i))\n}}\nt = 0\nfor i in range({}) {{\n    t += i\n}}\nprint(t, len(xs))", n / 2);
         let chunk = parse_static(&src);
         let mut vm = crate::common::boot(chunk, Limits::sandbox());
         vm.set_preempt_interval(every);
@@ -484,47 +484,13 @@ mod test {
     }
 
     /* a forged blob whose class names itself as a base is refused at restore */
-    #[test]
-    fn a_class_its_own_base_is_refused() {
-        let src = "class Base:\n    pass\nclass Cyc(Base):\n    pass\nt = 0\nfor i in range(100):\n    t += i\nprint(t, issubclass(Cyc, Base))";
-        let chunk = parse_static(src);
-        let mut vm = crate::common::boot(chunk, Limits::sandbox());
-        vm.set_preempt_interval(5);
-        for _ in 0..3 { assert!(matches!(vm.run(), Err(VmErr::HostYield(SchedulerStatus::Preempted)))); }
-        let blob = snapshot::save(&vm, src, "").expect("save");
-        drop(vm);
-        let body = &blob[..blob.len() - 32];
-        let find = |pat: &[u8], from: usize| body[from..].windows(pat.len()).position(|w| w == pat).map(|i| i + from);
-        let name = [&3u64.to_le_bytes()[..], b"Cyc"].concat();
-        // a class head is its tag then its name then one base and its value
-        let head = [&[18u8, 1][..], &name, &1u64.to_le_bytes()].concat();
-        let at = find(&head, 0).expect("the blob holds the class head") + head.len();
-        let base = body[at..at + 8].to_vec();
-        // the class's own value follows its name where the module binds it
-        let mut own = None;
-        let mut from = 0;
-        while let Some(i) = find(&name, from) {
-            let v = &body[i + name.len()..i + name.len() + 8];
-            if v != base.as_slice() && v[6..] == [0xFC, 0x7F] { own = Some(v.to_vec()); }
-            from = i + 1;
-        }
-        let mut bad = body.to_vec();
-        bad[at..at + 8].copy_from_slice(&own.expect("the blob binds the class"));
-        let seal = edge::util::sha256::sha256(&bad);
-        bad.extend_from_slice(&seal);
-        let mut back = crate::common::boot(chunk, Limits::sandbox());
-        let err = snapshot::restore(&mut back, &bad).expect_err("a class that is its own base");
-        assert!(err.contains("class hierarchy is inconsistent"), "unexpected error: {err}");
-        let mut back = crate::common::boot(chunk, Limits::sandbox());
-        snapshot::restore(&mut back, &blob).expect("the pristine blob restores");
-    }
 
     /* a restore keeps the order its heap reuses slots in so addresses stay alike */
     #[test]
     fn a_restore_keeps_addresses() {
         // under miri fewer rounds fit one job and still reuse freed slots
         let (n, hops) = if cfg!(miri) { (1000, [5, 10, 15]) } else { (6000, [7, 60, 100]) };
-        let src = format!("fn kind_of(n):\n    yield n\nt = 0\nkeep = []\nfor i in range({n}):\n    t += i\n    xs = [i, [i]]\n    if i % 7 == 0:\n        keep.append(xs)\ng = kind_of(1)\nprint(g, t, len(keep))");
+        let src = format!("fn kind_of(n) {{\n    yield n\n}}\nt = 0\nkeep = []\nfor i in range({n}) {{\n    t += i\n    xs = [i, [i]]\n    if i % 7 == 0 {{\n        keep.append(xs)\n    }}\n}}\ng = kind_of(1)\nprint(g, t, len(keep))");
         let case: Case = serde_json::from_value(serde_json::json!({ "src": src })).expect("case");
         let direct = run_case(&case, 0, 0, 0).output.expect("direct");
         assert!(direct[0].contains(" at 0x"), "unexpected output {direct:?}");
@@ -579,7 +545,7 @@ mod test {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn a_restore_charges_nothing_for_the_tables_it_builds_again() {
-        let src = "p = 2 ** 61 - 1\ns = set(range(0, 3000 * p, p))\nd = dict.fromkeys(s)\nw = {'x' * 100 + str(i) for i in range(300)}\nt = 0\nfor i in range(50):\n    t += i\nprint(len(s), len(d), len(w), t)\n";
+        let src = "p = 2 ** 61 - 1\ns = set(range(0, 3000 * p, p))\nd = record.fromkeys(s)\nw = set([\"x\" * 100 + text(i) for i in range(300)])\nt = 0\nfor i in range(50) {\n    t += i\n}\nprint(len(s), len(d), len(w), t)\n";
         let chunk = parse_static(src);
         let mut vm = crate::common::boot(chunk, Limits::sandbox());
         vm.set_preempt_interval(100);

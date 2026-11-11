@@ -8,7 +8,7 @@ use edge::lang::{kind_of, KindId, Native, Natives, Runtime};
 use edge::value::{as_i128, DictMap, HeapObj, Val, ValSet};
 use lib::data::{csv, json, lines};
 use mini::Mini;
-use mini::natives::{ARRAY, ATTR, BUFFER, BYTES, CONVERT, DATE, DICT, FLOAT, FOLDS, GEN, INT, IO, ITER, LIST, LIST_SORT, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
+use mini::natives::{ARRAY, BUFFER, BYTES, CONVERT, DATE, DICT, FLOAT, FOLDS, INT, IO, ITER, LIST, LIST_SORT, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
 use serde_yaml_ng::Value as Yaml;
 
 // every run meters what it allocates as edge.wasm does
@@ -22,11 +22,14 @@ const MORE: &[Native] = &lib::table![Mini;
     "csv_read" => csv::read("line", "sep"),
     "csv_write" => csv::write("values", "sep"),
     "top" => lib::seq::top::top{"key"},
+    "ascii" => lib::fmt::render::ascii_of,
+    "getattr" => lib::reflect::get,
+    "hasattr" => lib::reflect::has,
 ];
 
 static NATIVES: Natives = edge::natives! {
     language: Over,
-    fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, ATTR, TYPES, DATE, MORE],
+    fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, TYPES, DATE, MORE],
     methods: [
         Str => [STR],
         Bytes => [BUFFER],
@@ -38,7 +41,6 @@ static NATIVES: Natives = edge::natives! {
         Int => [INT],
         Float => [FLOAT],
         Range => [RANGE],
-        Coro => [GEN],
     ],
     types: mini::types::NAMES,
 };

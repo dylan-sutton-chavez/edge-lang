@@ -1,10 +1,10 @@
 [
-    {"script": "print(str(add(2, 3) + sub(10, 4) + mul(2, 5)))", "expect": "21"},
-    {"script": "print(f'{2 ** 10}')", "expect": "1024"},
-    {"script": "print(str(10 ~/ 0))", "error": "ZeroDivisionError"},
-    {"script": "from trap import boom\nprint(str(boom()))", "error": "native module trapped"},
-    {"script": "from abi2 import boom\nprint('loaded')", "error": "speaks ABI v2"},
-    {"script": "import calc\nprint(str(calc.add(2, 3)))", "expect": "5"},
-    {"script": "import net\ntry:\n    net.request('GET', 'https://evil.example/')\nexcept PermissionError as e:\n    print(str(e))", "expect": "'main' has no net:evil.example, edge.json grants it net:127.0.0.1"},
-    {"script": "from ui import upper", "error": "module 'ui' is JavaScript, ship a .mini or a .wasm"}
+    {"script": "print(text(calc.add(2, 3) + calc.sub(10, 4) + calc.mul(2, 5)))", "expect": "21"},
+    {"script": "print(\"{2 ** 10}\")", "expect": "1024"},
+    {"script": "print(text(10 ~/ 0))", "error": "DivisionError"},
+    {"script": "use trap\nboom = trap.boom\nprint(text(boom()))", "error": "native module trapped"},
+    {"script": "use abi2\nboom = abi2.boom\nprint(\"loaded\")", "error": "speaks ABI v2"},
+    {"script": "use calc\nprint(text(calc.add(2, 3)))", "expect": "5"},
+    {"script": "use net\ntry {\n    net.request(\"GET\", \"https://evil.example/\")\n} catch PermissionError as e {\n    print(text(e))\n}", "expect": "'main' has no net:evil.example, edge.json grants it net:127.0.0.1"},
+    {"script": "use ui\nupper = ui.upper", "error": "module 'ui' is JavaScript, ship a .mini or a .wasm"}
 ]

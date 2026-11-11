@@ -16,79 +16,79 @@
 
 - native: type
   args: [1]
-  prints: "<class 'int'>"
+  prints: "int"
 
 - native: bool
   args: [""]
-  prints: "False"
+  prints: "false"
 
 - native: callable
   args: ["hello"]
-  prints: "False"
+  prints: "false"
 
 - native: bool
   args: [!tuple []]
-  prints: "True"
+  prints: "true"
 
 - native: bool
   args: [null]
-  prints: "False"
+  prints: "false"
 
 - native: bool
   args: [" "]
-  prints: "True"
+  prints: "true"
 
 - native: bool
-  prints: "False"
+  prints: "false"
 
 - native: bool
   args: [[]]
-  prints: "True"
+  prints: "true"
 
 - native: bool
   args: [[1]]
-  prints: "True"
+  prints: "true"
 
 - native: bool
   args: [[0]]
-  prints: "True"
+  prints: "true"
 
 - native: bool
   args: [{}]
-  prints: "True"
+  prints: "true"
 
 - native: bool
   args: [{0: 0}]
-  prints: "True"
+  prints: "true"
 
 - native: bool
   args: [0]
-  prints: "False"
+  prints: "false"
 
 - native: bool
   args: [1]
-  prints: "True"
+  prints: "true"
 
 - native: callable
   args: [42]
-  prints: "False"
+  prints: "false"
 
 - native: bool
   args: [-1]
-  prints: "True"
+  prints: "true"
 
 - native: bool
   args: [0.0]
-  prints: "False"
+  prints: "false"
 
 - native: bool
   args: [0.1]
-  prints: "True"
+  prints: "true"
 
 - native: bool
   args: ["0"]
-  prints: "True"
+  prints: "true"
 
 - native: bool
   args: [!tuple [0]]
-  prints: "True"
+  prints: "true"

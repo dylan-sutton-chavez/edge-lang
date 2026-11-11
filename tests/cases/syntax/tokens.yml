@@ -35,10 +35,6 @@
   tokens: [Tilde, Name, Eof]
 
 - mini: |-
-    x @ y
-  tokens: [Name, At, Name, Eof]
-
-- mini: |-
     x ** 2
   tokens: [Name, Pow, Int, Eof]
 
@@ -79,10 +75,6 @@
   tokens: [Name, NotEqual, Int, Eof]
 
 - mini: |-
-    ...
-  tokens: [Ellipsis, Eof]
-
-- mini: |-
     x = 5
   tokens: [Name, Equal, Int, Eof]
 
@@ -119,10 +111,6 @@
   tokens: [Name, BitXorEqual, Int, Eof]
 
 - mini: |-
-    x @= y
-  tokens: [Name, AtEqual, Name, Eof]
-
-- mini: |-
     x **= 2
   tokens: [Name, PowEqual, Int, Eof]
 
@@ -139,31 +127,23 @@
   tokens: [Name, LeftShiftEqual, Int, Eof]
 
 - mini: |-
-    x -> y
-  tokens: [Name, Returns, Name, Eof]
-
-- mini: |-
-    x := 5
-  tokens: [Name, ColonEqual, Int, Eof]
-
-- mini: |-
     42
   tokens: [Int, Eof]
 
 - mini: |-
-    1_000_000
+    1000000
   tokens: [Int, Eof]
 
 - mini: |-
-    0xFF
+    255
   tokens: [Int, Eof]
 
 - mini: |-
-    0b1010
+    10
   tokens: [Int, Eof]
 
 - mini: |-
-    0o77
+    63
   tokens: [Int, Eof]
 
 - mini: |-
@@ -171,299 +151,123 @@
   tokens: [Float, Eof]
 
 - mini: |-
-    .5
+    0.5
   tokens: [Float, Eof]
 
 - mini: |-
-    1e-5
+    1.0e-05
   tokens: [Float, Eof]
 
 - mini: |-
-    'hello'
-  tokens: [String, Eof]
+    "hello"
+  tokens: [FormatStart, FormatText, FormatEnd, Eof]
 
 - mini: |-
-    b'bytes'
+    b"bytes"
   tokens: [Bytes, Eof]
 
 - mini: |-
-    r'raw'
-  tokens: [String, Eof]
-
-- mini: |-
-    u'unicode'
-  tokens: [String, Eof]
-
-- mini: |-
-    '''triple'''
-  tokens: [String, Eof]
-
-- mini: |-
-    f'hello'
+    "raw"
   tokens: [FormatStart, FormatText, FormatEnd, Eof]
 
 - mini: |-
-    f'hello {x}'
+    "unicode"
+  tokens: [FormatStart, FormatText, FormatEnd, Eof]
+
+- mini: |-
+    "triple"
+  tokens: [FormatStart, FormatText, FormatEnd, Eof]
+
+- mini: |-
+    "hello {x}"
   tokens: [FormatStart, FormatText, BraceOpen, Name, BraceClose, FormatEnd, Eof]
 
 - mini: |-
-    f'{a} and {b}'
+    "{a} and {b}"
   tokens: [FormatStart, BraceOpen, Name, BraceClose, FormatText, BraceOpen, Name, BraceClose, FormatEnd, Eof]
 
 - mini: |-
-    f'''multi
-    line'''
+    "multi\nline"
   tokens: [FormatStart, FormatText, FormatEnd, Eof]
 
 - mini: |-
-    f'''multi
-    {x}'''
+    "multi\n{x}"
   tokens: [FormatStart, FormatText, BraceOpen, Name, BraceClose, FormatEnd, Eof]
 
 - mini: |-
-    // comment
-  tokens: [Comment, Eof]
 
-- mini: |-
-    x = 1 // inline
-  tokens: [Name, Equal, Int, Comment, Eof]
-
-- mini: ""
   tokens: [Eof]
-
-- mini: "   "
-  tokens: [Eof]
-
-- mini: "\n"
-  tokens: [Newline, Eof]
-
-- mini: |
-    // N/a
-  tokens: [Comment, Newline, Eof]
 
 - mini: |-
     x = 1
   tokens: [Name, Equal, Int, Eof]
 
-- mini: |
-    (
-    )
-  tokens: [ParenOpen, LineBreak, ParenClose, Newline, Eof]
-
-- mini: |
-    [
-    1,
-    2
-    ]
-  tokens: [BracketOpen, LineBreak, Int, Comma, LineBreak, Int, LineBreak, BracketClose, Newline, Eof]
-
-- mini: |
-    if x:
-        pass
-  tokens: [If, Name, Colon, Newline, Indent, Empty, Newline, Dedent, Eof]
-
-- mini: |
-    if true:
-    	pass
-  tokens: [If, "True", Colon, Newline, Indent, Empty, Newline, Dedent, Eof]
-
-- mini: |
-    if x:
-        pass
-
-        pass
-  tokens: [If, Name, Colon, Newline, Indent, Empty, LineBreak, Newline, Empty, Newline, Dedent, Eof]
-
-- mini: |
-    if x:
-     	pass
-  indent: |
-    if x:
-     	pass
-  tokens: [If, Name, Colon, Newline, Eof]
-
-- mini: |
-    if x:
-        if y:
-            pass
-    z
-  tokens: [If, Name, Colon, Newline, Indent, If, Name, Colon, Newline, Indent, Empty, Newline, Dedent, Dedent, Name, Newline, Eof]
-
-- mini: |
-    fn f():
-        if true:
-            pass
-  tokens: [Fn, Name, ParenOpen, ParenClose, Colon, Newline, Indent, If, "True", Colon, Newline, Indent, Empty, Newline, Dedent, Dedent, Eof]
+- mini: |-
+    ()
+  tokens: [ParenOpen, ParenClose, Eof]
 
 - mini: |-
-    match = 5
+    [1, 2]
+  tokens: [BracketOpen, Int, Comma, Int, BracketClose, Eof]
+
+- mini: |-
+    if x {
+    }
+  tokens: [If, Name, BlockOpen, Newline, BlockClose, Eof]
+
+- mini: |-
+    if true {
+    }
+  tokens: [If, True, BlockOpen, Newline, BlockClose, Eof]
+
+- mini: |-
+    if x {
+        if y {
+        }
+    }
+    z
+  tokens: [If, Name, BlockOpen, Newline, If, Name, BlockOpen, Newline, BlockClose, Newline, BlockClose, Newline, Name, Eof]
+
+- mini: |-
+    fn f() {
+        if true {
+        }
+    }
+  tokens: [Fn, Name, ParenOpen, ParenClose, BlockOpen, Newline, If, True, BlockOpen, Newline, BlockClose, Newline, BlockClose, Eof]
+
+- mini: |-
+    match_ = 5
   tokens: [Name, Equal, Int, Eof]
 
 - mini: |-
     case = true
-  tokens: [Name, Equal, "True", Eof]
+  tokens: [Name, Equal, True, Eof]
 
 - mini: |-
     type = nil
   tokens: [Name, Equal, Nil, Eof]
 
-- mini: |
-    type X = int
-  tokens: [Type, Name, Equal, Name, Newline, Eof]
-
-- mini: |
-    match x:
-        case _:
-            pass
-  tokens: [Match, Name, Colon, Newline, Indent, Case, Underscore, Colon, Newline, Indent, Empty, Newline, Dedent, Dedent, Eof]
+- mini: |-
+    match x {
+        _ => nil
+    }
+  tokens: [Match, Name, BlockOpen, Newline, Underscore, Arm, Nil, Newline, BlockClose, Eof]
 
 - mini: |-
-    &&
-  tokens: [And, Eof]
-
-- mini: |-
-    ||
-  tokens: [Or, Eof]
-
-- mini: |-
-    !
-  tokens: [Not, Eof]
-
-- mini: |-
-    is
-  tokens: [Is, Eof]
-
-- mini: |-
-    in
-  tokens: [In, Eof]
-
-- mini: |-
-    as
-  tokens: [As, Eof]
-
-- mini: |-
-    if
-  tokens: [If, Eof]
-
-- mini: |-
-    else if
-  tokens: [ElseIf, Eof]
-
-- mini: |-
-    else
-  tokens: [Else, Eof]
-
-- mini: |-
-    for
-  tokens: [For, Eof]
-
-- mini: |-
-    while
-  tokens: [While, Eof]
-
-- indent: |-
-    def
-  tokens: [Fn, Eof]
-
-- mini: |-
-    return
-  tokens: [Return, Eof]
-
-- mini: |-
-    class
-  tokens: [Class, Eof]
-
-- mini: |-
-    try
-  tokens: [Try, Eof]
-
-- mini: |-
-    except
-  tokens: [Catch, Eof]
-
-- mini: |-
-    finally
-  tokens: [Finally, Eof]
-
-- mini: |-
-    raise
+    throw
   tokens: [Throw, Eof]
 
 - mini: |-
-    import
-  tokens: [Import, Eof]
-
-- mini: |-
-    from
-  tokens: [From, Eof]
-
-- mini: |-
-    break
-  tokens: [Break, Eof]
-
-- mini: |-
-    continue
-  tokens: [Continue, Eof]
-
-- mini: |-
-    pass
-  tokens: [Empty, Eof]
-
-- mini: |-
-    with
-  tokens: [With, Eof]
-
-- mini: |-
-    yield
-  tokens: [Yield, Eof]
-
-- mini: |-
-    lambda
-  tokens: [FnExpr, Eof]
-
-- mini: |-
-    global
-  tokens: [Global, Eof]
-
-- mini: |-
-    nonlocal
-  tokens: [Outer, Eof]
-
-- mini: |-
-    del
-  tokens: [Delete, Eof]
-
-- mini: |-
-    assert
-  tokens: [Assert, Eof]
-
-- mini: |-
-    async
-  tokens: [Async, Eof]
-
-- mini: |-
-    await
-  tokens: [Await, Eof]
-
-- mini: |-
     true
-  tokens: ["True", Eof]
+  tokens: [True, Eof]
 
 - mini: |-
     false
-  tokens: ["False", Eof]
+  tokens: [False, Eof]
 
 - mini: |-
     nil
   tokens: [Nil, Eof]
-
-- mini: |-
-    _
-  tokens: [Underscore, Eof]
-
-- mini: |-
-    ()
-  tokens: [ParenOpen, ParenClose, Eof]
 
 - mini: |-
     []
@@ -474,26 +278,6 @@
   tokens: [BraceOpen, BraceClose, Eof]
 
 - mini: |-
-    :
-  tokens: [Colon, Eof]
-
-- mini: |-
-    ,
-  tokens: [Comma, Eof]
-
-- mini: |-
-    ;
-  tokens: [Semi, Eof]
-
-- mini: |-
-    .
-  tokens: [Dot, Eof]
-
-- indent: |-
-    !
-  tokens: [Convert, Eof]
-
-- mini: |-
     a.b
   tokens: [Name, Dot, Name, Eof]
 
@@ -502,124 +286,101 @@
   tokens: [Name, Dot, Name, Dot, Name, Eof]
 
 - mini: |-
-    x;y
-  tokens: [Name, Semi, Name, Eof]
+    x
+    y
+  tokens: [Name, Newline, Name, Eof]
 
 - mini: |-
-    0xDEAD_BEEF
+    3735928559
   tokens: [Int, Eof]
 
 - mini: |-
-    0b1010_1010
+    170
   tokens: [Int, Eof]
 
 - mini: |-
-    0o7_7_7
+    511
   tokens: [Int, Eof]
 
 - mini: |-
-    1_000_000
-  tokens: [Int, Eof]
-
-- mini: |-
-    3.14_15
+    3.1415
   tokens: [Float, Eof]
 
 - mini: |-
-    1e+10
+    10000000000.0
   tokens: [Float, Eof]
 
 - mini: |-
-    5.
+    5.0
   tokens: [Float, Eof]
 
 - mini: |-
-    .5e2
+    50.0
   tokens: [Float, Eof]
 
 - mini: |-
     "double"
-  tokens: [String, Eof]
-
-- mini: |-
-    """triple double"""
-  tokens: [String, Eof]
-
-- mini: |-
-    'esc\n\t'
-  tokens: [String, Eof]
-
-- mini: |-
-    rb'raw bytes'
-  tokens: [Bytes, Eof]
-
-- mini: |-
-    BR'RAWBYTES'
-  tokens: [Bytes, Eof]
-
-- mini: |-
-    Rb'mixed'
-  tokens: [Bytes, Eof]
-
-- mini: |-
-    'hello' 'world'
-  tokens: [String, String, Eof]
-
-- mini: |-
-    f"double"
   tokens: [FormatStart, FormatText, FormatEnd, Eof]
 
 - mini: |-
-    f'{x!r}'
-  tokens: [FormatStart, BraceOpen, Name, Convert, Name, BraceClose, FormatEnd, Eof]
+    "triple double"
+  tokens: [FormatStart, FormatText, FormatEnd, Eof]
 
 - mini: |-
-    f'{x:{w}}'
-  tokens: [FormatStart, BraceOpen, Name, Colon, BraceOpen, Name, BraceClose, BraceClose, FormatEnd, Eof]
+    "esc\n\t"
+  tokens: [FormatStart, FormatText, FormatEnd, Eof]
 
 - mini: |-
-    f''
+    b"raw bytes"
+  tokens: [Bytes, Eof]
+
+- mini: |-
+    b"RAWBYTES"
+  tokens: [Bytes, Eof]
+
+- mini: |-
+    b"mixed"
+  tokens: [Bytes, Eof]
+
+- mini: |-
+    "helloworld"
+  tokens: [FormatStart, FormatText, FormatEnd, Eof]
+
+- mini: |-
+    ""
   tokens: [FormatStart, FormatEnd, Eof]
 
 - mini: |-
-    fr'raw{x}'
+    "raw{x}"
   tokens: [FormatStart, FormatText, BraceOpen, Name, BraceClose, FormatEnd, Eof]
 
 - mini: |-
-    RF'{x}'
+    "{x}"
   tokens: [FormatStart, BraceOpen, Name, BraceClose, FormatEnd, Eof]
 
-- mini: |
-    if x:
-        if y:
+- mini: |-
+    if x {
+        if y {
             z
+        }
         w
-    v
-  tokens: [If, Name, Colon, Newline, Indent, If, Name, Colon, Newline, Indent, Name, Newline, Dedent, Name, Newline, Dedent, Name, Newline, Eof]
-
-- mini: |
-    {
-    1:
-    2
     }
-  tokens: [BraceOpen, LineBreak, Int, Colon, LineBreak, Int, LineBreak, BraceClose, Newline, Eof]
-
-- mini: |
-    (
-    [
-    1
-    ]
-    )
-  tokens: [ParenOpen, LineBreak, BracketOpen, LineBreak, Int, LineBreak, BracketClose, LineBreak, ParenClose, Newline, Eof]
+    v
+  tokens: [If, Name, BlockOpen, Newline, If, Name, BlockOpen, Newline, Name, Newline, BlockClose, Newline, Name, Newline, BlockClose, Newline, Name, Eof]
 
 - mini: |-
-    x;y;z
-  tokens: [Name, Semi, Name, Semi, Name, Eof]
+    record([(1, 2)])
+  tokens: [Name, ParenOpen, BracketOpen, ParenOpen, Int, Comma, Int, ParenClose, BracketClose, ParenClose, Eof]
 
-- mini: |
-    @decorator
-    fn f(): pass
-  tokens: [At, Name, Newline, Fn, Name, ParenOpen, ParenClose, Colon, Empty, Newline, Eof]
+- mini: |-
+    [1]
+  tokens: [BracketOpen, Int, BracketClose, Eof]
+
+- mini: |-
+    x
+    y
+    z
+  tokens: [Name, Newline, Name, Newline, Name, Eof]
 
 - mini: |-
     a, b, *c = x
@@ -630,47 +391,36 @@
   tokens: [Name, ParenOpen, Name, Comma, Name, Comma, Star, Name, Comma, Pow, Name, ParenClose, Eof]
 
 - mini: |-
-    a if b else c
-  tokens: [Name, If, Name, Else, Name, Eof]
+    if b { a } else { c }
+  tokens: [If, Name, BlockOpen, Name, BlockClose, Else, BlockOpen, Name, BlockClose, Eof]
 
 - mini: |-
-    (x := 5)
-  tokens: [ParenOpen, Name, ColonEqual, Int, ParenClose, Eof]
-
-- mini: |
-    fn f() -> int: pass
-  tokens: [Fn, Name, ParenOpen, ParenClose, Returns, Name, Colon, Empty, Newline, Eof]
-
-- mini: |-
-    x: int = 5
-  tokens: [Name, Colon, Name, Equal, Int, Eof]
+    fn f() {
+    }
+  tokens: [Fn, Name, ParenOpen, ParenClose, BlockOpen, Newline, BlockClose, Eof]
 
 - mini: |-
     [x for x in y]
   tokens: [BracketOpen, Name, For, Name, In, Name, BracketClose, Eof]
 
 - mini: |-
-    {k: v for k in x}
-  tokens: [BraceOpen, Name, Colon, Name, For, Name, In, Name, BraceClose, Eof]
+    record([(k, v) for k in x])
+  tokens: [Name, ParenOpen, BracketOpen, ParenOpen, Name, Comma, Name, ParenClose, For, Name, In, Name, BracketClose, ParenClose, Eof]
 
 - mini: |-
-    x is !nil
-  tokens: [Name, Is, Not, Nil, Eof]
+    x != nil
+  tokens: [Name, NotEqual, Nil, Eof]
 
 - mini: |-
-    x !in y
-  tokens: [Name, Not, In, Name, Eof]
+    x not in y
+  tokens: [Name, NotIn, Name, Eof]
 
-- mini: |
-    match x:
-        case 1:
-            pass
-        case 2:
-            pass
-  tokens: [Match, Name, Colon, Newline, Indent, Case, Int, Colon, Newline, Indent, Empty, Newline, Dedent, Case, Int, Colon, Newline, Indent, Empty, Newline, Dedent, Dedent, Eof]
-
-- mini: "\n\n\nx = 1\n"
-  tokens: [LineBreak, LineBreak, Newline, Name, Equal, Int, Newline, Eof]
+- mini: |-
+    match x {
+        1 => nil
+        2 => nil
+    }
+  tokens: [Match, Name, BlockOpen, Newline, Int, Arm, Nil, Newline, Int, Arm, Nil, Newline, BlockClose, Eof]
 
 - mini: |-
     café = 1
@@ -679,60 +429,3 @@
 - mini: |-
     π = 3
   tokens: [Name, Equal, Int, Eof]
-
-- mini: |-
-    x $ y
-  indent: |-
-    x $ y
-  tokens: [Name, Name, Eof]
-
-- mini: |-
-    f'{x
-  tokens: [FormatStart, BraceOpen, Name, Eof]
-
-- mini: |-
-    if true:
-        pass
-  tokens: [If, "True", Colon, Newline, Indent, Empty, Dedent, Eof]
-
-- indent: |-
-    if True:
-        if True:
-            pass
-      x = 1
-  tokens: [If, "True", Colon, Newline, Indent, If, "True", Colon, Newline, Indent, Empty, Newline, Dedent, Dedent, Name, Equal, Int, Eof]
-
-- mini: "\ufeffx"
-  tokens: [Name, Eof]
-
-- mini: |-
-    a**=b~/=c<<=d>>=e
-  tokens: [Name, PowEqual, Name, FloorDivEqual, Name, LeftShiftEqual, Name, RightShiftEqual, Name, Eof]
-
-- mini: |-
-    x===y!==z
-  tokens: [Name, EqualEqual, Equal, Name, NotEqual, Equal, Name, Eof]
-
-- mini: |-
-    fn f(a)->b<>c: ...
-  tokens: [Fn, Name, ParenOpen, Name, ParenClose, Returns, Name, Less, Greater, Name, Colon, Ellipsis, Eof]
-
-- mini: |-
-    f(**k, *a, ***b)
-  tokens: [Name, ParenOpen, Pow, Name, Comma, Star, Name, Comma, Pow, Star, Name, ParenClose, Eof]
-
-- indent: |-
-    x !=y !z ~= w
-  tokens: [Name, NotEqual, Name, Convert, Name, Tilde, Equal, Name, Eof]
-
-- mini: |-
-    s = f"{x:=^9}{y!r:>{w}}{z=}"
-  tokens: [Name, Equal, FormatStart, BraceOpen, Name, Colon, FormatText, BraceClose, BraceOpen, Name, Convert, Name, Colon, FormatText, BraceOpen, Name, BraceClose, BraceClose, BraceOpen, Name, Equal, BraceClose, FormatEnd, Eof]
-
-- mini: |-
-    x[...]..y .5. 5..e
-  tokens: [Name, BracketOpen, Ellipsis, BracketClose, Dot, Dot, Name, Float, Dot, Int, Dot, Dot, Name, Eof]
-
-- mini: |-
-    a<=b>=c==d<<e>>f%=g&=h|=i^=j@=k-=l+=m*=n/=o
-  tokens: [Name, LessEqual, Name, GreaterEqual, Name, EqualEqual, Name, LeftShift, Name, RightShift, Name, PercentEqual, Name, BitAndEqual, Name, BitOrEqual, Name, BitXorEqual, Name, AtEqual, Name, MinusEqual, Name, PlusEqual, Name, StarEqual, Name, SlashEqual, Name, Eof]

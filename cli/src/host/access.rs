@@ -227,9 +227,9 @@ mod tests {
     #[test]
     fn a_kit_without_grants_serves_trusted_runs_every_module_and_untrusted_ones_none() {
         let kit = crate::kit::tests::bare().module(Arc::new(Probe));
-        let (out, status) = run(&kit, Project::disk("", None), "import probe\nprint(probe.reach())\n");
+        let (out, status) = run(&kit, Project::disk("", None), "use probe\nprint(probe.reach())\n");
         assert!(matches!(status, Status::Done) && out == "unbounded\n", "{out:?}");
-        let (_, status) = run(&kit, Project::bundle(HashMap::new(), "", true), "import probe\n");
+        let (_, status) = run(&kit, Project::bundle(HashMap::new(), "", true), "use probe\n");
         let Status::Error(refused) = status else { panic!("an untrusted run imported probe") };
         assert!(refused.contains("module 'probe' is not available to untrusted eval runs"), "{refused}");
     }

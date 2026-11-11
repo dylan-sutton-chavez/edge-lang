@@ -24,7 +24,7 @@ use edge::embed::{Limits, VM};
 edge::allocator!();
 
 fn main() {
-    let src = "fn square(n):\n    return n * n\nprint([square(n) for n in range(4)])\n";
+    let src = "fn square(n) {\n    return n * n\n}\nprint([square(n) for n in range(4)])\n";
     let (chunk, errors) = edge::code::compile(&mini::FRONT, src);
     assert!(errors.is_empty(), "{}", edge::code::Diagnostic::render_all(&errors, src, Some("main.mini")));
     let mut vm = VM::with_runtime(&mini::RUNTIME, &chunk, Limits::sandbox());
@@ -60,7 +60,7 @@ use edge::value::VmErr;
 edge::allocator!();
 
 fn main() {
-    let src = "total = 0\nwhile true:\n    m = receive()\n    if m == 'stop':\n        break\n    total += int(m)\nprint('total', total)\n";
+    let src = "total = 0\nwhile true {\n    m = receive()\n    if m == \"stop\" {\n        break\n    }\n    total += int(m)\n}\nprint(\"total\", total)\n";
     let (chunk, _) = edge::code::compile(&mini::FRONT, src);
     let mut vm = VM::with_runtime(&mini::RUNTIME, &chunk, Limits::sandbox());
     let mut events = ["2", "3", "stop"].into_iter();
@@ -106,14 +106,14 @@ impl Resolver for Host {
                 consts: vec![],
                 canonical: "host".into(),
             }),
-            "util" => Ok(Resolved::Code { src: "fn greet(n):\n    return 'hi ' + n\n".into(), canonical: "util".into() }),
+            "util" => Ok(Resolved::Code { src: "fn greet(n) {\n    return \"hi \" + n\n}\n".into(), canonical: "util".into() }),
             _ => Err(format!("no module '{spec}'")),
         }
     }
 }
 
 fn main() {
-    let src = "import host\nimport util\nprint(host.double(21), util.greet('ana'))\nprint(host.fetch() + 1)\n";
+    let src = "use host\nuse util\nprint(host.double(21), util.greet(\"ana\"))\nprint(host.fetch() + 1)\n";
     let script = Script::compile(&mini::FRONT, "main.mini", src.into(), Box::new(Host)).unwrap();
     let mut vm = VM::with_runtime(&mini::RUNTIME, &script.chunk, Limits::sandbox());
     assert!(matches!(vm.run(), Err(VmErr::HostYield(SchedulerStatus::PendingHostCall))));
@@ -134,7 +134,7 @@ use edge::value::Val;
 edge::allocator!();
 
 fn main() {
-    let (chunk, _) = edge::code::compile(&mini::FRONT, "fn area(w, h):\n    return w * h\n");
+    let (chunk, _) = edge::code::compile(&mini::FRONT, "fn area(w, h) {\n    return w * h\n}\n");
     let mut vm = VM::with_runtime(&mini::RUNTIME, &chunk, Limits::sandbox());
     vm.run().unwrap();
     let got = vm.call_export("area", &[Val::int(6), Val::int(7)]).unwrap();
@@ -153,7 +153,7 @@ use edge::value::VmErr;
 edge::allocator!();
 
 fn main() {
-    let src = "seen = []\nwhile true:\n    m = receive()\n    if m == 'stop':\n        break\n    seen.append(m)\nprint(seen)\n";
+    let src = "seen = []\nwhile true {\n    m = receive()\n    if m == \"stop\" {\n        break\n    }\n    seen.append(m)\n}\nprint(seen)\n";
     let (chunk, _) = edge::code::compile(&mini::FRONT, src);
     let mut vm = VM::with_runtime(&mini::RUNTIME, &chunk, Limits::sandbox());
     assert!(matches!(vm.run(), Err(VmErr::HostYield(SchedulerStatus::PendingEvent))));
@@ -168,7 +168,7 @@ fn main() {
     later.push_event("b").unwrap();
     later.push_event("stop").unwrap();
     later.run().unwrap();
-    assert_eq!(later.output_text(), "['a', 'b']\n");
+    assert_eq!(later.output_text(), "[\"a\", \"b\"]\n");
 }
 ```
 

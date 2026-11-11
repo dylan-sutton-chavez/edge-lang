@@ -4,9 +4,9 @@ mod test {
 
     use crate::common::{lex, parser, TestResolver};
 
-    const HELPER: &str = "fn double(n):\n    return n * 2\nfn shout(s):\n    return s.upper()\n";
+    const HELPER: &str = "fn double(n) {\n    return n * 2\n}\nfn shout(s) {\n    return s.upper()\n}\n";
 
-    const MAIN: &str = "from helper import double, shout\nfn pick(c):\n    return 'taken' if c else 'skipped'\nfn both(a):\n    return a && 'short-circuited'\nprint(pick(true), both(0), double(2), shout('a'))\nif pick(true) == 'taken':\n    print('then')\nelse:\n    print('never')\nraise ValueError('stop')\nprint('after')\n";
+    const MAIN: &str = "use helper\ndouble = helper.double\nshout = helper.shout\nfn pick(c) {\n    return if c { \"taken\" } else { \"skipped\" }\n}\nfn both(a) {\n    return a and \"short-circuited\"\n}\nprint(pick(true), both(0), double(2), shout(\"a\"))\nif pick(true) == \"taken\" {\n    print(\"then\")\n} else {\n    print(\"never\")\n}\nthrow ValueError(\"stop\")\nprint(\"after\")\n";
 
     /* the ips loading the str `text` so a branch is found by what it loads */
     fn loads(chunk: &SSAChunk, text: &str) -> Vec<usize> {

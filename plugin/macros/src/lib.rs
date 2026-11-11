@@ -260,7 +260,7 @@ pub fn plugin_methods(_attr: TokenStream, item: TokenStream) -> TokenStream {
         let method_ident = &method.sig.ident;
 
         if is_ctor {
-            let export_ident = format_ident!("__class_{}___init__", class_name);
+            let export_ident = format_ident!("__class_{}_init", class_name);
             emitted.push(quote! {
                 #[::plugin::plugin_fn]
                 fn #export_ident(self_h: ::plugin::Handle) -> ::plugin::Result<()> {

@@ -59,10 +59,9 @@ mini = { path = "examples/mini" }
 # a test runtime renames these kernels to prove the engine binds by kernel
 lib = { path = "lib" }
 # the indent table the syntax cases and the lexer and parser corpora are written in
-spell = { path = "tools/spell" }
 
 [workspace]
-members = ["abi", "plugin", "plugin/macros", "plugin/example", "skill", "bench", "lib", "examples/mini", "examples/tiny", "examples/uptime", "examples/data", "examples/native", "tools/spell"]
+members = ["abi", "plugin", "plugin/macros", "plugin/example", "skill", "bench", "lib", "examples/mini", "examples/tiny", "examples/uptime", "examples/data", "examples/native"]
 # wasm-only `plugin/example` is out of default-members so build it with `-p slugify-mod`
 default-members = [".", "abi", "plugin", "plugin/macros", "skill", "lib", "examples/mini", "examples/tiny", "examples/uptime", "examples/data", "examples/native"]
 resolver = "2"

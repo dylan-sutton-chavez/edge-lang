@@ -1,2 +1,2 @@
-import util
+use util
 print("project group says", util.greet())

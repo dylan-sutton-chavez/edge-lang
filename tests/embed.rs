@@ -4,7 +4,7 @@ use edge::embed::Limits;
 
     use crate::common::{lex, parser, TestResolver};
 
-    const SRC: &str = "print('booted')\nfn greet(name):\n    print('hi', name)\n    return [name, len(name)]\n";
+    const SRC: &str = "print(\"booted\")\nfn greet(name) {\n    print(\"hi\", name)\n    return [name, len(name)]\n}\n";
 
     // the site embeds the VM through exactly these calls so none reads as dead
     #[test]
@@ -22,7 +22,7 @@ use edge::embed::Limits;
         let name = vm.heap_mut().alloc(HeapObj::Str("ada".into())).unwrap();
         let result = vm.call_export("greet", &[name]).unwrap();
         assert!(matches!(vm.heap().get(result), HeapObj::List(_)));
-        assert_eq!(vm.display(result), "['ada', 3]");
+        assert_eq!(vm.display(result), "[\"ada\", 3]");
         assert_eq!(&vm.output_text()[booted.len()..], "hi ada\n");
 
         // a failing call renders a traceback naming the function it failed in
@@ -35,7 +35,7 @@ use edge::embed::Limits;
     #[test]
     fn a_machine_refuses_a_chunk_another_runtime_compiled() {
         let wide = "print(list(range(9223372036854775805, 9223372036854775807, 5)))\n";
-        let turns = "fn s(n):\n    return 0 if n == 0 else s(n - 1) + 9223372036854775000\nfor i in range(70):\n    r = s(i % 5)\nprint(r)\n";
+        let turns = "fn s(n) {\n    return if n == 0 { 0 } else { s(n - 1) + 9223372036854775000 }\n}\nfor i in range(70) {\n    r = s(i % 5)\n}\nprint(r)\n";
         for src in [wide, turns, "print(len([1, 2]))\n"] {
             let (chunk, errors) = crate::common::compile(src);
             assert!(errors.is_empty(), "{:?}", errors.iter().map(|d| &d.msg).collect::<Vec<_>>());

@@ -56,33 +56,33 @@
 - native: set.issubset
   recv: !set [1, 2]
   args: [!set [1, 2, 3]]
-  prints: "True"
+  prints: "true"
 
 - native: set.issubset
   recv: !set [1, 2, 3]
   args: [!set [1, 2]]
-  prints: "False"
+  prints: "false"
 
 - native: set.issuperset
   recv: !set [1, 2, 3]
   args: [!set [1, 2]]
-  prints: "True"
+  prints: "true"
 
 - native: set.isdisjoint
   recv: !set [1, 2]
   args: [!set [3, 4]]
-  prints: "True"
+  prints: "true"
 
 - native: set.isdisjoint
   recv: !set [1, 2]
   args: [!set [2, 3]]
-  prints: "False"
+  prints: "false"
 
 - native: set
   args: [{"a": 1, "b": 2}]
-  prints: "{'a', 'b'}"
+  prints: "{\"a\", \"b\"}"
 
 - native: set.isdisjoint
   recv: !set [1, 2, 3]
   args: [!set [4, 5]]
-  prints: "True"
+  prints: "true"

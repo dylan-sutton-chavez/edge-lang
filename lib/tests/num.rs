@@ -9,7 +9,7 @@ use lib::num::int::Parse;
 use lib::uni::Decimal;
 use mini::Mini;
 use mini::lang::WIDE;
-use mini::natives::{ARRAY, ATTR, BUFFER, BYTES, CONVERT, DICT, FLOAT, FOLDS, GEN, INT, IO, ITER, LIST, LIST_SORT, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
+use mini::natives::{ARRAY, BUFFER, BYTES, CONVERT, DICT, FLOAT, FOLDS, INT, IO, ITER, LIST, LIST_SORT, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
 
 // every run meters what it allocates as edge.wasm does
 edge::allocator!();
@@ -104,8 +104,8 @@ fn the_kind_orders_hashes_and_saves_as_the_engine_did() {
     let mut out = Vec::new();
     save(&held, &mut out);
     assert_eq!(load(&out).and_then(|p| p.downcast_ref::<BigInt>().cloned()), Some(held));
-    let huge = op(&mut h, BinOp::Pow, Val::int(10), Val::int(5000));
-    assert!(matches!(h.foreign_repr(huge), Some(Err(e)) if format!("{e}").ends_with("Exceeds the limit (4300 digits) for integer string conversion")));
+    let huge = op(&mut h, BinOp::Pow, Val::int(10), Val::int(20000));
+    assert!(matches!(h.foreign_repr(huge), Some(Err(e)) if format!("{e}").ends_with("more digits than the limit of 10000 for its text")));
 }
 
 // the native whose name and params the raw parse failures are worded with
@@ -133,7 +133,7 @@ const PARSE: &[Native] = &[Native::new("parse", Sig::exact(2), parse)];
 
 static NATIVES: Natives = edge::natives! {
     language: Over,
-    fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, ATTR, TYPES, PARSE],
+    fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, TYPES, mini::natives::MATCH, mini::natives::DATE, PARSE],
     methods: [
         Str => [STR],
         Bytes => [BUFFER],
@@ -145,7 +145,6 @@ static NATIVES: Natives = edge::natives! {
         Int => [INT],
         Float => [FLOAT],
         Range => [RANGE],
-        Coro => [GEN],
     ],
     types: mini::types::NAMES,
 };
@@ -157,7 +156,7 @@ struct Over;
 mini::over!(Over, &NATIVES);
 
 // each call's repr or its error as the corpus reads them
-const TRY: &str = "fn t(f):\n    try:\n        print(repr(f()))\n    except Exception as e:\n        print(type(e).__name__ + ':', e)\n";
+const TRY: &str = "fn t(f) {\n    try {\n        print(repr(f()))\n    } catch Error as e {\n        print(text(type(e)) + \":\", e)\n    }\n}\n";
 
 fn tried(calls: &str) -> String {
     let src = String::from(TRY) + calls;
@@ -173,18 +172,28 @@ fn tried(calls: &str) -> String {
 #[test]
 fn int_text_parses_in_every_base_with_its_errors() {
     let got = tried(concat!(
-        "t(lambda: parse('42', 10))\nt(lambda: parse(' -0x1F ', 0))\nt(lambda: parse('0b101', 0))\nt(lambda: parse('1_000_000', 10))\n",
-        "t(lambda: parse('\u{663}\u{664}\u{665}', 10))\nt(lambda: parse('9' * 30, 10))\nt(lambda: parse('f' * 40, 16))\nt(lambda: parse('0_0', 0))\n",
-        "t(lambda: parse('--5', 10))\nt(lambda: parse('0x-5', 16))\nt(lambda: parse('010', 0))\nt(lambda: parse('1__0', 10))\nt(lambda: parse('7', 37))\n",
-        "t(lambda: parse('0x', 16))\nt(lambda: parse('1' * 4301, 10))\nt(lambda: len(str(parse('f' * 5000, 16))) > 0)\n",
+        "t(|| parse(\"42\", 10))\nt(|| parse(\" -0x1F \", 0))\nt(|| parse(\"0b101\", 0))\nt(|| parse(\"1_000_000\", 10))\n",
+        "t(|| parse(\"٣٤٥\", 10))\nt(|| parse(\"9\" * 30, 10))\nt(|| parse(\"f\" * 40, 16))\nt(|| parse(\"0_0\", 0))\n",
+        "t(|| parse(\"--5\", 10))\nt(|| parse(\"0x-5\", 16))\nt(|| parse(\"010\", 0))\nt(|| parse(\"1__0\", 10))\nt(|| parse(\"7\", 37))\n",
+        "t(|| parse(\"0x\", 16))\nt(|| parse(\"1\" * 10001, 10))\nt(|| len(text(parse(\"f\" * 9000, 16))) > 0)\n",
     ));
     let want = concat!(
-        "42\n-31\n5\n1000000\n345\n999999999999999999999999999999\n1461501637330902918203684832716283019655932542975\n0\n",
-        "ValueError: invalid literal for int() with base 10: '--5'\nValueError: invalid literal for int() with base 16: '0x-5'\n",
-        "ValueError: invalid literal for int() with base 0: '010'\nValueError: invalid literal for int() with base 10: '1__0'\n",
-        "ValueError: int() base must be >= 2 and <= 36, or 0\nValueError: invalid literal for int() with base 16: '0x'\n",
-        "ValueError: Exceeds the limit (4300 digits) for integer string conversion: value has 4301 digits\n",
-        "ValueError: Exceeds the limit (4300 digits) for integer string conversion\n",
+        "42\n",
+        "-31\n",
+        "5\n",
+        "1000000\n",
+        "345\n",
+        "999999999999999999999999999999\n",
+        "1461501637330902918203684832716283019655932542975\n",
+        "0\n",
+        "ValueError: \"--5\" spells no int in base 10\n",
+        "ValueError: \"0x-5\" spells no int in base 16\n",
+        "ValueError: \"010\" spells no int\n",
+        "ValueError: \"1__0\" spells no int in base 10\n",
+        "ValueError: base of int must be 0 or from 2 to 36\n",
+        "ValueError: \"0x\" spells no int in base 16\n",
+        "ValueError: the number has 10001 digits, past the limit of 10000 for its text\n",
+        "ValueError: the number has more digits than the limit of 10000 for its text\n",
     );
     assert_eq!(got, want);
 }
@@ -192,21 +201,26 @@ fn int_text_parses_in_every_base_with_its_errors() {
 #[test]
 fn the_held_folds_answer_as_the_engine_does() {
     let got = tried(concat!(
-        "fn g(n):\n    for i in range(n):\n        yield (i * 7) % 5\n",
-        "t(lambda: (sum([1, 2, 3]), sum(range(101)), sum(g(10)), sum([0.1] * 10), sum([1, 0.5]), sum([2**62] * 4)))\n",
-        "t(lambda: (sum(i * 0.1 for i in range(10)), sum([], true), sum([1, 2], 10), sum([[1], [2]], []), sum(range(2**62, 2**62 + 3))))\n",
-        "t(lambda: sum(['a'], ''))\nt(lambda: sum([1, 'a']))\n",
-        "t(lambda: (min([3, 1, 2]), max(range(10)), max(g(10)), min('hello'), max(3, 9, 2), max([1, 2.5, 2]), min(x * 1.5 for x in range(4))))\n",
-        "t(lambda: (max(['aaa', 'b'], key=len), min(g(6), key=lambda v: -v), max([], default=7), min(range(0), default=nil), max(1, 2, key=lambda v: -v)))\n",
-        "t(lambda: max([]))\nt(lambda: max(1, 2, default=0))\nt(lambda: max([1, 'a']))\n",
-        "t(lambda: (max([2**100, 3]), min(range(-5, 5)), max(range(10, 0, -3)), max([float('nan'), 1.0])))\n",
+        "fn g(n) {\n    for i in range(n) {\n        yield i * 7 % 5\n    }\n}\n",
+        "t(|| (sum([1, 2, 3]), sum(range(101)), sum(g(10)), sum([0.1] * 10), sum([1, 0.5]), sum([2 ** 62] * 4)))\n",
+        "t(|| (sum((i * 0.1 for i in range(10))), sum([], true), sum([1, 2], 10), sum([[1], [2]], []), sum(range(2 ** 62, 2 ** 62 + 3))))\n",
+        "t(|| sum([\"a\"], \"\"))\nt(|| sum([1, \"a\"]))\n",
+        "t(|| (min([3, 1, 2]), max(range(10)), max(g(10)), min(\"hello\"), max(3, 9, 2), max([1, 2.5, 2]), min((x * 1.5 for x in range(4)))))\n",
+        "t(|| (max([\"aaa\", \"b\"], key=len), min(g(6), key=|v| -v), max([], default=7), min(range(0), default=nil), max(1, 2, key=|v| -v)))\n",
+        "t(|| max([]))\nt(|| max(1, 2, default=0))\nt(|| max([1, \"a\"]))\n",
+        "t(|| (max([2 ** 100, 3]), min(range(-5, 5)), max(range(10, 0, -3)), max([float(\"nan\"), 1.0])))\n",
     ));
     let want = concat!(
-        "(6, 5050, 20, 1.0, 1.5, 18446744073709551616)\n(4.5, True, 13, [1, 2], 13835058055282163715)\n",
-        "TypeError: sum() can't sum strings [use ''.join(seq) instead]\nTypeError: unsupported operand type(s) for +: 'int' and 'str'\n",
-        "(1, 9, 4, 'e', 9, 2.5, 0.0)\n('aaa', 4, 7, None, 1)\nValueError: max() iterable argument is empty\n",
-        "TypeError: Cannot specify a default for max() with multiple positional arguments\n",
-        "TypeError: '>' not supported between instances of 'str' and 'int'\n(1267650600228229401496703205376, -5, 10, nan)\n",
+        "(6, 5050, 20, 1.0, 1.5, 18446744073709551616)\n",
+        "(4.5, true, 13, [1, 2], 13835058055282163715)\n",
+        "TypeError: sum cannot add text values\n",
+        "TypeError: + does not apply to int and text\n",
+        "(1, 9, 4, \"e\", 9, 2.5, 0.0)\n",
+        "(\"aaa\", 4, 7, nil, 1)\n",
+        "ValueError: max found no items\n",
+        "TypeError: max takes default only with one positional argument\n",
+        "TypeError: cannot compare text and int\n",
+        "(1267650600228229401496703205376, -5, 10, NaN)\n",
     );
     assert_eq!(got, want);
 }
@@ -214,14 +228,14 @@ fn the_held_folds_answer_as_the_engine_does() {
 #[test]
 fn natives_cross_into_wide_ints_and_back() {
     let got = tried(concat!(
-        "t(lambda: abs(-140737488355328))\nt(lambda: round(10**30 + 5 * 10**9, -10))\nt(lambda: round(12345678901234567890123, -20))\n",
-        "t(lambda: pow(2**100, 2**70, 10**30 + 7))\nt(lambda: (3**150).bit_length())\nt(lambda: int.from_bytes(bytes(range(1, 40)), 'little', signed=true))\n",
-        "t(lambda: (-(2**100)).to_bytes(16, 'big', signed=true).hex())\nt(lambda: sum([2**62] * 4))\nt(lambda: max(2**100, 3, -2**100))\n",
-        "t(lambda: divmod(-(2**100), 7))\nt(lambda: round(1e300))\n",
+        "t(|| abs(-140737488355328))\nt(|| round(10 ** 30 + 5 * 10 ** 9, -10))\nt(|| round(12345678901234567890123, -20))\n",
+        "t(|| pow(2 ** 100, 2 ** 70, 10 ** 30 + 7))\nt(|| (3 ** 150).bit_length())\nt(|| int.from_bytes(bytes(range(1, 40)), \"little\", signed=true))\n",
+        "t(|| (-2 ** 100).to_bytes(16, \"big\", signed=true).hex())\nt(|| sum([2 ** 62] * 4))\nt(|| max(2 ** 100, 3, -2 ** 100))\n",
+        "t(|| divmod(-2 ** 100, 7))\nt(|| round(1.0e+300))\n",
     ));
     let want = concat!(
         "140737488355328\n1000000000000000000000000000000\n12300000000000000000000\n588308192633340810703587294064\n238\n",
-        "1275966880838951957140048049196824912750462188239772872474131448732708150300526818376846344705\n'fffffff0000000000000000000000000'\n",
+        "1275966880838951957140048049196824912750462188239772872474131448732708150300526818376846344705\n\"fffffff0000000000000000000000000\"\n",
         "18446744073709551616\n1267650600228229401496703205376\n(-181092942889747057356671886482, -2)\n",
         "1000000000000000052504760255204420248704468581108159154915854115511802457988908195786371375080447864043704443832883878176942523235360430575644792184786706982848387200926575803737830233794788090059368953234970799945081119038967640880074652742780142494579258788820056842838115669472196386865459400540160\n",
     );
@@ -259,7 +273,7 @@ static UNBOUNDED_WIDE: edge::value::foreign::Kind = lib::num::big::kind::<Unboun
 const UNBOUNDED: &[Native] = &lib::table![Unbounded;
     "print" => lib::io::print,
     "len" => lib::seq::len,
-    "str" => lib::text::text,
+    "text" => lib::text::text,
 ];
 
 static UNBOUNDED_NATIVES: Natives = edge::natives! {
@@ -282,12 +296,12 @@ impl edge::lexer::Spelling for Lifted {
 // with no digit limit a wide int's text pays for its digits first
 #[test]
 fn decimal_text_with_no_limit_runs_out_of_budget_before_converting() {
-    let (chunk, errors) = edge::code::compile_as::<Lifted>("print(len(str(7 ** 200000)))\n");
+    let (chunk, errors) = edge::code::compile_as::<Lifted>("print(len(text(7 ** 200000)))\n");
     assert!(errors.is_empty());
     let mut vm = VM::with_runtime(&UNBOUNDED_RUNTIME, &chunk, Limits::sandbox());
     let ran = vm.run();
     assert!(ran.is_err_and(|e| e.to_string().contains("budget exceeded")), "{}", vm.output_text());
-    let (chunk, _) = edge::code::compile_as::<Lifted>("print(len(str(7 ** 2000)))\n");
+    let (chunk, _) = edge::code::compile_as::<Lifted>("print(len(text(7 ** 2000)))\n");
     let mut vm = VM::with_runtime(&UNBOUNDED_RUNTIME, &chunk, Limits::sandbox());
     assert!(vm.run().is_ok());
     assert_eq!(vm.output_text(), "1691\n");

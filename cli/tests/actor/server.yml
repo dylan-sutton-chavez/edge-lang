@@ -8,9 +8,10 @@ groups:
   echoer:
     replicas: 1
     code: |
-      while true:
+      while true {
           msg = receive()
           print("got:", msg)
+      }
 
 publish:
   - "echoer alpha"

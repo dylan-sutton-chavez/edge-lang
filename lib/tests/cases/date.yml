@@ -4,8 +4,8 @@
 
 - native: time
   args: ["nope"]
-  error: "invalid RFC 3339 time: 'nope'"
+  error: "ValueError: invalid RFC 3339 time: \"nope\""
 
 - native: time
   args: [5]
-  error: "time() argument must be str, not int"
+  error: "TypeError: time takes text, not int"

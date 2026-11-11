@@ -189,8 +189,8 @@ fn base64_encode(bytes: &[u8]) -> String {
 #[test]
 fn eval_group_runs_a_bundled_project_over_the_wire() {
     let payload = bundle("main.mini", &[
-        ("main.mini", "import util\nprint(util.hi())\n"),
-        ("util.mini", "fn hi():\n    return \"bundled and run\"\n"),
+        ("main.mini", "use util\nprint(util.hi())\n"),
+        ("util.mini", "fn hi() {\n    return \"bundled and run\"\n}\n"),
         ("edge.json", "{ \"imports\": { \"util\": \"./util.mini\" } }\n"),
     ]);
     let line = format!("runners EDGEPKG:{}", base64_encode(&payload));
@@ -217,7 +217,7 @@ fn eval_group_runs_a_bundled_project_over_the_wire() {
 #[test]
 fn a_pool_that_grants_eval_nothing_refuses_a_bundle_that_grants() {
     let payload = bundle("main.mini", &[
-        ("main.mini", "import net\nprint(net.request('GET', 'http://127.0.0.1:1/') > 0)\n"),
+        ("main.mini", "use net\nprint(net.request(\"GET\", \"http://127.0.0.1:1/\") > 0)\n"),
         ("edge.json", "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n"),
     ]);
     let scratch = std::env::temp_dir().join(format!("edge-actor-grant-{}", std::process::id()));
@@ -247,14 +247,14 @@ fn an_eval_bundle_grants_within_what_the_pool_grants_eval() {
     };
 
     let mut child = edge().args(["actor", manifest.to_str().unwrap()]).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
-    let held = granting("import net\nprint(net.request('GET', 'http://127.0.0.1:1/eval/x') > 0)\n", "net:127.0.0.1/eval");
-    let outside = granting("import net\nprint(net.request('GET', 'http://127.0.0.1:1/other'))\n", "net:127.0.0.1/eval");
-    let beyond = granting("import net\nprint(net.request('GET', 'http://127.0.0.1:1/'))\n", "net:127.0.0.1");
-    let snippet = post_eval("127.0.0.1:9813", "/eval/runners", "import net\nprint(net.request('GET', 'http://127.0.0.1:1/eval/x') > 0)\n");
+    let held = granting("use net\nprint(net.request(\"GET\", \"http://127.0.0.1:1/eval/x\") > 0)\n", "net:127.0.0.1/eval");
+    let outside = granting("use net\nprint(net.request(\"GET\", \"http://127.0.0.1:1/other\"))\n", "net:127.0.0.1/eval");
+    let beyond = granting("use net\nprint(net.request(\"GET\", \"http://127.0.0.1:1/\"))\n", "net:127.0.0.1");
+    let snippet = post_eval("127.0.0.1:9813", "/eval/runners", "use net\nprint(net.request(\"GET\", \"http://127.0.0.1:1/eval/x\") > 0)\n");
     let _ = child.kill();
     let _ = child.wait();
     let _ = std::fs::remove_dir_all(&scratch);
-    assert!(held.contains(r#"{"ok":true,"stdout":"True\n"}"#), "held was {held:?}");
+    assert!(held.contains(r#"{"ok":true,"stdout":"true\n"}"#), "held was {held:?}");
     assert!(outside.contains("'main' has no net:127.0.0.1/other, edge.json grants it net:127.0.0.1/eval"), "outside was {outside:?}");
     assert!(beyond.contains("main   net:127.0.0.1") && !beyond.contains("/eval"), "beyond was {beyond:?}");
     assert!(snippet.contains("'main' imports net, which edge.json does not grant it"), "snippet was {snippet:?}");
@@ -268,7 +268,7 @@ fn a_busy_actor_never_holds_up_the_rest() {
     let scratch = std::env::temp_dir().join(format!("edge-actor-share-{}", std::process::id()));
     let _ = std::fs::create_dir_all(&scratch);
     let manifest = scratch.join("actor.yml");
-    std::fs::write(&manifest, "runtime:\n  listen: tcp://127.0.0.1:7814\n  control: tcp://127.0.0.1:9814\ngroups:\n  runners:\n    eval: true\n    replicas: 3\n  echo:\n    code: print('echo', receive())\n  spin:\n    code: |\n      receive()\n      while true:\n          pass\n").unwrap();
+    std::fs::write(&manifest, "runtime:\n  listen: tcp://127.0.0.1:7814\n  control: tcp://127.0.0.1:9814\ngroups:\n  runners:\n    eval: true\n    replicas: 3\n  echo:\n    code: print(\"echo\", receive())\n  spin:\n    code: |\n      receive()\n      while true {\n      }\n").unwrap();
 
     let mut child = edge().args(["actor", manifest.to_str().unwrap()]).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
     let stdout = child.stdout.take().unwrap();
@@ -281,7 +281,7 @@ fn a_busy_actor_never_holds_up_the_rest() {
     let mut sock = connect("127.0.0.1:7814").expect("ingress never came up");
     let sent = Instant::now();
     // A snippet holds no grant, so it can only spin, and it spins until its op budget runs out.
-    for line in ["runners while true: pass", "spin go", "echo hi"] {
+    for line in ["runners while true { }", "spin go", "echo hi"] {
         let _ = writeln!(sock, "{line}");
     }
     let _ = sock.flush();
@@ -303,10 +303,10 @@ fn an_eval_group_timeout_ends_a_spin() {
 
     let mut child = edge().args(["actor", manifest.to_str().unwrap()]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
     // The first post waits out the boot, so only the spin is timed.
-    let booted = post_eval("127.0.0.1:9815", "/eval/runners", "print('up')");
+    let booted = post_eval("127.0.0.1:9815", "/eval/runners", "print(\"up\")");
     let start = Instant::now();
     // the op budget is the largest a group takes so only the clock can end the spin
-    let spun = post_eval("127.0.0.1:9815", "/eval/runners", "while true:\n    pass");
+    let spun = post_eval("127.0.0.1:9815", "/eval/runners", "while true {\n}");
     let spun_for = start.elapsed().as_secs_f64();
     let _ = child.kill();
     let _ = child.wait();
@@ -412,9 +412,9 @@ fn the_server_serves_every_client_at_once_and_holds_a_flood_back() {
     let scratch = std::env::temp_dir().join(format!("edge-actor-clients-{}", std::process::id()));
     let _ = std::fs::create_dir_all(&scratch);
     let manifest = scratch.join("actor.yml");
-    std::fs::write(&manifest, "runtime:\n  listen: tcp://127.0.0.1:7816\n  control: tcp://127.0.0.1:9816\ngroups:\n  runners:\n    eval: true\n  echo:\n    code: |\n      while true:\n          print('echo', receive())\n  stuck:\n    code: |\n      receive()\n      while true:\n          pass\n").unwrap();
+    std::fs::write(&manifest, "runtime:\n  listen: tcp://127.0.0.1:7816\n  control: tcp://127.0.0.1:9816\ngroups:\n  runners:\n    eval: true\n  echo:\n    code: |\n      while true {\n          print(\"echo\", receive())\n      }\n  stuck:\n    code: |\n      receive()\n      while true {\n      }\n").unwrap();
     // An eval that computes for a while, which takes the actor thread and no control thread.
-    let sleeper = "for _ in range(3000000):\n    pass\nprint('slept')".to_string();
+    let sleeper = "for _ in range(3000000) {\n}\nprint(\"slept\")".to_string();
 
     let mut child = edge().args(["actor", manifest.to_str().unwrap()]).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
     let stdout = child.stdout.take().unwrap();
@@ -505,11 +505,11 @@ fn a_restart_replays_only_the_messages_left_unfinished() {
     let scratch = std::env::temp_dir().join(format!("edge-actor-wal-{}", std::process::id()));
     let _ = std::fs::create_dir_all(&scratch);
     let manifest = scratch.join("actor.yml");
-    let pool = |hold: &str| format!("runtime:\n  listen: tcp://127.0.0.1:7817\ngroups:\n  echo:\n    code: |\n      while true:\n          print('echo', receive())\n  hold:\n    code: |\n{hold}");
+    let pool = |hold: &str| format!("runtime:\n  listen: tcp://127.0.0.1:7817\ngroups:\n  echo:\n    code: |\n      while true {{\n          print(\"echo\", receive())\n      }}\n  hold:\n    code: |\n{hold}");
     // The first run holds its first message forever and queues the second, the next one prints both.
-    std::fs::write(&manifest, pool("      receive()\n      while true:\n          pass\n")).unwrap();
+    std::fs::write(&manifest, pool("      receive()\n      while true {\n      }\n")).unwrap();
     let first = run_killed(&manifest, "127.0.0.1:7817", &["echo a", "echo b", "hold x", "hold y"], "echo b");
-    std::fs::write(&manifest, pool("      while true:\n          print('hold', receive())\n")).unwrap();
+    std::fs::write(&manifest, pool("      while true {\n          print(\"hold\", receive())\n      }\n")).unwrap();
     let mut second = run_killed(&manifest, "127.0.0.1:7817", &[], "hold y");
     let _ = std::fs::remove_dir_all(&scratch);
     second.sort();
@@ -525,7 +525,7 @@ fn a_sigterm_lets_the_actors_finish_before_the_server_exits() {
     let scratch = std::env::temp_dir().join(format!("edge-actor-drain-{}", std::process::id()));
     let _ = std::fs::create_dir_all(&scratch);
     let manifest = scratch.join("actor.yml");
-    std::fs::write(&manifest, "runtime:\n  listen: tcp://127.0.0.1:7818\ngroups:\n  slow:\n    code: |\n      while true:\n          msg = receive()\n          for _ in range(2000000):\n              pass\n          print('slow', msg)\n").unwrap();
+    std::fs::write(&manifest, "runtime:\n  listen: tcp://127.0.0.1:7818\ngroups:\n  slow:\n    code: |\n      while true {\n          msg = receive()\n          for _ in range(2000000) {\n          }\n          print(\"slow\", msg)\n      }\n").unwrap();
 
     let mut child = edge().args(["actor", manifest.to_str().unwrap()]).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
     let mut sock = connect("127.0.0.1:7818").expect("ingress never came up");
@@ -617,7 +617,7 @@ fn an_eval_bundle_reads_files_below_its_pool_and_nowhere_else() {
     std::fs::write(away.join("notes.txt"), "where the pool started\n").unwrap();
     // each seed a bundle granting itself one entry and reading one path
     let seed = |grant: &str, path: &str| {
-        let main = format!("import files\nprint(files.read(files.open('{path}', nil)))\n");
+        let main = format!("use files\nprint(files.read(files.open(\"{path}\", nil)))\n");
         let grants = format!(r#"{{ "permissions": {{ "main": ["{grant}"] }} }}"#);
         format!("\"EDGEPKG:{}\"", base64_encode(&bundle("main.mini", &[("main.mini", &main), ("edge.json", &grants)])))
     };
@@ -626,7 +626,7 @@ fn an_eval_bundle_reads_files_below_its_pool_and_nowhere_else() {
     let out = edge().args(["actor", pool.join("actor.yml").to_str().unwrap()]).current_dir(&away).stdin(Stdio::null()).output().unwrap();
     let _ = std::fs::remove_dir_all(&scratch);
     let (stdout, stderr) = (String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
-    assert_eq!(stdout, "b'pool notes\\n'\n", "stderr {stderr:?}");
+    assert_eq!(stdout, "b\"pool notes\\n\"\n", "stderr {stderr:?}");
     let refusals = [
         "error: an eval run of group 'guest' failed\nerror: ValueError: '../away/notes.txt' is not a plain path",
         "error: an eval run of group 'guest' failed\nerror: the pool does not grant eval what this bundle grants\n  main   files:secret.txt",
@@ -647,14 +647,14 @@ fn an_eval_run_that_raises_or_sends_fails_under_its_group() {
     std::fs::write(&manifest, r#"groups:
   g:
     eval: true
-    seed: ["print('b')\nsend('g', 'm')\nprint('after')", "print('a')\nx = 1 / 0", "print('fine')"]
+    seed: ["print(\"b\")\nsend(\"g\", \"m\")\nprint(\"after\")", "print(\"a\")\nx = 1 / 0", "print(\"fine\")"]
 "#).unwrap();
     let out = edge().args(["actor", manifest.to_str().unwrap()]).stdin(Stdio::null()).output().unwrap();
     let _ = std::fs::remove_dir_all(&scratch);
     let (stdout, stderr) = (String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
     assert_eq!(stdout, "b\na\nfine\n", "stderr {stderr:?}");
-    let sent = "error: an eval run of group 'g' failed, it sent to 'g' and an eval run cannot send\nerror: RuntimeError: send() needs an actor scheduler";
-    let raised = "error: an eval run of group 'g' failed\nerror: ZeroDivisionError: division by zero\n  --> ";
+    let sent = "error: an eval run of group 'g' failed, it sent to 'g' and an eval run cannot send\nerror: Error: send needs an actor scheduler";
+    let raised = "error: an eval run of group 'g' failed\nerror: DivisionError: division by zero\n  --> ";
     assert!(stderr.contains(sent) && stderr.contains(raised), "stderr {stderr:?}");
     assert_eq!(stderr.matches("error: an eval run of group").count(), 2, "stderr {stderr:?}");
     assert_eq!(out.status.code(), Some(1), "two failed runs fail the pool");
@@ -667,7 +667,7 @@ fn the_control_port_refuses_a_rebound_host_and_a_web_page() {
     let scratch = std::env::temp_dir().join(format!("edge-actor-hosts-{}", std::process::id()));
     let _ = std::fs::create_dir_all(&scratch);
     let manifest = scratch.join("actor.yml");
-    std::fs::write(&manifest, "runtime:\n  listen: tcp://127.0.0.1:7821\n  control: tcp://127.0.0.1:9821\ngroups:\n  echo:\n    code: |\n      while true:\n          print('echo', receive())\n").unwrap();
+    std::fs::write(&manifest, "runtime:\n  listen: tcp://127.0.0.1:7821\n  control: tcp://127.0.0.1:9821\ngroups:\n  echo:\n    code: |\n      while true {\n          print(\"echo\", receive())\n      }\n").unwrap();
     let mut child = edge().args(["actor", manifest.to_str().unwrap()]).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
     // the whole answer to one request written as given
     let ask = |request: &str| {

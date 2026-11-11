@@ -1325,7 +1325,6 @@ name = "mini"
 version = "0.9.7"
 dependencies = [
  "edge",
- "itoa",
  "lib",
 ]
 

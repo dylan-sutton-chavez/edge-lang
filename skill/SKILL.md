@@ -142,9 +142,12 @@ Every import resolves at compile time through a host resolver. The compiler flat
 Dotted specs import files. A leading dot anchors at the importing file, one extra dot per directory up. Without it the spec anchors at the nearest `edge.json` dir. The `.mini` suffix is implicit.
 
 ```mini
-from .lib.helpers import slug
-from ..shared.util import chunks
-from lib.helpers import slug as sl
+use .lib.helpers as helpers
+slug = helpers.slug
+use ..shared.util as util
+chunks = util.chunks
+use lib.helpers as helpers
+sl = helpers.slug
 ```
 
 Not supported. `from . import x` and any form of dynamic import.
@@ -163,7 +166,7 @@ Bare names resolve through `edge.json`, walking up from the importing file with 
 A bare name resolves only when declared, `edge add <name>=<url>` then `edge lock` writes each entry, and an undeclared name fails at compile time.
 
 ```mini
-import nothere
+use nothere
 ```
 
 ```text Error
@@ -191,7 +194,7 @@ A snapshot is taken when the script parks on a wait the engine cannot serve, for
 The network comes from `net`, which the CLI and the browser both serve, and the CLI also serves `files`, which reads the local files a grant names. A host module needs no `imports` entry, only a grant from the root `edge.json`, and an import without one fails at compile time. A program reaches no clock or environment at all.
 
 ```mini
-import net
+use net
 ```
 
 ```text Error
@@ -216,10 +219,11 @@ The root grants each package it imports under its import key. A dependency lists
 `request(method, url, headers, body, inflate, timeout)` returns an id at once, `response(id)` waits for `[status, headers]`, and `read(id)` returns the next body chunk as `bytes` or `nil` at the end and after. With `inflate` as `'gzip'` a read hands back the inflated bytes, and a body arrives one chunk per read so a large one never sits in memory whole. `timeout` bounds the head and each body read to that many seconds, 30 unless set and at most 86400, and a read counts it only while it waits. `connect(url)` opens a WebSocket whose messages come through `read`, `send(id, data)` writes to it and `close(id)` aborts either. Headers are `[name, value]` pairs or a dict and a body is `bytes`, a `str` or `nil`. A failed connection raises `OSError` from the call that meets it, and in a browser CORS applies on top of the grant. A package holds at most 128 requests and sockets open at once, and a socket keeps at most 1024 unread messages and 16 MB. A url names its host right after the scheme, with no user before it and no backslash, space or control character, else `ValueError`, while an `@` in the path stays. A non-ASCII host raises, pass its punycode. The path is resolved before the check and sent as resolved, so a `.` or `..` segment applies however it is spelled and text outside the unreserved set crosses as escaped UTF-8, and a fragment is dropped. No host follows a redirect, a 301, 302, 303, 307 or 308 raises `OSError` and the new address needs its own `request`. Headers fetch keeps for the host, like `Host`, `Cookie`, `Origin` or any `Sec-` or `Proxy-` one, raise `ValueError`.
 
 ```mini skip
-import net
+use net
 
 r = net.request("GET", "https://www.githubstatus.com/api/v2/status.json", [["accept", "application/json"]], nil)
-status, headers = net.response(r) // skip since a live server answers as it stands that day
+status, headers = net.response(r)
+// skip since a live server answers as it stands that day
 body = net.read(r)
 ```
 
@@ -230,7 +234,7 @@ The CLI runs these calls in Rust and the browser in TypeScript, and one suite of
 `open(path, inflate)` returns an id once a grant reaches the path and the file opens, `read(id)` returns the next chunk as `bytes` or `nil` at the end, and `close(id)` drops it. A path is names joined by slashes below the package's `edge.json`, with no `.` or `..` segment, no leading slash and no backslash. With `inflate` as `'gzip'` a read hands back the inflated bytes. A refused path raises `ValueError`, a path no grant reaches `PermissionError`, and a missing file `OSError`. The JS host serves no files, and an untrusted run reads only below its pool's `edge.json`.
 
 ```mini
-import files
+use files
 ```
 
 ```text Error

@@ -80,7 +80,7 @@ impl<'a> VM<'a> {
     pub(crate) fn hint_for(&self, e: &VmErr) -> Option<String> {
         match (self.missed.as_ref()?, e) {
             // the miss read off the error or off the runtime's words for it
-            (Missed::Name(n, locals, bound, module), e) if e.missing_name() == Some(n.as_str()) || matches!(e, VmErr::Of(ErrKind::Name, m) if m.contains(&s!("'", str n, "'"))) => self.name_hint(n, locals, bound, *module),
+            (Missed::Name(n, locals, bound, module), e) if e.missing_name() == Some(n.as_str()) || matches!(e, VmErr::Of(ErrKind::Name, m) if m.contains(&s!("'", str n, "'")) || m.split(' ').next() == Some(n.as_str())) => self.name_hint(n, locals, bound, *module),
             (Missed::Attr(obj, name), VmErr::Attribute(msg) | VmErr::Of(ErrKind::Attribute, msg)) if msg.ends_with(&s!("'", str name, "'")) => {
                 // underscored names are candidates only when the missed name starts with an underscore
                 let names = self.attr_names(*obj);

@@ -90,17 +90,17 @@ fn the_job_reports_every_crate_a_lockfile_holds_twice() {
 // an uncaught error reports on stderr in mini's words and fails the process
 #[test]
 fn an_uncaught_error_reports_in_the_runtime_words() {
-    let program = script("missing.mini", "versions = {'syn': ['1.0.109']}\nprint(versions['hashbrown'])\n");
+    let program = script("missing.mini", "versions = {syn = [\"1.0.109\"]}\nprint(versions[\"hashbrown\"])\n");
     let out = native(&program, b"");
     assert_eq!(text(&out.stdout), "");
-    assert_eq!(text(&out.stderr).lines().next(), Some("error: KeyError: 'hashbrown'"));
+    assert_eq!(text(&out.stderr).lines().next(), Some("error: KeyError: \"hashbrown\""));
     assert_eq!(out.status.code(), Some(1));
 }
 
 // an exit ends the process with its status after what the program printed
 #[test]
 fn an_exit_ends_with_its_status() {
-    let program = script("exit.mini", "print('2 crates held twice')\nexit(3)\n");
+    let program = script("exit.mini", "print(\"2 crates held twice\")\nexit(3)\n");
     let out = native(&program, b"");
     assert_eq!(text(&out.stdout), "2 crates held twice\n");
     assert_eq!(text(&out.stderr), "");
@@ -110,7 +110,7 @@ fn an_exit_ends_with_its_status() {
 // a program that does not compile reports where and never runs
 #[test]
 fn a_program_that_does_not_compile_never_runs() {
-    let program = script("broken.mini", "print('read')\nheld = (1,\n");
+    let program = script("broken.mini", "print(\"read\")\nheld = (1,\n");
     let out = native(&program, b"");
     assert_eq!(text(&out.stdout), "");
     assert!(text(&out.stderr).starts_with("error: "), "{}", text(&out.stderr));
@@ -128,7 +128,7 @@ fn a_path_that_is_no_utf8_fails_cleanly() {
     assert_eq!(missing.status.code(), Some(1), "{}", text(&missing.stderr));
     assert!(text(&missing.stderr).starts_with("error: cannot read '"), "{}", text(&missing.stderr));
     // a file system that names files in bytes holds the file so it runs
-    if std::fs::write(&path, "print('read')\n").is_ok() {
+    if std::fs::write(&path, "print(\"read\")\n").is_ok() {
         let read = native(&path, b"");
         assert_eq!((read.status.code(), text(&read.stdout)), (Some(0), "read\n".to_string()), "{}", text(&read.stderr));
     }
@@ -137,8 +137,8 @@ fn a_path_that_is_no_utf8_fails_cleanly() {
 // a script imports a module from its own directory as the walk resolves it
 #[test]
 fn a_script_imports_a_module_beside_it() {
-    script("lockfile.mini", "// the value of key a lockfile line holds or nil for another line\nfn value(line, key):\n    head = key + ' = \"'\n    if line.startswith(head) && line.endswith('\"'):\n        return line[len(head):-1]\n    return nil\n");
-    let program = script("packages.mini", "from .lockfile import value\nheld = 0\nwhile true:\n    try:\n        line = input()\n    except EOFError:\n        break\n    if value(line, 'name') != nil:\n        held += 1\nprint(f'{held} packages')\n");
+    script("lockfile.mini", "// the value of key a lockfile line holds or nil for another line\nfn value(line, key) {\n    head = key + \" = \\\"\"\n    if line.startswith(head) and line.endswith(\"\\\"\") {\n        return line[len(head):-1]\n    }\n    return nil\n}\n");
+    let program = script("packages.mini", "use .lockfile as lockfile\nvalue = lockfile.value\nheld = 0\nwhile true {\n    try {\n        line = input()\n    } catch ValueError {\n        break\n    }\n    if value(line, \"name\") != nil {\n        held += 1\n    }\n}\nprint(\"{held} packages\")\n");
     let input = std::fs::read_to_string(here("../..").join("Cargo.lock")).expect("the repository holds its lockfile");
     let out = native(&program, input.as_bytes());
     assert_eq!(text(&out.stderr), "");
@@ -149,7 +149,7 @@ fn a_script_imports_a_module_beside_it() {
 // a module its directory lacks stops the script before any line runs
 #[test]
 fn a_missing_module_stops_the_script_before_it_runs() {
-    let program = script("absent.mini", "print('ran')\nfrom .nowhere import value\n");
+    let program = script("absent.mini", "print(\"ran\")\nuse .nowhere as nowhere\nvalue = nowhere.value\n");
     let out = native(&program, b"");
     assert_eq!(text(&out.stdout), "");
     assert!(text(&out.stderr).starts_with("error: ") && text(&out.stderr).contains("nowhere.mini"), "{}", text(&out.stderr));

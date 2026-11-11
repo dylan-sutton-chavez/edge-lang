@@ -1,6 +1,6 @@
 - native: range
   args: [3]
-  prints: "range(0, 3)"
+  prints: "0..3"
 
 - native: all
   args: [[1, 0]]
@@ -32,27 +32,27 @@
 
 - native: all
   args: [[1, 2, 3]]
-  prints: "True"
+  prints: "true"
 
 - native: all
   args: [[1, 0, 3]]
-  prints: "False"
+  prints: "false"
 
 - native: all
   args: [[]]
-  prints: "True"
+  prints: "true"
 
 - native: any
   args: [[0, 0, 1]]
-  prints: "True"
+  prints: "true"
 
 - native: any
   args: [[0, 0, 0]]
-  prints: "False"
+  prints: "false"
 
 - native: any
   args: [[]]
-  prints: "False"
+  prints: "false"
 
 - native: sum
   args: [[]]
@@ -72,19 +72,19 @@
 
 - native: all
   args: [[true, true, true]]
-  prints: "True"
+  prints: "true"
 
 - native: all
   args: [[true, false, true]]
-  prints: "False"
+  prints: "false"
 
 - native: any
   args: [[false, false, true]]
-  prints: "True"
+  prints: "true"
 
 - native: any
   args: [[false, false, false]]
-  prints: "False"
+  prints: "false"
 
 - native: sum
   args: [[0.1, 0.2, 0.3]]

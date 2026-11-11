@@ -38,16 +38,19 @@ Its code goes in two files. `main.mini` imports `slug.mini` with a relative impo
 
 ```mini slug.mini
 // a title in lowercase with its words joined by dashes
-fn slug(title):
-    words = [w for w in title.lower().split(' ') if w]
-    return '-'.join(words)
+fn slug(title) {
+    words = [w for w in title.lower().split(" ") if w]
+    return "-".join(words)
+}
 ```
 
 ```mini main.mini
-from .slug import slug
+use .slug as slug
+slug = slug.slug
 
-for title in ['Edge in five minutes', 'Your  runtime and its CLI']:
+for title in ["Edge in five minutes", "Your  runtime and its CLI"] {
     print(slug(title))
+}
 ```
 
 ```text
@@ -56,13 +59,17 @@ edge-in-five-minutes
 your-runtime-and-its-cli
 ```
 
-A test imports the same function. An `assert` that fails fails its file, and `edge test` exits with 1.
+A test imports the same function. An error that escapes fails its file, and `edge test` exits with 1.
 
 ```mini slug_test.mini
-from .slug import slug
+use .slug as slug
+slug = slug.slug
 
-assert slug('Edge in five minutes') == 'edge-in-five-minutes'
-assert slug('  spaces  ') == 'spaces'
+for title, want in [("Edge in five minutes", "edge-in-five-minutes"), ("  spaces  ", "spaces")] {
+    if slug(title) != want {
+        throw CheckError(title)
+    }
+}
 ```
 
 ```text
@@ -93,7 +100,7 @@ wrote edge.lock
 ```
 
 ```mini main.mini
-import util
+use util
 
 print(util.greet())
 ```
@@ -139,12 +146,13 @@ A package lists what it needs in its own `edge.json`, and can only pass on what 
 ```
 
 ```edge
-import net
+use net
 
-try:
-    net.request('GET', 'https://other.example/')
-except PermissionError as e:
+try {
+    net.request("GET", "https://other.example/")
+} catch PermissionError as e {
     print(e)
+}
 ```
 
 ```output

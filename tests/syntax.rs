@@ -4,9 +4,9 @@ mod test {
     use edge::code::{Parser, SSAChunk};
     use edge::lexer::{index, lex_as, operators, Binding, Blocks, Comments, Cond, Continuation, Ends, Interp, Keywords, Lambda, Literal, Numbers, Quote, Shapes, Spelling, Strings, Suffix, Syntax, TokenType, Zeros, RAW};
     use edge::deps::NoopResolver;
-    use mini::{Mini, MINI};
-    use spell::{Braces, BRACES};
-    use spell::{Indent, Words, INDENT, WORDS};
+    // the kit's tests read the fixed core in the words mini once had
+    use crate::words::{Legacy as Mini, LEGACY as MINI};
+    use crate::words::{Braces, Indent, Words, BRACES, INDENT, WORDS};
 
     // the chunk a source compiles to unfolded and every message its lexer and parser report
     fn compiled<S: Spelling>(src: &str) -> (SSAChunk, Vec<String>) {
@@ -197,7 +197,7 @@ mod test {
     impl Spelling for Digits {
         const SYNTAX: Syntax = Syntax {
             name: "digits",
-            strings: Strings { quotes: DOUBLE, ..mini::STRINGS },
+            strings: Strings { quotes: DOUBLE, ..crate::words::STRINGS },
             numbers: Numbers { radixes: &[(b'x', 16)], separator: Some(b'\''), zeros: Zeros::Octal, leading_dot: false, trailing_dot: false, exponent: false, suffix: Suffix::Ignored },
             ..BRACES
         };
@@ -210,7 +210,7 @@ mod test {
     impl Spelling for Backquote {
         const SYNTAX: Syntax = Syntax {
             name: "backquote",
-            strings: Strings { quotes: BACKQUOTES, prefixes: &[("r", RAW)], ..mini::STRINGS },
+            strings: Strings { quotes: BACKQUOTES, prefixes: &[("r", RAW)], ..crate::words::STRINGS },
             interp: Some(Interp { name: "template", quotes: b"`", open: "${", close: b'}', literal: Literal::Backslash, short: None, spec: None, convert: None, echo: None }),
             ..BRACES
         };
@@ -222,7 +222,7 @@ mod test {
     impl Spelling for Paren {
         const SYNTAX: Syntax = Syntax {
             name: "paren",
-            strings: Strings { quotes: DOUBLE, prefixes: &[], ..mini::STRINGS },
+            strings: Strings { quotes: DOUBLE, prefixes: &[], ..crate::words::STRINGS },
             interp: Some(Interp { name: "string", quotes: b"\"", open: "\\(", close: b')', literal: Literal::Backslash, short: None, spec: None, convert: None, echo: None }),
             ..BRACES
         };
@@ -234,7 +234,7 @@ mod test {
     impl Spelling for Dollar {
         const SYNTAX: Syntax = Syntax {
             name: "dollar",
-            strings: Strings { quotes: DOUBLE, prefixes: &[], ..mini::STRINGS },
+            strings: Strings { quotes: DOUBLE, prefixes: &[], ..crate::words::STRINGS },
             interp: Some(Interp { name: "string template", quotes: b"\"", open: "${", close: b'}', literal: Literal::Backslash, short: Some(b'$'), spec: None, convert: None, echo: None }),
             ..BRACES
         };
@@ -267,7 +267,7 @@ mod test {
             blocks: Blocks::Indent,
             comments: Comments { line: &["#"], block: None, nested: false },
             interp: None,
-            strings: Strings { prefixes: &[], ..mini::STRINGS },
+            strings: Strings { prefixes: &[], ..crate::words::STRINGS },
             continuation: Continuation { join: None, operator: true },
             soft: &[],
             ..BRACES
@@ -286,7 +286,7 @@ mod test {
         let (mut theirs, ours) = (compiled::<S>(src), compiled::<Mini>(mini));
         assert!(theirs.1.is_empty() && ours.1.is_empty(), "{src:?} reports {:?} and {mini:?} reports {:?}", theirs.1, ours.1);
         unpinned(&mut theirs.0);
-        if let Err(e) = spell::check::same_program(&ours, &theirs) { panic!("{} {src:?} against {mini:?}: {e}", S::SYNTAX.name); }
+        if let Err(e) = crate::common::same_program(&ours, &theirs) { panic!("{} {src:?} against {mini:?}: {e}", S::SYNTAX.name); }
     }
 
     // a range mark calls its native pinned where mini calls it by its name
@@ -445,7 +445,7 @@ mod test {
         assert_eq!(refused(Syntax { blocks: Blocks::Braces, ..WORDS }), "a braces table bounds blocks with braces");
         assert_eq!(refused(Syntax { soft: &[TokenType::Match], ..WORDS }), "a table that opens blocks at line ends reserves its header words");
         assert_eq!(refused(Syntax { words: &[("if", TokenType::If), ("if", TokenType::While)], ..INDENT }), "two tokens of a table share one text");
-        assert_eq!(refused(Syntax { strings: Strings { quotes: &[Quote { byte: b'~', multiline: false, triple: false }], ..mini::STRINGS }, ..BRACES }), "a quote of a table is also a symbol");
+        assert_eq!(refused(Syntax { strings: Strings { quotes: &[Quote { byte: b'~', multiline: false, triple: false }], ..crate::words::STRINGS }, ..BRACES }), "a quote of a table is also a symbol");
         assert_eq!(refused(Syntax { numbers: Numbers { separator: Some(b'"'), ..mini::NUMBERS }, ..BRACES }), "a digit separator of a table is also a quote");
         assert_eq!(refused(Syntax { comments: Comments { line: &["rem"], block: None, nested: false }, ..BRACES }), "a comment marker starts with a byte no name number or quote starts");
         assert_eq!(refused(Syntax { interp: Some(Interp { open: "{{{", ..mini::INTERP }), ..BRACES }), "a field opens with one or two bytes");
@@ -682,7 +682,7 @@ mod test {
     impl Spelling for Section {
         const SYNTAX: Syntax = Syntax {
             name: "section",
-            strings: Strings { quotes: DOUBLE, prefixes: &[], ..mini::STRINGS },
+            strings: Strings { quotes: DOUBLE, prefixes: &[], ..crate::words::STRINGS },
             interp: Some(Interp { name: "template", quotes: b"\"", open: "§", close: b'}', literal: Literal::Backslash, short: None, spec: Some(b':'), convert: None, echo: None }),
             ..BRACES
         };
@@ -814,7 +814,7 @@ mod runner {
     use edge::deps::NoopResolver;
     use edge::lexer::{lex_as, Spelling};
     use mini::Mini;
-    use spell::{Indent, Spell, Words};
+    use crate::words::{Indent, Words};
 
     // the files the runner reads while the pieces have a test of their own
     pub const FILES: &[(&str, &str)] = &[
@@ -912,14 +912,7 @@ mod runner {
 
     /* the first way a case's sources part from what it holds */
     fn mismatch(case: &Case) -> Option<String> {
-        let indent = match (&case.indent, &case.mini) {
-            (Some(text), _) => Some(text.clone()),
-            (None, Some(mini)) => match spell::respell(Spell::Mini, Spell::Indent, mini) {
-                Ok(text) => Some(text),
-                Err(e) => return Some(format!("spell makes no indent text of it, {}", e.why)),
-            },
-            (None, None) => None,
-        };
+        let indent = case.indent.clone();
         let sources: Vec<(&str, &str)> = [("mini", case.mini.as_deref()), ("indent", indent.as_deref()), ("words", case.words.as_deref())]
             .into_iter().filter_map(|(name, src)| src.map(|s| (name, s))).collect();
         if !sources.iter().any(|(n, _)| *n != "words") { return Some("a case holds a mini or an indent text".into()); }
@@ -944,7 +937,7 @@ mod runner {
                 _ => {}
             }
             match &first {
-                Some((other, chunk)) => if let Err(why) = spell::check::same_program(chunk, &got) { return Some(format!("{name} compiles to another program than {other}, {why}")); },
+                Some((other, chunk)) => if let Err(why) = crate::common::same_program(chunk, &got) { return Some(format!("{name} compiles to another program than {other}, {why}")); },
                 None => first = Some((name, got)),
             }
         }
@@ -979,7 +972,7 @@ mod runner {
 #[cfg(test)]
 mod lexer {
     use edge::lexer::{lex_as, TokenType};
-    use spell::Indent;
+    use crate::words::Indent;
 
     // every token case lexes to its tokens in each spelling it holds
     #[test]
@@ -1023,7 +1016,7 @@ mod parser {
     use edge::code::{Parser, Diagnostic};
     use edge::lexer::{lex_as, LexError, Token};
     use edge::deps::NoopResolver;
-    use spell::Indent;
+    use crate::words::Indent;
 
     // these tests keep the indent table they were written in
     fn lex(src: &str) -> (Vec<Token>, Vec<LexError>) { lex_as::<Indent>(src) }
@@ -1143,7 +1136,7 @@ mod parser {
     fn many_lambdas_compile_in_linear_time() {
         let src: String = (0..30_000).map(|i| format!("f{i} = lambda x: x + {i}\n")).collect();
         let start = std::time::Instant::now();
-        let (chunk, errors) = crate::common::compile(&src);
+        let (chunk, errors) = crate::words::legacy(&src);
         let spent = start.elapsed();
         assert!(errors.is_empty() && chunk.functions.len() == 30_000, "{:?}", errors.first().map(|e| &e.msg));
         assert!(spent < std::time::Duration::from_secs(2), "{spent:?}");
@@ -1152,7 +1145,7 @@ mod parser {
     // an attribute name stays in its body whatever other operand matches its slot
     #[test]
     fn attribute_names_stay_in_their_body() {
-        let (chunk, errors) = crate::common::compile("f = lambda o: o.foo(1)\nfn outer(o):\n    fn inner(p):\n        return p.bar(2)\n    return inner(o)\nclass P:\n    fn m(self):\n        return self.baz(3)\n");
+        let (chunk, errors) = crate::words::legacy("f = lambda o: o.foo(1)\nfn outer(o):\n    fn inner(p):\n        return p.bar(2)\n    return inner(o)\nclass P:\n    fn m(self):\n        return self.baz(3)\n");
         assert!(errors.is_empty(), "{:?}", errors.first().map(|e| &e.msg));
         let outer = &chunk.functions.iter().find(|f| f.1.qualname == "outer").expect("outer").1;
         let class = chunk.classes.first().expect("P");
@@ -1171,7 +1164,7 @@ mod parser {
             src + "else:\n    print('last')\n"
         };
         let small = |src: String| std::thread::Builder::new().stack_size(1 << 20).spawn(move || {
-            let (chunk, errors) = crate::common::compile(&src);
+            let (chunk, errors) = crate::words::legacy(&src);
             if !errors.is_empty() { return errors.into_iter().map(|e| e.msg).collect(); }
             let mut vm = crate::common::boot(&chunk, edge::value::Limits::sandbox());
             vm.run().expect("the chain runs");
@@ -1185,9 +1178,9 @@ mod parser {
     // a compile keeps what the lexer reported beside what the parser did
     #[test]
     fn a_compile_keeps_the_lexers_reports() {
-        let (_, errors) = crate::common::compile("x = 'abc\nprint(x)\n");
+        let (_, errors) = crate::words::legacy("x = 'abc\nprint(x)\n");
         assert_eq!(errors.first().map(|e| e.msg.as_str()), Some("unterminated string literal"));
-        let (_, errors) = crate::common::compile("x = 0x\n");
+        let (_, errors) = crate::words::legacy("x = 0x\n");
         assert_eq!(errors.first().map(|e| e.msg.as_str()), Some("missing digits in numeric literal"));
     }
 }

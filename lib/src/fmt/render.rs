@@ -49,12 +49,15 @@ pub trait Style {
     const BYTES: &'static str = "b";
     // what a mutable buffer's repr puts around its bytes repr
     const BUFFER: (&'static str, &'static str) = ("", "");
-    const EMPTY_SET: &'static str = "{}";
+    // empty shows an empty set as its kind name and a bare call, apart from a map
+    const EMPTY_SET: &'static str = "";
     // the close of a tuple of one item
     const ONE: &'static str = ",)";
     const FLOATS: Floats = Floats { nan: "NaN", inf: "inf", neg_inf: "-inf", low: -4, high: 16, plus: false, width: 1, point: true };
     // what the open bracket of a container holding itself shows past it
     const AGAIN: &'static str = "..";
+    // what a map shows between each key and its value
+    const PAIR: &'static str = ": ";
 
     /* a type object named `name` */
     fn type_form(out: &mut String, name: &str) { out.push_str(name); }
@@ -119,6 +122,9 @@ pub trait Style {
 
     /* whether class `name` shows two or three args as a numbered system error */
     fn numbered(_name: &str) -> bool { false }
+
+    /* whether map key `key` shows bare as the runtime's record literal writes it */
+    fn bare_key(_key: &str) -> bool { false }
 }
 
 /* the pieces of `parts` one after another */
@@ -508,13 +514,13 @@ fn walk<L: Lang>(cx: &mut Cx<'_, '_>, out: &mut String, v: Val) {
             seen.pop();
             continue;
         }
-        if i > 0 { out.push_str(if shape == Shape::Dict && i % 2 == 1 { ": " } else { ", " }); }
+        if i > 0 { out.push_str(if shape == Shape::Dict && i % 2 == 1 { L::PAIR } else { ", " }); }
         let x = level.items[i];
         level.at += 1;
         // a slice off the heap still shows its bounds through the walk
         if !x.is_heap() && cx.heap().slice_of(x).is_none() { push_scalar::<L>(cx, out, x); continue; }
         let mark = match cx.heap().try_get(x) {
-            Some(HeapObj::Str(s)) => { push_repr_str::<L>(out, s); continue; }
+            Some(HeapObj::Str(s)) => { key_or_repr::<L>(out, s, shape == Shape::Dict && i % 2 == 0); continue; }
             Some(HeapObj::List(_)) => ("[", "]"),
             Some(HeapObj::Tuple(_)) => ("(", ")"),
             Some(HeapObj::Dict(_) | HeapObj::Set(_)) => ("{", "}"),
@@ -524,6 +530,16 @@ fn walk<L: Lang>(cx: &mut Cx<'_, '_>, out: &mut String, v: Val) {
         else if seen.len() > DEPTH { out.push_str(L::AGAIN); }
         else if !flat::<L>(cx, out, x) { open::<L>(cx, out, &mut levels, &mut seen, x); }
     }
+}
+
+/* text `s` bare when it is a map key the style shows bare else its repr */
+fn key_or_repr<L: Lang>(out: &mut String, s: &str, key: bool) {
+    if key && L::bare_key(s) { out.push_str(s); } else { push_repr_str::<L>(out, s); }
+}
+
+/* an empty set as the runtime spells it or its kind's name then a bare call */
+fn empty_set<L: Lang>(cx: &Cx<'_, '_>, out: &mut String) {
+    if L::EMPTY_SET.is_empty() { push(out, &[cx.names().kind(edge::lang::KindId::Set), "()"]); } else { out.push_str(L::EMPTY_SET); }
 }
 
 /* opens container `o` on `out` with an empty set written whole */
@@ -536,7 +552,7 @@ fn open<L: Lang>(cx: &Cx<'_, '_>, out: &mut String, levels: &mut Vec<Level>, see
         _ => return,
     };
     let start = out.len();
-    if shape == Shape::Set && items.is_empty() { return out.push_str(L::EMPTY_SET); }
+    if shape == Shape::Set && items.is_empty() { return empty_set::<L>(cx, out); }
     out.push_str(match shape { Shape::List => "[", Shape::Tuple => "(", Shape::Set | Shape::Dict => "{" });
     seen.push(o.as_heap());
     levels.push(Level { items, at: 0, shape, start });
@@ -645,7 +661,7 @@ fn push_text<L: Lang>(cx: &mut Cx<'_, '_>, out: &mut String, v: Val, seen: &mut 
         }
         HeapObj::Set(st) => {
             let items: Vec<Val> = st.borrow().iter().copied().collect();
-            if items.is_empty() { return out.push_str(L::EMPTY_SET); }
+            if items.is_empty() { return empty_set::<L>(cx, out); }
             let start = out.len();
             out.push('{');
             if seen.contains(&v.as_heap()) { out.push_str(L::AGAIN); } else { seen.push(v.as_heap()); reprs::<L>(cx, out, start, seen, |_, i| items.get(i).copied()); seen.pop(); }
@@ -708,8 +724,8 @@ fn dict_text<L: Lang>(cx: &mut Cx<'_, '_>, out: &mut String, v: Val, pairs: &[(V
             if out.len() - start > BREADTH { out.push_str(", "); out.push_str(L::AGAIN); break; }
             out.push_str(", ");
         }
-        push_repr::<L>(cx, out, k, seen);
-        out.push_str(": ");
+        match cx.text(k) { Some(t) => key_or_repr::<L>(out, t, true), None => push_repr::<L>(cx, out, k, seen) }
+        out.push_str(L::PAIR);
         push_repr::<L>(cx, out, x, seen);
     }
     out.push('}');
