@@ -2,6 +2,9 @@ const ROOT = new URL("../../", import.meta.url);
 // as many records as the pinned hour holds each the size of a small event
 const RECORDS = 85569;
 
+// the bytes the hour holds once inflated which a reader to the end counts
+let INFLATED = 0;
+
 /* an hour of records made here so the suite downloads nothing and writes nowhere */
 async function hour() {
     const lines = [];
@@ -11,32 +14,33 @@ async function hour() {
         const pad = [...noise].map((b) => b.toString(16).padStart(2, "0")).join("");
         lines.push(`{"type":"PushEvent","id":${n},"pad":"${pad}"}\n`);
     }
+    INFLATED = new TextEncoder().encode(lines.join("")).length;
     const gz = new Blob([lines.join("")]).stream().pipeThrough(new CompressionStream("gzip"));
     return new Uint8Array(await new Response(gz).arrayBuffer());
 }
 
-/* refuses a runtime older than its sources so no test reads a stale one */
-async function fresh(runtime) {
-    const built = (await Deno.stat(new URL(`target/wasm32-unknown-unknown/release/${runtime}.wasm`, ROOT))).mtime;
-    const dirs = ["src", "lib/src", `examples/${runtime === "edge" ? "mini" : runtime}/src`].map((dir) => new URL(`${dir}/`, ROOT));
+/* refuses an edge.wasm older than its sources so no test reads a stale one */
+async function fresh() {
+    const built = (await Deno.stat(new URL("target/wasm32-unknown-unknown/release/edge.wasm", ROOT))).mtime;
+    const dirs = ["src", "lib/src", "examples/lox/src"].map((dir) => new URL(`${dir}/`, ROOT));
     while (dirs.length > 0) {
         const dir = dirs.pop();
         for await (const entry of Deno.readDir(dir)) {
             const at = new URL(entry.isDirectory ? `${entry.name}/` : entry.name, dir);
             if (entry.isDirectory) dirs.push(at);
-            else if ((await Deno.stat(at)).mtime > built) throw new Error(`${runtime}.wasm is older than ${at.pathname}, run make wasm wasm-tiny`);
+            else if ((await Deno.stat(at)).mtime > built) throw new Error(`edge.wasm is older than ${at.pathname}, run make wasm`);
         }
     }
 }
 
 // a fresh engine per test with net wired and nothing bounding it
-async function boot(name, runtime, ops = 0) {
-    await fresh(runtime);
+async function boot(name, ops = 0) {
+    await fresh();
     const at = (path) => new URL(`${path}?stop=${name}`, import.meta.url).href;
     const engine = await import(at("../src/worker/engine.ts"));
     const { default: net } = await import(at("../../examples/net/net.ts"));
     engine.wire(net);
-    const wasmUrl = new URL(`target/wasm32-unknown-unknown/release/${runtime}.wasm`, ROOT).href;
+    const wasmUrl = new URL("target/wasm32-unknown-unknown/release/edge.wasm", ROOT).href;
     await engine.load({ wasmUrl, limits: ops ? { ops } : null });
     return engine;
 }
@@ -65,49 +69,49 @@ async function serve() {
 /* whether the fixture saw its body cancelled within a few seconds of the run */
 const cancelled = (seen) => Promise.race([seen.cancelled, new Promise((resolve) => setTimeout(() => resolve(false), 5000))]);
 
-// mini reads the body until it has enough lines or the hour ends
-const reader = (url, enough) => `use net
+// reads the body until it has enough bytes or the hour ends with `work` steps a chunk
+const reader = (url, enough, work = 0) => `var net = import("net");
 
-r = net.request("GET", "${url}", nil, nil, "gzip")
-net.response(r)
-lines = 0
-chunk = net.read(r)
-while chunk != nil and lines < ${enough} {
-    lines += chunk.count(b"\\n")
-    chunk = net.read(r)
+var r = net.request("GET", "${url}", nil, nil, "gzip");
+net.response(r);
+var total = 0;
+var chunk = net.read(r);
+while (chunk != nil and total < ${enough}) {
+    total = total + len(chunk);
+    for (var i = 0; i < ${work}; i = i + 1) {}
+    chunk = net.read(r);
 }
-net.close(r)
-print(lines)
+net.close(r);
+print total;
 `;
 
-Deno.test("stop: a flow past its budget aborts its request before the hour ends", async () => {
+Deno.test("stop: a program past its budget aborts its request before the hour ends", async () => {
     const { server, seen, url } = await serve();
-    const engine = await boot("budget", "tiny", 2000000);
-    const { out } = await engine.run({ src: `from: ${url}\ntotal:\n  count:\n` });
+    const engine = await boot("budget", 2000000);
+    const { out } = await engine.run({ src: reader(url, INFLATED + 1, 200000) });
     const stopped = await cancelled(seen);
     await server.shutdown();
-    // tiny words a spent budget in its own classes
-    if (!out.includes("OutOfBudget, the run spent its budget of steps")) throw new Error(`unexpected ${JSON.stringify(out)}`);
+    if (!out.startsWith("budget exceeded\n[line ")) throw new Error(`unexpected ${JSON.stringify(out)}`);
     if (!stopped || seen.pulled >= seen.size / 2) throw new Error(`the host took ${seen.pulled} of ${seen.size} bytes, cancelled ${stopped}`);
 });
 
 Deno.test("stop: a program that closes its request early reads only the start of the hour", async () => {
     const { server, seen, url } = await serve();
-    const engine = await boot("close", "edge");
+    const engine = await boot("close");
     const lines = [];
-    const { out } = await engine.run({ src: reader(url, 1000) }, (t) => lines.push(t));
+    const { out } = await engine.run({ src: reader(url, 100000) }, (t) => lines.push(t));
     const stopped = await cancelled(seen);
     await server.shutdown();
-    if (out !== "" || Number(lines.join("")) < 1000) throw new Error(`unexpected ${JSON.stringify([out, lines])}`);
+    if (out !== "" || Number(lines.join("")) < 100000) throw new Error(`unexpected ${JSON.stringify([out, lines])}`);
     if (!stopped || seen.pulled >= seen.size / 2) throw new Error(`the host took ${seen.pulled} of ${seen.size} bytes, cancelled ${stopped}`);
 });
 
 Deno.test("stop: a program that reads to the end takes the whole hour", async () => {
     const { server, seen, url } = await serve();
-    const engine = await boot("whole", "edge");
+    const engine = await boot("whole");
     const lines = [];
-    const { out } = await engine.run({ src: reader(url, RECORDS + 1) }, (t) => lines.push(t));
+    const { out } = await engine.run({ src: reader(url, INFLATED + 1) }, (t) => lines.push(t));
     await server.shutdown();
-    if (out !== "" || lines.join("").trim() !== String(RECORDS)) throw new Error(`unexpected ${JSON.stringify([out, lines])}`);
+    if (out !== "" || lines.join("").trim() !== String(INFLATED)) throw new Error(`unexpected ${JSON.stringify([out, lines])}`);
     if (seen.pulled !== seen.size) throw new Error(`the host took ${seen.pulled} of ${seen.size} bytes`);
 });

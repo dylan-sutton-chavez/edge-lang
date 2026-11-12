@@ -1,11 +1,11 @@
-- mini: |-
+- rig: |-
     use os
   names: []
   constants: []
   instructions: [[ReturnValue, 0]]
   errors: ["module 'os' not found (no resolver configured)"]
 
-- mini: |-
+- rig: |-
     use os
     path = os.path
   names: []
@@ -13,7 +13,7 @@
   instructions: [[ReturnValue, 0]]
   errors: ["module 'os' not found (no resolver configured)"]
 
-- mini: |-
+- rig: |-
     use os
     path = os.path
     getcwd = os.getcwd
@@ -22,7 +22,7 @@
   instructions: [[ReturnValue, 0]]
   errors: ["module 'os' not found (no resolver configured)"]
 
-- mini: |-
+- rig: |-
     use os
     use sys
   names: []
@@ -30,14 +30,14 @@
   instructions: [[ReturnValue, 0]]
   errors: ["module 'os' not found (no resolver configured)"]
 
-- mini: |-
+- rig: |-
     use numpy as np
   names: []
   constants: []
   instructions: [[ReturnValue, 0]]
   errors: ["module 'numpy' not found (no resolver configured)"]
 
-- mini: |-
+- rig: |-
     use os
     p = os.path
   names: []
@@ -45,35 +45,35 @@
   instructions: [[ReturnValue, 0]]
   errors: ["module 'os' not found (no resolver configured)"]
 
-- mini: |-
+- rig: |-
     yield 1
   names: []
   constants: []
   instructions: [[ReturnValue, 0]]
   errors: ["'yield' outside function"]
 
-- mini: |-
+- rig: |-
     yield
   names: []
   constants: []
   instructions: [[ReturnValue, 0]]
   errors: ["'yield' outside function"]
 
-- mini: |-
+- rig: |-
     break
   names: []
   constants: []
   instructions: [[ReturnValue, 0]]
   errors: ["'break' outside loop"]
 
-- mini: |-
+- rig: |-
     continue
   names: []
   constants: []
   instructions: [[ReturnValue, 0]]
   errors: ["'continue' outside loop"]
 
-- mini: |-
+- rig: |-
     break
     x = 1
   names: []
@@ -81,18 +81,18 @@
   instructions: [[ReturnValue, 0]]
   errors: ["'break' outside loop"]
 
-- mini: |-
+- rig: |-
     *a = [1]
   names: []
   constants: []
   instructions: [[ReturnValue, 0]]
   errors: ["starred assignment target must be in a list or tuple"]
 
-- mini: |-
+- rig: |-
     use asyncio
   error: "asyncio"
 
-- mini: |-
+- rig: |-
     fn f(bad) {
         if bad {
             throw ValueError("x")
@@ -103,16 +103,16 @@
     }
   error: "module 'nomod' not found"
 
-- mini: |-
+- rig: |-
     f = |*a| len(a)
     print(f(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1))
   error: "too many arguments in call"
 
-- mini: |-
+- rig: |-
     x = 1
     yield x
   error: "'yield' outside function"
 
-- mini: |-
+- rig: |-
     return 1
   error: "'return' outside function"

@@ -15,5 +15,5 @@ expect: []
 # the op budget is the largest a group takes so only the clock can end the spin
 post:
   - path: "/eval/runners"
-    body: "while true {\n}"
+    body: "while (true) {\n}"
     expect: "time limit"

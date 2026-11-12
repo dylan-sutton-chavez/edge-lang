@@ -1,18 +1,25 @@
-# A group memory ceiling below the sandbox profile reaches the interpreter, allocation past it raises MemoryError.
+# A group memory ceiling below the sandbox profile reaches the interpreter so only the free group finishes.
 groups:
   capped:
     replicas: 1
     limits:
       memory: 1
-    seed: ["go"]
-    code: |
-      receive()
-      try {
-          xs = [text(i) for i in range(50000)]
-          print("unbounded")
-      } catch MemoryError {
-          print("capped")
+    seed: ["capped"]
+    code: &build |
+      var name = receive();
+      class Node {
+          init(v, next) {
+              this.v = v;
+              this.next = next;
+          }
       }
+      var head = nil;
+      for (var i = 0; i < 50000; i = i + 1) head = Node(text(i), head);
+      print name + " built";
+  free:
+    replicas: 1
+    seed: ["free"]
+    code: *build
 
 expect:
-  - "capped"
+  - "free built"

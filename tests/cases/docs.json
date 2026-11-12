@@ -15,13 +15,13 @@
   {
     "name": "a playground pair",
     "files": {
-      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```edge\nprint(1)\n```\n\n```output\n1\n```\n"
+      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```lox\nprint 1;\n```\n\n```output\n1\n```\n"
     }
   },
   {
     "name": "a runnable fence needs no output",
     "files": {
-      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```edge\nprint(1)\n```\n"
+      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```lox\nprint 1;\n```\n"
     }
   },
   {
@@ -142,26 +142,26 @@
     "files": {
       "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```output\n1\n```\n"
     },
-    "error": "follows no edge block"
+    "error": "follows no lox block"
   },
   {
     "name": "an output block separated by prose",
     "files": {
-      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```edge\nprint(1)\n```\n\nProse between.\n\n```output\n1\n```\n"
+      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```lox\nprint 1;\n```\n\nProse between.\n\n```output\n1\n```\n"
     },
-    "error": "follows no edge block"
+    "error": "follows no lox block"
   },
   {
     "name": "an output block after a plain fence",
     "files": {
-      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```text\nprint(1)\n```\n\n```output\n1\n```\n"
+      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```text\nprint 1;\n```\n\n```output\n1\n```\n"
     },
-    "error": "follows no edge block"
+    "error": "follows no lox block"
   },
   {
     "name": "an unterminated fence",
     "files": {
-      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```edge\nprint(1)\n"
+      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```lox\nprint 1;\n"
     },
     "error": "unterminated"
   },
@@ -214,34 +214,34 @@
   {
     "name": "a manifest before a runnable fence",
     "files": {
-      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```edge-manifest\n{ \"permissions\": { \"main\": [\"time:wall\"] } }\n```\n\n```edge\nuse time\n```\n\n```output\n```\n"
+      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```lox-manifest\n{ \"permissions\": { \"main\": [\"time:wall\"] } }\n```\n\n```lox\nimport(\"time\");\n```\n\n```output\n```\n"
     }
   },
   {
     "name": "a manifest before a plain fence",
     "files": {
-      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```edge-manifest\n{}\n```\n\n```text\nprint(1)\n```\n"
+      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```lox-manifest\n{}\n```\n\n```text\nprint 1;\n```\n"
     },
-    "error": "no edge block follows"
+    "error": "no lox block follows"
   },
   {
     "name": "a manifest separated by prose",
     "files": {
-      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```edge-manifest\n{}\n```\n\nProse between.\n\n```edge\nprint(1)\n```\n"
+      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```lox-manifest\n{}\n```\n\nProse between.\n\n```lox\nprint 1;\n```\n"
     },
-    "error": "no edge block follows"
+    "error": "no lox block follows"
   },
   {
     "name": "a manifest that ends the page",
     "files": {
-      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```edge\nprint(1)\n```\n\n```edge-manifest\n{}\n```\n"
+      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```lox\nprint 1;\n```\n\n```lox-manifest\n{}\n```\n"
     },
-    "error": "no edge block follows"
+    "error": "no lox block follows"
   },
   {
     "name": "a manifest that is not an object",
     "files": {
-      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```edge-manifest\n[\"net:api.example.com\"]\n```\n\n```edge\nprint(1)\n```\n"
+      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```lox-manifest\n[\"net:api.example.com\"]\n```\n\n```lox\nprint 1;\n```\n"
     },
     "error": "is not a JSON object"
   },

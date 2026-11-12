@@ -12,7 +12,7 @@ fn old_path_ceilings() {
         if case.get("events").is_some() || case.get("input").is_some() { continue; }
         let src = case["src"].as_str().unwrap();
         let (mut chunk, _) = crate::common::parse(src);
-        edge::code::constant_fold(&mut chunk, mini::FRONT.policy);
+        edge::code::constant_fold(&mut chunk, rig::FRONT.policy);
         let mut vm = crate::common::boot(&chunk, Limits::sandbox());
         let _ = vm.run();
         for (t, n) in total.iter_mut().zip(vm.old_path_counts()) { *t += n; }

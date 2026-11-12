@@ -520,7 +520,7 @@ mod tests {
     }
 
     fn find_entry(scripts: &[PathBuf], project: &Path) -> String {
-        super::find_entry(&mini::DESCRIPTOR, scripts, project)
+        super::find_entry(&lox::DESCRIPTOR, scripts, project)
     }
 
     fn collect_scripts(project: &Path, out_dir: &Path) -> Vec<PathBuf> {
@@ -533,89 +533,89 @@ mod tests {
 
     #[test]
     fn nested_main_is_the_entry_with_its_path() {
-        let scripts = paths(&["./sub/main.mini"]);
-        assert_eq!(find_entry(&scripts, Path::new(".")), "sub/main.mini");
+        let scripts = paths(&["./sub/main.lox"]);
+        assert_eq!(find_entry(&scripts, Path::new(".")), "sub/main.lox");
     }
 
     #[test]
     fn root_main_wins_over_nested_candidates() {
-        let scripts = paths(&["./sub/app.mini", "./main.mini"]);
-        assert_eq!(find_entry(&scripts, Path::new(".")), "main.mini");
+        let scripts = paths(&["./sub/app.lox", "./main.lox"]);
+        assert_eq!(find_entry(&scripts, Path::new(".")), "main.lox");
     }
 
     // on Linux a package folder lists before the root file and once became the entry
     #[test]
     fn root_main_wins_over_a_nested_main_listed_first() {
-        let scripts = paths(&["./pkg/main.mini", "./main.mini"]);
-        assert_eq!(find_entry(&scripts, Path::new(".")), "main.mini");
+        let scripts = paths(&["./pkg/main.lox", "./main.lox"]);
+        assert_eq!(find_entry(&scripts, Path::new(".")), "main.lox");
     }
 
     #[test]
     fn nested_app_is_the_entry_with_its_path() {
-        let scripts = paths(&["./util.mini", "./sub/app.mini"]);
-        assert_eq!(find_entry(&scripts, Path::new(".")), "sub/app.mini");
+        let scripts = paths(&["./util.lox", "./sub/app.lox"]);
+        assert_eq!(find_entry(&scripts, Path::new(".")), "sub/app.lox");
     }
 
     #[test]
     fn without_candidates_the_first_script_is_the_entry() {
-        let scripts = paths(&["./sub/tool.mini"]);
-        assert_eq!(find_entry(&scripts, Path::new(".")), "sub/tool.mini");
+        let scripts = paths(&["./sub/tool.lox"]);
+        assert_eq!(find_entry(&scripts, Path::new(".")), "sub/tool.lox");
     }
 
     #[test]
     fn empty_project_falls_back_to_main() {
-        assert_eq!(find_entry(&[], Path::new(".")), "main.mini");
+        assert_eq!(find_entry(&[], Path::new(".")), "main.lox");
     }
 
     #[test]
     fn walk_skips_the_output_dir_in_any_path_form() {
         let dir = tempfile::tempdir().unwrap();
         let project = dir.path();
-        fs::write(project.join("main.mini"), "").unwrap();
+        fs::write(project.join("main.lox"), "").unwrap();
         fs::create_dir(project.join("dist")).unwrap();
-        fs::write(project.join("dist/stale.mini"), "").unwrap();
+        fs::write(project.join("dist/stale.lox"), "").unwrap();
         // the CLI hands over a bare relative `dist` so a non-normalized form goes in here
         fs::create_dir(project.join("sub")).unwrap();
         let out_dir = project.join("sub/..").join("dist");
         let scripts = collect_scripts(project, &out_dir);
-        assert_eq!(scripts, paths(&[project.join("main.mini").to_str().unwrap()]));
+        assert_eq!(scripts, paths(&[project.join("main.lox").to_str().unwrap()]));
     }
 
     #[test]
     fn a_bundle_carries_the_root_readme_and_licenses() {
         let dir = tempfile::tempdir().unwrap();
         let project = dir.path();
-        fs::write(project.join("main.mini"), "print(1)").unwrap();
+        fs::write(project.join("main.lox"), "print 1;").unwrap();
         fs::write(project.join("README.md"), "# app").unwrap();
         fs::write(project.join("LICENSE"), "bare").unwrap();
         fs::write(project.join("LICENSE.txt"), "Apache").unwrap();
         // a license that is itself a script is carried once by the walk
-        fs::write(project.join("LICENSE.mini"), "pass").unwrap();
+        fs::write(project.join("LICENSE.lox"), "print 0;").unwrap();
         fs::write(project.join("NOTES.md"), "not a notice").unwrap();
         fs::create_dir(project.join("sub")).unwrap();
         fs::write(project.join("sub/README.md"), "nested").unwrap();
         let bundle = collect_bundle(&project.join("edge.json"), true).unwrap();
         let mut paths: Vec<&str> = bundle.files.iter().map(|f| f.path.as_str()).collect();
         paths.sort();
-        assert_eq!(paths, ["LICENSE", "LICENSE.mini", "LICENSE.txt", "README.md", "main.mini"]);
-        assert_eq!(bundle.entry, "main.mini");
+        assert_eq!(paths, ["LICENSE", "LICENSE.lox", "LICENSE.txt", "README.md", "main.lox"]);
+        assert_eq!(bundle.entry, "main.lox");
     }
 
     // a packed dependency rides whole since its imports answer from inside it
     #[test]
     fn a_packed_dependency_drags_nothing_beside_it() {
         let kit = kit();
-        assert!(file_deps(&mut Scan::new(&kit), "https://cdn.test/pkg/app/0.1.0", "app.edge", b"EDGEPKG\x01use .src.test as test").unwrap().is_empty());
+        assert!(file_deps(&mut Scan::new(&kit), "https://cdn.test/pkg/app/0.1.0", "app.edge", b"EDGEPKG\x01import(\"./src/test.lox\");").unwrap().is_empty());
     }
 
     // a vendored source pulls in what the runtime reads as its imports and its manifest
     #[test]
     fn a_vendored_source_pulls_in_its_relative_imports() {
         let kit = kit();
-        let src = b"use .lib.util as util\nuse ..outside as outside\nuse json\n";
-        let deps = file_deps(&mut Scan::new(&kit), "https://cdn.test/pkg/greet/0.1.0", "main.mini", src).unwrap();
-        let outside = "https://cdn.test/pkg/greet/outside.mini".to_string();
-        assert_eq!(deps, [(Ok("lib/util.mini".to_string()), true), (Err(outside), true), (Ok("edge.json".to_string()), false)]);
+        let src = b"var util = import(\"./lib/util.lox\");\nvar outside = import(\"../outside.lox\");\nimport(\"json\");\n";
+        let deps = file_deps(&mut Scan::new(&kit), "https://cdn.test/pkg/greet/0.1.0", "main.lox", src).unwrap();
+        let outside = "https://cdn.test/pkg/greet/outside.lox".to_string();
+        assert_eq!(deps, [(Ok("lib/util.lox".to_string()), true), (Err(outside), true), (Ok("edge.json".to_string()), false)]);
     }
 
     // a relative plugin resolves inside the bundle so the walk must carry it
@@ -624,13 +624,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let project = dir.path();
         fs::create_dir(project.join("src")).unwrap();
-        fs::write(project.join("src/entry.mini"), "use _json").unwrap();
+        fs::write(project.join("src/entry.lox"), "import(\"_json\");").unwrap();
         fs::write(project.join("src/json.wasm"), b"\0asm").unwrap();
         let bundle = collect_bundle(&project.join("edge.json"), false).unwrap();
         let mut paths: Vec<&str> = bundle.files.iter().map(|f| f.path.as_str()).collect();
         paths.sort();
-        assert_eq!(paths, ["src/entry.mini", "src/json.wasm"]);
-        assert_eq!(bundle.entry, "src/entry.mini");
+        assert_eq!(paths, ["src/entry.lox", "src/json.wasm"]);
+        assert_eq!(bundle.entry, "src/entry.lox");
     }
 
     #[test]
@@ -638,16 +638,16 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let project = dir.path();
         fs::create_dir(project.join("pkg")).unwrap();
-        fs::write(project.join("main.mini"), "print(1)").unwrap();
+        fs::write(project.join("main.lox"), "print 1;").unwrap();
         fs::write(project.join("edge.json"), r#"{ "imports": {} }"#).unwrap();
         fs::write(project.join("edge.lock"), "{}").unwrap();
-        fs::write(project.join("pkg/main.mini"), "print(2)").unwrap();
+        fs::write(project.join("pkg/main.lox"), "print 2;").unwrap();
         fs::write(project.join("pkg/edge.json"), r#"{ "imports": {} }"#).unwrap();
         fs::write(project.join("pkg/edge.lock"), "{}").unwrap();
         let bundle = collect_bundle(&project.join("edge.json"), false).unwrap();
         let mut paths: Vec<&str> = bundle.files.iter().map(|f| f.path.as_str()).collect();
         paths.sort();
-        assert_eq!(paths, ["edge.json", "edge.lock", "main.mini", "pkg/edge.json", "pkg/edge.lock", "pkg/main.mini"]);
+        assert_eq!(paths, ["edge.json", "edge.lock", "main.lox", "pkg/edge.json", "pkg/edge.lock", "pkg/main.lox"]);
     }
 
     // a version holds no address so packing one the lock never resolved would pack nothing
@@ -655,7 +655,7 @@ mod tests {
     fn a_version_no_lock_holds_stops_the_build() {
         let dir = tempfile::tempdir().unwrap();
         let project = dir.path();
-        fs::write(project.join("main.mini"), "use json").unwrap();
+        fs::write(project.join("main.lox"), "import(\"json\");").unwrap();
         fs::write(project.join("edge.json"), r#"{ "imports": { "json": "0.1.0" } }"#).unwrap();
         let Err(e) = collect_bundle(&project.join("edge.json"), false) else { panic!("an unlocked version should stop the build") };
         let err = format!("{e:#}");
@@ -668,21 +668,21 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let project = dir.path();
         fs::create_dir(project.join("pkg")).unwrap();
-        fs::write(project.join("main.mini"), "use pkg").unwrap();
-        fs::write(project.join("edge.json"), r#"{ "imports": { "pkg": "./pkg/main.mini" } }"#).unwrap();
-        fs::write(project.join("pkg/main.mini"), "import _slug").unwrap();
+        fs::write(project.join("main.lox"), "import(\"pkg\");").unwrap();
+        fs::write(project.join("edge.json"), r#"{ "imports": { "pkg": "./pkg/main.lox" } }"#).unwrap();
+        fs::write(project.join("pkg/main.lox"), "import(\"_slug\");").unwrap();
         fs::write(project.join("pkg/edge.json"), r#"{ "imports": { "_slug": "./slug.wasm" } }"#).unwrap();
         let bundle = collect_bundle(&project.join("edge.json"), false).unwrap();
         let mut paths: Vec<&str> = bundle.files.iter().map(|f| f.path.as_str()).collect();
         paths.sort();
-        assert_eq!(paths, ["edge.json", "main.mini", "pkg/edge.json", "pkg/main.mini"]);
+        assert_eq!(paths, ["edge.json", "main.lox", "pkg/edge.json", "pkg/main.lox"]);
     }
 
     #[test]
     fn a_declared_docs_tree_rides_along_and_an_app_leaves_it_out() {
         let dir = tempfile::tempdir().unwrap();
         let project = dir.path();
-        fs::write(project.join("main.mini"), "print(1)").unwrap();
+        fs::write(project.join("main.lox"), "print 1;").unwrap();
         fs::write(project.join("edge.json"), r#"{ "docs": "./docs", "imports": {} }"#).unwrap();
         fs::create_dir(project.join("docs")).unwrap();
         fs::write(project.join("docs/01-intro.mdx"), "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n").unwrap();
@@ -691,7 +691,7 @@ mod tests {
         let packed = collect_bundle(&manifest, true).unwrap();
         let mut paths: Vec<&str> = packed.files.iter().map(|f| f.path.as_str()).collect();
         paths.sort();
-        assert_eq!(paths, ["@docs/01-intro.mdx", "edge.json", "main.mini"]);
+        assert_eq!(paths, ["@docs/01-intro.mdx", "edge.json", "main.lox"]);
 
         let app = collect_bundle(&manifest, false).unwrap();
         assert!(app.files.iter().all(|f| !f.path.starts_with(docs::PREFIX)));
@@ -701,7 +701,7 @@ mod tests {
     fn a_docs_tree_off_the_convention_fails_the_build() {
         let dir = tempfile::tempdir().unwrap();
         let project = dir.path();
-        fs::write(project.join("main.mini"), "print(1)").unwrap();
+        fs::write(project.join("main.lox"), "print 1;").unwrap();
         fs::write(project.join("edge.json"), r#"{ "docs": "./docs" }"#).unwrap();
         fs::create_dir(project.join("docs")).unwrap();
         fs::write(project.join("docs/intro.mdx"), "# Intro\n").unwrap();
@@ -715,11 +715,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let project = dir.path();
         fs::create_dir_all(project.join("sub/dist")).unwrap();
-        fs::write(project.join("sub/dist/keep.mini"), "").unwrap();
+        fs::write(project.join("sub/dist/keep.lox"), "").unwrap();
         fs::create_dir(project.join("dist")).unwrap();
         let scripts = collect_scripts(project, &project.join("dist"));
         assert_eq!(scripts.len(), 1);
-        assert!(scripts[0].ends_with("sub/dist/keep.mini"));
+        assert!(scripts[0].ends_with("sub/dist/keep.lox"));
     }
 }
 

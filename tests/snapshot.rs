@@ -50,6 +50,9 @@ mod test {
         // a vm case running on the corpus budget
         #[serde(skip)]
         corpus: bool,
+        // a program in Lox run on its runtime in place of the rig
+        #[serde(default)]
+        lox: bool,
     }
 
     fn accept_send(_group: &str, _body: &str) -> bool {
@@ -62,12 +65,19 @@ mod test {
         blob_len: usize,
     }
 
+    /* `src` compiled by Lox's front and kept for the run */
+    fn lox_static(src: &str) -> &'static SSAChunk {
+        let (chunk, errs) = edge::code::compile(&lox::FRONT, src);
+        assert!(errs.is_empty(), "compile error in {:?}: {:?}", src, errs.iter().map(|e| &e.msg).collect::<Vec<_>>());
+        edge::util::leak(Box::new(chunk))
+    }
+
     fn parse_static(src: &str) -> &'static SSAChunk {
         let (tokens, lex_errs) = lex(src);
         assert!(lex_errs.is_empty(), "lex error in {:?}", src);
         let (mut chunk, errs) = parser(src, tokens.into_iter(), Box::new(NoopResolver)).parse();
         assert!(errs.is_empty(), "parse error in {:?}: {:?}", src, errs.iter().map(|e| &e.msg).collect::<Vec<_>>());
-        edge::code::constant_fold(&mut chunk, mini::FRONT.policy);
+        edge::code::constant_fold(&mut chunk, rig::FRONT.policy);
         edge::util::leak(Box::new(chunk))
     }
 
@@ -83,7 +93,7 @@ mod test {
 
     /* a bare VM to restore into since the state arrives from the blob */
     fn fresh(case: &Case, interval: usize) -> VM<'static> {
-        let mut vm = crate::common::boot(parse_static(&case.src), limits_for(case));
+        let mut vm = if case.lox { VM::with_runtime(&lox::RUNTIME, lox_static(&case.src), limits_for(case)) } else { crate::common::boot(parse_static(&case.src), limits_for(case)) };
         vm.set_preempt_interval(interval);
         if case.sends.is_some() { vm.send_hook = Some(accept_send); }
         vm
@@ -505,7 +515,7 @@ mod test {
         let src = "x = 1\nreceive()\nprint(x)";
         let mut vm = crate::common::boot(parse_static(src), Limits::sandbox());
         assert!(matches!(vm.run(), Err(VmErr::HostYield(SchedulerStatus::PendingEvent))));
-        for entry in ["", "main.mini", "sub/dir/main.mini", "<eval>"] {
+        for entry in ["", "main.rig", "sub/dir/main.rig", "<eval>"] {
             let blob = snapshot::save(&vm, src, entry).expect("save");
             assert_eq!((snapshot::source_of(&blob), snapshot::entry_of(&blob)), (Ok(src), Ok(entry)));
             let mut back = crate::common::boot(parse_static(src), Limits::sandbox());

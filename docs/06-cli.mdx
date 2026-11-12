@@ -5,7 +5,7 @@ description: "The edge commands, a project from its first file to a packed build
 
 # CLI
 
-The `edge` CLI runs mini programs on macOS, Linux and WSL. It embeds `edge.wasm` precompiled for the machine, the same module the JS host loads, so a program answers the same in a page and in a terminal. [Install](./01-overview.mdx#install) builds it from the repo.
+The `edge` CLI runs Lox programs on macOS, Linux and WSL. It embeds `edge.wasm` precompiled for the machine, the same module the JS host loads, so a program answers the same in a page and in a terminal. [Install](./01-overview.mdx#install) builds it from the repo.
 
 ## Commands
 
@@ -13,8 +13,8 @@ The `edge` CLI runs mini programs on macOS, Linux and WSL. It embeds `edge.wasm`
 |---|---|
 | `edge run <file>` | Runs a script, a packed `.edge`, stdin, or `-c <code>`. `--web` runs it in headless Chrome on the JS host |
 | `edge build` | Packs the project into `app.edge`. `--app` writes a standalone binary, `--web` a `dist/` folder for the browser |
-| `edge test [path]` | Runs every `*_test.mini` file in a fresh session. A file passes when it ends cleanly |
-| `edge init [name]` | Creates a project with `main.mini`, `edge.json` and an `index.html`. `--bare` leaves out the page |
+| `edge test [path]` | Runs every `*_test.lox` file in a fresh session. A file passes when it ends cleanly |
+| `edge init [name]` | Creates a project with `main.lox`, `edge.json` and an `index.html`. `--bare` leaves out the page |
 | `edge add <name>=<source>` | Declares an import in `edge.json`, by URL or by path |
 | `edge remove <name>` | Removes an import |
 | `edge lock` | Downloads every URL import once and pins its digest in `edge.lock` |
@@ -34,47 +34,49 @@ created hello/
 $ cd hello
 ```
 
-Its code goes in two files. `main.mini` imports `slug.mini` with a relative import.
+Its code goes in two files. `main.lox` imports `stars.lox` by its path beside it.
 
-```mini slug.mini
-// a title in lowercase with its words joined by dashes
-fn slug(title) {
-    words = [w for w in title.lower().split(" ") if w]
-    return "-".join(words)
+```lox stars.lox
+// a bar of n stars for a chart in the terminal
+fun stars(n) {
+    var bar = "";
+    for (var i = 0; i < n; i = i + 1) bar = bar + "*";
+    return bar;
 }
 ```
 
-```mini main.mini
-use .slug as slug
-slug = slug.slug
+```lox main.lox
+var stars = import("./stars.lox").stars;
 
-for title in ["Edge in five minutes", "Your  runtime and its CLI"] {
-    print(slug(title))
-}
+print "lox " + stars(3);
+print "edge " + stars(5);
 ```
 
 ```text
-$ edge run main.mini
-edge-in-five-minutes
-your-runtime-and-its-cli
+$ edge run main.lox
+lox ***
+edge *****
 ```
 
-A test imports the same function. An error that escapes fails its file, and `edge test` exits with 1.
+A test imports the same function. A file fails when its run ends with an error or with a status other than 0, and `edge test` exits with 1.
 
-```mini slug_test.mini
-use .slug as slug
-slug = slug.slug
+```lox stars_test.lox
+var stars = import("./stars.lox").stars;
 
-for title, want in [("Edge in five minutes", "edge-in-five-minutes"), ("  spaces  ", "spaces")] {
-    if slug(title) != want {
-        throw CheckError(title)
+fun expect(got, want) {
+    if (got != want) {
+        print "got '" + got + "' for '" + want + "'";
+        exit(1);
     }
 }
+
+expect(stars(0), "");
+expect(stars(2), "**");
 ```
 
 ```text
 $ edge test
-(successful) slug_test.mini
+(successful) stars_test.lox
 ```
 
 `edge build` packs the scripts, the manifest and every import into one `app.edge` that runs anywhere `edge` is installed.
@@ -83,31 +85,31 @@ $ edge test
 $ edge build
 packed app.edge (4 files)
 $ edge run app.edge
-edge-in-five-minutes
-your-runtime-and-its-cli
+lox ***
+edge *****
 ```
 
 ## Packages by URL
 
-`edge add` declares an import under the name the code imports it by. The source is a path or a URL: a `.mini` module, a `.wasm` plugin, or a `.edge` package that `edge build` packed and a tagged GitHub release attaches. This one takes a module from this repo at a fixed commit.
+`edge add` declares an import under the name the code imports it by. The source is a path or a URL: a `.lox` module, a `.wasm` plugin, or a `.edge` package that `edge build` packed and a tagged GitHub release attaches. This one takes a module from this repo at a fixed commit.
 
 ```text
-$ edge add util=https://raw.githubusercontent.com/dylan-sutton-chavez/edge-lang/242790c6ac765bdb4e36dfe6c382c5426ef65186/cli/tests/actor/proj/lib/util.mini
-+ util       https://raw.githubusercontent.com/dylan-sutton-chavez/edge-lang/242790c6ac765bdb4e36dfe6c382c5426ef65186/cli/tests/actor/proj/lib/util.mini
+$ edge add util=https://raw.githubusercontent.com/dylan-sutton-chavez/edge-lang/LOXPIN/docs/util.lox
++ util       https://raw.githubusercontent.com/dylan-sutton-chavez/edge-lang/LOXPIN/docs/util.lox
 updated edge.json, run edge lock to pin it
 $ edge lock
 wrote edge.lock
 ```
 
-```mini main.mini
-use util
+```lox main.lox
+var util = import("util");
 
-print(util.greet())
+print util.greet();
 ```
 
 ```text
-$ edge run main.mini
-hello from a project dir
+$ edge run main.lox
+hello from a package
 ```
 
 `edge lock` downloads each URL once and writes its digest to `edge.lock`, and `edge run`, `edge test` and `edge build` refuse bytes other than the ones it pins. Run it after every change to `edge.json` and commit `edge.lock` with the code. An import can also pin its bytes in the URL itself, with a `#sha256-<64 hex>` fragment.
@@ -139,29 +141,25 @@ The root `edge.json` grants them in `permissions`, which maps a holder to entrie
 | An import name | That package |
 | `all` | The project and every package it imports |
 
-A package lists what it needs in its own `edge.json`, and can only pass on what its importer gave it. A call outside its grant raises before anything leaves the process:
+A package lists what it needs in its own `edge.json`, and can only pass on what its importer gave it. A call outside its grant raises before anything leaves the process, and the run ends with Lox's report of it:
 
-```edge-manifest
+```lox-manifest
 { "permissions": { "main": ["net:api.example.com"] } }
 ```
 
-```edge
-use net
-
-try {
-    net.request("GET", "https://other.example/")
-} catch PermissionError as e {
-    print(e)
-}
+```lox
+var net = import("net");
+net.request("GET", "https://other.example/");
 ```
 
 ```output
 'main' has no net:other.example, edge.json grants it net:api.example.com
+[line 2] in script
 ```
 
 ## A CLI of your own
 
-The `cli` crate is a kit: a `Kit` over a runtime and the commands you wire, each behind a feature of the crate. The `edge` binary is one composition of it over mini, and a runtime of your own gets a CLI the same way. With no arguments, this one prints its help.
+The `cli` crate is a kit: a `Kit` over a runtime and the commands you wire, each behind a feature of the crate. The `edge` binary is one composition of it over Lox, and a runtime of your own gets a CLI the same way. With no arguments, this one prints its help.
 
 ```rust standalone_crate
 use cli::cmd::{run, test};
@@ -171,7 +169,7 @@ use cli::{Kit, Runtime};
 edge::allocator!();
 
 fn main() {
-    Kit::new("calc", "0.1.0", Runtime::native(&mini::RUNTIME))
+    Kit::new("calc", "0.1.0", Runtime::native(&lox::RUNTIME))
         .title("A CLI for calc programs")
         .command(run::Run)
         .command(test::Test)

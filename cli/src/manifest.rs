@@ -145,7 +145,7 @@ mod tests {
             (r#"{ "name": "quiet" }"#, "is reserved for the system module"),
             (r#"{ "version": "01.0.0" }"#, "must be major.minor.patch"),
             (r#"{ "description": "Turn absolutely any text that you have into a tidy url slug fast." }"#, "the cap is 60"),
-            (r#"{ "imports": { "quiet": "./quiet.mini" } }"#, "takes the name of a system module"),
+            (r#"{ "imports": { "quiet": "./quiet.lox" } }"#, "takes the name of a system module"),
             (r#"{ "docs": ["./docs"] }"#, "'docs' must be a string"),
         ] {
             let Err(e) = load(body) else { panic!("{body} should be refused") };
@@ -160,7 +160,7 @@ mod tests {
     fn the_permissions_field_is_held_to_its_shape_and_reserves_its_holders() {
         for (body, want) in [
             (r#"{ "name": "main" }"#, "name 'main' is reserved for permissions"),
-            (r#"{ "imports": { "eval": "./e.mini" } }"#, "import 'eval' is reserved for permissions"),
+            (r#"{ "imports": { "eval": "./e.lox" } }"#, "import 'eval' is reserved for permissions"),
             (r#"{ "permissions": ["net"] }"#, "permissions must map each package to a list of entries"),
             (r#"{ "permissions": { "main": "net:a.test" } }"#, "permissions for 'main' must be a list of entries"),
         ] {
@@ -206,7 +206,7 @@ mod tests {
     fn a_rewrite_leads_with_the_declared_fields() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("edge.json");
-        std::fs::write(&path, r#"{ "zeta": "z", "imports": { "a": "./a.mini" }, "docs": "./docs", "edge": "0.1.0", "name": "app", "alpha": ["a"] }"#).unwrap();
+        std::fs::write(&path, r#"{ "zeta": "z", "imports": { "a": "./a.lox" }, "docs": "./docs", "edge": "0.1.0", "name": "app", "alpha": ["a"] }"#).unwrap();
         Manifest::load(&path, &crate::kit::tests::kit()).unwrap().save(&path).unwrap();
         let back: Vec<String> = std::fs::read_to_string(&path).unwrap().lines().filter_map(|line| line.strip_prefix("  \"")?.split('"').next().map(str::to_string)).collect();
         assert_eq!(back, ["name", "docs", "edge", "imports", "alpha", "zeta"]);

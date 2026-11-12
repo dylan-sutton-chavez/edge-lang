@@ -7,15 +7,15 @@ use edge::embed::{call_native, Limits, VM};
 use edge::lang::{kind_of, KindId, Native, Natives, Runtime};
 use edge::value::{as_i128, DictMap, HeapObj, Val, ValSet};
 use lib::data::{csv, json, lines};
-use mini::Mini;
-use mini::natives::{ARRAY, BUFFER, BYTES, CONVERT, DATE, DICT, FLOAT, FOLDS, INT, IO, ITER, LIST, LIST_SORT, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
+use rig::Rig;
+use rig::natives::{ARRAY, BUFFER, BYTES, CONVERT, DATE, DICT, FLOAT, FOLDS, INT, IO, ITER, LIST, LIST_SORT, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
 use serde_yaml_ng::Value as Yaml;
 
 // every run meters what it allocates as edge.wasm does
 edge::allocator!();
 
-// the kernels mini leaves out under names of this file so every module answers
-const MORE: &[Native] = &lib::table![Mini;
+// the kernels rig leaves out under names of this file so every module answers
+const MORE: &[Native] = &lib::table![Rig;
     "lines" => lines::lines,
     "json_read" => json::read,
     "json_write" => json::write,
@@ -42,14 +42,14 @@ static NATIVES: Natives = edge::natives! {
         Float => [FLOAT],
         Range => [RANGE],
     ],
-    types: mini::types::NAMES,
+    types: rig::types::NAMES,
 };
 
 static RUNTIME: Runtime = Runtime::of::<Over>();
 
-// mini's language over these natives
+// the rig's language over these natives
 struct Over;
-mini::over!(Over, &NATIVES);
+rig::over!(Over, &NATIVES);
 
 // the modules of lib whose kernels these tables name each with a file of cases
 const MODULES: &[&str] = &["bytes", "data", "date", "fmt", "io", "iter", "map", "num", "reflect", "seq", "set", "text", "types"];

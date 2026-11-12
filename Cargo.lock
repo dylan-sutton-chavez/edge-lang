@@ -48,11 +48,8 @@ dependencies = [
 name = "bench"
 version = "0.9.7"
 dependencies = [
- "abi",
- "data",
  "serde",
  "serde_json",
- "serde_yaml_ng",
  "wasmtime",
 ]
 
@@ -289,17 +286,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "data"
-version = "0.9.7"
-dependencies = [
- "edge",
- "mini",
- "serde_json",
- "sha2",
- "tiny",
-]
-
-[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -330,7 +316,8 @@ dependencies = [
  "itoa",
  "lib",
  "libm",
- "mini",
+ "lox",
+ "rig",
  "serde",
  "serde_json",
  "serde_yaml_ng",
@@ -536,7 +523,7 @@ version = "0.9.7"
 dependencies = [
  "edge",
  "itoa",
- "mini",
+ "rig",
  "serde_yaml_ng",
 ]
 
@@ -589,6 +576,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "lox"
+version = "0.9.7"
+dependencies = [
+ "edge",
+ "lib",
+]
+
+[[package]]
 name = "mach2"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -607,22 +602,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "57804b2c9b69967f1536a56f86297e367a33b19e98852ed624b84551cdbc0d90"
 dependencies = [
  "rustix",
-]
-
-[[package]]
-name = "mini"
-version = "0.9.7"
-dependencies = [
- "edge",
- "lib",
-]
-
-[[package]]
-name = "native"
-version = "0.9.7"
-dependencies = [
- "edge",
- "mini",
 ]
 
 [[package]]
@@ -734,6 +713,14 @@ dependencies = [
  "rustc-hash",
  "serde",
  "smallvec",
+]
+
+[[package]]
+name = "rig"
+version = "0.9.7"
+dependencies = [
+ "edge",
+ "lib",
 ]
 
 [[package]]
@@ -955,17 +942,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tiny"
-version = "0.9.7"
-dependencies = [
- "data",
- "edge",
- "lib",
- "serde",
- "serde_yaml_ng",
-]
-
-[[package]]
 name = "typenum"
 version = "1.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -982,14 +958,6 @@ name = "unsafe-libyaml"
 version = "0.2.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861"
-
-[[package]]
-name = "uptime"
-version = "0.9.7"
-dependencies = [
- "edge",
- "lib",
-]
 
 [[package]]
 name = "version_check"

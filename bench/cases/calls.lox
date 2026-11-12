@@ -1,0 +1,15 @@
+fun ack(m, n) {
+  if (m == 0) return n + 1;
+  if (n == 0) return ack(m - 1, 1);
+  return ack(m - 1, ack(m, n - 1));
+}
+print ack(2, 300);
+
+fun sum6(a, b, c, d, e, f) { return a + b + c + d + e + f; }
+var total = 0;
+for (var i = 0; i < 5000; i = i + 1) total = total + sum6(i, 1, 2, 3, 4, 5);
+print total;
+
+fun even(n) { if (n == 0) return true; return odd(n - 1); }
+fun odd(n) { if (n == 0) return false; return even(n - 1); }
+print even(500);

@@ -168,7 +168,7 @@ mod tests {
         for target in ["https://x/charts.js", "https://x/charts.mjs", "https://x/time/index.js?v=2"] {
             assert!(javascript(target), "{target}");
         }
-        for target in ["https://x/json.wasm", "https://x/pkg/json/0.1.0/app.edge", "https://x/helper.mini"] {
+        for target in ["https://x/json.wasm", "https://x/pkg/json/0.1.0/app.edge", "https://x/helper.lox"] {
             assert!(!javascript(target), "{target}");
         }
     }

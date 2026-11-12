@@ -389,6 +389,9 @@ impl<'a> VM<'a> {
             let chunk = chunk_in(&self.functions, code, chunk, i);
             self.exec_phi(ins.a, code.orig(i) as usize, &chunk.phi_map, &chunk.phi_sources);
         }
+        if ins.op == OpCode::FreshCell && code.kinds.get(ins.a as usize) == Some(&super::scope::Kind::Cell) {
+            self.regs[self.base + ins.a as usize] = self.heap.alloc(HeapObj::Cell(Val::undef()))?;
+        }
         Ok(())
     }
 

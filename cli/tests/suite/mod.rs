@@ -12,7 +12,7 @@ pub struct Bin<'a> {
     pub plugins: bool,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 struct Case {
     #[serde(default)] given: BTreeMap<String, String>,
@@ -30,9 +30,11 @@ struct Case {
     #[serde(default)] contains: BTreeMap<String, String>,
     // A second command in the same dir, the way a packed artifact runs itself.
     #[serde(default)] then: Option<Step>,
+    // runs once per pair with `$EACH` taking the value and the message joining fails
+    #[serde(default)] each: Vec<(String, String)>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 struct Step {
     bin: String,
@@ -174,11 +176,14 @@ pub fn suite(bin: Bin, json: &str, hosts: &[&[&str]]) {
 }
 
 /* the net cases on `hosts` against one loopback fixture */
-pub fn net(bin: Bin, hosts: &[&[&str]]) {
+pub fn net(bin: Bin, hosts: &[&[&str]]) { net_cases(bin, include_str!("../../../examples/net/cases.json"), hosts) }
+
+/* the cases of `json` with its routes answered by one loopback fixture */
+pub fn net_cases(bin: Bin, json: &str, hosts: &[&[&str]]) {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
     let at = listener.local_addr().expect("tcp addr");
     // the fixture the cases name is the one just bound
-    let text = include_str!("../../../examples/net/cases.json").replace("$FIXTURE", &format!("http://{at}")).replace("$SOCKET", &format!("ws://{at}"));
+    let text = json.replace("$FIXTURE", &format!("http://{at}")).replace("$SOCKET", &format!("ws://{at}"));
     let file: NetCases = serde_json::from_str(&text).expect("cases.json parse");
     std::thread::spawn(move || {
         let routes = std::sync::Arc::new(file.routes);
@@ -195,6 +200,15 @@ fn run_suite(bin: Bin, cases: &[Case], hosts: &[&[&str]]) {
     let cache = tempfile::tempdir().expect("suite cache dir");
     let mut failed = vec![];
     // a case that holds a plugin runs only where plugins load
+    let each = |c: &Case| -> Vec<Case> {
+        c.each.iter().map(|(value, message)| Case {
+            given: c.given.iter().map(|(path, text)| (path.clone(), text.replace("$EACH", value))).collect(),
+            fails: Some(c.fails.iter().flatten().cloned().chain([message.clone()]).collect()),
+            each: Vec::new(),
+            ..c.clone()
+        }).collect()
+    };
+    let cases: Vec<Case> = cases.iter().flat_map(|c| if c.each.is_empty() { vec![c.clone()] } else { each(c) }).collect();
     for c in cases.iter().filter(|c| bin.plugins || !c.given.keys().chain(c.copy.keys()).any(|file| file.ends_with(".wasm"))) {
         for host in hosts {
             // A host flag goes right after the subcommand, where `run` and `test` read it.

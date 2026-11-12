@@ -220,6 +220,7 @@ impl<'a> VM<'a> {
     fn pair_at_most(&self, x: Val, y: Val, depth: usize) -> Result<bool, VmErr> {
         // two inline numbers compare as the register forms do where a NaN orders with nothing
         if let Some(v) = numeric_binop(OpCode::LtEq, x, y) { return Ok(v.as_bool()); }
+        if !self.heap.policy.open_order { return Ok(self.lt_vals_d(x, y, depth)? || self.values_eq(x, y)?); }
         match (self.heap.try_get(x), self.heap.try_get(y)) {
             (Some(HeapObj::List(p)), Some(HeapObj::List(q))) => self.seq_order_d(&p.borrow(), &q.borrow(), depth + 1, true, |a, b, d| self.pair_at_most(a, b, d)),
             (Some(HeapObj::Tuple(p)), Some(HeapObj::Tuple(q))) => self.seq_order_d(p, q, depth + 1, true, |a, b, d| self.pair_at_most(a, b, d)),

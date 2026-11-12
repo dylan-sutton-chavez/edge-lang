@@ -242,6 +242,8 @@ impl<'a> VM<'a> {
             }
             in_progress.remove(&entry.spec);
         }
+        // an import inside a function or a class binds as the program starts too
+        for body in chunk.functions.iter().map(|f| &f.1).chain(&chunk.classes) { self.init_modules(body, in_progress)?; }
         Ok(())
     }
 }

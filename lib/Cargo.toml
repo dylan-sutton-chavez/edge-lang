@@ -33,9 +33,9 @@ types = []
 edge = { path = "..", default-features = false }
 itoa = { workspace = true }
 
-# host tests run threaded on std and write their programs in mini
+# host tests run threaded on std and write their programs for the test rig
 [dev-dependencies]
-mini = { path = "../examples/mini" }
+rig = { path = "../tests/rig" }
 edge = { path = "..", features = ["std"] }
 # the native cases are yml files the runner reads
 serde_yaml_ng = { workspace = true }

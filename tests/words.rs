@@ -88,7 +88,7 @@ pub struct Words;
 
 impl Spelling for Words {
     const SYNTAX: Syntax = WORDS;
-    const NATIVES: &'static edge::lang::Natives = &mini::NATIVES;
+    const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
 }
 
 const BRACE_WORDS: &[(&str, TokenType)] = &[
@@ -177,7 +177,7 @@ pub const INTERP: Interp = Interp {
 // the kit's fixed core read in braces where the corpus once was written
 pub const BRACES: Syntax = Syntax {
     name: "braces",
-    extension: "mini",
+    extension: "rig",
     words: BRACE_WORDS,
     symbols: BRACE_SYMBOLS,
     operators: &BRACE_OPERATORS,
@@ -200,7 +200,7 @@ pub struct Braces;
 
 impl Spelling for Braces {
     const SYNTAX: Syntax = BRACES;
-    const NATIVES: &'static edge::lang::Natives = &mini::NATIVES;
+    const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
 }
 
 const INDENT_WORDS: &[(&str, TokenType)] = &[
@@ -255,7 +255,7 @@ pub struct Indent;
 
 impl Spelling for Indent {
     const SYNTAX: Syntax = INDENT;
-    const NATIVES: &'static edge::lang::Natives = &mini::NATIVES;
+    const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
 }
 
 const LEGACY_WORDS: &[(&str, TokenType)] = &[
@@ -286,10 +286,10 @@ static LEGACY_OPERATORS: [[TokenType; 4]; 128] = operators(LEGACY_SYMBOLS);
 
 static LEGACY_KEYWORDS: Keywords = index(LEGACY_WORDS);
 
-// the kit's fixed core read with indentation in the words mini once had
+// the kit's fixed core read with indentation in the words rig once had
 pub const LEGACY: Syntax = Syntax {
     name: "legacy",
-    extension: "mini",
+    extension: "rig",
     words: LEGACY_WORDS,
     symbols: LEGACY_SYMBOLS,
     operators: &LEGACY_OPERATORS,
@@ -312,8 +312,8 @@ pub struct Legacy;
 
 impl Spelling for Legacy {
     const SYNTAX: Syntax = LEGACY;
-    const NATIVES: &'static edge::lang::Natives = &mini::NATIVES;
+    const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
 }
 
-/* `src` compiled in the legacy fixture for engine parts mini no longer spells */
+/* `src` compiled in the legacy fixture for engine parts rig no longer spells */
 pub fn legacy(src: &str) -> (edge::code::SSAChunk, Vec<edge::code::Diagnostic>) { edge::code::compile_as::<Legacy>(src) }

@@ -88,9 +88,11 @@ impl<'a> VM<'a> {
         let report = self.render_error(e, src, path);
         // only a report placed in its source whose head names a class is reworded
         let head = report.lines().next().and_then(|l| l.strip_prefix("error: ")).filter(|h| h.split_once(": ").is_some_and(|(class, _)| !class.is_empty() && class.chars().all(|c| c.is_alphanumeric() || c == '_')));
-        match head {
-            Some(head) => words(src, head, if self.error_inner.is_none() { self.error_pos() } else { None }),
-            None => report,
+        // an error inside an imported module is placed in that module's own source
+        match (head, &self.error_inner) {
+            (Some(head), Some((s, _, pos))) => words(s, head, Some(*pos as usize)),
+            (Some(head), None) => words(src, head, self.error_pos()),
+            (None, _) => report,
         }
     }
 

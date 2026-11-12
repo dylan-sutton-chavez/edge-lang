@@ -4,10 +4,10 @@ mod test {
     use edge::lexer::{Spelling, Syntax};
     use edge::value::foreign::{BinOp, Kind, UnOp};
     use edge::value::{HeapPool, Val, VmErr};
-    use mini::Mini;
-    use mini::natives::{ARRAY, BUFFER, BYTES, CONVERT, DICT, FLOAT, FOLDS, INT, IO, ITER, LIST, LIST_SORT, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
+    use rig::Rig;
+    use rig::natives::{ARRAY, BUFFER, BYTES, CONVERT, DICT, FLOAT, FOLDS, INT, IO, ITER, LIST, LIST_SORT, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
 
-    // mini's natives under a runtime whose rules answer what the engine refuses
+    // the rig's natives under a runtime whose rules answer what the engine refuses
     static NATIVES: Natives = edge::natives! {
         language: Binds,
         fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, TYPES],
@@ -23,16 +23,16 @@ mod test {
             Float => [FLOAT],
             Range => [RANGE],
         ],
-        types: mini::types::NAMES,
+        types: rig::types::NAMES,
     };
 
     static RUNTIME: Runtime = Runtime::of::<Binds>();
 
-    // mini reading map keys as fields with objects answering operators through their class
+    // rig reading map keys as fields with objects answering operators through their class
     struct Binds;
 
     impl Spelling for Binds {
-        const SYNTAX: Syntax = mini::MINI;
+        const SYNTAX: Syntax = rig::RIG;
         const NATIVES: &'static Natives = &NATIVES;
     }
 
@@ -48,13 +48,13 @@ mod test {
 
     impl Language for Binds {
         const VERSION: u32 = 1;
-        const POLICY: Policy = Mini::POLICY;
+        const POLICY: Policy = Rig::POLICY;
         const NATIVES: &'static Natives = &NATIVES;
-        const NAMES: &'static Names = &mini::NAMES;
+        const NAMES: &'static Names = &rig::NAMES;
         const FRONT: Front = Front::spelled::<Binds>();
-        const DESCRIPTOR: &'static Descriptor = &mini::DESCRIPTOR;
-        const WIDE: Option<&'static Kind> = <Mini as Language>::WIDE;
-        const BUILT: edge::value::foreign::Built = <mini::Mini as Language>::BUILT;
+        const DESCRIPTOR: &'static Descriptor = &rig::DESCRIPTOR;
+        const WIDE: Option<&'static Kind> = <Rig as Language>::WIDE;
+        const BUILT: edge::value::foreign::Built = <rig::Rig as Language>::BUILT;
         type Ops = ();
 
         fn bind_get(cx: &mut Cx<'_, '_>, recv: Key, name: Name, how: Access) -> GetRule {
@@ -88,15 +88,15 @@ mod test {
             }
         }
 
-        fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Mode) -> Result<String, VmErr> { <Mini as Language>::show(cx, v, mode) }
+        fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Mode) -> Result<String, VmErr> { <Rig as Language>::show(cx, v, mode) }
 
-        fn format(cx: &mut Cx<'_, '_>, v: Val, spec: &str) -> Result<String, VmErr> { <Mini as Language>::format(cx, v, spec) }
+        fn format(cx: &mut Cx<'_, '_>, v: Val, spec: &str) -> Result<String, VmErr> { <Rig as Language>::format(cx, v, spec) }
 
-        fn handles(heap: &HeapPool, exc: Val, class: Val) -> Result<bool, VmErr> { <Mini as Language>::handles(heap, exc, class) }
+        fn handles(heap: &HeapPool, exc: Val, class: Val) -> Result<bool, VmErr> { <Rig as Language>::handles(heap, exc, class) }
 
-        fn misfit(n: &Native, owner: Option<&str>, m: Misfit<'_>) -> VmErr { <Mini as Language>::misfit(n, owner, m) }
+        fn misfit(n: &Native, owner: Option<&str>, m: Misfit<'_>) -> VmErr { <Rig as Language>::misfit(n, owner, m) }
 
-        fn message(cx: &mut Cx<'_, '_>, e: &EngineError) -> String { <Mini as Language>::message(cx, e) }
+        fn message(cx: &mut Cx<'_, '_>, e: &EngineError) -> String { <Rig as Language>::message(cx, e) }
     }
 
     /* what `src` prints under the runtime or the error that ends it */
@@ -127,40 +127,40 @@ mod test {
         assert_eq!(ran("print(-[1, 2, 3], [1] < \"a\")\n"), "3 false");
     }
 
-    // mini binding capitals naming ints wholes and classing objects as value errors
+    // rig binding capitals naming ints wholes and classing objects as value errors
     struct Hooked;
 
     impl Spelling for Hooked {
-        const SYNTAX: Syntax = mini::MINI;
+        const SYNTAX: Syntax = rig::RIG;
         const NATIVES: &'static Natives = &NATIVES;
     }
 
     impl Language for Hooked {
         const VERSION: u32 = 1;
-        const POLICY: Policy = Mini::POLICY;
+        const POLICY: Policy = Rig::POLICY;
         const NATIVES: &'static Natives = &NATIVES;
-        const NAMES: &'static Names = &mini::NAMES;
+        const NAMES: &'static Names = &rig::NAMES;
         const FRONT: Front = Front::spelled::<Hooked>();
-        const DESCRIPTOR: &'static Descriptor = &mini::DESCRIPTOR;
-        const WIDE: Option<&'static Kind> = <Mini as Language>::WIDE;
-        const BUILT: edge::value::foreign::Built = <mini::Mini as Language>::BUILT;
+        const DESCRIPTOR: &'static Descriptor = &rig::DESCRIPTOR;
+        const WIDE: Option<&'static Kind> = <Rig as Language>::WIDE;
+        const BUILT: edge::value::foreign::Built = <rig::Rig as Language>::BUILT;
         type Ops = ();
 
-        fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Mode) -> Result<String, VmErr> { <Mini as Language>::show(cx, v, mode) }
+        fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Mode) -> Result<String, VmErr> { <Rig as Language>::show(cx, v, mode) }
 
-        fn format(cx: &mut Cx<'_, '_>, v: Val, spec: &str) -> Result<String, VmErr> { <Mini as Language>::format(cx, v, spec) }
+        fn format(cx: &mut Cx<'_, '_>, v: Val, spec: &str) -> Result<String, VmErr> { <Rig as Language>::format(cx, v, spec) }
 
-        fn handles(heap: &HeapPool, exc: Val, class: Val) -> Result<bool, VmErr> { <Mini as Language>::handles(heap, exc, class) }
+        fn handles(heap: &HeapPool, exc: Val, class: Val) -> Result<bool, VmErr> { <Rig as Language>::handles(heap, exc, class) }
 
-        fn misfit(n: &Native, owner: Option<&str>, m: Misfit<'_>) -> VmErr { <Mini as Language>::misfit(n, owner, m) }
+        fn misfit(n: &Native, owner: Option<&str>, m: Misfit<'_>) -> VmErr { <Rig as Language>::misfit(n, owner, m) }
 
-        fn message(cx: &mut Cx<'_, '_>, e: &EngineError) -> String { <Mini as Language>::message(cx, e) }
+        fn message(cx: &mut Cx<'_, '_>, e: &EngineError) -> String { <Rig as Language>::message(cx, e) }
 
         fn raise(cx: &mut Cx<'_, '_>, e: EngineError) -> Result<Val, VmErr> {
             let Some(kind) = e.kind() else { return edge::lang::raised::<Self>(cx, e) };
-            let words = <Mini as Language>::message(cx, &e).to_uppercase();
+            let words = <Rig as Language>::message(cx, &e).to_uppercase();
             let words = cx.new_str(words)?;
-            cx.heap_mut().new_error(mini::NAMES.error(kind), vec![words])
+            cx.heap_mut().new_error(rig::NAMES.error(kind), vec![words])
         }
 
         fn type_name<'h>(cx: &'h Cx<'_, '_>, v: Val) -> &'h str { if v.is_int() { "whole" } else { cx.plain_type(v) } }
@@ -168,7 +168,7 @@ mod test {
         fn error_kind(cx: &Cx<'_, '_>, exc: Val) -> edge::abi::ErrorKind {
             match cx.heap().class_of(exc) {
                 Some(c) if cx.heap().is_class(c) => edge::abi::ErrorKind::Value,
-                _ => <Mini as Language>::error_kind(cx, exc),
+                _ => <Rig as Language>::error_kind(cx, exc),
             }
         }
     }
@@ -209,19 +209,19 @@ mod test {
     struct Counted;
 
     impl Spelling for Counted {
-        const SYNTAX: Syntax = mini::MINI;
+        const SYNTAX: Syntax = rig::RIG;
         const NATIVES: &'static Natives = &NATIVES;
     }
 
     impl Language for Counted {
         const VERSION: u32 = 1;
-        const POLICY: Policy = Mini::POLICY;
+        const POLICY: Policy = Rig::POLICY;
         const NATIVES: &'static Natives = &NATIVES;
-        const NAMES: &'static Names = &mini::NAMES;
+        const NAMES: &'static Names = &rig::NAMES;
         const FRONT: Front = Front::spelled::<Counted>();
-        const DESCRIPTOR: &'static Descriptor = &mini::DESCRIPTOR;
-        const WIDE: Option<&'static Kind> = <Mini as Language>::WIDE;
-        const BUILT: edge::value::foreign::Built = <mini::Mini as Language>::BUILT;
+        const DESCRIPTOR: &'static Descriptor = &rig::DESCRIPTOR;
+        const WIDE: Option<&'static Kind> = <Rig as Language>::WIDE;
+        const BUILT: edge::value::foreign::Built = <rig::Rig as Language>::BUILT;
         type Ops = ();
 
         fn bind_get(cx: &mut Cx<'_, '_>, recv: Key, name: Name, how: Access) -> GetRule {
@@ -239,15 +239,15 @@ mod test {
             Binds::bind_op(cx, op, a, b)
         }
 
-        fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Mode) -> Result<String, VmErr> { <Mini as Language>::show(cx, v, mode) }
+        fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Mode) -> Result<String, VmErr> { <Rig as Language>::show(cx, v, mode) }
 
-        fn format(cx: &mut Cx<'_, '_>, v: Val, spec: &str) -> Result<String, VmErr> { <Mini as Language>::format(cx, v, spec) }
+        fn format(cx: &mut Cx<'_, '_>, v: Val, spec: &str) -> Result<String, VmErr> { <Rig as Language>::format(cx, v, spec) }
 
-        fn handles(heap: &HeapPool, exc: Val, class: Val) -> Result<bool, VmErr> { <Mini as Language>::handles(heap, exc, class) }
+        fn handles(heap: &HeapPool, exc: Val, class: Val) -> Result<bool, VmErr> { <Rig as Language>::handles(heap, exc, class) }
 
-        fn misfit(n: &Native, owner: Option<&str>, m: Misfit<'_>) -> VmErr { <Mini as Language>::misfit(n, owner, m) }
+        fn misfit(n: &Native, owner: Option<&str>, m: Misfit<'_>) -> VmErr { <Rig as Language>::misfit(n, owner, m) }
 
-        fn message(cx: &mut Cx<'_, '_>, e: &EngineError) -> String { <Mini as Language>::message(cx, e) }
+        fn message(cx: &mut Cx<'_, '_>, e: &EngineError) -> String { <Rig as Language>::message(cx, e) }
     }
 
     static COUNTED: Runtime = Runtime::of::<Counted>();

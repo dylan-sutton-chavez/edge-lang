@@ -368,6 +368,8 @@ impl FromValue for i64 {
             Value::Int(i) => i64::try_from(i).map_err(|_| Error::Value(
                 alloc::format!("int {} out of range for i64 (use i128)", i)
             )),
+            // a whole float stands for its int since a language of doubles has no int
+            Value::Float(f) if f as i64 as f64 == f => Ok(f as i64),
             v => Err(Error::Type(alloc::format!("expected int, got {:?}", v))),
         }
     }
@@ -380,6 +382,7 @@ impl FromValue for i128 {
     fn from_handle(h: u32) -> Result<Self> {
         match decode(h)? {
             Value::Int(i) => Ok(i),
+            Value::Float(f) if f as i128 as f64 == f => Ok(f as i128),
             v => Err(Error::Type(alloc::format!("expected int, got {:?}", v))),
         }
     }

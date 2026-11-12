@@ -1,0 +1,22 @@
+[package]
+name = "rig"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "The test rig of the engine and lib, a table spelling every piece of the grammar kit over every lib kernel for what Lox has no syntax for."
+publish = false
+
+[lib]
+name = "rig"
+doctest = false
+
+[features]
+default = ["std"]
+std = ["edge/std"]
+# builds rig.wasm with the engine's exports so the cli tests run what lox cannot write
+web = ["edge/runtime", "edge/perms"]
+
+[dependencies]
+edge = { path = "../..", default-features = false }
+lib = { path = "../../lib" }

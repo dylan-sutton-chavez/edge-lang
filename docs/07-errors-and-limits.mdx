@@ -7,62 +7,51 @@ description: "How compile and run errors read on every host, and every cap a run
 
 ## Compile errors
 
-The lexer and the parser recover after an error and report every one they find before anything runs. Each names the file, line and column with the line itself.
+A front reports every compile error it finds before anything runs, each with the file, line and column and the line itself. Lox recovers as the book's compiler does, at the next statement, and words each error in the book's words.
 
-```mini syntax.mini
-x = = 2
-print("one"
+```lox syntax.lox
+var x = = 2;
+print "one"
 ```
 
 ```text
-$ edge run syntax.mini
-error: expected expression
-  --> syntax.mini:1:5
+$ edge run syntax.lox
+error: Error at '=': Expect expression.
+  --> syntax.lox:1:9
   |
-1 | x = = 2
-  |     ^
+1 | var x = = 2;
+  |         ^
 
-error: '(' was never closed
-  --> syntax.mini:2:6
-  |
-2 | print("one"
-  |      ^
+error: Error at end: Expect ';' after value.
+  --> syntax.lox:3:1
 ```
 
 In Rust, `edge::code::compile` returns the diagnostics beside the chunk, and `Diagnostic::render_all(&errors, src, Some(path))` writes this same report. In a page, `run` resolves with it in `out`.
 
 ## Run errors
 
-An error no handler catches ends the run with its class and message, in the runtime's own names, then the line it rose at and the calls that led there. The `edge` CLI writes it to stderr and exits with 1. `exit(n)` ends a run with status `n` instead.
+An error ends the run with its message in the runtime's words. A runtime with no `REPORT` of its own gets the engine's report, its class and message, the line it rose at and the calls that led there. Lox sets one, so a run error reads as the book prints it, the message then the line. The `edge` CLI writes it to stderr and exits with 1, which a transcript on these pages shows as `[exit 1]`. `exit(n)` ends a run with status `n` instead.
 
-```mini broken.mini
-fn ratio(a, b) {
-    return a / b
+```lox broken.lox
+fun half(n) {
+    return n / 2;
 }
 
-print("before")
-print(ratio(1, 0))
+print "before";
+print half("ten");
 ```
 
 ```text
-$ edge run broken.mini
+$ edge run broken.lox
 before
-error: DivisionError: division by zero
-  --> broken.mini:2:5
-  |
-2 |     return a / b
-  |     ^
-
-note: called from ratio()
-  --> broken.mini:6:12
-  |
-6 | print(ratio(1, 0))
-  |            ^
+Operands must be numbers.
+[line 2] in script
+[exit 1]
 ```
 
 | Host | Gets |
 |---|---|
-| Rust | The `Err(e)` of `vm.run()`. `vm.report_error(&e, src, path)` writes this report, `vm.error_text(&e)` only its first line, and `vm.system_exit_code()` the status of an `exit` |
+| Rust | The `Err(e)` of `vm.run()`. `vm.report_error(&e, src, path)` writes this report, `vm.error_text(&e)` only its class and message, and `vm.system_exit_code()` the status of an `exit` |
 | JavaScript | `out` of the value `run` resolves with, and `exitCode` |
 | `.wasm` | The `ERROR` or `EXIT` kind of the status word, with the report in the output buffer |
 
@@ -76,19 +65,16 @@ Every run is metered, natives included, and there is no unmetered mode. A run ra
 |---|---|---|
 | Operations | 100,000,000 | `Limits { ops, .. }`, `limits.ops` in JS, `--ops`, `set_limits` |
 | Memory the run holds | 256 MiB | `Limits { memory, .. }`, `limits.memory` in MB in JS, `--memory`, `set_limits` |
-| Call depth | The runtime's `recursion_limit`, 1000 in mini | `Policy` |
+| Call depth | The runtime's `recursion_limit`, 1000 in Lox where it reads as `Stack overflow.` | `Policy` |
 | Calls nested through a native or a plugin | 128 | Fixed |
 | Comparison depth of nested containers | 100 | Fixed |
 
 `Limits::sandbox()` gives the defaults. The memory limit is a count of every byte the allocator hands the run, not an estimate, so a Rust host installs `edge::allocator!()` or sets `memory: usize::MAX`. A spent op budget cannot be caught, since a handler's first op raises again, and `reset_budget(ops)` gives a parked run a new one.
 
 ```text
-$ edge run broken.mini --ops 3
-error: Error: budget exceeded
-  --> broken.mini:5:1
-  |
-5 | print("before")
-  | ^
+$ edge run broken.lox --ops 3
+Runtime: budget exceeded
+[exit 1]
 ```
 
 A source is held to these caps, each reported as a compile error:

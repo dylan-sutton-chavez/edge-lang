@@ -857,7 +857,7 @@ impl HeapPool {
                 let slots = &self.slots;
                 self.bytes_intern.find(bytes_hash(b), |i| matches!(&slots[i as usize].obj, Some(HeapObj::Bytes(t)) if t == b), |n| self.spend(n))
             }
-            &HeapObj::Bound { recv: r, func: f } => {
+            &HeapObj::Bound { recv: r, func: f } if self.policy.shared_bound => {
                 let slots = &self.slots;
                 self.bound.find(bound_hash(r.0, f.0), |i| matches!(slots[i as usize].obj, Some(HeapObj::Bound { recv, func }) if recv.0 == r.0 && func.0 == f.0), |n| self.spend(n))
             }
@@ -880,7 +880,7 @@ impl HeapPool {
             Some(HeapObj::Str(s)) if s.len() <= 1 => self.intern_text(idx, eq::hash_key(s)),
             Some(HeapObj::Bytes(b)) if b.len() <= 128 => { let h = bytes_hash(b); self.enter(|p| &mut p.bytes_intern, h, idx); }
             // one entry per bound value so no lookup checks for a twin
-            Some(&HeapObj::Bound { recv: r, func: f }) => self.enter(|p| &mut p.bound, bound_hash(r.0, f.0), idx),
+            Some(&HeapObj::Bound { recv: r, func: f }) if self.policy.shared_bound => self.enter(|p| &mut p.bound, bound_hash(r.0, f.0), idx),
             Some(&HeapObj::Native(id)) if self.natives.owner(id).is_some() => { self.tables_mut().natives.insert(id.0, idx); }
             _ => {}
         }

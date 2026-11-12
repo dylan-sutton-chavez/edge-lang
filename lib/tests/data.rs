@@ -2,14 +2,14 @@ use edge::embed::{Limits, VM};
 use edge::lang::{Native, Natives, Runtime};
 use lib::data::lines::Lines;
 use lib::data::{csv, json, lines};
-use mini::Mini;
-use mini::natives::{ARRAY, BUFFER, BYTES, CONVERT, DICT, FLOAT, FOLDS, INT, IO, ITER, LIST, LIST_SORT, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
+use rig::Rig;
+use rig::natives::{ARRAY, BUFFER, BYTES, CONVERT, DICT, FLOAT, FOLDS, INT, IO, ITER, LIST, LIST_SORT, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
 
 // every run meters what it allocates as edge.wasm does
 edge::allocator!();
 
-// the data kernels under names of this test beside mini's own tables
-const DATA: &[Native] = &lib::table![Mini;
+// the data kernels under names of this test beside the rig's own tables
+const DATA: &[Native] = &lib::table![Rig;
     "lines" => lines::lines,
     "json_read" => json::read,
     "json_write" => json::write,
@@ -19,7 +19,7 @@ const DATA: &[Native] = &lib::table![Mini;
 
 static NATIVES: Natives = edge::natives! {
     language: Over,
-    fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, TYPES, mini::natives::MATCH, mini::natives::DATE, DATA],
+    fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, TYPES, rig::natives::MATCH, rig::natives::DATE, DATA],
     methods: [
         Str => [STR],
         Bytes => [BUFFER],
@@ -32,18 +32,18 @@ static NATIVES: Natives = edge::natives! {
         Float => [FLOAT],
         Range => [RANGE],
     ],
-    types: mini::types::NAMES,
+    types: rig::types::NAMES,
 };
 
 static RUNTIME: Runtime = Runtime::of::<Over>();
 
-// mini's language over these natives
+// the rig's language over these natives
 struct Over;
-mini::over!(Over, &NATIVES);
+rig::over!(Over, &NATIVES);
 
 /* what `src` printed and its error after it when one ended the run */
 fn run(src: &str) -> String {
-    let (chunk, errors) = edge::code::compile_as::<Mini>(src);
+    let (chunk, errors) = edge::code::compile_as::<Rig>(src);
     assert!(errors.is_empty(), "{src}: {:?}", errors.iter().map(|e| &e.msg).collect::<Vec<_>>());
     let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
     let ran = vm.run();
@@ -238,12 +238,12 @@ fn json_write_pays_for_shared_parts_each_time_they_show() {
     // a hundred levels each holding one child twice write two to the hundredth values
     let doubled = |depth: u32| format!("x = [1]\nfor i in range({depth}) {{\n    x = [x, x]\n}}\nprint(len(json_write(x)))\n");
     let small = || Limits { ops: 2_000_000, memory: 64 << 20 };
-    let (chunk, _) = edge::code::compile_as::<Mini>(&doubled(100));
+    let (chunk, _) = edge::code::compile_as::<Rig>(&doubled(100));
     let mut vm = VM::with_runtime(&RUNTIME, &chunk, small());
     assert!(matches!(vm.run(), Err(edge::value::VmErr::Budget)), "the walk ends on the budget and not on the memory");
     assert!(vm.memory_peak() < 32 << 20, "{} bytes", vm.memory_peak());
     // a smaller one writes in full with every copy of the shared child
-    let (chunk, _) = edge::code::compile_as::<Mini>(&doubled(12));
+    let (chunk, _) = edge::code::compile_as::<Rig>(&doubled(12));
     let mut vm = VM::with_runtime(&RUNTIME, &chunk, small());
     vm.run().expect("a write within the budget");
     assert_eq!(vm.output_text(), "24573\n");
@@ -298,22 +298,22 @@ impl lib::fmt::render::Style for Terse {}
 
 impl edge::lang::Language for Terse {
     const VERSION: u32 = 1;
-    const POLICY: edge::lang::Policy = <Mini as edge::lang::Language>::POLICY;
+    const POLICY: edge::lang::Policy = <Rig as edge::lang::Language>::POLICY;
     const NATIVES: &'static edge::lang::Natives = &TERSE_NATIVES;
-    const NAMES: &'static edge::lang::Names = &mini::NAMES;
-    const FRONT: edge::lang::Front = mini::FRONT;
-    const DESCRIPTOR: &'static edge::lang::Descriptor = &mini::DESCRIPTOR;
-    const WIDE: Option<&'static edge::value::foreign::Kind> = Some(&mini::lang::WIDE);
-    const BUILT: edge::value::foreign::Built = <mini::Mini as edge::lang::Language>::BUILT;
+    const NAMES: &'static edge::lang::Names = &rig::NAMES;
+    const FRONT: edge::lang::Front = rig::FRONT;
+    const DESCRIPTOR: &'static edge::lang::Descriptor = &rig::DESCRIPTOR;
+    const WIDE: Option<&'static edge::value::foreign::Kind> = Some(&rig::lang::WIDE);
+    const BUILT: edge::value::foreign::Built = <rig::Rig as edge::lang::Language>::BUILT;
     type Ops = ();
 
     fn show(cx: &mut edge::lang::Cx<'_, '_>, v: edge::value::Val, mode: edge::lang::Mode) -> Result<String, edge::value::VmErr> { lib::fmt::render::hook::<Self>(cx, v, mode) }
 }
 
 impl lib::Lang for Terse {
-    const TREE: &'static lib::lang::Tree = &mini::types::TREE;
+    const TREE: &'static lib::lang::Tree = &rig::types::TREE;
 
-    fn class(c: lib::Class) -> &'static str { <Mini as lib::Lang>::class(c) }
+    fn class(c: lib::Class) -> &'static str { <Rig as lib::Lang>::class(c) }
 
     fn words(cx: &mut edge::lang::Cx<'_, '_>, at: lib::fail::At, f: lib::fail::Fail) -> edge::value::VmErr {
         use lib::fail::{Csv, Fail, Json, raise};
@@ -340,11 +340,11 @@ static TERSE_NATIVES: Natives = edge::natives! {
 
 static TERSE_RUNTIME: Runtime = Runtime::of::<Terse>();
 
-/* mini's spelling over the terse natives */
+/* the rig's spelling over the terse natives */
 struct Tersely;
 
 impl edge::lexer::Spelling for Tersely {
-    const SYNTAX: edge::lexer::Syntax = mini::MINI;
+    const SYNTAX: edge::lexer::Syntax = rig::RIG;
     const NATIVES: &'static Natives = &TERSE_NATIVES;
 }
 

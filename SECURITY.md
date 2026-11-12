@@ -18,7 +18,7 @@ Everything in this repository is in scope, whether the issue is a sandbox escape
 - `net` in `examples/net`, the network module both hosts serve.
 - The plugin kit in `plugin/` and the ABI in `abi/`.
 - The JS host in `js/`.
-- The three runtimes in `examples/`, mini, tiny and uptime, with their CLIs, `edge`, `tiny` and `uptime`.
+- Lox in `examples/lox`, the runtime `edge.wasm` is built from, and its `lox` binary.
 
 ## Response
 

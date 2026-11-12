@@ -218,7 +218,7 @@ mod tests {
         for rel in ["..", "../outside.txt", "../../etc/passwd", "app/../../x", "a/../../b", ".env", ".git/config", "app/.secret", "..a/b"] {
             assert!(escapes_root(rel), "should reject {rel:?}");
         }
-        for rel in ["", "index.html", "app/main.mini", "a..b/c", "dist/x..y.js", "edge.json"] {
+        for rel in ["", "index.html", "app/main.lox", "a..b/c", "dist/x..y.js", "edge.json"] {
             assert!(!escapes_root(rel), "should allow {rel:?}");
         }
     }
@@ -263,43 +263,43 @@ mod tests {
     #[test]
     fn same_second_same_size_edit_bumps_the_fingerprint() {
         let dir = tempfile::tempdir().unwrap();
-        write_at(dir.path(), "a.mini", "xxxx", 100);
+        write_at(dir.path(), "a.lox", "xxxx", 100);
         let before = fingerprint(dir.path());
-        write_at(dir.path(), "a.mini", "yyyy", 200);
+        write_at(dir.path(), "a.lox", "yyyy", 200);
         assert_ne!(before, fingerprint(dir.path()));
     }
 
     #[test]
     fn an_untouched_tree_keeps_its_fingerprint() {
         let dir = tempfile::tempdir().unwrap();
-        write_at(dir.path(), "a.mini", "xxxx", 100);
+        write_at(dir.path(), "a.lox", "xxxx", 100);
         assert_eq!(fingerprint(dir.path()), fingerprint(dir.path()));
     }
 
     #[test]
     fn a_size_change_at_the_same_mtime_bumps_the_fingerprint() {
         let dir = tempfile::tempdir().unwrap();
-        write_at(dir.path(), "a.mini", "xxxx", 100);
+        write_at(dir.path(), "a.lox", "xxxx", 100);
         let before = fingerprint(dir.path());
-        write_at(dir.path(), "a.mini", "yyyyy", 100);
+        write_at(dir.path(), "a.lox", "yyyyy", 100);
         assert_ne!(before, fingerprint(dir.path()));
     }
 
     #[test]
     fn a_new_file_bumps_the_fingerprint() {
         let dir = tempfile::tempdir().unwrap();
-        write_at(dir.path(), "a.mini", "xxxx", 100);
+        write_at(dir.path(), "a.lox", "xxxx", 100);
         let before = fingerprint(dir.path());
-        write_at(dir.path(), "b.mini", "zz", 100);
+        write_at(dir.path(), "b.lox", "zz", 100);
         assert_ne!(before, fingerprint(dir.path()));
     }
 
     #[test]
     fn a_whole_second_change_still_bumps_the_fingerprint() {
         let dir = tempfile::tempdir().unwrap();
-        write_at(dir.path(), "a.mini", "xxxx", 100);
+        write_at(dir.path(), "a.lox", "xxxx", 100);
         let before = fingerprint(dir.path());
-        let path = dir.path().join("a.mini");
+        let path = dir.path().join("a.lox");
         let f = std::fs::File::options().write(true).open(&path).unwrap();
         f.set_modified(std::time::UNIX_EPOCH + std::time::Duration::new(SEC + 1, 100)).unwrap();
         assert_ne!(before, fingerprint(dir.path()));

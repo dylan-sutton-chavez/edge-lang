@@ -149,10 +149,10 @@ mod tests {
 
     fn sample() -> Bundle {
         Bundle {
-            entry: s!("main.mini"),
+            entry: s!("main.lox"),
             files: alloc::vec![
-                Entry { path: s!("main.mini"), bytes: b"import lib\n".to_vec() },
-                Entry { path: s!("lib/util.mini"), bytes: b"fn f() { pass }\n".to_vec() },
+                Entry { path: s!("main.lox"), bytes: b"import lib\n".to_vec() },
+                Entry { path: s!("lib/util.lox"), bytes: b"fn f() { pass }\n".to_vec() },
                 Entry { path: s!("https://example.com/dep.edge"), bytes: b"EDGEPKG\x01".to_vec() },
             ],
         }
@@ -161,9 +161,9 @@ mod tests {
     #[test]
     fn roundtrips_a_tree() {
         let b = Bundle::decode(&sample().encode()).unwrap();
-        assert_eq!(b.entry, "main.mini");
+        assert_eq!(b.entry, "main.lox");
         assert_eq!(b.files.len(), 3);
-        assert_eq!(b.files[1].path, "lib/util.mini");
+        assert_eq!(b.files[1].path, "lib/util.lox");
         assert_eq!(b.files[1].bytes, b"fn f() { pass }\n");
     }
 
@@ -172,13 +172,13 @@ mod tests {
         let bytes = sample().encode();
         let index = Bundle::index(&bytes).unwrap();
         let (path, at, len) = &index.files[1];
-        assert_eq!((path.as_str(), &bytes[*at..at + len]), ("lib/util.mini", &b"fn f() { pass }\n"[..]));
+        assert_eq!((path.as_str(), &bytes[*at..at + len]), ("lib/util.lox", &b"fn f() { pass }\n"[..]));
     }
 
     #[test]
     fn rejects_bad_magic_and_traversal_paths() {
         assert!(Bundle::decode(b"NOTPKG\x00\x00junk").is_err());
-        for bad in ["../evil.mini", "/etc/passwd", "a/../../b", "a//b", "https://example.com/../x", "a\\b"] {
+        for bad in ["../evil.lox", "/etc/passwd", "a/../../b", "a//b", "https://example.com/../x", "a\\b"] {
             let mut b = sample();
             b.files[0].path = bad.to_string();
             assert!(Bundle::decode(&b.encode()).is_err(), "path '{bad}' should be rejected");

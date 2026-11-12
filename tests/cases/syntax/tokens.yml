@@ -1,226 +1,226 @@
-- mini: |-
+- rig: |-
     1 + 1
   tokens: [Int, Plus, Int, Eof]
 
-- mini: |-
+- rig: |-
     x - 1
   tokens: [Name, Minus, Int, Eof]
 
-- mini: |-
+- rig: |-
     x * 2
   tokens: [Name, Star, Int, Eof]
 
-- mini: |-
+- rig: |-
     x / 2
   tokens: [Name, Slash, Int, Eof]
 
-- mini: |-
+- rig: |-
     x % 2
   tokens: [Name, Percent, Int, Eof]
 
-- mini: |-
+- rig: |-
     x & 2
   tokens: [Name, BitAnd, Int, Eof]
 
-- mini: |-
+- rig: |-
     x | 2
   tokens: [Name, BitOr, Int, Eof]
 
-- mini: |-
+- rig: |-
     x ^ 2
   tokens: [Name, BitXor, Int, Eof]
 
-- mini: |-
+- rig: |-
     ~x
   tokens: [Tilde, Name, Eof]
 
-- mini: |-
+- rig: |-
     x ** 2
   tokens: [Name, Pow, Int, Eof]
 
-- mini: |-
+- rig: |-
     x ~/ 2
   tokens: [Name, FloorDiv, Int, Eof]
 
-- mini: |-
+- rig: |-
     x >> 2
   tokens: [Name, RightShift, Int, Eof]
 
-- mini: |-
+- rig: |-
     x << 2
   tokens: [Name, LeftShift, Int, Eof]
 
-- mini: |-
+- rig: |-
     x < 2
   tokens: [Name, Less, Int, Eof]
 
-- mini: |-
+- rig: |-
     x > 2
   tokens: [Name, Greater, Int, Eof]
 
-- mini: |-
+- rig: |-
     x >= 2
   tokens: [Name, GreaterEqual, Int, Eof]
 
-- mini: |-
+- rig: |-
     x <= 2
   tokens: [Name, LessEqual, Int, Eof]
 
-- mini: |-
+- rig: |-
     x == 5
   tokens: [Name, EqualEqual, Int, Eof]
 
-- mini: |-
+- rig: |-
     x != 5
   tokens: [Name, NotEqual, Int, Eof]
 
-- mini: |-
+- rig: |-
     x = 5
   tokens: [Name, Equal, Int, Eof]
 
-- mini: |-
+- rig: |-
     x += 1
   tokens: [Name, PlusEqual, Int, Eof]
 
-- mini: |-
+- rig: |-
     x -= 1
   tokens: [Name, MinusEqual, Int, Eof]
 
-- mini: |-
+- rig: |-
     x *= 2
   tokens: [Name, StarEqual, Int, Eof]
 
-- mini: |-
+- rig: |-
     x /= 2
   tokens: [Name, SlashEqual, Int, Eof]
 
-- mini: |-
+- rig: |-
     x %= 2
   tokens: [Name, PercentEqual, Int, Eof]
 
-- mini: |-
+- rig: |-
     x &= 2
   tokens: [Name, BitAndEqual, Int, Eof]
 
-- mini: |-
+- rig: |-
     x |= 2
   tokens: [Name, BitOrEqual, Int, Eof]
 
-- mini: |-
+- rig: |-
     x ^= 2
   tokens: [Name, BitXorEqual, Int, Eof]
 
-- mini: |-
+- rig: |-
     x **= 2
   tokens: [Name, PowEqual, Int, Eof]
 
-- mini: |-
+- rig: |-
     x ~/= 2
   tokens: [Name, FloorDivEqual, Int, Eof]
 
-- mini: |-
+- rig: |-
     x >>= 2
   tokens: [Name, RightShiftEqual, Int, Eof]
 
-- mini: |-
+- rig: |-
     x <<= 2
   tokens: [Name, LeftShiftEqual, Int, Eof]
 
-- mini: |-
+- rig: |-
     42
   tokens: [Int, Eof]
 
-- mini: |-
+- rig: |-
     1000000
   tokens: [Int, Eof]
 
-- mini: |-
+- rig: |-
     255
   tokens: [Int, Eof]
 
-- mini: |-
+- rig: |-
     10
   tokens: [Int, Eof]
 
-- mini: |-
+- rig: |-
     63
   tokens: [Int, Eof]
 
-- mini: |-
+- rig: |-
     3.14
   tokens: [Float, Eof]
 
-- mini: |-
+- rig: |-
     0.5
   tokens: [Float, Eof]
 
-- mini: |-
+- rig: |-
     1.0e-05
   tokens: [Float, Eof]
 
-- mini: |-
+- rig: |-
     "hello"
   tokens: [FormatStart, FormatText, FormatEnd, Eof]
 
-- mini: |-
+- rig: |-
     b"bytes"
   tokens: [Bytes, Eof]
 
-- mini: |-
+- rig: |-
     "raw"
   tokens: [FormatStart, FormatText, FormatEnd, Eof]
 
-- mini: |-
+- rig: |-
     "unicode"
   tokens: [FormatStart, FormatText, FormatEnd, Eof]
 
-- mini: |-
+- rig: |-
     "triple"
   tokens: [FormatStart, FormatText, FormatEnd, Eof]
 
-- mini: |-
+- rig: |-
     "hello {x}"
   tokens: [FormatStart, FormatText, BraceOpen, Name, BraceClose, FormatEnd, Eof]
 
-- mini: |-
+- rig: |-
     "{a} and {b}"
   tokens: [FormatStart, BraceOpen, Name, BraceClose, FormatText, BraceOpen, Name, BraceClose, FormatEnd, Eof]
 
-- mini: |-
+- rig: |-
     "multi\nline"
   tokens: [FormatStart, FormatText, FormatEnd, Eof]
 
-- mini: |-
+- rig: |-
     "multi\n{x}"
   tokens: [FormatStart, FormatText, BraceOpen, Name, BraceClose, FormatEnd, Eof]
 
-- mini: |-
+- rig: |-
 
   tokens: [Eof]
 
-- mini: |-
+- rig: |-
     x = 1
   tokens: [Name, Equal, Int, Eof]
 
-- mini: |-
+- rig: |-
     ()
   tokens: [ParenOpen, ParenClose, Eof]
 
-- mini: |-
+- rig: |-
     [1, 2]
   tokens: [BracketOpen, Int, Comma, Int, BracketClose, Eof]
 
-- mini: |-
+- rig: |-
     if x {
     }
   tokens: [If, Name, BlockOpen, Newline, BlockClose, Eof]
 
-- mini: |-
+- rig: |-
     if true {
     }
   tokens: [If, True, BlockOpen, Newline, BlockClose, Eof]
 
-- mini: |-
+- rig: |-
     if x {
         if y {
         }
@@ -228,137 +228,137 @@
     z
   tokens: [If, Name, BlockOpen, Newline, If, Name, BlockOpen, Newline, BlockClose, Newline, BlockClose, Newline, Name, Eof]
 
-- mini: |-
+- rig: |-
     fn f() {
         if true {
         }
     }
   tokens: [Fn, Name, ParenOpen, ParenClose, BlockOpen, Newline, If, True, BlockOpen, Newline, BlockClose, Newline, BlockClose, Eof]
 
-- mini: |-
+- rig: |-
     match_ = 5
   tokens: [Name, Equal, Int, Eof]
 
-- mini: |-
+- rig: |-
     case = true
   tokens: [Name, Equal, True, Eof]
 
-- mini: |-
+- rig: |-
     type = nil
   tokens: [Name, Equal, Nil, Eof]
 
-- mini: |-
+- rig: |-
     match x {
         _ => nil
     }
   tokens: [Match, Name, BlockOpen, Newline, Underscore, Arm, Nil, Newline, BlockClose, Eof]
 
-- mini: |-
+- rig: |-
     throw
   tokens: [Throw, Eof]
 
-- mini: |-
+- rig: |-
     true
   tokens: [True, Eof]
 
-- mini: |-
+- rig: |-
     false
   tokens: [False, Eof]
 
-- mini: |-
+- rig: |-
     nil
   tokens: [Nil, Eof]
 
-- mini: |-
+- rig: |-
     []
   tokens: [BracketOpen, BracketClose, Eof]
 
-- mini: |-
+- rig: |-
     {}
   tokens: [BraceOpen, BraceClose, Eof]
 
-- mini: |-
+- rig: |-
     a.b
   tokens: [Name, Dot, Name, Eof]
 
-- mini: |-
+- rig: |-
     a.b.c
   tokens: [Name, Dot, Name, Dot, Name, Eof]
 
-- mini: |-
+- rig: |-
     x
     y
   tokens: [Name, Newline, Name, Eof]
 
-- mini: |-
+- rig: |-
     3735928559
   tokens: [Int, Eof]
 
-- mini: |-
+- rig: |-
     170
   tokens: [Int, Eof]
 
-- mini: |-
+- rig: |-
     511
   tokens: [Int, Eof]
 
-- mini: |-
+- rig: |-
     3.1415
   tokens: [Float, Eof]
 
-- mini: |-
+- rig: |-
     10000000000.0
   tokens: [Float, Eof]
 
-- mini: |-
+- rig: |-
     5.0
   tokens: [Float, Eof]
 
-- mini: |-
+- rig: |-
     50.0
   tokens: [Float, Eof]
 
-- mini: |-
+- rig: |-
     "double"
   tokens: [FormatStart, FormatText, FormatEnd, Eof]
 
-- mini: |-
+- rig: |-
     "triple double"
   tokens: [FormatStart, FormatText, FormatEnd, Eof]
 
-- mini: |-
+- rig: |-
     "esc\n\t"
   tokens: [FormatStart, FormatText, FormatEnd, Eof]
 
-- mini: |-
+- rig: |-
     b"raw bytes"
   tokens: [Bytes, Eof]
 
-- mini: |-
+- rig: |-
     b"RAWBYTES"
   tokens: [Bytes, Eof]
 
-- mini: |-
+- rig: |-
     b"mixed"
   tokens: [Bytes, Eof]
 
-- mini: |-
+- rig: |-
     "helloworld"
   tokens: [FormatStart, FormatText, FormatEnd, Eof]
 
-- mini: |-
+- rig: |-
     ""
   tokens: [FormatStart, FormatEnd, Eof]
 
-- mini: |-
+- rig: |-
     "raw{x}"
   tokens: [FormatStart, FormatText, BraceOpen, Name, BraceClose, FormatEnd, Eof]
 
-- mini: |-
+- rig: |-
     "{x}"
   tokens: [FormatStart, BraceOpen, Name, BraceClose, FormatEnd, Eof]
 
-- mini: |-
+- rig: |-
     if x {
         if y {
             z
@@ -368,64 +368,64 @@
     v
   tokens: [If, Name, BlockOpen, Newline, If, Name, BlockOpen, Newline, Name, Newline, BlockClose, Newline, Name, Newline, BlockClose, Newline, Name, Eof]
 
-- mini: |-
+- rig: |-
     record([(1, 2)])
   tokens: [Name, ParenOpen, BracketOpen, ParenOpen, Int, Comma, Int, ParenClose, BracketClose, ParenClose, Eof]
 
-- mini: |-
+- rig: |-
     [1]
   tokens: [BracketOpen, Int, BracketClose, Eof]
 
-- mini: |-
+- rig: |-
     x
     y
     z
   tokens: [Name, Newline, Name, Newline, Name, Eof]
 
-- mini: |-
+- rig: |-
     a, b, *c = x
   tokens: [Name, Comma, Name, Comma, Star, Name, Equal, Name, Eof]
 
-- mini: |-
+- rig: |-
     f(a, b, *c, **d)
   tokens: [Name, ParenOpen, Name, Comma, Name, Comma, Star, Name, Comma, Pow, Name, ParenClose, Eof]
 
-- mini: |-
+- rig: |-
     if b { a } else { c }
   tokens: [If, Name, BlockOpen, Name, BlockClose, Else, BlockOpen, Name, BlockClose, Eof]
 
-- mini: |-
+- rig: |-
     fn f() {
     }
   tokens: [Fn, Name, ParenOpen, ParenClose, BlockOpen, Newline, BlockClose, Eof]
 
-- mini: |-
+- rig: |-
     [x for x in y]
   tokens: [BracketOpen, Name, For, Name, In, Name, BracketClose, Eof]
 
-- mini: |-
+- rig: |-
     record([(k, v) for k in x])
   tokens: [Name, ParenOpen, BracketOpen, ParenOpen, Name, Comma, Name, ParenClose, For, Name, In, Name, BracketClose, ParenClose, Eof]
 
-- mini: |-
+- rig: |-
     x != nil
   tokens: [Name, NotEqual, Nil, Eof]
 
-- mini: |-
+- rig: |-
     x not in y
   tokens: [Name, NotIn, Name, Eof]
 
-- mini: |-
+- rig: |-
     match x {
         1 => nil
         2 => nil
     }
   tokens: [Match, Name, BlockOpen, Newline, Int, Arm, Nil, Newline, Int, Arm, Nil, Newline, BlockClose, Eof]
 
-- mini: |-
+- rig: |-
     café = 1
   tokens: [Name, Equal, Int, Eof]
 
-- mini: |-
+- rig: |-
     π = 3
   tokens: [Name, Equal, Int, Eof]

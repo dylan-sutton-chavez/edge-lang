@@ -14,10 +14,10 @@ use edge::embed::VM;
 use edge::lexer::{lex_as, LexError, Token};
 
 /* the spelling every program of these suites is written in */
-pub type Spell = mini::Mini;
+pub type Spell = rig::Rig;
 
 /* a VM on `chunk` whose program runs through the reference runtime's natives */
-pub fn boot(chunk: &SSAChunk, limits: Limits) -> VM<'_> { VM::with_runtime(&mini::RUNTIME, chunk, limits) }
+pub fn boot(chunk: &SSAChunk, limits: Limits) -> VM<'_> { VM::with_runtime(&rig::RUNTIME, chunk, limits) }
 
 /* the tokens of `src` and what its lexer reported */
 pub fn lex(src: &str) -> (Vec<Token>, Vec<LexError>) { lex_as::<Spell>(src) }

@@ -38,6 +38,7 @@ impl VM<'_> {
             }
             // the phi tables index the compiler's instructions
             OpCode::Phi => self.phi_rows(ins.a as usize, code.orig(i) as usize, code, chunk),
+            OpCode::FreshCell => if code.kinds.get(ins.a as usize) == Some(&Kind::Cell) { self.regs[self.base + ins.a as usize] = self.heap.alloc(HeapObj::Cell(Val::undef()))?; },
             OpCode::Assert => {
                 self.top -= 1;
                 self.assert_holds(self.regs[at - 1])?;

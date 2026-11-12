@@ -296,19 +296,19 @@ mod tests {
     /* the source enters the page as a JSON string that no tag or quote escapes */
     #[test]
     fn the_harness_cannot_be_escaped_by_a_script() {
-        let hostile = "print(\"</script><script>alert(1)</script>\")";
-        let page = page(hostile, "sub/main.mini", Limits::sandbox()).unwrap();
+        let hostile = "print \"</script><script>alert(1)</script>\";";
+        let page = page(hostile, "sub/main.lox", Limits::sandbox()).unwrap();
 
         assert!(!page.contains("<script>alert(1)"));
         assert!(page.contains("\\u003c/script"));
         // the program and its entry still read as written once the page decodes the literal
-        let run = serde_json::json!({ "src": hostile, "entry": "sub/main.mini" });
+        let run = serde_json::json!({ "src": hostile, "entry": "sub/main.lox" });
         assert_eq!(serde_json::from_str::<serde_json::Value>(&embed(&run).unwrap()).unwrap(), run);
     }
 
     #[test]
     fn the_host_answers_under_the_js_prefix() {
-        let d = &mini::DESCRIPTOR;
+        let d = &lox::DESCRIPTOR;
         assert!(host_file("js/src/index.js", d).is_some());
         assert!(host_file("js/src/nope.js", d).is_none());
         assert!(host_file("src/index.js", d).is_none());
@@ -327,13 +327,13 @@ mod tests {
     fn a_project_file_answers_only_from_inside_the_project() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir(dir.path().join("app")).unwrap();
-        std::fs::write(dir.path().join("app/helper.mini"), "x = 1").unwrap();
-        std::fs::write(dir.path().join("secret.mini"), "key = 2").unwrap();
+        std::fs::write(dir.path().join("app/helper.lox"), "var x = 1;").unwrap();
+        std::fs::write(dir.path().join("secret.lox"), "var key = 2;").unwrap();
         let root = dir.path().join("app").canonicalize().unwrap();
 
-        let d = &mini::DESCRIPTOR;
-        assert_eq!(project_file(&root, "helper.mini", d), Some((b"x = 1".to_vec(), "text/plain")));
-        assert!(project_file(&root, "../secret.mini", d).is_none());
-        assert!(project_file(&root, "missing.mini", d).is_none());
+        let d = &lox::DESCRIPTOR;
+        assert_eq!(project_file(&root, "helper.lox", d), Some((b"var x = 1;".to_vec(), "text/plain")));
+        assert!(project_file(&root, "../secret.lox", d).is_none());
+        assert!(project_file(&root, "missing.lox", d).is_none());
     }
 }

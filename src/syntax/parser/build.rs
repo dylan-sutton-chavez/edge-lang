@@ -167,6 +167,109 @@ impl<'b, 'src, S: Spelling> Builder<'b, 'src, S> {
         self
     }
 
+    /* replaces the value on top with what unary operator `op` makes of it */
+    pub fn unary(&mut self, op: OpCode) -> &mut Self {
+        if op.operator() != crate::code::ops::Operator::Unary {
+            let at = self.p.last_end;
+            self.p.reject(at, at, "a builder applies only a unary operator here");
+        }
+        self.p.chunk.emit(op, 0);
+        self
+    }
+
+    /* pushes the value on top again */
+    pub fn dup(&mut self) -> &mut Self {
+        self.p.chunk.emit(OpCode::Dup, 0);
+        self
+    }
+
+    /* swaps the two values on top */
+    pub fn swap(&mut self) -> &mut Self {
+        self.p.chunk.emit(OpCode::Swap, 0);
+        self
+    }
+
+    /* lifts the third value to the top */
+    pub fn rot3(&mut self) -> &mut Self {
+        self.p.chunk.emit(OpCode::Rot3, 0);
+        self
+    }
+
+    /* stores the value on top into field `name` of the object under it */
+    pub fn set_field(&mut self, name: &str) -> &mut Self {
+        let i = self.p.chunk.push_name(name);
+        self.p.chunk.emit(OpCode::StoreAttr, i);
+        self
+    }
+
+    /* keeps the value on top when it decides `and` or `or` else pushes `rhs` */
+    pub fn lazy(&mut self, and: bool, rhs: impl FnOnce(&mut Self)) -> &mut Self {
+        let jump = self.p.emit_jump(if and { OpCode::JumpIfFalseOrPop } else { OpCode::JumpIfTrueOrPop });
+        rhs(self);
+        self.p.patch(jump);
+        self
+    }
+
+    /* runs `body` while `cond` leaves a true value */
+    pub fn while_loop(&mut self, cond: impl FnOnce(&mut Self), body: impl FnOnce(&mut Self)) -> &mut Self {
+        self.p.enter_block();
+        let start = self.p.chunk.instructions.len() as u16;
+        self.p.loops.push(LoopCtx { start, breaks: Vec::new(), is_for: false, cleanup_base: self.p.cleanup_count });
+        cond(self);
+        let out = self.p.emit_jump(OpCode::JumpIfFalse);
+        body(self);
+        let p = &mut *self.p;
+        p.chunk.emit(OpCode::Jump, start);
+        p.patch(out);
+        for at in p.loops.pop().map(|l| l.breaks).unwrap_or_default() { p.patch(at); }
+        p.commit_block();
+        self
+    }
+
+    /* gives `name` a new cell here so closures made before keep the old one */
+    pub fn fresh(&mut self, name: &str) -> &mut Self {
+        let i = self.p.push_ssa_name(name, self.p.current_version(name));
+        self.p.chunk.emit(OpCode::FreshCell, i);
+        self
+    }
+
+    /* reads and writes `name` in the body around the one being built */
+    pub fn nonlocal(&mut self, name: &str) -> &mut Self {
+        if !self.p.chunk.nonlocals.iter().any(|n| n == name) { self.p.chunk.nonlocals.push(name.into()); }
+        self
+    }
+
+    /* pushes a class named `name` over the `bases` values on top whose members `body` binds */
+    pub fn class(&mut self, name: &str, bases: u16, body: impl FnOnce(&mut Builder<'_, 'src, S>)) -> &mut Self {
+        let starts = self.starts;
+        let p = &mut *self.p;
+        let cut = p.enter_qual(name, false);
+        let mut chunk = p.with_fresh_chunk(|p| {
+            p.in_class_body = true;
+            body(&mut Builder { p, starts });
+        });
+        p.leave_qual(cut);
+        let Ok(ci) = u16::try_from(p.chunk.classes.len()) else {
+            let at = p.last_end;
+            p.reject(at, at, "too many classes in this scope (limit 65535)");
+            return self;
+        };
+        // free names of its methods pass through the class to the function around it
+        let around = p.in_function || p.around_fn;
+        let mut stored = alloc::vec![false; chunk.names.len()];
+        for ins in chunk.instructions.iter().filter(|i| matches!(i.opcode, OpCode::StoreName | OpCode::Phi)) {
+            if let Some(m) = stored.get_mut(ins.operand as usize) { *m = true; }
+        }
+        for ((n, attr), own) in chunk.names.iter().zip(chunk.attr_only_names()).zip(stored) {
+            let inner = chunk.functions.iter().any(|f| f.1.names.contains(n)) || chunk.classes.iter().any(|c| c.names.contains(n));
+            if around && !attr && !own && !n.starts_with('#') && inner { p.chunk.push_name(n); }
+        }
+        (chunk.bases, chunk.qualname) = (bases, p.qualified(name));
+        p.chunk.classes.push(chunk);
+        p.chunk.emit(OpCode::MakeClass, ci);
+        self
+    }
+
     /* drops the value on top */
     pub fn pop(&mut self) -> &mut Self {
         self.p.chunk.emit(OpCode::PopTop, 0);
@@ -288,7 +391,14 @@ impl<'b, 'src, S: Spelling> Builder<'b, 'src, S> {
     }
 
     /* binds `name` to a function of `params` where `x=` takes a default pushed before */
-    pub fn function(&mut self, name: &str, params: &[&str], mut body: impl FnMut(&mut Builder<'_, 'src, S>)) -> &mut Self {
+    pub fn function(&mut self, name: &str, params: &[&str], body: impl FnMut(&mut Builder<'_, 'src, S>)) -> &mut Self {
+        self.closure(name, params, body);
+        self.p.emit_store_new(name);
+        self
+    }
+
+    /* pushes a function named `name` of `params` whose body may build twice */
+    pub fn closure(&mut self, name: &str, params: &[&str], mut body: impl FnMut(&mut Builder<'_, 'src, S>)) -> &mut Self {
         let (params, defaults) = signature(params);
         let starts = self.starts;
         let p = &mut *self.p;
@@ -314,7 +424,6 @@ impl<'b, 'src, S: Spelling> Builder<'b, 'src, S> {
         p.leave_qual(cut);
         (chunk.posonly, chunk.first_line) = (0, first_line);
         p.push_function(params, chunk, defaults, Some(name), OpCode::MakeFunction);
-        p.emit_store_new(name);
         self
     }
 

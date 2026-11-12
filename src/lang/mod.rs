@@ -41,6 +41,10 @@ pub struct Descriptor {
     pub denied_error: &'static str,
     // the class of a host call that reached out and met a failure
     pub failed_error: &'static str,
+    // the exit statuses of a native binary after a compile error and a run error
+    pub statuses: (u8, u8),
+    // the words a native binary gives compile errors where none keeps the engine's report
+    pub diagnosed: Option<fn(&str, &[crate::syntax::diag::Diagnostic]) -> alloc::string::String>,
 }
 
 impl Descriptor {
@@ -48,6 +52,7 @@ impl Descriptor {
     pub const NONE: Descriptor = Descriptor {
         language: "", extension: "", entries: &[""], test_suffix: "", scaffold: "", example_fence: "", manifest_fence: "",
         type_error: "Type", value_error: "Value", runtime_error: "Runtime", denied_error: "Permission", failed_error: "Runtime",
+        statuses: (1, 1), diagnosed: None,
     };
 
     // the entry a new project gets and a directory runs

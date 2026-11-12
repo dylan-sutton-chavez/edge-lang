@@ -61,10 +61,10 @@ mod tests {
     fn the_runtime_names_what_a_source_imports() {
         let kit = crate::kit::tests::kit();
         let mut scan = Scan::new(&kit);
-        let src = "use .util as util\nuse ..up.word as word\nuse json\nuse pkg.mod as part\n// use .commented as nothing\nprint(\"use .quoted as nothing\")\n";
-        let found = scan.relative("https://cdn.test/pkg/greet/0.1.0/lib/main.mini", src).unwrap();
-        assert_eq!(found, ["https://cdn.test/pkg/greet/0.1.0/lib/util.mini", "https://cdn.test/pkg/greet/0.1.0/up/word.mini"]);
-        let found = scan.relative("https://cdn.test/pkg/greet/0.1.0/main.mini", "use .lib.main as main\n").unwrap();
-        assert_eq!(found, ["https://cdn.test/pkg/greet/0.1.0/lib/main.mini"]);
+        let src = "var util = import(\"./util.lox\");\nvar word = import(\"../up/word.lox\");\nimport(\"json\");\nvar part = import(\"pkg/mod.lox\");\n// import(\"./commented.lox\");\nprint \"import ./quoted.lox here\";\n";
+        let found = scan.relative("https://cdn.test/pkg/greet/0.1.0/lib/main.lox", src).unwrap();
+        assert_eq!(found, ["https://cdn.test/pkg/greet/0.1.0/lib/util.lox", "https://cdn.test/pkg/greet/0.1.0/up/word.lox"]);
+        let found = scan.relative("https://cdn.test/pkg/greet/0.1.0/main.lox", "var main = import(\"./lib/main.lox\");\n").unwrap();
+        assert_eq!(found, ["https://cdn.test/pkg/greet/0.1.0/lib/main.lox"]);
     }
 }

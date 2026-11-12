@@ -44,14 +44,14 @@ lib = { git = "https://github.com/dylan-sutton-chavez/edge-lang", branch = "main
 | `cli/` | The `edge` CLI and the kit a CLI of your own is composed from |
 | `js/` | The JavaScript host |
 | `plugin/`, `abi/` | The crate and the wire format for `.wasm` plugins |
-| `examples/` | Runtimes built on the SDK: `mini`, the reference one, `uptime` and `tiny`, and the `net` host module in Rust and TypeScript |
-| `tests/`, `fuzz/`, `bench/` | Engine cases, the fuzzer and the benchmark |
+| `examples/` | `lox`, the language of the book Crafting Interpreters on the SDK, which `edge.wasm` is built from and which passes the book's test suite, and the `net` host module in Rust and TypeScript |
+| `tests/`, `fuzz/`, `bench/` | Engine cases with `tests/rig`, the test table for the grammar pieces Lox has no syntax for, the fuzzer and the benchmark |
 
 Build and test commands for every part are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-Apache 2.0, covering every directory of the repo, so running it, embedding it, building a runtime on it and writing plugins for it need nothing from anyone. See [LICENSE.md](LICENSE.md).
+Apache 2.0, covering every directory of the repo, so running it, embedding it, building a runtime on it and writing plugins for it need nothing from anyone. See [LICENSE.md](LICENSE.md). The book's tests in `examples/lox/tests/suite` and its benchmarks in `bench/cases/book` keep their own MIT license, written beside them.
 
 ## Sponsors
 

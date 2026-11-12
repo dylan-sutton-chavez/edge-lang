@@ -57,19 +57,21 @@ cargo build --release   # the .rlib Rust embedders link
 
 ## Testing
 
-`make test` runs the engine's suites, lib's and those of the runtimes in `examples`. Every case runs under `Limits::sandbox()`, so a budget, memory, or call-depth regression fails instead of hanging. The tests count memory through the same metering allocator as `edge.wasm`, and `tests/memory.rs` checks that a run gives back every byte it took once its VM drops.
+`make test` runs the engine's suites, lib's, the test rig's and Lox's, which runs the book's own test suite on the `lox` binary. Every case runs under `Limits::sandbox()`, so a budget, memory, or call-depth regression fails instead of hanging. The tests count memory through the same metering allocator as `edge.wasm`, and `tests/memory.rs` checks that a run gives back every byte it took once its VM drops.
+
+The engine reaches past what Lox spells, so its cases are written for `tests/rig`, a test runtime whose token table switches on every piece of the grammar kit over every kernel of lib. It is no example and never ships. A behavior Lox shows is tested in Lox, in `examples/lox/tests`.
 
 New behavior comes with cases of three kinds. A case states a rule, so its expected output comes from what the rule gives and never from what the engine printed last, and a quirk a case finds is a bug, fixed with the case that holds it.
 
 | Kind | Holds | Lives in |
 |---|---|---|
-| Engine | A program in mini with what it prints, raises, reads and sends | `tests/cases/vm`, one YAML file per topic, beside `tests/cases/snapshot.json` and `tests/cases/modules.json` |
+| Engine | A program for the test rig with what it prints, raises, reads and sends | `tests/cases/vm`, one YAML file per topic, beside `tests/cases/snapshot.json` and `tests/cases/modules.json` |
 | Native | A kernel of lib called on plain values, with its result or the words of its failure | `lib/tests/cases`, one YAML file per module of lib |
 | Syntax | Sources that compile to one program in several spellings, the tokens they lex to, and what the lexer and the parser report | `tests/cases/syntax` |
 
 A new engine case goes at the end of its topic file, so the places other files name stay put, and an existing case changes only with the rule it states.
 
-`make bench` counts the WebAssembly instructions each case of `tests/cases/vm` executes, so `bench/.snapshot` keeps the same `[instructions, MB]` per case on every machine. The snapshot on `main` holds the numbers of `main`, so the bench of a branch is its comparison with `main`, case by case and in the geometric mean. It fails when the snapshot was taken with another Rust, a case and its entry do not pair, or the mean or a single case moves past its threshold, the cases that grew listed apart from those that shrank. A change that makes cases faster takes the snapshot again with `make bench-update` in the same pull request. That refuses a case that grew past its threshold, and `make bench-accept-slower` takes it too, so a pull request that makes a case slower says so outright.
+`make bench` counts the WebAssembly instructions each Lox program of the bench executes on `edge.wasm`, so `bench/.snapshot` keeps the same `[instructions, MB]` per case on every machine. The snapshot on `main` holds the numbers of `main`, so the bench of a branch is its comparison with `main`, case by case and in the geometric mean. It fails when the snapshot was taken with another Rust, a case and its entry do not pair, or the mean or a single case moves past its threshold, the cases that grew listed apart from those that shrank. A change that makes cases faster takes the snapshot again with `make bench-update` in the same pull request. That refuses a case that grew past its threshold, and `make bench-accept-slower` takes it too, so a pull request that makes a case slower says so outright.
 
 `make bench-layout` runs every case on `edge.wasm` and on a build with its static data shifted, by a padding static of 64 bytes and a global base 64 bytes higher, and fails when a case runs another count on the two. A count that moves with the data means that some lookup follows an address, and such a lookup keys by an id or by the content instead. CI runs it after the bench.
 
@@ -105,7 +107,7 @@ make test-js test-cli test-skill
 
 ## Docs
 
-`docs/` holds MDX pages two folders deep at most, with a numeric prefix on every path segment. Each opens with a frontmatter holding a `title` and a `description` and has one top-level heading, the rules `edge build` holds package docs to. Every example runs: `make test-cli SUITE=docs` runs the `rust` blocks as doctests of the kit, `make test-cli SUITE=network` runs each `$ edge` transcript and each `edge` block against the `output` block after it, with the files that `mini <path>` blocks write, and `make test-js` runs each `js` block in a page against the `text` block after it.
+`docs/` holds MDX pages two folders deep at most, with a numeric prefix on every path segment. Each opens with a frontmatter holding a `title` and a `description` and has one top-level heading, the rules `edge build` holds package docs to. Every example runs: `make test-cli SUITE=docs` runs the `rust` blocks as doctests of the kit, `make test-cli SUITE=network` runs each `$ edge` transcript and each `lox` block against the `output` block after it, with the files that `lox <path>` blocks write, and `make test-js` runs each `js` block in a page against the `text` block after it.
 
 ## CI
 

@@ -95,7 +95,7 @@ mod outbox {
         let mut vm = host.vm(Box::new(|_: &str| {}), Project::disk("", None), None, None).unwrap();
         vm.instance().borrow_mut().accept_sends();
         vm.set_limits(&Limits { memory: 1 << 20, ..Limits::sandbox() }).unwrap();
-        let Status::Error(refused) = vm.start("line = \"x\" * 1000\nfor i in range(5000) {\n    send(\"g\", line)\n}\n", None).unwrap() else { panic!("the outbox took every send") };
+        let Status::Error(refused) = vm.start("var line = \"x\";\nfor (var i = 0; i < 10; i = i + 1) line = line + line;\nfor (var i = 0; i < 5000; i = i + 1) send(\"g\", line);\n", None).unwrap() else { panic!("the outbox took every send") };
         assert!(refused.contains("the messages sent and not yet delivered would pass the 1 MB the run may hold"), "{refused}");
         assert!(vm.take_sends().len() < 1100);
     }

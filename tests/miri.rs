@@ -65,7 +65,7 @@ mod test {
         if let Some(e) = error && lex_errs.iter().any(|l| l.msg.contains(e)) { return Vec::new(); }
         let (mut chunk, errors) = crate::common::parser(src, tokens.into_iter(), Box::new(edge::deps::NoopResolver)).parse();
         if let Some(e) = error && errors.iter().any(|d| d.msg.contains(e)) { return Vec::new(); }
-        edge::code::constant_fold(&mut chunk, mini::FRONT.policy);
+        edge::code::constant_fold(&mut chunk, rig::FRONT.policy);
         let mut vm = crate::common::boot(&chunk, Limits { ops: crate::common::MIRI_OPS, ..Limits::sandbox() });
         vm.input_buffer = texts("input");
         vm.send_hook = Some(|_, _| true);

@@ -323,20 +323,19 @@ version = "0.9.7"
 dependencies = [
  "anyhow",
  "clap",
- "data",
  "edge",
  "flate2",
  "headless_chrome",
  "lib",
- "mini",
+ "lox",
  "mio",
+ "rig",
  "serde",
  "serde_json",
  "serde_yaml_ng",
  "signal-hook",
  "slab",
  "tempfile",
- "tiny",
  "tiny_http",
  "tungstenite",
  "ureq",
@@ -634,13 +633,6 @@ dependencies = [
  "darling_core",
  "quote",
  "syn 2.0.119",
-]
-
-[[package]]
-name = "data"
-version = "0.9.7"
-dependencies = [
- "sha2 0.10.9",
 ]
 
 [[package]]
@@ -1291,6 +1283,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 
 [[package]]
+name = "lox"
+version = "0.9.7"
+dependencies = [
+ "edge",
+ "lib",
+]
+
+[[package]]
 name = "lzma-rust2"
 version = "0.16.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1318,14 +1318,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "57804b2c9b69967f1536a56f86297e367a33b19e98852ed624b84551cdbc0d90"
 dependencies = [
  "rustix",
-]
-
-[[package]]
-name = "mini"
-version = "0.9.7"
-dependencies = [
- "edge",
- "lib",
 ]
 
 [[package]]
@@ -1608,6 +1600,14 @@ name = "regex-syntax"
 version = "0.8.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
+
+[[package]]
+name = "rig"
+version = "0.9.7"
+dependencies = [
+ "edge",
+ "lib",
+]
 
 [[package]]
 name = "ring"
@@ -1990,14 +1990,6 @@ name = "time-core"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e1c906769ad99c88eaa54e728060edef082f8e358ff32030cb7c7d315e81109"
-
-[[package]]
-name = "tiny"
-version = "0.9.7"
-dependencies = [
- "edge",
- "lib",
-]
 
 [[package]]
 name = "tiny_http"

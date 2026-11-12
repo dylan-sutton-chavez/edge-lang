@@ -4,10 +4,10 @@ mod test {
     use edge::lexer::{Spelling, Syntax};
     use edge::value::foreign::Kind;
     use edge::value::{HeapPool, Val, VmErr};
-    use mini::Mini;
-    use mini::natives::{ARRAY, BUFFER, BYTES, CONVERT, DICT, FLOAT, FOLDS, INT, IO, ITER, LIST, LIST_SORT, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
+    use rig::Rig;
+    use rig::natives::{ARRAY, BUFFER, BYTES, CONVERT, DICT, FLOAT, FOLDS, INT, IO, ITER, LIST, LIST_SORT, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
 
-    // mini's natives under a runtime that states other rules for the loop to fold
+    // the rig's natives under a runtime that states other rules for the loop to fold
     static NATIVES: Natives = edge::natives! {
         language: Rules,
         fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, TYPES],
@@ -23,16 +23,16 @@ mod test {
             Float => [FLOAT],
             Range => [RANGE],
         ],
-        types: mini::types::NAMES,
+        types: rig::types::NAMES,
     };
 
     static RUNTIME: Runtime = Runtime::of::<Rules>();
 
-    // mini's names and words with truncated division and only nil and false false
+    // the rig's names and words with truncated division and only nil and false false
     struct Rules;
 
     impl Spelling for Rules {
-        const SYNTAX: Syntax = mini::MINI;
+        const SYNTAX: Syntax = rig::RIG;
         const NATIVES: &'static Natives = &NATIVES;
     }
 
@@ -44,25 +44,25 @@ mod test {
             zero_div: ZeroDiv::Ieee,
             neg_pow: NegPow::Error,
             falsy: Falsy::NIL.or(Falsy::FALSE),
-            ..Mini::POLICY
+            ..Rig::POLICY
         };
         const NATIVES: &'static Natives = &NATIVES;
-        const NAMES: &'static Names = &mini::NAMES;
+        const NAMES: &'static Names = &rig::NAMES;
         const FRONT: Front = Front::spelled::<Rules>();
-        const DESCRIPTOR: &'static Descriptor = &mini::DESCRIPTOR;
-        const WIDE: Option<&'static Kind> = <Mini as Language>::WIDE;
-        const BUILT: edge::value::foreign::Built = <mini::Mini as Language>::BUILT;
+        const DESCRIPTOR: &'static Descriptor = &rig::DESCRIPTOR;
+        const WIDE: Option<&'static Kind> = <Rig as Language>::WIDE;
+        const BUILT: edge::value::foreign::Built = <rig::Rig as Language>::BUILT;
         type Ops = ();
 
-        fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Mode) -> Result<String, VmErr> { <Mini as Language>::show(cx, v, mode) }
+        fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Mode) -> Result<String, VmErr> { <Rig as Language>::show(cx, v, mode) }
 
-        fn format(cx: &mut Cx<'_, '_>, v: Val, spec: &str) -> Result<String, VmErr> { <Mini as Language>::format(cx, v, spec) }
+        fn format(cx: &mut Cx<'_, '_>, v: Val, spec: &str) -> Result<String, VmErr> { <Rig as Language>::format(cx, v, spec) }
 
-        fn handles(heap: &HeapPool, exc: Val, class: Val) -> Result<bool, VmErr> { <Mini as Language>::handles(heap, exc, class) }
+        fn handles(heap: &HeapPool, exc: Val, class: Val) -> Result<bool, VmErr> { <Rig as Language>::handles(heap, exc, class) }
 
-        fn misfit(n: &Native, owner: Option<&str>, m: Misfit<'_>) -> VmErr { <Mini as Language>::misfit(n, owner, m) }
+        fn misfit(n: &Native, owner: Option<&str>, m: Misfit<'_>) -> VmErr { <Rig as Language>::misfit(n, owner, m) }
 
-        fn message(cx: &mut Cx<'_, '_>, e: &EngineError) -> String { <Mini as Language>::message(cx, e) }
+        fn message(cx: &mut Cx<'_, '_>, e: &EngineError) -> String { <Rig as Language>::message(cx, e) }
     }
 
     /* what `src` prints under the runtime or the error that ends it */
@@ -79,7 +79,7 @@ mod test {
     #[test]
     fn a_runtime_that_states_other_rules_runs_a_loop_of_its_own() {
         assert!(!Rules::POLICY.loops_as(&Policy::ENGINE) && !Floors::POLICY.loops_as(&Policy::ENGINE));
-        assert!(Mini::POLICY.loops_as(&Policy::ENGINE));
+        assert!(Rig::POLICY.loops_as(&Policy::ENGINE));
     }
 
     #[test]
@@ -101,7 +101,7 @@ mod test {
         assert!(left.is_empty(), "the folder left {left:?}");
         let folded: Vec<_> = chunk.constants.iter().filter_map(|c| match c { edge::code::Value::Int(i) => Some(*i), _ => None }).collect();
         assert!(folded.contains(&-3) && folded.contains(&-1) && !folded.contains(&-4), "{folded:?}");
-        let (engine, _) = edge::code::compile_as::<Mini>("print(-7 ~/ 2, -7 % 2)\n");
+        let (engine, _) = edge::code::compile_as::<Rig>("print(-7 ~/ 2, -7 % 2)\n");
         let truncated: Vec<_> = engine.constants.iter().filter_map(|c| match c { edge::code::Value::Int(i) => Some(*i), _ => None }).collect();
         assert!(truncated.contains(&-3) && truncated.contains(&-1) && !truncated.contains(&-4), "{truncated:?}");
         let (floors, _) = edge::code::compile_as::<Floors>("print(-7 ~/ 2, -7 % 2)\n");
@@ -151,7 +151,7 @@ mod test {
         assert_eq!(ran("print(all(iter(range(0, 3))), any(iter(range(0, 1))))\nf = all\ng = any\nprint(f(range(0, 3)), g(range(0, 1)), all(range(0, 3)))\n"), "true true\ntrue true true");
     }
 
-    // mini's natives under stricter rules for bools and negative indexes
+    // the rig's natives under stricter rules for bools and negative indexes
     static STRICT_NATIVES: Natives = edge::natives! {
         language: Strict,
         fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, TYPES],
@@ -167,7 +167,7 @@ mod test {
             Float => [FLOAT],
             Range => [RANGE],
         ],
-        types: mini::types::NAMES,
+        types: rig::types::NAMES,
     };
 
     static STRICT: Runtime = Runtime::of::<Strict>();
@@ -175,30 +175,30 @@ mod test {
     struct Strict;
 
     impl Spelling for Strict {
-        const SYNTAX: Syntax = mini::MINI;
+        const SYNTAX: Syntax = rig::RIG;
         const NATIVES: &'static Natives = &STRICT_NATIVES;
     }
 
     impl Language for Strict {
         const VERSION: u32 = 1;
-        const POLICY: Policy = Policy { bool_is_int: false, neg_index: false, ..Mini::POLICY };
+        const POLICY: Policy = Policy { bool_is_int: false, neg_index: false, ..Rig::POLICY };
         const NATIVES: &'static Natives = &STRICT_NATIVES;
-        const NAMES: &'static Names = &mini::NAMES;
+        const NAMES: &'static Names = &rig::NAMES;
         const FRONT: Front = Front::spelled::<Strict>();
-        const DESCRIPTOR: &'static Descriptor = &mini::DESCRIPTOR;
-        const WIDE: Option<&'static Kind> = <Mini as Language>::WIDE;
-        const BUILT: edge::value::foreign::Built = <mini::Mini as Language>::BUILT;
+        const DESCRIPTOR: &'static Descriptor = &rig::DESCRIPTOR;
+        const WIDE: Option<&'static Kind> = <Rig as Language>::WIDE;
+        const BUILT: edge::value::foreign::Built = <rig::Rig as Language>::BUILT;
         type Ops = ();
 
-        fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Mode) -> Result<String, VmErr> { <Mini as Language>::show(cx, v, mode) }
+        fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Mode) -> Result<String, VmErr> { <Rig as Language>::show(cx, v, mode) }
 
-        fn format(cx: &mut Cx<'_, '_>, v: Val, spec: &str) -> Result<String, VmErr> { <Mini as Language>::format(cx, v, spec) }
+        fn format(cx: &mut Cx<'_, '_>, v: Val, spec: &str) -> Result<String, VmErr> { <Rig as Language>::format(cx, v, spec) }
 
-        fn handles(heap: &HeapPool, exc: Val, class: Val) -> Result<bool, VmErr> { <Mini as Language>::handles(heap, exc, class) }
+        fn handles(heap: &HeapPool, exc: Val, class: Val) -> Result<bool, VmErr> { <Rig as Language>::handles(heap, exc, class) }
 
-        fn misfit(n: &Native, owner: Option<&str>, m: Misfit<'_>) -> VmErr { <Mini as Language>::misfit(n, owner, m) }
+        fn misfit(n: &Native, owner: Option<&str>, m: Misfit<'_>) -> VmErr { <Rig as Language>::misfit(n, owner, m) }
 
-        fn message(cx: &mut Cx<'_, '_>, e: &EngineError) -> String { <Mini as Language>::message(cx, e) }
+        fn message(cx: &mut Cx<'_, '_>, e: &EngineError) -> String { <Rig as Language>::message(cx, e) }
     }
 
     /* what `src` prints under the stricter rules */
@@ -253,7 +253,7 @@ mod test {
         for src in refused { assert!(strict(src).starts_with("TypeError"), "{src:?} gave {}", strict(src)); }
     }
 
-    // mini's natives under the remainder and truth rules of the other family
+    // the rig's natives under the remainder and truth rules of the other family
     static FLOORS_NATIVES: Natives = edge::natives! {
         language: Floors,
         fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, TYPES],
@@ -269,39 +269,39 @@ mod test {
             Float => [FLOAT],
             Range => [RANGE],
         ],
-        types: mini::types::NAMES,
+        types: rig::types::NAMES,
     };
 
     static FLOORS: Runtime = Runtime::of::<Floors>();
 
-    // mini flooring its divisions and reading every empty value as false
+    // rig flooring its divisions and reading every empty value as false
     struct Floors;
 
     impl Spelling for Floors {
-        const SYNTAX: Syntax = mini::MINI;
+        const SYNTAX: Syntax = rig::RIG;
         const NATIVES: &'static Natives = &FLOORS_NATIVES;
     }
 
     impl Language for Floors {
         const VERSION: u32 = 1;
-        const POLICY: Policy = Policy { int_mod: IntMod::Floored, falsy: Falsy::NIL.or(Falsy::FALSE).or(Falsy::ZERO).or(Falsy::EMPTY), ..Mini::POLICY };
+        const POLICY: Policy = Policy { int_mod: IntMod::Floored, falsy: Falsy::NIL.or(Falsy::FALSE).or(Falsy::ZERO).or(Falsy::EMPTY), ..Rig::POLICY };
         const NATIVES: &'static Natives = &FLOORS_NATIVES;
-        const NAMES: &'static Names = &mini::NAMES;
+        const NAMES: &'static Names = &rig::NAMES;
         const FRONT: Front = Front::spelled::<Floors>();
-        const DESCRIPTOR: &'static Descriptor = &mini::DESCRIPTOR;
-        const WIDE: Option<&'static Kind> = <Mini as Language>::WIDE;
-        const BUILT: edge::value::foreign::Built = <mini::Mini as Language>::BUILT;
+        const DESCRIPTOR: &'static Descriptor = &rig::DESCRIPTOR;
+        const WIDE: Option<&'static Kind> = <Rig as Language>::WIDE;
+        const BUILT: edge::value::foreign::Built = <rig::Rig as Language>::BUILT;
         type Ops = ();
 
-        fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Mode) -> Result<String, VmErr> { <Mini as Language>::show(cx, v, mode) }
+        fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Mode) -> Result<String, VmErr> { <Rig as Language>::show(cx, v, mode) }
 
-        fn format(cx: &mut Cx<'_, '_>, v: Val, spec: &str) -> Result<String, VmErr> { <Mini as Language>::format(cx, v, spec) }
+        fn format(cx: &mut Cx<'_, '_>, v: Val, spec: &str) -> Result<String, VmErr> { <Rig as Language>::format(cx, v, spec) }
 
-        fn handles(heap: &HeapPool, exc: Val, class: Val) -> Result<bool, VmErr> { <Mini as Language>::handles(heap, exc, class) }
+        fn handles(heap: &HeapPool, exc: Val, class: Val) -> Result<bool, VmErr> { <Rig as Language>::handles(heap, exc, class) }
 
-        fn misfit(n: &Native, owner: Option<&str>, m: Misfit<'_>) -> VmErr { <Mini as Language>::misfit(n, owner, m) }
+        fn misfit(n: &Native, owner: Option<&str>, m: Misfit<'_>) -> VmErr { <Rig as Language>::misfit(n, owner, m) }
 
-        fn message(cx: &mut Cx<'_, '_>, e: &EngineError) -> String { <Mini as Language>::message(cx, e) }
+        fn message(cx: &mut Cx<'_, '_>, e: &EngineError) -> String { <Rig as Language>::message(cx, e) }
     }
 
     /* what `src` prints under the flooring rules */

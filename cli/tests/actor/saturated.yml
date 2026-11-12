@@ -3,28 +3,28 @@ groups:
   dispatcher:
     replicas: 1
     code: |
-      receive()
-      i = 0
-      while i < 3000 {
-          send("workers", text(i))
-          i = i + 1
+      receive();
+      var i = 0;
+      while (i < 3000) {
+          send("workers", text(i));
+          i = i + 1;
       }
     seed:
       - go
   workers:
     replicas: 8
     code: |
-      m = receive()
-      send("sink", m)
+      var m = receive();
+      send("sink", m);
   sink:
     replicas: 1
     code: |
-      n = 0
-      while true {
-          receive()
-          n = n + 1
-          if n == 3000 {
-              print("all", n)
+      var n = 0;
+      while (true) {
+          receive();
+          n = n + 1;
+          if (n == 3000) {
+              print "all " + text(n);
           }
       }
 

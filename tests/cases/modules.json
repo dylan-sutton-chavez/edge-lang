@@ -141,18 +141,18 @@
     "error_span_covers": "\"https://example.com/math.wasm\""
   },
   {
-    "src": "from \"https://example.com/utils.mini\" import normalize\nprint(normalize('x'))",
-    "error": "module 'https://example.com/utils.mini' not found",
-    "error_span_covers": "\"https://example.com/utils.mini\""
+    "src": "from \"https://example.com/utils.rig\" import normalize\nprint(normalize('x'))",
+    "error": "module 'https://example.com/utils.rig' not found",
+    "error_span_covers": "\"https://example.com/utils.rig\""
   },
   {
-    "src": "from \"https://example.com/u.mini#sha256-0000000000000000000000000000000000000000000000000000000000000000\" import f",
-    "error": "module 'https://example.com/u.mini#sha256-0000000000000000000000000000000000000000000000000000000000000000' not found"
+    "src": "from \"https://example.com/u.rig#sha256-0000000000000000000000000000000000000000000000000000000000000000\" import f",
+    "error": "module 'https://example.com/u.rig#sha256-0000000000000000000000000000000000000000000000000000000000000000' not found"
   },
   {
     "src": "from cdn import double\nprint(double(21))",
-    "manifests": { "": { "imports": { "cdn": "https://example.com/helper.mini" } } },
-    "modules": { "https://example.com/helper.mini": { "code": "fn double(n):\n    return n * 2" } },
+    "manifests": { "": { "imports": { "cdn": "https://example.com/helper.rig" } } },
+    "modules": { "https://example.com/helper.rig": { "code": "fn double(n):\n    return n * 2" } },
     "output": ["42"]
   },
   {
@@ -382,7 +382,7 @@
     "error": "unterminated string literal"
   },
   {
-    "src": "from \"./utils.mini#sha256-0000000000000000000000000000000000000000000000000000000000000000\" import f",
+    "src": "from \"./utils.rig#sha256-0000000000000000000000000000000000000000000000000000000000000000\" import f",
     "error": "not found"
   },
   {
@@ -398,22 +398,22 @@
     "src": "from .lib.a import run\nprint(run())",
     "output": ["nested:hi"],
     "modules": {
-      "./lib/a.mini":       { "code": "from helpers import label\n\nfn run():\n    return 'nested:' + label()" },
-      "./lib/helpers.mini": { "code": "fn label():\n    return 'hi'" }
+      "./lib/a.rig":       { "code": "from helpers import label\n\nfn run():\n    return 'nested:' + label()" },
+      "./lib/helpers.rig": { "code": "fn label():\n    return 'hi'" }
     },
     "manifests": {
-      "./lib/": { "imports": { "helpers": "./helpers.mini" } }
+      "./lib/": { "imports": { "helpers": "./helpers.rig" } }
     }
   },
   {
     "src": "from .lib.a import run\nprint(run())",
     "modules": {
-      "./lib/a.mini":  { "code": "from utils import slug\n\nfn run():\n    return slug('x')" },
-      "./util.mini":   { "code": "fn slug(s):\n    return s" }
+      "./lib/a.rig":  { "code": "from utils import slug\n\nfn run():\n    return slug('x')" },
+      "./util.rig":   { "code": "fn slug(s):\n    return s" }
     },
-    "aliases": { "utils": "./util.mini" },
+    "aliases": { "utils": "./util.rig" },
     "manifests": {
-      "./lib/": { "imports": { "other": "./other.mini" } }
+      "./lib/": { "imports": { "other": "./other.rig" } }
     },
     "error": "module 'utils' is not provided by this host and no edge.json declares it"
   },
@@ -421,18 +421,18 @@
     "src": "from .lib.a import run\nprint(run())",
     "output": ["root:hi"],
     "modules": {
-      "./lib/a.mini":  { "code": "from utils import slug\n\nfn run():\n    return 'root:' + slug('hi')" },
-      "./util.mini":   { "code": "fn slug(s):\n    return s" }
+      "./lib/a.rig":  { "code": "from utils import slug\n\nfn run():\n    return 'root:' + slug('hi')" },
+      "./util.rig":   { "code": "fn slug(s):\n    return s" }
     },
-    "aliases": { "utils": "./util.mini" },
+    "aliases": { "utils": "./util.rig" },
     "manifests": {
-      "./lib/": { "imports": { "other": "./other.mini" }, "extends": ".." }
+      "./lib/": { "imports": { "other": "./other.rig" }, "extends": ".." }
     }
   },
   {
     "src": "from .lib.a import run\nprint(run())",
     "modules": {
-      "./lib/a.mini": { "code": "from utils import slug\n\nfn run():\n    return slug('x')" }
+      "./lib/a.rig": { "code": "from utils import slug\n\nfn run():\n    return slug('x')" }
     },
     "error": "module 'utils' is not provided by this host and no edge.json declares it"
   },
@@ -440,24 +440,24 @@
     "src": "from .svc_a.main import handle as ha\nfrom .svc_b.main import handle as hb\nprint(ha())\nprint(hb())",
     "output": ["postgres", "mysql"],
     "modules": {
-      "./svc_a/main.mini":     { "code": "from db import name\n\nfn handle():\n    return name()" },
-      "./svc_a/postgres.mini": { "code": "fn name():\n    return 'postgres'" },
-      "./svc_b/main.mini":     { "code": "from db import name\n\nfn handle():\n    return name()" },
-      "./svc_b/mysql.mini":    { "code": "fn name():\n    return 'mysql'" }
+      "./svc_a/main.rig":     { "code": "from db import name\n\nfn handle():\n    return name()" },
+      "./svc_a/postgres.rig": { "code": "fn name():\n    return 'postgres'" },
+      "./svc_b/main.rig":     { "code": "from db import name\n\nfn handle():\n    return name()" },
+      "./svc_b/mysql.rig":    { "code": "fn name():\n    return 'mysql'" }
     },
     "manifests": {
-      "./svc_a/": { "imports": { "db": "./postgres.mini" } },
-      "./svc_b/": { "imports": { "db": "./mysql.mini" } }
+      "./svc_a/": { "imports": { "db": "./postgres.rig" } },
+      "./svc_b/": { "imports": { "db": "./mysql.rig" } }
     }
   },
   {
     "src": "from .lib.a import run\nprint(run())",
     "modules": {
-      "./lib/a.mini": { "code": "from missing import x\n\nfn run():\n    return x" }
+      "./lib/a.rig": { "code": "from missing import x\n\nfn run():\n    return x" }
     },
     "manifests": {
-      "":       { "imports": { "other": "./util.mini" }, "extends": "./lib" },
-      "./lib/": { "imports": { "other": "./util.mini" }, "extends": ".." }
+      "":       { "imports": { "other": "./util.rig" }, "extends": "./lib" },
+      "./lib/": { "imports": { "other": "./util.rig" }, "extends": ".." }
     },
     "error": "circular extends chain"
   },
@@ -465,32 +465,32 @@
     "src": "from .lib.sub.x import f\nprint(f())",
     "output": ["root-helper"],
     "modules": {
-      "./lib/sub/x.mini": { "code": "from helper import h\n\nfn f():\n    return h()" },
-      "./helper.mini":    { "code": "fn h():\n    return 'root-helper'" }
+      "./lib/sub/x.rig": { "code": "from helper import h\n\nfn f():\n    return h()" },
+      "./helper.rig":    { "code": "fn h():\n    return 'root-helper'" }
     },
-    "aliases": { "helper": "./helper.mini" }
+    "aliases": { "helper": "./helper.rig" }
   },
   {
     "src": "from lib.a import run\nprint(run())",
     "output": ["hi"],
     "modules": {
-      "lib/a.mini": { "code": "fn run():\n    return 'hi'" }
+      "lib/a.rig": { "code": "fn run():\n    return 'hi'" }
     },
     "manifests": { "": { "imports": {} } }
   },
   {
     "src": "from lib.a import run\nprint(run())",
     "modules": {
-      "lib/a.mini": { "code": "fn run():\n    return 'hi'" }
+      "lib/a.rig": { "code": "fn run():\n    return 'hi'" }
     },
-    "error": "no edge.json above '' to resolve 'lib/a.mini'"
+    "error": "no edge.json above '' to resolve 'lib/a.rig'"
   },
   {
     "src": "from .svc.main import handle\nprint(handle())",
     "output": ["root-lib"],
     "modules": {
-      "./svc/main.mini": { "code": "from lib.util import f\n\nfn handle():\n    return f()" },
-      "lib/util.mini":   { "code": "fn f():\n    return 'root-lib'" }
+      "./svc/main.rig": { "code": "from lib.util import f\n\nfn handle():\n    return f()" },
+      "lib/util.rig":   { "code": "fn f():\n    return 'root-lib'" }
     },
     "manifests": { "": { "imports": {} } }
   },
@@ -498,8 +498,8 @@
     "src": "from .lib.a import run\nprint(run())",
     "output": ["up:ok"],
     "modules": {
-      "./lib/a.mini": { "code": "from ..util import f\n\nfn run():\n    return 'up:' + f()" },
-      "./util.mini":  { "code": "fn f():\n    return 'ok'" }
+      "./lib/a.rig": { "code": "from ..util import f\n\nfn run():\n    return 'up:' + f()" },
+      "./util.rig":  { "code": "fn f():\n    return 'ok'" }
     }
   },
   {
@@ -612,13 +612,21 @@
   {"src": "// calls of a module's functions through its attribute, inside and outside a function, and a recursion through one\nimport mb\nfn f(n):\n    return mb.g(n) + mb.h(n)\nfn down(n):\n    return 0 if n == 0 else 1 + mb.back(n - 1, down)\nt = 0\nfor i in range(300):\n    t += f(i) + mb.g(i) + down(20 + i % 5)\nprint(t)", "output": ["186600"], "modules": {"mb": {"code": "fn g(n):\n    return n + 1\nfn h(n):\n    return n * 2\nfn back(n, f):\n    return f(n)"}}},
   {"src": "// a call through a register meeting a function of another module lays its section without the joins its body keeps\nimport m\nfn f0(a, b):\n    v0 = a % 10007\n    v1 = b % 10007\n    v2 = 0\n    xs = [a, b]\n    s = ''\n    for y1 in list(xs):\n        if ((6 - 4) ~/ 1) == abs((v0 ~/ 5)) && v2 > 386:\n                return (v0, v1, v2, v3, len(xs), xs[-1], s)\n        else:\n            v3 = 0 % 10007\n            v1 = (v1 + xs[-1] + len(s)) % 10007\n        for i3 in range(5):\n            s = (s + text(max(v3, 3) % 10))[-12:]\n    return (v0, v1, v2, v3, len(xs), xs[-1], s)\nfn warm(fn, a, b):\n    for j in range(24):\n        fn(a + j, b - j)\n    return fn(a, b)\nfor a, b in [(-77, 7), (-74, -43)]:\n    print('f0', a, b, warm(f0, a, b))\n    print('f0', a, b, warm(m.f0, a, b))", "output": ["f0 -77 7 (-77, 26, 0, 0, 2, 7, \"3333333333\")", "f0 -77 7 (-77, 26, 0, 0, 2, 7, \"3333333333\")", "f0 -74 -43 (-74, -124, 0, 0, 2, -43, \"3333333333\")", "f0 -74 -43 (-74, -124, 0, 0, 2, -43, \"3333333333\")"], "modules": {"m": {"code": "fn f0(a, b):\n    v0 = a % 10007\n    v1 = b % 10007\n    v2 = 0\n    xs = [a, b]\n    s = ''\n    for y1 in list(xs):\n        if ((6 - 4) ~/ 1) == abs((v0 ~/ 5)) && v2 > 386:\n                return (v0, v1, v2, v3, len(xs), xs[-1], s)\n        else:\n            v3 = 0 % 10007\n            v1 = (v1 + xs[-1] + len(s)) % 10007\n        for i3 in range(5):\n            s = (s + text(max(v3, 3) % 10))[-12:]\n    return (v0, v1, v2, v3, len(xs), xs[-1], s)"}}},
   {"src": "// a call through a register meeting a function and a bound method of another module, its return's head laid past the end\nimport m\nfn f0(a, b):\n    xs = [a, b]\n    for y in list(xs):\n        return (a % 7, len(xs), xs[-1])\nfn warm(fn, a, b):\n    for j in range(24):\n        fn(a + j, b - j)\n    return fn(a, b)\nk = m.K()\nfor a, b in [(-77, 7), (-74, -43)]:\n    print(warm(f0, a, b), warm(m.f0, a, b), warm(k.f2, a, b))", "output": ["(0, 2, 7) (0, 2, 7) 3", "(-4, 2, -43) (-4, 2, -43) 3"], "modules": {"m": {"code": "fn f0(a, b):\n    xs = [a, b]\n    for y in list(xs):\n        return (a % 7, len(xs), xs[-1])\nclass K:\n    fn f2(self, a, b):\n        xs = [a, b]\n        if len(xs) < 40:\n            xs.append(a - min(a, 8))\n        return len(xs)"}}},
-  {"src": "from .a.b.c import run\nprint(run())", "output": ["top:x"], "modules": {"./a/b/c.mini": {"code": "from ...top import name\n\nfn run():\n    return 'top:' + name()"}, "./top.mini": {"code": "fn name():\n    return 'x'"}}},
-  {"src": "from .a.b.c.d.e.f import run\nprint(run())", "output": ["top:x"], "modules": {"./a/b/c/d/e/f.mini": {"code": "from ......top import name\n\nfn run():\n    return 'top:' + name()"}, "./top.mini": {"code": "fn name():\n    return 'x'"}}},
+  {"src": "from .a.b.c import run\nprint(run())", "output": ["top:x"], "modules": {"./a/b/c.rig": {"code": "from ...top import name\n\nfn run():\n    return 'top:' + name()"}, "./top.rig": {"code": "fn name():\n    return 'x'"}}},
+  {"src": "from .a.b.c.d.e.f import run\nprint(run())", "output": ["top:x"], "modules": {"./a/b/c/d/e/f.rig": {"code": "from ......top import name\n\nfn run():\n    return 'top:' + name()"}, "./top.rig": {"code": "fn name():\n    return 'x'"}}},
   {"src": "from lib1 import smaller\nfn min(a, b):\n    return 1000\nfn run():\n    t = 0\n    for i in range(300):\n        t += smaller(i)\n    return t\nprint(run(), min(1, 2))", "output": ["1485 1000"], "modules": {"lib1": {"code": "fn smaller(x):\n    return min(x, 5)\nfn show(x):\n    print('lib', x)"}}},
   {"src": "import lib1\nmin = lambda a, b: 1000\nfn run():\n    t = 0\n    for i in range(300):\n        t += lib1.smaller(i)\n    return t\nprint(run())", "output": ["1485"], "modules": {"lib1": {"code": "fn smaller(x):\n    return min(x, 5)\nfn show(x):\n    print('lib', x)"}}},
   {"src": "from lib1 import smaller\nfn run():\n    t = 0\n    for i in range(300):\n        t += smaller(i)\n    return t\nprint(run())\nfn min(a, b):\n    return 1000\nprint(run())", "output": ["1485", "1485"], "modules": {"lib1": {"code": "fn smaller(x):\n    return min(x, 5)\nfn show(x):\n    print('lib', x)"}}},
   {"src": "import n\nfn run():\n    t = 0\n    for i in range(300):\n        t += n.helper(i)\n    return t\nprint(run())", "output": ["1485"], "modules": {"n": {"code": "fn helper(x):\n    return min(x, 5)"}}},
   {"src": "from k import top\nfn max(xs):\n    return 0\nfn sum(xs):\n    return 0\nfn abs(x):\n    return 0\nfn run():\n    t = 0\n    for i in range(300):\n        t += top([i, -1, 2])\n    return t\nprint(run(), max([5]), sum([5]), abs(-5))", "output": ["134853 0 0 0"], "modules": {"k": {"code": "fn top(xs):\n    return max(xs) + sum(xs) + abs(xs[0])"}}},
   {"src": "from lib1 import show\nlines = [0]\nfn print(*args):\n    lines[0] += 1\nfn run():\n    for i in range(20):\n        show(i)\nrun()\nshow(lines[0])", "output": ["lib 0", "lib 1", "lib 2", "lib 3", "lib 4", "lib 5", "lib 6", "lib 7", "lib 8", "lib 9", "lib 10", "lib 11", "lib 12", "lib 13", "lib 14", "lib 15", "lib 16", "lib 17", "lib 18", "lib 19", "lib 0"], "modules": {"lib1": {"code": "fn smaller(x):\n    return min(x, 5)\nfn show(x):\n    print('lib', x)"}}},
-  {"src": "from lib2 import size, least\nfn len(x):\n    return 1000\nfn min(xs, key):\n    return 1000\nfn run():\n    t = 0\n    for i in range(300):\n        t += size([i]) + least([i, -1])\n    return t\nprint(run(), len([]), min([], abs))", "output": ["3 1000 1000"], "modules": {"lib2": {"code": "fn size(x):\n    return len(x)\nfn least(xs):\n    return min(xs, key=abs)"}}}
+  {"src": "from lib2 import size, least\nfn len(x):\n    return 1000\nfn min(xs, key):\n    return 1000\nfn run():\n    t = 0\n    for i in range(300):\n        t += size([i]) + least([i, -1])\n    return t\nprint(run(), len([]), min([], abs))", "output": ["3 1000 1000"], "modules": {"lib2": {"code": "fn size(x):\n    return len(x)\nfn least(xs):\n    return min(xs, key=abs)"}}},
+  {"src": "var m = import(\"m\");\nprint m.double_f(2.5);\nprint m.negate(true);", "output": ["5", "false"], "modules": {"m": {"native": ["double_f", "negate"]}}, "lox": true},
+  {"src": "var m = import(\"m\");\nprint m.add(2, 3);", "modules": {"m": {"native": ["add"]}}, "error": "add: arg 0 not int", "lox": true},
+  {"src": "var m = import(\"m\");\nvar first = m.counter();\nprint m.counter() - first;\nprint m.counter() - first;", "output": ["1", "2"], "modules": {"m": {"native": ["counter"]}}, "lox": true},
+  {"src": "var m = import(\"m\");\nprint m.boom();", "modules": {"m": {"native": ["boom"]}}, "error": "boom from extern", "lox": true},
+  {"src": "var m = import(\"m\");\nprint \"got:\" + m.host_defer();", "modules": {"m": {"native": ["host_defer"]}}, "host_deliveries": [{"id": 0, "value": "dark"}], "output": ["got:dark"], "lox": true},
+  {"src": "fun read() {\n  var u = import(\"u\");\n  return u.read();\n}\nprint read();", "output": ["7"], "modules": {"u": {"code": "var value = 7;\nfun read() { return value; }\n"}}, "lox": true},
+  {"src": "var u = import(\"u\");\nprint u.twice(21);\nprint u.count();\nprint u.calls;", "output": ["42", "1", "0"], "modules": {"u": {"code": "var calls = 0;\nfun twice(x) {\n  calls = calls + 1;\n  return x * 2;\n}\nfun count() { return calls; }\n"}}, "lox": true},
+  {"src": "var m = import(\"missing\");", "error": "not", "lox": true}
 ]

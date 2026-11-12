@@ -127,6 +127,8 @@ crate::ops! {
         Cut               items     1       count     containers  -       -      -      -          -     OpR           -;
         // stores the value under the object and its bounds over that cut
         StoreCut          items     0       count     containers  -       -      -      -          -     OpR           -;
+        // a declared name takes a cell of its own so earlier closures keep theirs
+        FreshCell         0         0       slot      values      -       -      every  -          -     -             -;
     }
 
     // register forms only the VM lowering writes each reading and writing frame slots

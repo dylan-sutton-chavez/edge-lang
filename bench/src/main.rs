@@ -4,11 +4,11 @@ use std::process::Command;
 use std::time::SystemTime;
 use wasmtime::{Config, Engine, Instance, Linker, Memory, Module, Store, TypedFunc};
 
-#[path = "../../tests/cases.rs"]
-mod cases;
-
 const ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
 const SNAPSHOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/.snapshot");
+const CASES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/cases");
+// the sources edge.wasm is built from which it must not predate
+const SOURCES: [&str; 3] = ["src", "lib/src", "examples/lox/src"];
 // only budget-exhausting cases reach this many ops and they end the same way sooner
 const OPS: i64 = 10_000_000;
 // the MB the memory limit counts in
@@ -54,8 +54,7 @@ fn main() {
     let accept_slower = std::env::args().any(|a| a == "--accept-slower");
     let wasm = std::env::var_os("EDGE_WASM").map(PathBuf::from).unwrap_or_else(|| Path::new(ROOT).join("target/wasm32-unknown-unknown/cli/edge.wasm"));
     let built = std::fs::metadata(&wasm).and_then(|m| m.modified()).unwrap_or(SystemTime::UNIX_EPOCH);
-    // the engine the lib and the reference runtime all build into edge.wasm
-    if ["src", "lib/src", "examples/mini/src"].iter().any(|dir| built < newest(&Path::new(ROOT).join(dir))) {
+    if SOURCES.iter().any(|dir| built < newest(&Path::new(ROOT).join(dir))) {
         println!("{} is older than its sources, build it with make wasm-cli", wasm.display());
         std::process::exit(1);
     }
@@ -67,17 +66,24 @@ fn main() {
     let engine = Engine::new(&config).expect("wasmtime engine");
     let module = Module::new(&engine, &bytes).expect("compiling edge.wasm");
 
-    let cases = cases::vm_cases(Path::new(ROOT));
-    println!("tests/cases/vm  {} cases", cases.len());
+    let mut cases = Vec::new();
+    programs(Path::new(CASES), &mut cases);
+    cases.sort();
+    println!("bench/cases  {} programs", cases.len());
     // a build with its static data shifted must count every case alike
     if let Some(other) = std::env::args().skip_while(|a| a != "--layout").nth(1) {
         return layout(&engine, &module, Path::new(&other), &cases);
     }
-    let ran: Vec<(String, (u64, u64))> = cases.iter().map(|case| (cases::key(case), run(&engine, &module, case))).collect();
-    let measured = ran.iter().map(|(k, (ops, peak))| (k.clone(), (*ops as f64, (*peak as f64 / MB * 1e6).round() / 1e6))).collect();
+    let ran: Vec<(String, (u64, u64, bool))> = cases.iter().map(|(key, src)| (key.clone(), measured(&engine, &module, src))).collect();
+    let stopped: Vec<String> = ran.iter().filter(|(_, r)| !r.2).map(|(k, _)| k.clone()).collect();
+    if !stopped.is_empty() {
+        annotate("error", &format!("{} programs stop before their end, so they would measure an error or the budget.{}", stopped.len(), list(&stopped)));
+        std::process::exit(1);
+    }
+    let measured = ran.iter().map(|(k, (ops, peak, _))| (k.clone(), (*ops as f64, (*peak as f64 / MB * 1e6).round() / 1e6))).collect();
     let rustc = Command::new("rustc").arg("--version").current_dir(ROOT).output().map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_default();
     let now = Snapshot { rustc, threshold: 0.005, case_threshold: 0.05, memory_floor: 0.004, cases: measured };
-    let sources: BTreeMap<String, &str> = cases.iter().map(|c| (cases::key(c), c["src"].as_str().unwrap_or(""))).collect();
+    let sources: BTreeMap<String, &str> = cases.iter().map(|(k, src)| (k.clone(), src.as_str())).collect();
 
     // a missing snapshot is taken unchecked and a broken one fails unless `--update` replaces it
     let last = match std::fs::read_to_string(SNAPSHOT) {
@@ -147,9 +153,9 @@ fn compare(m: &Measure, last: &Snapshot, now: &Snapshot, sources: &BTreeMap<Stri
         picked.iter().map(|&&(k, l, n)| moved_line(m, sources, k, l, n)).collect::<Vec<_>>()
     };
     if change > last.threshold {
-        failures.push(format!("tests/cases/vm {}, {} {unit} against {} {unit}, {:+.2}% across {} cases. Fix it, or accept it with --update if it is intended. {}{}", m.grew, amount(total, p), amount(before, p), change * 100.0, paired.len(), m.most_grown, list(&moved(true))));
+        failures.push(format!("bench/cases {}, {} {unit} against {} {unit}, {:+.2}% across {} cases. Fix it, or accept it with --update if it is intended. {}{}", m.grew, amount(total, p), amount(before, p), change * 100.0, paired.len(), m.most_grown, list(&moved(true))));
     } else if change < -last.threshold {
-        failures.push(format!("tests/cases/vm {}, {} {unit} against {} {unit}, {:+.2}%. The snapshot no longer matches the code, run --update and commit it with the change. {}{}", m.shrank, amount(total, p), amount(before, p), change * 100.0, m.most_shrunk, list(&moved(false))));
+        failures.push(format!("bench/cases {}, {} {unit} against {} {unit}, {:+.2}%. The snapshot no longer matches the code, run --update and commit it with the change. {}{}", m.shrank, amount(total, p), amount(before, p), change * 100.0, m.most_shrunk, list(&moved(false))));
     }
     // a case at 0 has no ratio so leaving or reaching 0 sorts it first
     let by = |&(_, l, n): &(&String, f64, f64)| if l > 0.0 && n > 0.0 { (n / l).ln().abs() } else { f64::INFINITY };
@@ -167,7 +173,7 @@ fn compare(m: &Measure, last: &Snapshot, now: &Snapshot, sources: &BTreeMap<Stri
     }
 
     // printed even on a failure so new cases never hide how existing ones moved
-    annotate("notice", &format!("tests/cases/vm {} {} {unit} {}, {:+.2}% against the snapshot across {} cases, the band is ±{:.1}%.", m.total.0, amount(total, p), m.total.1, change * 100.0, paired.len(), last.threshold * 100.0));
+    annotate("notice", &format!("bench/cases {} {} {unit} {}, {:+.2}% against the snapshot across {} cases, the band is ±{:.1}%.", m.total.0, amount(total, p), m.total.1, change * 100.0, paired.len(), last.threshold * 100.0));
     (failures, grew.len())
 }
 
@@ -209,9 +215,9 @@ fn annotate(level: &str, message: &str) {
 }
 
 /* each case on edge.wasm and on the shifted build `other` which must count it alike */
-fn layout(engine: &Engine, module: &Module, other: &Path, cases: &[serde_json::Value]) {
+fn layout(engine: &Engine, module: &Module, other: &Path, cases: &[(String, String)]) {
     let built = std::fs::metadata(other).and_then(|m| m.modified()).unwrap_or(SystemTime::UNIX_EPOCH);
-    if ["src", "lib/src", "examples/mini/src"].iter().any(|dir| built < newest(&Path::new(ROOT).join(dir))) {
+    if SOURCES.iter().any(|dir| built < newest(&Path::new(ROOT).join(dir))) {
         println!("{} is older than its sources, build it with make bench-layout", other.display());
         std::process::exit(1);
     }
@@ -220,9 +226,9 @@ fn layout(engine: &Engine, module: &Module, other: &Path, cases: &[serde_json::V
     let mut apart: Vec<(String, u64, u64)> = std::thread::scope(|s| {
         let workers: Vec<_> = (0..LAYOUT_THREADS).map(|_| s.spawn(|| {
             let mut found = Vec::new();
-            while let Some(case) = cases.get(next.fetch_add(1, std::sync::atomic::Ordering::Relaxed)) {
-                let (a, b) = (run(engine, module, case).0, run(engine, &shifted, case).0);
-                if a != b { found.push((cases::key(case), a, b)); }
+            while let Some((key, src)) = cases.get(next.fetch_add(1, std::sync::atomic::Ordering::Relaxed)) {
+                let (a, b) = (run(engine, module, src).0, run(engine, &shifted, src).0);
+                if a != b { found.push((key.clone(), a, b)); }
             }
             found
         })).collect();
@@ -235,7 +241,7 @@ fn layout(engine: &Engine, module: &Module, other: &Path, cases: &[serde_json::V
     if apart.is_empty() {
         return println!("  every case runs as many instructions with its static data shifted");
     }
-    let sources: BTreeMap<String, &str> = cases.iter().map(|c| (cases::key(c), c["src"].as_str().unwrap_or(""))).collect();
+    let sources: BTreeMap<String, &str> = cases.iter().map(|(k, src)| (k.clone(), src.as_str())).collect();
     let lines: Vec<String> = apart.iter().map(|(k, a, b)| format!("{k} {} {} to {} instructions ({:+})", source(&sources, k), amount(*a as f64, 0), amount(*b as f64, 0), *b as i64 - *a as i64)).collect();
     annotate("error", &format!("{} cases run another count once static data shifts, so a lookup follows an address.{}", apart.len(), list(&lines)));
     // the annotation names a few and the log every one
@@ -243,10 +249,22 @@ fn layout(engine: &Engine, module: &Module, other: &Path, cases: &[serde_json::V
     std::process::exit(1);
 }
 
-/* the instructions one case runs on a fresh instance and its memory peak in bytes */
-fn run(engine: &Engine, module: &Module, case: &serde_json::Value) -> (u64, u64) {
-    let texts = |field: &str| case[field].as_array().map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect::<Vec<_>>()).unwrap_or_default();
-    let (input, events) = (texts("input"), [texts("events"), texts("interactive_events")].concat());
+/* every program under `dir` keyed by its path below the cases */
+fn programs(dir: &Path, out: &mut Vec<(String, String)>) {
+    for entry in std::fs::read_dir(dir).expect("reading bench/cases").flatten() {
+        let path = entry.path();
+        if path.is_dir() { programs(&path, out); continue; }
+        if path.extension().is_none_or(|x| x != "lox") { continue; }
+        let key = path.strip_prefix(CASES).unwrap_or(&path).with_extension("").to_string_lossy().replace('\\', "/");
+        out.push((key, std::fs::read_to_string(&path).expect("reading a bench program")));
+    }
+}
+
+/* the instructions one program runs on a fresh instance and its memory peak in bytes */
+fn run(engine: &Engine, module: &Module, src: &str) -> (u64, u64) { let (ops, peak, _) = measured(engine, module, src); (ops, peak) }
+
+/* `run` and whether the program ended with no error or budget stopping it */
+fn measured(engine: &Engine, module: &Module, src: &str) -> (u64, u64, bool) {
     let mut store = Store::new(engine, ());
     store.set_fuel(u64::MAX).expect("fuel is enabled");
     let mut linker = Linker::new(engine);
@@ -254,33 +272,18 @@ fn run(engine: &Engine, module: &Module, case: &serde_json::Value) -> (u64, u64)
     let inst = linker.instantiate(&mut store, module).expect("instantiating edge.wasm");
     let memory = inst.get_memory(&mut store, "memory").expect("edge.wasm exports memory");
     func::<(i64, i64), ()>(&inst, &mut store, "set_limits").call(&mut store, (0, OPS)).ok();
-    if !input.is_empty() {
-        let (ptr, len) = stage(&inst, &mut store, memory, &input.join("\n"));
-        func::<(u32, u32), ()>(&inst, &mut store, "set_input").call(&mut store, (ptr, len)).ok();
-    }
-    let (ptr, len) = stage(&inst, &mut store, memory, case["src"].as_str().unwrap_or(""));
-    let (resume, push) = (func::<(), u32>(&inst, &mut store, "run_resume"), func::<(u32, u32), i32>(&inst, &mut store, "run_push_event"));
-    let mut events = events.iter();
+    let (ptr, len) = stage(&inst, &mut store, memory, src);
+    let resume = func::<(), u32>(&inst, &mut store, "run_resume");
 
     let before = store.get_fuel().unwrap_or(0);
     let mut status = func::<(u32, u32), u32>(&inst, &mut store, "run_start").call(&mut store, (ptr, len));
-    // preempts resume and event waits take the next event and anything else ends the run
+    // a preempt resumes and anything else ends the run
     while let Ok(s) = status {
-        status = match s >> 29 {
-            7 => resume.call(&mut store, ()),
-            3 => match events.next() {
-                Some(event) => {
-                    let (ptr, len) = stage(&inst, &mut store, memory, event);
-                    push.call(&mut store, (ptr, len)).ok();
-                    resume.call(&mut store, ())
-                }
-                None => break,
-            },
-            _ => break,
-        };
+        if s >> 29 != 7 { break; }
+        status = resume.call(&mut store, ());
     }
     let ran = before - store.get_fuel().unwrap_or(0);
-    (ran, func::<(), u64>(&inst, &mut store, "memory_peak").call(&mut store, ()).unwrap_or(0))
+    (ran, func::<(), u64>(&inst, &mut store, "memory_peak").call(&mut store, ()).unwrap_or(0), matches!(status, Ok(s) if s >> 29 == 0))
 }
 
 fn func<P: wasmtime::WasmParams, R: wasmtime::WasmResults>(inst: &Instance, store: &mut Store<()>, name: &str) -> TypedFunc<P, R> {

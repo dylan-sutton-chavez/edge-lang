@@ -24,7 +24,7 @@ mod test {
             let (tokens, _) = lex(src);
             let (mut chunk, errors) = parser(src, tokens.into_iter(), Box::new(NoopResolver)).parse();
             if !errors.is_empty() { continue; }
-            edge::code::constant_fold(&mut chunk, mini::FRONT.policy);
+            edge::code::constant_fold(&mut chunk, rig::FRONT.policy);
             let mut vm = crate::common::boot(&chunk, crate::common::corpus_limits());
             vm.input_buffer = input.clone();
             vm.send_hook = Some(accept_send);
@@ -40,7 +40,7 @@ mod test {
                     Ok(_) => break None,
                 }
             };
-            let shown = error.as_ref().map(|e| vm.render_error(e, src, Some("main.mini")));
+            let shown = error.as_ref().map(|e| vm.render_error(e, src, Some("main.rig")));
             let ran = Ran { output: vm.output.clone(), error: error.map(|e| e.to_string()), pos: vm.error_pos(), shown, parked, stacked: vm.stack_work().0 };
             stacked += ran.stacked;
             listed.push_str(&format!("{}\t{}\t{}\t{:?}\n", crate::cases::key(case), u8::from(ran.parked), chunk.instructions.len(), src.chars().take(60).collect::<String>()));
@@ -75,7 +75,7 @@ mod test {
             let (tokens, _) = lex(src);
             let (mut chunk, errors) = parser(src, tokens.into_iter(), Box::new(NoopResolver)).parse();
             if !errors.is_empty() { continue; }
-            edge::code::constant_fold(&mut chunk, mini::FRONT.policy);
+            edge::code::constant_fold(&mut chunk, rig::FRONT.policy);
             // the and and or the rows table leaves out never reach compiled code
             each_chunk(&chunk, &mut |c| folded += c.instructions.iter().filter(|i| matches!(i.opcode, edge::code::OpCode::And | edge::code::OpCode::Or)).count());
             let mut vm = crate::common::boot(&chunk, crate::common::corpus_limits());

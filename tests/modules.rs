@@ -57,6 +57,9 @@ mod test {
         /* deliveries by call id that simulate the host resolving calls out of order */
         #[serde(default)]
         host_deliveries: Vec<Delivery>,
+        // a program in Lox whose modules a call to import names
+        #[serde(default)]
+        lox: bool,
     }
 
     #[derive(serde::Deserialize)]
@@ -116,8 +119,15 @@ mod test {
         for case in cases {
             let resolver = Box::new(build_resolver(&case.modules, &case.aliases, &case.manifests));
             // the module system reads its cases in the legacy fixture which still spells every import form
-            let (tokens, _lex_errs) = edge::lexer::lex_as::<crate::words::Legacy>(&case.src);
-            let (chunk, parse_errs) = edge::code::Parser::<_, crate::words::Legacy>::spelled(&case.src, tokens.into_iter(), resolver).parse();
+            let (chunk, parse_errs) = if case.lox {
+                match lox::FRONT.program(&case.src, resolver) {
+                    Ok(chunk) => (std::rc::Rc::unwrap_or_clone(chunk), Vec::new()),
+                    Err(errs) => (Default::default(), errs),
+                }
+            } else {
+                let (tokens, _lex_errs) = edge::lexer::lex_as::<crate::words::Legacy>(&case.src);
+                edge::code::Parser::<_, crate::words::Legacy>::spelled(&case.src, tokens.into_iter(), resolver).parse()
+            };
 
             // parse errors match the `error` substring and an optional span anchor
             if !parse_errs.is_empty() {
@@ -137,7 +147,7 @@ mod test {
             if let Some(n) = case.expect_externs { assert_eq!(chunk.extern_table.len(), n, "extern_table size mismatch on {:?}", case.src); }
             if let Some(n) = case.expect_functions { assert_eq!(chunk.functions.len(), n, "functions count mismatch on {:?}", case.src); }
 
-            let mut vm = crate::common::boot(&chunk, edge::embed::Limits::sandbox());
+            let mut vm = if case.lox { edge::embed::VM::with_runtime(&lox::RUNTIME, &chunk, edge::embed::Limits::sandbox()) } else { crate::common::boot(&chunk, edge::embed::Limits::sandbox()) };
             vm.input_buffer = case.input.clone();
             // each PendingHostCall resumes with the next entry of `host_deliveries`
             let mut hr_idx = 0usize;
@@ -183,7 +193,7 @@ mod test {
     #[test]
     fn an_import_cycle_through_a_host_resolver_reports_where_it_closes() {
         let mut host = Kept::default();
-        for (spec, code) in [("./a.mini", "use .b\nx = 1\n"), ("./b.mini", "use .a\ny = 2\n"), ("./c.mini", "use .c\nz = 3\n")] {
+        for (spec, code) in [("./a.rig", "use .b\nx = 1\n"), ("./b.rig", "use .a\ny = 2\n"), ("./c.rig", "use .c\nz = 3\n")] {
             edge::deps::DepHost::deps(&mut host, |d| d.register(spec.into(), edge::deps::ModuleEntry::Code(code.into())));
         }
         for src in ["use .a\nprint(a.x)\n", "use .c\nprint(c.z)\n"] {
@@ -207,7 +217,7 @@ mod test {
         let mut resolver = TestResolver::new();
         for i in 0..LEVELS {
             let code = if i + 1 < LEVELS { format!("use m{}\nuse m{} as again\nv = m{}.v + again.v\n", i + 1, i + 1, i + 1) } else { "v = 1\n".to_string() };
-            resolver = resolver.with_alias(&format!("m{i}"), &format!("m{i}.mini")).with_code(&format!("m{i}.mini"), &code);
+            resolver = resolver.with_alias(&format!("m{i}"), &format!("m{i}.rig")).with_code(&format!("m{i}.rig"), &code);
         }
         let start = std::time::Instant::now();
         let (chunk, errs) = compiled_with("use m0\nprint(m0.v)\n", resolver);
@@ -230,7 +240,7 @@ mod test {
             let mut resolver = TestResolver::new();
             for i in 0..n {
                 let code = if i + 1 < n { format!("use .c{0} as c{0}\nx = c{0}.x\n", i + 1) } else { format!("x = 0\n{deepest}") };
-                resolver = resolver.with_code(&format!("./c{i}.mini"), &code);
+                resolver = resolver.with_code(&format!("./c{i}.rig"), &code);
             }
             resolver
         }

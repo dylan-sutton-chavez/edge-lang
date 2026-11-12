@@ -19,7 +19,7 @@ async function parked(engine) {
 Deno.test("snapshot: a run parked on receive() restores from its blob and takes other events", async () => {
     const engine = await boot("restore");
     const lines = [];
-    const src = "history = []\nwhile true {\n    m = receive()\n    if m == \"stop\" {\n        break\n    }\n    history.append(m)\n}\nprint(\"|\".join(history))";
+    const src = "var history = \"\";\nvar m = receive();\nwhile (m != \"stop\") {\n    if (history == \"\") history = m; else history = history + \"|\" + m;\n    m = receive();\n}\nprint history;\n";
     const running = engine.run({ src }, (t) => lines.push(t));
     await parked(engine);
     engine.pushEvent("a");
@@ -41,7 +41,7 @@ Deno.test("snapshot: a run parked on receive() restores from its blob and takes 
 
 Deno.test("snapshot: a blob whose source runs past its end is refused before anything boots", async () => {
     const engine = await boot("refused");
-    const running = engine.run({ src: "receive()" }, () => {});
+    const running = engine.run({ src: "receive();" }, () => {});
     await parked(engine);
     const blob = engine.saveState();
     engine.pushEvent("done");
@@ -72,26 +72,26 @@ async function foreign(blob, source) {
 
 Deno.test("snapshot: a blob of another runtime is refused before its source parses and runs nothing", async () => {
     const engine = await boot("foreign");
-    const running = engine.run({ src: "print(\"phase1\")\nreceive()\nprint(\"resumed\")" }, () => {});
+    const running = engine.run({ src: "print \"phase1\";\nreceive();\nprint \"resumed\";" }, () => {});
     await parked(engine);
     const blob = engine.saveState();
     engine.pushEvent("done");
     await running;
-    // a flow of the tiny runtime which mini could never parse
+    // a source in a language Lox could never parse
     const lines = [];
     const refused = await engine.restoreState({ blob: await foreign(blob, "from: input\ntotal:\n  count:\n"), onLine: (t) => lines.push(t) }).then(({ out }) => out, (e) => String(e));
     if (!refused.includes("snapshot was saved under another runtime")) throw new Error(`a foreign blob gave ${JSON.stringify(refused)}`);
     if (lines.length > 0) throw new Error(`a foreign blob printed ${JSON.stringify(lines)}`);
 });
 
-Deno.test("snapshot: a restored run names its script and imports from beside it", async () => {
+Deno.test("snapshot: a restored run imports from beside its script and fails where the script does", async () => {
     const dir = await Deno.makeTempDir();
     await Deno.mkdir(`${dir}/sub`);
-    await Deno.writeTextFile(`${dir}/sub/helper.mini`, "fn twice(x) {\n    return x + x\n}\n");
-    const src = "use .helper as helper\ntwice = helper.twice\nmsg = receive()\nprint(twice(msg))\nthrow ValueError(msg)\n";
+    await Deno.writeTextFile(`${dir}/sub/helper.lox`, "fun twice(x) {\n    return x + x;\n}\n");
+    const src = "var helper = import(\"./helper.lox\");\nvar msg = receive();\nprint helper.twice(msg);\n\nprint -msg;\n";
     const engine = await import(new URL("../src/worker/engine.ts?snapshot=entry", import.meta.url).href);
     await engine.load({ wasmUrl: new URL("target/wasm32-unknown-unknown/release/edge.wasm", ROOT).href, baseUrl: `file://${dir}/` });
-    const running = engine.run({ src, entry: "sub/main.mini" }, () => {});
+    const running = engine.run({ src, entry: "sub/main.lox" }, () => {});
     await parked(engine);
     const blob = engine.saveState();
     engine.pushEvent("x");
@@ -104,5 +104,5 @@ Deno.test("snapshot: a restored run names its script and imports from beside it"
     const { out } = await resumed;
     await Deno.remove(dir, { recursive: true });
     if (lines.join("") !== "abab\n") throw new Error(`the restored run printed ${JSON.stringify(lines.join(""))}`);
-    if (!out.includes("ValueError: ab") || !out.includes("sub/main.mini:5")) throw new Error(`the restored run failed with ${JSON.stringify(out)}`);
+    if (out !== "Operand must be a number.\n[line 5] in script") throw new Error(`the restored run failed with ${JSON.stringify(out)}`);
 });

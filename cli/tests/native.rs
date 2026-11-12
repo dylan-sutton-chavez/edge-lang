@@ -11,10 +11,10 @@ edge::allocator!();
 // the variable that makes this binary the CLI for one run of a case
 const AS_CLI: &str = "EDGE_AS_NATIVE";
 
-/* the edge composition's run and test over mini built into this binary with no wasm between */
+/* the edge composition's run and test over lox built into this binary */
 fn kit() -> Kit {
-    Kit::new("edge", env!("CARGO_PKG_VERSION"), Runtime::native(&mini::RUNTIME))
-        .title(format!("The Edge Lang developer CLI for {} run natively", mini::DESCRIPTOR.language))
+    Kit::new("edge", env!("CARGO_PKG_VERSION"), Runtime::native(&lox::RUNTIME))
+        .title(format!("The Edge Lang developer CLI for {} run natively", lox::DESCRIPTOR.language))
         .command(run::Run)
         .command(test::Test)
         .fields(manifest::FIELDS)

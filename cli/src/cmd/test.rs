@@ -209,13 +209,13 @@ mod tests {
     #[test]
     fn discovery_skips_dist_and_hidden() {
         let dir = tempfile::tempdir().unwrap();
-        for f in ["a_test.mini", "sub/b_test.mini", "dist/c_test.mini", ".git/d_test.mini", "util.mini"] {
+        for f in ["a_test.lox", "sub/b_test.lox", "dist/c_test.lox", ".git/d_test.lox", "util.lox"] {
             let p = dir.path().join(f);
             std::fs::create_dir_all(p.parent().unwrap()).unwrap();
             std::fs::write(&p, "").unwrap();
         }
-        let names: Vec<_> = discover_tests(dir.path(), "_test.mini").iter().map(|p| p.strip_prefix(dir.path()).unwrap().to_str().unwrap().to_string()).collect();
-        assert_eq!(names, ["a_test.mini", "sub/b_test.mini"]);
+        let names: Vec<_> = discover_tests(dir.path(), "_test.lox").iter().map(|p| p.strip_prefix(dir.path()).unwrap().to_str().unwrap().to_string()).collect();
+        assert_eq!(names, ["a_test.lox", "sub/b_test.lox"]);
     }
 
     #[cfg(unix)]
@@ -223,10 +223,10 @@ mod tests {
     fn a_link_back_up_the_tree_is_walked_once() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir(dir.path().join("sub")).unwrap();
-        std::fs::write(dir.path().join("sub/a_test.mini"), "").unwrap();
+        std::fs::write(dir.path().join("sub/a_test.lox"), "").unwrap();
         std::os::unix::fs::symlink("..", dir.path().join("sub/up")).unwrap();
         std::os::unix::fs::symlink(".", dir.path().join("loop")).unwrap();
-        let names: Vec<_> = discover_tests(dir.path(), "_test.mini").iter().map(|p| p.strip_prefix(dir.path()).unwrap().to_str().unwrap().to_string()).collect();
-        assert_eq!(names, ["sub/a_test.mini"]);
+        let names: Vec<_> = discover_tests(dir.path(), "_test.lox").iter().map(|p| p.strip_prefix(dir.path()).unwrap().to_str().unwrap().to_string()).collect();
+        assert_eq!(names, ["sub/a_test.lox"]);
     }
 }

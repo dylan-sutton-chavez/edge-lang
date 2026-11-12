@@ -121,7 +121,7 @@ mod test {
         Ok(Val::int((x - ox) * (x - ox) + (y - oy) * (y - oy)).into())
     }
 
-    /* `types` without `name` so a runtime can leave one of mini's classes unlisted */
+    /* `types` without `name` so a runtime can leave one of the rig's classes unlisted */
     const fn without<const N: usize>(types: &[&'static str], name: &str) -> [&'static str; N] {
         let mut out = [""; N];
         let (mut i, mut k) = (0, 0);
@@ -132,21 +132,21 @@ mod test {
         out
     }
 
-    const IO: [Native; mini::natives::IO.len()] = renamed(mini::natives::IO, "print", "println");
-    const ITER: [Native; mini::natives::ITER.len()] = renamed(mini::natives::ITER, "len", "size");
+    const IO: [Native; rig::natives::IO.len()] = renamed(rig::natives::IO, "print", "println");
+    const ITER: [Native; rig::natives::ITER.len()] = renamed(rig::natives::ITER, "len", "size");
     const OWN: &[Native] = &[Native::new("point", Sig::exact(0), point), Native::new("pair", Sig::exact(0), pair), Native::new("clash", Sig::exact(0), clash)];
     const POINT_METHODS: &[Native] = &[Native::new("squared", Sig::range(0, 1), squared)];
 
-    // mini's types but the assert class which its names still give
-    const TYPES: [&str; mini::types::NAMES.len() - 1] = without(mini::types::NAMES, "CheckError");
+    // the rig's types but the assert class which its names still give
+    const TYPES: [&str; rig::types::NAMES.len() - 1] = without(rig::types::NAMES, "CheckError");
 
     static NATIVES: Natives = edge::natives! {
         language: Renamed,
-        fns: [&IO, &ITER, mini::natives::NEXT, mini::natives::NUM, mini::natives::FOLDS, mini::natives::CONVERT, mini::natives::BYTES, mini::natives::SORT, mini::natives::TYPES, OWN],
+        fns: [&IO, &ITER, rig::natives::NEXT, rig::natives::NUM, rig::natives::FOLDS, rig::natives::CONVERT, rig::natives::BYTES, rig::natives::SORT, rig::natives::TYPES, OWN],
         methods: [
-            Str => [mini::natives::STR],
-            List => [mini::natives::LIST, mini::natives::LIST_SORT],
-            Dict => [mini::natives::DICT],
+            Str => [rig::natives::STR],
+            List => [rig::natives::LIST, rig::natives::LIST_SORT],
+            Dict => [rig::natives::DICT],
         ],
         foreign: [POINT => [POINT_METHODS]],
         types: &TYPES,
@@ -154,34 +154,34 @@ mod test {
 
     static RUNTIME: Runtime = Runtime::of::<Renamed>();
 
-    // mini's table read by a runtime that names print and len otherwise
+    // the rig's table read by a runtime that names print and len otherwise
     struct Renamed;
     impl Spelling for Renamed {
-        const SYNTAX: Syntax = mini::MINI;
+        const SYNTAX: Syntax = rig::RIG;
         const NATIVES: &'static Natives = &NATIVES;
     }
 
-    // mini's rules with keys read as fields of a map and tighter limits
+    // the rig's rules with keys read as fields of a map and tighter limits
     impl Language for Renamed {
         const VERSION: u32 = 1;
-        const POLICY: Policy = Policy { map_fields: true, recursion_limit: 50, max_int_digits: Some(10), ..mini::Mini::POLICY };
+        const POLICY: Policy = Policy { map_fields: true, recursion_limit: 50, max_int_digits: Some(10), ..rig::Rig::POLICY };
         const NATIVES: &'static Natives = &NATIVES;
-        const NAMES: &'static Names = &mini::NAMES;
+        const NAMES: &'static Names = &rig::NAMES;
         const FRONT: Front = Front::spelled::<Renamed>();
-        const DESCRIPTOR: &'static Descriptor = &mini::DESCRIPTOR;
-        const WIDE: Option<&'static Kind> = Some(&mini::lang::WIDE);
-        const BUILT: edge::value::foreign::Built = <mini::Mini as Language>::BUILT;
+        const DESCRIPTOR: &'static Descriptor = &rig::DESCRIPTOR;
+        const WIDE: Option<&'static Kind> = Some(&rig::lang::WIDE);
+        const BUILT: edge::value::foreign::Built = <rig::Rig as Language>::BUILT;
         type Ops = ();
 
-        fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Mode) -> Result<String, VmErr> { lib::fmt::render::hook::<mini::Mini>(cx, v, mode) }
+        fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Mode) -> Result<String, VmErr> { lib::fmt::render::hook::<rig::Rig>(cx, v, mode) }
 
-        fn format(cx: &mut Cx<'_, '_>, v: Val, spec: &str) -> Result<String, VmErr> { lib::fmt::spec::hook::<mini::Mini>(cx, v, spec) }
+        fn format(cx: &mut Cx<'_, '_>, v: Val, spec: &str) -> Result<String, VmErr> { lib::fmt::spec::hook::<rig::Rig>(cx, v, spec) }
 
-        fn handles(heap: &HeapPool, exc: Val, class: Val) -> Result<bool, VmErr> { lib::types::match_exc::<mini::Mini>(heap, exc, class) }
+        fn handles(heap: &HeapPool, exc: Val, class: Val) -> Result<bool, VmErr> { lib::types::match_exc::<rig::Rig>(heap, exc, class) }
 
-        fn misfit(n: &Native, owner: Option<&str>, m: Misfit<'_>) -> VmErr { <mini::Mini as edge::lang::Language>::misfit(n, owner, m) }
+        fn misfit(n: &Native, owner: Option<&str>, m: Misfit<'_>) -> VmErr { <rig::Rig as edge::lang::Language>::misfit(n, owner, m) }
 
-        fn message(cx: &mut Cx<'_, '_>, e: &edge::lang::EngineError) -> String { <mini::Mini as Language>::message(cx, e) }
+        fn message(cx: &mut Cx<'_, '_>, e: &edge::lang::EngineError) -> String { <rig::Rig as Language>::message(cx, e) }
     }
 
     fn compiled(src: &str) -> SSAChunk {
@@ -214,11 +214,11 @@ mod test {
         assert!(ran("println(len([1]))\n").is_err_and(|e| e.contains("len is not bound")));
     }
 
-    // every engine operation a native stands for has the kernel mini registers for it
+    // every engine operation a native stands for has the kernel rig registers for it
     #[test]
     fn each_intrinsic_binds_a_kernel_of_mini() {
         for k in [Intrinsic::Len, Intrinsic::Range, Intrinsic::Next] {
-            assert!(mini::NATIVES.intrinsic(k).is_some(), "{k:?} has no kernel");
+            assert!(rig::NATIVES.intrinsic(k).is_some(), "{k:?} has no kernel");
         }
     }
 
@@ -275,7 +275,7 @@ mod test {
         let chunk = compiled(src);
         let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
         let e = vm.run().expect_err("tru is no name");
-        let shown = vm.render_error(&e, src, Some("main.mini"));
+        let shown = vm.render_error(&e, src, Some("main.rig"));
         assert!(shown.contains("Did you mean: 'true'?"), "{shown}");
     }
 
@@ -311,13 +311,13 @@ mod test {
 
     #[test]
     fn errors_name_their_classes_in_the_runtime_s_words() {
-        let mini = Names::PLAIN;
-        assert_eq!(VmErr::ZeroDiv.render(&mini), "ZeroDiv: division by zero");
+        let rig = Names::PLAIN;
+        assert_eq!(VmErr::ZeroDiv.render(&rig), "ZeroDiv: division by zero");
         // the engine's own words name no source language which a runtime's message replaces
-        assert_eq!(VmErr::Name(String::from("x")).render(&mini), "Name: x is not bound");
-        assert_eq!(VmErr::CallDepth.render(&mini), "Recursion: calls nested past the recursion limit");
-        assert_eq!(VmErr::ZeroDiv.render(&mini::NAMES), "DivisionError: division by zero");
-        assert!(VmErr::Raised(String::from("Stop: 3")).is(edge::lang::ErrKind::Stop, &mini::NAMES));
-        assert!(!VmErr::Raised(String::from("StopX")).is(edge::lang::ErrKind::Stop, &mini::NAMES));
+        assert_eq!(VmErr::Name(String::from("x")).render(&rig), "Name: x is not bound");
+        assert_eq!(VmErr::CallDepth.render(&rig), "Recursion: calls nested past the recursion limit");
+        assert_eq!(VmErr::ZeroDiv.render(&rig::NAMES), "DivisionError: division by zero");
+        assert!(VmErr::Raised(String::from("Stop: 3")).is(edge::lang::ErrKind::Stop, &rig::NAMES));
+        assert!(!VmErr::Raised(String::from("StopX")).is(edge::lang::ErrKind::Stop, &rig::NAMES));
     }
 }

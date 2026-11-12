@@ -135,7 +135,7 @@ Each field of `Syntax` decides one thing about how a program is written.
 | `comments`, `strings`, `interp`, `numbers` | Comment markers, quotes and escapes, interpolated strings, and number literals |
 | `shapes` | The optional pieces: lambdas, comprehensions, slices, decorators, `match` arms, ranges, `let` and a [grammar](./03-grammar.mdx) of its own. `Shapes::CORE` turns every piece on but `let`, arms, ranges and a grammar |
 
-A runtime whose source is not text with tokens, such as YAML, implements `edge::lang::Front` itself and emits the same bytecode through `edge::code::Builder`, as `examples/tiny` does.
+A runtime whose grammar the parser does not read, or whose source is not text with tokens at all, implements `edge::lang::Front` itself and emits the same bytecode through `edge::code::Builder`, as `examples/lox` does.
 
 ## Natives
 
@@ -168,4 +168,6 @@ web = ["edge/runtime", "edge/perms"]
 cargo rustc --release --target wasm32-unknown-unknown --lib --crate-type cdylib --no-default-features --features web
 ```
 
-`examples/uptime` is a full runtime in 241 lines with its own error classes and a CLI, and `examples/mini` is the one `edge.wasm` is built from.
+## Lox
+
+`examples/lox` is the runtime `edge.wasm` is built from. Its token table scans Lox through the SDK's lexer, and its front of its own parses and resolves a program as the book's compiler does, with the book's own error messages, then writes its functions, closures over block scopes and classes with `this`, `super` and `init` through `edge::code::Builder`. Its `Policy` makes every number a double and only `nil` and `false` false, keeps fields to instances, gives each read of a method a value of its own and orders only numbers. Its `REPORT` words a run error as the book does, and its `Descriptor` gives a native binary the book's exit statuses, 65 after a compile error and 70 after a run error. `cargo test -p lox` runs the book's suite on that binary.

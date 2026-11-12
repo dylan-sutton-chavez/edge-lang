@@ -13,9 +13,13 @@ afl = "0.18.2"
 [dependencies.edge]
 path = ".."
 
-# the reference runtime whose spelling the fuzzed sources are read in
-[dependencies.mini]
-path = "../examples/mini"
+# lox reads every input through its own compiler
+[dependencies.lox]
+path = "../examples/lox"
+
+# the test rig whose table spells every grammar piece Lox has no syntax for
+[dependencies.rig]
+path = "../tests/rig"
 
 [[bin]]
 name = "afl-pipeline"

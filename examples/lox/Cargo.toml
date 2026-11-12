@@ -1,0 +1,28 @@
+[package]
+name = "lox"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Lox from Crafting Interpreters on the Edge SDK, with its own compiler over the SDK's lexer and builder, measured by the book's test suite."
+publish = false
+
+[lib]
+name = "lox"
+doctest = false
+
+[[bin]]
+name = "lox"
+path = "src/main.rs"
+required-features = ["std"]
+
+[features]
+default = ["std"]
+std = ["edge/std"]
+# builds edge.wasm with the engine's exports over these natives and the grant logic
+web = ["edge/runtime", "edge/perms"]
+
+[dependencies]
+edge = { path = "../..", default-features = false }
+# the kernels its few natives past the book come from
+lib = { path = "../../lib", default-features = false, features = ["io", "seq"] }

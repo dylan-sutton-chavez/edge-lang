@@ -42,9 +42,9 @@ mod tests {
 
     #[test]
     fn a_bundle_index_points_at_each_file_or_says_why_not() {
-        let bytes = Bundle { entry: s!("main.mini"), files: alloc::vec![Entry { path: s!("main.mini"), bytes: b"x = 1\n".to_vec() }] }.encode();
+        let bytes = Bundle { entry: s!("main.lox"), files: alloc::vec![Entry { path: s!("main.lox"), bytes: b"x = 1\n".to_vec() }] }.encode();
         let at = bytes.len() - 6;
-        assert_eq!(index(&bytes), s!("{\"entry\":\"main.mini\",\"files\":[[\"main.mini\",", int at, ",6]]}"));
+        assert_eq!(index(&bytes), s!("{\"entry\":\"main.lox\",\"files\":[[\"main.lox\",", int at, ",6]]}"));
         assert_eq!(index(b"junk"), r#"{"error":"bundle truncated"}"#);
     }
 }

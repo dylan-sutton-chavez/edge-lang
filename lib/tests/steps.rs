@@ -1,8 +1,8 @@
 use edge::embed::{Limits, VM};
 use edge::lang::{Acc, Args, Cont, Cx, Flow, Fold, Item, Native, Natives, Ret, Runtime, STEPS, Sent, Sig, Step, Then};
 use edge::value::{SchedulerStatus, Val, VmErr};
-use mini::Mini;
-use mini::natives::{ARRAY, BUFFER, BYTES, CONVERT, DICT, FLOAT, FOLDS, INT, IO, ITER, LIST, LIST_SORT, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
+use rig::Rig;
+use rig::natives::{ARRAY, BUFFER, BYTES, CONVERT, DICT, FLOAT, FOLDS, INT, IO, ITER, LIST, LIST_SORT, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
 
 // every run meters what it allocates as edge.wasm does
 edge::allocator!();
@@ -28,7 +28,7 @@ const STEPPED: &[Native] = &[
 
 static NATIVES: Natives = edge::natives! {
     language: Over,
-    fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, TYPES, mini::natives::MATCH, mini::natives::DATE, STEPPED],
+    fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, TYPES, rig::natives::MATCH, rig::natives::DATE, STEPPED],
     methods: [
         Str => [STR],
         Bytes => [BUFFER],
@@ -41,14 +41,14 @@ static NATIVES: Natives = edge::natives! {
         Float => [FLOAT],
         Range => [RANGE],
     ],
-    types: mini::types::NAMES,
+    types: rig::types::NAMES,
 };
 
 static RUNTIME: Runtime = Runtime::of::<Over>();
 
-// mini's language over these natives
+// the rig's language over these natives
 struct Over;
-mini::over!(Over, &NATIVES);
+rig::over!(Over, &NATIVES);
 
 fn apply(_: &mut Cx<'_, '_>, a: Args<'_>) -> Ret { Ok(Step::call(a.pos[0], &a.pos[1..2]).into()) }
 
@@ -203,7 +203,7 @@ fn wait(cx: &mut Cx<'_, '_>, _: Args<'_>) -> Ret {
 
 /* what `src` printed or its error with one event pushed at each wait */
 fn run(src: &str, events: &[&str]) -> Result<String, String> {
-    let (chunk, errors) = edge::code::compile_as::<Mini>(src);
+    let (chunk, errors) = edge::code::compile_as::<Rig>(src);
     assert!(errors.is_empty(), "{src}: {:?}", errors.iter().map(|e| &e.msg).collect::<Vec<_>>());
     let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
     let mut events = events.iter();
@@ -348,7 +348,7 @@ fn a_call_that_misses_a_signature_reads_in_the_runtimes_words() {
 #[test]
 fn a_native_value_survives_a_snapshot() {
     let src = "xs = [1]\npush = xs.append\nlen_of = apply\nwait()\npush(2)\nprint(xs, len_of(len, xs), push)";
-    let (chunk, _) = edge::code::compile_as::<Mini>(src);
+    let (chunk, _) = edge::code::compile_as::<Rig>(src);
     let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
     assert!(matches!(vm.run(), Err(VmErr::HostYield(SchedulerStatus::PendingEvent))));
     let blob = edge::embed::save(&vm, src, "").unwrap_or_else(|e| panic!("{e}"));

@@ -15,15 +15,16 @@ Everything still compiles to the engine's bytecode, so a grammar costs nothing a
 
 ## Example
 
-The table below brings braces, `--` comments and a grammar with one form, one pattern word and one lazy call. It reuses mini's natives, so it runs on mini's runtime.
+The table below brings braces, `--` comments and a grammar with one form, one pattern word and one lazy call, over two natives of `lib`.
 
 ```rust standalone_crate
 use edge::code::OpCode as O;
 use edge::embed::{Limits, VM};
-use edge::lang::{Front, Natives};
+use edge::lang::{Cx, Descriptor, Front, Language, Names, Native, Natives, Overflow, Policy, Runtime};
 use edge::lexer::grammar::{Emit, Form, Grammar, Mode, Pattern, Row, Slot, Test};
 use edge::lexer::TokenType as T;
 use edge::lexer::{index, operators, Binding, Blocks, Comments, Cond, Continuation, Dot, Ends, Escapes, Keywords, Lambda, Numbers, Quote, Shapes, Spelling, Strings, Suffix, Syntax, TokenType, Unicode, Unknown, Zeros};
+use edge::value::{Val, VmErr};
 
 edge::allocator!();
 
@@ -81,8 +82,35 @@ impl Spelling for Fixes {
         soft: &[],
         bom: false,
     };
-    const NATIVES: &'static Natives = &mini::NATIVES;
+    const NATIVES: &'static Natives = &NATIVES;
 }
+
+// print and the lazy any that the grammar names
+const TABLE: &[Native] = &lib::table![Fixes; "print" => lib::io::print, "any" => lib::iter::fold::some];
+static NATIVES: Natives = edge::natives! { language: Fixes, fns: [TABLE], methods: [], types: &[] };
+
+static TREE: lib::lang::Tree = lib::lang::Tree::of::<Fixes>();
+impl lib::Lang for Fixes {
+    const TREE: &'static lib::lang::Tree = &TREE;
+}
+impl lib::fmt::render::Style for Fixes {}
+
+impl Language for Fixes {
+    const VERSION: u32 = 1;
+    const POLICY: Policy = Policy { int_overflow: Overflow::Error, ..Policy::ENGINE };
+    const NATIVES: &'static Natives = &NATIVES;
+    const NAMES: &'static Names = &Names::PLAIN;
+    const FRONT: Front = FRONT;
+    const DESCRIPTOR: &'static Descriptor = &Descriptor::NONE;
+    type Ops = ();
+
+    fn show(cx: &mut Cx<'_, '_>, v: Val, mode: edge::lang::Mode) -> Result<String, VmErr> {
+        lib::fmt::render::hook::<Fixes>(cx, v, mode)
+    }
+}
+
+const FRONT: Front = Front::spelled::<Fixes>();
+static RUNTIME: Runtime = Runtime::of::<Fixes>();
 
 const PROGRAM: &str = r#"
 fn steps(x, n, f) = if n == 0 or f(x) == x { x } else { steps(f(x), n - 1, f) }
@@ -93,10 +121,9 @@ let _ = print(any([n == 0 or 1 / (n - n) == 1 for n in [0, 1]]))
 "#;
 
 fn main() {
-    const FRONT: Front = Front::spelled::<Fixes>();
     let (chunk, errors) = edge::code::compile(&FRONT, PROGRAM);
     assert!(errors.is_empty(), "{}", edge::code::Diagnostic::render_all(&errors, PROGRAM, None));
-    let mut vm = VM::with_runtime(&mini::RUNTIME, &chunk, Limits::sandbox());
+    let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
     vm.run().expect("the program runs");
     assert_eq!(vm.output_text(), "64\n5 failed\ntrue\n");
 }

@@ -106,7 +106,7 @@ mod test {
             "s = set(range(9000000))\nt = s.copy()\nu = s.copy()\n",
             "s = set(range(9000000))\nt = s.copy()\nu = set(s)\n",
         ] {
-            // a set display spreads in the legacy fixture which mini no longer spells
+            // a set display spreads in the legacy fixture which rig no longer spells
             let (chunk, errs) = crate::words::legacy(src);
             assert!(errs.is_empty(), "{src}");
             let mut vm = crate::common::boot(&chunk, Limits::sandbox());

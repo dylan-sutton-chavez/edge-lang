@@ -6,20 +6,20 @@ groups:
   a:
     replicas: 1
     code: |
-      msg = receive()
-      send("b", msg + "-a")
+      var msg = receive();
+      send("b", msg + "-a");
     seed:
       - x
   b:
     replicas: 1
     code: |
-      msg = receive()
-      send("c", msg + "-b")
+      var msg = receive();
+      send("c", msg + "-b");
   c:
     replicas: 1
     code: |
-      msg = receive()
-      print("c:", msg)
+      var msg = receive();
+      print "c: " + msg;
 
 expect:
   - "c: x-a-b"

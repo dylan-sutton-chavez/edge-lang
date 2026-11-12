@@ -7,8 +7,8 @@ runtime:
 groups:
   echoer:
     code: |
-      while true {
-          print("got:", receive())
+      while (true) {
+          print "got: " + receive();
       }
 
 publish:

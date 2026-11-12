@@ -16,7 +16,7 @@ import { createWorker } from "./dist/js/src/index.js";
 
 const worker = await createWorker();
 worker.onOutput((text) => console.log(text.trimEnd()));
-const { out, exitCode } = await worker.run("print(\"hello from edge\")\nexit(3)");
+const { out, exitCode } = await worker.run("print \"hello from edge\";\nexit(3);");
 console.log(out === "", exitCode);
 ```
 
@@ -45,18 +45,19 @@ true 3
 | `repl` | Runs `src` as the next input of a REPL on what the last input left |
 | `incremental` | Keeps module state across runs |
 
-A grant is checked before any request leaves the frame:
+A grant is checked before any request leaves the frame, and a refused call ends the run with Lox's report in `out`:
 
 ```js
 import { createWorker } from "./dist/js/src/index.js";
 
 const worker = await createWorker({ permissions: { main: ["net:api.example.com"] } });
-worker.onOutput((text) => console.log(text.trimEnd()));
-await worker.run("use net\ntry {\n    net.request(\"GET\", \"https://other.example/\")\n} catch PermissionError as e {\n    print(e)\n}");
+const { out } = await worker.run("var net = import(\"net\");\nnet.request(\"GET\", \"https://other.example/\");");
+for (const line of out.split("\n")) console.log(line);
 ```
 
 ```text
 'main' has no net:other.example, edge.json grants it net:api.example.com
+[line 2] in script
 ```
 
 ## Events and named outputs
@@ -68,7 +69,7 @@ import { createWorker } from "./dist/js/src/index.js";
 
 const worker = await createWorker();
 worker.onChannel((name, line) => console.log(name, line));
-const done = worker.run("while true {\n    m = receive()\n    if m == \"stop\" {\n        break\n    }\n    send(\"upper\", m.upper())\n}");
+const done = worker.run("var m = receive();\nwhile (m != \"stop\") {\n    send(\"twice\", m + m);\n    m = receive();\n}");
 worker.pushEvent("ab");
 worker.pushEvent("cd");
 worker.pushEvent("stop");
@@ -76,8 +77,8 @@ await done;
 ```
 
 ```text
-upper AB
-upper CD
+twice abab
+twice cdcd
 ```
 
 ## Pause and snapshots
@@ -90,7 +91,7 @@ import { createWorker } from "./dist/js/src/index.js";
 const worker = await createWorker();
 worker.onOutput((text) => console.log(text.trimEnd()));
 await worker.setPreemptInterval(50_000);
-const running = worker.run("n = 0\nwhile n < 1000000 {\n    n = n + 1\n}\nprint(\"done\", n)");
+const running = worker.run("var n = 0;\nwhile (n < 1000000) n = n + 1;\nprint \"done \" + text(n);");
 await worker.pause();
 const { n } = await worker.stateGlobals();
 const blob = await worker.saveState();

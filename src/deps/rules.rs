@@ -187,23 +187,23 @@ mod tests {
             (r#"{ "description": "two\nlines" }"#, "must be one line"),
             (r#"{ "description": "Turn absolutely any text that you have into a tidy url slug fast." }"#, "the cap is 60"),
             (r#"{ "repository": "git@github.com:x/slugify.git" }"#, "must be an https url"),
-            (r#"{ "imports": { "time": "./fake.mini" } }"#, "takes the name of a system module"),
-            (r#"{ "imports": { "main": "./lib/main.mini" } }"#, "import 'main' is reserved for permissions"),
+            (r#"{ "imports": { "time": "./fake.lox" } }"#, "takes the name of a system module"),
+            (r#"{ "imports": { "main": "./lib/main.lox" } }"#, "import 'main' is reserved for permissions"),
             (r#"{ "imports": { "json": "0.01.0" } }"#, "is declared '0.01.0'"),
         ] {
             let err = check(&parse_manifest(body.as_bytes()).unwrap(), &SYSTEM, &perms::reserved()).unwrap_err();
             assert!(err.contains(want), "{body} wanted '{want}', got '{err}'");
         }
-        let fine = r#"{ "name": "slugify", "version": "0.1.0", "description": "Turn text into a slug.", "repository": "https://github.com/x/slugify", "imports": { "json": "0.1.0", "lib": "./lib.mini" } }"#;
+        let fine = r#"{ "name": "slugify", "version": "0.1.0", "description": "Turn text into a slug.", "repository": "https://github.com/x/slugify", "imports": { "json": "0.1.0", "lib": "./lib.lox" } }"#;
         assert!(check(&parse_manifest(fine.as_bytes()).unwrap(), &SYSTEM, &perms::reserved()).is_ok());
     }
 
     // with no component reserving holders a package may take their names
     #[test]
     fn only_the_holders_a_host_reserves_are_refused() {
-        let main = parse_manifest(br#"{ "name": "main", "imports": { "eval": "./eval.mini" } }"#).unwrap();
+        let main = parse_manifest(br#"{ "name": "main", "imports": { "eval": "./eval.lox" } }"#).unwrap();
         assert!(check(&main, &SYSTEM, &[]).is_ok());
         assert_eq!(check(&main, &SYSTEM, &[("main", "grants")]).unwrap_err(), "name 'main' is reserved for grants");
-        assert_eq!(import_error("main", "./main.mini", &SYSTEM, &perms::reserved()).as_deref(), Some("import 'main' is reserved for permissions"));
+        assert_eq!(import_error("main", "./main.lox", &SYSTEM, &perms::reserved()).as_deref(), Some("import 'main' is reserved for permissions"));
     }
 }

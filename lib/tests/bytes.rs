@@ -1,5 +1,5 @@
 use edge::embed::{Limits, VM};
-use mini::RUNTIME;
+use rig::RUNTIME;
 
 // every run meters what it allocates as edge.wasm does
 edge::allocator!();
@@ -10,7 +10,7 @@ const TRY: &str = "fn t(f) {\n    try {\n        print(repr(f()))\n    } catch E
 /* what the calls printed through the helpers above */
 fn tried(calls: &str) -> String {
     let src = String::from(TRY) + calls;
-    let (chunk, errors) = edge::code::compile_as::<mini::Mini>(&src);
+    let (chunk, errors) = edge::code::compile_as::<rig::Rig>(&src);
     assert!(errors.is_empty(), "{src}");
     let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
     let end = vm.run().err().map(|e| e.to_string()).unwrap_or_default();
@@ -154,7 +154,7 @@ fn arguments_convert_as_ints_and_bounds() {
 #[test]
 fn the_fast_paths_answer_as_the_full_calls() {
     let mut heap = edge::value::HeapPool::new(1 << 20);
-    let fast = |name: &str| mini::natives::BYTES.iter().find(|n| n.name == name).and_then(|n| n.fast1).unwrap_or_else(|| panic!("{name}"));
+    let fast = |name: &str| rig::natives::BYTES.iter().find(|n| n.name == name).and_then(|n| n.fast1).unwrap_or_else(|| panic!("{name}"));
     let shown = |heap: &edge::value::HeapPool, v: Option<edge::value::Val>| v.and_then(|v| heap.bytes_of(v).map(<[u8]>::to_vec));
     let three = edge::value::Val::int(3);
     let zeros = fast("bytes")(&mut heap, three);

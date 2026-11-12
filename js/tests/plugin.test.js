@@ -59,35 +59,31 @@ function first() {
     return new Uint8Array([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, ...types, ...imports, ...funcs, ...memory, ...globals, ...exports, ...code]);
 }
 
-Deno.test("plugin: an end a plugin hands back unread raises the class each runtime names for it", async () => {
+Deno.test("plugin: an end a plugin hands back unread raises the class the runtime names for it", async () => {
     const dir = await Deno.makeTempDir();
     await Deno.writeFile(`${dir}/steps.wasm`, first());
-    const runs = [
-        ["edge", "use steps\nfirst = steps.first\nprint(first([7, 8]))\ntry {\n    first([])\n} catch Stop {\n    print(\"ended\")\n}\n"],
-        ["uptime", "use steps\nprint(steps.first([7, 8]))\ntry\n  steps.first([])\ncatch Stop\n  print(\"ended\")\nend\n"],
-    ];
-    for (const [runtime, src] of runs) {
-        const engine = await import(new URL(`../src/worker/engine.ts?plugin=${runtime}`, import.meta.url).href);
-        await engine.load({ wasmUrl: new URL(`target/wasm32-unknown-unknown/release/${runtime}.wasm`, ROOT).href, imports: { steps: `file://${dir}/steps.wasm` }, baseUrl: `file://${dir}/` });
-        const lines = [];
-        const { out } = await engine.run({ src }, (t) => lines.push(t));
-        if (out !== "" || lines.join("") !== "7\nended\n") throw new Error(`${runtime} printed ${JSON.stringify(lines.join(""))} and left ${JSON.stringify(out)}`);
-    }
+    const src = "var first = import(\"steps\").first;\nprint first(\"78\");\nfirst(\"\");\nprint \"never\";\n";
+    const engine = await import(new URL("../src/worker/engine.ts?plugin=steps", import.meta.url).href);
+    await engine.load({ wasmUrl: new URL("target/wasm32-unknown-unknown/release/edge.wasm", ROOT).href, imports: { steps: `file://${dir}/steps.wasm` }, baseUrl: `file://${dir}/` });
+    const lines = [];
+    const { out } = await engine.run({ src }, (t) => lines.push(t));
+    // the end raises the class the runtime names and stops the program there
+    if (!out.startsWith("error: Stop\n  --> <input>:3:") || lines.join("") !== "7\n") throw new Error(`printed ${JSON.stringify(lines.join(""))} and left ${JSON.stringify(out)}`);
 });
 
 Deno.test("plugin: a plugin that does not load fails at its import and names the module that reached it", async () => {
     const dir = await Deno.makeTempDir();
-    await Deno.writeTextFile(`${dir}/edge.json`, JSON.stringify({ imports: { badplug: "./bad.wasm", old: "./old.wasm", lib: "./lib.mini" } }));
+    await Deno.writeTextFile(`${dir}/edge.json`, JSON.stringify({ imports: { badplug: "./bad.wasm", old: "./old.wasm", lib: "./lib.lox" } }));
     await Deno.writeTextFile(`${dir}/bad.wasm`, "notwasm");
     await Deno.writeFile(`${dir}/old.wasm`, plugin(2));
-    await Deno.writeTextFile(`${dir}/lib.mini`, "x = 1\nuse badplug\n");
+    await Deno.writeTextFile(`${dir}/lib.lox`, "var x = 1;\nimport(\"badplug\");\n");
     const engine = await import(new URL("../src/worker/engine.ts?refused", import.meta.url).href);
     await engine.load({ wasmUrl: new URL("target/wasm32-unknown-unknown/release/edge.wasm", ROOT).href, baseUrl: `file://${dir}/` });
     // the WebAssembly runtime words the reason for bytes that are no wasm
     const runs = [
-        ["main.mini", "print(1)\nuse badplug\n", ["error: module 'badplug' is not a valid plugin, ", "--> main.mini:2:5"]],
-        ["via.mini", "use lib\n", ["module 'badplug' is not a valid plugin, ", " (via lib)\n", "--> via.mini:1:5"]],
-        ["old.mini", "use old\n", ["error: module 'old' is not a valid plugin, it speaks ABI v2, this host expects v1\n", "--> old.mini:1:5"]],
+        ["main.lox", "print 1;\nimport(\"badplug\");\n", ["error: module 'badplug' is not a valid plugin, ", "--> main.lox:2:1"]],
+        ["via.lox", "import(\"lib\");\n", ["module 'badplug' is not a valid plugin, ", " (via lib)\n", "--> via.lox:1:1"]],
+        ["old.lox", "import(\"old\");\n", ["error: module 'old' is not a valid plugin, it speaks ABI v2, this host expects v1\n", "--> old.lox:1:1"]],
     ];
     for (const [entry, src, wants] of runs) {
         const lines = [];

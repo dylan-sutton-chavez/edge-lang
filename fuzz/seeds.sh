@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regenerates the gitignored in/ and edge.dict from tests/cases/vm and dict.txt.
+# Regenerates the gitignored in/ and edge.dict from the Lox programs, tests/cases/vm and dict.txt.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -21,6 +21,10 @@ perl -MDigest::SHA=sha1_hex -e '
         }
     }
     if (defined $block) { $block =~ s/\n+\z//; seed($block); }' ../tests/cases/vm/*.yml
+# one seed per lox program of the book's suite and the bench named by its hash
+for f in $(find ../examples/lox/tests/suite ../bench/cases -name '*.lox'); do
+    cp "$f" "in/$(shasum "$f" | cut -c1-16)"
+done
 echo "seeds: $(ls in | wc -l | tr -d ' ')"
 
 cp dict.txt edge.dict

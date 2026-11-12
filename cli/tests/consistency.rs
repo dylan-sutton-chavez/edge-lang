@@ -14,10 +14,14 @@ const FUNCTIONS: u64 = 3;
 const PAIRS: u64 = 2;
 // Calls of each function on each pair, cold, again and warm, in main, the module and a method.
 const CALLS: u64 = 8;
-// Locals besides the list and the string, all ints kept under 10007.
+// locals besides the string each kept small by `clamp` after every store
 const VARS: u64 = 4;
+
 // What a function returns, at its end or from inside a loop, every local in it.
-const RESULT: &str = "(v0, v1, v2, v3, len(xs), xs[-1], s)";
+const RESULT: &str = "text(v0) + \" \" + text(v1) + \" \" + text(v2) + \" \" + text(v3) + \" \" + s";
+
+// the helpers main and the module both define as Lox has no such builtins
+const HELPERS: &str = "fun clamp(x) {\n    if (x > 10007 or x < -10007) return x / 7;\n    return x;\n}\nfun max(x, y) {\n    if (x > y) return x;\n    return y;\n}\nfun min(x, y) {\n    if (x < y) return x;\n    return y;\n}\nfun abs(x) {\n    if (x < 0) return -x;\n    return x;\n}\n";
 
 /* Seeded so every failure replays from the number it reports. */
 struct Gen {
@@ -54,35 +58,33 @@ impl Gen {
         format!("v{}", self.below(VARS))
     }
 
-    /* An int expression over the parameters and locals, bounded by `d`. */
-    fn int(&mut self, d: u32) -> String {
+    /* a number expression over the parameters and locals bounded by `d` */
+    fn num(&mut self, d: u32) -> String {
         if d == 0 || self.chance(30) {
             return match self.below(5) {
                 0 => self.below(10).to_string(),
                 1 => if self.chance(50) { "a".into() } else { "b".into() },
-                2 => "len(xs)".into(),
+                2 => "len(s)".into(),
                 _ => self.var(),
             };
         }
-        let (x, y) = (self.int(d - 1), self.int(d - 1));
-        match self.below(8) {
+        let (x, y) = (self.num(d - 1), self.num(d - 1));
+        match self.below(7) {
             0 => format!("({x} + {y})"),
             1 => format!("({x} - {y})"),
-            2 => format!("({x} * {y} % 1009)"),
-            3 => format!("({x} ~/ {})", 1 + self.below(6)),
-            4 => format!("({x} % {})", 2 + self.below(9)),
-            5 => format!("max({x}, {y})"),
-            6 => format!("min({x}, {y})"),
+            2 => format!("({x} * {y} / 1009)"),
+            3 => format!("({x} / {})", 1 + self.below(6)),
+            4 => format!("max({x}, {y})"),
+            5 => format!("min({x}, {y})"),
             _ => format!("abs({x})"),
         }
     }
 
     fn cond(&mut self) -> String {
-        let (x, y) = (self.int(2), self.int(2));
-        let c = match self.below(4) {
+        let (x, y) = (self.num(2), self.num(2));
+        let c = match self.below(3) {
             0 => format!("{x} < {y}"),
             1 => format!("{x} == {y}"),
-            2 => format!("{x} % 2 == 0"),
             _ => format!("{x} >= {y}"),
         };
         if self.chance(25) { format!("{c} and {} > {}", self.var(), self.below(500)) } else { c }
@@ -99,21 +101,20 @@ impl Gen {
         let inner = format!("{pad}    ");
         // Inside a loop, sometimes leave the function from there, the way a search returns its find.
         if self.open > 0 && self.chance(12) {
-            out.push_str(&format!("{pad}if {} {{\n{inner}return {RESULT}\n{pad}}}\n", self.cond()));
+            out.push_str(&format!("{pad}if ({}) {{\n{inner}return {RESULT};\n{pad}}}\n", self.cond()));
             return;
         }
-        let kinds = if self.depth < 2 { 11 } else { 6 };
+        let kinds = if self.depth < 2 { 9 } else { 5 };
         match self.below(kinds) {
-            0..=2 => out.push_str(&format!("{pad}{} = {} % 10007\n", self.var(), self.int(3))),
-            3 => out.push_str(&format!("{pad}if len(xs) < 40 {{\n{inner}xs.append({})\n{pad}}}\n", self.int(2))),
-            4 => out.push_str(&format!("{pad}s = (s + text({} % 10))[-12:]\n", self.int(2))),
-            5 => {
-                let v = self.var();
-                out.push_str(&format!("{pad}{v} = ({v} + xs[-1] + len(s)) % 10007\n"));
+            0..=2 => out.push_str(&format!("{pad}{} = clamp({});\n", self.var(), self.num(3))),
+            3 => out.push_str(&format!("{pad}if (len(s) < 12) s = s + text({});\n", self.num(2))),
+            4 => {
+                let (x, y, z) = (self.var(), self.var(), self.var());
+                out.push_str(&format!("{pad}if ({z} != 0) {x} = clamp({y} / {z}); else {x} = {};\n", self.below(10)));
             }
-            6 => {
+            5 => {
                 self.depth += 1;
-                out.push_str(&format!("{pad}if {} {{\n", self.cond()));
+                out.push_str(&format!("{pad}if ({}) {{\n", self.cond()));
                 let n = 1 + self.below(3);
                 self.block(&inner, n, out);
                 if self.chance(60) {
@@ -124,41 +125,12 @@ impl Gen {
                 out.push_str(&format!("{pad}}}\n"));
                 self.depth -= 1;
             }
-            7 => {
+            6 | 7 => {
                 let i = self.next_loop();
                 self.depth += 1;
                 self.open += 1;
-                out.push_str(&format!("{pad}for i{i} in range({}) {{\n", self.below(7)));
-                out.push_str(&format!("{inner}{v} = ({v} + i{i}) % 10007\n", v = self.var()));
-                if self.chance(20) {
-                    out.push_str(&format!("{inner}if {} {{\n{inner}    break\n{inner}}}\n", self.cond()));
-                }
-                let n = 1 + self.below(3);
-                self.block(&inner, n, out);
-                out.push_str(&format!("{pad}}}\n"));
-                self.open -= 1;
-                self.depth -= 1;
-            }
-            8 => {
-                let i = self.next_loop();
-                self.depth += 1;
-                self.open += 1;
-                out.push_str(&format!("{pad}for y{i} in list(xs) {{\n"));
-                out.push_str(&format!("{inner}{v} = ({v} + y{i}) % 10007\n", v = self.var()));
-                if self.chance(20) {
-                    out.push_str(&format!("{inner}if {} {{\n{inner}    continue\n{inner}}}\n", self.cond()));
-                }
-                let n = 1 + self.below(2);
-                self.block(&inner, n, out);
-                out.push_str(&format!("{pad}}}\n"));
-                self.open -= 1;
-                self.depth -= 1;
-            }
-            9 => {
-                let i = self.next_loop();
-                self.depth += 1;
-                self.open += 1;
-                out.push_str(&format!("{pad}w{i} = 0\n{pad}while w{i} < {} {{\n{inner}w{i} += 1\n", self.below(6)));
+                out.push_str(&format!("{pad}for (var i{i} = 0; i{i} < {}; i{i} = i{i} + 1) {{\n", self.below(7)));
+                out.push_str(&format!("{inner}{v} = clamp({v} + i{i});\n", v = self.var()));
                 let n = 1 + self.below(3);
                 self.block(&inner, n, out);
                 out.push_str(&format!("{pad}}}\n"));
@@ -166,8 +138,15 @@ impl Gen {
                 self.depth -= 1;
             }
             _ => {
-                let (x, y, z) = (self.var(), self.var(), self.var());
-                out.push_str(&format!("{pad}try {{\n{inner}{x} = {y} ~/ {z}\n{pad}}} catch DivisionError {{\n{inner}{x} = {}\n{pad}}}\n", self.below(10)));
+                let i = self.next_loop();
+                self.depth += 1;
+                self.open += 1;
+                out.push_str(&format!("{pad}var w{i} = 0;\n{pad}while (w{i} < {}) {{\n{inner}w{i} = w{i} + 1;\n", self.below(6)));
+                let n = 1 + self.below(3);
+                self.block(&inner, n, out);
+                out.push_str(&format!("{pad}}}\n"));
+                self.open -= 1;
+                self.depth -= 1;
             }
         }
     }
@@ -177,40 +156,38 @@ impl Gen {
         self.loops
     }
 
-    /* A function body over two ints, every local returned so each one is checked. */
+    /* a function body over two numbers returning every local so each is checked */
     fn function(&mut self, pad: &str) -> String {
         let inner = format!("{pad}    ");
-        let mut body = format!("{inner}v0 = a % 10007\n{inner}v1 = b % 10007\n{inner}v2 = 0\n{inner}v3 = 1\n{inner}xs = [a, b]\n{inner}s = \"\"\n");
+        let mut body = format!("{inner}var v0 = a;\n{inner}var v1 = b;\n{inner}var v2 = 0;\n{inner}var v3 = 1;\n{inner}var s = \"\";\n");
         let n = 3 + self.below(4);
         self.block(&inner, n, &mut body);
-        body.push_str(&format!("{inner}return {RESULT}\n"));
+        body.push_str(&format!("{inner}return {RESULT};\n"));
         body
     }
 }
 
-/* A program that calls each function cold, again and warm, defined in main, in a module and through a record. */
+/* a program calling each function cold then warm from main a module and a field */
 fn program(seed: u64) -> (String, String) {
     let mut g = Gen::new(seed);
-    let mut module = String::new();
-    let mut main = String::from("use m\n");
-    let mut fields = Vec::new();
+    let (mut module, mut main) = (String::from(HELPERS), format!("var m = import(\"m\");\n{HELPERS}"));
+    module.push_str("class Holder {}\nvar K = Holder();\n");
     for i in 0..FUNCTIONS {
         let body = g.function("");
-        module.push_str(&format!("fn f{i}(a, b) {{\n{body}}}\n"));
-        main.push_str(&format!("fn f{i}(a, b) {{\n{body}}}\n"));
-        // The record holds the very same function as a field.
-        fields.push(format!("f{i} = f{i}"));
+        module.push_str(&format!("fun f{i}(a, b) {{\n{body}}}\n"));
+        main.push_str(&format!("fun f{i}(a, b) {{\n{body}}}\n"));
+        // the field holds the very same function
+        module.push_str(&format!("K.f{i} = f{i};\n"));
     }
-    module.push_str(&format!("K = {{{}}}\n", fields.join(", ")));
-    main.push_str("fn warm(f, a, b) {\n    for j in range(24) {\n        f(a + j, b - j)\n    }\n    return f(a, b)\n}\n");
-    let pairs: Vec<String> = (0..PAIRS).map(|_| format!("({}, {})", g.below(200) as i64 - 100, g.below(200) as i64 - 100)).collect();
-    main.push_str(&format!("k = m.K\nfor a, b in [{}] {{\n", pairs.join(", ")));
-    for i in 0..FUNCTIONS {
-        for call in [format!("f{i}(a, b)"), format!("f{i}(a, b)"), format!("warm(f{i}, a, b)"), format!("m.f{i}(a, b)"), format!("m.f{i}(a, b)"), format!("warm(m.f{i}, a, b)"), format!("k.f{i}(a, b)"), format!("warm(k.f{i}, a, b)")] {
-            main.push_str(&format!("    print(\"f{i}\", a, b, {call})\n"));
+    main.push_str("fun warm(f, a, b) {\n    for (var j = 0; j < 24; j = j + 1) f(a + j, b - j);\n    return f(a, b);\n}\nvar k = m.K;\n");
+    for _ in 0..PAIRS {
+        let (a, b) = (g.below(200) as i64 - 100, g.below(200) as i64 - 100);
+        for i in 0..FUNCTIONS {
+            for call in [format!("f{i}({a}, {b})"), format!("f{i}({a}, {b})"), format!("warm(f{i}, {a}, {b})"), format!("m.f{i}({a}, {b})"), format!("m.f{i}({a}, {b})"), format!("warm(m.f{i}, {a}, {b})"), format!("k.f{i}({a}, {b})"), format!("warm(k.f{i}, {a}, {b})")] {
+                main.push_str(&format!("print \"f{i} {a} {b} \" + {call};\n"));
+            }
         }
     }
-    main.push_str("}\n");
     (main, module)
 }
 
@@ -218,7 +195,7 @@ fn program(seed: u64) -> (String, String) {
 fn run(dir: &PathBuf) -> Result<String, String> {
     // Output goes to files, so a full pipe never stalls a program the deadline then blames.
     let (out, err) = (dir.join("stdout.txt"), dir.join("stderr.txt"));
-    let mut child = Command::new(BIN).current_dir(dir).args(["run", "main.mini"]).env("XDG_CACHE_HOME", dir)
+    let mut child = Command::new(BIN).current_dir(dir).args(["run", "main.lox"]).env("XDG_CACHE_HOME", dir)
         .stdin(Stdio::null()).stdout(File::create(&out).unwrap()).stderr(File::create(&err).unwrap()).spawn().unwrap();
     let start = Instant::now();
     let status = loop {
@@ -248,9 +225,9 @@ fn a_function_answers_the_same_cold_warm_and_from_any_module() {
         let dir = root.join(seed.to_string());
         std::fs::create_dir_all(&dir).unwrap();
         let (main, module) = program(seed);
-        std::fs::write(dir.join("main.mini"), main).unwrap();
-        std::fs::write(dir.join("m.mini"), module).unwrap();
-        std::fs::write(dir.join("edge.json"), "{ \"imports\": { \"m\": \"./m.mini\" } }\n").unwrap();
+        std::fs::write(dir.join("main.lox"), main).unwrap();
+        std::fs::write(dir.join("m.lox"), module).unwrap();
+        std::fs::write(dir.join("edge.json"), "{ \"imports\": { \"m\": \"./m.lox\" } }\n").unwrap();
         let printed = match run(&dir) {
             Ok(printed) => printed,
             Err(e) => {

@@ -1429,8 +1429,8 @@ impl<'a> VM<'a> {
                     if !ran { break; }
                     p = past(p, 1);
                 }
-                // a join runs apart raising for what is unbound
-                OpCode::Phi => {
+                // a join runs apart raising for what is unbound and a fresh cell beside it
+                OpCode::Phi | OpCode::FreshCell => {
                     if let Err(e) = self.side_op(ins, idx!(), code, chunk) { self.reg_error = Some(e); break; }
                     r = &mut self.regs[base..];
                     p = past(p, 1);

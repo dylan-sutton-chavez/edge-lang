@@ -6,25 +6,25 @@ groups:
       memory: 64
       preempt: 500
     code: |
-      msg = receive()
-      send("transform", msg + "-ingested")
+      var msg = receive();
+      send("transform", msg + "-ingested");
     seed:
       - raw
   transform:
     replicas: 1
     code: |
-      msg = receive()
-      send("sink", msg + "-transformed")
+      var msg = receive();
+      send("sink", msg + "-transformed");
   sink:
     replicas: 1
     code: |
-      msg = receive()
-      print("sink:", msg)
+      var msg = receive();
+      print "sink: " + msg;
   noisy:
     replicas: 1
     out: "null"
     code: |
-      print("discarded")
+      print "discarded";
 
 expect:
   - "sink: raw-ingested-transformed"

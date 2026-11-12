@@ -2,16 +2,16 @@ use cli::cmd::{actors, build, init, pkg, run, serve, test, uninstall};
 use cli::{docs, files, manifest, net, perms, Kit, Runtime};
 use std::sync::Arc;
 
-// the reference runtime built from examples/mini which this binary embeds
+// the reference runtime built from examples/lox which this binary embeds
 const EDGE_WASM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/edge.wasm"));
 const EDGE_CWASM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/edge.cwasm"));
 
 /* the edge binary as one composition of the kit over the reference runtime */
 fn edge() -> Kit {
     // SAFETY build.rs precompiled edge.cwasm from edge.wasm under the host's own engine config
-    let runtime = unsafe { Runtime::precompiled(EDGE_WASM, EDGE_CWASM, &mini::DESCRIPTOR) };
+    let runtime = unsafe { Runtime::precompiled(EDGE_WASM, EDGE_CWASM, &lox::DESCRIPTOR) };
     Kit::new("edge", env!("CARGO_PKG_VERSION"), runtime)
-        .title(format!("The Edge Lang developer CLI for {}", mini::DESCRIPTOR.language))
+        .title(format!("The Edge Lang developer CLI for {}", lox::DESCRIPTOR.language))
         .site("github.com/dylan-sutton-chavez/edge-lang")
         .upgrade("git pull in your edge-lang clone, then make wasm-cli js lucide and cargo install --path cli")
         .command(run::Run)

@@ -94,7 +94,7 @@ mod test {
             // an expected error the parser already reports needs no run
             if let Some(expected) = &case.error && errors.iter().any(|e| e.msg.contains(expected.as_str())) { continue; }
             // the fold pass production runs so its bugs surface here
-            edge::code::constant_fold(&mut chunk, mini::FRONT.policy);
+            edge::code::constant_fold(&mut chunk, rig::FRONT.policy);
             let mut vm = crate::common::boot(&chunk, crate::common::corpus_limits());
             vm.input_buffer = case.input.clone();
             hook_sends(&mut vm, &case);
@@ -173,7 +173,7 @@ mod test {
                 }
             }
             // folded before running as production does
-            edge::code::constant_fold(&mut chunk, mini::FRONT.policy);
+            edge::code::constant_fold(&mut chunk, rig::FRONT.policy);
 
             let mut vm = crate::common::boot(&chunk, crate::common::corpus_limits());
             vm.input_buffer = case.input.clone();
@@ -218,12 +218,12 @@ mod test {
             let (tokens, _) = lex(src);
             let (mut chunk, errs) = parser(src, tokens.into_iter(), Box::new(resolver)).parse();
             assert!(errs.is_empty(), "parse errors on {src:?}: {:?}", errs.iter().map(|e| &e.msg).collect::<Vec<_>>());
-            edge::code::constant_fold(&mut chunk, mini::FRONT.policy);
+            edge::code::constant_fold(&mut chunk, rig::FRONT.policy);
             chunk
         }
 
         fn render(vm: &VM, e: &VmErr, src: &str) -> String {
-            vm.render_error(e, src, Some("main.mini"))
+            vm.render_error(e, src, Some("main.rig"))
         }
 
         // runs `src` answering every deferred call with `error` for the output and any traceback
@@ -270,14 +270,14 @@ mod test {
         fn uncaught_at_top_level_points_at_the_call() {
             let tb = traceback("use m\nhost_defer = m.host_defer\nprint(\"before\")\nhost_defer()\nprint(\"after\")\n");
             assert!(tb.contains("Error: boom"), "{tb}");
-            assert!(tb.contains("--> main.mini:4:1"), "{tb}");
+            assert!(tb.contains("--> main.rig:4:1"), "{tb}");
             assert!(tb.contains("4 | host_defer()"), "{tb}");
         }
 
         #[test]
         fn uncaught_in_a_function_keeps_the_called_from_note() {
             let tb = traceback("use m\nhost_defer = m.host_defer\nfn helper() {\n    x = 1\n    host_defer()\n}\nhelper()\n");
-            assert!(tb.contains("--> main.mini:5:5"), "{tb}");
+            assert!(tb.contains("--> main.rig:5:5"), "{tb}");
             assert!(tb.contains("note: called from helper()"), "{tb}");
             assert!(tb.contains(":7:7"), "{tb}");
         }
@@ -286,9 +286,9 @@ mod test {
         fn a_key_that_fails_notes_its_call_as_a_called_function_does() {
             for call in ["sorted(xs, key=bad)", "min(xs, key=bad)", "max(xs, key=bad)", "list(map(bad, xs))"] {
                 let tb = traceback(&format!("fn bad(x) {{\n    return 1 ~/ (x - 3)\n}}\nxs = [1, 2, 3, 4]\nprint({call})\n"));
-                assert!(tb.contains("--> main.mini:2:5"), "{tb}");
+                assert!(tb.contains("--> main.rig:2:5"), "{tb}");
                 assert!(tb.contains("note: called from bad()"), "{tb}");
-                assert!(tb.contains("--> main.mini:5:"), "{tb}");
+                assert!(tb.contains("--> main.rig:5:"), "{tb}");
             }
         }
 
@@ -299,7 +299,7 @@ mod test {
             assert_eq!(out, vec!["caught boom"]);
             let tb = tb.expect("the later DivisionError escapes");
             assert!(tb.contains("DivisionError"), "{tb}");
-            assert!(tb.contains("--> main.mini:8:1"), "{tb}");
+            assert!(tb.contains("--> main.rig:8:1"), "{tb}");
         }
 
         #[test]
@@ -332,7 +332,7 @@ mod test {
             let body = |stmt: &str| format!("use m\nhost_defer = m.host_defer\nfn helper() {{\n    try {{\n        {stmt}\n    }} catch Error {{\n    }}\n    x = 1 / 0\n}}\nhelper()\n");
             let resumed = traceback(&body("host_defer()"));
             let direct = traceback(&body(""));
-            assert!(resumed.contains("--> main.mini:8:5"), "{resumed}");
+            assert!(resumed.contains("--> main.rig:8:5"), "{resumed}");
             assert_eq!(locations(&resumed), locations(&direct), "\n{resumed}\n{direct}");
         }
 
@@ -348,7 +348,7 @@ mod test {
             snapshot::restore(&mut restored, &blob).expect("restore");
             let e = restored.run().expect_err("the delivered error escapes after restore");
             let tb = render(&restored, &e, src);
-            assert!(tb.contains("Error: boom") && tb.contains("--> main.mini:4:1"), "{tb}");
+            assert!(tb.contains("Error: boom") && tb.contains("--> main.rig:4:1"), "{tb}");
             assert!(!restored.output.iter().any(|l| l == "after"), "{:?}", restored.output);
         }
 
@@ -369,9 +369,9 @@ mod test {
         #[test]
         fn a_lambda_is_named_and_points_into_its_body() {
             let tb = traceback("rows = [(\"a\", \"3\"), (\"b\", \"x\")]\nprint(sorted(rows, key=|r| int(r[1])))\n");
-            assert!(tb.contains("--> main.mini:2:28") && tb.contains("note: called from <fn>()"), "{tb}");
+            assert!(tb.contains("--> main.rig:2:28") && tb.contains("note: called from <fn>()"), "{tb}");
             let tb = traceback("f = |s| int(s)\nx = 1\nprint(f(\"y\"))\n");
-            assert!(tb.contains("--> main.mini:1:9") && tb.contains("note: called from <fn>()") && tb.contains("--> main.mini:3:8"), "{tb}");
+            assert!(tb.contains("--> main.rig:1:9") && tb.contains("note: called from <fn>()") && tb.contains("--> main.rig:3:8"), "{tb}");
         }
     }
     // scanning or copying builtins pay for what they read so loops cannot outrun the budget

@@ -11,6 +11,9 @@ use crate::syntax::{chunk::SSAChunk, diag::Diagnostic};
 use crate::value::{Limits, SchedulerStatus, VmErr};
 use crate::vm::VM;
 
+// the words a runtime gives its compile errors where none keeps the engine's report
+type Words = Option<fn(&str, &[Diagnostic]) -> String>;
+
 /* a source file compiled through a runtime's front end and ready to boot */
 pub struct Script {
     pub path: String,
@@ -22,19 +25,24 @@ impl Script {
     /* the file at `path` compiled with its imports read beside it or why not */
     pub fn read(front: &Front, path: &str) -> Result<Script, String> {
         let src = std::fs::read_to_string(path).map_err(|e| format!("error: cannot read '{path}': {e}"))?;
-        Script::beside(front, Path::new(path), path, src)
+        Script::beside(front, Path::new(path), path, src, None)
     }
 
     /* `src` of the file at `at` named `shown` with imports read from its directory */
-    fn beside(front: &Front, at: &Path, shown: &str, src: String) -> Result<Script, String> {
+    fn beside(front: &Front, at: &Path, shown: &str, src: String, words: Words) -> Result<Script, String> {
         let mut files = Files::of(at);
         files.gather(front, &src)?;
-        Script::compile(front, shown, src, Box::new(HostResolver::new(String::new(), files)))
+        Script::worded(front, shown, src, Box::new(HostResolver::new(String::new(), files)), words)
     }
 
     /* `src` compiled as the file at `path` with its imports through `resolver` */
     pub fn compile(front: &Front, path: &str, src: String, resolver: Box<dyn Resolver>) -> Result<Script, String> {
-        let chunk = front.program(&src, resolver).map_err(|errs| Diagnostic::render_all(&errs, &src, Some(path)))?;
+        Script::worded(front, path, src, resolver, None)
+    }
+
+    /* `compile` with compile errors in the words of `words` where it is set */
+    fn worded(front: &Front, path: &str, src: String, resolver: Box<dyn Resolver>, words: Words) -> Result<Script, String> {
+        let chunk = front.program(&src, resolver).map_err(|errs| match words { Some(w) => w(&src, &errs), None => Diagnostic::render_all(&errs, &src, Some(path)) })?;
         let mut chunk = Rc::unwrap_or_clone(chunk);
         crate::code::constant_fold(&mut chunk, front.policy);
         Ok(Script { path: path.into(), src, chunk })
@@ -49,7 +57,10 @@ impl Script {
     }
 
     /* runs `vm` to its end and gives the status the process exits with */
-    pub fn run(&self, vm: &mut VM<'_>) -> u8 {
+    pub fn run(&self, vm: &mut VM<'_>) -> u8 { self.ended(vm, 1) }
+
+    /* `run` where a run error exits with `failed` */
+    fn ended(&self, vm: &mut VM<'_>, failed: u8) -> u8 {
         let ran = loop {
             match vm.run() {
                 Err(VmErr::HostYield(SchedulerStatus::Preempted)) => continue,
@@ -70,7 +81,8 @@ impl Script {
                 None => vm.report_error(&e, &self.src, Some(&self.path)),
             },
         };
-        fail(&report)
+        fail(&report);
+        failed
     }
 }
 
@@ -90,12 +102,13 @@ pub fn main(rt: &'static Runtime, front: &Front, limits: Limits) -> ExitCode {
     };
     let shown = path.to_string_lossy();
     let read = std::fs::read_to_string(&path).map_err(|e| format!("error: cannot read '{shown}': {e}"));
-    match read.and_then(|src| Script::beside(front, Path::new(&path), &shown, src)) {
+    let (compiled, failed) = rt.descriptor.statuses;
+    match read.map_err(|r| (r, 1)).and_then(|src| Script::beside(front, Path::new(&path), &shown, src, rt.descriptor.diagnosed).map_err(|r| (r, compiled))) {
         Ok(script) => {
             let mut vm = script.boot(rt, limits);
-            ExitCode::from(script.run(&mut vm))
+            ExitCode::from(script.ended(&mut vm, failed))
         }
-        Err(report) => ExitCode::from(fail(&report)),
+        Err((report, status)) => { fail(&report); ExitCode::from(status) }
     }
 }
 

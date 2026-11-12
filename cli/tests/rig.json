@@ -1,0 +1,95 @@
+{
+  "routes": {
+    "/text": {"headers": [["x-probe", "1"]], "body": "hello from net"},
+    "/big": {"repeat": ["0123456789", 20000]},
+    "/gzip": {"headers": [["content-type", "application/gzip"]], "gzip": ["hello from gzip\n"]},
+    "/gzip-twice": {"headers": [["content-type", "application/gzip"]], "gzip": ["one\n", "two\n"]},
+    "/missing": {"status": 404, "body": "no such page"},
+    "/redirect": {"status": 302, "headers": [["location", "http://evil.example/"]]},
+    "/echo": {"echo": ["x-probe"]},
+    "/socket": {"socket": "echo"},
+    "/socket-redirect": {"status": 302, "headers": [["location", "$SOCKET/socket"]]},
+    "/slow": {"delay": 3000, "body": "late"},
+    "/stall": {"parts": ["begin", "end"], "gap": 3000}
+  },
+  "cases": [
+    {
+      "given": {"edge.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n", "main.rig": "use slugify_mod\njoin_all = slugify_mod.join_all\nparts = (\"a\", \"b\")\nfn spread(*p) {\n    return join_all(\"-\", *p)\n}\nprint(join_all(\"-\", *parts), spread(\"x\", \"y\", \"z\"), join_all(*[\"+\", \"k\"]))\n"},
+      "copy": {"slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm"},
+      "run": ["run", "main.rig"],
+      "stdout": ["a-b x-y-z k"]
+    },
+    {
+      "given": {"edge.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n", "main.rig": "use slugify_mod\njoin_all = slugify_mod.join_all\nprint(join_all(\"-\", \"a\", 1.5, 2.0, 10, true, set([3])))\n"},
+      "copy": {"slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm"},
+      "run": ["run", "main.rig"],
+      "stdout": ["a-1.5-2.0-10-true-{3}"]
+    },
+    {
+      "given": {"edge.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n", "main.rig": "use slugify_mod\nSlugger = slugify_mod.Slugger\ntry {\n    Slugger.build(1)\n} catch FieldError as e {\n    print(\"caught:\", e)\n}\nSlugger.build(1)\n"},
+      "copy": {"slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm"},
+      "run": ["run", "main.rig"],
+      "stdout": ["caught: int has no field __rust_id\n"],
+      "fails": ["error: FieldError: int has no field __rust_id\n", "--> main.rig:8:1"]
+    },
+    {
+      "given": {"edge.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n", "main.rig": "use slugify_mod\nSlugger = slugify_mod.Slugger\ns = Slugger()\ns.add(\"ab\")\ntry {\n    s.repeat(10 ** 12)\n} catch Error as e {\n    print(text(e).startswith(\"native module trapped\"), \"backtrace\" in text(e))\n}\nprint(s.build())\n"},
+      "copy": {"slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm"},
+      "run": ["run", "main.rig"],
+      "stdout": ["true false\nab\n"]
+    },
+    {
+      "given": {"edge.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n", "main.rig": "use slugify_mod\nSlugger = slugify_mod.Slugger\ns = Slugger()\ns.add(\"ab\")\ns.repeat(10 ** 12)\n"},
+      "copy": {"slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm"},
+      "run": ["run", "main.rig"],
+      "fails": ["Error: native module trapped: wasm trap", "--> main.rig:5:1"]
+    },
+    {
+      "given": {"edge.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n", "main.rig": "use slugify_mod\nSlugger = slugify_mod.Slugger\ns = Slugger()\ns.add(\"ab\")\ntry {\n    s.repeat(100000000)\n} catch Error {\n    print(\"RuntimeError\")\n} catch MemoryError {\n    print(\"MemoryError\")\n}\nprint(s.build())\n"},
+      "copy": {"slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm"},
+      "run": ["run", "--memory", "32", "main.rig"],
+      "stdout": ["RuntimeError\nab\n"]
+    },
+    {
+      "given": {"edge.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n", "main.rig": "use slugify_mod\nslug_all = slugify_mod.slug_all\nprint(slug_all([\"Hello World\", \"From Edge\"]))\nprint(slug_all((\"Edge Lang\", \"Uptime Checks\"), sep=\"_\"), slug_all({Mini = 1, Tiny = 2}), slug_all([]) == \"\")\n"},
+      "copy": {"slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm"},
+      "run": ["run", "main.rig"],
+      "stdout": ["hello-world-from-edge\nedge-lang_uptime-checks mini-tiny true\n"]
+    },
+    {
+      "given": {"edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n", "main.rig": "use net\n\nfn body(r) {\n    out = b\"\"\n    chunk = net.read(r)\n    while chunk != nil {\n        out += chunk\n        chunk = net.read(r)\n    }\n    return out\n}\n\nprint(body(net.request(\"POST\", \"$FIXTURE/echo/items?q=1\", [[\"x-probe\", \"pairs\"]], \"hello\")).decode())\nprint(body(net.request(\"PUT\", \"$FIXTURE/echo\", record([(\"x-probe\", \"dict\")]), b\"\\x01\\x02\")) == b\"PUT /echo\\nx-probe: dict\\n\\x01\\x02\")\nprint(body(net.request(\"get\", \"$FIXTURE/echo/a/../b/./c\")).decode(), end=\"\")\nprint(body(net.request(nil, \"$FIXTURE/echo/%2e%2e/echo/Español/@dylan?q=a/../b#gone\")).decode(), end=\"\")\n"},
+      "run": ["run", "main.rig"],
+      "stdout": ["POST /echo/items?q=1\nx-probe: pairs\nhello\ntrue\nGET /echo/b/c\nGET /echo/Espa%C3%B1ol/@dylan?q=a/../b\n"]
+    },
+    {
+      "given": {"edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n", "main.rig": "use net\n\nr = net.request(\"GET\", \"$FIXTURE/text\")\nprint(net.close(r))\nfor call in [net.read, net.close, net.response] {\n    try {\n        call(float(r))\n    } catch ValueError as e {\n        print(text(e) == \"no open request or socket {r}\")\n    }\n}\nfor x in [nil, \"one\", 1.5, true, 2 ** 60] {\n    try {\n        net.read(x)\n    } catch ValueError as e {\n        print(e)\n    }\n}\n"},
+      "run": ["run", "main.rig"],
+      "stdout": ["nil\ntrue\ntrue\ntrue\nan id is an int from net.request or net.connect\nan id is an int from net.request or net.connect\nan id is an int from net.request or net.connect\nan id is an int from net.request or net.connect\nan id is an int from net.request or net.connect\n"]
+    },
+    {
+      "given": {"edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n", "main.rig": "use net\n\ns = net.connect(\"$SOCKET/socket\")\nnet.send(s, \"ping\")\nprint(net.read(s))\nnet.send(s, b\"\\x01\\x02\")\nprint(net.read(s))\ntry {\n    net.response(s)\n} catch ValueError as e {\n    print(e)\n}\nnet.send(s, \"close\")\nprint(net.read(s), net.read(s))\ntry {\n    net.send(s, \"late\")\n} catch IOError as e {\n    print(e)\n}\nr = net.request(\"GET\", \"$FIXTURE/text\")\ntry {\n    net.send(r, \"x\")\n} catch ValueError as e {\n    print(e)\n}\n"},
+      "run": ["run", "main.rig"],
+      "stdout": ["echo ping\nb\"\\x01\\x02\"\nresponse takes a request from net.request\nnil nil\nthe socket is not open\nsend takes a socket from net.connect"]
+    },
+    {
+      "given": {"edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n", "main.rig": "use net\n\nfor x in [[\"GET\", 7], [7, \"http://127.0.0.1:1/\"], [\"GET\", \"http://127.0.0.1:1/\", \"x-probe\"], [\"GET\", \"http://127.0.0.1:1/\", [[\"x-probe\"]]], [\"GET\", \"http://127.0.0.1:1/\", [[\"x-probe\", 1]]], [\"POST\", \"http://127.0.0.1:1/\", nil, 5], [\"GET\", \"http://127.0.0.1:1/\", nil, nil, \"zip\"]] {\n    try {\n        net.request(*x)\n    } catch ValueError as e {\n        print(e)\n    }\n}\ntry {\n    net.request(\"GET\", url=\"http://127.0.0.1:1/\")\n} catch TypeError as e {\n    print(e)\n}\n"},
+      "run": ["run", "main.rig"],
+      "stdout": ["a url must be a str\na method must be a str\nheaders are [name, value] pairs or a dict\nheaders are [name, value] pairs or a dict\na header value must be a str\na body must be bytes, a str or None\ninflate must be None or 'gzip'\nnet.request takes positional arguments only"]
+    },
+    {
+      "given": {"edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n", "main.rig": "use net\n\nfn f() {\n    return 1\n}\nfor h in [set([1]), f, record([(1, \"x\")]), 10 ** 40] {\n    try {\n        net.request(\"GET\", \"$FIXTURE/text\", h)\n    } catch Error as e {\n        print(e)\n    }\n}\n"},
+      "run": ["run", "main.rig"],
+      "stdout": ["value is not a transit value\nvalue is not a transit value\nvalue is not a transit value\nvalue is not a transit value"]
+    },
+    {
+      "given": {"edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n", "main.rig": "use net\n\nfn rest(r) {\n    out = b\"\"\n    chunk = net.read(r)\n    while chunk != nil {\n        out += chunk\n        chunk = net.read(r)\n    }\n    return out\n}\n\nslow = net.request(\"GET\", \"$FIXTURE/big\", nil, nil, nil, 0.5)\nfirst = net.read(slow)\nr = net.request(\"GET\", \"$FIXTURE/stall\", nil, nil, nil, 1)\ngot = b\"\"\ntry {\n    chunk = net.read(r)\n    while chunk != nil {\n        got += chunk\n        chunk = net.read(r)\n    }\n} catch IOError as e {\n    print(got, e)\n}\ntry {\n    net.read(r)\n} catch IOError as e {\n    print(e)\n}\nprint(len(first + rest(slow)))\n"},
+      "run": ["run", "main.rig"],
+      "stdout": ["b\"begin\" reading the response failed, nothing arrived within 1 s\nreading the response failed, nothing arrived within 1 s\n200000"]
+    },
+    {
+      "given": {"edge.json": "{}\n", "main.rig": "fn f(n) {\n    if n == 0 {\n        throw ValueError(\"bottom\")\n    }\n    return f(n - 1)\n}\n\nf(2000)\n"},
+      "run": ["run", "main.rig"],
+      "fails": ["RecursionError: calls nested past the recursion limit", "--> main.rig:5:5", "note: the same call 997 more times", "--> main.rig:8:2"]
+    }
+  ]
+}

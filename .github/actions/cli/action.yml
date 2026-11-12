@@ -10,23 +10,21 @@ inputs:
     required: false
     default: ""
   suite:
-    description: "engine | network | actors | consistency | skill | uptime | tiny (test mode)"
+    description: "engine | network | actors | consistency | docs | skill (test mode)"
     required: false
     default: ""
 
 runs:
   using: composite
   steps:
-    # cli/build.rs embeds the speed edge.wasm the wasm job staged, which the use case CLIs never do
+    # cli/build.rs embeds the speed edge.wasm the wasm job staged
     - name: Fetch the build inputs
-      if: inputs.suite != 'uptime' && inputs.suite != 'tiny'
       uses: actions/download-artifact@v8
       with:
         name: cdn-wasm
         path: _inputs
 
     - name: Point the build at them
-      if: inputs.suite != 'uptime' && inputs.suite != 'tiny'
       shell: bash
       run: echo "EDGE_WASM=$GITHUB_WORKSPACE/_inputs/_build/edge-cli.wasm" >> "$GITHUB_ENV"
 
@@ -85,12 +83,6 @@ runs:
         sudo apt-get install -y chromium-browser || sudo apt-get install -y chromium
 
     - name: Test
-      if: inputs.mode == 'test' && inputs.suite != 'uptime' && inputs.suite != 'tiny'
+      if: inputs.mode == 'test'
       shell: bash
       run: make test-cli SUITE=${{ inputs.suite }}
-
-    # a composition of its own over its own runtime, so it builds none of the edge assets
-    - name: Test the use case CLI
-      if: inputs.mode == 'test' && (inputs.suite == 'uptime' || inputs.suite == 'tiny')
-      shell: bash
-      run: make ${{ inputs.suite == 'tiny' && 'test-tiny-cli' || 'test-uptime' }}

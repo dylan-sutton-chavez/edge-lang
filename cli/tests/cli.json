@@ -2,12 +2,12 @@
   {
     "run": ["init", "myapp"],
     "stdout": ["created myapp/", "cd myapp && edge build --web && edge serve"],
-    "creates": ["myapp/main.mini", "myapp/edge.json", "myapp/index.html"],
+    "creates": ["myapp/main.lox", "myapp/edge.json", "myapp/index.html"],
     "contains": { "myapp/index.html": "from \"./dist/js/src/index.js\"" }
   },
   {
     "run": ["init", "myapp", "--bare"],
-    "creates": ["myapp/main.mini", "myapp/edge.json"],
+    "creates": ["myapp/main.lox", "myapp/edge.json"],
     "contains": { "myapp/edge.json": "\"edge\":" }
   },
   {
@@ -18,7 +18,7 @@
   {
     "run": ["init"],
     "stdout": ["created project/"],
-    "creates": ["main.mini", "edge.json", "index.html"]
+    "creates": ["main.lox", "edge.json", "index.html"]
   },
   {
     "given": { "edge.json": "{}\n" },
@@ -27,12 +27,12 @@
   },
   {
     "given": { "edge.json": "{ \"extends\": \"..\", \"imports\": {} }\n" },
-    "run": ["add", "foo=https://example.com/foo.mini"],
+    "run": ["add", "foo=https://example.com/foo.lox"],
     "contains": { "edge.json": "\"extends\": \"..\"" }
   },
   {
     "given": { "edge.json": "{}\n" },
-    "run": ["add", "foo=https://example.com/foo.mini", "mystery"],
+    "run": ["add", "foo=https://example.com/foo.lox", "mystery"],
     "fails": ["'mystery' names no source, give it as name=<url> or name=<path>"],
     "contains": { "edge.json": "{}\n" }
   },
@@ -62,12 +62,12 @@
   },
   {
     "given": { "custom.json": "{}\n" },
-    "run": ["--manifest", "custom.json", "add", "foo=https://example.com/foo.mini"],
-    "contains": { "custom.json": "example.com/foo.mini" }
+    "run": ["--manifest", "custom.json", "add", "foo=https://example.com/foo.lox"],
+    "contains": { "custom.json": "example.com/foo.lox" }
   },
   {
-    "run": ["run", "no_such.mini"],
-    "fails": ["reading no_such.mini"]
+    "run": ["run", "no_such.lox"],
+    "fails": ["reading no_such.lox"]
   },
   {
     "run": ["runn"],
@@ -75,54 +75,57 @@
   },
   {
     "run": ["test"],
-    "fails": ["no *_test.mini files found"]
+    "fails": ["no *_test.lox files found"]
   },
   {
-    "given": { "a_test.mini": "exit(0)\n", "b_test.mini": "x = 1\n" },
+    "given": { "a_test.lox": "exit(0);\n", "b_test.lox": "var x = 1;\n" },
     "run": ["test"],
-    "stdout": ["(successful) a_test.mini", "(successful) b_test.mini", "2/2 files passed"]
+    "stdout": ["(successful) a_test.lox", "(successful) b_test.lox", "2/2 files passed"]
   },
   {
-    "given": { "a_test.mini": "exit(1)\n" },
+    "given": { "a_test.lox": "exit(1);\n" },
     "run": ["test"],
-    "stdout": ["(unsuccessful) a_test.mini", "0/1 files passed"],
+    "stdout": ["(unsuccessful) a_test.lox", "0/1 files passed"],
     "fails": []
   },
   {
-    "given": { "u.mini": "val = 5\n", "t.mini": "use .u as u\nval = u.val\nprint(\"got\", val)\n" },
-    "run": ["run", "t.mini"],
+    "given": {
+      "u.lox": "var val = 5;\n",
+      "t.lox": "var u = import(\"./u.lox\");\nvar val = u.val;\nprint \"got \" + text(val);\n"
+    },
+    "run": ["run", "t.lox"],
     "stdout": ["got 5"]
   },
   {
-    "given": { "t.mini": "print(\"hi from edge\")\n" },
-    "run": ["run", "t.mini"],
+    "given": { "t.lox": "print \"hi from edge\";\n" },
+    "run": ["run", "t.lox"],
     "stdout": ["hi from edge"]
   },
   {
-    "given": { "boom.mini": "x = 1 / 0\n" },
-    "run": ["run", "boom.mini"],
-    "fails": ["DivisionError"]
+    "given": { "boom.lox": "var x = \"one\" - 1;\n" },
+    "run": ["run", "boom.lox"],
+    "fails": ["Operands must be numbers.", "[line 1] in script"]
   },
   {
-    "given": { "main.mini": "print(\"ok\")\n", "edge.json": "{}\n" },
+    "given": { "main.lox": "print \"ok\";\n", "edge.json": "{}\n" },
     "run": ["build", "--web"],
-    "creates": ["dist/index.html", "dist/main.mini", "dist/edge.wasm"]
+    "creates": ["dist/index.html", "dist/main.lox", "dist/edge.wasm"]
   },
   {
     "given": { "edge.json": "{}\n" },
-    "run": ["add", "test=https://example.com/test.mini"],
-    "stdout": ["+ test       https://example.com/test.mini"],
+    "run": ["add", "test=https://example.com/test.lox"],
+    "stdout": ["+ test       https://example.com/test.lox"],
     "contains": { "edge.json": "\"imports\"" }
   },
   {
     "given": { "edge.json": "{}\n" },
-    "run": ["add", "foo=https://example.com/foo.mini"],
-    "contains": { "edge.json": "\"imports\": {\n    \"foo\": \"https://example.com/foo.mini\"" }
+    "run": ["add", "foo=https://example.com/foo.lox"],
+    "contains": { "edge.json": "\"imports\": {\n    \"foo\": \"https://example.com/foo.lox\"" }
   },
   {
     "given": { "edge.json": "{}\n" },
     "run": ["add", "bar=https://example.com/bar.js"],
-    "fails": ["module 'bar' is JavaScript, ship a .mini or a .wasm"],
+    "fails": ["module 'bar' is JavaScript, ship a .lox or a .wasm"],
     "contains": { "edge.json": "{}\n" }
   },
   {
@@ -133,83 +136,83 @@
   },
   {
     "given": { "edge.json": "{}\n" },
-    "run": ["add", "one=https://example.com/one.mini", "two=https://example.com/two.js"],
-    "fails": ["module 'two' is JavaScript, ship a .mini or a .wasm"],
+    "run": ["add", "one=https://example.com/one.lox", "two=https://example.com/two.js"],
+    "fails": ["module 'two' is JavaScript, ship a .lox or a .wasm"],
     "contains": { "edge.json": "{}\n" }
   },
   {
-    "given": { "ask.mini": "s = input()\nprint(len(s))\n" },
-    "run": ["run", "ask.mini"],
+    "given": { "ask.lox": "var s = input();\nprint len(s);\n" },
+    "run": ["run", "ask.lox"],
     "stdin": "hello\r\n",
     "stdout": ["5"]
   },
   {
-    "given": { "ask.mini": "s = input()\nprint(len(s))\n" },
-    "run": ["run", "ask.mini"],
+    "given": { "ask.lox": "var s = input();\nprint len(s);\n" },
+    "run": ["run", "ask.lox"],
     "stdin": "hello\n",
     "stdout": ["5"]
   },
   {
-    "given": { "ask.mini": "a = input()\nb = input()\nprint(len(a))\nprint(len(b))\n" },
-    "run": ["run", "ask.mini"],
+    "given": { "ask.lox": "var a = input();\nvar b = input();\nprint len(a);\nprint len(b);\n" },
+    "run": ["run", "ask.lox"],
     "stdin": "x\r\nyy\r\n",
     "stdout": ["1", "2"]
   },
   {
-    "given": { "ask.mini": "s = input()\nprint(repr(s))\n" },
-    "run": ["run", "ask.mini"],
+    "given": { "ask.lox": "var s = input();\nprint \"[\" + s + \"]\";\n" },
+    "run": ["run", "ask.lox"],
     "stdin": "hi\r\n",
-    "stdout": ["\"hi\""]
+    "stdout": ["[hi]"]
   },
   {
-    "given": { "ask.mini": "s = input()\nprint(len(s))\n" },
-    "run": ["run", "ask.mini"],
+    "given": { "ask.lox": "var s = input();\nprint len(s);\n" },
+    "run": ["run", "ask.lox"],
     "stdin": "hey\r",
     "stdout": ["3"]
   },
   {
-    "run": ["run", "-c", "print(\"inline ok\")"],
+    "run": ["run", "-c", "print \"inline ok\";"],
     "stdout": ["inline ok"]
   },
   {
-    "run": ["run", "-c", "x = 1 / 0"],
-    "fails": ["DivisionError"]
+    "run": ["run", "-c", "var x = \"one\" - 1;"],
+    "fails": ["Operands must be numbers.", "[line 1] in script"]
   },
   {
-    "run": ["run", "-c", "s = input()\nprint(len(s))"],
+    "run": ["run", "-c", "var s = input();\nprint len(s);"],
     "stdin": "hello\n",
     "stdout": ["5"]
   },
   {
-    "given": { "f.mini": "print(1)\n" },
-    "run": ["run", "-c", "print(2)", "f.mini"],
+    "given": { "f.lox": "print 1;\n" },
+    "run": ["run", "-c", "print 2;", "f.lox"],
     "fails": ["cannot be used with"]
   },
   {
-    "given": { "sub/main.mini": "print(\"ok\")\n", "edge.json": "{}\n" },
+    "given": { "sub/main.lox": "print \"ok\";\n", "edge.json": "{}\n" },
     "run": ["build", "--web"],
-    "creates": ["dist/sub/main.mini"],
-    "contains": { "dist/index.html": "./sub/main.mini" }
+    "creates": ["dist/sub/main.lox"],
+    "contains": { "dist/index.html": "./sub/main.lox" }
   },
   {
-    "given": { "main.mini": "print(\"ok\")\n", "edge.json": "{}\n" },
+    "given": { "main.lox": "print \"ok\";\n", "edge.json": "{}\n" },
     "run": ["build", "--web"],
-    "contains": { "dist/index.html": "./main.mini" }
+    "contains": { "dist/index.html": "./main.lox" }
   },
   {
-    "given": { "main.mini": "use json\n" },
-    "run": ["run", "main.mini"],
+    "given": { "main.lox": "import(\"json\");\n" },
+    "run": ["run", "main.lox"],
     "fails": ["module 'json' is not provided by this host and no edge.json declares it\nhelp: declare it in edge.json, or use a relative import"]
   },
   {
     "given": {
-      "edge.json": "{ \"imports\": { \"lib\": \"./lib.mini\", \"widget\": \"./widget.js\" } }\n",
+      "edge.json": "{ \"imports\": { \"lib\": \"./lib.lox\", \"widget\": \"./widget.js\" } }\n",
       "widget.js": "export default () => ({ name: () => 'widget' });\n",
-      "lib.mini": "use widget\nprint(widget.name())\n",
-      "main.mini": "use lib\n"
+      "lib.lox": "var widget = import(\"widget\");\nprint widget.name();\n",
+      "main.lox": "import(\"lib\");\n"
     },
-    "run": ["run", "main.mini"],
-    "fails": ["module 'widget' is JavaScript, ship a .mini or a .wasm"]
+    "run": ["run", "main.lox"],
+    "fails": ["module 'widget' is JavaScript, ship a .lox or a .wasm"]
   },
   {
     "given": {
@@ -217,64 +220,61 @@
       "widget.js": "export default () => ({});\n"
     },
     "run": ["lock"],
-    "fails": ["module 'widget' is JavaScript, ship a .mini or a .wasm"]
+    "fails": ["module 'widget' is JavaScript, ship a .lox or a .wasm"]
   },
   {
     "given": {
       "edge.json": "{ \"imports\": { \"helper\": \"./helper\" } }\n",
-      "helper": "fn double(n) {\n    return n * 2\n}\n",
-      "main.mini": "use helper\ndouble = helper.double\nprint(double(21))\n"
+      "helper": "fun double(n) {\n    return n * 2;\n}\n",
+      "main.lox": "var helper = import(\"helper\");\nprint helper.double(21);\n"
     },
-    "run": ["run", "main.mini"],
+    "run": ["run", "main.lox"],
     "stdout": ["42"]
   },
   {
     "given": {
       "edge.json": "{ \"imports\": { \"x\": \"./x.wasm\" } }\n",
       "x.wasm": "not a wasm module",
-      "main.mini": "use x\n"
+      "main.lox": "import(\"x\");\n"
     },
-    "run": ["run", "main.mini"],
+    "run": ["run", "main.lox"],
     "fails": ["error: module 'x' is not a valid plugin, failed to parse WebAssembly module: magic header not detected: bad magic number\n"]
   },
   {
     "given": {
       "edge.json": "{ \"imports\": { \"x\": \"./x.mjs\" } }\n",
       "x.mjs": "export default { answer: () => 42 };\n",
-      "main.mini": "use x\nprint(x.answer())\n"
+      "main.lox": "var x = import(\"x\");\nprint x.answer();\n"
     },
-    "run": ["run", "main.mini"],
-    "fails": ["module 'x' is JavaScript, ship a .mini or a .wasm"]
+    "run": ["run", "main.lox"],
+    "fails": ["module 'x' is JavaScript, ship a .lox or a .wasm"]
   },
   {
-    "given": {
-      "edge.json": "{ \"imports\": { \"x\": \"./vendor/x.so\" } }\n",
-      "main.mini": "use x\n"
-    },
-    "run": ["run", "main.mini"],
+    "given": { "edge.json": "{ \"imports\": { \"x\": \"./vendor/x.so\" } }\n", "main.lox": "import(\"x\");\n" },
+    "run": ["run", "main.lox"],
     "fails": ["module 'x' is not supported, ship a .wasm"]
   },
   {
     "given": {
       "edge.json": "{ \"imports\": { \"x\": \"./vendor/x.dylib\" } }\n",
-      "main.mini": "use x\n"
+      "main.lox": "import(\"x\");\n"
     },
-    "run": ["run", "main.mini"],
+    "run": ["run", "main.lox"],
     "fails": ["module 'x' is not supported, ship a .wasm"]
   },
   {
     "given": {
       "edge.json": "{ \"imports\": { \"m\": \"./m.js\" } }\n",
       "m.js": "export default () => ({ hi: () => \"hello\" })\n",
-      "main.mini": "use m\nhi = m.hi\nprint(hi())\n"
+      "main.lox": "var m = import(\"m\");\nprint m.hi();\n"
     },
     "run": ["build", "--app"],
-    "fails": ["module 'm' is JavaScript, ship a .mini or a .wasm"]
+    "fails": ["module 'm' is JavaScript, ship a .lox or a .wasm"]
   },
   {
     "given": {
       "edge.json": "{ \"imports\": {} }\n",
-      "main.mini": "print(\"hello\")\n",
+      "main.lox": "print \"hello\";\n",
       "README.md": "# app\n",
       "LICENSE.txt": "Apache-2.0\n",
       "NOTES.md": "not a notice\n"
@@ -286,8 +286,8 @@
   {
     "given": {
       "edge.json": "{ \"name\": \"slugify\", \"version\": \"0.1.0\", \"description\": \"Turn text into a slug.\", \"docs\": \"./docs\" }\n",
-      "main.mini": "print(\"hello\")\n",
-      "docs/01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```edge\nprint(1)\n```\n\n```output\n1\n```\n",
+      "main.lox": "print \"hello\";\n",
+      "docs/01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```lox\nprint 1;\n```\n\n```output\n1\n```\n",
       "docs/02-reference/01-api.mdx": "---\ntitle: Api\ndescription: Every function.\n---\n\n# Api\n"
     },
     "run": ["build"],
@@ -297,7 +297,7 @@
   {
     "given": {
       "edge.json": "{ \"docs\": \"./docs\" }\n",
-      "main.mini": "print(\"hello\")\n",
+      "main.lox": "print \"hello\";\n",
       "docs/intro.mdx": "# Intro\n"
     },
     "run": ["build"],
@@ -306,94 +306,91 @@
   {
     "given": {
       "edge.json": "{ \"description\": \"Turn absolutely any text that you have into a tidy url slug fast.\" }\n",
-      "main.mini": "print(\"hello\")\n"
+      "main.lox": "print \"hello\";\n"
     },
     "run": ["build"],
     "fails": ["the cap is 60"]
   },
   {
-    "given": {
-      "edge.json": "{}\n",
-      "main.mini": "print(\"x\")\n"
-    },
-    "run": ["run", "--web", "--preempt", "500", "main.mini"],
+    "given": { "edge.json": "{}\n", "main.lox": "print \"x\";\n" },
+    "run": ["run", "--web", "--preempt", "500", "main.lox"],
     "fails": ["--preempt belongs to the native engine"]
   },
   {
     "given": {
-      "edge.json": "{\"imports\": {\"clock\": \"./clock/main.mini\"}}\n",
-      "main.mini": "use clock\nnow = clock.now\nprint(now())\n",
-      "clock/edge.json": "{\"name\": \"clock\", \"version\": \"0.2.0\", \"imports\": {\"trace\": \"./trace/main.mini\"}, \"permissions\": {\"main\": [\"net:127.0.0.1\"], \"trace\": [\"net:127.0.0.1\", \"net\"]}}\n",
-      "clock/main.mini": "use trace\nstamp = trace.stamp\n\nfn now() {\n    return stamp()\n}\n",
+      "edge.json": "{\"imports\": {\"clock\": \"./clock/main.lox\"}}\n",
+      "main.lox": "var clock = import(\"clock\");\nprint clock.now();\n",
+      "clock/edge.json": "{\"name\": \"clock\", \"version\": \"0.2.0\", \"imports\": {\"trace\": \"./trace/main.lox\"}, \"permissions\": {\"main\": [\"net:127.0.0.1\"], \"trace\": [\"net:127.0.0.1\", \"net\"]}}\n",
+      "clock/main.lox": "var trace = import(\"trace\");\n\nfun now() {\n    return trace.stamp();\n}\n",
       "clock/trace/edge.json": "{\"name\": \"trace\", \"permissions\": {\"main\": [\"net:127.0.0.1\", \"net\"]}}\n",
-      "clock/trace/main.mini": "use net\n\nfn stamp() {\n    return net.request(\"GET\", \"http://127.0.0.1:1/\") > 0\n}\n"
+      "clock/trace/main.lox": "var net = import(\"net\");\n\nfun stamp() {\n    return net.request(\"GET\", \"http://127.0.0.1:1/\") > 0;\n}\n"
     },
     "run": ["lock"],
     "fails": ["edge.json does not grant what these packages ask for", "  clock 0.2.0   net:127.0.0.1, net\n", "help: grant them under \"permissions\" in edge.json"]
   },
   {
     "given": {
-      "edge.json": "{\"imports\": {\"clock\": \"./clock/main.mini\"}}\n",
-      "main.mini": "use clock\nnow = clock.now\nprint(now())\n",
-      "clock/edge.json": "{\"name\": \"clock\", \"version\": \"0.2.0\", \"imports\": {\"trace\": \"./trace/main.mini\"}, \"permissions\": {\"main\": [\"net:127.0.0.1\"], \"trace\": [\"net:127.0.0.1\", \"net\"]}}\n",
-      "clock/main.mini": "use trace\nstamp = trace.stamp\n\nfn now() {\n    return stamp()\n}\n",
+      "edge.json": "{\"imports\": {\"clock\": \"./clock/main.lox\"}}\n",
+      "main.lox": "var clock = import(\"clock\");\nprint clock.now();\n",
+      "clock/edge.json": "{\"name\": \"clock\", \"version\": \"0.2.0\", \"imports\": {\"trace\": \"./trace/main.lox\"}, \"permissions\": {\"main\": [\"net:127.0.0.1\"], \"trace\": [\"net:127.0.0.1\", \"net\"]}}\n",
+      "clock/main.lox": "var trace = import(\"trace\");\n\nfun now() {\n    return trace.stamp();\n}\n",
       "clock/trace/edge.json": "{\"name\": \"trace\", \"permissions\": {\"main\": [\"net:127.0.0.1\", \"net\"]}}\n",
-      "clock/trace/main.mini": "use net\n\nfn stamp() {\n    return net.request(\"GET\", \"http://127.0.0.1:1/\") > 0\n}\n"
+      "clock/trace/main.lox": "var net = import(\"net\");\n\nfun stamp() {\n    return net.request(\"GET\", \"http://127.0.0.1:1/\") > 0;\n}\n"
     },
     "run": ["build"],
     "fails": ["edge.json does not grant what these packages ask for"]
   },
   {
     "given": {
-      "edge.json": "{\"imports\": {\"clock\": \"./clock/main.mini\"}}\n",
-      "main.mini": "use clock\nnow = clock.now\nprint(now())\n",
-      "clock/edge.json": "{\"name\": \"clock\", \"version\": \"0.2.0\", \"imports\": {\"trace\": \"./trace/main.mini\"}, \"permissions\": {\"main\": [\"net:127.0.0.1\"], \"trace\": [\"net:127.0.0.1\", \"net\"]}}\n",
-      "clock/main.mini": "use trace\nstamp = trace.stamp\n\nfn now() {\n    return stamp()\n}\n",
+      "edge.json": "{\"imports\": {\"clock\": \"./clock/main.lox\"}}\n",
+      "main.lox": "var clock = import(\"clock\");\nprint clock.now();\n",
+      "clock/edge.json": "{\"name\": \"clock\", \"version\": \"0.2.0\", \"imports\": {\"trace\": \"./trace/main.lox\"}, \"permissions\": {\"main\": [\"net:127.0.0.1\"], \"trace\": [\"net:127.0.0.1\", \"net\"]}}\n",
+      "clock/main.lox": "var trace = import(\"trace\");\n\nfun now() {\n    return trace.stamp();\n}\n",
       "clock/trace/edge.json": "{\"name\": \"trace\", \"permissions\": {\"main\": [\"net:127.0.0.1\", \"net\"]}}\n",
-      "clock/trace/main.mini": "use net\n\nfn stamp() {\n    return net.request(\"GET\", \"http://127.0.0.1:1/\") > 0\n}\n",
-      "green_test.mini": "exit(0)\n"
+      "clock/trace/main.lox": "var net = import(\"net\");\n\nfun stamp() {\n    return net.request(\"GET\", \"http://127.0.0.1:1/\") > 0;\n}\n",
+      "green_test.lox": "exit(0);\n"
     },
     "run": ["test"],
     "fails": ["edge.json does not grant what these packages ask for"]
   },
   {
     "given": {
-      "edge.json": "{\"imports\": {\"clock\": \"./clock/main.mini\"}, \"permissions\": {\"clock\": [\"net:127.0.0.1\", \"net\"]}}\n",
-      "main.mini": "use clock\nnow = clock.now\nprint(now())\n",
-      "clock/edge.json": "{\"name\": \"clock\", \"version\": \"0.2.0\", \"imports\": {\"trace\": \"./trace/main.mini\"}, \"permissions\": {\"main\": [\"net:127.0.0.1\"], \"trace\": [\"net:127.0.0.1\", \"net\"]}}\n",
-      "clock/main.mini": "use trace\nstamp = trace.stamp\n\nfn now() {\n    return stamp()\n}\n",
+      "edge.json": "{\"imports\": {\"clock\": \"./clock/main.lox\"}, \"permissions\": {\"clock\": [\"net:127.0.0.1\", \"net\"]}}\n",
+      "main.lox": "var clock = import(\"clock\");\nprint clock.now();\n",
+      "clock/edge.json": "{\"name\": \"clock\", \"version\": \"0.2.0\", \"imports\": {\"trace\": \"./trace/main.lox\"}, \"permissions\": {\"main\": [\"net:127.0.0.1\"], \"trace\": [\"net:127.0.0.1\", \"net\"]}}\n",
+      "clock/main.lox": "var trace = import(\"trace\");\n\nfun now() {\n    return trace.stamp();\n}\n",
       "clock/trace/edge.json": "{\"name\": \"trace\", \"permissions\": {\"main\": [\"net:127.0.0.1\", \"net\"]}}\n",
-      "clock/trace/main.mini": "use net\n\nfn stamp() {\n    return net.request(\"GET\", \"http://127.0.0.1:1/\") > 0\n}\n"
+      "clock/trace/main.lox": "var net = import(\"net\");\n\nfun stamp() {\n    return net.request(\"GET\", \"http://127.0.0.1:1/\") > 0;\n}\n"
     },
-    "run": ["run", "main.mini"],
+    "run": ["run", "main.lox"],
     "stdout": ["true"]
   },
   {
     "given": {
-      "edge.json": "{\"imports\": {\"clock\": \"./clock/main.mini\"}, \"permissions\": {\"clock\": [\"net:127.0.0.1\"]}}\n",
-      "main.mini": "use clock\nnow = clock.now\nprint(now())\n",
-      "clock/edge.json": "{\"name\": \"clock\", \"version\": \"0.2.0\", \"imports\": {\"trace\": \"./trace/main.mini\"}, \"permissions\": {\"main\": [\"net:127.0.0.1\"]}}\n",
-      "clock/main.mini": "use trace\nstamp = trace.stamp\n\nfn now() {\n    return stamp()\n}\n",
+      "edge.json": "{\"imports\": {\"clock\": \"./clock/main.lox\"}, \"permissions\": {\"clock\": [\"net:127.0.0.1\"]}}\n",
+      "main.lox": "var clock = import(\"clock\");\nprint clock.now();\n",
+      "clock/edge.json": "{\"name\": \"clock\", \"version\": \"0.2.0\", \"imports\": {\"trace\": \"./trace/main.lox\"}, \"permissions\": {\"main\": [\"net:127.0.0.1\"]}}\n",
+      "clock/main.lox": "var trace = import(\"trace\");\n\nfun now() {\n    return trace.stamp();\n}\n",
       "clock/trace/edge.json": "{\"name\": \"trace\", \"permissions\": {\"main\": [\"net:127.0.0.1\"]}}\n",
-      "clock/trace/main.mini": "use net\n\nfn stamp() {\n    return net.request(\"GET\", \"http://127.0.0.1:1/\") > 0\n}\n"
+      "clock/trace/main.lox": "var net = import(\"net\");\n\nfun stamp() {\n    return net.request(\"GET\", \"http://127.0.0.1:1/\") > 0;\n}\n"
     },
     "run": ["lock"],
     "fails": ["edge.json at 'clock/trace/edge.json' asks for net:127.0.0.1, which clock 0.2.0 does not pass it"]
   },
   {
     "given": {
-      "edge.json": "{\"imports\": {\"main\": \"./clock/main.mini\"}}\n",
-      "main.mini": "use clock\nnow = clock.now\n",
-      "clock/main.mini": "fn now() {\n    return 0\n}\n"
+      "edge.json": "{\"imports\": {\"main\": \"./clock/main.lox\"}}\n",
+      "main.lox": "var clock = import(\"clock\");\n",
+      "clock/main.lox": "fun now() {\n    return 0;\n}\n"
     },
     "run": ["lock"],
     "fails": ["import 'main' is reserved for permissions"]
   },
   {
     "given": {
-      "edge.json": "{\"imports\": {\"clock\": \"./clock/main.mini\"}}\n",
-      "main.mini": "use clock\nnow = clock.now\n",
-      "clock/main.mini": "fn now() {\n    return 0\n}\n",
+      "edge.json": "{\"imports\": {\"clock\": \"./clock/main.lox\"}}\n",
+      "main.lox": "var clock = import(\"clock\");\n",
+      "clock/main.lox": "fun now() {\n    return 0;\n}\n",
       "clock/edge.json": "{\"name\": \"timer\", \"permissions\": {\"main\": [\"net:127.0.0.1\"]}}\n"
     },
     "run": ["lock"],
@@ -401,9 +398,9 @@
   },
   {
     "given": {
-      "edge.json": "{\"imports\": {\"clock\": \"./clock/main.mini\"}}\n",
-      "main.mini": "use clock\nnow = clock.now\n",
-      "clock/main.mini": "fn now() {\n    return 0\n}\n",
+      "edge.json": "{\"imports\": {\"clock\": \"./clock/main.lox\"}}\n",
+      "main.lox": "var clock = import(\"clock\");\n",
+      "clock/main.lox": "fun now() {\n    return 0;\n}\n",
       "clock/edge.json": "{\"name\": \"clock\", \"permissions\": {\"main\": [\"db:/\"]}}\n"
     },
     "run": ["lock"],
@@ -412,165 +409,187 @@
   {
     "given": {
       "edge.json": "{\"permissions\": {\"main\": [\"net:a.test;script-src\"]}}\n",
-      "main.mini": "print(1)\n"
+      "main.lox": "print 1;\n"
     },
     "run": ["lock"],
     "fails": ["edge.json at 'edge.json': permissions for 'main' give net the scope 'a.test;script-src', which it does not have"]
   },
   {
-    "given": {
-      "edge.json": "{\"name\": \"all\"}\n",
-      "main.mini": "print(1)\n"
-    },
-    "run": ["run", "main.mini"],
+    "given": { "edge.json": "{\"name\": \"all\"}\n", "main.lox": "print 1;\n" },
+    "run": ["run", "main.lox"],
     "fails": ["name 'all' is reserved for permissions"]
   },
   {
     "given": {
       "edge.json": "{ \"permissions\": { \"main\": [\"files:events.jsonl\"] } }\n",
       "events.jsonl": "first\nsecond\n",
-      "main.mini": "use files\n\nf = files.open(\"events.jsonl\")\nbody = b\"\"\nchunk = files.read(f)\nwhile chunk != nil {\n    body += chunk\n    chunk = files.read(f)\n}\nprint(body.decode().splitlines(), files.read(f))\nfiles.close(f)\n"
+      "main.lox": "var files = import(\"files\");\n\nvar f = files.open(\"events.jsonl\");\nvar body = files.read(f);\nvar chunk = files.read(f);\nwhile (chunk != nil) {\n    body = body + chunk;\n    chunk = files.read(f);\n}\nprint body;\nprint files.read(f);\nfiles.close(f);\n"
     },
-    "run": ["run", "main.mini"],
-    "stdout": ["[\"first\", \"second\"] nil"]
+    "run": ["run", "main.lox"],
+    "stdout": ["b\"first\\nsecond\\n\"\nnil\n"]
   },
   {
     "given": {
       "edge.json": "{ \"permissions\": { \"main\": [\"files:other.txt\"] } }\n",
       "events.jsonl": "first\n",
-      "main.mini": "use files\n\ntry {\n    files.open(\"events.jsonl\")\n} catch PermissionError as e {\n    print(e)\n}\n"
+      "main.lox": "var files = import(\"files\");\n\nfiles.open(\"events.jsonl\");\n"
     },
-    "run": ["run", "main.mini"],
-    "stdout": ["'main' has no files:events.jsonl, edge.json grants it files:other.txt"]
+    "run": ["run", "main.lox"],
+    "fails": ["'main' has no files:events.jsonl, edge.json grants it files:other.txt"]
   },
   {
     "given": {
       "edge.json": "{ \"permissions\": { \"main\": [\"files:logs/\"] } }\n",
       "logs/day/a.txt": "inside\n",
       "b.txt": "beside\n",
-      "main.mini": "use files\n\nprint(files.read(files.open(\"logs/day/a.txt\")))\ntry {\n    files.open(\"b.txt\")\n} catch PermissionError as e {\n    print(e)\n}\n"
+      "main.lox": "var files = import(\"files\");\n\nprint files.read(files.open(\"logs/day/a.txt\"));\nfiles.open(\"b.txt\");\n"
     },
-    "run": ["run", "main.mini"],
-    "stdout": ["b\"inside\\n\"", "'main' has no files:b.txt, edge.json grants it files:logs/"]
+    "run": ["run", "main.lox"],
+    "stdout": ["b\"inside\\n\""],
+    "fails": ["'main' has no files:b.txt, edge.json grants it files:logs/", "[line 4] in script"]
   },
   {
     "given": {
       "edge.json": "{ \"permissions\": { \"main\": [\"net:a.test\"] } }\n",
       "events.jsonl": "first\n",
-      "main.mini": "use files\n"
+      "main.lox": "import(\"files\");\n"
     },
-    "run": ["run", "main.mini"],
+    "run": ["run", "main.lox"],
     "fails": ["'main' imports files, which edge.json does not grant it"]
   },
   {
     "given": {
       "edge.json": "{ \"permissions\": { \"main\": [\"files:events.jsonl\"] } }\n",
-      "main.mini": "use files\n\nfor path in [\"../events.jsonl\", \"/etc/hosts\", \"logs//a.txt\"] {\n    try {\n        files.open(path)\n    } catch ValueError as e {\n        print(e)\n    }\n}\ntry {\n    files.open(\"events.jsonl\")\n} catch IOError as e {\n    print(e)\n}\n"
+      "main.lox": "var files = import(\"files\");\n\nfiles.open(\"../events.jsonl\");\n"
     },
-    "run": ["run", "main.mini"],
-    "stdout": ["'../events.jsonl' is not a plain path, files takes names joined by slashes below the package", "'/etc/hosts' is not a plain path", "'logs//a.txt' is not a plain path", "cannot open events.jsonl, no such file"]
-  },
-  {
-    "given": { "main.mini": "xs = [1, 2]\nprint(xs + \"tail\")\n" },
-    "run": ["run", "main.mini"],
-    "fails": ["error: TypeError: + does not apply to list and text", "--> main.mini:2:1"]
-  },
-  {
-    "given": { "main.mini": "send(\"rows\", \"{{\\\"n\\\": 1}}\")\nsend(\"rows\", \"{{\\\"n\\\": 2}}\")\nsend(\"file:rows.jsonl\", \"{{\\\"n\\\": 3}}\")\n" },
-    "run": ["run", "main.mini"],
-    "stdout": ["rows\n{\"n\": 1}\n{\"n\": 2}\n"],
-    "contains": { "rows.jsonl": "{\"n\": 3}\n" }
-  },
-  {
-    "given": { "main.mini": "send(\"file:../stray.jsonl\", \"escaped\")\n" },
-    "run": ["run", "main.mini"],
-    "fails": ["error: the channel 'file:../stray.jsonl' names no file below the directory of the run"]
-  },
-  {
-    "given": { "main.mini": "use .a as a\nx = a.x\nprint(x)\n", "a.mini": "use .b as b\ny = b.y\nx = 1\n", "b.mini": "use .a as a\nx = a.x\ny = 2\n" },
-    "run": ["run", "main.mini"],
-    "fails": ["circular import: './a.mini'"]
+    "run": ["run", "main.lox"],
+    "fails": ["'../events.jsonl' is not a plain path, files takes names joined by slashes below the package"]
   },
   {
     "given": {
-      "edge.json": "{ \"imports\": { \"strict\": \"./strict/main.mini\" }, \"permissions\": { \"main\": [\"net:127.0.0.1\"], \"strict\": [\"net\"] } }\n",
-      "strict/edge.json": "{}\n",
-      "strict/main.mini": "use net\n\nfn reach() {\n    return net.request(\"GET\", \"http://127.0.0.1:9/\")\n}\n",
-      "main.mini": "use strict\nreach = strict.reach\nreach()\n"
+      "edge.json": "{ \"permissions\": { \"main\": [\"files:events.jsonl\"] } }\n",
+      "main.lox": "var files = import(\"files\");\n\nfiles.open(\"/etc/hosts\");\n"
     },
-    "run": ["run", "--manifest", "edge.json", "main.mini"],
+    "run": ["run", "main.lox"],
+    "fails": ["'/etc/hosts' is not a plain path"]
+  },
+  {
+    "given": {
+      "edge.json": "{ \"permissions\": { \"main\": [\"files:events.jsonl\"] } }\n",
+      "main.lox": "var files = import(\"files\");\n\nfiles.open(\"logs//a.txt\");\n"
+    },
+    "run": ["run", "main.lox"],
+    "fails": ["'logs//a.txt' is not a plain path"]
+  },
+  {
+    "given": {
+      "edge.json": "{ \"permissions\": { \"main\": [\"files:events.jsonl\"] } }\n",
+      "main.lox": "var files = import(\"files\");\n\nfiles.open(\"events.jsonl\");\n"
+    },
+    "run": ["run", "main.lox"],
+    "fails": ["cannot open events.jsonl, no such file"]
+  },
+  {
+    "given": { "main.lox": "var n = 1;\nprint n + \"tail\";\n" },
+    "run": ["run", "main.lox"],
+    "fails": ["Operands must be two numbers or two strings.", "[line 2] in script"]
+  },
+  {
+    "given": { "main.lox": "send(\"rows\", \"n 1\");\nsend(\"rows\", \"n 2\");\nsend(\"file:rows.jsonl\", \"n 3\");\n" },
+    "run": ["run", "main.lox"],
+    "stdout": ["rows\nn 1\nn 2\n"],
+    "contains": { "rows.jsonl": "n 3\n" }
+  },
+  {
+    "given": { "main.lox": "send(\"file:../stray.jsonl\", \"escaped\");\n" },
+    "run": ["run", "main.lox"],
+    "fails": ["error: the channel 'file:../stray.jsonl' names no file below the directory of the run"]
+  },
+  {
+    "given": {
+      "main.lox": "var a = import(\"./a.lox\");\nprint a.x;\n",
+      "a.lox": "var b = import(\"./b.lox\");\nvar y = b.y;\nvar x = 1;\n",
+      "b.lox": "var a = import(\"./a.lox\");\nvar x = a.x;\nvar y = 2;\n"
+    },
+    "run": ["run", "main.lox"],
+    "fails": ["circular import: './a.lox'"]
+  },
+  {
+    "given": {
+      "edge.json": "{ \"imports\": { \"strict\": \"./strict/main.lox\" }, \"permissions\": { \"main\": [\"net:127.0.0.1\"], \"strict\": [\"net\"] } }\n",
+      "strict/edge.json": "{}\n",
+      "strict/main.lox": "var net = import(\"net\");\n\nfun reach() {\n    return net.request(\"GET\", \"http://127.0.0.1:9/\");\n}\n",
+      "main.lox": "var strict = import(\"strict\");\nstrict.reach();\n"
+    },
+    "run": ["run", "--manifest", "edge.json", "main.lox"],
     "fails": ["'strict' has no net:127.0.0.1, edge.json grants it nothing"]
   },
   {
     "given": {
-      "edge.json": "{ \"imports\": { \"strict\": \"./strict/main.mini\" } }\n",
-      "strict/edge.json": "{ \"imports\": { \"helper\": \"./helper.mini\" } }\n",
-      "strict/helper.mini": "fn shout(word) {\n    return word.upper()\n}\n",
-      "strict/main.mini": "use helper\nshout = helper.shout\n\nfn hello() {\n    return shout(\"nested\")\n}\n",
-      "main.mini": "use strict\nhello = strict.hello\nprint(hello())\n"
+      "edge.json": "{ \"imports\": { \"strict\": \"./strict/main.lox\" } }\n",
+      "strict/edge.json": "{ \"imports\": { \"helper\": \"./helper.lox\" } }\n",
+      "strict/helper.lox": "fun shout(word) {\n    return word + \"!\";\n}\n",
+      "strict/main.lox": "var helper = import(\"helper\");\n\nfun hello() {\n    return helper.shout(\"nested\");\n}\n",
+      "main.lox": "var strict = import(\"strict\");\nprint strict.hello();\n"
     },
-    "run": ["run", "--manifest", "edge.json", "main.mini"],
-    "stdout": ["NESTED\n"]
+    "run": ["run", "--manifest", "edge.json", "main.lox"],
+    "stdout": ["nested!\n"]
   },
   {
     "given": {
-      "edge.json": "{ \"imports\": { \"util\": \"./util/main.mini\" }, \"permissions\": { \"main\": [] } }\n",
+      "edge.json": "{ \"imports\": { \"util\": \"./util/main.lox\" }, \"permissions\": { \"main\": [] } }\n",
       "util/edge.json": "{}\n",
-      "util/main.mini": "fn write() {\n    send(\"file:report.txt\", \"from util\")\n}\n",
-      "main.mini": "use util\nsend(\"file:mine.txt\", \"from main\")\ntry {\n    util.write()\n} catch PermissionError as e {\n    print(e)\n}\n"
+      "util/main.lox": "fun write() {\n    send(\"file:report.txt\", \"from util\");\n}\n",
+      "main.lox": "var util = import(\"util\");\nsend(\"file:mine.txt\", \"from main\");\nutil.write();\n"
     },
-    "run": ["run", "main.mini"],
-    "stdout": ["'util' has no grant that reaches file:report.txt, only the root package writes a file channel without one\n"],
-    "contains": {"mine.txt": "from main\n"}
+    "run": ["run", "main.lox"],
+    "contains": { "mine.txt": "from main\n" },
+    "fails": ["'util' has no grant that reaches file:report.txt, only the root package writes a file channel without one\n"]
   },
   {
     "given": {
-      "edge.json": "{ \"imports\": { \"util\": \"./util/main.mini\" }, \"permissions\": { \"util\": [\"files:out/\"] } }\n",
+      "edge.json": "{ \"imports\": { \"util\": \"./util/main.lox\" }, \"permissions\": { \"util\": [\"files:out/\"] } }\n",
       "util/edge.json": "{}\n",
       "util/out/kept.txt": "",
-      "util/main.mini": "fn write() {\n    send(\"file:util/out/report.txt\", \"granted\")\n}\n",
-      "main.mini": "use util\nutil.write()\n"
+      "util/main.lox": "fun write() {\n    send(\"file:util/out/report.txt\", \"granted\");\n}\n",
+      "main.lox": "var util = import(\"util\");\nutil.write();\n"
     },
-    "run": ["run", "main.mini"],
-    "contains": {"util/out/report.txt": "granted\n"}
+    "run": ["run", "main.lox"],
+    "contains": { "util/out/report.txt": "granted\n" }
   },
   {
-    "given": {
-      "main.mini": "send(\"report\", \"row 1\")\nprint(\"P1\")\nsend(\"report\", \"row 2\")\nprint(\"P2\")\n"
-    },
-    "run": ["run", "main.mini"],
+    "given": { "main.lox": "send(\"report\", \"row 1\");\nprint \"P1\";\nsend(\"report\", \"row 2\");\nprint \"P2\";\n" },
+    "run": ["run", "main.lox"],
     "stdout": ["report\nrow 1\nP1\nreport\nrow 2\nP2\n"]
   },
   {
-    "given": {
-      "edge.json": "{ \"imports\": { \"x\": \"./x.mini\" } }\n"
-    },
+    "given": { "edge.json": "{ \"imports\": { \"x\": \"./x.lox\" } }\n" },
     "run": ["init"],
     "fails": ["'./edge.json' already exists, init writes only into a directory without it"],
-    "contains": {"edge.json": "\"x\": \"./x.mini\""}
+    "contains": { "edge.json": "\"x\": \"./x.lox\"" }
   },
   {
     "given": {
-      "edge.json": "{ \"imports\": { \"util\": \"./util/main.mini\" }, \"permissions\": { \"util\": [\"net\"] } }\n",
-      "util/main.mini": "x = 1\n",
-      "main.mini": "use util\nprint(util.x)\n"
+      "edge.json": "{ \"imports\": { \"util\": \"./util/main.lox\" }, \"permissions\": { \"util\": [\"net\"] } }\n",
+      "util/main.lox": "var x = 1;\n",
+      "main.lox": "var util = import(\"util\");\nprint util.x;\n"
     },
-    "run": ["run", "main.mini"],
-    "fails": ["permissions for 'util' reach nothing, its import './util/main.mini' has no edge.json of its own so it runs as part of this package"]
+    "run": ["run", "main.lox"],
+    "fails": ["permissions for 'util' reach nothing, its import './util/main.lox' has no edge.json of its own so it runs as part of this package"]
   },
   {
     "given": {
-      "sub/edge.json": "{ \"imports\": { \"pkg\": \"./pkg/main.mini\" } }\n",
+      "sub/edge.json": "{ \"imports\": { \"pkg\": \"./pkg/main.lox\" } }\n",
       "sub/pkg/edge.json": "{ \"permissions\": { \"all\": [\"net:a.test\"] } }\n",
-      "sub/pkg/main.mini": "x = 1\n",
-      "sub/main.mini": "use pkg\nprint(pkg.x)\n"
+      "sub/pkg/main.lox": "var x = 1;\n",
+      "sub/main.lox": "var pkg = import(\"pkg\");\nprint pkg.x;\n"
     },
-    "run": ["run", "sub/main.mini"],
+    "run": ["run", "sub/main.lox"],
     "fails": ["edge.json does not grant what these packages ask for\n  pkg   net:a.test"]
   },
   {
     "run": ["init", "myapp", "--bare"],
-    "stdout": ["created myapp/", "cd myapp && edge run main.mini"],
-    "creates": ["myapp/main.mini", "myapp/edge.json"]
+    "stdout": ["created myapp/", "cd myapp && edge run main.lox"],
+    "creates": ["myapp/main.lox", "myapp/edge.json"]
   }
 ]

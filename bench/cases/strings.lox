@@ -1,0 +1,18 @@
+var s = "";
+for (var i = 0; i < 2000; i = i + 1) s = s + "ab";
+print len(s);
+
+var same = 0;
+for (var i = 0; i < 5000; i = i + 1) {
+  if ("lox" + text(i) == "lox" + text(i)) same = same + 1;
+  if ("a" == "b") same = same - 1;
+}
+print same;
+
+var words = "";
+var n = 0;
+while (n < 1000) {
+  words = words + text(n) + " ";
+  n = n + 1;
+}
+print len(words);

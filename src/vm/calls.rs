@@ -627,7 +627,7 @@ impl<'a> VM<'a> {
                 // without an init a class takes no arguments and an exception only positional ones
                 if ctor.init.is_none() && (!kw_flat.is_empty() || !ctor.exception && !positional.is_empty()) {
                     let Some(name) = self.heap.class_name(callee) else { return Err(EngineError::Call(CallFault::CtorArgs).into()) };
-                    return Err(EngineError::Call(CallFault::NoArgs { name: name.into(), keywords: ctor.exception, called: true }).into());
+                    return Err(EngineError::Call(CallFault::NoArgs { name: name.into(), got: positional.len() as u32, keywords: ctor.exception, called: true }).into());
                 }
                 let instance = self.new_instance(callee, ctor.attrs)?;
                 // an exception keeps its constructor arguments as `args` until an init resets them
@@ -682,11 +682,11 @@ impl<'a> VM<'a> {
             self.heap.error_of(callee, positional.to_vec())?
         } else if object {
             // the type every class ends in builds a unique featureless instance
-            if !positional.is_empty() || !kw_flat.is_empty() { return Err(EngineError::Call(CallFault::NoArgs { name: named(self), keywords: false, called: true }).into()); }
+            if !positional.is_empty() || !kw_flat.is_empty() { return Err(EngineError::Call(CallFault::NoArgs { name: named(self), got: positional.len() as u32, keywords: false, called: true }).into()); }
             self.heap.new_instance(callee, DictMap::new())?
         } else if single {
             // the type of a singleton gives the singleton back
-            if !positional.is_empty() || !kw_flat.is_empty() { return Err(EngineError::Call(CallFault::NoArgs { name: named(self), keywords: false, called: false }).into()); }
+            if !positional.is_empty() || !kw_flat.is_empty() { return Err(EngineError::Call(CallFault::NoArgs { name: named(self), got: positional.len() as u32, keywords: false, called: false }).into()); }
             if self.heap.type_object_name(callee).is_some_and(|n| crate::lang::same_text(n, names.ellipsis_type)) { self.builtin_value(names.ellipsis)? } else { Val::none() }
         } else {
             return Err(EngineError::Call(CallFault::Instantiate(named(self))).into());

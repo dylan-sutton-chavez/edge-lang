@@ -67,10 +67,10 @@ fn docs_page(text: &str, cache: &std::path::Path) -> Result<(), String> {
     for (at, (info, body)) in fences.iter().enumerate() {
         match info.iter().map(String::as_str).collect::<Vec<_>>()[..] {
             // a fence naming a path holds that file of the example project
-            ["mini", path] => std::fs::write(cwd.join(path), body).map_err(|e| e.to_string())?,
+            ["lox", path] => std::fs::write(cwd.join(path), body).map_err(|e| e.to_string())?,
             ["text"] if body.starts_with("$ ") => transcript(body, &mut cwd, cache)?,
-            ["edge"] => {
-                let manifest = at.checked_sub(1).filter(|&i| fences[i].0 == ["edge-manifest"]).map(|i| fences[i].1.clone());
+            ["lox"] => {
+                let manifest = at.checked_sub(1).filter(|&i| fences[i].0 == ["lox-manifest"]).map(|i| fences[i].1.clone());
                 let output = fences.get(at + 1).filter(|f| f.0 == ["output"]).map(|f| f.1.clone());
                 program(body, manifest, output, cache)?;
             }
@@ -89,7 +89,10 @@ fn transcript(body: &str, cwd: &mut std::path::PathBuf, cache: &std::path::Path)
             None => steps.last_mut().ok_or("a transcript opens with a command")?.1.push(line.trim()),
         }
     }
-    for (cmd, shown) in steps {
+    for (cmd, mut shown) in steps {
+        // a shown `[exit N]` is the status the command ends with
+        let status = shown.iter().find_map(|l| l.strip_prefix("[exit ").and_then(|n| n.strip_suffix(']')).and_then(|n| n.parse::<i32>().ok()));
+        shown.retain(|l| !l.starts_with("[exit "));
         let args: Vec<&str> = cmd.split_whitespace().collect();
         match args[..] {
             ["cd", dir] => *cwd = cwd.join(dir),
@@ -99,7 +102,8 @@ fn transcript(body: &str, cwd: &mut std::path::PathBuf, cache: &std::path::Path)
                 let printed = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
                 // a transcript that shows an error expects the command to fail
                 let fails = shown.iter().any(|l| l.starts_with("error"));
-                if out.status.success() == fails {
+                let ended = match status { Some(n) => out.status.code() == Some(n), None => out.status.success() != fails };
+                if !ended {
                     return Err(format!("`{cmd}` exited {:?}:\n{printed}", out.status.code()));
                 }
                 let lines: Vec<&str> = printed.lines().map(str::trim).collect();
@@ -113,17 +117,19 @@ fn transcript(body: &str, cwd: &mut std::path::PathBuf, cache: &std::path::Path)
     Ok(())
 }
 
-/* an edge block runs as main.mini under its manifest and prints its output block */
+/* a lox block runs as main.lox under its manifest and prints its output block */
 fn program(src: &str, manifest: Option<String>, output: Option<String>, cache: &std::path::Path) -> Result<(), String> {
     let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
-    std::fs::write(dir.path().join("main.mini"), src).map_err(|e| e.to_string())?;
+    std::fs::write(dir.path().join("main.lox"), src).map_err(|e| e.to_string())?;
     std::fs::write(dir.path().join("edge.json"), manifest.unwrap_or_else(|| "{}\n".into())).map_err(|e| e.to_string())?;
-    let out = std::process::Command::new(EDGE.path).args(["run", "main.mini"]).current_dir(dir.path()).env("XDG_CACHE_HOME", cache)
+    let out = std::process::Command::new(EDGE.path).args(["run", "main.lox"]).current_dir(dir.path()).env("XDG_CACHE_HOME", cache)
         .stdin(std::process::Stdio::null()).output().map_err(|e| e.to_string())?;
-    let printed = String::from_utf8_lossy(&out.stdout);
-    if !out.status.success() {
-        return Err(format!("the program\n{src}failed: {}", String::from_utf8_lossy(&out.stderr)));
-    }
+    // a failed run shows its report after what it printed
+    let printed = match out.status.success() {
+        true => String::from_utf8_lossy(&out.stdout).into_owned(),
+        false if output.is_some() => format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr)),
+        false => return Err(format!("the program\n{src}failed: {}", String::from_utf8_lossy(&out.stderr))),
+    };
     match output {
         Some(want) if printed != want => Err(format!("the program\n{src}printed {printed:?}, the page shows {want:?}")),
         _ => Ok(()),

@@ -169,40 +169,40 @@ mod tests {
 
     #[test]
     fn join_relative_routes() {
-        assert_eq!(join_relative("lib/test/", "./helper.mini"), "lib/test/helper.mini");
-        assert_eq!(join_relative("lib/test/", "../parse.mini"), "lib/parse.mini");
-        assert_eq!(join_relative("lib/test/", "../../main.mini"), "main.mini");
-        assert_eq!(join_relative("lib/", "../../escape.mini"), "escape.mini"); // clamped at root
-        assert_eq!(join_relative("lib/test/", "/std/x.mini"), "/std/x.mini");
-        assert_eq!(join_relative("", "https://x/y.mini"), "https://x/y.mini");
+        assert_eq!(join_relative("lib/test/", "./helper.lox"), "lib/test/helper.lox");
+        assert_eq!(join_relative("lib/test/", "../parse.lox"), "lib/parse.lox");
+        assert_eq!(join_relative("lib/test/", "../../main.lox"), "main.lox");
+        assert_eq!(join_relative("lib/", "../../escape.lox"), "escape.lox"); // clamped at root
+        assert_eq!(join_relative("lib/test/", "/std/x.lox"), "/std/x.lox");
+        assert_eq!(join_relative("", "https://x/y.lox"), "https://x/y.lox");
     }
 
     // code served from a URL reaches URLs alone and never climbs past its host
     #[test]
     fn a_url_never_joins_into_a_local_path() {
         let pkg = "https://cdn.test/pkg/pay/0.1.0/app.edge/";
-        assert_eq!(join_relative(pkg, "../../../../../../config.mini"), "https://cdn.test/config.mini");
+        assert_eq!(join_relative(pkg, "../../../../../../config.lox"), "https://cdn.test/config.lox");
         assert_eq!(join_relative("https://cdn.test/", ".."), "https://cdn.test/");
-        assert_eq!(joined(pkg, "./util.mini"), Ok(s!("https://cdn.test/pkg/pay/0.1.0/app.edge/util.mini")));
-        assert_eq!(joined(pkg, "../../../../x.mini"), Ok(s!("https://cdn.test/x.mini")));
-        assert_eq!(joined(pkg, "https://other.test/y.mini"), Ok(s!("https://other.test/y.mini")));
-        for escape in ["../../../../../config.mini", "/abs/project/config.mini", "file:///home/me/.env", "../../../../.."] {
+        assert_eq!(joined(pkg, "./util.lox"), Ok(s!("https://cdn.test/pkg/pay/0.1.0/app.edge/util.lox")));
+        assert_eq!(joined(pkg, "../../../../x.lox"), Ok(s!("https://cdn.test/x.lox")));
+        assert_eq!(joined(pkg, "https://other.test/y.lox"), Ok(s!("https://other.test/y.lox")));
+        for escape in ["../../../../../config.lox", "/abs/project/config.lox", "file:///home/me/.env", "../../../../.."] {
             assert_eq!(joined(pkg, escape), Err(s!("https://cdn.test/")), "{escape}");
         }
         // local code joins as it always did with `..` stopping at the root
-        assert_eq!(joined("lib/", "../../x.mini"), Ok(s!("x.mini")));
-        assert_eq!(joined("lib/", "/abs/x.mini"), Ok(s!("/abs/x.mini")));
+        assert_eq!(joined("lib/", "../../x.lox"), Ok(s!("x.lox")));
+        assert_eq!(joined("lib/", "/abs/x.lox"), Ok(s!("/abs/x.lox")));
         assert_eq!(origin("http://host:8080/a/b"), Some("http://host:8080/"));
         assert_eq!(origin("https://host"), Some("https://host"));
-        assert_eq!((origin("lib/a.mini"), origin("file:///a")), (None, None));
+        assert_eq!((origin("lib/a.lox"), origin("file:///a")), (None, None));
     }
 
     // the field a component reads stays as written and only its host names it
     #[test]
     fn a_carried_field_is_read_as_written_and_unnamed_it_is_kept_out() {
-        let text = br#"{ "imports": { "a": "./a.mini" }, "permissions": ["net"] }"#;
+        let text = br#"{ "imports": { "a": "./a.lox" }, "permissions": ["net"] }"#;
         let (m, held) = parse_manifest_with(text, "permissions").unwrap();
-        assert_eq!(m.imports, alloc::vec![(String::from("a"), String::from("./a.mini"))]);
+        assert_eq!(m.imports, alloc::vec![(String::from("a"), String::from("./a.lox"))]);
         assert!(matches!(held, Some(Value::List(items)) if items.len() == 1 && items[0].as_str() == Some("net")));
         assert!(parse_manifest(text).is_ok());
         assert!(parse_manifest_with(text, "").unwrap().1.is_none());
@@ -225,8 +225,8 @@ mod tests {
 
     #[test]
     fn dir_walk_routes() {
-        assert_eq!(dir_of("lib/test/a.mini"), "lib/test/");
-        assert_eq!(dir_of("a.mini"), "");
+        assert_eq!(dir_of("lib/test/a.lox"), "lib/test/");
+        assert_eq!(dir_of("a.lox"), "");
         assert_eq!(dir_of("https://cdn/pkg/test/0.1.0/app.edge#sha256-00"), "https://cdn/pkg/test/0.1.0/app.edge/");
         assert_eq!(parent_dir("lib/test/"), Some("lib/".into()));
         assert_eq!(parent_dir("lib/"), Some("".into()));
@@ -235,10 +235,10 @@ mod tests {
 
     #[test]
     fn a_run_resolves_from_its_entry_directory() {
-        assert_eq!(entry_dir("sub/main.mini"), "sub/");
-        assert_eq!(entry_dir("././sub/a_test.mini"), "sub/");
+        assert_eq!(entry_dir("sub/main.lox"), "sub/");
+        assert_eq!(entry_dir("././sub/a_test.lox"), "sub/");
         assert_eq!(entry_dir("actors/"), "actors/");
-        assert_eq!(entry_dir("main.mini"), "");
+        assert_eq!(entry_dir("main.lox"), "");
         assert_eq!(entry_dir(""), "");
     }
 }

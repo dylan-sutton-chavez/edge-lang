@@ -1,6 +1,6 @@
 {
     "imports": {
-        "calc": "./calculator.mini",
+        "calc": "./calculator.lox",
         "trap": "./trap.wasm",
         "abi2": "./abi2.wasm",
         "ui": "./ui.js"

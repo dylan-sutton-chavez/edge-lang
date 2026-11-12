@@ -8,14 +8,14 @@ mod test {
     use edge::deps::{ImportSpec, Resolver};
     use edge::lexer::{Dot, Shapes, Spelling, Syntax};
     // the builder and the parse it is held to both read the fixed core
-    use crate::words::Legacy as Mini;
+    use crate::words::Legacy as Rig;
     use std::rc::Rc;
 
-    // lines led by a word with what follows read through mini's table
+    // lines led by a word with what follows read through the rig's table
     // the fixed core read in indentation which a builder's chunks compare against
     const LEGACY: Front = Front::spelled::<crate::words::Legacy>();
 
-    const STEPS: Front = Front { extension: "steps", parse: steps, imports, syntax: None, policy: mini::FRONT.policy };
+    const STEPS: Front = Front { extension: "steps", parse: steps, imports, syntax: None, policy: rig::FRONT.policy };
 
     #[derive(Clone, Copy)]
     struct Line { depth: usize, start: usize, end: usize }
@@ -34,14 +34,14 @@ mod test {
 
     fn steps(src: &str, unit: Unit) -> Parsed {
         let lines = lines(src);
-        build::<Mini>(src, unit, |b| block(b, src, &lines, &mut 0, 0))
+        build::<Rig>(src, unit, |b| block(b, src, &lines, &mut 0, 0))
     }
 
-    // mini's table reading the name after a dot as a key the way records want
+    // the rig's table reading the name after a dot as a key as records want
     struct Keys;
     impl Spelling for Keys {
         const SYNTAX: Syntax = Syntax { name: "keys", shapes: Shapes { dot: Dot::Key, ..Shapes::CORE }, ..crate::words::LEGACY };
-        const NATIVES: &'static edge::lang::Natives = &mini::NATIVES;
+        const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
     }
 
     fn keyed(src: &str, unit: Unit) -> Parsed {
@@ -82,7 +82,7 @@ mod test {
                     let name = rest.split_once(" in ").expect("a loop").0;
                     let mut i = *at;
                     b.expr(tail(name.len() + 4)).for_each(&[name], |b| {
-                        if word == "over" { b.subject(name, &mini::NATIVES); }
+                        if word == "over" { b.subject(name, &rig::NATIVES); }
                         block(b, src, lines, &mut i, depth + 1);
                         b.no_subject();
                     });
@@ -116,7 +116,7 @@ mod test {
 
     fn folded(chunk: Rc<SSAChunk>) -> SSAChunk {
         let mut chunk = Rc::unwrap_or_clone(chunk);
-        edge::code::constant_fold(&mut chunk, mini::FRONT.policy);
+        edge::code::constant_fold(&mut chunk, rig::FRONT.policy);
         chunk
     }
 
@@ -136,7 +136,7 @@ mod test {
     const TOTAL: &str = "fn total(xs)\n  let sum = 0\n  each x in xs\n    if x > 2\n      let sum = sum + x\n    else\n      print(x)\n  return sum\nlet ys = [1, 2, 3, 4]\nprint(total(ys))\n";
     const TOTAL_MINI: &str = "fn total(xs):\n    sum = 0\n    for x in xs:\n        if x > 2:\n            sum = sum + x\n        else:\n            print(x)\n    return sum\nys = [1, 2, 3, 4]\nprint(total(ys))\n";
 
-    // a front end of its own builds the chunk mini parses and runs it
+    // a front end of its own builds the chunk rig parses and runs it
     #[test]
     fn a_front_end_builds_what_mini_parses_and_runs_it() {
         same(TOTAL, TOTAL_MINI);
@@ -156,7 +156,7 @@ mod test {
         });
         let src = "import a\nimport b\nimport c\nlet total = 0\nover it in [a, b, c]\n  if kind == \"push\"\n    let total = total + size\n  let f = abs\nprint(total)\n";
         let mini_src = "import a\nimport b\nimport c\ntotal = 0\nfor it in [a, b, c]:\n    if it.kind == \"push\":\n        total = total + it.size\n    f = abs\nprint(total)\n";
-        let (ours, theirs) = (compiled(&STEPS, src, Box::new(modules("steps"))), compiled(&LEGACY, mini_src, Box::new(modules("mini"))));
+        let (ours, theirs) = (compiled(&STEPS, src, Box::new(modules("steps"))), compiled(&LEGACY, mini_src, Box::new(modules("rig"))));
         assert!(ours.1.is_empty() && theirs.1.is_empty(), "{:?} and {:?}", ours.1, theirs.1);
         if let Err(e) = crate::common::same_program(&theirs, &ours) { panic!("{e}"); }
         assert_eq!(output(&ours.0), ["8"]);
@@ -196,20 +196,20 @@ mod test {
         let at = |line: &str| shown.lines().any(|l| l.contains(&format!("main.steps:{line}:")));
         assert!(at("2") && at("4") && !at("1"), "{shown}");
         // what follows an expression and a return outside any function report where they sit
-        let errors = |f: &dyn Fn(&mut Builder<'_, '_, Mini>)| build::<Mini>("x y\n", unit(), |b| f(b)).err().expect("an error").into_iter().map(|d| (d.start, d.msg)).collect::<Vec<_>>();
+        let errors = |f: &dyn Fn(&mut Builder<'_, '_, Rig>)| build::<Rig>("x y\n", unit(), |b| f(b)).err().expect("an error").into_iter().map(|d| (d.start, d.msg)).collect::<Vec<_>>();
         assert_eq!(errors(&|b| { b.expr(0..3); }), [(2, "expected the end of the expression, got 'y'".to_string())]);
         assert_eq!(errors(&|b| { b.at(2).constant(Value::None).ret(); }), [(2, "'return' outside function".to_string())]);
         assert_eq!(errors(&|b| { b.at(1).constant(Value::Int(1)).constant(Value::Int(2)).binary(OpCode::Jump); }), [(1, "a builder applies only a binary operator".to_string())]);
-        assert_eq!(build::<Mini>("é", unit(), |b| { b.expr(0..1); }).err().expect("a split character").len(), 1);
+        assert_eq!(build::<Rig>("é", unit(), |b| { b.expr(0..1); }).err().expect("a split character").len(), 1);
     }
 
     fn unit() -> Unit { STEPS.unit(Box::new(edge::deps::NoopResolver)) }
 
-    // each step of the builder's own vocabulary builds what the same mini line parses to
+    // each step of the builder's own vocabulary builds what the same rig line parses to
     #[test]
     fn builder_steps_build_what_their_lines_parse_to() {
         let src = "y > 5\nValueError(\"bad\")\n";
-        let built = build::<Mini>(src, unit(), |b| {
+        let built = build::<Rig>(src, unit(), |b| {
             b.at(0).constant(Value::Int(1)).constant(Value::Int(2)).list(2).store("xs");
             b.at(0).constant(Value::Str("k".into())).load("xs").map(1).store("m");
             b.at(0).lambda(&["v"], |b| { b.load("v").constant(Value::Int(1)).binary(OpCode::Add); }).store("f");
@@ -229,7 +229,7 @@ mod test {
     #[test]
     fn arms_chain_as_else_if_does() {
         let src = "a > 1\nprint(1)\na > 0\nprint(2)\nprint(3)\n";
-        let built = build::<Mini>(src, unit(), |b| {
+        let built = build::<Rig>(src, unit(), |b| {
             b.at(0).constant(Value::Int(2)).store("a");
             b.at(0).arms().arm(|b| { b.expr(0..5); }, |b| { b.stmts(6..14); }).arm(|b| { b.expr(15..20); }, |b| { b.stmts(21..29); }).other(|b| { b.stmts(30..38); });
         });
@@ -265,7 +265,7 @@ mod test {
     #[cfg_attr(miri, ignore)]
     fn many_built_lambdas_build_in_linear_time() {
         let start = std::time::Instant::now();
-        let built = build::<Mini>("x\n", unit(), |b| {
+        let built = build::<Rig>("x\n", unit(), |b| {
             for i in 0..30_000 { b.at(0).lambda(&["v"], |b| { b.load("v"); }).store(&format!("f{i}")); }
         });
         let spent = start.elapsed();
@@ -275,7 +275,7 @@ mod test {
     // a local a built lambda shadows or loops over reads as before afterwards
     #[test]
     fn a_built_lambda_gives_back_the_names_it_shadows() {
-        let built = build::<Mini>("x\n", unit(), |b| {
+        let built = build::<Rig>("x\n", unit(), |b| {
             b.at(0).function("run", &[], |b| {
                 b.at(0).constant(Value::Int(1)).store("x");
                 b.at(0).lambda(&["x"], |b| { b.load("x").constant(Value::Int(1)).binary(OpCode::Add); }).store("f");
@@ -285,5 +285,74 @@ mod test {
             b.at(0).load("print").load("run").call(0, 0).call(1, 0).pop();
         });
         assert_eq!(output(&folded(built.ok().expect("no errors"))), ["[1, 6, 2]"]);
+    }
+    /* a closure per loop pass over `k` with a fresh cell each pass when `fresh` */
+    fn passes(b: &mut Builder<'_, '_, Rig>, fresh: bool) {
+        b.at(0).constant(Value::Int(0)).store("n").list(0).store("fs");
+        b.while_loop(|b| { b.load("n").constant(Value::Int(3)).binary(OpCode::Lt); }, |b| {
+            if fresh { b.fresh("k"); }
+            b.load("n").store("k");
+            b.load("fs").field("append").closure("get", &[], |b| { b.load("k").ret(); }).call(1, 0).pop();
+            b.load("n").constant(Value::Int(1)).binary(OpCode::Add).store("n");
+        });
+        for i in 0..3 { b.load("fs").constant(Value::Int(i)).item().call(0, 0); }
+        b.list(3).ret();
+    }
+
+    // a fresh cell gives each pass's closure its own variable and a plain store shares one
+    #[test]
+    fn a_fresh_cell_keeps_each_pass_its_own_variable() {
+        let built = build::<Rig>("x\n", unit(), |b| {
+            b.at(0).function("fresh", &[], |b| passes(b, true));
+            b.at(0).function("shared", &[], |b| passes(b, false));
+            b.at(0).load("print").load("fresh").call(0, 0).load("shared").call(0, 0).call(2, 0).pop();
+        });
+        assert_eq!(output(&folded(built.ok().expect("no errors"))), ["[0, 1, 2] [2, 2, 2]"]);
+    }
+
+    // fields lazy tests unary ops and stack moves a front end lays by hand
+    #[test]
+    fn builder_pieces_lay_fields_classes_and_short_circuits() {
+        let built = build::<Rig>("x\n", unit(), |b| {
+            // a method of a class reads the field a store left on its instance
+            b.at(0).class("Box", 0, |b| { b.function("get", &["self"], |b| { b.load("self").field("v").ret(); }); }).store("Box");
+            b.at(0).load("Box").call(0, 0).store("o");
+            // a store keeps its value on top as an assignment expression does
+            b.at(0).load("o").constant(Value::Int(7)).dup().rot3().swap().set_field("v").store("kept");
+            b.at(0).constant(Value::Bool(false)).lazy(true, |b| { b.constant(Value::Int(1)); }).store("a");
+            b.at(0).constant(Value::Int(0)).lazy(false, |b| { b.constant(Value::Int(2)); }).store("c");
+            b.at(0).constant(Value::Int(5)).unary(OpCode::Minus).store("m");
+            b.at(0).constant(Value::Bool(true)).unary(OpCode::Not).store("t");
+            b.at(0).load("print").load("kept").load("o").field("get").call(0, 0).load("a").load("c").load("m").load("t").call(6, 0).pop();
+        });
+        assert_eq!(output(&folded(built.ok().expect("no errors"))), ["7 7 false 2 -5 false"]);
+    }
+
+    // a nonlocal writes the body around it and a misused op refuses to build
+    #[test]
+    fn a_nonlocal_writes_the_body_around_it() {
+        let built = build::<Rig>("x\n", unit(), |b| {
+            b.at(0).function("count", &[], |b| {
+                b.constant(Value::Int(0)).store("n");
+                b.closure("bump", &[], |b| { b.nonlocal("n").load("n").constant(Value::Int(1)).binary(OpCode::Add).store("n").constant(Value::None).ret(); }).store("bump");
+                b.load("bump").call(0, 0).pop().load("bump").call(0, 0).pop().load("n").ret();
+            });
+            b.at(0).load("print").load("count").call(0, 0).call(1, 0).pop();
+        });
+        assert_eq!(output(&folded(built.ok().expect("no errors"))), ["2"]);
+        let refused = build::<Rig>("x\n", unit(), |b| { b.constant(Value::Int(1)).unary(OpCode::Add); });
+        assert!(refused.is_err_and(|e| e[0].msg.contains("unary")));
+    }
+    // the engine's rules let classes hold fields share bound methods and order texts
+    #[test]
+    fn the_engine_rules_keep_fields_bound_methods_and_order_open() {
+        let built = build::<Rig>("x\n", unit(), |b| {
+            b.at(0).class("Box", 0, |b| { b.function("get", &["self"], |b| { b.constant(Value::None).ret(); }); }).store("Box");
+            b.at(0).load("Box").constant(Value::Int(1)).set_field("tag");
+            b.at(0).load("Box").call(0, 0).store("o");
+            b.at(0).load("print").load("Box").field("tag").load("o").field("get").load("o").field("get").binary(OpCode::Is);
+            b.constant(Value::Str("a".into())).constant(Value::Str("b".into())).binary(OpCode::Lt).call(3, 0).pop();
+        });
+        assert_eq!(output(&folded(built.ok().expect("no errors"))), ["1 true true"]);
     }
 }

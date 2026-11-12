@@ -40,9 +40,9 @@ fn parse_args() -> Result<Opts, String> {
 
 fn run_cell(opts: &Opts, c: &Cell) -> Result<(), String> {
     let outcome = match c.kind {
-        Kind::Mini => runner::run_script(&opts.edge, &c.body, SCRIPT_TIMEOUT),
+        Kind::Lox => runner::run_script(&opts.edge, &c.body, SCRIPT_TIMEOUT),
         Kind::Actor | Kind::Untrusted => runner::run_actor(&opts.edge, &c.body, ACTOR_TIMEOUT),
-        Kind::MiniSkip => unreachable!("skip cells never become cells"),
+        Kind::LoxSkip => unreachable!("skip cells never become cells"),
     };
     outcome.and_then(|o| runner::check(&c.expect, &o, c.verdict == Verdict::Error))
 }

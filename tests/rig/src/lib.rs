@@ -1,0 +1,65 @@
+#![no_std]
+#![forbid(unsafe_code)]
+
+extern crate alloc;
+
+use edge::lang::{Descriptor, ErrKind, Front, Natives, Runtime};
+
+mod codecs;
+pub mod lang;
+mod language;
+mod names;
+pub mod natives;
+pub mod types;
+
+pub use names::NAMES;
+// the text type `over!` names in the crate it expands in
+#[doc(hidden)]
+pub use alloc::string::String as __String;
+use natives::*;
+
+pub static NATIVES: Natives = edge::natives! {
+    language: Rig,
+    fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, TYPES, MATCH, DATE],
+    methods: [
+        Str => [STR],
+        Bytes => [BUFFER],
+        ByteArray => [ARRAY],
+        List => [LIST, LIST_SORT],
+        Tuple => [TUPLE],
+        Dict => [DICT],
+        Set => [SET, SET_MANY],
+        Int => [INT],
+        Float => [FLOAT],
+        Range => [RANGE],
+    ],
+    types: types::NAMES,
+};
+
+pub static RUNTIME: Runtime = Runtime::of::<Rig>();
+
+// rig reads every source through its own token table and grammar
+pub const FRONT: Front = Front::spelled::<Rig>();
+
+mod syntax;
+pub use syntax::{Rig, RIG, INTERP, LADDER, NUMBERS, STRINGS};
+
+// the names the CLI gives this runtime's files and errors
+pub const DESCRIPTOR: Descriptor = Descriptor {
+    language: "rig",
+    extension: RIG.extension,
+    entries: &["main.rig", "app.rig", "index.rig"],
+    test_suffix: "_test.rig",
+    scaffold: "print(\"hello from edge\")\n",
+    example_fence: "rig",
+    manifest_fence: "rig-manifest",
+    type_error: names::ERRORS[ErrKind::Type as usize],
+    value_error: names::ERRORS[ErrKind::Value as usize],
+    runtime_error: names::ERRORS[ErrKind::Runtime as usize],
+    denied_error: names::ERRORS[ErrKind::Permission as usize],
+    failed_error: "IOError",
+    ..Descriptor::NONE
+};
+
+#[cfg(all(target_arch = "wasm32", feature = "web"))]
+edge::web_exports!(RUNTIME);

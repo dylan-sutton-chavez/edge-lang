@@ -29,6 +29,12 @@ pub struct Policy {
     pub map_iter: MapIter,
     // whether an attribute a map lacks reads its key of that name
     pub map_fields: bool,
+    // whether values besides instances and modules read and write fields of their own
+    pub open_fields: bool,
+    // whether one method read twice off one object gives one value
+    pub shared_bound: bool,
+    // whether values besides numbers order under `<` and the comparisons beside it
+    pub open_order: bool,
     // whether a name no module binds reads the runtime's builtins
     pub builtins_scope: bool,
     // whether a method takes its receiver as its first parameter
@@ -162,6 +168,9 @@ impl Policy {
         str_iter: StrIter::CodePoints,
         map_iter: MapIter::Keys,
         map_fields: false,
+        open_fields: true,
+        shared_bound: true,
+        open_order: true,
         builtins_scope: true,
         receiver_slot: true,
         // a runtime states its own depth and digit limits
@@ -179,12 +188,12 @@ impl Policy {
     }
 
     /* every rule as bytes so a blob records the rules it ran under */
-    pub const fn bytes(&self) -> [u8; 21] {
+    pub const fn bytes(&self) -> [u8; 24] {
         let (r, d) = (self.recursion_limit.to_le_bytes(), self.digits().to_le_bytes());
         [
             self.int_overflow as u8, self.int_div as u8, self.int_mod as u8, self.zero_div as u8, self.neg_pow as u8, self.numeric_eq as u8,
             self.bool_is_int as u8, self.falsy.bits(), self.identity_first as u8, self.neg_index as u8, self.str_iter as u8, self.map_iter as u8,
-            self.map_fields as u8, self.builtins_scope as u8, self.receiver_slot as u8, r[0], r[1], r[2], r[3], d[0], d[1],
+            self.map_fields as u8, self.open_fields as u8, self.shared_bound as u8, self.open_order as u8, self.builtins_scope as u8, self.receiver_slot as u8, r[0], r[1], r[2], r[3], d[0], d[1],
         ]
     }
 

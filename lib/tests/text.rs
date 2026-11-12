@@ -1,7 +1,7 @@
 use edge::embed::{Limits, VM};
 use edge::lang::{Args, Cx, Mode, Native, Natives, Ret, Runtime, Sig};
-use mini::Mini;
-use mini::natives::{ARRAY, BUFFER, BYTES, CONVERT, DICT, FLOAT, FOLDS, INT, IO, ITER, LIST, LIST_SORT, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
+use rig::Rig;
+use rig::natives::{ARRAY, BUFFER, BYTES, CONVERT, DICT, FLOAT, FOLDS, INT, IO, ITER, LIST, LIST_SORT, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
 
 // every run meters what it allocates as edge.wasm does
 edge::allocator!();
@@ -9,7 +9,7 @@ edge::allocator!();
 /* the render hook in each of its modes as a str */
 fn hook(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
     let mode = match a.pos[1].as_int() { 0 => Mode::Str, 1 => Mode::Repr, _ => Mode::Ascii };
-    let text = lib::fmt::render::hook::<Mini>(cx, a.pos[0], mode)?;
+    let text = lib::fmt::render::hook::<Rig>(cx, a.pos[0], mode)?;
     Ok(cx.new_str(text)?.into())
 }
 
@@ -17,7 +17,7 @@ const HOOK: &[Native] = &[Native::new("hook", Sig::exact(2), hook)];
 
 static NATIVES: Natives = edge::natives! {
     language: Over,
-    fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, TYPES, mini::natives::MATCH, mini::natives::DATE, HOOK],
+    fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, TYPES, rig::natives::MATCH, rig::natives::DATE, HOOK],
     methods: [
         Str => [STR],
         Bytes => [BUFFER],
@@ -30,18 +30,18 @@ static NATIVES: Natives = edge::natives! {
         Float => [FLOAT],
         Range => [RANGE],
     ],
-    types: mini::types::NAMES,
+    types: rig::types::NAMES,
 };
 
 static RUNTIME: Runtime = Runtime::of::<Over>();
 
-// mini's language over these natives
+// the rig's language over these natives
 struct Over;
-mini::over!(Over, &NATIVES);
+rig::over!(Over, &NATIVES);
 
 /* what `src` printed and its error after it when one ended the run */
 fn run(src: &str) -> String {
-    let (chunk, errors) = edge::code::compile_as::<mini::Mini>(src);
+    let (chunk, errors) = edge::code::compile_as::<rig::Rig>(src);
     assert!(errors.is_empty(), "{src}");
     let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
     let ran = vm.run();

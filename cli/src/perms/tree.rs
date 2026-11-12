@@ -207,12 +207,12 @@ mod tests {
         for n in 0..depth {
             std::fs::create_dir_all(dir.path().join(format!("p{n}"))).unwrap();
             let manifest = match n + 1 < depth {
-                true => format!("{{ \"imports\": {{ \"a\": \"../p{0}/main.mini\", \"b\": \"../p{0}/main.mini\" }} }}", n + 1),
+                true => format!("{{ \"imports\": {{ \"a\": \"../p{0}/main.lox\", \"b\": \"../p{0}/main.lox\" }} }}", n + 1),
                 false => String::from("{}"),
             };
             std::fs::write(dir.path().join(format!("p{n}/edge.json")), manifest).unwrap();
         }
-        let imports = json!({ "a": "./p0/main.mini", "b": "./p0/main.mini" });
+        let imports = json!({ "a": "./p0/main.lox", "b": "./p0/main.lox" });
         let kit = crate::kit::tests::bare();
         let mut walk = Walk { found: Vec::new(), path: vec![key("", "")], modules: kit.wired(), seen: HashSet::new() };
         let home = Rc::new(Home::Disk(dir.path().to_path_buf()));

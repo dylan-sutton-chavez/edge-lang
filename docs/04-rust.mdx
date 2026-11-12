@@ -5,12 +5,12 @@ description: "Compile and run programs inside a Rust program: the VM, its output
 
 # Rust
 
-A Rust program links the engine and a runtime as crates and runs programs in its own process, with no `.wasm` in between. The examples on this page embed mini through the `mini` crate. A runtime of your own exposes the same `RUNTIME` and `FRONT`, as [Build a runtime](./02-runtime.mdx) shows.
+A Rust program links the engine and a runtime as crates and runs programs in its own process, with no `.wasm` in between. The examples on this page embed Lox through the `lox` crate. A runtime of your own exposes the same `RUNTIME` and `FRONT`, as [Build a runtime](./02-runtime.mdx) shows.
 
 ```toml
 [dependencies]
 edge = { git = "https://github.com/dylan-sutton-chavez/edge-lang", branch = "main" }
-mini = { git = "https://github.com/dylan-sutton-chavez/edge-lang", branch = "main" }
+lox = { git = "https://github.com/dylan-sutton-chavez/edge-lang", branch = "main" }
 ```
 
 ## Run a program
@@ -24,12 +24,12 @@ use edge::embed::{Limits, VM};
 edge::allocator!();
 
 fn main() {
-    let src = "fn square(n) {\n    return n * n\n}\nprint([square(n) for n in range(4)])\n";
-    let (chunk, errors) = edge::code::compile(&mini::FRONT, src);
-    assert!(errors.is_empty(), "{}", edge::code::Diagnostic::render_all(&errors, src, Some("main.mini")));
-    let mut vm = VM::with_runtime(&mini::RUNTIME, &chunk, Limits::sandbox());
+    let src = "fun square(n) {\n    return n * n;\n}\n\nfor (var n = 0; n < 4; n = n + 1) print square(n);\n";
+    let (chunk, errors) = edge::code::compile(&lox::FRONT, src);
+    assert!(errors.is_empty(), "{}", edge::code::Diagnostic::render_all(&errors, src, Some("main.lox")));
+    let mut vm = VM::with_runtime(&lox::RUNTIME, &chunk, Limits::sandbox());
     vm.run().expect("the program runs");
-    assert_eq!(vm.output_text(), "[0, 1, 4, 9]\n");
+    assert_eq!(vm.output_text(), "0\n1\n4\n9\n");
 }
 ```
 
@@ -60,24 +60,24 @@ use edge::value::VmErr;
 edge::allocator!();
 
 fn main() {
-    let src = "total = 0\nwhile true {\n    m = receive()\n    if m == \"stop\" {\n        break\n    }\n    total += int(m)\n}\nprint(\"total\", total)\n";
-    let (chunk, _) = edge::code::compile(&mini::FRONT, src);
-    let mut vm = VM::with_runtime(&mini::RUNTIME, &chunk, Limits::sandbox());
-    let mut events = ["2", "3", "stop"].into_iter();
+    let src = "var words = \"\";\nvar m = receive();\nwhile (m != \"stop\") {\n    words = words + m;\n    m = receive();\n}\nprint \"got \" + words;\n";
+    let (chunk, _) = edge::code::compile(&lox::FRONT, src);
+    let mut vm = VM::with_runtime(&lox::RUNTIME, &chunk, Limits::sandbox());
+    let mut events = ["ab", "cd", "stop"].into_iter();
     loop {
         match vm.run() {
             Ok(_) => break,
             Err(VmErr::HostYield(SchedulerStatus::PendingEvent)) => vm.push_event(events.next().unwrap()).unwrap(),
-            Err(e) => panic!("{}", vm.report_error(&e, src, Some("main.mini"))),
+            Err(e) => panic!("{}", vm.report_error(&e, src, Some("main.lox"))),
         }
     }
-    assert_eq!(vm.output_text(), "total 5\n");
+    assert_eq!(vm.output_text(), "got abcd\n");
 }
 ```
 
 ## Host functions
 
-An import is answered by a `Resolver`. Answering with `Resolved::Code` serves a module's source, and `Resolved::Native` serves Rust functions. A function that returns `VmErr::HostCallDeferred` parks the run with `PendingHostCall`, and the host answers it later by id, counting from 0 in the order the run made the calls.
+An import, `import("name")` in Lox, is answered by a `Resolver`. Answering with `Resolved::Code` serves a module's source, and `Resolved::Native` serves Rust functions. A function that returns `VmErr::HostCallDeferred` parks the run with `PendingHostCall`, and the host answers it later by id, counting from 0 in the order the run made the calls.
 
 ```rust standalone_crate
 use edge::embed::{Limits, NativeBinding, Resolved, Resolver, SchedulerStatus, VM};
@@ -86,8 +86,9 @@ use edge::value::{HeapPool, Val, VmErr};
 
 edge::allocator!();
 
+// a Lox number is a double
 fn double(_: &mut HeapPool, args: &[Val], _kw: Option<Val>) -> Result<Val, VmErr> {
-    Ok(Val::int(args[0].as_int() * 2))
+    Ok(Val::float(args[0].as_float() * 2.0))
 }
 
 // answered later, the way a host waits on a network reply
@@ -106,18 +107,18 @@ impl Resolver for Host {
                 consts: vec![],
                 canonical: "host".into(),
             }),
-            "util" => Ok(Resolved::Code { src: "fn greet(n) {\n    return \"hi \" + n\n}\n".into(), canonical: "util".into() }),
+            "util" => Ok(Resolved::Code { src: "fun greet(n) {\n    return \"hi \" + n;\n}\n".into(), canonical: "util".into() }),
             _ => Err(format!("no module '{spec}'")),
         }
     }
 }
 
 fn main() {
-    let src = "use host\nuse util\nprint(host.double(21), util.greet(\"ana\"))\nprint(host.fetch() + 1)\n";
-    let script = Script::compile(&mini::FRONT, "main.mini", src.into(), Box::new(Host)).unwrap();
-    let mut vm = VM::with_runtime(&mini::RUNTIME, &script.chunk, Limits::sandbox());
+    let src = "var host = import(\"host\");\nvar util = import(\"util\");\nprint text(host.double(21)) + \" \" + util.greet(\"ana\");\nprint host.fetch() + 1;\n";
+    let script = Script::compile(&lox::FRONT, "main.lox", src.into(), Box::new(Host)).unwrap();
+    let mut vm = VM::with_runtime(&lox::RUNTIME, &script.chunk, Limits::sandbox());
     assert!(matches!(vm.run(), Err(VmErr::HostYield(SchedulerStatus::PendingHostCall))));
-    assert!(vm.inject_host_result_by_id(0, Val::int(41)));
+    assert!(vm.inject_host_result_by_id(0, Val::float(41.0)));
     vm.run().unwrap();
     assert_eq!(vm.output_text(), "42 hi ana\n42\n");
 }
@@ -134,10 +135,10 @@ use edge::value::Val;
 edge::allocator!();
 
 fn main() {
-    let (chunk, _) = edge::code::compile(&mini::FRONT, "fn area(w, h) {\n    return w * h\n}\n");
-    let mut vm = VM::with_runtime(&mini::RUNTIME, &chunk, Limits::sandbox());
+    let (chunk, _) = edge::code::compile(&lox::FRONT, "fun area(w, h) {\n    return w * h;\n}\n");
+    let mut vm = VM::with_runtime(&lox::RUNTIME, &chunk, Limits::sandbox());
     vm.run().unwrap();
-    let got = vm.call_export("area", &[Val::int(6), Val::int(7)]).unwrap();
+    let got = vm.call_export("area", &[Val::float(6.0), Val::float(7.0)]).unwrap();
     assert_eq!(vm.display(got), "42");
 }
 ```
@@ -153,22 +154,22 @@ use edge::value::VmErr;
 edge::allocator!();
 
 fn main() {
-    let src = "seen = []\nwhile true {\n    m = receive()\n    if m == \"stop\" {\n        break\n    }\n    seen.append(m)\n}\nprint(seen)\n";
-    let (chunk, _) = edge::code::compile(&mini::FRONT, src);
-    let mut vm = VM::with_runtime(&mini::RUNTIME, &chunk, Limits::sandbox());
+    let src = "var seen = \"\";\nvar m = receive();\nwhile (m != \"stop\") {\n    seen = seen + m;\n    m = receive();\n}\nprint seen;\n";
+    let (chunk, _) = edge::code::compile(&lox::FRONT, src);
+    let mut vm = VM::with_runtime(&lox::RUNTIME, &chunk, Limits::sandbox());
     assert!(matches!(vm.run(), Err(VmErr::HostYield(SchedulerStatus::PendingEvent))));
     vm.push_event("a").unwrap();
     assert!(matches!(vm.run(), Err(VmErr::HostYield(SchedulerStatus::PendingEvent))));
-    let blob = embed::save(&vm, src, "main.mini").unwrap();
+    let blob = embed::save(&vm, src, "main.lox").unwrap();
     drop(vm);
 
     // a new machine over the same program picks up where the first one parked
-    let mut later = VM::with_runtime(&mini::RUNTIME, &chunk, embed::limits_of(&blob).unwrap());
+    let mut later = VM::with_runtime(&lox::RUNTIME, &chunk, embed::limits_of(&blob).unwrap());
     embed::restore(&mut later, &blob).unwrap();
     later.push_event("b").unwrap();
     later.push_event("stop").unwrap();
     later.run().unwrap();
-    assert_eq!(later.output_text(), "[\"a\", \"b\"]\n");
+    assert_eq!(later.output_text(), "ab\n");
 }
 ```
 
@@ -176,7 +177,7 @@ fn main() {
 
 ## A native binary
 
-`edge::targets::native` holds a whole host: `Script::read` compiles a file and reads its relative imports beside it, `boot` gives a VM that prints to stdout and reads stdin, and `main` puts them together.
+`edge::targets::native` holds a whole host: `Script::read` compiles a file and reads its relative imports beside it, `boot` gives a VM that prints to stdout and reads stdin, and `main` puts them together. This is the whole `main.rs` of the `lox` binary the book's suite runs on.
 
 ```rust no_run standalone_crate
 use edge::embed::Limits;
@@ -184,10 +185,16 @@ use std::process::ExitCode;
 
 edge::allocator!();
 
-// runs the mini file its first argument names
+// runs the Lox file its first argument names
 fn main() -> ExitCode {
-    edge::targets::native::main(&mini::RUNTIME, &mini::FRONT, Limits::sandbox())
+    edge::targets::native::main(&lox::RUNTIME, &lox::FRONT, Limits::sandbox())
 }
+```
+
+`main` exits with the statuses the runtime's `Descriptor` gives in `statuses`, and words compile errors through its `diagnosed` when it sets one, so `lox` reports as the book's interpreters do. On a file holding `var x = = 2;` it writes this to stderr and exits with 65:
+
+```text
+[line 1] Error at '=': Expect expression.
 ```
 
 A native script loads no URL and no plugin. The `edge` CLI and the JS host serve both.

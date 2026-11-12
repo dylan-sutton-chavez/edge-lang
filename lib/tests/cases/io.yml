@@ -247,3 +247,15 @@
 - native: print
   args: [!bytes "01ff"]
   out: "b\"\\x01\\xff\""
+
+- native: exit
+  args: [3]
+  error: "Exit: 3"
+
+- native: exit
+  args: [3.0]
+  error: "Exit: 3"
+
+- native: exit
+  args: [2.5]
+  error: "TypeError: exit takes int, not float"

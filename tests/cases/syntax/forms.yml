@@ -1,4 +1,4 @@
-- mini: |-
+- rig: |-
     x = 3
     if x > 2 {
         y = 1
@@ -9,7 +9,7 @@
     }
     print(y)
 
-- mini: |-
+- rig: |-
     x = true
     if x {
         y = 1
@@ -18,7 +18,7 @@
     }
     print(y)
 
-- mini: |-
+- rig: |-
     a, c = (true, false)
     if c {
         y = if a { 1 } else { 2 }
@@ -27,7 +27,7 @@
     }
     print(y)
 
-- mini: |-
+- rig: |-
     try {
         done1_ = false
         try {
@@ -45,13 +45,13 @@
         print("done")
     }
 
-- mini: |-
+- rig: |-
     fn f(a, b=2, *rest, k=3, **kw) {
         return a + b + k
     }
     print(f(1), f(1, 2, 3, k=4))
 
-- mini: |-
+- rig: |-
     f = |a, b=1| a + b
     xs = [i * 2 for i in range(5) if i % 2 == 0]
     d = record([(k, v) for k, v in zip("ab", [1, 2])])
@@ -59,43 +59,43 @@
     g = (n for n in xs)
     print(f(1), xs, d, s, list(g))
 
-- mini: |-
+- rig: |-
     s = "a\tb\n" + "c'd" + "\\x" + "é" + "A" + "\\"
     b = b"\x00ab" + b"\\n"
     print(s, b, "adjacent", "q\"q")
 
-- mini: |-
+- rig: |-
     print(31, 15, 5, 1000000, 3.5, 2000.0, 0.015, 0, 0, 255)
 
-- mini: |-
+- rig: |-
     a, b, xs = (1, 2, [1, 3])
     print(1 < a and a <= 2 and 2 < 3, a != nil, b not in xs, not a == b, a != b, b in xs)
 
-- mini: |-
+- rig: |-
     print(1 + 2 * 3 ** 2 ~/ 4 % 5 - -1, 7 & 3 | 4 ^ 1 << 2 >> 1, ~5, not true and false or true, 2 ** -1)
 
-- mini: |-
+- rig: |-
     x = 1
     y = 2 + 0
     print(x + y)
 
-- mini: |-
+- rig: |-
     x = 1 + 2
     print(x)
 
-- mini: |-
+- rig: |-
     a = 1
     b = 2
     print(a + b)
 
-- mini: |-
+- rig: |-
     if {} == {} {
         d = record([(1, 2)])
         s = set([3])
     }
     print(d, s)
 
-- mini: |-
+- rig: |-
     fn f(x) {
         if x {
             return 1
@@ -109,7 +109,7 @@
     }
     print(f(true), f(false))
 
-- mini: |-
+- rig: |-
     try {
         x = 1
     } finally {

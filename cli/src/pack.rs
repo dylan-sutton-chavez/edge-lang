@@ -91,7 +91,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         for len in [u64::MAX - 5, u64::MAX, 1 << 40, 64] {
             let path = dir.path().join("crafted");
-            std::fs::write(&path, [&b"print(1)\n"[..], &len.to_le_bytes(), STANDALONE_MAGIC].concat()).unwrap();
+            std::fs::write(&path, [&b"print 1;\n"[..], &len.to_le_bytes(), STANDALONE_MAGIC].concat()).unwrap();
             assert!(file_payload(&path).is_none(), "{len}");
         }
     }

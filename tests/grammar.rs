@@ -46,7 +46,7 @@ mod test {
     struct Forms;
     impl Spelling for Forms {
         const SYNTAX: Syntax = SYNTAX;
-        const NATIVES: &'static edge::lang::Natives = &mini::NATIVES;
+        const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
     }
 
     // the same table with no colon, so neither ':' nor 'while' has a spelling
@@ -58,7 +58,7 @@ mod test {
     struct Bare;
     impl Spelling for Bare {
         const SYNTAX: Syntax = Syntax { symbols: BARE_SYMBOLS, operators: &BARE_OPERATORS, ..SYNTAX };
-        const NATIVES: &'static edge::lang::Natives = &mini::NATIVES;
+        const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
     }
 
     // a form's call is a function of the script so each test sees what the slots gave

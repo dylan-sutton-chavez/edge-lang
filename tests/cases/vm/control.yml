@@ -3802,7 +3802,7 @@
 
 - case: |-
     // an empty line reads as false while an empty dependency list stays a value
-    lock = "[[package]]\nname = \"abi\"\nversion = \"0.9.6\"\n\n[[package]]\nname = \"itoa\"\nversion = \"1.0.18\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\n\n[[package]]\nname = \"lib\"\nversion = \"0.9.6\"\ndependencies = [\n \"edge\",\n \"itoa\",\n \"mini\",\n]\n"
+    lock = "[[package]]\nname = \"abi\"\nversion = \"0.9.6\"\n\n[[package]]\nname = \"itoa\"\nversion = \"1.0.18\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\n\n[[package]]\nname = \"lib\"\nversion = \"0.9.6\"\ndependencies = [\n \"edge\",\n \"itoa\",\n \"rig\",\n]\n"
     deps = {}
     name = nil
     blank = 0
@@ -3828,6 +3828,6 @@
   expected: |-
     abi [] no dependencies
     itoa [] no dependencies
-    lib ["edge", "itoa", "mini"] 3
+    lib ["edge", "itoa", "rig"] 3
     serde not locked no dependencies
     120 true false false false kept

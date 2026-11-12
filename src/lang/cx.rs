@@ -205,6 +205,8 @@ impl<'c, 'v> Cx<'c, 'v> {
             _ => return None,
         })
     }
+    /* member `name` of class `cls` or of the classes it derives from */
+    pub fn class_member(&self, cls: Val, name: &str) -> Option<Val> { self.vm.lookup_class_member(cls, name).map(|(f, _)| f) }
     /* the builtin exception class `cls` derives from and None when it is no exception */
     pub fn exc_base(&self, cls: Val) -> Option<&str> { self.vm.exc_base(cls) }
     /* removes attribute `name` of `o` as `del o.name` does */

@@ -1,29 +1,29 @@
 mod test {
     use edge::lang::{self, Act, Body, EngineError, ErrKind, Falsy, Gen, Language, Lock, Names, Policy, Runtime};
     use edge::value::Val;
-    use mini::Mini;
+    use rig::Rig;
 
     // a language stating a rule the loop does not read yet
     struct Loose;
 
     impl Language for Loose {
         const VERSION: u32 = 1;
-        const POLICY: Policy = Policy { identity_first: !Mini::POLICY.identity_first, ..Mini::POLICY };
-        const NATIVES: &'static lang::Natives = &mini::NATIVES;
-        const NAMES: &'static Names = &mini::NAMES;
-        const FRONT: lang::Front = mini::FRONT;
-        const DESCRIPTOR: &'static lang::Descriptor = &mini::DESCRIPTOR;
-        const WIDE: Option<&'static edge::value::foreign::Kind> = Some(&mini::lang::WIDE);
-        const BUILT: edge::value::foreign::Built = <mini::Mini as Language>::BUILT;
+        const POLICY: Policy = Policy { identity_first: !Rig::POLICY.identity_first, ..Rig::POLICY };
+        const NATIVES: &'static lang::Natives = &rig::NATIVES;
+        const NAMES: &'static Names = &rig::NAMES;
+        const FRONT: lang::Front = rig::FRONT;
+        const DESCRIPTOR: &'static lang::Descriptor = &rig::DESCRIPTOR;
+        const WIDE: Option<&'static edge::value::foreign::Kind> = Some(&rig::lang::WIDE);
+        const BUILT: edge::value::foreign::Built = <rig::Rig as Language>::BUILT;
         type Ops = ();
     }
 
     #[test]
     fn a_runtime_carries_the_rules_its_language_states() {
-        let rt = Runtime::of::<Mini>();
-        assert!(core::ptr::eq(rt.natives, &mini::NATIVES) && core::ptr::eq(rt.names(), &mini::NAMES));
-        assert_eq!(*rt.policy(), Mini::POLICY);
-        assert_eq!(Policy { max_int_digits: None, ..Mini::POLICY }.digits(), u32::MAX);
+        let rt = Runtime::of::<Rig>();
+        assert!(core::ptr::eq(rt.natives, &rig::NATIVES) && core::ptr::eq(rt.names(), &rig::NAMES));
+        assert_eq!(*rt.policy(), Rig::POLICY);
+        assert_eq!(Policy { max_int_digits: None, ..Rig::POLICY }.digits(), u32::MAX);
     }
 
     #[test]
@@ -35,13 +35,13 @@ mod test {
 
     impl Language for Mixed {
         const VERSION: u32 = 1;
-        const POLICY: Policy = Policy { falsy: Falsy::NIL.or(Falsy::FALSE), ..Mini::POLICY };
-        const NATIVES: &'static lang::Natives = &mini::NATIVES;
-        const NAMES: &'static Names = &mini::NAMES;
-        const FRONT: lang::Front = mini::FRONT;
-        const DESCRIPTOR: &'static lang::Descriptor = &mini::DESCRIPTOR;
-        const WIDE: Option<&'static edge::value::foreign::Kind> = Some(&mini::lang::WIDE);
-        const BUILT: edge::value::foreign::Built = <mini::Mini as Language>::BUILT;
+        const POLICY: Policy = Policy { falsy: Falsy::NIL.or(Falsy::FALSE), ..Rig::POLICY };
+        const NATIVES: &'static lang::Natives = &rig::NATIVES;
+        const NAMES: &'static Names = &rig::NAMES;
+        const FRONT: lang::Front = rig::FRONT;
+        const DESCRIPTOR: &'static lang::Descriptor = &rig::DESCRIPTOR;
+        const WIDE: Option<&'static edge::value::foreign::Kind> = Some(&rig::lang::WIDE);
+        const BUILT: edge::value::foreign::Built = <rig::Rig as Language>::BUILT;
         type Ops = ();
     }
 
@@ -84,15 +84,15 @@ mod test {
         let text = Falsy::NIL.or(Falsy::FALSE).or(Falsy::EMPTY_TEXT);
         assert!(text.has(Falsy::EMPTY_TEXT) && !text.has(Falsy::EMPTY_CONTAINER) && !text.has(Falsy::EMPTY) && Falsy::EMPTY.has(Falsy::EMPTY_TEXT.or(Falsy::EMPTY_CONTAINER)));
         assert!(text.text_truth(false) && !text.text_truth(true) && text.container_truth(true) && !Falsy::EMPTY.container_truth(true));
-        assert_eq!(Mini::POLICY.falsy.bits(), Falsy::NIL.or(Falsy::FALSE).or(Falsy::ZERO).or(Falsy::NAN).or(Falsy::EMPTY_TEXT).bits());
-        assert_eq!(Mini::POLICY.falsy, Policy::ENGINE.falsy);
+        assert_eq!(Rig::POLICY.falsy.bits(), Falsy::NIL.or(Falsy::FALSE).or(Falsy::ZERO).or(Falsy::NAN).or(Falsy::EMPTY_TEXT).bits());
+        assert_eq!(Rig::POLICY.falsy, Policy::ENGINE.falsy);
     }
 
     // a rule the loop does not read yet builds only as the engine's own
     #[test]
     fn a_policy_refuses_a_rule_the_loop_does_not_read() {
         use edge::lang::{IntDiv, IntMod, MapIter, NegPow, NumEq, StrIter, ZeroDiv};
-        let m = Mini::POLICY;
+        let m = Rig::POLICY;
         let unread = [
             (Policy { numeric_eq: NumEq::ByKind, ..m }, "numeric_eq"),
             (Policy { identity_first: false, ..m }, "identity_first"),

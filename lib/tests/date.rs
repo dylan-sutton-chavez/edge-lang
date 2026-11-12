@@ -6,26 +6,26 @@ use edge::lang::{Native, Natives, Runtime};
 use edge::value::foreign::{BinOp, Snapshot, UnOp};
 use edge::value::{HeapPool, Val};
 use lib::date::{self, Civil, Day, Days, Duration, Field, Hour, Hours, Minute, Minutes, Month, Second, Seconds, Time, Year};
-use mini::Mini;
-use mini::natives::{ARRAY, BUFFER, BYTES, CONVERT, DICT, FLOAT, FOLDS, INT, IO, ITER, LIST, LIST_SORT, MATCH, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
+use rig::Rig;
+use rig::natives::{ARRAY, BUFFER, BYTES, CONVERT, DICT, FLOAT, FOLDS, INT, IO, ITER, LIST, LIST_SORT, MATCH, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
 
 // every run meters what it allocates as edge.wasm does
 edge::allocator!();
 
-const DATE: &[Native] = &lib::table![Mini; "time" => date::parse[Mini]];
+const DATE: &[Native] = &lib::table![Rig; "time" => date::parse[Rig]];
 
 // the fields as methods of no arguments which every foreign value finds
-const PARTS: &[Native] = &lib::table![Mini;
-    "days" => date::part[Mini, Days],
-    "hours" => date::part[Mini, Hours],
-    "minutes" => date::part[Mini, Minutes],
-    "seconds" => date::part[Mini, Seconds],
-    "year" => date::part[Mini, Year],
-    "month" => date::part[Mini, Month],
-    "day" => date::part[Mini, Day],
-    "hour" => date::part[Mini, Hour],
-    "minute" => date::part[Mini, Minute],
-    "second" => date::part[Mini, Second],
+const PARTS: &[Native] = &lib::table![Rig;
+    "days" => date::part[Rig, Days],
+    "hours" => date::part[Rig, Hours],
+    "minutes" => date::part[Rig, Minutes],
+    "seconds" => date::part[Rig, Seconds],
+    "year" => date::part[Rig, Year],
+    "month" => date::part[Rig, Month],
+    "day" => date::part[Rig, Day],
+    "hour" => date::part[Rig, Hour],
+    "minute" => date::part[Rig, Minute],
+    "second" => date::part[Rig, Second],
 ];
 
 static NATIVES: Natives = edge::natives! {
@@ -44,21 +44,21 @@ static NATIVES: Natives = edge::natives! {
         Range => [RANGE],
         Foreign => [PARTS],
     ],
-    types: mini::types::NAMES,
+    types: rig::types::NAMES,
 };
 
 static RUNTIME: Runtime = Runtime::of::<Over>();
 
-// mini's language over these natives
+// the rig's language over these natives
 struct Over;
-mini::over!(Over, &NATIVES);
+rig::over!(Over, &NATIVES);
 
 const SECOND: i128 = 1_000_000_000;
 const DAY: i128 = 86_400 * SECOND;
 
 /* what `src` printed and its error after it when one ended the run */
 fn run(src: &str) -> String {
-    let (chunk, errors) = edge::code::compile_as::<Mini>(src);
+    let (chunk, errors) = edge::code::compile_as::<Rig>(src);
     assert!(errors.is_empty(), "{src}: {:?}", errors.iter().map(|e| &e.msg).collect::<Vec<_>>());
     let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
     let ran = vm.run();
@@ -143,8 +143,8 @@ fn fields_read_in_the_neutral_names() {
     let c = time("2026-10-01T15:04:05Z").civil();
     assert_eq!([Field::Year, Field::Month, Field::Day, Field::Hour, Field::Minute, Field::Second].map(|f| f.of_civil(&c)), [2026, 10, 1, 15, 4, 5]);
     let mut h = HeapPool::new(1 << 24);
-    let a = date::time_val::<Mini>(&mut h, time("2026-10-01T17:04:05+02:00")).unwrap_or_else(|e| panic!("{e}"));
-    let d = date::duration_val::<Mini>(&mut h, d).unwrap_or_else(|e| panic!("{e}"));
+    let a = date::time_val::<Rig>(&mut h, time("2026-10-01T17:04:05+02:00")).unwrap_or_else(|e| panic!("{e}"));
+    let d = date::duration_val::<Rig>(&mut h, d).unwrap_or_else(|e| panic!("{e}"));
     let read = |v: Val, f: &str| date::part_of(&h, v, f).map(|v| if v.is_float() { v.as_float() } else { v.as_int() as f64 });
     assert_eq!((read(a, "hour"), read(a, "year"), read(d, "hours"), read(d, "days")), (Some(17.0), Some(2026.0), Some(1.5), Some(0.0625)));
     assert_eq!((read(a, "hours"), read(d, "hour"), read(a, "week"), read(Val::int(1), "year")), (None, None, None, None));
@@ -153,7 +153,7 @@ fn fields_read_in_the_neutral_names() {
 /* a heap whose wide ints the reference runtime's kind boxes */
 fn heap() -> HeapPool {
     let mut h = HeapPool::new(1 << 24);
-    h.set_wide_int(&mini::lang::WIDE);
+    h.set_wide_int(&rig::lang::WIDE);
     h
 }
 
@@ -166,7 +166,7 @@ fn repr(h: &HeapPool, v: Val) -> String {
 #[test]
 fn the_kinds_compute_compare_hash_and_save() {
     let mut h = heap();
-    let boxed = |h: &mut HeapPool, s: &str| date::time_val::<Mini>(h, time(s)).unwrap_or_else(|e| panic!("{e}"));
+    let boxed = |h: &mut HeapPool, s: &str| date::time_val::<Rig>(h, time(s)).unwrap_or_else(|e| panic!("{e}"));
     let (a, b, same) = (boxed(&mut h, "2026-10-01T15:04:05Z"), boxed(&mut h, "2026-10-01T17:34:05+01:00"), boxed(&mut h, "2026-10-01T16:04:05+01:00"));
     let d = op(&mut h, BinOp::Sub, b, a).unwrap_or_else(|| panic!("no difference"));
     assert_eq!((repr(&h, d), h.type_name(a), h.type_name(d)), (String::from("5400s"), "time", "duration"));
@@ -186,7 +186,7 @@ fn the_kinds_compute_compare_hash_and_save() {
     assert_eq!((h.foreign_cmp(a, b), h.foreign_cmp(d, half), h.foreign_cmp(a, d), h.foreign_cmp(Val::int(1), d)), (Some(Ordering::Less), Some(Ordering::Greater), None, None));
     let zero = op(&mut h, BinOp::Sub, d, d).unwrap_or_else(|| panic!("no zero"));
     assert_eq!((h.foreign_truthy(zero), h.foreign_truthy(d), h.foreign_truthy(a)), (Some(false), Some(true), Some(true)));
-    let far = date::time_val::<Mini>(&mut h, time("9999-12-31T23:00:00Z")).unwrap_or_else(|e| panic!("{e}"));
+    let far = date::time_val::<Rig>(&mut h, time("9999-12-31T23:00:00Z")).unwrap_or_else(|e| panic!("{e}"));
     assert!(h.foreign_binop(BinOp::Add, far, d).is_err_and(|e| e.to_string().contains("the time falls outside the years 0000 to 9999")));
     assert!(h.foreign_binop(BinOp::Mul, d, Val::float(f64::INFINITY)).is_err_and(|e| e.to_string().contains("the duration is longer than a duration holds")));
     assert!(h.foreign_binop(BinOp::TrueDiv, d, Val::float(0.0)).is_err() && h.foreign_binop(BinOp::TrueDiv, d, zero).is_err());
@@ -194,7 +194,7 @@ fn the_kinds_compute_compare_hash_and_save() {
 
 #[test]
 fn a_snapshot_saves_each_value_in_a_few_bytes() {
-    let (Snapshot::Serialize { save: save_time, load: load_time }, Snapshot::Serialize { save: save_span, load: load_span }) = (&mini::lang::TIME.snapshot, &mini::lang::DURATION.snapshot) else { panic!("the kinds refuse snapshots") };
+    let (Snapshot::Serialize { save: save_time, load: load_time }, Snapshot::Serialize { save: save_span, load: load_span }) = (&rig::lang::TIME.snapshot, &rig::lang::DURATION.snapshot) else { panic!("the kinds refuse snapshots") };
     for s in ["2026-10-01T15:04:05.123456789+05:45", "0000-01-01T00:00:00Z", "9999-12-31T23:59:59.999999999-23:59"] {
         let t = time(s);
         let mut out = Vec::new();
@@ -271,29 +271,29 @@ fn programs_get_the_failures_in_the_runtimes_words() {
     assert_eq!(got, want);
 }
 
-// a runtime of mini's classes that keeps lib's own words for every failure
+// a runtime of the rig's classes that keeps lib's own words for every failure
 struct Neutral;
 
 impl lib::fmt::render::Style for Neutral {}
 
 impl edge::lang::Language for Neutral {
     const VERSION: u32 = 1;
-    const POLICY: edge::lang::Policy = <Mini as edge::lang::Language>::POLICY;
-    const NATIVES: &'static edge::lang::Natives = &mini::NATIVES;
-    const NAMES: &'static edge::lang::Names = &mini::NAMES;
-    const FRONT: edge::lang::Front = mini::FRONT;
-    const DESCRIPTOR: &'static edge::lang::Descriptor = &mini::DESCRIPTOR;
-    const WIDE: Option<&'static edge::value::foreign::Kind> = Some(&mini::lang::WIDE);
-    const BUILT: edge::value::foreign::Built = <mini::Mini as edge::lang::Language>::BUILT;
+    const POLICY: edge::lang::Policy = <Rig as edge::lang::Language>::POLICY;
+    const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
+    const NAMES: &'static edge::lang::Names = &rig::NAMES;
+    const FRONT: edge::lang::Front = rig::FRONT;
+    const DESCRIPTOR: &'static edge::lang::Descriptor = &rig::DESCRIPTOR;
+    const WIDE: Option<&'static edge::value::foreign::Kind> = Some(&rig::lang::WIDE);
+    const BUILT: edge::value::foreign::Built = <rig::Rig as edge::lang::Language>::BUILT;
     type Ops = ();
 
     fn show(cx: &mut edge::lang::Cx<'_, '_>, v: edge::value::Val, mode: edge::lang::Mode) -> Result<String, edge::value::VmErr> { lib::fmt::render::hook::<Self>(cx, v, mode) }
 }
 
 impl lib::Lang for Neutral {
-    const TREE: &'static lib::lang::Tree = &mini::types::TREE;
+    const TREE: &'static lib::lang::Tree = &rig::types::TREE;
 
-    fn class(c: lib::Class) -> &'static str { <Mini as lib::Lang>::class(c) }
+    fn class(c: lib::Class) -> &'static str { <Rig as lib::Lang>::class(c) }
 }
 
 static NEUTRAL_TIME: edge::value::foreign::Kind = date::time_kind::<Neutral>("time");
@@ -309,7 +309,7 @@ fn a_time_or_duration_out_of_range_raises_in_the_words_of_its_runtime() {
     // a heap registers kinds by name so each runtime takes its own heap
     let (mut h, mut n) = (heap(), heap());
     let span = Duration { nanos: 3600 * SECOND };
-    let (far, d) = (date::time_val::<Mini>(&mut h, time("9999-12-31T23:30:00Z")).unwrap_or_else(|e| panic!("{e}")), date::duration_val::<Mini>(&mut h, span).unwrap_or_else(|e| panic!("{e}")));
+    let (far, d) = (date::time_val::<Rig>(&mut h, time("9999-12-31T23:30:00Z")).unwrap_or_else(|e| panic!("{e}")), date::duration_val::<Rig>(&mut h, span).unwrap_or_else(|e| panic!("{e}")));
     let (lone, ld) = (date::time_val::<Neutral>(&mut n, time("9999-12-31T23:30:00Z")).unwrap_or_else(|e| panic!("{e}")), date::duration_val::<Neutral>(&mut n, span).unwrap_or_else(|e| panic!("{e}")));
     let said = |h: &mut HeapPool, a: Val, b: Val| h.foreign_binop(BinOp::Add, a, b).err().map(|e| e.to_string()).unwrap_or_default();
     let long = |h: &mut HeapPool, v: Val| h.foreign_binop(BinOp::Mul, v, Val::float(f64::INFINITY)).err().map(|e| e.to_string()).unwrap_or_default();

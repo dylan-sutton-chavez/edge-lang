@@ -1,11 +1,11 @@
 use edge::embed::{Limits, VM};
 use edge::lang::Fast1;
 use edge::value::{HeapObj, HeapPool, Val};
-use mini::RUNTIME;
+use rig::RUNTIME;
 
 /* what `src` printed and its error after it when one ended the run */
 fn run(src: &str) -> String {
-    let (chunk, errors) = edge::code::compile_as::<mini::Mini>(src);
+    let (chunk, errors) = edge::code::compile_as::<rig::Rig>(src);
     assert!(errors.is_empty(), "{src}: {:?}", errors.iter().map(|e| &e.msg).collect::<Vec<_>>());
     // no memory limit so no metering allocator is needed
     let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits { ops: 50_000_000, memory: usize::MAX });
@@ -92,8 +92,8 @@ fn range_methods_find_by_arithmetic() {
     raises("range(10 ** 20, 10 ** 20 + 3).index(\"a\")", "ValueError: index found no such item");
 }
 
-/* the fast path mini's iteration table gives native `name` */
-fn fast(name: &str) -> Fast1 { mini::natives::ITER.iter().find(|n| n.name == name).and_then(|n| n.fast1).unwrap_or_else(|| panic!("{name}")) }
+/* the fast path the rig's iteration table gives native `name` */
+fn fast(name: &str) -> Fast1 { rig::natives::ITER.iter().find(|n| n.name == name).and_then(|n| n.fast1).unwrap_or_else(|| panic!("{name}")) }
 
 /* a fold's fast path over a word range and the items it read */
 fn truth(heap: &mut HeapPool, name: &str, s: i64, e: i64, st: i64) -> Option<(bool, usize)> {

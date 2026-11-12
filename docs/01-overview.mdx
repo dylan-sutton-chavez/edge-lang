@@ -22,9 +22,9 @@ A runtime built on it compiles to one WebAssembly module that runs in a web page
 | `cli` | `cli/` | The `edge` CLI, and the kit you compose a CLI of your own from |
 | JS host | `js/` | `createWorker`, which runs a runtime's `.wasm` in a web page |
 | `plugin` | `plugin/` | The crate for writing `.wasm` plugins a program imports |
-| Runtimes | `examples/` | `mini`, the reference runtime the `edge` CLI runs, plus `uptime` and `tiny` |
+| Lox | `examples/lox` | Lox, the language of the book Crafting Interpreters, the runtime `edge.wasm` is built from and the `edge` CLI runs |
 
-The examples in these pages run programs written in mini, a small scripting language with Python's shape. Any runtime you build runs the same way.
+The examples in these pages run programs written in Lox. It passes the book's own test suite, and past the book it imports modules with `import("name")` and reaches its host through the natives `input`, `exit`, `send`, `receive`, `len` and `text`. Any runtime you build runs the same way.
 
 ## Install
 
@@ -51,8 +51,8 @@ The crates, as git dependencies of your own crate:
 [dependencies]
 edge = { git = "https://github.com/dylan-sutton-chavez/edge-lang", branch = "main" }
 lib = { git = "https://github.com/dylan-sutton-chavez/edge-lang", branch = "main" }
-# the reference runtime, for embedding mini as it is
-mini = { git = "https://github.com/dylan-sutton-chavez/edge-lang", branch = "main" }
+# Lox, for embedding it as it is
+lox = { git = "https://github.com/dylan-sutton-chavez/edge-lang", branch = "main" }
 # the CLI kit, with only the commands you wire
 cli = { git = "https://github.com/dylan-sutton-chavez/edge-lang", branch = "main", default-features = false, features = ["run", "test"] }
 ```

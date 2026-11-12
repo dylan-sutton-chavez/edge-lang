@@ -166,7 +166,7 @@ mod tests {
     // a path holds its bytes and a pinned url its digest so neither needs locking
     #[test]
     fn a_path_and_a_pinned_url_pass_through_and_a_bare_url_gains_its_digest() {
-        for target in ["./lib/util.mini", "https://x/y.wasm#sha256-ab"] {
+        for target in ["./lib/util.lox", "https://x/y.wasm#sha256-ab"] {
             assert_eq!(locked_spec("util", target, None).unwrap(), target);
         }
         assert_eq!(locked_spec("foo", "https://x/y.wasm", None).unwrap(), "https://x/y.wasm");
@@ -198,9 +198,9 @@ mod tests {
     #[test]
     fn a_pin_holds_the_bytes_to_their_digest() {
         let digest = digest_of(b"print(1)\n");
-        assert!(verify_pin(&s!("./a.mini#", str &digest), b"print(1)\n").is_ok());
-        assert!(verify_pin("./a.mini", b"anything").is_ok());
-        let err = verify_pin(&s!("./a.mini#", str &digest), b"print(2)\n").unwrap_err();
-        assert!(err.starts_with("integrity check failed for './a.mini'"), "{err}");
+        assert!(verify_pin(&s!("./a.lox#", str &digest), b"print(1)\n").is_ok());
+        assert!(verify_pin("./a.lox", b"anything").is_ok());
+        let err = verify_pin(&s!("./a.lox#", str &digest), b"print(2)\n").unwrap_err();
+        assert!(err.starts_with("integrity check failed for './a.lox'"), "{err}");
     }
 }

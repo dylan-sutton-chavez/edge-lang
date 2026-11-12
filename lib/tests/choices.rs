@@ -5,25 +5,25 @@ use lib::lang::Centre;
 use lib::num::hash::Scheme;
 use lib::text::cut::Unicode;
 use lib::uni::Decimal;
-use mini::Mini;
+use rig::Rig;
 
 // every run meters what it allocates as edge.wasm does
 edge::allocator!();
 
-// a runtime of mini's names and classes keeping every choice lib leaves at its default
+// a runtime of the rig's names keeping every choice lib leaves at its default
 struct Plain;
 
 impl lib::fmt::render::Style for Plain {}
 
 impl edge::lang::Language for Plain {
     const VERSION: u32 = 1;
-    const POLICY: edge::lang::Policy = <Mini as edge::lang::Language>::POLICY;
+    const POLICY: edge::lang::Policy = <Rig as edge::lang::Language>::POLICY;
     const NATIVES: &'static Natives = &PLAIN_NATIVES;
-    const NAMES: &'static edge::lang::Names = &mini::NAMES;
-    const FRONT: edge::lang::Front = mini::FRONT;
-    const DESCRIPTOR: &'static edge::lang::Descriptor = &mini::DESCRIPTOR;
-    const WIDE: Option<&'static edge::value::foreign::Kind> = Some(&mini::lang::WIDE);
-    const BUILT: edge::value::foreign::Built = <mini::Mini as edge::lang::Language>::BUILT;
+    const NAMES: &'static edge::lang::Names = &rig::NAMES;
+    const FRONT: edge::lang::Front = rig::FRONT;
+    const DESCRIPTOR: &'static edge::lang::Descriptor = &rig::DESCRIPTOR;
+    const WIDE: Option<&'static edge::value::foreign::Kind> = Some(&rig::lang::WIDE);
+    const BUILT: edge::value::foreign::Built = <rig::Rig as edge::lang::Language>::BUILT;
     type Ops = ();
 
     fn show(cx: &mut edge::lang::Cx<'_, '_>, v: edge::value::Val, mode: edge::lang::Mode) -> Result<String, edge::value::VmErr> { lib::fmt::render::hook::<Self>(cx, v, mode) }
@@ -34,9 +34,9 @@ impl edge::lang::Language for Plain {
 }
 
 impl lib::Lang for Plain {
-    const TREE: &'static lib::lang::Tree = &mini::types::TREE;
+    const TREE: &'static lib::lang::Tree = &rig::types::TREE;
 
-    fn class(c: lib::Class) -> &'static str { <Mini as lib::Lang>::class(c) }
+    fn class(c: lib::Class) -> &'static str { <Rig as lib::Lang>::class(c) }
 }
 
 /* numbers modulo two to 40 less one with nothing reserved */
@@ -93,16 +93,16 @@ static PLAIN_NATIVES: Natives = edge::natives! {
     language: Plain,
     fns: [PLAIN_FNS],
     methods: [Str => [PLAIN_STR], Bytes => [PLAIN_BYTES], ByteArray => [PLAIN_ARRAY], Int => [PLAIN_INT], Coro => [PLAIN_GEN]],
-    types: mini::types::NAMES,
+    types: rig::types::NAMES,
 };
 
 static PLAIN_RUNTIME: Runtime = Runtime::of::<Plain>();
 
-/* mini's spelling over the plain natives */
+/* the rig's spelling over the plain natives */
 struct Plainly;
 
 impl edge::lexer::Spelling for Plainly {
-    const SYNTAX: edge::lexer::Syntax = mini::MINI;
+    const SYNTAX: edge::lexer::Syntax = rig::RIG;
     const NATIVES: &'static Natives = &PLAIN_NATIVES;
 }
 
@@ -120,11 +120,11 @@ fn with_plain(src: &str) -> String {
     ran(&PLAIN_RUNTIME, &chunk)
 }
 
-/* what `src` gives under mini */
+/* what `src` gives under rig */
 fn with_mini(src: &str) -> String {
-    let (chunk, errors) = edge::code::compile_as::<Mini>(src);
+    let (chunk, errors) = edge::code::compile_as::<Rig>(src);
     assert!(errors.is_empty(), "{src}: {:?}", errors.iter().map(|e| &e.msg).collect::<Vec<_>>());
-    ran(&mini::RUNTIME, &chunk)
+    ran(&rig::RUNTIME, &chunk)
 }
 
 #[test]

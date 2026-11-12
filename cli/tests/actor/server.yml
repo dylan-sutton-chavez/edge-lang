@@ -8,9 +8,9 @@ groups:
   echoer:
     replicas: 1
     code: |
-      while true {
-          msg = receive()
-          print("got:", msg)
+      while (true) {
+          var msg = receive();
+          print "got: " + msg;
       }
 
 publish:

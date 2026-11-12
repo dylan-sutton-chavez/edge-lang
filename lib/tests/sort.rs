@@ -1,9 +1,9 @@
 use edge::embed::{Limits, VM};
-use mini::RUNTIME;
+use rig::RUNTIME;
 
 /* what `src` printed and then the words of the error it ended in */
 fn run(src: &str) -> String {
-    let (chunk, errors) = edge::code::compile_as::<mini::Mini>(src);
+    let (chunk, errors) = edge::code::compile_as::<rig::Rig>(src);
     assert!(errors.is_empty(), "{src}");
     let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits { ops: 10_000_000, memory: usize::MAX });
     let end = vm.run().err().map(|e| e.to_string()).unwrap_or_default();
@@ -86,32 +86,32 @@ fn errors_keep_their_words() {
     assert_eq!(run("sorted([1, 2], key=5)"), "TypeError: a value of kind int cannot be called");
 }
 
-// top beside mini's tables as a runtime that ranks rows would name it
-const TOP: &[edge::lang::Native] = &lib::table![mini::Mini; "top" => lib::seq::top::top{"key"}];
+// top beside the rig's tables as a runtime that ranks rows would name it
+const TOP: &[edge::lang::Native] = &lib::table![rig::Rig; "top" => lib::seq::top::top{"key"}];
 
 static RANKED: edge::lang::Natives = edge::natives! {
     language: Ranked,
-    fns: [mini::natives::IO, mini::natives::ITER, mini::natives::NEXT, mini::natives::NUM, mini::natives::FOLDS, mini::natives::CONVERT, mini::natives::BYTES, mini::natives::SORT, mini::natives::TYPES, mini::natives::MATCH, mini::natives::DATE, TOP],
+    fns: [rig::natives::IO, rig::natives::ITER, rig::natives::NEXT, rig::natives::NUM, rig::natives::FOLDS, rig::natives::CONVERT, rig::natives::BYTES, rig::natives::SORT, rig::natives::TYPES, rig::natives::MATCH, rig::natives::DATE, TOP],
     methods: [
-        Str => [mini::natives::STR],
-        List => [mini::natives::LIST, mini::natives::LIST_SORT],
-        Tuple => [mini::natives::TUPLE],
-        Dict => [mini::natives::DICT],
-        Int => [mini::natives::INT],
-        Float => [mini::natives::FLOAT],
+        Str => [rig::natives::STR],
+        List => [rig::natives::LIST, rig::natives::LIST_SORT],
+        Tuple => [rig::natives::TUPLE],
+        Dict => [rig::natives::DICT],
+        Int => [rig::natives::INT],
+        Float => [rig::natives::FLOAT],
     ],
-    types: mini::types::NAMES,
+    types: rig::types::NAMES,
 };
 
 static RANKED_RUNTIME: edge::lang::Runtime = edge::lang::Runtime::of::<Ranked>();
 
-// mini's language over the ranked natives
+// the rig's language over the ranked natives
 struct Ranked;
-mini::over!(Ranked, &RANKED);
+rig::over!(Ranked, &RANKED);
 
-/* what `src` printed under mini's tables with top beside them */
+/* what `src` printed under the rig's tables with top beside them */
 fn ranked(src: &str) -> String {
-    let (chunk, errors) = edge::code::compile_as::<mini::Mini>(src);
+    let (chunk, errors) = edge::code::compile_as::<rig::Rig>(src);
     assert!(errors.is_empty(), "{src}");
     let mut vm = VM::with_runtime(&RANKED_RUNTIME, &chunk, Limits { ops: 50_000_000, memory: usize::MAX });
     let end = vm.run().err().map(|e| e.to_string()).unwrap_or_default();

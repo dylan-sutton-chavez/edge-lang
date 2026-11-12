@@ -1,0 +1,40 @@
+fun counter() {
+  var count = 0;
+  fun step() {
+    count = count + 1;
+    return count;
+  }
+  return step;
+}
+
+var c = counter();
+for (var i = 0; i < 5000; i = i + 1) c();
+print c();
+
+fun adder(x) {
+  fun add(y) { return x + y; }
+  return add;
+}
+
+var made = nil;
+var sum = 0;
+for (var i = 0; i < 2000; i = i + 1) {
+  var j = i;
+  fun keep() { return j; }
+  made = keep;
+  sum = sum + adder(i)(j) + made();
+}
+print sum;
+
+fun outer() {
+  var a = 1;
+  fun middle() {
+    var b = 2;
+    fun inner() { return a + b; }
+    return inner;
+  }
+  return middle()();
+}
+var deep = 0;
+for (var i = 0; i < 2000; i = i + 1) deep = deep + outer();
+print deep;

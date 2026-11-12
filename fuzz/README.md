@@ -1,6 +1,6 @@
 # Fuzzing
 
-AFL++ fuzzing of the lexer, the parser and the VM through cargo-afl, on stable Rust. The [Runbook](../docs/05-internals/03-runbook.mdx) explains what it covers and how CI runs it.
+AFL++ fuzzing of the lexer, the parsers and the VM through cargo-afl, on stable Rust. Each input runs as a Lox program and as a program of the test rig in `tests/rig`, whose table spells the grammar pieces Lox has no syntax for, and `.github/workflows/fuzzer.yml` runs it in CI.
 
 ## Commands
 
@@ -8,7 +8,7 @@ Run them from the repo root. They need Linux or macOS and `cargo install cargo-a
 
 | Command | Does |
 |---|---|
-| `make seeds` | Rebuilds `in/` from `tests/cases/vm` and `edge.dict` from `dict.txt` |
+| `make seeds` | Rebuilds `in/` from the Lox programs of the book's suite and the bench and from `tests/cases/vm`, and `edge.dict` from `dict.txt` |
 | `make fuzz` | Builds the target and runs one instance per core |
 | `make fuzz-carry` | Minimizes the queues into `corpus/` for the next campaign, carrying the new coverage unminimized if afl-cmin takes over `CMIN_SECS` (600) |
 | `make fuzz-status` | Shows a running campaign |

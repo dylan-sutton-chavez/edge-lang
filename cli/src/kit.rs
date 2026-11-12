@@ -47,7 +47,7 @@ impl Runtime {
         Runtime { engine: Engines::Wasm { module: bytes.into(), native: None }, descriptor, words: None }
     }
 
-    /* a runtime built into this binary as examples/native boots one with no wasm between */
+    /* a runtime built into this binary as the native test boots lox */
     pub fn native(runtime: &'static edge::lang::Runtime) -> Runtime {
         Runtime { engine: Engines::Native(runtime), descriptor: runtime.descriptor, words: None }
     }
@@ -475,7 +475,7 @@ pub(crate) mod tests {
     /* a kit over the reference runtime build.rs embeds with no component wired */
     pub fn bare() -> Kit {
         // SAFETY build.rs precompiled the cwasm from this module under the host's engine config
-        let runtime = unsafe { Runtime::precompiled(WASM, NATIVE, &mini::DESCRIPTOR) };
+        let runtime = unsafe { Runtime::precompiled(WASM, NATIVE, &lox::DESCRIPTOR) };
         Kit::new("edge", "0.0.0", runtime)
     }
 
@@ -510,10 +510,10 @@ pub(crate) mod tests {
     /* the top-level help lists each command the composition wired with words from its runtime */
     #[test]
     fn the_help_lists_what_the_composition_wired() {
-        let kit = kit().title("The Edge mini developer CLI").site("example.com").command(Probe);
+        let kit = kit().title("The Edge Lox developer CLI").site("example.com").command(Probe);
         let help = kit.help();
-        assert!(help.starts_with("The Edge mini developer CLI\n\nUsage  edge <command> [options]\n\nCommands\n"), "{help}");
-        assert!(help.contains("\n  probe [path]       Probe *_test.mini files\n\nProbe flags        --deep\nGlobal             --manifest <file>   default edge.json\n\n"), "{help}");
+        assert!(help.starts_with("The Edge Lox developer CLI\n\nUsage  edge <command> [options]\n\nCommands\n"), "{help}");
+        assert!(help.contains("\n  probe [path]       Probe *_test.lox files\n\nProbe flags        --deep\nGlobal             --manifest <file>   default edge.json\n\n"), "{help}");
         assert!(help.ends_with("edge <command> -h for details \u{00b7} -v for version \u{00b7} example.com"), "{help}");
     }
 
@@ -553,7 +553,7 @@ pub(crate) mod tests {
     #[test]
     fn a_source_is_a_file_with_the_runtime_extension() {
         let kit = kit();
-        assert!(kit.is_source(Path::new("lib/util.mini")));
+        assert!(kit.is_source(Path::new("lib/util.lox")));
         assert!(!kit.is_source(Path::new("lib/util.wasm")));
         assert_eq!(kit.reserved(), ["quiet"]);
     }

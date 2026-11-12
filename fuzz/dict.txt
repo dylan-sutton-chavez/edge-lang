@@ -1,4 +1,14 @@
-# keywords
+# keywords of Lox then of the rig
+"var"
+"fun"
+"class"
+"print"
+"this"
+"super"
+"init"
+"<"
+";"
+"!"
 "if"
 "else"
 "else if"

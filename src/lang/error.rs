@@ -171,8 +171,8 @@ pub enum Fit {
 /* a call its callee refuses before binding */
 #[derive(Clone, Debug)]
 pub enum CallFault {
-    // a callee taking no arguments where `keywords` marks keywords and `called` the parentheses
-    NoArgs { name: String, keywords: bool, called: bool },
+    // a callee taking none given `got` positionals where `keywords` and `called` mark keywords and parentheses
+    NoArgs { name: String, got: u32, keywords: bool, called: bool },
     // the default init given arguments past its object
     InitArgs,
     // an exception class given keywords

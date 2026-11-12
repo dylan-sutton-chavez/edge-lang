@@ -1,9 +1,9 @@
 use lib::fmt::render::{ascii_escape, format_f64, push_bytes, push_repr_str};
-use mini::Mini;
+use rig::Rig;
 
-fn quoted(s: &str) -> String { let mut out = String::new(); push_repr_str::<Mini>(&mut out, s); out }
+fn quoted(s: &str) -> String { let mut out = String::new(); push_repr_str::<Rig>(&mut out, s); out }
 
-fn bytes(b: &[u8], array: bool) -> String { let mut out = String::new(); push_bytes::<Mini>(&mut out, b, array); out }
+fn bytes(b: &[u8], array: bool) -> String { let mut out = String::new(); push_bytes::<Rig>(&mut out, b, array); out }
 
 #[test]
 fn floats_read_back_in_their_shortest_digits() {
@@ -14,7 +14,7 @@ fn floats_read_back_in_their_shortest_digits() {
         (0.0001, "0.0001"), (0.00001, "0.00001"), (1.5e-7, "1.5e-7"), (1e22, "1e22"), (1e100, "1e100"), (-1e-100, "-1e-100"),
         (5e-324, "5e-324"), (f64::MAX, "1.7976931348623157e308"), (f64::MIN_POSITIVE, "2.2250738585072014e-308"), (1.0 / 3.0, "0.3333333333333333"),
     ];
-    for &(f, want) in cases { assert_eq!(format_f64::<Mini>(f), want, "{f:e}"); }
+    for &(f, want) in cases { assert_eq!(format_f64::<Rig>(f), want, "{f:e}"); }
 }
 
 #[test]
@@ -38,6 +38,6 @@ fn bytes_quote_as_their_kind_shows_them() {
 
 #[test]
 fn ascii_escapes_past_the_ascii_range() {
-    assert_eq!(ascii_escape::<Mini>("\"é日😀\""), "\"\\u{e9}\\u{65e5}\\u{1f600}\"");
-    assert_eq!(ascii_escape::<Mini>("plain"), "plain");
+    assert_eq!(ascii_escape::<Rig>("\"é日😀\""), "\"\\u{e9}\\u{65e5}\\u{1f600}\"");
+    assert_eq!(ascii_escape::<Rig>("plain"), "plain");
 }

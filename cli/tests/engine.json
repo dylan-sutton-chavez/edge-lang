@@ -1,104 +1,90 @@
 [
   {
     "name": "an entry script past 1 MiB runs",
-    "generate": { "main.mini": ["s = \"", ["a", 5242880], "\"\nprint(len(s))\n"] },
-    "steps": [{ "run": ["run", "main.mini"], "stdout": ["5242880\n"] }]
+    "generate": { "main.lox": ["var s = \"", ["a", 5242880], "\";\nprint len(s);\n"] },
+    "steps": [{ "run": ["run", "main.lox"], "stdout": ["5242880\n"] }]
   },
   {
     "name": "stdin past 1 MiB reaches input() whole",
-    "given": { "main.mini": "print(len(input()))\n" },
-    "steps": [{ "run": ["run", "main.mini"], "stdin": [["b", 2097152], "\n"], "stdout": ["2097152\n"] }]
+    "given": { "main.lox": "print len(input());\n" },
+    "steps": [{ "run": ["run", "main.lox"], "stdin": [["b", 2097152], "\n"], "stdout": ["2097152\n"] }]
   },
   {
     "name": "a snapshot past 1 MiB saves and restores",
     "given": {
-      "main.mini": "xs = [\"v\" * 40 + text(i) for i in range(60000)]\nprint(\"built\", len(xs))\nmsg = receive()\nprint(\"resumed\", msg, len(xs))\n",
+      "main.lox": "class Node {\n    init(v, next) {\n        this.v = v;\n        this.next = next;\n    }\n}\nfun count(n) {\n    var c = 0;\n    while (n != nil) {\n        c = c + 1;\n        n = n.next;\n    }\n    return c;\n}\nvar head = nil;\nfor (var i = 0; i < 60000; i = i + 1) head = Node(\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\" + text(i), head);\nprint \"built \" + text(count(head));\nvar msg = receive();\nprint \"resumed \" + msg + \" \" + text(count(head));\n",
       "ev.txt": "later\n"
     },
-    "steps": [
-      { "run": ["run", "main.mini", "--save-state", "state.bin"], "stdout": ["built 60000\n"], "stderr": ["state saved"], "file_bytes": { "state.bin": 1048577 } },
-      { "run": ["run", "--restore-state", "state.bin", "--events", "ev.txt"], "stdout": ["resumed later 60000\n"] }
-    ]
+    "steps": [{ "run": ["run", "main.lox", "--save-state", "state.bin"], "stdout": ["built 60000\n"], "stderr": ["state saved"], "file_bytes": { "state.bin": 1048577 } }, { "run": ["run", "--restore-state", "state.bin", "--events", "ev.txt"], "stdout": ["resumed later 60000\n"] }]
   },
   {
-    "name": "a traceback past 1 MiB prints whole with its location",
-    "given": { "main.mini": "msg = \"\".join([\"x\" * 1000 for _ in range(2000)])\nthrow ValueError(msg)\n" },
-    "steps": [{ "run": ["run", "main.mini"], "exit": 1, "stderr": ["--> main.mini:2:1"], "stderr_bytes": 2000000 }]
+    "name": "an error past 1 MiB prints whole with its line",
+    "steps": [{ "run": ["run", "main.lox"], "exit": 1, "stderr": ["Undefined variable 'xxx", "[line 1] in script"], "stderr_bytes": 2000000 }],
+    "generate": { "main.lox": ["print ", ["x", 2000000], ";\n"] }
   },
   {
     "name": "a native module fails at its import",
     "given": {
       "edge.json": "{ \"imports\": { \"s\": \"./s.so\" } }\n",
       "s.so": "",
-      "s.mini": "x = 1\nuse s\n"
+      "s.lox": "var x = 1;\nimport(\"s\");\n"
     },
-    "steps": [
-      { "run": ["run", "s.mini"], "exit": 1, "stderr": ["error: module 's' is not supported, ship a .wasm\n", "--> s.mini:2:5"] }
-    ]
+    "steps": [{ "run": ["run", "s.lox"], "exit": 1, "stderr": ["error: module 's' is not supported, ship a .wasm\n", "--> s.lox:2:1"] }]
   },
   {
     "name": "a JavaScript module is refused where it is imported",
     "given": {
-      "edge.json": "{ \"imports\": { \"lib\": \"./lib.mini\", \"widget\": \"./widget.js\" } }\n",
+      "edge.json": "{ \"imports\": { \"lib\": \"./lib.lox\", \"widget\": \"./widget.js\" } }\n",
       "widget.js": "export default () => ({});\n",
-      "lib.mini": "use widget\n",
-      "main.mini": "use lib\n"
+      "lib.lox": "import(\"widget\");\n",
+      "main.lox": "import(\"lib\");\n"
     },
-    "steps": [{ "run": ["run", "main.mini"], "exit": 1, "stderr": ["module 'widget' is JavaScript, ship a .mini or a .wasm\n", "--> main.mini:1:5"] }]
+    "steps": [{ "run": ["run", "main.lox"], "exit": 1, "stderr": ["module 'widget' is JavaScript, ship a .lox or a .wasm\n", "--> main.lox:1:1"] }]
   },
   {
     "name": "an undeclared unknown name keeps the generic hint",
-    "given": { "main.mini": "use my_helpers\n" },
-    "steps": [{ "run": ["run", "main.mini"], "exit": 1, "stderr": ["help: declare it in edge.json, or use a relative import\n", "--> main.mini:1:5"] }]
+    "given": { "main.lox": "import(\"my_helpers\");\n" },
+    "steps": [{ "run": ["run", "main.lox"], "exit": 1, "stderr": ["help: declare it in edge.json, or use a relative import\n", "--> main.lox:1:1"] }]
   },
   {
     "name": "a remote module's missing manifests are asked for once",
     "given": {
-      "edge.json": "{ \"imports\": { \"lib\": \"{BASE}/lib/mod.mini\" } }\n",
-      "main.mini": "use lib\nf = lib.f\nprint(f())\n"
+      "edge.json": "{ \"imports\": { \"lib\": \"{BASE}/lib/mod.lox\" } }\n",
+      "main.lox": "var lib = import(\"lib\");\nprint lib.f();\n"
     },
-    "steps": [
-      { "run": ["run", "main.mini"], "stdout": ["7\n"] },
-      { "run": ["run", "main.mini"], "stdout": ["7\n"], "requests": { "/lib/mod.mini": 1, "/lib/edge.json": 1, "/edge.json": 1 } }
-    ]
+    "steps": [{ "run": ["run", "main.lox"], "stdout": ["7\n"] }, { "run": ["run", "main.lox"], "stdout": ["7\n"], "requests": { "/lib/mod.lox": 1, "/lib/edge.json": 1, "/edge.json": 1 } }]
   },
   {
     "name": "a single-shot pool delivers every message",
     "given": {
       "edge.json": "{}\n",
-      "pool.yml": "runtime:\n  max_actors: 1000000\ngroups:\n  dispatcher:\n    seed: [\"go\"]\n    code: |\n      receive()\n      i = 0\n      while i < 20000 {\n          send(\"workers\", text(i))\n          i = i + 1\n      }\n  workers:\n    replicas: 1000000\n    code: |\n      m = receive()\n      print(\"ok\", m)\n"
+      "pool.yml": "runtime:\n  max_actors: 1000000\ngroups:\n  dispatcher:\n    seed: [\"go\"]\n    code: |\n      receive();\n      var i = 0;\n      while (i < 20000) {\n          send(\"workers\", text(i));\n          i = i + 1;\n      }\n  workers:\n    replicas: 1000000\n    code: |\n      var m = receive();\n      print \"ok \" + m;\n"
     },
     "steps": [{ "run": ["actor", "pool.yml"], "lines": { "ok ": 20000 } }]
   },
   {
-    "name": "builtins calling back into program code raise RecursionError before the stack runs out",
-    "given": { "main.mini": "fn check(f) {\n    try {\n        f()\n    } catch RecursionError {\n        print(\"RecursionError\")\n    }\n}\nfn key(x) {\n    return sorted([1, 2], key=key)\n}\nfn low(x) {\n    return min([1, 2], key=low)\n}\nfn step(x) {\n    return list(map(step, [1]))\n}\nfn keep(x) {\n    return list(filter(keep, [1]))\n}\nfn gen() {\n    yield next(gen())\n}\ncheck(|| key(0))\ncheck(|| low(0))\ncheck(|| step(0))\ncheck(|| keep(0))\ncheck(|| next(gen()))\n" },
-    "steps": [{ "run": ["run", "main.mini"], "stdout": ["RecursionError\nRecursionError\nRecursionError\nRecursionError\nRecursionError\n"] }]
+    "name": "calls nested past the recursion limit raise before the stack runs out",
+    "given": { "main.lox": "fun deep(n) {\n    return deep(n + 1);\n}\ndeep(0);\n" },
+    "steps": [{ "run": ["run", "main.lox"], "exit": 1, "stderr": ["Stack overflow.\n[line 2] in script"] }]
   },
   {
     "name": "a plugin that does not load fails at its import and names the module that reached it",
     "given": {
-      "edge.json": "{ \"imports\": { \"badplug\": \"./bad.wasm\", \"lib\": \"./lib.mini\" } }\n",
+      "edge.json": "{ \"imports\": { \"badplug\": \"./bad.wasm\", \"lib\": \"./lib.lox\" } }\n",
       "bad.wasm": "notwasm",
-      "lib.mini": "x = 1\nuse badplug\n",
-      "main.mini": "print(1)\nuse badplug\n",
-      "via.mini": "use lib\n"
+      "lib.lox": "var x = 1;\nimport(\"badplug\");\n",
+      "main.lox": "print 1;\nimport(\"badplug\");\n",
+      "via.lox": "import(\"lib\");\n"
     },
-    "steps": [
-      { "run": ["run", "main.mini"], "exit": 1, "stderr": ["error: module 'badplug' is not a valid plugin, failed to parse WebAssembly module: magic header not detected: bad magic number\n", "--> main.mini:2:5"] },
-      { "run": ["run", "via.mini"], "exit": 1, "stderr": ["module 'badplug' is not a valid plugin, failed to parse WebAssembly module: magic header not detected: bad magic number (via lib)\n", "--> via.mini:1:5"] }
-    ]
+    "steps": [{ "run": ["run", "main.lox"], "exit": 1, "stderr": ["error: module 'badplug' is not a valid plugin, failed to parse WebAssembly module: magic header not detected: bad magic number\n", "--> main.lox:2:1"] }, { "run": ["run", "via.lox"], "exit": 1, "stderr": ["module 'badplug' is not a valid plugin, failed to parse WebAssembly module: magic header not detected: bad magic number (via lib)\n", "--> via.lox:1:1"] }]
   },
   {
     "name": "a restored run names its script and imports from beside it",
     "given": {
-      "sub/helper.mini": "fn twice(x) {\n    return x + x\n}\n",
-      "sub/main.mini": "use .helper as helper\ntwice = helper.twice\nmsg = receive()\nprint(twice(msg))\nthrow ValueError(msg)\n",
+      "sub/helper.lox": "fun twice(x) {\n    return x + x;\n}\n",
+      "sub/main.lox": "var helper = import(\"./helper.lox\");\nvar msg = receive();\nprint helper.twice(msg);\nprint msg - 1;\n",
       "ev.txt": "ab\n"
     },
-    "steps": [
-      { "run": ["run", "sub/main.mini", "--save-state", "state.bin"], "stderr": ["state saved"] },
-      { "run": ["run", "--restore-state", "state.bin", "--events", "ev.txt"], "exit": 1, "stdout": ["abab\n"], "stderr": ["ValueError: ab", "--> sub/main.mini:5:"] }
-    ]
+    "steps": [{ "run": ["run", "sub/main.lox", "--save-state", "state.bin"], "stderr": ["state saved"] }, { "run": ["run", "--restore-state", "state.bin", "--events", "ev.txt"], "exit": 1, "stdout": ["abab\n"], "stderr": ["Operands must be numbers.", "[line 4] in script"] }]
   }
 ]

@@ -1,10 +1,10 @@
 [
-    {"script": "print(text(calc.add(2, 3) + calc.sub(10, 4) + calc.mul(2, 5)))", "expect": "21"},
-    {"script": "print(\"{2 ** 10}\")", "expect": "1024"},
-    {"script": "print(text(10 ~/ 0))", "error": "DivisionError"},
-    {"script": "use trap\nboom = trap.boom\nprint(text(boom()))", "error": "native module trapped"},
-    {"script": "use abi2\nboom = abi2.boom\nprint(\"loaded\")", "error": "speaks ABI v2"},
-    {"script": "use calc\nprint(text(calc.add(2, 3)))", "expect": "5"},
-    {"script": "use net\ntry {\n    net.request(\"GET\", \"https://evil.example/\")\n} catch PermissionError as e {\n    print(text(e))\n}", "expect": "'main' has no net:evil.example, edge.json grants it net:127.0.0.1"},
-    {"script": "use ui\nupper = ui.upper", "error": "module 'ui' is JavaScript, ship a .mini or a .wasm"}
+    {"script": "print calc.add(2, 3) + calc.sub(10, 4) + calc.mul(2, 5);", "expect": "21"},
+    {"script": "var n = 1;\nfor (var i = 0; i < 10; i = i + 1) n = n * 2;\nprint n;", "expect": "1024"},
+    {"script": "print -\"ten\";", "error": "Operand must be a number.\n[line 2] in script"},
+    {"script": "var boom = import(\"trap\").boom;\nprint boom();", "error": "native module trapped"},
+    {"script": "var boom = import(\"abi2\").boom;\nprint \"loaded\";", "error": "speaks ABI v2"},
+    {"script": "print import(\"calc\").add(2, 3);", "expect": "5"},
+    {"script": "var net = import(\"net\");\nnet.request(\"GET\", \"https://evil.example/\");", "error": "'main' has no net:evil.example, edge.json grants it net:127.0.0.1\n[line 3] in script"},
+    {"script": "var upper = import(\"ui\").upper;", "error": "module 'ui' is JavaScript, ship a .lox or a .wasm"}
 ]

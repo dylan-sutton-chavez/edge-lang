@@ -9,9 +9,9 @@ groups:
     replicas: 5
     retry: 2
     code: |
-      while true {
-          msg = receive()
-          throw ValueError("boom")
+      while (true) {
+          var msg = receive();
+          print msg - 1;
       }
 
 publish:

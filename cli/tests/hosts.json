@@ -1,105 +1,93 @@
 [
   {
-    "given": {
-      "main.mini": "print(\"ok from edge\")\nprint(6 * 7)\n",
-      "edge.json": "{}\n"
-    },
-    "run": ["run", "main.mini"],
+    "given": { "main.lox": "print \"ok from edge\";\nprint 6 * 7;\n", "edge.json": "{}\n" },
+    "run": ["run", "main.lox"],
     "stdout": ["ok from edge", "42"]
   },
   {
-    "given": {
-      "main.mini": "print(\"before\")\nthrow ValueError(\"on purpose\")\n",
-      "edge.json": "{}\n"
-    },
-    "run": ["run", "main.mini"],
+    "given": { "main.lox": "print \"before\";\nprint \"on purpose\" - 1;\n", "edge.json": "{}\n" },
+    "run": ["run", "main.lox"],
     "stdout": ["before"],
-    "fails": ["ValueError: on purpose"]
+    "fails": ["Operands must be numbers."]
   },
   {
-    "given": { "broken.mini": "before = 1\nx = 1 / 0\n" },
-    "run": ["run", "broken.mini"],
-    "fails": ["DivisionError", "--> broken.mini:2:1"]
+    "given": { "broken.lox": "var before = 1;\nvar x = \"one\" - 1;\n" },
+    "run": ["run", "broken.lox"],
+    "fails": ["Operands must be numbers.", "[line 2] in script"]
   },
   {
     "given": {
       "edge.json": "{}\n",
-      "sub/util.mini": "fn add(a, b) {\n    return a + b\n}\n",
-      "sub/main.mini": "use .util as util\nadd = util.add\nprint(add(2, 3))\n"
+      "sub/util.lox": "fun add(a, b) {\n    return a + b;\n}\n",
+      "sub/main.lox": "var util = import(\"./util.lox\");\nprint util.add(2, 3);\n"
     },
-    "run": ["run", "sub/main.mini"],
+    "run": ["run", "sub/main.lox"],
     "stdout": ["5"]
   },
   {
     "given": {
-      "edge.json": "{ \"imports\": { \"later\": \"./later/main.mini\" } }\n",
+      "edge.json": "{ \"imports\": { \"later\": \"./later/main.lox\" } }\n",
       "later/edge.json": "{ \"edge\": \"99.0.0\" }\n",
-      "later/main.mini": "value = 1\n",
-      "main.mini": "use later\nvalue = later.value\nprint(value)\n"
+      "later/main.lox": "var value = 1;\n",
+      "main.lox": "var later = import(\"later\");\nprint later.value;\n"
     },
-    "run": ["run", "main.mini"],
+    "run": ["run", "main.lox"],
     "fails": ["edge.json at './later/edge.json': needs edge 99.0.0"]
   },
   {
     "given": {
-      "edge.json": "{\"imports\": {\"clock\": \"./clock/main.mini\"}}\n",
-      "main.mini": "use clock\nnow = clock.now\nprint(now())\n",
-      "clock/edge.json": "{\"name\": \"clock\", \"version\": \"0.2.0\", \"imports\": {\"trace\": \"./trace/main.mini\"}, \"permissions\": {\"main\": [\"net:127.0.0.1\"], \"trace\": [\"net:127.0.0.1\", \"net\"]}}\n",
-      "clock/main.mini": "use trace\nstamp = trace.stamp\n\nfn now() {\n    return stamp()\n}\n",
+      "edge.json": "{\"imports\": {\"clock\": \"./clock/main.lox\"}}\n",
+      "main.lox": "var clock = import(\"clock\");\nprint clock.now();\n",
+      "clock/edge.json": "{\"name\": \"clock\", \"version\": \"0.2.0\", \"imports\": {\"trace\": \"./trace/main.lox\"}, \"permissions\": {\"main\": [\"net:127.0.0.1\"], \"trace\": [\"net:127.0.0.1\", \"net\"]}}\n",
+      "clock/main.lox": "var trace = import(\"trace\");\n\nfun now() {\n    return trace.stamp();\n}\n",
       "clock/trace/edge.json": "{\"name\": \"trace\", \"permissions\": {\"main\": [\"net:127.0.0.1\", \"net\"]}}\n",
-      "clock/trace/main.mini": "use net\n\nfn stamp() {\n    return net.request(\"GET\", \"http://127.0.0.1:1/\") > 0\n}\n"
+      "clock/trace/main.lox": "var net = import(\"net\");\n\nfun stamp() {\n    return net.request(\"GET\", \"http://127.0.0.1:1/\") > 0;\n}\n"
     },
-    "run": ["run", "main.mini"],
+    "run": ["run", "main.lox"],
     "fails": ["edge.json does not grant what these packages ask for", "  clock 0.2.0   net:127.0.0.1, net\n", "help: grant them under \"permissions\" in edge.json"]
   },
   {
     "given": {
       "edge.json": "{}\n",
-      "main.mini": "bars = [(float(i), 1.0, 2.0, 3.0) for i in range(100000)]\nprint(len(bars))\n"
+      "main.lox": "class Bar {\n    init(i, next) {\n        this.open = i;\n        this.high = 1.0;\n        this.low = 2.0;\n        this.close = 3.0;\n        this.next = next;\n    }\n}\nvar bars = nil;\nvar n = 0;\nwhile (n < 100000) {\n    bars = Bar(n, bars);\n    n = n + 1;\n}\nprint n;\n"
     },
-    "run": ["run", "--memory", "1", "main.mini"],
-    "fails": ["MemoryError: memory limit"]
+    "run": ["run", "--memory", "1", "main.lox"],
+    "fails": ["memory limit"]
   },
   {
     "given": {
       "edge.json": "{}\n",
-      "main.mini": "bars = [(float(i), 1.0, 2.0, 3.0) for i in range(100000)]\nprint(len(bars))\n"
+      "main.lox": "class Bar {\n    init(i, next) {\n        this.open = i;\n        this.high = 1.0;\n        this.low = 2.0;\n        this.close = 3.0;\n        this.next = next;\n    }\n}\nvar bars = nil;\nvar n = 0;\nwhile (n < 100000) {\n    bars = Bar(n, bars);\n    n = n + 1;\n}\nprint n;\n"
     },
-    "run": ["run", "--memory", "64", "main.mini"],
+    "run": ["run", "--memory", "64", "main.lox"],
     "stdout": ["100000"]
   },
   {
-    "given": {
-      "edge.json": "{}\n",
-      "main.mini": "i = 0\nwhile true {\n    i += 1\n}\n"
-    },
-    "run": ["run", "--ops", "1000", "main.mini"],
-    "fails": ["Error: budget exceeded"]
+    "given": { "edge.json": "{}\n", "main.lox": "var i = 0;\nwhile (true) {\n    i = i + 1;\n}\n" },
+    "run": ["run", "--ops", "1000", "main.lox"],
+    "fails": ["budget exceeded"]
   },
   {
     "given": {
       "edge.json": "{}\n",
-      "main.mini": "fn f(n) {\n    if n == 0 {\n        throw ValueError(\"bottom\")\n    }\n    return f(n - 1)\n}\n\nf(2000)\n"
+      "main.lox": "fun f(n) {\n    if (n == 0) {\n        return \"bottom\" - 1;\n    }\n    return f(n - 1);\n}\n\nf(2000);\n"
     },
-    "run": ["run", "main.mini"],
-    "fails": ["RecursionError: calls nested past the recursion limit", "--> main.mini:5:5", "note: the same call 997 more times", "--> main.mini:8:2"]
+    "run": ["run", "main.lox"],
+    "fails": ["Stack overflow.", "[line 5] in script"]
   },
   {
     "given": {
-      "edge.json": "{ \"imports\": { \"badplug\": \"./bad.wasm\", \"lib\": \"./lib.mini\" } }\n",
+      "edge.json": "{ \"imports\": { \"badplug\": \"./bad.wasm\", \"lib\": \"./lib.lox\" } }\n",
       "bad.wasm": "notwasm",
-      "lib.mini": "x = 1\nuse badplug\n",
-      "main.mini": "print(\"never\")\nuse lib\n"
+      "lib.lox": "var x = 1;\nimport(\"badplug\");\n",
+      "main.lox": "print \"never\";\nimport(\"lib\");\n"
     },
-    "run": ["run", "main.mini"],
-    "fails": ["module 'badplug' is not a valid plugin, ", " (via lib)\n", "--> main.mini:2:5"]
+    "run": ["run", "main.lox"],
+    "fails": ["module 'badplug' is not a valid plugin, ", " (via lib)\n", "--> main.lox:2:1"]
   },
   {
-    "given": {
-      "edge.json": "{}\n",
-      "main.mini": "print(\"never\")\nuse .helper as helper\ntwice = helper.twice\n"
-    },
-    "run": ["run", "main.mini"],
-    "fails": ["module './helper.mini' could not be read", "--> main.mini:2:"]
+    "given": { "edge.json": "{}\n", "main.lox": "print \"never\";\nvar helper = import(\"./helper.lox\");\n" },
+    "run": ["run", "main.lox"],
+    "fails": ["module './helper.lox' could not be read", "--> main.lox:2:"]
   }
 ]

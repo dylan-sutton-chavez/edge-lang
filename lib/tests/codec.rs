@@ -1,6 +1,6 @@
 use edge::embed::{Limits, VM};
 use lib::Lang;
-use mini::{Mini, RUNTIME};
+use rig::{Rig, RUNTIME};
 
 // every run meters what it allocates as edge.wasm does
 edge::allocator!();
@@ -10,7 +10,7 @@ const TRY: &str = "fn t(f) {\n    try {\n        print(repr(f()))\n    } catch E
 
 /* what `src` printed and then the words of the error it ended in */
 fn run(src: &str) -> String {
-    let (chunk, errors) = edge::code::compile_as::<Mini>(src);
+    let (chunk, errors) = edge::code::compile_as::<Rig>(src);
     assert!(errors.is_empty(), "{src}");
     let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
     let end = vm.run().err().map(|e| e.to_string()).unwrap_or_default();
@@ -22,10 +22,10 @@ fn tried(calls: &str) -> String { run(&(String::from(TRY) + calls)) }
 #[test]
 fn names_normalize_before_the_lookup() {
     for name in ["UTF 8", "utf--8", " utf-8", "U8", "latin 1", "ISO_8859-1:1987", "windows_1252", "utf-16LE", "csASCII", "unicodebigunmarked"] {
-        assert!(<Mini as Lang>::codec(name).is_some(), "{name}");
+        assert!(<Rig as Lang>::codec(name).is_some(), "{name}");
     }
     for name in ["utf16le", "utf32be", "utf.8", "u-8", "cp-1252", "L_1"] {
-        assert!(<Mini as Lang>::codec(name).is_none(), "{name}");
+        assert!(<Rig as Lang>::codec(name).is_none(), "{name}");
         assert_eq!(run(&format!("\"a\".encode({name:?})")), "KeyError: no codec is named ".to_string() + name);
     }
 }
@@ -64,31 +64,31 @@ fn a_handler_is_looked_up_only_once_a_span_fails() {
     assert_eq!(got, want);
 }
 
-// a runtime of mini's classes and codecs that keeps lib's own words for every failure
+// a runtime of the rig's classes and codecs keeping lib's words for every failure
 struct Neutral;
 
 impl lib::fmt::render::Style for Neutral {}
 
 impl edge::lang::Language for Neutral {
     const VERSION: u32 = 1;
-    const POLICY: edge::lang::Policy = <Mini as edge::lang::Language>::POLICY;
+    const POLICY: edge::lang::Policy = <Rig as edge::lang::Language>::POLICY;
     const NATIVES: &'static edge::lang::Natives = &NEUTRAL_NATIVES;
-    const NAMES: &'static edge::lang::Names = &mini::NAMES;
-    const FRONT: edge::lang::Front = mini::FRONT;
-    const DESCRIPTOR: &'static edge::lang::Descriptor = &mini::DESCRIPTOR;
-    const WIDE: Option<&'static edge::value::foreign::Kind> = Some(&mini::lang::WIDE);
-    const BUILT: edge::value::foreign::Built = <mini::Mini as edge::lang::Language>::BUILT;
+    const NAMES: &'static edge::lang::Names = &rig::NAMES;
+    const FRONT: edge::lang::Front = rig::FRONT;
+    const DESCRIPTOR: &'static edge::lang::Descriptor = &rig::DESCRIPTOR;
+    const WIDE: Option<&'static edge::value::foreign::Kind> = Some(&rig::lang::WIDE);
+    const BUILT: edge::value::foreign::Built = <rig::Rig as edge::lang::Language>::BUILT;
     type Ops = ();
 
     fn show(cx: &mut edge::lang::Cx<'_, '_>, v: edge::value::Val, mode: edge::lang::Mode) -> Result<String, edge::value::VmErr> { lib::fmt::render::hook::<Self>(cx, v, mode) }
 }
 
 impl Lang for Neutral {
-    const TREE: &'static lib::lang::Tree = &mini::types::TREE;
+    const TREE: &'static lib::lang::Tree = &rig::types::TREE;
 
-    fn class(c: lib::Class) -> &'static str { <Mini as Lang>::class(c) }
+    fn class(c: lib::Class) -> &'static str { <Rig as Lang>::class(c) }
 
-    fn codec(name: &str) -> Option<lib::lang::Codec> { <Mini as Lang>::codec(name) }
+    fn codec(name: &str) -> Option<lib::lang::Codec> { <Rig as Lang>::codec(name) }
 }
 
 const NEUTRAL_IO: &[edge::lang::Native] = &lib::table![Neutral; "print" => lib::io::print];
@@ -104,11 +104,11 @@ static NEUTRAL_NATIVES: edge::lang::Natives = edge::natives! {
 
 static NEUTRAL_RUNTIME: edge::lang::Runtime = edge::lang::Runtime::of::<Neutral>();
 
-/* mini's spelling over the neutral natives */
+/* the rig's spelling over the neutral natives */
 struct Plainly;
 
 impl edge::lexer::Spelling for Plainly {
-    const SYNTAX: edge::lexer::Syntax = mini::MINI;
+    const SYNTAX: edge::lexer::Syntax = rig::RIG;
     const NATIVES: &'static edge::lang::Natives = &NEUTRAL_NATIVES;
 }
 
@@ -126,7 +126,7 @@ fn a_codec_failure_carries_its_reason_for_the_runtime_to_word() {
     assert_eq!(neutral("b\"\\xff\".decode(\"utf-8\")"), "ValueError: utf-8 cannot decode byte 0xff at 0, which starts no character");
     assert_eq!(neutral("b\"\\xe2\\x82\".decode(\"utf-8\")"), "ValueError: utf-8 cannot decode bytes 0 to 1, where the data ends inside a character");
     assert_eq!(neutral("b\"\\x00\\xdc\".decode(\"utf-16-le\")"), "ValueError: utf-16le cannot decode bytes 0 to 1, a low surrogate with no high surrogate before it");
-    // mini words the same reasons as its corpus reads them
+    // rig words the same reasons as its corpus reads them
     let got = tried("t(|| \"café\".encode(\"ascii\"))\nt(|| b\"\\xff\".decode(\"utf-8\"))\nt(|| b\"\\x00\\xdc\".decode(\"utf-16-le\"))\n");
     let want = concat!(
         "ValueError: ascii cannot encode U+00E9 at character 3, which the codec maps to nothing\n",

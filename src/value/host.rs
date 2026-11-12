@@ -553,12 +553,13 @@ pub trait Host {
         let int = |v: Val| if v.is_bool() && self.heap().policy.bool_is_int { Val::int(v.as_bool() as i64) } else { v };
         let (a, b) = (int(a), int(b));
         if a.is_int() && b.is_int() { return Ok(a.as_int() < b.as_int()); }
+        let open = self.heap().policy.open_order;
         // two bools that are no ints still order with false first
-        if a.is_bool() && b.is_bool() { return Ok(!a.as_bool() & b.as_bool()); }
+        if open && a.is_bool() && b.is_bool() { return Ok(!a.as_bool() & b.as_bool()); }
         if (a.is_foreign() || b.is_foreign()) && let Some(o) = self.heap().foreign_cmp(a, b) { return Ok(o == Ordering::Less); }
         // a nan orders before nothing even beside an int too wide for a float
         match coerce_floats(a, b, self.heap()) { Some(Ok((af, bf))) => return Ok(af < bf), Some(Err(_)) if [a, b].iter().any(|v| v.is_float() && v.as_float().is_nan()) => return Ok(false), _ => {} }
-        if a.is_heap() && b.is_heap() {
+        if open && a.is_heap() && b.is_heap() {
             match (self.heap().get(a), self.heap().get(b)) {
                 // a long pair counts the bytes the order may read as native work
                 (HeapObj::Str(x), HeapObj::Str(y)) => { long_pair(self.heap(), x.len(), y.len()); return Ok(x < y) }

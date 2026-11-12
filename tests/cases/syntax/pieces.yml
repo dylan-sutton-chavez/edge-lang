@@ -7,7 +7,7 @@
     let g: int = 9
     x = x + a
     print(x, a, b, c, d, e, f, g)
-  mini: |
+  rig: |
     x = 1
     a, b = 2, 3
     (c, d) = (4, 5)
@@ -32,7 +32,7 @@
         print(i)
     n = 5
     print(list(1..=4), list(n - 2..n + 1), 2 in 0..3, [k * k for k in 0..n], list(0..=n))
-  mini: |
+  rig: |
     for i in range(3):
         print(i)
     n = 5
@@ -46,7 +46,7 @@
     k = |x| |y| x * y
     xs = [|n=i| n for i in 0..2]
     print(f(1), g(), h(), k(2)(3), [c() for c in xs], (|*a, **kw| (a, kw))(1, z=2))
-  mini: |
+  rig: |
     f = lambda a, b=1: a + b
     g = lambda: 7
     h = lambda: 8
@@ -60,7 +60,7 @@
     d = {}
     d['h'], e = |z=3| z, 4
     print(f(), d['h'](), e)
-  mini: |
+  rig: |
     f: object = lambda x=1: x
     d = {}
     d['h'], e = lambda z=3: z, 4
@@ -81,7 +81,7 @@
         return m
     _ = f(1)
     print(x, a, b, f(1))
-  mini: |
+  rig: |
     x = 1
     x = x + 1
     a, b = 1, 2
@@ -125,7 +125,7 @@
     d = [0]
     if c ? a : 0: d[0] = 5
     print(x, y, w, z, s, (c ? 'u' : 'v'), {c ? 1 : 2: 'w'}, d)
-  mini: |
+  rig: |
     a, c = 1, true
     x = a if c else 2
     y = 1 if !c else 2 if c else 3
@@ -148,7 +148,7 @@
     d.c = d.a.b + 1
     d.a.b += 1
     print(d.a, d.get('a'), d.a.keys())
-  mini: |
+  rig: |
     d = {'a': {'b': 1}}
     d['a']['b'] = 2
     d['c'] = d['a']['b'] + 1
@@ -163,7 +163,7 @@
     for (n in xs) { y += n }
     for (a, b in [(1, 2)]) { y += a }
     print(y)
-  mini: |
+  rig: |
     x, xs, y = 1, [1, 2], 0
     if x > 1: y = 1
     else if x < 0: y = 2
@@ -182,7 +182,7 @@
   source: |
     fn f(a, b=2) { return a + b }
     print(f(1, b: 3), dict(x: 1), sep: '-')
-  mini: |
+  rig: |
     fn f(a, b=2): return a + b
     print(f(1, b=3), dict(x=1), sep='-')
 
@@ -196,7 +196,7 @@
     d = {'k': [1, 2]}
     fn f(a, b=1) { return a + b }
     print(d['k'][0], f(1, b=2))
-  mini: |
+  rig: |
     d = {'k': [1, 2]}
     fn f(a, b=1): return a + b
     print(d['k'][0], f(1, b=2))

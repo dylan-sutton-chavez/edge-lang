@@ -81,6 +81,8 @@ fn receive_run(cx: &mut Cx<'_, '_>, _: Args<'_>) -> Ret {
 
 fn exit_run<S: Site>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
     let code = a.pos.first().copied().unwrap_or(Val::int(0));
+    // a whole float is the status of a language whose numbers are all floats
+    let code = if code.is_float() && (code.as_float() as i64) as f64 == code.as_float() && (-255.0..256.0).contains(&code.as_float()) { Val::int(code.as_float() as i64) } else { code };
     if !code.is_int() { return Err(fail::<S>(cx, Fail::ExitCode(code))); }
     // an uncaught exit failure ends the run with the status it holds
     Err(fail::<S>(cx, Fail::Exit(code)))

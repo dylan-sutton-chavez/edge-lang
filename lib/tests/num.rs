@@ -7,9 +7,9 @@ use lib::fail::{Fail, fail};
 use lib::num::big::BigInt;
 use lib::num::int::Parse;
 use lib::uni::Decimal;
-use mini::Mini;
-use mini::lang::WIDE;
-use mini::natives::{ARRAY, BUFFER, BYTES, CONVERT, DICT, FLOAT, FOLDS, INT, IO, ITER, LIST, LIST_SORT, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
+use rig::Rig;
+use rig::lang::WIDE;
+use rig::natives::{ARRAY, BUFFER, BYTES, CONVERT, DICT, FLOAT, FOLDS, INT, IO, ITER, LIST, LIST_SORT, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
 
 // every run meters what it allocates as edge.wasm does
 edge::allocator!();
@@ -112,7 +112,7 @@ fn the_kind_orders_hashes_and_saves_as_the_engine_did() {
 struct Int;
 
 impl Site for Int {
-    type Lang = Mini;
+    type Lang = Rig;
     const NAME: &'static str = "int";
     const PARAMS: &'static [&'static str] = &["", "base"];
 }
@@ -122,7 +122,7 @@ fn parse(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
     let Some(text) = cx.text(a.pos[0]).map(String::from) else { return Ok(edge::value::Val::none().into()) };
     let base = a.pos[1].as_int();
     if base != 0 && !(2..=36).contains(&base) { return Err(fail::<Int>(cx, Fail::IntBase)); }
-    match lib::num::int::parse::<Mini, Decimal>(cx, &text, base) {
+    match lib::num::int::parse::<Rig, Decimal>(cx, &text, base) {
         Ok(v) => Ok(v.into()),
         Err(Parse::Literal) => Err(fail::<Int>(cx, Fail::IntLiteral { base, v: a.pos[0] })),
         Err(Parse::Fail(e)) => Err(e),
@@ -133,7 +133,7 @@ const PARSE: &[Native] = &[Native::new("parse", Sig::exact(2), parse)];
 
 static NATIVES: Natives = edge::natives! {
     language: Over,
-    fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, TYPES, mini::natives::MATCH, mini::natives::DATE, PARSE],
+    fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, TYPES, rig::natives::MATCH, rig::natives::DATE, PARSE],
     methods: [
         Str => [STR],
         Bytes => [BUFFER],
@@ -146,21 +146,21 @@ static NATIVES: Natives = edge::natives! {
         Float => [FLOAT],
         Range => [RANGE],
     ],
-    types: mini::types::NAMES,
+    types: rig::types::NAMES,
 };
 
 static RUNTIME: Runtime = Runtime::of::<Over>();
 
-// mini's language over these natives
+// the rig's language over these natives
 struct Over;
-mini::over!(Over, &NATIVES);
+rig::over!(Over, &NATIVES);
 
 // each call's repr or its error as the corpus reads them
 const TRY: &str = "fn t(f) {\n    try {\n        print(repr(f()))\n    } catch Error as e {\n        print(text(type(e)) + \":\", e)\n    }\n}\n";
 
 fn tried(calls: &str) -> String {
     let src = String::from(TRY) + calls;
-    let (chunk, errors) = edge::code::compile_as::<mini::Mini>(&src);
+    let (chunk, errors) = edge::code::compile_as::<rig::Rig>(&src);
     assert!(errors.is_empty(), "{src}");
     let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
     let ran = vm.run();
@@ -242,30 +242,30 @@ fn natives_cross_into_wide_ints_and_back() {
     assert_eq!(got, want);
 }
 
-// a runtime of mini's words that sets no limit on the digits of decimal text
+// a runtime of the rig's words with no limit on the digits of decimal text
 struct Unbounded;
 
 impl lib::fmt::render::Style for Unbounded {}
 
 impl edge::lang::Language for Unbounded {
     const VERSION: u32 = 1;
-    const POLICY: edge::lang::Policy = edge::lang::Policy { max_int_digits: None, ..<Mini as edge::lang::Language>::POLICY };
+    const POLICY: edge::lang::Policy = edge::lang::Policy { max_int_digits: None, ..<Rig as edge::lang::Language>::POLICY };
     const NATIVES: &'static edge::lang::Natives = &UNBOUNDED_NATIVES;
-    const NAMES: &'static edge::lang::Names = &mini::NAMES;
+    const NAMES: &'static edge::lang::Names = &rig::NAMES;
     // its own spelling folds constants under the rules it states
     const FRONT: edge::lang::Front = edge::lang::Front::spelled::<Lifted>();
-    const DESCRIPTOR: &'static edge::lang::Descriptor = &mini::DESCRIPTOR;
+    const DESCRIPTOR: &'static edge::lang::Descriptor = &rig::DESCRIPTOR;
     const WIDE: Option<&'static edge::value::foreign::Kind> = Some(&UNBOUNDED_WIDE);
-    const BUILT: edge::value::foreign::Built = <mini::Mini as edge::lang::Language>::BUILT;
+    const BUILT: edge::value::foreign::Built = <rig::Rig as edge::lang::Language>::BUILT;
     type Ops = ();
 
     fn show(cx: &mut edge::lang::Cx<'_, '_>, v: edge::value::Val, mode: edge::lang::Mode) -> Result<String, edge::value::VmErr> { lib::fmt::render::hook::<Self>(cx, v, mode) }
 }
 
 impl lib::Lang for Unbounded {
-    const TREE: &'static lib::lang::Tree = &mini::types::TREE;
+    const TREE: &'static lib::lang::Tree = &rig::types::TREE;
 
-    fn class(c: lib::Class) -> &'static str { <Mini as lib::Lang>::class(c) }
+    fn class(c: lib::Class) -> &'static str { <Rig as lib::Lang>::class(c) }
 }
 
 static UNBOUNDED_WIDE: edge::value::foreign::Kind = lib::num::big::kind::<Unbounded>("int");
@@ -285,11 +285,11 @@ static UNBOUNDED_NATIVES: Natives = edge::natives! {
 
 static UNBOUNDED_RUNTIME: Runtime = Runtime::of::<Unbounded>();
 
-/* mini's spelling over the unbounded natives so the calls fuse to that table */
+/* the rig's spelling over the unbounded natives so the calls fuse to that table */
 struct Lifted;
 
 impl edge::lexer::Spelling for Lifted {
-    const SYNTAX: edge::lexer::Syntax = mini::MINI;
+    const SYNTAX: edge::lexer::Syntax = rig::RIG;
     const NATIVES: &'static Natives = &UNBOUNDED_NATIVES;
 }
 

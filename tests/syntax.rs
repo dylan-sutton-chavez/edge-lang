@@ -4,8 +4,8 @@ mod test {
     use edge::code::{Parser, SSAChunk};
     use edge::lexer::{index, lex_as, operators, Binding, Blocks, Comments, Cond, Continuation, Ends, Interp, Keywords, Lambda, Literal, Numbers, Quote, Shapes, Spelling, Strings, Suffix, Syntax, TokenType, Zeros, RAW};
     use edge::deps::NoopResolver;
-    // the kit's tests read the fixed core in the words mini once had
-    use crate::words::{Legacy as Mini, LEGACY as MINI};
+    // the kit's tests read the fixed core in the words rig once had
+    use crate::words::{Legacy as Rig, LEGACY as RIG};
     use crate::words::{Braces, Indent, Words, BRACES, INDENT, WORDS};
 
     // the chunk a source compiles to unfolded and every message its lexer and parser report
@@ -41,21 +41,21 @@ mod test {
     fn tables_spell_their_tokens() {
         spells_its_tokens::<Indent>(INDENT);
         spells_its_tokens::<Braces>(BRACES);
-        spells_its_tokens::<Mini>(MINI);
+        spells_its_tokens::<Rig>(RIG);
         spells_its_tokens::<Words>(WORDS);
         // the index of each table agrees with its word list
-        let words = INDENT.words.iter().chain(MINI.words).chain(WORDS.words).map(|(w, _)| *w).chain(["Def", "de", "defs", "trueish", "nil", "x", "ends", "d"]);
+        let words = INDENT.words.iter().chain(RIG.words).chain(WORDS.words).map(|(w, _)| *w).chain(["Def", "de", "defs", "trueish", "nil", "x", "ends", "d"]);
         for w in words.filter(|w| !w.contains(' ')) {
-            for table in [INDENT, BRACES, MINI, WORDS] {
+            for table in [INDENT, BRACES, RIG, WORDS] {
                 let listed = table.words.iter().find(|(v, _)| *v == w).map(|&(_, k)| k);
                 assert_eq!(table.word(w), listed, "{} {w:?}", table.name);
             }
         }
         assert!(!INDENT.braces() && !INDENT.phrases() && INDENT.pairs() && !INDENT.convert_shared());
-        assert!(BRACES.braces() && !MINI.braces() && MINI.phrases() && MINI.pairs() && MINI.convert_shared());
+        assert!(BRACES.braces() && !RIG.braces() && RIG.phrases() && RIG.pairs() && RIG.convert_shared());
         // both tables open phrases only at `else` and pair scan the same three symbols
         let set = |t: [bool; 128]| (0..128).filter(|&i| t[i]).collect::<Vec<_>>();
-        for table in [MINI, BRACES] {
+        for table in [RIG, BRACES] {
             assert_eq!((set(table.heads()), set(table.pair_starts())), (vec![TokenType::Else as usize], vec![b'-' as usize, b'.' as usize, b'~' as usize]));
         }
         assert!(set(INDENT.heads()).is_empty() && set(INDENT.pair_starts()) == [b'-' as usize, b'.' as usize]);
@@ -88,11 +88,11 @@ mod test {
     fn imports_follow_the_spelling() {
         use edge::deps::{scan_imports, ImportSpec::*};
         let src = "from .a import x\nimport b.c, d // import e\n";
-        assert_eq!(scan_imports::<Mini>(src), [Relative("./a.mini".into()), Root("b/c.mini".into()), Bare("d".into())]);
+        assert_eq!(scan_imports::<Rig>(src), [Relative("./a.rig".into()), Root("b/c.rig".into()), Bare("d".into())]);
         assert_eq!(scan_imports::<Indent>("from .a import x\nimport b.c # import e\n"), [Relative("./a.py".into()), Root("b/c.py".into())]);
-        let resolver = crate::common::TestResolver::new().with_code("./a.mini", "x = 1\n");
-        let (tokens, _) = lex_as::<Mini>("from .a import x\n");
-        let (_, errs) = Parser::<_, Mini>::spelled("from .a import x\n", tokens.into_iter(), Box::new(resolver)).parse();
+        let resolver = crate::common::TestResolver::new().with_code("./a.rig", "x = 1\n");
+        let (tokens, _) = lex_as::<Rig>("from .a import x\n");
+        let (_, errs) = Parser::<_, Rig>::spelled("from .a import x\n", tokens.into_iter(), Box::new(resolver)).parse();
         assert!(errs.is_empty(), "{:?}", errs.iter().map(|e| &e.msg).collect::<Vec<_>>());
     }
 
@@ -101,7 +101,7 @@ mod test {
     fn a_run_of_dots_climbs_however_it_lexes() {
         use edge::deps::{scan_imports, ImportSpec::*};
         let src = "from ..a import x\nfrom ...b.c import y\nfrom ......d import z\n";
-        assert_eq!(scan_imports::<Mini>(src), [Relative("../a.mini".into()), Relative("../../b/c.mini".into()), Relative("../../../../../d.mini".into())]);
+        assert_eq!(scan_imports::<Rig>(src), [Relative("../a.rig".into()), Relative("../../b/c.rig".into()), Relative("../../../../../d.rig".into())]);
     }
 
     #[test]
@@ -147,7 +147,7 @@ mod test {
     static ODD_OPERATORS: [[TokenType; 4]; 128] = edge::lexer::operators(ODD_SYMBOLS);
     impl Spelling for Odd {
         const SYNTAX: Syntax = Syntax { name: "odd", symbols: ODD_SYMBOLS, operators: &ODD_OPERATORS, comments: Comments { line: &[], block: None, nested: false }, ..INDENT };
-        const NATIVES: &'static edge::lang::Natives = &mini::NATIVES;
+        const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
     }
 
     #[test]
@@ -176,7 +176,7 @@ mod test {
     struct Semi;
     impl Spelling for Semi {
         const SYNTAX: Syntax = Syntax { name: "semi", ends: Ends::Semicolon, ..BRACES };
-        const NATIVES: &'static edge::lang::Natives = &mini::NATIVES;
+        const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
     }
 
     // the words table with explicit block words and comments that do not nest
@@ -188,7 +188,7 @@ mod test {
             comments: Comments { line: &["--"], block: Some(("/*", "*/")), nested: false },
             ..WORDS
         };
-        const NATIVES: &'static edge::lang::Natives = &mini::NATIVES;
+        const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
     }
 
     // numbers with a quote between digits and octal zeros and dropped suffixes
@@ -201,7 +201,7 @@ mod test {
             numbers: Numbers { radixes: &[(b'x', 16)], separator: Some(b'\''), zeros: Zeros::Octal, leading_dot: false, trailing_dot: false, exponent: false, suffix: Suffix::Ignored },
             ..BRACES
         };
-        const NATIVES: &'static edge::lang::Natives = &mini::NATIVES;
+        const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
     }
 
     // backquoted templates with dollar fields and no specs
@@ -214,7 +214,7 @@ mod test {
             interp: Some(Interp { name: "template", quotes: b"`", open: "${", close: b'}', literal: Literal::Backslash, short: None, spec: None, convert: None, echo: None }),
             ..BRACES
         };
-        const NATIVES: &'static edge::lang::Natives = &mini::NATIVES;
+        const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
     }
 
     // fields a backslash and parenthesis open in every double quoted literal
@@ -226,7 +226,7 @@ mod test {
             interp: Some(Interp { name: "string", quotes: b"\"", open: "\\(", close: b')', literal: Literal::Backslash, short: None, spec: None, convert: None, echo: None }),
             ..BRACES
         };
-        const NATIVES: &'static edge::lang::Natives = &mini::NATIVES;
+        const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
     }
 
     // bare dollar names and braced dollar fields
@@ -238,7 +238,7 @@ mod test {
             interp: Some(Interp { name: "string template", quotes: b"\"", open: "${", close: b'}', literal: Literal::Backslash, short: Some(b'$'), spec: None, convert: None, echo: None }),
             ..BRACES
         };
-        const NATIVES: &'static edge::lang::Natives = &mini::NATIVES;
+        const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
     }
 
     // three byte symbols for identity and a one word membership test with a flat ladder
@@ -272,7 +272,7 @@ mod test {
             soft: &[],
             ..BRACES
         };
-        const NATIVES: &'static edge::lang::Natives = &mini::NATIVES;
+        const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
     }
 
     fn constants<S: Spelling>(src: &str) -> String {
@@ -281,15 +281,15 @@ mod test {
         format!("{:?}", chunk.constants)
     }
 
-    // `src` in table `S` compiles to the program `mini` writes in mini
-    fn alike<S: Spelling>(src: &str, mini: &str) {
-        let (mut theirs, ours) = (compiled::<S>(src), compiled::<Mini>(mini));
-        assert!(theirs.1.is_empty() && ours.1.is_empty(), "{src:?} reports {:?} and {mini:?} reports {:?}", theirs.1, ours.1);
+    // `src` in table `S` compiles to the program `rig` writes in rig
+    fn alike<S: Spelling>(src: &str, rig: &str) {
+        let (mut theirs, ours) = (compiled::<S>(src), compiled::<Rig>(rig));
+        assert!(theirs.1.is_empty() && ours.1.is_empty(), "{src:?} reports {:?} and {rig:?} reports {:?}", theirs.1, ours.1);
         unpinned(&mut theirs.0);
-        if let Err(e) = crate::common::same_program(&ours, &theirs) { panic!("{} {src:?} against {mini:?}: {e}", S::SYNTAX.name); }
+        if let Err(e) = crate::common::same_program(&ours, &theirs) { panic!("{} {src:?} against {rig:?}: {e}", S::SYNTAX.name); }
     }
 
-    // a range mark calls its native pinned where mini calls it by its name
+    // a range mark calls its native pinned where rig calls it by its name
     fn unpinned(chunk: &mut SSAChunk) {
         for i in chunk.instructions.iter_mut().filter(|i| i.opcode == edge::code::OpCode::CallNative) {
             let Some(site) = edge::code::native_site(i.operand, &chunk.native_sites).filter(|s| s.pinned) else { continue };
@@ -310,7 +310,7 @@ mod test {
         assert_eq!(vm.output, ["3 [99] [1, 2]"]);
     }
 
-    // each form compiles to one program in mini and indent and words
+    // each form compiles to one program in rig and indent and words
     #[test]
     fn forms_compile_alike_in_three_spellings() { super::runner::run("forms.yml") }
 
@@ -444,14 +444,14 @@ mod test {
         assert_eq!(refused(Syntax { soft: &[TokenType::Match], ..WORDS }), "a table that opens blocks at line ends reserves its header words");
         assert_eq!(refused(Syntax { words: &[("if", TokenType::If), ("if", TokenType::While)], ..INDENT }), "two tokens of a table share one text");
         assert_eq!(refused(Syntax { strings: Strings { quotes: &[Quote { byte: b'~', multiline: false, triple: false }], ..crate::words::STRINGS }, ..BRACES }), "a quote of a table is also a symbol");
-        assert_eq!(refused(Syntax { numbers: Numbers { separator: Some(b'"'), ..mini::NUMBERS }, ..BRACES }), "a digit separator of a table is also a quote");
+        assert_eq!(refused(Syntax { numbers: Numbers { separator: Some(b'"'), ..rig::NUMBERS }, ..BRACES }), "a digit separator of a table is also a quote");
         assert_eq!(refused(Syntax { comments: Comments { line: &["rem"], block: None, nested: false }, ..BRACES }), "a comment marker starts with a byte no name number or quote starts");
-        assert_eq!(refused(Syntax { interp: Some(Interp { open: "{{{", ..mini::INTERP }), ..BRACES }), "a field opens with one or two bytes");
-        assert_eq!(refused(Syntax { interp: Some(Interp { open: "${", ..mini::INTERP }), ..BRACES }), "a doubled delimiter is one byte");
+        assert_eq!(refused(Syntax { interp: Some(Interp { open: "{{{", ..rig::INTERP }), ..BRACES }), "a field opens with one or two bytes");
+        assert_eq!(refused(Syntax { interp: Some(Interp { open: "${", ..rig::INTERP }), ..BRACES }), "a doubled delimiter is one byte");
         assert_eq!(refused(Syntax { interp: None, ..BRACES }), "an interpolating prefix needs the table's interpolation");
     }
 
-    // mini's words with a binding word and without the lambda and case words
+    // the rig's words with a binding word and without the lambda and case words
     const KIT_WORDS: &[(&str, TokenType)] = &[
         ("false", TokenType::False), ("nil", TokenType::Nil), ("true", TokenType::True), ("as", TokenType::As), ("assert", TokenType::Assert),
         ("break", TokenType::Break), ("class", TokenType::Class), ("continue", TokenType::Continue),
@@ -462,7 +462,7 @@ mod test {
         ("yield", TokenType::Yield), ("match", TokenType::Match), ("type", TokenType::Type), ("_", TokenType::Underscore), ("let", TokenType::Let),
     ];
 
-    // mini's symbols with the marks of arms ranges and question conditionals
+    // the rig's symbols with the marks of arms ranges and question conditionals
     const KIT_SYMBOLS: &[(&str, TokenType)] = &[
         ("(", TokenType::ParenOpen), (")", TokenType::ParenClose), ("[", TokenType::BracketOpen), ("]", TokenType::BracketClose),
         ("{", TokenType::BraceOpen), ("}", TokenType::BraceClose), ("{", TokenType::BlockOpen), ("}", TokenType::BlockClose),
@@ -480,7 +480,7 @@ mod test {
     static KIT_OPERATORS: [[TokenType; 4]; 128] = operators(KIT_SYMBOLS);
     static KIT_KEYWORDS: Keywords = index(KIT_WORDS);
 
-    // mini's ladder with ranges below the arithmetic and above the comparisons
+    // the rig's ladder with ranges below the arithmetic and above the comparisons
     const KIT_LADDER: &[(TokenType, u8, u8)] = &[
         (TokenType::Or, 1, 2), (TokenType::And, 3, 4), (TokenType::Not, 0, 5),
         (TokenType::EqualEqual, 7, 8), (TokenType::NotEqual, 7, 8), (TokenType::Less, 7, 8), (TokenType::Greater, 7, 8), (TokenType::LessEqual, 7, 8),
@@ -498,58 +498,58 @@ mod test {
     // a surface reading indentation with a binding word and arms and ranges and closures
     const KIT: Syntax = Syntax {
         name: "kit", extension: "kit", words: KIT_WORDS, symbols: KIT_SYMBOLS, operators: &KIT_OPERATORS, keywords: &KIT_KEYWORDS,
-        precedence: KIT_LADDER, blocks: Blocks::Indent, shapes: KIT_SHAPES, ..MINI
+        precedence: KIT_LADDER, blocks: Blocks::Indent, shapes: KIT_SHAPES, ..RIG
     };
 
     struct Kit;
     impl Spelling for Kit {
         const SYNTAX: Syntax = KIT;
-        const NATIVES: &'static edge::lang::Natives = &mini::NATIVES;
+        const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
     }
 
     // the kit in braces where an arm may open a block
     struct Braced;
     impl Spelling for Braced {
         const SYNTAX: Syntax = Syntax { name: "braced", blocks: Blocks::Braces, ..KIT };
-        const NATIVES: &'static edge::lang::Natives = &mini::NATIVES;
+        const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
     }
 
     // the kit where the first store of a name needs its binding word
     struct Declared;
     impl Spelling for Declared {
         const SYNTAX: Syntax = Syntax { name: "declared", shapes: Shapes { binding: Binding::Required, ..KIT_SHAPES }, ..KIT };
-        const NATIVES: &'static edge::lang::Natives = &mini::NATIVES;
+        const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
     }
 
     // conditionals that read the test first then a question mark
     struct Questions;
     impl Spelling for Questions {
         const SYNTAX: Syntax = Syntax { name: "questions", shapes: Shapes { cond: Cond::Question, ..Shapes::CORE }, ..KIT };
-        const NATIVES: &'static edge::lang::Natives = &mini::NATIVES;
+        const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
     }
 
-    // mini where a dot reads a key unless a call follows
+    // rig where a dot reads a key unless a call follows
     struct Keys;
     impl Spelling for Keys {
         const SYNTAX: Syntax = Syntax { name: "keys", shapes: Shapes { dot: edge::lexer::Dot::Key, ..Shapes::CORE }, ..BRACES };
-        const NATIVES: &'static edge::lang::Natives = &mini::NATIVES;
+        const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
     }
 
-    // mini whose headers hold their expressions in parentheses
+    // rig whose headers hold their expressions in parentheses
     struct Parens;
     impl Spelling for Parens {
         const SYNTAX: Syntax = Syntax { name: "parens", shapes: Shapes { header_parens: true, ..Shapes::CORE }, ..BRACES };
-        const NATIVES: &'static edge::lang::Natives = &mini::NATIVES;
+        const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
     }
 
-    // mini whose keyword arguments take a colon
+    // rig whose keyword arguments take a colon
     struct Colons;
     impl Spelling for Colons {
         const SYNTAX: Syntax = Syntax { name: "colons", shapes: Shapes { keyword_arg: TokenType::Colon, ..Shapes::CORE }, ..BRACES };
-        const NATIVES: &'static edge::lang::Natives = &mini::NATIVES;
+        const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
     }
 
-    // mini with every switch of the fixed core off
+    // rig with every switch of the fixed core off
     struct Bare;
     impl Spelling for Bare {
         const SYNTAX: Syntax = Syntax {
@@ -557,24 +557,24 @@ mod test {
             shapes: Shapes { cond: Cond::None, lambda: Lambda::None, splat: false, slices: false, comprehensions: false, decorators: false, named: false, ..Shapes::CORE },
             ..BRACES
         };
-        const NATIVES: &'static edge::lang::Natives = &mini::NATIVES;
+        const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
     }
 
-    // each piece compiles where a table switches it on as mini's program does or fails
+    // each piece compiles where a table switches it on as in the rig or fails
     #[test]
     fn pieces_read_where_a_table_switches_them_on() {
         #[derive(serde::Deserialize)]
         #[serde(deny_unknown_fields)]
-        struct Piece { spelling: String, source: String, #[serde(default)] mini: Option<String>, #[serde(default)] error: Option<String> }
+        struct Piece { spelling: String, source: String, #[serde(default)] rig: Option<String>, #[serde(default)] error: Option<String> }
         // the mismatch a piece shows or None when it reads as the case says
         fn read<S: Spelling>(p: &Piece) -> Option<String> {
-            match (&p.mini, &p.error) {
-                (Some(mini), None) => { alike::<S>(&p.source, mini); None }
+            match (&p.rig, &p.error) {
+                (Some(rig), None) => { alike::<S>(&p.source, rig); None }
                 (None, Some(want)) => {
                     let errors = compiled::<S>(&p.source).1;
                     (!errors.iter().any(|e| e.contains(want.as_str()))).then(|| format!("{} {:?} reports {errors:?}, want {want:?}", S::SYNTAX.name, p.source))
                 }
-                _ => panic!("a piece holds a mini program or an error"),
+                _ => panic!("a piece holds a rig program or an error"),
             }
         }
         let pieces: Vec<Piece> = serde_yaml_ng::from_str(include_str!("cases/syntax/pieces.yml")).expect("pieces");
@@ -628,7 +628,7 @@ mod test {
             assert_eq!(compiled::<S>(src).1, ["expected expression"], "{} {src:?}", S::SYNTAX.name);
         }
         for src in ["x = f\"{}\"\n", "x = f\"a{}b\"\n", "print(f\"{}\")\n", "x = f\"{x:{}}\"\n", "x = f'{f\"{}\"}'\n", "x = f\"{1 +}\"\n"] {
-            alone::<Mini>(src);
+            alone::<Rig>(src);
         }
         alone::<Indent>("x = f\"{}\"\n");
         alone::<Braces>("if x { y = f\"{}\" }\n");
@@ -638,19 +638,19 @@ mod test {
         alone::<Dollar>("x = \"${}\"\n");
         // a bracket keeps its closer the same way
         for src in ["x = (1 + )\n", "x = [1, 2 +\n  ]\n", "f(a=)\n", "x = {1: }\n", "x[]\n", "x = [y for y in ]\n"] {
-            alone::<Mini>(src);
+            alone::<Rig>(src);
         }
     }
 
     // a field holding more than its expression names its close and still closes
     #[test]
     fn a_field_past_its_expression_names_its_close() {
-        assert_eq!(compiled::<Mini>("x = f\"{x y}\"\n").1, ["expected '}', got 'y'"]);
-        assert_eq!(compiled::<Mini>("x = f\"{x:{y z}} {w}\"\n").1, ["expected '}', got 'z'"]);
+        assert_eq!(compiled::<Rig>("x = f\"{x y}\"\n").1, ["expected '}', got 'y'"]);
+        assert_eq!(compiled::<Rig>("x = f\"{x:{y z}} {w}\"\n").1, ["expected '}', got 'z'"]);
         assert_eq!(compiled::<Words>("x = \"#{x y}\"\n").1, ["expected '}', got 'y'"]);
         assert_eq!(compiled::<Paren>("x = \"\\(x y)\"\n").1, ["expected ')', got 'y'"]);
         // a field its line leaves open is one the literal never closed
-        assert_eq!(compiled::<Mini>("x = f\"{y\nz = 1\n").1, ["f-string was never closed"]);
+        assert_eq!(compiled::<Rig>("x = f\"{y\nz = 1\n").1, ["f-string was never closed"]);
     }
 
     // a block word ending in a wide letter whose last character a report spans whole
@@ -659,7 +659,7 @@ mod test {
     struct Wide;
     impl Spelling for Wide {
         const SYNTAX: Syntax = Syntax { name: "wide", words: WIDE_WORDS, keywords: &WIDE_KEYWORDS, blocks: Blocks::Words { implicit: false }, soft: &[], ..WORDS };
-        const NATIVES: &'static edge::lang::Natives = &mini::NATIVES;
+        const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
     }
 
     // fields that open with a wide character and take a spec after a colon
@@ -671,7 +671,7 @@ mod test {
             interp: Some(Interp { name: "template", quotes: b"\"", open: "§", close: b'}', literal: Literal::Backslash, short: None, spec: Some(b':'), convert: None, echo: None }),
             ..BRACES
         };
-        const NATIVES: &'static edge::lang::Natives = &mini::NATIVES;
+        const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
     }
 
     /* every report a source compiles to with its span between characters and rendered whole */
@@ -716,7 +716,7 @@ mod test {
             let src = case["src"].as_str().unwrap_or("");
             for (at, _) in src.match_indices(['\\', '{', ':', '(']).take(4) {
                 let mutated = format!("{}é{}", &src[..at + 1], &src[at + 1..]);
-                reports::<Mini>(&mutated);
+                reports::<Rig>(&mutated);
                 reports::<Words>(&mutated);
                 tried += 1;
             }
@@ -729,13 +729,13 @@ mod test {
     fn the_scan_reads_imports_the_parser_reads() {
         use edge::deps::{scan_imports, ImportSpec::*};
         for src in ["from . import net\n", "x = f\"{import net}\"\n", "fn g():\n    yield from net()\n", "try:\n    pass\nexcept E as e:\n    raise V from e\n", "x = [import net]\n", "import a.(b\n", "import a.\n"] {
-            assert_eq!(scan_imports::<Mini>(src), [], "{src:?}");
+            assert_eq!(scan_imports::<Rig>(src), [], "{src:?}");
         }
-        assert_eq!(scan_imports::<Mini>("if x: import y\nimport a as b, c\nfrom ._ import z\n"), [Bare("y".into()), Bare("a".into()), Bare("c".into()), Relative("./_.mini".into())]);
+        assert_eq!(scan_imports::<Rig>("if x: import y\nimport a as b, c\nfrom ._ import z\n"), [Bare("y".into()), Bare("a".into()), Bare("c".into()), Relative("./_.rig".into())]);
         // what the scan reads the parser resolves under the same spec
-        let resolver = crate::common::TestResolver::new().with_code("./_.mini", "z = 1\n");
+        let resolver = crate::common::TestResolver::new().with_code("./_.rig", "z = 1\n");
         let src = "from ._ import z\nprint(z)\n";
-        let (_, errs) = Parser::<_, Mini>::spelled(src, lex_as::<Mini>(src).0.into_iter(), Box::new(resolver)).parse();
+        let (_, errs) = Parser::<_, Rig>::spelled(src, lex_as::<Rig>(src).0.into_iter(), Box::new(resolver)).parse();
         assert!(errs.is_empty(), "{:?}", errs.iter().map(|e| &e.msg).collect::<Vec<_>>());
     }
 
@@ -781,7 +781,7 @@ mod test {
         }).collect();
         let mut wrong = Vec::new();
         for src in sources.iter().chain(&mutants) {
-            same::<Mini>(src, &mut wrong);
+            same::<Rig>(src, &mut wrong);
             same::<Indent>(src, &mut wrong);
             same::<Words>(src, &mut wrong);
             same::<Kit>(src, &mut wrong);
@@ -798,7 +798,7 @@ mod runner {
     use edge::code::{Diagnostic, OpCode, Parser, SSAChunk, Value};
     use edge::deps::NoopResolver;
     use edge::lexer::{lex_as, Spelling};
-    use mini::Mini;
+    use rig::Rig;
     use crate::words::{Indent, Words};
 
     // the files the runner reads while the pieces have a test of their own
@@ -812,8 +812,8 @@ mod runner {
     #[derive(serde::Deserialize)]
     #[serde(deny_unknown_fields)]
     struct Case {
-        mini: Option<String>,
-        // spell makes the indent text from mini's where a case leaves it out
+        rig: Option<String>,
+        // spell makes the indent text from the rig's where a case leaves it out
         indent: Option<String>,
         words: Option<String>,
         tokens: Option<Vec<String>>,
@@ -873,7 +873,7 @@ mod runner {
             .collect();
         let natives: Vec<(String, u8, u8)> = chunk.instructions.iter().filter(|i| i.opcode == OpCode::CallNative)
             .filter_map(|i| edge::code::native_site(i.operand, &chunk.native_sites))
-            .map(|s| (mini::NATIVES.get(edge::lang::NativeId(s.id)).map_or("?", |n| n.name).to_string(), s.pos, s.kw)).collect();
+            .map(|s| (rig::NATIVES.get(edge::lang::NativeId(s.id)).map_or("?", |n| n.name).to_string(), s.pos, s.kw)).collect();
         let parts = [
             ("names", format!("{:?}", chunk.names), format!("{:?}", case.names.clone().unwrap_or_default())),
             ("constants", format!("{constants:?}"), format!("{:?}", case.constants.clone().unwrap_or_default())),
@@ -885,7 +885,7 @@ mod runner {
         parts.into_iter().find(|(_, got, want)| got != want).map(|(field, got, want)| format!("{field} {got} against {want}"))
     }
 
-    /* a range mark calls its native pinned where mini calls it by its name */
+    /* a range mark calls its native pinned where rig calls it by its name */
     fn unpinned(chunk: &mut SSAChunk) {
         for i in chunk.instructions.iter_mut().filter(|i| i.opcode == OpCode::CallNative) {
             let Some(site) = edge::code::native_site(i.operand, &chunk.native_sites).filter(|s| s.pinned) else { continue };
@@ -898,12 +898,12 @@ mod runner {
     /* the first way a case's sources part from what it holds */
     fn mismatch(case: &Case) -> Option<String> {
         let indent = case.indent.clone();
-        let sources: Vec<(&str, &str)> = [("mini", case.mini.as_deref()), ("indent", indent.as_deref()), ("words", case.words.as_deref())]
+        let sources: Vec<(&str, &str)> = [("rig", case.rig.as_deref()), ("indent", indent.as_deref()), ("words", case.words.as_deref())]
             .into_iter().filter_map(|(name, src)| src.map(|s| (name, s))).collect();
-        if !sources.iter().any(|(n, _)| *n != "words") { return Some("a case holds a mini or an indent text".into()); }
+        if !sources.iter().any(|(n, _)| *n != "words") { return Some("a case holds a rig or an indent text".into()); }
         if let Some(want) = &case.tokens {
             for &(name, src) in &sources {
-                let got = match name { "mini" => kinds::<Mini>(src), "indent" => kinds::<Indent>(src), _ => kinds::<Words>(src) };
+                let got = match name { "rig" => kinds::<Rig>(src), "indent" => kinds::<Indent>(src), _ => kinds::<Words>(src) };
                 if &got != want { return Some(format!("{name} lexes to {got:?}")); }
             }
         }
@@ -912,7 +912,7 @@ mod runner {
         if case.tokens.is_some() && !chunked && case.errors.is_none() && case.error.is_none() { return None; }
         let mut first: Option<(&str, (SSAChunk, Vec<String>))> = None;
         for &(name, src) in &sources {
-            let mut got = match name { "mini" => compiled::<Mini>(src), "indent" => compiled::<Indent>(src), _ => compiled::<Words>(src) };
+            let mut got = match name { "rig" => compiled::<Rig>(src), "indent" => compiled::<Indent>(src), _ => compiled::<Words>(src) };
             unpinned(&mut got.0);
             if chunked && let Some(why) = chunk_differs(&got.0, case) { return Some(format!("{name} gives {why}")); }
             match (&case.errors, &case.error) {
@@ -935,7 +935,7 @@ mod runner {
         let cases: Vec<Case> = serde_yaml_ng::from_str(text).unwrap_or_else(|e| panic!("{file} {e}"));
         assert!(!cases.is_empty(), "{file} holds no case");
         let wrong: Vec<String> = cases.iter().enumerate().filter_map(|(i, c)| mismatch(c).map(|why| {
-            let src = c.mini.as_deref().or(c.indent.as_deref()).unwrap_or("");
+            let src = c.rig.as_deref().or(c.indent.as_deref()).unwrap_or("");
             format!("{file} case {i} {src:?}\n   {why}")
         })).collect();
         assert!(wrong.is_empty(), "{} of {} cases fail\n{}", wrong.len(), cases.len(), wrong.join("\n"));
@@ -988,7 +988,7 @@ mod lexer {
         ];
         let start = std::time::Instant::now();
         for src in &shapes {
-            let (tokens, _) = lex_as::<mini::Mini>(src);
+            let (tokens, _) = lex_as::<rig::Rig>(src);
             assert!(tokens.len() > 100_000, "{} tokens", tokens.len());
         }
         assert!(start.elapsed() < std::time::Duration::from_secs(10), "{:?}", start.elapsed());

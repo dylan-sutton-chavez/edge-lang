@@ -304,12 +304,12 @@ pub(super) mod tests {
     #[test]
     fn a_bare_name_resolves_through_the_nearest_manifest_and_what_it_extends() {
         let host = Host::with(&[
-            ("edge.json", r#"{ "imports": { "util": "./lib/util.mini" } }"#),
+            ("edge.json", r#"{ "imports": { "util": "./lib/util.lox" } }"#),
             ("app/edge.json", r#"{ "extends": "../shared" }"#),
-            ("shared/edge.json", r#"{ "imports": { "helper": "./helper.mini" } }"#),
-        ]).with_code("./lib/util.mini", "u = 1\n").with_code("shared/helper.mini", "h = 1\n");
-        assert_eq!(code_of(resolve(&host, "app/", "helper")), (s!("shared/helper.mini"), s!("h = 1\n")));
-        assert_eq!(code_of(resolve(&host, "", "util")).0, "./lib/util.mini");
+            ("shared/edge.json", r#"{ "imports": { "helper": "./helper.lox" } }"#),
+        ]).with_code("./lib/util.lox", "u = 1\n").with_code("shared/helper.lox", "h = 1\n");
+        assert_eq!(code_of(resolve(&host, "app/", "helper")), (s!("shared/helper.lox"), s!("h = 1\n")));
+        assert_eq!(code_of(resolve(&host, "", "util")).0, "./lib/util.lox");
         // the nearest manifest of app holds no util and neither does the one it extends
         let missing = error_of(resolve(&host, "app/", "util"));
         assert_eq!(missing, "module 'util' is not provided by this host and no edge.json declares it");
@@ -327,22 +327,22 @@ pub(super) mod tests {
 
     #[test]
     fn paths_resolve_from_the_importer_or_the_nearest_manifest() {
-        let host = Host::with(&[("app/edge.json", "{}")]).with_code("app/x.mini", "").with_code("app/pkg/mod.mini", "").with_code("https://cdn.test/y.mini", "");
-        assert_eq!(code_of(resolve(&host, "app/", "./x.mini")).0, "app/x.mini");
-        assert_eq!(code_of(resolve(&host, "app/sub/", "pkg/mod.mini")).0, "app/pkg/mod.mini");
-        assert_eq!(code_of(resolve(&host, "", "https://cdn.test/y.mini")).0, "https://cdn.test/y.mini");
-        assert_eq!(error_of(resolve(&host, "lib/", "pkg/mod.mini")), "no edge.json above 'lib/' to resolve 'pkg/mod.mini'");
-        assert_eq!(error_of(resolve(&host, "", "./z.mini")), "module './z.mini' not registered (host did not pre-fetch / register before run())");
-        let mut child = HostResolver::new(s!("app/"), host.clone()).child("app/pkg/mod.mini");
-        assert!(matches!(child.resolve("../x.mini"), Ok(Resolved::Code { canonical, .. }) if canonical == "app/x.mini"));
+        let host = Host::with(&[("app/edge.json", "{}")]).with_code("app/x.lox", "").with_code("app/pkg/mod.lox", "").with_code("https://cdn.test/y.lox", "");
+        assert_eq!(code_of(resolve(&host, "app/", "./x.lox")).0, "app/x.lox");
+        assert_eq!(code_of(resolve(&host, "app/sub/", "pkg/mod.lox")).0, "app/pkg/mod.lox");
+        assert_eq!(code_of(resolve(&host, "", "https://cdn.test/y.lox")).0, "https://cdn.test/y.lox");
+        assert_eq!(error_of(resolve(&host, "lib/", "pkg/mod.lox")), "no edge.json above 'lib/' to resolve 'pkg/mod.lox'");
+        assert_eq!(error_of(resolve(&host, "", "./z.lox")), "module './z.lox' not registered (host did not pre-fetch / register before run())");
+        let mut child = HostResolver::new(s!("app/"), host.clone()).child("app/pkg/mod.lox");
+        assert!(matches!(child.resolve("../x.lox"), Ok(Resolved::Code { canonical, .. }) if canonical == "app/x.lox"));
     }
 
     #[test]
     fn a_refusal_wins_over_what_is_registered() {
-        let host = Host::with(&[]).with_code("lib/a.mini", "");
-        host.state().deps.refuse(s!("lib/a.mini"), s!("module 'a' is JavaScript, ship a .mini or a .wasm"));
+        let host = Host::with(&[]).with_code("lib/a.lox", "");
+        host.state().deps.refuse(s!("lib/a.lox"), s!("module 'a' is JavaScript, ship a .lox or a .wasm"));
         host.state().deps.refuse(s!("net"), s!("no network here"));
-        assert_eq!(error_of(resolve(&host, "lib/", "./a.mini")), "module 'a' is JavaScript, ship a .mini or a .wasm");
+        assert_eq!(error_of(resolve(&host, "lib/", "./a.lox")), "module 'a' is JavaScript, ship a .lox or a .wasm");
         assert_eq!(error_of(resolve(&host, "", "net")), "no network here");
     }
 

@@ -1,0 +1,15 @@
+var counter = 0;
+fun bump() { counter = counter + 1; }
+fun read() { return later; }
+var later = "late";
+for (var i = 0; i < 10000; i = i + 1) bump();
+print counter;
+print read();
+
+var flag = false;
+var hits = 0;
+for (var i = 0; i < 5000; i = i + 1) {
+  if (i == 2500 or flag) flag = true;
+  if (flag and !nil) hits = hits + 1;
+}
+print hits;

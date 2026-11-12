@@ -1303,6 +1303,14 @@ impl<'p> Lower<'_, 'p> {
                 self.emit(Ins { b: slot + 1, ..Ins::of(ins) });
             }
             Jump | SetupFinally | PopExcept | BeginFinally | EndFinally | UnwindFinally | PopIter | Phi => { self.settle(); self.emit_orig(ins); }
+            // a cell variable takes an empty cell and any other name needs nothing
+            FreshCell => {
+                self.settle();
+                if self.kind(ins.operand) == Some(Kind::Cell) {
+                    self.emit(Ins { op: UnbindR, x: 0, a: ins.operand, b: 0, c: 0 });
+                    self.emit(Ins { op: WrapCellR, x: 0, a: ins.operand, b: 0, c: 0 });
+                }
+            }
             // a loop step writes its item into its row
             ForIter => {
                 self.settle();

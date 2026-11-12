@@ -1,12 +1,13 @@
 use afl::fuzz;
 
-use edge::lexer::lex_as;
-use edge::code::Parser;
+use edge::code::{SSAChunk, Parser};
 use edge::deps::NoopResolver;
-use mini::Mini;
 use edge::embed as snapshot;
-use edge::value::{SchedulerStatus, VmErr};
 use edge::embed::{Limits, VM};
+use edge::lang::Runtime;
+use edge::lexer::lex_as;
+use edge::value::{SchedulerStatus, VmErr};
+use rig::Rig;
 
 // every run meters what it allocates as edge.wasm does
 edge::allocator!();
@@ -21,44 +22,47 @@ fn main() {
         // Source is text, reject non-UTF-8 rather than counting it as coverage.
         let Ok(src) = core::str::from_utf8(data) else { return };
 
-        // mini's spelling which every program of the repo is written in
-        let (tokens, _lex_errs) = lex_as::<Mini>(src);
-        let (chunk, parse_errs) = Parser::<_, Mini>::spelled(src, tokens.into_iter(), Box::new(NoopResolver)).parse();
+        // every input reads through the Lox compiler first
+        let (chunk, errs) = edge::code::compile(&lox::FRONT, src);
+        if errs.is_empty() { drive(&lox::RUNTIME, &chunk, src); }
 
+        // the rig reaches the spelled parser and the VM pieces Lox lacks
+        let (tokens, _lex_errs) = lex_as::<Rig>(src);
+        let (chunk, parse_errs) = Parser::<_, Rig>::spelled(src, tokens.into_iter(), Box::new(NoopResolver)).parse();
         // Only valid programs reach the VM, the chunk is unreliable after a parse error.
-        if !parse_errs.is_empty() {
-            return;
-        }
+        if parse_errs.is_empty() { drive(&rig::RUNTIME, &chunk, src); }
+    });
+}
 
-        // Bounded budget turns runaway loops and allocations into VmErr, not hangs. Tight `ops` so bounded loops finish within AFL's hang timeout. Library default `sandbox()` is far larger.
-        let limits = Limits { ops: 100_000, ..Limits::sandbox() };
-        let mut vm = VM::with_runtime(&mini::RUNTIME, &chunk, limits);
-        vm.set_preempt_interval(PREEMPT_EVERY);
+/* runs `chunk` on `rt` through every park kind and a snapshot of the first */
+fn drive(rt: &'static Runtime, chunk: &SSAChunk, src: &str) {
+    // Bounded budget turns runaway loops and allocations into VmErr, not hangs. Tight `ops` so bounded loops finish within AFL's hang timeout. Library default `sandbox()` is far larger.
+    let limits = Limits { ops: 100_000, ..Limits::sandbox() };
+    let mut vm = VM::with_runtime(rt, chunk, limits);
+    vm.set_preempt_interval(PREEMPT_EVERY);
 
-        // Drive every park kind, snapshot the first.
-        let mut hopped = false;
-        let mut wakeups = 0;
-        while let Err(VmErr::HostYield(park)) = vm.run() {
-            let drivable = matches!(park, SchedulerStatus::Preempted | SchedulerStatus::PendingEvent);
-            if !drivable { break; }
+    let mut hopped = false;
+    let mut wakeups = 0;
+    while let Err(VmErr::HostYield(park)) = vm.run() {
+        let drivable = matches!(park, SchedulerStatus::Preempted | SchedulerStatus::PendingEvent);
+        if !drivable { break; }
 
-            if !hopped {
-                hopped = true;
-                // every kind mini registers saves and a refusing kind leaves the run as it is
-                if let Ok(blob) = snapshot::save(&vm, src, "") {
-                    let mut fresh = VM::with_runtime(&mini::RUNTIME, &chunk, Limits { ops: 100_000, ..Limits::sandbox() });
-                    fresh.set_preempt_interval(PREEMPT_EVERY);
-                    if snapshot::restore(&mut fresh, &blob).is_ok() {
-                        vm = fresh;
-                    }
+        if !hopped {
+            hopped = true;
+            // every kind a runtime registers saves and a refusing kind leaves the run as it is
+            if let Ok(blob) = snapshot::save(&vm, src, "") {
+                let mut fresh = VM::with_runtime(rt, chunk, limits);
+                fresh.set_preempt_interval(PREEMPT_EVERY);
+                if snapshot::restore(&mut fresh, &blob).is_ok() {
+                    vm = fresh;
                 }
             }
-
-            if matches!(park, SchedulerStatus::Preempted) { continue; }
-            // receive() needs an event.
-            if wakeups >= MAX_WAKEUPS { break; }
-            wakeups += 1;
-            if matches!(park, SchedulerStatus::PendingEvent) && vm.push_event("e").is_err() { break; }
         }
-    });
+
+        if matches!(park, SchedulerStatus::Preempted) { continue; }
+        // receive() needs an event.
+        if wakeups >= MAX_WAKEUPS { break; }
+        wakeups += 1;
+        if matches!(park, SchedulerStatus::PendingEvent) && vm.push_event("e").is_err() { break; }
+    }
 }

@@ -126,6 +126,8 @@ impl<'a> VM<'a> {
     pub(crate) fn find_attr(&self, obj: Val, name: &str) -> Result<Option<AttrLookup>, VmErr> {
         // the runtime's names load only on the paths that read them
         let names = || self.natives.names();
+        // a closed policy reads fields of instances and modules alone
+        if !self.natives.policy.open_fields && !matches!(self.heap.try_get(obj), Some(HeapObj::Module(..))) && !matches!(self.heap.try_get(obj), Some(HeapObj::Object { meta, .. }) if meta.is_heap()) { return Ok(None); }
         match self.heap.try_get(obj) {
             // a module's attributes scan its table which holds a few dozen entries
             Some(HeapObj::Module(_, attrs)) => return Ok(attrs.iter().find(|(n, _)| n == name).map(|&(_, v)| AttrLookup::ModuleAttr(v))),
@@ -306,6 +308,8 @@ impl<'a> VM<'a> {
     pub(crate) fn store_attr_in(&mut self, obj: Val, name: &str, value: Val, at: Option<(&OpcodeCache, usize)>) -> Result<(), VmErr> {
         if !obj.is_heap() { return if self.put_rule(obj, name, value, at)? { Ok(()) } else { Err(self.no_store(obj, name)) }; }
         let member = self.instance_class(obj).and_then(|c| self.lookup_class_member(c, name));
+        let closed = !self.natives.policy.open_fields && (self.heap.is_class(obj) || matches!(self.heap.get(obj), HeapObj::Func { .. }));
+        if closed { return Err(EngineError::NoAttribute { recv: obj, name: String::from(name), store: true }.into()); }
         // a class attribute inserts or replaces in the mutable members store
         if self.heap.is_class(obj) {
             // a method set on a class may share a name with an instance attribute

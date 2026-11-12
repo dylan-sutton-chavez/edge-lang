@@ -1,9 +1,9 @@
 use edge::value::{DictMap, HeapObj, HeapPool, Val};
 use lib::lang::Tree;
-use mini::Mini;
-use mini::types::NAMES;
+use rig::Rig;
+use rig::types::NAMES;
 
-const TREE: &Tree = &mini::types::TREE;
+const TREE: &Tree = &rig::types::TREE;
 
 // the builtin types a load names besides the exceptions
 const PLAIN: [&str; 12] = ["int", "float", "text", "bytes", "bytearray", "bool", "list", "tuple", "record", "set", "range", "type"];
@@ -19,7 +19,7 @@ fn place(name: &str) -> Option<usize> { TREE.place(name) }
 
 fn derives(name: &str, ancestor: &str) -> bool { TREE.derives(name, ancestor) }
 
-fn match_exc(heap: &HeapPool, exc: Val, ty: Val) -> Result<bool, edge::value::VmErr> { lib::types::match_exc::<Mini>(heap, exc, ty) }
+fn match_exc(heap: &HeapPool, exc: Val, ty: Val) -> Result<bool, edge::value::VmErr> { lib::types::match_exc::<Rig>(heap, exc, ty) }
 
 #[test]
 fn every_exception_reaches_a_root_without_a_cycle() {

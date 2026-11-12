@@ -3,7 +3,7 @@ use std::rc::Rc;
 
 use edge::embed::{Limits, VM};
 use edge::value::{DictMap, HeapObj, HeapPool, Val};
-use mini::RUNTIME;
+use rig::RUNTIME;
 
 // every run meters what it allocates as edge.wasm does
 edge::allocator!();
@@ -17,7 +17,7 @@ const TRY: &str = concat!(
 
 /* what `src` printed and then the words of the error it ended in */
 fn run(src: &str) -> String {
-    let (chunk, errors) = edge::code::compile_as::<mini::Mini>(src);
+    let (chunk, errors) = edge::code::compile_as::<rig::Rig>(src);
     assert!(errors.is_empty(), "{src}");
     let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits { ops: 10_000_000, memory: 64 << 20 });
     let end = vm.run().err().map(|e| e.to_string()).unwrap_or_default();
@@ -188,7 +188,7 @@ fn generators_convert_in_loops_and_frames() {
 
 /* `name`'s fast path on `x` where none hands the value to the full call */
 fn fast(heap: &mut HeapPool, name: &str, x: Val) -> Option<Val> {
-    let f = mini::natives::CONVERT.iter().find(|n| n.name == name).and_then(|n| n.fast1)?;
+    let f = rig::natives::CONVERT.iter().find(|n| n.name == name).and_then(|n| n.fast1)?;
     f(heap, x)
 }
 
@@ -198,7 +198,7 @@ fn text(heap: &HeapPool, v: Option<Val>) -> String {
 
 #[test]
 fn the_fast_paths_take_plain_values_and_leave_the_rest() {
-    assert!(mini::natives::CONVERT.iter().all(|n| n.fast1.is_some()));
+    assert!(rig::natives::CONVERT.iter().all(|n| n.fast1.is_some()));
     let mut heap = HeapPool::new(1 << 24);
     let put = |heap: &mut HeapPool, obj: HeapObj| match heap.alloc(obj) { Ok(v) => v, Err(e) => panic!("{e:?}") };
     let (digits, spaced, accent, real) = (put(&mut heap, HeapObj::Str("12".into())), put(&mut heap, HeapObj::Str(" 1.5".into())), put(&mut heap, HeapObj::Str("\u{e9}".into())), put(&mut heap, HeapObj::Str("1.5".into())));

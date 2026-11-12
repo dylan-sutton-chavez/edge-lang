@@ -1,0 +1,35 @@
+class Shape {
+  init(name) { this.name = name; }
+  area() { return 0; }
+  describe() { return this.name + " " + text(this.area()); }
+}
+
+class Rect < Shape {
+  init(w, h) {
+    super.init("rect");
+    this.w = w;
+    this.h = h;
+  }
+  area() { return this.w * this.h; }
+}
+
+class Square < Rect {
+  init(s) { super.init(s, s); this.name = "square"; }
+  describe() { return "a " + super.describe(); }
+}
+
+var total = 0;
+for (var i = 0; i < 3000; i = i + 1) {
+  var r = Rect(i, 2);
+  var s = Square(i);
+  total = total + r.area() + s.area();
+  r.w = r.w + 1;
+  total = total + r.area();
+}
+print total;
+print Square(3).describe();
+
+var bound = Square(4).describe;
+var calls = 0;
+for (var i = 0; i < 2000; i = i + 1) if (bound() == "a square 16") calls = calls + 1;
+print calls;
