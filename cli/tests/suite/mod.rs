@@ -28,6 +28,8 @@ struct Case {
     #[serde(default)] fails: Option<Vec<String>>,
     #[serde(default)] creates: Vec<String>,
     #[serde(default)] contains: BTreeMap<String, String>,
+    // files whose whole text a run leaves equal to the one given
+    #[serde(default)] holds: BTreeMap<String, String>,
     // A second command in the same dir, the way a packed artifact runs itself.
     #[serde(default)] then: Option<Step>,
     // runs once per pair with `$EACH` taking the value and the message joining fails
@@ -245,6 +247,10 @@ fn check(bin: Bin, c: &Case, args: &[String], cache: &std::path::Path) -> Result
     for (f, n) in &c.contains {
         let t = std::fs::read_to_string(dir.path().join(f)).map_err(|e| e.to_string())?;
         if !t.contains(n) { return Err(format!("{f} missing {n:?}; got: {t}")); }
+    }
+    for (f, n) in &c.holds {
+        let t = std::fs::read_to_string(dir.path().join(f)).map_err(|e| e.to_string())?;
+        if t != *n { return Err(format!("{f} holds {t:?} and not {n:?}")); }
     }
     if let Some(s) = &c.then {
         let want = Expect { stdout: &s.stdout, stderr: &s.stderr, fails: s.fails.as_deref() };

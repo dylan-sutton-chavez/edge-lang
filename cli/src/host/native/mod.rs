@@ -236,6 +236,8 @@ impl Native {
         NOW.set(self.shared.take());
         let ran = vm.run();
         self.shared = NOW.take();
+        #[cfg(feature = "coverage")]
+        if !matches!(ran, Err(VmErr::HostYield(_))) { cover(&vm, &self.chunks, self.name.as_deref().unwrap_or_default()); }
         self.vm = Some(vm);
         let status = match ran {
             Ok(_) => {
@@ -266,6 +268,30 @@ impl Native {
         self.waits.parked.extend(calls);
         Ok(status)
     }
+}
+
+/* adds the lines `vm` ran in its pinned chunks to the file `EDGE_COVERAGE` names */
+#[cfg(feature = "coverage")]
+fn cover(vm: &VM<'static>, chunks: &[Rc<SSAChunk>], name: &str) {
+    use std::collections::BTreeSet;
+    fn walk(vm: &VM<'static>, c: &SSAChunk, name: &str, lines: &mut BTreeSet<String>) {
+        let path = if c.path.is_empty() { name } else { c.path.as_str() };
+        for ip in (0..c.instructions.len()).filter(|&ip| vm.ran(c, ip)) {
+            // an ip before the first statement mark lies in the first statement
+            let at = c.resolve_call(ip as u32).or_else(|| c.resolve(ip as u32)).unwrap_or(0);
+            let line = 1 + c.source.bytes().take(at as usize).filter(|&b| b == b'\n').count();
+            lines.insert(format!("{path}:{line}"));
+        }
+        c.functions.iter().for_each(|f| walk(vm, &f.1, name, lines));
+        c.classes.iter().for_each(|k| walk(vm, k, name, lines));
+        for i in &c.imports { if let edge::code::ImportKind::Code(sub) = &i.kind { walk(vm, sub, name, lines); } }
+    }
+    let Some(out) = std::env::var_os("EDGE_COVERAGE") else { return };
+    // lines an earlier run of this process wrote stay listed once
+    let mut lines: BTreeSet<String> = std::fs::read_to_string(&out).unwrap_or_default().lines().map(String::from).collect();
+    chunks.iter().for_each(|c| walk(vm, c, name, &mut lines));
+    let text: String = lines.into_iter().map(|l| l + "\n").collect();
+    if let Err(e) = std::fs::write(&out, text) { eprintln!("coverage not written to {}: {e}", out.to_string_lossy()); }
 }
 
 /* hands a completion to the run `vm` parked on it */

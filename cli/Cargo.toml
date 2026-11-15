@@ -37,6 +37,13 @@ path = "tests/native.rs"
 harness = false
 required-features = ["docs", "files", "net", "perms", "run", "test", "web"]
 
+# the lines a native run executed which the coverage feature writes out
+[[test]]
+name = "coverage"
+path = "tests/coverage.rs"
+harness = false
+required-features = ["coverage", "run"]
+
 # the edge composition over the rig's wasm for plugin and net calls lox cannot write
 [[test]]
 name = "rig"
@@ -57,6 +64,8 @@ build = ["docs", "web"]
 docs = []
 # the reference runtime this crate precompiles for the build target and the edge binary embeds
 embed = ["wasm", "dep:lox"]
+# the lines each native run executed written where EDGE_COVERAGE names
+coverage = ["edge/coverage"]
 # reads of the local files a grant names under the package that asks
 files = ["dep:flate2"]
 init = []

@@ -120,6 +120,7 @@ lint-cli: $(CLI_INPUTS) wasm-rig
 	cd cli && for f in "" $(CLI_COMPONENTS); do cargo clippy --locked --lib --no-default-features --features "$$f" -- -D warnings || exit 1; done
 	cd cli && cargo clippy --locked --no-default-features --features embed,run,test --example runner --example decoupled -- -D warnings
 	cd cli && cargo clippy --locked --no-default-features --features $(CLI_NATIVE) --test native -- -D warnings
+	cd cli && cargo clippy --locked --no-default-features --features coverage,run --test coverage -- -D warnings
 	cd cli && ! cargo tree --locked --no-default-features --features $(CLI_NATIVE) -e normal,build | grep -q wasmtime
 
 # coverage leaves method calls unfused so it runs apart
@@ -175,6 +176,7 @@ test-js: plugin wasm
 test-cli: $(CLI_INPUTS) $(CLI_NEEDS_$(SUITE))
 	$(if $(filter-out engine network actors consistency docs skill,$(SUITE)),$(error SUITE is one of engine network actors consistency docs skill, or none for all))
 	$(if $(filter skill,$(SUITE)),,cd cli && cargo test --locked $(CLI_TEST_$(SUITE)))
+	$(if $(filter engine,$(or $(SUITE),engine)),cd cli && cargo test --locked --features coverage --test coverage)
 
 test-skill: export SKILL_EDGE = $(CURDIR)/cli/target/debug/edge$(EXE)
 test-skill: $(CLI_INPUTS)
