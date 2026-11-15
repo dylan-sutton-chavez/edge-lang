@@ -15020,3 +15020,351 @@
     print(run(), run())
   expected: |-
     900 900
+
+- case: |-
+    // a closure made after recursion six deep reads its own level's list
+    fn walk(v) {
+        if type(v) != type([]) {
+            return 0
+        }
+        x = walk(v[0])
+        fn again() {
+            return walk(v[0])
+        }
+        return again() + 1
+    }
+    print(walk([[[[[[1]]]]]]))
+  expected: |-
+    6
+
+- case: |-
+    // the same closure reads its own level at each depth past six
+    fn walk(v) {
+        if type(v) != type([]) {
+            return 0
+        }
+        x = walk(v[0])
+        fn again() {
+            return walk(v[0])
+        }
+        return again() + 1
+    }
+    fn nest(d) {
+        v = 1
+        for i in range(d) {
+            v = [v]
+        }
+        return v
+    }
+    for d in [6, 7, 8, 10, 12] {
+        print(walk(nest(d)))
+    }
+  expected: |-
+    6
+    7
+    8
+    10
+    12
+
+- case: |-
+    // a closure reading its own level never runs the recursion past its limit
+    fn walk(n) {
+        if n == 0 {
+            return 0
+        }
+        x = walk(n - 1)
+        fn again() {
+            return walk(n - 1)
+        }
+        return again() + 1
+    }
+    print(walk(6), walk(8))
+  expected: |-
+    6 8
+
+- case: |-
+    // a closure made after recursion finds every capture bound
+    fn walk(n, s) {
+        if n <= 0 {
+            return 1
+        }
+        p = s + n
+        x = walk(n - 1, s + 1)
+        fn again() {
+            return walk(n - 1, s) + p + x + s
+        }
+        return again() + again()
+    }
+    print(walk(5, 0))
+  expected: |-
+    4434
+
+- case: |-
+    // a closure made after recursion reads its own level with one capture
+    fn walk(n) {
+        if n == 0 {
+            return 0
+        }
+        x = walk(n - 1)
+        fn again() {
+            return n
+        }
+        return again() + x
+    }
+    for d in [1, 2, 3, 4, 5, 6, 7, 8, 16, 32, 64] {
+        print(walk(d))
+    }
+  expected: |-
+    1
+    3
+    6
+    10
+    15
+    21
+    28
+    36
+    136
+    528
+    2080
+
+- case: |-
+    // a closure made after recursion reads its own level with two captures
+    fn walk(n) {
+        if n == 0 {
+            return 0
+        }
+        a = n * 3
+        x = walk(n - 1)
+        fn again() {
+            return n + a
+        }
+        return again() + x
+    }
+    for d in [1, 2, 3, 4, 5, 6, 7, 8, 16, 32, 64] {
+        print(walk(d))
+    }
+  expected: |-
+    4
+    12
+    24
+    40
+    60
+    84
+    112
+    144
+    544
+    2112
+    8320
+
+- case: |-
+    // a closure made after recursion reads its own level with three captures
+    fn walk(n) {
+        if n == 0 {
+            return 0
+        }
+        a = n * 3
+        x = walk(n - 1)
+        b = n + 7
+        fn again() {
+            return n + a + b
+        }
+        return again() + x
+    }
+    for d in [1, 2, 3, 4, 5, 6, 7, 8, 16, 32, 64] {
+        print(walk(d))
+    }
+  expected: |-
+    12
+    29
+    51
+    78
+    110
+    147
+    189
+    236
+    792
+    2864
+    10848
+
+- case: |-
+    // a recursing closure made after recursion reads its own level with one capture
+    fn walk(n) {
+        if n == 0 {
+            return 0
+        }
+        x = walk(n - 1)
+        fn again() {
+            return walk(n - 1) + n
+        }
+        return again() + x
+    }
+    for d in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] {
+        print(walk(d))
+    }
+  expected: |-
+    1
+    4
+    11
+    26
+    57
+    120
+    247
+    502
+    1013
+    2036
+
+- case: |-
+    // a recursing closure made after recursion reads its own level with two captures
+    fn walk(n) {
+        if n == 0 {
+            return 0
+        }
+        a = n * 3
+        x = walk(n - 1)
+        fn again() {
+            return walk(n - 1) + n + a
+        }
+        return again() + x
+    }
+    for d in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] {
+        print(walk(d))
+    }
+  expected: |-
+    4
+    16
+    44
+    104
+    228
+    480
+    988
+    2008
+    4052
+    8144
+
+- case: |-
+    // a recursing closure made after recursion reads its own level with three captures
+    fn walk(n) {
+        if n == 0 {
+            return 0
+        }
+        a = n * 3
+        x = walk(n - 1)
+        b = n + 7
+        fn again() {
+            return walk(n - 1) + n + a + b
+        }
+        return again() + x
+    }
+    for d in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] {
+        print(walk(d))
+    }
+  expected: |-
+    12
+    41
+    104
+    235
+    502
+    1041
+    2124
+    4295
+    8642
+    17341
+
+- case: |-
+    // a closure made in a loop after recursion reads its own level with one capture
+    fn walk(n) {
+        if n == 0 {
+            return 0
+        }
+        x = walk(n - 1)
+        t = 0
+        for k in range(2) {
+            fn again() {
+                return n + k
+            }
+            t = t + again()
+        }
+        return t + x
+    }
+    for d in [1, 2, 3, 4, 5, 6, 7, 8, 16, 32, 64] {
+        print(walk(d))
+    }
+  expected: |-
+    3
+    8
+    15
+    24
+    35
+    48
+    63
+    80
+    288
+    1088
+    4224
+
+- case: |-
+    // a closure made in a loop after recursion reads its own level with two captures
+    fn walk(n) {
+        if n == 0 {
+            return 0
+        }
+        a = n * 3
+        x = walk(n - 1)
+        t = 0
+        for k in range(2) {
+            fn again() {
+                return n + a + k
+            }
+            t = t + again()
+        }
+        return t + x
+    }
+    for d in [1, 2, 3, 4, 5, 6, 7, 8, 16, 32, 64] {
+        print(walk(d))
+    }
+  expected: |-
+    9
+    26
+    51
+    84
+    125
+    174
+    231
+    296
+    1104
+    4256
+    16704
+
+- case: |-
+    // a closure made in a loop after recursion reads its own level with three captures
+    fn walk(n) {
+        if n == 0 {
+            return 0
+        }
+        a = n * 3
+        x = walk(n - 1)
+        b = n + 7
+        t = 0
+        for k in range(2) {
+            fn again() {
+                return n + a + b + k
+            }
+            t = t + again()
+        }
+        return t + x
+    }
+    for d in [1, 2, 3, 4, 5, 6, 7, 8, 16, 32, 64] {
+        print(walk(d))
+    }
+  expected: |-
+    25
+    60
+    105
+    160
+    225
+    300
+    385
+    480
+    1600
+    5760
+    21760

@@ -1428,7 +1428,9 @@ impl<'p> Lower<'_, 'p> {
             if builds && let Some(t) = guard { self.emit(Ins { op: OpCode::UnbindR, x: 0, a: t, b: 0, c: 0 }); }
             // registers live across recursion found only when recursing using each `try` and handler start
             let tries: Vec<(usize, usize)> = ins.iter().enumerate().filter(|(_, i)| matches!(i.op, OpCode::SetupExcept | OpCode::SetupFinally)).map(|(j, i)| (j, body.lowered(i.a as usize))).collect();
-            let live = if recurs { crate::vm::block::live_across(ins, body.frame, &tries) } else { Vec::new() };
+            // functions the body makes read captured cells so a level keeps their registers
+            let captured: Vec<u16> = cellvars.iter().copied().chain(cells.iter().map(|c| c.0)).filter_map(|c| u16::try_from(c).ok()).collect();
+            let live = if recurs { crate::vm::block::live_across(ins, body.frame, &tries, &captured) } else { Vec::new() };
             // each call of this very section with the parameters it passes on unchanged
             let turning = recurs && !by_body && ctor.is_none() && self.wanted[k].1.on_class == 0;
             let targets = crate::vm::block::targets(ins, &tries);

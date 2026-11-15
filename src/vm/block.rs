@@ -239,9 +239,9 @@ fn after(ins: &[Ins], k: usize) -> (usize, Option<u16>) {
 }
 
 /* for each call that may come back into the section the registers it must keep */
-pub(crate) fn live_across(ins: &[Ins], regs: usize, tries: &[(usize, usize)]) -> alloc::vec::Vec<alloc::vec::Vec<u16>> {
+pub(crate) fn live_across(ins: &[Ins], regs: usize, tries: &[(usize, usize)], captured: &[u16]) -> alloc::vec::Vec<alloc::vec::Vec<u16>> {
     use alloc::vec::Vec;
-    if regs <= 64 { return live_word(ins, regs, tries); }
+    if regs <= 64 { return live_word(ins, regs, tries, captured); }
     let n = ins.len();
     let call = |k: usize| ins.get(k).is_some_and(|i| matches!(i.op, CallGlobalR | CallR | CallMethodR | CallSpreadR));
     let under = |k: usize| call(k) && k > 0 && ins[k - 1].op == PushRegs && ins[k - 1].x == 1;
@@ -289,6 +289,8 @@ pub(crate) fn live_across(ins: &[Ins], regs: usize, tries: &[(usize, usize)]) ->
                     for &f in reads { used(&mut set, field(&i, f)); }
                 },
             }
+            // a function made here reads the cells it captures from their registers
+            if makes(&i) { for &r in captured { used(&mut set, r); } }
         }
         let at = &mut live[k * words..][..words];
         if *at != *set { changed = back; at.copy_from_slice(&set); }
@@ -305,13 +307,14 @@ pub(crate) fn live_across(ins: &[Ins], regs: usize, tries: &[(usize, usize)]) ->
 }
 
 /* the registers live before each instruction past `from` unless a jump lands before it */
-fn live_rows(ins: &[Ins], regs: usize, from: usize) -> alloc::vec::Vec<u64> {
+fn live_rows(ins: &[Ins], regs: usize, from: usize, captured: &[u16]) -> alloc::vec::Vec<u64> {
     let n = ins.len();
     let mut from = from.min(n);
     let is_call = |op| matches!(op, CallGlobalR | CallR | CallMethodR | CallSpreadR);
     let under = |c: usize| c > 0 && c < n && is_call(ins[c].op) && ins[c - 1].op == PushRegs && ins[c - 1].x == 1;
     let stored = |c: usize| c + 1 + super::lower::wide(ins[c]) as usize;
     let bit = |r: u16| if (r as usize) < regs { 1u64 << r } else { 0 };
+    let cells = captured.iter().fold(0u64, |m, &r| m | bit(r));
     let mut live = alloc::vec![0u64; n + 1];
     // code with no jump back is settled by its first pass
     loop {
@@ -347,6 +350,7 @@ fn live_rows(ins: &[Ins], regs: usize, from: usize) -> alloc::vec::Vec<u64> {
                     }
                     _ => {}
                 }
+                if makes(&i) { set |= cells; }
             }
             if live[k] != set { live[k] = set; changed = true; }
             next = set;
@@ -360,10 +364,10 @@ fn live_rows(ins: &[Ins], regs: usize, from: usize) -> alloc::vec::Vec<u64> {
 
 
 /* `live_across` for a frame of 64 registers at most */
-fn live_word(ins: &[Ins], regs: usize, tries: &[(usize, usize)]) -> alloc::vec::Vec<alloc::vec::Vec<u16>> {
+fn live_word(ins: &[Ins], regs: usize, tries: &[(usize, usize)], captured: &[u16]) -> alloc::vec::Vec<alloc::vec::Vec<u16>> {
     use alloc::vec::Vec;
     let n = ins.len();
-    let live = live_rows(ins, regs, first_read(ins, tries));
+    let live = live_rows(ins, regs, first_read(ins, tries), captured);
     let mut out: Vec<Vec<u16>> = Vec::new();
     out.resize_with(n, Vec::new);
     each_call(ins, regs, tries, &live, |k, w| out[k] = w.to_vec());

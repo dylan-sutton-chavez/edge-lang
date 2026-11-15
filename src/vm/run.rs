@@ -126,7 +126,7 @@ impl<'a> VM<'a> {
         // the frame as a local slice retaken only after calls that may grow the stack
         let mut r = &mut self.regs[base..];
         // registers read unchecked as all lie below `code.frame` per `reg_bound` and `grow_frame` keeps that length
-        debug_assert!(r.len() >= code.frame, "a frame shorter than its code");
+        assert!(r.len() >= code.frame, "a frame shorter than its code");
         macro_rules! reg { ($k:expr) => { reg(r, $k as usize) } }
         macro_rules! set { ($k:expr, $v:expr) => {{ let v = $v; put(r, $k as usize, v); }} }
         // code over rows keeps its depth here while the loop runs it
@@ -370,7 +370,7 @@ impl<'a> VM<'a> {
                     },
                 }
                 base = self.base; r = &mut self.regs[base..];
-                debug_assert!(r.len() >= code.frame, "a frame shorter than its code");
+                assert!(r.len() >= code.frame, "a frame shorter than its code");
             }};
         }
         'regs: loop {
@@ -680,6 +680,7 @@ impl<'a> VM<'a> {
                         n = prog.len();
                         sp = usize::MAX;
                         base = self.base; r = &mut self.regs[base..];
+                        assert!(r.len() >= code.frame, "a frame shorter than its code");
                         goto!(code.lowered(0));
                         continue;
                     }
@@ -702,6 +703,7 @@ impl<'a> VM<'a> {
                     n = prog.len();
                     sp = usize::MAX;
                     base = self.base; r = &mut self.regs[base..];
+                    assert!(r.len() >= code.frame, "a frame shorter than its code");
                     goto!(next);
                 }
                 // the other calls and makers over rows run out of line from their word
@@ -876,7 +878,7 @@ impl<'a> VM<'a> {
                     n = prog.len();
                     base = self.base; r = &mut self.regs[base..];
                     goto!(at);
-                    debug_assert!(r.len() >= code.frame, "a frame shorter than its code");
+                    assert!(r.len() >= code.frame, "a frame shorter than its code");
                 }
                 // ranges and lists step here and the rest or an ended loop in the handler
                 OpCode::ForIterR if self.budget > 0 && !self.heap.needs_gc() => {
@@ -972,6 +974,7 @@ impl<'a> VM<'a> {
                             (cache, prog, switched) = (&code.cache, whole!(), true);
                             n = prog.len();
                             refill!();
+                            assert!(r.len() >= code.frame, "a frame shorter than its code");
                             goto!(at);
                             continue;
                         }
@@ -1287,7 +1290,7 @@ impl<'a> VM<'a> {
                     n = prog.len();
                     base = self.base; r = &mut self.regs[base..];
                     goto!(next);
-                    debug_assert!(r.len() >= code.frame, "a frame shorter than its code");
+                    assert!(r.len() >= code.frame, "a frame shorter than its code");
                 }
                 // owned strings grow in place and the handler adds the rest and may take ownership
                 OpCode::AppendR => {
@@ -1385,7 +1388,7 @@ impl<'a> VM<'a> {
                     n = prog.len();
                     base = self.base; r = &mut self.regs[base..];
                     goto!(next);
-                    debug_assert!(r.len() >= code.frame, "a frame shorter than its code");
+                    assert!(r.len() >= code.frame, "a frame shorter than its code");
                 }
                 // a dropped register yield a builtin takes in place runs on past it
                 OpCode::Yield if ins.x == 1 && self.acts > floor.depth && self.top_gather() && self.gather_reg(ins.a) => {
@@ -1402,6 +1405,7 @@ impl<'a> VM<'a> {
                         n = prog.len();
                     }
                     base = self.base; r = &mut self.regs[base..];
+                    assert!(r.len() >= code.frame, "a frame shorter than its code");
                     goto!(next);
                 }
                 // a yield over rows hands its value on or parks its generator
@@ -1417,6 +1421,7 @@ impl<'a> VM<'a> {
                                 (cache, prog, switched) = (&code.cache, whole!(), true);
                                 n = prog.len();
                             }
+                            assert!(r.len() >= code.frame, "a frame shorter than its code");
                             goto!(next);
                         }
                         Err(at) => { goto!(at); break }

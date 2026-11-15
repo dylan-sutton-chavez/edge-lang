@@ -110,13 +110,18 @@ impl<'a> VM<'a> {
 
         // free variables take cells from the defining frame or class scope in any section's layout
         let map = self.cell_map.take();
-        let at = |s: usize| map.as_deref().map_or(s, |m| m.get(s).map_or(usize::MAX, |&r| r as usize));
+        // a slot without a register here names none instead of one past the frame
+        let names = chunk.names.len();
+        let at = |s: usize| match map.as_deref() { None => (s < names).then_some(s), Some(m) => m.get(s).copied().filter(|&r| r != u16::MAX).map(usize::from) };
         let roots_base = self.temp_roots.len();
         let mut captures: Vec<(usize, Val)> = Vec::with_capacity(self.fn_scope[global].freevars.len());
         for k in 0..self.fn_scope[global].freevars.len() {
             let (slot, from, ref bare) = self.fn_scope[global].freevars[k];
             let held = match from {
-                Some(s) => self.regs.get(self.base.wrapping_add(at(s))).copied().filter(|&v| matches!(self.heap.try_get(v), Some(HeapObj::Cell(_)))),
+                Some(s) => {
+                    let Some(r) = at(s) else { self.temp_roots.truncate(roots_base); return Err(cold_runtime("MakeFunction: a capture with no register in its frame")) };
+                    self.regs.get(self.base + r).copied().filter(|&v| matches!(self.heap.try_get(v), Some(HeapObj::Cell(_))))
+                }
                 None => self.class_cells.last().and_then(|cells| cells.iter().find(|(n, _)| n == bare).map(|&(_, c)| c)),
             };
             let cell = match held { Some(c) => c, None => self.heap.alloc(HeapObj::Cell(Val::undef()))? };
