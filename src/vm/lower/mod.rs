@@ -458,6 +458,7 @@ fn lower_in<'p>(src: &[Instruction], chunk: &SSAChunk, facts: &Facts, sections: 
     let frame = if facts.regs { tbase + l.temps } else { names };
     // wanted sections lie past the code behind a jump and their registers past the temporaries
     let (block, frame) = l.lay(frame);
+    if block.as_deref().is_some_and(|b| reenters(&l.out, b)) { return None; }
     if l.out.len() >= u16::MAX as usize { return None; }
     // the register loop reads registers unchecked so the frame covers every one it names
     debug_assert!(reg_bound(&l.out) <= frame, "a register past the frame");

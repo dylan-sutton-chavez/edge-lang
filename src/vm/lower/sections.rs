@@ -2050,3 +2050,40 @@ pub(crate) const LINK: u8 = 0x40;
 pub(crate) const LONE: u8 = 0x20;
 
 pub(crate) const LONE_TURN: u8 = 0x40;
+
+/* whether the head at `h` keeps a level found before it or its first place */
+fn keeps_level(out: &[Ins], h: usize) -> bool {
+    match out[..h].iter().rev().find(|i| i.op != OpCode::Move) {
+        Some(t) if t.op == OpCode::TurnR => true,
+        _ => out.get(h + HEADER as usize).filter(|j| j.op == OpCode::JumpR && (j.a as usize) < h)
+            .and_then(|j| (j.a as usize).checked_sub(HEADER as usize)).is_some_and(|g| g < h && keeps_level(out, g)),
+    }
+}
+
+/* whether laid code enters a section that may lead back without keeping a level */
+pub(crate) fn reenters(out: &[Ins], block: &Block) -> bool {
+    let n = block.sections.len();
+    let within = |at: usize| block.holding(at).and_then(|(s, _)| block.sections.iter().position(|q| core::ptr::eq(q, s)));
+    // any head may enter any section a table holds
+    let tabled: Vec<usize> = block.alt_tab.iter().filter(|e| e.1 != u32::MAX).map(|e| (e.1 & !DEFAULTS) as usize).collect();
+    // each entry as the section it leaves its level and where it goes
+    let mut entries: Vec<(usize, bool, Vec<usize>)> = Vec::new();
+    for h in (0..out.len().saturating_sub(3)).filter(|&h| section_call(out[h].op) && out[h + 2].op == OpCode::SectionR) {
+        let Some(e) = within(h) else { continue };
+        entries.push((e, keeps_level(out, h), core::iter::once(out[h + 2].c as usize).chain(tabled.iter().copied()).collect()));
+    }
+    // a loop over a generator's section steps into it with no level
+    for &(at, _, k, _) in block.loops.iter() { if let Some(e) = within(at as usize) { entries.push((e, false, alloc::vec![k as usize])); } }
+    let mut next = alloc::vec![Vec::new(); n];
+    for (e, _, to) in &entries { next[*e].extend(to.iter().copied().filter(|&t| t < n)); }
+    entries.iter().filter(|(_, kept, _)| !kept).any(|(e, _, to)| {
+        let mut seen = alloc::vec![false; n];
+        let mut todo: Vec<usize> = to.iter().copied().filter(|&t| t < n).collect();
+        while let Some(k) = todo.pop() {
+            if k == *e { return true; }
+            if core::mem::replace(&mut seen[k], true) { continue; }
+            todo.extend(next[k].iter().copied());
+        }
+        false
+    })
+}

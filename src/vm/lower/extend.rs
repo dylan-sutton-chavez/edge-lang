@@ -351,6 +351,7 @@ pub(crate) fn extend<'p>(old: &Code, src: &[Instruction], chunk: &SSAChunk, fact
         let heads: Vec<usize> = (0..len).filter(|&h| global_head(&l.out, h) && l.out[h + 2].c as usize == k && (detach.is_some() || kw_head(&l.out, h))).collect();
         for h in heads { l.out[h] = Ins { op: OpCode::Jump, x: 1, a: l.out[h + 3].a, b: 0, c: 0 }; }
     }
+    if reenters(&l.out, &block) { return None; }
     specialize(&mut l.out, len);
     // the jump past the sections goes past the new ones too
     let over = (*old.at.last()? & 0xFFFF) as usize;
@@ -406,6 +407,7 @@ fn extend_all<'p>(old: &Code, src: &[Instruction], chunk: &SSAChunk, facts: &Fac
     let mut block = block.or_else(|| keep.then(|| Box::new(Block { sections: Box::default(), extra: Box::default(), ranges: Box::new([(old.frame, 0)]), callees: Vec::new(), lineage: 0, grown: OnceCell::new(),
         binds: Cell::new(crate::vm::scope::REBOUND.load(core::sync::atomic::Ordering::Relaxed)), alt_tab: Box::default(), loops: Box::default(), moved: false, by_class: Box::default() })))?;
     block.lineage = old.layout;
+    if reenters(&l.out, &block) { return None; }
     specialize(&mut l.out, len);
     l.out[len].a = l.out.len() as u16;
     for &k in &l.yields {

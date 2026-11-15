@@ -15368,3 +15368,109 @@
     1600
     5760
     21760
+
+- case: |-
+    // a lambda laid after its caller closes a recursion through sections and keeps each level
+    fn ty(t) {
+        f = forms[t[0]]
+        return f(t)
+    }
+    fn path(t) {
+        return "p" + ty(t[1]) + ty(t[2])
+    }
+    forms = {n = |t| t[1], p = |t| path(t)}
+    fn run() {
+        for i in range(60) {
+            path(["p", ["n", "a"], ["n", "b"]])
+        }
+        same = 0
+        for i in range(300) {
+            same += path(["p", ["n", "a"], ["p", ["n", "b"], ["n", "c"]]]) == "papbc"
+        }
+        return same
+    }
+    print(run())
+  expected: |-
+    300
+
+- case: |-
+    // a nested comprehension inside that recursion keeps the list it builds
+    fn ty(t) {
+        f = forms[t[0]]
+        return f(t)
+    }
+    fn path(t) {
+        ys = [y for y in [ty(x) for x in t[1]] if y != nil]
+        return "p(" + ",".join(ys) + ")"
+    }
+    forms = {n = |t| t[1], p = |t| path(t)}
+    fn run() {
+        for i in range(60) {
+            path(["p", [["n", "a"], ["n", "b"]]])
+        }
+        same = 0
+        for i in range(300) {
+            same += path(["p", [["n", "a"], ["p", [["n", "b"], ["n", "c"]]]]]) == "p(a,p(b,c))"
+        }
+        return same
+    }
+    print(run())
+  expected: |-
+    300
+
+- case: |-
+    // a closure made in that recursion under a comprehension reads its own level
+    fn ty(t) {
+        f = forms[t[0]]
+        return f(t)
+    }
+    fn path(t) {
+        k = t[0]
+        xs = [ty(x) for x in t[1]]
+        fn wrap() {
+            return k + "(" + ",".join(xs) + ")"
+        }
+        return wrap()
+    }
+    forms = {n = |t| t[1], p = |t| path(t)}
+    fn run() {
+        for i in range(60) {
+            path(["p", [["n", "a"], ["n", "b"]]])
+        }
+        same = 0
+        for i in range(300) {
+            same += path(["p", [["n", "a"], ["p", [["n", "b"], ["n", "c"]]]]]) == "p(a,p(b,c))"
+        }
+        return same
+    }
+    print(run())
+  expected: |-
+    300
+
+- case: |-
+    // a loop appending in that recursion keeps its list and its callee
+    fn ty(t) {
+        f = forms[t[0]]
+        return f(t)
+    }
+    fn path(t) {
+        xs = []
+        for x in t[1] {
+            xs.append(ty(x))
+        }
+        return "p(" + ",".join(xs) + ")"
+    }
+    forms = {n = |t| t[1], p = |t| path(t)}
+    fn run() {
+        for i in range(60) {
+            path(["p", [["n", "a"], ["n", "b"]]])
+        }
+        same = 0
+        for i in range(300) {
+            same += path(["p", [["n", "a"], ["p", [["n", "b"], ["p", [["n", "c"], ["n", "d"]]]]]]]) == "p(a,p(b,p(c,d)))"
+        }
+        return same
+    }
+    print(run())
+  expected: |-
+    300
