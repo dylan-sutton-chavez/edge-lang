@@ -74,13 +74,22 @@ runs:
         part: cli
         name: cdn-cli-${{ inputs.target }}
 
-    # the web and net suites drive a real browser that the runner image may lack
+    # web and net suites use the js suite's cached chromium since apt ships a snap
+    - name: Cache Playwright browsers
+      if: inputs.mode == 'test' && (inputs.suite == 'engine' || inputs.suite == 'network' || inputs.suite == '')
+      uses: actions/cache@v6
+      with:
+        path: ~/.cache/ms-playwright
+        key: playwright-${{ runner.os }}-chromium
+
     - name: Install Chromium
       if: inputs.mode == 'test' && (inputs.suite == 'engine' || inputs.suite == 'network' || inputs.suite == '')
       shell: bash
       run: |
-        sudo apt-get update
-        sudo apt-get install -y chromium-browser || sudo apt-get install -y chromium
+        make browsers
+        chrome=$(find ~/.cache/ms-playwright -path '*/chromium-*/chrome-linux*/chrome' -type f | head -1)
+        test -x "$chrome"
+        echo "EDGE_CHROME_PATH=$chrome" >> "$GITHUB_ENV"
 
     - name: Test
       if: inputs.mode == 'test'
