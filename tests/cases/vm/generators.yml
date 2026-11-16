@@ -3697,3 +3697,15 @@
   expected: |-
     0
     5 [5]
+
+- case: |-
+    fn pair() {
+        yield 1
+        yield 2
+    }
+    fn f(n) {
+        a, b = pair()
+        return f(n + 1)
+    }
+    f(0)
+  error: "RecursionError: calls nested past the recursion limit"

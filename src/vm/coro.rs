@@ -160,6 +160,10 @@ impl<'a> VM<'a> {
             Some(HeapObj::Coroutine(c)) if c.running => return Err(self.running_error(co)),
             _ => {}
         }
+        // a generator the loop refused to open says why as its own error
+        if self.heap.over() { return Err(crate::vm::cold_heap()); }
+        if self.budget == 0 { return Err(VmErr::Budget); }
+        if self.too_deep() { return Err(cold_depth()); }
         Err(self.resumed_apart())
     }
 
