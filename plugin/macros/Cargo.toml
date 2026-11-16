@@ -1,10 +1,16 @@
 [package]
-name = "plugin-macros"
+name = "interpreter-plugin-macros"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Internal proc-macro for the `plugin` crate. NOT FOR DIRECT USE, `plugin` re-exports the `#[plugin_fn]` attribute. Lives in its own crate because Rust requires proc-macros to set `proc-macro = true`; nesting at `plugin/macros` makes the parent-child relationship explicit."
+description = "Procedural macros of interpreter-plugin, which re-exports them, so depend on that crate instead."
+documentation = "https://docs.rs/interpreter-plugin-macros"
+readme = "../../README.md"
+keywords = ["interpreter", "plugin", "wasm", "macros"]
+categories = ["wasm", "development-tools::procedural-macro-helpers"]
+include = ["/src/**/*.rs"]
 
 [lib]
 proc-macro = true

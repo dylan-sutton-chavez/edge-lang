@@ -1,20 +1,20 @@
 #[allow(dead_code)]
 mod suite;
 
-use cli::cmd::{run, test};
-use cli::{docs, files, manifest, net, perms, Kit, Runtime};
+use interpreter_cli::cmd::{run, test};
+use interpreter_cli::{docs, files, manifest, net, perms, Kit, Runtime};
 use std::sync::Arc;
 use suite::{net_cases, Bin};
 
 // the variable that makes this binary the CLI for one run of a case
 const AS_CLI: &str = "EDGE_AS_RIG";
 
-// the rig make wasm-rig builds with the exports edge.wasm has
+// the rig make wasm-rig builds with the exports interpreter.wasm has
 const WASM: &[u8] = include_bytes!("../../target/wasm32-unknown-unknown/release/rig.wasm");
 
-/* the edge composition over the rig so plugin and net calls take lists and keywords */
+/* the interpreter composition over the rig so plugin and net calls take lists and keywords */
 fn kit() -> Kit {
-    Kit::new("edge", env!("CARGO_PKG_VERSION"), Runtime::wasm(WASM, &rig::DESCRIPTOR))
+    Kit::new("interpreter", env!("CARGO_PKG_VERSION"), Runtime::wasm(WASM, &rig::DESCRIPTOR))
         .command(run::Run)
         .command(test::Test)
         .fields(manifest::FIELDS)

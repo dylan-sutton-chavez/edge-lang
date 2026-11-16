@@ -6,7 +6,7 @@ use std::path::Path;
 use crate::kit::{Command, Descriptor, Kit};
 
 // a new project records its engine so an earlier engine says why it cannot run
-const EDGE_JSON: &str = concat!("{\n  \"edge\": \"", env!("CARGO_PKG_VERSION"), "\"\n}\n");
+const INTERPRETER_JSON: &str = concat!("{\n  \"interpreter\": \"", env!("CARGO_PKG_VERSION"), "\"\n}\n");
 const INDEX_HTML: &str = include_str!("../templates/scaffold.html");
 
 #[derive(Args)]
@@ -24,7 +24,7 @@ impl Command for Init {
     fn spec(&self, kit: &Kit) -> clap::Command {
         let entry = kit.descriptor().entry();
         InitArgs::augment_args(clap::Command::new("init").about("Scaffold a new project"))
-            .mut_arg("bare", |arg| arg.help(format!("Skip the browser index.html, scaffold only {entry} and edge.json")))
+            .mut_arg("bare", |arg| arg.help(format!("Skip the browser index.html, scaffold only {entry} and interpreter.json")))
     }
 
     fn summary(&self, _kit: &Kit) -> (String, String) {
@@ -56,7 +56,7 @@ fn run(kit: &Kit, name: Option<&str>, bare: bool) -> Result<()> {
     }
 
     let title = if dir == "." { format!("{} app", kit.name()) } else { dir.to_string() };
-    let mut files = vec![(d.entry(), d.scaffold.to_string()), ("edge.json", EDGE_JSON.to_string())];
+    let mut files = vec![(d.entry(), d.scaffold.to_string()), ("interpreter.json", INTERPRETER_JSON.to_string())];
     // the page runs the program in a browser so only the web host writes it
     let page = !bare && cfg!(feature = "web");
     if page {

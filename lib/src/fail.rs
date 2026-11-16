@@ -1,8 +1,8 @@
 use alloc::string::String;
 use alloc::vec;
 
-use edge::lang::{Cx, KindId, Mode};
-use edge::value::{Val, VmErr};
+use interpreter::lang::{Cx, KindId, Mode};
+use interpreter::value::{Val, VmErr};
 
 use crate::{Lang, Site};
 
@@ -516,7 +516,7 @@ fn plain<L: Lang>(cx: &Cx<'_, '_>, at: At, f: Fail) -> VmErr {
         Fail::SortCount(n) => type_error(&[name, " takes at most 2 arguments, not ", itoa::Buffer::new().format(n)]),
         Fail::SortPositional => type_error(&[name, " takes no positional arguments"]),
         Fail::SortKeyword(k) => {
-            let hint = edge::util::suggest::did_you_mean(&k, at.keywords.iter().copied());
+            let hint = interpreter::util::suggest::did_you_mean(&k, at.keywords.iter().copied());
             type_error(&[name, " takes no keyword ", &k, &hint])
         }
         Fail::ByteOrder => raise::<L>(Class::Value, "the call names no byte order the runtime knows"),

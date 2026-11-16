@@ -75,7 +75,7 @@ let running = false;
 let pauseAck: ((parked: boolean) => void) | null = null;
 // resolved by `resume` to release a parked run
 let resumeGate: (() => void) | null = null;
-// both caches outlive runs so nothing refetches or probes edge.json again until `clearCache`
+// both caches outlive runs so nothing refetches or probes interpreter.json again until `clearCache`
 const fetchedSources = new Map<string, Uint8Array>();
 const knownMissing = new Set<string>();
 // the package dirs this instance serves host modules to and what those modules opened
@@ -223,7 +223,7 @@ function grantor(): Access {
     return grants;
 }
 
-/* the root edge.json the embedder declared in place of the one at its base */
+/* the root interpreter.json the embedder declared in place of the one at its base */
 function given(): Record<string, unknown> | null {
     if (!standsIn({ imports: importsMap, permissions: permissionsMap })) return null;
     return { imports: importsMap ?? {}, ...(permissionsMap && { [grantor().field]: permissionsMap }) };
@@ -232,7 +232,7 @@ function given(): Record<string, unknown> | null {
 /* serves every package the walk met each host module its importers grant */
 function serveModules(exports: EdgeExports, packages: Packages): string[] {
     const problem = grants && grants.check(exports, packages[grants.field], modules);
-    if (problem) return [`edge.json at '${packages.root}edge.json': ${problem}`];
+    if (problem) return [`interpreter.json at '${packages.root}interpreter.json': ${problem}`];
     walked = packages;
     // only an undeclared name or a plugin can reach a host module
     if (!packages.needed) return [];
@@ -410,11 +410,11 @@ async function drive(exports: EdgeExports, rt: Rt, status: number, t0: number): 
 /* the source and entry a blob embeds read where the descriptor lays them */
 function snapshotHead(blob: Uint8Array, exports: EdgeExports): { source: string, entry: string } {
     const head = described(exports).snapshot;
-    if (!head) throw new Error('restoring a snapshot needs a newer edge.wasm');
+    if (!head) throw new Error('restoring a snapshot needs a newer interpreter.wasm');
     const at = head.source_at;
-    if (blob.length < at) throw new Error('not an edge snapshot');
+    if (blob.length < at) throw new Error('not an interpreter snapshot');
     const v = new DataView(blob.buffer, blob.byteOffset, blob.byteLength);
-    if (v.getUint32(0, true) !== head.magic) throw new Error('not an edge snapshot');
+    if (v.getUint32(0, true) !== head.magic) throw new Error('not an interpreter snapshot');
     // a blob another runtime saved is refused before its source is walked
     if (head.runtime_at !== undefined && head.runtime !== undefined && v.getBigUint64(head.runtime_at, true).toString(16).padStart(16, '0') !== head.runtime) {
         throw new Error('snapshot was saved under another runtime');
@@ -422,14 +422,14 @@ function snapshotHead(blob: Uint8Array, exports: EdgeExports): { source: string,
     const len = Number(v.getBigUint64(head.source_len_at, true));
     // the entry's name follows the source in a blob of a runtime that keeps one
     const named = head.entry_len_at === undefined ? 0 : Number(v.getBigUint64(head.entry_len_at, true));
-    if (at + len + named > blob.length) throw new Error('not an edge snapshot');
+    if (at + len + named > blob.length) throw new Error('not an interpreter snapshot');
     return { source: TD.decode(blob.subarray(at, at + len)), entry: TD.decode(blob.subarray(at + len, at + len + named)) };
 }
 
 /* an older wasm lacks the export and only preemption needs it */
 function applyPreemptInterval(exports: EdgeExports): void {
     if (!exports.set_preempt_interval) {
-        if (preemptEvery > 0) throw new Error('preemption needs a newer edge.wasm');
+        if (preemptEvery > 0) throw new Error('preemption needs a newer interpreter.wasm');
         return;
     }
     exports.set_preempt_interval(preemptEvery);

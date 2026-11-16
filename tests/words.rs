@@ -1,5 +1,5 @@
-use edge::lexer::{index, operators, Blocks, Comments, Continuation, Ends, Escapes, Interp, Keywords, Literal, Mode, Numbers, Quote, Shapes, Spelling, Strings, Suffix, Syntax, TokenType, Unicode, Unknown, Zeros, BYTES, FORMAT, RAW};
-use edge::lexer::TokenType as T;
+use interpreter::lexer::{index, operators, Blocks, Comments, Continuation, Ends, Escapes, Interp, Keywords, Literal, Mode, Numbers, Quote, Shapes, Spelling, Strings, Suffix, Syntax, TokenType, Unicode, Unknown, Zeros, BYTES, FORMAT, RAW};
+use interpreter::lexer::TokenType as T;
 
 const RESERVED: &[(&str, TokenType)] = &[
     ("false", T::False), ("nil", T::Nil), ("true", T::True), ("and", T::And), ("as", T::As), ("assert", T::Assert),
@@ -88,7 +88,7 @@ pub struct Words;
 
 impl Spelling for Words {
     const SYNTAX: Syntax = WORDS;
-    const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
+    const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
 }
 
 const BRACE_WORDS: &[(&str, TokenType)] = &[
@@ -200,7 +200,7 @@ pub struct Braces;
 
 impl Spelling for Braces {
     const SYNTAX: Syntax = BRACES;
-    const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
+    const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
 }
 
 const INDENT_WORDS: &[(&str, TokenType)] = &[
@@ -255,7 +255,7 @@ pub struct Indent;
 
 impl Spelling for Indent {
     const SYNTAX: Syntax = INDENT;
-    const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
+    const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
 }
 
 const LEGACY_WORDS: &[(&str, TokenType)] = &[
@@ -312,8 +312,8 @@ pub struct Legacy;
 
 impl Spelling for Legacy {
     const SYNTAX: Syntax = LEGACY;
-    const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
+    const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
 }
 
 /* `src` compiled in the legacy fixture for engine parts rig no longer spells */
-pub fn legacy(src: &str) -> (edge::code::SSAChunk, Vec<edge::code::Diagnostic>) { edge::code::compile_as::<Legacy>(src) }
+pub fn legacy(src: &str) -> (interpreter::code::SSAChunk, Vec<interpreter::code::Diagnostic>) { interpreter::code::compile_as::<Legacy>(src) }

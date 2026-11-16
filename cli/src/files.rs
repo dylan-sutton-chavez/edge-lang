@@ -199,12 +199,12 @@ mod tests {
 
     #[test]
     fn a_grant_reaches_its_file_and_what_its_directory_holds() {
-        let refusal = ("'main' has no files:".to_string(), ", edge.json grants it files:events.jsonl, files:logs/".to_string());
+        let refusal = ("'main' has no files:".to_string(), ", interpreter.json grants it files:events.jsonl, files:logs/".to_string());
         let held = Held::Scopes(Scopes::new(vec!["events.jsonl".to_string(), "logs/".to_string()], refusal));
         assert!(held.reach(&Files, "events.jsonl").is_ok() && held.reach(&Files, "logs/2026/a.txt").is_ok());
         for path in ["other.jsonl", "events.jsonl.gz", "logsx/a.txt"] {
             let refused = held.reach(&Files, path).unwrap_err();
-            assert_eq!(refused.text, format!("'main' has no files:{path}, edge.json grants it files:events.jsonl, files:logs/"));
+            assert_eq!(refused.text, format!("'main' has no files:{path}, interpreter.json grants it files:events.jsonl, files:logs/"));
         }
         assert!(Held::All.reach(&Files, "anything/at/all").is_ok());
     }
@@ -239,13 +239,13 @@ mod tests {
         for (link, to) in [("data/inner.txt", "a.txt"), ("data/leak.txt", "../secret.txt"), ("data/hosts", "/etc/hosts")] {
             std::os::unix::fs::symlink(to, dir.path().join(link)).unwrap();
         }
-        let refusal = ("'main' has no files:".to_string(), ", edge.json grants it files:data/".to_string());
+        let refusal = ("'main' has no files:".to_string(), ", interpreter.json grants it files:data/".to_string());
         let held = Held::Scopes(Scopes::new(vec!["data/".to_string()], refusal));
         let mut opened = Opened { held, dir: format!("{}/", dir.path().display()), open: HashMap::new() };
         let mut read = |path: &str| opened.open(&WireValue::Bytes(path.as_bytes().to_vec()), &WireValue::None).map(|_| ()).map_err(|fault| fault.text);
         assert_eq!(read("data/a.txt"), Ok(()));
         assert_eq!(read("data/inner.txt"), Ok(()));
-        assert_eq!(read("data/leak.txt"), Err("'main' has no files:secret.txt, edge.json grants it files:data/".to_string()));
+        assert_eq!(read("data/leak.txt"), Err("'main' has no files:secret.txt, interpreter.json grants it files:data/".to_string()));
         assert_eq!(read("data/hosts"), Err("'data/hosts' is a link out of the package, files reads only below it".to_string()));
     }
 
@@ -255,7 +255,7 @@ mod tests {
         std::fs::create_dir(dir.path().join("logs")).unwrap();
         std::fs::write(dir.path().join("logs/a.txt"), "inside\n").unwrap();
         // paths join the directory of the package's manifest
-        std::fs::write(dir.path().join("edge.json"), "{}\n").unwrap();
+        std::fs::write(dir.path().join("interpreter.json"), "{}\n").unwrap();
         let entry = dir.path().join("main.lox").display().to_string();
         let kit = crate::kit::tests::bare().module(Arc::new(Files));
         let host = Host::new(kit.load().unwrap()).unwrap();

@@ -32,7 +32,7 @@ impl crate::kit::Command for Uninstall {
 
 // runs the bundled uninstall.sh with bash from a temp file
 fn run() -> Result<()> {
-    println!("This removes the edge binary, its cache and the PATH entry from your shell rc files.");
+    println!("This removes the interpreter binary, its cache and the PATH entry from your shell rc files.");
     drop_browser()?;
 
     // a script file rather than stdin keeps read prompts working
@@ -44,7 +44,7 @@ fn run() -> Result<()> {
     if let Ok(exe) = std::env::current_exe()
         && let Some(dir) = exe.parent()
     {
-        cmd.env("EDGE_INSTALL_DIR", dir);
+        cmd.env("INTERPRETER_INSTALL_DIR", dir);
     }
 
     let status = cmd.status().map_err(|e| anyhow!("running bash: {e}"))?;
@@ -67,7 +67,7 @@ fn drop_browser() -> Result<()> {
         return Ok(());
     }
 
-    print!("Remove the headless Chromium edge downloaded to {}? [y/N] ", dir.display());
+    print!("Remove the headless Chromium interpreter downloaded to {}? [y/N] ", dir.display());
     std::io::stdout().flush().ok();
 
     let mut answer = String::new();
@@ -131,8 +131,8 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_preplanted_symlink_at_the_old_path_is_not_followed() {
-        let target = std::env::temp_dir().join(format!("edge-uninstall-target-{}", std::process::id()));
-        let decoy = std::env::temp_dir().join("edge-uninstall.sh");
+        let target = std::env::temp_dir().join(format!("interpreter-uninstall-target-{}", std::process::id()));
+        let decoy = std::env::temp_dir().join("interpreter-uninstall.sh");
         std::fs::write(&target, "keep me").unwrap();
         let _ = std::fs::remove_file(&decoy);
         std::os::unix::fs::symlink(&target, &decoy).unwrap();

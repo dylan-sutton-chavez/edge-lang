@@ -1,8 +1,8 @@
-use edge::embed::{Limits, VM};
+use interpreter::embed::{Limits, VM};
 use rig::RUNTIME;
 
-// every run meters what it allocates as edge.wasm does
-edge::allocator!();
+// every run meters what it allocates as interpreter.wasm does
+interpreter::allocator!();
 
 // each call's repr or its error in the words the corpus reads
 const TRY: &str = "fn t(f) {\n    try {\n        print(repr(f()))\n    } catch Error as e {\n        print(text(type(e)) + \":\", e)\n    }\n}\nfn g(n) {\n    for i in range(n) {\n        yield i\n    }\n}\nfn bad() {\n    yield 1\n    yield 300\n    print(\"past the bad one\")\n}\n";
@@ -10,7 +10,7 @@ const TRY: &str = "fn t(f) {\n    try {\n        print(repr(f()))\n    } catch E
 /* what the calls printed through the helpers above */
 fn tried(calls: &str) -> String {
     let src = String::from(TRY) + calls;
-    let (chunk, errors) = edge::code::compile_as::<rig::Rig>(&src);
+    let (chunk, errors) = interpreter::code::compile_as::<rig::Rig>(&src);
     assert!(errors.is_empty(), "{src}");
     let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
     let end = vm.run().err().map(|e| e.to_string()).unwrap_or_default();
@@ -153,18 +153,18 @@ fn arguments_convert_as_ints_and_bounds() {
 
 #[test]
 fn the_fast_paths_answer_as_the_full_calls() {
-    let mut heap = edge::value::HeapPool::new(1 << 20);
+    let mut heap = interpreter::value::HeapPool::new(1 << 20);
     let fast = |name: &str| rig::natives::BYTES.iter().find(|n| n.name == name).and_then(|n| n.fast1).unwrap_or_else(|| panic!("{name}"));
-    let shown = |heap: &edge::value::HeapPool, v: Option<edge::value::Val>| v.and_then(|v| heap.bytes_of(v).map(<[u8]>::to_vec));
-    let three = edge::value::Val::int(3);
+    let shown = |heap: &interpreter::value::HeapPool, v: Option<interpreter::value::Val>| v.and_then(|v| heap.bytes_of(v).map(<[u8]>::to_vec));
+    let three = interpreter::value::Val::int(3);
     let zeros = fast("bytes")(&mut heap, three);
     assert_eq!(shown(&heap, zeros), Some(vec![0, 0, 0]));
-    let hex = heap.alloc(edge::value::HeapObj::Str("41 42".to_string())).unwrap_or_else(|e| panic!("{e:?}"));
+    let hex = heap.alloc(interpreter::value::HeapObj::Str("41 42".to_string())).unwrap_or_else(|e| panic!("{e:?}"));
     let ab = fast("bytes_fromhex")(&mut heap, hex);
     assert_eq!(shown(&heap, ab), Some(vec![0x41, 0x42]));
-    let odd = heap.alloc(edge::value::HeapObj::Str("4".to_string())).unwrap_or_else(|e| panic!("{e:?}"));
+    let odd = heap.alloc(interpreter::value::HeapObj::Str("4".to_string())).unwrap_or_else(|e| panic!("{e:?}"));
     assert!(fast("bytes_fromhex")(&mut heap, odd).is_none());
-    let list = heap.alloc(edge::value::HeapObj::List(std::rc::Rc::new(core::cell::RefCell::new(vec![three, edge::value::Val::int(300)])))).unwrap_or_else(|e| panic!("{e:?}"));
+    let list = heap.alloc(interpreter::value::HeapObj::List(std::rc::Rc::new(core::cell::RefCell::new(vec![three, interpreter::value::Val::int(300)])))).unwrap_or_else(|e| panic!("{e:?}"));
     assert!(fast("bytearray")(&mut heap, list).is_none());
-    assert!(fast("bytes")(&mut heap, edge::value::Val::int(-1)).is_none());
+    assert!(fast("bytes")(&mut heap, interpreter::value::Val::int(-1)).is_none());
 }

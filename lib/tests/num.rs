@@ -1,18 +1,18 @@
-use edge::embed::{Limits, VM};
-use edge::lang::{Args, Cx, Native, Natives, Ret, Runtime, Sig};
-use edge::value::foreign::{BinOp, Snapshot, UnOp};
-use edge::value::{DictMap, HeapPool, Val, hash_val_with_heap};
-use lib::Site;
-use lib::fail::{Fail, fail};
-use lib::num::big::BigInt;
-use lib::num::int::Parse;
-use lib::uni::Decimal;
+use interpreter::embed::{Limits, VM};
+use interpreter::lang::{Args, Cx, Native, Natives, Ret, Runtime, Sig};
+use interpreter::value::foreign::{BinOp, Snapshot, UnOp};
+use interpreter::value::{DictMap, HeapPool, Val, hash_val_with_heap};
+use interpreter_lib::Site;
+use interpreter_lib::fail::{Fail, fail};
+use interpreter_lib::num::big::BigInt;
+use interpreter_lib::num::int::Parse;
+use interpreter_lib::uni::Decimal;
 use rig::Rig;
 use rig::lang::WIDE;
 use rig::natives::{ARRAY, BUFFER, BYTES, CONVERT, DICT, FLOAT, FOLDS, INT, IO, ITER, LIST, LIST_SORT, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
 
-// every run meters what it allocates as edge.wasm does
-edge::allocator!();
+// every run meters what it allocates as interpreter.wasm does
+interpreter::allocator!();
 
 /* a heap whose wide ints this kind boxes as a runtime installing it would */
 fn heap() -> HeapPool {
@@ -119,10 +119,10 @@ impl Site for Int {
 
 /* the raw parse of `text` in `base` with the base checked as int checks it */
 fn parse(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
-    let Some(text) = cx.text(a.pos[0]).map(String::from) else { return Ok(edge::value::Val::none().into()) };
+    let Some(text) = cx.text(a.pos[0]).map(String::from) else { return Ok(interpreter::value::Val::none().into()) };
     let base = a.pos[1].as_int();
     if base != 0 && !(2..=36).contains(&base) { return Err(fail::<Int>(cx, Fail::IntBase)); }
-    match lib::num::int::parse::<Rig, Decimal>(cx, &text, base) {
+    match interpreter_lib::num::int::parse::<Rig, Decimal>(cx, &text, base) {
         Ok(v) => Ok(v.into()),
         Err(Parse::Literal) => Err(fail::<Int>(cx, Fail::IntLiteral { base, v: a.pos[0] })),
         Err(Parse::Fail(e)) => Err(e),
@@ -131,7 +131,7 @@ fn parse(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
 
 const PARSE: &[Native] = &[Native::new("parse", Sig::exact(2), parse)];
 
-static NATIVES: Natives = edge::natives! {
+static NATIVES: Natives = interpreter::natives! {
     language: Over,
     fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, TYPES, rig::natives::MATCH, rig::natives::DATE, PARSE],
     methods: [
@@ -160,7 +160,7 @@ const TRY: &str = "fn t(f) {\n    try {\n        print(repr(f()))\n    } catch E
 
 fn tried(calls: &str) -> String {
     let src = String::from(TRY) + calls;
-    let (chunk, errors) = edge::code::compile_as::<rig::Rig>(&src);
+    let (chunk, errors) = interpreter::code::compile_as::<rig::Rig>(&src);
     assert!(errors.is_empty(), "{src}");
     let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
     let ran = vm.run();
@@ -245,38 +245,38 @@ fn natives_cross_into_wide_ints_and_back() {
 // a runtime of the rig's words with no limit on the digits of decimal text
 struct Unbounded;
 
-impl lib::fmt::render::Style for Unbounded {}
+impl interpreter_lib::fmt::render::Style for Unbounded {}
 
-impl edge::lang::Language for Unbounded {
+impl interpreter::lang::Language for Unbounded {
     const VERSION: u32 = 1;
-    const POLICY: edge::lang::Policy = edge::lang::Policy { max_int_digits: None, ..<Rig as edge::lang::Language>::POLICY };
-    const NATIVES: &'static edge::lang::Natives = &UNBOUNDED_NATIVES;
-    const NAMES: &'static edge::lang::Names = &rig::NAMES;
+    const POLICY: interpreter::lang::Policy = interpreter::lang::Policy { max_int_digits: None, ..<Rig as interpreter::lang::Language>::POLICY };
+    const NATIVES: &'static interpreter::lang::Natives = &UNBOUNDED_NATIVES;
+    const NAMES: &'static interpreter::lang::Names = &rig::NAMES;
     // its own spelling folds constants under the rules it states
-    const FRONT: edge::lang::Front = edge::lang::Front::spelled::<Lifted>();
-    const DESCRIPTOR: &'static edge::lang::Descriptor = &rig::DESCRIPTOR;
-    const WIDE: Option<&'static edge::value::foreign::Kind> = Some(&UNBOUNDED_WIDE);
-    const BUILT: edge::value::foreign::Built = <rig::Rig as edge::lang::Language>::BUILT;
+    const FRONT: interpreter::lang::Front = interpreter::lang::Front::spelled::<Lifted>();
+    const DESCRIPTOR: &'static interpreter::lang::Descriptor = &rig::DESCRIPTOR;
+    const WIDE: Option<&'static interpreter::value::foreign::Kind> = Some(&UNBOUNDED_WIDE);
+    const BUILT: interpreter::value::foreign::Built = <rig::Rig as interpreter::lang::Language>::BUILT;
     type Ops = ();
 
-    fn show(cx: &mut edge::lang::Cx<'_, '_>, v: edge::value::Val, mode: edge::lang::Mode) -> Result<String, edge::value::VmErr> { lib::fmt::render::hook::<Self>(cx, v, mode) }
+    fn show(cx: &mut interpreter::lang::Cx<'_, '_>, v: interpreter::value::Val, mode: interpreter::lang::Mode) -> Result<String, interpreter::value::VmErr> { interpreter_lib::fmt::render::hook::<Self>(cx, v, mode) }
 }
 
-impl lib::Lang for Unbounded {
-    const TREE: &'static lib::lang::Tree = &rig::types::TREE;
+impl interpreter_lib::Lang for Unbounded {
+    const TREE: &'static interpreter_lib::lang::Tree = &rig::types::TREE;
 
-    fn class(c: lib::Class) -> &'static str { <Rig as lib::Lang>::class(c) }
+    fn class(c: interpreter_lib::Class) -> &'static str { <Rig as interpreter_lib::Lang>::class(c) }
 }
 
-static UNBOUNDED_WIDE: edge::value::foreign::Kind = lib::num::big::kind::<Unbounded>("int");
+static UNBOUNDED_WIDE: interpreter::value::foreign::Kind = interpreter_lib::num::big::kind::<Unbounded>("int");
 
-const UNBOUNDED: &[Native] = &lib::table![Unbounded;
-    "print" => lib::io::print,
-    "len" => lib::seq::len,
-    "text" => lib::text::text,
+const UNBOUNDED: &[Native] = &interpreter_lib::table![Unbounded;
+    "print" => interpreter_lib::io::print,
+    "len" => interpreter_lib::seq::len,
+    "text" => interpreter_lib::text::text,
 ];
 
-static UNBOUNDED_NATIVES: Natives = edge::natives! {
+static UNBOUNDED_NATIVES: Natives = interpreter::natives! {
     language: Unbounded,
     fns: [UNBOUNDED],
     methods: [],
@@ -288,20 +288,20 @@ static UNBOUNDED_RUNTIME: Runtime = Runtime::of::<Unbounded>();
 /* the rig's spelling over the unbounded natives so the calls fuse to that table */
 struct Lifted;
 
-impl edge::lexer::Spelling for Lifted {
-    const SYNTAX: edge::lexer::Syntax = rig::RIG;
+impl interpreter::lexer::Spelling for Lifted {
+    const SYNTAX: interpreter::lexer::Syntax = rig::RIG;
     const NATIVES: &'static Natives = &UNBOUNDED_NATIVES;
 }
 
 // with no digit limit a wide int's text pays for its digits first
 #[test]
 fn decimal_text_with_no_limit_runs_out_of_budget_before_converting() {
-    let (chunk, errors) = edge::code::compile_as::<Lifted>("print(len(text(7 ** 200000)))\n");
+    let (chunk, errors) = interpreter::code::compile_as::<Lifted>("print(len(text(7 ** 200000)))\n");
     assert!(errors.is_empty());
     let mut vm = VM::with_runtime(&UNBOUNDED_RUNTIME, &chunk, Limits::sandbox());
     let ran = vm.run();
     assert!(ran.is_err_and(|e| e.to_string().contains("budget exceeded")), "{}", vm.output_text());
-    let (chunk, _) = edge::code::compile_as::<Lifted>("print(len(text(7 ** 2000)))\n");
+    let (chunk, _) = interpreter::code::compile_as::<Lifted>("print(len(text(7 ** 2000)))\n");
     let mut vm = VM::with_runtime(&UNBOUNDED_RUNTIME, &chunk, Limits::sandbox());
     assert!(vm.run().is_ok());
     assert_eq!(vm.output_text(), "1691\n");

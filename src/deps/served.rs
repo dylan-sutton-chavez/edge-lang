@@ -70,13 +70,13 @@ pub fn answers<H: DepHost>(host: &mut H, spec: &str) -> Result<(), VmErr> {
     Err(VmErr::Of(crate::lang::ErrKind::Permission, s!("this ", str name, " module was imported by another package and answers only it, import ", str name, " here instead")))
 }
 
-/* the nearest edge.json dir at or above `dir` which is the package of its code */
+/* the nearest interpreter.json dir at or above `dir` which is the package of its code */
 pub fn package_of<H: DepHost>(host: &mut H, dir: &str) -> Option<String> {
     if let Some(found) = host.deps(|d| d.packages.iter().find(|(at, _)| at == dir).map(|(_, p)| p.clone())) {
         return found;
     }
     let mut resolver = HostResolver::new(dir.to_string(), host.clone());
-    let found = walk_up_dirs(dir).find(|up| matches!(resolver.lookup_in_manifest(&s!(str up, "edge.json"), ""), Ok(Some(_))));
+    let found = walk_up_dirs(dir).find(|up| matches!(resolver.lookup_in_manifest(&s!(str up, "interpreter.json"), ""), Ok(Some(_))));
     host.deps(|d| d.packages.push((dir.to_string(), found.clone())));
     found
 }

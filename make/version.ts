@@ -5,7 +5,7 @@ function fail(message: string): never {
 
 const name = Deno.args[0] ?? ''
 const tag = name.replace(/^v/, '')
-// An edge floor names engine releases, so a release follows the rule every edge.json version does.
+// An interpreter floor names engine releases, so a release follows the rule every interpreter.json version does.
 if (!/^(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)$/.test(tag)) fail(`tag ${name} is not major.minor.patch with each part 0 to 99 and no leading zeros`)
 
 const version = (manifest: string) => Deno.readTextFileSync(manifest).match(/^version = "([^"]*)"/m)?.[1]

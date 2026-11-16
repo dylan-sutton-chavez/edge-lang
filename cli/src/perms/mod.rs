@@ -1,6 +1,6 @@
 use anyhow::{anyhow, bail, Context, Result};
-use edge::deps::json;
-use edge::deps::perms as grants;
+use interpreter::deps::json;
+use interpreter::deps::perms as grants;
 use serde_json::{Map, Value};
 use std::path::Path;
 use std::sync::Arc;
@@ -77,7 +77,7 @@ impl Access for Bundled {
         if over.is_empty() {
             return None;
         }
-        // one holder per line as `edge lock` lays out what a root misses
+        // one holder per line as `interpreter lock` lays out what a root misses
         let width = over.iter().map(|(holder, _)| holder.len()).max().unwrap_or(0);
         let lines: Vec<String> = over.iter().map(|(holder, asks)| format!("  {holder:<width$}   {asks}")).collect();
         Some(format!("the pool does not grant eval what this bundle grants\n{}", lines.join("\n")))
@@ -130,7 +130,7 @@ fn root(packages: &Packages, modules: &[Arc<dyn HostModule>]) -> Option<String> 
     if packages.section.as_object().is_none_or(|holders| holders.is_empty()) {
         return None;
     }
-    check(&packages.section, modules).map(|problem| format!("edge.json at '{}edge.json': {problem}", packages.root))
+    check(&packages.section, modules).map(|problem| format!("interpreter.json at '{}interpreter.json': {problem}", packages.root))
 }
 
 /* what the end of a json chain holds with a section and key per link */
@@ -162,9 +162,9 @@ fn ceiling(kit: &Kit, path: &str) -> Result<Vec<String>> {
     let Some(entries) = manifest.get(grants::FIELD).and_then(|section| section.get(EVAL)) else { return Ok(Vec::new()) };
     let eval = Value::Object(Map::from_iter([(EVAL.to_string(), entries.clone())]));
     if let Some(problem) = check(&eval, kit.wired()) {
-        bail!("edge.json at '{path}': {problem}");
+        bail!("interpreter.json at '{path}': {problem}");
     }
-    serde_json::from_value(entries.clone()).map_err(|e| anyhow!("edge.json at '{path}': {e}"))
+    serde_json::from_value(entries.clone()).map_err(|e| anyhow!("interpreter.json at '{path}': {e}"))
 }
 
 #[cfg(test)]
@@ -209,17 +209,17 @@ mod tests {
         let held = Perms.held(&p, &p.dirs[0], "words").unwrap();
         assert_eq!(held.scopes(), Some(&["api".to_string()][..]));
         let refused = held.need("zone").unwrap_err();
-        assert_eq!((refused.class, refused.text.as_str()), (Some(crate::host::Class::Denied), "'main' has no words:zone, edge.json grants it words:api"));
+        assert_eq!((refused.class, refused.text.as_str()), (Some(crate::host::Class::Denied), "'main' has no words:zone, interpreter.json grants it words:api"));
         let Err(refused) = Perms.held(&p, &p.dirs[0], "db") else { panic!("db was never granted") };
-        assert_eq!(refused, "'main' imports db, which edge.json does not grant it");
+        assert_eq!(refused, "'main' imports db, which interpreter.json does not grant it");
     }
 
     #[test]
     fn the_root_grants_are_checked_against_the_modules_wired() {
         let p = packages(json!({ "main": ["db:/"] }), json!([]));
-        assert_eq!(Perms.check(&p, &modules()).as_deref(), Some("edge.json at 'app/edge.json': permissions for 'main' name 'db', which is not a host module (words)"));
+        assert_eq!(Perms.check(&p, &modules()).as_deref(), Some("interpreter.json at 'app/interpreter.json': permissions for 'main' name 'db', which is not a host module (words)"));
         let p = packages(json!({ "main": ["words:API"] }), json!([]));
-        assert_eq!(Perms.check(&p, &modules()).as_deref(), Some("edge.json at 'app/edge.json': permissions for 'main' give words the scope 'API', which it does not have"));
+        assert_eq!(Perms.check(&p, &modules()).as_deref(), Some("interpreter.json at 'app/interpreter.json': permissions for 'main' give words the scope 'API', which it does not have"));
         assert!(Perms.check(&packages(json!({}), json!([])), &modules()).is_none());
     }
 
@@ -231,7 +231,7 @@ mod tests {
         let beyond = packages(json!({ "main": ["words:other"], "all": ["words"] }), json!([]));
         assert_eq!(bundled.check(&beyond, &modules()).as_deref(), Some("the pool does not grant eval what this bundle grants\n  main   words:other"));
         let Err(refused) = Snippet.held(&within, &within.dirs[0], "words") else { panic!("a snippet held words") };
-        assert_eq!(refused, "'main' imports words, which edge.json does not grant it");
+        assert_eq!(refused, "'main' imports words, which interpreter.json does not grant it");
     }
 
     #[test]

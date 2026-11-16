@@ -1,8 +1,8 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use edge::lang::{Args, Cx, Ret, Sig};
-use edge::value::{DictMap, HeapObj, Val, VmErr};
+use interpreter::lang::{Args, Cx, Ret, Sig};
+use interpreter::value::{DictMap, HeapObj, Val, VmErr};
 
 use crate::fail::{Error, Fail, Json, ToJson, fail};
 use crate::fmt::render::format_f64;

@@ -2,19 +2,24 @@
 [workspace]
 
 [package]
-name = "cli"
-version = "0.9.7"
+name = "interpreter-cli"
+version = "0.10.0"
 edition = "2024"
-description = "The Edge Lang CLI kit, a core that takes a runtime and the commands a composition wires, and the edge binary composed from it. Runs, tests, and scaffolds programs on the same edge.wasm the browser uses, packs apps into standalone binaries or bundles, and runs cooperative actor pools."
+rust-version = "1.98"
+license = "Apache-2.0"
+repository = "https://github.com/dylan-sutton-chavez/interpreter"
+# its build embeds interpreter.wasm and the js host made outside this crate
+publish = false
+description = "The interpreter CLI kit, a core that takes a runtime and the commands a composition wires, and the interpreter binary composed from it."
 
 # the kit a composition builds a command line from
 [lib]
-name = "cli"
+name = "interpreter_cli"
 path = "src/lib.rs"
 
 # the reference composition wiring every command over the embedded runtime
 [[bin]]
-name = "edge"
+name = "interpreter"
 path = "src/main.rs"
 required-features = ["all"]
 
@@ -30,7 +35,7 @@ path = "tests/channels.rs"
 harness = false
 required-features = ["embed", "files", "perms", "run"]
 
-# the edge composition's run and test over lox built in with no wasm
+# the interpreter composition's run and test over lox built in with no wasm
 [[test]]
 name = "native"
 path = "tests/native.rs"
@@ -44,14 +49,14 @@ path = "tests/coverage.rs"
 harness = false
 required-features = ["coverage", "run"]
 
-# the edge composition over the rig's wasm for plugin and net calls lox cannot write
+# the interpreter composition over the rig's wasm for plugin and net calls lox cannot write
 [[test]]
 name = "rig"
 path = "tests/rig.rs"
 harness = false
 required-features = ["embed", "docs", "files", "net", "perms", "run", "test"]
 
-# each command sits behind its own feature and the edge binary wires them all
+# each command sits behind its own feature and the interpreter binary wires them all
 [features]
 default = ["all", "wasm"]
 all = ["actors", "actors-server", "build", "docs", "embed", "files", "init", "net", "packages", "perms", "run", "serve", "test", "uninstall", "web"]
@@ -62,10 +67,10 @@ actors-server = ["actors", "dep:mio", "dep:signal-hook"]
 build = ["docs", "web"]
 # the pages a package ships held to the docs convention and to the icons Lucide draws
 docs = []
-# the reference runtime this crate precompiles for the build target and the edge binary embeds
-embed = ["wasm", "dep:lox"]
-# the lines each native run executed written where EDGE_COVERAGE names
-coverage = ["edge/coverage"]
+# the reference runtime this crate precompiles for the build target and the interpreter binary embeds
+embed = ["wasm", "dep:interpreter-lox"]
+# the lines each native run executed written where INTERPRETER_COVERAGE names
+coverage = ["interpreter/coverage"]
 # reads of the local files a grant names under the package that asks
 files = ["dep:flate2"]
 init = []
@@ -85,9 +90,9 @@ wasm = ["dep:wasmtime"]
 
 [dependencies]
 # The engine crate as a library, manifest parsing and sha256 pinning.
-edge = { path = ".." }
-# the reference runtime whose descriptor the edge composition hands the kit
-lox = { path = "../examples/lox", optional = true }
+interpreter = { path = ".." }
+# the reference runtime whose descriptor the interpreter composition hands the kit
+interpreter-lox = { path = "../examples/lox", optional = true }
 # hosts the runtime a composition hands the kit and Cranelift compiles the plugins a project declares
 wasmtime = { version = "48", default-features = false, features = ["runtime", "std", "cranelift"], optional = true }
 clap = { version = "4", features = ["derive"] }
@@ -98,7 +103,7 @@ serde_json = "1"
 # Parses the actor.yml manifest, the maintained fork of serde_yaml.
 serde_yaml_ng = { version = "0.10", optional = true }
 anyhow = "1"
-# HTTPS for URL imports and `edge build` vendoring.
+# HTTPS for URL imports and `interpreter build` vendoring.
 ureq = { version = "3", features = ["brotli"] }
 # Stable actor keys that survive removal, so the scheduler queues never dangle.
 slab = { version = "0.4", optional = true }
@@ -110,7 +115,7 @@ tempfile = { version = "3", optional = true }
 tungstenite = { version = "0.29", default-features = false, features = ["handshake", "rustls-tls-webpki-roots"], optional = true }
 # Inflates a gzip body `net.read` streams, the decoder ureq already brings for its own encodings.
 flate2 = { version = "1", optional = true }
-# Drives the browser host for `edge run --web` over CDP, `fetch` downloads a known-good Chromium when the user agrees.
+# Drives the browser host for `interpreter run --web` over CDP, `fetch` downloads a known-good Chromium when the user agrees.
 headless_chrome = { version = "1", features = ["fetch"], optional = true }
 
 # SIGTERM and SIGINT close a live actor server so its actors finish what they hold.
@@ -125,9 +130,9 @@ tiny_http = "0.12"
 tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
 flate2 = "1"
 # the reference runtime the native test builds into its binary
-lox = { path = "../examples/lox" }
+interpreter-lox = { path = "../examples/lox" }
 # the kernels the runtime example of the docs names
-lib = { path = "../lib" }
+interpreter-lib = { path = "../lib" }
 # the names of the rig whose wasm the rig test loads
 rig = { path = "../tests/rig", default-features = false }
 
@@ -142,7 +147,7 @@ codegen-units = 1
 panic = "abort"
 strip = true
 
-# build.rs runs Cranelift over edge.wasm which unoptimized takes ten times longer
+# build.rs runs Cranelift over interpreter.wasm which unoptimized takes ten times longer
 [profile.release.build-override]
 opt-level = 3
 

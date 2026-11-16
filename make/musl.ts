@@ -12,8 +12,8 @@ function inside(path: string) {
 }
 
 const env: string[] = []
-const wasm = Deno.env.get('EDGE_WASM')
-if (wasm) env.push('-e', `EDGE_WASM=${inside(wasm)}`)
+const wasm = Deno.env.get('INTERPRETER_WASM')
+if (wasm) env.push('-e', `INTERPRETER_WASM=${inside(wasm)}`)
 
 // The container writes as root, so a host with users gets the target dir back.
 const uid = Deno.uid()
@@ -24,4 +24,4 @@ if (code !== 0) Deno.exit(code)
 
 const out = join(repo, 'cli/target', target, 'release')
 mkdirSync(out, { recursive: true })
-copyFileSync(join(repo, 'cli/target/release/edge'), join(out, 'edge'))
+copyFileSync(join(repo, 'cli/target/release/interpreter'), join(out, 'interpreter'))

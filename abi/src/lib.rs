@@ -1,11 +1,12 @@
 #![no_std]
+#![doc = "The wire format the interpreter engine, its hosts and `interpreter-plugin` share: tags, ops, error kinds and the ABI version."]
 
 extern crate alloc;
 
 use alloc::vec::Vec;
 
 /* bumped on any breaking change and a host refuses any `__edge_abi_version` it does not know */
-pub const EDGE_ABI_VERSION: u32 = 1;
+pub const ABI_VERSION: u32 = 1;
 
 /* the NaN-boxing layout that packs a `Val` into 64 bits */
 pub mod nan_box {

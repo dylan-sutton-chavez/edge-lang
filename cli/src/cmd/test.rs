@@ -43,7 +43,7 @@ impl Command for Test {
     fn manifest(&self, m: &ArgMatches) -> PathBuf {
         let dir = match m.try_get_one::<PathBuf>("path").ok().flatten() {
             Some(path) if path.is_dir() => format!("{}/", path_spec(path).trim_end_matches('/')),
-            Some(path) => edge::deps::dir_of(&path_spec(path)),
+            Some(path) => interpreter::deps::dir_of(&path_spec(path)),
             None => String::new(),
         };
         kit::root_manifest(m, &dir)

@@ -1,71 +1,75 @@
 ---
 title: "Overview"
-description: "What the Edge SDK is, what it is made of, and how to install it from GitHub."
+description: "What interpreter is, what it is made of, and how to install it."
 ---
 
 # Overview
 
-The Edge SDK is a toolkit for building language runtimes in Rust. You bring a token table, a few rules and the natives your programs call, and the SDK gives you the rest:
+`interpreter` is a toolkit for building language runtimes in Rust. You bring a token table, a few rules and the natives your programs call, and the SDK gives you the rest:
 
 1. **Lexer.** Reads source bytes through your token table in one linear pass.
 2. **Parser.** A single-pass Pratt parser with no AST that writes SSA bytecode and reports diagnostics with recovery.
 3. **VM.** A register VM that runs the bytecode with an op budget, an exact memory meter, a garbage collector and snapshots.
 
-A runtime built on it compiles to one WebAssembly module that runs in a web page, in the `edge` CLI or inside your own Rust program. A program reaches no file, no network and no environment unless its host grants it.
+A runtime built on it compiles to one WebAssembly module that runs in a web page, in the `interpreter` CLI or inside your own Rust program. A program reaches no file, no network and no environment unless its host grants it.
 
 ## What the repo holds
 
 | Part | Path | What you use it for |
 |---|---|---|
-| `edge` | `src/` | The engine crate: lexer, parser, VM, snapshots, imports and grants |
-| `lib` | `lib/` | Ready natives (print, text, lists, maps, JSON, dates...) a runtime names in its own table |
-| `cli` | `cli/` | The `edge` CLI, and the kit you compose a CLI of your own from |
+| `interpreter` | `src/` | The engine crate: lexer, parser, VM, snapshots, imports and grants |
+| `interpreter-lib` | `lib/` | Ready natives (print, text, lists, maps, JSON, dates...) a runtime names in its own table |
+| `interpreter-cli` | `cli/` | The `interpreter` CLI, and the kit you compose a CLI of your own from |
 | JS host | `js/` | `createWorker`, which runs a runtime's `.wasm` in a web page |
-| `plugin` | `plugin/` | The crate for writing `.wasm` plugins a program imports |
-| Lox | `examples/lox` | Lox, the language of the book Crafting Interpreters, the runtime `edge.wasm` is built from and the `edge` CLI runs |
+| `interpreter-plugin` | `plugin/` | The crate for writing `.wasm` plugins a program imports |
+| `interpreter-lox` | `examples/lox` | Lox, the language of the book Crafting Interpreters, the runtime `interpreter.wasm` is built from and the `interpreter` CLI runs |
 
 The examples in these pages run programs written in Lox. It passes the book's own test suite, and past the book it imports modules with `import("name")` and reaches its host through the natives `input`, `exit`, `send`, `receive`, `len` and `text`. Any runtime you build runs the same way.
 
 ## Install
 
-Everything installs from [the repo on GitHub](https://github.com/dylan-sutton-chavez/edge-lang). You need Rust, and Deno for the JS host.
-
-The CLI:
+The crates come from crates.io:
 
 ```bash
-git clone https://github.com/dylan-sutton-chavez/edge-lang
-cd edge-lang
+cargo add interpreter interpreter-lib
+# Lox, for embedding it as it is
+cargo add interpreter-lox
+```
+
+The CLI, its kit and the JS host build from [the repo on GitHub](https://github.com/dylan-sutton-chavez/interpreter). You need Rust, and Deno for the JS host.
+
+```bash
+git clone https://github.com/dylan-sutton-chavez/interpreter
+cd interpreter
 make wasm-cli js lucide
 cargo install --path cli
 ```
 
-`rust-toolchain.toml` pins the toolchain and its wasm target, and `cargo install` puts `edge` in `~/.cargo/bin`. A tagged release also attaches prebuilt binaries for macOS and Linux, and `cli/setup/install.sh` installs the latest one into `~/.local/bin`:
+`rust-toolchain.toml` pins the toolchain and its wasm target, and `cargo install` puts `interpreter` in `~/.cargo/bin`. A tagged release also attaches prebuilt binaries for macOS and Linux, and `cli/setup/install.sh` installs the latest one into `~/.local/bin`:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/dylan-sutton-chavez/edge-lang/main/cli/setup/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/dylan-sutton-chavez/interpreter/main/cli/setup/install.sh | bash
 ```
 
-The crates, as git dependencies of your own crate:
+The CLI kit is not on crates.io, so a crate of your own takes it from git with the crates it builds on, all from the same commit:
 
 ```toml
 [dependencies]
-edge = { git = "https://github.com/dylan-sutton-chavez/edge-lang", branch = "main" }
-lib = { git = "https://github.com/dylan-sutton-chavez/edge-lang", branch = "main" }
-# Lox, for embedding it as it is
-lox = { git = "https://github.com/dylan-sutton-chavez/edge-lang", branch = "main" }
+interpreter = { git = "https://github.com/dylan-sutton-chavez/interpreter", branch = "main" }
+interpreter-lox = { git = "https://github.com/dylan-sutton-chavez/interpreter", branch = "main" }
 # the CLI kit, with only the commands you wire
-cli = { git = "https://github.com/dylan-sutton-chavez/edge-lang", branch = "main", default-features = false, features = ["run", "test"] }
+interpreter-cli = { git = "https://github.com/dylan-sutton-chavez/interpreter", branch = "main", default-features = false, features = ["run", "test"] }
 ```
 
-Pin `tag = "vX.Y.Z"` or `rev = "..."` instead of `branch` for a reproducible build. The crates build offline once fetched.
+Pin `tag = "vX.Y.Z"` or `rev = "..."` instead of `branch` for a reproducible build.
 
-The JS host and `edge.wasm`, as the tree a page serves:
+The JS host and `interpreter.wasm`, as the tree a page serves:
 
 ```bash
 make wasm js stage PARTS="wasm js"
 ```
 
-That writes `_cdn/`, with `edge.wasm` at its root and the host under `js/src/`. A tagged release attaches the same tree as `cdn.tar.gz`, and `edge build --web` copies it into a project's `dist/`.
+That writes `_cdn/`, with `interpreter.wasm` at its root and the host under `js/src/`. A tagged release attaches the same tree as `cdn.tar.gz`, and `interpreter build --web` copies it into a project's `dist/`.
 
 ## Pages
 
@@ -75,5 +79,5 @@ That writes `_cdn/`, with `edge.wasm` at its root and the host under `js/src/`. 
 | [Grammar](./03-grammar.mdx) | Forms, modes and patterns a runtime adds to the parser |
 | [Rust](./04-rust.mdx) | Compile and run programs inside a Rust program, events, host functions and snapshots |
 | [JavaScript](./05-javascript.mdx) | Run a runtime's `.wasm` in a page, and the exports any host drives |
-| [CLI](./06-cli.mdx) | The `edge` commands, packages by URL, grants, and a CLI of your own |
+| [CLI](./06-cli.mdx) | The `interpreter` commands, packages by URL, grants, and a CLI of your own |
 | [Errors and limits](./07-errors-and-limits.mdx) | How errors read, and every cap a run is held to |

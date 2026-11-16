@@ -1,65 +1,65 @@
 ---
-name: edge
-description: Run, test and pack Edge Lang projects with the edge CLI, with their imports, permissions, actor pools and sandbox limits. Use when working in an Edge Lang project or when the user asks how to use the edge CLI.
+name: interpreter
+description: Run, test and pack interpreter projects with the interpreter CLI, with their imports, permissions, actor pools and sandbox limits. Use when working in an interpreter project or when the user asks how to use the interpreter CLI.
 ---
 
-# Edge Lang
+# interpreter
 
-This document is self-verifying and its examples follow the cells v1 grammar. A `lox` or `yml` block followed immediately by a `text` block is a runnable cell, and the `skill` crate beside it in the repository executes every cell through the edge CLI and compares it against the `text` block. The tag on the `text` block is `Output` for a run whose stdout must equal the block, or `Error` for a failing run whose stderr contains the given text. A `lox` block tagged `skip` never runs on any engine and never pairs with a `text` block, and it always says why with one `// skip` comment at the exact construct that is nondeterministic. A `yml` block tagged `actor` runs a trusted actor pool through `edge actor`, while one tagged `untrusted` runs eval groups. Any `lox` block without a `text` pair is illustrative only. Every cell runs in a scratch directory holding the `edge.json` the runner writes, `{}`, since nothing resolves undeclared, and the `yml` cells find the same manifest beside their `actor.yml`. Verify the whole file from the repository root with `make test-skill`, which builds the CLI first, or with `cargo run -p skill -- skill/SKILL.md --edge <path to edge>`.
+This document is self-verifying and its examples follow the cells v1 grammar. A `lox` or `yml` block followed immediately by a `text` block is a runnable cell, and the `skill` crate beside it in the repository executes every cell through the interpreter CLI and compares it against the `text` block. The tag on the `text` block is `Output` for a run whose stdout must equal the block, or `Error` for a failing run whose stderr contains the given text. A `lox` block tagged `skip` never runs on any engine and never pairs with a `text` block, and it always says why with one `// skip` comment at the exact construct that is nondeterministic. A `yml` block tagged `actor` runs a trusted actor pool through `interpreter actor`, while one tagged `untrusted` runs eval groups. Any `lox` block without a `text` pair is illustrative only. Every cell runs in a scratch directory holding the `interpreter.json` the runner writes, `{}`, since nothing resolves undeclared, and the `yml` cells find the same manifest beside their `actor.yml`. Verify the whole file from the repository root with `make test-skill`, which builds the CLI first, or with `cargo run -p skill -- skill/SKILL.md --interpreter <path to interpreter>`.
 
-Edge Lang is an engine for building language runtimes, a single-pass compiler to bytecode and a register VM in one WebAssembly binary. The `edge` CLI runs Lox, the language of the book Crafting Interpreters built on it, on macOS, Linux and WSL, and the JS host runs the same `edge.wasm` in browsers and in JavaScript runtimes such as Deno. Lox ends each statement with `;`, declares with `var`, `fun` and `class`, prints with the `print` statement and reads only `nil` and `false` as false, and every number is a double. Past the book a program calls `text(v)` for a value as print shows it, `len(v)`, `list(a, b)` and `item(v, i)` for what a host module takes and gives, `input()`, `exit(code)`, `send(group, body)`, `receive()` and `clock()`, and `import("spec")` binds a module at compile time. Every module is a file or a package declared in `edge.json`. Programs are deterministic, and a program reaches no network or file unless its `edge.json` grants it.
+`interpreter` is an engine for building language runtimes, a single-pass compiler to bytecode and a register VM in one WebAssembly binary. The `interpreter` CLI runs Lox, the language of the book Crafting Interpreters built on it, on macOS, Linux and WSL, and the JS host runs the same `interpreter.wasm` in browsers and in JavaScript runtimes such as Deno. Lox ends each statement with `;`, declares with `var`, `fun` and `class`, prints with the `print` statement and reads only `nil` and `false` as false, and every number is a double. Past the book a program calls `text(v)` for a value as print shows it, `len(v)`, `list(a, b)` and `item(v, i)` for what a host module takes and gives, `input()`, `exit(code)`, `send(group, body)`, `receive()` and `clock()`, and `import("spec")` binds a module at compile time. Every module is a file or a package declared in `interpreter.json`. Programs are deterministic, and a program reaches no network or file unless its `interpreter.json` grants it.
 
-Use this skill to drive the edge CLI. It covers running, testing and packing a project, declaring what it imports, granting it the network and files, running actor pools and staying inside the sandbox limits.
+Use this skill to drive the interpreter CLI. It covers running, testing and packing a project, declaring what it imports, granting it the network and files, running actor pools and staying inside the sandbox limits.
 
 ## The working loop
 
-A project is any folder with `.lox` files and an `edge.json` declaring every module they import. The loop is always the same.
+A project is any folder with `.lox` files and an `interpreter.json` declaring every module they import. The loop is always the same.
 
 1. Write or edit the `.lox` files.
-2. Run the entry point with `edge run main.lox`.
-3. Add tests in `*_test.lox` files and run `edge test`.
-4. Pack a release with `edge build` when the program must run elsewhere.
+2. Run the entry point with `interpreter run main.lox`.
+3. Add tests in `*_test.lox` files and run `interpreter test`.
+4. Pack a release with `interpreter build` when the program must run elsewhere.
 
 ```bash
-edge init myapp                          # scaffold main.lox, edge.json and index.html
+interpreter init myapp                          # scaffold main.lox, interpreter.json and index.html
 cd myapp
-edge run main.lox                        # run the entry point
+interpreter run main.lox                        # run the entry point
 echo 'if (6 * 7 != 42) exit(1);' > answer_test.lox
-edge test                                # run every *_test.lox under the folder
-edge add slugify=./slugify_mod.wasm      # declare a module by path or by URL
-edge lock                                # pin each declared URL in edge.lock
-edge build                               # pack a portable ./app.edge bundle
+interpreter test                                # run every *_test.lox under the folder
+interpreter add slugify=./slugify_mod.wasm      # declare a module by path or by URL
+interpreter lock                                # pin each declared URL in interpreter.lock
+interpreter build                               # pack a portable ./app.interpreter bundle
 ```
 
-`edge init` writes `main.lox`, which prints one line, an `index.html` that runs it in a browser on the JS host `edge build --web` writes to `dist/`, and an `edge.json` holding only the engine that made it. Its last line names `edge build --web && edge serve`.
+`interpreter init` writes `main.lox`, which prints one line, an `index.html` that runs it in a browser on the JS host `interpreter build --web` writes to `dist/`, and an `interpreter.json` holding only the engine that made it. Its last line names `interpreter build --web && interpreter serve`.
 
 ```json
 {
-  "edge": "0.9.7"
+  "interpreter": "0.9.7"
 }
 ```
 
 Piping a script works too, which is how the cells of this document run.
 
 ```bash
-echo 'print 6 * 7;' | edge run
+echo 'print 6 * 7;' | interpreter run
 ```
 
 When a file path is given, piped stdin instead feeds `input()`, one line per call.
 
 ## CLI reference
 
-Bare `edge` prints help and exits 0. `edge -v` prints the version. `Ctrl+C` exits 130. Errors print to stderr and exit 1.
+Bare `interpreter` prints help and exits 0. `interpreter -v` prints the version. `Ctrl+C` exits 130. Errors print to stderr and exit 1.
 
 ### Global flags
 
 | Flag | Effect |
 |---|---|
-| `--manifest <file>` | Use this manifest instead of `./edge.json` |
+| `--manifest <file>` | Use this manifest instead of `./interpreter.json` |
 
-### edge run
+### interpreter run
 
-`edge run [file]` executes a `.lox` script, a packed `.edge` bundle or an app binary, auto-detected by content. With no file it reads the script from stdin. A bare `edge run` in a terminal with no pipe errors. `edge run -c 'print 1;'` runs inline code instead of a file or stdin, and piped stdin then feeds `input()`.
+`interpreter run [file]` executes a `.lox` script, a packed `.interpreter` bundle or an app binary, auto-detected by content. With no file it reads the script from stdin. A bare `interpreter run` in a terminal with no pipe errors. `interpreter run -c 'print 1;'` runs inline code instead of a file or stdin, and piped stdin then feeds `input()`.
 
 Run flags.
 
@@ -75,7 +75,7 @@ Run flags.
 
 `exit(code)` ends the run cleanly with that code, and `exit()` ends it with 0. Any other error prints its message and the line it rose at, as the book's interpreters do, and exits 1.
 
-`--web` serves the JS host and the engine from the binary on a loopback port, so only the modules a manifest declares by URL leave the machine. It drives a Chrome the system already has, or one it offers to download once into `~/.local/share/edge/chromium`, which `edge uninstall` offers to remove. `EDGE_CHROME_PATH` names a browser directly and skips the search.
+`--web` serves the JS host and the engine from the binary on a loopback port, so only the modules a manifest declares by URL leave the machine. It drives a Chrome the system already has, or one it offers to download once into `~/.local/share/edge/chromium`, which `interpreter uninstall` offers to remove. `INTERPRETER_CHROME_PATH` names a browser directly and skips the search.
 
 `send(channel, line)` writes one line to a named output outside an actor pool, in order with what the run prints. A plain name prints its lines under the name, and `file:<path>` writes a file in the directory the run started in, a path below it with no `..`. Only the root package writes a file channel without a grant.
 
@@ -90,41 +90,41 @@ github up
 checked 1 service
 ```
 
-### edge test
+### interpreter test
 
-`edge test [path]` discovers `*_test.lox` recursively, skipping hidden dirs and `dist`. A file argument runs exactly that file. Each file executes in a fresh session and state never leaks between files. A file passes when it ends cleanly or exits with 0, so an error or `exit(1)` fails it, and its output never decides it. The exit code is 0 when everything passes, 1 when a file fails or no tests are found, and 2 when the engine cannot start. `--memory` and `--ops` apply as they do for `edge run`.
+`interpreter test [path]` discovers `*_test.lox` recursively, skipping hidden dirs and `dist`. A file argument runs exactly that file. Each file executes in a fresh session and state never leaks between files. A file passes when it ends cleanly or exits with 0, so an error or `exit(1)` fails it, and its output never decides it. The exit code is 0 when everything passes, 1 when a file fails or no tests are found, and 2 when the engine cannot start. `--memory` and `--ops` apply as they do for `interpreter run`.
 
-`edge test --web` runs the same files on the browser host in headless Chrome, one browser for the suite with a fresh page per file, so a package can prove it answers the same in a browser.
+`interpreter test --web` runs the same files on the browser host in headless Chrome, one browser for the suite with a fresh page per file, so a package can prove it answers the same in a browser.
 
-### edge init, edge add, edge remove, edge lock
+### interpreter init, interpreter add, interpreter remove, interpreter lock
 
-`edge init [name]` scaffolds `main.lox`, `edge.json` and `index.html` in a new directory, or in the current one with no name. `--bare` skips the HTML. It never overwrites a file, and refuses with the name of the first one that already exists.
+`interpreter init [name]` scaffolds `main.lox`, `interpreter.json` and `index.html` in a new directory, or in the current one with no name. `--bare` skips the HTML. It never overwrites a file, and refuses with the name of the first one that already exists.
 
-`edge add foo=<url>` or `edge add foo=./path` writes the spec verbatim under `imports` and prints it with what the package asks the root to grant. A URL can be a raw file or a release asset on GitHub, such as `https://github.com/owner/foo/releases/download/v0.1.0/app.edge`. Each host tells a `.lox` and a `.wasm` module apart by the artifact, and a `.js` or `.mjs` spec is refused before anything is written. `edge add` keeps `extends` and any other key already there. `edge remove` deletes entries. A spec without a URL or a path, such as a bare name or a version, aborts the whole command before any write, and neither command touches `edge.lock`.
+`interpreter add foo=<url>` or `interpreter add foo=./path` writes the spec verbatim under `imports` and prints it with what the package asks the root to grant. A URL can be a raw file or a release asset on GitHub, such as `https://github.com/owner/foo/releases/download/v0.1.0/app.interpreter`. Each host tells a `.lox` and a `.wasm` module apart by the artifact, and a `.js` or `.mjs` spec is refused before anything is written. `interpreter add` keeps `extends` and any other key already there. `interpreter remove` deletes entries. A spec without a URL or a path, such as a bare name or a version, aborts the whole command before any write, and neither command touches `interpreter.lock`.
 
-`edge lock` pins each declared URL to the digest of its bytes and writes `edge.lock` beside the manifest, rebuilding the whole file each time, so `edge run`, `edge test` and `edge build` refuse bytes other than the ones it pins. A declared version names no source and `edge lock` refuses it. It also walks every package in the tree, each through its own `edge.lock`, and writes nothing while a package lacks what it lists from its importer. `edge run` and `edge test` repeat that check on the nearest `edge.json` above the script or the tested path before compiling, and `edge build` on the project's own.
+`interpreter lock` pins each declared URL to the digest of its bytes and writes `interpreter.lock` beside the manifest, rebuilding the whole file each time, so `interpreter run`, `interpreter test` and `interpreter build` refuse bytes other than the ones it pins. A declared version names no source and `interpreter lock` refuses it. It also walks every package in the tree, each through its own `interpreter.lock`, and writes nothing while a package lacks what it lists from its importer. `interpreter run` and `interpreter test` repeat that check on the nearest `interpreter.json` above the script or the tested path before compiling, and `interpreter build` on the project's own.
 
-### edge serve
+### interpreter serve
 
 A static dev server with live reload for the current directory. `--host` defaults to `127.0.0.1`, `--port` to 5173, `--open` opens a browser. On a loopback address it answers only a request whose `Host` names that address, with 421 for any other, and a path through a dot entry or a link out of the directory answers 404.
 
-### edge build
+### interpreter build
 
 Three mutually exclusive modes.
 
 | Mode | Default output | Artifact |
 |---|---|---|
-| `edge build` | `app.edge` | Raw bundle for hosts and pools that already have `edge` |
-| `edge build --app` | `app` | Standalone binary, runs offline on the same OS and CPU with nothing installed |
-| `edge build --web` | `dist/` | Browser distribution with the vendored JS host and packages |
+| `interpreter build` | `app.interpreter` | Raw bundle for hosts and pools that already have `interpreter` |
+| `interpreter build --app` | `app` | Standalone binary, runs offline on the same OS and CPU with nothing installed |
+| `interpreter build --web` | `dist/` | Browser distribution with the vendored JS host and packages |
 
-`--out <path>` overrides the default. The bundle contains every `.lox` and `.wasm` under the project plus `edge.json`, each `edge.lock`, the `README.md` and any `LICENSE` at the project root, together with each module the manifest declares by URL and the files it imports. When `edge.json` declares a `docs` directory, a `.edge` also carries its `.mdx` pages under a reserved `@docs/` prefix, checked against the rendering convention first, and an app binary leaves them out. The entry is `main.lox`, `app.lox` or `index.lox`, the first present. An app binary accepts only the snapshot flags `--save-state`, `--restore-state`, `--preempt` and `--events`.
+`--out <path>` overrides the default. The bundle contains every `.lox` and `.wasm` under the project plus `interpreter.json`, each `interpreter.lock`, the `README.md` and any `LICENSE` at the project root, together with each module the manifest declares by URL and the files it imports. When `interpreter.json` declares a `docs` directory, a `.interpreter` also carries its `.mdx` pages under a reserved `@docs/` prefix, checked against the rendering convention first, and an app binary leaves them out. The entry is `main.lox`, `app.lox` or `index.lox`, the first present. An app binary accepts only the snapshot flags `--save-state`, `--restore-state`, `--preempt` and `--events`.
 
-### edge actor
+### interpreter actor
 
-`edge actor <file>` runs an actor pool from an `actor.yml` manifest, resolving group imports through the `edge.json` beside it or the one `--manifest` names. See the actors section for the schema and the two execution models.
+`interpreter actor <file>` runs an actor pool from an `actor.yml` manifest, resolving group imports through the `interpreter.json` beside it or the one `--manifest` names. See the actors section for the schema and the two execution models.
 
-### edge uninstall
+### interpreter uninstall
 
 Interactive removal of the binary and PATH entries.
 
@@ -132,14 +132,14 @@ Interactive removal of the binary and PATH entries.
 
 | Variable | Effect |
 |---|---|
-| `EDGE_CHROME_PATH` | The browser `--web` drives |
-| `EDGE_WASM` | Path to the `edge.wasm` a build of the CLI embeds |
+| `INTERPRETER_CHROME_PATH` | The browser `--web` drives |
+| `INTERPRETER_WASM` | Path to the `interpreter.wasm` a build of the CLI embeds |
 
 ## Imports
 
 Every import resolves at compile time through a host resolver. The compiler flattens each module into the bytecode and the VM fetches nothing at run time.
 
-`import("spec")` with a literal spec binds the module as the program compiles and gives it as a value whose fields are its globals. A spec starting with `./` or `../` names a file beside the importing one, a spec holding a `/` names a file from the nearest `edge.json` dir, and a bare name names an import that manifest declares.
+`import("spec")` with a literal spec binds the module as the program compiles and gives it as a value whose fields are its globals. A spec starting with `./` or `../` names a file beside the importing one, a spec holding a `/` names a file from the nearest `interpreter.json` dir, and a bare name names an import that manifest declares.
 
 ```lox
 var helpers = import("./lib/helpers.lox");
@@ -149,7 +149,7 @@ var same = import("lib/helpers.lox");
 
 Not supported. A spec held in a variable, since only a literal binds at compile time and any other `import(x)` calls a global no program binds.
 
-Bare names resolve through `edge.json`, walking up from the importing file with the nearest manifest winning. The manifest maps each name to a path, a URL, or a `major.minor.patch` version under `imports`, and `extends` may name a parent manifest. A version resolves through the `edge.lock` beside the manifest that declared it, such as the one a packed package carries, which every host reads before the compiler sees the manifest, so the compiler only ever meets a path or a URL. An `edge` field names the lowest engine the project runs on, `major.minor.patch`, and it runs on that version or any later one, never on an earlier one, which stops with `this project needs edge 1.0.0, this is 0.9.7`. The artifact decides the kind, `.lox` is a code module and `.wasm` a native plugin, so a manifest never classifies a package, and a `.js` or `.mjs` import fails with `module 'charts' is JavaScript, ship a .lox or a .wasm`, since no JavaScript loads besides the host itself. `permissions` grants the host modules, see that section. `name`, `version`, `description`, `repository` and `docs` are the package fields, ignored by the compiler and shape-checked by the CLI, and the license is read from the packed `LICENSE` file.
+Bare names resolve through `interpreter.json`, walking up from the importing file with the nearest manifest winning. The manifest maps each name to a path, a URL, or a `major.minor.patch` version under `imports`, and `extends` may name a parent manifest. A version resolves through the `interpreter.lock` beside the manifest that declared it, such as the one a packed package carries, which every host reads before the compiler sees the manifest, so the compiler only ever meets a path or a URL. An `interpreter` field names the lowest engine the project runs on, `major.minor.patch`, and it runs on that version or any later one, never on an earlier one, which stops with `this project needs interpreter 1.0.0, this is 0.9.7`. The artifact decides the kind, `.lox` is a code module and `.wasm` a native plugin, so a manifest never classifies a package, and a `.js` or `.mjs` import fails with `module 'charts' is JavaScript, ship a .lox or a .wasm`, since no JavaScript loads besides the host itself. `permissions` grants the host modules, see that section. `name`, `version`, `description`, `repository` and `docs` are the package fields, ignored by the compiler and shape-checked by the CLI, and the license is read from the packed `LICENSE` file.
 
 ```json
 {
@@ -160,14 +160,14 @@ Bare names resolve through `edge.json`, walking up from the importing file with 
 }
 ```
 
-A bare name resolves only when declared, `edge add <name>=<url>` then `edge lock` writes each entry, and an undeclared name fails at compile time.
+A bare name resolves only when declared, `interpreter add <name>=<url>` then `interpreter lock` writes each entry, and an undeclared name fails at compile time.
 
 ```lox
 import("nothere");
 ```
 
 ```text Error
-module 'nothere' is not provided by this host and no edge.json declares it
+module 'nothere' is not provided by this host and no interpreter.json declares it
 ```
 
 The CLI adds a `help:` line that says to declare the name or import it by a relative path. Modules are singletons with shared mutable state, and an import cycle fails at compile time with `circular import: '<spec>'` naming the module it comes back to.
@@ -179,26 +179,26 @@ The module body itself runs as a coroutine the host drives. `receive()` parks it
 The CLI can serialize the full interpreter state, heap, globals and the suspended module body, and restore it later. This is how long-running or event-driven programs survive process restarts.
 
 ```bash
-edge run app.lox --save-state state.bin    # writes the blob when the script parks
-edge run --restore-state state.bin         # resumes from the blob
-edge run app.lox --preempt 500             # makes even a bare while (true) snapshottable
+interpreter run app.lox --save-state state.bin    # writes the blob when the script parks
+interpreter run --restore-state state.bin         # resumes from the blob
+interpreter run app.lox --preempt 500             # makes even a bare while (true) snapshottable
 ```
 
 A snapshot is taken when the script parks on a wait the engine cannot serve, for example `receive()` with no events left. Without `--save-state` such a park is an error. The blob embeds a bytecode fingerprint and a digest of the runtime's natives and only restores into the same program on the same runtime, and a SHA-256 seal makes a damaged blob fail to restore instead of running. The seal stops damage, not forgery, so a blob that passes through untrusted hands needs a signature of the host. A restored run keeps the op budget it saved and the events and input lines it had not read, capped by the run's `--ops` and `--memory` or their defaults, and a blob whose heap needs more memory than that is refused. Feed a resumed run with `--events file`, one `receive()` line per call.
 
 ## Host modules
 
-The network comes from `net`, which the CLI and the browser both serve, and the CLI also serves `files`, which reads the local files a grant names. A host module needs no `imports` entry, only a grant from the root `edge.json`, and an import without one fails at compile time. A program reaches no clock or environment at all.
+The network comes from `net`, which the CLI and the browser both serve, and the CLI also serves `files`, which reads the local files a grant names. A host module needs no `imports` entry, only a grant from the root `interpreter.json`, and an import without one fails at compile time. A program reaches no clock or environment at all.
 
 ```lox
 import("net");
 ```
 
 ```text Error
-'main' imports net, which edge.json does not grant it
+'main' imports net, which interpreter.json does not grant it
 ```
 
-`permissions` maps each holder to a list of `module:scope` entries. The holder is `main` for the code of the package itself, `all` for it and every package it imports, an import key for the package that key imports, or `eval` for the most a bundle may grant in an eval group. `net:<host>` allows exactly that host, a lowercase name or an IPv4 as `a.b.c.d` with no scheme or port and no IPv6, and `net:<host>/<prefix>` bounds it to that path prefix and what sits under it however a server decodes the path. `files:<path>` allows one file below the directory of the package's `edge.json`, and `files:<dir>/` every file under that directory. An entry without a scope, like `"net"`, lets the package import the module and reach nothing.
+`permissions` maps each holder to a list of `module:scope` entries. The holder is `main` for the code of the package itself, `all` for it and every package it imports, an import key for the package that key imports, or `eval` for the most a bundle may grant in an eval group. `net:<host>` allows exactly that host, a lowercase name or an IPv4 as `a.b.c.d` with no scheme or port and no IPv6, and `net:<host>/<prefix>` bounds it to that path prefix and what sits under it however a server decodes the path. `files:<path>` allows one file below the directory of the package's `interpreter.json`, and `files:<dir>/` every file under that directory. An entry without a scope, like `"net"`, lets the package import the module and reach nothing.
 
 ```json
 {
@@ -209,7 +209,7 @@ import("net");
 }
 ```
 
-The root grants each package it imports under its import key. A dependency lists in its own `edge.json` what its code needs under `main` and what each of its imports needs under that key, and passes on only what it holds, so its importer has to give it all of that. `edge lock` stops until every package gets what it lists, and no import may be named `all`, `main` or `eval`. A package is what an import key brings in and the nearest `edge.json` above its files, the `name` it declares never counts, code it reaches by a relative import is its own, and a package two importers share loads once for each. A grant under the key of a local module with no `edge.json` of its own reaches nothing and stops the run before it compiles. Each call checks its scope again, a call outside the grant ends the run naming what is missing, and a host module with the requests and sockets it opens answers only code of the package that imported it, so another package reaching `analytics.net` is refused too. A `.wasm` plugin reaches the same calls through the `Sys` op of the ABI with the grants of its package, and finishes a call that waits in `__edge_resume`.
+The root grants each package it imports under its import key. A dependency lists in its own `interpreter.json` what its code needs under `main` and what each of its imports needs under that key, and passes on only what it holds, so its importer has to give it all of that. `interpreter lock` stops until every package gets what it lists, and no import may be named `all`, `main` or `eval`. A package is what an import key brings in and the nearest `interpreter.json` above its files, the `name` it declares never counts, code it reaches by a relative import is its own, and a package two importers share loads once for each. A grant under the key of a local module with no `interpreter.json` of its own reaches nothing and stops the run before it compiles. Each call checks its scope again, a call outside the grant ends the run naming what is missing, and a host module with the requests and sockets it opens answers only code of the package that imported it, so another package reaching `analytics.net` is refused too. A `.wasm` plugin reaches the same calls through the `Sys` op of the ABI with the grants of its package, and finishes a call that waits in `__edge_resume`.
 
 ### net
 
@@ -228,19 +228,19 @@ The CLI runs these calls in Rust and the browser in TypeScript, and one suite of
 
 ### files
 
-`open(path, inflate)` returns an id once a grant reaches the path and the file opens, `read(id)` returns the next chunk as `bytes` or `nil` at the end, and `close(id)` drops it. A path is names joined by slashes below the package's `edge.json`, with no `.` or `..` segment, no leading slash and no backslash. With `inflate` as `'gzip'` a read hands back the inflated bytes. A refused path, a path no grant reaches and a missing file each end the run naming why. The JS host serves no files, and an untrusted run reads only below its pool's `edge.json`.
+`open(path, inflate)` returns an id once a grant reaches the path and the file opens, `read(id)` returns the next chunk as `bytes` or `nil` at the end, and `close(id)` drops it. A path is names joined by slashes below the package's `interpreter.json`, with no `.` or `..` segment, no leading slash and no backslash. With `inflate` as `'gzip'` a read hands back the inflated bytes. A refused path, a path no grant reaches and a missing file each end the run naming why. The JS host serves no files, and an untrusted run reads only below its pool's `interpreter.json`.
 
 ```lox
 import("files");
 ```
 
 ```text Error
-'main' imports files, which edge.json does not grant it
+'main' imports files, which interpreter.json does not grant it
 ```
 
 ## Actors
 
-`edge actor` runs many isolated programs as cooperative actors over a few threads, share-nothing with message passing. There are two execution models and the manifest chooses per group.
+`interpreter actor` runs many isolated programs as cooperative actors over a few threads, share-nothing with message passing. There are two execution models and the manifest chooses per group.
 
 ```yaml
 runtime:
@@ -284,7 +284,7 @@ got hello
 
 ### The untrusted model
 
-`eval: true` groups compile each message as its own program in a fresh wasm instance with its own memory, capped by the `memory` limit of the group and by three times that plus 64 MiB of linear memory, and cut off by a deadline the host enforces from outside after `limits: timeout:` seconds of wall-clock time, waits included, ten unless set and at most 300. An eval group holds four actors unless `replicas` says otherwise. No state survives between messages. A bundle that carries its own `edge.json` resolves through it, any other message through the manifest of the pool. Either way `.wasm` plugins and remote modules are refused, and `send()` has no scheduler, so a send raises and the pool names the group it asked for. A bundle grants its own permissions in its own `edge.json` as any root does, but only within what the pool grants `eval`, so an entry past it refuses the run before it compiles, and a snippet holds nothing. A failed eval run prints its error under its group and counts as a crash. A `code` or `run` group is trusted instead, it keeps state, can send and can use `net` and `files` under the grants of the pool, so reach for `eval` when the code is not yours.
+`eval: true` groups compile each message as its own program in a fresh wasm instance with its own memory, capped by the `memory` limit of the group and by three times that plus 64 MiB of linear memory, and cut off by a deadline the host enforces from outside after `limits: timeout:` seconds of wall-clock time, waits included, ten unless set and at most 300. An eval group holds four actors unless `replicas` says otherwise. No state survives between messages. A bundle that carries its own `interpreter.json` resolves through it, any other message through the manifest of the pool. Either way `.wasm` plugins and remote modules are refused, and `send()` has no scheduler, so a send raises and the pool names the group it asked for. A bundle grants its own permissions in its own `interpreter.json` as any root does, but only within what the pool grants `eval`, so an entry past it refuses the run before it compiles, and a snippet holds nothing. A failed eval run prints its error under its group and counts as a crash. A `code` or `run` group is trusted instead, it keeps state, can send and can use `net` and `files` under the grants of the pool, so reach for `eval` when the code is not yours.
 
 ```yml untrusted
 groups:
@@ -297,11 +297,11 @@ groups:
 42
 ```
 
-With `listen:` the actor accepts one `<group> <body>` line per TCP message, and with `control:` beside it a live server also exposes an HTTP control endpoint on a loopback address, `GET /stats`, `POST /pub/<group>` and `POST /eval/<group>` for eval groups. Without `control:` it serves no HTTP at all. A `/pub` answers 202 once its message is written and synced to the log, and 503 when the log fails. Untrusted bundles arrive as base64 `.edge` payloads behind an `EDGEPKG:` marker and run from memory in a fresh instance.
+With `listen:` the actor accepts one `<group> <body>` line per TCP message, and with `control:` beside it a live server also exposes an HTTP control endpoint on a loopback address, `GET /stats`, `POST /pub/<group>` and `POST /eval/<group>` for eval groups. Without `control:` it serves no HTTP at all. A `/pub` answers 202 once its message is written and synced to the log, and 503 when the log fails. Untrusted bundles arrive as base64 `.interpreter` payloads behind an `EDGEPKG:` marker and run from memory in a fresh instance.
 
 ## Sandbox limits
 
-Programs run under a fixed budget, and exceeding one ends the run with what it reached. Memory and operations can be raised, with `--memory <MB>` and `--ops <n>` on `edge run` and `edge test`, `limits` on `createWorker` and `limits:` on an actor group. Memory counts every byte the allocator hands the program, frames and caches included.
+Programs run under a fixed budget, and exceeding one ends the run with what it reached. Memory and operations can be raised, with `--memory <MB>` and `--ops <n>` on `interpreter run` and `interpreter test`, `limits` on `createWorker` and `limits:` on an actor group. Memory counts every byte the allocator hands the program, frames and caches included.
 
 | Limit | Value | Raised |
 |---|---|---|

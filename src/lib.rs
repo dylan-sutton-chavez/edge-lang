@@ -1,4 +1,5 @@
 #![cfg_attr(not(feature = "std"), no_std)]
+#![doc = include_str!("../README.md")]
 // unsafe code lives in r#unsafe alone as the lint gate checks
 #![deny(unsafe_code)]
 
@@ -21,7 +22,7 @@ pub mod abi {
     pub mod bridge;
 }
 
-/* the wasm runtime edge.wasm builds and what a native binary boots a runtime with */
+/* the wasm runtime interpreter.wasm builds and what a native binary boots a runtime with */
 pub mod targets;
 
 /* internal engine helpers apart from the pipeline code and from any runtime library */

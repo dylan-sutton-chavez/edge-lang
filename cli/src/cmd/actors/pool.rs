@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Condvar, Mutex};
 
-use edge::embed::Limits;
+use interpreter::embed::Limits;
 
 use crate::host::{Loaded, Untrusted};
 use crate::kit::{Kit, Words};

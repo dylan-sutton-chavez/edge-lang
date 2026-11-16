@@ -13,10 +13,10 @@ doctest = false
 
 [features]
 default = ["std"]
-std = ["edge/std"]
+std = ["interpreter/std"]
 # builds rig.wasm with the engine's exports so the cli tests run what lox cannot write
-web = ["edge/runtime", "edge/perms"]
+web = ["interpreter/runtime", "interpreter/perms"]
 
 [dependencies]
-edge = { path = "../..", default-features = false }
-lib = { path = "../../lib" }
+interpreter = { path = "../..", default-features = false }
+interpreter-lib = { path = "../../lib" }

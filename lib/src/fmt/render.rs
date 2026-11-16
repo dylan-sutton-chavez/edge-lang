@@ -2,8 +2,8 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt::Write;
 
-use edge::lang::{Args, Cx, Mode, Ret, Sig};
-use edge::value::{HeapObj, HeapPool, Val, VmErr};
+use interpreter::lang::{Args, Cx, Mode, Ret, Sig};
+use interpreter::value::{HeapObj, HeapPool, Val, VmErr};
 
 use crate::{Kernel, Lang, Site, uni};
 
@@ -539,7 +539,7 @@ fn key_or_repr<L: Lang>(out: &mut String, s: &str, key: bool) {
 
 /* an empty set as the runtime spells it or its kind's name then a bare call */
 fn empty_set<L: Lang>(cx: &Cx<'_, '_>, out: &mut String) {
-    if L::EMPTY_SET.is_empty() { push(out, &[cx.names().kind(edge::lang::KindId::Set), "()"]); } else { out.push_str(L::EMPTY_SET); }
+    if L::EMPTY_SET.is_empty() { push(out, &[cx.names().kind(interpreter::lang::KindId::Set), "()"]); } else { out.push_str(L::EMPTY_SET); }
 }
 
 /* opens container `o` on `out` with an empty set written whole */

@@ -1,11 +1,11 @@
-use edge::embed::{Limits, VM};
-use edge::lang::{Acc, Args, Cont, Cx, Flow, Fold, Item, Native, Natives, Ret, Runtime, STEPS, Sent, Sig, Step, Then};
-use edge::value::{SchedulerStatus, Val, VmErr};
+use interpreter::embed::{Limits, VM};
+use interpreter::lang::{Acc, Args, Cont, Cx, Flow, Fold, Item, Native, Natives, Ret, Runtime, STEPS, Sent, Sig, Step, Then};
+use interpreter::value::{SchedulerStatus, Val, VmErr};
 use rig::Rig;
 use rig::natives::{ARRAY, BUFFER, BYTES, CONVERT, DICT, FLOAT, FOLDS, INT, IO, ITER, LIST, LIST_SORT, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
 
-// every run meters what it allocates as edge.wasm does
-edge::allocator!();
+// every run meters what it allocates as interpreter.wasm does
+interpreter::allocator!();
 
 const STEPPED: &[Native] = &[
     Native::new("apply", Sig::exact(2), apply).flags(STEPS),
@@ -26,7 +26,7 @@ const STEPPED: &[Native] = &[
     Native::new("most", Sig::exact(1), most).flags(STEPS),
 ];
 
-static NATIVES: Natives = edge::natives! {
+static NATIVES: Natives = interpreter::natives! {
     language: Over,
     fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, TYPES, rig::natives::MATCH, rig::natives::DATE, STEPPED],
     methods: [
@@ -138,7 +138,7 @@ fn lists(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
 fn lists_end(acc: &mut Acc, cx: &mut Cx<'_, '_>, item: Item) -> Result<Flow, VmErr> {
     let Item::End(_) = item else { return Ok(Flow::More) };
     let part = cx.new_list(core::mem::take(&mut acc.items))?;
-    if let Some(edge::value::HeapObj::List(rc)) = cx.heap().try_get(acc.v[3]) { rc.borrow_mut().push(part); }
+    if let Some(interpreter::value::HeapObj::List(rc)) = cx.heap().try_get(acc.v[3]) { rc.borrow_mut().push(part); }
     Ok(match next_of(acc) { Some(it) => Flow::Drain(it), None => Flow::Stop(acc.v[3]) })
 }
 
@@ -203,7 +203,7 @@ fn wait(cx: &mut Cx<'_, '_>, _: Args<'_>) -> Ret {
 
 /* what `src` printed or its error with one event pushed at each wait */
 fn run(src: &str, events: &[&str]) -> Result<String, String> {
-    let (chunk, errors) = edge::code::compile_as::<Rig>(src);
+    let (chunk, errors) = interpreter::code::compile_as::<Rig>(src);
     assert!(errors.is_empty(), "{src}: {:?}", errors.iter().map(|e| &e.msg).collect::<Vec<_>>());
     let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
     let mut events = events.iter();
@@ -348,16 +348,16 @@ fn a_call_that_misses_a_signature_reads_in_the_runtimes_words() {
 #[test]
 fn a_native_value_survives_a_snapshot() {
     let src = "xs = [1]\npush = xs.append\nlen_of = apply\nwait()\npush(2)\nprint(xs, len_of(len, xs), push)";
-    let (chunk, _) = edge::code::compile_as::<Rig>(src);
+    let (chunk, _) = interpreter::code::compile_as::<Rig>(src);
     let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
     assert!(matches!(vm.run(), Err(VmErr::HostYield(SchedulerStatus::PendingEvent))));
-    let blob = edge::embed::save(&vm, src, "").unwrap_or_else(|e| panic!("{e}"));
+    let blob = interpreter::embed::save(&vm, src, "").unwrap_or_else(|e| panic!("{e}"));
     let mut back = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
-    edge::embed::restore(&mut back, &blob).unwrap_or_else(|e| panic!("{e}"));
+    interpreter::embed::restore(&mut back, &blob).unwrap_or_else(|e| panic!("{e}"));
     back.push_event("go").unwrap_or_else(|e| panic!("{e}"));
     back.run().unwrap_or_else(|e| panic!("{e}"));
     assert!(back.output_text().starts_with("[1, 2] 2 fn list::append bound at "), "{}", back.output_text());
     // another runtime refuses the blob
     let mut bare = VM::with_limits(&chunk, Limits::sandbox());
-    assert!(edge::embed::restore(&mut bare, &blob).is_err_and(|e| e.contains("another runtime")));
+    assert!(interpreter::embed::restore(&mut bare, &blob).is_err_and(|e| e.contains("another runtime")));
 }

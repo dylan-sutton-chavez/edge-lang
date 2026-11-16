@@ -25,7 +25,7 @@
   {
     "name": "a native module fails at its import",
     "given": {
-      "edge.json": "{ \"imports\": { \"s\": \"./s.so\" } }\n",
+      "interpreter.json": "{ \"imports\": { \"s\": \"./s.so\" } }\n",
       "s.so": "",
       "s.lox": "var x = 1;\nimport(\"s\");\n"
     },
@@ -34,7 +34,7 @@
   {
     "name": "a JavaScript module is refused where it is imported",
     "given": {
-      "edge.json": "{ \"imports\": { \"lib\": \"./lib.lox\", \"widget\": \"./widget.js\" } }\n",
+      "interpreter.json": "{ \"imports\": { \"lib\": \"./lib.lox\", \"widget\": \"./widget.js\" } }\n",
       "widget.js": "export default () => ({});\n",
       "lib.lox": "import(\"widget\");\n",
       "main.lox": "import(\"lib\");\n"
@@ -44,20 +44,20 @@
   {
     "name": "an undeclared unknown name keeps the generic hint",
     "given": { "main.lox": "import(\"my_helpers\");\n" },
-    "steps": [{ "run": ["run", "main.lox"], "exit": 1, "stderr": ["help: declare it in edge.json, or use a relative import\n", "--> main.lox:1:1"] }]
+    "steps": [{ "run": ["run", "main.lox"], "exit": 1, "stderr": ["help: declare it in interpreter.json, or use a relative import\n", "--> main.lox:1:1"] }]
   },
   {
     "name": "a remote module's missing manifests are asked for once",
     "given": {
-      "edge.json": "{ \"imports\": { \"lib\": \"{BASE}/lib/mod.lox\" } }\n",
+      "interpreter.json": "{ \"imports\": { \"lib\": \"{BASE}/lib/mod.lox\" } }\n",
       "main.lox": "var lib = import(\"lib\");\nprint lib.f();\n"
     },
-    "steps": [{ "run": ["run", "main.lox"], "stdout": ["7\n"] }, { "run": ["run", "main.lox"], "stdout": ["7\n"], "requests": { "/lib/mod.lox": 1, "/lib/edge.json": 1, "/edge.json": 1 } }]
+    "steps": [{ "run": ["run", "main.lox"], "stdout": ["7\n"] }, { "run": ["run", "main.lox"], "stdout": ["7\n"], "requests": { "/lib/mod.lox": 1, "/lib/interpreter.json": 1, "/interpreter.json": 1 } }]
   },
   {
     "name": "a single-shot pool delivers every message",
     "given": {
-      "edge.json": "{}\n",
+      "interpreter.json": "{}\n",
       "pool.yml": "runtime:\n  max_actors: 1000000\ngroups:\n  dispatcher:\n    seed: [\"go\"]\n    code: |\n      receive();\n      var i = 0;\n      while (i < 20000) {\n          send(\"workers\", text(i));\n          i = i + 1;\n      }\n  workers:\n    replicas: 1000000\n    code: |\n      var m = receive();\n      print \"ok \" + m;\n"
     },
     "steps": [{ "run": ["actor", "pool.yml"], "lines": { "ok ": 20000 } }]
@@ -70,7 +70,7 @@
   {
     "name": "a plugin that does not load fails at its import and names the module that reached it",
     "given": {
-      "edge.json": "{ \"imports\": { \"badplug\": \"./bad.wasm\", \"lib\": \"./lib.lox\" } }\n",
+      "interpreter.json": "{ \"imports\": { \"badplug\": \"./bad.wasm\", \"lib\": \"./lib.lox\" } }\n",
       "bad.wasm": "notwasm",
       "lib.lox": "var x = 1;\nimport(\"badplug\");\n",
       "main.lox": "print 1;\nimport(\"badplug\");\n",

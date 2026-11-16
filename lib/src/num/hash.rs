@@ -1,7 +1,7 @@
 use alloc::collections::BTreeMap;
 
-use edge::lang::{Args, Cx, Ret, Sig};
-use edge::value::{HeapObj, HeapPool, UnOp, Val, VmErr, fabs, hash_val_with_heap};
+use interpreter::lang::{Args, Cx, Ret, Sig};
+use interpreter::value::{HeapObj, HeapPool, UnOp, Val, VmErr, fabs, hash_val_with_heap};
 
 use super::big;
 use crate::iter::items::range_len;

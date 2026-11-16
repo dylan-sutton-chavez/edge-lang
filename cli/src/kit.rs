@@ -5,8 +5,8 @@ use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-pub use edge::embed::Limits;
-pub use edge::lang::Descriptor;
+pub use interpreter::embed::Limits;
+pub use interpreter::lang::Descriptor;
 
 use crate::host::{Access, Engine, HostModule, Names, Native, Open, Project, Sink, Wiring};
 #[cfg(feature = "wasm")]
@@ -29,8 +29,8 @@ enum Engines {
     // a wasm module with the native code wasmtime precompiled from it or none to compile it on load
     #[cfg(feature = "wasm")]
     Wasm { module: Cow<'static, [u8]>, native: Option<&'static [u8]> },
-    // a runtime built into this binary whose metering needs `edge::allocator!()`
-    Native(&'static edge::lang::Runtime),
+    // a runtime built into this binary whose metering needs `interpreter::allocator!()`
+    Native(&'static interpreter::lang::Runtime),
 }
 
 impl Runtime {
@@ -48,7 +48,7 @@ impl Runtime {
     }
 
     /* a runtime built into this binary as the native test boots lox */
-    pub fn native(runtime: &'static edge::lang::Runtime) -> Runtime {
+    pub fn native(runtime: &'static interpreter::lang::Runtime) -> Runtime {
         Runtime { engine: Engines::Native(runtime), descriptor: runtime.descriptor, words: None }
     }
 
@@ -353,7 +353,7 @@ impl Kit {
             .global(true)
             .value_name("MANIFEST")
             .value_parser(clap::value_parser!(PathBuf))
-            .help("Use a specific manifest instead of ./edge.json");
+            .help("Use a specific manifest instead of ./interpreter.json");
         // added after the commands so each lists it below its own options
         clap::Command::new(self.name)
             .disable_help_subcommand(true)
@@ -375,7 +375,7 @@ impl Kit {
         for (label, flags) in self.commands.iter().filter_map(|command| command.flags()) {
             out.push_str(&format!("{label:<19}{flags}\n"));
         }
-        out.push_str(&format!("{:<19}--manifest <file>   default edge.json\n\n", "Global"));
+        out.push_str(&format!("{:<19}--manifest <file>   default interpreter.json\n\n", "Global"));
         out.push_str(&format!("{} <command> -h for details \u{00b7} -v for version", self.name));
         if let Some(site) = self.site {
             out.push_str(&format!(" \u{00b7} {site}"));
@@ -430,9 +430,9 @@ pub fn manifest_flag(m: &ArgMatches) -> Option<PathBuf> {
     m.try_get_one::<PathBuf>("manifest").ok().flatten().cloned()
 }
 
-/* the manifest a command reads with edge.json beside the run by default */
+/* the manifest a command reads with interpreter.json beside the run by default */
 pub fn manifest_path(m: &ArgMatches) -> PathBuf {
-    manifest_flag(m).unwrap_or_else(|| PathBuf::from("edge.json"))
+    manifest_flag(m).unwrap_or_else(|| PathBuf::from("interpreter.json"))
 }
 
 /* the root manifest programs in `dir` resolve through as the walk finds it nearest above */
@@ -440,16 +440,16 @@ pub fn root_manifest(m: &ArgMatches, dir: &str) -> PathBuf {
     if let Some(flag) = manifest_flag(m) {
         return flag;
     }
-    let found = edge::deps::walk_up_dirs(dir).map(|up| PathBuf::from(format!("{up}edge.json"))).find(|path| path.is_file());
-    found.unwrap_or_else(|| PathBuf::from("edge.json"))
+    let found = interpreter::deps::walk_up_dirs(dir).map(|up| PathBuf::from(format!("{up}interpreter.json"))).find(|path| path.is_file());
+    found.unwrap_or_else(|| PathBuf::from("interpreter.json"))
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
 
-    const WASM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/edge.wasm"));
-    const NATIVE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/edge.cwasm"));
+    const WASM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/interpreter.wasm"));
+    const NATIVE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/interpreter.cwasm"));
 
     /* a host module that serves nothing and takes any scope */
     struct Quiet;
@@ -475,8 +475,8 @@ pub(crate) mod tests {
     /* a kit over the reference runtime build.rs embeds with no component wired */
     pub fn bare() -> Kit {
         // SAFETY build.rs precompiled the cwasm from this module under the host's engine config
-        let runtime = unsafe { Runtime::precompiled(WASM, NATIVE, &lox::DESCRIPTOR) };
-        Kit::new("edge", "0.0.0", runtime)
+        let runtime = unsafe { Runtime::precompiled(WASM, NATIVE, &interpreter_lox::DESCRIPTOR) };
+        Kit::new("interpreter", "0.0.0", runtime)
     }
 
     /* a kit over the reference runtime build.rs embeds with a quiet module and no commands */
@@ -510,22 +510,22 @@ pub(crate) mod tests {
     /* the top-level help lists each command the composition wired with words from its runtime */
     #[test]
     fn the_help_lists_what_the_composition_wired() {
-        let kit = kit().title("The Edge Lox developer CLI").site("example.com").command(Probe);
+        let kit = kit().title("The Lox developer CLI").site("example.com").command(Probe);
         let help = kit.help();
-        assert!(help.starts_with("The Edge Lox developer CLI\n\nUsage  edge <command> [options]\n\nCommands\n"), "{help}");
-        assert!(help.contains("\n  probe [path]       Probe *_test.lox files\n\nProbe flags        --deep\nGlobal             --manifest <file>   default edge.json\n\n"), "{help}");
-        assert!(help.ends_with("edge <command> -h for details \u{00b7} -v for version \u{00b7} example.com"), "{help}");
+        assert!(help.starts_with("The Lox developer CLI\n\nUsage  interpreter <command> [options]\n\nCommands\n"), "{help}");
+        assert!(help.contains("\n  probe [path]       Probe *_test.lox files\n\nProbe flags        --deep\nGlobal             --manifest <file>   default interpreter.json\n\n"), "{help}");
+        assert!(help.ends_with("interpreter <command> -h for details \u{00b7} -v for version \u{00b7} example.com"), "{help}");
     }
 
     /* the global manifest flag reaches the matches of every command */
     #[test]
     fn the_manifest_flag_reaches_each_command() {
         let kit = kit().command(Probe);
-        let matches = kit.root(vec![Probe.spec(&kit)]).try_get_matches_from(["edge", "--manifest", "custom.json", "probe"]).unwrap();
+        let matches = kit.root(vec![Probe.spec(&kit)]).try_get_matches_from(["interpreter", "--manifest", "custom.json", "probe"]).unwrap();
         let (_, sub) = matches.subcommand().unwrap();
         assert_eq!(manifest_path(sub), PathBuf::from("custom.json"));
-        let matches = kit.root(vec![Probe.spec(&kit)]).try_get_matches_from(["edge", "probe"]).unwrap();
-        assert_eq!(manifest_path(matches.subcommand().unwrap().1), PathBuf::from("edge.json"));
+        let matches = kit.root(vec![Probe.spec(&kit)]).try_get_matches_from(["interpreter", "probe"]).unwrap();
+        assert_eq!(manifest_path(matches.subcommand().unwrap().1), PathBuf::from("interpreter.json"));
     }
 
     // the words of a runtime read the class and the place of a report

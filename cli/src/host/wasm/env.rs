@@ -1,10 +1,10 @@
 use super::{read, read_u32, rt, stage, unstage, write, write_u32, Exports, Native, Plugin, State};
 use crate::host::{ErrorKind, Fault};
 use anyhow::{anyhow, Result};
-use edge::abi::WireValue;
+use interpreter::abi::WireValue;
 use wasmtime::{AsContextMut, Caller, Linker};
 
-/* the `env` imports edge.wasm declares bound to the store state */
+/* the `env` imports interpreter.wasm declares bound to the store state */
 pub fn link(linker: &mut Linker<State>) -> Result<()> {
     linker
         .func_wrap("env", "host_print", |mut caller: Caller<'_, State>, ptr: i32, len: i32| {

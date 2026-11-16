@@ -5,7 +5,7 @@ use crate::util::hash::FxHashSet;
 use crate::value::{HeapPool, Val, VmErr};
 use super::{DepHost, ModuleEntry, NativeBinding, Resolved, Resolver, dir_of, joined, outside, parse_manifest, partition_bindings, served, system_spec, walk_up_dirs};
 
-// caps the edge.json extends chain so a crafted loop ends far past real depth
+// caps the interpreter.json extends chain so a crafted loop ends far past real depth
 const MAX_PACKAGES_HOPS: u32 = 32;
 
 /* the import a manifest declares for a name and the dir it extends */
@@ -63,7 +63,7 @@ impl<H: DepHost> HostResolver<H> {
         loop {
             if hops > MAX_PACKAGES_HOPS {
                 return Err(s!(
-                    "edge.json walk-up exceeded ",
+                    "interpreter.json walk-up exceeded ",
                     int MAX_PACKAGES_HOPS as i64,
                     " hops resolving '", str name, "'"));
             }
@@ -71,7 +71,7 @@ impl<H: DepHost> HostResolver<H> {
 
             let mut hit: Option<(String, Option<String>, Option<String>)> = None;
             for dir in walk_up_dirs(&search_dir) {
-                let m_spec = s!(str &dir, "edge.json");
+                let m_spec = s!(str &dir, "interpreter.json");
                 if let Some((target, ext)) = self.lookup_in_manifest(&m_spec, name)? {
                     hit = Some((dir, target, ext));
                     break;
@@ -85,10 +85,10 @@ impl<H: DepHost> HostResolver<H> {
                 let canonical = reach(&dir, &target)?;
                 return self.resolve_canonical(&canonical);
             }
-            let m_spec = s!(str &dir, "edge.json");
+            let m_spec = s!(str &dir, "interpreter.json");
             if let Some(ext) = ext {
                 if !visited.insert(m_spec) {
-                    return Err(s!("circular extends chain in edge.json"));
+                    return Err(s!("circular extends chain in interpreter.json"));
                 }
                 let mut next = reach(&dir, &ext)?;
                 if !next.ends_with('/') { next.push('/'); }
@@ -110,17 +110,17 @@ impl<H: DepHost> HostResolver<H> {
         self.resolve_canonical(&spec)
     }
 
-    /* the nearest dir above holding an edge.json probed live like the bare name walk */
+    /* the nearest dir above holding an interpreter.json probed live like the bare name walk */
     fn manifest_root(&mut self, spec: &str) -> Result<String, String> {
         let start = self.dir.clone();
         for dir in walk_up_dirs(&start) {
-            let m_spec = s!(str &dir, "edge.json");
+            let m_spec = s!(str &dir, "interpreter.json");
             let cached = self.host.deps(|d| d.manifests.iter().any(|(s, _)| s == &m_spec));
             if cached || self.fetch_bytes(&m_spec, None).is_ok() {
                 return Ok(dir);
             }
         }
-        Err(s!("no edge.json above '", str &self.dir, "' to resolve '", str spec, "'"))
+        Err(s!("no interpreter.json above '", str &self.dir, "' to resolve '", str spec, "'"))
     }
 
     /* what the manifest at `m_spec` declares for `name` read once or none when absent */
@@ -137,7 +137,7 @@ impl<H: DepHost> HostResolver<H> {
             Ok(b) => b,
             Err(_) => return Ok(None),
         };
-        let parsed = parse_manifest(&bytes).map_err(|e| s!("edge.json at '", str m_spec, "': ", str &e))?;
+        let parsed = parse_manifest(&bytes).map_err(|e| s!("interpreter.json at '", str m_spec, "': ", str &e))?;
         let target = parsed.imports.iter().find(|(k, _)| k == name).map(|(_, v)| v.clone());
         let ext = parsed.extends.clone();
         self.host.deps(|d| d.manifests.push((m_spec.to_string(), parsed)));
@@ -185,7 +185,7 @@ impl<H: DepHost> HostResolver<H> {
 
     /* an undeclared bare name failing in the host's own words when it refused one */
     fn undeclared(&mut self, name: &str) -> String {
-        self.refusal(name).unwrap_or_else(|| s!("module '", str name, "' is not provided by this host and no edge.json declares it"))
+        self.refusal(name).unwrap_or_else(|| s!("module '", str name, "' is not provided by this host and no interpreter.json declares it"))
     }
 
     /* where `module.function` is served to the package holding `dir` never an import sharing its name */
@@ -193,7 +193,7 @@ impl<H: DepHost> HostResolver<H> {
         let start = self.dir.clone();
         let mut package = None;
         for dir in walk_up_dirs(&start) {
-            if self.lookup_in_manifest(&s!(str &dir, "edge.json"), module).map_err(VmErr::Raised)?.is_some() {
+            if self.lookup_in_manifest(&s!(str &dir, "interpreter.json"), module).map_err(VmErr::Raised)?.is_some() {
                 package = Some(dir);
                 break;
             }
@@ -304,34 +304,34 @@ pub(super) mod tests {
     #[test]
     fn a_bare_name_resolves_through_the_nearest_manifest_and_what_it_extends() {
         let host = Host::with(&[
-            ("edge.json", r#"{ "imports": { "util": "./lib/util.lox" } }"#),
-            ("app/edge.json", r#"{ "extends": "../shared" }"#),
-            ("shared/edge.json", r#"{ "imports": { "helper": "./helper.lox" } }"#),
+            ("interpreter.json", r#"{ "imports": { "util": "./lib/util.lox" } }"#),
+            ("app/interpreter.json", r#"{ "extends": "../shared" }"#),
+            ("shared/interpreter.json", r#"{ "imports": { "helper": "./helper.lox" } }"#),
         ]).with_code("./lib/util.lox", "u = 1\n").with_code("shared/helper.lox", "h = 1\n");
         assert_eq!(code_of(resolve(&host, "app/", "helper")), (s!("shared/helper.lox"), s!("h = 1\n")));
         assert_eq!(code_of(resolve(&host, "", "util")).0, "./lib/util.lox");
         // the nearest manifest of app holds no util and neither does the one it extends
         let missing = error_of(resolve(&host, "app/", "util"));
-        assert_eq!(missing, "module 'util' is not provided by this host and no edge.json declares it");
+        assert_eq!(missing, "module 'util' is not provided by this host and no interpreter.json declares it");
         assert_eq!(host.state().deps.manifests.len(), 3);
     }
 
     #[test]
     fn an_extends_loop_and_a_chain_past_the_cap_fail() {
-        let looped = Host::with(&[("a/edge.json", r#"{ "extends": "../b" }"#), ("b/edge.json", r#"{ "extends": "../a" }"#)]);
-        assert_eq!(error_of(resolve(&looped, "a/", "x")), "circular extends chain in edge.json");
-        let files: Vec<(String, String)> = (0..40).map(|i| (s!("d", int i, "/edge.json"), s!("{ \"extends\": \"../d", int i + 1, "\" }"))).collect();
+        let looped = Host::with(&[("a/interpreter.json", r#"{ "extends": "../b" }"#), ("b/interpreter.json", r#"{ "extends": "../a" }"#)]);
+        assert_eq!(error_of(resolve(&looped, "a/", "x")), "circular extends chain in interpreter.json");
+        let files: Vec<(String, String)> = (0..40).map(|i| (s!("d", int i, "/interpreter.json"), s!("{ \"extends\": \"../d", int i + 1, "\" }"))).collect();
         let files: Vec<(&str, &str)> = files.iter().map(|(path, text)| (path.as_str(), text.as_str())).collect();
-        assert_eq!(error_of(resolve(&Host::with(&files), "d0/", "x")), "edge.json walk-up exceeded 32 hops resolving 'x'");
+        assert_eq!(error_of(resolve(&Host::with(&files), "d0/", "x")), "interpreter.json walk-up exceeded 32 hops resolving 'x'");
     }
 
     #[test]
     fn paths_resolve_from_the_importer_or_the_nearest_manifest() {
-        let host = Host::with(&[("app/edge.json", "{}")]).with_code("app/x.lox", "").with_code("app/pkg/mod.lox", "").with_code("https://cdn.test/y.lox", "");
+        let host = Host::with(&[("app/interpreter.json", "{}")]).with_code("app/x.lox", "").with_code("app/pkg/mod.lox", "").with_code("https://cdn.test/y.lox", "");
         assert_eq!(code_of(resolve(&host, "app/", "./x.lox")).0, "app/x.lox");
         assert_eq!(code_of(resolve(&host, "app/sub/", "pkg/mod.lox")).0, "app/pkg/mod.lox");
         assert_eq!(code_of(resolve(&host, "", "https://cdn.test/y.lox")).0, "https://cdn.test/y.lox");
-        assert_eq!(error_of(resolve(&host, "lib/", "pkg/mod.lox")), "no edge.json above 'lib/' to resolve 'pkg/mod.lox'");
+        assert_eq!(error_of(resolve(&host, "lib/", "pkg/mod.lox")), "no interpreter.json above 'lib/' to resolve 'pkg/mod.lox'");
         assert_eq!(error_of(resolve(&host, "", "./z.lox")), "module './z.lox' not registered (host did not pre-fetch / register before run())");
         let mut child = HostResolver::new(s!("app/"), host.clone()).child("app/pkg/mod.lox");
         assert!(matches!(child.resolve("../x.lox"), Ok(Resolved::Code { canonical, .. }) if canonical == "app/x.lox"));
@@ -348,14 +348,14 @@ pub(super) mod tests {
 
     #[test]
     fn a_system_module_answers_only_the_package_that_imported_it() {
-        let host = Host::with(&[("edge.json", "{}"), ("other/edge.json", "{}")]).with_native("system:net@", &[("get", 7)]);
+        let host = Host::with(&[("interpreter.json", "{}"), ("other/interpreter.json", "{}")]).with_native("system:net@", &[("get", 7)]);
         let Ok(Resolved::Native { bindings, canonical, .. }) = resolve(&host, "", "net") else { panic!("net is a system module of main") };
         assert_eq!((canonical.as_str(), bindings[0].name.as_str()), ("system:net@", "get"));
         assert_eq!(call(&bindings[0]).unwrap().as_int(), 7);
         host.state().caller = s!("other/");
         let denied = call(&bindings[0]).unwrap_err().render(&crate::lang::Names::PLAIN);
         assert_eq!(denied, "Permission: this net module was imported by another package and answers only it, import net here instead");
-        assert_eq!(error_of(resolve(&host, "other/", "time")), "module 'time' is not provided by this host and no edge.json declares it");
+        assert_eq!(error_of(resolve(&host, "other/", "time")), "module 'time' is not provided by this host and no interpreter.json declares it");
         assert_eq!(served::package_of(&mut host.clone(), "other/deep/"), Some(s!("other/")));
         assert!(host.state().deps.packages.iter().any(|(dir, package)| dir == "other/deep/" && package.as_deref() == Some("other/")));
     }
@@ -371,16 +371,16 @@ pub(super) mod tests {
 
     #[test]
     fn a_system_call_is_served_to_the_package_of_its_caller() {
-        let host = Host::with(&[("pkg/edge.json", "{}")]).with_native("system:time@pkg/", &[("now", 9)]).with_code("system:net@pkg/", "");
+        let host = Host::with(&[("pkg/interpreter.json", "{}")]).with_native("system:time@pkg/", &[("now", 9)]).with_code("system:net@pkg/", "");
         let (spec, id) = system(&host, "pkg/sub/", "time", "now").unwrap();
         assert_eq!((&*spec, id), ("system:time@pkg/", 9));
         assert_eq!(system(&host, "pkg/", "time", "later").unwrap_err().render(&crate::lang::Names::PLAIN), "Attribute: module 'time' has no call 'later'");
-        let undeclared = "Permission: module 'net' is not provided by this host and no edge.json declares it";
+        let undeclared = "Permission: module 'net' is not provided by this host and no interpreter.json declares it";
         assert_eq!(system(&host, "pkg/", "net", "get").unwrap_err().render(&crate::lang::Names::PLAIN), undeclared);
-        assert_eq!(system(&host, "elsewhere/", "time", "now").unwrap_err().render(&crate::lang::Names::PLAIN), "Permission: module 'time' is not provided by this host and no edge.json declares it");
+        assert_eq!(system(&host, "elsewhere/", "time", "now").unwrap_err().render(&crate::lang::Names::PLAIN), "Permission: module 'time' is not provided by this host and no interpreter.json declares it");
         host.state().deps.refuse(s!("system:time@pkg/"), s!("time is off"));
         assert_eq!(system(&host, "pkg/", "time", "now").unwrap_err().render(&crate::lang::Names::PLAIN), "Permission: time is off");
-        let broken = Host::with(&[("edge.json", "{ nope")]);
-        assert!(system(&broken, "", "time", "now").unwrap_err().render(&crate::lang::Names::PLAIN).starts_with("edge.json at 'edge.json': "));
+        let broken = Host::with(&[("interpreter.json", "{ nope")]);
+        assert!(system(&broken, "", "time", "now").unwrap_err().render(&crate::lang::Names::PLAIN).starts_with("interpreter.json at 'interpreter.json': "));
     }
 }

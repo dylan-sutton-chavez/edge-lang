@@ -18,7 +18,7 @@
   },
   {
     "given": {
-      "edge.json": "{ \"imports\": { \"s\": \"./s.wasm\" } }\n",
+      "interpreter.json": "{ \"imports\": { \"s\": \"./s.wasm\" } }\n",
       "s.wasm": "",
       "main.lox": "import(\"s\");\n"
     },
@@ -28,6 +28,6 @@
   {
     "given": { "main.lox": "print 1;\n" },
     "run": ["run", "--web", "main.lox"],
-    "fails": ["edge runs its runtime natively and a page runs only a wasm module"]
+    "fails": ["interpreter runs its runtime natively and a page runs only a wasm module"]
   }
 ]

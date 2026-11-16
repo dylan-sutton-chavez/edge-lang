@@ -11,4 +11,4 @@ test = false
 doctest = false
 
 [dependencies]
-plugin = { path = ".." }
+interpreter-plugin = { path = ".." }

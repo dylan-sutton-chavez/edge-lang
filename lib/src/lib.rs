@@ -1,4 +1,5 @@
 #![no_std]
+#![doc = "Kernels a runtime built on `interpreter` names in its own table with `table!`, for text, numbers, sequences, maps, sets, dates, JSON, CSV and I/O, each module behind a feature of its own."]
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 

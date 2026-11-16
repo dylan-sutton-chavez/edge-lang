@@ -4,14 +4,14 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-use edge::deps::{
+use interpreter::deps::{
     NativeBinding, NoopResolver, Resolved, Resolver, partition_bindings,
     Manifest, walk_up_dirs, dir_of, join_relative,
 };
-use edge::value::{HeapObj, HeapPool, Limits, Val, VmErr};
-use edge::code::{Diagnostic, Parser, SSAChunk};
-use edge::embed::VM;
-use edge::lexer::{lex_as, LexError, Token};
+use interpreter::value::{HeapObj, HeapPool, Limits, Val, VmErr};
+use interpreter::code::{Diagnostic, Parser, SSAChunk};
+use interpreter::embed::VM;
+use interpreter::lexer::{lex_as, LexError, Token};
 
 /* the spelling every program of these suites is written in */
 pub type Spell = rig::Rig;
@@ -31,7 +31,7 @@ pub fn parser<I: Iterator<Item = Token>>(src: &str, tokens: I, resolver: Box<dyn
 pub fn parse(src: &str) -> (SSAChunk, Vec<Diagnostic>) { parser(src, lex(src).0.into_iter(), Box::new(NoopResolver)).parse() }
 
 /* `src` lexed parsed and folded as the engine compiles it */
-pub fn compile(src: &str) -> (SSAChunk, Vec<Diagnostic>) { edge::code::compile_as::<Spell>(src) }
+pub fn compile(src: &str) -> (SSAChunk, Vec<Diagnostic>) { interpreter::code::compile_as::<Spell>(src) }
 
 /* answers deferred call `id` with text the way `set_host_result_by_id` does for the wasm host */
 pub fn answer(vm: &mut VM, id: u64, text: &str) -> bool {
@@ -176,7 +176,7 @@ impl TestResolver {
                 return Ok(dir);
             }
         }
-        Err(format!("no edge.json above '{}' to resolve '{}'", self.dir, spec))
+        Err(format!("no interpreter.json above '{}' to resolve '{}'", self.dir, spec))
     }
 
     /* the nearest manifest above `start_dir` declaring `name` following `extends` without cycling */
@@ -185,7 +185,7 @@ impl TestResolver {
         let mut search_dir = start_dir.to_string();
         let mut hops = 0u32;
         loop {
-            if hops > 32 { return Err(format!("edge.json walk-up exceeded 32 hops resolving '{}'", name)); }
+            if hops > 32 { return Err(format!("interpreter.json walk-up exceeded 32 hops resolving '{}'", name)); }
             hops += 1;
             let mut hit: Option<(String, Option<String>, Option<String>)> = None;
             for dir in walk_up_dirs(&search_dir) {
@@ -200,23 +200,23 @@ impl TestResolver {
             }
             let Some((dir, target, ext)) = hit else {
                 return Err(format!(
-                    "module '{}' is not provided by this host and no edge.json declares it", name));
+                    "module '{}' is not provided by this host and no interpreter.json declares it", name));
             };
             if let Some(target) = target {
                 let canonical = join_relative(&dir, &target);
                 return self.resolve_canonical(&canonical);
             }
             if let Some(ext) = ext {
-                let m_spec = format!("{}edge.json", dir);
+                let m_spec = format!("{}interpreter.json", dir);
                 if !visited.insert(m_spec) {
-                    return Err("circular extends chain in edge.json".to_string());
+                    return Err("circular extends chain in interpreter.json".to_string());
                 }
                 let mut next = join_relative(&dir, &ext);
                 if !next.ends_with('/') { next.push('/'); }
                 search_dir = next;
                 continue;
             }
-            return Err(format!("module '{}' is not provided by this host and no edge.json declares it", name));
+            return Err(format!("module '{}' is not provided by this host and no interpreter.json declares it", name));
         }
     }
 

@@ -1,9 +1,9 @@
 #[cfg(test)]
 mod test {
 
-    use edge::code::{Parser, SSAChunk};
-    use edge::lexer::{index, lex_as, operators, Binding, Blocks, Comments, Cond, Continuation, Ends, Interp, Keywords, Lambda, Literal, Numbers, Quote, Shapes, Spelling, Strings, Suffix, Syntax, TokenType, Zeros, RAW};
-    use edge::deps::NoopResolver;
+    use interpreter::code::{Parser, SSAChunk};
+    use interpreter::lexer::{index, lex_as, operators, Binding, Blocks, Comments, Cond, Continuation, Ends, Interp, Keywords, Lambda, Literal, Numbers, Quote, Shapes, Spelling, Strings, Suffix, Syntax, TokenType, Zeros, RAW};
+    use interpreter::deps::NoopResolver;
     // the kit's tests read the fixed core in the words rig once had
     use crate::words::{Legacy as Rig, LEGACY as RIG};
     use crate::words::{Braces, Indent, Words, BRACES, INDENT, WORDS};
@@ -67,7 +67,7 @@ mod test {
     // an index finds every word of any table whole and nothing else
     #[test]
     fn an_index_finds_whole_words_of_any_length() {
-        use edge::lexer::{index, Keywords};
+        use interpreter::lexer::{index, Keywords};
         use TokenType as T;
         const WORDS: &[(&str, TokenType)] = &[
             ("si", T::If), ("sino", T::Else), ("sino si", T::ElseIf), ("en", T::In), ("es", T::Is), ("e", T::And), ("_", T::Underscore),
@@ -86,7 +86,7 @@ mod test {
     // imports read in a spelling take its suffix and skip its comments
     #[test]
     fn imports_follow_the_spelling() {
-        use edge::deps::{scan_imports, ImportSpec::*};
+        use interpreter::deps::{scan_imports, ImportSpec::*};
         let src = "from .a import x\nimport b.c, d // import e\n";
         assert_eq!(scan_imports::<Rig>(src), [Relative("./a.rig".into()), Root("b/c.rig".into()), Bare("d".into())]);
         assert_eq!(scan_imports::<Indent>("from .a import x\nimport b.c # import e\n"), [Relative("./a.py".into()), Root("b/c.py".into())]);
@@ -99,7 +99,7 @@ mod test {
     // a run of dots climbs a directory per dot past the first however it lexes
     #[test]
     fn a_run_of_dots_climbs_however_it_lexes() {
-        use edge::deps::{scan_imports, ImportSpec::*};
+        use interpreter::deps::{scan_imports, ImportSpec::*};
         let src = "from ..a import x\nfrom ...b.c import y\nfrom ......d import z\n";
         assert_eq!(scan_imports::<Rig>(src), [Relative("../a.rig".into()), Relative("../../b/c.rig".into()), Relative("../../../../../d.rig".into())]);
     }
@@ -144,10 +144,10 @@ mod test {
     // a table with no comment marker and a symbol longer than the arrow
     struct Odd;
     const ODD_SYMBOLS: &[(&str, TokenType)] = &[("->>", TokenType::RightShift), ("->", TokenType::Returns), ("-", TokenType::Minus), ("=", TokenType::Equal), (">", TokenType::Greater)];
-    static ODD_OPERATORS: [[TokenType; 4]; 128] = edge::lexer::operators(ODD_SYMBOLS);
+    static ODD_OPERATORS: [[TokenType; 4]; 128] = interpreter::lexer::operators(ODD_SYMBOLS);
     impl Spelling for Odd {
         const SYNTAX: Syntax = Syntax { name: "odd", symbols: ODD_SYMBOLS, operators: &ODD_OPERATORS, comments: Comments { line: &[], block: None, nested: false }, ..INDENT };
-        const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
+        const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
     }
 
     #[test]
@@ -176,7 +176,7 @@ mod test {
     struct Semi;
     impl Spelling for Semi {
         const SYNTAX: Syntax = Syntax { name: "semi", ends: Ends::Semicolon, ..BRACES };
-        const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
+        const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
     }
 
     // the words table with explicit block words and comments that do not nest
@@ -188,7 +188,7 @@ mod test {
             comments: Comments { line: &["--"], block: Some(("/*", "*/")), nested: false },
             ..WORDS
         };
-        const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
+        const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
     }
 
     // numbers with a quote between digits and octal zeros and dropped suffixes
@@ -201,7 +201,7 @@ mod test {
             numbers: Numbers { radixes: &[(b'x', 16)], separator: Some(b'\''), zeros: Zeros::Octal, leading_dot: false, trailing_dot: false, exponent: false, suffix: Suffix::Ignored },
             ..BRACES
         };
-        const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
+        const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
     }
 
     // backquoted templates with dollar fields and no specs
@@ -214,7 +214,7 @@ mod test {
             interp: Some(Interp { name: "template", quotes: b"`", open: "${", close: b'}', literal: Literal::Backslash, short: None, spec: None, convert: None, echo: None }),
             ..BRACES
         };
-        const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
+        const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
     }
 
     // fields a backslash and parenthesis open in every double quoted literal
@@ -226,7 +226,7 @@ mod test {
             interp: Some(Interp { name: "string", quotes: b"\"", open: "\\(", close: b')', literal: Literal::Backslash, short: None, spec: None, convert: None, echo: None }),
             ..BRACES
         };
-        const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
+        const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
     }
 
     // bare dollar names and braced dollar fields
@@ -238,7 +238,7 @@ mod test {
             interp: Some(Interp { name: "string template", quotes: b"\"", open: "${", close: b'}', literal: Literal::Backslash, short: Some(b'$'), spec: None, convert: None, echo: None }),
             ..BRACES
         };
-        const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
+        const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
     }
 
     // three byte symbols for identity and a one word membership test with a flat ladder
@@ -272,7 +272,7 @@ mod test {
             soft: &[],
             ..BRACES
         };
-        const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
+        const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
     }
 
     fn constants<S: Spelling>(src: &str) -> String {
@@ -291,9 +291,9 @@ mod test {
 
     // a range mark calls its native pinned where rig calls it by its name
     fn unpinned(chunk: &mut SSAChunk) {
-        for i in chunk.instructions.iter_mut().filter(|i| i.opcode == edge::code::OpCode::CallNative) {
-            let Some(site) = edge::code::native_site(i.operand, &chunk.native_sites).filter(|s| s.pinned) else { continue };
-            if let Some(plain) = (edge::code::NativeSite { pinned: false, ..site }).in_place() { i.operand = plain; }
+        for i in chunk.instructions.iter_mut().filter(|i| i.opcode == interpreter::code::OpCode::CallNative) {
+            let Some(site) = interpreter::code::native_site(i.operand, &chunk.native_sites).filter(|s| s.pinned) else { continue };
+            if let Some(plain) = (interpreter::code::NativeSite { pinned: false, ..site }).in_place() { i.operand = plain; }
         }
         for f in &mut chunk.functions { unpinned(&mut f.1); }
         for c in &mut chunk.classes { unpinned(c); }
@@ -504,49 +504,49 @@ mod test {
     struct Kit;
     impl Spelling for Kit {
         const SYNTAX: Syntax = KIT;
-        const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
+        const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
     }
 
     // the kit in braces where an arm may open a block
     struct Braced;
     impl Spelling for Braced {
         const SYNTAX: Syntax = Syntax { name: "braced", blocks: Blocks::Braces, ..KIT };
-        const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
+        const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
     }
 
     // the kit where the first store of a name needs its binding word
     struct Declared;
     impl Spelling for Declared {
         const SYNTAX: Syntax = Syntax { name: "declared", shapes: Shapes { binding: Binding::Required, ..KIT_SHAPES }, ..KIT };
-        const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
+        const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
     }
 
     // conditionals that read the test first then a question mark
     struct Questions;
     impl Spelling for Questions {
         const SYNTAX: Syntax = Syntax { name: "questions", shapes: Shapes { cond: Cond::Question, ..Shapes::CORE }, ..KIT };
-        const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
+        const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
     }
 
     // rig where a dot reads a key unless a call follows
     struct Keys;
     impl Spelling for Keys {
-        const SYNTAX: Syntax = Syntax { name: "keys", shapes: Shapes { dot: edge::lexer::Dot::Key, ..Shapes::CORE }, ..BRACES };
-        const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
+        const SYNTAX: Syntax = Syntax { name: "keys", shapes: Shapes { dot: interpreter::lexer::Dot::Key, ..Shapes::CORE }, ..BRACES };
+        const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
     }
 
     // rig whose headers hold their expressions in parentheses
     struct Parens;
     impl Spelling for Parens {
         const SYNTAX: Syntax = Syntax { name: "parens", shapes: Shapes { header_parens: true, ..Shapes::CORE }, ..BRACES };
-        const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
+        const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
     }
 
     // rig whose keyword arguments take a colon
     struct Colons;
     impl Spelling for Colons {
         const SYNTAX: Syntax = Syntax { name: "colons", shapes: Shapes { keyword_arg: TokenType::Colon, ..Shapes::CORE }, ..BRACES };
-        const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
+        const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
     }
 
     // rig with every switch of the fixed core off
@@ -557,7 +557,7 @@ mod test {
             shapes: Shapes { cond: Cond::None, lambda: Lambda::None, splat: false, slices: false, comprehensions: false, decorators: false, named: false, ..Shapes::CORE },
             ..BRACES
         };
-        const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
+        const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
     }
 
     // each piece compiles where a table switches it on as in the rig or fails
@@ -659,7 +659,7 @@ mod test {
     struct Wide;
     impl Spelling for Wide {
         const SYNTAX: Syntax = Syntax { name: "wide", words: WIDE_WORDS, keywords: &WIDE_KEYWORDS, blocks: Blocks::Words { implicit: false }, soft: &[], ..WORDS };
-        const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
+        const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
     }
 
     // fields that open with a wide character and take a spec after a colon
@@ -671,16 +671,16 @@ mod test {
             interp: Some(Interp { name: "template", quotes: b"\"", open: "§", close: b'}', literal: Literal::Backslash, short: None, spec: Some(b':'), convert: None, echo: None }),
             ..BRACES
         };
-        const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
+        const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
     }
 
     /* every report a source compiles to with its span between characters and rendered whole */
     fn reports<S: Spelling>(src: &str) -> Vec<String> {
-        let Err(errs) = edge::lang::Front::spelled::<S>().program(src, Box::new(NoopResolver)) else { return Vec::new() };
+        let Err(errs) = interpreter::lang::Front::spelled::<S>().program(src, Box::new(NoopResolver)) else { return Vec::new() };
         for e in &errs {
             assert!(src.is_char_boundary(e.start) && src.is_char_boundary(e.end), "{} {src:?} reports {:?} at {}..{}", S::SYNTAX.name, e.msg, e.start, e.end);
         }
-        let shown = edge::code::Diagnostic::render_all(&errs, src, Some("main"));
+        let shown = interpreter::code::Diagnostic::render_all(&errs, src, Some("main"));
         assert!(shown.contains(&errs[0].msg), "{shown}");
         errs.into_iter().map(|e| e.msg).collect()
     }
@@ -701,9 +701,9 @@ mod test {
         assert!(too_deep(format!("x = 1\nprint(\"{}{}\")\n", "§x:".repeat(201), "}".repeat(201))));
         // a span cut inside a character still renders the characters it touches
         let src = "x = 'é'\n";
-        let cut = edge::code::Diagnostic { start: 6, end: 7, msg: "cut".into() };
+        let cut = interpreter::code::Diagnostic { start: 6, end: 7, msg: "cut".into() };
         assert!(cut.render(src, None).contains("x = 'é'"));
-        let past = edge::code::Diagnostic { start: 99, end: 3, msg: "past".into() };
+        let past = interpreter::code::Diagnostic { start: 99, end: 3, msg: "past".into() };
         assert!(past.render(src, None).contains("past"));
     }
 
@@ -727,7 +727,7 @@ mod test {
     // the walk's scan reads an import exactly where the parser starts an import statement
     #[test]
     fn the_scan_reads_imports_the_parser_reads() {
-        use edge::deps::{scan_imports, ImportSpec::*};
+        use interpreter::deps::{scan_imports, ImportSpec::*};
         for src in ["from . import net\n", "x = f\"{import net}\"\n", "fn g():\n    yield from net()\n", "try:\n    pass\nexcept E as e:\n    raise V from e\n", "x = [import net]\n", "import a.(b\n", "import a.\n"] {
             assert_eq!(scan_imports::<Rig>(src), [], "{src:?}");
         }
@@ -749,12 +749,12 @@ mod test {
     }
 
     /* every token's kind and flags as a pass settles them */
-    fn settled(tokens: &[edge::lexer::Token]) -> Vec<(TokenType, bool, u8)> { tokens.iter().map(|t| (t.kind, t.comp, t.assigns)).collect() }
+    fn settled(tokens: &[interpreter::lexer::Token]) -> Vec<(TokenType, bool, u8)> { tokens.iter().map(|t| (t.kind, t.comp, t.assigns)).collect() }
 
     // the forward pass settles each token as the scans back do on every corpus program
     #[test]
     fn the_forward_pass_settles_tokens_as_the_scans_back_do() {
-        use edge::lexer::lex_forward;
+        use interpreter::lexer::lex_forward;
         fn same<S: Spelling>(src: &str, wrong: &mut Vec<String>) {
             let (back, ahead) = (settled(&lex_as::<S>(src).0), settled(&lex_forward::<S>(src).0));
             if back != ahead && wrong.len() < 20 {
@@ -795,9 +795,9 @@ mod test {
 // each syntax case held in every spelling it gives with its tokens and its chunk
 #[cfg(test)]
 mod runner {
-    use edge::code::{Diagnostic, OpCode, Parser, SSAChunk, Value};
-    use edge::deps::NoopResolver;
-    use edge::lexer::{lex_as, Spelling};
+    use interpreter::code::{Diagnostic, OpCode, Parser, SSAChunk, Value};
+    use interpreter::deps::NoopResolver;
+    use interpreter::lexer::{lex_as, Spelling};
     use rig::Rig;
     use crate::words::{Indent, Words};
 
@@ -869,11 +869,11 @@ mod runner {
         let constants: Vec<String> = chunk.constants.iter().map(constant).collect();
         // a native call reads as its positionals as the cases write it
         let instructions: Vec<(String, u16)> = chunk.instructions.iter()
-            .map(|i| (format!("{:?}", i.opcode), if i.opcode == OpCode::CallNative { edge::code::native_site(i.operand, &chunk.native_sites).map_or(u16::MAX, |s| s.pos as u16) } else { i.operand }))
+            .map(|i| (format!("{:?}", i.opcode), if i.opcode == OpCode::CallNative { interpreter::code::native_site(i.operand, &chunk.native_sites).map_or(u16::MAX, |s| s.pos as u16) } else { i.operand }))
             .collect();
         let natives: Vec<(String, u8, u8)> = chunk.instructions.iter().filter(|i| i.opcode == OpCode::CallNative)
-            .filter_map(|i| edge::code::native_site(i.operand, &chunk.native_sites))
-            .map(|s| (rig::NATIVES.get(edge::lang::NativeId(s.id)).map_or("?", |n| n.name).to_string(), s.pos, s.kw)).collect();
+            .filter_map(|i| interpreter::code::native_site(i.operand, &chunk.native_sites))
+            .map(|s| (rig::NATIVES.get(interpreter::lang::NativeId(s.id)).map_or("?", |n| n.name).to_string(), s.pos, s.kw)).collect();
         let parts = [
             ("names", format!("{:?}", chunk.names), format!("{:?}", case.names.clone().unwrap_or_default())),
             ("constants", format!("{constants:?}"), format!("{:?}", case.constants.clone().unwrap_or_default())),
@@ -888,8 +888,8 @@ mod runner {
     /* a range mark calls its native pinned where rig calls it by its name */
     fn unpinned(chunk: &mut SSAChunk) {
         for i in chunk.instructions.iter_mut().filter(|i| i.opcode == OpCode::CallNative) {
-            let Some(site) = edge::code::native_site(i.operand, &chunk.native_sites).filter(|s| s.pinned) else { continue };
-            if let Some(plain) = (edge::code::NativeSite { pinned: false, ..site }).in_place() { i.operand = plain; }
+            let Some(site) = interpreter::code::native_site(i.operand, &chunk.native_sites).filter(|s| s.pinned) else { continue };
+            if let Some(plain) = (interpreter::code::NativeSite { pinned: false, ..site }).in_place() { i.operand = plain; }
         }
         for f in &mut chunk.functions { unpinned(&mut f.1); }
         for c in &mut chunk.classes { unpinned(c); }
@@ -956,7 +956,7 @@ mod runner {
 // the lexer's rules past what a case lists
 #[cfg(test)]
 mod lexer {
-    use edge::lexer::{lex_as, TokenType};
+    use interpreter::lexer::{lex_as, TokenType};
     use crate::words::Indent;
 
     // every token case lexes to its tokens in each spelling it holds
@@ -976,7 +976,7 @@ mod lexer {
     // the post pass reads each token a bounded number of times however the statements repeat
     #[test]
     fn quadratic_shapes_lex_in_linear_time() {
-        use edge::lexer::lex_as;
+        use interpreter::lexer::lex_as;
         let shapes = [
             "a=".repeat(200_000) + "1\n",
             format!("f({}1)\n", "a=1,".repeat(100_000)),
@@ -998,9 +998,9 @@ mod lexer {
 // the parser's rules past what a case lists
 #[cfg(test)]
 mod parser {
-    use edge::code::{Parser, Diagnostic};
-    use edge::lexer::{lex_as, LexError, Token};
-    use edge::deps::NoopResolver;
+    use interpreter::code::{Parser, Diagnostic};
+    use interpreter::lexer::{lex_as, LexError, Token};
+    use interpreter::deps::NoopResolver;
     use crate::words::Indent;
 
     // these tests keep the indent table they were written in
@@ -1149,7 +1149,7 @@ mod parser {
         let small = |src: String| std::thread::Builder::new().stack_size(1 << 20).spawn(move || {
             let (chunk, errors) = crate::words::legacy(&src);
             if !errors.is_empty() { return errors.into_iter().map(|e| e.msg).collect(); }
-            let mut vm = crate::common::boot(&chunk, edge::value::Limits::sandbox());
+            let mut vm = crate::common::boot(&chunk, interpreter::value::Limits::sandbox());
             vm.run().expect("the chain runs");
             vm.output.clone()
         }).expect("a thread").join().expect("no overflow");

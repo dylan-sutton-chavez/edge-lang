@@ -1,6 +1,6 @@
 mod test {
-    use edge::lang::{self, Act, Body, EngineError, ErrKind, Falsy, Gen, Language, Lock, Names, Policy, Runtime};
-    use edge::value::Val;
+    use interpreter::lang::{self, Act, Body, EngineError, ErrKind, Falsy, Gen, Language, Lock, Names, Policy, Runtime};
+    use interpreter::value::Val;
     use rig::Rig;
 
     // a language stating a rule the loop does not read yet
@@ -13,8 +13,8 @@ mod test {
         const NAMES: &'static Names = &rig::NAMES;
         const FRONT: lang::Front = rig::FRONT;
         const DESCRIPTOR: &'static lang::Descriptor = &rig::DESCRIPTOR;
-        const WIDE: Option<&'static edge::value::foreign::Kind> = Some(&rig::lang::WIDE);
-        const BUILT: edge::value::foreign::Built = <rig::Rig as Language>::BUILT;
+        const WIDE: Option<&'static interpreter::value::foreign::Kind> = Some(&rig::lang::WIDE);
+        const BUILT: interpreter::value::foreign::Built = <rig::Rig as Language>::BUILT;
         type Ops = ();
     }
 
@@ -40,8 +40,8 @@ mod test {
         const NAMES: &'static Names = &rig::NAMES;
         const FRONT: lang::Front = rig::FRONT;
         const DESCRIPTOR: &'static lang::Descriptor = &rig::DESCRIPTOR;
-        const WIDE: Option<&'static edge::value::foreign::Kind> = Some(&rig::lang::WIDE);
-        const BUILT: edge::value::foreign::Built = <rig::Rig as Language>::BUILT;
+        const WIDE: Option<&'static interpreter::value::foreign::Kind> = Some(&rig::lang::WIDE);
+        const BUILT: interpreter::value::foreign::Built = <rig::Rig as Language>::BUILT;
         type Ops = ();
     }
 
@@ -91,7 +91,7 @@ mod test {
     // a rule the loop does not read yet builds only as the engine's own
     #[test]
     fn a_policy_refuses_a_rule_the_loop_does_not_read() {
-        use edge::lang::{IntDiv, IntMod, MapIter, NegPow, NumEq, StrIter, ZeroDiv};
+        use interpreter::lang::{IntDiv, IntMod, MapIter, NegPow, NumEq, StrIter, ZeroDiv};
         let m = Rig::POLICY;
         let unread = [
             (Policy { numeric_eq: NumEq::ByKind, ..m }, "numeric_eq"),

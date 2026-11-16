@@ -107,7 +107,7 @@ pub(crate) fn table(inner: &impl GlobalAlloc, cap: usize) -> &'static mut [(usiz
     t
 }
 
-// SAFETY wasm without threads runs one call at a time and edge.wasm installs it there
+// SAFETY wasm without threads runs one call at a time and interpreter.wasm installs it there
 #[cfg(all(target_arch = "wasm32", not(target_feature = "atomics")))]
 unsafe impl<A: Sync + GlobalAlloc> Sync for Pooled<A> {}
 
@@ -355,7 +355,7 @@ pub(crate) mod web {
         fn host_edge_take_error(out_kind: *mut u32, dst: *mut u8, dst_max: u32) -> i32 { bridge::host_edge_take_error(word(out_kind, &mut 0), room(dst, dst_max)) }
     }
 
-    /* registers runtime `$rt` which carries its front end and descriptor as the one edge.wasm boots */
+    /* registers runtime `$rt` which carries its front end and descriptor as the one interpreter.wasm boots */
     #[macro_export]
     macro_rules! web_exports {
         ($rt:path) => {

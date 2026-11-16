@@ -1,5 +1,5 @@
-use edge::lang::{Args, Cx, Ret, Sig};
-use edge::value::Val;
+use interpreter::lang::{Args, Cx, Ret, Sig};
+use interpreter::value::Val;
 
 use super::recv_str;
 use crate::uni::{self, Digits};

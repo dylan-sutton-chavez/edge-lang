@@ -227,19 +227,19 @@ impl Walk {
         // a served module resolves before any refusal
         let undeclared = |name: &String| !self.system.contains(name) && seen.insert(name.clone());
         for name in core::mem::take(&mut self.pending_bare).into_iter().map(|(name, _, _)| name).filter(undeclared) {
-            let msg = s!("module '", str &name, "' is not provided by this host and no edge.json declares it\nhelp: declare it in edge.json, or use a relative import");
+            let msg = s!("module '", str &name, "' is not provided by this host and no interpreter.json declares it\nhelp: declare it in interpreter.json, or use a relative import");
             self.out.push_back(Step::Refuse { spec: name, msg });
         }
         self.done = true;
     }
 
     fn visit(&mut self, spec: String) {
-        if spec.ends_with("edge.json") {
+        if spec.ends_with("interpreter.json") {
             let waiting = Waiting::Manifest(spec.clone());
             return self.request(spec, waiting);
         }
         match extension(&spec) {
-            "edge" => {
+            "interpreter" => {
                 let waiting = Waiting::Package(spec.clone());
                 self.request(spec, waiting)
             }
@@ -272,7 +272,7 @@ impl Walk {
         let bytes = match answer {
             Fetched::Bytes(bytes) => bytes,
             // the root always has a manifest so its code is package `main` even without one
-            Fetched::Missing(_) if spec == "edge.json" => b"{}".to_vec(),
+            Fetched::Missing(_) if spec == "interpreter.json" => b"{}".to_vec(),
             Fetched::Missing(_) => {
                 self.missing.insert(spec);
                 self.retry_pending();
@@ -287,14 +287,14 @@ impl Walk {
         });
         let (manifest, section) = match read {
             Ok(read) => read,
-            Err(e) => return self.failures.push(s!("edge.json at '", str &spec, "': ", str &e)),
+            Err(e) => return self.failures.push(s!("interpreter.json at '", str &spec, "': ", str &e)),
         };
         // a package names its lowest engine so one for a later engine is refused here
         let system: Vec<&str> = self.system.iter().map(String::as_str).collect();
         let reserved: Vec<(&str, &str)> = self.carry.holders.iter().map(|holder| (holder.as_str(), field)).collect();
         let refused = rules::floor_error(&manifest).or_else(|| manifest.imports.iter().find_map(|(name, target)| rules::import_error(name, target, &system, &reserved)));
         if let Some(e) = refused {
-            return self.failures.push(s!("edge.json at '", str &spec, "': ", str &e));
+            return self.failures.push(s!("interpreter.json at '", str &spec, "': ", str &e));
         }
         let dir = dir_of(&spec);
         self.manifest_dirs.insert(dir.clone());
@@ -313,7 +313,7 @@ impl Walk {
         let held = match answer {
             Fetched::Bytes(bytes) => match Lock::parse(&bytes) {
                 Ok(lock) => Some(lock),
-                Err(e) => return self.failures.push(s!("edge.json at '", str &spec, "': ", str &e)),
+                Err(e) => return self.failures.push(s!("interpreter.json at '", str &spec, "': ", str &e)),
             },
             Fetched::Missing(_) => None,
             Fetched::Failed(e) => return self.failures.push(e),
@@ -327,7 +327,7 @@ impl Walk {
         for (name, target) in &manifest.imports {
             match lock::locked_spec(name, target, held) {
                 Ok(target) => resolved.push((name.clone(), target)),
-                Err(e) => return self.failures.push(s!("edge.json at '", str &spec, "': ", str &e)),
+                Err(e) => return self.failures.push(s!("interpreter.json at '", str &spec, "': ", str &e)),
             }
         }
         let dir = dir_of(&spec);
@@ -336,14 +336,14 @@ impl Walk {
         for (name, target) in &resolved {
             match joined(&dir, target) {
                 Ok(at) => joins.push((name.clone(), at)),
-                Err(home) => return self.failures.push(s!("edge.json at '", str &spec, "': import '", str name, "' at ", str &outside(target, &home))),
+                Err(home) => return self.failures.push(s!("interpreter.json at '", str &spec, "': import '", str name, "' at ", str &outside(target, &home))),
             }
         }
         let next = match &manifest.extends {
             Some(ext) => match joined(&dir, ext) {
                 Ok(next) if next.ends_with('/') => Some(next),
                 Ok(next) => Some(s!(str &next, "/")),
-                Err(home) => return self.failures.push(s!("edge.json at '", str &spec, "': extends ", str &outside(ext, &home))),
+                Err(home) => return self.failures.push(s!("interpreter.json at '", str &spec, "': extends ", str &outside(ext, &home))),
             },
             None => None,
         };
@@ -352,7 +352,7 @@ impl Walk {
         self.manifests.insert(spec.clone(), manifest.clone());
         self.out.push_back(Step::Manifest { spec, manifest });
         if let Some(next) = next {
-            self.queue.push_back(s!(str &next, "edge.json"));
+            self.queue.push_back(s!(str &next, "interpreter.json"));
             self.extends.insert(dir, next);
         }
         self.retry_pending();
@@ -364,7 +364,7 @@ impl Walk {
         let Some(bytes) = self.pinned(&spec, answer) else { return };
         let bundle = match Bundle::decode(&bytes) {
             Ok(bundle) => bundle,
-            Err(e) => return self.failures.push(s!("package '", str target(&spec), "' is not a packed .edge, ", str &e)),
+            Err(e) => return self.failures.push(s!("package '", str target(&spec), "' is not a packed .interpreter, ", str &e)),
         };
         let base = dir_of(&spec);
         let entry = s!(str &base, str &bundle.entry);
@@ -460,7 +460,7 @@ impl Walk {
         for (from, key, spec) in &self.edges {
             let granted = self.grants.get(norm(from)).is_some_and(|section| section.iter().any(|(holder, entries)| holder == key && !entries.is_empty()));
             if granted && self.landing(from, spec).is_none() {
-                void.push(s!("edge.json at '", str from, "edge.json': permissions for '", str key, "' reach nothing, its import '", str target(spec), "' has no edge.json of its own so it runs as part of this package"));
+                void.push(s!("interpreter.json at '", str from, "interpreter.json': permissions for '", str key, "' reach nothing, its import '", str target(spec), "' has no interpreter.json of its own so it runs as part of this package"));
             }
         }
         self.failures.extend(void);
@@ -478,7 +478,7 @@ impl Walk {
         for (at, importers) in &owners.paths {
             let first = held(&importers[0]);
             if let Some(other) = importers[1..].iter().find(|other| held(other) != first) {
-                split.push(s!("'", str at, "' is reached by relative imports from '", str &importers[0], "' and '", str other, "' which hold different grants, import it under a key of each edge.json instead"));
+                split.push(s!("'", str at, "' is reached by relative imports from '", str &importers[0], "' and '", str other, "' which hold different grants, import it under a key of each interpreter.json instead"));
             }
         }
         split.sort();
@@ -566,7 +566,7 @@ impl Walk {
             }
             if self.copies.len() >= MAX_COPIES {
                 let (from, key, _) = &self.edges[i];
-                self.failures.push(s!("the imports make more than ", int MAX_COPIES, " copies of packages held to different grants, the last through '", str key, "' in '", str from, "edge.json'"));
+                self.failures.push(s!("the imports make more than ", int MAX_COPIES, " copies of packages held to different grants, the last through '", str key, "' in '", str from, "interpreter.json'"));
                 return false;
             }
             self.copy(i, &home);
@@ -592,9 +592,9 @@ impl Walk {
         let n = self.copies.len() + 1;
         let original = home.trim_end_matches('/');
         let copy = match (parent_dir(home), original.rsplit_once('/')) {
-            (Some(_), Some((parent, last))) => s!(str parent, "/.edge-copy-", int n, "-", str last),
-            (Some(_), None) => s!(".edge-copy-", int n, "-", str original),
-            (None, _) => s!(str original, "/.edge-copy-", int n),
+            (Some(_), Some((parent, last))) => s!(str parent, "/.interpreter-copy-", int n, "-", str last),
+            (Some(_), None) => s!(".interpreter-copy-", int n, "-", str original),
+            (None, _) => s!(str original, "/.interpreter-copy-", int n),
         };
         let Some(rest) = norm(&spec).strip_prefix(original) else { return };
         let rebased = s!(str &copy, str rest);
@@ -602,7 +602,7 @@ impl Walk {
         let written = written_from(&from, &rebased);
         let spec = join_relative(&from, &written);
         set(self.imports.entry(from.clone()).or_default(), &key, spec.clone());
-        let m_spec = s!(str &from, "edge.json");
+        let m_spec = s!(str &from, "interpreter.json");
         if let Some(manifest) = self.manifests.get_mut(&m_spec) {
             set(&mut manifest.imports, &key, written);
             let manifest = manifest.clone();
@@ -699,7 +699,7 @@ impl Walk {
                 return Some(Some((from, spec.clone())));
             }
             match self.extends.get(&at) {
-                Some(next) if !self.missing.contains(&s!(str next, "edge.json")) => at = next.clone(),
+                Some(next) if !self.missing.contains(&s!(str next, "interpreter.json")) => at = next.clone(),
                 _ => return Some(None),
             }
         }
@@ -715,7 +715,7 @@ impl Walk {
     // probes every ancestor manifest as the compiler walks up to resolve
     fn enqueue_manifest_chain(&mut self, dir: &str) {
         for d in walk_up_dirs(dir) {
-            let m = s!(str &d, "edge.json");
+            let m = s!(str &d, "interpreter.json");
             if !self.missing.contains(&m) {
                 self.queue.push_back(m);
             }
@@ -728,7 +728,7 @@ impl Walk {
             if self.manifest_dirs.contains(&d) {
                 return Some(Some(d));
             }
-            let m = s!(str &d, "edge.json");
+            let m = s!(str &d, "interpreter.json");
             if !self.visited.contains(&m) && !self.missing.contains(&m) {
                 return None;
             }
@@ -989,21 +989,21 @@ mod tests {
         let digest = lock::digest_of(&dep);
         let lock_text = s!("{ \"greet\": { \"version\": \"0.1.0\", \"url\": \"https://cdn.test/greet.rig\", \"digest\": \"", str &digest, "\" } }");
         let seen = walk(&[
-            file("edge.json", r#"{ "imports": { "greet": "0.1.0" } }"#),
-            ("edge.lock", lock_text.into_bytes()),
+            file("interpreter.json", r#"{ "imports": { "greet": "0.1.0" } }"#),
+            ("interpreter.lock", lock_text.into_bytes()),
             ("https://cdn.test/greet.rig", dep),
         ], "use greet\n");
         assert!(seen.failures.is_empty(), "{:?}", seen.failures);
         let pinned = s!("https://cdn.test/greet.rig#", str &digest);
         assert_eq!(seen.code, vec![pinned.clone()]);
-        let root = &seen.manifests.iter().find(|(spec, _)| spec == "edge.json").unwrap().1;
+        let root = &seen.manifests.iter().find(|(spec, _)| spec == "interpreter.json").unwrap().1;
         assert_eq!(root.imports, vec![(s!("greet"), pinned)]);
     }
 
     #[test]
     fn bytes_that_break_their_pin_fail_the_walk() {
         let seen = walk(&[
-            file("edge.json", r#"{ "imports": { "lib": "./lib.rig#sha256-a4bf0317b809477e6e475cd791573953d3ae05c4e2b03bd5f35199609557dd90" } }"#),
+            file("interpreter.json", r#"{ "imports": { "lib": "./lib.rig#sha256-a4bf0317b809477e6e475cd791573953d3ae05c4e2b03bd5f35199609557dd90" } }"#),
             file("lib.rig", "x = 1\n"),
         ], "use lib\n");
         assert!(seen.failures.iter().any(|f| f.starts_with("integrity check failed for './lib.rig'")), "{:?}", seen.failures);
@@ -1015,33 +1015,33 @@ mod tests {
             entry: s!("main.rig"),
             files: vec![
                 Entry { path: s!("main.rig"), bytes: b"use _fast\n".to_vec() },
-                Entry { path: s!("edge.json"), bytes: br#"{ "name": "fast", "imports": { "_fast": "./fast.wasm" } }"#.to_vec() },
+                Entry { path: s!("interpreter.json"), bytes: br#"{ "name": "fast", "imports": { "_fast": "./fast.wasm" } }"#.to_vec() },
                 Entry { path: s!("fast.wasm"), bytes: b"\0asm\x01\0\0\0".to_vec() },
             ],
         }.encode();
         let seen = walk(&[
-            file("edge.json", r#"{ "imports": { "fast": "https://cdn.test/pkg/fast/0.1.0/app.edge" } }"#),
-            ("https://cdn.test/pkg/fast/0.1.0/app.edge", bundle),
+            file("interpreter.json", r#"{ "imports": { "fast": "https://cdn.test/pkg/fast/0.1.0/app.interpreter" } }"#),
+            ("https://cdn.test/pkg/fast/0.1.0/app.interpreter", bundle),
         ], "use fast\n");
         assert!(seen.failures.is_empty(), "{:?}", seen.failures);
-        assert_eq!(seen.plugins, vec![s!("https://cdn.test/pkg/fast/0.1.0/app.edge/fast.wasm")]);
-        assert!(!seen.fetched.iter().any(|f| f.contains("app.edge/")), "files inside a package never reach the host: {:?}", seen.fetched);
+        assert_eq!(seen.plugins, vec![s!("https://cdn.test/pkg/fast/0.1.0/app.interpreter/fast.wasm")]);
+        assert!(!seen.fetched.iter().any(|f| f.contains("app.interpreter/")), "files inside a package never reach the host: {:?}", seen.fetched);
         assert!(seen.packages.as_ref().unwrap().needed);
-        assert_eq!(grants(&seen, "https://cdn.test/pkg/fast/0.1.0/app.edge/"), named("fast", &["fast"]));
+        assert_eq!(grants(&seen, "https://cdn.test/pkg/fast/0.1.0/app.interpreter/"), named("fast", &["fast"]));
     }
 
     // the name a manifest gives itself never counts so `other` cannot pose as `analytics`
     #[test]
     fn a_package_is_granted_through_the_keys_that_import_it() {
         let seen = walk(&[
-            file("edge.json", r#"{ "imports": { "analytics": "./analytics/main.rig", "other": "./other/main.rig" }, "permissions": { "analytics": ["secret:KEY"] } }"#),
-            file("analytics/edge.json", r#"{ "name": "analytics", "imports": { "trace": "./trace/main.rig" }, "permissions": { "trace": ["secret:KEY"] } }"#),
+            file("interpreter.json", r#"{ "imports": { "analytics": "./analytics/main.rig", "other": "./other/main.rig" }, "permissions": { "analytics": ["secret:KEY"] } }"#),
+            file("analytics/interpreter.json", r#"{ "name": "analytics", "imports": { "trace": "./trace/main.rig" }, "permissions": { "trace": ["secret:KEY"] } }"#),
             file("analytics/main.rig", "use trace\n"),
-            file("analytics/trace/edge.json", r#"{ "name": "trace" }"#),
+            file("analytics/trace/interpreter.json", r#"{ "name": "trace" }"#),
             file("analytics/trace/main.rig", ""),
-            file("other/edge.json", r#"{ "name": "analytics" }"#),
+            file("other/interpreter.json", r#"{ "name": "analytics" }"#),
             file("other/main.rig", "use .inner.main\n"),
-            file("other/inner/edge.json", r#"{ "name": "analytics" }"#),
+            file("other/inner/interpreter.json", r#"{ "name": "analytics" }"#),
             file("other/inner/main.rig", "x = 1\n"),
         ], "use analytics\nuse other\n");
         assert!(seen.failures.is_empty(), "{:?}", seen.failures);
@@ -1060,24 +1060,24 @@ mod tests {
     #[test]
     fn a_package_two_importers_share_loads_once_for_each() {
         let seen = walk(&[
-            file("edge.json", r#"{ "imports": { "pay": "./pay/main.rig", "shop": "./shop/main.rig" }, "permissions": { "pay": ["secret:PAY"], "shop": ["secret:SHOP"] } }"#),
-            file("pay/edge.json", r#"{ "imports": { "vault": "../vault/main.rig" }, "permissions": { "vault": ["secret:PAY"] } }"#),
+            file("interpreter.json", r#"{ "imports": { "pay": "./pay/main.rig", "shop": "./shop/main.rig" }, "permissions": { "pay": ["secret:PAY"], "shop": ["secret:SHOP"] } }"#),
+            file("pay/interpreter.json", r#"{ "imports": { "vault": "../vault/main.rig" }, "permissions": { "vault": ["secret:PAY"] } }"#),
             file("pay/main.rig", "use vault\n"),
-            file("shop/edge.json", r#"{ "imports": { "vault": "../vault/main.rig" }, "permissions": { "vault": ["secret:SHOP"] } }"#),
+            file("shop/interpreter.json", r#"{ "imports": { "vault": "../vault/main.rig" }, "permissions": { "vault": ["secret:SHOP"] } }"#),
             file("shop/main.rig", "use vault\n"),
-            file("vault/edge.json", "{}"),
+            file("vault/interpreter.json", "{}"),
             file("vault/main.rig", "use .util\n"),
             file("vault/util.rig", "x = 1\n"),
         ], "use pay\nuse shop\n");
         assert!(seen.failures.is_empty(), "{:?}", seen.failures);
         assert_eq!(grants(&seen, "./vault/"), named("vault", &["pay", "vault"]));
-        assert_eq!(grants(&seen, "./.edge-copy-1-vault/"), named("vault", &["shop", "vault"]));
-        for spec in ["./vault/main.rig", "./vault/util.rig", "./.edge-copy-1-vault/main.rig", "./.edge-copy-1-vault/util.rig"] {
+        assert_eq!(grants(&seen, "./.interpreter-copy-1-vault/"), named("vault", &["shop", "vault"]));
+        for spec in ["./vault/main.rig", "./vault/util.rig", "./.interpreter-copy-1-vault/main.rig", "./.interpreter-copy-1-vault/util.rig"] {
             assert!(seen.code.contains(&s!(str spec)), "{spec} never loaded: {:?}", seen.code);
         }
-        assert!(!seen.fetched.iter().any(|f| f.contains(".edge-copy")), "a copy reads the original: {:?}", seen.fetched);
-        let shop = &seen.manifests.iter().rev().find(|(spec, _)| spec == "./shop/edge.json").unwrap().1;
-        assert_eq!(shop.imports, vec![(s!("vault"), s!("../.edge-copy-1-vault/main.rig"))]);
+        assert!(!seen.fetched.iter().any(|f| f.contains(".interpreter-copy")), "a copy reads the original: {:?}", seen.fetched);
+        let shop = &seen.manifests.iter().rev().find(|(spec, _)| spec == "./shop/interpreter.json").unwrap().1;
+        assert_eq!(shop.imports, vec![(s!("vault"), s!("../.interpreter-copy-1-vault/main.rig"))]);
     }
 
     #[test]
@@ -1086,58 +1086,58 @@ mod tests {
             entry: s!("main.rig"),
             files: vec![
                 Entry { path: s!("main.rig"), bytes: b"use .util\n".to_vec() },
-                Entry { path: s!("edge.json"), bytes: br#"{ "name": "http" }"#.to_vec() },
+                Entry { path: s!("interpreter.json"), bytes: br#"{ "name": "http" }"#.to_vec() },
                 Entry { path: s!("util.rig"), bytes: b"x = 1\n".to_vec() },
             ],
         }.encode();
-        let importer = |secret: &str| s!("{ \"imports\": { \"http\": \"https://cdn.test/pkg/http/0.1.0/app.edge\" }, \"permissions\": { \"http\": [\"secret:", str secret, "\"] } }").into_bytes();
+        let importer = |secret: &str| s!("{ \"imports\": { \"http\": \"https://cdn.test/pkg/http/0.1.0/app.interpreter\" }, \"permissions\": { \"http\": [\"secret:", str secret, "\"] } }").into_bytes();
         let seen = walk(&[
-            file("edge.json", r#"{ "imports": { "pay": "./pay/main.rig", "shop": "./shop/main.rig" }, "permissions": { "pay": ["secret:PAY"], "shop": ["secret:SHOP"] } }"#),
-            ("pay/edge.json", importer("PAY")),
+            file("interpreter.json", r#"{ "imports": { "pay": "./pay/main.rig", "shop": "./shop/main.rig" }, "permissions": { "pay": ["secret:PAY"], "shop": ["secret:SHOP"] } }"#),
+            ("pay/interpreter.json", importer("PAY")),
             file("pay/main.rig", "use http\n"),
-            ("shop/edge.json", importer("SHOP")),
+            ("shop/interpreter.json", importer("SHOP")),
             file("shop/main.rig", "use http\n"),
-            ("https://cdn.test/pkg/http/0.1.0/app.edge", bundle),
+            ("https://cdn.test/pkg/http/0.1.0/app.interpreter", bundle),
         ], "use pay\nuse shop\n");
         assert!(seen.failures.is_empty(), "{:?}", seen.failures);
-        assert_eq!(grants(&seen, "https://cdn.test/pkg/http/0.1.0/app.edge/"), named("http", &["pay", "http"]));
-        let copy = "https://cdn.test/pkg/http/0.1.0/.edge-copy-1-app.edge/";
+        assert_eq!(grants(&seen, "https://cdn.test/pkg/http/0.1.0/app.interpreter/"), named("http", &["pay", "http"]));
+        let copy = "https://cdn.test/pkg/http/0.1.0/.interpreter-copy-1-app.interpreter/";
         assert_eq!(grants(&seen, copy), named("http", &["shop", "http"]));
         assert!(seen.code.contains(&s!(str copy, "util.rig")), "{:?}", seen.code);
-        assert!(!seen.fetched.iter().any(|f| f.contains(".edge-copy")), "a copy reads the original: {:?}", seen.fetched);
+        assert!(!seen.fetched.iter().any(|f| f.contains(".interpreter-copy")), "a copy reads the original: {:?}", seen.fetched);
     }
 
     // a package importing its importer reaches that same package since a copy never ends
     #[test]
     fn an_import_cycle_between_packages_ends() {
         let seen = walk(&[
-            file("edge.json", r#"{ "imports": { "a": "./a/main.rig" } }"#),
-            file("a/edge.json", r#"{ "imports": { "b": "../b/main.rig" } }"#),
+            file("interpreter.json", r#"{ "imports": { "a": "./a/main.rig" } }"#),
+            file("a/interpreter.json", r#"{ "imports": { "b": "../b/main.rig" } }"#),
             file("a/main.rig", "use b\n"),
-            file("b/edge.json", r#"{ "imports": { "a": "../a/main.rig" } }"#),
+            file("b/interpreter.json", r#"{ "imports": { "a": "../a/main.rig" } }"#),
             file("b/main.rig", "use a\n"),
         ], "use a\n");
         assert!(seen.failures.is_empty(), "{:?}", seen.failures);
         assert_eq!(grants(&seen, "./a/"), named("a", &["a"]));
         assert_eq!(grants(&seen, "./b/"), named("b", &["a", "b"]));
-        assert!(!seen.packages.unwrap().dirs.iter().any(|(dir, _, _)| dir.contains(".edge-copy")));
+        assert!(!seen.packages.unwrap().dirs.iter().any(|(dir, _, _)| dir.contains(".interpreter-copy")));
     }
 
     #[test]
     fn a_manifest_for_a_later_engine_or_shadowing_a_system_module_is_refused() {
-        let later = walk(&[file("edge.json", r#"{ "edge": "99.0.0" }"#)], "");
-        assert!(later.failures.iter().any(|f| f.starts_with("edge.json at 'edge.json': needs edge 99.0.0")), "{:?}", later.failures);
-        let shadow = walk(&[file("edge.json", r#"{ "imports": { "time": "./fake.rig" } }"#), file("fake.rig", "")], "use time\n");
+        let later = walk(&[file("interpreter.json", r#"{ "interpreter": "99.0.0" }"#)], "");
+        assert!(later.failures.iter().any(|f| f.starts_with("interpreter.json at 'interpreter.json': needs interpreter 99.0.0")), "{:?}", later.failures);
+        let shadow = walk(&[file("interpreter.json", r#"{ "imports": { "time": "./fake.rig" } }"#), file("fake.rig", "")], "use time\n");
         assert!(shadow.failures.iter().any(|f| f.contains("import 'time' takes the name of a system module")), "{:?}", shadow.failures);
     }
 
     #[test]
     fn what_cannot_load_is_refused_where_it_is_imported() {
-        let seen = walk(&[file("edge.json", r#"{ "imports": { "ui": "./ui.js" } }"#)], "use ui\nuse json\nuse my_helpers\n");
+        let seen = walk(&[file("interpreter.json", r#"{ "imports": { "ui": "./ui.js" } }"#)], "use ui\nuse json\nuse my_helpers\n");
         assert!(seen.refused.contains(&(s!("./ui.js"), s!("module 'ui' is JavaScript, ship a .rig or a .wasm"))), "{:?}", seen.refused);
         let help = |name: &str| seen.refused.iter().find(|(spec, _)| spec == name).map(|(_, msg)| msg.split_once("\nhelp: ").unwrap().1.to_string());
-        assert_eq!(help("json").as_deref(), Some("declare it in edge.json, or use a relative import"));
-        assert_eq!(help("my_helpers").as_deref(), Some("declare it in edge.json, or use a relative import"));
+        assert_eq!(help("json").as_deref(), Some("declare it in interpreter.json, or use a relative import"));
+        assert_eq!(help("my_helpers").as_deref(), Some("declare it in interpreter.json, or use a relative import"));
         assert!(seen.packages.unwrap().needed);
     }
 
@@ -1154,9 +1154,9 @@ mod tests {
     #[test]
     fn the_host_drives_the_walk_through_its_json_steps() {
         let mut host = Host::default();
-        assert_eq!(start(&FRONT, &mut host, "use x\n", "", b"net\ntime", carried()), r#"{"fetch":"edge.json"}"#);
+        assert_eq!(start(&FRONT, &mut host, "use x\n", "", b"net\ntime", carried()), r#"{"fetch":"interpreter.json"}"#);
         assert_eq!(fetched(&mut host, br#"{ "imports": { "x": "./x.rig" } }"#, 0), r#"{"fetch":"./x.rig"}"#);
-        assert_eq!(fetched(&mut host, b"y = 1\n", 0), r#"{"fetch":"./edge.json"}"#);
+        assert_eq!(fetched(&mut host, b"y = 1\n", 0), r#"{"fetch":"./interpreter.json"}"#);
         assert_eq!(fetched(&mut host, b"", 1), r#"{"system":{"root":"","needed":false,"dirs":[["","main",[[{},"main"]]]],"permissions":{}}}"#);
         assert_eq!(served(&mut host, b""), r#"{"done":[]}"#);
         assert_eq!(served(&mut host, b""), r#"{"done":["no resolution walk is running"]}"#);
@@ -1168,16 +1168,16 @@ mod tests {
     #[test]
     fn a_plugin_and_an_undeclared_name_answer_through_the_host() {
         let mut host = Host::default();
-        assert_eq!(start(&FRONT, &mut host, "use fast\nuse json\n", "", b"", carried()), r#"{"fetch":"edge.json"}"#);
+        assert_eq!(start(&FRONT, &mut host, "use fast\nuse json\n", "", b"", carried()), r#"{"fetch":"interpreter.json"}"#);
         assert_eq!(fetched(&mut host, br#"{ "imports": { "fast": "./fast.wasm" } }"#, 0), r#"{"fetch":"./fast.wasm"}"#);
         assert_eq!(fetched(&mut host, b"\0asm\x01\0\0\0", 0), r#"{"plugin":"./fast.wasm","name":"fast"}"#);
         assert_eq!(plugin_bytes(&mut host), b"\0asm\x01\0\0\0");
         assert!(plugin_bytes(&mut host).is_empty());
-        assert_eq!(loaded(&mut host, 0, String::new()), r#"{"fetch":"./edge.json"}"#);
+        assert_eq!(loaded(&mut host, 0, String::new()), r#"{"fetch":"./interpreter.json"}"#);
         assert_eq!(fetched(&mut host, b"", 1), r#"{"system":{"root":"","needed":true,"dirs":[["","main",[[{},"main"]]]],"permissions":{}}}"#);
         assert_eq!(served(&mut host, b""), r#"{"done":[]}"#);
         let state = host.state();
-        assert_eq!(state.deps.refusals, vec![(s!("json"), s!("module 'json' is not provided by this host and no edge.json declares it\nhelp: declare it in edge.json, or use a relative import"))]);
+        assert_eq!(state.deps.refusals, vec![(s!("json"), s!("module 'json' is not provided by this host and no interpreter.json declares it\nhelp: declare it in interpreter.json, or use a relative import"))]);
         assert_eq!(state.changed, 1);
     }
 
@@ -1185,7 +1185,7 @@ mod tests {
     fn a_refused_plugin_and_a_failed_fetch_end_the_walk_with_why() {
         let mut host = Host::default();
         assert_eq!(start(&FRONT, &mut host, "use fast\nuse .gone\n", "", b"", carried()), r#"{"fetch":"./gone.rig"}"#);
-        assert_eq!(fetched(&mut host, b"timed out", 2), r#"{"fetch":"edge.json"}"#);
+        assert_eq!(fetched(&mut host, b"timed out", 2), r#"{"fetch":"interpreter.json"}"#);
         assert_eq!(fetched(&mut host, br#"{ "imports": { "fast": "./fast.wasm" } }"#, 0), r#"{"fetch":"./fast.wasm"}"#);
         assert_eq!(fetched(&mut host, b"\0asm", 0), r#"{"plugin":"./fast.wasm","name":"fast"}"#);
         assert_eq!(loaded(&mut host, 2, s!("is not loaded here")), r#"{"system":{"root":"","needed":false,"dirs":[["","main",[[{},"main"]]]],"permissions":{}}}"#);
@@ -1197,7 +1197,7 @@ mod tests {
     #[test]
     fn a_served_module_is_never_refused_as_undeclared() {
         let mut host = Host::default();
-        assert_eq!(start(&FRONT, &mut host, "use net\nuse json\n", "", b"net", carried()), r#"{"fetch":"edge.json"}"#);
+        assert_eq!(start(&FRONT, &mut host, "use net\nuse json\n", "", b"net", carried()), r#"{"fetch":"interpreter.json"}"#);
         assert_eq!(fetched(&mut host, b"", 1), r#"{"system":{"root":"","needed":true,"dirs":[["","main",[[{},"main"]]]],"permissions":{}}}"#);
         assert_eq!(served(&mut host, b""), r#"{"done":[]}"#);
         assert_eq!(host.state().deps.refusals.iter().map(|(spec, _)| spec.as_str()).collect::<Vec<_>>(), ["json"]);
@@ -1206,7 +1206,7 @@ mod tests {
     // a host naming no field reads no section and reserves no holder
     #[test]
     fn a_walk_carries_only_the_field_its_host_names() {
-        let files = [file("edge.json", r#"{ "imports": { "main": "./lib.rig" }, "permissions": "junk" }"#), file("lib.rig", "x = 1\n")];
+        let files = [file("interpreter.json", r#"{ "imports": { "main": "./lib.rig" }, "permissions": "junk" }"#), file("lib.rig", "x = 1\n")];
         let bare = walk_carrying(&files, "use main\n", Carry::default());
         assert!(bare.failures.is_empty(), "{:?}", bare.failures);
         let packages = bare.packages.unwrap();
@@ -1214,8 +1214,8 @@ mod tests {
         let json = served::system(&packages);
         assert!(json.starts_with(r#"{"system":{"root":"","needed":false,"dirs":[["","main",[[{},"main"]]]"#) && json.ends_with("]]}}") && !json.contains("permissions"), "{json}");
         let held = walk(&files, "use main\n");
-        assert!(held.failures.iter().any(|f| f == "edge.json at 'edge.json': permissions must map each package to a list of entries"), "{:?}", held.failures);
-        let named = walk_carrying(&[file("edge.json", r#"{ "imports": { "main": "./lib.rig" } }"#), file("lib.rig", "")], "use main\n", carried());
+        assert!(held.failures.iter().any(|f| f == "interpreter.json at 'interpreter.json': permissions must map each package to a list of entries"), "{:?}", held.failures);
+        let named = walk_carrying(&[file("interpreter.json", r#"{ "imports": { "main": "./lib.rig" } }"#), file("lib.rig", "")], "use main\n", carried());
         assert!(named.failures.iter().any(|f| f.ends_with("import 'main' is reserved for permissions")), "{:?}", named.failures);
         assert_eq!(carry(b"permissions\nall\nmain").holders, [s!("all"), s!("main")]);
         assert!(carry(b"").field.is_empty() && carry(b"\nmain").holders.is_empty());
@@ -1224,33 +1224,33 @@ mod tests {
     // importers granting a package alike share one copy so a diamond loads each package once
     #[test]
     fn a_package_its_importers_grant_alike_loads_once() {
-        let mut owned = vec![(s!("edge.json"), s!(r#"{ "imports": { "a": "./p0/main.rig", "b": "./p0/main.rig" } }"#))];
+        let mut owned = vec![(s!("interpreter.json"), s!(r#"{ "imports": { "a": "./p0/main.rig", "b": "./p0/main.rig" } }"#))];
         for n in 0..16 {
             let next = n + 1;
             let (manifest, main) = match next < 16 {
                 true => (s!("{ \"imports\": { \"a\": \"../p", int next, "/main.rig\", \"b\": \"../p", int next, "/main.rig\" } }"), s!("use a\nuse b\n")),
                 false => (s!("{}"), s!("v = 1\n")),
             };
-            owned.push((s!("p", int n, "/edge.json"), manifest));
+            owned.push((s!("p", int n, "/interpreter.json"), manifest));
             owned.push((s!("p", int n, "/main.rig"), main));
         }
         let files: Vec<(&str, Vec<u8>)> = owned.iter().map(|(path, text)| (path.as_str(), text.as_bytes().to_vec())).collect();
         let seen = walk(&files, "use a\nuse b\n");
         assert!(seen.failures.is_empty(), "{:?}", seen.failures);
         assert_eq!(seen.code.len(), 16, "{:?}", seen.code);
-        assert!(!seen.packages.unwrap().dirs.iter().any(|(dir, _, _)| dir.contains(".edge-copy")));
+        assert!(!seen.packages.unwrap().dirs.iter().any(|(dir, _, _)| dir.contains(".interpreter-copy")));
     }
 
     // a key whose target has no manifest of its own grants nothing
     #[test]
     fn a_grant_under_a_key_without_a_manifest_is_refused() {
         let seen = walk(&[
-            file("edge.json", r#"{ "imports": { "util": "./util/main.rig", "kept": "./kept/main.rig" }, "permissions": { "util": ["net"], "kept": ["net"] } }"#),
+            file("interpreter.json", r#"{ "imports": { "util": "./util/main.rig", "kept": "./kept/main.rig" }, "permissions": { "util": ["net"], "kept": ["net"] } }"#),
             file("util/main.rig", "x = 1\n"),
-            file("kept/edge.json", "{}"),
+            file("kept/interpreter.json", "{}"),
             file("kept/main.rig", "y = 1\n"),
         ], "use util\nuse kept\n");
-        assert_eq!(seen.failures, [s!("edge.json at 'edge.json': permissions for 'util' reach nothing, its import './util/main.rig' has no edge.json of its own so it runs as part of this package")]);
+        assert_eq!(seen.failures, [s!("interpreter.json at 'interpreter.json': permissions for 'util' reach nothing, its import './util/main.rig' has no interpreter.json of its own so it runs as part of this package")]);
     }
 
     // a package served from a URL reaches URLs alone so it reads no local file
@@ -1260,10 +1260,10 @@ mod tests {
             entry: s!("main.rig"),
             files: vec![
                 Entry { path: s!("main.rig"), bytes: main.as_bytes().to_vec() },
-                Entry { path: s!("edge.json"), bytes: manifest.as_bytes().to_vec() },
+                Entry { path: s!("interpreter.json"), bytes: manifest.as_bytes().to_vec() },
             ],
         }.encode();
-        let root = file("edge.json", r#"{ "imports": { "pay": "https://cdn.test/pkg/pay/0.1.0/app.edge" } }"#);
+        let root = file("interpreter.json", r#"{ "imports": { "pay": "https://cdn.test/pkg/pay/0.1.0/app.interpreter" } }"#);
         let secret = file("config.rig", "SECRET = 'hunter2'\n");
         for (main, manifest, why) in [
             ("use ......config\nleak = SECRET\n", "{}", "module '../../../../../config.rig' is outside https://cdn.test/ which serves its importer"),
@@ -1272,10 +1272,10 @@ mod tests {
             ("use cfg\n", r#"{ "imports": { "cfg": "file:///abs/project/config.rig" } }"#, "is outside https://cdn.test/"),
             ("use cfg\n", r#"{ "extends": "/abs/project" }"#, "extends '/abs/project' is outside https://cdn.test/"),
         ] {
-            let seen = walk(&[root.clone(), secret.clone(), ("https://cdn.test/pkg/pay/0.1.0/app.edge", bundle(main, manifest))], "use pay\n");
+            let seen = walk(&[root.clone(), secret.clone(), ("https://cdn.test/pkg/pay/0.1.0/app.interpreter", bundle(main, manifest))], "use pay\n");
             assert!(seen.failures.iter().any(|f| f.contains(why)), "{main:?} {manifest}: {:?}", seen.failures);
             // the root's own manifest and lock are the only local files the walk reads
-            assert!(seen.fetched.iter().all(|f| f.contains("://") || f == "edge.json" || f == "edge.lock"), "{main:?} {manifest} asked for a local file: {:?}", seen.fetched);
+            assert!(seen.fetched.iter().all(|f| f.contains("://") || f == "interpreter.json" || f == "interpreter.lock"), "{main:?} {manifest} asked for a local file: {:?}", seen.fetched);
             assert!(!seen.code.iter().any(|c| c.ends_with("config.rig")), "{:?}", seen.code);
         }
     }
@@ -1284,10 +1284,10 @@ mod tests {
     #[test]
     fn a_sibling_reached_by_path_holds_what_its_importer_holds() {
         let seen = walk(&[
-            file("edge.json", r#"{ "imports": { "pay": "./pay/main.rig" }, "permissions": { "main": ["net:bank.example.com"], "pay": ["net"] } }"#),
-            file("pay/edge.json", "{}"),
+            file("interpreter.json", r#"{ "imports": { "pay": "./pay/main.rig" }, "permissions": { "main": ["net:bank.example.com"], "pay": ["net"] } }"#),
+            file("pay/interpreter.json", "{}"),
             file("pay/main.rig", "use ..shared.main\n"),
-            file("shared/edge.json", "{}"),
+            file("shared/interpreter.json", "{}"),
             file("shared/main.rig", "fn f():\n    pass\n"),
         ], "use pay\n");
         assert!(seen.failures.is_empty(), "{:?}", seen.failures);
@@ -1301,23 +1301,23 @@ mod tests {
     #[test]
     fn a_package_reached_by_path_from_importers_granted_otherwise_is_refused() {
         let seen = walk(&[
-            file("edge.json", r#"{ "imports": { "pay": "./pay/main.rig", "shop": "./shop/main.rig" }, "permissions": { "pay": ["net:a.example.com"], "shop": ["net:b.example.com"] } }"#),
-            file("pay/edge.json", "{}"),
+            file("interpreter.json", r#"{ "imports": { "pay": "./pay/main.rig", "shop": "./shop/main.rig" }, "permissions": { "pay": ["net:a.example.com"], "shop": ["net:b.example.com"] } }"#),
+            file("pay/interpreter.json", "{}"),
             file("pay/main.rig", "use ..shared.main\n"),
-            file("shop/edge.json", "{}"),
+            file("shop/interpreter.json", "{}"),
             file("shop/main.rig", "use ..shared.main\n"),
-            file("shared/edge.json", "{}"),
+            file("shared/interpreter.json", "{}"),
             file("shared/main.rig", "fn f():\n    pass\n"),
         ], "use pay\nuse shop\n");
         assert!(seen.failures.iter().any(|f| f.starts_with("'shared/' is reached by relative imports from 'pay/' and 'shop/'")), "{:?}", seen.failures);
         // importers holding alike share the package as a key's importers do
         let alike = walk(&[
-            file("edge.json", r#"{ "imports": { "pay": "./pay/main.rig", "shop": "./shop/main.rig" }, "permissions": { "pay": ["net"], "shop": ["net"] } }"#),
-            file("pay/edge.json", "{}"),
+            file("interpreter.json", r#"{ "imports": { "pay": "./pay/main.rig", "shop": "./shop/main.rig" }, "permissions": { "pay": ["net"], "shop": ["net"] } }"#),
+            file("pay/interpreter.json", "{}"),
             file("pay/main.rig", "use ..shared.main\n"),
-            file("shop/edge.json", "{}"),
+            file("shop/interpreter.json", "{}"),
             file("shop/main.rig", "use ..shared.main\n"),
-            file("shared/edge.json", "{}"),
+            file("shared/interpreter.json", "{}"),
             file("shared/main.rig", "fn f():\n    pass\n"),
         ], "use pay\nuse shop\n");
         assert!(alike.failures.is_empty(), "{:?}", alike.failures);
@@ -1328,7 +1328,7 @@ mod tests {
 
     // the rig's table read from its file so the walk scans what its programs import
     mod rig {
-        use crate as edge;
+        use crate as interpreter;
         include!("../../tests/rig/src/syntax.rs");
     }
 }

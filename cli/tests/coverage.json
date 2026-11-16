@@ -1,14 +1,14 @@
 [
   {
     "given": { "main.lox": "var a = 1;\nif (a > 0) {\n  print \"taken\";\n} else {\n  print \"skipped\";\n}\nprint \"after\";\n" },
-    "env": { "EDGE_COVERAGE": "lines.txt" },
+    "env": { "INTERPRETER_COVERAGE": "lines.txt" },
     "run": ["run", "main.lox"],
     "stdout": ["taken\nafter\n"],
     "holds": { "lines.txt": "main.lox:1\nmain.lox:2\nmain.lox:3\nmain.lox:7\n" }
   },
   {
     "given": { "main.lox": "fun pick(c) {\n  if (c) return \"yes\";\n  return \"no\";\n}\nprint pick(true);\n" },
-    "env": { "EDGE_COVERAGE": "lines.txt" },
+    "env": { "INTERPRETER_COVERAGE": "lines.txt" },
     "run": ["run", "main.lox"],
     "stdout": ["yes\n"],
     "holds": { "lines.txt": "main.lox:1\nmain.lox:2\nmain.lox:5\n" }

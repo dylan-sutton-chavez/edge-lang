@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-pub use edge::deps::bundle::{Bundle, Entry, MAGIC};
+pub use interpreter::deps::bundle::{Bundle, Entry, MAGIC};
 
 // marks an eval body carrying a base64 project bundle rather than a raw snippet
 pub const BUNDLE_TAG: &str = "EDGEPKG:";
@@ -15,7 +15,7 @@ pub fn embedded_payload() -> Option<Vec<u8>> {
     trailer_payload(&std::env::current_exe().ok()?)
 }
 
-/* the bundle a raw .edge or a standalone binary with a trailer carries */
+/* the bundle a raw .interpreter or a standalone binary with a trailer carries */
 pub fn file_payload(path: &Path) -> Option<Vec<u8>> {
     let mut head = [0u8; 8];
     if let Ok(mut f) = fs::File::open(path) {

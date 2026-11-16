@@ -7,7 +7,7 @@
 <body>
   <pre id="out"></pre>
   <script type="module">
-    // edge build --web writes the JS host into dist/
+    // interpreter build --web writes the JS host into dist/
     import { createWorker } from "./dist/js/src/index.js";
     // the worker runs the program beside this page and the page shows what it prints
     const out = document.getElementById("out");

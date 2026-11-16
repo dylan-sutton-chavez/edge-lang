@@ -1,4 +1,4 @@
-use lib::fmt::render::{ascii_escape, format_f64, push_bytes, push_repr_str};
+use interpreter_lib::fmt::render::{ascii_escape, format_f64, push_bytes, push_repr_str};
 use rig::Rig;
 
 fn quoted(s: &str) -> String { let mut out = String::new(); push_repr_str::<Rig>(&mut out, s); out }

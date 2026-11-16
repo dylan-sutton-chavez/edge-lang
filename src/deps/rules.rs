@@ -53,8 +53,8 @@ pub fn newer(floor: &str, engine: &str) -> bool {
 
 /* why this engine cannot run a manifest for a later engine or none */
 pub fn floor_error(m: &Manifest) -> Option<String> {
-    let floor = m.edge.as_deref()?;
-    newer(floor, ENGINE).then(|| s!("needs edge ", str floor, ", this is ", str ENGINE))
+    let floor = m.interpreter.as_deref()?;
+    newer(floor, ENGINE).then(|| s!("needs interpreter ", str floor, ", this is ", str ENGINE))
 }
 
 /* a name that reads the same in a url and an import and a listing */
@@ -130,10 +130,10 @@ pub fn check(m: &Manifest, system: &[&str], reserved: &[(&str, &str)]) -> Result
     {
         return Err(s!("repository '", str repository, "' must be an https url a listing can link"));
     }
-    if let Some(edge) = &m.edge
-        && !is_version(edge)
+    if let Some(floor) = &m.interpreter
+        && !is_version(floor)
     {
-        return Err(s!("edge '", str edge, "' must be ", str VERSION_RULE));
+        return Err(s!("interpreter '", str floor, "' must be ", str VERSION_RULE));
     }
     m.imports.iter().find_map(|(name, target)| import_error(name, target, system, reserved)).map_or(Ok(()), Err)
 }
@@ -164,9 +164,9 @@ mod tests {
 
     #[test]
     fn a_floor_above_this_engine_says_both_versions() {
-        let later = parse_manifest(br#"{ "edge": "99.0.0" }"#).unwrap();
-        assert_eq!(floor_error(&later), Some(s!("needs edge 99.0.0, this is ", str ENGINE)));
-        assert_eq!(floor_error(&parse_manifest(br#"{ "edge": "0.0.1" }"#).unwrap()), None);
+        let later = parse_manifest(br#"{ "interpreter": "99.0.0" }"#).unwrap();
+        assert_eq!(floor_error(&later), Some(s!("needs interpreter 99.0.0, this is ", str ENGINE)));
+        assert_eq!(floor_error(&parse_manifest(br#"{ "interpreter": "0.0.1" }"#).unwrap()), None);
         assert_eq!(floor_error(&parse_manifest(b"{}").unwrap()), None);
     }
 
@@ -182,7 +182,7 @@ mod tests {
             (r#"{ "name": "time" }"#, "is reserved for the system module"),
             (r#"{ "version": "1.0" }"#, "must be major.minor.patch"),
             (r#"{ "version": "01.2.3" }"#, "without leading zeros"),
-            (r#"{ "edge": "0.7.100" }"#, "edge '0.7.100' must be"),
+            (r#"{ "interpreter": "0.7.100" }"#, "interpreter '0.7.100' must be"),
             (r#"{ "description": "  " }"#, "description is empty"),
             (r#"{ "description": "two\nlines" }"#, "must be one line"),
             (r#"{ "description": "Turn absolutely any text that you have into a tidy url slug fast." }"#, "the cap is 60"),

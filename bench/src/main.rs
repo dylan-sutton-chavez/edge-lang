@@ -7,7 +7,7 @@ use wasmtime::{Config, Engine, Instance, Linker, Memory, Module, Store, TypedFun
 const ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
 const SNAPSHOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/.snapshot");
 const CASES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/cases");
-// the sources edge.wasm is built from which it must not predate
+// the sources interpreter.wasm is built from which it must not predate
 const SOURCES: [&str; 3] = ["src", "lib/src", "examples/lox/src"];
 // only budget-exhausting cases reach this many ops and they end the same way sooner
 const OPS: i64 = 10_000_000;
@@ -52,19 +52,19 @@ fn main() {
     let update = std::env::args().any(|a| a == "--update");
     // a snapshot that takes a slower case needs it said outright
     let accept_slower = std::env::args().any(|a| a == "--accept-slower");
-    let wasm = std::env::var_os("EDGE_WASM").map(PathBuf::from).unwrap_or_else(|| Path::new(ROOT).join("target/wasm32-unknown-unknown/cli/edge.wasm"));
+    let wasm = std::env::var_os("INTERPRETER_WASM").map(PathBuf::from).unwrap_or_else(|| Path::new(ROOT).join("target/wasm32-unknown-unknown/cli/interpreter.wasm"));
     let built = std::fs::metadata(&wasm).and_then(|m| m.modified()).unwrap_or(SystemTime::UNIX_EPOCH);
     if SOURCES.iter().any(|dir| built < newest(&Path::new(ROOT).join(dir))) {
         println!("{} is older than its sources, build it with make wasm-cli", wasm.display());
         std::process::exit(1);
     }
-    let bytes = std::fs::read(&wasm).expect("reading edge.wasm");
+    let bytes = std::fs::read(&wasm).expect("reading interpreter.wasm");
     let mut config = Config::new();
     config.consume_fuel(true);
     // the stack the CLI gives the engine so the deepest nesting runs alike everywhere
     config.max_wasm_stack(1 << 20);
     let engine = Engine::new(&config).expect("wasmtime engine");
-    let module = Module::new(&engine, &bytes).expect("compiling edge.wasm");
+    let module = Module::new(&engine, &bytes).expect("compiling interpreter.wasm");
 
     let mut cases = Vec::new();
     programs(Path::new(CASES), &mut cases);
@@ -117,7 +117,7 @@ fn main() {
 
 /* a paragraph per broken rule and how many cases grew past their threshold */
 fn check(last: &Snapshot, now: &Snapshot, sources: &BTreeMap<String, &str>) -> (Vec<String>, usize) {
-    // another rustc builds another edge.wasm whose instructions say nothing about this code
+    // another rustc builds another interpreter.wasm whose instructions say nothing about this code
     if last.rustc != now.rustc {
         return (vec![format!("The snapshot was taken with {}, this is {}, regenerate it with {}.", last.rustc, now.rustc, last.rustc)], 0);
     }
@@ -214,7 +214,7 @@ fn annotate(level: &str, message: &str) {
     }
 }
 
-/* each case on edge.wasm and on the shifted build `other` which must count it alike */
+/* each case on interpreter.wasm and on the shifted build `other` which must count it alike */
 fn layout(engine: &Engine, module: &Module, other: &Path, cases: &[(String, String)]) {
     let built = std::fs::metadata(other).and_then(|m| m.modified()).unwrap_or(SystemTime::UNIX_EPOCH);
     if SOURCES.iter().any(|dir| built < newest(&Path::new(ROOT).join(dir))) {
@@ -269,8 +269,8 @@ fn measured(engine: &Engine, module: &Module, src: &str) -> (u64, u64, bool) {
     store.set_fuel(u64::MAX).expect("fuel is enabled");
     let mut linker = Linker::new(engine);
     linker.define_unknown_imports_as_default_values(&mut store, module).expect("stubbing the host imports");
-    let inst = linker.instantiate(&mut store, module).expect("instantiating edge.wasm");
-    let memory = inst.get_memory(&mut store, "memory").expect("edge.wasm exports memory");
+    let inst = linker.instantiate(&mut store, module).expect("instantiating interpreter.wasm");
+    let memory = inst.get_memory(&mut store, "memory").expect("interpreter.wasm exports memory");
     func::<(i64, i64), ()>(&inst, &mut store, "set_limits").call(&mut store, (0, OPS)).ok();
     let (ptr, len) = stage(&inst, &mut store, memory, src);
     let resume = func::<(), u32>(&inst, &mut store, "run_resume");
@@ -287,13 +287,13 @@ fn measured(engine: &Engine, module: &Module, src: &str) -> (u64, u64, bool) {
 }
 
 fn func<P: wasmtime::WasmParams, R: wasmtime::WasmResults>(inst: &Instance, store: &mut Store<()>, name: &str) -> TypedFunc<P, R> {
-    inst.get_typed_func(&mut *store, name).unwrap_or_else(|e| panic!("edge.wasm export {name}: {e}"))
+    inst.get_typed_func(&mut *store, name).unwrap_or_else(|e| panic!("interpreter.wasm export {name}: {e}"))
 }
 
 /* copies `text` into instance memory where the exports read their arguments */
 fn stage(inst: &Instance, store: &mut Store<()>, memory: Memory, text: &str) -> (u32, u32) {
     let ptr = func::<u32, u32>(inst, store, "wasm_alloc").call(&mut *store, text.len().max(1) as u32).expect("wasm_alloc");
-    memory.write(&mut *store, ptr as usize, text.as_bytes()).expect("writing into edge.wasm memory");
+    memory.write(&mut *store, ptr as usize, text.as_bytes()).expect("writing into interpreter.wasm memory");
     (ptr, text.len() as u32)
 }
 
@@ -308,7 +308,7 @@ fn write(snapshot: &Snapshot) {
     std::fs::write(SNAPSHOT, json).expect("writing bench/.snapshot");
 }
 
-/* the latest change under `dir` which edge.wasm must not predate */
+/* the latest change under `dir` which interpreter.wasm must not predate */
 fn newest(dir: &Path) -> SystemTime {
     std::fs::read_dir(dir).into_iter().flatten().flatten().map(|entry| {
         let path = entry.path();

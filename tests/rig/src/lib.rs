@@ -3,7 +3,7 @@
 
 extern crate alloc;
 
-use edge::lang::{Descriptor, ErrKind, Front, Natives, Runtime};
+use interpreter::lang::{Descriptor, ErrKind, Front, Natives, Runtime};
 
 mod codecs;
 pub mod lang;
@@ -18,7 +18,7 @@ pub use names::NAMES;
 pub use alloc::string::String as __String;
 use natives::*;
 
-pub static NATIVES: Natives = edge::natives! {
+pub static NATIVES: Natives = interpreter::natives! {
     language: Rig,
     fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, TYPES, MATCH, DATE],
     methods: [
@@ -50,7 +50,7 @@ pub const DESCRIPTOR: Descriptor = Descriptor {
     extension: RIG.extension,
     entries: &["main.rig", "app.rig", "index.rig"],
     test_suffix: "_test.rig",
-    scaffold: "print(\"hello from edge\")\n",
+    scaffold: "print(\"hello from interpreter\")\n",
     example_fence: "rig",
     manifest_fence: "rig-manifest",
     type_error: names::ERRORS[ErrKind::Type as usize],
@@ -62,4 +62,4 @@ pub const DESCRIPTOR: Descriptor = Descriptor {
 };
 
 #[cfg(all(target_arch = "wasm32", feature = "web"))]
-edge::web_exports!(RUNTIME);
+interpreter::web_exports!(RUNTIME);

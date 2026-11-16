@@ -1,14 +1,14 @@
 [
   {
     "run": ["init", "myapp"],
-    "stdout": ["created myapp/", "cd myapp && edge build --web && edge serve"],
-    "creates": ["myapp/main.lox", "myapp/edge.json", "myapp/index.html"],
+    "stdout": ["created myapp/", "cd myapp && interpreter build --web && interpreter serve"],
+    "creates": ["myapp/main.lox", "myapp/interpreter.json", "myapp/index.html"],
     "contains": { "myapp/index.html": "from \"./dist/js/src/index.js\"" }
   },
   {
     "run": ["init", "myapp", "--bare"],
-    "creates": ["myapp/main.lox", "myapp/edge.json"],
-    "contains": { "myapp/edge.json": "\"edge\":" }
+    "creates": ["myapp/main.lox", "myapp/interpreter.json"],
+    "contains": { "myapp/interpreter.json": "\"interpreter\":" }
   },
   {
     "given": { "myapp/.keep": "" },
@@ -18,43 +18,43 @@
   {
     "run": ["init"],
     "stdout": ["created project/"],
-    "creates": ["main.lox", "edge.json", "index.html"]
+    "creates": ["main.lox", "interpreter.json", "index.html"]
   },
   {
-    "given": { "edge.json": "{}\n" },
+    "given": { "interpreter.json": "{}\n" },
     "run": ["add", "foo=https://example.com/foo.wasm"],
-    "contains": { "edge.json": "example.com/foo.wasm" }
+    "contains": { "interpreter.json": "example.com/foo.wasm" }
   },
   {
-    "given": { "edge.json": "{ \"extends\": \"..\", \"imports\": {} }\n" },
+    "given": { "interpreter.json": "{ \"extends\": \"..\", \"imports\": {} }\n" },
     "run": ["add", "foo=https://example.com/foo.lox"],
-    "contains": { "edge.json": "\"extends\": \"..\"" }
+    "contains": { "interpreter.json": "\"extends\": \"..\"" }
   },
   {
-    "given": { "edge.json": "{}\n" },
+    "given": { "interpreter.json": "{}\n" },
     "run": ["add", "foo=https://example.com/foo.lox", "mystery"],
     "fails": ["'mystery' names no source, give it as name=<url> or name=<path>"],
-    "contains": { "edge.json": "{}\n" }
+    "contains": { "interpreter.json": "{}\n" }
   },
   {
     "run": ["add"],
     "fails": ["nothing to add"]
   },
   {
-    "given": { "edge.json": "{\"imports\":{\"math\":\"https://example.com/math.wasm\"}}\n" },
+    "given": { "interpreter.json": "{\"imports\":{\"math\":\"https://example.com/math.wasm\"}}\n" },
     "run": ["remove", "math"],
     "stdout": ["- math"]
   },
   {
-    "given": { "edge.json": "{}\n" },
+    "given": { "interpreter.json": "{}\n" },
     "run": ["remove", "math"],
     "fails": ["not in"]
   },
   {
-    "given": { "edge.json": "{\"imports\":{\"math\":\"https://example.com/math.wasm\"}}\n" },
+    "given": { "interpreter.json": "{\"imports\":{\"math\":\"https://example.com/math.wasm\"}}\n" },
     "run": ["remove", "math", "mystery"],
     "fails": ["not in"],
-    "contains": { "edge.json": "math.wasm" }
+    "contains": { "interpreter.json": "math.wasm" }
   },
   {
     "run": ["remove"],
@@ -107,38 +107,38 @@
     "fails": ["Operands must be numbers.", "[line 1] in script"]
   },
   {
-    "given": { "main.lox": "print \"ok\";\n", "edge.json": "{}\n" },
+    "given": { "main.lox": "print \"ok\";\n", "interpreter.json": "{}\n" },
     "run": ["build", "--web"],
-    "creates": ["dist/index.html", "dist/main.lox", "dist/edge.wasm"]
+    "creates": ["dist/index.html", "dist/main.lox", "dist/interpreter.wasm"]
   },
   {
-    "given": { "edge.json": "{}\n" },
+    "given": { "interpreter.json": "{}\n" },
     "run": ["add", "test=https://example.com/test.lox"],
     "stdout": ["+ test       https://example.com/test.lox"],
-    "contains": { "edge.json": "\"imports\"" }
+    "contains": { "interpreter.json": "\"imports\"" }
   },
   {
-    "given": { "edge.json": "{}\n" },
+    "given": { "interpreter.json": "{}\n" },
     "run": ["add", "foo=https://example.com/foo.lox"],
-    "contains": { "edge.json": "\"imports\": {\n    \"foo\": \"https://example.com/foo.lox\"" }
+    "contains": { "interpreter.json": "\"imports\": {\n    \"foo\": \"https://example.com/foo.lox\"" }
   },
   {
-    "given": { "edge.json": "{}\n" },
+    "given": { "interpreter.json": "{}\n" },
     "run": ["add", "bar=https://example.com/bar.js"],
     "fails": ["module 'bar' is JavaScript, ship a .lox or a .wasm"],
-    "contains": { "edge.json": "{}\n" }
+    "contains": { "interpreter.json": "{}\n" }
   },
   {
-    "given": { "edge.json": "{}\n" },
+    "given": { "interpreter.json": "{}\n" },
     "run": ["add", "baz=https://example.com/baz.wasm"],
     "stdout": ["+ baz        https://example.com/baz.wasm"],
-    "contains": { "edge.json": "\"imports\"" }
+    "contains": { "interpreter.json": "\"imports\"" }
   },
   {
-    "given": { "edge.json": "{}\n" },
+    "given": { "interpreter.json": "{}\n" },
     "run": ["add", "one=https://example.com/one.lox", "two=https://example.com/two.js"],
     "fails": ["module 'two' is JavaScript, ship a .lox or a .wasm"],
-    "contains": { "edge.json": "{}\n" }
+    "contains": { "interpreter.json": "{}\n" }
   },
   {
     "given": { "ask.lox": "var s = input();\nprint len(s);\n" },
@@ -189,24 +189,24 @@
     "fails": ["cannot be used with"]
   },
   {
-    "given": { "sub/main.lox": "print \"ok\";\n", "edge.json": "{}\n" },
+    "given": { "sub/main.lox": "print \"ok\";\n", "interpreter.json": "{}\n" },
     "run": ["build", "--web"],
     "creates": ["dist/sub/main.lox"],
     "contains": { "dist/index.html": "./sub/main.lox" }
   },
   {
-    "given": { "main.lox": "print \"ok\";\n", "edge.json": "{}\n" },
+    "given": { "main.lox": "print \"ok\";\n", "interpreter.json": "{}\n" },
     "run": ["build", "--web"],
     "contains": { "dist/index.html": "./main.lox" }
   },
   {
     "given": { "main.lox": "import(\"json\");\n" },
     "run": ["run", "main.lox"],
-    "fails": ["module 'json' is not provided by this host and no edge.json declares it\nhelp: declare it in edge.json, or use a relative import"]
+    "fails": ["module 'json' is not provided by this host and no interpreter.json declares it\nhelp: declare it in interpreter.json, or use a relative import"]
   },
   {
     "given": {
-      "edge.json": "{ \"imports\": { \"lib\": \"./lib.lox\", \"widget\": \"./widget.js\" } }\n",
+      "interpreter.json": "{ \"imports\": { \"lib\": \"./lib.lox\", \"widget\": \"./widget.js\" } }\n",
       "widget.js": "export default () => ({ name: () => 'widget' });\n",
       "lib.lox": "var widget = import(\"widget\");\nprint widget.name();\n",
       "main.lox": "import(\"lib\");\n"
@@ -216,7 +216,7 @@
   },
   {
     "given": {
-      "edge.json": "{ \"imports\": { \"widget\": \"./widget.js\" } }\n",
+      "interpreter.json": "{ \"imports\": { \"widget\": \"./widget.js\" } }\n",
       "widget.js": "export default () => ({});\n"
     },
     "run": ["lock"],
@@ -224,7 +224,7 @@
   },
   {
     "given": {
-      "edge.json": "{ \"imports\": { \"helper\": \"./helper\" } }\n",
+      "interpreter.json": "{ \"imports\": { \"helper\": \"./helper\" } }\n",
       "helper": "fun double(n) {\n    return n * 2;\n}\n",
       "main.lox": "var helper = import(\"helper\");\nprint helper.double(21);\n"
     },
@@ -233,7 +233,7 @@
   },
   {
     "given": {
-      "edge.json": "{ \"imports\": { \"x\": \"./x.wasm\" } }\n",
+      "interpreter.json": "{ \"imports\": { \"x\": \"./x.wasm\" } }\n",
       "x.wasm": "not a wasm module",
       "main.lox": "import(\"x\");\n"
     },
@@ -242,7 +242,7 @@
   },
   {
     "given": {
-      "edge.json": "{ \"imports\": { \"x\": \"./x.mjs\" } }\n",
+      "interpreter.json": "{ \"imports\": { \"x\": \"./x.mjs\" } }\n",
       "x.mjs": "export default { answer: () => 42 };\n",
       "main.lox": "var x = import(\"x\");\nprint x.answer();\n"
     },
@@ -250,13 +250,13 @@
     "fails": ["module 'x' is JavaScript, ship a .lox or a .wasm"]
   },
   {
-    "given": { "edge.json": "{ \"imports\": { \"x\": \"./vendor/x.so\" } }\n", "main.lox": "import(\"x\");\n" },
+    "given": { "interpreter.json": "{ \"imports\": { \"x\": \"./vendor/x.so\" } }\n", "main.lox": "import(\"x\");\n" },
     "run": ["run", "main.lox"],
     "fails": ["module 'x' is not supported, ship a .wasm"]
   },
   {
     "given": {
-      "edge.json": "{ \"imports\": { \"x\": \"./vendor/x.dylib\" } }\n",
+      "interpreter.json": "{ \"imports\": { \"x\": \"./vendor/x.dylib\" } }\n",
       "main.lox": "import(\"x\");\n"
     },
     "run": ["run", "main.lox"],
@@ -264,7 +264,7 @@
   },
   {
     "given": {
-      "edge.json": "{ \"imports\": { \"m\": \"./m.js\" } }\n",
+      "interpreter.json": "{ \"imports\": { \"m\": \"./m.js\" } }\n",
       "m.js": "export default () => ({ hi: () => \"hello\" })\n",
       "main.lox": "var m = import(\"m\");\nprint m.hi();\n"
     },
@@ -273,30 +273,30 @@
   },
   {
     "given": {
-      "edge.json": "{ \"imports\": {} }\n",
+      "interpreter.json": "{ \"imports\": {} }\n",
       "main.lox": "print \"hello\";\n",
       "README.md": "# app\n",
       "LICENSE.txt": "Apache-2.0\n",
       "NOTES.md": "not a notice\n"
     },
     "run": ["build"],
-    "stdout": ["packed app.edge (4 files)"],
-    "creates": ["app.edge"]
+    "stdout": ["packed app.interpreter (4 files)"],
+    "creates": ["app.interpreter"]
   },
   {
     "given": {
-      "edge.json": "{ \"name\": \"slugify\", \"version\": \"0.1.0\", \"description\": \"Turn text into a slug.\", \"docs\": \"./docs\" }\n",
+      "interpreter.json": "{ \"name\": \"slugify\", \"version\": \"0.1.0\", \"description\": \"Turn text into a slug.\", \"docs\": \"./docs\" }\n",
       "main.lox": "print \"hello\";\n",
       "docs/01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n```lox\nprint 1;\n```\n\n```output\n1\n```\n",
       "docs/02-reference/01-api.mdx": "---\ntitle: Api\ndescription: Every function.\n---\n\n# Api\n"
     },
     "run": ["build"],
-    "stdout": ["packed app.edge (2 files, 2 docs)"],
-    "creates": ["app.edge"]
+    "stdout": ["packed app.interpreter (2 files, 2 docs)"],
+    "creates": ["app.interpreter"]
   },
   {
     "given": {
-      "edge.json": "{ \"docs\": \"./docs\" }\n",
+      "interpreter.json": "{ \"docs\": \"./docs\" }\n",
       "main.lox": "print \"hello\";\n",
       "docs/intro.mdx": "# Intro\n"
     },
@@ -305,61 +305,61 @@
   },
   {
     "given": {
-      "edge.json": "{ \"description\": \"Turn absolutely any text that you have into a tidy url slug fast.\" }\n",
+      "interpreter.json": "{ \"description\": \"Turn absolutely any text that you have into a tidy url slug fast.\" }\n",
       "main.lox": "print \"hello\";\n"
     },
     "run": ["build"],
     "fails": ["the cap is 60"]
   },
   {
-    "given": { "edge.json": "{}\n", "main.lox": "print \"x\";\n" },
+    "given": { "interpreter.json": "{}\n", "main.lox": "print \"x\";\n" },
     "run": ["run", "--web", "--preempt", "500", "main.lox"],
     "fails": ["--preempt belongs to the native engine"]
   },
   {
     "given": {
-      "edge.json": "{\"imports\": {\"clock\": \"./clock/main.lox\"}}\n",
+      "interpreter.json": "{\"imports\": {\"clock\": \"./clock/main.lox\"}}\n",
       "main.lox": "var clock = import(\"clock\");\nprint clock.now();\n",
-      "clock/edge.json": "{\"name\": \"clock\", \"version\": \"0.2.0\", \"imports\": {\"trace\": \"./trace/main.lox\"}, \"permissions\": {\"main\": [\"net:127.0.0.1\"], \"trace\": [\"net:127.0.0.1\", \"net\"]}}\n",
+      "clock/interpreter.json": "{\"name\": \"clock\", \"version\": \"0.2.0\", \"imports\": {\"trace\": \"./trace/main.lox\"}, \"permissions\": {\"main\": [\"net:127.0.0.1\"], \"trace\": [\"net:127.0.0.1\", \"net\"]}}\n",
       "clock/main.lox": "var trace = import(\"trace\");\n\nfun now() {\n    return trace.stamp();\n}\n",
-      "clock/trace/edge.json": "{\"name\": \"trace\", \"permissions\": {\"main\": [\"net:127.0.0.1\", \"net\"]}}\n",
+      "clock/trace/interpreter.json": "{\"name\": \"trace\", \"permissions\": {\"main\": [\"net:127.0.0.1\", \"net\"]}}\n",
       "clock/trace/main.lox": "var net = import(\"net\");\n\nfun stamp() {\n    return net.request(\"GET\", \"http://127.0.0.1:1/\") > 0;\n}\n"
     },
     "run": ["lock"],
-    "fails": ["edge.json does not grant what these packages ask for", "  clock 0.2.0   net:127.0.0.1, net\n", "help: grant them under \"permissions\" in edge.json"]
+    "fails": ["interpreter.json does not grant what these packages ask for", "  clock 0.2.0   net:127.0.0.1, net\n", "help: grant them under \"permissions\" in interpreter.json"]
   },
   {
     "given": {
-      "edge.json": "{\"imports\": {\"clock\": \"./clock/main.lox\"}}\n",
+      "interpreter.json": "{\"imports\": {\"clock\": \"./clock/main.lox\"}}\n",
       "main.lox": "var clock = import(\"clock\");\nprint clock.now();\n",
-      "clock/edge.json": "{\"name\": \"clock\", \"version\": \"0.2.0\", \"imports\": {\"trace\": \"./trace/main.lox\"}, \"permissions\": {\"main\": [\"net:127.0.0.1\"], \"trace\": [\"net:127.0.0.1\", \"net\"]}}\n",
+      "clock/interpreter.json": "{\"name\": \"clock\", \"version\": \"0.2.0\", \"imports\": {\"trace\": \"./trace/main.lox\"}, \"permissions\": {\"main\": [\"net:127.0.0.1\"], \"trace\": [\"net:127.0.0.1\", \"net\"]}}\n",
       "clock/main.lox": "var trace = import(\"trace\");\n\nfun now() {\n    return trace.stamp();\n}\n",
-      "clock/trace/edge.json": "{\"name\": \"trace\", \"permissions\": {\"main\": [\"net:127.0.0.1\", \"net\"]}}\n",
+      "clock/trace/interpreter.json": "{\"name\": \"trace\", \"permissions\": {\"main\": [\"net:127.0.0.1\", \"net\"]}}\n",
       "clock/trace/main.lox": "var net = import(\"net\");\n\nfun stamp() {\n    return net.request(\"GET\", \"http://127.0.0.1:1/\") > 0;\n}\n"
     },
     "run": ["build"],
-    "fails": ["edge.json does not grant what these packages ask for"]
+    "fails": ["interpreter.json does not grant what these packages ask for"]
   },
   {
     "given": {
-      "edge.json": "{\"imports\": {\"clock\": \"./clock/main.lox\"}}\n",
+      "interpreter.json": "{\"imports\": {\"clock\": \"./clock/main.lox\"}}\n",
       "main.lox": "var clock = import(\"clock\");\nprint clock.now();\n",
-      "clock/edge.json": "{\"name\": \"clock\", \"version\": \"0.2.0\", \"imports\": {\"trace\": \"./trace/main.lox\"}, \"permissions\": {\"main\": [\"net:127.0.0.1\"], \"trace\": [\"net:127.0.0.1\", \"net\"]}}\n",
+      "clock/interpreter.json": "{\"name\": \"clock\", \"version\": \"0.2.0\", \"imports\": {\"trace\": \"./trace/main.lox\"}, \"permissions\": {\"main\": [\"net:127.0.0.1\"], \"trace\": [\"net:127.0.0.1\", \"net\"]}}\n",
       "clock/main.lox": "var trace = import(\"trace\");\n\nfun now() {\n    return trace.stamp();\n}\n",
-      "clock/trace/edge.json": "{\"name\": \"trace\", \"permissions\": {\"main\": [\"net:127.0.0.1\", \"net\"]}}\n",
+      "clock/trace/interpreter.json": "{\"name\": \"trace\", \"permissions\": {\"main\": [\"net:127.0.0.1\", \"net\"]}}\n",
       "clock/trace/main.lox": "var net = import(\"net\");\n\nfun stamp() {\n    return net.request(\"GET\", \"http://127.0.0.1:1/\") > 0;\n}\n",
       "green_test.lox": "exit(0);\n"
     },
     "run": ["test"],
-    "fails": ["edge.json does not grant what these packages ask for"]
+    "fails": ["interpreter.json does not grant what these packages ask for"]
   },
   {
     "given": {
-      "edge.json": "{\"imports\": {\"clock\": \"./clock/main.lox\"}, \"permissions\": {\"clock\": [\"net:127.0.0.1\", \"net\"]}}\n",
+      "interpreter.json": "{\"imports\": {\"clock\": \"./clock/main.lox\"}, \"permissions\": {\"clock\": [\"net:127.0.0.1\", \"net\"]}}\n",
       "main.lox": "var clock = import(\"clock\");\nprint clock.now();\n",
-      "clock/edge.json": "{\"name\": \"clock\", \"version\": \"0.2.0\", \"imports\": {\"trace\": \"./trace/main.lox\"}, \"permissions\": {\"main\": [\"net:127.0.0.1\"], \"trace\": [\"net:127.0.0.1\", \"net\"]}}\n",
+      "clock/interpreter.json": "{\"name\": \"clock\", \"version\": \"0.2.0\", \"imports\": {\"trace\": \"./trace/main.lox\"}, \"permissions\": {\"main\": [\"net:127.0.0.1\"], \"trace\": [\"net:127.0.0.1\", \"net\"]}}\n",
       "clock/main.lox": "var trace = import(\"trace\");\n\nfun now() {\n    return trace.stamp();\n}\n",
-      "clock/trace/edge.json": "{\"name\": \"trace\", \"permissions\": {\"main\": [\"net:127.0.0.1\", \"net\"]}}\n",
+      "clock/trace/interpreter.json": "{\"name\": \"trace\", \"permissions\": {\"main\": [\"net:127.0.0.1\", \"net\"]}}\n",
       "clock/trace/main.lox": "var net = import(\"net\");\n\nfun stamp() {\n    return net.request(\"GET\", \"http://127.0.0.1:1/\") > 0;\n}\n"
     },
     "run": ["run", "main.lox"],
@@ -367,19 +367,19 @@
   },
   {
     "given": {
-      "edge.json": "{\"imports\": {\"clock\": \"./clock/main.lox\"}, \"permissions\": {\"clock\": [\"net:127.0.0.1\"]}}\n",
+      "interpreter.json": "{\"imports\": {\"clock\": \"./clock/main.lox\"}, \"permissions\": {\"clock\": [\"net:127.0.0.1\"]}}\n",
       "main.lox": "var clock = import(\"clock\");\nprint clock.now();\n",
-      "clock/edge.json": "{\"name\": \"clock\", \"version\": \"0.2.0\", \"imports\": {\"trace\": \"./trace/main.lox\"}, \"permissions\": {\"main\": [\"net:127.0.0.1\"]}}\n",
+      "clock/interpreter.json": "{\"name\": \"clock\", \"version\": \"0.2.0\", \"imports\": {\"trace\": \"./trace/main.lox\"}, \"permissions\": {\"main\": [\"net:127.0.0.1\"]}}\n",
       "clock/main.lox": "var trace = import(\"trace\");\n\nfun now() {\n    return trace.stamp();\n}\n",
-      "clock/trace/edge.json": "{\"name\": \"trace\", \"permissions\": {\"main\": [\"net:127.0.0.1\"]}}\n",
+      "clock/trace/interpreter.json": "{\"name\": \"trace\", \"permissions\": {\"main\": [\"net:127.0.0.1\"]}}\n",
       "clock/trace/main.lox": "var net = import(\"net\");\n\nfun stamp() {\n    return net.request(\"GET\", \"http://127.0.0.1:1/\") > 0;\n}\n"
     },
     "run": ["lock"],
-    "fails": ["edge.json at 'clock/trace/edge.json' asks for net:127.0.0.1, which clock 0.2.0 does not pass it"]
+    "fails": ["interpreter.json at 'clock/trace/interpreter.json' asks for net:127.0.0.1, which clock 0.2.0 does not pass it"]
   },
   {
     "given": {
-      "edge.json": "{\"imports\": {\"main\": \"./clock/main.lox\"}}\n",
+      "interpreter.json": "{\"imports\": {\"main\": \"./clock/main.lox\"}}\n",
       "main.lox": "var clock = import(\"clock\");\n",
       "clock/main.lox": "fun now() {\n    return 0;\n}\n"
     },
@@ -388,40 +388,40 @@
   },
   {
     "given": {
-      "edge.json": "{\"imports\": {\"clock\": \"./clock/main.lox\"}}\n",
+      "interpreter.json": "{\"imports\": {\"clock\": \"./clock/main.lox\"}}\n",
       "main.lox": "var clock = import(\"clock\");\n",
       "clock/main.lox": "fun now() {\n    return 0;\n}\n",
-      "clock/edge.json": "{\"name\": \"timer\", \"permissions\": {\"main\": [\"net:127.0.0.1\"]}}\n"
+      "clock/interpreter.json": "{\"name\": \"timer\", \"permissions\": {\"main\": [\"net:127.0.0.1\"]}}\n"
     },
     "run": ["lock"],
-    "fails": ["edge.json does not grant what these packages ask for\n  clock   net:127.0.0.1\n"]
+    "fails": ["interpreter.json does not grant what these packages ask for\n  clock   net:127.0.0.1\n"]
   },
   {
     "given": {
-      "edge.json": "{\"imports\": {\"clock\": \"./clock/main.lox\"}}\n",
+      "interpreter.json": "{\"imports\": {\"clock\": \"./clock/main.lox\"}}\n",
       "main.lox": "var clock = import(\"clock\");\n",
       "clock/main.lox": "fun now() {\n    return 0;\n}\n",
-      "clock/edge.json": "{\"name\": \"clock\", \"permissions\": {\"main\": [\"db:/\"]}}\n"
+      "clock/interpreter.json": "{\"name\": \"clock\", \"permissions\": {\"main\": [\"db:/\"]}}\n"
     },
     "run": ["lock"],
-    "fails": ["edge.json at 'clock/edge.json': permissions for 'main' name 'db', which is not a host module (net, files)"]
+    "fails": ["interpreter.json at 'clock/interpreter.json': permissions for 'main' name 'db', which is not a host module (net, files)"]
   },
   {
     "given": {
-      "edge.json": "{\"permissions\": {\"main\": [\"net:a.test;script-src\"]}}\n",
+      "interpreter.json": "{\"permissions\": {\"main\": [\"net:a.test;script-src\"]}}\n",
       "main.lox": "print 1;\n"
     },
     "run": ["lock"],
-    "fails": ["edge.json at 'edge.json': permissions for 'main' give net the scope 'a.test;script-src', which it does not have"]
+    "fails": ["interpreter.json at 'interpreter.json': permissions for 'main' give net the scope 'a.test;script-src', which it does not have"]
   },
   {
-    "given": { "edge.json": "{\"name\": \"all\"}\n", "main.lox": "print 1;\n" },
+    "given": { "interpreter.json": "{\"name\": \"all\"}\n", "main.lox": "print 1;\n" },
     "run": ["run", "main.lox"],
     "fails": ["name 'all' is reserved for permissions"]
   },
   {
     "given": {
-      "edge.json": "{ \"permissions\": { \"main\": [\"files:events.jsonl\"] } }\n",
+      "interpreter.json": "{ \"permissions\": { \"main\": [\"files:events.jsonl\"] } }\n",
       "events.jsonl": "first\nsecond\n",
       "main.lox": "var files = import(\"files\");\n\nvar f = files.open(\"events.jsonl\");\nvar body = files.read(f);\nvar chunk = files.read(f);\nwhile (chunk != nil) {\n    body = body + chunk;\n    chunk = files.read(f);\n}\nprint body;\nprint files.read(f);\nfiles.close(f);\n"
     },
@@ -430,36 +430,36 @@
   },
   {
     "given": {
-      "edge.json": "{ \"permissions\": { \"main\": [\"files:other.txt\"] } }\n",
+      "interpreter.json": "{ \"permissions\": { \"main\": [\"files:other.txt\"] } }\n",
       "events.jsonl": "first\n",
       "main.lox": "var files = import(\"files\");\n\nfiles.open(\"events.jsonl\");\n"
     },
     "run": ["run", "main.lox"],
-    "fails": ["'main' has no files:events.jsonl, edge.json grants it files:other.txt"]
+    "fails": ["'main' has no files:events.jsonl, interpreter.json grants it files:other.txt"]
   },
   {
     "given": {
-      "edge.json": "{ \"permissions\": { \"main\": [\"files:logs/\"] } }\n",
+      "interpreter.json": "{ \"permissions\": { \"main\": [\"files:logs/\"] } }\n",
       "logs/day/a.txt": "inside\n",
       "b.txt": "beside\n",
       "main.lox": "var files = import(\"files\");\n\nprint files.read(files.open(\"logs/day/a.txt\"));\nfiles.open(\"b.txt\");\n"
     },
     "run": ["run", "main.lox"],
     "stdout": ["b\"inside\\n\""],
-    "fails": ["'main' has no files:b.txt, edge.json grants it files:logs/", "[line 4] in script"]
+    "fails": ["'main' has no files:b.txt, interpreter.json grants it files:logs/", "[line 4] in script"]
   },
   {
     "given": {
-      "edge.json": "{ \"permissions\": { \"main\": [\"net:a.test\"] } }\n",
+      "interpreter.json": "{ \"permissions\": { \"main\": [\"net:a.test\"] } }\n",
       "events.jsonl": "first\n",
       "main.lox": "import(\"files\");\n"
     },
     "run": ["run", "main.lox"],
-    "fails": ["'main' imports files, which edge.json does not grant it"]
+    "fails": ["'main' imports files, which interpreter.json does not grant it"]
   },
   {
     "given": {
-      "edge.json": "{ \"permissions\": { \"main\": [\"files:events.jsonl\"] } }\n",
+      "interpreter.json": "{ \"permissions\": { \"main\": [\"files:events.jsonl\"] } }\n",
       "main.lox": "var files = import(\"files\");\n\nfiles.open(\"../events.jsonl\");\n"
     },
     "run": ["run", "main.lox"],
@@ -467,7 +467,7 @@
   },
   {
     "given": {
-      "edge.json": "{ \"permissions\": { \"main\": [\"files:events.jsonl\"] } }\n",
+      "interpreter.json": "{ \"permissions\": { \"main\": [\"files:events.jsonl\"] } }\n",
       "main.lox": "var files = import(\"files\");\n\nfiles.open(\"/etc/hosts\");\n"
     },
     "run": ["run", "main.lox"],
@@ -475,7 +475,7 @@
   },
   {
     "given": {
-      "edge.json": "{ \"permissions\": { \"main\": [\"files:events.jsonl\"] } }\n",
+      "interpreter.json": "{ \"permissions\": { \"main\": [\"files:events.jsonl\"] } }\n",
       "main.lox": "var files = import(\"files\");\n\nfiles.open(\"logs//a.txt\");\n"
     },
     "run": ["run", "main.lox"],
@@ -483,7 +483,7 @@
   },
   {
     "given": {
-      "edge.json": "{ \"permissions\": { \"main\": [\"files:events.jsonl\"] } }\n",
+      "interpreter.json": "{ \"permissions\": { \"main\": [\"files:events.jsonl\"] } }\n",
       "main.lox": "var files = import(\"files\");\n\nfiles.open(\"events.jsonl\");\n"
     },
     "run": ["run", "main.lox"],
@@ -516,29 +516,29 @@
   },
   {
     "given": {
-      "edge.json": "{ \"imports\": { \"strict\": \"./strict/main.lox\" }, \"permissions\": { \"main\": [\"net:127.0.0.1\"], \"strict\": [\"net\"] } }\n",
-      "strict/edge.json": "{}\n",
+      "interpreter.json": "{ \"imports\": { \"strict\": \"./strict/main.lox\" }, \"permissions\": { \"main\": [\"net:127.0.0.1\"], \"strict\": [\"net\"] } }\n",
+      "strict/interpreter.json": "{}\n",
       "strict/main.lox": "var net = import(\"net\");\n\nfun reach() {\n    return net.request(\"GET\", \"http://127.0.0.1:9/\");\n}\n",
       "main.lox": "var strict = import(\"strict\");\nstrict.reach();\n"
     },
-    "run": ["run", "--manifest", "edge.json", "main.lox"],
-    "fails": ["'strict' has no net:127.0.0.1, edge.json grants it nothing"]
+    "run": ["run", "--manifest", "interpreter.json", "main.lox"],
+    "fails": ["'strict' has no net:127.0.0.1, interpreter.json grants it nothing"]
   },
   {
     "given": {
-      "edge.json": "{ \"imports\": { \"strict\": \"./strict/main.lox\" } }\n",
-      "strict/edge.json": "{ \"imports\": { \"helper\": \"./helper.lox\" } }\n",
+      "interpreter.json": "{ \"imports\": { \"strict\": \"./strict/main.lox\" } }\n",
+      "strict/interpreter.json": "{ \"imports\": { \"helper\": \"./helper.lox\" } }\n",
       "strict/helper.lox": "fun shout(word) {\n    return word + \"!\";\n}\n",
       "strict/main.lox": "var helper = import(\"helper\");\n\nfun hello() {\n    return helper.shout(\"nested\");\n}\n",
       "main.lox": "var strict = import(\"strict\");\nprint strict.hello();\n"
     },
-    "run": ["run", "--manifest", "edge.json", "main.lox"],
+    "run": ["run", "--manifest", "interpreter.json", "main.lox"],
     "stdout": ["nested!\n"]
   },
   {
     "given": {
-      "edge.json": "{ \"imports\": { \"util\": \"./util/main.lox\" }, \"permissions\": { \"main\": [] } }\n",
-      "util/edge.json": "{}\n",
+      "interpreter.json": "{ \"imports\": { \"util\": \"./util/main.lox\" }, \"permissions\": { \"main\": [] } }\n",
+      "util/interpreter.json": "{}\n",
       "util/main.lox": "fun write() {\n    send(\"file:report.txt\", \"from util\");\n}\n",
       "main.lox": "var util = import(\"util\");\nsend(\"file:mine.txt\", \"from main\");\nutil.write();\n"
     },
@@ -548,8 +548,8 @@
   },
   {
     "given": {
-      "edge.json": "{ \"imports\": { \"util\": \"./util/main.lox\" }, \"permissions\": { \"util\": [\"files:out/\"] } }\n",
-      "util/edge.json": "{}\n",
+      "interpreter.json": "{ \"imports\": { \"util\": \"./util/main.lox\" }, \"permissions\": { \"util\": [\"files:out/\"] } }\n",
+      "util/interpreter.json": "{}\n",
       "util/out/kept.txt": "",
       "util/main.lox": "fun write() {\n    send(\"file:util/out/report.txt\", \"granted\");\n}\n",
       "main.lox": "var util = import(\"util\");\nutil.write();\n"
@@ -563,33 +563,33 @@
     "stdout": ["report\nrow 1\nP1\nreport\nrow 2\nP2\n"]
   },
   {
-    "given": { "edge.json": "{ \"imports\": { \"x\": \"./x.lox\" } }\n" },
+    "given": { "interpreter.json": "{ \"imports\": { \"x\": \"./x.lox\" } }\n" },
     "run": ["init"],
-    "fails": ["'./edge.json' already exists, init writes only into a directory without it"],
-    "contains": { "edge.json": "\"x\": \"./x.lox\"" }
+    "fails": ["'./interpreter.json' already exists, init writes only into a directory without it"],
+    "contains": { "interpreter.json": "\"x\": \"./x.lox\"" }
   },
   {
     "given": {
-      "edge.json": "{ \"imports\": { \"util\": \"./util/main.lox\" }, \"permissions\": { \"util\": [\"net\"] } }\n",
+      "interpreter.json": "{ \"imports\": { \"util\": \"./util/main.lox\" }, \"permissions\": { \"util\": [\"net\"] } }\n",
       "util/main.lox": "var x = 1;\n",
       "main.lox": "var util = import(\"util\");\nprint util.x;\n"
     },
     "run": ["run", "main.lox"],
-    "fails": ["permissions for 'util' reach nothing, its import './util/main.lox' has no edge.json of its own so it runs as part of this package"]
+    "fails": ["permissions for 'util' reach nothing, its import './util/main.lox' has no interpreter.json of its own so it runs as part of this package"]
   },
   {
     "given": {
-      "sub/edge.json": "{ \"imports\": { \"pkg\": \"./pkg/main.lox\" } }\n",
-      "sub/pkg/edge.json": "{ \"permissions\": { \"all\": [\"net:a.test\"] } }\n",
+      "sub/interpreter.json": "{ \"imports\": { \"pkg\": \"./pkg/main.lox\" } }\n",
+      "sub/pkg/interpreter.json": "{ \"permissions\": { \"all\": [\"net:a.test\"] } }\n",
       "sub/pkg/main.lox": "var x = 1;\n",
       "sub/main.lox": "var pkg = import(\"pkg\");\nprint pkg.x;\n"
     },
     "run": ["run", "sub/main.lox"],
-    "fails": ["edge.json does not grant what these packages ask for\n  pkg   net:a.test"]
+    "fails": ["interpreter.json does not grant what these packages ask for\n  pkg   net:a.test"]
   },
   {
     "run": ["init", "myapp", "--bare"],
-    "stdout": ["created myapp/", "cd myapp && edge run main.lox"],
-    "creates": ["myapp/main.lox", "myapp/edge.json"]
+    "stdout": ["created myapp/", "cd myapp && interpreter run main.lox"],
+    "creates": ["myapp/main.lox", "myapp/interpreter.json"]
   }
 ]

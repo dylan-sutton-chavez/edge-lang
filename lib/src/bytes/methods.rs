@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 
-use edge::lang::{Acc, Args, Cx, Fold, KindId, Ret, STEPS, Sig, Step};
-use edge::value::{HeapObj, Val, VmErr, cold_heap};
+use interpreter::lang::{Acc, Args, Cx, Fold, KindId, Ret, STEPS, Sig, Step};
+use interpreter::value::{HeapObj, Val, VmErr, cold_heap};
 
 use super::{Buf, Bytes, byte_of, is_space as blank, iterable, octets, octets_fold};
 use crate::fail::{Class, Error, Fail, fail, receiver};

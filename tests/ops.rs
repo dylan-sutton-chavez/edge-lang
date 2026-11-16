@@ -1,15 +1,15 @@
 mod test {
-    use edge::code::OpCode;
-    use edge::embed::{Limits, VM};
-    use edge::lang::{Args, Cx, Descriptor, EngineError, ErrKind, Front, Language, Misfit, Mode, Names, Native, Natives, Op, OpSet, OpTable, Policy, Ret, Runtime, Sig};
-    use edge::lexer::{Spelling, Syntax};
-    use edge::value::foreign::Kind;
-    use edge::value::{HeapPool, Val, VmErr};
+    use interpreter::code::OpCode;
+    use interpreter::embed::{Limits, VM};
+    use interpreter::lang::{Args, Cx, Descriptor, EngineError, ErrKind, Front, Language, Misfit, Mode, Names, Native, Natives, Op, OpSet, OpTable, Policy, Ret, Runtime, Sig};
+    use interpreter::lexer::{Spelling, Syntax};
+    use interpreter::value::foreign::Kind;
+    use interpreter::value::{HeapPool, Val, VmErr};
     use rig::Rig;
     use rig::natives::{ARRAY, BUFFER, BYTES, CONVERT, DICT, FLOAT, FOLDS, INT, IO, ITER, LIST, LIST_SORT, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
 
     // clamp of three ints answered in the loop and other numbers by its slow path
-    edge::ops! {
+    interpreter::ops! {
         table Clamps: Debug;
         own {
         //  name   pops  fuse     fast        slow        fold
@@ -56,7 +56,7 @@ mod test {
     const CLAMP: &[Native] = &[Native::new("clamp", Sig::exact(3), clamp_native)];
 
     // the rig's natives with the clamp the op fuses
-    static NATIVES: Natives = edge::natives! {
+    static NATIVES: Natives = interpreter::natives! {
         language: Clamped,
         fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, TYPES, CLAMP],
         methods: [
@@ -93,7 +93,7 @@ mod test {
         const FRONT: Front = Front::spelled::<Clamped>();
         const DESCRIPTOR: &'static Descriptor = &rig::DESCRIPTOR;
         const WIDE: Option<&'static Kind> = <Rig as Language>::WIDE;
-        const BUILT: edge::value::foreign::Built = <rig::Rig as Language>::BUILT;
+        const BUILT: interpreter::value::foreign::Built = <rig::Rig as Language>::BUILT;
         type Ops = Clamps;
 
         fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Mode) -> Result<String, VmErr> { <Rig as Language>::show(cx, v, mode) }
@@ -109,7 +109,7 @@ mod test {
 
     /* what `src` prints under the runtime or the error that ends it */
     fn ran(src: &str) -> String {
-        let (chunk, errors) = edge::code::compile_as::<Clamped>(src);
+        let (chunk, errors) = interpreter::code::compile_as::<Clamped>(src);
         assert!(errors.is_empty(), "{src:?} reports {:?}", errors.iter().map(|d| &d.msg).collect::<Vec<_>>());
         let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
         match vm.run() {
@@ -120,7 +120,7 @@ mod test {
 
     /* the ops `src` compiles to in its module body */
     fn ops_of(src: &str) -> Vec<(OpCode, u16)> {
-        let (chunk, errors) = edge::code::compile_as::<Clamped>(src);
+        let (chunk, errors) = interpreter::code::compile_as::<Clamped>(src);
         assert!(errors.is_empty());
         chunk.instructions.iter().map(|i| (i.opcode, i.operand)).collect()
     }
@@ -241,7 +241,7 @@ mod test {
         const FRONT: Front = Front::spelled::<Unclamped>();
         const DESCRIPTOR: &'static Descriptor = &rig::DESCRIPTOR;
         const WIDE: Option<&'static Kind> = <Rig as Language>::WIDE;
-        const BUILT: edge::value::foreign::Built = <rig::Rig as Language>::BUILT;
+        const BUILT: interpreter::value::foreign::Built = <rig::Rig as Language>::BUILT;
         type Ops = ();
     }
 
@@ -250,18 +250,18 @@ mod test {
     #[test]
     fn a_blob_of_another_table_is_refused_before_its_source_is_read() {
         let src = "x = 5\ny = clamp(x, 0, 3)\nreceive()\nprint(y)\n";
-        let (chunk, _) = edge::code::compile_as::<Clamped>(src);
+        let (chunk, _) = interpreter::code::compile_as::<Clamped>(src);
         let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
         assert!(matches!(vm.run(), Err(VmErr::HostYield(_))));
-        let blob = edge::embed::save(&vm, src, "").expect("saves");
+        let blob = interpreter::embed::save(&vm, src, "").expect("saves");
         // the runtimes differ only by their tables so the identity alone refuses it
         assert_ne!(RUNTIME.identity, UNCLAMPED.identity);
-        assert!(edge::embed::saved_under(&blob, &RUNTIME) && !edge::embed::saved_under(&blob, &UNCLAMPED));
-        let (plain, _) = edge::code::compile_as::<Unclamped>(src);
+        assert!(interpreter::embed::saved_under(&blob, &RUNTIME) && !interpreter::embed::saved_under(&blob, &UNCLAMPED));
+        let (plain, _) = interpreter::code::compile_as::<Unclamped>(src);
         let mut other = VM::with_runtime(&UNCLAMPED, &plain, Limits::sandbox());
-        assert_eq!(edge::embed::restore(&mut other, &blob).err().as_deref(), Some(edge::embed::OTHER_RUNTIME));
+        assert_eq!(interpreter::embed::restore(&mut other, &blob).err().as_deref(), Some(interpreter::embed::OTHER_RUNTIME));
         let mut same = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
-        assert!(edge::embed::restore(&mut same, &blob).is_ok());
+        assert!(interpreter::embed::restore(&mut same, &blob).is_ok());
     }
 
     #[test]
@@ -276,7 +276,7 @@ mod test {
 
     /* what `src` prints driven with `events` pushed one at each event wait */
     fn ran_with(src: &str, events: &[&str]) -> String {
-        let (chunk, errors) = edge::code::compile_as::<Clamped>(src);
+        let (chunk, errors) = interpreter::code::compile_as::<Clamped>(src);
         assert!(errors.is_empty());
         let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
         let mut events = events.iter();

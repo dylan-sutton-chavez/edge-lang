@@ -6,7 +6,7 @@ import { opened } from "../src/system/gate.ts";
 const BASE = Deno.env.get("EDGE_CDN_BASE")?.replace(/\/$/, "");
 if (!BASE) throw new Error("set EDGE_CDN_BASE (make serve)");
 const stub = () => 0;
-const { instance } = await WebAssembly.instantiate(await (await fetch(`${BASE}/edge.wasm`)).arrayBuffer(), { env: { host_print: stub, host_call_native: stub, host_fetch_bytes: stub, host_send: stub } });
+const { instance } = await WebAssembly.instantiate(await (await fetch(`${BASE}/interpreter.wasm`)).arrayBuffer(), { env: { host_print: stub, host_call_native: stub, host_fetch_bytes: stub, host_send: stub } });
 const wasm = instance.exports;
 
 const raises = (fn, name, message) => {
@@ -41,12 +41,12 @@ Deno.test("perms: a package holds what its importer grants its key, and an impor
     const granted = [{ pay: ["net:api.stripe.com", "net:a.test"] }, "pay"];
     if (scopes([granted, [{ all: ["net:a.test"], http: ["net:api.stripe.com", "net:other.test"] }, "http"]], "http") !== '["a.test","api.stripe.com"]') throw new Error("passed on past what the importer holds");
     if (scopes([granted, [{ dns: ["net"] }, "dns"]], "dns") !== "[]") throw new Error("a bare entry passes on with any entry for its module");
-    if (held(wasm, [[root, "http"]], "http", "db") !== "'http' imports db, which edge.json does not grant it") throw new Error("the words an ungranted import fails with");
+    if (held(wasm, [[root, "http"]], "http", "db") !== "'http' imports db, which interpreter.json does not grant it") throw new Error("the words an ungranted import fails with");
 });
 
 Deno.test("perms: a refusal names what the package holds instead", () => {
-    denied(() => grant("main", ["a.test", "b.test"]).need("c.test"), "'main' has no net:c.test, edge.json grants it net:a.test, net:b.test");
-    denied(() => grant("analytics", []).need("c.test"), "'analytics' has no net:c.test, edge.json grants it nothing");
+    denied(() => grant("main", ["a.test", "b.test"]).need("c.test"), "'main' has no net:c.test, interpreter.json grants it net:a.test, net:b.test");
+    denied(() => grant("analytics", []).need("c.test"), "'analytics' has no net:c.test, interpreter.json grants it nothing");
     grant("main", ["a.test"]).need("a.test");
 });
 
@@ -105,8 +105,8 @@ Deno.test("net: a package reaches only its hosts and the ids it opened", async (
     const at = `http://127.0.0.1:${server.addr.port}/`;
     const main = opened(net, "main", grant("main", ["127.0.0.1"]));
     const other = opened(net, "analytics", grant("analytics", []));
-    denied(() => main.calls.request("GET", "http://evil.example/"), "'main' has no net:evil.example, edge.json grants it net:127.0.0.1");
-    denied(() => other.calls.connect("ws://127.0.0.1:1/"), "'analytics' has no net:127.0.0.1, edge.json grants it nothing");
+    denied(() => main.calls.request("GET", "http://evil.example/"), "'main' has no net:evil.example, interpreter.json grants it net:127.0.0.1");
+    denied(() => other.calls.connect("ws://127.0.0.1:1/"), "'analytics' has no net:127.0.0.1, interpreter.json grants it nothing");
     const id = main.calls.request("GET", at);
     raises(() => other.calls.read(id), "invalid", `no open request or socket ${id}`);
     for (const bad of [null, "one", 1.5, true, 2n ** 60n]) raises(() => main.calls.read(bad), "invalid", "an id is an int from net.request or net.connect");
@@ -164,7 +164,7 @@ Deno.test("net: the headers fetch keeps for the host are refused and the rest ar
 
 Deno.test("net: a path scope reaches only under its prefix", () => {
     const api = opened(net, "main", grant("main", ["127.0.0.1/api"]));
-    const held = "edge.json grants it net:127.0.0.1/api";
+    const held = "interpreter.json grants it net:127.0.0.1/api";
     const at = "http://127.0.0.1:1";
     for (const path of ["/api", "/api/", "/api/items", "/api/v2/items?q=1", "/api/a%5cb", "/api/x%2e", "/api/group%2Fproject", "/%61pi/x"]) api.calls.request("GET", `${at}${path}`);
     denied(() => api.calls.request("GET", `${at}/`), `'main' has no net:127.0.0.1/, ${held}`);

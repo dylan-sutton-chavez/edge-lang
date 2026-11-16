@@ -1,6 +1,6 @@
 mod test {
     use std::collections::HashSet;
-    use edge::code::OpCode;
+    use interpreter::code::OpCode;
 
     #[test]
     fn every_opcode_is_listed_once_at_its_byte() {
@@ -12,8 +12,8 @@ mod test {
 
     #[test]
     fn a_function_scope_and_parameters_are_those_the_vm_resolved() {
-        use edge::code::{Kind, ParamKind};
-        use edge::embed::VM;
+        use interpreter::code::{Kind, ParamKind};
+        use interpreter::embed::VM;
         let src = "g = 1\nfn f(a, *r, k=2, **m) {\n    x = a\n    fn h() {\n        return x\n    }\n    return g\n}\n";
         let (chunk, errors) = crate::common::parse(src);
         assert!(errors.is_empty());
@@ -30,10 +30,10 @@ mod test {
     }
 
     /* the bindings of the slots of `body` named `name` leaving out slots no variable takes */
-    fn bound(p: &edge::code::Program, body: &edge::code::SSAChunk, name: &str) -> Vec<edge::code::Binding> {
-        use edge::code::Binding;
+    fn bound(p: &interpreter::code::Program, body: &interpreter::code::SSAChunk, name: &str) -> Vec<interpreter::code::Binding> {
+        use interpreter::code::Binding;
         let (_, b) = p.bindings_of(body).expect("a body of the program");
-        let mut all: Vec<Binding> = body.names.iter().enumerate().filter(|(_, n)| edge::code::ssa_strip(n) == name).map(|(i, _)| b[i]).collect();
+        let mut all: Vec<Binding> = body.names.iter().enumerate().filter(|(_, n)| interpreter::code::ssa_strip(n) == name).map(|(i, _)| b[i]).collect();
         all.dedup();
         if all.iter().any(|b| *b != Binding::Local) { all.retain(|b| *b != Binding::Local); }
         all
@@ -41,9 +41,9 @@ mod test {
 
     #[test]
     fn module_and_class_bodies_bind_as_the_vm_resolves_them() {
-        use edge::code::{Binding::*, BodyKind, Program};
+        use interpreter::code::{Binding::*, BodyKind, Program};
         use crate::common::compile;
-        let global = |b: &[edge::code::Binding]| matches!(b, [Global(_)]);
+        let global = |b: &[interpreter::code::Binding]| matches!(b, [Global(_)]);
         // a module binds into its globals and a function reads them
         let (c, e) = compile("x = 1\nfn f() {\n    return x\n}\nprint(len([x]))\n");
         assert!(e.is_empty());
@@ -82,7 +82,7 @@ mod test {
         assert!(global(&bound(&p, &e.functions[1].1, "xs")));
     }
 
-    use edge::code::{Class, Fast, NativeSite, Operator, SSAChunk};
+    use interpreter::code::{Class, Fast, NativeSite, Operator, SSAChunk};
 
     #[test]
     fn every_op_of_the_table_sits_at_its_byte_with_its_columns() {
@@ -96,9 +96,9 @@ mod test {
             assert_eq!(info.class, class, "{op:?}");
             // the predicates the parser and the folder call are the columns as patterns
             assert_eq!(op.is_register(), class != Class::Stack, "{op:?}");
-            assert_eq!(op.is_jump(), info.operand == edge::code::Operand::Jump, "{op:?}");
-            assert_eq!(op.names_slot(), info.operand == edge::code::Operand::Slot, "{op:?}");
-            assert_eq!(op.names_attr(), info.operand == edge::code::Operand::Attr, "{op:?}");
+            assert_eq!(op.is_jump(), info.operand == interpreter::code::Operand::Jump, "{op:?}");
+            assert_eq!(op.names_slot(), info.operand == interpreter::code::Operand::Slot, "{op:?}");
+            assert_eq!(op.names_attr(), info.operand == interpreter::code::Operand::Attr, "{op:?}");
             assert_eq!(op.is_binary(), info.operator == Operator::Binary, "{op:?}");
             assert_eq!(op.folds_binary(), info.operator == Operator::Binary && info.fold, "{op:?}");
             // a register form falls back to the op whose form or branch it is
@@ -128,7 +128,7 @@ mod test {
     fn chunks() -> Vec<SSAChunk> {
         let mut c = SSAChunk::default();
         for d in [0, 1, 3, 255] { c.functions.push((Vec::new(), SSAChunk::default(), d, 0)); }
-        for bases in [0, 1, 2, 7, edge::code::SPREAD_BASES] {
+        for bases in [0, 1, 2, 7, interpreter::code::SPREAD_BASES] {
             let mut k = SSAChunk::default();
             k.bases = bases;
             c.classes.push(k);
@@ -173,7 +173,7 @@ mod test {
 
 // a table a runtime of its own declares with the engine's macro
 mod toy {
-    edge::ops! {
+    interpreter::ops! {
         table Toy: Debug;
         stack {
             Push   0  1  constant  values  -  -  -  -       -  -      -;

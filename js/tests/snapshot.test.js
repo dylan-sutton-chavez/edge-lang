@@ -1,9 +1,9 @@
 const ROOT = new URL("../../", import.meta.url);
 
-// a fresh engine over the edge.wasm make wasm builds with nothing wired
+// a fresh engine over the interpreter.wasm make wasm builds with nothing wired
 async function boot(name) {
     const engine = await import(new URL(`../src/worker/engine.ts?snapshot=${name}`, import.meta.url).href);
-    await engine.load({ wasmUrl: new URL("target/wasm32-unknown-unknown/release/edge.wasm", ROOT).href });
+    await engine.load({ wasmUrl: new URL("target/wasm32-unknown-unknown/release/interpreter.wasm", ROOT).href });
     return engine;
 }
 
@@ -50,7 +50,7 @@ Deno.test("snapshot: a blob whose source runs past its end is refused before any
     const bent = blob.slice();
     new DataView(bent.buffer).setBigUint64(24, BigInt(blob.length), true);
     const refused = await engine.restoreState({ blob: bent }).then(() => "", (e) => String(e));
-    if (!refused.includes("not an edge snapshot")) throw new Error(`a bent blob gave ${JSON.stringify(refused)}`);
+    if (!refused.includes("not an interpreter snapshot")) throw new Error(`a bent blob gave ${JSON.stringify(refused)}`);
 });
 
 /* the blob another runtime saves with its own identity and source sealed again */
@@ -90,7 +90,7 @@ Deno.test("snapshot: a restored run imports from beside its script and fails whe
     await Deno.writeTextFile(`${dir}/sub/helper.lox`, "fun twice(x) {\n    return x + x;\n}\n");
     const src = "var helper = import(\"./helper.lox\");\nvar msg = receive();\nprint helper.twice(msg);\n\nprint -msg;\n";
     const engine = await import(new URL("../src/worker/engine.ts?snapshot=entry", import.meta.url).href);
-    await engine.load({ wasmUrl: new URL("target/wasm32-unknown-unknown/release/edge.wasm", ROOT).href, baseUrl: `file://${dir}/` });
+    await engine.load({ wasmUrl: new URL("target/wasm32-unknown-unknown/release/interpreter.wasm", ROOT).href, baseUrl: `file://${dir}/` });
     const running = engine.run({ src, entry: "sub/main.lox" }, () => {});
     await parked(engine);
     const blob = engine.saveState();

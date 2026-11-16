@@ -1,6 +1,6 @@
 #[cfg(feature = "coverage")]
 mod test {
-    use edge::code::{ImportKind, OpCode, SSAChunk, Value};
+    use interpreter::code::{ImportKind, OpCode, SSAChunk, Value};
 
     use crate::common::{lex, parser, TestResolver};
 
@@ -27,7 +27,7 @@ mod test {
         let (chunk, errors) = parser(MAIN, tokens.into_iter(), resolver).parse();
         assert!(errors.is_empty(), "{:?}", errors.iter().map(|d| &d.msg).collect::<Vec<_>>());
 
-        let mut vm = crate::common::boot(&chunk, edge::embed::Limits::sandbox());
+        let mut vm = crate::common::boot(&chunk, interpreter::embed::Limits::sandbox());
         assert!(vm.run().is_err(), "the run ends in the ValueError it raises");
 
         // inside one line only the branch a conditional or a short circuit took

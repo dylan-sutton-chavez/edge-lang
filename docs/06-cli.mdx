@@ -1,35 +1,35 @@
 ---
 title: "CLI"
-description: "The edge commands, a project from its first file to a packed build, packages by URL, grants, and a CLI of your own composed from the kit."
+description: "The interpreter commands, a project from its first file to a packed build, packages by URL, grants, and a CLI of your own composed from the kit."
 ---
 
 # CLI
 
-The `edge` CLI runs Lox programs on macOS, Linux and WSL. It embeds `edge.wasm` precompiled for the machine, the same module the JS host loads, so a program answers the same in a page and in a terminal. [Install](./01-overview.mdx#install) builds it from the repo.
+The `interpreter` CLI runs Lox programs on macOS, Linux and WSL. It embeds `interpreter.wasm` precompiled for the machine, the same module the JS host loads, so a program answers the same in a page and in a terminal. [Install](./01-overview.mdx#install) builds it from the repo.
 
 ## Commands
 
 | Command | Does |
 |---|---|
-| `edge run <file>` | Runs a script, a packed `.edge`, stdin, or `-c <code>`. `--web` runs it in headless Chrome on the JS host |
-| `edge build` | Packs the project into `app.edge`. `--app` writes a standalone binary, `--web` a `dist/` folder for the browser |
-| `edge test [path]` | Runs every `*_test.lox` file in a fresh session. A file passes when it ends cleanly |
-| `edge init [name]` | Creates a project with `main.lox`, `edge.json` and an `index.html`. `--bare` leaves out the page |
-| `edge add <name>=<source>` | Declares an import in `edge.json`, by URL or by path |
-| `edge remove <name>` | Removes an import |
-| `edge lock` | Downloads every URL import once and pins its digest in `edge.lock` |
-| `edge serve` | A dev server with live reload, on `127.0.0.1:5173` unless `--host` and `--port` say otherwise |
-| `edge actor <file>` | Runs a pool of actors from an `actor.yml` |
-| `edge uninstall` | Removes the binary and its PATH entry |
+| `interpreter run <file>` | Runs a script, a packed `.interpreter`, stdin, or `-c <code>`. `--web` runs it in headless Chrome on the JS host |
+| `interpreter build` | Packs the project into `app.interpreter`. `--app` writes a standalone binary, `--web` a `dist/` folder for the browser |
+| `interpreter test [path]` | Runs every `*_test.lox` file in a fresh session. A file passes when it ends cleanly |
+| `interpreter init [name]` | Creates a project with `main.lox`, `interpreter.json` and an `index.html`. `--bare` leaves out the page |
+| `interpreter add <name>=<source>` | Declares an import in `interpreter.json`, by URL or by path |
+| `interpreter remove <name>` | Removes an import |
+| `interpreter lock` | Downloads every URL import once and pins its digest in `interpreter.lock` |
+| `interpreter serve` | A dev server with live reload, on `127.0.0.1:5173` unless `--host` and `--port` say otherwise |
+| `interpreter actor <file>` | Runs a pool of actors from an `actor.yml` |
+| `interpreter uninstall` | Removes the binary and its PATH entry |
 
-`edge run` and `edge test` take `--memory <MB>` and `--ops <n>`. `edge run` also takes `--events <file>`, one event per line, `--preempt <n>`, `--save-state <file>` and `--restore-state <file>`. Every command takes `--manifest <file>` in place of `./edge.json`.
+`interpreter run` and `interpreter test` take `--memory <MB>` and `--ops <n>`. `interpreter run` also takes `--events <file>`, one event per line, `--preempt <n>`, `--save-state <file>` and `--restore-state <file>`. Every command takes `--manifest <file>` in place of `./interpreter.json`.
 
 ## A project
 
-`edge init` creates the project.
+`interpreter init` creates the project.
 
 ```text
-$ edge init hello
+$ interpreter init hello
 created hello/
 $ cd hello
 ```
@@ -49,16 +49,16 @@ fun stars(n) {
 var stars = import("./stars.lox").stars;
 
 print "lox " + stars(3);
-print "edge " + stars(5);
+print "sdk " + stars(5);
 ```
 
 ```text
-$ edge run main.lox
+$ interpreter run main.lox
 lox ***
-edge *****
+sdk *****
 ```
 
-A test imports the same function. A file fails when its run ends with an error or with a status other than 0, and `edge test` exits with 1.
+A test imports the same function. A file fails when its run ends with an error or with a status other than 0, and `interpreter test` exits with 1.
 
 ```lox stars_test.lox
 var stars = import("./stars.lox").stars;
@@ -75,30 +75,30 @@ expect(stars(2), "**");
 ```
 
 ```text
-$ edge test
+$ interpreter test
 (successful) stars_test.lox
 ```
 
-`edge build` packs the scripts, the manifest and every import into one `app.edge` that runs anywhere `edge` is installed.
+`interpreter build` packs the scripts, the manifest and every import into one `app.interpreter` that runs anywhere `interpreter` is installed.
 
 ```text
-$ edge build
-packed app.edge (4 files)
-$ edge run app.edge
+$ interpreter build
+packed app.interpreter (4 files)
+$ interpreter run app.interpreter
 lox ***
-edge *****
+sdk *****
 ```
 
 ## Packages by URL
 
-`edge add` declares an import under the name the code imports it by. The source is a path or a URL: a `.lox` module, a `.wasm` plugin, or a `.edge` package that `edge build` packed and a tagged GitHub release attaches. This one takes a module from this repo at a fixed commit.
+`interpreter add` declares an import under the name the code imports it by. The source is a path or a URL: a `.lox` module, a `.wasm` plugin, or a `.interpreter` package that `interpreter build` packed and a tagged GitHub release attaches. This one takes a module from this repo at a fixed commit.
 
 ```text
-$ edge add util=https://raw.githubusercontent.com/dylan-sutton-chavez/edge-lang/da9bda4365e8e7f62a7f9449964fef94874c51e5/docs/util.lox
-+ util       https://raw.githubusercontent.com/dylan-sutton-chavez/edge-lang/da9bda4365e8e7f62a7f9449964fef94874c51e5/docs/util.lox
-updated edge.json, run edge lock to pin it
-$ edge lock
-wrote edge.lock
+$ interpreter add util=https://raw.githubusercontent.com/dylan-sutton-chavez/interpreter/da9bda4365e8e7f62a7f9449964fef94874c51e5/docs/util.lox
++ util       https://raw.githubusercontent.com/dylan-sutton-chavez/interpreter/da9bda4365e8e7f62a7f9449964fef94874c51e5/docs/util.lox
+updated interpreter.json, run interpreter lock to pin it
+$ interpreter lock
+wrote interpreter.lock
 ```
 
 ```lox main.lox
@@ -108,13 +108,13 @@ print util.greet();
 ```
 
 ```text
-$ edge run main.lox
+$ interpreter run main.lox
 hello from a package
 ```
 
-`edge lock` downloads each URL once and writes its digest to `edge.lock`, and `edge run`, `edge test` and `edge build` refuse bytes other than the ones it pins. Run it after every change to `edge.json` and commit `edge.lock` with the code. An import can also pin its bytes in the URL itself, with a `#sha256-<64 hex>` fragment.
+`interpreter lock` downloads each URL once and writes its digest to `interpreter.lock`, and `interpreter run`, `interpreter test` and `interpreter build` refuse bytes other than the ones it pins. Run it after every change to `interpreter.json` and commit `interpreter.lock` with the code. An import can also pin its bytes in the URL itself, with a `#sha256-<64 hex>` fragment.
 
-A package names itself in its own `edge.json`:
+A package names itself in its own `interpreter.json`:
 
 | Field | Rule |
 |---|---|
@@ -122,7 +122,7 @@ A package names itself in its own `edge.json`:
 | `version` | `major.minor.patch` |
 | `description` | One line, up to 60 characters |
 | `repository` | An `https` URL |
-| `docs` | A folder of `.mdx` pages that `edge build` packs with the package |
+| `docs` | A folder of `.mdx` pages that `interpreter build` packs with the package |
 
 ## Grants
 
@@ -133,7 +133,7 @@ A program reaches the outside only through the host modules its host serves. The
 | `net` | `request(method, url, headers, body, inflate, timeout)` gives an id, then `response(id)`, `read(id)` and `close(id)`. `connect(url)` and `send(id, data)` for WebSockets | `net:<host>`, or `net:<host>/<prefix>` for the paths under it |
 | `files` | `open(path, inflate)` gives an id, then `read(id)` and `close(id)` | `files:<file>`, or `files:<dir>/` for every file below it |
 
-The root `edge.json` grants them in `permissions`, which maps a holder to entries written `module:scope`:
+The root `interpreter.json` grants them in `permissions`, which maps a holder to entries written `module:scope`:
 
 | Holder | Holds |
 |---|---|
@@ -141,7 +141,7 @@ The root `edge.json` grants them in `permissions`, which maps a holder to entrie
 | An import name | That package |
 | `all` | The project and every package it imports |
 
-A package lists what it needs in its own `edge.json`, and can only pass on what its importer gave it. A call outside its grant raises before anything leaves the process, and the run ends with Lox's report of it:
+A package lists what it needs in its own `interpreter.json`, and can only pass on what its importer gave it. A call outside its grant raises before anything leaves the process, and the run ends with Lox's report of it:
 
 ```lox-manifest
 { "permissions": { "main": ["net:api.example.com"] } }
@@ -153,23 +153,23 @@ net.request("GET", "https://other.example/");
 ```
 
 ```output
-'main' has no net:other.example, edge.json grants it net:api.example.com
+'main' has no net:other.example, interpreter.json grants it net:api.example.com
 [line 2] in script
 ```
 
 ## A CLI of your own
 
-The `cli` crate is a kit: a `Kit` over a runtime and the commands you wire, each behind a feature of the crate. The `edge` binary is one composition of it over Lox, and a runtime of your own gets a CLI the same way. With no arguments, this one prints its help.
+The `interpreter-cli` crate is a kit: a `Kit` over a runtime and the commands you wire, each behind a feature of the crate. The `interpreter` binary is one composition of it over Lox, and a runtime of your own gets a CLI the same way. With no arguments, this one prints its help.
 
 ```rust standalone_crate
-use cli::cmd::{run, test};
-use cli::{Kit, Runtime};
+use interpreter_cli::cmd::{run, test};
+use interpreter_cli::{Kit, Runtime};
 
 // the native runtime meters its memory through this allocator
-edge::allocator!();
+interpreter::allocator!();
 
 fn main() {
-    Kit::new("calc", "0.1.0", Runtime::native(&lox::RUNTIME))
+    Kit::new("calc", "0.1.0", Runtime::native(&interpreter_lox::RUNTIME))
         .title("A CLI for calc programs")
         .command(run::Run)
         .command(test::Test)
@@ -177,7 +177,7 @@ fn main() {
 }
 ```
 
-`Runtime::native` links the runtime into the binary, and `Runtime::wasm(bytes, &DESCRIPTOR)` loads its `.wasm` instead, which also lets the binary load `.wasm` plugins. `.module(...)` serves a host module such as `cli::net::Net`, and `.field(cli::perms::FIELD)` with `.access(Arc::new(cli::perms::Perms))` holds each package to its grants.
+`Runtime::native` links the runtime into the binary, and `Runtime::wasm(bytes, &DESCRIPTOR)` loads its `.wasm` instead, which also lets the binary load `.wasm` plugins. `.module(...)` serves a host module such as `interpreter_cli::net::Net`, and `.field(interpreter_cli::perms::FIELD)` with `.access(Arc::new(interpreter_cli::perms::Perms))` holds each package to its grants.
 
 | Feature | Command or part |
 |---|---|

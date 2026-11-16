@@ -2,9 +2,9 @@ use alloc::rc::Rc;
 use alloc::vec::Vec;
 use core::cell::RefCell;
 
-use edge::lang::{Acc, Args, Cx, Flow, Fold, Intrinsic, Item, PUSH, Ret, STEPS, Sig, Step, TYPE};
-use edge::value::foreign::{Kind, Snapshot};
-use edge::value::{HeapObj, HeapPool, Val, VmErr};
+use interpreter::lang::{Acc, Args, Cx, Flow, Fold, Intrinsic, Item, PUSH, Ret, STEPS, Sig, Step, TYPE};
+use interpreter::value::foreign::{Kind, Snapshot};
+use interpreter::value::{HeapObj, HeapPool, Val, VmErr};
 
 use crate::fail::{Fail, fail, receiver};
 use crate::iter::items::{drained, gather, generator, plain_items, taken};
@@ -21,8 +21,8 @@ pub const fn slice<L: crate::Lang>(type_name: &'static str) -> Kind {
         type_name,
         family: "bounds",
         // two slices of equal bounds are equal and hash each bound as a table does
-        hash: |heap, p| p.downcast_ref::<[Val; 3]>().map_or(0, |b| b.iter().fold(0x5_11CE, |h: u64, &v| (h ^ edge::value::hash_val_with_heap(v, heap)).wrapping_mul(0x100_0000_01B3))),
-        eq: |heap, p, other| p.downcast_ref::<[Val; 3]>().zip(heap.slice_of(other)).is_some_and(|(a, b)| a.iter().zip(b).all(|(&x, y)| edge::value::eq_vals_with_heap(x, y, heap))),
+        hash: |heap, p| p.downcast_ref::<[Val; 3]>().map_or(0, |b| b.iter().fold(0x5_11CE, |h: u64, &v| (h ^ interpreter::value::hash_val_with_heap(v, heap)).wrapping_mul(0x100_0000_01B3))),
+        eq: |heap, p, other| p.downcast_ref::<[Val; 3]>().zip(heap.slice_of(other)).is_some_and(|(a, b)| a.iter().zip(b).all(|(&x, y)| interpreter::value::eq_vals_with_heap(x, y, heap))),
         get: Some(bound::<L>),
         snapshot: Snapshot::Store,
         ..Kind::PLAIN

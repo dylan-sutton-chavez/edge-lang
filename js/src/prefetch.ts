@@ -10,7 +10,7 @@ const TE = new TextEncoder();
 interface PrefetchCtx {
     fetchedSources: Map<string, Uint8Array>
     knownMissing: Set<string>
-    // the root edge.json the embedder declared in place of the one at its base
+    // the root interpreter.json the embedder declared in place of the one at its base
     given?: Record<string, unknown> | null
     // the carried field then the holders it reserves one per line
     carry: string
@@ -52,10 +52,10 @@ function schemeHint(spec: string): string | null {
 export async function bfsPrefetch(rootSrc: string, exports: EdgeExports, ctx: PrefetchCtx, serve: (packages: Packages) => string[]): Promise<void> {
     const { fetchedSources, knownMissing, given } = ctx;
 
-    // what the embedder declared stands in for the root edge.json like any manifest
+    // what the embedder declared stands in for the root interpreter.json like any manifest
     if (given) {
-        fetchedSources.set('edge.json', TE.encode(JSON.stringify(given)));
-        knownMissing.delete('edge.json');
+        fetchedSources.set('interpreter.json', TE.encode(JSON.stringify(given)));
+        knownMissing.delete('interpreter.json');
     }
 
     // a walk export takes staged buffers and leaves the next step in the out buffer
@@ -85,7 +85,7 @@ export async function bfsPrefetch(rootSrc: string, exports: EdgeExports, ctx: Pr
                 if (bytes) fetchedSources.set(spec, bytes);
             }
             // a manifest or lock is only probed so only a missing module earns a hint
-            const probe = spec.endsWith('edge.json') || spec.endsWith('edge.lock');
+            const probe = spec.endsWith('interpreter.json') || spec.endsWith('interpreter.lock');
             const [answer, kind] = bytes ? [bytes, 0] : [TE.encode(probe ? '' : schemeHint(spec) ?? ''), 1];
             step = call([answer], ([at]) => exports.walk_fetched(at!, answer.length, kind));
         } else if ('plugin' in step) {

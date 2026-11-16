@@ -156,7 +156,7 @@ pub(crate) fn host_edge_op(op: u32, recv: u32, name: &str, argv: &[u32], out_han
     match result {
         Ok(Some(v)) => { *out_handle = put_val(v); 0 }
         // the end reads in the ABI's own words so no runtime's class reaches a plugin
-        Ok(None) => { stash_raw_error(ErrorKind::Custom as u32, String::from(abi::op::ITER_END)); 1 }
+        Ok(None) => { stash_raw_error(ErrorKind::Custom as u32, String::from(interpreter_abi::op::ITER_END)); 1 }
         // a system call still waits so the plugin returns 2 and the host resumes it
         Err(VmErr::HostCallDeferred) => 2,
         Err(e) => { stash_error(e); 1 }
@@ -189,10 +189,10 @@ fn host_op(op: u32, recv: u32, name: &str, args: &[Val]) -> Result<Option<Val>, 
 
 fn dispatch_call(recv_h: u32, name: &str, args: &[Val]) -> Result<Val, VmErr> {
     // no receiver and the text name ask for the text the runtime writes
-    if recv_h == 0 && name == abi::op::TEXT { return text_of(args); }
+    if recv_h == 0 && name == interpreter_abi::op::TEXT { return text_of(args); }
     with_recv("edge_op call: invalid receiver handle", recv_h, |vm, recv| {
         // the self name calls `recv` itself so any callable a plugin holds dispatches normally
-        if name == abi::op::CALL_SELF {
+        if name == interpreter_abi::op::CALL_SELF {
             let chunk = vm.chunk;
             return vm.call_with(recv, None, args, &[], chunk)?.ok_or(VmErr::Runtime("edge_op call of itself: callable left no result"));
         }

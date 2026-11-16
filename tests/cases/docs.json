@@ -254,13 +254,13 @@
   {
     "name": "questions in a row",
     "files": {
-      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n> [!QUESTION] How do I run it?\n> With edge run.\n\n> [!QUESTION] Does it reach the network?\n> Only what edge.json grants.\n"
+      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n> [!QUESTION] How do I run it?\n> With edge run.\n\n> [!QUESTION] Does it reach the network?\n> Only what interpreter.json grants.\n"
     }
   },
   {
     "name": "a set of cards",
     "files": {
-      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n> [!CARDS]\n> - `play` [Quick start](/docs/getting-started/quickstart) Run a first script.\n> - `book` [Modules](https://example.com/docs/reference/modules) What edge.json grants.\n> - `file` [Usage](02-usage) The next page.\n"
+      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n> [!CARDS]\n> - `play` [Quick start](/docs/getting-started/quickstart) Run a first script.\n> - `book` [Modules](https://example.com/docs/reference/modules) What interpreter.json grants.\n> - `file` [Usage](02-usage) The next page.\n"
     }
   },
   {

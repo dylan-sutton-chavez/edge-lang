@@ -1,42 +1,42 @@
-use edge::embed::{Limits, VM};
-use edge::lang::{Native, Natives, Runtime};
-use lib::bytes::{Fixed, Mutable};
-use lib::lang::Centre;
-use lib::num::hash::Scheme;
-use lib::text::cut::Unicode;
-use lib::uni::Decimal;
+use interpreter::embed::{Limits, VM};
+use interpreter::lang::{Native, Natives, Runtime};
+use interpreter_lib::bytes::{Fixed, Mutable};
+use interpreter_lib::lang::Centre;
+use interpreter_lib::num::hash::Scheme;
+use interpreter_lib::text::cut::Unicode;
+use interpreter_lib::uni::Decimal;
 use rig::Rig;
 
-// every run meters what it allocates as edge.wasm does
-edge::allocator!();
+// every run meters what it allocates as interpreter.wasm does
+interpreter::allocator!();
 
 // a runtime of the rig's names keeping every choice lib leaves at its default
 struct Plain;
 
-impl lib::fmt::render::Style for Plain {}
+impl interpreter_lib::fmt::render::Style for Plain {}
 
-impl edge::lang::Language for Plain {
+impl interpreter::lang::Language for Plain {
     const VERSION: u32 = 1;
-    const POLICY: edge::lang::Policy = <Rig as edge::lang::Language>::POLICY;
+    const POLICY: interpreter::lang::Policy = <Rig as interpreter::lang::Language>::POLICY;
     const NATIVES: &'static Natives = &PLAIN_NATIVES;
-    const NAMES: &'static edge::lang::Names = &rig::NAMES;
-    const FRONT: edge::lang::Front = rig::FRONT;
-    const DESCRIPTOR: &'static edge::lang::Descriptor = &rig::DESCRIPTOR;
-    const WIDE: Option<&'static edge::value::foreign::Kind> = Some(&rig::lang::WIDE);
-    const BUILT: edge::value::foreign::Built = <rig::Rig as edge::lang::Language>::BUILT;
+    const NAMES: &'static interpreter::lang::Names = &rig::NAMES;
+    const FRONT: interpreter::lang::Front = rig::FRONT;
+    const DESCRIPTOR: &'static interpreter::lang::Descriptor = &rig::DESCRIPTOR;
+    const WIDE: Option<&'static interpreter::value::foreign::Kind> = Some(&rig::lang::WIDE);
+    const BUILT: interpreter::value::foreign::Built = <rig::Rig as interpreter::lang::Language>::BUILT;
     type Ops = ();
 
-    fn show(cx: &mut edge::lang::Cx<'_, '_>, v: edge::value::Val, mode: edge::lang::Mode) -> Result<String, edge::value::VmErr> { lib::fmt::render::hook::<Self>(cx, v, mode) }
+    fn show(cx: &mut interpreter::lang::Cx<'_, '_>, v: interpreter::value::Val, mode: interpreter::lang::Mode) -> Result<String, interpreter::value::VmErr> { interpreter_lib::fmt::render::hook::<Self>(cx, v, mode) }
 
-    fn format(cx: &mut edge::lang::Cx<'_, '_>, v: edge::value::Val, spec: &str) -> Result<String, edge::value::VmErr> { lib::fmt::spec::hook::<Self>(cx, v, spec) }
+    fn format(cx: &mut interpreter::lang::Cx<'_, '_>, v: interpreter::value::Val, spec: &str) -> Result<String, interpreter::value::VmErr> { interpreter_lib::fmt::spec::hook::<Self>(cx, v, spec) }
 
-    fn handles(heap: &edge::value::HeapPool, exc: edge::value::Val, class: edge::value::Val) -> Result<bool, edge::value::VmErr> { lib::types::match_exc::<Self>(heap, exc, class) }
+    fn handles(heap: &interpreter::value::HeapPool, exc: interpreter::value::Val, class: interpreter::value::Val) -> Result<bool, interpreter::value::VmErr> { interpreter_lib::types::match_exc::<Self>(heap, exc, class) }
 }
 
-impl lib::Lang for Plain {
-    const TREE: &'static lib::lang::Tree = &rig::types::TREE;
+impl interpreter_lib::Lang for Plain {
+    const TREE: &'static interpreter_lib::lang::Tree = &rig::types::TREE;
 
-    fn class(c: lib::Class) -> &'static str { <Rig as lib::Lang>::class(c) }
+    fn class(c: interpreter_lib::Class) -> &'static str { <Rig as interpreter_lib::Lang>::class(c) }
 }
 
 /* numbers modulo two to 40 less one with nothing reserved */
@@ -54,42 +54,42 @@ impl Scheme for Forty {
     const LENGTH: u64 = 0;
 }
 
-const PLAIN_FNS: &[Native] = &lib::table![Plain;
-    "print" => lib::io::print,
-    "repr" => lib::fmt::render::repr_of,
-    "type" => lib::types::type_of,
-    "len" => lib::seq::len,
-    "list" => lib::seq::list,
-    "int" => lib::num::int::new[Decimal]("", "base"),
-    "float" => lib::num::float::new[Decimal],
-    "bytes" => lib::bytes::new[Fixed]("source", "encoding", "errors"),
-    "bytearray" => lib::bytes::new[Mutable]("source", "encoding", "errors"),
-    "hash" => lib::num::hash::hash[Forty],
-    "iter" => lib::iter::iter,
-    "next" => lib::iter::next,
+const PLAIN_FNS: &[Native] = &interpreter_lib::table![Plain;
+    "print" => interpreter_lib::io::print,
+    "repr" => interpreter_lib::fmt::render::repr_of,
+    "type" => interpreter_lib::types::type_of,
+    "len" => interpreter_lib::seq::len,
+    "list" => interpreter_lib::seq::list,
+    "int" => interpreter_lib::num::int::new[Decimal]("", "base"),
+    "float" => interpreter_lib::num::float::new[Decimal],
+    "bytes" => interpreter_lib::bytes::new[Fixed]("source", "encoding", "errors"),
+    "bytearray" => interpreter_lib::bytes::new[Mutable]("source", "encoding", "errors"),
+    "hash" => interpreter_lib::num::hash::hash[Forty],
+    "iter" => interpreter_lib::iter::iter,
+    "next" => interpreter_lib::iter::next,
 ];
 
-const PLAIN_STR: &[Native] = &lib::table![Plain;
-    "center" => lib::text::pad::center,
-    "strip" => lib::text::pad::trim,
-    "split" => lib::text::cut::split("sep", "maxsplit"),
-    "isspace" => lib::text::class::space,
-    "splitlines" => lib::text::cut::lines[Unicode]("keepends"),
-    "expandtabs" => lib::text::pad::tabs("tabsize"),
+const PLAIN_STR: &[Native] = &interpreter_lib::table![Plain;
+    "center" => interpreter_lib::text::pad::center,
+    "strip" => interpreter_lib::text::pad::trim,
+    "split" => interpreter_lib::text::cut::split("sep", "maxsplit"),
+    "isspace" => interpreter_lib::text::class::space,
+    "splitlines" => interpreter_lib::text::cut::lines[Unicode]("keepends"),
+    "expandtabs" => interpreter_lib::text::pad::tabs("tabsize"),
 ];
 
-const PLAIN_BYTES: &[Native] = &lib::table![Plain;
-    "center" => lib::bytes::methods::center[Fixed],
-    "decode" => lib::bytes::codec::decode[Fixed]("encoding", "errors"),
+const PLAIN_BYTES: &[Native] = &interpreter_lib::table![Plain;
+    "center" => interpreter_lib::bytes::methods::center[Fixed],
+    "decode" => interpreter_lib::bytes::codec::decode[Fixed]("encoding", "errors"),
 ];
 
-const PLAIN_ARRAY: &[Native] = &lib::table![Plain; "take_bytes" => lib::bytes::methods::take];
+const PLAIN_ARRAY: &[Native] = &interpreter_lib::table![Plain; "take_bytes" => interpreter_lib::bytes::methods::take];
 
-const PLAIN_INT: &[Native] = &lib::table![Plain; "to_bytes" => lib::num::int::to_bytes("length", "byteorder", "signed")];
+const PLAIN_INT: &[Native] = &interpreter_lib::table![Plain; "to_bytes" => interpreter_lib::num::int::to_bytes("length", "byteorder", "signed")];
 
-const PLAIN_GEN: &[Native] = &lib::table![Plain; "throw" => lib::iter::throw];
+const PLAIN_GEN: &[Native] = &interpreter_lib::table![Plain; "throw" => interpreter_lib::iter::throw];
 
-static PLAIN_NATIVES: Natives = edge::natives! {
+static PLAIN_NATIVES: Natives = interpreter::natives! {
     language: Plain,
     fns: [PLAIN_FNS],
     methods: [Str => [PLAIN_STR], Bytes => [PLAIN_BYTES], ByteArray => [PLAIN_ARRAY], Int => [PLAIN_INT], Coro => [PLAIN_GEN]],
@@ -101,13 +101,13 @@ static PLAIN_RUNTIME: Runtime = Runtime::of::<Plain>();
 /* the rig's spelling over the plain natives */
 struct Plainly;
 
-impl edge::lexer::Spelling for Plainly {
-    const SYNTAX: edge::lexer::Syntax = rig::RIG;
+impl interpreter::lexer::Spelling for Plainly {
+    const SYNTAX: interpreter::lexer::Syntax = rig::RIG;
     const NATIVES: &'static Natives = &PLAIN_NATIVES;
 }
 
 /* what `src` printed and the words of the error it ended in under `runtime` */
-fn ran(runtime: &'static Runtime, chunk: &edge::code::SSAChunk) -> String {
+fn ran(runtime: &'static Runtime, chunk: &interpreter::code::SSAChunk) -> String {
     let mut vm = VM::with_runtime(runtime, chunk, Limits::sandbox());
     let end = vm.run().err().map(|e| e.to_string()).unwrap_or_default();
     vm.output_text() + &end
@@ -115,14 +115,14 @@ fn ran(runtime: &'static Runtime, chunk: &edge::code::SSAChunk) -> String {
 
 /* what `src` gives under the plain runtime */
 fn with_plain(src: &str) -> String {
-    let (chunk, errors) = edge::code::compile_as::<Plainly>(src);
+    let (chunk, errors) = interpreter::code::compile_as::<Plainly>(src);
     assert!(errors.is_empty(), "{src}: {:?}", errors.iter().map(|e| &e.msg).collect::<Vec<_>>());
     ran(&PLAIN_RUNTIME, &chunk)
 }
 
 /* what `src` gives under rig */
 fn with_mini(src: &str) -> String {
-    let (chunk, errors) = edge::code::compile_as::<Rig>(src);
+    let (chunk, errors) = interpreter::code::compile_as::<Rig>(src);
     assert!(errors.is_empty(), "{src}: {:?}", errors.iter().map(|e| &e.msg).collect::<Vec<_>>());
     ran(&rig::RUNTIME, &chunk)
 }

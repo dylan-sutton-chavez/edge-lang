@@ -13,7 +13,7 @@ mod shared;
 mod wasm;
 
 pub use access::{Access, Closed, Held, Open, Package, Packages, Scopes, Untrusted};
-pub use edge::abi::{ErrorKind, WireValue};
+pub use interpreter::abi::{ErrorKind, WireValue};
 pub use engine::{snapshot_source, Completion, Engine, Status};
 pub use module::{Calls, Reply};
 pub use native::Native;
@@ -24,7 +24,7 @@ pub use shared::{Hosted, Hosting, Opened, Waits, Wiring};
 #[cfg(feature = "wasm")]
 pub use wasm::{config, linear_cap, time_limit, Host, Instance, Loaded, Vm, TICK_NS};
 
-use edge::value::Limits;
+use interpreter::value::Limits;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -65,7 +65,7 @@ pub fn name(names: Names) {
 
 /* an engine lock message with the command this binary writes the lock with */
 pub fn lock_help(msg: &str) -> String {
-    match msg.ends_with(&format!(" in {}", edge::deps::lock::FILE)) {
+    match msg.ends_with(&format!(" in {}", interpreter::deps::lock::FILE)) {
         true => format!("{msg}\nhelp: run {} lock", names().name),
         false => msg.to_string(),
     }
@@ -146,7 +146,7 @@ pub fn first_visit(seen: &mut std::collections::HashSet<PathBuf>, dir: &std::pat
 }
 
 /* whether `path` is names joined by slashes below a directory and nothing above it */
-pub use edge::deps::rules::plain as plain_path;
+pub use interpreter::deps::rules::plain as plain_path;
 
 // each registered module spec with the native table slice it occupies
 pub type Registered = HashMap<String, (usize, Vec<String>)>;
@@ -280,10 +280,10 @@ mod tests {
     // a refused or failed call raises the class its runtime names for that role
     #[test]
     fn a_host_fault_reads_its_class_from_the_runtime() {
-        let named = Descriptor { denied_error: "Refused", failed_error: "Broken", ..lox::DESCRIPTOR };
+        let named = Descriptor { denied_error: "Refused", failed_error: "Broken", ..interpreter_lox::DESCRIPTOR };
         assert_eq!(Fault::denied("no grant").message(&named), "Refused: no grant");
         assert_eq!(Fault::failed("gone").message(&named), "Broken: gone");
         assert_eq!(Fault::invalid("bad").message(&named), "bad");
-        assert_eq!(Fault::denied("no grant").message(&lox::DESCRIPTOR), "Permission: no grant");
+        assert_eq!(Fault::denied("no grant").message(&interpreter_lox::DESCRIPTOR), "Permission: no grant");
     }
 }

@@ -1,5 +1,5 @@
 name: Wasm
-description: The edge crate and edge.wasm. Shear and clippy, wasm build and optimize, tests, staging, tag release.
+description: The interpreter crate and interpreter.wasm. Shear and clippy, wasm build and optimize, tests, staging, tag release.
 
 inputs:
   github-token:
@@ -63,13 +63,13 @@ runs:
     # A notice survives on the run page, a job summary would be buried among the other jobs.
     - name: Size
       shell: bash
-      run: echo "::notice title=edge.wasm::served as $(make -s size)"
+      run: echo "::notice title=interpreter.wasm::served as $(make -s size)"
 
     - name: Test
       shell: bash
       run: make test
 
-    # edge.wasm ships with its compiler.wasm copy and the speed build goes under _build/
+    # interpreter.wasm ships with its compiler.wasm copy and the speed build goes under _build/
     - name: Stage
       uses: ./.github/actions/stage
       with:
@@ -81,6 +81,6 @@ runs:
       uses: softprops/action-gh-release@v3
       with:
         token: ${{ inputs.github-token }}
-        files: target/wasm32-unknown-unknown/release/edge.wasm
+        files: target/wasm32-unknown-unknown/release/interpreter.wasm
         fail_on_unmatched_files: true
         generate_release_notes: true

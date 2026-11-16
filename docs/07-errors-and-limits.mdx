@@ -15,7 +15,7 @@ print "one"
 ```
 
 ```text
-$ edge run syntax.lox
+$ interpreter run syntax.lox
 error: Error at '=': Expect expression.
   --> syntax.lox:1:9
   |
@@ -26,11 +26,11 @@ error: Error at end: Expect ';' after value.
   --> syntax.lox:3:1
 ```
 
-In Rust, `edge::code::compile` returns the diagnostics beside the chunk, and `Diagnostic::render_all(&errors, src, Some(path))` writes this same report. In a page, `run` resolves with it in `out`.
+In Rust, `interpreter::code::compile` returns the diagnostics beside the chunk, and `Diagnostic::render_all(&errors, src, Some(path))` writes this same report. In a page, `run` resolves with it in `out`.
 
 ## Run errors
 
-An error ends the run with its message in the runtime's words. A runtime with no `REPORT` of its own gets the engine's report, its class and message, the line it rose at and the calls that led there. Lox sets one, so a run error reads as the book prints it, the message then the line. The `edge` CLI writes it to stderr and exits with 1, which a transcript on these pages shows as `[exit 1]`. `exit(n)` ends a run with status `n` instead.
+An error ends the run with its message in the runtime's words. A runtime with no `REPORT` of its own gets the engine's report, its class and message, the line it rose at and the calls that led there. Lox sets one, so a run error reads as the book prints it, the message then the line. The `interpreter` CLI writes it to stderr and exits with 1, which a transcript on these pages shows as `[exit 1]`. `exit(n)` ends a run with status `n` instead.
 
 ```lox broken.lox
 fun half(n) {
@@ -42,7 +42,7 @@ print half("ten");
 ```
 
 ```text
-$ edge run broken.lox
+$ interpreter run broken.lox
 before
 Operands must be numbers.
 [line 2] in script
@@ -69,10 +69,10 @@ Every run is metered, natives included, and there is no unmetered mode. A run ra
 | Calls nested through a native or a plugin | 128 | Fixed |
 | Comparison depth of nested containers | 100 | Fixed |
 
-`Limits::sandbox()` gives the defaults. The memory limit is a count of every byte the allocator hands the run, not an estimate, so a Rust host installs `edge::allocator!()` or sets `memory: usize::MAX`. A spent op budget cannot be caught, since a handler's first op raises again, and `reset_budget(ops)` gives a parked run a new one.
+`Limits::sandbox()` gives the defaults. The memory limit is a count of every byte the allocator hands the run, not an estimate, so a Rust host installs `interpreter::allocator!()` or sets `memory: usize::MAX`. A spent op budget cannot be caught, since a handler's first op raises again, and `reset_budget(ops)` gives a parked run a new one.
 
 ```text
-$ edge run broken.lox --ops 3
+$ interpreter run broken.lox --ops 3
 Runtime: budget exceeded
 [exit 1]
 ```

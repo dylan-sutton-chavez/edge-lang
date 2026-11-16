@@ -1,7 +1,7 @@
 use alloc::{format, string::String, vec::Vec};
 
-use edge::lang::{Args, Cx, KindId, Ret, Sig};
-use edge::value::VmErr;
+use interpreter::lang::{Args, Cx, KindId, Ret, Sig};
+use interpreter::value::VmErr;
 
 use super::Buf;
 use crate::fail::{Coding, Error, Fail};
@@ -265,6 +265,6 @@ fn decode_run<S: Site>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
 }
 
 /* bytes read as text for a caller holding them where failures name `S` */
-pub fn decode_for<S: Site>(cx: &mut Cx<'_, '_>, buf: &[u8], encoding: Option<&str>, errors: Option<&str>) -> Result<String, edge::value::VmErr> {
+pub fn decode_for<S: Site>(cx: &mut Cx<'_, '_>, buf: &[u8], encoding: Option<&str>, errors: Option<&str>) -> Result<String, interpreter::value::VmErr> {
     decode_with::<S::Lang>(buf, encoding, errors).map_err(|e| e.raise::<S>(cx))
 }

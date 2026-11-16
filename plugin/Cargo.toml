@@ -1,21 +1,27 @@
 [package]
-name = "plugin"
+name = "interpreter-plugin"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "The Edge Lang plugin kit, author-side runtime for writing plugin modules importable from Edge Lang programs, compiled to `.wasm` for the JS host and the CLI. Provides `#[plugin_fn]` proc-macro, Handle/Value/Error types, and From/IntoValue traits over the v1 plugin ABI."
+description = "Write WebAssembly plugin modules that interpreter programs import, with the plugin_fn attribute, handles, values and errors over the v1 plugin ABI."
+documentation = "https://docs.rs/interpreter-plugin"
+readme = "../README.md"
+keywords = ["interpreter", "plugin", "wasm", "ffi"]
+categories = ["wasm", "no-std", "api-bindings"]
+include = ["/src/**/*.rs"]
 
 [lib]
 crate-type = ["rlib"]
 doctest = false
 
 [dependencies]
-abi = { workspace = true }
-plugin-macros = { path = "macros" }
+interpreter-abi = { workspace = true }
+interpreter-plugin-macros = { workspace = true }
 # the free-list allocator behind `module_fixed_pool!()` which never calls `memory.grow`
 linked_list_allocator = { version = "0.10", default-features = false }
 
-# re-exported so `plugin::module!()` can name it and authors with their own allocator pay nothing
+# re-exported so `interpreter_plugin::module!()` can name it and authors with their own allocator pay nothing
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 lol_alloc = { workspace = true }

@@ -5,8 +5,8 @@ use core::cell::RefCell;
 
 use alloc::boxed::Box;
 
-use edge::lang::{Acc, Cx, Flow, Fold, FoldFn, Item, Out, Step};
-use edge::value::{DictPart, HeapObj, HeapPool, IterFrame, Val, VmErr};
+use interpreter::lang::{Acc, Cx, Flow, Fold, FoldFn, Item, Out, Step};
+use interpreter::value::{DictPart, HeapObj, HeapPool, IterFrame, Val, VmErr};
 
 use crate::Lang;
 
@@ -69,7 +69,7 @@ pub fn plain_iter<L: Lang>(heap: &mut HeapPool, v: Val) -> Option<Val> {
         // octets and a long text's characters are copied once and read one a step
         HeapObj::Bytes(b) => (IterFrame::Octets { bytes: b.as_slice().into(), idx: 0 }, names.bytes),
         HeapObj::ByteArray(b) => (IterFrame::Octets { bytes: b.as_slice().into(), idx: 0 }, names.buffer),
-        HeapObj::Str(s) if s.len() > edge::value::SHORT_TEXT => { let text = s.as_str().into(); (IterFrame::Chars { text, at: 0 }, if heap.str_is_ascii(v) { names.ascii } else { names.text }) }
+        HeapObj::Str(s) if s.len() > interpreter::value::SHORT_TEXT => { let text = s.as_str().into(); (IterFrame::Chars { text, at: 0 }, if heap.str_is_ascii(v) { names.ascii } else { names.text }) }
         HeapObj::Str(_) => (seq(plain_items(heap, v)?), if heap.str_is_ascii(v) { names.ascii } else { names.text }),
         // a set fails its walk once its size changes
         HeapObj::Set(_) => {

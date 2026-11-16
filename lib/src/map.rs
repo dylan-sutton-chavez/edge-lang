@@ -2,8 +2,8 @@ use alloc::rc::Rc;
 use alloc::vec::Vec;
 use core::cell::RefCell;
 
-use edge::lang::{Acc, Args, CLASS, Cx, ErrKind, Flow, Fold, Item, KindId, Ret, STEPS, Sig, Step, TYPE};
-use edge::value::{DictMap, DictPart, HeapObj, HeapPool, MAP_TABLE, Val, VmErr};
+use interpreter::lang::{Acc, Args, CLASS, Cx, ErrKind, Flow, Fold, Item, KindId, Ret, STEPS, Sig, Step, TYPE};
+use interpreter::value::{DictMap, DictPart, HeapObj, HeapPool, MAP_TABLE, Val, VmErr};
 
 use crate::fail::{Fail, fail, receiver};
 use crate::iter::items::{SHORT, drained, gather, generator, taken};

@@ -157,7 +157,7 @@ pub fn unmet(held: &[String], section: &Section) -> Vec<String> {
 
 /* why `pkg` may not import `module` when no entry names it */
 pub fn unheld(pkg: &str, module: &str) -> String {
-    s!("'", str pkg, "' imports ", str module, ", which edge.json does not grant it")
+    s!("'", str pkg, "' imports ", str module, ", which interpreter.json does not grant it")
 }
 
 /* the words a refusal of `pkg` puts before and after the scope it asked */
@@ -166,7 +166,7 @@ pub fn refusal(pkg: &str, module: &str, scopes: &[String]) -> (String, String) {
         true => s!("nothing"),
         false => joined(scopes.iter().map(String::as_str), &s!(str module, ":")),
     };
-    (s!("'", str pkg, "' has no ", str module, ":"), s!(", edge.json grants it ", str &granted))
+    (s!("'", str pkg, "' has no ", str module, ":"), s!(", interpreter.json grants it ", str &granted))
 }
 
 /* refuses `pkg` unless `scopes` holds `scope` naming what it holds instead */
@@ -332,9 +332,9 @@ mod tests {
     fn a_refusal_names_what_the_package_holds_instead() {
         let held = strings(&["api", "wall"]);
         assert!(need("main", "words", &held, "api").is_ok());
-        assert_eq!(need("main", "words", &held, "zone").unwrap_err(), "'main' has no words:zone, edge.json grants it words:api, words:wall");
-        assert_eq!(need("analytics", "words", &[], "zone").unwrap_err(), "'analytics' has no words:zone, edge.json grants it nothing");
-        assert_eq!(unheld("clock", "words"), "'clock' imports words, which edge.json does not grant it");
+        assert_eq!(need("main", "words", &held, "zone").unwrap_err(), "'main' has no words:zone, interpreter.json grants it words:api, words:wall");
+        assert_eq!(need("analytics", "words", &[], "zone").unwrap_err(), "'analytics' has no words:zone, interpreter.json grants it nothing");
+        assert_eq!(unheld("clock", "words"), "'clock' imports words, which interpreter.json does not grant it");
     }
 
     #[test]
@@ -347,10 +347,10 @@ mod tests {
         assert_eq!(check_json(section, br#"["words"]"#, br#"["words:api"]"#), "permissions for 'main' name 'db', which is not a host module (words)");
         assert!(check_json(b"{", b"[]", b"[]").contains("permissions"));
         let chain = br#"[[{ "all": ["words:wall"], "pay": ["words:api"] }, "pay"]]"#;
-        assert_eq!(held_json(chain, "pay", "words"), r#"{"scopes":["wall","api"],"refusal":["'pay' has no words:",", edge.json grants it words:wall, words:api"]}"#);
-        assert_eq!(held_json(chain, "pay", "db"), r#"{"refused":"'pay' imports db, which edge.json does not grant it"}"#);
+        assert_eq!(held_json(chain, "pay", "words"), r#"{"scopes":["wall","api"],"refusal":["'pay' has no words:",", interpreter.json grants it words:wall, words:api"]}"#);
+        assert_eq!(held_json(chain, "pay", "db"), r#"{"refused":"'pay' imports db, which interpreter.json does not grant it"}"#);
         // a malformed link grants nothing rather than failing open
-        assert_eq!(held_json(br#"[[["words"], "pay"]]"#, "pay", "words"), r#"{"refused":"'pay' imports words, which edge.json does not grant it"}"#);
-        assert_eq!(held_json(b"junk", "pay", "words"), r#"{"refused":"'pay' imports words, which edge.json does not grant it"}"#);
+        assert_eq!(held_json(br#"[[["words"], "pay"]]"#, "pay", "words"), r#"{"refused":"'pay' imports words, which interpreter.json does not grant it"}"#);
+        assert_eq!(held_json(b"junk", "pay", "words"), r#"{"refused":"'pay' imports words, which interpreter.json does not grant it"}"#);
     }
 }

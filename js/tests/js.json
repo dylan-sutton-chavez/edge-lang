@@ -5,6 +5,6 @@
     {"script": "var boom = import(\"trap\").boom;\nprint boom();", "error": "native module trapped"},
     {"script": "var boom = import(\"abi2\").boom;\nprint \"loaded\";", "error": "speaks ABI v2"},
     {"script": "print import(\"calc\").add(2, 3);", "expect": "5"},
-    {"script": "var net = import(\"net\");\nnet.request(\"GET\", \"https://evil.example/\");", "error": "'main' has no net:evil.example, edge.json grants it net:127.0.0.1\n[line 3] in script"},
+    {"script": "var net = import(\"net\");\nnet.request(\"GET\", \"https://evil.example/\");", "error": "'main' has no net:evil.example, interpreter.json grants it net:127.0.0.1\n[line 3] in script"},
     {"script": "var upper = import(\"ui\").upper;", "error": "module 'ui' is JavaScript, ship a .lox or a .wasm"}
 ]

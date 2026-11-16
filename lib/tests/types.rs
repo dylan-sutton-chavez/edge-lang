@@ -1,5 +1,5 @@
-use edge::value::{DictMap, HeapObj, HeapPool, Val};
-use lib::lang::Tree;
+use interpreter::value::{DictMap, HeapObj, HeapPool, Val};
+use interpreter_lib::lang::Tree;
 use rig::Rig;
 use rig::types::NAMES;
 
@@ -19,7 +19,7 @@ fn place(name: &str) -> Option<usize> { TREE.place(name) }
 
 fn derives(name: &str, ancestor: &str) -> bool { TREE.derives(name, ancestor) }
 
-fn match_exc(heap: &HeapPool, exc: Val, ty: Val) -> Result<bool, edge::value::VmErr> { lib::types::match_exc::<Rig>(heap, exc, ty) }
+fn match_exc(heap: &HeapPool, exc: Val, ty: Val) -> Result<bool, interpreter::value::VmErr> { interpreter_lib::types::match_exc::<Rig>(heap, exc, ty) }
 
 #[test]
 fn every_exception_reaches_a_root_without_a_cycle() {

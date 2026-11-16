@@ -29,7 +29,7 @@ pub struct Descriptor {
     pub scaffold: &'static str,
     // the docs fence of a runnable example
     pub example_fence: &'static str,
-    // the docs fence of the edge.json an example runs under
+    // the docs fence of the interpreter.json an example runs under
     pub manifest_fence: &'static str,
     // the class of the abi type error kind
     pub type_error: &'static str,

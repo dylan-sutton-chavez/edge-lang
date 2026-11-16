@@ -15,7 +15,7 @@
   "cases": [
     {
       "given": {
-        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
         "main.lox": "var net = import(\"net\");\n\nvar r = net.request(\"GET\", \"$FIXTURE/text\");\nvar res = net.response(r);\nvar probe = nil;\nfor (var i = 0; i < len(item(res, 1)); i = i + 1) {\n    var h = item(item(res, 1), i);\n    if (item(h, 0) == \"x-probe\") probe = item(h, 1);\n}\nvar body = net.read(r);\nvar chunk = net.read(r);\nwhile (chunk != nil) {\n    body = body + chunk;\n    chunk = net.read(r);\n}\nprint text(item(res, 0)) + \" \" + text(body) + \" \" + text(probe == \"1\");\nprint net.read(r);\nprint net.read(r);\n"
       },
       "run": ["run", "main.lox"],
@@ -23,7 +23,7 @@
     },
     {
       "given": {
-        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
         "main.lox": "var net = import(\"net\");\n\nfun body(r) {\n    var out = net.read(r);\n    var chunk = net.read(r);\n    while (chunk != nil) {\n        out = out + chunk;\n        chunk = net.read(r);\n    }\n    return out;\n}\n\nprint len(body(net.request(\"GET\", \"$FIXTURE/big\")));\n"
       },
       "run": ["run", "main.lox"],
@@ -31,7 +31,7 @@
     },
     {
       "given": {
-        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
         "main.lox": "var net = import(\"net\");\n\nfun body(r) {\n    var out = net.read(r);\n    var chunk = net.read(r);\n    while (chunk != nil) {\n        out = out + chunk;\n        chunk = net.read(r);\n    }\n    return out;\n}\n\nvar inflated = body(net.request(\"GET\", \"$FIXTURE/gzip\", nil, nil, \"gzip\"));\nprint inflated;\nvar raw = body(net.request(\"GET\", \"$FIXTURE/gzip\"));\nprint len(raw) > 2;\nprint raw == inflated;\n"
       },
       "run": ["run", "main.lox"],
@@ -39,7 +39,7 @@
     },
     {
       "given": {
-        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
         "main.lox": "var net = import(\"net\");\n\nfun body(r) {\n    var out = net.read(r);\n    var chunk = net.read(r);\n    while (chunk != nil) {\n        out = out + chunk;\n        chunk = net.read(r);\n    }\n    return out;\n}\n\nbody(net.request(\"GET\", \"$FIXTURE/gzip-twice\", nil, nil, \"gzip\"));\nprint \"read it all\";\n"
       },
       "run": ["run", "main.lox"],
@@ -47,7 +47,7 @@
     },
     {
       "given": {
-        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
         "main.lox": "var net = import(\"net\");\n\nfun body(r) {\n    var out = net.read(r);\n    var chunk = net.read(r);\n    while (chunk != nil) {\n        out = out + chunk;\n        chunk = net.read(r);\n    }\n    return out;\n}\n\nprint body(net.request(\"POST\", \"$FIXTURE/echo/items?q=1\", list(list(\"x-probe\", \"pairs\")), \"hello\"));\nprint body(net.request(\"PUT\", \"$FIXTURE/echo\", list(list(\"x-probe\", \"again\")), \"two\"));\nprint body(net.request(\"get\", \"$FIXTURE/echo/a/../b/./c\"));\nprint body(net.request(nil, \"$FIXTURE/echo/%2e%2e/echo/Español/@dylan?q=a/../b#gone\"));\n"
       },
       "run": ["run", "main.lox"],
@@ -55,7 +55,7 @@
     },
     {
       "given": {
-        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
         "main.lox": "var net = import(\"net\");\n\nfun body(r) {\n    var out = net.read(r);\n    var chunk = net.read(r);\n    while (chunk != nil) {\n        out = out + chunk;\n        chunk = net.read(r);\n    }\n    return out;\n}\n\nvar r = net.request(\"GET\", \"$FIXTURE/missing\");\nprint item(net.response(r), 0);\nprint body(r);\n"
       },
       "run": ["run", "main.lox"],
@@ -63,7 +63,7 @@
     },
     {
       "given": {
-        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
         "main.lox": "var net = import(\"net\");\n\nvar r = net.request(\"GET\", \"$FIXTURE/redirect\");\nnet.$EACH(r);\n"
       },
       "run": ["run", "main.lox"],
@@ -72,7 +72,7 @@
     },
     {
       "given": {
-        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
         "main.lox": "var net = import(\"net\");\nvar r = net.request(\"GET\", \"http://127.0.0.1:1/\");\nnet.response(r);\n"
       },
       "run": ["run", "main.lox"],
@@ -80,7 +80,7 @@
     },
     {
       "given": {
-        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
         "main.lox": "var net = import(\"net\");\n\nvar r = net.request(\"GET\", \"$FIXTURE/text\");\nprint net.close(r);\n"
       },
       "run": ["run", "main.lox"],
@@ -88,7 +88,7 @@
     },
     {
       "given": {
-        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
         "main.lox": "var net = import(\"net\");\n\nvar r = net.request(\"GET\", \"$FIXTURE/text\");\nnet.close(r);\nnet.$EACH(r + 0);\n"
       },
       "run": ["run", "main.lox"],
@@ -97,7 +97,7 @@
     },
     {
       "given": {
-        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
         "main.lox": "var net = import(\"net\");\n\nnet.read($EACH);\n"
       },
       "run": ["run", "main.lox"],
@@ -106,7 +106,7 @@
     },
     {
       "given": {
-        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
         "main.lox": "var net = import(\"net\");\n\nvar s = net.connect(\"$SOCKET/socket\");\nnet.send(s, \"ping\");\nprint net.read(s);\nnet.send(s, net.read(net.request(\"GET\", \"$FIXTURE/text\")));\nprint net.read(s);\nnet.send(s, \"close\");\nprint net.read(s);\nprint net.read(s);\nnet.send(s, \"late\");\n"
       },
       "run": ["run", "main.lox"],
@@ -115,7 +115,7 @@
     },
     {
       "given": {
-        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
         "main.lox": "var net = import(\"net\");\n\nvar s = net.connect(\"$SOCKET/socket\");\nnet.response(s);\n"
       },
       "run": ["run", "main.lox"],
@@ -123,7 +123,7 @@
     },
     {
       "given": {
-        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
         "main.lox": "var net = import(\"net\");\n\nnet.send(net.request(\"GET\", \"$FIXTURE/text\"), \"x\");\n"
       },
       "run": ["run", "main.lox"],
@@ -131,7 +131,7 @@
     },
     {
       "given": {
-        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
         "main.lox": "var net = import(\"net\");\n\nvar s = net.connect(\"$FIXTURE/socket\");\nnet.send(s, \"twin\");\nprint net.read(s);\nnet.connect(\"$SOCKET/socket-redirect\");\n"
       },
       "run": ["run", "main.lox"],
@@ -140,7 +140,7 @@
     },
     {
       "given": {
-        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
         "main.lox": "var net = import(\"net\");\n\nprint \"日本語 ok\";\nnet.request(\"GET\", \"http://evil.test\\@127.0.0.1/\");\n"
       },
       "run": ["run", "main.lox"],
@@ -149,7 +149,7 @@
     },
     {
       "given": {
-        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
         "main.lox": "var net = import(\"net\");\n\nnet.request(\"GET\", \"$EACH\");\n"
       },
       "run": ["run", "main.lox"],
@@ -158,7 +158,7 @@
     },
     {
       "given": {
-        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
         "main.lox": "var net = import(\"net\");\n\nnet.request(\"GET\", \"http://127.0.0.1:1/\", list(list(\"$EACH\", \"v\")));\n"
       },
       "run": ["run", "main.lox"],
@@ -167,7 +167,7 @@
     },
     {
       "given": {
-        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
         "main.lox": "var net = import(\"net\");\n\nnet.request($EACH);\n"
       },
       "run": ["run", "main.lox"],
@@ -176,40 +176,40 @@
     },
     {
       "given": {
-        "edge.json": "{}\n",
+        "interpreter.json": "{}\n",
         "main.lox": "var net = import(\"net\");\n"
       },
       "run": ["run", "main.lox"],
-      "fails": ["'main' imports net, which edge.json does not grant it"]
+      "fails": ["'main' imports net, which interpreter.json does not grant it"]
     },
     {
       "given": {
-        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
         "main.lox": "var net = import(\"net\");\n\nnet.request(\"GET\", \"$EACH\");\n"
       },
       "run": ["run", "main.lox"],
       "fails": [],
-      "each": [["http://evil.example/", "'main' has no net:evil.example, edge.json grants it net:127.0.0.1"], ["http://localhost:1/", "'main' has no net:localhost, edge.json grants it net:127.0.0.1"], ["ws://evil.example/socket", "'main' has no net:evil.example, edge.json grants it net:127.0.0.1"]]
+      "each": [["http://evil.example/", "'main' has no net:evil.example, interpreter.json grants it net:127.0.0.1"], ["http://localhost:1/", "'main' has no net:localhost, interpreter.json grants it net:127.0.0.1"], ["ws://evil.example/socket", "'main' has no net:evil.example, interpreter.json grants it net:127.0.0.1"]]
     },
     {
       "given": {
-        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
         "main.lox": "var net = import(\"net\");\n\nnet.connect(\"ws://evil.example/\");\n"
       },
       "run": ["run", "main.lox"],
-      "fails": ["'main' has no net:evil.example, edge.json grants it net:127.0.0.1"]
+      "fails": ["'main' has no net:evil.example, interpreter.json grants it net:127.0.0.1"]
     },
     {
       "given": {
-        "edge.json": "{ \"permissions\": { \"main\": [\"net\"] } }\n",
+        "interpreter.json": "{ \"permissions\": { \"main\": [\"net\"] } }\n",
         "main.lox": "var net = import(\"net\");\n\nnet.request(\"GET\", \"http://127.0.0.1:1/\");\n"
       },
       "run": ["run", "main.lox"],
-      "fails": ["'main' has no net:127.0.0.1, edge.json grants it nothing"]
+      "fails": ["'main' has no net:127.0.0.1, interpreter.json grants it nothing"]
     },
     {
       "given": {
-        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1/api\"] } }\n",
+        "interpreter.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1/api\"] } }\n",
         "main.lox": "var net = import(\"net\");\n\nnet.request(\"GET\", \"http://127.0.0.1:1/api\");\nprint \"reached /api\";\nnet.request(\"GET\", \"http://127.0.0.1:1/api/\");\nprint \"reached /api/\";\nnet.request(\"GET\", \"http://127.0.0.1:1/api/items\");\nprint \"reached /api/items\";\nnet.request(\"GET\", \"http://127.0.0.1:1/api/v2/items?q=1\");\nprint \"reached /api/v2/items?q=1\";\nnet.request(\"GET\", \"http://127.0.0.1:1/api/a%5cb\");\nprint \"reached /api/a%5cb\";\nnet.request(\"GET\", \"http://127.0.0.1:1/api/x%2e\");\nprint \"reached /api/x%2e\";\nnet.request(\"GET\", \"http://127.0.0.1:1/api/group%2Fproject\");\nprint \"reached /api/group%2Fproject\";\nnet.request(\"GET\", \"http://127.0.0.1:1/%61pi/x\");\nprint \"reached /%61pi/x\";\n"
       },
       "run": ["run", "main.lox"],
@@ -217,31 +217,31 @@
     },
     {
       "given": {
-        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1/api\"] } }\n",
+        "interpreter.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1/api\"] } }\n",
         "main.lox": "var net = import(\"net\");\n\nnet.request(\"GET\", \"$EACH\");\n"
       },
       "run": ["run", "main.lox"],
       "fails": [],
-      "each": [["http://127.0.0.1:1/", "'main' has no net:127.0.0.1/, edge.json grants it net:127.0.0.1/api"], ["http://127.0.0.1:1/apixyz", "'main' has no net:127.0.0.1/apixyz, edge.json grants it net:127.0.0.1/api"], ["http://127.0.0.1:1/other/api", "'main' has no net:127.0.0.1/other/api, edge.json grants it net:127.0.0.1/api"], ["http://127.0.0.1:1/api/../secret", "'main' has no net:127.0.0.1/secret, edge.json grants it net:127.0.0.1/api"], ["http://127.0.0.1:1/api/%2e%2e/secret", "'main' has no net:127.0.0.1/secret, edge.json grants it net:127.0.0.1/api"], ["http://127.0.0.1:1/api/.%2e/secret", "'main' has no net:127.0.0.1/secret, edge.json grants it net:127.0.0.1/api"], ["http://127.0.0.1:1/api/./../secret", "'main' has no net:127.0.0.1/secret, edge.json grants it net:127.0.0.1/api"], ["http://127.0.0.1:1/api/..%2fsecret", "'main' has no net:127.0.0.1/api/..%2fsecret, edge.json grants it net:127.0.0.1/api"], ["http://127.0.0.1:1/api/%2E%2E%2Fsecret", "'main' has no net:127.0.0.1/api/%2E%2E%2Fsecret, edge.json grants it net:127.0.0.1/api"], ["http://127.0.0.1:1/api/..;/secret", "'main' has no net:127.0.0.1/api/..;/secret, edge.json grants it net:127.0.0.1/api"], ["http://127.0.0.1:1/api/%252e%252e/secret", "'main' has no net:127.0.0.1/api/%252e%252e/secret, edge.json grants it net:127.0.0.1/api"], ["http://evil.example/api", "'main' has no net:evil.example, edge.json grants it net:127.0.0.1/api"]]
+      "each": [["http://127.0.0.1:1/", "'main' has no net:127.0.0.1/, interpreter.json grants it net:127.0.0.1/api"], ["http://127.0.0.1:1/apixyz", "'main' has no net:127.0.0.1/apixyz, interpreter.json grants it net:127.0.0.1/api"], ["http://127.0.0.1:1/other/api", "'main' has no net:127.0.0.1/other/api, interpreter.json grants it net:127.0.0.1/api"], ["http://127.0.0.1:1/api/../secret", "'main' has no net:127.0.0.1/secret, interpreter.json grants it net:127.0.0.1/api"], ["http://127.0.0.1:1/api/%2e%2e/secret", "'main' has no net:127.0.0.1/secret, interpreter.json grants it net:127.0.0.1/api"], ["http://127.0.0.1:1/api/.%2e/secret", "'main' has no net:127.0.0.1/secret, interpreter.json grants it net:127.0.0.1/api"], ["http://127.0.0.1:1/api/./../secret", "'main' has no net:127.0.0.1/secret, interpreter.json grants it net:127.0.0.1/api"], ["http://127.0.0.1:1/api/..%2fsecret", "'main' has no net:127.0.0.1/api/..%2fsecret, interpreter.json grants it net:127.0.0.1/api"], ["http://127.0.0.1:1/api/%2E%2E%2Fsecret", "'main' has no net:127.0.0.1/api/%2E%2E%2Fsecret, interpreter.json grants it net:127.0.0.1/api"], ["http://127.0.0.1:1/api/..;/secret", "'main' has no net:127.0.0.1/api/..;/secret, interpreter.json grants it net:127.0.0.1/api"], ["http://127.0.0.1:1/api/%252e%252e/secret", "'main' has no net:127.0.0.1/api/%252e%252e/secret, interpreter.json grants it net:127.0.0.1/api"], ["http://evil.example/api", "'main' has no net:evil.example, interpreter.json grants it net:127.0.0.1/api"]]
     },
     {
       "given": {
-        "edge.json": "{\"imports\": {\"clock\": \"./clock/main.lox\"}, \"permissions\": {\"main\": [\"net:127.0.0.1\"], \"clock\": [\"net:127.0.0.1\"], \"trace\": [\"net:127.0.0.1\"]}}\n",
+        "interpreter.json": "{\"imports\": {\"clock\": \"./clock/main.lox\"}, \"permissions\": {\"main\": [\"net:127.0.0.1\"], \"clock\": [\"net:127.0.0.1\"], \"trace\": [\"net:127.0.0.1\"]}}\n",
         "main.lox": "var clock = import(\"clock\");\nprint clock.now();\n",
-        "clock/edge.json": "{\"name\": \"clock\", \"imports\": {\"trace\": \"./trace/main.lox\"}}\n",
-        "clock/trace/edge.json": "{\"name\": \"trace\"}\n",
+        "clock/interpreter.json": "{\"name\": \"clock\", \"imports\": {\"trace\": \"./trace/main.lox\"}}\n",
+        "clock/trace/interpreter.json": "{\"name\": \"trace\"}\n",
         "clock/main.lox": "var trace = import(\"trace\");\n\nfun now() {\n    return trace.stamp();\n}\n",
         "clock/trace/main.lox": "var net = import(\"net\");\n\nfun stamp() {\n    return net.request(\"GET\", \"http://127.0.0.1:1/\") > 0;\n}\n"
       },
       "run": ["run", "main.lox"],
-      "fails": ["'trace' imports net, which edge.json does not grant it"]
+      "fails": ["'trace' imports net, which interpreter.json does not grant it"]
     },
     {
       "given": {
-        "edge.json": "{\"imports\": {\"clock\": \"./clock/main.lox\"}, \"permissions\": {\"clock\": [\"net:127.0.0.1\"]}}\n",
+        "interpreter.json": "{\"imports\": {\"clock\": \"./clock/main.lox\"}, \"permissions\": {\"clock\": [\"net:127.0.0.1\"]}}\n",
         "main.lox": "var clock = import(\"clock\");\nprint clock.now();\n",
-        "clock/edge.json": "{\"name\": \"clock\", \"imports\": {\"trace\": \"./trace/main.lox\"}, \"permissions\": {\"trace\": [\"net:127.0.0.1\"]}}\n",
-        "clock/trace/edge.json": "{\"name\": \"trace\"}\n",
+        "clock/interpreter.json": "{\"name\": \"clock\", \"imports\": {\"trace\": \"./trace/main.lox\"}, \"permissions\": {\"trace\": [\"net:127.0.0.1\"]}}\n",
+        "clock/trace/interpreter.json": "{\"name\": \"trace\"}\n",
         "clock/main.lox": "var trace = import(\"trace\");\n\nfun now() {\n    return trace.stamp();\n}\n",
         "clock/trace/main.lox": "var net = import(\"net\");\n\nfun stamp() {\n    return net.request(\"GET\", \"http://127.0.0.1:1/\") > 0;\n}\n"
       },
@@ -250,7 +250,7 @@
     },
     {
       "given": {
-        "edge.json": "{ \"imports\": { \"helper\": \"./helper.lox\" }, \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{ \"imports\": { \"helper\": \"./helper.lox\" }, \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
         "main.lox": "var helper = import(\"helper\");\nprint helper.later();\n",
         "helper.lox": "var net = import(\"net\");\n\nfun later() {\n    return net.request(\"GET\", \"http://127.0.0.1:1/\") > 0;\n}\n"
       },
@@ -259,47 +259,47 @@
     },
     {
       "given": {
-        "edge.json": "{ \"imports\": { \"clock\": \"./clock/main.lox\" }, \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{ \"imports\": { \"clock\": \"./clock/main.lox\" }, \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
         "main.lox": "var clock = import(\"clock\");\nprint clock.now();\n",
-        "clock/edge.json": "{ \"name\": \"main\" }\n",
+        "clock/interpreter.json": "{ \"name\": \"main\" }\n",
         "clock/main.lox": "var net = import(\"net\");\n\nfun now() {\n    return net.request(\"GET\", \"http://127.0.0.1:1/\") > 0;\n}\n"
       },
       "run": ["run", "main.lox"],
-      "fails": ["'clock' imports net, which edge.json does not grant it"]
+      "fails": ["'clock' imports net, which interpreter.json does not grant it"]
     },
     {
       "given": {
-        "edge.json": "{ \"imports\": { \"analytics\": \"./analytics/main.lox\", \"other\": \"./other/main.lox\" }, \"permissions\": { \"all\": [\"net\"], \"analytics\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{ \"imports\": { \"analytics\": \"./analytics/main.lox\", \"other\": \"./other/main.lox\" }, \"permissions\": { \"all\": [\"net\"], \"analytics\": [\"net:127.0.0.1\"] } }\n",
         "main.lox": "var analytics = import(\"analytics\");\nvar other = import(\"other\");\nprint \"analytics \" + text(analytics.reach());\nother.reach();\n",
-        "analytics/edge.json": "{ \"name\": \"analytics\", \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
-        "other/edge.json": "{ \"name\": \"analytics\" }\n",
+        "analytics/interpreter.json": "{ \"name\": \"analytics\", \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "other/interpreter.json": "{ \"name\": \"analytics\" }\n",
         "analytics/main.lox": "var net = import(\"net\");\n\nfun reach() {\n    return net.request(\"GET\", \"http://127.0.0.1:1/\") > 0;\n}\n",
         "other/main.lox": "var net = import(\"net\");\n\nfun reach() {\n    return net.request(\"GET\", \"http://127.0.0.1:1/\") > 0;\n}\n"
       },
       "run": ["run", "main.lox"],
       "stdout": ["analytics true"],
-      "fails": ["'other' has no net:127.0.0.1, edge.json grants it nothing"]
+      "fails": ["'other' has no net:127.0.0.1, interpreter.json grants it nothing"]
     },
     {
       "given": {
-        "edge.json": "{ \"imports\": { \"pay\": \"./pay/main.lox\", \"shop\": \"./shop/main.lox\" }, \"permissions\": { \"pay\": [\"net:127.0.0.1/pay\"], \"shop\": [\"net:127.0.0.1/shop\"] } }\n",
+        "interpreter.json": "{ \"imports\": { \"pay\": \"./pay/main.lox\", \"shop\": \"./shop/main.lox\" }, \"permissions\": { \"pay\": [\"net:127.0.0.1/pay\"], \"shop\": [\"net:127.0.0.1/shop\"] } }\n",
         "main.lox": "var pay = import(\"pay\");\nvar shop = import(\"shop\");\nprint pay.reach(\"pay\");\nprint shop.reach(\"shop\");\nshop.reach(\"pay\");\n",
-        "pay/edge.json": "{ \"imports\": { \"vault\": \"../vault/main.lox\" }, \"permissions\": { \"vault\": [\"net:127.0.0.1/pay\"] } }\n",
-        "shop/edge.json": "{ \"imports\": { \"vault\": \"../vault/main.lox\" }, \"permissions\": { \"vault\": [\"net:127.0.0.1/shop\"] } }\n",
-        "vault/edge.json": "{ \"permissions\": { \"main\": [\"net\"] } }\n",
+        "pay/interpreter.json": "{ \"imports\": { \"vault\": \"../vault/main.lox\" }, \"permissions\": { \"vault\": [\"net:127.0.0.1/pay\"] } }\n",
+        "shop/interpreter.json": "{ \"imports\": { \"vault\": \"../vault/main.lox\" }, \"permissions\": { \"vault\": [\"net:127.0.0.1/shop\"] } }\n",
+        "vault/interpreter.json": "{ \"permissions\": { \"main\": [\"net\"] } }\n",
         "pay/main.lox": "var vault = import(\"vault\");\n\nfun reach(path) {\n    return vault.reach(path);\n}\n",
         "shop/main.lox": "var vault = import(\"vault\");\n\nfun reach(path) {\n    return vault.reach(path);\n}\n",
         "vault/main.lox": "var net = import(\"net\");\n\nfun reach(path) {\n    return net.request(\"GET\", \"http://127.0.0.1:1/\" + path) > 0;\n}\n"
       },
       "run": ["run", "main.lox"],
       "stdout": ["true\ntrue"],
-      "fails": ["'vault' has no net:127.0.0.1/pay, edge.json grants it net:127.0.0.1/shop"]
+      "fails": ["'vault' has no net:127.0.0.1/pay, interpreter.json grants it net:127.0.0.1/shop"]
     },
     {
       "given": {
-        "edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.lox\" }, \"permissions\": { \"pepito\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{ \"imports\": { \"pepito\": \"./pepito/main.lox\" }, \"permissions\": { \"pepito\": [\"net:127.0.0.1\"] } }\n",
         "main.lox": "var pepito = import(\"pepito\");\nprint pepito.now();\n",
-        "pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "pepito/interpreter.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
         "pepito/main.lox": "var net = import(\"net\");\nvar request = net.request;\n\nfun now() {\n    return net.request(\"GET\", \"http://127.0.0.1:1/\") > 0;\n}\n\nfun call(f) {\n    return f(\"GET\", \"http://127.0.0.1:1/\") > 0;\n}\n"
       },
       "run": ["run", "main.lox"],
@@ -307,9 +307,9 @@
     },
     {
       "given": {
-        "edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.lox\" }, \"permissions\": { \"pepito\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{ \"imports\": { \"pepito\": \"./pepito/main.lox\" }, \"permissions\": { \"pepito\": [\"net:127.0.0.1\"] } }\n",
         "main.lox": "var pepito = import(\"pepito\");\npepito.net.request(\"GET\", \"http://127.0.0.1:1/\");\n",
-        "pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "pepito/interpreter.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
         "pepito/main.lox": "var net = import(\"net\");\nvar request = net.request;\n\nfun now() {\n    return net.request(\"GET\", \"http://127.0.0.1:1/\") > 0;\n}\n\nfun call(f) {\n    return f(\"GET\", \"http://127.0.0.1:1/\") > 0;\n}\n"
       },
       "run": ["run", "main.lox"],
@@ -317,9 +317,9 @@
     },
     {
       "given": {
-        "edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.lox\" }, \"permissions\": { \"pepito\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{ \"imports\": { \"pepito\": \"./pepito/main.lox\" }, \"permissions\": { \"pepito\": [\"net:127.0.0.1\"] } }\n",
         "main.lox": "var pepito = import(\"pepito\");\nvar net = pepito.net;\nnet.request(\"GET\", \"http://127.0.0.1:1/\");\n",
-        "pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "pepito/interpreter.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
         "pepito/main.lox": "var net = import(\"net\");\nvar request = net.request;\n\nfun now() {\n    return net.request(\"GET\", \"http://127.0.0.1:1/\") > 0;\n}\n\nfun call(f) {\n    return f(\"GET\", \"http://127.0.0.1:1/\") > 0;\n}\n"
       },
       "run": ["run", "main.lox"],
@@ -327,9 +327,9 @@
     },
     {
       "given": {
-        "edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.lox\" }, \"permissions\": { \"pepito\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{ \"imports\": { \"pepito\": \"./pepito/main.lox\" }, \"permissions\": { \"pepito\": [\"net:127.0.0.1\"] } }\n",
         "main.lox": "var pepito = import(\"pepito\");\npepito.request(\"GET\", \"http://127.0.0.1:1/\");\n",
-        "pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "pepito/interpreter.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
         "pepito/main.lox": "var net = import(\"net\");\nvar request = net.request;\n\nfun now() {\n    return net.request(\"GET\", \"http://127.0.0.1:1/\") > 0;\n}\n\nfun call(f) {\n    return f(\"GET\", \"http://127.0.0.1:1/\") > 0;\n}\n"
       },
       "run": ["run", "main.lox"],
@@ -337,9 +337,9 @@
     },
     {
       "given": {
-        "edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.lox\" }, \"permissions\": { \"pepito\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{ \"imports\": { \"pepito\": \"./pepito/main.lox\" }, \"permissions\": { \"pepito\": [\"net:127.0.0.1\"] } }\n",
         "main.lox": "var pepito = import(\"pepito\");\nprint pepito.call(pepito.net.request);\n",
-        "pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "pepito/interpreter.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
         "pepito/main.lox": "var net = import(\"net\");\nvar request = net.request;\n\nfun now() {\n    return net.request(\"GET\", \"http://127.0.0.1:1/\") > 0;\n}\n\nfun call(f) {\n    return f(\"GET\", \"http://127.0.0.1:1/\") > 0;\n}\n"
       },
       "run": ["run", "main.lox"],
@@ -347,9 +347,9 @@
     },
     {
       "given": {
-        "edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.lox\" }, \"permissions\": { \"main\": [\"net:127.0.0.1\"], \"pepito\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{ \"imports\": { \"pepito\": \"./pepito/main.lox\" }, \"permissions\": { \"main\": [\"net:127.0.0.1\"], \"pepito\": [\"net:127.0.0.1\"] } }\n",
         "main.lox": "var net = import(\"net\");\nvar pepito = import(\"pepito\");\nprint text(net.request(\"GET\", \"http://127.0.0.1:1/\") > 0) + \" \" + text(pepito.now());\n",
-        "pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "pepito/interpreter.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
         "pepito/main.lox": "var net = import(\"net\");\nvar request = net.request;\n\nfun now() {\n    return net.request(\"GET\", \"http://127.0.0.1:1/\") > 0;\n}\n\nfun call(f) {\n    return f(\"GET\", \"http://127.0.0.1:1/\") > 0;\n}\n"
       },
       "run": ["run", "main.lox"],
@@ -357,9 +357,9 @@
     },
     {
       "given": {
-        "edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.lox\" }, \"permissions\": { \"main\": [\"net:127.0.0.1\"], \"pepito\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{ \"imports\": { \"pepito\": \"./pepito/main.lox\" }, \"permissions\": { \"main\": [\"net:127.0.0.1\"], \"pepito\": [\"net:127.0.0.1\"] } }\n",
         "main.lox": "var net = import(\"net\");\nvar pepito = import(\"pepito\");\nprint net.request(\"GET\", \"http://127.0.0.1:1/\") > 0;\npepito.net.request(\"GET\", \"http://127.0.0.1:1/\");\n",
-        "pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "pepito/interpreter.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
         "pepito/main.lox": "var net = import(\"net\");\nvar request = net.request;\n\nfun now() {\n    return net.request(\"GET\", \"http://127.0.0.1:1/\") > 0;\n}\n\nfun call(f) {\n    return f(\"GET\", \"http://127.0.0.1:1/\") > 0;\n}\n"
       },
       "run": ["run", "main.lox"],
@@ -368,9 +368,9 @@
     },
     {
       "given": {
-        "edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.lox\" }, \"permissions\": { \"pepito\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{ \"imports\": { \"pepito\": \"./pepito/main.lox\" }, \"permissions\": { \"pepito\": [\"net:127.0.0.1\"] } }\n",
         "main.lox": "var pepito = import(\"pepito\");\nfun go() {\n    var f = pepito.net.request;\n    return f(\"GET\", \"http://127.0.0.1:1/\") > 0;\n}\nprint go();\n",
-        "pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "pepito/interpreter.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
         "pepito/main.lox": "var net = import(\"net\");\nvar request = net.request;\n\nfun now() {\n    return net.request(\"GET\", \"http://127.0.0.1:1/\") > 0;\n}\n\nfun call(f) {\n    return f(\"GET\", \"http://127.0.0.1:1/\") > 0;\n}\n"
       },
       "run": ["run", "main.lox"],
@@ -378,9 +378,9 @@
     },
     {
       "given": {
-        "edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.lox\" }, \"permissions\": { \"pepito\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{ \"imports\": { \"pepito\": \"./pepito/main.lox\" }, \"permissions\": { \"pepito\": [\"net:127.0.0.1\"] } }\n",
         "main.lox": "var pepito = import(\"pepito\");\nfun f() {\n    return pepito.net.request(\"GET\", \"http://127.0.0.1:1/\");\n}\nf();\n",
-        "pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "pepito/interpreter.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
         "pepito/main.lox": "var net = import(\"net\");\nvar request = net.request;\n\nfun now() {\n    return net.request(\"GET\", \"http://127.0.0.1:1/\") > 0;\n}\n\nfun call(f) {\n    return f(\"GET\", \"http://127.0.0.1:1/\") > 0;\n}\n"
       },
       "run": ["run", "main.lox"],
@@ -388,9 +388,9 @@
     },
     {
       "given": {
-        "edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.lox\" }, \"permissions\": { \"pepito\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{ \"imports\": { \"pepito\": \"./pepito/main.lox\" }, \"permissions\": { \"pepito\": [\"net:127.0.0.1\"] } }\n",
         "main.lox": "var pepito = import(\"pepito\");\npepito.net.request(\"GET\", \"http://127.0.0.1:1/\", list(), nil);\n",
-        "pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "pepito/interpreter.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
         "pepito/main.lox": "var net = import(\"net\");\n"
       },
       "run": ["run", "main.lox"],
@@ -398,8 +398,8 @@
     },
     {
       "given": {
-        "edge.json": "{}\n",
-        "sub/edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{}\n",
+        "sub/interpreter.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
         "sub/main.lox": "var net = import(\"net\");\nprint net.request(\"GET\", \"http://127.0.0.1:1/\") > 0;\n"
       },
       "run": ["run", "sub/main.lox"],
@@ -407,9 +407,9 @@
     },
     {
       "given": {
-        "edge.json": "{}\n",
-        "sub/edge.json": "{ \"imports\": { \"pepito\": \"./pepito/main.lox\" }, \"permissions\": { \"pepito\": [\"net:127.0.0.1\"] } }\n",
-        "sub/pepito/edge.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{}\n",
+        "sub/interpreter.json": "{ \"imports\": { \"pepito\": \"./pepito/main.lox\" }, \"permissions\": { \"pepito\": [\"net:127.0.0.1\"] } }\n",
+        "sub/pepito/interpreter.json": "{ \"name\": \"pepito\", \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
         "sub/pepito/main.lox": "var net = import(\"net\");\n\nfun now() {\n    return net.request(\"GET\", \"http://127.0.0.1:1/\") > 0;\n}\n",
         "sub/main.lox": "var pepito = import(\"pepito\");\nprint pepito.now();\npepito.net.request(\"GET\", \"http://127.0.0.1:1/\");\n"
       },
@@ -419,47 +419,47 @@
     },
     {
       "given": {
-        "edge.json": "{ \"permissions\": { \"main\": \"net:a.test\" } }\n",
+        "interpreter.json": "{ \"permissions\": { \"main\": \"net:a.test\" } }\n",
         "main.lox": "print 1;\n"
       },
       "run": ["run", "main.lox"],
-      "fails": ["edge.json at 'edge.json': permissions for 'main' must be a list of entries"]
+      "fails": ["interpreter.json at 'interpreter.json': permissions for 'main' must be a list of entries"]
     },
     {
       "given": {
-        "edge.json": "{ \"permissions\": { \"main\": [\"db:/\"] } }\n",
+        "interpreter.json": "{ \"permissions\": { \"main\": [\"db:/\"] } }\n",
         "main.lox": "print 1;\n"
       },
       "run": ["run", "main.lox"],
-      "fails": ["edge.json at 'edge.json': permissions for 'main' name 'db', which is not a host module (net"]
+      "fails": ["interpreter.json at 'interpreter.json': permissions for 'main' name 'db', which is not a host module (net"]
     },
     {
       "given": {
-        "edge.json": "{ \"permissions\": { \"main\": [\"net:a.test;script-src\"] } }\n",
+        "interpreter.json": "{ \"permissions\": { \"main\": [\"net:a.test;script-src\"] } }\n",
         "main.lox": "print 1;\n"
       },
       "run": ["run", "main.lox"],
-      "fails": ["edge.json at 'edge.json': permissions for 'main' give net the scope 'a.test;script-src', which it does not have"]
+      "fails": ["interpreter.json at 'interpreter.json': permissions for 'main' give net the scope 'a.test;script-src', which it does not have"]
     },
     {
       "given": {
-        "edge.json": "{ \"permissions\": { \"main\": [\"net:0x7f.1\"] } }\n",
+        "interpreter.json": "{ \"permissions\": { \"main\": [\"net:0x7f.1\"] } }\n",
         "main.lox": "print 1;\n"
       },
       "run": ["run", "main.lox"],
-      "fails": ["edge.json at 'edge.json': permissions for 'main' give net the scope '0x7f.1', which it does not have"]
+      "fails": ["interpreter.json at 'interpreter.json': permissions for 'main' give net the scope '0x7f.1', which it does not have"]
     },
     {
       "given": {
-        "edge.json": "{ \"permissions\": { \"main\": [\"net:a.test/api/..\"] } }\n",
+        "interpreter.json": "{ \"permissions\": { \"main\": [\"net:a.test/api/..\"] } }\n",
         "main.lox": "print 1;\n"
       },
       "run": ["run", "main.lox"],
-      "fails": ["edge.json at 'edge.json': permissions for 'main' give net the scope 'a.test/api/..', which it does not have"]
+      "fails": ["interpreter.json at 'interpreter.json': permissions for 'main' give net the scope 'a.test/api/..', which it does not have"]
     },
     {
       "given": {
-        "edge.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" }, \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" }, \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
         "main.lox": "var slugify = import(\"slugify_mod\");\nprint slugify.request_id(\"http://127.0.0.1:1/\") > 0;\n"
       },
       "copy": { "slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm" },
@@ -468,16 +468,16 @@
     },
     {
       "given": {
-        "edge.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n",
+        "interpreter.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n",
         "main.lox": "var slugify = import(\"slugify_mod\");\nslugify.request_id(\"http://127.0.0.1:1/\");\n"
       },
       "copy": { "slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm" },
       "run": ["run", "main.lox"],
-      "fails": ["'main' imports net, which edge.json does not grant it"]
+      "fails": ["'main' imports net, which interpreter.json does not grant it"]
     },
     {
       "given": {
-        "edge.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" }, \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" }, \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
         "main.lox": "var slugify = import(\"slugify_mod\");\nprint slugify.status_of(\"$FIXTURE/text\");\nslugify.status_of(\"http://127.0.0.1:1/\");\n"
       },
       "copy": { "slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm" },
@@ -487,19 +487,19 @@
     },
     {
       "given": {
-        "edge.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" }, \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" }, \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
         "main.lox": "var slugify = import(\"slugify_mod\");\nslugify.status_of(\"http://evil.example/\");\n"
       },
       "copy": { "slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm" },
       "run": ["run", "main.lox"],
-      "fails": ["'main' has no net:evil.example, edge.json grants it net:127.0.0.1"]
+      "fails": ["'main' has no net:evil.example, interpreter.json grants it net:127.0.0.1"]
     },
     {
       "given": {
-        "edge.json": "{ \"imports\": { \"analytics\": \"./analytics/main.lox\" }, \"permissions\": { \"analytics\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{ \"imports\": { \"analytics\": \"./analytics/main.lox\" }, \"permissions\": { \"analytics\": [\"net:127.0.0.1\"] } }\n",
         "main.lox": "var analytics = import(\"analytics\");\nprint analytics.send();\n",
-        "analytics/edge.json": "{ \"name\": \"analytics\", \"imports\": { \"http\": \"./http/main.lox\" }, \"permissions\": { \"http\": [\"net:127.0.0.1\"] } }\n",
-        "analytics/http/edge.json": "{ \"name\": \"http\", \"permissions\": { \"main\": [\"net\"] } }\n",
+        "analytics/interpreter.json": "{ \"name\": \"analytics\", \"imports\": { \"http\": \"./http/main.lox\" }, \"permissions\": { \"http\": [\"net:127.0.0.1\"] } }\n",
+        "analytics/http/interpreter.json": "{ \"name\": \"http\", \"permissions\": { \"main\": [\"net\"] } }\n",
         "analytics/main.lox": "var http = import(\"http\");\n\nfun send() {\n    return http.get(\"http://127.0.0.1:1/\");\n}\n",
         "analytics/http/main.lox": "var net = import(\"net\");\n\nfun get(url) {\n    return net.request(\"GET\", url) > 0;\n}\n"
       },
@@ -508,36 +508,36 @@
     },
     {
       "given": {
-        "edge.json": "{ \"imports\": { \"probe\": \"./probe/main.lox\" }, \"permissions\": { \"probe\": [\"net:127.0.0.1/a\"], \"all\": [\"net:127.0.0.1/b\"] } }\n",
+        "interpreter.json": "{ \"imports\": { \"probe\": \"./probe/main.lox\" }, \"permissions\": { \"probe\": [\"net:127.0.0.1/a\"], \"all\": [\"net:127.0.0.1/b\"] } }\n",
         "main.lox": "var probe = import(\"probe\");\nprint text(probe.reach(\"/a/x\")) + \" \" + text(probe.reach(\"/b/y\"));\nprobe.reach(\"/c\");\n",
-        "probe/edge.json": "{ \"name\": \"probe\" }\n",
+        "probe/interpreter.json": "{ \"name\": \"probe\" }\n",
         "probe/main.lox": "var net = import(\"net\");\n\nfun reach(path) {\n    return net.request(\"GET\", \"http://127.0.0.1:1\" + path) > 0;\n}\n"
       },
       "run": ["run", "main.lox"],
       "stdout": ["true true"],
-      "fails": ["'probe' has no net:127.0.0.1/c, edge.json grants it net:127.0.0.1/b, net:127.0.0.1/a"]
+      "fails": ["'probe' has no net:127.0.0.1/c, interpreter.json grants it net:127.0.0.1/b, net:127.0.0.1/a"]
     },
     {
       "given": {
-        "edge.json": "{ \"imports\": { \"clock\": \"./clock/main.lox\" }, \"permissions\": { \"timer\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{ \"imports\": { \"clock\": \"./clock/main.lox\" }, \"permissions\": { \"timer\": [\"net:127.0.0.1\"] } }\n",
         "main.lox": "var clock = import(\"clock\");\nprint clock.now();\n",
-        "clock/edge.json": "{ \"name\": \"timer\" }\n",
+        "clock/interpreter.json": "{ \"name\": \"timer\" }\n",
         "clock/main.lox": "var net = import(\"net\");\n\nfun now() {\n    return net.request(\"GET\", \"http://127.0.0.1:1/\") > 0;\n}\n"
       },
       "run": ["run", "main.lox"],
-      "fails": ["'clock' imports net, which edge.json does not grant it"]
+      "fails": ["'clock' imports net, which interpreter.json does not grant it"]
     },
     {
       "given": {
-        "edge.json": "{ \"permissions\": { \"zeta\": [\"net:0x7f.1\"], \"alpha\": [\"db:/tmp\"] } }\n",
+        "interpreter.json": "{ \"permissions\": { \"zeta\": [\"net:0x7f.1\"], \"alpha\": [\"db:/tmp\"] } }\n",
         "main.lox": "print 1;\n"
       },
       "run": ["run", "main.lox"],
-      "fails": ["edge.json at 'edge.json': permissions for 'alpha' name 'db', which is not a host module (net"]
+      "fails": ["interpreter.json at 'interpreter.json': permissions for 'alpha' name 'db', which is not a host module (net"]
     },
     {
       "given": {
-        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
         "main.lox": "var net = import(\"net\");\n\nnet.response(net.request(\"GET\", \"$FIXTURE/slow\", nil, nil, nil, 0.3));\n"
       },
       "run": ["run", "main.lox"],
@@ -545,7 +545,7 @@
     },
     {
       "given": {
-        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
         "main.lox": "var net = import(\"net\");\n\nnet.request(\"GET\", \"$FIXTURE/text\", nil, nil, nil, 0);\n"
       },
       "run": ["run", "main.lox"],
@@ -553,7 +553,7 @@
     },
     {
       "given": {
-        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
         "main.lox": "var net = import(\"net\");\n\nprint item(net.response(net.request(\"GET\", \"$FIXTURE/text\", nil, nil, nil, 5)), 0);\n"
       },
       "run": ["run", "main.lox"],
@@ -561,7 +561,7 @@
     },
     {
       "given": {
-        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
         "main.lox": "var net = import(\"net\");\n\nfun f() {\n    return 1;\n}\nclass Box {}\nnet.request(\"GET\", \"$FIXTURE/text\", $EACH);\n"
       },
       "run": ["run", "main.lox"],
@@ -570,7 +570,7 @@
     },
     {
       "given": {
-        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
         "main.lox": "var net = import(\"net\");\n\nvar n = 0;\nwhile (true) {\n    net.request(\"GET\", \"$FIXTURE/text\");\n    n = n + 1;\n    if (n == 128) print n;\n}\n"
       },
       "run": ["run", "main.lox"],
@@ -579,7 +579,7 @@
     },
     {
       "given": {
-        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
         "main.lox": "var net = import(\"net\");\n\nclass Held {\n    init(r, next) {\n        this.r = r;\n        this.next = next;\n    }\n}\nvar held = nil;\nfor (var i = 0; i < 128; i = i + 1) held = Held(net.request(\"GET\", \"$FIXTURE/text\"), held);\nwhile (held != nil) {\n    net.close(held.r);\n    held = held.next;\n}\nprint net.read(net.request(\"GET\", \"$FIXTURE/text\"));\n"
       },
       "run": ["run", "main.lox"],
@@ -587,7 +587,7 @@
     },
     {
       "given": {
-        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
         "main.lox": "var net = import(\"net\");\n\nvar r = net.request(\"GET\", \"$FIXTURE/stall\", nil, nil, nil, 1);\nprint net.read(r);\nnet.read(r);\n"
       },
       "run": ["run", "main.lox"],
@@ -596,7 +596,7 @@
     },
     {
       "given": {
-        "edge.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
+        "interpreter.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
         "main.lox": "var net = import(\"net\");\n\nfun body(r) {\n    var out = net.read(r);\n    var chunk = net.read(r);\n    while (chunk != nil) {\n        out = out + chunk;\n        chunk = net.read(r);\n    }\n    return out;\n}\n\nvar slow = net.request(\"GET\", \"$FIXTURE/big\", nil, nil, nil, 0.5);\nvar first = net.read(slow);\nprint item(net.response(net.request(\"GET\", \"$FIXTURE/slow\")), 0);\nvar rest = body(slow);\nif (rest != nil) first = first + rest;\nprint len(first);\n"
       },
       "run": ["run", "main.lox"],

@@ -22,16 +22,16 @@ while (line != "end") {
 send("totals", text(stars) + "," + text(pushes));
 `;
 
-/* refuses an edge.wasm older than its sources so no test reads a stale one */
+/* refuses an interpreter.wasm older than its sources so no test reads a stale one */
 async function fresh() {
-    const built = (await Deno.stat(new URL("target/wasm32-unknown-unknown/release/edge.wasm", ROOT))).mtime;
+    const built = (await Deno.stat(new URL("target/wasm32-unknown-unknown/release/interpreter.wasm", ROOT))).mtime;
     const dirs = ["src", "lib/src", "examples/lox/src"].map((dir) => new URL(`${dir}/`, ROOT));
     while (dirs.length > 0) {
         const dir = dirs.pop();
         for await (const entry of Deno.readDir(dir)) {
             const at = new URL(entry.isDirectory ? `${entry.name}/` : entry.name, dir);
             if (entry.isDirectory) dirs.push(at);
-            else if ((await Deno.stat(at)).mtime > built) throw new Error(`edge.wasm is older than ${at.pathname}, run make wasm`);
+            else if ((await Deno.stat(at)).mtime > built) throw new Error(`interpreter.wasm is older than ${at.pathname}, run make wasm`);
         }
     }
 }
@@ -40,7 +40,7 @@ async function fresh() {
 async function boot(name) {
     await fresh();
     const engine = await import(new URL(`../src/worker/engine.ts?channels=${name}`, import.meta.url).href);
-    const wasmUrl = new URL("target/wasm32-unknown-unknown/release/edge.wasm", ROOT).href;
+    const wasmUrl = new URL("target/wasm32-unknown-unknown/release/interpreter.wasm", ROOT).href;
     await engine.load({ wasmUrl, limits: { ops: 2000000000, memory: 512 } });
     return engine;
 }

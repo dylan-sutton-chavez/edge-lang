@@ -1,14 +1,14 @@
 mod test {
-    use edge::embed::{Limits, VM};
-    use edge::lang::{Cx, Descriptor, EngineError, Falsy, Front, IntDiv, IntMod, Language, Misfit, Mode, NegPow, Names, Native, Natives, Policy, Runtime, ZeroDiv};
-    use edge::lexer::{Spelling, Syntax};
-    use edge::value::foreign::Kind;
-    use edge::value::{HeapPool, Val, VmErr};
+    use interpreter::embed::{Limits, VM};
+    use interpreter::lang::{Cx, Descriptor, EngineError, Falsy, Front, IntDiv, IntMod, Language, Misfit, Mode, NegPow, Names, Native, Natives, Policy, Runtime, ZeroDiv};
+    use interpreter::lexer::{Spelling, Syntax};
+    use interpreter::value::foreign::Kind;
+    use interpreter::value::{HeapPool, Val, VmErr};
     use rig::Rig;
     use rig::natives::{ARRAY, BUFFER, BYTES, CONVERT, DICT, FLOAT, FOLDS, INT, IO, ITER, LIST, LIST_SORT, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
 
     // the rig's natives under a runtime that states other rules for the loop to fold
-    static NATIVES: Natives = edge::natives! {
+    static NATIVES: Natives = interpreter::natives! {
         language: Rules,
         fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, TYPES],
         methods: [
@@ -51,7 +51,7 @@ mod test {
         const FRONT: Front = Front::spelled::<Rules>();
         const DESCRIPTOR: &'static Descriptor = &rig::DESCRIPTOR;
         const WIDE: Option<&'static Kind> = <Rig as Language>::WIDE;
-        const BUILT: edge::value::foreign::Built = <rig::Rig as Language>::BUILT;
+        const BUILT: interpreter::value::foreign::Built = <rig::Rig as Language>::BUILT;
         type Ops = ();
 
         fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Mode) -> Result<String, VmErr> { <Rig as Language>::show(cx, v, mode) }
@@ -67,7 +67,7 @@ mod test {
 
     /* what `src` prints under the runtime or the error that ends it */
     fn ran(src: &str) -> String {
-        let (chunk, errors) = edge::code::compile_as::<Rules>(src);
+        let (chunk, errors) = interpreter::code::compile_as::<Rules>(src);
         assert!(errors.is_empty(), "{src:?} reports {:?}", errors.iter().map(|d| &d.msg).collect::<Vec<_>>());
         let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
         match vm.run() {
@@ -95,19 +95,19 @@ mod test {
     // the folder rounds constants by the runtime's rule and leaves no op
     #[test]
     fn the_folder_rounds_constants_by_the_runtime_rule() {
-        let (chunk, errors) = edge::code::compile_as::<Rules>("print(-7 ~/ 2, -7 % 2)\n");
+        let (chunk, errors) = interpreter::code::compile_as::<Rules>("print(-7 ~/ 2, -7 % 2)\n");
         assert!(errors.is_empty());
-        let left: Vec<_> = chunk.instructions.iter().map(|i| i.opcode).filter(|&op| matches!(op, edge::code::OpCode::FloorDiv | edge::code::OpCode::Mod)).collect();
+        let left: Vec<_> = chunk.instructions.iter().map(|i| i.opcode).filter(|&op| matches!(op, interpreter::code::OpCode::FloorDiv | interpreter::code::OpCode::Mod)).collect();
         assert!(left.is_empty(), "the folder left {left:?}");
-        let folded: Vec<_> = chunk.constants.iter().filter_map(|c| match c { edge::code::Value::Int(i) => Some(*i), _ => None }).collect();
+        let folded: Vec<_> = chunk.constants.iter().filter_map(|c| match c { interpreter::code::Value::Int(i) => Some(*i), _ => None }).collect();
         assert!(folded.contains(&-3) && folded.contains(&-1) && !folded.contains(&-4), "{folded:?}");
-        let (engine, _) = edge::code::compile_as::<Rig>("print(-7 ~/ 2, -7 % 2)\n");
-        let truncated: Vec<_> = engine.constants.iter().filter_map(|c| match c { edge::code::Value::Int(i) => Some(*i), _ => None }).collect();
+        let (engine, _) = interpreter::code::compile_as::<Rig>("print(-7 ~/ 2, -7 % 2)\n");
+        let truncated: Vec<_> = engine.constants.iter().filter_map(|c| match c { interpreter::code::Value::Int(i) => Some(*i), _ => None }).collect();
         assert!(truncated.contains(&-3) && truncated.contains(&-1) && !truncated.contains(&-4), "{truncated:?}");
-        let (floors, _) = edge::code::compile_as::<Floors>("print(-7 ~/ 2, -7 % 2)\n");
-        let left: Vec<_> = floors.instructions.iter().map(|i| i.opcode).filter(|&op| matches!(op, edge::code::OpCode::FloorDiv | edge::code::OpCode::Mod)).collect();
+        let (floors, _) = interpreter::code::compile_as::<Floors>("print(-7 ~/ 2, -7 % 2)\n");
+        let left: Vec<_> = floors.instructions.iter().map(|i| i.opcode).filter(|&op| matches!(op, interpreter::code::OpCode::FloorDiv | interpreter::code::OpCode::Mod)).collect();
         assert!(left.is_empty(), "the folder left {left:?}");
-        let floored: Vec<_> = floors.constants.iter().filter_map(|c| match c { edge::code::Value::Int(i) => Some(*i), _ => None }).collect();
+        let floored: Vec<_> = floors.constants.iter().filter_map(|c| match c { interpreter::code::Value::Int(i) => Some(*i), _ => None }).collect();
         assert!(floored.contains(&-4) && floored.contains(&1), "{floored:?}");
     }
 
@@ -152,7 +152,7 @@ mod test {
     }
 
     // the rig's natives under stricter rules for bools and negative indexes
-    static STRICT_NATIVES: Natives = edge::natives! {
+    static STRICT_NATIVES: Natives = interpreter::natives! {
         language: Strict,
         fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, TYPES],
         methods: [
@@ -187,7 +187,7 @@ mod test {
         const FRONT: Front = Front::spelled::<Strict>();
         const DESCRIPTOR: &'static Descriptor = &rig::DESCRIPTOR;
         const WIDE: Option<&'static Kind> = <Rig as Language>::WIDE;
-        const BUILT: edge::value::foreign::Built = <rig::Rig as Language>::BUILT;
+        const BUILT: interpreter::value::foreign::Built = <rig::Rig as Language>::BUILT;
         type Ops = ();
 
         fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Mode) -> Result<String, VmErr> { <Rig as Language>::show(cx, v, mode) }
@@ -203,7 +203,7 @@ mod test {
 
     /* what `src` prints under the stricter rules */
     fn strict(src: &str) -> String {
-        let (chunk, errors) = edge::code::compile_as::<Strict>(src);
+        let (chunk, errors) = interpreter::code::compile_as::<Strict>(src);
         assert!(errors.is_empty(), "{src:?} reports {:?}", errors.iter().map(|d| &d.msg).collect::<Vec<_>>());
         let mut vm = VM::with_runtime(&STRICT, &chunk, Limits::sandbox());
         match vm.run() {
@@ -254,7 +254,7 @@ mod test {
     }
 
     // the rig's natives under the remainder and truth rules of the other family
-    static FLOORS_NATIVES: Natives = edge::natives! {
+    static FLOORS_NATIVES: Natives = interpreter::natives! {
         language: Floors,
         fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, TYPES],
         methods: [
@@ -290,7 +290,7 @@ mod test {
         const FRONT: Front = Front::spelled::<Floors>();
         const DESCRIPTOR: &'static Descriptor = &rig::DESCRIPTOR;
         const WIDE: Option<&'static Kind> = <Rig as Language>::WIDE;
-        const BUILT: edge::value::foreign::Built = <rig::Rig as Language>::BUILT;
+        const BUILT: interpreter::value::foreign::Built = <rig::Rig as Language>::BUILT;
         type Ops = ();
 
         fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Mode) -> Result<String, VmErr> { <Rig as Language>::show(cx, v, mode) }
@@ -306,7 +306,7 @@ mod test {
 
     /* what `src` prints under the flooring rules */
     fn floored(src: &str) -> String {
-        let (chunk, errors) = edge::code::compile_as::<Floors>(src);
+        let (chunk, errors) = interpreter::code::compile_as::<Floors>(src);
         assert!(errors.is_empty(), "{src:?} reports {:?}", errors.iter().map(|d| &d.msg).collect::<Vec<_>>());
         let mut vm = VM::with_runtime(&FLOORS, &chunk, Limits::sandbox());
         match vm.run() {

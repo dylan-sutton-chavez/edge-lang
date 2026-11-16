@@ -4,7 +4,8 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Runs the executable cells of a SKILL.md through the edge CLI and checks each one against its expected block."
+publish = false
+description = "Runs the executable cells of a SKILL.md through the interpreter CLI and checks each one against its expected block."
 autotests = false
 
 [[bin]]

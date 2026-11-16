@@ -3,7 +3,7 @@ use std::rc::Rc;
 use std::sync::mpsc::{channel, Receiver, TryRecvError};
 use std::sync::{Arc, Mutex};
 
-use edge::deps::dir_of;
+use interpreter::deps::dir_of;
 
 use crate::host::{driver, linear_cap, now_ns, time_limit, Engine, Fetched, Host, Project, Sink, Status, Vm, Walk, TICK_NS};
 use crate::pack::{base64_decode, into_files, Bundle, BUNDLE_TAG};
@@ -372,7 +372,7 @@ fn start(spec: &GroupSpec, eval: &Eval, host: &Rc<Host>, body: &str, capture: bo
     } else {
         sink_for(&spec.out)
     };
-    let own_manifest = files.contains_key(&format!("{entry_dir}edge.json"));
+    let own_manifest = files.contains_key(&format!("{entry_dir}interpreter.json"));
     let mut project = Project::bundle(files, &entry_dir, true);
     // a granted file lies below the pool's manifest and never where the pool started
     project.pool = Some(dir_of(&eval.manifest));

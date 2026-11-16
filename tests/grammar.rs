@@ -1,12 +1,12 @@
 #[cfg(test)]
 mod test {
     use crate::common::boot;
-    use edge::code::OpCode as O;
-    use edge::embed::Limits;
-    use edge::lang::Front;
-    use edge::lexer::grammar::{Emit, Form, Grammar, Mode, Pattern, Row, Slot, Test};
-    use edge::lexer::TokenType as T;
-    use edge::lexer::{index, operators, Binding, Blocks, Comments, Cond, Continuation, Dot, Ends, Escapes, Keywords, Lambda, Numbers, Quote, Shapes, Spelling, Strings, Suffix, Syntax, TokenType, Unicode, Unknown, Zeros};
+    use interpreter::code::OpCode as O;
+    use interpreter::embed::Limits;
+    use interpreter::lang::Front;
+    use interpreter::lexer::grammar::{Emit, Form, Grammar, Mode, Pattern, Row, Slot, Test};
+    use interpreter::lexer::TokenType as T;
+    use interpreter::lexer::{index, operators, Binding, Blocks, Comments, Cond, Continuation, Dot, Ends, Escapes, Keywords, Lambda, Numbers, Quote, Shapes, Spelling, Strings, Suffix, Syntax, TokenType, Unicode, Unknown, Zeros};
 
     const WORDS: &[(&str, TokenType)] = &[("true", T::True), ("false", T::False), ("or", T::Or), ("in", T::In), ("if", T::If), ("else", T::Else), ("match", T::Match), ("fn", T::Fn), ("let", T::Let), ("for", T::For), ("use", T::Import), ("_", T::Underscore)];
     const SYMBOLS: &[(&str, TokenType)] = &[
@@ -46,7 +46,7 @@ mod test {
     struct Forms;
     impl Spelling for Forms {
         const SYNTAX: Syntax = SYNTAX;
-        const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
+        const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
     }
 
     // the same table with no colon, so neither ':' nor 'while' has a spelling
@@ -58,7 +58,7 @@ mod test {
     struct Bare;
     impl Spelling for Bare {
         const SYNTAX: Syntax = Syntax { symbols: BARE_SYMBOLS, operators: &BARE_OPERATORS, ..SYNTAX };
-        const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
+        const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
     }
 
     // a form's call is a function of the script so each test sees what the slots gave
@@ -66,17 +66,17 @@ mod test {
 
     // a module the tests import by the name m
     struct One;
-    impl edge::deps::Resolver for One {
-        fn resolve(&mut self, spec: &str) -> Result<edge::deps::Resolved, String> {
-            if spec == "m" { Ok(edge::deps::Resolved::Code { src: "let x = 5\n".into(), canonical: "m".into() }) } else { Err(format!("no module {spec}")) }
+    impl interpreter::deps::Resolver for One {
+        fn resolve(&mut self, spec: &str) -> Result<interpreter::deps::Resolved, String> {
+            if spec == "m" { Ok(interpreter::deps::Resolved::Code { src: "let x = 5\n".into(), canonical: "m".into() }) } else { Err(format!("no module {spec}")) }
         }
-        fn child(&self, _: &str) -> Box<dyn edge::deps::Resolver> { Box::new(One) }
+        fn child(&self, _: &str) -> Box<dyn interpreter::deps::Resolver> { Box::new(One) }
     }
 
     fn run(src: &str) -> String {
         const FRONT: Front = Front::spelled::<Forms>();
         let src = format!("{CALLS}{src}");
-        let chunk = FRONT.program(&src, Box::new(One)).unwrap_or_else(|e| panic!("{}", edge::code::Diagnostic::render_all(&e, &src, None)));
+        let chunk = FRONT.program(&src, Box::new(One)).unwrap_or_else(|e| panic!("{}", interpreter::code::Diagnostic::render_all(&e, &src, None)));
         let mut vm = boot(&chunk, Limits::sandbox());
         match vm.run() { Ok(_) => vm.output_text(), Err(e) => vm.error_text(&e) }
     }
@@ -118,7 +118,7 @@ mod test {
     fn a_table_with_no_colon_or_while_words_its_messages_and_runs() {
         const FRONT: Front = Front::spelled::<Bare>();
         let src = format!("{CALLS}let _ = print(fix k = 0 up to 3 {{ k + 1 }})");
-        let chunk = FRONT.program(&src, Box::new(One)).unwrap_or_else(|e| panic!("{}", edge::code::Diagnostic::render_all(&e, &src, None)));
+        let chunk = FRONT.program(&src, Box::new(One)).unwrap_or_else(|e| panic!("{}", interpreter::code::Diagnostic::render_all(&e, &src, None)));
         let mut vm = boot(&chunk, Limits::sandbox());
         assert_eq!(vm.run().map(|_| vm.output_text()).ok().as_deref(), Some("3\n"));
     }

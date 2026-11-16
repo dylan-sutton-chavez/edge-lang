@@ -2,7 +2,7 @@
   {
     "copy": {
       "script.lox": "plugin/example/script.lox",
-      "edge.json": "plugin/example/edge.json",
+      "interpreter.json": "plugin/example/interpreter.json",
       "slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm"
     },
     "run": ["run", "script.lox"],
@@ -11,7 +11,7 @@
   },
   {
     "given": {
-      "edge.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n",
+      "interpreter.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n",
       "main.lox": "var slugify = import(\"slugify_mod\");\nprint slugify.join_all(\"-\", \"a\", \"b\", \"c\") + \" \" + text(slugify.version);\n"
     },
     "copy": { "slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm" },
@@ -20,7 +20,7 @@
   },
   {
     "given": {
-      "edge.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n",
+      "interpreter.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n",
       "main.lox": "var slugify = import(\"slugify_mod\");\nfun spread(a, b, c) {\n    return slugify.join_all(\"-\", a, b, c);\n}\nprint slugify.join_all(\"-\", \"a\", \"b\") + \" \" + spread(\"x\", \"y\", \"z\") + \" \" + slugify.join_all(\"+\", \"k\");\n"
     },
     "copy": { "slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm" },
@@ -29,7 +29,7 @@
   },
   {
     "given": {
-      "edge.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n",
+      "interpreter.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n",
       "main.lox": "var slugify = import(\"slugify_mod\");\nprint slugify.join_all(\"-\", \"a\", 1.5, 2, true, nil);\n"
     },
     "copy": { "slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm" },
@@ -38,7 +38,7 @@
   },
   {
     "given": {
-      "edge.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n",
+      "interpreter.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n",
       "lib.lox": "var slugify = import(\"slugify_mod\");\nvar Slugger = slugify.Slugger;\n",
       "main.lox": "var lib = import(\"./lib.lox\");\nvar s = lib.Slugger();\ns.add(\"Via A Module\");\nprint s.build();\n"
     },
@@ -48,7 +48,7 @@
   },
   {
     "given": {
-      "edge.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n",
+      "interpreter.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n",
       "main.lox": "var slugify = import(\"slugify_mod\");\nprint slugify.join_all(1);\n"
     },
     "copy": { "slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm" },
@@ -57,7 +57,7 @@
   },
   {
     "given": {
-      "edge.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n",
+      "interpreter.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n",
       "main.lox": "var slugify = import(\"slugify_mod\");\nprint slugify.Slugger.build;\n"
     },
     "copy": { "slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm" },
@@ -66,7 +66,7 @@
   },
   {
     "given": {
-      "edge.json": "{ \"imports\": { \"slugify_mod\": \"./vendor/slugify\" } }\n",
+      "interpreter.json": "{ \"imports\": { \"slugify_mod\": \"./vendor/slugify\" } }\n",
       "main.lox": "var slugify = import(\"slugify_mod\");\nprint slugify.join_all(\"+\", \"no\", \"extension\");\n"
     },
     "copy": { "vendor/slugify": "target/wasm32-unknown-unknown/release/slugify_mod.wasm" },
@@ -75,7 +75,7 @@
   },
   {
     "given": {
-      "edge.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm#sha256-0000000000000000000000000000000000000000000000000000000000000000\" } }\n",
+      "interpreter.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm#sha256-0000000000000000000000000000000000000000000000000000000000000000\" } }\n",
       "main.lox": "import(\"slugify_mod\");\n"
     },
     "copy": { "slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm" },
@@ -84,8 +84,8 @@
   },
   {
     "given": {
-      "edge.json": "{ \"imports\": { \"pkg\": \"./pkg/main.lox\" } }\n",
-      "pkg/edge.json": "{ \"imports\": { \"_slug\": \"./slugify_mod.wasm\" } }\n",
+      "interpreter.json": "{ \"imports\": { \"pkg\": \"./pkg/main.lox\" } }\n",
+      "pkg/interpreter.json": "{ \"imports\": { \"_slug\": \"./slugify_mod.wasm\" } }\n",
       "pkg/main.lox": "var slug = import(\"_slug\");\n\nfun label(a, b) {\n    return slug.join_all(\"-\", a, b) + \"!\";\n}\n",
       "main.lox": "var pkg = import(\"pkg\");\nprint pkg.label(\"a\", \"b\");\n"
     },
@@ -95,8 +95,8 @@
   },
   {
     "given": {
-      "edge.json": "{ \"imports\": { \"pkg\": \"./pkg/main.lox\" } }\n",
-      "pkg/edge.json": "{ \"imports\": { \"_slug\": \"./slugify_mod.wasm\" } }\n",
+      "interpreter.json": "{ \"imports\": { \"pkg\": \"./pkg/main.lox\" } }\n",
+      "pkg/interpreter.json": "{ \"imports\": { \"_slug\": \"./slugify_mod.wasm\" } }\n",
       "pkg/main.lox": "var slug = import(\"_slug\");\n\nfun label(a, b) {\n    return slug.join_all(\"-\", a, b) + \"!\";\n}\n",
       "main.lox": "var pkg = import(\"pkg\");\nprint pkg.label(\"a\", \"b\");\n"
     },
@@ -107,7 +107,7 @@
   },
   {
     "given": {
-      "edge.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n",
+      "interpreter.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n",
       "main.lox": "var slugify = import(\"slugify_mod\");\nvar s = slugify.Slugger();\ns.add(\"ab\");\nvar n = 0;\nfor (var i = 0; i < 450; i = i + 1) n = n + len(s.repeat(5000000));\nprint n;\n"
     },
     "copy": { "slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm" },
@@ -116,7 +116,7 @@
   },
   {
     "given": {
-      "edge.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n",
+      "interpreter.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n",
       "main.lox": "var slugify = import(\"slugify_mod\");\nvar s = slugify.Slugger();\ns.add(\"ab\");\ns.repeat(1000000000000);\n"
     },
     "copy": { "slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm" },
@@ -125,7 +125,7 @@
   },
   {
     "given": {
-      "edge.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n",
+      "interpreter.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n",
       "main.lox": "var slugify = import(\"slugify_mod\");\nvar s = slugify.Slugger();\ns.add(\"ab\");\ns.repeat(100000000);\n"
     },
     "copy": { "slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm" },
@@ -134,7 +134,7 @@
   },
   {
     "given": {
-      "edge.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n",
+      "interpreter.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n",
       "main.lox": "var slugify = import(\"slugify_mod\");\nprint slugify.slug_all(list(\"Hello World\", \"From Edge\"));\nprint slugify.slug_all(list()) == \"\";\n"
     },
     "copy": { "slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm" },

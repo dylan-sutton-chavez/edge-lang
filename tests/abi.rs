@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod test {
 
-    use edge::abi::{classify_decode, classify_encode, DecodeBits, EncodeRequest, ErrorStash, HandleTable, PrimitiveBytes, WireValue};
+    use interpreter::abi::{classify_decode, classify_encode, DecodeBits, EncodeRequest, ErrorStash, HandleTable, PrimitiveBytes, WireValue};
 
     fn unhex(s: &str) -> Vec<u8> {
         (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap()).collect()
@@ -148,7 +148,7 @@ mod test {
     #[test]
     fn wire_depth_bomb_rejected() {
         let mut v = WireValue::List(vec![]);
-        for _ in 0..(edge::abi::MAX_WIRE_DEPTH + 2) { v = WireValue::List(vec![v]); }
+        for _ in 0..(interpreter::abi::MAX_WIRE_DEPTH + 2) { v = WireValue::List(vec![v]); }
         let mut buf = Vec::new();
         v.encode_body(&mut buf);
         assert_eq!(WireValue::decode_body(v.tag(), &buf), None);
@@ -157,7 +157,7 @@ mod test {
     #[test]
     fn wire_max_depth_accepted() {
         let mut v = WireValue::Int(1);
-        for _ in 0..edge::abi::MAX_WIRE_DEPTH { v = WireValue::List(vec![v]); }
+        for _ in 0..interpreter::abi::MAX_WIRE_DEPTH { v = WireValue::List(vec![v]); }
         let mut buf = Vec::new();
         v.encode_body(&mut buf);
         assert_eq!(WireValue::decode_body(v.tag(), &buf).as_ref(), Some(&v));

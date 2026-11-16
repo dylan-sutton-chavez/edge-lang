@@ -204,7 +204,7 @@ pub fn run(kit: &Kit, file: Option<&Path>, code: Option<&str>, opts: &RunOpts) -
         (Some(c), _) => (c.to_string(), String::from("<eval>")),
         (None, Some(p)) => (std::fs::read_to_string(p).map_err(|e| anyhow!("reading {}: {e}", p.display()))?, path_spec(p)),
         (None, None) => {
-            // a bare `edge run` at a terminal would wait on stdin forever
+            // a bare `interpreter run` at a terminal would wait on stdin forever
             if stdin.is_terminal() {
                 bail!("no script given; pass a file path or pipe {} to stdin", kit.descriptor().language);
             }
@@ -250,7 +250,7 @@ pub fn restore_and_run(kit: &Kit, file: &str, opts: &RunOpts) -> Result<i32> {
         }
     };
     // the script the blob's run started from names its traceback and roots its relative imports
-    let project = Project::disk(edge::embed::entry_of(&blob).unwrap_or_default(), opts.manifest.as_deref());
+    let project = Project::disk(interpreter::embed::entry_of(&blob).unwrap_or_default(), opts.manifest.as_deref());
     let channels = Channels::stdout();
     let mut vm = kit.engine(Channels::printer(&channels), project)?;
     Channels::serve(&mut *vm, &channels);
@@ -385,7 +385,7 @@ fn next_event(reader: &mut Option<std::io::BufReader<std::fs::File>>, path: &str
     }
 }
 
-/* a persistent interpreter for `edge test` that runs each input exactly once */
+/* a persistent interpreter for `interpreter test` that runs each input exactly once */
 pub struct Session {
     vm: Box<dyn Engine>,
     channels: Shared,

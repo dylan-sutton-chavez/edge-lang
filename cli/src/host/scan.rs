@@ -40,7 +40,7 @@ fn walk(inst: &mut dyn Side, src: &str) -> Result<Vec<String>, String> {
     loop {
         out = match step(&out)? {
             Step::Fetch(spec) => {
-                if !spec.ends_with("edge.json") {
+                if !spec.ends_with("interpreter.json") {
                     found.push(spec);
                 }
                 inst.walk_fetched(&[], 1)?

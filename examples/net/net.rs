@@ -1,4 +1,4 @@
-use cli::host::{Calls, Fault, Held, HostModule, Reply, Serve, WireValue};
+use interpreter_cli::host::{Calls, Fault, Held, HostModule, Reply, Serve, WireValue};
 use flate2::bufread::GzDecoder;
 use std::collections::{HashMap, VecDeque};
 use std::io::{BufRead, BufReader, Read};
@@ -901,7 +901,7 @@ fn serve(target: &str, id: i64, opened: Reply, flow: &Mutex<Flow>, queued: &Rece
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cli::host::{Class, Scopes};
+    use interpreter_cli::host::{Class, Scopes};
 
     fn text(s: &str) -> WireValue {
         WireValue::Bytes(s.as_bytes().to_vec())
@@ -910,7 +910,7 @@ mod tests {
     /* what a grant of `scopes` to main gives net worded as the grant logic refuses */
     fn granted(scopes: &[&str]) -> Held {
         let scopes: Vec<String> = scopes.iter().map(|scope| scope.to_string()).collect();
-        let refusal = edge::deps::perms::refusal("main", "net", &scopes);
+        let refusal = interpreter::deps::perms::refusal("main", "net", &scopes);
         Held::Scopes(Scopes::new(scopes, refusal))
     }
 
@@ -955,7 +955,7 @@ mod tests {
     fn a_path_scope_reaches_only_under_its_prefix() {
         let held = granted(&["a.test/api", "b.test"]);
         let reached = |url: &str| reach(&held, &plain(url).unwrap()).map_err(|fault| (fault.class, fault.text));
-        let refused = |what: &str| Err((Some(Class::Denied), format!("'main' has no net:{what}, edge.json grants it net:a.test/api, net:b.test")));
+        let refused = |what: &str| Err((Some(Class::Denied), format!("'main' has no net:{what}, interpreter.json grants it net:a.test/api, net:b.test")));
         for path in ["/api", "/api/", "/api/items", "/api/v2/items?q=1", "/api/a%5cb", "/api/x%2e", "/api/group%2Fproject", "/%61pi/x"] {
             assert_eq!(reached(&format!("http://a.test{path}")), Ok(()), "{path}");
         }
@@ -971,7 +971,7 @@ mod tests {
             assert_eq!(reached(&format!("http://a.test{path}")), refused(&format!("a.test{path}")), "{path}");
         }
         assert!(reach(&granted(&["a.test/api/"]), &plain("http://a.test/api").unwrap()).is_ok());
-        assert_eq!(reach(&granted(&[]), &plain("http://a.test/").unwrap()).unwrap_err().text, "'main' has no net:a.test, edge.json grants it nothing");
+        assert_eq!(reach(&granted(&[]), &plain("http://a.test/").unwrap()).unwrap_err().text, "'main' has no net:a.test, interpreter.json grants it nothing");
     }
 
     // a composition without grants hands every package every host

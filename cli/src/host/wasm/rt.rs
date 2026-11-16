@@ -1,5 +1,5 @@
 use super::{read, read_u32, stage, unstage, Exports, State};
-use edge::abi::{WireValue, TAG_INVALID};
+use interpreter::abi::{WireValue, TAG_INVALID};
 use wasmtime::AsContextMut;
 
 /* reads a handle as a transit value refusing sets and instances as the wire does */

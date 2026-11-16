@@ -1,7 +1,7 @@
 use alloc::string::String;
 
-use edge::lang::{Cx, ErrKind, KindId, Language, Mode, Names, iters};
-use edge::value::{HeapPool, Val, VmErr};
+use interpreter::lang::{Cx, ErrKind, KindId, Language, Mode, Names, iters};
+use interpreter::value::{HeapPool, Val, VmErr};
 
 use crate::fail::{self, At, Class, Fail};
 use crate::fmt::render::{self, Style};
@@ -307,7 +307,7 @@ impl Tree {
             assert!(classes[i].1.is_empty() || t.up[i] != i as u8, "a class names a parent outside the tree");
             i += 1;
         }
-        assert!(edge::lang::Tree::rooted(&t.up, classes.len()), "a class tree holds a cycle");
+        assert!(interpreter::lang::Tree::rooted(&t.up, classes.len()), "a class tree holds a cycle");
         t
     }
 

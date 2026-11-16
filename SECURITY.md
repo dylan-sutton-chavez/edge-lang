@@ -1,6 +1,6 @@
-# Security at Edge Lang
+# Security
 
-Thanks for taking the time to report a vulnerability. Edge Lang runs every program in a sandbox, so the sandbox boundary is the security boundary.
+Thanks for taking the time to report a vulnerability. `interpreter` runs every program in a sandbox, so the sandbox boundary is the security boundary.
 
 ## Reporting
 
@@ -18,12 +18,12 @@ Everything in this repository is in scope, whether the issue is a sandbox escape
 - `net` in `examples/net`, the network module both hosts serve.
 - The plugin kit in `plugin/` and the ABI in `abi/`.
 - The JS host in `js/`.
-- Lox in `examples/lox`, the runtime `edge.wasm` is built from, and its `lox` binary.
+- Lox in `examples/lox`, the runtime `interpreter.wasm` is built from, and its `lox` binary.
 
 ## Response
 
 Reports are acknowledged as soon as possible. Fixes land on the main branch and ship in the next release.
 
-Edge Lang has not reached 1.0. Some areas are on the roadmap to be hardened further, and there are no monetary rewards at this time. Reporters are credited by name in the release notes unless they prefer to stay anonymous.
+`interpreter` has not reached 1.0. Some areas are on the roadmap to be hardened further, and there are no monetary rewards at this time. Reporters are credited by name in the release notes unless they prefer to stay anonymous.
 
 Only the latest release and the main branch receive security fixes.

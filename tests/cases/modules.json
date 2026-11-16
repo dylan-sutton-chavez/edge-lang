@@ -127,12 +127,12 @@
   },
   {
     "src": "from missing import x\nprint(x)",
-    "error": "module 'missing' is not provided by this host and no edge.json declares it",
+    "error": "module 'missing' is not provided by this host and no interpreter.json declares it",
     "error_span_covers": "missing"
   },
   {
     "src": "from json import dumps\nprint(dumps(true))",
-    "error": "module 'json' is not provided by this host and no edge.json declares it",
+    "error": "module 'json' is not provided by this host and no interpreter.json declares it",
     "error_span_covers": "json"
   },
   {
@@ -415,7 +415,7 @@
     "manifests": {
       "./lib/": { "imports": { "other": "./other.rig" } }
     },
-    "error": "module 'utils' is not provided by this host and no edge.json declares it"
+    "error": "module 'utils' is not provided by this host and no interpreter.json declares it"
   },
   {
     "src": "from .lib.a import run\nprint(run())",
@@ -434,7 +434,7 @@
     "modules": {
       "./lib/a.rig": { "code": "from utils import slug\n\nfn run():\n    return slug('x')" }
     },
-    "error": "module 'utils' is not provided by this host and no edge.json declares it"
+    "error": "module 'utils' is not provided by this host and no interpreter.json declares it"
   },
   {
     "src": "from .svc_a.main import handle as ha\nfrom .svc_b.main import handle as hb\nprint(ha())\nprint(hb())",
@@ -483,7 +483,7 @@
     "modules": {
       "lib/a.rig": { "code": "fn run():\n    return 'hi'" }
     },
-    "error": "no edge.json above '' to resolve 'lib/a.rig'"
+    "error": "no interpreter.json above '' to resolve 'lib/a.rig'"
   },
   {
     "src": "from .svc.main import handle\nprint(handle())",

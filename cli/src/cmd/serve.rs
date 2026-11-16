@@ -218,7 +218,7 @@ mod tests {
         for rel in ["..", "../outside.txt", "../../etc/passwd", "app/../../x", "a/../../b", ".env", ".git/config", "app/.secret", "..a/b"] {
             assert!(escapes_root(rel), "should reject {rel:?}");
         }
-        for rel in ["", "index.html", "app/main.lox", "a..b/c", "dist/x..y.js", "edge.json"] {
+        for rel in ["", "index.html", "app/main.lox", "a..b/c", "dist/x..y.js", "interpreter.json"] {
             assert!(!escapes_root(rel), "should allow {rel:?}");
         }
     }

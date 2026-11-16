@@ -1,21 +1,21 @@
 use std::any::Any;
 use std::cmp::Ordering;
 
-use edge::embed::{Limits, VM};
-use edge::lang::{Native, Natives, Runtime};
-use edge::value::foreign::{BinOp, Snapshot, UnOp};
-use edge::value::{HeapPool, Val};
-use lib::date::{self, Civil, Day, Days, Duration, Field, Hour, Hours, Minute, Minutes, Month, Second, Seconds, Time, Year};
+use interpreter::embed::{Limits, VM};
+use interpreter::lang::{Native, Natives, Runtime};
+use interpreter::value::foreign::{BinOp, Snapshot, UnOp};
+use interpreter::value::{HeapPool, Val};
+use interpreter_lib::date::{self, Civil, Day, Days, Duration, Field, Hour, Hours, Minute, Minutes, Month, Second, Seconds, Time, Year};
 use rig::Rig;
 use rig::natives::{ARRAY, BUFFER, BYTES, CONVERT, DICT, FLOAT, FOLDS, INT, IO, ITER, LIST, LIST_SORT, MATCH, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
 
-// every run meters what it allocates as edge.wasm does
-edge::allocator!();
+// every run meters what it allocates as interpreter.wasm does
+interpreter::allocator!();
 
-const DATE: &[Native] = &lib::table![Rig; "time" => date::parse[Rig]];
+const DATE: &[Native] = &interpreter_lib::table![Rig; "time" => date::parse[Rig]];
 
 // the fields as methods of no arguments which every foreign value finds
-const PARTS: &[Native] = &lib::table![Rig;
+const PARTS: &[Native] = &interpreter_lib::table![Rig;
     "days" => date::part[Rig, Days],
     "hours" => date::part[Rig, Hours],
     "minutes" => date::part[Rig, Minutes],
@@ -28,7 +28,7 @@ const PARTS: &[Native] = &lib::table![Rig;
     "second" => date::part[Rig, Second],
 ];
 
-static NATIVES: Natives = edge::natives! {
+static NATIVES: Natives = interpreter::natives! {
     language: Over,
     fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, TYPES, MATCH, DATE],
     methods: [
@@ -58,7 +58,7 @@ const DAY: i128 = 86_400 * SECOND;
 
 /* what `src` printed and its error after it when one ended the run */
 fn run(src: &str) -> String {
-    let (chunk, errors) = edge::code::compile_as::<Rig>(src);
+    let (chunk, errors) = interpreter::code::compile_as::<Rig>(src);
     assert!(errors.is_empty(), "{src}: {:?}", errors.iter().map(|e| &e.msg).collect::<Vec<_>>());
     let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
     let ran = vm.run();
@@ -274,34 +274,34 @@ fn programs_get_the_failures_in_the_runtimes_words() {
 // a runtime of the rig's classes that keeps lib's own words for every failure
 struct Neutral;
 
-impl lib::fmt::render::Style for Neutral {}
+impl interpreter_lib::fmt::render::Style for Neutral {}
 
-impl edge::lang::Language for Neutral {
+impl interpreter::lang::Language for Neutral {
     const VERSION: u32 = 1;
-    const POLICY: edge::lang::Policy = <Rig as edge::lang::Language>::POLICY;
-    const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
-    const NAMES: &'static edge::lang::Names = &rig::NAMES;
-    const FRONT: edge::lang::Front = rig::FRONT;
-    const DESCRIPTOR: &'static edge::lang::Descriptor = &rig::DESCRIPTOR;
-    const WIDE: Option<&'static edge::value::foreign::Kind> = Some(&rig::lang::WIDE);
-    const BUILT: edge::value::foreign::Built = <rig::Rig as edge::lang::Language>::BUILT;
+    const POLICY: interpreter::lang::Policy = <Rig as interpreter::lang::Language>::POLICY;
+    const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
+    const NAMES: &'static interpreter::lang::Names = &rig::NAMES;
+    const FRONT: interpreter::lang::Front = rig::FRONT;
+    const DESCRIPTOR: &'static interpreter::lang::Descriptor = &rig::DESCRIPTOR;
+    const WIDE: Option<&'static interpreter::value::foreign::Kind> = Some(&rig::lang::WIDE);
+    const BUILT: interpreter::value::foreign::Built = <rig::Rig as interpreter::lang::Language>::BUILT;
     type Ops = ();
 
-    fn show(cx: &mut edge::lang::Cx<'_, '_>, v: edge::value::Val, mode: edge::lang::Mode) -> Result<String, edge::value::VmErr> { lib::fmt::render::hook::<Self>(cx, v, mode) }
+    fn show(cx: &mut interpreter::lang::Cx<'_, '_>, v: interpreter::value::Val, mode: interpreter::lang::Mode) -> Result<String, interpreter::value::VmErr> { interpreter_lib::fmt::render::hook::<Self>(cx, v, mode) }
 }
 
-impl lib::Lang for Neutral {
-    const TREE: &'static lib::lang::Tree = &rig::types::TREE;
+impl interpreter_lib::Lang for Neutral {
+    const TREE: &'static interpreter_lib::lang::Tree = &rig::types::TREE;
 
-    fn class(c: lib::Class) -> &'static str { <Rig as lib::Lang>::class(c) }
+    fn class(c: interpreter_lib::Class) -> &'static str { <Rig as interpreter_lib::Lang>::class(c) }
 }
 
-static NEUTRAL_TIME: edge::value::foreign::Kind = date::time_kind::<Neutral>("time");
-static NEUTRAL_DURATION: edge::value::foreign::Kind = date::duration_kind::<Neutral>("duration");
+static NEUTRAL_TIME: interpreter::value::foreign::Kind = date::time_kind::<Neutral>("time");
+static NEUTRAL_DURATION: interpreter::value::foreign::Kind = date::duration_kind::<Neutral>("duration");
 
 impl date::Dates for Neutral {
-    const TIME: &'static edge::value::foreign::Kind = &NEUTRAL_TIME;
-    const DURATION: &'static edge::value::foreign::Kind = &NEUTRAL_DURATION;
+    const TIME: &'static interpreter::value::foreign::Kind = &NEUTRAL_TIME;
+    const DURATION: &'static interpreter::value::foreign::Kind = &NEUTRAL_DURATION;
 }
 
 #[test]

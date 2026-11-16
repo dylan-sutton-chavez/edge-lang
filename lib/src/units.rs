@@ -2,8 +2,8 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::ops::Range;
 
-use edge::lang::{Acc, Args, Cx, ErrKind, Flow, Fold, Item, KindId, Ret, STEPS, Sig, Step};
-use edge::value::{HeapObj, Val, VmErr, cold_heap};
+use interpreter::lang::{Acc, Args, Cx, ErrKind, Flow, Fold, Item, KindId, Ret, STEPS, Sig, Step};
+use interpreter::value::{HeapObj, Val, VmErr, cold_heap};
 
 use crate::fail::{Error, Fail, fail};
 use crate::iter::items::{PIECE, SHORT, gather};
@@ -11,7 +11,7 @@ use crate::lang::{Lang, Machine};
 use crate::num::{bounds, ssize, word};
 use crate::{Kernel, Site};
 
-pub use edge::util::search;
+pub use interpreter::util::search;
 
 /* a text or a buffer as a run of units the kernels read alike */
 pub trait Hay {

@@ -2,8 +2,8 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::cmp::Ordering;
 
-use edge::lang::{Args, Cx, Ret, Sig};
-use edge::value::{HeapPool, Val, VmErr, fabs, fround, ftrunc};
+use interpreter::lang::{Args, Cx, Ret, Sig};
+use interpreter::value::{HeapPool, Val, VmErr, fabs, fround, ftrunc};
 
 use super::{big, bool_int, negative};
 use crate::fail::{Fail, fail};

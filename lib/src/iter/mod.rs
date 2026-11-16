@@ -2,8 +2,8 @@ use alloc::rc::Rc;
 use alloc::vec::Vec;
 use core::cell::RefCell;
 
-use edge::lang::{Acc, Args, Cx, Flow, Fold, Intrinsic, Item, KindId, Out, Ret, STEPS, Sent, Sig, Step, TYPE};
-use edge::value::{HeapObj, HeapPool, IterFrame, Val, VmErr};
+use interpreter::lang::{Acc, Args, Cx, Flow, Fold, Intrinsic, Item, KindId, Out, Ret, STEPS, Sent, Sig, Step, TYPE};
+use interpreter::value::{HeapObj, HeapPool, IterFrame, Val, VmErr};
 
 use crate::fail::{Fail, fail, receiver};
 use crate::lang::Derived;

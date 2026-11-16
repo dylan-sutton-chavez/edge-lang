@@ -1,9 +1,9 @@
-use edge::embed::{Limits, VM};
+use interpreter::embed::{Limits, VM};
 use rig::RUNTIME;
 
 /* what `src` printed and then the words of the error it ended in */
 fn run(src: &str) -> String {
-    let (chunk, errors) = edge::code::compile_as::<rig::Rig>(src);
+    let (chunk, errors) = interpreter::code::compile_as::<rig::Rig>(src);
     assert!(errors.is_empty(), "{src}");
     let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits { ops: 10_000_000, memory: usize::MAX });
     let end = vm.run().err().map(|e| e.to_string()).unwrap_or_default();
@@ -87,9 +87,9 @@ fn errors_keep_their_words() {
 }
 
 // top beside the rig's tables as a runtime that ranks rows would name it
-const TOP: &[edge::lang::Native] = &lib::table![rig::Rig; "top" => lib::seq::top::top{"key"}];
+const TOP: &[interpreter::lang::Native] = &interpreter_lib::table![rig::Rig; "top" => interpreter_lib::seq::top::top{"key"}];
 
-static RANKED: edge::lang::Natives = edge::natives! {
+static RANKED: interpreter::lang::Natives = interpreter::natives! {
     language: Ranked,
     fns: [rig::natives::IO, rig::natives::ITER, rig::natives::NEXT, rig::natives::NUM, rig::natives::FOLDS, rig::natives::CONVERT, rig::natives::BYTES, rig::natives::SORT, rig::natives::TYPES, rig::natives::MATCH, rig::natives::DATE, TOP],
     methods: [
@@ -103,7 +103,7 @@ static RANKED: edge::lang::Natives = edge::natives! {
     types: rig::types::NAMES,
 };
 
-static RANKED_RUNTIME: edge::lang::Runtime = edge::lang::Runtime::of::<Ranked>();
+static RANKED_RUNTIME: interpreter::lang::Runtime = interpreter::lang::Runtime::of::<Ranked>();
 
 // the rig's language over the ranked natives
 struct Ranked;
@@ -111,7 +111,7 @@ rig::over!(Ranked, &RANKED);
 
 /* what `src` printed under the rig's tables with top beside them */
 fn ranked(src: &str) -> String {
-    let (chunk, errors) = edge::code::compile_as::<rig::Rig>(src);
+    let (chunk, errors) = interpreter::code::compile_as::<rig::Rig>(src);
     assert!(errors.is_empty(), "{src}");
     let mut vm = VM::with_runtime(&RANKED_RUNTIME, &chunk, Limits { ops: 50_000_000, memory: usize::MAX });
     let end = vm.run().err().map(|e| e.to_string()).unwrap_or_default();
@@ -139,7 +139,7 @@ fn top_keeps_the_rows_a_stable_descending_sort_puts_first() {
 fn the_greatest_keys_cost_about_one_comparison_each() {
     let keys: Vec<u64> = (0..10_000u64).map(|i| (i * 2_654_435_761) % 1_000).collect();
     let mut asked = 0usize;
-    let kept = lib::seq::top::greatest::<()>(keys.len(), 10, |x, y| { asked += 1; Ok(keys[x] < keys[y]) }).unwrap_or_default();
+    let kept = interpreter_lib::seq::top::greatest::<()>(keys.len(), 10, |x, y| { asked += 1; Ok(keys[x] < keys[y]) }).unwrap_or_default();
     let mut order: Vec<usize> = (0..keys.len()).collect();
     order.sort_by_key(|&i| std::cmp::Reverse(keys[i]));
     let (mut got, mut want) = (kept.clone(), order[..10].to_vec());

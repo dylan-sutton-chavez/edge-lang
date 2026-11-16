@@ -1,7 +1,7 @@
-use edge::code::OpCode as O;
-use edge::lexer::grammar::{Emit, Form, Grammar, Mode, Row, Slot};
-use edge::lexer::{index, operators, Binding, Blocks, Comments, Cond, Continuation, Dot, Ends, Escapes, Interp, Keywords, Lambda, Literal, Numbers, Quote, Shapes, Spelling, Strings, Suffix, Syntax, TokenType, Unicode, Unknown, Zeros, BYTES};
-use edge::lexer::TokenType as T;
+use interpreter::code::OpCode as O;
+use interpreter::lexer::grammar::{Emit, Form, Grammar, Mode, Row, Slot};
+use interpreter::lexer::{index, operators, Binding, Blocks, Comments, Cond, Continuation, Dot, Ends, Escapes, Interp, Keywords, Lambda, Literal, Numbers, Quote, Shapes, Spelling, Strings, Suffix, Syntax, TokenType, Unicode, Unknown, Zeros, BYTES};
+use interpreter::lexer::TokenType as T;
 
 const WORDS: &[(&str, TokenType)] = &[
     ("fn", T::Fn), ("return", T::Return), ("use", T::Import), ("as", T::As), ("if", T::If), ("else if", T::ElseIf), ("else", T::Else),
@@ -123,5 +123,5 @@ pub struct Rig;
 
 impl Spelling for Rig {
     const SYNTAX: Syntax = RIG;
-    const NATIVES: &'static edge::lang::Natives = &super::NATIVES;
+    const NATIVES: &'static interpreter::lang::Natives = &super::NATIVES;
 }

@@ -1,4 +1,4 @@
-use edge::lang::{Fast1, Fast2, FastOut, Intrinsic, Native, NativeFn, Sig, VAR};
+use interpreter::lang::{Fast1, Fast2, FastOut, Intrinsic, Native, NativeFn, Sig, VAR};
 
 /* the runtime and the name one table entry gives the kernel it registers */
 pub trait Site: 'static {

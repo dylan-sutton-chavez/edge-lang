@@ -1,14 +1,14 @@
 mod test {
-    use edge::embed::{Limits, VM};
-    use edge::lang::{Access, CallRule, CallShape, Cmp, Cx, Descriptor, EngineError, Front, GetRule, Key, KindId, Language, Misfit, Mode, Name, Names, Native, Natives, Op, OpRule, Policy, Runtime};
-    use edge::lexer::{Spelling, Syntax};
-    use edge::value::foreign::{BinOp, Kind, UnOp};
-    use edge::value::{HeapPool, Val, VmErr};
+    use interpreter::embed::{Limits, VM};
+    use interpreter::lang::{Access, CallRule, CallShape, Cmp, Cx, Descriptor, EngineError, Front, GetRule, Key, KindId, Language, Misfit, Mode, Name, Names, Native, Natives, Op, OpRule, Policy, Runtime};
+    use interpreter::lexer::{Spelling, Syntax};
+    use interpreter::value::foreign::{BinOp, Kind, UnOp};
+    use interpreter::value::{HeapPool, Val, VmErr};
     use rig::Rig;
     use rig::natives::{ARRAY, BUFFER, BYTES, CONVERT, DICT, FLOAT, FOLDS, INT, IO, ITER, LIST, LIST_SORT, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
 
     // the rig's natives under a runtime whose rules answer what the engine refuses
-    static NATIVES: Natives = edge::natives! {
+    static NATIVES: Natives = interpreter::natives! {
         language: Binds,
         fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, TYPES],
         methods: [
@@ -42,7 +42,7 @@ mod test {
     }
 
     /* the id of method `name` of kind `kind` */
-    fn method(cx: &Cx<'_, '_>, kind: KindId, name: &str) -> Option<edge::lang::NativeId> {
+    fn method(cx: &Cx<'_, '_>, kind: KindId, name: &str) -> Option<interpreter::lang::NativeId> {
         cx.natives().method(kind, name).map(|n| n.id)
     }
 
@@ -54,7 +54,7 @@ mod test {
         const FRONT: Front = Front::spelled::<Binds>();
         const DESCRIPTOR: &'static Descriptor = &rig::DESCRIPTOR;
         const WIDE: Option<&'static Kind> = <Rig as Language>::WIDE;
-        const BUILT: edge::value::foreign::Built = <rig::Rig as Language>::BUILT;
+        const BUILT: interpreter::value::foreign::Built = <rig::Rig as Language>::BUILT;
         type Ops = ();
 
         fn bind_get(cx: &mut Cx<'_, '_>, recv: Key, name: Name, how: Access) -> GetRule {
@@ -101,7 +101,7 @@ mod test {
 
     /* what `src` prints under the runtime or the error that ends it */
     fn ran(src: &str) -> String {
-        let (chunk, errors) = edge::code::compile_as::<Binds>(src);
+        let (chunk, errors) = interpreter::code::compile_as::<Binds>(src);
         assert!(errors.is_empty(), "{src:?} reports {:?}", errors.iter().map(|d| &d.msg).collect::<Vec<_>>());
         let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
         match vm.run() {
@@ -143,7 +143,7 @@ mod test {
         const FRONT: Front = Front::spelled::<Hooked>();
         const DESCRIPTOR: &'static Descriptor = &rig::DESCRIPTOR;
         const WIDE: Option<&'static Kind> = <Rig as Language>::WIDE;
-        const BUILT: edge::value::foreign::Built = <rig::Rig as Language>::BUILT;
+        const BUILT: interpreter::value::foreign::Built = <rig::Rig as Language>::BUILT;
         type Ops = ();
 
         fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Mode) -> Result<String, VmErr> { <Rig as Language>::show(cx, v, mode) }
@@ -157,7 +157,7 @@ mod test {
         fn message(cx: &mut Cx<'_, '_>, e: &EngineError) -> String { <Rig as Language>::message(cx, e) }
 
         fn raise(cx: &mut Cx<'_, '_>, e: EngineError) -> Result<Val, VmErr> {
-            let Some(kind) = e.kind() else { return edge::lang::raised::<Self>(cx, e) };
+            let Some(kind) = e.kind() else { return interpreter::lang::raised::<Self>(cx, e) };
             let words = <Rig as Language>::message(cx, &e).to_uppercase();
             let words = cx.new_str(words)?;
             cx.heap_mut().new_error(rig::NAMES.error(kind), vec![words])
@@ -165,9 +165,9 @@ mod test {
 
         fn type_name<'h>(cx: &'h Cx<'_, '_>, v: Val) -> &'h str { if v.is_int() { "whole" } else { cx.plain_type(v) } }
 
-        fn error_kind(cx: &Cx<'_, '_>, exc: Val) -> edge::abi::ErrorKind {
+        fn error_kind(cx: &Cx<'_, '_>, exc: Val) -> interpreter::abi::ErrorKind {
             match cx.heap().class_of(exc) {
-                Some(c) if cx.heap().is_class(c) => edge::abi::ErrorKind::Value,
+                Some(c) if cx.heap().is_class(c) => interpreter::abi::ErrorKind::Value,
                 _ => <Rig as Language>::error_kind(cx, exc),
             }
         }
@@ -177,7 +177,7 @@ mod test {
 
     /* what `src` prints under the hooked runtime or the error that ends it */
     fn hooked(src: &str) -> String {
-        let (chunk, errors) = edge::code::compile_as::<Hooked>(src);
+        let (chunk, errors) = interpreter::code::compile_as::<Hooked>(src);
         assert!(errors.is_empty());
         let mut vm = VM::with_runtime(&HOOKED, &chunk, Limits::sandbox());
         match vm.run() {
@@ -221,7 +221,7 @@ mod test {
         const FRONT: Front = Front::spelled::<Counted>();
         const DESCRIPTOR: &'static Descriptor = &rig::DESCRIPTOR;
         const WIDE: Option<&'static Kind> = <Rig as Language>::WIDE;
-        const BUILT: edge::value::foreign::Built = <rig::Rig as Language>::BUILT;
+        const BUILT: interpreter::value::foreign::Built = <rig::Rig as Language>::BUILT;
         type Ops = ();
 
         fn bind_get(cx: &mut Cx<'_, '_>, recv: Key, name: Name, how: Access) -> GetRule {
@@ -258,7 +258,7 @@ mod test {
         static TURN: std::sync::Mutex<()> = std::sync::Mutex::new(());
         let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
         for a in &ASKED { a.store(0, std::sync::atomic::Ordering::Relaxed); }
-        let (chunk, errors) = edge::code::compile_as::<Counted>(src);
+        let (chunk, errors) = interpreter::code::compile_as::<Counted>(src);
         assert!(errors.is_empty());
         let mut vm = VM::with_runtime(&COUNTED, &chunk, Limits::sandbox());
         let out = match vm.run() { Ok(_) => vm.output_text().trim_end().to_string(), Err(e) => vm.error_text(&e) };

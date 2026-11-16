@@ -1,7 +1,7 @@
 use alloc::string::String;
 
-use edge::lang::{Args, Cx, KindId, Language, Mode, Ret, Sig, TYPE};
-use edge::value::{HeapObj, HeapPool, Val, VmErr};
+use interpreter::lang::{Args, Cx, KindId, Language, Mode, Ret, Sig, TYPE};
+use interpreter::value::{HeapObj, HeapPool, Val, VmErr};
 
 use crate::fail::{Error, Fail, fail, receiver};
 use crate::fmt::render::{foreign_owned, text_fast, text_val};
@@ -35,7 +35,7 @@ fn decoded<S: Site>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
             let Some(v) = a.get(i + 1) else { continue };
             match cx.text(v) {
                 Some(t) => *slot = Some(String::from(t)),
-                None => return Err(fail::<S>(cx, Fail::ParamType { at: i as u8 + 1, v, want: edge::lang::KindId::Str })),
+                None => return Err(fail::<S>(cx, Fail::ParamType { at: i as u8 + 1, v, want: interpreter::lang::KindId::Str })),
             }
         }
         let buf: alloc::vec::Vec<u8> = match a.get(0) {

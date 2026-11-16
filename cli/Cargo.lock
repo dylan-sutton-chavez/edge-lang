@@ -3,10 +3,6 @@
 version = 4
 
 [[package]]
-name = "abi"
-version = "0.9.7"
-
-[[package]]
 name = "addr2line"
 version = "0.26.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -316,31 +312,6 @@ name = "clap_lex"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c133bc6a41be0d194c306b5506d15e6feeea7b1d6604bd3f8310dfb2ca96486"
-
-[[package]]
-name = "cli"
-version = "0.9.7"
-dependencies = [
- "anyhow",
- "clap",
- "edge",
- "flate2",
- "headless_chrome",
- "lib",
- "lox",
- "mio",
- "rig",
- "serde",
- "serde_json",
- "serde_yaml_ng",
- "signal-hook",
- "slab",
- "tempfile",
- "tiny_http",
- "tungstenite",
- "ureq",
- "wasmtime",
-]
 
 [[package]]
 name = "cmov"
@@ -748,17 +719,6 @@ dependencies = [
  "cfg-if",
  "libc",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "edge"
-version = "0.9.7"
-dependencies = [
- "abi",
- "dlmalloc",
- "hashbrown 0.17.1",
- "itoa",
- "libm",
 ]
 
 [[package]]
@@ -1182,6 +1142,62 @@ dependencies = [
 ]
 
 [[package]]
+name = "interpreter"
+version = "0.10.0"
+dependencies = [
+ "dlmalloc",
+ "hashbrown 0.17.1",
+ "interpreter-abi",
+ "itoa",
+ "libm",
+]
+
+[[package]]
+name = "interpreter-abi"
+version = "0.10.0"
+
+[[package]]
+name = "interpreter-cli"
+version = "0.10.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "flate2",
+ "headless_chrome",
+ "interpreter",
+ "interpreter-lib",
+ "interpreter-lox",
+ "mio",
+ "rig",
+ "serde",
+ "serde_json",
+ "serde_yaml_ng",
+ "signal-hook",
+ "slab",
+ "tempfile",
+ "tiny_http",
+ "tungstenite",
+ "ureq",
+ "wasmtime",
+]
+
+[[package]]
+name = "interpreter-lib"
+version = "0.10.0"
+dependencies = [
+ "interpreter",
+ "itoa",
+]
+
+[[package]]
+name = "interpreter-lox"
+version = "0.10.0"
+dependencies = [
+ "interpreter",
+ "interpreter-lib",
+]
+
+[[package]]
 name = "is_terminal_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1230,14 +1246,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "09edd9e8b54e49e587e4f6295a7d29c3ea94d469cb40ab8ca70b288248a81db2"
 
 [[package]]
-name = "lib"
-version = "0.9.7"
-dependencies = [
- "edge",
- "itoa",
-]
-
-[[package]]
 name = "libbz2-rs-sys"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1281,14 +1289,6 @@ name = "log"
 version = "0.4.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
-
-[[package]]
-name = "lox"
-version = "0.9.7"
-dependencies = [
- "edge",
- "lib",
-]
 
 [[package]]
 name = "lzma-rust2"
@@ -1603,10 +1603,10 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "rig"
-version = "0.9.7"
+version = "0.10.0"
 dependencies = [
- "edge",
- "lib",
+ "interpreter",
+ "interpreter-lib",
 ]
 
 [[package]]

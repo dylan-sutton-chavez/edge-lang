@@ -1,16 +1,16 @@
 use afl::fuzz;
 
-use edge::code::{SSAChunk, Parser};
-use edge::deps::NoopResolver;
-use edge::embed as snapshot;
-use edge::embed::{Limits, VM};
-use edge::lang::Runtime;
-use edge::lexer::lex_as;
-use edge::value::{SchedulerStatus, VmErr};
+use interpreter::code::{SSAChunk, Parser};
+use interpreter::deps::NoopResolver;
+use interpreter::embed as snapshot;
+use interpreter::embed::{Limits, VM};
+use interpreter::lang::Runtime;
+use interpreter::lexer::lex_as;
+use interpreter::value::{SchedulerStatus, VmErr};
 use rig::Rig;
 
-// every run meters what it allocates as edge.wasm does
-edge::allocator!();
+// every run meters what it allocates as interpreter.wasm does
+interpreter::allocator!();
 
 // Tight so fuzzed loops preempt and unwind.
 const PREEMPT_EVERY: usize = 7;
@@ -23,8 +23,8 @@ fn main() {
         let Ok(src) = core::str::from_utf8(data) else { return };
 
         // every input reads through the Lox compiler first
-        let (chunk, errs) = edge::code::compile(&lox::FRONT, src);
-        if errs.is_empty() { drive(&lox::RUNTIME, &chunk, src); }
+        let (chunk, errs) = interpreter::code::compile(&interpreter_lox::FRONT, src);
+        if errs.is_empty() { drive(&interpreter_lox::RUNTIME, &chunk, src); }
 
         // the rig reaches the spelled parser and the VM pieces Lox lacks
         let (tokens, _lex_errs) = lex_as::<Rig>(src);

@@ -7,7 +7,7 @@ use crate::util::hash::FxHashMap;
 // values nest this deep at most far past what a manifest or lock holds
 const MAX_DEPTH: usize = 32;
 
-/* edge.json and edge.lock values with numbers and booleans refused so typos never pass */
+/* interpreter.json and interpreter.lock values with numbers and booleans refused so typos never pass */
 pub enum Value {
     Str(String),
     List(Vec<Value>),
@@ -203,7 +203,7 @@ mod tests {
 
     #[test]
     fn utf8_survives_and_escapes_decode() {
-        let v = parse("{ \"d\": \"Café \\\"fuerte\\\"\" }".as_bytes(), "edge.json").unwrap();
+        let v = parse("{ \"d\": \"Café \\\"fuerte\\\"\" }".as_bytes(), "interpreter.json").unwrap();
         assert_eq!(v.get("d").and_then(Value::as_str), Some("Café \"fuerte\""));
     }
 
@@ -211,26 +211,26 @@ mod tests {
     #[test]
     fn deep_nesting_is_refused_and_flat_depth_reads() {
         let deep = "[".repeat(100_000);
-        assert_eq!(parse(deep.as_bytes(), "edge.json").err().as_deref(), Some("edge.json nests deeper than 32 levels"));
+        assert_eq!(parse(deep.as_bytes(), "interpreter.json").err().as_deref(), Some("interpreter.json nests deeper than 32 levels"));
         let fits = format!("{}\"x\"{}", "[".repeat(32), "]".repeat(32));
-        assert!(parse(fits.as_bytes(), "edge.json").is_ok());
+        assert!(parse(fits.as_bytes(), "interpreter.json").is_ok());
     }
 
     // repeated keys keep the last value at its place and many keys read linearly
     #[test]
     fn repeated_keys_keep_their_last_value_and_place() {
-        let v = parse(br#"{ "a": "1", "b": "2", "a": "3" }"#, "edge.json").unwrap();
+        let v = parse(br#"{ "a": "1", "b": "2", "a": "3" }"#, "interpreter.json").unwrap();
         let Value::Obj(fields) = &v else { panic!("an object") };
         assert_eq!(fields.iter().map(|(k, v)| (k.as_str(), v.as_str().unwrap())).collect::<Vec<_>>(), [("b", "2"), ("a", "3")]);
         let many = format!("{{ {} }}", (0..200_000).map(|i| alloc::format!("\"k{i}\": \"v\"")).collect::<Vec<_>>().join(", "));
-        let Value::Obj(fields) = parse(many.as_bytes(), "edge.json").unwrap() else { panic!("an object") };
+        let Value::Obj(fields) = parse(many.as_bytes(), "interpreter.json").unwrap() else { panic!("an object") };
         assert_eq!(fields.len(), 200_000);
     }
 
     #[test]
     fn numbers_booleans_and_trailing_text_are_refused() {
         for bad in ["{ \"a\": 1 }", "{ \"a\": true }", "{ \"a\": null }", "{} {}", "{ \"a\": \"\\u0041\" }"] {
-            assert!(parse(bad.as_bytes(), "edge.json").is_err(), "{bad}");
+            assert!(parse(bad.as_bytes(), "interpreter.json").is_err(), "{bad}");
         }
     }
 }

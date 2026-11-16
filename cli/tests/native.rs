@@ -1,20 +1,20 @@
 mod suite;
 
-use cli::cmd::{run, test};
-use cli::{docs, files, manifest, net, perms, Kit, Runtime};
+use interpreter_cli::cmd::{run, test};
+use interpreter_cli::{docs, files, manifest, net, perms, Kit, Runtime};
 use std::sync::Arc;
 use suite::{net, suite, Bin};
 
 // the native engine meters what a run holds through this allocator
-edge::allocator!();
+interpreter::allocator!();
 
 // the variable that makes this binary the CLI for one run of a case
 const AS_CLI: &str = "EDGE_AS_NATIVE";
 
-/* the edge composition's run and test over lox built into this binary */
+/* the interpreter composition's run and test over lox built into this binary */
 fn kit() -> Kit {
-    Kit::new("edge", env!("CARGO_PKG_VERSION"), Runtime::native(&lox::RUNTIME))
-        .title(format!("The Edge Lang developer CLI for {} run natively", lox::DESCRIPTOR.language))
+    Kit::new("interpreter", env!("CARGO_PKG_VERSION"), Runtime::native(&interpreter_lox::RUNTIME))
+        .title(format!("The interpreter developer CLI for {} run natively", interpreter_lox::DESCRIPTOR.language))
         .command(run::Run)
         .command(test::Test)
         .fields(manifest::FIELDS)

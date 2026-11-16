@@ -2,32 +2,32 @@ use std::cell::RefCell;
 use std::path::Path;
 use std::rc::Rc;
 
-use edge::code::SSAChunk;
-use edge::embed::{call_native, Limits, VM};
-use edge::lang::{kind_of, KindId, Native, Natives, Runtime};
-use edge::value::{as_i128, DictMap, HeapObj, Val, ValSet};
-use lib::data::{csv, json, lines};
+use interpreter::code::SSAChunk;
+use interpreter::embed::{call_native, Limits, VM};
+use interpreter::lang::{kind_of, KindId, Native, Natives, Runtime};
+use interpreter::value::{as_i128, DictMap, HeapObj, Val, ValSet};
+use interpreter_lib::data::{csv, json, lines};
 use rig::Rig;
 use rig::natives::{ARRAY, BUFFER, BYTES, CONVERT, DATE, DICT, FLOAT, FOLDS, INT, IO, ITER, LIST, LIST_SORT, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
 use serde_yaml_ng::Value as Yaml;
 
-// every run meters what it allocates as edge.wasm does
-edge::allocator!();
+// every run meters what it allocates as interpreter.wasm does
+interpreter::allocator!();
 
 // the kernels rig leaves out under names of this file so every module answers
-const MORE: &[Native] = &lib::table![Rig;
+const MORE: &[Native] = &interpreter_lib::table![Rig;
     "lines" => lines::lines,
     "json_read" => json::read,
     "json_write" => json::write,
     "csv_read" => csv::read("line", "sep"),
     "csv_write" => csv::write("values", "sep"),
-    "top" => lib::seq::top::top{"key"},
-    "ascii" => lib::fmt::render::ascii_of,
-    "getattr" => lib::reflect::get,
-    "hasattr" => lib::reflect::has,
+    "top" => interpreter_lib::seq::top::top{"key"},
+    "ascii" => interpreter_lib::fmt::render::ascii_of,
+    "getattr" => interpreter_lib::reflect::get,
+    "hasattr" => interpreter_lib::reflect::has,
 ];
 
-static NATIVES: Natives = edge::natives! {
+static NATIVES: Natives = interpreter::natives! {
     language: Over,
     fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, TYPES, DATE, MORE],
     methods: [
@@ -109,7 +109,7 @@ fn pairs(t: &serde_yaml_ng::value::TaggedValue) -> Result<Vec<(&Yaml, &Yaml)>, S
 
 /* the value a case spells built on the heap of `vm` */
 fn value(vm: &mut VM<'_>, y: &Yaml) -> Result<Val, String> {
-    let err = |e: edge::value::VmErr| e.to_string();
+    let err = |e: interpreter::value::VmErr| e.to_string();
     Ok(match y {
         Yaml::Null => Val::none(),
         Yaml::Bool(b) => Val::bool(*b),

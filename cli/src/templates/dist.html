@@ -2,11 +2,11 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>edge app</title>
+  <title>interpreter app</title>
 </head>
 <body>
   <script type="module">
-    // the worker runs the program beside this page under the imports and grants of edge.json
+    // the worker runs the program beside this page under the imports and grants of interpreter.json
     import { createWorker } from "./js/src/index.js";
     const src = await fetch("./__EDGE_ENTRY__").then((r) => r.text());
     const worker = await createWorker({ baseUrl: location.href });

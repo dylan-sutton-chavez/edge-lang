@@ -3,7 +3,7 @@ use alloc::vec::Vec;
 
 use crate::s;
 
-// the leading bytes of an edge package checked before anything is trusted
+// the leading bytes of an interpreter package checked before anything is trusted
 pub const MAGIC: &[u8] = b"EDGEPKG\x01";
 
 // caps on a hostile bundle with room for any real project tree
@@ -47,7 +47,7 @@ impl Bundle {
     pub fn index(buf: &[u8]) -> Result<Index, String> {
         let mut r = Reader { buf, p: 0 };
         if !r.take(MAGIC.len())?.starts_with(MAGIC) {
-            return Err(s!("not an edge package"));
+            return Err(s!("not an interpreter package"));
         }
         let entry = r.str()?;
         plain(&entry)?;
@@ -153,7 +153,7 @@ mod tests {
             files: alloc::vec![
                 Entry { path: s!("main.lox"), bytes: b"import lib\n".to_vec() },
                 Entry { path: s!("lib/util.lox"), bytes: b"fn f() { pass }\n".to_vec() },
-                Entry { path: s!("https://example.com/dep.edge"), bytes: b"EDGEPKG\x01".to_vec() },
+                Entry { path: s!("https://example.com/dep.interpreter"), bytes: b"EDGEPKG\x01".to_vec() },
             ],
         }
     }

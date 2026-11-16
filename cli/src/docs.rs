@@ -17,7 +17,7 @@ pub fn collect(project: &Path, declared: Option<&str>, d: &Descriptor) -> Result
     let Some(declared) = declared else { return Ok(Vec::new()) };
     let root = project.join(relative(declared)?);
     if !root.is_dir() {
-        bail!("edge.json declares docs at '{declared}' and no directory is there");
+        bail!("interpreter.json declares docs at '{declared}' and no directory is there");
     }
     let mut found = pages(&root, "", &mut HashSet::new())?;
     if found.is_empty() {
@@ -37,7 +37,7 @@ pub fn collect(project: &Path, declared: Option<&str>, d: &Descriptor) -> Result
 /* the declared path made plain and relative with the guard bundle paths get on read */
 fn relative(declared: &str) -> Result<String> {
     let trimmed = declared.trim_start_matches("./").trim_end_matches('/');
-    if !edge::deps::rules::plain(trimmed) {
+    if !interpreter::deps::rules::plain(trimmed) {
         bail!("docs '{declared}' must be a relative path inside the project");
     }
     Ok(trimmed.to_string())
@@ -270,7 +270,7 @@ fn lone(page: &str, d: &Descriptor) -> anyhow::Error {
     anyhow!("'{page}' has an {} block that no {} block follows", d.manifest_fence, d.example_fence)
 }
 
-// a manifest block holds one JSON object as the edge.json its example runs under
+// a manifest block holds one JSON object as the interpreter.json its example runs under
 fn object(text: &str) -> bool {
     serde_json::from_str::<serde_json::Value>(text).is_ok_and(|value| value.is_object())
 }
@@ -370,7 +370,7 @@ mod tests {
                 fs::write(at, body).unwrap();
             }
             let pages = case.files.keys().filter(|p| p.ends_with(".mdx")).count();
-            match (&case.error, collect(dir.path(), Some("./docs"), &lox::DESCRIPTOR)) {
+            match (&case.error, collect(dir.path(), Some("./docs"), &interpreter_lox::DESCRIPTOR)) {
                 (None, Ok(got)) => assert_eq!(got.len(), pages, "{}", case.name),
                 (None, Err(e)) => panic!("{} should pass, got {e:#}", case.name),
                 (Some(want), Err(e)) => {
@@ -389,21 +389,21 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         fs::create_dir_all(dir.path().join("docs/01-reference")).unwrap();
         fs::write(dir.path().join("docs/01-reference/01-cli.mdx"), PAGE).unwrap();
-        let got = collect(dir.path(), Some("docs"), &lox::DESCRIPTOR).unwrap();
+        let got = collect(dir.path(), Some("docs"), &interpreter_lox::DESCRIPTOR).unwrap();
         assert_eq!(got[0].0, "@docs/01-reference/01-cli.mdx");
     }
 
     #[test]
     fn no_docs_key_collects_nothing() {
         let dir = tempfile::tempdir().unwrap();
-        assert!(collect(dir.path(), None, &lox::DESCRIPTOR).unwrap().is_empty());
+        assert!(collect(dir.path(), None, &interpreter_lox::DESCRIPTOR).unwrap().is_empty());
     }
 
     #[test]
     fn a_path_outside_the_project_is_refused() {
         let dir = tempfile::tempdir().unwrap();
         for bad in ["../docs", "/etc", "https://example.com/docs", "./"] {
-            let err = format!("{:#}", collect(dir.path(), Some(bad), &lox::DESCRIPTOR).expect_err(bad));
+            let err = format!("{:#}", collect(dir.path(), Some(bad), &interpreter_lox::DESCRIPTOR).expect_err(bad));
             assert!(err.contains("must be a relative path"), "{bad} got '{err}'");
         }
     }
@@ -412,7 +412,7 @@ mod tests {
     #[test]
     fn the_repo_docs_hold_to_the_rules() {
         let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
-        let pages = collect(&repo, Some("docs"), &lox::DESCRIPTOR).unwrap_or_else(|e| panic!("{e:#}"));
+        let pages = collect(&repo, Some("docs"), &interpreter_lox::DESCRIPTOR).unwrap_or_else(|e| panic!("{e:#}"));
         assert!(!pages.is_empty());
     }
 }
@@ -420,6 +420,9 @@ mod tests {
 // the rust blocks of each page compile and run as doctests of this crate
 #[cfg(doctest)]
 mod examples {
+    #[doc = include_str!("../../README.md")]
+    struct Readme;
+
     #[doc = include_str!("../../docs/02-runtime.mdx")]
     struct Runtime;
 

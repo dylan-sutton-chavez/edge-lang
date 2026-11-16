@@ -1,8 +1,8 @@
 use alloc::string::String;
 
-use edge::lang::{Cx, KindId, Mode};
-use edge::s;
-use edge::value::{Val, VmErr, fabs, ftrunc};
+use interpreter::lang::{Cx, KindId, Mode};
+use interpreter::s;
+use interpreter::value::{Val, VmErr, fabs, ftrunc};
 
 use crate::Lang;
 use crate::fail::{At, Fail, Spec as Why, bare};

@@ -1,7 +1,7 @@
 use alloc::string::String;
 
-use edge::lang::{Args, Cx, ErrKind, Ret, Sig};
-use edge::value::{HeapObj, HeapPool, Val, VmErr};
+use interpreter::lang::{Args, Cx, ErrKind, Ret, Sig};
+use interpreter::value::{HeapObj, HeapPool, Val, VmErr};
 
 use crate::fail::{Fail, fail};
 use crate::{Kernel, Site};

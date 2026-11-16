@@ -208,7 +208,7 @@ pub enum ImportSpec {
     Bare(String),
     // leading dots anchored at the importer dir
     Relative(String),
-    // a dotted name anchored at the nearest edge.json dir
+    // a dotted name anchored at the nearest interpreter.json dir
     Root(String),
 }
 

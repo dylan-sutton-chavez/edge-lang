@@ -1,11 +1,11 @@
 #[cfg(test)]
 mod test {
 
-    use edge::code::SSAChunk;
-    use edge::embed::VM;
-    use edge::embed as snapshot;
-    use edge::deps::NoopResolver;
-    use edge::value::{Limits, SchedulerStatus, VmErr};
+    use interpreter::code::SSAChunk;
+    use interpreter::embed::VM;
+    use interpreter::embed as snapshot;
+    use interpreter::deps::NoopResolver;
+    use interpreter::value::{Limits, SchedulerStatus, VmErr};
 
     use crate::common::{lex, parser};
 
@@ -67,9 +67,9 @@ mod test {
 
     /* `src` compiled by Lox's front and kept for the run */
     fn lox_static(src: &str) -> &'static SSAChunk {
-        let (chunk, errs) = edge::code::compile(&lox::FRONT, src);
+        let (chunk, errs) = interpreter::code::compile(&interpreter_lox::FRONT, src);
         assert!(errs.is_empty(), "compile error in {:?}: {:?}", src, errs.iter().map(|e| &e.msg).collect::<Vec<_>>());
-        edge::util::leak(Box::new(chunk))
+        interpreter::util::leak(Box::new(chunk))
     }
 
     fn parse_static(src: &str) -> &'static SSAChunk {
@@ -77,8 +77,8 @@ mod test {
         assert!(lex_errs.is_empty(), "lex error in {:?}", src);
         let (mut chunk, errs) = parser(src, tokens.into_iter(), Box::new(NoopResolver)).parse();
         assert!(errs.is_empty(), "parse error in {:?}: {:?}", src, errs.iter().map(|e| &e.msg).collect::<Vec<_>>());
-        edge::code::constant_fold(&mut chunk, rig::FRONT.policy);
-        edge::util::leak(Box::new(chunk))
+        interpreter::code::constant_fold(&mut chunk, rig::FRONT.policy);
+        interpreter::util::leak(Box::new(chunk))
     }
 
     fn limits_for(case: &Case) -> Limits {
@@ -93,7 +93,7 @@ mod test {
 
     /* a bare VM to restore into since the state arrives from the blob */
     fn fresh(case: &Case, interval: usize) -> VM<'static> {
-        let mut vm = if case.lox { VM::with_runtime(&lox::RUNTIME, lox_static(&case.src), limits_for(case)) } else { crate::common::boot(parse_static(&case.src), limits_for(case)) };
+        let mut vm = if case.lox { VM::with_runtime(&interpreter_lox::RUNTIME, lox_static(&case.src), limits_for(case)) } else { crate::common::boot(parse_static(&case.src), limits_for(case)) };
         vm.set_preempt_interval(interval);
         if case.sends.is_some() { vm.send_hook = Some(accept_send); }
         vm
@@ -380,7 +380,7 @@ mod test {
         for forged in [handle(1, 0), handle(0, 7)] {
             let mut bad = body.to_vec();
             for at in 0..bad.len() - 7 { if bad[at..at + 8] == real { bad[at..at + 8].copy_from_slice(&forged); } }
-            let seal = edge::util::sha256::sha256(&bad);
+            let seal = interpreter::util::sha256::sha256(&bad);
             bad.extend_from_slice(&seal);
             let mut vm = crate::common::boot(parse_static(src), Limits::sandbox());
             let err = snapshot::restore(&mut vm, &bad).unwrap_err();
@@ -418,7 +418,7 @@ mod test {
                 let mut bad = blob[..body].to_vec();
                 if bad[at] == v { continue; }
                 bad[at] = v;
-                let seal = edge::util::sha256::sha256(&bad);
+                let seal = interpreter::util::sha256::sha256(&bad);
                 bad.extend_from_slice(&seal);
                 let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     let mut vm = crate::common::boot(chunk, Limits { ops, memory: 64 << 20 });

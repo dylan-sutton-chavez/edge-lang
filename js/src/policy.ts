@@ -16,15 +16,15 @@ function originOf(spec: string): string[] {
     }
 }
 
-/* what a room may fetch and the root edge.json the page gives or finds */
+/* what a room may fetch and the root interpreter.json the page gives or finds */
 export async function rootOf(given: { imports?: Record<string, string> | null, permissions?: unknown }, base: string | null): Promise<{ specs: string[], manifest: Record<string, unknown> }> {
     if (standsIn(given) || !base) return { specs: Object.values(given.imports ?? {}), manifest: {} };
     const json = (name: string): Promise<Record<string, unknown>> =>
         fetch(new URL(name, base), { credentials: 'omit' }).then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
-    const manifest = await json('edge.json');
+    const manifest = await json('interpreter.json');
     const specs = Object.values((manifest['imports'] ?? {}) as Record<string, unknown>).map(String);
     // the lock names where each release lives so the room may reach it
-    const locked = Object.values(await json('edge.lock')).map((entry) => String((entry as { url?: unknown } | null)?.url ?? ''));
+    const locked = Object.values(await json('interpreter.lock')).map((entry) => String((entry as { url?: unknown } | null)?.url ?? ''));
     return { specs: [...specs, ...locked], manifest };
 }
 

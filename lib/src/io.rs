@@ -1,8 +1,8 @@
 use alloc::borrow::Cow;
 use alloc::string::String;
 
-use edge::lang::{Args, Cx, Language, Mode, Ret, STEPS, Sig, Step};
-use edge::value::{HeapObj, HeapPool, Val, VmErr};
+use interpreter::lang::{Args, Cx, Language, Mode, Ret, STEPS, Sig, Step};
+use interpreter::value::{HeapObj, HeapPool, Val, VmErr};
 
 use crate::fail::{Fail, fail};
 use crate::fmt::render::{Style, push_f64};

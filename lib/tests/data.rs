@@ -1,15 +1,15 @@
-use edge::embed::{Limits, VM};
-use edge::lang::{Native, Natives, Runtime};
-use lib::data::lines::Lines;
-use lib::data::{csv, json, lines};
+use interpreter::embed::{Limits, VM};
+use interpreter::lang::{Native, Natives, Runtime};
+use interpreter_lib::data::lines::Lines;
+use interpreter_lib::data::{csv, json, lines};
 use rig::Rig;
 use rig::natives::{ARRAY, BUFFER, BYTES, CONVERT, DICT, FLOAT, FOLDS, INT, IO, ITER, LIST, LIST_SORT, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
 
-// every run meters what it allocates as edge.wasm does
-edge::allocator!();
+// every run meters what it allocates as interpreter.wasm does
+interpreter::allocator!();
 
 // the data kernels under names of this test beside the rig's own tables
-const DATA: &[Native] = &lib::table![Rig;
+const DATA: &[Native] = &interpreter_lib::table![Rig;
     "lines" => lines::lines,
     "json_read" => json::read,
     "json_write" => json::write,
@@ -17,7 +17,7 @@ const DATA: &[Native] = &lib::table![Rig;
     "csv_write" => csv::write("values", "sep"),
 ];
 
-static NATIVES: Natives = edge::natives! {
+static NATIVES: Natives = interpreter::natives! {
     language: Over,
     fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, TYPES, rig::natives::MATCH, rig::natives::DATE, DATA],
     methods: [
@@ -43,7 +43,7 @@ rig::over!(Over, &NATIVES);
 
 /* what `src` printed and its error after it when one ended the run */
 fn run(src: &str) -> String {
-    let (chunk, errors) = edge::code::compile_as::<Rig>(src);
+    let (chunk, errors) = interpreter::code::compile_as::<Rig>(src);
     assert!(errors.is_empty(), "{src}: {:?}", errors.iter().map(|e| &e.msg).collect::<Vec<_>>());
     let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
     let ran = vm.run();
@@ -238,12 +238,12 @@ fn json_write_pays_for_shared_parts_each_time_they_show() {
     // a hundred levels each holding one child twice write two to the hundredth values
     let doubled = |depth: u32| format!("x = [1]\nfor i in range({depth}) {{\n    x = [x, x]\n}}\nprint(len(json_write(x)))\n");
     let small = || Limits { ops: 2_000_000, memory: 64 << 20 };
-    let (chunk, _) = edge::code::compile_as::<Rig>(&doubled(100));
+    let (chunk, _) = interpreter::code::compile_as::<Rig>(&doubled(100));
     let mut vm = VM::with_runtime(&RUNTIME, &chunk, small());
-    assert!(matches!(vm.run(), Err(edge::value::VmErr::Budget)), "the walk ends on the budget and not on the memory");
+    assert!(matches!(vm.run(), Err(interpreter::value::VmErr::Budget)), "the walk ends on the budget and not on the memory");
     assert!(vm.memory_peak() < 32 << 20, "{} bytes", vm.memory_peak());
     // a smaller one writes in full with every copy of the shared child
-    let (chunk, _) = edge::code::compile_as::<Rig>(&doubled(12));
+    let (chunk, _) = interpreter::code::compile_as::<Rig>(&doubled(12));
     let mut vm = VM::with_runtime(&RUNTIME, &chunk, small());
     vm.run().expect("a write within the budget");
     assert_eq!(vm.output_text(), "24573\n");
@@ -294,44 +294,44 @@ fn csv_quotes_fields_both_ways() {
 // a runtime that words the reasons of JSON and CSV failures its own way
 struct Terse;
 
-impl lib::fmt::render::Style for Terse {}
+impl interpreter_lib::fmt::render::Style for Terse {}
 
-impl edge::lang::Language for Terse {
+impl interpreter::lang::Language for Terse {
     const VERSION: u32 = 1;
-    const POLICY: edge::lang::Policy = <Rig as edge::lang::Language>::POLICY;
-    const NATIVES: &'static edge::lang::Natives = &TERSE_NATIVES;
-    const NAMES: &'static edge::lang::Names = &rig::NAMES;
-    const FRONT: edge::lang::Front = rig::FRONT;
-    const DESCRIPTOR: &'static edge::lang::Descriptor = &rig::DESCRIPTOR;
-    const WIDE: Option<&'static edge::value::foreign::Kind> = Some(&rig::lang::WIDE);
-    const BUILT: edge::value::foreign::Built = <rig::Rig as edge::lang::Language>::BUILT;
+    const POLICY: interpreter::lang::Policy = <Rig as interpreter::lang::Language>::POLICY;
+    const NATIVES: &'static interpreter::lang::Natives = &TERSE_NATIVES;
+    const NAMES: &'static interpreter::lang::Names = &rig::NAMES;
+    const FRONT: interpreter::lang::Front = rig::FRONT;
+    const DESCRIPTOR: &'static interpreter::lang::Descriptor = &rig::DESCRIPTOR;
+    const WIDE: Option<&'static interpreter::value::foreign::Kind> = Some(&rig::lang::WIDE);
+    const BUILT: interpreter::value::foreign::Built = <rig::Rig as interpreter::lang::Language>::BUILT;
     type Ops = ();
 
-    fn show(cx: &mut edge::lang::Cx<'_, '_>, v: edge::value::Val, mode: edge::lang::Mode) -> Result<String, edge::value::VmErr> { lib::fmt::render::hook::<Self>(cx, v, mode) }
+    fn show(cx: &mut interpreter::lang::Cx<'_, '_>, v: interpreter::value::Val, mode: interpreter::lang::Mode) -> Result<String, interpreter::value::VmErr> { interpreter_lib::fmt::render::hook::<Self>(cx, v, mode) }
 }
 
-impl lib::Lang for Terse {
-    const TREE: &'static lib::lang::Tree = &rig::types::TREE;
+impl interpreter_lib::Lang for Terse {
+    const TREE: &'static interpreter_lib::lang::Tree = &rig::types::TREE;
 
-    fn class(c: lib::Class) -> &'static str { <Rig as lib::Lang>::class(c) }
+    fn class(c: interpreter_lib::Class) -> &'static str { <Rig as interpreter_lib::Lang>::class(c) }
 
-    fn words(cx: &mut edge::lang::Cx<'_, '_>, at: lib::fail::At, f: lib::fail::Fail) -> edge::value::VmErr {
-        use lib::fail::{Csv, Fail, Json, raise};
+    fn words(cx: &mut interpreter::lang::Cx<'_, '_>, at: interpreter_lib::fail::At, f: interpreter_lib::fail::Fail) -> interpreter::value::VmErr {
+        use interpreter_lib::fail::{Csv, Fail, Json, raise};
         match f {
-            Fail::BadJson { why: Json::Key, .. } => raise::<Terse>(lib::Class::Value, "a name in quotes goes there"),
-            Fail::BadJson { at, why } => raise::<Terse>(lib::Class::Value, &format!("{why} {at} bytes in")),
-            Fail::BadCsv { why: Csv::Unclosed, .. } => raise::<Terse>(lib::Class::Value, "a quote stays open"),
-            f => lib::fail::english::<Terse>(cx, at, f),
+            Fail::BadJson { why: Json::Key, .. } => raise::<Terse>(interpreter_lib::Class::Value, "a name in quotes goes there"),
+            Fail::BadJson { at, why } => raise::<Terse>(interpreter_lib::Class::Value, &format!("{why} {at} bytes in")),
+            Fail::BadCsv { why: Csv::Unclosed, .. } => raise::<Terse>(interpreter_lib::Class::Value, "a quote stays open"),
+            f => interpreter_lib::fail::english::<Terse>(cx, at, f),
         }
     }
 }
 
-const TERSE: &[Native] = &lib::table![Terse;
+const TERSE: &[Native] = &interpreter_lib::table![Terse;
     "json_read" => json::read,
     "csv_read" => csv::read("line", "sep"),
 ];
 
-static TERSE_NATIVES: Natives = edge::natives! {
+static TERSE_NATIVES: Natives = interpreter::natives! {
     language: Terse,
     fns: [TERSE],
     methods: [],
@@ -343,14 +343,14 @@ static TERSE_RUNTIME: Runtime = Runtime::of::<Terse>();
 /* the rig's spelling over the terse natives */
 struct Tersely;
 
-impl edge::lexer::Spelling for Tersely {
-    const SYNTAX: edge::lexer::Syntax = rig::RIG;
+impl interpreter::lexer::Spelling for Tersely {
+    const SYNTAX: interpreter::lexer::Syntax = rig::RIG;
     const NATIVES: &'static Natives = &TERSE_NATIVES;
 }
 
 /* the words of the error `src` ends in under the terse runtime */
 fn terse(src: &str) -> String {
-    let (chunk, errors) = edge::code::compile_as::<Tersely>(src);
+    let (chunk, errors) = interpreter::code::compile_as::<Tersely>(src);
     assert!(errors.is_empty(), "{src}");
     let mut vm = VM::with_runtime(&TERSE_RUNTIME, &chunk, Limits::sandbox());
     vm.run().err().map(|e| e.to_string()).unwrap_or_default()
@@ -361,6 +361,6 @@ fn a_json_or_csv_failure_carries_its_reason_for_the_runtime_to_word() {
     assert_eq!(terse("json_read(\"{{\\\"a\\\":1,}}\")"), "ValueError: a name in quotes goes there");
     assert_eq!(terse("json_read(\"[1 2]\")"), "ValueError: expected a comma or a closing bracket 3 bytes in");
     assert_eq!(terse("csv_read(\"a,\\\"b\")"), "ValueError: a quote stays open");
-    assert_eq!(lib::fail::Json::LeadingZero.to_string(), "a number has a leading zero");
-    assert_eq!(lib::fail::ToJson::Cycle.words(), "holds itself");
+    assert_eq!(interpreter_lib::fail::Json::LeadingZero.to_string(), "a number has a leading zero");
+    assert_eq!(interpreter_lib::fail::ToJson::Cycle.words(), "holds itself");
 }

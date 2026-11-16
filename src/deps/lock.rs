@@ -6,8 +6,8 @@ use crate::util::sha256::{hex_encode, sha256};
 use super::json::{self, Value};
 use super::{parse_integrity, rules};
 
-/* the generated file beside an edge.json holding what each name it declares resolves to */
-pub const FILE: &str = "edge.lock";
+/* the generated file beside an interpreter.json holding what each name it declares resolves to */
+pub const FILE: &str = "interpreter.lock";
 
 /* one resolved name with its address and digest and no version for a url */
 #[derive(Clone, Debug, PartialEq)]
@@ -146,19 +146,19 @@ mod tests {
 
     fn locked(name: &str, version: Option<&str>) -> Lock {
         let mut lock = Lock::default();
-        lock.insert(name, Entry { version: version.map(String::from), url: s!("https://cdn.test/pkg/", str name, "/0.1.0/app.edge"), digest: DIGEST.to_string() });
+        lock.insert(name, Entry { version: version.map(String::from), url: s!("https://cdn.test/pkg/", str name, "/0.1.0/app.interpreter"), digest: DIGEST.to_string() });
         lock
     }
 
     #[test]
     fn a_locked_version_becomes_a_pinned_url() {
         let spec = locked_spec("json", "0.1.0", Some(&locked("json", Some("0.1.0")))).unwrap();
-        assert_eq!(spec, s!("https://cdn.test/pkg/json/0.1.0/app.edge#", str DIGEST));
+        assert_eq!(spec, s!("https://cdn.test/pkg/json/0.1.0/app.interpreter#", str DIGEST));
     }
 
     #[test]
     fn a_version_the_lock_does_not_hold_names_the_command_that_writes_it() {
-        assert_eq!(locked_spec("json", "0.1.0", None).unwrap_err(), "'json' is not locked in edge.lock");
+        assert_eq!(locked_spec("json", "0.1.0", None).unwrap_err(), "'json' is not locked in interpreter.lock");
         let err = locked_spec("json", "0.2.0", Some(&locked("json", Some("0.1.0")))).unwrap_err();
         assert!(err.contains("declared 0.2.0 and locked 0.1.0"), "{err}");
     }
@@ -178,8 +178,8 @@ mod tests {
     #[test]
     fn an_entry_that_could_never_pin_names_the_lock() {
         let mut lock = Lock::default();
-        lock.insert("json", Entry { version: Some(s!("0.1.0")), url: s!("https://x/y.edge"), digest: s!("sha256-00") });
-        assert!(locked_spec("json", "0.1.0", Some(&lock)).unwrap_err().contains("holds 'sha256-00' in edge.lock"));
+        lock.insert("json", Entry { version: Some(s!("0.1.0")), url: s!("https://x/y.interpreter"), digest: s!("sha256-00") });
+        assert!(locked_spec("json", "0.1.0", Some(&lock)).unwrap_err().contains("holds 'sha256-00' in interpreter.lock"));
     }
 
     #[test]

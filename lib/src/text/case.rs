@@ -1,7 +1,7 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use edge::lang::{Args, Cx, Ret, Sig};
+use interpreter::lang::{Args, Cx, Ret, Sig};
 
 use super::{new_str, push_lower, push_upper, recv_str};
 use crate::{Kernel, Site, uni};

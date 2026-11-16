@@ -1,14 +1,14 @@
 use super::resolver::{self, Side};
 use super::{Calls, ChannelSink, Completion, Engine, ErrorKind, Fault, Hosted, Hosting, Project, RunLimits, Serve, Sink, Status, Waits, Wiring};
 use anyhow::{anyhow, bail, Result};
-use edge::abi::{error_from_kind, from_wire, to_wire};
-use edge::code::{constant_fold, Diagnostic, SSAChunk};
-use edge::deps::walk::{self, Carry};
-use edge::deps::{dir_of, entry_dir, DepHost, Deps, HostResolver, ModuleEntry, NativeBinding};
-use edge::embed::{Limits, SchedulerStatus, VM};
-use edge::lang::{Front, Runtime};
-use edge::value::meter::Paying;
-use edge::value::{HeapPool, Val, VmErr};
+use interpreter::abi::{error_from_kind, from_wire, to_wire};
+use interpreter::code::{constant_fold, Diagnostic, SSAChunk};
+use interpreter::deps::walk::{self, Carry};
+use interpreter::deps::{dir_of, entry_dir, DepHost, Deps, HostResolver, ModuleEntry, NativeBinding};
+use interpreter::embed::{Limits, SchedulerStatus, VM};
+use interpreter::lang::{Front, Runtime};
+use interpreter::value::meter::Paying;
+use interpreter::value::{HeapPool, Val, VmErr};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -59,7 +59,7 @@ impl DepHost for Host {
 
     // the entry chunk has no path so its code resolves from the entry dir
     fn caller_dir(&mut self) -> String {
-        match edge::embed::calling().and_then(|now| now.file).filter(|file| !file.is_empty()) {
+        match interpreter::embed::calling().and_then(|now| now.file).filter(|file| !file.is_empty()) {
             Some(file) => dir_of(&file),
             None => self.dir(),
         }
@@ -81,7 +81,7 @@ fn call(id: usize, heap: &mut HeapPool, args: &[Val], kwargs: Option<Val>) -> Re
         }
         let args = args.iter().map(|&v| to_wire(heap, v)).collect::<Option<Vec<_>>>();
         let Some(args) = args else { return Err(error_from_kind(ErrorKind::Runtime as u32, "value is not a transit value".to_string())) };
-        let id = edge::embed::calling().map_or(0, |now| now.id) as u32;
+        let id = interpreter::embed::calling().map_or(0, |now| now.id) as u32;
         match shared.hosting.call(&hosted, id, args) {
             Ok(Some(value)) => from_wire(heap, &value),
             Ok(None) => Err(VmErr::HostCallDeferred),
@@ -105,10 +105,10 @@ fn sent(group: &str, body: &str) -> bool {
         // only a file channel of a run with packages asks which of them sends
         let dir = hosting.asks_sender(group).then(|| {
             let dir = host.caller_dir();
-            edge::deps::served::package_of(host, &dir).unwrap_or_default()
+            interpreter::deps::served::package_of(host, &dir).unwrap_or_default()
         });
         hosting.deliver(group.to_string(), body.to_string(), dir).unwrap_or_else(|fault| {
-            edge::embed::refuse(raised(&fault, hosting));
+            interpreter::embed::refuse(raised(&fault, hosting));
             false
         })
     })
@@ -270,7 +270,7 @@ impl Native {
     }
 }
 
-/* adds the lines `vm` ran in its pinned chunks to the file `EDGE_COVERAGE` names */
+/* adds the lines `vm` ran in its pinned chunks to the file `INTERPRETER_COVERAGE` names */
 #[cfg(feature = "coverage")]
 fn cover(vm: &VM<'static>, chunks: &[Rc<SSAChunk>], name: &str) {
     use std::collections::BTreeSet;
@@ -284,9 +284,9 @@ fn cover(vm: &VM<'static>, chunks: &[Rc<SSAChunk>], name: &str) {
         }
         c.functions.iter().for_each(|f| walk(vm, &f.1, name, lines));
         c.classes.iter().for_each(|k| walk(vm, k, name, lines));
-        for i in &c.imports { if let edge::code::ImportKind::Code(sub) = &i.kind { walk(vm, sub, name, lines); } }
+        for i in &c.imports { if let interpreter::code::ImportKind::Code(sub) = &i.kind { walk(vm, sub, name, lines); } }
     }
-    let Some(out) = std::env::var_os("EDGE_COVERAGE") else { return };
+    let Some(out) = std::env::var_os("INTERPRETER_COVERAGE") else { return };
     // lines an earlier run of this process wrote stay listed once
     let mut lines: BTreeSet<String> = std::fs::read_to_string(&out).unwrap_or_default().lines().map(String::from).collect();
     chunks.iter().for_each(|c| walk(vm, c, name, &mut lines));
@@ -373,20 +373,20 @@ impl Engine for Native {
         // a directory entry names no script and keeps its directory
         let entry = self.name.clone().unwrap_or_else(|| self.host.dir());
         let Some(vm) = self.vm.as_deref_mut().filter(|_| self.paused) else { return Ok(None) };
-        edge::embed::save_swept(vm, &self.source, &entry).map(Some).map_err(|e| anyhow!("{e}"))
+        interpreter::embed::save_swept(vm, &self.source, &entry).map(Some).map_err(|e| anyhow!("{e}"))
     }
 
     fn restore_state(&mut self, blob: &[u8]) -> Result<Status> {
         // a blob another runtime saved is refused before its source is walked
-        if !edge::embed::saved_under(blob, self.rt) {
-            bail!("{}", edge::embed::OTHER_RUNTIME);
+        if !interpreter::embed::saved_under(blob, self.rt) {
+            bail!("{}", interpreter::embed::OTHER_RUNTIME);
         }
         let source = super::snapshot_source(blob)?;
         if let Some(status) = self.prepare(&source, None)? {
             return Ok(status);
         }
         // a restore runs under the lower of its blob's limits and the host's and a refused blob leaves the run
-        let limits = match edge::embed::limits_of(blob) {
+        let limits = match interpreter::embed::limits_of(blob) {
             Ok(l) => Limits { memory: l.memory.min(self.limits.memory).min(MEMORY_CEILING), ops: l.ops.min(self.limits.ops) },
             Err(e) => return Ok(Status::Error(e)),
         };
@@ -394,7 +394,7 @@ impl Engine for Native {
         self.clear();
         self.source = source;
         let mut vm = self.boot(chunk, limits);
-        if let Err(e) = edge::embed::restore(&mut vm, blob) {
+        if let Err(e) = interpreter::embed::restore(&mut vm, blob) {
             self.clear();
             return Ok(Status::Error(e));
         }

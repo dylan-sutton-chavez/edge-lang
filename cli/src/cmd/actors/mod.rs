@@ -43,7 +43,7 @@ impl Command for Actor {
     // the groups resolve through the manifest nearest above their actor.yml
     fn manifest(&self, m: &ArgMatches) -> PathBuf {
         match m.try_get_one::<PathBuf>("file").ok().flatten() {
-            Some(file) => kit::root_manifest(m, &edge::deps::dir_of(&crate::host::driver::path_spec(file))),
+            Some(file) => kit::root_manifest(m, &interpreter::deps::dir_of(&crate::host::driver::path_spec(file))),
             None => kit::manifest_path(m),
         }
     }
@@ -61,7 +61,7 @@ impl Command for Actor {
         // a control endpoint off loopback stops the boot before anything opens or binds
         let control = settings.control.as_deref().map(local).transpose()?;
         let mut dir = path.parent().and_then(|p| p.to_str()).unwrap_or(".").replace('\\', "/");
-        // the manifest walk-up probes `{dir}edge.json` so a named directory needs its slash
+        // the manifest walk-up probes `{dir}interpreter.json` so a named directory needs its slash
         if !dir.is_empty() && !dir.ends_with('/') {
             dir.push('/');
         }
@@ -134,8 +134,8 @@ struct LimitSpec {
 
 /* the groups of actor.yml with `manifest` overriding the manifest walk-up of every group */
 fn group_specs(kit: &Kit, specs: BTreeMap<String, Spec>, dir: &str, manifest: Option<String>) -> Result<Vec<GroupSpec>> {
-    // eval snippets that bring no edge.json resolve through the one of the pool
-    let pool = manifest.clone().unwrap_or_else(|| format!("{dir}edge.json"));
+    // eval snippets that bring no interpreter.json resolve through the one of the pool
+    let pool = manifest.clone().unwrap_or_else(|| format!("{dir}interpreter.json"));
     // read once so a malformed eval grant stops the boot instead of a run
     let untrusted = specs.values().any(|s| s.eval).then(|| kit.grants().untrusted(kit, &pool)).transpose()?;
     let mut groups = Vec::with_capacity(specs.len());
@@ -179,7 +179,7 @@ fn load_run(kit: &Kit, dir: &str, run: &str) -> Result<(String, String)> {
     if path.is_dir() {
         let entry = path.join(kit.descriptor().entry());
         let source = std::fs::read_to_string(&entry).with_context(|| format!("reading {}", entry.display()))?;
-        // the resolver walks up from `{base}edge.json` so a directory base needs a trailing slash
+        // the resolver walks up from `{base}interpreter.json` so a directory base needs a trailing slash
         let mut base = path.to_string_lossy().replace('\\', "/");
         if !base.ends_with('/') {
             base.push('/');

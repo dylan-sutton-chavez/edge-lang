@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-const BIN: &str = env!("CARGO_BIN_EXE_edge");
+const BIN: &str = env!("CARGO_BIN_EXE_interpreter");
 // Each program runs well under a second, so one still going after this has hung.
 const DEADLINE: Duration = Duration::from_secs(30);
 // Programs a run checks, raised through EDGE_CONSISTENCY_PROGRAMS for a longer sweep.
@@ -227,7 +227,7 @@ fn a_function_answers_the_same_cold_warm_and_from_any_module() {
         let (main, module) = program(seed);
         std::fs::write(dir.join("main.lox"), main).unwrap();
         std::fs::write(dir.join("m.lox"), module).unwrap();
-        std::fs::write(dir.join("edge.json"), "{ \"imports\": { \"m\": \"./m.lox\" } }\n").unwrap();
+        std::fs::write(dir.join("interpreter.json"), "{ \"imports\": { \"m\": \"./m.lox\" } }\n").unwrap();
         let printed = match run(&dir) {
             Ok(printed) => printed,
             Err(e) => {

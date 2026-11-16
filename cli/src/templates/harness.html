@@ -11,7 +11,7 @@
     window.__edge = st;
     try {
       const { src, entry, limits } = __EDGE_RUN__;
-      // the page reads the project edge.json from this server with its imports already locked
+      // the page reads the project interpreter.json from this server with its imports already locked
       const worker = await createWorker({ baseUrl: `${location.origin}/`, limits });
       worker.onOutput((text) => { st.out += text });
       const res = await worker.run(src, { entry });

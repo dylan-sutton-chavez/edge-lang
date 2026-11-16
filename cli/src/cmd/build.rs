@@ -6,8 +6,8 @@ use crate::host::get;
 use crate::kit::{self, Command, Descriptor, Kit};
 use crate::pack::{Bundle, Entry, STANDALONE_MAGIC};
 use clap::{ArgMatches, Args, FromArgMatches, Parser};
-use edge::deps::parse_integrity;
-use edge::util::sha256::sha256;
+use interpreter::deps::parse_integrity;
+use interpreter::util::sha256::sha256;
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -17,7 +17,7 @@ use crate::lock;
 
 #[derive(Args)]
 struct BuildArgs {
-    /// Output path, defaults to app.edge, app, or dist/ per mode.
+    /// Output path, defaults to app.interpreter, app, or dist/ per mode.
     #[arg(long)]
     out: Option<PathBuf>,
     /// Vendor the JS host into dist/ instead of a packed artifact.
@@ -28,16 +28,16 @@ struct BuildArgs {
     app: bool,
 }
 
-/* `build` packing a portable .edge or a standalone binary or a browser dist */
+/* `build` packing a portable .interpreter or a standalone binary or a browser dist */
 pub struct Build;
 
 impl Command for Build {
     fn spec(&self, _kit: &Kit) -> clap::Command {
-        BuildArgs::augment_args(clap::Command::new("build").about("Pack the project, a portable .edge by default, --app for a binary, --web for the browser"))
+        BuildArgs::augment_args(clap::Command::new("build").about("Pack the project, a portable .interpreter by default, --app for a binary, --web for the browser"))
     }
 
     fn summary(&self, _kit: &Kit) -> (String, String) {
-        ("build".to_string(), "Pack a portable .edge  (--app, --web)".to_string())
+        ("build".to_string(), "Pack a portable .interpreter  (--app, --web)".to_string())
     }
 
     fn compiles(&self) -> bool {
@@ -58,15 +58,15 @@ impl Command for Build {
         } else if args.app {
             standalone(kit, &manifest, args.out.unwrap_or_else(|| PathBuf::from("app")))?;
         } else {
-            bundle(kit, &manifest, args.out.unwrap_or_else(|| PathBuf::from("app.edge")))?;
+            bundle(kit, &manifest, args.out.unwrap_or_else(|| PathBuf::from("app.interpreter")))?;
         }
         Ok(0)
     }
 }
 
-// the flags of `edge run` that a standalone binary understands
+// the flags of `interpreter run` that a standalone binary understands
 #[derive(Parser)]
-#[command(name = "edge-app", disable_help_flag = true)]
+#[command(name = "interpreter-app", disable_help_flag = true)]
 struct Carried {
     #[arg(long)]
     save_state: Option<PathBuf>,
@@ -95,7 +95,7 @@ fn standalone(kit: &Kit, manifest_path: &Path, out: PathBuf) -> Result<()> {
     // nobody reads docs out of an executable so an app binary leaves them behind
     let bundle = collect_bundle(kit, manifest_path, false)?;
     let files = bundle.files.len();
-    let exe = std::env::current_exe().context("locating the edge binary")?;
+    let exe = std::env::current_exe().context("locating the interpreter binary")?;
     let mut image = fs::read(&exe).with_context(|| format!("reading {}", exe.display()))?;
     let payload = bundle.encode();
     image.extend_from_slice(&payload);
@@ -109,7 +109,7 @@ fn standalone(kit: &Kit, manifest_path: &Path, out: PathBuf) -> Result<()> {
     Ok(())
 }
 
-/* packs the project as a portable .edge for any host that already has the CLI */
+/* packs the project as a portable .interpreter for any host that already has the CLI */
 fn bundle(kit: &Kit, manifest_path: &Path, out: PathBuf) -> Result<()> {
     let bundle = collect_bundle(kit, manifest_path, true)?;
     let payload = bundle.encode();
@@ -137,11 +137,11 @@ fn collect_bundle(kit: &Kit, manifest_path: &Path, with_docs: bool) -> Result<Bu
     for s in scripts.iter().chain(&notices) {
         let rel = s.strip_prefix(&project).unwrap_or(s).to_string_lossy().replace('\\', "/");
         // the root manifest and its lock go in below under fixed names
-        if rel == "edge.json" || rel == lock::FILE { continue; }
+        if rel == "interpreter.json" || rel == lock::FILE { continue; }
         files.push(Entry { path: rel, bytes: fs::read(s).with_context(|| format!("reading {}", s.display()))? });
     }
     if manifest_path.exists() {
-        files.push(Entry { path: "edge.json".to_string(), bytes: fs::read(manifest_path)? });
+        files.push(Entry { path: "interpreter.json".to_string(), bytes: fs::read(manifest_path)? });
         // the lock travels with its manifest so the bundle resolves names as its project did
         let beside = manifest_path.with_file_name(lock::FILE);
         if beside.exists() {
@@ -158,7 +158,7 @@ fn collect_bundle(kit: &Kit, manifest_path: &Path, with_docs: bool) -> Result<Bu
         vendor_bundle(&mut scan, &lock::resolved(manifest_path, &manifest.imports)?, &mut files)?;
     }
     // a nested package answers to its own manifest so its url modules ride along too
-    let nested: Vec<PathBuf> = files.iter().filter(|f| f.path.ends_with("/edge.json")).map(|f| project.join(&f.path)).collect();
+    let nested: Vec<PathBuf> = files.iter().filter(|f| f.path.ends_with("/interpreter.json")).map(|f| project.join(&f.path)).collect();
     for path in nested {
         vendor_bundle(&mut scan, &lock::resolved(&path, &kit.manifest(&path)?.imports)?, &mut files)?;
     }
@@ -208,7 +208,7 @@ fn vendor_bundle(scan: &mut Scan, imports: &BTreeMap<String, String>, files: &mu
 /* no host loads JavaScript but its own so a build declaring one stops before packing */
 fn refuse_javascript(d: &Descriptor, imports: &BTreeMap<String, String>) -> Result<()> {
     for (name, spec) in imports {
-        if edge::deps::rules::javascript(spec) {
+        if interpreter::deps::rules::javascript(spec) {
             bail!("module '{name}' is JavaScript, ship a .{} or a .wasm", d.extension);
         }
     }
@@ -272,7 +272,7 @@ fn run(kit: &Kit, manifest_path: &Path, out_dir: PathBuf) -> Result<()> {
         Err(e) => { sp.fail("failed to write the JS host"); return Err(e); }
     }
 
-    fs::write(out_dir.join("edge.wasm"), kit.page_module()?).context("writing edge.wasm")?;
+    fs::write(out_dir.join("interpreter.wasm"), kit.page_module()?).context("writing interpreter.wasm")?;
 
     let scripts = collect_scripts(kit, &project, &out_dir);
     let sp = crate::ui::spinner("vendoring packages");
@@ -286,7 +286,7 @@ fn run(kit: &Kit, manifest_path: &Path, out_dir: PathBuf) -> Result<()> {
     // vendored paths replace their urls and every other entry and key stays as written
     let packages = vendored.len();
     manifest.imports.extend(vendored);
-    manifest.save(&out_dir.join("edge.json"))?;
+    manifest.save(&out_dir.join("interpreter.json"))?;
 
     let entry = find_entry(kit.descriptor(), &scripts, &project);
     fs::write(out_dir.join("index.html"), index_html(&entry))?;
@@ -340,7 +340,7 @@ fn walk(kit: &Kit, dir: &Path, out_dir: &Path, seen: &mut HashSet<PathBuf>, foun
         }
         if path.is_dir() {
             walk(kit, &path, out_dir, seen, found);
-        } else if name == "edge.json" || name == lock::FILE || kit.is_source(&path) || path.extension().is_some_and(|e| e == "wasm") {
+        } else if name == "interpreter.json" || name == lock::FILE || kit.is_source(&path) || path.extension().is_some_and(|e| e == "wasm") {
             found.push(path);
         }
     }
@@ -422,13 +422,13 @@ fn file_deps(scan: &mut Scan, base: &str, rel: &str, bytes: &[u8]) -> Result<Vec
             imports
                 .filter_map(|(_, target)| target.as_str())
                 // a version names no file since the lock beside this manifest points it at one
-                .filter(|target| !target.contains("://") && !target.starts_with('/') && !edge::deps::rules::shaped_like_version(target))
+                .filter(|target| !target.contains("://") && !target.starts_with('/') && !interpreter::deps::rules::shaped_like_version(target))
                 .map(|target| beside(target, true))
                 .chain([beside(lock::FILE, false)])
                 .collect()
         }
         // a plugin and a packed package each carry all they need
-        "wasm" | "edge" => Vec::new(),
+        "wasm" | "interpreter" => Vec::new(),
         _ if bytes.starts_with(b"\0asm") || bytes.starts_with(crate::pack::MAGIC) => Vec::new(),
         // source with what the runtime reads as its relative imports plus the manifest beside it
         _ => {
@@ -437,7 +437,7 @@ fn file_deps(scan: &mut Scan, base: &str, rel: &str, bytes: &[u8]) -> Result<Vec
                 Some(path) => Ok(path.to_string()),
                 None => Err(spec),
             };
-            joined.into_iter().map(|spec| (under(spec), true)).chain([beside("./edge.json", false)]).collect()
+            joined.into_iter().map(|spec| (under(spec), true)).chain([beside("./interpreter.json", false)]).collect()
         }
     })
 }
@@ -520,7 +520,7 @@ mod tests {
     }
 
     fn find_entry(scripts: &[PathBuf], project: &Path) -> String {
-        super::find_entry(&lox::DESCRIPTOR, scripts, project)
+        super::find_entry(&interpreter_lox::DESCRIPTOR, scripts, project)
     }
 
     fn collect_scripts(project: &Path, out_dir: &Path) -> Vec<PathBuf> {
@@ -594,7 +594,7 @@ mod tests {
         fs::write(project.join("NOTES.md"), "not a notice").unwrap();
         fs::create_dir(project.join("sub")).unwrap();
         fs::write(project.join("sub/README.md"), "nested").unwrap();
-        let bundle = collect_bundle(&project.join("edge.json"), true).unwrap();
+        let bundle = collect_bundle(&project.join("interpreter.json"), true).unwrap();
         let mut paths: Vec<&str> = bundle.files.iter().map(|f| f.path.as_str()).collect();
         paths.sort();
         assert_eq!(paths, ["LICENSE", "LICENSE.lox", "LICENSE.txt", "README.md", "main.lox"]);
@@ -605,7 +605,7 @@ mod tests {
     #[test]
     fn a_packed_dependency_drags_nothing_beside_it() {
         let kit = kit();
-        assert!(file_deps(&mut Scan::new(&kit), "https://cdn.test/pkg/app/0.1.0", "app.edge", b"EDGEPKG\x01import(\"./src/test.lox\");").unwrap().is_empty());
+        assert!(file_deps(&mut Scan::new(&kit), "https://cdn.test/pkg/app/0.1.0", "app.interpreter", b"EDGEPKG\x01import(\"./src/test.lox\");").unwrap().is_empty());
     }
 
     // a vendored source pulls in what the runtime reads as its imports and its manifest
@@ -615,7 +615,7 @@ mod tests {
         let src = b"var util = import(\"./lib/util.lox\");\nvar outside = import(\"../outside.lox\");\nimport(\"json\");\n";
         let deps = file_deps(&mut Scan::new(&kit), "https://cdn.test/pkg/greet/0.1.0", "main.lox", src).unwrap();
         let outside = "https://cdn.test/pkg/greet/outside.lox".to_string();
-        assert_eq!(deps, [(Ok("lib/util.lox".to_string()), true), (Err(outside), true), (Ok("edge.json".to_string()), false)]);
+        assert_eq!(deps, [(Ok("lib/util.lox".to_string()), true), (Err(outside), true), (Ok("interpreter.json".to_string()), false)]);
     }
 
     // a relative plugin resolves inside the bundle so the walk must carry it
@@ -626,7 +626,7 @@ mod tests {
         fs::create_dir(project.join("src")).unwrap();
         fs::write(project.join("src/entry.lox"), "import(\"_json\");").unwrap();
         fs::write(project.join("src/json.wasm"), b"\0asm").unwrap();
-        let bundle = collect_bundle(&project.join("edge.json"), false).unwrap();
+        let bundle = collect_bundle(&project.join("interpreter.json"), false).unwrap();
         let mut paths: Vec<&str> = bundle.files.iter().map(|f| f.path.as_str()).collect();
         paths.sort();
         assert_eq!(paths, ["src/entry.lox", "src/json.wasm"]);
@@ -639,15 +639,15 @@ mod tests {
         let project = dir.path();
         fs::create_dir(project.join("pkg")).unwrap();
         fs::write(project.join("main.lox"), "print 1;").unwrap();
-        fs::write(project.join("edge.json"), r#"{ "imports": {} }"#).unwrap();
-        fs::write(project.join("edge.lock"), "{}").unwrap();
+        fs::write(project.join("interpreter.json"), r#"{ "imports": {} }"#).unwrap();
+        fs::write(project.join("interpreter.lock"), "{}").unwrap();
         fs::write(project.join("pkg/main.lox"), "print 2;").unwrap();
-        fs::write(project.join("pkg/edge.json"), r#"{ "imports": {} }"#).unwrap();
-        fs::write(project.join("pkg/edge.lock"), "{}").unwrap();
-        let bundle = collect_bundle(&project.join("edge.json"), false).unwrap();
+        fs::write(project.join("pkg/interpreter.json"), r#"{ "imports": {} }"#).unwrap();
+        fs::write(project.join("pkg/interpreter.lock"), "{}").unwrap();
+        let bundle = collect_bundle(&project.join("interpreter.json"), false).unwrap();
         let mut paths: Vec<&str> = bundle.files.iter().map(|f| f.path.as_str()).collect();
         paths.sort();
-        assert_eq!(paths, ["edge.json", "edge.lock", "main.lox", "pkg/edge.json", "pkg/edge.lock", "pkg/main.lox"]);
+        assert_eq!(paths, ["interpreter.json", "interpreter.lock", "main.lox", "pkg/interpreter.json", "pkg/interpreter.lock", "pkg/main.lox"]);
     }
 
     // a version holds no address so packing one the lock never resolved would pack nothing
@@ -656,10 +656,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let project = dir.path();
         fs::write(project.join("main.lox"), "import(\"json\");").unwrap();
-        fs::write(project.join("edge.json"), r#"{ "imports": { "json": "0.1.0" } }"#).unwrap();
-        let Err(e) = collect_bundle(&project.join("edge.json"), false) else { panic!("an unlocked version should stop the build") };
+        fs::write(project.join("interpreter.json"), r#"{ "imports": { "json": "0.1.0" } }"#).unwrap();
+        let Err(e) = collect_bundle(&project.join("interpreter.json"), false) else { panic!("an unlocked version should stop the build") };
         let err = format!("{e:#}");
-        assert!(err.contains("'json' is not locked in edge.lock\nhelp: run "), "{err}");
+        assert!(err.contains("'json' is not locked in interpreter.lock\nhelp: run "), "{err}");
     }
 
     // a package keeps its own manifest while the root one rides once by fixed name
@@ -669,13 +669,13 @@ mod tests {
         let project = dir.path();
         fs::create_dir(project.join("pkg")).unwrap();
         fs::write(project.join("main.lox"), "import(\"pkg\");").unwrap();
-        fs::write(project.join("edge.json"), r#"{ "imports": { "pkg": "./pkg/main.lox" } }"#).unwrap();
+        fs::write(project.join("interpreter.json"), r#"{ "imports": { "pkg": "./pkg/main.lox" } }"#).unwrap();
         fs::write(project.join("pkg/main.lox"), "import(\"_slug\");").unwrap();
-        fs::write(project.join("pkg/edge.json"), r#"{ "imports": { "_slug": "./slug.wasm" } }"#).unwrap();
-        let bundle = collect_bundle(&project.join("edge.json"), false).unwrap();
+        fs::write(project.join("pkg/interpreter.json"), r#"{ "imports": { "_slug": "./slug.wasm" } }"#).unwrap();
+        let bundle = collect_bundle(&project.join("interpreter.json"), false).unwrap();
         let mut paths: Vec<&str> = bundle.files.iter().map(|f| f.path.as_str()).collect();
         paths.sort();
-        assert_eq!(paths, ["edge.json", "main.lox", "pkg/edge.json", "pkg/main.lox"]);
+        assert_eq!(paths, ["interpreter.json", "main.lox", "pkg/interpreter.json", "pkg/main.lox"]);
     }
 
     #[test]
@@ -683,15 +683,15 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let project = dir.path();
         fs::write(project.join("main.lox"), "print 1;").unwrap();
-        fs::write(project.join("edge.json"), r#"{ "docs": "./docs", "imports": {} }"#).unwrap();
+        fs::write(project.join("interpreter.json"), r#"{ "docs": "./docs", "imports": {} }"#).unwrap();
         fs::create_dir(project.join("docs")).unwrap();
         fs::write(project.join("docs/01-intro.mdx"), "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n").unwrap();
-        let manifest = project.join("edge.json");
+        let manifest = project.join("interpreter.json");
 
         let packed = collect_bundle(&manifest, true).unwrap();
         let mut paths: Vec<&str> = packed.files.iter().map(|f| f.path.as_str()).collect();
         paths.sort();
-        assert_eq!(paths, ["@docs/01-intro.mdx", "edge.json", "main.lox"]);
+        assert_eq!(paths, ["@docs/01-intro.mdx", "interpreter.json", "main.lox"]);
 
         let app = collect_bundle(&manifest, false).unwrap();
         assert!(app.files.iter().all(|f| !f.path.starts_with(docs::PREFIX)));
@@ -702,10 +702,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let project = dir.path();
         fs::write(project.join("main.lox"), "print 1;").unwrap();
-        fs::write(project.join("edge.json"), r#"{ "docs": "./docs" }"#).unwrap();
+        fs::write(project.join("interpreter.json"), r#"{ "docs": "./docs" }"#).unwrap();
         fs::create_dir(project.join("docs")).unwrap();
         fs::write(project.join("docs/intro.mdx"), "# Intro\n").unwrap();
-        let Err(e) = collect_bundle(&project.join("edge.json"), true) else { panic!("an unordered page should fail the build") };
+        let Err(e) = collect_bundle(&project.join("interpreter.json"), true) else { panic!("an unordered page should fail the build") };
         let err = format!("{e:#}");
         assert!(err.contains("needs a numeric prefix"), "{err}");
     }

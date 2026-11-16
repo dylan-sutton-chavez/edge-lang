@@ -1,16 +1,16 @@
-use edge::embed::{Limits, VM};
-use lib::Lang;
+use interpreter::embed::{Limits, VM};
+use interpreter_lib::Lang;
 use rig::{Rig, RUNTIME};
 
-// every run meters what it allocates as edge.wasm does
-edge::allocator!();
+// every run meters what it allocates as interpreter.wasm does
+interpreter::allocator!();
 
 // each call's repr or its error in the words the corpus reads
 const TRY: &str = "fn t(f) {\n    try {\n        print(repr(f()))\n    } catch Error as e {\n        print(text(type(e)) + \":\", e)\n    }\n}\n";
 
 /* what `src` printed and then the words of the error it ended in */
 fn run(src: &str) -> String {
-    let (chunk, errors) = edge::code::compile_as::<Rig>(src);
+    let (chunk, errors) = interpreter::code::compile_as::<Rig>(src);
     assert!(errors.is_empty(), "{src}");
     let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
     let end = vm.run().err().map(|e| e.to_string()).unwrap_or_default();
@@ -67,54 +67,54 @@ fn a_handler_is_looked_up_only_once_a_span_fails() {
 // a runtime of the rig's classes and codecs keeping lib's words for every failure
 struct Neutral;
 
-impl lib::fmt::render::Style for Neutral {}
+impl interpreter_lib::fmt::render::Style for Neutral {}
 
-impl edge::lang::Language for Neutral {
+impl interpreter::lang::Language for Neutral {
     const VERSION: u32 = 1;
-    const POLICY: edge::lang::Policy = <Rig as edge::lang::Language>::POLICY;
-    const NATIVES: &'static edge::lang::Natives = &NEUTRAL_NATIVES;
-    const NAMES: &'static edge::lang::Names = &rig::NAMES;
-    const FRONT: edge::lang::Front = rig::FRONT;
-    const DESCRIPTOR: &'static edge::lang::Descriptor = &rig::DESCRIPTOR;
-    const WIDE: Option<&'static edge::value::foreign::Kind> = Some(&rig::lang::WIDE);
-    const BUILT: edge::value::foreign::Built = <rig::Rig as edge::lang::Language>::BUILT;
+    const POLICY: interpreter::lang::Policy = <Rig as interpreter::lang::Language>::POLICY;
+    const NATIVES: &'static interpreter::lang::Natives = &NEUTRAL_NATIVES;
+    const NAMES: &'static interpreter::lang::Names = &rig::NAMES;
+    const FRONT: interpreter::lang::Front = rig::FRONT;
+    const DESCRIPTOR: &'static interpreter::lang::Descriptor = &rig::DESCRIPTOR;
+    const WIDE: Option<&'static interpreter::value::foreign::Kind> = Some(&rig::lang::WIDE);
+    const BUILT: interpreter::value::foreign::Built = <rig::Rig as interpreter::lang::Language>::BUILT;
     type Ops = ();
 
-    fn show(cx: &mut edge::lang::Cx<'_, '_>, v: edge::value::Val, mode: edge::lang::Mode) -> Result<String, edge::value::VmErr> { lib::fmt::render::hook::<Self>(cx, v, mode) }
+    fn show(cx: &mut interpreter::lang::Cx<'_, '_>, v: interpreter::value::Val, mode: interpreter::lang::Mode) -> Result<String, interpreter::value::VmErr> { interpreter_lib::fmt::render::hook::<Self>(cx, v, mode) }
 }
 
 impl Lang for Neutral {
-    const TREE: &'static lib::lang::Tree = &rig::types::TREE;
+    const TREE: &'static interpreter_lib::lang::Tree = &rig::types::TREE;
 
-    fn class(c: lib::Class) -> &'static str { <Rig as Lang>::class(c) }
+    fn class(c: interpreter_lib::Class) -> &'static str { <Rig as Lang>::class(c) }
 
-    fn codec(name: &str) -> Option<lib::lang::Codec> { <Rig as Lang>::codec(name) }
+    fn codec(name: &str) -> Option<interpreter_lib::lang::Codec> { <Rig as Lang>::codec(name) }
 }
 
-const NEUTRAL_IO: &[edge::lang::Native] = &lib::table![Neutral; "print" => lib::io::print];
-const NEUTRAL_STR: &[edge::lang::Native] = &lib::table![Neutral; "encode" => lib::bytes::codec::encode("encoding", "errors")];
-const NEUTRAL_BYTES: &[edge::lang::Native] = &lib::table![Neutral; "decode" => lib::bytes::codec::decode[lib::bytes::Fixed]("encoding", "errors")];
+const NEUTRAL_IO: &[interpreter::lang::Native] = &interpreter_lib::table![Neutral; "print" => interpreter_lib::io::print];
+const NEUTRAL_STR: &[interpreter::lang::Native] = &interpreter_lib::table![Neutral; "encode" => interpreter_lib::bytes::codec::encode("encoding", "errors")];
+const NEUTRAL_BYTES: &[interpreter::lang::Native] = &interpreter_lib::table![Neutral; "decode" => interpreter_lib::bytes::codec::decode[interpreter_lib::bytes::Fixed]("encoding", "errors")];
 
-static NEUTRAL_NATIVES: edge::lang::Natives = edge::natives! {
+static NEUTRAL_NATIVES: interpreter::lang::Natives = interpreter::natives! {
     language: Neutral,
     fns: [NEUTRAL_IO],
     methods: [Str => [NEUTRAL_STR], Bytes => [NEUTRAL_BYTES]],
     types: &[],
 };
 
-static NEUTRAL_RUNTIME: edge::lang::Runtime = edge::lang::Runtime::of::<Neutral>();
+static NEUTRAL_RUNTIME: interpreter::lang::Runtime = interpreter::lang::Runtime::of::<Neutral>();
 
 /* the rig's spelling over the neutral natives */
 struct Plainly;
 
-impl edge::lexer::Spelling for Plainly {
-    const SYNTAX: edge::lexer::Syntax = rig::RIG;
-    const NATIVES: &'static edge::lang::Natives = &NEUTRAL_NATIVES;
+impl interpreter::lexer::Spelling for Plainly {
+    const SYNTAX: interpreter::lexer::Syntax = rig::RIG;
+    const NATIVES: &'static interpreter::lang::Natives = &NEUTRAL_NATIVES;
 }
 
 /* the words of the error `src` ends in under the neutral runtime */
 fn neutral(src: &str) -> String {
-    let (chunk, errors) = edge::code::compile_as::<Plainly>(src);
+    let (chunk, errors) = interpreter::code::compile_as::<Plainly>(src);
     assert!(errors.is_empty(), "{src}");
     let mut vm = VM::with_runtime(&NEUTRAL_RUNTIME, &chunk, Limits::sandbox());
     vm.run().err().map(|e| e.to_string()).unwrap_or_default()

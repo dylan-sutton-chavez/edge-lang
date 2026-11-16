@@ -1,6 +1,6 @@
 use alloc::{string::String, vec::Vec};
 
-pub use abi::{nan_box, WireValue, EDGE_ABI_VERSION, MAX_WIRE_DEPTH, TAG_INVALID};
+pub use interpreter_abi::{nan_box, WireValue, ABI_VERSION, MAX_WIRE_DEPTH, TAG_INVALID};
 
 /* a sealed ABI enum with a `from_u32` reverse map as `docs/04-reference/06-abi.mdx` specifies */
 macro_rules! abi_enum {
@@ -18,45 +18,45 @@ macro_rules! abi_enum {
 }
 
 abi_enum!(Op {
-    Call = abi::op::CALL,
-    GetAttr = abi::op::GET_ATTR,
-    SetAttr = abi::op::SET_ATTR,
-    GetItem = abi::op::GET_ITEM,
-    SetItem = abi::op::SET_ITEM,
-    Len = abi::op::LEN,
-    Iter = abi::op::ITER,
-    IterNext = abi::op::ITER_NEXT,
-    NewDict = abi::op::NEW_DICT,
-    NewList = abi::op::NEW_LIST,
-    TypeOf = abi::op::TYPE_OF,
-    NewTuple = abi::op::NEW_TUPLE,
-    NewSet = abi::op::NEW_SET,
-    NewFrozenSet = abi::op::NEW_FROZENSET,
-    Sys = abi::op::SYS,
+    Call = interpreter_abi::op::CALL,
+    GetAttr = interpreter_abi::op::GET_ATTR,
+    SetAttr = interpreter_abi::op::SET_ATTR,
+    GetItem = interpreter_abi::op::GET_ITEM,
+    SetItem = interpreter_abi::op::SET_ITEM,
+    Len = interpreter_abi::op::LEN,
+    Iter = interpreter_abi::op::ITER,
+    IterNext = interpreter_abi::op::ITER_NEXT,
+    NewDict = interpreter_abi::op::NEW_DICT,
+    NewList = interpreter_abi::op::NEW_LIST,
+    TypeOf = interpreter_abi::op::TYPE_OF,
+    NewTuple = interpreter_abi::op::NEW_TUPLE,
+    NewSet = interpreter_abi::op::NEW_SET,
+    NewFrozenSet = interpreter_abi::op::NEW_FROZENSET,
+    Sys = interpreter_abi::op::SYS,
 });
 
 abi_enum!(Tag {
-    None = abi::tag::NONE,
-    Bool = abi::tag::BOOL,
-    Int = abi::tag::INT,
-    Float = abi::tag::FLOAT,
+    None = interpreter_abi::tag::NONE,
+    Bool = interpreter_abi::tag::BOOL,
+    Int = interpreter_abi::tag::INT,
+    Float = interpreter_abi::tag::FLOAT,
     // text as UTF-8 bytes that encode to a str and decode back to its bytes
-    Bytes = abi::tag::BYTES,
+    Bytes = interpreter_abi::tag::BYTES,
     // opaque bytes kept as a bytes value without UTF-8 validation
-    Raw = abi::tag::RAW,
-    // composites in TLV form whose payloads `abi::WireValue` defines
-    List = abi::tag::LIST,
-    Dict = abi::tag::DICT,
+    Raw = interpreter_abi::tag::RAW,
+    // composites in TLV form whose payloads `interpreter_abi::WireValue` defines
+    List = interpreter_abi::tag::LIST,
+    Dict = interpreter_abi::tag::DICT,
 });
 
 abi_enum!(ErrorKind {
-    Type = abi::error_kind::TYPE,
-    Value = abi::error_kind::VALUE,
-    Runtime = abi::error_kind::RUNTIME,
-    Attribute = abi::error_kind::ATTRIBUTE,
-    Index = abi::error_kind::INDEX,
-    Key = abi::error_kind::KEY,
-    Custom = abi::error_kind::CUSTOM,
+    Type = interpreter_abi::error_kind::TYPE,
+    Value = interpreter_abi::error_kind::VALUE,
+    Runtime = interpreter_abi::error_kind::RUNTIME,
+    Attribute = interpreter_abi::error_kind::ATTRIBUTE,
+    Index = interpreter_abi::error_kind::INDEX,
+    Key = interpreter_abi::error_kind::KEY,
+    Custom = interpreter_abi::error_kind::CUSTOM,
 });
 
 // free at rc 0 and handed out as index plus one so 0 stays invalid

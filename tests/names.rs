@@ -2,12 +2,12 @@ mod test {
     use std::any::Any;
     use std::rc::Rc;
 
-    use edge::code::{compile_as, OpCode, SSAChunk};
-    use edge::embed::{Limits, VM};
-    use edge::lang::{Args, Cx, Descriptor, Front, Intrinsic, Language, Misfit, Mode, Names, Native, NativeId, Natives, Policy, Ret, Runtime, Sig};
-    use edge::lexer::{Spelling, Syntax};
-    use edge::value::foreign::{Kind, Snapshot, Transfer};
-    use edge::value::{HeapPool, IterFrame, Val, VmErr};
+    use interpreter::code::{compile_as, OpCode, SSAChunk};
+    use interpreter::embed::{Limits, VM};
+    use interpreter::lang::{Args, Cx, Descriptor, Front, Intrinsic, Language, Misfit, Mode, Names, Native, NativeId, Natives, Policy, Ret, Runtime, Sig};
+    use interpreter::lexer::{Spelling, Syntax};
+    use interpreter::value::foreign::{Kind, Snapshot, Transfer};
+    use interpreter::value::{HeapPool, IterFrame, Val, VmErr};
 
     /* `fns` with native `from` renamed `to` and every other one as it was */
     const fn renamed<const N: usize>(fns: &[Native], from: &str, to: &'static str) -> [Native; N] {
@@ -70,12 +70,12 @@ mod test {
 
     fn pair(cx: &mut Cx<'_, '_>, _: Args<'_>) -> Ret {
         let token = cx.heap_mut().register_kind(&PAIR)?;
-        Ok(cx.heap_mut().foreign_new(token, edge::value::foreign::Store::Words([0; 3]))?.into())
+        Ok(cx.heap_mut().foreign_new(token, interpreter::value::foreign::Store::Words([0; 3]))?.into())
     }
 
     fn clash(cx: &mut Cx<'_, '_>, _: Args<'_>) -> Ret {
         let token = cx.heap_mut().register_kind(&CLASH)?;
-        Ok(cx.heap_mut().foreign_new(token, edge::value::foreign::Store::Words([0; 3]))?.into())
+        Ok(cx.heap_mut().foreign_new(token, interpreter::value::foreign::Store::Words([0; 3]))?.into())
     }
 
     // the coordinates of point `v` or zeros for another value
@@ -140,7 +140,7 @@ mod test {
     // the rig's types but the assert class which its names still give
     const TYPES: [&str; rig::types::NAMES.len() - 1] = without(rig::types::NAMES, "CheckError");
 
-    static NATIVES: Natives = edge::natives! {
+    static NATIVES: Natives = interpreter::natives! {
         language: Renamed,
         fns: [&IO, &ITER, rig::natives::NEXT, rig::natives::NUM, rig::natives::FOLDS, rig::natives::CONVERT, rig::natives::BYTES, rig::natives::SORT, rig::natives::TYPES, OWN],
         methods: [
@@ -170,18 +170,18 @@ mod test {
         const FRONT: Front = Front::spelled::<Renamed>();
         const DESCRIPTOR: &'static Descriptor = &rig::DESCRIPTOR;
         const WIDE: Option<&'static Kind> = Some(&rig::lang::WIDE);
-        const BUILT: edge::value::foreign::Built = <rig::Rig as Language>::BUILT;
+        const BUILT: interpreter::value::foreign::Built = <rig::Rig as Language>::BUILT;
         type Ops = ();
 
-        fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Mode) -> Result<String, VmErr> { lib::fmt::render::hook::<rig::Rig>(cx, v, mode) }
+        fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Mode) -> Result<String, VmErr> { interpreter_lib::fmt::render::hook::<rig::Rig>(cx, v, mode) }
 
-        fn format(cx: &mut Cx<'_, '_>, v: Val, spec: &str) -> Result<String, VmErr> { lib::fmt::spec::hook::<rig::Rig>(cx, v, spec) }
+        fn format(cx: &mut Cx<'_, '_>, v: Val, spec: &str) -> Result<String, VmErr> { interpreter_lib::fmt::spec::hook::<rig::Rig>(cx, v, spec) }
 
-        fn handles(heap: &HeapPool, exc: Val, class: Val) -> Result<bool, VmErr> { lib::types::match_exc::<rig::Rig>(heap, exc, class) }
+        fn handles(heap: &HeapPool, exc: Val, class: Val) -> Result<bool, VmErr> { interpreter_lib::types::match_exc::<rig::Rig>(heap, exc, class) }
 
-        fn misfit(n: &Native, owner: Option<&str>, m: Misfit<'_>) -> VmErr { <rig::Rig as edge::lang::Language>::misfit(n, owner, m) }
+        fn misfit(n: &Native, owner: Option<&str>, m: Misfit<'_>) -> VmErr { <rig::Rig as interpreter::lang::Language>::misfit(n, owner, m) }
 
-        fn message(cx: &mut Cx<'_, '_>, e: &edge::lang::EngineError) -> String { <rig::Rig as Language>::message(cx, e) }
+        fn message(cx: &mut Cx<'_, '_>, e: &interpreter::lang::EngineError) -> String { <rig::Rig as Language>::message(cx, e) }
     }
 
     fn compiled(src: &str) -> SSAChunk {
@@ -204,7 +204,7 @@ mod test {
     fn a_renamed_kernel_keeps_its_native_call() {
         let chunk = compiled("println(size([1, 2]))\n");
         let mut called: Vec<&str> = chunk.instructions.iter().filter(|i| i.opcode == OpCode::CallNative)
-            .filter_map(|i| edge::code::native_site(i.operand, &chunk.native_sites)).filter_map(|s| NATIVES.get(NativeId(s.id))).map(|n| n.name).collect();
+            .filter_map(|i| interpreter::code::native_site(i.operand, &chunk.native_sites)).filter_map(|s| NATIVES.get(NativeId(s.id))).map(|n| n.name).collect();
         called.sort_unstable();
         let calls = chunk.instructions.iter().filter(|i| i.opcode == OpCode::CallNative).count();
         assert!(calls == 2 && called == ["println", "size"], "{called:?}");
@@ -294,10 +294,10 @@ mod test {
         let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
         vm.set_preempt_interval(100);
         assert!(matches!(vm.run(), Err(VmErr::HostYield(_))));
-        assert!(edge::embed::save(&vm, src, "").is_err_and(|e| e.contains("test.point")));
-        let blob = edge::embed::save_swept(&mut vm, src, "").expect("a value nothing holds is swept");
+        assert!(interpreter::embed::save(&vm, src, "").is_err_and(|e| e.contains("test.point")));
+        let blob = interpreter::embed::save_swept(&mut vm, src, "").expect("a value nothing holds is swept");
         let mut back = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
-        edge::embed::restore(&mut back, &blob).expect("restore");
+        interpreter::embed::restore(&mut back, &blob).expect("restore");
         while matches!(back.run(), Err(VmErr::HostYield(_))) {}
         assert!(back.output_text().ends_with("4498500\n"), "{:?}", back.output_text());
         // a value the run still holds keeps refusing
@@ -306,7 +306,7 @@ mod test {
         let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
         vm.set_preempt_interval(100);
         assert!(matches!(vm.run(), Err(VmErr::HostYield(_))));
-        assert!(edge::embed::save_swept(&mut vm, held, "").is_err_and(|e| e.contains("test.point")));
+        assert!(interpreter::embed::save_swept(&mut vm, held, "").is_err_and(|e| e.contains("test.point")));
     }
 
     #[test]
@@ -317,7 +317,7 @@ mod test {
         assert_eq!(VmErr::Name(String::from("x")).render(&rig), "Name: x is not bound");
         assert_eq!(VmErr::CallDepth.render(&rig), "Recursion: calls nested past the recursion limit");
         assert_eq!(VmErr::ZeroDiv.render(&rig::NAMES), "DivisionError: division by zero");
-        assert!(VmErr::Raised(String::from("Stop: 3")).is(edge::lang::ErrKind::Stop, &rig::NAMES));
-        assert!(!VmErr::Raised(String::from("StopX")).is(edge::lang::ErrKind::Stop, &rig::NAMES));
+        assert!(VmErr::Raised(String::from("Stop: 3")).is(interpreter::lang::ErrKind::Stop, &rig::NAMES));
+        assert!(!VmErr::Raised(String::from("StopX")).is(interpreter::lang::ErrKind::Stop, &rig::NAMES));
     }
 }

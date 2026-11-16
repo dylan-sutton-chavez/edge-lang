@@ -10,11 +10,11 @@ edition = "2024"
 [dependencies]
 afl = "0.18.2"
 
-[dependencies.edge]
+[dependencies.interpreter]
 path = ".."
 
 # lox reads every input through its own compiler
-[dependencies.lox]
+[dependencies.interpreter-lox]
 path = "../examples/lox"
 
 # the test rig whose table spells every grammar piece Lox has no syntax for

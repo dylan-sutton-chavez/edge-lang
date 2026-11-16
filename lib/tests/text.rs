@@ -1,21 +1,21 @@
-use edge::embed::{Limits, VM};
-use edge::lang::{Args, Cx, Mode, Native, Natives, Ret, Runtime, Sig};
+use interpreter::embed::{Limits, VM};
+use interpreter::lang::{Args, Cx, Mode, Native, Natives, Ret, Runtime, Sig};
 use rig::Rig;
 use rig::natives::{ARRAY, BUFFER, BYTES, CONVERT, DICT, FLOAT, FOLDS, INT, IO, ITER, LIST, LIST_SORT, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
 
-// every run meters what it allocates as edge.wasm does
-edge::allocator!();
+// every run meters what it allocates as interpreter.wasm does
+interpreter::allocator!();
 
 /* the render hook in each of its modes as a str */
 fn hook(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
     let mode = match a.pos[1].as_int() { 0 => Mode::Str, 1 => Mode::Repr, _ => Mode::Ascii };
-    let text = lib::fmt::render::hook::<Rig>(cx, a.pos[0], mode)?;
+    let text = interpreter_lib::fmt::render::hook::<Rig>(cx, a.pos[0], mode)?;
     Ok(cx.new_str(text)?.into())
 }
 
 const HOOK: &[Native] = &[Native::new("hook", Sig::exact(2), hook)];
 
-static NATIVES: Natives = edge::natives! {
+static NATIVES: Natives = interpreter::natives! {
     language: Over,
     fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, TYPES, rig::natives::MATCH, rig::natives::DATE, HOOK],
     methods: [
@@ -41,7 +41,7 @@ rig::over!(Over, &NATIVES);
 
 /* what `src` printed and its error after it when one ended the run */
 fn run(src: &str) -> String {
-    let (chunk, errors) = edge::code::compile_as::<rig::Rig>(src);
+    let (chunk, errors) = interpreter::code::compile_as::<rig::Rig>(src);
     assert!(errors.is_empty(), "{src}");
     let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
     let ran = vm.run();

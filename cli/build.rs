@@ -13,8 +13,8 @@ fn wanted(feature: &str) -> bool {
 }
 
 fn main() {
-    println!("cargo:rerun-if-env-changed=EDGE_WASM");
-    println!("cargo:rerun-if-env-changed=EDGE_JS_DIST");
+    println!("cargo:rerun-if-env-changed=INTERPRETER_WASM");
+    println!("cargo:rerun-if-env-changed=INTERPRETER_JS_DIST");
     let out = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"));
     let manifest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     // a composition that embeds no runtime of this crate's own builds none of these
@@ -25,13 +25,13 @@ fn main() {
         cfg.target(&target).expect("wasmtime has no backend for the build target");
         cfg.cranelift_opt_level(wasmtime::OptLevel::Speed);
         let engine = wasmtime::Engine::new(&cfg).expect("wasmtime engine");
-        // the runtime the edge composition embeds and hands the kit
-        let wasm = std::env::var("EDGE_WASM")
+        // the runtime the interpreter composition embeds and hands the kit
+        let wasm = std::env::var("INTERPRETER_WASM")
             .map(PathBuf::from)
-            .unwrap_or_else(|_| manifest.join("../target/wasm32-unknown-unknown/cli/edge.wasm"));
-        precompile(&engine, &wasm, &out.join("edge.cwasm"), "run make wasm-cli first");
+            .unwrap_or_else(|_| manifest.join("../target/wasm32-unknown-unknown/cli/interpreter.wasm"));
+        precompile(&engine, &wasm, &out.join("interpreter.cwasm"), "run make wasm-cli first");
         // a browser runs the module so a dist carries a raw copy too
-        std::fs::copy(&wasm, out.join("edge.wasm")).unwrap_or_else(|e| panic!("copying {}: {e}", wasm.display()));
+        std::fs::copy(&wasm, out.join("interpreter.wasm")).unwrap_or_else(|e| panic!("copying {}: {e}", wasm.display()));
     }
     if wanted("DOCS") {
         let lucide = manifest.join("../target/lucide.json");
@@ -39,7 +39,7 @@ fn main() {
         std::fs::copy(&lucide, out.join("lucide.json")).unwrap_or_else(|e| panic!("copying {}: {e}, run make lucide first", lucide.display()));
     }
     if wanted("WEB") {
-        let js_dist = std::env::var("EDGE_JS_DIST").map(PathBuf::from).unwrap_or_else(|_| manifest.join("../js/dist"));
+        let js_dist = std::env::var("INTERPRETER_JS_DIST").map(PathBuf::from).unwrap_or_else(|_| manifest.join("../js/dist"));
         js_host(&js_dist, &out.join("js_host.rs"));
     }
 }

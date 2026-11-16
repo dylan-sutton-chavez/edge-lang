@@ -1,7 +1,7 @@
 use alloc::{string::String, vec::Vec};
 
-use edge::lang::{Args, CLASS, Cx, Ret, Sig};
-use edge::value::{HeapObj, HeapPool, Val};
+use interpreter::lang::{Args, CLASS, Cx, Ret, Sig};
+use interpreter::value::{HeapObj, HeapPool, Val};
 
 use super::{Buf, is_space, methods::recv};
 use crate::num::ssize;

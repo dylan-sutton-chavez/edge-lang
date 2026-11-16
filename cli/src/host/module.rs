@@ -1,5 +1,5 @@
 use super::{Completion, Fault};
-use edge::abi::WireValue;
+use interpreter::abi::WireValue;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex, MutexGuard};
 

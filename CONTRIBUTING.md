@@ -1,4 +1,4 @@
-# Contributing to Edge Lang
+# Contributing
 
 Thanks for taking the time to contribute. Security reports follow [SECURITY.md](SECURITY.md).
 
@@ -22,12 +22,12 @@ Comments are one line, at most one per block, and deleted when redundant. No fil
 
 ## Architecture
 
-The engine in `src/` is laid out along the path a program takes from its source to the register loop, and `src/lib.rs` makes the crate `edge` of its directories.
+The engine in `src/` is laid out along the path a program takes from its source to the register loop, and `src/lib.rs` makes the crate `interpreter` of its directories.
 
 | Path | Holds |
 |---|---|
 | `src/syntax` | The lexer over the token table a runtime brings, the single-pass parser, the chunk it writes and its diagnostics |
-| `src/code` | The opcode table `edge::ops!` declares, the fold pass and the calls tools compile through without running anything |
+| `src/code` | The opcode table `interpreter::ops!` declares, the fold pass and the calls tools compile through without running anything |
 | `src/value` | Values and the heap with its sweep, FOREIGN kinds, equality and hashing, and the meter |
 | `src/lang` | The `Language` a runtime implements, its natives and signatures, and the `Cx` they run with |
 | `src/vm` | The lowering, the register loop and its driver, frames and sections, generators, the callbacks of natives and snapshots |
@@ -45,10 +45,10 @@ The engine in `src/` is laid out along the path a program takes from its source 
 > Every command runs from the repo root through GNU Make, on Linux, macOS or Windows.
 
 ```bash
-make wasm       # edge.wasm while CI ships the smaller make wasm-ship
+make wasm       # interpreter.wasm while CI ships the smaller make wasm-ship
 make wasm-cli   # the speed build the CLI embeds
 make js         # js/src stripped to js/dist
-make cli        # the edge binary, embedding wasm-cli, js and the Lucide names
+make cli        # the interpreter binary, embedding wasm-cli, js and the Lucide names
 make lint
 cargo build --release   # the .rlib Rust embedders link
 ```
@@ -57,7 +57,7 @@ cargo build --release   # the .rlib Rust embedders link
 
 ## Testing
 
-`make test` runs the engine's suites, lib's, the test rig's and Lox's, which runs the book's own test suite on the `lox` binary. Every case runs under `Limits::sandbox()`, so a budget, memory, or call-depth regression fails instead of hanging. The tests count memory through the same metering allocator as `edge.wasm`, and `tests/memory.rs` checks that a run gives back every byte it took once its VM drops.
+`make test` runs the engine's suites, lib's, the test rig's and Lox's, which runs the book's own test suite on the `lox` binary. Every case runs under `Limits::sandbox()`, so a budget, memory, or call-depth regression fails instead of hanging. The tests count memory through the same metering allocator as `interpreter.wasm`, and `tests/memory.rs` checks that a run gives back every byte it took once its VM drops.
 
 The engine reaches past what Lox spells, so its cases are written for `tests/rig`, a test runtime whose token table switches on every piece of the grammar kit over every kernel of lib. It is no example and never ships. A behavior Lox shows is tested in Lox, in `examples/lox/tests`.
 
@@ -71,9 +71,9 @@ New behavior comes with cases of three kinds. A case states a rule, so its expec
 
 A new engine case goes at the end of its topic file, so the places other files name stay put, and an existing case changes only with the rule it states.
 
-`make bench` counts the WebAssembly instructions each Lox program of the bench executes on `edge.wasm`, so `bench/.snapshot` keeps the same `[instructions, MB]` per case on every machine. The snapshot on `main` holds the numbers of `main`, so the bench of a branch is its comparison with `main`, case by case and in the geometric mean. It fails when the snapshot was taken with another Rust, a case and its entry do not pair, or the mean or a single case moves past its threshold, the cases that grew listed apart from those that shrank. A change that makes cases faster takes the snapshot again with `make bench-update` in the same pull request. That refuses a case that grew past its threshold, and `make bench-accept-slower` takes it too, so a pull request that makes a case slower says so outright.
+`make bench` counts the WebAssembly instructions each Lox program of the bench executes on `interpreter.wasm`, so `bench/.snapshot` keeps the same `[instructions, MB]` per case on every machine. The snapshot on `main` holds the numbers of `main`, so the bench of a branch is its comparison with `main`, case by case and in the geometric mean. It fails when the snapshot was taken with another Rust, a case and its entry do not pair, or the mean or a single case moves past its threshold, the cases that grew listed apart from those that shrank. A change that makes cases faster takes the snapshot again with `make bench-update` in the same pull request. That refuses a case that grew past its threshold, and `make bench-accept-slower` takes it too, so a pull request that makes a case slower says so outright.
 
-`make bench-layout` runs every case on `edge.wasm` and on a build with its static data shifted, by a padding static of 64 bytes and a global base 64 bytes higher, and fails when a case runs another count on the two. A count that moves with the data means that some lookup follows an address, and such a lookup keys by an id or by the content instead. CI runs it after the bench.
+`make bench-layout` runs every case on `interpreter.wasm` and on a build with its static data shifted, by a padding static of 64 bytes and a global base 64 bytes higher, and fails when a case runs another count on the two. A count that moves with the data means that some lookup follows an address, and such a lookup keys by an id or by the content instead. CI runs it after the bench.
 
 `make miri SUITE=vm` runs one suite under Miri, and `CASE` one test of it by its exact name, as CI does around the clock. Miri takes hours to read the whole corpus, so under Miri the corpus tests run the sample `tests/cases/miri.tsv` names, a case on each line by its key, its topic file and its place there. The sample runs every opcode the corpus runs and reaches the unsafe sites the corpus reaches on a budget of 5,000 ops, and two tests of `make test` hold it to the corpus.
 
@@ -83,7 +83,7 @@ A new engine case goes at the end of its topic file, so the places other files n
 When the first one fails, this writes the file again with the key and the place of each case it names.
 
 ```bash
-MIRI_TSV_OUT=tests/cases/miri.tsv cargo test --locked -p edge --test tests miri::test::the_sample_names_cases_of_the_corpus
+MIRI_TSV_OUT=tests/cases/miri.tsv cargo test --locked -p interpreter --test tests miri::test::the_sample_names_cases_of_the_corpus
 ```
 
 > [!NOTE]
@@ -107,7 +107,7 @@ make test-js test-cli test-skill
 
 ## Docs
 
-`docs/` holds MDX pages two folders deep at most, with a numeric prefix on every path segment. Each opens with a frontmatter holding a `title` and a `description` and has one top-level heading, the rules `edge build` holds package docs to. Every example runs: `make test-cli SUITE=docs` runs the `rust` blocks as doctests of the kit, `make test-cli SUITE=network` runs each `$ edge` transcript and each `lox` block against the `output` block after it, with the files that `lox <path>` blocks write, and `make test-js` runs each `js` block in a page against the `text` block after it.
+`docs/` holds MDX pages two folders deep at most, with a numeric prefix on every path segment. Each opens with a frontmatter holding a `title` and a `description` and has one top-level heading, the rules `interpreter build` holds package docs to. Every example runs: `make test-cli SUITE=docs` runs the `rust` blocks as doctests of the kit, `make test-cli SUITE=network` runs each `$ interpreter` transcript and each `lox` block against the `output` block after it, with the files that `lox <path>` blocks write, and `make test-js` runs each `js` block in a page against the `text` block after it.
 
 ## CI
 

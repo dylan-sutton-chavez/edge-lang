@@ -16,12 +16,12 @@ export interface LoadOpts {
     permissions?: Permissions | null
     // whether each run reports what it reached which only a listening embedder pays for
     trace?: boolean | null
-    // the program directory where its files and edge.json live
+    // the program directory where its files and interpreter.json live
     baseUrl?: string | null
     limits?: Limits | null
 }
 
-/* whether an embedder's imports or grants stand in for the edge.json at its base */
+/* whether an embedder's imports or grants stand in for the interpreter.json at its base */
 export const standsIn = ({ imports, permissions }: { imports?: Record<string, string> | null, permissions?: unknown }): boolean =>
     Object.keys(imports ?? {}).length > 0 || (permissions !== undefined && permissions !== null);
 

@@ -1,8 +1,8 @@
 use alloc::string::String;
 
-use edge::lang::{Args, Cx, Intrinsic, KindId, Ret, Sig, TYPE};
-use edge::value::foreign::Kind;
-use edge::value::{HeapObj, HeapPool, Val, VmErr};
+use interpreter::lang::{Args, Cx, Intrinsic, KindId, Ret, Sig, TYPE};
+use interpreter::value::foreign::Kind;
+use interpreter::value::{HeapObj, HeapPool, Val, VmErr};
 
 use crate::fail::{Fail, bare, fail};
 use crate::{Kernel, Lang, Site};

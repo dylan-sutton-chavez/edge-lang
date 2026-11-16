@@ -1,10 +1,10 @@
 use std::process::ExitCode;
 
-use edge::embed::Limits;
+use interpreter::embed::Limits;
 
 // every run meters what it allocates so its memory limit holds
-edge::allocator!();
+interpreter::allocator!();
 
 fn main() -> ExitCode {
-    edge::targets::native::main(&lox::RUNTIME, &lox::FRONT, Limits::sandbox())
+    interpreter::targets::native::main(&interpreter_lox::RUNTIME, &interpreter_lox::FRONT, Limits::sandbox())
 }

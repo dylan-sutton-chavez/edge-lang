@@ -23,7 +23,7 @@ pub fn note(msg: &str) {
     println!("  {msg}");
 }
 
-// the tree of created files `edge init` prints
+// the tree of created files `interpreter init` prints
 pub fn scaffolded(dir: &str, items: &[&str], next: &str) {
     let label = if dir == "." { "project" } else { dir };
     println!("  created {label}/");
@@ -34,7 +34,7 @@ pub fn scaffolded(dir: &str, items: &[&str], next: &str) {
     note(next);
 }
 
-// the `edge serve` banner where `lan` adds a network URL
+// the `interpreter serve` banner where `lan` adds a network URL
 pub fn serve_banner(port: u16, dir: &Path, lan: Option<&str>) {
     println!("  http://localhost:{port}");
     if let Some(ip) = lan {
@@ -48,19 +48,19 @@ pub fn traceback(msg: &str) {
     eprintln!("{msg}");
 }
 
-// the summary `edge build` prints after vendoring into dist
+// the summary `interpreter build` prints after vendoring into dist
 pub fn build_report(dir: &std::path::Path, js_files: usize, packages: usize, scripts: usize, size: u64, elapsed: std::time::Duration) {
     println!();
     println!("  bundled to {}/", dir.display());
     println!();
-    println!("  {js_files} js host files + edge.wasm");
+    println!("  {js_files} js host files + interpreter.wasm");
     println!("  {packages} packages");
     println!("  {scripts} scripts");
     println!();
     println!("  {:.2} MB · {:.1}s", size as f64 / 1_000_000.0, elapsed.as_secs_f64());
 }
 
-// closing lines of `edge build` where `hint` keeps the other modes discoverable
+// closing lines of `interpreter build` where `hint` keeps the other modes discoverable
 pub fn packed(out: &std::path::Path, files: usize, docs: usize, size: u64, hint: &str) {
     println!();
     let pages = match docs {
@@ -80,7 +80,7 @@ pub fn error(e: &anyhow::Error) {
     eprintln!("error: {e:#}");
 }
 
-// the verdict line of each file `edge test` runs
+// the verdict line of each file `interpreter test` runs
 pub fn test_verdict(ok: bool, file: &str, reason: Option<&str>) {
     let tag = if ok { "(successful)" } else { "(unsuccessful)" };
     match reason {

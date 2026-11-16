@@ -4,9 +4,9 @@ use alloc::{borrow::Cow, rc::Rc, string::String, vec::Vec};
 use core::any::Any;
 use core::cmp::Ordering;
 
-use edge::lang::Cx;
-use edge::value::foreign::{BinOp, Kind, KindToken, Snapshot, Transfer, UnOp, words_int};
-use edge::value::{HASH_BITS, HeapPool, Val, VmErr, as_i128, cold_heap, fpowf, hash_modulo};
+use interpreter::lang::Cx;
+use interpreter::value::foreign::{BinOp, Kind, KindToken, Snapshot, Transfer, UnOp, words_int};
+use interpreter::value::{HASH_BITS, HeapPool, Val, VmErr, as_i128, cold_heap, fpowf, hash_modulo};
 
 use crate::Lang;
 use crate::fail::{Fail, bare};
@@ -66,7 +66,7 @@ fn token<L: Lang>(heap: &HeapPool) -> Option<KindToken> { L::WIDE.and_then(|k| C
 /* the token of the language's wide kind where naming none holds no int */
 fn token_or_register<L: Lang>(heap: &mut HeapPool) -> Result<KindToken, VmErr> {
     if let Some(t) = token::<L>(heap) { return Ok(t); }
-    L::WIDE.ok_or_else(edge::value::cold_int_range).and_then(|k| heap.register_kind(k))
+    L::WIDE.ok_or_else(interpreter::value::cold_int_range).and_then(|k| heap.register_kind(k))
 }
 
 /* whether `v` is boxed by this kind */
@@ -125,7 +125,7 @@ pub fn decimal<L: Lang>(b: &BigInt) -> Result<String, VmErr> {
     }
     let s = b.to_radix(10);
     if L::DIGITS.is_some_and(|limit| s.len() > limit) { return Err(bare::<L>(Fail::Digits(None))); }
-    Ok(if b.is_neg() { edge::s!("-", str &s) } else { s })
+    Ok(if b.is_neg() { interpreter::s!("-", str &s) } else { s })
 }
 
 /* what an operation gives before boxing as an int or a float */
@@ -284,14 +284,14 @@ pub fn from_f64<L: Lang>(cx: &mut Cx<'_, '_>, f: f64) -> Result<Val, VmErr> { va
 /* the quotient and remainder of wide ints rounded by the runtime's policy */
 fn divmod_as(heap: &HeapPool, x: &Wide, y: &Wide) -> Option<(Wide, Wide)> {
     match heap.policy().int_mod {
-        edge::lang::IntMod::Truncated => x.divmod_trunc(y),
-        edge::lang::IntMod::Floored => x.divmod(y),
+        interpreter::lang::IntMod::Truncated => x.divmod_trunc(y),
+        interpreter::lang::IntMod::Floored => x.divmod(y),
     }
 }
 
 /* modular power on ints of any width with none for a base with no inverse */
 pub fn pow_mod<L: Lang>(cx: &mut Cx<'_, '_>, base: Val, exp: Val, modulus: Val) -> Option<Result<Option<Val>, VmErr>> {
-    let truncated = matches!(cx.policy().int_mod, edge::lang::IntMod::Truncated);
+    let truncated = matches!(cx.policy().int_mod, interpreter::lang::IntMod::Truncated);
     let r = { let (b, e, m) = (of(cx, base)?, of(cx, exp)?, of(cx, modulus)?); pow_mod_of(cx.heap(), &b, &e, &m, truncated) };
     Some(match r { Ok(Some(r)) => val::<L>(cx, r).map(Some), Ok(None) => Ok(None), Err(e) => Err(e) })
 }

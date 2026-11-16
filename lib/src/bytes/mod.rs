@@ -1,7 +1,7 @@
 use alloc::{vec, vec::Vec};
 
-use edge::lang::{Acc, Args, Cx, Flow, Fold, Item, KindId, Ret, STEPS, Sig, Step, TYPE};
-use edge::value::{HeapObj, HeapPool, Val, VmErr, cold_heap};
+use interpreter::lang::{Acc, Args, Cx, Flow, Fold, Item, KindId, Ret, STEPS, Sig, Step, TYPE};
+use interpreter::value::{HeapObj, HeapPool, Val, VmErr, cold_heap};
 
 use crate::iter::items::SHORT;
 use crate::fail::{Class, Error, Fail, fail};

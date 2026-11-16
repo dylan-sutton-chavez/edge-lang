@@ -1,12 +1,12 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use edge::embed::{Limits, VM};
-use edge::value::{DictMap, HeapObj, HeapPool, Val};
+use interpreter::embed::{Limits, VM};
+use interpreter::value::{DictMap, HeapObj, HeapPool, Val};
 use rig::RUNTIME;
 
-// every run meters what it allocates as edge.wasm does
-edge::allocator!();
+// every run meters what it allocates as interpreter.wasm does
+interpreter::allocator!();
 
 // each call's type and repr or its error then the generators the calls take
 const TRY: &str = concat!(
@@ -17,7 +17,7 @@ const TRY: &str = concat!(
 
 /* what `src` printed and then the words of the error it ended in */
 fn run(src: &str) -> String {
-    let (chunk, errors) = edge::code::compile_as::<rig::Rig>(src);
+    let (chunk, errors) = interpreter::code::compile_as::<rig::Rig>(src);
     assert!(errors.is_empty(), "{src}");
     let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits { ops: 10_000_000, memory: 64 << 20 });
     let end = vm.run().err().map(|e| e.to_string()).unwrap_or_default();

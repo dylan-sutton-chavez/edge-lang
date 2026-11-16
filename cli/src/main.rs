@@ -1,19 +1,19 @@
-use cli::cmd::{actors, build, init, pkg, run, serve, test, uninstall};
-use cli::{docs, files, manifest, net, perms, Kit, Runtime};
+use interpreter_cli::cmd::{actors, build, init, pkg, run, serve, test, uninstall};
+use interpreter_cli::{docs, files, manifest, net, perms, Kit, Runtime};
 use std::sync::Arc;
 
 // the reference runtime built from examples/lox which this binary embeds
-const EDGE_WASM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/edge.wasm"));
-const EDGE_CWASM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/edge.cwasm"));
+const INTERPRETER_WASM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/interpreter.wasm"));
+const INTERPRETER_CWASM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/interpreter.cwasm"));
 
-/* the edge binary as one composition of the kit over the reference runtime */
-fn edge() -> Kit {
-    // SAFETY build.rs precompiled edge.cwasm from edge.wasm under the host's own engine config
-    let runtime = unsafe { Runtime::precompiled(EDGE_WASM, EDGE_CWASM, &lox::DESCRIPTOR) };
-    Kit::new("edge", env!("CARGO_PKG_VERSION"), runtime)
-        .title(format!("The Edge Lang developer CLI for {}", lox::DESCRIPTOR.language))
-        .site("github.com/dylan-sutton-chavez/edge-lang")
-        .upgrade("git pull in your edge-lang clone, then make wasm-cli js lucide and cargo install --path cli")
+/* the interpreter binary as one composition of the kit over the reference runtime */
+fn interpreter() -> Kit {
+    // SAFETY build.rs precompiled interpreter.cwasm from interpreter.wasm under the host's own engine config
+    let runtime = unsafe { Runtime::precompiled(INTERPRETER_WASM, INTERPRETER_CWASM, &interpreter_lox::DESCRIPTOR) };
+    Kit::new("interpreter", env!("CARGO_PKG_VERSION"), runtime)
+        .title(format!("The interpreter developer CLI for {}", interpreter_lox::DESCRIPTOR.language))
+        .site("github.com/dylan-sutton-chavez/interpreter")
+        .upgrade("git pull in your interpreter clone, then make wasm-cli js lucide and cargo install --path cli")
         .command(run::Run)
         .command(build::Build)
         .command(actors::Actor)
@@ -33,7 +33,7 @@ fn edge() -> Kit {
 }
 
 fn main() {
-    edge().main()
+    interpreter().main()
 }
 
 #[cfg(test)]
@@ -43,7 +43,7 @@ mod tests {
     /* an accidental precompile would pass every path check yet fail in the page */
     #[test]
     fn the_embedded_runtime_is_a_wasm_module() {
-        assert_eq!(&EDGE_WASM[..4], b"\0asm");
-        assert_eq!(edge().runtime().module(), Some(EDGE_WASM));
+        assert_eq!(&INTERPRETER_WASM[..4], b"\0asm");
+        assert_eq!(interpreter().runtime().module(), Some(INTERPRETER_WASM));
     }
 }

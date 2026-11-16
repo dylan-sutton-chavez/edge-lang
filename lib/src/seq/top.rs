@@ -1,8 +1,8 @@
 use alloc::vec::Vec;
 use core::cmp::Ordering;
 
-use edge::lang::{Acc, Args, Cx, Flow, Fold, Item, Ret, STEPS, Sig, Step};
-use edge::value::{HeapObj, Val, VmErr};
+use interpreter::lang::{Acc, Args, Cx, Flow, Fold, Item, Ret, STEPS, Sig, Step};
+use interpreter::value::{HeapObj, Val, VmErr};
 
 use super::sort::{plain_keys, room, top_order};
 use crate::fail::{Fail, fail};
@@ -94,7 +94,7 @@ fn length(cx: &Cx<'_, '_>, list: Val) -> usize { match cx.heap().try_get(list) {
 
 /* a new list of the `k` items of greatest key in stable descending order */
 fn pick(cx: &mut Cx<'_, '_>, items: &[Val], keys: &[Val], k: usize) -> Result<Val, VmErr> {
-    if keys.len() != items.len() { return Err(edge::value::cold_runtime("a ranking lost its items")); }
+    if keys.len() != items.len() { return Err(interpreter::value::cold_runtime("a ranking lost its items")); }
     let order = top_order(cx, keys, k)?;
     let best: Vec<Val> = order.iter().map(|&i| items[i]).collect();
     cx.new_list(best)

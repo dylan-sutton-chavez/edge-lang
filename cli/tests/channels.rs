@@ -2,13 +2,13 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 
-use cli::{files, perms, Kit, Runtime};
+use interpreter_cli::{files, perms, Kit, Runtime};
 
 // the variable that makes this binary the CLI for one run of a case
 const AS_CLI: &str = "EDGE_AS_CHANNELS";
 
-// the edge.wasm build.rs copied beside its precompile
-const WASM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/edge.wasm"));
+// the interpreter.wasm build.rs copied beside its precompile
+const WASM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/interpreter.wasm"));
 
 // the records the program reads through files and the channels it writes them to
 const RECORDS: &str = "{\"type\": \"WatchEvent\"}\n{\"type\": \"PushEvent\"}\n{\"type\": \"WatchEvent\"}\n";
@@ -18,9 +18,9 @@ const PROGRAM: &str = "var files = import(\"files\");\nvar f = files.open(\"even
 
 /* run over lox with the files a grant names */
 fn kit() -> Kit {
-    Kit::new("channels", env!("CARGO_PKG_VERSION"), Runtime::wasm(WASM, &lox::DESCRIPTOR))
-        .title("Channels on the Edge engine")
-        .command(cli::cmd::run::Run)
+    Kit::new("channels", env!("CARGO_PKG_VERSION"), Runtime::wasm(WASM, &interpreter_lox::DESCRIPTOR))
+        .title("Channels on the interpreter engine")
+        .command(interpreter_cli::cmd::run::Run)
         .field(perms::FIELD)
         .access(Arc::new(perms::Perms))
         .module(Arc::new(files::Files))
@@ -32,7 +32,7 @@ fn project(name: &str, program: &str, grants: &[&str]) -> PathBuf {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("the target directory takes a project");
     let granted: Vec<String> = grants.iter().map(|grant| format!("\"{grant}\"")).collect();
-    std::fs::write(dir.join("edge.json"), format!("{{ \"permissions\": {{ \"main\": [{}] }} }}\n", granted.join(", "))).expect("writing edge.json");
+    std::fs::write(dir.join("interpreter.json"), format!("{{ \"permissions\": {{ \"main\": [{}] }} }}\n", granted.join(", "))).expect("writing interpreter.json");
     std::fs::write(dir.join("main.lox"), program).expect("writing the program");
     std::fs::write(dir.join("events.jsonl"), RECORDS).expect("writing the records");
     dir
@@ -45,7 +45,7 @@ fn run(dir: &Path) -> (String, String, i32) {
         .args(["run", "main.lox"])
         .current_dir(dir)
         .env(AS_CLI, "1")
-        // one cache for every run so edge.wasm compiles once
+        // one cache for every run so interpreter.wasm compiles once
         .env("XDG_CACHE_HOME", Path::new(env!("CARGO_TARGET_TMPDIR")).join("channels-cache"))
         .stdin(Stdio::null())
         .output()
@@ -82,7 +82,7 @@ fn an_error_reads_in_the_runtimes_words() -> Option<String> {
 fn a_denied_path_reads_in_the_runtimes_words() -> Option<String> {
     let dir = project("denied", PROGRAM, &["files:other.jsonl"]);
     let (out, err, code) = run(&dir);
-    let want = "'main' has no files:events.jsonl, edge.json grants it files:other.jsonl\n[line 2] in script\n";
+    let want = "'main' has no files:events.jsonl, interpreter.json grants it files:other.jsonl\n[line 2] in script\n";
     match (out.as_str(), err.as_str(), code) {
         ("", seen, 1) if seen == want => None,
         (out, seen, code) => Some(format!("the denied run printed {out:?} and said {seen:?} with exit {code}, not {want:?}")),

@@ -9,19 +9,19 @@ The JS host runs a runtime's `.wasm` in a web page. `createWorker` boots the eng
 
 ## Load the host
 
-Serve the tree [Install](./01-overview.mdx#install) builds, or the `dist/` that `edge build --web` writes, from your own origin. `createWorker` loads `edge.wasm` from two folders above `index.js` unless `wasmUrl` names another, such as the `.wasm` of your own runtime. Each example below is a module script of a page that serves `dist/`, and the block after it is what it logs.
+Serve the tree [Install](./01-overview.mdx#install) builds, or the `dist/` that `interpreter build --web` writes, from your own origin. `createWorker` loads `interpreter.wasm` from two folders above `index.js` unless `wasmUrl` names another, such as the `.wasm` of your own runtime. Each example below is a module script of a page that serves `dist/`, and the block after it is what it logs.
 
 ```js
 import { createWorker } from "./dist/js/src/index.js";
 
 const worker = await createWorker();
 worker.onOutput((text) => console.log(text.trimEnd()));
-const { out, exitCode } = await worker.run("print \"hello from edge\";\nexit(3);");
+const { out, exitCode } = await worker.run("print \"hello from interpreter\";\nexit(3);");
 console.log(out === "", exitCode);
 ```
 
 ```text
-hello from edge
+hello from interpreter
 true 3
 ```
 
@@ -31,9 +31,9 @@ true 3
 
 | `createWorker` option | Meaning |
 |---|---|
-| `baseUrl` | The program's directory. The page reads its `edge.json` and each file a run imports from there, never outside it and never with the page's cookies |
+| `baseUrl` | The program's directory. The page reads its `interpreter.json` and each file a run imports from there, never outside it and never with the page's cookies |
 | `wasmUrl` | Where the runtime's `.wasm` lives |
-| `imports`, `permissions` | Stand in for those fields of an `edge.json` the page does not have |
+| `imports`, `permissions` | Stand in for those fields of an `interpreter.json` the page does not have |
 | `limits` | `{ memory, ops }`, memory in MB. A field left out keeps 256 MB and 100,000,000 ops |
 | `trace` | Reports every host call through `onTrace` |
 | `bundleUrl`, `composition` | A worker script of your own and the host modules it serves |
@@ -56,7 +56,7 @@ for (const line of out.split("\n")) console.log(line);
 ```
 
 ```text
-'main' has no net:other.example, edge.json grants it net:api.example.com
+'main' has no net:other.example, interpreter.json grants it net:api.example.com
 [line 2] in script
 ```
 
@@ -123,7 +123,7 @@ The second `done` comes from the blob, which held the loop at the `n` the pause 
 
 ## Other hosts
 
-Any host that runs WebAssembly can drive a runtime's `.wasm` directly. The `edge` CLI does so with wasmtime in `cli/src/host/wasm`, and `js/src` is the browser's version. Every input is a buffer the host allocates with `wasm_alloc(size)`, fills, passes as `(ptr, len)` and frees with `wasm_free(ptr, size)`. Every result lands in one output buffer at `out_ptr()`, `out_len()` bytes long, valid until the next call.
+Any host that runs WebAssembly can drive a runtime's `.wasm` directly. The `interpreter` CLI does so with wasmtime in `cli/src/host/wasm`, and `js/src` is the browser's version. Every input is a buffer the host allocates with `wasm_alloc(size)`, fills, passes as `(ptr, len)` and frees with `wasm_free(ptr, size)`. Every result lands in one output buffer at `out_ptr()`, `out_len()` bytes long, valid until the next call.
 
 The module imports four functions from `env`:
 

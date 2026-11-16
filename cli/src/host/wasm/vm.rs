@@ -2,8 +2,8 @@ use super::{read, rt, stage, unstage, wt, Exports, Host, MemoryCap, Native, Stat
 use crate::host::resolver::{self, Side};
 use crate::host::{snapshot_source, Calls, ChannelSink, Completion, Engine, Fetched, Hosting, Project, Remote, Serve, Sink, Status, Waits, Walk, Wiring};
 use anyhow::{anyhow, bail, Result};
-use edge::abi::WireValue;
-use edge::embed::Limits;
+use interpreter::abi::WireValue;
+use interpreter::embed::Limits;
 use crate::kit::Descriptor;
 use std::cell::{RefCell, RefMut};
 use std::collections::HashMap;
@@ -421,7 +421,7 @@ impl Engine for Vm {
     /* boots from the source the blob embeds whose imports must resolve again */
     fn restore_state(&mut self, blob: &[u8]) -> Result<Status> {
         // a blob another runtime saved is refused before its source is walked
-        if !self.enter()?.saved_here(blob) { bail!("{}", edge::embed::OTHER_RUNTIME); }
+        if !self.enter()?.saved_here(blob) { bail!("{}", interpreter::embed::OTHER_RUNTIME); }
         let source = snapshot_source(blob)?;
         let status = {
             let mut inst = self.enter()?;
@@ -611,7 +611,7 @@ mod restore {
         let len = u64::from_le_bytes(blob[24..32].try_into().unwrap()) as usize;
         let mut bad = blob[..blob.len() - 32].to_vec();
         bad[40..40 + len].fill(b'(');
-        let seal = edge::util::sha256::sha256(&bad);
+        let seal = interpreter::util::sha256::sha256(&bad);
         bad.extend_from_slice(&seal);
         assert!(matches!(vm.restore_state(&bad).unwrap(), Status::Error(e) if e.contains("no longer parses")));
         vm.push_event("x");

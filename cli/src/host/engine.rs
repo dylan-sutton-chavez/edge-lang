@@ -1,7 +1,7 @@
 use super::{ChannelSink, Fault};
 use anyhow::{anyhow, Result};
-use edge::abi::WireValue;
-use edge::embed::Limits;
+use interpreter::abi::WireValue;
+use interpreter::embed::Limits;
 use std::time::Duration;
 
 /* what a run step left the interpreter waiting on */
@@ -71,5 +71,5 @@ pub trait Engine {
 
 /* the source a snapshot blob embeds read by the engine that wrote its header */
 pub fn snapshot_source(blob: &[u8]) -> Result<String> {
-    edge::embed::source_of(blob).map(String::from).map_err(|e| anyhow!(e))
+    interpreter::embed::source_of(blob).map(String::from).map_err(|e| anyhow!(e))
 }

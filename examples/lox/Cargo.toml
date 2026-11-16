@@ -1,14 +1,19 @@
 [package]
-name = "lox"
+name = "interpreter-lox"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Lox from Crafting Interpreters on the Edge SDK, with its own compiler over the SDK's lexer and builder, measured by the book's test suite."
-publish = false
+description = "Lox from Crafting Interpreters as a runtime on interpreter, with its own compiler over the lexer and builder, held to the book's test suite."
+documentation = "https://docs.rs/interpreter-lox"
+readme = "../../README.md"
+keywords = ["interpreter", "lox", "crafting-interpreters", "wasm"]
+categories = ["compilers", "wasm"]
+include = ["/src/**/*.rs"]
 
 [lib]
-name = "lox"
+name = "interpreter_lox"
 doctest = false
 
 [[bin]]
@@ -18,11 +23,11 @@ required-features = ["std"]
 
 [features]
 default = ["std"]
-std = ["edge/std"]
-# builds edge.wasm with the engine's exports over these natives and the grant logic
-web = ["edge/runtime", "edge/perms"]
+std = ["interpreter/std"]
+# builds interpreter.wasm with the engine's exports over these natives and the grant logic
+web = ["interpreter/runtime", "interpreter/perms"]
 
 [dependencies]
-edge = { path = "../..", default-features = false }
+interpreter = { workspace = true }
 # the kernels its few natives past the book come from
-lib = { path = "../../lib", default-features = false, features = ["io", "seq"] }
+interpreter-lib = { workspace = true, features = ["io", "seq"] }

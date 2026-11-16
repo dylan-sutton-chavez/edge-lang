@@ -1,12 +1,12 @@
 #[cfg(test)]
 mod test {
     use crate::common::{boot, TestResolver};
-    use edge::code::{build, compile, Builder, Diagnostic, OpCode, Parsed, SSAChunk, Unit, Value};
-    use edge::embed::Limits;
-    use edge::lang::Front;
-    use edge::deps::walk::{Carry, Fetched, Loaded, Step, Walk};
-    use edge::deps::{ImportSpec, Resolver};
-    use edge::lexer::{Dot, Shapes, Spelling, Syntax};
+    use interpreter::code::{build, compile, Builder, Diagnostic, OpCode, Parsed, SSAChunk, Unit, Value};
+    use interpreter::embed::Limits;
+    use interpreter::lang::Front;
+    use interpreter::deps::walk::{Carry, Fetched, Loaded, Step, Walk};
+    use interpreter::deps::{ImportSpec, Resolver};
+    use interpreter::lexer::{Dot, Shapes, Spelling, Syntax};
     // the builder and the parse it is held to both read the fixed core
     use crate::words::Legacy as Rig;
     use std::rc::Rc;
@@ -41,7 +41,7 @@ mod test {
     struct Keys;
     impl Spelling for Keys {
         const SYNTAX: Syntax = Syntax { name: "keys", shapes: Shapes { dot: Dot::Key, ..Shapes::CORE }, ..crate::words::LEGACY };
-        const NATIVES: &'static edge::lang::Natives = &rig::NATIVES;
+        const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
     }
 
     fn keyed(src: &str, unit: Unit) -> Parsed {
@@ -116,12 +116,12 @@ mod test {
 
     fn folded(chunk: Rc<SSAChunk>) -> SSAChunk {
         let mut chunk = Rc::unwrap_or_clone(chunk);
-        edge::code::constant_fold(&mut chunk, rig::FRONT.policy);
+        interpreter::code::constant_fold(&mut chunk, rig::FRONT.policy);
         chunk
     }
 
     fn same(steps_src: &str, mini_src: &str) {
-        let (ours, theirs) = (compiled(&STEPS, steps_src, Box::new(edge::deps::NoopResolver)), compiled(&LEGACY, mini_src, Box::new(edge::deps::NoopResolver)));
+        let (ours, theirs) = (compiled(&STEPS, steps_src, Box::new(interpreter::deps::NoopResolver)), compiled(&LEGACY, mini_src, Box::new(interpreter::deps::NoopResolver)));
         assert!(ours.1.is_empty() && theirs.1.is_empty(), "{:?} and {:?}", ours.1, theirs.1);
         if let Err(e) = crate::common::same_program(&theirs, &ours) { panic!("{steps_src:?} against {mini_src:?}: {e}"); }
     }
@@ -173,7 +173,7 @@ mod test {
         let src = format!("let total = 0\nover it in {records}\n  if kind == \"push\"\n    let total = total + size\nprint(total)\n");
         let parsed = format!("total = 0\nfor it in {records}:\n    if it.kind == \"push\":\n        total = total + it.size\nprint(total)\n");
         let keyed = Front { parse: keyed, ..STEPS };
-        let (ours, theirs) = (compiled(&keyed, &src, Box::new(edge::deps::NoopResolver)), compiled(&Front::spelled::<Keys>(), &parsed, Box::new(edge::deps::NoopResolver)));
+        let (ours, theirs) = (compiled(&keyed, &src, Box::new(interpreter::deps::NoopResolver)), compiled(&Front::spelled::<Keys>(), &parsed, Box::new(interpreter::deps::NoopResolver)));
         assert!(ours.1.is_empty() && theirs.1.is_empty(), "{:?} and {:?}", ours.1, theirs.1);
         if let Err(e) = crate::common::same_program(&theirs, &ours) { panic!("{e}"); }
         assert!(ours.0.instructions.iter().any(|i| i.opcode == OpCode::GetItem) && !ours.0.instructions.iter().any(|i| i.opcode == OpCode::LoadAttr));
@@ -203,7 +203,7 @@ mod test {
         assert_eq!(build::<Rig>("é", unit(), |b| { b.expr(0..1); }).err().expect("a split character").len(), 1);
     }
 
-    fn unit() -> Unit { STEPS.unit(Box::new(edge::deps::NoopResolver)) }
+    fn unit() -> Unit { STEPS.unit(Box::new(interpreter::deps::NoopResolver)) }
 
     // each step of the builder's own vocabulary builds what the same rig line parses to
     #[test]
@@ -221,7 +221,7 @@ mod test {
             b.at(0).stmts(0..5);
         });
         let chunk = folded(built.unwrap_or_else(|e| panic!("{:?}", e.iter().map(|d| &d.msg).collect::<Vec<_>>())));
-        let parsed = compiled(&LEGACY, "xs = [1, 2]\nm = {\"k\": xs}\nf = lambda v: v + 1\ny = f(m[\"k\"][0])\nz = m.get(\"k\")\nt = true\nn = nil\nif y > 5:\n    raise ValueError(\"bad\")\ny > 5\n", Box::new(edge::deps::NoopResolver));
+        let parsed = compiled(&LEGACY, "xs = [1, 2]\nm = {\"k\": xs}\nf = lambda v: v + 1\ny = f(m[\"k\"][0])\nz = m.get(\"k\")\nt = true\nn = nil\nif y > 5:\n    raise ValueError(\"bad\")\ny > 5\n", Box::new(interpreter::deps::NoopResolver));
         if let Err(e) = crate::common::same_program(&parsed, &(chunk, Vec::new())) { panic!("{e}"); }
     }
 
@@ -234,7 +234,7 @@ mod test {
             b.at(0).arms().arm(|b| { b.expr(0..5); }, |b| { b.stmts(6..14); }).arm(|b| { b.expr(15..20); }, |b| { b.stmts(21..29); }).other(|b| { b.stmts(30..38); });
         });
         let chunk = folded(built.ok().expect("no errors"));
-        let parsed = compiled(&LEGACY, "a = 2\nif a > 1:\n    print(1)\nelse if a > 0:\n    print(2)\nelse:\n    print(3)\n", Box::new(edge::deps::NoopResolver));
+        let parsed = compiled(&LEGACY, "a = 2\nif a > 1:\n    print(1)\nelse if a > 0:\n    print(2)\nelse:\n    print(3)\n", Box::new(interpreter::deps::NoopResolver));
         if let Err(e) = crate::common::same_program(&parsed, &(chunk.clone(), Vec::new())) { panic!("{e}"); }
         assert_eq!(output(&chunk), ["1"]);
     }

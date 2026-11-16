@@ -2,7 +2,7 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use edge::code::{Builder, OpCode as O, Value};
+use interpreter::code::{Builder, OpCode as O, Value};
 
 use crate::parse::{Expr, Fun, Kind, Place, Program, Stmt};
 use crate::Lox;

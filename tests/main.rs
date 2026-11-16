@@ -1,8 +1,8 @@
 mod common;
 mod cases;
 
-// every run meters what it allocates as edge.wasm does
-edge::allocator!();
+// every run meters what it allocates as interpreter.wasm does
+interpreter::allocator!();
 
 mod abi;
 mod vm;

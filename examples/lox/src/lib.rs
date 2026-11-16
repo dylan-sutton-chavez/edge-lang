@@ -1,4 +1,5 @@
 #![no_std]
+#![doc = "Lox from Crafting Interpreters as a runtime on `interpreter`. Compile a program with `interpreter::code::compile(&FRONT, src)` and run it on `VM::with_runtime(&RUNTIME, ...)`."]
 #![forbid(unsafe_code)]
 
 extern crate alloc;
@@ -8,11 +9,11 @@ extern crate std;
 use alloc::format;
 use alloc::string::{String, ToString};
 
-use edge::code::{Diagnostic, Parsed, Unit};
-use edge::lang::{Act, Args, CallFault, Cx, Descriptor, EngineError, ErrKind, Falsy, Fit, Front, IntDiv, IntMod, KindId, Language, MapIter, Mode, Names, Native, Natives, NegPow, NumEq, Op, Overflow, Policy, Ret, Runtime, Sig, StrIter, ZeroDiv};
-use edge::lexer::TokenType as T;
-use edge::lexer::{index, operators, Binding, Blocks, Comments, Cond, Continuation, Dot, Ends, Escapes, Keywords, Lambda, Numbers, Quote, Shapes, Spelling, Strings, Suffix, Syntax, TokenType, Unicode, Unknown, Zeros};
-use edge::value::{Val, VmErr};
+use interpreter::code::{Diagnostic, Parsed, Unit};
+use interpreter::lang::{Act, Args, CallFault, Cx, Descriptor, EngineError, ErrKind, Falsy, Fit, Front, IntDiv, IntMod, KindId, Language, MapIter, Mode, Names, Native, Natives, NegPow, NumEq, Op, Overflow, Policy, Ret, Runtime, Sig, StrIter, ZeroDiv};
+use interpreter::lexer::TokenType as T;
+use interpreter::lexer::{index, operators, Binding, Blocks, Comments, Cond, Continuation, Dot, Ends, Escapes, Keywords, Lambda, Numbers, Quote, Shapes, Spelling, Strings, Suffix, Syntax, TokenType, Unicode, Unknown, Zeros};
+use interpreter::value::{Val, VmErr};
 
 mod lower;
 pub mod parse;
@@ -118,12 +119,12 @@ fn item(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
 }
 
 // what a program reaches past the book through its host each as a lib kernel
-const HOST: &[Native] = &lib::table![Lox;
-    "input" => lib::io::read_line,
-    "exit" => lib::io::exit,
-    "send" => lib::io::send,
-    "receive" => lib::io::receive,
-    "len" => lib::seq::len,
+const HOST: &[Native] = &interpreter_lib::table![Lox;
+    "input" => interpreter_lib::io::read_line,
+    "exit" => interpreter_lib::io::exit,
+    "send" => interpreter_lib::io::send,
+    "receive" => interpreter_lib::io::receive,
+    "len" => interpreter_lib::seq::len,
 ];
 
 const OWN: &[Native] = &[
@@ -136,13 +137,13 @@ const OWN: &[Native] = &[
     Native::new("@super", Sig::exact(3), superclass),
 ];
 
-pub static NATIVES: Natives = edge::natives! { language: Lox, fns: [OWN, HOST], methods: [], types: &[] };
+pub static NATIVES: Natives = interpreter::natives! { language: Lox, fns: [OWN, HOST], methods: [], types: &[] };
 
 pub static RUNTIME: Runtime = Runtime::of::<Lox>();
 
 fn parse(src: &str, unit: Unit) -> Parsed {
     let prog = parse::parse(src)?;
-    edge::code::build::<Lox>(src, unit, |b| lower::lower(b, &prog))
+    interpreter::code::build::<Lox>(src, unit, |b| lower::lower(b, &prog))
 }
 
 pub const FRONT: Front = Front { extension: LOX.extension, parse, imports: parse::imports, syntax: Some(LOX), policy: &<Lox as Language>::POLICY };
@@ -153,7 +154,7 @@ pub const DESCRIPTOR: Descriptor = Descriptor {
     extension: LOX.extension,
     entries: &["main.lox", "app.lox", "index.lox"],
     test_suffix: "_test.lox",
-    scaffold: "print \"hello from edge\";\n",
+    scaffold: "print \"hello from interpreter\";\n",
     example_fence: "lox",
     manifest_fence: "lox-manifest",
     type_error: "Type",
@@ -187,13 +188,13 @@ fn report(src: &str, head: &str, pos: Option<usize>) -> String {
 }
 
 // lib words its failures and renders what the book has no words for
-static TREE: lib::lang::Tree = lib::lang::Tree::of::<Lox>();
+static TREE: interpreter_lib::lang::Tree = interpreter_lib::lang::Tree::of::<Lox>();
 
-impl lib::Lang for Lox {
-    const TREE: &'static lib::lang::Tree = &TREE;
+impl interpreter_lib::Lang for Lox {
+    const TREE: &'static interpreter_lib::lang::Tree = &TREE;
 }
 
-impl lib::fmt::render::Style for Lox {}
+impl interpreter_lib::fmt::render::Style for Lox {}
 
 impl Language for Lox {
     const VERSION: u32 = 1;
@@ -224,7 +225,7 @@ impl Language for Lox {
     const NAMES: &'static Names = &Names::PLAIN;
     const FRONT: Front = FRONT;
     const DESCRIPTOR: &'static Descriptor = &DESCRIPTOR;
-    const REPORT: Option<edge::lang::WordsFn> = Some(report);
+    const REPORT: Option<interpreter::lang::WordsFn> = Some(report);
     type Ops = ();
 
     fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Mode) -> Result<String, VmErr> {
@@ -242,17 +243,17 @@ impl Language for Lox {
                 Some(name) => format!("<fn {}>", name.rsplit('.').next().unwrap_or(name)),
                 None => "<native fn>".into(),
             },
-            _ => lib::fmt::render::hook::<Lox>(cx, v, mode)?,
+            _ => interpreter_lib::fmt::render::hook::<Lox>(cx, v, mode)?,
         })
     }
 
     fn message(cx: &mut Cx<'_, '_>, e: &EngineError) -> String {
         match e {
-            EngineError::Unsupported { op: Op::Bin(edge::value::foreign::BinOp::Add), .. } => "Operands must be two numbers or two strings.".into(),
+            EngineError::Unsupported { op: Op::Bin(interpreter::value::foreign::BinOp::Add), .. } => "Operands must be two numbers or two strings.".into(),
             EngineError::Unsupported { op: Op::Unary(_), .. } => "Operand must be a number.".into(),
             EngineError::Unsupported { .. } => "Operands must be numbers.".into(),
             EngineError::Cannot { act: Act::Call, .. } => "Can only call functions and classes.".into(),
-            EngineError::Arity { callee: edge::lang::Callee::Function { name, normal, .. }, fit } => {
+            EngineError::Arity { callee: interpreter::lang::Callee::Function { name, normal, .. }, fit } => {
                 let normal = *normal as usize;
                 let got = match fit { Fit::Count(n) => *n as usize, Fit::Missing { names, .. } => normal - names.len(), _ => 0 };
                 // a method counts its receiver which its qualified name shows as a class before it
@@ -270,10 +271,10 @@ impl Language for Lox {
             EngineError::Recursion => "Stack overflow.".into(),
             EngineError::Call(CallFault::Base(_)) => "Superclass must be a class.".into(),
             EngineError::Call(CallFault::NoArgs { got, .. }) => format!("Expected 0 arguments but got {got}."),
-            _ => edge::lang::plain(cx, e),
+            _ => interpreter::lang::plain(cx, e),
         }
     }
 }
 
 #[cfg(all(target_arch = "wasm32", feature = "web"))]
-edge::web_exports!(RUNTIME);
+interpreter::web_exports!(RUNTIME);

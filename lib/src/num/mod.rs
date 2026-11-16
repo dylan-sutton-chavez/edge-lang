@@ -1,7 +1,7 @@
 use core::cmp::Ordering;
 
-use edge::lang::{Args, Cx, KindId, Ret, Sig};
-use edge::value::{HeapPool, UnOp, Val, VmErr};
+use interpreter::lang::{Args, Cx, KindId, Ret, Sig};
+use interpreter::value::{HeapPool, UnOp, Val, VmErr};
 
 use crate::fail::{Error, Fail, fail};
 use crate::{Kernel, Site};

@@ -8,7 +8,7 @@ import { roomScript } from './room.ts';
 export type { Composition, TraceEvent };
 
 export interface CreateWorkerOpts {
-    // the program directory whose files and edge.json the page reads for the room
+    // the program directory whose files and interpreter.json the page reads for the room
     baseUrl?: string
     wasmUrl?: string
     // the classic script the room runs which a composition of its own bundles
@@ -53,7 +53,7 @@ export async function createWorker(opts: CreateWorkerOpts = {}): Promise<WorkerH
     if (typeof document === 'undefined') throw new Error('createWorker needs a page, missing in this runtime');
     const base = opts.baseUrl ? new URL('./', opts.baseUrl).href : null;
     // the engine and the JS host's own bundle sit beside the host wherever it ships
-    const wasmUrl = opts.wasmUrl ?? new URL('../../edge.wasm', import.meta.url).href;
+    const wasmUrl = opts.wasmUrl ?? new URL('../../interpreter.wasm', import.meta.url).href;
     const bundleUrl = opts.bundleUrl ?? new URL('./worker/bundle.js', import.meta.url).href;
     // the page fetches and hands over the engine so the room loads no code itself
     const [source, wasm, composition, root] = await Promise.all([

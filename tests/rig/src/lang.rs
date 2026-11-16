@@ -1,21 +1,21 @@
-use edge::value::foreign::Kind;
-use lib::lang::{Centre, Codec, Endian, Machine, Numerals, OnError, Specs, Tree};
-use lib::text::cut::Breaks;
-use lib::Lang;
+use interpreter::value::foreign::Kind;
+use interpreter_lib::lang::{Centre, Codec, Endian, Machine, Numerals, OnError, Specs, Tree};
+use interpreter_lib::text::cut::Breaks;
+use interpreter_lib::Lang;
 
 use crate::Rig;
 
 // the kind that boxes every int too wide for an inline value
-pub static WIDE: Kind = lib::num::big::kind::<Rig>(crate::names::KIND_NAMES[edge::lang::KindId::Int as usize]);
+pub static WIDE: Kind = interpreter_lib::num::big::kind::<Rig>(crate::names::KIND_NAMES[interpreter::lang::KindId::Int as usize]);
 
 // the kind of the slice a key of bounds makes
-pub static SLICE: Kind = lib::seq::slice::<Rig>("slice");
+pub static SLICE: Kind = interpreter_lib::seq::slice::<Rig>("slice");
 
 // the kinds rig boxes its times and durations in
-pub static TIME: Kind = lib::date::time_kind::<Rig>("time");
-pub static DURATION: Kind = lib::date::duration_kind::<Rig>("duration");
+pub static TIME: Kind = interpreter_lib::date::time_kind::<Rig>("time");
+pub static DURATION: Kind = interpreter_lib::date::duration_kind::<Rig>("duration");
 
-impl lib::date::Dates for Rig {
+impl interpreter_lib::date::Dates for Rig {
     const TIME: &'static Kind = &TIME;
     const DURATION: &'static Kind = &DURATION;
 }
@@ -26,7 +26,7 @@ pub struct Lines;
 impl Breaks for Lines { const BREAKS: &'static [char] = &['\n', '\r', '\u{0b}', '\u{0c}', '\u{1c}', '\u{1d}', '\u{1e}', '\u{85}', '\u{2028}', '\u{2029}']; }
 
 // a record shows its pairs the way its literal writes them
-impl lib::fmt::render::Style for Rig {
+impl interpreter_lib::fmt::render::Style for Rig {
     const PAIR: &'static str = " = ";
 
     fn bare_key(key: &str) -> bool {

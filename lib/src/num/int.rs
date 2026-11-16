@@ -2,9 +2,9 @@ use alloc::borrow::Cow;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use edge::lang::{Args, CLASS, Cx, Ret, Sig, TYPE};
-use edge::s;
-use edge::value::{BinOp, HeapObj, HeapPool, Val, VmErr, cold_overflow, fabs, ftrunc};
+use interpreter::lang::{Args, CLASS, Cx, Ret, Sig, TYPE};
+use interpreter::s;
+use interpreter::value::{BinOp, HeapObj, HeapPool, Val, VmErr, cold_overflow, fabs, ftrunc};
 
 use super::{big, bool_int};
 use crate::fail::{Fail, fail, receiver};

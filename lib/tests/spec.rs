@@ -1,12 +1,12 @@
-use edge::embed::{Limits, VM};
-use edge::lang::{Args, Cx, Native, Natives, Ret, Runtime, Sig};
-use edge::value::VmErr;
+use interpreter::embed::{Limits, VM};
+use interpreter::lang::{Args, Cx, Native, Natives, Ret, Runtime, Sig};
+use interpreter::value::VmErr;
 use rig::Rig;
 use rig::natives::{ARRAY, BUFFER, BYTES, CONVERT, DICT, FLOAT, FOLDS, INT, IO, ITER, LIST, LIST_SORT, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
 
 const TESTED: &[Native] = &[Native::new("fmt", Sig::exact(2), fmt)];
 
-static NATIVES: Natives = edge::natives! {
+static NATIVES: Natives = interpreter::natives! {
     language: Over,
     fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, TYPES, rig::natives::MATCH, rig::natives::DATE, TESTED],
     methods: [
@@ -33,16 +33,16 @@ rig::over!(Over, &NATIVES);
 /* a value's text under a spec or the error the spec raises */
 fn fmt(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
     let spec = cx.text(a.pos[1]).map(String::from).ok_or(VmErr::Type("fmt takes a str spec"))?;
-    let out = lib::fmt::spec::format::<Rig>(cx, a.pos[0], &spec)?;
+    let out = interpreter_lib::fmt::spec::format::<Rig>(cx, a.pos[0], &spec)?;
     Ok(cx.new_str(out)?.into())
 }
 
 /* what `src` printed or its error */
 fn run(src: &str) -> Result<String, String> {
-    let (chunk, errors) = edge::code::compile_as::<rig::Rig>(src);
+    let (chunk, errors) = interpreter::code::compile_as::<rig::Rig>(src);
     assert!(errors.is_empty(), "{src}: {:?}", errors.iter().map(|e| &e.msg).collect::<Vec<_>>());
     // nothing meters these tests so the instance budget bounds the room a spec checks
-    edge::value::meter::set_budget(256 << 20);
+    interpreter::value::meter::set_budget(256 << 20);
     let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits { memory: usize::MAX, ..Limits::sandbox() });
     vm.run().map_err(|e| e.to_string())?;
     Ok(vm.output_text())

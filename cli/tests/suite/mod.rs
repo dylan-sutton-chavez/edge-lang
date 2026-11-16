@@ -217,7 +217,7 @@ fn run_suite(bin: Bin, cases: &[Case], hosts: &[&[&str]]) {
             let mut args = c.run.clone();
             args.splice(1..1, host.iter().map(|flag| flag.to_string()));
             if let Err(e) = check(bin, c, &args, cache.path()) {
-                failed.push(format!("[edge {}] {e}", args.join(" ")));
+                failed.push(format!("[interpreter {}] {e}", args.join(" ")));
             }
         }
     }

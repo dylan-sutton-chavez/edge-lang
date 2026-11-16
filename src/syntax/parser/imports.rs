@@ -81,7 +81,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
                 let t = self.tokens.toks.get(k).copied().unwrap_or(Token { kind: TokenType::Eof, line: self.last_line, start: n, end: n, comp: false, assigns: 0 });
                 let msg = match why {
                     NoSpec::Quoted => s!("module '", str &parse_string::<S>(self.lexeme(&t)), "' not found"),
-                    // `from . import x` names no module since Edge has no packages
+                    // `from . import x` names no module since the engine has no packages
                     NoSpec::Dots | NoSpec::Segment => s!(str Self::MODULE_AFTER_DOT),
                     NoSpec::Name => s!("expected a module name"),
                 };

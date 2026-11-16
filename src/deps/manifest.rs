@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 use crate::s;
 use super::json::{self, Value};
 
-/* a parsed `edge.json` whose `extends` lends another manifest's imports for names it lacks */
+/* a parsed `interpreter.json` whose `extends` lends another manifest's imports for names it lacks */
 #[derive(Clone, Default, Debug)]
 pub struct Manifest {
     // bare names to specs scanned in order since a Vec spares a hashbrown monomorphization
@@ -16,18 +16,18 @@ pub struct Manifest {
     pub description: Option<String>,
     pub repository: Option<String>,
     // the lowest engine the manifest runs on
-    pub edge: Option<String>,
+    pub interpreter: Option<String>,
 }
 
-/* an edge.json read with unknown keys skipped and numbers and booleans refused */
+/* an interpreter.json read with unknown keys skipped and numbers and booleans refused */
 pub fn parse_manifest(bytes: &[u8]) -> Result<Manifest, String> {
     parse_manifest_with(bytes, "").map(|(m, _)| m)
 }
 
 /* the manifest and the value under `carried` a host names for its own component */
 pub fn parse_manifest_with(bytes: &[u8], carried: &str) -> Result<(Manifest, Option<Value>), String> {
-    let Value::Obj(fields) = json::parse(bytes, "edge.json")? else {
-        return Err(s!("edge.json must be a JSON object"));
+    let Value::Obj(fields) = json::parse(bytes, "interpreter.json")? else {
+        return Err(s!("interpreter.json must be a JSON object"));
     };
     let mut m = Manifest::default();
     let mut held = None;
@@ -39,7 +39,7 @@ pub fn parse_manifest_with(bytes: &[u8], carried: &str) -> Result<(Manifest, Opt
             "version" => m.version = Some(string_of(&key, value)?),
             "description" => m.description = Some(string_of(&key, value)?),
             "repository" => m.repository = Some(string_of(&key, value)?),
-            "edge" => m.edge = Some(string_of(&key, value)?),
+            "interpreter" => m.interpreter = Some(string_of(&key, value)?),
             _ if !carried.is_empty() && key == carried => held = Some(value),
             _ => {}
         }
@@ -75,7 +75,7 @@ pub fn walk_up_dirs(start: &str) -> impl Iterator<Item = String> + '_ {
 /* the directory of `spec` through its last slash where a packed package is one itself */
 pub fn dir_of(spec: &str) -> String {
     let path = spec.split(['#', '?']).next().unwrap_or(spec);
-    if path.ends_with(".edge") {
+    if path.ends_with(".interpreter") {
         return s!(str path, "/");
     }
     match spec.rfind('/') {
@@ -180,10 +180,10 @@ mod tests {
     // code served from a URL reaches URLs alone and never climbs past its host
     #[test]
     fn a_url_never_joins_into_a_local_path() {
-        let pkg = "https://cdn.test/pkg/pay/0.1.0/app.edge/";
+        let pkg = "https://cdn.test/pkg/pay/0.1.0/app.interpreter/";
         assert_eq!(join_relative(pkg, "../../../../../../config.lox"), "https://cdn.test/config.lox");
         assert_eq!(join_relative("https://cdn.test/", ".."), "https://cdn.test/");
-        assert_eq!(joined(pkg, "./util.lox"), Ok(s!("https://cdn.test/pkg/pay/0.1.0/app.edge/util.lox")));
+        assert_eq!(joined(pkg, "./util.lox"), Ok(s!("https://cdn.test/pkg/pay/0.1.0/app.interpreter/util.lox")));
         assert_eq!(joined(pkg, "../../../../x.lox"), Ok(s!("https://cdn.test/x.lox")));
         assert_eq!(joined(pkg, "https://other.test/y.lox"), Ok(s!("https://other.test/y.lox")));
         for escape in ["../../../../../config.lox", "/abs/project/config.lox", "file:///home/me/.env", "../../../../.."] {
@@ -212,22 +212,22 @@ mod tests {
 
     #[test]
     fn the_package_fields_are_read_and_must_be_strings() {
-        let m = parse_manifest(r#"{ "name": "café", "version": "0.1.0", "edge": "0.7.5", "future": { "kept": ["x"] } }"#.as_bytes()).unwrap();
-        assert_eq!((m.name.as_deref(), m.version.as_deref(), m.edge.as_deref()), (Some("café"), Some("0.1.0"), Some("0.7.5")));
+        let m = parse_manifest(r#"{ "name": "café", "version": "0.1.0", "interpreter": "0.7.5", "future": { "kept": ["x"] } }"#.as_bytes()).unwrap();
+        assert_eq!((m.name.as_deref(), m.version.as_deref(), m.interpreter.as_deref()), (Some("café"), Some("0.1.0"), Some("0.7.5")));
         assert!(parse_manifest(br#"{ "name": ["x"] }"#).unwrap_err().contains("'name' must be a string"));
     }
 
     #[test]
     fn a_system_module_is_spelled_per_package() {
         assert_eq!(system_spec("net", ""), "system:net@");
-        assert_eq!(system_spec("time", "https://cdn/pkg/clock/0.1.0/app.edge/"), "system:time@https://cdn/pkg/clock/0.1.0/app.edge/");
+        assert_eq!(system_spec("time", "https://cdn/pkg/clock/0.1.0/app.interpreter/"), "system:time@https://cdn/pkg/clock/0.1.0/app.interpreter/");
     }
 
     #[test]
     fn dir_walk_routes() {
         assert_eq!(dir_of("lib/test/a.lox"), "lib/test/");
         assert_eq!(dir_of("a.lox"), "");
-        assert_eq!(dir_of("https://cdn/pkg/test/0.1.0/app.edge#sha256-00"), "https://cdn/pkg/test/0.1.0/app.edge/");
+        assert_eq!(dir_of("https://cdn/pkg/test/0.1.0/app.interpreter#sha256-00"), "https://cdn/pkg/test/0.1.0/app.interpreter/");
         assert_eq!(parent_dir("lib/test/"), Some("lib/".into()));
         assert_eq!(parent_dir("lib/"), Some("".into()));
         assert_eq!(parent_dir(""), None);

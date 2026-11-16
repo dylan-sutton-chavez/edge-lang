@@ -139,13 +139,13 @@ while (at < bytes.length) {
 
 const found = lines.sort().join('\n')
 if (found !== EXPECTED) {
-  console.error(`edge.wasm no longer offers its hosts what they bind\n\nexpected\n${EXPECTED}\n\nfound\n${found}`)
+  console.error(`interpreter.wasm no longer offers its hosts what they bind\n\nexpected\n${EXPECTED}\n\nfound\n${found}`)
   Deno.exit(1)
 }
 
 // plugins compile these values in so each stays as it was added
 const CONSTANTS = `
-EDGE_ABI_VERSION: u32 = 1
+ABI_VERSION: u32 = 1
 MAX_WIRE_DEPTH: u32 = 32
 TAG_INVALID: u32 = u32::MAX
 error_kind::ATTRIBUTE: u32 = 3

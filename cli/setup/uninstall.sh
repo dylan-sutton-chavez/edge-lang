@@ -2,25 +2,25 @@
 
 set -e
 
-INSTALL_DIR="${EDGE_INSTALL_DIR:-$HOME/.local/bin}"
+INSTALL_DIR="${INTERPRETER_INSTALL_DIR:-$HOME/.local/bin}"
 
-# Everything the CLI caches, edge-owned and refetchable, so it goes with the binary.
-CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/edge"
+# Everything the CLI caches, interpreter-owned and refetchable, so it goes with the binary.
+CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/interpreter"
 
 # 1. Binary.
-if [ -f "$INSTALL_DIR/edge" ]; then
-  rm -f "$INSTALL_DIR/edge"
-  echo "removed $INSTALL_DIR/edge"
+if [ -f "$INSTALL_DIR/interpreter" ]; then
+  rm -f "$INSTALL_DIR/interpreter"
+  echo "removed $INSTALL_DIR/interpreter"
 else
-  echo "no edge binary at $INSTALL_DIR/edge"
+  echo "no interpreter binary at $INSTALL_DIR/interpreter"
 fi
 
-# 2. PATH entries. Leave a .edgebak in case the user wants to roll it back.
+# 2. PATH entries. Leave a .interpreterbak in case the user wants to roll it back.
 for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
   [ -f "$rc" ] || continue
   if grep -qs "$INSTALL_DIR" "$rc"; then
-    sed -i.edgebak "\|export PATH=\"$INSTALL_DIR:\$PATH\"|d" "$rc"
-    echo "cleaned edge entries from $rc (backup at $rc.edgebak)"
+    sed -i.interpreterbak "\|export PATH=\"$INSTALL_DIR:\$PATH\"|d" "$rc"
+    echo "cleaned interpreter entries from $rc (backup at $rc.interpreterbak)"
   fi
 done
 
@@ -30,4 +30,4 @@ if [ -d "$CACHE_DIR" ]; then
   echo "removed $CACHE_DIR"
 fi
 
-echo "edge removed."
+echo "interpreter removed."

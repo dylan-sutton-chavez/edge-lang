@@ -2,7 +2,7 @@
 // every vm case runs with no generic frame pushed and no Rust loop nested
 #[test]
 fn old_path_ceilings() {
-    use edge::embed::Limits;
+    use interpreter::embed::Limits;
     const CEILINGS: [u64; 1] = [0];
     const NAMES: [&str; 1] = ["generic frames"];
     let cases = crate::cases::vm_cases(std::path::Path::new(env!("CARGO_MANIFEST_DIR")));
@@ -12,7 +12,7 @@ fn old_path_ceilings() {
         if case.get("events").is_some() || case.get("input").is_some() { continue; }
         let src = case["src"].as_str().unwrap();
         let (mut chunk, _) = crate::common::parse(src);
-        edge::code::constant_fold(&mut chunk, rig::FRONT.policy);
+        interpreter::code::constant_fold(&mut chunk, rig::FRONT.policy);
         let mut vm = crate::common::boot(&chunk, Limits::sandbox());
         let _ = vm.run();
         for (t, n) in total.iter_mut().zip(vm.old_path_counts()) { *t += n; }

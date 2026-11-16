@@ -1,8 +1,8 @@
 use anyhow::{anyhow, bail, Result};
-use edge::deps::lock::{locked_spec, verify_pin};
-use edge::deps::perms::FIELD;
-use edge::deps::{dir_of, join_relative, parse_integrity, walk_up_dirs};
-use edge::util::sha256::{hex_encode, sha256};
+use interpreter::deps::lock::{locked_spec, verify_pin};
+use interpreter::deps::perms::FIELD;
+use interpreter::deps::{dir_of, join_relative, parse_integrity, walk_up_dirs};
+use interpreter::util::sha256::{hex_encode, sha256};
 use serde_json::{json, Map, Value};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -44,13 +44,13 @@ impl Package {
     }
 }
 
-/* fails when the root edge.json misses what an imported package lists */
+/* fails when the root interpreter.json misses what an imported package lists */
 pub fn check(kit: &Kit, path: &Path, lock: &Lock) -> Result<()> {
     let Ok(bytes) = std::fs::read(path) else { return Ok(()) };
     let manifest: Value = serde_json::from_slice(&bytes).map_err(|e| anyhow!("parsing {}: {e}", path.display()))?;
     let root = manifest.get(FIELD).cloned().unwrap_or_else(|| json!({}));
     if let Some(problem) = manifest.get(FIELD).and_then(|section| section_problem(section, kit.wired())) {
-        bail!("edge.json at '{}': {problem}", path.display());
+        bail!("interpreter.json at '{}': {problem}", path.display());
     }
     let imports = manifest.get("imports").and_then(Value::as_object).cloned().unwrap_or_default();
     let mut short = Vec::new();
@@ -65,7 +65,7 @@ pub fn check(kit: &Kit, path: &Path, lock: &Lock) -> Result<()> {
     }
     let width = short.iter().map(|(who, _)| who.len()).max().unwrap_or(0);
     let lines: Vec<String> = short.iter().map(|(who, asks)| format!("  {who:<width$}   {asks}")).collect();
-    bail!("edge.json does not grant what these packages ask for\n{}\nhelp: grant them under \"{FIELD}\" in edge.json", lines.join("\n"))
+    bail!("interpreter.json does not grant what these packages ask for\n{}\nhelp: grant them under \"{FIELD}\" in interpreter.json", lines.join("\n"))
 }
 
 /* every package the root imports with each subtree held to what its importers pass on */
@@ -122,9 +122,9 @@ impl Walk<'_> {
                 continue;
             }
             // the nearest manifest above a module is a new package unless it holds the importer
-            let nearest = walk_up_dirs(&dir_of(&rel)).find(|d| d == dir || home.read(&format!("{d}edge.json")).is_some());
+            let nearest = walk_up_dirs(&dir_of(&rel)).find(|d| d == dir || home.read(&format!("{d}interpreter.json")).is_some());
             if let Some(found) = nearest.filter(|d| !walk_up_dirs(dir).any(|around| around == *d)) {
-                let place = format!("{found}edge.json");
+                let place = format!("{found}interpreter.json");
                 self.visit(home, id, &found, &place, name, importer)?;
             }
         }
@@ -134,7 +134,7 @@ impl Walk<'_> {
     /* a packed package checked against its pin then read from inside like any other */
     fn bundle(&mut self, address: &str, spec: &str, bytes: &[u8], name: &str, importer: Option<&Importer>) -> Result<()> {
         verify_pin(spec, bytes).map_err(|e| anyhow!(e))?;
-        let files = crate::pack::into_files(Bundle::decode(bytes).map_err(|e| anyhow!("package '{address}' is not a packed .edge, {e}"))?);
+        let files = crate::pack::into_files(Bundle::decode(bytes).map_err(|e| anyhow!("package '{address}' is not a packed .interpreter, {e}"))?);
         self.visit(&Rc::new(Home::Packed(files)), &hex_encode(&sha256(bytes)), "", address, name, importer)
     }
 
@@ -150,13 +150,13 @@ impl Walk<'_> {
         if !self.seen.insert(arrived) {
             return Ok(());
         }
-        let Some(bytes) = home.read(&format!("{dir}edge.json")) else { return Ok(()) };
-        let manifest: Value = serde_json::from_slice(&bytes).map_err(|e| anyhow!("edge.json at '{place}': {e}"))?;
+        let Some(bytes) = home.read(&format!("{dir}interpreter.json")) else { return Ok(()) };
+        let manifest: Value = serde_json::from_slice(&bytes).map_err(|e| anyhow!("interpreter.json at '{place}': {e}"))?;
         let section = manifest.get(FIELD).cloned().unwrap_or(Value::Null);
         if !section.is_null()
             && let Some(problem) = section_problem(&section, self.modules)
         {
-            bail!("edge.json at '{place}': {problem}");
+            bail!("interpreter.json at '{place}': {problem}");
         }
         let label = match manifest.get("version").and_then(Value::as_str) {
             Some(version) => format!("{name} {version}"),
@@ -168,13 +168,13 @@ impl Walk<'_> {
                 // what the importer writes for it since the root check covers what it holds
                 let missing = unmet(&chained(&json!([[importer.section, name]])), &section);
                 if !missing.is_empty() {
-                    bail!("edge.json at '{place}' asks for {}, which {} does not pass it", missing.join(", "), importer.label);
+                    bail!("interpreter.json at '{place}' asks for {}, which {} does not pass it", missing.join(", "), importer.label);
                 }
             }
             Some(_) => {}
         }
         let lock = match home.read(&format!("{dir}{}", lock::FILE)) {
-            Some(bytes) => Lock::parse(&bytes).map_err(|e| anyhow!("edge.json at '{place}': {e}"))?,
+            Some(bytes) => Lock::parse(&bytes).map_err(|e| anyhow!("interpreter.json at '{place}': {e}"))?,
             None => Lock::default(),
         };
         let imports = manifest.get("imports").and_then(Value::as_object).cloned().unwrap_or_default();
@@ -190,9 +190,9 @@ fn key(id: &str, dir: &str) -> String {
     format!("{id}:{dir}")
 }
 
-/* whether a target is a packed .edge as the one artifact with its own manifest */
+/* whether a target is a packed .interpreter as the one artifact with its own manifest */
 fn packed(target: &str) -> bool {
-    target.split(['?', '#']).next().is_some_and(|path| path.ends_with(".edge"))
+    target.split(['?', '#']).next().is_some_and(|path| path.ends_with(".interpreter"))
 }
 
 #[cfg(test)]
@@ -210,7 +210,7 @@ mod tests {
                 true => format!("{{ \"imports\": {{ \"a\": \"../p{0}/main.lox\", \"b\": \"../p{0}/main.lox\" }} }}", n + 1),
                 false => String::from("{}"),
             };
-            std::fs::write(dir.path().join(format!("p{n}/edge.json")), manifest).unwrap();
+            std::fs::write(dir.path().join(format!("p{n}/interpreter.json")), manifest).unwrap();
         }
         let imports = json!({ "a": "./p0/main.lox", "b": "./p0/main.lox" });
         let kit = crate::kit::tests::bare();

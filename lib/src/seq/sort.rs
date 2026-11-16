@@ -1,8 +1,8 @@
 use alloc::vec::Vec;
 use core::cmp::{Ordering, Reverse};
 
-use edge::lang::{Acc, Args, Cx, Flow, Fold, Item, KindId, Ret, STEPS, Sig, Step};
-use edge::value::{HeapObj, HeapPool, Val, VmErr, cold_runtime};
+use interpreter::lang::{Acc, Args, Cx, Flow, Fold, Item, KindId, Ret, STEPS, Sig, Step};
+use interpreter::value::{HeapObj, HeapPool, Val, VmErr, cold_runtime};
 
 use super::timsort;
 use crate::fail::{Fail, fail, receiver};

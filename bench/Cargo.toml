@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish = false
-description = "Holds edge.wasm to its last run of the Lox bench programs, run it with make bench."
+description = "Holds interpreter.wasm to its last run of the Lox bench programs, run it with make bench."
 default-run = "bench"
 
 [[bin]]

@@ -1,4 +1,4 @@
-use edge::util::sha256::{hex_encode, sha256};
+use interpreter::util::sha256::{hex_encode, sha256};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};

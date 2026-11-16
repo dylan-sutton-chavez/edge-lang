@@ -3,7 +3,7 @@ import type { Access, Held, HostModule } from './index.ts';
 import type { EdgeExports } from '../wasm.ts';
 import { writeBytes } from '../util.ts';
 
-/* each holder in an edge.json section mapped to the entries it is granted */
+/* each holder in an interpreter.json section mapped to the entries it is granted */
 export type Permissions = Record<string, string[]>;
 
 /* every section from root to package with the key the next one comes under */
@@ -28,7 +28,7 @@ function call(e: EdgeExports, texts: string[], run: (at: number[]) => number): s
 /* the grant exports of the runtime or a refusal naming the build that lacks them */
 function exported(e: EdgeExports) {
     const { grants_check: check, grants_scopes: scopes, grants_held: held } = e;
-    if (!check || !scopes || !held) throw new Error('this edge.wasm exports no grant logic, build its runtime with the perms feature');
+    if (!check || !scopes || !held) throw new Error('this interpreter.wasm exports no grant logic, build its runtime with the perms feature');
     return { check, scopes, held };
 }
 
@@ -62,5 +62,5 @@ export function granted(section: unknown): [string, string][] {
     });
 }
 
-/* the grants each edge.json writes held from the root down as the opt-in perms component */
+/* the grants each interpreter.json writes held from the root down as the opt-in perms component */
 export default { field: 'permissions', holders: ['all', 'main', 'eval'], check, held, granted } satisfies Access;

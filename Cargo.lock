@@ -3,10 +3,6 @@
 version = 4
 
 [[package]]
-name = "abi"
-version = "0.9.7"
-
-[[package]]
 name = "addr2line"
 version = "0.26.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -46,7 +42,7 @@ dependencies = [
 
 [[package]]
 name = "bench"
-version = "0.9.7"
+version = "0.10.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -307,23 +303,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "edge"
-version = "0.9.7"
-dependencies = [
- "abi",
- "dlmalloc",
- "hashbrown 0.17.1",
- "itoa",
- "lib",
- "libm",
- "lox",
- "rig",
- "serde",
- "serde_json",
- "serde_yaml_ng",
-]
-
-[[package]]
 name = "either"
 version = "1.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -497,6 +476,64 @@ dependencies = [
 ]
 
 [[package]]
+name = "interpreter"
+version = "0.10.0"
+dependencies = [
+ "dlmalloc",
+ "hashbrown 0.17.1",
+ "interpreter-abi",
+ "interpreter-lib",
+ "interpreter-lox",
+ "itoa",
+ "libm",
+ "rig",
+ "serde",
+ "serde_json",
+ "serde_yaml_ng",
+]
+
+[[package]]
+name = "interpreter-abi"
+version = "0.10.0"
+
+[[package]]
+name = "interpreter-lib"
+version = "0.10.0"
+dependencies = [
+ "interpreter",
+ "itoa",
+ "rig",
+ "serde_yaml_ng",
+]
+
+[[package]]
+name = "interpreter-lox"
+version = "0.10.0"
+dependencies = [
+ "interpreter",
+ "interpreter-lib",
+]
+
+[[package]]
+name = "interpreter-plugin"
+version = "0.10.0"
+dependencies = [
+ "interpreter-abi",
+ "interpreter-plugin-macros",
+ "linked_list_allocator",
+ "lol_alloc",
+]
+
+[[package]]
+name = "interpreter-plugin-macros"
+version = "0.10.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.6",
+]
+
+[[package]]
 name = "itertools"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -516,16 +553,6 @@ name = "leb128fmt"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "09edd9e8b54e49e587e4f6295a7d29c3ea94d469cb40ab8ca70b288248a81db2"
-
-[[package]]
-name = "lib"
-version = "0.9.7"
-dependencies = [
- "edge",
- "itoa",
- "rig",
- "serde_yaml_ng",
-]
 
 [[package]]
 name = "libc"
@@ -576,14 +603,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "lox"
-version = "0.9.7"
-dependencies = [
- "edge",
- "lib",
-]
-
-[[package]]
 name = "mach2"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -627,25 +646,6 @@ name = "pin-project-lite"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
-
-[[package]]
-name = "plugin"
-version = "0.9.7"
-dependencies = [
- "abi",
- "linked_list_allocator",
- "lol_alloc",
- "plugin-macros",
-]
-
-[[package]]
-name = "plugin-macros"
-version = "0.9.7"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 3.0.6",
-]
 
 [[package]]
 name = "postcard"
@@ -717,10 +717,10 @@ dependencies = [
 
 [[package]]
 name = "rig"
-version = "0.9.7"
+version = "0.10.0"
 dependencies = [
- "edge",
- "lib",
+ "interpreter",
+ "interpreter-lib",
 ]
 
 [[package]]
@@ -845,7 +845,7 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
 name = "skill"
-version = "0.9.7"
+version = "0.10.0"
 
 [[package]]
 name = "slab"
@@ -857,7 +857,7 @@ checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 name = "slugify-mod"
 version = "0.1.0"
 dependencies = [
- "plugin",
+ "interpreter-plugin",
 ]
 
 [[package]]

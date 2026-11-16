@@ -1,10 +1,11 @@
 #![cfg_attr(not(test), no_std)]
+#![doc = "Write `.wasm` plugin modules that interpreter programs import. `#[plugin_fn]` wraps a Rust function as an export, and `Handle`, `Value` and `Error` carry what crosses the ABI."]
 
 extern crate alloc;
 
 // wraps a free fn as a plugin export and a plugin needs nothing else
-pub use plugin_macros::plugin_fn;
-pub use plugin_macros::{plugin_const, plugin_class, plugin_methods, plugin_ctor, plugin_resume};
+pub use interpreter_plugin_macros::plugin_fn;
+pub use interpreter_plugin_macros::{plugin_const, plugin_class, plugin_methods, plugin_ctor, plugin_resume};
 
 // the glob import surface without `__internals` and `__edge_alloc`
 pub mod prelude {
@@ -115,12 +116,12 @@ unsafe extern "C" {
 pub fn call_id() -> u32 { unsafe { edge_call_id() } }
 
 // the host refuses a plugin whose ABI version it does not understand
-pub use abi::EDGE_ABI_VERSION;
+pub use interpreter_abi::ABI_VERSION;
 
 #[unsafe(no_mangle)]
-pub extern "C" fn __edge_abi_version() -> u32 { EDGE_ABI_VERSION }
+pub extern "C" fn __edge_abi_version() -> u32 { ABI_VERSION }
 
-pub use abi::{op, tag};
+pub use interpreter_abi::{op, tag};
 
 // hidden so a glob import never leaks the symbols the macros expand to
 #[doc(hidden)]
@@ -328,7 +329,7 @@ pub fn encode(v: Value) -> Result<Handle> {
 }
 
 // the typed transit value shared with the host while sets and instances go through `Handle::call`
-pub use abi::WireValue as Value;
+pub use interpreter_abi::WireValue as Value;
 
 pub trait FromValue: Sized {
     fn from_handle(h: u32) -> Result<Self>;
@@ -622,7 +623,7 @@ impl Handle {
 
 // the end of an iteration as the ABI words it and no runtime's class
 fn ended(e: &Error) -> bool {
-    e.kind() == abi::error_kind::CUSTOM && e.message() == op::ITER_END
+    e.kind() == interpreter_abi::error_kind::CUSTOM && e.message() == op::ITER_END
 }
 
 // a cell for static plugin state that is `Sync` because wasm has no threads
@@ -654,9 +655,9 @@ mod tests {
 
     #[test]
     fn only_the_abi_end_ends_an_iteration() {
-        assert!(ended(&Error::from_kind(abi::error_kind::CUSTOM, String::from(op::ITER_END))));
+        assert!(ended(&Error::from_kind(interpreter_abi::error_kind::CUSTOM, String::from(op::ITER_END))));
         // a class a runtime names for the end is an error like any other
-        assert!(!ended(&Error::from_kind(abi::error_kind::CUSTOM, String::from("Stop"))));
+        assert!(!ended(&Error::from_kind(interpreter_abi::error_kind::CUSTOM, String::from("Stop"))));
         assert!(!ended(&Error::Value(String::from(op::ITER_END))));
     }
 }

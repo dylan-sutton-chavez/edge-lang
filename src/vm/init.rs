@@ -138,7 +138,7 @@ impl<'a> VM<'a> {
 
     /* charges what runs next to this program and refuses a limit nothing meters */
     pub(crate) fn paying(&self) -> Result<crate::value::meter::Paying, VmErr> {
-        if self.heap.unmetered() { return Err(VmErr::Runtime("a memory limit needs the metering allocator that edge::allocator!() installs")); }
+        if self.heap.unmetered() { return Err(VmErr::Runtime("a memory limit needs the metering allocator that interpreter::allocator!() installs")); }
         // a chunk names its natives by their places in the table it was compiled over
         if let Some(n) = self.chunk.natives() && !core::ptr::eq(n, self.natives) && let Some(e) = self.other_runtime(n) { return Err(e); }
         Ok(crate::value::meter::Paying::to(self.heap.meter()))

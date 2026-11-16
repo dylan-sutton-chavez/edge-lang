@@ -2,17 +2,17 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
-use edge::deps::ImportSpec;
-use edge::embed::{Limits, VM};
+use interpreter::deps::ImportSpec;
+use interpreter::embed::{Limits, VM};
 
 // every run meters what it allocates so its memory limit holds
-edge::allocator!();
+interpreter::allocator!();
 
 /* what `src` prints or the first line of the error it ends in */
 fn run(src: &str) -> Result<String, String> {
-    let (chunk, errors) = edge::code::compile(&lox::FRONT, src);
+    let (chunk, errors) = interpreter::code::compile(&interpreter_lox::FRONT, src);
     if let Some(e) = errors.first() { return Err(e.msg.clone()); }
-    let mut vm = VM::with_runtime(&lox::RUNTIME, &chunk, Limits::sandbox());
+    let mut vm = VM::with_runtime(&interpreter_lox::RUNTIME, &chunk, Limits::sandbox());
     match vm.run() {
         Ok(_) => Ok(vm.output_text()),
         Err(e) => Err(vm.report_error(&e, src, None).lines().next().unwrap_or("").to_string()),
@@ -110,7 +110,7 @@ fn imports_bind_modules_and_their_globals() {
 // the native target exits with the book's statuses and words its compile errors
 #[test]
 fn the_native_target_keeps_the_books_statuses() {
-    assert_eq!(lox::DESCRIPTOR.statuses, (65, 70));
+    assert_eq!(interpreter_lox::DESCRIPTOR.statuses, (65, 70));
     let dir = project("statuses", &[("bad.lox", "print 1\nvar = 2;\n"), ("raise.lox", "print \"before\";\nprint -\"x\";\n")]);
     let bad = lox(&dir, "bad.lox", "");
     assert_eq!((text(&bad.stderr), bad.status.code()), ("[line 2] Error at 'var': Expect ';' after value.\n[line 2] Error at '=': Expect variable name.\n".into(), Some(65)));
@@ -121,7 +121,7 @@ fn the_native_target_keeps_the_books_statuses() {
 // the front lists only the literal imports a call to import names
 #[test]
 fn the_front_scans_literal_imports() {
-    let specs = lox::parse::imports("var a = import(\"net\");\nvar b = import(\"./util.lox\");\nvar c = import(\"lib/x.lox\");\n// import(\"skipped\")\nvar d = import(spec);\nprint \"import(x)\";\n");
+    let specs = interpreter_lox::parse::imports("var a = import(\"net\");\nvar b = import(\"./util.lox\");\nvar c = import(\"lib/x.lox\");\n// import(\"skipped\")\nvar d = import(spec);\nprint \"import(x)\";\n");
     assert_eq!(specs, vec![ImportSpec::Bare("net".into()), ImportSpec::Relative("./util.lox".into()), ImportSpec::Root("lib/x.lox".into())]);
 }
 

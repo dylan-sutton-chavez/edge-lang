@@ -1,5 +1,5 @@
-use edge::lang::{Acc, Args, Cx, ErrKind, Falsy, Flow, Fold, Item, KindId, Language, Ret, STEPS, Sig, Step};
-use edge::value::{HeapObj, HeapPool, Val, VmErr};
+use interpreter::lang::{Acc, Args, Cx, ErrKind, Falsy, Flow, Fold, Item, KindId, Language, Ret, STEPS, Sig, Step};
+use interpreter::value::{HeapObj, HeapPool, Val, VmErr};
 
 use crate::fail::{Fail, fail};
 use crate::{Kernel, Site};

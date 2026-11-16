@@ -2,8 +2,8 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::ops::Range;
 
-use edge::lang::{Args, Cx, KindId, Ret, Sig};
-use edge::value::Val;
+use interpreter::lang::{Args, Cx, KindId, Ret, Sig};
+use interpreter::value::Val;
 
 use crate::fail::{Fail, fail};
 use crate::{Kernel, Site};

@@ -1,9 +1,9 @@
 #[cfg(test)]
 mod test {
 
-    use edge::embed::VM;
-    use edge::deps::NoopResolver;
-    use edge::value::{SchedulerStatus, VmErr};
+    use interpreter::embed::VM;
+    use interpreter::deps::NoopResolver;
+    use interpreter::value::{SchedulerStatus, VmErr};
 
     use crate::common::{lex, parser};
 
@@ -94,7 +94,7 @@ mod test {
             // an expected error the parser already reports needs no run
             if let Some(expected) = &case.error && errors.iter().any(|e| e.msg.contains(expected.as_str())) { continue; }
             // the fold pass production runs so its bugs surface here
-            edge::code::constant_fold(&mut chunk, rig::FRONT.policy);
+            interpreter::code::constant_fold(&mut chunk, rig::FRONT.policy);
             let mut vm = crate::common::boot(&chunk, crate::common::corpus_limits());
             vm.input_buffer = case.input.clone();
             hook_sends(&mut vm, &case);
@@ -173,7 +173,7 @@ mod test {
                 }
             }
             // folded before running as production does
-            edge::code::constant_fold(&mut chunk, rig::FRONT.policy);
+            interpreter::code::constant_fold(&mut chunk, rig::FRONT.policy);
 
             let mut vm = crate::common::boot(&chunk, crate::common::corpus_limits());
             vm.input_buffer = case.input.clone();
@@ -205,10 +205,10 @@ mod test {
 
     /* an error the host delivers into a parked call renders like one the call raised */
     mod host_errors {
-        use edge::code::SSAChunk;
-        use edge::embed::VM;
-        use edge::embed as snapshot;
-        use edge::value::{Limits, SchedulerStatus, VmErr};
+        use interpreter::code::SSAChunk;
+        use interpreter::embed::VM;
+        use interpreter::embed as snapshot;
+        use interpreter::value::{Limits, SchedulerStatus, VmErr};
 
         use crate::common::{fail, lex, parser, test_native, TestResolver};
 
@@ -218,7 +218,7 @@ mod test {
             let (tokens, _) = lex(src);
             let (mut chunk, errs) = parser(src, tokens.into_iter(), Box::new(resolver)).parse();
             assert!(errs.is_empty(), "parse errors on {src:?}: {:?}", errs.iter().map(|e| &e.msg).collect::<Vec<_>>());
-            edge::code::constant_fold(&mut chunk, rig::FRONT.policy);
+            interpreter::code::constant_fold(&mut chunk, rig::FRONT.policy);
             chunk
         }
 
@@ -377,7 +377,7 @@ mod test {
     // scanning or copying builtins pay for what they read so loops cannot outrun the budget
     #[test]
     fn native_work_pays_the_budget() {
-        use edge::value::Limits;
+        use interpreter::value::Limits;
         // tenfold smaller sizes keep the work over the budget and the bare loop under
         let (n, k, ops) = if cfg!(miri) { (1_000, 100, 20_000) } else { (10_000, 1_000, 200_000) };
         let h = n / 2;
@@ -407,7 +407,7 @@ mod test {
     // a generator resumed in its window pays for its loop and handlers within the budget
     #[test]
     fn a_resumed_generator_pays_within_the_budget() {
-        use edge::value::Limits;
+        use interpreter::value::Limits;
         let src = "fn gi(n) {\n    for i in range(n) {\n        yield i\n    }\n}\nfn outer(n) {\n    for v in gi(n) {\n        try {\n            yield v * 2\n        } finally {\n        }\n    }\n}\nt = 0\nfor v in outer(30000) {\n    t += v\n}\nprint(t)\n";
         let (chunk, _) = crate::common::parse(src);
         for ops in 1..=80 {
@@ -418,7 +418,7 @@ mod test {
     // a class asked for while native work waits past the budget raises dropping its floor
     #[test]
     fn a_class_whose_step_runs_out_of_budget_raises() {
-        use edge::value::Limits;
+        use interpreter::value::Limits;
         let src = "class O:\n    pass\nfn f():\n    class P:\n        pass\n    return P\nprint(f())\n";
         let (chunk, _) = crate::words::legacy(src);
         for owed in [1_000, 70_000, 1_000_000] {
@@ -433,7 +433,7 @@ mod test {
     fn a_long_input_reads_in_linear_time() {
         let src = "t = 0\nfor _ in range(400000) {\n    t += int(input())\n}\nprint(t)\n";
         let (chunk, _) = crate::common::parse(src);
-        let mut vm = crate::common::boot(&chunk, edge::value::Limits::sandbox());
+        let mut vm = crate::common::boot(&chunk, interpreter::value::Limits::sandbox());
         vm.input_buffer = (0..400_000).map(|i| (i % 10).to_string()).collect();
         let start = std::time::Instant::now();
         vm.run().unwrap();
@@ -444,7 +444,7 @@ mod test {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn far_reads_of_a_text_past_ascii_pay_for_the_bytes_they_walk() {
-        use edge::value::Limits;
+        use interpreter::value::Limits;
         for line in ["c = t[i * 104729 % n]", "c = t[-1 - i * 104729 % n]", "c = t[i * 104729 % n:i * 104729 % n + 2]", "c = t[i * 104729 % n::n]", "c = u[n + 2 + i]", "c = u[-n - 3 - i]"] {
             let src = format!("n = 300000\nt = \"é\" * n\nu = \"é\" + \"x\" * n\nfor i in range(2000) {{\n    try {{\n        {line}\n    }} catch IndexError {{\n        c = 0\n    }}\n}}\n");
             let (chunk, _) = crate::common::compile(&src);
@@ -466,7 +466,7 @@ mod test {
     fn emptying_a_set_or_a_map_from_one_end_takes_linear_time() {
         let src = "s = set(range(1000000))\nd = record.fromkeys(range(1000000))\nk = 0\nwhile len(s) > 0 {\n    s.pop()\n    d.popitem()\n    k += 1\n}\nprint(k, len(d))\n";
         let (chunk, _) = crate::common::parse(src);
-        let mut vm = crate::common::boot(&chunk, edge::value::Limits::sandbox());
+        let mut vm = crate::common::boot(&chunk, interpreter::value::Limits::sandbox());
         let start = std::time::Instant::now();
         vm.run().unwrap();
         assert_eq!(vm.output, ["1000000 0"]);

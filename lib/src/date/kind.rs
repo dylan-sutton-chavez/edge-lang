@@ -4,8 +4,8 @@ use alloc::vec::Vec;
 use core::any::Any;
 use core::cmp::Ordering;
 
-use edge::value::foreign::{BinOp, Kind, Snapshot, Transfer, UnOp};
-use edge::value::{HeapPool, Val, VmErr, as_i128};
+use interpreter::value::foreign::{BinOp, Kind, Snapshot, Transfer, UnOp};
+use interpreter::value::{HeapPool, Val, VmErr, as_i128};
 
 use super::{Dates, Duration, Time, duration_val, held, part_of, time_val};
 use crate::fail::{Fail, bare};

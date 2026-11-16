@@ -1,20 +1,20 @@
-use edge::code::compile_as;
-use edge::embed::{Limits, VM};
-use edge::lang::{Act, Args, Body, Callee, Cmp, Cx, Descriptor, EngineError, ErrKind, Fit, Front, Gen, KindId, Language, Misfit, Mode, Names, Native, Natives, Op, Policy, Ret, Runtime, Sig, Use};
-use edge::lexer::{Spelling, Syntax};
-use edge::value::{HeapPool, Val, VmErr};
-use edge::value::foreign::Kind;
-use edge::value::foreign::{BinOp, UnOp};
+use interpreter::code::compile_as;
+use interpreter::embed::{Limits, VM};
+use interpreter::lang::{Act, Args, Body, Callee, Cmp, Cx, Descriptor, EngineError, ErrKind, Fit, Front, Gen, KindId, Language, Misfit, Mode, Names, Native, Natives, Op, Policy, Ret, Runtime, Sig, Use};
+use interpreter::lexer::{Spelling, Syntax};
+use interpreter::value::{HeapPool, Val, VmErr};
+use interpreter::value::foreign::Kind;
+use interpreter::value::foreign::{BinOp, UnOp};
 use rig::natives::{ARRAY, BUFFER, BYTES, CONVERT, DATE, DICT, FLOAT, FOLDS, INT, IO, ITER, LIST, LIST_SORT, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
 use rig::{Rig, NAMES};
 
-// the sandbox's memory limit meters what a run allocates as edge.wasm does
-edge::allocator!();
+// the sandbox's memory limit meters what a run allocates as interpreter.wasm does
+interpreter::allocator!();
 
 // one native past the rig's that words an engine error as the rig's language does
 const PROBE: &[Native] = &[Native::new("probe", Sig::var(1), probe)];
 
-static NATIVES: Natives = edge::natives! {
+static NATIVES: Natives = interpreter::natives! {
     language: Probe,
     fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, TYPES, DATE, PROBE],
     methods: [
@@ -52,7 +52,7 @@ impl Language for Probe {
     const DESCRIPTOR: &'static Descriptor = &rig::DESCRIPTOR;
     const WIDE: Option<&'static Kind> = <Rig as Language>::WIDE;
     const KINDS: &'static [&'static Kind] = <Rig as Language>::KINDS;
-    const BUILT: edge::value::foreign::Built = <rig::Rig as edge::lang::Language>::BUILT;
+    const BUILT: interpreter::value::foreign::Built = <rig::Rig as interpreter::lang::Language>::BUILT;
     type Ops = ();
 
     fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Mode) -> Result<String, VmErr> { <Rig as Language>::show(cx, v, mode) }

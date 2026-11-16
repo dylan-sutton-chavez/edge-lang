@@ -2,8 +2,8 @@
 
 set -e
 
-REPO="${EDGE_INSTALL_REPO:-https://github.com/dylan-sutton-chavez/edge-lang}"
-INSTALL_DIR="${EDGE_INSTALL_DIR:-$HOME/.local/bin}"
+REPO="${INTERPRETER_INSTALL_REPO:-https://github.com/dylan-sutton-chavez/interpreter}"
+INSTALL_DIR="${INTERPRETER_INSTALL_DIR:-$HOME/.local/bin}"
 
 # an optional vX.Y.Z reads the tree its release attached and none reads the latest
 version="${1:-}"
@@ -30,7 +30,7 @@ case "$(uname -m)" in
 esac
 
 target="${arch}-${os}"
-archive="edge-${target}.tar.gz"
+archive="interpreter-${target}.tar.gz"
 
 # the sha256 of a file in the hex the published digest holds
 sha256() {
@@ -40,22 +40,22 @@ sha256() {
   fi
 }
 
-echo "downloading edge (${target})..."
+echo "downloading interpreter (${target})..."
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 curl -fsSL -o "$tmp/cdn.tar.gz" "$TREE"
 tar -xzf "$tmp/cdn.tar.gz" -C "$tmp" ./cli
-# a pinned EDGE_INSTALL_SHA256 wins over the digest the tree holds beside the archive
-want="${EDGE_INSTALL_SHA256:-$(cat "$tmp/cli/$archive.sha256" 2>/dev/null | cut -d' ' -f1)}"
+# a pinned INTERPRETER_INSTALL_SHA256 wins over the digest the tree holds beside the archive
+want="${INTERPRETER_INSTALL_SHA256:-$(cat "$tmp/cli/$archive.sha256" 2>/dev/null | cut -d' ' -f1)}"
 got="$(sha256 "$tmp/cli/$archive" 2>/dev/null)"
 if [ -z "$want" ] || [ "$got" != "$want" ]; then
   echo "the download of $archive does not match its sha256 ${want:-(none published)}, got $got" >&2
   exit 1
 fi
 mkdir -p "$INSTALL_DIR"
-tar -xzf "$tmp/cli/$archive" -C "$INSTALL_DIR" edge
-chmod +x "$INSTALL_DIR/edge"
-echo "installed $INSTALL_DIR/edge"
+tar -xzf "$tmp/cli/$archive" -C "$INSTALL_DIR" interpreter
+chmod +x "$INSTALL_DIR/interpreter"
+echo "installed $INSTALL_DIR/interpreter"
 
 case "$(basename "${SHELL:-bash}")" in
   bash) rc="$HOME/.bashrc" ;;
@@ -77,7 +77,7 @@ if [ -n "$rc" ] && ! rc_has_path; then
   rc_changed=1
 fi
 
-"$INSTALL_DIR/edge" --version
+"$INSTALL_DIR/interpreter" --version
 
 if [ -n "$rc_changed" ]; then
   echo "open a new terminal to pick up the new environment (or run 'exec \$SHELL')"

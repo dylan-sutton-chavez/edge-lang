@@ -1,6 +1,6 @@
 use super::{cache_root, get, Access, Hosting, Packages, Senders, Serve, Wiring};
-use edge::deps::{parse_integrity, system_spec};
-use edge::util::sha256::{hex_encode, sha256};
+use interpreter::deps::{parse_integrity, system_spec};
+use interpreter::util::sha256::{hex_encode, sha256};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -266,7 +266,7 @@ fn locate(project: &Project, spec: &str) -> Source {
         Ok(parsed) => parsed,
         Err(e) => return Source::Here(Answer::Failed(e)),
     };
-    match target.ends_with("edge.json") || target.ends_with(crate::lock::FILE) {
+    match target.ends_with("interpreter.json") || target.ends_with(crate::lock::FILE) {
         true => beside(project, target),
         false => module(project, target, pin),
     }
@@ -276,8 +276,8 @@ fn locate(project: &Project, spec: &str) -> Source {
 fn beside(project: &Project, target: &str) -> Source {
     // every other package keeps the manifest and lock it holds itself
     let replaced = project.manifest.as_ref().and_then(|path| match target {
-        "edge.json" => Some(PathBuf::from(path)),
-        "edge.lock" => Some(Path::new(path).with_file_name(crate::lock::FILE)),
+        "interpreter.json" => Some(PathBuf::from(path)),
+        "interpreter.lock" => Some(Path::new(path).with_file_name(crate::lock::FILE)),
         _ => None,
     });
     if let Some(file) = replaced {

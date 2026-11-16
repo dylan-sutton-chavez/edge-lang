@@ -1,5 +1,5 @@
-use edge::lang::{Args, Cx, IntMod, Ret, Sig};
-use edge::value::{Val, VmErr};
+use interpreter::lang::{Args, Cx, IntMod, Ret, Sig};
+use interpreter::value::{Val, VmErr};
 
 use super::{big, bool_int, numeric};
 use crate::fail::{Fail, fail};

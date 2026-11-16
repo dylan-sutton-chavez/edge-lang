@@ -2,7 +2,7 @@ use super::access::Gate;
 use super::{Access, Calls, ChannelSink, Closed, Completion, Fault, Held, HostModule, Project, Registered, Reply, Senders, Sink, WireValue, FILE};
 use crate::kit::Descriptor;
 use anyhow::Result;
-use edge::embed::Limits;
+use interpreter::embed::Limits;
 use std::collections::VecDeque;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};

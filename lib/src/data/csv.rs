@@ -1,8 +1,8 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use edge::lang::{Args, Cx, Language, Mode, Ret, Sig};
-use edge::value::{HeapObj, Val, VmErr};
+use interpreter::lang::{Args, Cx, Language, Mode, Ret, Sig};
+use interpreter::value::{HeapObj, Val, VmErr};
 
 use crate::fail::{Csv, Fail, fail};
 use crate::{Kernel, Site};

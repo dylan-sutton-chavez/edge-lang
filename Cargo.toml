@@ -1,18 +1,23 @@
 [package]
-name = "edge"
+name = "interpreter"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "The engine of Edge Lang, for building language runtimes in Rust. A single-pass parser compiles source to SSA bytecode through the token table a runtime brings, and a register VM runs it with calls as jumps, NaN-boxed values, inline caches, an exact memory meter, mark-sweep GC and snapshots. One WebAssembly module runs in browsers, JavaScript runtimes and the CLI."
+description = "Build language runtimes in Rust: a single-pass parser to SSA bytecode and a register VM with an op budget, an exact memory meter, a GC and snapshots."
+documentation = "https://docs.rs/interpreter"
 readme = "README.md"
+keywords = ["interpreter", "bytecode", "vm", "wasm", "language"]
+categories = ["compilers", "wasm", "no-std"]
+include = ["/src/**/*.rs", "/README.md", "/LICENSE.md"]
 autotests = false
 autobins = false
 autoexamples = false
 
-# `make wasm` builds edge.wasm as a cdylib so dependents link a plain rlib
+# `make wasm` builds interpreter.wasm as a cdylib so dependents link a plain rlib
 [lib]
-name = "edge"
+name = "interpreter"
 doctest = false
 
 [[test]]
@@ -29,9 +34,9 @@ default = ["std"]
 std = []
 # records each executed instruction for `VM::ran` with method calls unfused to keep the compiler's ips
 coverage = []
-# the edge.wasm wrapper of exports and host imports plus its allocator and panic handler
+# the interpreter.wasm wrapper of exports and host imports plus its allocator and panic handler
 runtime = []
-# the grant logic exported for the hosts and the registry that read it through edge.wasm
+# the grant logic exported for the hosts and the registry that read it through interpreter.wasm
 perms = []
 # the modules behind the stable API for the engine's own tests and tools
 internals = []
@@ -39,16 +44,16 @@ internals = []
 layout = []
 
 [dependencies]
-abi = { workspace = true }
+interpreter-abi = { workspace = true }
 hashbrown = { workspace = true }
 itoa = { workspace = true }
 libm = { workspace = true }
 
-# wasm-only global allocator as host builds use std's and treat edge.wasm as a library
+# wasm-only global allocator as host builds use std's and treat interpreter.wasm as a library
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 dlmalloc = { version = "0.2", default-features = false, features = ["global"] }
 
-# test-only deps of the case runner that the release `edge.wasm` never pulls in
+# test-only deps of the case runner that the release `interpreter.wasm` never pulls in
 [dev-dependencies]
 hashbrown = { workspace = true, features = ["serde"] }
 serde = { workspace = true }
@@ -57,9 +62,9 @@ serde_yaml_ng = { workspace = true }
 # the tests run what lox cannot write through the test rig which links this crate back
 rig = { path = "tests/rig" }
 # what Lox can say the tests say in Lox through the example itself
-lox = { path = "examples/lox" }
+interpreter-lox = { path = "examples/lox" }
 # a test runtime renames these kernels to prove the engine binds by kernel
-lib = { path = "lib" }
+interpreter-lib = { path = "lib" }
 # the indent table the syntax cases and the lexer and parser corpora are written in
 
 [workspace]
@@ -69,14 +74,19 @@ default-members = [".", "abi", "plugin", "plugin/macros", "skill", "lib", "tests
 resolver = "2"
 
 [workspace.package]
-version = "0.9.7"
+version = "0.10.0"
 edition = "2024"
+rust-version = "1.98"
 license = "Apache-2.0"
-repository = "https://github.com/dylan-sutton-chavez/edge-lang/"
+repository = "https://github.com/dylan-sutton-chavez/interpreter"
 
 # one source of versions so a bump touches one line and the lockfile never splits
 [workspace.dependencies]
-abi = { path = "abi" }
+interpreter = { path = ".", version = "0.10.0", default-features = false }
+interpreter-abi = { path = "abi", version = "0.10.0" }
+interpreter-lib = { path = "lib", version = "0.10.0", default-features = false }
+interpreter-lox = { path = "examples/lox", version = "0.10.0", default-features = false }
+interpreter-plugin-macros = { path = "plugin/macros", version = "0.10.0" }
 hashbrown = { version = "0.17", default-features = false }
 itoa = "1"
 # without `arch` every target takes wasm32's software paths which Miri can interpret
@@ -96,7 +106,7 @@ codegen-units = 1
 panic = "abort"
 strip = true
 
-# released CLIs embed this build of edge.wasm precompiled to native code so speed beats size
+# released CLIs embed this build of interpreter.wasm precompiled to native code so speed beats size
 [profile.cli]
 inherits = "release"
 opt-level = 3

@@ -57,15 +57,15 @@ mod test {
     /* the compiler opcodes `case` runs as test_cases runs it on the Miri budget */
     #[cfg(feature = "coverage")]
     fn ran(case: &serde_json::Value) -> Vec<usize> {
-        use edge::code::SSAChunk;
-        use edge::value::{Limits, SchedulerStatus, VmErr};
+        use interpreter::code::SSAChunk;
+        use interpreter::value::{Limits, SchedulerStatus, VmErr};
         let texts = |f: &str| case[f].as_array().map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect::<Vec<_>>()).unwrap_or_default();
         let (src, error) = (case["src"].as_str().unwrap_or(""), case["error"].as_str());
         let (tokens, lex_errs) = crate::common::lex(src);
         if let Some(e) = error && lex_errs.iter().any(|l| l.msg.contains(e)) { return Vec::new(); }
-        let (mut chunk, errors) = crate::common::parser(src, tokens.into_iter(), Box::new(edge::deps::NoopResolver)).parse();
+        let (mut chunk, errors) = crate::common::parser(src, tokens.into_iter(), Box::new(interpreter::deps::NoopResolver)).parse();
         if let Some(e) = error && errors.iter().any(|d| d.msg.contains(e)) { return Vec::new(); }
-        edge::code::constant_fold(&mut chunk, rig::FRONT.policy);
+        interpreter::code::constant_fold(&mut chunk, rig::FRONT.policy);
         let mut vm = crate::common::boot(&chunk, Limits { ops: crate::common::MIRI_OPS, ..Limits::sandbox() });
         vm.input_buffer = texts("input");
         vm.send_hook = Some(|_, _| true);
@@ -106,7 +106,7 @@ mod test {
         }
         let mut missing: Vec<(&usize, &(std::time::Duration, String))> = first.iter().filter(|(op, _)| !held.contains(op)).collect();
         missing.sort();
-        let lines: Vec<String> = missing.iter().map(|(op, (_, line))| format!("{line} for {:?}", edge::code::OpCode::ALL[**op])).collect();
+        let lines: Vec<String> = missing.iter().map(|(op, (_, line))| format!("{line} for {:?}", interpreter::code::OpCode::ALL[**op])).collect();
         assert!(lines.is_empty(), "no case of tests/cases/miri.tsv runs these opcodes and the cheapest case to add for each follows\n{}", lines.join("\n"));
     }
 }

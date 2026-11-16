@@ -250,11 +250,11 @@ mod tests {
 
     #[test]
     fn a_scoped_grant_refuses_what_it_does_not_name_in_the_words_it_was_given() {
-        let held = Held::Scopes(Scopes::new(vec!["a.test".to_string()], ("'main' has no net:".to_string(), ", edge.json grants it net:a.test".to_string())));
+        let held = Held::Scopes(Scopes::new(vec!["a.test".to_string()], ("'main' has no net:".to_string(), ", interpreter.json grants it net:a.test".to_string())));
         assert_eq!(held.scopes(), Some(&["a.test".to_string()][..]));
         assert!(held.need("a.test").is_ok());
         let refused = held.need("b.test").unwrap_err();
-        assert_eq!((refused.class, refused.text.as_str()), (Some(crate::host::Class::Denied), "'main' has no net:b.test, edge.json grants it net:a.test"));
+        assert_eq!((refused.class, refused.text.as_str()), (Some(crate::host::Class::Denied), "'main' has no net:b.test, interpreter.json grants it net:a.test"));
         let read = Packages::read(&json!({ "root": "app/", "needed": false, "dirs": [], "grants": { "main": [] } }), Some("grants"));
         assert_eq!((read.root.as_str(), read.needed, read.section), ("app/", false, json!({ "main": [] })));
     }

@@ -1,9 +1,9 @@
 use anyhow::{anyhow, Context, Result};
-use edge::deps::lock::locked_spec;
+use interpreter::deps::lock::locked_spec;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-pub use edge::deps::lock::{digest_of, Entry, Lock, FILE};
+pub use interpreter::deps::lock::{digest_of, Entry, Lock, FILE};
 
 // an absent lock file reads as an empty lock
 pub fn beside(manifest: &Path) -> Result<Lock> {
@@ -15,7 +15,7 @@ pub fn beside(manifest: &Path) -> Result<Lock> {
     Lock::parse(&bytes).map_err(|e| anyhow!("parsing {}: {e}", path.display()))
 }
 
-// writes `lock` beside `manifest` as `edge lock` always has
+// writes `lock` beside `manifest` as `interpreter lock` always has
 pub fn save(lock: &Lock, manifest: &Path) -> Result<PathBuf> {
     let path = path_beside(manifest);
     std::fs::write(&path, format!("{}\n", lock.to_json())).with_context(|| format!("writing {}", path.display()))?;
@@ -41,9 +41,9 @@ mod tests {
     #[test]
     fn a_lock_round_trips_through_its_file() {
         let dir = tempfile::tempdir().unwrap();
-        let manifest = dir.path().join("edge.json");
+        let manifest = dir.path().join("interpreter.json");
         let mut lock = Lock::default();
-        lock.insert("json", Entry { version: Some("0.1.0".to_string()), url: "https://cdn.test/pkg/json/0.1.0/app.edge".to_string(), digest: DIGEST.to_string() });
+        lock.insert("json", Entry { version: Some("0.1.0".to_string()), url: "https://cdn.test/pkg/json/0.1.0/app.interpreter".to_string(), digest: DIGEST.to_string() });
         save(&lock, &manifest).unwrap();
         let back = beside(&manifest).unwrap();
         assert_eq!(back.get("json").unwrap().version.as_deref(), Some("0.1.0"));
@@ -55,6 +55,6 @@ mod tests {
     #[test]
     fn a_missing_lock_reads_as_an_empty_one() {
         let dir = tempfile::tempdir().unwrap();
-        assert!(beside(&dir.path().join("edge.json")).unwrap().get("json").is_none());
+        assert!(beside(&dir.path().join("interpreter.json")).unwrap().get("json").is_none());
     }
 }

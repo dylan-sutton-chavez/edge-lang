@@ -14,7 +14,7 @@ use crate::kit::{self, Command, Kit};
 
 #[derive(Args)]
 struct RunArgs {
-    /// Script, a packed .edge, an app binary, or stdin when omitted.
+    /// Script, a packed .interpreter, an app binary, or stdin when omitted.
     file: Option<PathBuf>,
     /// Run this code inline instead of a file or stdin.
     #[arg(short = 'c', conflicts_with = "file")]
@@ -48,7 +48,7 @@ impl Command for Run {
     }
 
     fn summary(&self, _kit: &Kit) -> (String, String) {
-        ("run <file|.edge>".to_string(), format!("Run a script, a .edge, stdin or -c <code>{}", crate::web::FLAG))
+        ("run <file|.interpreter>".to_string(), format!("Run a script, a .interpreter, stdin or -c <code>{}", crate::web::FLAG))
     }
 
     fn flags(&self) -> Option<(&'static str, &'static str)> {
@@ -62,7 +62,7 @@ impl Command for Run {
     // a script resolves through the manifest nearest above it and a bundle through its own
     fn manifest(&self, m: &ArgMatches) -> PathBuf {
         match m.try_get_one::<PathBuf>("file").ok().flatten() {
-            Some(file) if crate::pack::file_payload(file).is_none() => kit::root_manifest(m, &edge::deps::dir_of(&driver::path_spec(file))),
+            Some(file) if crate::pack::file_payload(file).is_none() => kit::root_manifest(m, &interpreter::deps::dir_of(&driver::path_spec(file))),
             _ => kit::manifest_path(m),
         }
     }
@@ -91,7 +91,7 @@ impl Command for Run {
     }
 }
 
-/* runs a script on the browser host taking its source the way `edge run` does */
+/* runs a script on the browser host taking its source the way `interpreter run` does */
 #[cfg(feature = "web")]
 fn web_run(kit: &Kit, file: Option<&Path>, code: Option<&str>, manifest: Option<&Path>) -> Result<i32> {
     let src = match (file, code) {
@@ -104,7 +104,7 @@ fn web_run(kit: &Kit, file: Option<&Path>, code: Option<&str>, manifest: Option<
         }
     };
 
-    let default = PathBuf::from("edge.json");
+    let default = PathBuf::from("interpreter.json");
     // the entry names of a native run so a traceback reads alike on both hosts
     let entry = match (file, code) {
         (_, Some(_)) => String::from("<eval>"),

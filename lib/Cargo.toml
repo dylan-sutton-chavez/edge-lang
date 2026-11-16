@@ -1,14 +1,19 @@
 [package]
-name = "lib"
+name = "interpreter-lib"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Kernels a runtime on Edge Lang names in its own tables, grouped by capability with each module behind a feature of its own."
-publish = false
+description = "Kernels a runtime built on interpreter names in its own tables, for text, numbers, sequences, maps, sets, dates, JSON, CSV and I/O, each behind a feature."
+documentation = "https://docs.rs/interpreter-lib"
+readme = "../README.md"
+keywords = ["interpreter", "runtime", "stdlib", "wasm"]
+categories = ["compilers", "wasm", "no-std"]
+include = ["/src/**/*.rs"]
 
 [lib]
-name = "lib"
+name = "interpreter_lib"
 doctest = false
 
 # a runtime picks its modules and each pulls in the modules whose helpers it calls
@@ -30,12 +35,12 @@ text = ["bytes", "iter", "num"]
 types = []
 
 [dependencies]
-edge = { path = "..", default-features = false }
+interpreter = { workspace = true }
 itoa = { workspace = true }
 
 # host tests run threaded on std and write their programs for the test rig
 [dev-dependencies]
 rig = { path = "../tests/rig" }
-edge = { path = "..", features = ["std"] }
+interpreter = { path = "..", features = ["std"] }
 # the native cases are yml files the runner reads
 serde_yaml_ng = { workspace = true }

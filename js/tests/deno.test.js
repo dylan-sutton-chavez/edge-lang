@@ -1,7 +1,7 @@
 /* The engine under Deno with no browser, undeclared names fail and missing Web APIs name themselves. */
 const BASE = Deno.env.get("EDGE_CDN_BASE")?.replace(/\/$/, "");
 if (!BASE) throw new Error("set EDGE_CDN_BASE (make serve)");
-const WASM = `${BASE}/edge.wasm`;
+const WASM = `${BASE}/interpreter.wasm`;
 
 // A fresh engine per test, the query string keeps the module state apart.
 async function fresh(name) {
@@ -28,12 +28,12 @@ const baseUrl = new URL("./nomanifest/", import.meta.url).href;
 Deno.test("deno: a packed package imports from inside itself", async () => {
     const enc = new TextEncoder();
     const framed = (bytes) => [...enc.encode(`${bytes.length}\n`), ...bytes];
-    const files = { "main.lox": "var hello = import(\"./src/hello.lox\").hello;\n", "src/hello.lox": "fun hello(name) {\n    return \"hello \" + name;\n}\n", "https://example.com/dep.edge": "" };
+    const files = { "main.lox": "var hello = import(\"./src/hello.lox\").hello;\n", "src/hello.lox": "fun hello(name) {\n    return \"hello \" + name;\n}\n", "https://example.com/dep.interpreter": "" };
     const packed = [...enc.encode("EDGEPKG\x01"), ...framed(enc.encode("main.lox")), ...enc.encode(`${Object.keys(files).length}\n`)];
     for (const [path, text] of Object.entries(files)) packed.push(...framed(enc.encode(path)), ...framed(enc.encode(text)));
     const dir = await Deno.makeTempDir();
-    await Deno.writeFile(`${dir}/greet.edge`, new Uint8Array(packed));
-    const engine = await boot("package", { greet: new URL(`file://${dir}/greet.edge`).href });
+    await Deno.writeFile(`${dir}/greet.interpreter`, new Uint8Array(packed));
+    const engine = await boot("package", { greet: new URL(`file://${dir}/greet.interpreter`).href });
     const lines = [];
     const { out } = await engine.run({ src: "print import(\"greet\").hello(\"edge\");" }, (t) => lines.push(t));
     if (out !== "" || lines.join("").trim() !== "hello edge") throw new Error(`unexpected ${JSON.stringify([out, lines])}`);
@@ -50,18 +50,18 @@ Deno.test("deno: a packed package resolves its own version through the lock it c
     };
     const dir = await Deno.makeTempDir();
     const dep = pack("main.lox", { "main.lox": "fun shout(word) {\n    return word + \"!\";\n}\n" });
-    await Deno.writeFile(`${dir}/dep.edge`, dep);
+    await Deno.writeFile(`${dir}/dep.interpreter`, dep);
     const digest = [...new Uint8Array(await crypto.subtle.digest("SHA-256", dep))].map((b) => b.toString(16).padStart(2, "0")).join("");
-    const url = new URL(`file://${dir}/dep.edge`).href;
+    const url = new URL(`file://${dir}/dep.interpreter`).href;
 
     const app = pack("main.lox", {
         "main.lox": "var dep = import(\"dep\");\n\nfun greet(name) {\n    return dep.shout(\"hi \" + name);\n}\n",
-        "edge.json": JSON.stringify({ imports: { dep: "0.1.0" } }),
-        "edge.lock": JSON.stringify({ dep: { version: "0.1.0", url, digest: `sha256-${digest}` } }),
+        "interpreter.json": JSON.stringify({ imports: { dep: "0.1.0" } }),
+        "interpreter.lock": JSON.stringify({ dep: { version: "0.1.0", url, digest: `sha256-${digest}` } }),
     });
-    await Deno.writeFile(`${dir}/app.edge`, app);
+    await Deno.writeFile(`${dir}/app.interpreter`, app);
 
-    const engine = await boot("lock", { app: new URL(`file://${dir}/app.edge`).href });
+    const engine = await boot("lock", { app: new URL(`file://${dir}/app.interpreter`).href });
     const lines = [];
     const { out } = await engine.run({ src: "print import(\"app\").greet(\"edge\");" }, (t) => lines.push(t));
     if (out !== "" || lines.join("").trim() !== "hi edge!") throw new Error(`unexpected ${JSON.stringify([out, lines])}`);
@@ -71,26 +71,26 @@ Deno.test("deno: a packed package resolves its own version through the lock it c
 Deno.test("deno: a version no lock holds names the lock", async () => {
     const enc = new TextEncoder();
     const framed = (bytes) => [...enc.encode(`${bytes.length}\n`), ...bytes];
-    const files = { "main.lox": "print 1;\n", "edge.json": JSON.stringify({ imports: { dep: "0.1.0" } }) };
+    const files = { "main.lox": "print 1;\n", "interpreter.json": JSON.stringify({ imports: { dep: "0.1.0" } }) };
     const out = [...enc.encode("EDGEPKG\x01"), ...framed(enc.encode("main.lox")), ...enc.encode(`${Object.keys(files).length}\n`)];
     for (const [path, text] of Object.entries(files)) out.push(...framed(enc.encode(path)), ...framed(enc.encode(text)));
     const dir = await Deno.makeTempDir();
-    await Deno.writeFile(`${dir}/app.edge`, new Uint8Array(out));
+    await Deno.writeFile(`${dir}/app.interpreter`, new Uint8Array(out));
 
-    const engine = await boot("unlocked", { app: new URL(`file://${dir}/app.edge`).href });
+    const engine = await boot("unlocked", { app: new URL(`file://${dir}/app.interpreter`).href });
     let failed = "";
     try {
         await engine.run({ src: "import(\"app\");" });
     } catch (e) {
         failed = String(e);
     }
-    if (!failed.includes("'dep' is not locked in edge.lock")) throw new Error(`unexpected ${JSON.stringify(failed)}`);
+    if (!failed.includes("'dep' is not locked in interpreter.lock")) throw new Error(`unexpected ${JSON.stringify(failed)}`);
 });
 
 Deno.test("deno: an undeclared name fails at compile time", async () => {
     const engine = await boot("undeclared");
     const { out } = await engine.run({ src: "var json = import(\"json\");\nprint 1;" });
-    if (!out.includes("module 'json' is not provided by this host and no edge.json declares it")) throw new Error(`unexpected output ${JSON.stringify(out)}`);
+    if (!out.includes("module 'json' is not provided by this host and no interpreter.json declares it")) throw new Error(`unexpected output ${JSON.stringify(out)}`);
 });
 
 Deno.test("deno: send() names the actor scheduler it lacks", async () => {
@@ -104,8 +104,8 @@ Deno.test("deno: send() names the actor scheduler it lacks", async () => {
 Deno.test("deno: a manifest beside a module joins its relative targets once", async () => {
     const dir = await Deno.makeTempDir();
     await Deno.mkdir(`${dir}/pkg`);
-    await Deno.writeTextFile(`${dir}/edge.json`, JSON.stringify({ imports: { pkg: "./pkg/entry.lox" } }));
-    await Deno.writeTextFile(`${dir}/pkg/edge.json`, JSON.stringify({ imports: { _impl: "./impl.lox" } }));
+    await Deno.writeTextFile(`${dir}/interpreter.json`, JSON.stringify({ imports: { pkg: "./pkg/entry.lox" } }));
+    await Deno.writeTextFile(`${dir}/pkg/interpreter.json`, JSON.stringify({ imports: { _impl: "./impl.lox" } }));
     await Deno.writeTextFile(`${dir}/pkg/entry.lox`, "var value = import(\"_impl\").value;\n");
     await Deno.writeTextFile(`${dir}/pkg/impl.lox`, "var value = 42;\n");
     const engine = await boot("facade", {}, `file://${dir}/`);
@@ -115,7 +115,7 @@ Deno.test("deno: a manifest beside a module joins its relative targets once", as
     if (out !== "" || lines.join("").trim() !== "42") throw new Error(`unexpected ${JSON.stringify([out, lines])}`);
 });
 
-/* A project on disk, the edge.json a run reads its grants from beside its files. */
+/* A project on disk, the interpreter.json a run reads its grants from beside its files. */
 async function project(files) {
     const dir = await Deno.makeTempDir();
     for (const [path, text] of Object.entries(files)) {
@@ -136,7 +136,7 @@ async function output(name, src, base) {
 
 // No JavaScript loads besides the host's own, so an import of one fails where it is written.
 Deno.test("deno: a JavaScript import is refused at compile time", async () => {
-    const base = await project({ "edge.json": JSON.stringify({ imports: { charts: "./charts.js" } }), "charts.js": "export const draw = () => 1;\n" });
+    const base = await project({ "interpreter.json": JSON.stringify({ imports: { charts: "./charts.js" } }), "charts.js": "export const draw = () => 1;\n" });
     const got = await output("javascript", "var draw = import(\"charts\").draw;", base);
     if (!got.out.includes("module 'charts' is JavaScript, ship a .lox or a .wasm")) throw new Error(`unexpected ${JSON.stringify(got)}`);
 });
@@ -242,7 +242,7 @@ Deno.test("deno: a composition without perms gives every package each module it 
     engine.wire(net);
     const refused = await engine.load({ wasmUrl: WASM, permissions: { main: ["net:127.0.0.1"] } }).then(() => "loaded", (e) => e.message);
     if (refused !== "permissions need a grant component and this composition wires none") throw new Error(`unexpected ${refused}`);
-    const base = await project({ "edge.json": JSON.stringify({ imports: { main: "./lib.lox" }, permissions: "read by nobody" }), "lib.lox": "var value = 7;\n" });
+    const base = await project({ "interpreter.json": JSON.stringify({ imports: { main: "./lib.lox" }, permissions: "read by nobody" }), "lib.lox": "var value = 7;\n" });
     await engine.load({ wasmUrl: WASM, baseUrl: base });
     const lines = [];
     // the request leaves unrefused and only the closed port fails its answer
@@ -278,18 +278,18 @@ Deno.test("deno: the room's policy reaches what the wired modules give the grant
     const connect = async (specs, composition) => (await roomPolicy(specs, section, composition)).split("; ").find((part) => part.startsWith("connect-src "));
     const section = { main: ["net:api.example.com/v2", "net", "net:a.test;script-src", "net:2130706433"], all: ["probe:anything"] };
     const probe = { name: "probe", scope: () => true, reaches: () => null, open: () => ({ calls: {}, close() {} }), origins: () => ["https://probe.test", "https://*.evil.test", "https://x.test; script-src *"] };
-    const wired = await connect(["https://cdn.example.com/pkg/x.edge", "./local.lox"], { modules: [net, probe], access: perms });
+    const wired = await connect(["https://cdn.example.com/pkg/x.interpreter", "./local.lox"], { modules: [net, probe], access: perms });
     if (wired !== "connect-src https://cdn.example.com https://api.example.com:* http://api.example.com:* wss://api.example.com:* ws://api.example.com:* https://probe.test") throw new Error(`unexpected ${wired}`);
-    const open = await connect(["https://cdn.example.com/pkg/x.edge"], { modules: [net, probe] });
+    const open = await connect(["https://cdn.example.com/pkg/x.interpreter"], { modules: [net, probe] });
     if (open !== "connect-src https://cdn.example.com") throw new Error(`a composition without perms widened ${open}`);
     const silent = await connect([], { modules: [{ ...net, origins: undefined }], access: perms });
     if (silent !== "connect-src 'none'") throw new Error(`a module with no origins widened ${silent}`);
 });
 
-// empty imports stand in for nothing so page and worker both read the base edge.json
-Deno.test("deno: a page reads the edge.json at its base unless what it gives stands in for it", async () => {
+// empty imports stand in for nothing so page and worker both read the base interpreter.json
+Deno.test("deno: a page reads the interpreter.json at its base unless what it gives stands in for it", async () => {
     const { rootOf } = await import("../src/policy.ts");
-    const base = await project({ "edge.json": JSON.stringify({ imports: { lib: "https://cdn.example.com/lib.lox" }, permissions: { main: ["net:a.test"] } }) });
+    const base = await project({ "interpreter.json": JSON.stringify({ imports: { lib: "https://cdn.example.com/lib.lox" }, permissions: { main: ["net:a.test"] } }) });
     const read = await rootOf({ imports: {} }, base);
     if (JSON.stringify(read.specs) !== '["https://cdn.example.com/lib.lox"]' || JSON.stringify(read.manifest.permissions) !== '{"main":["net:a.test"]}') throw new Error(`unexpected ${JSON.stringify(read)}`);
     const given = await rootOf({ imports: { x: "https://other.test/x.lox" } }, base);
@@ -299,8 +299,8 @@ Deno.test("deno: a page reads the edge.json at its base unless what it gives sta
 // only the root's file channel lines reach the page
 Deno.test("deno: only the root package writes a file channel", async () => {
     const base = await project({
-        "edge.json": JSON.stringify({ imports: { util: "./util/main.lox" }, permissions: { main: [] } }),
-        "util/edge.json": "{}",
+        "interpreter.json": JSON.stringify({ imports: { util: "./util/main.lox" }, permissions: { main: [] } }),
+        "util/interpreter.json": "{}",
         "util/main.lox": "fun write() {\n    send(\"file:report.txt\", \"from util\");\n}\n",
         "main.lox": "var util = import(\"util\");\nsend(\"file:mine.txt\", \"from main\");\nutil.write();\n",
     });

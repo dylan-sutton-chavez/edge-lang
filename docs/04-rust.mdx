@@ -5,35 +5,35 @@ description: "Compile and run programs inside a Rust program: the VM, its output
 
 # Rust
 
-A Rust program links the engine and a runtime as crates and runs programs in its own process, with no `.wasm` in between. The examples on this page embed Lox through the `lox` crate. A runtime of your own exposes the same `RUNTIME` and `FRONT`, as [Build a runtime](./02-runtime.mdx) shows.
+A Rust program links the engine and a runtime as crates and runs programs in its own process, with no `.wasm` in between. The examples on this page embed Lox through the `interpreter-lox` crate. A runtime of your own exposes the same `RUNTIME` and `FRONT`, as [Build a runtime](./02-runtime.mdx) shows.
 
 ```toml
 [dependencies]
-edge = { git = "https://github.com/dylan-sutton-chavez/edge-lang", branch = "main" }
-lox = { git = "https://github.com/dylan-sutton-chavez/edge-lang", branch = "main" }
+interpreter = "0.10"
+interpreter-lox = "0.10"
 ```
 
 ## Run a program
 
-`edge::code::compile` parses a source through a runtime's front and gives the chunk with every diagnostic. `VM::with_runtime` boots a machine over it, and `run` runs it to the end.
+`interpreter::code::compile` parses a source through a runtime's front and gives the chunk with every diagnostic. `VM::with_runtime` boots a machine over it, and `run` runs it to the end.
 
 ```rust standalone_crate
-use edge::embed::{Limits, VM};
+use interpreter::embed::{Limits, VM};
 
 // the memory limit counts what this allocator hands out
-edge::allocator!();
+interpreter::allocator!();
 
 fn main() {
     let src = "fun square(n) {\n    return n * n;\n}\n\nfor (var n = 0; n < 4; n = n + 1) print square(n);\n";
-    let (chunk, errors) = edge::code::compile(&lox::FRONT, src);
-    assert!(errors.is_empty(), "{}", edge::code::Diagnostic::render_all(&errors, src, Some("main.lox")));
-    let mut vm = VM::with_runtime(&lox::RUNTIME, &chunk, Limits::sandbox());
+    let (chunk, errors) = interpreter::code::compile(&interpreter_lox::FRONT, src);
+    assert!(errors.is_empty(), "{}", interpreter::code::Diagnostic::render_all(&errors, src, Some("main.lox")));
+    let mut vm = VM::with_runtime(&interpreter_lox::RUNTIME, &chunk, Limits::sandbox());
     vm.run().expect("the program runs");
     assert_eq!(vm.output_text(), "0\n1\n4\n9\n");
 }
 ```
 
-The binary installs `edge::allocator!()` once, since a VM whose limits cap memory refuses to run without the meter. A VM keeps what the program prints as lines in `output`, and `output_text()` joins them. Set `vm.print_hook = Some(f)` with a `fn(&str)` to take each text as it is written instead.
+The binary installs `interpreter::allocator!()` once, since a VM whose limits cap memory refuses to run without the meter. A VM keeps what the program prints as lines in `output`, and `output_text()` joins them. Set `vm.print_hook = Some(f)` with a `fn(&str)` to take each text as it is written instead.
 
 | Call | Does |
 |---|---|
@@ -54,15 +54,15 @@ The binary installs `edge::allocator!()` once, since a VM whose limits cap memor
 A run that calls `receive()` with nothing queued parks, and `run` returns `VmErr::HostYield(SchedulerStatus::PendingEvent)`. The host pushes an event and calls `run` again, and the run goes on from where it stopped.
 
 ```rust standalone_crate
-use edge::embed::{Limits, SchedulerStatus, VM};
-use edge::value::VmErr;
+use interpreter::embed::{Limits, SchedulerStatus, VM};
+use interpreter::value::VmErr;
 
-edge::allocator!();
+interpreter::allocator!();
 
 fn main() {
     let src = "var words = \"\";\nvar m = receive();\nwhile (m != \"stop\") {\n    words = words + m;\n    m = receive();\n}\nprint \"got \" + words;\n";
-    let (chunk, _) = edge::code::compile(&lox::FRONT, src);
-    let mut vm = VM::with_runtime(&lox::RUNTIME, &chunk, Limits::sandbox());
+    let (chunk, _) = interpreter::code::compile(&interpreter_lox::FRONT, src);
+    let mut vm = VM::with_runtime(&interpreter_lox::RUNTIME, &chunk, Limits::sandbox());
     let mut events = ["ab", "cd", "stop"].into_iter();
     loop {
         match vm.run() {
@@ -80,11 +80,11 @@ fn main() {
 An import, `import("name")` in Lox, is answered by a `Resolver`. Answering with `Resolved::Code` serves a module's source, and `Resolved::Native` serves Rust functions. A function that returns `VmErr::HostCallDeferred` parks the run with `PendingHostCall`, and the host answers it later by id, counting from 0 in the order the run made the calls.
 
 ```rust standalone_crate
-use edge::embed::{Limits, NativeBinding, Resolved, Resolver, SchedulerStatus, VM};
-use edge::targets::native::Script;
-use edge::value::{HeapPool, Val, VmErr};
+use interpreter::embed::{Limits, NativeBinding, Resolved, Resolver, SchedulerStatus, VM};
+use interpreter::targets::native::Script;
+use interpreter::value::{HeapPool, Val, VmErr};
 
-edge::allocator!();
+interpreter::allocator!();
 
 // a Lox number is a double
 fn double(_: &mut HeapPool, args: &[Val], _kw: Option<Val>) -> Result<Val, VmErr> {
@@ -115,8 +115,8 @@ impl Resolver for Host {
 
 fn main() {
     let src = "var host = import(\"host\");\nvar util = import(\"util\");\nprint text(host.double(21)) + \" \" + util.greet(\"ana\");\nprint host.fetch() + 1;\n";
-    let script = Script::compile(&lox::FRONT, "main.lox", src.into(), Box::new(Host)).unwrap();
-    let mut vm = VM::with_runtime(&lox::RUNTIME, &script.chunk, Limits::sandbox());
+    let script = Script::compile(&interpreter_lox::FRONT, "main.lox", src.into(), Box::new(Host)).unwrap();
+    let mut vm = VM::with_runtime(&interpreter_lox::RUNTIME, &script.chunk, Limits::sandbox());
     assert!(matches!(vm.run(), Err(VmErr::HostYield(SchedulerStatus::PendingHostCall))));
     assert!(vm.inject_host_result_by_id(0, Val::float(41.0)));
     vm.run().unwrap();
@@ -129,14 +129,14 @@ fn main() {
 Once `run` has bound the program's names, `call_export` calls one of its functions with values the host built.
 
 ```rust standalone_crate
-use edge::embed::{Limits, VM};
-use edge::value::Val;
+use interpreter::embed::{Limits, VM};
+use interpreter::value::Val;
 
-edge::allocator!();
+interpreter::allocator!();
 
 fn main() {
-    let (chunk, _) = edge::code::compile(&lox::FRONT, "fun area(w, h) {\n    return w * h;\n}\n");
-    let mut vm = VM::with_runtime(&lox::RUNTIME, &chunk, Limits::sandbox());
+    let (chunk, _) = interpreter::code::compile(&interpreter_lox::FRONT, "fun area(w, h) {\n    return w * h;\n}\n");
+    let mut vm = VM::with_runtime(&interpreter_lox::RUNTIME, &chunk, Limits::sandbox());
     vm.run().unwrap();
     let got = vm.call_export("area", &[Val::float(6.0), Val::float(7.0)]).unwrap();
     assert_eq!(vm.display(got), "42");
@@ -145,18 +145,18 @@ fn main() {
 
 ## Snapshots
 
-A parked run freezes to a blob with `edge::embed::save` and thaws on a fresh VM booted from the same program with `edge::embed::restore`, on this host or another. The blob holds the heap, every frame and the input not yet read.
+A parked run freezes to a blob with `interpreter::embed::save` and thaws on a fresh VM booted from the same program with `interpreter::embed::restore`, on this host or another. The blob holds the heap, every frame and the input not yet read.
 
 ```rust standalone_crate
-use edge::embed::{self, Limits, SchedulerStatus, VM};
-use edge::value::VmErr;
+use interpreter::embed::{self, Limits, SchedulerStatus, VM};
+use interpreter::value::VmErr;
 
-edge::allocator!();
+interpreter::allocator!();
 
 fn main() {
     let src = "var seen = \"\";\nvar m = receive();\nwhile (m != \"stop\") {\n    seen = seen + m;\n    m = receive();\n}\nprint seen;\n";
-    let (chunk, _) = edge::code::compile(&lox::FRONT, src);
-    let mut vm = VM::with_runtime(&lox::RUNTIME, &chunk, Limits::sandbox());
+    let (chunk, _) = interpreter::code::compile(&interpreter_lox::FRONT, src);
+    let mut vm = VM::with_runtime(&interpreter_lox::RUNTIME, &chunk, Limits::sandbox());
     assert!(matches!(vm.run(), Err(VmErr::HostYield(SchedulerStatus::PendingEvent))));
     vm.push_event("a").unwrap();
     assert!(matches!(vm.run(), Err(VmErr::HostYield(SchedulerStatus::PendingEvent))));
@@ -164,7 +164,7 @@ fn main() {
     drop(vm);
 
     // a new machine over the same program picks up where the first one parked
-    let mut later = VM::with_runtime(&lox::RUNTIME, &chunk, embed::limits_of(&blob).unwrap());
+    let mut later = VM::with_runtime(&interpreter_lox::RUNTIME, &chunk, embed::limits_of(&blob).unwrap());
     embed::restore(&mut later, &blob).unwrap();
     later.push_event("b").unwrap();
     later.push_event("stop").unwrap();
@@ -177,17 +177,17 @@ fn main() {
 
 ## A native binary
 
-`edge::targets::native` holds a whole host: `Script::read` compiles a file and reads its relative imports beside it, `boot` gives a VM that prints to stdout and reads stdin, and `main` puts them together. This is the whole `main.rs` of the `lox` binary the book's suite runs on.
+`interpreter::targets::native` holds a whole host: `Script::read` compiles a file and reads its relative imports beside it, `boot` gives a VM that prints to stdout and reads stdin, and `main` puts them together. This is the whole `main.rs` of the `lox` binary the book's suite runs on.
 
 ```rust no_run standalone_crate
-use edge::embed::Limits;
+use interpreter::embed::Limits;
 use std::process::ExitCode;
 
-edge::allocator!();
+interpreter::allocator!();
 
 // runs the Lox file its first argument names
 fn main() -> ExitCode {
-    edge::targets::native::main(&lox::RUNTIME, &lox::FRONT, Limits::sandbox())
+    interpreter::targets::native::main(&interpreter_lox::RUNTIME, &interpreter_lox::FRONT, Limits::sandbox())
 }
 ```
 
@@ -197,4 +197,4 @@ fn main() -> ExitCode {
 [line 1] Error at '=': Expect expression.
 ```
 
-A native script loads no URL and no plugin. The `edge` CLI and the JS host serve both.
+A native script loads no URL and no plugin. The `interpreter` CLI and the JS host serve both.

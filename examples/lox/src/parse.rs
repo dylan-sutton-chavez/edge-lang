@@ -3,8 +3,8 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use edge::code::Diagnostic;
-use edge::lexer::{lex_as, TokenType as T};
+use interpreter::code::Diagnostic;
+use interpreter::lexer::{lex_as, TokenType as T};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum K {
@@ -47,8 +47,8 @@ fn scan(src: &str) -> Vec<Tok> {
 }
 
 /* the modules `src` imports as `import("spec")` names them */
-pub fn imports(src: &str) -> Vec<edge::deps::ImportSpec> {
-    use edge::deps::ImportSpec;
+pub fn imports(src: &str) -> Vec<interpreter::deps::ImportSpec> {
+    use interpreter::deps::ImportSpec;
     let toks = scan(src);
     toks.windows(4).filter(|w| w[0].k == K::Ident && &src[w[0].start..w[0].end] == "import" && w[1].k == K::LParen && w[2].k == K::Str && w[3].k == K::RParen)
         .map(|w| String::from(&src[w[2].start + 1..w[2].end - 1]))
@@ -66,7 +66,7 @@ pub enum Expr {
     Set(Place, Box<Expr>, usize),
     Neg(Box<Expr>, usize),
     Not(Box<Expr>),
-    Binary(edge::code::OpCode, Box<Expr>, Box<Expr>, usize),
+    Binary(interpreter::code::OpCode, Box<Expr>, Box<Expr>, usize),
     Logic(bool, Box<Expr>, Box<Expr>),
     Call(Box<Expr>, Vec<Expr>, usize),
     Field(Box<Expr>, String, usize),
@@ -529,7 +529,7 @@ impl Parser<'_> {
     }
 
     fn infix_of(&mut self, left: Expr, can_assign: bool) -> Expr {
-        use edge::code::OpCode as O;
+        use interpreter::code::OpCode as O;
         let t = self.prev;
         let op = match t.k {
             K::LParen => {

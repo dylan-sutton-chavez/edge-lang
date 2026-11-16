@@ -64,7 +64,7 @@ Deno.test("plugin: an end a plugin hands back unread raises the class the runtim
     await Deno.writeFile(`${dir}/steps.wasm`, first());
     const src = "var first = import(\"steps\").first;\nprint first(\"78\");\nfirst(\"\");\nprint \"never\";\n";
     const engine = await import(new URL("../src/worker/engine.ts?plugin=steps", import.meta.url).href);
-    await engine.load({ wasmUrl: new URL("target/wasm32-unknown-unknown/release/edge.wasm", ROOT).href, imports: { steps: `file://${dir}/steps.wasm` }, baseUrl: `file://${dir}/` });
+    await engine.load({ wasmUrl: new URL("target/wasm32-unknown-unknown/release/interpreter.wasm", ROOT).href, imports: { steps: `file://${dir}/steps.wasm` }, baseUrl: `file://${dir}/` });
     const lines = [];
     const { out } = await engine.run({ src }, (t) => lines.push(t));
     // the end raises the class the runtime names and stops the program there
@@ -73,12 +73,12 @@ Deno.test("plugin: an end a plugin hands back unread raises the class the runtim
 
 Deno.test("plugin: a plugin that does not load fails at its import and names the module that reached it", async () => {
     const dir = await Deno.makeTempDir();
-    await Deno.writeTextFile(`${dir}/edge.json`, JSON.stringify({ imports: { badplug: "./bad.wasm", old: "./old.wasm", lib: "./lib.lox" } }));
+    await Deno.writeTextFile(`${dir}/interpreter.json`, JSON.stringify({ imports: { badplug: "./bad.wasm", old: "./old.wasm", lib: "./lib.lox" } }));
     await Deno.writeTextFile(`${dir}/bad.wasm`, "notwasm");
     await Deno.writeFile(`${dir}/old.wasm`, plugin(2));
     await Deno.writeTextFile(`${dir}/lib.lox`, "var x = 1;\nimport(\"badplug\");\n");
     const engine = await import(new URL("../src/worker/engine.ts?refused", import.meta.url).href);
-    await engine.load({ wasmUrl: new URL("target/wasm32-unknown-unknown/release/edge.wasm", ROOT).href, baseUrl: `file://${dir}/` });
+    await engine.load({ wasmUrl: new URL("target/wasm32-unknown-unknown/release/interpreter.wasm", ROOT).href, baseUrl: `file://${dir}/` });
     // the WebAssembly runtime words the reason for bytes that are no wasm
     const runs = [
         ["main.lox", "print 1;\nimport(\"badplug\");\n", ["error: module 'badplug' is not a valid plugin, ", "--> main.lox:2:1"]],

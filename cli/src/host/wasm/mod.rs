@@ -83,7 +83,7 @@ impl Host {
 
     /* a third party plugin linked for instantiation which Cranelift compiles on first sight */
     pub fn third_party(&self, bytes: &[u8]) -> Result<InstancePre<State>, String> {
-        let key = edge::util::sha256::sha256(bytes);
+        let key = interpreter::util::sha256::sha256(bytes);
         if let Some(pre) = self.plugins.borrow().get(&key) {
             return Ok(pre.clone());
         }
@@ -200,7 +200,7 @@ pub struct Exports {
 
 impl Exports {
     fn bind(store: &mut Store<State>, instance: &Wasm) -> Result<Exports> {
-        let memory = instance.get_memory(&mut *store, "memory").ok_or_else(|| anyhow!("edge.wasm exports no memory"))?;
+        let memory = instance.get_memory(&mut *store, "memory").ok_or_else(|| anyhow!("interpreter.wasm exports no memory"))?;
         macro_rules! f {
             ($name:literal) => {
                 wt(instance.get_typed_func(&mut *store, $name))?

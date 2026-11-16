@@ -10,20 +10,20 @@ const ACTOR_TIMEOUT: Duration = Duration::from_secs(30);
 
 struct Opts {
     file: String,
-    edge: String,
+    interpreter: String,
 }
 
 fn parse_args() -> Result<Opts, String> {
     let mut file = None;
-    let mut edge = "edge".to_string();
+    let mut interpreter = "interpreter".to_string();
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--edge" => {
-                edge = args.next().ok_or("--edge needs a value")?;
+            "--interpreter" => {
+                interpreter = args.next().ok_or("--interpreter needs a value")?;
             }
             "-h" | "--help" => {
-                return Err("usage: skill <file.md> [--edge <path>]".to_string());
+                return Err("usage: skill <file.md> [--interpreter <path>]".to_string());
             }
             other if other.starts_with('-') => return Err(format!("unknown flag '{other}'")),
             other => {
@@ -34,14 +34,14 @@ fn parse_args() -> Result<Opts, String> {
             }
         }
     }
-    let file = file.ok_or("usage: skill <file.md> [--edge <path>]")?;
-    Ok(Opts { file, edge })
+    let file = file.ok_or("usage: skill <file.md> [--interpreter <path>]")?;
+    Ok(Opts { file, interpreter })
 }
 
 fn run_cell(opts: &Opts, c: &Cell) -> Result<(), String> {
     let outcome = match c.kind {
-        Kind::Lox => runner::run_script(&opts.edge, &c.body, SCRIPT_TIMEOUT),
-        Kind::Actor | Kind::Untrusted => runner::run_actor(&opts.edge, &c.body, ACTOR_TIMEOUT),
+        Kind::Lox => runner::run_script(&opts.interpreter, &c.body, SCRIPT_TIMEOUT),
+        Kind::Actor | Kind::Untrusted => runner::run_actor(&opts.interpreter, &c.body, ACTOR_TIMEOUT),
         Kind::LoxSkip => unreachable!("skip cells never become cells"),
     };
     outcome.and_then(|o| runner::check(&c.expect, &o, c.verdict == Verdict::Error))

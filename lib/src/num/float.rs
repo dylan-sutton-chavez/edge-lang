@@ -1,8 +1,8 @@
 use alloc::string::String;
 
-use edge::lang::{Args, CLASS, Cx, Ret, Sig, TYPE};
-use edge::s;
-use edge::value::{HeapObj, HeapPool, Val, ftrunc};
+use interpreter::lang::{Args, CLASS, Cx, Ret, Sig, TYPE};
+use interpreter::s;
+use interpreter::value::{HeapObj, HeapPool, Val, ftrunc};
 
 use crate::fail::{Fail, fail, receiver};
 use crate::fmt::render::Style;

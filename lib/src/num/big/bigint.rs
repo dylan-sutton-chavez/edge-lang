@@ -1,7 +1,7 @@
 use alloc::{string::String, vec, vec::Vec};
 use core::cmp::Ordering;
 
-use edge::value::math::round_to_f64;
+use interpreter::value::math::round_to_f64;
 
 // below this many limbs on the shorter side the schoolbook product wins
 pub const KARATSUBA: usize = 40;
@@ -399,7 +399,7 @@ impl BigInt {
     pub fn cmp_f64(&self, f: f64) -> Option<Ordering> {
         if f.is_nan() { return None; }
         if f.is_infinite() { return Some(if f > 0.0 { Ordering::Less } else { Ordering::Greater }); }
-        let t = edge::value::ftrunc(f);
+        let t = interpreter::value::ftrunc(f);
         match self.cmp(&Self::from_f64(t)) {
             Ordering::Equal if f != t => Some(if f > t { Ordering::Less } else { Ordering::Greater }),
             o => Some(o),

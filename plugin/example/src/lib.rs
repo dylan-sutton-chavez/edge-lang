@@ -3,7 +3,7 @@
 extern crate alloc;
 
 use alloc::{string::{String, ToString}, vec::Vec};
-use plugin::*;
+use interpreter_plugin::*;
 
 // host builds link std for workspace checks while wasm stays no_std with the kit allocator
 module!();

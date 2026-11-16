@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU32, Ordering};
 
-const BIN: &str = env!("CARGO_BIN_EXE_edge");
+const BIN: &str = env!("CARGO_BIN_EXE_interpreter");
 
 static DIR_SEQ: AtomicU32 = AtomicU32::new(0);
 
@@ -134,7 +134,7 @@ fn test_runner_verdicts_come_from_the_exit_code() {
 fn a_packed_package_imports_from_inside_itself() {
     let lib = scratch("package");
     std::fs::create_dir_all(lib.join("src")).unwrap();
-    std::fs::write(lib.join("edge.json"), "{ \"name\": \"greet\", \"version\": \"0.1.0\", \"imports\": { \"_words\": \"./src/words.lox\" } }\n").unwrap();
+    std::fs::write(lib.join("interpreter.json"), "{ \"name\": \"greet\", \"version\": \"0.1.0\", \"imports\": { \"_words\": \"./src/words.lox\" } }\n").unwrap();
     std::fs::write(lib.join("main.lox"), "var src = import(\"./src/hello.lox\");\nvar hello = src.hello;\n").unwrap();
     std::fs::write(lib.join("src/hello.lox"), "var words = import(\"_words\");\nvar WORD = words.WORD;\n\nfun hello(name) {\n    return WORD + \" \" + name;\n}\n").unwrap();
     std::fs::write(lib.join("src/words.lox"), "var WORD = \"hello\";\n").unwrap();
@@ -142,10 +142,10 @@ fn a_packed_package_imports_from_inside_itself() {
     assert_eq!(code, 0, "build failed: {err}");
 
     let app = scratch("package-app");
-    std::fs::copy(lib.join("app.edge"), app.join("greet.edge")).unwrap();
-    let pin = edge::util::sha256::hex_encode(&edge::util::sha256::sha256(&std::fs::read(app.join("greet.edge")).unwrap()));
-    std::fs::write(app.join("edge.json"), format!("{{ \"imports\": {{ \"greet\": \"./greet.edge#sha256-{pin}\" }} }}\n")).unwrap();
-    std::fs::write(app.join("main.lox"), "var greet = import(\"greet\");\nprint greet.hello(\"edge\");\n").unwrap();
+    std::fs::copy(lib.join("app.interpreter"), app.join("greet.interpreter")).unwrap();
+    let pin = interpreter::util::sha256::hex_encode(&interpreter::util::sha256::sha256(&std::fs::read(app.join("greet.interpreter")).unwrap()));
+    std::fs::write(app.join("interpreter.json"), format!("{{ \"imports\": {{ \"greet\": \"./greet.interpreter#sha256-{pin}\" }} }}\n")).unwrap();
+    std::fs::write(app.join("main.lox"), "var greet = import(\"greet\");\nprint greet.hello(\"interpreter\");\n").unwrap();
     let (out, err, code) = run_in(&app, &["run", "main.lox"], None);
     assert_eq!((out.as_str(), code), ("hello edge\n", 0), "stderr: {err}");
 }
@@ -153,7 +153,7 @@ fn a_packed_package_imports_from_inside_itself() {
 /* a host of one file at a release path the way GitHub serves a tag's asset */
 fn spawn_release(bundle: Vec<u8>) -> String {
     use std::io::{BufRead, Write};
-    const KEY: &str = "/owner/greet/releases/download/v0.1.0/app.edge";
+    const KEY: &str = "/owner/greet/releases/download/v0.1.0/app.interpreter";
     let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind loopback");
     let port = listener.local_addr().expect("tcp addr").port();
     std::thread::spawn(move || {
@@ -175,17 +175,17 @@ fn spawn_release(bundle: Vec<u8>) -> String {
 fn a_dependency_written_for_a_later_engine_is_refused_where_it_loads() {
     let dir = scratch("floor");
     std::fs::create_dir_all(dir.join("pkg")).unwrap();
-    std::fs::write(dir.join("edge.json"), "{ \"imports\": { \"greet\": \"./pkg/main.lox\" } }\n").unwrap();
+    std::fs::write(dir.join("interpreter.json"), "{ \"imports\": { \"greet\": \"./pkg/main.lox\" } }\n").unwrap();
     std::fs::write(dir.join("main.lox"), "var greet = import(\"greet\");\nprint greet.shout(\"hi\");\n").unwrap();
-    std::fs::write(dir.join("pkg/edge.json"), "{ \"name\": \"greet\", \"version\": \"0.1.0\", \"edge\": \"99.0.0\" }\n").unwrap();
+    std::fs::write(dir.join("pkg/interpreter.json"), "{ \"name\": \"greet\", \"version\": \"0.1.0\", \"interpreter\": \"99.0.0\" }\n").unwrap();
     std::fs::write(dir.join("pkg/main.lox"), "fun shout(word) {\n    return word + \"!\";\n}\n").unwrap();
 
     let (_, err, code) = run_in(&dir, &["run", "main.lox"], None);
-    assert!(err.contains("needs edge 99.0.0") && err.contains(env!("CARGO_PKG_VERSION")), "stderr was: {err}");
+    assert!(err.contains("needs interpreter 99.0.0") && err.contains(env!("CARGO_PKG_VERSION")), "stderr was: {err}");
     assert_eq!(code, 1);
 
     // The same package under a floor this engine meets loads with nothing to say about it.
-    std::fs::write(dir.join("pkg/edge.json"), format!("{{ \"edge\": \"{}\" }}\n", env!("CARGO_PKG_VERSION"))).unwrap();
+    std::fs::write(dir.join("pkg/interpreter.json"), format!("{{ \"interpreter\": \"{}\" }}\n", env!("CARGO_PKG_VERSION"))).unwrap();
     let (out, err, code) = run_in(&dir, &["run", "main.lox"], None);
     assert_eq!((out.as_str(), code), ("hi!\n", 0), "stderr was: {err}");
 }
@@ -195,7 +195,7 @@ fn a_dependency_written_for_a_later_engine_is_refused_where_it_loads() {
 fn the_binary_reports_the_version_it_was_built_from() {
     let dir = scratch("version");
     let (out, err, code) = run_in(&dir, &["--version"], None);
-    assert_eq!((out.trim(), code), (format!("edge {}", env!("CARGO_PKG_VERSION")).as_str(), 0), "stderr: {err}");
+    assert_eq!((out.trim(), code), (format!("interpreter {}", env!("CARGO_PKG_VERSION")).as_str(), 0), "stderr: {err}");
 }
 
 /* add declares a url as written and lock pins its bytes so a run reads them and nothing else */
@@ -203,25 +203,25 @@ fn the_binary_reports_the_version_it_was_built_from() {
 fn a_declared_url_is_locked_once_and_then_runs() {
     let lib = scratch("lockdep");
     std::fs::write(lib.join("main.lox"), "fun shout(word) {\n    return word + \"!\";\n}\n").unwrap();
-    let (_, err, code) = run_in(&lib, &["build", "--out", "dep.edge"], None);
+    let (_, err, code) = run_in(&lib, &["build", "--out", "dep.interpreter"], None);
     assert_eq!(code, 0, "build failed: {err}");
-    let url = spawn_release(std::fs::read(lib.join("dep.edge")).unwrap());
+    let url = spawn_release(std::fs::read(lib.join("dep.interpreter")).unwrap());
 
     let app = scratch("lockapp");
     std::fs::write(app.join("main.lox"), "var greet = import(\"greet\");\nprint greet.shout(\"hi edge\");\n").unwrap();
-    std::fs::write(app.join("edge.json"), "{}\n").unwrap();
+    std::fs::write(app.join("interpreter.json"), "{}\n").unwrap();
     let (_, err, code) = run_in(&app, &["add", "greet@0.1.0"], None);
     assert!(err.contains("'greet@0.1.0' names no source, give it as name=<url> or name=<path>"), "stderr was: {err}");
-    assert_eq!((code, std::fs::read_to_string(app.join("edge.json")).unwrap().as_str()), (1, "{}\n"));
+    assert_eq!((code, std::fs::read_to_string(app.join("interpreter.json")).unwrap().as_str()), (1, "{}\n"));
 
     let (_, err, code) = run_in(&app, &["add", &format!("greet={url}")], None);
     assert_eq!(code, 0, "add failed: {err}");
-    assert!(std::fs::read_to_string(app.join("edge.json")).unwrap().contains(&url), "the manifest keeps the url");
-    assert!(!app.join("edge.lock").exists(), "add writes no lock");
+    assert!(std::fs::read_to_string(app.join("interpreter.json")).unwrap().contains(&url), "the manifest keeps the url");
+    assert!(!app.join("interpreter.lock").exists(), "add writes no lock");
 
     let (_, err, code) = run_in(&app, &["lock"], None);
     assert_eq!(code, 0, "lock failed: {err}");
-    let held = std::fs::read_to_string(app.join("edge.lock")).unwrap();
+    let held = std::fs::read_to_string(app.join("interpreter.lock")).unwrap();
     assert!(held.contains(&url) && held.contains("sha256-"), "the lock holds the url and its digest: {held}");
 
     let (out, err, code) = run_in(&app, &["run", "main.lox"], None);
@@ -232,36 +232,36 @@ fn a_declared_url_is_locked_once_and_then_runs() {
 #[test]
 fn a_declared_version_is_refused_by_lock() {
     let app = scratch("versionapp");
-    std::fs::write(app.join("edge.json"), "{ \"imports\": { \"greet\": \"0.1.0\" } }\n").unwrap();
+    std::fs::write(app.join("interpreter.json"), "{ \"imports\": { \"greet\": \"0.1.0\" } }\n").unwrap();
     let (_, err, code) = run_in(&app, &["lock"], None);
     assert!(err.contains("'greet' is declared '0.1.0' but no version resolves, give it a url or a path"), "stderr was: {err}");
     assert_eq!(code, 1);
-    assert!(!app.join("edge.lock").exists(), "a refused lock writes nothing");
+    assert!(!app.join("interpreter.lock").exists(), "a refused lock writes nothing");
 }
 
 /* add shows what a package asks and lock writes nothing until the root grants it */
 #[test]
 fn a_package_asks_and_lock_waits_for_the_grant() {
     let lib = scratch("askdep");
-    std::fs::write(lib.join("edge.json"), "{ \"name\": \"greet\", \"version\": \"0.1.0\", \"permissions\": { \"main\": [\"net:api.example.com\"] } }\n").unwrap();
+    std::fs::write(lib.join("interpreter.json"), "{ \"name\": \"greet\", \"version\": \"0.1.0\", \"permissions\": { \"main\": [\"net:api.example.com\"] } }\n").unwrap();
     std::fs::write(lib.join("main.lox"), "fun shout(word) {\n    return word + \"!\";\n}\n").unwrap();
-    let (_, err, code) = run_in(&lib, &["build", "--out", "dep.edge"], None);
+    let (_, err, code) = run_in(&lib, &["build", "--out", "dep.interpreter"], None);
     assert_eq!(code, 0, "build failed: {err}");
-    let url = spawn_release(std::fs::read(lib.join("dep.edge")).unwrap());
+    let url = spawn_release(std::fs::read(lib.join("dep.interpreter")).unwrap());
 
     let app = scratch("askapp");
     std::fs::write(app.join("main.lox"), "var greet = import(\"greet\");\nprint greet.shout(\"granted\");\n").unwrap();
-    std::fs::write(app.join("edge.json"), "{}\n").unwrap();
+    std::fs::write(app.join("interpreter.json"), "{}\n").unwrap();
     let (out, err, code) = run_in(&app, &["add", &format!("greet={url}")], None);
     assert_eq!(code, 0, "add failed: {err}");
     assert!(out.contains("greet 0.1.0 asks net:api.example.com"), "add showed the ask: {out}");
 
     let (_, err, code) = run_in(&app, &["lock"], None);
-    assert!(err.contains("edge.json does not grant what these packages ask for\n  greet 0.1.0   net:api.example.com\n"), "stderr was: {err}");
+    assert!(err.contains("interpreter.json does not grant what these packages ask for\n  greet 0.1.0   net:api.example.com\n"), "stderr was: {err}");
     assert_eq!(code, 1);
-    assert!(!app.join("edge.lock").exists(), "a refused lock writes nothing");
+    assert!(!app.join("interpreter.lock").exists(), "a refused lock writes nothing");
 
-    std::fs::write(app.join("edge.json"), format!("{{ \"imports\": {{ \"greet\": \"{url}\" }}, \"permissions\": {{ \"greet\": [\"net:api.example.com\"] }} }}\n")).unwrap();
+    std::fs::write(app.join("interpreter.json"), format!("{{ \"imports\": {{ \"greet\": \"{url}\" }}, \"permissions\": {{ \"greet\": [\"net:api.example.com\"] }} }}\n")).unwrap();
     let (_, err, code) = run_in(&app, &["lock"], None);
     assert_eq!(code, 0, "lock failed: {err}");
     let (out, err, code) = run_in(&app, &["run", "main.lox"], None);
@@ -274,14 +274,14 @@ fn a_cached_module_is_pinned_to_its_first_bytes() {
     let dir = scratch("pin");
     // Seed cache and pin the way a download would. The url never resolves, so nothing can refetch.
     let url = "https://cdn.test/helper.lox";
-    let key = edge::util::sha256::hex_encode(&edge::util::sha256::sha256(url.as_bytes()));
-    let blob = dir.join("edge").join("modules").join(format!("{key}.lox"));
+    let key = interpreter::util::sha256::hex_encode(&interpreter::util::sha256::sha256(url.as_bytes()));
+    let blob = dir.join("interpreter").join("modules").join(format!("{key}.lox"));
     let src = "fun double(n) {\n    return n * 2;\n}\n";
     std::fs::create_dir_all(blob.parent().unwrap()).unwrap();
     std::fs::write(&blob, src).unwrap();
-    let pin = edge::util::sha256::hex_encode(&edge::util::sha256::sha256(src.as_bytes()));
+    let pin = interpreter::util::sha256::hex_encode(&interpreter::util::sha256::sha256(src.as_bytes()));
     std::fs::write(blob.with_extension("lox.lock"), &pin).unwrap();
-    std::fs::write(dir.join("edge.json"), format!("{{ \"imports\": {{ \"helper\": \"{url}\" }} }}\n")).unwrap();
+    std::fs::write(dir.join("interpreter.json"), format!("{{ \"imports\": {{ \"helper\": \"{url}\" }} }}\n")).unwrap();
     std::fs::write(dir.join("main.lox"), "var helper = import(\"helper\");\nprint helper.double(21);\n").unwrap();
 
     let (out, err, code) = run_in(&dir, &["run", "main.lox"], None);
@@ -300,8 +300,8 @@ fn a_manifest_pin_verifies_the_target_bytes() {
     let dir = scratch("fragpin");
     let src = "fun double(n) {\n    return n * 2;\n}\n";
     std::fs::write(dir.join("helper.lox"), src).unwrap();
-    let pin = edge::util::sha256::hex_encode(&edge::util::sha256::sha256(src.as_bytes()));
-    std::fs::write(dir.join("edge.json"), format!("{{ \"imports\": {{ \"helper\": \"./helper.lox#sha256-{pin}\" }} }}\n")).unwrap();
+    let pin = interpreter::util::sha256::hex_encode(&interpreter::util::sha256::sha256(src.as_bytes()));
+    std::fs::write(dir.join("interpreter.json"), format!("{{ \"imports\": {{ \"helper\": \"./helper.lox#sha256-{pin}\" }} }}\n")).unwrap();
     std::fs::write(dir.join("main.lox"), "var helper = import(\"helper\");\nprint helper.double(21);\n").unwrap();
 
     let (out, err, code) = run_in(&dir, &["run", "main.lox"], None);
@@ -309,19 +309,19 @@ fn a_manifest_pin_verifies_the_target_bytes() {
     assert_eq!(code, 0, "stderr was: {err}");
 
     let bad = "0".repeat(64);
-    std::fs::write(dir.join("edge.json"), format!("{{ \"imports\": {{ \"helper\": \"./helper.lox#sha256-{bad}\" }} }}\n")).unwrap();
+    std::fs::write(dir.join("interpreter.json"), format!("{{ \"imports\": {{ \"helper\": \"./helper.lox#sha256-{bad}\" }} }}\n")).unwrap();
     let (_, err, code) = run_in(&dir, &["run", "main.lox"], None);
     assert!(err.contains("integrity check failed"), "stderr was: {err}");
     assert_eq!(code, 1);
 }
 
-/* Dotted imports anchor at the nearest edge.json dir, not at the importing file. */
+/* Dotted imports anchor at the nearest interpreter.json dir, not at the importing file. */
 #[test]
 fn dotted_imports_anchor_at_the_manifest_root() {
     let dir = scratch("rooted");
     std::fs::create_dir_all(dir.join("lib")).unwrap();
     std::fs::create_dir_all(dir.join("web")).unwrap();
-    std::fs::write(dir.join("edge.json"), "{ \"imports\": {} }\n").unwrap();
+    std::fs::write(dir.join("interpreter.json"), "{ \"imports\": {} }\n").unwrap();
     std::fs::write(dir.join("lib/util.lox"), "fun f() {\n    return \"root-lib\";\n}\n").unwrap();
     std::fs::write(dir.join("web/main.lox"), "var util = import(\"lib/util.lox\");\nprint util.f();\n").unwrap();
 
@@ -342,13 +342,13 @@ fn an_import_of_a_variable_spec_is_no_import() {
     assert_eq!(code, 1);
 }
 
-/* edge build --app packs a project into a binary that runs on its own, imports and all. */
+/* interpreter build --app packs a project into a binary that runs on its own, imports and all. */
 #[test]
 fn standalone_binary_runs_the_packed_project() {
     let dir = scratch("standalone");
     std::fs::create_dir_all(dir.join("lib")).unwrap();
     std::fs::write(dir.join("lib/util.lox"), "fun greet() {\n    return \"packed\";\n}\n").unwrap();
-    std::fs::write(dir.join("edge.json"), "{ \"imports\": { \"util\": \"./lib/util.lox\" } }\n").unwrap();
+    std::fs::write(dir.join("interpreter.json"), "{ \"imports\": { \"util\": \"./lib/util.lox\" } }\n").unwrap();
     std::fs::write(dir.join("main.lox"), "var util = import(\"util\");\nprint util.greet();\n").unwrap();
 
     let (_, err, code) = run_in(&dir, &["build", "--app", "--out", "app"], None);
@@ -360,14 +360,14 @@ fn standalone_binary_runs_the_packed_project() {
     assert_eq!(out.status.code().unwrap_or(-1), 0);
 }
 
-/* edge run accepts a packed .edge, the artifact edge build writes by default. */
+/* interpreter run accepts a packed .interpreter, the artifact interpreter build writes by default. */
 #[test]
 fn run_accepts_a_packed_edge() {
     let dir = scratch("run-edge");
     std::fs::write(dir.join("main.lox"), "print \"ran the bundle\";\n").unwrap();
-    let (_, err, code) = run_in(&dir, &["build", "--out", "app.edge"], None);
+    let (_, err, code) = run_in(&dir, &["build", "--out", "app.interpreter"], None);
     assert_eq!(code, 0, "build stderr was: {err}");
-    let (out, err, code) = run_in(&dir, &["run", "app.edge"], None);
+    let (out, err, code) = run_in(&dir, &["run", "app.interpreter"], None);
     assert_eq!(out, "ran the bundle\n", "stderr was: {err}");
     assert_eq!(code, 0);
 }
@@ -383,14 +383,14 @@ fn a_crafted_trailer_fails_cleanly() {
     assert!(err.starts_with("error: ") && !err.contains("panicked"), "stderr was: {err}");
 }
 
-/* edge build writes a portable .edge carrying the project tree. */
+/* interpreter build writes a portable .interpreter carrying the project tree. */
 #[test]
 fn build_writes_an_edge_bundle() {
     let dir = scratch("bundle");
     std::fs::write(dir.join("main.lox"), "print \"hi\";\n").unwrap();
-    let (_, err, code) = run_in(&dir, &["build", "--out", "app.edge"], None);
+    let (_, err, code) = run_in(&dir, &["build", "--out", "app.interpreter"], None);
     assert_eq!(code, 0, "build stderr was: {err}");
-    let bytes = std::fs::read(dir.join("app.edge")).unwrap();
+    let bytes = std::fs::read(dir.join("app.interpreter")).unwrap();
     assert!(bytes.starts_with(b"EDGEPKG\x01"), "missing bundle magic");
 }
 
@@ -403,7 +403,7 @@ fn web_build(dir: &Path) -> (String, String, i32) {
 fn rebuilding_web_does_not_nest_dist() {
     let dir = scratch("rebuild");
     std::fs::write(dir.join("main.lox"), "print \"ok\";\n").unwrap();
-    std::fs::write(dir.join("edge.json"), "{}\n").unwrap();
+    std::fs::write(dir.join("interpreter.json"), "{}\n").unwrap();
     let (_, err, code) = web_build(&dir);
     assert_eq!(code, 0, "first build stderr was: {err}");
     let (_, err, code) = web_build(&dir);
@@ -417,7 +417,7 @@ fn rebuilding_web_does_not_nest_dist() {
 fn a_stale_dist_is_not_collected() {
     let dir = scratch("stale");
     std::fs::write(dir.join("main.lox"), "print \"ok\";\n").unwrap();
-    std::fs::write(dir.join("edge.json"), "{}\n").unwrap();
+    std::fs::write(dir.join("interpreter.json"), "{}\n").unwrap();
     std::fs::create_dir_all(dir.join("dist")).unwrap();
     std::fs::write(dir.join("dist/stale.lox"), "print \"stale\";\n").unwrap();
     let (_, err, code) = web_build(&dir);
@@ -430,7 +430,7 @@ fn a_stale_dist_is_not_collected() {
 fn a_deeper_dir_named_dist_is_packed() {
     let dir = scratch("deepdist");
     std::fs::write(dir.join("main.lox"), "print \"ok\";\n").unwrap();
-    std::fs::write(dir.join("edge.json"), "{}\n").unwrap();
+    std::fs::write(dir.join("interpreter.json"), "{}\n").unwrap();
     std::fs::create_dir_all(dir.join("sub/dist")).unwrap();
     std::fs::write(dir.join("sub/dist/keep.lox"), "print \"keep\";\n").unwrap();
     let (_, err, code) = web_build(&dir);
@@ -588,7 +588,7 @@ fn foreign(blob: &[u8], source: &str) -> Vec<u8> {
     out.extend_from_slice(&blob[32..40]);
     out.extend_from_slice(source.as_bytes());
     out.extend_from_slice(&blob[40 + word(24) as usize..blob.len() - 32]);
-    let seal = edge::util::sha256::sha256(&out);
+    let seal = interpreter::util::sha256::sha256(&out);
     out.extend_from_slice(&seal);
     out
 }

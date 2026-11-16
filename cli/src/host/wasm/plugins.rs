@@ -1,6 +1,6 @@
 use super::{read, read_u32, stage, unstage, write, write_u32, wt, Exports, Instance, Native, Plugin, State};
 use anyhow::{anyhow, Result};
-use edge::abi::EDGE_ABI_VERSION;
+use interpreter::abi::ABI_VERSION;
 use wasmtime::{Caller, ExternType, InstancePre, Linker, Memory, TypedFunc};
 
 /* the seven `env` imports a plugin declares each bridging guest memory to the runtime exports */
@@ -134,8 +134,8 @@ pub fn register_pre(inst: &mut Instance, spec: &str, pre: &InstancePre<State>) -
     let memory = instance.get_memory(&mut inst.store, "memory").ok_or_else(|| String::from("it exports no memory"))?;
     let version: TypedFunc<(), i32> = wt(instance.get_typed_func(&mut inst.store, "__edge_abi_version")).map_err(|e| e.to_string())?;
     let got = wt(version.call(&mut inst.store, ())).map_err(|e| e.to_string())?;
-    if got != EDGE_ABI_VERSION as i32 {
-        return Err(format!("it speaks ABI v{got}, this cli expects v{EDGE_ABI_VERSION}"));
+    if got != ABI_VERSION as i32 {
+        return Err(format!("it speaks ABI v{got}, this cli expects v{ABI_VERSION}"));
     }
     let alloc: TypedFunc<i32, i32> = wt(instance.get_typed_func(&mut inst.store, "__edge_alloc")).map_err(|e| e.to_string())?;
     let free: Option<TypedFunc<(i32, i32), ()>> = instance.get_typed_func(&mut inst.store, "__edge_free").ok();

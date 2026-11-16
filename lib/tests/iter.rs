@@ -1,11 +1,11 @@
-use edge::embed::{Limits, VM};
-use edge::lang::Fast1;
-use edge::value::{HeapObj, HeapPool, Val};
+use interpreter::embed::{Limits, VM};
+use interpreter::lang::Fast1;
+use interpreter::value::{HeapObj, HeapPool, Val};
 use rig::RUNTIME;
 
 /* what `src` printed and its error after it when one ended the run */
 fn run(src: &str) -> String {
-    let (chunk, errors) = edge::code::compile_as::<rig::Rig>(src);
+    let (chunk, errors) = interpreter::code::compile_as::<rig::Rig>(src);
     assert!(errors.is_empty(), "{src}: {:?}", errors.iter().map(|e| &e.msg).collect::<Vec<_>>());
     // no memory limit so no metering allocator is needed
     let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits { ops: 50_000_000, memory: usize::MAX });

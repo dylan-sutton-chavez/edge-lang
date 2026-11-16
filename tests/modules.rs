@@ -2,8 +2,8 @@
 mod test {
     use std::collections::HashMap;
 
-    use edge::value::{SchedulerStatus, VmErr};
-    use edge::deps::NativeBinding;
+    use interpreter::value::{SchedulerStatus, VmErr};
+    use interpreter::deps::NativeBinding;
 
     use crate::common::{answer, fail, lex, parse, parser, TestResolver, test_native};
 
@@ -20,7 +20,7 @@ mod test {
         },
     }
 
-    /* a per-directory `edge.json` for walk-up cases where flat fixtures use `aliases` */
+    /* a per-directory `interpreter.json` for walk-up cases where flat fixtures use `aliases` */
     #[derive(serde::Deserialize)]
     #[serde(deny_unknown_fields)]
     struct ManifestDef {
@@ -42,7 +42,7 @@ mod test {
         input: Vec<String>,
         #[serde(default)]
         modules: HashMap<String, ModuleDef>,
-        /* the synthetic root `edge.json` which nested `manifests` entries shadow */
+        /* the synthetic root `interpreter.json` which nested `manifests` entries shadow */
         #[serde(default)]
         aliases: HashMap<String, String>,
         /* nested manifests by directory for walk-up and `extends` paths with cycles */
@@ -120,13 +120,13 @@ mod test {
             let resolver = Box::new(build_resolver(&case.modules, &case.aliases, &case.manifests));
             // the module system reads its cases in the legacy fixture which still spells every import form
             let (chunk, parse_errs) = if case.lox {
-                match lox::FRONT.program(&case.src, resolver) {
+                match interpreter_lox::FRONT.program(&case.src, resolver) {
                     Ok(chunk) => (std::rc::Rc::unwrap_or_clone(chunk), Vec::new()),
                     Err(errs) => (Default::default(), errs),
                 }
             } else {
-                let (tokens, _lex_errs) = edge::lexer::lex_as::<crate::words::Legacy>(&case.src);
-                edge::code::Parser::<_, crate::words::Legacy>::spelled(&case.src, tokens.into_iter(), resolver).parse()
+                let (tokens, _lex_errs) = interpreter::lexer::lex_as::<crate::words::Legacy>(&case.src);
+                interpreter::code::Parser::<_, crate::words::Legacy>::spelled(&case.src, tokens.into_iter(), resolver).parse()
             };
 
             // parse errors match the `error` substring and an optional span anchor
@@ -147,7 +147,7 @@ mod test {
             if let Some(n) = case.expect_externs { assert_eq!(chunk.extern_table.len(), n, "extern_table size mismatch on {:?}", case.src); }
             if let Some(n) = case.expect_functions { assert_eq!(chunk.functions.len(), n, "functions count mismatch on {:?}", case.src); }
 
-            let mut vm = if case.lox { edge::embed::VM::with_runtime(&lox::RUNTIME, &chunk, edge::embed::Limits::sandbox()) } else { crate::common::boot(&chunk, edge::embed::Limits::sandbox()) };
+            let mut vm = if case.lox { interpreter::embed::VM::with_runtime(&interpreter_lox::RUNTIME, &chunk, interpreter::embed::Limits::sandbox()) } else { crate::common::boot(&chunk, interpreter::embed::Limits::sandbox()) };
             vm.input_buffer = case.input.clone();
             // each PendingHostCall resumes with the next entry of `host_deliveries`
             let mut hr_idx = 0usize;
@@ -180,10 +180,10 @@ mod test {
 
     /* the modules a real host keeps which checks no cycle itself */
     #[derive(Clone, Default)]
-    struct Kept(std::sync::Arc<std::sync::Mutex<edge::deps::Deps>>);
+    struct Kept(std::sync::Arc<std::sync::Mutex<interpreter::deps::Deps>>);
 
-    impl edge::deps::DepHost for Kept {
-        fn deps<R>(&mut self, f: impl FnOnce(&mut edge::deps::Deps) -> R) -> R { f(&mut self.0.lock().unwrap()) }
+    impl interpreter::deps::DepHost for Kept {
+        fn deps<R>(&mut self, f: impl FnOnce(&mut interpreter::deps::Deps) -> R) -> R { f(&mut self.0.lock().unwrap()) }
         fn fetch(&mut self, spec: &str, _pin: Option<[u8; 32]>) -> Result<Vec<u8>, String> { Err(format!("no file '{spec}'")) }
         fn native(&mut self, name: String, _id: u32, _module: std::sync::Arc<str>) -> NativeBinding { panic!("no native {name} is served") }
         fn caller_dir(&mut self) -> String { String::new() }
@@ -194,10 +194,10 @@ mod test {
     fn an_import_cycle_through_a_host_resolver_reports_where_it_closes() {
         let mut host = Kept::default();
         for (spec, code) in [("./a.rig", "use .b\nx = 1\n"), ("./b.rig", "use .a\ny = 2\n"), ("./c.rig", "use .c\nz = 3\n")] {
-            edge::deps::DepHost::deps(&mut host, |d| d.register(spec.into(), edge::deps::ModuleEntry::Code(code.into())));
+            interpreter::deps::DepHost::deps(&mut host, |d| d.register(spec.into(), interpreter::deps::ModuleEntry::Code(code.into())));
         }
         for src in ["use .a\nprint(a.x)\n", "use .c\nprint(c.z)\n"] {
-            let resolver = Box::new(edge::deps::HostResolver::new(String::new(), host.clone()));
+            let resolver = Box::new(interpreter::deps::HostResolver::new(String::new(), host.clone()));
             let (_, errs) = parser(src, lex(src).0.into_iter(), resolver).parse();
             let msgs: Vec<&str> = errs.iter().map(|e| e.msg.as_str()).collect();
             assert!(msgs.len() == 1 && msgs[0].contains("circular import") && errs[0].start == 4, "{src:?}: {msgs:?}");
@@ -205,7 +205,7 @@ mod test {
     }
 
     /* the chunk and the messages `src` compiles to through `resolver` */
-    fn compiled_with(src: &str, resolver: TestResolver) -> (edge::code::SSAChunk, Vec<String>) {
+    fn compiled_with(src: &str, resolver: TestResolver) -> (interpreter::code::SSAChunk, Vec<String>) {
         let (chunk, errs) = parser(src, lex(src).0.into_iter(), Box::new(resolver)).parse();
         (chunk, errs.into_iter().map(|e| e.msg).collect())
     }

@@ -2,9 +2,9 @@ mod suite;
 
 use suite::{net, suite, Bin};
 
-const EDGE: Bin = Bin { path: env!("CARGO_BIN_EXE_edge"), env: &[], plugins: true };
+const EDGE: Bin = Bin { path: env!("CARGO_BIN_EXE_interpreter"), env: &[], plugins: true };
 
-/// JSON-driven CLI suite, each case in `cli.json` is one tempdir plus one spawn of the `edge` binary.
+/// JSON-driven CLI suite, each case in `cli.json` is one tempdir plus one spawn of the `interpreter` binary.
 #[test]
 fn cli_suite() {
     suite(EDGE, include_str!("cli.json"), &[&[]]);
@@ -80,7 +80,7 @@ fn docs_page(text: &str, cache: &std::path::Path) -> Result<(), String> {
     Ok(())
 }
 
-/* each `$ edge ...` line runs and must print every line shown below it */
+/* each `$ interpreter ...` line runs and must print every line shown below it */
 fn transcript(body: &str, cwd: &mut std::path::PathBuf, cache: &std::path::Path) -> Result<(), String> {
     let mut steps: Vec<(&str, Vec<&str>)> = Vec::new();
     for line in body.lines() {
@@ -96,7 +96,7 @@ fn transcript(body: &str, cwd: &mut std::path::PathBuf, cache: &std::path::Path)
         let args: Vec<&str> = cmd.split_whitespace().collect();
         match args[..] {
             ["cd", dir] => *cwd = cwd.join(dir),
-            ["edge", ..] => {
+            ["interpreter", ..] => {
                 let out = std::process::Command::new(EDGE.path).args(&args[1..]).current_dir(&*cwd).env("XDG_CACHE_HOME", cache)
                     .stdin(std::process::Stdio::null()).output().map_err(|e| e.to_string())?;
                 let printed = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
@@ -111,7 +111,7 @@ fn transcript(body: &str, cwd: &mut std::path::PathBuf, cache: &std::path::Path)
                     return Err(format!("`{cmd}` never printed {missing:?}:\n{printed}"));
                 }
             }
-            _ => return Err(format!("`{cmd}` is no edge command")),
+            _ => return Err(format!("`{cmd}` is no interpreter command")),
         }
     }
     Ok(())
@@ -121,7 +121,7 @@ fn transcript(body: &str, cwd: &mut std::path::PathBuf, cache: &std::path::Path)
 fn program(src: &str, manifest: Option<String>, output: Option<String>, cache: &std::path::Path) -> Result<(), String> {
     let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
     std::fs::write(dir.path().join("main.lox"), src).map_err(|e| e.to_string())?;
-    std::fs::write(dir.path().join("edge.json"), manifest.unwrap_or_else(|| "{}\n".into())).map_err(|e| e.to_string())?;
+    std::fs::write(dir.path().join("interpreter.json"), manifest.unwrap_or_else(|| "{}\n".into())).map_err(|e| e.to_string())?;
     let out = std::process::Command::new(EDGE.path).args(["run", "main.lox"]).current_dir(dir.path()).env("XDG_CACHE_HOME", cache)
         .stdin(std::process::Stdio::null()).output().map_err(|e| e.to_string())?;
     // a failed run shows its report after what it printed
@@ -138,9 +138,9 @@ fn program(src: &str, manifest: Option<String>, output: Option<String>, cache: &
 
 /* the command table of the cli page names exactly the commands the help lists */
 fn commands_match_help(page: &str) {
-    let documented: std::collections::BTreeSet<&str> = page.lines().filter_map(|l| l.strip_prefix("| `edge ")).filter_map(|l| l.split([' ', '`']).next()).collect();
-    let help = std::process::Command::new(EDGE.path).arg("--help").output().expect("edge --help");
+    let documented: std::collections::BTreeSet<&str> = page.lines().filter_map(|l| l.strip_prefix("| `interpreter ")).filter_map(|l| l.split([' ', '`']).next()).collect();
+    let help = std::process::Command::new(EDGE.path).arg("--help").output().expect("interpreter --help");
     let help = String::from_utf8_lossy(&help.stdout).into_owned();
     let listed: std::collections::BTreeSet<&str> = help.lines().skip_while(|l| *l != "Commands").skip(1).take_while(|l| !l.is_empty()).filter_map(|l| l.split_whitespace().next()).collect();
-    assert_eq!(documented, listed, "docs/06-cli.mdx lists other commands than edge --help");
+    assert_eq!(documented, listed, "docs/06-cli.mdx lists other commands than interpreter --help");
 }

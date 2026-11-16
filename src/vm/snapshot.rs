@@ -876,7 +876,7 @@ struct Header<'a> {
 fn header(blob: &[u8]) -> Result<Header<'_>, SnapErr> {
     let (data, seal) = blob.split_at(blob.len().saturating_sub(SEAL));
     let mut r = R::new(data);
-    if r.u32()? != MAGIC { return Err("not an edge snapshot".to_string()); }
+    if r.u32()? != MAGIC { return Err("not an interpreter snapshot".to_string()); }
     if r.u32()? != FORMAT { return Err("unsupported snapshot format".to_string()); }
     if crate::util::sha256::sha256(data) != seal { return Err("snapshot is damaged".to_string()); }
     let runtime = r.u64()?;

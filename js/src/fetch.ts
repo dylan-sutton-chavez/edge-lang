@@ -22,15 +22,15 @@ export async function fetchModule(spec: string, ctx: FetchCtx): Promise<Uint8Arr
         resp = await read(requestUrl(target, baseUrl));
     } catch (e) {
         // a manifest probe is opportunistic but a module that fails to fetch earns a warning
-        if (spec.endsWith('edge.json')) knownMissing.add(spec);
-        else if (!spec.endsWith('edge.lock')) console.warn(`[edge] fetch failed for '${spec}':`, e);
+        if (spec.endsWith('interpreter.json')) knownMissing.add(spec);
+        else if (!spec.endsWith('interpreter.lock')) console.warn(`[interpreter] fetch failed for '${spec}':`, e);
         return null;
     }
 
     if (!resp.ok) {
-        if (resp.status === 404 && spec.endsWith('edge.json')) knownMissing.add(spec);
+        if (resp.status === 404 && spec.endsWith('interpreter.json')) knownMissing.add(spec);
         // an absent lock warns elsewhere and is never remembered so writing one is enough
-        else if (!spec.endsWith('edge.lock')) console.warn(`[edge] ${resp.status} for '${spec}' at ${resp.url}`);
+        else if (!spec.endsWith('interpreter.lock')) console.warn(`[interpreter] ${resp.status} for '${spec}' at ${resp.url}`);
         return null;
     }
 
@@ -38,7 +38,7 @@ export async function fetchModule(spec: string, ctx: FetchCtx): Promise<Uint8Arr
     if (target.endsWith('.wasm')) {
         const ct = (resp.headers.get('content-type') || '').toLowerCase();
         if (ct.includes('html') || ct.startsWith('text/')) {
-            console.warn(`[edge] '${spec}' served as '${ct || 'no content-type'}', not a wasm module`);
+            console.warn(`[interpreter] '${spec}' served as '${ct || 'no content-type'}', not a wasm module`);
             return null;
         }
     }

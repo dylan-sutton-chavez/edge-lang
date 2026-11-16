@@ -4,9 +4,9 @@ use alloc::rc::Rc;
 use alloc::string::String;
 use core::any::Any;
 
-use edge::lang::{Args, Cx, Ret, Sig};
-use edge::value::foreign::Kind;
-use edge::value::{HeapPool, Val, VmErr};
+use interpreter::lang::{Args, Cx, Ret, Sig};
+use interpreter::value::foreign::Kind;
+use interpreter::value::{HeapPool, Val, VmErr};
 
 use crate::fail::{Fail, fail};
 use crate::{Kernel, Site};

@@ -1,4 +1,4 @@
-use edge::lang::{self, Fields, Names, Tree};
+use interpreter::lang::{self, Fields, Names, Tree};
 
 // the error classes the rig raises each beside its parent with the signals apart
 static TREE: Tree = Tree::of(&crate::types::CLASSES);

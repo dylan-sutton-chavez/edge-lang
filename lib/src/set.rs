@@ -2,8 +2,8 @@ use alloc::rc::Rc;
 use alloc::vec::Vec;
 use core::cell::RefCell;
 
-use edge::lang::{Acc, Args, Cx, Flow, Fold, Item, KindId, Ret, STEPS, Sig, Step, TYPE};
-use edge::value::{HeapObj, HeapPool, SET_TABLE, Val, ValSet, VmErr, cold_runtime};
+use interpreter::lang::{Acc, Args, Cx, Flow, Fold, Item, KindId, Ret, STEPS, Sig, Step, TYPE};
+use interpreter::value::{HeapObj, HeapPool, SET_TABLE, Val, ValSet, VmErr, cold_runtime};
 
 use crate::fail::{Fail, fail, receiver};
 use crate::iter::items::{SHORT, drained, generator, range_items, taken};
@@ -73,7 +73,7 @@ const fn one<S: Site>(op: Op) -> Kernel { Kernel::new(Sig::exact(1), run::<S>(op
 const fn many<S: Site>(op: Op) -> Kernel { Kernel::new(Sig::var(0), run::<S>(op)).flags(STEPS) }
 
 /* the body of method `op` */
-const fn run<S: Site>(op: Op) -> edge::lang::NativeFn {
+const fn run<S: Site>(op: Op) -> interpreter::lang::NativeFn {
     match op {
         Op::Update => by::<S, 0>, Op::Union => by::<S, 1>, Op::Intersection => by::<S, 2>, Op::Difference => by::<S, 3>,
         Op::SymDiff => by::<S, 4>, Op::InterUpdate => by::<S, 5>, Op::DiffUpdate => by::<S, 6>, Op::SymDiffUpdate => by::<S, 7>,

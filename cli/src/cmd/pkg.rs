@@ -1,6 +1,6 @@
 use anyhow::{anyhow, bail, Result};
 use clap::{ArgMatches, Args, FromArgMatches};
-use edge::deps::rules::{javascript, shaped_like_version};
+use interpreter::deps::rules::{javascript, shaped_like_version};
 use serde_json::{Map, Value};
 use std::path::Path;
 
@@ -20,11 +20,11 @@ pub struct Add;
 
 impl Command for Add {
     fn spec(&self, _kit: &Kit) -> clap::Command {
-        Names::augment_args(clap::Command::new("add").about("Add packages to edge.json"))
+        Names::augment_args(clap::Command::new("add").about("Add packages to interpreter.json"))
     }
 
     fn summary(&self, _kit: &Kit) -> (String, String) {
-        ("add <pkgs>".to_string(), "Add packages to edge.json".to_string())
+        ("add <pkgs>".to_string(), "Add packages to interpreter.json".to_string())
     }
 
     fn run(&self, kit: &Kit, m: &ArgMatches) -> Result<i32> {
@@ -38,11 +38,11 @@ pub struct Remove;
 
 impl Command for Remove {
     fn spec(&self, _kit: &Kit) -> clap::Command {
-        Names::augment_args(clap::Command::new("remove").about("Remove packages from edge.json")).mut_arg("pkgs", |arg| arg.help("Package names to remove"))
+        Names::augment_args(clap::Command::new("remove").about("Remove packages from interpreter.json")).mut_arg("pkgs", |arg| arg.help("Package names to remove"))
     }
 
     fn summary(&self, _kit: &Kit) -> (String, String) {
-        ("remove <pkgs>".to_string(), "Remove packages from edge.json".to_string())
+        ("remove <pkgs>".to_string(), "Remove packages from interpreter.json".to_string())
     }
 
     fn run(&self, kit: &Kit, m: &ArgMatches) -> Result<i32> {
@@ -51,16 +51,16 @@ impl Command for Remove {
     }
 }
 
-/* `lock` resolving every declared version into edge.lock */
+/* `lock` resolving every declared version into interpreter.lock */
 pub struct Lock;
 
 impl Command for Lock {
     fn spec(&self, _kit: &Kit) -> clap::Command {
-        clap::Command::new("lock").about("Resolve every version edge.json declares into edge.lock")
+        clap::Command::new("lock").about("Resolve every version interpreter.json declares into interpreter.lock")
     }
 
     fn summary(&self, _kit: &Kit) -> (String, String) {
-        ("lock".to_string(), "Resolve edge.json into edge.lock".to_string())
+        ("lock".to_string(), "Resolve interpreter.json into interpreter.lock".to_string())
     }
 
     fn run(&self, kit: &Kit, m: &ArgMatches) -> Result<i32> {
@@ -97,9 +97,9 @@ fn add(kit: &Kit, path: &Path, pkgs: &[String]) -> Result<()> {
     m.save(path)?;
     let field = kit.grants().field().unwrap_or_default();
     ui::note(&match (!asks.is_empty(), urls) {
-        (true, _) => format!("updated edge.json, grant what they ask for under {field}, then run {} lock", kit.name()),
-        (false, true) => format!("updated edge.json, run {} lock to pin it", kit.name()),
-        (false, false) => "updated edge.json".to_string(),
+        (true, _) => format!("updated interpreter.json, grant what they ask for under {field}, then run {} lock", kit.name()),
+        (false, true) => format!("updated interpreter.json, run {} lock to pin it", kit.name()),
+        (false, false) => "updated interpreter.json".to_string(),
     });
     Ok(())
 }
@@ -121,7 +121,7 @@ fn remove(kit: &Kit, path: &Path, pkgs: &[String]) -> Result<()> {
         ui::removed(name);
     }
     m.save(path)?;
-    ui::note("updated edge.json");
+    ui::note("updated interpreter.json");
     Ok(())
 }
 
@@ -168,7 +168,7 @@ mod tests {
         for target in ["https://x/charts.js", "https://x/charts.mjs", "https://x/time/index.js?v=2"] {
             assert!(javascript(target), "{target}");
         }
-        for target in ["https://x/json.wasm", "https://x/pkg/json/0.1.0/app.edge", "https://x/helper.lox"] {
+        for target in ["https://x/json.wasm", "https://x/pkg/json/0.1.0/app.interpreter", "https://x/helper.lox"] {
             assert!(!javascript(target), "{target}");
         }
     }

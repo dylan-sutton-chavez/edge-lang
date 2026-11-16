@@ -1,6 +1,6 @@
 {
-  "name": "edge-lang",
+  "name": "interpreter",
   "private": true,
-  "description": "The parts a project built around Edge takes from this repo as a git dependency.",
+  "description": "The parts a project built around interpreter takes from this repo as a git dependency.",
   "files": ["js/src", "examples/net", "docs", "skill/SKILL.md", "tests/cases/docs.json", "cdn/src/tree.ts"]
 }

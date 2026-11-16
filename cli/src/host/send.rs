@@ -85,7 +85,7 @@ mod tests {
 #[cfg(all(test, feature = "wasm"))]
 mod outbox {
     use crate::host::{Engine, Host, Project, Status};
-    use edge::embed::Limits;
+    use interpreter::embed::Limits;
 
     // what a pool's run sends between steps counts against what it may hold
     #[test]

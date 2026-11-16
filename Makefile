@@ -1,6 +1,6 @@
 WASM := target/wasm32-unknown-unknown
-# edge.wasm is Lox's cdylib copied to the name every host loads
-RUNTIME := --target wasm32-unknown-unknown -p lox --lib --no-default-features --features web --crate-type cdylib
+# interpreter.wasm is Lox's cdylib copied to the name every host loads
+RUNTIME := --target wasm32-unknown-unknown -p interpreter-lox --lib --no-default-features --features web --crate-type cdylib
 # rig.wasm is the test rig's cdylib that the cli's rig test composes the kit over
 RIG := --target wasm32-unknown-unknown -p rig --lib --no-default-features --features web --crate-type cdylib
 WASM_FEATURES := --enable-bulk-memory-opt --enable-nontrapping-float-to-int --enable-sign-ext
@@ -10,14 +10,14 @@ TSC := npm:typescript@5.9.3/tsc
 TREE := $(CURDIR)/_cdn
 EXE := $(if $(filter Windows_NT,$(OS)),.exe)
 
-# the CLI embeds the speed edge.wasm and js/dist unless the environment points at copies
-CLI_INPUTS := $(if $(EDGE_WASM),,wasm-cli) $(if $(EDGE_JS_DIST),,js) lucide
-# the components the edge binary wires as cli/Cargo.toml lists them under its all feature
+# the CLI embeds the speed interpreter.wasm and js/dist unless the environment points at copies
+CLI_INPUTS := $(if $(INTERPRETER_WASM),,wasm-cli) $(if $(INTERPRETER_JS_DIST),,js) lucide
+# the components the interpreter binary wires as cli/Cargo.toml lists them under its all feature
 CLI_COMPONENTS := $(shell sed -n 's/^all = \[\(.*\)\]$$/\1/p' cli/Cargo.toml | tr -d '",')
 
 # the components the native test wires which build no wasmtime
 CLI_NATIVE := docs,files,net,perms,run,test,web
-CLI_TEST_engine := --lib --bin edge --test cli --test run --test native --test rig -- --skip net_suite
+CLI_TEST_engine := --lib --bin interpreter --test cli --test run --test native --test rig -- --skip net_suite
 # the channels test fetches the pinned hour so it runs with the network cases
 CLI_TEST_network := --test cli --test channels net_suite
 CLI_TEST_actors := --test actor
@@ -33,7 +33,7 @@ CLI_NEEDS_skill := test-skill
 MIRI_NIGHTLY := nightly-2026-10-11
 # make/miri.sh sets Miri up once then passes MIRI_SETUP= to its parallel runs
 MIRI_SETUP := miri-setup
-MIRI_TESTS := -p edge --lib --test tests
+MIRI_TESTS := -p interpreter --lib --test tests
 # the pool test covers the allocator wasm installs which no corpus test reaches
 MIRI_vm := vm:: embed:: pooled_blocks_come_back_with_their_bytes
 MIRI_snapshot := snapshot::
@@ -54,33 +54,33 @@ unix_only = $(if $(filter Windows_NT,$(OS)),$(error AFL runs on Linux and macOS 
 
 wasm:
 	cargo rustc --locked --release $(RUNTIME)
-	cp $(WASM)/release/lox.wasm $(WASM)/release/edge.wasm
+	cp $(WASM)/release/interpreter_lox.wasm $(WASM)/release/interpreter.wasm
 
 wasm-rig:
 	cargo rustc --locked --release $(RIG)
 
 wasm-cli:
 	cargo rustc --locked --profile cli $(RUNTIME)
-	cp $(WASM)/cli/lox.wasm $(WASM)/cli/edge.wasm
+	cp $(WASM)/cli/interpreter_lox.wasm $(WASM)/cli/interpreter.wasm
 
-# the small edge.wasm that ships and the speed copy the CLI precompiles to native code
+# the small interpreter.wasm that ships and the speed copy the CLI precompiles to native code
 wasm-ship: wasm-small wasm-cli-opt
 
 # the reflatten pass gives -Oz a fresh CFG and traps stay since they guard bounds
 wasm-small: export RUSTFLAGS = -Z location-detail=none -Z fmt-debug=none -Z unstable-options -C panic=immediate-abort
 wasm-small:
 	cargo +nightly rustc --locked --release $(RUNTIME) -Z build-std=std,panic_abort -Z build-std-features=optimize_for_size
-	cp $(WASM)/release/lox.wasm $(WASM)/release/edge.wasm
-	wasm-opt -Oz $(WASM_INLINE) --converge --generate-global-effects --strip-debug --strip-producers $(WASM_FEATURES) -o $(WASM)/release/edge.1.wasm $(WASM)/release/edge.wasm
-	wasm-opt --flatten --rereloop -Oz -Oz $(WASM_INLINE) $(WASM_FEATURES) -o $(WASM)/release/edge.2.wasm $(WASM)/release/edge.1.wasm
-	wasm-opt -Oz $(WASM_INLINE) --converge $(WASM_FEATURES) -o $(WASM)/release/edge.wasm $(WASM)/release/edge.2.wasm
+	cp $(WASM)/release/interpreter_lox.wasm $(WASM)/release/interpreter.wasm
+	wasm-opt -Oz $(WASM_INLINE) --converge --generate-global-effects --strip-debug --strip-producers $(WASM_FEATURES) -o $(WASM)/release/interpreter.1.wasm $(WASM)/release/interpreter.wasm
+	wasm-opt --flatten --rereloop -Oz -Oz $(WASM_INLINE) $(WASM_FEATURES) -o $(WASM)/release/interpreter.2.wasm $(WASM)/release/interpreter.1.wasm
+	wasm-opt -Oz $(WASM_INLINE) --converge $(WASM_FEATURES) -o $(WASM)/release/interpreter.wasm $(WASM)/release/interpreter.2.wasm
 
 # a copy beside the speed build since the bench counts the build before wasm-opt
 wasm-cli-opt: wasm-cli
-	wasm-opt -O3 --enable-bulk-memory --enable-mutable-globals --enable-multivalue --enable-reference-types $(WASM_FEATURES) -o $(WASM)/cli/edge-cli.wasm $(WASM)/cli/edge.wasm
+	wasm-opt -O3 --enable-bulk-memory --enable-mutable-globals --enable-multivalue --enable-reference-types $(WASM_FEATURES) -o $(WASM)/cli/interpreter-cli.wasm $(WASM)/cli/interpreter.wasm
 
 size:
-	deno run --allow-read make/size.ts $(WASM)/release/edge.wasm
+	deno run --allow-read make/size.ts $(WASM)/release/interpreter.wasm
 
 # strips types to js/dist and bundles the room's script and the composition a page reads
 js:
@@ -98,9 +98,9 @@ lint-rust: lint-names wasm
 	  [ -z "$$stray" ] || { printf 'UNSAFE_LEFT must name exactly the src files besides src/unsafe.rs with unsafe code and these differ\n%s\n' "$$stray"; exit 1; }
 	cargo shear
 	cargo clippy --locked --all-targets -- -D warnings
-	cargo clippy --locked --lib --no-default-features --features edge/runtime,lox/web --target wasm32-unknown-unknown -p edge -p lib -p lox -p slugify-mod -- -D warnings
-	cargo clippy --locked --lib --no-default-features --target wasm32-unknown-unknown -p edge -p lib -p lox -- -D warnings
-	deno run --allow-read make/exports.ts $(WASM)/release/edge.wasm
+	cargo clippy --locked --lib --no-default-features --features interpreter/runtime,interpreter-lox/web --target wasm32-unknown-unknown -p interpreter -p interpreter-lib -p interpreter-lox -p slugify-mod -- -D warnings
+	cargo clippy --locked --lib --no-default-features --target wasm32-unknown-unknown -p interpreter -p interpreter-lib -p interpreter-lox -- -D warnings
+	deno run --allow-read make/exports.ts $(WASM)/release/interpreter.wasm
 
 # fails on any denied name in the engine lib or the plugin kit
 lint-names:
@@ -125,11 +125,11 @@ lint-cli: $(CLI_INPUTS) wasm-rig
 
 # coverage leaves method calls unfused so it runs apart
 test:
-	cargo test --locked -p edge
-	cargo test --locked -p edge --features coverage coverage
-	cargo test --locked -p lib
+	cargo test --locked -p interpreter
+	cargo test --locked -p interpreter --features coverage coverage
+	cargo test --locked -p interpreter-lib
 	cargo test --locked -p rig
-	cargo test --locked -p lox
+	cargo test --locked -p interpreter-lox
 
 bench: wasm-cli
 	cargo run --locked -p bench --profile cli
@@ -140,10 +140,10 @@ bench-update: wasm-cli
 bench-accept-slower: wasm-cli
 	cargo run --locked -p bench --profile cli -- --update --accept-slower
 
-# every case on edge.wasm and on a build with its static data shifted
+# every case on interpreter.wasm and on a build with its static data shifted
 bench-layout: wasm-cli
-	cargo rustc --locked --profile layout $(RUNTIME) --features edge/layout -- -C link-arg=--global-base=$(LAYOUT_BASE)
-	cargo run --locked -p bench --profile cli -- --layout $(WASM)/layout/lox.wasm
+	cargo rustc --locked --profile layout $(RUNTIME) --features interpreter/layout -- -C link-arg=--global-base=$(LAYOUT_BASE)
+	cargo run --locked -p bench --profile cli -- --layout $(WASM)/layout/interpreter_lox.wasm
 
 plugin:
 	cargo build --locked --release --target wasm32-unknown-unknown -p slugify-mod
@@ -155,7 +155,7 @@ cli: $(CLI_INPUTS)
 cli-release: $(CLI_INPUTS)
 	$(if $(TARGET),,$(error pass TARGET, for example make cli-release TARGET=aarch64-apple-darwin))
 	$(if $(findstring linux-musl,$(TARGET)),deno run -A make/musl.ts $(TARGET),cd cli && cargo build --locked --release --target $(TARGET))
-	tar -C cli/target/$(TARGET)/release -czf cli/edge-$(TARGET).tar.gz edge$(EXE)
+	tar -C cli/target/$(TARGET)/release -czf cli/interpreter-$(TARGET).tar.gz interpreter$(EXE)
 
 cdn/node_modules/.package-lock.json: cdn/package-lock.json
 	npm --prefix cdn ci
@@ -178,7 +178,7 @@ test-cli: $(CLI_INPUTS) $(CLI_NEEDS_$(SUITE))
 	$(if $(filter skill,$(SUITE)),,cd cli && cargo test --locked $(CLI_TEST_$(SUITE)))
 	$(if $(filter engine,$(or $(SUITE),engine)),cd cli && cargo test --locked --features coverage --test coverage)
 
-test-skill: export SKILL_EDGE = $(CURDIR)/cli/target/debug/edge$(EXE)
+test-skill: export SKILL_INTERPRETER = $(CURDIR)/cli/target/debug/interpreter$(EXE)
 test-skill: $(CLI_INPUTS)
 	cd cli && cargo build --locked
 	cargo test --locked -p skill

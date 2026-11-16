@@ -1,12 +1,12 @@
-use cli::cmd::{run, test};
-use cli::{Kit, Runtime};
+use interpreter_cli::cmd::{run, test};
+use interpreter_cli::{Kit, Runtime};
 
 // the module build.rs copies from the reference runtime beside its precompile
-const WASM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/edge.wasm"));
+const WASM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/interpreter.wasm"));
 
 /* two commands over a runtime the kit compiles on its first load */
 fn main() {
-    Kit::new("runner", env!("CARGO_PKG_VERSION"), Runtime::wasm(WASM, &lox::DESCRIPTOR))
+    Kit::new("runner", env!("CARGO_PKG_VERSION"), Runtime::wasm(WASM, &interpreter_lox::DESCRIPTOR))
         .command(run::Run)
         .command(test::Test)
         .main()

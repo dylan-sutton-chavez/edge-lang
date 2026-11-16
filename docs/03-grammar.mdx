@@ -15,18 +15,18 @@ Everything still compiles to the engine's bytecode, so a grammar costs nothing a
 
 ## Example
 
-The table below brings braces, `--` comments and a grammar with one form, one pattern word and one lazy call, over two natives of `lib`.
+The table below brings braces, `--` comments and a grammar with one form, one pattern word and one lazy call, over two natives of `interpreter-lib`.
 
 ```rust standalone_crate
-use edge::code::OpCode as O;
-use edge::embed::{Limits, VM};
-use edge::lang::{Cx, Descriptor, Front, Language, Names, Native, Natives, Overflow, Policy, Runtime};
-use edge::lexer::grammar::{Emit, Form, Grammar, Mode, Pattern, Row, Slot, Test};
-use edge::lexer::TokenType as T;
-use edge::lexer::{index, operators, Binding, Blocks, Comments, Cond, Continuation, Dot, Ends, Escapes, Keywords, Lambda, Numbers, Quote, Shapes, Spelling, Strings, Suffix, Syntax, TokenType, Unicode, Unknown, Zeros};
-use edge::value::{Val, VmErr};
+use interpreter::code::OpCode as O;
+use interpreter::embed::{Limits, VM};
+use interpreter::lang::{Cx, Descriptor, Front, Language, Names, Native, Natives, Overflow, Policy, Runtime};
+use interpreter::lexer::grammar::{Emit, Form, Grammar, Mode, Pattern, Row, Slot, Test};
+use interpreter::lexer::TokenType as T;
+use interpreter::lexer::{index, operators, Binding, Blocks, Comments, Cond, Continuation, Dot, Ends, Escapes, Keywords, Lambda, Numbers, Quote, Shapes, Spelling, Strings, Suffix, Syntax, TokenType, Unicode, Unknown, Zeros};
+use interpreter::value::{Val, VmErr};
 
-edge::allocator!();
+interpreter::allocator!();
 
 const WORDS: &[(&str, TokenType)] = &[
     ("true", T::True), ("false", T::False), ("or", T::Or), ("in", T::In), ("if", T::If), ("else", T::Else),
@@ -86,14 +86,14 @@ impl Spelling for Fixes {
 }
 
 // print and the lazy any that the grammar names
-const TABLE: &[Native] = &lib::table![Fixes; "print" => lib::io::print, "any" => lib::iter::fold::some];
-static NATIVES: Natives = edge::natives! { language: Fixes, fns: [TABLE], methods: [], types: &[] };
+const TABLE: &[Native] = &interpreter_lib::table![Fixes; "print" => interpreter_lib::io::print, "any" => interpreter_lib::iter::fold::some];
+static NATIVES: Natives = interpreter::natives! { language: Fixes, fns: [TABLE], methods: [], types: &[] };
 
-static TREE: lib::lang::Tree = lib::lang::Tree::of::<Fixes>();
-impl lib::Lang for Fixes {
-    const TREE: &'static lib::lang::Tree = &TREE;
+static TREE: interpreter_lib::lang::Tree = interpreter_lib::lang::Tree::of::<Fixes>();
+impl interpreter_lib::Lang for Fixes {
+    const TREE: &'static interpreter_lib::lang::Tree = &TREE;
 }
-impl lib::fmt::render::Style for Fixes {}
+impl interpreter_lib::fmt::render::Style for Fixes {}
 
 impl Language for Fixes {
     const VERSION: u32 = 1;
@@ -104,8 +104,8 @@ impl Language for Fixes {
     const DESCRIPTOR: &'static Descriptor = &Descriptor::NONE;
     type Ops = ();
 
-    fn show(cx: &mut Cx<'_, '_>, v: Val, mode: edge::lang::Mode) -> Result<String, VmErr> {
-        lib::fmt::render::hook::<Fixes>(cx, v, mode)
+    fn show(cx: &mut Cx<'_, '_>, v: Val, mode: interpreter::lang::Mode) -> Result<String, VmErr> {
+        interpreter_lib::fmt::render::hook::<Fixes>(cx, v, mode)
     }
 }
 
@@ -121,8 +121,8 @@ let _ = print(any([n == 0 or 1 / (n - n) == 1 for n in [0, 1]]))
 "#;
 
 fn main() {
-    let (chunk, errors) = edge::code::compile(&FRONT, PROGRAM);
-    assert!(errors.is_empty(), "{}", edge::code::Diagnostic::render_all(&errors, PROGRAM, None));
+    let (chunk, errors) = interpreter::code::compile(&FRONT, PROGRAM);
+    assert!(errors.is_empty(), "{}", interpreter::code::Diagnostic::render_all(&errors, PROGRAM, None));
     let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
     vm.run().expect("the program runs");
     assert_eq!(vm.output_text(), "64\n5 failed\ntrue\n");

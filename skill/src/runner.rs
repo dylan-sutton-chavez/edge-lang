@@ -53,24 +53,24 @@ fn fresh() -> Result<std::path::PathBuf, String> {
     static SEQ: AtomicU64 = AtomicU64::new(0);
     let dir = std::env::temp_dir().join(format!("skill-cell-{}-{}", std::process::id(), SEQ.fetch_add(1, Ordering::Relaxed)));
     std::fs::create_dir_all(&dir).map_err(|e| format!("tempdir failed: {e}"))?;
-    std::fs::write(dir.join("edge.json"), MANIFEST).map_err(|e| format!("write edge.json failed: {e}"))?;
+    std::fs::write(dir.join("interpreter.json"), MANIFEST).map_err(|e| format!("write interpreter.json failed: {e}"))?;
     Ok(dir)
 }
 
-pub fn run_script(edge: &str, src: &str, timeout: Duration) -> Result<Outcome, String> {
+pub fn run_script(interpreter: &str, src: &str, timeout: Duration) -> Result<Outcome, String> {
     let dir = fresh()?;
-    let mut cmd = Command::new(edge);
-    cmd.arg("run").arg("--manifest").arg(dir.join("edge.json"));
+    let mut cmd = Command::new(interpreter);
+    cmd.arg("run").arg("--manifest").arg(dir.join("interpreter.json"));
     let outcome = spawn(cmd, src, timeout);
     let _ = std::fs::remove_dir_all(&dir);
     outcome
 }
 
-pub fn run_actor(edge: &str, yml: &str, timeout: Duration) -> Result<Outcome, String> {
+pub fn run_actor(interpreter: &str, yml: &str, timeout: Duration) -> Result<Outcome, String> {
     let dir = fresh()?;
     let path = dir.join("actor.yml");
     std::fs::write(&path, yml).map_err(|e| format!("write actor.yml failed: {e}"))?;
-    let mut cmd = Command::new(edge);
+    let mut cmd = Command::new(interpreter);
     cmd.arg("actor").arg(&path);
     let outcome = spawn(cmd, "", timeout);
     let _ = std::fs::remove_dir_all(&dir);

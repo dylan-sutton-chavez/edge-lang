@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod test {
-    use edge::deps::NoopResolver;
-    use edge::value::{SchedulerStatus, VmErr};
+    use interpreter::deps::NoopResolver;
+    use interpreter::value::{SchedulerStatus, VmErr};
 
     use crate::common::{lex, parser};
 
@@ -24,7 +24,7 @@ mod test {
             let (tokens, _) = lex(src);
             let (mut chunk, errors) = parser(src, tokens.into_iter(), Box::new(NoopResolver)).parse();
             if !errors.is_empty() { continue; }
-            edge::code::constant_fold(&mut chunk, rig::FRONT.policy);
+            interpreter::code::constant_fold(&mut chunk, rig::FRONT.policy);
             let mut vm = crate::common::boot(&chunk, crate::common::corpus_limits());
             vm.input_buffer = input.clone();
             vm.send_hook = Some(accept_send);
@@ -59,7 +59,7 @@ mod test {
     }
 
     // every chunk a case compiles to with the functions and classes inside it
-    fn each_chunk(c: &edge::code::SSAChunk, f: &mut impl FnMut(&edge::code::SSAChunk)) {
+    fn each_chunk(c: &interpreter::code::SSAChunk, f: &mut impl FnMut(&interpreter::code::SSAChunk)) {
         f(c);
         for (_, body, _, _) in &c.functions { each_chunk(body, f); }
         for body in &c.classes { each_chunk(body, f); }
@@ -75,9 +75,9 @@ mod test {
             let (tokens, _) = lex(src);
             let (mut chunk, errors) = parser(src, tokens.into_iter(), Box::new(NoopResolver)).parse();
             if !errors.is_empty() { continue; }
-            edge::code::constant_fold(&mut chunk, rig::FRONT.policy);
+            interpreter::code::constant_fold(&mut chunk, rig::FRONT.policy);
             // the and and or the rows table leaves out never reach compiled code
-            each_chunk(&chunk, &mut |c| folded += c.instructions.iter().filter(|i| matches!(i.opcode, edge::code::OpCode::And | edge::code::OpCode::Or)).count());
+            each_chunk(&chunk, &mut |c| folded += c.instructions.iter().filter(|i| matches!(i.opcode, interpreter::code::OpCode::And | interpreter::code::OpCode::Or)).count());
             let mut vm = crate::common::boot(&chunk, crate::common::corpus_limits());
             vm.send_hook = Some(accept_send);
             let mut events = case["events"].as_array().into_iter().flatten().filter_map(|v| v.as_str());

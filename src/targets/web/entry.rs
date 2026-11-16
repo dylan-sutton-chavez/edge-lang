@@ -5,7 +5,7 @@ use alloc::string::String;
 
 use super::write_out;
 
-/* the runtime edge.wasm boots with its front end and the names tools give it */
+/* the runtime interpreter.wasm boots with its front end and the names tools give it */
 pub struct Entry {
     rt: &'static Runtime,
 }

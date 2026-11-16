@@ -108,14 +108,14 @@ fn embed(value: &serde_json::Value) -> Result<String> {
     Ok(serde_json::to_string(value)?.replace('<', "\\u003c"))
 }
 
-// where a browser edge downloaded lives which `edge uninstall` offers to remove
+// where a browser interpreter downloaded lives which `interpreter uninstall` offers to remove
 pub fn chrome_dir() -> Result<PathBuf> {
     crate::host::data_root().map(|root| root.join("chromium")).map_err(|e| anyhow!("{e}"))
 }
 
 // the browser to drive or `None` when the launcher should fetch one into `chrome_dir`
 pub fn resolve_chrome() -> Result<Option<PathBuf>> {
-    if let Some(path) = std::env::var_os("EDGE_CHROME_PATH") {
+    if let Some(path) = std::env::var_os("INTERPRETER_CHROME_PATH") {
         return Ok(Some(PathBuf::from(path)));
     }
     if let Ok(found) = headless_chrome::browser::default_executable() {
@@ -127,11 +127,11 @@ pub fn resolve_chrome() -> Result<Option<PathBuf>> {
     }
     match agreed()? {
         true => Ok(None),
-        false => bail!("--web needs Chrome or Chromium, install one or set EDGE_CHROME_PATH to a binary you have")
+        false => bail!("--web needs Chrome or Chromium, install one or set INTERPRETER_CHROME_PATH to a binary you have")
     }
 }
 
-// whether edge already downloaded a browser
+// whether interpreter already downloaded a browser
 pub fn fetched() -> Result<bool> {
     let dir = chrome_dir()?;
     Ok(std::fs::read_dir(&dir).is_ok_and(|mut entries| entries.next().is_some()))
@@ -142,7 +142,7 @@ fn agreed() -> Result<bool> {
     if !std::io::stdin().is_terminal() {
         bail!(
             "--web needs Chrome or Chromium and found none\n\
-             help: install one, set EDGE_CHROME_PATH, or run this in a terminal to be offered a download"
+             help: install one, set INTERPRETER_CHROME_PATH, or run this in a terminal to be offered a download"
         );
     }
 
@@ -154,7 +154,7 @@ fn agreed() -> Result<bool> {
     Ok(matches!(answer.trim(), "y" | "Y" | "yes" | "Yes" | "YES"))
 }
 
-/* downloads land in a dir only edge owns so removing it takes nothing else along */
+/* downloads land in a dir only interpreter owns so removing it takes nothing else along */
 fn fetching() -> Result<FetcherOptions> {
     Ok(FetcherOptions::default()
         .with_install_dir(Some(chrome_dir()?))
@@ -239,8 +239,8 @@ fn serve(served: Served) -> Result<u16> {
             }
             let path = req.url().split('?').next().unwrap_or("/").trim_start_matches('/').to_string();
             let served = match path.as_str() {
-                "edge.json" => Some((imports.clone(), content_type(Path::new("edge.json"), descriptor))),
-                "edge.wasm" => Some((wasm.to_vec(), content_type(Path::new("edge.wasm"), descriptor))),
+                "interpreter.json" => Some((imports.clone(), content_type(Path::new("interpreter.json"), descriptor))),
+                "interpreter.wasm" => Some((wasm.to_vec(), content_type(Path::new("interpreter.wasm"), descriptor))),
                 _ => match host_file(&path, descriptor) {
                     Some(found) => Some(found),
                     None => staged(&pages, &path).or_else(|| project_file(&root, &path, descriptor)),
@@ -287,10 +287,10 @@ mod tests {
     #[test]
     fn an_explicit_browser_wins() {
         // SAFETY single-threaded test where nothing else reads the environment
-        unsafe { std::env::set_var("EDGE_CHROME_PATH", "/tmp/not-a-browser") };
+        unsafe { std::env::set_var("INTERPRETER_CHROME_PATH", "/tmp/not-a-browser") };
         assert_eq!(resolve_chrome().unwrap(), Some(PathBuf::from("/tmp/not-a-browser")));
         assert!(chrome_dir().unwrap().ends_with("chromium"));
-        unsafe { std::env::remove_var("EDGE_CHROME_PATH") };
+        unsafe { std::env::remove_var("INTERPRETER_CHROME_PATH") };
     }
 
     /* the source enters the page as a JSON string that no tag or quote escapes */
@@ -308,7 +308,7 @@ mod tests {
 
     #[test]
     fn the_host_answers_under_the_js_prefix() {
-        let d = &lox::DESCRIPTOR;
+        let d = &interpreter_lox::DESCRIPTOR;
         assert!(host_file("js/src/index.js", d).is_some());
         assert!(host_file("js/src/nope.js", d).is_none());
         assert!(host_file("src/index.js", d).is_none());
@@ -331,7 +331,7 @@ mod tests {
         std::fs::write(dir.path().join("secret.lox"), "var key = 2;").unwrap();
         let root = dir.path().join("app").canonicalize().unwrap();
 
-        let d = &lox::DESCRIPTOR;
+        let d = &interpreter_lox::DESCRIPTOR;
         assert_eq!(project_file(&root, "helper.lox", d), Some((b"var x = 1;".to_vec(), "text/plain")));
         assert!(project_file(&root, "../secret.lox", d).is_none());
         assert!(project_file(&root, "missing.lox", d).is_none());
