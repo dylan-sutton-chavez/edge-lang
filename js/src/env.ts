@@ -1,7 +1,7 @@
 import { nativeTable, running, waiting } from './native.ts';
 import type { WasmPdkFn } from './native.ts';
-import type { EdgeExports } from './wasm.ts';
-import type { Rt, EdgeValue } from './rt.ts';
+import type { InterpreterExports } from './wasm.ts';
+import type { Rt, InterpreterValue } from './rt.ts';
 import { errMsg, fault, writeBytes, ERR_RUNTIME, ERR_TYPE } from './util.ts';
 
 const TD = new TextDecoder();
@@ -14,15 +14,15 @@ export interface DeferredHostCall {
     pending: Promise<unknown>
 }
 
-interface EdgeEnv {
+interface InterpreterEnv {
     host_print(ptr: number, len: number): void
     host_call_native(id: number, call_id: number, argv_ptr: number, argc: number, out_ptr: number): number
     host_fetch_bytes(specPtr: number, specLen: number, hashPtr: number, outLenPtr: number): number
     host_send(groupPtr: number, groupLen: number, bodyPtr: number, bodyLen: number): number
 }
 
-interface MakeEdgeEnvOpts {
-    getExports: () => EdgeExports
+interface MakeInterpreterEnvOpts {
+    getExports: () => InterpreterExports
     onLine: (text: string) => void
     // each named output of a run which the host takes or leaves to the program
     onChannel?: (channel: string, text: string) => boolean
@@ -34,7 +34,7 @@ interface MakeEdgeEnvOpts {
 }
 
 /* the `env.*` imports the engine declares wired to host state the closures capture */
-export function makeEdgeEnv({ getExports, onLine, onChannel, refuseSend, fetchedSources, rt, captureHostCall }: MakeEdgeEnvOpts): EdgeEnv {
+export function makeInterpreterEnv({ getExports, onLine, onChannel, refuseSend, fetchedSources, rt, captureHostCall }: MakeInterpreterEnvOpts): InterpreterEnv {
     const readStr = (ptr: number, len: number) => TD.decode(new Uint8Array(getExports().memory.buffer, ptr, len));
     const setU32 = (ptr: number, v: number) => new DataView(getExports().memory.buffer).setUint32(ptr, v, true);
 
@@ -51,21 +51,21 @@ export function makeEdgeEnv({ getExports, onLine, onChannel, refuseSend, fetched
 
             const exports = getExports();
 
-            if (fn.__edge_kind === 'host') {
+            if (fn.__interpreter_kind === 'host') {
                 const handles = Array.from(new Uint32Array(exports.memory.buffer, argv_ptr, argc));
                 // the trailing slot holds keyword arguments which a host call never takes
                 if (!rt || handles.pop() !== 0) {
-                    stashError(exports, `${fn.__edge_module}.${fn.__edge_name} takes positional arguments only`, ERR_TYPE);
+                    stashError(exports, `${fn.__interpreter_module}.${fn.__interpreter_name} takes positional arguments only`, ERR_TYPE);
                     return 1;
                 }
                 try {
                     const result = fn.call(...handles.map((h) => rt.decodeAny(h)));
                     if (result instanceof Promise) {
-                        if (!captureHostCall) throw new Error(`${fn.__edge_module}.${fn.__edge_name} waits, and no driver awaits it`);
-                        captureHostCall(call_id, { module: fn.__edge_module, name: fn.__edge_name, pending: result });
+                        if (!captureHostCall) throw new Error(`${fn.__interpreter_module}.${fn.__interpreter_name} waits, and no driver awaits it`);
+                        captureHostCall(call_id, { module: fn.__interpreter_module, name: fn.__interpreter_name, pending: result });
                         return 2;
                     }
-                    setU32(out_ptr, rt.encodeAny(result as EdgeValue));
+                    setU32(out_ptr, rt.encodeAny(result as InterpreterValue));
                     return 0;
                 } catch (e) {
                     const [kind, message] = fault(e, exports);
@@ -75,12 +75,12 @@ export function makeEdgeEnv({ getExports, onLine, onChannel, refuseSend, fetched
             }
 
             // views are functions since the plugin call can reenter `wasm_alloc` and detach a cached view
-            const guestView = () => new DataView(fn.__edge_memory.buffer);
+            const guestView = () => new DataView(fn.__interpreter_memory.buffer);
             const compView = () => new DataView(exports.memory.buffer);
 
             const argvLen = Math.max(4, argc * 4);
-            const g_argv = fn.__edge_alloc(argvLen);
-            const g_out = fn.__edge_alloc(4);
+            const g_argv = fn.__interpreter_alloc(argvLen);
+            const g_out = fn.__interpreter_alloc(4);
             for (let i = 0; i < argc; i++) {
                 guestView().setUint32(g_argv + i * 4, compView().getUint32(argv_ptr + i * 4, true), true);
             }
@@ -99,14 +99,14 @@ export function makeEdgeEnv({ getExports, onLine, onChannel, refuseSend, fetched
                 compView().setUint32(out_ptr, guestView().getUint32(g_out, true), true);
             }
             // a plugin waiting on a system call finishes in its resume export once that settles
-            if (status === 2 && !fn.__edge_resume) {
-                stashError(exports, `native module '${fn.__edge_name}' waits on a system call but exports no __edge_resume`);
+            if (status === 2 && !fn.__interpreter_resume) {
+                stashError(exports, `native module '${fn.__interpreter_name}' waits on a system call but exports no __interpreter_resume`);
                 status = 1;
             }
             if (status === 2) waiting.set(call_id, fn);
-            // plugins older than `__edge_free` still leak these
-            fn.__edge_free?.(g_argv, argvLen);
-            fn.__edge_free?.(g_out, 4);
+            // plugins older than `__interpreter_free` still leak these
+            fn.__interpreter_free?.(g_argv, argvLen);
+            fn.__interpreter_free?.(g_out, 4);
             return status;
         },
 
@@ -140,25 +140,25 @@ export function makeEdgeEnv({ getExports, onLine, onChannel, refuseSend, fetched
 }
 
 /* hands a settled system call to its waiting plugin and delivers what the plugin answers */
-export function resumePlugin(exports: EdgeExports, rt: Rt, id: number, fn: WasmPdkFn, settled: { value: unknown } | { kind: number, message: string }): number {
+export function resumePlugin(exports: InterpreterExports, rt: Rt, id: number, fn: WasmPdkFn, settled: { value: unknown } | { kind: number, message: string }): number {
     waiting.delete(id);
     // a failed call reaches the plugin as a zero handle with its error stashed
     let answer = 0;
-    if ('value' in settled) answer = rt.encodeAny(settled.value as EdgeValue);
+    if ('value' in settled) answer = rt.encodeAny(settled.value as InterpreterValue);
     else stashError(exports, settled.message, settled.kind);
-    const out = fn.__edge_alloc(4);
+    const out = fn.__interpreter_alloc(4);
     let status: number;
     running.push(id);
     try {
-        status = fn.__edge_resume?.(id, answer, out) ?? 1;
+        status = fn.__interpreter_resume?.(id, answer, out) ?? 1;
     } catch (e) {
         stashError(exports, `native module trapped: ${errMsg(e)}`);
         status = 1;
     } finally {
         running.pop();
     }
-    const handle = new DataView(fn.__edge_memory.buffer).getUint32(out, true);
-    fn.__edge_free?.(out, 4);
+    const handle = new DataView(fn.__interpreter_memory.buffer).getUint32(out, true);
+    fn.__interpreter_free?.(out, 4);
     if (status === 0) return exports.set_host_result_by_id(id, handle);
     // still waiting as the system call it just made settles on the same id
     if (status === 2) {
@@ -170,12 +170,12 @@ export function resumePlugin(exports: EdgeExports, rt: Rt, id: number, fn: WasmP
 }
 
 /* the kind and message of the error a plugin stashed */
-function takeError(exports: EdgeExports): [number, string] {
+function takeError(exports: InterpreterExports): [number, string] {
     let size = 256;
     for (;;) {
         const kind = exports.wasm_alloc(4);
         const buf = exports.wasm_alloc(size);
-        const got = exports.host_edge_take_error(kind, buf, size);
+        const got = exports.host_interpreter_take_error(kind, buf, size);
         const result: [number, string] = [new DataView(exports.memory.buffer).getUint32(kind, true), TD.decode(new Uint8Array(exports.memory.buffer, buf, Math.max(0, got)))];
         exports.wasm_free(kind, 4);
         exports.wasm_free(buf, size);
@@ -185,9 +185,9 @@ function takeError(exports: EdgeExports): [number, string] {
     }
 }
 
-function stashError(exports: EdgeExports, message: string, kind = ERR_RUNTIME): void {
+function stashError(exports: InterpreterExports, message: string, kind = ERR_RUNTIME): void {
     const bytes = TE.encode(message);
     const ptr = writeBytes(exports, bytes);
-    exports.host_edge_throw(kind, ptr, bytes.length);
+    exports.host_interpreter_throw(kind, ptr, bytes.length);
     exports.wasm_free(ptr, Math.max(1, bytes.length));
 }

@@ -81,7 +81,7 @@ for unit in $(pending); do
   slice="0/1"
   [ "$unit" = "$test" ] || slice="${unit#*@}"
   i=$(( i + 1 ))
-  EDGE_SLICE="$slice" MIRIFLAGS="$flags" timeout --kill-after=30 "$left" make -s miri MIRI_SETUP= SUITE="$SUITE" CASE="$test" > "$work/$i.log" 2>&1 &
+  INTERPRETER_SLICE="$slice" MIRIFLAGS="$flags" timeout --kill-after=30 "$left" make -s miri MIRI_SETUP= SUITE="$SUITE" CASE="$test" > "$work/$i.log" 2>&1 &
   unit_of[$!]="$unit"
   log_of[$!]="$work/$i.log"
   began[$!]=$(date +%s)
@@ -94,7 +94,7 @@ open="$(pending | wc -l | tr -d ' ')"
 {
   echo "### Miri, $SUITE, round $round in ${NAMES[$mode]}"
   echo
-  echo "$(( total - open )) of $total tests done in this round, \`MIRIFLAGS=\"$flags\" make miri SUITE=$SUITE CASE=<test>\` runs one again and \`EDGE_SLICE=k/n\` picks a slice."
+  echo "$(( total - open )) of $total tests done in this round, \`MIRIFLAGS=\"$flags\" make miri SUITE=$SUITE CASE=<test>\` runs one again and \`INTERPRETER_SLICE=k/n\` picks a slice."
   echo
   echo "| Test | Result | Time |"
   echo "|---|---|---|"

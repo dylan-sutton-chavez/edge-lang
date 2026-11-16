@@ -181,14 +181,14 @@ pub fn parse<L: Lang, D: Digits>(cx: &mut Cx<'_, '_>, s: &str, base: i64) -> Res
 }
 
 // every float below two to the 127 fits an i128
-const I128_EDGE: f64 = (1u128 << 127) as f64;
+const I128_BOUND: f64 = (1u128 << 127) as f64;
 
 /* the int a float truncates to where nan and infinity fail */
 fn float_int<S: Site>(cx: &mut Cx<'_, '_>, f: f64) -> Result<Val, VmErr> {
     if f.is_nan() { return Err(fail::<S>(cx, Fail::FloatNan)); }
     if f.is_infinite() { return Err(fail::<S>(cx, Fail::FloatInf)); }
     let t = ftrunc(f);
-    if fabs(t) < I128_EDGE { return cx.new_int(t as i128); }
+    if fabs(t) < I128_BOUND { return cx.new_int(t as i128); }
     // past two to the 127 the float is its mantissa shifted left by its exponent
     let bits = t.to_bits();
     let mantissa = i128::from((bits & ((1 << 52) - 1)) | (1 << 52));

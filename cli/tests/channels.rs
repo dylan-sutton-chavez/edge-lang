@@ -5,7 +5,7 @@ use std::sync::Arc;
 use interpreter_cli::{files, perms, Kit, Runtime};
 
 // the variable that makes this binary the CLI for one run of a case
-const AS_CLI: &str = "EDGE_AS_CHANNELS";
+const AS_CLI: &str = "INTERPRETER_AS_CHANNELS";
 
 // the interpreter.wasm build.rs copied beside its precompile
 const WASM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/interpreter.wasm"));

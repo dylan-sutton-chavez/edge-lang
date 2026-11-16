@@ -1,6 +1,6 @@
 These programs are the test/benchmark/ directory of https://github.com/munificent/craftinginterpreters
 at commit 4a840f70, the benchmark set of the book Crafting Interpreters by Robert Nystrom.
-The bench counts the instructions edge.wasm runs, so their sizes are scaled down to run
+The bench counts the instructions interpreter.wasm runs, so their sizes are scaled down to run
 in a few milliseconds each: binary_trees maxDepth 14 to 8, equality 10000000 to 50000,
 fib(35) to fib(22), instantiation 500000 to 20000, invocation and properties 500000 to
 50000, method_call n 100000 to 10000, string_equality 100000 to 2000, trees Tree(8) and

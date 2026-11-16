@@ -9,7 +9,7 @@ use suite::{suite, Bin};
 interpreter::allocator!();
 
 // the variable that makes this binary the CLI for one run of a case
-const AS_CLI: &str = "EDGE_AS_NATIVE";
+const AS_CLI: &str = "INTERPRETER_AS_NATIVE";
 
 /* the coverage cases on a run of lox built into this binary with the coverage feature */
 fn main() {

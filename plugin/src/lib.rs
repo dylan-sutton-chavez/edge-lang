@@ -7,7 +7,7 @@ extern crate alloc;
 pub use interpreter_plugin_macros::plugin_fn;
 pub use interpreter_plugin_macros::{plugin_const, plugin_class, plugin_methods, plugin_ctor, plugin_resume};
 
-// the glob import surface without `__internals` and `__edge_alloc`
+// the glob import surface without `__internals` and `__interpreter_alloc`
 pub mod prelude {
     pub use crate::{plugin_fn, plugin_const, plugin_class, plugin_methods, plugin_ctor, plugin_resume, call_id, Handle, Value, Bytes, Args, Error, Result, FromValue, IntoValue, Kwargs, PluginCell};
 }
@@ -103,23 +103,23 @@ use alloc::{string::String, vec::Vec};
 
 #[link(wasm_import_module = "env")]
 unsafe extern "C" {
-    pub fn edge_op(op: u32, recv: u32, name_ptr: *const u8, name_len: u32, argv_ptr: *const u32, argc: u32, out: *mut u32) -> i32;
-    pub fn edge_encode(tag: u32, ptr: *const u8, len: u32) -> u32;
-    pub fn edge_decode(h: u32, out_tag: *mut u32, dst: *mut u8, dst_max: u32) -> i32;
-    pub fn edge_release(h: u32);
-    pub fn edge_take_error(out_kind: *mut u32, dst: *mut u8, dst_max: u32) -> i32;
-    pub fn edge_throw(kind: u32, msg_ptr: *const u8, msg_len: u32);
-    pub fn edge_call_id() -> u32;
+    pub fn interpreter_op(op: u32, recv: u32, name_ptr: *const u8, name_len: u32, argv_ptr: *const u32, argc: u32, out: *mut u32) -> i32;
+    pub fn interpreter_encode(tag: u32, ptr: *const u8, len: u32) -> u32;
+    pub fn interpreter_decode(h: u32, out_tag: *mut u32, dst: *mut u8, dst_max: u32) -> i32;
+    pub fn interpreter_release(h: u32);
+    pub fn interpreter_take_error(out_kind: *mut u32, dst: *mut u8, dst_max: u32) -> i32;
+    pub fn interpreter_throw(kind: u32, msg_ptr: *const u8, msg_len: u32);
+    pub fn interpreter_call_id() -> u32;
 }
 
 // the running call and the key to keep state under while a system call waits
-pub fn call_id() -> u32 { unsafe { edge_call_id() } }
+pub fn call_id() -> u32 { unsafe { interpreter_call_id() } }
 
 // the host refuses a plugin whose ABI version it does not understand
 pub use interpreter_abi::ABI_VERSION;
 
 #[unsafe(no_mangle)]
-pub extern "C" fn __edge_abi_version() -> u32 { ABI_VERSION }
+pub extern "C" fn __interpreter_abi_version() -> u32 { ABI_VERSION }
 
 pub use interpreter_abi::{op, tag};
 
@@ -140,20 +140,20 @@ pub mod __internals {
     pub fn stash_error(e: Error) {
         let kind = e.kind();
         let msg = e.message().to_string();
-        unsafe { super::edge_throw(kind, msg.as_ptr(), msg.len() as u32); }
+        unsafe { super::interpreter_throw(kind, msg.as_ptr(), msg.len() as u32); }
     }
 
-    // the host stages argv here and frees it with `__edge_free`
+    // the host stages argv here and frees it with `__interpreter_free`
     #[unsafe(no_mangle)]
-    pub extern "C" fn __edge_alloc(size: u32) -> *mut u8 {
+    pub extern "C" fn __interpreter_alloc(size: u32) -> *mut u8 {
         let v = alloc::vec![0u8; size as usize];
         alloc::boxed::Box::into_raw(v.into_boxed_slice()) as *mut u8
     }
 
-    // the size must match the one given to `__edge_alloc`
+    // the size must match the one given to `__interpreter_alloc`
     #[unsafe(no_mangle)]
     #[allow(clippy::not_unsafe_ptr_arg_deref)]
-    pub extern "C" fn __edge_free(ptr: *mut u8, size: u32) {
+    pub extern "C" fn __interpreter_free(ptr: *mut u8, size: u32) {
         if ptr.is_null() || size == 0 { return; }
         unsafe {
             let slice = core::slice::from_raw_parts_mut(ptr, size as usize);
@@ -211,13 +211,13 @@ impl Error {
 
 pub type Result<T> = core::result::Result<T, Error>;
 
-// takes the error the host stashed after an `edge_op` returned 1
+// takes the error the host stashed after an `interpreter_op` returned 1
 pub fn last_error() -> Error {
     let mut kind: u32 = 2;
     let mut buf = alloc::vec![0u8; 256];
     loop {
         let r = unsafe {
-            edge_take_error(&mut kind as *mut u32, buf.as_mut_ptr(), buf.len() as u32)
+            interpreter_take_error(&mut kind as *mut u32, buf.as_mut_ptr(), buf.len() as u32)
         };
         if r >= 0 {
             buf.truncate(r as usize);
@@ -249,7 +249,7 @@ impl Handle {
 
 impl Drop for Handle {
     fn drop(&mut self) {
-        if self.owned && self.raw != 0 { unsafe { edge_release(self.raw) } }
+        if self.owned && self.raw != 0 { unsafe { interpreter_release(self.raw) } }
     }
 }
 
@@ -288,7 +288,7 @@ impl Kwargs {
 // a zero-length buffer peeks at the tag without copying the value
 fn is_nil(h: u32) -> bool {
     let mut tag: u32 = 0;
-    let r = unsafe { edge_decode(h, &mut tag as *mut u32, core::ptr::null_mut(), 0) };
+    let r = unsafe { interpreter_decode(h, &mut tag as *mut u32, core::ptr::null_mut(), 0) };
     r >= 0 && tag == tag::NONE
 }
 
@@ -305,7 +305,7 @@ pub fn decode(h: u32) -> Result<Value> {
     let mut buf = alloc::vec![0u8; 256];
     loop {
         let r = unsafe {
-            edge_decode(h, &mut tag as *mut u32, buf.as_mut_ptr(), buf.len() as u32)
+            interpreter_decode(h, &mut tag as *mut u32, buf.as_mut_ptr(), buf.len() as u32)
         };
         if r >= 0 {
             if tag == u32::MAX {
@@ -323,7 +323,7 @@ pub fn decode(h: u32) -> Result<Value> {
 pub fn encode(v: Value) -> Result<Handle> {
     let mut body = Vec::new();
     v.encode_body(&mut body);
-    let raw = unsafe { edge_encode(v.tag(), body.as_ptr(), body.len() as u32) };
+    let raw = unsafe { interpreter_encode(v.tag(), body.as_ptr(), body.len() as u32) };
     if raw == 0 { Err(Error::Runtime(alloc::string::String::from("encode failed"))) }
     else { Ok(Handle::from_raw(raw)) }
 }
@@ -454,7 +454,7 @@ impl IntoValue for Value {
     fn into_handle(self) -> Result<Handle> { encode(self) }
 }
 
-/* a list crosses whole in one `edge_decode` or `edge_encode` instead of an op per item */
+/* a list crosses whole in one `interpreter_decode` or `interpreter_encode` instead of an op per item */
 impl FromValue for Vec<Value> {
     fn from_handle(h: u32) -> Result<Self> {
         match decode(h)? {
@@ -517,7 +517,7 @@ impl Handle {
         let argv_ptr = if argv.is_empty() { core::ptr::null() } else { argv.as_ptr() };
         let mut out: u32 = 0;
         let r = unsafe {
-            edge_op(opcode, recv, name_ptr, name.len() as u32, argv_ptr, argv.len() as u32, &mut out as *mut u32)
+            interpreter_op(opcode, recv, name_ptr, name.len() as u32, argv_ptr, argv.len() as u32, &mut out as *mut u32)
         };
         if r != 0 { return Err(last_error()); }
         Ok(out)
@@ -532,7 +532,7 @@ impl Handle {
     pub fn sys(name: &str, args: &[u32]) -> Result<Handle> {
         let argv_ptr = if args.is_empty() { core::ptr::null() } else { args.as_ptr() };
         let mut out: u32 = 0;
-        match unsafe { edge_op(op::SYS, call_id(), name.as_ptr(), name.len() as u32, argv_ptr, args.len() as u32, &mut out as *mut u32) } {
+        match unsafe { interpreter_op(op::SYS, call_id(), name.as_ptr(), name.len() as u32, argv_ptr, args.len() as u32, &mut out as *mut u32) } {
             0 => Ok(Handle::from_raw(out)),
             2 => Err(Error::Waiting),
             _ => Err(last_error()),
@@ -634,7 +634,7 @@ unsafe impl<T> Sync for PluginCell<T> {}
 impl<T> PluginCell<T> {
     pub const fn new() -> Self { Self(core::cell::UnsafeCell::new(None)) }
 
-    // the caller keeps `&mut` borrows from overlapping across reentrant `edge_op` calls
+    // the caller keeps `&mut` borrows from overlapping across reentrant `interpreter_op` calls
     #[allow(clippy::mut_from_ref)]
     pub fn get_or_init<F: FnOnce() -> T>(&self, init: F) -> &mut T {
         unsafe {

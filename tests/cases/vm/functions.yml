@@ -5450,7 +5450,7 @@
         }
         return prev[-1]
     }
-    words = ["kitten", "sitting", "saturday", "sunday", "rosettacode", "raisethysword", "edgelang", "cpython"]
+    words = ["kitten", "sitting", "saturday", "sunday", "rosettacode", "raisethysword", "rustlang", "cpython"]
     t = 0
     for _ in range(25) {
         for w1 in words {
@@ -5461,7 +5461,7 @@
     }
     print(t)
   expected: |-
-    11000
+    10600
 
 - case: |-
     fn f() {
@@ -13823,7 +13823,7 @@
         }
         return -1
     }
-    words = ["kitten", "sitting", "sunday", "edge"]
+    words = ["kitten", "sitting", "sunday", "core"]
     ps = [(1, "a"), (2, "b"), (3, "c")]
     t = 0
     for _ in range(60) {
@@ -13836,7 +13836,7 @@
     }
     print(t)
   expected: |-
-    3840
+    3960
 
 - case: |-
     // float sums of generators and of lists agree with CPython's compensated sum

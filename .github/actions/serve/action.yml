@@ -24,7 +24,7 @@ runs:
       run: |
         nohup make serve > "$RUNNER_TEMP/cdn.log" 2>&1 &
         for _ in $(seq 60); do
-          curl -fsS -o /dev/null "$EDGE_CDN_BASE/interpreter.wasm" && exit 0
+          curl -fsS -o /dev/null "$INTERPRETER_CDN_BASE/interpreter.wasm" && exit 0
           sleep 1
         done
         cat "$RUNNER_TEMP/cdn.log"

@@ -9,7 +9,7 @@ use suite::{net, suite, Bin};
 interpreter::allocator!();
 
 // the variable that makes this binary the CLI for one run of a case
-const AS_CLI: &str = "EDGE_AS_NATIVE";
+const AS_CLI: &str = "INTERPRETER_AS_NATIVE";
 
 /* the interpreter composition's run and test over lox built into this binary */
 fn kit() -> Kit {

@@ -1,9 +1,9 @@
-import type { EdgeValue } from '../rt.ts';
-import type { EdgeExports } from '../wasm.ts';
+import type { InterpreterValue } from '../rt.ts';
+import type { InterpreterExports } from '../wasm.ts';
 
 /* the calls a package opened of a host module and how a run closes them */
 export interface Opened {
-    calls: Record<string, (...args: EdgeValue[]) => unknown>
+    calls: Record<string, (...args: InterpreterValue[]) => unknown>
     close(): void
 }
 
@@ -28,7 +28,7 @@ export interface HostModule {
     // whether a grant may give the module this scope after its name and a colon
     scope(scope: string): boolean
     // the scope a call reaches which the host checks first or null for none
-    reaches(call: string, args: EdgeValue[]): string | null
+    reaches(call: string, args: InterpreterValue[]): string | null
     // whether a granted scope covers what a call reaches where none means equal text
     covers?(scope: string, reached: string): boolean
     // what a refusal names as asked for a reached scope no held one covers
@@ -39,7 +39,7 @@ export interface HostModule {
     // the origins a page lets its room reach for a scope the grants give
     origins?(scope: string): string[]
     // what a trace may show of a settled call but never a body or secret
-    show?(call: string, args: EdgeValue[], value: unknown): Shown
+    show?(call: string, args: InterpreterValue[], value: unknown): Shown
 }
 
 /* every section from root to package with the key the next one comes under */
@@ -52,9 +52,9 @@ export interface Access {
     // the holder names the field gives meaning so no import may take them
     holders: readonly string[]
     // why the root section cannot be served or null when its modules take every entry
-    check(e: EdgeExports, section: unknown, modules: readonly HostModule[]): string | null
+    check(e: InterpreterExports, section: unknown, modules: readonly HostModule[]): string | null
     // what `chain` gives `pkg` of `module` or the text its import fails with
-    held(e: EdgeExports, chain: Chain, pkg: string, module: string): Held | string
+    held(e: InterpreterExports, chain: Chain, pkg: string, module: string): Held | string
     // each module and scope a root section grants which bounds what a room reaches
     granted(section: unknown): [string, string][]
 }

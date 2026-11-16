@@ -3003,7 +3003,7 @@
     1522800
 
 - case: |-
-    words = ["  Hello ", "WORLD", "edge Lang  ", " mixed CASE text "]
+    words = ["  Hello ", "WORLD", "core Lang  ", " mixed CASE text "]
     t = 0
     for i in range(30000) {
         w = words[i % 4]
@@ -3047,7 +3047,7 @@
     3977500
 
 - case: |-
-    s = "edge lang benchmark " * 200
+    s = "core lang benchmark " * 200
     t = 0
     for _ in range(20) {
         for ch in s {
@@ -3056,7 +3056,7 @@
     }
     print(t)
   expected: |-
-    7432000
+    7512000
 
 - case: |-
     t = 0
@@ -3802,7 +3802,7 @@
 
 - case: |-
     // an empty line reads as false while an empty dependency list stays a value
-    lock = "[[package]]\nname = \"abi\"\nversion = \"0.9.6\"\n\n[[package]]\nname = \"itoa\"\nversion = \"1.0.18\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\n\n[[package]]\nname = \"lib\"\nversion = \"0.9.6\"\ndependencies = [\n \"edge\",\n \"itoa\",\n \"rig\",\n]\n"
+    lock = "[[package]]\nname = \"abi\"\nversion = \"0.9.6\"\n\n[[package]]\nname = \"itoa\"\nversion = \"1.0.18\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\n\n[[package]]\nname = \"lib\"\nversion = \"0.9.6\"\ndependencies = [\n \"core\",\n \"itoa\",\n \"rig\",\n]\n"
     deps = {}
     name = nil
     blank = 0
@@ -3828,7 +3828,7 @@
   expected: |-
     abi [] no dependencies
     itoa [] no dependencies
-    lib ["edge", "itoa", "rig"] 3
+    lib ["core", "itoa", "rig"] 3
     serde not locked no dependencies
     120 true false false false kept
 

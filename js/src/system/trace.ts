@@ -1,4 +1,4 @@
-import type { EdgeValue } from '../rt.ts';
+import type { InterpreterValue } from '../rt.ts';
 import type { HostModule, Shown } from './index.ts';
 
 /* something a run did beyond its memory without any body or query */
@@ -11,12 +11,12 @@ export type TraceEvent =
 const PRINT = 120;
 
 /* reports a call to `emit` once it settles and costs one check when nobody listens */
-export function traced(pkg: string, module: HostModule, name: string, call: (...args: EdgeValue[]) => unknown, emit: () => ((event: TraceEvent) => void) | null, clock: () => number) {
+export function traced(pkg: string, module: HostModule, name: string, call: (...args: InterpreterValue[]) => unknown, emit: () => ((event: TraceEvent) => void) | null, clock: () => number) {
     // only the module knows what is safe to show and its fault fails no call
-    const shown = (args: EdgeValue[], value: unknown): Shown => {
+    const shown = (args: InterpreterValue[], value: unknown): Shown => {
         try { return module.show?.(name, args, value) ?? {}; } catch { return {}; }
     };
-    return (...args: EdgeValue[]): unknown => {
+    return (...args: InterpreterValue[]): unknown => {
         const sink = emit();
         if (!sink) return call(...args);
         const at = clock();

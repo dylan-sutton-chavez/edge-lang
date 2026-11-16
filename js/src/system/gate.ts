@@ -1,9 +1,9 @@
-import type { EdgeValue } from '../rt.ts';
+import type { InterpreterValue } from '../rt.ts';
 import type { Held, HostModule, Opened } from './index.ts';
 
 /* a call checked against what its package holds before the module sees it */
-export function gated(module: HostModule, held: Held, name: string, call: (...args: EdgeValue[]) => unknown) {
-    return (...args: EdgeValue[]) => {
+export function gated(module: HostModule, held: Held, name: string, call: (...args: InterpreterValue[]) => unknown) {
+    return (...args: InterpreterValue[]) => {
         const reached = module.reaches(name, args);
         const covers = module.covers ?? ((scope: string, at: string) => scope === at);
         if (reached !== null && held.scopes !== null && !held.scopes.some((scope) => covers(scope, reached))) {

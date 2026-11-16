@@ -491,32 +491,32 @@ fn by_space<L: Lang, H: Hay + ?Sized>(h: &H, ascii: bool, max: usize, right: boo
 #[inline(always)]
 fn runs<L: Lang, H: Hay + ?Sized>(h: &H, units: impl DoubleEndedIterator<Item = (usize, H::Unit)>, max: usize, right: bool, out: &mut Vec<H::Owned>) {
     let len = h.bytes().len();
-    // the edge of the run being read and none inside white space
-    let mut edge: Option<usize> = None;
+    // the open end of the run being read and none inside white space
+    let mut open: Option<usize> = None;
     if right {
         for (b, u) in units.rev() {
             let after = b + H::size(u);
             if H::blank::<L>(u) {
-                if let Some(e) = edge.take() { out.push(h.cut(after..e).copied()); }
-            } else if edge.is_none() {
+                if let Some(e) = open.take() { out.push(h.cut(after..e).copied()); }
+            } else if open.is_none() {
                 // past the cut count the rest stays whole with its leading white space
                 if out.len() == max { out.push(h.cut(0..after).copied()); out.reverse(); return; }
-                edge = Some(after);
+                open = Some(after);
             }
         }
-        if let Some(e) = edge { out.push(h.cut(0..e).copied()); }
+        if let Some(e) = open { out.push(h.cut(0..e).copied()); }
         out.reverse();
     } else {
         for (b, u) in units {
             if H::blank::<L>(u) {
-                if let Some(s) = edge.take() { out.push(h.cut(s..b).copied()); }
-            } else if edge.is_none() {
+                if let Some(s) = open.take() { out.push(h.cut(s..b).copied()); }
+            } else if open.is_none() {
                 // past the cut count the rest stays whole with its trailing white space
                 if out.len() == max { out.push(h.cut(b..len).copied()); return; }
-                edge = Some(b);
+                open = Some(b);
             }
         }
-        if let Some(s) = edge { out.push(h.cut(s..len).copied()); }
+        if let Some(s) = open { out.push(h.cut(s..len).copied()); }
     }
 }
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regenerates the gitignored in/ and edge.dict from the Lox programs, tests/cases/vm and dict.txt.
+# Regenerates the gitignored in/ and interpreter.dict from the Lox programs, tests/cases/vm and dict.txt.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -27,5 +27,5 @@ for f in $(find ../examples/lox/tests/suite ../bench/cases -name '*.lox'); do
 done
 echo "seeds: $(ls in | wc -l | tr -d ' ')"
 
-cp dict.txt edge.dict
-echo "dict: $(grep -c '^"' edge.dict) entries"
+cp dict.txt interpreter.dict
+echo "dict: $(grep -c '^"' interpreter.dict) entries"

@@ -74,7 +74,7 @@ set -m
 for i in $(seq 0 $(( JOBS - 1 ))); do
   pick "$i"
   if (( i == 0 )); then role=(-M m0); name=m0; else role=(-S "s$i"); name="s$i"; fi
-  cargo afl fuzz "${picked[@]}" -t "$TIMEOUT_MS" -i "$SEEDS" -o out -x edge.dict "${role[@]}" "$bin" >"logs/$name.log" 2>&1 &
+  cargo afl fuzz "${picked[@]}" -t "$TIMEOUT_MS" -i "$SEEDS" -o out -x interpreter.dict "${role[@]}" "$bin" >"logs/$name.log" 2>&1 &
   pids+=($!)
   names+=("$name")
 done

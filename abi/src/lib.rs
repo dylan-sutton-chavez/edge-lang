@@ -5,7 +5,7 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 
-/* bumped on any breaking change and a host refuses any `__edge_abi_version` it does not know */
+/* bumped on any breaking change and a host refuses any `__interpreter_abi_version` it does not know */
 pub const ABI_VERSION: u32 = 1;
 
 /* the NaN-boxing layout that packs a `Val` into 64 bits */
@@ -24,7 +24,7 @@ pub mod nan_box {
     pub const INT_PAYLOAD_MASK: u64 = 0x0000_FFFF_FFFF_FFFF;
 }
 
-/* op codes of the `edge_op` dispatch primitive */
+/* op codes of the `interpreter_op` dispatch primitive */
 pub mod op {
     pub const CALL: u32 = 0;
     pub const GET_ATTR: u32 = 1;
@@ -51,7 +51,7 @@ pub mod op {
     pub const ITER_END: &str = "end of iteration";
 }
 
-/* the tags a value carries through `edge_encode` and `edge_decode` */
+/* the tags a value carries through `interpreter_encode` and `interpreter_decode` */
 pub mod tag {
     pub const NONE: u32 = 0;
     pub const BOOL: u32 = 1;
@@ -67,10 +67,10 @@ pub mod tag {
     pub const DICT: u32 = 7;
 }
 
-/* the `edge_decode` answer for an invalid handle or a non-primitive left to `edge_op` */
+/* the `interpreter_decode` answer for an invalid handle or a non-primitive left to `interpreter_op` */
 pub const TAG_INVALID: u32 = u32::MAX;
 
-/* error kinds of `edge_take_error` and `edge_throw` */
+/* error kinds of `interpreter_take_error` and `interpreter_throw` */
 pub mod error_kind {
     pub const TYPE: u32 = 0;
     pub const VALUE: u32 = 1;
@@ -84,7 +84,7 @@ pub mod error_kind {
 // the nesting cap of `decode_body` past which a depth bomb returns `None`
 pub const MAX_WIRE_DEPTH: u32 = 32;
 
-// a value that crosses whole while sets and instances go through `edge_op`
+// a value that crosses whole while sets and instances go through `interpreter_op`
 #[derive(Debug, Clone, PartialEq)]
 pub enum WireValue {
     None,

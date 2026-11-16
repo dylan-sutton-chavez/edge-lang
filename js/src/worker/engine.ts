@@ -1,15 +1,15 @@
 import { bfsPrefetch } from '../prefetch.ts';
 import type { Packages } from '../prefetch.ts';
-import { makeEdgeEnv, resumePlugin } from '../env.ts';
+import { makeInterpreterEnv, resumePlugin } from '../env.ts';
 import type { DeferredHostCall } from '../env.ts';
 import { makeRt } from '../rt.ts';
-import type { Rt, EdgeValue } from '../rt.ts';
+import type { Rt, InterpreterValue } from '../rt.ts';
 import { nativeTable, resetNativeTable, waiting } from '../native.ts';
 import type { Access, Held, HostModule } from '../system/index.ts';
 import { printed, traced } from '../system/trace.ts';
 import type { TraceEvent } from '../system/trace.ts';
 import type { Permissions } from '../system/perms.ts';
-import type { EdgeExports } from '../wasm.ts';
+import type { InterpreterExports } from '../wasm.ts';
 import { standsIn } from '../protocol.ts';
 import type { Limits, LoadOpts, RunOpts, ExecResult } from '../protocol.ts';
 import { described, fault, named, writeBytes } from '../util.ts';
@@ -30,10 +30,10 @@ const STATUS_PREEMPTED = 7; // a preempt tick that resumes with no host action
 
 interface ExecuteOpts extends Omit<RunOpts, 'src' | 'entry'> {
     // a restore reads its source and entry once an instance says where they lie
-    src: string | ((e: EdgeExports) => string)
-    entry?: string | ((e: EdgeExports) => string)
+    src: string | ((e: InterpreterExports) => string)
+    entry?: string | ((e: InterpreterExports) => string)
     payload: Uint8Array
-    start: (e: EdgeExports, ptr: number, n: number) => number
+    start: (e: InterpreterExports, ptr: number, n: number) => number
     onLine?: (text: string) => void
 }
 
@@ -41,7 +41,7 @@ interface ExecuteOpts extends Omit<RunOpts, 'src' | 'entry'> {
 export type OnChannel = (channel: string, text: string) => void;
 
 let wasmModule: WebAssembly.Module | null = null;
-let edgeExports: EdgeExports | null = null;
+let interpreterExports: InterpreterExports | null = null;
 let importsMap: Record<string, string> | null = null;
 let permissionsMap: Permissions | null = null;
 // the host modules the composition wired which every run may import
@@ -85,9 +85,9 @@ let opened: { close(): void }[] = [];
 let walked: Packages | null = null;
 
 // feeds the lazy rt and env getters and throws while the instance boots
-const requireExports = (): EdgeExports => {
-    if (!edgeExports) throw new Error('engine.load() must be called first');
-    return edgeExports;
+const requireExports = (): InterpreterExports => {
+    if (!interpreterExports) throw new Error('engine.load() must be called first');
+    return interpreterExports;
 };
 
 // what a composition without grants gives every package of each module
@@ -160,9 +160,9 @@ async function execute({ src, payload, start, entry = '', onLine, incremental = 
     const rt = makeRt(requireExports);
 
     /* incremental runs reuse the instance and the stable `onLine` keeps its old closures posting */
-    let exports: EdgeExports;
-    if (incremental && edgeExports) {
-        exports = edgeExports;
+    let exports: InterpreterExports;
+    if (incremental && interpreterExports) {
+        exports = interpreterExports;
     } else {
         exports = await makeInstance(wasmModule, onLine, rt);
     }
@@ -230,7 +230,7 @@ function given(): Record<string, unknown> | null {
 }
 
 /* serves every package the walk met each host module its importers grant */
-function serveModules(exports: EdgeExports, packages: Packages): string[] {
+function serveModules(exports: InterpreterExports, packages: Packages): string[] {
     const problem = grants && grants.check(exports, packages[grants.field], modules);
     if (problem) return [`interpreter.json at '${packages.root}interpreter.json': ${problem}`];
     walked = packages;
@@ -253,7 +253,7 @@ function serveModules(exports: EdgeExports, packages: Packages): string[] {
             const baseId = nativeTable.length;
             for (const [name, call] of calls) {
                 const reported = traced(pkg, module, name, gated(module, grant, name, call), () => emitTrace, since);
-                nativeTable.push(Object.assign(() => {}, { __edge_kind: 'host' as const, __edge_name: name, __edge_module: module.name, call: reported }));
+                nativeTable.push(Object.assign(() => {}, { __interpreter_kind: 'host' as const, __interpreter_name: name, __interpreter_module: module.name, call: reported }));
             }
             const names = TE.encode(calls.map(([name]) => name).join('\n'));
             register(exports, spec, names, (s, n) => exports.register_native_module(s, spec.length, n, names.length, baseId));
@@ -268,7 +268,7 @@ const plainDir = (dir: string) => dir.replace(/^(\.\/)+/, '');
 /* why the package sending now may not write a file channel or null */
 function refuseSend(channel: string): Error | null {
     const path = channel.startsWith('file:') ? channel.slice(5) : null;
-    const exports = edgeExports;
+    const exports = interpreterExports;
     if (path === null || !walked || walked.dirs.length <= 1 || !exports?.send_package) return null;
     const len = exports.send_package();
     const dir = plainDir(TD.decode(new Uint8Array(exports.memory.buffer, exports.out_ptr(), len)));
@@ -289,7 +289,7 @@ function refuseSend(channel: string): Error | null {
 }
 
 /* stages two texts for a registration export and frees them once it copied them */
-function register(exports: EdgeExports, spec: Uint8Array, text: Uint8Array, call: (spec: number, text: number) => void): void {
+function register(exports: InterpreterExports, spec: Uint8Array, text: Uint8Array, call: (spec: number, text: number) => void): void {
     const [s, t] = [writeBytes(exports, spec), writeBytes(exports, text)];
     call(s, t);
     exports.wasm_free(s, Math.max(1, spec.length));
@@ -303,8 +303,8 @@ function closeModules(): void {
 }
 
 /* a fresh instance with the module registry and native table reset */
-async function makeInstance(module: WebAssembly.Module, onLine: ((text: string) => void) | undefined, rt: Rt): Promise<EdgeExports> {
-    const env = makeEdgeEnv({
+async function makeInstance(module: WebAssembly.Module, onLine: ((text: string) => void) | undefined, rt: Rt): Promise<InterpreterExports> {
+    const env = makeInterpreterEnv({
         getExports: requireExports,
         onLine: onLine ?? (() => {}),
         // the sink is read per line so a kept instance serves each later run
@@ -320,16 +320,16 @@ async function makeInstance(module: WebAssembly.Module, onLine: ((text: string) 
         captureHostCall: (id, call) => { pendingHostCalls.set(id, call); },
     });
     const { exports } = await WebAssembly.instantiate(module, { env } as unknown as WebAssembly.Imports);
-    edgeExports = exports as unknown as EdgeExports;
+    interpreterExports = exports as unknown as InterpreterExports;
     // the runtime names its error classes before a run so no host call reenters it
-    named(edgeExports);
-    edgeExports.reset_modules();
-    applyPreemptInterval(edgeExports);
+    named(interpreterExports);
+    interpreterExports.reset_modules();
+    applyPreemptInterval(interpreterExports);
     resetNativeTable();
     closeModules();
     servedDirs.clear();
     walked = null;
-    return edgeExports;
+    return interpreterExports;
 }
 
 function settlePause(parked: boolean): void {
@@ -339,7 +339,7 @@ function settlePause(parked: boolean): void {
 }
 
 /* services yields until the run is done or fails or exits */
-async function drive(exports: EdgeExports, rt: Rt, status: number, t0: number): Promise<ExecResult> {
+async function drive(exports: InterpreterExports, rt: Rt, status: number, t0: number): Promise<ExecResult> {
     while (true) {
         const kind = (status >>> STATUS_KIND_SHIFT) & 7;
         if (kind === STATUS_DONE || kind === STATUS_ERROR || kind === STATUS_EXIT) break;
@@ -368,7 +368,7 @@ async function drive(exports: EdgeExports, rt: Rt, status: number, t0: number): 
                 try {
                     const value = await call.pending;
                     const plugin = waiting.get(id);
-                    rv = plugin ? resumePlugin(exports, rt, id, plugin, { value }) : exports.set_host_result_by_id(id, rt.encodeAny(value as EdgeValue));
+                    rv = plugin ? resumePlugin(exports, rt, id, plugin, { value }) : exports.set_host_result_by_id(id, rt.encodeAny(value as InterpreterValue));
                 } catch (e) {
                     const [kind, message] = fault(e, exports);
                     const plugin = waiting.get(id);
@@ -408,7 +408,7 @@ async function drive(exports: EdgeExports, rt: Rt, status: number, t0: number): 
 }
 
 /* the source and entry a blob embeds read where the descriptor lays them */
-function snapshotHead(blob: Uint8Array, exports: EdgeExports): { source: string, entry: string } {
+function snapshotHead(blob: Uint8Array, exports: InterpreterExports): { source: string, entry: string } {
     const head = described(exports).snapshot;
     if (!head) throw new Error('restoring a snapshot needs a newer interpreter.wasm');
     const at = head.source_at;
@@ -427,7 +427,7 @@ function snapshotHead(blob: Uint8Array, exports: EdgeExports): { source: string,
 }
 
 /* an older wasm lacks the export and only preemption needs it */
-function applyPreemptInterval(exports: EdgeExports): void {
+function applyPreemptInterval(exports: InterpreterExports): void {
     if (!exports.set_preempt_interval) {
         if (preemptEvery > 0) throw new Error('preemption needs a newer interpreter.wasm');
         return;
@@ -438,7 +438,7 @@ function applyPreemptInterval(exports: EdgeExports): void {
 /* preempts every `n` back edges where 0 disables it */
 export function setPreemptInterval(n: number): void {
     preemptEvery = Math.max(0, n | 0);
-    if (edgeExports) applyPreemptInterval(edgeExports);
+    if (interpreterExports) applyPreemptInterval(interpreterExports);
 }
 
 /* resolves true once the run parks */
@@ -458,11 +458,11 @@ export function resume(): void {
 
 /* serializes the parked run and throws when none is parked */
 export function saveState(): Uint8Array {
-    if (!edgeExports) throw new Error('nothing to save: no run has started');
-    const len = Number(edgeExports.save_state());
-    if (len === -2) throw new Error(new TextDecoder().decode(new Uint8Array(edgeExports.memory.buffer, edgeExports.out_ptr(), edgeExports.out_len())));
+    if (!interpreterExports) throw new Error('nothing to save: no run has started');
+    const len = Number(interpreterExports.save_state());
+    if (len === -2) throw new Error(new TextDecoder().decode(new Uint8Array(interpreterExports.memory.buffer, interpreterExports.out_ptr(), interpreterExports.out_len())));
     if (len < 0) throw new Error('nothing to save: the program is not paused');
-    return new Uint8Array(edgeExports.memory.buffer, edgeExports.out_ptr(), len).slice();
+    return new Uint8Array(interpreterExports.memory.buffer, interpreterExports.out_ptr(), len).slice();
 }
 
 /* boots from the source the blob embeds and continues from its saved state */
@@ -479,25 +479,25 @@ export async function restoreState({ blob, onLine, onChannel }: { blob: Uint8Arr
 
 /* the module bindings of the parked program as JSON */
 export function stateGlobals(): Record<string, unknown> {
-    if (!edgeExports) return {};
-    const len = edgeExports.state_globals();
-    return JSON.parse(TD.decode(new Uint8Array(edgeExports.memory.buffer, edgeExports.out_ptr(), len)));
+    if (!interpreterExports) return {};
+    const len = interpreterExports.state_globals();
+    return JSON.parse(TD.decode(new Uint8Array(interpreterExports.memory.buffer, interpreterExports.out_ptr(), len)));
 }
 
 /* the coroutines of the parked program as JSON */
 export function stateStack(): unknown[] {
-    if (!edgeExports) return [];
-    const len = edgeExports.state_stack();
-    return JSON.parse(TD.decode(new Uint8Array(edgeExports.memory.buffer, edgeExports.out_ptr(), len)));
+    if (!interpreterExports) return [];
+    const len = interpreterExports.state_stack();
+    return JSON.parse(TD.decode(new Uint8Array(interpreterExports.memory.buffer, interpreterExports.out_ptr(), len)));
 }
 
 /* injects into the paused VM or returns false so the caller buffers */
 function injectEvent(message: string): boolean {
-    if (!edgeExports) return false;
+    if (!interpreterExports) return false;
     const bytes = TE.encode(message);
-    const ptr = writeBytes(edgeExports, bytes);
-    const status = edgeExports.run_push_event(ptr, bytes.length);
-    edgeExports.wasm_free(ptr, Math.max(1, bytes.length));
+    const ptr = writeBytes(interpreterExports, bytes);
+    const status = interpreterExports.run_push_event(ptr, bytes.length);
+    interpreterExports.wasm_free(ptr, Math.max(1, bytes.length));
     return status === 0;
 }
 
@@ -517,7 +517,7 @@ export function pushEvent(message: unknown): boolean {
 }
 
 export function reset(): void {
-    if (edgeExports) edgeExports.reset_modules();
+    if (interpreterExports) interpreterExports.reset_modules();
     resetNativeTable();
     pendingHostCalls.clear();
     closeModules();
@@ -532,7 +532,7 @@ export function clearCache(): void {
 
 export function dispose(): void {
     wasmModule = null;
-    edgeExports = null;
+    interpreterExports = null;
     importsMap = null;
     permissionsMap = null;
     tracing = false;

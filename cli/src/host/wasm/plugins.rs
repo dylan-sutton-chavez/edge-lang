@@ -6,7 +6,7 @@ use wasmtime::{Caller, ExternType, InstancePre, Linker, Memory, TypedFunc};
 /* the seven `env` imports a plugin declares each bridging guest memory to the runtime exports */
 pub fn link(linker: &mut Linker<State>) -> Result<()> {
     linker
-        .func_wrap("env", "edge_op", |mut caller: Caller<'_, State>, op: i32, recv: i32, name_ptr: i32, name_len: i32, argv_ptr: i32, argc: i32, out: i32| -> wasmtime::Result<i32> {
+        .func_wrap("env", "interpreter_op", |mut caller: Caller<'_, State>, op: i32, recv: i32, name_ptr: i32, name_len: i32, argv_ptr: i32, argc: i32, out: i32| -> wasmtime::Result<i32> {
             let ex = exports(&caller);
             let guest = guest_memory(&mut caller)?;
             let name = read(&mut caller, guest, name_ptr, name_len);
@@ -16,7 +16,7 @@ pub fn link(linker: &mut Linker<State>) -> Result<()> {
             let c_argv = ex.wasm_alloc.call(&mut caller, argv_len)?;
             write(&mut caller, ex.memory, c_argv, &argv);
             let c_out = ex.wasm_alloc.call(&mut caller, 4)?;
-            let ret = ex.host_edge_op.call(&mut caller, (op, recv, c_name, name_len, c_argv, argc, c_out))?;
+            let ret = ex.host_interpreter_op.call(&mut caller, (op, recv, c_name, name_len, c_argv, argc, c_out))?;
             if ret == 0 && out != 0 {
                 let handle = read_u32(&mut caller, ex.memory, c_out);
                 write_u32(&mut caller, guest, out, handle);
@@ -28,24 +28,24 @@ pub fn link(linker: &mut Linker<State>) -> Result<()> {
         })
         .map_err(|e| anyhow!("{e}"))?;
     linker
-        .func_wrap("env", "edge_encode", |mut caller: Caller<'_, State>, tag: i32, ptr: i32, len: i32| -> wasmtime::Result<i32> {
+        .func_wrap("env", "interpreter_encode", |mut caller: Caller<'_, State>, tag: i32, ptr: i32, len: i32| -> wasmtime::Result<i32> {
             let ex = exports(&caller);
             let guest = guest_memory(&mut caller)?;
             let bytes = read(&mut caller, guest, ptr, len);
             let c = stage(&mut caller, &ex, &bytes)?;
-            let handle = ex.host_edge_encode.call(&mut caller, (tag, c, len))?;
+            let handle = ex.host_interpreter_encode.call(&mut caller, (tag, c, len))?;
             unstage(&mut caller, &ex, c, bytes.len());
             Ok(handle)
         })
         .map_err(|e| anyhow!("{e}"))?;
     linker
-        .func_wrap("env", "edge_decode", |mut caller: Caller<'_, State>, handle: i32, out_tag: i32, dst: i32, dst_max: i32| -> wasmtime::Result<i32> {
+        .func_wrap("env", "interpreter_decode", |mut caller: Caller<'_, State>, handle: i32, out_tag: i32, dst: i32, dst_max: i32| -> wasmtime::Result<i32> {
             let ex = exports(&caller);
             let guest = guest_memory(&mut caller)?;
             let buf_len = dst_max.max(1);
             let c_tag = ex.wasm_alloc.call(&mut caller, 4)?;
             let c_buf = ex.wasm_alloc.call(&mut caller, buf_len)?;
-            let ret = ex.host_edge_decode.call(&mut caller, (handle, c_tag, c_buf, dst_max))?;
+            let ret = ex.host_interpreter_decode.call(&mut caller, (handle, c_tag, c_buf, dst_max))?;
             let tag = read_u32(&mut caller, ex.memory, c_tag);
             write_u32(&mut caller, guest, out_tag, tag);
             if ret > 0 {
@@ -58,33 +58,33 @@ pub fn link(linker: &mut Linker<State>) -> Result<()> {
         })
         .map_err(|e| anyhow!("{e}"))?;
     linker
-        .func_wrap("env", "edge_release", |mut caller: Caller<'_, State>, handle: i32| -> wasmtime::Result<()> {
+        .func_wrap("env", "interpreter_release", |mut caller: Caller<'_, State>, handle: i32| -> wasmtime::Result<()> {
             let ex = exports(&caller);
-            ex.host_edge_release.call(&mut caller, handle)
+            ex.host_interpreter_release.call(&mut caller, handle)
         })
         .map_err(|e| anyhow!("{e}"))?;
     linker
-        .func_wrap("env", "edge_call_id", |caller: Caller<'_, State>| -> i32 { caller.data().running.last().copied().unwrap_or(0) as i32 })
+        .func_wrap("env", "interpreter_call_id", |caller: Caller<'_, State>| -> i32 { caller.data().running.last().copied().unwrap_or(0) as i32 })
         .map_err(|e| anyhow!("{e}"))?;
     linker
-        .func_wrap("env", "edge_throw", |mut caller: Caller<'_, State>, kind: i32, ptr: i32, len: i32| -> wasmtime::Result<()> {
+        .func_wrap("env", "interpreter_throw", |mut caller: Caller<'_, State>, kind: i32, ptr: i32, len: i32| -> wasmtime::Result<()> {
             let ex = exports(&caller);
             let guest = guest_memory(&mut caller)?;
             let bytes = read(&mut caller, guest, ptr, len);
             let c = stage(&mut caller, &ex, &bytes)?;
-            ex.host_edge_throw.call(&mut caller, (kind, c, len))?;
+            ex.host_interpreter_throw.call(&mut caller, (kind, c, len))?;
             unstage(&mut caller, &ex, c, bytes.len());
             Ok(())
         })
         .map_err(|e| anyhow!("{e}"))?;
     linker
-        .func_wrap("env", "edge_take_error", |mut caller: Caller<'_, State>, out_kind: i32, dst: i32, dst_max: i32| -> wasmtime::Result<i32> {
+        .func_wrap("env", "interpreter_take_error", |mut caller: Caller<'_, State>, out_kind: i32, dst: i32, dst_max: i32| -> wasmtime::Result<i32> {
             let ex = exports(&caller);
             let guest = guest_memory(&mut caller)?;
             let buf_len = dst_max.max(1);
             let c_kind = ex.wasm_alloc.call(&mut caller, 4)?;
             let c_buf = ex.wasm_alloc.call(&mut caller, buf_len)?;
-            let ret = ex.host_edge_take_error.call(&mut caller, (c_kind, c_buf, dst_max))?;
+            let ret = ex.host_interpreter_take_error.call(&mut caller, (c_kind, c_buf, dst_max))?;
             if ret >= 0 {
                 let kind = read_u32(&mut caller, ex.memory, c_kind);
                 write_u32(&mut caller, guest, out_kind, kind);
@@ -132,14 +132,14 @@ fn headline(e: &str) -> &str {
 pub fn register_pre(inst: &mut Instance, spec: &str, pre: &InstancePre<State>) -> Result<(), String> {
     let instance = wt(pre.instantiate(&mut inst.store)).map_err(|e| format!("it fails to instantiate, {e}"))?;
     let memory = instance.get_memory(&mut inst.store, "memory").ok_or_else(|| String::from("it exports no memory"))?;
-    let version: TypedFunc<(), i32> = wt(instance.get_typed_func(&mut inst.store, "__edge_abi_version")).map_err(|e| e.to_string())?;
+    let version: TypedFunc<(), i32> = wt(instance.get_typed_func(&mut inst.store, "__interpreter_abi_version")).map_err(|e| e.to_string())?;
     let got = wt(version.call(&mut inst.store, ())).map_err(|e| e.to_string())?;
     if got != ABI_VERSION as i32 {
         return Err(format!("it speaks ABI v{got}, this cli expects v{ABI_VERSION}"));
     }
-    let alloc: TypedFunc<i32, i32> = wt(instance.get_typed_func(&mut inst.store, "__edge_alloc")).map_err(|e| e.to_string())?;
-    let free: Option<TypedFunc<(i32, i32), ()>> = instance.get_typed_func(&mut inst.store, "__edge_free").ok();
-    let resume: Option<TypedFunc<(i32, i32, i32), i32>> = instance.get_typed_func(&mut inst.store, "__edge_resume").ok();
+    let alloc: TypedFunc<i32, i32> = wt(instance.get_typed_func(&mut inst.store, "__interpreter_alloc")).map_err(|e| e.to_string())?;
+    let free: Option<TypedFunc<(i32, i32), ()>> = instance.get_typed_func(&mut inst.store, "__interpreter_free").ok();
+    let resume: Option<TypedFunc<(i32, i32, i32), i32>> = instance.get_typed_func(&mut inst.store, "__interpreter_resume").ok();
     let base = inst.store.data().natives.len();
     let mut names = Vec::new();
     for export in pre.module().exports() {

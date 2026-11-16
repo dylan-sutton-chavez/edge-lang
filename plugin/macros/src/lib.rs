@@ -15,9 +15,9 @@ pub fn plugin_fn(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let user_output = input.sig.output.clone();
     let user_block = input.block.clone();
 
-    // the wrapper takes the original name and the user fn moves to `__edge_impl_<name>`
+    // the wrapper takes the original name and the user fn moves to `__interpreter_impl_<name>`
     let impl_name = syn::Ident::new(
-        &format!("__edge_impl_{}", user_name),
+        &format!("__interpreter_impl_{}", user_name),
         proc_macro2::Span::call_site(),
     );
 
@@ -154,7 +154,7 @@ pub fn plugin_fn(_attr: TokenStream, item: TokenStream) -> TokenStream {
     expanded.into()
 }
 
-// exports the fn a waiting system call settles into as `__edge_resume`
+// exports the fn a waiting system call settles into as `__interpreter_resume`
 #[proc_macro_attribute]
 pub fn plugin_resume(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as ItemFn);
@@ -163,9 +163,9 @@ pub fn plugin_resume(_attr: TokenStream, item: TokenStream) -> TokenStream {
         #input
 
         #[doc(hidden)]
-        #[unsafe(export_name = "__edge_resume")]
+        #[unsafe(export_name = "__interpreter_resume")]
         #[allow(clippy::not_unsafe_ptr_arg_deref)]
-        pub extern "C" fn __edge_resume(call: u32, answer: u32, out: *mut u32) -> i32 {
+        pub extern "C" fn __interpreter_resume(call: u32, answer: u32, out: *mut u32) -> i32 {
             // a zero handle means the call failed and the host holds its error
             let answer = match answer {
                 0 => Err(::interpreter_plugin::last_error()),
@@ -217,19 +217,19 @@ pub fn plugin_class(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
         impl #name {
             #[doc(hidden)]
-            pub fn __edge_alloc_id() -> i64 {
+            pub fn __interpreter_alloc_id() -> i64 {
                 #id_ident.fetch_add(1, ::core::sync::atomic::Ordering::Relaxed)
             }
 
             #[doc(hidden)]
-            pub fn __edge_state() -> &'static mut ::alloc::collections::BTreeMap<i64, #name> {
+            pub fn __interpreter_state() -> &'static mut ::alloc::collections::BTreeMap<i64, #name> {
                 #state_ident.get_or_init(::alloc::collections::BTreeMap::new)
             }
 
             #[doc(hidden)]
-            pub fn __edge_insert(value: #name) -> i64 {
-                let id = Self::__edge_alloc_id();
-                Self::__edge_state().insert(id, value);
+            pub fn __interpreter_insert(value: #name) -> i64 {
+                let id = Self::__interpreter_alloc_id();
+                Self::__interpreter_state().insert(id, value);
                 id
             }
         }
@@ -267,7 +267,7 @@ pub fn plugin_methods(_attr: TokenStream, item: TokenStream) -> TokenStream {
                 #[::interpreter_plugin::plugin_fn]
                 fn #export_ident(self_h: ::interpreter_plugin::Handle) -> ::interpreter_plugin::Result<()> {
                     let instance = #self_ty::#method_ident();
-                    let id = #self_ty::__edge_insert(instance);
+                    let id = #self_ty::__interpreter_insert(instance);
                     let id_handle = <i64 as ::interpreter_plugin::IntoValue>::into_handle(id)?;
                     self_h.set_attr("__rust_id", &id_handle)?;
                     Ok(())
@@ -306,7 +306,7 @@ pub fn plugin_methods(_attr: TokenStream, item: TokenStream) -> TokenStream {
             fn #export_ident(self_h: ::interpreter_plugin::Handle #(, #user_arg_names: #user_arg_types)*) -> #wrapper_ret {
                 let id_handle = self_h.get_attr("__rust_id")?;
                 let id = <i64 as ::interpreter_plugin::FromValue>::from_handle(id_handle.raw())?;
-                let state = #self_ty::__edge_state();
+                let state = #self_ty::__interpreter_state();
                 let instance = state.get_mut(&id).ok_or_else(|| ::interpreter_plugin::Error::Runtime(::alloc::string::String::from("instance state missing")))?;
                 #call_expr
             }

@@ -3,8 +3,8 @@ import net from "../../examples/net/net.ts";
 import { opened } from "../src/system/gate.ts";
 
 // the grant logic lives in the runtime so these tests reach it through its exports
-const BASE = Deno.env.get("EDGE_CDN_BASE")?.replace(/\/$/, "");
-if (!BASE) throw new Error("set EDGE_CDN_BASE (make serve)");
+const BASE = Deno.env.get("INTERPRETER_CDN_BASE")?.replace(/\/$/, "");
+if (!BASE) throw new Error("set INTERPRETER_CDN_BASE (make serve)");
 const stub = () => 0;
 const { instance } = await WebAssembly.instantiate(await (await fetch(`${BASE}/interpreter.wasm`)).arrayBuffer(), { env: { host_print: stub, host_call_native: stub, host_fetch_bytes: stub, host_send: stub } });
 const wasm = instance.exports;

@@ -281,8 +281,8 @@ pub(crate) mod web {
     }
 
     // SAFETY only web_exports defines this symbol so its type is the one declared here
-    unsafe extern "Rust" { safe static EDGE_RUNTIME: Entry; }
-    #[inline(always)] pub(crate) fn entry() -> &'static Entry { &EDGE_RUNTIME }
+    unsafe extern "Rust" { safe static INTERPRETER_RUNTIME: Entry; }
+    #[inline(always)] pub(crate) fn entry() -> &'static Entry { &INTERPRETER_RUNTIME }
 
     pub(crate) fn print(s: &str) { unsafe { host_print(s.as_ptr(), s.len()) } }
     pub(crate) fn send(group: &str, body: &str) -> i32 { unsafe { host_send(group.as_ptr(), group.len() as u32, body.as_ptr(), body.len() as u32) } }
@@ -347,12 +347,12 @@ pub(crate) mod web {
         #[cfg(feature = "perms")] fn grants_check(sp: *const u8, sn: u32, mp: *const u8, mn: u32, tp: *const u8, tn: u32) -> u32 { crate::targets::web::perms::grants_check(slice(sp, sn), slice(mp, mn), slice(tp, tn)) }
         #[cfg(feature = "perms")] fn grants_scopes(p: *const u8, n: u32) -> u32 { crate::targets::web::perms::grants_scopes(slice(p, n)) }
         #[cfg(feature = "perms")] fn grants_held(cp: *const u8, cn: u32, pp: *const u8, pn: u32, mp: *const u8, mn: u32) -> u32 { crate::targets::web::perms::grants_held(slice(cp, cn), text(pp, pn), text(mp, mn)) }
-        fn host_edge_op(op: u32, recv: u32, np: *const u8, nn: u32, ap: *const u32, an: u32, out: *mut u32) -> i32 { bridge::host_edge_op(op, recv, text(np, nn), slice(ap, an), word(out, &mut 0)) }
-        fn host_edge_encode(tag: u32, p: *const u8, n: u32) -> u32 { bridge::host_edge_encode(tag, slice(p, n)) }
-        fn host_edge_decode(h: u32, out_tag: *mut u32, dst: *mut u8, dst_max: u32) -> i32 { bridge::host_edge_decode(h, word(out_tag, &mut 0), room(dst, dst_max)) }
-        fn host_edge_release(h: u32) { bridge::host_edge_release(h) }
-        fn host_edge_throw(kind: u32, p: *const u8, n: u32) { bridge::host_edge_throw(kind, text(p, n)) }
-        fn host_edge_take_error(out_kind: *mut u32, dst: *mut u8, dst_max: u32) -> i32 { bridge::host_edge_take_error(word(out_kind, &mut 0), room(dst, dst_max)) }
+        fn host_interpreter_op(op: u32, recv: u32, np: *const u8, nn: u32, ap: *const u32, an: u32, out: *mut u32) -> i32 { bridge::host_interpreter_op(op, recv, text(np, nn), slice(ap, an), word(out, &mut 0)) }
+        fn host_interpreter_encode(tag: u32, p: *const u8, n: u32) -> u32 { bridge::host_interpreter_encode(tag, slice(p, n)) }
+        fn host_interpreter_decode(h: u32, out_tag: *mut u32, dst: *mut u8, dst_max: u32) -> i32 { bridge::host_interpreter_decode(h, word(out_tag, &mut 0), room(dst, dst_max)) }
+        fn host_interpreter_release(h: u32) { bridge::host_interpreter_release(h) }
+        fn host_interpreter_throw(kind: u32, p: *const u8, n: u32) { bridge::host_interpreter_throw(kind, text(p, n)) }
+        fn host_interpreter_take_error(out_kind: *mut u32, dst: *mut u8, dst_max: u32) -> i32 { bridge::host_interpreter_take_error(word(out_kind, &mut 0), room(dst, dst_max)) }
     }
 
     /* registers runtime `$rt` which carries its front end and descriptor as the one interpreter.wasm boots */
@@ -360,7 +360,7 @@ pub(crate) mod web {
     macro_rules! web_exports {
         ($rt:path) => {
             #[unsafe(no_mangle)]
-            static EDGE_RUNTIME: $crate::targets::web::Entry = $crate::targets::web::Entry::new(&$rt);
+            static INTERPRETER_RUNTIME: $crate::targets::web::Entry = $crate::targets::web::Entry::new(&$rt);
         };
     }
 }

@@ -132,7 +132,7 @@ impl HandleTable {
     }
 }
 
-// one pending error that dispatch failures and `edge_throw` set and `edge_take_error` drains
+// one pending error that dispatch failures and `interpreter_throw` set and `interpreter_take_error` drains
 #[derive(Default)]
 pub struct ErrorStash(Option<(u32, String)>);
 
@@ -150,13 +150,13 @@ impl ErrorStash {
 
     pub fn take(&mut self) -> Option<(u32, String)> { self.0.take() }
 
-    // leaves the error in place so `edge_take_error` can retry with a bigger buffer
+    // leaves the error in place so `interpreter_take_error` can retry with a bigger buffer
     pub fn peek(&self) -> Option<(u32, &str)> {
         self.0.as_ref().map(|(k, m)| (*k, m.as_str()))
     }
 }
 
-// the outcome of `edge_encode` where the host allocates the `Alloc` cases and builds a `Composite`
+// the outcome of `interpreter_encode` where the host allocates the `Alloc` cases and builds a `Composite`
 pub enum EncodeRequest<'a> {
     Direct(u64),
     AllocStr(&'a str),
@@ -213,7 +213,7 @@ pub fn classify_encode(tag: u32, bytes: &[u8]) -> EncodeRequest<'_> {
     }
 }
 
-// the outcome of `edge_decode` where the host materializes a `Heap` value itself
+// the outcome of `interpreter_decode` where the host materializes a `Heap` value itself
 pub enum DecodeBits {
     Primitive { tag: u32, bytes: PrimitiveBytes },
     Heap,

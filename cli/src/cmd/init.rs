@@ -39,7 +39,7 @@ impl Command for Init {
 }
 
 fn index_html(d: &Descriptor, title: &str) -> String {
-    INDEX_HTML.replace("__EDGE_ENTRY__", d.entry()).replace("__EDGE_TITLE__", title)
+    INDEX_HTML.replace("__INTERPRETER_ENTRY__", d.entry()).replace("__INTERPRETER_TITLE__", title)
 }
 
 // scaffolds a ready-to-run project

@@ -98,7 +98,7 @@ make stage serve
 Next, point the JS suites at it and run them.
 
 ```bash
-export EDGE_CDN_BASE=http://127.0.0.1:8788
+export INTERPRETER_CDN_BASE=http://127.0.0.1:8788
 make browsers   # once
 make test-js test-cli test-skill
 ```

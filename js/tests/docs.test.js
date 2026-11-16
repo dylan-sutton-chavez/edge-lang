@@ -4,9 +4,9 @@ import { readdirSync, readFileSync } from "node:fs";
 import { Buffer } from "node:buffer";
 
 // the page loads the staged tree from a host no network answers
-const CDN_HOST = "edge.test";
-const BASE = Deno.env.get("EDGE_CDN_BASE")?.replace(/\/$/, "");
-if (!BASE) throw new Error("set EDGE_CDN_BASE (make serve)");
+const CDN_HOST = "interpreter.test";
+const BASE = Deno.env.get("INTERPRETER_CDN_BASE")?.replace(/\/$/, "");
+if (!BASE) throw new Error("set INTERPRETER_CDN_BASE (make serve)");
 
 const REPO = new URL("../../", import.meta.url).pathname;
 const DOCS = new URL("../../docs/", import.meta.url);

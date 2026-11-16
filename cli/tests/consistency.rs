@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 const BIN: &str = env!("CARGO_BIN_EXE_interpreter");
 // Each program runs well under a second, so one still going after this has hung.
 const DEADLINE: Duration = Duration::from_secs(30);
-// Programs a run checks, raised through EDGE_CONSISTENCY_PROGRAMS for a longer sweep.
+// Programs a run checks, raised through INTERPRETER_CONSISTENCY_PROGRAMS for a longer sweep.
 const PROGRAMS: u64 = 500;
 // Functions in each program, and the argument pairs each one is called with.
 const FUNCTIONS: u64 = 3;
@@ -218,8 +218,8 @@ fn run(dir: &PathBuf) -> Result<String, String> {
 /* The same function with the same arguments answers the same, however often it ran and wherever it was defined. */
 #[test]
 fn a_function_answers_the_same_cold_warm_and_from_any_module() {
-    let programs = std::env::var("EDGE_CONSISTENCY_PROGRAMS").ok().and_then(|n| n.parse().ok()).unwrap_or(PROGRAMS);
-    let root = std::env::temp_dir().join(format!("edge-consistency-{}", std::process::id()));
+    let programs = std::env::var("INTERPRETER_CONSISTENCY_PROGRAMS").ok().and_then(|n| n.parse().ok()).unwrap_or(PROGRAMS);
+    let root = std::env::temp_dir().join(format!("interpreter-consistency-{}", std::process::id()));
     let mut failures = Vec::new();
     for seed in 0..programs {
         let dir = root.join(seed.to_string());

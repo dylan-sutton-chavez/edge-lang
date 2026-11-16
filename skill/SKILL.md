@@ -75,7 +75,7 @@ Run flags.
 
 `exit(code)` ends the run cleanly with that code, and `exit()` ends it with 0. Any other error prints its message and the line it rose at, as the book's interpreters do, and exits 1.
 
-`--web` serves the JS host and the engine from the binary on a loopback port, so only the modules a manifest declares by URL leave the machine. It drives a Chrome the system already has, or one it offers to download once into `~/.local/share/edge/chromium`, which `interpreter uninstall` offers to remove. `INTERPRETER_CHROME_PATH` names a browser directly and skips the search.
+`--web` serves the JS host and the engine from the binary on a loopback port, so only the modules a manifest declares by URL leave the machine. It drives a Chrome the system already has, or one it offers to download once into `~/.local/share/interpreter/chromium`, which `interpreter uninstall` offers to remove. `INTERPRETER_CHROME_PATH` names a browser directly and skips the search.
 
 `send(channel, line)` writes one line to a named output outside an actor pool, in order with what the run prints. A plain name prints its lines under the name, and `file:<path>` writes a file in the directory the run started in, a path below it with no `..`. Only the root package writes a file channel without a grant.
 
@@ -209,7 +209,7 @@ import("net");
 }
 ```
 
-The root grants each package it imports under its import key. A dependency lists in its own `interpreter.json` what its code needs under `main` and what each of its imports needs under that key, and passes on only what it holds, so its importer has to give it all of that. `interpreter lock` stops until every package gets what it lists, and no import may be named `all`, `main` or `eval`. A package is what an import key brings in and the nearest `interpreter.json` above its files, the `name` it declares never counts, code it reaches by a relative import is its own, and a package two importers share loads once for each. A grant under the key of a local module with no `interpreter.json` of its own reaches nothing and stops the run before it compiles. Each call checks its scope again, a call outside the grant ends the run naming what is missing, and a host module with the requests and sockets it opens answers only code of the package that imported it, so another package reaching `analytics.net` is refused too. A `.wasm` plugin reaches the same calls through the `Sys` op of the ABI with the grants of its package, and finishes a call that waits in `__edge_resume`.
+The root grants each package it imports under its import key. A dependency lists in its own `interpreter.json` what its code needs under `main` and what each of its imports needs under that key, and passes on only what it holds, so its importer has to give it all of that. `interpreter lock` stops until every package gets what it lists, and no import may be named `all`, `main` or `eval`. A package is what an import key brings in and the nearest `interpreter.json` above its files, the `name` it declares never counts, code it reaches by a relative import is its own, and a package two importers share loads once for each. A grant under the key of a local module with no `interpreter.json` of its own reaches nothing and stops the run before it compiles. Each call checks its scope again, a call outside the grant ends the run naming what is missing, and a host module with the requests and sockets it opens answers only code of the package that imported it, so another package reaching `analytics.net` is refused too. A `.wasm` plugin reaches the same calls through the `Sys` op of the ABI with the grants of its package, and finishes a call that waits in `__interpreter_resume`.
 
 ### net
 
@@ -297,7 +297,7 @@ groups:
 42
 ```
 
-With `listen:` the actor accepts one `<group> <body>` line per TCP message, and with `control:` beside it a live server also exposes an HTTP control endpoint on a loopback address, `GET /stats`, `POST /pub/<group>` and `POST /eval/<group>` for eval groups. Without `control:` it serves no HTTP at all. A `/pub` answers 202 once its message is written and synced to the log, and 503 when the log fails. Untrusted bundles arrive as base64 `.interpreter` payloads behind an `EDGEPKG:` marker and run from memory in a fresh instance.
+With `listen:` the actor accepts one `<group> <body>` line per TCP message, and with `control:` beside it a live server also exposes an HTTP control endpoint on a loopback address, `GET /stats`, `POST /pub/<group>` and `POST /eval/<group>` for eval groups. Without `control:` it serves no HTTP at all. A `/pub` answers 202 once its message is written and synced to the log, and 503 when the log fails. Untrusted bundles arrive as base64 `.interpreter` payloads behind an `INTRPKG:` marker and run from memory in a fresh instance.
 
 ## Sandbox limits
 

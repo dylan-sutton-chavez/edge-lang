@@ -8,7 +8,7 @@ Run them from the repo root. They need Linux or macOS and `cargo install cargo-a
 
 | Command | Does |
 |---|---|
-| `make seeds` | Rebuilds `in/` from the Lox programs of the book's suite and the bench and from `tests/cases/vm`, and `edge.dict` from `dict.txt` |
+| `make seeds` | Rebuilds `in/` from the Lox programs of the book's suite and the bench and from `tests/cases/vm`, and `interpreter.dict` from `dict.txt` |
 | `make fuzz` | Builds the target and runs one instance per core |
 | `make fuzz-carry` | Minimizes the queues into `corpus/` for the next campaign, carrying the new coverage unminimized if afl-cmin takes over `CMIN_SECS` (600) |
 | `make fuzz-status` | Shows a running campaign |

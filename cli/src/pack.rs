@@ -5,10 +5,10 @@ use std::path::Path;
 pub use interpreter::deps::bundle::{Bundle, Entry, MAGIC};
 
 // marks an eval body carrying a base64 project bundle rather than a raw snippet
-pub const BUNDLE_TAG: &str = "EDGEPKG:";
+pub const BUNDLE_TAG: &str = "INTRPKG:";
 
 // marks a standalone binary whose trailer holds the payload length before it
-pub const STANDALONE_MAGIC: &[u8] = b"EDGESFX\x01";
+pub const STANDALONE_MAGIC: &[u8] = b"INTRSFX\x01";
 
 /* only the trailer of this exe is read so plain runs stay cheap */
 pub fn embedded_payload() -> Option<Vec<u8>> {
@@ -100,7 +100,7 @@ mod tests {
     fn decodes_base64_with_and_without_padding() {
         assert_eq!(base64_decode("aGVsbG8=").unwrap(), b"hello");
         assert_eq!(base64_decode("aGVsbG8").unwrap(), b"hello");
-        assert_eq!(base64_decode("RURHRVBLRwE=").unwrap(), MAGIC);
+        assert_eq!(base64_decode("SU5UUlBLRwE=").unwrap(), MAGIC);
         assert!(base64_decode("not base64!").is_none());
     }
 }

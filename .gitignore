@@ -31,7 +31,7 @@ fuzz/in/
 fuzz/out/
 fuzz/logs/
 fuzz/corpus/
-fuzz/edge.dict
+fuzz/interpreter.dict
 
 **/deno.lock
 

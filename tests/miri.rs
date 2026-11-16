@@ -8,7 +8,7 @@ pub fn corpus() -> Vec<serde_json::Value> {
     if cfg!(miri) { crate::cases::miri_sample(root) } else { crate::cases::vm_cases(root) }
 }
 
-/* the slice EDGE_SLICE picks of `corpus` where Miri reads no other sampled case */
+/* the slice INTERPRETER_SLICE picks of `corpus` where Miri reads no other sampled case */
 pub fn corpus_slice() -> Vec<serde_json::Value> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     if cfg!(miri) { crate::cases::miri_cases(root, &slice(crate::cases::miri_lines(root)).collect::<Vec<_>>()) } else { slice(crate::cases::vm_cases(root)).collect() }

@@ -16,7 +16,7 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
 
 env:
-  EDGE_CDN_BASE: http://127.0.0.1:8788
+  INTERPRETER_CDN_BASE: http://127.0.0.1:8788
 
 jobs:
   wasm:

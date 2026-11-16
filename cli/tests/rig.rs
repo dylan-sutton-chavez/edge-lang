@@ -7,7 +7,7 @@ use std::sync::Arc;
 use suite::{net_cases, Bin};
 
 // the variable that makes this binary the CLI for one run of a case
-const AS_CLI: &str = "EDGE_AS_RIG";
+const AS_CLI: &str = "INTERPRETER_AS_RIG";
 
 // the rig make wasm-rig builds with the exports interpreter.wasm has
 const WASM: &[u8] = include_bytes!("../../target/wasm32-unknown-unknown/release/rig.wasm");

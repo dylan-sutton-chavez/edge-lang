@@ -116,7 +116,7 @@ pub(crate) fn in_vm(err: &'static str, f: impl FnOnce(&mut VM<'static>) -> Resul
 /* `f` over the live VM and the value of `recv_h` or an error without either */
 pub(crate) fn with_recv<R, F>(invalid_recv_msg: &'static str, recv_h: u32, f: F) -> Result<R, VmErr>
 where F: FnOnce(&mut VM<'static>, Val) -> Result<R, VmErr>
-{ let recv = get_val(recv_h).ok_or(VmErr::Runtime(invalid_recv_msg))?; with_vm(|vm| f(vm, recv)).ok_or(VmErr::Runtime("edge_op called outside run()"))? }
+{ let recv = get_val(recv_h).ok_or(VmErr::Runtime(invalid_recv_msg))?; with_vm(|vm| f(vm, recv)).ok_or(VmErr::Runtime("interpreter_op called outside run()"))? }
 
 /* the kind that names the error's own class and Custom for any other class */
 pub(crate) fn err_to_kind(e: &VmErr, names: &Names) -> ErrorKind { crate::lang::abi_kind(e, names) }
@@ -143,10 +143,10 @@ pub fn take_error() -> Option<(u32, String)> {
 pub use super::values::error_from_kind;
 
 // 0 leaves a handle and 1 stashes an error and 2 means a call waits
-pub(crate) fn host_edge_op(op: u32, recv: u32, name: &str, argv: &[u32], out_handle: &mut u32) -> i32 {
+pub(crate) fn host_interpreter_op(op: u32, recv: u32, name: &str, argv: &[u32], out_handle: &mut u32) -> i32 {
     // a stale argument handle fails the op since dropping it shifts the arguments after it
     let args: Option<Vec<Val>> = argv.iter().map(|&h| get_val(h)).collect();
-    let Some(args) = args else { stash_error(VmErr::TypeMsg("edge_op: invalid argument handle".into())); return 1; };
+    let Some(args) = args else { stash_error(VmErr::TypeMsg("interpreter_op: invalid argument handle".into())); return 1; };
 
     // code a waiting plugin call runs gets its own loop as the rule's one exception
     with_vm(|vm| vm.hosted += 1);
@@ -163,7 +163,7 @@ pub(crate) fn host_edge_op(op: u32, recv: u32, name: &str, argv: &[u32], out_han
     }
 }
 
-/* what `host_edge_op` asks of the VM with none once an iteration ends */
+/* what `host_interpreter_op` asks of the VM with none once an iteration ends */
 fn host_op(op: u32, recv: u32, name: &str, args: &[Val]) -> Result<Option<Val>, VmErr> {
     let val = match Op::from_u32(op) {
         Some(Op::Call) => dispatch_call(recv, name, args),
@@ -174,15 +174,15 @@ fn host_op(op: u32, recv: u32, name: &str, args: &[Val]) -> Result<Option<Val>, 
         Some(Op::Len) => dispatch_len(recv),
         Some(Op::Iter) => dispatch_iter(recv),
         Some(Op::IterNext) => return dispatch_iter_next(recv),
-        Some(Op::NewDict) => in_vm("edge_op new_dict called outside run()", |vm| vm.heap.alloc(HeapObj::Dict(Rc::new(RefCell::new(DictMap::new()))))),
-        Some(Op::NewList) => in_vm("edge_op new_list called outside run()", |vm| vm.heap.alloc(HeapObj::List(Rc::new(RefCell::new(Vec::new()))))),
+        Some(Op::NewDict) => in_vm("interpreter_op new_dict called outside run()", |vm| vm.heap.alloc(HeapObj::Dict(Rc::new(RefCell::new(DictMap::new()))))),
+        Some(Op::NewList) => in_vm("interpreter_op new_list called outside run()", |vm| vm.heap.alloc(HeapObj::List(Rc::new(RefCell::new(Vec::new()))))),
         Some(Op::TypeOf) => dispatch_type_of(recv),
-        Some(Op::NewTuple) => in_vm("edge_op new_tuple called outside run()", |vm| vm.heap.alloc(HeapObj::Tuple(args.to_vec()))),
-        Some(Op::NewSet) => in_vm("edge_op new_set called outside run()", |vm| vm.set_from_items(args.to_vec())),
+        Some(Op::NewTuple) => in_vm("interpreter_op new_tuple called outside run()", |vm| vm.heap.alloc(HeapObj::Tuple(args.to_vec()))),
+        Some(Op::NewSet) => in_vm("interpreter_op new_set called outside run()", |vm| vm.set_from_items(args.to_vec())),
         Some(Op::NewFrozenSet) => Err(VmErr::Type("frozenset is not supported")),
-        // a system call names its plugin call in `recv` as the id `edge_call_id` gave it
+        // a system call names its plugin call in `recv` as the id `interpreter_call_id` gave it
         Some(Op::Sys) => crate::targets::web::system_call(recv, name, args),
-        None => Err(VmErr::Raised(s!("edge_op: unsupported op ", int op as i64))),
+        None => Err(VmErr::Raised(s!("interpreter_op: unsupported op ", int op as i64))),
     };
     val.map(Some)
 }
@@ -190,24 +190,24 @@ fn host_op(op: u32, recv: u32, name: &str, args: &[Val]) -> Result<Option<Val>, 
 fn dispatch_call(recv_h: u32, name: &str, args: &[Val]) -> Result<Val, VmErr> {
     // no receiver and the text name ask for the text the runtime writes
     if recv_h == 0 && name == interpreter_abi::op::TEXT { return text_of(args); }
-    with_recv("edge_op call: invalid receiver handle", recv_h, |vm, recv| {
+    with_recv("interpreter_op call: invalid receiver handle", recv_h, |vm, recv| {
         // the self name calls `recv` itself so any callable a plugin holds dispatches normally
         if name == interpreter_abi::op::CALL_SELF {
             let chunk = vm.chunk;
-            return vm.call_with(recv, None, args, &[], chunk)?.ok_or(VmErr::Runtime("edge_op call of itself: callable left no result"));
+            return vm.call_with(recv, None, args, &[], chunk)?.ok_or(VmErr::Runtime("interpreter_op call of itself: callable left no result"));
         }
         // the runtime's native method of the receiver's kind
         let Some((n, owner)) = vm.native_method(recv, name) else {
             return Err(vm.fail(crate::lang::EngineError::NoAttribute { recv, name: String::from(name), store: false }));
         };
-        vm.native_val(n, recv, Some(owner), args, &[], false)?.ok_or(VmErr::Runtime("edge_op call: method left no result"))
+        vm.native_val(n, recv, Some(owner), args, &[], false)?.ok_or(VmErr::Runtime("interpreter_op call: method left no result"))
     })
 }
 
 /* the one value of `args` as text the way the runtime's render hook writes it */
 fn text_of(args: &[Val]) -> Result<Val, VmErr> {
     let &[v] = args else { return Err(VmErr::TypeMsg(s!("str expects exactly 1 value, got ", int args.len() as i64))); };
-    in_vm("edge_op str called outside run()", |vm| {
+    in_vm("interpreter_op str called outside run()", |vm| {
         // a runtime with no render hook writes only ints and strs and refuses the rest
         let text = vm.render(v, Mode::Str)?;
         vm.heap.alloc(HeapObj::Str(text))
@@ -216,7 +216,7 @@ fn text_of(args: &[Val]) -> Result<Val, VmErr> {
 
 /* the op that reads like `recv.name` */
 fn dispatch_get_attr(recv_h: u32, name: &str) -> Result<Val, VmErr> {
-    with_recv("edge_op get_attr: invalid receiver handle", recv_h, |vm, recv| {
+    with_recv("interpreter_op get_attr: invalid receiver handle", recv_h, |vm, recv| {
         vm.attr_value(recv, name)
     })
 }
@@ -226,7 +226,7 @@ fn dispatch_set_attr(recv_h: u32, name: &str, args: &[Val]) -> Result<Val, VmErr
     let &[value] = args else {
         return Err(VmErr::TypeMsg(s!("set_attr expects exactly 1 value, got ", int args.len() as i64)));
     };
-    with_recv("edge_op set_attr: invalid receiver handle", recv_h, |vm, recv| {
+    with_recv("interpreter_op set_attr: invalid receiver handle", recv_h, |vm, recv| {
         vm.store_attr(recv, name, value)?;
         Ok(Val::none())
     })
@@ -238,7 +238,7 @@ fn dispatch_get_item(recv_h: u32, args: &[Val]) -> Result<Val, VmErr> {
         return Err(VmErr::TypeMsg(s!("get_item expects 1 index, got ", int args.len() as i64)));
     }
     let idx = args[0];
-    with_recv("edge_op get_item: invalid receiver handle", recv_h, |vm, recv| {
+    with_recv("interpreter_op get_item: invalid receiver handle", recv_h, |vm, recv| {
         vm.get_item_builtin(recv, idx)
     })
 }
@@ -250,7 +250,7 @@ fn dispatch_set_item(recv_h: u32, args: &[Val]) -> Result<Val, VmErr> {
     }
     let idx = args[0];
     let value = args[1];
-    with_recv("edge_op set_item: invalid receiver handle", recv_h, |vm, recv| {
+    with_recv("interpreter_op set_item: invalid receiver handle", recv_h, |vm, recv| {
         vm.store_item_builtin(recv, idx, value)?;
         Ok(Val::none())
     })
@@ -258,7 +258,7 @@ fn dispatch_set_item(recv_h: u32, args: &[Val]) -> Result<Val, VmErr> {
 
 /* runs the VM's `len` builtin so its caps and charges apply */
 fn dispatch_len(recv_h: u32) -> Result<Val, VmErr> {
-    with_recv("edge_op len: invalid receiver handle", recv_h, |vm, recv| {
+    with_recv("interpreter_op len: invalid receiver handle", recv_h, |vm, recv| {
         let n = vm.builtin_len(recv)?;
         vm.int_to_val(Some(n))
     })
@@ -266,7 +266,7 @@ fn dispatch_len(recv_h: u32) -> Result<Val, VmErr> {
 
 /* flattens any iterable into a list the guest reads by index and length */
 fn dispatch_iter(recv_h: u32) -> Result<Val, VmErr> {
-    with_recv("edge_op iter: invalid receiver handle", recv_h, |vm, recv| {
+    with_recv("interpreter_op iter: invalid receiver handle", recv_h, |vm, recv| {
         let items = vm.extract_iter(recv)?;
         vm.heap.alloc(HeapObj::List(Rc::new(RefCell::new(items))))
     })
@@ -274,7 +274,7 @@ fn dispatch_iter(recv_h: u32) -> Result<Val, VmErr> {
 
 /* the next item of an iterator list or builtin iterator and none at the end */
 fn dispatch_iter_next(recv_h: u32) -> Result<Option<Val>, VmErr> {
-    with_recv("edge_op iter_next: invalid receiver handle", recv_h, |vm, recv| {
+    with_recv("interpreter_op iter_next: invalid receiver handle", recv_h, |vm, recv| {
         if matches!(vm.heap.try_get(recv), Some(HeapObj::Iter(..))) {
             vm.iter_step(recv)
         } else if let Some(HeapObj::List(rc)) = vm.heap.try_get(recv) {
@@ -288,14 +288,14 @@ fn dispatch_iter_next(recv_h: u32) -> Result<Option<Val>, VmErr> {
 }
 
 fn dispatch_type_of(recv_h: u32) -> Result<Val, VmErr> {
-    with_recv("edge_op type_of: invalid receiver handle", recv_h, |vm, recv| {
+    with_recv("interpreter_op type_of: invalid receiver handle", recv_h, |vm, recv| {
         let name = vm.type_named(recv);
         vm.heap.alloc(HeapObj::Str(name))
     })
 }
 
 // turns a tag and bytes into a value handle or 0 for an invalid pair
-pub(crate) fn host_edge_encode(tag: u32, bytes: &[u8]) -> u32 {
+pub(crate) fn host_interpreter_encode(tag: u32, bytes: &[u8]) -> u32 {
     // allocates in the live VM and gives 0 outside a run or out of memory
     fn alloc_and_put(make: impl FnOnce() -> HeapObj) -> u32 {
         // the payload is copied inside so the program's meter pays for it between runs too
@@ -320,7 +320,7 @@ pub(crate) fn host_edge_encode(tag: u32, bytes: &[u8]) -> u32 {
 }
 
 // bootstrap decoder writing the tag to `out_tag` and the bytes into `dst`
-pub(crate) fn host_edge_decode(h: u32, out_tag: &mut u32, dst: &mut [u8]) -> i32 {
+pub(crate) fn host_interpreter_decode(h: u32, out_tag: &mut u32, dst: &mut [u8]) -> i32 {
     let v = match get_val(h) {
         Some(v) => v,
         None => { *out_tag = TAG_INVALID; return 0; }
@@ -340,7 +340,7 @@ pub(crate) fn host_edge_decode(h: u32, out_tag: &mut u32, dst: &mut [u8]) -> i32
             PrimitiveBytes::Sixteen(a) => copy_into(tag, &a),
         },
         DecodeBits::Heap => {
-            // text bytes ints and composites decode while other values go through `edge_op`
+            // text bytes ints and composites decode while other values go through `interpreter_op`
             enum Decoded { Str(alloc::string::String), Bytes(Vec<u8>), Int(i128), Wire(u32, Vec<u8>), Other }
             let decoded = with_vm(|vm| if v.is_foreign() { super::values::foreign_int(&vm.heap, v).map_or(Decoded::Other, Decoded::Int) } else { match vm.heap.get(v) {
                 HeapObj::Str(s) => Decoded::Str(s.clone()),
@@ -370,17 +370,17 @@ pub(crate) fn host_edge_decode(h: u32, out_tag: &mut u32, dst: &mut [u8]) -> i32
 }
 
 // decrements the refcount of a handle and does nothing for an invalid one
-pub(crate) fn host_edge_release(h: u32) {
+pub(crate) fn host_interpreter_release(h: u32) {
     with_bridge(|b| b.handles.release(h));
 }
 
 // stashes a guest error for the host over any pending one
-pub(crate) fn host_edge_throw(kind: u32, msg: &str) {
+pub(crate) fn host_interpreter_throw(kind: u32, msg: &str) {
     with_bridge(|b| b.error_stash.set(kind, msg.to_string()));
 }
 
 // drains the most recent error
-pub(crate) fn host_edge_take_error(out_kind: &mut u32, dst: &mut [u8]) -> i32 {
+pub(crate) fn host_interpreter_take_error(out_kind: &mut u32, dst: &mut [u8]) -> i32 {
     // a peek first lets a caller with too small a buffer retry
     let (kind, len) = match with_bridge(|b| b.error_stash.peek().map(|(k, m)| (k, m.len()))) {
         Some(p) => p,

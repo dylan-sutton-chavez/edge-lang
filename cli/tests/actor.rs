@@ -98,7 +98,7 @@ fn run_batch(path: &std::path::Path) -> Vec<String> {
 // A server pool stays alive, publish feeds the ingress, then stdout, /stats and posts are read.
 fn run_server(path: &std::path::Path, listen: &str, case: &Case) -> (Vec<String>, String, Vec<String>) {
     let addr = listen.strip_prefix("tcp://").unwrap_or(listen);
-    let scratch = std::env::temp_dir().join(format!("edge-actor-{}-{}", std::process::id(), path.file_stem().unwrap().to_string_lossy()));
+    let scratch = std::env::temp_dir().join(format!("interpreter-actor-{}-{}", std::process::id(), path.file_stem().unwrap().to_string_lossy()));
     let _ = std::fs::create_dir_all(&scratch);
     let manifest = scratch.join("actor.yml");
     std::fs::copy(path, &manifest).unwrap();
@@ -161,7 +161,7 @@ fn bundle(entry: &str, files: &[(&str, &str)]) -> Vec<u8> {
         b.push(b'\n');
         b.extend_from_slice(bytes);
     }
-    let mut b = b"EDGEPKG\x01".to_vec();
+    let mut b = b"INTRPKG\x01".to_vec();
     put(&mut b, entry.as_bytes());
     b.extend_from_slice(files.len().to_string().as_bytes());
     b.push(b'\n');
@@ -193,9 +193,9 @@ fn eval_group_runs_a_bundled_project_over_the_wire() {
         ("util.lox", "fun hi() {\n    return \"bundled and run\";\n}\n"),
         ("interpreter.json", "{ \"imports\": { \"util\": \"./util.lox\" } }\n"),
     ]);
-    let line = format!("runners EDGEPKG:{}", base64_encode(&payload));
+    let line = format!("runners INTRPKG:{}", base64_encode(&payload));
 
-    let scratch = std::env::temp_dir().join(format!("edge-actor-bundle-{}", std::process::id()));
+    let scratch = std::env::temp_dir().join(format!("interpreter-actor-bundle-{}", std::process::id()));
     let _ = std::fs::create_dir_all(&scratch);
     let manifest = scratch.join("actor.yml");
     std::fs::write(&manifest, "runtime:\n  listen: tcp://127.0.0.1:7811\ngroups:\n  runners:\n    eval: true\n").unwrap();
@@ -220,13 +220,13 @@ fn a_pool_that_grants_eval_nothing_refuses_a_bundle_that_grants() {
         ("main.lox", "var net = import(\"net\");\nprint net.request(\"GET\", \"http://127.0.0.1:1/\") > 0;\n"),
         ("interpreter.json", "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n"),
     ]);
-    let scratch = std::env::temp_dir().join(format!("edge-actor-grant-{}", std::process::id()));
+    let scratch = std::env::temp_dir().join(format!("interpreter-actor-grant-{}", std::process::id()));
     let _ = std::fs::create_dir_all(&scratch);
     let manifest = scratch.join("actor.yml");
     std::fs::write(&manifest, "runtime:\n  listen: tcp://127.0.0.1:7812\n  control: tcp://127.0.0.1:9812\ngroups:\n  runners:\n    eval: true\n").unwrap();
 
     let mut child = interpreter().args(["actor", manifest.to_str().unwrap()]).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
-    let reply = post_eval("127.0.0.1:9812", "/eval/runners", &format!("EDGEPKG:{}", base64_encode(&payload)));
+    let reply = post_eval("127.0.0.1:9812", "/eval/runners", &format!("INTRPKG:{}", base64_encode(&payload)));
     let _ = child.kill();
     let _ = child.wait();
     let _ = std::fs::remove_dir_all(&scratch);
@@ -236,14 +236,14 @@ fn a_pool_that_grants_eval_nothing_refuses_a_bundle_that_grants() {
 /* A bundle holds what it grants within the eval grant of the pool, and a snippet holds nothing. */
 #[test]
 fn an_eval_bundle_grants_within_what_the_pool_grants_eval() {
-    let scratch = std::env::temp_dir().join(format!("edge-actor-ceiling-{}", std::process::id()));
+    let scratch = std::env::temp_dir().join(format!("interpreter-actor-ceiling-{}", std::process::id()));
     let _ = std::fs::create_dir_all(&scratch);
     let manifest = scratch.join("actor.yml");
     std::fs::write(&manifest, "runtime:\n  listen: tcp://127.0.0.1:7813\n  control: tcp://127.0.0.1:9813\ngroups:\n  runners:\n    eval: true\n").unwrap();
     std::fs::write(scratch.join("interpreter.json"), r#"{ "permissions": { "main": ["net:127.0.0.1"], "all": ["net:127.0.0.1"], "eval": ["net:127.0.0.1/eval"] } }"#).unwrap();
     let granting = |source: &str, grant: &str| {
         let payload = bundle("main.lox", &[("main.lox", source), ("interpreter.json", &format!(r#"{{ "permissions": {{ "main": ["{grant}"] }} }}"#))]);
-        post_eval("127.0.0.1:9813", "/eval/runners", &format!("EDGEPKG:{}", base64_encode(&payload)))
+        post_eval("127.0.0.1:9813", "/eval/runners", &format!("INTRPKG:{}", base64_encode(&payload)))
     };
 
     let mut child = interpreter().args(["actor", manifest.to_str().unwrap()]).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
@@ -265,7 +265,7 @@ fn an_eval_bundle_grants_within_what_the_pool_grants_eval() {
 fn a_busy_actor_never_holds_up_the_rest() {
     use std::io::BufRead;
     use std::time::Instant;
-    let scratch = std::env::temp_dir().join(format!("edge-actor-share-{}", std::process::id()));
+    let scratch = std::env::temp_dir().join(format!("interpreter-actor-share-{}", std::process::id()));
     let _ = std::fs::create_dir_all(&scratch);
     let manifest = scratch.join("actor.yml");
     std::fs::write(&manifest, "runtime:\n  listen: tcp://127.0.0.1:7814\n  control: tcp://127.0.0.1:9814\ngroups:\n  runners:\n    eval: true\n    replicas: 3\n  echo:\n    code: print \"echo \" + receive();\n  spin:\n    code: |\n      receive();\n      while (true) {\n      }\n").unwrap();
@@ -296,7 +296,7 @@ fn a_busy_actor_never_holds_up_the_rest() {
 #[test]
 fn an_eval_group_timeout_ends_a_spin() {
     use std::time::Instant;
-    let scratch = std::env::temp_dir().join(format!("edge-actor-timeout-{}", std::process::id()));
+    let scratch = std::env::temp_dir().join(format!("interpreter-actor-timeout-{}", std::process::id()));
     let _ = std::fs::create_dir_all(&scratch);
     let manifest = scratch.join("actor.yml");
     std::fs::write(&manifest, "runtime:\n  listen: tcp://127.0.0.1:7815\n  control: tcp://127.0.0.1:9815\ngroups:\n  runners:\n    eval: true\n    limits:\n      timeout: 1\n      ops: 18446744073709551615\n").unwrap();
@@ -319,7 +319,7 @@ fn an_eval_group_timeout_ends_a_spin() {
 /* A timeout past five minutes, or on a group that does not eval, stops the boot. */
 #[test]
 fn a_timeout_out_of_bounds_or_off_eval_stops_the_boot() {
-    let scratch = std::env::temp_dir().join(format!("edge-actor-timeout-bounds-{}", std::process::id()));
+    let scratch = std::env::temp_dir().join(format!("interpreter-actor-timeout-bounds-{}", std::process::id()));
     let _ = std::fs::create_dir_all(&scratch);
     let boot = |yml: &str| {
         let manifest = scratch.join("actor.yml");
@@ -337,7 +337,7 @@ fn a_timeout_out_of_bounds_or_off_eval_stops_the_boot() {
 /* a setting past what it takes stops the boot and names what it takes */
 #[test]
 fn a_setting_past_what_it_takes_stops_the_boot() {
-    let scratch = std::env::temp_dir().join(format!("edge-actor-settings-{}", std::process::id()));
+    let scratch = std::env::temp_dir().join(format!("interpreter-actor-settings-{}", std::process::id()));
     let _ = std::fs::create_dir_all(&scratch);
     let manifest = scratch.join("actor.yml");
     let cases = [
@@ -346,7 +346,7 @@ fn a_setting_past_what_it_takes_stops_the_boot() {
         ("groups:\n  g:\n    code: print 1;\n    replicas: 0\n", "group 'g' sets replicas to 0, it takes 1 or more"),
         ("runtime:\n  max_actors: 0\ngroups:\n  g:\n    code: print 1;\n", "runtime.max_actors is 0, it takes 1 or more"),
         ("groups:\n  g:\n    code: print 1;\n    out: stdrr\n", "group 'g' sets out to 'stdrr', it takes stdout, null or file://<path>"),
-        ("groups:\n  g:\n    code: print 1;\n    out: file:///edge-no-such-dir/out.log\n", "opening the out file of group 'g'"),
+        ("groups:\n  g:\n    code: print 1;\n    out: file:///interpreter-no-such-dir/out.log\n", "opening the out file of group 'g'"),
         ("runtime:\n  schedulers: many\ngroups:\n  g:\n    code: print 1;\n", "runtime.schedulers takes auto or a count of 1 or more"),
         ("runtime:\n  schedulers: 0\ngroups:\n  g:\n    code: print 1;\n", "runtime.schedulers takes auto or a count of 1 or more"),
     ];
@@ -366,7 +366,7 @@ fn a_setting_past_what_it_takes_stops_the_boot() {
 /* a control endpoint off loopback stops the boot before anything binds and names the tunnel */
 #[test]
 fn a_control_endpoint_off_loopback_stops_the_boot() {
-    let scratch = std::env::temp_dir().join(format!("edge-actor-control-{}", std::process::id()));
+    let scratch = std::env::temp_dir().join(format!("interpreter-actor-control-{}", std::process::id()));
     let _ = std::fs::create_dir_all(&scratch);
     let manifest = scratch.join("actor.yml");
     let group = "groups:\n  echo:\n    code: print receive();\n    seed: [\"x\"]\n";
@@ -409,7 +409,7 @@ fn boot_briefly(manifest: &std::path::Path) -> (bool, String) {
 fn the_server_serves_every_client_at_once_and_holds_a_flood_back() {
     use std::io::{BufRead, Read};
     use std::time::Instant;
-    let scratch = std::env::temp_dir().join(format!("edge-actor-clients-{}", std::process::id()));
+    let scratch = std::env::temp_dir().join(format!("interpreter-actor-clients-{}", std::process::id()));
     let _ = std::fs::create_dir_all(&scratch);
     let manifest = scratch.join("actor.yml");
     std::fs::write(&manifest, "runtime:\n  listen: tcp://127.0.0.1:7816\n  control: tcp://127.0.0.1:9816\ngroups:\n  runners:\n    eval: true\n  echo:\n    code: |\n      while (true) {\n          print \"echo \" + receive();\n      }\n  stuck:\n    code: |\n      receive();\n      while (true) {\n      }\n").unwrap();
@@ -502,7 +502,7 @@ fn the_server_serves_every_client_at_once_and_holds_a_flood_back() {
 /* A server killed mid-run replays at its next start only the messages its actors never finished. */
 #[test]
 fn a_restart_replays_only_the_messages_left_unfinished() {
-    let scratch = std::env::temp_dir().join(format!("edge-actor-wal-{}", std::process::id()));
+    let scratch = std::env::temp_dir().join(format!("interpreter-actor-wal-{}", std::process::id()));
     let _ = std::fs::create_dir_all(&scratch);
     let manifest = scratch.join("actor.yml");
     let pool = |hold: &str| format!("runtime:\n  listen: tcp://127.0.0.1:7817\ngroups:\n  echo:\n    code: |\n      while (true) {{\n          print \"echo \" + receive();\n      }}\n  hold:\n    code: |\n{hold}");
@@ -522,7 +522,7 @@ fn a_restart_replays_only_the_messages_left_unfinished() {
 #[test]
 fn a_sigterm_lets_the_actors_finish_before_the_server_exits() {
     use std::io::Read;
-    let scratch = std::env::temp_dir().join(format!("edge-actor-drain-{}", std::process::id()));
+    let scratch = std::env::temp_dir().join(format!("interpreter-actor-drain-{}", std::process::id()));
     let _ = std::fs::create_dir_all(&scratch);
     let manifest = scratch.join("actor.yml");
     std::fs::write(&manifest, "runtime:\n  listen: tcp://127.0.0.1:7818\ngroups:\n  slow:\n    code: |\n      while (true) {\n          var msg = receive();\n          for (var i = 0; i < 2000000; i = i + 1) {\n          }\n          print \"slow \" + msg;\n      }\n").unwrap();
@@ -607,7 +607,7 @@ fn get_status(addr: &str) -> String {
 /* an eval bundle reads granted files below the pool's manifest and never where it started */
 #[test]
 fn an_eval_bundle_reads_files_below_its_pool_and_nowhere_else() {
-    let scratch = std::env::temp_dir().join(format!("edge-actor-files-{}", std::process::id()));
+    let scratch = std::env::temp_dir().join(format!("interpreter-actor-files-{}", std::process::id()));
     let (pool, away) = (scratch.join("pool"), scratch.join("away"));
     for dir in [&pool, &away] {
         std::fs::create_dir_all(dir).unwrap();
@@ -619,7 +619,7 @@ fn an_eval_bundle_reads_files_below_its_pool_and_nowhere_else() {
     let seed = |grant: &str, path: &str| {
         let main = format!("var files = import(\"files\");\nprint files.read(files.open(\"{path}\", nil));\n");
         let grants = format!(r#"{{ "permissions": {{ "main": ["{grant}"] }} }}"#);
-        format!("\"EDGEPKG:{}\"", base64_encode(&bundle("main.lox", &[("main.lox", &main), ("interpreter.json", &grants)])))
+        format!("\"INTRPKG:{}\"", base64_encode(&bundle("main.lox", &[("main.lox", &main), ("interpreter.json", &grants)])))
     };
     let seeds = [seed("files:notes.txt", "notes.txt"), seed("files:notes.txt", "../away/notes.txt"), seed("files:secret.txt", "secret.txt"), seed("files:../away/notes.txt", "notes.txt")];
     std::fs::write(pool.join("actor.yml"), format!("groups:\n  guest:\n    eval: true\n    seed: [{}]\n", seeds.join(", "))).unwrap();
@@ -641,7 +641,7 @@ fn an_eval_bundle_reads_files_below_its_pool_and_nowhere_else() {
 /* an eval run that raises or sends fails the pool under its group's name */
 #[test]
 fn an_eval_run_that_raises_or_sends_fails_under_its_group() {
-    let scratch = std::env::temp_dir().join(format!("edge-actor-raises-{}", std::process::id()));
+    let scratch = std::env::temp_dir().join(format!("interpreter-actor-raises-{}", std::process::id()));
     let _ = std::fs::create_dir_all(&scratch);
     let manifest = scratch.join("actor.yml");
     std::fs::write(&manifest, r#"groups:
@@ -664,7 +664,7 @@ fn an_eval_run_that_raises_or_sends_fails_under_its_group() {
 #[test]
 fn the_control_port_refuses_a_rebound_host_and_a_web_page() {
     use std::io::Read;
-    let scratch = std::env::temp_dir().join(format!("edge-actor-hosts-{}", std::process::id()));
+    let scratch = std::env::temp_dir().join(format!("interpreter-actor-hosts-{}", std::process::id()));
     let _ = std::fs::create_dir_all(&scratch);
     let manifest = scratch.join("actor.yml");
     std::fs::write(&manifest, "runtime:\n  listen: tcp://127.0.0.1:7821\n  control: tcp://127.0.0.1:9821\ngroups:\n  echo:\n    code: |\n      while (true) {\n          print \"echo \" + receive();\n      }\n").unwrap();

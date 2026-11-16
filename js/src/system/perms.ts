@@ -1,6 +1,6 @@
 import { denied } from './error.ts';
 import type { Access, Held, HostModule } from './index.ts';
-import type { EdgeExports } from '../wasm.ts';
+import type { InterpreterExports } from '../wasm.ts';
 import { writeBytes } from '../util.ts';
 
 /* each holder in an interpreter.json section mapped to the entries it is granted */
@@ -13,7 +13,7 @@ const TE = new TextEncoder();
 const TD = new TextDecoder();
 
 /* stages `texts` as pointer and length pairs for a grant export and reads its answer */
-function call(e: EdgeExports, texts: string[], run: (at: number[]) => number): string {
+function call(e: InterpreterExports, texts: string[], run: (at: number[]) => number): string {
     const bytes = texts.map((text) => TE.encode(text));
     const at = bytes.map((b) => writeBytes(e, b));
     let len: number;
@@ -26,14 +26,14 @@ function call(e: EdgeExports, texts: string[], run: (at: number[]) => number): s
 }
 
 /* the grant exports of the runtime or a refusal naming the build that lacks them */
-function exported(e: EdgeExports) {
+function exported(e: InterpreterExports) {
     const { grants_check: check, grants_scopes: scopes, grants_held: held } = e;
     if (!check || !scopes || !held) throw new Error('this interpreter.wasm exports no grant logic, build its runtime with the perms feature');
     return { check, scopes, held };
 }
 
 /* why a permissions section is malformed or null when its modules take every entry */
-export function check(e: EdgeExports, section: unknown, modules: readonly Pick<HostModule, 'name' | 'scope'>[]): string | null {
+export function check(e: InterpreterExports, section: unknown, modules: readonly Pick<HostModule, 'name' | 'scope'>[]): string | null {
     if (section === undefined) return null;
     const grants = exported(e);
     const text = JSON.stringify(section);
@@ -45,7 +45,7 @@ export function check(e: EdgeExports, section: unknown, modules: readonly Pick<H
 }
 
 /* what `chain` gives `pkg` of `module` or the text its import fails with */
-export function held(e: EdgeExports, chain: Chain, pkg: string, module: string): Held | string {
+export function held(e: InterpreterExports, chain: Chain, pkg: string, module: string): Held | string {
     const grants = exported(e);
     const got = JSON.parse(call(e, [JSON.stringify(chain), pkg, module], ([c, cn, p, pn, m, mn]) => grants.held(c!, cn!, p!, pn!, m!, mn!))) as { refused: string } | { scopes: string[], refusal: [string, string] };
     if ('refused' in got) return got.refused;

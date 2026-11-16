@@ -2,30 +2,30 @@ mod suite;
 
 use suite::{net, suite, Bin};
 
-const EDGE: Bin = Bin { path: env!("CARGO_BIN_EXE_interpreter"), env: &[], plugins: true };
+const INTERPRETER: Bin = Bin { path: env!("CARGO_BIN_EXE_interpreter"), env: &[], plugins: true };
 
 /// JSON-driven CLI suite, each case in `cli.json` is one tempdir plus one spawn of the `interpreter` binary.
 #[test]
 fn cli_suite() {
-    suite(EDGE, include_str!("cli.json"), &[&[]]);
+    suite(INTERPRETER, include_str!("cli.json"), &[&[]]);
 }
 
 /// third party wasm plugins built from `plugin/example` run the way a project declares them
 #[test]
 fn plugin_suite() {
-    suite(EDGE, include_str!("plugins.json"), &[&[]]);
+    suite(INTERPRETER, include_str!("plugins.json"), &[&[]]);
 }
 
 /// Programs both hosts must run alike, each case natively and again in the browser, which needs a Chrome.
 #[test]
 fn hosts_suite() {
-    suite(EDGE, include_str!("hosts.json"), &[&[], &["--web"]]);
+    suite(INTERPRETER, include_str!("hosts.json"), &[&[], &["--web"]]);
 }
 
 /// the net cases on both hosts against one loopback fixture which needs a Chrome
 #[test]
 fn net_suite() {
-    net(EDGE, &[&[], &["--web"]]);
+    net(INTERPRETER, &[&[], &["--web"]]);
 }
 
 /// every transcript and program of docs/ runs on this binary, some fetch from GitHub
@@ -97,7 +97,7 @@ fn transcript(body: &str, cwd: &mut std::path::PathBuf, cache: &std::path::Path)
         match args[..] {
             ["cd", dir] => *cwd = cwd.join(dir),
             ["interpreter", ..] => {
-                let out = std::process::Command::new(EDGE.path).args(&args[1..]).current_dir(&*cwd).env("XDG_CACHE_HOME", cache)
+                let out = std::process::Command::new(INTERPRETER.path).args(&args[1..]).current_dir(&*cwd).env("XDG_CACHE_HOME", cache)
                     .stdin(std::process::Stdio::null()).output().map_err(|e| e.to_string())?;
                 let printed = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
                 // a transcript that shows an error expects the command to fail
@@ -122,7 +122,7 @@ fn program(src: &str, manifest: Option<String>, output: Option<String>, cache: &
     let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
     std::fs::write(dir.path().join("main.lox"), src).map_err(|e| e.to_string())?;
     std::fs::write(dir.path().join("interpreter.json"), manifest.unwrap_or_else(|| "{}\n".into())).map_err(|e| e.to_string())?;
-    let out = std::process::Command::new(EDGE.path).args(["run", "main.lox"]).current_dir(dir.path()).env("XDG_CACHE_HOME", cache)
+    let out = std::process::Command::new(INTERPRETER.path).args(["run", "main.lox"]).current_dir(dir.path()).env("XDG_CACHE_HOME", cache)
         .stdin(std::process::Stdio::null()).output().map_err(|e| e.to_string())?;
     // a failed run shows its report after what it printed
     let printed = match out.status.success() {
@@ -139,7 +139,7 @@ fn program(src: &str, manifest: Option<String>, output: Option<String>, cache: &
 /* the command table of the cli page names exactly the commands the help lists */
 fn commands_match_help(page: &str) {
     let documented: std::collections::BTreeSet<&str> = page.lines().filter_map(|l| l.strip_prefix("| `interpreter ")).filter_map(|l| l.split([' ', '`']).next()).collect();
-    let help = std::process::Command::new(EDGE.path).arg("--help").output().expect("interpreter --help");
+    let help = std::process::Command::new(INTERPRETER.path).arg("--help").output().expect("interpreter --help");
     let help = String::from_utf8_lossy(&help.stdout).into_owned();
     let listed: std::collections::BTreeSet<&str> = help.lines().skip_while(|l| *l != "Commands").skip(1).take_while(|l| !l.is_empty()).filter_map(|l| l.split_whitespace().next()).collect();
     assert_eq!(documented, listed, "docs/06-cli.mdx lists other commands than interpreter --help");

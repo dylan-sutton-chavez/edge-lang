@@ -36,7 +36,7 @@ for (const object of objects) {
 }
 
 const url = await mf.ready
-console.log(`Serving ${objects.length} object(s), export EDGE_CDN_BASE=${url.origin}`)
+console.log(`Serving ${objects.length} object(s), export INTERPRETER_CDN_BASE=${url.origin}`)
 
 process.on('SIGINT', () => mf.dispose().then(() => process.exit(0)))
 process.on('SIGTERM', () => mf.dispose().then(() => process.exit(0)))

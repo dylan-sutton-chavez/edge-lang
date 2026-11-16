@@ -282,7 +282,7 @@ impl IterFrame {
                 let done = if *step > 0 { *cur >= *end } else { *cur <= *end };
                 if done { Ok(None) } else {
                     let v = *cur;
-                    // clamped at the i64 edge so the next `done` check ends the range without overflow
+                    // clamped at the i64 limit so the next `done` check ends the range without overflow
                     *cur = cur.checked_add(*step).unwrap_or(if *step > 0 { i64::MAX } else { i64::MIN });
                     Ok(Some(heap.int(v as i128)?))
                 }

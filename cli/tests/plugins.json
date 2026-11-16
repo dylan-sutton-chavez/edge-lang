@@ -6,7 +6,7 @@
       "slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm"
     },
     "run": ["run", "script.lox"],
-    "stdout": ["hello-world-from-edge\nHELLO-WORLD-FROM-EDGE!\n18\nhello-world-from-edgehello-world-from-edge\nedge\nfrom\nhello-world\n"],
+    "stdout": ["hello-world-from-rust\nHELLO-WORLD-FROM-RUST!\n18\nhello-world-from-rusthello-world-from-rust\nrust\nfrom\nhello-world\n"],
     "fails": ["repeat count must be non-negative", "[line 25] in script"]
   },
   {
@@ -135,10 +135,10 @@
   {
     "given": {
       "interpreter.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n",
-      "main.lox": "var slugify = import(\"slugify_mod\");\nprint slugify.slug_all(list(\"Hello World\", \"From Edge\"));\nprint slugify.slug_all(list()) == \"\";\n"
+      "main.lox": "var slugify = import(\"slugify_mod\");\nprint slugify.slug_all(list(\"Hello World\", \"From Rust\"));\nprint slugify.slug_all(list()) == \"\";\n"
     },
     "copy": { "slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm" },
     "run": ["run", "main.lox"],
-    "stdout": ["hello-world-from-edge\ntrue\n"]
+    "stdout": ["hello-world-from-rust\ntrue\n"]
   }
 ]

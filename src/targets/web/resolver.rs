@@ -45,7 +45,7 @@ impl DepHost for WebHost {
 pub(crate) fn system_call(call_id: u32, name: &str, args: &[Val]) -> Result<Val, VmErr> {
     let (module, function) = name.split_once('.').ok_or_else(|| VmErr::Of(crate::lang::ErrKind::Value, s!("a system call is named module.name, got '", str name, "'")))?;
     let caller = with_bridge(|b| b.calls.iter().rev().find(|(id, _)| *id == call_id).map(|(_, m)| m.clone()))
-        .ok_or(VmErr::Runtime("a system call names the plugin call it belongs to, see edge_call_id"))?;
+        .ok_or(VmErr::Runtime("a system call names the plugin call it belongs to, see interpreter_call_id"))?;
     let (spec, id) = HostResolver::new(dir_of(&caller), WebHost).system_fn(module, function)?;
     call_host(id, call_id, &spec, args, None)
 }

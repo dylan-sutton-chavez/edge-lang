@@ -51,10 +51,10 @@
       "stdout": ["RuntimeError\nab\n"]
     },
     {
-      "given": {"interpreter.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n", "main.rig": "use slugify_mod\nslug_all = slugify_mod.slug_all\nprint(slug_all([\"Hello World\", \"From Edge\"]))\nprint(slug_all((\"Edge Lang\", \"Uptime Checks\"), sep=\"_\"), slug_all({Mini = 1, Tiny = 2}), slug_all([]) == \"\")\n"},
+      "given": {"interpreter.json": "{ \"imports\": { \"slugify_mod\": \"./slugify_mod.wasm\" } }\n", "main.rig": "use slugify_mod\nslug_all = slugify_mod.slug_all\nprint(slug_all([\"Hello World\", \"From Rust\"]))\nprint(slug_all((\"Rust Lang\", \"Uptime Checks\"), sep=\"_\"), slug_all({Mini = 1, Tiny = 2}), slug_all([]) == \"\")\n"},
       "copy": {"slugify_mod.wasm": "target/wasm32-unknown-unknown/release/slugify_mod.wasm"},
       "run": ["run", "main.rig"],
-      "stdout": ["hello-world-from-edge\nedge-lang_uptime-checks mini-tiny true\n"]
+      "stdout": ["hello-world-from-rust\nrust-lang_uptime-checks mini-tiny true\n"]
     },
     {
       "given": {"interpreter.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n", "main.rig": "use net\n\nfn body(r) {\n    out = b\"\"\n    chunk = net.read(r)\n    while chunk != nil {\n        out += chunk\n        chunk = net.read(r)\n    }\n    return out\n}\n\nprint(body(net.request(\"POST\", \"$FIXTURE/echo/items?q=1\", [[\"x-probe\", \"pairs\"]], \"hello\")).decode())\nprint(body(net.request(\"PUT\", \"$FIXTURE/echo\", record([(\"x-probe\", \"dict\")]), b\"\\x01\\x02\")) == b\"PUT /echo\\nx-probe: dict\\n\\x01\\x02\")\nprint(body(net.request(\"get\", \"$FIXTURE/echo/a/../b/./c\")).decode(), end=\"\")\nprint(body(net.request(nil, \"$FIXTURE/echo/%2e%2e/echo/Español/@dylan?q=a/../b#gone\")).decode(), end=\"\")\n"},

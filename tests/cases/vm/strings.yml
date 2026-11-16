@@ -217,10 +217,10 @@
     x=42
 
 - case: |-
-    name = "edge"
+    name = "core"
     print("name={repr(name)}")
   expected: |-
-    name="edge"
+    name="core"
 
 - case: |-
     items = [1, 2, 3]
@@ -452,9 +452,9 @@
     b"fedcba"
 
 - case: |-
-    print("Edge".encode().decode())
+    print("Core".encode().decode())
   expected: |-
-    Edge
+    Core
 
 - case: |-
     print(text(float("nan")))

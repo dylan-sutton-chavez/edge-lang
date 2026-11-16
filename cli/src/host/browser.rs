@@ -16,7 +16,7 @@ use crate::web::{content_type, host_of, JS_HOST};
 const HARNESS: &str = include_str!("../templates/harness.html");
 
 // polled rather than awaited so a long run streams instead of blocking one call
-const POLL_JS: &str = "window.__edge ? JSON.stringify(window.__edge) : ''";
+const POLL_JS: &str = "window.__interpreter ? JSON.stringify(window.__interpreter) : ''";
 
 const POLL_EVERY: Duration = Duration::from_millis(60);
 
@@ -100,7 +100,7 @@ pub fn run(kit: &Kit, src: &str, entry: &str, manifest: Option<&Path>) -> Result
 /* the harness of one run filled once so program text never reads as a placeholder */
 fn page(src: &str, entry: &str, limits: Limits) -> Result<String> {
     let limits = serde_json::json!({ "memory": limits.memory >> 20, "ops": limits.ops });
-    Ok(HARNESS.replace("__EDGE_RUN__", &embed(&serde_json::json!({ "src": src, "entry": entry, "limits": limits }))?))
+    Ok(HARNESS.replace("__INTERPRETER_RUN__", &embed(&serde_json::json!({ "src": src, "entry": entry, "limits": limits }))?))
 }
 
 /* a JS literal escaping `<` so a closing script tag cannot end the harness block */

@@ -4,4 +4,4 @@
 fuzz/in
 fuzz/out
 fuzz/logs
-fuzz/edge.dict
+fuzz/interpreter.dict

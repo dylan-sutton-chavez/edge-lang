@@ -187,8 +187,8 @@ miri-setup:
 	rustup toolchain install $(MIRI_NIGHTLY) --profile minimal --component miri
 	cargo +$(MIRI_NIGHTLY) miri setup
 
-# one suite or one exact CASE with EDGE_SLICE and the case files reaching Miri
-miri: export MIRIFLAGS += -Zmiri-env-forward=EDGE_SLICE -Zmiri-disable-isolation
+# one suite or one exact CASE with INTERPRETER_SLICE and the case files reaching Miri
+miri: export MIRIFLAGS += -Zmiri-env-forward=INTERPRETER_SLICE -Zmiri-disable-isolation
 miri: $(MIRI_SETUP)
 	$(if $(MIRI_$(SUITE)),,$(error SUITE is one of vm snapshot modules parser lexer abi))
 	cargo +$(MIRI_NIGHTLY) miri test --locked $(MIRI_TESTS) -- $(if $(CASE),--exact $(CASE),$(MIRI_$(SUITE)))

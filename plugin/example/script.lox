@@ -2,20 +2,20 @@ var slugify = import("slugify_mod");
 
 var s = slugify.Slugger();
 s.add("Hello World");
-s.add("From Edge");
+s.add("From Rust");
 
 print s.build();
-// `hello-world-from-edge`
+// `hello-world-from-rust`
 print s.shout();
-// `HELLO-WORLD-FROM-EDGE!`
+// `HELLO-WORLD-FROM-RUST!`
 print s.total_len();
 // `18`
 print s.repeat(2);
-// `hello-world-from-edgehello-world-from-edge`
+// `hello-world-from-rusthello-world-from-rust`
 
 // pop mutates the state and returns the last part or nil
 print s.pop();
-// `edge`
+// `rust`
 print s.pop();
 // `from`
 print s.build();

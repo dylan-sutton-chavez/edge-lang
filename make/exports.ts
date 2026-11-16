@@ -2,17 +2,17 @@ const bytes = Deno.readFileSync(Deno.args[0])
 
 // hosts bind these by name so changing one breaks the js host and the cli
 const EXPECTED = `
-export EDGE_RUNTIME global i32 const
+export INTERPRETER_RUNTIME global i32 const
 export bundle_index func (i32 i32) -> (i32)
 export grants_check func (i32 i32 i32 i32 i32 i32) -> (i32)
 export grants_held func (i32 i32 i32 i32 i32 i32) -> (i32)
 export grants_scopes func (i32 i32) -> (i32)
-export host_edge_decode func (i32 i32 i32 i32) -> (i32)
-export host_edge_encode func (i32 i32 i32) -> (i32)
-export host_edge_op func (i32 i32 i32 i32 i32 i32 i32) -> (i32)
-export host_edge_release func (i32) -> ()
-export host_edge_take_error func (i32 i32 i32) -> (i32)
-export host_edge_throw func (i32 i32 i32) -> ()
+export host_interpreter_decode func (i32 i32 i32 i32) -> (i32)
+export host_interpreter_encode func (i32 i32 i32) -> (i32)
+export host_interpreter_op func (i32 i32 i32 i32 i32 i32 i32) -> (i32)
+export host_interpreter_release func (i32) -> ()
+export host_interpreter_take_error func (i32 i32 i32) -> (i32)
+export host_interpreter_throw func (i32 i32 i32) -> ()
 export memory memory
 export memory_peak func () -> (i64)
 export out_len func () -> (i32)

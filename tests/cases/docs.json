@@ -254,7 +254,7 @@
   {
     "name": "questions in a row",
     "files": {
-      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n> [!QUESTION] How do I run it?\n> With edge run.\n\n> [!QUESTION] Does it reach the network?\n> Only what interpreter.json grants.\n"
+      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n> [!QUESTION] How do I run it?\n> With interpreter run.\n\n> [!QUESTION] Does it reach the network?\n> Only what interpreter.json grants.\n"
     }
   },
   {
@@ -408,14 +408,14 @@
   {
     "name": "a copy box with a line below",
     "files": {
-      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n> [!COPY] edge run app.py\n> And more.\n"
+      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n> [!COPY] interpreter run app.py\n> And more.\n"
     },
     "error": "writes 'And more.' below [!COPY]"
   },
   {
     "name": "a copy box with backticks",
     "files": {
-      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n> [!COPY] `edge run app.py`\n"
+      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n> [!COPY] `interpreter run app.py`\n"
     },
     "error": "writes backticks in its [!COPY] box"
   }

@@ -507,7 +507,7 @@ fn dir_size(dir: &Path) -> Result<u64> {
 }
 
 fn index_html(entry: &str) -> String {
-    INDEX_HTML.replace("__EDGE_ENTRY__", entry)
+    INDEX_HTML.replace("__INTERPRETER_ENTRY__", entry)
 }
 
 #[cfg(test)]
@@ -605,7 +605,7 @@ mod tests {
     #[test]
     fn a_packed_dependency_drags_nothing_beside_it() {
         let kit = kit();
-        assert!(file_deps(&mut Scan::new(&kit), "https://cdn.test/pkg/app/0.1.0", "app.interpreter", b"EDGEPKG\x01import(\"./src/test.lox\");").unwrap().is_empty());
+        assert!(file_deps(&mut Scan::new(&kit), "https://cdn.test/pkg/app/0.1.0", "app.interpreter", b"INTRPKG\x01import(\"./src/test.lox\");").unwrap().is_empty());
     }
 
     // a vendored source pulls in what the runtime reads as its imports and its manifest

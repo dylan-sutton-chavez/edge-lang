@@ -1,6 +1,6 @@
 import { fetchModule } from './fetch.ts';
 import { loadNativeModule, nativeTable } from './native.ts';
-import type { EdgeExports } from './wasm.ts';
+import type { InterpreterExports } from './wasm.ts';
 import type { Chain } from './system/index.ts';
 import { errMsg, writeBytes } from './util.ts';
 
@@ -49,7 +49,7 @@ function schemeHint(spec: string): string | null {
 }
 
 /* the engine walks the imports and this host answers each step it asks for */
-export async function bfsPrefetch(rootSrc: string, exports: EdgeExports, ctx: PrefetchCtx, serve: (packages: Packages) => string[]): Promise<void> {
+export async function bfsPrefetch(rootSrc: string, exports: InterpreterExports, ctx: PrefetchCtx, serve: (packages: Packages) => string[]): Promise<void> {
     const { fetchedSources, knownMissing, given } = ctx;
 
     // what the embedder declared stands in for the root interpreter.json like any manifest

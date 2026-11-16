@@ -97,9 +97,9 @@
     "stdout": ["got 5"]
   },
   {
-    "given": { "t.lox": "print \"hi from edge\";\n" },
+    "given": { "t.lox": "print \"hi from interpreter\";\n" },
     "run": ["run", "t.lox"],
-    "stdout": ["hi from edge"]
+    "stdout": ["hi from interpreter"]
   },
   {
     "given": { "boom.lox": "var x = \"one\" - 1;\n" },

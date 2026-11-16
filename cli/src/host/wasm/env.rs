@@ -92,7 +92,7 @@ fn call_native(caller: &mut Caller<'_, State>, id: i32, call_id: i32, argv_ptr: 
             }
             // a plugin waiting on a host call finishes in its resume export once that settles
             if status == 2 && plugin.resume.is_none() {
-                throw(caller, &ex, &Fault::runtime("native module waits on a system call but exports no __edge_resume"));
+                throw(caller, &ex, &Fault::runtime("native module waits on a system call but exports no __interpreter_resume"));
                 status = 1;
             }
             if status == 2 {
@@ -192,7 +192,7 @@ fn take_error(cx: &mut impl AsContextMut<Data = State>, ex: &Exports) -> wasmtim
     loop {
         let kind = ex.wasm_alloc.call(&mut *cx, 4)?;
         let buf = ex.wasm_alloc.call(&mut *cx, size)?;
-        let got = ex.host_edge_take_error.call(&mut *cx, (kind, buf, size))?;
+        let got = ex.host_interpreter_take_error.call(&mut *cx, (kind, buf, size))?;
         let taken = (read_u32(cx, ex.memory, kind) as i32, String::from_utf8_lossy(&read(cx, ex.memory, buf, got.max(0))).into_owned());
         let _ = ex.wasm_free.call(&mut *cx, (kind, 4));
         let _ = ex.wasm_free.call(&mut *cx, (buf, size));
@@ -217,7 +217,7 @@ pub(super) fn throw(caller: &mut impl AsContextMut<Data = State>, ex: &Exports, 
     let message = fault.message(caller.as_context_mut().data().hosting.descriptor);
     let text = message.as_bytes();
     if let Ok(ptr) = stage(caller, ex, text) {
-        let _ = ex.host_edge_throw.call(&mut *caller, (fault.kind as i32, ptr, text.len() as i32));
+        let _ = ex.host_interpreter_throw.call(&mut *caller, (fault.kind as i32, ptr, text.len() as i32));
         unstage(caller, ex, ptr, text.len());
     }
 }

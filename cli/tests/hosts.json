@@ -1,8 +1,8 @@
 [
   {
-    "given": { "main.lox": "print \"ok from edge\";\nprint 6 * 7;\n", "interpreter.json": "{}\n" },
+    "given": { "main.lox": "print \"ok from interpreter\";\nprint 6 * 7;\n", "interpreter.json": "{}\n" },
     "run": ["run", "main.lox"],
-    "stdout": ["ok from edge", "42"]
+    "stdout": ["ok from interpreter", "42"]
   },
   {
     "given": { "main.lox": "print \"before\";\nprint \"on purpose\" - 1;\n", "interpreter.json": "{}\n" },

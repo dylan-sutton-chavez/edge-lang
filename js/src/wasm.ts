@@ -1,4 +1,4 @@
-export interface EdgeExports {
+export interface InterpreterExports {
     memory: WebAssembly.Memory
     out_ptr(): number
     out_len(): number
@@ -39,10 +39,10 @@ export interface EdgeExports {
     vm_create(): number
     vm_select(id: number): number
     vm_drop(id: number): number
-    host_edge_op(op: number, recv: number, name_ptr: number, name_len: number, argv_ptr: number, argc: number, out_handle: number): number
-    host_edge_encode(tag: number, ptr: number, len: number): number
-    host_edge_decode(h: number, out_tag: number, dst: number, dst_max: number): number
-    host_edge_release(h: number): void
-    host_edge_throw(kind: number, msg_ptr: number, msg_len: number): void
-    host_edge_take_error(out_kind: number, dst: number, dst_max: number): number
+    host_interpreter_op(op: number, recv: number, name_ptr: number, name_len: number, argv_ptr: number, argc: number, out_handle: number): number
+    host_interpreter_encode(tag: number, ptr: number, len: number): number
+    host_interpreter_decode(h: number, out_tag: number, dst: number, dst_max: number): number
+    host_interpreter_release(h: number): void
+    host_interpreter_throw(kind: number, msg_ptr: number, msg_len: number): void
+    host_interpreter_take_error(out_kind: number, dst: number, dst_max: number): number
 }

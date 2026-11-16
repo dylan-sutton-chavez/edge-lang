@@ -8,7 +8,7 @@ static DIR_SEQ: AtomicU32 = AtomicU32::new(0);
 
 fn scratch(name: &str) -> PathBuf {
     let seq = DIR_SEQ.fetch_add(1, Ordering::Relaxed);
-    let dir = std::env::temp_dir().join(format!("edge-run-test-{}-{name}-{seq}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("interpreter-run-test-{}-{name}-{seq}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     dir
@@ -147,7 +147,7 @@ fn a_packed_package_imports_from_inside_itself() {
     std::fs::write(app.join("interpreter.json"), format!("{{ \"imports\": {{ \"greet\": \"./greet.interpreter#sha256-{pin}\" }} }}\n")).unwrap();
     std::fs::write(app.join("main.lox"), "var greet = import(\"greet\");\nprint greet.hello(\"interpreter\");\n").unwrap();
     let (out, err, code) = run_in(&app, &["run", "main.lox"], None);
-    assert_eq!((out.as_str(), code), ("hello edge\n", 0), "stderr: {err}");
+    assert_eq!((out.as_str(), code), ("hello interpreter\n", 0), "stderr: {err}");
 }
 
 /* a host of one file at a release path the way GitHub serves a tag's asset */
@@ -208,7 +208,7 @@ fn a_declared_url_is_locked_once_and_then_runs() {
     let url = spawn_release(std::fs::read(lib.join("dep.interpreter")).unwrap());
 
     let app = scratch("lockapp");
-    std::fs::write(app.join("main.lox"), "var greet = import(\"greet\");\nprint greet.shout(\"hi edge\");\n").unwrap();
+    std::fs::write(app.join("main.lox"), "var greet = import(\"greet\");\nprint greet.shout(\"hi interpreter\");\n").unwrap();
     std::fs::write(app.join("interpreter.json"), "{}\n").unwrap();
     let (_, err, code) = run_in(&app, &["add", "greet@0.1.0"], None);
     assert!(err.contains("'greet@0.1.0' names no source, give it as name=<url> or name=<path>"), "stderr was: {err}");
@@ -225,7 +225,7 @@ fn a_declared_url_is_locked_once_and_then_runs() {
     assert!(held.contains(&url) && held.contains("sha256-"), "the lock holds the url and its digest: {held}");
 
     let (out, err, code) = run_in(&app, &["run", "main.lox"], None);
-    assert_eq!((out.as_str(), code), ("hi edge!\n", 0), "stderr was: {err}");
+    assert_eq!((out.as_str(), code), ("hi interpreter!\n", 0), "stderr was: {err}");
 }
 
 /* a version names no source so lock refuses it and writes nothing */
@@ -362,8 +362,8 @@ fn standalone_binary_runs_the_packed_project() {
 
 /* interpreter run accepts a packed .interpreter, the artifact interpreter build writes by default. */
 #[test]
-fn run_accepts_a_packed_edge() {
-    let dir = scratch("run-edge");
+fn run_accepts_a_packed_bundle() {
+    let dir = scratch("run-bundle");
     std::fs::write(dir.join("main.lox"), "print \"ran the bundle\";\n").unwrap();
     let (_, err, code) = run_in(&dir, &["build", "--out", "app.interpreter"], None);
     assert_eq!(code, 0, "build stderr was: {err}");
@@ -376,7 +376,7 @@ fn run_accepts_a_packed_edge() {
 #[test]
 fn a_crafted_trailer_fails_cleanly() {
     let dir = scratch("trailer");
-    let crafted = [&b"print 1;\n"[..], &(u64::MAX - 5).to_le_bytes(), b"EDGESFX\x01"].concat();
+    let crafted = [&b"print 1;\n"[..], &(u64::MAX - 5).to_le_bytes(), b"INTRSFX\x01"].concat();
     std::fs::write(dir.join("crafted"), crafted).unwrap();
     let (_, err, code) = run_in(&dir, &["run", "crafted"], None);
     assert_eq!(code, 1, "stderr was: {err}");
@@ -385,13 +385,13 @@ fn a_crafted_trailer_fails_cleanly() {
 
 /* interpreter build writes a portable .interpreter carrying the project tree. */
 #[test]
-fn build_writes_an_edge_bundle() {
+fn build_writes_an_interpreter_bundle() {
     let dir = scratch("bundle");
     std::fs::write(dir.join("main.lox"), "print \"hi\";\n").unwrap();
     let (_, err, code) = run_in(&dir, &["build", "--out", "app.interpreter"], None);
     assert_eq!(code, 0, "build stderr was: {err}");
     let bytes = std::fs::read(dir.join("app.interpreter")).unwrap();
-    assert!(bytes.starts_with(b"EDGEPKG\x01"), "missing bundle magic");
+    assert!(bytes.starts_with(b"INTRPKG\x01"), "missing bundle magic");
 }
 
 fn web_build(dir: &Path) -> (String, String, i32) {

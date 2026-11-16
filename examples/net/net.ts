@@ -1,4 +1,4 @@
-import type { EdgeValue } from '../../js/src/rt.ts';
+import type { InterpreterValue } from '../../js/src/rt.ts';
 import { failed, invalid } from '../../js/src/system/error.ts';
 import type { Held, HostModule, Shown } from '../../js/src/system/index.ts';
 
@@ -29,12 +29,12 @@ const QUEUED_BYTES = 16 << 20;
 /* the bytes a socket message holds as both hosts count them */
 const size = (message: Message) => (typeof message === 'string' ? new TextEncoder().encode(message).length : message?.byteLength ?? 0);
 
-const text = (value: EdgeValue | undefined, what: string): string => {
+const text = (value: InterpreterValue | undefined, what: string): string => {
     if (typeof value !== 'string') throw invalid(`${what} must be a str`);
     return value;
 };
 
-const content = (value: EdgeValue | undefined): Uint8Array<ArrayBuffer> | string | undefined => {
+const content = (value: InterpreterValue | undefined): Uint8Array<ArrayBuffer> | string | undefined => {
     if (value === null || value === undefined) return undefined;
     if (value instanceof Uint8Array) return value as Uint8Array<ArrayBuffer>;
     if (typeof value === 'string') return value;
@@ -49,16 +49,16 @@ const FORBIDDEN = new Set([
 ]);
 
 /* the headers a program sends as pairs each checked in order */
-const pairs = (value: EdgeValue | undefined): [string, string][] => {
+const pairs = (value: InterpreterValue | undefined): [string, string][] => {
     if (value === null || value === undefined) return [];
     const shape = () => invalid('headers are [name, value] pairs or a dict');
     if (typeof value !== 'object' || value instanceof Uint8Array || value instanceof ArrayBuffer) throw shape();
     const entries = Array.isArray(value) ? value : Object.entries(value);
     return entries.map((pair) => {
         if (!Array.isArray(pair) || pair.length !== 2) throw shape();
-        const name = text(pair[0] as EdgeValue, 'a header name');
+        const name = text(pair[0] as InterpreterValue, 'a header name');
         if (FORBIDDEN.has(name.toLowerCase()) || /^(?:proxy|sec)-/i.test(name)) throw invalid(`the header '${name}' belongs to the host, a program cannot set it`);
-        return [name, text(pair[1] as EdgeValue, 'a header value')];
+        return [name, text(pair[1] as InterpreterValue, 'a header value')];
     });
 };
 
@@ -133,7 +133,7 @@ const readings = (path: string): string[] =>
     [decode(path, UNRESERVED), decode(path), decode(decode(path))].map((read) => resolve(read.replace(/\\/g, '/').replace(/;[^/]*/g, '')));
 
 /* a request or a socket reaches the host and the resolved path of its url */
-function reaches(call: string, args: EdgeValue[]): string | null {
+function reaches(call: string, args: InterpreterValue[]): string | null {
     if (call !== 'request' && call !== 'connect') return null;
     const { host, path } = plain(text(args[call === 'request' ? 1 : 0] ?? null, 'a url'));
     return `${host}${path}`;
@@ -156,7 +156,7 @@ function asked(held: string[], reached: string): string {
 }
 
 /* the seconds a request waits for its answer to begin where none gives the default */
-function seconds(value: EdgeValue): number {
+function seconds(value: InterpreterValue): number {
     if (value === null) return TIMEOUT;
     const n = typeof value === 'number' ? value : typeof value === 'bigint' ? Number(value) : NaN;
     if (!(n > 0 && n <= TIMEOUT_MAX)) throw invalid('timeout must be a number of seconds above 0 and up to 86400');
@@ -196,7 +196,7 @@ function open(_pkg: string, _held: Held) {
     const streams = new Map<number, Stream>();
 
     // a whole number a page holds exactly names an id
-    const stream = (id: EdgeValue | undefined): Stream => {
+    const stream = (id: InterpreterValue | undefined): Stream => {
         if (typeof id !== 'number' || !Number.isSafeInteger(id)) throw invalid('an id is an int from net.request or net.connect');
         const found = streams.get(id);
         if (!found) throw invalid(`no open request or socket ${id}`);
@@ -209,7 +209,7 @@ function open(_pkg: string, _held: Held) {
     };
 
     /* returns the request id at once while head and body arrive through `response` and `read` */
-    function request(method: EdgeValue = null, url: EdgeValue = null, headers: EdgeValue = null, body: EdgeValue = null, inflate: EdgeValue = null, timeout: EdgeValue = null): number {
+    function request(method: InterpreterValue = null, url: InterpreterValue = null, headers: InterpreterValue = null, body: InterpreterValue = null, inflate: InterpreterValue = null, timeout: InterpreterValue = null): number {
         const place = plain(text(url, 'a url'));
         const init = { method: text(method ?? 'GET', 'a method'), headers: pairs(headers), body: content(body) };
         if (inflate !== null && inflate !== 'gzip') throw invalid("inflate must be None or 'gzip'");
@@ -238,14 +238,14 @@ function open(_pkg: string, _held: Held) {
     }
 
     /* the status and headers of a request once they arrive */
-    function response(id: EdgeValue = null): Promise<[number, [string, string][]]> {
+    function response(id: InterpreterValue = null): Promise<[number, [string, string][]]> {
         const found = stream(id);
         if (found.kind !== 'request') throw invalid('response takes a request from net.request');
         return found.head;
     }
 
     /* the next body chunk or socket message or None once it ended */
-    function read(id: EdgeValue = null): Message | Promise<Message> {
+    function read(id: InterpreterValue = null): Message | Promise<Message> {
         const found = stream(id);
         if (found.kind === 'request') return chunk(found);
         if (found.messages.length > 0) {
@@ -259,14 +259,14 @@ function open(_pkg: string, _held: Held) {
     }
 
     /* aborts a request or closes a socket */
-    function close(id: EdgeValue = null): null {
+    function close(id: InterpreterValue = null): null {
         stream(id).abort();
         streams.delete(id as number);
         return null;
     }
 
     /* resolves the socket id once open while its messages arrive through `read` */
-    function connect(url: EdgeValue = null): Promise<number> {
+    function connect(url: InterpreterValue = null): Promise<number> {
         const place = plain(text(url, 'a url'));
         room();
         // an http url opens its ws twin as every page socket now does
@@ -309,7 +309,7 @@ function open(_pkg: string, _held: Held) {
         });
     }
 
-    function send(id: EdgeValue = null, data: EdgeValue = null): null {
+    function send(id: InterpreterValue = null, data: InterpreterValue = null): null {
         const found = stream(id);
         if (found.kind !== 'socket') throw invalid('send takes a socket from net.connect');
         if (found.socket.readyState !== WebSocket.OPEN) throw failed('the socket is not open');
@@ -339,7 +339,7 @@ function place(url: unknown): string {
 }
 
 /* what a call reached for a trace and never its body headers or query */
-function show(call: string, args: EdgeValue[], value: unknown): Shown {
+function show(call: string, args: InterpreterValue[], value: unknown): Shown {
     if (call === 'request') return { scope: `${String(args[0])} ${place(args[1])}`, id: idOf(value) };
     if (call === 'connect') return { scope: place(args[0]), id: idOf(value) };
     const id = idOf(args[0]);

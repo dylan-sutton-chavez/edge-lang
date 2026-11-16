@@ -24,7 +24,7 @@ pub fn wt<T>(r: wasmtime::Result<T>) -> Result<T> {
 }
 
 // the universal dispatch export taking op receiver name argv argc and the out slot
-pub type EdgeOp = TypedFunc<(i32, i32, i32, i32, i32, i32, i32), i32>;
+pub type InterpreterOp = TypedFunc<(i32, i32, i32, i32, i32, i32, i32), i32>;
 
 /* the runtime loaded into wasmtime with what every scheduler thread shares */
 pub struct Loaded {
@@ -143,7 +143,7 @@ pub struct State {
     // what the host functions of either engine reach of a run
     pub hosting: Hosting,
     pub natives: Vec<Native>,
-    // the plugin calls running now innermost last which `edge_call_id` answers with
+    // the plugin calls running now innermost last which `interpreter_call_id` answers with
     pub running: Vec<u32>,
     // the plugin waiting on each call id resumed once the host call it made settles
     pub waiting: HashMap<u32, Box<Plugin>>,
@@ -174,12 +174,12 @@ pub struct Exports {
     pub set_preempt_interval: TypedFunc<i32, ()>,
     pub save_state: TypedFunc<(), i64>,
     pub restore_state: TypedFunc<(i32, i32), i32>,
-    pub host_edge_op: EdgeOp,
-    pub host_edge_encode: TypedFunc<(i32, i32, i32), i32>,
-    pub host_edge_decode: TypedFunc<(i32, i32, i32, i32), i32>,
-    pub host_edge_release: TypedFunc<i32, ()>,
-    pub host_edge_throw: TypedFunc<(i32, i32, i32), ()>,
-    pub host_edge_take_error: TypedFunc<(i32, i32, i32), i32>,
+    pub host_interpreter_op: InterpreterOp,
+    pub host_interpreter_encode: TypedFunc<(i32, i32, i32), i32>,
+    pub host_interpreter_decode: TypedFunc<(i32, i32, i32, i32), i32>,
+    pub host_interpreter_release: TypedFunc<i32, ()>,
+    pub host_interpreter_throw: TypedFunc<(i32, i32, i32), ()>,
+    pub host_interpreter_take_error: TypedFunc<(i32, i32, i32), i32>,
     pub set_limits: TypedFunc<(i64, i64), ()>,
     pub vm_create: TypedFunc<(), i32>,
     pub vm_select: TypedFunc<i32, i32>,
@@ -226,12 +226,12 @@ impl Exports {
             set_preempt_interval: f!("set_preempt_interval"),
             save_state: f!("save_state"),
             restore_state: f!("restore_state"),
-            host_edge_op: f!("host_edge_op"),
-            host_edge_encode: f!("host_edge_encode"),
-            host_edge_decode: f!("host_edge_decode"),
-            host_edge_release: f!("host_edge_release"),
-            host_edge_throw: f!("host_edge_throw"),
-            host_edge_take_error: f!("host_edge_take_error"),
+            host_interpreter_op: f!("host_interpreter_op"),
+            host_interpreter_encode: f!("host_interpreter_encode"),
+            host_interpreter_decode: f!("host_interpreter_decode"),
+            host_interpreter_release: f!("host_interpreter_release"),
+            host_interpreter_throw: f!("host_interpreter_throw"),
+            host_interpreter_take_error: f!("host_interpreter_take_error"),
             set_limits: f!("set_limits"),
             vm_create: f!("vm_create"),
             vm_select: f!("vm_select"),

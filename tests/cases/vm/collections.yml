@@ -6365,7 +6365,7 @@
 - case: |-
     // a negative index counts from the end of a list a text and a tuple
     locked = [("abi", "0.9.6"), ("itoa", "1.0.18"), ("libm", "0.2.16")]
-    print(locked[-1], locked[-2][0], locked[-1][-1], "edge.wasm"[-4:], locked[-2:], "libm"[-1])
+    print(locked[-1], locked[-2][0], locked[-1][-1], "interpreter.wasm"[-4:], locked[-2:], "libm"[-1])
   expected: |-
     ("libm", "0.2.16") itoa 0.2.16 wasm [("itoa", "1.0.18"), ("libm", "0.2.16")] m
 

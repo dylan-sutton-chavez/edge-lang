@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 use crate::s;
 
 // the leading bytes of an interpreter package checked before anything is trusted
-pub const MAGIC: &[u8] = b"EDGEPKG\x01";
+pub const MAGIC: &[u8] = b"INTRPKG\x01";
 
 // caps on a hostile bundle with room for any real project tree
 const MAX_FILES: usize = 4096;
@@ -153,7 +153,7 @@ mod tests {
             files: alloc::vec![
                 Entry { path: s!("main.lox"), bytes: b"import lib\n".to_vec() },
                 Entry { path: s!("lib/util.lox"), bytes: b"fn f() { pass }\n".to_vec() },
-                Entry { path: s!("https://example.com/dep.interpreter"), bytes: b"EDGEPKG\x01".to_vec() },
+                Entry { path: s!("https://example.com/dep.interpreter"), bytes: b"INTRPKG\x01".to_vec() },
             ],
         }
     }

@@ -1,6 +1,6 @@
 /* The engine under Deno with no browser, undeclared names fail and missing Web APIs name themselves. */
-const BASE = Deno.env.get("EDGE_CDN_BASE")?.replace(/\/$/, "");
-if (!BASE) throw new Error("set EDGE_CDN_BASE (make serve)");
+const BASE = Deno.env.get("INTERPRETER_CDN_BASE")?.replace(/\/$/, "");
+if (!BASE) throw new Error("set INTERPRETER_CDN_BASE (make serve)");
 const WASM = `${BASE}/interpreter.wasm`;
 
 // A fresh engine per test, the query string keeps the module state apart.
@@ -29,14 +29,14 @@ Deno.test("deno: a packed package imports from inside itself", async () => {
     const enc = new TextEncoder();
     const framed = (bytes) => [...enc.encode(`${bytes.length}\n`), ...bytes];
     const files = { "main.lox": "var hello = import(\"./src/hello.lox\").hello;\n", "src/hello.lox": "fun hello(name) {\n    return \"hello \" + name;\n}\n", "https://example.com/dep.interpreter": "" };
-    const packed = [...enc.encode("EDGEPKG\x01"), ...framed(enc.encode("main.lox")), ...enc.encode(`${Object.keys(files).length}\n`)];
+    const packed = [...enc.encode("INTRPKG\x01"), ...framed(enc.encode("main.lox")), ...enc.encode(`${Object.keys(files).length}\n`)];
     for (const [path, text] of Object.entries(files)) packed.push(...framed(enc.encode(path)), ...framed(enc.encode(text)));
     const dir = await Deno.makeTempDir();
     await Deno.writeFile(`${dir}/greet.interpreter`, new Uint8Array(packed));
     const engine = await boot("package", { greet: new URL(`file://${dir}/greet.interpreter`).href });
     const lines = [];
-    const { out } = await engine.run({ src: "print import(\"greet\").hello(\"edge\");" }, (t) => lines.push(t));
-    if (out !== "" || lines.join("").trim() !== "hello edge") throw new Error(`unexpected ${JSON.stringify([out, lines])}`);
+    const { out } = await engine.run({ src: "print import(\"greet\").hello(\"interpreter\");" }, (t) => lines.push(t));
+    if (out !== "" || lines.join("").trim() !== "hello interpreter") throw new Error(`unexpected ${JSON.stringify([out, lines])}`);
 });
 
 /* A published package declares its own dependency by version, so the host has to read the lock the package carries rather than ask a registry at run time. */
@@ -44,7 +44,7 @@ Deno.test("deno: a packed package resolves its own version through the lock it c
     const enc = new TextEncoder();
     const framed = (bytes) => [...enc.encode(`${bytes.length}\n`), ...bytes];
     const pack = (entry, files) => {
-        const out = [...enc.encode("EDGEPKG\x01"), ...framed(enc.encode(entry)), ...enc.encode(`${Object.keys(files).length}\n`)];
+        const out = [...enc.encode("INTRPKG\x01"), ...framed(enc.encode(entry)), ...enc.encode(`${Object.keys(files).length}\n`)];
         for (const [path, text] of Object.entries(files)) out.push(...framed(enc.encode(path)), ...framed(enc.encode(text)));
         return new Uint8Array(out);
     };
@@ -63,8 +63,8 @@ Deno.test("deno: a packed package resolves its own version through the lock it c
 
     const engine = await boot("lock", { app: new URL(`file://${dir}/app.interpreter`).href });
     const lines = [];
-    const { out } = await engine.run({ src: "print import(\"app\").greet(\"edge\");" }, (t) => lines.push(t));
-    if (out !== "" || lines.join("").trim() !== "hi edge!") throw new Error(`unexpected ${JSON.stringify([out, lines])}`);
+    const { out } = await engine.run({ src: "print import(\"app\").greet(\"interpreter\");" }, (t) => lines.push(t));
+    if (out !== "" || lines.join("").trim() !== "hi interpreter!") throw new Error(`unexpected ${JSON.stringify([out, lines])}`);
 });
 
 // a page has no lock command so a version no lock holds names the file
@@ -72,7 +72,7 @@ Deno.test("deno: a version no lock holds names the lock", async () => {
     const enc = new TextEncoder();
     const framed = (bytes) => [...enc.encode(`${bytes.length}\n`), ...bytes];
     const files = { "main.lox": "print 1;\n", "interpreter.json": JSON.stringify({ imports: { dep: "0.1.0" } }) };
-    const out = [...enc.encode("EDGEPKG\x01"), ...framed(enc.encode("main.lox")), ...enc.encode(`${Object.keys(files).length}\n`)];
+    const out = [...enc.encode("INTRPKG\x01"), ...framed(enc.encode("main.lox")), ...enc.encode(`${Object.keys(files).length}\n`)];
     for (const [path, text] of Object.entries(files)) out.push(...framed(enc.encode(path)), ...framed(enc.encode(text)));
     const dir = await Deno.makeTempDir();
     await Deno.writeFile(`${dir}/app.interpreter`, new Uint8Array(out));
