@@ -116,3 +116,27 @@
 - rig: |-
     return 1
   error: "'return' outside function"
+
+- rig: |-
+    x = quota within time 5
+  errors: ["expected 's'"]
+
+- rig: |-
+    x = quota within soon 3
+  errors: ["expected a limit"]
+
+- rig: |-
+    x = gather 1
+  errors: ["expected '{'"]
+
+- rig: |-
+    x = cross (a in [1]) 2
+  errors: ["expected '{'"]
+
+- rig: |-
+    fn f() -> {a: int} = 1
+  errors: []
+
+- rig: |-
+    x = quota within near values 4, near 3, time 5 s
+  errors: []

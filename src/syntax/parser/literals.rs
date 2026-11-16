@@ -140,14 +140,14 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
     }
 
     /* the clauses of a comprehension after its first with each `if` filtering the innermost loop */
-    fn comp_clauses(&mut self, loop_starts: &mut Vec<u16>, for_iters: &mut Vec<usize>) {
+    fn comp_clauses(&mut self, loop_starts: &mut Vec<u16>, for_iters: &mut Vec<usize>, commas: bool) {
         loop {
             if let Some(&ls) = loop_starts.last() && self.eat_if(TokenType::If) {
                 self.expr_bp(1);
                 self.chunk.emit(OpCode::JumpIfFalse, ls);
                 continue;
             }
-            if !self.eat_if(TokenType::For) { break; }
+            if !self.eat_if(TokenType::For) && !(commas && self.eat_if(TokenType::Comma)) { break; }
             let at = self.mark();
             let pattern = self.pattern_target();
             let shape = if pattern.is_some() { None } else { self.tokens.target_list() };
@@ -188,14 +188,28 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
             self.tokens.pos += 1;
         }
         let elem_end = self.tokens.pos;
+        let kind = if kind == Comp::Brace && pair { Comp::Dict } else { kind };
+        self.eat(TokenType::For);
+        self.looped(kind, elem_start, false, |s| {
+            let rest = s.tokens.pos;
+            s.tokens.pos = elem;
+            s.mark_stmt();
+            s.expr();
+            if kind == Comp::Dict { s.eat(TokenType::Colon); s.expr(); }
+            if s.tokens.pos != elem_end { s.error(Self::FOR_AFTER_ELEMENT); }
+            s.tokens.pos = rest;
+        });
+    }
+
+    /* the generators at the cursor as a function over the first iterable called at once with `element` read innermost */
+    pub(super) fn looped(&mut self, kind: Comp, elem_start: u32, commas: bool, element: impl FnOnce(&mut Self)) {
         let names = &S::NATIVES.names().comprehensions;
         let (build, add, name) = match kind {
             Comp::Gen => (None, OpCode::Yield, names[0]),
             Comp::List => (Some(OpCode::BuildList), OpCode::ListAppend, names[1]),
-            Comp::Brace if pair => (Some(OpCode::BuildDict), OpCode::MapAdd, names[2]),
+            Comp::Dict => (Some(OpCode::BuildDict), OpCode::MapAdd, names[2]),
             Comp::Brace => (Some(OpCode::BuildSet), OpCode::SetAdd, names[3]),
         };
-        self.eat(TokenType::For);
         let at = self.mark();
         let pattern = self.pattern_target();
         let shape = if pattern.is_some() { None } else { self.tokens.target_list() };
@@ -217,14 +231,8 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
             let mut for_iters = alloc::vec![s.emit_jump(OpCode::ForIter)];
             match (pattern, shape) { (Some(p), _) => s.bind_pattern(p, loop_starts[0]), (None, Some(shape)) => s.store_back(at, shape), _ => {} }
             s.mark_stmt();
-            s.comp_clauses(&mut loop_starts, &mut for_iters);
-            let rest = s.tokens.pos;
-            s.tokens.pos = elem;
-            s.mark_stmt();
-            s.expr();
-            if add == OpCode::MapAdd { s.eat(TokenType::Colon); s.expr(); }
-            if s.tokens.pos != elem_end { s.error(Self::FOR_AFTER_ELEMENT); }
-            s.tokens.pos = rest;
+            s.comp_clauses(&mut loop_starts, &mut for_iters, commas);
+            element(s);
             s.chunk.emit(add, 0);
             if add == OpCode::Yield { s.chunk.emit(OpCode::PopTop, 0); }
             for i in (0..for_iters.len()).rev() {
@@ -876,4 +884,4 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
 
 /* the bracket a comprehension sits in where a paren makes a generator expression */
 #[derive(Clone, Copy, PartialEq)]
-pub(super) enum Comp { Gen, List, Brace }
+pub(super) enum Comp { Gen, List, Brace, Dict }

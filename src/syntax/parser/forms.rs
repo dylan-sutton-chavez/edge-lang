@@ -100,23 +100,25 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
     /* a form's slots in order as the arguments of its call */
     fn form(&mut self, f: &Form, at: u32) {
         self.emit_load_ssa(f.call);
-        let mut bound = alloc::string::String::new();
+        let mut bound = Vec::new();
         for slot in f.slots {
             match *slot {
                 Slot::Word(w) => { if !self.eat_word(w) { self.diag_at_peek(&crate::s!("expected '", str w, "'")); } continue; }
                 Slot::Name => { let first = self.advance(); let mut end = first.end; while self.peek() == Some(TokenType::Dot) { self.advance(); end = self.advance().end; } self.emit_const(Value::Str(self.source[first.start..end].into())); }
                 Slot::Expr(k) => self.in_mode(k),
-                Slot::Bind => { bound = self.advance_text().into(); continue; }
+                Slot::Bind => { loop { bound.push(self.advance_text().into()); if !self.eat_if(TokenType::Comma) { break; } } continue; }
                 Slot::Body(k) => {
                     let saved = core::mem::replace(&mut self.mode, k);
                     let cut = self.enter_qual(S::NATIVES.names().anonymous, true);
-                    let params = alloc::vec![core::mem::take(&mut bound)];
+                    let params = core::mem::take(&mut bound);
                     let body = self.expr_body(&params);
                     self.leave_qual(cut);
                     self.mode = saved;
                     self.push_function(params, body, 0, None, OpCode::MakeFunction);
                 }
                 Slot::At => self.emit_const(Value::Int(at as i64)),
+                Slot::Items(k) => self.items(k),
+                Slot::Each(k) => { self.eat(TokenType::ParenOpen); self.each(k, Some(TokenType::ParenClose)); }
                 Slot::Opt(w, k) => if self.eat_word(w) { self.in_mode(k) } else { self.emit_const(Value::None) },
                 Slot::Tagged(tags, default) => {
                     self.eat(TokenType::BracketOpen);
@@ -131,11 +133,13 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
                     let mut n = 0;
                     while (n == 0 && self.eat_word(w)) || (n > 0 && self.peek() == Some(TokenType::Comma) && self.limit_after(names)) {
                         if n > 0 { self.advance(); }
-                        let Some(&(words, name)) = names.iter().find(|l| l.0.split(' ').all(|x| self.eat_word(x))) else { self.diag_at_peek("expected a limit"); break };
-                        let _ = words;
+                        // each limit tries its words from the same token so one may lead another
+                        let lead = |l: &(&'static str, &'static str)| l.0.split(" _").next().unwrap_or(l.0);
+                        let Some(&(words, name)) = names.iter().find(|l| { let m = self.mark(); let found = lead(l).split(' ').all(|x| self.eat_word(x)); if !found { self.seek(m); } found }) else { self.diag_at_peek("expected a limit"); break };
                         self.emit_const(Value::Str(name.into()));
                         // a limit no value follows on its line counts one
                         if matches!(self.peek_same_line(), None | Some(TokenType::Comma | TokenType::BraceClose | TokenType::BlockClose | TokenType::ParenClose | TokenType::BracketClose)) { self.emit_const(Value::Int(1)) } else { self.in_mode(0) }
+                        for unit in words.split_once(" _ ").map_or("", |w| w.1).split(' ').filter(|u| !u.is_empty()) { if !self.eat_word(unit) { self.diag_at_peek(&crate::s!("expected '", str unit, "'")); } }
                         self.chunk.emit(OpCode::BuildList, 2);
                         n += 1;
                     }
@@ -144,6 +148,28 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
             }
         }
         self.call_of(f.slots.iter().filter(|s| !matches!(s, Slot::Word(_) | Slot::Bind)).count() as u16, at);
+    }
+
+    /* braced items in mode `k` as a list where an item led by `for` repeats its own braced items */
+    fn items(&mut self, k: u8) {
+        let Some(open @ (TokenType::BlockOpen | TokenType::BraceOpen)) = self.peek() else { return self.diag_at_peek("expected '{'") };
+        self.advance();
+        let (close, mut n) = (Self::close_of(open), 0);
+        while self.peek().is_some_and(|t| t != close) {
+            let from = self.tokens.pos;
+            if self.eat_if(TokenType::For) { self.each(k, None) } else { self.in_mode(k) }
+            self.eat_if(TokenType::Semi);
+            n += 1;
+            if self.tokens.pos == from { self.tokens.next(); }
+        }
+        self.eat(close);
+        self.chunk.emit(OpCode::BuildList, n);
+    }
+
+    /* generators split by commas up to `close` then braced items made once per pass into a list */
+    fn each(&mut self, k: u8, close: Option<TokenType>) {
+        let at = self.tokens.peek().map_or(self.last_end, |t| t.start) as u32;
+        self.looped(super::literals::Comp::List, at, true, |s| { if let Some(c) = close { s.eat(c); } s.items(k); });
     }
 
     // whether a limit word follows the comma at the cursor
@@ -261,9 +287,9 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
     /* the pattern at the cursor tested on `subj` jumping out where a test fails */
     pub(super) fn pattern(&mut self, subj: u16, fails: &mut Vec<usize>) {
         // a literal matches the value equal to it
-        if matches!(self.peek(), Some(TokenType::Int | TokenType::String | TokenType::FormatStart | TokenType::True | TokenType::False)) {
+        if matches!(self.peek(), Some(TokenType::Int | TokenType::String | TokenType::FormatStart | TokenType::True | TokenType::False | TokenType::Minus)) {
             self.chunk.emit(OpCode::LoadName, subj);
-            self.parse_atom();
+            self.expr_bp(u8::MAX);
             self.chunk.emit(OpCode::Eq, 0);
             return fails.push(self.emit_jump(OpCode::JumpIfFalse));
         }
@@ -278,15 +304,24 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         };
         match t.kind {
             TokenType::Underscore => {}
-            TokenType::ParenOpen => {
+            TokenType::ParenOpen | TokenType::BracketOpen => {
+                let close = if t.kind == TokenType::ParenOpen { TokenType::ParenClose } else { TokenType::BracketClose };
+                // a bracketed pattern takes a list of as many items as it holds
+                if close == TokenType::BracketClose {
+                    self.chunk.emit(OpCode::LoadName, subj);
+                    self.chunk.emit(OpCode::Len, 0);
+                    self.emit_const(Value::Int(self.items_before(close) as i64));
+                    self.chunk.emit(OpCode::Eq, 0);
+                    fails.push(self.emit_jump(OpCode::JumpIfFalse));
+                }
                 let mut i = 0;
-                while self.peek() != Some(TokenType::ParenClose) && self.peek().is_some() {
+                while self.peek() != Some(close) && self.peek().is_some() {
                     let slot = part(self, i);
                     self.pattern(slot, fails);
                     i += 1;
                     if !self.eat_if(TokenType::Comma) { break; }
                 }
-                self.eat(TokenType::ParenClose);
+                self.eat(close);
             }
             TokenType::Name => {
                 let name = self.lexeme(&t);
@@ -306,6 +341,22 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
             }
             _ => self.error_at(t.start, t.end, "expected a pattern"),
         }
+    }
+
+    /* how many items split by commas stand before `close` at the cursor's depth */
+    fn items_before(&self, close: TokenType) -> usize {
+        let (mut depth, mut n, mut any) = (0usize, 0, false);
+        for t in &self.tokens.toks[self.tokens.pos..] {
+            match t.kind {
+                k if k == close && depth == 0 => break,
+                TokenType::ParenOpen | TokenType::BracketOpen | TokenType::BraceOpen => depth += 1,
+                TokenType::ParenClose | TokenType::BracketClose | TokenType::BraceClose => depth = depth.saturating_sub(1),
+                TokenType::Comma if depth == 0 => { n += usize::from(any); any = false; continue; }
+                _ => {}
+            }
+            any = true;
+        }
+        n + usize::from(any)
     }
 
     /* whether the loop target at the cursor holds a pattern word or a wildcard */
@@ -395,7 +446,15 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
             depth += match k { TokenType::ParenOpen => 1, TokenType::ParenClose => -1, _ => 0 };
             depth > 0
         });
-        after.find(|k| matches!(k, TokenType::Equal | TokenType::BlockOpen | TokenType::BraceOpen)).is_some_and(|k| k != TokenType::Equal)
+        // a brace right after the result's arrow opens its type and never the body
+        let (mut prev, mut inner) = (after.next().unwrap_or(TokenType::ParenClose), 0i32);
+        after.find(|&k| {
+            let open = matches!(k, TokenType::BlockOpen | TokenType::BraceOpen);
+            let at = inner == 0 && (k == TokenType::Equal || (open && prev != TokenType::Returns));
+            inner += match k { TokenType::ParenOpen | TokenType::BracketOpen | TokenType::BlockOpen | TokenType::BraceOpen => 1, TokenType::ParenClose | TokenType::BracketClose | TokenType::BlockClose | TokenType::BraceClose => -1, _ => 0 };
+            prev = k;
+            at
+        }).is_some_and(|k| k != TokenType::Equal)
     }
 
     /* an annotation passed over whole to the end it ends at outside brackets */

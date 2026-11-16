@@ -1,5 +1,5 @@
 use edge::code::OpCode as O;
-use edge::lexer::grammar::{Emit, Grammar, Mode, Row};
+use edge::lexer::grammar::{Emit, Form, Grammar, Mode, Row, Slot};
 use edge::lexer::{index, operators, Binding, Blocks, Comments, Cond, Continuation, Dot, Ends, Escapes, Interp, Keywords, Lambda, Literal, Numbers, Quote, Shapes, Spelling, Strings, Suffix, Syntax, TokenType, Unicode, Unknown, Zeros, BYTES};
 use edge::lexer::TokenType as T;
 
@@ -16,7 +16,7 @@ const SYMBOLS: &[(&str, TokenType)] = &[
     ("**=", T::PowEqual), ("~/=", T::FloorDivEqual), ("<<=", T::LeftShiftEqual), (">>=", T::RightShiftEqual),
     ("!=", T::NotEqual), ("%=", T::PercentEqual), ("&=", T::BitAndEqual), ("**", T::Pow), ("*=", T::StarEqual),
     ("+=", T::PlusEqual), ("-=", T::MinusEqual), ("~/", T::FloorDiv), ("/=", T::SlashEqual), ("<<", T::LeftShift),
-    ("<=", T::LessEqual), ("==", T::EqualEqual), ("=>", T::Arm), (">=", T::GreaterEqual), (">>", T::RightShift),
+    ("->", T::Returns), ("<=", T::LessEqual), ("==", T::EqualEqual), ("=>", T::Arm), (">=", T::GreaterEqual), (">>", T::RightShift),
     ("^=", T::BitXorEqual), ("|=", T::BitOrEqual), ("%", T::Percent), ("&", T::BitAnd), ("*", T::Star), ("+", T::Plus),
     ("-", T::Minus), (".", T::Dot), ("/", T::Slash), ("<", T::Less), ("=", T::Equal), (">", T::Greater),
     ("^", T::BitXor), ("|", T::BitOr), ("~", T::Tilde), (",", T::Comma), (":", T::Colon), (";", T::Semi),
@@ -48,8 +48,19 @@ const ROWS: &[Row] = &[
     op(T::Minus, 0, 21, O::Minus), op(T::Plus, 0, 21, O::Pos), op(T::Tilde, 0, 21, O::BitNot), op(T::Pow, 22, 21, O::Pow),
 ];
 
+// limits where one leads another and one takes a unit word after its count
+const LIMITS: &[(&str, &str)] = &[("near values", "near_values"), ("near", "near"), ("time _ s", "time"), ("work", "work")];
+
+// forms over several bound names, braced items, generators and limits each calling a function of the program
+const FORMS: &[Form] = &[
+    Form { head: "lift", slots: &[Slot::Bind, Slot::Word(":"), Slot::Body(0)], call: "lifted" },
+    Form { head: "gather", slots: &[Slot::Items(0)], call: "gathered" },
+    Form { head: "cross", slots: &[Slot::Each(0)], call: "crossed" },
+    Form { head: "quota", slots: &[Slot::Limits("within", LIMITS)], call: "quoted" },
+];
+
 // values read by the ladder and a match no arm takes calls `unmatched`
-static GRAMMAR: Grammar = Grammar { modes: &[Mode { rows: ROWS, words: &[] }], unmatched: "unmatched", ..Grammar::NONE };
+static GRAMMAR: Grammar = Grammar { modes: &[Mode { rows: ROWS, words: &[] }], forms: FORMS, unmatched: "unmatched", ..Grammar::NONE };
 
 // one quote whose literals fill their braced fields
 pub const STRINGS: Strings = Strings {

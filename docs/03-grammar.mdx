@@ -153,8 +153,10 @@ A `Slot` is one part of a form after its head:
 | `Expr(k)` | An expression in mode `k` |
 | `Opt(w, k)` | `w` then an expression in mode `k`, or `nil` without the word |
 | `Tagged(tags, default)` | A bracketed expression handed to the call its leading word names, or to `default` |
-| `Limits(w, pairs)` | After `w`, a list of names with counts, each led by its word, passed as `[name, count]` pairs |
-| `Bind` and `Body(k)` | A name, then a braced expression in mode `k` passed as a function of that name |
+| `Limits(w, pairs)` | After `w`, a list of names with counts, each led by its words, passed as `[name, count]` pairs. Words after a `_` in a pair, as in `"time _ s"`, follow the count |
+| `Bind` and `Body(k)` | Names split by commas, then an expression in mode `k` passed as a function of those names |
+| `Items(k)` | Braced expressions in mode `k`, split by line ends or `;`, passed as a list. An item `for p in xs, q in ys { ... }` gives the list of its own items for each pass |
+| `Each(k)` | Generators `p in xs` split by commas in parentheses, then braced items as in `Items(k)`, passed as the list of the items of each pass |
 | `At` | The byte offset of the head word, for error reports |
 
-A `Test` is `Nil`, `NotNil`, `Item(index, bool)` or `Field(name, int)`, checked before the arm's pattern matches the `part`. `Grammar::NONE` fills the fields an example leaves out.
+A `Test` is `Nil`, `NotNil`, `Item(index, bool)` or `Field(name, int)`, checked before the arm's pattern matches the `part`. Beside the words, an arm takes a literal such as `-1` or `"a"`, a tuple `(a, b)` and a list `[a, b]`, which takes only a value of as many items. `Grammar::NONE` fills the fields an example leaves out.

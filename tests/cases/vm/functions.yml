@@ -15474,3 +15474,22 @@
     print(run())
   expected: |-
     300
+
+- case: |-
+    fn lifted(f) {
+        return f
+    }
+    one = lift a: a + 1
+    two = lift a, b: a * 10 + b
+    print(one(1), two(2, 3))
+  expected: |-
+    2 23
+
+- case: |-
+    fn f() -> {a: int} = 1
+    fn g() -> int {
+        return 2
+    }
+    print(f(), g())
+  expected: |-
+    1 2
