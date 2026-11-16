@@ -154,7 +154,7 @@ jobs:
   # every push packs each published crate and a tag puts them on crates.io in order
   publish:
     name: Publish
-    needs: [test, bench]
+    needs: [tree, bench]
     if: github.event_name == 'push'
     runs-on: ubuntu-26.04
     steps:
