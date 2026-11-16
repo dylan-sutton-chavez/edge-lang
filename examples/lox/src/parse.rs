@@ -478,7 +478,8 @@ impl Parser<'_> {
             K::Minus => Expr::Neg(Box::new(self.precedence(Prec::Unary)), t.start),
             K::Bang => Expr::Not(Box::new(self.precedence(Prec::Unary))),
             K::Ident => self.named(t, can_assign),
-            K::Str => Expr::Str(self.src[t.start + 1..t.end - 1].into()),
+            // an unterminated string has no closing quote to drop
+            K::Str => { let body = &self.src[t.start + 1..t.end]; Expr::Str(body.strip_suffix('"').unwrap_or(body).into()) }
             K::Num => Expr::Num(self.text(t).parse().unwrap_or(0.0)),
             K::False => Expr::Bool(false),
             K::True => Expr::Bool(true),
