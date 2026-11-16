@@ -120,7 +120,7 @@ jobs:
   # Pushes only, the tested parts merged into the one tree a deploy takes, and a tag attaches it to its release.
   tree:
     name: Tree
-    needs: [test]
+    needs: [test, bench]
     if: github.event_name == 'push'
     runs-on: ubuntu-26.04
     permissions:
@@ -154,7 +154,7 @@ jobs:
   # every push packs each published crate and a tag puts them on crates.io in order
   publish:
     name: Publish
-    needs: [tree, bench]
+    needs: [tree]
     if: github.event_name == 'push'
     runs-on: ubuntu-26.04
     steps:
