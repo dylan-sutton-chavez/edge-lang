@@ -348,12 +348,13 @@ pub trait Host {
             // an item of a range is computed with no list built
             &HeapObj::Range(s, e, st) => {
                 let (len, neg) = (range_len(s, e, st), self.heap().policy.neg_index);
-                // an inline index into a range shorter than an i64 reads in i64 arithmetic
+                // an inline index into a range shorter than an i64 needs no wide read
                 if idx.is_int() && let Ok(n) = i64::try_from(len) {
                     let i = idx.as_int();
                     let i = if i < 0 && neg { i + n } else { i };
                     if !(0..n).contains(&i) { return Err(out_of_range(obj)); }
-                    return self.heap_mut().int((s + i * st) as i128);
+                    // i steps may pass an i64 even where the item they reach fits one
+                    return self.heap_mut().int(s as i128 + i as i128 * st as i128);
                 }
                 let wide = self.heap().is_wide(idx);
                 if !idx.is_int() && !wide { return Err(bad(self)); }
