@@ -352,6 +352,8 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
                 TokenType::ParenOpen | TokenType::BracketOpen | TokenType::BraceOpen => depth += 1,
                 TokenType::ParenClose | TokenType::BracketClose | TokenType::BraceClose => depth = depth.saturating_sub(1),
                 TokenType::Comma if depth == 0 => { n += usize::from(any); any = false; continue; }
+                // line ends and comments are no items as the pattern reads past them
+                TokenType::Newline | TokenType::LineBreak | TokenType::Comment => continue,
                 _ => {}
             }
             any = true;
