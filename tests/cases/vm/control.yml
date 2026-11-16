@@ -3881,3 +3881,35 @@
     print(f([3, 4]), f([]), f([1, 2, 9]), f([1]), g(-1), g(0), g(1))
   expected: |-
     7 0 9 -1 minus one zero other
+
+- case: |-
+    fn f(xs) = match xs {
+        [
+        ] => "empty",
+        _ => "more"
+    }
+    print(f([]), f([1]))
+  expected: |-
+    empty more
+
+- case: |-
+    fn f(xs) = match xs {
+        [a,
+        ] => a,
+        _ => "other"
+    }
+    print(f([5]), f([]), f([1, 2]))
+  expected: |-
+    5 other other
+
+- case: |-
+    fn f(xs) = match xs {
+        [ // no items
+        ] => "empty",
+        [b, // the first
+         c] => b + c,
+        _ => "other"
+    }
+    print(f([]), f([1, 2]), f([1]))
+  expected: |-
+    empty 3 other
