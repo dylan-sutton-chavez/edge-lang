@@ -124,3 +124,11 @@ fn the_front_scans_literal_imports() {
     let specs = lox::parse::imports("var a = import(\"net\");\nvar b = import(\"./util.lox\");\nvar c = import(\"lib/x.lox\");\n// import(\"skipped\")\nvar d = import(spec);\nprint \"import(x)\";\n");
     assert_eq!(specs, vec![ImportSpec::Bare("net".into()), ImportSpec::Relative("./util.lox".into()), ImportSpec::Root("lib/x.lox".into())]);
 }
+
+// a lone quote is an unterminated string and never a cut past its token
+#[test]
+fn a_lone_quote_is_an_unterminated_string() {
+    for src in ["\"", "print \"", "print \"\"; \""] {
+        assert!(run(src).is_err_and(|e| e.ends_with("Unterminated string.")), "{src}");
+    }
+}
