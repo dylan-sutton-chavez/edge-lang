@@ -31,14 +31,18 @@ pub enum Slot {
     Opt(&'static str, u8),
     // a bracketed expression handed to the call its leading word names or to the default
     Tagged(&'static [(&'static str, &'static str)], &'static str),
-    // after the word a list of name and count pairs each led by its words
+    // after the word a list of name and count pairs each led by its words where a `_` word puts unit words after the count
     Limits(&'static str, &'static [(&'static str, &'static str)]),
-    // a name the body slot after it binds as the parameter of a function
+    // names split by commas the body slot after them binds as the parameters of a function
     Bind,
     // a braced expression in mode `k` made the function of the bound name
     Body(u8),
     // the byte offset of the form's head word
     At,
+    // braced items in mode `k` as a list where an item led by `for` and its generators repeats its own braced items
+    Items(u8),
+    // generators `p in xs` split by commas in parentheses then braced items in mode `k` as a list of the items of each pass
+    Each(u8),
 }
 
 /* a construct led by a word that compiles to a call of `call` with its slots */

@@ -3831,3 +3831,53 @@
     lib ["edge", "itoa", "rig"] 3
     serde not locked no dependencies
     120 true false false false kept
+
+- case: |-
+    fn gathered(xs) {
+        return xs
+    }
+    print(gather { 1
+        2; 3
+        for x in [4, 5] { x; x * 10 }
+        for (a, b) in [[6, 7]], c in [8] { a + b + c }
+    })
+  expected: |-
+    [1, 2, 3, [[4, 40], [5, 50]], [[21]]]
+
+- case: |-
+    fn crossed(xs) {
+        return xs
+    }
+    print(cross (a in [1, 2], b in [10, 20]) { a + b; a * b }, cross (a in []) { a })
+  expected: |-
+    [[11, 10], [21, 20], [12, 20], [22, 40]] []
+
+- case: |-
+    fn quoted(limits) {
+        return limits
+    }
+    print(quota within time 5 s, work 10)
+    print(quota within near 3, near values 4)
+  expected: |-
+    [["time", 5], ["work", 10]]
+    [["near", 3], ["near_values", 4]]
+
+- case: |-
+    fn quoted(limits) {
+        return limits
+    }
+    x = quota within work 5 s
+    print(x)
+  error: "NameError: s is not bound"
+
+- case: |-
+    a = 2  b = 3  print(a * b)
+  expected: |-
+    6
+
+- case: |-
+    fn f(xs) = match xs { [a, b] => a + b, [] => 0, [_, _, c] => c, _ => -1 }
+    fn g(n) = match n { -1 => "minus one", 0 => "zero", _ => "other" }
+    print(f([3, 4]), f([]), f([1, 2, 9]), f([1]), g(-1), g(0), g(1))
+  expected: |-
+    7 0 9 -1 minus one zero other
