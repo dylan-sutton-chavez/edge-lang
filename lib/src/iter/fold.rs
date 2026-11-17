@@ -349,7 +349,7 @@ fn plain_sum(items: &[Val], heap: &HeapPool) -> Option<Total> {
     while i < items.len() {
         let v = items[i];
         if v.is_float() { break; }
-        w = w.checked_add(if v.is_int() { v.as_int() } else { crate::num::bool_int(heap, v)? })?;
+        w = w.checked_add(if v.is_int() { v.as_int() } else { crate::lang::bool_int(heap, v)? })?;
         i += 1;
     }
     let Some(&first) = items.get(i) else { return Some(Total::Int(w as i128)) };
@@ -358,7 +358,7 @@ fn plain_sum(items: &[Val], heap: &HeapPool) -> Option<Total> {
     for &v in &items[i + 1..] {
         if v.is_float() { f = neumaier(f, v.as_float()); }
         else if v.is_int() { f.0 += v.as_int() as f64; }
-        else { f.0 += crate::num::bool_int(heap, v)? as f64; }
+        else { f.0 += crate::lang::bool_int(heap, v)? as f64; }
     }
     Some(Total::Float(settle(f)))
 }

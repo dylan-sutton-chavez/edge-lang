@@ -70,6 +70,10 @@ pub trait Lang: Derived + Sized + 'static {
     fn endian(_name: &str) -> Option<Endian> { None }
 }
 
+/* the int a bool counts as where the policy counts bools as ints */
+#[inline(always)]
+pub fn bool_int(heap: &HeapPool, v: Val) -> Option<i64> { if v.is_bool() && heap.policy().bool_is_int { Some(v.as_bool() as i64) } else { None } }
+
 /* whether `c` is white space in the set runtime `L` reads */
 #[inline(always)]
 pub fn space<L: Lang>(c: char) -> bool { if L::SEPARATORS { uni::is_space_or_separator(c) } else { uni::is_space(c) } }

@@ -4,9 +4,18 @@ mod test {
     use interpreter::embed::Limits;
 
     fn compiled(src: &str) -> SSAChunk {
+        // the parse skips what the lexer refused so its errors are checked apart
+        assert!(crate::common::lex(src).1.is_empty(), "{src}");
         let (chunk, errs) = crate::common::parse(src);
         assert!(errs.is_empty(), "{src}");
         chunk
+    }
+
+    /* the peak in MiB of `chunk` run to its end or to the memory error a refusal raises */
+    fn peak_of(src: &str, chunk: &SSAChunk) -> usize {
+        let mut vm = crate::common::boot(chunk, Limits::sandbox());
+        if let Err(e) = vm.run() { assert!(e.to_string().contains("MemoryError"), "{src:?}: {e}"); }
+        vm.memory_peak() >> 20
     }
 
     /* bytes `src` holds after its run and at its peak with the meter it used */
@@ -69,14 +78,12 @@ mod test {
         for (src, most) in [
             ("xs = list(range(2 ** 60, 2 ** 60 + 20000000))\n", 64),
             ("xs = set(range(2 ** 60, 2 ** 60 + 20000000))\n", 64),
-            ("x = [1] * 28000000\nd = dict.fromkeys(x)\n", 480),
+            ("x = [1] * 28000000\nd = record.fromkeys(x)\n", 480),
             ("x = [1] * 14000000\ns = set(x)\n", 160),
-            ("s = 'a' * 70000000\nb = s.encode('utf-32')\n", 160),
+            ("s = \"a\" * 70000000\nb = s.encode(\"utf-32\")\n", 160),
         ] {
-            let chunk = compiled(src);
-            let mut vm = crate::common::boot(&chunk, Limits::sandbox());
-            let _ = vm.run();
-            assert!(vm.memory_peak() >> 20 < most, "{src:?} peaked at {} MiB", vm.memory_peak() >> 20);
+            let peak = peak_of(src, &compiled(src));
+            assert!(peak < most, "{src:?} peaked at {peak} MiB");
         }
     }
 
@@ -84,16 +91,15 @@ mod test {
     #[test]
     fn cuts_and_joins_peak_at_what_they_build() {
         for (src, most) in [
-            ("s = 'a' * 100000000\nt = s[::-1]\n", 240),
+            // a reversal pays a unit a char so this stays inside the sandbox budget
+            ("s = \"a\" * 50000000\nt = s[::-1]\n", 120),
             ("b = bytes(100000000)\nt = b[::2]\n", 192),
-            ("s = 'é' * 50000000\nt = s[::-1]\n", 240),
+            ("s = \"é\" * 50000000\nt = s[::-1]\n", 240),
             ("x = [1] * 26000000\ny = x + x\n", 240),
             ("x = (1,) * 26000000\ny = x + x\n", 240),
         ] {
-            let chunk = compiled(src);
-            let mut vm = crate::common::boot(&chunk, Limits::sandbox());
-            let _ = vm.run();
-            assert!(vm.memory_peak() >> 20 < most, "{src:?} peaked at {} MiB", vm.memory_peak() >> 20);
+            let peak = peak_of(src, &compiled(src));
+            assert!(peak < most, "{src:?} peaked at {peak} MiB");
         }
     }
 
@@ -109,9 +115,8 @@ mod test {
             // a set display spreads in the legacy fixture which rig no longer spells
             let (chunk, errs) = crate::words::legacy(src);
             assert!(errs.is_empty(), "{src}");
-            let mut vm = crate::common::boot(&chunk, Limits::sandbox());
-            let _ = vm.run();
-            assert!(vm.memory_peak() >> 20 < 450, "{src:?} peaked at {} MiB", vm.memory_peak() >> 20);
+            let peak = peak_of(src, &chunk);
+            assert!(peak < 450, "{src:?} peaked at {peak} MiB");
         }
     }
 

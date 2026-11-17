@@ -74,7 +74,7 @@ default-members = [".", "abi", "plugin", "plugin/macros", "skill", "lib", "tests
 resolver = "2"
 
 [workspace.package]
-version = "0.10.0"
+version = "0.9.7"
 edition = "2024"
 rust-version = "1.98"
 license = "Apache-2.0"
@@ -82,11 +82,11 @@ repository = "https://github.com/dylan-sutton-chavez/interpreter"
 
 # one source of versions so a bump touches one line and the lockfile never splits
 [workspace.dependencies]
-interpreter = { path = ".", version = "0.10.0", default-features = false }
-interpreter-abi = { path = "abi", version = "0.10.0" }
-interpreter-lib = { path = "lib", version = "0.10.0", default-features = false }
-interpreter-lox = { path = "examples/lox", version = "0.10.0", default-features = false }
-interpreter-plugin-macros = { path = "plugin/macros", version = "0.10.0" }
+interpreter = { path = ".", version = "0.9.7", default-features = false }
+interpreter-abi = { path = "abi", version = "0.9.7" }
+interpreter-lib = { path = "lib", version = "0.9.7", default-features = false }
+interpreter-lox = { path = "examples/lox", version = "0.9.7", default-features = false }
+interpreter-plugin-macros = { path = "plugin/macros", version = "0.9.7" }
 hashbrown = { version = "0.17", default-features = false }
 itoa = "1"
 # without `arch` every target takes wasm32's software paths which Miri can interpret

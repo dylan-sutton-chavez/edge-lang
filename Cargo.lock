@@ -42,7 +42,7 @@ dependencies = [
 
 [[package]]
 name = "bench"
-version = "0.10.0"
+version = "0.9.7"
 dependencies = [
  "serde",
  "serde_json",
@@ -477,7 +477,7 @@ dependencies = [
 
 [[package]]
 name = "interpreter"
-version = "0.10.0"
+version = "0.9.7"
 dependencies = [
  "dlmalloc",
  "hashbrown 0.17.1",
@@ -494,11 +494,11 @@ dependencies = [
 
 [[package]]
 name = "interpreter-abi"
-version = "0.10.0"
+version = "0.9.7"
 
 [[package]]
 name = "interpreter-lib"
-version = "0.10.0"
+version = "0.9.7"
 dependencies = [
  "interpreter",
  "itoa",
@@ -508,7 +508,7 @@ dependencies = [
 
 [[package]]
 name = "interpreter-lox"
-version = "0.10.0"
+version = "0.9.7"
 dependencies = [
  "interpreter",
  "interpreter-lib",
@@ -516,7 +516,7 @@ dependencies = [
 
 [[package]]
 name = "interpreter-plugin"
-version = "0.10.0"
+version = "0.9.7"
 dependencies = [
  "interpreter-abi",
  "interpreter-plugin-macros",
@@ -526,7 +526,7 @@ dependencies = [
 
 [[package]]
 name = "interpreter-plugin-macros"
-version = "0.10.0"
+version = "0.9.7"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -717,7 +717,7 @@ dependencies = [
 
 [[package]]
 name = "rig"
-version = "0.10.0"
+version = "0.9.7"
 dependencies = [
  "interpreter",
  "interpreter-lib",
@@ -845,7 +845,7 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
 name = "skill"
-version = "0.10.0"
+version = "0.9.7"
 
 [[package]]
 name = "slab"

@@ -6,6 +6,8 @@ use interpreter::value::{HeapPool, UnOp, Val, VmErr};
 use crate::fail::{Error, Fail, fail};
 use crate::{Kernel, Site};
 
+pub use crate::lang::bool_int;
+
 pub mod big;
 pub mod div;
 pub mod float;
@@ -16,10 +18,6 @@ pub mod round;
 
 /* the distance of a number from zero */
 pub const fn abs<S: Site>() -> Kernel { Kernel::new(Sig::exact(1), abs_run::<S>).fast(abs_fast) }
-
-/* the int a bool counts as where the policy counts bools as ints */
-#[inline(always)]
-pub fn bool_int(heap: &HeapPool, v: Val) -> Option<i64> { if v.is_bool() && heap.policy().bool_is_int { Some(v.as_bool() as i64) } else { None } }
 
 /* an int as a word or none for other kinds and an overflow past one */
 #[inline]

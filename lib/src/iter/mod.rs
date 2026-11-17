@@ -83,7 +83,7 @@ fn range_run<S: Site>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
 
 /* the range up to an inline int made with no call */
 fn range_to(heap: &mut HeapPool, v: Val) -> Option<Val> {
-    let e = if v.is_int() { v.as_int() } else { crate::num::bool_int(heap, v)? };
+    let e = if v.is_int() { v.as_int() } else { crate::lang::bool_int(heap, v)? };
     heap.alloc(HeapObj::Range(0, e, 1)).ok()
 }
 
@@ -95,7 +95,7 @@ fn wide_range<S: Site>(cx: &mut Cx<'_, '_>, s: Val, e: Val, st: Val) -> Ret {
 }
 
 /* whether `v` is an int of any width or a bool where bools are ints */
-fn int_like(cx: &Cx<'_, '_>, v: Val) -> bool { v.is_int() || crate::num::bool_int(cx.heap(), v).is_some() || cx.heap().is_wide(v) }
+fn int_like(cx: &Cx<'_, '_>, v: Val) -> bool { v.is_int() || crate::lang::bool_int(cx.heap(), v).is_some() || cx.heap().is_wide(v) }
 
 /* an int that fits a machine word where no other foreign value counts */
 fn in_word(cx: &Cx<'_, '_>, v: Val) -> Option<i64> {
