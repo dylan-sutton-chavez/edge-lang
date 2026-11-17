@@ -1,6 +1,6 @@
 const REGISTRY = 'https://registry.npmjs.org/lucide-static/latest'
 
-/* The first of `urls` to answer, each tried three times with a growing pause, so one CDN outage never fails a build. */
+/* the first of `urls` to answer, each tried three times with a growing pause, so one CDN outage never fails a build */
 async function json(...urls: string[]) {
   let failure: unknown
   for (let attempt = 1; attempt <= 3; attempt++) {
@@ -19,7 +19,7 @@ async function json(...urls: string[]) {
   throw failure
 }
 
-// A release named on the command line, or the latest one Lucide published, so every build is fresh.
+// a release named on the command line, or the latest one Lucide published, so every build is fresh
 const version: string = Deno.args[0] || (await json(REGISTRY)).version
 const tags: Record<string, string[]> = await json(...['https://cdn.jsdelivr.net/npm', 'https://unpkg.com'].map((cdn) => `${cdn}/lucide-static@${version}/tags.json`))
 const icons = Object.keys(tags).sort()

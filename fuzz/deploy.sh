@@ -20,21 +20,21 @@ export AFL_AUTORESUME=1 # resume existing out/ on restart instead of aborting; F
 (( JOBS < 1 )) && JOBS=1
 echo "logical cores: $(getconf _NPROCESSORS_ONLN), instances: $JOBS"
 
-# Regenerate the seed corpus / dictionary if absent, then build the instrumented target.
+# regenerate the seed corpus / dictionary if absent, then build the instrumented target
 [ -d in ] && [ -n "$(ls -A in 2>/dev/null)" ] || bash ./seeds.sh
 cargo afl build --release
 bin=target/release/afl-pipeline
 
-# Seeds come from corpus/ once it holds inputs, or from in/.
+# seeds come from corpus/ once it holds inputs, or from in/
 SEEDS="${SEEDS:-}"
 [ -z "$SEEDS" ] && { [ -n "$(ls -A corpus 2>/dev/null)" ] && SEEDS=corpus || SEEDS=in; }
 echo "seeds: $SEEDS"
 
-# `out` is a mounted volume in the container; clear its contents, not the mount point itself.
+# `out` is a volume mounted in the container so its contents go and the mount point stays
 [ "$FRESH" = "1" ] && { find out -mindepth 1 -delete 2>/dev/null || true; }
 mkdir -p out logs
 
-# The stop is wall-clock time, since -V counts only fuzzing and overran by half an hour.
+# the stop is wall-clock time, since -V counts only fuzzing and overran by half an hour
 deadline=0
 (( DURATION > 0 )) && deadline=$(( $(date +%s) + DURATION ))
 if (( UNTIL > 0 )); then
@@ -61,7 +61,7 @@ trap 'exit 130' INT TERM
 
 read -ra schedules <<< "$SCHEDULES"
 read -ra mutate <<< "$MUTATE"
-# The flags of instance $1.
+# the flags of instance $1
 pick() {
   picked=()
   (( ${#schedules[@]} )) && picked+=(-p "${schedules[$(( $1 % ${#schedules[@]} ))]}")
@@ -69,7 +69,7 @@ pick() {
   true
 }
 
-# One main (deterministic) instance and the rest secondaries (havoc) share -o out, each in a process group of its own since cargo-afl passes no signal on to afl-fuzz.
+# one main (deterministic) instance and the rest secondaries (havoc) share -o out, each in a process group of its own since cargo-afl passes no signal on to afl-fuzz
 set -m
 for i in $(seq 0 $(( JOBS - 1 ))); do
   pick "$i"
@@ -81,7 +81,7 @@ done
 set +m
 
 echo "running $JOBS instance(s), logs in ./logs, make fuzz-status shows them"
-# An instance that ends before the stop time fails the campaign instead of leaving it silently short.
+# an instance that ends before the stop time fails the campaign instead of leaving it silently short
 while (( deadline == 0 || $(date +%s) < deadline )); do
   for i in "${!pids[@]}"; do
     kill -0 "${pids[$i]}" 2>/dev/null || { echo "${names[$i]} ended early"; grep -A1 'PROGRAM ABORT' "logs/${names[$i]}.log" || tail -5 "logs/${names[$i]}.log"; exit 1; }

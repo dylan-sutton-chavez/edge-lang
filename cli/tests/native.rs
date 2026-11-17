@@ -13,8 +13,8 @@ const AS_CLI: &str = "INTERPRETER_AS_NATIVE";
 
 /* the interpreter composition's run and test over lox built into this binary */
 fn kit() -> Kit {
-    Kit::new("interpreter", env!("CARGO_PKG_VERSION"), Runtime::native(&interpreter::lox::RUNTIME))
-        .title(format!("The interpreter developer CLI for {} run natively", interpreter::lox::DESCRIPTOR.language))
+    Kit::new("interpreter", env!("CARGO_PKG_VERSION"), Runtime::native(&interpreter_lox::RUNTIME))
+        .title(format!("The interpreter developer CLI for {} run natively", interpreter_lox::DESCRIPTOR.language))
         .command(run::Run)
         .command(test::Test)
         .fields(manifest::FIELDS)

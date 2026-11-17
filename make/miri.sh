@@ -2,10 +2,10 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
-# One suite walked a test per core at a time, what ran kept in a table under miri/ that the Actions cache carries to the next run.
+# one suite walked a test per core at a time, what ran kept in a table under miri/ that the Actions cache carries to the next run
 SUITE="${SUITE:?pass SUITE, one of vm snapshot modules parser lexer abi}"
 table="miri/$SUITE.tsv"
-# Tests start only while MARGIN seconds remain before the job ends.
+# tests start only while MARGIN seconds remain before the job ends
 deadline=$(( ${STARTED:-$(date +%s)} + ${MINUTES:-355} * 60 - ${MARGIN:-600} ))
 workers="${JOBS:-$(nproc)}"
 MODES=("" "-Zmiri-tree-borrows" "-Zmiri-strict-provenance -Zmiri-symbolic-alignment-check")
@@ -25,11 +25,11 @@ while read -r test; do
   if (( n == 1 )); then echo "$test"; else for (( k = 0; k < n; k++ )); do echo "$test@$k/$n"; done; fi
 done < "$work/tests" > "$work/listed"
 
-# The table holds the last row of each, the round it ran in, how it ended and its seconds, a test the suite no longer holds left out.
+# the table holds the last row of each, the round it ran in, how it ended and its seconds, a test the suite no longer holds left out
 awk -F'\t' 'FILENAME == ARGV[1] { last[$1] = $0; next } $0 in last { print last[$0] }' "$table" "$work/listed" > "$table.next" && mv "$table.next" "$table"
 round="$(cat "miri/$SUITE.round" 2>/dev/null)"
 round="${round:-1}"
-# Passed, ignored or too long for a job is done for the round, a cut test and then a failed one run first.
+# passed, ignored or too long for a job is done for the round, a cut test and then a failed one run first
 pending() {
   awk -F'\t' -v round="$round" '
     FILENAME == ARGV[1] { if ($2 >= round) state[$1] = $3; next }
@@ -39,7 +39,7 @@ pending() {
     { rest = rest $0 "\n" }
     END { printf "%s%s", failed, rest }' "$table" "$work/listed"
 }
-# Every test is done in this round, so the next one starts in the next mode under its own seed.
+# every test is done in this round, so the next one starts in the next mode under its own seed
 [ -n "$(pending)" ] || round=$(( round + 1 ))
 echo "$round" > "miri/$SUITE.round"
 mode=$(( (round - 1) % 3 ))
@@ -48,7 +48,7 @@ flags="-Zmiri-seed=$round${MODES[$mode]:+ ${MODES[$mode]}}"
 failed=0
 rows=""
 
-# Waits for a test to end, prints its output and keeps its row, a test cut though it started with the job being too long for one.
+# waits for a test to end, prints its output and keeps its row, a test cut though it started with the job being too long for one
 reap() {
   local pid status unit seconds result
   wait -n -p pid

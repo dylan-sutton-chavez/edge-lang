@@ -419,7 +419,7 @@ pub(crate) struct Ctor {
 impl<'a> VM<'a> {
     pub fn new(chunk: &'a SSAChunk) -> Self { Self::with_limits(chunk, Limits::sandbox()) }
 
-    /* the generic frames this VM pushed which `tests/nested.rs` holds at none */
+    /* the generic frames this VM pushed which `tests/engine/nested.rs` holds at none */
     #[cfg(any(debug_assertions, feature = "coverage"))]
     #[doc(hidden)]
     pub fn old_path_counts(&self) -> [u64; 1] { [self.loops.generic] }

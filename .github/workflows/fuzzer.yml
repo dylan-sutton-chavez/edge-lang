@@ -7,10 +7,10 @@ on:
 
 permissions:
   contents: read
-  # Each run starts the next one, so the blocks follow each other however late the schedule is.
+  # each run starts the next one, so the blocks follow each other however late the schedule is
   actions: write
 
-# A late block waits instead of cancelling the running one.
+# a late block waits instead of cancelling the running one
 concurrency:
   group: fuzz
   cancel-in-progress: false
@@ -22,7 +22,7 @@ jobs:
     timeout-minutes: 355
     env:
       AFL_NO_AFFINITY: "1"
-      # The restored corpus loads faster and skips the cmplog it already had.
+      # the restored corpus loads faster and skips the cmplog it already had
       AFL_FAST_CAL: "1"
       AFL_CMPLOG_ONLY_NEW: "1"
     steps:
@@ -36,11 +36,11 @@ jobs:
           cache: false
           rustflags: ""
 
-      # No cargo cache on purpose (a restored ~/.cargo corrupts cargo-afl's state); install also builds the AFL LLVM runtime, so don't rebuild it.
+      # no cargo cache since a restored ~/.cargo corrupts cargo-afl whose install also builds the AFL LLVM runtime
       - name: Install cargo-afl
         run: cargo install cargo-afl
 
-      # The newest corpus a block saved.
+      # the newest corpus a block saved
       - name: Restore corpus
         uses: actions/cache/restore@v6
         with:
@@ -51,12 +51,12 @@ jobs:
       - name: Strategy
         run: bash fuzz/strategy.sh | tee -a "$GITHUB_ENV"
 
-      # A step timeout fails the step and the steps below still run, where the job timeout would cancel them.
+      # a step timeout fails the step and the steps below still run, where the job timeout would cancel them
       - name: Fuzz
         timeout-minutes: 318
         run: make fuzz
 
-      # The runner kills only the step's shell, so an AFL it left behind is stopped here.
+      # the runner kills only the step's shell, so an AFL it left behind is stopped here
       - name: Stop AFL
         if: always()
         timeout-minutes: 1
@@ -92,7 +92,7 @@ jobs:
           fi
           echo "no crashes (${#hangs[@]} hangs)"
 
-      # AFL findings use colons in names (rejected by upload-artifact), so tar them; create an empty archive if out/ doesn't exist yet.
+      # AFL names findings with colons upload-artifact refuses so they go in a tar made even before out/ exists
       - name: Package findings
         if: always()
         timeout-minutes: 2
@@ -115,7 +115,7 @@ jobs:
           path: findings.tar.gz
           retention-days: 14
 
-      # The next block, which waits for this one to end. A cancelled run starts none, and the schedule picks the chain up again.
+      # the next block, which waits for this one to end. A cancelled run starts none, and the schedule picks the chain up again
       - name: Next
         if: ${{ !cancelled() }}
         timeout-minutes: 2

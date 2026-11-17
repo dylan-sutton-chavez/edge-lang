@@ -3,7 +3,7 @@ import { resolve } from 'node:path'
 import { convertV4MiniflareOptions, Miniflare } from 'miniflare'
 import { CACHE, cdn_objects } from './tree'
 
-// Serves bucket objects like the public R2 domain, encoded only for clients that accept it.
+// serves bucket objects like the public R2 domain, encoded only for clients that accept it
 const WORKER = `
 const CORS = { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET, HEAD', 'access-control-max-age': '86400' }
 export default {
@@ -25,13 +25,13 @@ const [tree, port = '8788'] = process.argv.slice(2)
 if (!tree) throw new Error('Pass a staged tree, for example "make serve".')
 
 const mf = new Miniflare(convertV4MiniflareOptions({ modules: true, script: WORKER, compatibilityDate: '2026-09-01', r2Buckets: ['CDN'], host: '127.0.0.1', port: Number(port) }))
-// Miniflare types the proxy loosely, only put is needed here.
+// miniflare types the proxy loosely, only put is needed here
 const bucket = (await mf.getR2Bucket('CDN')) as unknown as { put(key: string, value: Uint8Array, options: { httpMetadata: Record<string, string> }): Promise<unknown> }
 const objects = cdn_objects(resolve(tree))
 
 for (const object of objects) {
   const httpMetadata = { contentType: object.type, cacheControl: CACHE, ...(object.encoding ? { contentEncoding: object.encoding } : {}) }
-  // Stored plain, the runtime applies the stored encoding per response the way the edge negotiates it.
+  // stored plain, the runtime applies the stored encoding per response the way the edge negotiates it
   await bucket.put(object.key, readFileSync(object.file), { httpMetadata })
 }
 

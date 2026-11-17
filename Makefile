@@ -1,6 +1,6 @@
 WASM := target/wasm32-unknown-unknown
-# interpreter.wasm is the crate's cdylib with Lox and the wasm exports its web feature turns on
-RUNTIME := --target wasm32-unknown-unknown -p interpreter --lib --no-default-features --features web --crate-type cdylib
+# interpreter.wasm is Lox's cdylib copied to the name every host loads
+RUNTIME := --target wasm32-unknown-unknown -p interpreter-lox --lib --no-default-features --features web --crate-type cdylib
 # rig.wasm is the test rig's cdylib that the cli's rig test composes the kit over
 RIG := --target wasm32-unknown-unknown -p rig --lib --no-default-features --features web --crate-type cdylib
 WASM_FEATURES := --enable-bulk-memory-opt --enable-nontrapping-float-to-int --enable-sign-ext
@@ -27,16 +27,15 @@ CLI_TEST_docs := --doc
 CLI_NEEDS_engine := plugin wasm-rig
 CLI_NEEDS_network := plugin
 CLI_NEEDS_ := plugin wasm-rig
-CLI_NEEDS_skill := test-skill
 
-# every module of interpreter::lib which lint-rust builds alone so no module leans on one it does not name
+# every module of `interpreter::lib` which lint-rust builds alone so no module leans on one it does not name
 LIB_MODULES := bytes data date io iter map num reflect seq set spec text types
 
 # bumped by hand so each new Miri check lands in a commit of its own
 MIRI_NIGHTLY := nightly-2026-10-11
 # make/miri.sh sets Miri up once then passes MIRI_SETUP= to its parallel runs
 MIRI_SETUP := miri-setup
-MIRI_TESTS := -p interpreter --lib --test tests
+MIRI_TESTS := -p interpreter --lib --test engine
 # the pool test covers the allocator wasm installs which no corpus test reaches
 MIRI_vm := vm:: embed:: pooled_blocks_come_back_with_their_bytes
 MIRI_snapshot := snapshot::
@@ -53,16 +52,18 @@ LAYOUT_BASE ?= 1048640
 
 unix_only = $(if $(filter Windows_NT,$(OS)),$(error AFL runs on Linux and macOS only))
 
-.PHONY: wasm wasm-rig wasm-cli wasm-ship wasm-small wasm-cli-opt size js lint lint-rust lint-names lint-js lint-cli test bench bench-update bench-accept-slower bench-layout plugin cli cli-release stage serve browsers test-js test-cli test-skill miri miri-list miri-setup fuzz fuzz-status fuzz-triage fuzz-replay fuzz-carry fuzz-container fuzz-stop seeds lucide version check
+.PHONY: wasm wasm-rig wasm-cli wasm-ship wasm-small wasm-cli-opt size js lint lint-rust lint-names lint-comments lint-js lint-cli test bench bench-update bench-accept-slower bench-layout plugin cli cli-release stage serve browsers test-js test-cli miri miri-list miri-setup fuzz fuzz-status fuzz-triage fuzz-replay fuzz-carry fuzz-container fuzz-stop seeds lucide version check
 
 wasm:
 	cargo rustc --locked --release $(RUNTIME)
+	cp $(WASM)/release/interpreter_lox.wasm $(WASM)/release/interpreter.wasm
 
 wasm-rig:
 	cargo rustc --locked --release $(RIG)
 
 wasm-cli:
 	cargo rustc --locked --profile cli $(RUNTIME)
+	cp $(WASM)/cli/interpreter_lox.wasm $(WASM)/cli/interpreter.wasm
 
 # the small interpreter.wasm that ships and the speed copy the CLI precompiles to native code
 wasm-ship: wasm-small wasm-cli-opt
@@ -71,6 +72,7 @@ wasm-ship: wasm-small wasm-cli-opt
 wasm-small: export RUSTFLAGS = -Z location-detail=none -Z fmt-debug=none -Z unstable-options -C panic=immediate-abort
 wasm-small:
 	cargo +nightly rustc --locked --release $(RUNTIME) -Z build-std=std,panic_abort -Z build-std-features=optimize_for_size
+	cp $(WASM)/release/interpreter_lox.wasm $(WASM)/release/interpreter.wasm
 	wasm-opt -Oz $(WASM_INLINE) --converge --generate-global-effects --strip-debug --strip-producers $(WASM_FEATURES) -o $(WASM)/release/interpreter.1.wasm $(WASM)/release/interpreter.wasm
 	wasm-opt --flatten --rereloop -Oz -Oz $(WASM_INLINE) $(WASM_FEATURES) -o $(WASM)/release/interpreter.2.wasm $(WASM)/release/interpreter.1.wasm
 	wasm-opt -Oz $(WASM_INLINE) --converge $(WASM_FEATURES) -o $(WASM)/release/interpreter.wasm $(WASM)/release/interpreter.2.wasm
@@ -92,22 +94,26 @@ js:
 lint: lint-rust lint-js
 
 # shear refuses dependencies declared but unused then clippy runs for the host and for wasm
-lint-rust: lint-names wasm
+lint-rust: lint-names lint-comments wasm
 	@held=$$(for f in $$(find src -name '*.rs' ! -path src/unsafe.rs); do sed -e 's://.*::' -e 's:/[*].*[*]/::g' $$f | grep -Eq '(^|[^#[:alnum:]_])unsafe([^[:alnum:]_]|$$)' && echo $$f; done); \
 	  stray=$$(printf '%s\n' $$held $(sort $(UNSAFE_LEFT)) | LC_ALL=C sort | uniq -u); \
 	  [ -z "$$stray" ] || { printf 'UNSAFE_LEFT must name exactly the src files besides src/unsafe.rs with unsafe code and these differ\n%s\n' "$$stray"; exit 1; }
 	cargo shear
 	cargo clippy --locked --all-targets -- -D warnings
-	cargo clippy --locked --lib --no-default-features --features web --target wasm32-unknown-unknown -p interpreter -- -D warnings
+	cargo clippy --locked --lib --no-default-features --features web --target wasm32-unknown-unknown -p interpreter-lox -- -D warnings
 	cargo clippy --locked --lib --no-default-features --features full,plugin --target wasm32-unknown-unknown -p interpreter -- -D warnings
 	cargo clippy --locked --lib --no-default-features --target wasm32-unknown-unknown -p interpreter -- -D warnings
 	cargo clippy --locked --lib --target wasm32-unknown-unknown -p slugify-mod -- -D warnings
 	for f in $(LIB_MODULES); do cargo check --locked --lib --no-default-features --features $$f -p interpreter || exit 1; done
 	deno run --allow-read make/exports.ts $(WASM)/release/interpreter.wasm
 
-# fails on any denied name in the crate or the example plugin where Lox's own words are its grammar
+# fails on any comment past one lowercase line with no colon semicolon dash or icon
+lint-comments:
+	@deno run --allow-read --allow-run=git make/comments.ts
+
+# fails on any denied name in the crate or the example plugin
 lint-names:
-	@deno run --allow-read make/names.ts make/names.txt src plugin '!src/lox'
+	@deno run --allow-read make/names.ts make/names.txt src plugin
 
 # js/src splits main-thread and worker since tsc rejects mixing the dom and webworker libs
 lint-js:
@@ -131,6 +137,7 @@ test:
 	cargo test --locked -p interpreter
 	cargo test --locked -p interpreter --features coverage coverage
 	cargo test --locked -p rig
+	cargo test --locked -p interpreter-lox
 
 bench: wasm-cli
 	cargo run --locked -p bench --profile cli
@@ -143,8 +150,8 @@ bench-accept-slower: wasm-cli
 
 # every case on interpreter.wasm and on a build with its static data shifted
 bench-layout: wasm-cli
-	cargo rustc --locked --profile layout $(RUNTIME) --features layout -- -C link-arg=--global-base=$(LAYOUT_BASE)
-	cargo run --locked -p bench --profile cli -- --layout $(WASM)/layout/interpreter.wasm
+	cargo rustc --locked --profile layout $(RUNTIME) --features interpreter/layout -- -C link-arg=--global-base=$(LAYOUT_BASE)
+	cargo run --locked -p bench --profile cli -- --layout $(WASM)/layout/interpreter_lox.wasm
 
 plugin:
 	cargo build --locked --release --target wasm32-unknown-unknown -p slugify-mod
@@ -175,14 +182,9 @@ test-js: plugin wasm
 
 # engine runs cli and run without the net cases that network runs alone
 test-cli: $(CLI_INPUTS) $(CLI_NEEDS_$(SUITE))
-	$(if $(filter-out engine network actors consistency docs skill,$(SUITE)),$(error SUITE is one of engine network actors consistency docs skill, or none for all))
-	$(if $(filter skill,$(SUITE)),,cd cli && cargo test --locked $(CLI_TEST_$(SUITE)))
+	$(if $(filter-out engine network actors consistency docs,$(SUITE)),$(error SUITE is one of engine network actors consistency docs, or none for all))
+	cd cli && cargo test --locked $(CLI_TEST_$(SUITE))
 	$(if $(filter engine,$(or $(SUITE),engine)),cd cli && cargo test --locked --features coverage --test coverage)
-
-test-skill: export SKILL_INTERPRETER = $(CURDIR)/cli/target/debug/interpreter$(EXE)
-test-skill: $(CLI_INPUTS)
-	cd cli && cargo build --locked
-	cargo test --locked -p skill
 
 miri-setup:
 	rustup toolchain install $(MIRI_NIGHTLY) --profile minimal --component miri

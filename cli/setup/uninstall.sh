@@ -4,7 +4,7 @@ set -e
 
 INSTALL_DIR="${INTERPRETER_INSTALL_DIR:-$HOME/.local/bin}"
 
-# Everything the CLI caches, interpreter-owned and refetchable, so it goes with the binary.
+# everything the CLI caches, interpreter-owned and refetchable, so it goes with the binary
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/interpreter"
 
 # 1. Binary.

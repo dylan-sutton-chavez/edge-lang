@@ -1,4 +1,4 @@
-# A group memory ceiling below the sandbox profile reaches the interpreter so only the free group finishes.
+# a group memory ceiling below the sandbox profile reaches the interpreter so only the free group finishes
 groups:
   capped:
     replicas: 1

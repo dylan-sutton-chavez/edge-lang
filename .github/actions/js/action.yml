@@ -24,7 +24,7 @@ runs:
       shell: bash
       run: make js
 
-    # The Deno and Playwright suites run in the test job, against this tree served on loopback.
+    # the Deno and Playwright suites run in the test job, against this tree served on loopback
     - name: Stage
       uses: ./.github/actions/stage
       with:

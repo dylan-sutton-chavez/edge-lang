@@ -1,4 +1,4 @@
-# Local build/runtime artifacts — regenerated inside the container.
+# local build and runtime artifacts the container makes again
 **/target
 .git
 fuzz/in

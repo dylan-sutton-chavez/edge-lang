@@ -15,7 +15,7 @@ inputs=(corpus/* out/*/queue/id:*)
 # afl-cmin reads every directory itself and drops duplicates by hash.
 dirs=(-i corpus)
 for q in out/*/queue; do dirs+=(-i "$q"); done
-# The bound needs timeout, which macOS has only as gtimeout from coreutils.
+# the bound needs timeout, which macOS has only as gtimeout from coreutils
 bounded() {
   local t
   t="$(command -v timeout || command -v gtimeout || true)"
@@ -33,7 +33,7 @@ if ! bounded cargo afl cmin -T all -t "$TIMEOUT_MS" "${dirs[@]}" -o corpus.next 
     for f in "$q"/id:*+cov*; do cp "$f" "corpus.next/$n-$(basename "$f")"; done
   done
 fi
-# An empty result saw no coverage, so the old corpus stays.
+# an empty result saw no coverage, so the old corpus stays
 [ -n "$(ls -A corpus.next)" ] || { echo "nothing carried, keeping the old corpus"; rm -rf corpus.next; exit 0; }
 rm -rf corpus && mv corpus.next corpus
 echo "corpus: $(find corpus -type f | wc -l | tr -d ' ') inputs"

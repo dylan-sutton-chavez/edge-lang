@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# The campaign of the UTC day, as lines for GITHUB_ENV.
+# the campaign of the UTC day, as lines for GITHUB_ENV
 weekday="$(date -u +%u)"
 hour="$(date -u +%H)"
 day="$(date -u +%j)"
 
-# The first block of a Sunday starts clean from the seeds.
+# the first block of a Sunday starts clean from the seeds
 if [ "$weekday" = 7 ] && (( 10#$hour < 6 )); then
   printf 'STRATEGY=clean\nSCHEDULES=explore fast rare coe\nSEEDS=in\n'
   exit 0

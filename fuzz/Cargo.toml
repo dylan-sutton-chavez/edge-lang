@@ -4,16 +4,18 @@ version = "0.0.0"
 publish = false
 edition = "2024"
 
-# Standalone workspace so the parent workspace does not adopt this crate.
+# standalone workspace so the parent workspace does not adopt this crate
 [workspace]
 
 [dependencies]
 afl = "0.18.2"
 
-# lox reads every input through its own compiler
 [dependencies.interpreter]
 path = ".."
-features = ["lox"]
+
+# lox reads every input through its own compiler
+[dependencies.interpreter-lox]
+path = "../examples/lox"
 
 # the test rig whose table spells every grammar piece Lox has no syntax for
 [dependencies.rig]
@@ -23,7 +25,7 @@ path = "../tests/rig"
 name = "afl-pipeline"
 path = "src/main.rs"
 
-# cargo-afl already forces opt-level/asserts/overflow; this only adds line-tables (file:line backtraces) + asserts for a plain `cargo build --release` repro.
+# cargo-afl already forces opt-level asserts and overflow checks so this adds line tables for a plain `cargo build --release` repro.
 [profile.release]
 debug-assertions = true
 overflow-checks = true

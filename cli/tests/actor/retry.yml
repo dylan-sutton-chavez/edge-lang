@@ -1,4 +1,4 @@
-# A crashing message is retried up to the limit then dropped, /stats must report it dead.
+# a crashing message is retried up to the limit then dropped, /stats must report it dead
 runtime:
   listen: tcp://127.0.0.1:7787
   control: tcp://127.0.0.1:9787
@@ -19,5 +19,5 @@ publish:
 
 expect: []
 
-# One message, three attempts, then dropped, so the /stats body carries a dead count.
+# one message, three attempts, then dropped, so the /stats body carries a dead count
 expect_status: "\"dead\":1"

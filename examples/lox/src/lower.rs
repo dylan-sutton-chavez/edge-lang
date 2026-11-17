@@ -2,10 +2,10 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use crate::code::{Builder, OpCode as O, Value};
+use interpreter::code::{Builder, OpCode as O, Value};
 
-use crate::lox::parse::{Expr, Fun, Kind, Place, Program, Stmt};
-use crate::lox::Lox;
+use crate::parse::{Expr, Fun, Kind, Place, Program, Stmt};
+use crate::Lox;
 
 type B<'b, 's> = Builder<'b, 's, Lox>;
 

@@ -5,14 +5,14 @@ import { Buffer } from "node:buffer";
 
 // a host no network answers that the page loads the staged tree from
 const CDN_HOST = "interpreter.test";
-// The staged CDN this run tests, served on loopback from cdn/ in CI and locally alike.
+// the staged CDN this run tests, served on loopback from cdn/ in CI and locally alike
 const BASE = Deno.env.get("INTERPRETER_CDN_BASE")?.replace(/\/$/, "");
 if (!BASE) throw new Error("set INTERPRETER_CDN_BASE (make serve)");
 
 const REPO = new URL("../../", import.meta.url).pathname; // the repo root
 const cases = JSON.parse(readFileSync(new URL("./js.json", import.meta.url)));
 const PKG = JSON.parse(readFileSync(new URL("./app/interpreter.json", import.meta.url)));
-// Negative fixtures, only their own cases import them, abi2 and ui fail to load by design.
+// negative fixtures, only their own cases import them, abi2 and ui fail to load by design
 const FIXTURES = new Set(["trap", "abi2", "ui"]);
 // use every module the app carries, packages are used by the cases that need them
 const star = (imports) => Object.entries(imports).flatMap(([k, v]) => (FIXTURES.has(k) || !String(v).startsWith("./") ? [] : `var ${k} = import("${k}");`));
@@ -22,7 +22,7 @@ const TYPES = {
     ".lox": "text/plain", ".json": "application/json",
 };
 
-/* The page's host answers from BASE, decoded bytes and the CDN's own headers, CORS included. */
+/* the page's host answers from BASE, decoded bytes and the CDN's own headers, CORS included */
 async function cdn(route, url) {
     const res = await fetch(BASE + url.pathname + url.search);
     const headers = Object.fromEntries([...res.headers].filter(([k]) => k !== "content-encoding" && k !== "content-length"));
@@ -47,11 +47,11 @@ function pdkModule(abi) {
         [...name("boom"), 0x00, 0x02],
     ]));
     const code = section(10, vec([body([0x41, ...leb(abi)]), body([0x41, 0x00]), body([0x00])]));
-    // Buffer, not Uint8Array, route.fulfill never delivers a plain typed array body.
+    // buffer, not Uint8Array, route.fulfill never delivers a plain typed array body
     return Buffer.from([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, ...types, ...funcs, ...memory, ...exports, ...code]);
 }
 
-/* Boots one worker through createWorker on index.html, then feeds every js.json case to it, comparing what it printed for output cases and the run trace for error cases. */
+/* boots one worker through createWorker on index.html, then feeds every js.json case to it, comparing what it printed for output cases and the run trace for error cases */
 Deno.test("js: createWorker runs the corpus in a page", async () => {
     const browser = await chromium.launch();
     const page = await browser.newPage();
@@ -75,14 +75,14 @@ Deno.test("js: createWorker runs the corpus in a page", async () => {
         try { return r.fulfill({ contentType: TYPES[ext] ?? "application/octet-stream", body: readFileSync(REPO + u.pathname.slice(1)) }); }
         catch { return r.fulfill({ status: 404 }); }
     });
-    // A mock WebSocket echo server so network cases can open, echo and close sockets without leaving the page.
+    // a mock WebSocket echo server so network cases can open, echo and close sockets without leaving the page
     await page.routeWebSocket("wss://localhost/echo", (ws) => {
         ws.onMessage((m) => ws.send(m));
     });
     await page.goto("http://localhost/js/tests/index.html");
 
     try {
-        // One worker runs every case, and the page reads app/interpreter.json and the app's files for it.
+        // one worker runs every case, and the page reads app/interpreter.json and the app's files for it
         await page.evaluate(async (host) => {
             const { createWorker } = await import(host);
             globalThis.worker = await createWorker({ baseUrl: new URL("./app/", location.href).href });
@@ -95,7 +95,7 @@ Deno.test("js: createWorker runs the corpus in a page", async () => {
             const got = await page.evaluate(async (src) => {
                 const lines = [];
                 globalThis.worker.onOutput((t) => lines.push(t));
-                // A module that fails to load rejects run(), surface it as out for error cases.
+                // a module that fails to load rejects run(), surface it as out for error cases
                 try {
                     const { out } = await globalThis.worker.run(src);
                     return { printed: lines.join("").trim(), out };
@@ -113,7 +113,7 @@ Deno.test("js: createWorker runs the corpus in a page", async () => {
             }
         }
 
-        // Park on receive(), save, finish, restore, steer differently.
+        // park on receive(), save, finish, restore, steer differently
         const snap = await page.evaluate(async () => {
             const worker = globalThis.worker;
             const chunks = [];
@@ -149,7 +149,7 @@ Deno.test("js: createWorker runs the corpus in a page", async () => {
         if (snap.globalsAtSave.history !== "a") throw new Error(`snapshot: stateGlobals saw ${JSON.stringify(snap.globalsAtSave)}`);
         if (!(snap.blobLen > 100)) throw new Error(`snapshot: implausible blob length ${snap.blobLen}`);
 
-        // A suspension-free program still pauses and snapshots.
+        // a suspension-free program still pauses and snapshots
         const pre = await page.evaluate(async () => {
             const worker = globalThis.worker;
             const chunks = [];
@@ -174,7 +174,7 @@ Deno.test("js: createWorker runs the corpus in a page", async () => {
         if (!(pausedAt > 0 && pausedAt < 1000000)) throw new Error(`preempt: expected a mid-loop pause, n was ${JSON.stringify(pre.globalsAtPause.n)}`);
         if (!(pre.blobLen > 100)) throw new Error(`preempt: implausible blob length ${pre.blobLen}`);
 
-        // A pause on an event yield holds the program until resume().
+        // a pause on an event yield holds the program until resume()
         const evPause = await page.evaluate(async () => {
             const worker = globalThis.worker;
             const chunks = [];
@@ -199,7 +199,7 @@ Deno.test("js: createWorker runs the corpus in a page", async () => {
         if (evPause.held !== "") throw new Error(`pause: event-parked run kept running after pause(), saw ${JSON.stringify(evPause.held)}`);
         if (evPause.out !== "a b\n") throw new Error(`pause: after resume expected 'a b\\n', got ${JSON.stringify(evPause.out)}`);
 
-        // A cap the embedder declares reaches the engine, the sandbox default finishes this loop.
+        // a cap the embedder declares reaches the engine, the sandbox default finishes this loop
         const capped = await page.evaluate(async (host) => {
             const { createWorker } = await import(host);
             const worker = await createWorker({ wasmUrl: "https://interpreter.test/interpreter.wasm", limits: { ops: 1000 } });
@@ -227,12 +227,12 @@ Deno.test("js: createWorker runs the corpus in a page", async () => {
         if (!trace.every((event) => event.at >= 0)) throw new Error(`trace: an event before the run began in ${said}`);
         if (trace[0]?.kind !== "run" || !(trace[0].epoch > 0)) throw new Error(`trace: no run start leads ${said}`);
 
-        // Laziness, only what the corpus imports gets fetched, and a JavaScript import is refused before any fetch.
+        // laziness, only what the corpus imports gets fetched, and a JavaScript import is refused before any fetch
         if (reqd("/app/ui.js")) throw new Error("ui is JavaScript, yet ui.js was fetched");
 
         if (strays.size) throw new Error([...strays].join("\n"));
     } catch (e) {
-        // A stray request explains any failure it caused, report it first.
+        // a stray request explains any failure it caused, report it first
         throw strays.size ? new Error([...strays].join("\n"), { cause: e }) : e;
     } finally {
         await browser.close();

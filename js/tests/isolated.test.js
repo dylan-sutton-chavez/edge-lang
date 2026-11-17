@@ -2,15 +2,15 @@
 import { chromium } from "npm:playwright@latest";
 import { Buffer } from "node:buffer";
 
-// The staged CDN this run tests, served on loopback from cdn/ in CI and locally alike.
+// the staged CDN this run tests, served on loopback from cdn/ in CI and locally alike
 const BASE = Deno.env.get("INTERPRETER_CDN_BASE")?.replace(/\/$/, "");
 if (!BASE) throw new Error("set INTERPRETER_CDN_BASE (make serve)");
-// The host arrives as an argument, a literal import would have Deno fetch it too.
+// the host arrives as an argument, a literal import would have Deno fetch it too
 const HOST = "https://interpreter.test/js/src/index.js";
 
-/* A page with a session runs a program, and only what the program was granted reaches it. */
+/* a page with a session runs a program, and only what the program was granted reaches it */
 Deno.test("js: a worker holds nothing of the page and reaches only its grants", async () => {
-    // The page's own origin, it answers every request with the cookies it carried.
+    // the page's own origin, it answers every request with the cookies it carried
     const server = Deno.serve({ hostname: "127.0.0.1", port: 0, onListen() {} }, (req) =>
         new Response(req.headers.get("cookie") ?? "none", { headers: { "access-control-allow-origin": "*" } }));
     const origin = `http://127.0.0.1:${server.addr.port}`;
@@ -43,7 +43,7 @@ Deno.test("js: a worker holds nothing of the page and reaches only its grants", 
         if (room.origin !== "null") throw new Error(`the room shares an origin with the page, ${room.origin}`);
         if (!room.policy.includes("http://127.0.0.1:*")) throw new Error(`unexpected policy ${room.policy}`);
 
-        // A grant that is not a plain host is refused before the run, and stays out of the policy all the same.
+        // a grant that is not a plain host is refused before the run, and stays out of the policy all the same
         const refused = await page.evaluate(async (host) => {
             const worker = await (await import(host)).createWorker({ permissions: { main: ["net:a.test;script-src"] } });
             return worker.run("var net = import(\"net\");\nprint 1;").then(() => "ran", (e) => e.message);
@@ -52,11 +52,11 @@ Deno.test("js: a worker holds nothing of the page and reaches only its grants", 
         const policy = await page.frames().at(-1).evaluate(() => document.querySelector("meta").content);
         if (policy.includes("a.test")) throw new Error(`a malformed grant reached the policy ${policy}`);
 
-        // Straight from the worker, past every grant, only the browser stands in the way.
+        // straight from the worker, past every grant, only the browser stands in the way
         const reached = await (await spawned).evaluate(() => fetch("https://other.test/").then(() => "reached", () => "refused"));
         if (reached !== "refused" || strays.length) throw new Error(`the browser let the room through ${JSON.stringify([reached, strays])}`);
 
-        // An engine that cannot start rejects createWorker and leaves no frame behind.
+        // an engine that cannot start rejects createWorker and leaves no frame behind
         await page.route("**/worker/bundle.js", (r) => r.fulfill({ headers: { "access-control-allow-origin": "*" }, contentType: "text/javascript", body: "throw new Error('boom')" }));
         const failed = await page.evaluate(async (host) => {
             const frames = document.querySelectorAll("iframe").length;

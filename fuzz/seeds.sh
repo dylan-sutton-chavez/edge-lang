@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Regenerates the gitignored in/ and interpreter.dict from the Lox programs, tests/cases/vm and dict.txt.
+# regenerates the gitignored in/ and interpreter.dict from the Lox programs, tests/cases/vm and dict.txt
 set -euo pipefail
 cd "$(dirname "$0")"
 
-# One seed file per case of tests/cases/vm, a block off its indent or a quoted one unescaped, named by its hash.
+# one seed file per case of tests/cases/vm, a block off its indent or a quoted one unescaped, named by its hash
 rm -rf in && mkdir -p in
 perl -MDigest::SHA=sha1_hex -e '
     sub seed { my $s = shift; return if $s eq ""; open my $out, ">", "in/" . substr(sha1_hex($s), 0, 16) or die $!; print $out $s; }
@@ -22,7 +22,7 @@ perl -MDigest::SHA=sha1_hex -e '
     }
     if (defined $block) { $block =~ s/\n+\z//; seed($block); }' ../tests/cases/vm/*.yml
 # one seed per lox program of the book's suite and the bench named by its hash
-for f in $(find ../tests/lox/suite ../bench/cases -name '*.lox'); do
+for f in $(find ../examples/lox/tests/suite ../bench/cases -name '*.lox'); do
     cp "$f" "in/$(shasum "$f" | cut -c1-16)"
 done
 echo "seeds: $(ls in | wc -l | tr -d ' ')"

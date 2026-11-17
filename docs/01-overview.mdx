@@ -1,59 +1,43 @@
 ---
 title: "Overview"
-description: "What interpreter is, what it is made of, and how to install it."
+description: "What interpreter is, what the crate holds and how to install it."
 ---
 
 # Overview
 
-`interpreter` is a toolkit for building language runtimes in Rust. You bring a token table, a few rules and the natives your programs call, and the crate gives you the rest:
+`interpreter` is a Rust crate for building language runtimes. You write a token table, the rules of your language and the natives its programs call. The crate gives you the lexer, the parser, the VM and the hosts that run it.
 
-1. **Lexer.** Reads source bytes through your token table in one linear pass.
-2. **Parser.** A single-pass Pratt parser with no AST that writes SSA bytecode and reports diagnostics with recovery.
-3. **VM.** A register VM that runs the bytecode with an op budget, an exact memory meter, a garbage collector and snapshots.
-
-A runtime built on it compiles to one WebAssembly module that runs in a web page, in the `interpreter` CLI or inside your own Rust program. A program reaches no file, no network and no environment unless its host grants it.
-
-## One crate
-
-Everything ships as the one crate `interpreter`, and each part beyond the engine sits behind a feature.
-
-| Module | Feature | What you use it for |
-|---|---|---|
-| `interpreter::{lexer, code, embed, lang, value, deps}` | always | The engine: lexer, parser, VM, snapshots, imports and grants |
-| `interpreter::lib` | `lib` and one feature per module | Ready natives (print, text, lists, maps, JSON, dates...) a runtime names in its own table |
-| `interpreter::lox` | `lox` | Lox, the language of the book Crafting Interpreters, with the `lox` binary |
-| `interpreter::plugin` | `plugin` | The kit for writing `.wasm` plugins a program imports |
-| `interpreter::abi` | always | The wire format plugins and hosts share |
-
-`std` is the one default feature, and `full` turns on every module of `interpreter::lib` and Lox.
-
-The examples in these pages run programs written in Lox. It passes the book's own test suite, and past the book it imports modules with `import("name")` and reaches its host through the natives `input`, `exit`, `send`, `receive`, `len` and `text`. Any runtime you build runs the same way.
-
-## What the repo holds
-
-| Path | Holds |
+| Part | Does |
 |---|---|
-| `src/` | The crate, with the engine at its root and `src/lib`, `src/lox` and `src/plugin` beside it |
-| `cli/` | The `interpreter` CLI, and the kit you compose a CLI of your own from |
-| `js/` | `createWorker`, which runs a runtime's `.wasm` in a web page |
-| `plugin/example` | A plugin built on `interpreter::plugin` that the CLI and JS suites load |
-| `examples/net` | The `net` host module, in Rust for the CLI and in TypeScript for the JS host |
+| Lexer | Reads source bytes through your token table in one pass |
+| Parser | Writes bytecode in a single pass with no AST, and reports every error it finds |
+| VM | Runs the bytecode on registers, with an op budget, an exact memory meter, a garbage collector and snapshots |
+
+A runtime compiles to one WebAssembly module. The same module runs in a web page, in the `interpreter` CLI and inside a Rust program. A program reaches no file, network or environment unless its host grants it.
 
 ## Install
 
-The crate comes from crates.io:
-
 ```bash
-cargo add interpreter --features lox
+cargo add interpreter --features full
 ```
 
-A runtime of your own takes only the modules of `interpreter::lib` it names:
+A runtime that needs only some natives turns on only those modules.
 
 ```bash
 cargo add interpreter --no-default-features --features std,io,seq
 ```
 
-The CLI, its kit and the JS host build from [the repo on GitHub](https://github.com/dylan-sutton-chavez/interpreter). You need Rust, and Deno for the JS host.
+| Feature | Turns on |
+|---|---|
+| `std` | The standard library, on by default |
+| `bytes`, `data`, `date`, `io`, `iter`, `map`, `num`, `reflect`, `seq`, `set`, `spec`, `text`, `types` | One module of `interpreter::lib` each |
+| `full` | Every module of `interpreter::lib` |
+| `plugin` | `interpreter::plugin`, for writing `.wasm` plugins |
+| `runtime`, `perms` | The exports of a runtime's `.wasm` and the grant logic its hosts read |
+
+## The CLI and the JS host
+
+Both build from [the repo](https://github.com/dylan-sutton-chavez/interpreter) with Rust and Deno.
 
 ```bash
 git clone https://github.com/dylan-sutton-chavez/interpreter
@@ -62,39 +46,37 @@ make wasm-cli js lucide
 cargo install --path cli
 ```
 
-`rust-toolchain.toml` pins the toolchain and its wasm target, and `cargo install` puts `interpreter` in `~/.cargo/bin`. A tagged release also attaches prebuilt binaries for macOS and Linux, and `cli/setup/install.sh` installs the latest one into `~/.local/bin`:
+A tagged release also ships binaries for macOS and Linux.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/dylan-sutton-chavez/interpreter/main/cli/setup/install.sh | bash
 ```
 
-The CLI kit is not on crates.io, so a crate of your own takes it from git with the crate it builds on, both from the same commit:
+`make wasm js stage PARTS="wasm js"` writes the files a page serves to `_cdn/`, with `interpreter.wasm` at the root and the JS host under `js/src/`. A release attaches the same tree as `cdn.tar.gz`.
+
+The CLI kit and Lox are not on crates.io. A crate of yours takes them from git at one commit.
 
 ```toml
 [dependencies]
-interpreter = { git = "https://github.com/dylan-sutton-chavez/interpreter", branch = "main", features = ["lox"] }
-# the CLI kit, with only the commands you wire
+interpreter = { git = "https://github.com/dylan-sutton-chavez/interpreter", branch = "main" }
+interpreter-lox = { git = "https://github.com/dylan-sutton-chavez/interpreter", branch = "main" }
 interpreter-cli = { git = "https://github.com/dylan-sutton-chavez/interpreter", branch = "main", default-features = false, features = ["run", "test"] }
 ```
 
-Pin `tag = "vX.Y.Z"` or `rev = "..."` instead of `branch` for a reproducible build.
+Pin `tag` or `rev` instead of `branch` for a build that never moves.
 
-The JS host and `interpreter.wasm`, as the tree a page serves:
+## Lox
 
-```bash
-make wasm js stage PARTS="wasm js"
-```
-
-That writes `_cdn/`, with `interpreter.wasm` at its root and the host under `js/src/`. A tagged release attaches the same tree as `cdn.tar.gz`, and `interpreter build --web` copies it into a project's `dist/`.
+The examples in these pages run Lox, the language of the book Crafting Interpreters. It lives in `examples/lox`, passes the book's test suite and is the runtime `interpreter.wasm` and the CLI are built from. Past the book it imports modules with `import("name")` and has the natives `input`, `exit`, `send`, `receive`, `len` and `text`.
 
 ## Pages
 
 | Page | Covers |
 |---|---|
-| [Build a runtime](./02-runtime.mdx) | A token table, natives, rules and the `Runtime` every host boots |
+| [Build a runtime](./02-runtime.mdx) | The token table, the natives, the language and the `Runtime` |
 | [Grammar](./03-grammar.mdx) | Forms, modes and patterns a runtime adds to the parser |
-| [Rust](./04-rust.mdx) | Compile and run programs inside a Rust program, events, host functions and snapshots |
-| [JavaScript](./05-javascript.mdx) | Run a runtime's `.wasm` in a page, and the exports any host drives |
-| [CLI](./06-cli.mdx) | The `interpreter` commands, packages by URL, grants, and a CLI of your own |
-| [Errors and limits](./07-errors-and-limits.mdx) | How errors read, and every cap a run is held to |
-| [Plugins](./08-plugins.mdx) | Write a `.wasm` plugin a program imports, with functions, classes and system calls |
+| [Rust](./04-rust.mdx) | Running programs inside a Rust program |
+| [JavaScript](./05-javascript.mdx) | Running a runtime's `.wasm` in a page, and the ABI any host drives |
+| [CLI](./06-cli.mdx) | The commands, packages, grants and a CLI of your own |
+| [Errors and limits](./07-errors-and-limits.mdx) | How errors read and every limit a run has |
+| [Plugins](./08-plugins.mdx) | Writing a `.wasm` plugin |

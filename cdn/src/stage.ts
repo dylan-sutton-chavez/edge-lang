@@ -17,7 +17,7 @@ function copy(from: string, to: string) {
   cpSync(from, to, { recursive: true })
 }
 
-// Each part lays one build's outputs out in the CDN layout, the tree a deploy ships.
+// each part lays one build's outputs out in the CDN layout, the tree a deploy ships
 const STAGERS: Record<Part, (out: string) => void> = {
   wasm(out) {
     const target = join(REPO_DIR, 'target/wasm32-unknown-unknown')
@@ -25,7 +25,7 @@ const STAGERS: Record<Part, (out: string) => void> = {
     copy(wasm, join(out, 'interpreter.wasm'))
     // hosts deployed before the rename still fetch the engine as compiler.wasm
     copy(wasm, join(out, 'compiler.wasm'))
-    // The CLI embeds the speed build, later jobs read it from the staged tree and a deploy skips it.
+    // the CLI embeds the speed build, later jobs read it from the staged tree and a deploy skips it
     if (existsSync(join(target, 'cli/interpreter-cli.wasm'))) copy(join(target, 'cli/interpreter-cli.wasm'), join(out, '_build/interpreter-cli.wasm'))
   },
   js(out) {

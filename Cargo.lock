@@ -482,6 +482,7 @@ dependencies = [
  "dlmalloc",
  "hashbrown 0.17.1",
  "interpreter",
+ "interpreter-lox",
  "itoa",
  "libm",
  "linked_list_allocator",
@@ -490,6 +491,13 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml_ng",
+]
+
+[[package]]
+name = "interpreter-lox"
+version = "1.0.0"
+dependencies = [
+ "interpreter",
 ]
 
 [[package]]
@@ -800,10 +808,6 @@ name = "shlex"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
-
-[[package]]
-name = "skill"
-version = "1.0.0"
 
 [[package]]
 name = "slab"

@@ -8,7 +8,7 @@ const TREE: &Tree = &rig::types::TREE;
 // the builtin types a load names besides the exceptions
 const PLAIN: [&str; 12] = ["int", "float", "text", "bytes", "bytearray", "bool", "list", "tuple", "record", "set", "range", "type"];
 
-// the roots: the errors and the three signals no handler of errors catches
+// the roots are the errors and the three signals no handler of errors catches
 const ROOTS: [&str; 4] = ["Error", "Stop", "Close", "Exit"];
 
 fn put(heap: &mut HeapPool, obj: HeapObj) -> Val { heap.alloc(obj).unwrap_or_else(|e| panic!("{e}")) }

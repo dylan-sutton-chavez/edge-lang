@@ -1,6 +1,6 @@
 name: CI
 
-# Builds stage their part of the CDN tree as artifacts, tests serve it on loopback, and a tag ships the tested tree with its release.
+# builds stage their part of the CDN tree as artifacts, tests serve it on loopback, and a tag ships the tested tree with its release
 
 on:
   push:
@@ -74,7 +74,7 @@ jobs:
           mode: ${{ matrix.mode }}
           target: ${{ matrix.target }}
 
-  # Every suite runs against the tree this run staged, served on loopback, never the deployed one.
+  # every suite runs against the tree this run staged, served on loopback, never the deployed one
   test:
     name: Test / ${{ matrix.entry }}
     needs: [cli]
@@ -95,8 +95,6 @@ jobs:
             cli: consistency
           - entry: cli-docs
             cli: docs
-          - entry: cli-skill
-            cli: skill
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/serve
@@ -108,7 +106,7 @@ jobs:
           mode: test
           suite: ${{ matrix.cli }}
 
-  # Holds the engine to the instructions of bench/.snapshot once its tests pass.
+  # holds the engine to the instructions of bench/.snapshot once its tests pass
   bench:
     name: Bench
     needs: [wasm]
@@ -117,7 +115,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/bench
 
-  # Pushes only, the tested parts merged into the one tree a deploy takes, and a tag attaches it to its release.
+  # pushes only, the tested parts merged into the one tree a deploy takes, and a tag attaches it to its release
   tree:
     name: Tree
     needs: [test, bench]

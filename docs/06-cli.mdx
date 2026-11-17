@@ -1,11 +1,11 @@
 ---
 title: "CLI"
-description: "The interpreter commands, a project from its first file to a packed build, packages by URL, grants, and a CLI of your own composed from the kit."
+description: "The interpreter commands, a project from its first file to a build, packages, grants and a CLI of your own."
 ---
 
 # CLI
 
-The `interpreter` CLI runs Lox programs on macOS, Linux and WSL. It embeds `interpreter.wasm` precompiled for the machine, the same module the JS host loads, so a program answers the same in a page and in a terminal. [Install](./01-overview.mdx#install) builds it from the repo.
+The `interpreter` CLI runs Lox programs on macOS, Linux and WSL. It embeds `interpreter.wasm` compiled ahead for the machine, the same module the JS host loads, so a program gives the same output in a page and in a terminal. [Install](./01-overview.mdx#install) builds it.
 
 ## Commands
 
@@ -22,11 +22,16 @@ The `interpreter` CLI runs Lox programs on macOS, Linux and WSL. It embeds `inte
 | `interpreter actor <file>` | Runs a pool of actors from an `actor.yml` |
 | `interpreter uninstall` | Removes the binary and its PATH entry |
 
-`interpreter run` and `interpreter test` take `--memory <MB>` and `--ops <n>`. `interpreter run` also takes `--events <file>`, one event per line, `--preempt <n>`, `--save-state <file>` and `--restore-state <file>`. Every command takes `--manifest <file>` in place of `./interpreter.json`.
+| Flag | Commands | Sets |
+|---|---|---|
+| `--memory <MB>`, `--ops <n>` | `run`, `test` | The limits of a run |
+| `--events <file>` | `run` | One event per line for `receive()` |
+| `--preempt <n>`, `--save-state <file>`, `--restore-state <file>` | `run` | Stop every `n` back-edges, and save or resume a run |
+| `--manifest <file>` | every command | The manifest in place of `./interpreter.json` |
 
 ## A project
 
-`interpreter init` creates the project.
+`interpreter init` creates a project.
 
 ```text
 $ interpreter init hello
@@ -34,7 +39,7 @@ created hello/
 $ cd hello
 ```
 
-Its code goes in two files. `main.lox` imports `stars.lox` by its path beside it.
+`main.lox` imports `stars.lox` by its path.
 
 ```lox stars.lox
 // a bar of n stars for a chart in the terminal
@@ -58,7 +63,7 @@ lox ***
 sdk *****
 ```
 
-A test imports the same function. A file fails when its run ends with an error or with a status other than 0, and `interpreter test` exits with 1.
+A test is a `*_test.lox` file. It fails when its run ends with an error or a status other than 0, and then `interpreter test` exits with 1.
 
 ```lox stars_test.lox
 var stars = import("./stars.lox").stars;
@@ -79,7 +84,7 @@ $ interpreter test
 (successful) stars_test.lox
 ```
 
-`interpreter build` packs the scripts, the manifest and every import into one `app.interpreter` that runs anywhere `interpreter` is installed.
+`interpreter build` packs the scripts, the manifest and every import into one `app.interpreter` that runs wherever `interpreter` is installed.
 
 ```text
 $ interpreter build
@@ -91,7 +96,7 @@ sdk *****
 
 ## Packages by URL
 
-`interpreter add` declares an import under the name the code imports it by. The source is a path or a URL: a `.lox` module, a `.wasm` plugin, or a `.interpreter` package that `interpreter build` packed and a tagged GitHub release attaches. This one takes a module from this repo at a fixed commit.
+`interpreter add` declares an import under the name the code uses. The source is a path or a URL to a `.lox` module, a `.wasm` plugin or a `.interpreter` package, such as one a GitHub release attaches. This one takes a module from this repo at a fixed commit.
 
 ```text
 $ interpreter add util=https://raw.githubusercontent.com/dylan-sutton-chavez/interpreter/da9bda4365e8e7f62a7f9449964fef94874c51e5/docs/util.lox
@@ -112,9 +117,9 @@ $ interpreter run main.lox
 hello from a package
 ```
 
-`interpreter lock` downloads each URL once and writes its digest to `interpreter.lock`, and `interpreter run`, `interpreter test` and `interpreter build` refuse bytes other than the ones it pins. Run it after every change to `interpreter.json` and commit `interpreter.lock` with the code. An import can also pin its bytes in the URL itself, with a `#sha256-<64 hex>` fragment.
+`interpreter lock` downloads each URL once and writes its digest to `interpreter.lock`. `run`, `test` and `build` refuse any other bytes. Run it after each change to `interpreter.json` and commit `interpreter.lock` with the code. An import can also pin its bytes in the URL with a `#sha256-<64 hex>` fragment.
 
-A package names itself in its own `interpreter.json`:
+A package describes itself in its own `interpreter.json`.
 
 | Field | Rule |
 |---|---|
@@ -126,14 +131,14 @@ A package names itself in its own `interpreter.json`:
 
 ## Grants
 
-A program reaches the outside only through the host modules its host serves. The CLI serves two, and the JS host serves `net`:
+A program reaches the outside only through host modules. The CLI serves two and the JS host serves `net`.
 
 | Module | Calls | Scope of a grant |
 |---|---|---|
 | `net` | `request(method, url, headers, body, inflate, timeout)` gives an id, then `response(id)`, `read(id)` and `close(id)`. `connect(url)` and `send(id, data)` for WebSockets | `net:<host>`, or `net:<host>/<prefix>` for the paths under it |
 | `files` | `open(path, inflate)` gives an id, then `read(id)` and `close(id)` | `files:<file>`, or `files:<dir>/` for every file below it |
 
-The root `interpreter.json` grants them in `permissions`, which maps a holder to entries written `module:scope`:
+The root `interpreter.json` grants them in `permissions`, which maps a holder to entries written `module:scope`.
 
 | Holder | Holds |
 |---|---|
@@ -141,7 +146,7 @@ The root `interpreter.json` grants them in `permissions`, which maps a holder to
 | An import name | That package |
 | `all` | The project and every package it imports |
 
-A package lists what it needs in its own `interpreter.json`, and can only pass on what its importer gave it. A call outside its grant raises before anything leaves the process, and the run ends with Lox's report of it:
+A package lists what it needs in its own `interpreter.json` and can only pass on what its importer gave it. A call outside its grant raises before anything leaves the process.
 
 ```lox-manifest
 { "permissions": { "main": ["net:api.example.com"] } }
@@ -159,7 +164,7 @@ net.request("GET", "https://other.example/");
 
 ## A CLI of your own
 
-The `interpreter-cli` crate is a kit: a `Kit` over a runtime and the commands you wire, each behind a feature of the crate. The `interpreter` binary is one composition of it over Lox, and a runtime of your own gets a CLI the same way. With no arguments, this one prints its help.
+The `interpreter-cli` crate is a kit. A `Kit` takes a runtime and the commands you wire, each behind a feature. The `interpreter` binary is the kit over Lox, and a runtime of yours gets a CLI the same way. With no arguments this one prints its help.
 
 ```rust standalone_crate
 use interpreter_cli::cmd::{run, test};
@@ -169,7 +174,7 @@ use interpreter_cli::{Kit, Runtime};
 interpreter::allocator!();
 
 fn main() {
-    Kit::new("calc", "0.1.0", Runtime::native(&interpreter::lox::RUNTIME))
+    Kit::new("calc", "0.1.0", Runtime::native(&interpreter_lox::RUNTIME))
         .title("A CLI for calc programs")
         .command(run::Run)
         .command(test::Test)
@@ -177,7 +182,7 @@ fn main() {
 }
 ```
 
-`Runtime::native` links the runtime into the binary, and `Runtime::wasm(bytes, &DESCRIPTOR)` loads its `.wasm` instead, which also lets the binary load `.wasm` plugins. `.module(...)` serves a host module such as `interpreter_cli::net::Net`, and `.field(interpreter_cli::perms::FIELD)` with `.access(Arc::new(interpreter_cli::perms::Perms))` holds each package to its grants.
+`Runtime::native` links the runtime into the binary. `Runtime::wasm(bytes, &DESCRIPTOR)` loads its `.wasm` instead, which also lets the binary load plugins. `.module(...)` serves a host module such as `interpreter_cli::net::Net`, and `.field(interpreter_cli::perms::FIELD)` with `.access(Arc::new(interpreter_cli::perms::Perms))` holds each package to its grants.
 
 | Feature | Command or part |
 |---|---|

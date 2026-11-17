@@ -6,19 +6,23 @@ Thanks for taking the time to contribute. Security reports follow [SECURITY.md](
 
 Include a minimal failing script, the command used to run it, and the expected and actual behavior.
 
-## Pull Requests
+## Pull requests
 
 For a large change, open an issue or email [c.sutton.dylan@gmail.com](mailto:c.sutton.dylan@gmail.com) first. Pull requests are welcome in every part under the Apache 2.0 License, see [README.md](README.md#license).
 
 - New behavior comes with tests, and docs describe the code as it is after the change.
-- Changes to the CLI or package behavior update `skill/SKILL.md`.
 - Changes to the engine keep `make bench` and `make bench-layout` passing, and significant ones run the fuzzer with `make fuzz`.
-
-Run `make check` before sending, and the maintainer runs CI once the pull request is open.
+- `make check` passes before sending, and the maintainer runs CI once the pull request is open.
 
 ## Style
 
-Comments are one line, at most one per block, and deleted when redundant. No file-header comment or docstring. A doc edit rewrites the sentence or paragraph it changes instead of adding one beside it, so a page never grows past what is new. Comments and docs use no colons, semicolons, or em-dashes.
+- A comment is one lowercase line with no colon, semicolon, dash or icon, at most one per block, and goes when it is redundant.
+- No comment heads a file and no doc comment explains code, past the help text clap reads and the `# Safety` section clippy asks for.
+- A doc edit rewrites the sentence or paragraph it changes instead of adding one beside it, so a page never grows past what is new.
+- Docs use no colons, semicolons or em-dashes in their prose.
+- A commit message is a type, then a lowercase sentence of the behavior the change leaves, with no period, body or trailer, as in `fix: a list pattern counts no line ends or comments as items`.
+
+`make lint-comments` holds every comment of the repo to the first rule.
 
 ## Architecture
 
@@ -35,82 +39,99 @@ The crate `interpreter` is the one crate the repo publishes. Its engine in `src/
 | `src/targets` | The exports of every runtime's `.wasm` and the allocator and `Script` a native binary boots a runtime with |
 | `src/abi` | The wire format plugins and hosts share, the handle table and the bridge that answers plugins |
 | `src/lib` | `interpreter::lib`, the kernels a runtime names in its own table, one module per feature |
-| `src/lox` | `interpreter::lox`, Lox on the engine, with `src/bin/lox.rs` as its binary |
 | `src/plugin` | `interpreter::plugin`, the kit and the macros a `.wasm` plugin is written with |
 | `src/util` | Hashing, the probe table, byte search, JSON escapes and the near names an error suggests, shared by the rest |
-| `src/unsafe.rs` | Every unsafe region of the engine, each with the argument that it is sound |
+| `src/unsafe.rs` | Every unsafe region of the crate, each with the argument that it is sound |
 
-`src/lib.rs` denies `unsafe_code` everywhere else, and `make lint` fails when another file of `src/` holds unsafe code, past `src/plugin/macros.rs` whose unsafe expands in a plugin's own crate, or when `src/` outside Lox or `plugin/` holds a name `make/names.txt` denies. It also builds each module of `interpreter::lib` alone, so a module never leans on one it does not name.
+Lox lives in `examples/lox`, a crate the repo never publishes, which `interpreter.wasm`, the CLI, the bench and the fuzzer build on.
 
-## Building
+`Cargo.toml` denies unsafe code everywhere but `src/unsafe.rs`, and `make lint` fails when another file of `src/` holds unsafe code, past `src/plugin/macros.rs` whose unsafe expands in a plugin's own crate. `clippy.toml` keeps the engine from files, the network, the clock, the environment and maps with a random seed, which only the native host in `src/targets/native` may reach. `make lint` also fails when `src/` or `plugin/` holds a name `make/names.txt` denies, and builds each module of `interpreter::lib` alone so a module never leans on one it does not name.
+
+## Terminology
+
+The engine names its own pieces, and these words mean the same thing in every file.
+
+| Word | Means |
+|---|---|
+| Front | What turns a source into a chunk, the parser over a token table or a front of a runtime's own |
+| Chunk | The stack bytecode the parser writes, with its constants, names and nested functions |
+| Kernel | A native of `interpreter::lib` with no name of its own until `interpreter::lib::table!` gives it one |
+| Rows | The first tier, where a chunk runs as it was compiled with its operand stack in the frame's registers |
+| Lowered | The second tier, where a hot loop or function runs as register code |
+| Laid | The third tier, where a function called often runs with its callees inlined as sections |
+| Section | A callee laid inside its caller's code behind a guard, entered and left as a jump |
+| Pool | The caches and the windows of one chunk |
+| Window | The run of registers one frame holds, reused at each level of its pool |
+| Level | One depth of recursion of a pool, with the window it runs in and the registers a laid call keeps |
+| Turn | One step of the driver between runs of the register loop |
+| Floor | A class body the loop runs in the frame that defines it |
+| Step | What a native returns to ask the loop for a call it never makes itself |
+| Job | A native's callback running as loop frames until its caller resumes |
+| Redo | An op that opened a frame for user code running again from its start, replaying what it already got |
+| Site | The inline cache of one instruction |
+| Shape | The layout of an instance's fields that sites key by |
+| Walk | The import resolution a host drives step by step |
+| Grant | What a package may reach, passed down the importer chain under the holders `all`, `main` and its import key |
+
+## Commands
 
 > [!IMPORTANT]
-> Every command runs from the repo root through GNU Make, on Linux, macOS or Windows.
+> Every command runs from the repo root through GNU Make, on Linux, macOS or Windows, with the Rust release `rust-toolchain.toml` pins.
 
-```bash
-make wasm       # interpreter.wasm while CI ships the smaller make wasm-ship
-make wasm-cli   # the speed build the CLI embeds
-make js         # js/src stripped to js/dist
-make cli        # the interpreter binary, embedding wasm-cli, js and the Lucide names
-make lint
-cargo build --release   # the .rlib Rust embedders link
-```
-
-`make js`, `make lucide` and so `make cli` need Deno, and `make lucide` fetches the icon names Lucide publishes over the network. `make cli-release TARGET=x86_64-unknown-linux-musl` builds the static Linux binary in Docker, since musl-gcc has no C++. Every build uses the one Rust release `rust-toolchain.toml` pins.
+| Command | Does |
+|---|---|
+| `make check` | `make wasm`, `make lint` and `make test`, the bar before sending |
+| `make wasm` | `interpreter.wasm`, while CI ships the smaller `make wasm-ship` |
+| `make wasm-cli` | The speed build of `interpreter.wasm` the CLI embeds |
+| `make js` | `js/src` stripped to `js/dist`, with Deno |
+| `make cli` | The `interpreter` binary, embedding `wasm-cli`, `js` and the Lucide names `make lucide` fetches |
+| `make cli-release TARGET=...` | A release binary, the static Linux one in Docker since musl-gcc has no C++ |
+| `make lint` | The unsafe gate, the comment and name lints, shear, clippy for the host and wasm, the exports and the JS lints |
+| `make test` | The suites of the engine, of `interpreter::lib` and of the test rig, then Lox's with the book's own test suite |
+| `make bench` | The instruction count of every bench case against `bench/.snapshot` |
+| `make bench-layout` | The same count on a build with its static data shifted |
+| `make miri SUITE=... CASE=...` | One suite, or one test by its exact name, under Miri |
+| `make test-js`, `make test-cli SUITE=...` | The JS and CLI suites against a served tree |
+| `make fuzz` | A fuzzing campaign |
+| `cargo build --release` | The `.rlib` Rust embedders link |
 
 ## Testing
 
-`make test` runs the crate's suites, those of the engine, of `interpreter::lib` and of Lox, which runs the book's own test suite on the `lox` binary, then the test rig's. Every case runs under `Limits::sandbox()`, so a budget, memory, or call-depth regression fails instead of hanging. The tests count memory through the same metering allocator as `interpreter.wasm`, and `tests/memory.rs` checks that a run gives back every byte it took once its VM drops.
+Every case runs under `Limits::sandbox()`, so a budget, memory or call-depth regression fails instead of hanging. The tests count memory through the same metering allocator as `interpreter.wasm`, and `tests/engine/memory.rs` checks that a run gives back every byte it took once its VM drops.
 
-The engine reaches past what Lox spells, so its cases are written for `tests/rig`, a test runtime whose token table switches on every piece of the grammar kit over every kernel of lib. It is no example and never ships. A behavior Lox shows is tested in Lox, in `tests/lox`.
-
-New behavior comes with cases of three kinds. A case states a rule, so its expected output comes from what the rule gives and never from what the engine printed last, and a quirk a case finds is a bug, fixed with the case that holds it.
+The engine reaches past what Lox spells, so its cases are written for `tests/rig`, a test runtime whose token table switches on the grammar kit over every kernel. It is no example and never ships. A behavior Lox shows is tested in Lox, in `examples/lox/tests`.
 
 | Kind | Holds | Lives in |
 |---|---|---|
-| Engine | A program for the test rig with what it prints, raises, reads and sends | `tests/cases/vm`, one YAML file per topic, beside `tests/cases/snapshot.json` and `tests/cases/modules.json` |
-| Native | A kernel of `interpreter::lib` called on plain values, with its result or the words of its failure | `tests/lib/cases`, one YAML file per module |
-| Syntax | Sources that compile to one program in several spellings, the tokens they lex to, and what the lexer and the parser report | `tests/cases/syntax` |
+| Engine | A program for the test rig with what it prints, raises, reads and sends | `tests/cases/vm`, one YAML file per topic, beside `snapshot.json`, `modules.json` and `abi.json` |
+| Native | A kernel called on plain values, with its result or the words of its failure | `tests/lib/cases`, one YAML file per module |
+| Syntax | The tokens a source lexes to, the bytecode it compiles to and what the lexer and the parser report | `tests/cases/syntax` |
 
-A new engine case goes at the end of its topic file, so the places other files name stay put, and an existing case changes only with the rule it states.
+Each test binary is a folder of `tests/` with its `main.rs`, `engine`, `lib` and `unmetered`, which runs without the metering allocator.
 
-`make bench` counts the WebAssembly instructions each Lox program of the bench executes on `interpreter.wasm`, so `bench/.snapshot` keeps the same `[instructions, MB]` per case on every machine. The snapshot on `main` holds the numbers of `main`, so the bench of a branch is its comparison with `main`, case by case and in the geometric mean. It fails when the snapshot was taken with another Rust, a case and its entry do not pair, or the mean or a single case moves past its threshold, the cases that grew listed apart from those that shrank. A change that makes cases faster takes the snapshot again with `make bench-update` in the same pull request. That refuses a case that grew past its threshold, and `make bench-accept-slower` takes it too, so a pull request that makes a case slower says so outright.
+- A case states a rule, so its expected output comes from what the rule gives and never from what the engine printed last, and a quirk a case finds is a bug fixed with the case that holds it.
+- A new engine case goes at the end of its topic file, so the places other files name stay put, and an existing case changes only with the rule it states.
+- The bench snapshot on `main` holds the numbers of `main`, and it fails when the mean or a single case moves past its threshold. A change that makes cases faster takes the snapshot again with `make bench-update`, and one that makes a case slower says so with `make bench-accept-slower`.
+- A bench count that moves with the static data means some lookup follows an address, and that lookup keys by an id or by the content instead.
 
-`make bench-layout` runs every case on `interpreter.wasm` and on a build with its static data shifted, by a padding static of 64 bytes and a global base 64 bytes higher, and fails when a case runs another count on the two. A count that moves with the data means that some lookup follows an address, and such a lookup keys by an id or by the content instead. CI runs it after the bench.
-
-`make miri SUITE=vm` runs one suite under Miri, and `CASE` one test of it by its exact name, as CI does around the clock. Miri takes hours to read the whole corpus, so under Miri the corpus tests run the sample `tests/cases/miri.tsv` names, a case on each line by its key, its topic file and its place there. The sample runs every opcode the corpus runs and reaches the unsafe sites the corpus reaches on a budget of 5,000 ops, and two tests of `make test` hold it to the corpus.
-
-- `miri::test::the_sample_names_cases_of_the_corpus` fails once a sampled case moves or changes.
-- `miri::test::coverage_of_the_sample_holds_every_opcode_the_corpus_runs` fails once a corpus case runs an opcode no sampled case runs, and names the cheapest case to add for it as a line of the file.
-
-When the first one fails, this writes the file again with the key and the place of each case it names.
+Miri takes hours over the whole corpus, so under Miri the corpus tests run the sample `tests/cases/miri.tsv` names. `miri::test::the_sample_names_cases_of_the_corpus` fails once a sampled case moves or changes, and `miri::test::coverage_of_the_sample_holds_every_opcode_the_corpus_runs` fails once a corpus case runs an opcode no sampled case runs and names the case to add. When the first one fails, this writes the sample again.
 
 ```bash
-MIRI_TSV_OUT=tests/cases/miri.tsv cargo test --locked -p interpreter --test tests miri::test::the_sample_names_cases_of_the_corpus
+MIRI_TSV_OUT=tests/cases/miri.tsv cargo test --locked -p interpreter --test engine miri::test::the_sample_names_cases_of_the_corpus
 ```
 
-> [!NOTE]
-> The JS suites read the builds from a tree served on loopback, the lock cases of the CLI serve their own release on loopback, and the skill suite reaches no server.
-
-First, stage the builds and serve them in a terminal of their own.
+The JS and CLI suites read the builds from a tree served on loopback, staged and served in a terminal of its own.
 
 ```bash
 make stage serve
-```
-
-Next, point the JS suites at it and run them.
-
-```bash
 export INTERPRETER_CDN_BASE=http://127.0.0.1:8788
 make browsers   # once
-make test-js test-cli test-skill
+make test-js test-cli
 ```
-
-`make fuzz` runs a fuzzing campaign, as CI does around the clock.
 
 ## Docs
 
-`docs/` holds MDX pages two folders deep at most, with a numeric prefix on every path segment. Each opens with a frontmatter holding a `title` and a `description` and has one top-level heading, the rules `interpreter build` holds package docs to. Every example runs: `make test-cli SUITE=docs` runs the `rust` blocks as doctests of the kit, `make test-cli SUITE=network` runs each `$ interpreter` transcript and each `lox` block against the `output` block after it, with the files that `lox <path>` blocks write, and `make test-js` runs each `js` block in a page against the `text` block after it.
+`docs/` holds MDX pages two folders deep at most, with a numeric prefix on every path segment. Each opens with a frontmatter holding a `title` and a `description` and has one top-level heading, the rules `interpreter build` holds package docs to. Every example runs. `make test-cli SUITE=docs` runs the `rust` blocks as doctests of the kit, `make test-cli SUITE=network` runs each `$ interpreter` transcript and each `lox` block against the `output` block after it, and `make test-js` runs each `js` block against the `text` block after it.
 
 ## CI
 

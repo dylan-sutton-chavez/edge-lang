@@ -20,28 +20,23 @@ autoexamples = false
 name = "interpreter"
 doctest = false
 
-# the Lox runtime as a native binary over the files a program imports
-[[bin]]
-name = "lox"
-path = "src/bin/lox.rs"
-required-features = ["lox", "std"]
-
 [[test]]
-name = "tests"
-path = "tests/main.rs"
+name = "engine"
+path = "tests/engine/main.rs"
 
 # its own binary since it runs without the metering allocator
 [[test]]
 name = "unmetered"
-path = "tests/unmetered.rs"
+path = "tests/unmetered/main.rs"
 
 [[test]]
 name = "lib"
 path = "tests/lib/main.rs"
 
-[[test]]
-name = "lox"
-path = "tests/lox/main.rs"
+# unsafe code lives in src/unsafe.rs alone which allows it for itself
+[lints.rust]
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
 
 [package.metadata.docs.rs]
 features = ["full", "plugin"]
@@ -49,9 +44,9 @@ features = ["full", "plugin"]
 [features]
 default = ["std"]
 std = []
-# every module of interpreter::lib and the Lox runtime built on them
-full = ["bytes", "data", "date", "io", "iter", "map", "num", "reflect", "seq", "set", "spec", "text", "types", "lox"]
-# interpreter::lib whose modules each pull in the modules whose helpers they call
+# every module of `interpreter::lib`
+full = ["bytes", "data", "date", "io", "iter", "map", "num", "reflect", "seq", "set", "spec", "text", "types"]
+# `interpreter::lib` whose modules each pull in the modules whose helpers they call
 lib = []
 bytes = ["lib", "iter", "num"]
 data = ["lib", "iter", "map"]
@@ -66,11 +61,7 @@ set = ["lib", "iter"]
 spec = ["lib", "num"]
 text = ["lib", "bytes", "iter", "num"]
 types = ["lib"]
-# interpreter::lox and the lox binary
-lox = ["io", "seq"]
-# interpreter.wasm as Lox's cdylib with the wasm exports and the grant logic
-web = ["lox", "runtime", "perms"]
-# interpreter::plugin for writing the WebAssembly plugins a program imports
+# `interpreter::plugin` for writing the WebAssembly plugins a program imports
 plugin = ["dep:linked_list_allocator", "dep:lol_alloc"]
 # records each executed instruction for `VM::ran` with method calls unfused to keep the compiler's ips
 coverage = []
@@ -96,7 +87,7 @@ lol_alloc = { workspace = true, optional = true }
 
 # test-only deps of the case runner that the release `interpreter.wasm` never pulls in
 [dev-dependencies]
-# the tests run every module and Lox and the plugin kit of this crate
+# the tests run every module and the plugin kit of this crate
 interpreter = { path = ".", features = ["full", "plugin"] }
 hashbrown = { workspace = true, features = ["serde"] }
 serde = { workspace = true }
@@ -104,11 +95,13 @@ serde_json = { workspace = true }
 serde_yaml_ng = { workspace = true }
 # the tests run what lox cannot write through the test rig which links this crate back
 rig = { path = "tests/rig" }
+# what Lox can say the tests say in Lox through the example itself
+interpreter-lox = { path = "examples/lox" }
 
 [workspace]
-members = ["plugin/example", "skill", "bench", "tests/rig"]
+members = ["plugin/example", "bench", "tests/rig", "examples/lox"]
 # wasm-only `plugin/example` is out of default-members so build it with `-p slugify-mod`
-default-members = [".", "skill", "tests/rig"]
+default-members = [".", "tests/rig", "examples/lox"]
 resolver = "2"
 
 [workspace.package]

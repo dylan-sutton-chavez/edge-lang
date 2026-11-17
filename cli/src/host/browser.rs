@@ -308,7 +308,7 @@ mod tests {
 
     #[test]
     fn the_host_answers_under_the_js_prefix() {
-        let d = &interpreter::lox::DESCRIPTOR;
+        let d = &interpreter_lox::DESCRIPTOR;
         assert!(host_file("js/src/index.js", d).is_some());
         assert!(host_file("js/src/nope.js", d).is_none());
         assert!(host_file("src/index.js", d).is_none());
@@ -331,7 +331,7 @@ mod tests {
         std::fs::write(dir.path().join("secret.lox"), "var key = 2;").unwrap();
         let root = dir.path().join("app").canonicalize().unwrap();
 
-        let d = &interpreter::lox::DESCRIPTOR;
+        let d = &interpreter_lox::DESCRIPTOR;
         assert_eq!(project_file(&root, "helper.lox", d), Some((b"var x = 1;".to_vec(), "text/plain")));
         assert!(project_file(&root, "../secret.lox", d).is_none());
         assert!(project_file(&root, "missing.lox", d).is_none());

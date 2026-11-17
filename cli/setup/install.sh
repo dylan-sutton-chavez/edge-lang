@@ -63,10 +63,10 @@ case "$(basename "${SHELL:-bash}")" in
   *) rc="" ;;
 esac
 
-# Check the rc file, not the live PATH, an old shell keeps the dir after an uninstall.
+# check the rc file, not the live PATH, an old shell keeps the dir after an uninstall
 rc_has_path() {
   grep -qs "$INSTALL_DIR" "$rc" 2>/dev/null && return 0
-  # The default dir is often already on PATH via a $HOME-spelled rc/profile line.
+  # the default dir is often already on PATH via a $HOME-spelled rc/profile line
   [ "$INSTALL_DIR" = "$HOME/.local/bin" ] && grep -qs '\$HOME/.local/bin' "$rc" 2>/dev/null
 }
 

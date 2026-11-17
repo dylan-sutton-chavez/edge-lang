@@ -1,7 +1,5 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![doc = include_str!("../README.md")]
-// unsafe code lives in r#unsafe alone as the lint gate checks
-#![deny(unsafe_code)]
 
 extern crate alloc;
 
@@ -13,10 +11,6 @@ pub mod abi;
 #[cfg(feature = "lib")]
 #[path = "lib/mod.rs"]
 pub mod lib;
-
-/* Lox from Crafting Interpreters as the runtime interpreter.wasm and the CLI are built from */
-#[cfg(feature = "lox")]
-pub mod lox;
 
 /* the kit a WebAssembly plugin a program imports is written with */
 #[cfg(feature = "plugin")]

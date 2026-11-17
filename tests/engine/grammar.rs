@@ -49,7 +49,7 @@ mod test {
         const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
     }
 
-    // the same table with no colon, so neither ':' nor 'while' has a spelling
+    // the same table with no colon so neither `:` nor `while` has a spelling
     const BARE_SYMBOLS: &[(&str, TokenType)] = &[
         ("(", T::ParenOpen), (")", T::ParenClose), ("[", T::BracketOpen), ("]", T::BracketClose), ("{", T::BraceOpen), ("}", T::BraceClose), ("{", T::BlockOpen), ("}", T::BlockClose),
         ("=>", T::Arm), ("==", T::EqualEqual), ("<", T::Less), ("=", T::Equal), ("+", T::Plus), ("-", T::Minus), ("/", T::Slash), (",", T::Comma), (".", T::Dot),

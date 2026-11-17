@@ -10,7 +10,7 @@ inputs:
     required: false
     default: ""
   suite:
-    description: "engine | network | actors | consistency | docs | skill (test mode)"
+    description: "engine | network | actors | consistency | docs (test mode)"
     required: false
     default: ""
 
@@ -28,7 +28,7 @@ runs:
       shell: bash
       run: echo "INTERPRETER_WASM=$GITHUB_WORKSPACE/_inputs/_build/interpreter-cli.wasm" >> "$GITHUB_ENV"
 
-    # The host is TypeScript and strips in seconds, so make builds it here rather than fetching it.
+    # the host is TypeScript and strips in seconds, so make builds it here rather than fetching it
     - name: Deno
       uses: denoland/setup-deno@v2
       with:
@@ -66,7 +66,7 @@ runs:
       shell: bash
       run: make cli-release TARGET=${{ inputs.target }}
 
-    # The tarball and the install scripts land under cli/.
+    # the tarball and the install scripts land under cli/
     - name: Stage
       if: inputs.mode == 'release'
       uses: ./.github/actions/stage

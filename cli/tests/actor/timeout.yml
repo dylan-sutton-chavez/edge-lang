@@ -1,4 +1,4 @@
-# An untrusted run that never yields is cut by the epoch deadline, the reply names the limit.
+# an untrusted run that never yields is cut by the epoch deadline, the reply names the limit
 runtime:
   listen: tcp://127.0.0.1:7790
   control: tcp://127.0.0.1:9790

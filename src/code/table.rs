@@ -87,7 +87,6 @@ crate::ops! {
         CallExtern        packed    1       binding   calls       -       -      under  -          -     -             -;
         // the module of `chunk.imports[operand]` read from `vm.module_table` in constant time
         LoadModule        0         1       module    values      -       -      -      -          -     OpR           -;
-        // a name declared `global` read or written in `self.globals` by its bare name in `chunk.names`
         // `{**m}` `{*s}` and `[*it]` merge the popped value into the container below it
         DictUpdate        1         0       none      containers  -       -      under  -          -     -             -;
         SetUpdate         1         0       none      containers  -       -      under  -          -     -             -;

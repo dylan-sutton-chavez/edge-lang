@@ -18,7 +18,7 @@ const PROGRAM: &str = "var files = import(\"files\");\nvar f = files.open(\"even
 
 /* run over lox with the files a grant names */
 fn kit() -> Kit {
-    Kit::new("channels", env!("CARGO_PKG_VERSION"), Runtime::wasm(WASM, &interpreter::lox::DESCRIPTOR))
+    Kit::new("channels", env!("CARGO_PKG_VERSION"), Runtime::wasm(WASM, &interpreter_lox::DESCRIPTOR))
         .title("Channels on the interpreter engine")
         .command(interpreter_cli::cmd::run::Run)
         .field(perms::FIELD)

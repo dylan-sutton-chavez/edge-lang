@@ -520,7 +520,7 @@ mod tests {
     }
 
     fn find_entry(scripts: &[PathBuf], project: &Path) -> String {
-        super::find_entry(&interpreter::lox::DESCRIPTOR, scripts, project)
+        super::find_entry(&interpreter_lox::DESCRIPTOR, scripts, project)
     }
 
     fn collect_scripts(project: &Path, out_dir: &Path) -> Vec<PathBuf> {

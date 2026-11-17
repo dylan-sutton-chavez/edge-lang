@@ -475,7 +475,7 @@ pub(crate) mod tests {
     /* a kit over the reference runtime build.rs embeds with no component wired */
     pub fn bare() -> Kit {
         // SAFETY build.rs precompiled the cwasm from this module under the host's engine config
-        let runtime = unsafe { Runtime::precompiled(WASM, NATIVE, &interpreter::lox::DESCRIPTOR) };
+        let runtime = unsafe { Runtime::precompiled(WASM, NATIVE, &interpreter_lox::DESCRIPTOR) };
         Kit::new("interpreter", "0.0.0", runtime)
     }
 

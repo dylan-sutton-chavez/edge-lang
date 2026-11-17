@@ -1,4 +1,4 @@
-# A run target that is a directory boots its main.lox and resolves the project's own interpreter.json.
+# a run target that is a directory boots its main.lox and resolves the project's own interpreter.json
 groups:
   builder:
     seed: ["go"]

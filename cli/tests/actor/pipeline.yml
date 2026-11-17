@@ -1,4 +1,4 @@
-# A seed flows through a three-stage pipeline, plus per-group limits and a null-output producer.
+# a seed flows through a three-stage pipeline, plus per-group limits and a null-output producer
 groups:
   ingest:
     replicas: 1

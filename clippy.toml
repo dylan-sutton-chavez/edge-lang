@@ -1,0 +1,26 @@
+# a program reaches no file network clock or environment unless its host grants it
+disallowed-methods = [
+    { path = "std::fs::read", reason = "the engine reads no file, a host hands it bytes" },
+    { path = "std::fs::read_to_string", reason = "the engine reads no file, a host hands it text" },
+    { path = "std::fs::read_dir", reason = "the engine lists no directory" },
+    { path = "std::fs::write", reason = "the engine writes no file, a host takes what it sends" },
+    { path = "std::fs::File::open", reason = "the engine opens no file" },
+    { path = "std::fs::File::create", reason = "the engine creates no file" },
+    { path = "std::env::var", reason = "the engine reads no environment" },
+    { path = "std::env::vars", reason = "the engine reads no environment" },
+    { path = "std::env::args", reason = "the engine reads no arguments, a host passes them" },
+    { path = "std::env::args_os", reason = "the engine reads no arguments, a host passes them" },
+    { path = "std::process::exit", reason = "a run ends with a status its host turns into an exit" },
+    { path = "std::process::Command::new", reason = "the engine starts no process" },
+    { path = "std::net::TcpStream::connect", reason = "the engine opens no socket, net is a host module" },
+    { path = "std::net::TcpListener::bind", reason = "the engine opens no socket, net is a host module" },
+    { path = "std::net::UdpSocket::bind", reason = "the engine opens no socket, net is a host module" },
+    { path = "std::time::SystemTime::now", reason = "the engine reads no clock so a run repeats exactly" },
+    { path = "std::time::Instant::now", reason = "the engine reads no clock so a run repeats exactly" },
+]
+
+# a random seed would make lookups and the bench's instruction counts differ from run to run
+disallowed-types = [
+    { path = "std::collections::HashMap", reason = "use hashbrown with util::hash so lookups repeat exactly" },
+    { path = "std::collections::HashSet", reason = "use hashbrown with util::hash so lookups repeat exactly" },
+]

@@ -1,15 +1,15 @@
 ---
 title: "JavaScript"
-description: "Run a runtime's .wasm in a web page with createWorker, and the imports and exports any other host drives."
+description: "Run a runtime's .wasm in a web page with createWorker, and the ABI any other host drives."
 ---
 
 # JavaScript
 
-The JS host runs a runtime's `.wasm` in a web page. `createWorker` boots the engine in a Web Worker inside a sandboxed frame of its own, which no cookie, storage or DOM of the page reaches, and everything else is a call on the worker it returns.
+The JS host runs a runtime's `.wasm` in a web page. `createWorker` boots the engine in a Web Worker inside a sandboxed frame, where no cookie, storage or DOM of the page reaches it. Everything else is a call on the worker it returns.
 
 ## Load the host
 
-Serve the tree [Install](./01-overview.mdx#install) builds, or the `dist/` that `interpreter build --web` writes, from your own origin. `createWorker` loads `interpreter.wasm` from two folders above `index.js` unless `wasmUrl` names another, such as the `.wasm` of your own runtime. Each example below is a module script of a page that serves `dist/`, and the block after it is what it logs.
+Serve the tree from [Install](./01-overview.mdx#install), or the `dist/` that `interpreter build --web` writes, from your own origin. `createWorker` loads `interpreter.wasm` from two folders above `index.js`, or from `wasmUrl` for the `.wasm` of another runtime. Each example below is a module script of a page that serves `dist/`, followed by what it logs.
 
 ```js
 import { createWorker } from "./dist/js/src/index.js";
@@ -25,7 +25,7 @@ hello from interpreter
 true 3
 ```
 
-`run(src)` resolves once the program ends with `{ out, ms, exitCode }`. `out` holds the error report when the run fails and is empty otherwise, `ms` is how long it ran, and `exitCode` is set when the program exits with a code. What the program prints arrives through `onOutput`.
+`run(src)` resolves when the program ends, with `{ out, ms, exitCode }`. `out` holds the error report of a failed run and is empty otherwise, `ms` is the time it ran and `exitCode` is set when the program calls `exit`. Printed text arrives through `onOutput`.
 
 ## Options
 
@@ -45,7 +45,7 @@ true 3
 | `repl` | Runs `src` as the next input of a REPL on what the last input left |
 | `incremental` | Keeps module state across runs |
 
-A grant is checked before any request leaves the frame, and a refused call ends the run with Lox's report in `out`:
+A grant is checked before any request leaves the frame. A refused call ends the run with its report in `out`.
 
 ```js
 import { createWorker } from "./dist/js/src/index.js";
@@ -62,7 +62,7 @@ for (const line of out.split("\n")) console.log(line);
 
 ## Events and named outputs
 
-`pushEvent(message)` hands a string to the program's `receive()`, and a message pushed before the program waits is queued. `send(name, line)` in a program writes a line to a named output, which `onChannel` hands to the page under that name.
+`pushEvent(message)` hands a string to the program's `receive()`, and a message pushed early waits in a queue. `send(name, line)` in a program writes a line to a named output, which `onChannel` hands to the page.
 
 ```js
 import { createWorker } from "./dist/js/src/index.js";
@@ -83,7 +83,7 @@ twice cdcd
 
 ## Pause and snapshots
 
-`setPreemptInterval(n)` makes the run yield every `n` loop back-edges, so `pause()` can stop even a loop that never waits. `saveState()` freezes a parked run to a `Uint8Array`, and `restoreState(blob)` boots from it later, in this page or another, and resolves like `run`.
+`setPreemptInterval(n)` makes the run yield every `n` loop back-edges, so `pause()` can stop even a loop that never waits. `saveState()` turns a stopped run into a `Uint8Array`, and `restoreState(blob)` resumes it later, in this page or another.
 
 ```js
 import { createWorker } from "./dist/js/src/index.js";
@@ -107,7 +107,7 @@ done 1000000
 true
 ```
 
-The second `done` comes from the blob, which held the loop at the `n` the pause landed on.
+The second `done` comes from the blob, which held the loop at the `n` where the pause landed.
 
 | Worker call | Does |
 |---|---|
@@ -123,9 +123,9 @@ The second `done` comes from the blob, which held the loop at the `n` the pause 
 
 ## Other hosts
 
-Any host that runs WebAssembly can drive a runtime's `.wasm` directly. The `interpreter` CLI does so with wasmtime in `cli/src/host/wasm`, and `js/src` is the browser's version. Every input is a buffer the host allocates with `wasm_alloc(size)`, fills, passes as `(ptr, len)` and frees with `wasm_free(ptr, size)`. Every result lands in one output buffer at `out_ptr()`, `out_len()` bytes long, valid until the next call.
+Any host that runs WebAssembly can drive a runtime's `.wasm`. The CLI does it with wasmtime in `cli/src/host/wasm`. Every input is a buffer the host allocates with `wasm_alloc(size)`, fills, passes as `(ptr, len)` and frees with `wasm_free(ptr, size)`. Every result lands in one output buffer at `out_ptr()`, `out_len()` bytes long, valid until the next call.
 
-The module imports four functions from `env`:
+The module imports four functions from `env`.
 
 | Import | The host |
 |---|---|
@@ -134,14 +134,14 @@ The module imports four functions from `env`:
 | `host_fetch_bytes(spec, spec_len, hash, out_len) -> ptr` | Gives the bytes behind a spec, or none |
 | `host_send(name, name_len, line, line_len) -> i32` | Takes one line of a named output, `0` when taken |
 
-A host drives one run in this order:
+A host drives one run in four steps.
 
-1. Instantiate the module with the imports, then call `set_entry` with the script path.
-2. Run the import walk: `walk_start` with the source, then answer each step it writes (`fetch`, `plugin`, `system`) with `walk_fetched`, `walk_plugin` or `walk_served` until it writes `done`. The engine checks every pin and grant itself.
+1. Instantiate the module with the imports and call `set_entry` with the script path.
+2. Call `walk_start` with the source and answer each step it writes (`fetch`, `plugin`, `system`) with `walk_fetched`, `walk_plugin` or `walk_served` until it writes `done`. The engine checks every pin and grant.
 3. Call `set_input`, `set_limits(memory, ops)` and `set_preempt_interval(n)` as needed.
 4. Call `run_start` with the source, then read the status word and call `run_resume` until the run ends.
 
-The status word packs a kind in its top 3 bits and the output length in the low 29:
+The status word holds a kind in its top 3 bits and the output length in the low 29.
 
 | Kind | Name | The host |
 |---|---|---|
@@ -152,4 +152,4 @@ The status word packs a kind in its top 3 bits and the output length in the low 
 | 6 | `EXIT` | Stops, the exit code is in the low 8 bits |
 | 7 | `PREEMPTED` | Calls `run_resume`, or `save_state` first |
 
-`register_native_module(spec, names, base_id)` serves a host module, `save_state` and `restore_state` freeze and thaw a run, `vm_create` and `vm_select` hold several runs in one instance, and `runtime_descriptor` writes the runtime's names and file extension as JSON.
+`register_native_module(spec, names, base_id)` serves a host module, `save_state` and `restore_state` save and resume a run, `vm_create` and `vm_select` hold several runs in one instance, and `runtime_descriptor` writes the runtime's names and file extension as JSON.

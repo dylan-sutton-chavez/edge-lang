@@ -80,7 +80,7 @@ fn walk_js(root: &Path, dir: &Path, found: &mut Vec<(String, PathBuf)>) {
 fn precompile(engine: &wasmtime::Engine, input: &Path, output: &Path, hint: &str) {
     println!("cargo:rerun-if-changed={}", input.display());
     let bytes = std::fs::read(input).unwrap_or_else(|e| panic!("cannot read {}: {e}, {hint}", input.display()));
-    // A rerun over an unrelated file keeps the artifact while the input and the engine match.
+    // a rerun over an unrelated file keeps the artifact while the input and the engine match
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     bytes.hash(&mut hasher);
     engine.precompile_compatibility_hash().hash(&mut hasher);

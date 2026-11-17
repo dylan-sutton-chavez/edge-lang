@@ -1,4 +1,4 @@
-# A single-shot group at its replicas ceiling passes queued messages on, the sink counts every one.
+# a single-shot group at its replicas ceiling passes queued messages on, the sink counts every one
 groups:
   dispatcher:
     replicas: 1

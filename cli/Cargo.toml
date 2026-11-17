@@ -1,4 +1,4 @@
-# An empty table makes this crate its own workspace root, apart from the engine workspace.
+# an empty table makes this crate its own workspace root, apart from the engine workspace
 [workspace]
 
 [package]
@@ -68,7 +68,7 @@ build = ["docs", "web"]
 # the pages a package ships held to the docs convention and to the icons Lucide draws
 docs = []
 # the reference runtime this crate precompiles for the build target and the interpreter binary embeds
-embed = ["wasm", "interpreter/lox"]
+embed = ["wasm", "dep:interpreter-lox"]
 # the lines each native run executed written where INTERPRETER_COVERAGE names
 coverage = ["interpreter/coverage"]
 # reads of the local files a grant names under the package that asks
@@ -89,8 +89,10 @@ web = ["dep:headless_chrome", "dep:tiny_http"]
 wasm = ["dep:wasmtime"]
 
 [dependencies]
-# The engine crate as a library, manifest parsing and sha256 pinning.
+# the engine crate as a library, manifest parsing and sha256 pinning
 interpreter = { path = ".." }
+# the reference runtime whose descriptor the interpreter composition hands the kit
+interpreter-lox = { path = "../examples/lox", optional = true }
 # hosts the runtime a composition hands the kit and Cranelift compiles the plugins a project declares
 wasmtime = { version = "48", default-features = false, features = ["runtime", "std", "cranelift"], optional = true }
 clap = { version = "4", features = ["derive"] }
@@ -98,22 +100,22 @@ clap = { version = "4", features = ["derive"] }
 tiny_http = { version = "0.12", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# Parses the actor.yml manifest, the maintained fork of serde_yaml.
+# parses the actor.yml manifest, the maintained fork of serde_yaml
 serde_yaml_ng = { version = "0.10", optional = true }
 anyhow = "1"
 # HTTPS for URL imports and `interpreter build` vendoring.
 ureq = { version = "3", features = ["brotli"] }
-# Stable actor keys that survive removal, so the scheduler queues never dangle.
+# stable actor keys that survive removal, so the scheduler queues never dangle
 slab = { version = "0.4", optional = true }
-# One thread serves every ingress connection, epoll or kqueue waking it for those with data.
+# one thread serves every ingress connection, epoll or kqueue waking it for those with data
 mio = { version = "1", features = ["os-poll", "net"], optional = true }
-# A unique temp file for the uninstall script, a predictable path invites symlink squatting.
+# a unique temp file for the uninstall script, a predictable path invites symlink squatting
 tempfile = { version = "3", optional = true }
-# The WebSocket client behind `net.connect`, on the rustls ureq already brings.
+# the WebSocket client behind `net.connect`, on the rustls ureq already brings
 tungstenite = { version = "0.29", default-features = false, features = ["handshake", "rustls-tls-webpki-roots"], optional = true }
-# Inflates a gzip body `net.read` streams, the decoder ureq already brings for its own encodings.
+# inflates a gzip body `net.read` streams, the decoder ureq already brings for its own encodings
 flate2 = { version = "1", optional = true }
-# Drives the browser host for `interpreter run --web` over CDP, `fetch` downloads a known-good Chromium when the user agrees.
+# drives the browser host for `interpreter run --web` over CDP, `fetch` downloads a known-good Chromium when the user agrees
 headless_chrome = { version = "1", features = ["fetch"], optional = true }
 
 # SIGTERM and SIGINT close a live actor server so its actors finish what they hold.
@@ -127,8 +129,10 @@ tempfile = "3"
 tiny_http = "0.12"
 tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
 flate2 = "1"
-# Lox the native test builds into its binary and the kernels and plugin kit the docs examples name
+# the kernels and the plugin kit the docs examples name
 interpreter = { path = "..", features = ["full", "plugin"] }
+# the reference runtime the native test builds into its binary
+interpreter-lox = { path = "../examples/lox" }
 # the names of the rig whose wasm the rig test loads
 rig = { path = "../tests/rig", default-features = false }
 
@@ -149,3 +153,8 @@ opt-level = 3
 
 [profile.dev.build-override]
 opt-level = 3
+
+# a tool beside the engine reads files and the environment the sandbox rule keeps from it
+[lints.clippy]
+disallowed_methods = "allow"
+disallowed_types = "allow"

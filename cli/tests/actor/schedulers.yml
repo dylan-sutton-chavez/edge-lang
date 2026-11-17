@@ -1,4 +1,4 @@
-# A fixed scheduler count shards groups across threads, a cross-shard pipeline still completes.
+# a fixed scheduler count shards groups across threads, a cross-shard pipeline still completes
 runtime:
   schedulers: 4
 

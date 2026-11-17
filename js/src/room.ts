@@ -4,7 +4,7 @@ addEventListener('message', function start({ source, data, ports: [port] }) {
     removeEventListener('message', start);
     try {
         const url = URL.createObjectURL(new Blob([data], { type: 'application/javascript' }));
-        // Chrome refuses a module worker from a blob in an opaque origin, the engine is a classic script.
+        // chrome refuses a module worker from a blob in an opaque origin, the engine is a classic script
         const worker = new Worker(url);
         setTimeout(() => URL.revokeObjectURL(url), 0);
         worker.onmessage = (e) => port.postMessage(e.data);

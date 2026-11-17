@@ -1,4 +1,4 @@
-# A live server echoes ingress messages and reports its state, exercising listen, wal and control.
+# a live server echoes ingress messages and reports its state, exercising listen, wal and control
 runtime:
   listen: tcp://127.0.0.1:7788
   control: tcp://127.0.0.1:9788
@@ -22,10 +22,10 @@ expect:
   - "got: beta"
   - "got: gamma"
 
-# Substring the /stats body must contain once the actor has settled.
+# substring the /stats body must contain once the actor has settled
 expect_status: "\"actors\":1"
 
-# A POST to /pub/<group> queues a message over HTTP, the echoer prints it like a tcp one.
+# a POST to /pub/<group> queues a message over HTTP, the echoer prints it like a tcp one
 post:
   - path: "/pub/echoer"
     body: "gamma"

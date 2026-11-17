@@ -1,3 +1,5 @@
+#![allow(clippy::disallowed_methods, clippy::disallowed_types)]
+
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -109,7 +111,7 @@ fn files(dir: &Path, out: &mut Vec<PathBuf>) {
 #[test]
 fn the_book_suite_passes() {
     let mut all = Vec::new();
-    files(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/lox/suite"), &mut all);
+    files(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/suite"), &mut all);
     all.sort();
     let (mut passed, mut report) = (0, String::new());
     let total = all.iter().filter(|p| {

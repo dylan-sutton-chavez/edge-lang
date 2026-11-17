@@ -1,21 +1,23 @@
 ---
 title: "Grammar"
-description: "Forms, modes and patterns a runtime adds to the parser through the grammar of its token table."
+description: "Forms, modes and patterns a runtime adds to the parser."
 ---
 
 # Grammar
 
-A token table can bring a `Grammar` in `shapes.grammar`. The parser then reads the program as items (`let`, `fn`, `type` and imports) whose expressions follow the grammar's rules, and three things open up that the fixed core lacks:
+A token table can bring a `Grammar` in `shapes.grammar`. The parser then reads a program as items (`let`, `fn`, `type` and imports) and adds three things the fixed core lacks.
 
-- **Forms.** A construct led by a word of your own, such as `fix k = 1 up to 10 { ... }`, that compiles to a call of a function with its parts as arguments.
-- **Modes.** Operator tables an expression is read with, so a form can read its parts with other operators than plain values.
-- **Patterns.** Words a `match` arm tests its subject with, such as `ok v`.
+| Piece | Is | Example |
+|---|---|---|
+| Form | A construct led by a word of yours, compiled to a call of a function with its parts as arguments | `fix k = 1 up to 10 { ... }` |
+| Mode | An operator table an expression is read with | The operators a form reads its parts with |
+| Pattern | A word a `match` arm tests its subject with | `ok v` |
 
-Everything still compiles to the engine's bytecode, so a grammar costs nothing at run time.
+All of it compiles to the engine's bytecode, so a grammar costs nothing at run time.
 
 ## Example
 
-The table below brings braces, `--` comments and a grammar with one form, one pattern word and one lazy call, over two natives of `interpreter::lib`.
+This table has braces, `--` comments, one form, one pattern word and one lazy call.
 
 ```rust standalone_crate
 use interpreter::code::OpCode as O;
@@ -129,9 +131,9 @@ fn main() {
 }
 ```
 
-`fix` doubles `k` until it passes 50 or ten steps run, so it prints `64`. The last line would divide by zero for `n = 1` if `any` built the whole list first. It stops at the first true item instead.
+`fix` doubles `k` until it passes 50 or ten steps run, so it prints `64`. The last line would divide by zero for `n = 1` if `any` built the whole list first, and it stops at the first true item instead.
 
-## The parts
+## Reference
 
 | Type | Fields | Means |
 |---|---|---|
@@ -144,7 +146,7 @@ fn main() {
 | `Form` | `head`, `slots`, `call` | The word that leads the form, its parts in order, and the function it calls with them |
 | `Pattern` | `word`, `test`, `part` | A word an arm tests its subject with, and the item its own pattern then matches |
 
-A `Slot` is one part of a form after its head:
+A `Slot` is one part of a form after its head.
 
 | Slot | Reads |
 |---|---|
@@ -159,4 +161,4 @@ A `Slot` is one part of a form after its head:
 | `Each(k)` | Generators `p in xs` split by commas in parentheses, then braced items as in `Items(k)`, passed as the list of the items of each pass |
 | `At` | The byte offset of the head word, for error reports |
 
-A `Test` is `Nil`, `NotNil`, `Item(index, bool)` or `Field(name, int)`, checked before the arm's pattern matches the `part`. Beside the words, an arm takes a literal such as `-1` or `"a"`, a tuple `(a, b)` and a list `[a, b]`, which takes only a value of as many items. `Grammar::NONE` fills the fields an example leaves out.
+A `Test` is `Nil`, `NotNil`, `Item(index, bool)` or `Field(name, int)`, checked before the arm matches its `part`. An arm also takes a literal such as `-1` or `"a"`, a tuple `(a, b)`, and a list `[a, b]` that only matches a value with as many items. `Grammar::NONE` fills every field an example leaves out.

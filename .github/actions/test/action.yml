@@ -16,7 +16,7 @@ runs:
         key: deno-${{ runner.os }}-${{ hashFiles('**/deno.json', '**/deno.lock') }}
         restore-keys: deno-${{ runner.os }}-
 
-    # A 150MB Chromium, cached so only the first run pays the download.
+    # a 150MB Chromium, cached so only the first run pays the download
     - name: Cache Playwright browsers
       uses: actions/cache@v6
       with:
@@ -34,7 +34,7 @@ runs:
         cache: false
         rustflags: ""
 
-    # Every JS host suite, the Deno ones with no browser and the Playwright ones in Chromium.
+    # every JS host suite, the Deno ones with no browser and the Playwright ones in Chromium
     - name: JS host
       shell: bash
       run: make test-js

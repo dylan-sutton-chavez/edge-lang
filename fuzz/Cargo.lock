@@ -37,6 +37,7 @@ version = "0.0.0"
 dependencies = [
  "afl",
  "interpreter",
+ "interpreter-lox",
  "rig",
 ]
 
@@ -63,6 +64,13 @@ dependencies = [
  "hashbrown",
  "itoa",
  "libm",
+]
+
+[[package]]
+name = "interpreter-lox"
+version = "1.0.0"
+dependencies = [
+ "interpreter",
 ]
 
 [[package]]

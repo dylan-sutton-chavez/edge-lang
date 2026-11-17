@@ -333,7 +333,7 @@ pub fn push_title(out: &mut alloc::string::String, c: char) {
     }
 }
 
-// full casefold so ß gives ss
+// full casefold so `ß` gives ss
 pub fn push_fold(out: &mut alloc::string::String, c: char) {
     if c.is_ascii() { return out.push(c.to_ascii_lowercase()); }
     let n = c as u32;

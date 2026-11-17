@@ -6,5 +6,5 @@ use interpreter::embed::Limits;
 interpreter::allocator!();
 
 fn main() -> ExitCode {
-    interpreter::targets::native::main(&interpreter::lox::RUNTIME, &interpreter::lox::FRONT, Limits::sandbox())
+    interpreter::targets::native::main(&interpreter_lox::RUNTIME, &interpreter_lox::FRONT, Limits::sandbox())
 }

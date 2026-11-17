@@ -4,7 +4,7 @@ The directory a file sits in decides the license that applies to it.
 
 ## The engine
 
-`src/` `tests/` `lib/` `examples/` `abi/` `plugin/` `cli/` `js/` `fuzz/` `bench/` `skill/` `tools/` `make/` `cdn/` `docs/`
+`src/` `tests/` `examples/` `plugin/` `cli/` `js/` `fuzz/` `bench/` `make/` `cdn/` `docs/`
 
 Licensed under the Apache License 2.0, whose text is at <https://www.apache.org/licenses/LICENSE-2.0>.
 
@@ -13,6 +13,6 @@ The engine builds as `interpreter.wasm` and as a Rust library, and driving eithe
 
 ## The book's tests and benchmarks
 
-`tests/lox/suite` `bench/cases/book`
+`examples/lox/tests/suite` `bench/cases/book`
 
 The tests and benchmarks of Crafting Interpreters by Robert Nystrom under the MIT license, whose text with its copyright is in the LICENSE file of each.

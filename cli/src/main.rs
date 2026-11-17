@@ -2,16 +2,16 @@ use interpreter_cli::cmd::{actors, build, init, pkg, run, serve, test, uninstall
 use interpreter_cli::{docs, files, manifest, net, perms, Kit, Runtime};
 use std::sync::Arc;
 
-// the Lox runtime of interpreter::lox which this binary embeds
+// the Lox runtime of examples/lox which this binary embeds
 const INTERPRETER_WASM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/interpreter.wasm"));
 const INTERPRETER_CWASM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/interpreter.cwasm"));
 
 /* the interpreter binary as one composition of the kit over the reference runtime */
 fn interpreter() -> Kit {
     // SAFETY build.rs precompiled interpreter.cwasm from interpreter.wasm under the host's own engine config
-    let runtime = unsafe { Runtime::precompiled(INTERPRETER_WASM, INTERPRETER_CWASM, &interpreter::lox::DESCRIPTOR) };
+    let runtime = unsafe { Runtime::precompiled(INTERPRETER_WASM, INTERPRETER_CWASM, &interpreter_lox::DESCRIPTOR) };
     Kit::new("interpreter", env!("CARGO_PKG_VERSION"), runtime)
-        .title(format!("The interpreter developer CLI for {}", interpreter::lox::DESCRIPTOR.language))
+        .title(format!("The interpreter developer CLI for {}", interpreter_lox::DESCRIPTOR.language))
         .site("github.com/dylan-sutton-chavez/interpreter")
         .upgrade("git pull in your interpreter clone, then make wasm-cli js lucide and cargo install --path cli")
         .command(run::Run)

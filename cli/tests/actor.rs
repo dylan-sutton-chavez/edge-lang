@@ -5,7 +5,7 @@ use std::time::Duration;
 
 const BIN: &str = env!("CARGO_BIN_EXE_interpreter");
 
-/* The interpreter binary with a private cache, remote modules resolve through the local CDN. */
+/* the interpreter binary with a private cache, remote modules resolve through the local CDN */
 fn interpreter() -> Command {
     let cache = std::env::temp_dir().join(format!("interpreter-actor-cache-{}", std::process::id()));
     let mut cmd = Command::new(BIN);
@@ -13,15 +13,15 @@ fn interpreter() -> Command {
     cmd
 }
 
-// A case file, expect is the assertion, publish and listen drive the live-server cases.
+// a case file, expect is the assertion, publish and listen drive the live-server cases
 #[derive(serde::Deserialize)]
 struct Case {
     #[serde(default)]
     expect: Vec<String>,
-    // Lines fed to the ingress after boot, only for cases that listen.
+    // lines fed to the ingress after boot, only for cases that listen
     #[serde(default)]
     publish: Vec<String>,
-    // Substring the /stats body must contain, only for cases with a control port.
+    // substring the /stats body must contain, only for cases with a control port
     #[serde(default)]
     expect_status: Option<String>,
     // POSTs against the control port, each reply body must carry expect as a substring.
@@ -31,7 +31,7 @@ struct Case {
     runtime: Runtime,
 }
 
-// One POST to the control port, path and body go out, expect matches the reply.
+// one POST to the control port, path and body go out, expect matches the reply
 #[derive(serde::Deserialize)]
 struct Post {
     path: String,
@@ -47,7 +47,7 @@ struct Runtime {
     control: Option<String>,
 }
 
-// Runs every cli/tests/actor/*.yml case, asserting the pool's stdout matches its expect block.
+// runs every cli/tests/actor/*.yml case, asserting the pool's stdout matches its expect block
 #[test]
 fn actor_cases_match_their_expected_output() {
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/actor");
@@ -67,7 +67,7 @@ fn actor_cases_match_their_expected_output() {
             Some(addr) => run_server(&path, addr, &case),
             None => (run_batch(&path), String::new(), Vec::new()),
         };
-        // Order across groups is not fixed, compare as a sorted multiset of lines.
+        // order across groups is not fixed, compare as a sorted multiset of lines
         let (mut got, mut expected) = (got, case.expect.clone());
         got.sort();
         expected.sort();
@@ -89,20 +89,20 @@ fn actor_cases_match_their_expected_output() {
     assert!(failures.is_empty(), "{} actor case(s) failed:\n{}", failures.len(), failures.join("\n"));
 }
 
-// A batch pool runs to completion, its stdout lines are the result.
+// a batch pool runs to completion, its stdout lines are the result
 fn run_batch(path: &std::path::Path) -> Vec<String> {
     let out = interpreter().args(["actor", path.to_str().unwrap()]).stdin(Stdio::null()).output().unwrap();
     String::from_utf8_lossy(&out.stdout).lines().map(str::to_string).collect()
 }
 
-// A server pool stays alive, publish feeds the ingress, then stdout, /stats and posts are read.
+// a server pool stays alive, publish feeds the ingress, then stdout, /stats and posts are read
 fn run_server(path: &std::path::Path, listen: &str, case: &Case) -> (Vec<String>, String, Vec<String>) {
     let addr = listen.strip_prefix("tcp://").unwrap_or(listen);
     let scratch = std::env::temp_dir().join(format!("interpreter-actor-{}-{}", std::process::id(), path.file_stem().unwrap().to_string_lossy()));
     let _ = std::fs::create_dir_all(&scratch);
     let manifest = scratch.join("actor.yml");
     std::fs::copy(path, &manifest).unwrap();
-    // The groups resolve actor through the manifest beside the yml, so it travels along.
+    // the groups resolve actor through the manifest beside the yml, so it travels along
     std::fs::copy(path.with_file_name("interpreter.json"), scratch.join("interpreter.json")).unwrap();
 
     let mut child = interpreter().args(["actor", manifest.to_str().unwrap()]).stdin(Stdio::null()).stdout(Stdio::piped()).spawn().unwrap();
@@ -123,7 +123,7 @@ fn run_server(path: &std::path::Path, listen: &str, case: &Case) -> (Vec<String>
         Some(c) => case.post.iter().map(|p| post_eval(c, &p.path, &p.body)).collect(),
         None => Vec::new(),
     };
-    // A /send is accepted once queued, give the actors a beat to print before the kill.
+    // a /send is accepted once queued, give the actors a beat to print before the kill
     std::thread::sleep(Duration::from_millis(400));
     let _ = child.kill();
     let out = child.wait_with_output().unwrap();
@@ -131,7 +131,7 @@ fn run_server(path: &std::path::Path, listen: &str, case: &Case) -> (Vec<String>
     (String::from_utf8_lossy(&out.stdout).lines().map(str::to_string).collect(), status, replies)
 }
 
-// Connects once the port binds, a debug pool can take seconds to boot, and a read that never answers fails.
+// connects once the port binds, a debug pool can take seconds to boot, and a read that never answers fails
 fn connect(addr: &str) -> Option<TcpStream> {
     for _ in 0..200 {
         if let Ok(sock) = TcpStream::connect(addr) {
@@ -154,7 +154,7 @@ fn post_eval(addr: &str, path: &str, body: &str) -> String {
     resp.split_once("\r\n\r\n").map(|(_, body)| body.to_string()).unwrap_or_default()
 }
 
-/* The bundle wire format `interpreter build` writes, magic, entry, then length-prefixed files. */
+/* the bundle wire format `interpreter build` writes, magic, entry, then length-prefixed files */
 fn bundle(entry: &str, files: &[(&str, &str)]) -> Vec<u8> {
     fn put(b: &mut Vec<u8>, bytes: &[u8]) {
         b.extend_from_slice(bytes.len().to_string().as_bytes());
@@ -185,7 +185,7 @@ fn base64_encode(bytes: &[u8]) -> String {
     out
 }
 
-/* An untrusted client sends a whole project bundle to an eval group, which runs it in isolation. */
+/* an untrusted client sends a whole project bundle to an eval group, which runs it in isolation */
 #[test]
 fn eval_group_runs_a_bundled_project_over_the_wire() {
     let payload = bundle("main.lox", &[
@@ -213,7 +213,7 @@ fn eval_group_runs_a_bundled_project_over_the_wire() {
     assert_eq!(got, vec!["bundled and run"], "stdout was {got:?}, stderr {err:?}");
 }
 
-/* A pool that grants eval nothing refuses a bundle that grants itself anything. */
+/* a pool that grants eval nothing refuses a bundle that grants itself anything */
 #[test]
 fn a_pool_that_grants_eval_nothing_refuses_a_bundle_that_grants() {
     let payload = bundle("main.lox", &[
@@ -233,7 +233,7 @@ fn a_pool_that_grants_eval_nothing_refuses_a_bundle_that_grants() {
     assert!(reply.contains("the pool does not grant eval what this bundle grants") && reply.contains("main   net:127.0.0.1"), "reply was {reply:?}");
 }
 
-/* A bundle holds what it grants within the eval grant of the pool, and a snippet holds nothing. */
+/* a bundle holds what it grants within the eval grant of the pool, and a snippet holds nothing */
 #[test]
 fn an_eval_bundle_grants_within_what_the_pool_grants_eval() {
     let scratch = std::env::temp_dir().join(format!("interpreter-actor-ceiling-{}", std::process::id()));
@@ -260,7 +260,7 @@ fn an_eval_bundle_grants_within_what_the_pool_grants_eval() {
     assert!(snippet.contains("'main' imports net, which interpreter.json does not grant it"), "snippet was {snippet:?}");
 }
 
-/* An eval that spins and an actor that never stops computing share one thread, and neither holds up the rest. */
+/* an eval that spins and an actor that never stops computing share one thread, and neither holds up the rest */
 #[test]
 fn a_busy_actor_never_holds_up_the_rest() {
     use std::io::BufRead;
@@ -280,7 +280,7 @@ fn a_busy_actor_never_holds_up_the_rest() {
     });
     let mut sock = connect("127.0.0.1:7814").expect("ingress never came up");
     let sent = Instant::now();
-    // A snippet holds no grant, so it can only spin, and it spins until its op budget runs out.
+    // a snippet holds no grant, so it can only spin, and it spins until its op budget runs out
     for line in ["runners while (true) { }", "spin go", "echo hi"] {
         let _ = writeln!(sock, "{line}");
     }
@@ -292,7 +292,7 @@ fn a_busy_actor_never_holds_up_the_rest() {
     assert!(echoed.as_ref().is_ok_and(|(t, line)| line == "echo hi" && *t < 1.5), "an echo waited behind the spinning eval or the spinning actor, {echoed:?}");
 }
 
-/* An eval group sets its own timeout, which ends a spin the op budget would not. */
+/* an eval group sets its own timeout, which ends a spin the op budget would not */
 #[test]
 fn an_eval_group_timeout_ends_a_spin() {
     use std::time::Instant;
@@ -302,7 +302,7 @@ fn an_eval_group_timeout_ends_a_spin() {
     std::fs::write(&manifest, "runtime:\n  listen: tcp://127.0.0.1:7815\n  control: tcp://127.0.0.1:9815\ngroups:\n  runners:\n    eval: true\n    limits:\n      timeout: 1\n      ops: 18446744073709551615\n").unwrap();
 
     let mut child = interpreter().args(["actor", manifest.to_str().unwrap()]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
-    // The first post waits out the boot, so only the spin is timed.
+    // the first post waits out the boot, so only the spin is timed
     let booted = post_eval("127.0.0.1:9815", "/eval/runners", "print \"up\";");
     let start = Instant::now();
     // the op budget is the largest a group takes so only the clock can end the spin
@@ -311,12 +311,12 @@ fn an_eval_group_timeout_ends_a_spin() {
     let _ = child.kill();
     let _ = child.wait();
     let _ = std::fs::remove_dir_all(&scratch);
-    // Under the ten-second default the spin would run ten seconds.
+    // under the ten-second default the spin would run ten seconds
     assert!(booted.contains(r#""stdout":"up\n""#), "the first eval answered {booted:?}");
     assert!(spun.contains("time limit") && spun_for < 2.5, "the spin answered {spun:?} after {spun_for}s");
 }
 
-/* A timeout past five minutes, or on a group that does not eval, stops the boot. */
+/* a timeout past five minutes, or on a group that does not eval, stops the boot */
 #[test]
 fn a_timeout_out_of_bounds_or_off_eval_stops_the_boot() {
     let scratch = std::env::temp_dir().join(format!("interpreter-actor-timeout-bounds-{}", std::process::id()));
@@ -404,7 +404,7 @@ fn boot_briefly(manifest: &std::path::Path) -> (bool, String) {
     (status.is_some_and(|s| !s.success()), err)
 }
 
-/* An idle client, a slow one, an eval caller waiting on its run, a line past the cap and a flood hold up no other client. */
+/* an idle client, a slow one, an eval caller waiting on its run, a line past the cap and a flood hold up no other client */
 #[test]
 fn the_server_serves_every_client_at_once_and_holds_a_flood_back() {
     use std::io::{BufRead, Read};
@@ -413,7 +413,7 @@ fn the_server_serves_every_client_at_once_and_holds_a_flood_back() {
     let _ = std::fs::create_dir_all(&scratch);
     let manifest = scratch.join("actor.yml");
     std::fs::write(&manifest, "runtime:\n  listen: tcp://127.0.0.1:7816\n  control: tcp://127.0.0.1:9816\ngroups:\n  runners:\n    eval: true\n  echo:\n    code: |\n      while (true) {\n          print \"echo \" + receive();\n      }\n  stuck:\n    code: |\n      receive();\n      while (true) {\n      }\n").unwrap();
-    // An eval that computes for a while, which takes the actor thread and no control thread.
+    // an eval that computes for a while, which takes the actor thread and no control thread
     let sleeper = "for (var i = 0; i < 3000000; i = i + 1) {\n}\nprint \"slept\";".to_string();
 
     let mut child = interpreter().args(["actor", manifest.to_str().unwrap()]).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
@@ -424,7 +424,7 @@ fn the_server_serves_every_client_at_once_and_holds_a_flood_back() {
             let _ = tx.send((Instant::now(), line));
         }
     });
-    // A client that connects and says nothing, the ingress once read it alone until it hung up.
+    // a client that connects and says nothing, the ingress once read it alone until it hung up
     let _idle = connect("127.0.0.1:7816").expect("ingress never came up");
     let mut other = connect("127.0.0.1:7816").unwrap();
     let sent = Instant::now();
@@ -432,7 +432,7 @@ fn the_server_serves_every_client_at_once_and_holds_a_flood_back() {
     let echoed = lines.recv_timeout(Duration::from_secs(5)).map(|(at, line)| (at.duration_since(sent).as_secs_f64(), line));
 
     let waiter = std::thread::spawn(move || post_eval("127.0.0.1:9816", "/eval/runners", &sleeper));
-    // Clients that never finish their request, once enough of them took every control thread.
+    // clients that never finish their request, once enough of them took every control thread
     let slow: Vec<TcpStream> = (0..8)
         .filter_map(|_| connect("127.0.0.1:9816"))
         .map(|mut sock| {
@@ -448,7 +448,7 @@ fn the_server_serves_every_client_at_once_and_holds_a_flood_back() {
     let slept = waiter.join().unwrap();
     drop(slow);
 
-    // A client that asks before sending its body hears 100 Continue, as curl does past 1 KB.
+    // a client that asks before sending its body hears 100 Continue, as curl does past 1 KB
     let mut asking = connect("127.0.0.1:9816").unwrap();
     let _ = asking.write_all(b"POST /pub/echo HTTP/1.1\r\nContent-Length: 5\r\nExpect: 100-continue\r\n\r\n");
     let mut interim = [0; 25];
@@ -457,7 +457,7 @@ fn the_server_serves_every_client_at_once_and_holds_a_flood_back() {
     let mut asked = String::new();
     let _ = asking.read_to_string(&mut asked);
 
-    // Writing and reading run apart, a server that never cuts the line would block them.
+    // writing and reading run apart, a server that never cuts the line would block them
     let (cut_tx, cut) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let mut long = connect("127.0.0.1:7816").unwrap();
@@ -470,13 +470,13 @@ fn the_server_serves_every_client_at_once_and_holds_a_flood_back() {
     });
     let cut = cut.recv_timeout(Duration::from_secs(10)).unwrap_or(false);
 
-    // The stuck actor takes one message and spins, so every later one waits in its mailbox.
+    // the stuck actor takes one message and spins, so every later one waits in its mailbox
     let mut flood = connect("127.0.0.1:7816").unwrap();
     std::thread::spawn(move || {
         let lines: String = (0..70_000).map(|i| format!("stuck {i}\n")).collect();
         let _ = flood.write_all(lines.as_bytes());
     });
-    // The intake refuses too while the scheduler lags behind it, so the wait is for the backlog itself to fill.
+    // the intake refuses too while the scheduler lags behind it, so the wait is for the backlog itself to fill
     let pending_of = |status: &str| status.split("\"pending\":").nth(1).and_then(|s| s.split(|c: char| !c.is_ascii_digit()).next()?.parse::<usize>().ok());
     let (mut refused, mut backlog) = (String::new(), String::new());
     for _ in 0..300 {
@@ -499,14 +499,14 @@ fn the_server_serves_every_client_at_once_and_holds_a_flood_back() {
     assert!(refused.contains("queue is full") && pending_of(&backlog).is_some_and(|n| n >= 1 << 16), "a flood was not held back, {refused:?} {backlog:?}");
 }
 
-/* A server killed mid-run replays at its next start only the messages its actors never finished. */
+/* a server killed mid-run replays at its next start only the messages its actors never finished */
 #[test]
 fn a_restart_replays_only_the_messages_left_unfinished() {
     let scratch = std::env::temp_dir().join(format!("interpreter-actor-wal-{}", std::process::id()));
     let _ = std::fs::create_dir_all(&scratch);
     let manifest = scratch.join("actor.yml");
     let pool = |hold: &str| format!("runtime:\n  listen: tcp://127.0.0.1:7817\ngroups:\n  echo:\n    code: |\n      while (true) {{\n          print \"echo \" + receive();\n      }}\n  hold:\n    code: |\n{hold}");
-    // The first run holds its first message forever and queues the second, the next one prints both.
+    // the first run holds its first message forever and queues the second, the next one prints both
     std::fs::write(&manifest, pool("      receive();\n      while (true) {\n      }\n")).unwrap();
     let first = run_killed(&manifest, "127.0.0.1:7817", &["echo a", "echo b", "hold x", "hold y"], "echo b");
     std::fs::write(&manifest, pool("      while (true) {\n          print \"hold \" + receive();\n      }\n")).unwrap();
@@ -543,14 +543,14 @@ fn a_sigterm_lets_the_actors_finish_before_the_server_exits() {
     let _ = child.kill();
     let mut printed = String::new();
     let _ = child.stdout.take().unwrap().read_to_string(&mut printed);
-    // Finished before the exit, the message is done and the next start has nothing to replay.
+    // finished before the exit, the message is done and the next start has nothing to replay
     let replayed = run_killed(&manifest, "127.0.0.1:7818", &[], "slow");
     let _ = std::fs::remove_dir_all(&scratch);
     assert!(status.is_some_and(|s| s.success()) && printed.contains("slow z"), "the server exited {status:?} having printed {printed:?}");
     assert!(replayed.is_empty(), "the restart replayed {replayed:?}");
 }
 
-/* Boots the pool, sends each line, and kills it a beat after a line starting with `until` prints or two seconds pass. */
+/* boots the pool, sends each line, and kills it a beat after a line starting with `until` prints or two seconds pass */
 fn run_killed(manifest: &std::path::Path, addr: &str, send: &[&str], until: &str) -> Vec<String> {
     use std::io::BufRead;
     let mut child = interpreter().args(["actor", manifest.to_str().unwrap()]).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
@@ -573,7 +573,7 @@ fn run_killed(manifest: &std::path::Path, addr: &str, send: &[&str], until: &str
             break;
         }
     }
-    // The done record follows the print, so the kill waits for it.
+    // the done record follows the print, so the kill waits for it
     std::thread::sleep(Duration::from_millis(300));
     let _ = child.kill();
     let _ = child.wait();
@@ -581,7 +581,7 @@ fn run_killed(manifest: &std::path::Path, addr: &str, send: &[&str], until: &str
     seen
 }
 
-// Polls /stats until it carries `want`, messages settle after the publish returns.
+// polls /stats until it carries `want`, messages settle after the publish returns
 fn status_until(addr: &str, want: &str) -> String {
     let mut body = String::new();
     for _ in 0..50 {
@@ -594,7 +594,7 @@ fn status_until(addr: &str, want: &str) -> String {
     body
 }
 
-// Fetches /stats over a bare HTTP GET, returning just the response body.
+// fetches /stats over a bare HTTP GET, returning just the response body
 fn get_status(addr: &str) -> String {
     use std::io::Read;
     let Some(mut sock) = connect(addr) else { return String::new() };

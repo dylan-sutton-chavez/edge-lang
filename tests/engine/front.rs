@@ -11,7 +11,6 @@ mod test {
     use crate::words::Legacy as Rig;
     use std::rc::Rc;
 
-    // lines led by a word with what follows read through the rig's table
     // the fixed core read in indentation which a builder's chunks compare against
     const LEGACY: Front = Front::spelled::<crate::words::Legacy>();
 

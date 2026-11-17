@@ -5,30 +5,30 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 const BIN: &str = env!("CARGO_BIN_EXE_interpreter");
-// Each program runs well under a second, so one still going after this has hung.
+// each program runs well under a second, so one still going after this has hung
 const DEADLINE: Duration = Duration::from_secs(30);
-// Programs a run checks, raised through INTERPRETER_CONSISTENCY_PROGRAMS for a longer sweep.
+// programs a run checks, raised through INTERPRETER_CONSISTENCY_PROGRAMS for a longer sweep
 const PROGRAMS: u64 = 500;
-// Functions in each program, and the argument pairs each one is called with.
+// functions in each program, and the argument pairs each one is called with
 const FUNCTIONS: u64 = 3;
 const PAIRS: u64 = 2;
-// Calls of each function on each pair, cold, again and warm, in main, the module and a method.
+// calls of each function on each pair, cold, again and warm, in main, the module and a method
 const CALLS: u64 = 8;
 // locals besides the string each kept small by `clamp` after every store
 const VARS: u64 = 4;
 
-// What a function returns, at its end or from inside a loop, every local in it.
+// what a function returns, at its end or from inside a loop, every local in it
 const RESULT: &str = "text(v0) + \" \" + text(v1) + \" \" + text(v2) + \" \" + text(v3) + \" \" + s";
 
 // the helpers main and the module both define as Lox has no such builtins
 const HELPERS: &str = "fun clamp(x) {\n    if (x > 10007 or x < -10007) return x / 7;\n    return x;\n}\nfun max(x, y) {\n    if (x > y) return x;\n    return y;\n}\nfun min(x, y) {\n    if (x < y) return x;\n    return y;\n}\nfun abs(x) {\n    if (x < 0) return -x;\n    return x;\n}\n";
 
-/* Seeded so every failure replays from the number it reports. */
+/* seeded so every failure replays from the number it reports */
 struct Gen {
     state: u64,
     depth: u32,
     loops: u32,
-    // Loops the statement being written sits in, where an early return may leave them.
+    // loops the statement being written sits in, where an early return may leave them
     open: u32,
 }
 
@@ -99,7 +99,7 @@ impl Gen {
 
     fn stmt(&mut self, pad: &str, out: &mut String) {
         let inner = format!("{pad}    ");
-        // Inside a loop, sometimes leave the function from there, the way a search returns its find.
+        // inside a loop, sometimes leave the function from there, the way a search returns its find
         if self.open > 0 && self.chance(12) {
             out.push_str(&format!("{pad}if ({}) {{\n{inner}return {RESULT};\n{pad}}}\n", self.cond()));
             return;
@@ -191,9 +191,9 @@ fn program(seed: u64) -> (String, String) {
     (main, module)
 }
 
-/* Runs one program through the CLI, returning its stdout or why it failed. */
+/* runs one program through the CLI, returning its stdout or why it failed */
 fn run(dir: &PathBuf) -> Result<String, String> {
-    // Output goes to files, so a full pipe never stalls a program the deadline then blames.
+    // output goes to files, so a full pipe never stalls a program the deadline then blames
     let (out, err) = (dir.join("stdout.txt"), dir.join("stderr.txt"));
     let mut child = Command::new(BIN).current_dir(dir).args(["run", "main.lox"]).env("XDG_CACHE_HOME", dir)
         .stdin(Stdio::null()).stdout(File::create(&out).unwrap()).stderr(File::create(&err).unwrap()).spawn().unwrap();
@@ -215,7 +215,7 @@ fn run(dir: &PathBuf) -> Result<String, String> {
     Ok(std::fs::read_to_string(&out).unwrap_or_default())
 }
 
-/* The same function with the same arguments answers the same, however often it ran and wherever it was defined. */
+/* the same function with the same arguments answers the same, however often it ran and wherever it was defined */
 #[test]
 fn a_function_answers_the_same_cold_warm_and_from_any_module() {
     let programs = std::env::var("INTERPRETER_CONSISTENCY_PROGRAMS").ok().and_then(|n| n.parse().ok()).unwrap_or(PROGRAMS);
@@ -235,12 +235,12 @@ fn a_function_answers_the_same_cold_warm_and_from_any_module() {
                 continue;
             }
         };
-        // A program that printed less than it calls proves nothing, so it fails too.
+        // a program that printed less than it calls proves nothing, so it fails too
         if printed.lines().count() as u64 != FUNCTIONS * PAIRS * CALLS {
             failures.push(format!("seed {seed} printed {} lines, kept at {}\n{printed}", printed.lines().count(), dir.display()));
             continue;
         }
-        // Every call of one function on one pair must print the same answer.
+        // every call of one function on one pair must print the same answer
         let mut answers: BTreeMap<String, Vec<String>> = BTreeMap::new();
         for line in printed.lines() {
             let mut parts = line.splitn(4, ' ');

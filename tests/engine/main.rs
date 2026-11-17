@@ -1,3 +1,5 @@
+#![allow(unsafe_code, clippy::disallowed_methods, clippy::disallowed_types)]
+
 mod common;
 mod cases;
 

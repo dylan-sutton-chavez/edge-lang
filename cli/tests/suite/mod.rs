@@ -16,10 +16,10 @@ pub struct Bin<'a> {
 #[serde(deny_unknown_fields)]
 struct Case {
     #[serde(default)] given: BTreeMap<String, String>,
-    // Binary fixtures, each destination copied from a path relative to the repository root.
+    // binary fixtures, each destination copied from a path relative to the repository root
     #[serde(default)] copy: BTreeMap<String, String>,
     #[serde(default)] env: BTreeMap<String, String>,
-    // Commands run first in the same dir, each must succeed, the way lock precedes a run.
+    // commands run first in the same dir, each must succeed, the way lock precedes a run
     #[serde(default)] before: Vec<Vec<String>>,
     run: Vec<String>,
     #[serde(default)] stdin: String,
@@ -30,7 +30,7 @@ struct Case {
     #[serde(default)] contains: BTreeMap<String, String>,
     // files whose whole text a run leaves equal to the one given
     #[serde(default)] holds: BTreeMap<String, String>,
-    // A second command in the same dir, the way a packed artifact runs itself.
+    // a second command in the same dir, the way a packed artifact runs itself
     #[serde(default)] then: Option<Step>,
     // runs once per pair with `$EACH` taking the value and the message joining fails
     #[serde(default)] each: Vec<(String, String)>,
@@ -198,7 +198,7 @@ pub fn net_cases(bin: Bin, json: &str, hosts: &[&[&str]]) {
 }
 
 fn run_suite(bin: Bin, cases: &[Case], hosts: &[&[&str]]) {
-    // One cache per suite, so no case touches the real one and the runtime downloads once.
+    // one cache per suite, so no case touches the real one and the runtime downloads once
     let cache = tempfile::tempdir().expect("suite cache dir");
     let mut failed = vec![];
     // a case that holds a plugin runs only where plugins load
@@ -213,7 +213,7 @@ fn run_suite(bin: Bin, cases: &[Case], hosts: &[&[&str]]) {
     let cases: Vec<Case> = cases.iter().flat_map(|c| if c.each.is_empty() { vec![c.clone()] } else { each(c) }).collect();
     for c in cases.iter().filter(|c| bin.plugins || !c.given.keys().chain(c.copy.keys()).any(|file| file.ends_with(".wasm"))) {
         for host in hosts {
-            // A host flag goes right after the subcommand, where `run` and `test` read it.
+            // a host flag goes right after the subcommand, where `run` and `test` read it
             let mut args = c.run.clone();
             args.splice(1..1, host.iter().map(|flag| flag.to_string()));
             if let Err(e) = check(bin, c, &args, cache.path()) {
@@ -259,7 +259,7 @@ fn check(bin: Bin, c: &Case, args: &[String], cache: &std::path::Path) -> Result
     Ok(())
 }
 
-// What one command must print and whether it must fail.
+// what one command must print and whether it must fail
 struct Expect<'a> {
     stdout: &'a [String],
     stderr: &'a [String],

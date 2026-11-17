@@ -80,7 +80,7 @@ mod test {
 
     #[test]
     fn test_cases() {
-        let cases: Vec<serde_json::Value> = serde_json::from_str(include_str!("cases/abi.json")).expect("invalid JSON");
+        let cases: Vec<serde_json::Value> = serde_json::from_str(include_str!("../cases/abi.json")).expect("invalid JSON");
 
         // the table and stash live across cases so corpus order is the op sequence
         let mut table = HandleTable::new();

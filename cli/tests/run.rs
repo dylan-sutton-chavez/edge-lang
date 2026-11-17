@@ -16,7 +16,7 @@ fn scratch(name: &str) -> PathBuf {
 
 fn run_in(dir: &Path, args: &[&str], stdin: Option<&str>) -> (String, String, i32) {
     let mut cmd = Command::new(BIN);
-    // Scratch-local module cache, so no case reads or writes the real one.
+    // scratch-local module cache, so no case reads or writes the real one
     cmd.current_dir(dir).args(args).env("XDG_CACHE_HOME", dir).stdout(Stdio::piped()).stderr(Stdio::piped());
     cmd.stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() });
     let mut child = cmd.spawn().unwrap();
@@ -129,7 +129,7 @@ fn test_runner_verdicts_come_from_the_exit_code() {
     assert_eq!(code, 1);
 }
 
-// A packed package imports its own files from inside itself, and its pin covers every one of them.
+// a packed package imports its own files from inside itself, and its pin covers every one of them
 #[test]
 fn a_packed_package_imports_from_inside_itself() {
     let lib = scratch("package");
@@ -170,7 +170,7 @@ fn spawn_release(bundle: Vec<u8>) -> String {
     format!("http://127.0.0.1:{port}{KEY}")
 }
 
-/* A dependency says the lowest engine it runs on in its own manifest, so the refusal comes from the package that carries it and never from a registry. A project whose own manifest asks for one is refused before any of this, by the command itself. */
+/* a dependency says the lowest engine it runs on in its own manifest, so the refusal comes from the package that carries it and never from a registry. A project whose own manifest asks for one is refused before any of this, by the command itself */
 #[test]
 fn a_dependency_written_for_a_later_engine_is_refused_where_it_loads() {
     let dir = scratch("floor");
@@ -184,13 +184,13 @@ fn a_dependency_written_for_a_later_engine_is_refused_where_it_loads() {
     assert!(err.contains("needs interpreter 99.0.0") && err.contains(env!("CARGO_PKG_VERSION")), "stderr was: {err}");
     assert_eq!(code, 1);
 
-    // The same package under a floor this engine meets loads with nothing to say about it.
+    // the same package under a floor this engine meets loads with nothing to say about it
     std::fs::write(dir.join("pkg/interpreter.json"), format!("{{ \"interpreter\": \"{}\" }}\n", env!("CARGO_PKG_VERSION"))).unwrap();
     let (out, err, code) = run_in(&dir, &["run", "main.lox"], None);
     assert_eq!((out.as_str(), code), ("hi!\n", 0), "stderr was: {err}");
 }
 
-// Read from the crate rather than spelled out, so the number never has to be chased through a fixture.
+// read from the crate rather than spelled out, so the number never has to be chased through a fixture
 #[test]
 fn the_binary_reports_the_version_it_was_built_from() {
     let dir = scratch("version");
@@ -268,11 +268,11 @@ fn a_package_asks_and_lock_waits_for_the_grant() {
     assert_eq!((out.as_str(), code), ("granted!\n", 0), "stderr was: {err}");
 }
 
-/* A cached url loads with no pin in the spec, then stays pinned to those first bytes. */
+/* a cached url loads with no pin in the spec, then stays pinned to those first bytes */
 #[test]
 fn a_cached_module_is_pinned_to_its_first_bytes() {
     let dir = scratch("pin");
-    // Seed cache and pin the way a download would. The url never resolves, so nothing can refetch.
+    // seed cache and pin the way a download would. The url never resolves, so nothing can refetch
     let url = "https://cdn.test/helper.lox";
     let key = interpreter::util::sha256::hex_encode(&interpreter::util::sha256::sha256(url.as_bytes()));
     let blob = dir.join("interpreter").join("modules").join(format!("{key}.lox"));
@@ -294,7 +294,7 @@ fn a_cached_module_is_pinned_to_its_first_bytes() {
     assert_eq!(code, 1);
 }
 
-/* A #sha256- fragment on a manifest target verifies the fetched bytes on every run. */
+/* a #sha256- fragment on a manifest target verifies the fetched bytes on every run */
 #[test]
 fn a_manifest_pin_verifies_the_target_bytes() {
     let dir = scratch("fragpin");
@@ -315,7 +315,7 @@ fn a_manifest_pin_verifies_the_target_bytes() {
     assert_eq!(code, 1);
 }
 
-/* Dotted imports anchor at the nearest interpreter.json dir, not at the importing file. */
+/* dotted imports anchor at the nearest interpreter.json dir, not at the importing file */
 #[test]
 fn dotted_imports_anchor_at_the_manifest_root() {
     let dir = scratch("rooted");
@@ -398,7 +398,7 @@ fn web_build(dir: &Path) -> (String, String, i32) {
     run_in(dir, &["build", "--web"], None)
 }
 
-/* A second web build must not collect the previous dist/ into dist/dist/. */
+/* a second web build must not collect the previous dist/ into dist/dist/ */
 #[test]
 fn rebuilding_web_does_not_nest_dist() {
     let dir = scratch("rebuild");
@@ -412,7 +412,7 @@ fn rebuilding_web_does_not_nest_dist() {
     assert!(dir.join("dist/main.lox").exists());
 }
 
-/* A stale dist/ present before the first build is excluded from collection. */
+/* a stale dist/ present before the first build is excluded from collection */
 #[test]
 fn a_stale_dist_is_not_collected() {
     let dir = scratch("stale");
@@ -425,7 +425,7 @@ fn a_stale_dist_is_not_collected() {
     assert!(!dir.join("dist/dist").exists(), "stale dist was re-ingested");
 }
 
-/* Only the output dir itself is skipped, a deeper dir named dist is still packed. */
+/* only the output dir itself is skipped, a deeper dir named dist is still packed */
 #[test]
 fn a_deeper_dir_named_dist_is_packed() {
     let dir = scratch("deepdist");
@@ -438,13 +438,13 @@ fn a_deeper_dir_named_dist_is_packed() {
     assert!(dir.join("dist/sub/dist/keep.lox").exists());
 }
 
-/* The cases of cli/tests/engine.json, each one tempdir whose steps run in order. */
+/* the cases of cli/tests/engine.json, each one tempdir whose steps run in order */
 mod engine_corpus {
     use super::{run_in, scratch};
     use std::collections::BTreeMap;
     use std::sync::{Arc, Mutex};
 
-    // A text piece, or a text repeated so large inputs stay out of the JSON.
+    // a text piece, or a text repeated so large inputs stay out of the JSON
     #[derive(serde::Deserialize)]
     #[serde(untagged)]
     enum Part {
@@ -475,16 +475,16 @@ mod engine_corpus {
         stderr: Vec<String>,
         #[serde(default)]
         exit: i32,
-        // A lower bound on stderr's size, the whole text must survive.
+        // a lower bound on stderr's size, the whole text must survive
         #[serde(default)]
         stderr_bytes: usize,
-        // Stdout lines starting with each prefix, counted exactly.
+        // stdout lines starting with each prefix, counted exactly
         #[serde(default)]
         lines: BTreeMap<String, usize>,
-        // Requests the fixture saw for each path since the case began.
+        // requests the fixture saw for each path since the case began
         #[serde(default)]
         requests: BTreeMap<String, usize>,
-        // A lower bound on the size of each file the step leaves behind.
+        // a lower bound on the size of each file the step leaves behind
         #[serde(default)]
         file_bytes: BTreeMap<String, u64>,
     }
@@ -496,7 +496,7 @@ mod engine_corpus {
         }).collect()
     }
 
-    /* Serves `/lib/mod.lox`, answers 404 to the rest and logs every path it was asked for. */
+    /* serves `/lib/mod.lox`, answers 404 to the rest and logs every path it was asked for */
     fn fixture() -> (String, Arc<Mutex<Vec<String>>>) {
         let server = tiny_http::Server::http("127.0.0.1:0").expect("bind loopback");
         let port = server.server_addr().to_ip().expect("tcp addr").port();

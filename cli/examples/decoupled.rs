@@ -4,7 +4,9 @@
 pub use interpreter_cli::*;
 
 // every command compiled again outside the kit where only its public api resolves
-#[path = "../src/cmd/mod.rs"]
-mod commands;
+#[path = "../src"]
+mod commands {
+    pub mod cmd;
+}
 
 fn main() {}

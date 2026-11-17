@@ -2,7 +2,7 @@ import { readdirSync } from 'node:fs'
 import { extname, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-// The checkout the builds come out of, two folders above this file.
+// the checkout the builds come out of, two folders above this file
 export const REPO_DIR = fileURLToPath(new URL('../../', import.meta.url))
 
 const TYPES: Record<string, string> = {
@@ -14,7 +14,7 @@ const TYPES: Record<string, string> = {
   '.ts': 'text/plain; charset=utf-8'
 }
 
-// Paths carry no version, so every object revalidates against its ETag.
+// paths carry no version, so every object revalidates against its ETag
 export const CACHE = 'public, max-age=0, must-revalidate'
 
 // interpreter.wasm and its compiler.wasm copy are the large payloads stored brotli encoded
@@ -22,7 +22,7 @@ const encoded = (key: string) => key === 'interpreter.wasm' || key === 'compiler
 
 export type CdnObject = { key: string; file: string; type: string; encoding: string | null }
 
-/* Every file of a staged tree as the CDN stores it, keyed by its path and typed by its extension. */
+/* every file of a staged tree as the CDN stores it, keyed by its path and typed by its extension */
 export function cdn_objects(tree: string): CdnObject[] {
   const walk = (dir: string): string[] =>
     readdirSync(dir, { withFileTypes: true }).flatMap((entry) => (entry.isDirectory() ? walk(join(dir, entry.name)) : [join(dir, entry.name)]))

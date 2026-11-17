@@ -1,9 +1,9 @@
-/* The engine under Deno with no browser, undeclared names fail and missing Web APIs name themselves. */
+/* the engine under Deno with no browser, undeclared names fail and missing Web APIs name themselves */
 const BASE = Deno.env.get("INTERPRETER_CDN_BASE")?.replace(/\/$/, "");
 if (!BASE) throw new Error("set INTERPRETER_CDN_BASE (make serve)");
 const WASM = `${BASE}/interpreter.wasm`;
 
-// A fresh engine per test, the query string keeps the module state apart.
+// a fresh engine per test, the query string keeps the module state apart
 async function fresh(name) {
     const at = (path) => new URL(`${path}?deno=${name}`, import.meta.url).href;
     const engine = await import(at("../src/worker/engine.ts"));
@@ -21,10 +21,10 @@ async function boot(name, imports = {}, base = baseUrl) {
     return engine;
 }
 
-// No manifest lives here, so bare names stay undeclared.
+// no manifest lives here, so bare names stay undeclared
 const baseUrl = new URL("./nomanifest/", import.meta.url).href;
 
-// A packed package runs its entry and imports its own files from inside itself, the way a published one arrives.
+// a packed package runs its entry and imports its own files from inside itself, the way a published one arrives
 Deno.test("deno: a packed package imports from inside itself", async () => {
     const enc = new TextEncoder();
     const framed = (bytes) => [...enc.encode(`${bytes.length}\n`), ...bytes];
@@ -39,7 +39,7 @@ Deno.test("deno: a packed package imports from inside itself", async () => {
     if (out !== "" || lines.join("").trim() !== "hello interpreter") throw new Error(`unexpected ${JSON.stringify([out, lines])}`);
 });
 
-/* A published package declares its own dependency by version, so the host has to read the lock the package carries rather than ask a registry at run time. */
+/* a published package declares its own dependency by version, so the host has to read the lock the package carries rather than ask a registry at run time */
 Deno.test("deno: a packed package resolves its own version through the lock it carries", async () => {
     const enc = new TextEncoder();
     const framed = (bytes) => [...enc.encode(`${bytes.length}\n`), ...bytes];
@@ -115,7 +115,7 @@ Deno.test("deno: a manifest beside a module joins its relative targets once", as
     if (out !== "" || lines.join("").trim() !== "42") throw new Error(`unexpected ${JSON.stringify([out, lines])}`);
 });
 
-/* A project on disk, the interpreter.json a run reads its grants from beside its files. */
+/* a project on disk, the interpreter.json a run reads its grants from beside its files */
 async function project(files) {
     const dir = await Deno.makeTempDir();
     for (const [path, text] of Object.entries(files)) {
@@ -126,7 +126,7 @@ async function project(files) {
     return new URL(`file://${dir}/`).href;
 }
 
-// What a run printed and what it failed with, from a fresh engine.
+// what a run printed and what it failed with, from a fresh engine
 async function output(name, src, base) {
     const engine = await boot(name, {}, base);
     const lines = [];
@@ -134,7 +134,7 @@ async function output(name, src, base) {
     return { out, text: lines.join("").trim() };
 }
 
-// No JavaScript loads besides the host's own, so an import of one fails where it is written.
+// no JavaScript loads besides the host's own, so an import of one fails where it is written
 Deno.test("deno: a JavaScript import is refused at compile time", async () => {
     const base = await project({ "interpreter.json": JSON.stringify({ imports: { charts: "./charts.js" } }), "charts.js": "export const draw = () => 1;\n" });
     const got = await output("javascript", "var draw = import(\"charts\").draw;", base);

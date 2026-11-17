@@ -1,3 +1,5 @@
+#![allow(clippy::disallowed_methods, clippy::disallowed_types)]
+
 // every run meters what it allocates as interpreter.wasm does
 interpreter::allocator!();
 

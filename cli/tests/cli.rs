@@ -4,31 +4,31 @@ use suite::{net, suite, Bin};
 
 const INTERPRETER: Bin = Bin { path: env!("CARGO_BIN_EXE_interpreter"), env: &[], plugins: true };
 
-/// JSON-driven CLI suite, each case in `cli.json` is one tempdir plus one spawn of the `interpreter` binary.
+// JSON-driven CLI suite, each case in `cli.json` is one tempdir plus one spawn of the `interpreter` binary.
 #[test]
 fn cli_suite() {
     suite(INTERPRETER, include_str!("cli.json"), &[&[]]);
 }
 
-/// third party wasm plugins built from `plugin/example` run the way a project declares them
+// third party wasm plugins built from `plugin/example` run the way a project declares them
 #[test]
 fn plugin_suite() {
     suite(INTERPRETER, include_str!("plugins.json"), &[&[]]);
 }
 
-/// Programs both hosts must run alike, each case natively and again in the browser, which needs a Chrome.
+// programs both hosts must run alike, each case natively and again in the browser, which needs a Chrome
 #[test]
 fn hosts_suite() {
     suite(INTERPRETER, include_str!("hosts.json"), &[&[], &["--web"]]);
 }
 
-/// the net cases on both hosts against one loopback fixture which needs a Chrome
+// the net cases on both hosts against one loopback fixture which needs a Chrome
 #[test]
 fn net_suite() {
     net(INTERPRETER, &[&[], &["--web"]]);
 }
 
-/// every transcript and program of docs/ runs on this binary, some fetch from GitHub
+// every transcript and program of docs/ runs on this binary, some fetch from GitHub
 #[test]
 fn docs_net_suite() {
     let docs = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../docs");

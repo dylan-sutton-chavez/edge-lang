@@ -1,6 +1,6 @@
 #[cfg(any(debug_assertions, feature = "coverage"))]
 #[derive(Default)]
-pub(crate) struct Loops { pub depth: u32, pub generic: u64 } /* loops running never more than one and generic frames pushed which `tests/nested.rs` holds at none */
+pub(crate) struct Loops { pub depth: u32, pub generic: u64 } /* loops running never more than one and generic frames pushed which `tests/engine/nested.rs` holds at none */
 
 #[cfg(any(debug_assertions, feature = "coverage"))]
 impl Loops {

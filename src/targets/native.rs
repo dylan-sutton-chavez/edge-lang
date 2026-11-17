@@ -1,4 +1,6 @@
 #[cfg(feature = "std")]
+// the native host reads the files and arguments it was handed
+#[allow(clippy::disallowed_methods)]
 mod script;
 #[cfg(feature = "std")]
 pub use script::{Script, main, print};

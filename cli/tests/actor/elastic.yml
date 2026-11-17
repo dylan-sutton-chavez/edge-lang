@@ -1,4 +1,4 @@
-# A dispatcher fans five jobs into a lazily-grown actor pool under a high ceiling and max_actors cap.
+# a dispatcher fans five jobs into a lazily-grown actor pool under a high ceiling and max_actors cap
 runtime:
   max_actors: 100000
 

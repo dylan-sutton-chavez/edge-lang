@@ -577,7 +577,7 @@ mod test {
                 _ => panic!("a piece holds a rig program or an error"),
             }
         }
-        let pieces: Vec<Piece> = serde_yaml_ng::from_str(include_str!("cases/syntax/pieces.yml")).expect("pieces");
+        let pieces: Vec<Piece> = serde_yaml_ng::from_str(include_str!("../cases/syntax/pieces.yml")).expect("pieces");
         assert!(!pieces.is_empty());
         let wrong: Vec<String> = pieces.iter().filter_map(|p| match p.spelling.as_str() {
             "kit" => read::<Kit>(p),
@@ -764,7 +764,7 @@ mod test {
         }
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
         let mut sources: Vec<String> = crate::cases::vm_cases(root).iter().filter_map(|c| c["src"].as_str().map(String::from)).collect();
-        let forms: Vec<std::collections::BTreeMap<String, String>> = serde_yaml_ng::from_str(include_str!("cases/syntax/forms.yml")).expect("forms");
+        let forms: Vec<std::collections::BTreeMap<String, String>> = serde_yaml_ng::from_str(include_str!("../cases/syntax/forms.yml")).expect("forms");
         sources.extend(forms.into_iter().flat_map(|f| f.into_values()));
         // a fixed walk of insertions and deletions so the mutants repeat run to run
         const PIECES: &[&str] = &["for ", " in ", "=", ":", ",", "(", ")", "[", "]", "{", "}", "match ", "case ", "type ", "fn ", "lambda ", "|", "=>", "?", "\n", ";", " if ", " else ", "\n    ", "x", "\\\n"];
@@ -803,10 +803,10 @@ mod runner {
 
     // the files the runner reads while the pieces have a test of their own
     pub const FILES: &[(&str, &str)] = &[
-        ("bytecode.yml", include_str!("cases/syntax/bytecode.yml")),
-        ("diagnostics.yml", include_str!("cases/syntax/diagnostics.yml")),
-        ("forms.yml", include_str!("cases/syntax/forms.yml")),
-        ("tokens.yml", include_str!("cases/syntax/tokens.yml")),
+        ("bytecode.yml", include_str!("../cases/syntax/bytecode.yml")),
+        ("diagnostics.yml", include_str!("../cases/syntax/diagnostics.yml")),
+        ("forms.yml", include_str!("../cases/syntax/forms.yml")),
+        ("tokens.yml", include_str!("../cases/syntax/tokens.yml")),
     ];
 
     #[derive(serde::Deserialize)]

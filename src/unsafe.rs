@@ -1,5 +1,3 @@
-#![deny(unsafe_op_in_unsafe_fn)]
-
 // only this file holds unsafe code and a SAFETY line argues each region
 use core::alloc::{GlobalAlloc, Layout};
 use crate::value::meter::{Meter, Metered, charge};
@@ -364,10 +362,6 @@ pub(crate) mod web {
         };
     }
 }
-
-// interpreter.wasm boots Lox under the web feature
-#[cfg(all(target_arch = "wasm32", feature = "web"))]
-crate::web_exports!(crate::lox::RUNTIME);
 
 // SAFETY a plugin host answers each import under the v1 plugin ABI as plugin_suite checks
 #[cfg(feature = "plugin")]

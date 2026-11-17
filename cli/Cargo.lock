@@ -1162,6 +1162,7 @@ dependencies = [
  "flate2",
  "headless_chrome",
  "interpreter",
+ "interpreter-lox",
  "mio",
  "rig",
  "serde",
@@ -1174,6 +1175,13 @@ dependencies = [
  "tungstenite",
  "ureq",
  "wasmtime",
+]
+
+[[package]]
+name = "interpreter-lox"
+version = "1.0.0"
+dependencies = [
+ "interpreter",
 ]
 
 [[package]]

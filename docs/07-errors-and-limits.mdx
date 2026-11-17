@@ -1,13 +1,13 @@
 ---
 title: "Errors and limits"
-description: "How compile and run errors read on every host, and every cap a run and a source are held to."
+description: "How compile and run errors read on every host, and every limit of a run and a source."
 ---
 
 # Errors and limits
 
 ## Compile errors
 
-A front reports every compile error it finds before anything runs, each with the file, line and column and the line itself. Lox recovers as the book's compiler does, at the next statement, and words each error in the book's words.
+A front reports every compile error before anything runs, each with its file, line, column and source line. Lox recovers at the next statement and uses the book's messages.
 
 ```lox syntax.lox
 var x = = 2;
@@ -26,11 +26,11 @@ error: Error at end: Expect ';' after value.
   --> syntax.lox:3:1
 ```
 
-In Rust, `interpreter::code::compile` returns the diagnostics beside the chunk, and `Diagnostic::render_all(&errors, src, Some(path))` writes this same report. In a page, `run` resolves with it in `out`.
+In Rust, `interpreter::code::compile` returns the diagnostics with the chunk, and `Diagnostic::render_all(&errors, src, Some(path))` writes this report. In a page, `run` resolves with it in `out`.
 
 ## Run errors
 
-An error ends the run with its message in the runtime's words. A runtime with no `REPORT` of its own gets the engine's report, its class and message, the line it rose at and the calls that led there. Lox sets one, so a run error reads as the book prints it, the message then the line. The `interpreter` CLI writes it to stderr and exits with 1, which a transcript on these pages shows as `[exit 1]`. `exit(n)` ends a run with status `n` instead.
+An error ends the run. Without a `REPORT` of its own, a runtime gets the engine's report with the class, the message, the line and the calls that led there. Lox sets its own, the message then the line, as the book prints it. The CLI writes the report to stderr and exits with 1, shown as `[exit 1]` on these pages. `exit(n)` ends a run with status `n`.
 
 ```lox broken.lox
 fun half(n) {
@@ -55,11 +55,11 @@ Operands must be numbers.
 | JavaScript | `out` of the value `run` resolves with, and `exitCode` |
 | `.wasm` | The `ERROR` or `EXIT` kind of the status word, with the report in the output buffer |
 
-A runtime words every error the engine raises through its `Names` and its `message`, so a runtime of your own decides each class and sentence, as [Build a runtime](./02-runtime.mdx#the-language) lists.
+A runtime names every error the engine raises through its `Names` and its `message`, so a runtime of yours decides each class and sentence. See [Build a runtime](./02-runtime.mdx#language).
 
 ## Limits
 
-Every run is metered, natives included, and there is no unmetered mode. A run raises an error where it reaches a limit.
+Every run is metered, natives included. A run raises an error at the limit it reaches.
 
 | Limit | Default | Set with |
 |---|---|---|
@@ -69,7 +69,7 @@ Every run is metered, natives included, and there is no unmetered mode. A run ra
 | Calls nested through a native or a plugin | 128 | Fixed |
 | Comparison depth of nested containers | 100 | Fixed |
 
-`Limits::sandbox()` gives the defaults. The memory limit is a count of every byte the allocator hands the run, not an estimate, so a Rust host installs `interpreter::allocator!()` or sets `memory: usize::MAX`. A spent op budget cannot be caught, since a handler's first op raises again, and `reset_budget(ops)` gives a parked run a new one.
+`Limits::sandbox()` gives the defaults. Memory is an exact count of every byte the allocator hands the run, so a Rust host installs `interpreter::allocator!()` or sets `memory: usize::MAX`. A spent op budget cannot be caught, since the handler's first op raises again. `reset_budget(ops)` gives a stopped run a new one.
 
 ```text
 $ interpreter run broken.lox --ops 3
@@ -77,7 +77,7 @@ Runtime: budget exceeded
 [exit 1]
 ```
 
-A source is held to these caps, each reported as a compile error:
+A source has these limits, each reported as a compile error.
 
 | Cap | Value |
 |---|---|
@@ -89,4 +89,4 @@ A source is held to these caps, each reported as a compile error:
 | Native imports per module | 256 |
 | Imports nested one inside the next | 64 |
 
-The engine has no clock, randomness, threads or system access of its own. The same source and the same input give the same output on `x86_64`, `aarch64` and `wasm32`, and only the host modules a grant opens can differ.
+The engine has no clock, randomness, threads or system access of its own. The same source and input give the same output on `x86_64`, `aarch64` and `wasm32`, and only the host modules a grant opens can differ.
