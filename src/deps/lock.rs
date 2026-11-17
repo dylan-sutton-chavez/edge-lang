@@ -108,7 +108,8 @@ pub fn locked_spec(name: &str, target: &str, lock: Option<&Lock>) -> Result<Stri
         }
         return pinned(name, entry);
     }
-    if !target.contains("://") || target.contains("#sha256-") {
+    // a file url names a local file as a path does so only a remote url needs a pin
+    if !target.contains("://") || target.starts_with("file://") || target.contains("#sha256-") {
         return Ok(target.to_string());
     }
     // a url with no pin loads only the bytes the lock pins for that same url

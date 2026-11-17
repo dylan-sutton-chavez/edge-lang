@@ -193,10 +193,11 @@ browsers:
 test-js: plugin wasm
 	deno test --allow-all js/tests/
 
-# engine runs cli and run without the net cases that network runs alone
+# one run compiles lox first so no case waits past its timeout on a cold code cache
 test-cli: export INTERPRETER_CODE_CACHE = $(CURDIR)/target/cli-code-cache
 test-cli: $(CLI_INPUTS) wasm-cli $(CLI_NEEDS_$(SUITE))
 	$(if $(filter-out engine network actors consistency docs native,$(SUITE)),$(error SUITE is one of engine network actors consistency docs native, or none for all))
+	cd cli && cargo run --locked -q -- run --runtime $(CURDIR)/$(WASM)/cli/interpreter.wasm -c 'print 1;' > /dev/null
 	cd cli && cargo test --locked $(CLI_TEST_$(SUITE))
 	$(if $(filter engine,$(or $(SUITE),engine)),cd cli && cargo test --locked --features coverage --test coverage)
 

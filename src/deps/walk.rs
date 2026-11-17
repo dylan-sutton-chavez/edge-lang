@@ -1275,8 +1275,7 @@ mod tests {
             ("use ......config\nleak = SECRET\n", "{}", "module '../../../../../config.rig' is outside https://cdn.test/ which serves its importer"),
             ("use cfg\n", r#"{ "imports": { "cfg": "/abs/project/config.rig" } }"#, "import 'cfg' at '/abs/project/config.rig' is outside https://cdn.test/"),
             ("use cfg\n", r#"{ "imports": { "cfg": "../../../../../config.rig" } }"#, "import 'cfg' at '../../../../../config.rig' is outside https://cdn.test/"),
-            // a file url has no pin so it is refused before it could reach the disk
-            ("use cfg\n", r#"{ "imports": { "cfg": "file:///abs/project/config.rig" } }"#, "'cfg' comes from file:///abs/project/config.rig with no pin"),
+            ("use cfg\n", r#"{ "imports": { "cfg": "file:///abs/project/config.rig" } }"#, "is outside https://cdn.test/"),
             ("use cfg\n", r#"{ "extends": "/abs/project" }"#, "extends '/abs/project' is outside https://cdn.test/"),
         ] {
             let packed = bundle(main, manifest);
