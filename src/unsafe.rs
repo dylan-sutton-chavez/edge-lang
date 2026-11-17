@@ -373,7 +373,6 @@ crate::web_exports!(crate::lox::RUNTIME);
 #[cfg(feature = "plugin")]
 pub(crate) mod plugin {
     use crate::plugin::{Handle, Result, __internals::fail};
-    use alloc::boxed::Box;
 
     #[link(wasm_import_module = "env")]
     unsafe extern "C" {
@@ -429,16 +428,22 @@ pub(crate) mod plugin {
         fn default() -> Self { Self::new() }
     }
 
-    #[unsafe(no_mangle)]
-    pub extern "C" fn __interpreter_abi_version() -> u32 { crate::abi::ABI_VERSION }
+    // only a wasm32 plugin exports them so a host binary linking the crate twice holds them once
+    #[cfg(target_arch = "wasm32")]
+    mod exports {
+        use alloc::boxed::Box;
 
-    // the host stages argv here and frees it with __interpreter_free
-    #[unsafe(no_mangle)]
-    pub extern "C" fn __interpreter_alloc(size: u32) -> *mut u8 { Box::into_raw(alloc::vec![0u8; size as usize].into_boxed_slice()).cast() }
+        #[unsafe(no_mangle)]
+        pub extern "C" fn __interpreter_abi_version() -> u32 { crate::abi::ABI_VERSION }
 
-    // SAFETY the host gives back once a block __interpreter_alloc made of exactly size bytes
-    #[unsafe(no_mangle)]
-    pub extern "C" fn __interpreter_free(p: *mut u8, size: u32) { if !p.is_null() && size != 0 { drop(unsafe { Box::from_raw(core::ptr::slice_from_raw_parts_mut(p, size as usize)) }) } }
+        // the host stages argv here and frees it with __interpreter_free
+        #[unsafe(no_mangle)]
+        pub extern "C" fn __interpreter_alloc(size: u32) -> *mut u8 { Box::into_raw(alloc::vec![0u8; size as usize].into_boxed_slice()).cast() }
+
+        // SAFETY the host gives back once a block __interpreter_alloc made of exactly size bytes
+        #[unsafe(no_mangle)]
+        pub extern "C" fn __interpreter_free(p: *mut u8, size: u32) { if !p.is_null() && size != 0 { drop(unsafe { Box::from_raw(core::ptr::slice_from_raw_parts_mut(p, size as usize)) }) } }
+    }
 }
 
 // SAFETY nothing frees code chunks or constants a frame or record names as test_cases checks
