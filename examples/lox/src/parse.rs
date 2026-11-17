@@ -3,7 +3,9 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use interpreter::code::Diagnostic;
+use core::ops::Range;
+
+use interpreter::code::{Diagnostic, NodeKind};
 use interpreter::lexer::{lex_as, TokenType as T};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -73,7 +75,11 @@ pub enum Expr {
     SetField(Box<Expr>, String, Box<Expr>, usize),
     Super { sup: Place, this: Place, name: String, at: usize },
     Import(String, usize),
+    Kept(Box<Kept<Expr>>),
 }
+
+/* a node a read keeps with the bytes it spans and its kind in the outline and the spans of a class's methods */
+pub struct Kept<T> { pub it: T, pub kind: Option<NodeKind>, pub span: Range<usize>, pub parts: Vec<Range<usize>> }
 
 pub enum Stmt {
     Expr(Expr),
@@ -85,6 +91,7 @@ pub enum Stmt {
     While(Expr, Box<Stmt>),
     Return(Option<Expr>),
     Class { place: Place, name: String, sup: Option<(Expr, u32, usize)>, methods: Vec<Fun> },
+    Kept(Box<Kept<Stmt>>),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -116,7 +123,8 @@ struct Compiler { kind: Kind, scope: Vec<Scope>, depth: i32, outer: Vec<String> 
 #[derive(Clone, Copy, PartialEq, PartialOrd)]
 enum Prec { None, Assign, Or, And, Equality, Comparison, Term, Factor, Unary, Call }
 
-struct Parser<'s> {
+// a parser for a read keeps the span of each node it makes
+struct Parser<'s, const R: bool> {
     src: &'s str,
     toks: Vec<Tok>,
     at: usize,
@@ -130,10 +138,15 @@ struct Parser<'s> {
 }
 
 /* the program of `src` resolved or every error in the book's words */
-pub fn parse(src: &str) -> Result<Program, Vec<Diagnostic>> {
+pub fn parse(src: &str) -> Result<Program, Vec<Diagnostic>> { parse_as::<false>(src) }
+
+/* `parse` with each node wrapped in the bytes it spans */
+pub fn read(src: &str) -> Result<Program, Vec<Diagnostic>> { parse_as::<true>(src) }
+
+fn parse_as<const R: bool>(src: &str) -> Result<Program, Vec<Diagnostic>> {
     let toks = scan(src);
     let eof = Tok { k: K::Eof, start: src.len(), end: src.len(), msg: "" };
-    let mut p = Parser { src, toks, at: 0, prev: eof, cur: eof, panic: false, errors: Vec::new(), fns: Vec::new(), classes: Vec::new(), locals: Vec::new() };
+    let mut p = Parser::<R> { src, toks, at: 0, prev: eof, cur: eof, panic: false, errors: Vec::new(), fns: Vec::new(), classes: Vec::new(), locals: Vec::new() };
     p.open(Kind::Script);
     p.advance();
     let mut body = Vec::new();
@@ -143,8 +156,38 @@ pub fn parse(src: &str) -> Result<Program, Vec<Diagnostic>> {
     if p.errors.is_empty() { Ok(Program { script, locals: p.locals }) } else { Err(p.errors) }
 }
 
-impl Parser<'_> {
+impl<const R: bool> Parser<'_, R> {
     fn text(&self, t: Tok) -> &str { &self.src[t.start..t.end] }
+
+    /* `e` from `start` to the last token taken kept as a node of `kind` when the parse is a read */
+    fn kept(&self, e: Expr, kind: Option<NodeKind>, start: usize) -> Expr { self.kept_to(e, kind, start..self.prev.end) }
+
+    /* `e` over `span` kept as a node of `kind` when the parse is a read */
+    fn kept_to(&self, e: Expr, kind: Option<NodeKind>, span: Range<usize>) -> Expr {
+        if !R { return e; }
+        let kind = kind.or(match e { Expr::Call(..) | Expr::Import(..) => Some(NodeKind::Call), Expr::Field(..) => Some(NodeKind::Field), Expr::Set(..) | Expr::SetField(..) => Some(NodeKind::Assign), _ => None });
+        Expr::Kept(Box::new(Kept { it: e, kind, span, parts: Vec::new() }))
+    }
+
+    /* `s` from `start` to the last token taken kept with the kind of its form when the parse is a read */
+    fn kept_stmt(&self, s: Stmt, kind: Option<NodeKind>, start: usize) -> Stmt { self.kept_parts(s, kind, start, Vec::new()) }
+
+    /* `kept_stmt` with the spans of the methods of a class */
+    fn kept_parts(&self, s: Stmt, kind: Option<NodeKind>, start: usize, parts: Vec<Range<usize>>) -> Stmt {
+        if !R { return s; }
+        let kind = kind.or(match s { Stmt::Define(..) => Some(NodeKind::Let), Stmt::Fun(..) => Some(NodeKind::Function), Stmt::Block(..) => Some(NodeKind::Block), Stmt::If(..) => Some(NodeKind::If), Stmt::While(..) => Some(NodeKind::Loop), Stmt::Class { .. } => Some(NodeKind::Type), _ => None });
+        Stmt::Kept(Box::new(Kept { it: s, kind, span: start..self.prev.end, parts }))
+    }
+
+    /* `e` as the parse made it past what a read kept around it */
+    fn bare(e: &Expr) -> &Expr {
+        match e { Expr::Kept(k) if R => Self::bare(&k.it), e => e }
+    }
+
+    /* where `e` starts when the parse is a read */
+    fn start_of(e: &Expr) -> usize {
+        match e { Expr::Kept(k) if R => k.span.start, _ => 0 }
+    }
 
     fn error_at(&mut self, t: Tok, msg: &str) {
         if self.panic { return; }
@@ -220,15 +263,26 @@ impl Parser<'_> {
     }
 
     fn declaration(&mut self) -> Stmt {
+        let start = self.cur.start;
         let s = if self.matches(K::Class) { self.class() }
             else if self.matches(K::Fun) { self.fun_decl() }
             else if self.matches(K::Var) { self.var_decl() }
             else { self.statement() };
+        // a statement keeps its own node so a declaration alone takes one here
+        let mut s = s;
+        if R && !matches!(s, Stmt::Kept(..)) { s = self.kept_stmt(s, None, start); }
         if self.panic { self.synchronize(); }
         s
     }
 
     fn statement(&mut self) -> Stmt {
+        if !R { return self.unkept_statement(); }
+        let start = self.cur.start;
+        let s = self.unkept_statement();
+        self.kept_stmt(s, None, start)
+    }
+
+    fn unkept_statement(&mut self) -> Stmt {
         if self.matches(K::Print) {
             let at = self.prev.start;
             let e = self.expression();
@@ -281,9 +335,10 @@ impl Parser<'_> {
 
     // the clauses run as the book's while loop inside a scope of their own
     fn for_stmt(&mut self) -> Stmt {
+        let start = self.prev.start;
         self.begin_scope();
         self.consume(K::LParen, "Expect '(' after 'for'.");
-        let init = if self.matches(K::Semi) { None } else if self.matches(K::Var) { Some(self.var_decl()) } else {
+        let init = if self.matches(K::Semi) { None } else if self.matches(K::Var) { Some(if R { let at = self.prev.start; let s = self.var_decl(); self.kept_stmt(s, None, at) } else { self.var_decl() }) } else {
             let e = self.expression();
             self.consume(K::Semi, "Expect ';' after expression.");
             Some(Stmt::Expr(e))
@@ -301,7 +356,8 @@ impl Parser<'_> {
         let body = self.statement();
         self.end_scope();
         let body = Stmt::Block(core::iter::once(body).chain(step).collect());
-        Stmt::Block(init.into_iter().chain(core::iter::once(Stmt::While(cond, Box::new(body)))).collect())
+        let looped = || Stmt::Block(init.into_iter().chain(core::iter::once(Stmt::While(cond, Box::new(body)))).collect());
+        if R { self.kept_stmt(looped(), Some(NodeKind::Loop), start) } else { looped() }
     }
 
     /* declares the name just read in the current scope and gives where it lives */
@@ -372,6 +428,7 @@ impl Parser<'_> {
     }
 
     fn class(&mut self) -> Stmt {
+        let start = self.prev.start;
         self.consume(K::Ident, "Expect class name.");
         let name = self.text(self.prev).to_string();
         let place = self.declare();
@@ -381,7 +438,8 @@ impl Parser<'_> {
         if self.matches(K::Lt) {
             self.consume(K::Ident, "Expect superclass name.");
             let at = self.prev.start;
-            let value = self.named(self.prev, false);
+            let mut value = self.named(self.prev, false);
+            if R { value = self.kept(value, None, at); }
             if self.text(self.prev) == name { self.error("A class can't inherit from itself."); }
             self.begin_scope();
             let id = self.new_local("super");
@@ -391,15 +449,18 @@ impl Parser<'_> {
             sup = Some((value, id, at));
         }
         self.consume(K::LBrace, "Expect '{' before class body.");
-        let mut methods = Vec::new();
+        let (mut methods, mut parts) = (Vec::new(), Vec::new());
         while !self.check(K::RBrace) && !self.check(K::Eof) {
             self.consume(K::Ident, "Expect method name.");
             let kind = if self.text(self.prev) == "init" { Kind::Init } else { Kind::Method };
+            let at = self.prev.start;
             methods.push(self.function(kind));
+            if R { parts.push(at..self.prev.end); }
         }
         self.consume(K::RBrace, "Expect '}' after class body.");
         if sup.is_some() { self.end_scope(); }
         self.classes.pop();
+        if R { return self.kept_parts(Stmt::Class { place, name, sup, methods }, None, start, parts); }
         Stmt::Class { place, name, sup, methods }
     }
 
@@ -454,14 +515,16 @@ impl Parser<'_> {
 
     fn precedence(&mut self, prec: Prec) -> Expr {
         self.advance();
-        let can_assign = prec <= Prec::Assign;
+        let (can_assign, start) = (prec <= Prec::Assign, self.prev.start);
         let Some(mut e) = self.prefix(can_assign) else {
             self.error("Expect expression.");
             return Expr::Nil;
         };
+        if R { e = self.kept(e, None, start); }
         while prec <= Self::infix(self.cur.k) {
             self.advance();
             e = self.infix_of(e, can_assign);
+            if R { e = self.kept(e, None, start); }
         }
         if can_assign && self.matches(K::Eq) { self.error("Invalid assignment target."); }
         e
@@ -473,7 +536,7 @@ impl Parser<'_> {
             K::LParen => {
                 let e = self.expression();
                 self.consume(K::RParen, "Expect ')' after expression.");
-                e
+                if R { self.kept(e, Some(NodeKind::Group), t.start) } else { e }
             }
             K::Minus => Expr::Neg(Box::new(self.precedence(Prec::Unary)), t.start),
             K::Bang => Expr::Not(Box::new(self.precedence(Prec::Unary))),
@@ -535,7 +598,7 @@ impl Parser<'_> {
             K::LParen => {
                 let (args, at) = self.arguments();
                 // a module named by a literal binds as the program compiles
-                if let (Expr::Get(Place::Global(f), at), [Expr::Str(spec)]) = (&left, args.as_slice()) && f == "import" {
+                if let (Expr::Get(Place::Global(f), at), [arg]) = (Self::bare(&left), args.as_slice()) && let Expr::Str(spec) = Self::bare(arg) && f == "import" {
                     return Expr::Import(spec.clone(), *at);
                 }
                 return Expr::Call(Box::new(left), args, at);
@@ -547,8 +610,10 @@ impl Parser<'_> {
                     let v = self.expression();
                     return Expr::SetField(Box::new(left), name, Box::new(v), at);
                 }
+                let span = Self::start_of(&left)..self.prev.end;
                 if self.matches(K::LParen) {
                     let (args, call) = self.arguments();
+                    if R { return Expr::Call(Box::new(self.kept_to(Expr::Field(Box::new(left), name, at), None, span)), args, call); }
                     return Expr::Call(Box::new(Expr::Field(Box::new(left), name, at)), args, call);
                 }
                 return Expr::Field(Box::new(left), name, at);

@@ -1,10 +1,3 @@
-
-#[cfg(feature = "embed")]
-#[path = "src/host/wasm/config.rs"]
-mod config;
-
-#[cfg(feature = "embed")]
-use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
 /* whether the composition being built turns the named feature on */
@@ -13,26 +6,9 @@ fn wanted(feature: &str) -> bool {
 }
 
 fn main() {
-    println!("cargo:rerun-if-env-changed=INTERPRETER_WASM");
     println!("cargo:rerun-if-env-changed=INTERPRETER_JS_DIST");
     let out = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"));
     let manifest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
-    // a composition that embeds no runtime of this crate's own builds none of these
-    #[cfg(feature = "embed")]
-    if wanted("EMBED") {
-        let target = std::env::var("TARGET").expect("TARGET");
-        let mut cfg = config::base();
-        cfg.target(&target).expect("wasmtime has no backend for the build target");
-        cfg.cranelift_opt_level(wasmtime::OptLevel::Speed);
-        let engine = wasmtime::Engine::new(&cfg).expect("wasmtime engine");
-        // the runtime the interpreter composition embeds and hands the kit
-        let wasm = std::env::var("INTERPRETER_WASM")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| manifest.join("../target/wasm32-unknown-unknown/cli/interpreter.wasm"));
-        precompile(&engine, &wasm, &out.join("interpreter.cwasm"), "run make wasm-cli first");
-        // a browser runs the module so a dist carries a raw copy too
-        std::fs::copy(&wasm, out.join("interpreter.wasm")).unwrap_or_else(|e| panic!("copying {}: {e}", wasm.display()));
-    }
     if wanted("DOCS") {
         let lucide = manifest.join("../target/lucide.json");
         println!("cargo:rerun-if-changed={}", lucide.display());
@@ -74,22 +50,4 @@ fn walk_js(root: &Path, dir: &Path, found: &mut Vec<(String, PathBuf)>) {
             found.push((format!("src/{rel}"), path));
         }
     }
-}
-
-#[cfg(feature = "embed")]
-fn precompile(engine: &wasmtime::Engine, input: &Path, output: &Path, hint: &str) {
-    println!("cargo:rerun-if-changed={}", input.display());
-    let bytes = std::fs::read(input).unwrap_or_else(|e| panic!("cannot read {}: {e}, {hint}", input.display()));
-    // a rerun over an unrelated file keeps the artifact while the input and the engine match
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    bytes.hash(&mut hasher);
-    engine.precompile_compatibility_hash().hash(&mut hasher);
-    let key = format!("{:016x}", hasher.finish());
-    let stamp = output.with_extension("key");
-    if output.exists() && std::fs::read_to_string(&stamp).is_ok_and(|k| k == key) {
-        return;
-    }
-    let cwasm = engine.precompile_module(&bytes).unwrap_or_else(|e| panic!("precompiling {}: {e}", input.display()));
-    std::fs::write(output, cwasm).unwrap_or_else(|e| panic!("writing {}: {e}", output.display()));
-    std::fs::write(&stamp, key).unwrap_or_else(|e| panic!("writing {}: {e}", stamp.display()));
 }

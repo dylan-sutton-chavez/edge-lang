@@ -5,7 +5,36 @@ description: "The interpreter commands, a project from its first file to a build
 
 # CLI
 
-The `interpreter` CLI runs Lox programs on macOS, Linux and WSL. It embeds `interpreter.wasm` compiled ahead for the machine, the same module the JS host loads, so a program gives the same output in a page and in a terminal. [Install](./01-overview.mdx#install) builds it.
+The `interpreter` CLI runs the programs of any runtime on macOS, Linux and WSL. It holds no runtime of its own, and a project names the one it runs on. [Install](./01-overview.mdx#install) builds it, and the examples below run Lox from `lox.wasm`.
+
+## The runtime
+
+`runtime` in `interpreter.json` names the runtime's `.wasm`, by path or by a URL that pins its bytes with `#sha256-<64 hex>`. `--runtime <file>` names one for a single command, and `INTERPRETER_RUNTIME` names one for every project that declares none.
+
+```json
+{ "runtime": "./lox.wasm" }
+```
+
+A command with no runtime to run fails before it reads a program, and `interpreter build` packs the runtime into the bundle so it runs anywhere.
+
+### wasm or native
+
+A runtime runs as a `.wasm` unless the project says otherwise. A `.wasm` runtime runs in a sandbox, where a program reaches the outside only through the host modules its grants allow. It is the same module the JS host loads, so a program gives the same output in a page and in a terminal.
+
+A native runtime is the same crate built as a `.so`, `.dylib` or `.dll`, as `make native` builds Lox's to `target/native/`. It runs faster, with no sandbox, so the grants of `interpreter.json` do not hold it and a plugin never loads. Use one only for a runtime you build yourself. It loads from a local path, never a URL, through `"runtime": { "native": "./lox.dylib" }` or `--runtime-native <library>`.
+
+| | `.wasm` | Native |
+|---|---|---|
+| Sandbox and grants | Held | None |
+| Plugins and eval groups | Yes | No |
+| Loads from | A path or a pinned URL | A local path |
+| Speed | Compiled ahead for the machine | Faster, with no sandbox to cross |
+
+Every command on a native runtime prints one warning to stderr, and so does a bundle that carries one. The runtime runs in a child process, so a panic or a crash in it fails the run with an error and the CLI reports it.
+
+```text
+warning: native runtime, it runs outside the sandbox and the grants of interpreter.json do not hold it
+```
 
 ## Commands
 
@@ -28,13 +57,14 @@ The `interpreter` CLI runs Lox programs on macOS, Linux and WSL. It embeds `inte
 | `--events <file>` | `run` | One event per line for `receive()` |
 | `--preempt <n>`, `--save-state <file>`, `--restore-state <file>` | `run` | Stop every `n` back-edges, and save or resume a run |
 | `--manifest <file>` | every command | The manifest in place of `./interpreter.json` |
+| `--runtime <file>`, `--runtime-native <library>` | every command | The runtime in place of the one `interpreter.json` names |
 
 ## A project
 
-`interpreter init` creates a project.
+`interpreter init` creates a project on the runtime `--runtime` names, and writes its path into `interpreter.json`.
 
 ```text
-$ interpreter init hello
+$ interpreter init hello --runtime lox.wasm
 created hello/
 $ cd hello
 ```
@@ -164,7 +194,7 @@ net.request("GET", "https://other.example/");
 
 ## A CLI of your own
 
-The `interpreter-cli` crate is a kit. A `Kit` takes a runtime and the commands you wire, each behind a feature. The `interpreter` binary is the kit over Lox, and a runtime of yours gets a CLI the same way. With no arguments this one prints its help.
+The `interpreter-cli` crate is a kit. A `Kit` takes a runtime and the commands you wire, each behind a feature. The `interpreter` binary is `Kit::per_project`, the kit that runs whatever runtime a project names, and a runtime of yours gets a CLI of its own with `Kit::new`. With no arguments this one prints its help.
 
 ```rust standalone_crate
 use interpreter_cli::cmd::{run, test};

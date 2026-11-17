@@ -18,7 +18,7 @@ const STATUS_PAYLOAD_MASK: u32 = (1 << STATUS_KIND_SHIFT) - 1;
 const STATUS_DONE: u32 = 0 << STATUS_KIND_SHIFT;
 // kinds 1 and 2 retired with sleep and frame yields so others keep their numbers
 const STATUS_PENDING_EVENT: u32 = 3 << STATUS_KIND_SHIFT;
-const STATUS_ERROR: u32 = 4 << STATUS_KIND_SHIFT;
+pub(crate) const STATUS_ERROR: u32 = 4 << STATUS_KIND_SHIFT;
 const STATUS_PENDING_HOST_CALL: u32 = 5 << STATUS_KIND_SHIFT;
 // an uncaught exit ends cleanly with the exit code in the low 8 bits
 const STATUS_EXIT: u32 = 6 << STATUS_KIND_SHIFT;

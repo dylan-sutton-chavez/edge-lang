@@ -5,7 +5,8 @@ use std::sync::{Arc, Mutex};
 
 use interpreter::deps::dir_of;
 
-use crate::host::{driver, linear_cap, now_ns, time_limit, Engine, Fetched, Host, Project, Sink, Status, Vm, Walk, TICK_NS};
+use crate::host::pooled::{PoolHost, PoolVm};
+use crate::host::{driver, linear_cap, now_ns, time_limit, Engine, Fetched, Project, Sink, Status, Walk, TICK_NS};
 use crate::pack::{base64_decode, into_files, Bundle, BUNDLE_TAG};
 
 use super::pool::{Eval, GroupSpec, Message, Out, Reply};
@@ -13,14 +14,14 @@ use super::pool::{Eval, GroupSpec, Message, Out, Reply};
 // a fixed program waiting on one message after another or an untrusted run per message
 enum Mode {
     // a persistent interpreter whose waits the mailbox answers
-    Fixed { vm: Box<Vm>, started: bool },
+    Fixed { vm: Box<PoolVm>, started: bool },
     // a fresh isolated interpreter per message kept while it waits
     Eval(Option<Box<EvalRun>>),
 }
 
 /* an untrusted run kept between steps */
 struct EvalRun {
-    vm: Vm,
+    vm: PoolVm,
     reply: Option<Reply>,
     id: Option<u64>,
     printed: Arc<Mutex<String>>,
@@ -119,7 +120,7 @@ pub enum Step {
 
 impl Actor {
     // wraps a booted interpreter whose program starts on the first step
-    pub fn fixed(vm: Vm) -> Self {
+    pub fn fixed(vm: PoolVm) -> Self {
         Self::new(Mode::Fixed { vm: Box::new(vm), started: false })
     }
 
@@ -151,7 +152,7 @@ impl Actor {
     /* whether the instance hosting this actor trapped */
     pub fn trapped(&self) -> bool {
         match &self.mode {
-            Mode::Fixed { vm, .. } => vm.instance().borrow().poisoned(),
+            Mode::Fixed { vm, .. } => vm.instance_poisoned(),
             Mode::Eval(_) => false,
         }
     }
@@ -184,7 +185,7 @@ impl Actor {
         }
     }
 
-    pub fn step(&mut self, spec: &GroupSpec, host: &Rc<Host>) -> Step {
+    pub fn step(&mut self, spec: &GroupSpec, host: &Rc<PoolHost>) -> Step {
         self.ran = true;
         self.runnable = false;
         match &spec.eval {
@@ -254,7 +255,7 @@ impl Actor {
     }
 
     /* runs one message at a time in a fresh capped interpreter parked while it waits */
-    fn step_eval(&mut self, spec: &GroupSpec, eval: &Eval, host: &Rc<Host>) -> Step {
+    fn step_eval(&mut self, spec: &GroupSpec, eval: &Eval, host: &Rc<PoolHost>) -> Step {
         let Mode::Eval(run) = &mut self.mode else { unreachable!() };
         let (mut current, status) = match run.take() {
             // a run that waited past its deadline ends there whatever it waited on
@@ -359,7 +360,7 @@ impl Actor {
 }
 
 /* boots a fresh capped interpreter for one untrusted program its walk then starts */
-fn start(spec: &GroupSpec, eval: &Eval, host: &Rc<Host>, body: &str, capture: bool) -> Result<Box<EvalRun>, String> {
+fn start(spec: &GroupSpec, eval: &Eval, host: &Rc<PoolHost>, body: &str, capture: bool) -> Result<Box<EvalRun>, String> {
     let (source, files, entry_dir) = unbundle(body).unwrap_or_else(|| (body.to_string(), HashMap::new(), String::new()));
     let printed = Arc::new(Mutex::new(String::new()));
     let sink: Sink = if capture {

@@ -22,17 +22,22 @@ struct TestArgs {
     limits: RunLimits,
 }
 
+/* the test files of the runtime by their suffix or by name before one is declared */
+fn tests(kit: &Kit) -> String {
+    kit.described().map_or_else(|| String::from("test"), |d| format!("*{}", d.test_suffix))
+}
+
 /* `test` over every file the runtime's test suffix names */
 pub struct Test;
 
 impl Command for Test {
     fn spec(&self, kit: &Kit) -> clap::Command {
-        let command = TestArgs::augment_args(clap::Command::new("test").about(format!("Run *{} files", kit.descriptor().test_suffix)));
+        let command = TestArgs::augment_args(clap::Command::new("test").about(format!("Run the {} files", tests(kit))));
         RunLimits::shown(command, kit.run_limits())
     }
 
     fn summary(&self, kit: &Kit) -> (String, String) {
-        ("test [path]".to_string(), format!("Run *{} files{}", kit.descriptor().test_suffix, crate::web::FLAG))
+        ("test [path]".to_string(), format!("Run the {} files{}", tests(kit), crate::web::FLAG))
     }
 
     fn compiles(&self) -> bool {

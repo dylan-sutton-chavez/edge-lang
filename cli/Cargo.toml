@@ -3,12 +3,12 @@
 
 [package]
 name = "interpreter-cli"
-version = "1.0.1"
+version = "1.1.0"
 edition = "2024"
 rust-version = "1.98"
 license = "Apache-2.0"
 repository = "https://github.com/dylan-sutton-chavez/interpreter"
-# its build embeds interpreter.wasm and the js host made outside this crate
+# its build embeds the js host made outside this crate
 publish = false
 description = "The interpreter CLI kit, a core that takes a runtime and the commands a composition wires, and the interpreter binary composed from it."
 
@@ -17,7 +17,7 @@ description = "The interpreter CLI kit, a core that takes a runtime and the comm
 name = "interpreter_cli"
 path = "src/lib.rs"
 
-# the reference composition wiring every command over the embedded runtime
+# the reference composition wiring every command over the runtime a project declares
 [[bin]]
 name = "interpreter"
 path = "src/main.rs"
@@ -26,14 +26,14 @@ required-features = ["all"]
 # a second composition of two commands which lint-cli builds with their features alone
 [[example]]
 name = "runner"
-required-features = ["embed", "run", "test"]
+required-features = ["wasm", "run", "test"]
 
 # a third composition over lox with its own words that is also its test
 [[test]]
 name = "channels"
 path = "tests/channels.rs"
 harness = false
-required-features = ["embed", "files", "perms", "run"]
+required-features = ["wasm", "files", "perms", "run"]
 
 # the interpreter composition's run and test over lox built in with no wasm
 [[test]]
@@ -41,6 +41,12 @@ name = "native"
 path = "tests/native.rs"
 harness = false
 required-features = ["docs", "files", "net", "perms", "run", "test", "web"]
+
+# runtimes as native libraries in a child process held to what they give on wasm
+[[test]]
+name = "library"
+path = "tests/library.rs"
+required-features = ["native", "run", "build", "actors"]
 
 # the lines a native run executed which the coverage feature writes out
 [[test]]
@@ -54,12 +60,12 @@ required-features = ["coverage", "run"]
 name = "rig"
 path = "tests/rig.rs"
 harness = false
-required-features = ["embed", "docs", "files", "net", "perms", "run", "test"]
+required-features = ["wasm", "docs", "files", "net", "perms", "run", "test"]
 
 # each command sits behind its own feature and the interpreter binary wires them all
 [features]
 default = ["all", "wasm"]
-all = ["actors", "actors-server", "build", "docs", "embed", "files", "init", "net", "packages", "perms", "run", "serve", "test", "uninstall", "web"]
+all = ["actors", "actors-server", "build", "docs", "files", "native", "init", "net", "packages", "perms", "run", "serve", "test", "uninstall", "web"]
 actors = ["wasm", "dep:serde_yaml_ng", "dep:slab"]
 # the live server an actor pool becomes with its ingress control endpoint and durable log
 actors-server = ["actors", "dep:mio", "dep:signal-hook"]
@@ -67,8 +73,6 @@ actors-server = ["actors", "dep:mio", "dep:signal-hook"]
 build = ["docs", "web"]
 # the pages a package ships held to the docs convention and to the icons Lucide draws
 docs = []
-# the reference runtime this crate precompiles for the build target and the interpreter binary embeds
-embed = ["wasm", "dep:interpreter-lox"]
 # the lines each native run executed written where INTERPRETER_COVERAGE names
 coverage = ["interpreter/coverage"]
 # reads of the local files a grant names under the package that asks
@@ -87,15 +91,17 @@ uninstall = ["dep:tempfile"]
 web = ["dep:headless_chrome", "dep:tiny_http"]
 # runtimes as wasm modules wasmtime runs and the plugins a project declares
 wasm = ["dep:wasmtime"]
+# runtimes as native libraries a child process loads for a project that declares one
+native = ["wasm", "dep:libloading"]
 
 [dependencies]
 # the engine crate as a library, manifest parsing and sha256 pinning
 interpreter = { path = ".." }
-# the reference runtime whose descriptor the interpreter composition hands the kit
-interpreter-lox = { path = "../examples/lox", optional = true }
 # hosts the runtime a composition hands the kit and Cranelift compiles the plugins a project declares
 wasmtime = { version = "48", default-features = false, features = ["runtime", "std", "cranelift"], optional = true }
 clap = { version = "4", features = ["derive"] }
+# opens the native library of a runtime a project declares native
+libloading = { version = "0.8", optional = true }
 # the static dev server and the page server of a headless run
 tiny_http = { version = "0.12", optional = true }
 serde = { version = "1", features = ["derive"] }
@@ -135,10 +141,6 @@ interpreter = { path = "..", features = ["full", "plugin"] }
 interpreter-lox = { path = "../examples/lox" }
 # the names of the rig whose wasm the rig test loads
 rig = { path = "../tests/rig", default-features = false }
-
-[build-dependencies]
-# precompiles the embedded runtime for the build target when a composition embeds one
-wasmtime = { version = "48", default-features = false, features = ["runtime", "cranelift", "all-arch", "std"], optional = true }
 
 [profile.release]
 opt-level = "z"

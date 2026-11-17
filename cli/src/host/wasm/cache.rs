@@ -102,11 +102,15 @@ fn private(dir: &Path) -> std::io::Result<()> {
 }
 
 fn cache_dir() -> Option<PathBuf> {
+    // compiled code is keyed by its bytes so a suite shares one directory across its cases
+    if let Some(dir) = std::env::var_os("INTERPRETER_CODE_CACHE") {
+        return Some(PathBuf::from(dir));
+    }
     let base = match std::env::var_os("XDG_CACHE_HOME") {
         Some(dir) => PathBuf::from(dir),
         None => PathBuf::from(std::env::var_os("HOME")?).join(".cache"),
     };
-    Some(base.join(&crate::host::names().name).join("plugins"))
+    Some(base.join(&crate::host::names().name).join("compiled"))
 }
 
 #[cfg(test)]

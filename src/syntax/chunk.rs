@@ -5,6 +5,7 @@ use crate::value::{ExternFn, Val, hash_key};
 use super::ssa::SsaName;
 
 use alloc::{string::{String, ToString}, vec, vec::Vec};
+use core::ops::Range;
 
 pub(crate) const MAX_EXPR_DEPTH: usize = 200;
 pub(crate) const MAX_INSTRUCTIONS: usize = 65_535;
@@ -147,9 +148,100 @@ pub struct SSAChunk {
     pub(crate) id: core::cell::Cell<u32>,
     /* each op of constants by place and pops with its folded value and its name */
     pub(crate) folds: Vec<(u32, u8, Val, &'static str)>,
+    /* what a read keeps beside the code of this body and none for a compile */
+    pub(crate) notes: Option<alloc::boxed::Box<Notes>>,
     /* the natives its calls index by place and none for a chunk built by hand */
-    #[cfg(not(all(target_arch = "wasm32", feature = "runtime")))]
+    #[cfg(not(feature = "runtime"))]
     natives: Option<&'static crate::lang::Natives>,
+}
+
+/* what a read of a program keeps that its run never reads with the outline and annotations on the root */
+#[derive(Default, Clone, Debug, PartialEq)]
+pub struct Notes {
+    pub annotations: Vec<Annotation>,
+    pub decls: Vec<Decl>,
+    /* every form the parse met in source order each after the node it sits in */
+    pub outline: Vec<Node>,
+    /* the bytes each instruction of this body came from by place */
+    pub(crate) spans: Vec<Range<u32>>,
+    /* the instructions each token or node gave with its bytes in the order they closed */
+    pub(crate) covers: Vec<(Range<u32>, Range<u32>)>,
+}
+
+static NO_NOTES: Notes = Notes { annotations: Vec::new(), decls: Vec::new(), outline: Vec::new(), spans: Vec::new(), covers: Vec::new() };
+
+/* a form of the source by its kind and bytes with the place of the node around it */
+#[derive(Clone, Debug, PartialEq)]
+pub struct Node {
+    pub kind: NodeKind,
+    pub span: Range<usize>,
+    pub parent: Option<usize>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NodeKind {
+    Call, Field, Index, Block, Group, Let, Assign, If, Match, Loop, Function, Type, Record, Map, Tuple, List,
+    // a form a runtime's grammar declares by its head word
+    Form(&'static str),
+}
+
+/* an annotation by the bytes of the source it spans and what it annotates */
+#[derive(Clone, Debug, PartialEq)]
+pub struct Annotation {
+    pub span: Range<usize>,
+    pub of: Annotated,
+}
+
+// a function is the place of its node in the outline
+#[derive(Clone, Debug, PartialEq)]
+pub enum Annotated {
+    Param { function: usize, name: String },
+    Returns { function: usize },
+    // the target as the source spells it such as `x` or `point.x`
+    Binding { target: String },
+}
+
+/* an item of a grammar by its kind and name with the modifier words before it and its node in the outline */
+#[derive(Clone, Debug, PartialEq)]
+pub struct Decl {
+    pub span: Range<usize>,
+    pub kind: DeclKind,
+    pub name: String,
+    pub modifiers: Vec<String>,
+    pub node: usize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DeclKind { Fn, Let, Type }
+
+/* the place of the innermost node of `kind` around `span` or `usize::MAX` when none holds it */
+fn around(outline: &[Node], kind: NodeKind, span: &Range<usize>) -> usize {
+    outline.iter().rposition(|n| n.kind == kind && n.span.start <= span.start && span.end <= n.span.end).unwrap_or(usize::MAX)
+}
+
+impl Notes {
+    /* sorts the outline into source order with its parents and points each note at its node */
+    fn link(&mut self) {
+        // among equal spans the node that closed later holds the other
+        let mut order: Vec<usize> = (0..self.outline.len()).collect();
+        let at = &self.outline;
+        order.sort_by(|&a, &b| at[a].span.start.cmp(&at[b].span.start).then(at[b].span.end.cmp(&at[a].span.end)).then(b.cmp(&a)));
+        let mut nodes: Vec<Node> = order.iter().map(|&i| at[i].clone()).collect();
+        let mut open: Vec<usize> = Vec::new();
+        for i in 0..nodes.len() {
+            while open.last().is_some_and(|&p| nodes[i].span.start >= nodes[p].span.end || nodes[i].span.end > nodes[p].span.end) { open.pop(); }
+            nodes[i].parent = open.last().copied();
+            open.push(i);
+        }
+        self.outline = nodes;
+        for a in &mut self.annotations {
+            if let Annotated::Param { function, .. } | Annotated::Returns { function } = &mut a.of { *function = around(&self.outline, NodeKind::Function, &a.span); }
+        }
+        for d in &mut self.decls {
+            let kind = match d.kind { DeclKind::Fn => NodeKind::Function, DeclKind::Let => NodeKind::Let, DeclKind::Type => NodeKind::Type };
+            d.node = around(&self.outline, kind, &(d.span.end.saturating_sub(1)..d.span.end));
+        }
+    }
 }
 
 /* how many names a chunk scans before it keeps a hash table of them */
@@ -179,7 +271,7 @@ impl SSAChunk {
     /* an empty chunk over texts it is given which allocates nothing of its own */
     pub(crate) fn over(source: alloc::sync::Arc<String>, path: alloc::sync::Arc<String>, natives: Option<&'static crate::lang::Natives>) -> Self {
         // the wasm runtime boots only what its own front compiles so keeps no natives
-        #[cfg(all(target_arch = "wasm32", feature = "runtime"))]
+        #[cfg(feature = "runtime")]
         let _ = natives;
         Self {
             instructions: Vec::new(), constants: Vec::new(), names: Vec::new(), functions: Vec::new(), phi_sources: Vec::new(), classes: Vec::new(),
@@ -187,8 +279,8 @@ impl SSAChunk {
             prev_slots: Vec::new(), canonical: Vec::new(), phi_map: Vec::new(), nonlocals: Vec::new(),
             name_index: hashbrown::HashTable::new(), name_marks: 0, stmt_pos: Vec::new(), call_byte_pos: Vec::new(),
             source, path, native_sites: Vec::new(), extern_table: Vec::new(), extern_index: HashMap::default(), imports: Vec::new(),
-            id: core::cell::Cell::new(0), folds: Vec::new(),
-            #[cfg(not(all(target_arch = "wasm32", feature = "runtime")))]
+            id: core::cell::Cell::new(0), folds: Vec::new(), notes: None,
+            #[cfg(not(feature = "runtime"))]
             natives,
         }
     }
@@ -196,9 +288,9 @@ impl SSAChunk {
     /* the natives it was compiled over where a machine may meet a chunk of another */
     #[inline(always)]
     pub(crate) fn natives(&self) -> Option<&'static crate::lang::Natives> {
-        #[cfg(not(all(target_arch = "wasm32", feature = "runtime")))]
+        #[cfg(not(feature = "runtime"))]
         return self.natives;
-        #[cfg(all(target_arch = "wasm32", feature = "runtime"))]
+        #[cfg(feature = "runtime")]
         None
     }
 
@@ -212,6 +304,32 @@ impl SSAChunk {
     pub fn resolve(&self, ip: u32) -> Option<u32> {
         let i = self.stmt_pos.partition_point(|&(s, _)| s <= ip).checked_sub(1)?;
         Some(self.stmt_pos[i].1)
+    }
+
+    /* the bytes of the source instruction `ip` came from on a body that a read made */
+    pub fn span(&self, ip: u32) -> Option<Range<usize>> {
+        let s = self.notes.as_deref()?.spans.get(ip as usize)?;
+        (s.start != u32::MAX).then_some(s.start as usize..s.end as usize)
+    }
+
+    /* what a read kept of the source with the outline and annotations on its root and empty for a compile */
+    pub fn notes(&self) -> &Notes { self.notes.as_deref().unwrap_or(&NO_NOTES) }
+
+    /* gives each instruction of every body the span of the first run around it that closed and links the outline */
+    pub(crate) fn settle(&mut self) {
+        let len = self.instructions.len();
+        if let Some(n) = self.notes.as_deref_mut() {
+            let mut spans = vec![u32::MAX..u32::MAX; len];
+            for (ips, span) in core::mem::take(&mut n.covers) {
+                for s in spans.get_mut(ips.start as usize..(ips.end as usize).min(len)).unwrap_or(&mut []) {
+                    if s.start == u32::MAX { *s = span.clone(); }
+                }
+            }
+            n.spans = spans;
+            n.link();
+        }
+        for (_, body, _, _) in &mut self.functions { body.settle(); }
+        for body in &mut self.classes { body.settle(); }
     }
 
     /* the byte offset of the call at `ip` with `resolve` as the coarser fallback */

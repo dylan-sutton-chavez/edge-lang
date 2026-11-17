@@ -1,6 +1,7 @@
-use super::{Mark, Parser, Shape};
+use super::{At, Mark, Parser, Shape};
 use super::expr::Tail;
 use crate::code::OpCode;
+use crate::syntax::chunk::{Annotated, NodeKind};
 use crate::s;
 
 use crate::syntax::lexer::{Spelling, Token, TokenType};
@@ -19,20 +20,24 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
     /* one statement and true when it leaves a value for the caller to pop */
     pub(super) fn stmt(&mut self) -> bool {
         self.mark_stmt();
-        if let Some(value) = self.grammar_item() { return value; }
+        let at = self.here();
+        if let Some(value) = self.grammar_item(at) { return value; }
 
         match self.peek() {
             Some(TokenType::If) => {
                 self.if_stmt();
+                self.keep(at, Some(NodeKind::If), true);
                 false
             }
             Some(TokenType::For) => {
                 self.for_stmt();
+                self.keep(at, Some(NodeKind::Loop), true);
                 false
             }
             Some(TokenType::Fn) => {
                 self.advance();
                 self.func_def_inner(0);
+                self.keep(at, Some(NodeKind::Function), true);
                 false
             }
             Some(TokenType::With) => {
@@ -42,6 +47,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
             }
             Some(TokenType::While) => {
                 self.while_stmt();
+                self.keep(at, Some(NodeKind::Loop), true);
                 false
             }
             Some(TokenType::Yield) => {
@@ -56,18 +62,16 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
                     self.expr();
                     count += 1;
                 }
-                if matches!(self.peek(), Some(TokenType::Class)) {
-                    self.advance();
-                    self.class_def_with(count);
-                } else {
-                    self.advance();
-                    self.func_def_inner(count);
-                }
+                let class = matches!(self.peek(), Some(TokenType::Class));
+                self.advance();
+                if class { self.class_def_with(count); } else { self.func_def_inner(count); }
+                self.keep(at, Some(if class { NodeKind::Type } else { NodeKind::Function }), true);
                 false
             }
             Some(TokenType::Class) => {
                 self.advance();
                 self.class_def_with(0);
+                self.keep(at, Some(NodeKind::Type), true);
                 false
             }
             Some(TokenType::Empty) => {
@@ -173,6 +177,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
             }
             Some(TokenType::Let) if Self::BINDS => {
                 self.let_stmt();
+                self.keep(at, Some(NodeKind::Let), true);
                 false
             }
             // an indent left by an earlier error skips its whole block silently
@@ -240,6 +245,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
 
     /* items after the `count` emitted ones up to `stop` with `*it` unpacked into the tuple */
     pub(super) fn tuple_rest(&mut self, mut count: u16, stop: impl Fn(&mut Self) -> bool) {
+        let at = if count > 0 { At { start: self.lead(), ..self.here() } } else { self.here() };
         let (mut list, mut comma) = (false, false);
         loop {
             if count > 0 || list {
@@ -262,6 +268,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         } else if comma {
             self.chunk.emit(OpCode::BuildTuple, count);
         }
+        if list || comma { self.keep(at, Some(NodeKind::Tuple), false); }
     }
 
     // a stray colon after an expression statement suggests the missing keyword
@@ -274,12 +281,16 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
 
     /* compiles an indented block or the statements on the line of its colon */
     pub(super) fn compile_block(&mut self) {
-        if Self::DELIMITED { return self.brace_block(); }
-        let next_line = self.peek_same_line().is_none();
-        let indented = self.eat_if(TokenType::Indent);
-        // a body that starts on the next line must be indented
-        if !indented && next_line { return self.error("expected an indented block"); }
-        self.block_body(indented);
+        let at = self.here();
+        if Self::DELIMITED {
+            self.brace_block();
+        } else {
+            let next_line = self.peek_same_line().is_none();
+            let indented = self.eat_if(TokenType::Indent);
+            // a body that starts on the next line must be indented
+            if !indented && next_line { self.error("expected an indented block"); } else { self.block_body(indented); }
+        }
+        self.keep(at, Some(NodeKind::Block), true);
     }
 
     /* the statements of an indented block or those on the line of its header */
@@ -294,7 +305,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
             }
             self.block_closed = false;
             self.bracket_stack.clear();
-            let (errors_before, at) = (self.errors.len(), self.tokens.pos);
+            let (errors_before, at, from) = (self.errors.len(), self.tokens.pos, self.here());
             // a compound statement never shares the line of the colon that opens a body
             let produced_value = if !indented && !Self::DELIMITED && self.peek().is_some_and(crate::syntax::lexer::opens_body) { self.error("a compound statement must start its own line"); false } else { self.stmt() };
             self.end_statement(errors_before);
@@ -302,6 +313,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
             if produced_value {
                 self.chunk.emit(OpCode::PopTop, 0);
             }
+            self.keep(from, None, true);
             // a body on its header line runs to the line end even past a `return`
             if !indented && !matches!(self.peek(), Some(TokenType::Semi)) { break; }
         }
@@ -344,17 +356,22 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
                 _ => {}
             }
             self.bracket_stack.clear();
-            let (errors_before, at) = (self.errors.len(), self.tokens.pos);
+            let (errors_before, at, from) = (self.errors.len(), self.tokens.pos, self.here());
             let produced_value = self.stmt();
             self.end_statement(errors_before);
             if self.tokens.pos == at { self.tokens.next(); }
             if produced_value { self.chunk.emit(OpCode::PopTop, 0); }
+            self.keep(from, None, true);
         }
     }
 
-    /* parses an annotation for its errors and drops its code giving whether an assignment follows */
+    /* passes the colon and the annotation after a target giving whether an assignment follows */
     pub(super) fn skip_annotation(&mut self) -> bool {
-        self.pass_annotation(|k| matches!(k, TokenType::Equal | TokenType::Semi | TokenType::Comment | TokenType::Newline | TokenType::Eof | TokenType::BlockClose), false);
+        // the statement opens at its target so the target is its text up to the colon
+        let target = if S::RECORD { self.chunk.stmt_pos.last().map_or(0, |&(_, at)| at as usize)..self.tokens.peek().map_or(self.last_end, |t| t.start) } else { 0..0 };
+        self.advance();
+        let of = |p: &Self| Annotated::Binding { target: p.source.get(target).unwrap_or("").trim().into() };
+        self.pass_annotation(|k| matches!(k, TokenType::Equal | TokenType::Semi | TokenType::Comment | TokenType::Newline | TokenType::Eof | TokenType::BlockClose), false, of);
         matches!(self.peek_same_line(), Some(TokenType::Equal))
     }
 
@@ -369,6 +386,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
     /* a chained assignment evaluates the value first then stores the targets left to right */
     fn assignment(&mut self, binds: bool) -> bool {
         let Some(&head) = self.tokens.peek() else { return false };
+        let at = self.here();
         // a lone name target has nothing to evaluate so it compiles in source order
         if head.assigns <= 1 && matches!(head.kind, TokenType::Name | TokenType::Underscore) && self.tokens.after_head() == TokenType::Equal {
             if Self::REQUIRED && !binds { self.declared(head); }
@@ -376,6 +394,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
             self.advance();
             self.rhs_tuple();
             self.store_name(name);
+            if !binds { self.keep(at, Some(NodeKind::Assign), false); }
             return true;
         }
         if head.assigns == 0 { return false; }
@@ -392,7 +411,6 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
                     self.error("only a single target can be annotated");
                     return true;
                 }
-                self.advance();
                 self.skip_annotation();
             }
             let Some(shape) = shape.filter(|_| matches!(self.peek_same_line(), Some(TokenType::Equal))) else {
@@ -421,6 +439,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
             self.tokens.pos = eq + 1;
         }
         self.seek(end);
+        if !binds { self.keep(at, Some(NodeKind::Assign), false); }
         true
     }
 
@@ -541,7 +560,6 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
 
         // `x: T` annotates while a colon on the next line belongs to another statement
         if matches!(self.peek_same_line(), Some(TokenType::Colon)) {
-            self.advance();
             self.skip_annotation();
             return false;
         }
@@ -567,8 +585,11 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
             }
             // a call at statement level may continue with trailers like `f().g(x)`
             Some(TokenType::ParenOpen) => {
+                let at = self.from(&t);
+                let kept = self.call(name, true);
+                self.keep(at, Some(NodeKind::Call), false);
                 // a native call that ends its statement keeps no value and the others leave theirs
-                if self.call(name, true) { return false; }
+                if kept { return false; }
                 match self.peek_same_line() {
                     None | Some(TokenType::Semi | TokenType::Dedent) => true,
                     _ => self.stmt_tails(start),

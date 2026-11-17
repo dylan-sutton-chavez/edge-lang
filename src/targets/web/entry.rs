@@ -45,6 +45,7 @@ fn json(d: &Descriptor, identity: u64) -> String {
         if j > 0 { out.push(','); }
         quote(&mut out, item);
     }
+    out.push_str(&crate::s!("],\"statuses\":[", int d.statuses.0 as i64, ",", int d.statuses.1 as i64));
     // the snapshot header so a host reads a blob and checks its runtime first
     let mut hex = String::with_capacity(16);
     for k in (0..16).rev() { hex.push(char::from(b"0123456789abcdef"[(identity >> (k * 4) & 15) as usize])); }

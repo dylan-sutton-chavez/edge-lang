@@ -3,6 +3,9 @@ mod suite;
 use suite::{net, suite, Bin};
 
 const INTERPRETER: Bin = Bin { path: env!("CARGO_BIN_EXE_interpreter"), env: &[], plugins: true };
+// the lox.wasm the pages run on and the compiled code every run of them shares
+const LOX: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../target/wasm32-unknown-unknown/cli/interpreter.wasm");
+const CODE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../target/cli-code-cache");
 
 // JSON-driven CLI suite, each case in `cli.json` is one tempdir plus one spawn of the `interpreter` binary.
 #[test]
@@ -62,6 +65,7 @@ fn fences(text: &str) -> Vec<(Vec<String>, String)> {
 /* runs one page in a fresh project dir, files and transcripts in page order */
 fn docs_page(text: &str, cache: &std::path::Path) -> Result<(), String> {
     let root = tempfile::tempdir().map_err(|e| e.to_string())?;
+    std::fs::copy(LOX, root.path().join("lox.wasm")).map_err(|e| e.to_string())?;
     let mut cwd = root.path().to_path_buf();
     let fences = fences(text);
     for (at, (info, body)) in fences.iter().enumerate() {
@@ -97,7 +101,7 @@ fn transcript(body: &str, cwd: &mut std::path::PathBuf, cache: &std::path::Path)
         match args[..] {
             ["cd", dir] => *cwd = cwd.join(dir),
             ["interpreter", ..] => {
-                let out = std::process::Command::new(INTERPRETER.path).args(&args[1..]).current_dir(&*cwd).env("XDG_CACHE_HOME", cache)
+                let out = std::process::Command::new(INTERPRETER.path).args(&args[1..]).current_dir(&*cwd).env("XDG_CACHE_HOME", cache).env("INTERPRETER_CODE_CACHE", CODE).env("INTERPRETER_RUNTIME", LOX)
                     .stdin(std::process::Stdio::null()).output().map_err(|e| e.to_string())?;
                 let printed = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
                 // a transcript that shows an error expects the command to fail
@@ -122,7 +126,7 @@ fn program(src: &str, manifest: Option<String>, output: Option<String>, cache: &
     let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
     std::fs::write(dir.path().join("main.lox"), src).map_err(|e| e.to_string())?;
     std::fs::write(dir.path().join("interpreter.json"), manifest.unwrap_or_else(|| "{}\n".into())).map_err(|e| e.to_string())?;
-    let out = std::process::Command::new(INTERPRETER.path).args(["run", "main.lox"]).current_dir(dir.path()).env("XDG_CACHE_HOME", cache)
+    let out = std::process::Command::new(INTERPRETER.path).args(["run", "main.lox"]).current_dir(dir.path()).env("XDG_CACHE_HOME", cache).env("INTERPRETER_CODE_CACHE", CODE).env("INTERPRETER_RUNTIME", LOX)
         .stdin(std::process::Stdio::null()).output().map_err(|e| e.to_string())?;
     // a failed run shows its report after what it printed
     let printed = match out.status.success() {

@@ -1,6 +1,6 @@
-use super::{Mark, Parser};
+use super::{At, Mark, Parser};
 use crate::code::OpCode;
-use crate::syntax::chunk::Value;
+use crate::syntax::chunk::{Decl, DeclKind, NodeKind, Value};
 use crate::syntax::lexer::grammar::{Emit, Form, Grammar, Row, Slot, Test};
 use crate::syntax::lexer::{Spelling, Token, TokenType};
 
@@ -49,15 +49,18 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         while let Some(tok) = self.peek_same_line() {
             let Some(r) = self.row(tok, false) else { break };
             if r.left < min_bp { break; }
+            let at = self.here();
             self.advance();
             if let Emit::Lazy(and) = r.emit {
                 let jmp = self.emit_jump(if and { OpCode::JumpIfFalseOrPop } else { OpCode::JumpIfTrueOrPop });
                 self.expr_bp(r.right);
                 self.patch(jmp);
+                self.keep(at, None, true);
                 continue;
             }
             self.expr_bp(r.right);
             self.emit_row(r.emit, 2);
+            self.keep(at, None, true);
         }
     }
 
@@ -83,7 +86,9 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
     pub(super) fn grammar_name(&mut self, t: Token) -> bool {
         let name = self.lexeme(&t);
         if let Some(f) = Self::g().forms.iter().find(|f| f.head == name) {
+            let at = self.from(&t);
             self.form(f, t.start as u32);
+            self.keep(at, Some(NodeKind::Form(f.head)), true);
             return true;
         }
         let word = Self::g().modes.get(self.mode as usize).is_some_and(|m| m.words.contains(&name));
@@ -207,7 +212,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
 
     /* after `{` a record of named values or a block of bindings ending in its value */
     fn braced(&mut self, open: TokenType) {
-        let close = Self::close_of(open);
+        let (close, at) = (Self::close_of(open), self.opened());
         let named = |s: &mut Self| s.peek() == Some(TokenType::Name) && s.tokens.after_head() == TokenType::Equal;
         if self.peek() == Some(close) || named(self) {
             let mut n = 0;
@@ -220,11 +225,17 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
                 if !self.eat_if(TokenType::Comma) { break; }
             }
             self.eat(close);
-            return self.chunk.emit(OpCode::BuildDict, n);
+            self.chunk.emit(OpCode::BuildDict, n);
+            return self.keep(at, Some(NodeKind::Record), false);
         }
-        while self.peek() == Some(TokenType::Let) { self.let_item(); }
+        while self.peek() == Some(TokenType::Let) {
+            let at = self.here();
+            self.let_item();
+            self.keep(at, Some(NodeKind::Let), true);
+        }
         self.expr();
         self.eat(close);
+        self.keep(at, Some(NodeKind::Block), true);
     }
 
     fn block_after(&mut self) {
@@ -397,16 +408,17 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         if t.kind == TokenType::Underscore { self.chunk.emit(OpCode::PopTop, 0); } else { self.store_name(self.lexeme(&t)); }
     }
 
-    /* an item the grammar reads with its modifier words and none for the fixed statements */
-    pub(super) fn grammar_item(&mut self) -> Option<bool> {
+    /* an item the grammar reads with its modifier words from `at` and none for the fixed statements */
+    pub(super) fn grammar_item(&mut self, at: At) -> Option<bool> {
         let g = Self::GRAMMAR?;
         let mut wraps = Vec::new();
         while let Some(m) = self.word().and_then(|w| g.modifiers.iter().find(|m| m.0 == w)) {
             self.advance();
             wraps.extend(m.1);
         }
+        if S::RECORD { self.item_decl(at, g); }
         match self.peek()? {
-            TokenType::Let => self.let_item(),
+            TokenType::Let => { self.let_item(); self.keep(at, Some(NodeKind::Let), true); }
             // a function whose body is a block of statements is the fixed definition
             TokenType::Fn if self.block_fn() => return None,
             TokenType::Fn => {
@@ -421,6 +433,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
                     self.call_of(1, self.last_end as u32);
                 }
                 self.emit_store_new(name);
+                self.keep(at, Some(NodeKind::Function), true);
             }
             // a type item checks nothing here so its tokens pass up to the next item
             TokenType::Type => {
@@ -435,10 +448,26 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
                     }
                     self.advance();
                 }
+                self.keep(at, Some(NodeKind::Type), true);
             }
             _ => return None,
         }
         Some(false)
+    }
+
+    /* the item a read meets from `at` with the modifier words its head took and the name after its keyword */
+    #[inline(never)]
+    fn item_decl(&mut self, at: At, g: &Grammar) {
+        let kind = match self.peek() { Some(TokenType::Let) => DeclKind::Let, Some(TokenType::Fn) => DeclKind::Fn, Some(TokenType::Type) => DeclKind::Type, _ => return };
+        let toks = &self.tokens.toks;
+        let from = toks[..self.tokens.pos].iter().rposition(|t| (t.start as u32) < at.start).map_or(0, |i| i + 1);
+        let modifiers = toks[from..self.tokens.pos].iter().map(|t| &self.source[t.start..t.end]).filter(|w| g.modifiers.iter().any(|m| m.0 == *w)).map(alloc::string::String::from).collect();
+        // a declaration spans its head from the first modifier through its name
+        let named = toks[self.tokens.pos..].iter().filter(|t| !matches!(t.kind, TokenType::Newline | TokenType::LineBreak | TokenType::Comment)).nth(1);
+        if let Some(t) = named.filter(|t| matches!(t.kind, TokenType::Name | TokenType::Underscore)) {
+            let (span, name) = (at.start as usize..t.end, self.source[t.start..t.end].into());
+            self.notes().decls.push(Decl { span, kind, name, modifiers, node: usize::MAX });
+        }
     }
 
     /* whether a block opens after the parameters before any `=` */

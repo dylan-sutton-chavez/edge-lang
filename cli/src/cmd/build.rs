@@ -80,6 +80,7 @@ struct Carried {
 
 fn run_carried(kit: &Kit, payload: &[u8]) -> Result<i32> {
     let flags = Carried::parse();
+    kit.carry(payload)?;
     let opts = RunOpts {
         manifest: None,
         preempt: flags.preempt.unwrap_or(0),
@@ -94,7 +95,7 @@ fn run_carried(kit: &Kit, payload: &[u8]) -> Result<i32> {
 fn standalone(kit: &Kit, manifest_path: &Path, out: PathBuf) -> Result<()> {
     // nobody reads docs out of an executable so an app binary leaves them behind
     let bundle = collect_bundle(kit, manifest_path, false)?;
-    let files = bundle.files.len();
+    let files = bundle.files.iter().filter(|f| !runtime_file(&f.path)).count();
     let exe = std::env::current_exe().context("locating the interpreter binary")?;
     let mut image = fs::read(&exe).with_context(|| format!("reading {}", exe.display()))?;
     let payload = bundle.encode();
@@ -116,9 +117,16 @@ fn bundle(kit: &Kit, manifest_path: &Path, out: PathBuf) -> Result<()> {
     fs::write(&out, &payload).with_context(|| format!("writing {}", out.display()))?;
     let run = out.display();
     let pages = bundle.files.iter().filter(|f| f.path.starts_with(docs::PREFIX)).count();
-    crate::ui::packed(&out, bundle.files.len() - pages, pages, payload.len() as u64,
+    // the runtime rides along beside the project and is no file of it
+    let files = bundle.files.iter().filter(|f| !runtime_file(&f.path)).count() - pages;
+    crate::ui::packed(&out, files, pages, payload.len() as u64,
         &format!("run  {} run {run}   or send it to an actor eval group", kit.name()));
     Ok(())
+}
+
+/* whether a bundle path holds the runtime that rides along beside the project */
+fn runtime_file(path: &str) -> bool {
+    path == crate::pack::RUNTIME_FILE || path == crate::pack::RUNTIME_NATIVE_FILE
 }
 
 /* bundles the project files and every url module its manifests declare */
@@ -161,6 +169,14 @@ fn collect_bundle(kit: &Kit, manifest_path: &Path, with_docs: bool) -> Result<Bu
     let nested: Vec<PathBuf> = files.iter().filter(|f| f.path.ends_with("/interpreter.json")).map(|f| project.join(&f.path)).collect();
     for path in nested {
         vendor_bundle(&mut scan, &lock::resolved(&path, &kit.manifest(&path)?.imports)?, &mut files)?;
+    }
+    // the bundle runs on the runtime it was built on wherever it goes
+    files.retain(|f| f.path != crate::pack::RUNTIME_FILE && f.path != crate::pack::RUNTIME_NATIVE_FILE);
+    if let Some(module) = kit.runtime().module() {
+        files.push(Entry { path: crate::pack::RUNTIME_FILE.to_string(), bytes: module.to_vec() });
+    }
+    if let Some(library) = kit.runtime().library_path() {
+        files.push(Entry { path: crate::pack::RUNTIME_NATIVE_FILE.to_string(), bytes: fs::read(library).with_context(|| format!("reading {}", library.display()))? });
     }
     let mut kept = HashSet::new();
     files.retain(|f| kept.insert(f.path.clone()));
@@ -597,7 +613,7 @@ mod tests {
         let bundle = collect_bundle(&project.join("interpreter.json"), true).unwrap();
         let mut paths: Vec<&str> = bundle.files.iter().map(|f| f.path.as_str()).collect();
         paths.sort();
-        assert_eq!(paths, ["LICENSE", "LICENSE.lox", "LICENSE.txt", "README.md", "main.lox"]);
+        assert_eq!(paths, ["LICENSE", "LICENSE.lox", "LICENSE.txt", "README.md", "interpreter.runtime.wasm", "main.lox"]);
         assert_eq!(bundle.entry, "main.lox");
     }
 
@@ -629,7 +645,7 @@ mod tests {
         let bundle = collect_bundle(&project.join("interpreter.json"), false).unwrap();
         let mut paths: Vec<&str> = bundle.files.iter().map(|f| f.path.as_str()).collect();
         paths.sort();
-        assert_eq!(paths, ["src/entry.lox", "src/json.wasm"]);
+        assert_eq!(paths, ["interpreter.runtime.wasm", "src/entry.lox", "src/json.wasm"]);
         assert_eq!(bundle.entry, "src/entry.lox");
     }
 
@@ -647,7 +663,7 @@ mod tests {
         let bundle = collect_bundle(&project.join("interpreter.json"), false).unwrap();
         let mut paths: Vec<&str> = bundle.files.iter().map(|f| f.path.as_str()).collect();
         paths.sort();
-        assert_eq!(paths, ["interpreter.json", "interpreter.lock", "main.lox", "pkg/interpreter.json", "pkg/interpreter.lock", "pkg/main.lox"]);
+        assert_eq!(paths, ["interpreter.json", "interpreter.lock", "interpreter.runtime.wasm", "main.lox", "pkg/interpreter.json", "pkg/interpreter.lock", "pkg/main.lox"]);
     }
 
     // a version holds no address so packing one the lock never resolved would pack nothing
@@ -675,7 +691,7 @@ mod tests {
         let bundle = collect_bundle(&project.join("interpreter.json"), false).unwrap();
         let mut paths: Vec<&str> = bundle.files.iter().map(|f| f.path.as_str()).collect();
         paths.sort();
-        assert_eq!(paths, ["interpreter.json", "main.lox", "pkg/interpreter.json", "pkg/main.lox"]);
+        assert_eq!(paths, ["interpreter.json", "interpreter.runtime.wasm", "main.lox", "pkg/interpreter.json", "pkg/main.lox"]);
     }
 
     #[test]
@@ -691,7 +707,7 @@ mod tests {
         let packed = collect_bundle(&manifest, true).unwrap();
         let mut paths: Vec<&str> = packed.files.iter().map(|f| f.path.as_str()).collect();
         paths.sort();
-        assert_eq!(paths, ["@docs/01-intro.mdx", "interpreter.json", "main.lox"]);
+        assert_eq!(paths, ["@docs/01-intro.mdx", "interpreter.json", "interpreter.runtime.wasm", "main.lox"]);
 
         let app = collect_bundle(&manifest, false).unwrap();
         assert!(app.files.iter().all(|f| !f.path.starts_with(docs::PREFIX)));

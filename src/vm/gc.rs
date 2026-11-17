@@ -46,7 +46,7 @@ impl<'a> VM<'a> {
             }
         }
         for &v in self.instances.iter().chain(&self.learned).chain(&self.grown) { self.heap.mark(v); }
-        #[cfg(all(target_arch = "wasm32", feature = "runtime"))]
+        #[cfg(feature = "runtime")]
         crate::abi::bridge::mark_handles(self as *const Self as *const u8, &mut self.heap);
         for &v in self.builtins.values() { self.heap.mark(v); }
         for scope in &self.scopes { for (_, v) in scope.iter() { self.heap.mark(v); } }

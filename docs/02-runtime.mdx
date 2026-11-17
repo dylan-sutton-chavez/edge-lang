@@ -100,8 +100,8 @@ pub const FRONT: Front = Front::spelled::<Tally>();
 pub const DESCRIPTOR: Descriptor = Descriptor { language: "tally", extension: "tly", entries: &["main.tly"], ..Descriptor::NONE };
 pub static RUNTIME: Runtime = Runtime::of::<Tally>();
 
-// the exports of tally.wasm, built only for the web feature on wasm32
-#[cfg(all(target_arch = "wasm32", feature = "web"))]
+// the exports of tally.wasm and of its native library, built only for the exports feature
+#[cfg(feature = "exports")]
 interpreter::web_exports!(RUNTIME);
 
 fn main() {
@@ -164,16 +164,30 @@ A language the parser cannot read implements `interpreter::lang::Front` itself a
 
 ## The .wasm of a runtime
 
-The same crate builds the module the JS host and the CLI load. `interpreter::web_exports!(RUNTIME)`, as in the example, writes its exports behind a `web` feature.
+The same crate builds the module the JS host and the CLI load, and the native library the CLI loads in its place. `interpreter::web_exports!(RUNTIME)`, as in the example, writes its exports behind a feature of its own, here `exports`.
 
 ```toml
 [features]
-web = ["interpreter/runtime", "interpreter/perms"]
+exports = ["interpreter/runtime", "interpreter/perms"]
 ```
 
 ```bash
-cargo rustc --release --target wasm32-unknown-unknown --lib --crate-type cdylib --no-default-features --features web
+cargo rustc --release --target wasm32-unknown-unknown --lib --crate-type cdylib --no-default-features --features exports
 ```
+
+The native library takes the same exports with a context of its own for each run, so actors run it in parallel with no lock between them. It needs `std` and a profile where a panic unwinds, so the CLI catches one as an error of the run.
+
+```toml
+[profile.native]
+inherits = "release"
+panic = "unwind"
+```
+
+```bash
+cargo rustc --profile native --lib --crate-type cdylib --features exports
+```
+
+The CLI runs it outside the sandbox, as [wasm or native](./06-cli.mdx#wasm-or-native) says.
 
 ## Lox
 

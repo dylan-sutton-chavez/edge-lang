@@ -42,9 +42,11 @@ Both build from [the repo](https://github.com/dylan-sutton-chavez/interpreter) w
 ```bash
 git clone https://github.com/dylan-sutton-chavez/interpreter
 cd interpreter
-make wasm-cli js lucide
+make js lucide
 cargo install --path cli
 ```
+
+The CLI holds no runtime, and each project names the one its programs run on. `make wasm` builds Lox's to `target/wasm32-unknown-unknown/release/interpreter.wasm`, the `lox.wasm` the examples of these pages run on.
 
 A tagged release also ships binaries for macOS and Linux.
 
@@ -52,7 +54,7 @@ A tagged release also ships binaries for macOS and Linux.
 curl -fsSL https://raw.githubusercontent.com/dylan-sutton-chavez/interpreter/main/cli/setup/install.sh | bash
 ```
 
-`make wasm js stage PARTS="wasm js"` writes the files a page serves to `_cdn/`, with `interpreter.wasm` at the root and the JS host under `js/src/`. A release attaches the same tree as `cdn.tar.gz`.
+`make wasm js stage PARTS="wasm js"` writes the files a page serves to `_cdn/`, with Lox's `interpreter.wasm` at the root and the JS host under `js/src/`. A release attaches the same tree as `cdn.tar.gz`.
 
 The CLI kit and Lox are not on crates.io. A crate of yours takes them from git at one commit.
 
@@ -67,7 +69,7 @@ Pin `tag` or `rev` instead of `branch` for a build that never moves.
 
 ## Lox
 
-The examples in these pages run Lox, the language of the book Crafting Interpreters. It lives in `examples/lox`, passes the book's test suite and is the runtime `interpreter.wasm` and the CLI are built from. Past the book it imports modules with `import("name")` and has the natives `input`, `exit`, `send`, `receive`, `len` and `text`.
+The examples in these pages run Lox, the language of the book Crafting Interpreters. It lives in `examples/lox`, passes the book's test suite and is the runtime `interpreter.wasm` is built from. It is an example of the repo, and neither the crate nor the CLI holds it. Past the book it imports modules with `import("name")` and has the natives `input`, `exit`, `send`, `receive`, `len` and `text`.
 
 ## Pages
 

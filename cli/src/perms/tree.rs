@@ -54,7 +54,7 @@ pub fn check(kit: &Kit, path: &Path, lock: &Lock) -> Result<()> {
     }
     let imports = manifest.get("imports").and_then(Value::as_object).cloned().unwrap_or_default();
     let mut short = Vec::new();
-    for package in packages(kit, path, &imports, lock)?.iter().filter(|p| !p.section.is_null()) {
+    for package in walk(kit, path, &imports, lock, false)?.iter().filter(|p| !p.section.is_null()) {
         let missing = unmet(&chained(&json!([[root, package.name]])), &package.section);
         if !missing.is_empty() {
             short.push((package.who(), missing.join(", ")));
@@ -68,11 +68,16 @@ pub fn check(kit: &Kit, path: &Path, lock: &Lock) -> Result<()> {
     bail!("interpreter.json does not grant what these packages ask for\n{}\nhelp: grant them under \"{FIELD}\" in interpreter.json", lines.join("\n"))
 }
 
-/* every package the root imports with each subtree held to what its importers pass on */
+/* every package the root imports even by a url no lock pins yet as add shows them before a lock */
 pub fn packages(kit: &Kit, path: &Path, imports: &Map<String, Value>, lock: &Lock) -> Result<Vec<Package>> {
+    walk(kit, path, imports, lock, true)
+}
+
+/* every package the root imports with each subtree held to what its importers pass on */
+fn walk(kit: &Kit, path: &Path, imports: &Map<String, Value>, lock: &Lock, unpinned: bool) -> Result<Vec<Package>> {
     let project = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
     // the root grants so it is never one of the packages it checks
-    let mut walk = Walk { found: Vec::new(), path: vec![key("", "")], modules: kit.wired(), seen: HashSet::new() };
+    let mut walk = Walk { found: Vec::new(), path: vec![key("", "")], modules: kit.wired(), seen: HashSet::new(), unpinned };
     walk.imports(&Rc::new(Home::Disk(project.to_path_buf())), "", "", None, imports, lock)?;
     Ok(walk.found)
 }
@@ -91,6 +96,8 @@ struct Walk<'a> {
     modules: &'a [Arc<dyn HostModule>],
     // each package with the key and section it arrived under once held to them
     seen: HashSet<(String, String, String)>,
+    // a url no lock pins is read as it answers rather than skipped
+    unpinned: bool,
 }
 
 impl Walk<'_> {
@@ -98,7 +105,8 @@ impl Walk<'_> {
     fn imports(&mut self, home: &Rc<Home>, id: &str, dir: &str, importer: Option<&Importer>, imports: &Map<String, Value>, lock: &Lock) -> Result<()> {
         for (name, target) in imports {
             // a target the lock cannot answer yet is an error the command reports itself
-            let Some(spec) = target.as_str().and_then(|t| locked_spec(name, t, Some(lock)).ok()) else { continue };
+            let spec = target.as_str().and_then(|t| locked_spec(name, t, Some(lock)).ok().or_else(|| (self.unpinned && t.contains("://")).then(|| t.to_string())));
+            let Some(spec) = spec else { continue };
             let (target, pin) = parse_integrity(&spec).map_err(|e| anyhow!(e))?;
             if target.contains("://") {
                 if packed(target) {
@@ -214,7 +222,7 @@ mod tests {
         }
         let imports = json!({ "a": "./p0/main.lox", "b": "./p0/main.lox" });
         let kit = crate::kit::tests::bare();
-        let mut walk = Walk { found: Vec::new(), path: vec![key("", "")], modules: kit.wired(), seen: HashSet::new() };
+        let mut walk = Walk { found: Vec::new(), path: vec![key("", "")], modules: kit.wired(), seen: HashSet::new(), unpinned: false };
         let home = Rc::new(Home::Disk(dir.path().to_path_buf()));
         walk.imports(&home, "", "", None, imports.as_object().unwrap(), &Lock::default()).unwrap();
         assert_eq!(walk.found.len(), 2);

@@ -51,6 +51,36 @@ fn trailer_payload(path: &Path) -> Option<Vec<u8>> {
     Some(payload)
 }
 
+// the path a bundle carries its runtime under so it runs on the runtime it was built on
+pub const RUNTIME_FILE: &str = "interpreter.runtime.wasm";
+
+// the path a bundle carries a native runtime under for the platform it was built on
+pub const RUNTIME_NATIVE_FILE: &str = "interpreter.runtime.native";
+
+/* the native runtime library a bundle carries */
+pub fn carried_native(payload: &[u8]) -> Option<Vec<u8>> {
+    Bundle::decode(payload).ok()?.files.into_iter().find(|f| f.path == RUNTIME_NATIVE_FILE).map(|f| f.bytes)
+}
+
+/* a native library a bundle carries written once under the cache by its digest so a child can load it */
+pub fn unpacked_native(bytes: &[u8]) -> anyhow::Result<std::path::PathBuf> {
+    let digest: String = interpreter::util::sha256::sha256(bytes).iter().map(|b| format!("{b:02x}")).collect();
+    let dir = crate::host::cache_root().map_err(|e| anyhow::anyhow!(e))?.join("native");
+    fs::create_dir_all(&dir).map_err(|e| anyhow::anyhow!("creating {}: {e}", dir.display()))?;
+    let path = dir.join(format!("{digest}.{}", std::env::consts::DLL_EXTENSION));
+    if !path.exists() {
+        let partial = path.with_extension("partial");
+        fs::write(&partial, bytes).map_err(|e| anyhow::anyhow!("unpacking the native runtime: {e}"))?;
+        fs::rename(&partial, &path).map_err(|e| anyhow::anyhow!("unpacking the native runtime: {e}"))?;
+    }
+    Ok(path)
+}
+
+/* the runtime module a bundle carries */
+pub fn carried_runtime(payload: &[u8]) -> Option<Vec<u8>> {
+    Bundle::decode(payload).ok()?.files.into_iter().find(|f| f.path == RUNTIME_FILE).map(|f| f.bytes)
+}
+
 /* the files keyed by path as the tree an in-memory resolver serves */
 pub fn into_files(bundle: Bundle) -> HashMap<String, Vec<u8>> {
     bundle.files.into_iter().map(|f| (f.path, f.bytes)).collect()

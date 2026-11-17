@@ -11,5 +11,5 @@ mod values;
 pub use values::{error_from_kind, from_wire, to_wire};
 
 /* the host bridge behind the six plugin imports in the wasm runtime */
-#[cfg(all(target_arch = "wasm32", feature = "runtime"))]
+#[cfg(feature = "runtime")]
 pub mod bridge;

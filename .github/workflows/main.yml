@@ -39,7 +39,6 @@ jobs:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/js
 
-  # cli/build.rs embeds the speed interpreter.wasm the wasm job staged
   cli:
     name: CLI / ${{ matrix.entry }}
     needs: [js]
@@ -78,7 +77,7 @@ jobs:
   test:
     name: Test / ${{ matrix.entry }}
     needs: [cli]
-    runs-on: ubuntu-26.04
+    runs-on: ${{ matrix.runner || 'ubuntu-26.04' }}
     strategy:
       fail-fast: false
       matrix:
@@ -95,6 +94,10 @@ jobs:
             cli: consistency
           - entry: cli-docs
             cli: docs
+          # the native runtime loads as a .dylib here which no Linux run reaches
+          - entry: cli-native-macos
+            cli: native
+            runner: macos-15
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/serve
@@ -167,6 +170,12 @@ jobs:
       # a tag ships only the version the crate already carries
       - name: The tag is the version
         run: test "v$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "interpreter") | .version')" = "$GITHUB_REF_NAME"
+
+      # a version that breaks the api of the last release without a new major never ships
+      - uses: taiki-e/install-action@cargo-semver-checks
+
+      - name: The version holds to the API
+        run: cargo semver-checks -p interpreter --all-features
 
       - name: Publish
         env:

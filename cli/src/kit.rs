@@ -3,7 +3,7 @@ use clap::{Arg, ArgMatches};
 #[cfg(feature = "wasm")]
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 pub use interpreter::embed::Limits;
 pub use interpreter::lang::Descriptor;
@@ -12,6 +12,31 @@ use crate::host::{Access, Engine, HostModule, Names, Native, Open, Project, Sink
 #[cfg(feature = "wasm")]
 use crate::host::{linear_cap, Host, Loaded};
 use crate::manifest::Manifest;
+
+// the manifest key a project declares its runtime under and the variable that stands in for it
+pub const RUNTIME: &str = "runtime";
+pub const RUNTIME_ENV: &str = "INTERPRETER_RUNTIME";
+
+// the library a native run's child loads which only the parent of that run sets
+#[cfg(feature = "native")]
+const HOSTED_ENV: &str = "INTERPRETER_NATIVE_HOSTED";
+
+// the one line a run on a native runtime prints first
+pub const NATIVE_WARNING: &str = "warning: native runtime, it runs outside the sandbox and the grants of interpreter.json do not hold it";
+
+/* how a child that ended with no exit code ended */
+#[cfg(feature = "native")]
+fn crashed(status: &std::process::ExitStatus) -> String {
+    #[cfg(unix)]
+    if let Some(signal) = std::os::unix::process::ExitStatusExt::signal(status) {
+        return match signal {
+            6 => String::from("it aborted"),
+            11 => String::from("it read memory it does not own"),
+            n => format!("signal {n} ended it"),
+        };
+    }
+    format!("it ended with {status}")
+}
 
 /* a run error in the words of the runtime over its source and byte */
 pub type Words = fn(&str, &str, Option<usize>) -> String;
@@ -31,6 +56,9 @@ enum Engines {
     Wasm { module: Cow<'static, [u8]>, native: Option<&'static [u8]> },
     // a runtime built into this binary whose metering needs `interpreter::allocator!()`
     Native(&'static interpreter::lang::Runtime),
+    // a native library a child process of this binary loads where it never reaches a page
+    #[cfg(feature = "native")]
+    Library(Arc<crate::host::library::Library>),
 }
 
 impl Runtime {
@@ -45,6 +73,30 @@ impl Runtime {
     #[cfg(feature = "wasm")]
     pub fn wasm(bytes: impl Into<Cow<'static, [u8]>>, descriptor: &'static Descriptor) -> Runtime {
         Runtime { engine: Engines::Wasm { module: bytes.into(), native: None }, descriptor, words: None }
+    }
+
+    /* the runtime `spec` names as a path below `base` or as a URL pinned with `#sha256-` */
+    #[cfg(feature = "wasm")]
+    pub fn declared(spec: &str, base: &Path) -> Result<Runtime> {
+        let bytes = if spec.contains("://") {
+            let (url, pin) = interpreter::deps::parse_integrity(spec).map_err(|e| anyhow::anyhow!("runtime '{spec}': {e}"))?;
+            let Some(pin) = pin else { anyhow::bail!("the runtime '{spec}' comes from a URL so it pins its bytes with #sha256-<64 hex>") };
+            crate::host::fetch_cached(url, Some(pin)).map_err(|e| anyhow::anyhow!("runtime '{spec}': {e}"))?
+        } else {
+            let path = base.join(spec);
+            std::fs::read(&path).map_err(|e| anyhow::anyhow!("reading the runtime {}: {e}", path.display()))?
+        };
+        Runtime::loaded(bytes).map_err(|e| anyhow::anyhow!("runtime '{spec}': {e:#}"))
+    }
+
+    /* a runtime module whose names come from its own descriptor */
+    #[cfg(feature = "wasm")]
+    pub fn loaded(bytes: Vec<u8>) -> Result<Runtime> {
+        if !bytes.starts_with(b"\0asm") {
+            anyhow::bail!("the runtime is no .wasm module");
+        }
+        let descriptor = crate::host::describe(&bytes)?;
+        Ok(Runtime::wasm(bytes, descriptor))
     }
 
     /* a runtime built into this binary as the native test boots lox */
@@ -68,7 +120,25 @@ impl Runtime {
             #[cfg(feature = "wasm")]
             Engines::Wasm { module, .. } => Some(module),
             Engines::Native(_) => None,
+            #[cfg(feature = "native")]
+            Engines::Library(_) => None,
         }
+    }
+
+    /* the native library this runtime runs on, which a bundle carries beside the project */
+    pub fn library_path(&self) -> Option<&Path> {
+        match &self.engine {
+            #[cfg(feature = "native")]
+            Engines::Library(lib) => Some(&lib.path),
+            _ => None,
+        }
+    }
+
+    /* a native runtime library opened in this process, which only the child of a native run does */
+    #[cfg(feature = "native")]
+    pub fn library(path: &Path) -> Result<Runtime> {
+        let lib = crate::host::library::Library::open(path)?;
+        Ok(Runtime { descriptor: lib.descriptor, engine: Engines::Library(lib), words: None })
     }
 }
 
@@ -83,6 +153,16 @@ pub trait Command {
     /* a label and the flags the top-level help gives them below the commands */
     fn flags(&self) -> Option<(&'static str, &'static str)> {
         None
+    }
+
+    /* the bundle its input carries whose runtime its programs run on */
+    fn carried(&self, _m: &ArgMatches) -> Option<Vec<u8>> {
+        None
+    }
+
+    /* whether it runs programs so the project declares its runtime before it */
+    fn runs(&self) -> bool {
+        self.compiles()
     }
 
     /* whether it compiles programs so the manifest checks run before it */
@@ -122,7 +202,10 @@ pub struct Kit {
     site: Option<&'static str>,
     // what a binary too old says
     upgrade: Option<&'static str>,
-    runtime: Runtime,
+    // set at build for a fixed composition and from the project before a command that runs programs
+    runtime: OnceLock<Runtime>,
+    // what the project wrote to declare its runtime, the directory that spec reads from and whether it is native
+    declaration: OnceLock<(String, PathBuf, bool)>,
     commands: Vec<Box<dyn Command>>,
     fields: Vec<Field>,
     modules: Vec<Arc<dyn HostModule>>,
@@ -135,9 +218,16 @@ pub struct Kit {
 impl Kit {
     /* a kit named as its binary is with the version it reports */
     pub fn new(name: &'static str, version: &'static str, runtime: Runtime) -> Kit {
+        let kit = Kit::per_project(name, version);
+        let _ = kit.runtime.set(runtime);
+        kit
+    }
+
+    /* a kit whose runtime each project declares in its manifest, with --runtime or in INTERPRETER_RUNTIME */
+    pub fn per_project(name: &'static str, version: &'static str) -> Kit {
         let title = format!("The {name} developer CLI");
         let access = Arc::new(Open);
-        Kit { name, version, title, site: None, upgrade: None, runtime, commands: Vec::new(), fields: Vec::new(), modules: Vec::new(), access, limits: Limits::sandbox() }
+        Kit { name, version, title, site: None, upgrade: None, runtime: OnceLock::new(), declaration: OnceLock::new(), commands: Vec::new(), fields: Vec::new(), modules: Vec::new(), access, limits: Limits::sandbox() }
     }
 
     /* the first line of the top-level help */
@@ -207,21 +297,129 @@ impl Kit {
     }
 
     pub fn runtime(&self) -> &Runtime {
-        &self.runtime
+        self.runtime.get().expect("a command that runs programs declares its runtime before it runs")
+    }
+
+    /* the descriptor of the runtime once a fixed composition or a project gave one */
+    pub fn described(&self) -> Option<&'static Descriptor> {
+        self.runtime.get().map(|runtime| runtime.descriptor)
+    }
+
+    /* what the project wrote to name its runtime and the directory it reads from */
+    pub fn declaration(&self) -> Option<&(String, PathBuf, bool)> {
+        self.declaration.get()
+    }
+
+    /* runs every program on the runtime a bundle carries when no runtime was given before */
+    #[cfg(feature = "wasm")]
+    pub fn carry(&self, payload: &[u8]) -> Result<()> {
+        if self.runtime.get().is_some() {
+            return Ok(());
+        }
+        // a native runtime the bundle carries runs in a child over a copy of the library it unpacks
+        if let Some(bytes) = crate::pack::carried_native(payload) {
+            #[cfg(feature = "native")]
+            if std::env::var_os(HOSTED_ENV).is_some() {
+                return self.declare(Path::new(""), None, None);
+            }
+            return self.host_natively(&crate::pack::unpacked_native(&bytes)?);
+        }
+        let Some(bytes) = crate::pack::carried_runtime(payload) else { return Ok(()) };
+        let _ = self.runtime.set(Runtime::loaded(bytes).map_err(|e| anyhow::anyhow!("the runtime the bundle carries: {e:#}"))?);
+        Ok(())
+    }
+
+    #[cfg(not(feature = "wasm"))]
+    pub fn carry(&self, _payload: &[u8]) -> Result<()> {
+        Ok(())
+    }
+
+    /* loads the runtime the --runtime flag, the manifest or INTERPRETER_RUNTIME names in that order */
+    #[cfg(feature = "wasm")]
+    pub fn declare(&self, manifest: &Path, flag: Option<&str>, native: Option<&str>) -> Result<()> {
+        if self.runtime.get().is_some() {
+            return Ok(());
+        }
+        // the child of a native run loads the library its parent resolved and runs the command itself
+        #[cfg(feature = "native")]
+        if let Some(hosted) = std::env::var_os(HOSTED_ENV) {
+            let path = PathBuf::from(hosted);
+            let _ = self.runtime.set(Runtime::library(&path)?);
+            let _ = self.declaration.set((path.to_string_lossy().into_owned(), PathBuf::from("."), true));
+            return Ok(());
+        }
+        let here = PathBuf::from(".");
+        let value = std::fs::read_to_string(manifest).ok().and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok()).map(|v| v[RUNTIME].clone());
+        let dir = manifest.parent().filter(|p| !p.as_os_str().is_empty()).map_or_else(|| here.clone(), Path::to_path_buf);
+        let declared_native = match (native, flag, &value) {
+            (Some(path), _, _) => Some((path.to_string(), here.clone())),
+            (None, None, Some(serde_json::Value::Object(o))) => match o.get("native") {
+                Some(serde_json::Value::String(path)) => Some((path.clone(), dir.clone())),
+                _ => anyhow::bail!("\"{RUNTIME}\" in interpreter.json is a path to a .wasm or {{ \"native\": \"path\" }}"),
+            },
+            _ => None,
+        };
+        if let Some((spec, base)) = declared_native {
+            if spec.contains("://") {
+                anyhow::bail!("a native runtime loads only from a local path and '{spec}' is a URL, declare a .wasm to load a runtime from a URL");
+            }
+            return self.host_natively(&base.join(spec));
+        }
+        let written = value.and_then(|v| v.as_str().map(String::from));
+        let (spec, base) = match (flag, written, std::env::var(RUNTIME_ENV).ok()) {
+            (Some(flag), _, _) => (flag.to_string(), here),
+            (None, Some(written), _) => (written, dir),
+            (None, None, Some(env)) => (env, here),
+            (None, None, None) => anyhow::bail!("no runtime is declared, name its .wasm under \"{RUNTIME}\" in interpreter.json, pass --runtime <file> or set {RUNTIME_ENV}"),
+        };
+        let runtime = Runtime::declared(&spec, &base)?;
+        let _ = self.runtime.set(runtime);
+        let _ = self.declaration.set((spec, base, false));
+        Ok(())
+    }
+
+    /* reruns this command in a child that loads the native library at `path` and ends as it does */
+    #[cfg(feature = "native")]
+    fn host_natively(&self, path: &Path) -> Result<()> {
+        let path = std::fs::canonicalize(path).map_err(|e| anyhow::anyhow!("reading the native runtime {}: {e}", path.display()))?;
+        eprintln!("{NATIVE_WARNING}");
+        let exe = std::env::current_exe().map_err(|e| anyhow::anyhow!("locating {}: {e}", self.name))?;
+        let status = std::process::Command::new(exe).args(std::env::args_os().skip(1)).env(HOSTED_ENV, &path).status().map_err(|e| anyhow::anyhow!("starting the native runtime: {e}"))?;
+        std::process::exit(match status.code() {
+            Some(code) => code,
+            None => {
+                crate::ui::error(&anyhow::anyhow!("the native runtime crashed, {}", crashed(&status)));
+                1
+            }
+        })
+    }
+
+    #[cfg(all(feature = "wasm", not(feature = "native")))]
+    fn host_natively(&self, path: &Path) -> Result<()> {
+        anyhow::bail!("{} loads no native runtime such as {} without its native feature", self.name, path.display())
+    }
+
+    /* a kit built with no wasm engine runs only the runtime its composition fixed */
+    #[cfg(not(feature = "wasm"))]
+    pub fn declare(&self, _manifest: &Path, _flag: Option<&str>, _native: Option<&str>) -> Result<()> {
+        match self.runtime.get() {
+            Some(_) => Ok(()),
+            None => anyhow::bail!("{} loads no runtime of a project without its wasm feature", self.name),
+        }
     }
 
     /* the wasm module a page runs the programs of this kit on */
     pub fn page_module(&self) -> Result<&[u8]> {
-        self.runtime.module().ok_or_else(|| anyhow::anyhow!("{} runs its runtime natively and a page runs only a wasm module", self.name))
+        self.runtime().module().ok_or_else(|| anyhow::anyhow!("{} runs its runtime natively and a page runs only a wasm module", self.name))
     }
 
     pub fn descriptor(&self) -> &'static Descriptor {
-        self.runtime.descriptor
+        self.runtime().descriptor
     }
 
     /* the wording the composition gave its runtime for the errors its runs raise */
     pub fn words(&self) -> Option<Words> {
-        self.runtime.words
+        self.runtime.get().and_then(|runtime| runtime.words)
     }
 
     /* a run error of `src` in the runtime's words or as the engine reported */
@@ -266,27 +464,43 @@ impl Kit {
     /* the runtime loaded into wasmtime with the host modules every thread serves */
     #[cfg(feature = "wasm")]
     pub fn load(&self) -> Result<Arc<Loaded>> {
-        match &self.runtime.engine {
+        match &self.runtime().engine {
             Engines::Wasm { module, native } => Loaded::new(module, *native, self.wiring()),
             Engines::Native(_) => anyhow::bail!("{} runs its runtime natively and loads no wasm module", self.name),
+            #[cfg(feature = "native")]
+            Engines::Library(_) => anyhow::bail!("{} runs a native runtime and loads no wasm module", self.name),
+        }
+    }
+
+    /* the runtime an actor pool shares across its scheduler threads */
+    #[cfg(feature = "wasm")]
+    pub fn pool_runtime(&self) -> Result<crate::host::pooled::Runtime> {
+        match &self.runtime().engine {
+            #[cfg(feature = "native")]
+            Engines::Library(lib) => Ok(crate::host::pooled::Runtime::Native(lib.clone(), self.wiring())),
+            _ => Ok(crate::host::pooled::Runtime::Wasm(self.load()?)),
         }
     }
 
     /* one interpreter of the runtime printing through `print` over the files of `project` */
     pub fn engine(&self, print: Sink, project: Project) -> Result<Box<dyn Engine>> {
-        match &self.runtime.engine {
+        match &self.runtime().engine {
             #[cfg(feature = "wasm")]
             Engines::Wasm { .. } => Ok(Box::new(Host::new(self.load()?)?.vm(print, project, None, None)?)),
             Engines::Native(runtime) => Ok(Box::new(Native::new(runtime, self.wiring(), print, project)?)),
+            #[cfg(feature = "native")]
+            Engines::Library(lib) => Ok(Box::new(crate::host::library::Vm::new(lib.clone(), self.wiring(), print, project)?)),
         }
     }
 
     /* an interpreter that only walks imports and runs nothing */
     pub(crate) fn side(&self) -> Result<Box<dyn crate::host::Side>> {
-        match &self.runtime.engine {
+        match &self.runtime().engine {
             #[cfg(feature = "wasm")]
             Engines::Wasm { .. } => Ok(Box::new(Host::new(self.load()?)?.fresh(Box::new(|_: &str| {}), Project::default(), None, linear_cap(Limits::sandbox().memory))?)),
             Engines::Native(runtime) => Ok(Box::new(Native::new(runtime, self.wiring(), Box::new(|_: &str| {}), Project::default())?)),
+            #[cfg(feature = "native")]
+            Engines::Library(lib) => Ok(Box::new(crate::host::library::Instance::fresh(lib.clone(), self.wiring(), Box::new(|_: &str| {}), Project::default())?)),
         }
     }
 
@@ -332,6 +546,21 @@ impl Kit {
         let Some((name, sub)) = matches.subcommand() else { std::process::exit(2) };
         let Some(at) = names.iter().position(|known| known == name) else { std::process::exit(2) };
         let command = &self.commands[at];
+        let flag = sub.get_one::<String>("runtime").map(String::as_str);
+        let native = sub.get_one::<String>("runtime-native").map(String::as_str);
+        // a bundle runs on the runtime it carries unless the command line names another
+        if let (None, None, Some(payload)) = (flag, native, command.carried(sub))
+            && let Err(e) = self.carry(&payload)
+        {
+            crate::ui::error(&e);
+            std::process::exit(1);
+        }
+        if command.runs()
+            && let Err(e) = self.declare(&command.manifest(sub), flag, native)
+        {
+            crate::ui::error(&e);
+            std::process::exit(1);
+        }
         if command.compiles()
             && let Err(e) = self.held(&command.manifest(sub))
         {
@@ -354,6 +583,17 @@ impl Kit {
             .value_name("MANIFEST")
             .value_parser(clap::value_parser!(PathBuf))
             .help("Use a specific manifest instead of ./interpreter.json");
+        let runtime = Arg::new("runtime")
+            .long("runtime")
+            .global(true)
+            .value_name("RUNTIME")
+            .help("Run the programs on this runtime instead of the one interpreter.json declares");
+        let native = Arg::new("runtime-native")
+            .long("runtime-native")
+            .global(true)
+            .value_name("LIBRARY")
+            .conflicts_with("runtime")
+            .help("Run the programs on this native library, which runs outside the sandbox");
         // added after the commands so each lists it below its own options
         clap::Command::new(self.name)
             .disable_help_subcommand(true)
@@ -362,6 +602,8 @@ impl Kit {
             .arg_required_else_help(true)
             .subcommands(specs)
             .arg(manifest)
+            .arg(runtime)
+            .arg(native)
     }
 
     /* written by hand so the three top-level help forms print alike */
@@ -375,7 +617,11 @@ impl Kit {
         for (label, flags) in self.commands.iter().filter_map(|command| command.flags()) {
             out.push_str(&format!("{label:<19}{flags}\n"));
         }
-        out.push_str(&format!("{:<19}--manifest <file>   default interpreter.json\n\n", "Global"));
+        let globals = [("--manifest <file>", "default interpreter.json"), ("--runtime <file>", "default the runtime interpreter.json declares"), ("--runtime-native <library>", "a native runtime, outside the sandbox")];
+        for (i, (flag, about)) in globals.iter().enumerate() {
+            out.push_str(&format!("{:<19}{flag:<29}{about}\n", if i == 0 { "Global" } else { "" }));
+        }
+        out.push('\n');
         out.push_str(&format!("{} <command> -h for details \u{00b7} -v for version", self.name));
         if let Some(site) = self.site {
             out.push_str(&format!(" \u{00b7} {site}"));
@@ -448,8 +694,6 @@ pub fn root_manifest(m: &ArgMatches, dir: &str) -> PathBuf {
 pub(crate) mod tests {
     use super::*;
 
-    const WASM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/interpreter.wasm"));
-    const NATIVE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/interpreter.cwasm"));
 
     /* a host module that serves nothing and takes any scope */
     struct Quiet;
@@ -472,14 +716,15 @@ pub(crate) mod tests {
         }
     }
 
-    /* a kit over the reference runtime build.rs embeds with no component wired */
+    // the lox runtime make wasm-cli builds which the unit tests run their programs on
+    const WASM: &[u8] = include_bytes!("../../target/wasm32-unknown-unknown/cli/interpreter.wasm");
+
+    /* a kit over the lox runtime with no component wired */
     pub fn bare() -> Kit {
-        // SAFETY build.rs precompiled the cwasm from this module under the host's engine config
-        let runtime = unsafe { Runtime::precompiled(WASM, NATIVE, &interpreter_lox::DESCRIPTOR) };
-        Kit::new("interpreter", "0.0.0", runtime)
+        Kit::new("interpreter", "0.0.0", Runtime::wasm(WASM, &interpreter_lox::DESCRIPTOR))
     }
 
-    /* a kit over the reference runtime build.rs embeds with a quiet module and no commands */
+    /* a kit over the lox runtime with a quiet module and no commands */
     pub fn kit() -> Kit {
         let kit = bare().fields(crate::manifest::FIELDS);
         #[cfg(feature = "perms")]
@@ -513,7 +758,7 @@ pub(crate) mod tests {
         let kit = kit().title("The Lox developer CLI").site("example.com").command(Probe);
         let help = kit.help();
         assert!(help.starts_with("The Lox developer CLI\n\nUsage  interpreter <command> [options]\n\nCommands\n"), "{help}");
-        assert!(help.contains("\n  probe [path]       Probe *_test.lox files\n\nProbe flags        --deep\nGlobal             --manifest <file>   default interpreter.json\n\n"), "{help}");
+        assert!(help.contains("\n  probe [path]       Probe *_test.lox files\n\nProbe flags        --deep\nGlobal             --manifest <file>            default interpreter.json\n                   --runtime <file>             default the runtime interpreter.json declares\n                   --runtime-native <library>   a native runtime, outside the sandbox\n\n"), "{help}");
         assert!(help.ends_with("interpreter <command> -h for details \u{00b7} -v for version \u{00b7} example.com"), "{help}");
     }
 

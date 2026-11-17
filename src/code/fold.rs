@@ -123,6 +123,10 @@ fn compact_with_jump_remap(chunk: &mut SSAChunk, dead: &[bool]) {
         let old = *ip_at as usize;
         if old < remap.len() { *ip_at = remap[old] as u32; }
     }
+    if let Some(notes) = chunk.notes.as_deref_mut() && !notes.spans.is_empty() {
+        let mut ip = 0;
+        notes.spans.retain(|_| { ip += 1; !dead[ip - 1] });
+    }
 
     let mut idx = 0usize;
     chunk.instructions.retain(|_| {

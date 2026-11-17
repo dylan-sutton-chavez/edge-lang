@@ -42,7 +42,7 @@ cargo install --path cli
 | [Errors and limits](https://github.com/dylan-sutton-chavez/interpreter/blob/main/docs/07-errors-and-limits.mdx) | How errors read and every limit a run has |
 | [Plugins](https://github.com/dylan-sutton-chavez/interpreter/blob/main/docs/08-plugins.mdx) | Writing a `.wasm` plugin |
 
-[`examples/lox`](https://github.com/dylan-sutton-chavez/interpreter/tree/main/examples/lox) is Lox, the language of the book Crafting Interpreters, as a whole runtime. It passes the book's test suite and is the one `interpreter.wasm` and the CLI are built from.
+[`examples/lox`](https://github.com/dylan-sutton-chavez/interpreter/tree/main/examples/lox) is Lox, the language of the book Crafting Interpreters, as a whole runtime. It passes the book's test suite and is the one `interpreter.wasm` is built from. The crate and the CLI hold no runtime, and a project names the `.wasm` or the native library it runs on.
 
 ## License
 

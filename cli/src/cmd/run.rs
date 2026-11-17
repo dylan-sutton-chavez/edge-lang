@@ -59,6 +59,10 @@ impl Command for Run {
         true
     }
 
+    fn carried(&self, m: &ArgMatches) -> Option<Vec<u8>> {
+        crate::pack::file_payload(m.try_get_one::<PathBuf>("file").ok().flatten()?)
+    }
+
     // a script resolves through the manifest nearest above it and a bundle through its own
     fn manifest(&self, m: &ArgMatches) -> PathBuf {
         match m.try_get_one::<PathBuf>("file").ok().flatten() {

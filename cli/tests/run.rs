@@ -3,6 +3,10 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU32, Ordering};
 
 const BIN: &str = env!("CARGO_BIN_EXE_interpreter");
+// the lox runtime every program of these suites runs on
+const LOX: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../target/wasm32-unknown-unknown/cli/interpreter.wasm");
+// the compiled code every case shares since it is keyed by the bytes it came from
+const CODE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../target/cli-code-cache");
 
 static DIR_SEQ: AtomicU32 = AtomicU32::new(0);
 
@@ -16,6 +20,7 @@ fn scratch(name: &str) -> PathBuf {
 
 fn run_in(dir: &Path, args: &[&str], stdin: Option<&str>) -> (String, String, i32) {
     let mut cmd = Command::new(BIN);
+    cmd.env("INTERPRETER_RUNTIME", LOX).env("INTERPRETER_CODE_CACHE", CODE);
     // scratch-local module cache, so no case reads or writes the real one
     cmd.current_dir(dir).args(args).env("XDG_CACHE_HOME", dir).stdout(Stdio::piped()).stderr(Stdio::piped());
     cmd.stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() });
@@ -73,7 +78,7 @@ fn piped_stdin_is_the_script_when_no_path_is_given() {
 fn a_run_finishes_with_an_open_stdin_pipe() {
     let dir = scratch("openpipe");
     std::fs::write(dir.join("main.lox"), "print \"no input wanted\";\n").unwrap();
-    let mut child = Command::new(BIN)
+    let mut child = Command::new(BIN).env("INTERPRETER_RUNTIME", LOX).env("INTERPRETER_CODE_CACHE", CODE)
         .args(["run", "main.lox"])
         .current_dir(&dir)
         .env("XDG_CACHE_HOME", &dir)
@@ -268,9 +273,9 @@ fn a_package_asks_and_lock_waits_for_the_grant() {
     assert_eq!((out.as_str(), code), ("granted!\n", 0), "stderr was: {err}");
 }
 
-/* a cached url loads with no pin in the spec, then stays pinned to those first bytes */
+/* a cached url loads only under a pin and the pin holds the cache to those bytes */
 #[test]
-fn a_cached_module_is_pinned_to_its_first_bytes() {
+fn a_cached_module_loads_only_under_its_pin() {
     let dir = scratch("pin");
     // seed cache and pin the way a download would. The url never resolves, so nothing can refetch
     let url = "https://cdn.test/helper.lox";
@@ -281,17 +286,24 @@ fn a_cached_module_is_pinned_to_its_first_bytes() {
     std::fs::write(&blob, src).unwrap();
     let pin = interpreter::util::sha256::hex_encode(&interpreter::util::sha256::sha256(src.as_bytes()));
     std::fs::write(blob.with_extension("lox.lock"), &pin).unwrap();
-    std::fs::write(dir.join("interpreter.json"), format!("{{ \"imports\": {{ \"helper\": \"{url}\" }} }}\n")).unwrap();
     std::fs::write(dir.join("main.lox"), "var helper = import(\"helper\");\nprint helper.double(21);\n").unwrap();
 
+    // bytes in the cache never stand in for a pin the project does not hold
+    std::fs::write(dir.join("interpreter.json"), format!("{{ \"imports\": {{ \"helper\": \"{url}\" }} }}\n")).unwrap();
+    let (_, err, code) = run_in(&dir, &["run", "main.lox"], None);
+    assert!(err.contains("'helper' comes from https://cdn.test/helper.lox with no pin"), "stderr was: {err}");
+    assert_eq!(code, 1);
+
+    std::fs::write(dir.join("interpreter.json"), format!("{{ \"imports\": {{ \"helper\": \"{url}#sha256-{pin}\" }} }}\n")).unwrap();
     let (out, err, code) = run_in(&dir, &["run", "main.lox"], None);
     assert_eq!(out, "42\n", "stderr was: {err}");
     assert_eq!(code, 0, "stderr was: {err}");
 
+    // cached bytes off the pin are passed over for the url which never resolves here
     std::fs::write(&blob, "fun double(n) {\n    return 0;\n}\n").unwrap();
-    let (_, err, code) = run_in(&dir, &["run", "main.lox"], None);
-    assert!(err.contains("integrity drift"), "stderr was: {err}");
-    assert_eq!(code, 1);
+    let (out, err, code) = run_in(&dir, &["run", "main.lox"], None);
+    assert!(out.is_empty() && err.contains("fetching 'https://cdn.test/helper.lox'"), "stderr was: {err}");
+    assert_eq!(code, 1, "stderr was: {err}");
 }
 
 /* a #sha256- fragment on a manifest target verifies the fetched bytes on every run */

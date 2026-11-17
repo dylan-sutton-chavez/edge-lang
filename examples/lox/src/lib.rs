@@ -138,7 +138,23 @@ const OWN: &[Native] = &[
     Native::new("@super", Sig::exact(3), superclass),
 ];
 
-pub static NATIVES: Natives = interpreter::natives! { language: Lox, fns: [OWN, HOST], methods: [], types: &[] };
+// the natives a crash test calls to fail on purpose which no release build holds
+#[cfg(feature = "crash")]
+const CRASH: &[Native] = &[Native::new("crash_panic", Sig::exact(0), crash_panic), Native::new("crash_abort", Sig::exact(0), crash_abort)];
+#[cfg(not(feature = "crash"))]
+const CRASH: &[Native] = &[];
+
+#[cfg(feature = "crash")]
+fn crash_panic(_: &mut Cx<'_, '_>, _: Args<'_>) -> Ret {
+    panic!("a crash test runtime panics on purpose")
+}
+
+#[cfg(feature = "crash")]
+fn crash_abort(_: &mut Cx<'_, '_>, _: Args<'_>) -> Ret {
+    std::process::abort()
+}
+
+pub static NATIVES: Natives = interpreter::natives! { language: Lox, fns: [OWN, HOST, CRASH], methods: [], types: &[] };
 
 pub static RUNTIME: Runtime = Runtime::of::<Lox>();
 
@@ -148,6 +164,19 @@ fn parse(src: &str, unit: Unit) -> Parsed {
 }
 
 pub const FRONT: Front = Front { extension: LOX.extension, parse, imports: parse::imports, syntax: Some(LOX), policy: &<Lox as Language>::POLICY };
+
+/* `src` compiled as `interpreter::code::compile` does keeping each instruction's span and the outline of its forms */
+pub fn read(src: &str) -> (interpreter::code::SSAChunk, alloc::vec::Vec<Diagnostic>) {
+    let unit = FRONT.unit(alloc::boxed::Box::new(interpreter::deps::NoopResolver));
+    match parse::read(src).and_then(|prog| interpreter::code::build::<interpreter::code::Recorded<Lox>>(src, unit, |b| lower::lower(b, &prog))) {
+        Ok(chunk) => {
+            let mut chunk = alloc::rc::Rc::unwrap_or_clone(chunk);
+            interpreter::code::constant_fold(&mut chunk, FRONT.policy);
+            (chunk, alloc::vec::Vec::new())
+        }
+        Err(errors) => (interpreter::code::SSAChunk::default(), errors),
+    }
+}
 
 // the names the CLI gives this runtime's files and errors
 pub const DESCRIPTOR: Descriptor = Descriptor {
@@ -277,5 +306,5 @@ impl Language for Lox {
     }
 }
 
-#[cfg(all(target_arch = "wasm32", feature = "web"))]
+#[cfg(feature = "web")]
 interpreter::web_exports!(RUNTIME);

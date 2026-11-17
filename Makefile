@@ -9,24 +9,30 @@ WASM_INLINE := --one-caller-inline-max-function-size=1000
 TSC := npm:typescript@5.9.3/tsc
 TREE := $(CURDIR)/_cdn
 EXE := $(if $(filter Windows_NT,$(OS)),.exe)
+# the file a native library takes on this platform
+DLL := $(if $(filter Windows_NT,$(OS)),dll,$(if $(filter Darwin,$(shell uname -s)),dylib,so))
+DLL_PREFIX := $(if $(filter Windows_NT,$(OS)),,lib)
 
-# the CLI embeds the speed interpreter.wasm and js/dist unless the environment points at copies
-CLI_INPUTS := $(if $(INTERPRETER_WASM),,wasm-cli) $(if $(INTERPRETER_JS_DIST),,js) lucide
+# the CLI embeds js/dist unless the environment points at a copy
+CLI_INPUTS := $(if $(INTERPRETER_JS_DIST),,js) lucide
 # the components the interpreter binary wires as cli/Cargo.toml lists them under its all feature
 CLI_COMPONENTS := $(shell sed -n 's/^all = \[\(.*\)\]$$/\1/p' cli/Cargo.toml | tr -d '",')
 
 # the components the native test wires which build no wasmtime
 CLI_NATIVE := docs,files,net,perms,run,test,web
-CLI_TEST_engine := --lib --bin interpreter --test cli --test run --test native --test rig -- --skip net_suite
+CLI_TEST_engine := --lib --bin interpreter --test cli --test run --test native --test rig --test library -- --skip net_suite
 # the channels test fetches the pinned hour so it runs with the network cases
 CLI_TEST_network := --test cli --test channels net_suite
 CLI_TEST_actors := --test actor
 CLI_TEST_consistency := --test consistency
 # the rust examples of docs/ run as doctests of the kit
 CLI_TEST_docs := --doc
-CLI_NEEDS_engine := plugin wasm-rig
+# the native runtime alone which a macOS run takes through its .dylib
+CLI_TEST_native := --test library
+CLI_NEEDS_engine := plugin wasm-rig native
 CLI_NEEDS_network := plugin
-CLI_NEEDS_ := plugin wasm-rig
+CLI_NEEDS_native := plugin native
+CLI_NEEDS_ := plugin wasm-rig native
 
 # every module of `interpreter::lib` which lint-rust builds alone so no module leans on one it does not name
 LIB_MODULES := bytes data date io iter map num reflect seq set spec text types
@@ -52,11 +58,18 @@ LAYOUT_BASE ?= 1048640
 
 unix_only = $(if $(filter Windows_NT,$(OS)),$(error AFL runs on Linux and macOS only))
 
-.PHONY: wasm wasm-rig wasm-cli wasm-ship wasm-small wasm-cli-opt size js lint lint-rust lint-names lint-comments lint-js lint-cli test bench bench-update bench-accept-slower bench-layout plugin cli cli-release stage serve browsers test-js test-cli miri miri-list miri-setup fuzz fuzz-status fuzz-triage fuzz-replay fuzz-carry fuzz-container fuzz-stop seeds lucide version check
+.PHONY: wasm native wasm-rig wasm-cli wasm-ship wasm-small wasm-cli-opt size js lint lint-rust lint-names lint-comments lint-js lint-cli test bench bench-update bench-accept-slower bench-layout plugin cli cli-release stage serve browsers test-js test-cli miri miri-list miri-setup fuzz fuzz-status fuzz-triage fuzz-replay fuzz-carry fuzz-container fuzz-stop seeds lucide version check
 
 wasm:
 	cargo rustc --locked --release $(RUNTIME)
 	cp $(WASM)/release/interpreter_lox.wasm $(WASM)/release/interpreter.wasm
+
+# lox as a native library and a crash build of it that the native tests of the CLI load
+native:
+	cargo rustc --locked --profile native -p interpreter-lox --lib --crate-type cdylib --features web,crash
+	cp target/native/$(DLL_PREFIX)interpreter_lox.$(DLL) target/native/lox-crash.$(DLL)
+	cargo rustc --locked --profile native -p interpreter-lox --lib --crate-type cdylib --features web
+	cp target/native/$(DLL_PREFIX)interpreter_lox.$(DLL) target/native/lox.$(DLL)
 
 wasm-rig:
 	cargo rustc --locked --release $(RIG)
@@ -65,7 +78,7 @@ wasm-cli:
 	cargo rustc --locked --profile cli $(RUNTIME)
 	cp $(WASM)/cli/interpreter_lox.wasm $(WASM)/cli/interpreter.wasm
 
-# the small interpreter.wasm that ships and the speed copy the CLI precompiles to native code
+# the small interpreter.wasm that ships and an optimised copy of the speed build
 wasm-ship: wasm-small wasm-cli-opt
 
 # the reflatten pass gives -Oz a fresh CFG and traps stay since they guard bounds
@@ -123,11 +136,11 @@ lint-js:
 	deno check make/
 
 # each component builds alone, the runner example with only the three it needs and the native test with no wasmtime
-lint-cli: $(CLI_INPUTS) wasm-rig
+lint-cli: $(CLI_INPUTS) wasm-cli wasm-rig
 	cd cli && cargo clippy --locked --all-targets -- -D warnings
 	cd cli && cargo check --locked
 	cd cli && for f in "" $(CLI_COMPONENTS); do cargo clippy --locked --lib --no-default-features --features "$$f" -- -D warnings || exit 1; done
-	cd cli && cargo clippy --locked --no-default-features --features embed,run,test --example runner --example decoupled -- -D warnings
+	cd cli && cargo clippy --locked --no-default-features --features wasm,run,test --example runner --example decoupled -- -D warnings
 	cd cli && cargo clippy --locked --no-default-features --features $(CLI_NATIVE) --test native -- -D warnings
 	cd cli && cargo clippy --locked --no-default-features --features coverage,run --test coverage -- -D warnings
 	cd cli && ! cargo tree --locked --no-default-features --features $(CLI_NATIVE) -e normal,build | grep -q wasmtime
@@ -181,8 +194,9 @@ test-js: plugin wasm
 	deno test --allow-all js/tests/
 
 # engine runs cli and run without the net cases that network runs alone
-test-cli: $(CLI_INPUTS) $(CLI_NEEDS_$(SUITE))
-	$(if $(filter-out engine network actors consistency docs,$(SUITE)),$(error SUITE is one of engine network actors consistency docs, or none for all))
+test-cli: export INTERPRETER_CODE_CACHE = $(CURDIR)/target/cli-code-cache
+test-cli: $(CLI_INPUTS) wasm-cli $(CLI_NEEDS_$(SUITE))
+	$(if $(filter-out engine network actors consistency docs native,$(SUITE)),$(error SUITE is one of engine network actors consistency docs native, or none for all))
 	cd cli && cargo test --locked $(CLI_TEST_$(SUITE))
 	$(if $(filter engine,$(or $(SUITE),engine)),cd cli && cargo test --locked --features coverage --test coverage)
 

@@ -881,4 +881,6 @@ pub trait Spelling {
     const NATIVES: &'static crate::lang::Natives = &crate::lang::Natives::EMPTY;
     // the runtime's own opcodes whose fused natives and folds the parser applies
     const OPS: &'static crate::lang::OpSet = &crate::lang::OpSet::NONE;
+    // whether the parse keeps spans and an outline which only a read through `Recorded` asks
+    const RECORD: bool = false;
 }

@@ -924,7 +924,7 @@ impl<'a> VM<'a> {
     }
 
     /* `f` over a loan of the machine the host's calls back reach while it runs */
-    #[cfg(all(target_arch = "wasm32", feature = "runtime"))]
+    #[cfg(feature = "runtime")]
     #[inline(always)]
     fn lent<R>(&mut self, f: impl FnOnce(&mut VM<'static>) -> R) -> R {
         let (_loan, vm) = crate::abi::bridge::Lend::of(self);
@@ -932,7 +932,7 @@ impl<'a> VM<'a> {
     }
 
     /* `f` over the machine where no host calls back */
-    #[cfg(not(all(target_arch = "wasm32", feature = "runtime")))]
+    #[cfg(not(feature = "runtime"))]
     #[inline(always)]
     fn lent<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> R {
         // a host in this process reads which call runs while its binding does

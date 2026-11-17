@@ -968,6 +968,11 @@ mod tests {
         }
     }
 
+    /* a url pinned to the bytes it serves as a lock would pin it */
+    fn pinned(url: &str, bytes: &[u8]) -> String {
+        s!(str url, "#sha256-", str &crate::util::sha256::hex_encode(&crate::util::sha256::sha256(bytes)))
+    }
+
     fn file(path: &'static str, text: &str) -> (&'static str, Vec<u8>) {
         (path, text.as_bytes().to_vec())
     }
@@ -1019,8 +1024,9 @@ mod tests {
                 Entry { path: s!("fast.wasm"), bytes: b"\0asm\x01\0\0\0".to_vec() },
             ],
         }.encode();
+        let root = s!("{ \"imports\": { \"fast\": \"", str &pinned("https://cdn.test/pkg/fast/0.1.0/app.interpreter", &bundle), "\" } }");
         let seen = walk(&[
-            file("interpreter.json", r#"{ "imports": { "fast": "https://cdn.test/pkg/fast/0.1.0/app.interpreter" } }"#),
+            file("interpreter.json", &root),
             ("https://cdn.test/pkg/fast/0.1.0/app.interpreter", bundle),
         ], "use fast\n");
         assert!(seen.failures.is_empty(), "{:?}", seen.failures);
@@ -1090,7 +1096,8 @@ mod tests {
                 Entry { path: s!("util.rig"), bytes: b"x = 1\n".to_vec() },
             ],
         }.encode();
-        let importer = |secret: &str| s!("{ \"imports\": { \"http\": \"https://cdn.test/pkg/http/0.1.0/app.interpreter\" }, \"permissions\": { \"http\": [\"secret:", str secret, "\"] } }").into_bytes();
+        let http = pinned("https://cdn.test/pkg/http/0.1.0/app.interpreter", &bundle);
+        let importer = |secret: &str| s!("{ \"imports\": { \"http\": \"", str &http, "\" }, \"permissions\": { \"http\": [\"secret:", str secret, "\"] } }").into_bytes();
         let seen = walk(&[
             file("interpreter.json", r#"{ "imports": { "pay": "./pay/main.rig", "shop": "./shop/main.rig" }, "permissions": { "pay": ["secret:PAY"], "shop": ["secret:SHOP"] } }"#),
             ("pay/interpreter.json", importer("PAY")),
@@ -1263,16 +1270,18 @@ mod tests {
                 Entry { path: s!("interpreter.json"), bytes: manifest.as_bytes().to_vec() },
             ],
         }.encode();
-        let root = file("interpreter.json", r#"{ "imports": { "pay": "https://cdn.test/pkg/pay/0.1.0/app.interpreter" } }"#);
         let secret = file("config.rig", "SECRET = 'hunter2'\n");
         for (main, manifest, why) in [
             ("use ......config\nleak = SECRET\n", "{}", "module '../../../../../config.rig' is outside https://cdn.test/ which serves its importer"),
             ("use cfg\n", r#"{ "imports": { "cfg": "/abs/project/config.rig" } }"#, "import 'cfg' at '/abs/project/config.rig' is outside https://cdn.test/"),
             ("use cfg\n", r#"{ "imports": { "cfg": "../../../../../config.rig" } }"#, "import 'cfg' at '../../../../../config.rig' is outside https://cdn.test/"),
-            ("use cfg\n", r#"{ "imports": { "cfg": "file:///abs/project/config.rig" } }"#, "is outside https://cdn.test/"),
+            // a file url has no pin so it is refused before it could reach the disk
+            ("use cfg\n", r#"{ "imports": { "cfg": "file:///abs/project/config.rig" } }"#, "'cfg' comes from file:///abs/project/config.rig with no pin"),
             ("use cfg\n", r#"{ "extends": "/abs/project" }"#, "extends '/abs/project' is outside https://cdn.test/"),
         ] {
-            let seen = walk(&[root.clone(), secret.clone(), ("https://cdn.test/pkg/pay/0.1.0/app.interpreter", bundle(main, manifest))], "use pay\n");
+            let packed = bundle(main, manifest);
+            let root = s!("{ \"imports\": { \"pay\": \"", str &pinned("https://cdn.test/pkg/pay/0.1.0/app.interpreter", &packed), "\" } }");
+            let seen = walk(&[file("interpreter.json", &root), secret.clone(), ("https://cdn.test/pkg/pay/0.1.0/app.interpreter", packed)], "use pay\n");
             assert!(seen.failures.iter().any(|f| f.contains(why)), "{main:?} {manifest}: {:?}", seen.failures);
             // the root's own manifest and lock are the only local files the walk reads
             assert!(seen.fetched.iter().all(|f| f.contains("://") || f == "interpreter.json" || f == "interpreter.lock"), "{main:?} {manifest} asked for a local file: {:?}", seen.fetched);

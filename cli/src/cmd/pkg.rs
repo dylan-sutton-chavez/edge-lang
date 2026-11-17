@@ -69,6 +69,16 @@ impl Command for Lock {
     }
 }
 
+/* a source module of the runtime the project declares, which only this message needs loaded */
+fn source(kit: &Kit, path: &Path) -> String {
+    // a native runtime would rerun the command in a child so only a .wasm one is read here
+    let wasm = std::fs::read_to_string(path).ok().and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok()).is_none_or(|v| !v[crate::kit::RUNTIME].is_object());
+    if wasm {
+        let _ = kit.declare(path, None, None);
+    }
+    kit.described().map_or_else(|| String::from("a source module"), |d| format!("a .{}", d.extension))
+}
+
 fn add(kit: &Kit, path: &Path, pkgs: &[String]) -> Result<()> {
     if pkgs.is_empty() {
         bail!("nothing to add: pass one or more package names");
@@ -77,7 +87,7 @@ fn add(kit: &Kit, path: &Path, pkgs: &[String]) -> Result<()> {
     let resolved: Vec<(&str, &str)> = pkgs
         .iter()
         .map(|spec| match spec.split_once('=') {
-            Some((name, target)) if javascript(target) => bail!("module '{name}' is JavaScript, ship a .{} or a .wasm", kit.descriptor().extension),
+            Some((name, target)) if javascript(target) => bail!("module '{name}' is JavaScript, ship {} or a .wasm", source(kit, path)),
             Some((name, target)) if !shaped_like_version(target) => Ok((name, target)),
             _ => bail!("'{spec}' names no source, give it as name=<url> or name=<path>"),
         })
@@ -132,7 +142,7 @@ fn lock(kit: &Kit, path: &Path) -> Result<()> {
 
     for (name, target) in &manifest.imports {
         if javascript(target) {
-            bail!("module '{name}' is JavaScript, ship a .{} or a .wasm", kit.descriptor().extension);
+            bail!("module '{name}' is JavaScript, ship {} or a .wasm", source(kit, path));
         }
         if shaped_like_version(target) {
             bail!("'{name}' is declared '{target}' but no version resolves, give it a url or a path");

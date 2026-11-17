@@ -18,8 +18,10 @@ std::thread_local! {
 }
 
 /* what `calling` reads while a binding or a send hook runs and what it read before after */
+#[cfg_attr(feature = "runtime", allow(dead_code))]
 pub(crate) struct Now(Option<Calling>);
 
+#[cfg_attr(feature = "runtime", allow(dead_code))]
 impl Now {
     pub(crate) fn enter(id: u64, file: Option<Arc<String>>) -> Now {
         Now(NOW.with_borrow_mut(|now| now.replace(Calling { id, file })))
@@ -43,6 +45,7 @@ pub fn refuse(e: VmErr) {
 }
 
 /* the refusal a send hook left which the send raises */
+#[cfg_attr(feature = "runtime", allow(dead_code))]
 pub(crate) fn refused() -> Option<VmErr> {
     REFUSED.with_borrow_mut(Option::take)
 }

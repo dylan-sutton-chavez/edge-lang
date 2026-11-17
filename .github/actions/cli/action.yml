@@ -10,24 +10,13 @@ inputs:
     required: false
     default: ""
   suite:
-    description: "engine | network | actors | consistency | docs (test mode)"
+    description: "engine | network | actors | consistency | docs | native (test mode)"
     required: false
     default: ""
 
 runs:
   using: composite
   steps:
-    # cli/build.rs embeds the speed interpreter.wasm the wasm job staged
-    - name: Fetch the build inputs
-      uses: actions/download-artifact@v8
-      with:
-        name: cdn-wasm
-        path: _inputs
-
-    - name: Point the build at them
-      shell: bash
-      run: echo "INTERPRETER_WASM=$GITHUB_WORKSPACE/_inputs/_build/interpreter-cli.wasm" >> "$GITHUB_ENV"
-
     # the host is TypeScript and strips in seconds, so make builds it here rather than fetching it
     - name: Deno
       uses: denoland/setup-deno@v2

@@ -49,7 +49,7 @@
   {
     "name": "a remote module's missing manifests are asked for once",
     "given": {
-      "interpreter.json": "{ \"imports\": { \"lib\": \"{BASE}/lib/mod.lox\" } }\n",
+      "interpreter.json": "{ \"imports\": { \"lib\": \"{BASE}/lib/mod.lox#sha256-3adec3313d72a7b47f8ce2bdeeb6070a22961e3246f448753caee4ff502ff335\" } }\n",
       "main.lox": "var lib = import(\"lib\");\nprint lib.f();\n"
     },
     "steps": [{ "run": ["run", "main.lox"], "stdout": ["7\n"] }, { "run": ["run", "main.lox"], "stdout": ["7\n"], "requests": { "/lib/mod.lox": 1, "/lib/interpreter.json": 1, "/interpreter.json": 1 } }]

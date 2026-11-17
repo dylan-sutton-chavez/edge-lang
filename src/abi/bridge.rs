@@ -2,7 +2,7 @@ use crate::abi::{classify_decode, classify_encode, DecodeBits, EncodeRequest, Er
 use crate::lang::{Mode, Names};
 use crate::value::{DictMap, HeapObj, Host, Val, VmErr};
 use crate::vm::VM;
-use crate::r#unsafe::{vm_mut, Single};
+use crate::r#unsafe::vm_mut;
 use alloc::{rc::Rc, string::{String, ToString}, vec::Vec};
 use core::cell::RefCell;
 use core::ptr::NonNull;
@@ -25,9 +25,8 @@ impl BridgeState {
 }
 
 // wasm runs one thread so one bridge serves the process and re-entry goes through `with_vm`
-static BRIDGE: Single<BridgeState> = Single::new(BridgeState::new());
 
-pub(crate) fn with_bridge<R>(f: impl FnOnce(&mut BridgeState) -> R) -> R { BRIDGE.with(f) }
+pub(crate) fn with_bridge<R>(f: impl FnOnce(&mut BridgeState) -> R) -> R { crate::targets::web::with_bridge(f) }
 
 pub fn put_val(v: Val) -> u32 { with_bridge(|b| b.handles.put(v.0)) }
 

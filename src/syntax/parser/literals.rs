@@ -1,7 +1,7 @@
 use crate::s;
 
 use super::Parser;
-use crate::{code::OpCode, syntax::{chunk::{NativeSite, Value, SSAChunk}, ssa::{COMP_ARG, SPREAD_BASES}}};
+use crate::{code::OpCode, syntax::{chunk::{Annotated, Annotation, NativeSite, Value, SSAChunk}, ssa::{COMP_ARG, SPREAD_BASES}}};
 
 use crate::syntax::lexer::{Cond, Interp, Literal, Mode, Spelling, Token, TokenType};
 
@@ -210,7 +210,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
             Comp::Dict => (Some(OpCode::BuildDict), OpCode::MapAdd, names[2]),
             Comp::Brace => (Some(OpCode::BuildSet), OpCode::SetAdd, names[3]),
         };
-        let at = self.mark();
+        let (at, head) = (self.mark(), self.opened());
         let pattern = self.pattern_target();
         let shape = if pattern.is_some() { None } else { self.tokens.target_list() };
         if pattern.is_none() && shape.is_none() { self.error("cannot assign to this expression"); }
@@ -240,6 +240,8 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
                 s.patch(for_iters[i]);
             }
             if build.is_some() { s.chunk.emit(OpCode::ReturnValue, 0); }
+            // the loop's own code reads as the word that opened its first clause
+            s.keep(super::At { ip: 0, ..head }, None, true);
         });
         body.is_generator = kind == Comp::Gen;
         self.push_function(alloc::vec![COMP_ARG.into()], body, 0, Some(name), OpCode::MakeFunction);
@@ -415,6 +417,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         if self.ssa_versions.contains(name) || self.unfused.iter().any(|u| u == name) {
             let i = self.push_ssa_name(name, self.current_version(name));
             self.chunk.emit(OpCode::LoadName, i);
+            self.leaf(self.chunk.instructions.len() - 1, name);
             self.advance();
             self.call_rest(call_pos);
             return false;
@@ -441,6 +444,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         }
         let i = self.push_ssa_name(name, self.current_version(name));
         self.chunk.emit(OpCode::LoadName, i);
+        self.leaf(self.chunk.instructions.len() - 1, name);
         self.advance();
         self.call_rest(call_pos);
         false
@@ -770,7 +774,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         let (params, defaults) = self.param_list(TokenType::ParenClose, true);
         self.eat(TokenType::ParenClose);
         // a return annotation ends at the token that opens the body in either spelling
-        if self.eat_if(TokenType::Returns) { self.pass_annotation(|k| matches!(k, TokenType::Colon | TokenType::BlockOpen) || (Self::GRAMMAR.is_some() && k == TokenType::Equal), false); }
+        if self.eat_if(TokenType::Returns) { self.pass_annotation(|k| matches!(k, TokenType::Colon | TokenType::BlockOpen) || (Self::GRAMMAR.is_some() && k == TokenType::Equal), false, |_| Annotated::Returns { function: usize::MAX }); }
         self.header_end();
         (params, defaults)
     }
@@ -800,7 +804,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
                 params.push(s!(str prefix, str &nm));
                 // parameters after `*args` are keyword-only and a trailing `=` marks one with a default
                 kw_only |= prefix == "*";
-                if annotated { self.drain_annotation(); }
+                if annotated { self.drain_annotation(nm); }
                 if prefix.len() < 2 && self.eat_if(TokenType::Equal) {
                     if Self::PIPES && close == TokenType::BitOr { self.expr_bp(Self::BAR_BP); } else { self.expr(); }
                     defaults += 1;
@@ -831,25 +835,34 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
     }
 
     // parses a parameter annotation for its errors and drops the code it made
-    pub(super) fn drain_annotation(&mut self) {
-        if self.eat_if(TokenType::Colon) { self.pass_annotation(|k| matches!(k, TokenType::Comma | TokenType::ParenClose | TokenType::Equal), true); }
+    pub(super) fn drain_annotation(&mut self, name: &str) {
+        if self.eat_if(TokenType::Colon) { self.pass_annotation(|k| matches!(k, TokenType::Comma | TokenType::ParenClose | TokenType::Equal), true, |_| Annotated::Param { function: usize::MAX, name: name.into() }); }
     }
 
-    /* passes a plain annotation and parses any other for its errors dropping its code */
-    pub(super) fn pass_annotation(&mut self, end: fn(TokenType) -> bool, starred: bool) {
-        if Self::GRAMMAR.is_some() { return self.skip_typed(end); }
-        match self.tokens.plain_annotation(end) {
-            Some(at) => while self.tokens.pos < at { self.advance(); },
-            // a starred annotation unpacks into the `*args` it annotates
-            None => self.discarded(|p| { if starred { p.eat_if(TokenType::Star); } p.expr() }),
+    /* passes a plain annotation and parses any other for its errors dropping its code where a read keeps it as `of` */
+    pub(super) fn pass_annotation(&mut self, end: fn(TokenType) -> bool, starred: bool, of: impl FnOnce(&Self) -> Annotated) {
+        let from = self.here();
+        if Self::GRAMMAR.is_some() {
+            self.skip_typed(end);
+        } else {
+            match self.tokens.plain_annotation(end) {
+                Some(at) => while self.tokens.pos < at { self.advance(); },
+                // a starred annotation unpacks into the `*args` it annotates
+                None => self.discarded(|p| { if starred { p.eat_if(TokenType::Star); } p.expr() }),
+            }
+        }
+        if S::RECORD {
+            let (span, of) = (from.start as usize..self.taken_end().max(from.start) as usize, of(self));
+            self.notes().annotations.push(Annotation { span, of });
         }
     }
 
     // runs `f` for the errors it reports and drops everything it added to the chunk
     pub(super) fn discarded(&mut self, f: impl FnOnce(&mut Self)) {
-        let at = self.chunk.sizes();
+        let (at, kept) = (self.chunk.sizes(), self.kept_len());
         f(self);
         self.chunk.rewind(at);
+        self.cut(kept);
     }
 
     fn body_of(&mut self, params: &[String]) {
@@ -866,10 +879,12 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         let restart = self.mark();
         let known = if self.late.is_empty() { None } else { self.late.get(&restart.pos).cloned() };
         let mut late = Vec::new();
+        let kept = self.kept_len();
         let mut body = self.with_fresh_chunk(|s| { s.unfused.extend(known.iter().flatten().cloned()); s.body_of(params); late = s.called_then_bound(); });
         // a builtin called before its binding is a local so the body compiles once more
         if known.is_none() && !late.is_empty() {
             self.rewind(restart);
+            self.cut(kept);
             body = self.with_fresh_chunk(|s| { s.unfused.extend(late.iter().cloned()); s.body_of(params); });
             self.late.insert(restart.pos, late);
         }

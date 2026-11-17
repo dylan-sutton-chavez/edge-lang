@@ -138,7 +138,7 @@ fn main() {
 | Type | Fields | Means |
 |---|---|---|
 | `Grammar` | `modes`, `forms`, `patterns`, `lazy` | The operator tables, the forms, the pattern words and the calls whose lone comprehension runs as a generator |
-| | `modifiers` | Words before an item, each wrapping it in a call of the function it names |
+| | `modifiers` | Words before an item, each with the function whose call wraps the item or `None`. A chunk keeps the words in `notes().decls` |
 | | `unmatched` | The function a `match` calls when no arm takes its value |
 | | `inner`, `tail` | A byte a name may hold inside, and one it may end with, such as `-` and `?` |
 | `Mode` | `rows`, `words` | The operators of one reading of an expression, and words it reads as plain texts. Mode 0 reads plain values |

@@ -1,6 +1,6 @@
 use super::{quoted, Body, ModuleCache, Parser};
 use crate::code::OpCode;
-use crate::syntax::{chunk::{SSAChunk, Value}, diag::Diagnostic, ssa::{param_base_name, LoopCtx}};
+use crate::syntax::{chunk::{NodeKind, SSAChunk, Value}, diag::Diagnostic, ssa::{param_base_name, LoopCtx}};
 use crate::lang::{Natives, ParseFn};
 use crate::syntax::lexer::{lex_as, Spelling, Syntax, Token};
 use crate::deps::Resolver;
@@ -44,6 +44,18 @@ impl<S: Spelling> Spelling for Subjected<S> {
     const SUBJECT: bool = true;
     const NATIVES: &'static Natives = S::NATIVES;
     const OPS: &'static crate::lang::OpSet = S::OPS;
+    const RECORD: bool = S::RECORD;
+}
+
+/* a table whose parse keeps the span of each instruction and the outline of its forms */
+pub struct Recorded<S>(PhantomData<S>);
+
+impl<S: Spelling> Spelling for Recorded<S> {
+    const SYNTAX: Syntax = S::SYNTAX;
+    const SUBJECT: bool = S::SUBJECT;
+    const NATIVES: &'static Natives = S::NATIVES;
+    const OPS: &'static crate::lang::OpSet = S::OPS;
+    const RECORD: bool = true;
 }
 
 type Inner<'src, S> = Parser<'src, core::iter::Empty<Token>, Subjected<S>>;
@@ -77,6 +89,14 @@ impl<'b, 'src, S: Spelling> Builder<'b, 'src, S> {
         let offset = self.p.source.floor_char_boundary(offset);
         (self.p.last_end, self.p.last_line) = (offset, self.line(offset));
         self.p.mark_stmt();
+        self
+    }
+
+    /* runs `f` taking what it emits as written at `range` and keeping `range` as a node of `kind` when the build records */
+    pub fn spanned(&mut self, range: Range<usize>, kind: Option<NodeKind>, f: impl FnOnce(&mut Self)) -> &mut Self {
+        let ip = self.p.chunk.instructions.len() as u32;
+        f(self);
+        if S::RECORD { self.p.kept(ip, range.start as u32..range.end as u32, kind.map(|k| (k, range.start as u32..range.end as u32))); }
         self
     }
 
@@ -404,7 +424,7 @@ impl<'b, 'src, S: Spelling> Builder<'b, 'src, S> {
         let p = &mut *self.p;
         let first_line = p.last_line as u32 + 1;
         let cut = p.enter_qual(name, true);
-        let restart = p.mark();
+        let (restart, kept) = (p.mark(), p.kept_len());
         let mut late = Vec::new();
         let mut chunk = p.with_fresh_chunk(|p| {
             open_body(p, &params);
@@ -414,6 +434,7 @@ impl<'b, 'src, S: Spelling> Builder<'b, 'src, S> {
         // a builtin called before the body binds it is local so the body builds twice
         if !late.is_empty() {
             p.rewind(restart);
+            p.cut(kept);
             chunk = p.with_fresh_chunk(|p| {
                 p.unfused.extend(late.iter().cloned());
                 open_body(p, &params);

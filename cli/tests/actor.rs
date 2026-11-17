@@ -4,11 +4,16 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 
 const BIN: &str = env!("CARGO_BIN_EXE_interpreter");
+// the lox runtime every program of these suites runs on
+const LOX: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../target/wasm32-unknown-unknown/cli/interpreter.wasm");
+// the compiled code every case shares since it is keyed by the bytes it came from
+const CODE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../target/cli-code-cache");
 
 /* the interpreter binary with a private cache, remote modules resolve through the local CDN */
 fn interpreter() -> Command {
     let cache = std::env::temp_dir().join(format!("interpreter-actor-cache-{}", std::process::id()));
     let mut cmd = Command::new(BIN);
+    cmd.env("INTERPRETER_RUNTIME", LOX).env("INTERPRETER_CODE_CACHE", CODE);
     cmd.env("XDG_CACHE_HOME", cache);
     cmd
 }

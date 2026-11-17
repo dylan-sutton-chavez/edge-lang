@@ -23,6 +23,8 @@ default = ["std"]
 std = ["interpreter/std"]
 # builds interpreter.wasm with the engine's exports over these natives and the grant logic
 web = ["interpreter/runtime", "interpreter/perms"]
+# two natives that panic and abort which the crash tests of a native runtime call
+crash = ["std"]
 
 [dependencies]
 # the engine and the kernels its few natives past the book come from

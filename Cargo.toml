@@ -105,7 +105,7 @@ default-members = [".", "tests/rig", "examples/lox"]
 resolver = "2"
 
 [workspace.package]
-version = "1.0.1"
+version = "1.1.0"
 edition = "2024"
 rust-version = "1.98"
 license = "Apache-2.0"
@@ -133,6 +133,11 @@ strip = true
 [profile.cli]
 inherits = "release"
 opt-level = 3
+
+# a native runtime unwinds a panic so each export answers it as an error
+[profile.native]
+inherits = "release"
+panic = "unwind"
 
 # the cli build of make bench-layout kept apart so neither build undoes the other
 [profile.layout]

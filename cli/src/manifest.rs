@@ -9,6 +9,8 @@ use crate::kit::{Field, Kit};
 
 /* the keys a package names and describes itself with in save order */
 pub const FIELDS: &[Field] = &[
+    // the runtime every program of the project runs on
+    Field { name: crate::kit::RUNTIME, check: runtime, reserves: &[] },
     Field { name: "name", check: string, reserves: &[] },
     Field { name: "version", check: string, reserves: &[] },
     Field { name: "description", check: string, reserves: &[] },
@@ -99,6 +101,15 @@ impl Serialize for Manifest {
             map.serialize_entry(key, value)?;
         }
         map.end()
+    }
+}
+
+/* a runtime is a path or URL to a .wasm or an object naming a native library by path */
+pub fn runtime(name: &str, value: &Value) -> Result<(), String> {
+    match value {
+        Value::String(_) => Ok(()),
+        Value::Object(o) if o.len() == 1 && o.get("native").is_some_and(Value::is_string) => Ok(()),
+        _ => Err(format!("'{name}' is a path to a .wasm or {{ \"native\": \"path\" }}")),
     }
 }
 

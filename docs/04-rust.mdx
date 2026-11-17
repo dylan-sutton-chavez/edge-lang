@@ -49,6 +49,29 @@ fn main() {
 | `display(v)`, `repr(v)` | A value as the runtime prints it |
 | `memory()`, `memory_peak()` | What the run holds now, and the most it held |
 
+## What a read keeps
+
+`interpreter::code::read_as::<S>(src)` parses a source again through table `S` and gives the same chunk and errors as `compile_as::<S>(src)`, with what its run never reads kept beside the code. A compile keeps none of it, so its parse costs what it did. A front of its own reads by building through `build::<Recorded<S>>` and handing each node to `Builder::spanned(range, kind, f)`, as `interpreter_lox::read(src)` does.
+
+| Ask | Gives |
+|---|---|
+| `body.span(ip)` on any body | The bytes instruction `ip` came from, the operator, name, literal, call, `.` or `[` trailer, or the word that opens its statement or form, and an empty span at the end of a body for the return it closes with |
+| `chunk.notes().outline` on the root | Every form in source order as a `Node { kind, span, parent }`, where `parent` is the place of the node around it |
+| `chunk.notes().annotations` | Each annotation as a byte `span` and what it annotates, `Annotated::Param { function, name }`, `Annotated::Returns { function }` or `Annotated::Binding { target }`, where `function` is the place of its `Function` node |
+| `chunk.notes().decls` | Each `fn`, `let` and `type` item of a [grammar](./03-grammar.mdx), with its `kind`, its `name`, the `span` from its first modifier through its name, the `modifiers` before it and its `node` |
+
+A `NodeKind` names the form.
+
+| Kind | Form |
+|---|---|
+| `Call`, `Field`, `Index` | `f(x)`, `a.b` and `a[b]` with the operand they follow |
+| `Group`, `Tuple`, `List`, `Map`, `Record` | Parentheses that only group, a tuple, a list, a literal in braces and a grammar's record of named values |
+| `Let`, `Assign` | A binding word or item, `let _ = e` too, and an assignment |
+| `Block`, `If`, `Match`, `Loop`, `Function`, `Type` | A body in braces or indented, the conditionals, the loops, the functions and closures, and the types |
+| `Form(head)` | A form a grammar declares, by its head word |
+
+Lox reads through a tree of its own, so a form's own instructions take the whole form, a method's node starts at its name and a function body is no `Block` of its own.
+
 ## Events
 
 A run that calls `receive()` with nothing queued stops, and `run` returns `VmErr::HostYield(SchedulerStatus::PendingEvent)`. Push an event and call `run` again to go on from there.

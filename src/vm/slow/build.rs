@@ -328,7 +328,7 @@ impl<'a> VM<'a> {
     }
 
     // builds a set from `items` rejecting unhashable elements first
-    #[cfg(all(target_arch = "wasm32", feature = "runtime"))]
+    #[cfg(feature = "runtime")]
     pub(crate) fn set_from_items(&mut self, items: alloc::vec::Vec<Val>) -> Result<Val, VmErr> {
         for &v in items.iter().filter(|v| v.is_heap()) { self.require_element(v)?; }
         self.alloc_set_result(items)

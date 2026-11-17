@@ -108,9 +108,14 @@ pub fn locked_spec(name: &str, target: &str, lock: Option<&Lock>) -> Result<Stri
         }
         return pinned(name, entry);
     }
+    if !target.contains("://") || target.contains("#sha256-") {
+        return Ok(target.to_string());
+    }
+    // a url with no pin loads only the bytes the lock pins for that same url
     match entry {
-        Some(entry) if target.contains("://") && !target.contains("#sha256-") => pinned(name, entry),
-        _ => Ok(target.to_string()),
+        Some(entry) if entry.url == target => pinned(name, entry),
+        Some(entry) => Err(s!("'", str name, "' is declared ", str target, " and locked ", str &entry.url, " in ", str FILE, ", run interpreter lock again")),
+        None => Err(s!("'", str name, "' comes from ", str target, " with no pin, run interpreter lock or add #sha256- to it")),
     }
 }
 
@@ -165,14 +170,24 @@ mod tests {
 
     // a path holds its bytes and a pinned url its digest so neither needs locking
     #[test]
-    fn a_path_and_a_pinned_url_pass_through_and_a_bare_url_gains_its_digest() {
+    fn a_path_and_a_pinned_url_pass_through_and_a_locked_url_gains_its_digest() {
         for target in ["./lib/util.lox", "https://x/y.wasm#sha256-ab"] {
             assert_eq!(locked_spec("util", target, None).unwrap(), target);
         }
-        assert_eq!(locked_spec("foo", "https://x/y.wasm", None).unwrap(), "https://x/y.wasm");
         let mut lock = Lock::default();
         lock.insert("foo", Entry { version: None, url: s!("https://x/y.wasm"), digest: DIGEST.to_string() });
         assert_eq!(locked_spec("foo", "https://x/y.wasm", Some(&lock)).unwrap(), s!("https://x/y.wasm#", str DIGEST));
+    }
+
+    // a url with no pin and no lock entry for it would load bytes nothing checked
+    #[test]
+    fn a_bare_url_the_lock_does_not_pin_is_refused() {
+        let err = locked_spec("foo", "https://x/y.wasm", None).unwrap_err();
+        assert!(err.contains("with no pin, run interpreter lock"), "{err}");
+        let mut lock = Lock::default();
+        lock.insert("foo", Entry { version: None, url: s!("https://x/other.wasm"), digest: DIGEST.to_string() });
+        let err = locked_spec("foo", "https://x/y.wasm", Some(&lock)).unwrap_err();
+        assert!(err.contains("declared https://x/y.wasm and locked https://x/other.wasm"), "{err}");
     }
 
     #[test]

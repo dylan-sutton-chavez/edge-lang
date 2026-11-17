@@ -5,7 +5,8 @@ use std::sync::{Arc, Condvar, Mutex};
 
 use interpreter::embed::Limits;
 
-use crate::host::{Loaded, Untrusted};
+use crate::host::pooled::Runtime;
+use crate::host::Untrusted;
 use crate::kit::{Kit, Words};
 
 use super::scheduler::{nap, Intake, Pass, Quiesce, Scheduler};
@@ -77,8 +78,12 @@ impl Message {
 }
 
 /* one engine for the whole pool that ticks when untrusted groups need deadlines */
-fn runtime(kit: &Kit, pool: &Pool) -> Result<Arc<Loaded>, String> {
-    let runtime = kit.load().map_err(|e| e.to_string())?;
+fn runtime(kit: &Kit, pool: &Pool) -> Result<Runtime, String> {
+    let runtime = kit.pool_runtime().map_err(|e| e.to_string())?;
+    // an eval group runs untrusted code which only the sandbox of a wasm runtime bounds
+    if runtime.native() && pool.groups.iter().any(|g| g.eval.is_some()) {
+        return Err("an eval group runs untrusted code so it runs only on a wasm runtime".to_string());
+    }
     if pool.groups.iter().any(|g| g.eval.is_some()) {
         runtime.start_ticker();
     }
@@ -131,7 +136,7 @@ pub fn live(kit: &Kit, pool: Pool, intake: Box<dyn Intake>) -> i32 {
 }
 
 /* one scheduler over `intake` on this thread until the intake ends it */
-fn drive(pool: Pool, runtime: Arc<Loaded>, intake: Box<dyn Intake>) -> i32 {
+fn drive(pool: Pool, runtime: Runtime, intake: Box<dyn Intake>) -> i32 {
     match Scheduler::new(pool, runtime, intake) {
         Ok(mut s) => s.run(),
         Err(e) => {

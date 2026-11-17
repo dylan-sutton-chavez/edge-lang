@@ -5,6 +5,10 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 const BIN: &str = env!("CARGO_BIN_EXE_interpreter");
+// the lox runtime every program of these suites runs on
+const LOX: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../target/wasm32-unknown-unknown/cli/interpreter.wasm");
+// the compiled code every case shares since it is keyed by the bytes it came from
+const CODE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../target/cli-code-cache");
 // each program runs well under a second, so one still going after this has hung
 const DEADLINE: Duration = Duration::from_secs(30);
 // programs a run checks, raised through INTERPRETER_CONSISTENCY_PROGRAMS for a longer sweep
@@ -195,7 +199,7 @@ fn program(seed: u64) -> (String, String) {
 fn run(dir: &PathBuf) -> Result<String, String> {
     // output goes to files, so a full pipe never stalls a program the deadline then blames
     let (out, err) = (dir.join("stdout.txt"), dir.join("stderr.txt"));
-    let mut child = Command::new(BIN).current_dir(dir).args(["run", "main.lox"]).env("XDG_CACHE_HOME", dir)
+    let mut child = Command::new(BIN).env("INTERPRETER_RUNTIME", LOX).env("INTERPRETER_CODE_CACHE", CODE).current_dir(dir).args(["run", "main.lox"]).env("XDG_CACHE_HOME", dir)
         .stdin(Stdio::null()).stdout(File::create(&out).unwrap()).stderr(File::create(&err).unwrap()).spawn().unwrap();
     let start = Instant::now();
     let status = loop {

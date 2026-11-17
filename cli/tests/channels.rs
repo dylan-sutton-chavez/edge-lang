@@ -7,8 +7,8 @@ use interpreter_cli::{files, perms, Kit, Runtime};
 // the variable that makes this binary the CLI for one run of a case
 const AS_CLI: &str = "INTERPRETER_AS_CHANNELS";
 
-// the interpreter.wasm build.rs copied beside its precompile
-const WASM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/interpreter.wasm"));
+// the lox runtime make wasm-cli builds
+const WASM: &[u8] = include_bytes!("../../target/wasm32-unknown-unknown/cli/interpreter.wasm");
 
 // the records the program reads through files and the channels it writes them to
 const RECORDS: &str = "{\"type\": \"WatchEvent\"}\n{\"type\": \"PushEvent\"}\n{\"type\": \"WatchEvent\"}\n";

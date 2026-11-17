@@ -233,13 +233,14 @@ impl Payer {
 }
 
 // SAFETY wasm statics see one thread and one loan at once as plugin_suite checks
-#[cfg(all(target_arch = "wasm32", feature = "runtime"))]
+#[cfg(feature = "runtime")]
 pub(crate) struct Single<T> { value: core::cell::UnsafeCell<T>, #[cfg(debug_assertions)] lent: core::cell::Cell<bool> }
 
-#[cfg(all(target_arch = "wasm32", feature = "runtime", not(target_feature = "atomics")))]
+// SAFETY a wasm instance has one thread and a native context is entered by one thread at a time
+#[cfg(all(feature = "runtime", not(all(target_arch = "wasm32", target_feature = "atomics"))))]
 unsafe impl<T> Sync for Single<T> {}
 
-#[cfg(all(target_arch = "wasm32", feature = "runtime"))]
+#[cfg(feature = "runtime")]
 impl<T> Single<T> {
     pub(crate) const fn new(value: T) -> Self { Self { value: core::cell::UnsafeCell::new(value), #[cfg(debug_assertions)] lent: core::cell::Cell::new(false) } }
 
@@ -256,17 +257,21 @@ impl<T> Single<T> {
 }
 
 // SAFETY the published vm outlives the loan and its run waits inside the host call
-#[cfg(all(target_arch = "wasm32", feature = "runtime"))]
+#[cfg(feature = "runtime")]
 #[inline(always)]
 pub(crate) fn vm_mut<'x>(vm: core::ptr::NonNull<crate::vm::VM<'static>>) -> &'x mut crate::vm::VM<'static> { unsafe { &mut *vm.as_ptr() } }
 
 // SAFETY buffers either side lends stay aligned and valid for one call as plugin_suite checks
-#[cfg(all(target_arch = "wasm32", feature = "runtime"))]
+#[cfg(feature = "runtime")]
 pub(crate) mod web {
     use crate::abi::bridge;
     use crate::targets::web::{entry, exports, package, walk, Entry};
     use alloc::{boxed::Box, vec::Vec};
 
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) use native::{host_call_native, host_fetch_bytes, host_print, host_send, Context};
+
+    #[cfg(target_arch = "wasm32")]
     #[link(wasm_import_module = "env")]
     unsafe extern "C" {
         fn host_print(ptr: *const u8, len: usize);
@@ -305,7 +310,12 @@ pub(crate) mod web {
     fn free(p: *mut u8, n: u32) { if !p.is_null() && n != 0 { drop(unsafe { Box::from_raw(core::ptr::slice_from_raw_parts_mut(p, n as usize)) }) } }
 
     // each export is a C symbol of its name which exports.ts holds to the ABI
+    #[cfg(target_arch = "wasm32")]
     macro_rules! shims { ($($(#[$m:meta])* fn $name:ident($($p:ident: $t:ty),*) $(-> $r:ty)? $body:block)*) => { $($(#[$m])* #[unsafe(no_mangle)] pub extern "C" fn $name($($p: $t),*) $(-> $r)? $body)* }; }
+
+    // a native export takes the context it acts on first and turns a panic into an error
+    #[cfg(not(target_arch = "wasm32"))]
+    macro_rules! shims { ($($(#[$m:meta])* fn $name:ident($($p:ident: $t:ty),*) $(-> $r:ty)? $body:block)*) => { $($(#[$m])* #[unsafe(no_mangle)] pub extern "C" fn $name(cx: *const Context, $($p: $t),*) $(-> $r)? { native::guarded(cx, move || $body) })* }; }
 
     shims! {
         fn wasm_alloc(size: u32) -> *mut u8 { Box::into_raw(alloc::vec![0u8; size as usize].into_boxed_slice()).cast() }
@@ -351,6 +361,127 @@ pub(crate) mod web {
         fn host_interpreter_release(h: u32) { bridge::host_interpreter_release(h) }
         fn host_interpreter_throw(kind: u32, p: *const u8, n: u32) { bridge::host_interpreter_throw(kind, text(p, n)) }
         fn host_interpreter_take_error(out_kind: *mut u32, dst: *mut u8, dst_max: u32) -> i32 { bridge::host_interpreter_take_error(word(out_kind, &mut 0), room(dst, dst_max)) }
+    }
+
+    // SAFETY the host made each context with interpreter_context_new and enters it from one thread at a time
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) mod native {
+        use alloc::{boxed::Box, string::String};
+        use core::cell::Cell;
+        use core::ffi::c_void;
+
+        /* what a native host hands each context in place of the four imports a wasm module takes */
+        #[repr(C)]
+        pub struct HostTable {
+            pub user: *mut c_void,
+            pub print: extern "C" fn(*mut c_void, *const u8, usize),
+            pub call_native: extern "C" fn(*mut c_void, u32, u32, *const u32, u32, *mut u32) -> i32,
+            pub fetch_bytes: extern "C" fn(*mut c_void, *const u8, u32, *const u8, *mut u32) -> *mut u8,
+            pub send: extern "C" fn(*mut c_void, *const u8, u32, *const u8, u32) -> i32,
+        }
+
+        /* one interpreter state a native host drives through the exports that name it */
+        pub struct Context {
+            pub(crate) state: crate::targets::web::State,
+            host: HostTable,
+            // the message of the panic that ended this context which every later call reports
+            panicked: Cell<Option<String>>,
+        }
+
+        std::thread_local! {
+            static CURRENT: Cell<*const Context> = const { Cell::new(core::ptr::null()) };
+        }
+
+        /* the context the export running on this thread acts on */
+        pub(crate) fn current() -> &'static Context {
+            let cx = CURRENT.get();
+            assert!(!cx.is_null(), "a native export ran outside a context");
+            unsafe { &*cx }
+        }
+
+        /* restores the context an outer export entered when a host call reenters this one */
+        struct Entered(*const Context);
+
+        impl Drop for Entered {
+            fn drop(&mut self) { CURRENT.set(self.0); }
+        }
+
+        /* the panics a native runtime raises reported once by the export that catches them */
+        fn quiet() {
+            static HOOKED: std::sync::Once = std::sync::Once::new();
+            HOOKED.call_once(|| std::panic::set_hook(Box::new(|_| {})));
+        }
+
+        /* runs one export on `cx` where a panic ends the context with its message as an error */
+        pub(crate) fn guarded<R: Panicked>(cx: *const Context, f: impl FnOnce() -> R) -> R {
+            if cx.is_null() {
+                return R::panicked();
+            }
+            let held = unsafe { &*cx };
+            if let Some(msg) = held.panicked.take() {
+                held.panicked.set(Some(msg));
+                return R::panicked();
+            }
+            let _entered = Entered(CURRENT.replace(cx));
+            match std::panic::catch_unwind(core::panic::AssertUnwindSafe(f)) {
+                Ok(r) => r,
+                Err(payload) => {
+                    let msg = payload.downcast_ref::<&str>().map(|s| String::from(*s)).or_else(|| payload.downcast_ref::<String>().cloned()).unwrap_or_else(|| String::from("a panic with no message"));
+                    held.panicked.set(Some(alloc::format!("internal panic: {msg}")));
+                    R::panicked()
+                }
+            }
+        }
+
+        /* what an export answers once its context panicked */
+        pub(crate) trait Panicked { fn panicked() -> Self; }
+        impl Panicked for () { fn panicked() {} }
+        impl Panicked for u32 { fn panicked() -> u32 { crate::targets::web::exports::STATUS_ERROR } }
+        impl Panicked for i32 { fn panicked() -> i32 { -1 } }
+        impl Panicked for u64 { fn panicked() -> u64 { 0 } }
+        impl Panicked for i64 { fn panicked() -> i64 { -1 } }
+        impl Panicked for *mut u8 { fn panicked() -> *mut u8 { core::ptr::null_mut() } }
+        impl Panicked for *const u8 { fn panicked() -> *const u8 { core::ptr::null() } }
+
+        pub(crate) unsafe fn host_print(ptr: *const u8, len: usize) { let h = &current().host; (h.print)(h.user, ptr, len) }
+        pub(crate) unsafe fn host_call_native(id: u32, call_id: u32, argv: *const u32, argc: u32, out: *mut u32) -> i32 { let h = &current().host; (h.call_native)(h.user, id, call_id, argv, argc, out) }
+        pub(crate) unsafe fn host_fetch_bytes(spec: *const u8, spec_len: u32, hash: *const u8, out_len: *mut u32) -> *mut u8 { let h = &current().host; (h.fetch_bytes)(h.user, spec, spec_len, hash, out_len) }
+        pub(crate) unsafe fn host_send(group: *const u8, group_len: u32, body: *const u8, body_len: u32) -> i32 { let h = &current().host; (h.send)(h.user, group, group_len, body, body_len) }
+
+        // the version of this native contract which a host checks before it makes a context
+        pub const NATIVE_ABI: u32 = 1;
+
+        #[unsafe(no_mangle)]
+        pub extern "C" fn interpreter_native_abi() -> u32 { NATIVE_ABI }
+
+        /* a fresh interpreter state over the host table which the host frees with interpreter_context_free */
+        #[unsafe(no_mangle)]
+        pub extern "C" fn interpreter_context_new(host: *const HostTable) -> *const Context {
+            if host.is_null() {
+                return core::ptr::null();
+            }
+            quiet();
+            let host = unsafe { core::ptr::read(host) };
+            Box::into_raw(Box::new(Context { state: crate::targets::web::State::new(), host, panicked: Cell::new(None) }))
+        }
+
+        // SAFETY the host frees once a context interpreter_context_new made and no export still runs on it
+        #[unsafe(no_mangle)]
+        pub extern "C" fn interpreter_context_free(cx: *const Context) {
+            if !cx.is_null() { drop(unsafe { Box::from_raw(cx.cast_mut()) }) }
+        }
+
+        /* the message of the panic that ended the context written where `dst` points or its length when `dst_max` falls short */
+        #[unsafe(no_mangle)]
+        pub extern "C" fn interpreter_context_panic(cx: *const Context, dst: *mut u8, dst_max: u32) -> i32 {
+            if cx.is_null() { return 0 }
+            let held = unsafe { &*cx };
+            let Some(msg) = held.panicked.take() else { return 0 };
+            let n = msg.len();
+            if !dst.is_null() && n <= dst_max as usize { unsafe { core::ptr::copy_nonoverlapping(msg.as_ptr(), dst, n) } }
+            held.panicked.set(Some(msg));
+            n as i32
+        }
     }
 
     /* registers runtime `$rt` which carries its front end and descriptor as the one interpreter.wasm boots */

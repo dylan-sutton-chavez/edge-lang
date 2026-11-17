@@ -4,6 +4,11 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::process::{Command, Stdio};
 
+// the lox runtime every program of the suites runs on unless a case declares its own
+pub const LOX: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../target/wasm32-unknown-unknown/cli/interpreter.wasm");
+// the compiled code every case shares since it is keyed by the bytes it came from
+pub const CODE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../target/cli-code-cache");
+
 /* the binary a suite runs with the variables that make it the CLI and whether it loads wasm plugins */
 #[derive(Clone, Copy)]
 pub struct Bin<'a> {
@@ -268,7 +273,7 @@ struct Expect<'a> {
 
 fn run(bin: Bin, args: &[String], env: &BTreeMap<String, String>, dir: &std::path::Path, cache: &std::path::Path, stdin: &str, want: Expect) -> Result<(), String> {
     let mut cmd = Command::new(bin.path);
-    cmd.env("XDG_CACHE_HOME", cache).envs(bin.env.iter().copied());
+    cmd.env("XDG_CACHE_HOME", cache).env("INTERPRETER_RUNTIME", LOX).env("INTERPRETER_CODE_CACHE", CODE).envs(bin.env.iter().copied());
     let mut child = cmd.args(args).current_dir(dir).envs(env)
         .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped())
         .spawn().map_err(|e| e.to_string())?;

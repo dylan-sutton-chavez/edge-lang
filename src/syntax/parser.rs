@@ -6,17 +6,18 @@ mod imports;
 mod build;
 mod forms;
 
-pub use build::{build, Arms, Builder, Parsed, Unit};
+pub use build::{build, Arms, Builder, Parsed, Recorded, Unit};
 
 use crate::s;
 use crate::code::OpCode;
-use crate::syntax::{chunk::{SSAChunk, Value, MAX_EXPR_DEPTH}, diag::Diagnostic, ssa::{param_base_name, JoinNode, LoopCtx, Versions}};
+use crate::syntax::{chunk::{Node, NodeKind, SSAChunk, Value, MAX_EXPR_DEPTH}, diag::Diagnostic, ssa::{param_base_name, JoinNode, LoopCtx, Versions}};
 use crate::syntax::lexer::{Ends, Spelling, Token, TokenType};
 use crate::util::hash::FxHashMap as HashMap;
 use crate::deps::Resolver;
 
 use alloc::{boxed::Box, string::{String, ToString}, vec::Vec};
 use core::marker::PhantomData;
+use core::ops::Range;
 
 // the opener of a bracket given either side
 #[inline]
@@ -240,6 +241,19 @@ pub(super) struct Mark {
     newline: bool,
 }
 
+/* where a node a read keeps starts as its first instruction and the bytes of its first token */
+#[derive(Clone, Copy, Default)]
+pub(super) struct At {
+    ip: u32,
+    start: u32,
+    head: u32,
+}
+
+// the tokens that start and end no node
+const fn trivia(k: TokenType) -> bool {
+    matches!(k, TokenType::Newline | TokenType::LineBreak | TokenType::Comment | TokenType::Indent | TokenType::Dedent | TokenType::Eof)
+}
+
 pub struct Parser<'src, I: Iterator<Item = Token>, S: Spelling> {
     pub(super) source: &'src str,
     pub(super) tokens: Tokens<I, S>,
@@ -273,6 +287,8 @@ pub struct Parser<'src, I: Iterator<Item = Token>, S: Spelling> {
     pub(super) in_comp: bool,
     /* true inside a def or lambda body as the only place `return` and `yield` belong */
     pub(super) in_function: bool,
+    /* the outline annotations and declarations a read met so far which the root chunk takes at close */
+    pub(super) notes: Option<alloc::boxed::Box<crate::syntax::chunk::Notes>>,
     /* the natives the body calls as bits in two words with those past 128 listed */
     pub(super) called: [u64; 2],
     pub(super) called_far: Vec<u16>,
@@ -393,10 +409,12 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
     }
 
     pub(super) fn emit_load_ssa(&mut self, name: &str) {
+        let ip = self.chunk.instructions.len();
         // only a builder's parser reads a subject so other parsers compile none of this
-        if S::SUBJECT && self.subject_field(name) { return; }
+        if S::SUBJECT && self.subject_field(name) { return self.leaf(ip, name); }
         let i = self.push_ssa_name(name, self.current_version(name));
         self.chunk.emit(OpCode::LoadName, i);
+        self.leaf(ip, name);
     }
 
     pub(super) fn emit_const(&mut self, v: Value) {
@@ -414,6 +432,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         let ver = self.increment_version(name);
         let i = self.push_ssa_name(name, ver);
         self.chunk.emit(OpCode::StoreName, i);
+        self.leaf(self.chunk.instructions.len() - 1, name);
     }
 
     /* moves the free names of the body up then registers and makes the function */
@@ -465,6 +484,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         let ver = self.increment_version(name);
         let i = self.push_ssa_name(name, ver);
         self.chunk.emit(OpCode::StoreName, i);
+        self.leaf(self.chunk.instructions.len() - 1, name);
         i
     }
 
@@ -485,6 +505,8 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         self.chunk.extern_table = saved_chunk.extern_table.clone();
         self.chunk.extern_index = saved_chunk.extern_index.clone();
         f(self);
+        // the code of a body no node took such as its closing return reads as its end
+        if S::RECORD { let end = self.taken_end(); self.kept(0, end..end, None); }
         let body = core::mem::replace(&mut self.chunk, saved_chunk);
         self.ssa_versions = saved_ver;
         (self.join_stack, self.trail) = saved_joins;
@@ -895,6 +917,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
             decorated_at: None,
             in_comp: false,
             in_function: false,
+            notes: None,
             called: [0; 2],
             called_far: Vec::new(),
             far_from: 0,
@@ -944,12 +967,13 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
             self.block_closed = false;
             // a statement starts outside every bracket whatever a failed one left open
             self.bracket_stack.clear();
-            let (errors_before, at) = (self.errors.len(), self.tokens.pos);
+            let (errors_before, at, from) = (self.errors.len(), self.tokens.pos, self.here());
             let produced_value = self.stmt();
             self.end_statement(errors_before);
             // a failed statement that consumed nothing skips a token so the loop always ends
             if self.tokens.pos == at { self.tokens.next(); }
             if produced_value { self.chunk.emit(OpCode::PopTop, 0); }
+            self.keep(from, None, true);
         }
     }
 
@@ -985,6 +1009,120 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
 
         self.chunk.emit(OpCode::ReturnValue, 0);
         self.chunk.finalize_prev_slots();
+        if S::RECORD { self.read_out(); }
+    }
+
+    /* the notes of a read made on the first thing it keeps */
+    pub(super) fn notes(&mut self) -> &mut crate::syntax::chunk::Notes {
+        self.notes.get_or_insert_with(Default::default)
+    }
+
+    /* hands the root chunk what the read kept with one span per instruction of each body */
+    #[inline(never)]
+    fn read_out(&mut self) {
+        let end = self.taken_end();
+        self.kept(0, end..end, None);
+        let mut notes = self.notes.take().unwrap_or_default();
+        notes.covers = self.chunk.notes.take().map(|n| n.covers).unwrap_or_default();
+        self.chunk.notes = Some(notes);
+        self.chunk.settle();
+    }
+
+    /* the node a read keeps starting at the next token and nothing for a compile */
+    #[inline(always)]
+    pub(super) fn here(&self) -> At {
+        if !S::RECORD { return At::default(); }
+        let ahead = self.tokens.toks.get(self.tokens.pos..).unwrap_or_default().iter().find(|t| !trivia(t.kind));
+        ahead.map_or(At { ip: self.chunk.instructions.len() as u32, start: self.last_end as u32, head: self.last_end as u32 }, |t| self.from(t))
+    }
+
+    /* the node a read keeps starting at token `t` the parse already took */
+    #[inline(always)]
+    pub(super) fn from(&self, t: &Token) -> At {
+        if !S::RECORD { return At::default(); }
+        At { ip: self.chunk.instructions.len() as u32, start: t.start as u32, head: t.end as u32 }
+    }
+
+    /* the node a read keeps starting at the token just taken */
+    #[inline(always)]
+    pub(super) fn opened(&self) -> At {
+        if !S::RECORD { return At::default(); }
+        self.tokens.toks.get(self.tokens.pos.wrapping_sub(1)).map_or_else(|| self.here(), |t| self.from(t))
+    }
+
+    /* keeps the code since `at` as written by its first token or else the whole node and the node as `kind` */
+    #[inline(always)]
+    pub(super) fn keep(&mut self, at: At, kind: Option<NodeKind>, head: bool) {
+        if !S::RECORD { return; }
+        let end = self.taken_end().max(at.start);
+        self.kept(at.ip, at.start..if head { at.head } else { end }, kind.map(|k| (k, at.start..end)));
+    }
+
+    /* keeps a trailer from `at` to `end` on the operand starting at `lead` where a call takes the whole node */
+    #[inline(always)]
+    pub(super) fn trail(&mut self, lead: u32, at: At, end: u32, kind: NodeKind) {
+        if !S::RECORD { return; }
+        let end = end.max(at.start);
+        self.kept(at.ip, if kind == NodeKind::Call { lead } else { at.start }..end, Some((kind, lead..end)));
+    }
+
+    /* where the last token taken ends for a read and nothing for a compile */
+    #[inline(always)]
+    pub(super) fn ended(&self) -> u32 { if S::RECORD { self.taken_end() } else { 0 } }
+
+    /* keeps the code since `ip` as written by `name` when it is a piece of the source */
+    #[inline(always)]
+    pub(super) fn leaf(&mut self, ip: usize, name: &str) {
+        if !S::RECORD { return; }
+        let at = name.as_ptr().addr().wrapping_sub(self.source.as_ptr().addr());
+        if !name.is_empty() && at.checked_add(name.len()).is_some_and(|end| end <= self.source.len()) { self.kept(ip as u32, at as u32..(at + name.len()) as u32, None); }
+    }
+
+    /* where the operand a trailer goes on starts as the last run kept began */
+    #[inline(always)]
+    pub(super) fn lead(&self) -> u32 {
+        if !S::RECORD { return 0; }
+        self.chunk.notes.as_deref().and_then(|n| n.covers.last()).map_or(self.last_end as u32, |c| c.1.start)
+    }
+
+    /* how many nodes and runs a read kept so a part the parse drops takes its own with it */
+    #[inline(always)]
+    pub(super) fn kept_len(&self) -> (usize, usize) {
+        if !S::RECORD { return (0, 0); }
+        (self.notes.as_deref().map_or(0, |n| n.outline.len()), self.chunk.notes.as_deref().map_or(0, |n| n.covers.len()))
+    }
+
+    /* drops the nodes and runs a read kept past `kept_len` */
+    #[inline(always)]
+    pub(super) fn cut(&mut self, (nodes, runs): (usize, usize)) {
+        if !S::RECORD { return; }
+        if let Some(n) = self.notes.as_deref_mut() { n.outline.truncate(nodes); }
+        if let Some(n) = self.chunk.notes.as_deref_mut() { n.covers.truncate(runs); }
+    }
+
+    /* moves the runs at or past `from` by the shift their code took and clips them to the code left */
+    #[inline(always)]
+    pub(super) fn moved(&mut self, from: usize, shift: impl Fn(u32) -> i64) {
+        if !S::RECORD { return; }
+        let len = self.chunk.instructions.len() as i64;
+        for (ips, _) in self.chunk.notes.as_deref_mut().map_or(&mut [][..], |n| &mut n.covers[..]) {
+            if (ips.start as usize) < from { ips.end = ips.end.min(len as u32); continue; }
+            let d = shift(ips.start);
+            *ips = (ips.start as i64 + d).clamp(0, len) as u32..(ips.end as i64 + d).clamp(0, len) as u32;
+        }
+    }
+
+    #[inline(never)]
+    pub(super) fn kept(&mut self, ip: u32, span: Range<u32>, node: Option<(NodeKind, Range<u32>)>) {
+        let ips = ip..self.chunk.instructions.len() as u32;
+        self.chunk.notes.get_or_insert_with(Default::default).covers.push((ips, span));
+        if let Some((kind, at)) = node { self.notes().outline.push(Node { kind, span: at.start as usize..at.end as usize, parent: None }); }
+    }
+
+    // the end of the last token taken past the line ends and blanks a peek skipped
+    fn taken_end(&self) -> u32 {
+        let taken = self.tokens.toks.get(..self.tokens.pos).unwrap_or(&self.tokens.toks);
+        taken.iter().rev().find(|t| !trivia(t.kind)).map_or(self.last_end, |t| t.end) as u32
     }
 }
 

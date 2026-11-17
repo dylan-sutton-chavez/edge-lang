@@ -1,5 +1,5 @@
 {
   "imports": {
-    "remote": "https://example.com/remote.lox"
+    "remote": "https://example.com/remote.lox#sha256-0000000000000000000000000000000000000000000000000000000000000000"
   }
 }

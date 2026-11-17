@@ -1,13 +1,12 @@
-use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
 use std::time::Duration;
 
 use slab::Slab;
 
-use crate::host::{linear_cap, now_ns, Engine, Host, Instance, Loaded, Project, Vm};
+use crate::host::pooled::{PoolHost, PoolInstance, PoolVm, Runtime};
+use crate::host::{linear_cap, now_ns, Engine, Project};
 
 use super::actor::{sink_for, Actor, Step};
 use super::pool::{GroupSpec, Message, Pool};
@@ -106,12 +105,12 @@ struct Group {
     idle_free: Vec<usize>,
     // keys parked on a timer or host call checked again each tick
     waiting: Vec<usize>,
-    instances: Vec<Rc<RefCell<Instance>>>,
+    instances: Vec<PoolInstance>,
 }
 
 // the single-threaded cooperative loop owning every actor of its groups
 pub struct Scheduler {
-    host: Rc<Host>,
+    host: Rc<PoolHost>,
     groups: Vec<Group>,
     by_name: HashMap<String, usize>,
     pending: Vec<Message>,
@@ -123,8 +122,8 @@ pub struct Scheduler {
 }
 
 impl Scheduler {
-    pub fn new(pool: Pool, runtime: Arc<Loaded>, intake: Box<dyn Intake>) -> Result<Self, String> {
-        let host = Host::new(runtime).map_err(|e| e.to_string())?;
+    pub fn new(pool: Pool, runtime: Runtime, intake: Box<dyn Intake>) -> Result<Self, String> {
+        let host = Rc::new(PoolHost::new(&runtime).map_err(|e| e.to_string())?);
         let mut groups = Vec::with_capacity(pool.groups.len());
         let mut by_name = HashMap::new();
         let mut pending = Vec::new();
@@ -243,10 +242,10 @@ impl Scheduler {
     // a trap poisons its whole instance so its actors crash and their queues move on
     fn crash_trapped(&mut self, gi: usize) {
         let g = &mut self.groups[gi];
-        if !g.instances.iter().any(|i| i.borrow().poisoned()) {
+        if !g.instances.iter().any(PoolInstance::poisoned) {
             return;
         }
-        g.instances.retain(|i| !i.borrow().poisoned());
+        g.instances.retain(|i| !i.poisoned());
         let doomed: Vec<usize> = g.actors.iter().filter(|(_, a)| a.trapped()).map(|(k, _)| k).collect();
         for key in doomed {
             let (in_flight, leftover) = self.retire(gi, key).into_messages();
@@ -305,7 +304,7 @@ impl Scheduler {
 
 impl Group {
     /* boots a fresh actor in an interpreter slot unless the group evals each message apart */
-    fn spawn(&mut self, host: &Rc<Host>) -> Option<usize> {
+    fn spawn(&mut self, host: &Rc<PoolHost>) -> Option<usize> {
         let actor = match self.spec.eval {
             Some(_) => Actor::eval(),
             None => {
@@ -331,23 +330,23 @@ impl Group {
     }
 
     /* a slot in an instance with room or else a fresh instance */
-    fn slot(&mut self, host: &Rc<Host>) -> anyhow::Result<Vm> {
-        self.instances.retain(|i| !i.borrow().poisoned());
-        if let Some(inst) = self.instances.iter().find(|i| i.borrow().slots() < SLOTS_PER_INSTANCE) {
-            return Instance::slot(inst);
+    fn slot(&mut self, host: &Rc<PoolHost>) -> anyhow::Result<PoolVm> {
+        self.instances.retain(|i| !i.poisoned());
+        if let Some(inst) = self.instances.iter().find(|i| i.slots() < SLOTS_PER_INSTANCE) {
+            return inst.slot();
         }
         let project = Project::disk(&self.spec.dir, self.spec.manifest.as_deref());
         // every slot may hold its limit and the linear memory caps them together
         let memory = linear_cap(self.spec.limits.memory.saturating_mul(SLOTS_PER_INSTANCE));
         let inst = host.instance(sink_for(&self.spec.out), project, None, memory)?;
-        inst.borrow_mut().accept_sends();
-        let vm = Instance::slot(&inst)?;
+        inst.accept_sends();
+        let vm = inst.slot()?;
         self.instances.push(inst);
         Ok(vm)
     }
 
     /* picks an idle actor then a fresh spawn under the ceiling then the least-loaded one */
-    fn pick(&mut self, host: &Rc<Host>) -> Option<usize> {
+    fn pick(&mut self, host: &Rc<PoolHost>) -> Option<usize> {
         while let Some(key) = self.idle_free.pop() {
             if self.actors.get(key).is_some_and(|n| n.idle && !n.done) {
                 return Some(key);

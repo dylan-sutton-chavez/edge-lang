@@ -134,3 +134,50 @@ fn a_lone_quote_is_an_unterminated_string() {
         assert!(run(src).is_err_and(|e| e.ends_with("Unterminated string.")), "{src}");
     }
 }
+
+// a read of a program keeps the span of each instruction of every body and the outline of its forms
+#[test]
+fn a_read_keeps_each_instruction_s_span_and_the_outline_of_the_forms() {
+    use interpreter::code::{NodeKind as K, OpCode as O, SSAChunk};
+    let src = "var a = 1;\nprint (a + 2) * 3;\nfun f(x) {\n  if (x > a) { return x.y; }\n  return f(x - 1);\n}\nclass C < B { m() { this.v = 1; } }\nfor (var i = 0; i < 2; i = i + 1) print i;\n";
+    let (chunk, errors) = interpreter_lox::read(src);
+    assert!(errors.is_empty(), "{}", interpreter::code::Diagnostic::render_all(&errors, src, None));
+    let outline = &chunk.notes().outline;
+    assert_eq!(outline.iter().map(|n| (n.kind, &src[n.span.clone()], n.parent)).collect::<Vec<_>>(), [
+        (K::Let, "var a = 1;", None),
+        (K::Group, "(a + 2)", None),
+        (K::Function, "fun f(x) {\n  if (x > a) { return x.y; }\n  return f(x - 1);\n}", None),
+        (K::If, "if (x > a) { return x.y; }", Some(2)),
+        (K::Block, "{ return x.y; }", Some(3)),
+        (K::Field, "x.y", Some(4)),
+        (K::Call, "f(x - 1)", Some(2)),
+        (K::Type, "class C < B { m() { this.v = 1; } }", None),
+        (K::Function, "m() { this.v = 1; }", Some(7)),
+        (K::Assign, "this.v = 1", Some(8)),
+        (K::Loop, "for (var i = 0; i < 2; i = i + 1) print i;", None),
+        (K::Let, "var i = 0;", Some(10)),
+        (K::Assign, "i = i + 1", Some(10)),
+    ]);
+    // each body's instructions each read as the token or node that made them
+    fn spans(c: &SSAChunk, src: &str, out: &mut Vec<(O, String)>) {
+        for ip in 0..c.instructions.len() as u32 {
+            let span = c.span(ip).unwrap_or_else(|| panic!("{:?} at {ip} has no span", c.instructions[ip as usize].opcode));
+            out.push((c.instructions[ip as usize].opcode, src[span].to_string()));
+        }
+        for f in &c.functions { spans(&f.1, src, out); }
+        for k in &c.classes { spans(k, src, out); }
+    }
+    let mut all = Vec::new();
+    spans(&chunk, src, &mut all);
+    for want in [(O::Add, "+"), (O::Mul, "*"), (O::LoadConst, "2"), (O::Gt, ">"), (O::LoadAttr, "x.y"), (O::Call, "f(x - 1)"), (O::ReturnValue, "return x.y;"), (O::StoreAttr, "this.v = 1"), (O::JumpIfFalse, "if (x > a) { return x.y; }")] {
+        assert!(all.iter().any(|(op, text)| (*op, text.as_str()) == want), "{want:?} in {all:?}");
+    }
+    for (i, n) in outline.iter().enumerate() {
+        assert!(n.parent.is_none_or(|p| outline[p].span.start <= n.span.start && n.span.end <= outline[p].span.end), "{n:?}");
+        assert!(outline[i + 1..].iter().find(|m| m.parent == n.parent).is_none_or(|m| n.span.end <= m.span.start), "{n:?}");
+    }
+    // a compile keeps none of it and builds the same code
+    let (compiled, _) = interpreter::code::compile(&interpreter_lox::FRONT, src);
+    assert!(compiled.notes().outline.is_empty() && compiled.span(0).is_none());
+    assert_eq!(format!("{:?}", compiled.functions[0].1.instructions), format!("{:?}", chunk.functions[0].1.instructions));
+}

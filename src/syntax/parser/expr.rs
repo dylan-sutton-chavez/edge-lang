@@ -1,7 +1,7 @@
 
 use super::Parser;
 use crate::code::OpCode;
-use crate::syntax::chunk::{Value, MAX_EXPR_DEPTH, Instruction};
+use crate::syntax::chunk::{Value, MAX_EXPR_DEPTH, Instruction, NodeKind};
 use crate::syntax::ssa::{param_base_name, JoinNode, Versions};
 
 use crate::syntax::text::{parse_string, parse_bytes_literal};
@@ -101,9 +101,10 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
     /* a full expression with its ternary tail and recursion bounded inside `expr_bp` */
     pub(super) fn expr(&mut self) {
         self.saw_newline = false;
-        let val_start = self.chunk.instructions.len();
+        let (val_start, at) = (self.chunk.instructions.len(), self.here());
         self.expr_bp(0);
         self.ternary_tail(val_start);
+        self.keep(at, None, false);
     }
 
     /* reorders the value emitted first into `[cond][JumpIfFalse][value][Jump][else]` so the condition runs first */
@@ -131,6 +132,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
             e.0 = (e.0 as i64 + d) as u32;
         }
         self.chunk.call_byte_pos[calls_from..].sort_unstable_by_key(|&(ip, _)| ip);
+        self.moved(val_start, |ip| if (ip as usize) < cond_start { val_delta } else { cond_delta });
 
         let jmp = self.emit_jump(OpCode::Jump);
         self.patch(jf);
@@ -177,10 +179,11 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
             self.error("expression too deeply nested");
             return;
         }
+        let at = self.here();
         if Self::GRAMMAR.is_some() {
             self.grammar_bp(min_bp);
             self.expr_depth -= 1;
-            return;
+            return self.keep(at, None, false);
         }
         match self.peek() {
             Some(TokenType::Not) => {
@@ -192,6 +195,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         }
         self.infix_bp(min_bp);
         self.expr_depth -= 1;
+        self.keep(at, None, false);
     }
 
     // an operator never continues past the logical line so a decorator below stays one
@@ -200,6 +204,8 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         // the open jumps of a comparison chain linked through their operands as a patch list
         let mut chain = u16::MAX;
         while let Some(tok) = self.peek_same_line() {
+            // each operator keeps the code it adds past its right side as its own
+            let at = self.here();
             if is_comparison(tok) {
                 let Some((l_bp, r_bp, _)) = Self::infix_of(tok) else { break };
                 if l_bp < min_bp { break; }
@@ -224,6 +230,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
                         self.patch(jmp);
                     }
                 }
+                self.keep(at, None, true);
                 continue;
             }
 
@@ -233,6 +240,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
 
             if Self::SHAPES.ranges && op == OpCode::CallNative {
                 self.range_tail(tok, r_bp);
+                self.keep(at, None, true);
                 continue;
             }
 
@@ -241,11 +249,13 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
                 let jmp = self.emit_jump(jump_op);
                 self.expr_bp(r_bp);
                 self.patch(jmp);
+                self.keep(at, None, true);
                 continue;
             }
 
             self.expr_bp(r_bp);
             self.chunk.emit(op, 0);
+            self.keep(at, None, true);
         }
     }
 
@@ -260,6 +270,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         if zero {
             self.chunk.instructions.pop();
             self.chunk.constants.pop();
+            self.moved(self.chunk.instructions.len(), |_| 0);
         }
         self.expr_bp(r_bp);
         if tok == TokenType::RangeInclusive {
@@ -316,14 +327,17 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         if Self::DELIMITED && Self::GRAMMAR.is_none() && matches!(self.tokens.peek().map(|t| t.kind), Some(TokenType::BlockOpen | TokenType::BlockClose | TokenType::Newline | TokenType::LineBreak | TokenType::Comment)) && matches!(self.peek(), Some(TokenType::BlockOpen | TokenType::BlockClose)) {
             return self.diag_at_peek("expected expression");
         }
-        let errs_before = self.errors.len();
+        let (errs_before, at) = (self.errors.len(), self.here());
         let t = self.advance();
         if Self::GRAMMAR.is_some() && self.grammar_atom(t) {
+            let kind = match t.kind { TokenType::If => Some(NodeKind::If), TokenType::Match => Some(NodeKind::Match), TokenType::Fn => Some(NodeKind::Function), _ => None };
+            self.keep(at, kind, kind.is_some());
             self.postfix_tail(Tail::Expr);
             return;
         }
         // a table without the lambda word reads its anonymous functions apart
         if !matches!(Self::SHAPES.lambda, Lambda::Word) && self.closure(t) {
+            self.keep(at, Some(NodeKind::Function), true);
             self.postfix_tail(Tail::Expr);
             return;
         }
@@ -361,6 +375,12 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
                 }
             }
         }
+        match t.kind {
+            TokenType::BracketOpen => self.keep(at, Some(NodeKind::List), false),
+            TokenType::BraceOpen => self.keep(at, Some(NodeKind::Map), false),
+            TokenType::FnExpr => self.keep(at, Some(NodeKind::Function), true),
+            _ => self.keep(at, None, false),
+        }
         self.postfix_tail(Tail::Expr);
     }
 
@@ -389,9 +409,11 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
 
     /* after `(` an empty tuple or a generator or a tuple or a grouped expression */
     pub(super) fn paren_atom(&mut self) {
+        let at = self.opened();
         if matches!(self.peek(), Some(TokenType::ParenClose)) {
             self.advance();
             self.chunk.emit(OpCode::BuildTuple, 0);
+            self.keep(at, Some(NodeKind::Tuple), false);
         } else if self.at_comp() {
             self.comprehension(super::literals::Comp::Gen);
             self.eat(TokenType::ParenClose);
@@ -399,10 +421,14 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
             // a leading `*it` starts a tuple
             let star = matches!(self.peek(), Some(TokenType::Star)) && Self::SPLAT;
             if !star { self.expr(); }
-            if star || matches!(self.peek(), Some(TokenType::Comma)) {
+            let tuple = star || matches!(self.peek(), Some(TokenType::Comma));
+            if tuple {
                 self.tuple_rest(!star as u16, |s| matches!(s.peek(), Some(TokenType::ParenClose) | None));
             }
             self.eat(TokenType::ParenClose);
+            // a tuple in parentheses spans them where the tuple inside kept only its items
+            if S::RECORD && tuple { self.notes().outline.pop(); }
+            self.keep(at, Some(if tuple { NodeKind::Tuple } else { NodeKind::Group }), false);
         }
     }
 
@@ -466,7 +492,11 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
                 self.store_name(name);
                 self.emit_load_ssa(name);
             }
-            Some(TokenType::ParenOpen) if !self.fresh() => { self.call(name, false); }
+            Some(TokenType::ParenOpen) if !self.fresh() => {
+                let at = self.from(&t);
+                self.call(name, false);
+                self.keep(at, Some(NodeKind::Call), false);
+            }
             _ => self.emit_load_ssa(name),
         }
     }
@@ -624,14 +654,18 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
 
     /* trailers on the same line and true when the chain ends in a store */
     pub(super) fn postfix_tail(&mut self, tail: Tail) -> bool {
+        let lead = self.lead();
         loop {
+            let at = self.here();
             match self.peek_same_line() {
                 Some(TokenType::BracketOpen | TokenType::ParenOpen) if self.fresh() => return false,
                 Some(TokenType::BracketOpen) => {
                     self.advance();
                     let cut = self.parse_subscript();
-                    if self.store_trailer(tail, None) { return true; }
+                    let end = self.ended();
+                    if self.store_trailer(tail, None) { self.trail(lead, at, end, NodeKind::Index); return true; }
                     self.emit_get_item(cut);
+                    self.trail(lead, at, end, NodeKind::Index);
                 }
                 Some(TokenType::Dot) => {
                     self.advance();
@@ -640,23 +674,26 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
                     if !matches!(next, TokenType::Name | TokenType::Underscore) { self.error(Self::ATTR_AFTER_DOT); return false; }
                     let t = self.advance();
                     let source = self.source;
-                    let name = &source[t.start..t.end];
+                    let (name, end) = (&source[t.start..t.end], self.ended());
                     // a table that reads keys at dots keeps the attribute only for a call
                     if Self::KEYS && !matches!(self.peek_same_line(), Some(TokenType::ParenOpen)) {
                         self.emit_const(Value::Str(name.to_string()));
-                        if self.store_trailer(tail, None) { return true; }
+                        if self.store_trailer(tail, None) { self.trail(lead, at, end, NodeKind::Field); return true; }
                         self.chunk.emit(OpCode::GetItem, 0);
+                        self.trail(lead, at, end, NodeKind::Field);
                         continue;
                     }
-                    if self.store_trailer(tail, Some(name)) { return true; }
+                    if self.store_trailer(tail, Some(name)) { self.trail(lead, at, end, NodeKind::Field); return true; }
                     // `LoadAttr` right before `Call` lets `fuse_method_calls` collapse the pair
                     let idx = self.chunk.push_name(name);
                     self.chunk.emit(OpCode::LoadAttr, idx);
+                    self.trail(lead, at, end, NodeKind::Field);
                 }
                 Some(TokenType::ParenOpen) => {
                     let call_pos = self.last_end as u32;
                     self.advance();
                     self.call_rest(call_pos);
+                    self.trail(lead, at, self.ended(), NodeKind::Call);
                 }
                 _ => return false,
             }
@@ -688,7 +725,6 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
                 self.chunk.emit(if attr.is_some() { OpCode::Swap } else { OpCode::Rot3 }, 0);
             }
             Tail::Stmt if matches!(self.peek_same_line(), Some(TokenType::Colon)) => {
-                self.advance();
                 // a bare annotation evaluates the target and stores nothing
                 self.skip_annotation();
                 self.chunk.emit(OpCode::PopTop, 0);

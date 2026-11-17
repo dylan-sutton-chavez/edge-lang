@@ -122,4 +122,131 @@ mod test {
         let mut vm = boot(&chunk, Limits::sandbox());
         assert_eq!(vm.run().map(|_| vm.output_text()).ok().as_deref(), Some("3\n"));
     }
+
+    // the table again with modifier words a type item and an arrow for a result
+    const DECL_WORDS: &[(&str, TokenType)] = &[("true", T::True), ("false", T::False), ("or", T::Or), ("in", T::In), ("if", T::If), ("else", T::Else), ("match", T::Match), ("fn", T::Fn), ("let", T::Let), ("for", T::For), ("use", T::Import), ("type", T::Type), ("_", T::Underscore)];
+    const DECL_SYMBOLS: &[(&str, TokenType)] = &[
+        ("(", T::ParenOpen), (")", T::ParenClose), ("[", T::BracketOpen), ("]", T::BracketClose), ("{", T::BraceOpen), ("}", T::BraceClose), ("{", T::BlockOpen), ("}", T::BlockClose), (":", T::Colon),
+        ("=>", T::Arm), ("==", T::EqualEqual), ("<", T::Less), ("=", T::Equal), ("+", T::Plus), ("->", T::Returns), ("-", T::Minus), ("/", T::Slash), (",", T::Comma), (".", T::Dot),
+    ];
+    static DECL_OPERATORS: [[TokenType; 4]; 128] = operators(DECL_SYMBOLS);
+    static DECL_KEYWORDS: Keywords = index(DECL_WORDS);
+    static DECL_GRAMMAR: Grammar = Grammar { modes: &[Mode { rows: ROWS, words: &[] }], modifiers: &[("pub", None), ("traced", Some("trace"))], ..Grammar::NONE };
+    struct Decls;
+    impl Spelling for Decls {
+        const SYNTAX: Syntax = Syntax { words: DECL_WORDS, symbols: DECL_SYMBOLS, operators: &DECL_OPERATORS, keywords: &DECL_KEYWORDS, shapes: Shapes { grammar: Some(&DECL_GRAMMAR), ..SYNTAX.shapes }, ..SYNTAX };
+        const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
+    }
+
+    #[test]
+    fn a_read_keeps_each_item_with_its_modifiers_and_node_and_each_annotation_with_its_function() {
+        use interpreter::code::{Annotated, Annotation, Decl, DeclKind, NodeKind as K};
+        let src = "pub traced fn double(x: num) -> num = x + x\ntype Pair = [num, num]\npub let two = 2\nlet _ = { let r = { a = two, b = (two) }\n double(r.a)[0] }\n";
+        let (chunk, errors) = interpreter::code::read_as::<Decls>(src);
+        assert!(errors.is_empty(), "{}", interpreter::code::Diagnostic::render_all(&errors, src, None));
+        let at = |text: &str, k: usize| src.match_indices(text).nth(k).map_or(0, |m| m.0);
+        let outline: Vec<_> = chunk.notes().outline.iter().map(|n| (n.kind, &src[n.span.clone()], n.parent)).collect();
+        assert_eq!(outline, [
+            (K::Function, "pub traced fn double(x: num) -> num = x + x", None),
+            (K::Type, "type Pair = [num, num]", None),
+            (K::Let, "pub let two = 2", None),
+            (K::Let, "let _ = { let r = { a = two, b = (two) }\n double(r.a)[0] }", None),
+            (K::Block, "{ let r = { a = two, b = (two) }\n double(r.a)[0] }", Some(3)),
+            (K::Let, "let r = { a = two, b = (two) }", Some(4)),
+            (K::Record, "{ a = two, b = (two) }", Some(5)),
+            (K::Group, "(two)", Some(6)),
+            (K::Index, "double(r.a)[0]", Some(4)),
+            (K::Call, "double(r.a)", Some(8)),
+            (K::Field, "r.a", Some(9)),
+        ]);
+        let decl = |span, kind, name: &str, modifiers: &[&str], node| Decl { span, kind, name: name.into(), modifiers: modifiers.iter().map(|m| m.to_string()).collect(), node };
+        assert_eq!(chunk.notes().decls, [
+            decl(0..at("(", 0), DeclKind::Fn, "double", &["pub", "traced"], 0),
+            decl(at("type", 0)..at(" =", 1), DeclKind::Type, "Pair", &[], 1),
+            decl(at("pub", 1)..at(" =", 2), DeclKind::Let, "two", &["pub"], 2),
+            decl(at("let _", 0)..at("let _", 0) + 5, DeclKind::Let, "_", &[], 3),
+        ]);
+        assert_eq!(chunk.notes().annotations, [
+            Annotation { span: at("num", 0)..at("num", 0) + 3, of: Annotated::Param { function: 0, name: "x".into() } },
+            Annotation { span: at("num", 1)..at("num", 1) + 3, of: Annotated::Returns { function: 0 } },
+        ]);
+        // a compile of the same source keeps none of it
+        assert_eq!(interpreter::code::compile(&Front::spelled::<Decls>(), src).0.notes(), &interpreter::code::Notes::default());
+    }
+
+    // two functions of one name each keep their own annotations as the rig reads them past its grammar kit
+    #[test]
+    fn an_annotation_names_its_function_by_its_node_so_two_of_one_name_stay_apart() {
+        use interpreter::code::{Annotated, Annotation, NodeKind};
+        let src = "fn add(a: int, b: [int]) -> int {\n    return a\n}\nfn add(c: str) {\n    return c\n}\ncount: int = 1\n";
+        let (chunk, errors) = interpreter::code::read_as::<rig::Rig>(src);
+        assert!(errors.is_empty(), "{}", interpreter::code::Diagnostic::render_all(&errors, src, None));
+        let notes = chunk.notes();
+        let functions: Vec<usize> = (0..notes.outline.len()).filter(|&i| notes.outline[i].kind == NodeKind::Function).collect();
+        assert_eq!(functions.iter().map(|&i| &src[notes.outline[i].span.clone()]).collect::<Vec<_>>(), ["fn add(a: int, b: [int]) -> int {\n    return a\n}", "fn add(c: str) {\n    return c\n}"]);
+        let span = |text: &str, k: usize| src.match_indices(text).nth(k).map_or(0..0, |m| m.0..m.0 + text.len());
+        let param = |function: usize, name: &str| Annotated::Param { function, name: name.into() };
+        assert_eq!(notes.annotations, [
+            Annotation { span: span("int", 0), of: param(functions[0], "a") },
+            Annotation { span: span("[int]", 0), of: param(functions[0], "b") },
+            Annotation { span: span("int", 2), of: Annotated::Returns { function: functions[0] } },
+            Annotation { span: span("str", 0), of: param(functions[1], "c") },
+            Annotation { span: span("int", 3), of: Annotated::Binding { target: "count".into() } },
+        ]);
+    }
+
+    // the rig's table read by the engine's own operators where no grammar kit takes values
+    struct Plain;
+    impl Spelling for Plain {
+        const SYNTAX: Syntax = Syntax { shapes: Shapes { grammar: None, ..rig::RIG.shapes }, ..rig::RIG };
+        const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
+    }
+
+    /* the bodies of `chunk` with each instruction's span checked to sit in `src` */
+    fn spanned_bodies(chunk: &interpreter::code::SSAChunk, src: &str) -> usize {
+        for ip in 0..chunk.instructions.len() as u32 {
+            let span = chunk.span(ip).unwrap_or_else(|| panic!("{:?} at {ip} of {} has no span", chunk.instructions[ip as usize].opcode, chunk.qualname));
+            assert!(span.start <= span.end && span.end <= src.len(), "{span:?}");
+        }
+        1 + chunk.functions.iter().map(|f| spanned_bodies(&f.1, src)).sum::<usize>() + chunk.classes.iter().map(|c| spanned_bodies(c, src)).sum::<usize>()
+    }
+
+    /* the code of `chunk` and every body under it */
+    fn code(chunk: &interpreter::code::SSAChunk) -> String {
+        format!("{:?}", chunk.instructions) + &chunk.functions.iter().map(|f| code(&f.1)).chain(chunk.classes.iter().map(code)).collect::<String>()
+    }
+
+    /* every instruction of every body has a span and each node sits inside its parent apart from its siblings */
+    fn well_kept(chunk: &interpreter::code::SSAChunk, src: &str) -> usize {
+        let bodies = spanned_bodies(chunk, src);
+        let outline = &chunk.notes().outline;
+        for (i, n) in outline.iter().enumerate() {
+            if let Some(p) = n.parent {
+                assert!(p < i && outline[p].span.start <= n.span.start && n.span.end <= outline[p].span.end, "{:?} {:?} sits outside {:?}", n.kind, &src[n.span.clone()], &src[outline[p].span.clone()]);
+            }
+            let next = outline[i + 1..].iter().find(|m| m.parent == n.parent);
+            assert!(next.is_none_or(|m| n.span.end <= m.span.start), "{:?} {:?} overlaps a sibling", n.kind, &src[n.span.clone()]);
+        }
+        bodies
+    }
+
+    #[test]
+    fn every_instruction_of_a_read_has_a_span_and_each_node_sits_in_its_parent_apart_from_its_siblings() {
+        let plain = "fn scale(xs, k = 2, *rest) {\n    ys = [x * k for x in xs if x > 0 and not x == 3]\n    pairs = {\"a\": (1, 2), \"b\": -k}\n    ys[0] += pairs[\"a\"][1:]\n    f = |y| y.real + 1\n    try { throw f(ys) } catch e { return e }\n    return f(k=1), {ys[0], 4}, \"{k} of {xs}\"\n}\nfor i, v in scale([1, 2]) {\n    while i < v { i = i + (v ~/ 2) }\n}\n";
+        let (chunk, errors) = interpreter::code::read_as::<Plain>(plain);
+        assert!(errors.is_empty(), "{}", interpreter::code::Diagnostic::render_all(&errors, plain, None));
+        assert!(well_kept(&chunk, plain) >= 4);
+        assert_eq!(code(&chunk), code(&interpreter::code::compile_as::<Plain>(plain).0));
+        let rig = "fn add(a: int, b: [int]) -> int {\n    return a + b[0]\n}\nxs = [1, (2), (3, 4)]\nif add(1, xs).y {\n    count: int = xs.len()\n}\nf = lift k: k + 1\nwhile xs { xs = xs[1:] }\nm = match xs { [a, _] => a  _ => gather { 1; for x in xs { x } } }\n";
+        let (chunk, errors) = interpreter::code::read_as::<rig::Rig>(rig);
+        assert!(errors.is_empty(), "{}", interpreter::code::Diagnostic::render_all(&errors, rig, None));
+        assert!(well_kept(&chunk, rig) >= 3);
+        assert_eq!(code(&chunk), code(&interpreter::code::compile_as::<rig::Rig>(rig).0));
+        let decls = "pub traced fn double(x: num) -> num = x + x\nlet _ = { let r = { a = two, b = (two) }\n if r.a == 1 { double(r.a)[0] } else { fn (y) = y + 1 } }\n";
+        let (chunk, errors) = interpreter::code::read_as::<Decls>(decls);
+        assert!(errors.is_empty(), "{}", interpreter::code::Diagnostic::render_all(&errors, decls, None));
+        assert!(well_kept(&chunk, decls) >= 2);
+        assert_eq!(code(&chunk), code(&interpreter::code::compile_as::<Decls>(decls).0));
+    }
 }
+

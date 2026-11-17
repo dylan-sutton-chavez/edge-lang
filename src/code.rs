@@ -1,6 +1,6 @@
-pub use crate::syntax::chunk::{SSAChunk, Instruction, Value, ImportKind, ImportEntry, NativeSite, SITE_TABLE, native_site};
+pub use crate::syntax::chunk::{SSAChunk, Instruction, Value, ImportKind, ImportEntry, NativeSite, SITE_TABLE, native_site, Notes, Node, NodeKind, Annotation, Annotated, Decl, DeclKind};
 pub use crate::syntax::diag::{Diagnostic, Lines};
-pub use crate::syntax::parser::{Parser, unpack_call, INPLACE, ITER_VALUE, ITER_AS_IS, YIELD_FROM, Arms, Builder, Parsed, Unit, build};
+pub use crate::syntax::parser::{Parser, unpack_call, INPLACE, ITER_VALUE, ITER_AS_IS, YIELD_FROM, Arms, Builder, Parsed, Recorded, Unit, build};
 pub use crate::syntax::ssa::{SsaName, ssa_strip, param_base_name, COMP_ARG, SPREAD_BASES};
 pub use fold::constant_fold;
 pub use crate::vm::{Binding, BodyKind, FnScope, Kind, ParamKind};
@@ -33,6 +33,9 @@ pub fn compile_as<S: crate::syntax::lexer::Spelling>(src: &str) -> (SSAChunk, al
     constant_fold(&mut chunk, &S::NATIVES.policy);
     (chunk, errors)
 }
+
+// `compile_as` again keeping each instruction's span in every body and the outline and annotations on the root
+pub fn read_as<S: crate::syntax::lexer::Spelling>(src: &str) -> (SSAChunk, alloc::vec::Vec<Diagnostic>) { compile_as::<Recorded<S>>(src) }
 
 // `src` through front end `front` parsed and folded into a chunk and its errors
 pub fn compile(front: &crate::lang::Front, src: &str) -> (SSAChunk, alloc::vec::Vec<Diagnostic>) {

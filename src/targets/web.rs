@@ -20,7 +20,15 @@ pub(crate) use resolver::system_call;
 pub(super) use crate::deps::ModuleEntry;
 
 /* every block's meter tag names its payer atop a small block pool over O(1) dlmalloc */
+#[cfg(target_arch = "wasm32")]
 crate::allocator!(crate::value::pool::Pooled<dlmalloc::GlobalDlmalloc> = crate::value::pool::Pooled::new(dlmalloc::GlobalDlmalloc));
+
+// a native runtime meters what it allocates over the system allocator
+#[cfg(not(target_arch = "wasm32"))]
+crate::allocator!();
+
+#[cfg(all(not(target_arch = "wasm32"), not(feature = "std")))]
+compile_error!("a native runtime builds with the std feature, which catches its panics and gives it the system allocator");
 
 // the static data a layout build shifts so a count that follows an address shows
 #[cfg(feature = "layout")]
@@ -28,6 +36,7 @@ crate::allocator!(crate::value::pool::Pooled<dlmalloc::GlobalDlmalloc> = crate::
 static PAD: [u8; 64] = [0x5a; 64];
 
 /* stashes a panic so the host gets a typed message though re-entry while formatting traps */
+#[cfg(target_arch = "wasm32")]
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
     let msg = alloc::format!("internal panic: {}", info.message());
@@ -149,10 +158,36 @@ impl WasmRuntime {
     }
 }
 
-static RUNTIME: Single<WasmRuntime> = Single::new(WasmRuntime::new());
+/* the interpreter state of one wasm instance or of one native context */
+pub(crate) struct State {
+    runtime: Single<WasmRuntime>,
+    bridge: Single<BridgeState>,
+}
+
+impl State {
+    pub(crate) const fn new() -> Self {
+        State { runtime: Single::new(WasmRuntime::new()), bridge: Single::new(BridgeState::new()) }
+    }
+}
+
+// a wasm instance is one context so its state is the module's own
+#[cfg(target_arch = "wasm32")]
+static STATE: State = State::new();
+
+#[cfg(target_arch = "wasm32")]
+#[inline(always)]
+pub(crate) fn state() -> &'static State { &STATE }
+
+/* the state of the context the running native export entered */
+#[cfg(not(target_arch = "wasm32"))]
+#[inline(always)]
+pub(crate) fn state() -> &'static State { &crate::r#unsafe::web::native::current().state }
 
 // re-entrant callers route through `with_vm` to drop the loan first
-pub(super) fn with_runtime<R>(f: impl FnOnce(&mut WasmRuntime) -> R) -> R { RUNTIME.with(f) }
+pub(super) fn with_runtime<R>(f: impl FnOnce(&mut WasmRuntime) -> R) -> R { state().runtime.with(f) }
+
+/* the handles and the stash of the running context which the abi bridge lends */
+pub(crate) fn with_bridge<R>(f: impl FnOnce(&mut BridgeState) -> R) -> R { state().bridge.with(f) }
 
 pub(super) fn with_slot<R>(f: impl FnOnce(&mut Slot) -> R) -> R {
     with_runtime(|rt| f(rt.slot()))

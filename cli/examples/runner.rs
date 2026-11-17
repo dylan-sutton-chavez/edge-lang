@@ -1,8 +1,8 @@
 use interpreter_cli::cmd::{run, test};
 use interpreter_cli::{Kit, Runtime};
 
-// the module build.rs copies from the reference runtime beside its precompile
-const WASM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/interpreter.wasm"));
+// the lox runtime make wasm-cli builds
+const WASM: &[u8] = include_bytes!("../../target/wasm32-unknown-unknown/cli/interpreter.wasm");
 
 /* two commands over a runtime the kit compiles on its first load */
 fn main() {

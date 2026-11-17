@@ -11,6 +11,10 @@ mod send;
 mod shared;
 #[cfg(feature = "wasm")]
 mod wasm;
+#[cfg(feature = "native")]
+pub mod library;
+#[cfg(feature = "wasm")]
+pub mod pooled;
 
 pub use access::{Access, Closed, Held, Open, Package, Packages, Scopes, Untrusted};
 pub use interpreter::abi::{ErrorKind, WireValue};
@@ -22,7 +26,7 @@ pub(crate) use resolver::Side;
 pub use send::{ChannelSink, Senders, FILE};
 pub use shared::{Hosted, Hosting, Opened, Waits, Wiring};
 #[cfg(feature = "wasm")]
-pub use wasm::{config, linear_cap, time_limit, Host, Instance, Loaded, Vm, TICK_NS};
+pub use wasm::{config, describe, linear_cap, time_limit, Host, Instance, Loaded, Vm, TICK_NS};
 
 use interpreter::value::Limits;
 use std::collections::HashMap;

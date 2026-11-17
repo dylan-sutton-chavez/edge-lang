@@ -43,7 +43,7 @@ The crate `interpreter` is the one crate the repo publishes. Its engine in `src/
 | `src/util` | Hashing, the probe table, byte search, JSON escapes and the near names an error suggests, shared by the rest |
 | `src/unsafe.rs` | Every unsafe region of the crate, each with the argument that it is sound |
 
-Lox lives in `examples/lox`, a crate the repo never publishes, which `interpreter.wasm`, the CLI, the bench and the fuzzer build on.
+Lox lives in `examples/lox`, a crate the repo never publishes, which `interpreter.wasm`, the tests of the CLI, the bench and the fuzzer build on.
 
 `Cargo.toml` denies unsafe code everywhere but `src/unsafe.rs`, and `make lint` fails when another file of `src/` holds unsafe code, past `src/plugin/macros.rs` whose unsafe expands in a plugin's own crate. `clippy.toml` keeps the engine from files, the network, the clock, the environment and maps with a random seed, which only the native host in `src/targets/native` may reach. `make lint` also fails when `src/` or `plugin/` holds a name `make/names.txt` denies, and builds each module of `interpreter::lib` alone so a module never leans on one it does not name.
 
@@ -82,9 +82,10 @@ The engine names its own pieces, and these words mean the same thing in every fi
 |---|---|
 | `make check` | `make wasm`, `make lint` and `make test`, the bar before sending |
 | `make wasm` | `interpreter.wasm`, while CI ships the smaller `make wasm-ship` |
-| `make wasm-cli` | The speed build of `interpreter.wasm` the CLI embeds |
+| `make wasm-cli` | The speed build of `interpreter.wasm` the tests of the CLI and the bench run |
+| `make native` | Lox as a native library and a crash build of it under `target/native/`, for the CLI's native tests |
 | `make js` | `js/src` stripped to `js/dist`, with Deno |
-| `make cli` | The `interpreter` binary, embedding `wasm-cli`, `js` and the Lucide names `make lucide` fetches |
+| `make cli` | The `interpreter` binary, embedding `js` and the Lucide names `make lucide` fetches |
 | `make cli-release TARGET=...` | A release binary, the static Linux one in Docker since musl-gcc has no C++ |
 | `make lint` | The unsafe gate, the comment and name lints, shear, clippy for the host and wasm, the exports and the JS lints |
 | `make test` | The suites of the engine, of `interpreter::lib` and of the test rig, then Lox's with the book's own test suite |
@@ -135,4 +136,4 @@ make test-js test-cli
 
 ## CI
 
-[`main.yml`](.github/workflows/main.yml) runs each part as a composite action that calls the same `make` targets, against the tree of builds it stages. Every push and pull request packs the crate with `cargo publish --dry-run` in the wasm job, and only a tag `vX.Y.Z` equal to the crate's version runs the publish job, which puts it on crates.io once the tree is whole. That job alone reads a secret and any other run skips it, so a pull request from a fork runs the rest whole.
+[`main.yml`](.github/workflows/main.yml) runs each part as a composite action that calls the same `make` targets, against the tree of builds it stages. Every push and pull request packs the crate with `cargo publish --dry-run` in the wasm job, and only a tag `vX.Y.Z` equal to the crate's version runs the publish job, which puts it on crates.io once the tree is whole and `cargo semver-checks` finds no break of the last release's API that the version does not make a new major. Versions follow [SemVer](https://semver.org), and `cargo semver-checks -p interpreter` tells before a tag which part a change bumps. That job alone reads a secret and any other run skips it, so a pull request from a fork runs the rest whole.

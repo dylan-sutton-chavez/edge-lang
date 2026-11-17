@@ -57,6 +57,62 @@ impl Loaded {
     }
 }
 
+/* the names a runtime module gives itself through `runtime_descriptor` kept for the whole process */
+pub fn describe(wasm: &[u8]) -> Result<&'static Descriptor> {
+    let engine = wt(Engine::new(&config::base()))?;
+    let module = cache::load(&engine, wasm).map_err(|e| anyhow!("compiling the runtime: {e}"))?;
+    let mut linker: Linker<()> = Linker::new(&engine);
+    // naming itself reaches no host so each import answers nothing
+    wt(linker.func_wrap("env", "host_print", |_: i32, _: i32| {}))?;
+    wt(linker.func_wrap("env", "host_fetch_bytes", |_: i32, _: i32, _: i32, _: i32| -> i32 { 0 }))?;
+    wt(linker.func_wrap("env", "host_send", |_: i32, _: i32, _: i32, _: i32| -> i32 { 1 }))?;
+    wt(linker.func_wrap("env", "host_call_native", |_: i32, _: i32, _: i32, _: i32, _: i32| -> i32 { 1 }))?;
+    let mut store = Store::new(&engine, ());
+    // the engine counts epochs for untrusted runs and naming itself needs no deadline
+    store.set_epoch_deadline(u64::MAX);
+    let instance = wt(linker.instantiate(&mut store, &module))?;
+    let not_one = || anyhow!("the module is no interpreter runtime, it exports no runtime_descriptor");
+    let describe: TypedFunc<(), i32> = instance.get_typed_func(&mut store, "runtime_descriptor").map_err(|_| not_one())?;
+    let out_ptr: TypedFunc<(), i32> = instance.get_typed_func(&mut store, "out_ptr").map_err(|_| not_one())?;
+    let memory = instance.get_memory(&mut store, "memory").ok_or_else(not_one)?;
+    let len = wt(describe.call(&mut store, ()))?;
+    let ptr = wt(out_ptr.call(&mut store, ()))?;
+    let mut json = vec![0u8; len.max(0) as usize];
+    memory.read(&store, ptr as u32 as usize, &mut json).map_err(|e| anyhow!("reading the runtime's descriptor: {e}"))?;
+    descriptor(&json)
+}
+
+/* a descriptor read from the JSON every runtime writes of itself */
+pub fn descriptor(json: &[u8]) -> Result<&'static Descriptor> {
+    let v: serde_json::Value = serde_json::from_slice(json).map_err(|e| anyhow!("the runtime describes itself in no JSON: {e}"))?;
+    let text = |key: &str| -> Result<&'static str> {
+        let s = v[key].as_str().ok_or_else(|| anyhow!("the runtime's descriptor has no {key}"))?;
+        Ok(Box::leak(s.to_owned().into_boxed_str()))
+    };
+    let entries: Vec<&'static str> = v["entries"].as_array().map(|a| a.iter().filter_map(|e| e.as_str()).map(|e| &*Box::leak(e.to_owned().into_boxed_str())).collect()).unwrap_or_default();
+    if entries.is_empty() {
+        anyhow::bail!("the runtime's descriptor names no entry file");
+    }
+    let status = |at: usize, or: u8| v["statuses"][at].as_u64().and_then(|n| u8::try_from(n).ok()).unwrap_or(or);
+    let described = Descriptor {
+        language: text("language")?,
+        extension: text("extension")?,
+        entries: Box::leak(entries.into_boxed_slice()),
+        test_suffix: text("test_suffix")?,
+        scaffold: text("scaffold")?,
+        example_fence: text("example_fence")?,
+        manifest_fence: text("manifest_fence")?,
+        type_error: text("type_error")?,
+        value_error: text("value_error")?,
+        runtime_error: text("runtime_error")?,
+        denied_error: text("denied_error")?,
+        failed_error: text("failed_error")?,
+        statuses: (status(0, 1), status(1, 1)),
+        diagnosed: None,
+    };
+    Ok(Box::leak(Box::new(described)))
+}
+
 /* per-thread linkers over the loaded runtime that mint the instances */
 pub struct Host {
     pub loaded: Arc<Loaded>,
