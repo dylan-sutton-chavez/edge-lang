@@ -40,11 +40,11 @@ impl Language for Rig {
     const BUILT: Built = Built { ellipsis: None, slice: Some(&crate::lang::SLICE) };
     type Ops = ();
 
-    fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Mode) -> Result<String, VmErr> { interpreter_lib::fmt::render::hook::<Rig>(cx, v, mode) }
+    fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Mode) -> Result<String, VmErr> { interpreter::lib::fmt::render::hook::<Rig>(cx, v, mode) }
 
-    fn format(cx: &mut Cx<'_, '_>, v: Val, spec: &str) -> Result<String, VmErr> { interpreter_lib::fmt::spec::hook::<Rig>(cx, v, spec) }
+    fn format(cx: &mut Cx<'_, '_>, v: Val, spec: &str) -> Result<String, VmErr> { interpreter::lib::fmt::spec::hook::<Rig>(cx, v, spec) }
 
-    fn handles(heap: &HeapPool, exc: Val, class: Val) -> Result<bool, VmErr> { interpreter_lib::types::match_exc::<Rig>(heap, exc, class) }
+    fn handles(heap: &HeapPool, exc: Val, class: Val) -> Result<bool, VmErr> { interpreter::lib::types::match_exc::<Rig>(heap, exc, class) }
 }
 
 /* implements `Language` for `$lang` as the rig's over the natives `$natives` and names `$names` */

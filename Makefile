@@ -1,6 +1,6 @@
 WASM := target/wasm32-unknown-unknown
-# interpreter.wasm is Lox's cdylib copied to the name every host loads
-RUNTIME := --target wasm32-unknown-unknown -p interpreter-lox --lib --no-default-features --features web --crate-type cdylib
+# interpreter.wasm is the crate's cdylib with Lox and the wasm exports its web feature turns on
+RUNTIME := --target wasm32-unknown-unknown -p interpreter --lib --no-default-features --features web --crate-type cdylib
 # rig.wasm is the test rig's cdylib that the cli's rig test composes the kit over
 RIG := --target wasm32-unknown-unknown -p rig --lib --no-default-features --features web --crate-type cdylib
 WASM_FEATURES := --enable-bulk-memory-opt --enable-nontrapping-float-to-int --enable-sign-ext
@@ -29,6 +29,9 @@ CLI_NEEDS_network := plugin
 CLI_NEEDS_ := plugin wasm-rig
 CLI_NEEDS_skill := test-skill
 
+# every module of interpreter::lib which lint-rust builds alone so no module leans on one it does not name
+LIB_MODULES := bytes data date io iter map num reflect seq set spec text types
+
 # bumped by hand so each new Miri check lands in a commit of its own
 MIRI_NIGHTLY := nightly-2026-10-11
 # make/miri.sh sets Miri up once then passes MIRI_SETUP= to its parallel runs
@@ -42,8 +45,8 @@ MIRI_parser := parser::
 MIRI_lexer := lexer::
 MIRI_abi := abi::
 
-# lint-rust fails unless these are exactly the src files besides src/unsafe.rs with unsafe code
-UNSAFE_LEFT :=
+# lint-rust fails unless these are exactly the src files besides src/unsafe.rs with unsafe code as the plugin macros write into a plugin
+UNSAFE_LEFT := src/plugin/macros.rs
 
 # where the shifted build's static data starts and 65536 more moves its heap too
 LAYOUT_BASE ?= 1048640
@@ -54,14 +57,12 @@ unix_only = $(if $(filter Windows_NT,$(OS)),$(error AFL runs on Linux and macOS 
 
 wasm:
 	cargo rustc --locked --release $(RUNTIME)
-	cp $(WASM)/release/interpreter_lox.wasm $(WASM)/release/interpreter.wasm
 
 wasm-rig:
 	cargo rustc --locked --release $(RIG)
 
 wasm-cli:
 	cargo rustc --locked --profile cli $(RUNTIME)
-	cp $(WASM)/cli/interpreter_lox.wasm $(WASM)/cli/interpreter.wasm
 
 # the small interpreter.wasm that ships and the speed copy the CLI precompiles to native code
 wasm-ship: wasm-small wasm-cli-opt
@@ -70,7 +71,6 @@ wasm-ship: wasm-small wasm-cli-opt
 wasm-small: export RUSTFLAGS = -Z location-detail=none -Z fmt-debug=none -Z unstable-options -C panic=immediate-abort
 wasm-small:
 	cargo +nightly rustc --locked --release $(RUNTIME) -Z build-std=std,panic_abort -Z build-std-features=optimize_for_size
-	cp $(WASM)/release/interpreter_lox.wasm $(WASM)/release/interpreter.wasm
 	wasm-opt -Oz $(WASM_INLINE) --converge --generate-global-effects --strip-debug --strip-producers $(WASM_FEATURES) -o $(WASM)/release/interpreter.1.wasm $(WASM)/release/interpreter.wasm
 	wasm-opt --flatten --rereloop -Oz -Oz $(WASM_INLINE) $(WASM_FEATURES) -o $(WASM)/release/interpreter.2.wasm $(WASM)/release/interpreter.1.wasm
 	wasm-opt -Oz $(WASM_INLINE) --converge $(WASM_FEATURES) -o $(WASM)/release/interpreter.wasm $(WASM)/release/interpreter.2.wasm
@@ -98,13 +98,16 @@ lint-rust: lint-names wasm
 	  [ -z "$$stray" ] || { printf 'UNSAFE_LEFT must name exactly the src files besides src/unsafe.rs with unsafe code and these differ\n%s\n' "$$stray"; exit 1; }
 	cargo shear
 	cargo clippy --locked --all-targets -- -D warnings
-	cargo clippy --locked --lib --no-default-features --features interpreter/runtime,interpreter-lox/web --target wasm32-unknown-unknown -p interpreter -p interpreter-lib -p interpreter-lox -p slugify-mod -- -D warnings
-	cargo clippy --locked --lib --no-default-features --target wasm32-unknown-unknown -p interpreter -p interpreter-lib -p interpreter-lox -- -D warnings
+	cargo clippy --locked --lib --no-default-features --features web --target wasm32-unknown-unknown -p interpreter -- -D warnings
+	cargo clippy --locked --lib --no-default-features --features full,plugin --target wasm32-unknown-unknown -p interpreter -- -D warnings
+	cargo clippy --locked --lib --no-default-features --target wasm32-unknown-unknown -p interpreter -- -D warnings
+	cargo clippy --locked --lib --target wasm32-unknown-unknown -p slugify-mod -- -D warnings
+	for f in $(LIB_MODULES); do cargo check --locked --lib --no-default-features --features $$f -p interpreter || exit 1; done
 	deno run --allow-read make/exports.ts $(WASM)/release/interpreter.wasm
 
-# fails on any denied name in the engine lib or the plugin kit
+# fails on any denied name in the crate or the example plugin where Lox's own words are its grammar
 lint-names:
-	@deno run --allow-read make/names.ts make/names.txt src lib/src plugin
+	@deno run --allow-read make/names.ts make/names.txt src plugin '!src/lox'
 
 # js/src splits main-thread and worker since tsc rejects mixing the dom and webworker libs
 lint-js:
@@ -127,9 +130,7 @@ lint-cli: $(CLI_INPUTS) wasm-rig
 test:
 	cargo test --locked -p interpreter
 	cargo test --locked -p interpreter --features coverage coverage
-	cargo test --locked -p interpreter-lib
 	cargo test --locked -p rig
-	cargo test --locked -p interpreter-lox
 
 bench: wasm-cli
 	cargo run --locked -p bench --profile cli
@@ -142,8 +143,8 @@ bench-accept-slower: wasm-cli
 
 # every case on interpreter.wasm and on a build with its static data shifted
 bench-layout: wasm-cli
-	cargo rustc --locked --profile layout $(RUNTIME) --features interpreter/layout -- -C link-arg=--global-base=$(LAYOUT_BASE)
-	cargo run --locked -p bench --profile cli -- --layout $(WASM)/layout/interpreter_lox.wasm
+	cargo rustc --locked --profile layout $(RUNTIME) --features layout -- -C link-arg=--global-base=$(LAYOUT_BASE)
+	cargo run --locked -p bench --profile cli -- --layout $(WASM)/layout/interpreter.wasm
 
 plugin:
 	cargo build --locked --release --target wasm32-unknown-unknown -p slugify-mod

@@ -173,11 +173,11 @@ mod test {
         const BUILT: interpreter::value::foreign::Built = <rig::Rig as Language>::BUILT;
         type Ops = ();
 
-        fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Mode) -> Result<String, VmErr> { interpreter_lib::fmt::render::hook::<rig::Rig>(cx, v, mode) }
+        fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Mode) -> Result<String, VmErr> { interpreter::lib::fmt::render::hook::<rig::Rig>(cx, v, mode) }
 
-        fn format(cx: &mut Cx<'_, '_>, v: Val, spec: &str) -> Result<String, VmErr> { interpreter_lib::fmt::spec::hook::<rig::Rig>(cx, v, spec) }
+        fn format(cx: &mut Cx<'_, '_>, v: Val, spec: &str) -> Result<String, VmErr> { interpreter::lib::fmt::spec::hook::<rig::Rig>(cx, v, spec) }
 
-        fn handles(heap: &HeapPool, exc: Val, class: Val) -> Result<bool, VmErr> { interpreter_lib::types::match_exc::<rig::Rig>(heap, exc, class) }
+        fn handles(heap: &HeapPool, exc: Val, class: Val) -> Result<bool, VmErr> { interpreter::lib::types::match_exc::<rig::Rig>(heap, exc, class) }
 
         fn misfit(n: &Native, owner: Option<&str>, m: Misfit<'_>) -> VmErr { <rig::Rig as interpreter::lang::Language>::misfit(n, owner, m) }
 

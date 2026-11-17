@@ -5,12 +5,11 @@ description: "Compile and run programs inside a Rust program: the VM, its output
 
 # Rust
 
-A Rust program links the engine and a runtime as crates and runs programs in its own process, with no `.wasm` in between. The examples on this page embed Lox through the `interpreter-lox` crate. A runtime of your own exposes the same `RUNTIME` and `FRONT`, as [Build a runtime](./02-runtime.mdx) shows.
+A Rust program links the engine and a runtime and runs programs in its own process, with no `.wasm` in between. The examples on this page embed Lox through `interpreter::lox`, which the `lox` feature turns on. A runtime of your own exposes the same `RUNTIME` and `FRONT`, as [Build a runtime](./02-runtime.mdx) shows.
 
 ```toml
 [dependencies]
-interpreter = "0.9"
-interpreter-lox = "0.9"
+interpreter = { version = "1", features = ["lox"] }
 ```
 
 ## Run a program
@@ -25,9 +24,9 @@ interpreter::allocator!();
 
 fn main() {
     let src = "fun square(n) {\n    return n * n;\n}\n\nfor (var n = 0; n < 4; n = n + 1) print square(n);\n";
-    let (chunk, errors) = interpreter::code::compile(&interpreter_lox::FRONT, src);
+    let (chunk, errors) = interpreter::code::compile(&interpreter::lox::FRONT, src);
     assert!(errors.is_empty(), "{}", interpreter::code::Diagnostic::render_all(&errors, src, Some("main.lox")));
-    let mut vm = VM::with_runtime(&interpreter_lox::RUNTIME, &chunk, Limits::sandbox());
+    let mut vm = VM::with_runtime(&interpreter::lox::RUNTIME, &chunk, Limits::sandbox());
     vm.run().expect("the program runs");
     assert_eq!(vm.output_text(), "0\n1\n4\n9\n");
 }
@@ -61,8 +60,8 @@ interpreter::allocator!();
 
 fn main() {
     let src = "var words = \"\";\nvar m = receive();\nwhile (m != \"stop\") {\n    words = words + m;\n    m = receive();\n}\nprint \"got \" + words;\n";
-    let (chunk, _) = interpreter::code::compile(&interpreter_lox::FRONT, src);
-    let mut vm = VM::with_runtime(&interpreter_lox::RUNTIME, &chunk, Limits::sandbox());
+    let (chunk, _) = interpreter::code::compile(&interpreter::lox::FRONT, src);
+    let mut vm = VM::with_runtime(&interpreter::lox::RUNTIME, &chunk, Limits::sandbox());
     let mut events = ["ab", "cd", "stop"].into_iter();
     loop {
         match vm.run() {
@@ -115,8 +114,8 @@ impl Resolver for Host {
 
 fn main() {
     let src = "var host = import(\"host\");\nvar util = import(\"util\");\nprint text(host.double(21)) + \" \" + util.greet(\"ana\");\nprint host.fetch() + 1;\n";
-    let script = Script::compile(&interpreter_lox::FRONT, "main.lox", src.into(), Box::new(Host)).unwrap();
-    let mut vm = VM::with_runtime(&interpreter_lox::RUNTIME, &script.chunk, Limits::sandbox());
+    let script = Script::compile(&interpreter::lox::FRONT, "main.lox", src.into(), Box::new(Host)).unwrap();
+    let mut vm = VM::with_runtime(&interpreter::lox::RUNTIME, &script.chunk, Limits::sandbox());
     assert!(matches!(vm.run(), Err(VmErr::HostYield(SchedulerStatus::PendingHostCall))));
     assert!(vm.inject_host_result_by_id(0, Val::float(41.0)));
     vm.run().unwrap();
@@ -135,8 +134,8 @@ use interpreter::value::Val;
 interpreter::allocator!();
 
 fn main() {
-    let (chunk, _) = interpreter::code::compile(&interpreter_lox::FRONT, "fun area(w, h) {\n    return w * h;\n}\n");
-    let mut vm = VM::with_runtime(&interpreter_lox::RUNTIME, &chunk, Limits::sandbox());
+    let (chunk, _) = interpreter::code::compile(&interpreter::lox::FRONT, "fun area(w, h) {\n    return w * h;\n}\n");
+    let mut vm = VM::with_runtime(&interpreter::lox::RUNTIME, &chunk, Limits::sandbox());
     vm.run().unwrap();
     let got = vm.call_export("area", &[Val::float(6.0), Val::float(7.0)]).unwrap();
     assert_eq!(vm.display(got), "42");
@@ -155,8 +154,8 @@ interpreter::allocator!();
 
 fn main() {
     let src = "var seen = \"\";\nvar m = receive();\nwhile (m != \"stop\") {\n    seen = seen + m;\n    m = receive();\n}\nprint seen;\n";
-    let (chunk, _) = interpreter::code::compile(&interpreter_lox::FRONT, src);
-    let mut vm = VM::with_runtime(&interpreter_lox::RUNTIME, &chunk, Limits::sandbox());
+    let (chunk, _) = interpreter::code::compile(&interpreter::lox::FRONT, src);
+    let mut vm = VM::with_runtime(&interpreter::lox::RUNTIME, &chunk, Limits::sandbox());
     assert!(matches!(vm.run(), Err(VmErr::HostYield(SchedulerStatus::PendingEvent))));
     vm.push_event("a").unwrap();
     assert!(matches!(vm.run(), Err(VmErr::HostYield(SchedulerStatus::PendingEvent))));
@@ -164,7 +163,7 @@ fn main() {
     drop(vm);
 
     // a new machine over the same program picks up where the first one parked
-    let mut later = VM::with_runtime(&interpreter_lox::RUNTIME, &chunk, embed::limits_of(&blob).unwrap());
+    let mut later = VM::with_runtime(&interpreter::lox::RUNTIME, &chunk, embed::limits_of(&blob).unwrap());
     embed::restore(&mut later, &blob).unwrap();
     later.push_event("b").unwrap();
     later.push_event("stop").unwrap();
@@ -187,7 +186,7 @@ interpreter::allocator!();
 
 // runs the Lox file its first argument names
 fn main() -> ExitCode {
-    interpreter::targets::native::main(&interpreter_lox::RUNTIME, &interpreter_lox::FRONT, Limits::sandbox())
+    interpreter::targets::native::main(&interpreter::lox::RUNTIME, &interpreter::lox::FRONT, Limits::sandbox())
 }
 ```
 

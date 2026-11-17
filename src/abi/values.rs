@@ -14,7 +14,7 @@ pub fn error_from_kind(kind: u32, msg: String) -> VmErr {
         Some(ErrorKind::Index) => VmErr::Of(ErrKind::Index, msg),
         Some(ErrorKind::Key) => VmErr::Of(ErrKind::Key, msg),
         // an end a plugin passes back unread raises the class the runtime names for it
-        Some(ErrorKind::Custom) if msg == interpreter_abi::op::ITER_END => VmErr::Of(ErrKind::Stop, String::new()),
+        Some(ErrorKind::Custom) if msg == crate::abi::op::ITER_END => VmErr::Of(ErrKind::Stop, String::new()),
         // a custom kind carries its class in `msg` as written and passes through unchanged
         Some(ErrorKind::Custom) | None => VmErr::Raised(msg),
     }

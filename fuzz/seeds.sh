@@ -22,7 +22,7 @@ perl -MDigest::SHA=sha1_hex -e '
     }
     if (defined $block) { $block =~ s/\n+\z//; seed($block); }' ../tests/cases/vm/*.yml
 # one seed per lox program of the book's suite and the bench named by its hash
-for f in $(find ../examples/lox/tests/suite ../bench/cases -name '*.lox'); do
+for f in $(find ../tests/lox/suite ../bench/cases -name '*.lox'); do
     cp "$f" "in/$(shasum "$f" | cut -c1-16)"
 done
 echo "seeds: $(ls in | wc -l | tr -d ' ')"

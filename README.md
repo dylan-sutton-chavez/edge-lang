@@ -5,7 +5,7 @@
 ## Quick start
 
 ```bash
-cargo add interpreter interpreter-lox
+cargo add interpreter --features lox
 ```
 
 This runs a Lox program, the language of the book Crafting Interpreters, inside your own binary.
@@ -18,25 +18,28 @@ interpreter::allocator!();
 
 fn main() {
     let src = "fun square(n) {\n    return n * n;\n}\n\nprint square(7);\n";
-    let (chunk, errors) = interpreter::code::compile(&interpreter_lox::FRONT, src);
+    let (chunk, errors) = interpreter::code::compile(&interpreter::lox::FRONT, src);
     assert!(errors.is_empty(), "{}", interpreter::code::Diagnostic::render_all(&errors, src, Some("main.lox")));
-    let mut vm = VM::with_runtime(&interpreter_lox::RUNTIME, &chunk, Limits::sandbox());
+    let mut vm = VM::with_runtime(&interpreter::lox::RUNTIME, &chunk, Limits::sandbox());
     vm.run().expect("the program runs");
     assert_eq!(vm.output_text(), "49\n");
 }
 ```
 
-A language of your own swaps `interpreter_lox` for a runtime you write, as [Build a runtime](https://github.com/dylan-sutton-chavez/interpreter/blob/main/docs/02-runtime.mdx) shows.
+A language of your own swaps `interpreter::lox` for a runtime you write, as [Build a runtime](https://github.com/dylan-sutton-chavez/interpreter/blob/main/docs/02-runtime.mdx) shows.
 
-## Crates
+## Features
 
-| Crate | Holds |
+[`interpreter`](https://docs.rs/interpreter) is one crate, with the engine always on and each part beyond it behind a feature.
+
+| Feature | Turns on |
 |---|---|
-| [`interpreter`](https://docs.rs/interpreter) | The engine: lexer, parser, VM, snapshots, imports and grants |
-| [`interpreter-lib`](https://docs.rs/interpreter-lib) | Natives a runtime names in its own table, each module behind a feature |
-| [`interpreter-lox`](https://docs.rs/interpreter-lox) | Lox on the engine, the runtime `interpreter.wasm` and the CLI are built from |
-| [`interpreter-plugin`](https://docs.rs/interpreter-plugin) | The kit for writing `.wasm` plugins a program imports |
-| [`interpreter-abi`](https://docs.rs/interpreter-abi) | The wire format plugins and hosts share |
+| `std` | The standard library, the one default |
+| `lib`, `bytes`, `data`, `date`, `io`, `iter`, `map`, `num`, `reflect`, `seq`, `set`, `spec`, `text`, `types` | `interpreter::lib`, the natives a runtime names in its own table, one module per feature |
+| `lox` | `interpreter::lox`, Lox on the engine, the runtime `interpreter.wasm` and the CLI are built from, and the `lox` binary |
+| `full` | Every module of `interpreter::lib` and Lox |
+| `plugin` | `interpreter::plugin`, the kit for writing `.wasm` plugins a program imports |
+| `runtime`, `perms`, `web` | The exports of a runtime's `.wasm`, and `interpreter.wasm` itself |
 
 ## Docs
 
@@ -47,6 +50,7 @@ A language of your own swaps `interpreter_lox` for a runtime you write, as [Buil
 - [JavaScript](https://github.com/dylan-sutton-chavez/interpreter/blob/main/docs/05-javascript.mdx): run a runtime's `.wasm` in a page, and the host interface
 - [CLI](https://github.com/dylan-sutton-chavez/interpreter/blob/main/docs/06-cli.mdx): the `interpreter` commands, packages by URL, grants and a CLI of your own
 - [Errors and limits](https://github.com/dylan-sutton-chavez/interpreter/blob/main/docs/07-errors-and-limits.mdx)
+- [Plugins](https://github.com/dylan-sutton-chavez/interpreter/blob/main/docs/08-plugins.mdx): functions, classes and system calls in a `.wasm` plugin
 
 Every code example in `docs/` and in this README runs in CI.
 
@@ -67,7 +71,7 @@ Build and test commands for every part are in [CONTRIBUTING.md](https://github.c
 
 ## License
 
-Apache 2.0, covering every directory of the repo, so running it, embedding it, building a runtime on it and writing plugins for it need nothing from anyone. See [LICENSE.md](https://github.com/dylan-sutton-chavez/interpreter/blob/main/LICENSE.md). The book's tests in `examples/lox/tests/suite` and its benchmarks in `bench/cases/book` keep their own MIT license, written beside them.
+Apache 2.0, covering every directory of the repo, so running it, embedding it, building a runtime on it and writing plugins for it need nothing from anyone. See [LICENSE.md](https://github.com/dylan-sutton-chavez/interpreter/blob/main/LICENSE.md). The book's tests in `tests/lox/suite` and its benchmarks in `bench/cases/book` keep their own MIT license, written beside them.
 
 ## Sponsors
 

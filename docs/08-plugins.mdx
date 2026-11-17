@@ -1,0 +1,111 @@
+---
+title: "Plugins"
+description: "Write a WebAssembly plugin a program imports, with functions, constants, classes and system calls."
+---
+
+# Plugins
+
+A plugin is a `.wasm` module a program imports like any other module. It runs in an instance of its own, beside the runtime, and reaches the program's values only through handles the host lends it. `interpreter::plugin` is the kit you write one with, and every runtime built on `interpreter` loads it the same way, in the CLI and in a web page.
+
+## The crate
+
+A plugin is a `cdylib` that takes the crate with only the `plugin` feature:
+
+```toml
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+interpreter = { version = "1", default-features = false, features = ["plugin"] }
+```
+
+It builds for `wasm32-unknown-unknown`, where the crate is `no_std` and `module!()` brings the allocator and the panic handler:
+
+```bash
+cargo build --release --target wasm32-unknown-unknown
+```
+
+## Exports
+
+Each macro takes the items it exports and writes them as they are, beside the symbols the host calls.
+
+```rust standalone_crate
+#![cfg_attr(target_arch = "wasm32", no_std, no_main)]
+
+extern crate alloc;
+
+use alloc::string::String;
+use interpreter::plugin::prelude::*;
+
+// the allocator and panic handler every wasm32 plugin needs
+module!();
+
+plugin_const! {
+    fn version() -> i64 { 1 }
+}
+
+plugin_fn! {
+    // every argument after `sep` joined as the runtime writes it
+    fn join(sep: String, parts: Args) -> Result<String> {
+        let mut out = String::new();
+        for (i, h) in parts.0.iter().enumerate() {
+            if i > 0 { out.push_str(&sep); }
+            out.push_str(&h.text()?);
+        }
+        Ok(out)
+    }
+}
+
+plugin_class! {
+    pub struct Counter { n: i64 }
+}
+
+plugin_methods! {
+    impl Counter {
+        #[ctor]
+        pub fn new() -> Self { Self { n: 0 } }
+
+        pub fn add(&mut self, by: i64) -> i64 {
+            self.n += by;
+            self.n
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn main() {}
+```
+
+| Macro | Exports | As |
+|---|---|---|
+| `plugin_fn!` | Functions a program calls | `__fn_<name>` |
+| `plugin_const!` | Zero-param functions read once as module constants | `__const_<name>` |
+| `plugin_class!` | A struct whose instances live in the plugin under the id their object keeps | |
+| `plugin_methods!` | Its methods, and the `#[ctor]` one as the constructor | `__class_<Name>_<method>`, `__class_<Name>_init` |
+| `plugin_resume!` | The function a waiting system call settles into | `__interpreter_resume` |
+
+A param is any type with `FromValue`: `i64`, `i128`, `f64`, `bool`, `String`, `Bytes`, `Value`, `Vec<Value>`, `Option<T>` or a borrowed `Handle`. `Args` takes every positional past the fixed params, and `Kwargs`, last, takes the keywords. A function returns any type with `IntoValue`, or a `Result` of one, and an `Error` raises in the program as the class its kind names. A misplaced `Args` or `Kwargs` fails the build.
+
+## Importing it
+
+A program imports the plugin by the name its `interpreter.json` gives the file:
+
+```json
+{ "imports": { "tools": "./tools.wasm" } }
+```
+
+```lox main.lox
+var tools = import("tools");
+print tools.join("-", "a", "b", 3);
+var c = tools.Counter();
+c.add(2);
+print c.add(3);
+```
+
+The host refuses a plugin whose `__interpreter_abi_version` is not the `ABI_VERSION` it knows, so a plugin built for v1 of the ABI loads in every host of v1.
+
+## Handles and system calls
+
+A `Handle` is a value of the program the plugin holds, and its methods run the program's own operations on it: `get_attr`, `get_item`, `set_item`, `len`, `iter` and `iter_next`, `call` and `text`. An argument is borrowed for its call, and a handle an operation returns is released when it drops.
+
+`Handle::sys("module.name", args)` calls a host module the plugin's package was granted, such as `net`. A call that answers later returns `Error::Waiting`, the program waits with it, and the host calls the function `plugin_resume!` exports with the call's id and its answer once it settles. `call_id()` names the running call, so a plugin keeps what it needs under it in a `PluginCell`.

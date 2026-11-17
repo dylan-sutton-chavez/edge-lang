@@ -1,6 +1,6 @@
 use alloc::string::String;
 
-use interpreter_lib::lang::{Codec, OnError, Order};
+use interpreter::lib::lang::{Codec, OnError, Order};
 
 /* the codec an encoding name means once normalized */
 pub fn codec(name: &str) -> Option<Codec> {

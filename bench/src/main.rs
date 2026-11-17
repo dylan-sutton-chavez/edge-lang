@@ -8,7 +8,7 @@ const ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
 const SNAPSHOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/.snapshot");
 const CASES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/cases");
 // the sources interpreter.wasm is built from which it must not predate
-const SOURCES: [&str; 3] = ["src", "lib/src", "examples/lox/src"];
+const SOURCES: [&str; 1] = ["src"];
 // only budget-exhausting cases reach this many ops and they end the same way sooner
 const OPS: i64 = 10_000_000;
 // the MB the memory limit counts in

@@ -3,7 +3,7 @@ import { SystemError } from './system/error.ts';
 
 export const errMsg = (e: unknown): string => e instanceof Error ? e.message : String(e);
 
-// the error kinds of `abi/src/lib.rs` where a custom one carries its class in the message
+// the error kinds of `src/abi/wire.rs` where a custom one carries its class in the message
 export const ERR_TYPE = 0;
 export const ERR_VALUE = 1;
 export const ERR_RUNTIME = 2;

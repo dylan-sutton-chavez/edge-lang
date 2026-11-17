@@ -18,5 +18,4 @@ std = ["interpreter/std"]
 web = ["interpreter/runtime", "interpreter/perms"]
 
 [dependencies]
-interpreter = { path = "../..", default-features = false }
-interpreter-lib = { path = "../../lib" }
+interpreter = { path = "../..", default-features = false, features = ["bytes", "data", "date", "io", "iter", "map", "num", "reflect", "seq", "set", "spec", "text", "types"] }

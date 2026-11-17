@@ -69,6 +69,11 @@ runs:
       shell: bash
       run: make test
 
+    # every push and pull request packs the crate as crates.io would take it while a tag alone publishes it
+    - name: Pack the crate
+      shell: bash
+      run: cargo publish -p interpreter --locked --dry-run
+
     # interpreter.wasm ships with its compiler.wasm copy and the speed build goes under _build/
     - name: Stage
       uses: ./.github/actions/stage

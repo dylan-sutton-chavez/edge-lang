@@ -365,6 +365,82 @@ pub(crate) mod web {
     }
 }
 
+// interpreter.wasm boots Lox under the web feature
+#[cfg(all(target_arch = "wasm32", feature = "web"))]
+crate::web_exports!(crate::lox::RUNTIME);
+
+// SAFETY a plugin host answers each import under the v1 plugin ABI as plugin_suite checks
+#[cfg(feature = "plugin")]
+pub(crate) mod plugin {
+    use crate::plugin::{Handle, Result, __internals::fail};
+    use alloc::boxed::Box;
+
+    #[link(wasm_import_module = "env")]
+    unsafe extern "C" {
+        fn interpreter_op(op: u32, recv: u32, name_ptr: *const u8, name_len: u32, argv_ptr: *const u32, argc: u32, out: *mut u32) -> i32;
+        fn interpreter_encode(tag: u32, ptr: *const u8, len: u32) -> u32;
+        fn interpreter_decode(h: u32, out_tag: *mut u32, dst: *mut u8, dst_max: u32) -> i32;
+        fn interpreter_release(h: u32);
+        fn interpreter_take_error(out_kind: *mut u32, dst: *mut u8, dst_max: u32) -> i32;
+        fn interpreter_throw(kind: u32, msg_ptr: *const u8, msg_len: u32);
+        fn interpreter_call_id() -> u32;
+    }
+
+    // an empty slice passes a null pointer as the ABI reads no bytes from it
+    #[inline(always)] fn at<T>(s: &[T]) -> *const T { if s.is_empty() { core::ptr::null() } else { s.as_ptr() } }
+    #[inline(always)] fn at_mut(s: &mut [u8]) -> *mut u8 { if s.is_empty() { core::ptr::null_mut() } else { s.as_mut_ptr() } }
+
+    pub(crate) fn op(op: u32, recv: u32, name: &str, argv: &[u32], out: &mut u32) -> i32 { unsafe { interpreter_op(op, recv, at(name.as_bytes()), name.len() as u32, at(argv), argv.len() as u32, out) } }
+    pub(crate) fn encode(tag: u32, body: &[u8]) -> u32 { unsafe { interpreter_encode(tag, body.as_ptr(), body.len() as u32) } }
+    pub(crate) fn decode(h: u32, tag: &mut u32, dst: &mut [u8]) -> i32 { unsafe { interpreter_decode(h, tag, at_mut(dst), dst.len() as u32) } }
+    pub(crate) fn release(h: u32) { unsafe { interpreter_release(h) } }
+    pub(crate) fn take_error(kind: &mut u32, dst: &mut [u8]) -> i32 { unsafe { interpreter_take_error(kind, at_mut(dst), dst.len() as u32) } }
+    pub(crate) fn throw(kind: u32, msg: &str) { unsafe { interpreter_throw(kind, msg.as_ptr(), msg.len() as u32) } }
+    pub(crate) fn call_id() -> u32 { unsafe { interpreter_call_id() } }
+
+    // SAFETY the caller passes the argv argc and out the host gave this export for one call
+    #[allow(clippy::missing_safety_doc)]
+    pub unsafe fn export(argv: *const u32, argc: u32, out: *mut u32, run: impl FnOnce(&[u32]) -> Result<Handle>) -> i32 {
+        let slots = if argv.is_null() { &[][..] } else { unsafe { core::slice::from_raw_parts(argv, argc as usize) } };
+        match run(slots) {
+            Ok(h) => { unsafe { *out = h.into_raw() }; 0 }
+            Err(e) => fail(e),
+        }
+    }
+
+    // a cell for static plugin state that is Sync because wasm has no threads
+    pub struct PluginCell<T>(core::cell::UnsafeCell<Option<T>>);
+
+    // SAFETY a wasm plugin runs on one thread so no two threads ever reach the cell
+    unsafe impl<T> Sync for PluginCell<T> {}
+
+    impl<T> PluginCell<T> {
+        pub const fn new() -> Self { Self(core::cell::UnsafeCell::new(None)) }
+
+        // SAFETY the caller keeps mut borrows from overlapping across reentrant interpreter_op calls
+        #[allow(clippy::mut_from_ref)]
+        pub fn get_or_init<F: FnOnce() -> T>(&self, init: F) -> &mut T {
+            let slot = unsafe { &mut *self.0.get() };
+            slot.get_or_insert_with(init)
+        }
+    }
+
+    impl<T> Default for PluginCell<T> {
+        fn default() -> Self { Self::new() }
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn __interpreter_abi_version() -> u32 { crate::abi::ABI_VERSION }
+
+    // the host stages argv here and frees it with __interpreter_free
+    #[unsafe(no_mangle)]
+    pub extern "C" fn __interpreter_alloc(size: u32) -> *mut u8 { Box::into_raw(alloc::vec![0u8; size as usize].into_boxed_slice()).cast() }
+
+    // SAFETY the host gives back once a block __interpreter_alloc made of exactly size bytes
+    #[unsafe(no_mangle)]
+    pub extern "C" fn __interpreter_free(p: *mut u8, size: u32) { if !p.is_null() && size != 0 { drop(unsafe { Box::from_raw(core::ptr::slice_from_raw_parts_mut(p, size as usize)) }) } }
+}
+
 // SAFETY nothing frees code chunks or constants a frame or record names as test_cases checks
 
 // SAFETY the caller keeps rc in a slot or table outliving the borrow

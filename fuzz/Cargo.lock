@@ -37,7 +37,6 @@ version = "0.0.0"
 dependencies = [
  "afl",
  "interpreter",
- "interpreter-lox",
  "rig",
 ]
 
@@ -58,33 +57,12 @@ dependencies = [
 
 [[package]]
 name = "interpreter"
-version = "0.9.7"
+version = "1.0.0"
 dependencies = [
  "dlmalloc",
  "hashbrown",
- "interpreter-abi",
  "itoa",
  "libm",
-]
-
-[[package]]
-name = "interpreter-abi"
-version = "0.9.7"
-
-[[package]]
-name = "interpreter-lib"
-version = "0.9.7"
-dependencies = [
- "interpreter",
- "itoa",
-]
-
-[[package]]
-name = "interpreter-lox"
-version = "0.9.7"
-dependencies = [
- "interpreter",
- "interpreter-lib",
 ]
 
 [[package]]
@@ -107,10 +85,9 @@ checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 
 [[package]]
 name = "rig"
-version = "0.9.7"
+version = "1.0.0"
 dependencies = [
  "interpreter",
- "interpreter-lib",
 ]
 
 [[package]]

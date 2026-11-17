@@ -13,6 +13,6 @@ The engine builds as `interpreter.wasm` and as a Rust library, and driving eithe
 
 ## The book's tests and benchmarks
 
-`examples/lox/tests/suite` `bench/cases/book`
+`tests/lox/suite` `bench/cases/book`
 
 The tests and benchmarks of Crafting Interpreters by Robert Nystrom under the MIT license, whose text with its copyright is in the LICENSE file of each.

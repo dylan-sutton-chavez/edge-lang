@@ -3,7 +3,7 @@
 
 [package]
 name = "interpreter-cli"
-version = "0.9.7"
+version = "1.0.0"
 edition = "2024"
 rust-version = "1.98"
 license = "Apache-2.0"
@@ -68,7 +68,7 @@ build = ["docs", "web"]
 # the pages a package ships held to the docs convention and to the icons Lucide draws
 docs = []
 # the reference runtime this crate precompiles for the build target and the interpreter binary embeds
-embed = ["wasm", "dep:interpreter-lox"]
+embed = ["wasm", "interpreter/lox"]
 # the lines each native run executed written where INTERPRETER_COVERAGE names
 coverage = ["interpreter/coverage"]
 # reads of the local files a grant names under the package that asks
@@ -91,8 +91,6 @@ wasm = ["dep:wasmtime"]
 [dependencies]
 # The engine crate as a library, manifest parsing and sha256 pinning.
 interpreter = { path = ".." }
-# the reference runtime whose descriptor the interpreter composition hands the kit
-interpreter-lox = { path = "../examples/lox", optional = true }
 # hosts the runtime a composition hands the kit and Cranelift compiles the plugins a project declares
 wasmtime = { version = "48", default-features = false, features = ["runtime", "std", "cranelift"], optional = true }
 clap = { version = "4", features = ["derive"] }
@@ -129,10 +127,8 @@ tempfile = "3"
 tiny_http = "0.12"
 tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
 flate2 = "1"
-# the reference runtime the native test builds into its binary
-interpreter-lox = { path = "../examples/lox" }
-# the kernels the runtime example of the docs names
-interpreter-lib = { path = "../lib" }
+# Lox the native test builds into its binary and the kernels and plugin kit the docs examples name
+interpreter = { path = "..", features = ["full", "plugin"] }
 # the names of the rig whose wasm the rig test loads
 rig = { path = "../tests/rig", default-features = false }
 

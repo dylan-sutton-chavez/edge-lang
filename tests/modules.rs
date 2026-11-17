@@ -120,7 +120,7 @@ mod test {
             let resolver = Box::new(build_resolver(&case.modules, &case.aliases, &case.manifests));
             // the module system reads its cases in the legacy fixture which still spells every import form
             let (chunk, parse_errs) = if case.lox {
-                match interpreter_lox::FRONT.program(&case.src, resolver) {
+                match interpreter::lox::FRONT.program(&case.src, resolver) {
                     Ok(chunk) => (std::rc::Rc::unwrap_or_clone(chunk), Vec::new()),
                     Err(errs) => (Default::default(), errs),
                 }
@@ -147,7 +147,7 @@ mod test {
             if let Some(n) = case.expect_externs { assert_eq!(chunk.extern_table.len(), n, "extern_table size mismatch on {:?}", case.src); }
             if let Some(n) = case.expect_functions { assert_eq!(chunk.functions.len(), n, "functions count mismatch on {:?}", case.src); }
 
-            let mut vm = if case.lox { interpreter::embed::VM::with_runtime(&interpreter_lox::RUNTIME, &chunk, interpreter::embed::Limits::sandbox()) } else { crate::common::boot(&chunk, interpreter::embed::Limits::sandbox()) };
+            let mut vm = if case.lox { interpreter::embed::VM::with_runtime(&interpreter::lox::RUNTIME, &chunk, interpreter::embed::Limits::sandbox()) } else { crate::common::boot(&chunk, interpreter::embed::Limits::sandbox()) };
             vm.input_buffer = case.input.clone();
             // each PendingHostCall resumes with the next entry of `host_deliveries`
             let mut hr_idx = 0usize;

@@ -370,7 +370,7 @@ mod tests {
                 fs::write(at, body).unwrap();
             }
             let pages = case.files.keys().filter(|p| p.ends_with(".mdx")).count();
-            match (&case.error, collect(dir.path(), Some("./docs"), &interpreter_lox::DESCRIPTOR)) {
+            match (&case.error, collect(dir.path(), Some("./docs"), &interpreter::lox::DESCRIPTOR)) {
                 (None, Ok(got)) => assert_eq!(got.len(), pages, "{}", case.name),
                 (None, Err(e)) => panic!("{} should pass, got {e:#}", case.name),
                 (Some(want), Err(e)) => {
@@ -389,21 +389,21 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         fs::create_dir_all(dir.path().join("docs/01-reference")).unwrap();
         fs::write(dir.path().join("docs/01-reference/01-cli.mdx"), PAGE).unwrap();
-        let got = collect(dir.path(), Some("docs"), &interpreter_lox::DESCRIPTOR).unwrap();
+        let got = collect(dir.path(), Some("docs"), &interpreter::lox::DESCRIPTOR).unwrap();
         assert_eq!(got[0].0, "@docs/01-reference/01-cli.mdx");
     }
 
     #[test]
     fn no_docs_key_collects_nothing() {
         let dir = tempfile::tempdir().unwrap();
-        assert!(collect(dir.path(), None, &interpreter_lox::DESCRIPTOR).unwrap().is_empty());
+        assert!(collect(dir.path(), None, &interpreter::lox::DESCRIPTOR).unwrap().is_empty());
     }
 
     #[test]
     fn a_path_outside_the_project_is_refused() {
         let dir = tempfile::tempdir().unwrap();
         for bad in ["../docs", "/etc", "https://example.com/docs", "./"] {
-            let err = format!("{:#}", collect(dir.path(), Some(bad), &interpreter_lox::DESCRIPTOR).expect_err(bad));
+            let err = format!("{:#}", collect(dir.path(), Some(bad), &interpreter::lox::DESCRIPTOR).expect_err(bad));
             assert!(err.contains("must be a relative path"), "{bad} got '{err}'");
         }
     }
@@ -412,7 +412,7 @@ mod tests {
     #[test]
     fn the_repo_docs_hold_to_the_rules() {
         let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
-        let pages = collect(&repo, Some("docs"), &interpreter_lox::DESCRIPTOR).unwrap_or_else(|e| panic!("{e:#}"));
+        let pages = collect(&repo, Some("docs"), &interpreter::lox::DESCRIPTOR).unwrap_or_else(|e| panic!("{e:#}"));
         assert!(!pages.is_empty());
     }
 }
@@ -434,4 +434,7 @@ mod examples {
 
     #[doc = include_str!("../../docs/06-cli.mdx")]
     struct Cli;
+
+    #[doc = include_str!("../../docs/08-plugins.mdx")]
+    struct Plugins;
 }

@@ -15,7 +15,7 @@ Everything still compiles to the engine's bytecode, so a grammar costs nothing a
 
 ## Example
 
-The table below brings braces, `--` comments and a grammar with one form, one pattern word and one lazy call, over two natives of `interpreter-lib`.
+The table below brings braces, `--` comments and a grammar with one form, one pattern word and one lazy call, over two natives of `interpreter::lib`.
 
 ```rust standalone_crate
 use interpreter::code::OpCode as O;
@@ -86,14 +86,14 @@ impl Spelling for Fixes {
 }
 
 // print and the lazy any that the grammar names
-const TABLE: &[Native] = &interpreter_lib::table![Fixes; "print" => interpreter_lib::io::print, "any" => interpreter_lib::iter::fold::some];
+const TABLE: &[Native] = &interpreter::lib::table![Fixes; "print" => interpreter::lib::io::print, "any" => interpreter::lib::iter::fold::some];
 static NATIVES: Natives = interpreter::natives! { language: Fixes, fns: [TABLE], methods: [], types: &[] };
 
-static TREE: interpreter_lib::lang::Tree = interpreter_lib::lang::Tree::of::<Fixes>();
-impl interpreter_lib::Lang for Fixes {
-    const TREE: &'static interpreter_lib::lang::Tree = &TREE;
+static TREE: interpreter::lib::lang::Tree = interpreter::lib::lang::Tree::of::<Fixes>();
+impl interpreter::lib::Lang for Fixes {
+    const TREE: &'static interpreter::lib::lang::Tree = &TREE;
 }
-impl interpreter_lib::fmt::render::Style for Fixes {}
+impl interpreter::lib::fmt::render::Style for Fixes {}
 
 impl Language for Fixes {
     const VERSION: u32 = 1;
@@ -105,7 +105,7 @@ impl Language for Fixes {
     type Ops = ();
 
     fn show(cx: &mut Cx<'_, '_>, v: Val, mode: interpreter::lang::Mode) -> Result<String, VmErr> {
-        interpreter_lib::fmt::render::hook::<Fixes>(cx, v, mode)
+        interpreter::lib::fmt::render::hook::<Fixes>(cx, v, mode)
     }
 }
 

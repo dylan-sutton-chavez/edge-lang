@@ -7,9 +7,9 @@ use interpreter::embed::Limits;
     // the site embeds the VM through exactly these calls so none reads as dead
     #[test]
     fn an_embedder_runs_a_program_calls_into_it_and_reads_what_it_printed() {
-        let (chunk, errors) = interpreter::code::compile(&interpreter_lox::FRONT, SRC);
+        let (chunk, errors) = interpreter::code::compile(&interpreter::lox::FRONT, SRC);
         assert!(errors.is_empty(), "{:?}", errors.iter().map(|d| &d.msg).collect::<Vec<_>>());
-        let mut vm = interpreter::embed::VM::with_runtime(&interpreter_lox::RUNTIME, &chunk, Limits::sandbox());
+        let mut vm = interpreter::embed::VM::with_runtime(&interpreter::lox::RUNTIME, &chunk, Limits::sandbox());
         vm.bind_chunk_externs().unwrap();
         vm.run().unwrap();
         let booted = vm.output_text();
@@ -45,7 +45,7 @@ use interpreter::embed::Limits;
             own.run().expect("rig runs the chunk it compiled");
             assert!(!own.output.is_empty());
         }
-        let (lox, _) = interpreter::code::compile(&interpreter_lox::FRONT, "print 1;\n");
+        let (lox, _) = interpreter::code::compile(&interpreter::lox::FRONT, "print 1;\n");
         let refused = interpreter::embed::VM::with_limits(&lox, Limits::sandbox()).run().expect_err("the empty runtime runs no chunk Lox compiled");
         assert!(refused.to_string().ends_with("a chunk compiled for lox cannot run on the empty runtime"), "{refused}");
     }

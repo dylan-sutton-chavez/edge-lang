@@ -23,8 +23,8 @@ fn main() {
         let Ok(src) = core::str::from_utf8(data) else { return };
 
         // every input reads through the Lox compiler first
-        let (chunk, errs) = interpreter::code::compile(&interpreter_lox::FRONT, src);
-        if errs.is_empty() { drive(&interpreter_lox::RUNTIME, &chunk, src); }
+        let (chunk, errs) = interpreter::code::compile(&interpreter::lox::FRONT, src);
+        if errs.is_empty() { drive(&interpreter::lox::RUNTIME, &chunk, src); }
 
         // the rig reaches the spelled parser and the VM pieces Lox lacks
         let (tokens, _lex_errs) = lex_as::<Rig>(src);

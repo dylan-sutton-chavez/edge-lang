@@ -22,7 +22,7 @@ Comments are one line, at most one per block, and deleted when redundant. No fil
 
 ## Architecture
 
-The engine in `src/` is laid out along the path a program takes from its source to the register loop, and `src/lib.rs` makes the crate `interpreter` of its directories.
+The crate `interpreter` is the one crate the repo publishes. Its engine in `src/` is laid out along the path a program takes from its source to the register loop, the parts beyond the engine sit beside it behind features, and `src/lib.rs` makes the crate of its directories.
 
 | Path | Holds |
 |---|---|
@@ -33,11 +33,14 @@ The engine in `src/` is laid out along the path a program takes from its source 
 | `src/vm` | The lowering, the register loop and its driver, frames and sections, generators, the callbacks of natives and snapshots |
 | `src/deps` | Manifests, locks and bundles, the module walk and the grant logic |
 | `src/targets` | The exports of every runtime's `.wasm` and the allocator and `Script` a native binary boots a runtime with |
-| `src/abi.rs`, `src/abi` | The wire format of plugins and the bridge that answers them |
+| `src/abi` | The wire format plugins and hosts share, the handle table and the bridge that answers plugins |
+| `src/lib` | `interpreter::lib`, the kernels a runtime names in its own table, one module per feature |
+| `src/lox` | `interpreter::lox`, Lox on the engine, with `src/bin/lox.rs` as its binary |
+| `src/plugin` | `interpreter::plugin`, the kit and the macros a `.wasm` plugin is written with |
 | `src/util` | Hashing, the probe table, byte search, JSON escapes and the near names an error suggests, shared by the rest |
 | `src/unsafe.rs` | Every unsafe region of the engine, each with the argument that it is sound |
 
-`src/lib.rs` denies `unsafe_code` everywhere else, and `make lint` fails when another file of `src/` holds unsafe code or when `src/`, `lib/src` or `plugin/` holds a name `make/names.txt` denies.
+`src/lib.rs` denies `unsafe_code` everywhere else, and `make lint` fails when another file of `src/` holds unsafe code, past `src/plugin/macros.rs` whose unsafe expands in a plugin's own crate, or when `src/` outside Lox or `plugin/` holds a name `make/names.txt` denies. It also builds each module of `interpreter::lib` alone, so a module never leans on one it does not name.
 
 ## Building
 
@@ -57,16 +60,16 @@ cargo build --release   # the .rlib Rust embedders link
 
 ## Testing
 
-`make test` runs the engine's suites, lib's, the test rig's and Lox's, which runs the book's own test suite on the `lox` binary. Every case runs under `Limits::sandbox()`, so a budget, memory, or call-depth regression fails instead of hanging. The tests count memory through the same metering allocator as `interpreter.wasm`, and `tests/memory.rs` checks that a run gives back every byte it took once its VM drops.
+`make test` runs the crate's suites, those of the engine, of `interpreter::lib` and of Lox, which runs the book's own test suite on the `lox` binary, then the test rig's. Every case runs under `Limits::sandbox()`, so a budget, memory, or call-depth regression fails instead of hanging. The tests count memory through the same metering allocator as `interpreter.wasm`, and `tests/memory.rs` checks that a run gives back every byte it took once its VM drops.
 
-The engine reaches past what Lox spells, so its cases are written for `tests/rig`, a test runtime whose token table switches on every piece of the grammar kit over every kernel of lib. It is no example and never ships. A behavior Lox shows is tested in Lox, in `examples/lox/tests`.
+The engine reaches past what Lox spells, so its cases are written for `tests/rig`, a test runtime whose token table switches on every piece of the grammar kit over every kernel of lib. It is no example and never ships. A behavior Lox shows is tested in Lox, in `tests/lox`.
 
 New behavior comes with cases of three kinds. A case states a rule, so its expected output comes from what the rule gives and never from what the engine printed last, and a quirk a case finds is a bug, fixed with the case that holds it.
 
 | Kind | Holds | Lives in |
 |---|---|---|
 | Engine | A program for the test rig with what it prints, raises, reads and sends | `tests/cases/vm`, one YAML file per topic, beside `tests/cases/snapshot.json` and `tests/cases/modules.json` |
-| Native | A kernel of lib called on plain values, with its result or the words of its failure | `lib/tests/cases`, one YAML file per module of lib |
+| Native | A kernel of `interpreter::lib` called on plain values, with its result or the words of its failure | `tests/lib/cases`, one YAML file per module |
 | Syntax | Sources that compile to one program in several spellings, the tokens they lex to, and what the lexer and the parser report | `tests/cases/syntax` |
 
 A new engine case goes at the end of its topic file, so the places other files name stay put, and an existing case changes only with the rule it states.
@@ -111,4 +114,4 @@ make test-js test-cli test-skill
 
 ## CI
 
-[`main.yml`](.github/workflows/main.yml) runs each part as a composite action that calls the same `make` targets, against the tree of builds it stages. Nothing in it holds a secret, so a pull request from a fork runs it whole.
+[`main.yml`](.github/workflows/main.yml) runs each part as a composite action that calls the same `make` targets, against the tree of builds it stages. Every push and pull request packs the crate with `cargo publish --dry-run` in the wasm job, and only a tag `vX.Y.Z` equal to the crate's version runs the publish job, which puts it on crates.io once the tree is whole. That job alone reads a secret and any other run skips it, so a pull request from a fork runs the rest whole.

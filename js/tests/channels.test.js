@@ -25,7 +25,7 @@ send("totals", text(stars) + "," + text(pushes));
 /* refuses an interpreter.wasm older than its sources so no test reads a stale one */
 async function fresh() {
     const built = (await Deno.stat(new URL("target/wasm32-unknown-unknown/release/interpreter.wasm", ROOT))).mtime;
-    const dirs = ["src", "lib/src", "examples/lox/src"].map((dir) => new URL(`${dir}/`, ROOT));
+    const dirs = ["src"].map((dir) => new URL(`${dir}/`, ROOT));
     while (dirs.length > 0) {
         const dir = dirs.pop();
         for await (const entry of Deno.readDir(dir)) {

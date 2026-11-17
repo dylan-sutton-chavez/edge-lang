@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Build language runtimes in Rust: a single-pass parser to SSA bytecode and a register VM with an op budget, an exact memory meter, a GC and snapshots."
+description = "Build language runtimes in Rust: a single-pass parser to SSA bytecode, a register VM with an op budget, an exact memory meter, a GC and snapshots, with kernels, Lox and a plugin kit."
 documentation = "https://docs.rs/interpreter"
 readme = "README.md"
 keywords = ["interpreter", "bytecode", "vm", "wasm", "language"]
@@ -20,6 +20,12 @@ autoexamples = false
 name = "interpreter"
 doctest = false
 
+# the Lox runtime as a native binary over the files a program imports
+[[bin]]
+name = "lox"
+path = "src/bin/lox.rs"
+required-features = ["lox", "std"]
+
 [[test]]
 name = "tests"
 path = "tests/main.rs"
@@ -29,14 +35,48 @@ path = "tests/main.rs"
 name = "unmetered"
 path = "tests/unmetered.rs"
 
+[[test]]
+name = "lib"
+path = "tests/lib/main.rs"
+
+[[test]]
+name = "lox"
+path = "tests/lox/main.rs"
+
+[package.metadata.docs.rs]
+features = ["full", "plugin"]
+
 [features]
 default = ["std"]
 std = []
+# every module of interpreter::lib and the Lox runtime built on them
+full = ["bytes", "data", "date", "io", "iter", "map", "num", "reflect", "seq", "set", "spec", "text", "types", "lox"]
+# interpreter::lib whose modules each pull in the modules whose helpers they call
+lib = []
+bytes = ["lib", "iter", "num"]
+data = ["lib", "iter", "map"]
+date = ["lib"]
+io = ["lib"]
+iter = ["lib"]
+map = ["lib", "iter"]
+num = ["lib", "iter"]
+reflect = ["lib"]
+seq = ["lib", "iter", "num"]
+set = ["lib", "iter"]
+spec = ["lib", "num"]
+text = ["lib", "bytes", "iter", "num"]
+types = ["lib"]
+# interpreter::lox and the lox binary
+lox = ["io", "seq"]
+# interpreter.wasm as Lox's cdylib with the wasm exports and the grant logic
+web = ["lox", "runtime", "perms"]
+# interpreter::plugin for writing the WebAssembly plugins a program imports
+plugin = ["dep:linked_list_allocator", "dep:lol_alloc"]
 # records each executed instruction for `VM::ran` with method calls unfused to keep the compiler's ips
 coverage = []
 # the interpreter.wasm wrapper of exports and host imports plus its allocator and panic handler
 runtime = []
-# the grant logic exported for the hosts and the registry that read it through interpreter.wasm
+# the grant logic exported for the hosts that read it through interpreter.wasm
 perms = []
 # the modules behind the stable API for the engine's own tests and tools
 internals = []
@@ -44,37 +84,35 @@ internals = []
 layout = []
 
 [dependencies]
-interpreter-abi = { workspace = true }
 hashbrown = { workspace = true }
 itoa = { workspace = true }
 libm = { workspace = true }
+linked_list_allocator = { version = "0.10", default-features = false, optional = true }
 
-# wasm-only global allocator as host builds use std's and treat interpreter.wasm as a library
+# wasm-only allocators as host builds use std's and treat interpreter.wasm as a library
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 dlmalloc = { version = "0.2", default-features = false, features = ["global"] }
+lol_alloc = { workspace = true, optional = true }
 
 # test-only deps of the case runner that the release `interpreter.wasm` never pulls in
 [dev-dependencies]
+# the tests run every module and Lox and the plugin kit of this crate
+interpreter = { path = ".", features = ["full", "plugin"] }
 hashbrown = { workspace = true, features = ["serde"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml_ng = { workspace = true }
 # the tests run what lox cannot write through the test rig which links this crate back
 rig = { path = "tests/rig" }
-# what Lox can say the tests say in Lox through the example itself
-interpreter-lox = { path = "examples/lox" }
-# a test runtime renames these kernels to prove the engine binds by kernel
-interpreter-lib = { path = "lib" }
-# the indent table the syntax cases and the lexer and parser corpora are written in
 
 [workspace]
-members = ["abi", "plugin", "plugin/macros", "plugin/example", "skill", "bench", "lib", "tests/rig", "examples/lox"]
+members = ["plugin/example", "skill", "bench", "tests/rig"]
 # wasm-only `plugin/example` is out of default-members so build it with `-p slugify-mod`
-default-members = [".", "abi", "plugin", "plugin/macros", "skill", "lib", "tests/rig", "examples/lox"]
+default-members = [".", "skill", "tests/rig"]
 resolver = "2"
 
 [workspace.package]
-version = "0.9.7"
+version = "1.0.0"
 edition = "2024"
 rust-version = "1.98"
 license = "Apache-2.0"
@@ -82,19 +120,11 @@ repository = "https://github.com/dylan-sutton-chavez/interpreter"
 
 # one source of versions so a bump touches one line and the lockfile never splits
 [workspace.dependencies]
-interpreter = { path = ".", version = "0.9.7", default-features = false }
-interpreter-abi = { path = "abi", version = "0.9.7" }
-interpreter-lib = { path = "lib", version = "0.9.7", default-features = false }
-interpreter-lox = { path = "examples/lox", version = "0.9.7", default-features = false }
-interpreter-plugin-macros = { path = "plugin/macros", version = "0.9.7" }
 hashbrown = { version = "0.17", default-features = false }
 itoa = "1"
 # without `arch` every target takes wasm32's software paths which Miri can interpret
 libm = { version = "0.2", default-features = false }
 lol_alloc = "0.4"
-proc-macro2 = "1"
-quote = "1"
-syn = { version = "3.0.3", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml_ng = "0.10"

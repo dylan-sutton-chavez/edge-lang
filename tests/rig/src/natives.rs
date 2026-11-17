@@ -1,17 +1,17 @@
 use interpreter::lang::{Args, Cx, Native, Ret, Sig};
-use interpreter_lib::fail::Class;
-use interpreter_lib::bytes::{self, Fixed, Mutable};
-use interpreter_lib::iter::fold::Joins;
-use interpreter_lib::num::int::{Bin, Hex, Oct};
-use interpreter_lib::num::round::HalfEven;
-use interpreter_lib::text::case::Full;
-use interpreter_lib::uni::{Decimal, Digit, Numeric};
-use interpreter_lib::{date, fmt, io, iter, map, num, seq, set, text, types};
+use interpreter::lib::fail::Class;
+use interpreter::lib::bytes::{self, Fixed, Mutable};
+use interpreter::lib::iter::fold::Joins;
+use interpreter::lib::num::int::{Bin, Hex, Oct};
+use interpreter::lib::num::round::HalfEven;
+use interpreter::lib::text::case::Full;
+use interpreter::lib::uni::{Decimal, Digit, Numeric};
+use interpreter::lib::{date, fmt, io, iter, map, num, seq, set, text, types};
 
 use crate::Rig;
 use crate::lang::Lines;
 
-pub const IO: &[Native] = &interpreter_lib::table![Rig;
+pub const IO: &[Native] = &interpreter::lib::table![Rig;
     "print" => io::print{"sep", "end", "file", "flush"},
     "input" => io::read_line,
     "receive" => io::receive,
@@ -19,7 +19,7 @@ pub const IO: &[Native] = &interpreter_lib::table![Rig;
     "exit" => io::exit,
 ];
 
-pub const ITER: &[Native] = &interpreter_lib::table![Rig;
+pub const ITER: &[Native] = &interpreter::lib::table![Rig;
     "len" => seq::len,
     "range" => iter::range,
     "iter" => iter::iter,
@@ -33,12 +33,12 @@ pub const ITER: &[Native] = &interpreter_lib::table![Rig;
 ];
 
 // a time read from RFC 3339 text whose kinds the runtime declares for a restore
-pub const DATE: &[Native] = &interpreter_lib::table![Rig; "time" => date::parse[Rig]];
+pub const DATE: &[Native] = &interpreter::lib::table![Rig; "time" => date::parse[Rig]];
 
 // next resumes a generator through the engine's next path
-pub const NEXT: &[Native] = &interpreter_lib::table![Rig; "next" => iter::next];
+pub const NEXT: &[Native] = &interpreter::lib::table![Rig; "next" => iter::next];
 
-pub const NUM: &[Native] = &interpreter_lib::table![Rig;
+pub const NUM: &[Native] = &interpreter::lib::table![Rig;
     "abs" => num::abs,
     "round" => num::round::round[HalfEven]("number", "ndigits"),
     "divmod" => num::div::divmod,
@@ -48,14 +48,14 @@ pub const NUM: &[Native] = &interpreter_lib::table![Rig;
 ];
 
 // the least the greatest and the total fold their iterable through a drain
-pub const FOLDS: &[Native] = &interpreter_lib::table![Rig;
+pub const FOLDS: &[Native] = &interpreter::lib::table![Rig;
     "min" => iter::fold::least{"key", "default"},
     "max" => iter::fold::most{"key", "default"},
     // the iterable is positional only and the start may come by name
     "sum" => iter::fold::sum[Joins]("", "start"),
 ];
 
-pub const CONVERT: &[Native] = &interpreter_lib::table![Rig;
+pub const CONVERT: &[Native] = &interpreter::lib::table![Rig;
     "text" => text::text("object", "encoding", "errors"),
     "int" => num::int::new[Decimal]("", "base"),
     "float" => num::float::new[Decimal],
@@ -74,22 +74,22 @@ pub const CONVERT: &[Native] = &interpreter_lib::table![Rig;
     "callable" => types::callable,
 ];
 
-pub const BYTES: &[Native] = &interpreter_lib::table![Rig;
+pub const BYTES: &[Native] = &interpreter::lib::table![Rig;
     "bytes" => bytes::new[Fixed]("source", "encoding", "errors"),
     "bytearray" => bytes::new[Mutable]("source", "encoding", "errors"),
     "bytes_fromhex" => bytes::hex::from_hex_fn,
 ];
 
-pub const SORT: &[Native] = &interpreter_lib::table![Rig; "sorted" => seq::sort::sorted{"key", "reverse"}];
+pub const SORT: &[Native] = &interpreter::lib::table![Rig; "sorted" => seq::sort::sorted{"key", "reverse"}];
 
-pub const TYPES: &[Native] = &interpreter_lib::table![Rig; "type" => types::type_of];
+pub const TYPES: &[Native] = &interpreter::lib::table![Rig; "type" => types::type_of];
 
 // a value no arm of a match takes raises where the match starts
-fn unmatched(_: &mut Cx<'_, '_>, _: Args<'_>) -> Ret { Err(interpreter_lib::fail::raise::<Rig>(Class::Value, "no arm of the match takes the value")) }
+fn unmatched(_: &mut Cx<'_, '_>, _: Args<'_>) -> Ret { Err(interpreter::lib::fail::raise::<Rig>(Class::Value, "no arm of the match takes the value")) }
 
 pub const MATCH: &[Native] = &[Native::new("unmatched", Sig::exact(1), unmatched)];
 
-pub const STR: &[Native] = &interpreter_lib::table![Rig;
+pub const STR: &[Native] = &interpreter::lib::table![Rig;
     "encode" => bytes::codec::encode("encoding", "errors"),
     "upper" => text::case::upper[Full],
     "lower" => text::case::lower[Full],
@@ -137,7 +137,7 @@ pub const STR: &[Native] = &interpreter_lib::table![Rig;
 // each shared row registers for both buffers with `$b` choosing mutable results
 macro_rules! rows {
     ($b:ty; $($own:tt)*) => {
-        interpreter_lib::table![Rig;
+        interpreter::lib::table![Rig;
             "decode" => bytes::codec::decode[$b]("encoding", "errors"),
             "hex" => bytes::hex::hex[$b]("sep", "bytes_per_sep"),
             "startswith" => bytes::methods::starts[$b],
@@ -198,7 +198,7 @@ pub const ARRAY: &[Native] = &rows!(Mutable;
     "take_bytes" => bytes::methods::take,
 );
 
-pub const LIST: &[Native] = &interpreter_lib::table![Rig;
+pub const LIST: &[Native] = &interpreter::lib::table![Rig;
     "index" => seq::index,
     "count" => seq::count,
     "copy" => seq::copy,
@@ -212,14 +212,14 @@ pub const LIST: &[Native] = &interpreter_lib::table![Rig;
 ];
 
 // the body checks its positionals before any other keyword in its own words
-pub const LIST_SORT: &[Native] = &interpreter_lib::table![Rig; "sort" => seq::sort::sort{"key", "reverse"}];
+pub const LIST_SORT: &[Native] = &interpreter::lib::table![Rig; "sort" => seq::sort::sort{"key", "reverse"}];
 
-pub const TUPLE: &[Native] = &interpreter_lib::table![Rig;
+pub const TUPLE: &[Native] = &interpreter::lib::table![Rig;
     "index" => seq::index,
     "count" => seq::count,
 ];
 
-pub const DICT: &[Native] = &interpreter_lib::table![Rig;
+pub const DICT: &[Native] = &interpreter::lib::table![Rig;
     "get" => map::get,
     "keys" => map::keys,
     "values" => map::values,
@@ -234,7 +234,7 @@ pub const DICT: &[Native] = &interpreter_lib::table![Rig;
     "fromkeys" => map::from_keys,
 ];
 
-pub const SET: &[Native] = &interpreter_lib::table![Rig;
+pub const SET: &[Native] = &interpreter::lib::table![Rig;
     "add" => set::add,
     "remove" => set::remove,
     "discard" => set::discard,
@@ -249,7 +249,7 @@ pub const SET: &[Native] = &interpreter_lib::table![Rig;
 ];
 
 // the methods taking any number of operands which drain one after another
-pub const SET_MANY: &[Native] = &interpreter_lib::table![Rig;
+pub const SET_MANY: &[Native] = &interpreter::lib::table![Rig;
     "update" => set::update,
     "union" => set::union,
     "intersection" => set::intersection,
@@ -258,20 +258,20 @@ pub const SET_MANY: &[Native] = &interpreter_lib::table![Rig;
     "difference_update" => set::difference_update,
 ];
 
-pub const INT: &[Native] = &interpreter_lib::table![Rig;
+pub const INT: &[Native] = &interpreter::lib::table![Rig;
     "bit_length" => num::int::bit_length,
     "bit_count" => num::int::bit_count,
     "to_bytes" => num::int::to_bytes("length", "byteorder", "signed"),
     "from_bytes" => num::int::from_bytes("bytes", "byteorder", "signed"),
 ];
 
-pub const FLOAT: &[Native] = &interpreter_lib::table![Rig;
+pub const FLOAT: &[Native] = &interpreter::lib::table![Rig;
     "is_integer" => num::float::is_whole,
     "hex" => num::float::hex,
     "fromhex" => num::float::from_hex,
 ];
 
-pub const RANGE: &[Native] = &interpreter_lib::table![Rig;
+pub const RANGE: &[Native] = &interpreter::lib::table![Rig;
     "index" => iter::range_index,
     "count" => iter::range_count,
 ];

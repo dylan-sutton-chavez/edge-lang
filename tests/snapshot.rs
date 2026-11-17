@@ -67,7 +67,7 @@ mod test {
 
     /* `src` compiled by Lox's front and kept for the run */
     fn lox_static(src: &str) -> &'static SSAChunk {
-        let (chunk, errs) = interpreter::code::compile(&interpreter_lox::FRONT, src);
+        let (chunk, errs) = interpreter::code::compile(&interpreter::lox::FRONT, src);
         assert!(errs.is_empty(), "compile error in {:?}: {:?}", src, errs.iter().map(|e| &e.msg).collect::<Vec<_>>());
         interpreter::util::leak(Box::new(chunk))
     }
@@ -93,7 +93,7 @@ mod test {
 
     /* a bare VM to restore into since the state arrives from the blob */
     fn fresh(case: &Case, interval: usize) -> VM<'static> {
-        let mut vm = if case.lox { VM::with_runtime(&interpreter_lox::RUNTIME, lox_static(&case.src), limits_for(case)) } else { crate::common::boot(parse_static(&case.src), limits_for(case)) };
+        let mut vm = if case.lox { VM::with_runtime(&interpreter::lox::RUNTIME, lox_static(&case.src), limits_for(case)) } else { crate::common::boot(parse_static(&case.src), limits_for(case)) };
         vm.set_preempt_interval(interval);
         if case.sends.is_some() { vm.send_hook = Some(accept_send); }
         vm

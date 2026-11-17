@@ -151,11 +151,11 @@ jobs:
           files: cdn.tar.gz
           fail_on_unmatched_files: true
 
-  # every push packs each published crate and a tag puts them on crates.io in order
+  # a tag alone puts the crate on crates.io once its tree is whole and every other run skips this job
   publish:
     name: Publish
     needs: [tree]
-    if: github.event_name == 'push'
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
@@ -166,17 +166,11 @@ jobs:
           cache: false
           rustflags: ""
 
-      # a tag ships only the version every published crate already carries
+      # a tag ships only the version the crate already carries
       - name: The tag is the version
-        if: startsWith(github.ref, 'refs/tags/v')
         run: test "v$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "interpreter") | .version')" = "$GITHUB_REF_NAME"
 
-      - name: Pack
-        if: "!startsWith(github.ref, 'refs/tags/v')"
-        run: cargo publish --workspace --locked --dry-run
-
       - name: Publish
-        if: startsWith(github.ref, 'refs/tags/v')
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: cargo publish --workspace --locked
+        run: cargo publish -p interpreter --locked

@@ -20,7 +20,7 @@ import type { InterpreterExports } from './wasm.ts';
 const TD = new TextDecoder();
 const TE = new TextEncoder();
 
-// the tags of `pub mod tag` in `abi/src/lib.rs`
+// the tags of `pub mod tag` in `src/abi/wire.rs`
 const TAG_NONE = 0;
 const TAG_BOOL = 1;
 const TAG_INT = 2;

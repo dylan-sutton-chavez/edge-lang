@@ -185,7 +185,7 @@ tag::RAW: u32 = 5
 
 const held: string[] = []
 let within = ''
-for (const line of Deno.readTextFileSync(new URL('../abi/src/lib.rs', import.meta.url)).split('\n')) {
+for (const line of Deno.readTextFileSync(new URL('../src/abi/wire.rs', import.meta.url)).split('\n')) {
   within = line.match(/^pub mod (\w+) \{/)?.[1] ?? (line.startsWith('}') ? '' : within)
   const constant = line.match(/^\s*pub const (\w+): (.+?) = (.+);$/)
   // the value layout stays the engine's own since a plugin sees handles only
@@ -193,6 +193,6 @@ for (const line of Deno.readTextFileSync(new URL('../abi/src/lib.rs', import.met
 }
 const pinned = held.sort().join('\n')
 if (pinned !== CONSTANTS) {
-  console.error(`abi/src/lib.rs no longer holds the values plugins compile in\n\nexpected\n${CONSTANTS}\n\nfound\n${pinned}`)
+  console.error(`src/abi/wire.rs no longer holds the values plugins compile in\n\nexpected\n${CONSTANTS}\n\nfound\n${pinned}`)
   Deno.exit(1)
 }

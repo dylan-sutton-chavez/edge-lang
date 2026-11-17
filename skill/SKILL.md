@@ -35,7 +35,7 @@ interpreter build                               # pack a portable ./app.interpre
 
 ```json
 {
-  "interpreter": "0.9.7"
+  "interpreter": "1.0.0"
 }
 ```
 
@@ -149,7 +149,7 @@ var same = import("lib/helpers.lox");
 
 Not supported. A spec held in a variable, since only a literal binds at compile time and any other `import(x)` calls a global no program binds.
 
-Bare names resolve through `interpreter.json`, walking up from the importing file with the nearest manifest winning. The manifest maps each name to a path, a URL, or a `major.minor.patch` version under `imports`, and `extends` may name a parent manifest. A version resolves through the `interpreter.lock` beside the manifest that declared it, such as the one a packed package carries, which every host reads before the compiler sees the manifest, so the compiler only ever meets a path or a URL. An `interpreter` field names the lowest engine the project runs on, `major.minor.patch`, and it runs on that version or any later one, never on an earlier one, which stops with `this project needs interpreter 1.0.0, this is 0.9.7`. The artifact decides the kind, `.lox` is a code module and `.wasm` a native plugin, so a manifest never classifies a package, and a `.js` or `.mjs` import fails with `module 'charts' is JavaScript, ship a .lox or a .wasm`, since no JavaScript loads besides the host itself. `permissions` grants the host modules, see that section. `name`, `version`, `description`, `repository` and `docs` are the package fields, ignored by the compiler and shape-checked by the CLI, and the license is read from the packed `LICENSE` file.
+Bare names resolve through `interpreter.json`, walking up from the importing file with the nearest manifest winning. The manifest maps each name to a path, a URL, or a `major.minor.patch` version under `imports`, and `extends` may name a parent manifest. A version resolves through the `interpreter.lock` beside the manifest that declared it, such as the one a packed package carries, which every host reads before the compiler sees the manifest, so the compiler only ever meets a path or a URL. An `interpreter` field names the lowest engine the project runs on, `major.minor.patch`, and it runs on that version or any later one, never on an earlier one, which stops with `this project needs interpreter 1.0.0, this is 1.0.0`. The artifact decides the kind, `.lox` is a code module and `.wasm` a native plugin, so a manifest never classifies a package, and a `.js` or `.mjs` import fails with `module 'charts' is JavaScript, ship a .lox or a .wasm`, since no JavaScript loads besides the host itself. `permissions` grants the host modules, see that section. `name`, `version`, `description`, `repository` and `docs` are the package fields, ignored by the compiler and shape-checked by the CLI, and the license is read from the packed `LICENSE` file.
 
 ```json
 {

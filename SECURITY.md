@@ -13,12 +13,12 @@ Include a minimal reproducing script with the command used to run it, the expect
 Everything in this repository is in scope, whether the issue is a sandbox escape, memory corruption, or a budget bypass under `Limits::sandbox()`.
 
 - The engine in `src/`, its compiler, VM, grant logic and snapshot handling.
-- `lib/`, the natives a runtime opts into.
+- `interpreter::lib` in `src/lib`, the natives a runtime opts into.
 - The CLI kit in `cli/`, with its wasmtime configuration and the commands it composes.
 - `net` in `examples/net`, the network module both hosts serve.
-- The plugin kit in `plugin/` and the ABI in `abi/`.
+- The plugin kit in `src/plugin` and the ABI in `src/abi`.
 - The JS host in `js/`.
-- Lox in `examples/lox`, the runtime `interpreter.wasm` is built from, and its `lox` binary.
+- Lox in `src/lox`, the runtime `interpreter.wasm` is built from, and its `lox` binary.
 
 ## Response
 

@@ -1,4 +1,4 @@
-use interpreter_lib::lang::Tree;
+use interpreter::lib::lang::Tree;
 
 use crate::Rig;
 

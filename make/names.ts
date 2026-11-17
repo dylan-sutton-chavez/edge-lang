@@ -10,7 +10,10 @@ function fail(message: string): never {
   Deno.exit(1)
 }
 
-const [listPath, ...roots] = Deno.args
+const [listPath, ...args] = Deno.args
+// a root written as !path leaves that tree out of the scan
+const roots = args.filter((a) => !a.startsWith('!'))
+const skipped = new Set(args.filter((a) => a.startsWith('!')).map((a) => a.slice(1).replace(/\/+$/, '')))
 if (!listPath || roots.length === 0) fail('pass the list and the roots to scan')
 
 const words: Record<Deny, string[]> = { any: [], code: [], string: [] }
@@ -137,6 +140,7 @@ function scan(file: string, source: string): Hit[] {
 function* files(dir: string): Generator<string> {
   for (const entry of [...Deno.readDirSync(dir)].sort((a, b) => (a.name < b.name ? -1 : 1))) {
     const path = `${dir}/${entry.name}`
+    if (skipped.has(path)) continue
     if (entry.isDirectory) yield* files(path)
     else if (entry.name.endsWith('.rs')) yield path
   }

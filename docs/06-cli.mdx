@@ -169,7 +169,7 @@ use interpreter_cli::{Kit, Runtime};
 interpreter::allocator!();
 
 fn main() {
-    Kit::new("calc", "0.1.0", Runtime::native(&interpreter_lox::RUNTIME))
+    Kit::new("calc", "0.1.0", Runtime::native(&interpreter::lox::RUNTIME))
         .title("A CLI for calc programs")
         .command(run::Run)
         .command(test::Test)

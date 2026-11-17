@@ -42,7 +42,7 @@ dependencies = [
 
 [[package]]
 name = "bench"
-version = "0.9.7"
+version = "1.0.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -477,60 +477,19 @@ dependencies = [
 
 [[package]]
 name = "interpreter"
-version = "0.9.7"
+version = "1.0.0"
 dependencies = [
  "dlmalloc",
  "hashbrown 0.17.1",
- "interpreter-abi",
- "interpreter-lib",
- "interpreter-lox",
+ "interpreter",
  "itoa",
  "libm",
+ "linked_list_allocator",
+ "lol_alloc",
  "rig",
  "serde",
  "serde_json",
  "serde_yaml_ng",
-]
-
-[[package]]
-name = "interpreter-abi"
-version = "0.9.7"
-
-[[package]]
-name = "interpreter-lib"
-version = "0.9.7"
-dependencies = [
- "interpreter",
- "itoa",
- "rig",
- "serde_yaml_ng",
-]
-
-[[package]]
-name = "interpreter-lox"
-version = "0.9.7"
-dependencies = [
- "interpreter",
- "interpreter-lib",
-]
-
-[[package]]
-name = "interpreter-plugin"
-version = "0.9.7"
-dependencies = [
- "interpreter-abi",
- "interpreter-plugin-macros",
- "linked_list_allocator",
- "lol_alloc",
-]
-
-[[package]]
-name = "interpreter-plugin-macros"
-version = "0.9.7"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 3.0.6",
 ]
 
 [[package]]
@@ -717,10 +676,9 @@ dependencies = [
 
 [[package]]
 name = "rig"
-version = "0.9.7"
+version = "1.0.0"
 dependencies = [
  "interpreter",
- "interpreter-lib",
 ]
 
 [[package]]
@@ -845,7 +803,7 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
 name = "skill"
-version = "0.9.7"
+version = "1.0.0"
 
 [[package]]
 name = "slab"
@@ -857,7 +815,7 @@ checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 name = "slugify-mod"
 version = "0.1.0"
 dependencies = [
- "interpreter-plugin",
+ "interpreter",
 ]
 
 [[package]]

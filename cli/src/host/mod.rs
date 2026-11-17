@@ -280,10 +280,10 @@ mod tests {
     // a refused or failed call raises the class its runtime names for that role
     #[test]
     fn a_host_fault_reads_its_class_from_the_runtime() {
-        let named = Descriptor { denied_error: "Refused", failed_error: "Broken", ..interpreter_lox::DESCRIPTOR };
+        let named = Descriptor { denied_error: "Refused", failed_error: "Broken", ..interpreter::lox::DESCRIPTOR };
         assert_eq!(Fault::denied("no grant").message(&named), "Refused: no grant");
         assert_eq!(Fault::failed("gone").message(&named), "Broken: gone");
         assert_eq!(Fault::invalid("bad").message(&named), "bad");
-        assert_eq!(Fault::denied("no grant").message(&interpreter_lox::DESCRIPTOR), "Permission: no grant");
+        assert_eq!(Fault::denied("no grant").message(&interpreter::lox::DESCRIPTOR), "Permission: no grant");
     }
 }

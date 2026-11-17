@@ -7,20 +7,20 @@ extern crate alloc;
 
 #[allow(unsafe_code)] pub(crate) mod r#unsafe;
 
-pub mod abi {
-    // the wire format keeps its file at src/abi.rs
-    #[path = "../abi.rs"]
-    mod wire;
-    pub use wire::*;
+pub mod abi;
 
-    // heap values as wire trees and back for a host that runs the vm in its own process
-    mod values;
-    pub use values::{error_from_kind, from_wire, to_wire};
+/* the kernels a runtime names in its own table with each module behind a feature */
+#[cfg(feature = "lib")]
+#[path = "lib/mod.rs"]
+pub mod lib;
 
-    /* the host bridge behind the six plugin imports in the wasm runtime */
-    #[cfg(all(target_arch = "wasm32", feature = "runtime"))]
-    pub mod bridge;
-}
+/* Lox from Crafting Interpreters as the runtime interpreter.wasm and the CLI are built from */
+#[cfg(feature = "lox")]
+pub mod lox;
+
+/* the kit a WebAssembly plugin a program imports is written with */
+#[cfg(feature = "plugin")]
+pub mod plugin;
 
 /* the wasm runtime interpreter.wasm builds and what a native binary boots a runtime with */
 pub mod targets;
