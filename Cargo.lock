@@ -42,7 +42,7 @@ dependencies = [
 
 [[package]]
 name = "bench"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -477,7 +477,7 @@ dependencies = [
 
 [[package]]
 name = "interpreter"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "dlmalloc",
  "hashbrown 0.17.1",
@@ -495,7 +495,7 @@ dependencies = [
 
 [[package]]
 name = "interpreter-lox"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "interpreter",
 ]
@@ -684,7 +684,7 @@ dependencies = [
 
 [[package]]
 name = "rig"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "interpreter",
 ]

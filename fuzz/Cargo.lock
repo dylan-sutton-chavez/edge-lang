@@ -58,7 +58,7 @@ dependencies = [
 
 [[package]]
 name = "interpreter"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "dlmalloc",
  "hashbrown",
@@ -68,7 +68,7 @@ dependencies = [
 
 [[package]]
 name = "interpreter-lox"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "interpreter",
 ]
@@ -93,7 +93,7 @@ checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 
 [[package]]
 name = "rig"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "interpreter",
 ]
