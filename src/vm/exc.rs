@@ -9,9 +9,6 @@ use super::sections::section_at;
 /* whether `e` ends an iteration and so the loop stepping what raised it */
 pub(crate) fn is_stop(e: &VmErr, names: &crate::lang::Names) -> bool { e.is(crate::lang::ErrKind::Stop, names) }
 
-/* whether `e` is the signal a `close` throws in */
-pub(crate) fn is_exit(e: &VmErr, names: &crate::lang::Names) -> bool { e.is(crate::lang::ErrKind::Close, names) }
-
 /* a section's handler names its own code index under this flag and others the compiler's */
 pub(crate) const RAW_HANDLER: usize = 1 << 30;
 
@@ -77,11 +74,7 @@ impl<'a> VM<'a> {
             let heap_err = matches!(e, VmErr::Heap);
             let alloc = |heap: &mut HeapPool, obj| if heap_err { heap.alloc_emergency(obj) } else { heap.alloc(obj) };
             // an error with no message such as a bare end of iteration has no args
-            let text = match (&mut e, frame.kind) {
-                // a handler takes the words and only a cleanup keeps them for its reraise
-                (VmErr::Of(_, m), BlockKind::Except) => core::mem::take(m),
-                (e, _) => e.message(self.natives.names()),
-            };
+            let text = e.message(self.natives.names());
             let args = if text.is_empty() { alloc::vec![] } else { alloc::vec![alloc(&mut self.heap, HeapObj::Str(text))?] };
             if heap_err { self.heap.new_error_emergency(&msg, args)? } else { self.heap.new_error(&msg, args)? }
         };

@@ -44,24 +44,15 @@ impl<'a> VM<'a> {
     /* the function a call of method name on the class runs with the arguments alone */
     pub(crate) fn on_class(&self, class: Val, name: &str, own: &dyn Fn(usize) -> Option<Rc<Code>>) -> Option<lower::Callee<'_>> {
         let (v, _) = self.lookup_class_member(class, crate::syntax::ssa::ssa_strip(name))?;
-        self.on_class_found(v, own)
+        self.on_found(v, own, 1)
     }
 
-    /* on_class for what the class holds by the name */
-    pub(crate) fn on_class_found(&self, v: Val, own: &dyn Fn(usize) -> Option<Rc<Code>>) -> Option<lower::Callee<'_>> {
-        if !matches!(self.heap.try_get(v), Some(HeapObj::Func { .. })) { return None; }
-        let mut callee = self.section_of(v, own)?;
-        if callee.ctor().is_some() { return None; }
-        callee.on_class = 1;
-        Some(callee)
-    }
-
-    /* an instance's function `func` that a method call of its name runs with arguments alone */
-    pub(crate) fn on_field(&self, func: Val, own: &dyn Fn(usize) -> Option<Rc<Code>>) -> Option<lower::Callee<'_>> {
+    /* the function `func` a class or an instance holds that a method call of its name runs with arguments alone marked `mark` */
+    pub(crate) fn on_found(&self, func: Val, own: &dyn Fn(usize) -> Option<Rc<Code>>, mark: u8) -> Option<lower::Callee<'_>> {
         if !matches!(self.heap.try_get(func), Some(HeapObj::Func { .. })) { return None; }
         let mut callee = self.section_of(func, own)?;
         if callee.ctor().is_some() { return None; }
-        callee.on_class = 4;
+        callee.on_class = mark;
         Some(callee)
     }
 
@@ -115,21 +106,12 @@ impl<'a> VM<'a> {
         self.section_of_fn(value, *fi, defaults.to_vec(), captures.to_vec(), own)
     }
 
-    /* the section every function made from `body` without defaults runs with cells filled from each */
-    pub(crate) fn body_section(&self, body: u32) -> Option<lower::Callee<'_>> {
+    /* the section every function or with `made` every comprehension made from `body` without defaults runs with cells filled from each */
+    pub(crate) fn body_section(&self, body: u32, made: bool) -> Option<lower::Callee<'_>> {
         let fi = self.fi_of_id(body)?;
-        if self.functions[fi].2 != 0 || self.call_facts[fi].arity.is_none() { return None; }
+        let arity = self.call_facts[fi].arity;
+        if self.functions[fi].2 != 0 || if made { arity != Some(1) } else { arity.is_none() } { return None; }
         // a closure's cells fill from each function the body makes as it is called
-        let cells: Vec<(usize, Val)> = if self.call_facts[fi].closure { self.fn_scope[fi].freevars.iter().map(|f| (f.0, Val::undef())).collect() } else { Vec::new() };
-        let mut callee = self.section_of_fn(Val::undef(), fi, Vec::new(), cells, &|_| None)?;
-        callee.by_body = true;
-        Some(callee)
-    }
-
-    /* the section every comprehension made from `body` runs with cells filled from each one */
-    pub(crate) fn made_section(&self, body: u32) -> Option<lower::Callee<'_>> {
-        let fi = self.fi_of_id(body)?;
-        if self.functions[fi].2 != 0 || self.call_facts[fi].arity != Some(1) { return None; }
         let cells: Vec<(usize, Val)> = self.fn_scope[fi].freevars.iter().map(|f| (f.0, Val::undef())).collect();
         let mut callee = self.section_of_fn(Val::undef(), fi, Vec::new(), cells, &|_| None)?;
         callee.by_body = true;

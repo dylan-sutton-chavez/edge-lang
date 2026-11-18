@@ -2,27 +2,10 @@ use interpreter::embed::{Limits, VM};
 use interpreter::lang::{Args, Cx, Native, Natives, Ret, Runtime, Sig};
 use interpreter::value::VmErr;
 use rig::Rig;
-use rig::natives::{ARRAY, BUFFER, BYTES, CONVERT, DICT, FLOAT, FOLDS, INT, IO, ITER, LIST, LIST_SORT, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
 
 const TESTED: &[Native] = &[Native::new("fmt", Sig::exact(2), fmt)];
 
-static NATIVES: Natives = interpreter::natives! {
-    language: Over,
-    fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, TYPES, rig::natives::MATCH, rig::natives::DATE, TESTED],
-    methods: [
-        Str => [STR],
-        Bytes => [BUFFER],
-        ByteArray => [ARRAY],
-        List => [LIST, LIST_SORT],
-        Tuple => [TUPLE],
-        Dict => [DICT],
-        Set => [SET, SET_MANY],
-        Int => [INT],
-        Float => [FLOAT],
-        Range => [RANGE],
-    ],
-    types: rig::types::NAMES,
-};
+static NATIVES: Natives = rig::with!(Over, TESTED);
 
 static RUNTIME: Runtime = Runtime::of::<Over>();
 

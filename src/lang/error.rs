@@ -1,9 +1,9 @@
 use alloc::{string::String, vec::Vec};
 
 use crate::syntax::lexer::TokenType;
-use crate::value::foreign::{BinOp, UnOp};
+use crate::value::foreign::UnOp;
 use crate::value::{SchedulerStatus, Val, VmErr};
-use super::{Cmp, Cx, ErrKind, KindId, Mode, NativeId, Op};
+use super::{Cx, ErrKind, KindId, Mode, NativeId, Op};
 
 /* an error the engine raises as facts which the runtime words */
 #[derive(Clone, Debug)]
@@ -210,31 +210,25 @@ pub enum Gen {
     Sent,
 }
 
+// each constructor a cold call of its own building the variant of its fields
+macro_rules! raises {
+    ($($name:ident($($field:ident: $ty:ty),*) => $variant:ident;)*) => { $(
+        #[cold]
+        #[inline(never)]
+        pub fn $name($($field: $ty),*) -> VmErr { EngineError::$variant { $($field),* }.into() }
+    )* };
+}
+
 /* the errors raised most built in calls of their own so sites keep no room */
 impl EngineError {
-    #[cold]
-    #[inline(never)]
-    pub fn cannot(act: Act, recv: Option<Val>) -> VmErr { EngineError::Cannot { act, recv }.into() }
-
-    #[cold]
-    #[inline(never)]
-    pub fn bad_index(recv: Val, index: Val) -> VmErr { EngineError::BadIndex { recv, index }.into() }
-
-    #[cold]
-    #[inline(never)]
-    pub fn out_of_range(recv: Val, store: bool) -> VmErr { EngineError::OutOfRange { recv, store }.into() }
-
-    #[cold]
-    #[inline(never)]
-    pub fn unsupported(op: Op, a: Val, b: Option<Val>) -> VmErr { EngineError::Unsupported { op, a, b }.into() }
-
-    #[cold]
-    #[inline(never)]
-    pub fn bad_slice(index: Val, step: bool) -> VmErr { EngineError::BadSlice { index, step }.into() }
-
-    #[cold]
-    #[inline(never)]
-    pub fn zero_step(range: bool) -> VmErr { EngineError::ZeroStep { range }.into() }
+    raises! {
+        cannot(act: Act, recv: Option<Val>) => Cannot;
+        bad_index(recv: Val, index: Val) => BadIndex;
+        out_of_range(recv: Val, store: bool) => OutOfRange;
+        unsupported(op: Op, a: Val, b: Option<Val>) => Unsupported;
+        bad_slice(index: Val, step: bool) => BadSlice;
+        zero_step(range: bool) => ZeroStep;
+    }
 }
 
 impl EngineError {
@@ -274,53 +268,31 @@ impl EngineError {
     }
 }
 
-/* the token a table spells binary operator `b` with or its augmented form with `place` */
-const fn bin_token(b: BinOp, place: bool) -> TokenType {
-    use TokenType as T;
-    match (b, place) {
-        (BinOp::Add, false) => T::Plus, (BinOp::Add, true) => T::PlusEqual,
-        (BinOp::Sub, false) => T::Minus, (BinOp::Sub, true) => T::MinusEqual,
-        (BinOp::Mul, false) => T::Star, (BinOp::Mul, true) => T::StarEqual,
-        (BinOp::TrueDiv, false) => T::Slash, (BinOp::TrueDiv, true) => T::SlashEqual,
-        (BinOp::FloorDiv, false) => T::FloorDiv, (BinOp::FloorDiv, true) => T::FloorDivEqual,
-        (BinOp::Mod, false) => T::Percent, (BinOp::Mod, true) => T::PercentEqual,
-        (BinOp::Pow, false) => T::Pow, (BinOp::Pow, true) => T::PowEqual,
-        (BinOp::And, false) => T::BitAnd, (BinOp::And, true) => T::BitAndEqual,
-        (BinOp::Or, false) => T::BitOr, (BinOp::Or, true) => T::BitOrEqual,
-        (BinOp::Xor, false) => T::BitXor, (BinOp::Xor, true) => T::BitXorEqual,
-        (BinOp::Shl, false) => T::LeftShift, (BinOp::Shl, true) => T::LeftShiftEqual,
-        (BinOp::Shr, false) => T::RightShift, (BinOp::Shr, true) => T::RightShiftEqual,
-        (BinOp::MatMul, false) => T::At, (BinOp::MatMul, true) => T::AtEqual,
-    }
-}
-
 /* the token a table spells operator `op` with */
 pub const fn token_of(op: Op) -> Option<TokenType> {
-    use TokenType as T;
-    Some(match op {
-        Op::Bin(b) => bin_token(b, false),
-        Op::InPlace(b) => bin_token(b, true),
-        Op::Cmp(c) => match c { Cmp::Eq => T::EqualEqual, Cmp::Ne => T::NotEqual, Cmp::Lt => T::Less, Cmp::Le => T::LessEqual, Cmp::Gt => T::Greater, Cmp::Ge => T::GreaterEqual },
-        Op::Unary(UnOp::Neg) => T::Minus,
-        Op::Unary(UnOp::Pos) => T::Plus,
-        Op::Unary(UnOp::Invert) => T::Tilde,
-        Op::In => T::In,
-        _ => return None,
-    })
+    match slot(op) { Some(k) => Some(TOKENS[k]), None => None }
 }
 
 /* how many operators a runtime keeps the spelling of */
 pub const SPELLED: usize = 36;
 
-// the binary operators in their order as the spellings keep them
-const BINS: [BinOp; 13] = [BinOp::Add, BinOp::Sub, BinOp::Mul, BinOp::FloorDiv, BinOp::Mod, BinOp::TrueDiv, BinOp::Pow, BinOp::And, BinOp::Or, BinOp::Xor, BinOp::Shl, BinOp::Shr, BinOp::MatMul];
+// the token of each slot with the binary operators and their augmented forms in the order of `BinOp`
+const TOKENS: [TokenType; SPELLED] = {
+    use TokenType as T;
+    [
+        T::Plus, T::Minus, T::Star, T::FloorDiv, T::Percent, T::Slash, T::Pow, T::BitAnd, T::BitOr, T::BitXor, T::LeftShift, T::RightShift, T::At,
+        T::PlusEqual, T::MinusEqual, T::StarEqual, T::FloorDivEqual, T::PercentEqual, T::SlashEqual, T::PowEqual, T::BitAndEqual, T::BitOrEqual, T::BitXorEqual, T::LeftShiftEqual, T::RightShiftEqual, T::AtEqual,
+        T::EqualEqual, T::NotEqual, T::Less, T::LessEqual, T::Greater, T::GreaterEqual,
+        T::Minus, T::Plus, T::Tilde, T::In,
+    ]
+};
 
 /* where the spellings keep `op` and none for an operator no token spells */
 pub const fn slot(op: Op) -> Option<usize> {
     Some(match op {
         Op::Bin(b) => b as usize,
-        Op::InPlace(b) => BINS.len() + b as usize,
-        Op::Cmp(c) => 2 * BINS.len() + c as usize,
+        Op::InPlace(b) => 13 + b as usize,
+        Op::Cmp(c) => 26 + c as usize,
         Op::Unary(UnOp::Neg) => 32,
         Op::Unary(UnOp::Pos) => 33,
         Op::Unary(UnOp::Invert) => 34,
@@ -331,20 +303,8 @@ pub const fn slot(op: Op) -> Option<usize> {
 
 /* each operator as `syntax` spells it at its slot or empty where it lacks one */
 pub const fn spellings(syntax: &crate::syntax::lexer::Syntax) -> [&'static str; SPELLED] {
-    let mut out = [""; SPELLED];
-    let cmps = [Cmp::Eq, Cmp::Ne, Cmp::Lt, Cmp::Le, Cmp::Gt, Cmp::Ge];
-    let mut k = 0;
-    while k < BINS.len() {
-        out[k] = spelling_in(syntax, bin_token(BINS[k], false));
-        out[BINS.len() + k] = spelling_in(syntax, bin_token(BINS[k], true));
-        k += 1;
-    }
-    k = 0;
-    while k < cmps.len() {
-        if let Some(t) = token_of(Op::Cmp(cmps[k])) { out[2 * BINS.len() + k] = spelling_in(syntax, t); }
-        k += 1;
-    }
-    (out[32], out[33], out[34], out[35]) = (spelling_in(syntax, TokenType::Minus), spelling_in(syntax, TokenType::Plus), spelling_in(syntax, TokenType::Tilde), spelling_in(syntax, TokenType::In));
+    let (mut out, mut k) = ([""; SPELLED], 0);
+    while k < SPELLED { out[k] = spelling_in(syntax, TOKENS[k]); k += 1; }
     out
 }
 
@@ -397,12 +357,10 @@ pub fn plain(cx: &mut Cx<'_, '_>, e: &EngineError) -> String {
         E::ZeroStep { .. } => String::from("a step of zero"),
         E::Arity { callee, fit } => arity(cx, callee, fit),
         E::Call(f) => call_fault(cx, f),
-        E::Undefined(n) => crate::s!(str n, " is not bound"),
         E::Unbound { name: Some(n), .. } => crate::s!(str n, " is read before it is bound"),
         E::Unbound { name: None, .. } => String::from("a local is read before it is bound"),
         E::NoAttribute { recv, name, .. } => crate::s!(str &ty(cx, *recv), " has no field ", str name),
         E::ReadOnly { recv, name, .. } => crate::s!("the field ", str name, " of ", str &ty(cx, *recv), " is read only"),
-        E::ZeroDiv => String::from("division by zero"),
         E::ZeroPow => String::from("zero to a negative power"),
         E::NegativePower => String::from("an int to a negative power"),
         E::Overflow => String::from(cx.names().overflow),
@@ -427,12 +385,9 @@ pub fn plain(cx: &mut Cx<'_, '_>, e: &EngineError) -> String {
         },
         &E::Stop(v) | &E::Exit(v) | &E::Assert(v) => if v.is_undef() || v.is_none() { String::new() } else { cx.render(v, Mode::Str).unwrap_or_default() },
         E::Close => String::new(),
-        E::Recursion => String::from("calls nested past the recursion limit"),
-        E::Memory => String::from("memory limit"),
-        E::Of(_, text) => text.clone(),
+        // the errors whose words need no runtime read as `bare` words them
+        E::Undefined(_) | E::ZeroDiv | E::Recursion | E::Memory | E::Of(..) | E::Internal(_) | E::Budget => bare(e),
         &E::Raised(v) => cx.render(v, Mode::Str).unwrap_or_default(),
-        E::Internal(text) => String::from(*text),
-        E::Budget => String::from("budget exceeded"),
         E::HostYield(_) | E::HostCallDeferred | E::Redo => String::from("a signal left the run"),
     }
 }

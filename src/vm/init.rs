@@ -52,7 +52,7 @@ pub(crate) fn collect_module_attrs(chunk: &SSAChunk, bound: &super::scope::Globa
     }
     // names bound another way through a global statement follow in binding order
     for (name, v) in bound.iter() {
-        if !name.starts_with('#') && name != bound.runtime_names().module_name && seen.insert(name.to_string()) { attrs.push((name.to_string(), v)); }
+        if !name.starts_with('#') && name != bound.natives.names().module_name && seen.insert(name.to_string()) { attrs.push((name.to_string(), v)); }
     }
     attrs
 }

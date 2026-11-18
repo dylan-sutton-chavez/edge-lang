@@ -11,13 +11,25 @@ use interpreter::deps::{
 use interpreter::value::{HeapObj, HeapPool, Limits, Val, VmErr};
 use interpreter::code::{Diagnostic, Parser, SSAChunk};
 use interpreter::embed::VM;
-use interpreter::lexer::{lex_as, LexError, Token};
+use interpreter::lang::Runtime;
+use interpreter::lexer::{lex_as, LexError, Spelling, Token};
 
 /* the spelling every program of these suites is written in */
 pub type Spell = rig::Rig;
 
 /* a VM on `chunk` whose program runs through the reference runtime's natives */
 pub fn boot(chunk: &SSAChunk, limits: Limits) -> VM<'_> { VM::with_runtime(&rig::RUNTIME, chunk, limits) }
+
+/* what `src` read as `S` prints under `runtime` trimmed or the words of the error that ends it */
+pub fn ran_as<S: Spelling>(runtime: &'static Runtime, src: &str) -> String {
+    let (chunk, errors) = interpreter::code::compile_as::<S>(src);
+    assert!(errors.is_empty(), "{src:?} reports {:?}", errors.iter().map(|d| &d.msg).collect::<Vec<_>>());
+    let mut vm = VM::with_runtime(runtime, &chunk, Limits::sandbox());
+    match vm.run() {
+        Ok(_) => vm.output_text().trim_end().to_string(),
+        Err(e) => vm.error_text(&e),
+    }
+}
 
 /* the tokens of `src` and what its lexer reported */
 pub fn lex(src: &str) -> (Vec<Token>, Vec<LexError>) { lex_as::<Spell>(src) }

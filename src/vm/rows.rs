@@ -112,7 +112,7 @@ fn bound(src: &[Instruction], chunk: &SSAChunk, sum: usize) -> Option<usize> {
     let mut d = 0;
     for i in src {
         d += match GATE[i.opcode as usize] as u8 {
-            WIDE => { let (pops, pushes) = depth::effect(i.opcode, i.operand, chunk)?; pushes.saturating_sub(pops) as usize }
+            WIDE => { let (pops, pushes) = i.opcode.effect(i.operand, chunk)?; pushes.saturating_sub(pops) as usize }
             k => k as usize - 1,
         };
     }
@@ -323,7 +323,12 @@ impl VM<'_> {
 
 /* whether the native call at `at` of code over rows keeps no value */
 pub(crate) fn void_call(code: &Code, chunk: &SSAChunk, at: usize) -> bool {
-    code.ins.get(at).is_some_and(|i| i.op == OpCode::CallNative && if i.a & SITE_TABLE == 0 { i.a & SITE_VOID != 0 } else { native_site(i.a, &chunk.native_sites).is_some_and(|s| s.void) })
+    code.ins.get(at).is_some_and(|i| i.op == OpCode::CallNative && native_void(chunk, i.a))
+}
+
+/* whether the native call site `a` of `chunk` keeps no value */
+pub(crate) fn native_void(chunk: &SSAChunk, a: u16) -> bool {
+    if a & SITE_TABLE == 0 { a & SITE_VOID != 0 } else { native_site(a, &chunk.native_sites).is_some_and(|s| s.void) }
 }
 
 /* the rows code over rows holds as it reaches `at` */

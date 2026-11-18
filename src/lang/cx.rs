@@ -185,10 +185,8 @@ impl<'c, 'v> Cx<'c, 'v> {
         }
     }
 
-
     /* refuses a value no table may hold naming only the unhashable type */
     pub fn require_hashable(&self, v: Val) -> Result<(), VmErr> { self.vm.require_hashable(v) }
-
 
     /* the qualified name a function class bound method or generator shows in its text */
     pub fn fn_name(&self, v: Val) -> Option<&str> {

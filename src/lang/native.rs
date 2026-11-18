@@ -582,18 +582,14 @@ pub const fn count(parts: &[&[Native]]) -> usize {
 }
 
 #[doc(hidden)]
-pub const fn count_kinds(kinds: &[(KindId, &[&[Native]])]) -> usize {
+pub const fn count_kinds<K>(kinds: &[(K, &[&[Native]])]) -> usize {
     let (mut n, mut i) = (0, 0);
     while i < kinds.len() { n += count(kinds[i].1); i += 1; }
     n
 }
 
 #[doc(hidden)]
-pub const fn count_foreign(kinds: &[(&str, &[&[Native]])]) -> usize {
-    let (mut n, mut i) = (0, 0);
-    while i < kinds.len() { n += count(kinds[i].1); i += 1; }
-    n
-}
+pub const fn count_foreign(kinds: &[(&str, &[&[Native]])]) -> usize { count_kinds(kinds) }
 
 /* the name table's slots as twice the functions rounded up to a power of two */
 #[doc(hidden)]
@@ -603,41 +599,34 @@ pub const fn slots(nf: usize) -> usize { (2 * nf).next_power_of_two() }
 #[doc(hidden)]
 pub const fn concat<const N: usize>(fns: &[&[Native]], kinds: &[(KindId, &[&[Native]])], foreign: &[(&str, &[&[Native]])]) -> [Native; N] {
     let mut out = [Native::BLANK; N];
-    let mut k = 0;
-    let mut p = 0;
-    while p < fns.len() {
-        let mut i = 0;
-        while i < fns[p].len() { out[k] = fns[p][i].at(k); k += 1; i += 1; }
-        p += 1;
-    }
+    let mut k = place(&mut out, 0, fns, None);
     let mut q = 0;
     while q < kinds.len() {
         let mut r = q + 1;
         while r < kinds.len() { assert!(kinds[r].0 as u8 != kinds[q].0 as u8, "a kind listed twice in natives"); r += 1; }
-        let parts = kinds[q].1;
-        let mut p = 0;
-        while p < parts.len() {
-            let mut i = 0;
-            while i < parts[p].len() { out[k] = parts[p][i].method_at(k, kinds[q].0); k += 1; i += 1; }
-            p += 1;
-        }
+        k = place(&mut out, k, kinds[q].1, Some(kinds[q].0));
         q += 1;
     }
     let mut q = 0;
     while q < foreign.len() {
         let mut r = q + 1;
         while r < foreign.len() { assert!(!same(foreign[r].0, foreign[q].0), "a foreign kind listed twice in natives"); r += 1; }
-        let parts = foreign[q].1;
-        let mut p = 0;
-        while p < parts.len() {
-            let mut i = 0;
-            while i < parts[p].len() { out[k] = parts[p][i].method_at(k, KindId::Foreign); k += 1; i += 1; }
-            p += 1;
-        }
+        k = place(&mut out, k, foreign[q].1, Some(KindId::Foreign));
         q += 1;
     }
     assert!(k == N, "natives counted wrong");
     out
+}
+
+/* places the natives of `parts` from id `k` on as methods of `owner` or functions where none and gives the next id */
+const fn place<const N: usize>(out: &mut [Native; N], mut k: usize, parts: &[&[Native]], owner: Option<KindId>) -> usize {
+    let mut p = 0;
+    while p < parts.len() {
+        let mut i = 0;
+        while i < parts[p].len() { out[k] = match owner { Some(o) => parts[p][i].method_at(k, o), None => parts[p][i].at(k) }; k += 1; i += 1; }
+        p += 1;
+    }
+    k
 }
 
 /* the open addressed name table of the first `nf` natives */
@@ -911,7 +900,8 @@ const fn kin(fns: &[Native], nf: usize, types: &[&str], names: &Names) -> [u64; 
 
 /* a hash over every name and each method's kind so other tables differ */
 const fn digest(fns: &[Native], nf: usize, ranges: &[(u16, u16); KINDS], foreign: &[(&str, u16, u16)]) -> u64 {
-    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    use crate::code::ops::{fnv, FNV};
+    let mut h = FNV;
     let mut i = 0;
     while i < fns.len() {
         let mut kind = 0xFFu8;
@@ -925,18 +915,10 @@ const fn digest(fns: &[Native], nf: usize, ranges: &[(u16, u16); KINDS], foreign
         let mut f = 0;
         while f < foreign.len() {
             let (name, lo, hi) = foreign[f];
-            if i >= nf && i - nf >= lo as usize && i - nf < hi as usize {
-                let b = name.as_bytes();
-                let mut j = 0;
-                while j < b.len() { h = (h ^ b[j] as u64).wrapping_mul(0x0100_0000_01b3); j += 1; }
-            }
+            if i >= nf && i - nf >= lo as usize && i - nf < hi as usize { h = fnv(h, name.as_bytes()); }
             f += 1;
         }
-        h = (h ^ kind as u64).wrapping_mul(0x0100_0000_01b3);
-        let b = fns[i].name.as_bytes();
-        let mut j = 0;
-        while j < b.len() { h = (h ^ b[j] as u64).wrapping_mul(0x0100_0000_01b3); j += 1; }
-        h = (h ^ 0xFF).wrapping_mul(0x0100_0000_01b3);
+        h = fnv(fnv(fnv(h, &[kind]), fns[i].name.as_bytes()), &[0xFF]);
         i += 1;
     }
     h

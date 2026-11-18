@@ -107,14 +107,8 @@ fn scanned<S: Spelling>(source: &str) -> (Vec<Token>, Vec<LexError>) {
     if S::SYNTAX.bom && bytes.starts_with(&[0xEF, 0xBB, 0xBF]) { scanner.pos = 3; }
 
     if len > MAX_SOURCE_SIZE {
-        scanner.errors.push(LexError {
-            start: 0, end: 0,
-            msg: "source file exceeds maximum size (10 MiB)",
-        });
-        return (
-            alloc::vec![Token { kind: TokenType::Eof, line: 0, start: len, end: len, comp: false, assigns: 0 }],
-            scanner.errors,
-        );
+        scanner.errors.push(LexError { start: 0, end: 0, msg: "source file exceeds maximum size (10 MiB)" });
+        return (alloc::vec![Token { kind: TokenType::Eof, line: 0, start: len, end: len, comp: false, assigns: 0 }], scanner.errors);
     }
 
     // about two bytes of source per token so most sources never grow the buffer

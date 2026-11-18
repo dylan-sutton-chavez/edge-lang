@@ -154,7 +154,7 @@
       },
       "run": ["run", "main.lox"],
       "fails": [],
-      "each": [["http://user@127.0.0.1/", "'http://user@127.0.0.1/' is not a plain url"], ["http://127.0.0.1:8@evil.test/", "'http://127.0.0.1:8@evil.test/' is not a plain url"], ["http://127.0.0.1/a b", "'http://127.0.0.1/a b' is not a plain url"], ["http://12%37.0.0.1/", "'http://12%37.0.0.1/' is not a plain url"], ["127.0.0.1/", "'127.0.0.1/' is not a plain url"], ["http://[::1]/", "'http://[::1]/' is not a plain url"], ["http://0x7f.1/", "'http://0x7f.1/' is not a plain url"], ["http://2130706433/", "'http://2130706433/' is not a plain url"], ["http://cañón.example/", "'http://cañón.example/' is not a plain url"], ["ftp://127.0.0.1/", "'ftp://127.0.0.1/' is not a plain url"], ["http://127.0.0.1:123456/", "'http://127.0.0.1:123456/' is not a plain url"]]
+      "each": [["http://user@127.0.0.1/", "'http://user@127.0.0.1/' is not a plain url"], ["http://127.0.0.1:8@evil.test/", "'http://127.0.0.1:8@evil.test/' is not a plain url"], ["http://127.0.0.1/a b", "'http://127.0.0.1/a b' is not a plain url"], ["http://12%37.0.0.1/", "'http://12%37.0.0.1/' is not a plain url"], ["127.0.0.1/", "'127.0.0.1/' is not a plain url"], ["http://[::1]/", "'http://[::1]/' is not a plain url"], ["http://0x7f.1/", "'http://0x7f.1/' is not a plain url"], ["http://2130706433/", "'http://2130706433/' is not a plain url"], ["http://cañón.example/", "'http://cañón.example/' is not a plain url"], ["ftp://127.0.0.1/", "'ftp://127.0.0.1/' is not a plain url"], ["http://127.0.0.1:123456/", "'http://127.0.0.1:123456/' is not a plain url"], ["http://evil.example/", "'main' has no net:evil.example, interpreter.json grants it net:127.0.0.1"], ["http://localhost:1/", "'main' has no net:localhost, interpreter.json grants it net:127.0.0.1"], ["ws://evil.example/socket", "'main' has no net:evil.example, interpreter.json grants it net:127.0.0.1"]]
     },
     {
       "given": {
@@ -181,15 +181,6 @@
       },
       "run": ["run", "main.lox"],
       "fails": ["'main' imports net, which interpreter.json does not grant it"]
-    },
-    {
-      "given": {
-        "interpreter.json": "{ \"permissions\": { \"main\": [\"net:127.0.0.1\"] } }\n",
-        "main.lox": "var net = import(\"net\");\n\nnet.request(\"GET\", \"$EACH\");\n"
-      },
-      "run": ["run", "main.lox"],
-      "fails": [],
-      "each": [["http://evil.example/", "'main' has no net:evil.example, interpreter.json grants it net:127.0.0.1"], ["http://localhost:1/", "'main' has no net:localhost, interpreter.json grants it net:127.0.0.1"], ["ws://evil.example/socket", "'main' has no net:evil.example, interpreter.json grants it net:127.0.0.1"]]
     },
     {
       "given": {

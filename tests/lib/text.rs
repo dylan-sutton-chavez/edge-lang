@@ -1,7 +1,7 @@
-use interpreter::embed::{Limits, VM};
+use interpreter::embed::Limits;
 use interpreter::lang::{Args, Cx, Mode, Native, Natives, Ret, Runtime, Sig};
 use rig::Rig;
-use rig::natives::{ARRAY, BUFFER, BYTES, CONVERT, DICT, FLOAT, FOLDS, INT, IO, ITER, LIST, LIST_SORT, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
+use crate::common::{ran, TRY};
 
 /* the render hook in each of its modes as a str */
 fn hook(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
@@ -12,23 +12,7 @@ fn hook(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
 
 const HOOK: &[Native] = &[Native::new("hook", Sig::exact(2), hook)];
 
-static NATIVES: Natives = interpreter::natives! {
-    language: Over,
-    fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, TYPES, rig::natives::MATCH, rig::natives::DATE, HOOK],
-    methods: [
-        Str => [STR],
-        Bytes => [BUFFER],
-        ByteArray => [ARRAY],
-        List => [LIST, LIST_SORT],
-        Tuple => [TUPLE],
-        Dict => [DICT],
-        Set => [SET, SET_MANY],
-        Int => [INT],
-        Float => [FLOAT],
-        Range => [RANGE],
-    ],
-    types: rig::types::NAMES,
-};
+static NATIVES: Natives = rig::with!(Over, HOOK);
 
 static RUNTIME: Runtime = Runtime::of::<Over>();
 
@@ -37,18 +21,7 @@ struct Over;
 rig::over!(Over, &NATIVES);
 
 /* what `src` printed and its error after it when one ended the run */
-fn run(src: &str) -> String {
-    let (chunk, errors) = interpreter::code::compile_as::<rig::Rig>(src);
-    assert!(errors.is_empty(), "{src}");
-    let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
-    let ran = vm.run();
-    let mut out = vm.output_text();
-    if let Err(e) = ran { out.push_str(&e.to_string()); }
-    out
-}
-
-// each call's repr or its error in the words the corpus reads
-const TRY: &str = "fn t(f) {\n    try {\n        print(repr(f()))\n    } catch Error as e {\n        print(text(type(e)) + \":\", e)\n    }\n}\n";
+fn run(src: &str) -> String { ran::<rig::Rig>(&RUNTIME, src, Limits::sandbox()) }
 
 fn tried(calls: &str) -> String { run(&(String::from(TRY) + calls)) }
 

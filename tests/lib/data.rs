@@ -3,10 +3,10 @@ use interpreter::lang::{Native, Natives, Runtime};
 use interpreter::lib::data::lines::Lines;
 use interpreter::lib::data::{csv, json, lines};
 use rig::Rig;
-use rig::natives::{ARRAY, BUFFER, BYTES, CONVERT, DICT, FLOAT, FOLDS, INT, IO, ITER, LIST, LIST_SORT, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
+use crate::common::{ran, TRY};
 
 // the data kernels under names of this test beside the rig's own tables
-const DATA: &[Native] = &interpreter::lib::table![Rig;
+pub(crate) const DATA: &[Native] = &interpreter::lib::table![Rig;
     "lines" => lines::lines,
     "json_read" => json::read,
     "json_write" => json::write,
@@ -14,23 +14,7 @@ const DATA: &[Native] = &interpreter::lib::table![Rig;
     "csv_write" => csv::write("values", "sep"),
 ];
 
-static NATIVES: Natives = interpreter::natives! {
-    language: Over,
-    fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, TYPES, rig::natives::MATCH, rig::natives::DATE, DATA],
-    methods: [
-        Str => [STR],
-        Bytes => [BUFFER],
-        ByteArray => [ARRAY],
-        List => [LIST, LIST_SORT],
-        Tuple => [TUPLE],
-        Dict => [DICT],
-        Set => [SET, SET_MANY],
-        Int => [INT],
-        Float => [FLOAT],
-        Range => [RANGE],
-    ],
-    types: rig::types::NAMES,
-};
+static NATIVES: Natives = rig::with!(Over, DATA);
 
 static RUNTIME: Runtime = Runtime::of::<Over>();
 
@@ -39,18 +23,7 @@ struct Over;
 rig::over!(Over, &NATIVES);
 
 /* what `src` printed and its error after it when one ended the run */
-fn run(src: &str) -> String {
-    let (chunk, errors) = interpreter::code::compile_as::<Rig>(src);
-    assert!(errors.is_empty(), "{src}: {:?}", errors.iter().map(|e| &e.msg).collect::<Vec<_>>());
-    let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
-    let ran = vm.run();
-    let mut out = vm.output_text();
-    if let Err(e) = ran { out.push_str(&e.to_string()); }
-    out
-}
-
-// each call's repr or its error as the class then the words
-const TRY: &str = "fn t(f) {\n    try {\n        print(repr(f()))\n    } catch Error as e {\n        print(text(type(e)) + \":\", e)\n    }\n}\n";
+fn run(src: &str) -> String { ran::<Rig>(&RUNTIME, src, Limits::sandbox()) }
 
 fn tried(calls: &str) -> String { run(&(String::from(TRY) + calls)) }
 
@@ -345,13 +318,8 @@ impl interpreter::lexer::Spelling for Tersely {
     const NATIVES: &'static Natives = &TERSE_NATIVES;
 }
 
-/* the words of the error `src` ends in under the terse runtime */
-fn terse(src: &str) -> String {
-    let (chunk, errors) = interpreter::code::compile_as::<Tersely>(src);
-    assert!(errors.is_empty(), "{src}");
-    let mut vm = VM::with_runtime(&TERSE_RUNTIME, &chunk, Limits::sandbox());
-    vm.run().err().map(|e| e.to_string()).unwrap_or_default()
-}
+/* what `src` printed and the words of its error under the terse runtime */
+fn terse(src: &str) -> String { ran::<Tersely>(&TERSE_RUNTIME, src, Limits::sandbox()) }
 
 #[test]
 fn a_json_or_csv_failure_carries_its_reason_for_the_runtime_to_word() {

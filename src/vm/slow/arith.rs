@@ -13,20 +13,6 @@ use crate::value::host::{coerce_floats, long_pair};
 
 impl<'a> VM<'a> {
 
-    /* the arithmetic ops exact for ints of any size with Minus unary */
-    pub(crate) fn handle_arith(&mut self, op: OpCode, operand: u16) -> Result<(), VmErr> {
-        if op == OpCode::Minus {
-            let v = self.pop()?;
-            let r = self.minus_value(v)?;
-            self.push(r);
-            return Ok(());
-        }
-        let (a, b) = self.pop2()?;
-        // a job that appends the items of a lazy source hands the list back itself
-        if let Some(v) = self.arith_value(op, operand, a, b, true)? { self.push(v); }
-        Ok(())
-    }
-
     /* whether `a += b` extends list `a` from a source a job may step */
     #[inline]
     pub(crate) fn lazy_extend(&self, a: Val, b: Val) -> bool {
@@ -65,9 +51,9 @@ impl<'a> VM<'a> {
             OpCode::Sub => self.sub_vals(a, b),
             OpCode::Mul => self.mul_vals(a, b),
             OpCode::Div => self.div_vals(a, b),
-            OpCode::Mod => self.exec_mod(a, b),
-            OpCode::Pow => self.exec_pow(a, b),
-            OpCode::FloorDiv => self.exec_floordiv(a, b),
+            OpCode::Mod => self.floor_op(BinOp::Mod, a, b),
+            OpCode::Pow => self.pow_vals(a, b),
+            OpCode::FloorDiv => self.floor_op(BinOp::FloorDiv, a, b),
             _ => return Err(cold_runtime("non-arith opcode in handle_arith")),
         };
         if inplace { result.map_err(inplace_err).map(Some) } else { result.map(Some) }
@@ -109,18 +95,6 @@ impl<'a> VM<'a> {
         if op == OpCode::Pos { return self.unary_of(v, |v| v, UnOp::Pos); }
         if (v.is_int() || v.is_bool()) && let Some(i) = self.as_i128(v) { return self.heap.int(!i); }
         match self.heap.foreign_unop(UnOp::Invert, v)? { Some(r) => Ok(r), None => Err(self.bad_operand(crate::lang::Op::Unary(UnOp::Invert), v)) }
-    }
-
-    fn exec_mod(&mut self, a: Val, b: Val) -> Result<Val, VmErr> {
-        self.floor_op(BinOp::Mod, a, b)
-    }
-
-    fn exec_floordiv(&mut self, a: Val, b: Val) -> Result<Val, VmErr> {
-        self.floor_op(BinOp::FloorDiv, a, b)
-    }
-
-    fn exec_pow(&mut self, a: Val, b: Val) -> Result<Val, VmErr> {
-        self.pow_vals(a, b)
     }
 
     /* a bitwise op where an augmented form changes a left set or dict */
@@ -186,13 +160,6 @@ impl<'a> VM<'a> {
         self.heap.foreign_binop(op, a, b)?.ok_or_else(|| self.unsupported(op, a, b))
     }
 
-    pub(crate) fn handle_compare(&mut self, op: OpCode) -> Result<(), VmErr> {
-        let (a, b) = self.pop2()?;
-        let r = self.compare_value(op, a, b)?;
-        self.push(Val::bool(r));
-        Ok(())
-    }
-
     /* whether comparison `a op b` holds with two sets ordered by inclusion */
     #[inline(always)]
     pub(crate) fn compare_value(&mut self, op: OpCode, a: Val, b: Val) -> Result<bool, VmErr> {
@@ -254,8 +221,9 @@ impl<'a> VM<'a> {
         if matches!(op, OpCode::In | OpCode::NotIn) && matches!(self.heap.try_get(b), Some(HeapObj::Coroutine(..)))
             && self.with_roots([a, b], |vm| vm.gather_job(b, crate::vm::jobs::Takes::Contains(a, op == OpCode::NotIn), Vec::new()))? { return Ok(Val::undef()); }
         // a `map` or `filter` whose steps run user code steps as a job too
+        let takes = crate::vm::jobs::Takes::Contains(a, op == OpCode::NotIn);
         if matches!(op, OpCode::In | OpCode::NotIn) && matches!(self.heap.try_get(b), Some(HeapObj::Iter(..)))
-            && self.with_roots([a], |vm| vm.contains_job(b, crate::vm::jobs::Takes::Contains(a, op == OpCode::NotIn)))? { return Ok(Val::undef()); }
+            && self.with_roots([a], |vm| Ok::<_, VmErr>(vm.lazy_pull(b, takes, &[])? || vm.drive_iter(b, takes, &[])?))? { return Ok(Val::undef()); }
         self.identity_value(op, a, b).map(Val::bool)
     }
 
@@ -325,14 +293,18 @@ impl<'a> VM<'a> {
         self.heap.alloc(HeapObj::Str(r)).ok()
     }
 
+    /* `a += b` over the rows with wide ints first */
     #[inline(never)]
-    pub(crate) fn exec_arith_or_compare(&mut self, opcode: OpCode, operand: u16) -> Result<(), VmErr> {
-        if let Ok(at) = self.under(2) && let Some(v) = self.wide_fast(opcode, self.slot(at), self.slot(at + 1))? {
+    pub(crate) fn in_place_add(&mut self, operand: u16) -> Result<(), VmErr> {
+        if let Ok(at) = self.under(2) && let Some(v) = self.wide_fast(OpCode::InPlaceAdd, self.slot(at), self.slot(at + 1))? {
             self.cut_to(at);
             self.push(v);
             return Ok(());
         }
-        if matches!(opcode, OpCode::Eq | OpCode::Lt | OpCode::NotEq | OpCode::Gt | OpCode::LtEq | OpCode::GtEq) { self.handle_compare(opcode) } else { self.handle_arith(opcode, operand) }
+        let (a, b) = self.pop2()?;
+        // a job that appends the items of a lazy source hands the list back itself
+        if let Some(v) = self.arith_value(OpCode::InPlaceAdd, operand, a, b, true)? { self.push(v); }
+        Ok(())
     }
 
     /* fast `a op b` of two i128 ints one boxed or None to fall back */

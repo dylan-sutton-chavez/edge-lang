@@ -9,6 +9,8 @@ const SNAPSHOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/.snapshot");
 const CASES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/cases");
 // the sources interpreter.wasm is built from which it must not predate
 const SOURCES: [&str; 2] = ["src", "examples/lox/src"];
+// the cli and the plugin kit live under src yet never build into interpreter.wasm so their edits leave it fresh
+const BESIDE: [&str; 5] = ["src/cli", "src/cli.rs", "src/main.rs", "src/plugin", "src/plugin.rs"];
 // only budget-exhausting cases reach this many ops and they end the same way sooner
 const OPS: i64 = 10_000_000;
 // the MB the memory limit counts in
@@ -39,25 +41,19 @@ struct Measure {
     total_places: usize,
     grew: &'static str,
     shrank: &'static str,
-    most_grown: &'static str,
-    most_shrunk: &'static str,
     own: &'static str,
     total: (&'static str, &'static str),
 }
 
-const INSTRUCTIONS: Measure = Measure { pick: |c| c.0, floor: |_| 0.0, unit: "instructions", places: 0, total_places: 0, grew: "runs more instructions", shrank: "runs fewer instructions", most_grown: "Most grown", most_shrunk: "Biggest drops", own: "", total: ("runs", "summed over its cases") };
-const MEMORY: Measure = Measure { pick: |c| c.1, floor: |s| s.memory_floor, unit: "MB", places: 6, total_places: 3, grew: "holds more memory", shrank: "holds less memory", most_grown: "Most grown", most_shrunk: "Biggest drops", own: " in memory", total: ("peaks at", "summed over its cases") };
+const INSTRUCTIONS: Measure = Measure { pick: |c| c.0, floor: |_| 0.0, unit: "instructions", places: 0, total_places: 0, grew: "runs more instructions", shrank: "runs fewer instructions", own: "", total: ("runs", "summed over its cases") };
+const MEMORY: Measure = Measure { pick: |c| c.1, floor: |s| s.memory_floor, unit: "MB", places: 6, total_places: 3, grew: "holds more memory", shrank: "holds less memory", own: " in memory", total: ("peaks at", "summed over its cases") };
 
 fn main() {
     let update = std::env::args().any(|a| a == "--update");
     // a snapshot that takes a slower case needs it said outright
     let accept_slower = std::env::args().any(|a| a == "--accept-slower");
     let wasm = std::env::var_os("INTERPRETER_WASM").map(PathBuf::from).unwrap_or_else(|| Path::new(ROOT).join("target/wasm32-unknown-unknown/cli/interpreter.wasm"));
-    let built = std::fs::metadata(&wasm).and_then(|m| m.modified()).unwrap_or(SystemTime::UNIX_EPOCH);
-    if SOURCES.iter().any(|dir| built < newest(&Path::new(ROOT).join(dir))) {
-        println!("{} is older than its sources, build it with make wasm-cli", wasm.display());
-        std::process::exit(1);
-    }
+    fresh(&wasm, "wasm-cli");
     let bytes = std::fs::read(&wasm).expect("reading interpreter.wasm");
     let mut config = Config::new();
     config.consume_fuel(true);
@@ -70,9 +66,10 @@ fn main() {
     programs(Path::new(CASES), &mut cases);
     cases.sort();
     println!("bench/cases  {} programs", cases.len());
+    let sources: BTreeMap<String, &str> = cases.iter().map(|(k, src)| (k.clone(), src.as_str())).collect();
     // a build with its static data shifted must count every case alike
     if let Some(other) = std::env::args().skip_while(|a| a != "--layout").nth(1) {
-        return layout(&engine, &module, Path::new(&other), &cases);
+        return layout(&engine, &module, Path::new(&other), &cases, &sources);
     }
     let ran: Vec<(String, (u64, u64, bool))> = cases.iter().map(|(key, src)| (key.clone(), measured(&engine, &module, src))).collect();
     let stopped: Vec<String> = ran.iter().filter(|(_, r)| !r.2).map(|(k, _)| k.clone()).collect();
@@ -83,7 +80,6 @@ fn main() {
     let measured = ran.iter().map(|(k, (ops, peak, _))| (k.clone(), (*ops as f64, (*peak as f64 / MB * 1e6).round() / 1e6))).collect();
     let rustc = Command::new("rustc").arg("--version").current_dir(ROOT).output().map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_default();
     let now = Snapshot { rustc, threshold: 0.005, case_threshold: 0.05, memory_floor: 0.004, cases: measured };
-    let sources: BTreeMap<String, &str> = cases.iter().map(|(k, src)| (k.clone(), src.as_str())).collect();
 
     // a missing snapshot is taken unchecked and a broken one fails unless `--update` replaces it
     let last = match std::fs::read_to_string(SNAPSHOT) {
@@ -153,9 +149,9 @@ fn compare(m: &Measure, last: &Snapshot, now: &Snapshot, sources: &BTreeMap<Stri
         picked.iter().map(|&&(k, l, n)| moved_line(m, sources, k, l, n)).collect::<Vec<_>>()
     };
     if change > last.threshold {
-        failures.push(format!("bench/cases {}, {} {unit} against {} {unit}, {:+.2}% across {} cases. Fix it, or accept it with --update if it is intended. {}{}", m.grew, amount(total, p), amount(before, p), change * 100.0, paired.len(), m.most_grown, list(&moved(true))));
+        failures.push(format!("bench/cases {}, {} {unit} against {} {unit}, {:+.2}% across {} cases. Fix it, or accept it with --update if it is intended. Most grown{}", m.grew, amount(total, p), amount(before, p), change * 100.0, paired.len(), list(&moved(true))));
     } else if change < -last.threshold {
-        failures.push(format!("bench/cases {}, {} {unit} against {} {unit}, {:+.2}%. The snapshot no longer matches the code, run --update and commit it with the change. {}{}", m.shrank, amount(total, p), amount(before, p), change * 100.0, m.most_shrunk, list(&moved(false))));
+        failures.push(format!("bench/cases {}, {} {unit} against {} {unit}, {:+.2}%. The snapshot no longer matches the code, run --update and commit it with the change. Biggest drops{}", m.shrank, amount(total, p), amount(before, p), change * 100.0, list(&moved(false))));
     }
     // a case at 0 has no ratio so leaving or reaching 0 sorts it first
     let by = |&(_, l, n): &(&String, f64, f64)| if l > 0.0 && n > 0.0 { (n / l).ln().abs() } else { f64::INFINITY };
@@ -215,19 +211,15 @@ fn annotate(level: &str, message: &str) {
 }
 
 /* each case on interpreter.wasm and on the shifted build `other` which must count it alike */
-fn layout(engine: &Engine, module: &Module, other: &Path, cases: &[(String, String)]) {
-    let built = std::fs::metadata(other).and_then(|m| m.modified()).unwrap_or(SystemTime::UNIX_EPOCH);
-    if SOURCES.iter().any(|dir| built < newest(&Path::new(ROOT).join(dir))) {
-        println!("{} is older than its sources, build it with make bench-layout", other.display());
-        std::process::exit(1);
-    }
+fn layout(engine: &Engine, module: &Module, other: &Path, cases: &[(String, String)], sources: &BTreeMap<String, &str>) {
+    fresh(other, "bench-layout");
     let shifted = Module::new(engine, std::fs::read(other).expect("reading the shifted build")).expect("compiling the shifted build");
     let next = std::sync::atomic::AtomicUsize::new(0);
     let mut apart: Vec<(String, u64, u64)> = std::thread::scope(|s| {
         let workers: Vec<_> = (0..LAYOUT_THREADS).map(|_| s.spawn(|| {
             let mut found = Vec::new();
             while let Some((key, src)) = cases.get(next.fetch_add(1, std::sync::atomic::Ordering::Relaxed)) {
-                let (a, b) = (run(engine, module, src).0, run(engine, &shifted, src).0);
+                let (a, b) = (measured(engine, module, src).0, measured(engine, &shifted, src).0);
                 if a != b { found.push((key.clone(), a, b)); }
             }
             found
@@ -241,8 +233,7 @@ fn layout(engine: &Engine, module: &Module, other: &Path, cases: &[(String, Stri
     if apart.is_empty() {
         return println!("  every case runs as many instructions with its static data shifted");
     }
-    let sources: BTreeMap<String, &str> = cases.iter().map(|(k, src)| (k.clone(), src.as_str())).collect();
-    let lines: Vec<String> = apart.iter().map(|(k, a, b)| format!("{k} {} {} to {} instructions ({:+})", source(&sources, k), amount(*a as f64, 0), amount(*b as f64, 0), *b as i64 - *a as i64)).collect();
+    let lines: Vec<String> = apart.iter().map(|(k, a, b)| format!("{k} {} {} to {} instructions ({:+})", source(sources, k), amount(*a as f64, 0), amount(*b as f64, 0), *b as i64 - *a as i64)).collect();
     annotate("error", &format!("{} cases run another count once static data shifts, so a lookup follows an address.{}", apart.len(), list(&lines)));
     // the annotation names a few and the log every one
     for line in lines.iter().skip(TOP) { println!("  {line}"); }
@@ -260,10 +251,7 @@ fn programs(dir: &Path, out: &mut Vec<(String, String)>) {
     }
 }
 
-/* the instructions one program runs on a fresh instance and its memory peak in bytes */
-fn run(engine: &Engine, module: &Module, src: &str) -> (u64, u64) { let (ops, peak, _) = measured(engine, module, src); (ops, peak) }
-
-/* `run` and whether the program ended with no error or budget stopping it */
+/* the instructions one program runs on a fresh instance, its memory peak in bytes and whether it ended with no error or budget stopping it */
 fn measured(engine: &Engine, module: &Module, src: &str) -> (u64, u64, bool) {
     let mut store = Store::new(engine, ());
     store.set_fuel(u64::MAX).expect("fuel is enabled");
@@ -308,9 +296,18 @@ fn write(snapshot: &Snapshot) {
     std::fs::write(SNAPSHOT, json).expect("writing bench/.snapshot");
 }
 
+/* exits unless `wasm` is newer than every source it is built from, which `make` then builds */
+fn fresh(wasm: &Path, make: &str) {
+    let built = std::fs::metadata(wasm).and_then(|m| m.modified()).unwrap_or(SystemTime::UNIX_EPOCH);
+    if SOURCES.iter().any(|dir| built < newest(&Path::new(ROOT).join(dir))) {
+        println!("{} is older than its sources, build it with make {make}", wasm.display());
+        std::process::exit(1);
+    }
+}
+
 /* the latest change under `dir` which interpreter.wasm must not predate */
 fn newest(dir: &Path) -> SystemTime {
-    std::fs::read_dir(dir).into_iter().flatten().flatten().map(|entry| {
+    std::fs::read_dir(dir).into_iter().flatten().flatten().filter(|entry| !BESIDE.iter().any(|b| entry.path() == Path::new(ROOT).join(b))).map(|entry| {
         let path = entry.path();
         if path.is_dir() { newest(&path) } else { entry.metadata().and_then(|m| m.modified()).unwrap_or(SystemTime::UNIX_EPOCH) }
     }).max().unwrap_or(SystemTime::UNIX_EPOCH)

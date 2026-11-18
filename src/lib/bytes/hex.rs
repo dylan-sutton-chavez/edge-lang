@@ -7,6 +7,7 @@ use super::{Buf, is_space, methods::recv};
 use crate::lib::num::ssize;
 use crate::lib::fail::{Error, Fail};
 use crate::lib::{Kernel, Site};
+use crate::lib::units::shared;
 
 /* lowercase hex with a separator between groups counted from either end */
 pub const fn hex<S: Site, B: Buf>() -> Kernel { Kernel::new(Sig::range(0, 2), hex_run::<S>) }
@@ -18,44 +19,40 @@ pub const fn from_hex<S: Site, B: Buf>() -> Kernel { Kernel::new(Sig::exact(1), 
 pub const fn from_hex_fn<S: Site>() -> Kernel { Kernel::new(Sig::exact(1), from_hex_run::<S, super::Fixed>).fast(from_hex_fast) }
 
 fn hex_run<S: Site>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
-    let out = {
-        let cx = &*cx;
-        (|| -> Result<String, Error> {
-            let sep = match a.get(0) {
-                None => None,
-                Some(v) => {
-                    // a text separator counts characters so one past ascii is refused for being so
-                    let unit = match cx.text(v) {
-                        Some(t) => { let mut cs = t.chars(); match (cs.next(), cs.next()) { (Some(c), None) => Some(c as u32), _ => None } }
-                        None => match cx.bytes_of(v) { Some(&[b]) => Some(b as u32), Some(_) => None, None => return Err(Error::Fail(Fail::NoLength(v))) },
-                    };
-                    let Some(unit) = unit else { return Err(Error::Fail(Fail::ParamLength(0))) };
-                    if unit > 0x7F { return Err(Error::Fail(Fail::ParamAscii(0))); }
-                    Some(unit as u8 as char)
-                }
-            };
-            let group = match a.get(1) { Some(v) => ssize(cx, v)?, None => 1 };
-            // a group wider than any buffer marks no boundary on any target
-            let width = usize::try_from(group.unsigned_abs()).unwrap_or(usize::MAX);
-            let len = cx.bytes_of(a.recv).map_or(0, <[u8]>::len);
-            let marks = if sep.is_some() && width > 0 { len.saturating_sub(1) / width } else { 0 };
-            let size = len.saturating_mul(2).saturating_add(marks);
-            // a long text is refused past the memory left before it exists or is charged
-            if size > crate::lib::iter::items::SHORT { cx.reserve(size)?; }
-            let buf = recv(cx, a.recv)?;
-            let mut out = String::with_capacity(size);
-            const HEX: &[u8; 16] = b"0123456789abcdef";
-            for (i, &b) in buf.iter().enumerate() {
-                // a group ends where the bytes before it divide by its size
-                let before = if group < 0 { i } else { buf.len() - i };
-                if let Some(c) = sep && i > 0 && width > 0 && before % width == 0 { out.push(c); }
-                out.push(HEX[(b >> 4) as usize] as char);
-                out.push(HEX[(b & 0x0F) as usize] as char);
+    let out = shared::<S, _>(cx, |cx| {
+        let sep = match a.get(0) {
+            None => None,
+            Some(v) => {
+                // a text separator counts characters so one past ascii is refused for being so
+                let unit = match cx.text(v) {
+                    Some(t) => { let mut cs = t.chars(); match (cs.next(), cs.next()) { (Some(c), None) => Some(c as u32), _ => None } }
+                    None => match cx.bytes_of(v) { Some(&[b]) => Some(b as u32), Some(_) => None, None => return Err(Error::Fail(Fail::NoLength(v))) },
+                };
+                let Some(unit) = unit else { return Err(Error::Fail(Fail::ParamLength(0))) };
+                if unit > 0x7F { return Err(Error::Fail(Fail::ParamAscii(0))); }
+                Some(unit as u8 as char)
             }
-            Ok(out)
-        })()
-    };
-    let out = out.map_err(|e| e.raise::<S>(cx))?;
+        };
+        let group = match a.get(1) { Some(v) => ssize(cx, v)?, None => 1 };
+        // a group wider than any buffer marks no boundary on any target
+        let width = usize::try_from(group.unsigned_abs()).unwrap_or(usize::MAX);
+        let len = cx.bytes_of(a.recv).map_or(0, <[u8]>::len);
+        let marks = if sep.is_some() && width > 0 { len.saturating_sub(1) / width } else { 0 };
+        let size = len.saturating_mul(2).saturating_add(marks);
+        // a long text is refused past the memory left before it exists or is charged
+        if size > crate::lib::iter::items::SHORT { cx.reserve(size)?; }
+        let buf = recv(cx, a.recv)?;
+        let mut out = String::with_capacity(size);
+        const HEX: &[u8; 16] = b"0123456789abcdef";
+        for (i, &b) in buf.iter().enumerate() {
+            // a group ends where the bytes before it divide by its size
+            let before = if group < 0 { i } else { buf.len() - i };
+            if let Some(c) = sep && i > 0 && width > 0 && before % width == 0 { out.push(c); }
+            out.push(HEX[(b >> 4) as usize] as char);
+            out.push(HEX[(b & 0x0F) as usize] as char);
+        }
+        Ok(out)
+    })?;
     Ok(cx.new_str(out)?.into())
 }
 

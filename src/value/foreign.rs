@@ -179,28 +179,15 @@ impl Slot {
 pub(crate) const ENTRY_BYTES: usize = core::mem::size_of::<Slot>() + core::mem::size_of::<u32>();
 
 /* what a value marked for the first time keeps alive besides itself */
-pub(crate) enum Kept { Nothing, Vals([Val; 3]), Shared(TraceFn, Rc<dyn Any>) }
+pub(crate) enum Kept { Vals([Val; 3]), Shared(TraceFn, Rc<dyn Any>) }
 
 /* a live entry as a snapshot carries it */
 pub(crate) enum Saved<'a> { Words(&'a [u64; 3]), Vals([Val; 3]), Shared(&'a dyn Any) }
 
-/* the kinds a table registered in the order their tokens name them */
-#[derive(Default)]
-struct Kinds(Vec<&'static Kind>);
-
-impl Kinds {
-    #[inline(always)]
-    fn get(&self, i: u16) -> &'static Kind { self.0[i as usize] }
-    fn iter(&self) -> impl Iterator<Item = &'static Kind> + '_ { self.0.iter().copied() }
-    fn push(&mut self, k: &'static Kind) -> u16 {
-        self.0.push(k);
-        (self.0.len() - 1) as u16
-    }
-}
-
 #[derive(Default)]
 pub struct ForeignTable {
-    kinds: Kinds,
+    // the kinds registered in the order their tokens name them
+    kinds: Vec<&'static Kind>,
     slots: Vec<Slot>,
     // live and reached bits 64 to a word so a sweep skips empty stretches
     bits: Vec<[u64; 2]>,
@@ -226,17 +213,18 @@ impl ForeignTable {
     pub fn register(&mut self, kind: &'static Kind) -> Result<KindToken, VmErr> {
         if let Some(i) = self.kinds.iter().position(|k| k.name == kind.name) {
             // snapshots find a kind by its name so no two kinds share one
-            if !core::ptr::eq(self.kinds.get(i as u16), kind) { return Err(super::cold_runtime("a second kind takes a name another kind holds")); }
+            if !core::ptr::eq(self.kinds[i], kind) { return Err(super::cold_runtime("a second kind takes a name another kind holds")); }
             return Ok(KindToken(i as u16));
         }
-        let i = self.kinds.push(kind);
+        self.kinds.push(kind);
+        let i = (self.kinds.len() - 1) as u16;
         if self.wide_int.is_some_and(|w| core::ptr::eq(w, kind)) { self.wide = Some(i); }
         Ok(KindToken(i))
     }
 
     pub(crate) fn token_of(&self, kind: &'static Kind) -> Option<KindToken> {
-        if let Some(w) = self.wide && core::ptr::eq(self.kinds.get(w), kind) { return Some(KindToken(w)); }
-        self.kinds.iter().position(|k| core::ptr::eq(k, kind)).map(|i| KindToken(i as u16))
+        if let Some(w) = self.wide && core::ptr::eq(self.kinds[w as usize], kind) { return Some(KindToken(w)); }
+        self.kinds.iter().position(|&k| core::ptr::eq(k, kind)).map(|i| KindToken(i as u16))
     }
 
     pub(crate) fn wide_int(&self) -> Option<&'static Kind> { self.wide_int }
@@ -247,7 +235,7 @@ impl ForeignTable {
         let kind = [self.wide_int, built.slice, built.ellipsis].into_iter().flatten().chain(declared.iter().copied()).chain(self.known.iter().copied()).find(|k| k.name == name)?;
         self.register(kind).ok().map(|t| t.0)
     }
-    pub(crate) fn kind_at(&self, kind: u16) -> &'static Kind { self.kinds.get(kind) }
+    pub(crate) fn kind_at(&self, kind: u16) -> &'static Kind { self.kinds[kind as usize] }
 
     /* the live and reached bits of the 64 slots of word `w` once made */
     #[inline(always)]
@@ -271,12 +259,12 @@ impl ForeignTable {
         (t & LIVE != 0 && (t >> 16) as u16 == generation).then_some((s, t))
     }
 
-    pub(crate) fn kind_of(&self, v: Val) -> Option<&'static Kind> { self.slot(v).map(|(_, t)| self.kinds.get(kind_of_tag(t))) }
+    pub(crate) fn kind_of(&self, v: Val) -> Option<&'static Kind> { self.slot(v).map(|(_, t)| self.kinds[kind_of_tag(t) as usize]) }
 
     /* the kind and store of `v` for the operations that only read */
     pub(crate) fn open(&self, v: Val) -> Option<(&'static Kind, &dyn Any)> {
         let (s, t) = self.slot(v)?;
-        Some((self.kinds.get(kind_of_tag(t)), s.any()?))
+        Some((self.kinds[kind_of_tag(t) as usize], s.any()?))
     }
 
     /* one compare against the tag the handle implies reads the inline i128 */
@@ -348,21 +336,18 @@ impl ForeignTable {
 
     /* marks `v` and gives what its store keeps alive on its first mark */
     pub(crate) fn mark(&mut self, v: Val) -> Option<Kept> {
-        let (generation, index) = v.foreign_parts()?;
-        let i = index as usize;
-        let s = self.slots.get(i)?;
-        let t = s.tag();
-        if t & LIVE == 0 || (t >> 16) as u16 != generation { return None; }
+        let t = self.slot(v)?.1;
+        let i = v.foreign_parts()?.1 as usize;
         let bit = 1u64 << (i % 64);
         self.ensure_bits();
         let word = &mut self.bits[i / 64];
         if word[MARK] & bit != 0 { return None; }
         word[MARK] |= bit;
-        Some(match &self.slots[i] {
-            &Slot::Vals(_, v) => Kept::Vals(v),
-            Slot::Shared(_, p) => match self.kinds.get(kind_of_tag(t)).trace { Some(f) => Kept::Shared(f, p.clone()), None => Kept::Nothing },
-            _ => Kept::Nothing,
-        })
+        match &self.slots[i] {
+            &Slot::Vals(_, v) => Some(Kept::Vals(v)),
+            Slot::Shared(_, p) => self.kinds[kind_of_tag(t) as usize].trace.map(|f| Kept::Shared(f, p.clone())),
+            _ => None,
+        }
     }
 
     /* frees unmarked slots dropping shared payloads and gives how many freed ones paced collections */
@@ -417,7 +402,7 @@ impl ForeignTable {
                 &Slot::Vals(_, v) => Saved::Vals(v),
                 Slot::Shared(_, p) => Saved::Shared(&**p),
             };
-            Some((self.kinds.get(kind_of_tag(t)), (t >> 16) as u16, i as u32, saved))
+            Some((self.kinds[kind_of_tag(t) as usize], (t >> 16) as u16, i as u32, saved))
         })
     }
 
@@ -504,7 +489,7 @@ impl HeapPool {
     fn slice_bounds(&self, v: Val) -> Option<[Val; 3]> {
         let (s, t) = self.foreign.slot(v)?;
         let kind = self.natives.built.slice?;
-        match s { &Slot::Vals(_, b) if core::ptr::eq(self.foreign.kinds.get(kind_of_tag(t)), kind) => Some(b), _ => None }
+        match s { &Slot::Vals(_, b) if core::ptr::eq(self.foreign.kinds[kind_of_tag(t) as usize], kind) => Some(b), _ => None }
     }
 
     /* the one value of the runtime's ellipsis kind made on its first use */
@@ -522,7 +507,7 @@ impl HeapPool {
     /* names the kind boxing ints past i128 without registering it yet */
     pub fn set_wide_int(&mut self, kind: &'static Kind) {
         self.foreign.wide_int = Some(kind);
-        self.foreign.wide = self.foreign.kinds.iter().position(|k| core::ptr::eq(k, kind)).map(|i| i as u16);
+        self.foreign.wide = self.foreign.kinds.iter().position(|&k| core::ptr::eq(k, kind)).map(|i| i as u16);
     }
 
     /* names a kind registered on first use so a restore can find it by name */
@@ -669,7 +654,7 @@ impl HeapPool {
         match self.foreign.mark(v) {
             Some(Kept::Vals(vals)) => out.extend(vals),
             Some(Kept::Shared(trace, p)) => trace(&*p, &mut |c| out.push(c)),
-            Some(Kept::Nothing) | None => {}
+            None => {}
         }
     }
 }

@@ -2,7 +2,7 @@ use crate::s;
 
 use super::{Body, Parser, Unit};
 use crate::code::OpCode;
-use crate::syntax::{chunk::{ImportEntry, ImportKind, NativeClassEntry, SSAChunk}, ssa::ssa_strip, text::parse_string};
+use crate::syntax::{chunk::{ImportEntry, ImportKind, SSAChunk}, ssa::ssa_strip, text::parse_string};
 use crate::syntax::lexer::{Spelling, Token, TokenType};
 use crate::deps::Resolved;
 use crate::util::hash::FxHashSet;
@@ -177,10 +177,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
     fn native_import_kind(bindings: &[crate::deps::NativeBinding], classes: &[crate::deps::NativeClass], consts: &[crate::deps::NativeBinding]) -> ImportKind {
         ImportKind::Native {
             funcs: bindings.to_vec(),
-            classes: classes.iter().map(|c| NativeClassEntry {
-                name: c.name.clone(),
-                methods: c.methods.clone(),
-            }).collect(),
+            classes: classes.to_vec(),
             consts: consts.to_vec(),
         }
     }
@@ -203,16 +200,14 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         self.chunk.emit(OpCode::LoadModule, import_idx);
         let attr_idx = self.chunk.push_name(name);
         self.chunk.emit(OpCode::LoadAttr, attr_idx);
-        self.emit_store_new(alias);
+        self.store_name(alias);
     }
 
     /* a named import binds module attributes and native functions also fill `extern_table` */
     fn resolve_and_bind_named(&mut self, spec: &str, span: (usize, usize), names: Vec<(String, String)>) {
         let Some(resolved) = self.resolve_at(spec, span) else { return; };
-        let (Resolved::Code { canonical, .. } | Resolved::Native { canonical, .. }) = &resolved;
-        let url = canonical.clone();
         match resolved {
-            Resolved::Native { bindings, classes, consts, .. } => {
+            Resolved::Native { bindings, classes, consts, canonical: url } => {
                 let import_idx = self.register_import(&url, Self::native_import_kind(&bindings, &classes, &consts));
                 // functions take the extern fast path yet still bind as attributes that export as values
                 for (name, alias) in &names {
@@ -258,7 +253,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
             }
         };
         self.chunk.emit(OpCode::LoadModule, import_idx);
-        self.emit_store_new(alias);
+        self.store_name(alias);
     }
 
     /* a star import fills `extern_index` for natives and binds every export of the module */

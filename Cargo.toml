@@ -10,15 +10,22 @@ documentation = "https://docs.rs/interpreter"
 readme = "README.md"
 keywords = ["interpreter", "bytecode", "vm", "wasm", "language"]
 categories = ["compilers", "wasm", "no-std"]
-include = ["/src/**/*.rs", "/README.md", "/LICENSE.md"]
+# besides src the cli features compile these files and the js host that make js writes
+include = ["/src/**/*.rs", "/src/cli/templates/*.html", "/build.rs", "/cli/setup/uninstall.sh", "/examples/net/net.rs", "/js/dist/**/*.js", "/README.md", "/LICENSE.md"]
 autotests = false
 autobins = false
 autoexamples = false
 
-# `make wasm` builds interpreter.wasm as a cdylib so dependents link a plain rlib
+# `make wasm` builds interpreter.wasm as a cdylib so dependents link a plain rlib and the docs pages run as doctests
 [lib]
 name = "interpreter"
-doctest = false
+
+# the reference composition wiring every command over the runtime a project declares
+[[bin]]
+name = "interpreter"
+path = "src/main.rs"
+required-features = ["cli"]
+doc = false
 
 [[test]]
 name = "engine"
@@ -33,13 +40,83 @@ path = "tests/unmetered/main.rs"
 name = "lib"
 path = "tests/lib/main.rs"
 
+[[test]]
+name = "cli"
+path = "tests/cli/cli.rs"
+required-features = ["cli"]
+
+[[test]]
+name = "run"
+path = "tests/cli/run.rs"
+required-features = ["cli"]
+
+[[test]]
+name = "actor"
+path = "tests/cli/actor.rs"
+required-features = ["cli"]
+
+[[test]]
+name = "consistency"
+path = "tests/cli/consistency.rs"
+required-features = ["cli"]
+
+# a third composition over lox with its own words that is also its test
+[[test]]
+name = "channels"
+path = "tests/cli/channels.rs"
+harness = false
+required-features = ["cli-wasm", "cli-files", "cli-perms", "cli-run"]
+
+# the interpreter composition's run and test over lox built in with no wasm
+[[test]]
+name = "native"
+path = "tests/cli/native.rs"
+harness = false
+required-features = ["cli-docs", "cli-files", "cli-net", "cli-perms", "cli-run", "cli-test", "cli-web"]
+
+# runtimes as native libraries in a child process of the interpreter binary held to what they give on wasm
+[[test]]
+name = "library"
+path = "tests/cli/library.rs"
+required-features = ["cli"]
+
+# the lines a native run executed which the cli-coverage feature writes out
+[[test]]
+name = "coverage"
+path = "tests/cli/coverage.rs"
+harness = false
+required-features = ["cli-coverage", "cli-run"]
+
+# the interpreter composition over the rig's wasm for plugin and net calls lox cannot write
+[[test]]
+name = "rig"
+path = "tests/cli/rig.rs"
+harness = false
+required-features = ["cli-wasm", "cli-docs", "cli-files", "cli-net", "cli-perms", "cli-run", "cli-test"]
+
+# a second composition of two commands which lint-cli builds with their features alone
+[[example]]
+name = "runner"
+path = "examples/cli/runner.rs"
+required-features = ["cli-wasm", "cli-run", "cli-test"]
+
+# the commands compiled again over the public api alone
+[[example]]
+name = "decoupled"
+path = "examples/cli/decoupled.rs"
+required-features = ["cli-kit"]
+
 # unsafe code lives in src/unsafe.rs alone which allows it for itself
 [lints.rust]
 unsafe_code = "deny"
 unsafe_op_in_unsafe_fn = "deny"
 
 [package.metadata.docs.rs]
-features = ["full", "plugin"]
+features = ["full", "plugin", "cli"]
+
+# shear follows no path attribute so it never reads the net module of examples/net that uses tungstenite
+[package.metadata.cargo-shear]
+ignored = ["tungstenite"]
 
 [features]
 default = ["std"]
@@ -73,12 +150,74 @@ perms = []
 internals = []
 # a padding static that shifts static data for make bench-layout
 layout = []
+# the interpreter binary and `interpreter::cli` with every command the binary wires
+cli = ["std", "cli-kit", "cli-actors", "cli-actors-server", "cli-build", "cli-docs", "cli-files", "cli-native", "cli-init", "cli-net", "cli-packages", "cli-perms", "cli-run", "cli-serve", "cli-test", "cli-uninstall", "cli-web"]
+# the kit a composition builds a command line from with no command wired
+cli-kit = ["std", "dep:anyhow", "dep:clap", "dep:serde", "dep:serde_json", "dep:ureq"]
+cli-actors = ["cli-wasm", "dep:serde_yaml_ng", "dep:slab"]
+# the live server an actor pool becomes with its ingress control endpoint and durable log
+cli-actors-server = ["cli-actors", "dep:mio", "dep:signal-hook"]
+# a bundle or a binary or a dist, each carrying the pages and the browser host of a project
+cli-build = ["cli-docs", "cli-web"]
+# the pages a package ships held to the docs convention
+cli-docs = ["cli-kit"]
+# the lines each native run executed written where INTERPRETER_COVERAGE names
+cli-coverage = ["cli-kit", "coverage"]
+# reads of the local files a grant names under the package that asks
+cli-files = ["cli-kit", "dep:flate2"]
+cli-init = ["cli-kit"]
+# the net host module of examples/net that the kit exports with its transports
+cli-net = ["cli-kit", "dep:flate2", "dep:tungstenite"]
+cli-packages = ["cli-kit"]
+# the grants a manifest writes for each package it imports held through one shared logic
+cli-perms = ["cli-kit"]
+cli-run = ["cli-kit"]
+cli-serve = ["cli-kit", "dep:tiny_http"]
+cli-test = ["cli-kit"]
+cli-uninstall = ["cli-kit", "dep:tempfile"]
+# the browser host a dist vendors and a headless run drives
+cli-web = ["cli-kit", "dep:headless_chrome", "dep:tiny_http"]
+# runtimes as wasm modules wasmtime runs and the plugins a project declares
+cli-wasm = ["cli-kit", "dep:wasmtime"]
+# runtimes as native libraries a child process loads for a project that declares one
+cli-native = ["cli-wasm", "dep:libloading"]
 
 [dependencies]
 hashbrown = { workspace = true }
 itoa = { workspace = true }
 libm = { workspace = true }
 linked_list_allocator = { version = "0.10", default-features = false, optional = true }
+# the cli features alone pull in what follows so an engine build compiles none of it
+anyhow = { version = "1", optional = true }
+clap = { version = "4", features = ["derive"], optional = true }
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+# HTTPS for URL imports and `interpreter build` vendoring
+ureq = { version = "3", features = ["brotli"], optional = true }
+# hosts the runtime a composition hands the kit and Cranelift compiles the plugins a project declares
+wasmtime = { version = "48", default-features = false, features = ["runtime", "std", "cranelift"], optional = true }
+# opens the native library of a runtime a project declares native
+libloading = { version = "0.8", optional = true }
+# the static dev server and the page server of a headless run
+tiny_http = { version = "0.12", optional = true }
+# parses the actor.yml manifest, the maintained fork of serde_yaml
+serde_yaml_ng = { workspace = true, optional = true }
+# stable actor keys that survive removal so the scheduler queues never dangle
+slab = { version = "0.4", optional = true }
+# one thread serves every ingress connection, epoll or kqueue waking it for those with data
+mio = { version = "1", features = ["os-poll", "net"], optional = true }
+# a unique temp file for the uninstall script since a predictable path invites symlink squatting
+tempfile = { version = "3", optional = true }
+# the WebSocket client behind `net.connect` on the rustls ureq already brings
+tungstenite = { version = "0.29", default-features = false, features = ["handshake", "rustls-tls-webpki-roots"], optional = true }
+# inflates a gzip body `net.read` streams, the decoder ureq already brings for its own encodings
+flate2 = { version = "1", optional = true }
+# drives the browser host for `interpreter run --web` over CDP and `fetch` downloads a known-good Chromium when the user agrees
+headless_chrome = { version = "1", features = ["fetch"], optional = true }
+
+# SIGTERM and SIGINT close a live actor server so its actors finish what they hold
+[target.'cfg(unix)'.dependencies]
+signal-hook = { version = "0.3", default-features = false, features = ["iterator"], optional = true }
 
 # wasm-only allocators as host builds use std's and treat interpreter.wasm as a library
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -95,8 +234,14 @@ serde_json = { workspace = true }
 serde_yaml_ng = { workspace = true }
 # the tests run what lox cannot write through the test rig which links this crate back
 rig = { path = "tests/rig" }
-# what Lox can say the tests say in Lox through the example itself
+# what Lox can say the tests say in Lox through the example itself and the cli tests run on
 interpreter-lox = { path = "examples/lox" }
+# the throwaway projects the cli tests write
+tempfile = "3"
+# the fixture servers the cli suites answer net and module fetches with
+tiny_http = "0.12"
+tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
+flate2 = "1"
 
 [workspace]
 members = ["plugin/example", "bench", "tests/rig", "examples/lox"]
@@ -105,7 +250,7 @@ default-members = [".", "tests/rig", "examples/lox"]
 resolver = "2"
 
 [workspace.package]
-version = "1.1.0"
+version = "1.2.0"
 edition = "2024"
 rust-version = "1.98"
 license = "Apache-2.0"
@@ -129,7 +274,7 @@ codegen-units = 1
 panic = "abort"
 strip = true
 
-# released CLIs embed this build of interpreter.wasm precompiled to native code so speed beats size
+# the speed build of interpreter.wasm the tests of the CLI and the bench run so speed beats size
 [profile.cli]
 inherits = "release"
 opt-level = 3

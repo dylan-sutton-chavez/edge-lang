@@ -16,25 +16,33 @@ pub use names::NAMES;
 // the text type `over!` names in the crate it expands in
 #[doc(hidden)]
 pub use alloc::string::String as __String;
-use natives::*;
 
-pub static NATIVES: Natives = interpreter::natives! {
-    language: Rig,
-    fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, TYPES, MATCH, DATE],
-    methods: [
-        Str => [STR],
-        Bytes => [BUFFER],
-        ByteArray => [ARRAY],
-        List => [LIST, LIST_SORT],
-        Tuple => [TUPLE],
-        Dict => [DICT],
-        Set => [SET, SET_MANY],
-        Int => [INT],
-        Float => [FLOAT],
-        Range => [RANGE],
-    ],
-    types: types::NAMES,
-};
+/* the rig's natives as `$lang` takes them with the fns `$f` and the method rows `$kind` past its own */
+#[macro_export]
+macro_rules! with {
+    ($lang:ty $(, $f:expr)* $(; $($kind:ident => [$($m:expr),*]),*)?) => {
+        ::interpreter::natives! {
+            language: $lang,
+            fns: [$crate::natives::IO, $crate::natives::ITER, $crate::natives::NEXT, $crate::natives::NUM, $crate::natives::FOLDS, $crate::natives::CONVERT, $crate::natives::BYTES, $crate::natives::SORT, $crate::natives::TYPES, $crate::natives::MATCH, $crate::natives::DATE $(, $f)*],
+            methods: [
+                Str => [$crate::natives::STR],
+                Bytes => [$crate::natives::BUFFER],
+                ByteArray => [$crate::natives::ARRAY],
+                List => [$crate::natives::LIST, $crate::natives::LIST_SORT],
+                Tuple => [$crate::natives::TUPLE],
+                Dict => [$crate::natives::DICT],
+                Set => [$crate::natives::SET, $crate::natives::SET_MANY],
+                Int => [$crate::natives::INT],
+                Float => [$crate::natives::FLOAT],
+                Range => [$crate::natives::RANGE],
+                $($($kind => [$($m),*],)*)?
+            ],
+            types: $crate::types::NAMES,
+        }
+    };
+}
+
+pub static NATIVES: Natives = with!(Rig);
 
 pub static RUNTIME: Runtime = Runtime::of::<Rig>();
 

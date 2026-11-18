@@ -1,0 +1,17 @@
+name: Deno
+description: Deno 2 with its module cache kept between runs.
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Deno
+      uses: denoland/setup-deno@v2
+      with:
+        deno-version: v2.x
+
+    - name: Cache Deno
+      uses: actions/cache@v6
+      with:
+        path: ~/.cache/deno
+        key: deno-${{ runner.os }}-${{ hashFiles('**/deno.json', '**/deno.lock') }}
+        restore-keys: deno-${{ runner.os }}-

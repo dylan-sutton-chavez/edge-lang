@@ -6,7 +6,7 @@ use crate::lang::{Acc, Args, Cx, Flow, Fold, Item, KindId, Ret, STEPS, Sig, Step
 use crate::value::{HeapObj, HeapPool, SET_TABLE, Val, ValSet, VmErr, cold_runtime};
 
 use crate::lib::fail::{Fail, fail, receiver};
-use crate::lib::iter::items::{SHORT, drained, generator, range_items, taken};
+use crate::lib::iter::items::{SHORT, drained, framed, generator, range_items, taken};
 use crate::lib::{Kernel, Site};
 
 // the bytes a set holds for an item with its hash before any index
@@ -34,53 +34,45 @@ pub const fn clear<S: Site>() -> Kernel { Kernel::new(Sig::exact(0), clear_run) 
 pub const fn copy<S: Site>() -> Kernel { Kernel::new(Sig::exact(0), copy_run) }
 
 /* the items in one operand or the other but not both */
-pub const fn symmetric<S: Site>() -> Kernel { one::<S>(Op::SymDiff) }
+pub const fn symmetric<S: Site>() -> Kernel { one(by::<S, { Op::SymDiff as usize }>) }
 
 /* keeps the items in one or the other but not both */
-pub const fn symmetric_update<S: Site>() -> Kernel { one::<S>(Op::SymDiffUpdate) }
+pub const fn symmetric_update<S: Site>() -> Kernel { one(by::<S, { Op::SymDiffUpdate as usize }>) }
 
 /* whether every item is in the operand */
-pub const fn subset<S: Site>() -> Kernel { one::<S>(Op::Subset) }
+pub const fn subset<S: Site>() -> Kernel { one(by::<S, { Op::Subset as usize }>) }
 
 /* whether every item of the operand is in the set */
-pub const fn superset<S: Site>() -> Kernel { one::<S>(Op::Superset) }
+pub const fn superset<S: Site>() -> Kernel { one(by::<S, { Op::Superset as usize }>) }
 
 /* whether no item is in the operand */
-pub const fn disjoint<S: Site>() -> Kernel { one::<S>(Op::Disjoint) }
+pub const fn disjoint<S: Site>() -> Kernel { one(by::<S, { Op::Disjoint as usize }>) }
 
 /* puts in the items of every operand */
-pub const fn update<S: Site>() -> Kernel { many::<S>(Op::Update) }
+pub const fn update<S: Site>() -> Kernel { many(by::<S, { Op::Update as usize }>) }
 
 /* a new set of the items of the set and every operand */
-pub const fn union<S: Site>() -> Kernel { many::<S>(Op::Union) }
+pub const fn union<S: Site>() -> Kernel { many(by::<S, { Op::Union as usize }>) }
 
 /* a new set of the items in the set and in every operand */
-pub const fn intersection<S: Site>() -> Kernel { many::<S>(Op::Intersection) }
+pub const fn intersection<S: Site>() -> Kernel { many(by::<S, { Op::Intersection as usize }>) }
 
 /* a new set of the items in the set and in no operand */
-pub const fn difference<S: Site>() -> Kernel { many::<S>(Op::Difference) }
+pub const fn difference<S: Site>() -> Kernel { many(by::<S, { Op::Difference as usize }>) }
 
 /* keeps only the items in every operand */
-pub const fn intersection_update<S: Site>() -> Kernel { many::<S>(Op::InterUpdate) }
+pub const fn intersection_update<S: Site>() -> Kernel { many(by::<S, { Op::InterUpdate as usize }>) }
 
 /* takes out the items of every operand */
-pub const fn difference_update<S: Site>() -> Kernel { many::<S>(Op::DiffUpdate) }
+pub const fn difference_update<S: Site>() -> Kernel { many(by::<S, { Op::DiffUpdate as usize }>) }
 
 /* a kernel reading one operand */
-const fn one<S: Site>(op: Op) -> Kernel { Kernel::new(Sig::exact(1), run::<S>(op)).flags(STEPS) }
+const fn one(run: crate::lang::NativeFn) -> Kernel { Kernel::new(Sig::exact(1), run).flags(STEPS) }
 
 /* a kernel reading any number of operands which drain one after another */
-const fn many<S: Site>(op: Op) -> Kernel { Kernel::new(Sig::var(0), run::<S>(op)).flags(STEPS) }
+const fn many(run: crate::lang::NativeFn) -> Kernel { Kernel::new(Sig::var(0), run).flags(STEPS) }
 
-/* the body of method `op` */
-const fn run<S: Site>(op: Op) -> crate::lang::NativeFn {
-    match op {
-        Op::Update => by::<S, 0>, Op::Union => by::<S, 1>, Op::Intersection => by::<S, 2>, Op::Difference => by::<S, 3>,
-        Op::SymDiff => by::<S, 4>, Op::InterUpdate => by::<S, 5>, Op::DiffUpdate => by::<S, 6>, Op::SymDiffUpdate => by::<S, 7>,
-        Op::Subset => by::<S, 8>, Op::Superset => by::<S, 9>, Op::Disjoint => by::<S, 10>,
-    }
-}
-
+/* the body of the method `Op::ALL` holds at `OP` */
 fn by<S: Site, const OP: usize>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret { operands::<S>(cx, a, Op::ALL[OP]) }
 
 /* a set of `items` each one hashable */
@@ -112,7 +104,12 @@ fn new_fast(heap: &mut HeapPool, x: Val) -> Option<Val> { copy_of(heap, x)?.ok()
 
 /* a set of a set copied with its hashes or of keys no check refuses */
 fn copy_of(heap: &mut HeapPool, x: Val) -> Option<Result<Val, VmErr>> {
-    let plain = |v: &Val| !v.is_heap() || matches!(heap.try_get(*v), Some(HeapObj::Str(_)));
+    // a list or tuple of items off the heap or texts copies with no call
+    let listed = |items: &[Val]| {
+        if !items.iter().all(|v| !v.is_heap() || matches!(heap.try_get(*v), Some(HeapObj::Str(_)))) { return None; }
+        heap.spend(items.len());
+        ValSet::build(items, heap).ok()
+    };
     let s = match heap.try_get(x)? {
         HeapObj::Set(rc) => {
             let s = rc.borrow();
@@ -121,17 +118,8 @@ fn copy_of(heap: &mut HeapPool, x: Val) -> Option<Result<Val, VmErr>> {
             if s.len() > 64 { heap.spend(s.len()); }
             s.clone()
         }
-        HeapObj::List(rc) => {
-            let items = rc.borrow();
-            if !items.iter().all(plain) { return None; }
-            heap.spend(items.len());
-            ValSet::build(&items, heap).ok()?
-        }
-        HeapObj::Tuple(t) => {
-            if !t.iter().all(plain) { return None; }
-            heap.spend(t.len());
-            ValSet::build(t, heap).ok()?
-        }
+        HeapObj::List(rc) => listed(&rc.borrow())?,
+        HeapObj::Tuple(t) => listed(t)?,
         // bytes read in place adding each value the first time it shows
         HeapObj::Bytes(b) | HeapObj::ByteArray(b) => {
             heap.spend(b.len());
@@ -283,9 +271,6 @@ fn toggled<'a>(s: &mut ValSet, heap: &HeapPool, items: impl IntoIterator<Item = 
     }
     Ok(())
 }
-
-/* whether stepping `v` may need frames so the operands drain in a chain */
-fn framed(cx: &Cx<'_, '_>, v: Val) -> bool { matches!(cx.kind(v), KindId::Coro | KindId::Iter) }
 
 /* a drain's accumulator holding the receiver and the method */
 fn kept(recv: Val, op: Op) -> Acc {

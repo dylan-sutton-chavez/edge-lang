@@ -285,18 +285,8 @@ mod test {
     fn alike<S: Spelling>(src: &str, rig: &str) {
         let (mut theirs, ours) = (compiled::<S>(src), compiled::<Rig>(rig));
         assert!(theirs.1.is_empty() && ours.1.is_empty(), "{src:?} reports {:?} and {rig:?} reports {:?}", theirs.1, ours.1);
-        unpinned(&mut theirs.0);
+        super::runner::unpinned(&mut theirs.0);
         if let Err(e) = crate::common::same_program(&ours, &theirs) { panic!("{} {src:?} against {rig:?}: {e}", S::SYNTAX.name); }
-    }
-
-    // a range mark calls its native pinned where rig calls it by its name
-    fn unpinned(chunk: &mut SSAChunk) {
-        for i in chunk.instructions.iter_mut().filter(|i| i.opcode == interpreter::code::OpCode::CallNative) {
-            let Some(site) = interpreter::code::native_site(i.operand, &chunk.native_sites).filter(|s| s.pinned) else { continue };
-            if let Some(plain) = (interpreter::code::NativeSite { pinned: false, ..site }).in_place() { i.operand = plain; }
-        }
-        for f in &mut chunk.functions { unpinned(&mut f.1); }
-        for c in &mut chunk.classes { unpinned(c); }
     }
 
     // a range mark builds the runtime's range whatever a module binds its name to
@@ -429,13 +419,15 @@ mod test {
         alike::<Strict>("x = 1 +\n  2", "x = 1 + 2");
     }
 
+    /* the words check panics with on `table` */
+    fn refused(table: Syntax) -> String {
+        let e = std::panic::catch_unwind(move || table.check()).expect_err("a refused table");
+        e.downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| e.downcast_ref::<String>().cloned()).unwrap_or_default()
+    }
+
     // check refuses each table the lexer and parser cannot read one way
     #[test]
     fn check_refuses_tables_it_cannot_read() {
-        let refused = |table: Syntax| -> String {
-            let e = std::panic::catch_unwind(move || table.check()).expect_err("a refused table");
-            e.downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| e.downcast_ref::<String>().cloned()).unwrap_or_default()
-        };
         assert_eq!(refused(Syntax { ends: Ends::Semicolon, ..WORDS }), "a table that opens blocks at line ends needs line ends to end statements");
         assert_eq!(refused(Syntax { ends: Ends::Semicolon, ..INDENT }), "an indentation table needs line ends to end statements");
         assert_eq!(refused(Syntax { ends: Ends::Newline, ..BRACES }), "a table whose statements end at line ends spells no semicolon");
@@ -607,10 +599,6 @@ mod test {
     // check refuses each piece a table switches on without spelling its marks
     #[test]
     fn check_refuses_pieces_without_their_marks() {
-        let refused = |table: Syntax| -> String {
-            let e = std::panic::catch_unwind(move || table.check()).expect_err("a refused table");
-            e.downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| e.downcast_ref::<String>().cloned()).unwrap_or_default()
-        };
         let on = |shapes: Shapes| Syntax { shapes, ..BRACES };
         assert_eq!(refused(on(Shapes { cond: Cond::Question, ..Shapes::CORE })), "a table of question conditionals spells their marks");
         assert_eq!(refused(Syntax { shapes: Shapes { lambda: Lambda::Pipes, ..Shapes::CORE }, ..Strict::SYNTAX }), "a table of pipe closures spells the bar");
@@ -886,7 +874,7 @@ mod runner {
     }
 
     /* a range mark calls its native pinned where rig calls it by its name */
-    fn unpinned(chunk: &mut SSAChunk) {
+    pub(super) fn unpinned(chunk: &mut SSAChunk) {
         for i in chunk.instructions.iter_mut().filter(|i| i.opcode == OpCode::CallNative) {
             let Some(site) = interpreter::code::native_site(i.operand, &chunk.native_sites).filter(|s| s.pinned) else { continue };
             if let Some(plain) = (interpreter::code::NativeSite { pinned: false, ..site }).in_place() { i.operand = plain; }

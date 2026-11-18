@@ -29,11 +29,10 @@ fn error_line(c: &str) -> Option<(usize, &str)> {
     rest.starts_with("Error").then_some((n, rest))
 }
 
-fn expectations(src: &str) -> Option<Expect> {
+fn expectations(src: &str) -> Expect {
     let mut e = Expect::default();
     for (i, line) in src.lines().enumerate() {
         let n = i + 1;
-        if line.contains("// nontest") { return None; }
         let Some(at) = line.find("// ") else { continue };
         let c = &line[at + 3..];
         if let Some(rest) = line.find("// expect:").map(|k| &line[k + 10..]) {
@@ -51,7 +50,7 @@ fn expectations(src: &str) -> Option<Expect> {
             e.code = 70;
         }
     }
-    Some(e)
+    e
 }
 
 /* the line a `[line N]` marker in `s` names */
@@ -64,7 +63,7 @@ fn marked(s: &str) -> Option<(usize, &str)> {
 /* every failure of one test with its output beside what the file expects */
 fn check(path: &Path) -> Option<Vec<String>> {
     let src = std::fs::read_to_string(path).ok()?;
-    let e = expectations(&src)?;
+    let e = expectations(&src);
     let run = Command::new(env!("CARGO_BIN_EXE_lox")).arg(path).output().expect("lox runs");
     let (out, err) = (String::from_utf8_lossy(&run.stdout), String::from_utf8_lossy(&run.stderr));
     let err: Vec<&str> = err.lines().collect();

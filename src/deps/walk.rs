@@ -234,25 +234,17 @@ impl Walk {
     }
 
     fn visit(&mut self, spec: String) {
-        if spec.ends_with("interpreter.json") {
-            let waiting = Waiting::Manifest(spec.clone());
-            return self.request(spec, waiting);
-        }
-        match extension(&spec) {
-            "interpreter" => {
-                let waiting = Waiting::Package(spec.clone());
-                self.request(spec, waiting)
-            }
+        let waiting = match extension(&spec) {
+            _ if spec.ends_with("interpreter.json") => Waiting::Manifest,
+            "interpreter" => Waiting::Package,
             "js" | "mjs" => {
                 let name = self.label(&spec);
-                self.out.push_back(Step::Refuse { msg: s!("module '", str &name, "' is JavaScript, ship a .", str self.extension, " or a .wasm"), spec });
+                return self.out.push_back(Step::Refuse { msg: s!("module '", str &name, "' is JavaScript, ship a .", str self.extension, " or a .wasm"), spec });
             }
-            "so" | "dylib" => self.refuse(&spec, "is not supported, ship a .wasm"),
-            _ => {
-                let waiting = Waiting::Module(spec.clone());
-                self.request(spec, waiting)
-            }
-        }
+            "so" | "dylib" => return self.refuse(&spec, "is not supported, ship a .wasm"),
+            _ => Waiting::Module,
+        };
+        self.request(spec.clone(), waiting(spec));
     }
 
     /* bytes a mounted package holds answer at once and anything else asks the host */
@@ -396,8 +388,8 @@ impl Walk {
 
     /* the fetched bytes held to the spec's pin or none once a failure says why */
     fn pinned(&mut self, spec: &str, answer: Fetched) -> Option<Vec<u8>> {
-        let bytes = match answer {
-            Fetched::Bytes(bytes) => bytes,
+        let checked = match answer {
+            Fetched::Bytes(bytes) => lock::verify_pin(spec, &bytes).map(|()| bytes),
             // what cannot be read fails at its import as a refused module does
             Fetched::Missing(hint) => {
                 let at = target(spec);
@@ -409,18 +401,9 @@ impl Walk {
                 self.refuse(spec, &why);
                 return None;
             }
-            Fetched::Failed(e) => {
-                self.failures.push(e);
-                return None;
-            }
+            Fetched::Failed(e) => Err(e),
         };
-        match lock::verify_pin(spec, &bytes) {
-            Ok(()) => Some(bytes),
-            Err(e) => {
-                self.failures.push(e);
-                None
-            }
-        }
+        checked.map_err(|e| self.failures.push(e)).ok()
     }
 
     // a code module registers then its own imports queue so transitive deps stay lazy
@@ -447,12 +430,7 @@ impl Walk {
     }
 
     /* the dir of the root manifest in one spelling and empty without one */
-    fn root(&self) -> String {
-        match self.root_for(&self.entry_dir) {
-            Some(Some(root)) => norm(&root).to_string(),
-            _ => String::new(),
-        }
-    }
+    fn root(&self) -> String { self.root_for(&self.entry_dir).flatten().map_or_else(String::new, |root| norm(&root).to_string()) }
 
     /* fails a grant under an import key whose target has no manifest of its own */
     fn void_grants(&mut self) {
@@ -648,10 +626,7 @@ impl Walk {
     fn real(&self, spec: &str) -> String {
         let mut at = spec.to_string();
         for (copy, original) in self.copies.iter().rev() {
-            let next = norm(&at).strip_prefix(copy.as_str()).filter(|rest| rest.is_empty() || rest.starts_with(['/', '#'])).map(|rest| s!(str original, str rest));
-            if let Some(next) = next {
-                at = next;
-            }
+            if let Some(rest) = norm(&at).strip_prefix(copy.as_str()).filter(|rest| rest.is_empty() || rest.starts_with(['/', '#'])) { at = s!(str original, str rest); }
         }
         at
     }

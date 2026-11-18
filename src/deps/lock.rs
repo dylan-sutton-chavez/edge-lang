@@ -33,11 +33,7 @@ impl Lock {
             let text = |key: &str| value.get(key).map(|v| v.as_str().map(String::from));
             let shape = || s!("'", str &name, "' in ", str FILE, " must hold a url and a digest as strings");
             let (Some(Some(url)), Some(Some(digest))) = (text("url"), text("digest")) else { return Err(shape()) };
-            let version = match text("version") {
-                None => None,
-                Some(Some(v)) => Some(v),
-                Some(None) => return Err(shape()),
-            };
+            let version = text("version").map(|v| v.ok_or_else(shape)).transpose()?;
             lock.insert(&name, Entry { version, url, digest });
         }
         Ok(lock)
@@ -120,12 +116,7 @@ pub fn locked_spec(name: &str, target: &str, lock: Option<&Lock>) -> Result<Stri
     }
 }
 
-fn pinned(name: &str, entry: &Entry) -> Result<String, String> {
-    if let Some(e) = digest_error(name, entry) {
-        return Err(e);
-    }
-    Ok(s!(str &entry.url, "#", str &entry.digest))
-}
+fn pinned(name: &str, entry: &Entry) -> Result<String, String> { digest_error(name, entry).map_or_else(|| Ok(s!(str &entry.url, "#", str &entry.digest)), Err) }
 
 /* the digest of `bytes` as a lock records it */
 pub fn digest_of(bytes: &[u8]) -> String {
@@ -137,9 +128,7 @@ pub fn verify_pin(spec: &str, bytes: &[u8]) -> Result<(), String> {
     let (target, pin) = parse_integrity(spec)?;
     let Some(want) = pin else { return Ok(()) };
     let got = sha256(bytes);
-    if got == want {
-        return Ok(());
-    }
+    if got == want { return Ok(()); }
     Err(s!("integrity check failed for '", str target, "'\n expected sha256-", str &hex_encode(&want), "\n got sha256-", str &hex_encode(&got)))
 }
 

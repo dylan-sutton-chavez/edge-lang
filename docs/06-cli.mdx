@@ -194,11 +194,11 @@ net.request("GET", "https://other.example/");
 
 ## A CLI of your own
 
-The `interpreter-cli` crate is a kit. A `Kit` takes a runtime and the commands you wire, each behind a feature. The `interpreter` binary is `Kit::per_project`, the kit that runs whatever runtime a project names, and a runtime of yours gets a CLI of its own with `Kit::new`. With no arguments this one prints its help.
+`interpreter::cli` is a kit, public behind the `cli-*` features of the crate. A `Kit` takes a runtime and the commands you wire, each behind a feature. The `interpreter` binary is `Kit::per_project`, the kit that runs whatever runtime a project names, and a runtime of yours gets a CLI of its own with `Kit::new`. With no arguments this one prints its help.
 
 ```rust standalone_crate
-use interpreter_cli::cmd::{run, test};
-use interpreter_cli::{Kit, Runtime};
+use interpreter::cli::cmd::{run, test};
+use interpreter::cli::{Kit, Runtime};
 
 // the native runtime meters its memory through this allocator
 interpreter::allocator!();
@@ -212,13 +212,19 @@ fn main() {
 }
 ```
 
-`Runtime::native` links the runtime into the binary. `Runtime::wasm(bytes, &DESCRIPTOR)` loads its `.wasm` instead, which also lets the binary load plugins. `.module(...)` serves a host module such as `interpreter_cli::net::Net`, and `.field(interpreter_cli::perms::FIELD)` with `.access(Arc::new(interpreter_cli::perms::Perms))` holds each package to its grants.
+`Runtime::native` links the runtime into the binary. `Runtime::wasm(bytes, &DESCRIPTOR)` loads its `.wasm` instead, which also lets the binary load plugins. `.module(...)` serves a host module such as `interpreter::cli::net::Net`, and `.field(interpreter::cli::perms::FIELD)` with `.access(Arc::new(interpreter::cli::perms::Perms))` holds each package to its grants. This one needs `interpreter = { version = "1", features = ["cli-run", "cli-test"] }`.
 
 | Feature | Command or part |
 |---|---|
-| `run`, `test`, `build`, `init`, `serve`, `actors`, `uninstall` | The command of that name |
-| `packages` | `add`, `remove` and `lock` |
-| `net`, `files` | The host modules for requests and sockets, and for local files |
-| `perms` | Grants |
-| `web` | `--web` runs on headless Chrome |
-| `wasm` | Runtimes and plugins as `.wasm` |
+| `cli` | Every part below, the set the `interpreter` binary wires |
+| `cli-kit` | The `Kit` alone with no command |
+| `cli-run`, `cli-test`, `cli-build`, `cli-init`, `cli-serve`, `cli-actors`, `cli-uninstall` | The command of that name |
+| `cli-actors-server` | The live server an actor pool becomes |
+| `cli-packages` | `add`, `remove` and `lock` |
+| `cli-net`, `cli-files` | The host modules for requests and sockets, and for local files |
+| `cli-perms` | Grants |
+| `cli-docs` | The pages a package ships, held to the docs convention |
+| `cli-web` | `--web` runs on headless Chrome |
+| `cli-wasm` | Runtimes and plugins as `.wasm` |
+| `cli-native` | Runtimes as native libraries |
+| `cli-coverage` | The lines each native run executed |

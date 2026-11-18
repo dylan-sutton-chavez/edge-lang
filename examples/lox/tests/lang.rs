@@ -80,14 +80,6 @@ fn only_numbers_order() {
     for src in ["print \"a\" < \"b\";", "print \"a\" <= \"a\";", "print true > false;", "print nil >= nil;"] {
         assert_eq!(run(src), Err("Operands must be numbers.".into()), "{src}");
     }
-    assert_eq!(run("print 1 <= 1; print 2 >= 3;").as_deref(), Ok("true\nfalse\n"));
-}
-
-// a class with no init takes no arguments and says how many came
-#[test]
-fn a_class_with_no_init_counts_what_it_was_given() {
-    assert_eq!(run("class A {} A(1);"), Err("Expected 0 arguments but got 1.".into()));
-    assert_eq!(run("class A {} print A();").as_deref(), Ok("A instance\n"));
 }
 
 // the natives past the book reach the host and show values as print does

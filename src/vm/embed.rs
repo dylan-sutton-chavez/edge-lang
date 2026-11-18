@@ -60,8 +60,6 @@ impl<'a> VM<'a> {
     /* byte offset of the last propagating error and None on success or before `run()` */
     pub fn error_pos(&self) -> Option<usize> { self.error_byte_pos.map(|p| p as usize) }
 
-
-
     /* uncaught e reported where it rose in whichever text then the calls it left */
     pub fn render_error(&self, e: &VmErr, src: &str, path: Option<&str>) -> String {
         let names = self.natives.names();

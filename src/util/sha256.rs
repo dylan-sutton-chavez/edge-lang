@@ -87,25 +87,8 @@ pub fn hex_encode(bytes: &[u8]) -> String {
 // decodes 64 hex chars into a 32-byte digest or None
 pub fn hex_decode_32(hex: &str) -> Option<[u8; 32]> {
     if hex.len() != 64 { return None; }
-    let bytes = hex.as_bytes();
+    let nibble = |c: u8| char::from(c).to_digit(16).map(|d| d as u8);
     let mut out = [0u8; 32];
-    for i in 0..32 {
-        out[i] = parse_hex_byte(bytes[i * 2], bytes[i * 2 + 1])?;
-    }
+    for (o, &[hi, lo]) in out.iter_mut().zip(hex.as_bytes().as_chunks::<2>().0) { *o = (nibble(hi)? << 4) | nibble(lo)?; }
     Some(out)
-}
-
-#[inline]
-fn parse_hex_byte(hi: u8, lo: u8) -> Option<u8> {
-    Some((parse_hex_nibble(hi)? << 4) | parse_hex_nibble(lo)?)
-}
-
-#[inline]
-fn parse_hex_nibble(c: u8) -> Option<u8> {
-    match c {
-        b'0'..=b'9' => Some(c - b'0'),
-        b'a'..=b'f' => Some(c - b'a' + 10),
-        b'A'..=b'F' => Some(c - b'A' + 10),
-        _ => None,
-    }
 }

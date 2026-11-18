@@ -4,7 +4,7 @@ use core::cmp::Ordering;
 use crate::lang::{Acc, Args, Cx, Flow, Fold, Item, Ret, STEPS, Sig, Step};
 use crate::value::{HeapObj, Val, VmErr};
 
-use super::sort::{plain_keys, room, top_order};
+use super::sort::{len, plain_keys, room, top_order};
 use crate::lib::fail::{Fail, fail};
 use crate::lib::iter::items::gather;
 use crate::lib::{Kernel, Site};
@@ -61,7 +61,7 @@ fn ranked(cx: &mut Cx<'_, '_>, items: Vec<Val>, f: Val, mut acc: Acc) -> Ret {
     let list = cx.new_list(items)?;
     acc.v[1] = list;
     acc.v[2] = Val::int(1);
-    acc.items = room(cx, length(cx, list))?;
+    acc.items = room(cx, len(cx, list))?;
     Ok(Step::Drain { it: list, fold: Fold::with(top_fold, acc) }.into())
 }
 
@@ -84,13 +84,11 @@ fn top_fold(acc: &mut Acc, cx: &mut Cx<'_, '_>, item: Item) -> Result<Flow, VmEr
             let list = cx.new_list(items)?;
             acc.v[1] = list;
             acc.v[2] = Val::int(1);
-            acc.items = room(cx, length(cx, list))?;
+            acc.items = room(cx, len(cx, list))?;
             Ok(Flow::Drain(list))
         }
     }
 }
-
-fn length(cx: &Cx<'_, '_>, list: Val) -> usize { match cx.heap().try_get(list) { Some(HeapObj::List(rc)) => rc.borrow().len(), _ => 0 } }
 
 /* a new list of the `k` items of greatest key in stable descending order */
 fn pick(cx: &mut Cx<'_, '_>, items: &[Val], keys: &[Val], k: usize) -> Result<Val, VmErr> {

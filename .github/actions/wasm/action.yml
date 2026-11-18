@@ -10,10 +10,8 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Setup Deno
-      uses: denoland/setup-deno@v2
-      with:
-        deno-version: v2.x
+    - name: Deno
+      uses: ./.github/actions/deno
 
     # a tag names the release the CLI reports, so the earliest job refuses one the manifests disagree with
     - name: Check the version
@@ -69,10 +67,12 @@ runs:
       shell: bash
       run: make test
 
-    # every push and pull request packs the crate as crates.io would take it while a tag alone publishes it
+    # every push and pull request packs the crate as crates.io would take it with the js host the cli feature embeds
     - name: Pack the crate
       shell: bash
-      run: cargo publish -p interpreter --locked --dry-run
+      run: |
+        make js
+        cargo publish -p interpreter --locked --dry-run
 
     # interpreter.wasm ships with its compiler.wasm copy and the speed build goes under _build/
     - name: Stage

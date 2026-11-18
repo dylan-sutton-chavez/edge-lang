@@ -6,7 +6,7 @@ use crate::lang::{Acc, Args, Cx, Flow, Fold, Intrinsic, Item, KindId, Out, Ret, 
 use crate::value::{HeapObj, HeapPool, IterFrame, Val, VmErr};
 
 use crate::lib::fail::{Fail, fail, receiver};
-use crate::lib::lang::Derived;
+use crate::lib::lang::{Derived, int_like};
 use crate::lib::{Kernel, Lang, Site};
 
 pub mod fold;
@@ -93,9 +93,6 @@ fn wide_range<S: Site>(cx: &mut Cx<'_, '_>, s: Val, e: Val, st: Val) -> Ret {
     let norm = |v: Val| if v.is_bool() { Val::int(v.as_bool() as i64) } else { v };
     Ok(cx.heap_mut().alloc(HeapObj::BigRange(norm(s), norm(e), norm(st)))?.into())
 }
-
-/* whether `v` is an int of any width or a bool where bools are ints */
-fn int_like(cx: &Cx<'_, '_>, v: Val) -> bool { v.is_int() || crate::lib::lang::bool_int(cx.heap(), v).is_some() || cx.heap().is_wide(v) }
 
 /* an int that fits a machine word where no other foreign value counts */
 fn in_word(cx: &Cx<'_, '_>, v: Val) -> Option<i64> {

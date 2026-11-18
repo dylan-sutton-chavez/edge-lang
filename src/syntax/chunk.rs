@@ -88,11 +88,7 @@ pub struct ImportEntry {
 }
 
 /* a native class by name and method externs that `init.rs` turns into a class object */
-#[derive(Clone)]
-pub struct NativeClassEntry {
-    pub name: String,
-    pub methods: Vec<crate::value::ExternFn>,
-}
+pub type NativeClassEntry = crate::deps::NativeClass;
 
 #[derive(Clone)]
 pub enum ImportKind {
@@ -296,9 +292,6 @@ impl SSAChunk {
 
     #[inline]
     pub fn ternaries(&self) -> bool { self.ternaries }
-
-    /* marks a chunk holding a ternary so its lowering looks for the join */
-    pub(crate) fn set_ternaries(&mut self, on: bool) { if on { self.ternaries = true; } }
 
     /* the byte offset of the statement holding `ip` */
     pub fn resolve(&self, ip: u32) -> Option<u32> {

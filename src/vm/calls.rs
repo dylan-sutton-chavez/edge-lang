@@ -21,21 +21,6 @@ use super::slow::attr::AttrLookup;
 use super::run::global_callee;
 use super::sections::{note_alt, miss, is_stub};
 
-impl VM<'_> {
-    /* the native a call of type `name` runs and None when the runtime gives none */
-    #[inline(never)]
-    pub(crate) fn type_native(&self, name: &str) -> Option<&'static crate::lang::Native> {
-        // most other names miss on their shape before any hash
-        self.natives.function(name).filter(|n| n.is_type())
-    }
-}
-
-/* what the entry of a body noted for its exit */
-#[derive(Clone, Copy)]
-pub(crate) struct Entry {
-    call_ip: Option<u32>,
-}
-
 /* a call's arguments with up to eight inline so a call allocates nothing */
 pub(crate) enum Args {
     Inline(u8, [Val; 8]),
@@ -485,11 +470,7 @@ impl<'a> VM<'a> {
 
     /* whether `fi` on `n` positionals opens as a loop frame unless async or unlowered */
     #[inline(always)]
-    pub(crate) fn opens_in_loop(&self, fi: usize, n: usize) -> bool {
-        let facts = &self.call_facts[fi];
-        facts.in_loop && facts.arity.is_some_and(|k| n <= k && n >= facts.required as usize)
-            && self.pools[facts.pool].code.is_some() && !self.pools[facts.pool].cold && self.pools[facts.pool].consts.is_some()
-    }
+    pub(crate) fn opens_in_loop(&self, fi: usize, n: usize) -> bool { super::run::opens_in_loop(&self.call_facts, &self.pools, fi, n) }
 
     /* opens a new instance's init on `args` or makes the instance at once */
     #[inline(never)]
@@ -565,9 +546,10 @@ impl<'a> VM<'a> {
         let iter_base = self.iter_stack.len();
         let exc_base = self.exception_stack.len();
         self.pending_exec_safe = call_safe;
-        let entry = self.enter_body();
+        // a body that raised leaves its traceback frame at the call it noted
+        let call_ip = self.pending.call_ip.take();
         let exec_result = self.exec_in(body, base, self.fn_pool[fi]);
-        self.leave_body(fi, entry, exec_result.is_ok(), chunk);
+        if exec_result.is_err() { self.note_frame(fi, call_ip, chunk); }
 
         // suspended bodies keep their frame for the coroutine and others drop it with leftover loops
         if exec_result.is_err() || !self.yielded {
@@ -582,7 +564,7 @@ impl<'a> VM<'a> {
             self.resume_ip = 0;
             let (mut levels, mut iter_delta, mut exception_delta) = (Vec::new(), Vec::new(), Vec::new());
             self.save_frames(level_base, iter_base, exc_base, &mut levels, &mut iter_delta, &mut exception_delta);
-            let slots = self.window_slots(self.fn_pool[fi]);
+            let slots = self.window_prefix(self.fn_pool[fi], usize::MAX);
             self.close_window(self.fn_pool[fi]);
             let layout = core::mem::take(&mut self.resume_layout);
             self.pending_sync_frames.push(ParkedFrame { ip: helper_resume_ip, fi, func: callee, slots, levels, iter_delta, exception_delta, instance, layout, top: core::mem::take(&mut self.park_top) as u16 });
@@ -636,7 +618,7 @@ impl<'a> VM<'a> {
                 }
                 let instance = self.new_instance(callee, ctor.attrs)?;
                 // an exception keeps its constructor arguments as `args` until an init resets them
-                if ctor.exception { self.set_exc_args(instance, positional.to_vec())?; }
+                if ctor.exception { self.heap.set_args(instance, positional.to_vec())?; }
                 if let Some(init) = ctor.init {
                     if self.run_init(init, instance, positional, kw_flat, chunk, inline)? { return Ok(Some(None)); }
                     if let Some(d) = self.heap.fields(instance)
@@ -676,7 +658,8 @@ impl<'a> VM<'a> {
         let (native, object, single) = {
             let Some(name) = self.heap.type_object_name(callee) else { return Err(cold_runtime("a type call without its type")) };
             let same = |n: &str| crate::lang::same_text(name, n);
-            (self.type_native(name), same(names.kind(crate::lang::KindId::Instance)), same(names.kind(crate::lang::KindId::None)) || same(names.ellipsis_type))
+            // most other names miss on their shape before any hash
+            (self.natives.function(name).filter(|n| n.is_type()), same(names.kind(crate::lang::KindId::Instance)), same(names.kind(crate::lang::KindId::None)) || same(names.ellipsis_type))
         };
         let named = |vm: &Self| String::from(vm.heap.type_object_name(callee).unwrap_or(""));
         // a type the runtime gives a native constructs through it
@@ -719,7 +702,7 @@ impl<'a> VM<'a> {
         let has_star = self.param_slots[fi].iter().any(|(k, _)| matches!(k, ParamKind::Star));
         let normal_count = self.param_slots[fi].iter().filter(|(k, _)| matches!(k, ParamKind::Normal)).count();
         if !has_star && positional.len() > normal_count {
-            return Err(self.too_many_err(fi, normal_count, positional.len()));
+            return Err(self.arity_err(fi, Fit::Count(positional.len() as u32)));
         }
         let mut pos_idx = 0usize;
         for i in 0..n_params {
@@ -820,14 +803,6 @@ impl<'a> VM<'a> {
         EngineError::Arity { callee: Callee::Function { name: String::from(self.callee_name(fi)), normal: normal as u32, defaults: defaults as u32 }, fit }.into()
     }
 
-    /* the call of `fi` given `given` positionals past the `normal` it takes */
-    #[cold]
-    #[inline(never)]
-    fn too_many_err(&self, fi: usize, normal: usize, given: usize) -> VmErr {
-        let defaults = self.default_slots[fi].iter().filter(|(slot, _)| self.param_slots[fi].iter().any(|&(k, s)| k == ParamKind::Normal && s == *slot)).count();
-        EngineError::Arity { callee: Callee::Function { name: String::from(self.callee_name(fi)), normal: normal as u32, defaults: defaults as u32 }, fit: Fit::Count(given as u32) }.into()
-    }
-
     /* the missing-argument error naming unbound positionals or else the unbound keyword-only ones */
     #[cold]
     #[inline(never)]
@@ -851,14 +826,6 @@ impl<'a> VM<'a> {
         }
         for &(s, cell) in captures { if s < size { self.regs[base + s] = cell; } }
         Ok(())
-    }
-
-    /* notes what a body needs on exit while its traceback frame waits for an error */
-    pub(crate) fn enter_body(&mut self) -> Entry { Entry { call_ip: self.pending.call_ip.take() } }
-
-    /* undoes what `enter_body` noted and a body that raised leaves its traceback frame */
-    pub(crate) fn leave_body(&mut self, fi: usize, entry: Entry, ok: bool, chunk: &SSAChunk) {
-        if !ok { self.note_frame(fi, entry.call_ip, chunk); }
     }
 
     /* notes the frame of `fi` an error unwound as called at `call_ip` of `chunk` */
@@ -950,23 +917,7 @@ impl<'a> VM<'a> {
         self.pending.host_call_request = true;
         self.yielded = true;
     }
-}
 
-/* the value an opening made at once or none for a frame it opened */
-#[inline(always)]
-pub(crate) fn made(opened: crate::vm::calls::Opened) -> Option<Val> {
-    match opened { crate::vm::calls::Opened::Made(v) => Some(v), _ => None }
-}
-
-// most times code is laid again for its callees past the two for class changes
-
-// the take of a statement's call whose value goes nowhere
-const VOID_TAKE: usize = usize::MAX;
-
-impl<'a> VM<'a> {
-
-    /* resolves the receiver's method and calls it directly with arguments from `CallMethodArgs` */
-    #[allow(clippy::too_many_arguments)]
     /* the items of a tuple or list of at most three as a call's positionals */
     pub(crate) fn few_items(&self, seq: Val) -> Option<([Val; 3], usize)> {
         let mut out = [Val::undef(); 3];
@@ -1446,7 +1397,7 @@ impl<'a> VM<'a> {
             .unwrap_or_else(|| body.qualname.rsplit('.').next().unwrap_or("?"))
             .to_string();
         // the body runs as this loop's floor and `class_end` makes the class once it ends
-        let run = crate::vm::frame::FloorRun::Class(crate::vm::frame::ClassRun { bases, member, name });
+        let run = crate::vm::frame::ClassRun { bases, member, name };
         // room for one floor at first as a block small enough for the allocator's pool
         if self.floors.capacity() == 0 { self.floors.reserve_exact(1); }
         self.floors.push(crate::vm::frame::Floored::new(ChunkPtr::of(body), class_slots, 1, run, dest));
@@ -1463,7 +1414,7 @@ impl<'a> VM<'a> {
     /* ends the class body atop the floors and makes the class from its slots */
     pub(crate) fn class_end(&mut self, ran: Result<Val, VmErr>, yielded: bool) -> Result<Val, VmErr> {
         let Some(f) = self.floors.pop() else { return ran };
-        let crate::vm::frame::FloorRun::Class(crate::vm::frame::ClassRun { bases, member, name: name_str }) = f.run;
+        let crate::vm::frame::ClassRun { bases, member, name: name_str } = f.run;
         self.class_cells.pop();
         if yielded {
             self.resume_ip = 0;
@@ -1577,9 +1528,7 @@ impl<'a> VM<'a> {
         if let Some(HeapObj::Dict(rc)) = self.heap.try_get(acc) { let mut d = rc.borrow_mut(); for (k, v) in entries { d.insert(k, v, &self.heap); self.heap.within_budget()?; } }
         Ok(())
     }
-}
 
-impl<'a> VM<'a> {
     /* the receiver native and owner kind a native or a bound native value calls with */
     #[inline(always)]
     pub(crate) fn native_parts(&self, v: Val) -> Option<(Val, &'static crate::lang::Native, Option<crate::lang::KindId>)> {
@@ -1596,3 +1545,12 @@ impl<'a> VM<'a> {
 /* whether a function or class callee opens as a frame of the loop */
 #[inline(always)]
 fn opens_in_loop(o: &HeapObj) -> bool { matches!(o, HeapObj::Func { .. }) || matches!(o, HeapObj::Object { meta, .. } if meta.is_class_meta()) }
+
+/* the value an opening made at once or none for a frame it opened */
+#[inline(always)]
+pub(crate) fn made(opened: crate::vm::calls::Opened) -> Option<Val> {
+    match opened { crate::vm::calls::Opened::Made(v) => Some(v), _ => None }
+}
+
+// the take of a statement's call whose value goes nowhere
+const VOID_TAKE: usize = usize::MAX;

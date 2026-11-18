@@ -6,6 +6,7 @@ interpreter::allocator!();
 mod bytes;
 mod choices;
 mod codec;
+mod common;
 mod convert;
 mod data;
 mod date;

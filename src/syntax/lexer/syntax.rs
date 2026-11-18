@@ -392,34 +392,20 @@ impl Syntax {
     }
 
     // whether some reserved word is two words like `else if`
-    pub const fn phrases(&self) -> bool {
-        let mut i = 0;
-        while i < self.words.len() {
-            if space(self.words[i].0.as_bytes()) < self.words[i].0.len() { return true; }
-            i += 1;
-        }
-        false
-    }
+    pub const fn phrases(&self) -> bool { self.phrase_list().1 > 0 }
 
     // which tokens open a phrase with Name standing for an unlisted first word
     pub const fn heads(&self) -> [bool; 128] {
-        let mut t = [false; 128];
-        let mut i = 0;
-        while i < self.words.len() {
-            let w = self.words[i].0.as_bytes();
-            let first = space(w);
-            if first < w.len() { t[self.head(w, first) as usize & 127] = true; }
-            i += 1;
-        }
+        let ((list, n), mut t, mut i) = (self.phrase_list(), [false; 128], 0);
+        while i < n { t[self.head(list[i].first) as usize & 127] = true; i += 1; }
         t
     }
 
-    // the token of the word spelled by the first `n` bytes of `w`
-    const fn head(&self, w: &[u8], n: usize) -> TokenType {
+    // the token of the word spelled `w`
+    const fn head(&self, w: &[u8]) -> TokenType {
         let mut i = 0;
         while i < self.words.len() {
-            let v = self.words[i].0.as_bytes();
-            if v.len() == n && same(v, w.split_at(n).0) { return self.words[i].1; }
+            if same(self.words[i].0.as_bytes(), w) { return self.words[i].1; }
             i += 1;
         }
         T::Name
@@ -438,24 +424,12 @@ impl Syntax {
     }
 
     // whether some symbol has no column of the operator table
-    pub const fn pairs(&self) -> bool {
-        let mut i = 0;
-        while i < self.symbols.len() {
-            if paired(self.symbols[i].0.as_bytes(), self.symbols) { return true; }
-            i += 1;
-        }
-        false
-    }
+    pub const fn pairs(&self) -> bool { self.pair_list().1 > 0 }
 
     // the first bytes of the symbols only the pair scan finds
     pub const fn pair_starts(&self) -> [bool; 128] {
-        let mut t = [false; 128];
-        let mut i = 0;
-        while i < self.symbols.len() {
-            let s = self.symbols[i].0.as_bytes();
-            if paired(s, self.symbols) { t[s[0] as usize & 127] = true; }
-            i += 1;
-        }
+        let ((list, n), mut t, mut i) = (self.pair_list(), [false; 128], 0);
+        while i < n { t[list[i].0[0] as usize & 127] = true; i += 1; }
         t
     }
 

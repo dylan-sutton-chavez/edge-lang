@@ -153,7 +153,7 @@ pub trait Host {
                 let mut walk = Walk::<Bounded>::default();
                 let mut r = hashable_items(heap, v, items, depth, &mut walk);
                 let mut read = walk.read;
-                if walk.long() {
+                if walk.long {
                     let mut kept = Keeping::default();
                     r = hashable_items(heap, v, items, depth, &mut kept);
                     read = read.saturating_add(kept.read);
@@ -456,7 +456,7 @@ pub trait Host {
 
     /* the user class an instance or a dict or list was made of or none */
     #[inline]
-    fn instance_class(&self, v: Val) -> Option<Val> { crate::vm::sections::class_of(self.heap(), v) }
+    fn instance_class(&self, v: Val) -> Option<Val> { self.heap().class_of(v) }
 
     /* a builtin iterator named `name` over `frame` */
     fn alloc_iterator(&mut self, frame: IterFrame, name: &'static str) -> Result<Val, VmErr> {
@@ -479,12 +479,7 @@ pub trait Host {
     }
 
     // the interned keyword name a value holds and none for any other value
-    fn kw_name(&self, k: Val) -> Option<&str> {
-        match self.heap().try_get(k) {
-            Some(HeapObj::Str(s)) => Some(s.as_str()),
-            _ => None,
-        }
-    }
+    fn kw_name(&self, k: Val) -> Option<&str> { self.text(k) }
 
     fn add_vals(&mut self, a: Val, b: Val) -> Result<Val, VmErr> {
         // two inline ints add in place and an overflow falls to the i128 path

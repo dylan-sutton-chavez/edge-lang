@@ -52,9 +52,9 @@ impl VM<'_> {
     /* whether the runtime's rule removed `obj.name` the engine found no attribute for */
     #[cold]
     #[inline(never)]
-    pub(crate) fn drop_rule(&mut self, obj: Val, name: &str, at: Option<(&OpcodeCache, usize)>) -> Result<bool, VmErr> {
+    pub(crate) fn drop_rule(&mut self, obj: Val, name: &str) -> Result<bool, VmErr> {
         let (key, text) = (Key::of(&self.heap, obj), self.heap.intern_str(name)?);
-        if self.bound_get(key, text, Access::Delete, at) != GetRule::Field { return Ok(false); }
+        if self.bound_get(key, text, Access::Delete, None) != GetRule::Field { return Ok(false); }
         let Some(d) = self.heap.dict_cell(obj) else { return Ok(false) };
         let gone = d.borrow_mut().remove(&text, &self.heap).is_some();
         Ok(gone)

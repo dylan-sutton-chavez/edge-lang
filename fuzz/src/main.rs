@@ -44,8 +44,7 @@ fn drive(rt: &'static Runtime, chunk: &SSAChunk, src: &str) {
     let mut hopped = false;
     let mut wakeups = 0;
     while let Err(VmErr::HostYield(park)) = vm.run() {
-        let drivable = matches!(park, SchedulerStatus::Preempted | SchedulerStatus::PendingEvent);
-        if !drivable { break; }
+        if !matches!(park, SchedulerStatus::Preempted | SchedulerStatus::PendingEvent) { break; }
 
         if !hopped {
             hopped = true;
@@ -63,6 +62,6 @@ fn drive(rt: &'static Runtime, chunk: &SSAChunk, src: &str) {
         // receive() needs an event.
         if wakeups >= MAX_WAKEUPS { break; }
         wakeups += 1;
-        if matches!(park, SchedulerStatus::PendingEvent) && vm.push_event("e").is_err() { break; }
+        if vm.push_event("e").is_err() { break; }
     }
 }

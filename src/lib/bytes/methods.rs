@@ -10,92 +10,72 @@ use crate::lib::num::{ssize, word};
 use crate::lib::units::{self, Newline};
 use crate::lib::{Kernel, Lang, Site};
 
-/* whether a window starts with an affix or one of a tuple of them */
-pub const fn starts<S: Site, B: Buf>() -> Kernel { units::starts::<S, Bytes<B>>() }
-
-/* whether a window ends with an affix or one of a tuple of them */
-pub const fn ends<S: Site, B: Buf>() -> Kernel { units::ends::<S, Bytes<B>>() }
-
-/* where the first match in a window starts or minus one */
-pub const fn find<S: Site, B: Buf>() -> Kernel { units::find::<S, Bytes<B>>() }
-
-/* where the first match in a window starts or a failure */
-pub const fn index<S: Site, B: Buf>() -> Kernel { units::index::<S, Bytes<B>>() }
-
-/* where the last match in a window starts or minus one */
-pub const fn rfind<S: Site, B: Buf>() -> Kernel { units::rfind::<S, Bytes<B>>() }
-
-/* where the last match in a window starts or a failure */
-pub const fn rindex<S: Site, B: Buf>() -> Kernel { units::rindex::<S, Bytes<B>>() }
-
-/* how many matches a window holds without overlap */
-pub const fn count<S: Site, B: Buf>() -> Kernel { units::count::<S, Bytes<B>>() }
-
-/* the bytes with their first matches up to a count replaced */
-pub const fn replace<S: Site, B: Buf>() -> Kernel { units::replace::<S, Bytes<B>>() }
-
-/* the pieces between separators or white space runs cut from the start */
-pub const fn split<S: Site, B: Buf>() -> Kernel { units::split::<S, Bytes<B>>() }
-
-/* the pieces between separators or white space runs cut from the end */
-pub const fn rsplit<S: Site, B: Buf>() -> Kernel { units::rsplit::<S, Bytes<B>>() }
+units::forward! { Bytes<B>, [B: Buf],
+    /* whether a window starts with an affix or one of a tuple of them */
+    starts,
+    /* whether a window ends with an affix or one of a tuple of them */
+    ends,
+    /* where the first match in a window starts or minus one */
+    find,
+    /* where the first match in a window starts or a failure */
+    index,
+    /* where the last match in a window starts or minus one */
+    rfind,
+    /* where the last match in a window starts or a failure */
+    rindex,
+    /* how many matches a window holds without overlap */
+    count,
+    /* the bytes with their first matches up to a count replaced */
+    replace,
+    /* the pieces between separators or white space runs cut from the start */
+    split,
+    /* the pieces between separators or white space runs cut from the end */
+    rsplit,
+    /* white space or the argument's bytes dropped from both ends */
+    trim,
+    /* white space or the argument's bytes dropped from the start */
+    trim_start,
+    /* white space or the argument's bytes dropped from the end */
+    trim_end,
+    /* the items of an iterable joined by the receiver */
+    join,
+    /* the parts around the first separator */
+    partition,
+    /* the parts around the last separator */
+    rpartition,
+    /* the bytes without a prefix when they start with one */
+    drop_prefix,
+    /* the bytes without a suffix when they end with one */
+    drop_suffix,
+    /* the bytes centred in a width */
+    center,
+    /* the bytes padded at their end to a width */
+    pad_end,
+    /* the bytes padded at their start to a width */
+    pad_start,
+    /* zeros after any sign up to a width */
+    zeros,
+    /* each tab padded to the next stop */
+    tabs,
+}
 
 /* the lines at every line feed carriage return or both */
 pub const fn lines<S: Site, B: Buf>() -> Kernel { units::lines::<S, Bytes<B>, Newline>() }
 
 /* the ascii letters lowercased */
-pub const fn lower<S: Site, B: Buf>() -> Kernel { Kernel::new(Sig::exact(0), lower_run::<B>) }
+pub const fn lower<S: Site, B: Buf>() -> Kernel { Kernel::new(Sig::exact(0), |cx, a| cased::<B>(cx, a, <[u8]>::to_ascii_lowercase)) }
 
 /* the ascii letters uppercased */
-pub const fn upper<S: Site, B: Buf>() -> Kernel { Kernel::new(Sig::exact(0), upper_run::<B>) }
+pub const fn upper<S: Site, B: Buf>() -> Kernel { Kernel::new(Sig::exact(0), |cx, a| cased::<B>(cx, a, <[u8]>::to_ascii_uppercase)) }
 
 /* the first byte uppercased and the rest lowercased */
-pub const fn capitalize<S: Site, B: Buf>() -> Kernel { Kernel::new(Sig::exact(0), capitalize_run::<B>) }
+pub const fn capitalize<S: Site, B: Buf>() -> Kernel { Kernel::new(Sig::exact(0), |cx, a| cased::<B>(cx, a, capitalized)) }
 
 /* each run of letters started uppercase and continued lowercase */
-pub const fn title<S: Site, B: Buf>() -> Kernel { Kernel::new(Sig::exact(0), title_run::<B>) }
+pub const fn title<S: Site, B: Buf>() -> Kernel { Kernel::new(Sig::exact(0), |cx, a| cased::<B>(cx, a, titled)) }
 
 /* each ascii letter turned to the other case */
-pub const fn swap<S: Site, B: Buf>() -> Kernel { Kernel::new(Sig::exact(0), swap_run::<B>) }
-
-/* white space or the argument's bytes dropped from both ends */
-pub const fn trim<S: Site, B: Buf>() -> Kernel { units::trim::<S, Bytes<B>>() }
-
-/* white space or the argument's bytes dropped from the start */
-pub const fn trim_start<S: Site, B: Buf>() -> Kernel { units::trim_start::<S, Bytes<B>>() }
-
-/* white space or the argument's bytes dropped from the end */
-pub const fn trim_end<S: Site, B: Buf>() -> Kernel { units::trim_end::<S, Bytes<B>>() }
-
-/* the items of an iterable joined by the receiver */
-pub const fn join<S: Site, B: Buf>() -> Kernel { units::join::<S, Bytes<B>>() }
-
-/* the parts around the first separator */
-pub const fn partition<S: Site, B: Buf>() -> Kernel { units::partition::<S, Bytes<B>>() }
-
-/* the parts around the last separator */
-pub const fn rpartition<S: Site, B: Buf>() -> Kernel { units::rpartition::<S, Bytes<B>>() }
-
-/* the bytes without a prefix when they start with one */
-pub const fn drop_prefix<S: Site, B: Buf>() -> Kernel { units::drop_prefix::<S, Bytes<B>>() }
-
-/* the bytes without a suffix when they end with one */
-pub const fn drop_suffix<S: Site, B: Buf>() -> Kernel { units::drop_suffix::<S, Bytes<B>>() }
-
-/* the bytes centred in a width */
-pub const fn center<S: Site, B: Buf>() -> Kernel { units::center::<S, Bytes<B>>() }
-
-/* the bytes padded at their end to a width */
-pub const fn pad_end<S: Site, B: Buf>() -> Kernel { units::pad_end::<S, Bytes<B>>() }
-
-/* the bytes padded at their start to a width */
-pub const fn pad_start<S: Site, B: Buf>() -> Kernel { units::pad_start::<S, Bytes<B>>() }
-
-/* zeros after any sign up to a width */
-pub const fn zeros<S: Site, B: Buf>() -> Kernel { units::zeros::<S, Bytes<B>>() }
-
-/* each tab padded to the next stop */
-pub const fn tabs<S: Site, B: Buf>() -> Kernel { units::tabs::<S, Bytes<B>>() }
+pub const fn swap<S: Site, B: Buf>() -> Kernel { Kernel::new(Sig::exact(0), |cx, a| cased::<B>(cx, a, |b| b.iter().map(|&c| if c.is_ascii_lowercase() { c.to_ascii_uppercase() } else { c.to_ascii_lowercase() }).collect())) }
 
 /* whether the bytes are nonempty and all ascii letters or digits */
 pub const fn is_alnum<S: Site, B: Buf>() -> Kernel { Kernel::new(Sig::exact(0), |cx, a| test(cx, a, |b| every(b, u8::is_ascii_alphanumeric))) }
@@ -167,10 +147,6 @@ pub(crate) fn like<'a>(cx: &'a Cx<'_, '_>, v: Val) -> Result<&'a [u8], Error> {
     Ok(b)
 }
 
-/* `buf` as immutable bytes or as a mutable buffer when the receiver is one */
-#[inline]
-fn give<B: Buf>(cx: &mut Cx<'_, '_>, buf: Vec<u8>) -> Ret { Ok(cx.new_bytes(buf, B::MUTABLE)?.into()) }
-
 /* what a search looks for where an int stands for the one byte it is */
 pub(crate) fn needle<'a>(cx: &'a Cx<'_, '_>, v: Val, one: &'a mut [u8; 1]) -> Result<&'a [u8], Error> {
     if let Some(b) = cx.bytes_of(v) { return Ok(b); }
@@ -182,30 +158,18 @@ pub(crate) fn needle<'a>(cx: &'a Cx<'_, '_>, v: Val, one: &'a mut [u8; 1]) -> Re
     Ok(&one[..])
 }
 
-fn lower_run<B: Buf>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
-    let buf = recv(cx, a.recv)?.to_ascii_lowercase();
-    give::<B>(cx, buf)
+/* the receiver's bytes cased through `f` as immutable bytes or as a mutable buffer when the receiver is one */
+#[inline]
+fn cased<B: Buf>(cx: &mut Cx<'_, '_>, a: Args<'_>, f: impl FnOnce(&[u8]) -> Vec<u8>) -> Ret {
+    let buf = f(recv(cx, a.recv)?);
+    Ok(cx.new_bytes(buf, B::MUTABLE)?.into())
 }
 
-fn upper_run<B: Buf>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
-    let buf = recv(cx, a.recv)?.to_ascii_uppercase();
-    give::<B>(cx, buf)
-}
-
-fn capitalize_run<B: Buf>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
-    let mut buf = recv(cx, a.recv)?.to_ascii_lowercase();
+/* `b` with its first byte uppercased and the rest lowercased */
+fn capitalized(b: &[u8]) -> Vec<u8> {
+    let mut buf = b.to_ascii_lowercase();
     if let Some(first) = buf.first_mut() { first.make_ascii_uppercase(); }
-    give::<B>(cx, buf)
-}
-
-fn title_run<B: Buf>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
-    let buf = titled(recv(cx, a.recv)?);
-    give::<B>(cx, buf)
-}
-
-fn swap_run<B: Buf>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
-    let buf = recv(cx, a.recv)?.iter().map(|&c| if c.is_ascii_lowercase() { c.to_ascii_uppercase() } else { c.to_ascii_lowercase() }).collect();
-    give::<B>(cx, buf)
+    buf
 }
 
 /* `b` with each run of letters started uppercase and continued lowercase */

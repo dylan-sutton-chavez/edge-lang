@@ -213,20 +213,6 @@ const INDENT_WORDS: &[(&str, TokenType)] = &[
     ("yield", T::Yield), ("case", T::Case), ("match", T::Match), ("type", T::Type), ("_", T::Underscore),
 ];
 
-const INDENT_SYMBOLS: &[(&str, TokenType)] = &[
-    ("(", T::ParenOpen), (")", T::ParenClose), ("[", T::BracketOpen), ("]", T::BracketClose), ("{", T::BraceOpen), ("}", T::BraceClose),
-    ("**=", T::PowEqual), ("//=", T::FloorDivEqual), ("<<=", T::LeftShiftEqual), (">>=", T::RightShiftEqual),
-    ("!=", T::NotEqual), ("%=", T::PercentEqual), ("&=", T::BitAndEqual), ("**", T::Pow), ("*=", T::StarEqual),
-    ("+=", T::PlusEqual), ("-=", T::MinusEqual), ("->", T::Returns), ("...", T::Ellipsis), ("//", T::FloorDiv),
-    ("/=", T::SlashEqual), (":=", T::ColonEqual), ("<<", T::LeftShift), ("<=", T::LessEqual), ("==", T::EqualEqual),
-    (">=", T::GreaterEqual), (">>", T::RightShift), ("@=", T::AtEqual), ("^=", T::BitXorEqual), ("|=", T::BitOrEqual),
-    ("!", T::Convert), ("%", T::Percent), ("&", T::BitAnd), ("*", T::Star), ("+", T::Plus), ("-", T::Minus),
-    (".", T::Dot), ("/", T::Slash), ("<", T::Less), ("=", T::Equal), (">", T::Greater), ("@", T::At),
-    ("^", T::BitXor), ("|", T::BitOr), ("~", T::Tilde), (",", T::Comma), (":", T::Colon), (";", T::Semi),
-];
-
-static INDENT_OPERATORS: [[TokenType; 4]; 128] = operators(INDENT_SYMBOLS);
-
 static INDENT_KEYWORDS: Keywords = index(INDENT_WORDS);
 
 // the kit table where a header colon and indentation open each block
@@ -234,21 +220,13 @@ pub const INDENT: Syntax = Syntax {
     name: "indent",
     extension: "py",
     words: INDENT_WORDS,
-    symbols: INDENT_SYMBOLS,
-    operators: &INDENT_OPERATORS,
+    symbols: SYMBOLS,
+    operators: &OPERATORS,
     keywords: &INDENT_KEYWORDS,
-    precedence: LADDER,
-    chained: true,
     blocks: Blocks::Indent,
-    ends: Ends::Either,
     comments: Comments { line: &["#"], block: None, nested: false },
-    strings: STRINGS,
-    interp: Some(INTERP),
-    numbers: NUMBERS,
-    continuation: Continuation { join: Some(b'\\'), operator: false },
-    shapes: Shapes::CORE,
     soft: &[T::Match, T::Case, T::Type],
-    bom: true,
+    ..BRACES
 };
 
 pub struct Indent;
@@ -257,17 +235,6 @@ impl Spelling for Indent {
     const SYNTAX: Syntax = INDENT;
     const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
 }
-
-const LEGACY_WORDS: &[(&str, TokenType)] = &[
-    ("false", T::False), ("nil", T::Nil), ("true", T::True), ("as", T::As), ("assert", T::Assert),
-    ("break", T::Break), ("class", T::Class), ("continue", T::Continue),
-    ("fn", T::Fn), ("else if", T::ElseIf), ("else", T::Else), ("except", T::Catch),
-    ("finally", T::Finally), ("for", T::For), ("from", T::From), ("if", T::If),
-    ("import", T::Import), ("in", T::In), ("is", T::Is), ("lambda", T::FnExpr),
-    ("pass", T::Empty), ("raise", T::Throw), ("return", T::Return), ("try", T::Try), ("while", T::While),
-    ("with", T::With), ("yield", T::Yield), ("case", T::Case), ("match", T::Match), ("type", T::Type),
-    ("_", T::Underscore),
-];
 
 const LEGACY_SYMBOLS: &[(&str, TokenType)] = &[
     ("(", T::ParenOpen), (")", T::ParenClose), ("[", T::BracketOpen), ("]", T::BracketClose), ("{", T::BraceOpen), ("}", T::BraceClose),
@@ -284,28 +251,13 @@ const LEGACY_SYMBOLS: &[(&str, TokenType)] = &[
 
 static LEGACY_OPERATORS: [[TokenType; 4]; 128] = operators(LEGACY_SYMBOLS);
 
-static LEGACY_KEYWORDS: Keywords = index(LEGACY_WORDS);
-
 // the kit's fixed core read with indentation in the words rig once had
 pub const LEGACY: Syntax = Syntax {
     name: "legacy",
-    extension: "rig",
-    words: LEGACY_WORDS,
     symbols: LEGACY_SYMBOLS,
     operators: &LEGACY_OPERATORS,
-    keywords: &LEGACY_KEYWORDS,
-    precedence: LADDER,
-    chained: true,
     blocks: Blocks::Indent,
-    ends: Ends::Either,
-    comments: Comments { line: &["//"], block: None, nested: false },
-    strings: STRINGS,
-    interp: Some(INTERP),
-    numbers: NUMBERS,
-    continuation: Continuation { join: Some(b'\\'), operator: false },
-    shapes: Shapes::CORE,
-    soft: &[T::Match, T::Case, T::Type, T::Fn],
-    bom: true,
+    ..BRACES
 };
 
 pub struct Legacy;

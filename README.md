@@ -10,14 +10,19 @@ A runtime compiles to one WebAssembly module that runs in a web page, in the `in
 cargo add interpreter --features full
 ```
 
-The CLI builds from this repo with Rust and Deno.
+The `interpreter` CLI is the same crate with the `cli` feature.
 
 ```bash
-git clone https://github.com/dylan-sutton-chavez/interpreter
-cd interpreter
-make wasm-cli js lucide
-cargo install --path cli
+cargo install interpreter --features cli
 ```
+
+A tagged release also ships the binary for macOS and Linux.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/dylan-sutton-chavez/interpreter/main/cli/setup/install.sh | bash
+```
+
+Building from a clone is for contributors, see [CONTRIBUTING.md](https://github.com/dylan-sutton-chavez/interpreter/blob/main/CONTRIBUTING.md).
 
 ## Features
 
@@ -28,6 +33,8 @@ cargo install --path cli
 | `full` | Every module of `interpreter::lib` |
 | `plugin` | `interpreter::plugin`, for writing `.wasm` plugins a program imports |
 | `runtime`, `perms` | The exports of a runtime's `.wasm` and the grant logic its hosts read |
+| `cli` | The `interpreter` binary and `interpreter::cli`, the kit a CLI of your own is built from |
+| `cli-kit`, `cli-run`, `cli-test` and the other `cli-*` | One part of `interpreter::cli` each, listed in [CLI](https://github.com/dylan-sutton-chavez/interpreter/blob/main/docs/06-cli.mdx) |
 
 ## Docs
 

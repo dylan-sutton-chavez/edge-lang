@@ -100,7 +100,7 @@ pub(super) fn bound_on_entry(src: &[Instruction], chunk: &SSAChunk, names: usize
             let ins = src[i];
             transfer(s, ins, i, chunk);
             if ins.opcode.is_jump() && (ins.operand as usize) <= len && merge(rows, words, flags, ins.operand as usize, s) && ins.operand as usize <= i { again = true; }
-            if ends_flow(ins.opcode) { live = false; continue; }
+            if ins.opcode.ends_flow() { live = false; continue; }
             if flags[i + 1] & START != 0 { merge(rows, words, flags, i + 1, s); }
         }
         if !again { break; }
@@ -136,8 +136,7 @@ impl<'p> Lower<'_, 'p> {
                     OpCode::LoadName if (ins.operand as usize) < self.names && matches!(self.kind(ins.operand), Some(Kind::Local | Kind::Global(_))) => 1,
                     OpCode::LoadConst if (ins.operand as usize) < self.consts => 1,
                     OpCode::LoadNone | OpCode::LoadTrue | OpCode::LoadFalse => 1,
-                    OpCode::LoadAttr => if depth < 1 { return None } else { 0 },
-                    OpCode::Minus | OpCode::Not => if depth < 1 { return None } else { 0 },
+                    OpCode::LoadAttr | OpCode::Minus | OpCode::Not => if depth < 1 { return None } else { 0 },
                     code if binary_form(code).is_some() && ins.operand < AUGMENTED as u16 => if depth < 2 { return None } else { -1 },
                     _ => return None,
                 };

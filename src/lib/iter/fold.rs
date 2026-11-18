@@ -5,16 +5,16 @@ use crate::lib::fail::{Fail, fail};
 use crate::lib::{Kernel, Site};
 
 /* whether every item is true */
-pub const fn every<S: Site>() -> Kernel { Kernel::new(Sig::exact(1), every_run).fast(every_of).flags(STEPS) }
+pub const fn every<S: Site>() -> Kernel { Kernel::new(Sig::exact(1), truth_run::<false>).fast(truth_of::<false>).flags(STEPS) }
 
 /* whether any item is true */
-pub const fn some<S: Site>() -> Kernel { Kernel::new(Sig::exact(1), some_run).fast(some_of).flags(STEPS) }
+pub const fn some<S: Site>() -> Kernel { Kernel::new(Sig::exact(1), truth_run::<true>).fast(truth_of::<true>).flags(STEPS) }
 
 /* the least of an iterable or the positionals by a key with a default */
-pub const fn least<S: Site>() -> Kernel { Kernel::new(Sig::var(1), least_run::<S>).fast(least_fast).flags(STEPS).reads(2) }
+pub const fn least<S: Site>() -> Kernel { Kernel::new(Sig::var(1), extreme::<S, true>).fast(extreme_fast::<true>).flags(STEPS).reads(2) }
 
 /* the greatest of an iterable or the positionals by a key with a default */
-pub const fn most<S: Site>() -> Kernel { Kernel::new(Sig::var(1), most_run::<S>).fast(most_fast).flags(STEPS).reads(2) }
+pub const fn most<S: Site>() -> Kernel { Kernel::new(Sig::var(1), extreme::<S, false>).fast(extreme_fast::<false>).flags(STEPS).reads(2) }
 
 /* the total of an iterable from a start where `R` may refuse text */
 pub const fn sum<S: Site, R: Refuse>() -> Kernel { Kernel::new(Sig::range(1, 2), sum_run::<S, R>).fast(sum_fast).flags(STEPS) }
@@ -32,22 +32,16 @@ pub struct Joins;
 
 impl Refuse for Joins { const TEXT: bool = true; }
 
-fn every_run(_: &mut Cx<'_, '_>, a: Args<'_>) -> Ret { Ok(Step::Drain { it: a.pos[0], fold: Fold::truth(false) }.into()) }
-
-fn some_run(_: &mut Cx<'_, '_>, a: Args<'_>) -> Ret { Ok(Step::Drain { it: a.pos[0], fold: Fold::truth(true) }.into()) }
-
-fn every_of(heap: &mut HeapPool, v: Val) -> Option<Val> { truth_of(heap, v, false) }
-
-fn some_of(heap: &mut HeapPool, v: Val) -> Option<Val> { truth_of(heap, v, true) }
+fn truth_run<const ANY: bool>(_: &mut Cx<'_, '_>, a: Args<'_>) -> Ret { Ok(Step::Drain { it: a.pos[0], fold: Fold::truth(ANY) }.into()) }
 
 /* `some` or `every` of a list tuple or word range settled with its reads spent */
-fn truth_of(heap: &mut HeapPool, v: Val, any: bool) -> Option<Val> {
+fn truth_of<const ANY: bool>(heap: &mut HeapPool, v: Val) -> Option<Val> {
     let (read, found) = match heap.try_get(v)? {
-        HeapObj::List(rc) => scan(&rc.borrow(), heap, any),
-        HeapObj::Tuple(t) => scan(t, heap, any),
+        HeapObj::List(rc) => scan(&rc.borrow(), heap, ANY),
+        HeapObj::Tuple(t) => scan(t, heap, ANY),
         // bytes read in place with no value made for each
-        HeapObj::Bytes(b) | HeapObj::ByteArray(b) => match b.iter().position(|&x| (x != 0 || zero_true(heap)) == any) { Some(i) => (i as i128 + 1, true), None => (b.len() as i128, false) },
-        &HeapObj::Range(s, e, st) => range_truth(s, e, st, any, || zero_true(heap))?,
+        HeapObj::Bytes(b) | HeapObj::ByteArray(b) => match b.iter().position(|&x| (x != 0 || zero_true(heap)) == ANY) { Some(i) => (i as i128 + 1, true), None => (b.len() as i128, false) },
+        &HeapObj::Range(s, e, st) => range_truth(s, e, st, ANY, || zero_true(heap))?,
         _ => return None,
     };
     match usize::try_from(read) {
@@ -56,7 +50,7 @@ fn truth_of(heap: &mut HeapPool, v: Val, any: bool) -> Option<Val> {
         Err(_) if heap.afford(usize::MAX).is_err() => heap.spend(usize::MAX),
         Err(_) => return None,
     }
-    Some(Val::bool(found == any))
+    Some(Val::bool(found == ANY))
 }
 
 /* whether a zero reads as true asked only once a zero item comes */
@@ -89,28 +83,24 @@ fn zero_at(s: i64, st: i64) -> Option<i128> {
     ((-s).checked_rem(st) == Some(0) && -s / st >= 0).then(|| -s / st)
 }
 
-fn least_run<S: Site>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret { extreme::<S>(cx, a, true) }
-
-fn most_run<S: Site>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret { extreme::<S>(cx, a, false) }
-
 /* the least or greatest of an iterable or the positionals with `acc.n` flagging the least */
-fn extreme<S: Site>(cx: &mut Cx<'_, '_>, a: Args<'_>, least: bool) -> Ret {
+fn extreme<S: Site, const LEAST: bool>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
     let key = a.kw(0).filter(|k| !k.is_none());
     let default = a.kw(1);
     if a.pos.len() > 1 {
         if default.is_some() { return Err(fail::<S>(cx, Fail::KeywordDefault)); }
         if key.is_none() {
             let mut best = a.pos[0];
-            for &v in &a.pos[1..] { if beats::<S>(cx, v, best, least)? { best = v; } }
+            for &v in &a.pos[1..] { if beats::<S>(cx, v, best, LEAST)? { best = v; } }
             return Ok(best.into());
         }
     }
-    let Some(k) = key else { return keyless::<S>(cx, a.pos[0], least, default) };
+    let Some(k) = key else { return keyless::<S>(cx, a.pos[0], LEAST, default) };
     let mut acc = Acc::new();
     acc.items.extend(default);
-    acc.n = least as i64;
+    acc.n = LEAST as i64;
     let it = if let &[it] = a.pos { it } else { cx.new_tuple(a.pos.to_vec())? };
-    Ok(Step::Drain { it, fold: Fold::best(least, k, keyed::<S>, acc) }.into())
+    Ok(Step::Drain { it, fold: Fold::best(LEAST, k, keyed::<S>, acc) }.into())
 }
 
 /* the least or greatest item of `it` where a container's items compare with no walk */
@@ -179,18 +169,14 @@ fn best_or_default<S: Site>(acc: &Acc, cx: &mut Cx<'_, '_>) -> Result<Flow, VmEr
     }
 }
 
-fn least_fast(heap: &mut HeapPool, v: Val) -> Option<Val> { extreme_fast(heap, v, true) }
-
-fn most_fast(heap: &mut HeapPool, v: Val) -> Option<Val> { extreme_fast(heap, v, false) }
-
 /* the least or greatest plain number of a list tuple or range with no call */
-fn extreme_fast(heap: &mut HeapPool, v: Val, least: bool) -> Option<Val> {
+fn extreme_fast<const LEAST: bool>(heap: &mut HeapPool, v: Val) -> Option<Val> {
     let (best, n) = match heap.try_get(v)? {
-        HeapObj::List(rc) => { let items = rc.borrow(); (plain_best(&items, least)?, items.len()) }
-        HeapObj::Tuple(items) => (plain_best(items, least)?, items.len()),
+        HeapObj::List(rc) => { let items = rc.borrow(); (plain_best(&items, LEAST)?, items.len()) }
+        HeapObj::Tuple(items) => (plain_best(items, LEAST)?, items.len()),
         // bytes read in place with no value made for each
-        HeapObj::Bytes(b) | HeapObj::ByteArray(b) => (Val::int(i64::from(if least { *b.iter().min()? } else { *b.iter().max()? })), b.len()),
-        &HeapObj::Range(s, e, st) => range_best(s, e, st, least)?,
+        HeapObj::Bytes(b) | HeapObj::ByteArray(b) => (Val::int(i64::from(if LEAST { *b.iter().min()? } else { *b.iter().max()? })), b.len()),
+        &HeapObj::Range(s, e, st) => range_best(s, e, st, LEAST)?,
         _ => return None,
     };
     // each item counts as one step as the engine's walk charges it

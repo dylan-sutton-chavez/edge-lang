@@ -1,6 +1,6 @@
 mod test {
     use interpreter::embed::{Limits, VM};
-    use interpreter::lang::{Access, CallRule, CallShape, Cmp, Cx, Descriptor, EngineError, Front, GetRule, Key, KindId, Language, Misfit, Mode, Name, Names, Native, Natives, Op, OpRule, Policy, Runtime};
+    use interpreter::lang::{Access, CallRule, CallShape, Cmp, Cx, Descriptor, EngineError, Front, GetRule, Key, KindId, Language, Mode, Name, Names, Natives, Op, OpRule, Policy, Runtime};
     use interpreter::lexer::{Spelling, Syntax};
     use interpreter::value::foreign::{BinOp, Kind, UnOp};
     use interpreter::value::{HeapPool, Val, VmErr};
@@ -94,21 +94,10 @@ mod test {
 
         fn handles(heap: &HeapPool, exc: Val, class: Val) -> Result<bool, VmErr> { <Rig as Language>::handles(heap, exc, class) }
 
-        fn misfit(n: &Native, owner: Option<&str>, m: Misfit<'_>) -> VmErr { <Rig as Language>::misfit(n, owner, m) }
-
-        fn message(cx: &mut Cx<'_, '_>, e: &EngineError) -> String { <Rig as Language>::message(cx, e) }
     }
 
     /* what `src` prints under the runtime or the error that ends it */
-    fn ran(src: &str) -> String {
-        let (chunk, errors) = interpreter::code::compile_as::<Binds>(src);
-        assert!(errors.is_empty(), "{src:?} reports {:?}", errors.iter().map(|d| &d.msg).collect::<Vec<_>>());
-        let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
-        match vm.run() {
-            Ok(_) => vm.output_text().trim_end().to_string(),
-            Err(e) => vm.error_text(&e),
-        }
-    }
+    fn ran(src: &str) -> String { crate::common::ran_as::<Binds>(&RUNTIME, src) }
 
     #[test]
     fn a_get_rule_reads_and_writes_a_maps_keys_as_fields() {
@@ -152,9 +141,6 @@ mod test {
 
         fn handles(heap: &HeapPool, exc: Val, class: Val) -> Result<bool, VmErr> { <Rig as Language>::handles(heap, exc, class) }
 
-        fn misfit(n: &Native, owner: Option<&str>, m: Misfit<'_>) -> VmErr { <Rig as Language>::misfit(n, owner, m) }
-
-        fn message(cx: &mut Cx<'_, '_>, e: &EngineError) -> String { <Rig as Language>::message(cx, e) }
 
         fn raise(cx: &mut Cx<'_, '_>, e: EngineError) -> Result<Val, VmErr> {
             let Some(kind) = e.kind() else { return interpreter::lang::raised::<Self>(cx, e) };
@@ -176,15 +162,7 @@ mod test {
     static HOOKED: Runtime = Runtime::of::<Hooked>();
 
     /* what `src` prints under the hooked runtime or the error that ends it */
-    fn hooked(src: &str) -> String {
-        let (chunk, errors) = interpreter::code::compile_as::<Hooked>(src);
-        assert!(errors.is_empty());
-        let mut vm = VM::with_runtime(&HOOKED, &chunk, Limits::sandbox());
-        match vm.run() {
-            Ok(_) => vm.output_text().trim_end().to_string(),
-            Err(e) => vm.error_text(&e),
-        }
-    }
+    fn hooked(src: &str) -> String { crate::common::ran_as::<Hooked>(&HOOKED, src) }
 
     #[test]
     fn a_handler_binds_what_the_runtimes_raise_makes() {
@@ -245,9 +223,6 @@ mod test {
 
         fn handles(heap: &HeapPool, exc: Val, class: Val) -> Result<bool, VmErr> { <Rig as Language>::handles(heap, exc, class) }
 
-        fn misfit(n: &Native, owner: Option<&str>, m: Misfit<'_>) -> VmErr { <Rig as Language>::misfit(n, owner, m) }
-
-        fn message(cx: &mut Cx<'_, '_>, e: &EngineError) -> String { <Rig as Language>::message(cx, e) }
     }
 
     static COUNTED: Runtime = Runtime::of::<Counted>();

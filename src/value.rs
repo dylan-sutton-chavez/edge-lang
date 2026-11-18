@@ -156,7 +156,6 @@ impl Val {
     #[inline(always)] pub fn as_heap(&self) -> u32 { ((self.0 >> 4) & 0x0FFF_FFFF) as u32 }
 }
 
-
 /* the objects of the heap's arena which a heap value names by index */
 #[derive(Clone, Debug)]
 // wasm keeps a byte tag since a niche there slows every match on the kind

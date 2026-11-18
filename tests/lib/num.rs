@@ -9,7 +9,7 @@ use interpreter::lib::num::int::Parse;
 use interpreter::lib::uni::Decimal;
 use rig::Rig;
 use rig::lang::WIDE;
-use rig::natives::{ARRAY, BUFFER, BYTES, CONVERT, DICT, FLOAT, FOLDS, INT, IO, ITER, LIST, LIST_SORT, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
+use crate::common::{ran, TRY};
 
 /* a heap whose wide ints this kind boxes as a runtime installing it would */
 fn heap() -> HeapPool {
@@ -128,23 +128,7 @@ fn parse(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
 
 const PARSE: &[Native] = &[Native::new("parse", Sig::exact(2), parse)];
 
-static NATIVES: Natives = interpreter::natives! {
-    language: Over,
-    fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, TYPES, rig::natives::MATCH, rig::natives::DATE, PARSE],
-    methods: [
-        Str => [STR],
-        Bytes => [BUFFER],
-        ByteArray => [ARRAY],
-        List => [LIST, LIST_SORT],
-        Tuple => [TUPLE],
-        Dict => [DICT],
-        Set => [SET, SET_MANY],
-        Int => [INT],
-        Float => [FLOAT],
-        Range => [RANGE],
-    ],
-    types: rig::types::NAMES,
-};
+static NATIVES: Natives = rig::with!(Over, PARSE);
 
 static RUNTIME: Runtime = Runtime::of::<Over>();
 
@@ -153,18 +137,7 @@ struct Over;
 rig::over!(Over, &NATIVES);
 
 // each call's repr or its error as the corpus reads them
-const TRY: &str = "fn t(f) {\n    try {\n        print(repr(f()))\n    } catch Error as e {\n        print(text(type(e)) + \":\", e)\n    }\n}\n";
-
-fn tried(calls: &str) -> String {
-    let src = String::from(TRY) + calls;
-    let (chunk, errors) = interpreter::code::compile_as::<rig::Rig>(&src);
-    assert!(errors.is_empty(), "{src}");
-    let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
-    let ran = vm.run();
-    let mut out = vm.output_text();
-    if let Err(e) = ran { out.push_str(&e.to_string()); }
-    out
-}
+fn tried(calls: &str) -> String { ran::<rig::Rig>(&RUNTIME, &(String::from(TRY) + calls), Limits::sandbox()) }
 
 #[test]
 fn int_text_parses_in_every_base_with_its_errors() {

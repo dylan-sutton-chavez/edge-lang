@@ -239,6 +239,7 @@ impl Drop for Handle {
 
 impl FromValue for Handle {
     fn from_handle(h: u32) -> Result<Self> { Ok(Handle::borrow(h)) }
+    fn from_owned(h: Handle) -> Result<Self> { Ok(h) }
 }
 impl IntoValue for Handle {
     fn into_handle(self) -> Result<Handle> { Ok(self) }
@@ -252,7 +253,7 @@ impl Kwargs {
     pub fn get<T: FromValue>(&self, name: &str) -> Result<Option<T>> {
         match self.get_handle(name)? {
             None => Ok(None),
-            Some(h) => T::from_handle(h.into_raw()).map(Some),
+            Some(h) => T::from_owned(h).map(Some),
         }
     }
 
@@ -308,99 +309,37 @@ pub use crate::abi::WireValue as Value;
 
 pub trait FromValue: Sized {
     fn from_handle(h: u32) -> Result<Self>;
+    // an owned handle read then released unless the value keeps it as a handle does
+    fn from_owned(h: Handle) -> Result<Self> { Self::from_handle(h.raw()) }
 }
 
 pub trait IntoValue {
     fn into_handle(self) -> Result<Handle>;
 }
 
-impl FromValue for () {
-    fn from_handle(h: u32) -> Result<Self> {
-        match decode(h)? {
-            Value::None => Ok(()),
-            v => Err(Error::Type(alloc::format!("expected nil, got {:?}", v))),
-        }
-    }
-}
-impl IntoValue for () {
-    fn into_handle(self) -> Result<Handle> { encode(Value::None) }
-}
+/* the type error of a value that decoded as another kind than `expected` words */
+fn mismatch<T>(expected: &str, v: Value) -> Result<T> { Err(Error::Type(alloc::format!("{}, got {:?}", expected, v))) }
 
-impl FromValue for bool {
-    fn from_handle(h: u32) -> Result<Self> {
-        match decode(h)? {
-            Value::Bool(b) => Ok(b),
-            v => Err(Error::Type(alloc::format!("expected bool, got {:?}", v))),
-        }
-    }
-}
-impl IntoValue for bool {
-    fn into_handle(self) -> Result<Handle> { encode(Value::Bool(self)) }
-}
+impl FromValue for () { fn from_handle(h: u32) -> Result<Self> { match decode(h)? { Value::None => Ok(()), v => mismatch("expected nil", v) } } }
+impl IntoValue for () { fn into_handle(self) -> Result<Handle> { encode(Value::None) } }
 
-impl FromValue for i64 {
-    fn from_handle(h: u32) -> Result<Self> {
-        match decode(h)? {
-            Value::Int(i) => i64::try_from(i).map_err(|_| Error::Value(
-                alloc::format!("int {} out of range for i64 (use i128)", i)
-            )),
-            // a whole float stands for its int since a language of doubles has no int
-            Value::Float(f) if f as i64 as f64 == f => Ok(f as i64),
-            v => Err(Error::Type(alloc::format!("expected int, got {:?}", v))),
-        }
-    }
-}
-impl IntoValue for i64 {
-    fn into_handle(self) -> Result<Handle> { encode(Value::Int(self as i128)) }
-}
+impl FromValue for bool { fn from_handle(h: u32) -> Result<Self> { match decode(h)? { Value::Bool(b) => Ok(b), v => mismatch("expected bool", v) } } }
+impl IntoValue for bool { fn into_handle(self) -> Result<Handle> { encode(Value::Bool(self)) } }
 
-impl FromValue for i128 {
-    fn from_handle(h: u32) -> Result<Self> {
-        match decode(h)? {
-            Value::Int(i) => Ok(i),
-            Value::Float(f) if f as i128 as f64 == f => Ok(f as i128),
-            v => Err(Error::Type(alloc::format!("expected int, got {:?}", v))),
-        }
-    }
-}
-impl IntoValue for i128 {
-    fn into_handle(self) -> Result<Handle> { encode(Value::Int(self)) }
-}
+// a whole float stands for its int since a language of doubles has no int
+impl FromValue for i64 { fn from_handle(h: u32) -> Result<Self> { match decode(h)? { Value::Int(i) => i64::try_from(i).map_err(|_| Error::Value(alloc::format!("int {} out of range for i64 (use i128)", i))), Value::Float(f) if f as i64 as f64 == f => Ok(f as i64), v => mismatch("expected int", v) } } }
+impl IntoValue for i64 { fn into_handle(self) -> Result<Handle> { encode(Value::Int(self as i128)) } }
 
-impl FromValue for f64 {
-    fn from_handle(h: u32) -> Result<Self> {
-        match decode(h)? {
-            Value::Float(f) => Ok(f),
-            Value::Int(i) => Ok(i as f64),
-            v => Err(Error::Type(alloc::format!("expected float, got {:?}", v))),
-        }
-    }
-}
-impl IntoValue for f64 {
-    fn into_handle(self) -> Result<Handle> { encode(Value::Float(self)) }
-}
+impl FromValue for i128 { fn from_handle(h: u32) -> Result<Self> { match decode(h)? { Value::Int(i) => Ok(i), Value::Float(f) if f as i128 as f64 == f => Ok(f as i128), v => mismatch("expected int", v) } } }
+impl IntoValue for i128 { fn into_handle(self) -> Result<Handle> { encode(Value::Int(self)) } }
 
-impl FromValue for String {
-    fn from_handle(h: u32) -> Result<Self> {
-        match decode(h)? {
-            Value::Bytes(b) => String::from_utf8(b).map_err(|e| Error::Value(alloc::format!("invalid utf-8: {}", e))),
-            v => Err(Error::Type(alloc::format!("expected str, got {:?}", v))),
-        }
-    }
-}
-impl IntoValue for String {
-    fn into_handle(self) -> Result<Handle> { encode(Value::Bytes(self.into_bytes())) }
-}
-impl IntoValue for &str {
-    fn into_handle(self) -> Result<Handle> {
-        encode(Value::Bytes(self.as_bytes().to_vec()))
-    }
-}
-impl IntoValue for alloc::borrow::Cow<'_, str> {
-    fn into_handle(self) -> Result<Handle> {
-        encode(Value::Bytes(self.into_owned().into_bytes()))
-    }
-}
+impl FromValue for f64 { fn from_handle(h: u32) -> Result<Self> { match decode(h)? { Value::Float(f) => Ok(f), Value::Int(i) => Ok(i as f64), v => mismatch("expected float", v) } } }
+impl IntoValue for f64 { fn into_handle(self) -> Result<Handle> { encode(Value::Float(self)) } }
+
+impl FromValue for String { fn from_handle(h: u32) -> Result<Self> { match decode(h)? { Value::Bytes(b) => String::from_utf8(b).map_err(|e| Error::Value(alloc::format!("invalid utf-8: {}", e))), v => mismatch("expected str", v) } } }
+impl IntoValue for String { fn into_handle(self) -> Result<Handle> { encode(Value::Bytes(self.into_bytes())) } }
+impl IntoValue for &str { fn into_handle(self) -> Result<Handle> { encode(Value::Bytes(self.as_bytes().to_vec())) } }
+impl IntoValue for alloc::borrow::Cow<'_, str> { fn into_handle(self) -> Result<Handle> { encode(Value::Bytes(self.into_owned().into_bytes())) } }
 
 // raw bytes that transit without ever being decoded as UTF-8
 pub struct Bytes(pub Vec<u8>);
@@ -410,52 +349,18 @@ impl core::ops::Deref for Bytes {
     fn deref(&self) -> &[u8] { &self.0 }
 }
 
-impl FromValue for Bytes {
-    fn from_handle(h: u32) -> Result<Self> {
-        match decode(h)? {
-            Value::Raw(b) => Ok(Bytes(b)),
-            v => Err(Error::Type(alloc::format!("expected bytes, got {:?}", v))),
-        }
-    }
-}
-impl IntoValue for Bytes {
-    fn into_handle(self) -> Result<Handle> { encode(Value::Raw(self.0)) }
-}
+impl FromValue for Bytes { fn from_handle(h: u32) -> Result<Self> { match decode(h)? { Value::Raw(b) => Ok(Bytes(b)), v => mismatch("expected bytes", v) } } }
+impl IntoValue for Bytes { fn into_handle(self) -> Result<Handle> { encode(Value::Raw(self.0)) } }
 
-impl FromValue for Value {
-    fn from_handle(h: u32) -> Result<Self> { decode(h) }
-}
-impl IntoValue for Value {
-    fn into_handle(self) -> Result<Handle> { encode(self) }
-}
+impl FromValue for Value { fn from_handle(h: u32) -> Result<Self> { decode(h) } }
+impl IntoValue for Value { fn into_handle(self) -> Result<Handle> { encode(self) } }
 
 /* a list crosses whole in one `interpreter_decode` or `interpreter_encode` instead of an op per item */
-impl FromValue for Vec<Value> {
-    fn from_handle(h: u32) -> Result<Self> {
-        match decode(h)? {
-            Value::List(items) => Ok(items),
-            v => Err(Error::Type(alloc::format!("expected a sequence, got {:?}", v))),
-        }
-    }
-}
-impl IntoValue for Vec<Value> {
-    fn into_handle(self) -> Result<Handle> { encode(Value::List(self)) }
-}
+impl FromValue for Vec<Value> { fn from_handle(h: u32) -> Result<Self> { match decode(h)? { Value::List(items) => Ok(items), v => mismatch("expected a sequence", v) } } }
+impl IntoValue for Vec<Value> { fn into_handle(self) -> Result<Handle> { encode(Value::List(self)) } }
 
-impl FromValue for Vec<f64> {
-    fn from_handle(h: u32) -> Result<Self> {
-        Vec::<Value>::from_handle(h)?.into_iter().map(|v| match v {
-            Value::Float(f) => Ok(f),
-            Value::Int(i) => Ok(i as f64),
-            other => Err(Error::Type(alloc::format!("expected a sequence of numbers, got {:?}", other))),
-        }).collect()
-    }
-}
-impl IntoValue for Vec<f64> {
-    fn into_handle(self) -> Result<Handle> {
-        encode(Value::List(self.into_iter().map(Value::Float).collect()))
-    }
-}
+impl FromValue for Vec<f64> { fn from_handle(h: u32) -> Result<Self> { Vec::<Value>::from_handle(h)?.into_iter().map(|v| match v { Value::Float(f) => Ok(f), Value::Int(i) => Ok(i as f64), other => mismatch("expected a sequence of numbers", other) }).collect() } }
+impl IntoValue for Vec<f64> { fn into_handle(self) -> Result<Handle> { encode(Value::List(self.into_iter().map(Value::Float).collect())) } }
 
 // the trailing variadic params of a `plugin_fn!` as borrowed handles
 pub struct Args(pub Vec<Handle>);
@@ -470,33 +375,19 @@ impl Args {
     }
 }
 
-impl<T: FromValue> FromValue for Option<T> {
-    fn from_handle(h: u32) -> Result<Self> {
-        if is_nil(h) { return Ok(None); }
-        T::from_handle(h).map(Some)
-    }
-}
-impl<T: IntoValue> IntoValue for Option<T> {
-    fn into_handle(self) -> Result<Handle> {
-        match self {
-            None => encode(Value::None),
-            Some(v) => v.into_handle(),
-        }
-    }
-}
+impl<T: FromValue> FromValue for Option<T> { fn from_handle(h: u32) -> Result<Self> { if is_nil(h) { Ok(None) } else { T::from_handle(h).map(Some) } } }
+impl<T: IntoValue> IntoValue for Option<T> { fn into_handle(self) -> Result<Handle> { match self { None => encode(Value::None), Some(v) => v.into_handle() } } }
 
 impl Handle {
     // an empty name or argv passes a null pointer
-    fn raw_op(opcode: u32, recv: u32, name: &str, argv: &[u32]) -> Result<u32> {
+    fn raw_op(opcode: u32, recv: u32, name: &str, argv: &[u32]) -> Result<Handle> {
         let mut out: u32 = 0;
         if ffi::op(opcode, recv, name, argv, &mut out) != 0 { return Err(last_error()); }
-        Ok(out)
+        Ok(Handle::from_raw(out))
     }
 
     // `recv.<name>(args)` with the argv handles still owned by the caller
-    pub fn call(&self, name: &str, args: &[u32]) -> Result<Handle> {
-        Self::raw_op(op::CALL, self.raw, name, args).map(Handle::from_raw)
-    }
+    pub fn call(&self, name: &str, args: &[u32]) -> Result<Handle> { Self::raw_op(op::CALL, self.raw, name, args) }
 
     // the system call `module.name` which waits with `Error::Waiting` until `plugin_resume!` gets the answer
     pub fn sys(name: &str, args: &[u32]) -> Result<Handle> {
@@ -509,81 +400,49 @@ impl Handle {
     }
 
     // `recv.<name>` reading an attribute or binding a builtin method
-    pub fn get_attr(&self, name: &str) -> Result<Handle> {
-        Self::raw_op(op::GET_ATTR, self.raw, name, &[]).map(Handle::from_raw)
-    }
+    pub fn get_attr(&self, name: &str) -> Result<Handle> { Self::raw_op(op::GET_ATTR, self.raw, name, &[]) }
 
     // `recv[key]` with an int key indexing a list and a str key reading a dict
-    pub fn get_item(&self, key: &Handle) -> Result<Handle> {
-        Self::raw_op(op::GET_ITEM, self.raw, "", &[key.raw]).map(Handle::from_raw)
-    }
+    pub fn get_item(&self, key: &Handle) -> Result<Handle> { Self::raw_op(op::GET_ITEM, self.raw, "", &[key.raw]) }
 
     // `recv[key] = value` whose None result is released at once
-    pub fn set_item(&self, key: &Handle, value: &Handle) -> Result<()> {
-        let out = Self::raw_op(op::SET_ITEM, self.raw, "", &[key.raw, value.raw])?;
-        let _ = Handle::from_raw(out);
-        Ok(())
-    }
+    pub fn set_item(&self, key: &Handle, value: &Handle) -> Result<()> { Self::raw_op(op::SET_ITEM, self.raw, "", &[key.raw, value.raw]).map(drop) }
 
+    // the handle is owned before decoding so `Drop` releases it on any early return
     #[allow(clippy::len_without_is_empty)]
-    pub fn len(&self) -> Result<i64> {
-        // wrapped before decoding so `Drop` releases it on any early return
-        let h = Handle::from_raw(Self::raw_op(op::LEN, self.raw, "", &[])?);
-        i64::from_handle(h.raw())
-    }
+    pub fn len(&self) -> Result<i64> { i64::from_handle(Self::raw_op(op::LEN, self.raw, "", &[])?.raw()) }
 
     // `recv.<name> = value` whose None result is released at once
-    pub fn set_attr(&self, name: &str, value: &Handle) -> Result<()> {
-        let out = Self::raw_op(op::SET_ATTR, self.raw, name, &[value.raw])?;
-        let _ = Handle::from_raw(out);
-        Ok(())
-    }
+    pub fn set_attr(&self, name: &str, value: &Handle) -> Result<()> { Self::raw_op(op::SET_ATTR, self.raw, name, &[value.raw]).map(drop) }
 
     // a fresh empty dict owned by the guest
-    pub fn new_dict() -> Result<Handle> {
-        Self::raw_op(op::NEW_DICT, 0, "", &[]).map(Handle::from_raw)
-    }
+    pub fn new_dict() -> Result<Handle> { Self::raw_op(op::NEW_DICT, 0, "", &[]) }
 
     // a fresh empty list owned by the guest
-    pub fn new_list() -> Result<Handle> {
-        Self::raw_op(op::NEW_LIST, 0, "", &[]).map(Handle::from_raw)
-    }
+    pub fn new_list() -> Result<Handle> { Self::raw_op(op::NEW_LIST, 0, "", &[]) }
 
     // a tuple of the item handles built in one host call
-    pub fn new_tuple(items: &[u32]) -> Result<Handle> {
-        Self::raw_op(op::NEW_TUPLE, 0, "", items).map(Handle::from_raw)
-    }
+    pub fn new_tuple(items: &[u32]) -> Result<Handle> { Self::raw_op(op::NEW_TUPLE, 0, "", items) }
 
     // an unhashable item raises the runtime's type error
-    pub fn new_set(items: &[u32]) -> Result<Handle> {
-        Self::raw_op(op::NEW_SET, 0, "", items).map(Handle::from_raw)
-    }
+    pub fn new_set(items: &[u32]) -> Result<Handle> { Self::raw_op(op::NEW_SET, 0, "", items) }
 
     // an unhashable item raises the runtime's type error
-    pub fn new_frozenset(items: &[u32]) -> Result<Handle> {
-        Self::raw_op(op::NEW_FROZENSET, 0, "", items).map(Handle::from_raw)
-    }
+    pub fn new_frozenset(items: &[u32]) -> Result<Handle> { Self::raw_op(op::NEW_FROZENSET, 0, "", items) }
 
     // a fresh str naming the runtime type of `recv`
-    pub fn type_of(&self) -> Result<Handle> {
-        Self::raw_op(op::TYPE_OF, self.raw, "", &[]).map(Handle::from_raw)
-    }
+    pub fn type_of(&self) -> Result<Handle> { Self::raw_op(op::TYPE_OF, self.raw, "", &[]) }
 
     // the value as the runtime writes it as text
-    pub fn text(&self) -> Result<String> {
-        let s = Handle::from_raw(Self::raw_op(op::CALL, 0, op::TEXT, &[self.raw])?);
-        String::from_handle(s.raw())
-    }
+    pub fn text(&self) -> Result<String> { String::from_handle(Self::raw_op(op::CALL, 0, op::TEXT, &[self.raw])?.raw()) }
 
     // the receiver materialised as a list iterator
-    pub fn iter(&self) -> Result<Handle> {
-        Self::raw_op(op::ITER, self.raw, "", &[]).map(Handle::from_raw)
-    }
+    pub fn iter(&self) -> Result<Handle> { Self::raw_op(op::ITER, self.raw, "", &[]) }
 
     // `Ok(None)` once the iterator ends and any other error passes through
     pub fn iter_next(&self) -> Result<Option<Handle>> {
         match Self::raw_op(op::ITER_NEXT, self.raw, "", &[]) {
-            Ok(out) => Ok(Some(Handle::from_raw(out))),
+            Ok(h) => Ok(Some(h)),
             Err(e) if ended(&e) => Ok(None),
             Err(e) => Err(e),
         }

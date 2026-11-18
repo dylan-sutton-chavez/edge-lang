@@ -312,7 +312,6 @@ pub struct Parser<'src, I: Iterator<Item = Token>, S: Spelling> {
     pub(super) mode: u8,
     // a call of a lazy name whose list comprehension argument becomes a generator
     pub(super) lazy_arg: bool,
-    spelling: PhantomData<S>,
 }
 
 impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
@@ -381,15 +380,11 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         DEFAULT_CATCH_TEXT DEFAULT_CATCH = [lit(b"default '"), b(Catch), colon, lit(b"' must be last")];
         BAD_CONVERSION_TEXT BAD_CONVERSION = [lit(b"invalid "), name, lit(b" conversion (expected "), marks, lit(b")")];
         FORMAT_UNCLOSED_TEXT FORMAT_UNCLOSED = [name, lit(b" was never closed")];
+        LET_NAMES_ONLY_TEXT LET_NAMES_ONLY = [q(Let), lit(b" binds names only")];
     }
 
     pub(super) fn current_version(&self, name: &str) -> u32 {
         self.ssa_versions.get(name).unwrap_or(0)
-    }
-
-    /* allocates only when `name_ver` overflows `buf` */
-    pub(super) fn ssa_name<'a>(name: &'a str, ver: u32, buf: &'a mut [u8; 128]) -> alloc::borrow::Cow<'a, str> {
-        versioned(name, ver, buf)
     }
 
     pub(super) fn increment_version(&mut self, name: &str) -> u32 {
@@ -405,7 +400,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
 
     pub(super) fn push_ssa_name(&mut self, name: &str, ver: u32) -> u16 {
         let mut buf = [0u8; 128];
-        self.chunk.push_name(&Self::ssa_name(name, ver, &mut buf))
+        self.chunk.push_name(&versioned(name, ver, &mut buf))
     }
 
     pub(super) fn emit_load_ssa(&mut self, name: &str) {
@@ -479,15 +474,6 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         self.around_fn = around;
     }
 
-    /* binds `name` to a new version */
-    pub(super) fn emit_store_new(&mut self, name: &str) -> u16 {
-        let ver = self.increment_version(name);
-        let i = self.push_ssa_name(name, ver);
-        self.chunk.emit(OpCode::StoreName, i);
-        self.leaf(self.chunk.instructions.len() - 1, name);
-        i
-    }
-
     /* a nested body built by `f` over a chunk sharing the parent texts */
     pub(super) fn with_fresh_chunk(&mut self, f: impl FnOnce(&mut Self)) -> SSAChunk {
         // the shared texts spare the two allocations a default chunk makes each way
@@ -559,9 +545,9 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
             let mut ba = [0u8; 128];
             let mut bb = [0u8; 128];
             let mut bx = [0u8; 128];
-            let ia = self.chunk.push_name(&Self::ssa_name(name, va, &mut ba));
-            let ib = self.chunk.push_name(&Self::ssa_name(name, vb, &mut bb));
-            let ix = self.chunk.push_name(&Self::ssa_name(name, now + 1, &mut bx));
+            let ia = self.chunk.push_name(&versioned(name, va, &mut ba));
+            let ib = self.chunk.push_name(&versioned(name, vb, &mut bb));
+            let ix = self.chunk.push_name(&versioned(name, now + 1, &mut bx));
             self.ssa_versions.set_at(slot, now + 1);
 
             self.chunk.phi_sources.push((ia, ib));
@@ -591,23 +577,14 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
                     while self.bracket_stack.len() > idx + 1 {
                         let (k, st, en, ov) = self.bracket_stack.pop().unwrap();
                         self.errors.truncate(ov);
-                        self.errors.push(Diagnostic {
-                            start: st, end: en,
-                            msg: s!(str &Self::shown(k), " was never closed"),
-                        });
+                        self.reject(st, en, &s!(str &Self::shown(k), " was never closed"));
                     }
                     self.bracket_stack.pop();
                 } else if let Some(&(top_k, _, _, _)) = self.bracket_stack.last() {
-                    self.errors.push(Diagnostic {
-                        start: tok.start, end: tok.end,
-                        msg: s!(str &Self::shown(bracket_close(tok.kind)), " does not match ", str &Self::shown(top_k), ", expected ", str &Self::shown(bracket_close(top_k))),
-                    });
+                    self.reject(tok.start, tok.end, &s!(str &Self::shown(bracket_close(tok.kind)), " does not match ", str &Self::shown(top_k), ", expected ", str &Self::shown(bracket_close(top_k))));
                     self.bracket_stack.pop();
                 } else {
-                    self.errors.push(Diagnostic {
-                        start: tok.start, end: tok.end,
-                        msg: s!("unexpected ", str &Self::shown(bracket_close(tok.kind)), ", no matching opener"),
-                    });
+                    self.reject(tok.start, tok.end, &s!("unexpected ", str &Self::shown(bracket_close(tok.kind)), ", no matching opener"));
                 }
             }
             _ => {}
@@ -763,10 +740,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
                 && opener_kind == want_open
             {
                 self.errors.truncate(errors_at_open);
-                self.errors.push(Diagnostic {
-                    start, end,
-                    msg: s!(str &Self::shown(opener_kind), " was never closed"),
-                });
+                self.reject(start, end, &s!(str &Self::shown(opener_kind), " was never closed"));
                 self.bracket_stack.pop();
                 return;
             }
@@ -931,26 +905,14 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
             subject: None,
             mode: 0,
             lazy_arg: false,
-            spelling: PhantomData,
         }
     }
 
-    pub fn parse(mut self) -> (SSAChunk, Vec<Diagnostic>) { let errors = self.parse_in_place(); (self.chunk, errors) }
+    /* the chunk of the source parsed as a program returning the last value on the stack */
+    pub fn parse(mut self) -> (SSAChunk, Vec<Diagnostic>) { self.parse_body(Body::Program); (self.chunk, self.errors) }
 
     /* parses statements that run under a caller so the chunk returns None like a function */
-    pub fn parse_exec(self) -> (SSAChunk, Vec<Diagnostic>) { self.parse_as(Body::Exec) }
-
-    /* the chunk of a source parsed as `body` returning the last value on the stack */
-    fn parse_as(mut self, body: Body) -> (SSAChunk, Vec<Diagnostic>) {
-        self.parse_body(body);
-        (self.chunk, self.errors)
-    }
-
-    /* `parse` that leaves the chunk in `self.chunk` for the caller and returns the diagnostics */
-    pub(crate) fn parse_in_place(&mut self) -> Vec<Diagnostic> {
-        self.parse_body(Body::Program);
-        core::mem::take(&mut self.errors)
-    }
+    pub fn parse_exec(mut self) -> (SSAChunk, Vec<Diagnostic>) { self.parse_body(Body::Exec); (self.chunk, self.errors) }
 
     fn parse_body(&mut self, body: Body) {
         self.statements();
@@ -965,16 +927,22 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
             if self.at_end() { break; }
 
             self.block_closed = false;
-            // a statement starts outside every bracket whatever a failed one left open
-            self.bracket_stack.clear();
-            let (errors_before, at, from) = (self.errors.len(), self.tokens.pos, self.here());
-            let produced_value = self.stmt();
-            self.end_statement(errors_before);
-            // a failed statement that consumed nothing skips a token so the loop always ends
-            if self.tokens.pos == at { self.tokens.next(); }
-            if produced_value { self.chunk.emit(OpCode::PopTop, 0); }
-            self.keep(from, None, true);
+            self.body_stmt(Self::stmt);
         }
+    }
+
+    /* one statement `f` compiles from outside every bracket popping the value it leaves */
+    #[inline(always)]
+    pub(super) fn body_stmt(&mut self, f: impl FnOnce(&mut Self) -> bool) {
+        // a statement starts outside every bracket whatever a failed one left open
+        self.bracket_stack.clear();
+        let (errors_before, at, from) = (self.errors.len(), self.tokens.pos, self.here());
+        let produced_value = f(self);
+        self.end_statement(errors_before);
+        // a failed statement that consumed nothing skips a token so the loop always ends
+        if self.tokens.pos == at { self.tokens.next(); }
+        if produced_value { self.chunk.emit(OpCode::PopTop, 0); }
+        self.keep(from, None, true);
     }
 
     /* ends a module chunk once its statements are in */
@@ -984,10 +952,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
 
         if self.chunk.overflow {
             let n = self.source.len();
-            self.errors.push(Diagnostic {
-                start: n, end: n,
-                msg: "program too large: exceeded the 65535 instruction, name, or constant limit".to_string(),
-            });
+            self.reject(n, n, "program too large: exceeded the 65535 instruction, name, or constant limit");
         }
 
         if !self.errors.is_empty() {

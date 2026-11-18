@@ -265,7 +265,7 @@ pub(crate) fn vm_mut<'x>(vm: core::ptr::NonNull<crate::vm::VM<'static>>) -> &'x 
 #[cfg(feature = "runtime")]
 pub(crate) mod web {
     use crate::abi::bridge;
-    use crate::targets::web::{entry, exports, package, walk, Entry};
+    use crate::targets::web::{entry, exports, walk, Entry};
     use alloc::{boxed::Box, vec::Vec};
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -351,10 +351,10 @@ pub(crate) mod web {
         fn walk_plugin_bytes() -> u32 { walk::walk_plugin_bytes() }
         fn walk_served(p: *const u8, n: u32) -> u32 { walk::walk_served(slice(p, n)) }
         fn walk_carry(p: *const u8, n: u32) { walk::walk_carry(slice(p, n)) }
-        fn bundle_index(p: *const u8, n: u32) -> u32 { package::bundle_index(slice(p, n)) }
-        #[cfg(feature = "perms")] fn grants_check(sp: *const u8, sn: u32, mp: *const u8, mn: u32, tp: *const u8, tn: u32) -> u32 { crate::targets::web::perms::grants_check(slice(sp, sn), slice(mp, mn), slice(tp, tn)) }
-        #[cfg(feature = "perms")] fn grants_scopes(p: *const u8, n: u32) -> u32 { crate::targets::web::perms::grants_scopes(slice(p, n)) }
-        #[cfg(feature = "perms")] fn grants_held(cp: *const u8, cn: u32, pp: *const u8, pn: u32, mp: *const u8, mn: u32) -> u32 { crate::targets::web::perms::grants_held(slice(cp, cn), text(pp, pn), text(mp, mn)) }
+        fn bundle_index(p: *const u8, n: u32) -> u32 { walk::bundle_index(slice(p, n)) }
+        #[cfg(feature = "perms")] fn grants_check(sp: *const u8, sn: u32, mp: *const u8, mn: u32, tp: *const u8, tn: u32) -> u32 { walk::grants_check(slice(sp, sn), slice(mp, mn), slice(tp, tn)) }
+        #[cfg(feature = "perms")] fn grants_scopes(p: *const u8, n: u32) -> u32 { walk::grants_scopes(slice(p, n)) }
+        #[cfg(feature = "perms")] fn grants_held(cp: *const u8, cn: u32, pp: *const u8, pn: u32, mp: *const u8, mn: u32) -> u32 { walk::grants_held(slice(cp, cn), text(pp, pn), text(mp, mn)) }
         fn host_interpreter_op(op: u32, recv: u32, np: *const u8, nn: u32, ap: *const u32, an: u32, out: *mut u32) -> i32 { bridge::host_interpreter_op(op, recv, text(np, nn), slice(ap, an), word(out, &mut 0)) }
         fn host_interpreter_encode(tag: u32, p: *const u8, n: u32) -> u32 { bridge::host_interpreter_encode(tag, slice(p, n)) }
         fn host_interpreter_decode(h: u32, out_tag: *mut u32, dst: *mut u8, dst_max: u32) -> i32 { bridge::host_interpreter_decode(h, word(out_tag, &mut 0), room(dst, dst_max)) }
@@ -418,10 +418,7 @@ pub(crate) mod web {
                 return R::panicked();
             }
             let held = unsafe { &*cx };
-            if let Some(msg) = held.panicked.take() {
-                held.panicked.set(Some(msg));
-                return R::panicked();
-            }
+            if crate::r#unsafe::lent(&held.panicked, Option::is_some) { return R::panicked(); }
             let _entered = Entered(CURRENT.replace(cx));
             match std::panic::catch_unwind(core::panic::AssertUnwindSafe(f)) {
                 Ok(r) => r,
@@ -475,12 +472,12 @@ pub(crate) mod web {
         #[unsafe(no_mangle)]
         pub extern "C" fn interpreter_context_panic(cx: *const Context, dst: *mut u8, dst_max: u32) -> i32 {
             if cx.is_null() { return 0 }
-            let held = unsafe { &*cx };
-            let Some(msg) = held.panicked.take() else { return 0 };
-            let n = msg.len();
-            if !dst.is_null() && n <= dst_max as usize { unsafe { core::ptr::copy_nonoverlapping(msg.as_ptr(), dst, n) } }
-            held.panicked.set(Some(msg));
-            n as i32
+            crate::r#unsafe::lent(&unsafe { &*cx }.panicked, |msg| {
+                let Some(msg) = msg else { return 0 };
+                let n = msg.len();
+                if !dst.is_null() && n <= dst_max as usize { unsafe { core::ptr::copy_nonoverlapping(msg.as_ptr(), dst, n) } }
+                n as i32
+            })
         }
     }
 
@@ -819,3 +816,146 @@ pub(crate) fn step_ready(frame: &core::cell::RefCell<crate::value::IterFrame>, h
 /* `f` on the value of `c` which `f` never sets */
 #[inline(always)]
 pub(crate) fn lent<T, R>(c: &core::cell::Cell<T>, f: impl FnOnce(&T) -> R) -> R { f(unsafe { &*c.as_ptr() }) }
+
+// SAFETY the caller keeps the variable apart from any thread that reads the environment
+#[cfg(all(test, feature = "cli-web"))]
+pub(crate) fn set_env(key: &str, value: &str) { unsafe { std::env::set_var(key, value) } }
+
+#[cfg(all(test, feature = "cli-web"))]
+pub(crate) fn remove_env(key: &str) { unsafe { std::env::remove_var(key) } }
+
+// SAFETY bytes come only from a code cache entry whose digest this engine wrote
+#[cfg(feature = "cli-wasm")]
+pub(crate) fn deserialize(engine: &wasmtime::Engine, native: &[u8]) -> wasmtime::Result<wasmtime::Module> { unsafe { wasmtime::Module::deserialize(engine, native) } }
+
+// SAFETY a loaded library speaks the native contract it reports and every cx is a live one its context_new made
+#[cfg(feature = "cli-native")]
+pub(crate) mod library {
+    use anyhow::{anyhow, Result};
+    use std::ffi::c_void;
+    use std::path::Path;
+
+    pub(crate) type Cx = *const c_void;
+
+    /* what the host hands each context in place of the four imports a wasm module takes */
+    #[repr(C)]
+    pub(crate) struct HostTable {
+        pub(crate) user: *mut c_void,
+        pub(crate) print: extern "C" fn(*mut c_void, *const u8, usize),
+        pub(crate) call_native: extern "C" fn(*mut c_void, u32, u32, *const u32, u32, *mut u32) -> i32,
+        pub(crate) fetch_bytes: extern "C" fn(*mut c_void, *const u8, u32, *const u8, *mut u32) -> *mut u8,
+        pub(crate) send: extern "C" fn(*mut c_void, *const u8, u32, *const u8, u32) -> i32,
+    }
+
+    // each export of a native runtime takes the context it acts on first
+    macro_rules! exports {
+        ($($name:ident: ($($a:ident: $t:ty),*) $(-> $r:ty)?;)*) => {
+            #[derive(Clone, Copy)]
+            pub(crate) struct Fns {
+                $($name: unsafe extern "C" fn(Cx $(, $t)*) $(-> $r)?,)*
+                new: unsafe extern "C" fn(*const HostTable) -> Cx,
+                free: unsafe extern "C" fn(Cx),
+                panic: unsafe extern "C" fn(Cx, *mut u8, u32) -> i32,
+            }
+
+            impl Fns {
+                /* every symbol of the contract read out of the loaded library */
+                pub(crate) fn bind(lib: &libloading::Library) -> Result<Fns> {
+                    // SAFETY each symbol has the signature the engine's native shims declare
+                    unsafe {
+                        Ok(Fns {
+                            $($name: *lib.get(concat!(stringify!($name), "\0").as_bytes()).map_err(|_| anyhow!("the native runtime exports no {}", stringify!($name)))?,)*
+                            new: *lib.get(b"interpreter_context_new\0").map_err(|_| anyhow!("the native runtime exports no interpreter_context_new"))?,
+                            free: *lib.get(b"interpreter_context_free\0").map_err(|_| anyhow!("the native runtime exports no interpreter_context_free"))?,
+                            panic: *lib.get(b"interpreter_context_panic\0").map_err(|_| anyhow!("the native runtime exports no interpreter_context_panic"))?,
+                        })
+                    }
+                }
+
+                $(pub(crate) fn $name(&self, cx: Cx $(, $a: $t)*) $(-> $r)? { unsafe { (self.$name)(cx $(, $a)*) } })*
+
+                pub(crate) fn context_new(&self, table: &HostTable) -> Cx { unsafe { (self.new)(table) } }
+                pub(crate) fn context_free(&self, cx: Cx) { unsafe { (self.free)(cx) } }
+                pub(crate) fn context_panic(&self, cx: Cx, buf: *mut u8, len: u32) -> i32 { unsafe { (self.panic)(cx, buf, len) } }
+
+                /* what the last call left in the context's out buffer */
+                pub(crate) fn out(&self, cx: Cx) -> Vec<u8> {
+                    let ptr = self.out_ptr(cx);
+                    let len = self.out_len(cx) as usize;
+                    if ptr.is_null() || len == 0 {
+                        return Vec::new();
+                    }
+                    unsafe { std::slice::from_raw_parts(ptr, len) }.to_vec()
+                }
+            }
+        };
+    }
+
+    exports! {
+        out_ptr: () -> *const u8;
+        out_len: () -> u32;
+        register_native_module: (spec: *const u8, spec_len: u32, names: *const u8, names_len: u32, base: u32);
+        register_module_error: (spec: *const u8, spec_len: u32, msg: *const u8, msg_len: u32);
+        reset_modules: ();
+        set_entry: (p: *const u8, n: u32);
+        set_input: (p: *const u8, n: u32);
+        set_limits: (memory: u64, ops: u64);
+        run_start: (p: *const u8, n: u32) -> u32;
+        repl_eval: (p: *const u8, n: u32) -> u32;
+        restore_state: (p: *const u8, n: u32) -> u32;
+        run_resume: () -> u32;
+        run_push_event: (p: *const u8, n: u32) -> i32;
+        set_host_result_by_id: (id: u32, handle: u32) -> i32;
+        set_host_error_by_id: (id: u32, kind: u32, handle: u32) -> i32;
+        set_preempt_interval: (n: u32);
+        save_state: () -> i64;
+        vm_create: () -> u32;
+        vm_select: (slot: u32) -> i32;
+        vm_drop: (slot: u32) -> i32;
+        send_package: () -> u32;
+        runtime_descriptor: () -> u32;
+        walk_start: (src: *const u8, src_len: u32, system: *const u8, system_len: u32) -> u32;
+        walk_fetched: (p: *const u8, n: u32, kind: u32) -> u32;
+        walk_plugin: (kind: u32, p: *const u8, n: u32) -> u32;
+        walk_plugin_bytes: () -> u32;
+        walk_served: (p: *const u8, n: u32) -> u32;
+        walk_carry: (p: *const u8, n: u32);
+        host_interpreter_encode: (tag: u32, p: *const u8, n: u32) -> u32;
+        host_interpreter_decode: (handle: u32, tag: *mut u32, buf: *mut u8, cap: u32) -> i32;
+        host_interpreter_throw: (kind: u32, p: *const u8, n: u32);
+    }
+
+    /* the library at `path` with the version of the native contract it speaks */
+    pub(crate) fn open(path: &Path) -> Result<(libloading::Library, u32)> {
+        // SAFETY loading runs the library's initializers which a project trusts by declaring it native
+        let lib = unsafe { libloading::Library::new(path) }.map_err(|e| anyhow!("loading the native runtime {}: {e}", path.display()))?;
+        let version = {
+            let abi = unsafe { lib.get::<unsafe extern "C" fn() -> u32>(b"interpreter_native_abi\0") }.map_err(|_| anyhow!("{} is no native interpreter runtime, it exports no interpreter_native_abi", path.display()))?;
+            unsafe { abi() }
+        };
+        Ok((lib, version))
+    }
+
+    /* the host state a callback reaches through the user pointer its table was made with */
+    pub(crate) fn user<'a, T>(user: *mut c_void) -> &'a mut T { unsafe { &mut *user.cast::<T>() } }
+
+    /* the text a callback lends for the length of the call */
+    pub(crate) fn text(ptr: *const u8, len: usize) -> String {
+        if ptr.is_null() || len == 0 {
+            return String::new();
+        }
+        String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(ptr, len) }).into_owned()
+    }
+
+    /* the argument handles a call lends for its length */
+    pub(crate) fn handles<'a>(argv: *const u32, argc: u32) -> &'a [u32] {
+        if argv.is_null() || argc == 0 { &[] } else { unsafe { std::slice::from_raw_parts(argv, argc as usize) } }
+    }
+
+    /* the answer a callback writes into the out slot the engine lends */
+    pub(crate) fn put(out: *mut u32, value: u32) {
+        if !out.is_null() {
+            unsafe { *out = value };
+        }
+    }
+}

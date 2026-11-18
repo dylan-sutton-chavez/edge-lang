@@ -8,9 +8,6 @@ use OpCode::*;
 // ops that never touch the operand stack
 pub(crate) const fn unstacked(op: OpCode) -> bool { op.unstacked() }
 
-// the values `op` pops and pushes falling through and none when only the run knows
-pub(crate) fn effect(op: OpCode, operand: u16, chunk: &SSAChunk) -> Option<(u16, u16)> { op.effect(operand, chunk) }
-
 /* the operands spread call `op` takes counting each spread one */
 fn spread_operands(op: OpCode, operand: u16, chunk: &SSAChunk) -> Option<usize> {
     Some(match op {
@@ -33,7 +30,7 @@ pub(crate) fn spread_back(at: impl Fn(usize) -> (OpCode, u16), i: usize, chunk: 
         k = k.checked_sub(1)?;
         let (op, operand) = at(k);
         if op.is_jump() || matches!(op, ReturnValue | Raise | UnwindFinally) { return None; }
-        let (pops, pushes) = effect(op, operand, chunk)?;
+        let (pops, pushes) = op.effect(operand, chunk)?;
         let (pops, pushes) = (usize::from(pops), usize::from(pushes));
         let gives = pushes.saturating_sub(taken);
         taken = taken.saturating_sub(pushes);
@@ -69,7 +66,7 @@ pub(crate) fn spread_packs(src: &[Instruction], depths: &[u16], i: usize, chunk:
             maps.push(ins.operand & 3 == 2);
         }
         let operand = if ins.opcode == CallMethod { src.get(k + 1).filter(|n| n.opcode == CallMethodArgs).map_or(ins.operand, |n| n.operand) } else { ins.operand };
-        let pops = effect(ins.opcode, operand, chunk).map_or(0, |e| usize::from(e.0));
+        let pops = ins.opcode.effect(operand, chunk).map_or(0, |e| usize::from(e.0));
         low = low.min(dk.saturating_sub(pops));
     }
     // the maps in the order the packed operands lie
@@ -104,7 +101,7 @@ pub(crate) fn depths(src: &[Instruction], chunk: &SSAChunk) -> Result<Vec<u16>, 
         let (d, ins) = (at[i], src[i]);
         let operand = if ins.opcode == CallMethod { src.get(i + 1).filter(|n| n.opcode == CallMethodArgs).ok_or(i)?.operand } else { ins.operand };
         // a return with nothing on the stack hands back none
-        let (pops, pushes) = if ins.opcode == ReturnValue && d == 0 { (0, 0) } else { effect(ins.opcode, operand, chunk).ok_or(i)? };
+        let (pops, pushes) = if ins.opcode == ReturnValue && d == 0 { (0, 0) } else { ins.opcode.effect(operand, chunk).ok_or(i)? };
         let after = d.checked_sub(pops).and_then(|d| d.checked_add(pushes)).ok_or(i)?;
         // the way to a target pops or adds what its edge says
         let ok = ins.opcode.edge().taken().is_none_or(|(p, q)| d.checked_sub(u16::from(p)).is_some_and(|e| enter(&mut at, &mut work, ins.operand as usize, e + u16::from(q))));
@@ -112,6 +109,9 @@ pub(crate) fn depths(src: &[Instruction], chunk: &SSAChunk) -> Result<Vec<u16>, 
     }
     Ok(at)
 }
+
+// a table of `$f` of each opcode with `$rest` past the last one
+macro_rules! by_op { ($f:ident, $rest:expr) => {{ let mut t = [$rest; 256]; let mut k = 0; while k < OpCode::ALL.len() { t[k] = $f(OpCode::ALL[k]); k += 1; } t }} }
 
 // what lowering spills into rows under an op's operands or at every value
 const UNDER: u8 = 1;
@@ -121,12 +121,7 @@ const EVERY: u8 = 2;
 pub(crate) const fn spills(op: OpCode) -> u8 { match op.info().spill { Spill::None => 0, Spill::Under => UNDER, Spill::Every => EVERY } }
 
 // each opcode's spill read with one load
-static SPILLS: [u8; 256] = {
-    let mut t = [0; 256];
-    let mut k = 0;
-    while k < OpCode::ALL.len() { t[k] = spills(OpCode::ALL[k]); k += 1; }
-    t
-};
+static SPILLS: [u8; 256] = by_op!(spills, 0);
 
 // past this many values lowering spills them all as it keeps few temporaries
 pub(crate) const PENDING: usize = 16;
@@ -152,12 +147,7 @@ const fn steps(op: OpCode) -> u8 {
 }
 
 // each opcode's step for the lowering's pass read with one load
-pub(crate) static STEPS: [u8; 256] = {
-    let mut t = [CLOSER; 256];
-    let mut k = 0;
-    while k < OpCode::ALL.len() { t[k] = steps(OpCode::ALL[k]); k += 1; }
-    t
-};
+pub(crate) static STEPS: [u8; 256] = by_op!(steps, CLOSER);
 
 /* the depth past `src[i]` and the rows `need` grows to or none for the worklist */
 #[inline(never)]
@@ -170,7 +160,7 @@ pub(crate) fn closer(src: &[Instruction], i: usize, chunk: &SSAChunk, stores: &i
     // a return off an empty stack takes nothing and a varying op asks its operand
     let (pops, pushes) = if op == ReturnValue && d == 0 { (0, 0) } else if e != VARIES { (u16::from(e >> 4), u16::from(e & 15)) } else {
         let operand = if op == CallMethod { src.get(i + 1).filter(|n| n.opcode == CallMethodArgs)?.operand } else { ins.operand };
-        effect(op, operand, chunk)?
+        op.effect(operand, chunk)?
     };
     let after = d.checked_sub(usize::from(pops))? + usize::from(pushes);
     // marked binary ops run as their stack form and row ops over their rows
@@ -215,7 +205,7 @@ pub(crate) fn kept_rows(src: &[Instruction], chunk: &SSAChunk, stores: &impl Fn(
         if d == u16::MAX { continue; }
         let operand = if ins.opcode == CallMethod { src.get(i + 1).filter(|n| n.opcode == CallMethodArgs)?.operand } else { ins.operand };
         let k = if rowed(src, i, chunk, usize::from(d)) { EVERY } else if marked(ins.opcode) && operand >= 0x80 { UNDER } else { yielding(src, i).unwrap_or(SPILLS[ins.opcode as usize]) };
-        let pops = if k == UNDER { effect(ins.opcode, operand, chunk).map_or(d, |e| e.0 + u16::from(merges(ins.opcode))) } else { 0 };
+        let pops = if k == UNDER { ins.opcode.effect(operand, chunk).map_or(d, |e| e.0 + u16::from(merges(ins.opcode))) } else { 0 };
         if k != 0 { need = need.max(d.saturating_sub(pops)); }
         let returns = ins.opcode == Jump && src.get(ins.operand as usize).is_some_and(|r| r.opcode == ReturnValue);
         if ins.opcode.is_jump() && let Some(&e) = found.get(ins.operand as usize) && e != u16::MAX && !(returns && e == 1) {
@@ -309,20 +299,10 @@ const fn fixed(op: OpCode) -> u8 {
 }
 
 // each opcode's nibbles read with one load
-static EFFECT: [u8; 256] = {
-    let mut t = [VARIES; 256];
-    let mut k = 0;
-    while k < OpCode::ALL.len() { t[k] = nibbles(OpCode::ALL[k]); k += 1; }
-    t
-};
+static EFFECT: [u8; 256] = by_op!(nibbles, VARIES);
 
 // each opcode's packed effect read with one load
-static FIXED: [u8; 256] = {
-    let mut t = [VARIES; 256];
-    let mut k = 0;
-    while k < OpCode::ALL.len() { t[k] = fixed(OpCode::ALL[k]); k += 1; }
-    t
-};
+static FIXED: [u8; 256] = by_op!(fixed, VARIES);
 
 // the deepest stack of `src` and none when only the run knows
 pub(crate) fn deepest(src: &[Instruction], chunk: &SSAChunk) -> Option<u16> {
@@ -397,7 +377,7 @@ fn varies(src: &[Instruction], i: usize, chunk: &SSAChunk) -> Option<(u16, u16)>
         BuildList | BuildTuple | BuildSet | BuildString | BuildSlice => (a, 1),
         BuildDict => (2 * a, 1),
         CallMethod => { let n = src.get(i + 1).filter(|n| n.opcode == CallMethodArgs)?.operand; (1 + (n & 0xFF) + 2 * (n >> 8), 1) }
-        op => effect(op, a, chunk)?,
+        op => op.effect(a, chunk)?,
     })
 }
 
@@ -409,8 +389,6 @@ fn forward(src: &[Instruction], chunk: &SSAChunk) -> Option<u16> {
     // the stretches the pass skipped as nothing jumps or falls into them
     let mut dead: Vec<(usize, usize)> = Vec::new();
     let (mut d, mut deep, mut next, mut i) = (0usize, 0usize, usize::MAX, 0usize);
-    // the depth no instruction is reached with
-    const NONE: usize = usize::MAX;
     while i < n {
         if i == next {
             while let Some(&(t, e)) = ahead.last() && t == i {
@@ -435,7 +413,7 @@ fn forward(src: &[Instruction], chunk: &SSAChunk) -> Option<u16> {
             _ if op == ReturnValue && d == 0 => (0, 0),
             VARIES => {
                 let operand = if op == CallMethod { src.get(i + 1).filter(|n| n.opcode == CallMethodArgs)?.operand } else { ins.operand };
-                effect(op, operand, chunk)?
+                op.effect(operand, chunk)?
             }
             k => (u16::from(k >> 4 & 7), u16::from(k & 15)),
         };
@@ -484,7 +462,7 @@ fn settled(src: &[Instruction], chunk: &SSAChunk) -> Option<u16> {
         Ok(at) => Some(at.into_iter().filter(|&d| d != u16::MAX).max().unwrap_or(0)),
         Err(k) => {
             let i = src[k];
-            debug_assert!(effect(i.opcode, i.operand, chunk).is_none(), "the stack of {:?} does not settle at {k} {:?} {}", chunk.qualname, i.opcode, i.operand);
+            debug_assert!(i.opcode.effect(i.operand, chunk).is_none(), "the stack of {:?} does not settle at {k} {:?} {}", chunk.qualname, i.opcode, i.operand);
             None
         }
     }

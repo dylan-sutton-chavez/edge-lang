@@ -47,12 +47,7 @@ pub fn parse_manifest_with(bytes: &[u8], carried: &str) -> Result<(Manifest, Opt
     Ok((m, held))
 }
 
-fn string_of(key: &str, value: Value) -> Result<String, String> {
-    match value {
-        Value::Str(s) => Ok(s),
-        _ => Err(s!("'", str key, "' must be a string")),
-    }
-}
+fn string_of(key: &str, value: Value) -> Result<String, String> { if let Value::Str(s) = value { Ok(s) } else { Err(s!("'", str key, "' must be a string")) } }
 
 fn imports_of(value: Value) -> Result<Vec<(String, String)>, String> {
     let Value::Obj(fields) = value else { return Err(s!("'imports' must be an object")) };
@@ -75,13 +70,8 @@ pub fn walk_up_dirs(start: &str) -> impl Iterator<Item = String> + '_ {
 /* the directory of `spec` through its last slash where a packed package is one itself */
 pub fn dir_of(spec: &str) -> String {
     let path = spec.split(['#', '?']).next().unwrap_or(spec);
-    if path.ends_with(".interpreter") {
-        return s!(str path, "/");
-    }
-    match spec.rfind('/') {
-        Some(i) => spec[..=i].to_string(),
-        None => String::new(),
-    }
+    if path.ends_with(".interpreter") { return s!(str path, "/"); }
+    spec.rfind('/').map_or_else(String::new, |i| spec[..=i].to_string())
 }
 
 /* where a run resolves from given a script path or a directory or nothing */
@@ -152,14 +142,10 @@ pub fn parent_dir(dir: &str) -> Option<String> {
     if dir.is_empty() { return None; }
     let trimmed = dir.trim_end_matches('/');
     // a URL keeps its host so a parent needs a slash past its host
-    if let Some(scheme_end) = trimmed.find("://") {
-        let after = &trimmed[scheme_end + 3..];
-        if !after.contains('/') { return None; }
-    }
+    if let Some(scheme_end) = trimmed.find("://") && !trimmed[scheme_end + 3..].contains('/') { return None; }
     match trimmed.rsplit_once('/') {
-        Some(("", _)) => Some(String::new()),
-        Some((head, _)) => Some(s!(str head, "/")),
-        None => Some(String::new()),
+        Some((head, _)) if !head.is_empty() => Some(s!(str head, "/")),
+        _ => Some(String::new()),
     }
 }
 

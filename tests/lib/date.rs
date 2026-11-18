@@ -1,15 +1,13 @@
 use std::any::Any;
 use std::cmp::Ordering;
 
-use interpreter::embed::{Limits, VM};
+use interpreter::embed::Limits;
 use interpreter::lang::{Native, Natives, Runtime};
 use interpreter::value::foreign::{BinOp, Snapshot, UnOp};
 use interpreter::value::{HeapPool, Val};
 use interpreter::lib::date::{self, Civil, Day, Days, Duration, Field, Hour, Hours, Minute, Minutes, Month, Second, Seconds, Time, Year};
 use rig::Rig;
-use rig::natives::{ARRAY, BUFFER, BYTES, CONVERT, DICT, FLOAT, FOLDS, INT, IO, ITER, LIST, LIST_SORT, MATCH, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
-
-const DATE: &[Native] = &interpreter::lib::table![Rig; "time" => date::parse[Rig]];
+use crate::common::{ran, TRY};
 
 // the fields as methods of no arguments which every foreign value finds
 const PARTS: &[Native] = &interpreter::lib::table![Rig;
@@ -25,24 +23,7 @@ const PARTS: &[Native] = &interpreter::lib::table![Rig;
     "second" => date::part[Rig, Second],
 ];
 
-static NATIVES: Natives = interpreter::natives! {
-    language: Over,
-    fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, TYPES, MATCH, DATE],
-    methods: [
-        Str => [STR],
-        Bytes => [BUFFER],
-        ByteArray => [ARRAY],
-        List => [LIST, LIST_SORT],
-        Tuple => [TUPLE],
-        Dict => [DICT],
-        Set => [SET, SET_MANY],
-        Int => [INT],
-        Float => [FLOAT],
-        Range => [RANGE],
-        Foreign => [PARTS],
-    ],
-    types: rig::types::NAMES,
-};
+static NATIVES: Natives = rig::with!(Over; Foreign => [PARTS]);
 
 static RUNTIME: Runtime = Runtime::of::<Over>();
 
@@ -54,18 +35,7 @@ const SECOND: i128 = 1_000_000_000;
 const DAY: i128 = 86_400 * SECOND;
 
 /* what `src` printed and its error after it when one ended the run */
-fn run(src: &str) -> String {
-    let (chunk, errors) = interpreter::code::compile_as::<Rig>(src);
-    assert!(errors.is_empty(), "{src}: {:?}", errors.iter().map(|e| &e.msg).collect::<Vec<_>>());
-    let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
-    let ran = vm.run();
-    let mut out = vm.output_text();
-    if let Err(e) = ran { out.push_str(&e.to_string()); }
-    out
-}
-
-// each call's repr or its error as the class then the words
-const TRY: &str = "fn t(f) {\n    try {\n        print(repr(f()))\n    } catch Error as e {\n        print(text(type(e)) + \":\", e)\n    }\n}\n";
+fn run(src: &str) -> String { ran::<Rig>(&RUNTIME, src, Limits::sandbox()) }
 
 fn tried(calls: &str) -> String { run(&(String::from(TRY) + calls)) }
 

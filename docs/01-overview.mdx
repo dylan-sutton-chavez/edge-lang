@@ -34,19 +34,16 @@ cargo add interpreter --no-default-features --features std,io,seq
 | `full` | Every module of `interpreter::lib` |
 | `plugin` | `interpreter::plugin`, for writing `.wasm` plugins |
 | `runtime`, `perms` | The exports of a runtime's `.wasm` and the grant logic its hosts read |
+| `cli` | The `interpreter` binary and `interpreter::cli`, the kit a CLI of your own is built from |
+| `cli-kit`, `cli-run`, `cli-test` and the other `cli-*` | One part of `interpreter::cli` each, listed in [CLI](./06-cli.mdx) |
 
 ## The CLI and the JS host
 
-Both build from [the repo](https://github.com/dylan-sutton-chavez/interpreter) with Rust and Deno.
+The CLI is this crate with the `cli` feature, and it carries the JS host its `--web` runs and its dists vendor.
 
 ```bash
-git clone https://github.com/dylan-sutton-chavez/interpreter
-cd interpreter
-make js lucide
-cargo install --path cli
+cargo install interpreter --features cli
 ```
-
-The CLI holds no runtime, and each project names the one its programs run on. `make wasm` builds Lox's to `target/wasm32-unknown-unknown/release/interpreter.wasm`, the `lox.wasm` the examples of these pages run on.
 
 A tagged release also ships binaries for macOS and Linux.
 
@@ -54,15 +51,16 @@ A tagged release also ships binaries for macOS and Linux.
 curl -fsSL https://raw.githubusercontent.com/dylan-sutton-chavez/interpreter/main/cli/setup/install.sh | bash
 ```
 
-`make wasm js stage PARTS="wasm js"` writes the files a page serves to `_cdn/`, with Lox's `interpreter.wasm` at the root and the JS host under `js/src/`. A release attaches the same tree as `cdn.tar.gz`.
+The CLI holds no runtime, and each project names the one its programs run on. `make wasm` builds Lox's to `target/wasm32-unknown-unknown/release/interpreter.wasm`, the `lox.wasm` the examples of these pages run on.
 
-The CLI kit and Lox are not on crates.io. A crate of yours takes them from git at one commit.
+Contributors build both from [the repo](https://github.com/dylan-sutton-chavez/interpreter) with Rust and Deno, as [CONTRIBUTING.md](https://github.com/dylan-sutton-chavez/interpreter/blob/main/CONTRIBUTING.md) sets out. `make wasm js stage PARTS="wasm js"` writes the files a page serves to `_cdn/`, with Lox's `interpreter.wasm` at the root and the JS host under `js/src/`. A release attaches the same tree as `cdn.tar.gz`.
+
+Lox is not on crates.io. A crate of yours takes it from git at one commit, with the engine and the CLI kit from the same commit so both name one `interpreter`.
 
 ```toml
 [dependencies]
-interpreter = { git = "https://github.com/dylan-sutton-chavez/interpreter", branch = "main" }
+interpreter = { git = "https://github.com/dylan-sutton-chavez/interpreter", branch = "main", features = ["cli-run", "cli-test"] }
 interpreter-lox = { git = "https://github.com/dylan-sutton-chavez/interpreter", branch = "main" }
-interpreter-cli = { git = "https://github.com/dylan-sutton-chavez/interpreter", branch = "main", default-features = false, features = ["run", "test"] }
 ```
 
 Pin `tag` or `rev` instead of `branch` for a build that never moves.

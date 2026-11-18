@@ -13,7 +13,6 @@ const TYPE_TAG: u64 = QNAN | 6;
 // the bits a form test reads since a meta is a heap value or tag
 const FORM: u64 = 0xF;
 
-
 /* what the heap keeps for objects apart from their slots made on the first use */
 #[derive(Default)]
 pub(crate) struct Tables {

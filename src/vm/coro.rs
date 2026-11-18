@@ -326,14 +326,6 @@ impl<'a> VM<'a> {
         EngineError::Generator(Gen::Running(self.coro_kind(g).unwrap_or(CoroKind::Generator).body())).into()
     }
 
-    /* the error a suspension inside a generator raises with its requests dropped */
-    #[cold]
-    #[inline(never)]
-    pub(crate) fn suspended_in_generator(&mut self, fi: Option<usize>) -> VmErr {
-        let _ = fi;
-        self.suspended_in(" a generator or a coroutine")
-    }
-
     /* the error a suspension inside `what` raises with its requests dropped */
     #[cold]
     #[inline(never)]
@@ -458,7 +450,7 @@ impl<'a> VM<'a> {
             };
             match sub_step {
                 Some(Ok(None)) => return Ok(Outcome::Opened),
-                Some(r) => return self.after_delegate(g, r.map(|s| s.unwrap_or(Step::Return(Val::none()))), chunk),
+                Some(r) => return self.after_delegate(g, r.map(|s| s.unwrap_or(Step::Return(Val::none())))),
                 None => {}
             }
         }
@@ -503,7 +495,7 @@ impl<'a> VM<'a> {
     fn run_cont(&mut self, cont: Cont, r: Result<Step, VmErr>) -> Result<Outcome, VmErr> {
         let chunk = self.chunk;
         match (cont, r) {
-            (Cont::After(g), r) | (Cont::Exit(g, _), r @ Err(_)) => self.after_delegate(g, r, chunk),
+            (Cont::After(g), r) | (Cont::Exit(g, _), r @ Err(_)) => self.after_delegate(g, r),
             (Cont::Exit(g, e), Ok(_)) => { let err = self.with_roots([e], |vm| vm.raise_value(e, chunk)); self.throw_in(g, err) }
             (Cont::Close(g, kind), Err(e)) => self.close_in(g, Some(e), kind, chunk),
             (Cont::Close(g, kind), Ok(_)) => self.close_in(g, None, kind, chunk),
@@ -567,8 +559,7 @@ impl<'a> VM<'a> {
     }
 
     /* carries on `g` after what it waits inside took a step */
-    fn after_delegate(&mut self, g: Val, step: Result<Step, VmErr>, chunk: &SSAChunk) -> Result<Outcome, VmErr> {
-        let _ = chunk;
+    fn after_delegate(&mut self, g: Val, step: Result<Step, VmErr>) -> Result<Outcome, VmErr> {
         match step {
             Ok(Step::Yield(v)) => Ok(Outcome::Yielded(v)),
             Ok(Step::Return(v)) => { self.land(g, v); self.step_coro(g) }
@@ -603,7 +594,6 @@ impl<'a> VM<'a> {
             }
             return self.unopened(g);
         }
-        let _ = g;
         Err(self.resumed_apart())
     }
 

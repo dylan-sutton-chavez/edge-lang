@@ -1,5 +1,5 @@
 name: CLI
-description: cli/ is its own workspace. lint is clippy and check, release builds and stages per target, test runs cargo test.
+description: The interpreter binary and interpreter::cli behind the cli features of the crate. lint is clippy and check, release builds and stages per target, test runs cargo test.
 
 inputs:
   mode:
@@ -19,16 +19,7 @@ runs:
   steps:
     # the host is TypeScript and strips in seconds, so make builds it here rather than fetching it
     - name: Deno
-      uses: denoland/setup-deno@v2
-      with:
-        deno-version: v2.x
-
-    - name: Cache Deno
-      uses: actions/cache@v6
-      with:
-        path: ~/.cache/deno
-        key: deno-${{ runner.os }}-${{ hashFiles('**/deno.json', '**/deno.lock') }}
-        restore-keys: deno-${{ runner.os }}-
+      uses: ./.github/actions/deno
 
     - name: Toolchain
       uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -40,7 +31,6 @@ runs:
     - name: Cache Rust
       uses: Swatinem/rust-cache@v2
       with:
-        workspaces: cli -> target
         # lint and every test suite build the same debug CLI so they share one cache
         shared-key: ${{ inputs.mode != 'release' && 'cli-debug' || '' }}
         key: ${{ inputs.target }}

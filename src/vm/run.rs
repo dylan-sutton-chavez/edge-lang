@@ -98,7 +98,7 @@ enum Known { Call(Val, u32), Ctor(Val), Method, Other }
 
 /* the VM's `opens_in_loop` read off fields alone so the loop keeps its frame borrowed */
 #[inline(always)]
-fn opens_in_loop(facts: &[super::act::CallFacts], pools: &[super::cache::CachePool], fi: usize, n: usize) -> bool {
+pub(super) fn opens_in_loop(facts: &[super::act::CallFacts], pools: &[super::cache::CachePool], fi: usize, n: usize) -> bool {
     let f = &facts[fi];
     f.in_loop && f.arity.is_some_and(|k| n <= k && n >= f.required as usize)
         && pools[f.pool].code.is_some() && !pools[f.pool].cold && pools[f.pool].consts.is_some()
@@ -116,6 +116,8 @@ impl<'a> VM<'a> {
         let mut prog: *const [Ins] = whole!();
         let mut n = prog.len();
         debug_assert!(*ip <= n);
+        // the loop moves onto code `$c` of chunk `$k` which a call or return just switched to
+        macro_rules! switch { ($c:expr, $k:expr) => {{ (code, chunk) = ($c.get(), $k.get()); (cache, prog, switched) = (&code.cache, whole!(), true); n = prog.len(); }} }
         // callers keep `*ip` within the length so `p` is in `prog` or the sentinel
         let mut p: *const Ins = past(prog.cast(), *ip);
         // the index of the running instruction
@@ -129,6 +131,17 @@ impl<'a> VM<'a> {
         assert!(r.len() >= code.frame, "a frame shorter than its code");
         macro_rules! reg { ($k:expr) => { reg(r, $k as usize) } }
         macro_rules! set { ($k:expr, $v:expr) => {{ let v = $v; put(r, $k as usize, v); }} }
+        // a section call passes `$a` and `$b` to the section its words `$s` and `$x` name paying the step it took as `$left`
+        macro_rules! enter {
+            ($left:expr, $s:expr, $x:expr, $a:expr, $b:expr) => {{
+                let at = $x.b as usize;
+                set!(at, $a);
+                set!(at + 1, $b);
+                self.budget = $left;
+                set!(at - 1, Val::int(($s.b as i64) << 16 | $s.a as i64));
+                goto!($x.a as usize);
+            }};
+        }
         // code over rows keeps its depth here while the loop runs it
         let (mut s0, mut sp) = (0usize, usize::MAX);
         // the first row and depth of the running code over rows read once
@@ -169,6 +182,10 @@ impl<'a> VM<'a> {
                 if self.yielded { break; }
             }};
         }
+        // an op its arm leaves runs out of line over the rows it holds and steps past its word
+        macro_rules! held { () => {{ sync!(); let ran = self.held_rows(idx!(), code, chunk); refill!(); if !ran { break; } p = past(p, 1); }} }
+        // an item op its arm missed runs out of line and steps past its word
+        macro_rules! missed { () => {{ if !self.item_missed(idx!(), code, chunk) { break; } r = &mut self.regs[base..]; p = past(p, 1); continue; }} }
         // a binary op over the top two rows with its int and float forms inline
         macro_rules! binary {
             ($int:expr, $float:expr) => {{
@@ -357,9 +374,7 @@ impl<'a> VM<'a> {
                 };
                 match opened {
                     Some((c, k)) => {
-                        (code, chunk) = (c.get(), k.get());
-                        (cache, prog, switched) = (&code.cache, whole!(), true);
-                        n = prog.len();
+                        switch!(c, k);
                         // the callee starts at its first row as its record keeps the caller's top
                         (self.top, sp) = (u32::from(code.rows), usize::MAX);
                         goto!(code.lowered(0));
@@ -550,11 +565,7 @@ impl<'a> VM<'a> {
                     match self.build_reg(Ins { op: OpCode::BuildR, x: op as u8, a: 0, b: (s0 + sp - k) as u16, c: k as u16 }) {
                         Some(v) => { r = &mut self.regs[base..]; sp -= k; push!(v) }
                         None => {
-                            sync!();
-                            let ran = self.held_rows(idx!(), code, chunk);
-                            refill!();
-                            if !ran { break; }
-                            p = past(p, 1);
+                            held!();
                         }
                     }
                 }
@@ -562,11 +573,7 @@ impl<'a> VM<'a> {
                 OpCode::FormatValue => {
                     over!();
                     if arg!() == 0 && bare_field(&self.heap, reg!(s0 + sp - 1)) { p = past(p, 1); continue; }
-                    sync!();
-                    let ran = self.held_rows(idx!(), code, chunk);
-                    refill!();
-                    if !ran { break; }
-                    p = past(p, 1);
+                    held!();
                 }
                 // list tuple and plain dict items read in place and strings out of line
                 OpCode::GetItem => {
@@ -579,11 +586,7 @@ impl<'a> VM<'a> {
                         _ => None,
                     };
                     if let Some(v) = hit { sp -= 1; set!(s0 + sp - 1, v); p = past(p, 1); continue; }
-                    sync!();
-                    let ran = self.held_rows(idx!(), code, chunk);
-                    refill!();
-                    if !ran { break; }
-                    p = past(p, 1);
+                    held!();
                 }
                 // an item of a list or a plain key of a dict stores in place
                 OpCode::StoreItem => {
@@ -598,11 +601,7 @@ impl<'a> VM<'a> {
                         _ => false,
                     };
                     if done { sp -= 3; p = past(p, 1); continue; }
-                    sync!();
-                    let ran = self.held_rows(idx!(), code, chunk);
-                    refill!();
-                    if !ran { break; }
-                    p = past(p, 1);
+                    held!();
                     if self.yielded { break; }
                 }
                 // an attribute the site knows reads in place
@@ -611,11 +610,7 @@ impl<'a> VM<'a> {
                     let o = reg!(s0 + sp - 1);
                     let (heap, epoch) = (&self.heap, self.layout_epoch);
                     if let Some(v) = cache.with_site(idx!(), |site| super::sites::site_value(heap, epoch, site, o)) { set!(s0 + sp - 1, v); p = past(p, 1); continue; }
-                    sync!();
-                    let ran = self.held_rows(idx!(), code, chunk);
-                    refill!();
-                    if !ran { break; }
-                    p = past(p, 1);
+                    held!();
                 }
                 // an attribute the site knows stores in place
                 OpCode::StoreAttr => {
@@ -623,21 +618,13 @@ impl<'a> VM<'a> {
                     let (o, v) = (reg!(s0 + sp - 2), reg!(s0 + sp - 1));
                     let (heap, epoch) = (&self.heap, self.layout_epoch);
                     if cache.with_site(idx!(), |site| super::sites::site_put(heap, epoch, site, o, v)) { sp -= 2; p = past(p, 1); continue; }
-                    sync!();
-                    let ran = self.held_rows(idx!(), code, chunk);
-                    refill!();
-                    if !ran { break; }
-                    p = past(p, 1);
+                    held!();
                 }
                 // a list accumulator takes its item in place
                 OpCode::ListAppend => {
                     over!();
                     if let Some(HeapObj::List(l)) = self.heap.try_get(reg!(s0 + sp - 2)) { l.borrow_mut().push(reg!(s0 + sp - 1)); sp -= 1; p = past(p, 1); continue; }
-                    sync!();
-                    let ran = self.held_rows(idx!(), code, chunk);
-                    refill!();
-                    if !ran { break; }
-                    p = past(p, 1);
+                    held!();
                 }
                 // a tuple or list of the right length spreads over its row and those above
                 OpCode::UnpackSequence => {
@@ -649,11 +636,7 @@ impl<'a> VM<'a> {
                         true
                     }) == Some(true);
                     if fits { sp = sp - 1 + n; p = past(p, 1); continue; }
-                    sync!();
-                    let ran = self.held_rows(idx!(), code, chunk);
-                    refill!();
-                    if !ran { break; }
-                    p = past(p, 1);
+                    held!();
                     if self.yielded { break; }
                 }
                 // the rarer container ops run out of line over the rows
@@ -675,9 +658,7 @@ impl<'a> VM<'a> {
                     let callee = reg!(s0 + sp - k - 1);
                     if op <= 5 && let Some(&HeapObj::Func { fi, .. }) = self.heap.try_get(callee) && self.call_facts[fi].plain && opens_in_loop(&self.call_facts, &self.pools, fi, k)
                         && let Some((c, ch)) = self.enter_rows(i, s0 + sp, k, fi, callee, code) {
-                        (code, chunk) = (c.get(), ch.get());
-                        (cache, prog, switched) = (&code.cache, whole!(), true);
-                        n = prog.len();
+                        switch!(c, ch);
                         sp = usize::MAX;
                         base = self.base; r = &mut self.regs[base..];
                         assert!(r.len() >= code.frame, "a frame shorter than its code");
@@ -698,9 +679,7 @@ impl<'a> VM<'a> {
                     let v = if sp == 0 { Val::none() } else { reg!(s0 + sp - 1) };
                     if self.acts <= floor.depth { sync!(); break; }
                     let Some((c, k, next)) = self.leave_rows(v, floor) else { sync!(); break };
-                    (code, chunk) = (c.get(), k.get());
-                    (cache, prog, switched) = (&code.cache, whole!(), true);
-                    n = prog.len();
+                    switch!(c, k);
                     sp = usize::MAX;
                     base = self.base; r = &mut self.regs[base..];
                     assert!(r.len() >= code.frame, "a frame shorter than its code");
@@ -833,7 +812,6 @@ impl<'a> VM<'a> {
                 }
                 OpCode::GetItemR => {
                     // dict keys and slices the arm misses answer in place and the rest leave
-                    macro_rules! missed { () => {{ if !self.item_missed(idx!(), code, chunk) { break; } r = &mut self.regs[base..]; p = past(p, 1); continue; }} }
                     let w = read(p, |w| w);
                     let (o, k) = (reg!(w.b), reg!(w.c));
                     if !o.is_heap() || !k.is_int() { missed!() }
@@ -849,7 +827,6 @@ impl<'a> VM<'a> {
                 }
                 OpCode::StoreItemR => {
                     // a plain dict key the arm misses stores in place and the rest leaves
-                    macro_rules! missed { () => {{ if !self.item_missed(idx!(), code, chunk) { break; } r = &mut self.regs[base..]; p = past(p, 1); continue; }} }
                     let (o, k) = (reg!(ins.a), reg!(ins.b));
                     if !o.is_heap() || !k.is_int() { missed!() }
                     let Some(HeapObj::List(v)) = self.heap.try_get(o) else { missed!() };
@@ -873,9 +850,7 @@ impl<'a> VM<'a> {
                     let Some((c, k, at)) = self.enter_gen(co, idx!()) else { break };
                     // one waiting inside helpers opens them first as its driver enters it
                     if self.chain.next { (self.gen_entry, self.thrown, self.yielded) = (at, true, true); break; }
-                    (code, chunk) = (c.get(), k.get());
-                    (cache, prog, switched) = (&code.cache, whole!(), true);
-                    n = prog.len();
+                    switch!(c, k);
                     base = self.base; r = &mut self.regs[base..];
                     goto!(at);
                     assert!(r.len() >= code.frame, "a frame shorter than its code");
@@ -970,9 +945,7 @@ impl<'a> VM<'a> {
                         if let Some(&IterFrame::Coroutine(co)) = self.iter_stack.last() && let Some((c, k, at)) = self.enter_gen(co, idx!()) {
                             // one waiting inside helpers opens them first as its driver enters it
                             if self.chain.next { (self.gen_entry, self.thrown, self.yielded) = (at, true, true); break; }
-                            (code, chunk) = (c.get(), k.get());
-                            (cache, prog, switched) = (&code.cache, whole!(), true);
-                            n = prog.len();
+                            switch!(c, k);
                             refill!();
                             assert!(r.len() >= code.frame, "a frame shorter than its code");
                             goto!(at);
@@ -1084,12 +1057,7 @@ impl<'a> VM<'a> {
                         continue;
                     }
                     let Some(left) = self.budget.checked_sub(1) else { break };
-                    let at = x.b as usize;
-                    set!(at, reg!(ins.b));
-                    set!(at + 1, reg!(ins.c));
-                    self.budget = left;
-                    set!(at - 1, Val::int((s.b as i64) << 16 | s.a as i64));
-                    goto!(x.a as usize);
+                    enter!(left, s, x, reg!(ins.b), reg!(ins.c));
                 }
                 // a register call enters the section of the function it holds and others the stub
                 OpCode::CallValueSectionR => {
@@ -1098,12 +1066,7 @@ impl<'a> VM<'a> {
                     // another function the call met enters what its head's table finds and others the stub
                     if reg!(ins.a).0 != get_in(&block.sections, x.c as usize).value.get().0 { let to = self.enter_value_alt(code, idx!()); r = &mut self.regs[base..]; goto!(to); continue; }
                     let Some(left) = self.budget.checked_sub(1) else { break };
-                    let at = x.b as usize;
-                    set!(at, reg!(ins.b));
-                    set!(at + 1, reg!(ins.c));
-                    self.budget = left;
-                    set!(at - 1, Val::int((s.b as i64) << 16 | s.a as i64));
-                    goto!(x.a as usize);
+                    enter!(left, s, x, reg!(ins.b), reg!(ins.c));
                 }
                 // a method's section holds on receivers of its last class while no class changed
                 OpCode::CallMethodSectionR => {
@@ -1116,12 +1079,7 @@ impl<'a> VM<'a> {
                     // any other receiver enters the section laid for the method it finds or the stub
                     if !held { let to = self.enter_method_alt(code, chunk, idx!()); r = &mut self.regs[base..]; if to == GROW { break; } goto!(to); continue; }
                     let Some(left) = self.budget.checked_sub(1) else { break };
-                    let at = x.b as usize;
-                    set!(at, recv);
-                    set!(at + 1, reg!(ins.c));
-                    self.budget = left;
-                    set!(at - 1, Val::int((s.b as i64) << 16 | s.a as i64));
-                    goto!(x.a as usize);
+                    enter!(left, s, x, recv, reg!(ins.c));
                 }
                 // a class call passes its new instance first while binding and class stay as laid
                 OpCode::CallCtorSectionR => {
@@ -1135,12 +1093,7 @@ impl<'a> VM<'a> {
                     let sec = get_in(&block.sections, x.c as usize);
                     let holds = sec.ctor.as_ref().is_some_and(|c| c.0.get() == self.layout_epoch || ctor_holds(&self.heap, &self.mro_cache, sec, self.layout_epoch));
                     let Some(inst) = sec.ctor.as_ref().filter(|_| holds).and_then(|c| new_object(&mut self.heap, sec.value.get(), c.1)) else { goto!(word(past(p, 3)).a as usize); continue; };
-                    let at = x.b as usize;
-                    set!(at, inst);
-                    set!(at + 1, reg!(ins.b));
-                    self.budget = left;
-                    set!(at - 1, Val::int((s.b as i64) << 16 | s.a as i64));
-                    goto!(x.a as usize);
+                    enter!(left, s, x, inst, reg!(ins.b));
                 }
                 // likewise with a module binding's receiver set in its register only for checks aside
                 OpCode::CallMethodGlobalSectionR => {
@@ -1161,12 +1114,7 @@ impl<'a> VM<'a> {
                         continue;
                     }
                     let Some(left) = self.budget.checked_sub(1) else { set!(ins.b, recv); break };
-                    let at = x.b as usize;
-                    set!(at, recv);
-                    set!(at + 1, reg!(ins.c));
-                    self.budget = left;
-                    set!(at - 1, Val::int((s.b as i64) << 16 | s.a as i64));
-                    goto!(x.a as usize);
+                    enter!(left, s, x, recv, reg!(ins.c));
                 }
                 // a section call jumps in while its binding holds the function it was laid from
                 OpCode::CallSectionR => {
@@ -1285,9 +1233,7 @@ impl<'a> VM<'a> {
                 OpCode::ReturnR if self.acts > floor.depth => {
                     let v = reg!(ins.b);
                     let Some((c, k, next)) = self.leave_site(v, floor.code, floor.chunk, floor.pool, floor.depth) else { break };
-                    (code, chunk) = (c.get(), k.get());
-                    (cache, prog, switched) = (&code.cache, whole!(), true);
-                    n = prog.len();
+                    switch!(c, k);
                     base = self.base; r = &mut self.regs[base..];
                     goto!(next);
                     assert!(r.len() >= code.frame, "a frame shorter than its code");
@@ -1383,9 +1329,7 @@ impl<'a> VM<'a> {
                     let resume = ins.b as usize;
                     let top = yield_top(code, ins, resume, self);
                     let Some((c, k, next)) = self.yield_site(v, (resume, top), floor.code, floor.chunk, floor.pool, floor.depth) else { break };
-                    (code, chunk) = (c.get(), k.get());
-                    (cache, prog, switched) = (&code.cache, whole!(), true);
-                    n = prog.len();
+                    switch!(c, k);
                     base = self.base; r = &mut self.regs[base..];
                     goto!(next);
                     assert!(r.len() >= code.frame, "a frame shorter than its code");
@@ -1400,9 +1344,7 @@ impl<'a> VM<'a> {
                     let Some((c, k, next)) = self.gather_yield(ins, idx!(), code, floor) else { break };
                     // the frame running on in place gives no code
                     if c != CodePtr::NONE {
-                        (code, chunk) = (c.get(), k.get());
-                        (cache, prog, switched) = (&code.cache, whole!(), true);
-                        n = prog.len();
+                        switch!(c, k);
                     }
                     base = self.base; r = &mut self.regs[base..];
                     assert!(r.len() >= code.frame, "a frame shorter than its code");
@@ -1417,9 +1359,7 @@ impl<'a> VM<'a> {
                         Ok((c, k, next)) => {
                             // a builtin taking the value in place leaves the generator running
                             if c != CodePtr::NONE {
-                                (code, chunk) = (c.get(), k.get());
-                                (cache, prog, switched) = (&code.cache, whole!(), true);
-                                n = prog.len();
+                                switch!(c, k);
                             }
                             assert!(r.len() >= code.frame, "a frame shorter than its code");
                             goto!(next);

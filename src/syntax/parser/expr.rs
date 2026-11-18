@@ -1,7 +1,6 @@
-
 use super::Parser;
 use crate::code::OpCode;
-use crate::syntax::chunk::{Value, MAX_EXPR_DEPTH, Instruction, NodeKind};
+use crate::syntax::chunk::{Value, Instruction, NodeKind};
 use crate::syntax::ssa::{param_base_name, JoinNode, Versions};
 
 use crate::syntax::text::{parse_string, parse_bytes_literal};
@@ -15,7 +14,7 @@ pub(super) enum Tail { Expr, Stmt, Target }
 
 /* comparison operators chain where the table wants while `not` here only opens `not in` */
 #[inline(always)]
-fn is_comparison(tok: TokenType) -> bool {
+const fn is_comparison(tok: TokenType) -> bool {
     matches!(tok, TokenType::EqualEqual | TokenType::NotEqual | TokenType::Less | TokenType::Greater
         | TokenType::LessEqual | TokenType::GreaterEqual | TokenType::In | TokenType::Is | TokenType::Not
         | TokenType::IsNot | TokenType::NotIn)
@@ -40,15 +39,9 @@ const fn binary_op(kind: TokenType) -> Option<OpCode> {
         TokenType::At => OpCode::MatMul,
         TokenType::Pow => OpCode::Pow,
         TokenType::Range | TokenType::RangeInclusive => OpCode::CallNative,
-        k if is_comparison_kind(k) => OpCode::Eq,
+        k if is_comparison(k) => OpCode::Eq,
         _ => return None,
     })
-}
-
-const fn is_comparison_kind(kind: TokenType) -> bool {
-    matches!(kind, TokenType::EqualEqual | TokenType::NotEqual | TokenType::Less | TokenType::Greater
-        | TokenType::LessEqual | TokenType::GreaterEqual | TokenType::In | TokenType::Is | TokenType::Not
-        | TokenType::IsNot | TokenType::NotIn)
 }
 
 // each infix operator of a precedence table with its powers and opcode by token
@@ -112,7 +105,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         if !matches!(Self::SHAPES.cond, Cond::Suffix) { return self.question_tail(); }
         if self.saw_newline || !matches!(self.peek_same_line(), Some(TokenType::If)) { return; }
         self.advance();
-        self.chunk.set_ternaries(true);
+        self.chunk.ternaries = true;
         let cond_start = self.chunk.instructions.len();
         self.expr_bp(0);
 
@@ -146,7 +139,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
     fn question_tail(&mut self) {
         if !matches!(Self::SHAPES.cond, Cond::Question) || self.saw_newline || !matches!(self.peek_same_line(), Some(TokenType::Question)) { return; }
         self.advance();
-        self.chunk.set_ternaries(true);
+        self.chunk.ternaries = true;
         let jf = self.emit_jump(OpCode::JumpIfFalse);
         // either value may hold a conditional of its own so each nests one level deeper
         self.nested(Self::expr);
@@ -173,29 +166,23 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
 
     /* a Pratt parse bounded in depth so deep chains raise instead of overflowing the stack */
     pub(super) fn expr_bp(&mut self, min_bp: u8) {
-        self.expr_depth += 1;
-        if self.expr_depth > MAX_EXPR_DEPTH {
-            self.expr_depth -= 1;
-            self.error("expression too deeply nested");
-            return;
-        }
-        let at = self.here();
-        if Self::GRAMMAR.is_some() {
-            self.grammar_bp(min_bp);
-            self.expr_depth -= 1;
-            return self.keep(at, None, false);
-        }
-        match self.peek() {
-            Some(TokenType::Not) => {
-                self.advance();
-                self.expr_bp(Self::PREFIX[TokenType::Not as usize]);
-                self.chunk.emit(OpCode::Not, 0);
+        self.nested(|s| {
+            let at = s.here();
+            if Self::GRAMMAR.is_some() {
+                s.grammar_bp(min_bp);
+                return s.keep(at, None, false);
             }
-            _ => self.parse_unary(),
-        }
-        self.infix_bp(min_bp);
-        self.expr_depth -= 1;
-        self.keep(at, None, false);
+            match s.peek() {
+                Some(TokenType::Not) => {
+                    s.advance();
+                    s.expr_bp(Self::PREFIX[TokenType::Not as usize]);
+                    s.chunk.emit(OpCode::Not, 0);
+                }
+                _ => s.parse_unary(),
+            }
+            s.infix_bp(min_bp);
+            s.keep(at, None, false);
+        })
     }
 
     // an operator never continues past the logical line so a decorator below stays one
@@ -301,25 +288,11 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
     }
 
     pub(super) fn parse_unary(&mut self) {
-        match self.peek() {
-            Some(TokenType::Minus) => {
-                self.advance();
-                self.expr_bp(Self::PREFIX[TokenType::Minus as usize]);
-                self.chunk.emit(OpCode::Minus, 0);
-            }
-            Some(TokenType::Plus) => {
-                // unary plus emits an op since it turns a bool into an int
-                self.advance();
-                self.expr_bp(Self::PREFIX[TokenType::Plus as usize]);
-                self.chunk.emit(OpCode::Pos, 0);
-            }
-            Some(TokenType::Tilde) => {
-                self.advance();
-                self.expr_bp(Self::PREFIX[TokenType::Tilde as usize]);
-                self.chunk.emit(OpCode::BitNot, 0);
-            }
-            _ => self.parse_atom()
-        }
+        let Some(k @ (TokenType::Minus | TokenType::Plus | TokenType::Tilde)) = self.peek() else { return self.parse_atom() };
+        self.advance();
+        self.expr_bp(Self::PREFIX[k as usize]);
+        // unary plus emits an op since it turns a bool into an int
+        self.chunk.emit(match k { TokenType::Minus => OpCode::Minus, TokenType::Plus => OpCode::Pos, _ => OpCode::BitNot }, 0);
     }
 
     pub(super) fn parse_atom(&mut self) {
@@ -701,16 +674,13 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
     }
 
     /* a subscript read whose lone slice hands its bounds to one op */
-    pub(super) fn emit_get_item(&mut self, cut: bool) { self.emit_item(cut, OpCode::GetItem, OpCode::Cut) }
-
-    /* `item` of a subscript or `cut` over the bounds of its lone slice */
-    fn emit_item(&mut self, cut: bool, item: OpCode, cutting: OpCode) {
+    pub(super) fn emit_get_item(&mut self, cut: bool) {
         match self.chunk.instructions.last() {
             Some(&Instruction { opcode: OpCode::BuildSlice, operand: n }) if cut => {
                 self.chunk.instructions.pop();
-                self.chunk.emit(cutting, n + 1);
+                self.chunk.emit(OpCode::Cut, n + 1);
             }
-            _ => self.chunk.emit(item, 0),
+            _ => self.chunk.emit(OpCode::GetItem, 0),
         }
     }
 
@@ -749,10 +719,16 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
     pub(super) fn parse_lambda(&mut self) {
         let (params, defaults) = self.param_list(TokenType::Colon, false);
         self.eat(TokenType::Colon);
-        let cut = self.enter_qual(S::NATIVES.names().anonymous, true);
-        let body = self.expr_body(&params);
+        self.function_value(params, defaults, None);
+    }
+
+    /* pushes a function named `name` or anonymous returning the expression read next */
+    pub(super) fn function_value(&mut self, params: Vec<String>, defaults: u16, name: Option<&str>) {
+        let cut = self.enter_qual(name.unwrap_or(S::NATIVES.names().anonymous), true);
+        // an error in the body points at its expression as a statement would
+        let body = self.expr_body(&params, |s| { s.mark_stmt(); s.expr(); });
         self.leave_qual(cut);
-        self.push_function(params, body, defaults, None, OpCode::MakeFunction);
+        self.push_function(params, body, defaults, name, OpCode::MakeFunction);
     }
 
     /* whether `t` opened a closure or a lambda word a table without the word refuses */
@@ -769,22 +745,17 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
             self.eat(TokenType::BitOr);
             list
         };
-        let cut = self.enter_qual(S::NATIVES.names().anonymous, true);
-        let body = self.expr_body(&params);
-        self.leave_qual(cut);
-        self.push_function(params, body, defaults, None, OpCode::MakeFunction);
+        self.function_value(params, defaults, None);
         true
     }
 
-    // a lambda body returning one expression with the outer names visible and params shadowing them
-    pub(super) fn expr_body(&mut self, params: &[String]) -> crate::syntax::chunk::SSAChunk {
+    // a lambda body returning what `f` leaves with the outer names visible and params shadowing them
+    pub(super) fn expr_body(&mut self, params: &[String], f: impl FnOnce(&mut Self)) -> crate::syntax::chunk::SSAChunk {
         let mut outer = core::mem::take(&mut self.ssa_versions);
         let mut body = self.with_fresh_chunk(|s| {
             let held = s.lend_versions(&mut outer, params);
             s.in_function = true;
-            // an error in the body points at its expression as a statement would
-            s.mark_stmt();
-            s.expr();
+            f(s);
             s.chunk.emit(OpCode::ReturnValue, 0);
             s.return_versions(&mut outer, held);
         });

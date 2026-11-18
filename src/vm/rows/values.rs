@@ -111,6 +111,6 @@ impl VM<'_> {
     #[cold]
     #[inline(never)]
     fn value_aside(&mut self, ins: Ins) -> Result<(), VmErr> {
-        if ins.op == OpCode::InPlaceAdd { self.exec_arith_or_compare(ins.op, ins.a) } else { self.handle_identity(ins.op) }
+        if ins.op == OpCode::InPlaceAdd { self.in_place_add(ins.a) } else { self.handle_identity(ins.op) }
     }
 }

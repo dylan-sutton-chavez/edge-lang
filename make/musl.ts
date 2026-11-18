@@ -18,10 +18,10 @@ if (wasm) env.push('-e', `INTERPRETER_WASM=${inside(wasm)}`)
 // the container writes as root, so a host with users gets the target dir back
 const uid = Deno.uid()
 const owner = uid === null ? '' : ` && chown -R ${uid}:${Deno.gid()} target`
-const docker = new Deno.Command('docker', { args: ['run', '--rm', '-v', `${repo}:/repo`, '-w', '/repo/cli', ...env, 'rust:alpine', 'sh', '-c', `sh musl.sh${owner}`] })
+const docker = new Deno.Command('docker', { args: ['run', '--rm', '-v', `${repo}:/repo`, '-w', '/repo', ...env, 'rust:alpine', 'sh', '-c', `sh cli/musl.sh${owner}`] })
 const { code } = await docker.spawn().status
 if (code !== 0) Deno.exit(code)
 
-const out = join(repo, 'cli/target', target, 'release')
+const out = join(repo, 'target', target, 'release')
 mkdirSync(out, { recursive: true })
-copyFileSync(join(repo, 'cli/target/release/interpreter'), join(out, 'interpreter'))
+copyFileSync(join(repo, 'target/musl/release/interpreter'), join(out, 'interpreter'))

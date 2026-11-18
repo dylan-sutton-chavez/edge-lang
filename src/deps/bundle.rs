@@ -122,12 +122,8 @@ impl Reader<'_> {
     // reads an ascii length a newline ends
     fn usz(&mut self) -> Result<usize, String> {
         let start = self.p;
-        while self.p < self.buf.len() && self.buf[self.p] != b'\n' {
-            self.p += 1;
-        }
-        if self.p >= self.buf.len() {
-            return Err(s!("bundle truncated reading a length"));
-        }
+        while self.p < self.buf.len() && self.buf[self.p] != b'\n' { self.p += 1; }
+        if self.p >= self.buf.len() { return Err(s!("bundle truncated reading a length")); }
         let text = core::str::from_utf8(&self.buf[start..self.p]).map_err(|_| s!("bundle length not ascii"))?;
         self.p += 1;
         text.parse().map_err(|_| s!("bundle length '", str text, "' is not a number"))

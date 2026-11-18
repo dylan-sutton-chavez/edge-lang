@@ -38,19 +38,19 @@ fn bound<L: crate::lib::Lang>(heap: &mut HeapPool, v: Val, name: &str) -> Result
 pub const fn len<S: Site>() -> Kernel { Kernel::new(Sig::exact(1), len_run).fast(len_of).intrinsic(Intrinsic::Len) }
 
 /* a new list of every item of an iterable */
-pub const fn list<S: Site>() -> Kernel { Kernel::new(Sig::range(0, 1), list_run).fast(list_fast).flags(TYPE | STEPS) }
+pub const fn list<S: Site>() -> Kernel { Kernel::new(Sig::range(0, 1), made_run::<false>).fast(made_fast::<false>).flags(TYPE | STEPS) }
 
 /* a new tuple of every item of an iterable where a tuple is itself */
-pub const fn tuple<S: Site>() -> Kernel { Kernel::new(Sig::range(0, 1), tuple_run).fast(tuple_fast).flags(TYPE | STEPS) }
+pub const fn tuple<S: Site>() -> Kernel { Kernel::new(Sig::range(0, 1), made_run::<true>).fast(made_fast::<true>).flags(TYPE | STEPS) }
 
 /* where an item first sits between a start and a stop */
-pub const fn index<S: Site>() -> Kernel { Kernel::new(Sig::range(1, 3), index_run::<S>) }
+pub const fn index<S: Site>() -> Kernel { Kernel::new(Sig::range(1, 3), |cx, a| search::<S>(cx, a.recv, Search::Index, a.pos)) }
 
 /* how many items equal a value */
-pub const fn count<S: Site>() -> Kernel { Kernel::new(Sig::exact(1), count_run::<S>) }
+pub const fn count<S: Site>() -> Kernel { Kernel::new(Sig::exact(1), |cx, a| search::<S>(cx, a.recv, Search::Count, a.pos)) }
 
 /* removes the first item equal to a value */
-pub const fn remove<S: Site>() -> Kernel { Kernel::new(Sig::exact(1), remove_run::<S>) }
+pub const fn remove<S: Site>() -> Kernel { Kernel::new(Sig::exact(1), |cx, a| search::<S>(cx, a.recv, Search::Remove, a.pos)) }
 
 /* a new list of the same items */
 pub const fn copy<S: Site>() -> Kernel { Kernel::new(Sig::exact(0), copy_run) }
@@ -96,65 +96,37 @@ fn len_of(heap: &mut HeapPool, v: Val) -> Option<Val> {
 /* a count as an inline int and none past what one holds */
 fn word(n: i128) -> Option<Val> { i64::try_from(n).ok().and_then(Val::int_checked) }
 
-fn list_run(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
-    let Some(src) = a.get(0) else { return Ok(cx.new_list(Vec::new())?.into()) };
-    if generator(cx, src) { return if cx.spent(src) { Ok(cx.new_list(Vec::new())?.into()) } else { Ok(drained(src, list_end, Acc::new())) }; }
-    if let Some(v) = list_fast(cx.heap_mut(), src) { return Ok(v.into()); }
+/* a new tuple of `items` or a new list as `TUPLE` asks */
+fn made<const TUPLE: bool>(cx: &mut Cx<'_, '_>, items: Vec<Val>) -> Result<Val, VmErr> { if TUPLE { cx.new_tuple(items) } else { cx.new_list(items) } }
+
+fn made_run<const TUPLE: bool>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
+    let Some(src) = a.get(0) else { return Ok(made::<TUPLE>(cx, Vec::new())?.into()) };
+    if generator(cx, src) { return if cx.spent(src) { Ok(made::<TUPLE>(cx, Vec::new())?.into()) } else { Ok(drained(src, made_end::<TUPLE>, Acc::new())) }; }
+    if let Some(v) = made_fast::<TUPLE>(cx.heap_mut(), src) { return Ok(v.into()); }
     match cx.items(src)? {
-        Some(items) => Ok(cx.new_list(items)?.into()),
-        None => Ok(drained(src, list_end, Acc::new())),
+        Some(items) => Ok(made::<TUPLE>(cx, items)?.into()),
+        None => Ok(drained(src, made_end::<TUPLE>, Acc::new())),
     }
 }
 
-/* the end of a list drain making the list of every item it gathered */
-fn list_end(acc: &mut Acc, cx: &mut Cx<'_, '_>, item: Item) -> Result<Flow, VmErr> {
+/* the end of a list or tuple drain making it of every item it gathered */
+fn made_end<const TUPLE: bool>(acc: &mut Acc, cx: &mut Cx<'_, '_>, item: Item) -> Result<Flow, VmErr> {
     let Item::End(_) = item else { return taken(acc, cx, item) };
-    Ok(Flow::Stop(cx.new_list(core::mem::take(&mut acc.items))?))
+    Ok(Flow::Stop(made::<TUPLE>(cx, core::mem::take(&mut acc.items))?))
 }
 
-/* a list of a list tuple or range copied with no call */
+/* a list or tuple of a list tuple or range copied with no call where a tuple of a tuple is itself */
 #[inline]
-fn list_fast(heap: &mut HeapPool, x: Val) -> Option<Val> {
+fn made_fast<const TUPLE: bool>(heap: &mut HeapPool, x: Val) -> Option<Val> {
+    if TUPLE && let Some(HeapObj::Tuple(_)) = heap.try_get(x) { return Some(x); }
     if !copies(heap, x) { return None; }
     let items = plain_items(heap, x)?;
-    heap.alloc(HeapObj::List(Rc::new(RefCell::new(items)))).ok()
-}
-
-fn tuple_run(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
-    let Some(src) = a.get(0) else { return Ok(cx.new_tuple(Vec::new())?.into()) };
-    if generator(cx, src) { return if cx.spent(src) { Ok(cx.new_tuple(Vec::new())?.into()) } else { Ok(drained(src, tuple_end, Acc::new())) }; }
-    if let Some(v) = tuple_fast(cx.heap_mut(), src) { return Ok(v.into()); }
-    match cx.items(src)? {
-        Some(items) => Ok(cx.new_tuple(items)?.into()),
-        None => Ok(drained(src, tuple_end, Acc::new())),
-    }
-}
-
-/* the end of a tuple drain making the tuple of every item it gathered */
-fn tuple_end(acc: &mut Acc, cx: &mut Cx<'_, '_>, item: Item) -> Result<Flow, VmErr> {
-    let Item::End(_) = item else { return taken(acc, cx, item) };
-    Ok(Flow::Stop(cx.new_tuple(core::mem::take(&mut acc.items))?))
-}
-
-/* a tuple of a tuple as itself and of a list or range copied */
-#[inline]
-fn tuple_fast(heap: &mut HeapPool, x: Val) -> Option<Val> {
-    if let Some(HeapObj::Tuple(_)) = heap.try_get(x) { return Some(x); }
-    if !copies(heap, x) { return None; }
-    let items = plain_items(heap, x)?;
-    heap.alloc(HeapObj::Tuple(items)).ok()
+    heap.alloc(if TUPLE { HeapObj::Tuple(items) } else { HeapObj::List(Rc::new(RefCell::new(items))) }).ok()
 }
 
 /* whether the items of `x` copy with no call */
 #[inline(always)]
 fn copies(heap: &HeapPool, x: Val) -> bool { matches!(heap.try_get(x), Some(HeapObj::List(_) | HeapObj::Tuple(_) | HeapObj::Range(..))) }
-
-
-fn index_run<S: Site>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret { search::<S>(cx, a.recv, Search::Index, a.pos) }
-
-fn count_run<S: Site>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret { search::<S>(cx, a.recv, Search::Count, a.pos) }
-
-fn remove_run<S: Site>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret { search::<S>(cx, a.recv, Search::Remove, a.pos) }
 
 #[derive(Clone, Copy, PartialEq)]
 enum Search { Index, Count, Remove }
@@ -253,13 +225,15 @@ fn extend_fold(acc: &mut Acc, cx: &mut Cx<'_, '_>, item: Item) -> Result<Flow, V
     }
 }
 
+/* the word an index argument holds or the failure naming the receiver's kind */
+fn slot<S: Site>(cx: &mut Cx<'_, '_>, recv: Val, v: Val) -> Result<i64, VmErr> {
+    match crate::lib::num::word(cx, v) { Some(r) => r, None => Err(fail::<S>(cx, Fail::IndexType(recv))) }
+}
+
 fn insert_run<S: Site>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
     let (at, v) = (a.pos[0], a.pos[1]);
     // a bool is its int and any int a word holds clamps to the list
-    let i = match crate::lib::num::word(cx, at) {
-        Some(r) => r?,
-        None => return Err(fail::<S>(cx, Fail::IndexType(a.recv))),
-    };
+    let i = slot::<S>(cx, a.recv, at)?;
     let moved = with_list(cx, a.recv, |l| {
         // an index past what a pointer holds lies past the end on any target
         let ui = if i < 0 { (l.len() as i64).saturating_add(i).max(0) as usize } else { usize::try_from(i).map_or(l.len(), |u| u.min(l.len())) };
@@ -273,11 +247,7 @@ fn insert_run<S: Site>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
 
 fn pop_run<S: Site>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
     // the index is read before the list and only one past a word overflows
-    let at = match a.get(0).map(|v| crate::lib::num::word(cx, v)) {
-        None => None,
-        Some(Some(r)) => Some(r?),
-        Some(None) => return Err(fail::<S>(cx, Fail::IndexType(a.recv))),
-    };
+    let at = a.get(0).map(|v| slot::<S>(cx, a.recv, v)).transpose()?;
     let popped = with_list(cx, a.recv, |l| {
         let Some(i) = at else { return l.pop().map(|v| (v, 0)).ok_or_else(|| Fail::EmptyPop(Val::undef())) };
         if l.is_empty() { return Err(Fail::EmptyPop(Val::undef())); }
@@ -293,7 +263,6 @@ fn pop_run<S: Site>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
         Ok(p) => p,
         // the receiver names the kind once the borrow of its items is over
         Err(Fail::EmptyPop(_)) => return Err(fail::<S>(cx, Fail::EmptyPop(a.recv))),
-        Err(Fail::IndexType(_)) => return Err(fail::<S>(cx, Fail::IndexType(a.recv))),
         Err(f) => return Err(fail::<S>(cx, f)),
     };
     cx.spend(moved);

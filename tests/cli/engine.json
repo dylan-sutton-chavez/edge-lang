@@ -1,0 +1,108 @@
+[
+  {
+    "name": "an entry script past 1 MiB runs",
+    "generate": { "main.lox": ["var s = \"", ["a", 5242880], "\";\nprint len(s);\n"] },
+    "steps": [{ "run": ["run", "main.lox"], "stdout": ["5242880\n"] }]
+  },
+  {
+    "name": "stdin past 1 MiB reaches input() whole",
+    "given": { "main.lox": "print len(input());\n" },
+    "steps": [{ "run": ["run", "main.lox"], "stdin": [["b", 2097152], "\n"], "stdout": ["2097152\n"] }]
+  },
+  {
+    "name": "a snapshot past 1 MiB saves and restores",
+    "given": {
+      "main.lox": "class Node {\n    init(v, next) {\n        this.v = v;\n        this.next = next;\n    }\n}\nfun count(n) {\n    var c = 0;\n    while (n != nil) {\n        c = c + 1;\n        n = n.next;\n    }\n    return c;\n}\nvar head = nil;\nfor (var i = 0; i < 60000; i = i + 1) head = Node(\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\" + text(i), head);\nprint \"built \" + text(count(head));\nvar msg = receive();\nprint \"resumed \" + msg + \" \" + text(count(head));\n",
+      "ev.txt": "later\n"
+    },
+    "steps": [{ "run": ["run", "main.lox", "--save-state", "state.bin"], "stdout": ["built 60000\n"], "stderr": ["state saved"], "file_bytes": { "state.bin": 1048577 } }, { "run": ["run", "--restore-state", "state.bin", "--events", "ev.txt"], "stdout": ["resumed later 60000\n"] }]
+  },
+  {
+    "name": "an error past 1 MiB prints whole with its line",
+    "steps": [{ "run": ["run", "main.lox"], "exit": 1, "stderr": ["Undefined variable 'xxx", "[line 1] in script"], "stderr_bytes": 2000000 }],
+    "generate": { "main.lox": ["print ", ["x", 2000000], ";\n"] }
+  },
+  {
+    "name": "a native module fails at its import",
+    "given": {
+      "interpreter.json": "{ \"imports\": { \"s\": \"./s.so\" } }\n",
+      "s.so": "",
+      "s.lox": "var x = 1;\nimport(\"s\");\n"
+    },
+    "steps": [{ "run": ["run", "s.lox"], "exit": 1, "stderr": ["error: module 's' is not supported, ship a .wasm\n", "--> s.lox:2:1"] }]
+  },
+  {
+    "name": "a JavaScript module is refused where it is imported",
+    "given": {
+      "interpreter.json": "{ \"imports\": { \"lib\": \"./lib.lox\", \"widget\": \"./widget.js\" } }\n",
+      "widget.js": "export default () => ({});\n",
+      "lib.lox": "import(\"widget\");\n",
+      "main.lox": "import(\"lib\");\n"
+    },
+    "steps": [{ "run": ["run", "main.lox"], "exit": 1, "stderr": ["module 'widget' is JavaScript, ship a .lox or a .wasm\n", "--> main.lox:1:1"] }]
+  },
+  {
+    "name": "an undeclared unknown name keeps the generic hint",
+    "given": { "main.lox": "import(\"my_helpers\");\n" },
+    "steps": [{ "run": ["run", "main.lox"], "exit": 1, "stderr": ["error: module 'my_helpers' is not provided by this host and no interpreter.json declares it\nhelp: declare it in interpreter.json, or use a relative import\n", "--> main.lox:1:1"] }]
+  },
+  {
+    "name": "a remote module's missing manifests are asked for once",
+    "given": {
+      "interpreter.json": "{ \"imports\": { \"lib\": \"{BASE}/lib/mod.lox#sha256-3adec3313d72a7b47f8ce2bdeeb6070a22961e3246f448753caee4ff502ff335\" } }\n",
+      "main.lox": "var lib = import(\"lib\");\nprint lib.f();\n"
+    },
+    "steps": [{ "run": ["run", "main.lox"], "stdout": ["7\n"] }, { "run": ["run", "main.lox"], "stdout": ["7\n"], "requests": { "/lib/mod.lox": 1, "/lib/interpreter.json": 1, "/interpreter.json": 1 } }]
+  },
+  {
+    "name": "a single-shot pool delivers every message",
+    "given": {
+      "interpreter.json": "{}\n",
+      "pool.yml": "runtime:\n  max_actors: 1000000\ngroups:\n  dispatcher:\n    seed: [\"go\"]\n    code: |\n      receive();\n      var i = 0;\n      while (i < 20000) {\n          send(\"workers\", text(i));\n          i = i + 1;\n      }\n  workers:\n    replicas: 1000000\n    code: |\n      var m = receive();\n      print \"ok \" + m;\n"
+    },
+    "steps": [{ "run": ["actor", "pool.yml"], "lines": { "ok ": 20000 } }]
+  },
+  {
+    "name": "a plugin that does not load fails at its import and names the module that reached it",
+    "given": {
+      "interpreter.json": "{ \"imports\": { \"badplug\": \"./bad.wasm\", \"lib\": \"./lib.lox\" } }\n",
+      "bad.wasm": "notwasm",
+      "lib.lox": "var x = 1;\nimport(\"badplug\");\n",
+      "main.lox": "print 1;\nimport(\"badplug\");\n",
+      "via.lox": "import(\"lib\");\n"
+    },
+    "steps": [{ "run": ["run", "main.lox"], "exit": 1, "stderr": ["error: module 'badplug' is not a valid plugin, failed to parse WebAssembly module: magic header not detected: bad magic number\n", "--> main.lox:2:1"] }, { "run": ["run", "via.lox"], "exit": 1, "stderr": ["module 'badplug' is not a valid plugin, failed to parse WebAssembly module: magic header not detected: bad magic number (via lib)\n", "--> via.lox:1:1"] }]
+  },
+  {
+    "name": "a restored run names its script and imports from beside it",
+    "given": {
+      "sub/helper.lox": "fun twice(x) {\n    return x + x;\n}\n",
+      "sub/main.lox": "var helper = import(\"./helper.lox\");\nvar msg = receive();\nprint helper.twice(msg);\nprint msg - 1;\n",
+      "ev.txt": "ab\n"
+    },
+    "steps": [{ "run": ["run", "sub/main.lox", "--save-state", "state.bin"], "stderr": ["state saved"] }, { "run": ["run", "--restore-state", "state.bin", "--events", "ev.txt"], "exit": 1, "stdout": ["abab\n"], "stderr": ["Operands must be numbers.", "[line 4] in script"] }]
+  },
+  {
+    "name": "an ungranted package stops lock, build and test alike",
+    "given": {
+      "interpreter.json": "{\"imports\": {\"clock\": \"./clock/main.lox\"}}\n",
+      "main.lox": "var clock = import(\"clock\");\nprint clock.now();\n",
+      "clock/interpreter.json": "{\"name\": \"clock\", \"version\": \"0.2.0\", \"imports\": {\"trace\": \"./trace/main.lox\"}, \"permissions\": {\"main\": [\"net:127.0.0.1\"], \"trace\": [\"net:127.0.0.1\", \"net\"]}}\n",
+      "clock/main.lox": "var trace = import(\"trace\");\n\nfun now() {\n    return trace.stamp();\n}\n",
+      "clock/trace/interpreter.json": "{\"name\": \"trace\", \"permissions\": {\"main\": [\"net:127.0.0.1\", \"net\"]}}\n",
+      "clock/trace/main.lox": "var net = import(\"net\");\n\nfun stamp() {\n    return net.request(\"GET\", \"http://127.0.0.1:1/\") > 0;\n}\n",
+      "green_test.lox": "exit(0);\n"
+    },
+    "steps": [{ "run": ["lock"], "exit": 1, "stderr": ["interpreter.json does not grant what these packages ask for", "  clock 0.2.0   net:127.0.0.1, net\n", "help: grant them under \"permissions\" in interpreter.json"] }, { "run": ["build"], "exit": 1, "stderr": ["interpreter.json does not grant what these packages ask for"] }, { "run": ["test"], "exit": 1, "stderr": ["interpreter.json does not grant what these packages ask for"] }]
+  },
+  {
+    "name": "input() drops the line end however stdin ends its line",
+    "given": { "ask.lox": "var s = input();\nprint len(s);\n" },
+    "steps": [{ "run": ["run", "ask.lox"], "stdin": ["hello\r\n"], "stdout": ["5\n"] }, { "run": ["run", "ask.lox"], "stdin": ["hello\n"], "stdout": ["5\n"] }, { "run": ["run", "ask.lox"], "stdin": ["hey\r"], "stdout": ["3\n"] }]
+  },
+  {
+    "name": "a failing test file fails the runner with status 1",
+    "given": { "a_test.lox": "exit(1);\n" },
+    "steps": [{ "run": ["test"], "exit": 1, "stdout": ["(unsuccessful) a_test.lox", "0/1 files passed"] }]
+  }
+]

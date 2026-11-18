@@ -120,8 +120,8 @@ fn whole(heap: &mut HeapPool, f: f64) -> Result<Option<Val>, VmErr> {
     if f < 0.0 { arith(heap, BinOp::Sub, Val::int(0), x).map(Some) } else { Ok(Some(x)) }
 }
 
-/* the index of `x` in a wide range with a whole float as its int */
-fn range_pos(heap: &mut HeapPool, v: Val, x: Val) -> Option<Result<Option<Val>, VmErr>> {
+/* the index of `x` in a wide range with a whole float as its int and None when it is no item */
+pub(crate) fn range_index(heap: &mut HeapPool, v: Val, x: Val) -> Option<Result<Option<Val>, VmErr>> {
     let [s, e, st] = wide_parts(heap, v)?;
     Some((|| {
         let x = if x.is_float() { match whole(heap, x.as_float())? { Some(x) => x, None => return Ok(None) } } else if as_i128(x, heap).is_some() || heap.is_wide(x) { x } else { return Ok(None) };
@@ -135,10 +135,7 @@ fn range_pos(heap: &mut HeapPool, v: Val, x: Val) -> Option<Result<Option<Val>, 
 }
 
 /* whether `x` is an item of a wide range */
-pub(crate) fn range_has(heap: &mut HeapPool, v: Val, x: Val) -> Option<Result<bool, VmErr>> { range_pos(heap, v, x).map(|p| p.map(|p| p.is_some())) }
-
-/* the index of `x` in a wide range and None when it is no item */
-pub(crate) fn range_index(heap: &mut HeapPool, v: Val, x: Val) -> Option<Result<Option<Val>, VmErr>> { range_pos(heap, v, x) }
+pub(crate) fn range_has(heap: &mut HeapPool, v: Val, x: Val) -> Option<Result<bool, VmErr>> { range_index(heap, v, x).map(|p| p.map(|p| p.is_some())) }
 
 /* whether two ranges either wide hold the same items */
 pub(crate) fn range_eq(heap: &HeapPool, a: Val, b: Val) -> bool {
@@ -158,8 +155,7 @@ pub(crate) fn range_eq(heap: &HeapPool, a: Val, b: Val) -> bool {
         return n == m && (n == 0 || (x[0] == y[0] && (n == 1 || x[2] == y[2])));
     }
     // past i128 two ranges agree when both are empty or their bounds are the same
-    let wide = |v: Val| match heap.try_get(v) { Some(&HeapObj::BigRange(s, e, st)) => Some([s, e, st]), _ => None };
-    match (wide(a), wide(b)) {
+    match (wide_parts(heap, a), wide_parts(heap, b)) {
         (Some(x), Some(y)) => (empty(heap, x) && empty(heap, y)) || x.iter().zip(&y).all(|(&p, &q)| order(heap, p, q).is_eq()),
         _ => false,
     }

@@ -285,15 +285,9 @@ impl<'a> VM<'a> {
 
     /* pushes the value a native gave or runs the step it asked */
     #[inline(always)]
-    pub(crate) fn out_pushed(&mut self, out: Out, ok: bool) -> Result<(), VmErr> { self.out_to(out, ok, Dest::Top).map(drop) }
-
-    /* a native's value put in `to` or false once frames took it or it parked */
-    #[inline(always)]
-    pub(crate) fn out_to(&mut self, out: Out, ok: bool, to: Dest) -> Result<bool, VmErr> {
-        match self.out_val(out, ok)? {
-            Some(v) => { self.put(v, to); Ok(true) }
-            None => Ok(false),
-        }
+    pub(crate) fn out_pushed(&mut self, out: Out, ok: bool) -> Result<(), VmErr> {
+        if let Some(v) = self.out_val(out, ok)? { self.put(v, Dest::Top); }
+        Ok(())
     }
 
     /* the value a native's out gives at once or none once frames took it */
@@ -596,7 +590,7 @@ impl<'a> VM<'a> {
     /* resumes generator `g` as its method for `sent` would so its frame takes the step */
     fn resume(&mut self, g: Val, sent: Sent, ok: bool) -> Result<Option<Val>, VmErr> {
         // a generator sent None runs to its next yield as the engine's next runs it
-        if ok && let Sent::Value(v) = sent && v.is_none() && self.gather_job(g, Takes::Next(Val::undef()), Vec::new())? { return self.drain_taken(); }
+        if ok && let Sent::Value(v) = sent && v.is_none() && self.gather_job(g, Takes::Next(Val::undef()), Vec::new())? { return Ok(None); }
         let chunk = self.chunk;
         self.job_ok = ok;
         let v = self.coro_method(g, sent, chunk)?;
@@ -610,7 +604,7 @@ impl<'a> VM<'a> {
         let takes = match fold.inline { Inline::Truth(any) => Some(if any { Takes::Any } else { Takes::Every }), Inline::First => Some(Takes::Next(fold.acc.v[0])), _ => None };
         if ok && let Some(takes) = takes && self.steps_user(it) {
             let before = self.jobs.len();
-            if self.gather_gen(it, takes, &[])? { return self.drain_taken(); }
+            if self.gather_gen(it, takes, &[])? { return Ok(None); }
             self.jobs.truncate(before);
             // a refused gather steps the iterable here with no second gather asked
             return match self.drain_here(it, Box::new(Folding::new(fold)), true, ok)? {
@@ -643,13 +637,13 @@ impl<'a> VM<'a> {
                     self.next_fold.set(Some(f));
                     let taken = self.gather_gen(it, takes, &[]);
                     match (taken, self.next_fold.take()) {
-                        (Ok(true), _) => return self.drain_taken(),
+                        (Ok(true), _) => return Ok(None),
                         (Ok(false), Some(back)) => { f = back; Ok(false) }
                         (Ok(false), None) => return Err(cold_runtime("a refused gather kept its fold")),
                         (Err(e), _) => return Err(e),
                     }
                 };
-                if taken? { return self.drain_taken(); }
+                if taken? { return Ok(None); }
                 self.jobs.truncate(before);
             }
             match self.drain_here(it, f, framed, ok)? {
@@ -659,9 +653,6 @@ impl<'a> VM<'a> {
             }
         }
     }
-
-    /* what a drain the jobs took gives now or None once its frames opened */
-    fn drain_taken(&mut self) -> Result<Option<Val>, VmErr> { Ok(None) }
 
     /* the frame of builtin iterator `o` lent as a cursor when its steps run nothing */
     fn lend_frame(&mut self, o: Val) -> Option<IterFrame> {
@@ -1017,7 +1008,7 @@ impl<'a> VM<'a> {
             // what a chain gathered before this iterable stays ahead of its items
             Takes::FoldItems if f.fold.acc.items.is_empty() => f.fold.acc.items = core::mem::take(&mut j.items),
             Takes::FoldItems => f.fold.acc.items.append(&mut j.items),
-            Takes::FoldWords => if let jobs::Total::Word(w) = j.total { f.fold.acc.n = w },
+            Takes::FoldWords => if let Some(w) = j.total { f.fold.acc.n = w },
             Takes::FoldExtreme(_) => f.fold.acc.v[0] = j.acc,
             _ => {}
         }
@@ -1042,7 +1033,7 @@ impl<'a> VM<'a> {
     /* hands the words fold on top its total and every later item through its function */
     pub(crate) fn fold_spill(&mut self) {
         let Some(Job::Gather(j)) = self.jobs.last_mut() else { return };
-        if let (jobs::Total::Word(w), Some(f)) = (j.total, j.fold.as_deref_mut()) { (f.fold.acc.n, f.spilled) = (w, true); }
+        if let (Some(w), Some(f)) = (j.total, j.fold.as_deref_mut()) { (f.fold.acc.n, f.spilled) = (w, true); }
         j.takes = Takes::Fold;
     }
 

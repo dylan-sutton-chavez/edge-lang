@@ -167,6 +167,13 @@ jobs:
           cache: false
           rustflags: ""
 
+      # the cli feature embeds the js host so the api check and the package both need js/dist
+      - name: Deno
+        uses: ./.github/actions/deno
+
+      - name: JS host
+        run: make js
+
       # a tag ships only the version the crate already carries
       - name: The tag is the version
         run: test "v$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "interpreter") | .version')" = "$GITHUB_REF_NAME"

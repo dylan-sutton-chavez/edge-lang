@@ -1,7 +1,8 @@
 use crate::lang::{Args, Cx, IntMod, Ret, Sig};
 use crate::value::{Val, VmErr};
 
-use super::{big, bool_int, numeric};
+use super::{big, numeric};
+use crate::lib::lang::int_like;
 use crate::lib::fail::{Fail, fail};
 use crate::lib::{Kernel, Site};
 
@@ -15,8 +16,7 @@ fn pow_run<S: Site>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
         if !numeric(cx.heap(), b) || !numeric(cx.heap(), e) { return Err(fail::<S>(cx, Fail::PowArgs)); }
         return Ok(cx.pow(b, e)?.into());
     };
-    let int_like = |v: Val| v.is_int() || bool_int(cx.heap(), v).is_some() || cx.heap().is_wide(v);
-    if cx.int(m) == Some(0) && int_like(b) && int_like(e) { return Err(fail::<S>(cx, Fail::PowZero)); }
+    if cx.int(m) == Some(0) && int_like(cx, b) && int_like(cx, e) { return Err(fail::<S>(cx, Fail::PowZero)); }
     // a modulus below 2^63 keeps every product in i128 so small operands skip wide ints
     if let (Some(x), Some(y), Some(md)) = (cx.int(b), cx.int(e), cx.int(m)) && md.unsigned_abs() < 1 << 63 {
         let truncated = matches!(cx.policy().int_mod, IntMod::Truncated);

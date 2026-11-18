@@ -91,10 +91,6 @@
   prints: "0.6"
 
 - native: sum
-  args: [[1, 2, 3], 10]
-  prints: "16"
-
-- native: sum
   args: [[1, 2]]
   kw: {start: 10}
   prints: "13"

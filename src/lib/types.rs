@@ -46,26 +46,11 @@ pub fn match_exc<L: Lang>(heap: &HeapPool, exc: Val, ty: Val) -> Result<bool, Vm
 fn is_of<'h, L: Lang>(heap: &'h HeapPool, of: Val, info: Val, ty: impl Fn() -> &'h str) -> Result<bool, ()> {
     // the value's meta is read once for every class the walk meets
     let meta = heap.meta_of(of);
-    let one = |t: Val| match heap.meta_of(t) {
+    each(heap, info, |t| match heap.meta_of(t) {
         Some(m) if m.is_type_meta() => Ok(of_type::<L>(heap, meta, heap.meta_name(m).unwrap_or(""), &ty)),
         Some(m) if m.is_class_meta() => Ok(meta.is_some_and(|c| c.is_heap() && heap.is_subclass(c, t))),
         _ => Err(()),
-    };
-    match heap.try_get(info) {
-        Some(HeapObj::Tuple(items)) => {
-            // a long tuple counts the classes it reads as native work
-            if items.len() > 64 { heap.spend(items.len()); }
-            // a member that is no class fails once reached and a repeat answers as before
-            let mut last = Val::undef();
-            for &t in items {
-                if t.raw() == last.raw() { continue; }
-                if one(t)? { return Ok(true); }
-                last = t;
-            }
-            Ok(false)
-        }
-        _ => one(info),
-    }
+    })
 }
 
 /* whether a value of meta `meta` is of builtin type `name` */
@@ -88,17 +73,23 @@ fn of_type<'h, L: Lang>(heap: &'h HeapPool, meta: Option<Val>, name: &str, ty: &
     }
 }
 
-/* each class `info` names handed to `one` with its heap object until one matches */
-fn each<'h>(heap: &'h HeapPool, info: Val, one: impl Fn(Val, Option<&'h HeapObj>) -> Result<bool, Fail>) -> Result<bool, Fail> {
+/* each class `info` names handed to `one` until one matches */
+#[inline(always)]
+fn each<E>(heap: &HeapPool, info: Val, one: impl Fn(Val) -> Result<bool, E>) -> Result<bool, E> {
     match heap.try_get(info) {
         Some(HeapObj::Tuple(items)) => {
             // a long tuple counts the classes it reads as native work
             if items.len() > 64 { heap.spend(items.len()); }
-            // a member that is no class fails once the walk reaches it
-            for &t in items { if one(t, heap.try_get(t))? { return Ok(true); } }
+            // a member that is no class fails once reached and a repeat answers as before
+            let mut last = Val::undef();
+            for &t in items {
+                if t.raw() == last.raw() { continue; }
+                if one(t)? { return Ok(true); }
+                last = t;
+            }
             Ok(false)
         }
-        of => one(info, of),
+        _ => one(info),
     }
 }
 
@@ -118,13 +109,7 @@ fn is_a_fast<L: Lang>(heap: &mut HeapPool, obj: Val, info: Val) -> Option<Val> {
 }
 
 /* whether `info` names the kind generators and coroutines share which only the engine splits */
-fn names_coro(heap: &HeapPool, info: Val) -> bool {
-    let coro = |t: Val| heap.type_kind(t) == Some(KindId::Coro);
-    match heap.try_get(info) {
-        Some(HeapObj::Tuple(items)) => { if items.len() > 64 { heap.spend(items.len()); } items.iter().any(|&t| coro(t)) }
-        _ => coro(info),
-    }
-}
+fn names_coro(heap: &HeapPool, info: Val) -> bool { each(heap, info, |t| Ok::<_, ()>(heap.type_kind(t) == Some(KindId::Coro))).unwrap_or(false) }
 
 fn is_sub_run<S: Site>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
     match subclass::<S::Lang>(cx.heap(), a.pos[0], a.pos[1]) {
@@ -144,7 +129,7 @@ fn subclass<L: Lang>(heap: &HeapPool, sub: Val, info: Val) -> Result<bool, Fail>
         None if heap.is_class(sub) => None,
         None => return Err(Fail::ClassArg),
     };
-    each(heap, info, |t, _| match heap.type_object_name(t) {
+    each(heap, info, |t| match heap.type_object_name(t) {
         // every class and type derives from the root
         Some(n) if n == tree.root => Ok(true),
         // a user class reaches a builtin type only through a base of the tree

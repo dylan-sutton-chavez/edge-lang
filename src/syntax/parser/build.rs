@@ -78,6 +78,16 @@ pub fn build<S: Spelling>(source: &str, unit: Unit, f: impl FnOnce(&mut Builder<
     if p.errors.is_empty() { Ok(Rc::new(p.chunk)) } else { Err(p.errors) }
 }
 
+// builder methods that each emit one opcode and its operand
+macro_rules! emits {
+    ($($name:ident($($arg:ident: $ty:ty)?) => $op:ident, $operand:expr;)*) => { $(
+        pub fn $name(&mut self $(, $arg: $ty)?) -> &mut Self {
+            self.p.chunk.emit(OpCode::$op, $operand);
+            self
+        }
+    )* };
+}
+
 impl<'b, 'src, S: Spelling> Builder<'b, 'src, S> {
     /* the zero based line `offset` sits on */
     fn line(&self, offset: usize) -> usize {
@@ -141,6 +151,25 @@ impl<'b, 'src, S: Spelling> Builder<'b, 'src, S> {
         self
     }
 
+    emits! {
+        /* replaces a value and the key above it with its item at that key */
+        item() => GetItem, 0;
+        /* replaces the top `n` values with a list of them */
+        list(n: u16) => BuildList, n;
+        /* replaces the top `n` key and value pairs with a map of them */
+        map(n: u16) => BuildDict, n;
+        /* pushes the value on top again */
+        dup() => Dup, 0;
+        /* swaps the two values on top */
+        swap() => Swap, 0;
+        /* lifts the third value to the top */
+        rot3() => Rot3, 0;
+        /* drops the value on top */
+        pop() => PopTop, 0;
+        /* raises the value on top */
+        throw() => Raise, 0;
+    }
+
     /* replaces the value on top with its field `name` */
     pub fn field(&mut self, name: &str) -> &mut Self {
         let i = self.p.chunk.push_name(name);
@@ -148,30 +177,9 @@ impl<'b, 'src, S: Spelling> Builder<'b, 'src, S> {
         self
     }
 
-    /* replaces a value and the key above it with its item at that key */
-    pub fn item(&mut self) -> &mut Self {
-        self.p.chunk.emit(OpCode::GetItem, 0);
-        self
-    }
-
-    /* replaces the top `n` values with a list of them */
-    pub fn list(&mut self, n: u16) -> &mut Self {
-        self.p.chunk.emit(OpCode::BuildList, n);
-        self
-    }
-
-    /* replaces the top `n` key and value pairs with a map of them */
-    pub fn map(&mut self, n: u16) -> &mut Self {
-        self.p.chunk.emit(OpCode::BuildDict, n);
-        self
-    }
-
     /* calls the value under `pos` arguments and `kw` keywords pushed each as name then value */
     pub fn call(&mut self, pos: u16, kw: u16) -> &mut Self {
-        if pos > 0xFF || kw > 0xFF {
-            let at = self.p.last_end;
-            self.p.reject(at, at, "too many arguments in call (max 255 positional and 255 keyword)");
-        }
+        if pos > 0xFF || kw > 0xFF { self.p.reject(self.p.last_end, self.p.last_end, "too many arguments in call (max 255 positional and 255 keyword)"); }
         self.p.chunk.emit(OpCode::Call, super::pack_call(pos, kw));
         self.p.chunk.record_call_pos(self.p.last_end as u32);
         self
@@ -179,39 +187,15 @@ impl<'b, 'src, S: Spelling> Builder<'b, 'src, S> {
 
     /* replaces the two values on top with what binary operator `op` makes of them */
     pub fn binary(&mut self, op: OpCode) -> &mut Self {
-        if !op.is_binary() {
-            let at = self.p.last_end;
-            self.p.reject(at, at, "a builder applies only a binary operator");
-        }
+        if !op.is_binary() { self.p.reject(self.p.last_end, self.p.last_end, "a builder applies only a binary operator"); }
         self.p.chunk.emit(op, 0);
         self
     }
 
     /* replaces the value on top with what unary operator `op` makes of it */
     pub fn unary(&mut self, op: OpCode) -> &mut Self {
-        if op.operator() != crate::code::ops::Operator::Unary {
-            let at = self.p.last_end;
-            self.p.reject(at, at, "a builder applies only a unary operator here");
-        }
+        if op.operator() != crate::code::ops::Operator::Unary { self.p.reject(self.p.last_end, self.p.last_end, "a builder applies only a unary operator here"); }
         self.p.chunk.emit(op, 0);
-        self
-    }
-
-    /* pushes the value on top again */
-    pub fn dup(&mut self) -> &mut Self {
-        self.p.chunk.emit(OpCode::Dup, 0);
-        self
-    }
-
-    /* swaps the two values on top */
-    pub fn swap(&mut self) -> &mut Self {
-        self.p.chunk.emit(OpCode::Swap, 0);
-        self
-    }
-
-    /* lifts the third value to the top */
-    pub fn rot3(&mut self) -> &mut Self {
-        self.p.chunk.emit(OpCode::Rot3, 0);
         self
     }
 
@@ -270,8 +254,7 @@ impl<'b, 'src, S: Spelling> Builder<'b, 'src, S> {
         });
         p.leave_qual(cut);
         let Ok(ci) = u16::try_from(p.chunk.classes.len()) else {
-            let at = p.last_end;
-            p.reject(at, at, "too many classes in this scope (limit 65535)");
+            p.reject(p.last_end, p.last_end, "too many classes in this scope (limit 65535)");
             return self;
         };
         // free names of its methods pass through the class to the function around it
@@ -290,24 +273,9 @@ impl<'b, 'src, S: Spelling> Builder<'b, 'src, S> {
         self
     }
 
-    /* drops the value on top */
-    pub fn pop(&mut self) -> &mut Self {
-        self.p.chunk.emit(OpCode::PopTop, 0);
-        self
-    }
-
-    /* raises the value on top */
-    pub fn throw(&mut self) -> &mut Self {
-        self.p.chunk.emit(OpCode::Raise, 0);
-        self
-    }
-
     /* returns the value on top from the function being built */
     pub fn ret(&mut self) -> &mut Self {
-        if !self.p.in_function {
-            let at = self.p.last_end;
-            self.p.reject(at, at, Inner::<'src, S>::RETURN_OUTSIDE);
-        }
+        if !self.p.in_function { self.p.reject(self.p.last_end, self.p.last_end, Inner::<'src, S>::RETURN_OUTSIDE); }
         self.p.chunk.emit(OpCode::ReturnValue, 0);
         self
     }
@@ -413,7 +381,7 @@ impl<'b, 'src, S: Spelling> Builder<'b, 'src, S> {
     /* binds `name` to a function of `params` where `x=` takes a default pushed before */
     pub fn function(&mut self, name: &str, params: &[&str], body: impl FnMut(&mut Builder<'_, 'src, S>)) -> &mut Self {
         self.closure(name, params, body);
-        self.p.emit_store_new(name);
+        self.p.store_name(name);
         self
     }
 
@@ -427,7 +395,7 @@ impl<'b, 'src, S: Spelling> Builder<'b, 'src, S> {
         let (restart, kept) = (p.mark(), p.kept_len());
         let mut late = Vec::new();
         let mut chunk = p.with_fresh_chunk(|p| {
-            open_body(p, &params);
+            p.open_body(&params);
             body(&mut Builder { p, starts });
             late = p.called_then_bound();
         });
@@ -437,7 +405,7 @@ impl<'b, 'src, S: Spelling> Builder<'b, 'src, S> {
             p.cut(kept);
             chunk = p.with_fresh_chunk(|p| {
                 p.unfused.extend(late.iter().cloned());
-                open_body(p, &params);
+                p.open_body(&params);
                 body(&mut Builder { p, starts });
             });
         }
@@ -454,16 +422,7 @@ impl<'b, 'src, S: Spelling> Builder<'b, 'src, S> {
         let starts = self.starts;
         let p = &mut *self.p;
         let cut = p.enter_qual(S::NATIVES.names().anonymous, true);
-        let mut outer = core::mem::take(&mut p.ssa_versions);
-        let mut chunk = p.with_fresh_chunk(|p| {
-            let held = p.lend_versions(&mut outer, &params);
-            p.in_function = true;
-            body(&mut Builder { p, starts });
-            p.chunk.emit(OpCode::ReturnValue, 0);
-            p.return_versions(&mut outer, held);
-        });
-        p.ssa_versions = outer;
-        chunk.is_generator = chunk.instructions.iter().any(|i| i.opcode == OpCode::Yield);
+        let chunk = p.expr_body(&params, |p| body(&mut Builder { p, starts }));
         p.leave_qual(cut);
         p.push_function(params, chunk, defaults, None, OpCode::MakeFunction);
         self
@@ -474,15 +433,6 @@ impl<'b, 'src, S: Spelling> Builder<'b, 'src, S> {
 fn signature(params: &[&str]) -> (Vec<String>, u16) {
     let defaults = params.iter().filter(|p| p.ends_with('=')).count() as u16;
     (params.iter().map(|p| p.to_string()).collect(), defaults)
-}
-
-/* binds each parameter at version zero so the body reads it before any store */
-fn open_body<S: Spelling>(p: &mut Inner<'_, S>, params: &[String]) {
-    p.in_function = true;
-    for param in params {
-        p.bind_param(param);
-        let _ = p.push_ssa_name(param_base_name(param), 0);
-    }
 }
 
 /* conditional arms whose join closes on drop so no front end leaves one open */
@@ -527,6 +477,16 @@ impl<S: Spelling> Drop for Arms<'_, '_, '_, S> {
 }
 
 impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
+    /* binds each parameter at version zero so the body reads it before any store */
+    pub(super) fn open_body(&mut self, params: &[String]) {
+        self.in_function = true;
+        for param in params {
+            // the base name without its markers shadows the enclosing scope
+            self.bind_param(param);
+            let _ = self.push_ssa_name(param_base_name(param), 0);
+        }
+    }
+
     /* reads free name `name` as a field of the subject or is false */
     pub(super) fn subject_field(&mut self, name: &str) -> bool {
         let Some(subject) = self.subject.take() else { return false };

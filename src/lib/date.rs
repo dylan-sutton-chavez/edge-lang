@@ -198,10 +198,7 @@ pub trait Dates: crate::lib::Lang {
 }
 
 /* the payload of type `T` a foreign value holds and none for any other value */
-fn held<T: Any>(heap: &HeapPool, v: Val) -> Option<&T> {
-    let kind = heap.foreign_kind(v)?;
-    heap.foreign_payload::<T>(Cx::kind_token(heap, kind)?, v)
-}
+fn held<T: Any>(heap: &HeapPool, v: Val) -> Option<&T> { held_by(heap, heap.foreign_kind(v)?, v) }
 
 /* the payload of type `T` a value of exactly `kind` holds */
 fn held_by<'h, T: Any>(heap: &'h HeapPool, kind: &'static Kind, v: Val) -> Option<&'h T> { heap.foreign_payload::<T>(Cx::kind_token(heap, kind)?, v) }

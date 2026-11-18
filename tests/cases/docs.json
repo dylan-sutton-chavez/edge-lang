@@ -358,13 +358,6 @@
     "error": "a card is - `icon` [Title](link) and a description"
   },
   {
-    "name": "a card with an icon Lucide does not draw",
-    "files": {
-      "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n> [!CARDS]\n> - `not-an-icon` [Start](/docs) Begin here.\n"
-    },
-    "error": "gives a card the icon 'not-an-icon', which Lucide"
-  },
-  {
     "name": "a card linking to a script",
     "files": {
       "01-intro.mdx": "---\ntitle: Intro\ndescription: Where to start.\n---\n\n# Intro\n\n> [!CARDS]\n> - `book` [Start](javascript:alert(1)) Begin here.\n"

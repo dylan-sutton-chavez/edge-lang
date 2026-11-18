@@ -28,6 +28,12 @@ pub mod value;
 /* the natives a runtime gives the engine and the steps they ask of it */
 pub mod lang;
 
+/* the kit a command line over a runtime is built from and the commands the interpreter binary wires */
+#[cfg(feature = "cli-kit")]
+// a tool beside the engine reads files and the environment the sandbox rule keeps from it
+#[allow(clippy::disallowed_methods, clippy::disallowed_types)]
+pub mod cli;
+
 // public only through the internals feature for the engine's own tests and tools
 macro_rules! internal {
     ($($(#[$a:meta])* $m:ident;)*) => { $(

@@ -27,24 +27,12 @@ export const described = (exports: InterpreterExports): Described => {
     return found;
 };
 
-// the classes each runtime instance names for a refused and a failed call
-const classes = new WeakMap<InterpreterExports, { denied?: string, failed?: string }>();
-
-/* the classes the runtime's descriptor names which a runtime without one leaves out */
-export const named = (exports: InterpreterExports): { denied?: string, failed?: string } => {
-    let found = classes.get(exports);
-    if (found) return found;
-    const d = described(exports);
-    found = { denied: d.denied_error, failed: d.failed_error };
-    classes.set(exports, found);
-    return found;
-};
-
 /* the kind and message of a failed system call with the class its runtime names */
 export const fault = (e: unknown, exports: InterpreterExports): [number, string] => {
     if (!(e instanceof SystemError)) return [ERR_RUNTIME, errMsg(e)];
     if (e.role === 'invalid') return [ERR_VALUE, e.message];
-    const name = named(exports)[e.role];
+    // the class the runtime's descriptor names for the role which a runtime without one leaves out
+    const name = described(exports)[e.role === 'denied' ? 'denied_error' : 'failed_error'];
     return name ? [ERR_CUSTOM, `${name}: ${e.message}`] : [ERR_RUNTIME, e.message];
 };
 
@@ -52,4 +40,12 @@ export const writeBytes = (exports: InterpreterExports, bytes: Uint8Array): numb
     const ptr = exports.wasm_alloc(Math.max(1, bytes.length));
     new Uint8Array(exports.memory.buffer, ptr, bytes.length).set(bytes);
     return ptr;
+};
+
+/* `fn` over a staged copy of `bytes` which is freed once it returns */
+export const staged = <T>(exports: InterpreterExports, bytes: Uint8Array, fn: (ptr: number) => T): T => {
+    const ptr = writeBytes(exports, bytes);
+    const out = fn(ptr);
+    exports.wasm_free(ptr, Math.max(1, bytes.length));
+    return out;
 };

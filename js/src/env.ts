@@ -2,7 +2,7 @@ import { nativeTable, running, waiting } from './native.ts';
 import type { WasmPdkFn } from './native.ts';
 import type { InterpreterExports } from './wasm.ts';
 import type { Rt, InterpreterValue } from './rt.ts';
-import { errMsg, fault, writeBytes, ERR_RUNTIME, ERR_TYPE } from './util.ts';
+import { errMsg, fault, staged, ERR_RUNTIME, ERR_TYPE } from './util.ts';
 
 const TD = new TextDecoder();
 const TE = new TextEncoder();
@@ -187,7 +187,5 @@ function takeError(exports: InterpreterExports): [number, string] {
 
 function stashError(exports: InterpreterExports, message: string, kind = ERR_RUNTIME): void {
     const bytes = TE.encode(message);
-    const ptr = writeBytes(exports, bytes);
-    exports.host_interpreter_throw(kind, ptr, bytes.length);
-    exports.wasm_free(ptr, Math.max(1, bytes.length));
+    staged(exports, bytes, (ptr) => exports.host_interpreter_throw(kind, ptr, bytes.length));
 }

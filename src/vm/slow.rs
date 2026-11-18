@@ -323,7 +323,7 @@ impl<'a> VM<'a> {
             OpCode::ExcArgsR => {
                 let at = self.base + ins.b as usize;
                 let args = self.regs[at..at + ins.c as usize].to_vec();
-                self.set_exc_args(self.regs[self.base + ins.a as usize], args)?;
+                self.heap.set_args(self.regs[self.base + ins.a as usize], args)?;
             }
             OpCode::StoreGlobalAtR => {
                 let (v, m) = (self.reg(chunk, ins.b)?, ins.c as usize);

@@ -236,6 +236,13 @@ pub trait Family: 'static {
     fn missing() -> Fail;
 }
 
+/* what `f` reads through a shared context with its failure raised for the native of site `S` */
+#[inline(always)]
+pub(crate) fn shared<'a, 'b, S: Site, R>(cx: &mut Cx<'a, 'b>, f: impl FnOnce(&Cx<'a, 'b>) -> Result<R, Error>) -> Result<R, VmErr> {
+    let r = f(cx);
+    r.map_err(|e| e.raise::<S>(cx))
+}
+
 /* a count argument where a negative one means no limit */
 #[inline(always)]
 pub(crate) fn limit(cx: &Cx<'_, '_>, v: Option<Val>) -> Result<usize, Error> {
@@ -332,6 +339,13 @@ pub const fn zeros<S: Site, F: Family>() -> Kernel { Kernel::new(Sig::exact(1), 
 /* every tab padded to the next stop where a line break starts the column again */
 pub const fn tabs<S: Site, F: Family>() -> Kernel { Kernel::new(Sig::range(0, 1), tabs_run::<S, F>) }
 
+/* the kernels above built for family `F` under their own names with the generics `G` adds */
+macro_rules! forward {
+    ($f:ty, $g:tt, $($name:ident),* $(,)?) => { $($crate::lib::units::forward!(@one $f, $g, $name);)* };
+    (@one $f:ty, [$($g:tt)*], $name:ident) => { pub const fn $name<S: $crate::lib::Site, $($g)*>() -> $crate::lib::Kernel { $crate::lib::units::$name::<S, $f>() } };
+}
+pub(crate) use forward;
+
 /* which characters end a line */
 pub trait Breaks: 'static { const BREAKS: &'static [char]; }
 
@@ -347,47 +361,41 @@ impl Breaks for Unicode { const BREAKS: &'static [char] = &['\n', '\r', '\u{0b}'
 
 fn affix<S: Site, F: Family, const END: bool>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
     let ascii = F::ascii(cx, a.recv);
-    let hit = {
-        let cx = &*cx;
-        (|| -> Result<bool, Error> {
-            let h = F::recv(cx, a.recv)?;
-            let span = window(cx, h, ascii, a.get(1), a.get(2))?;
-            let hay = span.map(|(s, e)| h.bytes().get(s..e).unwrap_or_default());
-            let hit = |p: &[u8]| hay.is_some_and(|w| if END { w.ends_with(p) } else { w.starts_with(p) });
-            // a tuple's affixes are checked as each is tried up to the first hit
-            if let Some(HeapObj::Tuple(items)) = cx.heap().try_get(a.pos[0]) {
-                for &x in items {
-                    if hit(F::arg(cx, x, Role::Item)?.bytes()) { return Ok(true); }
-                }
-                return Ok(false);
+    let hit = shared::<S, _>(cx, |cx| {
+        let h = F::recv(cx, a.recv)?;
+        let span = window(cx, h, ascii, a.get(1), a.get(2))?;
+        let hay = span.map(|(s, e)| h.bytes().get(s..e).unwrap_or_default());
+        let hit = |p: &[u8]| hay.is_some_and(|w| if END { w.ends_with(p) } else { w.starts_with(p) });
+        // a tuple's affixes are checked as each is tried up to the first hit
+        if let Some(HeapObj::Tuple(items)) = cx.heap().try_get(a.pos[0]) {
+            for &x in items {
+                if hit(F::arg(cx, x, Role::Item)?.bytes()) { return Ok(true); }
             }
-            match F::arg(cx, a.pos[0], Role::Item) {
-                Ok(p) => Ok(hit(p.bytes())),
-                Err(Error::Fail(_)) => Err(Error::Fail(Fail::AffixType { v: a.pos[0], want: F::KIND })),
-                Err(e) => Err(e),
-            }
-        })()
-    };
-    Ok(Val::bool(hit.map_err(|e| e.raise::<S>(cx))?).into())
+            return Ok(false);
+        }
+        match F::arg(cx, a.pos[0], Role::Item) {
+            Ok(p) => Ok(hit(p.bytes())),
+            Err(Error::Fail(_)) => Err(Error::Fail(Fail::AffixType { v: a.pos[0], want: F::KIND })),
+            Err(e) => Err(e),
+        }
+    })?;
+    Ok(Val::bool(hit).into())
 }
 
 fn seek<S: Site, F: Family, const LAST: bool, const RAISE: bool>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
     let ascii = F::ascii(cx, a.recv);
-    let found = {
-        let cx = &*cx;
-        (|| -> Result<Option<usize>, Error> {
-            let h = F::recv(cx, a.recv)?;
-            let span = window(cx, h, ascii, a.get(1), a.get(2))?;
-            let mut one = [0];
-            let sub = F::needle(cx, a.pos[0], &mut one)?;
-            let at = span.and_then(|(s, e)| {
-                let hay = h.bytes().get(s..e).unwrap_or_default();
-                if LAST { search::rfind(hay, sub) } else { search::find(hay, sub) }.map(|i| s + i)
-            });
-            Ok(at.map(|b| h.before(ascii, b)))
-        })()
-    };
-    match found.map_err(|e| e.raise::<S>(cx))? {
+    let found = shared::<S, _>(cx, |cx| {
+        let h = F::recv(cx, a.recv)?;
+        let span = window(cx, h, ascii, a.get(1), a.get(2))?;
+        let mut one = [0];
+        let sub = F::needle(cx, a.pos[0], &mut one)?;
+        let at = span.and_then(|(s, e)| {
+            let hay = h.bytes().get(s..e).unwrap_or_default();
+            if LAST { search::rfind(hay, sub) } else { search::find(hay, sub) }.map(|i| s + i)
+        });
+        Ok(at.map(|b| h.before(ascii, b)))
+    })?;
+    match found {
         Some(i) => Ok(Val::int(i as i64).into()),
         None if RAISE => Err(fail::<S>(cx, F::missing())),
         None => Ok(Val::int(-1).into()),
@@ -396,23 +404,20 @@ fn seek<S: Site, F: Family, const LAST: bool, const RAISE: bool>(cx: &mut Cx<'_,
 
 fn count_run<S: Site, F: Family>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
     let ascii = F::ascii(cx, a.recv);
-    let n = {
-        let cx = &*cx;
-        (|| -> Result<usize, Error> {
-            let h = F::recv(cx, a.recv)?;
-            let span = window(cx, h, ascii, a.get(1), a.get(2))?;
-            let mut one = [0];
-            let sub = F::needle(cx, a.pos[0], &mut one)?;
-            let Some((s, e)) = span else { return Ok(0) };
-            Ok(match sub {
-                // an empty needle matches before each unit and once at the end
-                [] => h.cut(s..e).count(ascii) + 1,
-                &[c] => search::count_byte(h.bytes().get(s..e).unwrap_or_default(), c),
-                _ => search::Matches::new(h.bytes().get(s..e).unwrap_or_default(), sub).count(),
-            })
-        })()
-    };
-    Ok(Val::int(n.map_err(|e| e.raise::<S>(cx))? as i64).into())
+    let n = shared::<S, _>(cx, |cx| {
+        let h = F::recv(cx, a.recv)?;
+        let span = window(cx, h, ascii, a.get(1), a.get(2))?;
+        let mut one = [0];
+        let sub = F::needle(cx, a.pos[0], &mut one)?;
+        let Some((s, e)) = span else { return Ok(0) };
+        Ok(match sub {
+            // an empty needle matches before each unit and once at the end
+            [] => h.cut(s..e).count(ascii) + 1,
+            &[c] => search::count_byte(h.bytes().get(s..e).unwrap_or_default(), c),
+            _ => search::Matches::new(h.bytes().get(s..e).unwrap_or_default(), sub).count(),
+        })
+    })?;
+    Ok(Val::int(n as i64).into())
 }
 
 /* `h` with `new` at each of `hits` of `len` bytes and none without hits */
@@ -433,31 +438,28 @@ fn swapped_at<H: Hay + ?Sized>(h: &H, hits: impl Iterator<Item = usize>, len: us
 
 /* `old` swapped for `new` up to a count refusing a result past the memory left */
 fn replace_run<S: Site, F: Family>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
-    let out = {
-        let cx = &*cx;
-        (|| -> Result<Option<Owned<F>>, Error> {
-            let (old, new) = (F::arg(cx, a.pos[0], Role::Old)?, F::arg(cx, a.pos[1], Role::New)?);
-            let max = limit(cx, a.get(2))?;
-            let h = F::recv(cx, a.recv)?;
-            let (ob, nb, len) = (old.bytes(), new.bytes(), h.bytes().len());
-            // one byte for another with no count maps the run in one pass
-            if let (&[from], &[to], usize::MAX) = (ob, nb, max) && from.is_ascii() && to.is_ascii() {
-                if !search::contains(h.bytes(), from) { return Ok(if F::SHARES { None } else { Some(h.copied()) }); }
-                return Ok(Some(h.swapped(from, to)));
-            }
-            // an empty `old` matches before each unit and once at the end
-            let boundaries = || h.units().map(|(b, _)| b).chain(core::iter::once(len)).take(max);
-            let matches = || search::Matches::new(h.bytes(), ob).take(max);
-            // a result past the memory left fails before it is built
-            if nb.len() > ob.len() {
-                let n = if ob.is_empty() { boundaries().count() } else { matches().count() };
-                cx.reserve(len.saturating_add(n.saturating_mul(nb.len() - ob.len())))?;
-            }
-            let out = if ob.is_empty() { swapped_at(h, boundaries(), 0, new) } else { swapped_at(h, matches(), ob.len(), new) };
-            Ok(match out { Some(out) => Some(out), None if F::SHARES => None, None => Some(h.copied()) })
-        })()
-    };
-    match out.map_err(|e| e.raise::<S>(cx))? { Some(out) => Ok(F::give(cx, out)?.into()), None => Ok(a.recv.into()) }
+    let out = shared::<S, _>(cx, |cx| {
+        let (old, new) = (F::arg(cx, a.pos[0], Role::Old)?, F::arg(cx, a.pos[1], Role::New)?);
+        let max = limit(cx, a.get(2))?;
+        let h = F::recv(cx, a.recv)?;
+        let (ob, nb, len) = (old.bytes(), new.bytes(), h.bytes().len());
+        // one byte for another with no count maps the run in one pass
+        if let (&[from], &[to], usize::MAX) = (ob, nb, max) && from.is_ascii() && to.is_ascii() {
+            if !search::contains(h.bytes(), from) { return Ok(if F::SHARES { None } else { Some(h.copied()) }); }
+            return Ok(Some(h.swapped(from, to)));
+        }
+        // an empty `old` matches before each unit and once at the end
+        let boundaries = || h.units().map(|(b, _)| b).chain(core::iter::once(len)).take(max);
+        let matches = || search::Matches::new(h.bytes(), ob).take(max);
+        // a result past the memory left fails before it is built
+        if nb.len() > ob.len() {
+            let n = if ob.is_empty() { boundaries().count() } else { matches().count() };
+            cx.reserve(len.saturating_add(n.saturating_mul(nb.len() - ob.len())))?;
+        }
+        let out = if ob.is_empty() { swapped_at(h, boundaries(), 0, new) } else { swapped_at(h, matches(), ob.len(), new) };
+        Ok(match out { Some(out) => Some(out), None if F::SHARES => None, None => Some(h.copied()) })
+    })?;
+    match out { Some(out) => Ok(F::give(cx, out)?.into()), None => Ok(a.recv.into()) }
 }
 
 /* the pieces between the matches of `sep` with at most `max` cuts from either end */
@@ -481,13 +483,7 @@ fn by_sep<H: Hay + ?Sized>(h: &H, sep: &[u8], max: usize, right: bool, out: &mut
     }
 }
 
-/* the runs between white space with at most `max` cuts read in one pass */
-fn by_space<L: Lang, H: Hay + ?Sized>(h: &H, ascii: bool, max: usize, right: bool, out: &mut Vec<H::Owned>) {
-    // a run of one byte units walks its bytes with no decoding
-    if ascii { runs::<L, H>(h, h.bytes_as_units(), max, right, out) } else { runs::<L, H>(h, h.units(), max, right, out) }
-}
-
-/* the runs between white space of the units `units` walks */
+/* the runs between white space of the units `units` walks with at most `max` cuts read in one pass */
 #[inline(always)]
 fn runs<L: Lang, H: Hay + ?Sized>(h: &H, units: impl DoubleEndedIterator<Item = (usize, H::Unit)>, max: usize, right: bool, out: &mut Vec<H::Owned>) {
     let len = h.bytes().len();
@@ -549,28 +545,26 @@ fn listed<F: Family>(cx: &mut Cx<'_, '_>, parts: Vec<Owned<F>>) -> Ret {
 
 fn split_run<S: Site, F: Family, const RIGHT: bool>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
     let ascii = F::ascii(cx, a.recv);
-    let parts = {
-        let cx = &*cx;
-        (|| -> Result<Vec<Owned<F>>, Error> {
-            let max = limit(cx, a.get(1))?;
-            let sep = match a.get(0).filter(|v| !v.is_none()) { Some(v) => Some(F::arg(cx, v, Role::Sep)?), None => None };
-            if sep.is_some_and(|s| s.bytes().is_empty()) { return Err(Error::Fail(Fail::EmptySeparator)); }
-            let h = F::recv(cx, a.recv)?;
-            let len = h.bytes().len();
-            // a short receiver or one with room for a piece per byte needs no count
-            if len > SHORT && (len + 1).saturating_mul(PIECE) > cx.room() {
-                let n = match sep { Some(sep) => search::Matches::new(h.bytes(), sep.bytes()).take(max).count() + 1, None => count_runs::<S::Lang, F::Hay>(h, max) };
-                too_many(cx, len, n)?;
-            }
-            let mut parts = Vec::new();
-            match sep {
-                Some(sep) => by_sep(h, sep.bytes(), max, RIGHT, &mut parts),
-                None => by_space::<S::Lang, F::Hay>(h, ascii, max, RIGHT, &mut parts),
-            }
-            Ok(parts)
-        })()
-    };
-    let parts = parts.map_err(|e| e.raise::<S>(cx))?;
+    let parts = shared::<S, _>(cx, |cx| {
+        let max = limit(cx, a.get(1))?;
+        let sep = match a.get(0).filter(|v| !v.is_none()) { Some(v) => Some(F::arg(cx, v, Role::Sep)?), None => None };
+        if sep.is_some_and(|s| s.bytes().is_empty()) { return Err(Error::Fail(Fail::EmptySeparator)); }
+        let h = F::recv(cx, a.recv)?;
+        let len = h.bytes().len();
+        // a short receiver or one with room for a piece per byte needs no count
+        if len > SHORT && (len + 1).saturating_mul(PIECE) > cx.room() {
+            let n = match sep { Some(sep) => search::Matches::new(h.bytes(), sep.bytes()).take(max).count() + 1, None => count_runs::<S::Lang, F::Hay>(h, max) };
+            too_many(cx, len, n)?;
+        }
+        let mut parts = Vec::new();
+        match sep {
+            Some(sep) => by_sep(h, sep.bytes(), max, RIGHT, &mut parts),
+            // a run of one byte units walks its bytes with no decoding
+            None if ascii => runs::<S::Lang, F::Hay>(h, h.bytes_as_units(), max, RIGHT, &mut parts),
+            None => runs::<S::Lang, F::Hay>(h, h.units(), max, RIGHT, &mut parts),
+        }
+        Ok(parts)
+    })?;
     listed::<F>(cx, parts)
 }
 
@@ -602,19 +596,16 @@ fn lines_run<F: Family, B: Breaks>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
 /* the receiver without leading or trailing white space or units of the argument */
 fn trim_run<S: Site, F: Family, const LEFT: bool, const RIGHT: bool>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
     let ascii = F::ascii(cx, a.recv);
-    let out = {
-        let cx = &*cx;
-        (|| -> Result<Option<Owned<F>>, Error> {
-            let set = match a.get(0).filter(|v| !v.is_none()) { Some(v) => Some(F::arg(cx, v, Role::Chars)?), None => None };
-            let h = F::recv(cx, a.recv)?;
-            let gone = |u: <F::Hay as Hay>::Unit| match set { Some(set) => set.holds(u), None => <F::Hay as Hay>::blank::<S::Lang>(u) };
-            // a run of one byte units walks its bytes with no decoding
-            let (s, e) = if ascii { kept::<F::Hay, LEFT, RIGHT, _>(h, || h.bytes_as_units(), gone) } else { kept::<F::Hay, LEFT, RIGHT, _>(h, || h.units(), gone) };
-            if F::SHARES && e - s == h.bytes().len() { return Ok(None); }
-            Ok(Some(h.cut(s..e).copied()))
-        })()
-    };
-    match out.map_err(|e| e.raise::<S>(cx))? { Some(out) => Ok(F::give(cx, out)?.into()), None => Ok(a.recv.into()) }
+    let out = shared::<S, _>(cx, |cx| {
+        let set = match a.get(0).filter(|v| !v.is_none()) { Some(v) => Some(F::arg(cx, v, Role::Chars)?), None => None };
+        let h = F::recv(cx, a.recv)?;
+        let gone = |u: <F::Hay as Hay>::Unit| match set { Some(set) => set.holds(u), None => <F::Hay as Hay>::blank::<S::Lang>(u) };
+        // a run of one byte units walks its bytes with no decoding
+        let (s, e) = if ascii { kept::<F::Hay, LEFT, RIGHT, _>(h, || h.bytes_as_units(), gone) } else { kept::<F::Hay, LEFT, RIGHT, _>(h, || h.units(), gone) };
+        if F::SHARES && e - s == h.bytes().len() { return Ok(None); }
+        Ok(Some(h.cut(s..e).copied()))
+    })?;
+    match out { Some(out) => Ok(F::give(cx, out)?.into()), None => Ok(a.recv.into()) }
 }
 
 /* the bytes of `h` left once units `gone` holds leave the ends asked */
@@ -701,21 +692,18 @@ fn join_fold<S: Site, F: Family>(acc: &mut Acc, cx: &mut Cx<'_, '_>, item: Item)
 
 /* the parts around the first or last separator keeping shared values as given */
 fn halves<S: Site, F: Family, const LAST: bool>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
-    let found = {
-        let cx = &*cx;
-        (|| -> Result<(Owned<F>, Option<Owned<F>>), Error> {
-            let sep = F::arg(cx, a.pos[0], Role::Part)?;
-            if sep.bytes().is_empty() { return Err(Error::Fail(Fail::EmptySeparator)); }
-            let h = F::recv(cx, a.recv)?;
-            let (hay, n) = (h.bytes(), sep.bytes().len());
-            let at = if LAST { search::rfind(hay, sep.bytes()) } else { search::find(hay, sep.bytes()) };
-            Ok(match at {
-                Some(i) => (h.cut(0..i).copied(), Some(h.cut(i + n..hay.len()).copied())),
-                None => (<F::Hay as Hay>::owned(0), None),
-            })
-        })()
-    };
-    let (head, tail) = found.map_err(|e| e.raise::<S>(cx))?;
+    let found = shared::<S, _>(cx, |cx| {
+        let sep = F::arg(cx, a.pos[0], Role::Part)?;
+        if sep.bytes().is_empty() { return Err(Error::Fail(Fail::EmptySeparator)); }
+        let h = F::recv(cx, a.recv)?;
+        let (hay, n) = (h.bytes(), sep.bytes().len());
+        let at = if LAST { search::rfind(hay, sep.bytes()) } else { search::find(hay, sep.bytes()) };
+        Ok(match at {
+            Some(i) => (h.cut(0..i).copied(), Some(h.cut(i + n..hay.len()).copied())),
+            None => (<F::Hay as Hay>::owned(0), None),
+        })
+    })?;
+    let (head, tail) = found;
     let parts = match tail {
         Some(tail) => [F::give(cx, head)?, F::keep(cx, a.pos[0])?, F::give(cx, tail)?],
         None if LAST => [F::give(cx, <F::Hay as Hay>::owned(0))?, F::give(cx, head)?, F::keep(cx, a.recv)?],
@@ -726,69 +714,60 @@ fn halves<S: Site, F: Family, const LAST: bool>(cx: &mut Cx<'_, '_>, a: Args<'_>
 
 /* the receiver without the affix where a shared receiver whole comes back as itself */
 fn unaffixed<S: Site, F: Family, const SUFFIX: bool>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
-    let out = {
-        let cx = &*cx;
-        (|| -> Result<Option<Owned<F>>, Error> {
-            let affix = F::arg(cx, a.pos[0], Role::Affix)?;
-            let h = F::recv(cx, a.recv)?;
-            let (hay, p) = (h.bytes(), affix.bytes());
-            let rest = if SUFFIX { hay.strip_suffix(p).map(|r| 0..r.len()) } else { hay.strip_prefix(p).map(|_| p.len()..hay.len()) };
-            Ok(match rest {
-                Some(r) if !p.is_empty() => Some(h.cut(r).copied()),
-                _ if F::SHARES => None,
-                _ => Some(h.copied()),
-            })
-        })()
-    };
-    match out.map_err(|e| e.raise::<S>(cx))? { Some(out) => Ok(F::give(cx, out)?.into()), None => Ok(a.recv.into()) }
+    let out = shared::<S, _>(cx, |cx| {
+        let affix = F::arg(cx, a.pos[0], Role::Affix)?;
+        let h = F::recv(cx, a.recv)?;
+        let (hay, p) = (h.bytes(), affix.bytes());
+        let rest = if SUFFIX { hay.strip_suffix(p).map(|r| 0..r.len()) } else { hay.strip_prefix(p).map(|_| p.len()..hay.len()) };
+        Ok(match rest {
+            Some(r) if !p.is_empty() => Some(h.cut(r).copied()),
+            _ if F::SHARES => None,
+            _ => Some(h.copied()),
+        })
+    })?;
+    match out { Some(out) => Ok(F::give(cx, out)?.into()), None => Ok(a.recv.into()) }
 }
 
 /* one fill unit pads to a width splitting a centred pad as the runtime chooses */
 fn justify<S: Site, F: Family, const ALIGN: u8>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
     let ascii = F::ascii(cx, a.recv);
-    let out = {
-        let cx = &*cx;
-        (|| -> Result<Option<Owned<F>>, Error> {
-            let width = width(cx, a.pos[0])?;
-            let fill = F::fill(cx, a.get(1))?;
-            let h = F::recv(cx, a.recv)?;
-            let pad = width.saturating_sub(h.count(ascii));
-            if pad == 0 && F::SHARES { return Ok(None); }
-            // a fill of several bytes takes that many for each unit of the pad
-            let size = <F::Hay as Hay>::size(fill);
-            if size > 1 { cx.reserve(h.bytes().len().saturating_add(pad.saturating_mul(size)))?; }
-            // the pad is charged once nothing refuses it
-            cx.spend(width);
-            let left = match ALIGN { b'<' => 0, b'>' => pad, _ => <S::Lang as Lang>::CENTRE.before(pad, width) };
-            let mut out = <F::Hay as Hay>::owned(h.bytes().len() + pad * <F::Hay as Hay>::size(fill));
-            <F::Hay as Hay>::push_unit(&mut out, fill, left);
-            <F::Hay as Hay>::push(&mut out, h);
-            <F::Hay as Hay>::push_unit(&mut out, fill, pad - left);
-            Ok(Some(out))
-        })()
-    };
-    match out.map_err(|e| e.raise::<S>(cx))? { Some(out) => Ok(F::give(cx, out)?.into()), None => Ok(a.recv.into()) }
+    let out = shared::<S, _>(cx, |cx| {
+        let width = width(cx, a.pos[0])?;
+        let fill = F::fill(cx, a.get(1))?;
+        let h = F::recv(cx, a.recv)?;
+        let pad = width.saturating_sub(h.count(ascii));
+        if pad == 0 && F::SHARES { return Ok(None); }
+        // a fill of several bytes takes that many for each unit of the pad
+        let size = <F::Hay as Hay>::size(fill);
+        if size > 1 { cx.reserve(h.bytes().len().saturating_add(pad.saturating_mul(size)))?; }
+        // the pad is charged once nothing refuses it
+        cx.spend(width);
+        let left = match ALIGN { b'<' => 0, b'>' => pad, _ => <S::Lang as Lang>::CENTRE.before(pad, width) };
+        let mut out = <F::Hay as Hay>::owned(h.bytes().len() + pad * <F::Hay as Hay>::size(fill));
+        <F::Hay as Hay>::push_unit(&mut out, fill, left);
+        <F::Hay as Hay>::push(&mut out, h);
+        <F::Hay as Hay>::push_unit(&mut out, fill, pad - left);
+        Ok(Some(out))
+    })?;
+    match out { Some(out) => Ok(F::give(cx, out)?.into()), None => Ok(a.recv.into()) }
 }
 
 fn zeros_run<S: Site, F: Family>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
     let ascii = F::ascii(cx, a.recv);
-    let out = {
-        let cx = &*cx;
-        (|| -> Result<Option<Owned<F>>, Error> {
-            let width = width(cx, a.pos[0])?;
-            cx.spend(width);
-            let h = F::recv(cx, a.recv)?;
-            let (n, len) = (h.count(ascii), h.bytes().len());
-            if n >= width && F::SHARES { return Ok(None); }
-            let signed = usize::from(matches!(h.bytes().first(), Some(b'+' | b'-')));
-            let mut out = <F::Hay as Hay>::owned(len + width.saturating_sub(n));
-            <F::Hay as Hay>::push(&mut out, h.cut(0..signed));
-            <F::Hay as Hay>::push_unit(&mut out, <F::Hay as Hay>::from_ascii(b'0'), width.saturating_sub(n));
-            <F::Hay as Hay>::push(&mut out, h.cut(signed..len));
-            Ok(Some(out))
-        })()
-    };
-    match out.map_err(|e| e.raise::<S>(cx))? { Some(out) => Ok(F::give(cx, out)?.into()), None => Ok(a.recv.into()) }
+    let out = shared::<S, _>(cx, |cx| {
+        let width = width(cx, a.pos[0])?;
+        cx.spend(width);
+        let h = F::recv(cx, a.recv)?;
+        let (n, len) = (h.count(ascii), h.bytes().len());
+        if n >= width && F::SHARES { return Ok(None); }
+        let signed = usize::from(matches!(h.bytes().first(), Some(b'+' | b'-')));
+        let mut out = <F::Hay as Hay>::owned(len + width.saturating_sub(n));
+        <F::Hay as Hay>::push(&mut out, h.cut(0..signed));
+        <F::Hay as Hay>::push_unit(&mut out, <F::Hay as Hay>::from_ascii(b'0'), width.saturating_sub(n));
+        <F::Hay as Hay>::push(&mut out, h.cut(signed..len));
+        Ok(Some(out))
+    })?;
+    match out { Some(out) => Ok(F::give(cx, out)?.into()), None => Ok(a.recv.into()) }
 }
 
 /* a tab size refused past the machine int a runtime holds it in */
@@ -805,44 +784,40 @@ fn tab_size<L: Lang>(cx: &Cx<'_, '_>, v: Val) -> Result<usize, Error> {
 }
 
 fn tabs_run<S: Site, F: Family>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
-    let out = {
-        let cx = &*cx;
-        (|| -> Result<Owned<F>, Error> {
-            let size = match a.get(0) {
-                None => 8,
-                Some(v) => tab_size::<S::Lang>(cx, v)?,
-            };
-            let h = F::recv(cx, a.recv)?;
-            let (room, len) = (cx.room(), h.bytes().len());
-            let stop = |col: usize| if size == 0 { 0 } else { size - col % size };
-            // a first pass sizes the text so it is refused before any of it exists
-            let (mut total, mut col) = (0usize, 0usize);
-            for (_, u) in h.units() {
-                let c = <F::Hay as Hay>::char(u);
-                let n = if c == '\t' { stop(col) } else { 1 };
-                total = total.saturating_add(if c == '\t' { n } else { <F::Hay as Hay>::size(u) });
-                if total > room { return Err(Error::Vm(cold_heap())); }
-                col = if c == '\n' || c == '\r' { 0 } else { col + n };
+    let out = shared::<S, _>(cx, |cx| {
+        let size = match a.get(0) {
+            None => 8,
+            Some(v) => tab_size::<S::Lang>(cx, v)?,
+        };
+        let h = F::recv(cx, a.recv)?;
+        let (room, len) = (cx.room(), h.bytes().len());
+        let stop = |col: usize| if size == 0 { 0 } else { size - col % size };
+        // a first pass sizes the text so it is refused before any of it exists
+        let (mut total, mut col) = (0usize, 0usize);
+        for (_, u) in h.units() {
+            let c = <F::Hay as Hay>::char(u);
+            let n = if c == '\t' { stop(col) } else { 1 };
+            total = total.saturating_add(if c == '\t' { n } else { <F::Hay as Hay>::size(u) });
+            if total > room { return Err(Error::Vm(cold_heap())); }
+            col = if c == '\n' || c == '\r' { 0 } else { col + n };
+        }
+        let (mut out, mut col, mut run, mut written) = (<F::Hay as Hay>::owned(total), 0usize, 0, 0usize);
+        for (i, u) in h.units() {
+            let c = <F::Hay as Hay>::char(u);
+            if c == '\t' {
+                let n = stop(col);
+                <F::Hay as Hay>::push(&mut out, h.cut(run..i));
+                <F::Hay as Hay>::push_unit(&mut out, <F::Hay as Hay>::from_ascii(b' '), n);
+                written += i - run + n;
+                run = i + 1;
+                col += n;
+            } else {
+                col = if c == '\n' || c == '\r' { 0 } else { col + 1 };
             }
-            let (mut out, mut col, mut run, mut written) = (<F::Hay as Hay>::owned(total), 0usize, 0, 0usize);
-            for (i, u) in h.units() {
-                let c = <F::Hay as Hay>::char(u);
-                if c == '\t' {
-                    let n = stop(col);
-                    <F::Hay as Hay>::push(&mut out, h.cut(run..i));
-                    <F::Hay as Hay>::push_unit(&mut out, <F::Hay as Hay>::from_ascii(b' '), n);
-                    written += i - run + n;
-                    run = i + 1;
-                    col += n;
-                } else {
-                    col = if c == '\n' || c == '\r' { 0 } else { col + 1 };
-                }
-            }
-            <F::Hay as Hay>::push(&mut out, h.cut(run..len));
-            cx.spend(written + len - run);
-            Ok(out)
-        })()
-    };
-    let out = out.map_err(|e| e.raise::<S>(cx))?;
+        }
+        <F::Hay as Hay>::push(&mut out, h.cut(run..len));
+        cx.spend(written + len - run);
+        Ok(out)
+    })?;
     Ok(F::give(cx, out)?.into())
 }

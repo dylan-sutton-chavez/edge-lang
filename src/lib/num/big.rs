@@ -210,14 +210,11 @@ fn unop<L: Lang>(heap: &mut HeapPool, op: UnOp, v: Val) -> Result<Option<Val>, V
     narrow::<L>(heap, r).map(Some)
 }
 
-// the ints this kind boxes past what an inline value holds
-pub(crate) type Wide = BigInt;
-
 /* the wide int `v` boxes borrowed in place */
 #[inline(always)]
-fn wide<'h>(cx: &'h Cx<'_, '_>, v: Val) -> Option<&'h Wide> {
+fn wide<'h>(cx: &'h Cx<'_, '_>, v: Val) -> Option<&'h BigInt> {
     let kind = cx.heap().foreign_kind(v)?;
-    cx.heap().foreign_payload::<Wide>(Cx::kind_token(cx.heap(), kind)?, v)
+    cx.heap().foreign_payload::<BigInt>(Cx::kind_token(cx.heap(), kind)?, v)
 }
 
 /* the sign and magnitude modulo two to `bits` less one of an int past i128 */
@@ -228,13 +225,10 @@ pub(crate) fn modulo(cx: &Cx<'_, '_>, v: Val, bits: u32) -> Option<(bool, u64)> 
 }
 
 /* the int `v` holds of any width borrowed when boxed and None for anything else */
-pub(crate) fn of<'h>(cx: &'h Cx<'_, '_>, v: Val) -> Option<Cow<'h, Wide>> {
-    if let Some(i) = cx.int(v) { return Some(Cow::Owned(Wide::from_i128(i))); }
+pub(crate) fn of<'h>(cx: &'h Cx<'_, '_>, v: Val) -> Option<Cow<'h, BigInt>> {
+    if let Some(i) = cx.int(v) { return Some(Cow::Owned(BigInt::from_i128(i))); }
     wide(cx, v).map(Cow::Borrowed)
 }
-
-/* `b` as the narrowest int value the running heap boxes */
-pub(crate) fn val<L: Lang>(cx: &mut Cx<'_, '_>, b: Wide) -> Result<Val, VmErr> { narrow::<L>(cx.heap_mut(), b) }
 
 /* the int a literal's digits in `radix` spell refused past the memory left */
 fn digits_val<L: Lang>(heap: &mut HeapPool, neg: bool, digits: &[u8], radix: u32) -> Result<Val, VmErr> {
@@ -260,7 +254,7 @@ pub fn charge_text<L: Lang>(cx: &Cx<'_, '_>, v: Val) -> Result<(), VmErr> {
     if !v.is_foreign() { return Ok(()); }
     // an int an i128 holds sits inline with no limbs and prints in one pass
     let heap = cx.heap();
-    let Some(bits) = token::<L>(heap).and_then(|t| heap.foreign_payload::<Wide>(t, v)).map(BigInt::bit_length) else { return Ok(()) };
+    let Some(bits) = token::<L>(heap).and_then(|t| heap.foreign_payload::<BigInt>(t, v)).map(BigInt::bit_length) else { return Ok(()) };
     // a value past the digit limit refuses before converting so it costs nothing
     if L::DIGITS.is_some_and(|limit| bits > limit as u64 * 3322 / 1000 + 64) { return Ok(()); }
     // the conversion divides every limb once per nine digits as reading them multiplies
@@ -275,14 +269,14 @@ pub fn charge_text<L: Lang>(cx: &Cx<'_, '_>, v: Val) -> Result<(), VmErr> {
 pub fn from_digits<L: Lang>(cx: &mut Cx<'_, '_>, neg: bool, digits: &[u8], radix: u32) -> Result<Val, VmErr> {
     if !radix.is_power_of_two() && L::DIGITS.is_some_and(|limit| digits.len() > limit) { return Err(bare::<L>(Fail::Digits(Some(digits.len())))); }
     admit(cx.heap(), digits.len() as u64 / 9 + 1, (digits.len() as u64).pow(2) / 64)?;
-    val::<L>(cx, Wide::from_digits(neg, digits, radix))
+    narrow::<L>(cx.heap_mut(), BigInt::from_digits(neg, digits, radix))
 }
 
 /* the int a finite integral float holds */
-pub fn from_f64<L: Lang>(cx: &mut Cx<'_, '_>, f: f64) -> Result<Val, VmErr> { val::<L>(cx, Wide::from_f64(f)) }
+pub fn from_f64<L: Lang>(cx: &mut Cx<'_, '_>, f: f64) -> Result<Val, VmErr> { narrow::<L>(cx.heap_mut(), BigInt::from_f64(f)) }
 
 /* the quotient and remainder of wide ints rounded by the runtime's policy */
-fn divmod_as(heap: &HeapPool, x: &Wide, y: &Wide) -> Option<(Wide, Wide)> {
+fn divmod_as(heap: &HeapPool, x: &BigInt, y: &BigInt) -> Option<(BigInt, BigInt)> {
     match heap.policy().int_mod {
         crate::lang::IntMod::Truncated => x.divmod_trunc(y),
         crate::lang::IntMod::Floored => x.divmod(y),
@@ -293,17 +287,17 @@ fn divmod_as(heap: &HeapPool, x: &Wide, y: &Wide) -> Option<(Wide, Wide)> {
 pub fn pow_mod<L: Lang>(cx: &mut Cx<'_, '_>, base: Val, exp: Val, modulus: Val) -> Option<Result<Option<Val>, VmErr>> {
     let truncated = matches!(cx.policy().int_mod, crate::lang::IntMod::Truncated);
     let r = { let (b, e, m) = (of(cx, base)?, of(cx, exp)?, of(cx, modulus)?); pow_mod_of(cx.heap(), &b, &e, &m, truncated) };
-    Some(match r { Ok(Some(r)) => val::<L>(cx, r).map(Some), Ok(None) => Ok(None), Err(e) => Err(e) })
+    Some(match r { Ok(Some(r)) => narrow::<L>(cx.heap_mut(), r).map(Some), Ok(None) => Ok(None), Err(e) => Err(e) })
 }
 
 /* the power modulo a nonzero `m` signed by the remainder rule or none without inverse */
-fn pow_mod_of(heap: &HeapPool, b: &Wide, e: &Wide, m: &Wide, truncated: bool) -> Result<Option<Wide>, VmErr> {
+fn pow_mod_of(heap: &HeapPool, b: &BigInt, e: &BigInt, m: &BigInt, truncated: bool) -> Result<Option<BigInt>, VmErr> {
     let am = m.abs();
     admit(heap, am.limbs() as u64 * 2 + 2, (am.limbs() as u64).saturating_pow(2).saturating_mul(e.bit_length().max(1)) / 4)?;
-    let modp = |x: &Wide| x.divmod(&am).map(|(_, r)| r).unwrap_or_default();
+    let modp = |x: &BigInt| x.divmod(&am).map(|(_, r)| r).unwrap_or_default();
     let mut base = modp(b);
     if e.is_neg() { match inverse(&base, &am) { Some(inv) => base = inv, None => return Ok(None) } }
-    let mut acc = modp(&Wide::from_i128(1));
+    let mut acc = modp(&BigInt::from_i128(1));
     for i in (0..e.abs().bit_length()).rev() {
         acc = modp(&acc.mul(&acc));
         if e.bit(i) { acc = modp(&acc.mul(&base)); }
@@ -315,16 +309,16 @@ fn pow_mod_of(heap: &HeapPool, b: &Wide, e: &Wide, m: &Wide, truncated: bool) ->
 }
 
 /* the inverse of `a` modulo `m` and None when they share a factor */
-fn inverse(a: &Wide, m: &Wide) -> Option<Wide> {
+fn inverse(a: &BigInt, m: &BigInt) -> Option<BigInt> {
     let (mut r0, mut r1) = (m.clone(), a.clone());
-    let (mut t0, mut t1) = (Wide::zero(), Wide::from_i128(1));
+    let (mut t0, mut t1) = (BigInt::zero(), BigInt::from_i128(1));
     while !r1.is_zero() {
         let (q, r) = r0.divmod(&r1)?;
         (r0, r1) = (r1, r);
         let t = t0.sub(&q.mul(&t1));
         (t0, t1) = (t1, t);
     }
-    (r0 == Wide::from_i128(1)).then(|| t0.divmod(m).map(|(_, r)| r)).flatten()
+    (r0 == BigInt::from_i128(1)).then(|| t0.divmod(m).map(|(_, r)| r)).flatten()
 }
 
 /* the bit length of any int read off its top limb */
@@ -350,23 +344,23 @@ pub fn to_bytes<L: Lang>(cx: &Cx<'_, '_>, v: Val, len: usize, big_endian: bool, 
 /* the int bytes spell little-endian signed or not */
 pub fn from_bytes_le<L: Lang>(cx: &mut Cx<'_, '_>, le: &[u8], signed: bool) -> Result<Val, VmErr> {
     admit(cx.heap(), le.len() as u64 / 4 + 2, le.len() as u64)?;
-    val::<L>(cx, Wide::from_bytes_le(le, signed))
+    narrow::<L>(cx.heap_mut(), BigInt::from_bytes_le(le, signed))
 }
 
 /* an int rounded to a multiple of 10^digits where `away` breaks ties outward */
 pub fn round_tens<L: Lang>(cx: &mut Cx<'_, '_>, v: Val, digits: u64, away: bool) -> Option<Result<Val, VmErr>> {
     let r = { let x = of(cx, v)?; round_tens_of(cx.heap(), &x, digits, away) };
-    Some(r.and_then(|r| val::<L>(cx, r)))
+    Some(r.and_then(|r| narrow::<L>(cx.heap_mut(), r)))
 }
 
-fn round_tens_of(heap: &HeapPool, x: &Wide, digits: u64, away: bool) -> Result<Wide, VmErr> {
+fn round_tens_of(heap: &HeapPool, x: &BigInt, digits: u64, away: bool) -> Result<BigInt, VmErr> {
     // past the digits of `x` every rounding gives zero with no power built
-    if digits as f64 * core::f64::consts::LOG2_10 > x.bit_length() as f64 + 2.0 { return Ok(Wide::zero()); }
+    if digits as f64 * core::f64::consts::LOG2_10 > x.bit_length() as f64 + 2.0 { return Ok(BigInt::zero()); }
     admit(heap, digits / 9 + x.limbs() as u64 + 2, digits.saturating_mul(x.limbs() as u64))?;
-    let unit = Wide::from_i128(10).pow(digits);
+    let unit = BigInt::from_i128(10).pow(digits);
     let Some((q, r)) = x.divmod(&unit) else { return Err(VmErr::ZeroDiv) };
     let twice = r.add(&r);
     let up = match twice.cmp(&unit) { Ordering::Greater => true, Ordering::Less => false, Ordering::Equal if away => !x.is_neg(), Ordering::Equal => q.is_odd() };
-    let q = if up { q.add(&Wide::from_i128(1)) } else { q };
+    let q = if up { q.add(&BigInt::from_i128(1)) } else { q };
     Ok(q.mul(&unit))
 }

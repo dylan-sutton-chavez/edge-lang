@@ -6,6 +6,7 @@ use crate::value::{HeapObj, HeapPool, Val, VmErr, cold_runtime};
 
 use super::timsort;
 use crate::lib::fail::{Fail, fail, receiver};
+use crate::lib::iter::items::gather;
 use crate::lib::{Kernel, Site};
 
 /* the items in a new list in order by a key that may run backward */
@@ -107,7 +108,8 @@ fn by_keys(acc: &mut Acc, cx: &mut Cx<'_, '_>, item: Item) -> Result<Flow, VmErr
     match item { Item::End(_) => ordered_by_keys(acc, cx), _ => Ok(Flow::More) }
 }
 
-fn len(cx: &Cx<'_, '_>, list: Val) -> usize { match cx.heap().try_get(list) { Some(HeapObj::List(rc)) => rc.borrow().len(), _ => 0 } }
+/* how many items list `list` holds and zero for any other value */
+pub(crate) fn len(cx: &Cx<'_, '_>, list: Val) -> usize { match cx.heap().try_get(list) { Some(HeapObj::List(rc)) => rc.borrow().len(), _ => 0 } }
 
 /* a buffer for `n` values refused past the memory left */
 pub(crate) fn room(cx: &Cx<'_, '_>, n: usize) -> Result<Vec<Val>, VmErr> {
@@ -119,15 +121,8 @@ pub(crate) fn room(cx: &Cx<'_, '_>, n: usize) -> Result<Vec<Val>, VmErr> {
 fn keyed_fold(acc: &mut Acc, cx: &mut Cx<'_, '_>, item: Item) -> Result<Flow, VmErr> {
     match item {
         Item::Next(v) if acc.n & KEYING != 0 => Ok(Flow::Call(acc.v[0], v)),
-        Item::Next(v) => {
-            if (acc.items.len() + 1).saturating_mul(core::mem::size_of::<Val>()) >= cx.room() { return Err(VmErr::Heap); }
-            acc.items.push(v);
-            Ok(Flow::More)
-        }
-        Item::Called(k) => {
-            acc.items.push(k);
-            Ok(Flow::More)
-        }
+        Item::Next(v) => gather(acc, cx, v),
+        Item::Called(k) => { acc.items.push(k); Ok(Flow::More) }
         Item::End(_) if acc.n & KEYING != 0 => ordered_by_keys(acc, cx),
         Item::End(_) => {
             let list = cx.new_list(core::mem::take(&mut acc.items))?;

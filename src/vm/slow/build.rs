@@ -31,17 +31,11 @@ impl<'a> VM<'a> {
         self.heap.alloc(obj)
     }
 
-    /* unpacking and field formatting while the hot loop dispatches indexed access itself */
+    /* unpacking while the hot loop dispatches indexed access itself */
     pub(crate) fn handle_container(&mut self, op: OpCode, operand: u16, rip: usize) -> Result<(), VmErr> {
         match op {
             OpCode::UnpackSequence => self.unpack_iterable(operand as usize, None, Some(rip))?,
             OpCode::UnpackEx => self.unpack_iterable((operand >> 8) as usize, Some((operand & 0xFF) as usize), Some(rip))?,
-            OpCode::FormatValue => {
-                let spec = if operand & 1 != 0 { Some(self.pop()?) } else { None };
-                let v = self.pop()?;
-                let val = self.format_val(operand, v, spec)?;
-                self.push(val);
-            }
             _ => return Err(cold_runtime("non-container opcode in handle_container")),
         }
         Ok(())
@@ -178,7 +172,7 @@ impl<'a> VM<'a> {
         let Some(init) = ctor.init.filter(|_| ctor.exception) else { return Ok(false) };
         if !matches!(self.heap.try_get(init), Some(HeapObj::Func { .. })) { return Ok(false); }
         let instance = self.new_instance(exc, ctor.attrs)?;
-        self.set_exc_args(instance, Vec::new())?;
+        self.heap.set_args(instance, Vec::new())?;
         (self.pending_exec_safe, self.inline_call) = (self.frame_safe, true);
         let opened = self.with_roots([instance], |vm| vm.run_init(init, instance, &[], &[], chunk, true));
         (self.pending_exec_safe, self.inline_call) = (false, false);

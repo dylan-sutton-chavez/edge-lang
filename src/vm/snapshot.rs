@@ -421,8 +421,6 @@ fn put_set(w: &mut W, s: &ValSet) {
     w.seq(&items, |w, &v| w.val(v));
 }
 
-fn get_set_items(r: &mut R) -> Result<Vec<Val>, SnapErr> { r.seq(|r| r.val()) }
-
 /* sorted so identical states produce identical blobs */
 fn put_map(w: &mut W, m: &FxHashMap<String, Val>) {
     let mut pairs: Vec<(&String, &Val)> = m.iter().collect();
@@ -539,7 +537,7 @@ fn get_obj(r: &mut R, externs: &ExternMap, hosts: &mut Vec<crate::value::ExternF
         2 => HeapObj::List(Rc::new(RefCell::new(r.vals()?))),
         3 => HeapObj::Dict(Rc::new(RefCell::new(get_dict(r)?))),
         4 => {
-            fills.push((slot, get_set_items(r)?));
+            fills.push((slot, r.seq(|r| r.val())?));
             HeapObj::Set(Rc::new(RefCell::new(ValSet::default())))
         }
         6 => HeapObj::Tuple(r.vals()?),

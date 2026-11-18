@@ -6,41 +6,18 @@ use interpreter::code::SSAChunk;
 use interpreter::embed::{call_native, Limits, VM};
 use interpreter::lang::{kind_of, KindId, Native, Natives, Runtime};
 use interpreter::value::{as_i128, DictMap, HeapObj, Val, ValSet};
-use interpreter::lib::data::{csv, json, lines};
 use rig::Rig;
-use rig::natives::{ARRAY, BUFFER, BYTES, CONVERT, DATE, DICT, FLOAT, FOLDS, INT, IO, ITER, LIST, LIST_SORT, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
 use serde_yaml_ng::Value as Yaml;
 
 // the kernels rig leaves out under names of this file so every module answers
 const MORE: &[Native] = &interpreter::lib::table![Rig;
-    "lines" => lines::lines,
-    "json_read" => json::read,
-    "json_write" => json::write,
-    "csv_read" => csv::read("line", "sep"),
-    "csv_write" => csv::write("values", "sep"),
     "top" => interpreter::lib::seq::top::top{"key"},
     "ascii" => interpreter::lib::fmt::render::ascii_of,
     "getattr" => interpreter::lib::reflect::get,
     "hasattr" => interpreter::lib::reflect::has,
 ];
 
-static NATIVES: Natives = interpreter::natives! {
-    language: Over,
-    fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, TYPES, DATE, MORE],
-    methods: [
-        Str => [STR],
-        Bytes => [BUFFER],
-        ByteArray => [ARRAY],
-        List => [LIST, LIST_SORT],
-        Tuple => [TUPLE],
-        Dict => [DICT],
-        Set => [SET, SET_MANY],
-        Int => [INT],
-        Float => [FLOAT],
-        Range => [RANGE],
-    ],
-    types: rig::types::NAMES,
-};
+static NATIVES: Natives = rig::with!(Over, crate::data::DATA, MORE);
 
 static RUNTIME: Runtime = Runtime::of::<Over>();
 

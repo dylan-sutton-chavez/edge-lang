@@ -14,7 +14,6 @@ mod bound;
 use bound::*;
 pub(crate) use self::{extend::*, sections::*};
 
-
 // the `x` bit of a CallNativeR no binding of its name redirects
 pub(crate) const PINNED: u8 = 0x40;
 // the `x` bit of a statement's CallNativeR which takes no value
@@ -27,6 +26,24 @@ pub(crate) const TOO_DEEP: u8 = 2;
 pub(crate) const ARGC: u8 = 7;
 // the most arguments a CallNativeR passes in its own word and one ArgsR
 pub(crate) const NATIVE_ARGS: usize = 5;
+
+/* `$form` of the topmost pending value of lowering `$l` with `$x` and `$c` into a fresh destination left pending */
+macro_rules! unary_r {
+    ($l:ident, $form:expr, $x:expr, $c:expr) => {{
+        let v = $l.pop();
+        let t = $l.dest();
+        $l.produce(Ins { op: $form, x: $x, a: t, b: v.r, c: $c });
+    }};
+}
+
+/* `$form` of the two topmost pending values of lowering `$l` into a fresh destination left pending */
+macro_rules! pair_r {
+    ($l:ident, $form:expr) => {{
+        let (a, b) = $l.pop2();
+        let t = $l.dest();
+        $l.produce(Ins { op: $form, x: 0, a: t, b: a.r, c: b.r });
+    }};
+}
 
 /* whether the word after a native call is a statement's PopTop its call drops into */
 #[inline(always)]
@@ -85,7 +102,7 @@ pub(crate) const READ: u8 = 128;
 pub(crate) fn shape(src: &[Instruction]) -> u8 {
     let mut shape = READ;
     for (k, i) in src.iter().enumerate() {
-        if i.opcode.is_jump() || i.opcode == OpCode::UnwindFinally || ends_flow(i.opcode) && k + 1 < src.len() { shape |= JUMPS; }
+        if i.opcode.is_jump() || i.opcode == OpCode::UnwindFinally || i.opcode.ends_flow() && k + 1 < src.len() { shape |= JUMPS; }
         shape |= match i.opcode {
             OpCode::Call | OpCode::CallMethod | OpCode::CallSpread => CALLS,
             OpCode::ForIter => LOOPS,
@@ -308,9 +325,6 @@ impl Entry {
     const fn reg(r: u16) -> Self { Self { r, name: false } }
 }
 
-
-
-
 /* what a section's body holds that its laying looks for read in one pass */
 struct Marks { makes: bool, builds: bool, tried: bool, stacked: bool, yields: usize, yields_stack: bool }
 
@@ -488,7 +502,6 @@ fn lower_in<'p>(src: &[Instruction], chunk: &SSAChunk, facts: &Facts, sections: 
     Some(code)
 }
 
-
 /* marks blocks in `flags` and depths in `at` giving the rows the code lays */
 #[inline(never)]
 fn blocks_and_depths(src: &[Instruction], chunk: &SSAChunk, facts: &Facts, stores: &impl Fn(u16) -> bool, at: &mut [u32], flags: &mut [u32]) -> Option<u16> {
@@ -613,7 +626,7 @@ fn mark_block(src: &[Instruction], i: usize, flags: &mut [u32]) {
     if ins.opcode == OpCode::UnwindFinally { flags[i + 1] |= TARGET | START | ENTERED; }
     // a handler a catch enters takes its exception off the stack
     if ins.opcode == OpCode::SetupExcept && (ins.operand as usize) <= len { flags[ins.operand as usize] |= CAUGHT; }
-    if ins.opcode.is_jump() || ends_flow(ins.opcode) { flags[i + 1] |= START; }
+    if ins.opcode.is_jump() || ins.opcode.ends_flow() { flags[i + 1] |= START; }
 }
 
 /* `at` with the rows under each resume entry of `entry` past bit 16 */
@@ -632,9 +645,6 @@ fn entered(src: &[Instruction]) -> Vec<bool> {
     }
     entered
 }
-
-/* no instruction after it runs from it */
-fn ends_flow(op: OpCode) -> bool { op.ends_flow() }
 
 /* a build a call takes at once which laying reads as its stack form */
 pub(crate) const TAKEN: u8 = 128;
@@ -799,7 +809,6 @@ struct Lower<'c, 'p> {
     refused: bool,
 }
 
-
 /* calls in a section's body that jump to sections each with its target section */
 type Calls = Rc<[(usize, usize)]>;
 
@@ -853,10 +862,7 @@ impl<'p> Lower<'_, 'p> {
             }
             code if binary_form(code).is_some() && self.pending.len() >= 2 && op < AUGMENTED as u16 => return self.binary(i, code, op as u8),
             OpCode::Minus | OpCode::Not if !self.pending.is_empty() => {
-                let v = self.pop();
-                let t = self.dest();
-                let form = if ins.opcode == OpCode::Minus { OpCode::MinusR } else { OpCode::NotR };
-                self.produce(Ins { op: form, x: 0, a: t, b: v.r, c: 0 });
+                unary_r!(self, if ins.opcode == OpCode::Minus { OpCode::MinusR } else { OpCode::NotR }, 0, 0);
             }
             OpCode::JumpIfFalse if self.chunk.ternaries() && self.pending.len() > 1 && self.tern.is_none() && let Some((end_a, join)) = self.ternary(i) => {
                 let c = self.pop();
@@ -890,14 +896,10 @@ impl<'p> Lower<'_, 'p> {
             }
             // a handler's test of two pending values writes its truth to a temporary
             OpCode::MatchExc if regs && self.pending.len() >= 2 => {
-                let (e, c) = self.pop2();
-                let t = self.dest();
-                self.produce(Ins { op: OpCode::MatchExcR, x: 0, a: t, b: e.r, c: c.r });
+                pair_r!(self, OpCode::MatchExcR);
             }
             OpCode::ListToTuple if regs && !self.pending.is_empty() => {
-                let l = self.pop();
-                let t = self.dest();
-                self.produce(Ins { op: OpCode::ListToTupleR, x: 0, a: t, b: l.r, c: 0 });
+                unary_r!(self, OpCode::ListToTupleR, 0, 0);
             }
             OpCode::CallNative if regs && let Some(site) = native_site(op, &self.chunk.native_sites) && !site.spread && site.kw == 0
                 && site.pos as usize <= NATIVE_ARGS && self.pending.len() >= site.pos as usize => return self.native(i, site),
@@ -946,14 +948,10 @@ impl<'p> Lower<'_, 'p> {
             }
             // a pattern's length which no binding redirects
             OpCode::Len if !self.pending.is_empty() => {
-                let o = self.pop();
-                let t = self.dest();
-                self.produce(Ins { op: OpCode::LenR, x: 0, a: t, b: o.r, c: ENGINE_LEN });
+                unary_r!(self, OpCode::LenR, 0, ENGINE_LEN);
             }
             OpCode::GetItem if self.pending.len() >= 2 => {
-                let (o, k) = self.pop2();
-                let t = self.dest();
-                self.produce(Ins { op: OpCode::GetItemR, x: 0, a: t, b: o.r, c: k.r });
+                pair_r!(self, OpCode::GetItemR);
             }
             OpCode::StoreItem if self.pending.len() >= 3 => {
                 let (k, v) = self.pop2();
@@ -961,9 +959,7 @@ impl<'p> Lower<'_, 'p> {
                 self.emit(Ins { op: OpCode::StoreItemR, x: 0, a: o.r, b: k.r, c: v.r });
             }
             OpCode::LoadAttr if !self.pending.is_empty() => {
-                let o = self.pop();
-                let t = self.dest();
-                self.produce(Ins { op: OpCode::GetAttrR, x: 0, a: t, b: o.r, c: op });
+                unary_r!(self, OpCode::GetAttrR, 0, op);
             }
             OpCode::StoreAttr if self.pending.len() >= 2 => {
                 let (o, v) = self.pop2();
@@ -1059,11 +1055,8 @@ impl<'p> Lower<'_, 'p> {
             }
             // a loop takes a register's iterator and the value form leaves it in one
             OpCode::GetIter if regs && !self.pending.is_empty() => {
-                let v = self.pop();
-                if op == crate::syntax::parser::ITER_VALUE {
-                    let t = self.dest();
-                    self.produce(Ins { op: OpCode::GetIterR, x: op as u8, a: t, b: v.r, c: 0 });
-                } else {
+                if op == crate::syntax::parser::ITER_VALUE { unary_r!(self, OpCode::GetIterR, op as u8, 0); } else {
+                    let v = self.pop();
                     self.emit(Ins { op: OpCode::GetIterR, x: op as u8, a: 0, b: v.r, c: 0 });
                 }
             }
@@ -1134,12 +1127,7 @@ impl<'p> Lower<'_, 'p> {
                     // the head reads a receiver just loaded from a binding and takes the load's place
                     let at = self.out.len() as u32;
                     let global = self.out.last().copied().filter(|l| l.op == OpCode::LoadGlobalR && l.a == call.b && l.b < u16::MAX && !wide(call) && (call.x == 0 || call.c != l.a)).map(|l| l.b);
-                    if global.is_some() {
-                        self.out.pop();
-                        self.orig.pop();
-                        self.back.pop();
-                        for a in self.at[..=i].iter_mut().rev().take_while(|a| **a & 0xFFFF == at) { *a = *a & !0xFFFF | (at - 1); }
-                    }
+                    if global.is_some() { self.drop_load(i, at); }
                     self.head_take(call, rest, t, section, join);
                     if let Some(g) = global { let h = self.out.len() - HEADER as usize; self.out[h + 3].c = g + 1; }
                     return 2;
@@ -1175,9 +1163,7 @@ impl<'p> Lower<'_, 'p> {
             // a field formats its pending value and spec into a register
             OpCode::FormatValue if regs && self.pending.len() > (op & 1) as usize => {
                 let spec = if op & 1 != 0 { self.pop().r } else { 0 };
-                let v = self.pop();
-                let t = self.dest();
-                self.produce(Ins { op: OpCode::FormatR, x: op as u8, a: t, b: v.r, c: spec });
+                unary_r!(self, OpCode::FormatR, op as u8, spec);
             }
             // a return over rows with nothing pending hands back none
             OpCode::ReturnValue => {
@@ -1223,10 +1209,7 @@ impl<'p> Lower<'_, 'p> {
             self.outside_call(under, call, rest, join, 1);
             return 1;
         };
-        self.out.pop();
-        self.orig.pop();
-        self.back.pop();
-        for a in self.at[..=i].iter_mut().rev().take_while(|a| **a & 0xFFFF == at) { *a = *a & !0xFFFF | (at - 1); }
+        self.drop_load(i, at);
         let call = Ins { op: OpCode::CallGlobalR, a: load.b, ..call };
         // known sections are jumped to with a fresh result temporary and pending values in registers
         if let Some(section) = known {
@@ -1237,6 +1220,14 @@ impl<'p> Lower<'_, 'p> {
         }
         self.outside_call(under, call, rest, join, 1);
         1
+    }
+
+    /* drops the LoadGlobalR ending the output whose call reads its binding and points what began at `at` back at its place */
+    fn drop_load(&mut self, i: usize, at: u32) {
+        self.out.pop();
+        self.orig.pop();
+        self.back.pop();
+        for a in self.at[..=i].iter_mut().rev().take_while(|a| **a & 0xFFFF == at) { *a = *a & !0xFFFF | (at - 1); }
     }
 
     /* emits `call` outside every section spilling what lies under it and taking its value */
@@ -1322,7 +1313,7 @@ impl<'p> Lower<'_, 'p> {
             }
             // a merge reads the container under the value and leaves it there
             ListExtend | SetUpdate | DictUpdate => self.island(Ins::of(ins), 2, 1, 1),
-            op => match super::depth::effect(op, ins.operand, self.chunk) {
+            op => match op.effect(ins.operand, self.chunk) {
                 Some((0, 0)) | None => { self.settle(); self.emit_orig(ins); }
                 Some((pops, pushes)) if matches!(op, Call | CallNative | CallSpread | UnpackArgs | CallExtern) => {
                     let word = if super::rows::calls::spreads(op, ins.operand, self.chunk) { self.spread_word(ins) } else { Ins::of(ins) };
@@ -1360,9 +1351,7 @@ impl<'p> Lower<'_, 'p> {
         let native = self.facts.natives.get(crate::lang::NativeId(site.id));
         // a length keeps its form whose plain values never leave the register loop
         if n == 1 && !site.void && native.is_some_and(|f| f.intrinsic == crate::lang::Intrinsic::Len) {
-            let o = self.pop();
-            let t = self.dest();
-            self.produce(Ins { op: OpCode::LenR, x: 0, a: t, b: o.r, c: if site.pinned { ENGINE_LEN } else { site.id } });
+            unary_r!(self, OpCode::LenR, 0, if site.pinned { ENGINE_LEN } else { site.id });
             return 1;
         }
         // a name the module binds to its own value is called as that binding is
@@ -1384,16 +1373,22 @@ impl<'p> Lower<'_, 'p> {
         1
     }
 
-    /* builds ins from its n pending items in a register or false on the stack */
-    fn build(&mut self, ins: Instruction, n: usize, taken: bool) -> bool {
-        let k = self.pending.len() - n;
+    /* builds ins from its n pending items in a register */
+    fn build(&mut self, ins: Instruction, n: usize, taken: bool) {
+        let b = self.row_of(self.pending.len() - n, n);
+        let t = self.dest();
+        self.produce(Ins { op: OpCode::BuildR, x: ins.opcode as u8 | if taken { TAKEN } else { 0 }, a: t, b, c: n as u16 });
+    }
+
+    /* the first register of the `n` pending values from `k` laid as one row which it pops */
+    fn row_of(&mut self, k: usize, n: usize) -> u16 {
         // a row past what the plan's masks count moves its items into fresh temporaries
         let wide = n > 63;
         let plan = (n >= 2 && !wide && !self.in_row(k, true)).then(|| self.row_plan(k, true));
         let b = match plan {
             _ if n == 0 => 0,
             _ if wide => {
-                let t = self.free_row(n);
+                let t = self.free_block(n, &[]);
                 for q in 0..n { let e = self.pending[k + q]; self.emit(Ins { op: OpCode::Move, x: e.name as u8, a: t + q as u16, b: e.r, c: 0 }); }
                 t
             }
@@ -1401,9 +1396,7 @@ impl<'p> Lower<'_, 'p> {
             None => self.pending[k].r,
         };
         self.pending.truncate(k);
-        let t = self.dest();
-        self.produce(Ins { op: OpCode::BuildR, x: ins.opcode as u8 | if taken { TAKEN } else { 0 }, a: t, b, c: n as u16 });
-        true
+        b
     }
 
     /* native call `site` at `i` as a call of the module binding its name holds */
@@ -1439,20 +1432,7 @@ impl<'p> Lower<'_, 'p> {
     /* runtime opcode `op` on its pending operands read as a row into a temporary */
     fn own_op(&mut self, op: u16) {
         let n = usize::from(op >> 8);
-        let k = self.pending.len() - n;
-        let plan = (2..64).contains(&n).then(|| !self.in_row(k, true)).filter(|&apart| apart).map(|_| self.row_plan(k, true));
-        let b = match plan {
-            _ if n == 0 => 0,
-            // a row past what the plan's masks count moves its items into fresh temporaries
-            _ if n >= 64 => {
-                let t = self.free_row(n);
-                for q in 0..n { let e = self.pending[k + q]; self.emit(Ins { op: OpCode::Move, x: e.name as u8, a: t + q as u16, b: e.r, c: 0 }); }
-                t
-            }
-            Some(plan) => self.laid(k, plan),
-            None => self.pending[k].r,
-        };
-        self.pending.truncate(k);
+        let b = self.row_of(self.pending.len() - n, n);
         let t = self.dest();
         self.produce(Ins { op: OpCode::RuntimeR, x: op as u8, a: t, b, c: n as u16 });
     }
@@ -1561,7 +1541,7 @@ impl<'p> Lower<'_, 'p> {
 
     fn binary(&mut self, i: usize, code: OpCode, operand: u8) -> usize {
         let (a, b) = self.pop2();
-        if let Some(branch) = branch_form(code)
+        if let Some(branch) = code.branch()
             && let Some(next) = self.src.get(i + 1)
             && next.opcode == OpCode::JumpIfFalse
             && !self.target(i + 1)
@@ -1676,23 +1656,13 @@ impl<'p> Lower<'_, 'p> {
         b as u16
     }
 
-    // the first of `n` temporaries in a row that no pending value holds
-    fn free_row(&mut self, n: usize) -> u16 {
-        let mut t = self.tbase;
-        while (t..t + n).any(|u| self.pending.iter().any(|e| !e.name && e.r as usize == u)) { t += 1; }
-        self.temps = self.temps.max(t + n - self.tbase);
-        t as u16
-    }
-
     // the register form of the stack op at `i` and the instructions it took
     #[inline(never)]
     fn forms(&mut self, i: usize) -> Option<usize> {
         let (ins, op, n) = (self.src[i], self.src[i].operand, self.pending.len());
         match ins.opcode {
             OpCode::Pos | OpCode::BitNot if n > 0 => {
-                let v = self.pop();
-                let t = self.dest();
-                self.produce(Ins { op: OpCode::UnaryR, x: ins.opcode as u8, a: t, b: v.r, c: 0 });
+                unary_r!(self, OpCode::UnaryR, ins.opcode as u8, 0);
             }
             OpCode::Assert if n > 0 => {
                 let v = self.pop();
@@ -1743,7 +1713,7 @@ impl<'p> Lower<'_, 'p> {
         }
         let n = if ex { ((op >> 8) + 1 + (op & 0xFF)) as usize } else { op as usize };
         // an empty row names no register
-        let row = if n == 0 { 0 } else { self.free_row(n) };
+        let row = if n == 0 { 0 } else { self.free_block(n, &[]) };
         let unpack = if ex { Ins { op: OpCode::OpR, x: OpCode::UnpackEx as u8, a: row, b: src.r, c: op } } else { Ins { op: OpCode::UnpackR, x: 0, a: row, b: src.r, c: op } };
         if n == 1 { self.produce(unpack); return 1; }
         self.emit(unpack);
@@ -1796,7 +1766,7 @@ impl<'p> Lower<'_, 'p> {
         // a store at a join takes over no instruction another path skips
         (self.last, self.dest) = (None, None);
         // only code a path reaches falls into the next block
-        let mut falls = live && i > 0 && !ends_flow(self.src[i - 1].opcode);
+        let mut falls = live && i > 0 && !self.src[i - 1].opcode.ends_flow();
         // a jump notes the depth it enters at and the flow falling in holds it
         let d = match self.at.get(i) { Some(&d) if d != 0 => (d - 1) as u16, _ if falls || i == 0 => self.pending.len() as u16, _ => u16::MAX };
         // a block no path reaches holds nothing and an empty one lays nothing
@@ -2011,9 +1981,6 @@ fn binary_form(op: OpCode) -> Option<OpCode> {
 
 /* the `x` bit marking a bitwise register form from an augmented opcode */
 pub(crate) const AUGMENTED: u8 = 0x80;
-
-/* the compare-and-branch form of a comparison */
-fn branch_form(op: OpCode) -> Option<OpCode> { op.branch() }
 
 /* the stack opcode a register form falls back to */
 pub(crate) fn stack_form(op: OpCode) -> OpCode { STACK_FORMS[op as usize] }

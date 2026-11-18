@@ -24,8 +24,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
             self.header_test(Self::expr);
             let jf = self.emit_jump(OpCode::JumpIfFalse);
 
-            self.header_end();
-            self.compile_block();
+            self.suite();
 
             let Some(kind @ (TokenType::ElseIf | TokenType::Else)) = self.peek() else {
                 self.patch(jf);
@@ -38,8 +37,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
             self.mid_block();
             self.patch(jf);
             if kind == TokenType::Else {
-                self.header_end();
-                self.compile_block();
+                self.suite();
                 break;
             }
         }
@@ -71,38 +69,14 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         start
     }
 
-    /* closes the innermost loop and returns its `break` jumps to patch */
-    fn exit_loop(&mut self) -> Vec<usize> {
-        self.loops.pop().map(|l| l.breaks).unwrap_or_default()
-    }
-
     pub(super) fn while_stmt(&mut self) {
         self.advance();
         self.enter_block();
-
         let loop_start = self.enter_loop(false);
-
         self.header_test(Self::expr);
         let jf = self.emit_jump(OpCode::JumpIfFalse);
-
-        self.header_end();
-        self.compile_block();
-
-        self.chunk.emit(OpCode::Jump, loop_start);
-        self.patch(jf);
-
-        // the loop closes before the else so its break or continue targets the outer loop
-        let breaks = self.exit_loop();
-
-        if self.eat_if(TokenType::Else) {
-            self.header_end();
-            self.compile_block();
-        }
-
-        // breaks land past the else clause
-        for pos in breaks { self.patch(pos); }
-
-        self.commit_block();
+        self.suite();
+        self.close_loop(loop_start, jf);
     }
 
     pub(super) fn for_stmt(&mut self) {
@@ -117,33 +91,29 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         self.expr_or_tuple(|s| s.peek().is_none_or(|k| k == Self::OPEN || (Self::SHAPES.header_parens && k == TokenType::ParenClose)));
         if Self::SHAPES.header_parens { self.eat(TokenType::ParenClose); }
         self.chunk.emit(OpCode::GetIter, 0);
-
         self.enter_block();
-
         let loop_start = self.enter_loop(true);
-
         let fi = self.emit_jump(OpCode::ForIter);
-
         self.store_back(at, shape);
+        self.suite();
+        self.close_loop(loop_start, fi);
+    }
 
+    /* jumps back to `start` and lands `exit` then an else clause runs before the breaks land past it */
+    fn close_loop(&mut self, start: u16, exit: usize) {
+        self.chunk.emit(OpCode::Jump, start);
+        self.patch(exit);
+        // the loop closes before the else so its break or continue targets the outer loop
+        let breaks = self.loops.pop().map(|l| l.breaks).unwrap_or_default();
+        if self.eat_if(TokenType::Else) { self.suite(); }
+        for pos in breaks { self.patch(pos); }
+        self.commit_block();
+    }
+
+    /* the colon a header ends with and the block after it */
+    fn suite(&mut self) {
         self.header_end();
         self.compile_block();
-
-        self.chunk.emit(OpCode::Jump, loop_start);
-        self.patch(fi);
-
-        // the loop closes before the else so its break or continue targets the outer loop
-        let breaks = self.exit_loop();
-
-        if self.eat_if(TokenType::Else) {
-            self.header_end();
-            self.compile_block();
-        }
-
-        // breaks land past the else clause
-        for pos in breaks { self.patch(pos); }
-
-        self.commit_block();
     }
 
     pub(super) fn try_stmt(&mut self) {
@@ -206,8 +176,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
                     self.chunk.emit(OpCode::PopTop, 0);
                 }
             }
-            self.header_end();
-            self.compile_block();
+            self.suite();
 
             // handled arms jump past the `else` block while a bare last arm falls through
             let more = matches!(
@@ -229,10 +198,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
 
         // the success path falls into `else` and handled arms skip it
         self.patch(success_jump);
-        if self.eat_if(TokenType::Else) {
-            self.header_end();
-            self.compile_block();
-        }
+        if self.eat_if(TokenType::Else) { self.suite(); }
         for j in end_jumps {
             self.patch(j);
         }
@@ -243,10 +209,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         self.chunk.emit(OpCode::BeginFinally, 0);
         let fin_body = self.chunk.instructions.len() as u16;
         self.patch_to(fin_setup, fin_body);
-        if self.eat_if(TokenType::Finally) {
-            self.header_end();
-            self.compile_block();
-        }
+        if self.eat_if(TokenType::Finally) { self.suite(); }
         self.chunk.emit(OpCode::EndFinally, 0);
 
         self.commit_block();
@@ -264,8 +227,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
             if grouped && (!more || matches!(self.peek(), Some(TokenType::ParenClose))) { self.eat(TokenType::ParenClose); break; }
             if !more { break; }
         }
-        self.header_end();
-        self.compile_block();
+        self.suite();
     }
 
 }

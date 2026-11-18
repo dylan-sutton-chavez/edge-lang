@@ -152,14 +152,8 @@ impl WireValue {
         match t {
             tag::NONE => bytes.is_empty().then_some(Self::None),
             tag::BOOL => (bytes.len() == 1).then(|| Self::Bool(bytes[0] != 0)),
-            tag::INT => {
-                let arr: [u8; 16] = bytes.try_into().ok()?;
-                Some(Self::Int(i128::from_le_bytes(arr)))
-            }
-            tag::FLOAT => {
-                let arr: [u8; 8] = bytes.try_into().ok()?;
-                Some(Self::Float(f64::from_le_bytes(arr)))
-            }
+            tag::INT => bytes.try_into().ok().map(|a| Self::Int(i128::from_le_bytes(a))),
+            tag::FLOAT => bytes.try_into().ok().map(|a| Self::Float(f64::from_le_bytes(a))),
             tag::BYTES => Some(Self::Bytes(bytes.to_vec())),
             tag::RAW => Some(Self::Raw(bytes.to_vec())),
             tag::LIST | tag::DICT => {

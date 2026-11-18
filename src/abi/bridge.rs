@@ -26,7 +26,7 @@ impl BridgeState {
 
 // wasm runs one thread so one bridge serves the process and re-entry goes through `with_vm`
 
-pub(crate) fn with_bridge<R>(f: impl FnOnce(&mut BridgeState) -> R) -> R { crate::targets::web::with_bridge(f) }
+pub(crate) use crate::targets::web::with_bridge;
 
 pub fn put_val(v: Val) -> u32 { with_bridge(|b| b.handles.put(v.0)) }
 
@@ -117,14 +117,12 @@ pub(crate) fn with_recv<R, F>(invalid_recv_msg: &'static str, recv_h: u32, f: F)
 where F: FnOnce(&mut VM<'static>, Val) -> Result<R, VmErr>
 { let recv = get_val(recv_h).ok_or(VmErr::Runtime(invalid_recv_msg))?; with_vm(|vm| f(vm, recv)).ok_or(VmErr::Runtime("interpreter_op called outside run()"))? }
 
-/* the kind that names the error's own class and Custom for any other class */
-pub(crate) fn err_to_kind(e: &VmErr, names: &Names) -> ErrorKind { crate::lang::abi_kind(e, names) }
-
 pub(crate) fn stash_error(e: VmErr) {
     // the facts of an engine error take the runtime's words before the host reads them
     let e = match e { VmErr::Engine(_) => with_vm(|vm| vm.word(e.clone())).unwrap_or(e), e => e };
     let names = with_vm(|vm| vm.natives.names()).unwrap_or(&Names::PLAIN);
-    let kind = with_vm(|vm| vm.error_kind(&e)).unwrap_or_else(|| err_to_kind(&e, names));
+    // the kind that names the error's own class and Custom for any other class
+    let kind = with_vm(|vm| vm.error_kind(&e)).unwrap_or_else(|| crate::lang::abi_kind(&e, names));
     // a kind naming the class takes the bare message so no crossing writes it twice
     let msg = if kind == ErrorKind::Custom { e.render(names) } else { e.message(names) };
     with_bridge(|b| b.error_stash.set_typed(kind, msg));
@@ -163,44 +161,72 @@ pub(crate) fn host_interpreter_op(op: u32, recv: u32, name: &str, argv: &[u32], 
 }
 
 /* what `host_interpreter_op` asks of the VM with none once an iteration ends */
-fn host_op(op: u32, recv: u32, name: &str, args: &[Val]) -> Result<Option<Val>, VmErr> {
+fn host_op(op: u32, recv_h: u32, name: &str, args: &[Val]) -> Result<Option<Val>, VmErr> {
     let val = match Op::from_u32(op) {
-        Some(Op::Call) => dispatch_call(recv, name, args),
-        Some(Op::GetAttr) => dispatch_get_attr(recv, name),
-        Some(Op::SetAttr) => dispatch_set_attr(recv, name, args),
-        Some(Op::GetItem) => dispatch_get_item(recv, args),
-        Some(Op::SetItem) => dispatch_set_item(recv, args),
-        Some(Op::Len) => dispatch_len(recv),
-        Some(Op::Iter) => dispatch_iter(recv),
-        Some(Op::IterNext) => return dispatch_iter_next(recv),
+        // no receiver and the text name ask for the text the runtime writes
+        Some(Op::Call) if recv_h == 0 && name == crate::abi::op::TEXT => text_of(args),
+        Some(Op::Call) => with_recv("interpreter_op call: invalid receiver handle", recv_h, |vm, recv| {
+            // the self name calls `recv` itself so any callable a plugin holds dispatches normally
+            if name == crate::abi::op::CALL_SELF {
+                let chunk = vm.chunk;
+                return vm.call_with(recv, None, args, &[], chunk)?.ok_or(VmErr::Runtime("interpreter_op call of itself: callable left no result"));
+            }
+            // the runtime's native method of the receiver's kind
+            let Some((n, owner)) = vm.native_method(recv, name) else {
+                return Err(vm.fail(crate::lang::EngineError::NoAttribute { recv, name: String::from(name), store: false }));
+            };
+            vm.native_val(n, recv, Some(owner), args, &[], false)?.ok_or(VmErr::Runtime("interpreter_op call: method left no result"))
+        }),
+        // the op that reads like `recv.name`
+        Some(Op::GetAttr) => with_recv("interpreter_op get_attr: invalid receiver handle", recv_h, |vm, recv| vm.attr_value(recv, name)),
+        // the op that writes like `recv.name = value`
+        Some(Op::SetAttr) => {
+            let &[value] = args else { return Err(VmErr::TypeMsg(s!("set_attr expects exactly 1 value, got ", int args.len() as i64))) };
+            with_recv("interpreter_op set_attr: invalid receiver handle", recv_h, |vm, recv| vm.store_attr(recv, name, value).map(|()| Val::none()))
+        }
+        // builtin indexing only as a plugin call has no frame for an instance's own indexing
+        Some(Op::GetItem) => {
+            let &[idx] = args else { return Err(VmErr::TypeMsg(s!("get_item expects 1 index, got ", int args.len() as i64))) };
+            with_recv("interpreter_op get_item: invalid receiver handle", recv_h, |vm, recv| vm.get_item_builtin(recv, idx))
+        }
+        // item assignment on builtins alone for the reason indexing gives
+        Some(Op::SetItem) => {
+            let &[idx, value] = args else { return Err(VmErr::TypeMsg(s!("set_item expects (index, value), got ", int args.len() as i64, " args"))) };
+            with_recv("interpreter_op set_item: invalid receiver handle", recv_h, |vm, recv| vm.store_item_builtin(recv, idx, value).map(|()| Val::none()))
+        }
+        // runs the VM's `len` builtin so its caps and charges apply
+        Some(Op::Len) => with_recv("interpreter_op len: invalid receiver handle", recv_h, |vm, r| vm.builtin_len(r).and_then(|n| vm.int_to_val(Some(n)))),
+        // flattens any iterable into a list the guest reads by index and length
+        Some(Op::Iter) => with_recv("interpreter_op iter: invalid receiver handle", recv_h, |vm, recv| {
+            let items = vm.extract_iter(recv)?;
+            vm.heap.alloc(HeapObj::List(Rc::new(RefCell::new(items))))
+        }),
+        // the next item of an iterator list or builtin iterator and none at the end
+        Some(Op::IterNext) => return with_recv("interpreter_op iter_next: invalid receiver handle", recv_h, |vm, recv| {
+            if matches!(vm.heap.try_get(recv), Some(HeapObj::Iter(..))) {
+                vm.iter_step(recv)
+            } else if let Some(HeapObj::List(rc)) = vm.heap.try_get(recv) {
+                // a cursor beside the handle walks the list so no step shifts what is left
+                let at = with_bridge(|b| b.handles.advance(recv_h)).unwrap_or(u32::MAX);
+                Ok(rc.borrow().get(at as usize).copied())
+            } else {
+                Err(VmErr::TypeMsg(s!("iter_next expects a List iterator (produced by Op::Iter), got '", str &vm.type_named(recv), "'")))
+            }
+        }),
         Some(Op::NewDict) => in_vm("interpreter_op new_dict called outside run()", |vm| vm.heap.alloc(HeapObj::Dict(Rc::new(RefCell::new(DictMap::new()))))),
         Some(Op::NewList) => in_vm("interpreter_op new_list called outside run()", |vm| vm.heap.alloc(HeapObj::List(Rc::new(RefCell::new(Vec::new()))))),
-        Some(Op::TypeOf) => dispatch_type_of(recv),
+        Some(Op::TypeOf) => with_recv("interpreter_op type_of: invalid receiver handle", recv_h, |vm, recv| {
+            let name = vm.type_named(recv);
+            vm.heap.alloc(HeapObj::Str(name))
+        }),
         Some(Op::NewTuple) => in_vm("interpreter_op new_tuple called outside run()", |vm| vm.heap.alloc(HeapObj::Tuple(args.to_vec()))),
         Some(Op::NewSet) => in_vm("interpreter_op new_set called outside run()", |vm| vm.set_from_items(args.to_vec())),
         Some(Op::NewFrozenSet) => Err(VmErr::Type("frozenset is not supported")),
         // a system call names its plugin call in `recv` as the id `interpreter_call_id` gave it
-        Some(Op::Sys) => crate::targets::web::system_call(recv, name, args),
+        Some(Op::Sys) => crate::targets::web::system_call(recv_h, name, args),
         None => Err(VmErr::Raised(s!("interpreter_op: unsupported op ", int op as i64))),
     };
     val.map(Some)
-}
-
-fn dispatch_call(recv_h: u32, name: &str, args: &[Val]) -> Result<Val, VmErr> {
-    // no receiver and the text name ask for the text the runtime writes
-    if recv_h == 0 && name == crate::abi::op::TEXT { return text_of(args); }
-    with_recv("interpreter_op call: invalid receiver handle", recv_h, |vm, recv| {
-        // the self name calls `recv` itself so any callable a plugin holds dispatches normally
-        if name == crate::abi::op::CALL_SELF {
-            let chunk = vm.chunk;
-            return vm.call_with(recv, None, args, &[], chunk)?.ok_or(VmErr::Runtime("interpreter_op call of itself: callable left no result"));
-        }
-        // the runtime's native method of the receiver's kind
-        let Some((n, owner)) = vm.native_method(recv, name) else {
-            return Err(vm.fail(crate::lang::EngineError::NoAttribute { recv, name: String::from(name), store: false }));
-        };
-        vm.native_val(n, recv, Some(owner), args, &[], false)?.ok_or(VmErr::Runtime("interpreter_op call: method left no result"))
-    })
 }
 
 /* the one value of `args` as text the way the runtime's render hook writes it */
@@ -213,117 +239,23 @@ fn text_of(args: &[Val]) -> Result<Val, VmErr> {
     })
 }
 
-/* the op that reads like `recv.name` */
-fn dispatch_get_attr(recv_h: u32, name: &str) -> Result<Val, VmErr> {
-    with_recv("interpreter_op get_attr: invalid receiver handle", recv_h, |vm, recv| {
-        vm.attr_value(recv, name)
-    })
-}
-
-/* the op that writes like `recv.name = value` */
-fn dispatch_set_attr(recv_h: u32, name: &str, args: &[Val]) -> Result<Val, VmErr> {
-    let &[value] = args else {
-        return Err(VmErr::TypeMsg(s!("set_attr expects exactly 1 value, got ", int args.len() as i64)));
-    };
-    with_recv("interpreter_op set_attr: invalid receiver handle", recv_h, |vm, recv| {
-        vm.store_attr(recv, name, value)?;
-        Ok(Val::none())
-    })
-}
-
-/* builtin indexing only as a plugin call has no frame for an instance's own indexing */
-fn dispatch_get_item(recv_h: u32, args: &[Val]) -> Result<Val, VmErr> {
-    if args.len() != 1 {
-        return Err(VmErr::TypeMsg(s!("get_item expects 1 index, got ", int args.len() as i64)));
-    }
-    let idx = args[0];
-    with_recv("interpreter_op get_item: invalid receiver handle", recv_h, |vm, recv| {
-        vm.get_item_builtin(recv, idx)
-    })
-}
-
-/* item assignment on builtins alone for the reason `dispatch_get_item` gives */
-fn dispatch_set_item(recv_h: u32, args: &[Val]) -> Result<Val, VmErr> {
-    if args.len() != 2 {
-        return Err(VmErr::TypeMsg(s!("set_item expects (index, value), got ", int args.len() as i64, " args")));
-    }
-    let idx = args[0];
-    let value = args[1];
-    with_recv("interpreter_op set_item: invalid receiver handle", recv_h, |vm, recv| {
-        vm.store_item_builtin(recv, idx, value)?;
-        Ok(Val::none())
-    })
-}
-
-/* runs the VM's `len` builtin so its caps and charges apply */
-fn dispatch_len(recv_h: u32) -> Result<Val, VmErr> {
-    with_recv("interpreter_op len: invalid receiver handle", recv_h, |vm, recv| {
-        let n = vm.builtin_len(recv)?;
-        vm.int_to_val(Some(n))
-    })
-}
-
-/* flattens any iterable into a list the guest reads by index and length */
-fn dispatch_iter(recv_h: u32) -> Result<Val, VmErr> {
-    with_recv("interpreter_op iter: invalid receiver handle", recv_h, |vm, recv| {
-        let items = vm.extract_iter(recv)?;
-        vm.heap.alloc(HeapObj::List(Rc::new(RefCell::new(items))))
-    })
-}
-
-/* the next item of an iterator list or builtin iterator and none at the end */
-fn dispatch_iter_next(recv_h: u32) -> Result<Option<Val>, VmErr> {
-    with_recv("interpreter_op iter_next: invalid receiver handle", recv_h, |vm, recv| {
-        if matches!(vm.heap.try_get(recv), Some(HeapObj::Iter(..))) {
-            vm.iter_step(recv)
-        } else if let Some(HeapObj::List(rc)) = vm.heap.try_get(recv) {
-            // a cursor beside the handle walks the list so no step shifts what is left
-            let at = with_bridge(|b| b.handles.advance(recv_h)).unwrap_or(u32::MAX);
-            Ok(rc.borrow().get(at as usize).copied())
-        } else {
-            Err(VmErr::TypeMsg(s!("iter_next expects a List iterator (produced by Op::Iter), got '", str &vm.type_named(recv), "'")))
-        }
-    })
-}
-
-fn dispatch_type_of(recv_h: u32) -> Result<Val, VmErr> {
-    with_recv("interpreter_op type_of: invalid receiver handle", recv_h, |vm, recv| {
-        let name = vm.type_named(recv);
-        vm.heap.alloc(HeapObj::Str(name))
-    })
-}
-
 // turns a tag and bytes into a value handle or 0 for an invalid pair
 pub(crate) fn host_interpreter_encode(tag: u32, bytes: &[u8]) -> u32 {
-    // allocates in the live VM and gives 0 outside a run or out of memory
-    fn alloc_and_put(make: impl FnOnce() -> HeapObj) -> u32 {
-        // the payload is copied inside so the program's meter pays for it between runs too
-        match with_vm(|vm| vm.heap.alloc(make()).ok()).flatten() {
-            Some(val) => put_val(val),
-            None => 0,
-        }
-    }
+    // allocates in the live VM so the program's meter pays for the payload between runs too and gives 0 outside a run or out of memory
+    fn put<E>(make: impl FnOnce(&mut VM<'static>) -> Result<Val, E>) -> u32 { with_vm(|vm| make(vm).ok()).flatten().map_or(0, put_val) }
     match classify_encode(tag, bytes) {
         EncodeRequest::Direct(bits) => put_val(Val(bits)),
-        EncodeRequest::AllocStr(s) => alloc_and_put(|| HeapObj::Str(s.to_string())),
-        EncodeRequest::AllocBytes(b) => alloc_and_put(|| HeapObj::Bytes(b.to_vec())),
-        EncodeRequest::AllocInt(i) => match with_vm(|vm| vm.heap.int(i).ok()).flatten() { Some(val) => put_val(val), None => 0 },
-        EncodeRequest::Composite(w) => {
-            match with_vm(|vm| super::values::from_wire(&mut vm.heap, &w).ok()).flatten() {
-                Some(val) => put_val(val),
-                None => 0,
-            }
-        }
+        EncodeRequest::AllocStr(s) => put(|vm| vm.heap.alloc(HeapObj::Str(s.to_string()))),
+        EncodeRequest::AllocBytes(b) => put(|vm| vm.heap.alloc(HeapObj::Bytes(b.to_vec()))),
+        EncodeRequest::AllocInt(i) => put(|vm| vm.heap.int(i)),
+        EncodeRequest::Composite(w) => put(|vm| super::values::from_wire(&mut vm.heap, &w)),
         EncodeRequest::Invalid => 0,
     }
 }
 
 // bootstrap decoder writing the tag to `out_tag` and the bytes into `dst`
 pub(crate) fn host_interpreter_decode(h: u32, out_tag: &mut u32, dst: &mut [u8]) -> i32 {
-    let v = match get_val(h) {
-        Some(v) => v,
-        None => { *out_tag = TAG_INVALID; return 0; }
-    };
+    let Some(v) = get_val(h) else { *out_tag = TAG_INVALID; return 0 };
     let mut copy_into = |tag: u32, bytes: &[u8]| -> i32 {
         *out_tag = tag;
         let Some(room) = dst.get_mut(..bytes.len()) else { return -(bytes.len() as i32) };
@@ -338,32 +270,20 @@ pub(crate) fn host_interpreter_decode(h: u32, out_tag: &mut u32, dst: &mut [u8])
             PrimitiveBytes::Eight(a) => copy_into(tag, &a),
             PrimitiveBytes::Sixteen(a) => copy_into(tag, &a),
         },
-        DecodeBits::Heap => {
-            // text bytes ints and composites decode while other values go through `interpreter_op`
-            enum Decoded { Str(alloc::string::String), Bytes(Vec<u8>), Int(i128), Wire(u32, Vec<u8>), Other }
-            let decoded = with_vm(|vm| if v.is_foreign() { super::values::foreign_int(&vm.heap, v).map_or(Decoded::Other, Decoded::Int) } else { match vm.heap.get(v) {
-                HeapObj::Str(s) => Decoded::Str(s.clone()),
-                HeapObj::Bytes(b) => Decoded::Bytes(b.clone()),
-                HeapObj::List(_) | HeapObj::Tuple(_) | HeapObj::Dict(_) => {
-                    match super::values::to_wire(&vm.heap, v) {
-                        Some(w) => {
-                            let mut buf = Vec::new();
-                            w.encode_body(&mut buf);
-                            Decoded::Wire(w.tag(), buf)
-                        }
-                        None => Decoded::Other,
-                    }
-                }
-                _ => Decoded::Other,
-            } }).unwrap_or(Decoded::Other);
-            match decoded {
-                Decoded::Str(s) => copy_into(crate::abi::Tag::Bytes as u32, s.as_bytes()),
-                Decoded::Bytes(b) => copy_into(crate::abi::Tag::Raw as u32, &b),
-                Decoded::Int(i) => copy_into(crate::abi::Tag::Int as u32, &i.to_le_bytes()),
-                Decoded::Wire(tag, buf) => copy_into(tag, &buf),
-                Decoded::Other => copy_into(TAG_INVALID, &[]),
+        // text bytes ints and composites decode while other values go through `interpreter_op`
+        DecodeBits::Heap => with_vm(|vm| {
+            if v.is_foreign() { return super::values::foreign_int(&vm.heap, v).map(|i| copy_into(crate::abi::Tag::Int as u32, &i.to_le_bytes())); }
+            match vm.heap.get(v) {
+                HeapObj::Str(s) => Some(copy_into(crate::abi::Tag::Bytes as u32, s.as_bytes())),
+                HeapObj::Bytes(b) => Some(copy_into(crate::abi::Tag::Raw as u32, b)),
+                HeapObj::List(_) | HeapObj::Tuple(_) | HeapObj::Dict(_) => super::values::to_wire(&vm.heap, v).map(|w| {
+                    let mut buf = Vec::new();
+                    w.encode_body(&mut buf);
+                    copy_into(w.tag(), &buf)
+                }),
+                _ => None,
             }
-        }
+        }).flatten().unwrap_or_else(|| copy_into(TAG_INVALID, &[])),
         DecodeBits::Invalid => copy_into(TAG_INVALID, &[]),
     }
 }
@@ -381,10 +301,7 @@ pub(crate) fn host_interpreter_throw(kind: u32, msg: &str) {
 // drains the most recent error
 pub(crate) fn host_interpreter_take_error(out_kind: &mut u32, dst: &mut [u8]) -> i32 {
     // a peek first lets a caller with too small a buffer retry
-    let (kind, len) = match with_bridge(|b| b.error_stash.peek().map(|(k, m)| (k, m.len()))) {
-        Some(p) => p,
-        None => return -1,
-    };
+    let Some((kind, len)) = with_bridge(|b| b.error_stash.peek().map(|(k, m)| (k, m.len()))) else { return -1 };
     if len > dst.len() { return -(len as i32); }
     // the buffer fits so the error drains and a lost peek race never panics
     let Some((_, msg)) = with_bridge(|b| b.error_stash.take()) else { return -1; };

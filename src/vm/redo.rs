@@ -254,39 +254,28 @@ impl<'a> VM<'a> {
     #[inline(always)]
     pub(crate) fn redo_taken(&mut self, callee: Val) -> Option<Result<Val, VmErr>> {
         if !self.redo.on { return None; }
-        self.redo_take(callee)
-    }
-
-    #[cold]
-    #[inline(never)]
-    fn redo_take(&mut self, callee: Val) -> Option<Result<Val, VmErr>> {
-        let (depth, acts) = (self.depth, self.acts);
-        let st = self.redo.st();
-        let a = &mut st.arm;
-        if a.fresh || a.pos >= st.log.len() || a.depth != depth || a.acts != acts { return None; }
-        let d = &st.log[a.pos];
         // a call it makes as it is like a generator's gives nothing to take
-        if d.func.0 != callee.0 { return None; }
-        a.pos += 1;
-        Some(match d.v.clone() { Ok(v) => Ok(v), Err((e, exc)) => { self.pending.exc_val = exc; Err(e) } })
+        self.redo_next(|d| d.func.0 == callee.0)
     }
 
     /* what method `name` of `recv` gave before or None checked ahead of a fresh lookup */
     #[inline(always)]
     pub(crate) fn redo_dunder(&mut self, recv: Val, name: &str) -> Option<Result<Val, VmErr>> {
         if !self.redo.on { return None; }
-        self.redo_dunder_take((recv.0, crate::lang::fnv(name) as usize, name.len()))
+        let key = (recv.0, crate::lang::fnv(name) as usize, name.len());
+        self.redo_next(|d| d.key == Some(key))
     }
 
+    /* the next result the log holds at this depth when `hit` takes it */
     #[cold]
     #[inline(never)]
-    fn redo_dunder_take(&mut self, key: Key) -> Option<Result<Val, VmErr>> {
+    fn redo_next(&mut self, hit: impl Fn(&Done) -> bool) -> Option<Result<Val, VmErr>> {
         let (depth, acts) = (self.depth, self.acts);
         let st = self.redo.st();
         let a = &mut st.arm;
         if a.fresh || a.pos >= st.log.len() || a.depth != depth || a.acts != acts { return None; }
         let d = &st.log[a.pos];
-        if d.key != Some(key) { return None; }
+        if !hit(d) { return None; }
         a.pos += 1;
         Some(match d.v.clone() { Ok(v) => Ok(v), Err((e, exc)) => { self.pending.exc_val = exc; Err(e) } })
     }

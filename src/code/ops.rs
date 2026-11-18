@@ -439,6 +439,14 @@ macro_rules! ops {
     (@ownfast $f:ident $h:ident $a:ident) => { $f($h, $a) };
     (@ownfold - $a:ident) => { None };
     (@ownfold $f:ident $a:ident) => { $f($a) };
+    // one column of `INFO` read through a table of its own so a run reads no whole row
+    (@column $ty:ident $col:ident $out:ty, $none:expr) => {
+        #[inline]
+        pub const fn $col(self) -> $out {
+            const T: [$out; 256] = { let mut t = [$none; 256]; let mut k = 0; while k < $ty::INFO.len() { t[k] = $ty::INFO[k].$col; k += 1; } t };
+            T[self as usize]
+        }
+    };
     // a register or internal form declares its stack op its rows and its arm
     (@info $ty:ident $class:ident $name:ident $stack:tt $rows:tt $fast:tt) => {
         $crate::code::ops::OpInfo {
@@ -521,39 +529,19 @@ macro_rules! ops {
             }
 
             /* its register form read alone so a run reads no whole row */
-            #[inline]
-            pub const fn form(self) -> Option<$ty> {
-                const T: [Option<$ty>; 256] = { let mut t = [None; 256]; let mut k = 0; while k < $ty::INFO.len() { t[k] = $ty::INFO[k].form; k += 1; } t };
-                T[self as usize]
-            }
+            $crate::ops!(@column $ty form Option<$ty>, None);
 
             /* its compare and branch form read alone */
-            #[inline]
-            pub const fn branch(self) -> Option<$ty> {
-                const T: [Option<$ty>; 256] = { let mut t = [None; 256]; let mut k = 0; while k < $ty::INFO.len() { t[k] = $ty::INFO[k].branch; k += 1; } t };
-                T[self as usize]
-            }
+            $crate::ops!(@column $ty branch Option<$ty>, None);
 
             /* the operator it applies read alone */
-            #[inline]
-            pub const fn operator(self) -> $crate::code::ops::Operator {
-                const T: [$crate::code::ops::Operator; 256] = { let mut t = [$crate::code::ops::Operator::None; 256]; let mut k = 0; while k < $ty::INFO.len() { t[k] = $ty::INFO[k].operator; k += 1; } t };
-                T[self as usize]
-            }
+            $crate::ops!(@column $ty operator $crate::code::ops::Operator, $crate::code::ops::Operator::None);
 
             /* the way to its target read alone */
-            #[inline]
-            pub const fn edge(self) -> $crate::code::ops::Edge {
-                const T: [$crate::code::ops::Edge; 256] = { let mut t = [$crate::code::ops::Edge::None; 256]; let mut k = 0; while k < $ty::INFO.len() { t[k] = $ty::INFO[k].edge; k += 1; } t };
-                T[self as usize]
-            }
+            $crate::ops!(@column $ty edge $crate::code::ops::Edge, $crate::code::ops::Edge::None);
 
             /* the rows a register form reads and writes read alone */
-            #[inline]
-            pub const fn rows(self) -> $crate::code::ops::Rows {
-                const T: [$crate::code::ops::Rows; 256] = { let mut t = [$crate::code::ops::Rows::None; 256]; let mut k = 0; while k < $ty::INFO.len() { t[k] = $ty::INFO[k].rows; k += 1; } t };
-                T[self as usize]
-            }
+            $crate::ops!(@column $ty rows $crate::code::ops::Rows, $crate::code::ops::Rows::None);
 
             /* its operand is an instruction index so moving code must retarget it */
             pub const fn is_jump(self) -> bool { $crate::ops!(@jumps (is self) $ty [] $($s $operand)*) }

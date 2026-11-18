@@ -3,7 +3,7 @@ use alloc::vec::Vec;
 
 use crate::lang::{Args, Cx, Ret, Sig};
 
-use super::{new_str, push_lower, push_upper, recv_str};
+use super::{push_lower, push_upper, recv_str};
 use crate::lib::{Kernel, Site, uni};
 
 /* the text in uppercase as `C` maps each character */
@@ -51,13 +51,15 @@ fn one(c: char, mut mapped: impl Iterator<Item = char>) -> char {
     match (mapped.next(), mapped.next()) { (Some(m), None) => m, _ => c }
 }
 
-fn upper_run<C: Case>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret { let out = C::upper(recv_str(cx, a.recv)?); new_str(cx, out) }
+/* the receiver's text mapped through `f` as a new text */
+fn mapped(cx: &mut Cx<'_, '_>, a: Args<'_>, f: impl FnOnce(&str) -> String) -> Ret { let out = f(recv_str(cx, a.recv)?); Ok(cx.new_str(out)?.into()) }
 
-fn lower_run<C: Case>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret { let out = C::lower(recv_str(cx, a.recv)?); new_str(cx, out) }
+fn upper_run<C: Case>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret { mapped(cx, a, C::upper) }
+
+fn lower_run<C: Case>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret { mapped(cx, a, C::lower) }
 
 fn capitalize_run(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
-    let out = {
-        let s = recv_str(cx, a.recv)?;
+    mapped(cx, a, |s| {
         let mut cs = s.chars();
         let mut out = String::with_capacity(s.len());
         if let Some(c) = cs.next() {
@@ -67,19 +69,16 @@ fn capitalize_run(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
             if rest.bytes().any(|b| b == SIGMA_END) { out.push_str(s.to_lowercase().get(lowered_len(c)..).unwrap_or("")); } else { out.push_str(&rest.to_lowercase()); }
         }
         out
-    };
-    new_str(cx, out)
+    })
 }
 
 /* the bytes first character `c` takes once its text is lowercased */
 fn lowered_len(c: char) -> usize { if c == SIGMA { 'σ'.len_utf8() } else { c.to_lowercase().map(char::len_utf8).sum() } }
 
 fn title_run(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
-    let ascii = cx.is_ascii(a.recv);
-    let out = {
-        let s = recv_str(cx, a.recv)?;
-        // ascii text maps byte by byte with no case tables
-        if ascii { let out = ascii_title(s); return new_str(cx, out); }
+    // ascii text maps byte by byte with no case tables
+    if cx.is_ascii(a.recv) { return mapped(cx, a, ascii_title); }
+    mapped(cx, a, |s| {
         let mut finals = None;
         let (mut out, mut cased, mut cs) = (String::with_capacity(s.len()), false, s.chars());
         while let Some(c) = cs.next() {
@@ -88,8 +87,7 @@ fn title_run(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
             cased = true;
         }
         out
-    };
-    new_str(cx, out)
+    })
 }
 
 // the capital sigma whose lowercase takes its final form at the end of a word
@@ -133,21 +131,17 @@ fn ends(s: &str) -> Vec<usize> {
 fn sigma(finals: &[usize], at: usize) -> char { if finals.binary_search(&at).is_ok() { 'ς' } else { 'σ' } }
 
 fn fold_run(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
-    let out = {
-        let s = recv_str(cx, a.recv)?;
+    mapped(cx, a, |s| {
         let mut out = String::with_capacity(s.len());
         s.chars().for_each(|c| uni::push_fold(&mut out, c));
         out
-    };
-    new_str(cx, out)
+    })
 }
 
 fn swap_run(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
-    let ascii = cx.is_ascii(a.recv);
-    let out = {
-        let s = recv_str(cx, a.recv)?;
-        // ascii text maps byte by byte with no case tables
-        if ascii { let out = ascii_swap(s); return new_str(cx, out); }
+    // ascii text maps byte by byte with no case tables
+    if cx.is_ascii(a.recv) { return mapped(cx, a, ascii_swap); }
+    mapped(cx, a, |s| {
         let mut finals = None;
         let (mut out, mut cs) = (String::with_capacity(s.len()), s.chars());
         while let Some(c) = cs.next() {
@@ -155,6 +149,5 @@ fn swap_run(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
             else if c.is_uppercase() { push_lower(&mut out, c); } else if c.is_lowercase() { push_upper(&mut out, c); } else { out.push(c); }
         }
         out
-    };
-    new_str(cx, out)
+    })
 }

@@ -55,19 +55,13 @@ pub fn partition_bindings(all: Vec<NativeBinding>) -> (Vec<NativeBinding>, Vec<N
     let mut consts = Vec::new();
     for b in all {
         if let Some(name) = b.name.strip_prefix("__fn_") {
-            let name = name.to_string();
-            bindings.push(NativeBinding { name, ..b });
+            bindings.push(NativeBinding { name: name.to_string(), ..b });
         } else if let Some(name) = b.name.strip_prefix("__const_") {
-            let name = name.to_string();
-            consts.push(NativeBinding { name, ..b });
+            consts.push(NativeBinding { name: name.to_string(), ..b });
         } else if let Some((class_name, method)) = parse_class_export(&b.name) {
-            let (class_name, method) = (class_name.to_string(), method.to_string());
-            let m = NativeBinding { name: method, ..b };
-            if let Some(e) = class_map.iter_mut().find(|(n, _)| *n == class_name) {
-                e.1.push(m);
-            } else {
-                class_map.push((class_name, alloc::vec![m]));
-            }
+            let class_name = class_name.to_string();
+            let m = NativeBinding { name: method.to_string(), ..b };
+            if let Some(e) = class_map.iter_mut().find(|(n, _)| *n == class_name) { e.1.push(m) } else { class_map.push((class_name, alloc::vec![m])) }
         } else {
             bindings.push(b);
         }
@@ -78,13 +72,8 @@ pub fn partition_bindings(all: Vec<NativeBinding>) -> (Vec<NativeBinding>, Vec<N
 
 /* the class and method an export named `__class_<class>_<method>` binds */
 fn parse_class_export(export: &str) -> Option<(&str, &str)> {
-    let rest = export.strip_prefix("__class_")?;
-    let sep = rest.find('_')?;
-    let (class_name, method_part) = rest.split_at(sep);
-    if class_name.is_empty() { return None; }
-    let method = &method_part[1..];
-    if method.is_empty() { return None; }
-    Some((class_name, method))
+    let (class_name, method) = export.strip_prefix("__class_")?.split_once('_')?;
+    (!class_name.is_empty() && !method.is_empty()).then_some((class_name, method))
 }
 
 /* what the parser asks the host once per import statement */

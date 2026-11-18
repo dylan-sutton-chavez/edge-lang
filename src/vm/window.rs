@@ -143,9 +143,6 @@ impl VM<'_> {
         self.base = get_in(&self.pools, pool).window;
     }
 
-    /* copies out the whole window of `pool` for a run that suspends */
-    pub(crate) fn window_slots(&self, pool: usize) -> alloc::vec::Vec<Val> { self.window_prefix(pool, usize::MAX) }
-
     /* copies out the first `live` registers of the window of `pool` */
     pub(crate) fn window_prefix(&self, pool: usize, live: usize) -> alloc::vec::Vec<Val> {
         let p = &self.pools[pool];
@@ -196,15 +193,6 @@ impl VM<'_> {
             // a level no generator owns has nothing to give back
             if self.pools[pool].win(level).is_some_and(|w| !w.owner.is_undef()) { self.evict(pool, level); }
         }
-    }
-
-    /* `evict_coro` for `co`'s resume that took saved slots as `frame` and takes the window's instead */
-    #[cold]
-    #[inline(never)]
-    pub(crate) fn evict_into(&mut self, co: Val, frame: &mut alloc::vec::Vec<Val>) {
-        if self.owners == 0 { return; }
-        self.evict_coro(co);
-        if frame.is_empty() && let Some(crate::value::HeapObj::Coroutine(c)) = self.heap.try_get_mut(co) { core::mem::swap(frame, &mut c.slots); }
     }
 
     /* register `at` of generator `g` in the window it owns or its saved slots */

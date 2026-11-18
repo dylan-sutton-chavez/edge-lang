@@ -7,6 +7,7 @@ use super::Buf;
 use crate::lib::fail::{Coding, Error, Fail};
 use crate::lib::lang::{Codec, OnError, Order};
 use crate::lib::{Kernel, Lang, Site};
+use crate::lib::units::shared;
 
 /* the text as bytes in the codec and handler a call names */
 pub const fn encode<S: Site>() -> Kernel { Kernel::new(Sig::range(0, 2), encode_run::<S>) }
@@ -33,20 +34,10 @@ fn byte(codec: Codec, c: char) -> Option<u8> {
 }
 
 /* the codec the runtime names or utf-8 when none is named */
-fn codec<L: Lang>(name: Option<&str>) -> Result<Codec, Error> {
-    match name {
-        None => Ok(Codec::Utf8),
-        Some(n) => L::codec(n).ok_or_else(|| Error::Fail(Fail::UnknownCodec(String::from(n)))),
-    }
-}
+fn codec<L: Lang>(name: Option<&str>) -> Result<Codec, Error> { name.map_or(Ok(Codec::Utf8), |n| L::codec(n).ok_or_else(|| Error::Fail(Fail::UnknownCodec(String::from(n))))) }
 
 /* the handler a call names or strict looked up once a span fails */
-fn handler<L: Lang>(name: Option<&str>) -> Result<OnError, Error> {
-    match name {
-        None => Ok(OnError::Strict),
-        Some(n) => L::handler(n).ok_or_else(|| Error::Fail(Fail::UnknownHandler(String::from(n)))),
-    }
-}
+fn handler<L: Lang>(name: Option<&str>) -> Result<OnError, Error> { name.map_or(Ok(OnError::Strict), |n| L::handler(n).ok_or_else(|| Error::Fail(Fail::UnknownHandler(String::from(n))))) }
 
 /* `text` in the bytes of `encoding` handled as `errors` says within `room` bytes */
 pub fn encode_with<L: Lang>(text: &str, encoding: Option<&str>, errors: Option<&str>, room: usize) -> Result<Vec<u8>, Error> {
@@ -236,31 +227,23 @@ fn names(cx: &Cx<'_, '_>, a: &Args<'_>, keep_nil: bool) -> Result<[Option<String
 }
 
 fn encode_run<S: Site>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
-    let out = {
-        let cx = &*cx;
-        (|| -> Result<Vec<u8>, Error> {
-            let [encoding, errors] = names(cx, &a, true)?;
-            let text = cx.str_of(a.recv).ok_or_else(crate::lib::fail::receiver)?;
-            encode_with::<S::Lang>(text, encoding.as_deref(), errors.as_deref(), cx.room())
-        })()
-    };
-    let out = out.map_err(|e| e.raise::<S>(cx))?;
+    let out = shared::<S, _>(cx, |cx| {
+        let [encoding, errors] = names(cx, &a, true)?;
+        let text = cx.str_of(a.recv).ok_or_else(crate::lib::fail::receiver)?;
+        encode_with::<S::Lang>(text, encoding.as_deref(), errors.as_deref(), cx.room())
+    })?;
     // the bytes an encoding writes pay as native work once it wrote them
     if out.len() > 64 { cx.spend(out.len()); }
     Ok(cx.new_bytes(out, false)?.into())
 }
 
 fn decode_run<S: Site>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
-    let text = {
-        let cx = &*cx;
-        (|| -> Result<String, Error> {
-            let [encoding, errors] = names(cx, &a, false)?;
-            let buf = cx.bytes_of(a.recv).ok_or_else(crate::lib::fail::receiver)?;
-            cx.spend(buf.len());
-            decode_with::<S::Lang>(buf, encoding.as_deref(), errors.as_deref())
-        })()
-    };
-    let text = text.map_err(|e| e.raise::<S>(cx))?;
+    let text = shared::<S, _>(cx, |cx| {
+        let [encoding, errors] = names(cx, &a, false)?;
+        let buf = cx.bytes_of(a.recv).ok_or_else(crate::lib::fail::receiver)?;
+        cx.spend(buf.len());
+        decode_with::<S::Lang>(buf, encoding.as_deref(), errors.as_deref())
+    })?;
     Ok(cx.new_str(text)?.into())
 }
 

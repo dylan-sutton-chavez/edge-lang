@@ -1,7 +1,7 @@
 use crate::deps::{HostResolver, entry_dir};
 use crate::syntax::{chunk::SSAChunk, diag::Diagnostic};
 use crate::value::Limits;
-use crate::vm::VM;
+use crate::vm::{VM, snapshot};
 use crate::value::{HeapObj, SchedulerStatus, VmErr};
 use alloc::{boxed::Box, rc::Rc, string::{String, ToString}};
 use core::ptr::NonNull;
@@ -9,7 +9,7 @@ use crate::s;
 
 use super::{ModuleEntry, PausedRun, CHUNK_CACHE, with_runtime, with_slot, write_out, write_out_bytes};
 use super::resolver::WebHost;
-use crate::abi::bridge::{self, BridgeState, VmGuard};
+use crate::abi::bridge::{self, VmGuard};
 use crate::r#unsafe::{pinned, web};
 
 /* `run_start` and `run_resume` pack the kind in the top 3 bits above the out length */
@@ -142,10 +142,7 @@ fn source_arg(src: &[u8]) -> Result<String, u32> {
 }
 
 /* host-fed stdin for the next boot */
-pub(crate) fn set_input(input: &[u8]) {
-    let bytes = input.to_vec();
-    with_slot(|s| s.input = bytes);
-}
+pub(crate) fn set_input(input: &[u8]) { with_slot(|s| s.input = input.to_vec()); }
 
 pub(crate) fn out_ptr() -> *const u8 {
     with_runtime(|rt| rt.out.as_ptr())
@@ -159,17 +156,9 @@ pub(crate) fn out_len() -> u32 {
 pub(crate) fn vm_create() -> u32 {
     with_runtime(|rt| {
         rt.slot();
-        let fresh = Some(super::Slot::new());
-        match rt.slots.iter().position(Option::is_none) {
-            Some(i) => {
-                rt.slots[i] = fresh;
-                i as u32
-            }
-            None => {
-                rt.slots.push(fresh);
-                (rt.slots.len() - 1) as u32
-            }
-        }
+        let i = rt.slots.iter().position(Option::is_none).unwrap_or_else(|| { rt.slots.push(None); rt.slots.len() - 1 });
+        rt.slots[i] = Some(super::Slot::new());
+        i as u32
     })
 }
 
@@ -183,11 +172,9 @@ fn select(rt: &mut super::WasmRuntime, id: usize) -> i32 {
     if !rt.slots.get(id).is_some_and(Option::is_some) { return 1; }
     if id == rt.current { return 0; }
     // the bridge holds the selected slot's handles so park them and load the next slot's
-    let active = bridge::with_bridge(|b| core::mem::replace(b, BridgeState::new()));
-    rt.slot().bridge = active;
+    bridge::with_bridge(|b| core::mem::swap(b, &mut rt.slot().bridge));
     rt.current = id;
-    let incoming = core::mem::replace(&mut rt.slot().bridge, BridgeState::new());
-    bridge::with_bridge(|b| *b = incoming);
+    bridge::with_bridge(|b| core::mem::swap(b, &mut rt.slot().bridge));
     0
 }
 
@@ -212,12 +199,13 @@ pub(crate) fn register_native_module(spec: &str, names: &str, base_id: u32) {
         .enumerate()
         .map(|(i, name)| (name.to_string(), base_id + i as u32))
         .collect();
-    with_runtime(|rt| rt.register(spec, ModuleEntry::Native(funcs)));
+    // a registration replaces whatever an earlier one of `spec` left
+    with_runtime(|rt| { rt.deps.register(spec, ModuleEntry::Native(funcs)); rt.registry_changed(); });
 }
 
 /* a spec or bare name the host cannot load so its import fails with `msg` */
 pub(crate) fn register_module_error(spec: &str, msg: &str) {
-    with_runtime(|rt| rt.refuse(spec.to_string(), msg.to_string()));
+    with_runtime(|rt| { rt.deps.refuse(spec.to_string(), msg.to_string()); rt.registry_changed(); });
 }
 
 pub(crate) fn reset_modules() {
@@ -420,9 +408,6 @@ pub(crate) fn set_host_error_by_id(id: u32, kind: u32, msg_handle: u32) -> i32 {
 pub(crate) fn memory_peak() -> u64 {
     with_slot(|s| s.memory_peak as u64)
 }
-
-use crate::vm::snapshot;
-
 
 /* preempts every `n` loop back-edges and 0 disables it */
 pub(crate) fn set_preempt_interval(n: u32) {

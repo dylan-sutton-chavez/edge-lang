@@ -129,8 +129,9 @@ function makeGuestEnv(interpreterExports: InterpreterExports) {
     };
 }
 
-/* annotates each plugin export with the `__interpreter_alloc` and `__interpreter_memory` of its guest */
-async function instantiatePlugin(module: WebAssembly.Module, interpreterExports: InterpreterExports): Promise<NativeModuleResult> {
+/* compiles and instantiates plugin bytes beside the engine instance its imports bridge to with each export annotated by its guest */
+export async function loadNativeModule(bytes: Uint8Array, interpreterExports: InterpreterExports): Promise<NativeModuleResult> {
+    const module = await WebAssembly.compile(bytes as BufferSource);
     const envFactory = makeGuestEnv(interpreterExports);
     // the getter reads `instance` lazily since env functions only fire once it is bound
     const env = envFactory({ get memory() { return instance.exports.memory as WebAssembly.Memory; } });
@@ -161,23 +162,9 @@ async function instantiatePlugin(module: WebAssembly.Module, interpreterExports:
         v.__interpreter_memory = instance.exports.memory as WebAssembly.Memory;
         v.__interpreter_resume = instance.exports.__interpreter_resume as WasmPdkFn['__interpreter_resume'];
         v.__interpreter_kind = 'wasmpdk';
+        // the declared name the errors about it give
+        v.__interpreter_name = k;
         fns.push(v);
     }
     return { names, fns };
-}
-
-/* compiles and instantiates plugin bytes beside the engine instance its imports bridge to */
-export async function loadNativeModule(bytes: Uint8Array, interpreterExports: InterpreterExports): Promise<NativeModuleResult> {
-    const module = await WebAssembly.compile(bytes as BufferSource);
-    const result = await instantiatePlugin(module, interpreterExports);
-    annotateNames(result);
-    return result;
-}
-
-/* pairs each fn with its declared name for the errors about it */
-function annotateNames({ names, fns }: NativeModuleResult): void {
-    for (let i = 0; i < fns.length; i++) {
-        const fn = fns[i], name = names[i];
-        if (fn && name) fn.__interpreter_name = name;
-    }
 }

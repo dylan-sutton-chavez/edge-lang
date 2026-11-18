@@ -12,7 +12,7 @@ import type { Permissions } from '../system/perms.ts';
 import type { InterpreterExports } from '../wasm.ts';
 import { standsIn } from '../protocol.ts';
 import type { Limits, LoadOpts, RunOpts, ExecResult } from '../protocol.ts';
-import { described, fault, named, writeBytes } from '../util.ts';
+import { described, fault, staged, writeBytes } from '../util.ts';
 import { denied } from '../system/error.ts';
 import { gated } from '../system/gate.ts';
 
@@ -169,9 +169,7 @@ async function execute({ src, payload, start, entry = '', onLine, incremental = 
 
     // the engine resolves the walk and every relative import from the script it runs
     const entryBytes = TE.encode(typeof entry === 'string' ? entry : entry(exports));
-    const entryPtr = writeBytes(exports, entryBytes);
-    exports.set_entry(entryPtr, entryBytes.length);
-    exports.wasm_free(entryPtr, Math.max(1, entryBytes.length));
+    staged(exports, entryBytes, (ptr) => exports.set_entry(ptr, entryBytes.length));
 
     await bfsPrefetch(typeof src === 'string' ? src : src(exports), exports, {
         baseUrl: programBase,
@@ -187,9 +185,7 @@ async function execute({ src, payload, start, entry = '', onLine, incremental = 
     // stdin from the host with one `input` call per line
     if (input && exports.set_input) {
         const inputBytes = TE.encode(input);
-        const ptr = writeBytes(exports, inputBytes);
-        exports.set_input(ptr, inputBytes.length);
-        exports.wasm_free(ptr, Math.max(1, inputBytes.length));
+        staged(exports, inputBytes, (ptr) => exports.set_input!(ptr, inputBytes.length));
     }
 
     // caps the next `run_start` or `repl_eval` where a zero field keeps the sandbox value
@@ -203,9 +199,7 @@ async function execute({ src, payload, start, entry = '', onLine, incremental = 
     emitTrace?.({ kind: 'run', at: 0, epoch: Date.now() });
     pendingHostCalls.clear();
     // the engine copies the source out before the call returns
-    const payloadPtr = writeBytes(exports, payload);
-    const status = start(exports, payloadPtr, payload.length);
-    exports.wasm_free(payloadPtr, Math.max(1, payload.length));
+    const status = staged(exports, payload, (ptr) => start(exports, ptr, payload.length));
     let result: ExecResult;
     try {
         result = await drive(exports, rt, status, t0);
@@ -322,7 +316,7 @@ async function makeInstance(module: WebAssembly.Module, onLine: ((text: string) 
     const { exports } = await WebAssembly.instantiate(module, { env } as unknown as WebAssembly.Imports);
     interpreterExports = exports as unknown as InterpreterExports;
     // the runtime names its error classes before a run so no host call reenters it
-    named(interpreterExports);
+    described(interpreterExports);
     interpreterExports.reset_modules();
     applyPreemptInterval(interpreterExports);
     resetNativeTable();
@@ -410,7 +404,7 @@ async function drive(exports: InterpreterExports, rt: Rt, status: number, t0: nu
 /* the source and entry a blob embeds read where the descriptor lays them */
 function snapshotHead(blob: Uint8Array, exports: InterpreterExports): { source: string, entry: string } {
     const head = described(exports).snapshot;
-    if (!head) throw new Error('restoring a snapshot needs a newer interpreter.wasm');
+    if (!head) throw new Error('restoring a snapshot needs a newer runtime');
     const at = head.source_at;
     if (blob.length < at) throw new Error('not an interpreter snapshot');
     const v = new DataView(blob.buffer, blob.byteOffset, blob.byteLength);
@@ -426,10 +420,10 @@ function snapshotHead(blob: Uint8Array, exports: InterpreterExports): { source: 
     return { source: TD.decode(blob.subarray(at, at + len)), entry: TD.decode(blob.subarray(at + len, at + len + named)) };
 }
 
-/* an older wasm lacks the export and only preemption needs it */
+/* an older runtime lacks the export and only preemption needs it */
 function applyPreemptInterval(exports: InterpreterExports): void {
     if (!exports.set_preempt_interval) {
-        if (preemptEvery > 0) throw new Error('preemption needs a newer interpreter.wasm');
+        if (preemptEvery > 0) throw new Error('preemption needs a newer runtime');
         return;
     }
     exports.set_preempt_interval(preemptEvery);
@@ -477,28 +471,25 @@ export async function restoreState({ blob, onLine, onChannel }: { blob: Uint8Arr
     finally { running = false; channelSink = null; }
 }
 
-/* the module bindings of the parked program as JSON */
-export function stateGlobals(): Record<string, unknown> {
-    if (!interpreterExports) return {};
-    const len = interpreterExports.state_globals();
+/* the JSON a state export writes of the parked program or `none` before any run */
+function state<T>(read: (e: InterpreterExports) => number, none: T): T {
+    if (!interpreterExports) return none;
+    const len = read(interpreterExports);
     return JSON.parse(TD.decode(new Uint8Array(interpreterExports.memory.buffer, interpreterExports.out_ptr(), len)));
 }
 
+/* the module bindings of the parked program as JSON */
+export const stateGlobals = (): Record<string, unknown> => state((e) => e.state_globals(), {});
+
 /* the coroutines of the parked program as JSON */
-export function stateStack(): unknown[] {
-    if (!interpreterExports) return [];
-    const len = interpreterExports.state_stack();
-    return JSON.parse(TD.decode(new Uint8Array(interpreterExports.memory.buffer, interpreterExports.out_ptr(), len)));
-}
+export const stateStack = (): unknown[] => state((e) => e.state_stack(), []);
 
 /* injects into the paused VM or returns false so the caller buffers */
 function injectEvent(message: string): boolean {
     if (!interpreterExports) return false;
+    const exports = interpreterExports;
     const bytes = TE.encode(message);
-    const ptr = writeBytes(interpreterExports, bytes);
-    const status = interpreterExports.run_push_event(ptr, bytes.length);
-    interpreterExports.wasm_free(ptr, Math.max(1, bytes.length));
-    return status === 0;
+    return staged(exports, bytes, (ptr) => exports.run_push_event(ptr, bytes.length)) === 0;
 }
 
 /* queues an event for `receive` and buffers it until the VM waits on `PENDING_EVENT` */

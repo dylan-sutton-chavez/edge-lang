@@ -69,22 +69,24 @@ fn hash_kept<H: Scheme>(cx: &mut Cx<'_, '_>, x: Val) -> Result<i64, VmErr> {
 
 /* the hash of a number or of text which no check refuses */
 fn hash_fast<H: Scheme>(heap: &mut HeapPool, x: Val) -> Option<Val> {
-    let h = if x.is_int() { hash_int::<H>(i128::from(x.as_int())) }
-        else if x.is_bool() { i64::from(x.as_bool()) }
-        else if x.is_float() { hash_float::<H>(x) }
-        else if x.is_none() { H::NIL }
-        else if matches!(heap.try_get(x), Some(HeapObj::Str(_) | HeapObj::Bytes(_))) { content_hash::<H>(heap, x) }
-        else { return None };
+    let h = match inline::<H>(x) {
+        Some(h) => h,
+        None if matches!(heap.try_get(x), Some(HeapObj::Str(_) | HeapObj::Bytes(_))) => content_hash::<H>(heap, x),
+        None => return None,
+    };
     heap.int(i128::from(h)).ok()
+}
+
+/* the hash of an inline int bool float or nil */
+#[inline(always)]
+fn inline<H: Scheme>(x: Val) -> Option<i64> {
+    Some(if x.is_int() { hash_int::<H>(i128::from(x.as_int())) } else if x.is_bool() { i64::from(x.as_bool()) } else if x.is_float() { hash_float::<H>(x) } else if x.is_none() { H::NIL } else { return None })
 }
 
 /* the hash of `v` at `depth` where a tuple mixes the hashes of its items */
 fn hash_of<H: Scheme>(cx: &mut Cx<'_, '_>, v: Val, depth: usize, walk: &mut Walk<'_>) -> Result<i64, VmErr> {
     if depth > 200 { return Err(VmErr::CallDepth); }
-    if v.is_bool() { return Ok(i64::from(v.as_bool())); }
-    if v.is_none() { return Ok(H::NIL); }
-    if v.is_float() { return Ok(hash_float::<H>(v)); }
-    if v.is_int() { return Ok(hash_int::<H>(i128::from(v.as_int()))); }
+    if let Some(h) = inline::<H>(v) { return Ok(h); }
     if v.is_foreign() {
         if let Some(n) = cx.int(v) { return Ok(hash_int::<H>(n)); }
         // a wide int past an i128 hashes by the scheme and not its kind

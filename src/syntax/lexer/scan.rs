@@ -168,13 +168,6 @@ impl<'a, S: Spelling> Scanner<'a, S> {
     };
     const LINE_MARKS: &'static [&'static str] = S::SYNTAX.comments.line;
     const BLOCK_MARKS: Option<(&'static str, &'static str)> = S::SYNTAX.comments.block;
-    const COMMENT_START: &'static [bool; 256] = &{
-        let mut t = [false; 256];
-        let mut i = 0;
-        while i < Self::LINE_MARKS.len() { t[Self::LINE_MARKS[i].as_bytes()[0] as usize] = true; i += 1; }
-        if let Some((open, _)) = Self::BLOCK_MARKS { t[open.as_bytes()[0] as usize] = true; }
-        t
-    };
     const INTERP: Option<Interp> = S::SYNTAX.interp;
     const CONVERT: u8 = match Self::INTERP { Some(Interp { convert: Some((b, _)), .. }) => b, _ => 0 };
     // a conversion byte that also spells a symbol has to be told apart from it
@@ -190,7 +183,8 @@ impl<'a, S: Spelling> Scanner<'a, S> {
     const SPECIAL: &'static [u8; 256] = &{
         let mut t = [0u8; 256];
         let mut i = 0;
-        while i < 256 { if Self::COMMENT_START[i] { t[i] |= COMMENT; } i += 1; }
+        while i < Self::LINE_MARKS.len() { t[Self::LINE_MARKS[i].as_bytes()[0] as usize] |= COMMENT; i += 1; }
+        if let Some((open, _)) = Self::BLOCK_MARKS { t[open.as_bytes()[0] as usize] |= COMMENT; }
         if Self::BRACES { t[b'{' as usize] |= BRACE; }
         if Self::CONVERT_SHARED { t[Self::CONVERT as usize] |= CONVERT; }
         if Self::CLOSE_APART { t[Self::CLOSE as usize] |= CLOSE; }
@@ -213,12 +207,7 @@ impl<'a, S: Spelling> Scanner<'a, S> {
         gaps
     };
     // one more than the index of each quote byte among the table's quotes
-    const QUOTE: &'static [u8; 256] = &{
-        let mut t = [0u8; 256];
-        let mut i = 0;
-        while i < S::SYNTAX.strings.quotes.len() { t[S::SYNTAX.strings.quotes[i].byte as usize] = i as u8 + 1; i += 1; }
-        t
-    };
+    const QUOTE: &'static [u8; 256] = crate::syntax::text::Esc::<S>::QUOTE;
     const FORMAT_QUOTE: &'static [bool; 256] = &match Self::INTERP { Some(i) => flags(i.quotes), None => [false; 256] };
     const HASHES: bool = S::SYNTAX.strings.hashes;
     // whether no quote or every quote or only some take the long form of three
@@ -234,20 +223,7 @@ impl<'a, S: Spelling> Scanner<'a, S> {
         any
     };
     // one more than the bits of each one letter prefix in either case or zero
-    const PREFIX1: &'static [u8; 256] = &{
-        let (p, any) = (S::SYNTAX.strings.prefixes, S::SYNTAX.strings.any_case);
-        let mut t = [0u8; 256];
-        let mut i = 0;
-        while i < p.len() {
-            let b = p[i].0.as_bytes();
-            if b.len() == 1 {
-                t[b[0] as usize] = p[i].1 + 1;
-                if any { t[b[0].to_ascii_uppercase() as usize] = p[i].1 + 1; }
-            }
-            i += 1;
-        }
-        t
-    };
+    const PREFIX1: &'static [u8; 256] = crate::syntax::text::Esc::<S>::PREFIX1;
     const REFUSED: &'static [Option<&'static str>; 128] = &{
         let r = S::SYNTAX.strings.escapes.refused;
         let mut t = [None; 128];
@@ -1220,12 +1196,9 @@ impl<'a, S: Spelling> Scanner<'a, S> {
             }
 
             match kind {
-                | TokenType::ParenOpen
-                | TokenType::BracketOpen
-                | TokenType::BraceOpen => self.nesting += 1,
-                | TokenType::ParenClose
-                | TokenType::BracketClose => self.nesting = self.nesting.saturating_sub(1),
-                _ => {},
+                TokenType::ParenOpen | TokenType::BracketOpen | TokenType::BraceOpen => self.nesting += 1,
+                TokenType::ParenClose | TokenType::BracketClose => self.nesting = self.nesting.saturating_sub(1),
+                _ => {}
             }
 
             return Some((kind, line_at_start, start, self.pos));

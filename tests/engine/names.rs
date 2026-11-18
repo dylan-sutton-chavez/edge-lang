@@ -4,7 +4,7 @@ mod test {
 
     use interpreter::code::{compile_as, OpCode, SSAChunk};
     use interpreter::embed::{Limits, VM};
-    use interpreter::lang::{Args, Cx, Descriptor, Front, Intrinsic, Language, Misfit, Mode, Names, Native, NativeId, Natives, Policy, Ret, Runtime, Sig};
+    use interpreter::lang::{Args, Cx, Descriptor, Front, Intrinsic, Language, Mode, Names, Native, NativeId, Natives, Policy, Ret, Runtime, Sig};
     use interpreter::lexer::{Spelling, Syntax};
     use interpreter::value::foreign::{Kind, Snapshot, Transfer};
     use interpreter::value::{HeapPool, IterFrame, Val, VmErr};
@@ -179,9 +179,6 @@ mod test {
 
         fn handles(heap: &HeapPool, exc: Val, class: Val) -> Result<bool, VmErr> { interpreter::lib::types::match_exc::<rig::Rig>(heap, exc, class) }
 
-        fn misfit(n: &Native, owner: Option<&str>, m: Misfit<'_>) -> VmErr { <rig::Rig as interpreter::lang::Language>::misfit(n, owner, m) }
-
-        fn message(cx: &mut Cx<'_, '_>, e: &interpreter::lang::EngineError) -> String { <rig::Rig as Language>::message(cx, e) }
     }
 
     fn compiled(src: &str) -> SSAChunk {

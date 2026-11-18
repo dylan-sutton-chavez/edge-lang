@@ -2,11 +2,11 @@ use alloc::rc::Rc;
 use alloc::vec::Vec;
 use core::cell::RefCell;
 
-use crate::lang::{Acc, Args, CLASS, Cx, ErrKind, Flow, Fold, Item, KindId, Ret, STEPS, Sig, Step, TYPE};
+use crate::lang::{Acc, Args, CLASS, Cx, ErrKind, Flow, Fold, Item, Ret, STEPS, Sig, Step, TYPE};
 use crate::value::{DictMap, DictPart, HeapObj, HeapPool, MAP_TABLE, Val, VmErr};
 
 use crate::lib::fail::{Fail, fail, receiver};
-use crate::lib::iter::items::{SHORT, drained, gather, generator, taken};
+use crate::lib::iter::items::{SHORT, drained, framed, gather, generator, taken};
 use crate::lib::lang::Derived;
 use crate::lib::{Kernel, Site};
 
@@ -23,13 +23,13 @@ pub const fn new<S: Site>() -> Kernel {
 pub const fn get<S: Site>() -> Kernel { Kernel::new(Sig::range(1, 2), get_run) }
 
 /* the keys walked live */
-pub const fn keys<S: Site>() -> Kernel { Kernel::new(Sig::exact(0), keys_run::<S>) }
+pub const fn keys<S: Site>() -> Kernel { Kernel::new(Sig::exact(0), |cx, a| walk(cx, a.recv, DictPart::Keys, <S::Lang as Derived>::ITERS.keys)) }
 
 /* the values walked live */
-pub const fn values<S: Site>() -> Kernel { Kernel::new(Sig::exact(0), values_run::<S>) }
+pub const fn values<S: Site>() -> Kernel { Kernel::new(Sig::exact(0), |cx, a| walk(cx, a.recv, DictPart::Values, <S::Lang as Derived>::ITERS.values)) }
 
 /* the entries as pairs walked live */
-pub const fn items<S: Site>() -> Kernel { Kernel::new(Sig::exact(0), items_run::<S>) }
+pub const fn items<S: Site>() -> Kernel { Kernel::new(Sig::exact(0), |cx, a| walk(cx, a.recv, DictPart::Items, <S::Lang as Derived>::ITERS.items)) }
 
 /* removes a key and gives its value or a default */
 pub const fn pop<S: Site>() -> Kernel { Kernel::new(Sig::range(1, 2), pop_run::<S>) }
@@ -171,15 +171,15 @@ fn put_pairs<S: Site>(cx: &mut Cx<'_, '_>, d: Val, items: &[Val], at: usize) -> 
             continue;
         }
         if cx.is_coroutine(item) { return Err(fail::<S>(cx, Fail::PairNotIterable)); }
-        let pair = match cx.items(item) {
-            Ok(Some(pair)) => pair,
-            Ok(None) => return Ok(Some(i)),
-            Err(e) if e.is_kind(ErrKind::Type) => return Err(fail::<S>(cx, Fail::PairNotIterable)),
-            Err(e) => return Err(e),
-        };
+        let Some(pair) = pair_items::<S>(cx, item)? else { return Ok(Some(i)) };
         put_pair::<S>(cx, d, &pair, i)?;
     }
     Ok(None)
+}
+
+/* the items of pair `item` read up front or none when only a drain reads them */
+fn pair_items<S: Site>(cx: &mut Cx<'_, '_>, item: Val) -> Result<Option<Vec<Val>>, VmErr> {
+    match cx.items(item) { Err(e) if e.is_kind(ErrKind::Type) => Err(fail::<S>(cx, Fail::PairNotIterable)), r => r }
 }
 
 fn two_of(items: &[Val]) -> Option<[Val; 2]> { match *items { [k, v] => Some([k, v]), _ => None } }
@@ -228,12 +228,6 @@ fn get_run(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
     cx.require_key(key)?;
     Ok(a.pos.get(1).copied().unwrap_or(Val::none()).into())
 }
-
-fn keys_run<S: Site>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret { walk(cx, a.recv, DictPart::Keys, <S::Lang as Derived>::ITERS.keys) }
-
-fn values_run<S: Site>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret { walk(cx, a.recv, DictPart::Values, <S::Lang as Derived>::ITERS.values) }
-
-fn items_run<S: Site>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret { walk(cx, a.recv, DictPart::Items, <S::Lang as Derived>::ITERS.items) }
 
 /* an iterator walking the map live so nothing is copied */
 fn walk(cx: &mut Cx<'_, '_>, d: Val, part: DictPart, name: &'static str) -> Ret {
@@ -292,12 +286,7 @@ fn pairs<S: Site>(cx: &mut Cx<'_, '_>, items: &[Val]) -> Result<Option<Vec<(Val,
     for &item in items {
         // an iterator is left unread so a drain over the items still finds it whole
         if framed(cx, item) { return Ok(None); }
-        let pair = match cx.items(item) {
-            Ok(Some(pair)) => pair,
-            Ok(None) => return Ok(None),
-            Err(e) if e.is_kind(ErrKind::Type) => return Err(fail::<S>(cx, Fail::PairNotIterable)),
-            Err(e) => return Err(e),
-        };
+        let Some(pair) = pair_items::<S>(cx, item)? else { return Ok(None) };
         let [k, v] = pair[..] else { return Err(fail::<S>(cx, Fail::PairLength { at: out.len(), len: pair.len() })) };
         cx.require_key(k)?;
         out.push((k, v));
@@ -360,9 +349,6 @@ fn keyed(cx: &mut Cx<'_, '_>, keys: &[Val], value: Val) -> Result<Val, VmErr> {
     let d = table(cx.heap(), keys.len(), keys.iter().map(|&k| (k, value)))?;
     cx.new_dict(d)
 }
-
-/* whether stepping pair `v` may need frames so the fill drains it */
-fn framed(cx: &Cx<'_, '_>, v: Val) -> bool { matches!(cx.kind(v), KindId::Coro | KindId::Iter) }
 
 /* the map `recv` holds changed through `f` where any other receiver fails */
 fn with_map<R>(cx: &mut Cx<'_, '_>, recv: Val, f: impl FnOnce(&mut DictMap, &HeapPool) -> R) -> Result<R, VmErr> {

@@ -2,20 +2,12 @@ export type InterpreterValue = null | boolean | number | bigint | string | Uint8
 
 /* the handle codec `makeRt` returns for the values a host call takes and answers */
 export interface Rt {
-    decodeStr(h: number): string
-    decodeInt(h: number): number | bigint
-    decodeBool(h: number): boolean
-    decodeFloat(h: number): number
-    encodeStr(s: string): number
-    encodeInt(n: number | bigint): number
-    encodeBool(b: boolean): number
-    encodeFloat(f: number): number
-    encodeNone(): number
     decodeAny(h: number): InterpreterValue
     encodeAny(v: InterpreterValue): number
 }
 
 import type { InterpreterExports } from './wasm.ts';
+import { staged } from './util.ts';
 
 const TD = new TextDecoder();
 const TE = new TextEncoder();
@@ -52,15 +44,6 @@ function writeI128(v: DataView, off: number, n: number | bigint): void {
 /* wraps `host_interpreter_decode` and `host_interpreter_encode` so host calls skip NaN boxing */
 export function makeRt(getExports: () => InterpreterExports): Rt {
     return {
-        decodeStr: (h) => decodeStr(getExports(), h),
-        decodeInt: (h) => decodeInt(getExports(), h),
-        decodeBool: (h) => decodeBool(getExports(), h),
-        decodeFloat: (h) => decodeFloat(getExports(), h),
-        encodeStr: (s) => encodeStr(getExports(), s),
-        encodeInt: (n) => encodeInt(getExports(), n),
-        encodeBool: (b) => encodeBool(getExports(), b),
-        encodeFloat: (f) => encodeFloat(getExports(), f),
-        encodeNone: () => getExports().host_interpreter_encode(TAG_NONE, 0, 0),
         /* any handle to a plain JS value as a host call takes its arguments */
         decodeAny: (h) => decodeAny(getExports(), h),
         /* encodes integral numbers as ints and the other numbers as floats */
@@ -86,45 +69,6 @@ function rawDecode(exps: InterpreterExports, handle: number): { tag: number, byt
     const bytes = n > 0 ? new Uint8Array(exps.memory.buffer, dstPtr, n).slice() : new Uint8Array(0);
     exps.wasm_free(dstPtr, cap);
     return { tag, bytes };
-}
-
-function decodeBytes(exps: InterpreterExports, handle: number, expectedTag: number): Uint8Array {
-    const { tag, bytes } = rawDecode(exps, handle);
-    if (tag !== expectedTag) throw new Error(`expected tag ${expectedTag}, got ${tag}`);
-    return bytes;
-}
-
-const decodeStr = (exps: InterpreterExports, h: number) => TD.decode(decodeBytes(exps, h, TAG_BYTES));
-const decodeInt = (exps: InterpreterExports, h: number) => {
-    const b = decodeBytes(exps, h, TAG_INT);
-    return readI128(new DataView(b.buffer, b.byteOffset, 16), 0);
-};
-const decodeBool = (exps: InterpreterExports, h: number) => decodeBytes(exps, h, TAG_BOOL)[0] !== 0;
-const decodeFloat = (exps: InterpreterExports, h: number) => {
-    const b = decodeBytes(exps, h, TAG_FLOAT);
-    return new DataView(b.buffer, b.byteOffset, 8).getFloat64(0, true);
-};
-
-// one place pairs the alloc and free so their lengths cannot drift
-function encodeScalar(exps: InterpreterExports, tag: number, len: number, write: (ptr: number) => void): number {
-    const ptr = exps.wasm_alloc(len);
-    write(ptr);
-    const h = exps.host_interpreter_encode(tag, ptr, len);
-    exps.wasm_free(ptr, len);
-    return h;
-}
-function encodeStr(exps: InterpreterExports, s: string): number {
-    const bytes = TE.encode(s);
-    return encodeScalar(exps, TAG_BYTES, bytes.length, (ptr) => new Uint8Array(exps.memory.buffer, ptr, bytes.length).set(bytes));
-}
-function encodeInt(exps: InterpreterExports, n: number | bigint): number {
-    return encodeScalar(exps, TAG_INT, 16, (ptr) => writeI128(new DataView(exps.memory.buffer), ptr, n));
-}
-function encodeBool(exps: InterpreterExports, b: boolean): number {
-    return encodeScalar(exps, TAG_BOOL, 1, (ptr) => { new Uint8Array(exps.memory.buffer, ptr, 1)[0] = b ? 1 : 0; });
-}
-function encodeFloat(exps: InterpreterExports, f: number): number {
-    return encodeScalar(exps, TAG_FLOAT, 8, (ptr) => new DataView(exps.memory.buffer).setFloat64(ptr, f, true));
 }
 
 function decodeAny(exps: InterpreterExports, handle: number): InterpreterValue {
@@ -173,19 +117,9 @@ function decodeBody(tag: number, bytes: Uint8Array): InterpreterValue {
 /* picks the tag from `typeof` and takes a bigint as an int too */
 function encodeAny(exps: InterpreterExports, value: InterpreterValue): number {
     if (value === null || value === undefined) return exps.host_interpreter_encode(TAG_NONE, 0, 0);
-    if (typeof value === 'boolean') return encodeBool(exps, value);
-    if (typeof value === 'bigint') return encodeInt(exps, value);
-    if (typeof value === 'number') {
-        return Number.isInteger(value) ? encodeInt(exps, value) : encodeFloat(exps, value);
-    }
-    if (typeof value === 'string') return encodeStr(exps, value);
-    // composites and raw bytes serialize to one payload for a single `host_interpreter_encode`
+    // every other value serializes to one payload for a single `host_interpreter_encode`
     const { tag, body } = encodeNode(value);
-    const ptr = exps.wasm_alloc(Math.max(1, body.length));
-    new Uint8Array(exps.memory.buffer, ptr, body.length).set(body);
-    const h = exps.host_interpreter_encode(tag, ptr, body.length);
-    exps.wasm_free(ptr, Math.max(1, body.length));
-    return h;
+    return staged(exps, body, (ptr) => exps.host_interpreter_encode(tag, ptr, body.length));
 }
 
 /* the tag and body of a nested node or a composite root */

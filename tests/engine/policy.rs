@@ -1,6 +1,5 @@
 mod test {
-    use interpreter::embed::{Limits, VM};
-    use interpreter::lang::{Cx, Descriptor, EngineError, Falsy, Front, IntDiv, IntMod, Language, Misfit, Mode, NegPow, Names, Native, Natives, Policy, Runtime, ZeroDiv};
+    use interpreter::lang::{Cx, Descriptor, Falsy, Front, IntDiv, IntMod, Language, Mode, NegPow, Names, Natives, Policy, Runtime, ZeroDiv};
     use interpreter::lexer::{Spelling, Syntax};
     use interpreter::value::foreign::Kind;
     use interpreter::value::{HeapPool, Val, VmErr};
@@ -60,21 +59,10 @@ mod test {
 
         fn handles(heap: &HeapPool, exc: Val, class: Val) -> Result<bool, VmErr> { <Rig as Language>::handles(heap, exc, class) }
 
-        fn misfit(n: &Native, owner: Option<&str>, m: Misfit<'_>) -> VmErr { <Rig as Language>::misfit(n, owner, m) }
-
-        fn message(cx: &mut Cx<'_, '_>, e: &EngineError) -> String { <Rig as Language>::message(cx, e) }
     }
 
     /* what `src` prints under the runtime or the error that ends it */
-    fn ran(src: &str) -> String {
-        let (chunk, errors) = interpreter::code::compile_as::<Rules>(src);
-        assert!(errors.is_empty(), "{src:?} reports {:?}", errors.iter().map(|d| &d.msg).collect::<Vec<_>>());
-        let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
-        match vm.run() {
-            Ok(_) => vm.output_text().trim_end().to_string(),
-            Err(e) => vm.error_text(&e),
-        }
-    }
+    fn ran(src: &str) -> String { crate::common::ran_as::<Rules>(&RUNTIME, src) }
 
     #[test]
     fn a_runtime_that_states_other_rules_runs_a_loop_of_its_own() {
@@ -196,21 +184,10 @@ mod test {
 
         fn handles(heap: &HeapPool, exc: Val, class: Val) -> Result<bool, VmErr> { <Rig as Language>::handles(heap, exc, class) }
 
-        fn misfit(n: &Native, owner: Option<&str>, m: Misfit<'_>) -> VmErr { <Rig as Language>::misfit(n, owner, m) }
-
-        fn message(cx: &mut Cx<'_, '_>, e: &EngineError) -> String { <Rig as Language>::message(cx, e) }
     }
 
     /* what `src` prints under the stricter rules */
-    fn strict(src: &str) -> String {
-        let (chunk, errors) = interpreter::code::compile_as::<Strict>(src);
-        assert!(errors.is_empty(), "{src:?} reports {:?}", errors.iter().map(|d| &d.msg).collect::<Vec<_>>());
-        let mut vm = VM::with_runtime(&STRICT, &chunk, Limits::sandbox());
-        match vm.run() {
-            Ok(_) => vm.output_text().trim_end().to_string(),
-            Err(e) => vm.error_text(&e),
-        }
-    }
+    fn strict(src: &str) -> String { crate::common::ran_as::<Strict>(&STRICT, src) }
 
     // a bool that is no int finds no int method and orders with bools only
     #[test]
@@ -299,21 +276,10 @@ mod test {
 
         fn handles(heap: &HeapPool, exc: Val, class: Val) -> Result<bool, VmErr> { <Rig as Language>::handles(heap, exc, class) }
 
-        fn misfit(n: &Native, owner: Option<&str>, m: Misfit<'_>) -> VmErr { <Rig as Language>::misfit(n, owner, m) }
-
-        fn message(cx: &mut Cx<'_, '_>, e: &EngineError) -> String { <Rig as Language>::message(cx, e) }
     }
 
     /* what `src` prints under the flooring rules */
-    fn floored(src: &str) -> String {
-        let (chunk, errors) = interpreter::code::compile_as::<Floors>(src);
-        assert!(errors.is_empty(), "{src:?} reports {:?}", errors.iter().map(|d| &d.msg).collect::<Vec<_>>());
-        let mut vm = VM::with_runtime(&FLOORS, &chunk, Limits::sandbox());
-        match vm.run() {
-            Ok(_) => vm.output_text().trim_end().to_string(),
-            Err(e) => vm.error_text(&e),
-        }
-    }
+    fn floored(src: &str) -> String { crate::common::ran_as::<Floors>(&FLOORS, src) }
 
     // a floored quotient rounds down and its remainder takes the divisor's sign
     #[test]

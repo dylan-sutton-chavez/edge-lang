@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 use crate::lang::{Args, Cx, Ret, Sig};
 use crate::value::{DictMap, HeapObj, Val, VmErr};
 
-use crate::lib::fail::{Error, Fail, Json, ToJson, fail};
+use crate::lib::fail::{Error, Fail, Json, ToJson};
 use crate::lib::fmt::render::format_f64;
 use crate::lib::{Kernel, Lang, Site};
 
@@ -18,10 +18,8 @@ pub const fn read<S: Site>() -> Kernel { Kernel::new(Sig::exact(1), read_run::<S
 pub const fn write<S: Site>() -> Kernel { Kernel::new(Sig::exact(1), write_run::<S>) }
 
 fn read_run<S: Site>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
-    let src = match source(cx, a.pos[0]) { Ok(s) => s, Err(f) => return Err(fail::<S>(cx, f)) };
-    cx.spend(src.len());
-    let mut r = Reader { src: &src, at: 0 };
-    match r.document::<S::Lang>(cx) { Ok(v) => Ok(v.into()), Err(e) => Err(e.raise::<S>(cx)) }
+    let read = source(cx, a.pos[0]).map_err(Error::Fail).and_then(|src| parse::<S::Lang>(cx, &src));
+    Ok(read.map_err(|e| e.raise::<S>(cx))?.into())
 }
 
 /* the value JSON text spells for the runtime `L` with its work charged */
@@ -30,8 +28,13 @@ pub fn parse<L: Lang>(cx: &mut Cx<'_, '_>, src: &str) -> Result<Val, Error> {
     Reader { src, at: 0 }.document::<L>(cx)
 }
 
-/* `v` as compact JSON onto `out` for the runtime `L` */
-pub fn write_into<L: Lang>(cx: &Cx<'_, '_>, v: Val, out: &mut String) -> Result<(), Error> { written::<L>(cx, v, out) }
+/* `v` as compact JSON onto `out` for the runtime `L` paying for its walk whether it ends or fails */
+pub fn write_into<L: Lang>(cx: &Cx<'_, '_>, v: Val, out: &mut String) -> Result<(), Error> {
+    let mut read = 0;
+    let done = walked::<L>(cx, v, out, &mut read);
+    cx.spend(read.saturating_add(out.len()));
+    done
+}
 
 /* the text a source holds copied off the heap so reading may make values */
 fn source(cx: &Cx<'_, '_>, v: Val) -> Result<String, Fail> {
@@ -214,28 +217,11 @@ impl Reader<'_> {
 
     /* the number at the reader as an int when it has no fraction or exponent */
     fn number<L: Lang>(&mut self, cx: &mut Cx<'_, '_>) -> Result<Val, Error> {
-        let (src, start) = (self.src.as_bytes(), self.at);
-        let digit = |i: usize| src.get(i).is_some_and(u8::is_ascii_digit);
-        let first = start + usize::from(src.get(start) == Some(&b'-'));
-        let mut i = first;
-        if !digit(i) { return Err(bad(i, Json::Number)); }
-        while digit(i) { i += 1; }
-        if src[first] == b'0' && i > first + 1 { return Err(bad(start, Json::LeadingZero)); }
-        let whole = i;
-        if src.get(i) == Some(&b'.') {
-            i += 1;
-            if !digit(i) { return Err(bad(i, Json::Number)); }
-            while digit(i) { i += 1; }
-        }
-        if matches!(src.get(i), Some(b'e' | b'E')) {
-            i += 1;
-            if matches!(src.get(i), Some(b'+' | b'-')) { i += 1; }
-            if !digit(i) { return Err(bad(i, Json::Number)); }
-            while digit(i) { i += 1; }
-        }
-        self.at = i;
-        if i > whole { return self.src.get(start..i).unwrap_or("").parse::<f64>().map(Val::float).map_err(|_| bad(start, Json::Number)); }
-        int::<L>(cx, first > start, &src[first..whole])
+        let start = self.at;
+        let (first, whole, end) = spans(self.src.as_bytes(), start).map_err(|(at, why)| bad(at, why))?;
+        self.at = end;
+        if end > whole { return self.src.get(start..end).unwrap_or("").parse::<f64>().map(Val::float).map_err(|_| bad(start, Json::Number)); }
+        int::<L>(cx, first > start, &self.src.as_bytes()[first..whole])
     }
 }
 
@@ -259,7 +245,7 @@ fn int<L: Lang>(cx: &mut Cx<'_, '_>, neg: bool, digits: &[u8]) -> Result<Val, Er
 
 fn write_run<S: Site>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
     let mut out = String::new();
-    if let Err(e) = written::<S::Lang>(cx, a.pos[0], &mut out) { return Err(e.raise::<S>(cx)); }
+    if let Err(e) = write_into::<S::Lang>(cx, a.pos[0], &mut out) { return Err(e.raise::<S>(cx)); }
     Ok(cx.new_str(out)?.into())
 }
 
@@ -281,14 +267,6 @@ fn contents(cx: &Cx<'_, '_>, v: Val) -> Result<Option<Rest>, Error> {
         Some(HeapObj::Dict(rc)) => { cx.reserve(rc.borrow().len().saturating_mul(2 * each))?; Some(Rest::Entries(rc.borrow().iter().collect(), 0)) }
         _ => None,
     })
-}
-
-/* `root` as JSON onto `out` paying for its walk whether it ends or fails */
-fn written<L: Lang>(cx: &Cx<'_, '_>, root: Val, out: &mut String) -> Result<(), Error> {
-    let mut read = 0;
-    let done = walked::<L>(cx, root, out, &mut read);
-    cx.spend(read.saturating_add(out.len()));
-    done
 }
 
 /* `root` as JSON onto `out` keeping the open containers on a stack of their own */
@@ -359,24 +337,18 @@ fn float<L: Lang>(v: Val, out: &mut String) -> Result<(), Error> {
 }
 
 /* whether `s` is a number as JSON spells one */
-fn number(s: &str) -> bool {
-    let b = s.as_bytes();
-    let digits = |from: usize| { let mut i = from; while b.get(i).is_some_and(u8::is_ascii_digit) { i += 1; } (i, i > from) };
-    let first = usize::from(b.first() == Some(&b'-'));
-    let (mut i, any) = digits(first);
-    if !any || (b[first] == b'0' && i > first + 1) { return false; }
-    if b.get(i) == Some(&b'.') {
-        let (j, any) = digits(i + 1);
-        if !any { return false; }
-        i = j;
-    }
-    if matches!(b.get(i), Some(b'e' | b'E')) {
-        let sign = usize::from(matches!(b.get(i + 1), Some(b'+' | b'-')));
-        let (j, any) = digits(i + 1 + sign);
-        if !any { return false; }
-        i = j;
-    }
-    i == b.len()
+fn number(s: &str) -> bool { spans(s.as_bytes(), 0).is_ok_and(|(_, _, end)| end == s.len()) }
+
+/* where the digits start the whole part ends and the number at byte `start` ends or where and why JSON spells none there */
+fn spans(b: &[u8], start: usize) -> Result<(usize, usize, usize), (usize, Json)> {
+    let digits = |from: usize| { let mut i = from; while b.get(i).is_some_and(u8::is_ascii_digit) { i += 1; } if i > from { Ok(i) } else { Err((from, Json::Number)) } };
+    let first = start + usize::from(b.get(start) == Some(&b'-'));
+    let whole = digits(first)?;
+    if b[first] == b'0' && whole > first + 1 { return Err((start, Json::LeadingZero)); }
+    let mut end = whole;
+    if b.get(end) == Some(&b'.') { end = digits(end + 1)?; }
+    if matches!(b.get(end), Some(b'e' | b'E')) { end = digits(end + 1 + usize::from(matches!(b.get(end + 1), Some(b'+' | b'-'))))?; }
+    Ok((first, whole, end))
 }
 
 /* `s` as a JSON string with quotes backslashes and control characters escaped */

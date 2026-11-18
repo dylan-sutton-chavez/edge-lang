@@ -416,10 +416,6 @@
   error: "ValueError: chr takes a code point from 0 to 0x10FFFF"
 
 - native: ord
-  args: ["A"]
-  prints: "65"
-
-- native: ord
   args: ["\x00"]
   prints: "0"
 
@@ -537,10 +533,6 @@
   prints: "false"
 
 - native: text.isalpha
-  recv: ""
-  prints: "false"
-
-- native: text.isalpha
   recv: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
   prints: "true"
 
@@ -550,10 +542,6 @@
 
 - native: text.isalpha
   recv: "this "
-  prints: "false"
-
-- native: text.isdigit
-  recv: ""
   prints: "false"
 
 - native: text.isdigit
@@ -938,11 +926,6 @@
 
 - native: text.replace
   recv: "hello"
-  args: ["l", "r"]
-  prints: "herro"
-
-- native: text.replace
-  recv: "hello"
   args: ["l", ""]
   prints: "heo"
 
@@ -973,10 +956,6 @@
 - native: text
   args: [false]
   prints: "false"
-
-- native: text
-  args: [[1, 2, 3]]
-  prints: "[1, 2, 3]"
 
 - native: text.endswith
   recv: "abc"

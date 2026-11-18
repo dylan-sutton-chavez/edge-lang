@@ -54,7 +54,8 @@ fn fold_tree(chunk: &mut SSAChunk, policy: &Policy, stored: &[&str]) {
 
         match opcode {
             super::folds!() => try_fold_binop(chunk, &mut dead, ip, policy),
-            OpCode::Not => try_fold_unary(chunk, &mut dead, ip, |v| fold_not(v, policy)),
+            // `not v` of a constant whose tag alone decides its truth under `policy`
+            OpCode::Not => try_fold_unary(chunk, &mut dead, ip, |v| policy.tag_falsy(v).map(Val::bool)),
             OpCode::Minus => try_fold_unary(chunk, &mut dead, ip, fold_neg),
             _ => {}
         }
@@ -83,12 +84,8 @@ fn fold_tree(chunk: &mut SSAChunk, policy: &Policy, stored: &[&str]) {
         chunk.index_phis();
     }
 
-    for (_, body, _, _) in chunk.functions.iter_mut() {
-        fold_tree(body, policy, stored);
-    }
-    for class_body in chunk.classes.iter_mut() {
-        fold_tree(class_body, policy, stored);
-    }
+    for (_, body, _, _) in chunk.functions.iter_mut() { fold_tree(body, policy, stored); }
+    for class_body in chunk.classes.iter_mut() { fold_tree(class_body, policy, stored); }
 }
 
 /* compacts the live instructions and remaps jumps with dead ones forwarding to the next live */
@@ -105,9 +102,7 @@ fn compact_with_jump_remap(chunk: &mut SSAChunk, dead: &[bool]) {
     remap.push(alive_count);
 
     // walked backwards so each dead entry forwards to the next live one in one pass
-    for i in (0..n).rev() {
-        if dead[i] { remap[i] = remap[i + 1]; }
-    }
+    for i in (0..n).rev() { if dead[i] { remap[i] = remap[i + 1]; } }
 
     for (ip, _) in dead.iter().enumerate().take(n) {
         if dead[ip] { continue; }
@@ -129,11 +124,7 @@ fn compact_with_jump_remap(chunk: &mut SSAChunk, dead: &[bool]) {
     }
 
     let mut idx = 0usize;
-    chunk.instructions.retain(|_| {
-        let keep = !dead[idx];
-        idx += 1;
-        keep
-    });
+    chunk.instructions.retain(|_| { idx += 1; !dead[idx - 1] });
 }
 
 /* the value runtime opcode `op` folds to over the constants its call compiled from `from` */
@@ -257,9 +248,6 @@ fn try_fold_unary(chunk: &mut SSAChunk, dead: &mut [bool], ip: usize, fold: impl
         dead[ip] = true;
     }
 }
-
-/* `not v` of a constant whose tag alone decides its truth under `policy` */
-fn fold_not(v: Val, policy: &Policy) -> Option<Val> { policy.tag_falsy(v).map(Val::bool) }
 
 fn fold_neg(v: Val) -> Option<Val> {
     if v.is_int() {

@@ -1,19 +1,11 @@
-use interpreter::embed::{Limits, VM};
+use interpreter::embed::Limits;
 use interpreter::lang::Fast1;
 use interpreter::value::{HeapObj, HeapPool, Val};
 use rig::RUNTIME;
+use crate::common::ran;
 
-/* what `src` printed and its error after it when one ended the run */
-fn run(src: &str) -> String {
-    let (chunk, errors) = interpreter::code::compile_as::<rig::Rig>(src);
-    assert!(errors.is_empty(), "{src}: {:?}", errors.iter().map(|e| &e.msg).collect::<Vec<_>>());
-    // no memory limit so no metering allocator is needed
-    let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits { ops: 50_000_000, memory: usize::MAX });
-    let end = vm.run();
-    let mut out = vm.output_text();
-    if let Err(e) = end { out.push_str(&e.to_string()); }
-    out
-}
+/* what `src` printed and its error after it with no memory limit so no metering allocator is needed */
+fn run(src: &str) -> String { ran::<rig::Rig>(&RUNTIME, src, Limits { ops: 50_000_000, memory: usize::MAX }) }
 
 fn prints(src: &str, want: &str) { assert_eq!(run(src), want, "{src}"); }
 

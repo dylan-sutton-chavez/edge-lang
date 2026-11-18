@@ -414,16 +414,9 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         let call_pos = self.last_end as u32;
         self.lazy_arg = Self::GRAMMAR.is_some_and(|g| g.lazy.contains(&name));
         // a builtin name the scope binds as a parameter or otherwise calls the binding
-        if self.ssa_versions.contains(name) || self.unfused.iter().any(|u| u == name) {
-            let i = self.push_ssa_name(name, self.current_version(name));
-            self.chunk.emit(OpCode::LoadName, i);
-            self.leaf(self.chunk.instructions.len() - 1, name);
-            self.advance();
-            self.call_rest(call_pos);
-            return false;
-        }
+        let bound = self.ssa_versions.contains(name) || self.unfused.iter().any(|u| u == name);
         // an imported native shadows the builtin of the same name
-        if let Some(&extern_idx) = self.chunk.extern_index.get(name) {
+        if !bound && let Some(&extern_idx) = self.chunk.extern_index.get(name) {
             // a native call always opens a spread frame as its operand has no flag room
             self.chunk.emit(OpCode::BeginArgs, 0);
             self.advance();
@@ -436,7 +429,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
             return false;
         }
         // a native the runtime gives under this name runs with no binding read
-        if let Some(id) = S::NATIVES.function_id(name) {
+        if !bound && let Some(id) = S::NATIVES.function_id(name) {
             self.advance();
             let (from, (pos, kw, spread)) = (self.chunk.instructions.len(), self.args_body(true));
             self.note_called(id.0);
@@ -520,13 +513,9 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
     }
 
     // depth guarded since a name-led argument recurses through `call` without passing `expr_bp`
-    pub(super) fn args_body(&mut self, lazy: bool) -> (u16, u16, bool) {
-        self.expr_depth += 1;
-        if self.expr_depth > crate::syntax::chunk::MAX_EXPR_DEPTH {
-            self.expr_depth -= 1;
-            self.error("expression too deeply nested");
-            return (0, 0, false);
-        }
+    pub(super) fn args_body(&mut self, lazy: bool) -> (u16, u16, bool) { self.nested(|s| s.args_list(lazy)) }
+
+    fn args_list(&mut self, lazy: bool) -> (u16, u16, bool) {
         let mut pos = 0u16;
         let mut kw = 0u16;
         let mut spread = false;
@@ -581,7 +570,6 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
             }
         });
         self.eat(TokenType::ParenClose);
-        self.expr_depth -= 1;
         if pos > 0xFF || kw > 0xFF { self.error("too many arguments in call (max 255 positional and 255 keyword)"); }
         (pos, kw, spread)
     }
@@ -656,7 +644,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
 
         self.emit_decorator_calls(decorators);
 
-        self.emit_store_new(cname);
+        self.store_name(cname);
     }
 
     /* the class `cname` names left on the stack after its bases and body compile */
@@ -730,7 +718,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
 
         self.emit_decorator_calls(decorators);
 
-        self.emit_store_new(fname);
+        self.store_name(fname);
     }
 
     // the function named fname left on the stack for its decorators
@@ -865,15 +853,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         self.cut(kept);
     }
 
-    fn body_of(&mut self, params: &[String]) {
-        self.in_function = true;
-        for p in params {
-            // the base name without its markers shadows the enclosing scope
-            self.bind_param(p);
-            let _ = self.push_ssa_name(crate::syntax::ssa::param_base_name(p), 0);
-        }
-        self.compile_block();
-    }
+    fn body_of(&mut self, params: &[String]) { self.open_body(params); self.compile_block(); }
 
     pub(super) fn compile_body(&mut self, params: &[String]) -> SSAChunk {
         let restart = self.mark();
@@ -889,10 +869,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
             self.late.insert(restart.pos, late);
         }
         // computed once so `exec_call` never scans the body
-        body.is_generator = body.instructions.iter().any(|i| matches!(
-            i.opcode,
-            OpCode::Yield
-        ));
+        body.is_generator = body.instructions.iter().any(|i| i.opcode == OpCode::Yield);
         body
     }
 }

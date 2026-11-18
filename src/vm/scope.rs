@@ -32,7 +32,7 @@ pub(crate) struct Globals {
     /* set for text run under its own builtins whose unbound names find no builtin */
     pub(crate) closed: bool,
     /* the runtime's natives which tell the builtin a name stands for */
-    natives: &'static crate::lang::Natives,
+    pub(crate) natives: &'static crate::lang::Natives,
 }
 
 impl Default for Globals {
@@ -44,9 +44,6 @@ impl Globals {
     pub(crate) fn of(natives: &'static crate::lang::Natives) -> Self {
         Self { index: Default::default(), names: Vec::new(), vals: Vec::new(), builtin: Vec::new(), closed: false, natives }
     }
-
-    /* what the runtime of these bindings calls the engine's conventions */
-    pub(crate) fn runtime_names(&self) -> &'static crate::lang::Names { self.natives.names() }
 
     fn find(&self, name: &str) -> Option<u32> {
         self.index.find(hash_key(name), |&i| self.names[i as usize] == name).copied()

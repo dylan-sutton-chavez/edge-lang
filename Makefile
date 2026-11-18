@@ -14,18 +14,18 @@ DLL := $(if $(filter Windows_NT,$(OS)),dll,$(if $(filter Darwin,$(shell uname -s
 DLL_PREFIX := $(if $(filter Windows_NT,$(OS)),,lib)
 
 # the CLI embeds js/dist unless the environment points at a copy
-CLI_INPUTS := $(if $(INTERPRETER_JS_DIST),,js) lucide
-# the components the interpreter binary wires as cli/Cargo.toml lists them under its all feature
-CLI_COMPONENTS := $(shell sed -n 's/^all = \[\(.*\)\]$$/\1/p' cli/Cargo.toml | tr -d '",')
+CLI_INPUTS := $(if $(INTERPRETER_JS_DIST),,js)
+# the components the interpreter binary wires as Cargo.toml lists them under its cli feature
+CLI_COMPONENTS := $(filter-out cli-kit,$(filter cli-%,$(shell sed -n 's/^cli = \[\(.*\)\]$$/\1/p' Cargo.toml | tr -d '",')))
 
 # the components the native test wires which build no wasmtime
-CLI_NATIVE := docs,files,net,perms,run,test,web
+CLI_NATIVE := cli-docs,cli-files,cli-net,cli-perms,cli-run,cli-test,cli-web
 CLI_TEST_engine := --lib --bin interpreter --test cli --test run --test native --test rig --test library -- --skip net_suite
 # the channels test fetches the pinned hour so it runs with the network cases
 CLI_TEST_network := --test cli --test channels net_suite
 CLI_TEST_actors := --test actor
 CLI_TEST_consistency := --test consistency
-# the rust examples of docs/ run as doctests of the kit
+# the rust examples of docs/ run as doctests of the crate
 CLI_TEST_docs := --doc
 # the native runtime alone which a macOS run takes through its .dylib
 CLI_TEST_native := --test library
@@ -58,7 +58,7 @@ LAYOUT_BASE ?= 1048640
 
 unix_only = $(if $(filter Windows_NT,$(OS)),$(error AFL runs on Linux and macOS only))
 
-.PHONY: wasm native wasm-rig wasm-cli wasm-ship wasm-small wasm-cli-opt size js lint lint-rust lint-names lint-comments lint-js lint-cli test bench bench-update bench-accept-slower bench-layout plugin cli cli-release stage serve browsers test-js test-cli miri miri-list miri-setup fuzz fuzz-status fuzz-triage fuzz-replay fuzz-carry fuzz-container fuzz-stop seeds lucide version check
+.PHONY: wasm native wasm-rig wasm-cli wasm-ship wasm-small wasm-cli-opt size js lint lint-rust lint-names lint-comments lint-js lint-cli test bench bench-update bench-accept-slower bench-layout plugin cli cli-release stage serve browsers test-js test-cli miri miri-list miri-setup fuzz fuzz-status fuzz-triage fuzz-replay fuzz-carry fuzz-container fuzz-stop seeds version check
 
 wasm:
 	cargo rustc --locked --release $(RUNTIME)
@@ -124,9 +124,9 @@ lint-rust: lint-names lint-comments wasm
 lint-comments:
 	@deno run --allow-read --allow-run=git make/comments.ts
 
-# fails on any denied name in the crate or the example plugin
+# fails on any denied name in the engine or the example plugin with the cli tool left out
 lint-names:
-	@deno run --allow-read make/names.ts make/names.txt src plugin
+	@deno run --allow-read make/names.ts make/names.txt src plugin !src/cli
 
 # js/src splits main-thread and worker since tsc rejects mixing the dom and webworker libs
 lint-js:
@@ -137,13 +137,13 @@ lint-js:
 
 # each component builds alone, the runner example with only the three it needs and the native test with no wasmtime
 lint-cli: $(CLI_INPUTS) wasm-cli wasm-rig
-	cd cli && cargo clippy --locked --all-targets -- -D warnings
-	cd cli && cargo check --locked
-	cd cli && for f in "" $(CLI_COMPONENTS); do cargo clippy --locked --lib --no-default-features --features "$$f" -- -D warnings || exit 1; done
-	cd cli && cargo clippy --locked --no-default-features --features wasm,run,test --example runner --example decoupled -- -D warnings
-	cd cli && cargo clippy --locked --no-default-features --features $(CLI_NATIVE) --test native -- -D warnings
-	cd cli && cargo clippy --locked --no-default-features --features coverage,run --test coverage -- -D warnings
-	cd cli && ! cargo tree --locked --no-default-features --features $(CLI_NATIVE) -e normal,build | grep -q wasmtime
+	cargo clippy --locked -p interpreter --all-targets --features cli -- -D warnings
+	cargo check --locked -p interpreter --features cli
+	for f in cli-kit $(CLI_COMPONENTS); do cargo clippy --locked -p interpreter --lib --no-default-features --features "$$f" -- -D warnings || exit 1; done
+	cargo clippy --locked -p interpreter --no-default-features --features cli-wasm,cli-run,cli-test --example runner --example decoupled -- -D warnings
+	cargo clippy --locked -p interpreter --no-default-features --features $(CLI_NATIVE) --test native -- -D warnings
+	cargo clippy --locked -p interpreter --no-default-features --features cli-coverage,cli-run --test coverage -- -D warnings
+	! cargo tree --locked -p interpreter --no-default-features --features $(CLI_NATIVE) -e normal,build | grep -q wasmtime
 
 # coverage leaves method calls unfused so it runs apart
 test:
@@ -170,13 +170,13 @@ plugin:
 	cargo build --locked --release --target wasm32-unknown-unknown -p slugify-mod
 
 cli: $(CLI_INPUTS)
-	cd cli && cargo build --locked --release
+	cargo build --locked --release -p interpreter --features cli --bin interpreter
 
 # the static Linux build runs in Alpine whose libc is musl
 cli-release: $(CLI_INPUTS)
 	$(if $(TARGET),,$(error pass TARGET, for example make cli-release TARGET=aarch64-apple-darwin))
-	$(if $(findstring linux-musl,$(TARGET)),deno run -A make/musl.ts $(TARGET),cd cli && cargo build --locked --release --target $(TARGET))
-	tar -C cli/target/$(TARGET)/release -czf cli/interpreter-$(TARGET).tar.gz interpreter$(EXE)
+	$(if $(findstring linux-musl,$(TARGET)),deno run -A make/musl.ts $(TARGET),cargo build --locked --release -p interpreter --features cli --bin interpreter --target $(TARGET))
+	tar -C target/$(TARGET)/release -czf cli/interpreter-$(TARGET).tar.gz interpreter$(EXE)
 
 cdn/node_modules/.package-lock.json: cdn/package-lock.json
 	npm --prefix cdn ci
@@ -197,9 +197,9 @@ test-js: plugin wasm
 test-cli: export INTERPRETER_CODE_CACHE = $(CURDIR)/target/cli-code-cache
 test-cli: $(CLI_INPUTS) wasm-cli $(CLI_NEEDS_$(SUITE))
 	$(if $(filter-out engine network actors consistency docs native,$(SUITE)),$(error SUITE is one of engine network actors consistency docs native, or none for all))
-	cd cli && cargo run --locked -q -- run --runtime $(CURDIR)/$(WASM)/cli/interpreter.wasm -c 'print 1;' > /dev/null
-	cd cli && cargo test --locked $(CLI_TEST_$(SUITE))
-	$(if $(filter engine,$(or $(SUITE),engine)),cd cli && cargo test --locked --features coverage --test coverage)
+	cargo run --locked -q -p interpreter --features cli --bin interpreter -- run --runtime $(CURDIR)/$(WASM)/cli/interpreter.wasm -c 'print 1;' > /dev/null
+	cargo test --locked -p interpreter --features cli $(CLI_TEST_$(SUITE))
+	$(if $(filter engine,$(or $(SUITE),engine)),cargo test --locked -p interpreter --features "cli cli-coverage" --test coverage)
 
 miri-setup:
 	rustup toolchain install $(MIRI_NIGHTLY) --profile minimal --component miri
@@ -250,10 +250,6 @@ fuzz-stop:
 seeds:
 	$(unix_only)
 	cd fuzz && bash ./seeds.sh
-
-# the icon names a docs card may carry from Lucide's VERSION release or the latest
-lucide:
-	deno run --allow-net --allow-write=target make/lucide.ts $(VERSION)
 
 version:
 	$(if $(TAG),,$(error pass TAG, for example make version TAG=v1.0.0))

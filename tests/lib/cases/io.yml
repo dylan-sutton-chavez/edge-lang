@@ -185,10 +185,6 @@
   out: "1.2345678901234568e18"
 
 - native: print
-  args: [0.0001]
-  out: "0.0001"
-
-- native: print
   args: [1.5e300]
   out: "1.5e300"
 

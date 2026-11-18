@@ -183,15 +183,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
             // an indent left by an earlier error skips its whole block silently
             Some(TokenType::Indent) => {
                 self.tokens.next();
-                let mut depth = 1u32;
-                while depth > 0 {
-                    match self.tokens.peek().map(|t| t.kind) {
-                        Some(TokenType::Indent) => { self.tokens.next(); depth += 1; }
-                        Some(TokenType::Dedent) => { self.tokens.next(); depth -= 1; }
-                        None | Some(TokenType::Eof) => break,
-                        _ => { self.tokens.next(); }
-                    }
-                }
+                self.skip_nested(TokenType::Indent, TokenType::Dedent);
                 false
             }
             // a stray dedent from error recovery is skipped silently
@@ -203,7 +195,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
             Some(TokenType::BlockOpen) if Self::DELIMITED => {
                 if self.errors.is_empty() { self.diag_at_peek(Self::STRAY_BLOCK); }
                 self.tokens.next();
-                self.skip_block();
+                self.skip_nested(TokenType::BlockOpen, TokenType::BlockClose);
                 false
             }
             // a block end with no block open goes the same way
@@ -304,28 +296,20 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
                 break;
             }
             self.block_closed = false;
-            self.bracket_stack.clear();
-            let (errors_before, at, from) = (self.errors.len(), self.tokens.pos, self.here());
             // a compound statement never shares the line of the colon that opens a body
-            let produced_value = if !indented && !Self::DELIMITED && self.peek().is_some_and(crate::syntax::lexer::opens_body) { self.error("a compound statement must start its own line"); false } else { self.stmt() };
-            self.end_statement(errors_before);
-            if self.tokens.pos == at { self.tokens.next(); }
-            if produced_value {
-                self.chunk.emit(OpCode::PopTop, 0);
-            }
-            self.keep(from, None, true);
+            self.body_stmt(|s| if !indented && !Self::DELIMITED && s.peek().is_some_and(crate::syntax::lexer::opens_body) { s.error("a compound statement must start its own line"); false } else { s.stmt() });
             // a body on its header line runs to the line end even past a `return`
             if !indented && !matches!(self.peek(), Some(TokenType::Semi)) { break; }
         }
     }
 
-    // moves past the `}` of the block the cursor sits in
-    pub(super) fn skip_block(&mut self) {
+    // moves past the `close` of the `open` group the cursor sits in
+    fn skip_nested(&mut self, open: TokenType, close: TokenType) {
         let mut depth = 1u32;
         while depth > 0 {
             match self.tokens.peek().map(|t| t.kind) {
-                Some(TokenType::BlockOpen) => { self.tokens.next(); depth += 1; }
-                Some(TokenType::BlockClose) => { self.tokens.next(); depth -= 1; }
+                Some(k) if k == open => { self.tokens.next(); depth += 1; }
+                Some(k) if k == close => { self.tokens.next(); depth -= 1; }
                 None | Some(TokenType::Eof) => break,
                 _ => { self.tokens.next(); }
             }
@@ -355,13 +339,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
                 None => return,
                 _ => {}
             }
-            self.bracket_stack.clear();
-            let (errors_before, at, from) = (self.errors.len(), self.tokens.pos, self.here());
-            let produced_value = self.stmt();
-            self.end_statement(errors_before);
-            if self.tokens.pos == at { self.tokens.next(); }
-            if produced_value { self.chunk.emit(OpCode::PopTop, 0); }
-            self.keep(from, None, true);
+            self.body_stmt(Self::stmt);
         }
     }
 
@@ -454,8 +432,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         }
         // a binding with no value reports where its `=` belongs
         if self.tokens.target_list().is_some() { return self.eat(TokenType::Equal); }
-        let msg = s!(str Self::shown(TokenType::Let), " binds names only");
-        self.error(&msg);
+        self.error(Self::LET_NAMES_ONLY);
     }
 
     /* refuses targets after a binding word that are no names and stores to unbound names */
@@ -463,8 +440,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
         let (names, whole) = self.bound_names(from, to);
         if binds && !whole {
             let (start, end) = (self.tokens.toks[from].start, self.tokens.toks[to.saturating_sub(1).max(from)].end);
-            let msg = s!(str Self::shown(TokenType::Let), " binds names only");
-            return self.reject(start, end, &msg);
+            return self.reject(start, end, Self::LET_NAMES_ONLY);
         }
         if !binds { for t in names { self.declared(t); } }
     }

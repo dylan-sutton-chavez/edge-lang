@@ -46,7 +46,7 @@ fn rows_match(src: &[Instruction], chunk: &SSAChunk, depths: &[u16], ip: usize, 
     if !inner { return held + 1 == d && prev.is_some_and(|i| calls(i.opcode)); }
     // a loop's waiting generator resumes taking the top row which a statement's wait may drop
     if waits && src.get(ip).is_some_and(|i| i.opcode == OpCode::ForIter) { return held == d + 1; }
-    held == d || held == d + 1 && prev.is_some_and(|i| i.opcode == OpCode::CallNative && native_void(chunk, i.operand))
+    held == d || held == d + 1 && prev.is_some_and(|i| i.opcode == OpCode::CallNative && super::rows::native_void(chunk, i.operand))
 }
 
 /* whether lowered `code` resumes a park at compiler `ip` of `src` holding rows to `top` */
@@ -56,12 +56,6 @@ fn lowered_takes(code: &Code, src: &[Instruction], ip: usize, top: u16, inner: b
     // a frame under a callee holds no row and stores the result past its call
     let prev = ip.checked_sub(1).and_then(|k| src.get(k));
     top == 0 && prev.is_some_and(|i| calls(i.opcode)) && code.ins.get(code.lowered(ip)).is_some_and(|t| t.op == OpCode::StoreTopR && t.x == 0)
-}
-
-/* whether the native call site `a` of `chunk` keeps no value */
-fn native_void(chunk: &SSAChunk, a: u16) -> bool {
-    use crate::syntax::chunk::{SITE_TABLE, SITE_VOID, native_site};
-    if a & SITE_TABLE == 0 { a & SITE_VOID != 0 } else { native_site(a, &chunk.native_sites).is_some_and(|s| s.void) }
 }
 
 /* whether `chunk`'s first code under `shape` resumes a park at `ip` holding rows to `top` */
@@ -301,7 +295,7 @@ fn vet_levels(code: &Code, at: usize, slots: &[Val], levels: &[Val], link: &dyn 
     let Some(block) = code.block.as_deref() else { return none() };
     let held = |at: usize| block.holding(at).map(|(s, _)| s).or_else(|| if block.moved { block.moved_holding(at) } else { None });
     let reg = |r: u16| slots.get(usize::from(r)).copied().unwrap_or_else(Val::undef);
-    let Some(mut s) = held(at) else { return none() };
+    let Some(s) = held(at) else { return none() };
     let (mut sp, mut v, mut met) = (levels.len(), reg(s.link), 0);
     // a stub's call keeps its level before it opens and that level names the link
     if let Some(words) = super::level::pending_level(code, at) {
@@ -326,8 +320,6 @@ fn vet_levels(code: &Code, at: usize, slots: &[Val], levels: &[Val], link: &dyn 
             }
             None => v = reg(outer.link),
         }
-        s = outer;
     }
-    let _ = s;
     None
 }

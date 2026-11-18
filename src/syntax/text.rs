@@ -3,7 +3,7 @@ use crate::syntax::lexer::Spelling;
 use alloc::string::String;
 
 // the escapes of a table as lookups a literal's decoding reads
-struct Esc<S>(core::marker::PhantomData<S>);
+pub(super) struct Esc<S>(core::marker::PhantomData<S>);
 
 impl<S: Spelling> Esc<S> {
     // the character each simple escape stands for by the byte after its backslash
@@ -15,16 +15,15 @@ impl<S: Spelling> Esc<S> {
         t
     };
     // one more than the index of each quote byte among the table's quotes
-    const QUOTE: &'static [u8; 256] = &{
+    pub(super) const QUOTE: &'static [u8; 256] = &{
         let q = S::SYNTAX.strings.quotes;
         let mut t = [0u8; 256];
         let mut i = 0;
         while i < q.len() { t[q[i].byte as usize] = i as u8 + 1; i += 1; }
         t
     };
-
     // one more than the bits of each one letter prefix in either case or zero
-    const PREFIX1: &'static [u8; 256] = &{
+    pub(super) const PREFIX1: &'static [u8; 256] = &{
         let (p, any) = (S::SYNTAX.strings.prefixes, S::SYNTAX.strings.any_case);
         let mut t = [0u8; 256];
         let mut i = 0;
@@ -195,11 +194,8 @@ pub(super) fn push_escape<S: Spelling>(out: &mut String, chars: &mut core::iter:
         Some('U') if e.unicode == Unicode::Fixed => take_hex(chars, 8),
         Some('u') if e.unicode == Unicode::Braced => take_braced(chars),
         Some(c @ '0'..='7') if e.octal => {
-            let mut digits = String::from(c);
-            while digits.len() < 3 && matches!(chars.peek(), Some('0'..='7')) {
-                digits.push(chars.next().unwrap());
-            }
-            let code = u32::from_str_radix(&digits, 8).unwrap_or(0);
+            let (mut code, mut n) = (c as u32 - '0' as u32, 1);
+            while n < 3 && let Some(d) = chars.peek().and_then(|d| d.to_digit(8)) { chars.next(); (code, n) = (code * 8 + d, n + 1); }
             Some(char::from_u32(code).unwrap_or('\u{FFFD}'))
         }
         _ => None,

@@ -9,13 +9,8 @@ pub static BYTE_CLASS: [u8; 256] = {
     let mut i = 0usize;
     while i < 256 {
         let b = i as u8;
-        if b == b' ' || b == b'\t' || b == b'\r' { t[i] = SPACE; }
-        if b >= b'0' && b <= b'9' { t[i] = DIGIT | ID_CONT; }
-        if (b >= b'a' && b <= b'z') || (b >= b'A' && b <= b'Z') {
-            t[i] = ID_START | ID_CONT;
-        }
-        if b == b'_' { t[i] = ID_START | ID_CONT; }
-        if b >= 0x80 { t[i] = ID_START | ID_CONT; } // a non-ASCII byte always starts or continues an identifier
+        // a non-ASCII byte always starts or continues an identifier
+        t[i] = match b { b' ' | b'\t' | b'\r' => SPACE, b'0'..=b'9' => DIGIT | ID_CONT, b'a'..=b'z' | b'A'..=b'Z' | b'_' | 0x80.. => ID_START | ID_CONT, _ => 0 };
         i += 1;
     }
     t

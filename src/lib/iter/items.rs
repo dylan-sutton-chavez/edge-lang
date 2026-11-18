@@ -89,6 +89,10 @@ pub fn seq(items: Vec<Val>) -> IterFrame { IterFrame::Seq { items: items.into(),
 #[inline]
 pub fn generator(cx: &Cx<'_, '_>, src: Val) -> bool { matches!(cx.heap().try_get(src), Some(HeapObj::Coroutine(_))) }
 
+/* whether stepping `v` may need frames so a drain steps it rather than a native */
+#[cfg(any(feature = "map", feature = "set"))]
+pub(crate) fn framed(cx: &Cx<'_, '_>, v: Val) -> bool { matches!(cx.kind(v), crate::lang::KindId::Coro | crate::lang::KindId::Iter) }
+
 /* the drain of `src` gathering every item for the end `on` built in its box */
 #[inline(always)]
 pub fn drained(src: Val, on: FoldFn, acc: Acc) -> Out { Out::Step(Box::new(Step::Drain { it: src, fold: Fold::collect(on, acc) })) }

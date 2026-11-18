@@ -152,6 +152,16 @@ pub(crate) const DEPTH_CHECK: usize = 256;
 pub(crate) const SUSPENDED_DEPTH: usize = 4 * MAX_CALLS;
 
 impl<'a> VM<'a> {
+    /* pays the step of opening a frame with the native work counted since the last one as `charge_step` does or None past the budget */
+    #[inline(always)]
+    fn pay_open(&mut self) -> Option<()> {
+        let cost = 1 + self.heap.take_work() as u64;
+        if self.budget < cost { self.budget = 0; return None; }
+        self.budget -= cost;
+        self.heap.set_budget(self.budget);
+        Some(())
+    }
+
     /* opens a plain call's body as its loop's next frame in an already bound window */
     #[inline(always)]
     pub(crate) fn enter_frame(&mut self, fi: usize, callee: Val) -> Result<(), VmErr> {
@@ -190,11 +200,7 @@ impl<'a> VM<'a> {
         if p.active != 0 || !p.laid && p.calls >= lower::TIER || !w.owner.is_undef() || w.base == super::window::NO_WINDOW || w.code != layout || w.len < frame || !flat {
             return self.enter_block_apart(i, code, fi, callee, args, wide);
         }
-        // the step pays the native work counted since the last one as `charge_step` does
-        let cost = 1 + self.heap.take_work() as u64;
-        if self.budget < cost { self.budget = 0; return None; }
-        self.budget -= cost;
-        self.heap.set_budget(self.budget);
+        self.pay_open()?;
         let p = get_in_mut(&mut self.pools, f.pool);
         (p.window, p.wlen, p.wcode, p.active) = (w.base, w.len, w.code, 1);
         if p.calls < lower::TIER { p.calls += 1; }
@@ -248,10 +254,7 @@ impl<'a> VM<'a> {
             }
             return Some(opened);
         }
-        let cost = 1 + self.heap.take_work() as u64;
-        if self.budget < cost { self.budget = 0; return None; }
-        self.budget -= cost;
-        self.heap.set_budget(self.budget);
+        self.pay_open()?;
         let link = if flat { link } else { self.cold_bases(false); link | BASES << 40 };
         let p = get_in_mut(&mut self.pools, f.pool);
         (p.window, p.wlen, p.wcode, p.active) = (w.base, w.len, w.code, 1);
@@ -320,10 +323,7 @@ impl<'a> VM<'a> {
         let n = args.len();
         let rc = self.pools[f.pool].code.as_ref()?;
         let (c, flat) = (CodePtr::of(rc), rc.flat());
-        let cost = 1 + self.heap.take_work() as u64;
-        if self.budget < cost { self.budget = 0; return None; }
-        self.budget -= cost;
-        self.heap.set_budget(self.budget);
+        self.pay_open()?;
         let link = if flat { link } else { self.cold_bases(false); link | BASES << 40 };
         let chunk = &self.functions[fi].1;
         let names = chunk.names.len();
@@ -384,10 +384,7 @@ impl<'a> VM<'a> {
         }
         let rc = self.pools[facts.pool].code.as_ref()?;
         let (callee_code, flat) = (CodePtr::of(rc), rc.flat());
-        let cost = 1 + self.heap.take_work() as u64;
-        if self.budget < cost { self.budget = 0; return None; }
-        self.budget -= cost;
-        self.heap.set_budget(self.budget);
+        self.pay_open()?;
         let names = self.functions[fi].1.names.len();
         let base = self.open_call(facts.pool, names + self.functions[fi].1.constants.len() + 3, names, n, true);
         open::<0>(&mut self.regs, base, None, args, n);

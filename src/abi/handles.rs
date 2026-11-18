@@ -105,12 +105,7 @@ impl HandleTable {
     }
 
     // the value of a live handle and `None` for an invalid or freed one
-    pub fn get(&self, h: u32) -> Option<u64> {
-        if h == 0 { return None; }
-        self.slots.get((h - 1) as usize)
-            .filter(|s| s.rc > 0)
-            .map(|s| s.val)
-    }
+    pub fn get(&self, h: u32) -> Option<u64> { self.slots.get(h.checked_sub(1)? as usize).filter(|s| s.rc > 0).map(|s| s.val) }
 
     // where `IterNext` stands in the list live handle `h` names before it moves one on
     pub fn advance(&mut self, h: u32) -> Option<u32> {
@@ -121,13 +116,10 @@ impl HandleTable {
 
     // frees the slot at rc 0 and ignores a handle released twice
     pub fn release(&mut self, h: u32) {
-        if h == 0 { return; }
-        let idx = (h - 1) as usize;
-        if let Some(slot) = self.slots.get_mut(idx)
-            && slot.rc > 0
-        {
+        let Some(idx) = h.checked_sub(1) else { return };
+        if let Some(slot) = self.slots.get_mut(idx as usize) && slot.rc > 0 {
             slot.rc -= 1;
-            if slot.rc == 0 { self.free_list.push(idx as u32); }
+            if slot.rc == 0 { self.free_list.push(idx); }
         }
     }
 }
@@ -177,38 +169,17 @@ pub fn classify_encode(tag: u32, bytes: &[u8]) -> EncodeRequest<'_> {
 
     match Tag::from_u32(tag) {
         Some(Tag::None) => EncodeRequest::Direct(TAG_NONE),
-        Some(Tag::Bool) => {
-            let b = !bytes.is_empty() && bytes[0] != 0;
-            EncodeRequest::Direct(if b { TAG_TRUE } else { TAG_FALSE })
-        }
-        Some(Tag::Int) => {
-            // the wire int is an i128 of 16 bytes covering the whole int range
-            if bytes.len() != 16 { return EncodeRequest::Invalid; }
-            let mut buf = [0u8; 16];
-            buf.copy_from_slice(bytes);
-            let i = i128::from_le_bytes(buf);
-            // ints past the 48-bit inline range get boxed
-            match inline_int_bits(i) {
-                Some(bits) => EncodeRequest::Direct(bits),
-                None => EncodeRequest::AllocInt(i),
-            }
-        }
-        Some(Tag::Float) => {
-            if bytes.len() != 8 { return EncodeRequest::Invalid; }
-            let mut buf = [0u8; 8];
-            buf.copy_from_slice(bytes);
-            // `Val::float` canonicalizes NaNs that would collide with the tag space
-            EncodeRequest::Direct(crate::value::Val::float(f64::from_le_bytes(buf)).0)
-        }
-        Some(Tag::Bytes) => match core::str::from_utf8(bytes) {
-            Ok(s) => EncodeRequest::AllocStr(s),
-            Err(_) => EncodeRequest::Invalid,
-        },
+        Some(Tag::Bool) => EncodeRequest::Direct(if bytes.first().is_some_and(|&b| b != 0) { TAG_TRUE } else { TAG_FALSE }),
+        // the wire int is an i128 of 16 bytes covering the whole int range and ints past the 48-bit inline range get boxed
+        Some(Tag::Int) => <[u8; 16]>::try_from(bytes).map_or(EncodeRequest::Invalid, |b| {
+            let i = i128::from_le_bytes(b);
+            inline_int_bits(i).map_or(EncodeRequest::AllocInt(i), EncodeRequest::Direct)
+        }),
+        // `Val::float` canonicalizes NaNs that would collide with the tag space
+        Some(Tag::Float) => <[u8; 8]>::try_from(bytes).map_or(EncodeRequest::Invalid, |b| EncodeRequest::Direct(crate::value::Val::float(f64::from_le_bytes(b)).0)),
+        Some(Tag::Bytes) => core::str::from_utf8(bytes).map_or(EncodeRequest::Invalid, EncodeRequest::AllocStr),
         Some(Tag::Raw) => EncodeRequest::AllocBytes(bytes),
-        Some(Tag::List) | Some(Tag::Dict) => match WireValue::decode_body(tag, bytes) {
-            Some(w) => EncodeRequest::Composite(w),
-            None => EncodeRequest::Invalid,
-        },
+        Some(Tag::List) | Some(Tag::Dict) => WireValue::decode_body(tag, bytes).map_or(EncodeRequest::Invalid, EncodeRequest::Composite),
         None => EncodeRequest::Invalid,
     }
 }

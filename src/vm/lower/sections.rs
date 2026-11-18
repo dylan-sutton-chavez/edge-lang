@@ -210,10 +210,9 @@ fn row_dead(ins: &[Ins], k: usize, r: u16) -> bool {
     false
 }
 
-/* whether `c` has a `try` whose handlers a recursion via a head's table would share */
-fn guarded(c: &Callee) -> bool {
-    c.body.ins.iter().any(|i| matches!(i.op, OpCode::SetupExcept | OpCode::SetupFinally))
-}
+/* the first of `n` registers taken past `next` */
+#[inline(always)]
+fn bump(next: &mut usize, n: usize) -> u16 { *next += n; (*next - n) as u16 }
 
 /* whether the section wanted for w serves call c called the same way */
 fn same_laid(w: &Callee, c: &Callee) -> bool {
@@ -560,7 +559,8 @@ impl<'p> Lower<'_, 'p> {
 
     /* wants other functions a register call met checked after section `k` each taking `n` plainly */
     pub(super) fn want_alts(&mut self, fi: Option<usize>, at: u32, k: usize, n: usize) {
-        let alt = |c: &Callee| !guarded(c) && fills(c, n, false) && c.positional == c.arity && c.ctor().is_none() && !c.twin;
+        // a `try` would share its handlers with a recursion through a head's table
+        let alt = |c: &Callee| !crate::vm::block::guarded(&c.body.ins) && fills(c, n, false) && c.positional == c.arity && c.ctor().is_none() && !c.twin;
         let plain = |c: &Callee| alt(c) && !c.by_body;
         // a `by_body` head's check yields to the lookup and a growth adds the met function
         let (grows, only) = (self.old.is_some(), self.only.take());
@@ -586,7 +586,7 @@ impl<'p> Lower<'_, 'p> {
         // methods take the receiver too and held functions only the arguments yet share head tables
         let takes = |c: &Callee| n - (c.on_class == 4) as usize;
         let kinds = |c: &Callee| c.on_class == on && on == 0 || matches!((on, c.on_class), (0, 4) | (4, 0) | (4, 4)) && c.arity == takes(c);
-        let plain = |c: &Callee| !guarded(c) && fills(c, takes(c), false) && c.positional == c.arity && kinds(c) && c.ctor().is_none() && !c.by_body && !c.twin;
+        let plain = |c: &Callee| !crate::vm::block::guarded(&c.body.ins) && fills(c, takes(c), false) && c.positional == c.arity && kinds(c) && c.ctor().is_none() && !c.by_body && !c.twin;
         let (grows, only) = (self.old.is_some(), self.only.take());
         if !plain(&self.wanted[k].1) || !grows && self.alts.iter().any(|a| a.0 == k || a.1 == k) { return; }
         // methods the call met and for a method or held head the functions receivers held
@@ -1268,7 +1268,7 @@ impl<'p> Lower<'_, 'p> {
         next += 1 + arity.max(2);
         // a generator's step return point and a binding loop's value take two registers
         let shared = self.gen_steps.iter().find(|g| g.0 == k).map(|g| g.1);
-        let stepped = self.wanted[k].1.generator.then(|| shared.unwrap_or_else(|| { next += 2; (next - 2) as u16 }));
+        let stepped = self.wanted[k].1.generator.then(|| shared.unwrap_or_else(|| bump(&mut next, 2)));
         let lp = self.gen_loops.iter().find(|g| g.0 == k).copied();
         let exit = lp.map_or(0, |g| g.1);
         // each `yield`'s step register move and the body index past it
@@ -1282,9 +1282,14 @@ impl<'p> Lower<'_, 'p> {
         let body_of_loop = lp.filter(|g| g.4).map(|g| (g.2.unwrap_or(stepped.unwrap_or(0) + 1), g.3));
         // this body's loops over generator sections whose back jumps go to their steps
         let mut loops_in: Vec<(usize, usize, usize, usize, usize, usize, u16)> = Vec::new();
+        let first = if cb > names { crate::vm::rows::first_row(names) } else { names };
+        let ins = &body.ins;
+        // each body instruction lays one or more so room is reserved up front
+        orig.reserve(ins.len() + 1);
+        for v in [&mut self.orig, &mut self.back] { v.reserve(ins.len() + 8); }
+        self.out.reserve(ins.len() + 8);
         if plain {
             // plain ops lay as is with registers remapped by kind and jumps offset to match
-            let first = if cb > names { crate::vm::rows::first_row(names) } else { names };
             let (tail, locals, rows) = (cb + consts.len(), names - arity, cb - first);
             let base = next as u16;
             next += locals + rows + body.frame.saturating_sub(tail + 3);
@@ -1298,11 +1303,6 @@ impl<'p> Lower<'_, 'p> {
                 else if r < tail + 3 { specials + (r - tail) as u16 }
                 else { base + (locals + rows + r - tail - 3) as u16 }
             };
-            let ins = &body.ins;
-            // each body instruction lays one or more so room is reserved up front
-            orig.reserve(ins.len() + 1);
-            for v in [&mut self.orig, &mut self.back] { v.reserve(ins.len() + 8); }
-            self.out.reserve(ins.len() + 8);
             // a checked or returned local may be unbound so each call unbinds it first
             let mut checked = 0u64;
             for i in ins.iter().filter(|i| i.op == OpCode::Move && i.x == 1 || i.op == OpCode::ReturnR) {
@@ -1329,8 +1329,7 @@ impl<'p> Lower<'_, 'p> {
                     if moved {
                         let v = consts[i.c as usize - cb];
                         uses.push((self.out.len(), 1, *slots.entry(v.0).or_insert_with(|| { extra.push(v); extra.len() - 1 })));
-                        call.c = next as u16;
-                        next += 1;
+                        call.c = bump(&mut next, 1);
                         self.emit(Ins { op: OpCode::Move, x: 0, a: call.c, b: 0, c: 0 });
                     }
                     self.head(call, Ins { op: OpCode::ArgsR, x: 0, a: 0, b: 0, c: 0 }, reg(ins[j + 1].a), to, false, &[]);
@@ -1368,37 +1367,22 @@ impl<'p> Lower<'_, 'p> {
                 orig.push(body.orig(ins.len().saturating_sub(1)));
             }
             for p in jumps { self.out[p].a = starts[self.out[p].a as usize] as u16; }
-            // its calls' stubs lie inside it too naming what they name in its function's chunk
-            for h in inner..self.heads.len() {
-                let (at, hk, rest) = self.heads[h];
-                let from = self.out.len();
-                self.stub(at, hk, rest, &mut next);
-                for _ in from..self.out.len() { orig.push(orig[at - start]); }
-            }
-            // an init returns nil so the call gives back its instance
-            if ctor.is_some() { for r in &mut self.out[start..] { if r.op == OpCode::ReturnSectionR && r.a == link { (r.b, r.c) = (link + 1, 1); } } }
         } else {
             // callee registers become parameters past the link or extra slots or shared singletons or fresh
             let tail = cb + consts.len();
-            let first = if cb > names { crate::vm::rows::first_row(names) } else { names };
             let map: Vec<Option<u16>> = (0..body.frame).map(|r| match r {
                 r if r < arity => Some(link + 1 + r as u16),
                 // the registers a body of under two names lays its rows past hold nothing
                 r if (names..first).contains(&r) => None,
                 // a `by_body` section's cell is a register the call fills
-                r if by_body && cells.iter().any(|c| c.0 == r) => { next += 1; Some((next - 1) as u16) }
+                r if by_body && cells.iter().any(|c| c.0 == r) => Some(bump(&mut next, 1)),
                 r if (cb..tail).contains(&r) || cells.iter().any(|c| c.0 == r) => None,
                 r if (tail..tail + 3).contains(&r) => Some((self.cbase + self.consts + r - tail) as u16),
-                _ => { next += 1; Some((next - 1) as u16) }
+                _ => Some(bump(&mut next, 1)),
             }).collect();
             if by_body { cell_regs = cells.iter().map(|c| map.get(c.0).copied().flatten().unwrap_or(0)).collect(); }
-            let ins = &body.ins;
-            // each body instruction lays one or more so room is reserved up front
-            orig.reserve(ins.len() + 1);
-            for v in [&mut self.orig, &mut self.back] { v.reserve(ins.len() + 8); }
-            self.out.reserve(ins.len() + 8);
             // a body from another module reads its bindings and calls them through a dedicated register
-            let cross = (module != self.facts.module).then(|| { next += 1; (next - 1) as u16 });
+            let cross = (module != self.facts.module).then(|| bump(&mut next, 1));
             // a checked or returned local may be unbound so each call unbinds it first
             let mut checked: Vec<u16> = ins.iter().filter(|i| i.op == OpCode::Move && i.x == 1 || i.op == OpCode::ReturnR).map(|i| i.b)
                 .filter(|&r| (arity..names).contains(&(r as usize))).filter_map(|r| map.get(r as usize).copied().flatten()).collect();
@@ -1424,7 +1408,7 @@ impl<'p> Lower<'_, 'p> {
             let builds = marks.builds;
             let tried = marks.tried;
             // a body returning what it left on the stack returns it from its own register
-            let guard = marks.stacked.then(|| { next += 1; (next - 1) as u16 });
+            let guard = marks.stacked.then(|| bump(&mut next, 1));
             if builds && let Some(t) = guard { self.emit(Ins { op: OpCode::UnbindR, x: 0, a: t, b: 0, c: 0 }); }
             // registers live across recursion found only when recursing using each `try` and handler start
             let tries: Vec<(usize, usize)> = ins.iter().enumerate().filter(|(_, i)| matches!(i.op, OpCode::SetupExcept | OpCode::SetupFinally)).map(|(j, i)| (j, body.lowered(i.a as usize))).collect();
@@ -1451,10 +1435,10 @@ impl<'p> Lower<'_, 'p> {
             // a shared step register holds the other's value so each yield here sets it too
             let several = shared.is_some() || marks.yields > 1;
             // `try` or `with` in a generator saves start stack depths in two registers for yields
-            let guard_at = (stepped.is_some() && crate::vm::block::guarded(ins)).then(|| { next += 2; (next - 2) as u16 });
+            let guard_at = (stepped.is_some() && crate::vm::block::guarded(ins)).then(|| bump(&mut next, 2));
             if let Some(g) = guard_at { self.emit(Ins { op: OpCode::PopIter, x: 3, a: g, b: 0, c: 0 }); held_at = g; }
             // a register for the value a `yield` takes off the stack
-            let held = if stepped.is_some() && marks.yields_stack { next += 1; (next - 1) as u16 } else { 0 };
+            let held = if stepped.is_some() && marks.yields_stack { bump(&mut next, 1) } else { 0 };
             // `Jump`s to a return left out so jumps landing on them land on that return
             let mut gone = Vec::new();
             // a value pushed before an ordinary call and taken back after its result
@@ -1579,8 +1563,7 @@ impl<'p> Lower<'_, 'p> {
                             Some(t) if i.op == OpCode::CallGlobalR => { self.emit(Ins { op: OpCode::LoadGlobalAtR, x: 0, a: t, b: i.a, c: module as u16 }); (Ins { op: OpCode::CallR, ..i }, t) }
                             // so is a binding holding one body's functions in turn checked by their body
                             _ if i.op == OpCode::CallGlobalR && (self.wanted[to].1.twin || self.valued(ins, j, i, module)) => {
-                                let t = next as u16;
-                                next += 1;
+                                let t = bump(&mut next, 1);
                                 self.emit(Ins { op: OpCode::LoadGlobalR, x: 0, a: t, b: i.a, c: 0 });
                                 (Ins { op: OpCode::CallR, ..i }, t)
                             }
@@ -1597,8 +1580,7 @@ impl<'p> Lower<'_, 'p> {
                             let r = crate::vm::block::field(&ins[j + 1], f as u8);
                             *crate::vm::block::field_mut(&mut rest, f as u8) = match map.get(r as usize) {
                                 Some(None) => {
-                                    let t = next as u16;
-                                    next += 1;
+                                    let t = bump(&mut next, 1);
                                     konst(self.out.len(), 1, r, &mut *extra, &mut *slots, &mut *uses);
                                     self.emit(Ins { op: OpCode::Move, x: 0, a: t, b: 0, c: 0 });
                                     t
@@ -1622,8 +1604,7 @@ impl<'p> Lower<'_, 'p> {
                             // a constant passed first or second gets its own register as later ones did
                             for (f, r) in [(1u8, i.b), (2, i.c)].into_iter().take(n) {
                                 if !matches!(map.get(r as usize), Some(None)) { continue; }
-                                let t = next as u16;
-                                next += 1;
+                                let t = bump(&mut next, 1);
                                 konst(self.out.len(), 1, r, &mut *extra, &mut *slots, &mut *uses);
                                 self.emit(Ins { op: OpCode::Move, x: 0, a: t, b: 0, c: 0 });
                                 if f == 1 { call.b = t } else { call.c = t }
@@ -1631,8 +1612,7 @@ impl<'p> Lower<'_, 'p> {
                             let all = [call.b, call.c, rest.a, rest.b, rest.c];
                             // the binding's function goes into a register the call checks and its stub calls
                             if call.op == OpCode::CallGlobalR {
-                                let f = next as u16;
-                                next += 1;
+                                let f = bump(&mut next, 1);
                                 self.emit(Ins { op: OpCode::LoadGlobalR, x: 0, a: f, b: call.a, c: 0 });
                                 call = Ins { op: OpCode::CallR, a: f, ..call };
                             }
@@ -1653,8 +1633,7 @@ impl<'p> Lower<'_, 'p> {
                             let n = (call.x as usize + (call.op == OpCode::CallMethodR) as usize).min(5);
                             for (q, arg) in args.iter_mut().enumerate().take(n) {
                                 if !written(*arg, q) { continue; }
-                                let t = next as u16;
-                                next += 1;
+                                let t = bump(&mut next, 1);
                                 self.emit(Ins { op: OpCode::Move, x: 0, a: t, b: *arg, c: 0 });
                                 *arg = t;
                             }
@@ -1663,8 +1642,7 @@ impl<'p> Lower<'_, 'p> {
                         // a class call moves a constant second argument into a register of its own first
                         let moved = !packed && self.wanted[to].1.ctor().is_some() && i.x >= 2 && matches!(map.get(i.c as usize), Some(None));
                         if moved {
-                            let t = next as u16;
-                            next += 1;
+                            let t = bump(&mut next, 1);
                             konst(self.out.len(), 1, i.c, &mut *extra, &mut *slots, &mut *uses);
                             self.emit(Ins { op: OpCode::Move, x: 0, a: t, b: 0, c: 0 });
                             call.c = t;
@@ -1684,7 +1662,7 @@ impl<'p> Lower<'_, 'p> {
                         let level = back.then(|| (self.turn(), kept(&live[j], here)));
                         // a kept result a handler reads comes back past the level through its own register
                         let dest = fused.map_or(reg(ins[j + 1 + w].a), |f| f.0);
-                        let into = level.as_ref().filter(|l| l.1.contains(&dest)).map(|_| { next += 1; (next - 1) as u16 });
+                        let into = level.as_ref().filter(|l| l.1.contains(&dest)).map(|_| bump(&mut next, 1));
                         self.head(call, rest, into.unwrap_or(dest), to, false, &[]);
                         // the constants it passes first and second are read by the call itself
                         let at = self.out.len() - HEADER as usize;
@@ -1748,8 +1726,7 @@ impl<'p> Lower<'_, 'p> {
                     }
                     // a row the section lays apart moves into fresh registers in a row first
                     OpCode::BuildR | OpCode::RuntimeR if i.c >= 2 && !(0..i.c).all(|q| map.get((i.b + q) as usize).copied().flatten().is_some_and(|m| Some(m) == map.get(i.b as usize).copied().flatten().map(|s| s + q))) => {
-                        let t = next as u16;
-                        next += i.c as usize;
+                        let t = bump(&mut next, i.c as usize);
                         for q in 0..i.c {
                             konst(self.out.len(), 1, i.b + q, &mut *extra, &mut *slots, &mut *uses);
                             self.emit(Ins { op: OpCode::Move, x: 0, a: t + q, b: reg(i.b + q), c: 0 });
@@ -1805,8 +1782,6 @@ impl<'p> Lower<'_, 'p> {
             if tried && stepped.is_none() {
                 for r in &mut self.out[start..] { if r.op == OpCode::ReturnSectionR && r.a == link { r.x = 1; } }
             }
-            // an init returns nil so the call gives back its instance
-            if ctor.is_some() { for r in &mut self.out[start..] { if r.op == OpCode::ReturnSectionR && r.a == link { (r.b, r.c) = (link + 1, 1); } } }
             // each instruction points at its source body instruction before jumps to dropped returns are retargeted
             let mut j = 0;
             for e in start..self.out.len() {
@@ -1825,14 +1800,16 @@ impl<'p> Lower<'_, 'p> {
                 self.gen_loops.push((k2, leave, Some(target), body_at, false));
                 late.push((k2, entry, entry + 1, step));
             }
-            // its calls' stubs lie inside it too naming what they name in its function's chunk
-            for h in inner..self.heads.len() {
-                let (at, hk, rest) = self.heads[h];
-                let from = self.out.len();
-                self.stub(at, hk, rest, &mut next);
-                for _ in from..self.out.len() { orig.push(orig[at - start]); }
-            }
         }
+        // its calls' stubs lie inside it too naming what they name in its function's chunk
+        for h in inner..self.heads.len() {
+            let (at, hk, rest) = self.heads[h];
+            let from = self.out.len();
+            self.stub(at, hk, rest, &mut next);
+            for _ in from..self.out.len() { orig.push(orig[at - start]); }
+        }
+        // an init returns nil so the call gives back its instance
+        if ctor.is_some() { for r in &mut self.out[start..] { if r.op == OpCode::ReturnSectionR && r.a == link { (r.b, r.c) = (link + 1, 1); } } }
         let ctor = ctor.map(|(epoch, attrs, init)| (Cell::new(epoch), attrs, init));
         // a `by_body` section holds no function since each call brings its cells and defaults
         let value = Cell::new(if by_body { Val::undef() } else { value });

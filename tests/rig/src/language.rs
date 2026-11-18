@@ -47,17 +47,16 @@ impl Language for Rig {
     fn handles(heap: &HeapPool, exc: Val, class: Val) -> Result<bool, VmErr> { interpreter::lib::types::match_exc::<Rig>(heap, exc, class) }
 }
 
-/* implements `Language` for `$lang` as the rig's over the natives `$natives` and names `$names` */
+/* implements `Language` for `$lang` as the rig's over the natives `$natives` */
 #[doc(hidden)]
 #[macro_export]
 macro_rules! over {
-    ($lang:ident, $natives:expr) => { $crate::over!($lang, $natives, &$crate::NAMES); };
-    ($lang:ident, $natives:expr, $names:expr) => {
+    ($lang:ident, $natives:expr) => {
         impl ::interpreter::lang::Language for $lang {
             const VERSION: u32 = 1;
             const POLICY: ::interpreter::lang::Policy = <$crate::Rig as ::interpreter::lang::Language>::POLICY;
             const NATIVES: &'static ::interpreter::lang::Natives = $natives;
-            const NAMES: &'static ::interpreter::lang::Names = $names;
+            const NAMES: &'static ::interpreter::lang::Names = &$crate::NAMES;
             const FRONT: ::interpreter::lang::Front = $crate::FRONT;
             const DESCRIPTOR: &'static ::interpreter::lang::Descriptor = &$crate::DESCRIPTOR;
             const WIDE: Option<&'static ::interpreter::value::foreign::Kind> = <$crate::Rig as ::interpreter::lang::Language>::WIDE;

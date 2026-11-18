@@ -59,8 +59,6 @@ pub const fn code_of<S: Site>() -> Kernel { Kernel::new(Sig::exact(1), code_of_r
 #[inline]
 pub(crate) fn recv_str<'a>(cx: &'a Cx<'_, '_>, recv: Val) -> Result<&'a str, VmErr> { cx.str_of(recv).ok_or_else(receiver) }
 
-pub(crate) fn new_str(cx: &mut Cx<'_, '_>, s: String) -> Ret { Ok(cx.new_str(s)?.into()) }
-
 /* text as the units kernels read where a unit is a character */
 pub struct Text;
 

@@ -1,4 +1,4 @@
-use interpreter::embed::{Limits, VM};
+use interpreter::embed::Limits;
 use interpreter::lang::{Native, Natives, Runtime};
 use interpreter::lib::bytes::{Fixed, Mutable};
 use interpreter::lib::lang::Centre;
@@ -6,6 +6,7 @@ use interpreter::lib::num::hash::Scheme;
 use interpreter::lib::text::cut::Unicode;
 use interpreter::lib::uni::Decimal;
 use rig::Rig;
+use crate::common::ran;
 
 // a runtime of the rig's names keeping every choice lib leaves at its default
 struct Plain;
@@ -103,32 +104,17 @@ impl interpreter::lexer::Spelling for Plainly {
     const NATIVES: &'static Natives = &PLAIN_NATIVES;
 }
 
-/* what `src` printed and the words of the error it ended in under `runtime` */
-fn ran(runtime: &'static Runtime, chunk: &interpreter::code::SSAChunk) -> String {
-    let mut vm = VM::with_runtime(runtime, chunk, Limits::sandbox());
-    let end = vm.run().err().map(|e| e.to_string()).unwrap_or_default();
-    vm.output_text() + &end
-}
-
 /* what `src` gives under the plain runtime */
-fn with_plain(src: &str) -> String {
-    let (chunk, errors) = interpreter::code::compile_as::<Plainly>(src);
-    assert!(errors.is_empty(), "{src}: {:?}", errors.iter().map(|e| &e.msg).collect::<Vec<_>>());
-    ran(&PLAIN_RUNTIME, &chunk)
-}
+fn with_plain(src: &str) -> String { ran::<Plainly>(&PLAIN_RUNTIME, src, Limits::sandbox()) }
 
 /* what `src` gives under rig */
-fn with_mini(src: &str) -> String {
-    let (chunk, errors) = interpreter::code::compile_as::<Rig>(src);
-    assert!(errors.is_empty(), "{src}: {:?}", errors.iter().map(|e| &e.msg).collect::<Vec<_>>());
-    ran(&rig::RUNTIME, &chunk)
-}
+fn with_rig(src: &str) -> String { ran::<Rig>(&rig::RUNTIME, src, Limits::sandbox()) }
 
 #[test]
 fn an_odd_pad_splits_as_the_runtime_centres() {
     let src = "print(\"ab\".center(5, \"*\"), \"abc\".center(6, \"-\"), b\"ab\".center(5, b\"*\").decode())\n";
     assert_eq!(with_plain(src), "*ab** -abc-- *ab**\n");
-    assert_eq!(with_mini(src), "**ab* -abc-- **ab*\n");
+    assert_eq!(with_rig(src), "**ab* -abc-- **ab*\n");
     let split = |c: Centre| [c.before(3, 5), c.before(3, 4), c.before(2, 5)];
     assert_eq!([split(Centre::After), split(Centre::Before), split(Centre::ByWidth)], [[1, 1, 1], [2, 2, 1], [2, 1, 1]]);
 }
@@ -137,18 +123,18 @@ fn an_odd_pad_splits_as_the_runtime_centres() {
 fn number_text_takes_the_separators_and_prefixes_its_runtime_names() {
     let src = "print(int(\"010\", 0), int(\"0x1f\", 0), int(\" 7 \"), float(\"2.5\"))\n";
     assert_eq!(with_plain(src), "10 31 7 2.5\n");
-    assert!(with_mini(src).ends_with("ValueError: \"010\" spells no int"), "{}", with_mini(src));
+    assert!(with_rig(src).ends_with("ValueError: \"010\" spells no int"), "{}", with_rig(src));
     for (src, want) in [("int(\"1_000\")", "1000\n"), ("int(\"0x1f\", 16)", "31\n"), ("int(\"0x_1f\", 0)", "31\n"), ("float(\"1_0.5\")", "10.5\n")] {
         let src = format!("print({src})\n");
         assert!(with_plain(&src).starts_with("ValueError: \""), "{src} {}", with_plain(&src));
-        assert_eq!(with_mini(&src), want, "{src}");
+        assert_eq!(with_rig(&src), want, "{src}");
     }
 }
 
 #[test]
 fn the_information_separators_are_white_space_where_the_runtime_says() {
     let src = "print(len(\"\\u{1c}a\\u{1c}\".strip()), len(\"a\\u{1c}b\".split()), \"\\u{1c}\".isspace(), \" \\t\".isspace(), int(\"\\u{1f}7 \"))\n";
-    assert_eq!(with_mini(src), "1 2 true true 7\n");
+    assert_eq!(with_rig(src), "1 2 true true 7\n");
     assert!(with_plain(src).starts_with("ValueError: "), "{}", with_plain(src));
     assert_eq!(with_plain("print(len(\"\\u{1c}a\\u{1c}\".strip()), len(\"a\\u{1c}b\".split()), \"\\u{1c}\".isspace(), \" \\t\".isspace())\n"), "3 1 false true\n");
 }
@@ -162,10 +148,10 @@ fn sizes_past_a_machine_int_fail_only_where_the_runtime_holds_them_in_one() {
         ("print(len(bytes(-10**30)))", "ValueError: bytes takes a count that is not negative", "OverflowError: int too large for an index"),
         ("print(bytearray(b\"abc\").take_bytes(10**30))", "IndexError: cannot take 9223372036854775807 bytes of 3", "IndexError: int too large for an index"),
     ];
-    for (src, want_plain, want_mini) in cases {
+    for (src, want_plain, want_rig) in cases {
         let src = format!("{src}\n");
         assert!(with_plain(&src).starts_with(want_plain), "{src} {}", with_plain(&src));
-        assert!(with_mini(&src).starts_with(want_mini), "{src} {}", with_mini(&src));
+        assert!(with_rig(&src).starts_with(want_rig), "{src} {}", with_rig(&src));
     }
 }
 
@@ -174,17 +160,17 @@ fn a_spec_reads_the_parts_its_runtime_takes() {
     for (spec, want) in [("1234567:,", "1,234,567"), ("0.25:.1%", "25.0%"), ("-0.0:z.1f", "0.0"), ("5:n", "5"), ("-5:=4", "-  5")] {
         let src = format!("print(\"{{{spec}}}\")\n");
         assert!(with_plain(&src).starts_with("ValueError: "), "{spec} {}", with_plain(&src));
-        assert_eq!(with_mini(&src), format!("{want}\n"), "{spec}");
+        assert_eq!(with_rig(&src), format!("{want}\n"), "{spec}");
     }
     let both = "print(\"{-5:05}\", \"{5:>3}\", \"{2.5:^7.2f}\", \"{255:#x}\")\n";
     assert_eq!(with_plain(both), "-0005   5  2.50   0xff\n");
-    assert_eq!(with_mini(both), with_plain(both));
+    assert_eq!(with_rig(both), with_plain(both));
 }
 
 #[test]
 fn throw_and_iter_take_a_second_argument_only_where_the_runtime_does() {
     let calls = "n = [0]\nfn f() {\n    n[0] += 1\n    return n[0]\n}\nprint(list(iter(f, 3)))\n";
-    assert_eq!(with_mini(calls), "[1, 2]\n");
+    assert_eq!(with_rig(calls), "[1, 2]\n");
     assert!(with_plain(calls).starts_with("TypeError: "), "{}", with_plain(calls));
 }
 
@@ -192,14 +178,14 @@ fn throw_and_iter_take_a_second_argument_only_where_the_runtime_does() {
 fn byte_orders_are_the_words_the_runtime_gives_them() {
     assert_eq!(with_plain("print(list((258).to_bytes(2)))\n"), "[1, 2]\n");
     assert_eq!(with_plain("print((258).to_bytes(2, \"big\"))\n"), "ValueError: the call names no byte order the runtime knows");
-    assert_eq!(with_mini("print(list((258).to_bytes(2, \"little\")), list((258).to_bytes(2, \"big\")))\n"), "[2, 1] [1, 2]\n");
+    assert_eq!(with_rig("print(list((258).to_bytes(2, \"little\")), list((258).to_bytes(2, \"big\")))\n"), "[2, 1] [1, 2]\n");
 }
 
 #[test]
-fn unicode_breaks_leave_out_the_separators_mini_breaks_at() {
+fn unicode_breaks_leave_out_the_separators_the_rig_breaks_at() {
     let src = "print(len(\"a\\u{1c}b\\u{1d}c\\nd\".splitlines()))\n";
     assert_eq!(with_plain(src), "2\n");
-    assert_eq!(with_mini(src), "4\n");
+    assert_eq!(with_rig(src), "4\n");
 }
 
 #[test]

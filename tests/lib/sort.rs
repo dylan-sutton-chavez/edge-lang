@@ -1,14 +1,9 @@
-use interpreter::embed::{Limits, VM};
+use interpreter::embed::Limits;
 use rig::RUNTIME;
+use crate::common::ran;
 
 /* what `src` printed and then the words of the error it ended in */
-fn run(src: &str) -> String {
-    let (chunk, errors) = interpreter::code::compile_as::<rig::Rig>(src);
-    assert!(errors.is_empty(), "{src}");
-    let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits { ops: 10_000_000, memory: usize::MAX });
-    let end = vm.run().err().map(|e| e.to_string()).unwrap_or_default();
-    vm.output_text() + &end
-}
+fn run(src: &str) -> String { ran::<rig::Rig>(&RUNTIME, src, Limits { ops: 10_000_000, memory: usize::MAX }) }
 
 #[test]
 fn plain_kinds_order_stably_both_ways() {
@@ -89,19 +84,7 @@ fn errors_keep_their_words() {
 // top beside the rig's tables as a runtime that ranks rows would name it
 const TOP: &[interpreter::lang::Native] = &interpreter::lib::table![rig::Rig; "top" => interpreter::lib::seq::top::top{"key"}];
 
-static RANKED: interpreter::lang::Natives = interpreter::natives! {
-    language: Ranked,
-    fns: [rig::natives::IO, rig::natives::ITER, rig::natives::NEXT, rig::natives::NUM, rig::natives::FOLDS, rig::natives::CONVERT, rig::natives::BYTES, rig::natives::SORT, rig::natives::TYPES, rig::natives::MATCH, rig::natives::DATE, TOP],
-    methods: [
-        Str => [rig::natives::STR],
-        List => [rig::natives::LIST, rig::natives::LIST_SORT],
-        Tuple => [rig::natives::TUPLE],
-        Dict => [rig::natives::DICT],
-        Int => [rig::natives::INT],
-        Float => [rig::natives::FLOAT],
-    ],
-    types: rig::types::NAMES,
-};
+static RANKED: interpreter::lang::Natives = rig::with!(Ranked, TOP);
 
 static RANKED_RUNTIME: interpreter::lang::Runtime = interpreter::lang::Runtime::of::<Ranked>();
 
@@ -110,13 +93,7 @@ struct Ranked;
 rig::over!(Ranked, &RANKED);
 
 /* what `src` printed under the rig's tables with top beside them */
-fn ranked(src: &str) -> String {
-    let (chunk, errors) = interpreter::code::compile_as::<rig::Rig>(src);
-    assert!(errors.is_empty(), "{src}");
-    let mut vm = VM::with_runtime(&RANKED_RUNTIME, &chunk, Limits { ops: 50_000_000, memory: usize::MAX });
-    let end = vm.run().err().map(|e| e.to_string()).unwrap_or_default();
-    vm.output_text() + &end
-}
+fn ranked(src: &str) -> String { ran::<rig::Rig>(&RANKED_RUNTIME, src, Limits { ops: 50_000_000, memory: usize::MAX }) }
 
 #[test]
 fn top_keeps_the_rows_a_stable_descending_sort_puts_first() {

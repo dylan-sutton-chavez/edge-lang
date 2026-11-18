@@ -2,7 +2,6 @@ use interpreter::embed::{Limits, VM};
 use interpreter::lang::{Acc, Args, Cont, Cx, Flow, Fold, Item, Native, Natives, Ret, Runtime, STEPS, Sent, Sig, Step, Then};
 use interpreter::value::{SchedulerStatus, Val, VmErr};
 use rig::Rig;
-use rig::natives::{ARRAY, BUFFER, BYTES, CONVERT, DICT, FLOAT, FOLDS, INT, IO, ITER, LIST, LIST_SORT, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
 
 const STEPPED: &[Native] = &[
     Native::new("apply", Sig::exact(2), apply).flags(STEPS),
@@ -23,23 +22,7 @@ const STEPPED: &[Native] = &[
     Native::new("most", Sig::exact(1), most).flags(STEPS),
 ];
 
-static NATIVES: Natives = interpreter::natives! {
-    language: Over,
-    fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, TYPES, rig::natives::MATCH, rig::natives::DATE, STEPPED],
-    methods: [
-        Str => [STR],
-        Bytes => [BUFFER],
-        ByteArray => [ARRAY],
-        List => [LIST, LIST_SORT],
-        Tuple => [TUPLE],
-        Dict => [DICT],
-        Set => [SET, SET_MANY],
-        Int => [INT],
-        Float => [FLOAT],
-        Range => [RANGE],
-    ],
-    types: rig::types::NAMES,
-};
+static NATIVES: Natives = rig::with!(Over, STEPPED);
 
 static RUNTIME: Runtime = Runtime::of::<Over>();
 

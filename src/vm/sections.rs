@@ -310,8 +310,7 @@ impl<'a> VM<'a> {
             let at = stub_head(code, i as usize).unwrap_or(i as usize);
             let (scope, cat) = lower::head_origin(code, at);
             let key = scope.map_or_else(|| VM::code_key_of(chunk, self.fi_of(chunk)), |fi| fi as i64);
-            let mut seen = self.learned.chunks(3).filter(|t| t[0].as_int() == key && t[1].as_int() == cat as i64);
-            if matches!(self.heap.try_get(f), Some(HeapObj::Func { .. })) && seen.clone().count() < 16 && !seen.any(|t| t[2].0 == f.0) { self.learned.extend_from_slice(&[Val::int(key), Val::int(cat as i64), f]); }
+            if matches!(self.heap.try_get(f), Some(HeapObj::Func { .. })) { self.learn(key, cat as i64, f); }
         }
     }
 
@@ -348,8 +347,7 @@ impl<'a> VM<'a> {
         if !matches!(kind, lower::Grow::Global | lower::Grow::Chain) && !class && grown.last.replace(pair) != pair {
             let (scope, cat) = lower::head_origin(code, at);
             let key = scope.map_or_else(|| VM::code_key_of(chunk, self.fi_of(chunk)), |fi| fi as i64);
-            let mut seen = self.learned.chunks(3).filter(|t| t[0].as_int() == key && t[1].as_int() == cat as i64);
-            if seen.clone().count() < 16 && !seen.any(|t| t[2].0 == func.0) { self.learned.extend_from_slice(&[Val::int(key), Val::int(cat as i64), func]); }
+            self.learn(key, cat as i64, func);
         }
         grown.turned.set(grown.turned.get() + 1);
         if grown.turned.get() < lower::TURNS { return false; }
@@ -528,9 +526,13 @@ impl<'a> VM<'a> {
             code.misses.set(code.misses.get() + 1);
             if code.misses.get() == lower::MISSES && self.preempt_left == 0 { self.preempt_left = RELAY; }
         }
-        let mut seen = self.learned.chunks(3).filter(|t| t[0].as_int() == key && t[1].as_int() == at as i64);
-        if seen.clone().count() >= 16 || seen.any(|t| t[2].0 == class.0) { return; }
-        self.learned.extend_from_slice(&[Val::int(key), Val::int(at as i64), class]);
+        self.learn(key, at as i64, class);
+    }
+
+    /* notes `v` met at `cat` of the code keyed `key` unless it is noted there or sixteen are */
+    fn learn(&mut self, key: i64, cat: i64, v: Val) {
+        let mut seen = self.learned.chunks(3).filter(|t| t[0].as_int() == key && t[1].as_int() == cat);
+        if seen.clone().count() < 16 && !seen.any(|t| t[2].0 == v.0) { self.learned.extend_from_slice(&[Val::int(key), Val::int(cat), v]); }
     }
 
     /* enters the head section for a function its class still finds with the arguments alone */
@@ -541,13 +543,7 @@ impl<'a> VM<'a> {
         if self.budget == 0 { return None; }
         // a function the instance holds by the call's name takes the arguments alone
         if s.on_class == 4 {
-            let name = chunk_in(&self.functions, code, chunk, at).names.get(call.a as usize).map_or("", |n| crate::syntax::ssa::ssa_strip(n));
-            let held = match self.heap.try_get(recv) {
-                Some(HeapObj::Object { meta, slots: attrs }) if meta.is_heap() => { let a = attrs.borrow(); a.position_str(name, crate::value::hash_str(name), &self.heap).map(|i| a.value_at(i)) }
-                Some(HeapObj::Module(_, attrs)) => attrs.iter().find(|(n, _)| n == name).map(|&(_, v)| v),
-                _ => return None,
-            };
-            if held.is_none_or(|f| f.0 != s.value.get().0) { return None; }
+            if self.held_func(code, chunk, at, recv).is_none_or(|f| f.0 != s.value.get().0) { return None; }
             self.budget -= 1;
             self.regs[self.base + s.link as usize] = Val::int((store.b as i64) << 16 | store.a as i64);
             return Some(s.start as usize);
@@ -654,15 +650,6 @@ impl<'a> VM<'a> {
         self.regs[at - 1] = Val::int((store.b as i64) << 16 | store.a as i64);
         Some(s.start as usize)
     }
-}
-
-/* the class of an instance and None for builtin operands */
-#[inline]
-pub(crate) fn class_of(heap: &HeapPool, v: Val) -> Option<Val> { instance_class(heap, v) }
-
-#[inline]
-fn instance_class(heap: &HeapPool, v: Val) -> Option<Val> {
-    heap.class_of(v)
 }
 
 impl<'a> VM<'a> {

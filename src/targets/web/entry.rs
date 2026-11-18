@@ -19,15 +19,12 @@ impl Entry {
 
     #[inline(always)]
     pub(crate) fn front(&self) -> &'static Front { self.rt.front.as_ref().unwrap_or(&Front::NONE) }
-
-    #[inline(always)]
-    fn descriptor(&self) -> &'static Descriptor { self.rt.descriptor }
 }
 
 /* the descriptor as JSON so a host learns the runtime from its artifact */
 pub(crate) fn runtime_descriptor() -> u32 {
-    let entry = crate::r#unsafe::web::entry();
-    write_out(&json(entry.descriptor(), entry.runtime().identity)) as u32
+    let rt = crate::r#unsafe::web::entry().runtime();
+    write_out(&json(rt.descriptor, rt.identity)) as u32
 }
 
 fn json(d: &Descriptor, identity: u64) -> String {
@@ -47,8 +44,7 @@ fn json(d: &Descriptor, identity: u64) -> String {
     }
     out.push_str(&crate::s!("],\"statuses\":[", int d.statuses.0 as i64, ",", int d.statuses.1 as i64));
     // the snapshot header so a host reads a blob and checks its runtime first
-    let mut hex = String::with_capacity(16);
-    for k in (0..16).rev() { hex.push(char::from(b"0123456789abcdef"[(identity >> (k * 4) & 15) as usize])); }
+    let hex = crate::util::sha256::hex_encode(&identity.to_be_bytes());
     out.push_str(&crate::s!("],\"snapshot\":{\"magic\":", int MAGIC, ",\"runtime_at\":", int RUNTIME_AT, ",\"runtime\":\"", str &hex, "\",\"source_len_at\":", int SOURCE_LEN_AT, ",\"entry_len_at\":", int ENTRY_LEN_AT, ",\"source_at\":", int SOURCE_AT, "}}"));
     out
 }

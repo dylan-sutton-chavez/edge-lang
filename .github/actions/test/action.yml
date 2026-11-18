@@ -4,17 +4,8 @@ description: The Deno and Chromium suites of the JS host, against the CDN tree t
 runs:
   using: composite
   steps:
-    - name: Setup Deno
-      uses: denoland/setup-deno@v2
-      with:
-        deno-version: v2.x
-
-    - name: Cache Deno
-      uses: actions/cache@v6
-      with:
-        path: ~/.cache/deno
-        key: deno-${{ runner.os }}-${{ hashFiles('**/deno.json', '**/deno.lock') }}
-        restore-keys: deno-${{ runner.os }}-
+    - name: Deno
+      uses: ./.github/actions/deno
 
     # a 150MB Chromium, cached so only the first run pays the download
     - name: Cache Playwright browsers

@@ -86,9 +86,6 @@ impl<'a> VM<'a> {
         }
     }
 
-    /* sets the `args` of exception `inst` to what its constructor and init received */
-    pub(crate) fn set_exc_args(&mut self, inst: Val, args: Vec<Val>) -> Result<(), VmErr> { self.heap.set_args(inst, args) }
-
     /* whether `name` is the arguments field of error instance `obj` */
     #[inline(always)]
     fn holds_exc_args(&self, obj: Val, name: &str) -> bool {
@@ -107,7 +104,7 @@ impl<'a> VM<'a> {
     #[inline(never)]
     fn store_exc_args(&mut self, obj: Val, value: Val) -> Result<(), VmErr> {
         let items = self.extract_iter(value)?;
-        self.set_exc_args(obj, items)
+        self.heap.set_args(obj, items)
     }
 
     // `obj.<name>` for calls and stores with a miss worded as the error it raises
@@ -348,7 +345,7 @@ pub(crate) fn own(natives: &'static crate::lang::Natives, k: crate::lang::KindId
 /* the init every class ends in which keeps an exception's arguments as its args */
 pub(crate) fn init(cx: &mut Cx<'_, '_>, a: crate::lang::Args<'_>) -> Ret {
     let exc = cx.heap().class_of(a.recv).is_some_and(|c| cx.exc_base(c).is_some());
-    if exc { cx.vm().set_exc_args(a.recv, a.pos.to_vec())?; }
+    if exc { cx.vm().heap.set_args(a.recv, a.pos.to_vec())?; }
     else if !a.pos.is_empty() {
         return Err(EngineError::Call(crate::lang::CallFault::InitArgs).into());
     }
@@ -358,15 +355,11 @@ pub(crate) fn init(cx: &mut Cx<'_, '_>, a: crate::lang::Args<'_>) -> Ret {
 impl<'a> VM<'a> {
 
     /* removes attribute `name` of `obj` for natives and raises when it is absent */
-    #[inline]
-    pub(crate) fn delete_attr_named(&mut self, obj: Val, name: &str) -> Result<(), VmErr> { self.delete_attr_in(obj, name, None) }
-
-    /* `delete_attr_named` where site `at` keeps the rule a missing attribute asks */
-    pub(crate) fn delete_attr_in(&mut self, obj: Val, name: &str, at: Option<(&OpcodeCache, usize)>) -> Result<(), VmErr> {
+    pub(crate) fn delete_attr_named(&mut self, obj: Val, name: &str) -> Result<(), VmErr> {
         if self.heap.is_class(obj) {
             self.layout_epoch = self.layout_epoch.wrapping_add(1);
             if self.heap.drop_member(obj, name) { return Ok(()); }
-            if self.drop_rule(obj, name, at)? { return Ok(()); }
+            if self.drop_rule(obj, name)? { return Ok(()); }
             return Err(self.no_attr(obj, name));
         }
         let attrs = match self.heap.try_get(obj) {
@@ -375,7 +368,7 @@ impl<'a> VM<'a> {
                 None
             }
             Some(HeapObj::Object { meta, slots }) if meta.is_heap() => Some(slots.clone()),
-            _ => return if self.drop_rule(obj, name, at)? { Ok(()) } else { Err(EngineError::cannot(Act::DeleteAttr, None)) },
+            _ => return if self.drop_rule(obj, name)? { Ok(()) } else { Err(EngineError::cannot(Act::DeleteAttr, None)) },
         };
         // the instance gives up its own attribute
         if let Some(attrs) = attrs {
@@ -384,7 +377,7 @@ impl<'a> VM<'a> {
             // an error's arguments stay with it as the tuple they are
             if self.holds_exc_args(obj, name) { return Err(EngineError::cannot(Act::DropArgs, Some(obj))); }
         }
-        if self.drop_rule(obj, name, at)? { return Ok(()); }
+        if self.drop_rule(obj, name)? { return Ok(()); }
         Err(self.no_attr(obj, name))
     }
 }

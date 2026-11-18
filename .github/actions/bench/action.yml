@@ -1,5 +1,5 @@
 name: Bench
-description: Counts the instructions interpreter.wasm runs for every case of tests/cases/vm and holds them to bench/.snapshot.
+description: Counts the instructions interpreter.wasm runs for every case of bench/cases and holds them to bench/.snapshot.
 
 runs:
   using: composite

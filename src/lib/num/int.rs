@@ -25,7 +25,7 @@ pub const fn bit_length<S: Site>() -> Kernel { Kernel::new(Sig::exact(0), bit_le
 pub const fn bit_count<S: Site>() -> Kernel { Kernel::new(Sig::exact(0), bit_count_run) }
 
 /* an int's bytes in a length and an order signed or not */
-pub const fn to_bytes<S: Site>() -> Kernel { Kernel::new(Sig::range(0, 3), to_bytes_run::<S>) }
+pub const fn to_bytes<S: Site>() -> Kernel { Kernel::new(Sig::range(0, 3), |cx, a| to_bytes_of::<S>(cx, a.recv, a.get(0), a.get(1), a.get(2))) }
 
 /* the int bytes spell in an order signed or not read off the type */
 pub const fn from_bytes<S: Site>() -> Kernel { Kernel::new(Sig::range(1, 3), from_bytes_run::<S>).flags(CLASS) }
@@ -242,8 +242,6 @@ fn bytes_int_run<S: Site>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
     if !matches!(cx.heap().try_get(a.pos[0]), Some(HeapObj::Bytes(_))) { return Err(fail::<S>(cx, Fail::BytesFirst)); }
     from_bytes_run::<S>(cx, a)
 }
-
-fn to_bytes_run<S: Site>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret { to_bytes_of::<S>(cx, a.recv, a.get(0), a.get(1), a.get(2)) }
 
 /* the bytes of `v` unsigned unless asked and big endian unless told */
 fn to_bytes_of<S: Site>(cx: &mut Cx<'_, '_>, v: Val, length: Option<Val>, order: Option<Val>, signed: Option<Val>) -> Ret {

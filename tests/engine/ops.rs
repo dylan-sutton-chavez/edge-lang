@@ -1,7 +1,7 @@
 mod test {
     use interpreter::code::OpCode;
     use interpreter::embed::{Limits, VM};
-    use interpreter::lang::{Args, Cx, Descriptor, EngineError, ErrKind, Front, Language, Misfit, Mode, Names, Native, Natives, Op, OpSet, OpTable, Policy, Ret, Runtime, Sig};
+    use interpreter::lang::{Args, Cx, Descriptor, EngineError, ErrKind, Front, Language, Mode, Names, Native, Natives, Op, OpSet, OpTable, Policy, Ret, Runtime, Sig};
     use interpreter::lexer::{Spelling, Syntax};
     use interpreter::value::foreign::Kind;
     use interpreter::value::{HeapPool, Val, VmErr};
@@ -102,21 +102,10 @@ mod test {
 
         fn handles(heap: &HeapPool, exc: Val, class: Val) -> Result<bool, VmErr> { <Rig as Language>::handles(heap, exc, class) }
 
-        fn misfit(n: &Native, owner: Option<&str>, m: Misfit<'_>) -> VmErr { <Rig as Language>::misfit(n, owner, m) }
-
-        fn message(cx: &mut Cx<'_, '_>, e: &EngineError) -> String { <Rig as Language>::message(cx, e) }
     }
 
     /* what `src` prints under the runtime or the error that ends it */
-    fn ran(src: &str) -> String {
-        let (chunk, errors) = interpreter::code::compile_as::<Clamped>(src);
-        assert!(errors.is_empty(), "{src:?} reports {:?}", errors.iter().map(|d| &d.msg).collect::<Vec<_>>());
-        let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
-        match vm.run() {
-            Ok(_) => vm.output_text().trim_end().to_string(),
-            Err(e) => vm.error_text(&e),
-        }
-    }
+    fn ran(src: &str) -> String { crate::common::ran_as::<Clamped>(&RUNTIME, src) }
 
     /* the ops `src` compiles to in its module body */
     fn ops_of(src: &str) -> Vec<(OpCode, u16)> {

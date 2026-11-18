@@ -5,7 +5,6 @@ use interpreter::lexer::{Spelling, Syntax};
 use interpreter::value::{HeapPool, Val, VmErr};
 use interpreter::value::foreign::Kind;
 use interpreter::value::foreign::{BinOp, UnOp};
-use rig::natives::{ARRAY, BUFFER, BYTES, CONVERT, DATE, DICT, FLOAT, FOLDS, INT, IO, ITER, LIST, LIST_SORT, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
 use rig::{Rig, NAMES};
 
 // the sandbox's memory limit meters what a run allocates as interpreter.wasm does
@@ -14,23 +13,7 @@ interpreter::allocator!();
 // one native past the rig's that words an engine error as the rig's language does
 const PROBE: &[Native] = &[Native::new("probe", Sig::var(1), probe)];
 
-static NATIVES: Natives = interpreter::natives! {
-    language: Probe,
-    fns: [IO, ITER, NEXT, NUM, FOLDS, CONVERT, BYTES, SORT, TYPES, DATE, PROBE],
-    methods: [
-        Str => [STR],
-        Bytes => [BUFFER],
-        ByteArray => [ARRAY],
-        List => [LIST, LIST_SORT],
-        Tuple => [TUPLE],
-        Dict => [DICT],
-        Set => [SET, SET_MANY],
-        Int => [INT],
-        Float => [FLOAT],
-        Range => [RANGE],
-    ],
-    types: rig::types::NAMES,
-};
+static NATIVES: Natives = rig::with!(Probe, PROBE);
 
 static RUNTIME: Runtime = Runtime::of::<Probe>();
 
@@ -168,7 +151,7 @@ const SAME: &[(&str, &str)] = &[
 ];
 
 #[test]
-fn the_loop_raises_each_engine_error_in_minis_words() {
+fn the_loop_raises_each_engine_error_in_the_rigs_words() {
     for &(src, probe) in SAME {
         let words = ran(probe);
         assert!(!words.starts_with(NAMES.error(ErrKind::Runtime)), "{src:?} probes {words:?}");

@@ -1,4 +1,5 @@
 use crate::deps::walk::{self, Carry};
+use crate::deps::package;
 use crate::r#unsafe::web;
 
 use super::resolver::WebHost;
@@ -43,4 +44,23 @@ pub(crate) fn walk_plugin(kind: u32, text: &str) -> u32 {
 
 pub(crate) fn walk_served(failures: &[u8]) -> u32 {
     write_out(&walk::served(&mut WebHost, failures)) as u32
+}
+
+pub(crate) fn bundle_index(bundle: &[u8]) -> u32 {
+    write_out(&package::index(bundle)) as u32
+}
+
+#[cfg(feature = "perms")]
+pub(crate) fn grants_check(section: &[u8], modules: &[u8], taken: &[u8]) -> u32 {
+    write_out(&crate::deps::perms::check_json(section, modules, taken)) as u32
+}
+
+#[cfg(feature = "perms")]
+pub(crate) fn grants_scopes(section: &[u8]) -> u32 {
+    write_out(&crate::deps::perms::scopes_json(section)) as u32
+}
+
+#[cfg(feature = "perms")]
+pub(crate) fn grants_held(chain: &[u8], pkg: &str, module: &str) -> u32 {
+    write_out(&crate::deps::perms::held_json(chain, pkg, module)) as u32
 }

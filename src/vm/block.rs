@@ -92,7 +92,6 @@ pub(crate) fn kinds(ins: &Ins) -> u8 {
     }
 }
 
-
 /* whether lowered `ins` lays as a section with each call's result stored right after it */
 pub(crate) fn pure(ins: &[Ins]) -> bool { laid(ins, false) }
 
@@ -180,8 +179,7 @@ fn laid(ins: &[Ins], yields: bool) -> bool {
 /* the `for` loops around each instruction of `ins` counted from GetIter to the ForIterR exit */
 pub(crate) fn loops_around(ins: &[Ins]) -> alloc::vec::Vec<usize> {
     let mut depth = alloc::vec![0; ins.len() + 1];
-    for (g, i) in ins.iter().enumerate().filter(|(_, i)| matches!(i.op, GetIter | GetIterR)) {
-        let _ = i;
+    for (g, _) in ins.iter().enumerate().filter(|(_, i)| matches!(i.op, GetIter | GetIterR)) {
         let Some(f) = ins[g + 1..].iter().position(|i| matches!(i.op, ForIterR | ForIter)).map(|f| g + 1 + f) else { continue };
         // a stub's GetIter past the code is followed by no loop of its own
         for d in depth.get_mut(g + 1..(ins[f].a as usize).min(ins.len())).unwrap_or_default() { *d += 1; }
@@ -362,7 +360,6 @@ fn live_rows(ins: &[Ins], regs: usize, from: usize, captured: &[u16]) -> alloc::
     }
 }
 
-
 /* `live_across` for a frame of 64 registers at most */
 fn live_word(ins: &[Ins], regs: usize, tries: &[(usize, usize)], captured: &[u16]) -> alloc::vec::Vec<alloc::vec::Vec<u16>> {
     use alloc::vec::Vec;
@@ -451,4 +448,3 @@ pub(crate) fn rows(i: &Ins) -> Option<([core::ops::Range<u16>; 2], core::ops::Ra
 }
 
 pub(crate) fn field_mut(i: &mut Ins, f: u8) -> &mut u16 { match f { 0 => &mut i.a, 1 => &mut i.b, _ => &mut i.c } }
-

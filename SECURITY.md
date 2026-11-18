@@ -14,7 +14,7 @@ Everything in this repository is in scope, whether the issue is a sandbox escape
 
 - The engine in `src/`, its compiler, VM, grant logic and snapshot handling.
 - `interpreter::lib` in `src/lib`, the natives a runtime opts into.
-- The CLI kit in `cli/`, with its wasmtime configuration and the commands it composes.
+- The CLI kit in `src/cli` behind the `cli-*` features, with its wasmtime configuration and the commands it composes.
 - `net` in `examples/net`, the network module both hosts serve.
 - The plugin kit in `src/plugin` and the ABI in `src/abi`.
 - The JS host in `js/`.

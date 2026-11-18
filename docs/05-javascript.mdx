@@ -123,7 +123,7 @@ The second `done` comes from the blob, which held the loop at the `n` where the 
 
 ## Other hosts
 
-Any host that runs WebAssembly can drive a runtime's `.wasm`. The CLI does it with wasmtime in `cli/src/host/wasm`. Every input is a buffer the host allocates with `wasm_alloc(size)`, fills, passes as `(ptr, len)` and frees with `wasm_free(ptr, size)`. Every result lands in one output buffer at `out_ptr()`, `out_len()` bytes long, valid until the next call.
+Any host that runs WebAssembly can drive a runtime's `.wasm`. The CLI does it with wasmtime in `src/cli/host/wasm`. Every input is a buffer the host allocates with `wasm_alloc(size)`, fills, passes as `(ptr, len)` and frees with `wasm_free(ptr, size)`. Every result lands in one output buffer at `out_ptr()`, `out_len()` bytes long, valid until the next call.
 
 The module imports four functions from `env`.
 

@@ -75,7 +75,7 @@ mod test {
         assert!(repeated.is_empty(), "{} duplicate case(s):\n{}", repeated.len(), repeated.join("\n"));
     }
 
-    /* the vm cases under sandbox limits so runaway allocation and recursion raise instead of hanging */
+    /* the vm cases under sandbox limits and strict input so runaway allocation recursion and a read past the input raise instead of hanging */
     #[test]
     fn test_cases() {
         let cases: Vec<Case> = serde_json::from_value(crate::miri::corpus_slice().into()).expect("vm cases");
@@ -83,16 +83,23 @@ mod test {
         let mut failures: Vec<String> = Vec::new();
         for case in cases {
             let (tokens, lex_errs) = lex(&case.src);
-            // an expected error the lexer already reports needs no run
-            if !lex_errs.is_empty()
-                && let Some(expected) = &case.error
-                && lex_errs.iter().any(|e| e.msg.contains(expected.as_str()))
-            {
+            // an expected error the lexer already reports needs no run and any other lex error fails the case
+            if !lex_errs.is_empty() {
+                let msgs: Vec<&str> = lex_errs.iter().map(|e| e.msg).collect();
+                if !case.error.as_ref().is_some_and(|want| msgs.iter().any(|m| m.contains(want.as_str()))) {
+                    failures.push(format!("LEX {:?}\n   got {:?}\n   want {:?}", case.src, msgs, case.error));
+                }
                 continue;
             }
             let (mut chunk, errors) = parser(&case.src, tokens.into_iter(), Box::new(NoopResolver)).parse();
-            // an expected error the parser already reports needs no run
-            if let Some(expected) = &case.error && errors.iter().any(|e| e.msg.contains(expected.as_str())) { continue; }
+            // an expected error the parser already reports needs no run and any other parse error fails the case
+            if !errors.is_empty() {
+                let msgs: Vec<&str> = errors.iter().map(|e| e.msg.as_str()).collect();
+                if !case.error.as_ref().is_some_and(|want| msgs.iter().any(|m| m.contains(want.as_str()))) {
+                    failures.push(format!("PARSE {:?}\n   got {:?}\n   want {:?}", case.src, msgs, case.error));
+                }
+                continue;
+            }
             // the fold pass production runs so its bugs surface here
             interpreter::code::constant_fold(&mut chunk, rig::FRONT.policy);
             let mut vm = crate::common::boot(&chunk, crate::common::corpus_limits());
@@ -105,6 +112,9 @@ mod test {
             // every mismatch is collected so one run lists all regressions
             match result {
                 Ok(_obj) => {
+                    if case.input.is_empty() && (case.src.contains("input(") || case.src.contains("input (")) {
+                        failures.push(format!("NO EOF {:?}\n   input() past the supplied buffer ended cleanly", case.src));
+                    }
                     if let Some(expected) = &case.error {
                         failures.push(format!("NO ERROR {:?}\n   want '{}'", case.src, expected));
                     }
@@ -132,74 +142,6 @@ mod test {
         if !failures.is_empty() {
             let shown = failures.len().min(80);
             panic!("{} case(s) failed:\n{}", failures.len(), failures[..shown].join("\n"));
-        }
-    }
-
-    /* every vm case again in strict input mode where reading past the supplied buffer fails */
-    #[test]
-    fn strict_cases() {
-        let cases: Vec<Case> = serde_json::from_value(crate::miri::corpus_slice().into()).expect("vm cases");
-
-        for case in cases {
-            let (tokens, lex_errs) = lex(&case.src);
-            // lex errors arrive as diagnostics matched against the expected error
-            if !lex_errs.is_empty() {
-                if let Some(expected) = &case.error {
-                    assert!(
-                        lex_errs.iter().any(|e| e.msg.contains(expected.as_str())),
-                        "wrong lex error on {:?}: got {:?}, expected '{}'",
-                        case.src,
-                        lex_errs.iter().map(|e| e.msg).collect::<Vec<_>>(),
-                        expected
-                    );
-                    continue;
-                }
-                panic!("lex error on {:?}: {:?}", case.src, lex_errs.iter().map(|e| e.msg).collect::<Vec<_>>());
-            }
-            let (mut chunk, errs) = parser(&case.src, tokens.into_iter(), Box::new(NoopResolver)).parse();
-            if !errs.is_empty() {
-                match &case.error {
-                    Some(expected) => {
-                        assert!(
-                            errs.iter().any(|e| e.msg.contains(expected.as_str())),
-                            "wrong parse error on {:?}: got {:?}, expected '{}'",
-                            case.src,
-                            errs.iter().map(|e| &e.msg).collect::<Vec<_>>(),
-                            expected
-                        );
-                        continue;
-                    }
-                    None => panic!("parse error on {:?}: {:?}", case.src, errs.iter().map(|e| &e.msg).collect::<Vec<_>>()),
-                }
-            }
-            // folded before running as production does
-            interpreter::code::constant_fold(&mut chunk, rig::FRONT.policy);
-
-            let mut vm = crate::common::boot(&chunk, crate::common::corpus_limits());
-            vm.input_buffer = case.input.clone();
-            hook_sends(&mut vm, &case);
-            for evt in &case.events { vm.push_event(evt).expect("push_event"); }
-            let expects_input_error = case.input.is_empty() && (case.src.contains("input(") || case.src.contains("input ("));
-
-            let run = drive(&mut vm, &case.interactive_events);
-            if crate::common::cut_short(&run) { continue; }
-            match run {
-                Ok(_) => {
-                    assert!(!expects_input_error, "expected input() to error under strict mode for: {:?}", case.src);
-                    assert!(case.error.is_none(), "expected error {:?} on {:?}, the run ended cleanly", case.error, case.src);
-                    assert_eq!(vm.output, case.output, "output mismatch on: {:?}", case.src);
-                    if let Some(want) = &case.sends { assert_eq!(&sent(), want, "sends mismatch on: {:?}", case.src); }
-                }
-                Err(e) => match &case.error {
-                    Some(expected) => assert!(e.to_string().contains(expected.as_str()), "wrong error on {:?}: got '{}', expected '{}'", case.src, e, expected),
-                    None if expects_input_error => assert!(
-                        e.to_string().contains("EOFError"),
-                        "expected input EOFError under strict mode for: {:?}, got: {}",
-                        case.src, e
-                    ),
-                    None => panic!("VM error on {:?}: {}", case.src, e),
-                }
-            }
         }
     }
 

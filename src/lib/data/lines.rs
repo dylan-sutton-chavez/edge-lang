@@ -75,25 +75,16 @@ fn matched(cx: &Cx<'_, '_>, chunk: Val, rest: Option<Val>) -> Option<Form> {
 fn lines_run<S: Site>(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
     let (chunk, rest) = (a.pos[0], a.get(1));
     let Some(shape) = matched(cx, chunk, rest) else { return Err(fail::<S>(cx, Fail::LineKinds { chunk, rest: rest.unwrap_or(chunk) })) };
-    let (items, tail) = if shape == Form::Text {
-        let mut s = String::from(rest.and_then(|r| cx.text(r)).unwrap_or(""));
-        s.push_str(cx.text(chunk).unwrap_or(""));
-        cx.spend(s.len());
-        let (ranges, tail) = cut(s.as_bytes(), 0);
-        let mut items = Vec::with_capacity(ranges.len());
-        // a cut at a newline leaves whole characters on both sides
-        for r in ranges { items.push(cx.new_str(String::from(s.get(r).unwrap_or("")))?); }
-        (items, cx.new_str(String::from(s.get(tail..).unwrap_or("")))?)
-    } else {
-        let mut b = rest.and_then(|r| cx.bytes_of(r)).unwrap_or(&[]).to_vec();
-        b.extend_from_slice(cx.bytes_of(chunk).unwrap_or(&[]));
-        cx.spend(b.len());
-        let (ranges, tail) = cut(&b, 0);
-        let mutable = shape == Form::Buffer;
-        let mut items = Vec::with_capacity(ranges.len());
-        for r in ranges { items.push(cx.new_bytes(b[r].to_vec(), mutable)?); }
-        (items, cx.new_bytes(b[tail..].to_vec(), mutable)?)
-    };
+    let part = |v: Val| if shape == Form::Text { cx.text(v).map(str::as_bytes) } else { cx.bytes_of(v) };
+    let mut b = rest.and_then(part).unwrap_or(&[]).to_vec();
+    b.extend_from_slice(part(chunk).unwrap_or(&[]));
+    cx.spend(b.len());
+    let (ranges, tail) = cut(&b, 0);
+    // a cut at a newline leaves whole characters on both sides
+    let made = |cx: &mut Cx<'_, '_>, p: &[u8]| if shape == Form::Text { cx.new_str(String::from(core::str::from_utf8(p).unwrap_or(""))) } else { cx.new_bytes(p.to_vec(), shape == Form::Buffer) };
+    let mut items = Vec::with_capacity(ranges.len());
+    for r in ranges { items.push(made(cx, &b[r])?); }
+    let tail = made(cx, &b[tail..])?;
     let list = cx.new_list(items)?;
     Ok(cx.new_tuple(alloc::vec![list, tail])?.into())
 }

@@ -213,9 +213,9 @@ impl<'a> VM<'a> {
         let own = |f: usize| if fi != Some(f) { None } else if me.is_some() { plain() } else { old.clone().filter(|c| c.block.is_none() && c.pure()).or_else(plain) };
         let found = |w: lower::Want| if !laid { None } else {
             match w {
-                // a generator a module binding holds for the loop that steps it
-                lower::Want::Gen(m, g) => {
-                    let value = self.scopes.get(m)?.at(g as u32);
+                // a generator a module binding holds for the loop that steps it or one another loop's head met for that loop
+                lower::Want::Gen(..) | lower::Want::GenFunc(_) => {
+                    let value = match w { lower::Want::Gen(m, g) => self.scopes.get(m)?.at(g as u32), lower::Want::GenFunc(value) => value, _ => return None };
                     if let Some(&(_, fi, ref body)) = gens.iter().chain(lazy.borrow().iter()).find(|b| b.0 == value.0) { return self.gen_section_of(value, fi, body.clone()); }
                     let Some(&HeapObj::Func { fi, .. }) = self.heap.try_get(value) else { return None };
                     let body = self.gen_body(fi)?;
@@ -227,14 +227,6 @@ impl<'a> VM<'a> {
                     let value = noted.iter().find(|n| n.0 == at | lower::GEN)?.1;
                     let Some(&HeapObj::Func { fi, .. }) = self.heap.try_get(value) else { return None };
                     let body = self.gen_body(fi)?;
-                    self.gen_section_of(value, fi, body)
-                }
-                // a generator another loop's head met for that loop
-                lower::Want::GenFunc(value) => {
-                    if let Some(&(_, fi, ref body)) = gens.iter().chain(lazy.borrow().iter()).find(|b| b.0 == value.0) { return self.gen_section_of(value, fi, body.clone()); }
-                    let Some(&HeapObj::Func { fi, .. }) = self.heap.try_get(value) else { return None };
-                    let body = self.gen_body(fi)?;
-                    lazy.borrow_mut().push((value.0, fi, body.clone()));
                     self.gen_section_of(value, fi, body)
                 }
                 lower::Want::Global(m, g) => {
@@ -261,7 +253,7 @@ impl<'a> VM<'a> {
                 }
                 lower::Want::Method(at) => {
                     // a function the receiver held by the name is called with the arguments alone
-                    if let Some(f) = noted.iter().find(|n| n.0 == at | lower::FIELD).map(|n| n.1) { return self.on_field(f, &own); }
+                    if let Some(f) = noted.iter().find(|n| n.0 == at | lower::FIELD).map(|n| n.1) { return self.on_found(f, &own, 4); }
                     let site = old.as_deref().and_then(|o| method_at(o, at));
                     let func = noted.iter().find(|n| n.0 == at).map(|n| n.1).or_else(|| site.and_then(site_func))?;
                     if self.heap.is_class(func) { return self.on_class(func, chunk.names.get(src.get(at as usize)?.operand as usize)?, &own); }
@@ -318,8 +310,8 @@ impl<'a> VM<'a> {
                     let nkey = nfi.map_or(key, |f| f as i64);
                     let func = self.learned.chunks(3).filter(|t| t[0].as_int() == nkey && t[1].as_int() == at as i64).map(|t| t[2]).nth(j as usize)?;
                     // a function a receiver held by the name takes the arguments alone
-                    if at & lower::FIELD != 0 { return self.on_field(func, &own); }
-                    if at & lower::STATIC != 0 { return self.on_class_found(func, &own); }
+                    if at & lower::FIELD != 0 { return self.on_found(func, &own, 4); }
+                    if at & lower::STATIC != 0 { return self.on_found(func, &own, 1); }
                     if !matches!(self.heap.try_get(func), Some(HeapObj::Func { .. })) { return None; }
                     let mut callee = self.section_of(func, &own)?;
                     callee.twin = false;
@@ -328,7 +320,7 @@ impl<'a> VM<'a> {
                 // a method a call inside a laid function found and noted under that function
                 lower::Want::Nested(nfi, at, seen, name) => {
                     let nkey = nfi as i64;
-                    if let Some(f) = self.learned.chunks(3).find(|t| t[0].as_int() == nkey && t[1].as_int() == (at | lower::FIELD) as i64).map(|t| t[2]) { return self.on_field(f, &own); }
+                    if let Some(f) = self.learned.chunks(3).find(|t| t[0].as_int() == nkey && t[1].as_int() == (at | lower::FIELD) as i64).map(|t| t[2]) { return self.on_found(f, &own, 4); }
                     let func = self.learned.chunks(3).find(|t| t[0].as_int() == nkey && t[1].as_int() == at as i64).map(|t| t[2]).or_else(|| seen.and_then(site_func))?;
                     if self.heap.is_class(func) {
                         let body = &self.functions[nfi].1;
@@ -341,12 +333,12 @@ impl<'a> VM<'a> {
                     Some(callee)
                 }
                 // any function of a body the code makes called straight from where it was made
-                lower::Want::Body(body) => self.body_section(body),
+                lower::Want::Body(body) => self.body_section(body, false),
                 // the body of a remade function so the section runs any function made from it
                 lower::Want::BodyOf(func) => {
                     let Some(&HeapObj::Func { fi, .. }) = self.heap.try_get(func) else { return None };
                     if !self.remade(fi) { return None; }
-                    self.body_section(self.functions[fi].1.id.get())
+                    self.body_section(self.functions[fi].1.id.get(), false)
                 }
                 // a generator of a body the code made and called just before
                 lower::Want::GenBody(body) => {
@@ -355,8 +347,8 @@ impl<'a> VM<'a> {
                     let body = self.gen_body(fi)?;
                     self.gen_section_of(Val::undef(), fi, body)
                 }
-                lower::Want::Made(body) => self.made_section(body),
-                lower::Want::MadeIn(fi, k) => self.functions.get(fi).and_then(|f| f.1.functions.get(k as usize)).filter(|f| super::scope::is_comp(&f.0)).and_then(|f| self.made_section(f.1.id.get())),
+                lower::Want::Made(body) => self.body_section(body, true),
+                lower::Want::MadeIn(fi, k) => self.functions.get(fi).and_then(|f| f.1.functions.get(k as usize)).filter(|f| super::scope::is_comp(&f.0)).and_then(|f| self.body_section(f.1.id.get(), true)),
                 lower::Want::NestedValue(nfi, at, seen) => {
                     let nkey = nfi as i64;
                     let (mut first, mut bound) = (None, None);
@@ -600,7 +592,6 @@ impl<'a> VM<'a> {
         self.pools[pool].wcode = if code.unchanged() { 0 } else { code.layout as usize };
         self.note_window(pool);
         self.run_in(pool);
-        let _ = base;
     }
 
     /* cuts the window of `pool` to `len` registers with nothing left alive past them */

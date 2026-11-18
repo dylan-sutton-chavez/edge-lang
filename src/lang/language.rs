@@ -66,7 +66,7 @@ pub trait Language: Sized + 'static {
     fn type_name<'h>(cx: &'h Cx<'_, '_>, v: Val) -> &'h str { cx.plain_type(v) }
 
     /* the error kind a plugin sees for exception `exc` */
-    fn error_kind(cx: &Cx<'_, '_>, exc: Val) -> ErrorKind { error_kind_of(cx.heap(), Self::NAMES, exc) }
+    fn error_kind(cx: &Cx<'_, '_>, exc: Val) -> ErrorKind { super::error::abi_of(Self::NAMES.error_named(cx.heap().instance_type(exc).unwrap_or(""))) }
 }
 
 /* the engine's exception object for `e` of the class `L` names holding `L`'s words */
@@ -84,12 +84,6 @@ pub fn raised<L: Language>(cx: &mut Cx<'_, '_>, e: EngineError) -> Result<Val, V
         _ => match L::message(cx, &e) { text if text.is_empty() => Vec::new(), text => vec![cx.new_str(text)?] },
     };
     cx.heap_mut().engine_error(kind, args)
-}
-
-/* the abi kind of an exception by the engine error kind its class names */
-fn error_kind_of(heap: &HeapPool, names: &Names, exc: Val) -> ErrorKind {
-    let class = heap.instance_type(exc).unwrap_or("");
-    super::error::abi_of(names.error_named(class))
 }
 
 // the loop of one language the vm enters once per nested run
@@ -135,14 +129,6 @@ pub struct Runtime {
     pub bind_op: BindOpFn,
 }
 
-/* whether `s` spells the token of the ellipsis as a symbol or a word */
-const fn spells_ellipsis(s: &crate::syntax::lexer::Syntax) -> bool {
-    let (mut k, mut w) = (0, 0);
-    while k < s.symbols.len() { if matches!(s.symbols[k].1, crate::syntax::lexer::TokenType::Ellipsis) { return true; } k += 1; }
-    while w < s.words.len() { if matches!(s.words[w].1, crate::syntax::lexer::TokenType::Ellipsis) { return true; } w += 1; }
-    false
-}
-
 impl Runtime {
     /* the runtime of `L` with every rule it states checked as the build evaluates it */
     pub const fn of<L: Language>() -> Runtime {
@@ -153,7 +139,7 @@ impl Runtime {
         assert!(L::NATIVES.policy.same(&L::POLICY) && L::FRONT.policy.same(&L::POLICY), "a language builds its natives and folds its constants under the rules it states");
         assert!(<L::Ops as OpTable>::SET.ops.len() == <L::Ops as OpTable>::COUNT as usize && <L::Ops as OpTable>::SET.hash == <L::Ops as OpTable>::HASH, "a runtime's own opcodes are the table its type names");
         // the value a spelled ellipsis makes takes the kind the language names for it
-        assert!(L::BUILT.ellipsis.is_some() || !matches!(L::FRONT.syntax, Some(s) if spells_ellipsis(&s)), "a language whose syntax spells the ellipsis names its kind in BUILT");
+        assert!(L::BUILT.ellipsis.is_some() || !matches!(L::FRONT.syntax, Some(s) if s.spells(crate::syntax::lexer::TokenType::Ellipsis)), "a language whose syntax spells the ellipsis names its kind in BUILT");
         // a language keeping the engine's loop rules runs the one loop the engine builds
         let engine_loop = L::POLICY.loops_as(&Policy::ENGINE) && L::Ops::COUNT == 0;
         Runtime {
@@ -169,7 +155,7 @@ impl Runtime {
             identity: identity::<L>(),
             ops: <L::Ops as OpTable>::SET,
             engine_loop,
-            drive: if engine_loop { crate::vm::engine_drive } else { crate::vm::driven::<L> },
+            drive: if engine_loop { crate::vm::driven::<crate::lang::Bare> } else { crate::vm::driven::<L> },
             show: L::show,
             format: L::format,
             handles: L::handles,

@@ -44,7 +44,7 @@ use cache::CachePool;
 use alloc::{boxed::Box, string::{String, ToString}, vec::Vec};
 
 pub(crate) use crate::value::ExceptionFrame;
-pub(crate) use frame::{driven, engine_drive};
+pub(crate) use frame::driven;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum ParamKind { Normal, Star, KwRest, KwOnly }
@@ -141,8 +141,6 @@ pub struct VM<'a> {
     pub(crate) top_pool: usize,
     /* the instances init calls running in place hand back innermost last */
     pub(crate) instances: Vec<Val>,
-    /* the coroutine the next `exec` resumes whose state its window may still hold */
-    pub(crate) resuming: Val,
     /* how many windows hold a generator's state */
     pub(crate) owners: u32,
     /* set just before a call the loop can run in place which that call takes */
@@ -430,11 +428,7 @@ impl<'a> VM<'a> {
         self.executed.get(&(chunk as *const _)).and_then(|bits| bits.get(ip / 64)).is_some_and(|word| word & (1 << (ip % 64)) != 0)
     }
 
-    pub fn with_limits(chunk: &'a SSAChunk, limits: Limits) -> Self {
-        let mut vm = Self::fields(chunk, limits, &crate::lang::Runtime::EMPTY);
-        vm.boot(chunk);
-        vm
-    }
+    pub fn with_limits(chunk: &'a SSAChunk, limits: Limits) -> Self { Self::with_runtime(&crate::lang::Runtime::EMPTY, chunk, limits) }
 
     /* a VM whose program runs under runtime `rt` */
     pub fn with_runtime(rt: &'static crate::lang::Runtime, chunk: &'a SSAChunk, limits: Limits) -> Self {
@@ -484,7 +478,6 @@ impl<'a> VM<'a> {
             acts: 0,
             top_pool: 0,
             instances: Vec::new(),
-            resuming: Val::undef(),
             owners: 0,
             inline_call: false,
             entered: false,

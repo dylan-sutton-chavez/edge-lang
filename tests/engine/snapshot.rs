@@ -187,6 +187,15 @@ mod test {
         }
     }
 
+    /* whether two runs ended alike in their output or in the words of their error */
+    fn alike(a: &Result<Vec<String>, VmErr>, b: &Result<Vec<String>, VmErr>) -> bool {
+        match (a, b) {
+            (Ok(a), Ok(b)) => a == b,
+            (Err(a), Err(b)) => a.to_string() == b.to_string(),
+            _ => false,
+        }
+    }
+
     fn report(what: &str, failures: Vec<String>) {
         if !failures.is_empty() {
             let shown = failures.len().min(40);
@@ -235,52 +244,30 @@ mod test {
             let direct = run_case(case, 0, 0, 0).output;
             let cycled = run_case(case, 0, 1, 0).output;
             if crate::common::cut_short(&direct) || crate::common::cut_short(&cycled) { continue; }
-            match (direct, cycled) {
-                (Ok(a), Ok(b)) if a == b => {}
-                (Err(a), Err(b)) if a.to_string() == b.to_string() => {}
-                (a, b) => failures.push(format!("{:?}\n   direct {:?}\n   cycled {:?}", case.src, a, b)),
-            }
+            if !alike(&direct, &cycled) { failures.push(format!("{:?}\n   direct {:?}\n   cycled {:?}", case.src, direct, cycled)); }
         }
         report("corpus roundtrip mismatch", failures);
     }
 
-    /* preempting at every back-edge changes no corpus result */
+    /* preempting at every back edge or restoring at a preempt and again in the restored run changes no corpus result */
     #[test]
-    fn vm_corpus_preempt_equivalence() {
+    fn vm_corpus_preempt_and_restore() {
         let cases = corpus(crate::miri::corpus_slice());
         let mut failures = Vec::new();
         for case in cases.iter().filter(|c| c.interactive_events.is_empty() && c.events.is_empty() && c.error.is_none()) {
             let direct = run_case(case, 0, 0, 0).output;
             let preempted = run_case(case, 1, 0, 0).output;
-            if crate::common::cut_short(&direct) || crate::common::cut_short(&preempted) { continue; }
-            match (direct, preempted) {
-                (Ok(a), Ok(b)) if a == b => {}
-                (Err(a), Err(b)) if a.to_string() == b.to_string() => {}
-                (a, b) => failures.push(format!("{:?}\n   direct {:?}\n   preempted {:?}", case.src, a, b)),
+            let cut = |run: &Result<Vec<String>, VmErr>| crate::common::cut_short(&direct) || crate::common::cut_short(run);
+            if !cut(&preempted) && !alike(&direct, &preempted) {
+                failures.push(format!("{:?}\n   direct {:?}\n   preempted {:?}", case.src, direct, preempted));
+            }
+            match restored_at(case, 11, &[3, 6]) {
+                Err(e) => failures.push(format!("{:?}\n   restore refused {e}", case.src)),
+                Ok(restored) if !cut(&restored) && !alike(&direct, &restored) => failures.push(format!("{:?}\n   direct {:?}\n   restored {:?}", case.src, direct, restored)),
+                Ok(_) => {}
             }
         }
-        report("preempt divergence", failures);
-    }
-
-    /* a restore at a preempt and another in the restored run change no corpus result */
-    #[test]
-    fn vm_corpus_restore_at_a_preempt() {
-        let cases = corpus(crate::miri::corpus_slice());
-        let mut failures = Vec::new();
-        for case in cases.iter().filter(|c| c.interactive_events.is_empty() && c.events.is_empty() && c.error.is_none()) {
-            let direct = run_case(case, 0, 0, 0).output;
-            let restored = match restored_at(case, 11, &[3, 6]) {
-                Ok(out) => out,
-                Err(e) => { failures.push(format!("{:?}\n   restore refused {e}", case.src)); continue; }
-            };
-            if crate::common::cut_short(&direct) || crate::common::cut_short(&restored) { continue; }
-            match (direct, restored) {
-                (Ok(a), Ok(b)) if a == b => {}
-                (Err(a), Err(b)) if a.to_string() == b.to_string() => {}
-                (a, b) => failures.push(format!("{:?}\n   direct {:?}\n   restored {:?}", case.src, a, b)),
-            }
-        }
-        report("restore at a preempt divergence", failures);
+        report("preempt or restore divergence", failures);
     }
 
     /* the run of `case` restored at each preempt `at` names or why it was refused */

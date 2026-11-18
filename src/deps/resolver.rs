@@ -3,7 +3,7 @@ use alloc::{boxed::Box, string::{String, ToString}, sync::Arc, vec::Vec};
 use crate::s;
 use crate::util::hash::FxHashSet;
 use crate::value::{HeapPool, Val, VmErr};
-use super::{DepHost, ModuleEntry, NativeBinding, Resolved, Resolver, dir_of, joined, outside, parse_manifest, partition_bindings, served, system_spec, walk_up_dirs};
+use super::{DepHost, Manifest, ModuleEntry, NativeBinding, Resolved, Resolver, dir_of, joined, outside, parse_manifest, partition_bindings, served, system_spec, walk_up_dirs};
 
 // caps the interpreter.json extends chain so a crafted loop ends far past real depth
 const MAX_PACKAGES_HOPS: u32 = 32;
@@ -62,21 +62,11 @@ impl<H: DepHost> HostResolver<H> {
         let mut package: Option<String> = None;
         loop {
             if hops > MAX_PACKAGES_HOPS {
-                return Err(s!(
-                    "interpreter.json walk-up exceeded ",
-                    int MAX_PACKAGES_HOPS as i64,
-                    " hops resolving '", str name, "'"));
+                return Err(s!("interpreter.json walk-up exceeded ", int MAX_PACKAGES_HOPS as i64, " hops resolving '", str name, "'"));
             }
             hops += 1;
 
-            let mut hit: Option<(String, Option<String>, Option<String>)> = None;
-            for dir in walk_up_dirs(&search_dir) {
-                let m_spec = s!(str &dir, "interpreter.json");
-                if let Some((target, ext)) = self.lookup_in_manifest(&m_spec, name)? {
-                    hit = Some((dir, target, ext));
-                    break;
-                }
-            }
+            let hit = walk_up_dirs(&search_dir).find_map(|dir| self.lookup_in_manifest(&s!(str &dir, "interpreter.json"), name).map(|d| d.map(|(target, ext)| (dir, target, ext))).transpose()).transpose()?;
             let Some((dir, target, ext)) = hit else {
                 return self.resolve_system(name, package.as_deref());
             };
@@ -125,36 +115,22 @@ impl<H: DepHost> HostResolver<H> {
 
     /* what the manifest at `m_spec` declares for `name` read once or none when absent */
     pub(super) fn lookup_in_manifest(&mut self, m_spec: &str, name: &str) -> Result<Option<Declared>, String> {
-        if let Some(hit) = self.host.deps(|d| {
-            d.manifests.iter()
-                .find(|(s, _)| s == m_spec)
-                .map(|(_, m)| (m.imports.iter().find(|(k, _)| k == name).map(|(_, v)| v.clone()), m.extends.clone()))
-        }) {
-            return Ok(Some(hit));
-        }
+        let declared = |m: &Manifest| -> Declared { (m.imports.iter().find(|(k, _)| k == name).map(|(_, v)| v.clone()), m.extends.clone()) };
+        if let Some(hit) = self.host.deps(|d| d.manifests.iter().find(|(s, _)| s == m_spec).map(|(_, m)| declared(m))) { return Ok(Some(hit)); }
         // a walk up fetch takes no hash since no url fragment pins a manifest
-        let bytes = match self.fetch_bytes(m_spec, None) {
-            Ok(b) => b,
-            Err(_) => return Ok(None),
-        };
+        let Ok(bytes) = self.fetch_bytes(m_spec, None) else { return Ok(None) };
         let parsed = parse_manifest(&bytes).map_err(|e| s!("interpreter.json at '", str m_spec, "': ", str &e))?;
-        let target = parsed.imports.iter().find(|(k, _)| k == name).map(|(_, v)| v.clone());
-        let ext = parsed.extends.clone();
+        let hit = declared(&parsed);
         self.host.deps(|d| d.manifests.push((m_spec.to_string(), parsed)));
-        Ok(Some((target, ext)))
+        Ok(Some(hit))
     }
 
     fn resolve_canonical(&mut self, spec: &str) -> Result<Resolved, String> {
-        if let Some(msg) = self.refusal(spec) {
-            return Err(msg);
-        }
+        if let Some(msg) = self.refusal(spec) { return Err(msg); }
         let entry = self.host.deps(|d| d.registry.iter().find(|(s, _)| s == spec).map(|(_, e)| e.clone()))
             .ok_or_else(|| s!("module '", str spec, "' not registered (host did not pre-fetch / register before run())"))?;
         match entry {
-            ModuleEntry::Code(src) => Ok(Resolved::Code {
-                src,
-                canonical: spec.to_string(),
-            }),
+            ModuleEntry::Code(src) => Ok(Resolved::Code { src, canonical: spec.to_string() }),
             ModuleEntry::Native(funcs) => {
                 let module: Arc<str> = Arc::from(spec);
                 let all: Vec<NativeBinding> = funcs.iter().map(|(n, id)| self.binding(n.clone(), *id, module.clone())).collect();
@@ -191,13 +167,7 @@ impl<H: DepHost> HostResolver<H> {
     /* where `module.function` is served to the package holding `dir` never an import sharing its name */
     pub fn system_fn(&mut self, module: &str, function: &str) -> Result<(Arc<str>, u32), VmErr> {
         let start = self.dir.clone();
-        let mut package = None;
-        for dir in walk_up_dirs(&start) {
-            if self.lookup_in_manifest(&s!(str &dir, "interpreter.json"), module).map_err(VmErr::Raised)?.is_some() {
-                package = Some(dir);
-                break;
-            }
-        }
+        let package = walk_up_dirs(&start).find_map(|dir| self.lookup_in_manifest(&s!(str &dir, "interpreter.json"), module).map(|d| d.map(|_| dir)).transpose()).transpose().map_err(VmErr::Raised)?;
         let denied = |msg: String| VmErr::Of(crate::lang::ErrKind::Permission, msg);
         let spec = system_spec(module, &package.ok_or_else(|| denied(self.undeclared(module)))?);
         if let Some(msg) = self.refusal(&spec) {

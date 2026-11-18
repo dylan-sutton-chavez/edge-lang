@@ -1,9 +1,10 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use interpreter::embed::{Limits, VM};
+use interpreter::embed::Limits;
 use interpreter::value::{DictMap, HeapObj, HeapPool, Val};
 use rig::RUNTIME;
+use crate::common::ran;
 
 // each call's type and repr or its error then the generators the calls take
 const TRY: &str = concat!(
@@ -13,13 +14,7 @@ const TRY: &str = concat!(
 );
 
 /* what `src` printed and then the words of the error it ended in */
-fn run(src: &str) -> String {
-    let (chunk, errors) = interpreter::code::compile_as::<rig::Rig>(src);
-    assert!(errors.is_empty(), "{src}");
-    let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits { ops: 10_000_000, memory: 64 << 20 });
-    let end = vm.run().err().map(|e| e.to_string()).unwrap_or_default();
-    vm.output_text() + &end
-}
+fn run(src: &str) -> String { ran::<rig::Rig>(&RUNTIME, src, Limits { ops: 10_000_000, memory: 64 << 20 }) }
 
 fn tried(calls: &str) -> String { run(&(String::from(TRY) + calls)) }
 

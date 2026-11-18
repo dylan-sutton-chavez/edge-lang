@@ -114,12 +114,8 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
                 Slot::Bind => { loop { bound.push(self.advance_text().into()); if !self.eat_if(TokenType::Comma) { break; } } continue; }
                 Slot::Body(k) => {
                     let saved = core::mem::replace(&mut self.mode, k);
-                    let cut = self.enter_qual(S::NATIVES.names().anonymous, true);
-                    let params = core::mem::take(&mut bound);
-                    let body = self.expr_body(&params);
-                    self.leave_qual(cut);
+                    self.function_value(core::mem::take(&mut bound), 0, None);
                     self.mode = saved;
-                    self.push_function(params, body, 0, None, OpCode::MakeFunction);
                 }
                 Slot::At => self.emit_const(Value::Int(at as i64)),
                 Slot::Items(k) => self.items(k),
@@ -199,13 +195,6 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
             _ => return false,
         }
         true
-    }
-
-    fn function_value(&mut self, params: Vec<alloc::string::String>, defaults: u16, name: Option<&str>) {
-        let cut = self.enter_qual(name.unwrap_or(S::NATIVES.names().anonymous), true);
-        let body = self.expr_body(&params);
-        self.leave_qual(cut);
-        self.push_function(params, body, defaults, name, OpCode::MakeFunction);
     }
 
     fn close_of(open: TokenType) -> TokenType { if open == TokenType::BlockOpen { TokenType::BlockClose } else { TokenType::BraceClose } }
@@ -432,7 +421,7 @@ impl<'src, I: Iterator<Item = Token>, S: Spelling> Parser<'src, I, S> {
                     self.chunk.emit(OpCode::Swap, 0);
                     self.call_of(1, self.last_end as u32);
                 }
-                self.emit_store_new(name);
+                self.store_name(name);
                 self.keep(at, Some(NodeKind::Function), true);
             }
             // a type item checks nothing here so its tokens pass up to the next item

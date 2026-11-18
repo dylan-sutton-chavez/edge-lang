@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 use core::any::Any;
 use core::cmp::Ordering;
 
-use crate::value::foreign::{BinOp, Kind, Snapshot, Transfer, UnOp};
+use crate::value::foreign::{BinOp, Kind, Snapshot, UnOp};
 use crate::value::{HeapPool, Val, VmErr, as_i128};
 
 use super::{Dates, Duration, Time, duration_val, held, part_of, time_val};
@@ -14,26 +14,16 @@ use crate::lib::fail::{Fail, bare};
 pub const fn time_kind<D: Dates>(type_name: &'static str) -> Kind {
     Kind {
         name: "date.time",
-        version: 1,
         type_name,
         family: "date.time",
-        immutable: true,
         repr: |p| Ok(p.downcast_ref::<Time>().map_or_else(String::new, Time::text)),
-        truthy: |_, _| true,
         hash: |_, p| p.downcast_ref::<Time>().map_or(0, |t| mix(t.nanos)),
         // two texts naming one instant in other offsets are equal times
         eq: |heap, p, other| order::<Time>(heap, p, other) == Some(Ordering::Equal),
         cmp: Some(order::<Time>),
         binop: Some(binop::<D>),
-        unop: None,
-        to_f64: None,
-        to_i128: None,
-        from_i128: None,
-        from_digits: None,
-        trace: None,
         get: Some(field),
         snapshot: Snapshot::Serialize { save: save_time, load: load_time },
-        transfer: Transfer::Deny,
         ..Kind::PLAIN
     }
 }
@@ -42,10 +32,8 @@ pub const fn time_kind<D: Dates>(type_name: &'static str) -> Kind {
 pub const fn duration_kind<D: Dates>(type_name: &'static str) -> Kind {
     Kind {
         name: "date.duration",
-        version: 1,
         type_name,
         family: "date.duration",
-        immutable: true,
         repr: |p| Ok(p.downcast_ref::<Duration>().map_or_else(String::new, Duration::text)),
         truthy: |_, p| p.downcast_ref::<Duration>().is_some_and(|d| d.nanos != 0),
         hash: |_, p| p.downcast_ref::<Duration>().map_or(0, |d| mix(d.nanos)),
@@ -53,14 +41,8 @@ pub const fn duration_kind<D: Dates>(type_name: &'static str) -> Kind {
         cmp: Some(order::<Duration>),
         binop: Some(binop::<D>),
         unop: Some(unop::<D>),
-        to_f64: None,
-        to_i128: None,
-        from_i128: None,
-        from_digits: None,
-        trace: None,
         get: Some(field),
         snapshot: Snapshot::Serialize { save: save_duration, load: load_duration },
-        transfer: Transfer::Deny,
         ..Kind::PLAIN
     }
 }

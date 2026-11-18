@@ -9,9 +9,6 @@ use alloc::{boxed::Box, rc::Rc, string::String, vec::Vec};
 // wires parser and VM to the host via the handle ABI the `abi` module defines
 pub(crate) mod entry;
 pub(crate) mod exports;
-pub(crate) mod package;
-#[cfg(feature = "perms")]
-pub(crate) mod perms;
 mod resolver;
 pub(crate) mod walk;
 
@@ -143,18 +140,6 @@ impl WasmRuntime {
     /* any registration can change what a source compiles to so parsed chunks go stale */
     pub fn registry_changed(&mut self) {
         self.chunk_cache.clear();
-    }
-
-    /* registers `spec` over whatever an earlier registration of it left */
-    pub fn register(&mut self, spec: String, entry: ModuleEntry) {
-        self.deps.register(spec, entry);
-        self.registry_changed();
-    }
-
-    /* makes an import of `spec` fail with `msg` */
-    pub fn refuse(&mut self, spec: String, msg: String) {
-        self.deps.refuse(spec, msg);
-        self.registry_changed();
     }
 }
 

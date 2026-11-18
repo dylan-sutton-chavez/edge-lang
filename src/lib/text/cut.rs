@@ -3,17 +3,16 @@ use crate::lib::{Kernel, Site, units};
 
 pub use crate::lib::units::{Breaks, Newline, Unicode};
 
-/* the pieces between separators or white space runs cut from the start */
-pub const fn split<S: Site>() -> Kernel { units::split::<S, Text>() }
-
-/* the pieces between separators or white space runs cut from the end */
-pub const fn rsplit<S: Site>() -> Kernel { units::rsplit::<S, Text>() }
+units::forward! { Text, [],
+    /* the pieces between separators or white space runs cut from the start */
+    split,
+    /* the pieces between separators or white space runs cut from the end */
+    rsplit,
+    /* the head the separator and the tail around the first match or the whole text */
+    partition,
+    /* the head the separator and the tail around the last match or the whole text */
+    rpartition,
+}
 
 /* the lines at every break `B` names where a crlf counts as one */
 pub const fn lines<S: Site, B: Breaks>() -> Kernel { units::lines::<S, Text, B>() }
-
-/* the head the separator and the tail around the first match or the whole text */
-pub const fn partition<S: Site>() -> Kernel { units::partition::<S, Text>() }
-
-/* the head the separator and the tail around the last match or the whole text */
-pub const fn rpartition<S: Site>() -> Kernel { units::rpartition::<S, Text>() }

@@ -40,7 +40,7 @@ impl<K: core::hash::Hash + Eq, V: Copy> Kept<K, V> for crate::util::hash::FxHash
 
 /* the items a walk read and the answers it keeps */
 #[derive(Default)]
-pub(crate) struct Walk<M> { pub(crate) read: usize, long: bool, pub(crate) kept: M }
+pub(crate) struct Walk<M> { pub(crate) read: usize, pub(crate) long: bool, pub(crate) kept: M }
 
 impl<M> Walk<M> {
     /* counts `n` more items and false once a walk that keeps nothing passed its bound */
@@ -52,10 +52,6 @@ impl<M> Walk<M> {
         self.read += n;
         true
     }
-
-    /* whether a bounded walk stopped so its answer needs the walk that keeps answers */
-    #[inline(always)]
-    pub(crate) fn long(&self) -> bool { self.long }
 }
 
 /* a walk keeping the answer of each container it read at each depth */
@@ -153,7 +149,6 @@ fn hash_depth(v: Val, heap: &HeapPool, depth: usize) -> u64 {
             h.write_u8(7);
             h.write_i64(if range_len(s, e, st) == 0 { 0 } else { hash_int(s as i128) });
         }
-        // a range hashes its start which equal ranges share and nothing when it is empty
         HeapObj::BigRange(..) => {
             h.write_u8(7);
             match super::wide::range_start(heap, v).flatten() {
@@ -171,7 +166,7 @@ fn hash_depth(v: Val, heap: &HeapPool, depth: usize) -> u64 {
 fn hash_top(v: Val, t: &[Val], heap: &HeapPool, depth: usize) -> u64 {
     let mut walk = Walk::<Bounded>::default();
     let h = hash_tuple(v, t, heap, depth, &mut walk);
-    if walk.long() { hash_kept(v, t, heap, depth) } else { h }
+    if walk.long { hash_kept(v, t, heap, depth) } else { h }
 }
 
 /* the tuple hashed again keeping the hash of each tuple it reads at each depth */
@@ -313,7 +308,7 @@ fn eq_vals_depth(a: Val, b: Val, heap: &HeapPool, depth: usize, cx: &mut EqCx) -
         (HeapObj::Bytes(x) | HeapObj::ByteArray(x), HeapObj::Bytes(y) | HeapObj::ByteArray(y)) => eq_text(x, y, heap),
         (HeapObj::Tuple(x), HeapObj::Tuple(y)) => bounded!(cx, a, b, depth, x.len(), heap, eq_seq(x, y, |a,b| eq_vals_depth(a, b, heap, d, cx))),
         (HeapObj::List(x), HeapObj::List(y)) => bounded!(cx, a, b, depth, x.borrow().len(), heap, eq_seq(&x.borrow(), &y.borrow(), |a,b| eq_vals_depth(a, b, heap, d, cx))),
-        (HeapObj::Set(x), HeapObj::Set(y)) => bounded!(cx, a, b, depth, x.borrow().len(), heap, eq_tables(&x.borrow(), &y.borrow(), heap, d, cx)),
+        (HeapObj::Set(x), HeapObj::Set(y)) => bounded!(cx, a, b, depth, x.borrow().len(), heap, eq_set(&x.borrow(), &y.borrow(), heap, |a, b| a.0 == b.0 || eq_vals_depth(a, b, heap, d, cx))),
         (HeapObj::Dict(x), HeapObj::Dict(y)) => {
             let (x, y) = (x.borrow(), y.borrow());
             bounded!(cx, a, b, depth, x.len(), heap, x.len() == y.len() && x.iter().all(|(k, v)| y.get(&k, heap).is_some_and(|&v2| v.0 == v2.0 || eq_vals_depth(v, v2, heap, d, cx))))
@@ -329,10 +324,6 @@ fn eq_vals_depth(a: Val, b: Val, heap: &HeapPool, depth: usize, cx: &mut EqCx) -
         // other type pairs are unequal so bytes never equal a str of the same utf-8
         _ => false,
     }
-}
-
-fn eq_tables(x: &ValSet, y: &ValSet, heap: &HeapPool, d: usize, cx: &mut EqCx) -> bool {
-    eq_set(x, y, heap, |a, b| a.0 == b.0 || eq_vals_depth(a, b, heap, d, cx))
 }
 
 /* the top pair compared again keeping answers once its plain walk passed the bound */

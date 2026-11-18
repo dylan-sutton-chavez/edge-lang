@@ -22,12 +22,7 @@ pub fn reserved() -> [(&'static str, &'static str); 3] {
 }
 
 /* an entry as its module and the scope after the first colon */
-fn split(entry: &str) -> (&str, Option<&str>) {
-    match entry.split_once(':') {
-        Some((module, scope)) => (module, Some(scope)),
-        None => (entry, None),
-    }
-}
+fn split(entry: &str) -> (&str, Option<&str>) { entry.split_once(':').map_or((entry, None), |(module, scope)| (module, Some(scope))) }
 
 /* joins `items` after `prefix` apart from the slice join the VM keeps inlined */
 fn joined<'a>(items: impl IntoIterator<Item = &'a str>, prefix: &str) -> String {
@@ -62,12 +57,7 @@ fn holders(value: &Value) -> Option<Vec<(&str, &Value)>> {
 }
 
 /* the texts a holder lists or none when it lists anything else */
-fn entries(value: &Value) -> Option<Vec<&str>> {
-    match value {
-        Value::List(items) => items.iter().map(Value::as_str).collect(),
-        _ => None,
-    }
-}
+fn entries(value: &Value) -> Option<Vec<&str>> { if let Value::List(items) = value { items.iter().map(Value::as_str).collect() } else { None } }
 
 fn unmapped(field: &str) -> String {
     s!(str field, " must map each package to a list of entries")
@@ -162,10 +152,7 @@ pub fn unheld(pkg: &str, module: &str) -> String {
 
 /* the words a refusal of `pkg` puts before and after the scope it asked */
 pub fn refusal(pkg: &str, module: &str, scopes: &[String]) -> (String, String) {
-    let granted = match scopes.is_empty() {
-        true => s!("nothing"),
-        false => joined(scopes.iter().map(String::as_str), &s!(str module, ":")),
-    };
+    let granted = if scopes.is_empty() { s!("nothing") } else { joined(scopes.iter().map(String::as_str), &s!(str module, ":")) };
     (s!("'", str pkg, "' has no ", str module, ":"), s!(", interpreter.json grants it ", str &granted))
 }
 
@@ -192,10 +179,8 @@ pub fn links(chain: &Value) -> Vec<(Section, String)> {
 
 /* the texts a json list holds or why the bytes are none */
 fn texts(bytes: &[u8], what: &str) -> Result<Vec<String>, String> {
-    match json::parse(bytes, what)? {
-        Value::List(items) => items.into_iter().map(|item| item.as_str().map(str::to_string)).collect::<Option<_>>().ok_or_else(|| s!(str what, " must be a list of texts")),
-        _ => Err(s!(str what, " must be a list of texts")),
-    }
+    let Value::List(items) = json::parse(bytes, what)? else { return Err(s!(str what, " must be a list of texts")) };
+    items.into_iter().map(|item| item.as_str().map(str::to_string)).collect::<Option<_>>().ok_or_else(|| s!(str what, " must be a list of texts"))
 }
 
 /* `check` over json where `taken` lists each scoped entry the host modules take */

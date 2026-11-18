@@ -9,16 +9,8 @@ struct Run { base: usize, len: usize, power: u32 }
 
 struct State { min_gallop: usize, pending: Vec<Run>, n: usize, mr_e: u32, mr_mask: usize, mr_current: usize }
 
-/* what answers whether item x sorts before item y */
-pub(crate) trait Less { type E; fn lt(&mut self, x: usize, y: usize) -> Result<bool, Self::E>; }
-
-impl<E, F: FnMut(usize, usize) -> Result<bool, E>> Less for F {
-    type E = E;
-    fn lt(&mut self, x: usize, y: usize) -> Result<bool, E> { self(x, y) }
-}
-
-/* sorts `a` stably by merging natural runs in a fixed order of comparisons */
-pub(crate) fn sort<L: Less>(a: &mut [usize], lt: &mut L) -> Result<(), L::E> {
+/* sorts `a` stably by merging natural runs in a fixed order of comparisons where `lt` says whether item x sorts before item y */
+pub(crate) fn sort<E>(a: &mut [usize], lt: &mut impl FnMut(usize, usize) -> Result<bool, E>) -> Result<(), E> {
     let n = a.len();
     if n < 2 { return Ok(()); }
     let mut mr_e = 0;
@@ -55,13 +47,13 @@ pub(crate) fn sort<L: Less>(a: &mut [usize], lt: &mut L) -> Result<(), L::E> {
 }
 
 /* stable binary insertion of `a[ok..]` into the sorted `a[..ok]` */
-fn binarysort<L: Less>(a: &mut [usize], ok: usize, lt: &mut L) -> Result<(), L::E> {
+fn binarysort<E>(a: &mut [usize], ok: usize, lt: &mut impl FnMut(usize, usize) -> Result<bool, E>) -> Result<(), E> {
     for ok in ok.max(1)..a.len() {
         let pivot = a[ok];
         let (mut l, mut r) = (0, ok);
         while l < r {
             let m = (l + r) >> 1;
-            if lt.lt(pivot, a[m])? { r = m; } else { l = m + 1; }
+            if lt(pivot, a[m])? { r = m; } else { l = m + 1; }
         }
         a.copy_within(l..ok, l + 1);
         a[l] = pivot;
@@ -70,41 +62,41 @@ fn binarysort<L: Less>(a: &mut [usize], ok: usize, lt: &mut L) -> Result<(), L::
 }
 
 /* the run `a` opens with where a falling run turns keeping equal items in order */
-fn count_run<L: Less>(a: &mut [usize], lt: &mut L) -> Result<usize, L::E> {
+fn count_run<E>(a: &mut [usize], lt: &mut impl FnMut(usize, usize) -> Result<bool, E>) -> Result<usize, E> {
     let total = a.len();
     let mut n = 1;
-    while n < total && !lt.lt(a[n], a[n - 1])? { n += 1; }
+    while n < total && !lt(a[n], a[n - 1])? { n += 1; }
     if n == total { return Ok(n); }
     // a rising prefix past one item is a run unless all its items are equal
     if n > 1 {
-        if lt.lt(a[0], a[n - 1])? { return Ok(n); }
+        if lt(a[0], a[n - 1])? { return Ok(n); }
         a[..n].reverse();
     }
     n += 1;
     let mut neq = 0;
     let reverse_equal = |a: &mut [usize], n: usize, neq: &mut usize| if *neq > 0 { let k = *neq + 1; a[n - k..n].reverse(); *neq = 0; };
     while n < total {
-        if lt.lt(a[n], a[n - 1])? { reverse_equal(a, n, &mut neq); }
-        else if lt.lt(a[n - 1], a[n])? { break; }
+        if lt(a[n], a[n - 1])? { reverse_equal(a, n, &mut neq); }
+        else if lt(a[n - 1], a[n])? { break; }
         else { neq += 1; }
         n += 1;
     }
     reverse_equal(a, n, &mut neq);
     a[..n].reverse();
     // the turned run may go on ascending
-    while n < total && !lt.lt(a[n], a[n - 1])? { n += 1; }
+    while n < total && !lt(a[n], a[n - 1])? { n += 1; }
     Ok(n)
 }
 
 /* where `key` goes in the sorted `a` before any equal item searching out from `hint` */
-fn gallop_left<L: Less>(key: usize, a: &[usize], hint: usize, lt: &mut L) -> Result<usize, L::E> {
+fn gallop_left<E>(key: usize, a: &[usize], hint: usize, lt: &mut impl FnMut(usize, usize) -> Result<bool, E>) -> Result<usize, E> {
     let n = a.len() as isize;
     let hint = hint as isize;
     let (mut lastofs, mut ofs): (isize, isize) = (0, 1);
-    if lt.lt(a[hint as usize], key)? {
+    if lt(a[hint as usize], key)? {
         let maxofs = n - hint;
         while ofs < maxofs {
-            if lt.lt(a[(hint + ofs) as usize], key)? { lastofs = ofs; ofs = (ofs << 1) + 1; } else { break; }
+            if lt(a[(hint + ofs) as usize], key)? { lastofs = ofs; ofs = (ofs << 1) + 1; } else { break; }
         }
         if ofs > maxofs { ofs = maxofs; }
         lastofs += hint;
@@ -112,7 +104,7 @@ fn gallop_left<L: Less>(key: usize, a: &[usize], hint: usize, lt: &mut L) -> Res
     } else {
         let maxofs = hint + 1;
         while ofs < maxofs {
-            if lt.lt(a[(hint - ofs) as usize], key)? { break; }
+            if lt(a[(hint - ofs) as usize], key)? { break; }
             lastofs = ofs;
             ofs = (ofs << 1) + 1;
         }
@@ -124,20 +116,20 @@ fn gallop_left<L: Less>(key: usize, a: &[usize], hint: usize, lt: &mut L) -> Res
     lastofs += 1;
     while lastofs < ofs {
         let m = lastofs + ((ofs - lastofs) >> 1);
-        if lt.lt(a[m as usize], key)? { lastofs = m + 1; } else { ofs = m; }
+        if lt(a[m as usize], key)? { lastofs = m + 1; } else { ofs = m; }
     }
     Ok(ofs as usize)
 }
 
 /* where `key` goes in the sorted `a` after any equal item searching out from `hint` */
-fn gallop_right<L: Less>(key: usize, a: &[usize], hint: usize, lt: &mut L) -> Result<usize, L::E> {
+fn gallop_right<E>(key: usize, a: &[usize], hint: usize, lt: &mut impl FnMut(usize, usize) -> Result<bool, E>) -> Result<usize, E> {
     let n = a.len() as isize;
     let hint = hint as isize;
     let (mut lastofs, mut ofs): (isize, isize) = (0, 1);
-    if lt.lt(key, a[hint as usize])? {
+    if lt(key, a[hint as usize])? {
         let maxofs = hint + 1;
         while ofs < maxofs {
-            if lt.lt(key, a[(hint - ofs) as usize])? { lastofs = ofs; ofs = (ofs << 1) + 1; } else { break; }
+            if lt(key, a[(hint - ofs) as usize])? { lastofs = ofs; ofs = (ofs << 1) + 1; } else { break; }
         }
         if ofs > maxofs { ofs = maxofs; }
         let k = lastofs;
@@ -146,7 +138,7 @@ fn gallop_right<L: Less>(key: usize, a: &[usize], hint: usize, lt: &mut L) -> Re
     } else {
         let maxofs = n - hint;
         while ofs < maxofs {
-            if lt.lt(key, a[(hint + ofs) as usize])? { break; }
+            if lt(key, a[(hint + ofs) as usize])? { break; }
             lastofs = ofs;
             ofs = (ofs << 1) + 1;
         }
@@ -157,7 +149,7 @@ fn gallop_right<L: Less>(key: usize, a: &[usize], hint: usize, lt: &mut L) -> Re
     lastofs += 1;
     while lastofs < ofs {
         let m = lastofs + ((ofs - lastofs) >> 1);
-        if lt.lt(key, a[m as usize])? { ofs = m; } else { lastofs = m + 1; }
+        if lt(key, a[m as usize])? { ofs = m; } else { lastofs = m + 1; }
     }
     Ok(ofs as usize)
 }
@@ -178,7 +170,7 @@ fn powerloop(s1: usize, n1: usize, n2: usize, n: usize) -> u32 {
 
 impl State {
     /* merges the runs at stack places `i` and `i + 1` */
-    fn merge_at<L: Less>(&mut self, a: &mut [usize], i: usize, lt: &mut L) -> Result<(), L::E> {
+    fn merge_at<E>(&mut self, a: &mut [usize], i: usize, lt: &mut impl FnMut(usize, usize) -> Result<bool, E>) -> Result<(), E> {
         let (Run { base: mut sa, len: mut na, .. }, Run { base: sb, len: nb, .. }) = (self.pending[i], self.pending[i + 1]);
         self.pending[i].len = na + nb;
         self.pending.remove(i + 1);
@@ -193,7 +185,7 @@ impl State {
     }
 
     /* merges from the left with the shorter first run held aside */
-    fn merge_lo<L: Less>(&mut self, a: &mut [usize], sa: usize, mut na: usize, sb: usize, mut nb: usize, lt: &mut L) -> Result<(), L::E> {
+    fn merge_lo<E>(&mut self, a: &mut [usize], sa: usize, mut na: usize, sb: usize, mut nb: usize, lt: &mut impl FnMut(usize, usize) -> Result<bool, E>) -> Result<(), E> {
         let tmp: Vec<usize> = a[sa..sa + na].to_vec();
         let (mut dest, mut pa, mut pb) = (sa, 0, sb);
         a[dest] = a[pb]; dest += 1; pb += 1; nb -= 1;
@@ -205,7 +197,7 @@ impl State {
             loop {
                 let (mut acount, mut bcount) = (0, 0);
                 loop {
-                    if lt.lt(a[pb], tmp[pa])? {
+                    if lt(a[pb], tmp[pa])? {
                         a[dest] = a[pb]; dest += 1; pb += 1;
                         bcount += 1; acount = 0; nb -= 1;
                         if nb == 0 { break 'merge false; }
@@ -256,7 +248,7 @@ impl State {
     }
 
     /* merges from the right with the shorter second run held aside */
-    fn merge_hi<L: Less>(&mut self, a: &mut [usize], sa: usize, mut na: usize, sb: usize, mut nb: usize, lt: &mut L) -> Result<(), L::E> {
+    fn merge_hi<E>(&mut self, a: &mut [usize], sa: usize, mut na: usize, sb: usize, mut nb: usize, lt: &mut impl FnMut(usize, usize) -> Result<bool, E>) -> Result<(), E> {
         let tmp: Vec<usize> = a[sb..sb + nb].to_vec();
         // signed places since the first run may be used up past its start
         let (mut dest, mut pa, mut pb) = ((sb + nb - 1) as isize, (sa + na - 1) as isize, nb as isize - 1);
@@ -270,7 +262,7 @@ impl State {
             loop {
                 let (mut acount, mut bcount) = (0, 0);
                 loop {
-                    if lt.lt(tmp[at(pb)], a[at(pa)])? {
+                    if lt(tmp[at(pb)], a[at(pa)])? {
                         a[at(dest)] = a[at(pa)]; dest -= 1; pa -= 1;
                         acount += 1; bcount = 0; na -= 1;
                         if na == 0 { break 'merge false; }

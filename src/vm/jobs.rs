@@ -125,12 +125,8 @@ pub(crate) enum Takes {
     FoldExtreme(bool),
 }
 
-/* how far a words fold went with word ints added exactly before any other value */
-#[derive(Clone, Copy)]
-pub(crate) enum Total { Word(i64), Any }
-
 /* a builtin over a generator with gathered items and `extra` holding the arguments after it */
-pub(crate) struct Gather { pub(crate) takes: Takes, pub(crate) items: Vec<Val>, pub(crate) extra: Vec<Val>, pub(crate) acc: Val, pub(crate) total: Total, pub(crate) co: Val, pub(crate) before: Val, pub(crate) cur: Option<IterFrame>, pub(crate) pull: Pull, again: Again, pub(crate) fold: Option<Box<super::steps::Folding>>, pub(crate) to: Dest }
+pub(crate) struct Gather { pub(crate) takes: Takes, pub(crate) items: Vec<Val>, pub(crate) extra: Vec<Val>, pub(crate) acc: Val, pub(crate) total: Option<i64>, pub(crate) co: Val, pub(crate) before: Val, pub(crate) cur: Option<IterFrame>, pub(crate) pull: Pull, again: Again, pub(crate) fold: Option<Box<super::steps::Folding>>, pub(crate) to: Dest }
 
 /* source and filter flag and item of a builtin over user `map` or `filter` */
 #[derive(Clone, Copy)]
@@ -144,7 +140,7 @@ impl Gather {
         core::mem::replace(self, rest)
     }
 
-    pub(crate) fn new(takes: Takes, extra: Vec<Val>) -> Self { Self { takes, items: Vec::new(), extra, acc: Val::undef(), total: Total::Any, co: Val::undef(), before: Val::undef(), cur: None, pull: Pull { src: Val::undef(), src2: Val::undef(), filter: false, item: Val::undef() }, again: Again::default(), fold: None, to: Dest::Top } }
+    pub(crate) fn new(takes: Takes, extra: Vec<Val>) -> Self { Self { takes, items: Vec::new(), extra, acc: Val::undef(), total: None, co: Val::undef(), before: Val::undef(), cur: None, pull: Pull { src: Val::undef(), src2: Val::undef(), filter: false, item: Val::undef() }, again: Again::default(), fold: None, to: Dest::Top } }
 }
 
 /* a callback's rerun frame clearing `names` where zero marks one keeping bases defaults or cells */
@@ -220,18 +216,9 @@ impl<'a> VM<'a> {
         if matches!(takes, Takes::Fold | Takes::FoldItems | Takes::FoldWords | Takes::FoldExtreme(_)) { j.fold = self.next_fold.take(); }
         // a words fold starts at its native's total and an extreme fold at its best
         if let Some(f) = j.fold.as_deref() {
-            match takes { Takes::FoldWords => j.total = Total::Word(f.words()), Takes::FoldExtreme(_) => j.acc = f.best(), _ => {} }
+            match takes { Takes::FoldWords => j.total = Some(f.words()), Takes::FoldExtreme(_) => j.acc = f.best(), _ => {} }
         }
         j
-    }
-
-    /* the answer of a truth fold whose items ended undecided */
-    fn truth_end(&mut self, j: &Gather) -> Result<Val, VmErr> {
-        match j.takes {
-            Takes::Any => Ok(Val::bool(false)),
-            Takes::Every => Ok(Val::bool(true)),
-            _ => Err(cold_runtime("a gather that is no fold")),
-        }
     }
 
     /* `f` as a builtin's `n`-argument frame or none and `once` runs a one-off unlowered */
@@ -943,16 +930,10 @@ impl<'a> VM<'a> {
         if self.budget == 0 { return Ok(false); }
         if self.heap.needs_gc() { self.collect_point()?; }
         let (fun, its, filter) = match self.iter_stack.last() {
-            // a builtin iterator steps through what it steps
-            Some(&IterFrame::UserDefined(it)) => {
-                if self.pull_ready(it, false, i, 0)? { return Ok(true); }
-                self.pass_by();
-                return Ok(false);
-            }
             Some(IterFrame::Map { f, its, .. }) => (*f, its.clone(), false),
             Some(&IterFrame::Filter { f, it, .. }) if !f.is_undef() => (f, Rc::from([it]), true),
-            // a filter of truth runs its iterator's generator to an item as a frame first
-            Some(&IterFrame::Filter { it, .. }) => {
+            // a builtin iterator steps through what it steps and a filter of truth runs its iterator's generator to an item as a frame first
+            Some(&IterFrame::UserDefined(it) | &IterFrame::Filter { it, .. }) => {
                 if self.pull_ready(it, false, i, 0)? { return Ok(true); }
                 self.pass_by();
                 return Ok(false);
@@ -1280,17 +1261,20 @@ impl<'a> VM<'a> {
         let mut j = self.gather_of(takes, extra.to_vec(), it);
         j.before = self.pending.exc_val.unwrap_or(Val::undef());
         self.jobs.push(Job::Gather(Box::new(j)));
-        match self.gather_drive()? {
+        let drive = self.gather_drive()?;
+        self.took(drive);
+        Ok(true)
+    }
+
+    /* what a gather's first drive gave handed on as its job would */
+    fn took(&mut self, drive: Drive) {
+        match drive {
             // a builtin done at once hands its result where its job would
             Drive::Done(r, to) => self.put(r, to),
             // the frame returns where the builtin's call carries on which its opening handler sets
             Drive::Opened => (self.entered, self.yielded) = (true, true),
-            Drive::Fold(fi, func, fold, args, n) => {
-                self.open_fold(fi, func, fold, args, n);
-                (self.entered, self.yielded) = (true, true);
-            }
+            Drive::Fold(fi, func, fold, args, n) => { self.open_fold(fi, func, fold, args, n); (self.entered, self.yielded) = (true, true); }
         }
-        Ok(true)
     }
 
     /* gives generator function `fi` cold-marked unlowered code until its entries or a loop heat it */
@@ -1504,12 +1488,6 @@ impl<'a> VM<'a> {
         }
     }
 
-    /* membership in iterator `o` stepped by the job so its user code runs as frames */
-    #[inline(never)]
-    pub(crate) fn contains_job(&mut self, o: Val, takes: Takes) -> Result<bool, VmErr> {
-        Ok(self.lazy_pull(o, takes, &[])? || self.drive_iter(o, takes, &[])?)
-    }
-
     /* runs builtin `takes` over iterator `o` whose steps run user code as frames first */
     #[inline(never)]
     pub(crate) fn drive_iter(&mut self, o: Val, takes: Takes, extra: &[Val]) -> Result<bool, VmErr> {
@@ -1520,11 +1498,7 @@ impl<'a> VM<'a> {
         self.jobs.push(Job::Gather(Box::new(self.gather_of(takes, extra.to_vec(), o))));
         let drive = self.gather_drive();
         if drive.is_err() { self.jobs.truncate(depth); }
-        match drive? {
-            Drive::Done(r, to) => self.put(r, to),
-            Drive::Fold(fi, func, d, args, n) => { self.open_fold(fi, func, d, args, n); (self.entered, self.yielded) = (true, true); }
-            Drive::Opened => (self.entered, self.yielded) = (true, true),
-        }
+        self.took(drive?);
         Ok(true)
     }
 
@@ -1601,14 +1575,17 @@ impl<'a> VM<'a> {
     /* `collected` with the gather's destination set */
     fn collect_end(&mut self, j: Gather) -> Result<Option<Val>, VmErr> {
         match j.takes {
-            Takes::Hold => {
-                self.hold_items(j.co, j.items);
-                let v = self.hold_then(j.extra)?;
-                if self.entered || self.floor_req { return Ok(None); }
-                v.map(Some).ok_or(cold_runtime("a held call gave no value"))
-            }
+            Takes::Hold => self.held_end(j.co, j.items, j.extra),
             _ => Err(cold_runtime("a gathered list for no builtin")),
         }
+    }
+
+    /* runs a held native binding on the items generator `co` gave or None once it opened a frame */
+    fn held_end(&mut self, co: Val, items: Vec<Val>, extra: Vec<Val>) -> Result<Option<Val>, VmErr> {
+        self.hold_items(co, items);
+        let v = self.hold_then(extra)?;
+        if self.entered || self.floor_req { return Ok(None); }
+        v.map(Some).ok_or(cold_runtime("a held call gave no value"))
     }
 
     /* marks the generator frame on top as a job's */
@@ -1734,7 +1711,9 @@ impl<'a> VM<'a> {
                 let frame = IterFrame::Seq { items: core::mem::take(&mut j.items).into(), idx: 0 };
                 self.heap.alloc(HeapObj::Iter(Rc::new(core::cell::RefCell::new(frame)), self.natives.names().iters[0]))
             }
-            Takes::Any | Takes::Every => self.truth_end(j),
+            // a truth fold whose items ended undecided
+            Takes::Any => Ok(Val::bool(false)),
+            Takes::Every => Ok(Val::bool(true)),
             Takes::Next(d) => self.next_end(d, ret),
             Takes::Contains(_, not) => Ok(Val::bool(not)),
             Takes::Extend(l) => Ok(l),
@@ -1743,10 +1722,7 @@ impl<'a> VM<'a> {
             // a held native binding runs on the items its generator gave
             Takes::Hold => {
                 let (items, extra) = (core::mem::take(&mut j.items), core::mem::take(&mut j.extra));
-                self.hold_items(j.co, items);
-                let v = self.hold_then(extra)?;
-                if self.entered || self.floor_req { return Ok(Val::undef()); }
-                v.ok_or(cold_runtime("a held call gave no value"))
+                Ok(self.held_end(j.co, items, extra)?.unwrap_or(Val::undef()))
             }
             Takes::Fold | Takes::FoldItems | Takes::FoldWords | Takes::FoldExtreme(_) => self.fold_ended(j, ret),
             Takes::Retry(..) | Takes::Prefetch(_) => Err(cold_runtime("a collection ended as a builtin's result")),
@@ -1760,7 +1736,7 @@ pub(crate) fn take_plain(j: &mut Gather, v: Val, heap: &HeapPool) -> bool {
     match j.takes {
         // a words fold's total stays a word while its items are word ints
         Takes::FoldWords => match j.total {
-            Total::Word(w) if v.is_int() && let Some(n) = w.checked_add(v.as_int()) => j.total = Total::Word(n),
+            Some(w) if v.is_int() && let Some(n) = w.checked_add(v.as_int()) => j.total = Some(n),
             _ => return false,
         },
         Takes::FoldExtreme(is_min) => {

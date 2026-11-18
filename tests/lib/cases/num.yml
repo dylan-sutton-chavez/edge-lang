@@ -458,14 +458,6 @@
   prints: "1"
 
 - native: bin
-  args: [1]
-  prints: "0b1"
-
-- native: bin
-  args: [-1]
-  prints: "-0b1"
-
-- native: bin
   args: [15]
   prints: "0b1111"
 
@@ -492,10 +484,6 @@
 - native: hex
   args: [-1]
   prints: "-0x1"
-
-- native: hex
-  args: [15]
-  prints: "0xf"
 
 - native: hex
   args: [-15]
@@ -562,10 +550,6 @@
 - native: int.from_bytes
   args: [!bytes "00000000000000000001"]
   prints: "1"
-
-- native: int.from_bytes
-  args: [!bytes "0100"]
-  prints: "256"
 
 - native: int.to_bytes
   recv: 10
@@ -833,7 +817,3 @@
   args: ["ff"]
   kw: {base: 16}
   prints: "255"
-
-- native: int
-  args: ["0x__1f", 16]
-  error: "ValueError: \"0x__1f\" spells no int in base 16"

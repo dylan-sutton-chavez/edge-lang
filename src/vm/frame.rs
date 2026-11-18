@@ -8,16 +8,13 @@ use crate::value::*;
 use super::act::Dest;
 use super::lower::Code;
 use crate::code::Ins;
-use super::exc::{is_stop, is_exit, handler_at};
+use super::exc::{is_stop, handler_at};
 use super::sections::section_at;
 use crate::r#unsafe::{CodePtr, ChunkPtr};
 use crate::lang::Language;
 
 /* the loop of language `L` over the chunk at `pool` for a runtime's own loop */
 pub(crate) fn driven<L: Language>(vm: &mut VM<'_>, chunk: &SSAChunk, pool: usize) -> Result<Val, VmErr> { vm.drive::<L>(chunk, pool) }
-
-/* the one loop every language keeping the engine's loop rules shares */
-pub(crate) fn engine_drive(vm: &mut VM<'_>, chunk: &SSAChunk, pool: usize) -> Result<Val, VmErr> { vm.drive::<crate::lang::Bare>(chunk, pool) }
 
 /* the frame an instruction loop began with that the frames it opens return to last */
 pub(crate) struct Floor {
@@ -63,25 +60,29 @@ pub(crate) fn chunk_in<'c, 'a: 'c>(functions: &[&'a (Vec<alloc::string::String>,
 impl<'a> VM<'a> {
 
     /* runs `chunk` on `frame` copied into its window and copies the window back after */
-    pub(crate) fn exec(&mut self, chunk: &SSAChunk, frame: &mut Vec<Val>) -> Result<Val, VmErr> { self.exec_kept(chunk, frame, true) }
-
-    /* `exec` copying the window back into `frame` only when `back` or the run suspended */
-    fn exec_kept(&mut self, chunk: &SSAChunk, frame: &mut Vec<Val>, back: bool) -> Result<Val, VmErr> {
+    pub(crate) fn exec(&mut self, chunk: &SSAChunk, frame: &mut Vec<Val>) -> Result<Val, VmErr> {
         let pool = self.pool_of(chunk);
-        self.exec_pooled(chunk, pool, frame, back)
+        self.exec_pooled(chunk, pool, frame, true)
     }
 
-    /* `exec_kept` in `pool` which is the pool of `chunk` */
+    /* `exec` in `pool` which is the pool of `chunk` copying the window back only when `back` or the run suspended */
     pub(crate) fn exec_pooled(&mut self, chunk: &SSAChunk, pool: usize, frame: &mut Vec<Val>, back: bool) -> Result<Val, VmErr> {
-        // a resumed coroutine whose window still holds its state runs in it as it lies
-        let co = core::mem::replace(&mut self.resuming, Val::undef());
-        let co = if co.is_undef() { co } else { match self.heap.try_get(co) { Some(HeapObj::Coroutine(c)) if matches!(c.body, crate::value::BodyRef::Fn(fi) if self.fn_pool[fi] == pool) => co, _ => Val::undef() } };
-        let kept = self.resumes_in(pool, self.pools[pool].active as usize, co);
-        // a coroutine a loop frame left in another level's window takes its state back
-        if !kept && !co.is_undef() { self.evict_into(co, frame); }
-        let fresh = !kept && self.pools[pool].active == 0 && self.pools[pool].w0.base == super::window::NO_WINDOW;
-        let base = if fresh { self.first_window(pool, frame, chunk.names.len()) } else { self.open_window(pool, frame.len().max(chunk.names.len()), chunk.names.len(), false) };
-        if !kept && !fresh {
+        let base = self.window_with(pool, frame, chunk.names.len());
+        let result = self.exec_in(chunk, base, pool);
+        frame.clear();
+        if back || self.yielded {
+            let (at, len) = (self.pools[pool].window, self.pools[pool].wlen);
+            frame.extend_from_slice(&self.regs[at..at + len]);
+        }
+        self.close_window(pool);
+        result
+    }
+
+    /* opens a window of `pool` for a chunk of `names` names holding `frame` and gives its base */
+    fn window_with(&mut self, pool: usize, frame: &[Val], names: usize) -> usize {
+        let fresh = self.pools[pool].active == 0 && self.pools[pool].w0.base == super::window::NO_WINDOW;
+        let base = if fresh { self.first_window(pool, frame, names) } else { self.open_window(pool, frame.len().max(names), names, false) };
+        if !fresh {
             self.regs[base..base + frame.len()].copy_from_slice(frame);
             // a frame of another length never came from this window so constants get laid again
             if frame.len() != self.pools[pool].wlen {
@@ -89,21 +90,7 @@ impl<'a> VM<'a> {
                 self.note_window(pool);
             }
         }
-        let result = self.exec_in(chunk, base, pool);
-        frame.clear();
-        // a suspended first-level coroutine owns the window with its state until another run takes it
-        if !co.is_undef() && self.yielded && result.is_ok() {
-            let level = self.pools[pool].active as usize - 1;
-            self.close_window(pool);
-            self.own(pool, level, co);
-            return result;
-        }
-        if back || self.yielded {
-            let (at, len) = (self.pools[pool].window, self.pools[pool].wlen);
-            frame.extend_from_slice(&self.regs[at..at + len]);
-        }
-        self.close_window(pool);
-        result
+        base
     }
 
     /* the index of `chunk`'s pool made empty on its first run */
@@ -492,15 +479,11 @@ impl<'a> VM<'a> {
                         // a job's callback runs the new code again too
                         if self.top_job() { self.refresh_again(CodePtr::of(&lowered)); }
                         self.unflat_top(&lowered);
-                    }
-                    // a call's code is its pool's which the lowering just made
-                    match self.acts > floor {
-                        true => {}
-                        false => {
-                            if once { self.pools[pool].heat += floor_code.hot.get(); }
-                            (floor_code, once) = (lowered, false);
-                            floor_at.code = CodePtr::of(&floor_code);
-                        }
+                    } else {
+                        // a call's code is its pool's which the lowering just made so only the floor takes it
+                        if once { self.pools[pool].heat += floor_code.hot.get(); }
+                        (floor_code, once) = (lowered, false);
+                        floor_at.code = CodePtr::of(&floor_code);
                     }
                     load!();
                     let code_ref: &Code = cur.get();
@@ -670,7 +653,7 @@ impl<'a> VM<'a> {
                             ip = at;
                             continue;
                         }
-                        if let Err(e) = self.unlink_top() { raised = Some(e); continue; }
+                        self.unlink_top();
                     }
                     let (ret, dest, v, dunder) = self.return_frame(v);
                     load!(hot);
@@ -700,7 +683,7 @@ impl<'a> VM<'a> {
                             continue;
                         }
                         // a generator a builtin steps only hands it values so waiting there is an error
-                        if self.waits() { raised = Some(self.suspended_in_generator(self.top_apart().map(|f| f.fi))); parking = false; continue; }
+                        if self.waits() { raised = Some(self.suspended_in(" a generator or a coroutine")); parking = false; continue; }
                         let resume = core::mem::take(&mut self.resume_ip);
                         // a generator runs past each yield its builtin takes but stays suspended there for `next`
                         if self.top_gather() && let Some(super::jobs::Job::Gather(j)) = self.jobs.last() && let super::jobs::Takes::Prefetch(drive) = j.takes {
@@ -772,7 +755,7 @@ impl<'a> VM<'a> {
                     }
                     // an op whose call this is has nothing to take its result on resume
                     if self.top().is_some_and(|f| f.dunder) { self.yielded = false; raised = Some(self.suspended_in(" a call an op makes")); parking = false; continue; }
-                    if self.top_linked_apart() && let Err(e) = self.unlink_top() { raised = Some(e); parking = false; continue; }
+                    if self.top_linked_apart() { self.unlink_top(); }
                     ip = self.park_frame();
                     load!();
                     parking = true;
@@ -848,7 +831,7 @@ impl<'a> VM<'a> {
                         continue;
                     }
                     // the close signal or an end of iteration out of the closed generator gives nil
-                    if f.job && !generator.is_undef() && (is_stop(&e, self.natives.names()) || is_exit(&e, self.natives.names())) && let Some(super::jobs::Job::Gather(j)) = self.jobs.last() && j.takes == super::jobs::Takes::Close {
+                    if f.job && !generator.is_undef() && (is_stop(&e, self.natives.names()) || e.is(crate::lang::ErrKind::Close, self.natives.names())) && let Some(super::jobs::Job::Gather(j)) = self.jobs.last() && j.takes == super::jobs::Takes::Close {
                         let (before, to) = (Some(j.before).filter(|b| !b.is_undef()), j.to);
                         self.finish_gen();
                         load!();
@@ -868,7 +851,7 @@ impl<'a> VM<'a> {
                         continue;
                     }
                     ip = f.ret;
-                    let e = match self.top_linked().then(|| self.unlink_top()) { Some(Err(le)) => le, _ => e };
+                    if self.top_linked() { self.unlink_top(); }
                     // a generator that raised stays finished and the error meets its `for`
                     if generator.is_undef() { self.leave_frame(); } else { self.finish_gen(); }
                     load!();
@@ -974,16 +957,7 @@ impl<'a> VM<'a> {
         let (chunk, mut slots, cost) = (f.chunk, core::mem::take(&mut f.slots), f.cost);
         let chunk: &SSAChunk = chunk.get();
         let (pool, names) = (self.pool_of(chunk), chunk.names.len());
-        let fresh = self.pools[pool].active == 0 && self.pools[pool].w0.base == super::window::NO_WINDOW;
-        let base = if fresh { self.first_window(pool, &slots, names) } else { self.open_window(pool, slots.len().max(names), names, false) };
-        if !fresh {
-            self.regs[base..base + slots.len()].copy_from_slice(&slots);
-            // a frame of another length never came from this window so constants get laid again
-            if slots.len() != self.pools[pool].wlen {
-                self.pools[pool].wcode = 0;
-                self.note_window(pool);
-            }
-        }
+        self.window_with(pool, &slots, names);
         self.run_in(pool);
         // it nests as deep as its own run would
         self.depth += cost;
@@ -1020,7 +994,7 @@ impl<'a> VM<'a> {
         let Some(f) = self.floors.last() else { return };
         let (heat, pool, cost) = (if f.once { f.code.as_ref().map_or(0, |c| c.hot.get()) } else { 0 }, f.pool, f.cost);
         // a class body's slots are its members which its end reads
-        if matches!(f.run, crate::vm::frame::FloorRun::Class(_)) && let Some(f) = self.floors.last_mut() {
+        if let Some(f) = self.floors.last_mut() {
             let (at, names) = (self.pools[pool].window, f.chunk.get().names.len());
             f.slots.extend_from_slice(&self.regs[at..at + names]);
         }
@@ -1165,9 +1139,6 @@ pub(crate) struct ClassRun {
     pub(crate) name: String,
 }
 
-/* what a floor runs which is a class body */
-pub(crate) enum FloorRun { Class(ClassRun) }
-
 /* the floor a class body set aside which the loop takes back once it ends */
 pub(crate) struct Floored {
     pub(crate) code: Option<Rc<crate::vm::lower::Code>>,
@@ -1185,22 +1156,20 @@ pub(crate) struct Floored {
     pub(crate) dest: u16,
     pub(crate) slots: Vec<Val>,
     pub(crate) cost: usize,
-    pub(crate) run: FloorRun,
+    pub(crate) run: ClassRun,
 }
 
 impl Floored {
 
     /* a floor of `chunk` starting from `slots` that runs `run` counting `cost` toward the depth */
-    pub(crate) fn new(chunk: ChunkPtr, slots: Vec<Val>, cost: usize, run: FloorRun, dest: u16) -> Self {
+    pub(crate) fn new(chunk: ChunkPtr, slots: Vec<Val>, cost: usize, run: ClassRun, dest: u16) -> Self {
         Self { code: None, once: false, chunk, pool: 0, depth: 0, bases: [0; 3], safe: false, ip: 0, rip: 0, top: 0, dest, slots, cost, run }
     }
 
     /* every value it holds which a collection keeps */
     pub(crate) fn for_each_val(&self, f: &mut impl FnMut(Val)) {
         for &v in &self.slots { f(v); }
-        match &self.run {
-            FloorRun::Class(c) => for &v in &c.bases { f(v) },
-        }
+        for &v in &self.run.bases { f(v); }
     }
 }
 
@@ -1216,10 +1185,9 @@ impl<'a> VM<'a> {
     /* clears the task mark of the ending frame so a helper parks without its coroutine */
     #[cold]
     #[inline(never)]
-    pub(crate) fn unlink_top(&mut self) -> Result<(), VmErr> {
-        if self.chain_top().is_some() { return Ok(()); }
+    pub(crate) fn unlink_top(&mut self) {
+        if self.chain_top().is_some() { return; }
         let h = self.head_at(self.top_pool);
         self.regs[h] = Val::int(self.regs[h].as_int() & !(crate::vm::act::TASK << 40));
-        Ok(())
     }
 }

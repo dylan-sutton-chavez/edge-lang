@@ -4,7 +4,7 @@ use crate::value::{DictMap, HeapObj, HeapPool, Val, VmErr};
 use alloc::{rc::Rc, string::{String, ToString}, vec::Vec};
 use core::cell::RefCell;
 
-/* rebuilds the `VmErr` `err_to_kind` read and matches every kind so none slips into `Raised` */
+/* rebuilds the `VmErr` `abi_kind` read and matches every kind so none slips into `Raised` */
 pub fn error_from_kind(kind: u32, msg: String) -> VmErr {
     match ErrorKind::from_u32(kind) {
         Some(ErrorKind::Type) => VmErr::TypeMsg(msg),
@@ -60,37 +60,28 @@ pub(crate) fn foreign_int(heap: &HeapPool, v: Val) -> Option<i128> {
 fn val_to_wire(heap: &HeapPool, v: Val, depth: u32, seen: &mut Vec<u64>) -> Option<WireValue> {
     if depth > MAX_WIRE_DEPTH { return None; }
     match classify_decode(v.0) {
-        DB::Primitive { tag, bytes } => {
-            let buf: Vec<u8> = match bytes {
-                PB::None => Vec::new(),
-                PB::Bool(b) => alloc::vec![b],
-                PB::Eight(a) => a.to_vec(),
-                PB::Sixteen(a) => a.to_vec(),
-            };
-            WireValue::decode_body(tag, &buf)
-        }
+        // `classify_decode` gives a float eight bytes and an int sixteen
+        DB::Primitive { bytes, .. } => Some(match bytes {
+            PB::None => WireValue::None,
+            PB::Bool(b) => WireValue::Bool(b != 0),
+            PB::Eight(a) => WireValue::Float(f64::from_le_bytes(a)),
+            PB::Sixteen(a) => WireValue::Int(i128::from_le_bytes(a)),
+        }),
         DB::Heap => {
             // a shared reference is fine but meeting a value again mid walk is a cycle
-            let guard = |heap: &HeapPool, seen: &mut Vec<u64>, items: &[Val]| -> Option<Vec<WireValue>> {
-                items.iter().map(|it| val_to_wire(heap, *it, depth + 1, seen)).collect()
+            let guard = |heap: &HeapPool, seen: &mut Vec<u64>, items: &[Val]| -> Option<WireValue> {
+                seen.push(v.0);
+                let items = items.iter().map(|it| val_to_wire(heap, *it, depth + 1, seen)).collect::<Option<Vec<_>>>()?;
+                seen.pop();
+                Some(WireValue::List(items))
             };
             if seen.contains(&v.0) { return None; }
             if v.is_foreign() { return foreign_int(heap, v).map(WireValue::Int); }
             match heap.get(v) {
                 HeapObj::Str(s) => Some(WireValue::Bytes(s.as_bytes().to_vec())),
                 HeapObj::Bytes(b) => Some(WireValue::Raw(b.clone())),
-                HeapObj::List(rc) => {
-                    seen.push(v.0);
-                    let items = guard(heap, seen, &rc.borrow())?;
-                    seen.pop();
-                    Some(WireValue::List(items))
-                }
-                HeapObj::Tuple(t) => {
-                    seen.push(v.0);
-                    let items = guard(heap, seen, t)?;
-                    seen.pop();
-                    Some(WireValue::List(items))
-                }
+                HeapObj::List(rc) => guard(heap, seen, &rc.borrow()),
+                HeapObj::Tuple(t) => guard(heap, seen, t),
                 HeapObj::Dict(rc) => {
                     seen.push(v.0);
                     let mut pairs = Vec::new();

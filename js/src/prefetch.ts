@@ -2,7 +2,7 @@ import { fetchModule } from './fetch.ts';
 import { loadNativeModule, nativeTable } from './native.ts';
 import type { InterpreterExports } from './wasm.ts';
 import type { Chain } from './system/index.ts';
-import { errMsg, writeBytes } from './util.ts';
+import { errMsg, staged, writeBytes } from './util.ts';
 
 const TD = new TextDecoder();
 const TE = new TextEncoder();
@@ -69,9 +69,7 @@ export async function bfsPrefetch(rootSrc: string, exports: InterpreterExports, 
     // a runtime before the carry export reads the grant field it was built with
     if (exports.walk_carry) {
         const carry = TE.encode(ctx.carry);
-        const at = writeBytes(exports, carry);
-        exports.walk_carry(at, carry.length);
-        exports.wasm_free(at, Math.max(1, carry.length));
+        staged(exports, carry, (at) => exports.walk_carry!(at, carry.length));
     }
     const [src, system] = [TE.encode(rootSrc), TE.encode(ctx.reserved.join('\n'))];
     let step = call([src, system], ([s, m]) => exports.walk_start(s!, src.length, m!, system.length));

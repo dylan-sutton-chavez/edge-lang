@@ -8,7 +8,6 @@ use crate::value::{Val, VmErr, HeapObj, HeapPool, DictMap, Host, cold_depth, eq_
 use crate::code::Ins;
 use crate::lang::{Act, EngineError};
 
-
 /* slice store on any vector where an extended slice needs an exact count */
 fn splice<T>(b: &mut Vec<T>, (s, e, st): (i64, i64, i64), items: Vec<T>) -> Result<(), VmErr> {
     if st == 1 {
@@ -23,7 +22,6 @@ fn splice<T>(b: &mut Vec<T>, (s, e, st): (i64, i64, i64), items: Vec<T>) -> Resu
     for (k, v) in items.into_iter().enumerate() { b[(s + k as i64 * st) as usize] = v; }
     Ok(())
 }
-
 
 impl<'a> VM<'a> {
 
@@ -69,18 +67,6 @@ impl<'a> VM<'a> {
             Err(e) => e,
         }
     }
-
-
-
-
-
-
-
-
-
-
-
-
 
     pub fn store_item(&mut self) -> Result<(), VmErr> {
         let value = self.pop()?;
@@ -187,8 +173,6 @@ impl<'a> VM<'a> {
         let bounds = slice_bounds(start, stop, step, b.len() as i64, self.heap.policy.neg_index)?;
         splice(&mut b, bounds, items)
     }
-
-
 }
 
 /* index `i` into `len` items counting a negative one from the end only with `neg` */
@@ -321,26 +305,15 @@ impl<'a> VM<'a> {
 
     /* `contains_op` of an iterator or a generator or anything else */
     fn contains_rest(&mut self, container: Val, item: Val) -> Result<bool, VmErr> {
-        // an iterator steps until a match and leaves the rest unconsumed
-        if matches!(self.heap.try_get(container), Some(HeapObj::Iter(..))) {
-            return self.with_roots([container, item, Val::none()], |vm| loop {
-                vm.charge_step()?;
-                let Some(v) = vm.iter_step(container)? else { return Ok(false) };
-                if let Some(slot) = vm.temp_roots.last_mut() { *slot = v; }
-                if vm.member_eq(item, v)? { return Ok(true); }
-            });
-        }
-        if matches!(self.heap.try_get(container), Some(HeapObj::Coroutine(..))) {
-            return self.with_roots([container, item, Val::none()], |vm| loop {
-                vm.charge_step()?;
-                let v = vm.step_coroutine(container)?;
-                if !vm.yielded { return Ok(false); }
-                vm.yielded = false;
-                if let Some(slot) = vm.temp_roots.last_mut() { *slot = v; }
-                if vm.member_eq(item, v)? { return Ok(true); }
-            });
-        }
-        self.contains(container, item)
+        let iter = match self.heap.try_get(container) { Some(HeapObj::Iter(..)) => true, Some(HeapObj::Coroutine(..)) => false, _ => return self.contains(container, item) };
+        // an iterator or a generator steps until a match and leaves the rest unconsumed
+        self.with_roots([container, item, Val::none()], |vm| loop {
+            vm.charge_step()?;
+            let v = if iter { vm.iter_step(container)? } else { let v = vm.step_coroutine(container)?; core::mem::take(&mut vm.yielded).then_some(v) };
+            let Some(v) = v else { return Ok(false) };
+            if let Some(slot) = vm.temp_roots.last_mut() { *slot = v; }
+            if vm.member_eq(item, v)? { return Ok(true); }
+        })
     }
 
     /* `x in seq` read live by identity then content equality */

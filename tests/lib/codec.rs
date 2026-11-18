@@ -1,18 +1,12 @@
-use interpreter::embed::{Limits, VM};
+use interpreter::embed::Limits;
 use interpreter::lib::Lang;
 use rig::{Rig, RUNTIME};
+use crate::common::{ran, TRY};
 
 // each call's repr or its error in the words the corpus reads
-const TRY: &str = "fn t(f) {\n    try {\n        print(repr(f()))\n    } catch Error as e {\n        print(text(type(e)) + \":\", e)\n    }\n}\n";
 
 /* what `src` printed and then the words of the error it ended in */
-fn run(src: &str) -> String {
-    let (chunk, errors) = interpreter::code::compile_as::<Rig>(src);
-    assert!(errors.is_empty(), "{src}");
-    let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
-    let end = vm.run().err().map(|e| e.to_string()).unwrap_or_default();
-    vm.output_text() + &end
-}
+fn run(src: &str) -> String { ran::<Rig>(&RUNTIME, src, Limits::sandbox()) }
 
 fn tried(calls: &str) -> String { run(&(String::from(TRY) + calls)) }
 
@@ -109,13 +103,8 @@ impl interpreter::lexer::Spelling for Plainly {
     const NATIVES: &'static interpreter::lang::Natives = &NEUTRAL_NATIVES;
 }
 
-/* the words of the error `src` ends in under the neutral runtime */
-fn neutral(src: &str) -> String {
-    let (chunk, errors) = interpreter::code::compile_as::<Plainly>(src);
-    assert!(errors.is_empty(), "{src}");
-    let mut vm = VM::with_runtime(&NEUTRAL_RUNTIME, &chunk, Limits::sandbox());
-    vm.run().err().map(|e| e.to_string()).unwrap_or_default()
-}
+/* what `src` printed and the words of its error under the neutral runtime */
+fn neutral(src: &str) -> String { ran::<Plainly>(&NEUTRAL_RUNTIME, src, Limits::sandbox()) }
 
 #[test]
 fn a_codec_failure_carries_its_reason_for_the_runtime_to_word() {
