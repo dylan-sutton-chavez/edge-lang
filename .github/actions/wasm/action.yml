@@ -72,7 +72,8 @@ runs:
       shell: bash
       run: |
         make js
-        cargo publish -p interpreter --locked --dry-run
+        test -z "$(git status --porcelain -- . ':!js/dist')"
+        cargo publish -p interpreter --locked --dry-run --allow-dirty
 
     # interpreter.wasm ships with its compiler.wasm copy and the speed build goes under _build/
     - name: Stage

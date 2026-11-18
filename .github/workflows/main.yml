@@ -187,4 +187,7 @@ jobs:
       - name: Publish
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: cargo publish -p interpreter --locked
+        # the js host make js built is the one change the tree may hold
+        run: |
+          test -z "$(git status --porcelain -- . ':!js/dist')"
+          cargo publish -p interpreter --locked --allow-dirty
