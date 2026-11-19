@@ -37,28 +37,13 @@ CLI_NEEDS_ := plugin wasm-rig native
 # every module of `interpreter::lib` which lint-rust builds alone so no module leans on one it does not name
 LIB_MODULES := bytes data date io iter map num reflect seq set spec text types
 
-# bumped by hand so each new Miri check lands in a commit of its own
-MIRI_NIGHTLY := nightly-2026-10-11
-# make/miri.sh sets Miri up once then passes MIRI_SETUP= to its parallel runs
-MIRI_SETUP := miri-setup
-MIRI_TESTS := -p interpreter --lib --test engine
-# the pool test covers the allocator wasm installs which no corpus test reaches
-MIRI_vm := vm:: embed:: pooled_blocks_come_back_with_their_bytes
-MIRI_snapshot := snapshot::
-MIRI_modules := modules:: deps::
-MIRI_parser := parser::
-MIRI_lexer := lexer::
-MIRI_abi := abi::
-
 # lint-rust fails unless these are exactly the src files besides src/unsafe.rs with unsafe code as the plugin macros write into a plugin
 UNSAFE_LEFT := src/plugin/macros.rs
 
 # where the shifted build's static data starts and 65536 more moves its heap too
 LAYOUT_BASE ?= 1048640
 
-unix_only = $(if $(filter Windows_NT,$(OS)),$(error AFL runs on Linux and macOS only))
-
-.PHONY: wasm native wasm-rig wasm-cli wasm-ship wasm-small wasm-cli-opt size js lint lint-rust lint-names lint-comments lint-js lint-cli test bench bench-update bench-accept-slower bench-layout plugin cli cli-release stage serve browsers test-js test-cli miri miri-list miri-setup fuzz fuzz-status fuzz-triage fuzz-replay fuzz-carry fuzz-container fuzz-stop seeds version check
+.PHONY: wasm native wasm-rig wasm-cli wasm-ship wasm-small wasm-cli-opt size js lint lint-rust lint-names lint-comments lint-js lint-cli test bench bench-update bench-accept-slower bench-layout plugin cli cli-release stage serve browsers test-js test-cli version check
 
 wasm:
 	cargo rustc --locked --release $(RUNTIME)
@@ -200,56 +185,6 @@ test-cli: $(CLI_INPUTS) wasm-cli $(CLI_NEEDS_$(SUITE))
 	cargo run --locked -q -p interpreter --features cli --bin interpreter -- run --runtime $(CURDIR)/$(WASM)/cli/interpreter.wasm -c 'print 1;' > /dev/null
 	cargo test --locked -p interpreter --features cli $(CLI_TEST_$(SUITE))
 	$(if $(filter engine,$(or $(SUITE),engine)),cargo test --locked -p interpreter --features "cli cli-coverage" --test coverage)
-
-miri-setup:
-	rustup toolchain install $(MIRI_NIGHTLY) --profile minimal --component miri
-	cargo +$(MIRI_NIGHTLY) miri setup
-
-# one suite or one exact CASE with INTERPRETER_SLICE and the case files reaching Miri
-miri: export MIRIFLAGS += -Zmiri-env-forward=INTERPRETER_SLICE -Zmiri-disable-isolation
-miri: $(MIRI_SETUP)
-	$(if $(MIRI_$(SUITE)),,$(error SUITE is one of vm snapshot modules parser lexer abi))
-	cargo +$(MIRI_NIGHTLY) miri test --locked $(MIRI_TESTS) -- $(if $(CASE),--exact $(CASE),$(MIRI_$(SUITE)))
-
-# the tests of a suite with one name per line
-miri-list: $(MIRI_SETUP)
-	$(if $(MIRI_$(SUITE)),,$(error SUITE is one of vm snapshot modules parser lexer abi))
-	@cargo +$(MIRI_NIGHTLY) miri test --locked -q $(MIRI_TESTS) -- --list --format=terse $(MIRI_$(SUITE)) 2>/dev/null | sed -n 's/: test$$//p'
-
-# one AFL instance per core with JOBS DURATION FRESH and TIMEOUT_MS tuning the campaign
-fuzz:
-	$(unix_only)
-	cd fuzz && bash ./deploy.sh
-
-fuzz-status:
-	$(unix_only)
-	cd fuzz && cargo afl whatsup -s out
-
-fuzz-triage:
-	$(unix_only)
-	cd fuzz && bash ./triage.sh
-
-fuzz-replay: export RUST_BACKTRACE = 1
-fuzz-replay:
-	$(unix_only)
-	$(if $(CASE),,$(error pass CASE, a saved input such as out/m0/crashes/id))
-	cd fuzz && ./target/release/afl-pipeline < $(CASE)
-
-# minimizes the queues and the old corpus into corpus/
-fuzz-carry:
-	$(unix_only)
-	cd fuzz && bash ./carry.sh
-
-# the same campaign detached in Docker surviving reboots with its findings in a volume
-fuzz-container:
-	cd fuzz && docker compose up --build -d
-
-fuzz-stop:
-	cd fuzz && docker compose down
-
-seeds:
-	$(unix_only)
-	cd fuzz && bash ./seeds.sh
 
 version:
 	$(if $(TAG),,$(error pass TAG, for example make version TAG=v1.0.0))

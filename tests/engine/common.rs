@@ -56,31 +56,6 @@ pub fn fail(vm: &mut VM, id: u64, message: &str) -> bool {
     vm.inject_host_error_by_id(id, VmErr::Raised(message.into()))
 }
 
-/* with `INTERPRETER_SLICE=k/n` every n-th case from the k-th so Miri walks a corpus in slices */
-pub fn slice<I: IntoIterator>(cases: I) -> impl Iterator<Item = I::Item> {
-    let (k, n) = match std::env::var("INTERPRETER_SLICE") {
-        Ok(s) => s.split_once('/')
-            .and_then(|(k, n)| Some((k.parse::<usize>().ok()?, n.parse::<usize>().ok()?)))
-            .filter(|(k, n)| k < n)
-            .unwrap_or_else(|| panic!("INTERPRETER_SLICE is k/n with k below n, not {s:?}")),
-        Err(_) => (0, 1),
-    };
-    cases.into_iter().enumerate().filter(move |(i, _)| i % n == k).map(|(_, case)| case)
-}
-
-/* under Miri a long case stops early so it checks code paths and not results */
-pub fn corpus_limits() -> Limits {
-    if cfg!(miri) { Limits { ops: MIRI_OPS, ..Limits::sandbox() } } else { Limits::sandbox() }
-}
-
-/* the budget of a corpus case under Miri which the sample's coverage is chosen on */
-pub const MIRI_OPS: u64 = 5_000;
-
-/* a run Miri stopped at the corpus budget whose result the native run checks */
-pub fn cut_short<T>(run: &Result<T, VmErr>) -> bool {
-    cfg!(miri) && matches!(run, Err(VmErr::Budget))
-}
-
 /* shared with child resolvers as the bridge shares its flat cache and in-flight set */
 #[derive(Default)]
 struct TestResolverState {

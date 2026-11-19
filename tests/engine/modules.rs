@@ -223,7 +223,7 @@ mod test {
         let (chunk, errs) = compiled_with("use m0\nprint(m0.v)\n", resolver);
         assert!(errs.is_empty(), "{errs:?}");
         assert!(start.elapsed() < std::time::Duration::from_secs(5), "{:?}", start.elapsed());
-        let mut vm = crate::common::boot(&chunk, crate::common::corpus_limits());
+        let mut vm = crate::common::boot(&chunk, interpreter::value::Limits::sandbox());
         vm.run().expect("the diamond runs");
         assert_eq!(vm.output, [(1u64 << (LEVELS - 1)).to_string()]);
     }

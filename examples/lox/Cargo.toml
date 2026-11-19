@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Lox from Crafting Interpreters as a runtime on interpreter, the one interpreter.wasm and the CLI are built from, held to the book's test suite."
-# an example of the repo that interpreter.wasm the CLI the bench and the fuzzer build on
+# an example of the repo that interpreter.wasm the CLI and the bench build on
 publish = false
 
 [lib]

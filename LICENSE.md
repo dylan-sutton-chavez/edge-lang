@@ -4,7 +4,7 @@ The directory a file sits in decides the license that applies to it.
 
 ## The engine
 
-`src/` `tests/` `examples/` `plugin/` `cli/` `js/` `fuzz/` `bench/` `make/` `cdn/` `docs/`
+`src/` `tests/` `examples/` `plugin/` `cli/` `js/` `bench/` `make/` `cdn/` `docs/`
 
 Licensed under the Apache License 2.0, whose text is at <https://www.apache.org/licenses/LICENSE-2.0>.
 

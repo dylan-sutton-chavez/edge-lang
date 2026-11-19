@@ -19,7 +19,6 @@ mod syntax;
 mod rows;
 mod front;
 mod names;
-mod miri;
 mod language;
 mod policy;
 mod rules;

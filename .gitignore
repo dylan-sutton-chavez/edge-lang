@@ -27,15 +27,8 @@ pkg/
 
 tmp/
 
-fuzz/in/
-fuzz/out/
-fuzz/logs/
-fuzz/corpus/
-fuzz/interpreter.dict
-
 **/deno.lock
 
 /backlog.json
 /BACKLOG.md
 /ROADMAP.md
-/miri/

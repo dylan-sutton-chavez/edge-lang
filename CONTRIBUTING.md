@@ -11,7 +11,7 @@ Include a minimal failing script, the command used to run it, and the expected a
 For a large change, open an issue or email [c.sutton.dylan@gmail.com](mailto:c.sutton.dylan@gmail.com) first. Pull requests are welcome in every part under the Apache 2.0 License, see [README.md](README.md#license).
 
 - New behavior comes with tests, and docs describe the code as it is after the change.
-- Changes to the engine keep `make bench` and `make bench-layout` passing, and significant ones run the fuzzer with `make fuzz`.
+- Changes to the engine keep `make bench` and `make bench-layout` passing.
 - `make check` passes before sending, and the maintainer runs CI once the pull request is open.
 
 ## Style
@@ -53,7 +53,7 @@ cargo install --path . --features cli
 | `src/util` | Hashing, the probe table, byte search, JSON escapes and the near names an error suggests, shared by the rest |
 | `src/unsafe.rs` | Every unsafe region of the crate, each with the argument that it is sound |
 
-Lox lives in `examples/lox`, a crate the repo never publishes, which `interpreter.wasm`, the tests of the CLI, the bench and the fuzzer build on. The CLI's tests live in `tests/cli` and its two example compositions in `examples/cli`. `cli/setup` keeps the install scripts at the URL users fetch them from, and `cli/musl.sh` the static Linux build.
+Lox lives in `examples/lox`, a crate the repo never publishes, which `interpreter.wasm`, the tests of the CLI and the bench build on. The CLI's tests live in `tests/cli` and its two example compositions in `examples/cli`. `cli/setup` keeps the install scripts at the URL users fetch them from, and `cli/musl.sh` the static Linux build.
 
 `Cargo.toml` denies unsafe code everywhere but `src/unsafe.rs`, and `make lint` fails when another file of `src/` holds unsafe code, past `src/plugin/macros.rs` whose unsafe expands in a plugin's own crate. `clippy.toml` keeps the engine from files, the network, the clock, the environment and maps with a random seed, which only the native host in `src/targets/native` and the CLI in `src/cli` may reach. A build with no `cli-*` feature compiles none of the CLI's dependencies, and `build.rs` does nothing for it. `make lint` also fails when `src/` past `src/cli` or `plugin/` holds a name `make/names.txt` denies, and builds each module of `interpreter::lib` alone so a module never leans on one it does not name.
 
@@ -104,9 +104,7 @@ The engine names its own pieces, and these words mean the same thing in every fi
 | `make test` | The suites of the engine, of `interpreter::lib` and of the test rig, then Lox's with the book's own test suite |
 | `make bench` | The instruction count of every bench case against `bench/.snapshot` |
 | `make bench-layout` | The same count on a build with its static data shifted |
-| `make miri SUITE=... CASE=...` | One suite, or one test by its exact name, under Miri |
 | `make test-js`, `make test-cli SUITE=...` | The JS and CLI suites against a served tree |
-| `make fuzz` | A fuzzing campaign |
 | `cargo build --release` | The `.rlib` Rust embedders link |
 | `cargo install --path . --features cli` | The `interpreter` binary from the clone |
 
@@ -128,12 +126,6 @@ Each test binary of the engine is a folder of `tests/` with its `main.rs`, `engi
 - A new engine case goes at the end of its topic file, so the places other files name stay put, and an existing case changes only with the rule it states.
 - The bench snapshot on `main` holds the numbers of `main`, and it fails when the mean or a single case moves past its threshold. A change that makes cases faster takes the snapshot again with `make bench-update`, and one that makes a case slower says so with `make bench-accept-slower`.
 - A bench count that moves with the static data means some lookup follows an address, and that lookup keys by an id or by the content instead.
-
-Miri takes hours over the whole corpus, so under Miri the corpus tests run the sample `tests/cases/miri.tsv` names. `miri::test::the_sample_names_cases_of_the_corpus` fails once a sampled case moves or changes, and `miri::test::coverage_of_the_sample_holds_every_opcode_the_corpus_runs` fails once a corpus case runs an opcode no sampled case runs and names the case to add. When the first one fails, this writes the sample again.
-
-```bash
-MIRI_TSV_OUT=tests/cases/miri.tsv cargo test --locked -p interpreter --test engine miri::test::the_sample_names_cases_of_the_corpus
-```
 
 The JS and CLI suites read the builds from a tree served on loopback, staged and served in a terminal of its own.
 

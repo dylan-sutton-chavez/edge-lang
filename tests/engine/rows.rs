@@ -16,7 +16,7 @@ mod test {
         let cases = crate::cases::vm_cases(std::path::Path::new(env!("CARGO_MANIFEST_DIR")));
         let (mut listed, mut stacked) = (String::new(), 0u32);
         let mut seen = serde_json::Map::new();
-        for case in crate::common::slice(&cases) {
+        for case in &cases {
             let src = case["src"].as_str().unwrap_or("");
             let texts = |f: &str| case[f].as_array().map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect::<Vec<_>>()).unwrap_or_default();
             // events arrive one at a time as the bench hands them so each wait parks
@@ -25,7 +25,7 @@ mod test {
             let (mut chunk, errors) = parser(src, tokens.into_iter(), Box::new(NoopResolver)).parse();
             if !errors.is_empty() { continue; }
             interpreter::code::constant_fold(&mut chunk, rig::FRONT.policy);
-            let mut vm = crate::common::boot(&chunk, crate::common::corpus_limits());
+            let mut vm = crate::common::boot(&chunk, interpreter::value::Limits::sandbox());
             vm.input_buffer = input.clone();
             vm.send_hook = Some(accept_send);
             let (mut next, mut parked) = (events.iter(), false);
@@ -70,7 +70,7 @@ mod test {
     fn finish_line() {
         let cases = crate::cases::vm_cases(std::path::Path::new(env!("CARGO_MANIFEST_DIR")));
         let (mut folded, mut lowered, mut ops) = (0usize, 0u32, std::collections::BTreeMap::<String, u32>::new());
-        for case in crate::common::slice(&cases) {
+        for case in &cases {
             let src = case["src"].as_str().unwrap_or("");
             let (tokens, _) = lex(src);
             let (mut chunk, errors) = parser(src, tokens.into_iter(), Box::new(NoopResolver)).parse();
@@ -78,7 +78,7 @@ mod test {
             interpreter::code::constant_fold(&mut chunk, rig::FRONT.policy);
             // the and and or the rows table leaves out never reach compiled code
             each_chunk(&chunk, &mut |c| folded += c.instructions.iter().filter(|i| matches!(i.opcode, interpreter::code::OpCode::And | interpreter::code::OpCode::Or)).count());
-            let mut vm = crate::common::boot(&chunk, crate::common::corpus_limits());
+            let mut vm = crate::common::boot(&chunk, interpreter::value::Limits::sandbox());
             vm.send_hook = Some(accept_send);
             let mut events = case["events"].as_array().into_iter().flatten().filter_map(|v| v.as_str());
             while let Err(VmErr::HostYield(SchedulerStatus::PendingEvent)) = vm.run() {

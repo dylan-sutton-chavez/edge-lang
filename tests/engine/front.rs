@@ -261,7 +261,6 @@ mod test {
 
     // built lambdas read the names around them in place so many build in linear time
     #[test]
-    #[cfg_attr(miri, ignore)]
     fn many_built_lambdas_build_in_linear_time() {
         let start = std::time::Instant::now();
         let built = build::<Rig>("x\n", unit(), |b| {

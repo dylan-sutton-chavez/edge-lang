@@ -295,7 +295,7 @@ mod test {
         let src = "range = |*a| [99]\nt = 0\nfor i in 0..3:\n    t += i\nprint(t, range(5), list(1..=2))\n";
         let (chunk, errors) = compiled::<Kit>(src);
         assert!(errors.is_empty(), "{errors:?}");
-        let mut vm = crate::common::boot(&chunk, crate::common::corpus_limits());
+        let mut vm = crate::common::boot(&chunk, interpreter::value::Limits::sandbox());
         vm.run().expect("the program runs");
         assert_eq!(vm.output, ["3 [99] [1, 2]"]);
     }
@@ -1006,7 +1006,6 @@ mod parser {
 
     // overflowing MAX_INSTRUCTIONS with a trailing `with` errors and never panics on a stale jump
     #[test]
-    #[cfg_attr(miri, ignore = "lexing 160 KB under Miri's borrow tracking takes longer than a job")]
     fn instruction_overflow_does_not_panic() {
         let mut src = String::with_capacity(180_000);
         for _ in 0..40_000 { src.push_str("a=1\n"); }
@@ -1045,8 +1044,7 @@ mod parser {
             let got = messages(&src);
             assert!(got.iter().any(|m| m.contains("too deeply nested")), "{label}: expected 'too deeply nested', got {got:?}");
         };
-        // borrow tracking makes lexing quadratic under Miri so there chains stop just past the guard
-        let scale = if cfg!(miri) { 1 } else { 100 };
+        let scale = 100;
         check(format!("x = {}1", "-".repeat(2_000 * scale)), "unary minus");
         check(format!("x = {}1", "+".repeat(2_000 * scale)), "unary plus");
         check(format!("x = {}1", "~".repeat(2_000 * scale)), "bitwise not");
@@ -1061,7 +1059,7 @@ mod parser {
     // a compound statement never follows the colon of another on its line at any length
     #[test]
     fn compound_after_colon_errors() {
-        let scale = if cfg!(miri) { 1 } else { 100 };
+        let scale = 100;
         let chain = format!("{}pass", "if c: ".repeat(1_000 * scale));
         for src in ["if a: if b: pass", "def f(): def g(): pass", "for x in y: if x: pass", "class A: def f(self): pass", "while c: with x: pass", chain.as_str()] {
             assert_eq!(messages(src), ["a compound statement must start its own line"], "{src:?}");
@@ -1072,7 +1070,7 @@ mod parser {
     // a report shows 20 errors cut to their nearby columns whatever a long line holds
     #[test]
     fn long_reports_stay_small() {
-        let src = "$".repeat(if cfg!(miri) { 400 } else { 40_000 });
+        let src = "$".repeat(40_000);
         let (tokens, lex_errs) = lex(&src);
         let mut parser = parser(&src, tokens);
         for e in lex_errs { parser.errors.push(Diagnostic { start: e.start, end: e.end, msg: e.msg.into() }); }
@@ -1085,7 +1083,7 @@ mod parser {
         assert_eq!(messages(&format!("x = 1 {}", "a".repeat(1_000))), [format!("expected newline, got '{}...'", "a".repeat(40))]);
     }
 
-    // broken statements that once looped forever under the fuzzer finish with their diagnostics
+    // broken statements that once looped forever finish with their diagnostics
     #[test]
     fn broken_statements_finish() {
         for src in ["(] =')\n}] =')", "x = [2, 3, 4]\nx[:; )= 10\nprint(x)", "[n) = [9)bbbbbb, #]\nx3, #]\n] = [5]\ndef f(bbbbbbb"] {
@@ -1103,7 +1101,6 @@ mod parser {
 
     // lambdas read the names around them in place so many compile in linear time
     #[test]
-    #[cfg_attr(miri, ignore)]
     fn many_lambdas_compile_in_linear_time() {
         let src: String = (0..30_000).map(|i| format!("f{i} = lambda x: x + {i}\n")).collect();
         let start = std::time::Instant::now();
@@ -1127,7 +1124,6 @@ mod parser {
 
     // an else if chain of any length compiles in a loop on a small stack
     #[test]
-    #[cfg_attr(miri, ignore = "a chain long enough to matter takes Miri too long")]
     fn a_long_else_if_chain_compiles_on_a_small_stack() {
         let chain = |arms: usize, test: &str| {
             let mut src = format!("x = 1\ny = false\nif {test}:\n    pass\n");

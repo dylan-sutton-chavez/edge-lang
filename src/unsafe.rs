@@ -19,7 +19,6 @@ fn tagged(size: usize, align: usize) -> Option<(Layout, usize)> {
 }
 
 /* charges the new inner block at `base` to the payer named in its tag */
-#[cfg(not(miri))]
 #[inline]
 unsafe fn place(base: *mut u8, inner: Layout, head: usize) -> *mut u8 {
     if base.is_null() { return base; }
@@ -28,7 +27,6 @@ unsafe fn place(base: *mut u8, inner: Layout, head: usize) -> *mut u8 {
 }
 
 // SAFETY each block gives the bytes past its tag and returns whole to its allocator
-#[cfg(not(miri))]
 unsafe impl<A: GlobalAlloc> GlobalAlloc for Metered<A> {
     #[inline] unsafe fn alloc(&self, l: Layout) -> *mut u8 { tagged(l.size(), l.align()).map_or(core::ptr::null_mut(), |(inner, head)| unsafe { place(self.0.alloc(inner), inner, head) }) }
     #[inline] unsafe fn alloc_zeroed(&self, l: Layout) -> *mut u8 { tagged(l.size(), l.align()).map_or(core::ptr::null_mut(), |(inner, head)| unsafe { place(self.0.alloc_zeroed(inner), inner, head) }) }
@@ -53,56 +51,6 @@ unsafe impl<A: GlobalAlloc> GlobalAlloc for Metered<A> {
             q
         }
     }
-}
-
-#[cfg(miri)]
-use crate::value::meter::{Owners, disown, own};
-
-// SAFETY each call passes the caller's arguments on as they came
-#[cfg(miri)]
-unsafe impl<A: GlobalAlloc> GlobalAlloc for Metered<A> {
-    unsafe fn alloc(&self, l: Layout) -> *mut u8 {
-        let Some((inner, _)) = tagged(l.size(), l.align()) else { return core::ptr::null_mut() };
-        let p = unsafe { self.0.alloc(l) };
-        if !p.is_null() { own(&self.0, p.addr(), charge(inner.size())); }
-        p
-    }
-
-    unsafe fn dealloc(&self, p: *mut u8, l: Layout) { disown(p.addr()).shrank(l.size() + l.align().max(TAG)); unsafe { self.0.dealloc(p, l) } }
-
-    unsafe fn realloc(&self, p: *mut u8, l: Layout, size: usize) -> *mut u8 {
-        let Some((grown, head)) = tagged(size, l.align()) else { return core::ptr::null_mut() };
-        let owner = disown(p.addr());
-        let q = unsafe { self.0.realloc(p, l, size) };
-        if q.is_null() { own(&self.0, p.addr(), owner); return q; }
-        owner.shrank(l.size() + head);
-        own(&self.0, q.addr(), charge(grown.size()));
-        q
-    }
-}
-
-/* runs `f` on the owner table under a spin lock that Miri's test threads share */
-#[cfg(miri)]
-pub(crate) fn owners<R>(f: impl FnOnce(&mut Owners) -> R) -> R {
-    use core::sync::atomic::{AtomicBool, Ordering::{Acquire, Release}};
-    static LOCK: AtomicBool = AtomicBool::new(false);
-    static mut OWNERS: Owners = Owners { slots: &mut [], len: 0 };
-    while LOCK.swap(true, Acquire) { core::hint::spin_loop(); }
-    // SAFETY the lock stays held until f returns so no other reference exists
-    let r = f(unsafe { &mut *&raw mut OWNERS });
-    LOCK.store(false, Release);
-    r
-}
-
-/* `cap` empty owner slots from `inner` never freed so they outlive every block */
-#[cfg(miri)]
-pub(crate) fn table(inner: &impl GlobalAlloc, cap: usize) -> &'static mut [(usize, Option<&'static Meter>)] {
-    let cap = cap.max(1);
-    let l = Layout::array::<(usize, Option<&'static Meter>)>(cap).expect("owner table size");
-    // SAFETY l is nonzero and its zeroed block holds cap empty slots nothing frees
-    let t = unsafe { core::slice::from_raw_parts_mut(core::ptr::NonNull::new(inner.alloc_zeroed(l)).expect("owner table out of memory").as_ptr().cast(), cap) };
-    miri_root(t);
-    t
 }
 
 // SAFETY wasm without threads runs one call at a time and interpreter.wasm installs it there
@@ -172,13 +120,6 @@ impl<A: GlobalAlloc> Drop for Pooled<A> {
     }
 }
 
-// SAFETY Miri marks only the allocation r starts which its leak check over test_cases reads
-#[cfg(miri)]
-pub(crate) fn miri_root<T: ?Sized>(r: &T) {
-    unsafe extern "Rust" { fn miri_static_root(ptr: *const ()); }
-    if core::mem::size_of_val(r) != 0 { unsafe { miri_static_root(core::ptr::from_ref(r).cast()) } }
-}
-
 // SAFETY text callers pass whole characters which debug builds check across test_cases
 
 /* `bytes` as the text its caller made of whole characters alone */
@@ -188,7 +129,7 @@ pub(crate) fn whole(bytes: &[u8]) -> &str {
     unsafe { core::str::from_utf8_unchecked(bytes) }
 }
 
-// SAFETY a cold box drops once in drop or into_inner as test_cases checks under Miri
+// SAFETY a cold box drops once in drop or into_inner as test_cases checks
 
 /* a box whose value drops in a call of its own keeping its holders small */
 pub struct Cold<T>(core::mem::ManuallyDrop<alloc::boxed::Box<T>>);

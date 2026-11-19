@@ -47,9 +47,6 @@ mod test {
         // the error line the vm suite checks and a replay leaves alone
         #[serde(default, rename = "error_line")]
         _error_line: Option<usize>,
-        // a vm case running on the corpus budget
-        #[serde(skip)]
-        corpus: bool,
         // a program in Lox run on its runtime in place of the rig
         #[serde(default)]
         lox: bool,
@@ -82,13 +79,11 @@ mod test {
     }
 
     fn limits_for(case: &Case) -> Limits {
-        if case.unmetered { Limits { ops: u64::MAX, memory: 4 << 30 } } else if case.corpus { crate::common::corpus_limits() } else { Limits::sandbox() }
+        if case.unmetered { Limits { ops: u64::MAX, memory: 4 << 30 } } else { Limits::sandbox() }
     }
 
-    fn corpus(cases: Vec<serde_json::Value>) -> Vec<Case> {
-        let mut cases: Vec<Case> = serde_json::from_value(cases.into()).expect("vm cases");
-        for case in &mut cases { case.corpus = true; }
-        cases
+    fn corpus() -> Vec<Case> {
+        serde_json::from_value(crate::cases::corpus().into()).expect("vm cases")
     }
 
     /* a bare VM to restore into since the state arrives from the blob */
@@ -208,7 +203,7 @@ mod test {
     fn snapshot_cases() {
         let cases: Vec<Case> = serde_json::from_str(include_str!("../cases/snapshot.json")).expect("invalid JSON");
         let mut failures = Vec::new();
-        for case in crate::common::slice(&cases) {
+        for case in &cases {
             assert!(!case.interactive_events.is_empty() || case.preempt_interval > 0,
                 "snapshot case exercises no pause: {:?}", case.src);
             let direct = run_case(case, 0, 0, 0);
@@ -238,12 +233,11 @@ mod test {
     /* every interactive vm case survives a save and restore at each pause */
     #[test]
     fn vm_corpus_roundtrip() {
-        let cases = corpus(crate::miri::corpus());
+        let cases = corpus();
         let mut failures = Vec::new();
         for case in cases.iter().filter(|c| !c.interactive_events.is_empty() && c.error.is_none()) {
             let direct = run_case(case, 0, 0, 0).output;
             let cycled = run_case(case, 0, 1, 0).output;
-            if crate::common::cut_short(&direct) || crate::common::cut_short(&cycled) { continue; }
             if !alike(&direct, &cycled) { failures.push(format!("{:?}\n   direct {:?}\n   cycled {:?}", case.src, direct, cycled)); }
         }
         report("corpus roundtrip mismatch", failures);
@@ -252,18 +246,17 @@ mod test {
     /* preempting at every back edge or restoring at a preempt and again in the restored run changes no corpus result */
     #[test]
     fn vm_corpus_preempt_and_restore() {
-        let cases = corpus(crate::miri::corpus_slice());
+        let cases = corpus();
         let mut failures = Vec::new();
         for case in cases.iter().filter(|c| c.interactive_events.is_empty() && c.events.is_empty() && c.error.is_none()) {
             let direct = run_case(case, 0, 0, 0).output;
             let preempted = run_case(case, 1, 0, 0).output;
-            let cut = |run: &Result<Vec<String>, VmErr>| crate::common::cut_short(&direct) || crate::common::cut_short(run);
-            if !cut(&preempted) && !alike(&direct, &preempted) {
+            if !alike(&direct, &preempted) {
                 failures.push(format!("{:?}\n   direct {:?}\n   preempted {:?}", case.src, direct, preempted));
             }
             match restored_at(case, 11, &[3, 6]) {
                 Err(e) => failures.push(format!("{:?}\n   restore refused {e}", case.src)),
-                Ok(restored) if !cut(&restored) && !alike(&direct, &restored) => failures.push(format!("{:?}\n   direct {:?}\n   restored {:?}", case.src, direct, restored)),
+                Ok(restored) if !alike(&direct, &restored) => failures.push(format!("{:?}\n   direct {:?}\n   restored {:?}", case.src, direct, restored)),
                 Ok(_) => {}
             }
         }
@@ -340,7 +333,7 @@ mod test {
         assert!(matches!(vm.run(), Err(VmErr::HostYield(SchedulerStatus::PendingEvent))));
         let blob = snapshot::save(&vm, src, "").expect("save");
         drop(vm);
-        for at in crate::common::slice(0..blob.len()) {
+        for at in 0..blob.len() {
             let mut bad = blob.clone();
             bad[at] ^= 0xFF;
             let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -380,9 +373,9 @@ mod test {
     fn resealed_forgeries_never_panic() {
         // a recursion laid as sections parks inside them with links and levels to bend
         let src = "fn rec(n, acc) {\n    if n == 0 {\n        return acc\n    }\n    s = 0\n    for k in range(3) {\n        s += k\n    }\n    return rec(n - 1, acc + n + s)\n}\nt = 0\nfor i in range(40) {\n    t += rec(30, 0)\n}\nprint(t)";
-        forgeries_never_panic(src, 97, 8, if cfg!(miri) { 20_000 } else { 2_000_000 });
+        forgeries_never_panic(src, 97, 8, 2_000_000);
         // a recursion through three functions parks holding levels whose count a forgery bends
-        forgeries_never_panic(TRIO, 25, 6, if cfg!(miri) { 20_000 } else { 200_000 });
+        forgeries_never_panic(TRIO, 25, 6, 200_000);
     }
 
     /* each body byte of the blob `src` saves at preempt `at` set three ways */
@@ -399,8 +392,7 @@ mod test {
         drop(vm);
         let body = blob.len() - 32;
         let start = snapshot::RUNTIME_AT + 32 + src.len();
-        let stride = if cfg!(miri) { (body - start) / 16 + 1 } else { 1 };
-        for at in crate::common::slice((start..body).step_by(stride)) {
+        for at in start..body {
             for v in [0u8, 1, 0xFF] {
                 let mut bad = blob[..body].to_vec();
                 if bad[at] == v { continue; }
@@ -427,9 +419,8 @@ mod test {
     fn a_restored_run_restores_again() {
         // restores at every few preempts of three intervals and the pair a single restore hid
         let patterns: [(usize, &[usize]); 2] = [(25, &[3, 6]), (11, &[5, 10, 15, 20])];
-        // under miri the pairs alone over three narrower rounds fit one job
-        let (src, out, sweeps): (String, &str, &[usize]) = if cfg!(miri) { (TRIO.replace("range(300)", "range(3)").replace("i < 100", "i < 10"), "363", &[]) } else { (TRIO.into(), "3060300", &[7, 11, 25]) };
-        let case: Case = serde_json::from_value(serde_json::json!({ "src": src, "output": [out] })).expect("case");
+        let sweeps = [7, 11, 25];
+        let case: Case = serde_json::from_value(serde_json::json!({ "src": TRIO, "output": ["3060300"] })).expect("case");
         let every: Vec<usize> = (1..70_000).collect();
         for (interval, at) in patterns.into_iter().chain(sweeps.iter().map(|&i| (i, &every[..]))) {
             match restored_at(&case, interval, at) {
@@ -442,13 +433,12 @@ mod test {
     /* a recursion through three methods meets the depth cold code meets after a restore too */
     #[test]
     fn a_restored_recursion_stops_where_cold_code_stops() {
-        // under miri a tenth of the warm loop and three preempts fit one job
-        let (rounds, ats) = if cfg!(miri) { (20, 1..4) } else { (200, 1..30) };
+        let (rounds, ats) = (200, 1..30);
         let src = format!("fn expr(p) {{\n    v = term(p)\n    while p.at < len(p.text) and p.text[p.at] == \"+\" {{\n        p.at += 1\n        v = v + term(p)\n    }}\n    return v\n}}\nfn term(p) {{\n    v = factor(p)\n    while p.at < len(p.text) and p.text[p.at] == \"*\" {{\n        p.at += 1\n        v = v * factor(p)\n    }}\n    return v\n}}\nfn factor(p) {{\n    c = p.text[p.at]\n    p.at += 1\n    if c == \"(\" {{\n        v = expr(p)\n        p.at += 1\n        return v\n    }}\n    return int(c)\n}}\nfn parse(text) {{\n    try {{\n        return expr({{text = text, at = 0}})\n    }} catch RecursionError {{\n        return \"deep\"\n    }}\n}}\nt = 0\nfor i in range({rounds}) {{\n    t = t + parse(\"(1+2)*3+\" + text(i % 10))\n}}\nprint(t)\nfor n in [100, 300, 400, 1200] {{\n    print(n, parse(\"(\" * n + \"1\" + \")\" * n))\n}}");
         let case: Case = serde_json::from_value(serde_json::json!({ "src": src })).expect("case");
         let direct = run_case(&case, 0, 0, 0).output.expect("direct");
         assert_eq!(direct[3..], ["400 deep", "1200 deep"], "{direct:?}");
-        for at in crate::common::slice(ats) {
+        for at in ats {
             match restored_at(&case, 25, &[at]) {
                 Ok(Ok(out)) => assert_eq!(out, direct, "restored at preempt {at}"),
                 other => panic!("restored at preempt {at}: {other:?}"),
@@ -459,8 +449,7 @@ mod test {
     /* a blob whose heap passes its vm's memory is refused as it decodes */
     #[test]
     fn a_restore_refuses_a_heap_past_its_memory() {
-        // under miri a fortieth of the heap preempted forty times as often fits one job
-        let (n, every) = if cfg!(miri) { (1000, 25) } else { (40000, 1000) };
+        let (n, every) = (40000, 1000);
         let src = format!("xs = []\nfor i in range({n}) {{\n    xs.append(\"k\" + text(i))\n}}\nt = 0\nfor i in range({}) {{\n    t += i\n}}\nprint(t, len(xs))", n / 2);
         let chunk = parse_static(&src);
         let mut vm = crate::common::boot(chunk, Limits::sandbox());
@@ -485,13 +474,12 @@ mod test {
     /* a restore keeps the order its heap reuses slots in so addresses stay alike */
     #[test]
     fn a_restore_keeps_addresses() {
-        // under miri fewer rounds fit one job and still reuse freed slots
-        let (n, hops) = if cfg!(miri) { (1000, [5, 10, 15]) } else { (6000, [7, 60, 100]) };
+        let (n, hops) = (6000, [7, 60, 100]);
         let src = format!("fn kind_of(n) {{\n    yield n\n}}\nt = 0\nkeep = []\nfor i in range({n}) {{\n    t += i\n    xs = [i, [i]]\n    if i % 7 == 0 {{\n        keep.append(xs)\n    }}\n}}\ng = kind_of(1)\nprint(g, t, len(keep))");
         let case: Case = serde_json::from_value(serde_json::json!({ "src": src })).expect("case");
         let direct = run_case(&case, 0, 0, 0).output.expect("direct");
         assert!(direct[0].contains(" at 0x"), "unexpected output {direct:?}");
-        for hop in crate::common::slice(hops) {
+        for hop in hops {
             assert_eq!(run_case(&case, 50, 0, hop).output.expect("hopped"), direct, "restored at preempt {hop}");
         }
     }
@@ -540,7 +528,6 @@ mod test {
 
     // a restore leaves the run no work to pay for the tables it built again
     #[test]
-    #[cfg_attr(miri, ignore)]
     fn a_restore_charges_nothing_for_the_tables_it_builds_again() {
         let src = "p = 2 ** 61 - 1\ns = set(range(0, 3000 * p, p))\nd = record.fromkeys(s)\nw = set([\"x\" * 100 + text(i) for i in range(300)])\nt = 0\nfor i in range(50) {\n    t += i\n}\nprint(len(s), len(d), len(w), t)\n";
         let chunk = parse_static(src);

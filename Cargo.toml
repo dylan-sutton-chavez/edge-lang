@@ -260,7 +260,7 @@ repository = "https://github.com/dylan-sutton-chavez/interpreter"
 [workspace.dependencies]
 hashbrown = { version = "0.17", default-features = false }
 itoa = "1"
-# without `arch` every target takes wasm32's software paths which Miri can interpret
+# without `arch` every target takes wasm32's software paths
 libm = { version = "0.2", default-features = false }
 lol_alloc = "0.4"
 serde = { version = "1", features = ["derive"] }

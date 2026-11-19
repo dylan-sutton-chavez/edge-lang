@@ -67,7 +67,7 @@ mod test {
     /* two cases equal in every field would test the same thing twice */
     #[test]
     fn no_duplicate_cases() {
-        let cases = crate::miri::corpus();
+        let cases = crate::cases::corpus();
         let mut seen = std::collections::HashMap::new();
         let repeated: Vec<String> = cases.iter().enumerate()
             .filter_map(|(i, case)| seen.insert(case.to_string(), i).map(|first| format!("case {i} repeats case {first}, {}", case["src"])))
@@ -78,7 +78,7 @@ mod test {
     /* the vm cases under sandbox limits and strict input so runaway allocation recursion and a read past the input raise instead of hanging */
     #[test]
     fn test_cases() {
-        let cases: Vec<Case> = serde_json::from_value(crate::miri::corpus_slice().into()).expect("vm cases");
+        let cases: Vec<Case> = serde_json::from_value(crate::cases::corpus().into()).expect("vm cases");
 
         let mut failures: Vec<String> = Vec::new();
         for case in cases {
@@ -102,12 +102,11 @@ mod test {
             }
             // the fold pass production runs so its bugs surface here
             interpreter::code::constant_fold(&mut chunk, rig::FRONT.policy);
-            let mut vm = crate::common::boot(&chunk, crate::common::corpus_limits());
+            let mut vm = crate::common::boot(&chunk, interpreter::value::Limits::sandbox());
             vm.input_buffer = case.input.clone();
             hook_sends(&mut vm, &case);
             for evt in &case.events { vm.push_event(evt).expect("push_event"); }
             let result = drive(&mut vm, &case.interactive_events);
-            if crate::common::cut_short(&result) { continue; }
 
             // every mismatch is collected so one run lists all regressions
             match result {
@@ -320,8 +319,8 @@ mod test {
     #[test]
     fn native_work_pays_the_budget() {
         use interpreter::value::Limits;
-        // tenfold smaller sizes keep the work over the budget and the bare loop under
-        let (n, k, ops) = if cfg!(miri) { (1_000, 100, 20_000) } else { (10_000, 1_000, 200_000) };
+        // these sizes keep the work over the budget and the bare loop under
+        let (n, k, ops) = (10_000, 1_000, 200_000);
         let h = n / 2;
         for src in [
             format!("s = \"ab\" * {h}\nfor i in range({k}) {{\n    n = s.count(\"b\")\n}}"),
@@ -371,7 +370,6 @@ mod test {
     }
     // a long pipe reads in linear time so each line costs what the first did
     #[test]
-    #[cfg_attr(miri, ignore)]
     fn a_long_input_reads_in_linear_time() {
         let src = "t = 0\nfor _ in range(400000) {\n    t += int(input())\n}\nprint(t)\n";
         let (chunk, _) = crate::common::parse(src);
@@ -384,7 +382,6 @@ mod test {
     }
     // reads and cuts far into a text past ascii pay for the bytes they walk
     #[test]
-    #[cfg_attr(miri, ignore)]
     fn far_reads_of_a_text_past_ascii_pay_for_the_bytes_they_walk() {
         use interpreter::value::Limits;
         for line in ["c = t[i * 104729 % n]", "c = t[-1 - i * 104729 % n]", "c = t[i * 104729 % n:i * 104729 % n + 2]", "c = t[i * 104729 % n::n]", "c = u[n + 2 + i]", "c = u[-n - 3 - i]"] {
@@ -404,7 +401,6 @@ mod test {
     }
     // emptying a set by pop and a map by popitem reads each removed entry once
     #[test]
-    #[cfg_attr(miri, ignore)]
     fn emptying_a_set_or_a_map_from_one_end_takes_linear_time() {
         let src = "s = set(range(1000000))\nd = record.fromkeys(range(1000000))\nk = 0\nwhile len(s) > 0 {\n    s.pop()\n    d.popitem()\n    k += 1\n}\nprint(k, len(d))\n";
         let (chunk, _) = crate::common::parse(src);

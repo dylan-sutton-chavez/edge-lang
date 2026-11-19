@@ -1,7 +1,0 @@
-# local build and runtime artifacts the container makes again
-**/target
-.git
-fuzz/in
-fuzz/out
-fuzz/logs
-fuzz/interpreter.dict

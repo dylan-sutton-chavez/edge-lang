@@ -10,7 +10,7 @@ const HASH = /(\.(toml|ya?ml|sh)|(^|\/)(Makefile|Dockerfile|\.gitignore|\.docker
 // the help text clap reads from a field's doc comment and the safety section clippy asks for
 const DOCS = [/^src\/cli\//]
 const DIRECTIVE = /^(deno-lint-ignore|deno-fmt-ignore|@ts-|eslint|shellcheck|:tombi|rustfmt::)/
-// a word in capitals opens a comment as SAFETY or as an acronym such as AFL
+// a word in capitals opens a comment as SAFETY or as an acronym such as JSON
 const OPENER = /^([a-z0-9`'"$(\[{<@*_.-]|[A-Z0-9]{2,}\b|[A-Z][a-z]*[A-Z])/
 
 const out = new Deno.Command('git', { args: ['ls-files', '--cached', '--others', '--exclude-standard'], stdout: 'piped' }).outputSync()
