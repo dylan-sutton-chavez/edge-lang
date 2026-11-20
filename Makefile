@@ -99,7 +99,7 @@ js:
 lint: lint-rust lint-js
 
 # shear refuses dependencies declared but unused then clippy runs for the host and for wasm
-lint-rust: lint-names lint-comments wasm
+lint-rust: lint-names lint-comments wasm $(CLI_INPUTS)
 	@held=$$(for f in $$(find src -name '*.rs' ! -path src/engine/unsafe.rs); do sed -e 's://.*::' -e 's:/[*].*[*]/::g' $$f | grep -Eq '(^|[^#[:alnum:]_])unsafe([^[:alnum:]_]|$$)' && echo $$f; done); \
 	  stray=$$(printf '%s\n' $$held $(sort $(UNSAFE_LEFT)) | LC_ALL=C sort | uniq -u); \
 	  [ -z "$$stray" ] || { printf 'UNSAFE_LEFT must name exactly the src files besides src/engine/unsafe.rs with unsafe code and these differ\n%s\n' "$$stray"; exit 1; }
