@@ -1,8 +1,6 @@
 # Verification
 
-Verification of the engine is in progress. Its rules are written in Vfy, which [Railsbit](https://dev.railsbit.com) runs on the compiled crate. A rule proves a property for every input from every public function, or shows the input that breaks it, and covers every release after it lands.
-
-Railsbit is in a closed beta at dev.railsbit.com, and interpreter is one of the projects it is to verify.
+This folder holds the rules the engine is to be proved against. They are written in Vfy, which [Railsbit](https://dev.railsbit.com) runs on the compiled crate. A rule proves a property for every input of every public function, or shows the input that breaks it, and covers every release after it lands. Railsbit is in a closed beta, and interpreter is one of the projects it is to verify.
 
 | Property | What the rule proves |
 |---|---|
@@ -10,9 +8,7 @@ Railsbit is in a closed beta at dev.railsbit.com, and interpreter is one of the 
 | No panic | No public function reaches `core::panicking` |
 | No hang | Every loop and every recursion ends |
 
-Each proof is exported as a Coq attestation, so it can be checked without trusting the engine that found it.
-
-The first rule, in outline.
+Each proof is exported as a Coq attestation, so it can be checked without trusting the engine that found it. Each rule lands here as a `.vfy` file. None has landed yet, so the first is shown in outline.
 
 ```vfy
 pub let policy = {name = "no undefined behavior", action = "fail", severity = "high"}
@@ -29,5 +25,3 @@ fn at(g: Graph, n: Node) -> Mark =
     gap r => stay(r.reason)
   }
 ```
-
-Each rule lands in this folder as a `.vfy` file, and none has landed yet.

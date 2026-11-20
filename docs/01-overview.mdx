@@ -1,11 +1,13 @@
 ---
 title: "Overview"
-description: "What interpreter is, what the crate holds and how to install it."
+description: "What interpreter is, how to install the crate and the CLI, and the Lox runtime the other pages run."
 ---
 
 # Overview
 
-`interpreter` is a Rust crate for building language runtimes. You write a token table, the rules of your language and the natives its programs call. The crate gives you the lexer, the parser, the VM and the hosts that run it.
+This page covers what the crate holds, how to install it and the CLI, and Lox, the runtime the other pages run.
+
+`interpreter` is a Rust crate for building language runtimes. You write a token table, the rules of your language and the natives its programs call, and the crate gives you the rest.
 
 | Part | Does |
 |---|---|
@@ -13,11 +15,7 @@ description: "What interpreter is, what the crate holds and how to install it."
 | Parser | Writes bytecode in a single pass with no AST, and reports every error it finds |
 | VM | Runs the bytecode on registers, with an op budget, an exact memory meter, a garbage collector and snapshots |
 
-A runtime compiles to one WebAssembly module, which runs in a web page and in the `interpreter` CLI. A Rust program links the same crate in its place. A program reaches no file, network or environment unless its host grants it.
-
-This page covers how to install the crate and the CLI, the Lox example the other pages run, and where each page goes.
-
-Every 1.x release keeps the public API of 1.0.0, as [Stability](./09-stability.mdx) sets out. Verification of the engine is in progress, with rules written in Vfy that Railsbit runs on the compiled crate and exports as Coq attestations. No rule is in the repo yet, as [Verification](https://github.com/dylan-sutton-chavez/interpreter/blob/main/.railsbit/README.md) sets out.
+A runtime compiles to one WebAssembly module, which runs in a web page and in the `interpreter` CLI, and a Rust program links the same crate in its place. A program reaches no file, network or environment unless its host grants it. [Verification](https://github.com/dylan-sutton-chavez/interpreter/blob/main/.railsbit/README.md) names the properties the engine is to be proved against.
 
 ## Install
 
@@ -34,20 +32,16 @@ cargo add interpreter --no-default-features --features std,io,seq
 | Feature | Turns on |
 |---|---|
 | `std` | The standard library, on by default |
-| `lib` | `interpreter::lib` with only the parts every module shares. These are `Kernel`, `Site`, `Lang`, the choice types such as `Codec` and `Numerals`, `fail`, `fmt::show`, `types::handles`, `uni`, `table!` and `hooks!`. It builds alone for a runtime that writes its own kernels, and each module below turns it on |
+| `lib` | `interpreter::lib` with only the parts every module shares, which are `Kernel`, `Site`, `Lang`, the choice types such as `Codec` and `Numerals`, `fail`, `fmt::show`, `types::handles`, `uni`, `table!` and `hooks!`. It builds alone for a runtime that writes its own kernels, and each module below turns it on |
 | `bytes`, `data`, `date`, `io`, `iter`, `map`, `num`, `seq`, `set`, `spec`, `text`, `types` | One module of `interpreter::lib` each. `types` also gives `lib::reflect`, and `spec` gives `fmt::format`, which `hooks!(L)` needs |
 | `full` | Every module of `interpreter::lib` |
 | `plugin` | `interpreter::plugin`, for writing `.wasm` plugins |
-| `exports` | The exports of a runtime's `.wasm` and of its native library, with the grant logic its hosts read, and the `exports!` macro |
+| `exports` | The exports of a runtime's `.wasm` and native library, the grant logic its hosts read, and the `exports!` macro |
 | `coverage` | `VM::ran`, the instructions a run executed |
-| `unstable-internals` | The engine's internals for its own tests and tools, outside the stable API |
-| `unstable-layout` | A padding static that shifts static data for `make bench-layout`, for the bench alone and outside the stable API |
-| `cli` | The `interpreter` binary and `interpreter::cli`, the kit a CLI of your own is built from |
-| `cli-kit`, `cli-run`, `cli-test` and the other `cli-*` | One part of `interpreter::cli` each, listed in [CLI](./06-cli.mdx) |
+| `unstable-internals`, `unstable-layout` | The engine's internals for its own tests and tools, and a padding static that shifts static data for `make bench-layout`. Both are outside the stable API |
+| `cli` and each `cli-*` | The `interpreter` binary and `interpreter::cli`, as [A CLI of your own](./06-cli.mdx#a-cli-of-your-own) lists |
 
-## The CLI and the JS host
-
-The `interpreter` CLI is this crate with the `cli` feature. It carries the JS host, which `--web` runs and a `dist/` folder vendors.
+The `interpreter` CLI is the crate with the `cli` feature. It carries the JS host, which `--web` runs and a `dist/` folder vendors.
 
 ```bash
 cargo install interpreter --features cli
@@ -59,20 +53,20 @@ A tagged release also ships binaries for macOS and Linux.
 curl -fsSL https://raw.githubusercontent.com/dylan-sutton-chavez/interpreter/main/cli/setup/install.sh | bash
 ```
 
-The CLI holds no runtime, and each project names the one its programs run on. The examples of these pages run on Lox's `.wasm`, saved as `lox.wasm`. Every release attaches it as `interpreter.wasm`, and `make wasm` builds it to `target/wasm32-unknown-unknown/release/interpreter.wasm`.
+The CLI holds no runtime, and each project names the one it runs on. The examples of these pages run Lox's `.wasm`, saved as `lox.wasm`. Every release attaches it as `interpreter.wasm`.
 
 ```bash
 curl -fsSLo lox.wasm https://github.com/dylan-sutton-chavez/interpreter/releases/latest/download/interpreter.wasm
 interpreter init hello --runtime lox.wasm
 ```
 
-Contributors build both from [the repo](https://github.com/dylan-sutton-chavez/interpreter) with Rust and Deno, as [CONTRIBUTING.md](https://github.com/dylan-sutton-chavez/interpreter/blob/main/CONTRIBUTING.md) sets out. `make wasm js stage PARTS="wasm js"` writes the files a page serves to `_cdn/`, with Lox's `interpreter.wasm` at the root and the JS host under `js/src/`. A release attaches the same tree as `cdn.tar.gz`.
+From a clone, `make wasm` builds Lox's `.wasm` to `target/wasm32-unknown-unknown/release/interpreter.wasm`, and `make wasm js stage PARTS="wasm js"` writes the files a page serves to `_cdn/`, with `interpreter.wasm` at the root and the JS host under `js/src/`. A release attaches the same tree as `cdn.tar.gz`. [CONTRIBUTING.md](https://github.com/dylan-sutton-chavez/interpreter/blob/main/CONTRIBUTING.md) covers the toolchain.
 
 ## Lox
 
-Most examples in these pages run Lox, the language of the book Crafting Interpreters. It lives in `examples/lox`, passes the book's test suite and is the runtime `interpreter.wasm` is built from. It is an example of the repo, and neither the crate nor the CLI holds it. Past the book it imports modules with `import("name")` and has the natives `input`, `exit`, `send`, `receive`, `len`, `text`, `list` and `item` beside the book's `clock`.
+Most examples run Lox, the language of the book Crafting Interpreters. It lives in `examples/lox`, passes the book's test suite and is the runtime `interpreter.wasm` is built from. Neither the crate nor the CLI holds it. Past the book it imports modules with `import("name")` and has the natives `input`, `exit`, `send`, `receive`, `len`, `text`, `list` and `item` beside the book's `clock`.
 
-Lox is not on crates.io. A crate of yours takes it from git, with the engine from the same commit so both name one `interpreter`.
+Lox is not on crates.io. A crate of yours takes it from git, with the engine from the same commit so both name one `interpreter`. Pin `tag` or `rev` instead of `branch` for a build that never moves.
 
 ```toml
 [dependencies]
@@ -80,17 +74,4 @@ interpreter = { git = "https://github.com/dylan-sutton-chavez/interpreter", bran
 interpreter-lox = { git = "https://github.com/dylan-sutton-chavez/interpreter", branch = "main" }
 ```
 
-Pin `tag` or `rev` instead of `branch` for a build that never moves.
-
-## Pages
-
-| Page | Covers |
-|---|---|
-| [Build a runtime](./02-runtime.mdx) | The token table, the natives, the language and the `Runtime` |
-| [Grammar](./03-grammar.mdx) | Forms, readings and patterns a runtime adds to the parser |
-| [Rust](./04-rust.mdx) | Running programs inside a Rust program |
-| [JavaScript](./05-javascript.mdx) | Running a runtime's `.wasm` in a page, and the ABI any host drives |
-| [CLI](./06-cli.mdx) | The commands, packages, grants and a CLI of your own |
-| [Errors and limits](./07-errors-and-limits.mdx) | How errors read and every limit a run has |
-| [Plugins](./08-plugins.mdx) | Writing a `.wasm` plugin |
-| [Stability](./09-stability.mdx) | What a release keeps, the exceptions, and how the formats and the ABI evolve |
+The two `cli-*` features serve [A CLI of your own](./06-cli.mdx#a-cli-of-your-own), and the examples of [Rust](./04-rust.mdx) run without them.

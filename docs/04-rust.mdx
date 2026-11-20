@@ -5,19 +5,11 @@ description: "Run programs inside a Rust program, with events, host functions, e
 
 # Rust
 
-This page covers running programs inside a Rust program. The program links the engine and a runtime and runs them in its own process, with no `.wasm` in between. The examples run Lox from `examples/lox`, and a runtime of yours exposes the same `RUNTIME` and `FRONT`, as [Build a runtime](./02-runtime.mdx) shows.
-
-```toml
-[dependencies]
-interpreter = { git = "https://github.com/dylan-sutton-chavez/interpreter", branch = "main" }
-interpreter-lox = { git = "https://github.com/dylan-sutton-chavez/interpreter", branch = "main" }
-```
-
-Lox is not on crates.io, so the engine comes from the same commit, as [Lox](./01-overview.mdx#lox) says.
+This page covers running programs inside a Rust program, which links the engine and a runtime and runs them in its own process with no `.wasm` in between. The examples run Lox, taken from git as [Lox](./01-overview.mdx#lox) shows, and a runtime of yours exposes the same `RUNTIME` and `FRONT`, as [Build a runtime](./02-runtime.mdx) shows.
 
 ## Run a program
 
-`FRONT.compile(src)` parses and folds a source and returns the chunk or every diagnostic it found. `FRONT.compile_with(src, resolver)` does the same with the resolver its imports go through. These two calls are the one way to compile. `VM::with_runtime` boots a VM over the chunk and `run` runs it to the end.
+`FRONT.compile(src)` parses and folds a source and returns the chunk or every diagnostic it found, and `FRONT.compile_with(src, resolver)` does the same with a resolver for its imports. These two calls are the one way to compile.
 
 ```rust standalone_crate
 use interpreter::{Limits, VM};
@@ -34,25 +26,26 @@ fn main() {
 }
 ```
 
-`interpreter::allocator!()` goes once in the binary. A VM whose limits cap memory refuses to run without it. `output` holds what the program printed, one line per entry, and `output_text()` joins it. `vm.print_hook = Some(f)` takes each text as it is printed instead.
+`interpreter::allocator!()` goes once in the binary, and a VM whose limits cap memory refuses to run without it. `output` holds what the program printed, one line per entry, and `output_text()` joins it. `vm.print_hook = Some(f)` takes each text as it is printed instead.
 
 | Call | Does |
 |---|---|
-| `VM::with_runtime(&RUNTIME, &chunk, limits)` | Boots a machine. The chunk outlives it |
-| `run()` | Runs the program, or carries a parked run on |
+| `VM::with_runtime(&RUNTIME, &chunk, limits)` | Boots a machine over a chunk that outlives it |
+| `run()` | Runs the program to the end, or carries a parked run on |
 | `push_event(text)` | Hands an event to a run waiting in `receive()`, or queues it |
 | `inject_host_result_by_id(id, value)` | Answers a host call the run waits on |
 | `call_export(name, args)` | Calls a function the program defined, after `run` |
 | `set_preempt_interval(n)` | Stops the run every `n` loop back-edges, never at 0 |
 | `reset_budget(ops)` | Gives the run a fresh op budget |
 | `set_input(lines)` | The lines `input()` reads |
-| `error_text(&e)`, `report_error(&e, src, path)` | An error as one line, or as the whole report with its source line |
+| `error_text(&e)`, `report_error(&e, src, path)` | An error as its class and message, or as the whole report with its source line |
+| `system_exit_code()` | The status the program passed to `exit` |
 | `display(v)`, `repr(v)` | A value as the runtime prints it |
 | `memory()`, `memory_peak()` | What the run holds now, and the most it held |
 
 ## What a read keeps
 
-A tool reads a source to map its code back to the bytes it came from. `Front::spelled::<Recorded<S>>().compile(src)` parses a source through table `S` and gives the same chunk as `Front::spelled::<S>()`, and keeps beside the code what its run never reads. A compile keeps none of it, so it costs no more for the read. A front of its own reads by building through `build::<Recorded<S>>` and handing each node to `Builder::spanned(range, kind, f)`, as `interpreter_lox::read(src)` does. The instructions and opcodes of a chunk are not part of the stable API, and a tool reads a chunk through its spans and notes.
+A tool reads a source to map its code back to the bytes it came from. `Front::spelled::<Recorded<S>>().compile(src)` parses through table `S`, gives the same chunk as `Front::spelled::<S>()` and keeps beside the code what a run never reads. A plain compile keeps none of it and costs nothing for it. A front of its own reads by building through `build::<Recorded<S>>` and handing each node to `Builder::spanned(range, kind, f)`, as `interpreter_lox::read(src)` does. A tool reads a chunk through its spans and notes, since its instructions are [not stable](./09-stability.mdx#exceptions).
 
 | Ask | Gives |
 |---|---|
@@ -75,7 +68,7 @@ Lox reads through a tree of its own, so a form's own instructions take the whole
 
 ## Where an error is
 
-A diagnostic and a run error hold byte offsets. `Diagnostic::line_col(src)` gives the line and column a diagnostic starts at, counted from 1 with the column as its report prints it. `VM::error_line_col()` gives the same for the last error of a run in the source it rose in, and `VM::error_path()` names the module when that source is one the program imported. `interpreter::Lines::new(src)` finds the lines of a source once, so `line_col(byte)` on it answers many offsets without reading the source again.
+A diagnostic and a run error hold byte offsets. `Diagnostic::line_col(src)` gives the line and column a diagnostic starts at, counted from 1 with the column as its report prints it. `VM::error_line_col()` gives the same for the last error of a run in the source it rose in, and `VM::error_path()` names the module when that source is an import. `interpreter::Lines::new(src)` finds the lines of a source once, so its `line_col(byte)` answers many offsets without reading the source again.
 
 ```rust standalone_crate
 use interpreter::{Limits, VM};
@@ -98,7 +91,7 @@ fn main() {
 
 ## Events
 
-A run that calls `receive()` with nothing queued stops, and `run` returns an error whose `paused()` is `Some(SchedulerStatus::PendingEvent)`. Push an event and call `run` again to go on from there. A `VmErr` is opaque, and a host reads it through `kind()`, `paused()`, `is_limit()` and `is_deferred()`.
+A run that calls `receive()` with nothing queued stops, and `run` returns an error whose `paused()` is `Some(SchedulerStatus::PendingEvent)`. Push an event and call `run` again to go on. [Run errors](./07-errors-and-limits.mdx#run-errors) lists the other readers of a `VmErr`.
 
 ```rust standalone_crate
 use interpreter::{Limits, SchedulerStatus, VM};
@@ -168,7 +161,7 @@ fn main() {
 
 ## Host data
 
-The heap of a machine keeps one value of any type for its natives. A host sets it with `vm.heap_mut().set_data(value)`. A native of the runtime reads it with `cx.heap().data::<T>()` or `cx.heap_mut().data_mut::<T>()`, and a function a `Resolver` serves reads it on the heap it is handed, with `heap.data_mut::<T>()`. Each machine keeps its own, so two machines on one thread never share it, and `vm.heap_mut().take_data::<T>()` gives it back. A snapshot does not hold it.
+The heap of a machine keeps one value of any type for its natives. A host sets it with `vm.heap_mut().set_data(value)` and takes it back with `vm.heap_mut().take_data::<T>()`. A native of the runtime reads it with `cx.heap().data::<T>()` or `cx.heap_mut().data_mut::<T>()`, and a function a `Resolver` serves reads it with `heap.data_mut::<T>()` on the heap it is handed. Each machine keeps its own, so two machines on one thread never share it, and a snapshot does not hold it.
 
 ```rust standalone_crate
 use interpreter::{Limits, NativeBinding, Resolved, Resolver, VM};
@@ -209,7 +202,7 @@ fn main() {
 }
 ```
 
-## Exported functions
+## Exported functions and values
 
 After `run` binds the program's names, `call_export` calls one of its functions with values the host built.
 
@@ -228,13 +221,11 @@ fn main() {
 }
 ```
 
-## Host values
-
-A host builds and reads values through the heap and never through its storage. `Val::none()`, `Val::bool(b)`, `Val::int(n)` and `Val::float(x)` build the inline values, and each has its `is_` and `as_` reader. `Val::int` keeps 48 bits and wraps past them, so a wider int goes through `heap.int(n)`, which boxes it. `heap.new_str(text)`, `heap.new_list(items)` and `heap.new_tuple(items)` build the heap values. `heap.text(v)` reads a string and `heap.items(v)` reads the items of a list or a tuple, and each gives `None` for a value of another kind.
+A host builds and reads values through the heap and never through their storage. `Val::none()`, `Val::bool(b)`, `Val::int(n)` and `Val::float(x)` build the inline values, and each has its `is_` and `as_` reader. `Val::int` keeps 48 bits and wraps past them, so a wider int goes through `heap.int(n)`, which boxes it. `heap.new_str(text)`, `heap.new_list(items)` and `heap.new_tuple(items)` build heap values. `heap.text(v)` reads a string and `heap.items(v)` the items of a list or a tuple, and each gives `None` for another kind.
 
 ## Snapshots
 
-`interpreter::snapshot::save` turns a stopped run into a blob, and `interpreter::snapshot::restore` resumes it on a fresh VM over the same program, on this machine or another. The blob holds the heap, every frame and the input not yet read.
+`interpreter::snapshot::save` turns a stopped run into a blob that holds the heap, every frame and the input not yet read. `interpreter::snapshot::restore` resumes it on a fresh VM over the same program, on this machine or another.
 
 ```rust standalone_crate
 use interpreter::{snapshot, Limits, SchedulerStatus, VM};
@@ -261,9 +252,7 @@ fn main() {
 }
 ```
 
-`set_preempt_interval(n)` stops a run that never waits with `SchedulerStatus::Preempted`, so a long loop can be saved too. `snapshot::entry_of(&blob)` returns the script name the blob was saved under.
-
-`snapshot::format_of(&blob)` reads the format word of a blob. An engine restores only a blob of its own `snapshot::FORMAT` and refuses another with an error that says whether the blob is newer or older, so a host can check a blob before it hands one over. [Stability](./09-stability.mdx#formats-and-the-abi) says what the format promises.
+`set_preempt_interval(n)` stops a run that never waits with `SchedulerStatus::Preempted`, so a long loop can be saved too. `snapshot::entry_of(&blob)` returns the script name the blob was saved under, and `snapshot::format_of(&blob)` its format word. An engine restores only a blob of its own `snapshot::FORMAT` and says whether another is newer or older, so a host can check a blob before it hands one over. [Stability](./09-stability.mdx#formats-and-the-abi) says what the format promises.
 
 ## A native binary
 
@@ -281,4 +270,4 @@ fn main() -> ExitCode {
 }
 ```
 
-`main` exits with the statuses the runtime's `Descriptor` gives in `statuses`, and prints compile errors through its `diagnosed` when it sets one. A snapshot error is an opaque `snapshot::SnapErr` that prints its words. A native script loads no URL and no plugin, which the CLI and the JS host do.
+`main` exits with the statuses the runtime's `Descriptor` gives in `statuses`, and prints compile errors through its `diagnosed` when it sets one. A snapshot error is an opaque `snapshot::SnapErr` that prints its words. A native script loads no URL and no plugin, which only the CLI and the JS host do.

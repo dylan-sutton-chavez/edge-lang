@@ -14,7 +14,7 @@ This page builds a runtime, from its token table to its `.wasm`. A runtime is a 
 | Language | `interpreter::lang::Language` | The rules, the names of types and errors, and how values print |
 | Runtime | `interpreter::lang::Runtime::of::<L>()` | The one value every host boots, checked when the crate builds |
 
-The parser has one grammar and the token table only spells it. `!` and `not` can both be the `Not` token, and a block can open with `{`, with a colon and an indent, or with a word such as `do`. Every spelling of a construct compiles to the same bytecode.
+The parser has one grammar and the token table only spells it. `!` and `not` can both be the `Not` token, and a block can open with `{`, a colon and an indent, or a word such as `do`. Every spelling compiles to the same bytecode.
 
 ## Example
 
@@ -125,7 +125,7 @@ interpreter = { version = "1", default-features = false, features = ["std", "io"
 | `comments`, `strings`, `interp`, `numbers` | Comments, quotes and escapes, interpolated strings and number literals |
 | `shapes` | Optional pieces such as lambdas, comprehensions, slices, decorators, `match` arms, ranges, `let` and a [grammar](./03-grammar.mdx). `Shapes::PLAIN` turns on all of them but `let`, arms, ranges and a grammar |
 
-A language the parser cannot read builds its own `Front` with `Front::new(parse, imports, syntax, policy)`. Its parse function writes the same bytecode through `interpreter::code::build` and its `Builder`, and the front takes its file extension from the `Syntax` it gets. Lox in `examples/lox` does this.
+A language the parser cannot read builds its own `Front` with `Front::new(parse, imports, syntax, policy)`. Its parse function writes the same bytecode through `interpreter::code::build` and its `Builder`, and the front takes its file extension from the `Syntax` it gets. [Lox](#lox) does this.
 
 ## Natives
 
@@ -141,7 +141,7 @@ A language the parser cannot read builds its own `Front` with `Front::new(parse,
 | `date` | Times and durations |
 | `types` | Attributes through `lib::reflect`, `is_a` and `type_of`. Which errors a handler catches is `types::handles`, which `lib` alone gives |
 
-Each of them is a kernel, a native with no name of its own until `interpreter::lib::table!` gives it the one a program calls it by, as in `"json" => interpreter::lib::data::json::read`. In `interpreter::natives!`, `methods` adds methods by kind, such as `text.upper`, and `types` names the types a program can test against. A native that `interpreter::lib` lacks is an `interpreter::lang::Native` you write, a function of a `Cx` and its arguments that returns a value.
+Each is a kernel, a native with no name until `interpreter::lib::table!` gives it the one a program calls, as in `"json" => interpreter::lib::data::json::read`. In `interpreter::natives!`, `methods` adds methods by kind, such as `text.upper`, and `types` names the types a program can test against. A native `interpreter::lib` lacks is an `interpreter::lang::Native` you write, a function of a `Cx` and its arguments that returns a value.
 
 ## Language
 
@@ -155,15 +155,13 @@ Each of them is a kernel, a native with no name of its own until `interpreter::l
 | `handles` | An error | Which errors a handler catches, usually `interpreter::lib::types::handles` |
 | `DESCRIPTOR` | `Descriptor::PLAIN` | What tools read, such as the entry files and the test suffix. `Runtime::of` adds the file extension from `FRONT` and the type, value, runtime and permission error classes from `NAMES` |
 
-`interpreter::lib::hooks!(L)` inside `impl Language for L` writes `show`, `format` and `handles` over those three helpers of lib, so a runtime that keeps lib's defaults writes none of them by hand. `hooks!(L; show)` writes only the ones it names. `hooks!(L)` and any list with `format` need the `spec` feature. `L` implements `interpreter::lib::Lang`, as the example does. The empty `impl` keeps lib's renders and words, and each of them is a provided item of `Lang` a runtime may override.
+`interpreter::lib::hooks!(L)` inside `impl Language for L` writes `show`, `format` and `handles` over those three helpers, and `hooks!(L; show)` writes only the ones it names. `hooks!(L)` and any list with `format` need the `spec` feature. `L` implements `interpreter::lib::Lang`, and an empty `impl`, as in the example, keeps lib's renders and words. Each is a provided item of `Lang` a runtime may override.
 
-`Names::error(kind)` and `Names::kind(kind)` read the class a runtime gives an `ErrKind` and the type it gives a `KindId`, also in a `const`.
-
-`Runtime::of::<L>()` runs in a `static`, so a policy that does not hold together fails the build.
+`Names::error(kind)` and `Names::kind(kind)` read the class a runtime gives an `ErrKind` and the type it gives a `KindId`, also in a `const`. `Runtime::of::<L>()` runs in a `static`, so a policy that does not hold together fails the build.
 
 ## The .wasm of a runtime
 
-The same crate builds the module the JS host and the CLI load, and the native library the CLI loads in its place. `interpreter::exports!(RUNTIME)`, as in the example, writes its exports behind a feature of the runtime's own, here `web` as in Lox. That feature turns on the crate's `exports` feature.
+The same crate builds the module the JS host and the CLI load, and the native library the CLI loads in its place. `interpreter::exports!(RUNTIME)` writes the exports behind a feature of the runtime's own, `web` here and in Lox, which turns on the crate's `exports` feature.
 
 ```toml
 [features]
@@ -174,7 +172,7 @@ web = ["interpreter/exports"]
 cargo rustc --release --target wasm32-unknown-unknown --lib --crate-type cdylib --no-default-features --features web
 ```
 
-The native library takes the same exports with a context of its own for each run, so actors run it in parallel with no lock between them. It needs `std` and a profile where a panic unwinds, so the CLI catches one as an error of the run.
+The native library has the same exports with a context for each run, so actors run it in parallel with no lock. It needs `std` and a profile where a panic unwinds, so the CLI reports one as an error of the run.
 
 ```toml
 [profile.native]
@@ -190,4 +188,4 @@ The CLI runs it outside the sandbox, as [wasm or native](./06-cli.mdx#wasm-or-na
 
 ## Lox
 
-`examples/lox` is a whole runtime and the one `interpreter.wasm` is built from. Its token table scans through the engine's lexer, and its own front parses and resolves a program as the book's compiler does, with the book's error messages. Every number is a double, only `nil` and `false` are false, and fields live on instances only. A native binary exits with 65 after a compile error and 70 after a run error, as the book's does. `cargo test -p interpreter-lox` runs the book's suite on it.
+[Lox](./01-overview.mdx#lox) scans through the engine's lexer with a token table of its own, and its own front parses and resolves a program as the book's compiler does, with the book's error messages. Every number is a double, only `nil` and `false` are false, and fields live on instances only. Its native binary exits with 65 after a compile error and 70 after a run error, as the book's does. `cargo test -p interpreter-lox` runs the book's suite on it.

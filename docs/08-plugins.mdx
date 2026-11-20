@@ -5,7 +5,7 @@ description: "Write a WebAssembly plugin a program imports, with functions, cons
 
 # Plugins
 
-This page covers writing a plugin, a `.wasm` module a program imports like any other module. It runs in an instance of its own, beside the runtime, and reaches the program's values only through handles the host lends it. `interpreter::plugin` is the kit you write one with, and every runtime built on `interpreter` loads it the same way, in the CLI and in a web page.
+This page covers writing a plugin, a `.wasm` module a program imports like any other module, with the kit `interpreter::plugin`. It runs in an instance of its own beside the runtime and reaches the program's values only through handles the host lends it. Every runtime loads it the same way, in the CLI and in a web page.
 
 ## The crate
 
@@ -81,7 +81,7 @@ fn main() {}
 | `plugin_class!` | A struct whose instances live in the plugin under the id their object keeps, with its `impl` of methods and the `#[ctor]` one as the constructor | `__class_<Name>_<method>`, `__class_<Name>_init` |
 | `plugin_resume!` | The function a waiting system call settles into | `__interpreter_resume` |
 
-A param is any type with `FromValue`, which are `i64`, `i128`, `f64`, `bool`, `String`, `Bytes`, `Vec<f64>`, `interpreter::abi::WireValue`, `Vec<WireValue>`, `Option<T>` and a borrowed `Handle`. `Args` takes every positional past the fixed params and reads them with `iter`, `get` and `len`, and `Kwargs`, last, takes the keywords. A function returns any type with `IntoValue`, or a `Result` of one. A `WireValue` turns into a handle with `into_handle`. An `Error` raises in the program as the class its kind names, and `Error::kind` gives that kind as an `abi::ErrorKind`. `Error::custom(text)` raises the class its text names. A misplaced `Args` or `Kwargs` fails the build.
+A param is any type with `FromValue`, which are `i64`, `i128`, `f64`, `bool`, `String`, `Bytes`, `Vec<f64>`, `interpreter::abi::WireValue`, `Vec<WireValue>`, `Option<T>` and a borrowed `Handle`. `Args` takes every positional past the fixed params and reads them with `iter`, `get` and `len`, and `Kwargs`, last, takes the keywords. A misplaced `Args` or `Kwargs` fails the build. A function returns any type with `IntoValue`, or a `Result` of one, and a `WireValue` turns into a handle with `into_handle`. An `Error` raises in the program as the class its kind names, which `Error::kind` gives as an `abi::ErrorKind`, and `Error::custom(text)` raises the class its text names.
 
 ## Importing it
 
@@ -99,10 +99,10 @@ c.add(2);
 print c.add(3);
 ```
 
-A host loads a plugin whose `__interpreter_abi_version` is from v1 to its own `abi::PLUGIN_ABI`, and refuses a newer one with an error that names both. A plugin built for v1 loads in every later host, as [Stability](./09-stability.mdx#formats-and-the-abi) sets out.
+A host checks the plugin's `__interpreter_abi_version` against its own `abi::PLUGIN_ABI`, as [Stability](./09-stability.mdx#formats-and-the-abi) sets out.
 
 ## Handles and system calls
 
-A `Handle` is a value of the program the plugin holds, and its methods run the program's own operations on it, which are `get_attr`, `set_attr`, `get_item`, `set_item`, `len`, `iter` and `iter_next`, `call`, `text` and `type_of`. `Handle::new_list`, `new_dict`, `new_tuple`, `new_set` and `new_frozenset` build new ones. An argument is borrowed for its call, and a handle an operation returns is released when it drops.
+A `Handle` is a value of the program the plugin holds. Its methods run the program's own operations on it, which are `get_attr`, `set_attr`, `get_item`, `set_item`, `len`, `iter` and `iter_next`, `call`, `text` and `type_of`, and `Handle::new_list`, `new_dict`, `new_tuple`, `new_set` and `new_frozenset` build new ones. An argument is borrowed for its call, and a handle an operation returns is released when it drops.
 
 `Handle::sys("module.name", args)` calls a host module the plugin's package was granted, such as `net`. A call that answers later returns `Error::Waiting`, the program waits with it, and the host calls the function `plugin_resume!` exports with the call's id and its answer once it settles. `call_id()` names the running call, so a plugin keeps what it needs under it in a `PluginCell`.

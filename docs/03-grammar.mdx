@@ -5,7 +5,7 @@ description: "Forms, readings and patterns a runtime adds to the parser."
 
 # Grammar
 
-This page covers the grammar a token table can bring in `shapes.grammar`. With a `Grammar` the parser reads a program as items (`let`, `fn`, `type` and imports) and adds three things the fixed core lacks.
+This page covers the `Grammar` a token table brings in `shapes.grammar`. With one the parser reads a program as items, which are `let`, `fn`, `type` and imports, and adds three things the fixed core lacks.
 
 | Piece | Is | Example |
 |---|---|---|
@@ -123,7 +123,7 @@ fn main() {
 }
 ```
 
-`fix` doubles `k` until it passes 50 or ten steps run, so it prints `64`. The last line would divide by zero for `n = 1` if `any` built the whole list first, and it stops at the first true item instead.
+`fix` doubles `k` until it passes 50 or ten steps run, so it prints `64`. `any` is lazy, so it stops at the first true item and the last line never divides by zero for `n = 1`.
 
 ## Reference
 
