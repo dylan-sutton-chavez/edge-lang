@@ -3,22 +3,21 @@
 extern crate alloc;
 
 use alloc::{string::{String, ToString}, vec::Vec};
-use interpreter::plugin::prelude::*;
-use interpreter::plugin::encode;
+use interpreter::abi::WireValue;
+use interpreter::plugin::*;
 
 // host builds link std for workspace checks while wasm stays no_std with the kit allocator
-module!();
-
-plugin_const! {
-    // a module constant materialised once at import
-    fn version() -> i64 { 1 }
-}
+plugin_module!();
 
 plugin_fn! {
+    // a module constant materialised once at import
+    #[constant]
+    fn version() -> i64 { 1 }
+
     // joins `parts` with `sep` writing each one as the runtime writes it
     fn join_all(sep: String, parts: Args) -> Result<String> {
         let mut out = String::new();
-        for (i, h) in parts.0.iter().enumerate() {
+        for (i, h) in parts.iter().enumerate() {
             if i > 0 { out.push_str(&sep); }
             out.push_str(&h.text()?);
         }
@@ -38,14 +37,14 @@ plugin_fn! {
 
     // the id of a request from a system call that answers at once
     fn request_id(url: String) -> Result<i64> {
-        let (method, target) = (encode(Value::Bytes(b"GET".to_vec()))?, encode(Value::Bytes(url.into_bytes()))?);
+        let (method, target) = (WireValue::Bytes(b"GET".to_vec()).into_handle()?, WireValue::Bytes(url.into_bytes()).into_handle()?);
         let id = Handle::sys("net.request", &[method.raw(), target.raw()])?;
         i64::from_handle(id.raw())
     }
 
     // the status `url` answers with where the response waits and `resume` finishes
     fn status_of(url: String) -> Result<i64> {
-        let (method, target) = (encode(Value::Bytes(b"GET".to_vec()))?, encode(Value::Bytes(url.into_bytes()))?);
+        let (method, target) = (WireValue::Bytes(b"GET".to_vec()).into_handle()?, WireValue::Bytes(url.into_bytes()).into_handle()?);
         let id = Handle::sys("net.request", &[method.raw(), target.raw()])?;
         status(Handle::sys("net.response", &[id.raw()])?)
     }
@@ -64,7 +63,7 @@ fn words(text: &str) -> Vec<String> {
 }
 
 fn status(head: Handle) -> Result<i64> {
-    i64::from_handle(head.get_item(&encode(Value::Int(0))?)?.raw())
+    i64::from_handle(head.get_item(&WireValue::Int(0).into_handle()?)?.raw())
 }
 
 plugin_class! {
@@ -72,9 +71,7 @@ plugin_class! {
     pub struct Slugger {
         parts: Vec<String>,
     }
-}
 
-plugin_methods! {
     impl Slugger {
         #[ctor]
         pub fn new() -> Self {

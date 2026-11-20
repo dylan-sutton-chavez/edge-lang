@@ -2,8 +2,8 @@
 mod test {
 
     use interpreter::code::{Parser, SSAChunk};
-    use interpreter::lexer::{index, lex_as, operators, Binding, Blocks, Comments, Cond, Continuation, Ends, Interp, Keywords, Lambda, Literal, Numbers, Quote, Shapes, Spelling, Strings, Suffix, Syntax, TokenType, Zeros, RAW};
-    use interpreter::deps::NoopResolver;
+    use interpreter::lexer::{Binding, Blocks, Comments, Cond, Continuation, Ends, Interp, Keywords, Lambda, Literal, Numbers, Quote, RAW, Shapes, Spelling, Suffix, Syntax, TokenType, Zeros, index, lex_as, operators};
+    use interpreter::NoopResolver;
     // the kit's tests read the fixed core in the words rig once had
     use crate::words::{Legacy as Rig, LEGACY as RIG};
     use crate::words::{Braces, Indent, Words, BRACES, INDENT, WORDS};
@@ -67,7 +67,7 @@ mod test {
     // an index finds every word of any table whole and nothing else
     #[test]
     fn an_index_finds_whole_words_of_any_length() {
-        use interpreter::lexer::{index, Keywords};
+        use interpreter::lexer::{Keywords, index};
         use TokenType as T;
         const WORDS: &[(&str, TokenType)] = &[
             ("si", T::If), ("sino", T::Else), ("sino si", T::ElseIf), ("en", T::In), ("es", T::Is), ("e", T::And), ("_", T::Underscore),
@@ -86,7 +86,8 @@ mod test {
     // imports read in a spelling take its suffix and skip its comments
     #[test]
     fn imports_follow_the_spelling() {
-        use interpreter::deps::{scan_imports, ImportSpec::*};
+        use interpreter::deps::scan_imports;
+        use interpreter::code::ImportSpec::*;
         let src = "from .a import x\nimport b.c, d // import e\n";
         assert_eq!(scan_imports::<Rig>(src), [Relative("./a.rig".into()), Root("b/c.rig".into()), Bare("d".into())]);
         assert_eq!(scan_imports::<Indent>("from .a import x\nimport b.c # import e\n"), [Relative("./a.py".into()), Root("b/c.py".into())]);
@@ -99,7 +100,8 @@ mod test {
     // a run of dots climbs a directory per dot past the first however it lexes
     #[test]
     fn a_run_of_dots_climbs_however_it_lexes() {
-        use interpreter::deps::{scan_imports, ImportSpec::*};
+        use interpreter::deps::scan_imports;
+        use interpreter::code::ImportSpec::*;
         let src = "from ..a import x\nfrom ...b.c import y\nfrom ......d import z\n";
         assert_eq!(scan_imports::<Rig>(src), [Relative("../a.rig".into()), Relative("../../b/c.rig".into()), Relative("../../../../../d.rig".into())]);
     }
@@ -146,7 +148,7 @@ mod test {
     const ODD_SYMBOLS: &[(&str, TokenType)] = &[("->>", TokenType::RightShift), ("->", TokenType::Returns), ("-", TokenType::Minus), ("=", TokenType::Equal), (">", TokenType::Greater)];
     static ODD_OPERATORS: [[TokenType; 4]; 128] = interpreter::lexer::operators(ODD_SYMBOLS);
     impl Spelling for Odd {
-        const SYNTAX: Syntax = Syntax { name: "odd", symbols: ODD_SYMBOLS, operators: &ODD_OPERATORS, comments: Comments { line: &[], block: None, nested: false }, ..INDENT };
+        const SYNTAX: Syntax = INDENT.name("odd").symbols(ODD_SYMBOLS).operators(&ODD_OPERATORS).comments(Comments::PLAIN);
         const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
     }
 
@@ -175,69 +177,59 @@ mod test {
     // the braces table whose statements end only at semicolons and block ends
     struct Semi;
     impl Spelling for Semi {
-        const SYNTAX: Syntax = Syntax { name: "semi", ends: Ends::Semicolon, ..BRACES };
+        const SYNTAX: Syntax = BRACES.name("semi").ends(Ends::Semicolon);
         const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
     }
 
     // the words table with explicit block words and comments that do not nest
     struct Flat;
     impl Spelling for Flat {
-        const SYNTAX: Syntax = Syntax {
-            name: "flat",
-            blocks: Blocks::Words { implicit: false },
-            comments: Comments { line: &["--"], block: Some(("/*", "*/")), nested: false },
-            ..WORDS
-        };
+        const SYNTAX: Syntax = WORDS
+            .name("flat")
+            .blocks(Blocks::Words { implicit: false })
+            .comments(Comments::PLAIN.line(&["--"]).block(Some(("/*", "*/"))));
         const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
     }
 
     // numbers with a quote between digits and octal zeros and dropped suffixes
     struct Digits;
-    const DOUBLE: &[Quote] = &[Quote { byte: b'"', multiline: false, triple: false }];
+    const DOUBLE: &[Quote] = &[Quote::PLAIN];
     impl Spelling for Digits {
-        const SYNTAX: Syntax = Syntax {
-            name: "digits",
-            strings: Strings { quotes: DOUBLE, ..crate::words::STRINGS },
-            numbers: Numbers { radixes: &[(b'x', 16)], separator: Some(b'\''), zeros: Zeros::Octal, leading_dot: false, trailing_dot: false, exponent: false, suffix: Suffix::Ignored },
-            ..BRACES
-        };
+        const SYNTAX: Syntax = BRACES
+            .name("digits")
+            .strings(crate::words::STRINGS.quotes(DOUBLE))
+            .numbers(Numbers::PLAIN.radixes(&[(b'x', 16)]).separator(Some(b'\'')).zeros(Zeros::Octal).suffix(Suffix::Ignored));
         const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
     }
 
     // backquoted templates with dollar fields and no specs
     struct Backquote;
-    const BACKQUOTES: &[Quote] = &[Quote { byte: b'"', multiline: false, triple: false }, Quote { byte: b'`', multiline: true, triple: false }];
+    const BACKQUOTES: &[Quote] = &[Quote::PLAIN, Quote::PLAIN.byte(b'`').multiline(true)];
     impl Spelling for Backquote {
-        const SYNTAX: Syntax = Syntax {
-            name: "backquote",
-            strings: Strings { quotes: BACKQUOTES, prefixes: &[("r", RAW)], ..crate::words::STRINGS },
-            interp: Some(Interp { name: "template", quotes: b"`", open: "${", close: b'}', literal: Literal::Backslash, short: None, spec: None, convert: None, echo: None }),
-            ..BRACES
-        };
+        const SYNTAX: Syntax = BRACES
+            .name("backquote")
+            .strings(crate::words::STRINGS.quotes(BACKQUOTES).prefixes(&[("r", RAW)]))
+            .interp(Some(Interp::PLAIN.name("template").quotes(b"`").open("${").literal(Literal::Backslash)));
         const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
     }
 
     // fields a backslash and parenthesis open in every double quoted literal
     struct Paren;
     impl Spelling for Paren {
-        const SYNTAX: Syntax = Syntax {
-            name: "paren",
-            strings: Strings { quotes: DOUBLE, prefixes: &[], ..crate::words::STRINGS },
-            interp: Some(Interp { name: "string", quotes: b"\"", open: "\\(", close: b')', literal: Literal::Backslash, short: None, spec: None, convert: None, echo: None }),
-            ..BRACES
-        };
+        const SYNTAX: Syntax = BRACES
+            .name("paren")
+            .strings(crate::words::STRINGS.quotes(DOUBLE).prefixes(&[]))
+            .interp(Some(Interp::PLAIN.name("string").quotes(b"\"").open("\\(").close(b')').literal(Literal::Backslash)));
         const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
     }
 
     // bare dollar names and braced dollar fields
     struct Dollar;
     impl Spelling for Dollar {
-        const SYNTAX: Syntax = Syntax {
-            name: "dollar",
-            strings: Strings { quotes: DOUBLE, prefixes: &[], ..crate::words::STRINGS },
-            interp: Some(Interp { name: "string template", quotes: b"\"", open: "${", close: b'}', literal: Literal::Backslash, short: Some(b'$'), spec: None, convert: None, echo: None }),
-            ..BRACES
-        };
+        const SYNTAX: Syntax = BRACES
+            .name("dollar")
+            .strings(crate::words::STRINGS.quotes(DOUBLE).prefixes(&[]))
+            .interp(Some(Interp::PLAIN.name("string template").quotes(b"\"").open("${").literal(Literal::Backslash).short(Some(b'$'))));
         const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
     }
 
@@ -256,29 +248,27 @@ mod test {
         (TokenType::Star, 17, 18), (TokenType::Plus, 19, 20), (TokenType::Pow, 22, 21),
     ];
     impl Spelling for Strict {
-        const SYNTAX: Syntax = Syntax {
-            name: "strict",
-            words: STRICT_WORDS,
-            symbols: STRICT_SYMBOLS,
-            operators: &STRICT_OPERATORS,
-            keywords: &STRICT_KEYWORDS,
-            precedence: STRICT_LADDER,
-            chained: false,
-            blocks: Blocks::Indent,
-            comments: Comments { line: &["#"], block: None, nested: false },
-            interp: None,
-            strings: Strings { prefixes: &[], ..crate::words::STRINGS },
-            continuation: Continuation { join: None, operator: true },
-            soft: &[],
-            ..BRACES
-        };
+        const SYNTAX: Syntax = BRACES
+            .name("strict")
+            .words(STRICT_WORDS)
+            .symbols(STRICT_SYMBOLS)
+            .operators(&STRICT_OPERATORS)
+            .keywords(&STRICT_KEYWORDS)
+            .precedence(STRICT_LADDER)
+            .chained(false)
+            .blocks(Blocks::Indent)
+            .comments(Comments::PLAIN.line(&["#"]))
+            .interp(None)
+            .strings(crate::words::STRINGS.prefixes(&[]))
+            .continuation(Continuation::PLAIN.operator(true))
+            .soft(&[]);
         const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
     }
 
     fn constants<S: Spelling>(src: &str) -> String {
         let (chunk, errors) = compiled::<S>(src);
         assert!(errors.is_empty(), "{} {src:?} reports {errors:?}", S::SYNTAX.name);
-        format!("{:?}", chunk.constants)
+        format!("{:?}", chunk.constants())
     }
 
     // `src` in table `S` compiles to the program `rig` writes in rig
@@ -295,7 +285,7 @@ mod test {
         let src = "range = |*a| [99]\nt = 0\nfor i in 0..3:\n    t += i\nprint(t, range(5), list(1..=2))\n";
         let (chunk, errors) = compiled::<Kit>(src);
         assert!(errors.is_empty(), "{errors:?}");
-        let mut vm = crate::common::boot(&chunk, interpreter::value::Limits::sandbox());
+        let mut vm = crate::common::boot(&chunk, interpreter::Limits::sandbox());
         vm.run().expect("the program runs");
         assert_eq!(vm.output, ["3 [99] [1, 2]"]);
     }
@@ -428,19 +418,20 @@ mod test {
     // check refuses each table the lexer and parser cannot read one way
     #[test]
     fn check_refuses_tables_it_cannot_read() {
-        assert_eq!(refused(Syntax { ends: Ends::Semicolon, ..WORDS }), "a table that opens blocks at line ends needs line ends to end statements");
-        assert_eq!(refused(Syntax { ends: Ends::Semicolon, ..INDENT }), "an indentation table needs line ends to end statements");
-        assert_eq!(refused(Syntax { ends: Ends::Newline, ..BRACES }), "a table whose statements end at line ends spells no semicolon");
-        assert_eq!(refused(Syntax { blocks: Blocks::Braces, ..INDENT }), "a table that delimits blocks spells their bounds");
-        assert_eq!(refused(Syntax { blocks: Blocks::Braces, ..WORDS }), "a braces table bounds blocks with braces");
-        assert_eq!(refused(Syntax { soft: &[TokenType::Match], ..WORDS }), "a table that opens blocks at line ends reserves its header words");
-        assert_eq!(refused(Syntax { words: &[("if", TokenType::If), ("if", TokenType::While)], ..INDENT }), "two tokens of a table share one text");
-        assert_eq!(refused(Syntax { strings: Strings { quotes: &[Quote { byte: b'~', multiline: false, triple: false }], ..crate::words::STRINGS }, ..BRACES }), "a quote of a table is also a symbol");
-        assert_eq!(refused(Syntax { numbers: Numbers { separator: Some(b'"'), ..rig::NUMBERS }, ..BRACES }), "a digit separator of a table is also a quote");
-        assert_eq!(refused(Syntax { comments: Comments { line: &["rem"], block: None, nested: false }, ..BRACES }), "a comment marker starts with a byte no name number or quote starts");
-        assert_eq!(refused(Syntax { interp: Some(Interp { open: "{{{", ..rig::INTERP }), ..BRACES }), "a field opens with one or two bytes");
-        assert_eq!(refused(Syntax { interp: Some(Interp { open: "${", ..rig::INTERP }), ..BRACES }), "a doubled delimiter is one byte");
-        assert_eq!(refused(Syntax { interp: None, ..BRACES }), "an interpolating prefix needs the table's interpolation");
+        assert_eq!(refused(WORDS.ends(Ends::Semicolon)), "a table that opens blocks at line ends needs line ends to end statements");
+        assert_eq!(refused(INDENT.ends(Ends::Semicolon)), "an indentation table needs line ends to end statements");
+        assert_eq!(refused(BRACES.ends(Ends::Newline)), "a table whose statements end at line ends spells no semicolon");
+        assert_eq!(refused(INDENT.blocks(Blocks::Braces)), "a table that delimits blocks spells their bounds");
+        assert_eq!(refused(WORDS.blocks(Blocks::Braces)), "a braces table bounds blocks with braces");
+        assert_eq!(refused(WORDS.soft(&[TokenType::Match])), "a table that opens blocks at line ends reserves its header words");
+        assert_eq!(refused(INDENT.words(&[("if", TokenType::If), ("if", TokenType::While)])), "two tokens of a table share one text");
+        const TILDE: &[Quote] = &[Quote::PLAIN.byte(b'~')];
+        assert_eq!(refused(BRACES.strings(crate::words::STRINGS.quotes(TILDE))), "a quote of a table is also a symbol");
+        assert_eq!(refused(BRACES.numbers(rig::NUMBERS.separator(Some(b'"')))), "a digit separator of a table is also a quote");
+        assert_eq!(refused(BRACES.comments(Comments::PLAIN.line(&["rem"]))), "a comment marker starts with a byte no name number or quote starts");
+        assert_eq!(refused(BRACES.interp(Some(rig::INTERP.open("{{{")))), "a field opens with one or two bytes");
+        assert_eq!(refused(BRACES.interp(Some(rig::INTERP.open("${")))), "a doubled delimiter is one byte");
+        assert_eq!(refused(BRACES.interp(None)), "an interpolating prefix needs the table's interpolation");
     }
 
     // the rig's words with a binding word and without the lambda and case words
@@ -485,13 +476,19 @@ mod test {
         (TokenType::Pow, 22, 21),
     ];
 
-    const KIT_SHAPES: Shapes = Shapes { lambda: Lambda::Pipes, binding: Binding::Optional, arms: true, ranges: true, ..Shapes::CORE };
+    const KIT_SHAPES: Shapes = Shapes::PLAIN.lambda(Lambda::Pipes).binding(Binding::Optional).arms(true).ranges(true);
 
     // a surface reading indentation with a binding word and arms and ranges and closures
-    const KIT: Syntax = Syntax {
-        name: "kit", extension: "kit", words: KIT_WORDS, symbols: KIT_SYMBOLS, operators: &KIT_OPERATORS, keywords: &KIT_KEYWORDS,
-        precedence: KIT_LADDER, blocks: Blocks::Indent, shapes: KIT_SHAPES, ..RIG
-    };
+    const KIT: Syntax = RIG
+        .name("kit")
+        .extension("kit")
+        .words(KIT_WORDS)
+        .symbols(KIT_SYMBOLS)
+        .operators(&KIT_OPERATORS)
+        .keywords(&KIT_KEYWORDS)
+        .precedence(KIT_LADDER)
+        .blocks(Blocks::Indent)
+        .shapes(KIT_SHAPES);
 
     struct Kit;
     impl Spelling for Kit {
@@ -502,53 +499,51 @@ mod test {
     // the kit in braces where an arm may open a block
     struct Braced;
     impl Spelling for Braced {
-        const SYNTAX: Syntax = Syntax { name: "braced", blocks: Blocks::Braces, ..KIT };
+        const SYNTAX: Syntax = KIT.name("braced").blocks(Blocks::Braces);
         const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
     }
 
     // the kit where the first store of a name needs its binding word
     struct Declared;
     impl Spelling for Declared {
-        const SYNTAX: Syntax = Syntax { name: "declared", shapes: Shapes { binding: Binding::Required, ..KIT_SHAPES }, ..KIT };
+        const SYNTAX: Syntax = KIT.name("declared").shapes(KIT_SHAPES.binding(Binding::Required));
         const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
     }
 
     // conditionals that read the test first then a question mark
     struct Questions;
     impl Spelling for Questions {
-        const SYNTAX: Syntax = Syntax { name: "questions", shapes: Shapes { cond: Cond::Question, ..Shapes::CORE }, ..KIT };
+        const SYNTAX: Syntax = KIT.name("questions").shapes(Shapes::PLAIN.cond(Cond::Question));
         const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
     }
 
     // rig where a dot reads a key unless a call follows
     struct Keys;
     impl Spelling for Keys {
-        const SYNTAX: Syntax = Syntax { name: "keys", shapes: Shapes { dot: interpreter::lexer::Dot::Key, ..Shapes::CORE }, ..BRACES };
+        const SYNTAX: Syntax = BRACES.name("keys").shapes(Shapes::PLAIN.dot(interpreter::lexer::Dot::Key));
         const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
     }
 
     // rig whose headers hold their expressions in parentheses
     struct Parens;
     impl Spelling for Parens {
-        const SYNTAX: Syntax = Syntax { name: "parens", shapes: Shapes { header_parens: true, ..Shapes::CORE }, ..BRACES };
+        const SYNTAX: Syntax = BRACES.name("parens").shapes(Shapes::PLAIN.header_parens(true));
         const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
     }
 
     // rig whose keyword arguments take a colon
     struct Colons;
     impl Spelling for Colons {
-        const SYNTAX: Syntax = Syntax { name: "colons", shapes: Shapes { keyword_arg: TokenType::Colon, ..Shapes::CORE }, ..BRACES };
+        const SYNTAX: Syntax = BRACES.name("colons").shapes(Shapes::PLAIN.keyword_arg(TokenType::Colon));
         const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
     }
 
     // rig with every switch of the fixed core off
     struct Bare;
     impl Spelling for Bare {
-        const SYNTAX: Syntax = Syntax {
-            name: "bare",
-            shapes: Shapes { cond: Cond::None, lambda: Lambda::None, splat: false, slices: false, comprehensions: false, decorators: false, named: false, ..Shapes::CORE },
-            ..BRACES
-        };
+        const SYNTAX: Syntax = BRACES
+            .name("bare")
+            .shapes(Shapes::PLAIN.cond(Cond::None).lambda(Lambda::None).splat(false).slices(false).comprehensions(false).decorators(false).named(false));
         const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
     }
 
@@ -599,13 +594,13 @@ mod test {
     // check refuses each piece a table switches on without spelling its marks
     #[test]
     fn check_refuses_pieces_without_their_marks() {
-        let on = |shapes: Shapes| Syntax { shapes, ..BRACES };
-        assert_eq!(refused(on(Shapes { cond: Cond::Question, ..Shapes::CORE })), "a table of question conditionals spells their marks");
-        assert_eq!(refused(Syntax { shapes: Shapes { lambda: Lambda::Pipes, ..Shapes::CORE }, ..Strict::SYNTAX }), "a table of pipe closures spells the bar");
-        assert_eq!(refused(on(Shapes { binding: Binding::Optional, ..Shapes::CORE })), "a table that binds with a word spells it");
-        assert_eq!(refused(on(Shapes { arms: true, ..Shapes::CORE })), "a table that matches with arms spells their mark");
-        assert_eq!(refused(Syntax { symbols: KIT_SYMBOLS, operators: &KIT_OPERATORS, shapes: Shapes { arms: true, ..Shapes::CORE }, ..WORDS }), "a table of block words takes no arms");
-        assert_eq!(refused(on(Shapes { ranges: true, ..Shapes::CORE })), "a table that makes ranges spells their mark");
+        let on = |shapes: Shapes| BRACES.shapes(shapes);
+        assert_eq!(refused(on(Shapes::PLAIN.cond(Cond::Question))), "a table of question conditionals spells their marks");
+        assert_eq!(refused(Strict::SYNTAX.shapes(Shapes::PLAIN.lambda(Lambda::Pipes))), "a table of pipe closures spells the bar");
+        assert_eq!(refused(on(Shapes::PLAIN.binding(Binding::Optional))), "a table that binds with a word spells it");
+        assert_eq!(refused(on(Shapes::PLAIN.arms(true))), "a table that matches with arms spells their mark");
+        assert_eq!(refused(WORDS.symbols(KIT_SYMBOLS).operators(&KIT_OPERATORS).shapes(Shapes::PLAIN.arms(true))), "a table of block words takes no arms");
+        assert_eq!(refused(on(Shapes::PLAIN.ranges(true))), "a table that makes ranges spells their mark");
         for table in [KIT, Braced::SYNTAX, Declared::SYNTAX, Questions::SYNTAX, Keys::SYNTAX, Parens::SYNTAX, Colons::SYNTAX, Bare::SYNTAX] { table.check(); }
     }
 
@@ -646,19 +641,17 @@ mod test {
     static WIDE_KEYWORDS: Keywords = index(WIDE_WORDS);
     struct Wide;
     impl Spelling for Wide {
-        const SYNTAX: Syntax = Syntax { name: "wide", words: WIDE_WORDS, keywords: &WIDE_KEYWORDS, blocks: Blocks::Words { implicit: false }, soft: &[], ..WORDS };
+        const SYNTAX: Syntax = WORDS.name("wide").words(WIDE_WORDS).keywords(&WIDE_KEYWORDS).blocks(Blocks::Words { implicit: false }).soft(&[]);
         const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
     }
 
     // fields that open with a wide character and take a spec after a colon
     struct Section;
     impl Spelling for Section {
-        const SYNTAX: Syntax = Syntax {
-            name: "section",
-            strings: Strings { quotes: DOUBLE, prefixes: &[], ..crate::words::STRINGS },
-            interp: Some(Interp { name: "template", quotes: b"\"", open: "§", close: b'}', literal: Literal::Backslash, short: None, spec: Some(b':'), convert: None, echo: None }),
-            ..BRACES
-        };
+        const SYNTAX: Syntax = BRACES
+            .name("section")
+            .strings(crate::words::STRINGS.quotes(DOUBLE).prefixes(&[]))
+            .interp(Some(Interp::PLAIN.name("template").quotes(b"\"").open("§").literal(Literal::Backslash).spec(Some(b':'))));
         const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
     }
 
@@ -668,7 +661,7 @@ mod test {
         for e in &errs {
             assert!(src.is_char_boundary(e.start) && src.is_char_boundary(e.end), "{} {src:?} reports {:?} at {}..{}", S::SYNTAX.name, e.msg, e.start, e.end);
         }
-        let shown = interpreter::code::Diagnostic::render_all(&errs, src, Some("main"));
+        let shown = interpreter::Diagnostic::render_all(&errs, src, Some("main"));
         assert!(shown.contains(&errs[0].msg), "{shown}");
         errs.into_iter().map(|e| e.msg).collect()
     }
@@ -689,9 +682,9 @@ mod test {
         assert!(too_deep(format!("x = 1\nprint(\"{}{}\")\n", "§x:".repeat(201), "}".repeat(201))));
         // a span cut inside a character still renders the characters it touches
         let src = "x = 'é'\n";
-        let cut = interpreter::code::Diagnostic { start: 6, end: 7, msg: "cut".into() };
+        let cut = interpreter::Diagnostic::new(6, 7, "cut");
         assert!(cut.render(src, None).contains("x = 'é'"));
-        let past = interpreter::code::Diagnostic { start: 99, end: 3, msg: "past".into() };
+        let past = interpreter::Diagnostic::new(99, 3, "past");
         assert!(past.render(src, None).contains("past"));
     }
 
@@ -715,7 +708,8 @@ mod test {
     // the walk's scan reads an import exactly where the parser starts an import statement
     #[test]
     fn the_scan_reads_imports_the_parser_reads() {
-        use interpreter::deps::{scan_imports, ImportSpec::*};
+        use interpreter::deps::scan_imports;
+        use interpreter::code::ImportSpec::*;
         for src in ["from . import net\n", "x = f\"{import net}\"\n", "fn g():\n    yield from net()\n", "try:\n    pass\nexcept E as e:\n    raise V from e\n", "x = [import net]\n", "import a.(b\n", "import a.\n"] {
             assert_eq!(scan_imports::<Rig>(src), [], "{src:?}");
         }
@@ -737,7 +731,7 @@ mod test {
     }
 
     /* every token's kind and flags as a pass settles them */
-    fn settled(tokens: &[interpreter::lexer::Token]) -> Vec<(TokenType, bool, u8)> { tokens.iter().map(|t| (t.kind, t.comp, t.assigns)).collect() }
+    fn settled(tokens: &[interpreter::lexer::Token]) -> Vec<(TokenType, bool, u8)> { tokens.iter().map(|t| (t.kind, t.comp(), t.assigns())).collect() }
 
     // the forward pass settles each token as the scans back do on every corpus program
     #[test]
@@ -783,14 +777,15 @@ mod test {
 // each syntax case held in every spelling it gives with its tokens and its chunk
 #[cfg(test)]
 mod runner {
-    use interpreter::code::{Diagnostic, OpCode, Parser, SSAChunk, Value};
-    use interpreter::deps::NoopResolver;
-    use interpreter::lexer::{lex_as, Spelling};
+    use interpreter::Diagnostic;
+    use interpreter::code::{Constant, OpCode, Parser, SSAChunk};
+    use interpreter::NoopResolver;
+    use interpreter::lexer::{Spelling, lex_as};
     use rig::Rig;
     use crate::words::{Indent, Words};
 
     // the files the runner reads while the pieces have a test of their own
-    pub const FILES: &[(&str, &str)] = &[
+    pub(super) const FILES: &[(&str, &str)] = &[
         ("bytecode.yml", include_str!("../cases/syntax/bytecode.yml")),
         ("diagnostics.yml", include_str!("../cases/syntax/diagnostics.yml")),
         ("forms.yml", include_str!("../cases/syntax/forms.yml")),
@@ -820,7 +815,7 @@ mod runner {
     fn compiled<S: Spelling>(src: &str) -> (SSAChunk, Vec<String>) {
         let (tokens, lex_errs) = lex_as::<S>(src);
         let mut parser = Parser::<_, S>::spelled(src, tokens.into_iter(), Box::new(NoopResolver));
-        for e in lex_errs { parser.errors.push(Diagnostic { start: e.start, end: e.end, msg: e.msg.into() }); }
+        for e in lex_errs { parser.errors.push(Diagnostic::new(e.start, e.end, e.msg)); }
         let (chunk, diagnostics) = parser.parse();
         (chunk, diagnostics.into_iter().map(|d| d.msg).collect())
     }
@@ -840,34 +835,35 @@ mod runner {
     }
 
     /* a constant as the cases write it */
-    fn constant(v: &Value) -> String {
+    fn constant(v: &Constant) -> String {
         match v {
-            Value::Str(s) => s.clone(),
-            Value::Bytes(b) => format!("b{:?}", String::from_utf8_lossy(b).to_string()),
-            Value::Int(i) => i.to_string(),
-            Value::Wide { neg, base, digits } => format!("{}{}", if *neg { "-" } else { "" }, decimal(digits, u32::from(*base))),
-            Value::Float(f) => f.to_string(),
-            Value::Bool(b) => b.to_string(),
-            Value::None => "None".to_string(),
+            Constant::Str(s) => s.clone(),
+            Constant::Bytes(b) => format!("b{:?}", String::from_utf8_lossy(b).to_string()),
+            Constant::Int(i) => i.to_string(),
+            Constant::Wide { neg, base, digits } => format!("{}{}", if *neg { "-" } else { "" }, decimal(digits, u32::from(*base))),
+            Constant::Float(f) => f.to_string(),
+            Constant::Bool(b) => b.to_string(),
+            Constant::None => "None".to_string(),
+            _ => "?".to_string(),
         }
     }
 
     /* where a chunk parts from a case's fields with a field left out held empty */
     fn chunk_differs(chunk: &SSAChunk, case: &Case) -> Option<String> {
-        let constants: Vec<String> = chunk.constants.iter().map(constant).collect();
+        let constants: Vec<String> = chunk.constants().iter().map(constant).collect();
         // a native call reads as its positionals as the cases write it
-        let instructions: Vec<(String, u16)> = chunk.instructions.iter()
-            .map(|i| (format!("{:?}", i.opcode), if i.opcode == OpCode::CallNative { interpreter::code::native_site(i.operand, &chunk.native_sites).map_or(u16::MAX, |s| s.pos as u16) } else { i.operand }))
+        let instructions: Vec<(String, u16)> = chunk.instructions().iter()
+            .map(|i| (format!("{:?}", i.opcode), if i.opcode == OpCode::CallNative { interpreter::code::native_site(i.operand, chunk.native_sites()).map_or(u16::MAX, |s| s.pos as u16) } else { i.operand }))
             .collect();
-        let natives: Vec<(String, u8, u8)> = chunk.instructions.iter().filter(|i| i.opcode == OpCode::CallNative)
-            .filter_map(|i| interpreter::code::native_site(i.operand, &chunk.native_sites))
-            .map(|s| (rig::NATIVES.get(interpreter::lang::NativeId(s.id)).map_or("?", |n| n.name).to_string(), s.pos, s.kw)).collect();
+        let natives: Vec<(String, u8, u8)> = chunk.instructions().iter().filter(|i| i.opcode == OpCode::CallNative)
+            .filter_map(|i| interpreter::code::native_site(i.operand, chunk.native_sites()))
+            .map(|s| (rig::NATIVES.get(interpreter::lang::NativeId::of(s.id)).map_or("?", |n| n.name).to_string(), s.pos, s.kw)).collect();
         let parts = [
-            ("names", format!("{:?}", chunk.names), format!("{:?}", case.names.clone().unwrap_or_default())),
+            ("names", format!("{:?}", chunk.names()), format!("{:?}", case.names.clone().unwrap_or_default())),
             ("constants", format!("{constants:?}"), format!("{:?}", case.constants.clone().unwrap_or_default())),
             ("instructions", format!("{instructions:?}"), format!("{:?}", case.instructions.clone().unwrap_or_default())),
-            ("functions", chunk.functions.len().to_string(), case.functions.unwrap_or(0).to_string()),
-            ("classes", chunk.classes.len().to_string(), case.classes.unwrap_or(0).to_string()),
+            ("functions", chunk.functions().len().to_string(), case.functions.unwrap_or(0).to_string()),
+            ("classes", chunk.classes().len().to_string(), case.classes.unwrap_or(0).to_string()),
             ("natives", format!("{natives:?}"), format!("{:?}", case.natives.clone().unwrap_or_default())),
         ];
         parts.into_iter().find(|(_, got, want)| got != want).map(|(field, got, want)| format!("{field} {got} against {want}"))
@@ -875,12 +871,13 @@ mod runner {
 
     /* a range mark calls its native pinned where rig calls it by its name */
     pub(super) fn unpinned(chunk: &mut SSAChunk) {
-        for i in chunk.instructions.iter_mut().filter(|i| i.opcode == OpCode::CallNative) {
-            let Some(site) = interpreter::code::native_site(i.operand, &chunk.native_sites).filter(|s| s.pinned) else { continue };
+        let sites = chunk.native_sites().to_vec();
+        for i in chunk.instructions_mut().iter_mut().filter(|i| i.opcode == OpCode::CallNative) {
+            let Some(site) = interpreter::code::native_site(i.operand, &sites).filter(|s| s.pinned) else { continue };
             if let Some(plain) = (interpreter::code::NativeSite { pinned: false, ..site }).in_place() { i.operand = plain; }
         }
-        for f in &mut chunk.functions { unpinned(&mut f.1); }
-        for c in &mut chunk.classes { unpinned(c); }
+        for f in chunk.bodies_mut() { unpinned(&mut f.1); }
+        for c in chunk.classes_mut() { unpinned(c); }
     }
 
     /* the first way a case's sources part from what it holds */
@@ -918,7 +915,7 @@ mod runner {
     }
 
     /* runs every case of a file and lists each one that fails */
-    pub fn run(file: &str) {
+    pub(super) fn run(file: &str) {
         let &(_, text) = FILES.iter().find(|(f, _)| *f == file).unwrap_or_else(|| panic!("no file {file}"));
         let cases: Vec<Case> = serde_yaml_ng::from_str(text).unwrap_or_else(|e| panic!("{file} {e}"));
         assert!(!cases.is_empty(), "{file} holds no case");
@@ -944,7 +941,7 @@ mod runner {
 // the lexer's rules past what a case lists
 #[cfg(test)]
 mod lexer {
-    use interpreter::lexer::{lex_as, TokenType};
+    use interpreter::lexer::{TokenType, lex_as};
     use crate::words::Indent;
 
     // every token case lexes to its tokens in each spelling it holds
@@ -986,9 +983,10 @@ mod lexer {
 // the parser's rules past what a case lists
 #[cfg(test)]
 mod parser {
-    use interpreter::code::{Parser, Diagnostic};
-    use interpreter::lexer::{lex_as, LexError, Token};
-    use interpreter::deps::NoopResolver;
+    use interpreter::Diagnostic;
+    use interpreter::code::Parser;
+    use interpreter::lexer::{LexError, Token, lex_as};
+    use interpreter::NoopResolver;
     use crate::words::Indent;
 
     // these tests keep the indent table they were written in
@@ -1026,7 +1024,7 @@ mod parser {
         let src = format!("{name} = 1\n{name} = 2\nprint({name})\n");
         let (tokens, _) = lex(&src);
         let (chunk, _) = parser(&src, tokens).parse();
-        for n in &chunk.names {
+        for n in chunk.names() {
             assert!(core::str::from_utf8(n.as_bytes()).is_ok(), "invalid utf8 in SSA name {n:?}");
         }
     }
@@ -1073,11 +1071,11 @@ mod parser {
         let src = "$".repeat(40_000);
         let (tokens, lex_errs) = lex(&src);
         let mut parser = parser(&src, tokens);
-        for e in lex_errs { parser.errors.push(Diagnostic { start: e.start, end: e.end, msg: e.msg.into() }); }
+        for e in lex_errs { parser.errors.push(Diagnostic::new(e.start, e.end, e.msg)); }
         let errs = parser.parse().1;
         let out = Diagnostic::render_all(&errs, &src, None);
         assert!(out.len() < 4_000 && out.ends_with(&format!("and {} more errors\n", errs.len() - 20)), "{} bytes", out.len());
-        let one = Diagnostic { start: 300, end: 301, msg: "x".into() }.render(&src, None);
+        let one = Diagnostic::new(300, 301, "x").render(&src, None);
         let lines: Vec<&str> = one.lines().collect();
         assert_eq!((lines[1], lines[3].len(), lines[4].find('^')), ("  --> <input>:1:301", 4 + 3 + 80 + 3, Some(4 + 3 + 40)), "{one}");
         assert_eq!(messages(&format!("x = 1 {}", "a".repeat(1_000))), [format!("expected newline, got '{}...'", "a".repeat(40))]);
@@ -1106,7 +1104,7 @@ mod parser {
         let start = std::time::Instant::now();
         let (chunk, errors) = crate::words::legacy(&src);
         let spent = start.elapsed();
-        assert!(errors.is_empty() && chunk.functions.len() == 30_000, "{:?}", errors.first().map(|e| &e.msg));
+        assert!(errors.is_empty() && chunk.functions().len() == 30_000, "{:?}", errors.first().map(|e| &e.msg));
         assert!(spent < std::time::Duration::from_secs(2), "{spent:?}");
     }
 
@@ -1115,9 +1113,9 @@ mod parser {
     fn attribute_names_stay_in_their_body() {
         let (chunk, errors) = crate::words::legacy("f = lambda o: o.foo(1)\nfn outer(o):\n    fn inner(p):\n        return p.bar(2)\n    return inner(o)\nclass P:\n    fn m(self):\n        return self.baz(3)\n");
         assert!(errors.is_empty(), "{:?}", errors.first().map(|e| &e.msg));
-        let outer = &chunk.functions.iter().find(|f| f.1.qualname == "outer").expect("outer").1;
-        let class = chunk.classes.first().expect("P");
-        for (names, attr) in [(&chunk.names, "foo"), (&outer.names, "bar"), (&class.names, "baz")] {
+        let outer = chunk.functions().find(|f| f.1.qualname() == "outer").expect("outer").1;
+        let class = chunk.classes().first().expect("P");
+        for (names, attr) in [(chunk.names(), "foo"), (outer.names(), "bar"), (class.names(), "baz")] {
             assert!(!names.iter().any(|n| n == attr), "{attr} in {names:?}");
         }
     }
@@ -1133,7 +1131,7 @@ mod parser {
         let small = |src: String| std::thread::Builder::new().stack_size(1 << 20).spawn(move || {
             let (chunk, errors) = crate::words::legacy(&src);
             if !errors.is_empty() { return errors.into_iter().map(|e| e.msg).collect(); }
-            let mut vm = crate::common::boot(&chunk, interpreter::value::Limits::sandbox());
+            let mut vm = crate::common::boot(&chunk, interpreter::Limits::sandbox());
             vm.run().expect("the chain runs");
             vm.output.clone()
         }).expect("a thread").join().expect("no overflow");

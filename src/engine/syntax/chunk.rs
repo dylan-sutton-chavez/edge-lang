@@ -1,0 +1,556 @@
+use crate::s;
+use crate::engine::code::OpCode;
+use crate::engine::util::hash::FxHashMap as HashMap;
+use crate::engine::value::{ExternFn, Val, hash_key};
+use super::ssa::SsaName;
+
+use alloc::{string::{String, ToString}, vec, vec::Vec};
+use core::ops::Range;
+
+pub(crate) const MAX_EXPR_DEPTH: usize = 200;
+pub(crate) const MAX_INSTRUCTIONS: usize = 65_535;
+
+// a constant literal of the bytecode pool
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub enum Value {
+    Str(String),
+    Bytes(alloc::vec::Vec<u8>),
+    Int(i64),
+    // an int literal past i64 as a sign and digits in `base` most significant first
+    Wide { neg: bool, base: u8, digits: alloc::boxed::Box<[u8]> },
+    Float(f64),
+    Bool(bool),
+    None,
+}
+
+/* a runtime native's call with its positionals then keyword pairs stacked */
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(not(feature = "unstable-internals"), non_exhaustive)]
+#[cfg_attr(not(feature = "unstable-internals"), allow(unnameable_types))]
+pub struct NativeSite {
+    // the native's place in the runtime's table
+    pub id: u16,
+    pub pos: u8,
+    pub kw: u8,
+    // a `*` or `**` argument whose counts the run closes
+    pub spread: bool,
+    // a call the syntax makes which no binding of the native's name redirects
+    pub pinned: bool,
+    // bare positionals the native answers on the heap with no call
+    pub fast: bool,
+    // a statement's call whose value goes nowhere
+    pub void: bool,
+}
+
+// the CallNative operand bit naming a site the chunk's table holds
+pub(crate) const SITE_TABLE: u16 = 0x8000;
+// the in place bit of a site no binding redirects
+pub(crate) const SITE_PINNED: u16 = 0x4000;
+// the in place bit of a site whose heap op answers bare positionals
+pub(crate) const SITE_FAST: u16 = 0x2000;
+// the in place bit of a statement's call that keeps no value
+pub(crate) const SITE_VOID: u16 = 0x1000;
+// the in place bit of a call with one keyword pair over its positionals
+pub(crate) const SITE_KW1: u16 = 0x100;
+
+impl NativeSite {
+    /* the operand naming this plain site in place and none for the table */
+    internal! {
+        pub const fn in_place(&self) -> Option<u16> {
+            if self.kw > 1 || self.spread || self.pos >= 8 || self.id >= 0x100 { return None; }
+            Some(self.id | (self.pos as u16) << 9 | if self.kw == 1 { SITE_KW1 } else { 0 } | if self.void { SITE_VOID } else { 0 } | if self.fast { SITE_FAST } else { 0 } | if self.pinned { SITE_PINNED } else { 0 })
+        }
+    }
+}
+
+/* the native and positional count an in place operand names */
+#[inline(always)]
+pub(crate) const fn site_in_place(operand: u16) -> (u16, usize) { (operand & 0xFF, (operand >> 9 & 7) as usize) }
+
+/* the site a CallNative operand names in place or in `sites` */
+#[inline]
+pub fn native_site(operand: u16, sites: &[NativeSite]) -> Option<NativeSite> {
+    if operand & SITE_TABLE == 0 {
+        let (id, pos) = site_in_place(operand);
+        let bit = |b: u16| operand & b != 0;
+        return Some(NativeSite { id, pos: pos as u8, kw: u8::from(bit(SITE_KW1)), spread: false, pinned: bit(SITE_PINNED), fast: bit(SITE_FAST), void: bit(SITE_VOID) });
+    }
+    sites.get((operand & !SITE_TABLE) as usize).copied()
+}
+
+#[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
+pub struct Instruction {
+    pub opcode: OpCode,
+    pub operand: u16,
+}
+
+/* an import the VM dedupes by spec at `run()` so each Code module runs once */
+#[derive(Clone)]
+#[non_exhaustive]
+pub struct ImportEntry {
+    pub spec: alloc::string::String,
+    pub kind: ImportKind,
+}
+
+/* a native class by name and method externs that `init.rs` turns into a class object */
+pub(crate) type NativeClassEntry = crate::engine::deps::NativeClass;
+
+#[derive(Clone)]
+#[non_exhaustive]
+pub enum ImportKind {
+    Code(alloc::rc::Rc<SSAChunk>),
+    Native { funcs: Vec<crate::engine::value::ExternFn>, classes: Vec<NativeClassEntry>, consts: Vec<crate::engine::value::ExternFn> },
+}
+
+#[derive(Default, Clone)]
+pub struct SSAChunk {
+    pub(crate) instructions: Vec<Instruction>,
+    pub(crate) constants: Vec<Value>,
+    pub(crate) names: Vec<String>,
+    pub(crate) functions: Vec<(Vec<String>, SSAChunk, u16, u16)>,
+    pub(crate) phi_sources: Vec<(u16, u16)>,
+    pub(crate) classes: Vec<SSAChunk>,
+    /* how many bases the MakeClass of a class body pops and zero for other chunks */
+    pub(crate) bases: u16,
+    /* the name of a function or class body with the classes and functions around it */
+    pub(crate) qualname: String,
+    /* how many parameters come before a `/` and pass only by position */
+    pub(crate) posonly: u16,
+    /* the line a function definition starts on counting its first decorator */
+    pub(crate) first_line: u32,
+    pub(crate) is_generator: bool,
+    /* whether it holds an `a if c else b` that its lowering keeps in registers */
+    pub(crate) ternaries: bool,
+    pub(crate) overflow: bool,
+    pub(crate) prev_slots: Vec<Option<u16>>,
+    /* the slot at the root of the version chain of each name */
+    pub(crate) canonical: Vec<u16>,
+    pub(crate) phi_map: Vec<usize>,
+    pub(crate) nonlocals: Vec<String>,
+    /* each slot of `names` by the hash of its text */
+    pub(super) name_index: hashbrown::HashTable<u16>,
+    /* the length and ends marks of its names as bits while no table holds them */
+    pub(super) name_marks: u32,
+    /* the byte offset of each statement ip searched only on the error path */
+    pub(crate) stmt_pos: Vec<(u32, u32)>,
+    /* the byte offset of each call ip so a traceback caret lands under the call */
+    pub(crate) call_byte_pos: Vec<(u32, u32)>,
+    /* the source text shared across sub-chunks and empty for chunks built by hand */
+    pub(crate) source: alloc::sync::Arc<alloc::string::String>,
+    /* the traceback path where an empty one drops the `file:` prefix */
+    pub(crate) path: alloc::sync::Arc<alloc::string::String>,
+    /* the native calls CallNative operands index each with its native and counts */
+    pub(crate) native_sites: Vec<NativeSite>,
+    /* the native bindings `from <pkg> import` makes which CallExtern indexes as `(idx<<8)|argc` */
+    pub(crate) extern_table: Vec<ExternFn>,
+    pub(crate) extern_index: HashMap<String, u16>,
+    /* the imports LoadModule operands index with one module value per spec at init */
+    pub(crate) imports: Vec<ImportEntry>,
+    /* one past its place among the bodies the machine running it registered and zero before */
+    pub(crate) id: core::cell::Cell<u32>,
+    /* each op of constants by place and pops with its folded value and its name */
+    pub(crate) folds: Vec<(u32, u8, Val, &'static str)>,
+    /* what a read keeps beside the code of this body and none for a compile */
+    pub(crate) notes: Option<alloc::boxed::Box<Notes>>,
+    /* the natives its calls index by place and none for a chunk built by hand */
+    #[cfg(not(feature = "exports"))]
+    natives: Option<&'static crate::engine::lang::Natives>,
+}
+
+// what a reader of a compiled body sees without the fields that lay it out
+impl SSAChunk {
+    internal! { tests
+        pub fn instructions(&self) -> &[Instruction] { &self.instructions }
+    }
+    internal! { tests
+        pub fn constants(&self) -> &[Value] { &self.constants }
+    }
+    pub fn names(&self) -> &[String] { &self.names }
+    pub fn functions(&self) -> impl ExactSizeIterator<Item = (&[String], &SSAChunk)> { self.functions.iter().map(|(params, body, _, _)| (params.as_slice(), body)) }
+    pub fn classes(&self) -> &[SSAChunk] { &self.classes }
+    internal! { tests
+        pub fn qualname(&self) -> &str { &self.qualname }
+    }
+    internal! { tests
+        pub fn first_line(&self) -> u32 { self.first_line }
+    }
+    internal! { tests
+        pub fn is_generator(&self) -> bool { self.is_generator }
+    }
+    pub fn source(&self) -> &str { &self.source }
+    pub fn path(&self) -> &str { &self.path }
+    internal! { tests
+        pub fn native_sites(&self) -> &[NativeSite] { &self.native_sites }
+    }
+    pub fn imports(&self) -> &[ImportEntry] { &self.imports }
+    internal! { tests
+        pub fn extern_table(&self) -> &[ExternFn] { &self.extern_table }
+    }
+    internal! { tests
+        pub fn bodies(&self) -> &[(Vec<String>, SSAChunk, u16, u16)] { &self.functions }
+    }
+    internal! { tests
+        pub fn instructions_mut(&mut self) -> &mut Vec<Instruction> { &mut self.instructions }
+    }
+    internal! { tests
+        pub fn bodies_mut(&mut self) -> &mut Vec<(Vec<String>, SSAChunk, u16, u16)> { &mut self.functions }
+    }
+    internal! { tests
+        pub fn classes_mut(&mut self) -> &mut Vec<SSAChunk> { &mut self.classes }
+    }
+    internal! { tests
+        pub fn native_sites_mut(&mut self) -> &mut Vec<NativeSite> { &mut self.native_sites }
+    }
+    internal! { tests
+        pub fn bases(&self) -> u16 { self.bases }
+    }
+    internal! { tests
+        pub fn set_bases(&mut self, bases: u16) { self.bases = bases; }
+    }
+}
+
+/* what a read of a program keeps that its run never reads with the outline and annotations on the root */
+#[derive(Default, Clone, Debug, PartialEq)]
+pub struct Notes {
+    pub annotations: Vec<Annotation>,
+    pub decls: Vec<Decl>,
+    /* every form the parse met in source order each after the node it sits in */
+    pub outline: Vec<Node>,
+    /* the bytes each instruction of this body came from by place */
+    pub(crate) spans: Vec<Range<u32>>,
+    /* the instructions each token or node gave with its bytes in the order they closed */
+    pub(crate) covers: Vec<(Range<u32>, Range<u32>)>,
+}
+
+static NO_NOTES: Notes = Notes { annotations: Vec::new(), decls: Vec::new(), outline: Vec::new(), spans: Vec::new(), covers: Vec::new() };
+
+/* a form of the source by its kind and bytes with the place of the node around it */
+#[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
+pub struct Node {
+    pub kind: NodeKind,
+    pub span: Range<usize>,
+    pub parent: Option<usize>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum NodeKind {
+    Call, Field, Index, Block, Group, Let, Assign, If, Match, Loop, Function, Type, Record, Map, Tuple, List,
+    // a form a runtime's grammar declares by its head word
+    Form(&'static str),
+}
+
+/* an annotation by the bytes of the source it spans and what it annotates */
+#[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(not(feature = "unstable-internals"), non_exhaustive)]
+pub struct Annotation {
+    pub span: Range<usize>,
+    pub of: Annotated,
+}
+
+// a function is the place of its node in the outline
+#[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
+pub enum Annotated {
+    Param { function: usize, name: String },
+    Returns { function: usize },
+    // the target as the source spells it such as `x` or `point.x`
+    Binding { target: String },
+}
+
+/* an item of a grammar by its kind and name with the modifier words before it and its node in the outline */
+#[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(not(feature = "unstable-internals"), non_exhaustive)]
+pub struct Decl {
+    pub span: Range<usize>,
+    pub kind: DeclKind,
+    pub name: String,
+    pub modifiers: Vec<String>,
+    pub node: usize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum DeclKind { Fn, Let, Type }
+
+/* the place of the innermost node of `kind` around `span` or `usize::MAX` when none holds it */
+fn around(outline: &[Node], kind: NodeKind, span: &Range<usize>) -> usize {
+    outline.iter().rposition(|n| n.kind == kind && n.span.start <= span.start && span.end <= n.span.end).unwrap_or(usize::MAX)
+}
+
+impl Notes {
+    /* sorts the outline into source order with its parents and points each note at its node */
+    fn link(&mut self) {
+        // among equal spans the node that closed later holds the other
+        let mut order: Vec<usize> = (0..self.outline.len()).collect();
+        let at = &self.outline;
+        order.sort_by(|&a, &b| at[a].span.start.cmp(&at[b].span.start).then(at[b].span.end.cmp(&at[a].span.end)).then(b.cmp(&a)));
+        let mut nodes: Vec<Node> = order.iter().map(|&i| at[i].clone()).collect();
+        let mut open: Vec<usize> = Vec::new();
+        for i in 0..nodes.len() {
+            while open.last().is_some_and(|&p| nodes[i].span.start >= nodes[p].span.end || nodes[i].span.end > nodes[p].span.end) { open.pop(); }
+            nodes[i].parent = open.last().copied();
+            open.push(i);
+        }
+        self.outline = nodes;
+        for a in &mut self.annotations {
+            if let Annotated::Param { function, .. } | Annotated::Returns { function } = &mut a.of { *function = around(&self.outline, NodeKind::Function, &a.span); }
+        }
+        for d in &mut self.decls {
+            let kind = match d.kind { DeclKind::Fn => NodeKind::Function, DeclKind::Let => NodeKind::Let, DeclKind::Type => NodeKind::Type };
+            d.node = around(&self.outline, kind, &(d.span.end.saturating_sub(1)..d.span.end));
+        }
+    }
+}
+
+/* how many names a chunk scans before it keeps a hash table of them */
+const SCANNED_NAMES: usize = 16;
+
+/* the bit of `name_marks` a name sets by its length and first and last bytes */
+#[inline]
+fn name_mark(n: &str) -> usize {
+    let b = n.as_bytes();
+    (b.len() * 7 + b.last().map_or(0, |&c| c as usize) * 3 + b.first().map_or(0, |&c| c as usize)) & 31
+}
+
+/* the use an op's operand marks on its name by the op's byte */
+const NAME_USE: [u8; 256] = {
+    let mut marks = [0u8; 256];
+    let mut k = 0;
+    while k < OpCode::EVERY.len() {
+        let op = OpCode::EVERY[k];
+        // one marks an attribute and two a slot or name while other operands mark nothing
+        marks[op as usize] = if matches!(op, crate::engine::code::attrs!()) { 1 } else if matches!(op.info().operand, crate::engine::code::Operand::Slot | crate::engine::code::Operand::Name) { 2 } else { 0 };
+        k += 1;
+    }
+    marks
+};
+
+impl SSAChunk {
+    /* an empty chunk over texts it is given which allocates nothing of its own */
+    pub(crate) fn over(source: alloc::sync::Arc<String>, path: alloc::sync::Arc<String>, natives: Option<&'static crate::engine::lang::Natives>) -> Self {
+        // the wasm runtime boots only what its own front compiles so keeps no natives
+        #[cfg(feature = "exports")]
+        let _ = natives;
+        Self {
+            instructions: Vec::new(), constants: Vec::new(), names: Vec::new(), functions: Vec::new(), phi_sources: Vec::new(), classes: Vec::new(),
+            bases: 0, qualname: String::new(), posonly: 0, first_line: 0, is_generator: false, ternaries: false, overflow: false,
+            prev_slots: Vec::new(), canonical: Vec::new(), phi_map: Vec::new(), nonlocals: Vec::new(),
+            name_index: hashbrown::HashTable::new(), name_marks: 0, stmt_pos: Vec::new(), call_byte_pos: Vec::new(),
+            source, path, native_sites: Vec::new(), extern_table: Vec::new(), extern_index: HashMap::default(), imports: Vec::new(),
+            id: core::cell::Cell::new(0), folds: Vec::new(), notes: None,
+            #[cfg(not(feature = "exports"))]
+            natives,
+        }
+    }
+
+    /* the natives it was compiled over where a machine may meet a chunk of another */
+    #[inline(always)]
+    pub(crate) fn natives(&self) -> Option<&'static crate::engine::lang::Natives> {
+        #[cfg(not(feature = "exports"))]
+        return self.natives;
+        #[cfg(feature = "exports")]
+        None
+    }
+
+    #[inline]
+    pub(crate) fn ternaries(&self) -> bool { self.ternaries }
+
+    /* the byte offset of the statement holding `ip` */
+    pub(crate) fn resolve(&self, ip: u32) -> Option<u32> {
+        let i = self.stmt_pos.partition_point(|&(s, _)| s <= ip).checked_sub(1)?;
+        Some(self.stmt_pos[i].1)
+    }
+
+    /* the bytes of the source instruction `ip` came from on a body that a read made */
+    pub fn span(&self, ip: u32) -> Option<Range<usize>> {
+        let s = self.notes.as_deref()?.spans.get(ip as usize)?;
+        (s.start != u32::MAX).then_some(s.start as usize..s.end as usize)
+    }
+
+    /* what a read kept of the source with the outline and annotations on its root and empty for a compile */
+    pub fn notes(&self) -> &Notes { self.notes.as_deref().unwrap_or(&NO_NOTES) }
+
+    /* gives each instruction of every body the span of the first run around it that closed and links the outline */
+    pub(crate) fn settle(&mut self) {
+        let len = self.instructions.len();
+        if let Some(n) = self.notes.as_deref_mut() {
+            let mut spans = vec![u32::MAX..u32::MAX; len];
+            for (ips, span) in core::mem::take(&mut n.covers) {
+                for s in spans.get_mut(ips.start as usize..(ips.end as usize).min(len)).unwrap_or(&mut []) {
+                    if s.start == u32::MAX { *s = span.clone(); }
+                }
+            }
+            n.spans = spans;
+            n.link();
+        }
+        for (_, body, _, _) in &mut self.functions { body.settle(); }
+        for body in &mut self.classes { body.settle(); }
+    }
+
+    /* the byte offset of the call at `ip` with `resolve` as the coarser fallback */
+    pub(crate) fn resolve_call(&self, ip: u32) -> Option<u32> {
+        let i = self.call_byte_pos.partition_point(|&(s, _)| s < ip);
+        let (recorded_ip, byte) = *self.call_byte_pos.get(i)?;
+        if recorded_ip == ip { Some(byte) } else { None }
+    }
+
+    // a runtime crate builds the parser so only a marked helper inlines there
+    #[inline]
+    pub(super) fn emit(&mut self, op: OpCode, operand: u16) {
+        // a full chunk sets a flag the parser reports later instead of panicking
+        if self.instructions.len() >= MAX_INSTRUCTIONS {
+            self.overflow = true;
+            return;
+        }
+        self.instructions.push(Instruction { opcode: op, operand });
+    }
+
+    /* records `byte_pos` for the last emitted call so a traceback caret lands on it */
+    pub(super) fn record_call_pos(&mut self, byte_pos: u32) {
+        if self.instructions.is_empty() { return; }
+        let ip = (self.instructions.len() - 1) as u32;
+        self.call_byte_pos.push((ip, byte_pos));
+    }
+
+    #[inline]
+    pub(super) fn push_const(&mut self, v: Value) -> u16 {
+        if self.constants.len() >= u16::MAX as usize {
+            self.overflow = true;
+            return 0;
+        }
+        self.constants.push(v);
+        (self.constants.len() - 1) as u16
+    }
+
+    /* the slot of `n` by scan while the names are few and by hash after */
+    #[inline(always)]
+    fn find_name(&self, n: &str) -> Option<u16> {
+        // before the table a name matching no mark is new without any scan
+        if self.name_index.is_empty() {
+            if self.name_marks & 1 << name_mark(n) == 0 { return None; }
+            let (b, last) = (n.as_bytes(), n.len().wrapping_sub(1));
+            return self.names.iter().position(|m| m.len() == b.len() && m.as_bytes().get(last) == b.get(last) && m.as_bytes() == b).map(|i| i as u16);
+        }
+        self.name_index.find(hash_key(n), |&i| self.names[i as usize] == n).copied()
+    }
+
+    /* the sizes of the chunk tables now which `rewind` takes it back to */
+    pub(super) fn sizes(&self) -> [usize; 7] {
+        [self.instructions.len(), self.call_byte_pos.len(), self.names.len(), self.constants.len(), self.functions.len(), self.classes.len(), self.native_sites.len()]
+    }
+
+    /* drops everything emitted past `at` with the names leaving their index too */
+    pub(super) fn rewind(&mut self, at: [usize; 7]) {
+        // a cut to few names drops the table as `push_name` keeps none for them
+        if at[2] <= SCANNED_NAMES { self.name_index.clear(); }
+        for j in at[2]..self.names.len() {
+            if let Ok(e) = self.name_index.find_entry(hash_key(&self.names[j]), |&k| k as usize == j) { e.remove(); }
+        }
+        self.instructions.truncate(at[0]);
+        self.call_byte_pos.truncate(at[1]);
+        self.names.truncate(at[2]);
+        self.constants.truncate(at[3]);
+        self.functions.truncate(at[4]);
+        self.classes.truncate(at[5]);
+        self.native_sites.truncate(at[6]);
+    }
+
+    pub(super) fn push_name(&mut self, n: &str) -> u16 {
+        if let Some(i) = self.find_name(n) { return i; }
+        if self.names.len() >= u16::MAX as usize {
+            self.overflow = true;
+            return 0;
+        }
+        let i = self.names.len() as u16;
+        self.name_marks |= 1 << name_mark(n);
+        self.names.push(n.to_string());
+        // few names keep no table and the first name past them hashes them all once
+        if self.names.len() > SCANNED_NAMES {
+            let names = &self.names;
+            let at = if self.name_index.is_empty() { 0 } else { i as usize };
+            for j in at..names.len() { self.name_index.insert_unique(hash_key(&names[j]), j as u16, |&k| hash_key(&names[k as usize])); }
+        }
+        i
+    }
+
+    /* builds `prev_slots` and `phi_map` and rewrites operands to the root slot of their version chain */
+    pub(crate) fn finalize_prev_slots(&mut self) {
+        let n = self.names.len();
+        // names all at a first version are their own roots which empty tables mean
+        if let Some(first) = self.names.iter().position(|name| SsaName::parse(name).is_some_and(|p| p.version > 0)) {
+            // `prev_slots[i]` is the slot of name `i` one version earlier if any
+            let mut ps: Vec<Option<u16>> = vec![None; n];
+            for (i, name) in self.names.iter().enumerate().skip(first) {
+                if let Some(parsed) = SsaName::parse(name)
+                    && parsed.version > 0
+                {
+                    let prev = s!(str parsed.bare, "_", int parsed.version as i64 - 1);
+                    if let Some(j) = self.find_name(&prev) {
+                        ps[i] = Some(j);
+                    }
+                }
+            }
+
+            // each chain coalesces to its root since every earlier slot already holds its own
+            let mut canonical: Vec<u16> = (0..n as u16).collect();
+            for i in 0..n {
+                let mut root = i;
+                while let Some(&Some(p)) = ps.get(root) {
+                    let p = p as usize;
+                    if p == root { break; }
+                    if p < i { root = canonical[p] as usize; break; }
+                    root = p;
+                }
+                canonical[i] = root as u16;
+            }
+
+            for ins in &mut self.instructions {
+                // malformed input can leave an operand out of range which stays as it is
+                if ins.opcode.names_slot() && let Some(&c) = canonical.get(ins.operand as usize) { ins.operand = c; }
+            }
+            for (a, b) in &mut self.phi_sources {
+                if let Some(&c) = canonical.get(*a as usize) { *a = c; }
+                if let Some(&c) = canonical.get(*b as usize) { *b = c; }
+            }
+
+            self.prev_slots = ps;
+            self.canonical = canonical;
+        } else {
+            self.prev_slots.clear();
+            self.canonical.clear();
+        }
+
+        for (_, body, _, _) in &mut self.functions {
+            body.finalize_prev_slots();
+        }
+        for body in &mut self.classes {
+            body.finalize_prev_slots();
+        }
+
+        self.index_phis();
+    }
+
+    /* the names only attribute ops use which are no variable to capture or read */
+    pub(crate) fn attr_only_names(&self) -> Vec<bool> {
+        let mut uses = vec![0u8; self.names.len()];
+        for ins in &self.instructions {
+            if let Some(u) = uses.get_mut(ins.operand as usize) { *u |= NAME_USE[ins.opcode as usize]; }
+        }
+        for &(a, b) in &self.phi_sources {
+            for i in [a, b] { if let Some(u) = uses.get_mut(i as usize) { *u |= 2; } }
+        }
+        uses.into_iter().map(|u| u == 1).collect()
+    }
+
+    /* maps each Phi to its `phi_sources` entry by order and stays empty without one */
+    pub(crate) fn index_phis(&mut self) {
+        self.phi_map.clear();
+        if !self.instructions.iter().any(|i| i.opcode == OpCode::Phi) { return; }
+        let mut next = 0;
+        self.phi_map = self.instructions.iter().map(|i| if i.opcode == OpCode::Phi { next += 1; next - 1 } else { 0 }).collect();
+    }
+}

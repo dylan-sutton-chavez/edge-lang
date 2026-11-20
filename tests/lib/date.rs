@@ -1,26 +1,28 @@
 use std::any::Any;
 use std::cmp::Ordering;
 
-use interpreter::embed::Limits;
+use interpreter::Limits;
 use interpreter::lang::{Native, Natives, Runtime};
 use interpreter::value::foreign::{BinOp, Snapshot, UnOp};
-use interpreter::value::{HeapPool, Val};
-use interpreter::lib::date::{self, Civil, Day, Days, Duration, Field, Hour, Hours, Minute, Minutes, Month, Second, Seconds, Time, Year};
+use interpreter::Val;
+use interpreter::value::HeapPool;
+use interpreter::lib::date;
+use interpreter::lib::date::{Civil, Duration, Time};
 use rig::Rig;
 use crate::common::{ran, TRY};
 
 // the fields as methods of no arguments which every foreign value finds
 const PARTS: &[Native] = &interpreter::lib::table![Rig;
-    "days" => date::part[Rig, Days],
-    "hours" => date::part[Rig, Hours],
-    "minutes" => date::part[Rig, Minutes],
-    "seconds" => date::part[Rig, Seconds],
-    "year" => date::part[Rig, Year],
-    "month" => date::part[Rig, Month],
-    "day" => date::part[Rig, Day],
-    "hour" => date::part[Rig, Hour],
-    "minute" => date::part[Rig, Minute],
-    "second" => date::part[Rig, Second],
+    "days" => date::days[Rig],
+    "hours" => date::hours[Rig],
+    "minutes" => date::minutes[Rig],
+    "seconds" => date::seconds[Rig],
+    "year" => date::year[Rig],
+    "month" => date::month[Rig],
+    "day" => date::day[Rig],
+    "hour" => date::hour[Rig],
+    "minute" => date::minute[Rig],
+    "second" => date::second[Rig],
 ];
 
 static NATIVES: Natives = rig::with!(Over; Foreign => [PARTS]);
@@ -103,16 +105,13 @@ fn a_time_writes_its_own_offset_and_a_trimmed_fraction() {
 
 #[test]
 fn fields_read_in_the_neutral_names() {
-    assert_eq!(Field::ALL.map(Field::name), ["days", "hours", "minutes", "seconds", "year", "month", "day", "hour", "minute", "second"]);
-    assert!(Field::ALL.iter().filter(|f| f.of_time()).count() == 6 && !Field::Days.of_time() && Field::Year.of_time());
     let d = Duration { nanos: 5400 * SECOND };
-    assert_eq!([Field::Days, Field::Hours, Field::Minutes, Field::Seconds].map(|f| f.of_duration(&d)), [0.0625, 1.5, 90.0, 5400.0]);
-    let c = time("2026-10-01T15:04:05Z").civil();
-    assert_eq!([Field::Year, Field::Month, Field::Day, Field::Hour, Field::Minute, Field::Second].map(|f| f.of_civil(&c)), [2026, 10, 1, 15, 4, 5]);
     let mut h = HeapPool::new(1 << 24);
     let a = date::time_val::<Rig>(&mut h, time("2026-10-01T17:04:05+02:00")).unwrap_or_else(|e| panic!("{e}"));
     let d = date::duration_val::<Rig>(&mut h, d).unwrap_or_else(|e| panic!("{e}"));
     let read = |v: Val, f: &str| date::part_of(&h, v, f).map(|v| if v.is_float() { v.as_float() } else { v.as_int() as f64 });
+    assert_eq!(["days", "hours", "minutes", "seconds"].map(|f| read(d, f)), [Some(0.0625), Some(1.5), Some(90.0), Some(5400.0)]);
+    assert_eq!(["year", "month", "day", "hour", "minute", "second"].map(|f| read(a, f)), [Some(2026.0), Some(10.0), Some(1.0), Some(17.0), Some(4.0), Some(5.0)]);
     assert_eq!((read(a, "hour"), read(a, "year"), read(d, "hours"), read(d, "days")), (Some(17.0), Some(2026.0), Some(1.5), Some(0.0625)));
     assert_eq!((read(a, "hours"), read(d, "hour"), read(a, "week"), read(Val::int(1), "year")), (None, None, None, None));
 }
@@ -161,7 +160,7 @@ fn the_kinds_compute_compare_hash_and_save() {
 
 #[test]
 fn a_snapshot_saves_each_value_in_a_few_bytes() {
-    let (Snapshot::Serialize { save: save_time, load: load_time }, Snapshot::Serialize { save: save_span, load: load_span }) = (&rig::lang::TIME.snapshot, &rig::lang::DURATION.snapshot) else { panic!("the kinds refuse snapshots") };
+    let (Snapshot::Serialize { save: save_time, load: load_time }, Snapshot::Serialize { save: save_span, load: load_span }) = (rig::lang::TIME.snapshot_of(), rig::lang::DURATION.snapshot_of()) else { panic!("the kinds refuse snapshots") };
     for s in ["2026-10-01T15:04:05.123456789+05:45", "0000-01-01T00:00:00Z", "9999-12-31T23:59:59.999999999-23:59"] {
         let t = time(s);
         let mut out = Vec::new();
@@ -241,8 +240,6 @@ fn programs_get_the_failures_in_the_runtimes_words() {
 // a runtime of the rig's classes that keeps lib's own words for every failure
 struct Neutral;
 
-impl interpreter::lib::fmt::render::Style for Neutral {}
-
 impl interpreter::lang::Language for Neutral {
     const VERSION: u32 = 1;
     const POLICY: interpreter::lang::Policy = <Rig as interpreter::lang::Language>::POLICY;
@@ -254,13 +251,11 @@ impl interpreter::lang::Language for Neutral {
     const BUILT: interpreter::value::foreign::Built = <rig::Rig as interpreter::lang::Language>::BUILT;
     type Ops = ();
 
-    fn show(cx: &mut interpreter::lang::Cx<'_, '_>, v: interpreter::value::Val, mode: interpreter::lang::Mode) -> Result<String, interpreter::value::VmErr> { interpreter::lib::fmt::render::hook::<Self>(cx, v, mode) }
+    interpreter::lib::hooks!(Self; show);
 }
 
 impl interpreter::lib::Lang for Neutral {
-    const TREE: &'static interpreter::lib::lang::Tree = &rig::types::TREE;
-
-    fn class(c: interpreter::lib::Class) -> &'static str { <Rig as interpreter::lib::Lang>::class(c) }
+    fn class(c: interpreter::lib::fail::Class) -> &'static str { <Rig as interpreter::lib::Lang>::class(c) }
 }
 
 static NEUTRAL_TIME: interpreter::value::foreign::Kind = date::time_kind::<Neutral>("time");

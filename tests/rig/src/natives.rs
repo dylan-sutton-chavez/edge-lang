@@ -1,9 +1,10 @@
 use interpreter::lang::{Args, Cx, Native, Ret, Sig};
 use interpreter::lib::fail::Class;
-use interpreter::lib::bytes::{self, Fixed, Mutable};
+use interpreter::lib::bytes;
+use interpreter::lib::bytes::{Fixed, Mutable};
 use interpreter::lib::iter::fold::Joins;
 use interpreter::lib::num::int::{Bin, Hex, Oct};
-use interpreter::lib::num::round::HalfEven;
+use interpreter::lib::num::HalfEven;
 use interpreter::lib::text::case::Full;
 use interpreter::lib::uni::{Decimal, Digit, Numeric};
 use interpreter::lib::{date, fmt, io, iter, map, num, seq, set, text, types};
@@ -40,9 +41,9 @@ pub const NEXT: &[Native] = &interpreter::lib::table![Rig; "next" => iter::next]
 
 pub const NUM: &[Native] = &interpreter::lib::table![Rig;
     "abs" => num::abs,
-    "round" => num::round::round[HalfEven]("number", "ndigits"),
-    "divmod" => num::div::divmod,
-    "pow" => num::pow::pow("base", "exp", "mod"),
+    "round" => num::round[HalfEven]("number", "ndigits"),
+    "divmod" => num::divmod,
+    "pow" => num::pow("base", "exp", "mod"),
     "int_from_bytes" => num::int::bytes_int,
     "int_to_bytes" => num::int::int_bytes,
 ];
@@ -70,17 +71,17 @@ pub const CONVERT: &[Native] = &interpreter::lib::table![Rig;
     "bin" => num::int::radix[Bin],
     "oct" => num::int::radix[Oct],
     "hex" => num::int::radix[Hex],
-    "repr" => fmt::render::repr_of,
+    "repr" => fmt::repr_of,
     "callable" => types::callable,
 ];
 
 pub const BYTES: &[Native] = &interpreter::lib::table![Rig;
     "bytes" => bytes::new[Fixed]("source", "encoding", "errors"),
     "bytearray" => bytes::new[Mutable]("source", "encoding", "errors"),
-    "bytes_fromhex" => bytes::hex::from_hex_fn,
+    "bytes_fromhex" => bytes::hex::unhex,
 ];
 
-pub const SORT: &[Native] = &interpreter::lib::table![Rig; "sorted" => seq::sort::sorted{"key", "reverse"}];
+pub const SORT: &[Native] = &interpreter::lib::table![Rig; "sorted" => seq::sorted{"key", "reverse"}];
 
 pub const TYPES: &[Native] = &interpreter::lib::table![Rig; "type" => types::type_of];
 
@@ -98,9 +99,9 @@ pub const STR: &[Native] = &interpreter::lib::table![Rig;
     "title" => text::case::title,
     "lstrip" => text::pad::trim_start,
     "rstrip" => text::pad::trim_end,
-    "isdigit" => text::class::digit[Digit],
-    "isalpha" => text::class::alpha,
-    "isalnum" => text::class::alnum,
+    "isdigit" => text::class::is_digit[Digit],
+    "isalpha" => text::class::is_alpha,
+    "isalnum" => text::class::is_alnum,
     "startswith" => text::find::starts,
     "endswith" => text::find::ends,
     "find" => text::find::find,
@@ -124,14 +125,14 @@ pub const STR: &[Native] = &interpreter::lib::table![Rig;
     "rfind" => text::find::rfind,
     "index" => text::find::index,
     "rindex" => text::find::rindex,
-    "isspace" => text::class::space,
-    "isupper" => text::class::upper,
-    "islower" => text::class::lower,
-    "istitle" => text::class::title,
-    "isascii" => text::class::ascii,
-    "isdecimal" => text::class::digit[Decimal],
-    "isnumeric" => text::class::digit[Numeric],
-    "isprintable" => text::class::printable,
+    "isspace" => text::class::is_space,
+    "isupper" => text::class::is_upper,
+    "islower" => text::class::is_lower,
+    "istitle" => text::class::is_title,
+    "isascii" => text::class::is_ascii,
+    "isdecimal" => text::class::is_digit[Decimal],
+    "isnumeric" => text::class::is_digit[Numeric],
+    "isprintable" => text::class::is_printable,
 ];
 
 // each shared row registers for both buffers with `$b` choosing mutable results
@@ -212,7 +213,7 @@ pub const LIST: &[Native] = &interpreter::lib::table![Rig;
 ];
 
 // the body checks its positionals before any other keyword in its own words
-pub const LIST_SORT: &[Native] = &interpreter::lib::table![Rig; "sort" => seq::sort::sort{"key", "reverse"}];
+pub const LIST_SORT: &[Native] = &interpreter::lib::table![Rig; "sort" => seq::sort{"key", "reverse"}];
 
 pub const TUPLE: &[Native] = &interpreter::lib::table![Rig;
     "index" => seq::index,

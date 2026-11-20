@@ -29,7 +29,7 @@ runs:
         cache: false
         rustflags: ""
 
-    # rust-cache drops binaries installed during the job, so take the prebuilt one.
+    # rust-cache drops binaries installed during the job so the prebuilt one is taken
     - name: Install cargo-shear
       uses: taiki-e/install-action@v2
       with:
@@ -39,14 +39,14 @@ runs:
       shell: bash
       run: make lint-rust
 
-    # build-std needs nightly plus rust-src.
+    # build-std needs nightly and rust-src
     - name: Toolchain (nightly)
       uses: dtolnay/rust-toolchain@nightly
       with:
         targets: wasm32-unknown-unknown
         components: rust-src
 
-    # apt ships an old binaryen, so fetch the upstream release.
+    # apt ships an old binaryen so the upstream release is fetched
     - name: Install wasm-opt
       shell: bash
       run: |
@@ -75,7 +75,7 @@ runs:
         test -z "$(git status --porcelain -- . ':!js/dist')"
         cargo publish -p interpreter --locked --dry-run --allow-dirty
 
-    # interpreter.wasm ships with its compiler.wasm copy and the speed build goes under _build/
+    # interpreter.wasm ships and the speed build goes under _build/
     - name: Stage
       uses: ./.github/actions/stage
       with:

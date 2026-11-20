@@ -3,8 +3,9 @@
 #[allow(dead_code)]
 mod suite;
 
-use interpreter::cli::cmd::{run, test};
-use interpreter::cli::{docs, files, manifest, net, perms, Kit, Runtime};
+use interpreter::cli::cmd::{Run, Test};
+use interpreter::cli::host::{Files, Net};
+use interpreter::cli::{Engine, Kit, Perms, DOCS_FIELD, MANIFEST_FIELDS};
 use std::sync::Arc;
 use suite::{net, suite, Bin};
 
@@ -16,16 +17,15 @@ const AS_CLI: &str = "INTERPRETER_AS_NATIVE";
 
 /* the interpreter composition's run and test over lox built into this binary */
 fn kit() -> Kit {
-    Kit::new("interpreter", env!("CARGO_PKG_VERSION"), Runtime::native(&interpreter_lox::RUNTIME))
-        .title(format!("The interpreter developer CLI for {} run natively", interpreter_lox::DESCRIPTOR.language))
-        .command(run::Run)
-        .command(test::Test)
-        .fields(manifest::FIELDS)
-        .field(docs::FIELD)
-        .field(perms::FIELD)
-        .module(Arc::new(net::Net))
-        .module(Arc::new(files::Files))
-        .access(Arc::new(perms::Perms))
+    Kit::new("interpreter", env!("CARGO_PKG_VERSION"), Engine::native(&interpreter_lox::RUNTIME))
+        .title(format!("The interpreter developer CLI for {} run natively", interpreter_lox::RUNTIME.name()))
+        .command(Run)
+        .command(Test)
+        .fields(MANIFEST_FIELDS)
+        .field(DOCS_FIELD)
+        .module(Arc::new(Net))
+        .module(Arc::new(Files))
+        .access(Arc::new(Perms))
 }
 
 /* the cases both hosts run alike and the net cases run again on the native engine */

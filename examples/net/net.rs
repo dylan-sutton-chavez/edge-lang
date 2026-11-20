@@ -1,4 +1,4 @@
-use crate::cli::host::{Calls, Fault, Held, HostModule, Reply, Serve, WireValue};
+use crate::engine::cli::host::{Calls, Fault, Held, HostModule, Reply, Serve, WireValue};
 use flate2::bufread::GzDecoder;
 use std::collections::{HashMap, VecDeque};
 use std::io::{BufRead, BufReader, Read};
@@ -13,6 +13,7 @@ use ureq::unversioned::resolver::DefaultResolver;
 use ureq::unversioned::transport::{Buffers, ConnectionDetails, Connector, DefaultConnector, NextTimeout, Transport};
 
 /* requests and sockets to the hosts a package holds as `net:<host>` or `net:<host>/<prefix>` */
+#[expect(clippy::exhaustive_structs, reason = "a marker a user names to pick what it stands for")]
 pub struct Net;
 
 const CALLS: [&str; 6] = ["request", "response", "read", "close", "connect", "send"];
@@ -901,7 +902,7 @@ fn serve(target: &str, id: i64, opened: Reply, flow: &Mutex<Flow>, queued: &Rece
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cli::host::{Class, Scopes};
+    use crate::engine::cli::host::Class;
 
     fn text(s: &str) -> WireValue {
         WireValue::Bytes(s.as_bytes().to_vec())
@@ -910,8 +911,8 @@ mod tests {
     /* what a grant of `scopes` to main gives net worded as the grant logic refuses */
     fn granted(scopes: &[&str]) -> Held {
         let scopes: Vec<String> = scopes.iter().map(|scope| scope.to_string()).collect();
-        let refusal = crate::deps::perms::refusal("main", "net", &scopes);
-        Held::Scopes(Scopes::new(scopes, refusal))
+        let refusal = crate::engine::deps::perms::refusal("main", "net", &scopes);
+        Held::scoped(scopes, refusal)
     }
 
     #[test]
@@ -966,7 +967,7 @@ mod tests {
     #[test]
     fn an_unbounded_grant_reaches_any_host() {
         for url in ["http://evil.example/", "http://a.test/api/../secret", "ws://127.0.0.1:1/"] {
-            assert!(reach(&Held::All, &plain(url).unwrap()).is_ok(), "{url}");
+            assert!(reach(&Held::ALL, &plain(url).unwrap()).is_ok(), "{url}");
         }
     }
 

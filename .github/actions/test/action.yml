@@ -7,7 +7,7 @@ runs:
     - name: Deno
       uses: ./.github/actions/deno
 
-    # a 150MB Chromium, cached so only the first run pays the download
+    # a 150 MiB Chromium cached so only the first run pays the download
     - name: Cache Playwright browsers
       uses: actions/cache@v6
       with:

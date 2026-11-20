@@ -1,4 +1,4 @@
-use interpreter::embed::Limits;
+use interpreter::Limits;
 use interpreter::lib::Lang;
 use rig::{Rig, RUNTIME};
 use crate::common::{ran, TRY};
@@ -58,8 +58,6 @@ fn a_handler_is_looked_up_only_once_a_span_fails() {
 // a runtime of the rig's classes and codecs keeping lib's words for every failure
 struct Neutral;
 
-impl interpreter::lib::fmt::render::Style for Neutral {}
-
 impl interpreter::lang::Language for Neutral {
     const VERSION: u32 = 1;
     const POLICY: interpreter::lang::Policy = <Rig as interpreter::lang::Language>::POLICY;
@@ -71,15 +69,13 @@ impl interpreter::lang::Language for Neutral {
     const BUILT: interpreter::value::foreign::Built = <rig::Rig as interpreter::lang::Language>::BUILT;
     type Ops = ();
 
-    fn show(cx: &mut interpreter::lang::Cx<'_, '_>, v: interpreter::value::Val, mode: interpreter::lang::Mode) -> Result<String, interpreter::value::VmErr> { interpreter::lib::fmt::render::hook::<Self>(cx, v, mode) }
+    interpreter::lib::hooks!(Self; show);
 }
 
 impl Lang for Neutral {
-    const TREE: &'static interpreter::lib::lang::Tree = &rig::types::TREE;
+    fn class(c: interpreter::lib::fail::Class) -> &'static str { <Rig as Lang>::class(c) }
 
-    fn class(c: interpreter::lib::Class) -> &'static str { <Rig as Lang>::class(c) }
-
-    fn codec(name: &str) -> Option<interpreter::lib::lang::Codec> { <Rig as Lang>::codec(name) }
+    fn codec(name: &str) -> Option<interpreter::lib::Codec> { <Rig as Lang>::codec(name) }
 }
 
 const NEUTRAL_IO: &[interpreter::lang::Native] = &interpreter::lib::table![Neutral; "print" => interpreter::lib::io::print];

@@ -1,6 +1,6 @@
-use interpreter::embed::{Limits, VM};
-use interpreter::lang::{Acc, Args, Cont, Cx, Flow, Fold, Item, Native, Natives, Ret, Runtime, STEPS, Sent, Sig, Step, Then};
-use interpreter::value::{SchedulerStatus, Val, VmErr};
+use interpreter::{Limits, VM};
+use interpreter::lang::{Acc, Args, Cont, Cx, ErrKind, Flow, Fold, Item, Native, Natives, Ret, Runtime, Sent, Sig, Step, STEPS, Then};
+use interpreter::{SchedulerStatus, Val, VmErr};
 use rig::Rig;
 
 const STEPPED: &[Native] = &[
@@ -49,9 +49,9 @@ fn total(_: &mut Cx<'_, '_>, a: Args<'_>) -> Ret { Ok(Step::Drain { it: a.pos[0]
 fn sum_fold(acc: &mut Acc, _: &mut Cx<'_, '_>, item: Item) -> Result<Flow, VmErr> {
     match item {
         Item::Next(v) if v.is_int() => { acc.n += v.as_int(); Ok(Flow::More) }
-        Item::Next(_) => Err(VmErr::Type("total takes ints")),
+        Item::Next(_) => Err(VmErr::new(ErrKind::Type, "total takes ints")),
         Item::End(_) => Ok(Flow::Stop(Val::int(acc.n))),
-        Item::Called(_) => Ok(Flow::More),
+        _ => Ok(Flow::More),
     }
 }
 
@@ -61,7 +61,7 @@ fn first_fold(_: &mut Acc, cx: &mut Cx<'_, '_>, item: Item) -> Result<Flow, VmEr
     match item {
         Item::Next(v) => Ok(Flow::Stop(v)),
         Item::End(ret) => Err(cx.stop_iteration(ret)),
-        Item::Called(_) => Ok(Flow::More),
+        _ => Ok(Flow::More),
     }
 }
 
@@ -76,6 +76,7 @@ fn keys_fold(acc: &mut Acc, cx: &mut Cx<'_, '_>, item: Item) -> Result<Flow, VmE
         Item::Next(v) => Ok(Flow::Call(acc.v[0], v)),
         Item::Called(k) => { acc.items.push(k); Ok(Flow::More) }
         Item::End(_) => Ok(Flow::Stop(cx.new_list(core::mem::take(&mut acc.items))?)),
+        _ => Ok(Flow::More),
     }
 }
 
@@ -103,9 +104,9 @@ fn sums(_: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
 fn sums_fold(acc: &mut Acc, _: &mut Cx<'_, '_>, item: Item) -> Result<Flow, VmErr> {
     match item {
         Item::Next(v) if v.is_int() => { acc.f.0 += v.as_int() as f64; Ok(Flow::More) }
-        Item::Next(_) => Err(VmErr::Type("sums takes ints")),
+        Item::Next(_) => Err(VmErr::new(ErrKind::Type, "sums takes ints")),
         Item::End(_) => Ok(match next_of(acc) { Some(it) => Flow::Drain(it), None => Flow::Stop(Val::int(acc.f.0 as i64)) }),
-        Item::Called(_) => Ok(Flow::More),
+        _ => Ok(Flow::More),
     }
 }
 
@@ -143,6 +144,7 @@ fn chained_fold(acc: &mut Acc, cx: &mut Cx<'_, '_>, item: Item) -> Result<Flow, 
         Item::Next(v) => Ok(Flow::Call(acc.v[3], v)),
         Item::Called(k) => { acc.items.push(k); Ok(Flow::More) }
         Item::End(_) => Ok(match next_of(acc) { Some(it) => Flow::Drain(it), None => Flow::Stop(cx.new_list(core::mem::take(&mut acc.items))?) }),
+        _ => Ok(Flow::More),
     }
 }
 
@@ -155,9 +157,9 @@ fn words_fold(acc: &mut Acc, _: &mut Cx<'_, '_>, item: Item) -> Result<Flow, VmE
     match item {
         Item::Next(v) if v.is_float() => { acc.f.0 += v.as_float(); Ok(Flow::More) }
         Item::Next(v) if v.is_int() => { acc.f.0 += v.as_int() as f64; Ok(Flow::More) }
-        Item::Next(_) => Err(VmErr::Type("words takes numbers")),
+        Item::Next(_) => Err(VmErr::new(ErrKind::Type, "words takes numbers")),
         Item::End(_) => Ok(Flow::Stop(if acc.f.0 == 0.0 { Val::int(acc.n) } else { Val::float(acc.f.0 + acc.n as f64) })),
-        Item::Called(_) => Ok(Flow::More),
+        _ => Ok(Flow::More),
     }
 }
 
@@ -167,9 +169,9 @@ fn most(_: &mut Cx<'_, '_>, a: Args<'_>) -> Ret { Ok(Step::Drain { it: a.pos[0],
 fn most_fold(acc: &mut Acc, cx: &mut Cx<'_, '_>, item: Item) -> Result<Flow, VmErr> {
     match item {
         Item::Next(v) => { if acc.v[0].is_undef() || cx.lt(acc.v[0], v)? { acc.v[0] = v; } Ok(Flow::More) }
-        Item::End(_) if acc.v[0].is_undef() => Err(VmErr::Value("most of nothing")),
+        Item::End(_) if acc.v[0].is_undef() => Err(VmErr::new(ErrKind::Value, "most of nothing")),
         Item::End(_) => Ok(Flow::Stop(acc.v[0])),
-        Item::Called(_) => Ok(Flow::More),
+        _ => Ok(Flow::More),
     }
 }
 
@@ -183,14 +185,14 @@ fn wait(cx: &mut Cx<'_, '_>, _: Args<'_>) -> Ret {
 
 /* what `src` printed or its error with one event pushed at each wait */
 fn run(src: &str, events: &[&str]) -> Result<String, String> {
-    let (chunk, errors) = interpreter::code::compile_as::<Rig>(src);
+    let (chunk, errors) = interpreter::compile_as::<Rig>(src);
     assert!(errors.is_empty(), "{src}: {:?}", errors.iter().map(|e| &e.msg).collect::<Vec<_>>());
     let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
     let mut events = events.iter();
     loop {
         match vm.run() {
             Ok(_) => return Ok(vm.output_text()),
-            Err(VmErr::HostYield(SchedulerStatus::PendingEvent)) => match events.next() {
+            Err(e) if matches!(e.paused(), Some(SchedulerStatus::PendingEvent)) => match events.next() {
                 Some(e) => { vm.push_event(e).map_err(|e| e.to_string())?; }
                 None => return Err("waited past its events".into()),
             },
@@ -328,16 +330,16 @@ fn a_call_that_misses_a_signature_reads_in_the_runtimes_words() {
 #[test]
 fn a_native_value_survives_a_snapshot() {
     let src = "xs = [1]\npush = xs.append\nlen_of = apply\nwait()\npush(2)\nprint(xs, len_of(len, xs), push)";
-    let (chunk, _) = interpreter::code::compile_as::<Rig>(src);
+    let (chunk, _) = interpreter::compile_as::<Rig>(src);
     let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
-    assert!(matches!(vm.run(), Err(VmErr::HostYield(SchedulerStatus::PendingEvent))));
-    let blob = interpreter::embed::save(&vm, src, "").unwrap_or_else(|e| panic!("{e}"));
+    assert!(matches!(vm.run(), Err(e) if matches!(e.paused(), Some(SchedulerStatus::PendingEvent))));
+    let blob = interpreter::snapshot::save(&vm, src, "").unwrap_or_else(|e| panic!("{e}"));
     let mut back = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
-    interpreter::embed::restore(&mut back, &blob).unwrap_or_else(|e| panic!("{e}"));
+    interpreter::snapshot::restore(&mut back, &blob).unwrap_or_else(|e| panic!("{e}"));
     back.push_event("go").unwrap_or_else(|e| panic!("{e}"));
     back.run().unwrap_or_else(|e| panic!("{e}"));
     assert!(back.output_text().starts_with("[1, 2] 2 fn list::append bound at "), "{}", back.output_text());
     // another runtime refuses the blob
-    let mut bare = VM::with_limits(&chunk, Limits::sandbox());
-    assert!(interpreter::embed::restore(&mut bare, &blob).is_err_and(|e| e.contains("another runtime")));
+    let mut bare = VM::new(&chunk);
+    assert!(interpreter::snapshot::restore(&mut bare, &blob).is_err_and(|e| e.to_string().contains("another runtime")));
 }

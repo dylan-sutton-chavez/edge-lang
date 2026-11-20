@@ -33,7 +33,7 @@ interface NativeModuleResult {
     fns: NativeFn[]
 }
 
-const ABI_VERSION = 1;
+const PLUGIN_ABI = 1;
 
 /* plugin exports and host calls by the `baseId` of `register_native_module` */
 export const nativeTable: NativeFn[] = [];
@@ -140,12 +140,12 @@ export async function loadNativeModule(bytes: Uint8Array, interpreterExports: In
     // the CLI makes these checks in this order and so does this host
     if (!(instance.exports.memory instanceof WebAssembly.Memory)) throw new Error('it exports no memory');
     if (typeof instance.exports.__interpreter_abi_version !== 'function') {
-        throw new Error(`it is missing '__interpreter_abi_version() -> u32', see /reference/abi for the contract`);
+        throw new Error(`it is missing '__interpreter_abi_version() -> u32', see docs/08-plugins.mdx for the contract`);
     }
     const v = (instance.exports.__interpreter_abi_version as () => number)();
-    if (v !== ABI_VERSION) throw new Error(`it speaks ABI v${v}, this host expects v${ABI_VERSION}`);
+    if (!Number.isInteger(v) || v < 1 || v > PLUGIN_ABI) throw new Error(`it speaks ABI v${v}, this host serves v1 to v${PLUGIN_ABI}`);
     if (typeof instance.exports.__interpreter_alloc !== 'function') {
-        throw new Error(`it is missing '__interpreter_alloc(size: u32) -> *mut u8', see /reference/abi for the contract`);
+        throw new Error(`it is missing '__interpreter_alloc(size: u32) -> *mut u8', see docs/08-plugins.mdx for the contract`);
     }
 
     const names: string[] = [];

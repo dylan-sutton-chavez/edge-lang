@@ -1,7 +1,7 @@
 mod test {
     use interpreter::code::SSAChunk;
     use interpreter::value::meter::{Meter, set_budget};
-    use interpreter::embed::Limits;
+    use interpreter::Limits;
 
     fn compiled(src: &str) -> SSAChunk {
         // the parse skips what the lexer refused so its errors are checked apart
@@ -151,7 +151,8 @@ mod test {
     #[test]
     fn a_set_build_sizes_by_the_limit_and_not_the_memory_held() {
         use interpreter::value::meter::Paying;
-        use interpreter::value::{HeapPool, Val, ValSet};
+        use interpreter::Val;
+        use interpreter::value::{HeapPool, ValSet};
         const K: u64 = 0x517c_c1b7_2722_0a95;
         let inv = (0..6).fold(K, |x, _| x.wrapping_mul(2u64.wrapping_sub(K.wrapping_mul(x))));
         // ints sharing their low ten hash bits probe a sized and a grown table apart

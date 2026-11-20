@@ -4,25 +4,25 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-use interpreter::deps::{
-    NativeBinding, NoopResolver, Resolved, Resolver, partition_bindings,
-    Manifest, walk_up_dirs, dir_of, join_relative,
-};
-use interpreter::value::{HeapObj, HeapPool, Limits, Val, VmErr};
-use interpreter::code::{Diagnostic, Parser, SSAChunk};
-use interpreter::embed::VM;
-use interpreter::lang::Runtime;
-use interpreter::lexer::{lex_as, LexError, Spelling, Token};
+use interpreter::deps::{dir_of, join_relative, partition_bindings, walk_up_dirs, Manifest};
+use interpreter::{NativeBinding, NoopResolver, Resolved, Resolver};
+use interpreter::{Limits, Val, VmErr};
+use interpreter::value::{HeapObj, HeapPool};
+use interpreter::Diagnostic;
+use interpreter::code::{Parser, SSAChunk};
+use interpreter::VM;
+use interpreter::lang::{ErrKind, Runtime};
+use interpreter::lexer::{LexError, Spelling, Token, lex_as};
 
 /* the spelling every program of these suites is written in */
-pub type Spell = rig::Rig;
+pub(crate) type Spell = rig::Rig;
 
 /* a VM on `chunk` whose program runs through the reference runtime's natives */
-pub fn boot(chunk: &SSAChunk, limits: Limits) -> VM<'_> { VM::with_runtime(&rig::RUNTIME, chunk, limits) }
+pub(crate) fn boot(chunk: &SSAChunk, limits: Limits) -> VM<'_> { VM::with_runtime(&rig::RUNTIME, chunk, limits) }
 
 /* what `src` read as `S` prints under `runtime` trimmed or the words of the error that ends it */
-pub fn ran_as<S: Spelling>(runtime: &'static Runtime, src: &str) -> String {
-    let (chunk, errors) = interpreter::code::compile_as::<S>(src);
+pub(crate) fn ran_as<S: Spelling>(runtime: &'static Runtime, src: &str) -> String {
+    let (chunk, errors) = interpreter::compile_as::<S>(src);
     assert!(errors.is_empty(), "{src:?} reports {:?}", errors.iter().map(|d| &d.msg).collect::<Vec<_>>());
     let mut vm = VM::with_runtime(runtime, &chunk, Limits::sandbox());
     match vm.run() {
@@ -32,28 +32,28 @@ pub fn ran_as<S: Spelling>(runtime: &'static Runtime, src: &str) -> String {
 }
 
 /* the tokens of `src` and what its lexer reported */
-pub fn lex(src: &str) -> (Vec<Token>, Vec<LexError>) { lex_as::<Spell>(src) }
+pub(crate) fn lex(src: &str) -> (Vec<Token>, Vec<LexError>) { lex_as::<Spell>(src) }
 
 /* the parser of the tokens of `src` whose imports `resolver` answers */
-pub fn parser<I: Iterator<Item = Token>>(src: &str, tokens: I, resolver: Box<dyn Resolver>) -> Parser<'_, I, Spell> {
+pub(crate) fn parser<I: Iterator<Item = Token>>(src: &str, tokens: I, resolver: Box<dyn Resolver>) -> Parser<'_, I, Spell> {
     Parser::spelled(src, tokens, resolver)
 }
 
 /* `src` parsed with no imports and only the parser's diagnostics */
-pub fn parse(src: &str) -> (SSAChunk, Vec<Diagnostic>) { parser(src, lex(src).0.into_iter(), Box::new(NoopResolver)).parse() }
+pub(crate) fn parse(src: &str) -> (SSAChunk, Vec<Diagnostic>) { parser(src, lex(src).0.into_iter(), Box::new(NoopResolver)).parse() }
 
 /* `src` lexed parsed and folded as the engine compiles it */
-pub fn compile(src: &str) -> (SSAChunk, Vec<Diagnostic>) { interpreter::code::compile_as::<Spell>(src) }
+pub(crate) fn compile(src: &str) -> (SSAChunk, Vec<Diagnostic>) { interpreter::compile_as::<Spell>(src) }
 
 /* answers deferred call `id` with text the way `set_host_result_by_id` does for the wasm host */
-pub fn answer(vm: &mut VM, id: u64, text: &str) -> bool {
+pub(crate) fn answer(vm: &mut VM, id: u64, text: &str) -> bool {
     let val = vm.heap_mut().alloc(HeapObj::Str(text.into())).expect("the heap holds the answer");
     vm.inject_host_result_by_id(id, val)
 }
 
 /* raises `message` into deferred call `id` the way `set_host_error_by_id` does for the wasm host */
-pub fn fail(vm: &mut VM, id: u64, message: &str) -> bool {
-    vm.inject_host_error_by_id(id, VmErr::Raised(message.into()))
+pub(crate) fn fail(vm: &mut VM, id: u64, message: &str) -> bool {
+    vm.inject_host_error_by_id(id, VmErr::raised(message))
 }
 
 /* shared with child resolvers as the bridge shares its flat cache and in-flight set */
@@ -65,7 +65,7 @@ struct TestResolverState {
     in_flight: HashSet<String>,
 }
 
-pub struct TestResolver {
+pub(crate) struct TestResolver {
     state: Rc<RefCell<TestResolverState>>,
     in_flight_marker: Option<String>,
     dir: String, // where bare-name imports walk up from and empty for the entry script
@@ -80,7 +80,7 @@ impl Drop for TestResolver {
 }
 
 impl TestResolver {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             state: Rc::new(RefCell::new(TestResolverState::default())),
             in_flight_marker: None,
@@ -88,26 +88,26 @@ impl TestResolver {
         }
     }
 
-    pub fn with_native(self, spec: &str, bindings: Vec<NativeBinding>) -> Self {
+    pub(crate) fn with_native(self, spec: &str, bindings: Vec<NativeBinding>) -> Self {
         // split by export name convention as the real wasm host resolver does
         let (bindings, classes, consts) = partition_bindings(bindings);
         self.state.borrow_mut().modules.insert(
             spec.to_string(),
-            Resolved::Native { bindings, classes, consts, canonical: spec.to_string() },
+            Resolved::native(spec, bindings).classes(classes).consts(consts),
         );
         self
     }
 
-    pub fn with_code(self, spec: &str, src: &str) -> Self {
+    pub(crate) fn with_code(self, spec: &str, src: &str) -> Self {
         self.state.borrow_mut().modules.insert(
             spec.to_string(),
-            Resolved::Code { src: src.to_string(), canonical: spec.to_string() },
+            Resolved::code(src, spec),
         );
         self
     }
 
     /* adds an alias to the root manifest and calls accumulate */
-    pub fn with_alias(self, name: &str, target: &str) -> Self {
+    pub(crate) fn with_alias(self, name: &str, target: &str) -> Self {
         {
             let mut s = self.state.borrow_mut();
             let m = s.manifests.entry(String::new()).or_default();
@@ -117,7 +117,7 @@ impl TestResolver {
     }
 
     /* registers a manifest at `dir` where nearer manifests win for bare names */
-    pub fn with_manifest(self, dir: &str, imports: &[(&str, &str)], extends: Option<&str>) -> Self {
+    pub(crate) fn with_manifest(self, dir: &str, imports: &[(&str, &str)], extends: Option<&str>) -> Self {
         let imp = imports.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
         let m = Manifest { imports: imp, extends: extends.map(|s| s.to_string()), ..Manifest::default() };
         self.state.borrow_mut().manifests.insert(dir.to_string(), m);
@@ -222,23 +222,23 @@ impl TestResolver {
 
 /* exercises CallExtern dispatch and argument marshalling */
 fn add(_: &mut HeapPool, args: &[Val], _kw: Option<Val>) -> Result<Val, VmErr> {
-    if args.len() != 2 { return Err(VmErr::Type("add: expected 2 args")); }
-    let a = if args[0].is_int() { args[0].as_int() } else { return Err(VmErr::Type("add: arg 0 not int")); };
-    let b = if args[1].is_int() { args[1].as_int() } else { return Err(VmErr::Type("add: arg 1 not int")); };
+    if args.len() != 2 { return Err(VmErr::new(ErrKind::Type, "add: expected 2 args")); }
+    let a = if args[0].is_int() { args[0].as_int() } else { return Err(VmErr::new(ErrKind::Type, "add: arg 0 not int")); };
+    let b = if args[1].is_int() { args[1].as_int() } else { return Err(VmErr::new(ErrKind::Type, "add: arg 1 not int")); };
     Ok(Val::int(a + b))
 }
 
 /* checks nested calls when it wraps `add` */
 fn square(_: &mut HeapPool, args: &[Val], _kw: Option<Val>) -> Result<Val, VmErr> {
-    if args.len() != 1 { return Err(VmErr::Type("square: expected 1 arg")); }
-    let x = if args[0].is_int() { args[0].as_int() } else { return Err(VmErr::Type("square: arg not int")); };
+    if args.len() != 1 { return Err(VmErr::new(ErrKind::Type, "square: expected 1 arg")); }
+    let x = if args[0].is_int() { args[0].as_int() } else { return Err(VmErr::new(ErrKind::Type, "square: arg not int")); };
     Ok(Val::int(x * x))
 }
 
 /* a heap string of length `n` allocated from inside an extern */
 fn make_str(heap: &mut HeapPool, args: &[Val], _kw: Option<Val>) -> Result<Val, VmErr> {
-    if args.len() != 1 { return Err(VmErr::Type("make_str: expected 1 arg")); }
-    let n = if args[0].is_int() { args[0].as_int() } else { return Err(VmErr::Type("make_str: arg not int")); };
+    if args.len() != 1 { return Err(VmErr::new(ErrKind::Type, "make_str: expected 1 arg")); }
+    let n = if args[0].is_int() { args[0].as_int() } else { return Err(VmErr::new(ErrKind::Type, "make_str: arg not int")); };
     let s: String = "x".repeat(n.max(0) as usize);
     heap.alloc(HeapObj::Str(s))
 }
@@ -257,13 +257,13 @@ fn const_42(_: &mut HeapPool, _args: &[Val], _kw: Option<Val>) -> Result<Val, Vm
 
 /* always fails to exercise how extern errors propagate through dispatch */
 fn boom(_: &mut HeapPool, _args: &[Val], _kw: Option<Val>) -> Result<Val, VmErr> {
-    Err(VmErr::Runtime("boom from extern"))
+    Err(VmErr::new(ErrKind::Runtime, "boom from extern"))
 }
 
 /* a float round trip through an extern with no int coercion */
 fn double_f(_: &mut HeapPool, args: &[Val], _kw: Option<Val>) -> Result<Val, VmErr> {
     if args.len() != 1 || !args[0].is_float() {
-        return Err(VmErr::Type("double_f: expected one float arg"));
+        return Err(VmErr::new(ErrKind::Type, "double_f: expected one float arg"));
     }
     Ok(Val::float(args[0].as_float() * 2.0))
 }
@@ -271,14 +271,14 @@ fn double_f(_: &mut HeapPool, args: &[Val], _kw: Option<Val>) -> Result<Val, VmE
 /* bool tags survive the extern dispatch */
 fn negate(_: &mut HeapPool, args: &[Val], _kw: Option<Val>) -> Result<Val, VmErr> {
     if args.len() != 1 || !args[0].is_bool() {
-        return Err(VmErr::Type("negate: expected one bool arg"));
+        return Err(VmErr::new(ErrKind::Type, "negate: expected one bool arg"));
     }
     Ok(Val::bool(!args[0].as_bool()))
 }
 
 /* exercises the PendingHostCall yield path through `call_extern` */
 fn host_defer(_: &mut HeapPool, _args: &[Val], _kw: Option<Val>) -> Result<Val, VmErr> {
-    Err(VmErr::HostCallDeferred)
+    Err(VmErr::deferred())
 }
 
 /* a zero-arg export materialised at init and bound as a module attribute */
@@ -289,16 +289,16 @@ fn const_pi(_: &mut HeapPool, _args: &[Val], _kw: Option<Val>) -> Result<Val, Vm
 /* mixed argument types check that each one decodes on its own */
 fn pick(_: &mut HeapPool, args: &[Val], _kw: Option<Val>) -> Result<Val, VmErr> {
     if args.len() != 3 || !args[0].is_bool() || !args[1].is_int() || !args[2].is_int() {
-        return Err(VmErr::Type("pick: expected (bool, int, int)"));
+        return Err(VmErr::new(ErrKind::Type, "pick: expected (bool, int, int)"));
     }
     Ok(if args[0].as_bool() { args[2] } else { args[1] })
 }
 
 /* `Box(v)` stores `v` on self and `get` reads it back through the self convention */
 fn class_box_init(heap: &mut HeapPool, args: &[Val], _kw: Option<Val>) -> Result<Val, VmErr> {
-    let [inst, v] = args else { return Err(VmErr::Type("Box: expected (self, value)")); };
+    let [inst, v] = args else { return Err(VmErr::new(ErrKind::Type, "Box: expected (self, value)")); };
     let Some(attrs) = heap.fields(*inst) else {
-        return Err(VmErr::Type("Box: self is not an instance"));
+        return Err(VmErr::new(ErrKind::Type, "Box: self is not an instance"));
     };
     let attrs = attrs.clone();
     let key = heap.alloc(HeapObj::Str("v".into()))?;
@@ -307,20 +307,20 @@ fn class_box_init(heap: &mut HeapPool, args: &[Val], _kw: Option<Val>) -> Result
 }
 
 fn class_box_get(heap: &mut HeapPool, args: &[Val], _kw: Option<Val>) -> Result<Val, VmErr> {
-    let [inst] = args else { return Err(VmErr::Type("Box.get: expected (self)")); };
+    let [inst] = args else { return Err(VmErr::new(ErrKind::Type, "Box.get: expected (self)")); };
     let Some(attrs) = heap.fields(*inst) else {
-        return Err(VmErr::Type("Box.get: self is not an instance"));
+        return Err(VmErr::new(ErrKind::Type, "Box.get: self is not an instance"));
     };
     let attrs = attrs.clone();
     let key = heap.alloc(HeapObj::Str("v".into()))?;
     let out = attrs.borrow().get(&key, heap).copied();
-    out.ok_or(VmErr::Attribute("Box.get: 'v' not set".into()))
+    out.ok_or(VmErr::new(ErrKind::Attribute, "Box.get: 'v' not set"))
 }
 
 /* the runner turns each fixture into a NativeBinding */
 type NativeFn = fn(&mut HeapPool, &[Val], Option<Val>) -> Result<Val, VmErr>;
 
-pub fn test_native(name: &str) -> Option<NativeBinding> {
+pub(crate) fn test_native(name: &str) -> Option<NativeBinding> {
     let func: NativeFn = match name {
         "add" => add,
         "square" => square,
@@ -342,25 +342,25 @@ pub fn test_native(name: &str) -> Option<NativeBinding> {
     Some(NativeBinding::from_fn(name, func))
 }
 // where two chunks part with each name of `a` renamed as `b` spells it
-pub fn differ(a: &SSAChunk, b: &SSAChunk, at: &str, rename: &dyn Fn(&str) -> String) -> Option<String> {
-    let ins = |c: &SSAChunk| c.instructions.iter().map(|i| (i.opcode, i.operand)).collect::<Vec<_>>();
-    let names: Vec<String> = a.names.iter().map(|n| rename(n)).collect();
-    if names != b.names { return Some(format!("{at} names {names:?} against {:?}", b.names)); }
-    if a.constants != b.constants { return Some(format!("{at} constants {:?} against {:?}", a.constants, b.constants)); }
+pub(crate) fn differ(a: &SSAChunk, b: &SSAChunk, at: &str, rename: &dyn Fn(&str) -> String) -> Option<String> {
+    let ins = |c: &SSAChunk| c.instructions().iter().map(|i| (i.opcode, i.operand)).collect::<Vec<_>>();
+    let names: Vec<String> = a.names().iter().map(|n| rename(n)).collect();
+    if names != b.names() { return Some(format!("{at} names {names:?} against {:?}", b.names())); }
+    if a.constants() != b.constants() { return Some(format!("{at} constants {:?} against {:?}", a.constants(), b.constants())); }
     if ins(a) != ins(b) { return Some(format!("{at} instructions differ")); }
-    if (a.functions.len(), a.classes.len(), a.bases, a.is_generator) != (b.functions.len(), b.classes.len(), b.bases, b.is_generator) {
+    if (a.functions().len(), a.classes().len(), a.bases(), a.is_generator()) != (b.functions().len(), b.classes().len(), b.bases(), b.is_generator()) {
         return Some(format!("{at} holds other bodies"));
     }
-    for (i, (f, g)) in a.functions.iter().zip(&b.functions).enumerate() {
+    for (i, (f, g)) in a.bodies().iter().zip(b.bodies()).enumerate() {
         let params: Vec<String> = f.0.iter().map(|n| rename(n)).collect();
         if (&params, f.2, f.3) != (&g.0, g.2, g.3) { return Some(format!("{at} function {i} has another signature")); }
         if let Some(d) = differ(&f.1, &g.1, &format!("{at} function {i}"), rename) { return Some(d); }
     }
-    a.classes.iter().zip(&b.classes).enumerate().find_map(|(i, (c, d))| differ(c, d, &format!("{at} class {i}"), rename))
+    a.classes().iter().zip(b.classes()).enumerate().find_map(|(i, (c, d))| differ(c, d, &format!("{at} class {i}"), rename))
 }
 
 // two chunks are one program with errors on both sides or neither
-pub fn same_program(a: &(SSAChunk, Vec<String>), b: &(SSAChunk, Vec<String>)) -> Result<(), String> {
+pub(crate) fn same_program(a: &(SSAChunk, Vec<String>), b: &(SSAChunk, Vec<String>)) -> Result<(), String> {
     let ((a, ea), (b, eb)) = (a, b);
     if ea.is_empty() != eb.is_empty() { return Err(format!("errors {ea:?} against {eb:?}")); }
     differ(a, b, "module", &|n| n.to_string()).map_or(Ok(()), Err)

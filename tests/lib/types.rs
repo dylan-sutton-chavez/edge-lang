@@ -1,9 +1,11 @@
-use interpreter::value::{DictMap, HeapObj, HeapPool, Val};
-use interpreter::lib::lang::Tree;
+use interpreter::Val;
+use interpreter::value::{DictMap, HeapObj, HeapPool};
+use interpreter::lib::Classes;
 use rig::Rig;
 use rig::types::NAMES;
 
-const TREE: &Tree = &rig::types::TREE;
+// the classes the type tests walk as the rig's names give them
+static TREE: Classes = Classes::of::<Rig>();
 
 // the builtin types a load names besides the exceptions
 const PLAIN: [&str; 12] = ["int", "float", "text", "bytes", "bytearray", "bool", "list", "tuple", "record", "set", "range", "type"];
@@ -19,7 +21,7 @@ fn place(name: &str) -> Option<usize> { TREE.place(name) }
 
 fn derives(name: &str, ancestor: &str) -> bool { TREE.derives(name, ancestor) }
 
-fn match_exc(heap: &HeapPool, exc: Val, ty: Val) -> Result<bool, interpreter::value::VmErr> { interpreter::lib::types::match_exc::<Rig>(heap, exc, ty) }
+fn match_exc(heap: &HeapPool, exc: Val, ty: Val) -> Result<bool, interpreter::VmErr> { interpreter::lib::types::handles::<Rig>(heap, exc, ty) }
 
 #[test]
 fn every_exception_reaches_a_root_without_a_cycle() {

@@ -5,13 +5,13 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Build language runtimes in Rust: a single-pass parser to SSA bytecode, a register VM with an op budget, an exact memory meter, a GC and snapshots, with kernels, Lox and a plugin kit."
+description = "Build language runtimes in Rust on a register VM with op budgets, exact memory metering, a GC and snapshots, plus kernels, a WebAssembly plugin kit and a CLI kit."
 documentation = "https://docs.rs/interpreter"
 readme = "README.md"
-keywords = ["interpreter", "bytecode", "vm", "wasm", "language"]
-categories = ["compilers", "wasm", "no-std"]
+keywords = ["bytecode", "vm", "wasm", "language", "runtime"]
+categories = ["compilers", "wasm", "no-std", "command-line-utilities"]
 # besides src the cli features compile these files and the js host that make js writes
-include = ["/src/**/*.rs", "/src/cli/templates/*.html", "/build.rs", "/cli/setup/uninstall.sh", "/examples/net/net.rs", "/js/dist/**/*.js", "/README.md", "/LICENSE.md"]
+include = ["/src/**/*.rs", "/src/engine/cli/templates/*.html", "/build.rs", "/cli/setup/uninstall.sh", "/examples/net/net.rs", "/js/dist/**/*.js", "/README.md", "/LICENSE.md"]
 autotests = false
 autobins = false
 autoexamples = false
@@ -80,12 +80,12 @@ name = "library"
 path = "tests/cli/library.rs"
 required-features = ["cli"]
 
-# the lines a native run executed which the cli-coverage feature writes out
+# the lines a native run executed which a cli build with coverage writes out
 [[test]]
 name = "coverage"
 path = "tests/cli/coverage.rs"
 harness = false
-required-features = ["cli-coverage", "cli-run"]
+required-features = ["coverage", "cli-run"]
 
 # the interpreter composition over the rig's wasm for plugin and net calls lox cannot write
 [[test]]
@@ -100,19 +100,32 @@ name = "runner"
 path = "examples/cli/runner.rs"
 required-features = ["cli-wasm", "cli-run", "cli-test"]
 
-# the commands compiled again over the public api alone
-[[example]]
-name = "decoupled"
-path = "examples/cli/decoupled.rs"
-required-features = ["cli-kit"]
-
-# unsafe code lives in src/unsafe.rs alone which allows it for itself
+# unsafe code lives in src/engine/unsafe.rs alone which allows it for itself
 [lints.rust]
 unsafe_code = "deny"
 unsafe_op_in_unsafe_fn = "deny"
+# pub means exported and a public signature shows only types with a path
+unreachable_pub = "deny"
+unnameable_types = "deny"
+unexpected_cfgs = "deny"
+
+# the readme the crate docs include links nothing that fails to resolve
+[lints.rustdoc]
+broken_intra_doc_links = "deny"
+private_intra_doc_links = "deny"
+
+# an exported enum or struct is non_exhaustive or frozen until the next major
+[lints.clippy]
+exhaustive_enums = "deny"
+exhaustive_structs = "deny"
+
+# a minor release adds no exhaustive enum or struct since one could never grow again
+[package.metadata.cargo-semver-checks.lints]
+exhaustive_enum_added = { level = "deny", required-update = "major" }
+exhaustive_struct_added = { level = "deny", required-update = "major" }
 
 [package.metadata.docs.rs]
-features = ["full", "plugin", "cli"]
+features = ["full", "plugin", "cli", "exports", "coverage"]
 
 # shear follows no path attribute so it never reads the net module of examples/net that uses tungstenite
 [package.metadata.cargo-shear]
@@ -122,7 +135,7 @@ ignored = ["tungstenite"]
 default = ["std"]
 std = []
 # every module of `interpreter::lib`
-full = ["bytes", "data", "date", "io", "iter", "map", "num", "reflect", "seq", "set", "spec", "text", "types"]
+full = ["bytes", "data", "date", "io", "iter", "map", "num", "seq", "set", "spec", "text", "types"]
 # `interpreter::lib` whose modules each pull in the modules whose helpers they call
 lib = []
 bytes = ["lib", "iter", "num"]
@@ -132,37 +145,32 @@ io = ["lib"]
 iter = ["lib"]
 map = ["lib", "iter"]
 num = ["lib", "iter"]
-reflect = ["lib"]
 seq = ["lib", "iter", "num"]
 set = ["lib", "iter"]
 spec = ["lib", "num"]
 text = ["lib", "bytes", "iter", "num"]
+# the type tests and the attribute kernels of `lib::types` and `lib::reflect`
 types = ["lib"]
 # `interpreter::plugin` for writing the WebAssembly plugins a program imports
-plugin = ["dep:linked_list_allocator", "dep:lol_alloc"]
-# records each executed instruction for `VM::ran` with method calls unfused to keep the compiler's ips
+plugin = ["dep:lol_alloc"]
+# records each executed instruction for `VM::ran` with method calls unfused and a cli build writes the lines of each native run where INTERPRETER_COVERAGE names
 coverage = []
-# the interpreter.wasm wrapper of exports and host imports plus its allocator and panic handler
-runtime = []
-# the grant logic exported for the hosts that read it through interpreter.wasm
-perms = []
+# the interpreter.wasm wrapper of exports and host imports with the grant logic hosts read plus its allocator and panic handler
+exports = []
 # the modules behind the stable API for the engine's own tests and tools
-internals = []
-# a padding static that shifts static data for make bench-layout
-layout = []
+unstable-internals = []
+# a padding static that shifts static data for make bench-layout and no stable API
+unstable-layout = []
 # the interpreter binary and `interpreter::cli` with every command the binary wires
-cli = ["std", "cli-kit", "cli-actors", "cli-actors-server", "cli-build", "cli-docs", "cli-files", "cli-native", "cli-init", "cli-net", "cli-packages", "cli-perms", "cli-run", "cli-serve", "cli-test", "cli-uninstall", "cli-web"]
+cli = ["std", "cli-kit", "cli-actors", "cli-build", "cli-docs", "cli-files", "cli-init", "cli-library", "cli-net", "cli-packages", "cli-perms", "cli-run", "cli-serve", "cli-test", "cli-uninstall", "cli-web"]
 # the kit a composition builds a command line from with no command wired
 cli-kit = ["std", "dep:anyhow", "dep:clap", "dep:serde", "dep:serde_json", "dep:ureq"]
-cli-actors = ["cli-wasm", "dep:serde_yaml_ng", "dep:slab"]
-# the live server an actor pool becomes with its ingress control endpoint and durable log
-cli-actors-server = ["cli-actors", "dep:mio", "dep:signal-hook"]
+# actor pools and the live server a pool becomes with its ingress control endpoint and durable log
+cli-actors = ["cli-wasm", "dep:serde_yaml_ng", "dep:slab", "dep:mio", "dep:signal-hook"]
 # a bundle or a binary or a dist, each carrying the pages and the browser host of a project
 cli-build = ["cli-docs", "cli-web"]
 # the pages a package ships held to the docs convention
 cli-docs = ["cli-kit"]
-# the lines each native run executed written where INTERPRETER_COVERAGE names
-cli-coverage = ["cli-kit", "coverage"]
 # reads of the local files a grant names under the package that asks
 cli-files = ["cli-kit", "dep:flate2"]
 cli-init = ["cli-kit"]
@@ -180,13 +188,12 @@ cli-web = ["cli-kit", "dep:headless_chrome", "dep:tiny_http"]
 # runtimes as wasm modules wasmtime runs and the plugins a project declares
 cli-wasm = ["cli-kit", "dep:wasmtime"]
 # runtimes as native libraries a child process loads for a project that declares one
-cli-native = ["cli-wasm", "dep:libloading"]
+cli-library = ["cli-wasm", "dep:libloading"]
 
 [dependencies]
 hashbrown = { workspace = true }
 itoa = { workspace = true }
 libm = { workspace = true }
-linked_list_allocator = { version = "0.10", default-features = false, optional = true }
 # the cli features alone pull in what follows so an engine build compiles none of it
 anyhow = { version = "1", optional = true }
 clap = { version = "4", features = ["derive"], optional = true }
@@ -227,7 +234,7 @@ lol_alloc = { workspace = true, optional = true }
 # test-only deps of the case runner that the release `interpreter.wasm` never pulls in
 [dev-dependencies]
 # the tests run every module and the plugin kit of this crate
-interpreter = { path = ".", features = ["full", "plugin"] }
+interpreter = { path = ".", features = ["full", "plugin", "unstable-internals"] }
 hashbrown = { workspace = true, features = ["serde"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -250,7 +257,7 @@ default-members = [".", "tests/rig", "examples/lox"]
 resolver = "2"
 
 [workspace.package]
-version = "1.2.0"
+version = "1.0.0"
 edition = "2024"
 rust-version = "1.98"
 license = "Apache-2.0"

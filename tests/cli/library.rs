@@ -173,7 +173,7 @@ fn a_native_restore_refuses_a_snapshot_another_runtime_saved_as_wasm_does() {
     let saved = run(&dir, &["run", "main.lox", "--runtime", WASM, "--save-state", "state.bin"]);
     assert!(saved.status.success(), "{}", text(&saved.stderr));
     let mut other = std::fs::read(dir.join("state.bin")).unwrap();
-    other[interpreter::embed::RUNTIME_AT] ^= 0xff;
+    other[interpreter::snapshot::RUNTIME_AT] ^= 0xff;
     std::fs::write(dir.join("other.bin"), other).unwrap();
     let lib = native("lox");
     for runtime in [["--runtime", WASM], ["--runtime-native", lib.as_str()]] {

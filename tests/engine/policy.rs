@@ -1,8 +1,9 @@
 mod test {
-    use interpreter::lang::{Cx, Descriptor, Falsy, Front, IntDiv, IntMod, Language, Mode, NegPow, Names, Natives, Policy, Runtime, ZeroDiv};
+    use interpreter::lang::{Cx, Descriptor, Falsy, Front, IntDiv, IntMod, Language, Names, Natives, NegPow, Policy, Runtime, Show, ZeroDiv};
     use interpreter::lexer::{Spelling, Syntax};
     use interpreter::value::foreign::Kind;
-    use interpreter::value::{HeapPool, Val, VmErr};
+    use interpreter::{Val, VmErr};
+    use interpreter::value::HeapPool;
     use rig::Rig;
     use rig::natives::{ARRAY, BUFFER, BYTES, CONVERT, DICT, FLOAT, FOLDS, INT, IO, ITER, LIST, LIST_SORT, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
 
@@ -37,14 +38,12 @@ mod test {
 
     impl Language for Rules {
         const VERSION: u32 = 1;
-        const POLICY: Policy = Policy {
-            int_div: IntDiv::Trunc,
-            int_mod: IntMod::Truncated,
-            zero_div: ZeroDiv::Ieee,
-            neg_pow: NegPow::Error,
-            falsy: Falsy::NIL.or(Falsy::FALSE),
-            ..Rig::POLICY
-        };
+        const POLICY: Policy = Rig::POLICY
+            .int_div(IntDiv::Trunc)
+            .int_mod(IntMod::Truncated)
+            .zero_div(ZeroDiv::Ieee)
+            .neg_pow(NegPow::Error)
+            .falsy(Falsy::NIL.or(Falsy::FALSE));
         const NATIVES: &'static Natives = &NATIVES;
         const NAMES: &'static Names = &rig::NAMES;
         const FRONT: Front = Front::spelled::<Rules>();
@@ -53,7 +52,7 @@ mod test {
         const BUILT: interpreter::value::foreign::Built = <rig::Rig as Language>::BUILT;
         type Ops = ();
 
-        fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Mode) -> Result<String, VmErr> { <Rig as Language>::show(cx, v, mode) }
+        fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Show) -> Result<String, VmErr> { <Rig as Language>::show(cx, v, mode) }
 
         fn format(cx: &mut Cx<'_, '_>, v: Val, spec: &str) -> Result<String, VmErr> { <Rig as Language>::format(cx, v, spec) }
 
@@ -66,8 +65,8 @@ mod test {
 
     #[test]
     fn a_runtime_that_states_other_rules_runs_a_loop_of_its_own() {
-        assert!(!Rules::POLICY.loops_as(&Policy::ENGINE) && !Floors::POLICY.loops_as(&Policy::ENGINE));
-        assert!(Rig::POLICY.loops_as(&Policy::ENGINE));
+        assert!(!Rules::POLICY.loops_as(&Policy::PLAIN) && !Floors::POLICY.loops_as(&Policy::PLAIN));
+        assert!(Rig::POLICY.loops_as(&Policy::PLAIN));
     }
 
     #[test]
@@ -83,19 +82,19 @@ mod test {
     // the folder rounds constants by the runtime's rule and leaves no op
     #[test]
     fn the_folder_rounds_constants_by_the_runtime_rule() {
-        let (chunk, errors) = interpreter::code::compile_as::<Rules>("print(-7 ~/ 2, -7 % 2)\n");
+        let (chunk, errors) = interpreter::compile_as::<Rules>("print(-7 ~/ 2, -7 % 2)\n");
         assert!(errors.is_empty());
-        let left: Vec<_> = chunk.instructions.iter().map(|i| i.opcode).filter(|&op| matches!(op, interpreter::code::OpCode::FloorDiv | interpreter::code::OpCode::Mod)).collect();
+        let left: Vec<_> = chunk.instructions().iter().map(|i| i.opcode).filter(|&op| matches!(op, interpreter::code::OpCode::FloorDiv | interpreter::code::OpCode::Mod)).collect();
         assert!(left.is_empty(), "the folder left {left:?}");
-        let folded: Vec<_> = chunk.constants.iter().filter_map(|c| match c { interpreter::code::Value::Int(i) => Some(*i), _ => None }).collect();
+        let folded: Vec<_> = chunk.constants().iter().filter_map(|c| match c { interpreter::code::Constant::Int(i) => Some(*i), _ => None }).collect();
         assert!(folded.contains(&-3) && folded.contains(&-1) && !folded.contains(&-4), "{folded:?}");
-        let (engine, _) = interpreter::code::compile_as::<Rig>("print(-7 ~/ 2, -7 % 2)\n");
-        let truncated: Vec<_> = engine.constants.iter().filter_map(|c| match c { interpreter::code::Value::Int(i) => Some(*i), _ => None }).collect();
+        let (engine, _) = interpreter::compile_as::<Rig>("print(-7 ~/ 2, -7 % 2)\n");
+        let truncated: Vec<_> = engine.constants().iter().filter_map(|c| match c { interpreter::code::Constant::Int(i) => Some(*i), _ => None }).collect();
         assert!(truncated.contains(&-3) && truncated.contains(&-1) && !truncated.contains(&-4), "{truncated:?}");
-        let (floors, _) = interpreter::code::compile_as::<Floors>("print(-7 ~/ 2, -7 % 2)\n");
-        let left: Vec<_> = floors.instructions.iter().map(|i| i.opcode).filter(|&op| matches!(op, interpreter::code::OpCode::FloorDiv | interpreter::code::OpCode::Mod)).collect();
+        let (floors, _) = interpreter::compile_as::<Floors>("print(-7 ~/ 2, -7 % 2)\n");
+        let left: Vec<_> = floors.instructions().iter().map(|i| i.opcode).filter(|&op| matches!(op, interpreter::code::OpCode::FloorDiv | interpreter::code::OpCode::Mod)).collect();
         assert!(left.is_empty(), "the folder left {left:?}");
-        let floored: Vec<_> = floors.constants.iter().filter_map(|c| match c { interpreter::code::Value::Int(i) => Some(*i), _ => None }).collect();
+        let floored: Vec<_> = floors.constants().iter().filter_map(|c| match c { interpreter::code::Constant::Int(i) => Some(*i), _ => None }).collect();
         assert!(floored.contains(&-4) && floored.contains(&1), "{floored:?}");
     }
 
@@ -169,7 +168,7 @@ mod test {
 
     impl Language for Strict {
         const VERSION: u32 = 1;
-        const POLICY: Policy = Policy { bool_is_int: false, neg_index: false, ..Rig::POLICY };
+        const POLICY: Policy = Rig::POLICY.bool_is_int(false).neg_index(false);
         const NATIVES: &'static Natives = &STRICT_NATIVES;
         const NAMES: &'static Names = &rig::NAMES;
         const FRONT: Front = Front::spelled::<Strict>();
@@ -178,7 +177,7 @@ mod test {
         const BUILT: interpreter::value::foreign::Built = <rig::Rig as Language>::BUILT;
         type Ops = ();
 
-        fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Mode) -> Result<String, VmErr> { <Rig as Language>::show(cx, v, mode) }
+        fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Show) -> Result<String, VmErr> { <Rig as Language>::show(cx, v, mode) }
 
         fn format(cx: &mut Cx<'_, '_>, v: Val, spec: &str) -> Result<String, VmErr> { <Rig as Language>::format(cx, v, spec) }
 
@@ -261,7 +260,7 @@ mod test {
 
     impl Language for Floors {
         const VERSION: u32 = 1;
-        const POLICY: Policy = Policy { int_mod: IntMod::Floored, falsy: Falsy::NIL.or(Falsy::FALSE).or(Falsy::ZERO).or(Falsy::EMPTY), ..Rig::POLICY };
+        const POLICY: Policy = Rig::POLICY.int_mod(IntMod::Floored).falsy(Falsy::NIL.or(Falsy::FALSE).or(Falsy::ZERO).or(Falsy::EMPTY));
         const NATIVES: &'static Natives = &FLOORS_NATIVES;
         const NAMES: &'static Names = &rig::NAMES;
         const FRONT: Front = Front::spelled::<Floors>();
@@ -270,7 +269,7 @@ mod test {
         const BUILT: interpreter::value::foreign::Built = <rig::Rig as Language>::BUILT;
         type Ops = ();
 
-        fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Mode) -> Result<String, VmErr> { <Rig as Language>::show(cx, v, mode) }
+        fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Show) -> Result<String, VmErr> { <Rig as Language>::show(cx, v, mode) }
 
         fn format(cx: &mut Cx<'_, '_>, v: Val, spec: &str) -> Result<String, VmErr> { <Rig as Language>::format(cx, v, spec) }
 

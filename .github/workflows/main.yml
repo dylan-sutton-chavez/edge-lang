@@ -118,10 +118,37 @@ jobs:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/bench
 
+  # holds every public item to tests/api.txt and tests/api-wasm.txt on the nightly the Makefile pins
+  api:
+    name: API
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+
+      # the pin lives in the Makefile alone so a bump edits one line
+      - name: Toolchain (api nightly)
+        run: rustup toolchain install "$(sed -n 's/^API_NIGHTLY := //p' Makefile)" --profile minimal --target wasm32-unknown-unknown
+
+      # no prebuilt manifest of its own so install-action takes it through cargo-binstall
+      - name: Install cargo-public-api
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-public-api@0.52.0
+
+      # the cli feature embeds the js host which make api builds first
+      - name: Deno
+        uses: ./.github/actions/deno
+
+      - name: API
+        run: make api
+
   # pushes only, the tested parts merged into the one tree a deploy takes, and a tag attaches it to its release
   tree:
     name: Tree
-    needs: [test, bench]
+    needs: [test, bench, api]
     if: github.event_name == 'push'
     runs-on: ubuntu-26.04
     permissions:
@@ -178,11 +205,35 @@ jobs:
       - name: The tag is the version
         run: test "v$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "interpreter") | .version')" = "$GITHUB_REF_NAME"
 
-      # a version that breaks the api of the last release without a new major never ships
-      - uses: taiki-e/install-action@cargo-semver-checks
+      # a name with no release on crates.io yet has nothing to check against
+      - name: Baseline
+        id: baseline
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' https://index.crates.io/in/te/interpreter)
+          case "$code" in
+            200) echo "found=true" >> "$GITHUB_OUTPUT" ;;
+            404) echo "found=false" >> "$GITHUB_OUTPUT"; echo "no release of interpreter on crates.io so the semver checks skip" ;;
+            *) echo "the crates.io index answered $code"; exit 1 ;;
+          esac
 
+      # a version that breaks the api of the last release without a new major never ships
+      - name: Install cargo-semver-checks
+        if: steps.baseline.outputs.found == 'true'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-semver-checks@0.51.0
+
+      # every feature but the unstable ones on the host
       - name: The version holds to the API
-        run: cargo semver-checks -p interpreter --all-features
+        if: steps.baseline.outputs.found == 'true'
+        run: cargo semver-checks -p interpreter
+
+      # wasm32 apart since its impls differ and cap-lints allow hides its crate types
+      - name: The version holds to the API on wasm32
+        if: steps.baseline.outputs.found == 'true'
+        env:
+          RUSTFLAGS: --cap-lints=warn
+        run: cargo semver-checks -p interpreter --target wasm32-unknown-unknown --only-explicit-features --features full,plugin,exports
 
       - name: Publish
         env:

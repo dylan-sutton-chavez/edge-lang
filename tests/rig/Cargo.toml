@@ -15,7 +15,11 @@ doctest = false
 default = ["std"]
 std = ["interpreter/std"]
 # builds rig.wasm with the engine's exports so the cli tests run what lox cannot write
-web = ["interpreter/runtime", "interpreter/perms"]
+web = ["interpreter/exports"]
 
 [dependencies]
-interpreter = { path = "../..", default-features = false, features = ["bytes", "data", "date", "io", "iter", "map", "num", "reflect", "seq", "set", "spec", "text", "types"] }
+interpreter = { path = "../..", default-features = false, features = ["bytes", "data", "date", "io", "iter", "map", "num", "seq", "set", "spec", "text", "types"] }
+
+# its tests build the engine's error facts which only the internals build lets a crate write
+[dev-dependencies]
+interpreter = { path = "../..", default-features = false, features = ["unstable-internals"] }

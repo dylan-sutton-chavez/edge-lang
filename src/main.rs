@@ -1,7 +1,8 @@
 #![allow(clippy::disallowed_methods, clippy::disallowed_types)]
 
-use interpreter::cli::cmd::{actors, build, init, pkg, run, serve, test, uninstall};
-use interpreter::cli::{docs, files, manifest, net, perms, Kit};
+use interpreter::cli::cmd::{Actor, Add, Build, Init, Lock, Remove, Run, Serve, Test, Uninstall};
+use interpreter::cli::host::{Files, Net};
+use interpreter::cli::{Kit, Perms, DOCS_FIELD, MANIFEST_FIELDS};
 use std::sync::Arc;
 
 /* the interpreter binary as one composition of the kit over the runtime each project declares */
@@ -9,22 +10,21 @@ fn interpreter() -> Kit {
     Kit::per_project("interpreter", env!("CARGO_PKG_VERSION"))
         .site("github.com/dylan-sutton-chavez/interpreter")
         .upgrade("cargo install interpreter --features cli")
-        .command(run::Run)
-        .command(build::Build)
-        .command(actors::Actor)
-        .command(serve::Serve)
-        .command(test::Test)
-        .command(init::Init)
-        .command(pkg::Add)
-        .command(pkg::Remove)
-        .command(pkg::Lock)
-        .command(uninstall::Uninstall)
-        .fields(manifest::FIELDS)
-        .field(docs::FIELD)
-        .field(perms::FIELD)
-        .module(Arc::new(net::Net))
-        .module(Arc::new(files::Files))
-        .access(Arc::new(perms::Perms))
+        .command(Run)
+        .command(Build)
+        .command(Actor)
+        .command(Serve)
+        .command(Test)
+        .command(Init)
+        .command(Add)
+        .command(Remove)
+        .command(Lock)
+        .command(Uninstall)
+        .fields(MANIFEST_FIELDS)
+        .field(DOCS_FIELD)
+        .module(Arc::new(Net))
+        .module(Arc::new(Files))
+        .access(Arc::new(Perms))
 }
 
 fn main() {

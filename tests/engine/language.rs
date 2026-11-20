@@ -1,6 +1,7 @@
 mod test {
-    use interpreter::lang::{self, Act, Body, EngineError, ErrKind, Falsy, Gen, Language, Lock, Names, Policy, Runtime};
-    use interpreter::value::Val;
+    use interpreter::lang;
+    use interpreter::lang::{Act, Body, EngineError, ErrKind, Falsy, Gen, Language, Names, Policy, Runtime};
+    use interpreter::Val;
     use rig::Rig;
 
     // a language stating a rule the loop does not read yet
@@ -8,7 +9,7 @@ mod test {
 
     impl Language for Loose {
         const VERSION: u32 = 1;
-        const POLICY: Policy = Policy { identity_first: !Rig::POLICY.identity_first, ..Rig::POLICY };
+        const POLICY: Policy = Rig::POLICY.identity_first(false);
         const NATIVES: &'static lang::Natives = &rig::NATIVES;
         const NAMES: &'static Names = &rig::NAMES;
         const FRONT: lang::Front = rig::FRONT;
@@ -21,9 +22,9 @@ mod test {
     #[test]
     fn a_runtime_carries_the_rules_its_language_states() {
         let rt = Runtime::of::<Rig>();
-        assert!(core::ptr::eq(rt.natives, &rig::NATIVES) && core::ptr::eq(rt.names(), &rig::NAMES));
+        assert!(core::ptr::eq(rt.natives(), &rig::NATIVES) && core::ptr::eq(rt.names(), &rig::NAMES));
         assert_eq!(*rt.policy(), Rig::POLICY);
-        assert_eq!(Policy { max_int_digits: None, ..Rig::POLICY }.digits(), u32::MAX);
+        assert_eq!(Rig::POLICY.max_int_digits(None).digits(), u32::MAX);
     }
 
     #[test]
@@ -35,7 +36,7 @@ mod test {
 
     impl Language for Mixed {
         const VERSION: u32 = 1;
-        const POLICY: Policy = Policy { falsy: Falsy::NIL.or(Falsy::FALSE), ..Rig::POLICY };
+        const POLICY: Policy = Rig::POLICY.falsy(Falsy::NIL.or(Falsy::FALSE));
         const NATIVES: &'static lang::Natives = &rig::NATIVES;
         const NAMES: &'static Names = &rig::NAMES;
         const FRONT: lang::Front = rig::FRONT;
@@ -64,8 +65,8 @@ mod test {
             (EngineError::Unbound { name: None, free: false }, Some(ErrKind::Unbound)),
             (EngineError::Cannot { act: Act::Complex, recv: None }, Some(ErrKind::Value)),
             (EngineError::Cannot { act: Act::Iterate, recv: Some(v) }, Some(ErrKind::Type)),
-            (EngineError::ReadOnly { recv: v, name: String::from("x"), lock: Lock::Type }, Some(ErrKind::Type)),
-            (EngineError::ReadOnly { recv: v, name: String::from("x"), lock: Lock::Plain }, Some(ErrKind::Attribute)),
+            (EngineError::ReadOnly { recv: v, name: String::from("x"), on_type: true }, Some(ErrKind::Type)),
+            (EngineError::ReadOnly { recv: v, name: String::from("x"), on_type: false }, Some(ErrKind::Attribute)),
             (EngineError::Generator(Gen::Running(Body::Generator)), Some(ErrKind::Value)),
             (EngineError::Stop(v), Some(ErrKind::Stop)),
             (EngineError::Of(ErrKind::Permission, String::new()), Some(ErrKind::Permission)),
@@ -84,8 +85,8 @@ mod test {
         let text = Falsy::NIL.or(Falsy::FALSE).or(Falsy::EMPTY_TEXT);
         assert!(text.has(Falsy::EMPTY_TEXT) && !text.has(Falsy::EMPTY_CONTAINER) && !text.has(Falsy::EMPTY) && Falsy::EMPTY.has(Falsy::EMPTY_TEXT.or(Falsy::EMPTY_CONTAINER)));
         assert!(text.text_truth(false) && !text.text_truth(true) && text.container_truth(true) && !Falsy::EMPTY.container_truth(true));
-        assert_eq!(Rig::POLICY.falsy.bits(), Falsy::NIL.or(Falsy::FALSE).or(Falsy::ZERO).or(Falsy::NAN).or(Falsy::EMPTY_TEXT).bits());
-        assert_eq!(Rig::POLICY.falsy, Policy::ENGINE.falsy);
+        assert_eq!(Rig::POLICY.falsy_of().bits(), Falsy::NIL.or(Falsy::FALSE).or(Falsy::ZERO).or(Falsy::NAN).or(Falsy::EMPTY_TEXT).bits());
+        assert_eq!(Rig::POLICY.falsy_of(), Policy::PLAIN.falsy_of());
     }
 
     // a rule the loop does not read yet builds only as the engine's own
@@ -94,12 +95,12 @@ mod test {
         use interpreter::lang::{IntDiv, IntMod, MapIter, NegPow, NumEq, StrIter, ZeroDiv};
         let m = Rig::POLICY;
         let unread = [
-            (Policy { numeric_eq: NumEq::ByKind, ..m }, "numeric_eq"),
-            (Policy { identity_first: false, ..m }, "identity_first"),
-            (Policy { str_iter: StrIter::Bytes, ..m }, "str_iter"),
-            (Policy { map_iter: MapIter::Pairs, ..m }, "map_iter"),
-            (Policy { builtins_scope: false, ..m }, "builtins_scope"),
-            (Policy { receiver_slot: false, ..m }, "receiver_slot"),
+            (m.numeric_eq(NumEq::ByKind), "numeric_eq"),
+            (m.identity_first(false), "identity_first"),
+            (m.str_iter(StrIter::Bytes), "str_iter"),
+            (m.map_iter(MapIter::Pairs), "map_iter"),
+            (m.builtins_scope(false), "builtins_scope"),
+            (m.receiver_slot(false), "receiver_slot"),
         ];
         for (policy, field) in unread {
             let said = match std::panic::catch_unwind(|| policy.refuse_unread()) {
@@ -109,10 +110,10 @@ mod test {
             assert!(said.contains(&format!("reads no {field} yet")), "{field} built with {said:?}");
         }
         // the fields the engine reads take any value
-        Policy { map_fields: true, bool_is_int: false, neg_index: false, recursion_limit: 10, max_int_digits: None, ..m }.refuse_unread();
-        Policy { int_div: IntDiv::Floor, int_mod: IntMod::Truncated, zero_div: ZeroDiv::Ieee, neg_pow: NegPow::Error, falsy: Falsy::NIL.or(Falsy::FALSE), ..m }.refuse_unread();
+        m.map_fields(true).bool_is_int(false).neg_index(false).recursion_limit(10).max_int_digits(None).refuse_unread();
+        m.int_div(IntDiv::Floor).int_mod(IntMod::Truncated).zero_div(ZeroDiv::Ieee).neg_pow(NegPow::Error).falsy(Falsy::NIL.or(Falsy::FALSE)).refuse_unread();
         // nil and false read as false under every policy
-        let said = std::panic::catch_unwind(|| Policy { falsy: Falsy::NIL.or(Falsy::ZERO), ..m }.refuse_unread()).err().and_then(|e| e.downcast_ref::<&str>().map(|s| s.to_string()));
+        let said = std::panic::catch_unwind(|| m.falsy(Falsy::NIL.or(Falsy::ZERO)).refuse_unread()).err().and_then(|e| e.downcast_ref::<&str>().map(|s| s.to_string()));
         assert_eq!(said.as_deref(), Some("a policy reads nil and false as false"));
     }
 }

@@ -1,9 +1,10 @@
 mod test {
-    use interpreter::embed::{Limits, VM};
-    use interpreter::lang::{Access, CallRule, CallShape, Cmp, Cx, Descriptor, EngineError, Front, GetRule, Key, KindId, Language, Mode, Name, Names, Natives, Op, OpRule, Policy, Runtime};
+    use interpreter::{Limits, VM};
+    use interpreter::lang::{Access, CallRule, CallShape, Cmp, Cx, Descriptor, EngineError, Front, GetRule, Key, KindId, Language, Name, Names, Natives, Op, OpRule, Policy, Runtime, Show};
     use interpreter::lexer::{Spelling, Syntax};
     use interpreter::value::foreign::{BinOp, Kind, UnOp};
-    use interpreter::value::{HeapPool, Val, VmErr};
+    use interpreter::{Val, VmErr};
+    use interpreter::value::HeapPool;
     use rig::Rig;
     use rig::natives::{ARRAY, BUFFER, BYTES, CONVERT, DICT, FLOAT, FOLDS, INT, IO, ITER, LIST, LIST_SORT, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
 
@@ -43,7 +44,7 @@ mod test {
 
     /* the id of method `name` of kind `kind` */
     fn method(cx: &Cx<'_, '_>, kind: KindId, name: &str) -> Option<interpreter::lang::NativeId> {
-        cx.natives().method(kind, name).map(|n| n.id)
+        cx.natives().method(kind, name).map(|n| n.id_of())
     }
 
     impl Language for Binds {
@@ -82,13 +83,13 @@ mod test {
                 (Op::Cmp(Cmp::Lt), Key::Object(class), _) => member(cx, class, "less").map_or(OpRule::Fail, |func| OpRule::Call { func, swap: false, negate: false }),
                 (Op::Cmp(Cmp::Ge), Key::Object(class), _) => member(cx, class, "less").map_or(OpRule::Fail, |func| OpRule::Call { func, swap: false, negate: true }),
                 // minus a list gives its length through the length native
-                (Op::Unary(UnOp::Neg), Key::Kind(KindId::List), _) => cx.natives().function("len").map_or(OpRule::Fail, |n| OpRule::Native(n.id)),
+                (Op::Unary(UnOp::Neg), Key::Kind(KindId::List), _) => cx.natives().function("len").map_or(OpRule::Fail, |n| OpRule::Native(n.id_of())),
                 (Op::Cmp(Cmp::Lt), Key::Kind(KindId::List), Key::Kind(KindId::Str)) => OpRule::Identity,
                 _ => OpRule::Kernel,
             }
         }
 
-        fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Mode) -> Result<String, VmErr> { <Rig as Language>::show(cx, v, mode) }
+        fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Show) -> Result<String, VmErr> { <Rig as Language>::show(cx, v, mode) }
 
         fn format(cx: &mut Cx<'_, '_>, v: Val, spec: &str) -> Result<String, VmErr> { <Rig as Language>::format(cx, v, spec) }
 
@@ -135,7 +136,7 @@ mod test {
         const BUILT: interpreter::value::foreign::Built = <rig::Rig as Language>::BUILT;
         type Ops = ();
 
-        fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Mode) -> Result<String, VmErr> { <Rig as Language>::show(cx, v, mode) }
+        fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Show) -> Result<String, VmErr> { <Rig as Language>::show(cx, v, mode) }
 
         fn format(cx: &mut Cx<'_, '_>, v: Val, spec: &str) -> Result<String, VmErr> { <Rig as Language>::format(cx, v, spec) }
 
@@ -217,7 +218,7 @@ mod test {
             Binds::bind_op(cx, op, a, b)
         }
 
-        fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Mode) -> Result<String, VmErr> { <Rig as Language>::show(cx, v, mode) }
+        fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Show) -> Result<String, VmErr> { <Rig as Language>::show(cx, v, mode) }
 
         fn format(cx: &mut Cx<'_, '_>, v: Val, spec: &str) -> Result<String, VmErr> { <Rig as Language>::format(cx, v, spec) }
 
@@ -233,7 +234,7 @@ mod test {
         static TURN: std::sync::Mutex<()> = std::sync::Mutex::new(());
         let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
         for a in &ASKED { a.store(0, std::sync::atomic::Ordering::Relaxed); }
-        let (chunk, errors) = interpreter::code::compile_as::<Counted>(src);
+        let (chunk, errors) = interpreter::compile_as::<Counted>(src);
         assert!(errors.is_empty());
         let mut vm = VM::with_runtime(&COUNTED, &chunk, Limits::sandbox());
         let out = match vm.run() { Ok(_) => vm.output_text().trim_end().to_string(), Err(e) => vm.error_text(&e) };

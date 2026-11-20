@@ -2,8 +2,8 @@
 mod test {
     use std::collections::HashMap;
 
-    use interpreter::value::{SchedulerStatus, VmErr};
-    use interpreter::deps::NativeBinding;
+    use interpreter::SchedulerStatus;
+    use interpreter::NativeBinding;
 
     use crate::common::{answer, fail, lex, parse, parser, TestResolver, test_native};
 
@@ -144,17 +144,17 @@ mod test {
             }
 
             // chunk shape checks for a clean parse
-            if let Some(n) = case.expect_externs { assert_eq!(chunk.extern_table.len(), n, "extern_table size mismatch on {:?}", case.src); }
-            if let Some(n) = case.expect_functions { assert_eq!(chunk.functions.len(), n, "functions count mismatch on {:?}", case.src); }
+            if let Some(n) = case.expect_externs { assert_eq!(chunk.extern_table().len(), n, "extern_table size mismatch on {:?}", case.src); }
+            if let Some(n) = case.expect_functions { assert_eq!(chunk.functions().len(), n, "functions count mismatch on {:?}", case.src); }
 
-            let mut vm = if case.lox { interpreter::embed::VM::with_runtime(&interpreter_lox::RUNTIME, &chunk, interpreter::embed::Limits::sandbox()) } else { crate::common::boot(&chunk, interpreter::embed::Limits::sandbox()) };
-            vm.input_buffer = case.input.clone();
+            let mut vm = if case.lox { interpreter::VM::with_runtime(&interpreter_lox::RUNTIME, &chunk, interpreter::Limits::sandbox()) } else { crate::common::boot(&chunk, interpreter::Limits::sandbox()) };
+            vm.set_input(case.input.clone());
             // each PendingHostCall resumes with the next entry of `host_deliveries`
             let mut hr_idx = 0usize;
             let result = loop {
                 match vm.run() {
                     Ok(v) => break Ok(v),
-                    Err(VmErr::HostYield(SchedulerStatus::PendingHostCall)) if hr_idx < case.host_deliveries.len() => {
+                    Err(e) if matches!(e.paused(), Some(SchedulerStatus::PendingHostCall)) && hr_idx < case.host_deliveries.len() => {
                         let d = &case.host_deliveries[hr_idx];
                         match &d.error {
                             Some(msg) => fail(&mut vm, d.id.into(), msg),
@@ -223,7 +223,7 @@ mod test {
         let (chunk, errs) = compiled_with("use m0\nprint(m0.v)\n", resolver);
         assert!(errs.is_empty(), "{errs:?}");
         assert!(start.elapsed() < std::time::Duration::from_secs(5), "{:?}", start.elapsed());
-        let mut vm = crate::common::boot(&chunk, interpreter::value::Limits::sandbox());
+        let mut vm = crate::common::boot(&chunk, interpreter::Limits::sandbox());
         vm.run().expect("the diamond runs");
         assert_eq!(vm.output, [(1u64 << (LEVELS - 1)).to_string()]);
     }

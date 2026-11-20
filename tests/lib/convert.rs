@@ -1,8 +1,9 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use interpreter::embed::Limits;
-use interpreter::value::{DictMap, HeapObj, HeapPool, Val};
+use interpreter::Limits;
+use interpreter::Val;
+use interpreter::value::{DictMap, HeapObj, HeapPool};
 use rig::RUNTIME;
 use crate::common::ran;
 
@@ -14,7 +15,7 @@ const TRY: &str = concat!(
 );
 
 /* what `src` printed and then the words of the error it ended in */
-fn run(src: &str) -> String { ran::<rig::Rig>(&RUNTIME, src, Limits { ops: 10_000_000, memory: 64 << 20 }) }
+fn run(src: &str) -> String { ran::<rig::Rig>(&RUNTIME, src, Limits::sandbox().ops(10_000_000).memory(64 << 20)) }
 
 fn tried(calls: &str) -> String { run(&(String::from(TRY) + calls)) }
 
@@ -180,7 +181,7 @@ fn generators_convert_in_loops_and_frames() {
 
 /* `name`'s fast path on `x` where none hands the value to the full call */
 fn fast(heap: &mut HeapPool, name: &str, x: Val) -> Option<Val> {
-    let f = rig::natives::CONVERT.iter().find(|n| n.name == name).and_then(|n| n.fast1)?;
+    let f = rig::natives::CONVERT.iter().find(|n| n.name == name).and_then(|n| n.fast1_of())?;
     f(heap, x)
 }
 
@@ -190,7 +191,7 @@ fn text(heap: &HeapPool, v: Option<Val>) -> String {
 
 #[test]
 fn the_fast_paths_take_plain_values_and_leave_the_rest() {
-    assert!(rig::natives::CONVERT.iter().all(|n| n.fast1.is_some()));
+    assert!(rig::natives::CONVERT.iter().all(|n| n.fast1_of().is_some()));
     let mut heap = HeapPool::new(1 << 24);
     let put = |heap: &mut HeapPool, obj: HeapObj| match heap.alloc(obj) { Ok(v) => v, Err(e) => panic!("{e:?}") };
     let (digits, spaced, accent, real) = (put(&mut heap, HeapObj::Str("12".into())), put(&mut heap, HeapObj::Str(" 1.5".into())), put(&mut heap, HeapObj::Str("\u{e9}".into())), put(&mut heap, HeapObj::Str("1.5".into())));

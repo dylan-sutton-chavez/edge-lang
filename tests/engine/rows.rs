@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod test {
-    use interpreter::deps::NoopResolver;
-    use interpreter::value::{SchedulerStatus, VmErr};
+    use interpreter::NoopResolver;
+    use interpreter::SchedulerStatus;
 
     use crate::common::{lex, parser};
 
@@ -24,18 +24,18 @@ mod test {
             let (tokens, _) = lex(src);
             let (mut chunk, errors) = parser(src, tokens.into_iter(), Box::new(NoopResolver)).parse();
             if !errors.is_empty() { continue; }
-            interpreter::code::constant_fold(&mut chunk, rig::FRONT.policy);
-            let mut vm = crate::common::boot(&chunk, interpreter::value::Limits::sandbox());
-            vm.input_buffer = input.clone();
+            interpreter::code::constant_fold(&mut chunk, rig::FRONT.policy());
+            let mut vm = crate::common::boot(&chunk, interpreter::Limits::sandbox());
+            vm.set_input(input.clone());
             vm.send_hook = Some(accept_send);
             let (mut next, mut parked) = (events.iter(), false);
             let error = loop {
                 match vm.run() {
-                    Err(VmErr::HostYield(SchedulerStatus::PendingEvent)) => {
+                    Err(e) if matches!(e.paused(), Some(SchedulerStatus::PendingEvent)) => {
                         parked = true;
                         match next.next() { Some(e) => vm.push_event(e).expect("push_event"), None => break None }
                     }
-                    Err(VmErr::HostYield(_)) => { parked = true; break None }
+                    Err(e) if e.paused().is_some() => { parked = true; break None }
                     Err(e) => break Some(e),
                     Ok(_) => break None,
                 }
@@ -43,7 +43,7 @@ mod test {
             let shown = error.as_ref().map(|e| vm.render_error(e, src, Some("main.rig")));
             let ran = Ran { output: vm.output.clone(), error: error.map(|e| e.to_string()), pos: vm.error_pos(), shown, parked, stacked: vm.stack_work().0 };
             stacked += ran.stacked;
-            listed.push_str(&format!("{}\t{}\t{}\t{:?}\n", crate::cases::key(case), u8::from(ran.parked), chunk.instructions.len(), src.chars().take(60).collect::<String>()));
+            listed.push_str(&format!("{}\t{}\t{}\t{:?}\n", crate::cases::key(case), u8::from(ran.parked), chunk.instructions().len(), src.chars().take(60).collect::<String>()));
             seen.insert(crate::cases::key(case), serde_json::json!([ran.output, ran.error, ran.pos, ran.shown, ran.parked]));
         }
         if let Some(out) = std::env::var_os("ROWS_OUT") { std::fs::write(out, listed).expect("writing ROWS_OUT"); }
@@ -61,8 +61,8 @@ mod test {
     // every chunk a case compiles to with the functions and classes inside it
     fn each_chunk(c: &interpreter::code::SSAChunk, f: &mut impl FnMut(&interpreter::code::SSAChunk)) {
         f(c);
-        for (_, body, _, _) in &c.functions { each_chunk(body, f); }
-        for body in &c.classes { each_chunk(body, f); }
+        for (_, body) in c.functions() { each_chunk(body, f); }
+        for body in c.classes() { each_chunk(body, f); }
     }
 
     // the finish line holds once no lowering is refused for an op over rows
@@ -75,13 +75,13 @@ mod test {
             let (tokens, _) = lex(src);
             let (mut chunk, errors) = parser(src, tokens.into_iter(), Box::new(NoopResolver)).parse();
             if !errors.is_empty() { continue; }
-            interpreter::code::constant_fold(&mut chunk, rig::FRONT.policy);
+            interpreter::code::constant_fold(&mut chunk, rig::FRONT.policy());
             // the and and or the rows table leaves out never reach compiled code
-            each_chunk(&chunk, &mut |c| folded += c.instructions.iter().filter(|i| matches!(i.opcode, interpreter::code::OpCode::And | interpreter::code::OpCode::Or)).count());
-            let mut vm = crate::common::boot(&chunk, interpreter::value::Limits::sandbox());
+            each_chunk(&chunk, &mut |c| folded += c.instructions().iter().filter(|i| matches!(i.opcode, interpreter::code::OpCode::And | interpreter::code::OpCode::Or)).count());
+            let mut vm = crate::common::boot(&chunk, interpreter::Limits::sandbox());
             vm.send_hook = Some(accept_send);
             let mut events = case["events"].as_array().into_iter().flatten().filter_map(|v| v.as_str());
-            while let Err(VmErr::HostYield(SchedulerStatus::PendingEvent)) = vm.run() {
+            while let Err(e) = vm.run() && matches!(e.paused(), Some(SchedulerStatus::PendingEvent)) {
                 let Some(e) = events.next() else { break };
                 let _ = vm.push_event(e);
             }

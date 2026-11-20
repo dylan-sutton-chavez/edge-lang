@@ -1,0 +1,115 @@
+#[cfg(feature = "cli-web")]
+use anyhow::anyhow;
+use anyhow::Result;
+use clap::{ArgMatches, Args, FromArgMatches};
+#[cfg(feature = "cli-web")]
+use std::path::Path;
+use std::path::PathBuf;
+
+use crate::engine::cli::host::driver::{self, RunOpts};
+#[cfg(feature = "cli-web")]
+use crate::engine::cli::host::browser;
+use crate::engine::cli::host::RunLimits;
+use crate::engine::cli::kit::{self, Command, Kit};
+
+#[derive(Args)]
+struct RunArgs {
+    #[arg(help = "Script, a packed .interpreter, an app binary, or stdin when omitted")]
+    file: Option<PathBuf>,
+    #[arg(help = "Run this code inline instead of a file or stdin")]
+    #[arg(short = 'c', conflicts_with = "file")]
+    code: Option<String>,
+    #[arg(help = "Feed each line of this file (or FIFO) to the run as one event")]
+    #[arg(long)]
+    events: Option<PathBuf>,
+    #[arg(help = "Snapshot to this file when the script suspends on an unservable wait")]
+    #[arg(long)]
+    save_state: Option<PathBuf>,
+    #[arg(help = "Boot from a snapshot instead of a script and keep running")]
+    #[arg(long)]
+    restore_state: Option<PathBuf>,
+    #[arg(help = "Yield every n loop back-edges and resume")]
+    #[arg(long)]
+    preempt: Option<usize>,
+    #[arg(help = "Run on the browser host in headless Chrome instead of the native engine")]
+    #[cfg(feature = "cli-web")]
+    #[arg(long)]
+    web: bool,
+    #[command(flatten)]
+    limits: RunLimits,
+}
+
+/* `run` over a script or a packed bundle or stdin or inline code */
+#[expect(clippy::exhaustive_structs, reason = "a marker a user names to pick what it stands for")]
+pub struct Run;
+
+impl Command for Run {
+    fn spec(&self, kit: &Kit) -> clap::Command {
+        RunLimits::shown(RunArgs::augment_args(clap::Command::new("run").about("Run a script")), kit.run_limits())
+    }
+
+    fn summary(&self, _kit: &Kit) -> (String, String) {
+        ("run <file|.interpreter>".to_string(), format!("Run a script, a .interpreter, stdin or -c <code>{}", crate::engine::cli::web::FLAG))
+    }
+
+    fn flags(&self) -> Option<(&'static str, &'static str)> {
+        Some(("Run flags", "--events <f>  --save-state <f>  --restore-state <f>  --preempt <n>"))
+    }
+
+    fn compiles(&self) -> bool {
+        true
+    }
+
+    fn carried(&self, m: &ArgMatches) -> Option<Vec<u8>> {
+        crate::engine::cli::pack::file_payload(m.try_get_one::<PathBuf>("file").ok().flatten()?)
+    }
+
+    // a script resolves through the manifest nearest above it and a bundle through its own
+    fn manifest(&self, m: &ArgMatches) -> PathBuf {
+        match m.try_get_one::<PathBuf>("file").ok().flatten() {
+            Some(file) if crate::engine::cli::pack::file_payload(file).is_none() => kit::root_manifest(m, &crate::engine::deps::dir_of(&driver::path_spec(file))),
+            _ => kit::manifest_path(m),
+        }
+    }
+
+    fn run(&self, kit: &Kit, m: &ArgMatches) -> Result<i32> {
+        let args = RunArgs::from_arg_matches(m)?;
+        args.limits.set();
+        let manifest = kit::manifest_flag(m);
+        #[cfg(feature = "cli-web")]
+        if args.web {
+            // flags only the native engine serves are refused here rather than ignored
+            let native_only = [("--events", args.events.is_some()), ("--save-state", args.save_state.is_some()), ("--restore-state", args.restore_state.is_some()), ("--preempt", args.preempt.is_some())];
+            return match native_only.iter().find(|(_, given)| *given) {
+                Some((flag, _)) => Err(anyhow!("{flag} belongs to the native engine, drop it or drop --web")),
+                None => web_run(kit, args.file.as_deref(), args.code.as_deref(), manifest.as_deref()),
+            };
+        }
+        let opts = RunOpts {
+            manifest: manifest.as_deref().map(|p| p.to_string_lossy().replace('\\', "/")),
+            preempt: args.preempt.unwrap_or(0),
+            events: args.events.map(|p| p.to_string_lossy().into_owned()),
+            save_state: args.save_state.map(|p| p.to_string_lossy().into_owned()),
+            restore_state: args.restore_state.map(|p| p.to_string_lossy().into_owned()),
+        };
+        driver::run(kit, args.file.as_deref(), args.code.as_deref(), &opts)
+    }
+}
+
+/* runs a script on the browser host taking its source the way `interpreter run` does */
+#[cfg(feature = "cli-web")]
+fn web_run(kit: &Kit, file: Option<&Path>, code: Option<&str>, manifest: Option<&Path>) -> Result<i32> {
+    // the entry names of a native run so a traceback reads alike on both hosts
+    let (src, entry) = match (file, code) {
+        (_, Some(code)) => (code.to_string(), String::from("<eval>")),
+        (Some(path), None) => (std::fs::read_to_string(path).map_err(|e| anyhow!("reading {}: {e}", path.display()))?, driver::path_spec(path)),
+        (None, None) => {
+            let mut buf = String::new();
+            std::io::Read::read_to_string(&mut std::io::stdin(), &mut buf).map_err(|e| anyhow!("reading stdin: {e}"))?;
+            (buf, String::from("<stdin>"))
+        }
+    };
+
+    let default = PathBuf::from("interpreter.json");
+    browser::run(kit, &src, &entry, Some(manifest.unwrap_or(default.as_path())))
+}

@@ -5,6 +5,8 @@ description: "How compile and run errors read on every host, and every limit of 
 
 # Errors and limits
 
+This page covers how compile and run errors read on every host, and every limit of a run and a source.
+
 ## Compile errors
 
 A front reports every compile error before anything runs, each with its file, line, column and source line. Lox recovers at the next statement and uses the book's messages.
@@ -26,7 +28,7 @@ error: Error at end: Expect ';' after value.
   --> syntax.lox:3:1
 ```
 
-In Rust, `interpreter::code::compile` returns the diagnostics with the chunk, and `Diagnostic::render_all(&errors, src, Some(path))` writes this report. In a page, `run` resolves with it in `out`.
+In Rust, `FRONT.compile(src)` returns the chunk or the diagnostics, `Diagnostic::render_all(&errors, src, Some(path))` writes this report and `Diagnostic::line_col(src)` gives the line and column of one. After a run error, `VM::error_line_col()` gives the same for where it rose. In a page, `run` resolves with it in `out`.
 
 ## Run errors
 
@@ -55,7 +57,19 @@ Operands must be numbers.
 | JavaScript | `out` of the value `run` resolves with, and `exitCode` |
 | `.wasm` | The `ERROR` or `EXIT` kind of the status word, with the report in the output buffer |
 
-A runtime names every error the engine raises through its `Names` and its `message`, so a runtime of yours decides each class and sentence. See [Build a runtime](./02-runtime.mdx#language).
+A runtime names every error the engine raises through its `Names` and its `message`, so a runtime of yours decides each class and sentence, as [Build a runtime](./02-runtime.mdx#language) shows. The engine's own words are unspecified, and a release may change them, as [Stability](./09-stability.mdx#exceptions) says.
+
+`VmErr` is opaque, so a host reads an error by its kind and never by its shape.
+
+| Call | Gives |
+|---|---|
+| `e.kind()` | The `ErrKind` of an engine error, such as `Type`, `Value`, `ZeroDiv` or `Memory`, and `None` for a class a program raised or a signal |
+| `e.is_limit()` | Whether the run spent its op budget, its memory or its call depth |
+| `e.paused()` | The `SchedulerStatus` of a run that stopped to wait, and `None` for an error |
+| `e.is_deferred()` | Whether a host function handed its call back to finish later |
+| `VmErr::new(kind, message)` | An error of that kind, for a native or a host function to return |
+| `VmErr::raised(text)` | An error as a program raises one, its text written `Class: message` |
+| `VmErr::deferred()` | The signal a host function returns to answer its call later |
 
 ## Limits
 
@@ -63,13 +77,13 @@ Every run is metered, natives included. A run raises an error at the limit it re
 
 | Limit | Default | Set with |
 |---|---|---|
-| Operations | 100,000,000 | `Limits { ops, .. }`, `limits.ops` in JS, `--ops`, `set_limits` |
-| Memory the run holds | 256 MiB | `Limits { memory, .. }`, `limits.memory` in MB in JS, `--memory`, `set_limits` |
+| Operations | 100,000,000 | `Limits::sandbox().ops(n)`, `limits.ops` in JS, `--ops`, `set_limits` |
+| Memory the run holds | 256 MiB | `Limits::sandbox().memory(bytes)`, `limits.memory` in MiB in JS, `--memory` in MiB, `set_limits` |
 | Call depth | The runtime's `recursion_limit`, 1000 in Lox where it reads as `Stack overflow.` | `Policy` |
 | Calls nested through a native or a plugin | 128 | Fixed |
 | Comparison depth of nested containers | 100 | Fixed |
 
-`Limits::sandbox()` gives the defaults. Memory is an exact count of every byte the allocator hands the run, so a Rust host installs `interpreter::allocator!()` or sets `memory: usize::MAX`. A spent op budget cannot be caught, since the handler's first op raises again. `reset_budget(ops)` gives a stopped run a new one.
+`Limits::sandbox()` gives the defaults. Memory is an exact count of every byte the allocator hands the run, so a Rust host installs `interpreter::allocator!()` or runs under `Limits::sandbox().memory(usize::MAX)`. A spent op budget cannot be caught, since the handler's first op raises again. `reset_budget(ops)` gives a stopped run a new one.
 
 ```text
 $ interpreter run broken.lox --ops 3

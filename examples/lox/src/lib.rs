@@ -1,5 +1,4 @@
 #![no_std]
-#![doc = "Lox from Crafting Interpreters as a runtime on `interpreter`. Compile a program with `interpreter::code::compile(&FRONT, src)` and run it on `VM::with_runtime(&RUNTIME, ...)`."]
 #![forbid(unsafe_code)]
 
 extern crate alloc;
@@ -9,11 +8,12 @@ extern crate std;
 use alloc::format;
 use alloc::string::{String, ToString};
 
-use interpreter::code::{Diagnostic, Parsed, Unit};
-use interpreter::lang::{Act, Args, CallFault, Cx, Descriptor, EngineError, ErrKind, Falsy, Fit, Front, IntDiv, IntMod, KindId, Language, MapIter, Mode, Names, Native, Natives, NegPow, NumEq, Op, Overflow, Policy, Ret, Runtime, Sig, StrIter, ZeroDiv};
+use interpreter::Diagnostic;
+use interpreter::code::{Parsed, Unit};
+use interpreter::lang::{Act, Args, CallFault, Cx, Descriptor, EngineError, ErrKind, Falsy, Fit, Front, KindId, Language, Names, Native, Natives, Op, Overflow, Policy, Ret, Runtime, Show, Sig, ZeroDiv};
 use interpreter::lexer::TokenType as T;
-use interpreter::lexer::{index, operators, Binding, Blocks, Comments, Cond, Continuation, Dot, Ends, Escapes, Keywords, Lambda, Numbers, Quote, Shapes, Spelling, Strings, Suffix, Syntax, TokenType, Unicode, Unknown, Zeros};
-use interpreter::value::{Val, VmErr};
+use interpreter::lexer::{Comments, Cond, Keywords, Lambda, Quote, Shapes, Spelling, Strings, Syntax, TokenType, index, operators};
+use interpreter::{Val, VmErr};
 
 mod lower;
 pub mod parse;
@@ -37,37 +37,25 @@ static OPERATORS: [[TokenType; 4]; 128] = operators(SYMBOLS);
 static KEYWORDS: Keywords = index(WORDS);
 
 // the scanner of the book where a string spans lines and keeps its backslashes
-pub const LOX: Syntax = Syntax {
-    name: "lox",
-    extension: "lox",
-    words: WORDS,
-    symbols: SYMBOLS,
-    operators: &OPERATORS,
-    keywords: &KEYWORDS,
-    precedence: &[],
-    chained: false,
-    blocks: Blocks::Braces,
-    ends: Ends::Semicolon,
-    comments: Comments { line: &["//"], block: None, nested: false },
-    strings: Strings {
-        quotes: &[Quote { byte: b'"', multiline: true, triple: false }],
-        prefixes: &[],
-        any_case: false,
-        hashes: false,
-        adjacent: false,
-        newlines: false,
-        escapes: Escapes { simple: &[], hex: false, unicode: Unicode::None, octal: false, line_join: false, unknown: Unknown::Keep, refused: &[] },
-    },
-    interp: None,
-    numbers: Numbers { radixes: &[], separator: None, zeros: Zeros::Allowed, leading_dot: false, trailing_dot: false, exponent: false, suffix: Suffix::Apart },
-    continuation: Continuation { join: None, operator: false },
-    shapes: Shapes {
-        cond: Cond::None, lambda: Lambda::None, keyword_arg: T::Equal, splat: false, slices: false, dot: Dot::Attr,
-        header_parens: true, comprehensions: false, decorators: false, named: false, binding: Binding::None, arms: false, ranges: false, grammar: None,
-    },
-    soft: &[],
-    bom: false,
-};
+pub const LOX: Syntax = Syntax::PLAIN
+    .name("lox")
+    .extension("lox")
+    .words(WORDS)
+    .symbols(SYMBOLS)
+    .operators(&OPERATORS)
+    .keywords(&KEYWORDS)
+    .comments(Comments::PLAIN.line(&["//"]))
+    .strings(Strings::PLAIN
+        .quotes(&[Quote::PLAIN.multiline(true)]))
+    .shapes(Shapes::PLAIN
+        .cond(Cond::None)
+        .lambda(Lambda::None)
+        .splat(false)
+        .slices(false)
+        .header_parens(true)
+        .comprehensions(false)
+        .decorators(false)
+        .named(false));
 
 impl Spelling for Lox {
     const SYNTAX: Syntax = LOX;
@@ -76,7 +64,7 @@ impl Spelling for Lox {
 
 /* writes the value as its own line */
 fn print(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
-    let mut line = cx.render(a.pos[0], Mode::Str)?;
+    let mut line = cx.render(a.pos[0], Show::Str)?;
     line.push('\n');
     cx.write_line(line);
     Ok(Val::none().into())
@@ -103,7 +91,7 @@ fn superclass(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
 
 /* any value as print shows it */
 fn text(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
-    let s = cx.render(a.pos[0], Mode::Str)?;
+    let s = cx.render(a.pos[0], Show::Str)?;
     Ok(cx.new_str(s)?.into())
 }
 
@@ -163,15 +151,15 @@ fn parse(src: &str, unit: Unit) -> Parsed {
     interpreter::code::build::<Lox>(src, unit, |b| lower::lower(b, &prog))
 }
 
-pub const FRONT: Front = Front { extension: LOX.extension, parse, imports: parse::imports, syntax: Some(LOX), policy: &<Lox as Language>::POLICY };
+pub const FRONT: Front = Front::new(parse, parse::imports, LOX, &<Lox as Language>::POLICY);
 
-/* `src` compiled as `interpreter::code::compile` does keeping each instruction's span and the outline of its forms */
+/* `src` compiled as `FRONT.compile` does keeping each instruction's span and the outline of its forms */
 pub fn read(src: &str) -> (interpreter::code::SSAChunk, alloc::vec::Vec<Diagnostic>) {
-    let unit = FRONT.unit(alloc::boxed::Box::new(interpreter::deps::NoopResolver));
+    let unit = FRONT.unit(alloc::boxed::Box::new(interpreter::NoopResolver));
     match parse::read(src).and_then(|prog| interpreter::code::build::<interpreter::code::Recorded<Lox>>(src, unit, |b| lower::lower(b, &prog))) {
         Ok(chunk) => {
             let mut chunk = alloc::rc::Rc::unwrap_or_clone(chunk);
-            interpreter::code::constant_fold(&mut chunk, FRONT.policy);
+            interpreter::code::constant_fold(&mut chunk, FRONT.policy());
             (chunk, alloc::vec::Vec::new())
         }
         Err(errors) => (interpreter::code::SSAChunk::default(), errors),
@@ -179,23 +167,15 @@ pub fn read(src: &str) -> (interpreter::code::SSAChunk, alloc::vec::Vec<Diagnost
 }
 
 // the names the CLI gives this runtime's files and errors
-pub const DESCRIPTOR: Descriptor = Descriptor {
-    language: "lox",
-    extension: LOX.extension,
-    entries: &["main.lox", "app.lox", "index.lox"],
-    test_suffix: "_test.lox",
-    scaffold: "print \"hello from interpreter\";\n",
-    example_fence: "lox",
-    manifest_fence: "lox-manifest",
-    type_error: "Type",
-    value_error: "Value",
-    runtime_error: "Runtime",
-    denied_error: "Permission",
-    failed_error: "Runtime",
-    // the book's statuses for a compile error and a run error
-    statuses: (65, 70),
-    diagnosed: Some(diagnosed),
-};
+pub const DESCRIPTOR: Descriptor = Descriptor::PLAIN
+    .language("lox")
+    .entries(&["main.lox", "app.lox", "index.lox"])
+    .test_suffix("_test.lox")
+    .scaffold("print \"hello from interpreter\";\n")
+    .example_fence("lox")
+    .manifest_fence("lox-manifest")
+    .statuses((65, 70))
+    .diagnosed(Some(diagnosed));
 
 /* compile errors as the book reports them each on its line */
 fn diagnosed(src: &str, errors: &[Diagnostic]) -> String {
@@ -218,39 +198,21 @@ fn report(src: &str, head: &str, pos: Option<usize>) -> String {
 }
 
 // lib words its failures and renders what the book has no words for
-static TREE: interpreter::lib::lang::Tree = interpreter::lib::lang::Tree::of::<Lox>();
-
-impl interpreter::lib::Lang for Lox {
-    const TREE: &'static interpreter::lib::lang::Tree = &TREE;
-}
-
-impl interpreter::lib::fmt::render::Style for Lox {}
+impl interpreter::lib::Lang for Lox {}
 
 impl Language for Lox {
     const VERSION: u32 = 1;
     // every number is a double and only nil and false are false
-    const POLICY: Policy = Policy {
-        int_overflow: Overflow::Error,
-        int_div: IntDiv::ToFloat,
-        int_mod: IntMod::Truncated,
-        zero_div: ZeroDiv::Ieee,
-        neg_pow: NegPow::ToFloat,
-        numeric_eq: NumEq::Unified,
-        bool_is_int: false,
-        falsy: Falsy::NIL.or(Falsy::FALSE),
-        identity_first: true,
-        neg_index: false,
-        str_iter: StrIter::CodePoints,
-        map_iter: MapIter::Keys,
-        map_fields: false,
-        open_fields: false,
-        shared_bound: false,
-        open_order: false,
-        builtins_scope: true,
-        receiver_slot: true,
-        recursion_limit: 1000,
-        max_int_digits: None,
-    };
+    const POLICY: Policy = Policy::PLAIN
+        .int_overflow(Overflow::Error)
+        .zero_div(ZeroDiv::Ieee)
+        .bool_is_int(false)
+        .falsy(Falsy::NIL.or(Falsy::FALSE))
+        .neg_index(false)
+        .open_fields(false)
+        .shared_bound(false)
+        .open_order(false)
+        .recursion_limit(1000);
     const NATIVES: &'static Natives = &NATIVES;
     const NAMES: &'static Names = &Names::PLAIN;
     const FRONT: Front = FRONT;
@@ -258,7 +220,7 @@ impl Language for Lox {
     const REPORT: Option<interpreter::lang::WordsFn> = Some(report);
     type Ops = ();
 
-    fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Mode) -> Result<String, VmErr> {
+    fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Show) -> Result<String, VmErr> {
         Ok(match cx.kind(v) {
             KindId::None => "nil".into(),
             KindId::Bool => if v.as_bool() { "true" } else { "false" }.into(),
@@ -273,7 +235,7 @@ impl Language for Lox {
                 Some(name) => format!("<fn {}>", name.rsplit('.').next().unwrap_or(name)),
                 None => "<native fn>".into(),
             },
-            _ => interpreter::lib::fmt::render::hook::<Lox>(cx, v, mode)?,
+            _ => interpreter::lib::fmt::show::<Lox>(cx, v, mode)?,
         })
     }
 
@@ -283,7 +245,7 @@ impl Language for Lox {
             EngineError::Unsupported { op: Op::Unary(_), .. } => "Operand must be a number.".into(),
             EngineError::Unsupported { .. } => "Operands must be numbers.".into(),
             EngineError::Cannot { act: Act::Call, .. } => "Can only call functions and classes.".into(),
-            EngineError::Arity { callee: interpreter::lang::Callee::Function { name, normal, .. }, fit } => {
+            EngineError::Arity { callee: interpreter::lang::Callee::Function { name, normal, .. }, fit, .. } => {
                 let normal = *normal as usize;
                 let got = match fit { Fit::Count(n) => *n as usize, Fit::Missing { names, .. } => normal - names.len(), _ => 0 };
                 // a method counts its receiver which its qualified name shows as a class before it
@@ -292,7 +254,7 @@ impl Language for Lox {
                 format!("Expected {} arguments but got {}.", normal - usize::from(method), got - usize::from(method))
             }
             EngineError::Undefined(name) => format!("Undefined variable '{name}'."),
-            EngineError::NoAttribute { recv, name, store } => {
+            EngineError::NoAttribute { recv, name, store, .. } => {
                 if cx.kind(*recv) == KindId::Instance { format!("Undefined property '{name}'.") }
                 else if *store { "Only instances have fields.".into() }
                 else { "Only instances have properties.".into() }
@@ -307,4 +269,4 @@ impl Language for Lox {
 }
 
 #[cfg(feature = "web")]
-interpreter::web_exports!(RUNTIME);
+interpreter::exports!(RUNTIME);

@@ -1,11 +1,14 @@
 #[cfg(test)]
 mod test {
     use crate::common::{boot, TestResolver};
-    use interpreter::code::{build, compile, Builder, Diagnostic, OpCode, Parsed, SSAChunk, Unit, Value};
-    use interpreter::embed::Limits;
-    use interpreter::lang::Front;
+    use interpreter::{Diagnostic, compile};
+    use interpreter::code::{Builder, Constant, OpCode, Parsed, SSAChunk, Unit, build};
+    use interpreter::Limits;
+    use interpreter::lang::{Cmp, Front, Op};
+    use interpreter::value::foreign::{BinOp, UnOp};
     use interpreter::deps::walk::{Carry, Fetched, Loaded, Step, Walk};
-    use interpreter::deps::{ImportSpec, Resolver};
+    use interpreter::Resolver;
+    use interpreter::code::ImportSpec;
     use interpreter::lexer::{Dot, Shapes, Spelling, Syntax};
     // the builder and the parse it is held to both read the fixed core
     use crate::words::Legacy as Rig;
@@ -14,7 +17,7 @@ mod test {
     // the fixed core read in indentation which a builder's chunks compare against
     const LEGACY: Front = Front::spelled::<crate::words::Legacy>();
 
-    const STEPS: Front = Front { extension: "steps", parse: steps, imports, syntax: None, policy: rig::FRONT.policy };
+    const STEPS: Front = Front::new(steps, imports, Syntax::PLAIN.extension("steps"), rig::FRONT.policy());
 
     #[derive(Clone, Copy)]
     struct Line { depth: usize, start: usize, end: usize }
@@ -39,7 +42,7 @@ mod test {
     // the rig's table reading the name after a dot as a key as records want
     struct Keys;
     impl Spelling for Keys {
-        const SYNTAX: Syntax = Syntax { name: "keys", shapes: Shapes { dot: Dot::Key, ..Shapes::CORE }, ..crate::words::LEGACY };
+        const SYNTAX: Syntax = crate::words::LEGACY.name("keys").shapes(Shapes::PLAIN.dot(Dot::Key));
         const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
     }
 
@@ -115,12 +118,12 @@ mod test {
 
     fn folded(chunk: Rc<SSAChunk>) -> SSAChunk {
         let mut chunk = Rc::unwrap_or_clone(chunk);
-        interpreter::code::constant_fold(&mut chunk, rig::FRONT.policy);
+        interpreter::code::constant_fold(&mut chunk, rig::FRONT.policy());
         chunk
     }
 
     fn same(steps_src: &str, mini_src: &str) {
-        let (ours, theirs) = (compiled(&STEPS, steps_src, Box::new(interpreter::deps::NoopResolver)), compiled(&LEGACY, mini_src, Box::new(interpreter::deps::NoopResolver)));
+        let (ours, theirs) = (compiled(&STEPS, steps_src, Box::new(interpreter::NoopResolver)), compiled(&LEGACY, mini_src, Box::new(interpreter::NoopResolver)));
         assert!(ours.1.is_empty() && theirs.1.is_empty(), "{:?} and {:?}", ours.1, theirs.1);
         if let Err(e) = crate::common::same_program(&theirs, &ours) { panic!("{steps_src:?} against {mini_src:?}: {e}"); }
     }
@@ -128,7 +131,7 @@ mod test {
     // what a chunk prints when it runs to its end
     fn output(chunk: &SSAChunk) -> Vec<String> {
         let mut vm = boot(chunk, Limits::sandbox());
-        vm.run().unwrap_or_else(|e| panic!("{}", vm.render_error(&e, &chunk.source, Some("main.steps"))));
+        vm.run().unwrap_or_else(|e| panic!("{}", vm.render_error(&e, chunk.source(), Some("main.steps"))));
         vm.output.clone()
     }
 
@@ -171,11 +174,11 @@ mod test {
         let records = "[{\"kind\": \"push\", \"size\": 3}, {\"kind\": \"watch\", \"size\": 1}, {\"kind\": \"push\", \"size\": 5}]";
         let src = format!("let total = 0\nover it in {records}\n  if kind == \"push\"\n    let total = total + size\nprint(total)\n");
         let parsed = format!("total = 0\nfor it in {records}:\n    if it.kind == \"push\":\n        total = total + it.size\nprint(total)\n");
-        let keyed = Front { parse: keyed, ..STEPS };
-        let (ours, theirs) = (compiled(&keyed, &src, Box::new(interpreter::deps::NoopResolver)), compiled(&Front::spelled::<Keys>(), &parsed, Box::new(interpreter::deps::NoopResolver)));
+        let keyed = Front::new(keyed, imports, Syntax::PLAIN.extension("steps"), rig::FRONT.policy());
+        let (ours, theirs) = (compiled(&keyed, &src, Box::new(interpreter::NoopResolver)), compiled(&Front::spelled::<Keys>(), &parsed, Box::new(interpreter::NoopResolver)));
         assert!(ours.1.is_empty() && theirs.1.is_empty(), "{:?} and {:?}", ours.1, theirs.1);
         if let Err(e) = crate::common::same_program(&theirs, &ours) { panic!("{e}"); }
-        assert!(ours.0.instructions.iter().any(|i| i.opcode == OpCode::GetItem) && !ours.0.instructions.iter().any(|i| i.opcode == OpCode::LoadAttr));
+        assert!(ours.0.instructions().iter().any(|i| i.opcode == OpCode::GetItem) && !ours.0.instructions().iter().any(|i| i.opcode == OpCode::LoadAttr));
         assert_eq!(output(&ours.0), ["8"]);
     }
 
@@ -197,30 +200,35 @@ mod test {
         // what follows an expression and a return outside any function report where they sit
         let errors = |f: &dyn Fn(&mut Builder<'_, '_, Rig>)| build::<Rig>("x y\n", unit(), |b| f(b)).err().expect("an error").into_iter().map(|d| (d.start, d.msg)).collect::<Vec<_>>();
         assert_eq!(errors(&|b| { b.expr(0..3); }), [(2, "expected the end of the expression, got 'y'".to_string())]);
-        assert_eq!(errors(&|b| { b.at(2).constant(Value::None).ret(); }), [(2, "'return' outside function".to_string())]);
-        assert_eq!(errors(&|b| { b.at(1).constant(Value::Int(1)).constant(Value::Int(2)).binary(OpCode::Jump); }), [(1, "a builder applies only a binary operator".to_string())]);
+        assert_eq!(errors(&|b| { b.at(2).constant(Constant::None).ret(); }), [(2, "'return' outside function".to_string())]);
+        assert_eq!(errors(&|b| { b.at(1).constant(Constant::Int(1)).constant(Constant::Int(2)).binary(Op::Not); }), [(1, "a builder applies only a binary operator".to_string())]);
+        // an operator no opcode applies is refused as one of the wrong arity is
+        assert_eq!(errors(&|b| { b.at(1).constant(Constant::Int(1)).constant(Constant::Int(2)).binary(Op::Len); }), [(1, "a builder applies only a binary operator".to_string())]);
+        assert_eq!(errors(&|b| { b.at(1).constant(Constant::Int(1)).unary(Op::Unary(UnOp::Abs)); }), [(1, "a builder applies only a unary operator here".to_string())]);
+        // a front of its own takes its extension and its spelling from the table it is given
+        assert_eq!((STEPS.extension(), STEPS.syntax().map(|s| s.extension)), ("steps", Some("steps")));
         assert_eq!(build::<Rig>("é", unit(), |b| { b.expr(0..1); }).err().expect("a split character").len(), 1);
     }
 
-    fn unit() -> Unit { STEPS.unit(Box::new(interpreter::deps::NoopResolver)) }
+    fn unit() -> Unit { STEPS.unit(Box::new(interpreter::NoopResolver)) }
 
     // each step of the builder's own vocabulary builds what the same rig line parses to
     #[test]
     fn builder_steps_build_what_their_lines_parse_to() {
         let src = "y > 5\nValueError(\"bad\")\n";
         let built = build::<Rig>(src, unit(), |b| {
-            b.at(0).constant(Value::Int(1)).constant(Value::Int(2)).list(2).store("xs");
-            b.at(0).constant(Value::Str("k".into())).load("xs").map(1).store("m");
-            b.at(0).lambda(&["v"], |b| { b.load("v").constant(Value::Int(1)).binary(OpCode::Add); }).store("f");
-            b.at(0).load("f").load("m").constant(Value::Str("k".into())).item().constant(Value::Int(0)).item().call(1, 0).store("y");
-            b.at(0).load("m").field("get").constant(Value::Str("k".into())).call(1, 0).store("z");
-            b.at(0).constant(Value::Bool(true)).store("t");
-            b.at(0).constant(Value::None).store("n");
+            b.at(0).constant(Constant::Int(1)).constant(Constant::Int(2)).list(2).store("xs");
+            b.at(0).constant(Constant::Str("k".into())).load("xs").map(1).store("m");
+            b.at(0).lambda(&["v"], |b| { b.load("v").constant(Constant::Int(1)).binary(Op::Bin(BinOp::Add)); }).store("f");
+            b.at(0).load("f").load("m").constant(Constant::Str("k".into())).item().constant(Constant::Int(0)).item().call(1, 0).store("y");
+            b.at(0).load("m").field("get").constant(Constant::Str("k".into())).call(1, 0).store("z");
+            b.at(0).constant(Constant::Bool(true)).store("t");
+            b.at(0).constant(Constant::None).store("n");
             b.at(0).arms().arm(|b| { b.expr(0..5); }, |b| { b.at(6).expr(6..23).throw(); });
             b.at(0).stmts(0..5);
         });
         let chunk = folded(built.unwrap_or_else(|e| panic!("{:?}", e.iter().map(|d| &d.msg).collect::<Vec<_>>())));
-        let parsed = compiled(&LEGACY, "xs = [1, 2]\nm = {\"k\": xs}\nf = lambda v: v + 1\ny = f(m[\"k\"][0])\nz = m.get(\"k\")\nt = true\nn = nil\nif y > 5:\n    raise ValueError(\"bad\")\ny > 5\n", Box::new(interpreter::deps::NoopResolver));
+        let parsed = compiled(&LEGACY, "xs = [1, 2]\nm = {\"k\": xs}\nf = lambda v: v + 1\ny = f(m[\"k\"][0])\nz = m.get(\"k\")\nt = true\nn = nil\nif y > 5:\n    raise ValueError(\"bad\")\ny > 5\n", Box::new(interpreter::NoopResolver));
         if let Err(e) = crate::common::same_program(&parsed, &(chunk, Vec::new())) { panic!("{e}"); }
     }
 
@@ -229,11 +237,11 @@ mod test {
     fn arms_chain_as_else_if_does() {
         let src = "a > 1\nprint(1)\na > 0\nprint(2)\nprint(3)\n";
         let built = build::<Rig>(src, unit(), |b| {
-            b.at(0).constant(Value::Int(2)).store("a");
+            b.at(0).constant(Constant::Int(2)).store("a");
             b.at(0).arms().arm(|b| { b.expr(0..5); }, |b| { b.stmts(6..14); }).arm(|b| { b.expr(15..20); }, |b| { b.stmts(21..29); }).other(|b| { b.stmts(30..38); });
         });
-        let chunk = folded(built.ok().expect("no errors"));
-        let parsed = compiled(&LEGACY, "a = 2\nif a > 1:\n    print(1)\nelse if a > 0:\n    print(2)\nelse:\n    print(3)\n", Box::new(interpreter::deps::NoopResolver));
+        let chunk = folded(built.expect("no errors"));
+        let parsed = compiled(&LEGACY, "a = 2\nif a > 1:\n    print(1)\nelse if a > 0:\n    print(2)\nelse:\n    print(3)\n", Box::new(interpreter::NoopResolver));
         if let Err(e) = crate::common::same_program(&parsed, &(chunk.clone(), Vec::new())) { panic!("{e}"); }
         assert_eq!(output(&chunk), ["1"]);
     }
@@ -241,7 +249,7 @@ mod test {
     // the walk scans sources through the front end and matches its whole suffix
     #[test]
     fn the_walk_follows_a_front_ends_imports_and_suffix() {
-        let front = Front { extension: "flow.steps", ..STEPS };
+        let front = Front::new(steps, imports, Syntax::PLAIN.extension("flow.steps"), rig::FRONT.policy());
         let files = [("./b.flow.steps", b"import ./c.flow.steps\n".to_vec()), ("./c.flow.steps", b"\0asm".to_vec())];
         let mut walk = Walk::new(&front, "import ./b.flow.steps\n", "", Vec::new(), Carry::default());
         let (mut code, mut plugins) = (Vec::new(), Vec::new());
@@ -275,25 +283,25 @@ mod test {
     fn a_built_lambda_gives_back_the_names_it_shadows() {
         let built = build::<Rig>("x\n", unit(), |b| {
             b.at(0).function("run", &[], |b| {
-                b.at(0).constant(Value::Int(1)).store("x");
-                b.at(0).lambda(&["x"], |b| { b.load("x").constant(Value::Int(1)).binary(OpCode::Add); }).store("f");
-                b.at(0).lambda(&[], |b| { b.load("range").constant(Value::Int(3)).call(1, 0).for_each(&["x"], |_| {}).load("x"); }).store("g");
-                b.at(0).load("x").load("f").constant(Value::Int(5)).call(1, 0).load("g").call(0, 0).list(3).ret();
+                b.at(0).constant(Constant::Int(1)).store("x");
+                b.at(0).lambda(&["x"], |b| { b.load("x").constant(Constant::Int(1)).binary(Op::Bin(BinOp::Add)); }).store("f");
+                b.at(0).lambda(&[], |b| { b.load("range").constant(Constant::Int(3)).call(1, 0).for_each(&["x"], |_| {}).load("x"); }).store("g");
+                b.at(0).load("x").load("f").constant(Constant::Int(5)).call(1, 0).load("g").call(0, 0).list(3).ret();
             });
             b.at(0).load("print").load("run").call(0, 0).call(1, 0).pop();
         });
-        assert_eq!(output(&folded(built.ok().expect("no errors"))), ["[1, 6, 2]"]);
+        assert_eq!(output(&folded(built.expect("no errors"))), ["[1, 6, 2]"]);
     }
     /* a closure per loop pass over `k` with a fresh cell each pass when `fresh` */
     fn passes(b: &mut Builder<'_, '_, Rig>, fresh: bool) {
-        b.at(0).constant(Value::Int(0)).store("n").list(0).store("fs");
-        b.while_loop(|b| { b.load("n").constant(Value::Int(3)).binary(OpCode::Lt); }, |b| {
+        b.at(0).constant(Constant::Int(0)).store("n").list(0).store("fs");
+        b.while_loop(|b| { b.load("n").constant(Constant::Int(3)).binary(Op::Cmp(Cmp::Lt)); }, |b| {
             if fresh { b.fresh("k"); }
             b.load("n").store("k");
             b.load("fs").field("append").closure("get", &[], |b| { b.load("k").ret(); }).call(1, 0).pop();
-            b.load("n").constant(Value::Int(1)).binary(OpCode::Add).store("n");
+            b.load("n").constant(Constant::Int(1)).binary(Op::Bin(BinOp::Add)).store("n");
         });
-        for i in 0..3 { b.load("fs").constant(Value::Int(i)).item().call(0, 0); }
+        for i in 0..3 { b.load("fs").constant(Constant::Int(i)).item().call(0, 0); }
         b.list(3).ret();
     }
 
@@ -305,7 +313,7 @@ mod test {
             b.at(0).function("shared", &[], |b| passes(b, false));
             b.at(0).load("print").load("fresh").call(0, 0).load("shared").call(0, 0).call(2, 0).pop();
         });
-        assert_eq!(output(&folded(built.ok().expect("no errors"))), ["[0, 1, 2] [2, 2, 2]"]);
+        assert_eq!(output(&folded(built.expect("no errors"))), ["[0, 1, 2] [2, 2, 2]"]);
     }
 
     // fields lazy tests unary ops and stack moves a front end lays by hand
@@ -316,14 +324,14 @@ mod test {
             b.at(0).class("Box", 0, |b| { b.function("get", &["self"], |b| { b.load("self").field("v").ret(); }); }).store("Box");
             b.at(0).load("Box").call(0, 0).store("o");
             // a store keeps its value on top as an assignment expression does
-            b.at(0).load("o").constant(Value::Int(7)).dup().rot3().swap().set_field("v").store("kept");
-            b.at(0).constant(Value::Bool(false)).lazy(true, |b| { b.constant(Value::Int(1)); }).store("a");
-            b.at(0).constant(Value::Int(0)).lazy(false, |b| { b.constant(Value::Int(2)); }).store("c");
-            b.at(0).constant(Value::Int(5)).unary(OpCode::Minus).store("m");
-            b.at(0).constant(Value::Bool(true)).unary(OpCode::Not).store("t");
+            b.at(0).load("o").constant(Constant::Int(7)).dup().rot3().swap().set_field("v").store("kept");
+            b.at(0).constant(Constant::Bool(false)).lazy(true, |b| { b.constant(Constant::Int(1)); }).store("a");
+            b.at(0).constant(Constant::Int(0)).lazy(false, |b| { b.constant(Constant::Int(2)); }).store("c");
+            b.at(0).constant(Constant::Int(5)).unary(Op::Unary(UnOp::Neg)).store("m");
+            b.at(0).constant(Constant::Bool(true)).unary(Op::Not).store("t");
             b.at(0).load("print").load("kept").load("o").field("get").call(0, 0).load("a").load("c").load("m").load("t").call(6, 0).pop();
         });
-        assert_eq!(output(&folded(built.ok().expect("no errors"))), ["7 7 false 2 -5 false"]);
+        assert_eq!(output(&folded(built.expect("no errors"))), ["7 7 false 2 -5 false"]);
     }
 
     // a nonlocal writes the body around it and a misused op refuses to build
@@ -331,26 +339,26 @@ mod test {
     fn a_nonlocal_writes_the_body_around_it() {
         let built = build::<Rig>("x\n", unit(), |b| {
             b.at(0).function("count", &[], |b| {
-                b.constant(Value::Int(0)).store("n");
-                b.closure("bump", &[], |b| { b.nonlocal("n").load("n").constant(Value::Int(1)).binary(OpCode::Add).store("n").constant(Value::None).ret(); }).store("bump");
+                b.constant(Constant::Int(0)).store("n");
+                b.closure("bump", &[], |b| { b.nonlocal("n").load("n").constant(Constant::Int(1)).binary(Op::Bin(BinOp::Add)).store("n").constant(Constant::None).ret(); }).store("bump");
                 b.load("bump").call(0, 0).pop().load("bump").call(0, 0).pop().load("n").ret();
             });
             b.at(0).load("print").load("count").call(0, 0).call(1, 0).pop();
         });
-        assert_eq!(output(&folded(built.ok().expect("no errors"))), ["2"]);
-        let refused = build::<Rig>("x\n", unit(), |b| { b.constant(Value::Int(1)).unary(OpCode::Add); });
+        assert_eq!(output(&folded(built.expect("no errors"))), ["2"]);
+        let refused = build::<Rig>("x\n", unit(), |b| { b.constant(Constant::Int(1)).unary(Op::Bin(BinOp::Add)); });
         assert!(refused.is_err_and(|e| e[0].msg.contains("unary")));
     }
     // the engine's rules let classes hold fields share bound methods and order texts
     #[test]
     fn the_engine_rules_keep_fields_bound_methods_and_order_open() {
         let built = build::<Rig>("x\n", unit(), |b| {
-            b.at(0).class("Box", 0, |b| { b.function("get", &["self"], |b| { b.constant(Value::None).ret(); }); }).store("Box");
-            b.at(0).load("Box").constant(Value::Int(1)).set_field("tag");
+            b.at(0).class("Box", 0, |b| { b.function("get", &["self"], |b| { b.constant(Constant::None).ret(); }); }).store("Box");
+            b.at(0).load("Box").constant(Constant::Int(1)).set_field("tag");
             b.at(0).load("Box").call(0, 0).store("o");
-            b.at(0).load("print").load("Box").field("tag").load("o").field("get").load("o").field("get").binary(OpCode::Is);
-            b.constant(Value::Str("a".into())).constant(Value::Str("b".into())).binary(OpCode::Lt).call(3, 0).pop();
+            b.at(0).load("print").load("Box").field("tag").load("o").field("get").load("o").field("get").binary(Op::Is);
+            b.constant(Constant::Str("a".into())).constant(Constant::Str("b".into())).binary(Op::Cmp(Cmp::Lt)).call(3, 0).pop();
         });
-        assert_eq!(output(&folded(built.ok().expect("no errors"))), ["1 true true"]);
+        assert_eq!(output(&folded(built.expect("no errors"))), ["1 true true"]);
     }
 }

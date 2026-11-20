@@ -1,8 +1,8 @@
-use interpreter::code::compile_as;
-use interpreter::embed::{Limits, VM};
-use interpreter::lang::{Act, Args, Body, Callee, Cmp, Cx, Descriptor, EngineError, ErrKind, Fit, Front, Gen, KindId, Language, Misfit, Mode, Names, Native, Natives, Op, Policy, Ret, Runtime, Sig, Use};
+use interpreter::{Limits, VM};
+use interpreter::lang::{Act, Args, Body, Callee, Cmp, Cx, Descriptor, EngineError, ErrKind, Fit, Front, Gen, KindId, Language, Misfit, Names, Native, Natives, Op, Policy, Ret, Runtime, Show, Sig, Use};
 use interpreter::lexer::{Spelling, Syntax};
-use interpreter::value::{HeapPool, Val, VmErr};
+use interpreter::{Val, VmErr};
+use interpreter::value::HeapPool;
 use interpreter::value::foreign::Kind;
 use interpreter::value::foreign::{BinOp, UnOp};
 use rig::{Rig, NAMES};
@@ -38,7 +38,7 @@ impl Language for Probe {
     const BUILT: interpreter::value::foreign::Built = <rig::Rig as interpreter::lang::Language>::BUILT;
     type Ops = ();
 
-    fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Mode) -> Result<String, VmErr> { <Rig as Language>::show(cx, v, mode) }
+    fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Show) -> Result<String, VmErr> { <Rig as Language>::show(cx, v, mode) }
 
     fn format(cx: &mut Cx<'_, '_>, v: Val, spec: &str) -> Result<String, VmErr> { <Rig as Language>::format(cx, v, spec) }
 
@@ -103,8 +103,7 @@ fn probe(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
 
 /* what `src` printed or the error that ended it */
 fn ran(src: &str) -> String {
-    let (chunk, errors) = compile_as::<Probe>(src);
-    assert!(errors.is_empty(), "{src:?} reports {:?}", errors.iter().map(|d| &d.msg).collect::<Vec<_>>());
+    let chunk = Probe::FRONT.compile(src).unwrap_or_else(|errors| panic!("{src:?} reports {:?}", errors.iter().map(|d| &d.msg).collect::<Vec<_>>()));
     let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
     match vm.run() {
         Ok(_) => vm.output_text().trim_end().to_string(),

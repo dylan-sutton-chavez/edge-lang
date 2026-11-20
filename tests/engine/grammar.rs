@@ -1,12 +1,13 @@
 #[cfg(test)]
 mod test {
     use crate::common::boot;
-    use interpreter::code::OpCode as O;
-    use interpreter::embed::Limits;
+    use interpreter::lang::{Cmp, Op};
+    use interpreter::value::foreign::BinOp;
+    use interpreter::Limits;
     use interpreter::lang::Front;
-    use interpreter::lexer::grammar::{Emit, Form, Grammar, Mode, Pattern, Row, Slot, Test};
+    use interpreter::lexer::grammar::{Emit, Form, Grammar, Pattern, Reading, Row, Slot, Test};
     use interpreter::lexer::TokenType as T;
-    use interpreter::lexer::{index, operators, Binding, Blocks, Comments, Cond, Continuation, Dot, Ends, Escapes, Keywords, Lambda, Numbers, Quote, Shapes, Spelling, Strings, Suffix, Syntax, TokenType, Unicode, Unknown, Zeros};
+    use interpreter::lexer::{Binding, Comments, Cond, Dot, Escapes, Keywords, Lambda, Numbers, Quote, Shapes, Spelling, Strings, Suffix, Syntax, TokenType, Unicode, Unknown, Zeros, index, operators};
 
     const WORDS: &[(&str, TokenType)] = &[("true", T::True), ("false", T::False), ("or", T::Or), ("in", T::In), ("if", T::If), ("else", T::Else), ("match", T::Match), ("fn", T::Fn), ("let", T::Let), ("for", T::For), ("use", T::Import), ("_", T::Underscore)];
     const SYMBOLS: &[(&str, TokenType)] = &[
@@ -16,33 +17,31 @@ mod test {
     static OPERATORS: [[TokenType; 4]; 128] = operators(SYMBOLS);
     static KEYWORDS: Keywords = index(WORDS);
     const ROWS: &[Row] = &[
-        Row { tok: T::Or, left: 4, right: 5, emit: Emit::Lazy(false) }, Row { tok: T::EqualEqual, left: 10, right: 11, emit: Emit::Op(O::Eq) },
-        Row { tok: T::Less, left: 10, right: 11, emit: Emit::Op(O::Lt) }, Row { tok: T::In, left: 10, right: 11, emit: Emit::Op(O::In) },
-        Row { tok: T::Plus, left: 14, right: 15, emit: Emit::Op(O::Add) }, Row { tok: T::Minus, left: 14, right: 15, emit: Emit::Op(O::Sub) },
-        Row { tok: T::Slash, left: 16, right: 17, emit: Emit::Op(O::FloorDiv) },
+        Row::new(T::Or, 4, 5, Emit::Lazy(false)), Row::new(T::EqualEqual, 10, 11, Emit::Op(Op::Cmp(Cmp::Eq))),
+        Row::new(T::Less, 10, 11, Emit::Op(Op::Cmp(Cmp::Lt))), Row::new(T::In, 10, 11, Emit::Op(Op::In)),
+        Row::new(T::Plus, 14, 15, Emit::Op(Op::Bin(BinOp::Add))), Row::new(T::Minus, 14, 15, Emit::Op(Op::Bin(BinOp::Sub))),
+        Row::new(T::Slash, 16, 17, Emit::Op(Op::Bin(BinOp::FloorDiv))),
     ];
     const LIMITS: &[(&str, &str)] = &[("work", "work"), ("wide", "wide")];
-    static GRAMMAR: Grammar = Grammar {
-        modes: &[Mode { rows: ROWS, words: &[] }],
-        forms: &[
-            Form { head: "fix", slots: &[Slot::Bind, Slot::Word("="), Slot::Expr(0), Slot::Word("up"), Slot::Word("to"), Slot::Expr(0), Slot::Body(0)], call: "steps" },
-            Form { head: "here", slots: &[Slot::At, Slot::Expr(0), Slot::Limits("within", LIMITS)], call: "trio" },
-        ],
-        patterns: &[Pattern { word: "yes", test: Test::Item(0, true), part: None }],
-        lazy: &["any", "pick"],
-        ..Grammar::NONE
-    };
-    const SYNTAX: Syntax = Syntax {
-        name: "forms", extension: "forms", words: WORDS, symbols: SYMBOLS, operators: &OPERATORS, keywords: &KEYWORDS, precedence: &[], chained: false,
-        blocks: Blocks::Braces, ends: Ends::Semicolon, comments: Comments { line: &["--"], block: None, nested: false },
-        shapes: Shapes { cond: Cond::None, lambda: Lambda::None, keyword_arg: T::Equal, splat: false, slices: false, dot: Dot::Key, header_parens: false, comprehensions: true, decorators: false, named: false, binding: Binding::Optional, arms: true, ranges: false, grammar: Some(&GRAMMAR) },
-        strings: Strings { quotes: &[Quote { byte: b'"', multiline: false, triple: false }], prefixes: &[], any_case: false, hashes: false, adjacent: false, newlines: false, escapes: Escapes { simple: &[], hex: false, unicode: Unicode::Fixed, octal: false, line_join: false, unknown: Unknown::Refuse, refused: &[] } },
-        interp: None,
-        numbers: Numbers { radixes: &[], separator: None, zeros: Zeros::Refused, leading_dot: false, trailing_dot: false, exponent: false, suffix: Suffix::Refused },
-        continuation: Continuation { join: None, operator: false },
-        soft: &[],
-        bom: false,
-    };
+    static GRAMMAR: Grammar = Grammar::PLAIN
+        .readings(&[Reading::new(ROWS, &[])])
+        .forms(&[
+                Form::new("fix", &[Slot::Bind, Slot::Word("="), Slot::Expr(0), Slot::Word("up"), Slot::Word("to"), Slot::Expr(0), Slot::Body(0)], "steps"),
+                Form::new("here", &[Slot::At, Slot::Expr(0), Slot::Limits("within", LIMITS)], "trio"),
+            ])
+        .patterns(&[Pattern::new("yes", Test::Item(0, true), None)])
+        .lazy(&["any", "pick"]);
+    const SYNTAX: Syntax = Syntax::PLAIN
+        .name("forms")
+        .extension("forms")
+        .words(WORDS)
+        .symbols(SYMBOLS)
+        .operators(&OPERATORS)
+        .keywords(&KEYWORDS)
+        .comments(Comments::PLAIN.line(&["--"]))
+        .shapes(Shapes::PLAIN.cond(Cond::None).lambda(Lambda::None).splat(false).slices(false).dot(Dot::Key).decorators(false).named(false).binding(Binding::Optional).arms(true).grammar(Some(&GRAMMAR)))
+        .strings(Strings::PLAIN.quotes(&[Quote::PLAIN]).escapes(Escapes::PLAIN.unicode(Unicode::Fixed).unknown(Unknown::Refuse)))
+        .numbers(Numbers::PLAIN.zeros(Zeros::Refused).suffix(Suffix::Refused));
     struct Forms;
     impl Spelling for Forms {
         const SYNTAX: Syntax = SYNTAX;
@@ -57,7 +56,7 @@ mod test {
     static BARE_OPERATORS: [[TokenType; 4]; 128] = operators(BARE_SYMBOLS);
     struct Bare;
     impl Spelling for Bare {
-        const SYNTAX: Syntax = Syntax { symbols: BARE_SYMBOLS, operators: &BARE_OPERATORS, ..SYNTAX };
+        const SYNTAX: Syntax = SYNTAX.symbols(BARE_SYMBOLS).operators(&BARE_OPERATORS);
         const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
     }
 
@@ -66,17 +65,30 @@ mod test {
 
     // a module the tests import by the name m
     struct One;
-    impl interpreter::deps::Resolver for One {
-        fn resolve(&mut self, spec: &str) -> Result<interpreter::deps::Resolved, String> {
-            if spec == "m" { Ok(interpreter::deps::Resolved::Code { src: "let x = 5\n".into(), canonical: "m".into() }) } else { Err(format!("no module {spec}")) }
+    impl interpreter::Resolver for One {
+        fn resolve(&mut self, spec: &str) -> Result<interpreter::Resolved, String> {
+            if spec == "m" { Ok(interpreter::Resolved::code("let x = 5\n", "m")) } else { Err(format!("no module {spec}")) }
         }
-        fn child(&self, _: &str) -> Box<dyn interpreter::deps::Resolver> { Box::new(One) }
+        fn child(&self, _: &str) -> Box<dyn interpreter::Resolver> { Box::new(One) }
+    }
+
+    // a row whose operator no opcode applies is refused where the source reads it
+    #[test]
+    fn a_row_whose_operator_no_opcode_applies_is_refused() {
+        static ODD: Grammar = Grammar::PLAIN.readings(&[Reading::new(&[Row::new(T::Plus, 14, 15, Emit::Op(Op::Len))], &[])]);
+        struct Odd;
+        impl Spelling for Odd {
+            const SYNTAX: Syntax = SYNTAX.shapes(SYNTAX.shapes.grammar(Some(&ODD)));
+            const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
+        }
+        let Err(errors) = Front::spelled::<Odd>().compile("1 + 2\n") else { panic!("a refused row") };
+        assert!(errors.iter().any(|d| d.msg == "a grammar row emits an operator no opcode applies"), "{:?}", errors.iter().map(|d| &d.msg).collect::<Vec<_>>());
     }
 
     fn run(src: &str) -> String {
         const FRONT: Front = Front::spelled::<Forms>();
         let src = format!("{CALLS}{src}");
-        let chunk = FRONT.program(&src, Box::new(One)).unwrap_or_else(|e| panic!("{}", interpreter::code::Diagnostic::render_all(&e, &src, None)));
+        let chunk = FRONT.program(&src, Box::new(One)).unwrap_or_else(|e| panic!("{}", interpreter::Diagnostic::render_all(&e, &src, None)));
         let mut vm = boot(&chunk, Limits::sandbox());
         match vm.run() { Ok(_) => vm.output_text(), Err(e) => vm.error_text(&e) }
     }
@@ -118,7 +130,7 @@ mod test {
     fn a_table_with_no_colon_or_while_words_its_messages_and_runs() {
         const FRONT: Front = Front::spelled::<Bare>();
         let src = format!("{CALLS}let _ = print(fix k = 0 up to 3 {{ k + 1 }})");
-        let chunk = FRONT.program(&src, Box::new(One)).unwrap_or_else(|e| panic!("{}", interpreter::code::Diagnostic::render_all(&e, &src, None)));
+        let chunk = FRONT.program(&src, Box::new(One)).unwrap_or_else(|e| panic!("{}", interpreter::Diagnostic::render_all(&e, &src, None)));
         let mut vm = boot(&chunk, Limits::sandbox());
         assert_eq!(vm.run().map(|_| vm.output_text()).ok().as_deref(), Some("3\n"));
     }
@@ -131,10 +143,10 @@ mod test {
     ];
     static DECL_OPERATORS: [[TokenType; 4]; 128] = operators(DECL_SYMBOLS);
     static DECL_KEYWORDS: Keywords = index(DECL_WORDS);
-    static DECL_GRAMMAR: Grammar = Grammar { modes: &[Mode { rows: ROWS, words: &[] }], modifiers: &[("pub", None), ("traced", Some("trace"))], ..Grammar::NONE };
+    static DECL_GRAMMAR: Grammar = Grammar::PLAIN.readings(&[Reading::new(ROWS, &[])]).modifiers(&[("pub", None), ("traced", Some("trace"))]);
     struct Decls;
     impl Spelling for Decls {
-        const SYNTAX: Syntax = Syntax { words: DECL_WORDS, symbols: DECL_SYMBOLS, operators: &DECL_OPERATORS, keywords: &DECL_KEYWORDS, shapes: Shapes { grammar: Some(&DECL_GRAMMAR), ..SYNTAX.shapes }, ..SYNTAX };
+        const SYNTAX: Syntax = SYNTAX.words(DECL_WORDS).symbols(DECL_SYMBOLS).operators(&DECL_OPERATORS).keywords(&DECL_KEYWORDS).shapes(SYNTAX.shapes.grammar(Some(&DECL_GRAMMAR)));
         const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
     }
 
@@ -143,7 +155,7 @@ mod test {
         use interpreter::code::{Annotated, Annotation, Decl, DeclKind, NodeKind as K};
         let src = "pub traced fn double(x: num) -> num = x + x\ntype Pair = [num, num]\npub let two = 2\nlet _ = { let r = { a = two, b = (two) }\n double(r.a)[0] }\n";
         let (chunk, errors) = interpreter::code::read_as::<Decls>(src);
-        assert!(errors.is_empty(), "{}", interpreter::code::Diagnostic::render_all(&errors, src, None));
+        assert!(errors.is_empty(), "{}", interpreter::Diagnostic::render_all(&errors, src, None));
         let at = |text: &str, k: usize| src.match_indices(text).nth(k).map_or(0, |m| m.0);
         let outline: Vec<_> = chunk.notes().outline.iter().map(|n| (n.kind, &src[n.span.clone()], n.parent)).collect();
         assert_eq!(outline, [
@@ -171,7 +183,7 @@ mod test {
             Annotation { span: at("num", 1)..at("num", 1) + 3, of: Annotated::Returns { function: 0 } },
         ]);
         // a compile of the same source keeps none of it
-        assert_eq!(interpreter::code::compile(&Front::spelled::<Decls>(), src).0.notes(), &interpreter::code::Notes::default());
+        assert_eq!(interpreter::compile(&Front::spelled::<Decls>(), src).0.notes(), &interpreter::code::Notes::default());
     }
 
     // two functions of one name each keep their own annotations as the rig reads them past its grammar kit
@@ -180,7 +192,7 @@ mod test {
         use interpreter::code::{Annotated, Annotation, NodeKind};
         let src = "fn add(a: int, b: [int]) -> int {\n    return a\n}\nfn add(c: str) {\n    return c\n}\ncount: int = 1\n";
         let (chunk, errors) = interpreter::code::read_as::<rig::Rig>(src);
-        assert!(errors.is_empty(), "{}", interpreter::code::Diagnostic::render_all(&errors, src, None));
+        assert!(errors.is_empty(), "{}", interpreter::Diagnostic::render_all(&errors, src, None));
         let notes = chunk.notes();
         let functions: Vec<usize> = (0..notes.outline.len()).filter(|&i| notes.outline[i].kind == NodeKind::Function).collect();
         assert_eq!(functions.iter().map(|&i| &src[notes.outline[i].span.clone()]).collect::<Vec<_>>(), ["fn add(a: int, b: [int]) -> int {\n    return a\n}", "fn add(c: str) {\n    return c\n}"]);
@@ -198,22 +210,22 @@ mod test {
     // the rig's table read by the engine's own operators where no grammar kit takes values
     struct Plain;
     impl Spelling for Plain {
-        const SYNTAX: Syntax = Syntax { shapes: Shapes { grammar: None, ..rig::RIG.shapes }, ..rig::RIG };
+        const SYNTAX: Syntax = rig::RIG.shapes(rig::RIG.shapes.grammar(None));
         const NATIVES: &'static interpreter::lang::Natives = &rig::NATIVES;
     }
 
     /* the bodies of `chunk` with each instruction's span checked to sit in `src` */
     fn spanned_bodies(chunk: &interpreter::code::SSAChunk, src: &str) -> usize {
-        for ip in 0..chunk.instructions.len() as u32 {
-            let span = chunk.span(ip).unwrap_or_else(|| panic!("{:?} at {ip} of {} has no span", chunk.instructions[ip as usize].opcode, chunk.qualname));
+        for ip in 0..chunk.instructions().len() as u32 {
+            let span = chunk.span(ip).unwrap_or_else(|| panic!("{:?} at {ip} of {} has no span", chunk.instructions()[ip as usize].opcode, chunk.qualname()));
             assert!(span.start <= span.end && span.end <= src.len(), "{span:?}");
         }
-        1 + chunk.functions.iter().map(|f| spanned_bodies(&f.1, src)).sum::<usize>() + chunk.classes.iter().map(|c| spanned_bodies(c, src)).sum::<usize>()
+        1 + chunk.functions().map(|f| spanned_bodies(f.1, src)).sum::<usize>() + chunk.classes().iter().map(|c| spanned_bodies(c, src)).sum::<usize>()
     }
 
     /* the code of `chunk` and every body under it */
     fn code(chunk: &interpreter::code::SSAChunk) -> String {
-        format!("{:?}", chunk.instructions) + &chunk.functions.iter().map(|f| code(&f.1)).chain(chunk.classes.iter().map(code)).collect::<String>()
+        format!("{:?}", chunk.instructions()) + &chunk.functions().map(|f| code(f.1)).chain(chunk.classes().iter().map(code)).collect::<String>()
     }
 
     /* every instruction of every body has a span and each node sits inside its parent apart from its siblings */
@@ -234,19 +246,19 @@ mod test {
     fn every_instruction_of_a_read_has_a_span_and_each_node_sits_in_its_parent_apart_from_its_siblings() {
         let plain = "fn scale(xs, k = 2, *rest) {\n    ys = [x * k for x in xs if x > 0 and not x == 3]\n    pairs = {\"a\": (1, 2), \"b\": -k}\n    ys[0] += pairs[\"a\"][1:]\n    f = |y| y.real + 1\n    try { throw f(ys) } catch e { return e }\n    return f(k=1), {ys[0], 4}, \"{k} of {xs}\"\n}\nfor i, v in scale([1, 2]) {\n    while i < v { i = i + (v ~/ 2) }\n}\n";
         let (chunk, errors) = interpreter::code::read_as::<Plain>(plain);
-        assert!(errors.is_empty(), "{}", interpreter::code::Diagnostic::render_all(&errors, plain, None));
+        assert!(errors.is_empty(), "{}", interpreter::Diagnostic::render_all(&errors, plain, None));
         assert!(well_kept(&chunk, plain) >= 4);
-        assert_eq!(code(&chunk), code(&interpreter::code::compile_as::<Plain>(plain).0));
+        assert_eq!(code(&chunk), code(&interpreter::compile_as::<Plain>(plain).0));
         let rig = "fn add(a: int, b: [int]) -> int {\n    return a + b[0]\n}\nxs = [1, (2), (3, 4)]\nif add(1, xs).y {\n    count: int = xs.len()\n}\nf = lift k: k + 1\nwhile xs { xs = xs[1:] }\nm = match xs { [a, _] => a  _ => gather { 1; for x in xs { x } } }\n";
         let (chunk, errors) = interpreter::code::read_as::<rig::Rig>(rig);
-        assert!(errors.is_empty(), "{}", interpreter::code::Diagnostic::render_all(&errors, rig, None));
+        assert!(errors.is_empty(), "{}", interpreter::Diagnostic::render_all(&errors, rig, None));
         assert!(well_kept(&chunk, rig) >= 3);
-        assert_eq!(code(&chunk), code(&interpreter::code::compile_as::<rig::Rig>(rig).0));
+        assert_eq!(code(&chunk), code(&interpreter::compile_as::<rig::Rig>(rig).0));
         let decls = "pub traced fn double(x: num) -> num = x + x\nlet _ = { let r = { a = two, b = (two) }\n if r.a == 1 { double(r.a)[0] } else { fn (y) = y + 1 } }\n";
         let (chunk, errors) = interpreter::code::read_as::<Decls>(decls);
-        assert!(errors.is_empty(), "{}", interpreter::code::Diagnostic::render_all(&errors, decls, None));
+        assert!(errors.is_empty(), "{}", interpreter::Diagnostic::render_all(&errors, decls, None));
         assert!(well_kept(&chunk, decls) >= 2);
-        assert_eq!(code(&chunk), code(&interpreter::code::compile_as::<Decls>(decls).0));
+        assert_eq!(code(&chunk), code(&interpreter::compile_as::<Decls>(decls).0));
     }
 }
 

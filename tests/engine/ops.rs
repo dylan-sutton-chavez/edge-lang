@@ -1,10 +1,11 @@
 mod test {
     use interpreter::code::OpCode;
-    use interpreter::embed::{Limits, VM};
-    use interpreter::lang::{Args, Cx, Descriptor, EngineError, ErrKind, Front, Language, Mode, Names, Native, Natives, Op, OpSet, OpTable, Policy, Ret, Runtime, Sig};
+    use interpreter::{Limits, VM};
+    use interpreter::lang::{Args, Cx, Descriptor, EngineError, ErrKind, Front, Language, Names, Native, Natives, Op, OpSet, OwnTable, Policy, Ret, Runtime, Show, Sig};
     use interpreter::lexer::{Spelling, Syntax};
     use interpreter::value::foreign::Kind;
-    use interpreter::value::{HeapPool, Val, VmErr};
+    use interpreter::{Val, VmErr};
+    use interpreter::value::HeapPool;
     use rig::Rig;
     use rig::natives::{ARRAY, BUFFER, BYTES, CONVERT, DICT, FLOAT, FOLDS, INT, IO, ITER, LIST, LIST_SORT, NEXT, NUM, RANGE, SET, SET_MANY, SORT, STR, TUPLE, TYPES};
 
@@ -35,8 +36,8 @@ mod test {
     /* any ints or floats clamped and other kinds refused through the runtime's rules */
     fn clamp_slow(cx: &mut Cx<'_, '_>, args: &[Val]) -> Result<Val, VmErr> {
         SLOW.with(|n| n.set(n.get() + 1));
-        let &[x, lo, hi] = args else { return Err(VmErr::Runtime("clamp takes three operands")) };
-        let bounds = || VmErr::Of(ErrKind::Value, String::from("clamp's low bound lies past its high bound"));
+        let &[x, lo, hi] = args else { return Err(VmErr::new(ErrKind::Runtime, "clamp takes three operands")) };
+        let bounds = || VmErr::new(ErrKind::Value, String::from("clamp's low bound lies past its high bound"));
         if let (Some(a), Some(l), Some(h)) = (cx.int(x), cx.int(lo), cx.int(hi)) {
             if l > h { return Err(bounds()); }
             return cx.new_int(a.clamp(l, h));
@@ -82,7 +83,7 @@ mod test {
     impl Spelling for Clamped {
         const SYNTAX: Syntax = rig::RIG;
         const NATIVES: &'static Natives = &NATIVES;
-        const OPS: &'static OpSet = <Clamps as OpTable>::SET;
+        const OPS: &'static OpSet = <Clamps as OwnTable>::SET;
     }
 
     impl Language for Clamped {
@@ -96,7 +97,7 @@ mod test {
         const BUILT: interpreter::value::foreign::Built = <rig::Rig as Language>::BUILT;
         type Ops = Clamps;
 
-        fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Mode) -> Result<String, VmErr> { <Rig as Language>::show(cx, v, mode) }
+        fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Show) -> Result<String, VmErr> { <Rig as Language>::show(cx, v, mode) }
 
         fn format(cx: &mut Cx<'_, '_>, v: Val, spec: &str) -> Result<String, VmErr> { <Rig as Language>::format(cx, v, spec) }
 
@@ -109,20 +110,20 @@ mod test {
 
     /* the ops `src` compiles to in its module body */
     fn ops_of(src: &str) -> Vec<(OpCode, u16)> {
-        let (chunk, errors) = interpreter::code::compile_as::<Clamped>(src);
+        let (chunk, errors) = interpreter::compile_as::<Clamped>(src);
         assert!(errors.is_empty());
-        chunk.instructions.iter().map(|i| (i.opcode, i.operand)).collect()
+        chunk.instructions().iter().map(|i| (i.opcode, i.operand)).collect()
     }
 
     #[test]
     fn a_runtime_declares_its_ops_and_the_engine_reads_the_table() {
         assert_eq!(Clamps::ALL, [Clamps::Clamp]);
-        assert_eq!((<Clamps as OpTable>::COUNT, Clamps::Clamp.operand()), (1, 3 << 8));
-        assert_eq!(RUNTIME.ops.ops[0].fuse, Some("clamp"));
-        assert_ne!(<Clamps as OpTable>::HASH, 0);
+        assert_eq!((<Clamps as OwnTable>::COUNT, Clamps::Clamp.operand()), (1, 3 << 8));
+        assert_eq!(RUNTIME.ops().ops[0].fuse, Some("clamp"));
+        assert_ne!(<Clamps as OwnTable>::HASH, 0);
         // a table of no ops is empty and the identity tells the runtimes apart
-        assert_ne!(RUNTIME.identity, rig::RUNTIME.identity);
-        assert_eq!(<() as OpTable>::SET.ops.len(), 0);
+        assert_ne!(RUNTIME.identity(), rig::RUNTIME.identity());
+        assert_eq!(<() as OwnTable>::SET.ops.len(), 0);
     }
 
     #[test]
@@ -239,18 +240,18 @@ mod test {
     #[test]
     fn a_blob_of_another_table_is_refused_before_its_source_is_read() {
         let src = "x = 5\ny = clamp(x, 0, 3)\nreceive()\nprint(y)\n";
-        let (chunk, _) = interpreter::code::compile_as::<Clamped>(src);
+        let (chunk, _) = interpreter::compile_as::<Clamped>(src);
         let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
-        assert!(matches!(vm.run(), Err(VmErr::HostYield(_))));
-        let blob = interpreter::embed::save(&vm, src, "").expect("saves");
+        assert!(matches!(vm.run(), Err(e) if e.paused().is_some()));
+        let blob = interpreter::snapshot::save(&vm, src, "").expect("saves");
         // the runtimes differ only by their tables so the identity alone refuses it
-        assert_ne!(RUNTIME.identity, UNCLAMPED.identity);
-        assert!(interpreter::embed::saved_under(&blob, &RUNTIME) && !interpreter::embed::saved_under(&blob, &UNCLAMPED));
-        let (plain, _) = interpreter::code::compile_as::<Unclamped>(src);
+        assert_ne!(RUNTIME.identity(), UNCLAMPED.identity());
+        assert!(interpreter::snapshot::saved_under(&blob, &RUNTIME) && !interpreter::snapshot::saved_under(&blob, &UNCLAMPED));
+        let (plain, _) = interpreter::compile_as::<Unclamped>(src);
         let mut other = VM::with_runtime(&UNCLAMPED, &plain, Limits::sandbox());
-        assert_eq!(interpreter::embed::restore(&mut other, &blob).err().as_deref(), Some(interpreter::embed::OTHER_RUNTIME));
+        assert_eq!(interpreter::snapshot::restore(&mut other, &blob).err().map(|e| e.to_string()).as_deref(), Some(interpreter::snapshot::OTHER_RUNTIME));
         let mut same = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
-        assert!(interpreter::embed::restore(&mut same, &blob).is_ok());
+        assert!(interpreter::snapshot::restore(&mut same, &blob).is_ok());
     }
 
     #[test]
@@ -265,14 +266,14 @@ mod test {
 
     /* what `src` prints driven with `events` pushed one at each event wait */
     fn ran_with(src: &str, events: &[&str]) -> String {
-        let (chunk, errors) = interpreter::code::compile_as::<Clamped>(src);
+        let (chunk, errors) = interpreter::compile_as::<Clamped>(src);
         assert!(errors.is_empty());
         let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
         let mut events = events.iter();
         loop {
             match vm.run() {
                 Ok(_) => return vm.output_text().trim_end().to_string(),
-                Err(VmErr::HostYield(_)) => match events.next() { Some(e) => vm.push_event(e).expect("push_event"), None => return String::from("parked") },
+                Err(e) if e.paused().is_some() => match events.next() { Some(e) => vm.push_event(e).expect("push_event"), None => return String::from("parked") },
                 Err(e) => return format!("{}{}", vm.output_text(), vm.error_text(&e)),
             }
         }

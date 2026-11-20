@@ -10,7 +10,7 @@ const CASES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/cases");
 // the sources interpreter.wasm is built from which it must not predate
 const SOURCES: [&str; 2] = ["src", "examples/lox/src"];
 // the cli and the plugin kit live under src yet never build into interpreter.wasm so their edits leave it fresh
-const BESIDE: [&str; 5] = ["src/cli", "src/cli.rs", "src/main.rs", "src/plugin", "src/plugin.rs"];
+const BESIDE: [&str; 5] = ["src/engine/cli", "src/engine/cli.rs", "src/main.rs", "src/engine/plugin", "src/engine/plugin.rs"];
 // only budget-exhausting cases reach this many ops and they end the same way sooner
 const OPS: i64 = 10_000_000;
 // the MB the memory limit counts in

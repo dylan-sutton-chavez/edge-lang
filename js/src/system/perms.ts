@@ -28,7 +28,7 @@ function call(e: InterpreterExports, texts: string[], run: (at: number[]) => num
 /* the grant exports of the runtime or a refusal naming the build that lacks them */
 function exported(e: InterpreterExports) {
     const { grants_check: check, grants_scopes: scopes, grants_held: held } = e;
-    if (!check || !scopes || !held) throw new Error('this interpreter.wasm exports no grant logic, build its runtime with the perms feature');
+    if (!check || !scopes || !held) throw new Error('this interpreter.wasm exports no grant logic, build its runtime with the exports feature of interpreter 1.0.0 or later');
     return { check, scopes, held };
 }
 

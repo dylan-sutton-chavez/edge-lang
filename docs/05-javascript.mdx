@@ -5,11 +5,11 @@ description: "Run a runtime's .wasm in a web page with createWorker, and the ABI
 
 # JavaScript
 
-The JS host runs a runtime's `.wasm` in a web page. `createWorker` boots the engine in a Web Worker inside a sandboxed frame, where no cookie, storage or DOM of the page reaches it. Everything else is a call on the worker it returns.
+This page covers the JS host, which runs a runtime's `.wasm` in a web page, and the ABI any other host drives. `createWorker` boots the engine in a Web Worker inside a sandboxed frame, where no cookie, storage or DOM of the page reaches it. Everything else is a call on the worker it returns.
 
 ## Load the host
 
-Serve the tree from [Install](./01-overview.mdx#install), or the `dist/` that `interpreter build --web` writes, from your own origin. `createWorker` loads `interpreter.wasm` from two folders above `index.js`, or from `wasmUrl` for the `.wasm` of another runtime. Each example below is a module script of a page that serves `dist/`, followed by what it logs.
+Serve the tree from [The CLI and the JS host](./01-overview.mdx#the-cli-and-the-js-host), or the `dist/` that `interpreter build --web` writes, from your own origin. `createWorker` loads `interpreter.wasm` from two folders above `index.js`, or from `wasmUrl` for the `.wasm` of another runtime. Each example below is a module script of a page that serves `dist/`, followed by what it logs.
 
 ```js
 import { createWorker } from "./dist/js/src/index.js";
@@ -34,7 +34,7 @@ true 3
 | `baseUrl` | The program's directory. The page reads its `interpreter.json` and each file a run imports from there, never outside it and never with the page's cookies |
 | `wasmUrl` | Where the runtime's `.wasm` lives |
 | `imports`, `permissions` | Stand in for those fields of an `interpreter.json` the page does not have |
-| `limits` | `{ memory, ops }`, memory in MB. A field left out keeps 256 MB and 100,000,000 ops |
+| `limits` | `{ memory, ops }`, memory in MiB. A field left out keeps 256 MiB and 100,000,000 ops |
 | `trace` | Reports every host call through `onTrace` |
 | `bundleUrl`, `composition` | A worker script of your own and the host modules it serves |
 
@@ -123,7 +123,9 @@ The second `done` comes from the blob, which held the loop at the `n` where the 
 
 ## Other hosts
 
-Any host that runs WebAssembly can drive a runtime's `.wasm`. The CLI does it with wasmtime in `src/cli/host/wasm`. Every input is a buffer the host allocates with `wasm_alloc(size)`, fills, passes as `(ptr, len)` and frees with `wasm_free(ptr, size)`. Every result lands in one output buffer at `out_ptr()`, `out_len()` bytes long, valid until the next call.
+Any host that runs WebAssembly can drive a runtime's `.wasm`. The CLI does it with wasmtime in `src/engine/cli/host/wasm`. Every input is a buffer the host allocates with `wasm_alloc(size)`, fills, passes as `(ptr, len)` and frees with `wasm_free(ptr, size)`. Every result lands in one output buffer at `out_ptr()`, `out_len()` bytes long, valid until the next call.
+
+A module that exports `interpreter_runtime_abi` names the level of the contract it speaks, and one without it speaks v1. A host refuses a level newer than its own, as [Stability](./09-stability.mdx#formats-and-the-abi) sets out. A Rust host reads its own level as `interpreter::abi::RUNTIME_ABI`. Every module the crate's `exports` feature builds also exports `grants_check`, `grants_scopes` and `grants_held`, the grant logic a host reads.
 
 The module imports four functions from `env`.
 
@@ -152,4 +154,4 @@ The status word holds a kind in its top 3 bits and the output length in the low 
 | 6 | `EXIT` | Stops, the exit code is in the low 8 bits |
 | 7 | `PREEMPTED` | Calls `run_resume`, or `save_state` first |
 
-`register_native_module(spec, names, base_id)` serves a host module, `save_state` and `restore_state` save and resume a run, `vm_create` and `vm_select` hold several runs in one instance, and `runtime_descriptor` writes the runtime's names and file extension as JSON.
+`register_native_module(spec, names, base_id)` serves a host module, `save_state` and `restore_state` save and resume a run, `vm_create` and `vm_select` hold several runs in one instance, and `runtime_descriptor` writes the runtime's names and file extension as JSON. Its `snapshot` object gives the offsets of a blob's header, with `format_at` and `format` for the snapshot format the module restores, so a host reads a blob's format word and refuses one of another format before it calls `restore_state`.

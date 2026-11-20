@@ -1,7 +1,3 @@
-use interpreter::lib::lang::Tree;
-
-use crate::Rig;
-
 // the builtin types besides the errors
 const PLAIN: [&str; 12] = ["int", "float", "text", "bytes", "bytearray", "bool", "list", "tuple", "record", "set", "range", "type"];
 
@@ -12,9 +8,6 @@ pub(crate) const CLASSES: [(&str, &str); 18] = [
     ("IndexError", "Error"), ("DivisionError", "Error"), ("OverflowError", "Error"), ("RecursionError", "Error"),
     ("MemoryError", "Error"), ("CheckError", "Error"), ("SyntaxError", "Error"), ("IOError", "Error"), ("PermissionError", "IOError"),
 ];
-
-// the classes the type tests walk as the rig's names give them
-pub static TREE: Tree = Tree::of::<Rig>();
 
 // the names a load gives as type objects
 pub const NAMES: &[&str] = &names::<{ PLAIN.len() + CLASSES.len() }>();

@@ -5,28 +5,29 @@ description: "Run programs inside a Rust program, with events, host functions, e
 
 # Rust
 
-A Rust program links the engine and a runtime and runs programs in its own process, with no `.wasm` in between. The examples embed Lox from `examples/lox`. A runtime of yours exposes the same `RUNTIME` and `FRONT`, as [Build a runtime](./02-runtime.mdx) shows.
+This page covers running programs inside a Rust program. The program links the engine and a runtime and runs them in its own process, with no `.wasm` in between. The examples run Lox from `examples/lox`, and a runtime of yours exposes the same `RUNTIME` and `FRONT`, as [Build a runtime](./02-runtime.mdx) shows.
 
 ```toml
 [dependencies]
-interpreter = "1"
-interpreter-lox = { git = "https://github.com/dylan-sutton-chavez/interpreter" }
+interpreter = { git = "https://github.com/dylan-sutton-chavez/interpreter", branch = "main" }
+interpreter-lox = { git = "https://github.com/dylan-sutton-chavez/interpreter", branch = "main" }
 ```
+
+Lox is not on crates.io, so the engine comes from the same commit, as [Lox](./01-overview.mdx#lox) says.
 
 ## Run a program
 
-`interpreter::code::compile` parses a source and returns the chunk with every diagnostic. `VM::with_runtime` boots a VM over the chunk and `run` runs it to the end.
+`FRONT.compile(src)` parses and folds a source and returns the chunk or every diagnostic it found. `FRONT.compile_with(src, resolver)` does the same with the resolver its imports go through. These two calls are the one way to compile. `VM::with_runtime` boots a VM over the chunk and `run` runs it to the end.
 
 ```rust standalone_crate
-use interpreter::embed::{Limits, VM};
+use interpreter::{Limits, VM};
 
 // the memory limit counts what this allocator hands out
 interpreter::allocator!();
 
 fn main() {
     let src = "fun square(n) {\n    return n * n;\n}\n\nfor (var n = 0; n < 4; n = n + 1) print square(n);\n";
-    let (chunk, errors) = interpreter::code::compile(&interpreter_lox::FRONT, src);
-    assert!(errors.is_empty(), "{}", interpreter::code::Diagnostic::render_all(&errors, src, Some("main.lox")));
+    let chunk = interpreter_lox::FRONT.compile(src).unwrap_or_else(|errors| panic!("{}", interpreter::Diagnostic::render_all(&errors, src, Some("main.lox"))));
     let mut vm = VM::with_runtime(&interpreter_lox::RUNTIME, &chunk, Limits::sandbox());
     vm.run().expect("the program runs");
     assert_eq!(vm.output_text(), "0\n1\n4\n9\n");
@@ -51,12 +52,12 @@ fn main() {
 
 ## What a read keeps
 
-`interpreter::code::read_as::<S>(src)` parses a source again through table `S` and gives the same chunk and errors as `compile_as::<S>(src)`, with what its run never reads kept beside the code. A compile keeps none of it, so its parse costs what it did. A front of its own reads by building through `build::<Recorded<S>>` and handing each node to `Builder::spanned(range, kind, f)`, as `interpreter_lox::read(src)` does.
+A tool reads a source to map its code back to the bytes it came from. `Front::spelled::<Recorded<S>>().compile(src)` parses a source through table `S` and gives the same chunk as `Front::spelled::<S>()`, and keeps beside the code what its run never reads. A compile keeps none of it, so it costs no more for the read. A front of its own reads by building through `build::<Recorded<S>>` and handing each node to `Builder::spanned(range, kind, f)`, as `interpreter_lox::read(src)` does. The instructions and opcodes of a chunk are not part of the stable API, and a tool reads a chunk through its spans and notes.
 
 | Ask | Gives |
 |---|---|
 | `body.span(ip)` on any body | The bytes instruction `ip` came from, the operator, name, literal, call, `.` or `[` trailer, or the word that opens its statement or form, and an empty span at the end of a body for the return it closes with |
-| `chunk.notes().outline` on the root | Every form in source order as a `Node { kind, span, parent }`, where `parent` is the place of the node around it |
+| `chunk.notes().outline` on the root | Every form in source order as a `Node` with its `kind`, `span` and `parent`, where `parent` is the place of the node around it |
 | `chunk.notes().annotations` | Each annotation as a byte `span` and what it annotates, `Annotated::Param { function, name }`, `Annotated::Returns { function }` or `Annotated::Binding { target }`, where `function` is the place of its `Function` node |
 | `chunk.notes().decls` | Each `fn`, `let` and `type` item of a [grammar](./03-grammar.mdx), with its `kind`, its `name`, the `span` from its first modifier through its name, the `modifiers` before it and its `node` |
 
@@ -72,25 +73,47 @@ A `NodeKind` names the form.
 
 Lox reads through a tree of its own, so a form's own instructions take the whole form, a method's node starts at its name and a function body is no `Block` of its own.
 
-## Events
+## Where an error is
 
-A run that calls `receive()` with nothing queued stops, and `run` returns `VmErr::HostYield(SchedulerStatus::PendingEvent)`. Push an event and call `run` again to go on from there.
+A diagnostic and a run error hold byte offsets. `Diagnostic::line_col(src)` gives the line and column a diagnostic starts at, counted from 1 with the column as its report prints it. `VM::error_line_col()` gives the same for the last error of a run in the source it rose in, and `VM::error_path()` names the module when that source is one the program imported. `interpreter::Lines::new(src)` finds the lines of a source once, so `line_col(byte)` on it answers many offsets without reading the source again.
 
 ```rust standalone_crate
-use interpreter::embed::{Limits, SchedulerStatus, VM};
-use interpreter::value::VmErr;
+use interpreter::{Limits, VM};
+
+interpreter::allocator!();
+
+fn main() {
+    let src = "var a = 1;\nprint a +;\n";
+    let Err(errors) = interpreter_lox::FRONT.compile(src) else { panic!("a missing operand is an error") };
+    assert_eq!(errors[0].line_col(src).0, 2);
+
+    let src = "var a = 1;\nprint a + nil;\n";
+    let chunk = interpreter_lox::FRONT.compile(src).expect("compiles");
+    let mut vm = VM::with_runtime(&interpreter_lox::RUNTIME, &chunk, Limits::sandbox());
+    vm.run().expect_err("a number and nil do not add");
+    assert_eq!(vm.error_line_col().map(|(line, _)| line), Some(2));
+    assert_eq!(vm.error_path(), None);
+}
+```
+
+## Events
+
+A run that calls `receive()` with nothing queued stops, and `run` returns an error whose `paused()` is `Some(SchedulerStatus::PendingEvent)`. Push an event and call `run` again to go on from there. A `VmErr` is opaque, and a host reads it through `kind()`, `paused()`, `is_limit()` and `is_deferred()`.
+
+```rust standalone_crate
+use interpreter::{Limits, SchedulerStatus, VM};
 
 interpreter::allocator!();
 
 fn main() {
     let src = "var words = \"\";\nvar m = receive();\nwhile (m != \"stop\") {\n    words = words + m;\n    m = receive();\n}\nprint \"got \" + words;\n";
-    let (chunk, _) = interpreter::code::compile(&interpreter_lox::FRONT, src);
+    let chunk = interpreter_lox::FRONT.compile(src).expect("compiles");
     let mut vm = VM::with_runtime(&interpreter_lox::RUNTIME, &chunk, Limits::sandbox());
     let mut events = ["ab", "cd", "stop"].into_iter();
     loop {
         match vm.run() {
             Ok(_) => break,
-            Err(VmErr::HostYield(SchedulerStatus::PendingEvent)) => vm.push_event(events.next().unwrap()).unwrap(),
+            Err(e) if e.paused() == Some(SchedulerStatus::PendingEvent) => vm.push_event(events.next().unwrap()).unwrap(),
             Err(e) => panic!("{}", vm.report_error(&e, src, Some("main.lox"))),
         }
     }
@@ -100,12 +123,13 @@ fn main() {
 
 ## Host functions
 
-A `Resolver` answers each `import("name")`. `Resolved::Code` serves the source of a module and `Resolved::Native` serves Rust functions. A function that returns `VmErr::HostCallDeferred` stops the run with `PendingHostCall`, and the host answers it later by id. Ids count from 0 in the order the run made its calls.
+A `Resolver` answers each `import("name")`. `Resolved::code(src, canonical)` serves the source of a module and `Resolved::native(canonical, bindings)` serves Rust functions, with `.classes(..)` and `.consts(..)` for more. A function that returns `VmErr::deferred()` stops the run with `PendingHostCall`, and the host answers it later by id. Ids count from 0 in the order the run made its calls.
 
 ```rust standalone_crate
-use interpreter::embed::{Limits, NativeBinding, Resolved, Resolver, SchedulerStatus, VM};
-use interpreter::targets::native::Script;
-use interpreter::value::{HeapPool, Val, VmErr};
+use interpreter::{Limits, NativeBinding, Resolved, Resolver, SchedulerStatus, VM};
+use interpreter::native::Script;
+use interpreter::{Val, VmErr};
+use interpreter::value::HeapPool;
 
 interpreter::allocator!();
 
@@ -116,7 +140,7 @@ fn double(_: &mut HeapPool, args: &[Val], _kw: Option<Val>) -> Result<Val, VmErr
 
 // answered later, the way a host waits on a network reply
 fn fetch(_: &mut HeapPool, _args: &[Val], _kw: Option<Val>) -> Result<Val, VmErr> {
-    Err(VmErr::HostCallDeferred)
+    Err(VmErr::deferred())
 }
 
 struct Host;
@@ -124,13 +148,8 @@ struct Host;
 impl Resolver for Host {
     fn resolve(&mut self, spec: &str) -> Result<Resolved, String> {
         match spec {
-            "host" => Ok(Resolved::Native {
-                bindings: vec![NativeBinding::from_fn("double", double), NativeBinding::from_fn("fetch", fetch)],
-                classes: vec![],
-                consts: vec![],
-                canonical: "host".into(),
-            }),
-            "util" => Ok(Resolved::Code { src: "fun greet(n) {\n    return \"hi \" + n;\n}\n".into(), canonical: "util".into() }),
+            "host" => Ok(Resolved::native("host", vec![NativeBinding::from_fn("double", double), NativeBinding::from_fn("fetch", fetch)])),
+            "util" => Ok(Resolved::code("fun greet(n) {\n    return \"hi \" + n;\n}\n", "util")),
             _ => Err(format!("no module '{spec}'")),
         }
     }
@@ -140,10 +159,53 @@ fn main() {
     let src = "var host = import(\"host\");\nvar util = import(\"util\");\nprint text(host.double(21)) + \" \" + util.greet(\"ana\");\nprint host.fetch() + 1;\n";
     let script = Script::compile(&interpreter_lox::FRONT, "main.lox", src.into(), Box::new(Host)).unwrap();
     let mut vm = VM::with_runtime(&interpreter_lox::RUNTIME, &script.chunk, Limits::sandbox());
-    assert!(matches!(vm.run(), Err(VmErr::HostYield(SchedulerStatus::PendingHostCall))));
+    assert_eq!(vm.run().err().and_then(|e| e.paused()), Some(SchedulerStatus::PendingHostCall));
     assert!(vm.inject_host_result_by_id(0, Val::float(41.0)));
     vm.run().unwrap();
     assert_eq!(vm.output_text(), "42 hi ana\n42\n");
+}
+```
+
+## Host data
+
+The heap of a machine keeps one value of any type for its natives. A host sets it with `vm.heap_mut().set_data(value)`. A native of the runtime reads it with `cx.heap().data::<T>()` or `cx.heap_mut().data_mut::<T>()`, and a function a `Resolver` serves reads it on the heap it is handed, with `heap.data_mut::<T>()`. Each machine keeps its own, so two machines on one thread never share it, and `vm.heap_mut().take_data::<T>()` gives it back. A snapshot does not hold it.
+
+```rust standalone_crate
+use interpreter::{Limits, NativeBinding, Resolved, Resolver, VM};
+use interpreter::{Val, VmErr};
+use interpreter::lang::ErrKind;
+use interpreter::value::HeapPool;
+
+interpreter::allocator!();
+
+// what the host counts for one machine
+struct Calls(f64);
+
+fn count(heap: &mut HeapPool, _args: &[Val], _kw: Option<Val>) -> Result<Val, VmErr> {
+    let calls = heap.data_mut::<Calls>().ok_or_else(|| VmErr::new(ErrKind::Runtime, "no counter kept"))?;
+    calls.0 += 1.0;
+    Ok(Val::float(calls.0))
+}
+
+struct Host;
+
+impl Resolver for Host {
+    fn resolve(&mut self, spec: &str) -> Result<Resolved, String> {
+        match spec {
+            "host" => Ok(Resolved::native("host", vec![NativeBinding::from_fn("count", count)])),
+            _ => Err(format!("no module '{spec}'")),
+        }
+    }
+}
+
+fn main() {
+    let src = "var host = import(\"host\");\nhost.count();\nprint host.count();\n";
+    let chunk = interpreter_lox::FRONT.compile_with(src, Box::new(Host)).expect("compiles");
+    let mut vm = VM::with_runtime(&interpreter_lox::RUNTIME, &chunk, Limits::sandbox());
+    vm.heap_mut().set_data(Calls(0.0));
+    vm.run().unwrap();
+    assert_eq!(vm.output_text(), "2\n");
+    assert_eq!(vm.heap_mut().take_data::<Calls>().map(|c| c.0), Some(2.0));
 }
 ```
 
@@ -152,13 +214,13 @@ fn main() {
 After `run` binds the program's names, `call_export` calls one of its functions with values the host built.
 
 ```rust standalone_crate
-use interpreter::embed::{Limits, VM};
-use interpreter::value::Val;
+use interpreter::{Limits, VM};
+use interpreter::Val;
 
 interpreter::allocator!();
 
 fn main() {
-    let (chunk, _) = interpreter::code::compile(&interpreter_lox::FRONT, "fun area(w, h) {\n    return w * h;\n}\n");
+    let chunk = interpreter_lox::FRONT.compile("fun area(w, h) {\n    return w * h;\n}\n").expect("compiles");
     let mut vm = VM::with_runtime(&interpreter_lox::RUNTIME, &chunk, Limits::sandbox());
     vm.run().unwrap();
     let got = vm.call_export("area", &[Val::float(6.0), Val::float(7.0)]).unwrap();
@@ -166,29 +228,32 @@ fn main() {
 }
 ```
 
+## Host values
+
+A host builds and reads values through the heap and never through its storage. `Val::none()`, `Val::bool(b)`, `Val::int(n)` and `Val::float(x)` build the inline values, and each has its `is_` and `as_` reader. `Val::int` keeps 48 bits and wraps past them, so a wider int goes through `heap.int(n)`, which boxes it. `heap.new_str(text)`, `heap.new_list(items)` and `heap.new_tuple(items)` build the heap values. `heap.text(v)` reads a string and `heap.items(v)` reads the items of a list or a tuple, and each gives `None` for a value of another kind.
+
 ## Snapshots
 
-`interpreter::embed::save` turns a stopped run into a blob, and `interpreter::embed::restore` resumes it on a fresh VM over the same program, on this machine or another. The blob holds the heap, every frame and the input not yet read.
+`interpreter::snapshot::save` turns a stopped run into a blob, and `interpreter::snapshot::restore` resumes it on a fresh VM over the same program, on this machine or another. The blob holds the heap, every frame and the input not yet read.
 
 ```rust standalone_crate
-use interpreter::embed::{self, Limits, SchedulerStatus, VM};
-use interpreter::value::VmErr;
+use interpreter::{snapshot, Limits, SchedulerStatus, VM};
 
 interpreter::allocator!();
 
 fn main() {
     let src = "var seen = \"\";\nvar m = receive();\nwhile (m != \"stop\") {\n    seen = seen + m;\n    m = receive();\n}\nprint seen;\n";
-    let (chunk, _) = interpreter::code::compile(&interpreter_lox::FRONT, src);
+    let chunk = interpreter_lox::FRONT.compile(src).expect("compiles");
     let mut vm = VM::with_runtime(&interpreter_lox::RUNTIME, &chunk, Limits::sandbox());
-    assert!(matches!(vm.run(), Err(VmErr::HostYield(SchedulerStatus::PendingEvent))));
+    assert_eq!(vm.run().err().and_then(|e| e.paused()), Some(SchedulerStatus::PendingEvent));
     vm.push_event("a").unwrap();
-    assert!(matches!(vm.run(), Err(VmErr::HostYield(SchedulerStatus::PendingEvent))));
-    let blob = embed::save(&vm, src, "main.lox").unwrap();
+    assert_eq!(vm.run().err().and_then(|e| e.paused()), Some(SchedulerStatus::PendingEvent));
+    let blob = snapshot::save(&vm, src, "main.lox").unwrap();
     drop(vm);
 
     // a new machine over the same program picks up where the first one parked
-    let mut later = VM::with_runtime(&interpreter_lox::RUNTIME, &chunk, embed::limits_of(&blob).unwrap());
-    embed::restore(&mut later, &blob).unwrap();
+    let mut later = VM::with_runtime(&interpreter_lox::RUNTIME, &chunk, snapshot::limits_of(&blob).unwrap());
+    snapshot::restore(&mut later, &blob).unwrap();
     later.push_event("b").unwrap();
     later.push_event("stop").unwrap();
     later.run().unwrap();
@@ -196,22 +261,24 @@ fn main() {
 }
 ```
 
-`set_preempt_interval(n)` stops a run that never waits with `SchedulerStatus::Preempted`, so a long loop can be saved too. `embed::entry_of(&blob)` returns the script name the blob was saved under.
+`set_preempt_interval(n)` stops a run that never waits with `SchedulerStatus::Preempted`, so a long loop can be saved too. `snapshot::entry_of(&blob)` returns the script name the blob was saved under.
+
+`snapshot::format_of(&blob)` reads the format word of a blob. An engine restores only a blob of its own `snapshot::FORMAT` and refuses another with an error that says whether the blob is newer or older, so a host can check a blob before it hands one over. [Stability](./09-stability.mdx#formats-and-the-abi) says what the format promises.
 
 ## A native binary
 
-`interpreter::targets::native` is a whole host. `Script::read` compiles a file and reads its relative imports beside it, `boot` gives a VM that prints to stdout and reads stdin, and `main` puts both together. This is the whole `main.rs` of the `lox` binary.
+`interpreter::native` is a whole host. `Script::read` compiles a file and reads its relative imports beside it, `boot` gives a VM that prints to stdout and reads stdin, and `main` puts both together over the runtime's own front. This is the whole `main.rs` of the `lox` binary.
 
 ```rust no_run standalone_crate
-use interpreter::embed::Limits;
+use interpreter::Limits;
 use std::process::ExitCode;
 
 interpreter::allocator!();
 
 // runs the Lox file its first argument names
 fn main() -> ExitCode {
-    interpreter::targets::native::main(&interpreter_lox::RUNTIME, &interpreter_lox::FRONT, Limits::sandbox())
+    interpreter::native::main(&interpreter_lox::RUNTIME, Limits::sandbox())
 }
 ```
 
-`main` exits with the statuses the runtime's `Descriptor` gives in `statuses`, and prints compile errors through its `diagnosed` when it sets one. A native script loads no URL and no plugin, which the CLI and the JS host do.
+`main` exits with the statuses the runtime's `Descriptor` gives in `statuses`, and prints compile errors through its `diagnosed` when it sets one. A snapshot error is an opaque `snapshot::SnapErr` that prints its words. A native script loads no URL and no plugin, which the CLI and the JS host do.

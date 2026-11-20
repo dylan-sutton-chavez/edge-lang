@@ -2,7 +2,9 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use interpreter::code::{Builder, NodeKind, OpCode as O, Value};
+use interpreter::code::{Builder, Constant, NodeKind};
+use interpreter::lang::{Cmp, Op};
+use interpreter::value::foreign::UnOp;
 use interpreter::lexer::Spelling;
 
 use crate::parse::{Expr, Fun, Kept, Kind, Place, Program, Stmt};
@@ -36,7 +38,7 @@ fn ret<S: Spelling>(b: &mut B<'_, '_, S>, prog: &Program, f: &Fun, value: Option
         Some(e) => expr(b, prog, e),
         // an initializer hands back its receiver however it returns
         None if f.kind == Kind::Init => { b.load(&prog.name(f.params[0])); }
-        None => { b.constant(Value::None); }
+        None => { b.constant(Constant::None); }
     }
     b.ret();
 }
@@ -87,10 +89,10 @@ fn kept_stmt<S: Spelling>(b: &mut B<'_, '_, S>, prog: &Program, f: &Fun, s: &Stm
 fn expr<S: Spelling>(b: &mut B<'_, '_, S>, prog: &Program, e: &Expr) {
     match e {
         Expr::Kept(k) => { b.spanned(k.span.clone(), k.kind, |b| expr(b, prog, &k.it)); }
-        Expr::Num(n) => { b.constant(Value::Float(*n)); }
-        Expr::Str(s) => { b.constant(Value::Str(s.to_string())); }
-        Expr::Bool(v) => { b.constant(Value::Bool(*v)); }
-        Expr::Nil => { b.constant(Value::None); }
+        Expr::Num(n) => { b.constant(Constant::Float(*n)); }
+        Expr::Str(s) => { b.constant(Constant::Str(s.to_string())); }
+        Expr::Bool(v) => { b.constant(Constant::Bool(*v)); }
+        Expr::Nil => { b.constant(Constant::None); }
         Expr::Get(place, at) => { b.at(*at).load(&name(prog, place)); }
         Expr::Set(place, v, at) => {
             expr(b, prog, v);
@@ -98,14 +100,14 @@ fn expr<S: Spelling>(b: &mut B<'_, '_, S>, prog: &Program, e: &Expr) {
             if let Place::Global(n) = place { b.at(*at).load(n).pop(); }
             b.dup().store(&name(prog, place));
         }
-        Expr::Neg(v, at) if S::RECORD => { expr(b, prog, v); b.at(*at).spanned(*at..*at + 1, None, |b| { b.unary(O::Minus); }); }
-        Expr::Neg(v, at) => { expr(b, prog, v); b.at(*at).unary(O::Minus); }
-        Expr::Not(v) => { expr(b, prog, v); b.unary(O::Not); }
+        Expr::Neg(v, at) if S::RECORD => { expr(b, prog, v); b.at(*at).spanned(*at..*at + 1, None, |b| { b.unary(Op::Unary(UnOp::Neg)); }); }
+        Expr::Neg(v, at) => { expr(b, prog, v); b.at(*at).unary(Op::Unary(UnOp::Neg)); }
+        Expr::Not(v) => { expr(b, prog, v); b.unary(Op::Not); }
         // the operator's own instruction reads as its token which two bytes spell for a comparison with `=`
         Expr::Binary(op, l, r, at) if S::RECORD => {
             expr(b, prog, l);
             expr(b, prog, r);
-            let width = if matches!(op, O::Eq | O::NotEq | O::LtEq | O::GtEq) { 2 } else { 1 };
+            let width = if matches!(op, Op::Cmp(Cmp::Eq | Cmp::Ne | Cmp::Le | Cmp::Ge)) { 2 } else { 1 };
             b.at(*at).spanned(*at..*at + width, None, |b| { b.binary(*op); });
         }
         Expr::Binary(op, l, r, at) => { expr(b, prog, l); expr(b, prog, r); b.at(*at).binary(*op); }
@@ -126,7 +128,7 @@ fn expr<S: Spelling>(b: &mut B<'_, '_, S>, prog: &Program, e: &Expr) {
             b.at(*at).import(spec, &alias).load(&alias);
         }
         Expr::Super { sup, this, name: n, at } => {
-            b.at(*at).load("@super").load(&name(prog, sup)).load(&name(prog, this)).constant(Value::Str(n.to_string())).call(3, 0);
+            b.at(*at).load("@super").load(&name(prog, sup)).load(&name(prog, this)).constant(Constant::Str(n.to_string())).call(3, 0);
         }
     }
 }

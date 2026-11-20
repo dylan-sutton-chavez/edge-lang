@@ -2,12 +2,14 @@ mod test {
     use std::any::Any;
     use std::rc::Rc;
 
-    use interpreter::code::{compile_as, OpCode, SSAChunk};
-    use interpreter::embed::{Limits, VM};
-    use interpreter::lang::{Args, Cx, Descriptor, Front, Intrinsic, Language, Mode, Names, Native, NativeId, Natives, Policy, Ret, Runtime, Sig};
+    use interpreter::compile_as;
+    use interpreter::code::{OpCode, SSAChunk};
+    use interpreter::{Limits, VM};
+    use interpreter::lang::{Args, Cx, Descriptor, Front, Intrinsic, Language, Names, Native, NativeId, Natives, Policy, Ret, Runtime, Sig};
     use interpreter::lexer::{Spelling, Syntax};
-    use interpreter::value::foreign::{Kind, Snapshot, Transfer};
-    use interpreter::value::{HeapPool, IterFrame, Val, VmErr};
+    use interpreter::value::foreign::{Kind, Snapshot};
+    use interpreter::{Val, VmErr};
+    use interpreter::value::{Cause, HeapPool, IterFrame};
 
     /* `fns` with native `from` renamed `to` and every other one as it was */
     const fn renamed<const N: usize>(fns: &[Native], from: &str, to: &'static str) -> [Native; N] {
@@ -32,41 +34,26 @@ mod test {
     }
 
     // a point boxed as a foreign value whose fields its kind reads
-    static POINT: Kind = Kind {
-        name: "test.point",
-        version: 1,
-        type_name: "point",
-        family: "point",
-        immutable: true,
-        repr: |_| Ok(String::from("point")),
-        truthy: |_, _| true,
-        hash: |_, _| 0,
-        eq: |_, _, _| false,
-        cmp: None,
-        binop: None,
-        unop: None,
-        to_f64: None,
-        to_i128: None,
-        from_i128: None,
-        from_digits: None,
-        trace: None,
-        get: Some(point_field),
-        snapshot: Snapshot::Reject,
-        transfer: Transfer::Deny,
-        str: Some(|p| Ok(p.downcast_ref::<(i64, i64)>().map_or(String::new(), |&(x, y)| format!("<{x} {y}>")))),
-        len: Some(|_, _| Ok(2)),
-        item: Some(point_item),
-        cut: Some(|_, _, bounds| Ok(bounds[0])),
-        iter: Some(point_iter),
-        call: Some(point_call),
-    };
+    static POINT: Kind = Kind::PLAIN
+        .name("test.point")
+        .type_name("point")
+        .family("point")
+        .repr(|_| Ok(String::from("point")))
+        .get(Some(point_field))
+        .snapshot(Snapshot::Reject)
+        .str(Some(|p| Ok(p.downcast_ref::<(i64, i64)>().map_or(String::new(), |&(x, y)| format!("<{x} {y}>")))))
+        .len(Some(|_, _| Ok(2)))
+        .item(Some(point_item))
+        .cut(Some(|_, _, bounds| Ok(bounds[0])))
+        .iter(Some(point_iter))
+        .call(Some(point_call));
 
     // a pair whose loop steps a sequence
-    static PAIR: Kind = Kind { name: "test.pair", type_name: "pair", family: "pair", iter: Some(pair_iter), ..Kind::PLAIN };
+    static PAIR: Kind = Kind::PLAIN.name("test.pair").type_name("pair").family("pair").iter(Some(pair_iter));
     // a second kind under the point's name which registering refuses
-    static CLASH: Kind = Kind { name: "test.point", type_name: "point", family: "point", ..Kind::PLAIN };
+    static CLASH: Kind = Kind::PLAIN.name("test.point").type_name("point").family("point");
 
-    fn pair_iter(_: &HeapPool, _: Val) -> Option<IterFrame> { Some(IterFrame::Seq { items: Rc::from([Val::int(1), Val::int(2)]), idx: 0 }) }
+    fn pair_iter(_: &HeapPool, _: Val) -> Option<IterFrame> { Some(IterFrame::seq(Rc::from([Val::int(1), Val::int(2)]))) }
 
     fn pair(cx: &mut Cx<'_, '_>, _: Args<'_>) -> Ret {
         let token = cx.heap_mut().register_kind(&PAIR)?;
@@ -80,7 +67,7 @@ mod test {
 
     // the coordinates of point `v` or zeros for another value
     fn point_at(heap: &HeapPool, v: Val) -> (i64, i64) {
-        Cx::kind_token(heap, &POINT).and_then(|t| heap.foreign_payload::<(i64, i64)>(t, v)).copied().unwrap_or_default()
+        heap.kind_token(&POINT).and_then(|t| heap.foreign_payload::<(i64, i64)>(t, v)).copied().unwrap_or_default()
     }
 
     // the coordinate an index reads
@@ -92,7 +79,7 @@ mod test {
     // a loop over a point steps from its first coordinate to its second
     fn point_iter(heap: &HeapPool, v: Val) -> Option<IterFrame> {
         let (x, y) = point_at(heap, v);
-        Some(IterFrame::Range { cur: x, end: y + 1, step: 1 })
+        Some(IterFrame::range(x, y + 1, 1))
     }
 
     // a call scales the first coordinate by its one positional
@@ -164,7 +151,7 @@ mod test {
     // the rig's rules with keys read as fields of a map and tighter limits
     impl Language for Renamed {
         const VERSION: u32 = 1;
-        const POLICY: Policy = Policy { map_fields: true, recursion_limit: 50, max_int_digits: Some(10), ..rig::Rig::POLICY };
+        const POLICY: Policy = rig::Rig::POLICY.map_fields(true).recursion_limit(50).max_int_digits(Some(10));
         const NATIVES: &'static Natives = &NATIVES;
         const NAMES: &'static Names = &rig::NAMES;
         const FRONT: Front = Front::spelled::<Renamed>();
@@ -173,12 +160,7 @@ mod test {
         const BUILT: interpreter::value::foreign::Built = <rig::Rig as Language>::BUILT;
         type Ops = ();
 
-        fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Mode) -> Result<String, VmErr> { interpreter::lib::fmt::render::hook::<rig::Rig>(cx, v, mode) }
-
-        fn format(cx: &mut Cx<'_, '_>, v: Val, spec: &str) -> Result<String, VmErr> { interpreter::lib::fmt::spec::hook::<rig::Rig>(cx, v, spec) }
-
-        fn handles(heap: &HeapPool, exc: Val, class: Val) -> Result<bool, VmErr> { interpreter::lib::types::match_exc::<rig::Rig>(heap, exc, class) }
-
+        interpreter::lib::hooks!(rig::Rig);
     }
 
     fn compiled(src: &str) -> SSAChunk {
@@ -200,10 +182,10 @@ mod test {
     #[test]
     fn a_renamed_kernel_keeps_its_native_call() {
         let chunk = compiled("println(size([1, 2]))\n");
-        let mut called: Vec<&str> = chunk.instructions.iter().filter(|i| i.opcode == OpCode::CallNative)
-            .filter_map(|i| interpreter::code::native_site(i.operand, &chunk.native_sites)).filter_map(|s| NATIVES.get(NativeId(s.id))).map(|n| n.name).collect();
+        let mut called: Vec<&str> = chunk.instructions().iter().filter(|i| i.opcode == OpCode::CallNative)
+            .filter_map(|i| interpreter::code::native_site(i.operand, chunk.native_sites())).filter_map(|s| NATIVES.get(NativeId::of(s.id))).map(|n| n.name).collect();
         called.sort_unstable();
-        let calls = chunk.instructions.iter().filter(|i| i.opcode == OpCode::CallNative).count();
+        let calls = chunk.instructions().iter().filter(|i| i.opcode == OpCode::CallNative).count();
         assert!(calls == 2 && called == ["println", "size"], "{called:?}");
         assert_eq!(ran("println(size([1, 2]), size(\"abc\"))\n").as_deref(), Ok("2 3\n"));
         // the old names are no builtins of this runtime
@@ -290,31 +272,31 @@ mod test {
         let chunk = compiled(src);
         let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
         vm.set_preempt_interval(100);
-        assert!(matches!(vm.run(), Err(VmErr::HostYield(_))));
-        assert!(interpreter::embed::save(&vm, src, "").is_err_and(|e| e.contains("test.point")));
-        let blob = interpreter::embed::save_swept(&mut vm, src, "").expect("a value nothing holds is swept");
+        assert!(matches!(vm.run(), Err(e) if e.paused().is_some()));
+        assert!(interpreter::snapshot::save(&vm, src, "").is_err_and(|e| e.to_string().contains("test.point")));
+        let blob = interpreter::snapshot::save_swept(&mut vm, src, "").expect("a value nothing holds is swept");
         let mut back = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
-        interpreter::embed::restore(&mut back, &blob).expect("restore");
-        while matches!(back.run(), Err(VmErr::HostYield(_))) {}
+        interpreter::snapshot::restore(&mut back, &blob).expect("restore");
+        while matches!(back.run(), Err(e) if e.paused().is_some()) {}
         assert!(back.output_text().ends_with("4498500\n"), "{:?}", back.output_text());
         // a value the run still holds keeps refusing
         let held = "p = point()\nt = 0\nfor i in range(3000) {\n    t += i\n}\nprintln(t, p.x)\n";
         let chunk = compiled(held);
         let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
         vm.set_preempt_interval(100);
-        assert!(matches!(vm.run(), Err(VmErr::HostYield(_))));
-        assert!(interpreter::embed::save_swept(&mut vm, held, "").is_err_and(|e| e.contains("test.point")));
+        assert!(matches!(vm.run(), Err(e) if e.paused().is_some()));
+        assert!(interpreter::snapshot::save_swept(&mut vm, held, "").is_err_and(|e| e.contains("test.point")));
     }
 
     #[test]
     fn errors_name_their_classes_in_the_runtime_s_words() {
         let rig = Names::PLAIN;
-        assert_eq!(VmErr::ZeroDiv.render(&rig), "ZeroDiv: division by zero");
+        assert_eq!(VmErr::from(Cause::ZeroDiv).render(&rig), "ZeroDiv: division by zero");
         // the engine's own words name no source language which a runtime's message replaces
-        assert_eq!(VmErr::Name(String::from("x")).render(&rig), "Name: x is not bound");
-        assert_eq!(VmErr::CallDepth.render(&rig), "Recursion: calls nested past the recursion limit");
-        assert_eq!(VmErr::ZeroDiv.render(&rig::NAMES), "DivisionError: division by zero");
-        assert!(VmErr::Raised(String::from("Stop: 3")).is(interpreter::lang::ErrKind::Stop, &rig::NAMES));
-        assert!(!VmErr::Raised(String::from("StopX")).is(interpreter::lang::ErrKind::Stop, &rig::NAMES));
+        assert_eq!(VmErr::from(Cause::Name(String::from("x"))).render(&rig), "Name: x is not bound");
+        assert_eq!(VmErr::from(Cause::CallDepth).render(&rig), "Recursion: calls nested past the recursion limit");
+        assert_eq!(VmErr::from(Cause::ZeroDiv).render(&rig::NAMES), "DivisionError: division by zero");
+        assert!(VmErr::raised(String::from("Stop: 3")).is(interpreter::lang::ErrKind::Stop, &rig::NAMES));
+        assert!(!VmErr::raised(String::from("StopX")).is(interpreter::lang::ErrKind::Stop, &rig::NAMES));
     }
 }

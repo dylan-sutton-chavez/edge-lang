@@ -4,12 +4,11 @@ The directory a file sits in decides the license that applies to it.
 
 ## The engine
 
-`src/` `tests/` `examples/` `plugin/` `cli/` `js/` `bench/` `make/` `cdn/` `docs/`
+Every file of the repo but the two folders of the next section, the files at the root and `.github/` and `.railsbit/` included.
 
 Licensed under the Apache License 2.0, whose text is at <https://www.apache.org/licenses/LICENSE-2.0>.
 
 The engine builds as `interpreter.wasm` and as a Rust library, and driving either from your own host, or building a runtime on it, needs nothing from anyone, a closed product included.
-
 
 ## The book's tests and benchmarks
 

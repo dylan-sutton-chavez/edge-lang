@@ -1,6 +1,7 @@
-use interpreter::code::OpCode as O;
-use interpreter::lexer::grammar::{Emit, Form, Grammar, Mode, Row, Slot};
-use interpreter::lexer::{index, operators, Binding, Blocks, Comments, Cond, Continuation, Dot, Ends, Escapes, Interp, Keywords, Lambda, Literal, Numbers, Quote, Shapes, Spelling, Strings, Suffix, Syntax, TokenType, Unicode, Unknown, Zeros, BYTES};
+use interpreter::lang::{Cmp, Op};
+use interpreter::value::foreign::{BinOp, UnOp};
+use interpreter::lexer::grammar::{Emit, Form, Grammar, Reading, Row, Slot};
+use interpreter::lexer::{BYTES, Comments, Cond, Continuation, Ends, Escapes, Interp, Keywords, Lambda, Numbers, Quote, Shapes, Spelling, Strings, Suffix, Syntax, TokenType, Unicode, Unknown, Zeros, index, operators};
 use interpreter::lexer::TokenType as T;
 
 const WORDS: &[(&str, TokenType)] = &[
@@ -35,17 +36,17 @@ pub const LADDER: &[(TokenType, u8, u8)] = &[
     (T::Minus, 0, 21), (T::Plus, 0, 21), (T::Tilde, 0, 21), (T::Pow, 22, 21),
 ];
 
-const fn op(tok: TokenType, left: u8, right: u8, code: O) -> Row { Row { tok, left, right, emit: Emit::Op(code) } }
+const fn op(tok: TokenType, left: u8, right: u8, code: Op) -> Row { Row::new(tok, left, right, Emit::Op(code)) }
 
 // the same ladder as the rows a grammar reads values by
 const ROWS: &[Row] = &[
-    Row { tok: T::Or, left: 1, right: 2, emit: Emit::Lazy(false) }, Row { tok: T::And, left: 3, right: 4, emit: Emit::Lazy(true) }, op(T::Not, 0, 5, O::Not),
-    op(T::EqualEqual, 7, 8, O::Eq), op(T::NotEqual, 7, 8, O::NotEq), op(T::Less, 7, 8, O::Lt), op(T::Greater, 7, 8, O::Gt),
-    op(T::LessEqual, 7, 8, O::LtEq), op(T::GreaterEqual, 7, 8, O::GtEq), op(T::In, 7, 8, O::In), op(T::NotIn, 7, 8, O::NotIn),
-    op(T::BitOr, 9, 10, O::BitOr), op(T::BitXor, 11, 12, O::BitXor), op(T::BitAnd, 13, 14, O::BitAnd),
-    op(T::LeftShift, 15, 16, O::Shl), op(T::RightShift, 15, 16, O::Shr), op(T::Plus, 17, 18, O::Add), op(T::Minus, 17, 18, O::Sub),
-    op(T::Star, 19, 20, O::Mul), op(T::Slash, 19, 20, O::Div), op(T::Percent, 19, 20, O::Mod), op(T::FloorDiv, 19, 20, O::FloorDiv),
-    op(T::Minus, 0, 21, O::Minus), op(T::Plus, 0, 21, O::Pos), op(T::Tilde, 0, 21, O::BitNot), op(T::Pow, 22, 21, O::Pow),
+    Row::new(T::Or, 1, 2, Emit::Lazy(false)), Row::new(T::And, 3, 4, Emit::Lazy(true)), op(T::Not, 0, 5, Op::Not),
+    op(T::EqualEqual, 7, 8, Op::Cmp(Cmp::Eq)), op(T::NotEqual, 7, 8, Op::Cmp(Cmp::Ne)), op(T::Less, 7, 8, Op::Cmp(Cmp::Lt)), op(T::Greater, 7, 8, Op::Cmp(Cmp::Gt)),
+    op(T::LessEqual, 7, 8, Op::Cmp(Cmp::Le)), op(T::GreaterEqual, 7, 8, Op::Cmp(Cmp::Ge)), op(T::In, 7, 8, Op::In), op(T::NotIn, 7, 8, Op::NotIn),
+    op(T::BitOr, 9, 10, Op::Bin(BinOp::Or)), op(T::BitXor, 11, 12, Op::Bin(BinOp::Xor)), op(T::BitAnd, 13, 14, Op::Bin(BinOp::And)),
+    op(T::LeftShift, 15, 16, Op::Bin(BinOp::Shl)), op(T::RightShift, 15, 16, Op::Bin(BinOp::Shr)), op(T::Plus, 17, 18, Op::Bin(BinOp::Add)), op(T::Minus, 17, 18, Op::Bin(BinOp::Sub)),
+    op(T::Star, 19, 20, Op::Bin(BinOp::Mul)), op(T::Slash, 19, 20, Op::Bin(BinOp::TrueDiv)), op(T::Percent, 19, 20, Op::Bin(BinOp::Mod)), op(T::FloorDiv, 19, 20, Op::Bin(BinOp::FloorDiv)),
+    op(T::Minus, 0, 21, Op::Unary(UnOp::Neg)), op(T::Plus, 0, 21, Op::Unary(UnOp::Pos)), op(T::Tilde, 0, 21, Op::Unary(UnOp::Invert)), op(T::Pow, 22, 21, Op::Bin(BinOp::Pow)),
 ];
 
 // limits where one leads another and one takes a unit word after its count
@@ -53,71 +54,58 @@ const LIMITS: &[(&str, &str)] = &[("near values", "near_values"), ("near", "near
 
 // forms over several bound names, braced items, generators and limits each calling a function of the program
 const FORMS: &[Form] = &[
-    Form { head: "lift", slots: &[Slot::Bind, Slot::Word(":"), Slot::Body(0)], call: "lifted" },
-    Form { head: "gather", slots: &[Slot::Items(0)], call: "gathered" },
-    Form { head: "cross", slots: &[Slot::Each(0)], call: "crossed" },
-    Form { head: "quota", slots: &[Slot::Limits("within", LIMITS)], call: "quoted" },
+    Form::new("lift", &[Slot::Bind, Slot::Word(":"), Slot::Body(0)], "lifted"),
+    Form::new("gather", &[Slot::Items(0)], "gathered"),
+    Form::new("cross", &[Slot::Each(0)], "crossed"),
+    Form::new("quota", &[Slot::Limits("within", LIMITS)], "quoted"),
 ];
 
 // values read by the ladder and a match no arm takes calls `unmatched`
-static GRAMMAR: Grammar = Grammar { modes: &[Mode { rows: ROWS, words: &[] }], forms: FORMS, unmatched: "unmatched", ..Grammar::NONE };
+static GRAMMAR: Grammar = Grammar::PLAIN.readings(&[Reading::new(ROWS, &[])]).forms(FORMS).unmatched("unmatched");
 
 // one quote whose literals fill their braced fields
-pub const STRINGS: Strings = Strings {
-    quotes: &[Quote { byte: b'"', multiline: false, triple: false }],
-    prefixes: &[("b", BYTES)],
-    any_case: false,
-    hashes: false,
-    adjacent: false,
-    newlines: false,
-    escapes: Escapes {
-        simple: &[(b'n', '\n'), (b't', '\t'), (b'r', '\r'), (b'0', '\0'), (b'\\', '\\'), (b'"', '"')],
-        hex: true,
-        unicode: Unicode::Braced,
-        octal: false,
-        line_join: false,
-        unknown: Unknown::Refuse,
-        refused: &[],
-    },
-};
+pub const STRINGS: Strings = Strings::PLAIN
+    .quotes(&[Quote::PLAIN])
+    .prefixes(&[("b", BYTES)])
+    .escapes(Escapes::PLAIN
+        .simple(&[(b'n', '\n'), (b't', '\t'), (b'r', '\r'), (b'0', '\0'), (b'\\', '\\'), (b'"', '"')])
+        .hex(true)
+        .unicode(Unicode::Braced)
+        .unknown(Unknown::Refuse));
 
-pub const NUMBERS: Numbers = Numbers {
-    radixes: &[(b'x', 16), (b'o', 8), (b'b', 2)],
-    separator: Some(b'_'),
-    zeros: Zeros::Refused,
-    leading_dot: false,
-    trailing_dot: false,
-    exponent: true,
-    suffix: Suffix::Refused,
-};
+pub const NUMBERS: Numbers = Numbers::PLAIN
+    .radixes(&[(b'x', 16), (b'o', 8), (b'b', 2)])
+    .separator(Some(b'_'))
+    .zeros(Zeros::Refused)
+    .exponent(true)
+    .suffix(Suffix::Refused);
 
 // a field holds an expression and a spec after a colon
-pub const INTERP: Interp = Interp { name: "text", quotes: b"\"", open: "{", close: b'}', literal: Literal::Doubled, short: None, spec: Some(b':'), convert: None, echo: None };
+pub const INTERP: Interp = Interp::PLAIN.name("text").quotes(b"\"").spec(Some(b':'));
 
 // braces bound blocks and a line end or a semicolon ends a statement
-pub const RIG: Syntax = Syntax {
-    name: "rig",
-    extension: "rig",
-    words: WORDS,
-    symbols: SYMBOLS,
-    operators: &OPERATORS,
-    keywords: &KEYWORDS,
-    precedence: LADDER,
-    chained: false,
-    blocks: Blocks::Braces,
-    ends: Ends::Either,
-    comments: Comments { line: &["//"], block: None, nested: false },
-    strings: STRINGS,
-    interp: Some(INTERP),
-    numbers: NUMBERS,
-    continuation: Continuation { join: None, operator: true },
-    shapes: Shapes {
-        cond: Cond::None, lambda: Lambda::Pipes, keyword_arg: T::Equal, splat: true, slices: true, dot: Dot::Attr,
-        header_parens: false, comprehensions: true, decorators: false, named: false, binding: Binding::None, arms: true, ranges: false, grammar: Some(&GRAMMAR),
-    },
-    soft: &[],
-    bom: true,
-};
+pub const RIG: Syntax = Syntax::PLAIN
+    .name("rig")
+    .extension("rig")
+    .words(WORDS)
+    .symbols(SYMBOLS)
+    .operators(&OPERATORS)
+    .keywords(&KEYWORDS)
+    .precedence(LADDER)
+    .ends(Ends::Either)
+    .comments(Comments::PLAIN.line(&["//"]))
+    .strings(STRINGS)
+    .interp(Some(INTERP))
+    .numbers(NUMBERS)
+    .continuation(Continuation::PLAIN.operator(true))
+    .shapes(Shapes::PLAIN
+        .cond(Cond::None)
+        .lambda(Lambda::Pipes)
+        .decorators(false)
+        .named(false)
+        .arms(true)
+        .grammar(Some(&GRAMMAR)))
+    .bom(true);
 
 pub struct Rig;
 

@@ -5,7 +5,7 @@ description: "The token table, natives, language and Runtime a runtime gives the
 
 # Build a runtime
 
-A runtime is a crate that gives the engine four pieces.
+This page builds a runtime, from its token table to its `.wasm`. A runtime is a crate that gives the engine four pieces.
 
 | Piece | Type | Says |
 |---|---|---|
@@ -21,11 +21,10 @@ The parser has one grammar and the token table only spells it. `!` and `not` can
 `tally` uses braces for blocks, `let` for a first store and two natives of `interpreter::lib`.
 
 ```rust standalone_crate
-use interpreter::embed::{Limits, VM};
-use interpreter::lang::{Cx, Descriptor, Front, Language, Mode, Names, Native, Natives, Overflow, Policy, Runtime};
+use interpreter::{Limits, VM};
+use interpreter::lang::{Descriptor, Front, Language, Names, Native, Natives, Overflow, Policy, Runtime};
 use interpreter::lexer::TokenType as T;
-use interpreter::lexer::{index, operators, Binding, Blocks, Comments, Continuation, Ends, Escapes, Keywords, Numbers, Quote, Shapes, Spelling, Strings, Suffix, Syntax, TokenType, Unicode, Unknown, Zeros};
-use interpreter::value::{Val, VmErr};
+use interpreter::lexer::{Binding, Blocks, Comments, Continuation, Ends, Escapes, Keywords, Numbers, Quote, Shapes, Spelling, Strings, Suffix, Syntax, TokenType, Unicode, Unknown, Zeros, index, operators};
 
 // every run meters what it allocates so its memory limit holds
 interpreter::allocator!();
@@ -50,22 +49,22 @@ const LADDER: &[(TokenType, u8, u8)] = &[
 ];
 
 impl Spelling for Tally {
-    const SYNTAX: Syntax = Syntax {
-        name: "tally", extension: "tly", words: WORDS, symbols: SYMBOLS, operators: &OPERATORS, keywords: &KEYWORDS,
-        precedence: LADDER, chained: false, blocks: Blocks::Braces, ends: Ends::Newline,
-        comments: Comments { line: &["#"], block: None, nested: false },
-        strings: Strings {
-            quotes: &[Quote { byte: b'"', multiline: false, triple: false }],
-            prefixes: &[], any_case: false, hashes: false, adjacent: false, newlines: false,
-            escapes: Escapes { simple: &[(b'n', '\n')], hex: false, unicode: Unicode::Fixed, octal: false, line_join: false, unknown: Unknown::Refuse, refused: &[] },
-        },
-        interp: None,
-        numbers: Numbers { radixes: &[], separator: None, zeros: Zeros::Refused, leading_dot: false, trailing_dot: false, exponent: false, suffix: Suffix::Refused },
-        continuation: Continuation { join: None, operator: true },
-        shapes: Shapes { binding: Binding::Required, ..Shapes::CORE },
-        soft: &[],
-        bom: false,
-    };
+    const SYNTAX: Syntax = Syntax::PLAIN
+        .name("tally")
+        .extension("tly")
+        .words(WORDS)
+        .symbols(SYMBOLS)
+        .operators(&OPERATORS)
+        .keywords(&KEYWORDS)
+        .precedence(LADDER)
+        .ends(Ends::Newline)
+        .comments(Comments::PLAIN.line(&["#"]))
+        .strings(Strings::PLAIN
+        .quotes(&[Quote::PLAIN])
+        .escapes(Escapes::PLAIN.simple(&[(b'n', '\n')]).unicode(Unicode::Fixed).unknown(Unknown::Refuse)))
+        .numbers(Numbers::PLAIN.zeros(Zeros::Refused).suffix(Suffix::Refused))
+        .continuation(Continuation::PLAIN.operator(true))
+        .shapes(Shapes::PLAIN.binding(Binding::Required));
     const NATIVES: &'static Natives = &NATIVES;
 }
 
@@ -75,39 +74,33 @@ const TABLE: &[Native] = &interpreter::lib::table![Tally; "print" => interpreter
 static NATIVES: Natives = interpreter::natives! { language: Tally, fns: [TABLE], methods: [], types: &[] };
 
 // lib words failures and renders values with its defaults
-static TREE: interpreter::lib::lang::Tree = interpreter::lib::lang::Tree::of::<Tally>();
-impl interpreter::lib::Lang for Tally {
-    const TREE: &'static interpreter::lib::lang::Tree = &TREE;
-}
-impl interpreter::lib::fmt::render::Style for Tally {}
+impl interpreter::lib::Lang for Tally {}
 
 impl Language for Tally {
     const VERSION: u32 = 1;
     // the engine's rules, but an int too wide to box raises instead of growing
-    const POLICY: Policy = Policy { int_overflow: Overflow::Error, ..Policy::ENGINE };
+    const POLICY: Policy = Policy::PLAIN.int_overflow(Overflow::Error);
     const NATIVES: &'static Natives = &NATIVES;
     const NAMES: &'static Names = &Names::PLAIN;
     const FRONT: Front = FRONT;
     const DESCRIPTOR: &'static Descriptor = &DESCRIPTOR;
     type Ops = ();
 
-    fn show(cx: &mut Cx<'_, '_>, v: Val, mode: Mode) -> Result<String, VmErr> {
-        interpreter::lib::fmt::render::hook::<Tally>(cx, v, mode)
-    }
+    // values print as lib renders them
+    interpreter::lib::hooks!(Tally; show);
 }
 
 pub const FRONT: Front = Front::spelled::<Tally>();
-pub const DESCRIPTOR: Descriptor = Descriptor { language: "tally", extension: "tly", entries: &["main.tly"], ..Descriptor::NONE };
+pub const DESCRIPTOR: Descriptor = Descriptor::PLAIN.language("tally").entries(&["main.tly"]);
 pub static RUNTIME: Runtime = Runtime::of::<Tally>();
 
-// the exports of tally.wasm and of its native library, built only for the exports feature
-#[cfg(feature = "exports")]
-interpreter::web_exports!(RUNTIME);
+// the exports of tally.wasm and of its native library built only for the web feature
+#[cfg(feature = "web")]
+interpreter::exports!(RUNTIME);
 
 fn main() {
     let src = "let total = 0\nfor n in [1, 2, 3] {\n    total = total + n * n\n}\nprint(\"squares\", len([1, 2, 3]), total)\n";
-    let (chunk, errors) = interpreter::code::compile(&FRONT, src);
-    assert!(errors.is_empty(), "{}", interpreter::code::Diagnostic::render_all(&errors, src, Some("main.tly")));
+    let chunk = FRONT.compile(src).unwrap_or_else(|errors| panic!("{}", interpreter::Diagnostic::render_all(&errors, src, Some("main.tly"))));
     let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
     vm.run().expect("the program runs");
     assert_eq!(vm.output_text(), "squares 3 14\n");
@@ -130,9 +123,9 @@ interpreter = { version = "1", default-features = false, features = ["std", "io"
 | `precedence`, `chained` | Binding powers, and whether `a < b < c` chains |
 | `blocks`, `ends` | `Indent`, `Braces` or `Words { implicit }`, and whether a statement ends at a line end, a semicolon or either |
 | `comments`, `strings`, `interp`, `numbers` | Comments, quotes and escapes, interpolated strings and number literals |
-| `shapes` | Optional pieces such as lambdas, comprehensions, slices, decorators, `match` arms, ranges, `let` and a [grammar](./03-grammar.mdx). `Shapes::CORE` turns on all of them but `let`, arms, ranges and a grammar |
+| `shapes` | Optional pieces such as lambdas, comprehensions, slices, decorators, `match` arms, ranges, `let` and a [grammar](./03-grammar.mdx). `Shapes::PLAIN` turns on all of them but `let`, arms, ranges and a grammar |
 
-A language the parser cannot read implements `interpreter::lang::Front` itself and writes the same bytecode through `interpreter::code::Builder`. Lox in `examples/lox` does this.
+A language the parser cannot read builds its own `Front` with `Front::new(parse, imports, syntax, policy)`. Its parse function writes the same bytecode through `interpreter::code::build` and its `Builder`, and the front takes its file extension from the `Syntax` it gets. Lox in `examples/lox` does this.
 
 ## Natives
 
@@ -140,39 +133,45 @@ A language the parser cannot read implements `interpreter::lang::Front` itself a
 
 | Module | Holds |
 |---|---|
-| `io` | `print`, `input`, `send`, `receive`, `exit` |
+| `io` | `print`, `read_line`, `send`, `receive`, `exit` |
 | `text`, `bytes`, `spec` | Text and bytes methods, codecs and format specs |
 | `num` | Ints of any size, floats, rounding and hashing |
 | `seq`, `iter`, `map`, `set` | Lists, iterators, folds, sorting, maps and sets |
 | `data` | JSON, CSV and line reading |
 | `date` | Times and durations |
-| `reflect`, `types` | Attributes, `isinstance`, `type` and which errors a handler catches |
+| `types` | Attributes through `lib::reflect`, `is_a` and `type_of`. Which errors a handler catches is `types::handles`, which `lib` alone gives |
 
-`interpreter::lib::table!` gives each native the name a program calls it by, as in `"json" => interpreter::lib::data::json::read`. In `interpreter::natives!`, `methods` adds methods by kind, such as `text.upper`, and `types` names the types a program can test against. A native that `interpreter::lib` lacks is an `interpreter::lang::Native` you write, a function of a `Cx` and its arguments that returns a value.
+Each of them is a kernel, a native with no name of its own until `interpreter::lib::table!` gives it the one a program calls it by, as in `"json" => interpreter::lib::data::json::read`. In `interpreter::natives!`, `methods` adds methods by kind, such as `text.upper`, and `types` names the types a program can test against. A native that `interpreter::lib` lacks is an `interpreter::lang::Native` you write, a function of a `Cx` and its arguments that returns a value.
 
 ## Language
 
-| Item | Default | Sets |
+| Item | Start from | Sets |
 |---|---|---|
-| `POLICY` | `Policy::ENGINE` | Integer overflow and division, what is false, negative indexes, iteration and the recursion limit. Ints that grow without bound also need `WIDE`, which `interpreter::lib::num::big::kind` gives |
-| `NAMES` | `Names::PLAIN` | The names of the engine's types and error classes in your language |
-| `show`, `format` | none | How a value prints, usually `interpreter::lib::fmt::render::hook` and `interpreter::lib::fmt::spec::hook` |
-| `handles` | none | Which errors a handler catches, usually `interpreter::lib::types::match_exc` |
-| `DESCRIPTOR` | `Descriptor::NONE` | What tools read, such as the file extension, the entry files and the test suffix |
+| `POLICY` | `Policy::PLAIN` | Integer overflow and division, what is false, negative indexes, iteration and the recursion limit. Ints that grow without bound also need `WIDE`, which `interpreter::lib::num::int_kind` gives |
+| `NAMES` | `Names::PLAIN` | The names of the engine's types and error classes in your language. `.kinds` and `.errors` take pairs such as `(ErrKind::Type, "TypeError")`, and a kind or class left out keeps its plain name |
+| `VERSION`, `NATIVES`, `FRONT`, `Ops` | Required | The runtime's version, its natives, its front and its own opcodes, `()` for none |
+| `show` | An error | How a value prints, usually `interpreter::lib::fmt::show` |
+| `format` | `show` for an empty spec and an error for any other | How a value prints under a format spec, usually `interpreter::lib::fmt::format` |
+| `handles` | An error | Which errors a handler catches, usually `interpreter::lib::types::handles` |
+| `DESCRIPTOR` | `Descriptor::PLAIN` | What tools read, such as the entry files and the test suffix. `Runtime::of` adds the file extension from `FRONT` and the type, value, runtime and permission error classes from `NAMES` |
+
+`interpreter::lib::hooks!(L)` inside `impl Language for L` writes `show`, `format` and `handles` over those three helpers of lib, so a runtime that keeps lib's defaults writes none of them by hand. `hooks!(L; show)` writes only the ones it names. `hooks!(L)` and any list with `format` need the `spec` feature. `L` implements `interpreter::lib::Lang`, as the example does. The empty `impl` keeps lib's renders and words, and each of them is a provided item of `Lang` a runtime may override.
+
+`Names::error(kind)` and `Names::kind(kind)` read the class a runtime gives an `ErrKind` and the type it gives a `KindId`, also in a `const`.
 
 `Runtime::of::<L>()` runs in a `static`, so a policy that does not hold together fails the build.
 
 ## The .wasm of a runtime
 
-The same crate builds the module the JS host and the CLI load, and the native library the CLI loads in its place. `interpreter::web_exports!(RUNTIME)`, as in the example, writes its exports behind a feature of its own, here `exports`.
+The same crate builds the module the JS host and the CLI load, and the native library the CLI loads in its place. `interpreter::exports!(RUNTIME)`, as in the example, writes its exports behind a feature of the runtime's own, here `web` as in Lox. That feature turns on the crate's `exports` feature.
 
 ```toml
 [features]
-exports = ["interpreter/runtime", "interpreter/perms"]
+web = ["interpreter/exports"]
 ```
 
 ```bash
-cargo rustc --release --target wasm32-unknown-unknown --lib --crate-type cdylib --no-default-features --features exports
+cargo rustc --release --target wasm32-unknown-unknown --lib --crate-type cdylib --no-default-features --features web
 ```
 
 The native library takes the same exports with a context of its own for each run, so actors run it in parallel with no lock between them. It needs `std` and a profile where a panic unwinds, so the CLI catches one as an error of the run.
@@ -184,7 +183,7 @@ panic = "unwind"
 ```
 
 ```bash
-cargo rustc --profile native --lib --crate-type cdylib --features exports
+cargo rustc --profile native --lib --crate-type cdylib --features web
 ```
 
 The CLI runs it outside the sandbox, as [wasm or native](./06-cli.mdx#wasm-or-native) says.

@@ -13,6 +13,7 @@ export host_interpreter_op func (i32 i32 i32 i32 i32 i32 i32) -> (i32)
 export host_interpreter_release func (i32) -> ()
 export host_interpreter_take_error func (i32 i32 i32) -> (i32)
 export host_interpreter_throw func (i32 i32 i32) -> ()
+export interpreter_runtime_abi func () -> (i32)
 export memory memory
 export memory_peak func () -> (i64)
 export out_len func () -> (i32)
@@ -145,8 +146,10 @@ if (found !== EXPECTED) {
 
 // plugins compile these values in so each stays as it was added
 const CONSTANTS = `
-ABI_VERSION: u32 = 1
 MAX_WIRE_DEPTH: u32 = 32
+NATIVE_ABI: u32 = 1
+PLUGIN_ABI: u32 = 1
+RUNTIME_ABI: u32 = 1
 TAG_INVALID: u32 = u32::MAX
 error_kind::ATTRIBUTE: u32 = 3
 error_kind::CUSTOM: u32 = 6
@@ -185,14 +188,14 @@ tag::RAW: u32 = 5
 
 const held: string[] = []
 let within = ''
-for (const line of Deno.readTextFileSync(new URL('../src/abi/wire.rs', import.meta.url)).split('\n')) {
-  within = line.match(/^pub mod (\w+) \{/)?.[1] ?? (line.startsWith('}') ? '' : within)
-  const constant = line.match(/^\s*pub const (\w+): (.+?) = (.+);$/)
+for (const line of Deno.readTextFileSync(new URL('../src/engine/abi/wire.rs', import.meta.url)).split('\n')) {
+  within = line.match(/^pub(?:\(crate\))? mod (\w+) \{/)?.[1] ?? (line.startsWith('}') ? '' : within)
+  const constant = line.match(/^\s*pub(?:\(crate\))? const (\w+): (.+?) = (.+);$/)
   // the value layout stays the engine's own since a plugin sees handles only
   if (constant && within !== 'nan_box') held.push(`${within ? `${within}::` : ''}${constant[1]}: ${constant[2]} = ${constant[3]}`)
 }
 const pinned = held.sort().join('\n')
 if (pinned !== CONSTANTS) {
-  console.error(`src/abi/wire.rs no longer holds the values plugins compile in\n\nexpected\n${CONSTANTS}\n\nfound\n${pinned}`)
+  console.error(`src/engine/abi/wire.rs no longer holds the values plugins compile in\n\nexpected\n${CONSTANTS}\n\nfound\n${pinned}`)
   Deno.exit(1)
 }

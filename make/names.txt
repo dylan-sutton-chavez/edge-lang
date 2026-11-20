@@ -51,10 +51,11 @@ import in is lambda nonlocal not or pass raise return try while with yield match
 
 [allow]
 # a file then texts it may hold as literals or names then the reason
-src/abi/wire.rs "__call__" "str" names the v1 plugin ABI fixes for a call on itself and for text
-src/lib/mod.rs "bytes" "iter" "map" "set" cargo features of lib
-src/lib/iter/items.rs "map" "set" cargo features of lib
-src/lib/lang.rs "iter" cargo features of lib
-src/deps/perms.rs "all" "eval" holders a permissions section names
-src/deps/resolver.rs "get" a function of the net module a test registers
-src/deps/walk.rs "all" a holder a permissions section names in a test
+src/engine/abi/wire.rs "__call__" "str" names the v1 plugin ABI fixes for a call on itself and for text
+src/lib.rs "bytes" "iter" "map" "set" cargo features of lib
+src/engine/lib.rs "bytes" "iter" "map" "set" cargo features of lib
+src/engine/lib/iter/items.rs "map" "set" cargo features of lib
+src/engine/lib/lang.rs "iter" cargo features of lib
+src/engine/deps/perms.rs "all" "eval" holders a permissions section names
+src/engine/deps/resolver.rs "get" a function of the net module a test registers
+src/engine/deps/walk.rs "all" a holder a permissions section names in a test

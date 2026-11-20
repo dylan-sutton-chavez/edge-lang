@@ -25,3 +25,10 @@ mod rules;
 mod ops;
 mod grammar;
 mod words;
+mod threads;
+// the paths railsbit and its runtimes name stay public
+mod downstream;
+// the user macros make api does not see keep their paths while plugin/example keeps their input
+mod macros;
+// what a host reads of a run and keeps on a machine for its natives
+mod hosting;

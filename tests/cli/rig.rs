@@ -3,8 +3,9 @@
 #[allow(dead_code)]
 mod suite;
 
-use interpreter::cli::cmd::{run, test};
-use interpreter::cli::{docs, files, manifest, net, perms, Kit, Runtime};
+use interpreter::cli::cmd::{Run, Test};
+use interpreter::cli::host::{Files, Net};
+use interpreter::cli::{Engine, Kit, Perms, DOCS_FIELD, MANIFEST_FIELDS};
 use std::sync::Arc;
 use suite::{net_cases, Bin};
 
@@ -16,15 +17,14 @@ const WASM: &[u8] = include_bytes!("../../target/wasm32-unknown-unknown/release/
 
 /* the interpreter composition over the rig so plugin and net calls take lists and keywords */
 fn kit() -> Kit {
-    Kit::new("interpreter", env!("CARGO_PKG_VERSION"), Runtime::wasm(WASM, &rig::DESCRIPTOR))
-        .command(run::Run)
-        .command(test::Test)
-        .fields(manifest::FIELDS)
-        .field(docs::FIELD)
-        .field(perms::FIELD)
-        .module(Arc::new(net::Net))
-        .module(Arc::new(files::Files))
-        .access(Arc::new(perms::Perms))
+    Kit::new("interpreter", env!("CARGO_PKG_VERSION"), Engine::wasm(WASM, rig::RUNTIME.descriptor()))
+        .command(Run)
+        .command(Test)
+        .fields(MANIFEST_FIELDS)
+        .field(DOCS_FIELD)
+        .module(Arc::new(Net))
+        .module(Arc::new(Files))
+        .access(Arc::new(Perms))
 }
 
 fn main() {

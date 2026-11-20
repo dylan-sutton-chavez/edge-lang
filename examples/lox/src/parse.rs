@@ -5,8 +5,9 @@ use alloc::vec::Vec;
 
 use core::ops::Range;
 
-use interpreter::code::{Diagnostic, NodeKind};
-use interpreter::lexer::{lex_as, TokenType as T};
+use interpreter::Diagnostic;
+use interpreter::code::NodeKind;
+use interpreter::lexer::{TokenType as T, lex_as};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum K {
@@ -49,8 +50,8 @@ fn scan(src: &str) -> Vec<Tok> {
 }
 
 /* the modules `src` imports as `import("spec")` names them */
-pub fn imports(src: &str) -> Vec<interpreter::deps::ImportSpec> {
-    use interpreter::deps::ImportSpec;
+pub fn imports(src: &str) -> Vec<interpreter::code::ImportSpec> {
+    use interpreter::code::ImportSpec;
     let toks = scan(src);
     toks.windows(4).filter(|w| w[0].k == K::Ident && &src[w[0].start..w[0].end] == "import" && w[1].k == K::LParen && w[2].k == K::Str && w[3].k == K::RParen)
         .map(|w| String::from(&src[w[2].start + 1..w[2].end - 1]))
@@ -68,7 +69,7 @@ pub enum Expr {
     Set(Place, Box<Expr>, usize),
     Neg(Box<Expr>, usize),
     Not(Box<Expr>),
-    Binary(interpreter::code::OpCode, Box<Expr>, Box<Expr>, usize),
+    Binary(interpreter::lang::Op, Box<Expr>, Box<Expr>, usize),
     Logic(bool, Box<Expr>, Box<Expr>),
     Call(Box<Expr>, Vec<Expr>, usize),
     Field(Box<Expr>, String, usize),
@@ -197,7 +198,7 @@ impl<const R: bool> Parser<'_, R> {
             K::Error => format!("Error: {msg}"),
             _ => format!("Error at '{}': {msg}", self.text(t)),
         };
-        self.errors.push(Diagnostic { start: t.start, end: t.end, msg });
+        self.errors.push(Diagnostic::new(t.start, t.end, msg));
     }
 
     fn error(&mut self, msg: &str) { self.error_at(self.prev, msg); }
@@ -592,7 +593,8 @@ impl<const R: bool> Parser<'_, R> {
     }
 
     fn infix_of(&mut self, left: Expr, can_assign: bool) -> Expr {
-        use interpreter::code::OpCode as O;
+        use interpreter::lang::{Cmp, Op};
+        use interpreter::value::foreign::BinOp;
         let t = self.prev;
         let op = match t.k {
             K::LParen => {
@@ -622,8 +624,8 @@ impl<const R: bool> Parser<'_, R> {
                 let right = self.precedence(if t.k == K::And { Prec::And } else { Prec::Or });
                 return Expr::Logic(t.k == K::And, Box::new(left), Box::new(right));
             }
-            K::Plus => O::Add, K::Minus => O::Sub, K::Star => O::Mul, K::Slash => O::Div,
-            K::EqEq => O::Eq, K::BangEq => O::NotEq, K::Lt => O::Lt, K::LtEq => O::LtEq, K::Gt => O::Gt, K::GtEq => O::GtEq,
+            K::Plus => Op::Bin(BinOp::Add), K::Minus => Op::Bin(BinOp::Sub), K::Star => Op::Bin(BinOp::Mul), K::Slash => Op::Bin(BinOp::TrueDiv),
+            K::EqEq => Op::Cmp(Cmp::Eq), K::BangEq => Op::Cmp(Cmp::Ne), K::Lt => Op::Cmp(Cmp::Lt), K::LtEq => Op::Cmp(Cmp::Le), K::Gt => Op::Cmp(Cmp::Gt), K::GtEq => Op::Cmp(Cmp::Ge),
             _ => return left,
         };
         let next = match Self::infix(t.k) { Prec::Term => Prec::Factor, Prec::Factor => Prec::Unary, Prec::Equality => Prec::Comparison, _ => Prec::Term };

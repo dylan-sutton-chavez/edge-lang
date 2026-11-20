@@ -1,9 +1,9 @@
 #[cfg(test)]
 mod test {
 
-    use interpreter::embed::VM;
-    use interpreter::deps::NoopResolver;
-    use interpreter::value::{SchedulerStatus, VmErr};
+    use interpreter::VM;
+    use interpreter::NoopResolver;
+    use interpreter::{SchedulerStatus, VmErr};
 
     use crate::common::{lex, parser};
 
@@ -54,7 +54,7 @@ mod test {
         loop {
             match vm.run() {
                 Ok(_) => return Ok(()),
-                Err(VmErr::HostYield(SchedulerStatus::PendingEvent)) => {
+                Err(e) if matches!(e.paused(), Some(SchedulerStatus::PendingEvent)) => {
                     if idx >= interactive.len() { return Ok(()); }
                     vm.push_event(&interactive[idx]).expect("push_event");
                     idx += 1;
@@ -101,9 +101,9 @@ mod test {
                 continue;
             }
             // the fold pass production runs so its bugs surface here
-            interpreter::code::constant_fold(&mut chunk, rig::FRONT.policy);
-            let mut vm = crate::common::boot(&chunk, interpreter::value::Limits::sandbox());
-            vm.input_buffer = case.input.clone();
+            interpreter::code::constant_fold(&mut chunk, rig::FRONT.policy());
+            let mut vm = crate::common::boot(&chunk, interpreter::Limits::sandbox());
+            vm.set_input(case.input.clone());
             hook_sends(&mut vm, &case);
             for evt in &case.events { vm.push_event(evt).expect("push_event"); }
             let result = drive(&mut vm, &case.interactive_events);
@@ -147,9 +147,9 @@ mod test {
     /* an error the host delivers into a parked call renders like one the call raised */
     mod host_errors {
         use interpreter::code::SSAChunk;
-        use interpreter::embed::VM;
-        use interpreter::embed as snapshot;
-        use interpreter::value::{Limits, SchedulerStatus, VmErr};
+        use interpreter::VM;
+        use interpreter::snapshot;
+        use interpreter::{Limits, SchedulerStatus, VmErr};
 
         use crate::common::{fail, lex, parser, test_native, TestResolver};
 
@@ -159,7 +159,7 @@ mod test {
             let (tokens, _) = lex(src);
             let (mut chunk, errs) = parser(src, tokens.into_iter(), Box::new(resolver)).parse();
             assert!(errs.is_empty(), "parse errors on {src:?}: {:?}", errs.iter().map(|e| &e.msg).collect::<Vec<_>>());
-            interpreter::code::constant_fold(&mut chunk, rig::FRONT.policy);
+            interpreter::code::constant_fold(&mut chunk, rig::FRONT.policy());
             chunk
         }
 
@@ -175,7 +175,7 @@ mod test {
             loop {
                 match vm.run() {
                     Ok(_) => return (vm.output.clone(), None),
-                    Err(VmErr::HostYield(SchedulerStatus::PendingHostCall)) => {
+                    Err(e) if matches!(e.paused(), Some(SchedulerStatus::PendingHostCall)) => {
                         assert!(fail(&mut vm, next_id, error), "no call parked on id {next_id}");
                         next_id += 1;
                     }
@@ -282,7 +282,7 @@ mod test {
             let src = "use m\nhost_defer = m.host_defer\nprint(\"before\")\nhost_defer()\nprint(\"after\")\n";
             let chunk = compile(src);
             let mut vm = crate::common::boot(&chunk, Limits::sandbox());
-            assert!(matches!(vm.run(), Err(VmErr::HostYield(SchedulerStatus::PendingHostCall))));
+            assert!(matches!(vm.run(), Err(e) if matches!(e.paused(), Some(SchedulerStatus::PendingHostCall))));
             assert!(fail(&mut vm, 0, "Error: boom"));
             let blob = snapshot::save(&vm, src, "").expect("save");
             let mut restored = crate::common::boot(&chunk, Limits::sandbox());
@@ -318,7 +318,7 @@ mod test {
     // scanning or copying builtins pay for what they read so loops cannot outrun the budget
     #[test]
     fn native_work_pays_the_budget() {
-        use interpreter::value::Limits;
+        use interpreter::Limits;
         // these sizes keep the work over the budget and the bare loop under
         let (n, k, ops) = (10_000, 1_000, 200_000);
         let h = n / 2;
@@ -334,38 +334,38 @@ mod test {
             format!("l = list(range({n}))\nfor i in range({k}) {{\n    l.insert(0, i)\n    l.pop(0)\n}}"),
         ] {
             let (chunk, _) = crate::common::parse(&src);
-            let mut vm = crate::common::boot(&chunk, Limits { ops, ..Limits::sandbox() });
-            assert!(matches!(vm.run(), Err(VmErr::Budget)), "{src}");
+            let mut vm = crate::common::boot(&chunk, Limits::sandbox().ops(ops));
+            assert!(matches!(vm.run(), Err(e) if e.is_limit() && e.kind() == Some(interpreter::lang::ErrKind::Runtime)), "{src}");
         }
         // the same work written without a loop pays line by line
         for (setup, line) in [(format!("s = \"ab\" * {h}"), "n = s.count(\"b\")"), (format!("a = \"x\" * {n}\nb = \"x\" * {n}"), "t = a == b"), (format!("l = list(range({n}))"), "t = -1 in l"), (format!("k = \"x\" * {n}\nd = {{}}"), "d[k] = 1")] {
             let src = format!("{setup}\n{}", format!("{line}\n").repeat(k));
             let (chunk, _) = crate::common::parse(&src);
-            let mut vm = crate::common::boot(&chunk, Limits { ops, ..Limits::sandbox() });
-            assert!(matches!(vm.run(), Err(VmErr::Budget)), "{line}");
+            let mut vm = crate::common::boot(&chunk, Limits::sandbox().ops(ops));
+            assert!(matches!(vm.run(), Err(e) if e.is_limit() && e.kind() == Some(interpreter::lang::ErrKind::Runtime)), "{line}");
         }
     }
     // a generator resumed in its window pays for its loop and handlers within the budget
     #[test]
     fn a_resumed_generator_pays_within_the_budget() {
-        use interpreter::value::Limits;
+        use interpreter::Limits;
         let src = "fn gi(n) {\n    for i in range(n) {\n        yield i\n    }\n}\nfn outer(n) {\n    for v in gi(n) {\n        try {\n            yield v * 2\n        } finally {\n        }\n    }\n}\nt = 0\nfor v in outer(30000) {\n    t += v\n}\nprint(t)\n";
         let (chunk, _) = crate::common::parse(src);
         for ops in 1..=80 {
-            let mut vm = crate::common::boot(&chunk, Limits { ops, ..Limits::sandbox() });
-            assert!(matches!(vm.run(), Err(VmErr::Budget)), "{ops}");
+            let mut vm = crate::common::boot(&chunk, Limits::sandbox().ops(ops));
+            assert!(matches!(vm.run(), Err(e) if e.is_limit() && e.kind() == Some(interpreter::lang::ErrKind::Runtime)), "{ops}");
         }
     }
     // a class asked for while native work waits past the budget raises dropping its floor
     #[test]
     fn a_class_whose_step_runs_out_of_budget_raises() {
-        use interpreter::value::Limits;
+        use interpreter::Limits;
         let src = "class O:\n    pass\nfn f():\n    class P:\n        pass\n    return P\nprint(f())\n";
         let (chunk, _) = crate::words::legacy(src);
         for owed in [1_000, 70_000, 1_000_000] {
-            let mut vm = crate::common::boot(&chunk, Limits { ops: 500, ..Limits::sandbox() });
+            let mut vm = crate::common::boot(&chunk, Limits::sandbox().ops(500));
             vm.heap_mut().spend(owed);
-            assert!(matches!(vm.run(), Err(VmErr::Budget)), "{owed}");
+            assert!(matches!(vm.run(), Err(e) if e.is_limit() && e.kind() == Some(interpreter::lang::ErrKind::Runtime)), "{owed}");
         }
     }
     // a long pipe reads in linear time so each line costs what the first did
@@ -373,8 +373,8 @@ mod test {
     fn a_long_input_reads_in_linear_time() {
         let src = "t = 0\nfor _ in range(400000) {\n    t += int(input())\n}\nprint(t)\n";
         let (chunk, _) = crate::common::parse(src);
-        let mut vm = crate::common::boot(&chunk, interpreter::value::Limits::sandbox());
-        vm.input_buffer = (0..400_000).map(|i| (i % 10).to_string()).collect();
+        let mut vm = crate::common::boot(&chunk, interpreter::Limits::sandbox());
+        vm.set_input((0..400_000).map(|i| (i % 10).to_string()).collect());
         let start = std::time::Instant::now();
         vm.run().unwrap();
         assert_eq!(vm.output, ["1800000"]);
@@ -383,17 +383,17 @@ mod test {
     // reads and cuts far into a text past ascii pay for the bytes they walk
     #[test]
     fn far_reads_of_a_text_past_ascii_pay_for_the_bytes_they_walk() {
-        use interpreter::value::Limits;
+        use interpreter::Limits;
         for line in ["c = t[i * 104729 % n]", "c = t[-1 - i * 104729 % n]", "c = t[i * 104729 % n:i * 104729 % n + 2]", "c = t[i * 104729 % n::n]", "c = u[n + 2 + i]", "c = u[-n - 3 - i]"] {
             let src = format!("n = 300000\nt = \"é\" * n\nu = \"é\" + \"x\" * n\nfor i in range(2000) {{\n    try {{\n        {line}\n    }} catch IndexError {{\n        c = 0\n    }}\n}}\n");
             let (chunk, _) = crate::common::compile(&src);
-            let mut vm = crate::common::boot(&chunk, Limits { ops: 400_000, ..Limits::sandbox() });
-            assert!(matches!(vm.run(), Err(VmErr::Budget)), "{line}");
+            let mut vm = crate::common::boot(&chunk, Limits::sandbox().ops(400_000));
+            assert!(matches!(vm.run(), Err(e) if e.is_limit() && e.kind() == Some(interpreter::lang::ErrKind::Runtime)), "{line}");
         }
         // each index in turn walks one character on from the last read
         let src = "n = 300000\nt = \"é\" * n\nc = 0\nfor i in range(n) {\n    if t[i] == \"é\" {\n        c += 1\n    }\n}\nprint(c)\n";
         let (chunk, _) = crate::common::compile(src);
-        let mut vm = crate::common::boot(&chunk, Limits { ops: 10_000_000, ..Limits::sandbox() });
+        let mut vm = crate::common::boot(&chunk, Limits::sandbox().ops(10_000_000));
         let start = std::time::Instant::now();
         vm.run().unwrap();
         assert_eq!(vm.output, ["300000"]);
@@ -404,7 +404,7 @@ mod test {
     fn emptying_a_set_or_a_map_from_one_end_takes_linear_time() {
         let src = "s = set(range(1000000))\nd = record.fromkeys(range(1000000))\nk = 0\nwhile len(s) > 0 {\n    s.pop()\n    d.popitem()\n    k += 1\n}\nprint(k, len(d))\n";
         let (chunk, _) = crate::common::parse(src);
-        let mut vm = crate::common::boot(&chunk, interpreter::value::Limits::sandbox());
+        let mut vm = crate::common::boot(&chunk, interpreter::Limits::sandbox());
         let start = std::time::Instant::now();
         vm.run().unwrap();
         assert_eq!(vm.output, ["1000000 0"]);

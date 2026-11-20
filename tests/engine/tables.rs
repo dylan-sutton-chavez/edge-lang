@@ -13,17 +13,17 @@ mod test {
     #[test]
     fn a_function_scope_and_parameters_are_those_the_vm_resolved() {
         use interpreter::code::{Kind, ParamKind};
-        use interpreter::embed::VM;
+        use interpreter::VM;
         let src = "g = 1\nfn f(a, *r, k=2, **m) {\n    x = a\n    fn h() {\n        return x\n    }\n    return g\n}\n";
         let (chunk, errors) = crate::common::parse(src);
         assert!(errors.is_empty());
         let vm = VM::new(&chunk);
-        let body = &chunk.functions[0].1;
+        let body = chunk.functions().next().unwrap().1;
         let (fi, scope) = vm.scope_of(body).expect("f is indexed");
-        let kind = |name: &str| scope.kinds[body.names.iter().position(|n| n == name).unwrap_or_else(|| panic!("{name}"))];
+        let kind = |name: &str| scope.kinds[body.names().iter().position(|n| n == name).unwrap_or_else(|| panic!("{name}"))];
         assert_eq!(kind("a_0"), Kind::Local);
         assert!(matches!(kind("g_0"), Kind::Global(_)));
-        assert!(scope.cellvars.iter().any(|&s| body.names[s].starts_with('x')));
+        assert!(scope.cellvars.iter().any(|&s| body.names()[s].starts_with('x')));
         let kinds: Vec<ParamKind> = vm.params_of(fi).iter().map(|p| p.0).collect();
         assert_eq!(kinds, [ParamKind::Normal, ParamKind::Star, ParamKind::KwOnly, ParamKind::KwRest]);
         assert!(vm.scope_of(&chunk).is_none());
@@ -33,7 +33,7 @@ mod test {
     fn bound(p: &interpreter::code::Program, body: &interpreter::code::SSAChunk, name: &str) -> Vec<interpreter::code::Binding> {
         use interpreter::code::Binding;
         let (_, b) = p.bindings_of(body).expect("a body of the program");
-        let mut all: Vec<Binding> = body.names.iter().enumerate().filter(|(_, n)| interpreter::code::ssa_strip(n) == name).map(|(i, _)| b[i]).collect();
+        let mut all: Vec<Binding> = body.names().iter().enumerate().filter(|(_, n)| interpreter::code::ssa_strip(n) == name).map(|(i, _)| b[i]).collect();
         all.dedup();
         if all.iter().any(|b| *b != Binding::Local) { all.retain(|b| *b != Binding::Local); }
         all
@@ -41,7 +41,8 @@ mod test {
 
     #[test]
     fn module_and_class_bodies_bind_as_the_vm_resolves_them() {
-        use interpreter::code::{Binding::*, BodyKind, Program};
+        use interpreter::code::{BodyKind, Program};
+        use interpreter::code::Binding::*;
         use crate::common::compile;
         let global = |b: &[interpreter::code::Binding]| matches!(b, [Global(_)]);
         // a module binds into its globals and a function reads them
@@ -50,36 +51,36 @@ mod test {
         let p = Program::new(&c);
         assert_eq!(p.bindings_of(&c).map(|b| b.0), Some(BodyKind::Module));
         assert!(global(&bound(&p, &c, "x")) && global(&bound(&p, &c, "f")));
-        assert_eq!(p.bindings_of(&c.functions[0].1).map(|b| b.0), Some(BodyKind::Function(0)));
-        assert_eq!(bound(&p, &c.functions[0].1, "x"), bound(&p, &c, "x"));
+        assert_eq!(p.bindings_of(c.functions().next().unwrap().1).map(|b| b.0), Some(BodyKind::Function(0)));
+        assert_eq!(bound(&p, c.functions().next().unwrap().1, "x"), bound(&p, &c, "x"));
         // class body names are members and a method reads past them to the module
         let (c, _) = crate::words::legacy("y = 2\nclass A:\n    a = y\n    fn m(self): return a\n");
         let p = Program::new(&c);
-        let a = &c.classes[0];
+        let a = &c.classes()[0];
         assert_eq!(p.bindings_of(a).map(|b| b.0), Some(BodyKind::Class));
         assert_eq!((bound(&p, a, "a"), bound(&p, a, "m")), (vec![Member], vec![Member]));
         assert_eq!(bound(&p, a, "y"), bound(&p, &c, "y"));
-        assert!(global(&bound(&p, &a.functions[0].1, "a")));
+        assert!(global(&bound(&p, a.functions().next().unwrap().1, "a")));
         // a class in a function borrows plain locals and reads cells its methods share too
         let (c, _) = crate::words::legacy("fn f():\n    c = 1\n    p = 2\n    fn g(): return c\n    class B:\n        u = c\n        v = p\n        fn m(self): return c\n    return B\n");
         let p = Program::new(&c);
-        let (f, b) = (&c.functions[0].1, &c.functions[0].1.classes[0]);
+        let (f, b) = (c.functions().next().unwrap().1, &c.functions().next().unwrap().1.classes()[0]);
         assert_eq!((bound(&p, f, "c"), bound(&p, f, "p")), (vec![Cell], vec![Local]));
         assert_eq!((bound(&p, b, "c"), bound(&p, b, "p"), bound(&p, b, "u")), (vec![Cell], vec![Lent], vec![Member]));
-        let (_, m) = p.scope_of(&b.functions[0].1).expect("m is a function");
+        let (_, m) = p.scope_of(b.functions().next().unwrap().1).expect("m is a function");
         assert_eq!(m.freevars.iter().map(|v| v.2.as_str()).collect::<Vec<_>>(), ["c"]);
         // inner classes see no plain locals
         let (c, _) = crate::words::legacy("fn f():\n    w = 1\n    class D:\n        class I:\n            t = w\n    return D\n");
         let p = Program::new(&c);
-        let d = &c.functions[0].1.classes[0];
-        assert!(global(&bound(&p, &d.classes[0], "w")));
+        let d = &c.functions().next().unwrap().1.classes()[0];
+        assert!(global(&bound(&p, &d.classes()[0], "w")));
         // a comprehension in a class body sees no members except the iterable it is handed
         let (c, _) = crate::words::legacy("class E:\n    xs = [1, 2]\n    ys = [i * 2 for i in xs]\n    zs = [xs for i in range(2)]\n");
         let p = Program::new(&c);
-        let e = &c.classes[0];
+        let e = &c.classes()[0];
         assert_eq!((bound(&p, e, "xs"), bound(&p, e, "ys")), (vec![Member], vec![Member]));
-        assert_eq!(bound(&p, &e.functions[0].1, "i"), vec![Local]);
-        assert!(global(&bound(&p, &e.functions[1].1, "xs")));
+        assert_eq!(bound(&p, e.functions().next().unwrap().1, "i"), vec![Local]);
+        assert!(global(&bound(&p, e.functions().nth(1).unwrap().1, "xs")));
     }
 
     use interpreter::code::{Class, Fast, NativeSite, Operator, SSAChunk};
@@ -127,14 +128,14 @@ mod test {
     /* chunks whose functions classes and native sites give every count of an effect its cases */
     fn chunks() -> Vec<SSAChunk> {
         let mut c = SSAChunk::default();
-        for d in [0, 1, 3, 255] { c.functions.push((Vec::new(), SSAChunk::default(), d, 0)); }
+        for d in [0, 1, 3, 255] { c.bodies_mut().push((Vec::new(), SSAChunk::default(), d, 0)); }
         for bases in [0, 1, 2, 7, interpreter::code::SPREAD_BASES] {
             let mut k = SSAChunk::default();
-            k.bases = bases;
-            c.classes.push(k);
+            k.set_bases(bases);
+            c.classes_mut().push(k);
         }
         for (pos, kw, void) in [(0, 0, false), (1, 0, true), (3, 1, false), (7, 2, true), (255, 255, false)] {
-            c.native_sites.push(NativeSite { id: 5, pos, kw, spread: kw > 1, pinned: false, fast: false, void });
+            c.native_sites_mut().push(NativeSite { id: 5, pos, kw, spread: kw > 1, pinned: false, fast: false, void });
         }
         vec![SSAChunk::default(), c]
     }
@@ -147,9 +148,9 @@ mod test {
                 let top = if op == OpCode::BuildDict { 0x7FFF } else { u16::MAX };
                 for operand in 0..=top { assert_eq!(op.effect(operand, &chunk), op.info().effect(operand, &chunk), "{op:?} {operand}"); }
                 // what the operand alone sets is what an empty chunk lets the columns count
-                if chunk.functions.is_empty() { for operand in 0..=top { assert!(op.plain_effect(operand).is_none_or(|e| Some(e) == op.info().effect(operand, &chunk)), "{op:?} {operand}"); } }
+                if chunk.functions().len() == 0 { for operand in 0..=top { assert!(op.plain_effect(operand).is_none_or(|e| Some(e) == op.info().effect(operand, &chunk)), "{op:?} {operand}"); } }
                 // an OpR row takes what its op takes when no chunk sets the count
-                if chunk.functions.is_empty() && op.form() == Some(OpCode::OpR) { for operand in 0..=top { assert_eq!(op.plain_effect(operand), op.info().effect(operand, &chunk), "{op:?} {operand}"); } }
+                if chunk.functions().len() == 0 && op.form() == Some(OpCode::OpR) { for operand in 0..=top { assert_eq!(op.plain_effect(operand), op.info().effect(operand, &chunk), "{op:?} {operand}"); } }
             }
         }
         for &op in &OpCode::EVERY {

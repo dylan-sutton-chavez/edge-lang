@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 
-use interpreter::cli::{files, perms, Kit, Runtime};
+use interpreter::cli::host::Files;
+use interpreter::cli::{Engine, Kit, Perms};
 
 // the variable that makes this binary the CLI for one run of a case
 const AS_CLI: &str = "INTERPRETER_AS_CHANNELS";
@@ -20,12 +21,11 @@ const PROGRAM: &str = "var files = import(\"files\");\nvar f = files.open(\"even
 
 /* run over lox with the files a grant names */
 fn kit() -> Kit {
-    Kit::new("channels", env!("CARGO_PKG_VERSION"), Runtime::wasm(WASM, &interpreter_lox::DESCRIPTOR))
+    Kit::new("channels", env!("CARGO_PKG_VERSION"), Engine::wasm(WASM, interpreter_lox::RUNTIME.descriptor()))
         .title("Channels on the interpreter engine")
-        .command(interpreter::cli::cmd::run::Run)
-        .field(perms::FIELD)
-        .access(Arc::new(perms::Perms))
-        .module(Arc::new(files::Files))
+        .command(interpreter::cli::cmd::Run)
+        .access(Arc::new(Perms))
+        .module(Arc::new(Files))
 }
 
 /* a project of its own holding the program and the grants and the records */

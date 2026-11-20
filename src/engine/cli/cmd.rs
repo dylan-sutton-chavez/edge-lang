@@ -1,0 +1,16 @@
+#[cfg(feature = "cli-actors")]
+pub(crate) mod actors;
+#[cfg(feature = "cli-build")]
+pub(crate) mod build;
+#[cfg(feature = "cli-init")]
+pub(crate) mod init;
+#[cfg(feature = "cli-packages")]
+pub(crate) mod pkg;
+#[cfg(feature = "cli-run")]
+pub(crate) mod run;
+#[cfg(feature = "cli-serve")]
+pub(crate) mod serve;
+#[cfg(feature = "cli-test")]
+pub(crate) mod test;
+#[cfg(feature = "cli-uninstall")]
+pub(crate) mod uninstall;

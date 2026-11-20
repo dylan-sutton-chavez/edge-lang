@@ -31,7 +31,7 @@ fn js_host(dist: &Path, out: &Path) {
     found.sort();
     assert!(!found.is_empty(), "no .js under {}, {hint}", root.display());
 
-    let mut table = String::from("pub const JS_HOST: &[(&str, &[u8])] = &[\n");
+    let mut table = String::from("pub(crate) const JS_HOST: &[(&str, &[u8])] = &[\n");
     for (key, path) in found {
         table.push_str(&format!("    ({key:?}, include_bytes!({:?})),\n", path.display().to_string()));
     }

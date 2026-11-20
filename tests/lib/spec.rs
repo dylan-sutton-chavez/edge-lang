@@ -1,6 +1,6 @@
-use interpreter::embed::{Limits, VM};
-use interpreter::lang::{Args, Cx, Native, Natives, Ret, Runtime, Sig};
-use interpreter::value::VmErr;
+use interpreter::{Limits, VM};
+use interpreter::lang::{Args, Cx, ErrKind, Native, Natives, Ret, Runtime, Sig};
+use interpreter::VmErr;
 use rig::Rig;
 
 const TESTED: &[Native] = &[Native::new("fmt", Sig::exact(2), fmt)];
@@ -15,18 +15,18 @@ rig::over!(Over, &NATIVES);
 
 /* a value's text under a spec or the error the spec raises */
 fn fmt(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
-    let spec = cx.text(a.pos[1]).map(String::from).ok_or(VmErr::Type("fmt takes a str spec"))?;
-    let out = interpreter::lib::fmt::spec::format::<Rig>(cx, a.pos[0], &spec)?;
+    let spec = cx.text(a.pos[1]).map(String::from).ok_or(VmErr::new(ErrKind::Type, "fmt takes a str spec"))?;
+    let out = interpreter::lib::fmt::format::<Rig>(cx, a.pos[0], &spec)?;
     Ok(cx.new_str(out)?.into())
 }
 
 /* what `src` printed or its error */
 fn run(src: &str) -> Result<String, String> {
-    let (chunk, errors) = interpreter::code::compile_as::<rig::Rig>(src);
+    let (chunk, errors) = interpreter::compile_as::<rig::Rig>(src);
     assert!(errors.is_empty(), "{src}: {:?}", errors.iter().map(|e| &e.msg).collect::<Vec<_>>());
     // nothing meters these tests so the instance budget bounds the room a spec checks
     interpreter::value::meter::set_budget(256 << 20);
-    let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits { memory: usize::MAX, ..Limits::sandbox() });
+    let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox().memory(usize::MAX));
     vm.run().map_err(|e| e.to_string())?;
     Ok(vm.output_text())
 }
@@ -58,4 +58,11 @@ fn a_bad_spec_raises_the_words_the_corpus_expects() {
     assert!(words("1.5", ".75342E").starts_with("ValueError: the format precision passes the limit"));
     assert!(words("1114112", "c").starts_with("OverflowError: the c type takes a code point from 0 to 0x10FFFF"));
     assert!(words("2**40000", "d").starts_with("ValueError: the number has more digits than the limit of 10000 for its text"));
+}
+
+#[test]
+fn a_refused_spec_shows_in_lib_s_neutral_words() {
+    use interpreter::lib::fail::Spec;
+    assert_eq!(Spec::BadWidth.to_string(), "invalid width in format spec");
+    assert_eq!(Spec::CharRange.to_string(), "the c type takes a code point from 0 to 0x10FFFF");
 }

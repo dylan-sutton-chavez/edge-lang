@@ -5,14 +5,14 @@ use std::net::{TcpListener, TcpStream};
 use std::process::{Command, Stdio};
 
 // the lox runtime every program of the suites runs on unless a case declares its own
-pub const LOX: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/target/wasm32-unknown-unknown/cli/interpreter.wasm");
+pub(crate) const LOX: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/target/wasm32-unknown-unknown/cli/interpreter.wasm");
 // the compiled code every case shares since it is keyed by the bytes it came from
-pub const CODE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/target/cli-code-cache");
+pub(crate) const CODE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/target/cli-code-cache");
 
 static SEQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
 /* a fresh empty dir of its own for each call in this process */
-pub fn scratch(name: &str) -> std::path::PathBuf {
+pub(crate) fn scratch(name: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!("interpreter-test-{}-{name}-{}", std::process::id(), SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
@@ -21,7 +21,7 @@ pub fn scratch(name: &str) -> std::path::PathBuf {
 
 /* the binary a suite runs with the variables that make it the CLI and whether it loads wasm plugins */
 #[derive(Clone, Copy)]
-pub struct Bin<'a> {
+pub(crate) struct Bin<'a> {
     pub path: &'a str,
     pub env: &'a [(&'a str, &'a str)],
     pub plugins: bool,
@@ -187,16 +187,16 @@ fn echo_socket(mut stream: TcpStream, key: &str) {
     }
 }
 
-pub fn suite(bin: Bin, json: &str, hosts: &[&[&str]]) {
+pub(crate) fn suite(bin: Bin, json: &str, hosts: &[&[&str]]) {
     let cases: Vec<Case> = serde_json::from_str(json).expect("case file parse");
     run_suite(bin, &cases, hosts);
 }
 
 /* the net cases on `hosts` against one loopback fixture */
-pub fn net(bin: Bin, hosts: &[&[&str]]) { net_cases(bin, include_str!("../../../examples/net/cases.json"), hosts) }
+pub(crate) fn net(bin: Bin, hosts: &[&[&str]]) { net_cases(bin, include_str!("../../../examples/net/cases.json"), hosts) }
 
 /* the cases of `json` with its routes answered by one loopback fixture */
-pub fn net_cases(bin: Bin, json: &str, hosts: &[&[&str]]) {
+pub(crate) fn net_cases(bin: Bin, json: &str, hosts: &[&[&str]]) {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
     let at = listener.local_addr().expect("tcp addr");
     // the fixture the cases name is the one just bound

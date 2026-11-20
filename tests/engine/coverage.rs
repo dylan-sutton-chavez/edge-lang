@@ -1,6 +1,6 @@
 #[cfg(feature = "coverage")]
 mod test {
-    use interpreter::code::{ImportKind, OpCode, SSAChunk, Value};
+    use interpreter::code::{Constant, ImportKind, OpCode, SSAChunk};
 
     use crate::common::{lex, parser, TestResolver};
 
@@ -10,14 +10,14 @@ mod test {
 
     /* the ips loading the str `text` so a branch is found by what it loads */
     fn loads(chunk: &SSAChunk, text: &str) -> Vec<usize> {
-        let at = chunk.constants.iter().position(|c| matches!(c, Value::Str(s) if s == text)).unwrap_or_else(|| panic!("no constant {text:?}"));
-        let ips: Vec<usize> = chunk.instructions.iter().enumerate().filter(|(_, i)| i.opcode == OpCode::LoadConst && i.operand as usize == at).map(|(ip, _)| ip).collect();
+        let at = chunk.constants().iter().position(|c| matches!(c, Constant::Str(s) if s == text)).unwrap_or_else(|| panic!("no constant {text:?}"));
+        let ips: Vec<usize> = chunk.instructions().iter().enumerate().filter(|(_, i)| i.opcode == OpCode::LoadConst && i.operand as usize == at).map(|(ip, _)| ip).collect();
         assert!(!ips.is_empty(), "no load of {text:?}");
         ips
     }
 
     fn function<'c>(chunk: &'c SSAChunk, name: &str) -> &'c SSAChunk {
-        chunk.functions.iter().find(|f| chunk.names.get(f.3 as usize).is_some_and(|n| n.split('_').next() == Some(name))).map(|f| &f.1).unwrap_or_else(|| panic!("no function {name}"))
+        chunk.bodies().iter().find(|f| chunk.names().get(f.3 as usize).is_some_and(|n| n.split('_').next() == Some(name))).map(|f| &f.1).unwrap_or_else(|| panic!("no function {name}"))
     }
 
     #[test]
@@ -27,7 +27,7 @@ mod test {
         let (chunk, errors) = parser(MAIN, tokens.into_iter(), resolver).parse();
         assert!(errors.is_empty(), "{:?}", errors.iter().map(|d| &d.msg).collect::<Vec<_>>());
 
-        let mut vm = crate::common::boot(&chunk, interpreter::embed::Limits::sandbox());
+        let mut vm = crate::common::boot(&chunk, interpreter::Limits::sandbox());
         assert!(vm.run().is_err(), "the run ends in the ValueError it raises");
 
         // inside one line only the branch a conditional or a short circuit took
@@ -44,11 +44,11 @@ mod test {
         assert!(loads(&chunk, "after").iter().all(|&ip| !vm.ran(&chunk, ip)));
 
         // the imported module answers under its own chunk with method calls left as written
-        let helper = chunk.imports.iter().find_map(|entry| match &entry.kind { ImportKind::Code(sub) if entry.spec == "helper" => Some(sub), _ => None }).expect("helper imported as code");
+        let helper = chunk.imports().iter().find_map(|entry| match &entry.kind { ImportKind::Code(sub) if entry.spec == "helper" => Some(sub), _ => None }).expect("helper imported as code");
         for name in ["double", "shout"] {
             let body = function(helper, name);
-            assert!((0..body.instructions.len()).all(|ip| vm.ran(body, ip)), "{name} ran whole");
+            assert!((0..body.instructions().len()).all(|ip| vm.ran(body, ip)), "{name} ran whole");
         }
-        assert!(!vm.ran(&chunk, chunk.instructions.len()), "an ip past the chunk never ran");
+        assert!(!vm.ran(&chunk, chunk.instructions().len()), "an ip past the chunk never ran");
     }
 }

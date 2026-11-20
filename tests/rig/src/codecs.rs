@@ -1,6 +1,6 @@
 use alloc::string::String;
 
-use interpreter::lib::lang::{Codec, OnError, Order};
+use interpreter::lib::{Codec, Endian, OnError};
 
 /* the codec an encoding name means once normalized */
 pub fn codec(name: &str) -> Option<Codec> {
@@ -11,12 +11,12 @@ pub fn codec(name: &str) -> Option<Codec> {
         "ascii" | "646" | "ansi_x3.4_1968" | "ansi_x3_4_1968" | "ansi_x3.4_1986" | "cp367" | "csascii" | "ibm367" | "iso646_us" | "iso_646.irv_1991" | "iso_ir_6" | "us" | "us_ascii" => Codec::Ascii,
         "latin_1" | "latin1" | "latin" | "l1" | "8859" | "cp819" | "csisolatin1" | "ibm819" | "iso8859" | "iso8859_1" | "iso_8859_1" | "iso_8859_1_1987" | "iso_ir_100" => Codec::Latin1,
         "cp1252" | "windows_1252" | "1252" => Codec::Windows1252,
-        "utf_16" | "utf16" | "u16" => Codec::Utf16(Order::Mark),
-        "utf_16_le" | "utf_16le" | "unicodelittleunmarked" => Codec::Utf16(Order::Le),
-        "utf_16_be" | "utf_16be" | "unicodebigunmarked" => Codec::Utf16(Order::Be),
-        "utf_32" | "utf32" | "u32" => Codec::Utf32(Order::Mark),
-        "utf_32_le" | "utf_32le" => Codec::Utf32(Order::Le),
-        "utf_32_be" | "utf_32be" => Codec::Utf32(Order::Be),
+        "utf_16" | "utf16" | "u16" => Codec::Utf16(None),
+        "utf_16_le" | "utf_16le" | "unicodelittleunmarked" => Codec::Utf16(Some(Endian::Little)),
+        "utf_16_be" | "utf_16be" | "unicodebigunmarked" => Codec::Utf16(Some(Endian::Big)),
+        "utf_32" | "utf32" | "u32" => Codec::Utf32(None),
+        "utf_32_le" | "utf_32le" => Codec::Utf32(Some(Endian::Little)),
+        "utf_32_be" | "utf_32be" => Codec::Utf32(Some(Endian::Big)),
         _ => return None,
     })
 }
@@ -25,8 +25,9 @@ pub fn codec(name: &str) -> Option<Codec> {
 pub fn name(c: Codec) -> &'static str {
     match c {
         Codec::Utf8 => "utf-8", Codec::Ascii => "ascii", Codec::Latin1 => "latin-1", Codec::Windows1252 => "charmap",
-        Codec::Utf16(Order::Be) => "utf-16-be", Codec::Utf16(_) => "utf-16-le",
-        Codec::Utf32(Order::Be) => "utf-32-be", Codec::Utf32(_) => "utf-32-le",
+        Codec::Utf16(Some(Endian::Big)) => "utf-16-be", Codec::Utf16(_) => "utf-16-le",
+        Codec::Utf32(Some(Endian::Big)) => "utf-32-be", Codec::Utf32(_) => "utf-32-le",
+        _ => "codec",
     }
 }
 

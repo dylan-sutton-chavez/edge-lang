@@ -1,12 +1,12 @@
-use interpreter::embed::Limits;
-use interpreter::lang::{Args, Cx, Mode, Native, Natives, Ret, Runtime, Sig};
+use interpreter::Limits;
+use interpreter::lang::{Args, Cx, Native, Natives, Ret, Runtime, Show, Sig};
 use rig::Rig;
 use crate::common::{ran, TRY};
 
 /* the render hook in each of its modes as a str */
 fn hook(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
-    let mode = match a.pos[1].as_int() { 0 => Mode::Str, 1 => Mode::Repr, _ => Mode::Ascii };
-    let text = interpreter::lib::fmt::render::hook::<Rig>(cx, a.pos[0], mode)?;
+    let mode = match a.pos[1].as_int() { 0 => Show::Str, 1 => Show::Repr, _ => Show::Ascii };
+    let text = interpreter::lib::fmt::show::<Rig>(cx, a.pos[0], mode)?;
     Ok(cx.new_str(text)?.into())
 }
 

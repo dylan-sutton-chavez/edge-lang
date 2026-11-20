@@ -1,8 +1,8 @@
-use interpreter::embed::Limits;
+use interpreter::Limits;
 use interpreter::lang::{Native, Natives, Runtime};
 use interpreter::lib::bytes::{Fixed, Mutable};
-use interpreter::lib::lang::Centre;
-use interpreter::lib::num::hash::Scheme;
+use interpreter::lib::Centre;
+use interpreter::lib::num::Scheme;
 use interpreter::lib::text::cut::Unicode;
 use interpreter::lib::uni::Decimal;
 use rig::Rig;
@@ -10,8 +10,6 @@ use crate::common::ran;
 
 // a runtime of the rig's names keeping every choice lib leaves at its default
 struct Plain;
-
-impl interpreter::lib::fmt::render::Style for Plain {}
 
 impl interpreter::lang::Language for Plain {
     const VERSION: u32 = 1;
@@ -24,17 +22,60 @@ impl interpreter::lang::Language for Plain {
     const BUILT: interpreter::value::foreign::Built = <rig::Rig as interpreter::lang::Language>::BUILT;
     type Ops = ();
 
-    fn show(cx: &mut interpreter::lang::Cx<'_, '_>, v: interpreter::value::Val, mode: interpreter::lang::Mode) -> Result<String, interpreter::value::VmErr> { interpreter::lib::fmt::render::hook::<Self>(cx, v, mode) }
-
-    fn format(cx: &mut interpreter::lang::Cx<'_, '_>, v: interpreter::value::Val, spec: &str) -> Result<String, interpreter::value::VmErr> { interpreter::lib::fmt::spec::hook::<Self>(cx, v, spec) }
-
-    fn handles(heap: &interpreter::value::HeapPool, exc: interpreter::value::Val, class: interpreter::value::Val) -> Result<bool, interpreter::value::VmErr> { interpreter::lib::types::match_exc::<Self>(heap, exc, class) }
+    interpreter::lib::hooks!(Self);
 }
 
 impl interpreter::lib::Lang for Plain {
-    const TREE: &'static interpreter::lib::lang::Tree = &rig::types::TREE;
+    fn class(c: interpreter::lib::fail::Class) -> &'static str { <Rig as interpreter::lib::Lang>::class(c) }
+}
 
-    fn class(c: interpreter::lib::Class) -> &'static str { <Rig as interpreter::lib::Lang>::class(c) }
+// a runtime of the rig's names whose own show wraps lib's render in angle brackets
+struct Shown;
+
+impl interpreter::lang::Language for Shown {
+    const VERSION: u32 = 1;
+    const POLICY: interpreter::lang::Policy = <Rig as interpreter::lang::Language>::POLICY;
+    const NATIVES: &'static Natives = &SHOWN_NATIVES;
+    const NAMES: &'static interpreter::lang::Names = &rig::NAMES;
+    const FRONT: interpreter::lang::Front = rig::FRONT;
+    const DESCRIPTOR: &'static interpreter::lang::Descriptor = &rig::DESCRIPTOR;
+    const WIDE: Option<&'static interpreter::value::foreign::Kind> = Some(&rig::lang::WIDE);
+    type Ops = ();
+
+    fn show(cx: &mut interpreter::lang::Cx<'_, '_>, v: interpreter::Val, mode: interpreter::lang::Show) -> Result<String, interpreter::VmErr> {
+        Ok(format!("<{}>", interpreter::lib::fmt::show::<Shown>(cx, v, mode)?))
+    }
+
+    interpreter::lib::hooks!(Self; format, handles);
+}
+
+impl interpreter::lib::Lang for Shown {
+    const PLAIN_PRINT: bool = false;
+
+    fn class(c: interpreter::lib::fail::Class) -> &'static str { <Rig as interpreter::lib::Lang>::class(c) }
+}
+
+const SHOWN_FNS: &[Native] = &interpreter::lib::table![Shown;
+    "print" => interpreter::lib::io::print,
+    "repr" => interpreter::lib::fmt::repr_of,
+    "ascii" => interpreter::lib::fmt::ascii_of,
+];
+
+static SHOWN_NATIVES: Natives = interpreter::natives! {
+    language: Shown,
+    fns: [SHOWN_FNS],
+    methods: [],
+    types: rig::types::NAMES,
+};
+
+static SHOWN_RUNTIME: Runtime = Runtime::of::<Shown>();
+
+/* the rig's spelling over the natives of the runtime with its own show */
+struct Showing;
+
+impl interpreter::lexer::Spelling for Showing {
+    const SYNTAX: interpreter::lexer::Syntax = rig::RIG;
+    const NATIVES: &'static Natives = &SHOWN_NATIVES;
 }
 
 /* numbers modulo two to 40 less one with nothing reserved */
@@ -54,7 +95,7 @@ impl Scheme for Forty {
 
 const PLAIN_FNS: &[Native] = &interpreter::lib::table![Plain;
     "print" => interpreter::lib::io::print,
-    "repr" => interpreter::lib::fmt::render::repr_of,
+    "repr" => interpreter::lib::fmt::repr_of,
     "type" => interpreter::lib::types::type_of,
     "len" => interpreter::lib::seq::len,
     "list" => interpreter::lib::seq::list,
@@ -62,7 +103,7 @@ const PLAIN_FNS: &[Native] = &interpreter::lib::table![Plain;
     "float" => interpreter::lib::num::float::new[Decimal],
     "bytes" => interpreter::lib::bytes::new[Fixed]("source", "encoding", "errors"),
     "bytearray" => interpreter::lib::bytes::new[Mutable]("source", "encoding", "errors"),
-    "hash" => interpreter::lib::num::hash::hash[Forty],
+    "hash" => interpreter::lib::num::hash[Forty],
     "iter" => interpreter::lib::iter::iter,
     "next" => interpreter::lib::iter::next,
 ];
@@ -71,7 +112,7 @@ const PLAIN_STR: &[Native] = &interpreter::lib::table![Plain;
     "center" => interpreter::lib::text::pad::center,
     "strip" => interpreter::lib::text::pad::trim,
     "split" => interpreter::lib::text::cut::split("sep", "maxsplit"),
-    "isspace" => interpreter::lib::text::class::space,
+    "isspace" => interpreter::lib::text::class::is_space,
     "splitlines" => interpreter::lib::text::cut::lines[Unicode]("keepends"),
     "expandtabs" => interpreter::lib::text::pad::tabs("tabsize"),
 ];
@@ -192,4 +233,10 @@ fn unicode_breaks_leave_out_the_separators_the_rig_breaks_at() {
 fn a_scheme_hashes_equal_numbers_of_any_width_alike() {
     let src = "print(hash(2**40), hash(2**45), hash(2.0**45), hash(2**100) == hash(2.0**100), hash(2**200), hash(2.0**200), hash(-1), hash(nil), hash(float(\"inf\")))\n";
     assert_eq!(with_plain(src), "1 32 32 true 1 1 -1 7 11\n");
+}
+
+#[test]
+fn print_repr_and_ascii_render_through_the_runtime_s_own_show() {
+    let out = ran::<Showing>(&SHOWN_RUNTIME, "print([1])\nprint(repr([2]))\nprint(ascii([3]))\n", Limits::sandbox());
+    assert_eq!(out, "<[1]>\n<<[2]>>\n<<[3]>>\n");
 }

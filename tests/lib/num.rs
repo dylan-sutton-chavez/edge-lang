@@ -1,10 +1,11 @@
-use interpreter::embed::{Limits, VM};
+use interpreter::{Limits, VM};
 use interpreter::lang::{Args, Cx, Native, Natives, Ret, Runtime, Sig};
 use interpreter::value::foreign::{BinOp, Snapshot, UnOp};
-use interpreter::value::{DictMap, HeapPool, Val, hash_val_with_heap};
+use interpreter::Val;
+use interpreter::value::{DictMap, HeapPool, hash_val_with_heap};
 use interpreter::lib::Site;
 use interpreter::lib::fail::{Fail, fail};
-use interpreter::lib::num::big::BigInt;
+use interpreter::lib::num::BigInt;
 use interpreter::lib::num::int::Parse;
 use interpreter::lib::uni::Decimal;
 use rig::Rig;
@@ -95,9 +96,9 @@ fn the_kind_orders_hashes_and_saves_as_the_engine_did() {
     assert_eq!(h.foreign_eq(boxed, Val::float(18446744073709551616.0)), Some(true));
     assert_eq!((h.foreign_hash(big), h.foreign_hash(low), h.foreign_hash(boxed)), (Some(131072), Some(-131072i64 as u64), Some(8)));
     assert!(matches!(h.foreign_f64(big), Some(Ok(f)) if f == 1.6069380442589903e60));
-    let Some(token) = Cx::kind_token(&h, &WIDE) else { panic!("the kind registered") };
+    let Some(token) = h.kind_token(&WIDE) else { panic!("the kind registered") };
     let Some(held) = h.foreign_payload::<BigInt>(token, big).cloned() else { panic!("limbs") };
-    let Snapshot::Serialize { save, load } = WIDE.snapshot else { panic!("saved") };
+    let Snapshot::Serialize { save, load } = WIDE.snapshot_of() else { panic!("saved") };
     let mut out = Vec::new();
     save(&held, &mut out);
     assert_eq!(load(&out).and_then(|p| p.downcast_ref::<BigInt>().cloned()), Some(held));
@@ -116,12 +117,12 @@ impl Site for Int {
 
 /* the raw parse of `text` in `base` with the base checked as int checks it */
 fn parse(cx: &mut Cx<'_, '_>, a: Args<'_>) -> Ret {
-    let Some(text) = cx.text(a.pos[0]).map(String::from) else { return Ok(interpreter::value::Val::none().into()) };
+    let Some(text) = cx.text(a.pos[0]).map(String::from) else { return Ok(interpreter::Val::none().into()) };
     let base = a.pos[1].as_int();
     if base != 0 && !(2..=36).contains(&base) { return Err(fail::<Int>(cx, Fail::IntBase)); }
     match interpreter::lib::num::int::parse::<Rig, Decimal>(cx, &text, base) {
         Ok(v) => Ok(v.into()),
-        Err(Parse::Literal) => Err(fail::<Int>(cx, Fail::IntLiteral { base, v: a.pos[0] })),
+        Err(Parse::Literal) => Err(interpreter::lib::num::int::literal::<Int>(cx, base, a.pos[0])),
         Err(Parse::Fail(e)) => Err(e),
     }
 }
@@ -215,11 +216,9 @@ fn natives_cross_into_wide_ints_and_back() {
 // a runtime of the rig's words with no limit on the digits of decimal text
 struct Unbounded;
 
-impl interpreter::lib::fmt::render::Style for Unbounded {}
-
 impl interpreter::lang::Language for Unbounded {
     const VERSION: u32 = 1;
-    const POLICY: interpreter::lang::Policy = interpreter::lang::Policy { max_int_digits: None, ..<Rig as interpreter::lang::Language>::POLICY };
+    const POLICY: interpreter::lang::Policy = <Rig as interpreter::lang::Language>::POLICY.max_int_digits(None);
     const NATIVES: &'static interpreter::lang::Natives = &UNBOUNDED_NATIVES;
     const NAMES: &'static interpreter::lang::Names = &rig::NAMES;
     // its own spelling folds constants under the rules it states
@@ -229,16 +228,14 @@ impl interpreter::lang::Language for Unbounded {
     const BUILT: interpreter::value::foreign::Built = <rig::Rig as interpreter::lang::Language>::BUILT;
     type Ops = ();
 
-    fn show(cx: &mut interpreter::lang::Cx<'_, '_>, v: interpreter::value::Val, mode: interpreter::lang::Mode) -> Result<String, interpreter::value::VmErr> { interpreter::lib::fmt::render::hook::<Self>(cx, v, mode) }
+    interpreter::lib::hooks!(Self; show);
 }
 
 impl interpreter::lib::Lang for Unbounded {
-    const TREE: &'static interpreter::lib::lang::Tree = &rig::types::TREE;
-
-    fn class(c: interpreter::lib::Class) -> &'static str { <Rig as interpreter::lib::Lang>::class(c) }
+    fn class(c: interpreter::lib::fail::Class) -> &'static str { <Rig as interpreter::lib::Lang>::class(c) }
 }
 
-static UNBOUNDED_WIDE: interpreter::value::foreign::Kind = interpreter::lib::num::big::kind::<Unbounded>("int");
+static UNBOUNDED_WIDE: interpreter::value::foreign::Kind = interpreter::lib::num::int_kind::<Unbounded>("int");
 
 const UNBOUNDED: &[Native] = &interpreter::lib::table![Unbounded;
     "print" => interpreter::lib::io::print,
@@ -266,12 +263,12 @@ impl interpreter::lexer::Spelling for Lifted {
 // with no digit limit a wide int's text pays for its digits first
 #[test]
 fn decimal_text_with_no_limit_runs_out_of_budget_before_converting() {
-    let (chunk, errors) = interpreter::code::compile_as::<Lifted>("print(len(text(7 ** 200000)))\n");
+    let (chunk, errors) = interpreter::compile_as::<Lifted>("print(len(text(7 ** 200000)))\n");
     assert!(errors.is_empty());
     let mut vm = VM::with_runtime(&UNBOUNDED_RUNTIME, &chunk, Limits::sandbox());
     let ran = vm.run();
     assert!(ran.is_err_and(|e| e.to_string().contains("budget exceeded")), "{}", vm.output_text());
-    let (chunk, _) = interpreter::code::compile_as::<Lifted>("print(len(text(7 ** 2000)))\n");
+    let (chunk, _) = interpreter::compile_as::<Lifted>("print(len(text(7 ** 2000)))\n");
     let mut vm = VM::with_runtime(&UNBOUNDED_RUNTIME, &chunk, Limits::sandbox());
     assert!(vm.run().is_ok());
     assert_eq!(vm.output_text(), "1691\n");

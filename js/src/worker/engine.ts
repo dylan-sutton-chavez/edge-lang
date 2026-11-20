@@ -5,6 +5,7 @@ import type { DeferredHostCall } from '../env.ts';
 import { makeRt } from '../rt.ts';
 import type { Rt, InterpreterValue } from '../rt.ts';
 import { nativeTable, resetNativeTable, waiting } from '../native.ts';
+
 import type { Access, Held, HostModule } from '../system/index.ts';
 import { printed, traced } from '../system/trace.ts';
 import type { TraceEvent } from '../system/trace.ts';
@@ -16,6 +17,8 @@ import { described, fault, staged, writeBytes } from '../util.ts';
 import { denied } from '../system/error.ts';
 import { gated } from '../system/gate.ts';
 
+// the newest level of the host contract this host drives a runtime module through
+const RUNTIME_ABI = 1;
 const TE = new TextEncoder();
 const TD = new TextDecoder();
 
@@ -315,6 +318,8 @@ async function makeInstance(module: WebAssembly.Module, onLine: ((text: string) 
     });
     const { exports } = await WebAssembly.instantiate(module, { env } as unknown as WebAssembly.Imports);
     interpreterExports = exports as unknown as InterpreterExports;
+    const level = interpreterExports.interpreter_runtime_abi?.() ?? 1;
+    if (!Number.isInteger(level) || level < 1 || level > RUNTIME_ABI) throw new Error(`the runtime speaks host contract v${level} and this host serves v1 to v${RUNTIME_ABI}`);
     // the runtime names its error classes before a run so no host call reenters it
     described(interpreterExports);
     interpreterExports.reset_modules();

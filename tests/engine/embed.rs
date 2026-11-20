@@ -1,16 +1,15 @@
 mod test {
     use interpreter::value::HeapObj;
-use interpreter::embed::Limits;
+    use interpreter::{Limits, VM};
 
     const SRC: &str = "print \"booted\";\nfun greet(name) {\n  print \"hi \" + name;\n  return name + \"!\";\n}\n";
 
-    // the site embeds the VM through exactly these calls so none reads as dead
+    // an embedder boots a program then calls into it through the public API alone
     #[test]
     fn an_embedder_runs_a_program_calls_into_it_and_reads_what_it_printed() {
-        let (chunk, errors) = interpreter::code::compile(&interpreter_lox::FRONT, SRC);
+        let (chunk, errors) = interpreter::compile(&interpreter_lox::FRONT, SRC);
         assert!(errors.is_empty(), "{:?}", errors.iter().map(|d| &d.msg).collect::<Vec<_>>());
-        let mut vm = interpreter::embed::VM::with_runtime(&interpreter_lox::RUNTIME, &chunk, Limits::sandbox());
-        vm.bind_chunk_externs().unwrap();
+        let mut vm = VM::with_runtime(&interpreter_lox::RUNTIME, &chunk, Limits::sandbox());
         vm.run().unwrap();
         let booted = vm.output_text();
         assert_eq!(booted, "booted\n");
@@ -22,10 +21,10 @@ use interpreter::embed::Limits;
         assert_eq!(vm.display(result), "ada!");
         assert_eq!(&vm.output_text()[booted.len()..], "hi ada\n");
 
-        // a failing call renders a traceback naming the function it failed in
-        let err = vm.call_export("greet", &[interpreter::value::Val::int(7)]).unwrap_err();
-        let traceback = vm.render_error(&err, SRC, None);
-        assert!(traceback.contains("Operands must be two numbers or two strings.") && traceback.contains("greet"), "{traceback}");
+        // a failing call is reported in the runtime's words at the line inside the function
+        let err = vm.call_export("greet", &[interpreter::Val::int(7)]).unwrap_err();
+        let report = vm.report_error(&err, SRC, None);
+        assert_eq!(report, "Operands must be two numbers or two strings.\n[line 3] in script", "{report}");
     }
 
     // the empty runtime refuses a chunk rig compiled before any of it runs
@@ -36,7 +35,7 @@ use interpreter::embed::Limits;
         for src in [wide, turns, "print(len([1, 2]))\n"] {
             let (chunk, errors) = crate::common::compile(src);
             assert!(errors.is_empty(), "{:?}", errors.iter().map(|d| &d.msg).collect::<Vec<_>>());
-            let mut vm = interpreter::embed::VM::with_limits(&chunk, Limits::sandbox());
+            let mut vm = VM::new(&chunk);
             let e = vm.run().expect_err("the empty runtime runs no chunk rig compiled");
             assert!(e.to_string().ends_with("a chunk compiled for rig cannot run on the empty runtime"), "{e}");
             assert!(vm.output.is_empty());
@@ -45,8 +44,8 @@ use interpreter::embed::Limits;
             own.run().expect("rig runs the chunk it compiled");
             assert!(!own.output.is_empty());
         }
-        let (lox, _) = interpreter::code::compile(&interpreter_lox::FRONT, "print 1;\n");
-        let refused = interpreter::embed::VM::with_limits(&lox, Limits::sandbox()).run().expect_err("the empty runtime runs no chunk Lox compiled");
+        let (lox, _) = interpreter::compile(&interpreter_lox::FRONT, "print 1;\n");
+        let refused = VM::new(&lox).run().expect_err("the empty runtime runs no chunk Lox compiled");
         assert!(refused.to_string().ends_with("a chunk compiled for lox cannot run on the empty runtime"), "{refused}");
     }
 }

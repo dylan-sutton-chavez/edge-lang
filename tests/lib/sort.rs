@@ -1,9 +1,9 @@
-use interpreter::embed::Limits;
+use interpreter::Limits;
 use rig::RUNTIME;
 use crate::common::ran;
 
 /* what `src` printed and then the words of the error it ended in */
-fn run(src: &str) -> String { ran::<rig::Rig>(&RUNTIME, src, Limits { ops: 10_000_000, memory: usize::MAX }) }
+fn run(src: &str) -> String { ran::<rig::Rig>(&RUNTIME, src, Limits::sandbox().ops(10_000_000).memory(usize::MAX)) }
 
 #[test]
 fn plain_kinds_order_stably_both_ways() {
@@ -82,7 +82,7 @@ fn errors_keep_their_words() {
 }
 
 // top beside the rig's tables as a runtime that ranks rows would name it
-const TOP: &[interpreter::lang::Native] = &interpreter::lib::table![rig::Rig; "top" => interpreter::lib::seq::top::top{"key"}];
+const TOP: &[interpreter::lang::Native] = &interpreter::lib::table![rig::Rig; "top" => interpreter::lib::seq::top{"key"}];
 
 static RANKED: interpreter::lang::Natives = rig::with!(Ranked, TOP);
 
@@ -93,7 +93,7 @@ struct Ranked;
 rig::over!(Ranked, &RANKED);
 
 /* what `src` printed under the rig's tables with top beside them */
-fn ranked(src: &str) -> String { ran::<rig::Rig>(&RANKED_RUNTIME, src, Limits { ops: 50_000_000, memory: usize::MAX }) }
+fn ranked(src: &str) -> String { ran::<rig::Rig>(&RANKED_RUNTIME, src, Limits::sandbox().ops(50_000_000).memory(usize::MAX)) }
 
 #[test]
 fn top_keeps_the_rows_a_stable_descending_sort_puts_first() {
@@ -116,7 +116,7 @@ fn top_keeps_the_rows_a_stable_descending_sort_puts_first() {
 fn the_greatest_keys_cost_about_one_comparison_each() {
     let keys: Vec<u64> = (0..10_000u64).map(|i| (i * 2_654_435_761) % 1_000).collect();
     let mut asked = 0usize;
-    let kept = interpreter::lib::seq::top::greatest::<()>(keys.len(), 10, |x, y| { asked += 1; Ok(keys[x] < keys[y]) }).unwrap_or_default();
+    let kept = interpreter::lib::seq::greatest::<()>(keys.len(), 10, |x, y| { asked += 1; Ok(keys[x] < keys[y]) }).unwrap_or_default();
     let mut order: Vec<usize> = (0..keys.len()).collect();
     order.sort_by_key(|&i| std::cmp::Reverse(keys[i]));
     let (mut got, mut want) = (kept.clone(), order[..10].to_vec());

@@ -3,7 +3,7 @@
 
 extern crate alloc;
 
-use interpreter::lang::{Descriptor, ErrKind, Front, Natives, Runtime};
+use interpreter::lang::{Descriptor, Front, Natives, Runtime};
 
 mod codecs;
 pub mod lang;
@@ -53,21 +53,14 @@ mod syntax;
 pub use syntax::{Rig, RIG, INTERP, LADDER, NUMBERS, STRINGS};
 
 // the names the CLI gives this runtime's files and errors
-pub const DESCRIPTOR: Descriptor = Descriptor {
-    language: "rig",
-    extension: RIG.extension,
-    entries: &["main.rig", "app.rig", "index.rig"],
-    test_suffix: "_test.rig",
-    scaffold: "print(\"hello from interpreter\")\n",
-    example_fence: "rig",
-    manifest_fence: "rig-manifest",
-    type_error: names::ERRORS[ErrKind::Type as usize],
-    value_error: names::ERRORS[ErrKind::Value as usize],
-    runtime_error: names::ERRORS[ErrKind::Runtime as usize],
-    denied_error: names::ERRORS[ErrKind::Permission as usize],
-    failed_error: "IOError",
-    ..Descriptor::NONE
-};
+pub const DESCRIPTOR: Descriptor = Descriptor::PLAIN
+    .language("rig")
+    .entries(&["main.rig", "app.rig", "index.rig"])
+    .test_suffix("_test.rig")
+    .scaffold("print(\"hello from interpreter\")\n")
+    .example_fence("rig")
+    .manifest_fence("rig-manifest")
+    .failed_error("IOError");
 
 #[cfg(all(target_arch = "wasm32", feature = "web"))]
-interpreter::web_exports!(RUNTIME);
+interpreter::exports!(RUNTIME);

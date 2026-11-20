@@ -83,7 +83,7 @@ Deno.test("plugin: a plugin that does not load fails at its import and names the
     const runs = [
         ["main.lox", "print 1;\nimport(\"badplug\");\n", ["error: module 'badplug' is not a valid plugin, ", "--> main.lox:2:1"]],
         ["via.lox", "import(\"lib\");\n", ["module 'badplug' is not a valid plugin, ", " (via lib)\n", "--> via.lox:1:1"]],
-        ["old.lox", "import(\"old\");\n", ["error: module 'old' is not a valid plugin, it speaks ABI v2, this host expects v1\n", "--> old.lox:1:1"]],
+        ["old.lox", "import(\"old\");\n", ["error: module 'old' is not a valid plugin, it speaks ABI v2, this host serves v1 to v1\n", "--> old.lox:1:1"]],
     ];
     for (const [entry, src, wants] of runs) {
         const lines = [];

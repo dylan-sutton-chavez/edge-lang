@@ -1,13 +1,13 @@
-use interpreter::embed::{Limits, VM};
+use interpreter::{Limits, VM};
 use interpreter::lang::{Native, Natives, Runtime};
-use interpreter::lib::data::lines::Lines;
-use interpreter::lib::data::{csv, json, lines};
+use interpreter::lib::data::Lines;
+use interpreter::lib::data::{csv, json};
 use rig::Rig;
 use crate::common::{ran, TRY};
 
 // the data kernels under names of this test beside the rig's own tables
 pub(crate) const DATA: &[Native] = &interpreter::lib::table![Rig;
-    "lines" => lines::lines,
+    "lines" => interpreter::lib::data::lines,
     "json_read" => json::read,
     "json_write" => json::write,
     "csv_read" => csv::read("line", "sep"),
@@ -207,13 +207,13 @@ fn json_writes_compact_text_that_reads_back() {
 fn json_write_pays_for_shared_parts_each_time_they_show() {
     // a hundred levels each holding one child twice write two to the hundredth values
     let doubled = |depth: u32| format!("x = [1]\nfor i in range({depth}) {{\n    x = [x, x]\n}}\nprint(len(json_write(x)))\n");
-    let small = || Limits { ops: 2_000_000, memory: 64 << 20 };
-    let (chunk, _) = interpreter::code::compile_as::<Rig>(&doubled(100));
+    let small = || Limits::sandbox().ops(2_000_000).memory(64 << 20);
+    let (chunk, _) = interpreter::compile_as::<Rig>(&doubled(100));
     let mut vm = VM::with_runtime(&RUNTIME, &chunk, small());
-    assert!(matches!(vm.run(), Err(interpreter::value::VmErr::Budget)), "the walk ends on the budget and not on the memory");
+    assert!(matches!(vm.run(), Err(e) if e.is_limit() && e.kind() == Some(interpreter::lang::ErrKind::Runtime)), "the walk ends on the budget and not on the memory");
     assert!(vm.memory_peak() < 32 << 20, "{} bytes", vm.memory_peak());
     // a smaller one writes in full with every copy of the shared child
-    let (chunk, _) = interpreter::code::compile_as::<Rig>(&doubled(12));
+    let (chunk, _) = interpreter::compile_as::<Rig>(&doubled(12));
     let mut vm = VM::with_runtime(&RUNTIME, &chunk, small());
     vm.run().expect("a write within the budget");
     assert_eq!(vm.output_text(), "24573\n");
@@ -264,8 +264,6 @@ fn csv_quotes_fields_both_ways() {
 // a runtime that words the reasons of JSON and CSV failures its own way
 struct Terse;
 
-impl interpreter::lib::fmt::render::Style for Terse {}
-
 impl interpreter::lang::Language for Terse {
     const VERSION: u32 = 1;
     const POLICY: interpreter::lang::Policy = <Rig as interpreter::lang::Language>::POLICY;
@@ -277,20 +275,18 @@ impl interpreter::lang::Language for Terse {
     const BUILT: interpreter::value::foreign::Built = <rig::Rig as interpreter::lang::Language>::BUILT;
     type Ops = ();
 
-    fn show(cx: &mut interpreter::lang::Cx<'_, '_>, v: interpreter::value::Val, mode: interpreter::lang::Mode) -> Result<String, interpreter::value::VmErr> { interpreter::lib::fmt::render::hook::<Self>(cx, v, mode) }
+    interpreter::lib::hooks!(Self; show);
 }
 
 impl interpreter::lib::Lang for Terse {
-    const TREE: &'static interpreter::lib::lang::Tree = &rig::types::TREE;
+    fn class(c: interpreter::lib::fail::Class) -> &'static str { <Rig as interpreter::lib::Lang>::class(c) }
 
-    fn class(c: interpreter::lib::Class) -> &'static str { <Rig as interpreter::lib::Lang>::class(c) }
-
-    fn words(cx: &mut interpreter::lang::Cx<'_, '_>, at: interpreter::lib::fail::At, f: interpreter::lib::fail::Fail) -> interpreter::value::VmErr {
+    fn words(cx: &mut interpreter::lang::Cx<'_, '_>, at: interpreter::lib::fail::At, f: interpreter::lib::fail::Fail) -> interpreter::VmErr {
         use interpreter::lib::fail::{Csv, Fail, Json, raise};
         match f {
-            Fail::BadJson { why: Json::Key, .. } => raise::<Terse>(interpreter::lib::Class::Value, "a name in quotes goes there"),
-            Fail::BadJson { at, why } => raise::<Terse>(interpreter::lib::Class::Value, &format!("{why} {at} bytes in")),
-            Fail::BadCsv { why: Csv::Unclosed, .. } => raise::<Terse>(interpreter::lib::Class::Value, "a quote stays open"),
+            Fail::BadJson { why: Json::Key, .. } => raise::<Terse>(interpreter::lib::fail::Class::Value, "a name in quotes goes there"),
+            Fail::BadJson { at, why, .. } => raise::<Terse>(interpreter::lib::fail::Class::Value, &format!("{why} {at} bytes in")),
+            Fail::BadCsv { why: Csv::Unclosed, .. } => raise::<Terse>(interpreter::lib::fail::Class::Value, "a quote stays open"),
             f => interpreter::lib::fail::english::<Terse>(cx, at, f),
         }
     }
@@ -327,5 +323,5 @@ fn a_json_or_csv_failure_carries_its_reason_for_the_runtime_to_word() {
     assert_eq!(terse("json_read(\"[1 2]\")"), "ValueError: expected a comma or a closing bracket 3 bytes in");
     assert_eq!(terse("csv_read(\"a,\\\"b\")"), "ValueError: a quote stays open");
     assert_eq!(interpreter::lib::fail::Json::LeadingZero.to_string(), "a number has a leading zero");
-    assert_eq!(interpreter::lib::fail::ToJson::Cycle.words(), "holds itself");
+    assert_eq!(interpreter::lib::fail::ToJson::Cycle.to_string(), "holds itself");
 }

@@ -1,0 +1,116 @@
+use crate::engine::code::OpCode;
+use crate::engine::syntax::chunk::SSAChunk;
+use super::super::VM;
+use super::super::lower::Code;
+use crate::engine::code::Ins;
+use super::super::scope::Kind;
+use crate::engine::value::*;
+
+impl VM<'_> {
+    /* runs value op `i` over the rows and gives false with its error kept */
+    #[inline(never)]
+    pub(crate) fn value_rows(&mut self, i: usize, code: &Code, chunk: &SSAChunk) -> bool {
+        let ran = match self.value_op(code.ins[i], i, code, chunk) {
+            // the native work an op counted is paid before the next one runs
+            Ok(()) if self.heap.has_work() => self.pay_work(),
+            ran => ran,
+        };
+        ran.map_err(|e| self.reg_error = Some(e)).is_ok()
+    }
+
+    /* `value_rows` of op `ins` moving the top as its stack form moves the stack */
+    fn value_op(&mut self, ins: Ins, i: usize, code: &Code, chunk: &SSAChunk) -> Result<(), VmErr> {
+        let top = self.top as usize;
+        let at = self.base + top;
+        match ins.op {
+            OpCode::LoadName | OpCode::LoadEllipsis | OpCode::LoadModule => {
+                if top >= code.frame { return Err(cold_runtime("a stack deeper than the rows of its frame")); }
+                let v = match ins.op {
+                    OpCode::LoadName => self.name_value(ins.a as usize, code, chunk)?,
+                    op => self.load_value(op, ins.a, chunk)?,
+                };
+                self.regs[at] = v;
+                self.top += 1;
+            }
+            OpCode::StoreName => {
+                self.top -= 1;
+                self.store_name(ins.a as usize, self.regs[at - 1], code);
+            }
+            // the phi tables index the compiler's instructions
+            OpCode::Phi => self.phi_rows(ins.a as usize, code.orig(i) as usize, code, chunk),
+            OpCode::FreshCell => if code.kinds.get(ins.a as usize) == Some(&Kind::Cell) { self.regs[self.base + ins.a as usize] = self.heap.alloc(HeapObj::Cell(Val::undef()))?; },
+            OpCode::Assert => {
+                self.top -= 1;
+                self.assert_holds(self.regs[at - 1])?;
+            }
+            OpCode::Not => self.regs[at - 1] = Val::bool(!self.truthy(self.regs[at - 1])),
+            OpCode::Minus => self.regs[at - 1] = match self.minus_value(self.regs[at - 1]) { Ok(v) => v, Err(e) => self.op_rule(e, i, 1, chunk, &code.cache)? },
+            OpCode::Pos | OpCode::BitNot => self.regs[at - 1] = match self.unary_op(ins.op, self.regs[at - 1]) { Ok(v) => v, Err(e) => self.op_rule(e, i, 1, chunk, &code.cache)? },
+            // a pattern's length as the engine counts it and a starred display's tuple
+            OpCode::Len => { let n = self.builtin_len(self.regs[at - 1])?; self.regs[at - 1] = self.heap.int(n)?; }
+            OpCode::ListToTuple => self.regs[at - 1] = self.list_tuple(self.regs[at - 1])?,
+            // a handler's test of the exception under the class it names
+            OpCode::MatchExc => {
+                let hit = self.match_exc(self.regs[at - 2], self.regs[at - 1])?;
+                self.regs[at - 2] = Val::bool(hit);
+                self.top -= 1;
+            }
+            OpCode::RuntimeOp => return self.own_rows(ins, i, code, chunk),
+            // a test over a lazy container or a list's `+=` from one may step frames
+            OpCode::In | OpCode::NotIn if self.may_job(self.regs[at - 1]) => return self.value_aside(ins),
+            OpCode::InPlaceAdd if self.lazy_extend(self.regs[at - 2], self.regs[at - 1]) => return self.value_aside(ins),
+            op => {
+                let v = match self.binary_value(op, ins.a, self.regs[at - 2], self.regs[at - 1]) { Ok(v) => v, Err(e) => self.op_rule(e, i, 2, chunk, &code.cache)? };
+                self.regs[at - 2] = v;
+                self.top -= 1;
+            }
+        }
+        Ok(())
+    }
+
+    /* what LoadName of slot `k` reads or the error an unbound name raises */
+    fn name_value(&mut self, k: usize, code: &Code, chunk: &SSAChunk) -> Result<Val, VmErr> {
+        let names = code.rows as usize;
+        match code.kinds.get(k) {
+            Some(&Kind::Global(g)) => self.global_at(code.module, g),
+            Some(Kind::Cell) => {
+                let v = self.deref(if k < names { self.regs[self.base + k] } else { Val::undef() });
+                if v.is_undef() { Err(self.unbound_err(chunk, k)) } else { Ok(v) }
+            }
+            _ => match self.regs[self.base..self.base + names].get(k).copied().filter(|v| !v.is_undef()) {
+                Some(v) => Ok(v),
+                None => self.unbound(chunk, k as u16),
+            },
+        }
+    }
+
+    /* binds slot `k` to `v` rebinding a builtin's name and filling a cell */
+    fn store_name(&mut self, k: usize, v: Val, code: &Code) {
+        match code.kinds.get(k) {
+            Some(&Kind::Global(g)) => {
+                self.scopes[code.module].set_at(g, v);
+                if let Some(id) = self.scopes[code.module].names_native(g) { self.rebind_native(id); }
+            }
+            Some(Kind::Cell) => if !self.set_cell(self.regs[self.base + k], v) { self.regs[self.base + k] = v; },
+            // a slot past the names is one only malformed code writes
+            _ => if k < code.rows as usize { self.regs[self.base + k] = v; },
+        }
+    }
+
+
+    /* binds slot `k` to the first bound source of the phi at compiler instruction `rip` */
+    fn phi_rows(&mut self, k: usize, rip: usize, code: &Code, chunk: &SSAChunk) {
+        let Some(&(ia, ib)) = chunk.phi_map.get(rip).and_then(|&pi| chunk.phi_sources.get(pi)) else { return };
+        let names = &mut self.regs[self.base..self.base + code.rows as usize];
+        let read = |names: &[Val], s: u16| names.get(s as usize).copied().unwrap_or(Val::undef());
+        let v = match read(names, ia) { a if a.is_undef() => read(names, ib), a => a };
+        if let Some(slot) = names.get_mut(k) { *slot = v; }
+    }
+
+    /* runs value op `ins` over the rows since a job may step its lazy operand */
+    #[cold]
+    #[inline(never)]
+    fn value_aside(&mut self, ins: Ins) -> Result<(), VmErr> {
+        if ins.op == OpCode::InPlaceAdd { self.in_place_add(ins.a) } else { self.handle_identity(ins.op) }
+    }
+}

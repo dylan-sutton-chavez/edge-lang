@@ -1,11 +1,11 @@
-use interpreter::embed::Limits;
+use interpreter::Limits;
 use rig::RUNTIME;
 use crate::common::ran;
 
 const GEN: &str = "fn gen() {\n    print(\"gen\")\n    yield (\"k\", 1)\n    yield (\"j\", 2)\n}\nfn p(k) {\n    yield k\n    yield len(k)\n}\n";
 
 /* what `src` printed and then the words of the error it ended in */
-fn run(src: &str) -> String { ran::<rig::Rig>(&RUNTIME, src, Limits { ops: 10_000_000, memory: usize::MAX }) }
+fn run(src: &str) -> String { ran::<rig::Rig>(&RUNTIME, src, Limits::sandbox().ops(10_000_000).memory(usize::MAX)) }
 
 fn with_gen(src: &str) -> String { run(&(GEN.to_string() + src)) }
 

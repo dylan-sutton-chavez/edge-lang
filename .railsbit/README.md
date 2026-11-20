@@ -1,12 +1,12 @@
 # Verification
 
-The engine is verified by rules written in Vfy, which [Railsbit](https://dev.railsbit.com) runs on the compiled crate. A rule proves a property for every input from every public function, or shows the input that breaks it. No new version is published until these rules hold.
+Verification of the engine is in progress. Its rules are written in Vfy, which [Railsbit](https://dev.railsbit.com) runs on the compiled crate. A rule proves a property for every input from every public function, or shows the input that breaks it, and covers every release after it lands.
 
-Railsbit is in a closed beta at dev.railsbit.com, and interpreter is one of the projects it verifies.
+Railsbit is in a closed beta at dev.railsbit.com, and interpreter is one of the projects it is to verify.
 
 | Property | What the rule proves |
 |---|---|
-| No undefined behaviour | Every `ub.` place a public function reaches is clear |
+| No undefined behavior | Every `ub.` place a public function reaches is clear |
 | No panic | No public function reaches `core::panicking` |
 | No hang | Every loop and every recursion ends |
 
@@ -15,12 +15,12 @@ Each proof is exported as a Coq attestation, so it can be checked without trusti
 The first rule, in outline.
 
 ```vfy
-pub let policy = {name = "no undefined behaviour", action = "fail", severity = "high"}
+pub let policy = {name = "no undefined behavior", action = "fail", severity = "high"}
 
--- each place of undefined behaviour a public function reaches is proved clear or broken
+-- each place of undefined behavior a public function reaches is proved clear or broken
 pub fn check(g: Graph) -> Outcome =
   judged([at(g, n) for f in g.functions for n in f.body.under
-          if starts(n.op, "ub.") and report.reachable(n)], "no input reaches undefined behaviour")
+          if starts(n.op, "ub.") and report.reachable(n)], "no input reaches undefined behavior")
 
 fn at(g: Graph, n: Node) -> Mark =
   if ok?(prove [before n] n.inputs[0] == 0 by walk | solver within work 20000) { clear() }
@@ -30,4 +30,4 @@ fn at(g: Graph, n: Node) -> Mark =
   }
 ```
 
-The rules land in this folder as `.vfy` files, and every trace of the repo runs them.
+Each rule lands in this folder as a `.vfy` file, and none has landed yet.

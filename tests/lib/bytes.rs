@@ -1,4 +1,4 @@
-use interpreter::embed::Limits;
+use interpreter::Limits;
 use rig::RUNTIME;
 use crate::common::{ran, TRY};
 
@@ -145,9 +145,9 @@ fn arguments_convert_as_ints_and_bounds() {
 #[test]
 fn the_fast_paths_answer_as_the_full_calls() {
     let mut heap = interpreter::value::HeapPool::new(1 << 20);
-    let fast = |name: &str| rig::natives::BYTES.iter().find(|n| n.name == name).and_then(|n| n.fast1).unwrap_or_else(|| panic!("{name}"));
-    let shown = |heap: &interpreter::value::HeapPool, v: Option<interpreter::value::Val>| v.and_then(|v| heap.bytes_of(v).map(<[u8]>::to_vec));
-    let three = interpreter::value::Val::int(3);
+    let fast = |name: &str| rig::natives::BYTES.iter().find(|n| n.name == name).and_then(|n| n.fast1_of()).unwrap_or_else(|| panic!("{name}"));
+    let shown = |heap: &interpreter::value::HeapPool, v: Option<interpreter::Val>| v.and_then(|v| heap.bytes_of(v).map(<[u8]>::to_vec));
+    let three = interpreter::Val::int(3);
     let zeros = fast("bytes")(&mut heap, three);
     assert_eq!(shown(&heap, zeros), Some(vec![0, 0, 0]));
     let hex = heap.alloc(interpreter::value::HeapObj::Str("41 42".to_string())).unwrap_or_else(|e| panic!("{e:?}"));
@@ -155,7 +155,7 @@ fn the_fast_paths_answer_as_the_full_calls() {
     assert_eq!(shown(&heap, ab), Some(vec![0x41, 0x42]));
     let odd = heap.alloc(interpreter::value::HeapObj::Str("4".to_string())).unwrap_or_else(|e| panic!("{e:?}"));
     assert!(fast("bytes_fromhex")(&mut heap, odd).is_none());
-    let list = heap.alloc(interpreter::value::HeapObj::List(std::rc::Rc::new(core::cell::RefCell::new(vec![three, interpreter::value::Val::int(300)])))).unwrap_or_else(|e| panic!("{e:?}"));
+    let list = heap.alloc(interpreter::value::HeapObj::List(std::rc::Rc::new(core::cell::RefCell::new(vec![three, interpreter::Val::int(300)])))).unwrap_or_else(|e| panic!("{e:?}"));
     assert!(fast("bytearray")(&mut heap, list).is_none());
-    assert!(fast("bytes")(&mut heap, interpreter::value::Val::int(-1)).is_none());
+    assert!(fast("bytes")(&mut heap, interpreter::Val::int(-1)).is_none());
 }

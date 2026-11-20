@@ -4,16 +4,15 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
-use interpreter::deps::ImportSpec;
-use interpreter::embed::{Limits, VM};
+use interpreter::code::ImportSpec;
+use interpreter::{Limits, VM};
 
 // every run meters what it allocates so its memory limit holds
 interpreter::allocator!();
 
 /* what `src` prints or the first line of the error it ends in */
 fn run(src: &str) -> Result<String, String> {
-    let (chunk, errors) = interpreter::code::compile(&interpreter_lox::FRONT, src);
-    if let Some(e) = errors.first() { return Err(e.msg.clone()); }
+    let chunk = interpreter_lox::FRONT.compile(src).map_err(|errors| errors[0].msg.clone())?;
     let mut vm = VM::with_runtime(&interpreter_lox::RUNTIME, &chunk, Limits::sandbox());
     match vm.run() {
         Ok(_) => Ok(vm.output_text()),
@@ -104,7 +103,6 @@ fn imports_bind_modules_and_their_globals() {
 // the native target exits with the book's statuses and words its compile errors
 #[test]
 fn the_native_target_keeps_the_books_statuses() {
-    assert_eq!(interpreter_lox::DESCRIPTOR.statuses, (65, 70));
     let dir = project("statuses", &[("bad.lox", "print 1\nvar = 2;\n"), ("raise.lox", "print \"before\";\nprint -\"x\";\n")]);
     let bad = lox(&dir, "bad.lox", "");
     assert_eq!((text(&bad.stderr), bad.status.code()), ("[line 2] Error at 'var': Expect ';' after value.\n[line 2] Error at '=': Expect variable name.\n".into(), Some(65)));
@@ -133,7 +131,7 @@ fn a_read_keeps_each_instruction_s_span_and_the_outline_of_the_forms() {
     use interpreter::code::{NodeKind as K, OpCode as O, SSAChunk};
     let src = "var a = 1;\nprint (a + 2) * 3;\nfun f(x) {\n  if (x > a) { return x.y; }\n  return f(x - 1);\n}\nclass C < B { m() { this.v = 1; } }\nfor (var i = 0; i < 2; i = i + 1) print i;\n";
     let (chunk, errors) = interpreter_lox::read(src);
-    assert!(errors.is_empty(), "{}", interpreter::code::Diagnostic::render_all(&errors, src, None));
+    assert!(errors.is_empty(), "{}", interpreter::Diagnostic::render_all(&errors, src, None));
     let outline = &chunk.notes().outline;
     assert_eq!(outline.iter().map(|n| (n.kind, &src[n.span.clone()], n.parent)).collect::<Vec<_>>(), [
         (K::Let, "var a = 1;", None),
@@ -152,12 +150,12 @@ fn a_read_keeps_each_instruction_s_span_and_the_outline_of_the_forms() {
     ]);
     // each body's instructions each read as the token or node that made them
     fn spans(c: &SSAChunk, src: &str, out: &mut Vec<(O, String)>) {
-        for ip in 0..c.instructions.len() as u32 {
-            let span = c.span(ip).unwrap_or_else(|| panic!("{:?} at {ip} has no span", c.instructions[ip as usize].opcode));
-            out.push((c.instructions[ip as usize].opcode, src[span].to_string()));
+        for ip in 0..c.instructions().len() as u32 {
+            let span = c.span(ip).unwrap_or_else(|| panic!("{:?} at {ip} has no span", c.instructions()[ip as usize].opcode));
+            out.push((c.instructions()[ip as usize].opcode, src[span].to_string()));
         }
-        for f in &c.functions { spans(&f.1, src, out); }
-        for k in &c.classes { spans(k, src, out); }
+        for f in c.functions() { spans(f.1, src, out); }
+        for k in c.classes() { spans(k, src, out); }
     }
     let mut all = Vec::new();
     spans(&chunk, src, &mut all);
@@ -169,7 +167,7 @@ fn a_read_keeps_each_instruction_s_span_and_the_outline_of_the_forms() {
         assert!(outline[i + 1..].iter().find(|m| m.parent == n.parent).is_none_or(|m| n.span.end <= m.span.start), "{n:?}");
     }
     // a compile keeps none of it and builds the same code
-    let (compiled, _) = interpreter::code::compile(&interpreter_lox::FRONT, src);
+    let compiled = interpreter_lox::FRONT.compile(src).expect("compiles");
     assert!(compiled.notes().outline.is_empty() && compiled.span(0).is_none());
-    assert_eq!(format!("{:?}", compiled.functions[0].1.instructions), format!("{:?}", chunk.functions[0].1.instructions));
+    assert_eq!(format!("{:?}", compiled.functions().next().unwrap().1.instructions()), format!("{:?}", chunk.functions().next().unwrap().1.instructions()));
 }

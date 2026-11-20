@@ -34,16 +34,23 @@ CLI_NEEDS_network := plugin
 CLI_NEEDS_native := plugin native
 CLI_NEEDS_ := plugin wasm-rig native
 
-# every module of `interpreter::lib` which lint-rust builds alone so no module leans on one it does not name
-LIB_MODULES := bytes data date io iter map num reflect seq set spec text types
+# lib alone and each module of `interpreter::lib` which lint-rust builds alone so none leans on another
+LIB_MODULES := lib bytes data date io iter map num seq set spec text types
 
-# lint-rust fails unless these are exactly the src files besides src/unsafe.rs with unsafe code as the plugin macros write into a plugin
-UNSAFE_LEFT := src/plugin/macros.rs
+# lint-rust fails unless these are exactly the src files besides src/engine/unsafe.rs with unsafe code as the plugin macros write into a plugin
+UNSAFE_LEFT := src/engine/plugin/macros.rs
 
 # where the shifted build's static data starts and 65536 more moves its heap too
 LAYOUT_BASE ?= 1048640
 
-.PHONY: wasm native wasm-rig wasm-cli wasm-ship wasm-small wasm-cli-opt size js lint lint-rust lint-names lint-comments lint-js lint-cli test bench bench-update bench-accept-slower bench-layout plugin cli cli-release stage serve browsers test-js test-cli version check
+# the nightly whose rustdoc json cargo-public-api 0.52 reads since each prints its own listing
+API_NIGHTLY := nightly-2026-10-11
+API := cargo +$(API_NIGHTLY) public-api -p interpreter -s
+# every feature with a public item and then wasm32 where some impls differ
+API_NATIVE := --features std,full,plugin,exports,coverage,cli
+API_WASM := --target wasm32-unknown-unknown --no-default-features --features full,plugin,exports
+
+.PHONY: wasm native wasm-rig wasm-cli wasm-ship wasm-small wasm-cli-opt size js lint lint-rust lint-names lint-comments lint-js lint-cli test bench bench-update bench-accept-slower bench-layout api api-update plugin cli cli-release stage serve browsers test-js test-cli version check
 
 wasm:
 	cargo rustc --locked --release $(RUNTIME)
@@ -63,7 +70,7 @@ wasm-cli:
 	cargo rustc --locked --profile cli $(RUNTIME)
 	cp $(WASM)/cli/interpreter_lox.wasm $(WASM)/cli/interpreter.wasm
 
-# the small interpreter.wasm that ships and an optimised copy of the speed build
+# the small interpreter.wasm that ships and an optimized copy of the speed build
 wasm-ship: wasm-small wasm-cli-opt
 
 # the reflatten pass gives -Oz a fresh CFG and traps stay since they guard bounds
@@ -93,11 +100,13 @@ lint: lint-rust lint-js
 
 # shear refuses dependencies declared but unused then clippy runs for the host and for wasm
 lint-rust: lint-names lint-comments wasm
-	@held=$$(for f in $$(find src -name '*.rs' ! -path src/unsafe.rs); do sed -e 's://.*::' -e 's:/[*].*[*]/::g' $$f | grep -Eq '(^|[^#[:alnum:]_])unsafe([^[:alnum:]_]|$$)' && echo $$f; done); \
+	@held=$$(for f in $$(find src -name '*.rs' ! -path src/engine/unsafe.rs); do sed -e 's://.*::' -e 's:/[*].*[*]/::g' $$f | grep -Eq '(^|[^#[:alnum:]_])unsafe([^[:alnum:]_]|$$)' && echo $$f; done); \
 	  stray=$$(printf '%s\n' $$held $(sort $(UNSAFE_LEFT)) | LC_ALL=C sort | uniq -u); \
-	  [ -z "$$stray" ] || { printf 'UNSAFE_LEFT must name exactly the src files besides src/unsafe.rs with unsafe code and these differ\n%s\n' "$$stray"; exit 1; }
+	  [ -z "$$stray" ] || { printf 'UNSAFE_LEFT must name exactly the src files besides src/engine/unsafe.rs with unsafe code and these differ\n%s\n' "$$stray"; exit 1; }
 	cargo shear
 	cargo clippy --locked --all-targets -- -D warnings
+	cargo clippy --locked -p interpreter --lib --features cli,coverage,exports,full,plugin,unstable-internals -- -D warnings
+	cargo clippy --locked -p interpreter --lib --features cli,coverage,exports,full,plugin -- -D warnings
 	cargo clippy --locked --lib --no-default-features --features web --target wasm32-unknown-unknown -p interpreter-lox -- -D warnings
 	cargo clippy --locked --lib --no-default-features --features full,plugin --target wasm32-unknown-unknown -p interpreter -- -D warnings
 	cargo clippy --locked --lib --no-default-features --target wasm32-unknown-unknown -p interpreter -- -D warnings
@@ -111,7 +120,7 @@ lint-comments:
 
 # fails on any denied name in the engine or the example plugin with the cli tool left out
 lint-names:
-	@deno run --allow-read make/names.ts make/names.txt src plugin !src/cli
+	@deno run --allow-read make/names.ts make/names.txt src plugin !src/engine/cli
 
 # js/src splits main-thread and worker since tsc rejects mixing the dom and webworker libs
 lint-js:
@@ -120,15 +129,16 @@ lint-js:
 	deno check --config js/src/worker/deno.json js/src/worker/worker.ts js/src/worker/engine.ts
 	deno check make/
 
-# each component builds alone, the runner example with only the three it needs and the native test with no wasmtime
+# each component builds alone, the runner example with only the three it needs and the native test with no wasmtime, and rustdoc holds the readme links
 lint-cli: $(CLI_INPUTS) wasm-cli wasm-rig
 	cargo clippy --locked -p interpreter --all-targets --features cli -- -D warnings
 	cargo check --locked -p interpreter --features cli
 	for f in cli-kit $(CLI_COMPONENTS); do cargo clippy --locked -p interpreter --lib --no-default-features --features "$$f" -- -D warnings || exit 1; done
-	cargo clippy --locked -p interpreter --no-default-features --features cli-wasm,cli-run,cli-test --example runner --example decoupled -- -D warnings
+	cargo clippy --locked -p interpreter --no-default-features --features cli-wasm,cli-run,cli-test --example runner -- -D warnings
 	cargo clippy --locked -p interpreter --no-default-features --features $(CLI_NATIVE) --test native -- -D warnings
-	cargo clippy --locked -p interpreter --no-default-features --features cli-coverage,cli-run --test coverage -- -D warnings
+	cargo clippy --locked -p interpreter --no-default-features --features coverage,cli-run --test coverage -- -D warnings
 	! cargo tree --locked -p interpreter --no-default-features --features $(CLI_NATIVE) -e normal,build | grep -q wasmtime
+	cargo doc --locked --no-deps -p interpreter --features full,plugin,cli
 
 # coverage leaves method calls unfused so it runs apart
 test:
@@ -148,8 +158,17 @@ bench-accept-slower: wasm-cli
 
 # every case on interpreter.wasm and on a build with its static data shifted
 bench-layout: wasm-cli
-	cargo rustc --locked --profile layout $(RUNTIME) --features interpreter/layout -- -C link-arg=--global-base=$(LAYOUT_BASE)
+	cargo rustc --locked --profile layout $(RUNTIME) --features interpreter/unstable-layout -- -C link-arg=--global-base=$(LAYOUT_BASE)
 	cargo run --locked -p bench --profile cli -- --layout $(WASM)/layout/interpreter_lox.wasm
+
+# the public api against tests/api.txt and tests/api-wasm.txt which only api-update writes
+api: $(CLI_INPUTS)
+	$(API) $(API_NATIVE) | diff -u tests/api.txt -
+	$(API) $(API_WASM) | diff -u tests/api-wasm.txt -
+
+api-update: $(CLI_INPUTS)
+	$(API) $(API_NATIVE) > tests/api.txt
+	$(API) $(API_WASM) > tests/api-wasm.txt
 
 plugin:
 	cargo build --locked --release --target wasm32-unknown-unknown -p slugify-mod
@@ -184,7 +203,7 @@ test-cli: $(CLI_INPUTS) wasm-cli $(CLI_NEEDS_$(SUITE))
 	$(if $(filter-out engine network actors consistency docs native,$(SUITE)),$(error SUITE is one of engine network actors consistency docs native, or none for all))
 	cargo run --locked -q -p interpreter --features cli --bin interpreter -- run --runtime $(CURDIR)/$(WASM)/cli/interpreter.wasm -c 'print 1;' > /dev/null
 	cargo test --locked -p interpreter --features cli $(CLI_TEST_$(SUITE))
-	$(if $(filter engine,$(or $(SUITE),engine)),cargo test --locked -p interpreter --features "cli cli-coverage" --test coverage)
+	$(if $(filter engine,$(or $(SUITE),engine)),cargo test --locked -p interpreter --features "cli coverage" --test coverage)
 
 version:
 	$(if $(TAG),,$(error pass TAG, for example make version TAG=v1.0.0))

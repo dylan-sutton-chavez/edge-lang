@@ -1,0 +1,98 @@
+---
+title: "Stability"
+description: "What a 1.x release keeps, the exceptions, and how the formats and the ABI evolve."
+---
+
+# Stability
+
+This page says what every release of 1.x keeps and what it may change. interpreter 1.0.0 is the first stable release. No release of 1.x makes a breaking change to the public API in `src/lib.rs`, so a program that builds against one 1.x release builds against every later one and runs the same way. The exceptions below are the only ones.
+
+## The API
+
+The public API is every item `src/lib.rs` makes public, under the features the crate lists. `tests/api.txt` holds it as the host builds it and `tests/api-wasm.txt` as wasm32 builds it, and CI fails when either moves without the change saying so.
+
+The macros `allocator!`, `natives!`, `exports!`, `lib::table!`, `lib::hooks!`, `plugin::plugin_module!`, `plugin::plugin_fn!`, `plugin::plugin_class!` and `plugin::plugin_resume!` keep their input syntax within 1.x. `tests/api.txt` does not list the macros of `lib` and `plugin`, so `tests/engine/macros.rs` pins their paths. The hidden macros they expand to, `__plugin_*` and `__lib_*`, are covered only through the macros that call them.
+
+`interpreter::cli` re-exports `anyhow` 1, `clap` 4 and `serde_json` 1, and its signatures name their types. The `cli` features follow those crates, so a new major of one of them comes only with a new major of interpreter, and no 1.x release moves them.
+
+| Change | Within 1.x |
+|---|---|
+| A new item, module, method or feature | Allowed |
+| A new variant of an enum or a new field of a struct marked `#[non_exhaustive]` | Allowed |
+| A new trait impl or a looser bound | Allowed |
+| A removed or renamed item | Never |
+| A changed signature, bound, field type or trait impl | Never |
+| A new variant or field of a type not marked `#[non_exhaustive]` | Never |
+| A removed or renamed feature, or an item taken out of one | Never |
+
+Every public enum and every public struct with public fields is `#[non_exhaustive]`, past the frozen types below, so a later release can grow them. A frozen type stays as it is until 2.0.
+
+Every variant with named fields is `#[non_exhaustive]` too, so a later release can add a field to it. A program matches one with `..`, as in `EngineError::Arity { callee, fit, .. }`, and builds one only through a constructor such as `Resolved::code` or `Snapshot::serialize`. A tuple variant stays matchable as `Fail::NotIterator(v)` and keeps its payload until 2.0.
+
+A config type has one base constant, `PLAIN`, and a `const fn` setter for each of its fields, which are private. A program writes `Policy::PLAIN.zero_div(..)` and reads nothing back. `lexer::Syntax` and `Limits` keep their fields public, since tools read them.
+
+### Frozen types
+
+These types are not `#[non_exhaustive]`, so a program may build or match them whole. Each is complete as it is, and no 1.x release adds a field or a variant to one.
+
+| Type | Why it is whole |
+|---|---|
+| `NoopResolver` | A marker a program names to resolve no import |
+| `lang::Cmp` | The six comparisons are all there are |
+| `plugin::Bytes` | A newtype a plugin builds around its one value |
+| `lib::fail::Error` | A [kernel](./02-runtime.mdx#natives) fails in its own words or with an engine error, and in no other way |
+| `lib::Endian` | Two byte orders are all there are |
+| The markers of `lib` | `lib::bytes::{Fixed, Mutable}`, `lib::iter::fold::{Adds, Joins}`, `lib::num::int::{Bin, Hex, Oct}`, `lib::num::{HalfAway, HalfEven}`, `lib::text::case::{Full, Simple}`, `lib::text::cut::{Unicode, Newline}` and `lib::uni::{Ascii, Decimal, Digit, Numeric}`, each naming a choice a kernel takes as a type |
+| The markers of `cli` | `Actor`, `Build`, `Init`, `Add`, `Lock`, `Remove`, `Run`, `Serve`, `Test` and `Uninstall` of `cli::cmd`, `cli::host::Files`, `cli::host::Net` and `cli::Perms`, each a marker a composition names to wire it |
+
+## Exceptions
+
+A release may break a program in these cases alone, and its notes on GitHub name each one it takes.
+
+| Case | What may change |
+|---|---|
+| Security | A fix for a security issue, even one that breaks code that relied on the hole |
+| Bugs | Behavior that contradicts these docs or the tests, fixed to match them |
+| Unspecified behavior | Anything the docs do not state, such as the order of a map or the cost of an op |
+| Glob imports | A new item that clashes with a name a `use interpreter::...::*` brought in, or a new method or impl that makes a call ambiguous |
+| `__private` and `__` macros | Every item in `__private` and every macro at the crate root whose name starts with `__`, which exist for the crate's macros alone |
+| `unstable-*` | Every feature whose name starts with `unstable-` and every item behind one |
+
+A breaking fix for a bug comes with a test that states the rule it restores.
+
+The text of an error message is unspecified. A release may reword one, so a host matches on the error's kind and never on its words.
+
+The CLI's commands and flags are not covered yet, and a minor release may change them. The formats it reads and writes are, as below.
+
+## Deprecation
+
+An item that has a better replacement is marked `#[deprecated]` with a note that names it. It keeps working and is never removed within 1.x. Version 2.0 may remove it.
+
+## Rust version
+
+The oldest Rust the crate builds with is the `rust-version` of its `Cargo.toml`. Only a minor release raises it, never a patch release, and only to a Rust release out for at least twelve weeks. The release notes say so.
+
+## Features
+
+Features only add. Turning one on never takes an item away and never changes what a build without it does. A feature is never removed or renamed within 1.x, and `default` keeps every feature it has.
+
+## Formats and the ABI
+
+Each format and each contract a host speaks carries its own version, apart from the crate's. A reader refuses a version it does not read with an error that names both.
+
+| Format | Its version | The promise |
+|---|---|---|
+| Plugin ABI | `__interpreter_abi_version` against `abi::PLUGIN_ABI` | A host loads every plugin from v1 to its own `PLUGIN_ABI` |
+| Runtime module | `interpreter_runtime_abi` against `abi::RUNTIME_ABI`, v1 for a module without it | A host drives every module from v1 to its own `RUNTIME_ABI` |
+| Native runtime | `interpreter_native_abi` against `abi::NATIVE_ABI` | A host loads every library from v1 to its own `NATIVE_ABI`, which is 1 in 1.0.0 |
+| Bundle | The byte after `INTRPKG` | The CLI reads every bundle an earlier release packed |
+| Snapshot | The format word after the magic | A blob restores on an engine of the same format, over the same program and runtime |
+| `interpreter.json`, `interpreter.lock` | None | A key never changes its meaning, and a reader skips keys it does not know |
+
+A new capability arrives as a new name, such as an import `interpreter_op_v2` beside `interpreter_op`, and raises the level of its contract. A name that shipped keeps its signature and its meaning for as long as a host serves its level.
+
+A snapshot is the state of one run and not an archive. A release that changes its body raises its format, and a blob of another format is refused, never misread. In every format the header keeps the magic, the format word, the runtime's identity and the lengths of the source and the entry, at the offsets `runtime_descriptor` reports.
+
+## Verification
+
+[Verification](https://github.com/dylan-sutton-chavez/interpreter/blob/main/.railsbit/README.md) names the properties the engine is to be proved against, which are no undefined behavior, no panic and no hang. The work is in progress and no rule is in the repo yet.

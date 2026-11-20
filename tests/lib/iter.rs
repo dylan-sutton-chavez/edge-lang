@@ -1,11 +1,12 @@
-use interpreter::embed::Limits;
+use interpreter::Limits;
 use interpreter::lang::Fast1;
-use interpreter::value::{HeapObj, HeapPool, Val};
+use interpreter::Val;
+use interpreter::value::{HeapObj, HeapPool};
 use rig::RUNTIME;
 use crate::common::ran;
 
 /* what `src` printed and its error after it with no memory limit so no metering allocator is needed */
-fn run(src: &str) -> String { ran::<rig::Rig>(&RUNTIME, src, Limits { ops: 50_000_000, memory: usize::MAX }) }
+fn run(src: &str) -> String { ran::<rig::Rig>(&RUNTIME, src, Limits::sandbox().ops(50_000_000).memory(usize::MAX)) }
 
 fn prints(src: &str, want: &str) { assert_eq!(run(src), want, "{src}"); }
 
@@ -85,7 +86,7 @@ fn range_methods_find_by_arithmetic() {
 }
 
 /* the fast path the rig's iteration table gives native `name` */
-fn fast(name: &str) -> Fast1 { rig::natives::ITER.iter().find(|n| n.name == name).and_then(|n| n.fast1).unwrap_or_else(|| panic!("{name}")) }
+fn fast(name: &str) -> Fast1 { rig::natives::ITER.iter().find(|n| n.name == name).and_then(|n| n.fast1_of()).unwrap_or_else(|| panic!("{name}")) }
 
 /* a fold's fast path over a word range and the items it read */
 fn truth(heap: &mut HeapPool, name: &str, s: i64, e: i64, st: i64) -> Option<(bool, usize)> {

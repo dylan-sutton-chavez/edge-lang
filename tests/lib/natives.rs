@@ -3,16 +3,17 @@ use std::path::Path;
 use std::rc::Rc;
 
 use interpreter::code::SSAChunk;
-use interpreter::embed::{call_native, Limits, VM};
-use interpreter::lang::{kind_of, KindId, Native, Natives, Runtime};
-use interpreter::value::{as_i128, DictMap, HeapObj, Val, ValSet};
+use interpreter::{Limits, VM, call_native};
+use interpreter::lang::{KindId, Native, Natives, Runtime, kind_of};
+use interpreter::Val;
+use interpreter::value::{DictMap, HeapObj, ValSet, as_i128};
 use rig::Rig;
 use serde_yaml_ng::Value as Yaml;
 
 // the kernels rig leaves out under names of this file so every module answers
 const MORE: &[Native] = &interpreter::lib::table![Rig;
-    "top" => interpreter::lib::seq::top::top{"key"},
-    "ascii" => interpreter::lib::fmt::render::ascii_of,
+    "top" => interpreter::lib::seq::top{"key"},
+    "ascii" => interpreter::lib::fmt::ascii_of,
     "getattr" => interpreter::lib::reflect::get,
     "hasattr" => interpreter::lib::reflect::has,
 ];
@@ -83,7 +84,7 @@ fn pairs(t: &serde_yaml_ng::value::TaggedValue) -> Result<Vec<(&Yaml, &Yaml)>, S
 
 /* the value a case spells built on the heap of `vm` */
 fn value(vm: &mut VM<'_>, y: &Yaml) -> Result<Val, String> {
-    let err = |e: interpreter::value::VmErr| e.to_string();
+    let err = |e: interpreter::VmErr| e.to_string();
     Ok(match y {
         Yaml::Null => Val::none(),
         Yaml::Bool(b) => Val::bool(*b),

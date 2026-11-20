@@ -2,10 +2,10 @@
 mod test {
 
     use interpreter::code::SSAChunk;
-    use interpreter::embed::VM;
-    use interpreter::embed as snapshot;
-    use interpreter::deps::NoopResolver;
-    use interpreter::value::{Limits, SchedulerStatus, VmErr};
+    use interpreter::VM;
+    use interpreter::snapshot;
+    use interpreter::NoopResolver;
+    use interpreter::{Limits, SchedulerStatus, VmErr};
 
     use crate::common::{lex, parser};
 
@@ -64,7 +64,7 @@ mod test {
 
     /* `src` compiled by Lox's front and kept for the run */
     fn lox_static(src: &str) -> &'static SSAChunk {
-        let (chunk, errs) = interpreter::code::compile(&interpreter_lox::FRONT, src);
+        let (chunk, errs) = interpreter::compile(&interpreter_lox::FRONT, src);
         assert!(errs.is_empty(), "compile error in {:?}: {:?}", src, errs.iter().map(|e| &e.msg).collect::<Vec<_>>());
         interpreter::util::leak(Box::new(chunk))
     }
@@ -74,12 +74,12 @@ mod test {
         assert!(lex_errs.is_empty(), "lex error in {:?}", src);
         let (mut chunk, errs) = parser(src, tokens.into_iter(), Box::new(NoopResolver)).parse();
         assert!(errs.is_empty(), "parse error in {:?}: {:?}", src, errs.iter().map(|e| &e.msg).collect::<Vec<_>>());
-        interpreter::code::constant_fold(&mut chunk, rig::FRONT.policy);
+        interpreter::code::constant_fold(&mut chunk, rig::FRONT.policy());
         interpreter::util::leak(Box::new(chunk))
     }
 
     fn limits_for(case: &Case) -> Limits {
-        if case.unmetered { Limits { ops: u64::MAX, memory: 4 << 30 } } else { Limits::sandbox() }
+        if case.unmetered { Limits::sandbox().ops(u64::MAX).memory(4 << 30) } else { Limits::sandbox() }
     }
 
     fn corpus() -> Vec<Case> {
@@ -96,7 +96,7 @@ mod test {
 
     fn boot(case: &Case, interval: usize) -> VM<'static> {
         let mut vm = fresh(case, interval);
-        vm.input_buffer = case.input.clone();
+        vm.set_input(case.input.clone());
         for evt in &case.events { vm.push_event(evt).expect("push_event"); }
         vm
     }
@@ -128,7 +128,7 @@ mod test {
         loop {
             match vm.run() {
                 Ok(_) => return Run { output: Ok(vm.output.clone()), preempts, blob_len },
-                Err(VmErr::HostYield(SchedulerStatus::PendingEvent)) => {
+                Err(e) if matches!(e.paused(), Some(SchedulerStatus::PendingEvent)) => {
                     if idx >= case.interactive_events.len() {
                         return Run { output: Ok(vm.output.clone()), preempts, blob_len };
                     }
@@ -139,7 +139,7 @@ mod test {
                     vm.push_event(&case.interactive_events[idx]).expect("push_event");
                     idx += 1;
                 }
-                Err(VmErr::HostYield(SchedulerStatus::Preempted)) => {
+                Err(e) if matches!(e.paused(), Some(SchedulerStatus::Preempted)) => {
                     preempts += 1;
                     if hop_at_preempt != 0 && preempts == hop_at_preempt {
                         vm = hop(&vm, case, interval, 1, &mut blob_len);
@@ -269,7 +269,7 @@ mod test {
         let mut preempts = 0;
         loop {
             match vm.run() {
-                Err(VmErr::HostYield(SchedulerStatus::Preempted)) => {
+                Err(e) if matches!(e.paused(), Some(SchedulerStatus::Preempted)) => {
                     preempts += 1;
                     if !at.contains(&preempts) { continue; }
                     let blob = snapshot::save(&vm, &case.src, "").map_err(|e| format!("save at preempt {preempts} {e}"))?;
@@ -289,7 +289,7 @@ mod test {
         let src = "x = [1, 2, {k = 3}]\nreceive()\nprint(x)";
         let chunk = parse_static(src);
         let mut vm = crate::common::boot(chunk, Limits::sandbox());
-        assert!(matches!(vm.run(), Err(VmErr::HostYield(SchedulerStatus::PendingEvent))));
+        assert!(matches!(vm.run(), Err(e) if matches!(e.paused(), Some(SchedulerStatus::PendingEvent))));
         let blob = snapshot::save(&vm, src, "").expect("save");
         drop(vm);
 
@@ -313,7 +313,7 @@ mod test {
         // the fingerprint rejects a VM booted from other source
         let mut other = crate::common::boot(parse_static("y = 99\nreceive()\nprint(y)"), Limits::sandbox());
         let err = snapshot::restore(&mut other, &blob).unwrap_err();
-        assert!(err.contains("does not match"), "unexpected error: {err}");
+        assert!(err.to_string().contains("does not match"), "unexpected error: {err}");
 
         // the pristine blob still restores and finishes
         let mut vm = crate::common::boot(chunk, Limits::sandbox());
@@ -330,7 +330,7 @@ mod test {
         // one parse serves every boot since a chunk holds no state of a run
         let chunk = parse_static(src);
         let mut vm = crate::common::boot(chunk, Limits::sandbox());
-        assert!(matches!(vm.run(), Err(VmErr::HostYield(SchedulerStatus::PendingEvent))));
+        assert!(matches!(vm.run(), Err(e) if matches!(e.paused(), Some(SchedulerStatus::PendingEvent))));
         let blob = snapshot::save(&vm, src, "").expect("save");
         drop(vm);
         for at in 0..blob.len() {
@@ -349,7 +349,7 @@ mod test {
     fn forged_foreign_handles_fail() {
         let src = "x = 2 ** 100\nreceive()\nprint(x)";
         let mut vm = crate::common::boot(parse_static(src), Limits::sandbox());
-        assert!(matches!(vm.run(), Err(VmErr::HostYield(SchedulerStatus::PendingEvent))));
+        assert!(matches!(vm.run(), Err(e) if matches!(e.paused(), Some(SchedulerStatus::PendingEvent))));
         let blob = snapshot::save(&vm, src, "").expect("save");
         drop(vm);
         // a FOREIGN Val is tag 0x7FFD then 16 bits of generation and 32 of index
@@ -364,7 +364,7 @@ mod test {
             bad.extend_from_slice(&seal);
             let mut vm = crate::common::boot(parse_static(src), Limits::sandbox());
             let err = snapshot::restore(&mut vm, &bad).unwrap_err();
-            assert!(err.contains("missing object"), "unexpected error: {err}");
+            assert!(err.to_string().contains("missing object"), "unexpected error: {err}");
         }
     }
 
@@ -385,7 +385,7 @@ mod test {
         vm.set_preempt_interval(interval);
         let mut blob = None;
         for _ in 0..at {
-            if !matches!(vm.run(), Err(VmErr::HostYield(SchedulerStatus::Preempted))) { break; }
+            if !matches!(vm.run(), Err(e) if matches!(e.paused(), Some(SchedulerStatus::Preempted))) { break; }
             blob = Some(snapshot::save(&vm, src, "").expect("save"));
         }
         let blob = blob.expect("the run preempts");
@@ -400,11 +400,11 @@ mod test {
                 let seal = interpreter::util::sha256::sha256(&bad);
                 bad.extend_from_slice(&seal);
                 let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    let mut vm = crate::common::boot(chunk, Limits { ops, memory: 64 << 20 });
+                    let mut vm = crate::common::boot(chunk, Limits::sandbox().ops(ops).memory(64 << 20));
                     vm.set_preempt_interval(interval);
                     if snapshot::restore(&mut vm, &bad).is_err() { return; }
                     // what a forgery lets run ends within its budget
-                    for _ in 0..100_000 { if !matches!(vm.run(), Err(VmErr::HostYield(SchedulerStatus::Preempted))) { break; } }
+                    for _ in 0..100_000 { if !matches!(vm.run(), Err(e) if matches!(e.paused(), Some(SchedulerStatus::Preempted))) { break; } }
                 }));
                 assert!(outcome.is_ok(), "setting byte {at} of {} to {v} panicked", blob.len());
             }
@@ -454,18 +454,18 @@ mod test {
         let chunk = parse_static(&src);
         let mut vm = crate::common::boot(chunk, Limits::sandbox());
         vm.set_preempt_interval(every);
-        for _ in 0..50 { assert!(matches!(vm.run(), Err(VmErr::HostYield(SchedulerStatus::Preempted)))); }
+        for _ in 0..50 { assert!(matches!(vm.run(), Err(e) if matches!(e.paused(), Some(SchedulerStatus::Preempted)))); }
         let blob = snapshot::save(&vm, &src, "").expect("save");
         let held = vm.memory();
         drop(vm);
-        let mut small = crate::common::boot(chunk, Limits { memory: held / 4, ..Limits::sandbox() });
+        let mut small = crate::common::boot(chunk, Limits::sandbox().memory(held / 4));
         let err = snapshot::restore(&mut small, &blob).expect_err("a heap four times its memory");
-        assert!(err.contains("needs more memory"), "unexpected error: {err}");
+        assert!(err.to_string().contains("needs more memory"), "unexpected error: {err}");
         assert!(small.memory_peak() < held, "the refused restore held {} of the {held} the run held", small.memory_peak());
         // the vm the run saved under takes it back and finishes
         let mut same = crate::common::boot(chunk, Limits::sandbox());
         snapshot::restore(&mut same, &blob).expect("restore");
-        while matches!(same.run(), Err(VmErr::HostYield(SchedulerStatus::Preempted))) {}
+        while matches!(same.run(), Err(e) if matches!(e.paused(), Some(SchedulerStatus::Preempted))) {}
         assert_eq!(same.output, vec![format!("{} {n}", n / 2 * (n / 2 - 1) / 2)]);
     }
 
@@ -489,7 +489,7 @@ mod test {
     fn the_entry_rides_in_the_blob() {
         let src = "x = 1\nreceive()\nprint(x)";
         let mut vm = crate::common::boot(parse_static(src), Limits::sandbox());
-        assert!(matches!(vm.run(), Err(VmErr::HostYield(SchedulerStatus::PendingEvent))));
+        assert!(matches!(vm.run(), Err(e) if matches!(e.paused(), Some(SchedulerStatus::PendingEvent))));
         for entry in ["", "main.rig", "sub/dir/main.rig", "<eval>"] {
             let blob = snapshot::save(&vm, src, entry).expect("save");
             assert_eq!((snapshot::source_of(&blob), snapshot::entry_of(&blob)), (Ok(src), Ok(entry)));
@@ -506,16 +506,16 @@ mod test {
             let vm = crate::common::boot(parse_static(src), limits);
             snapshot::save(&vm, src, "").expect("save")
         };
-        let l = snapshot::limits_of(&saved(Limits { ops: 1_234_567, memory: 42_000 })).unwrap();
+        let l = snapshot::limits_of(&saved(Limits::sandbox().ops(1_234_567).memory(42_000))).unwrap();
         assert_eq!((l.ops, l.memory), (1_234_567, 42_000));
         let l = snapshot::limits_of(&saved(Limits::sandbox())).unwrap();
         assert_eq!((l.ops, l.memory), (100_000_000, 256 << 20));
-        let l = snapshot::limits_of(&saved(Limits { ops: 5, memory: 9 })).unwrap();
+        let l = snapshot::limits_of(&saved(Limits::sandbox().ops(5).memory(9))).unwrap();
         assert_eq!((l.ops, l.memory), (5, 9));
-        let l = snapshot::limits_of(&saved(Limits { ops: 0, memory: 0 })).unwrap();
+        let l = snapshot::limits_of(&saved(Limits::sandbox().ops(0).memory(0))).unwrap();
         assert_eq!((l.ops, l.memory), (0, 0));
         // a budget past four billion stays whole on a 32-bit engine too
-        let l = snapshot::limits_of(&saved(Limits { ops: 6_000_000_000, memory: 9 })).unwrap();
+        let l = snapshot::limits_of(&saved(Limits::sandbox().ops(6_000_000_000).memory(9))).unwrap();
         assert_eq!(l.ops, 6_000_000_000);
 
         // a partly spent budget records its remainder rather than a placeholder of one op
@@ -533,12 +533,26 @@ mod test {
         let chunk = parse_static(src);
         let mut vm = crate::common::boot(chunk, Limits::sandbox());
         vm.set_preempt_interval(100);
-        assert!(matches!(vm.run(), Err(VmErr::HostYield(SchedulerStatus::Preempted))));
+        assert!(matches!(vm.run(), Err(e) if matches!(e.paused(), Some(SchedulerStatus::Preempted))));
         let blob = snapshot::save(&vm, src, "").expect("save");
         let mut next = crate::common::boot(chunk, Limits::sandbox());
         snapshot::restore(&mut next, &blob).expect("restore");
         assert!(!next.heap().has_work());
-        while let Err(VmErr::HostYield(SchedulerStatus::Preempted)) = next.run() {}
+        while let Err(e) = next.run() && matches!(e.paused(), Some(SchedulerStatus::Preempted)) {}
         assert_eq!(next.output, ["3000 3000 300 1225"]);
+    }
+
+    #[test]
+    fn a_blob_of_another_format_is_refused_by_its_number() {
+        let case = &corpus()[0];
+        let vm = boot(case, 0);
+        let blob = snapshot::save(&vm, &case.src, "").expect("save");
+        assert_eq!(snapshot::format_of(&blob), Some(snapshot::FORMAT));
+        for (format, word) in [(snapshot::FORMAT + 1, "newer"), (snapshot::FORMAT - 1, "older")] {
+            let mut bent = blob.clone();
+            bent[snapshot::FORMAT_AT..snapshot::FORMAT_AT + 4].copy_from_slice(&format.to_le_bytes());
+            let e = snapshot::restore(&mut fresh(case, 0), &bent).unwrap_err();
+            assert!(e.to_string().contains(word), "{e}");
+        }
     }
 }

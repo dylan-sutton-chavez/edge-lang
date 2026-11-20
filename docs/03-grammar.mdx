@@ -1,16 +1,16 @@
 ---
 title: "Grammar"
-description: "Forms, modes and patterns a runtime adds to the parser."
+description: "Forms, readings and patterns a runtime adds to the parser."
 ---
 
 # Grammar
 
-A token table can bring a `Grammar` in `shapes.grammar`. The parser then reads a program as items (`let`, `fn`, `type` and imports) and adds three things the fixed core lacks.
+This page covers the grammar a token table can bring in `shapes.grammar`. With a `Grammar` the parser reads a program as items (`let`, `fn`, `type` and imports) and adds three things the fixed core lacks.
 
 | Piece | Is | Example |
 |---|---|---|
 | Form | A construct led by a word of yours, compiled to a call of a function with its parts as arguments | `fix k = 1 up to 10 { ... }` |
-| Mode | An operator table an expression is read with | The operators a form reads its parts with |
+| Reading | An operator table an expression is read with, one of the `readings` a slot names by its index | `Expr(0)` reads with the first |
 | Pattern | A word a `match` arm tests its subject with | `ok v` |
 
 All of it compiles to the engine's bytecode, so a grammar costs nothing at run time.
@@ -20,13 +20,12 @@ All of it compiles to the engine's bytecode, so a grammar costs nothing at run t
 This table has braces, `--` comments, one form, one pattern word and one lazy call.
 
 ```rust standalone_crate
-use interpreter::code::OpCode as O;
-use interpreter::embed::{Limits, VM};
-use interpreter::lang::{Cx, Descriptor, Front, Language, Names, Native, Natives, Overflow, Policy, Runtime};
-use interpreter::lexer::grammar::{Emit, Form, Grammar, Mode, Pattern, Row, Slot, Test};
+use interpreter::{Limits, VM};
+use interpreter::lang::{Cmp, Descriptor, Front, Language, Names, Native, Natives, Op, Overflow, Policy, Runtime};
+use interpreter::value::foreign::BinOp;
+use interpreter::lexer::grammar::{Emit, Form, Grammar, Pattern, Reading, Row, Slot, Test};
 use interpreter::lexer::TokenType as T;
-use interpreter::lexer::{index, operators, Binding, Blocks, Comments, Cond, Continuation, Dot, Ends, Escapes, Keywords, Lambda, Numbers, Quote, Shapes, Spelling, Strings, Suffix, Syntax, TokenType, Unicode, Unknown, Zeros};
-use interpreter::value::{Val, VmErr};
+use interpreter::lexer::{Binding, Blocks, Comments, Cond, Continuation, Dot, Ends, Escapes, Keywords, Lambda, Numbers, Quote, Shapes, Spelling, Strings, Suffix, Syntax, TokenType, Unicode, Unknown, Zeros, index, operators};
 
 interpreter::allocator!();
 
@@ -42,48 +41,48 @@ const SYMBOLS: &[(&str, TokenType)] = &[
 static OPERATORS: [[TokenType; 4]; 128] = operators(SYMBOLS);
 static KEYWORDS: Keywords = index(WORDS);
 
-// mode 0, each operator with its powers and the code it compiles to
+// reading 0 with each operator and its powers and the operator it applies
 const ROWS: &[Row] = &[
-    Row { tok: T::Or, left: 4, right: 5, emit: Emit::Lazy(false) },
-    Row { tok: T::EqualEqual, left: 10, right: 11, emit: Emit::Op(O::Eq) },
-    Row { tok: T::Less, left: 10, right: 11, emit: Emit::Op(O::Lt) },
-    Row { tok: T::Plus, left: 14, right: 15, emit: Emit::Op(O::Add) },
-    Row { tok: T::Minus, left: 14, right: 15, emit: Emit::Op(O::Sub) },
-    Row { tok: T::Slash, left: 16, right: 17, emit: Emit::Op(O::FloorDiv) },
+    Row::new(T::Or, 4, 5, Emit::Lazy(false)),
+    Row::new(T::EqualEqual, 10, 11, Emit::Op(Op::Cmp(Cmp::Eq))),
+    Row::new(T::Less, 10, 11, Emit::Op(Op::Cmp(Cmp::Lt))),
+    Row::new(T::Plus, 14, 15, Emit::Op(Op::Bin(BinOp::Add))),
+    Row::new(T::Minus, 14, 15, Emit::Op(Op::Bin(BinOp::Sub))),
+    Row::new(T::Slash, 16, 17, Emit::Op(Op::Bin(BinOp::FloorDiv))),
 ];
 
-static GRAMMAR: Grammar = Grammar {
-    modes: &[Mode { rows: ROWS, words: &[] }],
-    // fix k = start up to n { body } calls steps(start, n, fn(k) = body)
-    forms: &[Form { head: "fix", slots: &[Slot::Bind, Slot::Word("="), Slot::Expr(0), Slot::Word("up"), Slot::Word("to"), Slot::Expr(0), Slot::Body(0)], call: "steps" }],
-    // ok v matches a pair whose item 0 is true and binds item 1 to v
-    patterns: &[Pattern { word: "ok", test: Test::Item(0, true), part: Some(1) }],
-    // any reads its lone comprehension one item at a time
-    lazy: &["any"],
-    ..Grammar::NONE
-};
+static GRAMMAR: Grammar = Grammar::PLAIN
+    .readings(&[Reading::new(ROWS, &[])])
+    .forms(&[Form::new("fix", &[Slot::Bind, Slot::Word("="), Slot::Expr(0), Slot::Word("up"), Slot::Word("to"), Slot::Expr(0), Slot::Body(0)], "steps")])
+    .patterns(&[Pattern::new("ok", Test::Item(0, true), Some(1))])
+    .lazy(&["any"]);
 
 struct Fixes;
 
 impl Spelling for Fixes {
-    const SYNTAX: Syntax = Syntax {
-        name: "fixes", extension: "fix", words: WORDS, symbols: SYMBOLS, operators: &OPERATORS, keywords: &KEYWORDS,
-        precedence: &[], chained: false, blocks: Blocks::Braces, ends: Ends::Semicolon,
-        comments: Comments { line: &["--"], block: None, nested: false },
-        shapes: Shapes {
-            cond: Cond::None, lambda: Lambda::None, keyword_arg: T::Equal, splat: false, slices: false, dot: Dot::Key, header_parens: false,
-            comprehensions: true, decorators: false, named: false, binding: Binding::Optional, arms: true, ranges: false, grammar: Some(&GRAMMAR),
-        },
-        strings: Strings {
-            quotes: &[Quote { byte: b'"', multiline: false, triple: false }], prefixes: &[], any_case: false, hashes: false, adjacent: false, newlines: false,
-            escapes: Escapes { simple: &[], hex: false, unicode: Unicode::Fixed, octal: false, line_join: false, unknown: Unknown::Refuse, refused: &[] },
-        },
-        interp: None,
-        numbers: Numbers { radixes: &[], separator: None, zeros: Zeros::Refused, leading_dot: false, trailing_dot: false, exponent: false, suffix: Suffix::Refused },
-        continuation: Continuation { join: None, operator: false },
-        soft: &[],
-        bom: false,
-    };
+    const SYNTAX: Syntax = Syntax::PLAIN
+        .name("fixes")
+        .extension("fix")
+        .words(WORDS)
+        .symbols(SYMBOLS)
+        .operators(&OPERATORS)
+        .keywords(&KEYWORDS)
+        .comments(Comments::PLAIN.line(&["--"]))
+        .shapes(Shapes::PLAIN
+        .cond(Cond::None)
+        .lambda(Lambda::None)
+        .splat(false)
+        .slices(false)
+        .dot(Dot::Key)
+        .decorators(false)
+        .named(false)
+        .binding(Binding::Optional)
+        .arms(true)
+        .grammar(Some(&GRAMMAR)))
+        .strings(Strings::PLAIN
+        .quotes(&[Quote::PLAIN])
+        .escapes(Escapes::PLAIN.unicode(Unicode::Fixed).unknown(Unknown::Refuse)))
+        .numbers(Numbers::PLAIN.zeros(Zeros::Refused).suffix(Suffix::Refused));
     const NATIVES: &'static Natives = &NATIVES;
 }
 
@@ -91,24 +90,18 @@ impl Spelling for Fixes {
 const TABLE: &[Native] = &interpreter::lib::table![Fixes; "print" => interpreter::lib::io::print, "any" => interpreter::lib::iter::fold::some];
 static NATIVES: Natives = interpreter::natives! { language: Fixes, fns: [TABLE], methods: [], types: &[] };
 
-static TREE: interpreter::lib::lang::Tree = interpreter::lib::lang::Tree::of::<Fixes>();
-impl interpreter::lib::Lang for Fixes {
-    const TREE: &'static interpreter::lib::lang::Tree = &TREE;
-}
-impl interpreter::lib::fmt::render::Style for Fixes {}
+impl interpreter::lib::Lang for Fixes {}
 
 impl Language for Fixes {
     const VERSION: u32 = 1;
-    const POLICY: Policy = Policy { int_overflow: Overflow::Error, ..Policy::ENGINE };
+    const POLICY: Policy = Policy::PLAIN.int_overflow(Overflow::Error);
     const NATIVES: &'static Natives = &NATIVES;
     const NAMES: &'static Names = &Names::PLAIN;
     const FRONT: Front = FRONT;
-    const DESCRIPTOR: &'static Descriptor = &Descriptor::NONE;
+    const DESCRIPTOR: &'static Descriptor = &Descriptor::PLAIN;
     type Ops = ();
 
-    fn show(cx: &mut Cx<'_, '_>, v: Val, mode: interpreter::lang::Mode) -> Result<String, VmErr> {
-        interpreter::lib::fmt::render::hook::<Fixes>(cx, v, mode)
-    }
+    interpreter::lib::hooks!(Fixes; show);
 }
 
 const FRONT: Front = Front::spelled::<Fixes>();
@@ -123,8 +116,7 @@ let _ = print(any([n == 0 or 1 / (n - n) == 1 for n in [0, 1]]))
 "#;
 
 fn main() {
-    let (chunk, errors) = interpreter::code::compile(&FRONT, PROGRAM);
-    assert!(errors.is_empty(), "{}", interpreter::code::Diagnostic::render_all(&errors, PROGRAM, None));
+    let chunk = FRONT.compile(PROGRAM).unwrap_or_else(|errors| panic!("{}", interpreter::Diagnostic::render_all(&errors, PROGRAM, None)));
     let mut vm = VM::with_runtime(&RUNTIME, &chunk, Limits::sandbox());
     vm.run().expect("the program runs");
     assert_eq!(vm.output_text(), "64\n5 failed\ntrue\n");
@@ -135,14 +127,14 @@ fn main() {
 
 ## Reference
 
-| Type | Fields | Means |
+| Type | Parts | Means |
 |---|---|---|
-| `Grammar` | `modes`, `forms`, `patterns`, `lazy` | The operator tables, the forms, the pattern words and the calls whose lone comprehension runs as a generator |
+| `Grammar` | `readings`, `forms`, `patterns`, `lazy` | The operator tables, the forms, the pattern words and the calls whose lone comprehension runs as a generator |
 | | `modifiers` | Words before an item, each with the function whose call wraps the item or `None`. A chunk keeps the words in `notes().decls` |
 | | `unmatched` | The function a `match` calls when no arm takes its value |
 | | `inner`, `tail` | A byte a name may hold inside, and one it may end with, such as `-` and `?` |
-| `Mode` | `rows`, `words` | The operators of one reading of an expression, and words it reads as plain texts. Mode 0 reads plain values |
-| `Row` | `tok`, `left`, `right`, `emit` | An operator and its binding powers, a zero `left` marks a prefix. `emit` is `Emit::Op(opcode)`, `Emit::Lazy(and)` for a short-circuit, or `Emit::Call(name)` |
+| `Reading` | `rows`, `words` | The operators of one reading of an expression, and words it reads as plain texts. Reading 0 reads plain values |
+| `Row` | `tok`, `left`, `right`, `emit` | An operator and its binding powers, a zero `left` marks a prefix. `emit` is `Emit::Op(op)` with a `lang::Op` such as `Op::Bin(BinOp::Add)` or `Op::Not`, `Emit::Lazy(and)` for a short-circuit, or `Emit::Call(name)`. A row whose `Op` applies no operator, such as `Op::Len`, is refused |
 | `Form` | `head`, `slots`, `call` | The word that leads the form, its parts in order, and the function it calls with them |
 | `Pattern` | `word`, `test`, `part` | A word an arm tests its subject with, and the item its own pattern then matches |
 
@@ -152,13 +144,13 @@ A `Slot` is one part of a form after its head.
 |---|---|
 | `Word(w)` | The word `w`, and nothing is passed |
 | `Name` | A bare name or dotted path, passed as its text |
-| `Expr(k)` | An expression in mode `k` |
-| `Opt(w, k)` | `w` then an expression in mode `k`, or `nil` without the word |
+| `Expr(k)` | An expression in reading `k` |
+| `Opt(w, k)` | `w` then an expression in reading `k`, or `nil` without the word |
 | `Tagged(tags, default)` | A bracketed expression handed to the call its leading word names, or to `default` |
 | `Limits(w, pairs)` | After `w`, a list of names with counts, each led by its words, passed as `[name, count]` pairs. Words after a `_` in a pair, as in `"time _ s"`, follow the count |
-| `Bind` and `Body(k)` | Names split by commas, then an expression in mode `k` passed as a function of those names |
-| `Items(k)` | Braced expressions in mode `k`, split by line ends or `;`, passed as a list. An item `for p in xs, q in ys { ... }` gives the list of its own items for each pass |
+| `Bind` and `Body(k)` | Names split by commas, then an expression in reading `k` passed as a function of those names |
+| `Items(k)` | Braced expressions in reading `k`, split by line ends or `;`, passed as a list. An item `for p in xs, q in ys { ... }` gives the list of its own items for each pass |
 | `Each(k)` | Generators `p in xs` split by commas in parentheses, then braced items as in `Items(k)`, passed as the list of the items of each pass |
 | `At` | The byte offset of the head word, for error reports |
 
-A `Test` is `Nil`, `NotNil`, `Item(index, bool)` or `Field(name, int)`, checked before the arm matches its `part`. An arm also takes a literal such as `-1` or `"a"`, a tuple `(a, b)`, and a list `[a, b]` that only matches a value with as many items. `Grammar::NONE` fills every field an example leaves out.
+A `Test` is `Nil`, `NotNil`, `Item(index, bool)` or `Field(name, int)`, checked before the arm matches its `part`. An arm also takes a literal such as `-1` or `"a"`, a tuple `(a, b)`, and a list `[a, b]` that only matches a value with as many items. `Grammar::PLAIN` fills every setter an example leaves out.

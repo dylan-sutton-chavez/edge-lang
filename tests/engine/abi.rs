@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod test {
 
-    use interpreter::abi::{classify_decode, classify_encode, DecodeBits, EncodeRequest, ErrorStash, HandleTable, PrimitiveBytes, WireValue};
+    use interpreter::abi::{DecodeBits, EncodeRequest, ErrorStash, HandleTable, PrimitiveBytes, WireValue, classify_decode, classify_encode};
 
     fn unhex(s: &str) -> Vec<u8> {
         (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap()).collect()

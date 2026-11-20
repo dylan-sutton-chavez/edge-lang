@@ -5,7 +5,9 @@ description: "The interpreter commands, a project from its first file to a build
 
 # CLI
 
-The `interpreter` CLI runs the programs of any runtime on macOS, Linux and WSL. It holds no runtime of its own, and a project names the one it runs on. [Install](./01-overview.mdx#install) builds it, and the examples below run Lox from `lox.wasm`.
+This page covers the `interpreter` CLI, its commands, a project from its first file to a build, packages, grants and a CLI of your own. The CLI runs the programs of any runtime on macOS, Linux and WSL. It holds no runtime of its own, and a project names the one it runs on. [The CLI and the JS host](./01-overview.mdx#the-cli-and-the-js-host) installs it, and the examples below run Lox from the `lox.wasm` it downloads.
+
+Its commands and flags are not yet covered by [Stability](./09-stability.mdx), so a minor release may change them.
 
 ## The runtime
 
@@ -15,7 +17,7 @@ The `interpreter` CLI runs the programs of any runtime on macOS, Linux and WSL. 
 { "runtime": "./lox.wasm" }
 ```
 
-A command with no runtime to run fails before it reads a program, and `interpreter build` packs the runtime into the bundle so it runs anywhere.
+A command with no runtime to run fails before it reads a program. `interpreter build` packs the runtime into the bundle it writes, a `.interpreter` file that holds the whole project, so the bundle runs anywhere.
 
 ### wasm or native
 
@@ -26,7 +28,7 @@ A native runtime is the same crate built as a `.so`, `.dylib` or `.dll`, as `mak
 | | `.wasm` | Native |
 |---|---|---|
 | Sandbox and grants | Held | None |
-| Plugins and eval groups | Yes | No |
+| Plugins and the eval groups of [actors](#actors) | Yes | No |
 | Loads from | A path or a pinned URL | A local path |
 | Speed | Compiled ahead for the machine | Faster, with no sandbox to cross |
 
@@ -40,20 +42,20 @@ warning: native runtime, it runs outside the sandbox and the grants of interpret
 
 | Command | Does |
 |---|---|
-| `interpreter run <file>` | Runs a script, a packed `.interpreter`, stdin, or `-c <code>`. `--web` runs it in headless Chrome on the JS host |
-| `interpreter build` | Packs the project into `app.interpreter`. `--app` writes a standalone binary, `--web` a `dist/` folder for the browser |
-| `interpreter test [path]` | Runs every `*_test.lox` file in a fresh session. A file passes when it ends cleanly |
+| `interpreter run <file>` | Runs a script, a `.interpreter` bundle, stdin, or `-c <code>`. `--web` runs it in headless Chrome on the JS host |
+| `interpreter build` | Packs the project into `app.interpreter`. `--app` writes a standalone binary, `--web` a `dist/` folder for the browser, and `--out` names the output |
+| `interpreter test [path]` | Runs every `*_test.lox` file in a fresh session. A file passes when it ends cleanly. `--web` runs them on the JS host |
 | `interpreter init [name]` | Creates a project with `main.lox`, `interpreter.json` and an `index.html`. `--bare` leaves out the page |
 | `interpreter add <name>=<source>` | Declares an import in `interpreter.json`, by URL or by path |
 | `interpreter remove <name>` | Removes an import |
 | `interpreter lock` | Downloads every URL import once and pins its digest in `interpreter.lock` |
-| `interpreter serve` | A dev server with live reload, on `127.0.0.1:5173` unless `--host` and `--port` say otherwise |
-| `interpreter actor <file>` | Runs a pool of actors from an `actor.yml` |
-| `interpreter uninstall` | Removes the binary and its PATH entry |
+| `interpreter serve` | A dev server with live reload, on `127.0.0.1:5173` unless `--host` and `--port` say otherwise, and `--open` opens it in a browser |
+| `interpreter actor <file>` | Runs a pool of [actors](#actors) from an `actor.yml` |
+| `interpreter uninstall` | Removes the binary the install script placed, its PATH entry and its cache, and offers to remove the Chromium `--web` downloaded. A binary from `cargo install` goes with `cargo uninstall interpreter` |
 
 | Flag | Commands | Sets |
 |---|---|---|
-| `--memory <MB>`, `--ops <n>` | `run`, `test` | The limits of a run |
+| `--memory <MB>`, `--ops <n>` | `run`, `test` | The limits of a run, with memory in MiB |
 | `--events <file>` | `run` | One event per line for `receive()` |
 | `--preempt <n>`, `--save-state <file>`, `--restore-state <file>` | `run` | Stop every `n` back-edges, and save or resume a run |
 | `--manifest <file>` | every command | The manifest in place of `./interpreter.json` |
@@ -114,7 +116,7 @@ $ interpreter test
 (successful) stars_test.lox
 ```
 
-`interpreter build` packs the scripts, the manifest and every import into one `app.interpreter` that runs wherever `interpreter` is installed.
+`interpreter build` packs the scripts, the manifest and every import into one bundle, `app.interpreter`, that runs wherever `interpreter` is installed.
 
 ```text
 $ interpreter build
@@ -126,7 +128,7 @@ sdk *****
 
 ## Packages by URL
 
-`interpreter add` declares an import under the name the code uses. The source is a path or a URL to a `.lox` module, a `.wasm` plugin or a `.interpreter` package, such as one a GitHub release attaches. This one takes a module from this repo at a fixed commit.
+A package is anything a project imports under a name. `interpreter add` declares one under the name the code uses. The source is a path or a URL to a `.lox` module, a `.wasm` plugin or a `.interpreter` bundle, such as one a GitHub release attaches. This one takes a module from this repo at a fixed commit.
 
 ```text
 $ interpreter add util=https://raw.githubusercontent.com/dylan-sutton-chavez/interpreter/da9bda4365e8e7f62a7f9449964fef94874c51e5/docs/util.lox
@@ -154,10 +156,12 @@ A package describes itself in its own `interpreter.json`.
 | Field | Rule |
 |---|---|
 | `name` | Up to 40 lowercase letters, digits and single hyphens, starting with a letter. Never `all`, `main` or `eval` |
-| `version` | `major.minor.patch` |
+| `version` | `major.minor.patch`, each part 0 to 99 with no leading zeros |
 | `description` | One line, up to 60 characters |
-| `repository` | An `https` URL |
+| `repository` | An `https` URL of up to 256 characters |
 | `docs` | A folder of `.mdx` pages that `interpreter build` packs with the package |
+| `interpreter` | The lowest release of `interpreter` the package runs on, which an older one refuses |
+| `extends` | A folder whose `interpreter.json` lends its imports to the names this one lacks |
 
 ## Grants
 
@@ -175,6 +179,7 @@ The root `interpreter.json` grants them in `permissions`, which maps a holder to
 | `main` | The project's own code |
 | An import name | That package |
 | `all` | The project and every package it imports |
+| `eval` | The most a bundle an [eval group](#actors) runs may hold |
 
 A package lists what it needs in its own `interpreter.json` and can only pass on what its importer gave it. A call outside its grant raises before anything leaves the process.
 
@@ -192,39 +197,69 @@ net.request("GET", "https://other.example/");
 [line 2] in script
 ```
 
+## Actors
+
+`interpreter actor <file>` runs a pool of actors from an `actor.yml`. Its `groups` map each name to what the actors of that group run, and its `runtime` key sets the pool.
+
+| Group key | Sets |
+|---|---|
+| `run`, `code`, `eval` | What the group runs, a script or a project folder by path, a body inline, or with `eval: true` each message it receives. A group takes one of the three |
+| `replicas` | How many actors run the group, 1 unless it is an eval group, which runs 4 |
+| `seed` | The messages that start the group's actors |
+| `retry` | How many times a message that crashes an actor runs again on another before it is dropped |
+| `limits` | `memory` in MiB, `ops` and `preempt` for each run, and `timeout` for an eval run, 1 to 300 seconds with 10 by default |
+| `out` | Where the group prints, `stdout`, `null` or `file://<path>` |
+
+| Key under `runtime` | Sets |
+|---|---|
+| `max_actors` | The most actors the pool holds at once |
+| `schedulers` | `auto` for one thread per core, or a count of threads |
+| `listen` | The address that turns the pool into a live server, which takes a message for a group at `POST /pub/<group>` |
+| `control` | The loopback address of the server's HTTP control endpoint |
+| `durable` | The log the server keeps across restarts, `actor.wal` beside `actor.yml` unless set |
+
+An eval group runs untrusted code. Each message is a program of its own, either a source or a bundle, and each runs in a fresh session with no `send`. A live server takes one at `POST /eval/<group>` and answers with what it printed or the error it ended with. A source holds no grant. A bundle holds what its own `interpreter.json` grants, within what the pool's `interpreter.json` grants the `eval` holder. An eval group runs only on a `.wasm` runtime.
+
 ## A CLI of your own
 
 `interpreter::cli` is a kit, public behind the `cli-*` features of the crate. A `Kit` takes a runtime and the commands you wire, each behind a feature. The `interpreter` binary is `Kit::per_project`, the kit that runs whatever runtime a project names, and a runtime of yours gets a CLI of its own with `Kit::new`. With no arguments this one prints its help.
 
 ```rust standalone_crate
-use interpreter::cli::cmd::{run, test};
-use interpreter::cli::{Kit, Runtime};
+use interpreter::cli::cmd::{Run, Test};
+use interpreter::cli::{Engine, Kit};
 
-// the native runtime meters its memory through this allocator
+// lox runs linked into this binary and meters its memory through this allocator
 interpreter::allocator!();
 
 fn main() {
-    Kit::new("calc", "0.1.0", Runtime::native(&interpreter_lox::RUNTIME))
+    Kit::new("calc", "0.1.0", Engine::native(&interpreter_lox::RUNTIME))
         .title("A CLI for calc programs")
-        .command(run::Run)
-        .command(test::Test)
+        .command(Run)
+        .command(Test)
         .main()
 }
 ```
 
-`Runtime::native` links the runtime into the binary. `Runtime::wasm(bytes, &DESCRIPTOR)` loads its `.wasm` instead, which also lets the binary load plugins. `.module(...)` serves a host module such as `interpreter::cli::net::Net`, and `.field(interpreter::cli::perms::FIELD)` with `.access(Arc::new(interpreter::cli::perms::Perms))` holds each package to its grants. This one needs `interpreter = { version = "1", features = ["cli-run", "cli-test"] }`.
+`Engine::native` links the runtime into the binary itself, with no `.wasm` and no library to load. `Engine::wasm(bytes, RUNTIME.descriptor())` loads its `.wasm` instead, which also lets the binary load plugins. The descriptor comes from the runtime, which fills in its extension and its error classes. `Kit::engine` gives back the engine a kit runs.
+
+`.module(...)` serves a host module such as `interpreter::cli::host::Net` or `interpreter::cli::host::Files`. `.access(Arc::new(interpreter::cli::Perms))` holds each package to its grants and declares the `permissions` field it reads, so a composition wires no field for it. `.fields(interpreter::cli::MANIFEST_FIELDS)` checks the manifest fields of [a package](#packages-by-url), and `.field(interpreter::cli::DOCS_FIELD)` adds `docs`. A field declared twice keeps one entry under its name.
+
+A host module of your own implements `interpreter::cli::host::HostModule`. It gets the grants of its caller as an opaque `Held`, which it reads with `reach`, `need` and `scopes`, and it fails a call with a `Fault` built by `Fault::invalid`, `Fault::denied`, `Fault::failed` or `Fault::runtime`. `interpreter::cli::host::is_plain_path` tells a path that stays under its folder.
+
+This one takes the engine and Lox from git, as [Lox](./01-overview.mdx#lox) shows, and a runtime of yours needs `interpreter = { version = "1", features = ["cli-run", "cli-test"] }`.
 
 | Feature | Command or part |
 |---|---|
 | `cli` | Every part below, the set the `interpreter` binary wires |
 | `cli-kit` | The `Kit` alone with no command |
-| `cli-run`, `cli-test`, `cli-build`, `cli-init`, `cli-serve`, `cli-actors`, `cli-uninstall` | The command of that name |
-| `cli-actors-server` | The live server an actor pool becomes |
+| `cli-run`, `cli-test`, `cli-build`, `cli-init`, `cli-serve`, `cli-uninstall` | The command of that name |
+| `cli-actors` | `actor`, with the live server an actor pool becomes |
 | `cli-packages` | `add`, `remove` and `lock` |
 | `cli-net`, `cli-files` | The host modules for requests and sockets, and for local files |
 | `cli-perms` | Grants |
 | `cli-docs` | The pages a package ships, held to the docs convention |
 | `cli-web` | `--web` runs on headless Chrome |
 | `cli-wasm` | Runtimes and plugins as `.wasm` |
-| `cli-native` | Runtimes as native libraries |
-| `cli-coverage` | The lines each native run executed |
+| `cli-library` | Runtimes as native libraries a child process loads |
+
+A build with `coverage` beside any `cli-*` feature writes the lines each native run executed to the file `INTERPRETER_COVERAGE` names.

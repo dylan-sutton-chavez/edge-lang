@@ -5,8 +5,8 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Lox from Crafting Interpreters as a runtime on interpreter, the one interpreter.wasm and the CLI are built from, held to the book's test suite."
-# an example of the repo that interpreter.wasm the CLI and the bench build on
+description = "Lox from Crafting Interpreters as a runtime on interpreter, the one interpreter.wasm is built from and the CLI tests run on, held to the book's test suite."
+# an example of the repo that interpreter.wasm and the tests of the CLI and the bench build on
 publish = false
 
 [lib]
@@ -22,10 +22,14 @@ required-features = ["std"]
 default = ["std"]
 std = ["interpreter/std"]
 # builds interpreter.wasm with the engine's exports over these natives and the grant logic
-web = ["interpreter/runtime", "interpreter/perms"]
+web = ["interpreter/exports"]
 # two natives that panic and abort which the crash tests of a native runtime call
 crash = ["std"]
 
 [dependencies]
 # the engine and the kernels its few natives past the book come from
 interpreter = { path = "../..", default-features = false, features = ["io", "seq"] }
+
+# the span test reads the opcodes a recorded build emits which only the internals build names
+[dev-dependencies]
+interpreter = { path = "../..", default-features = false, features = ["io", "seq", "unstable-internals"] }

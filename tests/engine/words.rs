@@ -1,4 +1,4 @@
-use interpreter::lexer::{index, operators, Blocks, Comments, Continuation, Ends, Escapes, Interp, Keywords, Literal, Mode, Numbers, Quote, Shapes, Spelling, Strings, Suffix, Syntax, TokenType, Unicode, Unknown, Zeros, BYTES, FORMAT, RAW};
+use interpreter::lexer::{Blocks, BYTES, Comments, Continuation, Conversion, Ends, Escapes, FORMAT, Interp, Keywords, Literal, Numbers, Quote, RAW, Spelling, Strings, Suffix, Syntax, TokenType, Unicode, Unknown, Zeros, index, operators};
 use interpreter::lexer::TokenType as T;
 
 const RESERVED: &[(&str, TokenType)] = &[
@@ -29,62 +29,47 @@ static OPERATORS: [[TokenType; 4]; 128] = operators(SYMBOLS);
 static KEYWORDS: Keywords = index(RESERVED);
 
 // the tests' words table where `then` or `do` opens a block and `end` closes it
-pub const WORDS: Syntax = Syntax {
-    name: "words",
-    extension: "words",
-    words: RESERVED,
-    symbols: SYMBOLS,
-    operators: &OPERATORS,
-    keywords: &KEYWORDS,
-    precedence: LADDER,
-    chained: true,
-    blocks: Blocks::Words { implicit: true },
-    ends: Ends::Either,
-    comments: Comments { line: &["--"], block: Some(("/*", "*/")), nested: true },
-    strings: Strings {
-        quotes: &[Quote { byte: b'"', multiline: true, triple: false }, Quote { byte: b'\'', multiline: true, triple: false }],
-        prefixes: &[("r", RAW), ("b", BYTES), ("br", BYTES | RAW)],
-        any_case: false,
-        hashes: true,
-        adjacent: true,
-        newlines: true,
-        escapes: Escapes {
-            simple: &[(b'n', '\n'), (b't', '\t'), (b'r', '\r'), (b'0', '\0'), (b'\\', '\\'), (b'\'', '\''), (b'"', '"')],
-            hex: true,
-            unicode: Unicode::Braced,
-            octal: false,
-            line_join: false,
-            unknown: Unknown::Refuse,
-            refused: &[],
-        },
-    },
-    interp: Some(Interp {
-        name: "template",
-        quotes: b"\"",
-        open: "#{",
-        close: b'}',
-        literal: Literal::Backslash,
-        short: None,
-        spec: Some(b':'),
-        convert: Some((b'!', &[(b'r', Mode::Repr), (b's', Mode::Str), (b'a', Mode::Ascii)])),
-        echo: Some(b'='),
-    }),
-    numbers: Numbers {
-        radixes: &[(b'x', 16), (b'o', 8), (b'b', 2)],
-        separator: Some(b'_'),
-        zeros: Zeros::Allowed,
-        leading_dot: false,
-        trailing_dot: false,
-        exponent: true,
-        suffix: Suffix::Refused,
-    },
-    continuation: Continuation { join: None, operator: true },
-    shapes: Shapes::CORE,
-    soft: &[T::Type],
-    bom: true,
-};
+pub(crate) const WORDS: Syntax = Syntax::PLAIN
+    .name("words")
+    .extension("words")
+    .words(RESERVED)
+    .symbols(SYMBOLS)
+    .operators(&OPERATORS)
+    .keywords(&KEYWORDS)
+    .precedence(LADDER)
+    .chained(true)
+    .blocks(Blocks::Words { implicit: true })
+    .ends(Ends::Either)
+    .comments(Comments::PLAIN.line(&["--"]).block(Some(("/*", "*/"))).nested(true))
+    .strings(Strings::PLAIN
+        .quotes(&[Quote::PLAIN.multiline(true), Quote::PLAIN.byte(b'\'').multiline(true)])
+        .prefixes(&[("r", RAW), ("b", BYTES), ("br", BYTES | RAW)])
+        .hashes(true)
+        .adjacent(true)
+        .newlines(true)
+        .escapes(Escapes::PLAIN
+            .simple(&[(b'n', '\n'), (b't', '\t'), (b'r', '\r'), (b'0', '\0'), (b'\\', '\\'), (b'\'', '\''), (b'"', '"')])
+            .hex(true)
+            .unicode(Unicode::Braced)
+            .unknown(Unknown::Refuse)))
+    .interp(Some(Interp::PLAIN
+        .name("template")
+        .quotes(b"\"")
+        .open("#{")
+        .literal(Literal::Backslash)
+        .spec(Some(b':'))
+        .convert(Some((b'!', &[(b'r', Conversion::Repr), (b's', Conversion::Str), (b'a', Conversion::Ascii)])))
+        .echo(Some(b'='))))
+    .numbers(Numbers::PLAIN
+        .radixes(&[(b'x', 16), (b'o', 8), (b'b', 2)])
+        .separator(Some(b'_'))
+        .exponent(true)
+        .suffix(Suffix::Refused))
+    .continuation(Continuation::PLAIN.operator(true))
+    .soft(&[T::Type])
+    .bom(true);
 
-pub struct Words;
+pub(crate) struct Words;
 
 impl Spelling for Words {
     const SYNTAX: Syntax = WORDS;
@@ -121,7 +106,7 @@ static BRACE_OPERATORS: [[TokenType; 4]; 128] = operators(BRACE_SYMBOLS);
 static BRACE_KEYWORDS: Keywords = index(BRACE_WORDS);
 
 // the binding powers of the fixed core where a zero left power marks a prefix operator
-pub const LADDER: &[(TokenType, u8, u8)] = &[
+pub(crate) const LADDER: &[(TokenType, u8, u8)] = &[
     (T::Or, 1, 2), (T::And, 3, 4), (T::Not, 0, 5),
     (T::EqualEqual, 7, 8), (T::NotEqual, 7, 8), (T::Less, 7, 8), (T::Greater, 7, 8), (T::LessEqual, 7, 8), (T::GreaterEqual, 7, 8),
     (T::In, 7, 8), (T::NotIn, 7, 8), (T::Is, 7, 8), (T::IsNot, 7, 8), (T::Not, 7, 8),
@@ -133,70 +118,56 @@ pub const LADDER: &[(TokenType, u8, u8)] = &[
 ];
 
 // quotes of one or three and prefixes read in either case
-pub const STRINGS: Strings = Strings {
-    quotes: &[Quote { byte: b'"', multiline: false, triple: true }, Quote { byte: b'\'', multiline: false, triple: true }],
-    prefixes: &[("f", FORMAT), ("r", RAW), ("u", 0), ("b", BYTES), ("fr", FORMAT | RAW), ("rf", FORMAT | RAW), ("br", BYTES | RAW), ("rb", BYTES | RAW)],
-    any_case: true,
-    hashes: false,
-    adjacent: true,
-    newlines: true,
-    escapes: Escapes {
-        simple: &[(b'n', '\n'), (b't', '\t'), (b'r', '\r'), (b'a', '\u{7}'), (b'b', '\u{8}'), (b'f', '\u{c}'), (b'v', '\u{b}'), (b'\\', '\\'), (b'\'', '\''), (b'"', '"')],
-        hex: true,
-        unicode: Unicode::Fixed,
-        octal: true,
-        line_join: true,
-        unknown: Unknown::Keep,
-        refused: &[(b'N', "named escapes are not supported, write the character or use \\u03b1")],
-    },
-};
+pub(crate) const STRINGS: Strings = Strings::PLAIN
+    .quotes(&[Quote::PLAIN.triple(true), Quote::PLAIN.byte(b'\'').triple(true)])
+    .prefixes(&[("f", FORMAT), ("r", RAW), ("u", 0), ("b", BYTES), ("fr", FORMAT | RAW), ("rf", FORMAT | RAW), ("br", BYTES | RAW), ("rb", BYTES | RAW)])
+    .any_case(true)
+    .adjacent(true)
+    .newlines(true)
+    .escapes(Escapes::PLAIN
+        .simple(&[(b'n', '\n'), (b't', '\t'), (b'r', '\r'), (b'a', '\u{7}'), (b'b', '\u{8}'), (b'f', '\u{c}'), (b'v', '\u{b}'), (b'\\', '\\'), (b'\'', '\''), (b'"', '"')])
+        .hex(true)
+        .unicode(Unicode::Fixed)
+        .octal(true)
+        .line_join(true)
+        .refused(&[(b'N', "named escapes are not supported, write the character or use \\u03b1")]));
 
-pub const NUMBERS: Numbers = Numbers {
-    radixes: &[(b'x', 16), (b'o', 8), (b'b', 2)],
-    separator: Some(b'_'),
-    zeros: Zeros::Refused,
-    leading_dot: true,
-    trailing_dot: true,
-    exponent: true,
-    suffix: Suffix::Refused,
-};
+pub(crate) const NUMBERS: Numbers = Numbers::PLAIN
+    .radixes(&[(b'x', 16), (b'o', 8), (b'b', 2)])
+    .separator(Some(b'_'))
+    .zeros(Zeros::Refused)
+    .leading_dot(true)
+    .trailing_dot(true)
+    .exponent(true)
+    .suffix(Suffix::Refused);
 
 // f-strings with their conversions and specs and `=` fields
-pub const INTERP: Interp = Interp {
-    name: "f-string",
-    quotes: &[],
-    open: "{",
-    close: b'}',
-    literal: Literal::Doubled,
-    short: None,
-    spec: Some(b':'),
-    convert: Some((b'!', &[(b'r', Mode::Repr), (b's', Mode::Str), (b'a', Mode::Ascii)])),
-    echo: Some(b'='),
-};
+pub(crate) const INTERP: Interp = Interp::PLAIN
+    .name("f-string")
+    .spec(Some(b':'))
+    .convert(Some((b'!', &[(b'r', Conversion::Repr), (b's', Conversion::Str), (b'a', Conversion::Ascii)])))
+    .echo(Some(b'='));
 
 // the kit's fixed core read in braces where the corpus once was written
-pub const BRACES: Syntax = Syntax {
-    name: "braces",
-    extension: "rig",
-    words: BRACE_WORDS,
-    symbols: BRACE_SYMBOLS,
-    operators: &BRACE_OPERATORS,
-    keywords: &BRACE_KEYWORDS,
-    precedence: LADDER,
-    chained: true,
-    blocks: Blocks::Braces,
-    ends: Ends::Either,
-    comments: Comments { line: &["//"], block: None, nested: false },
-    strings: STRINGS,
-    interp: Some(INTERP),
-    numbers: NUMBERS,
-    continuation: Continuation { join: Some(b'\\'), operator: false },
-    shapes: Shapes::CORE,
-    soft: &[T::Match, T::Case, T::Type, T::Fn],
-    bom: true,
-};
+pub(crate) const BRACES: Syntax = Syntax::PLAIN
+    .name("braces")
+    .extension("rig")
+    .words(BRACE_WORDS)
+    .symbols(BRACE_SYMBOLS)
+    .operators(&BRACE_OPERATORS)
+    .keywords(&BRACE_KEYWORDS)
+    .precedence(LADDER)
+    .chained(true)
+    .ends(Ends::Either)
+    .comments(Comments::PLAIN.line(&["//"]))
+    .strings(STRINGS)
+    .interp(Some(INTERP))
+    .numbers(NUMBERS)
+    .continuation(Continuation::PLAIN.join(Some(b'\\')))
+    .soft(&[T::Match, T::Case, T::Type, T::Fn])
+    .bom(true);
 
-pub struct Braces;
+pub(crate) struct Braces;
 
 impl Spelling for Braces {
     const SYNTAX: Syntax = BRACES;
@@ -216,20 +187,18 @@ const INDENT_WORDS: &[(&str, TokenType)] = &[
 static INDENT_KEYWORDS: Keywords = index(INDENT_WORDS);
 
 // the kit table where a header colon and indentation open each block
-pub const INDENT: Syntax = Syntax {
-    name: "indent",
-    extension: "py",
-    words: INDENT_WORDS,
-    symbols: SYMBOLS,
-    operators: &OPERATORS,
-    keywords: &INDENT_KEYWORDS,
-    blocks: Blocks::Indent,
-    comments: Comments { line: &["#"], block: None, nested: false },
-    soft: &[T::Match, T::Case, T::Type],
-    ..BRACES
-};
+pub(crate) const INDENT: Syntax = BRACES
+    .name("indent")
+    .extension("py")
+    .words(INDENT_WORDS)
+    .symbols(SYMBOLS)
+    .operators(&OPERATORS)
+    .keywords(&INDENT_KEYWORDS)
+    .blocks(Blocks::Indent)
+    .comments(Comments::PLAIN.line(&["#"]))
+    .soft(&[T::Match, T::Case, T::Type]);
 
-pub struct Indent;
+pub(crate) struct Indent;
 
 impl Spelling for Indent {
     const SYNTAX: Syntax = INDENT;
@@ -252,15 +221,13 @@ const LEGACY_SYMBOLS: &[(&str, TokenType)] = &[
 static LEGACY_OPERATORS: [[TokenType; 4]; 128] = operators(LEGACY_SYMBOLS);
 
 // the kit's fixed core read with indentation in the words rig once had
-pub const LEGACY: Syntax = Syntax {
-    name: "legacy",
-    symbols: LEGACY_SYMBOLS,
-    operators: &LEGACY_OPERATORS,
-    blocks: Blocks::Indent,
-    ..BRACES
-};
+pub(crate) const LEGACY: Syntax = BRACES
+    .name("legacy")
+    .symbols(LEGACY_SYMBOLS)
+    .operators(&LEGACY_OPERATORS)
+    .blocks(Blocks::Indent);
 
-pub struct Legacy;
+pub(crate) struct Legacy;
 
 impl Spelling for Legacy {
     const SYNTAX: Syntax = LEGACY;
@@ -268,4 +235,4 @@ impl Spelling for Legacy {
 }
 
 /* `src` compiled in the legacy fixture for engine parts rig no longer spells */
-pub fn legacy(src: &str) -> (interpreter::code::SSAChunk, Vec<interpreter::code::Diagnostic>) { interpreter::code::compile_as::<Legacy>(src) }
+pub(crate) fn legacy(src: &str) -> (interpreter::code::SSAChunk, Vec<interpreter::Diagnostic>) { interpreter::compile_as::<Legacy>(src) }

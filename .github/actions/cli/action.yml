@@ -1,5 +1,5 @@
 name: CLI
-description: The interpreter binary and interpreter::cli behind the cli features of the crate. lint is clippy and check, release builds and stages per target, test runs cargo test.
+description: "The interpreter binary and interpreter::cli behind the cli features of the crate, with lint as clippy and check, release as a build staged per target and test as cargo test."
 
 inputs:
   mode:
